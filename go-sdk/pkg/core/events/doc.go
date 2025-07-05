@@ -112,29 +112,122 @@
 //		AddDeltaOperation("replace", "/status", "active").
 //		Build()
 //
-// # Validation Levels
+// # Event Validation System
 //
-// The package supports different validation levels for flexibility:
+// The package provides a comprehensive validation system to ensure AG-UI protocol compliance:
 //
 //	import "context"
 //
-//	// Strict validation (default)
-//	validator := events.NewValidator(events.DefaultValidationConfig())
-//	err := validator.ValidateEvent(context.Background(), event)
+//	// Create a validator with default configuration (strict mode)
+//	validator := events.NewEventValidator(nil)
+//	
+//	// Validate a single event
+//	event := events.NewRunStartedEvent("thread-1", "run-1")
+//	result := validator.ValidateEvent(context.Background(), event)
+//	
+//	if result.HasErrors() {
+//		for _, err := range result.Errors {
+//			log.Printf("[%s] %s: %s", err.Severity, err.RuleID, err.Message)
+//			// Use err.Suggestions for remediation hints
+//		}
+//	}
 //
-//	// Permissive validation
-//	permissiveValidator := events.NewValidator(events.PermissiveValidationConfig())
-//	err = permissiveValidator.ValidateEvent(context.Background(), event)
+//	// Validate an event sequence
+//	sequence := []events.Event{
+//		events.NewRunStartedEvent("thread-1", "run-1"),
+//		events.NewTextMessageStartEvent("msg-1", events.WithRole("user")),
+//		events.NewTextMessageContentEvent("msg-1", "Hello"),
+//		events.NewTextMessageEndEvent("msg-1"),
+//		events.NewRunFinishedEvent("thread-1", "run-1"),
+//	}
+//	
+//	seqResult := validator.ValidateSequence(context.Background(), sequence)
+//	if !seqResult.IsValid {
+//		log.Printf("Sequence validation failed with %d errors", len(seqResult.Errors))
+//	}
 //
-//	// Custom validation with validators
+// # Validation Levels
+//
+// The package provides preset configurations for common use cases:
+//
+//	// Production - enforces all AG-UI protocol rules strictly
+//	prodValidator := events.NewEventValidator(events.ProductionValidationConfig())
+//	
+//	// Development - validates protocol but lenient with IDs/timestamps
+//	devValidator := events.NewEventValidator(events.DevelopmentValidationConfig())
+//	
+//	// Testing - allows out-of-order events for unit tests
+//	testValidator := events.NewEventValidator(events.TestingValidationConfig())
+//	
+//	// Permissive - minimal checks for prototyping
+//	permissiveValidator := events.NewEventValidator(events.PermissiveValidationConfig())
+//	
+//	// Custom validation configuration for specific needs
 //	config := &events.ValidationConfig{
-//		Level: events.ValidationCustom,
+//		Level: events.ValidationStrict,
+//		SkipTimestampValidation: true,  // Skip timestamp checks
+//		SkipSequenceValidation: false,  // Enforce sequence rules
+//		AllowEmptyIDs: false,           // Require all IDs
 //		CustomValidators: []events.CustomValidator{
-//			events.NewTimestampValidator(startTime, endTime),
-//			events.NewEventTypeValidator(events.EventTypeRunStarted, events.EventTypeRunFinished),
+//			myBusinessLogicValidator,
 //		},
 //	}
-//	customValidator := events.NewValidator(config)
+//	customValidator := events.NewEventValidator(config)
+//
+// # Validation Rules
+//
+// The validator enforces these AG-UI protocol rules:
+//
+// Run Lifecycle Rules:
+//   - RUN_STARTED must be the first event in any sequence
+//   - No events allowed after RUN_FINISHED except RUN_ERROR
+//   - Each run must have exactly one RUN_STARTED event
+//   - RUN_FINISHED or RUN_ERROR must conclude every run
+//
+// Message Rules:
+//   - TEXT_MESSAGE_START must precede TEXT_MESSAGE_CONTENT
+//   - TEXT_MESSAGE_CONTENT must be followed by TEXT_MESSAGE_END
+//   - Message IDs must be consistent across start/content/end events
+//
+// Tool Call Rules:
+//   - TOOL_CALL_START must precede TOOL_CALL_ARGS
+//   - TOOL_CALL_ARGS must be followed by TOOL_CALL_END
+//   - Tool call IDs must be consistent across start/args/end events
+//
+// # Custom Validation Rules
+//
+//	// Implement the ValidationRule interface for custom rules
+//	type MyCustomRule struct {
+//		events.BaseValidationRule
+//	}
+//	
+//	func (r *MyCustomRule) Validate(event events.Event, ctx *events.ValidationContext) *events.ValidationResult {
+//		result := &events.ValidationResult{IsValid: true}
+//		
+//		// Your validation logic here
+//		if event.Type() == events.EventTypeRunStarted {
+//			runEvent := event.(*events.RunStartedEvent)
+//			if !strings.HasPrefix(runEvent.RunID, "run-") {
+//				result.AddError(&events.ValidationError{
+//					RuleID:  r.ID(),
+//					Message: "Run ID must start with 'run-'",
+//					Suggestions: []string{"Use format: run-<uuid>"},
+//				})
+//			}
+//		}
+//		
+//		return result
+//	}
+//	
+//	// Add custom rule to validator
+//	validator.AddRule(&MyCustomRule{
+//		BaseValidationRule: events.BaseValidationRule{
+//			id: "CUSTOM_RUN_ID_FORMAT",
+//			description: "Validates run ID format",
+//			severity: events.ValidationSeverityError,
+//			enabled: true,
+//		},
+//	})
 //
 // # Serialization
 //
@@ -419,4 +512,26 @@
 //			events.NewToolCallEndEvent(toolCallID),
 //		}
 //	}
+//
+// # Memory Management
+//
+// For long-running applications, the validator provides automatic cleanup:
+//
+//	// Create validator with cleanup for production use
+//	validator := events.NewEventValidator(events.ProductionValidationConfig())
+//	
+//	// Start automatic cleanup routine
+//	ctx, cancel := context.WithCancel(context.Background())
+//	defer cancel()
+//	
+//	// Clean up items older than 24 hours every hour
+//	validator.StartCleanupRoutine(ctx, time.Hour, 24*time.Hour)
+//	
+//	// Monitor memory usage
+//	stats := validator.GetState().GetMemoryStats()
+//	log.Printf("Active runs: %d, Finished runs: %d", 
+//		stats["active_runs"], stats["finished_runs"])
+//	
+//	// Manual cleanup if needed
+//	validator.GetState().CleanupFinishedItems(time.Now().Add(-12*time.Hour))
 package events

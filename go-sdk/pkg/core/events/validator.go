@@ -342,7 +342,38 @@ type EventValidator struct {
 	mutex   sync.RWMutex
 }
 
-// NewEventValidator creates a new event validator
+// NewEventValidator creates a new event validator with the specified configuration.
+// If config is nil, DefaultValidationConfig() is used which applies strict validation.
+//
+// The validator is thread-safe and can be used concurrently. It validates events
+// according to AG-UI protocol requirements and provides detailed error reporting.
+//
+// Example - Basic Usage:
+//
+//	validator := NewEventValidator(nil) // Uses defaults
+//	result := validator.ValidateEvent(ctx, event)
+//	if result.HasErrors() {
+//	    for _, err := range result.Errors {
+//	        log.Printf("Validation error: %s", err.Message)
+//	    }
+//	}
+//
+// Example - Custom Configuration:
+//
+//	config := &ValidationConfig{
+//	    Level: ValidationPermissive,
+//	    SkipTimestampValidation: true,
+//	}
+//	validator := NewEventValidator(config)
+//
+// Example - Sequence Validation:
+//
+//	result := validator.ValidateSequence(ctx, []Event{
+//	    &RunStartedEvent{RunID: "run-1", ThreadID: "thread-1"},
+//	    &TextMessageStartEvent{MessageID: "msg-1"},
+//	    &TextMessageEndEvent{MessageID: "msg-1"},
+//	    &RunFinishedEvent{RunID: "run-1"},
+//	})
 func NewEventValidator(config *ValidationConfig) *EventValidator {
 	if config == nil {
 		config = DefaultValidationConfig()
@@ -361,7 +392,21 @@ func NewEventValidator(config *ValidationConfig) *EventValidator {
 	return validator
 }
 
-// AddRule adds a validation rule
+// AddRule adds a validation rule to the validator.
+// The rule will be executed for all subsequent validation operations.
+// Rules are executed in the order they were added.
+//
+// Example:
+//
+//	customRule := &MyCustomRule{
+//	    BaseValidationRule: BaseValidationRule{
+//	        id:          "CUSTOM_BUSINESS_LOGIC",
+//	        description: "Validates custom business requirements",
+//	        severity:    ValidationSeverityError,
+//	        enabled:     true,
+//	    },
+//	}
+//	validator.AddRule(customRule)
 func (v *EventValidator) AddRule(rule ValidationRule) {
 	v.mutex.Lock()
 	defer v.mutex.Unlock()
@@ -405,7 +450,38 @@ func (v *EventValidator) GetRules() []ValidationRule {
 	return rules
 }
 
-// ValidateEvent validates a single event
+// ValidateEvent validates a single event against all enabled validation rules.
+// It returns a ValidationResult containing any errors, warnings, or informational messages.
+//
+// The validator maintains internal state tracking for proper event sequence validation.
+// Events are only added to state if validation passes without errors.
+//
+// Context is used for cancellation support (future enhancement).
+//
+// Example:
+//
+//	event := &RunStartedEvent{
+//	    BaseEvent: &BaseEvent{
+//	        EventType: EventTypeRunStarted,
+//	        TimestampMs: timePtr(time.Now().UnixMilli()),
+//	    },
+//	    RunID:    "run-123",
+//	    ThreadID: "thread-456",
+//	}
+//	
+//	result := validator.ValidateEvent(ctx, event)
+//	if result.HasErrors() {
+//	    // Handle validation errors
+//	    for _, err := range result.Errors {
+//	        log.Printf("[%s] %s: %s", err.Severity, err.RuleID, err.Message)
+//	        // Use err.Suggestions for helpful remediation hints
+//	    }
+//	} else if result.HasWarnings() {
+//	    // Log warnings but continue processing
+//	    for _, warn := range result.Warnings {
+//	        log.Printf("Warning: %s", warn.Message)
+//	    }
+//	}
 func (v *EventValidator) ValidateEvent(ctx context.Context, event Event) *ValidationResult {
 	start := time.Now()
 	defer func() {
@@ -419,6 +495,21 @@ func (v *EventValidator) ValidateEvent(ctx context.Context, event Event) *Valida
 		Warnings:  make([]*ValidationError, 0),
 		EventCount: 1,
 		Timestamp: time.Now(),
+	}
+
+	// Check context before starting
+	select {
+	case <-ctx.Done():
+		result.IsValid = false
+		result.AddError(&ValidationError{
+			RuleID:    "CONTEXT_CANCELLED",
+			Message:   "Validation cancelled by context",
+			Severity:  ValidationSeverityError,
+			Timestamp: time.Now(),
+		})
+		result.Duration = time.Since(start)
+		return result
+	default:
 	}
 
 	if event == nil {
@@ -486,7 +577,39 @@ func (v *EventValidator) ValidateEvent(ctx context.Context, event Event) *Valida
 	return result
 }
 
-// ValidateSequence validates a sequence of events
+// ValidateSequence validates a sequence of events in order, ensuring they follow
+// AG-UI protocol requirements for event ordering and lifecycle management.
+//
+// The validator resets its internal state before validating the sequence to ensure
+// a clean validation context. Each event is validated in order, and validation stops
+// at the first error unless config allows continuation.
+//
+// Example - Complete Run Lifecycle:
+//
+//	events := []Event{
+//	    &RunStartedEvent{RunID: "run-1", ThreadID: "thread-1"},
+//	    &TextMessageStartEvent{MessageID: "msg-1", ParentMsgID: ""},
+//	    &TextMessageContentEvent{MessageID: "msg-1", Delta: "Hello"},
+//	    &TextMessageContentEvent{MessageID: "msg-1", Delta: " world!"},
+//	    &TextMessageEndEvent{MessageID: "msg-1"},
+//	    &RunFinishedEvent{RunID: "run-1"},
+//	}
+//	
+//	result := validator.ValidateSequence(ctx, events)
+//	if !result.IsValid {
+//	    log.Printf("Sequence validation failed with %d errors", len(result.Errors))
+//	}
+//
+// Example - Tool Call Sequence:
+//
+//	events := []Event{
+//	    &RunStartedEvent{RunID: "run-1", ThreadID: "thread-1"},
+//	    &ToolCallStartEvent{ToolCallID: "tool-1", ToolName: "search"},
+//	    &ToolCallArgsEvent{ToolCallID: "tool-1", ArgsChunk: `{"query":`},
+//	    &ToolCallArgsEvent{ToolCallID: "tool-1", ArgsChunk: `"weather"}`},
+//	    &ToolCallEndEvent{ToolCallID: "tool-1"},
+//	    &RunFinishedEvent{RunID: "run-1"},
+//	}
 func (v *EventValidator) ValidateSequence(ctx context.Context, events []Event) *ValidationResult {
 	start := time.Now()
 	
@@ -496,6 +619,21 @@ func (v *EventValidator) ValidateSequence(ctx context.Context, events []Event) *
 		Warnings:   make([]*ValidationError, 0),
 		EventCount: len(events),
 		Timestamp:  time.Now(),
+	}
+
+	// Check context before starting
+	select {
+	case <-ctx.Done():
+		result.IsValid = false
+		result.AddError(&ValidationError{
+			RuleID:    "CONTEXT_CANCELLED",
+			Message:   "Validation cancelled by context",
+			Severity:  ValidationSeverityError,
+			Timestamp: time.Now(),
+		})
+		result.Duration = time.Since(start)
+		return result
+	default:
 	}
 
 	if len(events) == 0 {
@@ -516,6 +654,23 @@ func (v *EventValidator) ValidateSequence(ctx context.Context, events []Event) *
 
 	// Validate each event in sequence
 	for i, event := range events {
+		// Check context periodically during long sequences
+		if i > 0 && i%DefaultBatchCheckInterval == 0 {
+			select {
+			case <-ctx.Done():
+				result.IsValid = false
+				result.AddError(&ValidationError{
+					RuleID:    "CONTEXT_CANCELLED",
+					Message:   fmt.Sprintf("Validation cancelled after %d events", i),
+					Severity:  ValidationSeverityError,
+					Timestamp: time.Now(),
+				})
+				result.Duration = time.Since(start)
+				return result
+			default:
+			}
+		}
+
 		validationContext.CurrentEvent = event
 		validationContext.EventIndex = i
 		

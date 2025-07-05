@@ -102,13 +102,13 @@ func (r *RunLifecycleRule) validateRunStarted(event Event, context *ValidationCo
 	
 	// Validate required fields
 	if runEvent.RunID == "" {
-		result.AddError(r.CreateError(event, "Run ID is required", nil, 
-			[]string{"Provide a unique run ID"}))
+		result.AddError(r.CreateError(event, ErrMsgRunIDRequired, nil, 
+			[]string{SuggestProvideRunID}))
 	}
 	
 	if runEvent.ThreadID == "" {
-		result.AddError(r.CreateError(event, "Thread ID is required", nil, 
-			[]string{"Provide a thread ID for the run"}))
+		result.AddError(r.CreateError(event, ErrMsgThreadIDRequired, nil, 
+			[]string{SuggestProvideThreadID}))
 	}
 }
 
@@ -422,11 +422,11 @@ func (r *MessageContentRule) Validate(event Event, context *ValidationContext) *
 		}
 		
 		// Check for extremely long content
-		if len(msgEvent.Delta) > 10000 {
+		if len(msgEvent.Delta) > MaxContentLength {
 			result.AddWarning(r.CreateError(event, 
 				fmt.Sprintf("Message content delta is very long (%d characters)", len(msgEvent.Delta)),
 				map[string]interface{}{"delta_length": len(msgEvent.Delta)},
-				[]string{"Consider breaking long content into smaller chunks"}))
+				[]string{SuggestChunkLongContent}))
 		}
 		
 		// Check for potential control characters

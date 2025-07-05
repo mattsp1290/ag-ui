@@ -29,7 +29,7 @@ type SequenceTrackerConfig struct {
 // DefaultSequenceTrackerConfig returns default configuration
 func DefaultSequenceTrackerConfig() *SequenceTrackerConfig {
 	return &SequenceTrackerConfig{
-		MaxHistorySize:       10000,
+		MaxHistorySize:       DefaultMaxHistorySize,
 		EnableStateSnapshots: true,
 		SnapshotInterval:     time.Minute,
 		TrackMetrics:         true,

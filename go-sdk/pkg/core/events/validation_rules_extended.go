@@ -423,28 +423,28 @@ func (r *ContentValidationRule) validateTextContent(content string, event Event,
 	// Check for null bytes
 	if strings.Contains(content, "\x00") {
 		result.AddWarning(r.CreateError(event, 
-			"Content contains null bytes",
+			ErrMsgNullBytesDetected,
 			map[string]interface{}{"content_length": len(content)},
-			[]string{"Remove null bytes from content"}))
+			[]string{SuggestRemoveNullBytes}))
 	}
 	
 	// Check for extremely long single lines
 	lines := strings.Split(content, "\n")
 	for i, line := range lines {
-		if len(line) > 1000 {
+		if len(line) > MaxLineLength {
 			result.AddWarning(r.CreateError(event, 
-				fmt.Sprintf("Line %d is extremely long (%d characters)", i+1, len(line)),
+				fmt.Sprintf(ErrMsgLineTooLong, i+1, len(line), MaxLineLength),
 				map[string]interface{}{"line_number": i + 1, "line_length": len(line)},
-				[]string{"Consider breaking long lines for better readability"}))
+				[]string{SuggestBreakLongLines}))
 		}
 	}
 	
 	// Check for potential security issues
 	if strings.Contains(strings.ToLower(content), "javascript:") {
 		result.AddWarning(r.CreateError(event, 
-			"Content contains potential JavaScript URI",
+			ErrMsgJavaScriptURIDetected,
 			nil,
-			[]string{"Be cautious with JavaScript URIs in content"}))
+			[]string{SuggestCautionJavaScriptURI}))
 	}
 }
 

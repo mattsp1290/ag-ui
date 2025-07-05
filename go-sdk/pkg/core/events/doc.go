@@ -112,29 +112,116 @@
 //		AddDeltaOperation("replace", "/status", "active").
 //		Build()
 //
+// # Event Validation System
+//
+// The package provides a comprehensive validation system to ensure AG-UI protocol compliance:
+//
+//	import "context"
+//
+//	// Create a validator with default configuration (strict mode)
+//	validator := events.NewEventValidator(nil)
+//	
+//	// Validate a single event
+//	event := events.NewRunStartedEvent("thread-1", "run-1")
+//	result := validator.ValidateEvent(context.Background(), event)
+//	
+//	if result.HasErrors() {
+//		for _, err := range result.Errors {
+//			log.Printf("[%s] %s: %s", err.Severity, err.RuleID, err.Message)
+//			// Use err.Suggestions for remediation hints
+//		}
+//	}
+//
+//	// Validate an event sequence
+//	sequence := []events.Event{
+//		events.NewRunStartedEvent("thread-1", "run-1"),
+//		events.NewTextMessageStartEvent("msg-1", events.WithRole("user")),
+//		events.NewTextMessageContentEvent("msg-1", "Hello"),
+//		events.NewTextMessageEndEvent("msg-1"),
+//		events.NewRunFinishedEvent("thread-1", "run-1"),
+//	}
+//	
+//	seqResult := validator.ValidateSequence(context.Background(), sequence)
+//	if !seqResult.IsValid {
+//		log.Printf("Sequence validation failed with %d errors", len(seqResult.Errors))
+//	}
+//
 // # Validation Levels
 //
 // The package supports different validation levels for flexibility:
 //
-//	import "context"
-//
-//	// Strict validation (default)
-//	validator := events.NewValidator(events.DefaultValidationConfig())
-//	err := validator.ValidateEvent(context.Background(), event)
-//
-//	// Permissive validation
-//	permissiveValidator := events.NewValidator(events.PermissiveValidationConfig())
-//	err = permissiveValidator.ValidateEvent(context.Background(), event)
-//
-//	// Custom validation with validators
+//	// Strict validation (default) - enforces all AG-UI protocol rules
+//	strictValidator := events.NewEventValidator(events.DefaultValidationConfig())
+//	
+//	// Permissive validation - minimal checks for development
+//	permissiveValidator := events.NewEventValidator(events.PermissiveValidationConfig())
+//	
+//	// Custom validation configuration
 //	config := &events.ValidationConfig{
-//		Level: events.ValidationCustom,
+//		Level: events.ValidationStrict,
+//		SkipTimestampValidation: true,  // Skip timestamp checks
+//		SkipSequenceValidation: false,  // Enforce sequence rules
+//		AllowEmptyIDs: false,           // Require all IDs
 //		CustomValidators: []events.CustomValidator{
-//			events.NewTimestampValidator(startTime, endTime),
-//			events.NewEventTypeValidator(events.EventTypeRunStarted, events.EventTypeRunFinished),
+//			myBusinessLogicValidator,
 //		},
 //	}
-//	customValidator := events.NewValidator(config)
+//	customValidator := events.NewEventValidator(config)
+//
+// # Validation Rules
+//
+// The validator enforces these AG-UI protocol rules:
+//
+// Run Lifecycle Rules:
+//   - RUN_STARTED must be the first event in any sequence
+//   - No events allowed after RUN_FINISHED except RUN_ERROR
+//   - Each run must have exactly one RUN_STARTED event
+//   - RUN_FINISHED or RUN_ERROR must conclude every run
+//
+// Message Rules:
+//   - TEXT_MESSAGE_START must precede TEXT_MESSAGE_CONTENT
+//   - TEXT_MESSAGE_CONTENT must be followed by TEXT_MESSAGE_END
+//   - Message IDs must be consistent across start/content/end events
+//
+// Tool Call Rules:
+//   - TOOL_CALL_START must precede TOOL_CALL_ARGS
+//   - TOOL_CALL_ARGS must be followed by TOOL_CALL_END
+//   - Tool call IDs must be consistent across start/args/end events
+//
+// # Custom Validation Rules
+//
+//	// Implement the ValidationRule interface for custom rules
+//	type MyCustomRule struct {
+//		events.BaseValidationRule
+//	}
+//	
+//	func (r *MyCustomRule) Validate(event events.Event, ctx *events.ValidationContext) *events.ValidationResult {
+//		result := &events.ValidationResult{IsValid: true}
+//		
+//		// Your validation logic here
+//		if event.Type() == events.EventTypeRunStarted {
+//			runEvent := event.(*events.RunStartedEvent)
+//			if !strings.HasPrefix(runEvent.RunID, "run-") {
+//				result.AddError(&events.ValidationError{
+//					RuleID:  r.ID(),
+//					Message: "Run ID must start with 'run-'",
+//					Suggestions: []string{"Use format: run-<uuid>"},
+//				})
+//			}
+//		}
+//		
+//		return result
+//	}
+//	
+//	// Add custom rule to validator
+//	validator.AddRule(&MyCustomRule{
+//		BaseValidationRule: events.BaseValidationRule{
+//			id: "CUSTOM_RUN_ID_FORMAT",
+//			description: "Validates run ID format",
+//			severity: events.ValidationSeverityError,
+//			enabled: true,
+//		},
+//	})
 //
 // # Serialization
 //

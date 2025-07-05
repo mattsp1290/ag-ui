@@ -55,6 +55,42 @@ func PermissiveValidationConfig() *ValidationConfig {
 	}
 }
 
+// DevelopmentValidationConfig returns a configuration suitable for development environments.
+// It validates protocol compliance but is more lenient with IDs and timestamps.
+func DevelopmentValidationConfig() *ValidationConfig {
+	return &ValidationConfig{
+		Level:                   ValidationStrict,
+		SkipTimestampValidation: true,
+		AllowEmptyIDs:           true,
+		AllowUnknownEventTypes:  false,
+	}
+}
+
+// ProductionValidationConfig returns a configuration suitable for production environments.
+// It enforces all validation rules strictly.
+func ProductionValidationConfig() *ValidationConfig {
+	return &ValidationConfig{
+		Level:                   ValidationStrict,
+		SkipTimestampValidation: false,
+		SkipSequenceValidation:  false,
+		SkipFieldValidation:     false,
+		AllowEmptyIDs:           false,
+		AllowUnknownEventTypes:  false,
+	}
+}
+
+// TestingValidationConfig returns a configuration suitable for testing.
+// It skips sequence validation to allow testing individual events out of order.
+func TestingValidationConfig() *ValidationConfig {
+	return &ValidationConfig{
+		Level:                   ValidationStrict,
+		SkipTimestampValidation: true,
+		SkipSequenceValidation:  true,
+		AllowEmptyIDs:           true,
+		AllowUnknownEventTypes:  false,
+	}
+}
+
 // Validator provides configurable event validation
 type Validator struct {
 	config *ValidationConfig

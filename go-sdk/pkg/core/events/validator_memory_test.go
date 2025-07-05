@@ -392,3 +392,131 @@ func TestConcurrentMemoryPressure(t *testing.T) {
 	runtime.ReadMemStats(&m)
 	t.Logf("Final memory state: HeapAlloc=%d MB, NumGC=%d", m.HeapAlloc/1024/1024, m.NumGC)
 }
+
+// TestValidationState_CleanupFinishedItems tests the memory cleanup functionality
+func TestValidationState_CleanupFinishedItems(t *testing.T) {
+	state := NewValidationState()
+	
+	// Add finished items with different timestamps
+	now := time.Now()
+	
+	// Add old finished runs (should be cleaned up)
+	for i := 0; i < 50; i++ {
+		runID := fmt.Sprintf("old-run-%d", i)
+		state.FinishedRuns[runID] = &RunState{
+			RunID:     runID,
+			ThreadID:  fmt.Sprintf("thread-%d", i),
+			StartTime: now.Add(-48 * time.Hour), // 48 hours old
+			Phase:     PhaseFinished,
+		}
+	}
+	
+	// Add recent finished runs (should be kept)
+	for i := 0; i < 30; i++ {
+		runID := fmt.Sprintf("recent-run-%d", i)
+		state.FinishedRuns[runID] = &RunState{
+			RunID:     runID,
+			ThreadID:  fmt.Sprintf("thread-%d", i),
+			StartTime: now.Add(-1 * time.Hour), // 1 hour old
+			Phase:     PhaseFinished,
+		}
+	}
+	
+	// Add old finished messages
+	for i := 0; i < 100; i++ {
+		msgID := fmt.Sprintf("old-msg-%d", i)
+		state.FinishedMessages[msgID] = &MessageState{
+			MessageID:    msgID,
+			StartTime:    now.Add(-48 * time.Hour),
+			ContentCount: 5,
+			IsActive:     false,
+		}
+	}
+	
+	// Add recent finished messages
+	for i := 0; i < 50; i++ {
+		msgID := fmt.Sprintf("recent-msg-%d", i)
+		state.FinishedMessages[msgID] = &MessageState{
+			MessageID:    msgID,
+			StartTime:    now.Add(-1 * time.Hour),
+			ContentCount: 3,
+			IsActive:     false,
+		}
+	}
+	
+	// Get stats before cleanup
+	statsBefore := state.GetMemoryStats()
+	t.Logf("Before cleanup: %+v", statsBefore)
+	
+	// Clean up items older than 24 hours
+	cutoff := now.Add(-24 * time.Hour)
+	state.CleanupFinishedItems(cutoff)
+	
+	// Get stats after cleanup
+	statsAfter := state.GetMemoryStats()
+	t.Logf("After cleanup: %+v", statsAfter)
+	
+	// Verify old items were removed
+	if statsAfter["finished_runs"] != 30 {
+		t.Errorf("Expected 30 recent runs, got %d", statsAfter["finished_runs"])
+	}
+	if statsAfter["finished_messages"] != 50 {
+		t.Errorf("Expected 50 recent messages, got %d", statsAfter["finished_messages"])
+	}
+	
+	// Verify specific items
+	if _, exists := state.FinishedRuns["old-run-0"]; exists {
+		t.Error("Old run should have been cleaned up")
+	}
+	if _, exists := state.FinishedRuns["recent-run-0"]; !exists {
+		t.Error("Recent run should have been kept")
+	}
+}
+
+// TestEventValidator_StartCleanupRoutine tests the automatic cleanup routine
+func TestEventValidator_StartCleanupRoutine(t *testing.T) {
+	// Use a permissive config that won't fail validation
+	config := &ValidationConfig{
+		Level: ValidationPermissive,
+		SkipSequenceValidation: true,
+	}
+	validator := NewEventValidator(config)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	
+	// Start cleanup routine with short intervals for testing
+	validator.StartCleanupRoutine(ctx, 100*time.Millisecond, 200*time.Millisecond)
+	
+	// Manually add items to finished state (bypass validation to ensure they're there)
+	validator.state.mutex.Lock()
+	for i := 0; i < 10; i++ {
+		runID := fmt.Sprintf("run-%d", i)
+		validator.state.FinishedRuns[runID] = &RunState{
+			RunID:     runID,
+			ThreadID:  fmt.Sprintf("thread-%d", i),
+			StartTime: time.Now().Add(-1 * time.Second), // Make them 1 second old
+			Phase:     PhaseFinished,
+		}
+	}
+	validator.state.mutex.Unlock()
+	
+	// Check initial state
+	statsBefore := validator.state.GetMemoryStats()
+	t.Logf("Initial state: %+v", statsBefore)
+	
+	if statsBefore["finished_runs"] != 10 {
+		t.Fatalf("Expected 10 finished runs, got %d", statsBefore["finished_runs"])
+	}
+	
+	// Wait for items to become old enough (200ms) and cleanup to run
+	time.Sleep(300 * time.Millisecond)
+	
+	// Check state after cleanup
+	statsAfter := validator.state.GetMemoryStats()
+	t.Logf("After cleanup: %+v", statsAfter)
+	
+	// Verify cleanup happened
+	if statsAfter["finished_runs"] != 0 {
+		t.Errorf("Expected 0 finished runs after cleanup, got %d", statsAfter["finished_runs"])
+	}
+}

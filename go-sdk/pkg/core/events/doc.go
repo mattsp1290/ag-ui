@@ -148,15 +148,21 @@
 //
 // # Validation Levels
 //
-// The package supports different validation levels for flexibility:
+// The package provides preset configurations for common use cases:
 //
-//	// Strict validation (default) - enforces all AG-UI protocol rules
-//	strictValidator := events.NewEventValidator(events.DefaultValidationConfig())
+//	// Production - enforces all AG-UI protocol rules strictly
+//	prodValidator := events.NewEventValidator(events.ProductionValidationConfig())
 //	
-//	// Permissive validation - minimal checks for development
+//	// Development - validates protocol but lenient with IDs/timestamps
+//	devValidator := events.NewEventValidator(events.DevelopmentValidationConfig())
+//	
+//	// Testing - allows out-of-order events for unit tests
+//	testValidator := events.NewEventValidator(events.TestingValidationConfig())
+//	
+//	// Permissive - minimal checks for prototyping
 //	permissiveValidator := events.NewEventValidator(events.PermissiveValidationConfig())
 //	
-//	// Custom validation configuration
+//	// Custom validation configuration for specific needs
 //	config := &events.ValidationConfig{
 //		Level: events.ValidationStrict,
 //		SkipTimestampValidation: true,  // Skip timestamp checks
@@ -506,4 +512,26 @@
 //			events.NewToolCallEndEvent(toolCallID),
 //		}
 //	}
+//
+// # Memory Management
+//
+// For long-running applications, the validator provides automatic cleanup:
+//
+//	// Create validator with cleanup for production use
+//	validator := events.NewEventValidator(events.ProductionValidationConfig())
+//	
+//	// Start automatic cleanup routine
+//	ctx, cancel := context.WithCancel(context.Background())
+//	defer cancel()
+//	
+//	// Clean up items older than 24 hours every hour
+//	validator.StartCleanupRoutine(ctx, time.Hour, 24*time.Hour)
+//	
+//	// Monitor memory usage
+//	stats := validator.GetState().GetMemoryStats()
+//	log.Printf("Active runs: %d, Finished runs: %d", 
+//		stats["active_runs"], stats["finished_runs"])
+//	
+//	// Manual cleanup if needed
+//	validator.GetState().CleanupFinishedItems(time.Now().Add(-12*time.Hour))
 package events

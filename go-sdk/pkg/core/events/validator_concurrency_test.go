@@ -142,9 +142,7 @@ func TestEventValidator_ConcurrentAccess(t *testing.T) {
 
 // TestEventValidator_ConcurrentSequenceValidation tests concurrent sequence validation
 func TestEventValidator_ConcurrentSequenceValidation(t *testing.T) {
-	// Skip this test as ValidateSequence modifies shared state
-	// TODO: Fix ValidateSequence to not modify shared validator state
-	t.Skip("ValidateSequence is not thread-safe due to state reset")
+	// Fixed: ValidateSequence now uses isolated validator instances for thread safety
 	
 	validator := NewEventValidator(DefaultValidationConfig())
 	

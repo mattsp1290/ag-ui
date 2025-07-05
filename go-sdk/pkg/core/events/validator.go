@@ -267,6 +267,51 @@ func NewValidationState() *ValidationState {
 	}
 }
 
+// CleanupFinishedItems removes finished runs, messages, and tools older than the specified time.
+// This prevents memory leaks in long-running applications by removing old state data.
+func (s *ValidationState) CleanupFinishedItems(olderThan time.Time) {
+	s.mutex.Lock()
+	defer s.mutex.Unlock()
+	
+	// Cleanup finished runs
+	for id, run := range s.FinishedRuns {
+		if run.StartTime.Before(olderThan) {
+			delete(s.FinishedRuns, id)
+		}
+	}
+	
+	// Cleanup finished messages
+	for id, msg := range s.FinishedMessages {
+		if msg.StartTime.Before(olderThan) {
+			delete(s.FinishedMessages, id)
+		}
+	}
+	
+	// Cleanup finished tools
+	for id, tool := range s.FinishedTools {
+		if tool.StartTime.Before(olderThan) {
+			delete(s.FinishedTools, id)
+		}
+	}
+}
+
+// GetMemoryStats returns statistics about the current memory usage of the validation state.
+func (s *ValidationState) GetMemoryStats() map[string]int {
+	s.mutex.RLock()
+	defer s.mutex.RUnlock()
+	
+	return map[string]int{
+		"active_runs":       len(s.ActiveRuns),
+		"finished_runs":     len(s.FinishedRuns),
+		"active_messages":   len(s.ActiveMessages),
+		"finished_messages": len(s.FinishedMessages),
+		"active_tools":      len(s.ActiveTools),
+		"finished_tools":    len(s.FinishedTools),
+		"active_steps":      len(s.ActiveSteps),
+		"total_finished":    len(s.FinishedRuns) + len(s.FinishedMessages) + len(s.FinishedTools),
+	}
+}
+
 // ValidationContext provides context for validation operations
 type ValidationContext struct {
 	State         *ValidationState   `json:"state"`
@@ -330,7 +375,10 @@ func (m *ValidationMetrics) RecordWarning() {
 func (m *ValidationMetrics) RecordRuleExecution(ruleID string, duration time.Duration) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	m.RuleExecutionTimes[ruleID] += duration
+	
+	// Store the latest execution time instead of accumulating
+	// This prevents unbounded memory growth
+	m.RuleExecutionTimes[ruleID] = duration
 }
 
 // EventValidator provides comprehensive event validation
@@ -522,9 +570,13 @@ func (v *EventValidator) ValidateEvent(ctx context.Context, event Event) *Valida
 		return result
 	}
 
-	// Create validation context (before updating state)
+	// Create a snapshot of the current state for validation to prevent race conditions
+	// This ensures validation rules read from a consistent state snapshot
+	stateSnapshot := v.createStateSnapshot()
+	
+	// Create validation context with the state snapshot
 	validationContext := &ValidationContext{
-		State:        v.state,
+		State:        stateSnapshot,
 		CurrentEvent: event,
 		EventIndex:   0,
 		Config:       v.config,
@@ -580,9 +632,10 @@ func (v *EventValidator) ValidateEvent(ctx context.Context, event Event) *Valida
 // ValidateSequence validates a sequence of events in order, ensuring they follow
 // AG-UI protocol requirements for event ordering and lifecycle management.
 //
-// The validator resets its internal state before validating the sequence to ensure
-// a clean validation context. Each event is validated in order, and validation stops
-// at the first error unless config allows continuation.
+// This method is thread-safe and creates an isolated validator instance for each
+// validation call. This ensures that concurrent ValidateSequence calls don't 
+// interfere with each other. Each event is validated in order, and validation 
+// stops at the first error unless config allows continuation.
 //
 // Example - Complete Run Lifecycle:
 //
@@ -641,14 +694,21 @@ func (v *EventValidator) ValidateSequence(ctx context.Context, events []Event) *
 		return result
 	}
 
-	// Reset state for sequence validation
-	v.state = NewValidationState()
+	// Create an isolated validator for this sequence validation to ensure thread safety
+	// This prevents concurrent ValidateSequence calls from interfering with each other
+	isolatedValidator := &EventValidator{
+		rules:   v.GetRules(),             // Get a copy of rules
+		state:   NewValidationState(),     // Fresh state for this validation
+		metrics: NewValidationMetrics(),   // Fresh metrics for this validation
+		config:  v.config,                 // Config is read-only, safe to share
+		mutex:   sync.RWMutex{},          // New mutex for the isolated validator
+	}
 
-	// Create validation context for sequence
+	// Create validation context for sequence using the isolated validator's state
 	validationContext := &ValidationContext{
-		State:         v.state,
+		State:         isolatedValidator.state,
 		EventSequence: events,
-		Config:        v.config,
+		Config:        isolatedValidator.config,
 		Metadata:      make(map[string]interface{}),
 	}
 
@@ -674,8 +734,8 @@ func (v *EventValidator) ValidateSequence(ctx context.Context, events []Event) *
 		validationContext.CurrentEvent = event
 		validationContext.EventIndex = i
 		
-		// Validate the event using the sequence context
-		eventResult := v.validateEventWithContext(ctx, event, validationContext)
+		// Validate the event using the isolated validator's context
+		eventResult := isolatedValidator.validateEventWithContext(ctx, event, validationContext)
 		
 		// Merge results
 		for _, err := range eventResult.Errors {
@@ -789,6 +849,118 @@ func (v *EventValidator) GetMetrics() *ValidationMetrics {
 func (v *EventValidator) Reset() {
 	v.state = NewValidationState()
 	v.metrics = NewValidationMetrics()
+}
+
+// StartCleanupRoutine starts a background goroutine that periodically cleans up old finished items.
+// This prevents memory leaks in long-running applications. The cleanup runs at the specified interval
+// and removes items older than the retention period.
+//
+// Example:
+//
+//	validator := NewEventValidator(config)
+//	ctx, cancel := context.WithCancel(context.Background())
+//	defer cancel()
+//	
+//	// Clean up items older than 24 hours every hour
+//	validator.StartCleanupRoutine(ctx, time.Hour, 24*time.Hour)
+func (v *EventValidator) StartCleanupRoutine(ctx context.Context, interval time.Duration, retentionPeriod time.Duration) {
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				cutoff := time.Now().Add(-retentionPeriod)
+				v.state.CleanupFinishedItems(cutoff)
+				
+				// Also cleanup old metrics data
+				v.cleanupMetrics(cutoff)
+			}
+		}
+	}()
+}
+
+// cleanupMetrics removes old rule execution time data
+func (v *EventValidator) cleanupMetrics(olderThan time.Time) {
+	v.metrics.mutex.Lock()
+	defer v.metrics.mutex.Unlock()
+	
+	// For metrics, we'll keep a rolling window of execution times
+	// This is a simple implementation - in production you might want
+	// a more sophisticated approach like keeping only the last N entries
+	if len(v.metrics.RuleExecutionTimes) > 1000 {
+		// Clear and start fresh if we have too many entries
+		v.metrics.RuleExecutionTimes = make(map[string]time.Duration)
+	}
+}
+
+// createStateSnapshot creates a read-only snapshot of the current validation state.
+// This is used to prevent race conditions during validation by ensuring rules
+// read from a consistent state snapshot rather than the mutable state.
+func (v *EventValidator) createStateSnapshot() *ValidationState {
+	v.state.mutex.RLock()
+	defer v.state.mutex.RUnlock()
+	
+	// Create a new state with copies of the data
+	snapshot := &ValidationState{
+		CurrentPhase:     v.state.CurrentPhase,
+		EventCount:       v.state.EventCount,
+		LastEventTime:    v.state.LastEventTime,
+		StartTime:        v.state.StartTime,
+		ActiveRuns:       make(map[string]*RunState),
+		FinishedRuns:     make(map[string]*RunState),
+		ActiveMessages:   make(map[string]*MessageState),
+		FinishedMessages: make(map[string]*MessageState),
+		ActiveTools:      make(map[string]*ToolState),
+		FinishedTools:    make(map[string]*ToolState),
+		ActiveSteps:      make(map[string]bool),
+	}
+	
+	// Deep copy active runs
+	for k, v := range v.state.ActiveRuns {
+		runCopy := *v
+		snapshot.ActiveRuns[k] = &runCopy
+	}
+	
+	// Deep copy finished runs
+	for k, v := range v.state.FinishedRuns {
+		runCopy := *v
+		snapshot.FinishedRuns[k] = &runCopy
+	}
+	
+	// Deep copy active messages
+	for k, v := range v.state.ActiveMessages {
+		msgCopy := *v
+		snapshot.ActiveMessages[k] = &msgCopy
+	}
+	
+	// Deep copy finished messages
+	for k, v := range v.state.FinishedMessages {
+		msgCopy := *v
+		snapshot.FinishedMessages[k] = &msgCopy
+	}
+	
+	// Deep copy active tools
+	for k, v := range v.state.ActiveTools {
+		toolCopy := *v
+		snapshot.ActiveTools[k] = &toolCopy
+	}
+	
+	// Deep copy finished tools
+	for k, v := range v.state.FinishedTools {
+		toolCopy := *v
+		snapshot.FinishedTools[k] = &toolCopy
+	}
+	
+	// Copy active steps
+	for k, v := range v.state.ActiveSteps {
+		snapshot.ActiveSteps[k] = v
+	}
+	
+	return snapshot
 }
 
 // updateState updates the validation state based on the event

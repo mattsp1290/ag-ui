@@ -4,15 +4,59 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
 
+// ThreadSafeBuffer wraps bytes.Buffer with mutex for thread-safe operations
+type ThreadSafeBuffer struct {
+	mu  sync.RWMutex
+	buf bytes.Buffer
+}
+
+func (tsb *ThreadSafeBuffer) Write(p []byte) (n int, err error) {
+	tsb.mu.Lock()
+	defer tsb.mu.Unlock()
+	return tsb.buf.Write(p)
+}
+
+func (tsb *ThreadSafeBuffer) String() string {
+	tsb.mu.RLock()
+	defer tsb.mu.RUnlock()
+	return tsb.buf.String()
+}
+
+func (tsb *ThreadSafeBuffer) Reset() {
+	tsb.mu.Lock()
+	defer tsb.mu.Unlock()
+	tsb.buf.Reset()
+}
+
+// SyncAuditLogger wraps JSONAuditLogger to provide synchronous logging for tests
+type SyncAuditLogger struct {
+	*JSONAuditLogger
+	mu sync.Mutex
+}
+
+func NewSyncAuditLogger(writer io.Writer) *SyncAuditLogger {
+	return &SyncAuditLogger{
+		JSONAuditLogger: NewJSONAuditLogger(writer),
+	}
+}
+
+func (sal *SyncAuditLogger) Log(ctx context.Context, log *AuditLog) error {
+	sal.mu.Lock()
+	defer sal.mu.Unlock()
+	return sal.JSONAuditLogger.Log(ctx, log)
+}
+
 func TestAuditLogging(t *testing.T) {
-	// Create a buffer to capture audit logs
-	var auditBuffer bytes.Buffer
-	auditLogger := NewJSONAuditLogger(&auditBuffer)
+	// Create a thread-safe buffer to capture audit logs
+	var auditBuffer ThreadSafeBuffer
+	auditLogger := NewSyncAuditLogger(&auditBuffer)
 	
 	// Create state manager with audit logging enabled
 	opts := DefaultManagerOptions()
@@ -36,8 +80,8 @@ func TestAuditLogging(t *testing.T) {
 		t.Fatalf("Failed to create context: %v", err)
 	}
 	
-	// Give some time for async audit logging
-	time.Sleep(100 * time.Millisecond)
+	// Wait for audit logging to complete
+	time.Sleep(200 * time.Millisecond)
 	
 	// Test state update audit
 	updates := map[string]interface{}{
@@ -50,8 +94,8 @@ func TestAuditLogging(t *testing.T) {
 		t.Fatalf("Failed to update state: %v", err)
 	}
 	
-	// Give some time for async audit logging
-	time.Sleep(100 * time.Millisecond)
+	// Wait for audit logging to complete
+	time.Sleep(200 * time.Millisecond)
 	
 	// Test state access audit
 	_, err = sm.GetState(ctx, contextID, "test_state")
@@ -59,8 +103,8 @@ func TestAuditLogging(t *testing.T) {
 		t.Fatalf("Failed to get state: %v", err)
 	}
 	
-	// Give some time for async audit logging
-	time.Sleep(100 * time.Millisecond)
+	// Wait for audit logging to complete
+	time.Sleep(200 * time.Millisecond)
 	
 	// Parse and verify audit logs
 	auditContent := auditBuffer.String()
@@ -138,8 +182,8 @@ func TestAuditLogging(t *testing.T) {
 }
 
 func TestAuditSecurityEvents(t *testing.T) {
-	// Create a buffer to capture audit logs
-	var auditBuffer bytes.Buffer
+	// Create a thread-safe buffer to capture audit logs
+	var auditBuffer ThreadSafeBuffer
 	auditLogger := NewJSONAuditLogger(&auditBuffer)
 	
 	// Create state manager with audit logging enabled
@@ -162,23 +206,29 @@ func TestAuditSecurityEvents(t *testing.T) {
 	}
 	
 	// Wait for any async logs
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 	
 	// Clear the buffer to focus on security events
 	auditBuffer.Reset()
 	
 	// Test rate limiting by making rapid requests
+	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
-		go func() {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
 			updates := map[string]interface{}{
-				"rapid_update": i,
+				"rapid_update": idx,
 			}
 			sm.UpdateState(ctx, contextID, "test_state", updates, UpdateOptions{})
-		}()
+		}(i)
 	}
 	
-	// Wait for rate limiting to trigger
-	time.Sleep(200 * time.Millisecond)
+	// Wait for all goroutines to complete
+	wg.Wait()
+	
+	// Wait for rate limiting to trigger and logging to complete
+	time.Sleep(500 * time.Millisecond)
 	
 	// Parse audit logs to find security events
 	auditContent := auditBuffer.String()
@@ -221,7 +271,7 @@ func TestAuditSecurityEvents(t *testing.T) {
 
 func TestAuditLogIntegrity(t *testing.T) {
 	// Create audit logger
-	var auditBuffer bytes.Buffer
+	var auditBuffer ThreadSafeBuffer
 	auditLogger := NewJSONAuditLogger(&auditBuffer)
 	
 	// Create several audit logs
@@ -259,6 +309,9 @@ func TestAuditLogIntegrity(t *testing.T) {
 			t.Fatalf("Failed to log audit entry: %v", err)
 		}
 	}
+	
+	// Wait for any async operations to complete
+	time.Sleep(100 * time.Millisecond)
 	
 	// Verify audit log integrity
 	startTime := time.Now().Add(-1 * time.Hour)
@@ -325,7 +378,7 @@ func TestAuditManagerDisabled(t *testing.T) {
 
 func TestAuditLogQuery(t *testing.T) {
 	// Create audit logger
-	var auditBuffer bytes.Buffer
+	var auditBuffer ThreadSafeBuffer
 	auditLogger := NewJSONAuditLogger(&auditBuffer)
 	
 	ctx := context.Background()
@@ -367,6 +420,9 @@ func TestAuditLogQuery(t *testing.T) {
 			t.Fatalf("Failed to log audit entry: %v", err)
 		}
 	}
+	
+	// Wait for any async operations to complete
+	time.Sleep(100 * time.Millisecond)
 	
 	// Test query by user ID
 	criteria := AuditCriteria{UserID: "user1"}

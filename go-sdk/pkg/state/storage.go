@@ -241,7 +241,7 @@ func NewStorageBackend(config *StorageConfig, logger Logger) (StorageBackend, er
 
 // RedisBackend implements StorageBackend using Redis
 type RedisBackend struct {
-	client  *redis.Client
+	// client  *redis.Client // TODO: Uncomment when redis package is available
 	config  *StorageConfig
 	logger  Logger
 	mu      sync.RWMutex
@@ -526,7 +526,7 @@ func (r *RedisBackend) snapshotListKey(stateID string) string {
 // RedisTransaction implements Transaction for Redis
 type RedisTransaction struct {
 	backend *RedisBackend
-	pipe    redis.Pipeliner
+	// pipe    redis.Pipeliner // TODO: Uncomment when redis package is available
 }
 
 func (t *RedisTransaction) SetState(ctx context.Context, stateID string, state map[string]interface{}) error {

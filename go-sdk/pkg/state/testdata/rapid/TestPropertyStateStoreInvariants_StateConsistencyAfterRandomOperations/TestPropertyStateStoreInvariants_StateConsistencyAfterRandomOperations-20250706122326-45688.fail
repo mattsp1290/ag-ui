@@ -1,0 +1,12 @@
+# 2025/07/06 12:23:26.593773 [TestPropertyStateStoreInvariants/StateConsistencyAfterRandomOperations] [rapid] draw operations: []state.StateOperation{state.StateOperation{Type:"set", Path:"", Value:"", Patch:state.JSONPatch(nil)}}
+# 2025/07/06 12:23:26.593807 [TestPropertyStateStoreInvariants/StateConsistencyAfterRandomOperations] Version 0 is less than number of operations 1
+# 
+v0.4.8#17730341913951779428
+0x5555555555555
+0x0
+0x0
+0x1
+0x0
+0x0
+0x0
+0x0

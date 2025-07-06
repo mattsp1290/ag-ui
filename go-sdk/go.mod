@@ -17,6 +17,8 @@ require (
 // Testing Dependencies
 require github.com/stretchr/testify v1.10.0 // Rich testing framework
 
+require golang.org/x/time v0.12.0
+
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
@@ -24,4 +26,5 @@ require (
 	golang.org/x/text v0.23.0 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20250324211829-b45e905df463 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
+	pgregory.net/rapid v1.2.0 // indirect
 )

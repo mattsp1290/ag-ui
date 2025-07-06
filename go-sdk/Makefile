@@ -60,6 +60,21 @@ test-short:
 	@echo "Running tests (short mode)..."
 	$(GOTEST) -v -short ./...
 
+## test-chaos: Run chaos engineering tests
+test-chaos:
+	@echo "Running chaos engineering tests..."
+	$(GOTEST) -v -tags="chaos integration" -timeout=30m ./pkg/state/
+
+## test-error-injection: Run error injection tests
+test-error-injection:
+	@echo "Running error injection tests..."
+	$(GOTEST) -v -run="TestStateManager_WithErrors" ./pkg/state/
+
+## test-resilience: Run all resilience tests (error injection + chaos)
+test-resilience:
+	@echo "Running resilience tests..."
+	$(GOTEST) -v -tags="chaos integration" -run="TestStateManager_(WithErrors|ChaosEngineering)" ./pkg/state/
+
 ## lint: Run linter (requires golangci-lint)
 lint:
 	@echo "Running linter..."

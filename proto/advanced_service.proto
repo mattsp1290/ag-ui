@@ -1,0 +1,321 @@
+syntax = "proto3";
+
+package ag_ui.service;
+
+import "types.proto";
+import "events.proto";
+import "service.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/ag-ui/go-sdk/pkg/proto/generated";
+
+// Advanced AG-UI Service for specialized use cases
+// This service provides additional functionality beyond basic agent execution
+service AGUIAdvancedService {
+  // Bidirectional streaming for real-time agent interaction
+  rpc StreamingChat(stream ChatRequest) returns (stream ChatResponse);
+  
+  // Human-in-the-loop approval workflow
+  rpc HumanInLoop(stream HumanInLoopRequest) returns (stream HumanInLoopResponse);
+  
+  // State management operations
+  rpc GetState(GetStateRequest) returns (GetStateResponse);
+  rpc UpdateState(UpdateStateRequest) returns (UpdateStateResponse);
+  rpc WatchState(WatchStateRequest) returns (stream StateChangeEvent);
+  
+  // Tool management
+  rpc RegisterTools(RegisterToolsRequest) returns (RegisterToolsResponse);
+  rpc ExecuteTool(ExecuteToolRequest) returns (ExecuteToolResponse);
+  
+  // Session management
+  rpc CreateSession(CreateSessionRequest) returns (CreateSessionResponse);
+  rpc GetSession(GetSessionRequest) returns (GetSessionResponse);
+  rpc EndSession(EndSessionRequest) returns (EndSessionResponse);
+  
+  // Batch operations
+  rpc BatchRunAgent(BatchRunAgentRequest) returns (stream BatchEventResponse);
+}
+
+// Bidirectional streaming chat messages
+message ChatRequest {
+  oneof request_type {
+    InitChatRequest init = 1;
+    SendMessageRequest message = 2;
+    ChatControlRequest control = 3;
+  }
+}
+
+message ChatResponse {
+  oneof response_type {
+    ChatInitResponse init = 1;
+    EventResponse event = 2;
+    ChatStatusResponse status = 3;
+  }
+}
+
+message InitChatRequest {
+  string session_id = 1;
+  repeated Tool tools = 2;
+  google.protobuf.Any initial_state = 3;
+  repeated Context context = 4;
+}
+
+message ChatInitResponse {
+  string chat_id = 1;
+  bool success = 2;
+  string error_message = 3;
+}
+
+message SendMessageRequest {
+  string chat_id = 1;
+  Message message = 2;
+}
+
+message ChatControlRequest {
+  string chat_id = 1;
+  enum ControlAction {
+    PAUSE = 0;
+    RESUME = 1;
+    CANCEL = 2;
+    RESET = 3;
+  }
+  ControlAction action = 2;
+}
+
+message ChatStatusResponse {
+  string chat_id = 1;
+  enum ChatStatus {
+    ACTIVE = 0;
+    PAUSED = 1;
+    FINISHED = 2;
+    ERROR = 3;
+  }
+  ChatStatus status = 2;
+  string message = 3;
+}
+
+// Human-in-the-loop messages
+message HumanInLoopRequest {
+  oneof request_type {
+    ApprovalRequest approval = 1;
+    ApprovalResponse approval_response = 2;
+    InputRequest input = 3;
+    InputResponse input_response = 4;
+  }
+}
+
+message HumanInLoopResponse {
+  oneof response_type {
+    EventResponse event = 1;
+    ApprovalRequired approval_required = 2;
+    InputRequired input_required = 3;
+    ContinueExecution continue_execution = 4;
+  }
+}
+
+message ApprovalRequest {
+  string request_id = 1;
+  string action_description = 2;
+  google.protobuf.Any action_data = 3;
+}
+
+message ApprovalResponse {
+  string request_id = 1;
+  bool approved = 2;
+  string reason = 3;
+}
+
+message ApprovalRequired {
+  string request_id = 1;
+  string prompt = 2;
+  repeated string options = 3;
+  google.protobuf.Timestamp expires_at = 4;
+}
+
+message InputRequest {
+  string request_id = 1;
+  string prompt = 2;
+  InputType input_type = 3;
+}
+
+message InputResponse {
+  string request_id = 1;
+  string value = 2;
+}
+
+message InputRequired {
+  string request_id = 1;
+  string prompt = 2;
+  InputType input_type = 3;
+  bool required = 4;
+  google.protobuf.Timestamp expires_at = 5;
+}
+
+message ContinueExecution {
+  string request_id = 1;
+}
+
+enum InputType {
+  TEXT = 0;
+  NUMBER = 1;
+  BOOLEAN = 2;
+  FILE = 3;
+  JSON = 4;
+}
+
+// State management messages
+message GetStateRequest {
+  string session_id = 1;
+  repeated string keys = 2; // If empty, return all state
+}
+
+message GetStateResponse {
+  google.protobuf.Any state = 1;
+  google.protobuf.Timestamp last_modified = 2;
+}
+
+message UpdateStateRequest {
+  string session_id = 1;
+  google.protobuf.Any state_delta = 2;
+  bool merge = 3; // If true, merge with existing state; if false, replace
+}
+
+message UpdateStateResponse {
+  bool success = 1;
+  google.protobuf.Any new_state = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+message WatchStateRequest {
+  string session_id = 1;
+  repeated string watch_keys = 2; // If empty, watch all state changes
+}
+
+message StateChangeEvent {
+  string session_id = 1;
+  repeated JsonPatchOperation changes = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
+
+// Tool management messages
+message RegisterToolsRequest {
+  string session_id = 1;
+  repeated Tool tools = 2;
+  bool replace_existing = 3;
+}
+
+message RegisterToolsResponse {
+  bool success = 1;
+  repeated string registered_tool_names = 2;
+  repeated ToolRegistrationError errors = 3;
+}
+
+message ToolRegistrationError {
+  string tool_name = 1;
+  string error_message = 2;
+}
+
+message ExecuteToolRequest {
+  string session_id = 1;
+  ToolCall tool_call = 2;
+  google.protobuf.Any context = 3;
+}
+
+message ExecuteToolResponse {
+  string tool_call_id = 1;
+  string result = 2;
+  bool success = 3;
+  string error_message = 4;
+}
+
+// Session management messages
+message CreateSessionRequest {
+  string session_id = 1; // Optional, will be generated if not provided
+  google.protobuf.Any initial_state = 2;
+  repeated Tool tools = 3;
+  repeated Context context = 4;
+  SessionOptions options = 5;
+}
+
+message CreateSessionResponse {
+  string session_id = 1;
+  bool success = 2;
+  string error_message = 3;
+  google.protobuf.Timestamp created_at = 4;
+}
+
+message GetSessionRequest {
+  string session_id = 1;
+}
+
+message GetSessionResponse {
+  string session_id = 1;
+  SessionInfo session_info = 2;
+  bool exists = 3;
+}
+
+message EndSessionRequest {
+  string session_id = 1;
+  bool save_state = 2;
+}
+
+message EndSessionResponse {
+  bool success = 1;
+  string message = 2;
+}
+
+message SessionOptions {
+  google.protobuf.Timestamp expires_at = 1;
+  bool auto_save_state = 2;
+  int32 max_messages = 3;
+  bool enable_logging = 4;
+}
+
+message SessionInfo {
+  string session_id = 1;
+  google.protobuf.Timestamp created_at = 2;
+  google.protobuf.Timestamp last_activity = 3;
+  google.protobuf.Timestamp expires_at = 4;
+  int32 message_count = 5;
+  SessionStatus status = 6;
+}
+
+enum SessionStatus {
+  ACTIVE = 0;
+  IDLE = 1;
+  EXPIRED = 2;
+  TERMINATED = 3;
+}
+
+// Batch operations messages
+message BatchRunAgentRequest {
+  repeated RunAgentRequest requests = 1;
+  BatchOptions options = 2;
+}
+
+message BatchEventResponse {
+  string request_id = 1; // Index in the batch request
+  oneof response_type {
+    EventResponse event = 2;
+    BatchError error = 3;
+    BatchComplete complete = 4;
+  }
+}
+
+message BatchOptions {
+  bool parallel_execution = 1;
+  int32 max_concurrent = 2;
+  google.protobuf.Timestamp timeout = 3;
+}
+
+message BatchError {
+  string error_message = 1;
+  string error_code = 2;
+}
+
+message BatchComplete {
+  int32 successful_requests = 1;
+  int32 failed_requests = 2;
+  google.protobuf.Timestamp completed_at = 3;
+}

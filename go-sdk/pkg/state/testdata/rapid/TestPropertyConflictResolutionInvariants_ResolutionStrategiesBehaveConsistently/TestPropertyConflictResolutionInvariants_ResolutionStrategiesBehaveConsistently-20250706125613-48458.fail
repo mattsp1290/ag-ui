@@ -1,0 +1,28 @@
+# 2025/07/06 12:56:13.430748 [TestPropertyConflictResolutionInvariants/ResolutionStrategiesBehaveConsistently] [rapid] draw conflict: &state.StateConflict{ID:"test-conflict", Timestamp:time.Date(2025, time.July, 6, 12, 56, 13, 430746000, time.Local), Path:"", LocalChange:(*state.StateChange)(0x140003089c0), RemoteChange:(*state.StateChange)(0x14000308a20), BaseValue:"", Metadata:map[string]interface {}{}, Severity:1}
+# 2025/07/06 12:56:13.430807 [TestPropertyConflictResolutionInvariants/ResolutionStrategiesBehaveConsistently] [rapid] draw strategy: "merge"
+# 2025/07/06 12:56:13.430810 [TestPropertyConflictResolutionInvariants/ResolutionStrategiesBehaveConsistently] Resolution strategy mismatch: expected merge, got last_write_wins
+# 
+v0.4.8#11719173194637199944
+0x1
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x38e38e38e38e4
+0x2

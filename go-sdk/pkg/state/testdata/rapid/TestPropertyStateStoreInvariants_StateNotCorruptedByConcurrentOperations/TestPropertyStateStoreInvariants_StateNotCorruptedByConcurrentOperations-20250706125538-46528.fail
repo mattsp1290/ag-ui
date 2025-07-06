@@ -1,0 +1,177 @@
+# 2025/07/06 12:55:38.015264 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw numGoroutines: 2
+# 2025/07/06 12:55:38.015266 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw opsPerGoroutine: 10
+# 2025/07/06 12:55:38.015267 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_0_0: "set"
+# 2025/07/06 12:55:38.015268 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_0_0: ""
+# 2025/07/06 12:55:38.015269 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_0_1: "set"
+# 2025/07/06 12:55:38.015270 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_0_1: true
+# 2025/07/06 12:55:38.015270 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_0_2: "delete"
+# 2025/07/06 12:55:38.015271 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_0_2: true
+# 2025/07/06 12:55:38.015271 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_0_3: "delete"
+# 2025/07/06 12:55:38.015272 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_0_3: ""
+# 2025/07/06 12:55:38.015273 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_0_4: "set"
+# 2025/07/06 12:55:38.015273 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_0_4: ""
+# 2025/07/06 12:55:38.015274 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_0_5: "set"
+# 2025/07/06 12:55:38.015274 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_0_5: ""
+# 2025/07/06 12:55:38.015275 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_0_6: "set"
+# 2025/07/06 12:55:38.015275 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_0_6: ""
+# 2025/07/06 12:55:38.015276 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_0_7: "delete"
+# 2025/07/06 12:55:38.015276 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_0_7: 0
+# 2025/07/06 12:55:38.015277 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_0_8: "delete"
+# 2025/07/06 12:55:38.015278 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_0_8: 1
+# 2025/07/06 12:55:38.015278 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_0_9: "delete"
+# 2025/07/06 12:55:38.015279 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_0_9: ""
+# 2025/07/06 12:55:38.015279 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_1_0: "set"
+# 2025/07/06 12:55:38.015280 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_1_0: ""
+# 2025/07/06 12:55:38.015280 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_1_1: "delete"
+# 2025/07/06 12:55:38.015281 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_1_1: ""
+# 2025/07/06 12:55:38.015281 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_1_2: "set"
+# 2025/07/06 12:55:38.015282 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_1_2: ""
+# 2025/07/06 12:55:38.015282 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_1_3: "set"
+# 2025/07/06 12:55:38.015283 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_1_3: 39
+# 2025/07/06 12:55:38.015283 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_1_4: "delete"
+# 2025/07/06 12:55:38.015284 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_1_4: ""
+# 2025/07/06 12:55:38.015284 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_1_5: "delete"
+# 2025/07/06 12:55:38.015285 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_1_5: ""
+# 2025/07/06 12:55:38.015285 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_1_6: "set"
+# 2025/07/06 12:55:38.015286 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_1_6: true
+# 2025/07/06 12:55:38.015286 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_1_7: "delete"
+# 2025/07/06 12:55:38.015287 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_1_7: ""
+# 2025/07/06 12:55:38.015288 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_1_8: "set"
+# 2025/07/06 12:55:38.015288 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_1_8: ""
+# 2025/07/06 12:55:38.015289 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw op_type_1_9: "delete"
+# 2025/07/06 12:55:38.015289 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] [rapid] draw value_1_9: ""
+# 2025/07/06 12:55:38.015322 [TestPropertyStateStoreInvariants/StateNotCorruptedByConcurrentOperations] Unexpected error in concurrent operation: failed to apply patch: failed to apply operation at index 0: failed to get parent at path: key goroutine_1 not found at path segment 0
+# 
+v0.4.8#5523353722568254012
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x0
+0x1f2b5a0e61c3db
+0xffffffffffffffff
+0x1
+0x27
+0x1
+0x1
+0x9f2412e325271
+0x2
+0x1
+0x1
+0x1
+0x1f
+0x0
+0x0
+0x22480097c1080
+0x194aac677c4ce1
+0x0
+0x1
+0x1cb9ead7a5d8c9
+0x0
+0x1
+0x1bc4a9eec5362f
+0x0
+0x0
+0x0
+0x0
+0x0
+0xa3b7193a3a769
+0x0
+0x0
+0x1
+0x0
+0x0
+0x2c6a3eb26480d
+0x1
+0x0
+0x1
+0x1
+0x1
+0x0
+0x0
+0x0
+0x1
+0xf
+0x1
+0x1
+0x1
+0x1
+0x1
+0x1
+0x1
+0x3
+0x1
+0x0
+0x0
+0x0
+0x0
+0x1
+0x1cf48e378666e7
+0x0
+0x0
+0x1
+0x1
+0x0
+0x1
+0x0
+0x1
+0x0
+0x0
+0x1
+0x1
+0x0
+0x1
+0x1
+0x0
+0x0
+0x0
+0x1
+0x0
+0x1ac7e76c304dfb
+0x27
+0x1
+0x1
+0x561cf6c1999b7
+0x1
+0x0
+0x0
+0x16e060ef8dd14
+0x1
+0x1
+0xe53368101111d
+0x0
+0x2
+0x0
+0x0
+0x0
+0xaad21adba479e
+0x2
+0x1
+0x250aed1c412e6
+0x1
+0x0
+0xedb5015842ed
+0x0
+0x251bfa06895cf
+0x11339ccee91f52
+0x0
+0x141a97bb7344f2
+0x8
+0x0
+0x1
+0x1e4b7ae02719e3
+0x1
+0xe6cfec236fc7d
+0x4
+0x0
+0x17

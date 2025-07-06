@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -480,8 +481,8 @@ func (h *StateEventHandler) handleDeltaDecompression(event *events.StateDeltaEve
 	_ = event // Use parameter to avoid unused variable error
 	if false { // metadata := event.GetMetadata(); metadata != nil {
 		// if compressed, exists := metadata["compressed"]; exists && compressed == true {
-			return h.decompressDeltaEvent(event)
-		}
+		//	return h.decompressDeltaEvent(event)
+		// }
 	}
 	
 	// Return original event if not compressed
@@ -640,17 +641,17 @@ func (h *StateEventHandler) isRecoverableError(err error) bool {
 	errorStr := err.Error()
 	
 	// Network-related errors are typically recoverable
-	if contains(errorStr, "connection") || contains(errorStr, "network") || contains(errorStr, "timeout") {
+	if strings.Contains(errorStr, "connection") || strings.Contains(errorStr, "network") || strings.Contains(errorStr, "timeout") {
 		return true
 	}
 	
 	// Temporary failures are recoverable
-	if contains(errorStr, "temporary") || contains(errorStr, "unavailable") {
+	if strings.Contains(errorStr, "temporary") || strings.Contains(errorStr, "unavailable") {
 		return true
 	}
 	
 	// Validation errors are typically not recoverable
-	if contains(errorStr, "validation") || contains(errorStr, "invalid") {
+	if strings.Contains(errorStr, "validation") || strings.Contains(errorStr, "invalid") {
 		return false
 	}
 	
@@ -658,24 +659,6 @@ func (h *StateEventHandler) isRecoverableError(err error) bool {
 	return true
 }
 
-// contains checks if a string contains a substring (case-insensitive)
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && 
-		(s == substr || 
-		 len(s) > len(substr) && 
-		 (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
-		  indexOf(s, substr) >= 0))
-}
-
-// indexOf finds the index of a substring in a string
-func indexOf(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
-}
 
 // GetSequenceNumber returns the next sequence number for outgoing events
 func (h *StateEventHandler) GetSequenceNumber() int64 {

@@ -109,13 +109,13 @@ type stateShard struct {
 // NewStateStore creates a new state store instance
 func NewStateStore(options ...StateStoreOption) *StateStore {
 	store := &StateStore{
-		shardCount:        16, // Default to 16 shards for better concurrency
+		shardCount:        DefaultShardCount, // Default to 16 shards for better concurrency
 		version:           0,
 		history:           make([]*StateVersion, 0),
-		maxHistory:        1000, // Default max history
+		maxHistory:        DefaultMaxHistorySizeSharding, // Default max history for sharded operations
 		transactions:      make(map[string]*StateTransaction),
-		subscriptionTTL:   1 * time.Hour,   // Default TTL for subscriptions
-		cleanupInterval:   10 * time.Minute, // Default cleanup interval
+		subscriptionTTL:   DefaultSubscriptionTTL,   // Default TTL for subscriptions
+		cleanupInterval:   DefaultSubscriptionCleanup, // Default cleanup interval
 		lastCleanup:       time.Now(),
 		logger:            DefaultLogger(),
 		errorHandler:      nil, // Will be set after initialization
@@ -962,7 +962,7 @@ func (s *StateStore) createRestorePatch(oldState, newState map[string]interface{
 
 // generateID generates a unique identifier
 func generateID() (string, error) {
-	bytes := make([]byte, 16)
+	bytes := make([]byte, RandomIDBytes)
 	if _, err := rand.Read(bytes); err != nil {
 		return "", err
 	}

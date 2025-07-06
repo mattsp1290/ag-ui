@@ -2,7 +2,12 @@ package state
 
 import (
 	"bytes"
+	"compress/gzip"
 	"context"
+	"encoding/json"
+	"fmt"
+	"hash/fnv"
+	"math"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -66,6 +71,11 @@ type PerformanceOptimizer struct {
 
 	// Concurrent access optimizer
 	concurrentOptimizer *ConcurrentOptimizer
+	
+	// Context and lifecycle management
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 // PerformanceOptions configures the performance optimizer
@@ -95,21 +105,23 @@ func DefaultPerformanceOptions() PerformanceOptions {
 		EnableCompression:  false,
 		EnableLazyLoading:  true,
 		EnableSharding:     true,
-		BatchSize:          100,
-		BatchTimeout:       10 * time.Millisecond,
-		CompressionLevel:   6,
+		BatchSize:          DefaultBatchSize,
+		BatchTimeout:       DefaultPerformanceBatchTimeout,
+		CompressionLevel:   DefaultCompressionLevel,
 		MaxConcurrency:     runtime.NumCPU() * 2,
-		MaxOpsPerSecond:    10000,
-		MaxMemoryUsage:     100 * 1024 * 1024, // 100MB
-		ShardCount:         16,
-		ConnectionPoolSize: 10,
-		LazyCacheSize:      1000,
-		CacheExpiryTime:    30 * time.Minute,
+		MaxOpsPerSecond:    DefaultMaxOpsPerSecond,
+		MaxMemoryUsage:     DefaultMaxMemoryUsage, // 100MB
+		ShardCount:         DefaultShardCount,
+		ConnectionPoolSize: DefaultConnectionPoolSize,
+		LazyCacheSize:      DefaultLazyCacheSize,
+		CacheExpiryTime:    DefaultLazyCacheExpiryTime,
 	}
 }
 
 // NewPerformanceOptimizer creates a new performance optimizer
 func NewPerformanceOptimizer(opts PerformanceOptions) *PerformanceOptimizer {
+	ctx, cancel := context.WithCancel(context.Background())
+	
 	po := &PerformanceOptimizer{
 		enablePooling:     opts.EnablePooling,
 		enableBatching:    opts.EnableBatching,
@@ -123,8 +135,10 @@ func NewPerformanceOptimizer(opts PerformanceOptions) *PerformanceOptimizer {
 		maxOpsPerSec:     opts.MaxOpsPerSecond,
 		maxMemoryUsage:   opts.MaxMemoryUsage,
 		shardCount:       opts.ShardCount,
-		batchQueue:       make(chan batchItem, opts.BatchSize*10),
+		batchQueue:       make(chan batchItem, opts.BatchSize*DefaultTaskQueueMultiplier*5), // 10x batch size
 		stopBatch:        make(chan struct{}),
+		ctx:             ctx,
+		cancel:          cancel,
 	}
 
 	// Initialize object pools
@@ -152,7 +166,7 @@ func NewPerformanceOptimizer(opts PerformanceOptions) *PerformanceOptimizer {
 	po.bufferPool = sync.Pool{
 		New: func() interface{} {
 			po.poolMisses.Add(1)
-			return bytes.NewBuffer(make([]byte, 0, 1024))
+			return bytes.NewBuffer(make([]byte, 0, BufferPoolSize))
 		},
 	}
 
@@ -166,8 +180,8 @@ func NewPerformanceOptimizer(opts PerformanceOptions) *PerformanceOptimizer {
 		po.startBatchWorkers()
 	}
 
-	// Initialize connection pool
-	po.connectionPool = NewConnectionPool(opts.ConnectionPoolSize)
+	// Initialize connection pool with default factory
+	po.connectionPool = NewConnectionPoolWithDefault(opts.ConnectionPoolSize)
 
 	// Initialize state shards if enabled
 	if opts.EnableSharding {
@@ -188,10 +202,9 @@ func NewPerformanceOptimizer(opts PerformanceOptions) *PerformanceOptimizer {
 	// Initialize concurrent access optimizer
 	po.concurrentOptimizer = NewConcurrentOptimizer(opts.MaxConcurrency)
 
-	// Start GC monitoring
+	// Start monitoring goroutines
+	po.wg.Add(2)
 	go po.monitorGC()
-
-	// Start memory monitoring
 	go po.monitorMemory()
 
 	return po
@@ -373,22 +386,29 @@ func (po *PerformanceOptimizer) BatchOperation(ctx context.Context, operation fu
 
 // monitorGC monitors garbage collection pauses
 func (po *PerformanceOptimizer) monitorGC() {
+	defer po.wg.Done()
+	
 	var lastNumGC uint32
 	var memStats runtime.MemStats
 	
-	ticker := time.NewTicker(100 * time.Millisecond)
+	ticker := time.NewTicker(DefaultGCMonitoringInterval)
 	defer ticker.Stop()
 	
-	for range ticker.C {
-		runtime.ReadMemStats(&memStats)
-		
-		if memStats.NumGC > lastNumGC {
-			po.gcPauses.Add(int64(memStats.NumGC - lastNumGC))
-			po.lastGCPause.Store(int64(memStats.PauseNs[(memStats.NumGC+255)%256]))
-			lastNumGC = memStats.NumGC
+	for {
+		select {
+		case <-ticker.C:
+			runtime.ReadMemStats(&memStats)
+			
+			if memStats.NumGC > lastNumGC {
+				po.gcPauses.Add(int64(memStats.NumGC - lastNumGC))
+				po.lastGCPause.Store(int64(memStats.PauseNs[(memStats.NumGC+255)%256]))
+				lastNumGC = memStats.NumGC
+			}
+			
+			po.allocations.Store(int64(memStats.Mallocs))
+		case <-po.ctx.Done():
+			return
 		}
-		
-		po.allocations.Store(int64(memStats.Mallocs))
 	}
 }
 
@@ -439,6 +459,12 @@ func (po *PerformanceOptimizer) calculateCacheHitRate() float64 {
 
 // Stop stops the performance optimizer
 func (po *PerformanceOptimizer) Stop() {
+	// Cancel context to stop monitoring goroutines
+	po.cancel()
+	
+	// Wait for all goroutines to finish
+	po.wg.Wait()
+	
 	if po.enableBatching {
 		close(po.stopBatch)
 		po.batchWorkers.Wait()
@@ -468,6 +494,13 @@ type PerformanceMetrics struct {
 	GCPauses       int64
 	LastGCPauseNs  int64
 	PoolEfficiency float64
+	MemoryUsage    int64
+	Connections    int64
+	BytesRead      int64
+	BytesWritten   int64
+	CacheHits      int64
+	CacheMisses    int64
+	CacheHitRate   float64
 }
 
 // RateLimiter implements token bucket rate limiting
@@ -575,6 +608,9 @@ func DecompressDelta(delta *OptimizedDelta) (JSONPatch, error) {
 	return delta.Operations, nil
 }
 
+// ConnectionFactory creates new connections
+type ConnectionFactory func() Connection
+
 // ConnectionPool manages a pool of connections to storage backends
 type ConnectionPool struct {
 	connections chan Connection
@@ -582,6 +618,7 @@ type ConnectionPool struct {
 	size        int
 	created     int
 	maxSize     int
+	factory     ConnectionFactory
 }
 
 // Connection represents a connection to a storage backend
@@ -591,12 +628,21 @@ type Connection interface {
 	LastUsed() time.Time
 }
 
-// NewConnectionPool creates a new connection pool
-func NewConnectionPool(size int) *ConnectionPool {
+// NewConnectionPool creates a new connection pool with a factory function
+func NewConnectionPool(size int, factory ConnectionFactory) *ConnectionPool {
 	return &ConnectionPool{
 		connections: make(chan Connection, size),
 		maxSize:     size,
+		factory:     factory,
 	}
+}
+
+// NewConnectionPoolWithDefault creates a new connection pool with a default factory (for backward compatibility)
+func NewConnectionPoolWithDefault(size int) *ConnectionPool {
+	// Default factory returns nil - this should be overridden in production
+	return NewConnectionPool(size, func() Connection {
+		return nil // Production code should provide a real factory
+	})
 }
 
 // Get retrieves a connection from the pool
@@ -619,8 +665,18 @@ func (cp *ConnectionPool) Get() (Connection, error) {
 	if cp.created < cp.maxSize {
 		cp.created++
 		cp.mu.Unlock()
-		// Create new connection (mock implementation)
-		return &MockConnection{created: time.Now(), lastUsed: time.Now()}, nil
+		// Create new connection using factory
+		if cp.factory == nil {
+			return nil, fmt.Errorf("no connection factory configured")
+		}
+		conn := cp.factory()
+		if conn == nil {
+			cp.mu.Lock()
+			cp.created--
+			cp.mu.Unlock()
+			return nil, fmt.Errorf("connection factory returned nil")
+		}
+		return conn, nil
 	}
 	cp.mu.Unlock()
 	return nil, fmt.Errorf("connection pool exhausted")
@@ -655,25 +711,6 @@ func (cp *ConnectionPool) Close() {
 	}
 }
 
-// MockConnection is a mock implementation of Connection
-type MockConnection struct {
-	created  time.Time
-	lastUsed time.Time
-	closed   bool
-}
-
-func (mc *MockConnection) Close() error {
-	mc.closed = true
-	return nil
-}
-
-func (mc *MockConnection) IsValid() bool {
-	return !mc.closed && time.Since(mc.created) < 5*time.Minute
-}
-
-func (mc *MockConnection) LastUsed() time.Time {
-	return mc.lastUsed
-}
 
 // StateShard represents a shard of state data for better distribution
 type StateShard struct {
@@ -882,7 +919,7 @@ func (lc *LazyCache) removeKey(key string) {
 
 // cleanup removes expired entries
 func (lc *LazyCache) cleanup() {
-	ticker := time.NewTicker(time.Minute)
+	ticker := time.NewTicker(DefaultCleanupWorkerInterval)
 	defer ticker.Stop()
 	
 	for range ticker.C {
@@ -952,7 +989,7 @@ func (mo *MemoryOptimizer) maybeRunGC() {
 	mo.mu.Lock()
 	defer mo.mu.Unlock()
 	
-	if time.Since(mo.lastGC) > time.Minute {
+	if time.Since(mo.lastGC) > DefaultGCInterval {
 		runtime.GC()
 		mo.lastGC = time.Now()
 	}
@@ -976,7 +1013,7 @@ type ConcurrentOptimizer struct {
 func NewConcurrentOptimizer(maxConcurrency int) *ConcurrentOptimizer {
 	co := &ConcurrentOptimizer{
 		maxConcurrency: maxConcurrency,
-		taskQueue:      make(chan func(), maxConcurrency*2),
+		taskQueue:      make(chan func(), maxConcurrency*DefaultTaskQueueMultiplier),
 		shutdown:       make(chan struct{}),
 	}
 	
@@ -1030,7 +1067,7 @@ func (co *ConcurrentOptimizer) Shutdown() {
 // GetBuffer gets a buffer from the pool
 func (po *PerformanceOptimizer) GetBuffer() *bytes.Buffer {
 	if !po.enablePooling {
-		return bytes.NewBuffer(make([]byte, 0, 1024))
+		return bytes.NewBuffer(make([]byte, 0, BufferPoolSize))
 	}
 	
 	po.poolHits.Add(1)
@@ -1049,14 +1086,14 @@ func (po *PerformanceOptimizer) PutBuffer(buf *bytes.Buffer) {
 
 // OptimizeForLargeState optimizes performance for large state sizes
 func (po *PerformanceOptimizer) OptimizeForLargeState(stateSize int64) {
-	if stateSize > 100*1024*1024 { // 100MB
+	if stateSize > DefaultMaxMemoryUsage { // 100MB
 		// Enable all optimizations for large states
 		po.enableCompression = true
 		po.enableSharding = true
 		po.enableLazyLoading = true
 		
 		// Adjust batch size for large states
-		po.batchSize = int(math.Min(float64(po.batchSize*2), 1000))
+		po.batchSize = int(math.Min(float64(po.batchSize*2), float64(DefaultMaxBatchSize)))
 		
 		// Trigger memory optimization
 		if po.memoryOptimizer != nil {
@@ -1067,23 +1104,30 @@ func (po *PerformanceOptimizer) OptimizeForLargeState(stateSize int64) {
 
 // monitorMemory monitors memory usage and triggers optimizations
 func (po *PerformanceOptimizer) monitorMemory() {
-	ticker := time.NewTicker(5 * time.Second)
+	defer po.wg.Done()
+	
+	ticker := time.NewTicker(DefaultMemoryMonitoringInterval)
 	defer ticker.Stop()
 	
-	for range ticker.C {
-		var memStats runtime.MemStats
-		runtime.ReadMemStats(&memStats)
-		
-		po.memoryUsage.Store(int64(memStats.Alloc))
-		
-		// Update memory optimizer
-		if po.memoryOptimizer != nil {
-			po.memoryOptimizer.currentMemory.Store(int64(memStats.Alloc))
-		}
-		
-		// Trigger optimizations if memory usage is high
-		if memStats.Alloc > 50*1024*1024 { // 50MB
-			po.OptimizeForLargeState(int64(memStats.Alloc))
+	for {
+		select {
+		case <-ticker.C:
+			var memStats runtime.MemStats
+			runtime.ReadMemStats(&memStats)
+			
+			po.memoryUsage.Store(int64(memStats.Alloc))
+			
+			// Update memory optimizer
+			if po.memoryOptimizer != nil {
+				po.memoryOptimizer.currentMemory.Store(int64(memStats.Alloc))
+			}
+			
+			// Trigger optimizations if memory usage is high
+			if memStats.Alloc > DefaultCompressionThreshold { // 50MB
+				po.OptimizeForLargeState(int64(memStats.Alloc))
+			}
+		case <-po.ctx.Done():
+			return
 		}
 	}
 }

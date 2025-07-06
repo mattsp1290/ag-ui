@@ -137,7 +137,7 @@ func DefaultMonitoringConfig() MonitoringConfig {
 		PrometheusNamespace:      "state_manager",
 		PrometheusSubsystem:      "core",
 		MetricsEnabled:           true,
-		MetricsInterval:          30 * time.Second,
+		MetricsInterval:          DefaultMetricsInterval,
 		LogLevel:                 zapcore.InfoLevel,
 		LogOutput:                os.Stdout,
 		LogFormat:                "json",
@@ -146,29 +146,29 @@ func DefaultMonitoringConfig() MonitoringConfig {
 		EnableTracing:            false,
 		TracingServiceName:       "state-manager",
 		TracingProvider:          "jaeger",
-		TraceSampleRate:          0.1,
+		TraceSampleRate:          DefaultTraceSampleRate,
 		EnableHealthChecks:       true,
-		HealthCheckInterval:      30 * time.Second,
-		HealthCheckTimeout:       5 * time.Second,
+		HealthCheckInterval:      DefaultHealthCheckInterval,
+		HealthCheckTimeout:       DefaultHealthCheckTimeout,
 		AlertThresholds: AlertThresholds{
-			ErrorRate:             5.0,
-			ErrorRateWindow:       5 * time.Minute,
-			P95LatencyMs:          100,
-			P99LatencyMs:          500,
-			MemoryUsagePercent:    80,
-			GCPauseMs:             50,
-			ConnectionPoolUtil:    85,
-			ConnectionErrors:      10,
-			QueueDepth:            1000,
-			QueueLatencyMs:        100,
-			RateLimitRejects:      100,
-			RateLimitUtil:         90,
+			ErrorRate:             DefaultErrorRateThreshold,
+			ErrorRateWindow:       DefaultErrorRateWindow,
+			P95LatencyMs:          DefaultP95LatencyThreshold,
+			P99LatencyMs:          DefaultP99LatencyThreshold,
+			MemoryUsagePercent:    DefaultMemoryUsageThreshold,
+			GCPauseMs:             DefaultGCPauseThreshold,
+			ConnectionPoolUtil:    DefaultConnectionPoolThreshold,
+			ConnectionErrors:      DefaultConnectionErrorThreshold,
+			QueueDepth:            DefaultQueueDepthThreshold,
+			QueueLatencyMs:        DefaultQueueLatencyThreshold,
+			RateLimitRejects:      DefaultRateLimitRejectThreshold,
+			RateLimitUtil:         DefaultRateLimitUtilThreshold,
 		},
 		EnableProfiling:           false,
-		CPUProfileInterval:        60 * time.Second,
-		MemoryProfileInterval:     60 * time.Second,
+		CPUProfileInterval:        DefaultCPUProfileInterval,
+		MemoryProfileInterval:     DefaultMemoryProfileInterval,
 		EnableResourceMonitoring:  true,
-		ResourceSampleInterval:    10 * time.Second,
+		ResourceSampleInterval:    DefaultResourceSampleInterval,
 		AuditIntegration:          true,
 		AuditSeverityLevel:        AuditSeverityInfo,
 	}
@@ -330,7 +330,7 @@ func NewMonitoringSystem(config MonitoringConfig) (*MonitoringSystem, error) {
 		notifiers:    config.AlertNotifiers,
 		activeAlerts: make(map[string]*Alert),
 		alertHistory: make([]Alert, 0),
-		maxHistory:   1000,
+		maxHistory:   DefaultMaxAlertHistory,
 	}
 	
 	// Initialize resource monitor
@@ -405,7 +405,7 @@ func (ms *MonitoringSystem) RecordStateOperation(operation string, duration time
 	ms.operationMetrics.recordOperation(operation, duration, err)
 	
 	// Log significant operations
-	if duration > time.Millisecond*100 || err != nil {
+	if duration > DefaultSlowOperationThreshold || err != nil {
 		fields := []zap.Field{
 			zap.String("operation", operation),
 			zap.Duration("duration", duration),
@@ -672,8 +672,8 @@ func initializeLogger(config MonitoringConfig) (*zap.Logger, error) {
 	
 	if config.LogSampling {
 		zapConfig.Sampling = &zap.SamplingConfig{
-			Initial:    100,
-			Thereafter: 100,
+			Initial:    DefaultLogSamplingInitial,
+			Thereafter: DefaultLogSamplingThereafter,
 		}
 	}
 	
@@ -1101,7 +1101,7 @@ func (ms *MonitoringSystem) sendAlert(alert Alert) {
 	alertKey := fmt.Sprintf("%s_%s", alert.Component, alert.Title)
 	if existing, exists := ms.alertManager.activeAlerts[alertKey]; exists {
 		// If the alert is recent, don't send again
-		if time.Since(existing.Timestamp) < 5*time.Minute {
+		if time.Since(existing.Timestamp) < DefaultDuplicateAlertWindow {
 			return
 		}
 	}
@@ -1165,8 +1165,8 @@ func (lt *LatencyTracker) addSample(latency float64) {
 	
 	lt.samples = append(lt.samples, latency)
 	
-	// Keep only last 1000 samples
-	if len(lt.samples) > 1000 {
+	// Keep only last samples within limit
+	if len(lt.samples) > DefaultLatencySampleSize {
 		lt.samples = lt.samples[1:]
 	}
 }

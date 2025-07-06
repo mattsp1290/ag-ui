@@ -42,7 +42,9 @@ func TestPerformanceOptimizerCreation(t *testing.T) {
 
 // TestConnectionPoolStandalone tests the connection pool functionality
 func TestConnectionPoolStandalone(t *testing.T) {
-	pool := NewConnectionPool(3)
+	pool := NewConnectionPool(3, func() Connection {
+		return NewMockConnection()
+	})
 	defer pool.Close()
 	
 	// Test basic functionality
@@ -312,7 +314,9 @@ func TestPerformanceTargetsStandalone(t *testing.T) {
 // BenchmarkPerformanceEnhancementsStandalone benchmarks the new performance features
 func BenchmarkPerformanceEnhancementsStandalone(b *testing.B) {
 	b.Run("ConnectionPool", func(b *testing.B) {
-		pool := NewConnectionPool(10)
+		pool := NewConnectionPool(10, func() Connection {
+			return NewMockConnection()
+		})
 		defer pool.Close()
 		
 		b.ResetTimer()

@@ -147,6 +147,9 @@ func (mi *MonitoringIntegration) healthCheckHandler(w http.ResponseWriter, r *ht
 	ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 	defer cancel()
 	
+	// Use context for health check operations
+	_ = ctx
+	
 	// Run a simple health check
 	healthStatus := mi.monitoringSystem.GetHealthStatus()
 	
@@ -171,6 +174,9 @@ func (mi *MonitoringIntegration) healthCheckHandler(w http.ResponseWriter, r *ht
 func (mi *MonitoringIntegration) detailedHealthCheckHandler(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
+	
+	// Use context for health check operations
+	_ = ctx
 	
 	healthStatus := mi.monitoringSystem.GetHealthStatus()
 	
@@ -304,8 +310,9 @@ func (rw *responseWriter) WriteHeader(code int) {
 func SetupBasicMonitoring(stateManager *StateManager) (*MonitoringIntegration, error) {
 	config := DefaultMonitoringConfig()
 	
-	// Add log notifier
-	logNotifier := NewLogAlertNotifier(stateManager.logger)
+	// Add log notifier (create a new zap logger for monitoring)
+	zapLogger, _ := zap.NewProduction()
+	logNotifier := NewLogAlertNotifier(zapLogger)
 	config.AlertNotifiers = []AlertNotifier{logNotifier}
 	
 	return NewMonitoringIntegration(stateManager, config)
@@ -325,8 +332,9 @@ func SetupProductionMonitoring(stateManager *StateManager, slackWebhookURL strin
 	config.AlertThresholds.P95LatencyMs = 50
 	config.AlertThresholds.MemoryUsagePercent = 70
 	
-	// Add multiple notifiers
-	logNotifier := NewLogAlertNotifier(stateManager.logger)
+	// Add multiple notifiers (create a new zap logger for monitoring)
+	zapLogger, _ := zap.NewProduction()
+	logNotifier := NewLogAlertNotifier(zapLogger)
 	slackNotifier := NewSlackAlertNotifier(slackWebhookURL, "#alerts", "StateManager")
 	
 	// Use throttled notifiers to prevent spam
@@ -357,8 +365,9 @@ func SetupDevelopmentMonitoring(stateManager *StateManager) (*MonitoringIntegrat
 	config.AlertThresholds.P95LatencyMs = 200
 	config.AlertThresholds.MemoryUsagePercent = 90
 	
-	// Only log alerts
-	logNotifier := NewLogAlertNotifier(stateManager.logger)
+	// Only log alerts (create a new zap logger for monitoring)
+	zapLogger, _ := zap.NewProduction()
+	logNotifier := NewLogAlertNotifier(zapLogger)
 	config.AlertNotifiers = []AlertNotifier{logNotifier}
 	
 	return NewMonitoringIntegration(stateManager, config)

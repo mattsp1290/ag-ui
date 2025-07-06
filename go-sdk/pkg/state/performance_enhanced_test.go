@@ -22,7 +22,9 @@ func TestPerformanceEnhancements(t *testing.T) {
 }
 
 func testConnectionPool(t *testing.T) {
-	pool := NewConnectionPool(5)
+	pool := NewConnectionPool(5, func() Connection {
+		return NewMockConnection()
+	})
 	defer pool.Close()
 	
 	// Test getting and putting connections
@@ -329,7 +331,9 @@ func BenchmarkPerformanceEnhancements(b *testing.B) {
 }
 
 func benchmarkConnectionPool(b *testing.B) {
-	pool := NewConnectionPool(10)
+	pool := NewConnectionPool(10, func() Connection {
+		return NewMockConnection()
+	})
 	defer pool.Close()
 	
 	b.ResetTimer()

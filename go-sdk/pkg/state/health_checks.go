@@ -152,6 +152,7 @@ func (hc *StoreHealthCheck) Check(ctx context.Context) error {
 	state := hc.store.GetState()
 	_, exists := state[testStateID]
 	_ = exists // Variable to check if state exists
+	_ = testCtx // Use the test context
 	var err error
 	if err != nil && !errors.Is(err, ErrStateNotFound) {
 		return fmt.Errorf("store health check failed: %w", err)

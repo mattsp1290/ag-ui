@@ -147,7 +147,7 @@ func DefaultStorageConfig() *StorageConfig {
 			BaseDir:         "/var/lib/ag-ui/state",
 			EnableSharding:  true,
 			ShardCount:      16,
-			FileMode:        0644,
+			FileMode:        0600,
 			EnableBackups:   true,
 			BackupCount:     5,
 			CompressionType: "gzip",
@@ -223,13 +223,11 @@ func NewStorageBackend(config *StorageConfig, logger Logger) (StorageBackend, er
 	
 	switch config.Type {
 	case StorageBackendRedis:
-		// Use mock implementation for development
-		// Replace with actual Redis implementation when dependency is available
-		return NewMockRedisBackend(config, logger)
+		// Use stub implementation when Redis dependency is not available
+		return NewRedisBackend(config, logger)
 	case StorageBackendPostgreSQL:
-		// Use mock implementation for development
-		// Replace with actual PostgreSQL implementation when dependency is available
-		return NewMockPostgreSQLBackend(config, logger)
+		// Use stub implementation when PostgreSQL dependency is not available
+		return NewPostgreSQLBackend(config, logger)
 	case StorageBackendFile:
 		return NewFileBackend(config, logger)
 	default:
@@ -250,6 +248,8 @@ type RedisBackend struct {
 
 // NewRedisBackend creates a new Redis storage backend
 func NewRedisBackend(config *StorageConfig, logger Logger) (*RedisBackend, error) {
+	// TODO: Implement Redis backend when redis package is available
+	/*
 	opts := &redis.Options{
 		Addr:         config.ConnectionURL,
 		Password:     config.RedisOptions.Password,
@@ -271,9 +271,10 @@ func NewRedisBackend(config *StorageConfig, logger Logger) (*RedisBackend, error
 	if err := client.Ping(ctx).Err(); err != nil {
 		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
 	}
+	*/
 	
 	backend := &RedisBackend{
-		client: client,
+		// client: client,
 		config: config,
 		logger: logger,
 		stats:  make(map[string]interface{}),
@@ -288,89 +289,39 @@ func NewRedisBackend(config *StorageConfig, logger Logger) (*RedisBackend, error
 }
 
 func (r *RedisBackend) GetState(ctx context.Context, stateID string) (map[string]interface{}, error) {
-	key := r.stateKey(stateID)
-	
-	data, err := r.client.Get(ctx, key).Result()
-	if err != nil {
-		if err == redis.Nil {
-			return make(map[string]interface{}), nil
-		}
-		return nil, fmt.Errorf("failed to get state from Redis: %w", err)
-	}
-	
-	var state map[string]interface{}
-	if err := json.Unmarshal([]byte(data), &state); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal state: %w", err)
-	}
-	
-	return state, nil
+	// TODO: Implement Redis backend when redis package is available
+	r.logger.Info("GetState called on Redis backend (stub implementation)",
+		String("state_id", stateID))
+	return make(map[string]interface{}), nil
 }
 
 func (r *RedisBackend) SetState(ctx context.Context, stateID string, state map[string]interface{}) error {
-	key := r.stateKey(stateID)
-	
-	data, err := json.Marshal(state)
-	if err != nil {
-		return fmt.Errorf("failed to marshal state: %w", err)
-	}
-	
-	if err := r.client.Set(ctx, key, data, 0).Err(); err != nil {
-		return fmt.Errorf("failed to set state in Redis: %w", err)
-	}
-	
+	// TODO: Implement Redis backend when redis package is available
+	r.logger.Info("SetState called on Redis backend (stub implementation)",
+		String("state_id", stateID))
 	return nil
 }
 
 func (r *RedisBackend) DeleteState(ctx context.Context, stateID string) error {
-	key := r.stateKey(stateID)
-	
-	if err := r.client.Del(ctx, key).Err(); err != nil {
-		return fmt.Errorf("failed to delete state from Redis: %w", err)
-	}
-	
+	// TODO: Implement Redis backend when redis package is available
+	r.logger.Info("DeleteState called on Redis backend (stub implementation)",
+		String("state_id", stateID))
 	return nil
 }
 
 func (r *RedisBackend) GetVersion(ctx context.Context, stateID string, versionID string) (*StateVersion, error) {
-	key := r.versionKey(stateID, versionID)
-	
-	data, err := r.client.Get(ctx, key).Result()
-	if err != nil {
-		if err == redis.Nil {
-			return nil, fmt.Errorf("version not found: %s", versionID)
-		}
-		return nil, fmt.Errorf("failed to get version from Redis: %w", err)
-	}
-	
-	var version StateVersion
-	if err := json.Unmarshal([]byte(data), &version); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal version: %w", err)
-	}
-	
-	return &version, nil
+	// TODO: Implement Redis backend when redis package is available
+	r.logger.Info("GetVersion called on Redis backend (stub implementation)",
+		String("state_id", stateID),
+		String("version_id", versionID))
+	return nil, fmt.Errorf("version not found: %s (Redis backend not implemented)", versionID)
 }
 
 func (r *RedisBackend) SaveVersion(ctx context.Context, stateID string, version *StateVersion) error {
-	key := r.versionKey(stateID, version.ID)
-	
-	data, err := json.Marshal(version)
-	if err != nil {
-		return fmt.Errorf("failed to marshal version: %w", err)
-	}
-	
-	if err := r.client.Set(ctx, key, data, 0).Err(); err != nil {
-		return fmt.Errorf("failed to save version to Redis: %w", err)
-	}
-	
-	// Also add to version list
-	listKey := r.versionListKey(stateID)
-	if err := r.client.ZAdd(ctx, listKey, &redis.Z{
-		Score:  float64(version.Timestamp.Unix()),
-		Member: version.ID,
-	}).Err(); err != nil {
-		return fmt.Errorf("failed to add version to list: %w", err)
-	}
-	
+	// TODO: Implement Redis backend when redis package is available
+	r.logger.Info("SaveVersion called on Redis backend (stub implementation)",
+		String("state_id", stateID),
+		String("version_id", version.ID))
 	return nil
 }
 

@@ -47,6 +47,10 @@ type MetricsData struct {
 func main() {
 	ctx := context.Background()
 	
+	// SECURITY NOTE: This example uses environment variables for database credentials.
+	// Never hardcode credentials in your source code.
+	// Set POSTGRES_CONN_STRING and other connection env vars before running in production.
+	
 	// Demonstrate different storage backends
 	fmt.Println("=== Storage Backend Examples ===\n")
 	
@@ -245,9 +249,16 @@ func demonstratePostgreSQLStorage(ctx context.Context) {
 	fmt.Println("-----------------------------")
 	
 	// Configure PostgreSQL storage
+	// Use environment variable for connection string, with a safe default without credentials
+	connStr := os.Getenv("POSTGRES_CONN_STRING")
+	if connStr == "" {
+		connStr = "postgres://localhost:5432/statedb?sslmode=disable"
+		fmt.Println("NOTE: Using default PostgreSQL connection string. Set POSTGRES_CONN_STRING env var for production use.")
+	}
+	
 	storageConfig := &state.StorageConfig{
 		Type:              state.StorageTypePostgreSQL,
-		ConnectionURL:     "postgres://user:password@localhost:5432/statedb?sslmode=disable",
+		ConnectionURL:     connStr,
 		MaxConnections:    50,
 		ConnectionTimeout: 30 * time.Second,
 		RetryPolicy: state.RetryPolicy{
@@ -368,9 +379,17 @@ func demonstrateHybridStorage(ctx context.Context) {
 	}
 	
 	// Configure fallback storage (PostgreSQL for durability)
+	fallbackConnStr := os.Getenv("POSTGRES_FALLBACK_CONN_STRING")
+	if fallbackConnStr == "" {
+		fallbackConnStr = os.Getenv("POSTGRES_CONN_STRING") // Try primary connection string
+		if fallbackConnStr == "" {
+			fallbackConnStr = "postgres://localhost:5432/statedb"
+		}
+	}
+	
 	fallbackConfig := &state.StorageConfig{
 		Type:              state.StorageTypePostgreSQL,
-		ConnectionURL:     "postgres://user:password@localhost:5432/statedb",
+		ConnectionURL:     fallbackConnStr,
 		MaxConnections:    20,
 		ConnectionTimeout: 10 * time.Second,
 	}

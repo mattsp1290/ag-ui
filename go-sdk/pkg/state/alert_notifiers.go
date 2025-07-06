@@ -3,16 +3,102 @@ package state
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"time"
 
 	"go.uber.org/zap"
 )
+
+// validateWebhookURL validates a webhook URL to prevent SSRF attacks
+func validateWebhookURL(urlStr string) error {
+	if urlStr == "" {
+		return errors.New("webhook URL cannot be empty")
+	}
+
+	u, err := url.Parse(urlStr)
+	if err != nil {
+		return fmt.Errorf("invalid URL format: %w", err)
+	}
+
+	// Only allow HTTPS for security
+	if u.Scheme != "https" {
+		return errors.New("only HTTPS webhook URLs are allowed")
+	}
+
+	// Prevent localhost and internal network access
+	host := u.Hostname()
+	if host == "" {
+		return errors.New("URL must have a valid hostname")
+	}
+
+	// Check for localhost
+	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+		return errors.New("webhook URL cannot point to localhost")
+	}
+
+	// Resolve hostname to check for internal IPs
+	ips, err := net.LookupIP(host)
+	if err != nil {
+		return fmt.Errorf("failed to resolve hostname: %w", err)
+	}
+
+	for _, ip := range ips {
+		if isInternalIP(ip) {
+			return fmt.Errorf("webhook URL resolves to internal IP address: %s", ip.String())
+		}
+	}
+
+	return nil
+}
+
+// isInternalIP checks if an IP address is in internal/private ranges
+func isInternalIP(ip net.IP) bool {
+	// Check for loopback
+	if ip.IsLoopback() {
+		return true
+	}
+
+	// Check for link-local
+	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return true
+	}
+
+	// Check for private IPv4 ranges
+	if ip.To4() != nil {
+		// 10.0.0.0/8
+		if ip[0] == 10 {
+			return true
+		}
+		// 172.16.0.0/12
+		if ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31 {
+			return true
+		}
+		// 192.168.0.0/16
+		if ip[0] == 192 && ip[1] == 168 {
+			return true
+		}
+		// 169.254.0.0/16 (link-local)
+		if ip[0] == 169 && ip[1] == 254 {
+			return true
+		}
+	}
+
+	// Check for IPv6 unique local addresses (fc00::/7)
+	if len(ip) == 16 && (ip[0]&0xfe) == 0xfc {
+		return true
+	}
+
+	return false
+}
 
 // LogAlertNotifier sends alerts to a logger
 type LogAlertNotifier struct {
@@ -114,16 +200,36 @@ type WebhookAlertNotifier struct {
 }
 
 // NewWebhookAlertNotifier creates a new webhook alert notifier
-func NewWebhookAlertNotifier(url string, timeout time.Duration) *WebhookAlertNotifier {
+func NewWebhookAlertNotifier(url string, timeout time.Duration) (*WebhookAlertNotifier, error) {
+	// Validate the webhook URL to prevent SSRF attacks
+	if err := validateWebhookURL(url); err != nil {
+		return nil, fmt.Errorf("invalid webhook URL: %w", err)
+	}
+
+	// Create HTTP client with secure TLS configuration
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			CipherSuites: []uint16{
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			},
+		},
+		// Prevent connection reuse that could bypass URL validation
+		DisableKeepAlives: true,
+	}
+
 	return &WebhookAlertNotifier{
 		url:     url,
 		method:  "POST",
 		headers: make(map[string]string),
 		timeout: timeout,
 		client: &http.Client{
-			Timeout: timeout,
+			Timeout:   timeout,
+			Transport: transport,
 		},
-	}
+	}, nil
 }
 
 // SetHeader sets a header for the webhook request
@@ -366,7 +472,7 @@ type FileAlertNotifier struct {
 
 // NewFileAlertNotifier creates a new file alert notifier
 func NewFileAlertNotifier(filename string) (*FileAlertNotifier, error) {
-	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	file, err := os.OpenFile(filename, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return nil, fmt.Errorf("failed to open alert file: %w", err)
 	}

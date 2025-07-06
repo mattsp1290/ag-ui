@@ -180,7 +180,11 @@ func ExampleCustomMonitoring() {
 	
 	// Add multiple alert notifiers
 	logNotifier := NewLogAlertNotifier(monitoringIntegration.GetMonitoringSystem().Logger())
-	webhookNotifier := NewWebhookAlertNotifier("http://localhost:8080/alerts", 5*time.Second)
+	webhookNotifier, err := NewWebhookAlertNotifier("https://example.com/alerts", 5*time.Second)
+	if err != nil {
+		log.Printf("Failed to create webhook notifier: %v", err)
+		return
+	}
 	
 	// Use conditional notifier for different alert levels
 	criticalNotifier := NewConditionalAlertNotifier(webhookNotifier, func(alert Alert) bool {

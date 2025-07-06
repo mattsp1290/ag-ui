@@ -320,6 +320,7 @@ type ValidationContext struct {
 	EventIndex    int                `json:"event_index"`
 	Config        *ValidationConfig  `json:"config,omitempty"`
 	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	Context       context.Context    `json:"-"` // Context for cancellation
 }
 
 // ValidationMetrics tracks performance metrics for validation
@@ -581,6 +582,7 @@ func (v *EventValidator) ValidateEvent(ctx context.Context, event Event) *Valida
 		EventIndex:   0,
 		Config:       v.config,
 		Metadata:     make(map[string]interface{}),
+		Context:      ctx,
 	}
 
 	// Apply validation rules
@@ -710,6 +712,7 @@ func (v *EventValidator) ValidateSequence(ctx context.Context, events []Event) *
 		EventSequence: events,
 		Config:        isolatedValidator.config,
 		Metadata:      make(map[string]interface{}),
+		Context:       ctx,
 	}
 
 	// Validate each event in sequence

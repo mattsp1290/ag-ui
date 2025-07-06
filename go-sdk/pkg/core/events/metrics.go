@@ -404,6 +404,9 @@ func (m *ValidationPerformanceMetrics) initializeOpenTelemetry() error {
 	
 	// Create meter
 	m.meter = m.meterProvider.Meter("ag-ui/events/validation")
+	if m.meter == nil {
+		return fmt.Errorf("meter provider returned nil meter")
+	}
 	
 	var err error
 	

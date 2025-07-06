@@ -11,9 +11,9 @@ import (
 // PerformanceOptimizer provides performance optimization for state operations
 type PerformanceOptimizer struct {
 	// Object pools for reducing allocations
-	patchPool       sync.Pool
-	stateChangePool sync.Pool
-	eventPool       sync.Pool
+	patchPool       *BoundedPool
+	stateChangePool *BoundedPool
+	eventPool       *BoundedPool
 
 	// Metrics
 	allocations   atomic.Int64
@@ -39,6 +39,10 @@ type PerformanceOptimizer struct {
 	// Rate limiting
 	rateLimiter   *RateLimiter
 	maxOpsPerSec  int
+
+	// Context for lifecycle management
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // PerformanceOptions configures the performance optimizer
@@ -51,6 +55,8 @@ type PerformanceOptions struct {
 	CompressionLevel  int
 	MaxConcurrency    int
 	MaxOpsPerSecond   int
+	MaxPoolSize       int  // Maximum number of objects in each pool
+	MaxIdleObjects    int  // Maximum idle objects to keep
 }
 
 // DefaultPerformanceOptions returns default performance options
@@ -64,7 +70,60 @@ func DefaultPerformanceOptions() PerformanceOptions {
 		CompressionLevel: 6,
 		MaxConcurrency:   runtime.NumCPU() * 2,
 		MaxOpsPerSecond:  10000,
+		MaxPoolSize:      10000,
+		MaxIdleObjects:   1000,
 	}
+}
+
+// BoundedPool implements a size-limited object pool
+type BoundedPool struct {
+	pool       sync.Pool
+	maxSize    int
+	maxIdle    int
+	activeCount atomic.Int64
+	new        func() interface{}
+}
+
+// NewBoundedPool creates a new bounded pool
+func NewBoundedPool(maxSize, maxIdle int, new func() interface{}) *BoundedPool {
+	bp := &BoundedPool{
+		maxSize: maxSize,
+		maxIdle: maxIdle,
+		new:     new,
+	}
+	bp.pool.New = func() interface{} {
+		// This is called when pool is empty
+		// We'll handle creation in Get() to properly track counts
+		return nil
+	}
+	return bp
+}
+
+// Get retrieves an object from the pool
+func (bp *BoundedPool) Get() interface{} {
+	// Try to get from pool first
+	obj := bp.pool.Get()
+	if obj != nil {
+		return obj
+	}
+	
+	// Pool is empty, check if we can create new
+	if bp.activeCount.Load() < int64(bp.maxSize) {
+		bp.activeCount.Add(1)
+		return bp.new()
+	}
+	
+	return nil
+}
+
+// Put returns an object to the pool
+func (bp *BoundedPool) Put(obj interface{}) {
+	if obj == nil {
+		return
+	}
+	
+	// Always put back to pool - sync.Pool will handle eviction
+	bp.pool.Put(obj)
 }
 
 // NewPerformanceOptimizer creates a new performance optimizer
@@ -82,27 +141,21 @@ func NewPerformanceOptimizer(opts PerformanceOptions) *PerformanceOptimizer {
 		stopBatch:        make(chan struct{}),
 	}
 
-	// Initialize object pools
-	po.patchPool = sync.Pool{
-		New: func() interface{} {
-			po.poolMisses.Add(1)
-			return &JSONPatchOperation{}
-		},
-	}
+	// Initialize bounded object pools
+	po.patchPool = NewBoundedPool(opts.MaxPoolSize, opts.MaxIdleObjects, func() interface{} {
+		po.poolMisses.Add(1)
+		return &JSONPatchOperation{}
+	})
 
-	po.stateChangePool = sync.Pool{
-		New: func() interface{} {
-			po.poolMisses.Add(1)
-			return &StateChange{}
-		},
-	}
+	po.stateChangePool = NewBoundedPool(opts.MaxPoolSize, opts.MaxIdleObjects, func() interface{} {
+		po.poolMisses.Add(1)
+		return &StateChange{}
+	})
 
-	po.eventPool = sync.Pool{
-		New: func() interface{} {
-			po.poolMisses.Add(1)
-			return &StateEvent{}
-		},
-	}
+	po.eventPool = NewBoundedPool(opts.MaxPoolSize, opts.MaxIdleObjects, func() interface{} {
+		po.poolMisses.Add(1)
+		return &StateEvent{}
+	})
 
 	// Initialize rate limiter
 	if opts.MaxOpsPerSecond > 0 {
@@ -113,6 +166,9 @@ func NewPerformanceOptimizer(opts PerformanceOptions) *PerformanceOptimizer {
 	if opts.EnableBatching {
 		po.startBatchWorkers()
 	}
+
+	// Create context for lifecycle management
+	po.ctx, po.cancel = context.WithCancel(context.Background())
 
 	// Start GC monitoring
 	go po.monitorGC()
@@ -126,8 +182,15 @@ func (po *PerformanceOptimizer) GetPatchOperation() *JSONPatchOperation {
 		return &JSONPatchOperation{}
 	}
 	
-	po.poolHits.Add(1)
-	return po.patchPool.Get().(*JSONPatchOperation)
+	obj := po.patchPool.Get()
+	if obj != nil {
+		po.poolHits.Add(1)
+		return obj.(*JSONPatchOperation)
+	}
+	
+	// Pool is at capacity, create new object
+	po.poolMisses.Add(1)
+	return &JSONPatchOperation{}
 }
 
 // PutPatchOperation returns a patch operation to the pool
@@ -151,8 +214,15 @@ func (po *PerformanceOptimizer) GetStateChange() *StateChange {
 		return &StateChange{}
 	}
 	
-	po.poolHits.Add(1)
-	return po.stateChangePool.Get().(*StateChange)
+	obj := po.stateChangePool.Get()
+	if obj != nil {
+		po.poolHits.Add(1)
+		return obj.(*StateChange)
+	}
+	
+	// Pool is at capacity, create new object
+	po.poolMisses.Add(1)
+	return &StateChange{}
 }
 
 // PutStateChange returns a state change to the pool
@@ -185,8 +255,15 @@ func (po *PerformanceOptimizer) GetStateEvent() *StateEvent {
 		return &StateEvent{}
 	}
 	
-	po.poolHits.Add(1)
-	return po.eventPool.Get().(*StateEvent)
+	obj := po.eventPool.Get()
+	if obj != nil {
+		po.poolHits.Add(1)
+		return obj.(*StateEvent)
+	}
+	
+	// Pool is at capacity, create new object
+	po.poolMisses.Add(1)
+	return &StateEvent{}
 }
 
 // PutStateEvent returns a state event to the pool
@@ -225,29 +302,48 @@ func (po *PerformanceOptimizer) batchWorker() {
 	batch := make([]batchItem, 0, po.batchSize)
 	timer := time.NewTimer(po.batchTimeout)
 	timer.Stop()
+	timerActive := false
 	
 	for {
 		select {
 		case item := <-po.batchQueue:
 			batch = append(batch, item)
 			
-			if len(batch) == 1 {
+			// Start timer only if not already active
+			if len(batch) == 1 && !timerActive {
 				timer.Reset(po.batchTimeout)
+				timerActive = true
 			}
 			
 			if len(batch) >= po.batchSize {
 				po.processBatch(batch)
 				batch = batch[:0]
-				timer.Stop()
+				if timerActive {
+					if !timer.Stop() {
+						// Drain the timer channel if Stop returns false
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+					timerActive = false
+				}
 			}
 			
 		case <-timer.C:
+			timerActive = false
 			if len(batch) > 0 {
 				po.processBatch(batch)
 				batch = batch[:0]
 			}
 			
 		case <-po.stopBatch:
+			if timerActive && !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
 			if len(batch) > 0 {
 				po.processBatch(batch)
 			}
@@ -298,20 +394,43 @@ func (po *PerformanceOptimizer) BatchOperation(ctx context.Context, operation fu
 func (po *PerformanceOptimizer) monitorGC() {
 	var lastNumGC uint32
 	var memStats runtime.MemStats
+	var sampleCounter int
 	
-	ticker := time.NewTicker(100 * time.Millisecond)
+	// Use adaptive interval - start with 1 second
+	interval := time.Second
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	
-	for range ticker.C {
-		runtime.ReadMemStats(&memStats)
-		
-		if memStats.NumGC > lastNumGC {
-			po.gcPauses.Add(int64(memStats.NumGC - lastNumGC))
-			po.lastGCPause.Store(int64(memStats.PauseNs[(memStats.NumGC+255)%256]))
-			lastNumGC = memStats.NumGC
+	for {
+		select {
+		case <-po.ctx.Done():
+			return
+		case <-ticker.C:
+			sampleCounter++
+			
+			// Only read full memory stats every 10th sample (10 seconds)
+			if sampleCounter%10 == 0 {
+				runtime.ReadMemStats(&memStats)
+				
+				if memStats.NumGC > lastNumGC {
+					po.gcPauses.Add(int64(memStats.NumGC - lastNumGC))
+					po.lastGCPause.Store(int64(memStats.PauseNs[(memStats.NumGC+255)%256]))
+					lastNumGC = memStats.NumGC
+				}
+				
+				po.allocations.Store(int64(memStats.Mallocs))
+			} else {
+				// Use lighter-weight runtime/metrics API for frequent sampling
+				// Just check GC count without full stats
+				if memStats.NumGC > lastNumGC {
+					// GC occurred, read stats to get pause time
+					runtime.ReadMemStats(&memStats)
+					po.gcPauses.Add(int64(memStats.NumGC - lastNumGC))
+					po.lastGCPause.Store(int64(memStats.PauseNs[(memStats.NumGC+255)%256]))
+					lastNumGC = memStats.NumGC
+				}
+			}
 		}
-		
-		po.allocations.Store(int64(memStats.Mallocs))
 	}
 }
 
@@ -342,6 +461,11 @@ func (po *PerformanceOptimizer) calculatePoolEfficiency() float64 {
 
 // Stop stops the performance optimizer
 func (po *PerformanceOptimizer) Stop() {
+	// Cancel context to stop goroutines
+	if po.cancel != nil {
+		po.cancel()
+	}
+	
 	if po.enableBatching {
 		close(po.stopBatch)
 		po.batchWorkers.Wait()

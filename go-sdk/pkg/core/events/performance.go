@@ -148,6 +148,7 @@ type WorkerPool struct {
 	wg         sync.WaitGroup
 	ctx        context.Context
 	cancel     context.CancelFunc
+	stopOnce   sync.Once
 }
 
 // ValidationJob represents a validation task
@@ -187,10 +188,12 @@ func (wp *WorkerPool) Start() {
 
 // Stop gracefully shuts down the worker pool
 func (wp *WorkerPool) Stop() {
-	close(wp.jobQueue)
-	wp.cancel()
-	wp.wg.Wait()
-	close(wp.resultChan)
+	wp.stopOnce.Do(func() {
+		close(wp.jobQueue)
+		wp.cancel()
+		wp.wg.Wait()
+		close(wp.resultChan)
+	})
 }
 
 // Submit adds a validation job to the queue
@@ -545,6 +548,7 @@ type ResourceMonitor struct {
 	mu             sync.RWMutex
 	alertThreshold float64
 	alertFunc      func(string)
+	stopOnce       sync.Once
 }
 
 // ResourceMetrics holds resource utilization metrics
@@ -575,7 +579,9 @@ func (rm *ResourceMonitor) Start() {
 
 // Stop halts resource monitoring
 func (rm *ResourceMonitor) Stop() {
-	close(rm.stopCh)
+	rm.stopOnce.Do(func() {
+		close(rm.stopCh)
+	})
 }
 
 // GetMetrics returns current resource metrics

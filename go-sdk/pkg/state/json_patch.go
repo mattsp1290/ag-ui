@@ -286,24 +286,76 @@ func applyTest(document interface{}, path string, expected interface{}) (interfa
 	return document, nil
 }
 
-// deepCopy creates a deep copy of a value
+// deepCopy creates a deep copy of a value using reflection for better performance
 func deepCopy(v interface{}) interface{} {
 	if v == nil {
 		return nil
 	}
 
-	// Use JSON marshal/unmarshal for deep copy
-	data, err := json.Marshal(v)
-	if err != nil {
-		return v
+	return deepCopyValue(reflect.ValueOf(v)).Interface()
+}
+
+// deepCopyValue performs deep copy using reflection
+func deepCopyValue(original reflect.Value) reflect.Value {
+	if !original.IsValid() {
+		return reflect.Value{}
 	}
 
-	var copy interface{}
-	if err := json.Unmarshal(data, &copy); err != nil {
-		return v
-	}
+	switch original.Kind() {
+	case reflect.Interface:
+		if original.IsNil() {
+			return original
+		}
+		return deepCopyValue(original.Elem())
 
-	return copy
+	case reflect.Ptr:
+		if original.IsNil() {
+			return original
+		}
+		copy := reflect.New(original.Type().Elem())
+		copy.Elem().Set(deepCopyValue(original.Elem()))
+		return copy
+
+	case reflect.Slice:
+		if original.IsNil() {
+			return original
+		}
+		copy := reflect.MakeSlice(original.Type(), original.Len(), original.Cap())
+		for i := 0; i < original.Len(); i++ {
+			copy.Index(i).Set(deepCopyValue(original.Index(i)))
+		}
+		return copy
+
+	case reflect.Map:
+		if original.IsNil() {
+			return original
+		}
+		copy := reflect.MakeMap(original.Type())
+		for _, key := range original.MapKeys() {
+			copy.SetMapIndex(key, deepCopyValue(original.MapIndex(key)))
+		}
+		return copy
+
+	case reflect.Struct:
+		copy := reflect.New(original.Type()).Elem()
+		for i := 0; i < original.NumField(); i++ {
+			if original.Type().Field(i).PkgPath == "" { // exported field
+				copy.Field(i).Set(deepCopyValue(original.Field(i)))
+			}
+		}
+		return copy
+
+	case reflect.Array:
+		copy := reflect.New(original.Type()).Elem()
+		for i := 0; i < original.Len(); i++ {
+			copy.Index(i).Set(deepCopyValue(original.Index(i)))
+		}
+		return copy
+
+	default:
+		// For basic types (string, int, float, bool, etc.), just return the value
+		return original
+	}
 }
 
 // getParent gets the parent container and the last token of a path
@@ -318,7 +370,11 @@ func getParent(document interface{}, tokens []string) (interface{}, string, erro
 
 	parent, err := getValueAtPathTokens(document, tokens[:len(tokens)-1])
 	if err != nil {
-		return nil, "", err
+		return nil, "", fmt.Errorf("failed to get parent at path: %w", err)
+	}
+
+	if parent == nil {
+		return nil, "", fmt.Errorf("parent is nil")
 	}
 
 	return parent, tokens[len(tokens)-1], nil
@@ -336,27 +392,41 @@ func getValueAtPath(document interface{}, path string) (interface{}, error) {
 
 // getValueAtPathTokens gets the value at the specified path tokens
 func getValueAtPathTokens(document interface{}, tokens []string) (interface{}, error) {
+	if document == nil {
+		return nil, fmt.Errorf("document is nil")
+	}
+	
 	current := document
 
-	for _, token := range tokens {
+	for i, token := range tokens {
+		if current == nil {
+			return nil, fmt.Errorf("encountered nil value at path segment %d", i)
+		}
+		
 		switch c := current.(type) {
 		case map[string]interface{}:
+			if c == nil {
+				return nil, fmt.Errorf("map is nil at path segment %d", i)
+			}
 			val, exists := c[token]
 			if !exists {
-				return nil, fmt.Errorf("key %s not found", token)
+				return nil, fmt.Errorf("key %s not found at path segment %d", token, i)
 			}
 			current = val
 		case []interface{}:
+			if c == nil {
+				return nil, fmt.Errorf("slice is nil at path segment %d", i)
+			}
 			idx, _, err := parseArrayIndex(token, len(c))
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("invalid array index at path segment %d: %w", i, err)
 			}
 			if idx < 0 || idx >= len(c) {
-				return nil, fmt.Errorf("array index out of bounds: %d", idx)
+				return nil, fmt.Errorf("array index %d out of bounds [0,%d) at path segment %d", idx, len(c), i)
 			}
 			current = c[idx]
 		default:
-			return nil, fmt.Errorf("cannot index into %T", current)
+			return nil, fmt.Errorf("cannot index into %T at path segment %d (token: %s)", current, i, token)
 		}
 	}
 
@@ -444,7 +514,7 @@ func unescapeJSONPointer(token string) string {
 	return token
 }
 
-// validateJSONPointer validates a JSON Pointer
+// validateJSONPointer validates a JSON Pointer with comprehensive checks
 func validateJSONPointer(pointer string) error {
 	if pointer == "" {
 		return nil // Empty pointer is valid (refers to root)
@@ -452,6 +522,22 @@ func validateJSONPointer(pointer string) error {
 
 	if !strings.HasPrefix(pointer, "/") {
 		return fmt.Errorf("JSON Pointer must start with '/' or be empty")
+	}
+
+	// Check for dangerous patterns
+	if strings.Contains(pointer, "..") {
+		return fmt.Errorf("JSON Pointer contains path traversal pattern (..)")
+	}
+	
+	if strings.Contains(pointer, "//") {
+		return fmt.Errorf("JSON Pointer contains empty path segments")
+	}
+	
+	// Check for control characters
+	for i, r := range pointer {
+		if r < 32 && r != 9 && r != 10 && r != 13 { // Allow tab, LF, CR
+			return fmt.Errorf("JSON Pointer contains control character at position %d", i)
+		}
 	}
 
 	return nil

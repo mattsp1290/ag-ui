@@ -52,31 +52,44 @@ type SubscriptionCallback func(StateChange)
 
 // subscription represents an active subscription
 type subscription struct {
-	id       string
-	path     string
-	callback SubscriptionCallback
+	id           string
+	path         string
+	callback     SubscriptionCallback
+	lastAccessed time.Time // Track access time for cleanup
+	created      time.Time // Track creation time
 }
 
 // StateStore provides versioned state management with history and transactions
 type StateStore struct {
-	mu            sync.RWMutex
-	state         map[string]interface{}
-	version       int64
-	history       []*StateVersion
-	maxHistory    int
-	subscriptions map[string]*subscription
-	transactions  map[string]*StateTransaction
+	// Separate locks for different operations to reduce contention
+	stateMu           sync.RWMutex     // Lock for state operations
+	transactionsMu    sync.RWMutex     // Lock for transaction management
+	historyMu         sync.Mutex       // Lock for history operations
+	
+	state             map[string]interface{}
+	version           int64
+	history           []*StateVersion
+	maxHistory        int
+	subscriptions     sync.Map // Using sync.Map to reduce lock contention
+	transactions      map[string]*StateTransaction
+	
+	// Subscription management
+	subscriptionTTL   time.Duration
+	lastCleanup       time.Time
+	cleanupInterval   time.Duration
 }
 
 // NewStateStore creates a new state store instance
 func NewStateStore(options ...StateStoreOption) *StateStore {
 	store := &StateStore{
-		state:         make(map[string]interface{}),
-		version:       0,
-		history:       make([]*StateVersion, 0),
-		maxHistory:    1000, // Default max history
-		subscriptions: make(map[string]*subscription),
-		transactions:  make(map[string]*StateTransaction),
+		state:             make(map[string]interface{}),
+		version:           0,
+		history:           make([]*StateVersion, 0),
+		maxHistory:        1000, // Default max history
+		transactions:      make(map[string]*StateTransaction),
+		subscriptionTTL:   1 * time.Hour,   // Default TTL for subscriptions
+		cleanupInterval:   10 * time.Minute, // Default cleanup interval
+		lastCleanup:       time.Now(),
 	}
 
 	// Apply options
@@ -102,8 +115,8 @@ func WithMaxHistory(max int) StateStoreOption {
 
 // Get retrieves a value at the specified path
 func (s *StateStore) Get(path string) (interface{}, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
 
 	if path == "" || path == "/" {
 		return s.deepCopyState(s.state), nil
@@ -119,8 +132,8 @@ func (s *StateStore) Get(path string) (interface{}, error) {
 
 // Set updates a value at the specified path
 func (s *StateStore) Set(path string, value interface{}) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 
 	// Handle root path
 	if path == "" || path == "/" {
@@ -193,8 +206,8 @@ func (s *StateStore) ensureParentPaths(path string) error {
 
 // Delete removes a value at the specified path
 func (s *StateStore) Delete(path string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 
 	if path == "" || path == "/" {
 		return fmt.Errorf("cannot delete root")
@@ -212,8 +225,8 @@ func (s *StateStore) Delete(path string) error {
 
 // ApplyPatch applies a JSON Patch to the state
 func (s *StateStore) ApplyPatch(patch JSONPatch) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 
 	return s.applyPatchInternal(patch)
 }
@@ -261,23 +274,26 @@ func (s *StateStore) applyPatchInternal(patch JSONPatch) error {
 
 // CreateSnapshot creates a snapshot of the current state
 func (s *StateStore) CreateSnapshot() (*StateSnapshot, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
+	s.stateMu.RLock()
+	stateCopy := s.deepCopyState(s.state)
+	s.stateMu.RUnlock()
+	
 	id, err := generateID()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate snapshot ID: %w", err)
 	}
 
+	s.historyMu.Lock()
 	currentVersion := ""
 	if len(s.history) > 0 {
 		currentVersion = s.history[len(s.history)-1].ID
 	}
+	s.historyMu.Unlock()
 
 	snapshot := &StateSnapshot{
 		ID:        id,
 		Timestamp: time.Now(),
-		State:     s.deepCopyState(s.state),
+		State:     stateCopy,
 		Version:   currentVersion,
 		Metadata:  make(map[string]interface{}),
 	}
@@ -291,8 +307,8 @@ func (s *StateStore) RestoreSnapshot(snapshot *StateSnapshot) error {
 		return fmt.Errorf("snapshot cannot be nil")
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 
 	// Create patch to transform current state to snapshot state
 	patch := s.createRestorePatch(s.state, snapshot.State)
@@ -303,8 +319,8 @@ func (s *StateStore) RestoreSnapshot(snapshot *StateSnapshot) error {
 
 // GetHistory returns the state history
 func (s *StateStore) GetHistory() ([]*StateVersion, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.historyMu.Lock()
+	defer s.historyMu.Unlock()
 
 	// Return a copy of history
 	historyCopy := make([]*StateVersion, len(s.history))
@@ -324,31 +340,32 @@ func (s *StateStore) GetHistory() ([]*StateVersion, error) {
 
 // Subscribe registers a callback for state changes at the specified path
 func (s *StateStore) Subscribe(path string, callback SubscriptionCallback) func() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	id, _ := generateID()
+	now := time.Now()
 	sub := &subscription{
-		id:       id,
-		path:     path,
-		callback: callback,
+		id:           id,
+		path:         path,
+		callback:     callback,
+		lastAccessed: now,
+		created:      now,
 	}
 
-	s.subscriptions[id] = sub
+	s.subscriptions.Store(id, sub)
+
+	// Trigger cleanup if needed
+	s.maybeCleanupSubscriptions()
 
 	// Return unsubscribe function
 	return func() {
-		s.mu.Lock()
-		defer s.mu.Unlock()
-		delete(s.subscriptions, id)
+		s.subscriptions.Delete(id)
 	}
 }
 
 // Begin starts a new transaction
 func (s *StateStore) Begin() *StateTransaction {
-	s.mu.RLock()
+	s.stateMu.RLock()
 	snapshot := s.deepCopyState(s.state)
-	s.mu.RUnlock()
+	s.stateMu.RUnlock()
 
 	id, _ := generateID()
 	tx := &StateTransaction{
@@ -357,9 +374,9 @@ func (s *StateStore) Begin() *StateTransaction {
 		snapshot: snapshot,
 	}
 
-	s.mu.Lock()
+	s.transactionsMu.Lock()
 	s.transactions[id] = tx
-	s.mu.Unlock()
+	s.transactionsMu.Unlock()
 
 	return tx
 }
@@ -445,6 +462,9 @@ func (s *StateStore) deepCopyState(state map[string]interface{}) map[string]inte
 func (s *StateStore) createVersion(delta JSONPatch, metadata map[string]interface{}) {
 	id, _ := generateID()
 	
+	s.historyMu.Lock()
+	defer s.historyMu.Unlock()
+	
 	parentID := ""
 	if len(s.history) > 0 {
 		parentID = s.history[len(s.history)-1].ID
@@ -461,9 +481,11 @@ func (s *StateStore) createVersion(delta JSONPatch, metadata map[string]interfac
 
 	s.history = append(s.history, version)
 
-	// Trim history if needed
+	// Atomic history trimming to prevent race conditions
 	if len(s.history) > s.maxHistory {
-		s.history = s.history[len(s.history)-s.maxHistory:]
+		// More efficient trimming using copy to avoid memory leaks
+		copy(s.history, s.history[len(s.history)-s.maxHistory:])
+		s.history = s.history[:s.maxHistory]
 	}
 }
 
@@ -499,15 +521,43 @@ func (s *StateStore) detectChanges(oldState, newState map[string]interface{}, pa
 
 // notifySubscribers notifies all relevant subscribers of changes
 func (s *StateStore) notifySubscribers(changes []StateChange) {
+	// Collect notifications without holding locks
+	var notifications []func()
+	
 	for _, change := range changes {
-		for _, sub := range s.subscriptions {
+		s.subscriptions.Range(func(key, value interface{}) bool {
+			sub := value.(*subscription)
 			if s.pathMatches(sub.path, change.Path) {
-				// Call callback in a goroutine to prevent blocking
-				go func(cb SubscriptionCallback, ch StateChange) {
-					cb(ch)
-				}(sub.callback, change)
+				// Update last accessed time
+				sub.lastAccessed = time.Now()
+				
+				// Capture variables for closure
+				cb := sub.callback
+				ch := change
+				
+				notifications = append(notifications, func() {
+					defer func() {
+						if r := recover(); r != nil {
+							// Log panic but don't crash - subscriber callbacks should not crash the system
+							fmt.Printf("[StateStore] Subscriber callback panic: %v\n", r)
+						}
+					}()
+					
+					// Additional safety check - ensure callback is not nil
+					if cb != nil {
+						cb(ch)
+					} else {
+						fmt.Printf("[StateStore] Warning: nil callback encountered\n")
+					}
+				})
 			}
-		}
+			return true
+		})
+	}
+	
+	// Execute all notifications asynchronously
+	for _, notify := range notifications {
+		go notify()
 	}
 }
 
@@ -557,33 +607,38 @@ func generateID() (string, error) {
 
 // GetVersion returns the current version number
 func (s *StateStore) GetVersion() int64 {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
 	return s.version
 }
 
 // GetState returns a copy of the complete current state
 func (s *StateStore) GetState() map[string]interface{} {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
 	return s.deepCopyState(s.state)
 }
 
 // Clear removes all state and history
 func (s *StateStore) Clear() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 
 	s.state = make(map[string]interface{})
 	s.version = 0
+	
+	// Clear history under separate lock
+	s.historyMu.Lock()
 	s.history = make([]*StateVersion, 0)
+	s.historyMu.Unlock()
+	
 	s.createVersion(nil, nil)
 }
 
 // Export exports the current state as JSON
 func (s *StateStore) Export() ([]byte, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.stateMu.RLock()
+	defer s.stateMu.RUnlock()
 
 	return json.MarshalIndent(s.state, "", "  ")
 }
@@ -595,10 +650,48 @@ func (s *StateStore) Import(data []byte) error {
 		return fmt.Errorf("failed to unmarshal state: %w", err)
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.stateMu.Lock()
+	defer s.stateMu.Unlock()
 
 	// Create patch to transform current state to imported state
 	patch := s.createRestorePatch(s.state, newState)
 	return s.applyPatchInternal(patch)
+}
+
+// maybeCleanupSubscriptions performs cleanup if enough time has passed
+func (s *StateStore) maybeCleanupSubscriptions() {
+	now := time.Now()
+	if now.Sub(s.lastCleanup) < s.cleanupInterval {
+		return
+	}
+	
+	s.lastCleanup = now
+	go s.cleanupExpiredSubscriptions()
+}
+
+// cleanupExpiredSubscriptions removes expired subscriptions
+func (s *StateStore) cleanupExpiredSubscriptions() {
+	cutoff := time.Now().Add(-s.subscriptionTTL)
+	
+	s.subscriptions.Range(func(key, value interface{}) bool {
+		sub := value.(*subscription)
+		if sub.lastAccessed.Before(cutoff) {
+			s.subscriptions.Delete(key)
+		}
+		return true
+	})
+}
+
+// WithSubscriptionTTL sets the subscription time-to-live
+func WithSubscriptionTTL(ttl time.Duration) StateStoreOption {
+	return func(s *StateStore) {
+		s.subscriptionTTL = ttl
+	}
+}
+
+// WithCleanupInterval sets the cleanup interval
+func WithCleanupInterval(interval time.Duration) StateStoreOption {
+	return func(s *StateStore) {
+		s.cleanupInterval = interval
+	}
 }

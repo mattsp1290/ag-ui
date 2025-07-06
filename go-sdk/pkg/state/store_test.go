@@ -107,8 +107,18 @@ func TestStateStore_Transactions(t *testing.T) {
 
 	// Verify state hasn't changed yet
 	counter, _ := store.Get("/counter")
-	if counter.(float64) != 0 {
-		t.Error("State changed before commit")
+	// Handle both int and float64 since deep copy preserves type
+	switch v := counter.(type) {
+	case int:
+		if v != 0 {
+			t.Error("State changed before commit")
+		}
+	case float64:
+		if v != 0.0 {
+			t.Error("State changed before commit")
+		}
+	default:
+		t.Errorf("Unexpected type: %T", v)
 	}
 
 	// Commit transaction
@@ -118,8 +128,18 @@ func TestStateStore_Transactions(t *testing.T) {
 
 	// Verify state changed after commit
 	counter, _ = store.Get("/counter")
-	if counter.(float64) != 10 {
-		t.Errorf("Expected counter 10, got %v", counter)
+	// Handle both int and float64 since the behavior might vary
+	switch v := counter.(type) {
+	case int:
+		if v != 10 {
+			t.Errorf("Expected counter 10, got %v", v)
+		}
+	case float64:
+		if v != 10.0 {
+			t.Errorf("Expected counter 10, got %v", v)
+		}
+	default:
+		t.Errorf("Unexpected type: %T", v)
 	}
 }
 
@@ -211,7 +231,8 @@ func TestStateStore_Snapshot(t *testing.T) {
 	// Verify state restored
 	data, _ = store.Get("/data")
 	dataMap = data.(map[string]interface{})
-	if dataMap["value"].(float64) != 100 {
+	// Snapshot preserves original type (int), so check for int
+	if dataMap["value"].(int) != 100 {
 		t.Errorf("Expected value 100 after restore, got %v", dataMap["value"])
 	}
 }
@@ -265,7 +286,13 @@ func TestStateStore_ConcurrentAccess(t *testing.T) {
 			for j := 0; j < 100; j++ {
 				path := fmt.Sprintf("/counter/%d", id)
 				val, _ := store.Get(path)
-				count := int(val.(float64))
+				// Handle both int and float64 types
+				var count int
+				if intVal, ok := val.(int); ok {
+					count = intVal
+				} else if floatVal, ok := val.(float64); ok {
+					count = int(floatVal)
+				}
 				store.Set(path, count+1)
 			}
 		}(i)
@@ -276,7 +303,14 @@ func TestStateStore_ConcurrentAccess(t *testing.T) {
 	// Verify all counters
 	for i := 0; i < 10; i++ {
 		val, _ := store.Get(fmt.Sprintf("/counter/%d", i))
-		if val.(float64) != 100 {
+		// Handle both int and float64 types
+		var count int
+		if intVal, ok := val.(int); ok {
+			count = intVal
+		} else if floatVal, ok := val.(float64); ok {
+			count = int(floatVal)
+		}
+		if count != 100 {
 			t.Errorf("Counter %d has value %v, expected 100", i, val)
 		}
 	}

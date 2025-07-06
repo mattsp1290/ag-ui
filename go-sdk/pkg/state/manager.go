@@ -86,16 +86,22 @@ type StateManager struct {
 	validator        StateValidator
 	rollbackManager  *StateRollback
 	eventHandler     *StateEventHandler
+	securityValidator *SecurityValidator
 
 	// Configuration
 	options ManagerOptions
 
 	// Runtime state
 	mu              sync.RWMutex
-	activeContexts  map[string]*StateContext
+	activeContexts  sync.Map // Use sync.Map for better concurrency
 	updateQueue     chan *updateRequest
 	eventQueue      chan *stateEvent
 	metricsCollector *metricsCollector
+
+	// Context management
+	contextTTL      time.Duration
+	lastCleanup     time.Time
+	cleanupInterval time.Duration
 
 	// Lifecycle
 	ctx    context.Context
@@ -110,6 +116,7 @@ type StateContext struct {
 	Created      time.Time
 	LastAccessed time.Time
 	Metadata     map[string]interface{}
+	mu           sync.RWMutex // Protect concurrent access to LastAccessed
 }
 
 // updateRequest represents a state update request
@@ -185,19 +192,25 @@ func NewStateManager(opts ManagerOptions) (*StateManager, error) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 
+	// Create security validator with safe defaults
+	securityValidator := NewSecurityValidator(DefaultSecurityConfig())
+	
 	sm := &StateManager{
-		store:            store,
-		deltaComputer:    deltaComputer,
-		conflictResolver: conflictResolver,
-		validator:        validator,
-		rollbackManager:  rollbackManager,
-		eventHandler:     eventHandler,
-		options:          opts,
-		activeContexts:   make(map[string]*StateContext),
-		updateQueue:      make(chan *updateRequest, opts.BatchSize*2),
-		eventQueue:       make(chan *stateEvent, opts.EventBufferSize),
-		ctx:              ctx,
-		cancel:           cancel,
+		store:             store,
+		deltaComputer:     deltaComputer,
+		conflictResolver:  conflictResolver,
+		validator:         validator,
+		rollbackManager:   rollbackManager,
+		eventHandler:      eventHandler,
+		securityValidator: securityValidator,
+		options:           opts,
+		updateQueue:       make(chan *updateRequest, opts.BatchSize*2),
+		eventQueue:        make(chan *stateEvent, opts.EventBufferSize),
+		contextTTL:        1 * time.Hour,   // Default context TTL
+		cleanupInterval:   15 * time.Minute, // Default cleanup interval
+		lastCleanup:       time.Now(),
+		ctx:               ctx,
+		cancel:            cancel,
 	}
 
 	if opts.EnableMetrics {
@@ -218,22 +231,57 @@ func NewStateManager(opts ManagerOptions) (*StateManager, error) {
 		go sm.autoCheckpoint()
 	}
 
+	// Start context cleanup worker
+	sm.wg.Add(1)
+	go sm.contextCleanup()
+
 	return sm, nil
 }
 
 // CreateContext creates a new state context
-func (sm *StateManager) CreateContext(stateID string, metadata map[string]interface{}) (string, error) {
-	contextID := uuid.New().String()
+func (sm *StateManager) CreateContext(ctx context.Context, stateID string, metadata map[string]interface{}) (string, error) {
+	if ctx == nil {
+		return "", fmt.Errorf("context cannot be nil")
+	}
+	if stateID == "" {
+		return "", fmt.Errorf("stateID cannot be empty")
+	}
 	
-	sm.mu.Lock()
-	sm.activeContexts[contextID] = &StateContext{
+	// Check if manager is shutting down
+	select {
+	case <-sm.ctx.Done():
+		return "", fmt.Errorf("manager is shutting down: %w", sm.ctx.Err())
+	default:
+	}
+	
+	contextID := uuid.New().String()
+	now := time.Now()
+	
+	// Security validation for metadata
+	if err := sm.securityValidator.ValidateMetadata(metadata); err != nil {
+		return "", fmt.Errorf("security validation failed for metadata: %w", err)
+	}
+	
+	// Create metadata copy to avoid external modifications
+	metadataCopy := make(map[string]interface{})
+	if metadata != nil {
+		for k, v := range metadata {
+			metadataCopy[k] = v
+		}
+	}
+	
+	context := &StateContext{
 		ID:           contextID,
 		StateID:      stateID,
-		Created:      time.Now(),
-		LastAccessed: time.Now(),
-		Metadata:     metadata,
+		Created:      now,
+		LastAccessed: now,
+		Metadata:     metadataCopy,
 	}
-	sm.mu.Unlock()
+	
+	sm.activeContexts.Store(contextID, context)
+
+	// Trigger cleanup if needed
+	sm.maybeCleanupContexts()
 
 	// Emit context created event
 	sm.emitEvent(&stateEvent{
@@ -242,7 +290,7 @@ func (sm *StateManager) CreateContext(stateID string, metadata map[string]interf
 		Timestamp: time.Now(),
 		Data: map[string]interface{}{
 			"contextID": contextID,
-			"metadata":  metadata,
+			"metadata":  metadataCopy,
 		},
 	})
 
@@ -250,25 +298,45 @@ func (sm *StateManager) CreateContext(stateID string, metadata map[string]interf
 }
 
 // GetState retrieves the current state
-func (sm *StateManager) GetState(contextID, stateID string) (interface{}, error) {
+func (sm *StateManager) GetState(ctx context.Context, contextID, stateID string) (interface{}, error) {
+	if ctx == nil {
+		return nil, fmt.Errorf("context cannot be nil")
+	}
+	if contextID == "" {
+		return nil, fmt.Errorf("contextID cannot be empty")
+	}
+	if stateID == "" {
+		return nil, fmt.Errorf("stateID cannot be empty")
+	}
+	
+	// Check if manager is shutting down
+	select {
+	case <-sm.ctx.Done():
+		return nil, fmt.Errorf("manager is shutting down: %w", sm.ctx.Err())
+	default:
+	}
+
 	// Update context access time
 	sm.updateContextAccess(contextID)
 
 	// Get from store with caching
 	state, err := sm.store.Get("/")
 	if err != nil {
-		return nil, fmt.Errorf("failed to get state: %w", err)
+		return nil, fmt.Errorf("failed to get state for stateID %s: %w", stateID, err)
 	}
 
 	// Validate if strict mode is enabled
 	if sm.options.StrictMode {
 		if stateMap, ok := state.(map[string]interface{}); ok {
+			if sm.validator == nil {
+				return nil, fmt.Errorf("validator is nil but strict mode is enabled")
+			}
 			result, err := sm.validator.Validate(stateMap)
 			if err != nil {
-				return nil, fmt.Errorf("state validation error: %w", err)
+				return nil, fmt.Errorf("state validation error for stateID %s: %w", stateID, err)
 			}
 			if !result.Valid {
-				return nil, fmt.Errorf("state validation failed: %v", result.Errors)
+				return nil, fmt.Errorf("state validation failed for stateID %s: %v", stateID, result.Errors)
 			}
 		}
 	}
@@ -277,7 +345,7 @@ func (sm *StateManager) GetState(contextID, stateID string) (interface{}, error)
 }
 
 // UpdateState updates the state with conflict resolution and validation
-func (sm *StateManager) UpdateState(contextID, stateID string, updates map[string]interface{}, opts UpdateOptions) (JSONPatch, error) {
+func (sm *StateManager) UpdateState(ctx context.Context, contextID, stateID string, updates map[string]interface{}, opts UpdateOptions) (JSONPatch, error) {
 	// Create update request
 	req := &updateRequest{
 		contextID: contextID,
@@ -287,11 +355,23 @@ func (sm *StateManager) UpdateState(contextID, stateID string, updates map[strin
 		result:    make(chan updateResult, 1),
 	}
 
+	// Set default timeout if not specified
+	timeout := opts.Timeout
+	if timeout == 0 {
+		timeout = 30 * time.Second
+	}
+
+	// Create timeout context
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	// Submit to update queue
 	select {
 	case sm.updateQueue <- req:
-	case <-time.After(opts.Timeout):
-		return nil, fmt.Errorf("update queue timeout")
+	case <-timeoutCtx.Done():
+		return nil, fmt.Errorf("update queue timeout: %w", timeoutCtx.Err())
+	case <-sm.ctx.Done():
+		return nil, fmt.Errorf("manager shutting down: %w", sm.ctx.Err())
 	}
 
 	// Wait for result
@@ -301,8 +381,10 @@ func (sm *StateManager) UpdateState(contextID, stateID string, updates map[strin
 			return nil, result.err
 		}
 		return result.delta, nil
-	case <-time.After(opts.Timeout):
-		return nil, fmt.Errorf("update processing timeout")
+	case <-timeoutCtx.Done():
+		return nil, fmt.Errorf("update processing timeout: %w", timeoutCtx.Err())
+	case <-sm.ctx.Done():
+		return nil, fmt.Errorf("manager shutting down: %w", sm.ctx.Err())
 	}
 }
 
@@ -319,7 +401,7 @@ func (sm *StateManager) Unsubscribe(unsubscribe func()) {
 }
 
 // CreateCheckpoint creates a manual checkpoint
-func (sm *StateManager) CreateCheckpoint(stateID, name string) (string, error) {
+func (sm *StateManager) CreateCheckpoint(ctx context.Context, stateID, name string) (string, error) {
 	// Get state to ensure it exists
 	_, err := sm.store.Get("/")
 	if err != nil {
@@ -348,7 +430,7 @@ func (sm *StateManager) CreateCheckpoint(stateID, name string) (string, error) {
 }
 
 // Rollback rolls back to a checkpoint
-func (sm *StateManager) Rollback(stateID, checkpointID string) error {
+func (sm *StateManager) Rollback(ctx context.Context, stateID, checkpointID string) error {
 	err := sm.rollbackManager.RollbackToMarker(checkpointID)
 	if err != nil {
 		return fmt.Errorf("failed to rollback: %w", err)
@@ -368,7 +450,7 @@ func (sm *StateManager) Rollback(stateID, checkpointID string) error {
 }
 
 // GetHistory retrieves state history
-func (sm *StateManager) GetHistory(stateID string, limit int) ([]*StateVersion, error) {
+func (sm *StateManager) GetHistory(ctx context.Context, stateID string, limit int) ([]*StateVersion, error) {
 	return sm.store.GetHistory()
 }
 
@@ -486,16 +568,31 @@ func (sm *StateManager) processSingleUpdate(state interface{}, req *updateReques
 	// Update context access
 	sm.updateContextAccess(req.contextID)
 
+	// Security validation for updates
+	if err := sm.securityValidator.ValidateState(req.updates); err != nil {
+		return updateResult{err: fmt.Errorf("security validation failed for updates: %w", err)}
+	}
+
 	// Compute delta between current state and updates
 	delta, err := sm.deltaComputer.ComputeDelta(state, req.updates)
 	if err != nil {
 		return updateResult{err: fmt.Errorf("delta computation failed: %w", err)}
+	}
+	
+	// Security validation for computed delta
+	if err := sm.securityValidator.ValidatePatch(delta); err != nil {
+		return updateResult{err: fmt.Errorf("security validation failed for delta: %w", err)}
 	}
 
 	// Apply the delta to get the new state
 	newState, err := delta.Apply(state)
 	if err != nil {
 		return updateResult{err: fmt.Errorf("delta application failed: %w", err)}
+	}
+	
+	// Security validation for resulting state
+	if err := sm.securityValidator.ValidateState(newState); err != nil {
+		return updateResult{err: fmt.Errorf("security validation failed for new state: %w", err)}
 	}
 
 	// Validate unless skipped
@@ -601,12 +698,12 @@ func (sm *StateManager) autoCheckpoint() {
 
 // createAutoCheckpoints creates checkpoints for all active states
 func (sm *StateManager) createAutoCheckpoints() {
-	sm.mu.RLock()
 	stateIDs := make(map[string]bool)
-	for _, ctx := range sm.activeContexts {
+	sm.activeContexts.Range(func(key, value interface{}) bool {
+		ctx := value.(*StateContext)
 		stateIDs[ctx.StateID] = true
-	}
-	sm.mu.RUnlock()
+		return true
+	})
 
 	for _ = range stateIDs {
 		// Ensure state exists before creating checkpoint
@@ -644,11 +741,11 @@ func (sm *StateManager) collectMetrics() {
 // Helper methods
 
 func (sm *StateManager) updateContextAccess(contextID string) {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
-	if ctx, exists := sm.activeContexts[contextID]; exists {
+	if value, exists := sm.activeContexts.Load(contextID); exists {
+		ctx := value.(*StateContext)
+		ctx.mu.Lock()
 		ctx.LastAccessed = time.Now()
+		ctx.mu.Unlock()
 	}
 }
 
@@ -714,9 +811,12 @@ func (mc *metricsCollector) Collect(sm *StateManager) {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
 
-	sm.mu.RLock()
-	activeContexts := len(sm.activeContexts)
-	sm.mu.RUnlock()
+	// Count active contexts using sync.Map
+	activeContexts := 0
+	sm.activeContexts.Range(func(key, value interface{}) bool {
+		activeContexts++
+		return true
+	})
 
 	mc.metrics = map[string]interface{}{
 		"active_contexts":    activeContexts,
@@ -739,4 +839,60 @@ func (mc *metricsCollector) GetMetrics() map[string]interface{} {
 		result[k] = v
 	}
 	return result
+}
+
+// contextCleanup runs background cleanup for expired contexts
+func (sm *StateManager) contextCleanup() {
+	defer sm.wg.Done()
+
+	ticker := time.NewTicker(sm.cleanupInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			sm.cleanupExpiredContexts()
+		case <-sm.ctx.Done():
+			return
+		}
+	}
+}
+
+// maybeCleanupContexts triggers cleanup if enough time has passed
+func (sm *StateManager) maybeCleanupContexts() {
+	now := time.Now()
+	if now.Sub(sm.lastCleanup) < sm.cleanupInterval {
+		return
+	}
+	
+	sm.lastCleanup = now
+	go sm.cleanupExpiredContexts()
+}
+
+// cleanupExpiredContexts removes expired contexts
+func (sm *StateManager) cleanupExpiredContexts() {
+	cutoff := time.Now().Add(-sm.contextTTL)
+	
+	sm.activeContexts.Range(func(key, value interface{}) bool {
+		ctx := value.(*StateContext)
+		ctx.mu.RLock()
+		lastAccessed := ctx.LastAccessed
+		ctx.mu.RUnlock()
+		
+		if lastAccessed.Before(cutoff) {
+			sm.activeContexts.Delete(key)
+			
+			// Emit context expired event
+			sm.emitEvent(&stateEvent{
+				Type:      "context.expired",
+				StateID:   ctx.StateID,
+				Timestamp: time.Now(),
+				Data: map[string]interface{}{
+					"contextID": ctx.ID,
+					"reason":    "expired",
+				},
+			})
+		}
+		return true
+	})
 }

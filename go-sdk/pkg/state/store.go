@@ -217,8 +217,27 @@ func (s *StateStore) Get(path string) (interface{}, error) {
 		return s.getAllShardsData(), nil
 	}
 
-	// Get the appropriate shard for this path
-	shard := s.getShardForPath(path)
+	// For nested paths, we need to find the correct shard based on the top-level key
+	// Parse the path to get the top-level key
+	tokens := parseJSONPointer(path)
+	if len(tokens) == 0 {
+		// Path doesn't start with '/', might be a stateID - fallback to original behavior
+		shard := s.getShardForPath(path)
+		state := shard.current.Load().(*ImmutableState)
+		atomic.AddInt32(&state.refs, 1)
+		defer atomic.AddInt32(&state.refs, -1)
+
+		value, err := getValueAtPath(state.data, path)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get value at path %s: %w", path, err)
+		}
+
+		return deepCopy(value), nil
+	}
+	
+	// Use the top-level key to determine the shard
+	topLevelPath := "/" + tokens[0]
+	shard := s.getShardForPath(topLevelPath)
 	
 	// Lock-free read using atomic value from the specific shard
 	state := shard.current.Load().(*ImmutableState)
@@ -260,8 +279,37 @@ func (s *StateStore) Set(path string, value interface{}) error {
 		return s.setRootPath(value)
 	}
 
-	// Get the appropriate shard for this path
-	shard := s.getShardForPath(path)
+	// For nested paths, we need to find the correct shard based on the top-level key
+	// Parse the path to get the top-level key
+	tokens := parseJSONPointer(path)
+	if len(tokens) == 0 {
+		// Path doesn't start with '/', might be a stateID - fallback to original behavior
+		shard := s.getShardForPath(path)
+		shard.mu.Lock()
+		defer shard.mu.Unlock()
+
+		currentState := shard.current.Load().(*ImmutableState)
+
+		// Create a patch for this operation
+		patch := JSONPatch{
+			{
+				Op:    JSONPatchOpReplace,
+				Path:  path,
+				Value: value,
+			},
+		}
+
+		// Check if path exists, if not use add operation
+		if _, err := getValueAtPath(currentState.data, path); err != nil {
+			patch[0].Op = JSONPatchOpAdd
+		}
+
+		return s.applyPatchToShard(shard, patch)
+	}
+	
+	// Use the top-level key to determine the shard
+	topLevelPath := "/" + tokens[0]
+	shard := s.getShardForPath(topLevelPath)
 	
 	// Lock only the specific shard
 	shard.mu.Lock()
@@ -419,8 +467,19 @@ func (s *StateStore) Delete(path string) error {
 		return fmt.Errorf("cannot delete root")
 	}
 
-	// Get the appropriate shard for this path
-	shard := s.getShardForPath(path)
+	// For nested paths, we need to find the correct shard based on the top-level key
+	// Parse the path to get the top-level key
+	tokens := parseJSONPointer(path)
+	var shard *stateShard
+	
+	if len(tokens) == 0 {
+		// Path doesn't start with '/', might be a stateID - fallback to original behavior
+		shard = s.getShardForPath(path)
+	} else {
+		// Use the top-level key to determine the shard
+		topLevelPath := "/" + tokens[0]
+		shard = s.getShardForPath(topLevelPath)
+	}
 	
 	// Lock only the specific shard
 	shard.mu.Lock()
@@ -446,7 +505,19 @@ func (s *StateStore) ApplyPatch(patch JSONPatch) error {
 		if op.Path == "" || op.Path == "/" {
 			globalPatches = append(globalPatches, op)
 		} else {
-			shardIdx := s.getShardIndex(op.Path)
+			// For nested paths, we need to find the correct shard based on the top-level key
+			tokens := parseJSONPointer(op.Path)
+			var shardIdx uint32
+			
+			if len(tokens) == 0 {
+				// Path doesn't start with '/', might be a stateID - fallback to original behavior
+				shardIdx = s.getShardIndex(op.Path)
+			} else {
+				// Use the top-level key to determine the shard
+				topLevelPath := "/" + tokens[0]
+				shardIdx = s.getShardIndex(topLevelPath)
+			}
+			
 			patchesByShard[shardIdx] = append(patchesByShard[shardIdx], op)
 		}
 	}

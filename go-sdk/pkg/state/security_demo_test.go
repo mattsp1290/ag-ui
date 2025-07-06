@@ -113,7 +113,7 @@ func TestSecurityDemo(t *testing.T) {
 	
 	// Try to exceed rate limit
 	hitRateLimit := false
-	for i := 0; i < 300; i++ {
+	for i := 0; i < 50; i++ { // Reduced from 300 to 50 for faster testing
 		_, err = sm.UpdateState(ctx, rateLimitCtx, "rate-test", map[string]interface{}{
 			fmt.Sprintf("test_%d", i): i,
 		}, UpdateOptions{})

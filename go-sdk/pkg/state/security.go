@@ -21,15 +21,24 @@ type SecurityConfig struct {
 	ForbiddenPaths    []string // Forbidden JSON Pointer paths
 }
 
+// Security limit constants as per requirements
+const (
+	MaxPatchSize    = 1 << 20  // 1MB
+	MaxStateSize    = 10 << 20 // 10MB
+	MaxJSONDepth    = 10       // 10 levels deep
+	MaxStringLength = 1 << 16  // 64KB
+	MaxArrayLength  = 10000    // 10000 items
+)
+
 // DefaultSecurityConfig returns safe default security settings
 func DefaultSecurityConfig() SecurityConfig {
 	return SecurityConfig{
-		MaxStateSize:      10 * 1024 * 1024, // 10MB
-		MaxMetadataSize:   1024 * 1024,      // 1MB
-		MaxPatchSize:      1024 * 1024,      // 1MB
-		MaxDepth:          10,               // 10 levels deep
-		MaxStringLength:   1024 * 1024,      // 1MB strings
-		MaxArrayLength:    10000,            // 10k elements
+		MaxStateSize:      MaxStateSize,     // 10MB
+		MaxMetadataSize:   1024 * 1024,     // 1MB
+		MaxPatchSize:      MaxPatchSize,     // 1MB
+		MaxDepth:          MaxJSONDepth,     // 10 levels deep
+		MaxStringLength:   MaxStringLength,  // 64KB strings
+		MaxArrayLength:    MaxArrayLength,   // 10k elements
 		MaxObjectKeys:     1000,             // 1k keys
 		AllowedOperations: []JSONPatchOp{
 			JSONPatchOpAdd, JSONPatchOpRemove, JSONPatchOpReplace,
@@ -97,7 +106,12 @@ func (sv *SecurityValidator) ValidatePatch(patch JSONPatch) error {
 	}
 	
 	if patchSize > sv.config.MaxPatchSize {
-		return fmt.Errorf("patch size %d exceeds limit %d", patchSize, sv.config.MaxPatchSize)
+		return ErrPatchTooLarge
+	}
+	
+	// Check JSON depth of the entire patch
+	if err := sv.ValidateJSONDepth(patch); err != nil {
+		return err
 	}
 	
 	// Validate each operation
@@ -200,7 +214,7 @@ func (sv *SecurityValidator) validateValue(value interface{}, depth int) error {
 	switch v := value.(type) {
 	case string:
 		if len(v) > sv.config.MaxStringLength {
-			return fmt.Errorf("string length %d exceeds limit %d", len(v), sv.config.MaxStringLength)
+			return ErrStringTooLong
 		}
 		
 		// Check for suspicious patterns in strings
@@ -210,7 +224,7 @@ func (sv *SecurityValidator) validateValue(value interface{}, depth int) error {
 		
 	case []interface{}:
 		if len(v) > sv.config.MaxArrayLength {
-			return fmt.Errorf("array length %d exceeds limit %d", len(v), sv.config.MaxArrayLength)
+			return ErrArrayTooLong
 		}
 		
 		for i, item := range v {
@@ -221,13 +235,13 @@ func (sv *SecurityValidator) validateValue(value interface{}, depth int) error {
 		
 	case map[string]interface{}:
 		if len(v) > sv.config.MaxObjectKeys {
-			return fmt.Errorf("object key count %d exceeds limit %d", len(v), sv.config.MaxObjectKeys)
+			return ErrTooManyKeys
 		}
 		
 		for key, val := range v {
 			// Validate key
 			if len(key) > sv.config.MaxStringLength {
-				return fmt.Errorf("object key length %d exceeds limit %d", len(key), sv.config.MaxStringLength)
+				return ErrStringTooLong
 			}
 			
 			// Check for suspicious key patterns
@@ -305,4 +319,123 @@ func (sv *SecurityValidator) SanitizeString(s string) string {
 	sanitized = strings.ReplaceAll(sanitized, "data:text/html", "")
 	
 	return sanitized
+}
+
+// GetJSONDepth calculates the maximum depth of a JSON structure
+func (sv *SecurityValidator) GetJSONDepth(data interface{}) (int, error) {
+	if data == nil {
+		return 0, nil
+	}
+	
+	// Marshal to JSON to ensure valid structure
+	jsonData, err := json.Marshal(data)
+	if err != nil {
+		return 0, fmt.Errorf("failed to marshal data: %w", err)
+	}
+	
+	// Parse and calculate depth
+	var parsed interface{}
+	if err := json.Unmarshal(jsonData, &parsed); err != nil {
+		return 0, fmt.Errorf("failed to unmarshal data: %w", err)
+	}
+	
+	return sv.calculateDepth(parsed, 0), nil
+}
+
+// calculateDepth recursively calculates the depth of a value
+func (sv *SecurityValidator) calculateDepth(value interface{}, currentDepth int) int {
+	if value == nil {
+		return currentDepth
+	}
+	
+	maxDepth := currentDepth
+	
+	switch v := value.(type) {
+	case map[string]interface{}:
+		for _, val := range v {
+			depth := sv.calculateDepth(val, currentDepth+1)
+			if depth > maxDepth {
+				maxDepth = depth
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			depth := sv.calculateDepth(item, currentDepth+1)
+			if depth > maxDepth {
+				maxDepth = depth
+			}
+		}
+	default:
+		// Primitive type, no increase in depth
+		maxDepth = currentDepth
+	}
+	
+	return maxDepth
+}
+
+// ValidateJSONDepth checks if the JSON depth exceeds the configured limit
+func (sv *SecurityValidator) ValidateJSONDepth(data interface{}) error {
+	depth, err := sv.GetJSONDepth(data)
+	if err != nil {
+		return fmt.Errorf("failed to calculate JSON depth: %w", err)
+	}
+	
+	if depth > sv.config.MaxDepth {
+		return fmt.Errorf("JSON depth %d exceeds maximum allowed depth %d", depth, sv.config.MaxDepth)
+	}
+	
+	return nil
+}
+
+// EstimateSize provides a more accurate size estimation for complex objects
+func (sv *SecurityValidator) EstimateSize(value interface{}) (int64, error) {
+	// For nil values
+	if value == nil {
+		return 4, nil // "null"
+	}
+	
+	switch v := value.(type) {
+	case string:
+		// Account for JSON string encoding overhead
+		return int64(len(v) + 2), nil // quotes
+	case []interface{}:
+		size := int64(2) // "[]"
+		for i, item := range v {
+			itemSize, err := sv.EstimateSize(item)
+			if err != nil {
+				return 0, err
+			}
+			size += itemSize
+			if i < len(v)-1 {
+				size++ // comma
+			}
+		}
+		return size, nil
+	case map[string]interface{}:
+		size := int64(2) // "{}"
+		i := 0
+		for key, val := range v {
+			// Key size with quotes and colon
+			size += int64(len(key) + 3) // "key":
+			
+			valSize, err := sv.EstimateSize(val)
+			if err != nil {
+				return 0, err
+			}
+			size += valSize
+			
+			if i < len(v)-1 {
+				size++ // comma
+			}
+			i++
+		}
+		return size, nil
+	default:
+		// Use JSON marshaling for other types
+		data, err := json.Marshal(v)
+		if err != nil {
+			return 0, fmt.Errorf("failed to estimate size: %w", err)
+		}
+		return int64(len(data)), nil
+	}
 }

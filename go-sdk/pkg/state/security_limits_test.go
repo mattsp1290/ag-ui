@@ -1,0 +1,362 @@
+package state
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+)
+
+// TestSecurityLimits verifies that all security limits are properly enforced
+func TestSecurityLimits(t *testing.T) {
+	sm, err := NewStateManager(DefaultManagerOptions())
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+	defer sm.Close()
+
+	ctx := context.Background()
+	contextID, err := sm.CreateContext(ctx, "test-state", nil)
+	if err != nil {
+		t.Fatalf("Failed to create context: %v", err)
+	}
+
+	t.Run("MaxPatchSize", func(t *testing.T) {
+		// Create a patch that exceeds MaxPatchSize (1MB)
+		largeValue := strings.Repeat("a", MaxPatchSize+1)
+		updates := map[string]interface{}{
+			"large": largeValue,
+		}
+
+		_, err := sm.UpdateState(ctx, contextID, "test-state", updates, UpdateOptions{})
+		if err == nil {
+			t.Error("Expected error for patch exceeding MaxPatchSize")
+		}
+	})
+
+	t.Run("MaxStateSize", func(t *testing.T) {
+		// Reset state for this test
+		contextID2, err := sm.CreateContext(ctx, "test-state-size", nil)
+		if err != nil {
+			t.Fatalf("Failed to create context for state size test: %v", err)
+		}
+		
+		// Create multiple updates that together exceed MaxStateSize (10MB)
+		// Use chunks smaller than MaxStringLength (64KB)
+		chunkSize := 50 * 1024   // 50KB chunks (under 64KB limit)
+		
+		// Keep adding chunks until we hit the limit
+		successCount := 0
+		for i := 0; i < 250; i++ {
+			chunk := strings.Repeat("b", chunkSize)
+			updates := map[string]interface{}{
+				fmt.Sprintf("chunk_%d", i): chunk,
+			}
+
+			_, err := sm.UpdateState(ctx, contextID2, "test-state-size", updates, UpdateOptions{})
+			if err != nil {
+				// We should have been able to add at least some chunks
+				if successCount < 10 {
+					t.Errorf("Failed too early at chunk %d with only %d successful chunks: %v", i, successCount, err)
+				}
+				// But we should eventually hit the limit
+				if strings.Contains(err.Error(), "state size") || strings.Contains(err.Error(), "exceeds") {
+					// Expected - we hit the size limit
+					return
+				}
+				t.Errorf("Unexpected error type at chunk %d: %v", i, err)
+				return
+			}
+			successCount++
+			
+			// If we've added way too much data without error, that's a problem
+			totalSize := int64(successCount * chunkSize)
+			if totalSize > MaxStateSize+1024*1024 { // Allow 1MB buffer for overhead
+				t.Errorf("Added %d bytes without hitting size limit (limit is %d)", totalSize, MaxStateSize)
+				return
+			}
+		}
+		
+		t.Error("Never hit state size limit despite adding lots of data")
+	})
+
+	t.Run("MaxJSONDepth", func(t *testing.T) {
+		// Create deeply nested structure exceeding MaxJSONDepth (10 levels)
+		var nested interface{} = "value"
+		for i := 0; i < MaxJSONDepth+5; i++ {
+			nested = map[string]interface{}{
+				"level": nested,
+			}
+		}
+
+		updates := map[string]interface{}{
+			"deep": nested,
+		}
+
+		_, err := sm.UpdateState(ctx, contextID, "test-state", updates, UpdateOptions{})
+		if err == nil {
+			t.Error("Expected error for JSON depth exceeding MaxJSONDepth")
+		}
+	})
+
+	t.Run("MaxStringLength", func(t *testing.T) {
+		// Create a string exceeding MaxStringLength (64KB)
+		longString := strings.Repeat("c", MaxStringLength+1)
+		updates := map[string]interface{}{
+			"longString": longString,
+		}
+
+		_, err := sm.UpdateState(ctx, contextID, "test-state", updates, UpdateOptions{})
+		if err == nil {
+			t.Error("Expected error for string exceeding MaxStringLength")
+		}
+	})
+
+	t.Run("MaxArrayLength", func(t *testing.T) {
+		// Create an array exceeding MaxArrayLength (10000 items)
+		largeArray := make([]interface{}, MaxArrayLength+1)
+		for i := range largeArray {
+			largeArray[i] = i
+		}
+
+		updates := map[string]interface{}{
+			"largeArray": largeArray,
+		}
+
+		_, err := sm.UpdateState(ctx, contextID, "test-state", updates, UpdateOptions{})
+		if err == nil {
+			t.Error("Expected error for array exceeding MaxArrayLength")
+		}
+	})
+
+	t.Run("ForbiddenPaths", func(t *testing.T) {
+		// Test updates to forbidden paths
+		forbiddenPaths := []string{"/admin", "/config", "/secrets", "/internal"}
+
+		for _, path := range forbiddenPaths {
+			patch := JSONPatch{
+				{Op: JSONPatchOpAdd, Path: path, Value: "test"},
+			}
+
+			err := sm.securityValidator.ValidatePatch(patch)
+			if err == nil {
+				t.Errorf("Expected error for forbidden path %s", path)
+			}
+		}
+	})
+
+	t.Run("MaliciousContent", func(t *testing.T) {
+		// Test malicious content detection
+		maliciousStrings := []string{
+			"<script>alert('xss')</script>",
+			"javascript:alert('xss')",
+			"data:text/html,<script>alert('xss')</script>",
+		}
+
+		for _, malicious := range maliciousStrings {
+			updates := map[string]interface{}{
+				"content": malicious,
+			}
+
+			_, err := sm.UpdateState(ctx, contextID, "test-state", updates, UpdateOptions{})
+			if err == nil {
+				t.Errorf("Expected error for malicious content: %s", malicious)
+			}
+		}
+	})
+}
+
+// TestRateLimiting verifies rate limiting functionality
+// TODO: Fix this test to work with the new RateLimiter implementation
+func TestRateLimiting_Disabled(t *testing.T) {
+	t.Skip("Temporarily disabled - needs to be updated for new RateLimiter implementation")
+}
+
+func TestRateLimiting_Original(t *testing.T) {
+	config := DefaultClientRateLimiterConfig()
+	config.RatePerSecond = 10  // 10 requests per second
+	config.BurstSize = 20      // Allow burst of 20
+	rl := NewClientRateLimiter(config)
+
+	t.Run("BasicRateLimit", func(t *testing.T) {
+		clientID := "test-client"
+
+		// Should allow burst
+		for i := 0; i < config.BurstSize; i++ {
+			if !rl.Allow(clientID) {
+				t.Errorf("Request %d should be allowed within burst", i)
+			}
+		}
+
+		// Next request should be rate limited
+		if rl.Allow(clientID) {
+			t.Error("Request should be rate limited after burst")
+		}
+
+		// Wait for rate limit to replenish
+		time.Sleep(100 * time.Millisecond)
+
+		// Should allow one more request
+		if !rl.Allow(clientID) {
+			t.Error("Request should be allowed after waiting")
+		}
+	})
+
+	t.Run("MultipleClients", func(t *testing.T) {
+		// Each client should have independent rate limit
+		client1 := "client1"
+		client2 := "client2"
+
+		// Exhaust client1's burst
+		for i := 0; i < config.BurstSize; i++ {
+			rl.Allow(client1)
+		}
+
+		// Client2 should still be allowed
+		if !rl.Allow(client2) {
+			t.Error("Client2 should not be affected by client1's rate limit")
+		}
+	})
+
+	t.Run("ClientCleanup", func(t *testing.T) {
+		// Create many clients to trigger cleanup
+		for i := 0; i < config.MaxClients+100; i++ {
+			clientID := fmt.Sprintf("cleanup-client-%d", i)
+			rl.Allow(clientID)
+		}
+
+		// Check that client count doesn't exceed max
+		if rl.GetClientCount() > config.MaxClients {
+			t.Errorf("Client count %d exceeds max %d", rl.GetClientCount(), config.MaxClients)
+		}
+	})
+}
+
+// TestConcurrentSecurityValidation tests security validation under concurrent load
+func TestConcurrentSecurityValidation(t *testing.T) {
+	sm, err := NewStateManager(DefaultManagerOptions())
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+	defer sm.Close()
+
+	ctx := context.Background()
+	
+	// Create multiple contexts
+	numContexts := 10
+	contexts := make([]string, numContexts)
+	for i := 0; i < numContexts; i++ {
+		contextID, err := sm.CreateContext(ctx, fmt.Sprintf("state-%d", i), nil)
+		if err != nil {
+			t.Fatalf("Failed to create context %d: %v", i, err)
+		}
+		contexts[i] = contextID
+	}
+
+	// Concurrent updates with various security violations
+	var wg sync.WaitGroup
+	numWorkers := 20
+	updatesPerWorker := 100
+
+	for i := 0; i < numWorkers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+
+			for j := 0; j < updatesPerWorker; j++ {
+				contextID := contexts[j%numContexts]
+				
+				// Mix of valid and invalid updates
+				var updates map[string]interface{}
+				switch j % 5 {
+				case 0: // Valid update
+					updates = map[string]interface{}{
+						fmt.Sprintf("worker_%d_update_%d", workerID, j): "valid",
+					}
+				case 1: // String too long
+					updates = map[string]interface{}{
+						"long": strings.Repeat("x", MaxStringLength+1),
+					}
+				case 2: // Array too long
+					arr := make([]interface{}, MaxArrayLength+1)
+					updates = map[string]interface{}{
+						"array": arr,
+					}
+				case 3: // Too deep
+					var deep interface{} = "value"
+					for k := 0; k < MaxJSONDepth+2; k++ {
+						deep = map[string]interface{}{"d": deep}
+					}
+					updates = map[string]interface{}{
+						"deep": deep,
+					}
+				case 4: // Too many keys
+					updates = make(map[string]interface{})
+					for k := 0; k < 1001; k++ {
+						updates[fmt.Sprintf("key_%d", k)] = k
+					}
+				}
+
+				_, err := sm.UpdateState(ctx, contextID, fmt.Sprintf("state-%d", j%numContexts), updates, UpdateOptions{})
+				
+				// Check that appropriate errors are returned
+				if j%5 == 0 && err != nil {
+					t.Errorf("Worker %d: Valid update %d failed: %v", workerID, j, err)
+				} else if j%5 != 0 && err == nil {
+					t.Errorf("Worker %d: Invalid update %d should have failed", workerID, j)
+				}
+			}
+		}(i)
+	}
+
+	wg.Wait()
+}
+
+// TestRateLimitingIntegration tests rate limiting in the state manager
+func TestRateLimitingIntegration(t *testing.T) {
+	// Create state manager with custom rate limiting
+	opts := DefaultManagerOptions()
+	sm, err := NewStateManager(opts)
+	if err != nil {
+		t.Fatalf("Failed to create state manager: %v", err)
+	}
+	defer sm.Close()
+
+	ctx := context.Background()
+	contextID, err := sm.CreateContext(ctx, "rate-test", nil)
+	if err != nil {
+		t.Fatalf("Failed to create context: %v", err)
+	}
+
+	// Default rate limit should allow reasonable burst
+	numRequests := 150
+	errors := 0
+	start := time.Now()
+
+	for i := 0; i < numRequests; i++ {
+		updates := map[string]interface{}{
+			fmt.Sprintf("update_%d", i): i,
+		}
+
+		_, err := sm.UpdateState(ctx, contextID, "rate-test", updates, UpdateOptions{})
+		if err != nil && strings.Contains(err.Error(), "rate limit exceeded") {
+			errors++
+		}
+	}
+
+	duration := time.Since(start)
+
+	// Should have some rate limit errors
+	if errors == 0 {
+		t.Error("Expected some rate limit errors")
+	}
+
+	// But not all requests should fail
+	if errors == numRequests {
+		t.Error("All requests were rate limited")
+	}
+
+	t.Logf("Rate limiting: %d/%d requests failed in %v", errors, numRequests, duration)
+}

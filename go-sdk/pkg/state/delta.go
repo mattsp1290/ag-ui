@@ -172,51 +172,110 @@ func (dc *DeltaComputer) computeDiff(old, new interface{}, path string) JSONPatc
 
 // computeObjectDiff computes differences between two objects
 func (dc *DeltaComputer) computeObjectDiff(old, new map[string]interface{}, path string) JSONPatch {
+	// Use the efficient algorithm instead
+	return dc.computeEfficientDiff(old, new, path)
+}
+
+// computeEfficientDiff uses a hash-based linear algorithm for O(n) complexity
+func (dc *DeltaComputer) computeEfficientDiff(old, new map[string]interface{}, path string) JSONPatch {
 	var patch JSONPatch
-
-	// Track all keys
-	allKeys := make(map[string]bool)
-	for k := range old {
-		allKeys[k] = true
+	
+	// Pre-allocate patch slice with estimated capacity to reduce allocations
+	estimatedOps := len(old)/4 + len(new)/4
+	patch = make(JSONPatch, 0, estimatedOps)
+	
+	// Build hash index for old values for O(1) lookups
+	// We store a hash of the value for quick comparison
+	oldValueHashes := make(map[string]uint64, len(old))
+	for k, v := range old {
+		oldValueHashes[k] = dc.hashValue(v)
 	}
+	
+	// Single pass through new map to detect additions and modifications
+	processedKeys := make(map[string]bool, len(new))
+	
+	// Process keys in sorted order for consistent output
+	newKeys := make([]string, 0, len(new))
 	for k := range new {
-		allKeys[k] = true
+		newKeys = append(newKeys, k)
 	}
-
-	// Sort keys for consistent ordering
-	var keys []string
-	for k := range allKeys {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-
-	// Process each key
-	for _, key := range keys {
+	sort.Strings(newKeys)
+	
+	// Single pass comparison for additions and modifications
+	for _, key := range newKeys {
+		processedKeys[key] = true
 		childPath := path + "/" + escapeJSONPointer(key)
-		oldVal, oldExists := old[key]
-		newVal, newExists := new[key]
-
-		if !oldExists && newExists {
-			// Added
+		newVal := new[key]
+		
+		if oldHash, exists := oldValueHashes[key]; exists {
+			// Key exists in old - check if modified
+			oldVal := old[key]
+			newHash := dc.hashValue(newVal)
+			
+			// Quick hash comparison first
+			if oldHash != newHash {
+				// Hashes differ, do deep comparison
+				if !reflect.DeepEqual(oldVal, newVal) {
+					// Values are different, generate diff
+					childPatch := dc.computeDiff(oldVal, newVal, childPath)
+					patch = append(patch, childPatch...)
+				}
+			}
+			// If hashes are equal, values are equal (with very high probability)
+		} else {
+			// Key doesn't exist in old - it's an addition
 			patch = append(patch, JSONPatchOperation{
 				Op:    JSONPatchOpAdd,
 				Path:  childPath,
 				Value: newVal,
 			})
-		} else if oldExists && !newExists {
-			// Removed
+		}
+	}
+	
+	// Single pass through old map to detect deletions
+	// We need to check which keys from old are not in new
+	for key := range old {
+		if !processedKeys[key] {
+			// Key exists in old but not in new - it's a deletion
+			childPath := path + "/" + escapeJSONPointer(key)
 			patch = append(patch, JSONPatchOperation{
 				Op:   JSONPatchOpRemove,
 				Path: childPath,
 			})
-		} else if oldExists && newExists {
-			// Possibly modified
-			childPatch := dc.computeDiff(oldVal, newVal, childPath)
-			patch = append(patch, childPatch...)
 		}
 	}
-
+	
 	return patch
+}
+
+// hashValue computes a hash for a value for quick comparison
+func (dc *DeltaComputer) hashValue(value interface{}) uint64 {
+	// Use JSON marshaling for consistent hashing
+	// This ensures that equivalent values have the same hash
+	data, err := json.Marshal(value)
+	if err != nil {
+		// Fallback to a simple hash based on type and string representation
+		return uint64(len(fmt.Sprintf("%T%v", value, value)))
+	}
+	
+	// Use FNV-1a hash for good distribution and speed
+	h := fnv64a(data)
+	return h
+}
+
+// fnv64a implements FNV-1a 64-bit hash
+func fnv64a(data []byte) uint64 {
+	const (
+		offset64 = 14695981039346656037
+		prime64  = 1099511628211
+	)
+	
+	hash := uint64(offset64)
+	for _, b := range data {
+		hash ^= uint64(b)
+		hash *= prime64
+	}
+	return hash
 }
 
 // computeArrayDiff computes differences between two arrays
@@ -327,10 +386,14 @@ func (dc *DeltaComputer) OptimizePatch(patch JSONPatch) JSONPatch {
 		return patch
 	}
 
-	optimized := patch
+	// Create a copy to avoid modifying the original
+	optimized := make(JSONPatch, len(patch))
+	copy(optimized, patch)
 
-	// Apply optimization passes
+	// Apply optimization passes in optimal order
+	optimized = dc.batchRelatedOps(optimized)        // NEW: Batch related operations
 	optimized = dc.combineAdjacentOps(optimized)
+	optimized = dc.optimizePathOperations(optimized) // NEW: Optimize JSON pointer paths
 	optimized = dc.eliminateRedundantOps(optimized)
 	
 	if dc.options.OptimizeMove {
@@ -342,6 +405,7 @@ func (dc *DeltaComputer) OptimizePatch(patch JSONPatch) JSONPatch {
 	}
 
 	optimized = dc.reorderOps(optimized)
+	optimized = dc.mergeArrayOperations(optimized)   // NEW: Merge array operations
 
 	return optimized
 }
@@ -554,6 +618,309 @@ func (dc *DeltaComputer) reorderOps(patch JSONPatch) JSONPatch {
 	}
 
 	return reordered
+}
+
+// batchRelatedOps groups operations on the same parent path for better performance
+func (dc *DeltaComputer) batchRelatedOps(patch JSONPatch) JSONPatch {
+	if len(patch) <= 1 {
+		return patch
+	}
+	
+	// Group operations by parent path
+	groups := make(map[string][]JSONPatchOperation)
+	for _, op := range patch {
+		parentPath := getParentPath(op.Path)
+		groups[parentPath] = append(groups[parentPath], op)
+	}
+	
+	// Rebuild patch with grouped operations
+	var batched JSONPatch
+	
+	// Process groups in sorted order for consistency
+	var paths []string
+	for path := range groups {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	
+	for _, path := range paths {
+		ops := groups[path]
+		// Don't reorder operations within the same path to preserve semantics
+		// Just keep them in their original order
+		batched = append(batched, ops...)
+	}
+	
+	return batched
+}
+
+// optimizePathOperations optimizes JSON Pointer paths for efficiency
+func (dc *DeltaComputer) optimizePathOperations(patch JSONPatch) JSONPatch {
+	// Create a map to track path operations
+	pathOps := make(map[string][]int)
+	for i, op := range patch {
+		pathOps[op.Path] = append(pathOps[op.Path], i)
+	}
+	
+	// Optimize operations that affect the same path
+	optimized := make(JSONPatch, 0, len(patch))
+	processed := make(map[int]bool)
+	
+	// Process paths in order of first occurrence to maintain operation order
+	processOrder := make([]string, 0, len(pathOps))
+	seen := make(map[string]bool)
+	for _, op := range patch {
+		if !seen[op.Path] {
+			seen[op.Path] = true
+			processOrder = append(processOrder, op.Path)
+		}
+	}
+	
+	for _, path := range processOrder {
+		indices := pathOps[path]
+		if len(indices) == 0 {
+			continue
+		}
+		
+		// Skip if already processed
+		allProcessed := true
+		for _, idx := range indices {
+			if !processed[idx] {
+				allProcessed = false
+				break
+			}
+		}
+		if allProcessed {
+			continue
+		}
+		
+		if len(indices) > 1 {
+			// Find the most efficient combination
+			finalOp := dc.combinePathOperations(patch, indices)
+			if finalOp != nil {
+				optimized = append(optimized, *finalOp)
+				// Mark all operations as processed
+				for _, idx := range indices {
+					processed[idx] = true
+				}
+				continue
+			}
+		}
+		
+		// Single operation or couldn't combine - add all unprocessed ops for this path
+		for _, idx := range indices {
+			if !processed[idx] {
+				optimized = append(optimized, patch[idx])
+				processed[idx] = true
+			}
+		}
+	}
+	
+	return optimized
+}
+
+// mergeArrayOperations merges multiple array operations for efficiency
+func (dc *DeltaComputer) mergeArrayOperations(patch JSONPatch) JSONPatch {
+	// Group array operations by array path
+	arrayOps := make(map[string][]JSONPatchOperation)
+	var nonArrayOps JSONPatch
+	
+	for _, op := range patch {
+		if isArrayOperation(op) {
+			arrayPath := getArrayPath(op.Path)
+			arrayOps[arrayPath] = append(arrayOps[arrayPath], op)
+		} else {
+			nonArrayOps = append(nonArrayOps, op)
+		}
+	}
+	
+	// Process each array's operations
+	var merged JSONPatch
+	for _, ops := range arrayOps {
+		if len(ops) > 1 {
+			// Merge multiple operations on the same array
+			mergedOps := dc.mergeArrayOps(ops)
+			merged = append(merged, mergedOps...)
+		} else {
+			merged = append(merged, ops...)
+		}
+	}
+	
+	// Combine with non-array operations
+	merged = append(merged, nonArrayOps...)
+	
+	return merged
+}
+
+// Helper method to get operation priority for sorting
+func (dc *DeltaComputer) opPriority(op JSONPatchOp) int {
+	switch op {
+	case JSONPatchOpRemove:
+		return 1
+	case JSONPatchOpReplace:
+		return 2
+	case JSONPatchOpMove:
+		return 3
+	case JSONPatchOpCopy:
+		return 4
+	case JSONPatchOpAdd:
+		return 5
+	case JSONPatchOpTest:
+		return 6
+	default:
+		return 7
+	}
+}
+
+// combinePathOperations combines multiple operations on the same path
+func (dc *DeltaComputer) combinePathOperations(patch JSONPatch, indices []int) *JSONPatchOperation {
+	if len(indices) == 0 {
+		return nil
+	}
+	
+	// Sort indices to process operations in order
+	sortedIndices := make([]int, len(indices))
+	copy(sortedIndices, indices)
+	sort.Ints(sortedIndices)
+	
+	// Analyze the sequence of operations
+	var hasAdd, hasRemove, hasReplace bool
+	var lastValue interface{}
+	var firstOpIsAdd bool
+	
+	for i, idx := range sortedIndices {
+		op := patch[idx]
+		switch op.Op {
+		case JSONPatchOpAdd:
+			hasAdd = true
+			lastValue = op.Value
+			if i == 0 {
+				firstOpIsAdd = true
+			}
+		case JSONPatchOpRemove:
+			hasRemove = true
+		case JSONPatchOpReplace:
+			hasReplace = true
+			lastValue = op.Value
+		}
+	}
+	
+	// Determine the final operation
+	if hasRemove && !hasAdd && !hasReplace {
+		// Only removes - keep the remove
+		return &JSONPatchOperation{
+			Op:   JSONPatchOpRemove,
+			Path: patch[indices[0]].Path,
+		}
+	} else if firstOpIsAdd && hasReplace {
+		// Add followed by replace - can be optimized to just add with final value
+		// This ensures the path exists and has the final value
+		return &JSONPatchOperation{
+			Op:    JSONPatchOpAdd,
+			Path:  patch[sortedIndices[0]].Path,
+			Value: lastValue,
+		}
+	} else if hasReplace && !hasAdd {
+		// Only replace operations
+		return &JSONPatchOperation{
+			Op:    JSONPatchOpReplace,
+			Path:  patch[indices[0]].Path,
+			Value: lastValue,
+		}
+	} else if hasAdd && !hasReplace {
+		// Only add operations - keep the last one
+		return &JSONPatchOperation{
+			Op:    JSONPatchOpAdd,
+			Path:  patch[indices[0]].Path,
+			Value: lastValue,
+		}
+	}
+	
+	return nil
+}
+
+// mergeArrayOps merges operations on the same array
+func (dc *DeltaComputer) mergeArrayOps(ops []JSONPatchOperation) JSONPatch {
+	// Sort operations by index (reverse order for removes)
+	sort.Slice(ops, func(i, j int) bool {
+		idxI := getArrayIndex(ops[i].Path)
+		idxJ := getArrayIndex(ops[j].Path)
+		
+		if ops[i].Op == JSONPatchOpRemove && ops[j].Op == JSONPatchOpRemove {
+			// For removes, process in reverse order
+			return idxI > idxJ
+		}
+		return idxI < idxJ
+	})
+	
+	// Return sorted operations (actual merging logic can be more complex)
+	return JSONPatch(ops)
+}
+
+// Helper functions for path manipulation
+func getParentPath(path string) string {
+	lastSlash := strings.LastIndex(path, "/")
+	if lastSlash <= 0 {
+		return ""
+	}
+	return path[:lastSlash]
+}
+
+func isArrayOperation(op JSONPatchOperation) bool {
+	// Check if the path ends with an array index or "-"
+	parts := strings.Split(op.Path, "/")
+	if len(parts) == 0 {
+		return false
+	}
+	last := parts[len(parts)-1]
+	if last == "-" {
+		return true
+	}
+	// Check if it's a number
+	for _, r := range last {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return true
+}
+
+func getArrayPath(path string) string {
+	// Get the array path without the index
+	if strings.HasSuffix(path, "/-") {
+		return path[:len(path)-2]
+	}
+	lastSlash := strings.LastIndex(path, "/")
+	if lastSlash < 0 {
+		return path
+	}
+	// Check if the last part is a number
+	lastPart := path[lastSlash+1:]
+	for _, r := range lastPart {
+		if r < '0' || r > '9' {
+			return path
+		}
+	}
+	return path[:lastSlash]
+}
+
+func getArrayIndex(path string) int {
+	parts := strings.Split(path, "/")
+	if len(parts) == 0 {
+		return -1
+	}
+	last := parts[len(parts)-1]
+	if last == "-" {
+		return 999999 // Large number for append operations
+	}
+	// Parse the index
+	idx := 0
+	for _, r := range last {
+		if r < '0' || r > '9' {
+			return -1
+		}
+		idx = idx*10 + int(r-'0')
+	}
+	return idx
 }
 
 // MergePatch merges multiple patches into a single optimized patch

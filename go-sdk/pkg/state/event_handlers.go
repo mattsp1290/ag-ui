@@ -512,6 +512,15 @@ func (s *StateEventStream) streamLoop() {
 	defer ticker.Stop()
 	
 	for {
+		// Check if stream is stopped before processing
+		select {
+		case <-s.stopCh:
+			// Stream stopped, exit immediately
+			return
+		default:
+			// Continue processing
+		}
+
 		select {
 		case <-ticker.C:
 			// Generate delta from last known state

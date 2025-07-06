@@ -229,10 +229,11 @@ func (cd *ConflictDetector) calculateSeverity(local, remote *StateChange) Confli
 type ConflictResolverImpl struct {
 	mu               sync.RWMutex
 	strategy         ConflictResolutionStrategy
-	customResolvers  map[string]CustomResolverFunc
+	customResolvers  *BoundedResolverRegistry
 	conflictHistory  *ConflictHistory
 	deltaComputer    *DeltaComputer
 	userResolver     UserConflictResolver
+	logger           Logger
 }
 
 // UserConflictResolver interface for user-driven conflict resolution
@@ -245,9 +246,10 @@ type UserConflictResolver interface {
 func NewConflictResolver(strategy ConflictResolutionStrategy) *ConflictResolverImpl {
 	return &ConflictResolverImpl{
 		strategy:        strategy,
-		customResolvers: make(map[string]CustomResolverFunc),
+		customResolvers: NewBoundedResolverRegistry(100), // Limit to 100 custom resolvers
 		conflictHistory: NewConflictHistory(1000),
 		deltaComputer:   NewDeltaComputer(DefaultDeltaOptions()),
+		logger:          DefaultLogger(),
 	}
 }
 
@@ -260,9 +262,14 @@ func (cr *ConflictResolverImpl) SetStrategy(strategy ConflictResolutionStrategy)
 
 // RegisterCustomResolver registers a custom resolution function
 func (cr *ConflictResolverImpl) RegisterCustomResolver(name string, resolver CustomResolverFunc) {
-	cr.mu.Lock()
-	defer cr.mu.Unlock()
-	cr.customResolvers[name] = resolver
+	if err := cr.customResolvers.Register(name, resolver); err != nil {
+		// Log error but don't fail - maintaining backward compatibility
+		if cr.logger != nil {
+			cr.logger.Error("failed to register custom resolver",
+				String("resolver_name", name),
+				Err(err))
+		}
+	}
 }
 
 // SetUserResolver sets the user resolver for user-choice strategy
@@ -270,6 +277,13 @@ func (cr *ConflictResolverImpl) SetUserResolver(resolver UserConflictResolver) {
 	cr.mu.Lock()
 	defer cr.mu.Unlock()
 	cr.userResolver = resolver
+}
+
+// SetLogger sets the logger for the conflict resolver
+func (cr *ConflictResolverImpl) SetLogger(logger Logger) {
+	cr.mu.Lock()
+	defer cr.mu.Unlock()
+	cr.logger = logger
 }
 
 // Resolve resolves a conflict using the configured strategy
@@ -464,9 +478,7 @@ func (cr *ConflictResolverImpl) resolveUserChoice(conflict *StateConflict) (*Con
 
 // resolveCustom implements custom strategy
 func (cr *ConflictResolverImpl) resolveCustom(conflict *StateConflict) (*ConflictResolution, error) {
-	cr.mu.RLock()
-	customResolver, exists := cr.customResolvers["default"]
-	cr.mu.RUnlock()
+	customResolver, exists := cr.customResolvers.Get("default")
 	
 	if !exists {
 		return nil, errors.New("no custom resolver registered")

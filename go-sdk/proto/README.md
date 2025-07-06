@@ -21,8 +21,13 @@ proto/
 ├── README.md              # This file
 ├── events.proto           # Core event definitions
 ├── types.proto            # Common message types (Message, ToolCall)
-└── patch.proto            # JSON Patch operations for state deltas
+├── patch.proto            # JSON Patch operations for state deltas
+├── service.proto          # gRPC service definitions (see ../../proto/)
+├── advanced_service.proto # Advanced gRPC services (see ../../proto/)
+└── grpc-services.md       # gRPC service documentation (see ../../proto/)
 ```
+
+**Note**: The main gRPC service definitions are located in the root `proto/` directory to be shared across all SDKs.
 
 ## Generated Code
 

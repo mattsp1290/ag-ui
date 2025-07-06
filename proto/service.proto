@@ -1,0 +1,108 @@
+syntax = "proto3";
+
+package ag_ui.service;
+
+import "types.proto";
+import "events.proto";
+import "google/protobuf/any.proto";
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/ag-ui/go-sdk/pkg/proto/generated";
+
+// AG-UI gRPC Service Definition
+// This service provides gRPC equivalents of the RESTful AG-UI protocol endpoints
+service AGUIService {
+  // Primary agent execution endpoint - equivalent to POST /
+  // Executes an agent with the given input and streams events back
+  rpc RunAgent(RunAgentRequest) returns (stream EventResponse);
+  
+  // Health check endpoint for service monitoring
+  rpc HealthCheck(HealthCheckRequest) returns (HealthCheckResponse);
+  
+  // Get service configuration and capabilities
+  rpc GetServiceInfo(ServiceInfoRequest) returns (ServiceInfoResponse);
+  
+  // Validate input without executing - useful for debugging
+  rpc ValidateInput(RunAgentRequest) returns (ValidationResponse);
+}
+
+// Request message for RunAgent RPC - mirrors RunAgentInput from REST API
+message RunAgentRequest {
+  string thread_id = 1;
+  string run_id = 2;
+  google.protobuf.Any state = 3;
+  repeated Message messages = 4;
+  repeated Tool tools = 5;
+  repeated Context context = 6;
+  google.protobuf.Any forwarded_props = 7;
+}
+
+// Response message for streaming events
+message EventResponse {
+  BaseEvent event = 1;
+}
+
+// Health check messages
+message HealthCheckRequest {
+  string service = 1; // Optional service name to check
+}
+
+message HealthCheckResponse {
+  enum ServingStatus {
+    UNKNOWN = 0;
+    SERVING = 1;
+    NOT_SERVING = 2;
+    SERVICE_UNKNOWN = 3; // Used only by the Watch method.
+  }
+  ServingStatus status = 1;
+  string message = 2;
+}
+
+// Service info messages
+message ServiceInfoRequest {
+  // Empty for now, could include version requests, capability queries, etc.
+}
+
+message ServiceInfoResponse {
+  string service_name = 1;
+  string version = 2;
+  repeated string supported_features = 3;
+  repeated string supported_event_types = 4;
+  ServiceCapabilities capabilities = 5;
+}
+
+message ServiceCapabilities {
+  bool supports_streaming = 1;
+  bool supports_tool_calls = 2;
+  bool supports_state_management = 3;
+  bool supports_thinking_mode = 4;
+  bool supports_human_in_loop = 5;
+  repeated string supported_encodings = 6; // e.g., ["protobuf", "json"]
+}
+
+// Validation messages
+message ValidationResponse {
+  bool is_valid = 1;
+  repeated ValidationError errors = 2;
+  repeated string warnings = 3;
+}
+
+message ValidationError {
+  string field = 1;
+  string message = 2;
+  string error_code = 3;
+}
+
+// Extended message types for gRPC-specific features
+message StreamingOptions {
+  bool enable_compression = 1;
+  int32 buffer_size = 2;
+  int32 max_events_per_second = 3;
+}
+
+// Error handling for gRPC
+message ErrorDetail {
+  string error_code = 1;
+  string error_message = 2;
+  google.protobuf.Struct metadata = 3;
+}

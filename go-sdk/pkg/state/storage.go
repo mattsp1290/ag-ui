@@ -5,10 +5,8 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
-	"hash/fnv"
 	"io"
 	"os"
-	"strings"
 	"sync"
 	"time"
 
@@ -238,6 +236,7 @@ func NewStorageBackend(config *StorageConfig, logger Logger) (StorageBackend, er
 // Redis Backend Implementation
 
 // RedisBackend implements StorageBackend using Redis
+// NOTE: This implementation is temporarily stubbed until Redis dependency is available
 type RedisBackend struct {
 	// client  *redis.Client // TODO: Uncomment when redis package is available
 	config  *StorageConfig
@@ -249,29 +248,28 @@ type RedisBackend struct {
 // NewRedisBackend creates a new Redis storage backend
 func NewRedisBackend(config *StorageConfig, logger Logger) (*RedisBackend, error) {
 	// TODO: Implement Redis backend when redis package is available
-	/*
-	opts := &redis.Options{
-		Addr:         config.ConnectionURL,
-		Password:     config.RedisOptions.Password,
-		DB:           config.RedisOptions.DB,
-		PoolSize:     config.RedisOptions.PoolSize,
-		MinIdleConns: config.RedisOptions.MinIdleConns,
-		MaxRetries:   config.RedisOptions.MaxRetries,
-		ReadTimeout:  config.ReadTimeout,
-		WriteTimeout: config.WriteTimeout,
-		IdleTimeout:  config.IdleTimeout,
-	}
-	
-	client := redis.NewClient(opts)
-	
-	// Test connection
-	ctx, cancel := context.WithTimeout(context.Background(), config.ConnectTimeout)
-	defer cancel()
-	
-	if err := client.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("failed to connect to Redis: %w", err)
-	}
-	*/
+	// TODO: Uncomment when redis package is available
+	// opts := &redis.Options{
+	// 	Addr:         config.ConnectionURL,
+	// 	Password:     config.RedisOptions.Password,
+	// 	DB:           config.RedisOptions.DB,
+	// 	PoolSize:     config.RedisOptions.PoolSize,
+	// 	MinIdleConns: config.RedisOptions.MinIdleConns,
+	// 	MaxRetries:   config.RedisOptions.MaxRetries,
+	// 	ReadTimeout:  config.ReadTimeout,
+	// 	WriteTimeout: config.WriteTimeout,
+	// 	IdleTimeout:  config.IdleTimeout,
+	// }
+	// 
+	// client := redis.NewClient(opts)
+	// 
+	// // Test connection
+	// ctx, cancel := context.WithTimeout(context.Background(), config.ConnectTimeout)
+	// defer cancel()
+	// 
+	// if err := client.Ping(ctx).Err(); err != nil {
+	// 	return nil, fmt.Errorf("failed to connect to Redis: %w", err)
+	// }
 	
 	backend := &RedisBackend{
 		// client: client,
@@ -288,170 +286,18 @@ func NewRedisBackend(config *StorageConfig, logger Logger) (*RedisBackend, error
 	return backend, nil
 }
 
-func (r *RedisBackend) GetState(ctx context.Context, stateID string) (map[string]interface{}, error) {
-	// TODO: Implement Redis backend when redis package is available
-	r.logger.Info("GetState called on Redis backend (stub implementation)",
-		String("state_id", stateID))
-	return make(map[string]interface{}), nil
-}
 
-func (r *RedisBackend) SetState(ctx context.Context, stateID string, state map[string]interface{}) error {
-	// TODO: Implement Redis backend when redis package is available
-	r.logger.Info("SetState called on Redis backend (stub implementation)",
-		String("state_id", stateID))
-	return nil
-}
 
-func (r *RedisBackend) DeleteState(ctx context.Context, stateID string) error {
-	// TODO: Implement Redis backend when redis package is available
-	r.logger.Info("DeleteState called on Redis backend (stub implementation)",
-		String("state_id", stateID))
-	return nil
-}
 
-func (r *RedisBackend) GetVersion(ctx context.Context, stateID string, versionID string) (*StateVersion, error) {
-	// TODO: Implement Redis backend when redis package is available
-	r.logger.Info("GetVersion called on Redis backend (stub implementation)",
-		String("state_id", stateID),
-		String("version_id", versionID))
-	return nil, fmt.Errorf("version not found: %s (Redis backend not implemented)", versionID)
-}
 
-func (r *RedisBackend) SaveVersion(ctx context.Context, stateID string, version *StateVersion) error {
-	// TODO: Implement Redis backend when redis package is available
-	r.logger.Info("SaveVersion called on Redis backend (stub implementation)",
-		String("state_id", stateID),
-		String("version_id", version.ID))
-	return nil
-}
 
-func (r *RedisBackend) GetVersionHistory(ctx context.Context, stateID string, limit int) ([]*StateVersion, error) {
-	listKey := r.versionListKey(stateID)
-	
-	// Get version IDs ordered by timestamp (newest first)
-	versionIDs, err := r.client.ZRevRange(ctx, listKey, 0, int64(limit-1)).Result()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get version list: %w", err)
-	}
-	
-	versions := make([]*StateVersion, 0, len(versionIDs))
-	for _, versionID := range versionIDs {
-		version, err := r.GetVersion(ctx, stateID, versionID)
-		if err != nil {
-			r.logger.Error("failed to get version", 
-				String("state_id", stateID),
-				String("version_id", versionID),
-				Err(err))
-			continue
-		}
-		versions = append(versions, version)
-	}
-	
-	return versions, nil
-}
 
-func (r *RedisBackend) GetSnapshot(ctx context.Context, stateID string, snapshotID string) (*StateSnapshot, error) {
-	key := r.snapshotKey(stateID, snapshotID)
-	
-	data, err := r.client.Get(ctx, key).Result()
-	if err != nil {
-		if err == redis.Nil {
-			return nil, fmt.Errorf("snapshot not found: %s", snapshotID)
-		}
-		return nil, fmt.Errorf("failed to get snapshot from Redis: %w", err)
-	}
-	
-	var snapshot StateSnapshot
-	if err := json.Unmarshal([]byte(data), &snapshot); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal snapshot: %w", err)
-	}
-	
-	return &snapshot, nil
-}
 
-func (r *RedisBackend) SaveSnapshot(ctx context.Context, stateID string, snapshot *StateSnapshot) error {
-	key := r.snapshotKey(stateID, snapshot.ID)
-	
-	data, err := json.Marshal(snapshot)
-	if err != nil {
-		return fmt.Errorf("failed to marshal snapshot: %w", err)
-	}
-	
-	if err := r.client.Set(ctx, key, data, 0).Err(); err != nil {
-		return fmt.Errorf("failed to save snapshot to Redis: %w", err)
-	}
-	
-	// Also add to snapshot list
-	listKey := r.snapshotListKey(stateID)
-	if err := r.client.ZAdd(ctx, listKey, &redis.Z{
-		Score:  float64(snapshot.Timestamp.Unix()),
-		Member: snapshot.ID,
-	}).Err(); err != nil {
-		return fmt.Errorf("failed to add snapshot to list: %w", err)
-	}
-	
-	return nil
-}
 
-func (r *RedisBackend) ListSnapshots(ctx context.Context, stateID string) ([]*StateSnapshot, error) {
-	listKey := r.snapshotListKey(stateID)
-	
-	// Get snapshot IDs ordered by timestamp (newest first)
-	snapshotIDs, err := r.client.ZRevRange(ctx, listKey, 0, -1).Result()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get snapshot list: %w", err)
-	}
-	
-	snapshots := make([]*StateSnapshot, 0, len(snapshotIDs))
-	for _, snapshotID := range snapshotIDs {
-		snapshot, err := r.GetSnapshot(ctx, stateID, snapshotID)
-		if err != nil {
-			r.logger.Error("failed to get snapshot", 
-				String("state_id", stateID),
-				String("snapshot_id", snapshotID),
-				Err(err))
-			continue
-		}
-		snapshots = append(snapshots, snapshot)
-	}
-	
-	return snapshots, nil
-}
 
-func (r *RedisBackend) BeginTransaction(ctx context.Context) (Transaction, error) {
-	return &RedisTransaction{
-		backend: r,
-		pipe:    r.client.TxPipeline(),
-	}, nil
-}
 
-func (r *RedisBackend) Close() error {
-	return r.client.Close()
-}
 
-func (r *RedisBackend) Ping(ctx context.Context) error {
-	return r.client.Ping(ctx).Err()
-}
 
-func (r *RedisBackend) Stats() map[string]interface{} {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
-	
-	stats := make(map[string]interface{})
-	for k, v := range r.stats {
-		stats[k] = v
-	}
-	
-	poolStats := r.client.PoolStats()
-	stats["pool_hits"] = poolStats.Hits
-	stats["pool_misses"] = poolStats.Misses
-	stats["pool_timeouts"] = poolStats.Timeouts
-	stats["pool_total_conns"] = poolStats.TotalConns
-	stats["pool_idle_conns"] = poolStats.IdleConns
-	stats["pool_stale_conns"] = poolStats.StaleConns
-	
-	return stats
-}
 
 // Helper methods for Redis keys
 func (r *RedisBackend) stateKey(stateID string) string {
@@ -480,47 +326,9 @@ type RedisTransaction struct {
 	// pipe    redis.Pipeliner // TODO: Uncomment when redis package is available
 }
 
-func (t *RedisTransaction) SetState(ctx context.Context, stateID string, state map[string]interface{}) error {
-	key := t.backend.stateKey(stateID)
-	
-	data, err := json.Marshal(state)
-	if err != nil {
-		return fmt.Errorf("failed to marshal state: %w", err)
-	}
-	
-	t.pipe.Set(ctx, key, data, 0)
-	return nil
-}
 
-func (t *RedisTransaction) SaveVersion(ctx context.Context, stateID string, version *StateVersion) error {
-	key := t.backend.versionKey(stateID, version.ID)
-	
-	data, err := json.Marshal(version)
-	if err != nil {
-		return fmt.Errorf("failed to marshal version: %w", err)
-	}
-	
-	t.pipe.Set(ctx, key, data, 0)
-	
-	// Add to version list
-	listKey := t.backend.versionListKey(stateID)
-	t.pipe.ZAdd(ctx, listKey, &redis.Z{
-		Score:  float64(version.Timestamp.Unix()),
-		Member: version.ID,
-	})
-	
-	return nil
-}
 
-func (t *RedisTransaction) Commit(ctx context.Context) error {
-	_, err := t.pipe.Exec(ctx)
-	return err
-}
 
-func (t *RedisTransaction) Rollback(ctx context.Context) error {
-	t.pipe.Discard()
-	return nil
-}
 
 // PostgreSQL Backend Implementation
 
@@ -717,7 +525,7 @@ func (p *PostgreSQLBackend) GetVersion(ctx context.Context, stateID string, vers
 	var createdAt time.Time
 	
 	err := p.db.QueryRowContext(ctx, query, stateID, versionID).Scan(
-		&version.ID, &version.StateID, &dataBytes, &deltaBytes, &metadataBytes, &parentID, &createdAt,
+		&version.ID, &dataBytes, &deltaBytes, &metadataBytes, &parentID, &createdAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -828,7 +636,7 @@ func (p *PostgreSQLBackend) GetVersionHistory(ctx context.Context, stateID strin
 		var parentID sql.NullString
 		var createdAt time.Time
 		
-		if err := rows.Scan(&version.ID, &version.StateID, &dataBytes, &deltaBytes, &metadataBytes, &parentID, &createdAt); err != nil {
+		if err := rows.Scan(&version.ID, &dataBytes, &deltaBytes, &metadataBytes, &parentID, &createdAt); err != nil {
 			return nil, fmt.Errorf("failed to scan version row: %w", err)
 		}
 		
@@ -878,7 +686,7 @@ func (p *PostgreSQLBackend) GetSnapshot(ctx context.Context, stateID string, sna
 	var createdAt time.Time
 	
 	err := p.db.QueryRowContext(ctx, query, stateID, snapshotID).Scan(
-		&snapshot.ID, &snapshot.StateID, &dataBytes, &versionID, &metadataBytes, &createdAt,
+		&snapshot.ID, &dataBytes, &versionID, &metadataBytes, &createdAt,
 	)
 	if err != nil {
 		if err == sql.ErrNoRows {
@@ -974,7 +782,7 @@ func (p *PostgreSQLBackend) ListSnapshots(ctx context.Context, stateID string) (
 		var versionID sql.NullString
 		var createdAt time.Time
 		
-		if err := rows.Scan(&snapshot.ID, &snapshot.StateID, &dataBytes, &versionID, &metadataBytes, &createdAt); err != nil {
+		if err := rows.Scan(&snapshot.ID, &dataBytes, &versionID, &metadataBytes, &createdAt); err != nil {
 			return nil, fmt.Errorf("failed to scan snapshot row: %w", err)
 		}
 		

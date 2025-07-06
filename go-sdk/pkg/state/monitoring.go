@@ -2,10 +2,8 @@ package state
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"os"
 	"runtime"
 	"strings"

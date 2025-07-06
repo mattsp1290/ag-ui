@@ -400,6 +400,9 @@ func (hc *PerformanceHealthCheck) Check(ctx context.Context) error {
 			metrics.PoolEfficiency, 100.0-hc.maxPoolMissRate)
 	}
 	
+	// TODO: Add error rate check once ErrorRate is added to PerformanceMetrics
+	// The maxErrorRate parameter is currently not being validated
+	
 	return nil
 }
 

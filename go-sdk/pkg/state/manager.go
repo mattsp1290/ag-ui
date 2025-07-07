@@ -745,6 +745,16 @@ func (sm *StateManager) Close() error {
 		<-drainDone
 	}
 	
+	// Stop rate limiter
+	if sm.rateLimiter != nil {
+		sm.rateLimiter.Stop()
+	}
+	
+	// Reset client rate limiter (clear tracked clients)
+	if sm.clientRateLimiter != nil {
+		sm.clientRateLimiter.Reset()
+	}
+	
 	// Close audit manager
 	if sm.auditManager != nil && sm.auditManager.logger != nil {
 		if err := sm.auditManager.logger.Close(); err != nil {

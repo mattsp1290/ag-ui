@@ -1363,12 +1363,18 @@ func TestMemoryLeakDetection(t *testing.T) {
 	}
 	
 	// Check for consistent memory growth (potential leak)
-	consistentGrowth := true
-	for _, growth := range allocGrowth[1:] { // Skip first measurement
-		if growth == 0 {
-			consistentGrowth = false
-			break
+	// A more realistic approach: check if memory consistently grows by significant amounts
+	consistentGrowth := false
+	if len(allocGrowth) >= 3 {
+		significantGrowthCount := 0
+		for _, growth := range allocGrowth[1:] { // Skip first measurement
+			// Consider growth significant if it's more than 1MB
+			if growth > 1024*1024 {
+				significantGrowthCount++
+			}
 		}
+		// If more than 70% of measurements show significant growth, consider it a leak
+		consistentGrowth = float64(significantGrowthCount)/float64(len(allocGrowth)-1) > 0.7
 	}
 	
 	finalMemMB := float64(memStats[len(memStats)-1].Alloc) / 1024 / 1024

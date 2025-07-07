@@ -266,8 +266,17 @@ func TestHTTPGetTool(t *testing.T) {
 	t.Run("timeout", func(t *testing.T) {
 		// Create slow server
 		slowServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Delay longer than timeout
-			<-r.Context().Done()
+			// Wait longer than timeout, but with a maximum delay to prevent test hangs
+			select {
+			case <-r.Context().Done():
+				// Request was cancelled/timed out
+				return
+			case <-time.After(2 * time.Second):
+				// Fallback timeout to prevent infinite hang
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("slow response"))
+				return
+			}
 		}))
 		defer slowServer.Close()
 

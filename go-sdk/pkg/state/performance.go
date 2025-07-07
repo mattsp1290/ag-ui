@@ -81,15 +81,16 @@ type BoundedPool struct {
 	maxSize    int
 	maxIdle    int
 	activeCount atomic.Int64
-	new        func() interface{}
+	idleCount   atomic.Int64
+	factory    func() interface{}
 }
 
 // NewBoundedPool creates a new bounded pool
-func NewBoundedPool(maxSize, maxIdle int, new func() interface{}) *BoundedPool {
+func NewBoundedPool(maxSize, maxIdle int, factory func() interface{}) *BoundedPool {
 	bp := &BoundedPool{
 		maxSize: maxSize,
 		maxIdle: maxIdle,
-		new:     new,
+		factory: factory,
 	}
 	bp.pool.New = func() interface{} {
 		// This is called when pool is empty
@@ -104,13 +105,14 @@ func (bp *BoundedPool) Get() interface{} {
 	// Try to get from pool first
 	obj := bp.pool.Get()
 	if obj != nil {
+		bp.idleCount.Add(-1)
 		return obj
 	}
 	
 	// Pool is empty, check if we can create new
 	if bp.activeCount.Load() < int64(bp.maxSize) {
 		bp.activeCount.Add(1)
-		return bp.new()
+		return bp.factory()
 	}
 	
 	return nil
@@ -122,8 +124,14 @@ func (bp *BoundedPool) Put(obj interface{}) {
 		return
 	}
 	
-	// Always put back to pool - sync.Pool will handle eviction
-	bp.pool.Put(obj)
+	// Respect maxIdle parameter
+	if bp.idleCount.Load() < int64(bp.maxIdle) {
+		bp.pool.Put(obj)
+		bp.idleCount.Add(1)
+	} else {
+		// Too many idle objects, discard this one
+		bp.activeCount.Add(-1)
+	}
 }
 
 // NewPerformanceOptimizer creates a new performance optimizer
@@ -466,6 +474,11 @@ func (po *PerformanceOptimizer) Stop() {
 		po.cancel()
 	}
 	
+	// Stop rate limiter
+	if po.rateLimiter != nil {
+		po.rateLimiter.Stop()
+	}
+	
 	if po.enableBatching {
 		close(po.stopBatch)
 		po.batchWorkers.Wait()
@@ -488,6 +501,7 @@ type RateLimiter struct {
 	bucket     chan struct{}
 	ticker     *time.Ticker
 	stop       chan struct{}
+	stopped    atomic.Bool
 }
 
 // NewRateLimiter creates a new rate limiter
@@ -540,7 +554,9 @@ func (rl *RateLimiter) Wait(ctx context.Context) error {
 
 // Stop stops the rate limiter
 func (rl *RateLimiter) Stop() {
-	close(rl.stop)
+	if rl.stopped.CompareAndSwap(false, true) {
+		close(rl.stop)
+	}
 }
 
 // OptimizedDelta represents an optimized delta with compression

@@ -1,7 +1,7 @@
 package state
 
 import (
-	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -226,7 +226,7 @@ func ExampleFileBackend() {
 }
 
 // ExampleStorageBackendConfiguration shows different configuration patterns
-func ExampleStorageBackendConfiguration() {
+func Example_storageBackendConfiguration() {
 	// Development configuration (file-based)
 	devConfig := DefaultStorageConfig()
 	devConfig.Type = StorageBackendFile
@@ -292,7 +292,7 @@ func ExampleStorageBackendConfiguration() {
 }
 
 // ExampleStorageBackendHealthCheck demonstrates health checking
-func ExampleStorageBackendHealthCheck() {
+func Example_storageBackendHealthCheck() {
 	// File backend health check
 	config := DefaultStorageConfig()
 	config.FileOptions.BaseDir = "/tmp/health-check-demo"
@@ -319,7 +319,7 @@ func ExampleStorageBackendHealthCheck() {
 }
 
 // ExampleAsyncVsSyncPersistence demonstrates different persistence modes
-func ExampleAsyncVsSyncPersistence() {
+func Example_asyncVsSyncPersistence() {
 	tmpDir := "/tmp/async-sync-demo"
 	os.MkdirAll(tmpDir, 0755)
 	defer os.RemoveAll(tmpDir)
@@ -371,7 +371,7 @@ func ExampleAsyncVsSyncPersistence() {
 }
 
 // ExampleErrorHandling demonstrates error handling patterns
-func ExampleErrorHandling() {
+func Example_errorHandling() {
 	// Try to connect to a non-existent Redis instance
 	config := &StorageConfig{
 		Type:          StorageBackendRedis,
@@ -402,7 +402,7 @@ func ExampleErrorHandling() {
 }
 
 // ExampleMigrationBetweenBackends shows how to migrate data between backends
-func ExampleMigrationBetweenBackends() {
+func Example_migrationBetweenBackends() {
 	tmpDir := "/tmp/migration-demo"
 	os.MkdirAll(tmpDir, 0755)
 	defer os.RemoveAll(tmpDir)

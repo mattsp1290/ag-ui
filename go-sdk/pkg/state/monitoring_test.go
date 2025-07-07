@@ -2,9 +2,11 @@ package state
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -73,8 +75,9 @@ func TestMonitoringConfigBuilder(t *testing.T) {
 
 func TestAlertNotifiers(t *testing.T) {
 	// Test log notifier
-	logger, _ := NewZapLogger(LogConfig{Level: "info", Format: "json"})
-	logNotifier := NewLogAlertNotifier(logger)
+	// Create a simple zap logger for testing
+	zapLogger, _ := zap.NewDevelopment()
+	logNotifier := NewLogAlertNotifier(zapLogger)
 	
 	alert := Alert{
 		Level:       AlertLevelWarning,
@@ -207,7 +210,7 @@ func TestMetricsRecording(t *testing.T) {
 	
 	// Record event processing
 	monitoringSystem.RecordEventProcessing("state_changed", 5*time.Millisecond, nil)
-	monitoringSystem.RecordEventProcessing("validation_failed", 2*time.Millisecond, ErrValidationFailed)
+	monitoringSystem.RecordEventProcessing("validation_failed", 2*time.Millisecond, errors.New("validation failed"))
 	
 	// Record memory usage
 	monitoringSystem.RecordMemoryUsage(1024*1024*100, 1000, 10*time.Millisecond) // 100MB, 1000 allocs, 10ms GC
@@ -231,7 +234,7 @@ func TestMetricsRecording(t *testing.T) {
 		t.Error("Should have recorded memory metrics")
 	}
 	
-	if metrics.ConnectionPool.TotalConnections == 0 {
+	if metrics.ConnectionPool.totalConnections == 0 {
 		t.Error("Should have recorded connection pool metrics")
 	}
 }

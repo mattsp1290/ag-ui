@@ -9,6 +9,31 @@ import (
 	"time"
 )
 
+// MockConnection is a simple test implementation of Connection
+type MockConnection struct {
+	closed    bool
+	lastUsed  time.Time
+}
+
+func NewMockConnection() Connection {
+	return &MockConnection{
+		lastUsed: time.Now(),
+	}
+}
+
+func (mc *MockConnection) Close() error {
+	mc.closed = true
+	return nil
+}
+
+func (mc *MockConnection) IsValid() bool {
+	return !mc.closed
+}
+
+func (mc *MockConnection) LastUsed() time.Time {
+	return mc.lastUsed
+}
+
 // TestPerformanceEnhancements tests the new performance features
 func TestPerformanceEnhancements(t *testing.T) {
 	t.Run("ConnectionPool", testConnectionPool)

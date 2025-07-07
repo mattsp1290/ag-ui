@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 )
@@ -128,7 +129,7 @@ func TestAgentInterface(t *testing.T) {
 			if response.Type() != "response" {
 				t.Errorf("Response type = %v, want %v", response.Type(), "response")
 			}
-			if !contains(response.Data().Content, "Echo:") {
+			if !strings.Contains(response.Data().Content, "Echo:") {
 				t.Errorf("Response content should contain 'Echo:', got: %v", response.Data().Content)
 			}
 		} else {
@@ -178,18 +179,3 @@ func (m *mockAgent) HandleEvent(ctx context.Context, event any) ([]any, error) {
 	return nil, nil
 }
 
-// Helper function
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) && s[:len(substr)] == substr ||
-		len(s) > len(substr) && containsRecursive(s[1:], substr)
-}
-
-func containsRecursive(s, substr string) bool {
-	if len(s) < len(substr) {
-		return false
-	}
-	if s[:len(substr)] == substr {
-		return true
-	}
-	return containsRecursive(s[1:], substr)
-}

@@ -99,7 +99,10 @@ func testStateSharding(t *testing.T) {
 	shardCounts := make(map[int]int)
 	
 	for _, key := range keys {
-		shardIndex := po.GetShardForKey(key)
+		var shardIndex int
+		if impl, ok := po.(*PerformanceOptimizerImpl); ok {
+			shardIndex = impl.GetShardForKey(key)
+		}
 		shardCounts[shardIndex]++
 		
 		// Test shard operations

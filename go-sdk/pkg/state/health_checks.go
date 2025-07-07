@@ -364,14 +364,14 @@ func (hc *CompositeHealthCheck) checkParallel(ctx context.Context) error {
 
 // PerformanceHealthCheck checks if performance metrics are within acceptable bounds
 type PerformanceHealthCheck struct {
-	performanceOptimizer *PerformanceOptimizer
+	performanceOptimizer PerformanceOptimizer
 	name                 string
 	maxPoolMissRate      float64
 	maxErrorRate         float64
 }
 
 // NewPerformanceHealthCheck creates a new performance health check
-func NewPerformanceHealthCheck(optimizer *PerformanceOptimizer, maxPoolMissRate, maxErrorRate float64) *PerformanceHealthCheck {
+func NewPerformanceHealthCheck(optimizer PerformanceOptimizer, maxPoolMissRate, maxErrorRate float64) *PerformanceHealthCheck {
 	return &PerformanceHealthCheck{
 		performanceOptimizer: optimizer,
 		name:                 "performance",

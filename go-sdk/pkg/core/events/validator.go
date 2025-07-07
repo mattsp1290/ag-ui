@@ -5,6 +5,11 @@ import (
 	"fmt"
 	"sync"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // ValidationSeverity defines the severity level of validation errors
@@ -384,11 +389,14 @@ func (m *ValidationMetrics) RecordRuleExecution(ruleID string, duration time.Dur
 
 // EventValidator provides comprehensive event validation
 type EventValidator struct {
-	rules   []ValidationRule
-	state   *ValidationState
-	metrics *ValidationMetrics
-	config  *ValidationConfig
-	mutex   sync.RWMutex
+	rules              []ValidationRule
+	state              *ValidationState
+	metrics            *ValidationMetrics
+	config             *ValidationConfig
+	tracer             trace.Tracer
+	parallelValidator  *ParallelValidator
+	parallelConfig     *ParallelValidationConfig
+	mutex              sync.RWMutex
 }
 
 // NewEventValidator creates a new event validator with the specified configuration.
@@ -429,10 +437,13 @@ func NewEventValidator(config *ValidationConfig) *EventValidator {
 	}
 	
 	validator := &EventValidator{
-		rules:   make([]ValidationRule, 0),
-		state:   NewValidationState(),
-		metrics: NewValidationMetrics(),
-		config:  config,
+		rules:              make([]ValidationRule, 0),
+		state:              NewValidationState(),
+		metrics:            NewValidationMetrics(),
+		config:             config,
+		tracer:             otel.Tracer("ag-ui/events/validation"),
+		parallelValidator:  NewParallelValidator(DefaultParallelValidationConfig()),
+		parallelConfig:     DefaultParallelValidationConfig(),
 	}
 	
 	// Add default rules
@@ -532,10 +543,22 @@ func (v *EventValidator) GetRules() []ValidationRule {
 //	    }
 //	}
 func (v *EventValidator) ValidateEvent(ctx context.Context, event Event) *ValidationResult {
+	// Start distributed tracing span
+	ctx, span := v.tracer.Start(ctx, "event_validation",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	start := time.Now()
 	defer func() {
 		duration := time.Since(start)
 		v.metrics.RecordEvent(duration)
+		
+		// Record tracing attributes
+		span.SetAttributes(
+			attribute.Int64("validation.duration_ms", duration.Milliseconds()),
+			attribute.Int("validation.event_count", 1),
+		)
 	}()
 
 	result := &ValidationResult{
@@ -546,28 +569,55 @@ func (v *EventValidator) ValidateEvent(ctx context.Context, event Event) *Valida
 		Timestamp: time.Now(),
 	}
 
+	// Add event attributes to span if event is not nil
+	if event != nil {
+		span.SetAttributes(
+			attribute.String("event.type", string(event.Type())),
+		)
+		// Add event ID if available through type assertion
+		if eventWithID, ok := event.(interface{ GetEventID() string }); ok {
+			if eventID := eventWithID.GetEventID(); eventID != "" {
+				span.SetAttributes(attribute.String("event.id", eventID))
+			}
+		}
+	}
+
 	// Check context before starting
 	select {
 	case <-ctx.Done():
 		result.IsValid = false
-		result.AddError(&ValidationError{
+		validationError := &ValidationError{
 			RuleID:    "CONTEXT_CANCELLED",
 			Message:   "Validation cancelled by context",
 			Severity:  ValidationSeverityError,
 			Timestamp: time.Now(),
-		})
+		}
+		result.AddError(validationError)
 		result.Duration = time.Since(start)
+		
+		// Record error in span
+		span.RecordError(fmt.Errorf("validation cancelled by context"))
+		span.SetStatus(codes.Error, "Validation cancelled")
+		span.AddEvent("validation.cancelled")
+		
 		return result
 	default:
 	}
 
 	if event == nil {
-		result.AddError(&ValidationError{
+		validationError := &ValidationError{
 			RuleID:    "NULL_EVENT",
 			Message:   "Event cannot be nil",
 			Severity:  ValidationSeverityError,
 			Timestamp: time.Now(),
-		})
+		}
+		result.AddError(validationError)
+		
+		// Record error in span
+		span.RecordError(fmt.Errorf("event cannot be nil"))
+		span.SetStatus(codes.Error, "Null event")
+		span.AddEvent("validation.null_event")
+		
 		return result
 	}
 
@@ -591,35 +641,89 @@ func (v *EventValidator) ValidateEvent(ctx context.Context, event Event) *Valida
 	copy(rules, v.rules)
 	v.mutex.RUnlock()
 
+	span.SetAttributes(attribute.Int("validation.rules_count", len(rules)))
+
 	for _, rule := range rules {
 		if !rule.IsEnabled() {
 			continue
 		}
 
+		// Create child span for rule execution
+		ruleCtx, ruleSpan := v.tracer.Start(ctx, "rule_validation",
+			trace.WithSpanKind(trace.SpanKindInternal),
+		)
+		ruleSpan.SetAttributes(
+			attribute.String("validation.rule.id", rule.ID()),
+			attribute.String("validation.rule.description", rule.Description()),
+			attribute.String("validation.rule.severity", rule.GetSeverity().String()),
+		)
+
 		ruleStart := time.Now()
 		ruleResult := rule.Validate(event, validationContext)
 		ruleDuration := time.Since(ruleStart)
 		
+		// Record rule execution metrics and tracing
 		v.metrics.RecordRuleExecution(rule.ID(), ruleDuration)
+		ruleSpan.SetAttributes(
+			attribute.Int64("validation.rule.duration_ms", ruleDuration.Milliseconds()),
+		)
 
 		if ruleResult != nil {
 			// Add errors
+			errorCount := len(ruleResult.Errors)
+			warningCount := len(ruleResult.Warnings)
+			
 			for _, err := range ruleResult.Errors {
 				result.AddError(err)
 				v.metrics.RecordError()
+				
+				// Record error event in rule span
+				ruleSpan.AddEvent("validation.rule.error", trace.WithAttributes(
+					attribute.String("error.message", err.Message),
+					attribute.String("error.rule_id", err.RuleID),
+				))
 			}
 			
 			// Add warnings
 			for _, warning := range ruleResult.Warnings {
 				result.AddWarning(warning)
 				v.metrics.RecordWarning()
+				
+				// Record warning event in rule span
+				ruleSpan.AddEvent("validation.rule.warning", trace.WithAttributes(
+					attribute.String("warning.message", warning.Message),
+					attribute.String("warning.rule_id", warning.RuleID),
+				))
 			}
 			
 			// Add information
 			for _, info := range ruleResult.Information {
 				result.AddInfo(info)
+				
+				// Record info event in rule span
+				ruleSpan.AddEvent("validation.rule.info", trace.WithAttributes(
+					attribute.String("info.message", info.Message),
+					attribute.String("info.rule_id", info.RuleID),
+				))
 			}
+			
+			// Set rule span status and attributes
+			ruleSpan.SetAttributes(
+				attribute.Int("validation.rule.error_count", errorCount),
+				attribute.Int("validation.rule.warning_count", warningCount),
+			)
+			
+			if errorCount > 0 {
+				ruleSpan.SetStatus(codes.Error, fmt.Sprintf("Rule validation failed with %d errors", errorCount))
+			} else {
+				ruleSpan.SetStatus(codes.Ok, "Rule validation completed")
+			}
+		} else {
+			ruleSpan.SetStatus(codes.Ok, "Rule validation completed")
 		}
+		
+		ruleSpan.End()
+		_ = ruleCtx // Mark as used
 	}
 
 	// Update state only after successful validation
@@ -628,6 +732,24 @@ func (v *EventValidator) ValidateEvent(ctx context.Context, event Event) *Valida
 	}
 
 	result.Duration = time.Since(start)
+	
+	// Set final span attributes and status
+	span.SetAttributes(
+		attribute.Bool("validation.result.is_valid", result.IsValid),
+		attribute.Int("validation.result.error_count", len(result.Errors)),
+		attribute.Int("validation.result.warning_count", len(result.Warnings)),
+		attribute.Int("validation.result.info_count", len(result.Information)),
+	)
+	
+	if result.IsValid {
+		span.SetStatus(codes.Ok, "Event validation completed successfully")
+	} else {
+		span.SetStatus(codes.Error, fmt.Sprintf("Event validation failed with %d errors", len(result.Errors)))
+		span.AddEvent("validation.failed", trace.WithAttributes(
+			attribute.Int("error_count", len(result.Errors)),
+		))
+	}
+	
 	return result
 }
 
@@ -666,6 +788,12 @@ func (v *EventValidator) ValidateEvent(ctx context.Context, event Event) *Valida
 //	    &RunFinishedEvent{RunID: "run-1"},
 //	}
 func (v *EventValidator) ValidateSequence(ctx context.Context, events []Event) *ValidationResult {
+	// Start distributed tracing span for sequence validation
+	ctx, span := v.tracer.Start(ctx, "sequence_validation",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
 	start := time.Now()
 	
 	result := &ValidationResult{
@@ -676,23 +804,37 @@ func (v *EventValidator) ValidateSequence(ctx context.Context, events []Event) *
 		Timestamp:  time.Now(),
 	}
 
+	// Add sequence attributes to span
+	span.SetAttributes(
+		attribute.Int("validation.sequence.event_count", len(events)),
+	)
+
 	// Check context before starting
 	select {
 	case <-ctx.Done():
 		result.IsValid = false
-		result.AddError(&ValidationError{
+		validationError := &ValidationError{
 			RuleID:    "CONTEXT_CANCELLED",
 			Message:   "Validation cancelled by context",
 			Severity:  ValidationSeverityError,
 			Timestamp: time.Now(),
-		})
+		}
+		result.AddError(validationError)
 		result.Duration = time.Since(start)
+		
+		// Record error in span
+		span.RecordError(fmt.Errorf("sequence validation cancelled by context"))
+		span.SetStatus(codes.Error, "Sequence validation cancelled")
+		span.AddEvent("validation.sequence.cancelled")
+		
 		return result
 	default:
 	}
 
 	if len(events) == 0 {
 		result.Duration = time.Since(start)
+		span.SetStatus(codes.Ok, "Empty sequence validation completed")
+		span.AddEvent("validation.sequence.empty")
 		return result
 	}
 
@@ -722,23 +864,59 @@ func (v *EventValidator) ValidateSequence(ctx context.Context, events []Event) *
 			select {
 			case <-ctx.Done():
 				result.IsValid = false
-				result.AddError(&ValidationError{
+				validationError := &ValidationError{
 					RuleID:    "CONTEXT_CANCELLED",
 					Message:   fmt.Sprintf("Validation cancelled after %d events", i),
 					Severity:  ValidationSeverityError,
 					Timestamp: time.Now(),
-				})
+				}
+				result.AddError(validationError)
 				result.Duration = time.Since(start)
+				
+				// Record cancellation in span
+				span.RecordError(fmt.Errorf("sequence validation cancelled after %d events", i))
+				span.SetStatus(codes.Error, "Sequence validation cancelled during processing")
+				span.AddEvent("validation.sequence.cancelled_during_processing", trace.WithAttributes(
+					attribute.Int("events_processed", i),
+				))
+				
 				return result
 			default:
 			}
+		}
+
+		// Create child span for individual event validation
+		eventCtx, eventSpan := v.tracer.Start(ctx, "sequence_event_validation",
+			trace.WithSpanKind(trace.SpanKindInternal),
+		)
+		eventSpan.SetAttributes(
+			attribute.Int("validation.sequence.event_index", i),
+		)
+		
+		if event != nil {
+			eventSpan.SetAttributes(
+				attribute.String("event.type", string(event.Type())),
+			)
 		}
 
 		validationContext.CurrentEvent = event
 		validationContext.EventIndex = i
 		
 		// Validate the event using the isolated validator's context
-		eventResult := isolatedValidator.validateEventWithContext(ctx, event, validationContext)
+		eventResult := isolatedValidator.validateEventWithContext(eventCtx, event, validationContext)
+		
+		// Record event validation result in span
+		eventSpan.SetAttributes(
+			attribute.Bool("validation.event.is_valid", eventResult.IsValid),
+			attribute.Int("validation.event.error_count", len(eventResult.Errors)),
+			attribute.Int("validation.event.warning_count", len(eventResult.Warnings)),
+		)
+		
+		if eventResult.IsValid {
+			eventSpan.SetStatus(codes.Ok, "Event validation completed")
+		} else {
+			eventSpan.SetStatus(codes.Error, fmt.Sprintf("Event validation failed with %d errors", len(eventResult.Errors)))
+		}
 		
 		// Merge results
 		for _, err := range eventResult.Errors {
@@ -750,9 +928,35 @@ func (v *EventValidator) ValidateSequence(ctx context.Context, events []Event) *
 		for _, info := range eventResult.Information {
 			result.AddInfo(info)
 		}
+		
+		eventSpan.End()
+		_ = eventCtx // Mark as used
 	}
 
 	result.Duration = time.Since(start)
+	
+	// Set final sequence span attributes and status
+	span.SetAttributes(
+		attribute.Bool("validation.sequence.is_valid", result.IsValid),
+		attribute.Int("validation.sequence.error_count", len(result.Errors)),
+		attribute.Int("validation.sequence.warning_count", len(result.Warnings)),
+		attribute.Int("validation.sequence.info_count", len(result.Information)),
+		attribute.Int64("validation.sequence.duration_ms", result.Duration.Milliseconds()),
+	)
+	
+	if result.IsValid {
+		span.SetStatus(codes.Ok, "Sequence validation completed successfully")
+		span.AddEvent("validation.sequence.completed", trace.WithAttributes(
+			attribute.Int("events_processed", len(events)),
+		))
+	} else {
+		span.SetStatus(codes.Error, fmt.Sprintf("Sequence validation failed with %d errors", len(result.Errors)))
+		span.AddEvent("validation.sequence.failed", trace.WithAttributes(
+			attribute.Int("error_count", len(result.Errors)),
+			attribute.Int("events_processed", len(events)),
+		))
+	}
+	
 	return result
 }
 
@@ -1137,4 +1341,174 @@ func (v *EventValidator) updateState(event Event) {
 			}
 		}
 	}
+}
+
+// ValidateEventParallel validates a single event using parallel rule execution when possible.
+// This method provides improved CPU utilization by executing independent validation rules concurrently.
+// 
+// Rules are automatically analyzed for dependencies and grouped into:
+// - Independent rules: executed in parallel using worker goroutines
+// - Dependent rules: executed sequentially to maintain state consistency
+//
+// The method falls back to sequential execution when:
+// - Parallel execution is disabled in configuration
+// - The number of rules is below the threshold for parallel execution
+// - Context cancellation is requested
+//
+// Example:
+//
+//	// Enable parallel validation with custom configuration
+//	parallelConfig := &ParallelValidationConfig{
+//		MaxGoroutines: 4,
+//		EnableParallelExecution: true,
+//		MinRulesForParallel: 3,
+//		StopOnFirstError: false,
+//	}
+//	validator.SetParallelConfig(parallelConfig)
+//	
+//	result := validator.ValidateEventParallel(ctx, event)
+//	fmt.Printf("Used %d goroutines, speedup: %.2fx\n", 
+//		result.GoroutinesUsed, 
+//		float64(result.SequentialExecutionTime)/float64(result.ParallelExecutionTime))
+func (v *EventValidator) ValidateEventParallel(ctx context.Context, event Event) *ParallelValidationResult {
+	ctx, span := v.tracer.Start(ctx, "validator.ValidateEventParallel")
+	defer span.End()
+
+	start := time.Now()
+	
+	if event == nil {
+		span.SetStatus(codes.Error, "event is nil")
+		span.RecordError(fmt.Errorf("event cannot be nil"))
+		
+		result := &ParallelValidationResult{
+			ValidationResult: &ValidationResult{
+				IsValid:   false,
+				Errors:    []*ValidationError{{
+					RuleID:    "NULL_EVENT",
+					Message:   "Event cannot be nil",
+					Severity:  ValidationSeverityError,
+					Timestamp: time.Now(),
+				}},
+				Warnings:   make([]*ValidationError, 0),
+				Information: make([]*ValidationError, 0),
+				EventCount: 1,
+				Timestamp:  time.Now(),
+			},
+			GoroutinesUsed: 1,
+		}
+		result.Duration = time.Since(start)
+		return result
+	}
+
+	// Add tracing attributes
+	span.SetAttributes(
+		attribute.String("event.type", string(event.Type())),
+		attribute.Int("rules.total", len(v.rules)),
+	)
+
+	// Create a snapshot of the current state for validation
+	stateSnapshot := v.createStateSnapshot()
+	
+	// Create validation context with the state snapshot
+	validationContext := &ValidationContext{
+		State:        stateSnapshot,
+		CurrentEvent: event,
+		EventIndex:   0,
+		Config:       v.config,
+		Metadata:     make(map[string]interface{}),
+		Context:      ctx,
+	}
+
+	// Get a copy of rules for thread safety
+	v.mutex.RLock()
+	rules := make([]ValidationRule, len(v.rules))
+	copy(rules, v.rules)
+	v.mutex.RUnlock()
+
+	// Execute parallel validation
+	result := v.parallelValidator.ValidateEventParallel(ctx, event, rules, validationContext)
+	
+	// Add tracing attributes for results
+	span.SetAttributes(
+		attribute.Int("validation.errors", len(result.Errors)),
+		attribute.Int("validation.warnings", len(result.Warnings)),
+		attribute.Int("rules.parallel", result.RulesExecutedInParallel),
+		attribute.Int("rules.sequential", result.RulesExecutedSequentially),
+		attribute.Int("goroutines.used", result.GoroutinesUsed),
+		attribute.Bool("validation.valid", result.IsValid),
+	)
+
+	if !result.IsValid {
+		span.SetStatus(codes.Error, "validation failed")
+		for _, err := range result.Errors {
+			span.RecordError(fmt.Errorf("%s: %s", err.RuleID, err.Message))
+		}
+	}
+
+	// Update state only after successful validation
+	if result.IsValid {
+		v.updateState(event)
+	}
+
+	return result
+}
+
+// SetParallelConfig updates the parallel validation configuration
+func (v *EventValidator) SetParallelConfig(config *ParallelValidationConfig) {
+	v.mutex.Lock()
+	defer v.mutex.Unlock()
+	
+	if config != nil {
+		v.parallelConfig = config
+		v.parallelValidator.UpdateConfig(config)
+	}
+}
+
+// GetParallelConfig returns the current parallel validation configuration
+func (v *EventValidator) GetParallelConfig() *ParallelValidationConfig {
+	v.mutex.RLock()
+	defer v.mutex.RUnlock()
+	
+	// Return a copy to prevent external modification
+	configCopy := *v.parallelConfig
+	return &configCopy
+}
+
+// GetParallelMetrics returns metrics about parallel validation performance
+func (v *EventValidator) GetParallelMetrics() *ParallelValidationMetrics {
+	return v.parallelValidator.GetMetrics()
+}
+
+// EnableParallelValidation enables or disables parallel validation
+func (v *EventValidator) EnableParallelValidation(enabled bool) {
+	v.mutex.Lock()
+	defer v.mutex.Unlock()
+	
+	v.parallelConfig.EnableParallelExecution = enabled
+	v.parallelValidator.UpdateConfig(v.parallelConfig)
+}
+
+// IsParallelValidationEnabled returns whether parallel validation is currently enabled
+func (v *EventValidator) IsParallelValidationEnabled() bool {
+	v.mutex.RLock()
+	defer v.mutex.RUnlock()
+	
+	return v.parallelConfig.EnableParallelExecution
+}
+
+// SetMaxGoroutines sets the maximum number of goroutines for parallel validation
+func (v *EventValidator) SetMaxGoroutines(maxGoroutines int) {
+	v.mutex.Lock()
+	defer v.mutex.Unlock()
+	
+	v.parallelConfig.MaxGoroutines = maxGoroutines
+	v.parallelValidator.UpdateConfig(v.parallelConfig)
+}
+
+// GetMaxGoroutines returns the current maximum number of goroutines for parallel validation
+func (v *EventValidator) GetMaxGoroutines() int {
+	v.mutex.RLock()
+	defer v.mutex.RUnlock()
+	
+	return v.parallelConfig.MaxGoroutines
 }

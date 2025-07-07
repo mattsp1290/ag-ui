@@ -381,6 +381,7 @@ func TestExecutionEngine_ExecuteStream(t *testing.T) {
 		params := map[string]interface{}{"input": "test"}
 
 		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		stream, err := engine.ExecuteStream(ctx, "test-tool", params)
 		require.NoError(t, err)
 

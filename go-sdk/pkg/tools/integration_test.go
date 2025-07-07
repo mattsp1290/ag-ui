@@ -2,6 +2,7 @@ package tools_test
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -198,6 +199,12 @@ func TestIntegrationStreamingTool(t *testing.T) {
 	registry := tools.NewRegistry()
 	engine := tools.NewExecutionEngine(registry)
 
+	// Verify the executor implements StreamingToolExecutor
+	var executor interface{} = &streamingTestExecutor{}
+	if _, ok := executor.(tools.StreamingToolExecutor); !ok {
+		t.Fatal("streamingTestExecutor does not implement StreamingToolExecutor interface")
+	}
+
 	// Create a streaming tool
 	streamingTool := &tools.Tool{
 		ID:          "test.streamer",
@@ -208,7 +215,7 @@ func TestIntegrationStreamingTool(t *testing.T) {
 			Type: "object",
 			Properties: map[string]*tools.Property{
 				"count": {
-					Type:        "integer",
+					Type:        "number",
 					Description: "Number of chunks to stream",
 					Minimum:     &[]float64{1}[0],
 					Maximum:     &[]float64{100}[0],
@@ -441,7 +448,11 @@ func (e *streamingTestExecutor) Execute(ctx context.Context, params map[string]i
 }
 
 func (e *streamingTestExecutor) ExecuteStream(ctx context.Context, params map[string]interface{}) (<-chan *tools.ToolStreamChunk, error) {
-	count := int(params["count"].(float64))
+	countFloat, ok := params["count"].(float64)
+	if !ok {
+		return nil, fmt.Errorf("count parameter must be a number, got %T", params["count"])
+	}
+	count := int(countFloat)
 	ch := make(chan *tools.ToolStreamChunk, count+1)
 
 	go func() {
@@ -451,7 +462,7 @@ func (e *streamingTestExecutor) ExecuteStream(ctx context.Context, params map[st
 			select {
 			case ch <- &tools.ToolStreamChunk{
 				Type:  "data",
-				Data:  "chunk " + string(rune('0'+i)),
+				Data:  fmt.Sprintf("chunk %d", i),
 				Index: i,
 			}:
 			case <-ctx.Done():

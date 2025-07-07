@@ -229,7 +229,7 @@ func demonstrateCustomStrategy() {
 			Timestamp:     time.Now(),
 			Strategy:      state.CustomStrategy,
 			ResolvedValue: resolvedValue,
-			ResolvedPatch: state.JSONPatch{{
+			ResolvedPatch: state.JSONPatch{state.JSONPatchOperation{
 				Op:    state.JSONPatchOpReplace,
 				Path:  conflict.Path,
 				Value: resolvedValue,

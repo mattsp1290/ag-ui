@@ -576,11 +576,11 @@ func (ms *MonitoringSystem) GetMetrics() MonitoringMetrics {
 			Usage:       ms.resourceMonitor.memoryUsage,
 			Goroutines:  ms.resourceMonitor.goroutines,
 		},
-		ConnectionPool: ConnectionPoolMetrics{
-			totalConnections:   ms.connectionPoolMetrics.totalConnections,
-			activeConnections:  ms.connectionPoolMetrics.activeConnections,
-			waitingConnections: ms.connectionPoolMetrics.waitingConnections,
-			errorCount:         ms.connectionPoolMetrics.errorCount,
+		ConnectionPool: ConnectionPoolSnapshot{
+			TotalConnections:   ms.connectionPoolMetrics.totalConnections,
+			ActiveConnections:  ms.connectionPoolMetrics.activeConnections,
+			WaitingConnections: ms.connectionPoolMetrics.waitingConnections,
+			ErrorCount:         ms.connectionPoolMetrics.errorCount,
 		},
 		Health: ms.GetHealthStatus(),
 	}
@@ -591,8 +591,16 @@ type MonitoringMetrics struct {
 	Timestamp      time.Time
 	Operations     map[string]OperationMetric
 	Memory         MemoryMetrics
-	ConnectionPool ConnectionPoolMetrics
+	ConnectionPool ConnectionPoolSnapshot
 	Health         map[string]bool
+}
+
+// ConnectionPoolSnapshot is a snapshot of connection pool metrics without mutex
+type ConnectionPoolSnapshot struct {
+	TotalConnections   int64
+	ActiveConnections  int64
+	WaitingConnections int64
+	ErrorCount         int64
 }
 
 // OperationMetric contains metrics for a specific operation

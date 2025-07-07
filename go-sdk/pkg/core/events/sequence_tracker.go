@@ -100,9 +100,9 @@ func (t *EventSequenceTracker) GetCurrentState() *ValidationState {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
 	
-	// Return a copy to prevent external modification
-	stateCopy := *t.state
-	return &stateCopy
+	// Return a reference to the state - it's already protected by the validator's mutex
+	// The ValidationState itself has its own mutex for thread safety
+	return t.state
 }
 
 // GetEventHistory returns the event history

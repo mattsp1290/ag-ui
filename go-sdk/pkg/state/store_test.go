@@ -371,7 +371,7 @@ func TestStateStore_VersionTracking(t *testing.T) {
 		t.Error("Version not incremented after Delete")
 	}
 
-	patch := JSONPatch{{Op: JSONPatchOpAdd, Path: "/new", Value: "value"}}
+	patch := JSONPatch{JSONPatchOperation{Op: JSONPatchOpAdd, Path: "/new", Value: "value"}}
 	store.ApplyPatch(patch)
 	if store.GetVersion() != 3 {
 		t.Error("Version not incremented after ApplyPatch")

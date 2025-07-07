@@ -242,6 +242,7 @@ func (e *ExecutionEngine) ExecuteStream(ctx context.Context, toolID string, para
 	}
 
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
+	// Note: cancel is called in the goroutine, not here
 
 	// Track execution
 	execID := fmt.Sprintf("%s-stream-%d", toolID, time.Now().UnixNano())
@@ -250,7 +251,6 @@ func (e *ExecutionEngine) ExecuteStream(ctx context.Context, toolID string, para
 	// Execute the streaming tool
 	stream, err := streamingExecutor.ExecuteStream(execCtx, params)
 	if err != nil {
-		cancel()
 		e.untrackExecution(execID)
 		return nil, fmt.Errorf("streaming execution failed: %w", err)
 	}

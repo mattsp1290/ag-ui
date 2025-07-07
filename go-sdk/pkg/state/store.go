@@ -292,7 +292,7 @@ func (s *StateStore) Set(path string, value interface{}) error {
 
 		// Create a patch for this operation
 		patch := JSONPatch{
-			{
+			JSONPatchOperation{
 				Op:    JSONPatchOpReplace,
 				Path:  path,
 				Value: value,
@@ -319,7 +319,7 @@ func (s *StateStore) Set(path string, value interface{}) error {
 
 	// Create a patch for this operation
 	patch := JSONPatch{
-		{
+		JSONPatchOperation{
 			Op:    JSONPatchOpReplace,
 			Path:  path,
 			Value: value,
@@ -379,7 +379,7 @@ func (s *StateStore) setRootPath(value interface{}) error {
 		}
 	}
 
-	patch := JSONPatch{{Op: JSONPatchOpReplace, Path: "/", Value: value}}
+	patch := JSONPatch{JSONPatchOperation{Op: JSONPatchOpReplace, Path: "/", Value: value}}
 	// Use pre-computed state to avoid deadlock
 	if m, ok := value.(map[string]interface{}); ok {
 		s.createVersionWithState(patch, deepCopy(m).(map[string]interface{}), nil)
@@ -486,7 +486,7 @@ func (s *StateStore) Delete(path string) error {
 	defer shard.mu.Unlock()
 
 	patch := JSONPatch{
-		{
+		JSONPatchOperation{
 			Op:   JSONPatchOpRemove,
 			Path: path,
 		},
@@ -1023,7 +1023,7 @@ func (s *StateStore) createRestorePatch(oldState, newState map[string]interface{
 	// This is a simplified implementation
 	// A full implementation would calculate minimal patches
 	return JSONPatch{
-		{
+		JSONPatchOperation{
 			Op:    JSONPatchOpReplace,
 			Path:  "/",
 			Value: newState,
@@ -1162,7 +1162,7 @@ func (s *StateStore) Import(data []byte) error {
 	}
 
 	// Create version entry with pre-computed state
-	patch := JSONPatch{{Op: JSONPatchOpReplace, Path: "/", Value: newStateData}}
+	patch := JSONPatch{JSONPatchOperation{Op: JSONPatchOpReplace, Path: "/", Value: newStateData}}
 	s.createVersionWithState(patch, deepCopy(newStateData).(map[string]interface{}), nil)
 
 	return nil

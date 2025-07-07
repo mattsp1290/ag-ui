@@ -1748,7 +1748,7 @@ func createEventOfType(eventType EventType) Event {
 		return &StateDeltaEvent{
 			BaseEvent: &BaseEvent{EventType: eventType, TimestampMs: &timestamp},
 			Delta: []JSONPatchOperation{
-				{Op: "add", Path: "/test", Value: "value"},
+				JSONPatchOperation{Op: "add", Path: "/test", Value: "value"},
 			},
 		}
 	case EventTypeMessagesSnapshot:

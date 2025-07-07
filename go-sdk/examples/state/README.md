@@ -2,9 +2,45 @@
 
 This directory contains comprehensive examples demonstrating various aspects of the AG-UI state management system. Each example showcases different use cases and best practices for state synchronization, collaboration, and distributed systems.
 
+**Important:** Each example is now in its own subdirectory with its own `go.mod` file to avoid build conflicts. This allows each example to be run independently.
+
+## Build Status
+
+**Working Examples** (ready to run):
+- ✓ `basic_state_sync` - Basic state synchronization
+- ✓ `collaborative_editing` - Multi-user collaborative editing  
+- ✓ `distributed_state` - Distributed state across nodes
+- ✓ `realtime_dashboard` - Real-time dashboard updates
+
+**Examples with API Compatibility Issues** (reference implementations for future APIs):
+- ✗ `enhanced_collaborative_editing` - Uses undefined APIs (UserMonitor, StateMonitor, etc.)
+- ✗ `enhanced_event_handlers` - Uses undefined event fields and APIs
+- ✗ `monitoring_observability` - Uses undefined monitoring APIs
+- ✗ `performance_optimization` - Uses undefined optimization APIs
+- ✗ `storage_backends` - Uses undefined storage configuration APIs
+
+To check the current build status of all examples, run:
+```bash
+./build_status.sh
+```
+
+## Quick Start
+
+Use the provided script to easily run any example:
+
+```bash
+# Show available examples
+./run_example.sh
+
+# Run a specific example
+./run_example.sh basic_state_sync
+./run_example.sh collaborative_editing
+./run_example.sh realtime_dashboard
+```
+
 ## Examples Overview
 
-### 1. Basic State Synchronization (`basic_state_sync.go`)
+### 1. Basic State Synchronization (`basic_state_sync/`)
 
 Demonstrates fundamental state management concepts including:
 - Creating and managing a state store
@@ -24,10 +60,12 @@ Demonstrates fundamental state management concepts including:
 
 **Run:**
 ```bash
-go run basic_state_sync.go
+./run_example.sh basic_state_sync
+# or
+cd basic_state_sync && go run main.go
 ```
 
-### 2. Collaborative Editing (`collaborative_editing.go`)
+### 2. Collaborative Editing (`collaborative_editing/`)
 
 Shows how multiple users can edit shared state concurrently with:
 - Real-time collaborative document editing
@@ -44,10 +82,12 @@ Shows how multiple users can edit shared state concurrently with:
 
 **Run:**
 ```bash
-go run collaborative_editing.go
+./run_example.sh collaborative_editing
+# or
+cd collaborative_editing && go run main.go
 ```
 
-### 3. Real-time Dashboard (`realtime_dashboard.go`)
+### 3. Real-time Dashboard (`realtime_dashboard/`)
 
 Demonstrates high-frequency state updates for real-time monitoring:
 - Multiple data sources updating at different frequencies
@@ -66,10 +106,12 @@ Demonstrates high-frequency state updates for real-time monitoring:
 
 **Run:**
 ```bash
-go run realtime_dashboard.go
+./run_example.sh realtime_dashboard
+# or
+cd realtime_dashboard && go run main.go
 ```
 
-### 4. Distributed State (`distributed_state.go`)
+### 4. Distributed State (`distributed_state/`)
 
 Shows state synchronization across multiple distributed nodes:
 - Multi-node cluster setup
@@ -88,12 +130,14 @@ Shows state synchronization across multiple distributed nodes:
 
 **Run:**
 ```bash
-go run distributed_state.go
+./run_example.sh distributed_state
+# or
+cd distributed_state && go run main.go
 ```
 
 ## Production Examples
 
-### 5. Storage Backends (`storage_backends_example.go`)
+### 5. Storage Backends (`storage_backends/`)
 
 Demonstrates production storage backends for state persistence:
 - **File Storage**: Local file-based storage with compression and encryption
@@ -111,10 +155,11 @@ Demonstrates production storage backends for state persistence:
 
 **Run:**
 ```bash
-go run storage_backends_example.go
+# Note: This example currently has API compatibility issues
+cd storage_backends && go run main.go
 ```
 
-### 6. Monitoring & Observability (`monitoring_observability_example.go`)
+### 6. Monitoring & Observability (`monitoring_observability/`)
 
 Comprehensive monitoring and observability features:
 - **Metrics Collection**: Prometheus integration with custom metrics
@@ -134,10 +179,11 @@ Comprehensive monitoring and observability features:
 
 **Run:**
 ```bash
-go run monitoring_observability_example.go
+# Note: This example currently has API compatibility issues
+cd monitoring_observability && go run main.go
 ```
 
-### 7. Enhanced Event Handlers (`enhanced_event_handlers_example.go`)
+### 7. Enhanced Event Handlers (`enhanced_event_handlers/`)
 
 Production-ready event handling with advanced features:
 - **Event Compression**: Automatic compression for large events
@@ -156,10 +202,11 @@ Production-ready event handling with advanced features:
 
 **Run:**
 ```bash
-go run enhanced_event_handlers_example.go
+# Note: This example currently has API compatibility issues
+cd enhanced_event_handlers && go run main.go
 ```
 
-### 8. Performance Optimization (`performance_optimization_example.go`)
+### 8. Performance Optimization (`performance_optimization/`)
 
 High-scale performance optimization techniques:
 - **Object Pooling**: Reduce allocations with object reuse
@@ -178,10 +225,11 @@ High-scale performance optimization techniques:
 
 **Run:**
 ```bash
-go run performance_optimization_example.go
+# Note: This example currently has API compatibility issues
+cd performance_optimization && go run main.go
 ```
 
-### 9. Enhanced Collaborative Editing (`enhanced_collaborative_editing.go`)
+### 9. Enhanced Collaborative Editing (`enhanced_collaborative_editing/`)
 
 Production-ready collaborative editing with all new features:
 - **Storage Integration**: Redis backend for persistence
@@ -200,7 +248,8 @@ Production-ready collaborative editing with all new features:
 
 **Run:**
 ```bash
-go run enhanced_collaborative_editing.go
+# Note: This example currently has API compatibility issues
+cd enhanced_collaborative_editing && go run main.go
 ```
 
 ## Best Practices Demonstrated
@@ -389,17 +438,17 @@ Each example can be run independently and includes:
 To run all examples:
 ```bash
 # Basic examples
-go run basic_state_sync.go
-go run collaborative_editing.go
-go run realtime_dashboard.go
-go run distributed_state.go
+cd basic_state_sync && go run main.go && cd ..
+cd collaborative_editing && go run main.go && cd ..
+cd realtime_dashboard && go run main.go && cd ..
+cd distributed_state && go run main.go && cd ..
 
 # Production examples
-go run storage_backends_example.go
-go run monitoring_observability_example.go
-go run enhanced_event_handlers_example.go
-go run performance_optimization_example.go
-go run enhanced_collaborative_editing.go
+cd storage_backends && go run main.go && cd ..
+cd monitoring_observability && go run main.go && cd ..
+cd enhanced_event_handlers && go run main.go && cd ..
+cd performance_optimization && go run main.go && cd ..
+cd enhanced_collaborative_editing && go run main.go && cd ..
 ```
 
 ## Dependencies

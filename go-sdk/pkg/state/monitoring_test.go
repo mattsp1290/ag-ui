@@ -234,7 +234,7 @@ func TestMetricsRecording(t *testing.T) {
 		t.Error("Should have recorded memory metrics")
 	}
 	
-	if metrics.ConnectionPool.totalConnections == 0 {
+	if metrics.ConnectionPool.TotalConnections == 0 {
 		t.Error("Should have recorded connection pool metrics")
 	}
 }

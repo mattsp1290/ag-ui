@@ -21,25 +21,18 @@ type SecurityConfig struct {
 	ForbiddenPaths    []string // Forbidden JSON Pointer paths
 }
 
-// Security limit constants as per requirements
-const (
-	MaxPatchSize    = 1 << 20  // 1MB
-	MaxStateSize    = 10 << 20 // 10MB
-	MaxJSONDepth    = 10       // 10 levels deep
-	MaxStringLength = 1 << 16  // 64KB
-	MaxArrayLength  = 10000    // 10000 items
-)
+// Security limit constants are defined in constants.go
 
 // DefaultSecurityConfig returns safe default security settings
 func DefaultSecurityConfig() SecurityConfig {
 	return SecurityConfig{
-		MaxStateSize:      MaxStateSize,     // 10MB
-		MaxMetadataSize:   1024 * 1024,     // 1MB
-		MaxPatchSize:      MaxPatchSize,     // 1MB
-		MaxDepth:          MaxJSONDepth,     // 10 levels deep
-		MaxStringLength:   MaxStringLength,  // 64KB strings
-		MaxArrayLength:    MaxArrayLength,   // 10k elements
-		MaxObjectKeys:     1000,             // 1k keys
+		MaxStateSize:      MaxStateSizeBytes,      // 10MB
+		MaxMetadataSize:   MaxMetadataSizeBytes,   // 1MB
+		MaxPatchSize:      MaxPatchSizeBytes,      // 1MB
+		MaxDepth:          MaxJSONDepth,           // 10 levels deep
+		MaxStringLength:   MaxStringLengthBytes,   // 64KB strings
+		MaxArrayLength:    MaxArrayLength,         // 10k elements
+		MaxObjectKeys:     MaxObjectKeys,          // 1k keys
 		AllowedOperations: []JSONPatchOp{
 			JSONPatchOpAdd, JSONPatchOpRemove, JSONPatchOpReplace,
 			JSONPatchOpMove, JSONPatchOpCopy, JSONPatchOpTest,

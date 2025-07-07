@@ -67,26 +67,26 @@ type ManagerOptions struct {
 // DefaultManagerOptions returns sensible defaults
 func DefaultManagerOptions() ManagerOptions {
 	return ManagerOptions{
-		MaxHistorySize:       100,
+		MaxHistorySize:       DefaultMaxHistorySize,
 		ConflictStrategy:     LastWriteWins,
-		MaxRetries:           3,
-		RetryDelay:           100 * time.Millisecond,
+		MaxRetries:           DefaultMaxRetries,
+		RetryDelay:           DefaultRetryDelay,
 		StrictMode:           true,
-		MaxCheckpoints:       10,
-		CheckpointInterval:   5 * time.Minute,
+		MaxCheckpoints:       DefaultMaxCheckpoints,
+		CheckpointInterval:   DefaultCheckpointInterval,
 		AutoCheckpoint:       true,
 		CompressCheckpoints:  true,
-		EventBufferSize:      1000,
-		ProcessingWorkers:    4,
-		EventRetryBackoff:    time.Second,
-		CacheSize:            1000,
-		CacheTTL:             5 * time.Minute,
+		EventBufferSize:      DefaultEventBufferSize,
+		ProcessingWorkers:    DefaultProcessingWorkers,
+		EventRetryBackoff:    DefaultEventRetryBackoff,
+		CacheSize:            DefaultCacheSize,
+		CacheTTL:             DefaultCacheTTL,
 		EnableCompression:    true,
 		EnableBatching:       true,
-		BatchSize:            100,
-		BatchTimeout:         100 * time.Millisecond,
+		BatchSize:            DefaultBatchSize,
+		BatchTimeout:         DefaultBatchTimeout,
 		EnableMetrics:        true,
-		MetricsInterval:      30 * time.Second,
+		MetricsInterval:      DefaultMetricsInterval,
 		EnableTracing:        false,
 		EnableAudit:          true,
 		AuditLogger:          nil, // Will use default JSON logger
@@ -221,7 +221,7 @@ func NewStateManager(opts ManagerOptions) (*StateManager, error) {
 	securityValidator := NewSecurityValidator(DefaultSecurityConfig())
 	
 	// Create rate limiter with default configuration
-	rateLimiter := NewRateLimiter(1000) // 1000 operations per second default
+	rateLimiter := NewRateLimiter(DefaultGlobalRateLimit) // Global rate limit operations per second
 	
 	// Create client rate limiter with default configuration
 	clientRateLimiter := NewClientRateLimiter(DefaultClientRateLimiterConfig())
@@ -240,7 +240,7 @@ func NewStateManager(opts ManagerOptions) (*StateManager, error) {
 	// Determine max contexts based on cache size or use default
 	maxContexts := opts.CacheSize
 	if maxContexts <= 0 {
-		maxContexts = 1000 // Default max contexts
+		maxContexts = DefaultMaxContexts // Default max contexts
 	}
 	
 	sm := &StateManager{
@@ -259,9 +259,9 @@ func NewStateManager(opts ManagerOptions) (*StateManager, error) {
 		activeContexts:    NewContextManager(maxContexts),
 		updateQueue:       make(chan *updateRequest, opts.BatchSize*2),
 		eventQueue:        make(chan *stateEvent, opts.EventBufferSize),
-		errCh:             make(chan error, 100), // Buffer for error propagation
-		contextTTL:        1 * time.Hour,   // Default context TTL
-		cleanupInterval:   15 * time.Minute, // Default cleanup interval
+		errCh:             make(chan error, DefaultErrorChannelSize), // Buffer for error propagation
+		contextTTL:        DefaultContextTTL,   // Default context TTL
+		cleanupInterval:   DefaultCleanupInterval, // Default cleanup interval
 		lastCleanup:       time.Now(),
 		ctx:               ctx,
 		cancel:            cancel,
@@ -494,7 +494,7 @@ func (sm *StateManager) UpdateState(ctx context.Context, contextID, stateID stri
 	// Set default timeout if not specified
 	timeout := opts.Timeout
 	if timeout == 0 {
-		timeout = 30 * time.Second
+		timeout = DefaultUpdateTimeout
 	}
 
 	// Create timeout context
@@ -692,7 +692,7 @@ func (sm *StateManager) Close() error {
 	atomic.StoreInt32(&sm.closing, 1)
 	
 	// Give a moment for any in-flight enqueues to complete
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(DefaultShutdownGracePeriod)
 	
 	// Wait for workers with timeout
 	done := make(chan struct{})
@@ -704,8 +704,8 @@ func (sm *StateManager) Close() error {
 	select {
 	case <-done:
 		// Workers finished cleanly
-	case <-time.After(30 * time.Second):
-		sm.logger.Error("shutdown timeout, forcing close", Duration("timeout", 30*time.Second))
+	case <-time.After(DefaultShutdownTimeout):
+		sm.logger.Error("shutdown timeout, forcing close", Duration("timeout", DefaultShutdownTimeout))
 	}
 	
 	// Start drain goroutines
@@ -733,7 +733,7 @@ func (sm *StateManager) Close() error {
 	}()
 	
 	// Give drain goroutines time to start
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(DefaultShutdownGracePeriod)
 	
 	// Now safe to close channels
 	close(sm.updateQueue)
@@ -1106,7 +1106,7 @@ func (sm *StateManager) createAutoCheckpoints() {
 			continue
 		}
 
-		name := fmt.Sprintf("auto-%s", time.Now().Format("20060102-150405"))
+		name := fmt.Sprintf("auto-%s", time.Now().Format("20060102-150405")) // AutoCheckpointNameLength format
 		if err := sm.rollbackManager.CreateMarker(name); err != nil {
 			sm.logger.Error("auto checkpoint creation failed",
 				Err(err),
@@ -1194,7 +1194,7 @@ func (sm *StateManager) handleErrors() {
 	defer sm.wg.Done()
 	
 	errorCounts := make(map[string]int)
-	resetTicker := time.NewTicker(5 * time.Minute)
+	resetTicker := time.NewTicker(DefaultErrorResetInterval)
 	defer resetTicker.Stop()
 
 	for {
@@ -1268,15 +1268,15 @@ func (sm *StateManager) shouldCircuitBreak(errorCounts map[string]int) bool {
 	for errType, count := range errorCounts {
 		switch errType {
 		case "update":
-			if count > 10 {
+			if count > DefaultUpdateErrorThreshold {
 				return true
 			}
 		case "checkpoint":
-			if count > 5 {
+			if count > DefaultCheckpointErrorThreshold {
 				return true
 			}
 		default:
-			if count > 20 {
+			if count > DefaultMaxErrorCount {
 				return true
 			}
 		}

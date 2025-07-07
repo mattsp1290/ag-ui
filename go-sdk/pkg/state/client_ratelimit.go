@@ -25,11 +25,11 @@ type ClientRateLimiterConfig struct {
 // DefaultClientRateLimiterConfig returns default rate limiter configuration
 func DefaultClientRateLimiterConfig() ClientRateLimiterConfig {
 	return ClientRateLimiterConfig{
-		RatePerSecond:   100,              // 100 operations per second per client
-		BurstSize:       200,              // Allow bursts up to 200
-		MaxClients:      10000,            // Track up to 10k clients
-		ClientTTL:       30 * time.Minute, // Remove inactive clients after 30 minutes
-		CleanupInterval: 5 * time.Minute,  // Run cleanup every 5 minutes
+		RatePerSecond:   DefaultClientRateLimit,      // Operations per second per client
+		BurstSize:       DefaultClientBurstSize,      // Allow bursts up to this size
+		MaxClients:      DefaultMaxClients,           // Track up to this many clients
+		ClientTTL:       DefaultClientTTL,            // Remove inactive clients after this time
+		CleanupInterval: DefaultClientCleanupInterval, // Run cleanup at this frequency
 	}
 }
 
@@ -300,8 +300,8 @@ func (rl *ClientRateLimiter) cleanupLocked() {
 			}
 		}
 		
-		// Remove oldest 10%
-		toRemove := len(rl.limiters) / 10
+		// Remove oldest entries based on LRU eviction percentage
+		toRemove := len(rl.limiters) / DefaultLRUEvictionPercent
 		if toRemove < 1 {
 			toRemove = 1
 		}

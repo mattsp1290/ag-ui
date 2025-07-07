@@ -1504,3 +1504,8 @@ func (sm *StateManager) enqueueUpdate(req *updateRequest) error {
 		return ErrQueueFull
 	}
 }
+
+// isClosing returns true if the manager is in the process of closing
+func (sm *StateManager) isClosing() bool {
+	return atomic.LoadInt32(&sm.closing) == 1
+}

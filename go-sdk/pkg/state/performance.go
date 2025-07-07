@@ -20,7 +20,7 @@ type PerformanceOptimizer struct {
 	patchPool       *BoundedPool
 	stateChangePool *BoundedPool
 	eventPool       *BoundedPool
-	bufferPool      *BoundedPool// Buffer pool for compression/decompression
+	bufferPool      sync.Pool// Buffer pool for compression/decompression
 
 	// Metrics
 	allocations   atomic.Int64
@@ -57,11 +57,6 @@ type PerformanceOptimizer struct {
 	rateLimiter   *RateLimiter
 	maxOpsPerSec  int
 
-<<<<<<< HEAD
-	// Context for lifecycle management
-	ctx    context.Context
-	cancel context.CancelFunc
-=======
 	// Connection pooling
 	connectionPool  *ConnectionPool
 
@@ -81,7 +76,6 @@ type PerformanceOptimizer struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
->>>>>>> main
 }
 
 // PerformanceOptions configures the performance optimizer
@@ -96,32 +90,35 @@ type PerformanceOptions struct {
 	CompressionLevel  int
 	MaxConcurrency    int
 	MaxOpsPerSecond   int
-<<<<<<< HEAD
 	MaxPoolSize       int  // Maximum number of objects in each pool
 	MaxIdleObjects    int  // Maximum idle objects to keep
-=======
 	MaxMemoryUsage    int64
 	ShardCount        int
 	ConnectionPoolSize int
 	LazyCacheSize     int
 	CacheExpiryTime   time.Duration
->>>>>>> main
 }
 
 // DefaultPerformanceOptions returns default performance options
 func DefaultPerformanceOptions() PerformanceOptions {
 	return PerformanceOptions{
-<<<<<<< HEAD
-		EnablePooling:     true,
-		EnableBatching:    true,
-		EnableCompression: false,
-		BatchSize:        100,
-		BatchTimeout:     10 * time.Millisecond,
-		CompressionLevel: 6,
-		MaxConcurrency:   runtime.NumCPU() * 2,
-		MaxOpsPerSecond:  10000,
-		MaxPoolSize:      10000,
-		MaxIdleObjects:   1000,
+		EnablePooling:      true,
+		EnableBatching:     true,
+		EnableCompression:  false,
+		EnableLazyLoading:  true,
+		EnableSharding:     true,
+		BatchSize:          DefaultBatchSize,
+		BatchTimeout:       DefaultPerformanceBatchTimeout,
+		CompressionLevel:   DefaultCompressionLevel,
+		MaxConcurrency:     runtime.NumCPU() * 2,
+		MaxOpsPerSecond:    DefaultMaxOpsPerSecond,
+		MaxPoolSize:        10000,
+		MaxIdleObjects:     1000,
+		MaxMemoryUsage:     DefaultMaxMemoryUsage, // 100MB
+		ShardCount:         DefaultShardCount,
+		ConnectionPoolSize: DefaultConnectionPoolSize,
+		LazyCacheSize:      DefaultLazyCacheSize,
+		CacheExpiryTime:    DefaultLazyCacheExpiryTime,
 	}
 }
 
@@ -181,23 +178,6 @@ func (bp *BoundedPool) Put(obj interface{}) {
 	} else {
 		// Too many idle objects, discard this one
 		bp.activeCount.Add(-1)
-=======
-		EnablePooling:      true,
-		EnableBatching:     true,
-		EnableCompression:  false,
-		EnableLazyLoading:  true,
-		EnableSharding:     true,
-		BatchSize:          DefaultBatchSize,
-		BatchTimeout:       DefaultPerformanceBatchTimeout,
-		CompressionLevel:   DefaultCompressionLevel,
-		MaxConcurrency:     runtime.NumCPU() * 2,
-		MaxOpsPerSecond:    DefaultMaxOpsPerSecond,
-		MaxMemoryUsage:     DefaultMaxMemoryUsage, // 100MB
-		ShardCount:         DefaultShardCount,
-		ConnectionPoolSize: DefaultConnectionPoolSize,
-		LazyCacheSize:      DefaultLazyCacheSize,
-		CacheExpiryTime:    DefaultLazyCacheExpiryTime,
->>>>>>> main
 	}
 }
 
@@ -257,12 +237,6 @@ func NewPerformanceOptimizer(opts PerformanceOptions) *PerformanceOptimizer {
 		po.startBatchWorkers()
 	}
 
-<<<<<<< HEAD
-	// Create context for lifecycle management
-	po.ctx, po.cancel = context.WithCancel(context.Background())
-
-	// Start GC monitoring
-=======
 	// Initialize connection pool with default factory
 	po.connectionPool = NewConnectionPoolWithDefault(opts.ConnectionPoolSize)
 
@@ -287,7 +261,6 @@ func NewPerformanceOptimizer(opts PerformanceOptions) *PerformanceOptimizer {
 
 	// Start monitoring goroutines
 	po.wg.Add(2)
->>>>>>> main
 	go po.monitorGC()
 	go po.monitorMemory()
 
@@ -514,48 +487,12 @@ func (po *PerformanceOptimizer) monitorGC() {
 	
 	var lastNumGC uint32
 	var memStats runtime.MemStats
-	var sampleCounter int
 	
-<<<<<<< HEAD
-	// Use adaptive interval - start with 1 second
-	interval := time.Second
-	ticker := time.NewTicker(interval)
-=======
 	ticker := time.NewTicker(DefaultGCMonitoringInterval)
->>>>>>> main
 	defer ticker.Stop()
 	
 	for {
 		select {
-<<<<<<< HEAD
-		case <-po.ctx.Done():
-			return
-		case <-ticker.C:
-			sampleCounter++
-			
-			// Only read full memory stats every 10th sample (10 seconds)
-			if sampleCounter%10 == 0 {
-				runtime.ReadMemStats(&memStats)
-				
-				if memStats.NumGC > lastNumGC {
-					po.gcPauses.Add(int64(memStats.NumGC - lastNumGC))
-					po.lastGCPause.Store(int64(memStats.PauseNs[(memStats.NumGC+255)%256]))
-					lastNumGC = memStats.NumGC
-				}
-				
-				po.allocations.Store(int64(memStats.Mallocs))
-			} else {
-				// Use lighter-weight runtime/metrics API for frequent sampling
-				// Just check GC count without full stats
-				if memStats.NumGC > lastNumGC {
-					// GC occurred, read stats to get pause time
-					runtime.ReadMemStats(&memStats)
-					po.gcPauses.Add(int64(memStats.NumGC - lastNumGC))
-					po.lastGCPause.Store(int64(memStats.PauseNs[(memStats.NumGC+255)%256]))
-					lastNumGC = memStats.NumGC
-				}
-			}
-=======
 		case <-ticker.C:
 			runtime.ReadMemStats(&memStats)
 			
@@ -568,7 +505,6 @@ func (po *PerformanceOptimizer) monitorGC() {
 			po.allocations.Store(int64(memStats.Mallocs))
 		case <-po.ctx.Done():
 			return
->>>>>>> main
 		}
 	}
 }
@@ -620,23 +556,11 @@ func (po *PerformanceOptimizer) calculateCacheHitRate() float64 {
 
 // Stop stops the performance optimizer
 func (po *PerformanceOptimizer) Stop() {
-<<<<<<< HEAD
-	// Cancel context to stop goroutines
-	if po.cancel != nil {
-		po.cancel()
-	}
-	
-	// Stop rate limiter
-	if po.rateLimiter != nil {
-		po.rateLimiter.Stop()
-	}
-=======
 	// Cancel context to stop monitoring goroutines
 	po.cancel()
 	
 	// Wait for all goroutines to finish
 	po.wg.Wait()
->>>>>>> main
 	
 	if po.enableBatching {
 		close(po.stopBatch)

@@ -13,6 +13,34 @@ import (
 	"go.opentelemetry.io/otel/metric"
 )
 
+// MetricsCollector provides an interface for collecting and managing performance metrics
+type MetricsCollector interface {
+	// Event recording methods
+	RecordEvent(duration time.Duration, success bool)
+	RecordWarning()
+	RecordRuleExecution(ruleID string, duration time.Duration, success bool)
+	
+	// Rule management methods
+	SetRuleBaseline(ruleID string, baseline time.Duration)
+	GetRuleMetrics(ruleID string) *RuleExecutionMetric
+	GetAllRuleMetrics() map[string]*RuleExecutionMetric
+	
+	// Dashboard and monitoring methods
+	GetDashboardData() *DashboardData
+	GetPerformanceRegressions() []PerformanceRegression
+	GetMemoryHistory() []MemoryUsageMetric
+	GetOverallStats() map[string]interface{}
+	
+	// Lifecycle methods
+	Export() error
+	Shutdown() error
+}
+
+// NewMetricsCollector creates a new MetricsCollector implementation
+func NewMetricsCollector(config *MetricsConfig) (MetricsCollector, error) {
+	return NewValidationPerformanceMetrics(config)
+}
+
 // MetricsLevel defines the level of metrics collection
 type MetricsLevel int
 
@@ -50,6 +78,10 @@ type MetricsConfig struct {
 	EnableRegression    bool       // Enable performance regression detection
 	DashboardEnabled    bool       // Enable real-time dashboard data
 	
+	// Ring buffer configuration
+	RingBufferSize      int           // Size of the memory history ring buffer (default: 60)
+	GCStatsInterval     time.Duration // Interval for GC stats collection (default: 30s)
+	
 	// Backends configuration
 	PrometheusEnabled bool
 	OTLPEnabled       bool
@@ -73,6 +105,8 @@ func DefaultMetricsConfig() *MetricsConfig {
 		EnableLeakDetection: true,
 		EnableRegression:    true,
 		DashboardEnabled:    true,
+		RingBufferSize:      60,                // 1 hour of data at 1-minute intervals
+		GCStatsInterval:     30 * time.Second,  // Cache GC stats for 30 seconds
 		PrometheusEnabled:   false,
 		OTLPEnabled:        false,
 		PrometheusPort:     8080,
@@ -88,6 +122,8 @@ func ProductionMetricsConfig() *MetricsConfig {
 	config := DefaultMetricsConfig()
 	config.Level = MetricsLevelDetailed
 	config.SamplingRate = 0.1 // Sample 10% of events
+	config.RingBufferSize = 120 // 2 hours of data in production
+	config.GCStatsInterval = 60 * time.Second // Less frequent GC stats collection
 	config.PrometheusEnabled = true
 	config.OTLPEnabled = true
 	return config
@@ -99,71 +135,200 @@ func DevelopmentMetricsConfig() *MetricsConfig {
 	config.Level = MetricsLevelDebug
 	config.SamplingRate = 1.0
 	config.FlushInterval = 30 * time.Second
+	config.RingBufferSize = 30 // 30 minutes for development
+	config.GCStatsInterval = 10 * time.Second // More frequent for debugging
 	return config
 }
 
-// RuleExecutionMetric tracks execution metrics for a specific rule
+// AtomicCounter provides a thread-safe counter using atomic operations
+type AtomicCounter struct {
+	value int64
+}
+
+// NewAtomicCounter creates a new atomic counter
+func NewAtomicCounter() *AtomicCounter {
+	return &AtomicCounter{}
+}
+
+// Add atomically adds delta to the counter and returns the new value
+func (c *AtomicCounter) Add(delta int64) int64 {
+	return atomic.AddInt64(&c.value, delta)
+}
+
+// Inc atomically increments the counter by 1 and returns the new value
+func (c *AtomicCounter) Inc() int64 {
+	return atomic.AddInt64(&c.value, 1)
+}
+
+// Dec atomically decrements the counter by 1 and returns the new value
+func (c *AtomicCounter) Dec() int64 {
+	return atomic.AddInt64(&c.value, -1)
+}
+
+// Load atomically loads and returns the current value
+func (c *AtomicCounter) Load() int64 {
+	return atomic.LoadInt64(&c.value)
+}
+
+// Store atomically stores a new value
+func (c *AtomicCounter) Store(value int64) {
+	atomic.StoreInt64(&c.value, value)
+}
+
+// CompareAndSwap atomically compares the current value with old and sets it to new if they match
+func (c *AtomicCounter) CompareAndSwap(old, new int64) bool {
+	return atomic.CompareAndSwapInt64(&c.value, old, new)
+}
+
+// AtomicDuration provides thread-safe duration tracking using atomic operations
+type AtomicDuration struct {
+	nanos int64
+}
+
+// NewAtomicDuration creates a new atomic duration
+func NewAtomicDuration() *AtomicDuration {
+	return &AtomicDuration{}
+}
+
+// Add atomically adds a duration to the current value
+func (d *AtomicDuration) Add(duration time.Duration) time.Duration {
+	newNanos := atomic.AddInt64(&d.nanos, int64(duration))
+	return time.Duration(newNanos)
+}
+
+// Load atomically loads the current duration
+func (d *AtomicDuration) Load() time.Duration {
+	return time.Duration(atomic.LoadInt64(&d.nanos))
+}
+
+// Store atomically stores a new duration
+func (d *AtomicDuration) Store(duration time.Duration) {
+	atomic.StoreInt64(&d.nanos, int64(duration))
+}
+
+// CompareAndSwap atomically compares and swaps if the current value matches old
+func (d *AtomicDuration) CompareAndSwap(old, new time.Duration) bool {
+	return atomic.CompareAndSwapInt64(&d.nanos, int64(old), int64(new))
+}
+
+// AtomicMinMax provides thread-safe min/max tracking using atomic operations
+type AtomicMinMax struct {
+	minNanos int64
+	maxNanos int64
+}
+
+// NewAtomicMinMax creates a new atomic min/max tracker
+func NewAtomicMinMax() *AtomicMinMax {
+	return &AtomicMinMax{
+		minNanos: math.MaxInt64,
+		maxNanos: 0,
+	}
+}
+
+// Update atomically updates min and max values with the new duration
+func (mm *AtomicMinMax) Update(duration time.Duration) {
+	nanos := int64(duration)
+	
+	// Update minimum value
+	for {
+		current := atomic.LoadInt64(&mm.minNanos)
+		if nanos >= current {
+			break
+		}
+		if atomic.CompareAndSwapInt64(&mm.minNanos, current, nanos) {
+			break
+		}
+	}
+	
+	// Update maximum value
+	for {
+		current := atomic.LoadInt64(&mm.maxNanos)
+		if nanos <= current {
+			break
+		}
+		if atomic.CompareAndSwapInt64(&mm.maxNanos, current, nanos) {
+			break
+		}
+	}
+}
+
+// Min atomically loads the minimum value
+func (mm *AtomicMinMax) Min() time.Duration {
+	min := atomic.LoadInt64(&mm.minNanos)
+	if min == math.MaxInt64 {
+		return 0
+	}
+	return time.Duration(min)
+}
+
+// Max atomically loads the maximum value
+func (mm *AtomicMinMax) Max() time.Duration {
+	return time.Duration(atomic.LoadInt64(&mm.maxNanos))
+}
+
+// RuleExecutionMetric tracks execution metrics for a specific rule using atomic operations
 type RuleExecutionMetric struct {
-	RuleID        string
-	ExecutionCount int64
-	TotalDuration time.Duration
-	MinDuration   time.Duration
-	MaxDuration   time.Duration
-	LastExecution time.Time
-	ErrorCount    int64
+	RuleID          string
+	executionCount  *AtomicCounter
+	totalDuration   *AtomicDuration
+	minMaxDuration  *AtomicMinMax
+	lastExecution   int64 // Unix nanoseconds, atomic
+	errorCount      *AtomicCounter
 	
 	// Histogram buckets for detailed timing analysis
 	DurationBuckets []time.Duration
-	BucketCounts    []int64
-	
-	mutex sync.RWMutex
+	bucketCounts    []*AtomicCounter // Atomic counters for each bucket
 }
 
 // NewRuleExecutionMetric creates a new rule execution metric
 func NewRuleExecutionMetric(ruleID string) *RuleExecutionMetric {
+	buckets := []time.Duration{
+		time.Millisecond,
+		5 * time.Millisecond,
+		10 * time.Millisecond,
+		25 * time.Millisecond,
+		50 * time.Millisecond,
+		100 * time.Millisecond,
+		250 * time.Millisecond,
+		500 * time.Millisecond,
+		time.Second,
+		5 * time.Second,
+	}
+	
+	bucketCounts := make([]*AtomicCounter, len(buckets))
+	for i := range bucketCounts {
+		bucketCounts[i] = NewAtomicCounter()
+	}
+	
 	return &RuleExecutionMetric{
 		RuleID:          ruleID,
-		MinDuration:     time.Duration(math.MaxInt64),
-		DurationBuckets: []time.Duration{
-			time.Millisecond,
-			5 * time.Millisecond,
-			10 * time.Millisecond,
-			25 * time.Millisecond,
-			50 * time.Millisecond,
-			100 * time.Millisecond,
-			250 * time.Millisecond,
-			500 * time.Millisecond,
-			time.Second,
-			5 * time.Second,
-		},
-		BucketCounts: make([]int64, 10),
+		executionCount:  NewAtomicCounter(),
+		totalDuration:   NewAtomicDuration(),
+		minMaxDuration:  NewAtomicMinMax(),
+		errorCount:      NewAtomicCounter(),
+		DurationBuckets: buckets,
+		bucketCounts:    bucketCounts,
 	}
 }
 
-// RecordExecution records a rule execution
+// RecordExecution records a rule execution using atomic operations
 func (m *RuleExecutionMetric) RecordExecution(duration time.Duration, success bool) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
+	// Update counters atomically
+	m.executionCount.Inc()
+	m.totalDuration.Add(duration)
+	atomic.StoreInt64(&m.lastExecution, time.Now().UnixNano())
 	
-	m.ExecutionCount++
-	m.TotalDuration += duration
-	m.LastExecution = time.Now()
-	
-	if duration < m.MinDuration {
-		m.MinDuration = duration
-	}
-	if duration > m.MaxDuration {
-		m.MaxDuration = duration
-	}
+	// Update min/max atomically
+	m.minMaxDuration.Update(duration)
 	
 	if !success {
-		m.ErrorCount++
+		m.errorCount.Inc()
 	}
 	
-	// Update histogram buckets
+	// Update histogram buckets atomically
 	for i, bucket := range m.DurationBuckets {
 		if duration <= bucket {
-			m.BucketCounts[i]++
+			m.bucketCounts[i].Inc()
 			break
 		}
 	}
@@ -171,24 +336,60 @@ func (m *RuleExecutionMetric) RecordExecution(duration time.Duration, success bo
 
 // GetAverageDuration returns the average execution duration
 func (m *RuleExecutionMetric) GetAverageDuration() time.Duration {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	
-	if m.ExecutionCount == 0 {
+	executionCount := m.executionCount.Load()
+	if executionCount == 0 {
 		return 0
 	}
-	return m.TotalDuration / time.Duration(m.ExecutionCount)
+	totalDuration := m.totalDuration.Load()
+	return totalDuration / time.Duration(executionCount)
 }
 
 // GetErrorRate returns the error rate as a percentage
 func (m *RuleExecutionMetric) GetErrorRate() float64 {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	
-	if m.ExecutionCount == 0 {
+	executionCount := m.executionCount.Load()
+	if executionCount == 0 {
 		return 0
 	}
-	return float64(m.ErrorCount) / float64(m.ExecutionCount) * 100
+	errorCount := m.errorCount.Load()
+	return float64(errorCount) / float64(executionCount) * 100
+}
+
+// GetExecutionCount returns the total execution count
+func (m *RuleExecutionMetric) GetExecutionCount() int64 {
+	return m.executionCount.Load()
+}
+
+// GetErrorCount returns the total error count
+func (m *RuleExecutionMetric) GetErrorCount() int64 {
+	return m.errorCount.Load()
+}
+
+// GetMinDuration returns the minimum execution duration
+func (m *RuleExecutionMetric) GetMinDuration() time.Duration {
+	return m.minMaxDuration.Min()
+}
+
+// GetMaxDuration returns the maximum execution duration
+func (m *RuleExecutionMetric) GetMaxDuration() time.Duration {
+	return m.minMaxDuration.Max()
+}
+
+// GetLastExecution returns the last execution time
+func (m *RuleExecutionMetric) GetLastExecution() time.Time {
+	nanos := atomic.LoadInt64(&m.lastExecution)
+	if nanos == 0 {
+		return time.Time{}
+	}
+	return time.Unix(0, nanos)
+}
+
+// GetBucketCounts returns the histogram bucket counts
+func (m *RuleExecutionMetric) GetBucketCounts() []int64 {
+	counts := make([]int64, len(m.bucketCounts))
+	for i, counter := range m.bucketCounts {
+		counts[i] = counter.Load()
+	}
+	return counts
 }
 
 // MemoryUsageMetric tracks memory usage statistics
@@ -218,6 +419,159 @@ func GetMemoryUsage() *MemoryUsageMetric {
 		GCCycles:     m.NumGC,
 		GCPauseTotal: time.Duration(m.PauseTotalNs),
 	}
+}
+
+// RingBuffer is a thread-safe circular buffer for memory history
+type RingBuffer struct {
+	buffer  []MemoryUsageMetric
+	head    int
+	tail    int
+	size    int
+	maxSize int
+	mutex   sync.RWMutex
+}
+
+// NewRingBuffer creates a new ring buffer with the specified capacity
+func NewRingBuffer(capacity int) *RingBuffer {
+	return &RingBuffer{
+		buffer:  make([]MemoryUsageMetric, capacity),
+		maxSize: capacity,
+	}
+}
+
+// Add adds a new memory usage metric to the ring buffer
+func (rb *RingBuffer) Add(metric MemoryUsageMetric) {
+	rb.mutex.Lock()
+	defer rb.mutex.Unlock()
+	
+	rb.buffer[rb.head] = metric
+	rb.head = (rb.head + 1) % rb.maxSize
+	
+	if rb.size < rb.maxSize {
+		rb.size++
+	} else {
+		// Buffer is full, advance tail
+		rb.tail = (rb.tail + 1) % rb.maxSize
+	}
+}
+
+// GetAll returns all metrics in the ring buffer (oldest to newest)
+func (rb *RingBuffer) GetAll() []MemoryUsageMetric {
+	rb.mutex.RLock()
+	defer rb.mutex.RUnlock()
+	
+	if rb.size == 0 {
+		return nil
+	}
+	
+	result := make([]MemoryUsageMetric, rb.size)
+	for i := 0; i < rb.size; i++ {
+		idx := (rb.tail + i) % rb.maxSize
+		result[i] = rb.buffer[idx]
+	}
+	return result
+}
+
+// GetRecent returns the N most recent metrics
+func (rb *RingBuffer) GetRecent(n int) []MemoryUsageMetric {
+	rb.mutex.RLock()
+	defer rb.mutex.RUnlock()
+	
+	if rb.size == 0 {
+		return nil
+	}
+	
+	if n > rb.size {
+		n = rb.size
+	}
+	
+	result := make([]MemoryUsageMetric, n)
+	for i := 0; i < n; i++ {
+		idx := (rb.head - 1 - i + rb.maxSize) % rb.maxSize
+		result[i] = rb.buffer[idx]
+	}
+	return result
+}
+
+// Size returns the current number of elements in the buffer
+func (rb *RingBuffer) Size() int {
+	rb.mutex.RLock()
+	defer rb.mutex.RUnlock()
+	return rb.size
+}
+
+// Capacity returns the maximum capacity of the buffer
+func (rb *RingBuffer) Capacity() int {
+	return rb.maxSize
+}
+
+// Clear removes all elements from the buffer
+func (rb *RingBuffer) Clear() {
+	rb.mutex.Lock()
+	defer rb.mutex.Unlock()
+	rb.head = 0
+	rb.tail = 0
+	rb.size = 0
+}
+
+// OptimizedMemoryStats holds cached memory statistics with reduced GC impact
+type OptimizedMemoryStats struct {
+	lastUpdate    time.Time
+	updateInterval time.Duration
+	stats         runtime.MemStats
+	mutex         sync.RWMutex
+}
+
+// NewOptimizedMemoryStats creates a new optimized memory stats collector
+func NewOptimizedMemoryStats(updateInterval time.Duration) *OptimizedMemoryStats {
+	return &OptimizedMemoryStats{
+		updateInterval: updateInterval,
+	}
+}
+
+// GetStats returns memory statistics, using cached values if recent enough
+func (oms *OptimizedMemoryStats) GetStats() runtime.MemStats {
+	oms.mutex.RLock()
+	if time.Since(oms.lastUpdate) < oms.updateInterval {
+		stats := oms.stats
+		oms.mutex.RUnlock()
+		return stats
+	}
+	oms.mutex.RUnlock()
+	
+	// Need to update
+	oms.mutex.Lock()
+	defer oms.mutex.Unlock()
+	
+	// Double-check after acquiring write lock
+	if time.Since(oms.lastUpdate) < oms.updateInterval {
+		return oms.stats
+	}
+	
+	runtime.ReadMemStats(&oms.stats)
+	oms.lastUpdate = time.Now()
+	return oms.stats
+}
+
+// GetOptimizedMemoryUsage returns memory usage metrics using cached GC stats
+func GetOptimizedMemoryUsage(oms *OptimizedMemoryStats) *MemoryUsageMetric {
+	stats := oms.GetStats()
+	
+	return &MemoryUsageMetric{
+		Timestamp:    time.Now(),
+		AllocBytes:   stats.Alloc,
+		TotalAlloc:   stats.TotalAlloc,
+		HeapObjects:  stats.HeapObjects,
+		HeapInuse:    stats.HeapInuse,
+		StackInuse:   stats.StackInuse,
+		GCCycles:     stats.NumGC,
+		GCPauseTotal: time.Duration(stats.PauseTotalNs),
+	}
+}
+
+// GetOptimizedMemoryUsage returns memory usage metrics using cached GC stats
+func (m *ValidationPerformanceMetrics) GetOptimizedMemoryUsage() *MemoryUsageMetric {
+	return GetOptimizedMemoryUsage(m.optimizedMemStats)
 }
 
 // ThroughputMetric tracks throughput statistics
@@ -334,9 +688,9 @@ type ValidationPerformanceMetrics struct {
 	// Throughput metrics
 	throughputMetric *ThroughputMetric
 	
-	// Memory tracking
-	memoryHistory    []MemoryUsageMetric
-	memoryMutex      sync.RWMutex
+	// Memory tracking with ring buffer
+	memoryHistory    *RingBuffer
+	optimizedMemStats *OptimizedMemoryStats
 	
 	// Performance regression tracking
 	regressions      []PerformanceRegression
@@ -377,7 +731,8 @@ func NewValidationPerformanceMetrics(config *MetricsConfig) (*ValidationPerforma
 		startTime:        time.Now(),
 		ruleMetrics:      make(map[string]*RuleExecutionMetric),
 		ruleBaselines:    make(map[string]time.Duration),
-		memoryHistory:    make([]MemoryUsageMetric, 0),
+		memoryHistory:    NewRingBuffer(config.RingBufferSize),
+		optimizedMemStats: NewOptimizedMemoryStats(config.GCStatsInterval),
 		regressions:      make([]PerformanceRegression, 0),
 		throughputMetric: NewThroughputMetric(time.Minute, 100.0), // Default 100 events/sec SLA
 		ctx:              ctx,
@@ -599,8 +954,8 @@ func (m *ValidationPerformanceMetrics) GetDashboardData() *DashboardData {
 	// Get top slow rules
 	topSlowRules := m.getTopSlowRules(5)
 	
-	// Get current memory usage
-	memoryUsage := GetMemoryUsage()
+	// Get current memory usage (optimized)
+	memoryUsage := m.GetOptimizedMemoryUsage()
 	
 	// Record memory usage in gauge
 	if m.memoryGauge != nil {
@@ -637,10 +992,10 @@ func (m *ValidationPerformanceMetrics) getTopSlowRules(n int) []RulePerformanceS
 	for _, metric := range m.ruleMetrics {
 		snapshot := RulePerformanceSnapshot{
 			RuleID:          metric.RuleID,
-			ExecutionCount:  metric.ExecutionCount,
+			ExecutionCount:  metric.GetExecutionCount(),
 			AverageDuration: metric.GetAverageDuration(),
 			ErrorRate:       metric.GetErrorRate(),
-			LastExecution:   metric.LastExecution,
+			LastExecution:   metric.GetLastExecution(),
 		}
 		snapshots = append(snapshots, snapshot)
 	}
@@ -675,8 +1030,8 @@ func (m *ValidationPerformanceMetrics) determineHealthStatus() string {
 	// Check SLA compliance
 	slaCompliance := m.throughputMetric.SLAComplianceRate
 	
-	// Check memory usage
-	memUsage := GetMemoryUsage()
+	// Check memory usage (optimized)
+	memUsage := m.GetOptimizedMemoryUsage()
 	memoryPressure := float64(memUsage.AllocBytes) / float64(m.config.MaxMemoryUsage) * 100.0
 	
 	// Determine status based on multiple factors
@@ -700,8 +1055,8 @@ func (m *ValidationPerformanceMetrics) getWarnings() []string {
 		}
 	}
 	
-	// Check memory usage
-	memUsage := GetMemoryUsage()
+	// Check memory usage (optimized)
+	memUsage := m.GetOptimizedMemoryUsage()
 	if float64(memUsage.AllocBytes) > float64(m.config.MaxMemoryUsage)*0.7 {
 		warnings = append(warnings, fmt.Sprintf("High memory usage: %d bytes", memUsage.AllocBytes))
 	}
@@ -729,9 +1084,9 @@ func (m *ValidationPerformanceMetrics) getAlerts() []string {
 		alerts = append(alerts, fmt.Sprintf("SLA compliance below 80%%: %.2f%%", m.throughputMetric.SLAComplianceRate))
 	}
 	
-	// Check memory leaks
+	// Check memory leaks (optimized)
 	if m.config.EnableLeakDetection {
-		memUsage := GetMemoryUsage()
+		memUsage := m.GetOptimizedMemoryUsage()
 		if memUsage.AllocBytes > uint64(m.config.MemoryLeakThreshold) {
 			alerts = append(alerts, fmt.Sprintf("Potential memory leak detected: %d bytes", memUsage.AllocBytes))
 		}
@@ -766,16 +1121,7 @@ func (m *ValidationPerformanceMetrics) cleanupRoutine() {
 func (m *ValidationPerformanceMetrics) performCleanup() {
 	cutoff := time.Now().Add(-m.config.RetentionPeriod)
 	
-	// Clean up memory history
-	m.memoryMutex.Lock()
-	var newHistory []MemoryUsageMetric
-	for _, usage := range m.memoryHistory {
-		if usage.Timestamp.After(cutoff) {
-			newHistory = append(newHistory, usage)
-		}
-	}
-	m.memoryHistory = newHistory
-	m.memoryMutex.Unlock()
+	// Ring buffer automatically manages memory history size, so no cleanup needed
 	
 	// Clean up old regressions
 	m.regressionsMutex.Lock()
@@ -788,8 +1134,8 @@ func (m *ValidationPerformanceMetrics) performCleanup() {
 	m.regressions = newRegressions
 	m.regressionsMutex.Unlock()
 	
-	// Force garbage collection if memory usage is high
-	memUsage := GetMemoryUsage()
+	// Force garbage collection if memory usage is high (using optimized version)
+	memUsage := m.GetOptimizedMemoryUsage()
 	if memUsage.AllocBytes > uint64(m.config.MaxMemoryUsage) {
 		runtime.GC()
 	}
@@ -805,19 +1151,14 @@ func (m *ValidationPerformanceMetrics) memoryMonitoringRoutine() {
 		case <-m.ctx.Done():
 			return
 		case <-ticker.C:
-			memUsage := GetMemoryUsage()
+			// Use optimized memory usage to reduce GC pressure
+			memUsage := m.GetOptimizedMemoryUsage()
 			
-			m.memoryMutex.Lock()
-			m.memoryHistory = append(m.memoryHistory, *memUsage)
-			
-			// Keep only recent history
-			if len(m.memoryHistory) > 60 { // Keep last hour
-				m.memoryHistory = m.memoryHistory[len(m.memoryHistory)-60:]
-			}
-			m.memoryMutex.Unlock()
+			// Add to ring buffer (no need for manual size management)
+			m.memoryHistory.Add(*memUsage)
 			
 			// Check for memory leaks
-			if len(m.memoryHistory) > 10 {
+			if m.memoryHistory.Size() > 10 {
 				m.detectMemoryLeaks()
 			}
 		}
@@ -826,16 +1167,17 @@ func (m *ValidationPerformanceMetrics) memoryMonitoringRoutine() {
 
 // detectMemoryLeaks detects potential memory leaks
 func (m *ValidationPerformanceMetrics) detectMemoryLeaks() {
-	m.memoryMutex.RLock()
-	defer m.memoryMutex.RUnlock()
+	history := m.memoryHistory.GetAll()
 	
-	if len(m.memoryHistory) < 10 {
+	if len(history) < 10 {
 		return
 	}
 	
 	// Simple leak detection: check if memory usage is consistently increasing
-	recent := m.memoryHistory[len(m.memoryHistory)-5:]
-	older := m.memoryHistory[len(m.memoryHistory)-10 : len(m.memoryHistory)-5]
+	// Get the last 5 and previous 5 measurements
+	totalLen := len(history)
+	recent := history[totalLen-5:]
+	older := history[totalLen-10 : totalLen-5]
 	
 	var recentAvg, olderAvg uint64
 	for _, usage := range recent {
@@ -930,12 +1272,12 @@ func (m *ValidationPerformanceMetrics) GetPerformanceRegressions() []Performance
 
 // GetMemoryHistory returns memory usage history
 func (m *ValidationPerformanceMetrics) GetMemoryHistory() []MemoryUsageMetric {
-	m.memoryMutex.RLock()
-	defer m.memoryMutex.RUnlock()
+	if m.memoryHistory == nil {
+		return []MemoryUsageMetric{}
+	}
 	
-	result := make([]MemoryUsageMetric, len(m.memoryHistory))
-	copy(result, m.memoryHistory)
-	return result
+	// Get all items from the ring buffer
+	return m.memoryHistory.GetAll()
 }
 
 // Export exports metrics to configured backends
@@ -987,7 +1329,7 @@ func (m *ValidationPerformanceMetrics) GetOverallStats() map[string]interface{} 
 		"active_rules":         len(m.ruleMetrics),
 		"config_level":         m.config.Level.String(),
 		"sampling_rate":        m.config.SamplingRate,
-		"memory_usage":         GetMemoryUsage(),
+		"memory_usage":         m.GetOptimizedMemoryUsage(),
 		"regression_count":     len(m.regressions),
 	}
 }

@@ -14,8 +14,49 @@ import (
 	"time"
 )
 
-// PerformanceOptimizer provides performance optimization for state operations
-type PerformanceOptimizer struct {
+// PerformanceOptimizer provides an interface for performance optimization operations
+type PerformanceOptimizer interface {
+	// Object pool operations
+	GetPatchOperation() *JSONPatchOperation
+	PutPatchOperation(op *JSONPatchOperation)
+	GetStateChange() *StateChange
+	PutStateChange(sc *StateChange)
+	GetStateEvent() *StateEvent
+	PutStateEvent(se *StateEvent)
+	GetBuffer() *bytes.Buffer
+	PutBuffer(buf *bytes.Buffer)
+	
+	// Batch processing operations
+	BatchOperation(ctx context.Context, operation func() error) error
+	
+	// State management operations
+	ShardedGet(key string) (interface{}, bool)
+	ShardedSet(key string, value interface{})
+	LazyLoadState(key string, loader func() (interface{}, error)) (interface{}, error)
+	
+	// Data compression operations
+	CompressData(data []byte) ([]byte, error)
+	DecompressData(data []byte) ([]byte, error)
+	
+	// Performance operations
+	OptimizeForLargeState(stateSize int64)
+	ProcessLargeStateUpdate(ctx context.Context, update func() error) error
+	
+	// Metrics and monitoring
+	GetMetrics() PerformanceMetrics
+	GetEnhancedMetrics() PerformanceMetrics
+	
+	// Lifecycle methods
+	Stop()
+}
+
+// NewPerformanceOptimizer creates a new PerformanceOptimizer implementation
+func NewPerformanceOptimizer(opts PerformanceOptions) PerformanceOptimizer {
+	return NewPerformanceOptimizerImpl(opts)
+}
+
+// PerformanceOptimizerImpl provides performance optimization for state operations
+type PerformanceOptimizerImpl struct {
 	// Object pools for reducing allocations
 	patchPool       *BoundedPool
 	stateChangePool *BoundedPool
@@ -181,11 +222,11 @@ func (bp *BoundedPool) Put(obj interface{}) {
 	}
 }
 
-// NewPerformanceOptimizer creates a new performance optimizer
-func NewPerformanceOptimizer(opts PerformanceOptions) *PerformanceOptimizer {
+// NewPerformanceOptimizerImpl creates a new performance optimizer implementation
+func NewPerformanceOptimizerImpl(opts PerformanceOptions) *PerformanceOptimizerImpl {
 	ctx, cancel := context.WithCancel(context.Background())
 	
-	po := &PerformanceOptimizer{
+	po := &PerformanceOptimizerImpl{
 		enablePooling:     opts.EnablePooling,
 		enableBatching:    opts.EnableBatching,
 		enableCompression: opts.EnableCompression,
@@ -268,7 +309,7 @@ func NewPerformanceOptimizer(opts PerformanceOptions) *PerformanceOptimizer {
 }
 
 // GetPatchOperation gets a patch operation from the pool
-func (po *PerformanceOptimizer) GetPatchOperation() *JSONPatchOperation {
+func (po *PerformanceOptimizerImpl) GetPatchOperation() *JSONPatchOperation {
 	if !po.enablePooling {
 		return &JSONPatchOperation{}
 	}
@@ -285,7 +326,7 @@ func (po *PerformanceOptimizer) GetPatchOperation() *JSONPatchOperation {
 }
 
 // PutPatchOperation returns a patch operation to the pool
-func (po *PerformanceOptimizer) PutPatchOperation(op *JSONPatchOperation) {
+func (po *PerformanceOptimizerImpl) PutPatchOperation(op *JSONPatchOperation) {
 	if !po.enablePooling {
 		return
 	}
@@ -300,7 +341,7 @@ func (po *PerformanceOptimizer) PutPatchOperation(op *JSONPatchOperation) {
 }
 
 // GetStateChange gets a state change from the pool
-func (po *PerformanceOptimizer) GetStateChange() *StateChange {
+func (po *PerformanceOptimizerImpl) GetStateChange() *StateChange {
 	if !po.enablePooling {
 		return &StateChange{}
 	}
@@ -317,7 +358,7 @@ func (po *PerformanceOptimizer) GetStateChange() *StateChange {
 }
 
 // PutStateChange returns a state change to the pool
-func (po *PerformanceOptimizer) PutStateChange(sc *StateChange) {
+func (po *PerformanceOptimizerImpl) PutStateChange(sc *StateChange) {
 	if !po.enablePooling {
 		return
 	}
@@ -341,7 +382,7 @@ type StateEvent struct {
 }
 
 // GetStateEvent gets a state event from the pool
-func (po *PerformanceOptimizer) GetStateEvent() *StateEvent {
+func (po *PerformanceOptimizerImpl) GetStateEvent() *StateEvent {
 	if !po.enablePooling {
 		return &StateEvent{}
 	}
@@ -358,7 +399,7 @@ func (po *PerformanceOptimizer) GetStateEvent() *StateEvent {
 }
 
 // PutStateEvent returns a state event to the pool
-func (po *PerformanceOptimizer) PutStateEvent(se *StateEvent) {
+func (po *PerformanceOptimizerImpl) PutStateEvent(se *StateEvent) {
 	if !po.enablePooling {
 		return
 	}
@@ -379,7 +420,7 @@ type batchItem struct {
 }
 
 // startBatchWorkers starts the batch processing workers
-func (po *PerformanceOptimizer) startBatchWorkers() {
+func (po *PerformanceOptimizerImpl) startBatchWorkers() {
 	for i := 0; i < po.maxConcurrency; i++ {
 		po.batchWorkers.Add(1)
 		go po.batchWorker()
@@ -387,7 +428,7 @@ func (po *PerformanceOptimizer) startBatchWorkers() {
 }
 
 // batchWorker processes items from the batch queue
-func (po *PerformanceOptimizer) batchWorker() {
+func (po *PerformanceOptimizerImpl) batchWorker() {
 	defer po.batchWorkers.Done()
 	
 	batch := make([]batchItem, 0, po.batchSize)
@@ -444,7 +485,7 @@ func (po *PerformanceOptimizer) batchWorker() {
 }
 
 // processBatch processes a batch of operations
-func (po *PerformanceOptimizer) processBatch(batch []batchItem) {
+func (po *PerformanceOptimizerImpl) processBatch(batch []batchItem) {
 	// Process all operations in the batch
 	for _, item := range batch {
 		err := item.operation()
@@ -455,7 +496,7 @@ func (po *PerformanceOptimizer) processBatch(batch []batchItem) {
 }
 
 // BatchOperation submits an operation for batch processing
-func (po *PerformanceOptimizer) BatchOperation(ctx context.Context, operation func() error) error {
+func (po *PerformanceOptimizerImpl) BatchOperation(ctx context.Context, operation func() error) error {
 	if !po.enableBatching {
 		return operation()
 	}
@@ -482,7 +523,7 @@ func (po *PerformanceOptimizer) BatchOperation(ctx context.Context, operation fu
 }
 
 // monitorGC monitors garbage collection pauses
-func (po *PerformanceOptimizer) monitorGC() {
+func (po *PerformanceOptimizerImpl) monitorGC() {
 	defer po.wg.Done()
 	
 	var lastNumGC uint32
@@ -510,7 +551,7 @@ func (po *PerformanceOptimizer) monitorGC() {
 }
 
 // GetMetrics returns performance metrics
-func (po *PerformanceOptimizer) GetMetrics() PerformanceMetrics {
+func (po *PerformanceOptimizerImpl) GetMetrics() PerformanceMetrics {
 	return PerformanceMetrics{
 		Allocations:      po.allocations.Load(),
 		PoolHits:        po.poolHits.Load(),
@@ -529,7 +570,7 @@ func (po *PerformanceOptimizer) GetMetrics() PerformanceMetrics {
 }
 
 // calculatePoolEfficiency calculates the pool hit rate
-func (po *PerformanceOptimizer) calculatePoolEfficiency() float64 {
+func (po *PerformanceOptimizerImpl) calculatePoolEfficiency() float64 {
 	hits := float64(po.poolHits.Load())
 	misses := float64(po.poolMisses.Load())
 	total := hits + misses
@@ -542,7 +583,7 @@ func (po *PerformanceOptimizer) calculatePoolEfficiency() float64 {
 }
 
 // calculateCacheHitRate calculates the cache hit rate
-func (po *PerformanceOptimizer) calculateCacheHitRate() float64 {
+func (po *PerformanceOptimizerImpl) calculateCacheHitRate() float64 {
 	hits := float64(po.cacheHits.Load())
 	misses := float64(po.cacheMisses.Load())
 	total := hits + misses
@@ -555,7 +596,7 @@ func (po *PerformanceOptimizer) calculateCacheHitRate() float64 {
 }
 
 // Stop stops the performance optimizer
-func (po *PerformanceOptimizer) Stop() {
+func (po *PerformanceOptimizerImpl) Stop() {
 	// Cancel context to stop monitoring goroutines
 	po.cancel()
 	
@@ -899,7 +940,7 @@ func (ss *StateShard) estimateSize(value interface{}) int64 {
 }
 
 // GetShardForKey returns the shard index for a given key
-func (po *PerformanceOptimizer) GetShardForKey(key string) int {
+func (po *PerformanceOptimizerImpl) GetShardForKey(key string) int {
 	if !po.enableSharding || len(po.stateShards) == 0 {
 		return 0
 	}
@@ -1165,7 +1206,7 @@ func (co *ConcurrentOptimizer) Shutdown() {
 }
 
 // GetBuffer gets a buffer from the pool
-func (po *PerformanceOptimizer) GetBuffer() *bytes.Buffer {
+func (po *PerformanceOptimizerImpl) GetBuffer() *bytes.Buffer {
 	if !po.enablePooling {
 		return bytes.NewBuffer(make([]byte, 0, BufferPoolSize))
 	}
@@ -1175,7 +1216,7 @@ func (po *PerformanceOptimizer) GetBuffer() *bytes.Buffer {
 }
 
 // PutBuffer returns a buffer to the pool
-func (po *PerformanceOptimizer) PutBuffer(buf *bytes.Buffer) {
+func (po *PerformanceOptimizerImpl) PutBuffer(buf *bytes.Buffer) {
 	if !po.enablePooling {
 		return
 	}
@@ -1185,7 +1226,7 @@ func (po *PerformanceOptimizer) PutBuffer(buf *bytes.Buffer) {
 }
 
 // OptimizeForLargeState optimizes performance for large state sizes
-func (po *PerformanceOptimizer) OptimizeForLargeState(stateSize int64) {
+func (po *PerformanceOptimizerImpl) OptimizeForLargeState(stateSize int64) {
 	if stateSize > DefaultMaxMemoryUsage { // 100MB
 		// Enable all optimizations for large states
 		po.enableCompression = true
@@ -1203,7 +1244,7 @@ func (po *PerformanceOptimizer) OptimizeForLargeState(stateSize int64) {
 }
 
 // monitorMemory monitors memory usage and triggers optimizations
-func (po *PerformanceOptimizer) monitorMemory() {
+func (po *PerformanceOptimizerImpl) monitorMemory() {
 	defer po.wg.Done()
 	
 	ticker := time.NewTicker(DefaultMemoryMonitoringInterval)
@@ -1233,7 +1274,7 @@ func (po *PerformanceOptimizer) monitorMemory() {
 }
 
 // GetEnhancedMetrics returns enhanced performance metrics
-func (po *PerformanceOptimizer) GetEnhancedMetrics() PerformanceMetrics {
+func (po *PerformanceOptimizerImpl) GetEnhancedMetrics() PerformanceMetrics {
 	metrics := po.GetMetrics()
 	
 	// Add cache metrics if lazy cache is enabled
@@ -1258,7 +1299,7 @@ func (po *PerformanceOptimizer) GetEnhancedMetrics() PerformanceMetrics {
 }
 
 // ProcessLargeStateUpdate processes large state updates efficiently
-func (po *PerformanceOptimizer) ProcessLargeStateUpdate(ctx context.Context, update func() error) error {
+func (po *PerformanceOptimizerImpl) ProcessLargeStateUpdate(ctx context.Context, update func() error) error {
 	// Use concurrent optimizer for large updates
 	if po.concurrentOptimizer != nil {
 		done := make(chan error, 1)
@@ -1282,7 +1323,7 @@ func (po *PerformanceOptimizer) ProcessLargeStateUpdate(ctx context.Context, upd
 }
 
 // LazyLoadState loads state data lazily for better performance
-func (po *PerformanceOptimizer) LazyLoadState(key string, loader func() (interface{}, error)) (interface{}, error) {
+func (po *PerformanceOptimizerImpl) LazyLoadState(key string, loader func() (interface{}, error)) (interface{}, error) {
 	if !po.enableLazyLoading || po.lazyCache == nil {
 		return loader()
 	}
@@ -1304,7 +1345,7 @@ func (po *PerformanceOptimizer) LazyLoadState(key string, loader func() (interfa
 }
 
 // ShardedGet retrieves data from the appropriate shard
-func (po *PerformanceOptimizer) ShardedGet(key string) (interface{}, bool) {
+func (po *PerformanceOptimizerImpl) ShardedGet(key string) (interface{}, bool) {
 	if !po.enableSharding || len(po.stateShards) == 0 {
 		return nil, false
 	}
@@ -1314,7 +1355,7 @@ func (po *PerformanceOptimizer) ShardedGet(key string) (interface{}, bool) {
 }
 
 // ShardedSet stores data in the appropriate shard
-func (po *PerformanceOptimizer) ShardedSet(key string, value interface{}) {
+func (po *PerformanceOptimizerImpl) ShardedSet(key string, value interface{}) {
 	if !po.enableSharding || len(po.stateShards) == 0 {
 		return
 	}
@@ -1324,7 +1365,7 @@ func (po *PerformanceOptimizer) ShardedSet(key string, value interface{}) {
 }
 
 // CompressData compresses data using gzip
-func (po *PerformanceOptimizer) CompressData(data []byte) ([]byte, error) {
+func (po *PerformanceOptimizerImpl) CompressData(data []byte) ([]byte, error) {
 	if !po.enableCompression {
 		return data, nil
 	}
@@ -1348,7 +1389,7 @@ func (po *PerformanceOptimizer) CompressData(data []byte) ([]byte, error) {
 }
 
 // DecompressData decompresses gzip data
-func (po *PerformanceOptimizer) DecompressData(data []byte) ([]byte, error) {
+func (po *PerformanceOptimizerImpl) DecompressData(data []byte) ([]byte, error) {
 	if !po.enableCompression {
 		return data, nil
 	}

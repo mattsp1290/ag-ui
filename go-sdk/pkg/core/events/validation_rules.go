@@ -1,9 +1,15 @@
 package events
 
 import (
+	stdcontext "context"
 	"fmt"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // AddDefaultRules adds all default validation rules to the validator
@@ -56,24 +62,62 @@ func NewRunLifecycleRule() *RunLifecycleRule {
 }
 
 func (r *RunLifecycleRule) Validate(event Event, context *ValidationContext) *ValidationResult {
+	// Start distributed tracing span for rule validation
+	ctx := stdcontext.Background()
+	if context != nil && context.Context != nil {
+		ctx = context.Context
+	}
+	tracer := otel.Tracer("ag-ui/events/validation/rules")
+	ruleCtx, span := tracer.Start(ctx, "run_lifecycle_rule",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+	
+	span.SetAttributes(
+		attribute.String("validation.rule.id", r.ID()),
+		attribute.String("validation.rule.type", "RunLifecycleRule"),
+	)
+	
 	result := &ValidationResult{
 		IsValid:   true,
 		Timestamp: time.Now(),
 	}
 	
 	if !r.IsEnabled() {
+		span.SetStatus(codes.Ok, "Rule disabled")
+		span.AddEvent("validation.rule.disabled")
 		return result
+	}
+	
+	if event != nil {
+		span.SetAttributes(attribute.String("event.type", string(event.Type())))
 	}
 	
 	switch event.Type() {
 	case EventTypeRunStarted:
+		span.AddEvent("validation.rule.run_started")
 		r.validateRunStarted(event, context, result)
 	case EventTypeRunFinished:
+		span.AddEvent("validation.rule.run_finished")
 		r.validateRunFinished(event, context, result)
 	case EventTypeRunError:
+		span.AddEvent("validation.rule.run_error")
 		r.validateRunError(event, context, result)
 	}
 	
+	// Record validation result in span
+	if len(result.Errors) > 0 {
+		span.SetStatus(codes.Error, fmt.Sprintf("Rule validation failed with %d errors", len(result.Errors)))
+		for _, err := range result.Errors {
+			span.AddEvent("validation.rule.error", trace.WithAttributes(
+				attribute.String("error.message", err.Message),
+			))
+		}
+	} else {
+		span.SetStatus(codes.Ok, "Rule validation completed")
+	}
+	
+	_ = ruleCtx // Mark as used
 	return result
 }
 
@@ -298,24 +342,62 @@ func NewMessageLifecycleRule() *MessageLifecycleRule {
 }
 
 func (r *MessageLifecycleRule) Validate(event Event, context *ValidationContext) *ValidationResult {
+	// Start distributed tracing span for message lifecycle rule validation
+	ctx := stdcontext.Background()
+	if context != nil && context.Context != nil {
+		ctx = context.Context
+	}
+	tracer := otel.Tracer("ag-ui/events/validation/rules")
+	ruleCtx, span := tracer.Start(ctx, "message_lifecycle_rule",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+	
+	span.SetAttributes(
+		attribute.String("validation.rule.id", r.ID()),
+		attribute.String("validation.rule.type", "MessageLifecycleRule"),
+	)
+	
 	result := &ValidationResult{
 		IsValid:   true,
 		Timestamp: time.Now(),
 	}
 	
 	if !r.IsEnabled() {
+		span.SetStatus(codes.Ok, "Rule disabled")
+		span.AddEvent("validation.rule.disabled")
 		return result
+	}
+	
+	if event != nil {
+		span.SetAttributes(attribute.String("event.type", string(event.Type())))
 	}
 	
 	switch event.Type() {
 	case EventTypeTextMessageStart:
+		span.AddEvent("validation.rule.message_start")
 		r.validateMessageStart(event, context, result)
 	case EventTypeTextMessageContent:
+		span.AddEvent("validation.rule.message_content")
 		r.validateMessageContent(event, context, result)
 	case EventTypeTextMessageEnd:
+		span.AddEvent("validation.rule.message_end")
 		r.validateMessageEnd(event, context, result)
 	}
 	
+	// Record validation result in span
+	if len(result.Errors) > 0 {
+		span.SetStatus(codes.Error, fmt.Sprintf("Rule validation failed with %d errors", len(result.Errors)))
+		for _, err := range result.Errors {
+			span.AddEvent("validation.rule.error", trace.WithAttributes(
+				attribute.String("error.message", err.Message),
+			))
+		}
+	} else {
+		span.SetStatus(codes.Ok, "Rule validation completed")
+	}
+	
+	_ = ruleCtx // Mark as used
 	return result
 }
 

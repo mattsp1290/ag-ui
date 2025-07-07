@@ -827,7 +827,7 @@ func TestCompositeHealthCheckConcurrency(t *testing.T) {
 func TestPerformanceHealthCheck(t *testing.T) {
 	tests := []struct {
 		name            string
-		setupOptimizer  func() *PerformanceOptimizer
+		setupOptimizer  func() PerformanceOptimizer
 		maxPoolMissRate float64
 		maxErrorRate    float64
 		expectError     bool
@@ -835,11 +835,13 @@ func TestPerformanceHealthCheck(t *testing.T) {
 	}{
 		{
 			name: "healthy performance",
-			setupOptimizer: func() *PerformanceOptimizer {
+			setupOptimizer: func() PerformanceOptimizer {
 				optimizer := createTestPerformanceOptimizer()
 				// Set up healthy metrics
-				optimizer.poolHits.Store(95)
-				optimizer.poolMisses.Store(5)
+				if impl, ok := optimizer.(*PerformanceOptimizerImpl); ok {
+					impl.poolHits.Store(95)
+					impl.poolMisses.Store(5)
+				}
 				return optimizer
 			},
 			maxPoolMissRate: 10.0,
@@ -848,7 +850,7 @@ func TestPerformanceHealthCheck(t *testing.T) {
 		},
 		{
 			name: "nil optimizer",
-			setupOptimizer: func() *PerformanceOptimizer {
+			setupOptimizer: func() PerformanceOptimizer {
 				return nil
 			},
 			maxPoolMissRate: 10.0,
@@ -858,11 +860,13 @@ func TestPerformanceHealthCheck(t *testing.T) {
 		},
 		{
 			name: "low pool efficiency",
-			setupOptimizer: func() *PerformanceOptimizer {
+			setupOptimizer: func() PerformanceOptimizer {
 				optimizer := createTestPerformanceOptimizer()
 				// Set up poor efficiency metrics
-				optimizer.poolHits.Store(80)
-				optimizer.poolMisses.Store(20)
+				if impl, ok := optimizer.(*PerformanceOptimizerImpl); ok {
+					impl.poolHits.Store(80)
+					impl.poolMisses.Store(20)
+				}
 				return optimizer
 			},
 			maxPoolMissRate: 10.0,
@@ -1224,10 +1228,9 @@ func createTestAuditManager(failing bool) *AuditManager {
 }
 
 // createTestPerformanceOptimizer creates a minimal PerformanceOptimizer for testing
-func createTestPerformanceOptimizer() *PerformanceOptimizer {
-	return &PerformanceOptimizer{
-		poolHits:   atomic.Int64{},
-		poolMisses: atomic.Int64{},
-	}
+func createTestPerformanceOptimizer() PerformanceOptimizer {
+	opts := DefaultPerformanceOptions()
+	opts.EnablePooling = true
+	return NewPerformanceOptimizer(opts)
 }
 

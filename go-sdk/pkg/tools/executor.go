@@ -251,6 +251,7 @@ func (e *ExecutionEngine) ExecuteStream(ctx context.Context, toolID string, para
 	// Execute the streaming tool
 	stream, err := streamingExecutor.ExecuteStream(execCtx, params)
 	if err != nil {
+		cancel() // Explicitly call cancel in the error branch
 		e.untrackExecution(execID)
 		return nil, fmt.Errorf("streaming execution failed: %w", err)
 	}

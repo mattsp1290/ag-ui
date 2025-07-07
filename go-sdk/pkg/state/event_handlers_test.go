@@ -190,9 +190,9 @@ func TestStateEventHandler_Batching(t *testing.T) {
 
 	// Send multiple delta events
 	deltas := [][]events.JSONPatchOperation{
-		{{Op: "add", Path: "/field1", Value: "value1"}},
-		{{Op: "add", Path: "/field2", Value: "value2"}},
-		{{Op: "add", Path: "/field3", Value: "value3"}},
+		{events.JSONPatchOperation{Op: "add", Path: "/field1", Value: "value1"}},
+		{events.JSONPatchOperation{Op: "add", Path: "/field2", Value: "value2"}},
+		{events.JSONPatchOperation{Op: "add", Path: "/field3", Value: "value3"}},
 	}
 
 	for _, delta := range deltas {
@@ -419,7 +419,7 @@ func TestStateEventHandler_Callbacks(t *testing.T) {
 
 	// Test delta callback
 	deltaEvent := events.NewStateDeltaEvent([]events.JSONPatchOperation{
-		{Op: "add", Path: "/new", Value: "value"},
+		events.JSONPatchOperation{Op: "add", Path: "/new", Value: "value"},
 	})
 	err = handler.HandleStateDelta(deltaEvent)
 	assert.NoError(t, err)
@@ -486,7 +486,7 @@ func TestConcurrentEventHandling(t *testing.T) {
 		
 		for i := 0; i < 5; i++ {
 			delta := []events.JSONPatchOperation{
-				{Op: "add", Path: "/delta" + string(rune('0'+i)), Value: i},
+				events.JSONPatchOperation{Op: "add", Path: "/delta" + string(rune('0'+i)), Value: i},
 			}
 			event := events.NewStateDeltaEvent(delta)
 			err := handler.HandleStateDelta(event)

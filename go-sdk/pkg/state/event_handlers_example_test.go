@@ -264,7 +264,7 @@ func Example_metrics() {
 	// Process some deltas
 	for i := 0; i < 5; i++ {
 		delta := events.NewStateDeltaEvent([]events.JSONPatchOperation{
-			{Op: "add", Path: fmt.Sprintf("/delta%d", i), Value: i},
+			events.JSONPatchOperation{Op: "add", Path: fmt.Sprintf("/delta%d", i), Value: i},
 		})
 		handler.HandleStateDelta(delta)
 		time.Sleep(15 * time.Millisecond) // Ensure processing

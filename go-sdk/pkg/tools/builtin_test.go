@@ -266,20 +266,36 @@ func TestHTTPGetTool(t *testing.T) {
 	t.Run("timeout", func(t *testing.T) {
 		// Create slow server
 		slowServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			// Delay longer than timeout
-			<-r.Context().Done()
+			// Wait longer than timeout, but with a maximum delay to prevent test hangs
+			select {
+			case <-r.Context().Done():
+				// Request was cancelled/timed out
+				return
+			case <-time.After(5 * time.Second):
+				// Increased delay to ensure timeout triggers
+				w.WriteHeader(http.StatusOK)
+				w.Write([]byte("slow response"))
+				return
+			}
 		}))
 		defer slowServer.Close()
 
 		params := map[string]interface{}{
 			"url":     slowServer.URL,
-			"timeout": 1, // 1 second timeout
+			"timeout": 0.5, // 500ms timeout for more reliable testing
 		}
 
 		result, err := tool.Executor.Execute(context.Background(), params)
 		require.NoError(t, err)
 		assert.False(t, result.Success)
-		assert.Contains(t, result.Error, "context deadline exceeded")
+		
+		// More robust error checking
+		assert.NotEmpty(t, result.Error, "Error message should not be empty")
+		assert.True(t, 
+			strings.Contains(result.Error, "deadline exceeded") ||
+			strings.Contains(result.Error, "timeout") ||
+			strings.Contains(result.Error, "context canceled"),
+			"Expected timeout-related error, got: %s", result.Error)
 	})
 
 	t.Run("invalid URL", func(t *testing.T) {

@@ -320,6 +320,7 @@ type ValidationContext struct {
 	EventIndex    int                `json:"event_index"`
 	Config        *ValidationConfig  `json:"config,omitempty"`
 	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	Context       context.Context    `json:"-"` // Context for cancellation
 }
 
 // ValidationMetrics tracks performance metrics for validation
@@ -581,6 +582,7 @@ func (v *EventValidator) ValidateEvent(ctx context.Context, event Event) *Valida
 		EventIndex:   0,
 		Config:       v.config,
 		Metadata:     make(map[string]interface{}),
+		Context:      ctx,
 	}
 
 	// Apply validation rules
@@ -710,6 +712,7 @@ func (v *EventValidator) ValidateSequence(ctx context.Context, events []Event) *
 		EventSequence: events,
 		Config:        isolatedValidator.config,
 		Metadata:      make(map[string]interface{}),
+		Context:       ctx,
 	}
 
 	// Validate each event in sequence
@@ -831,8 +834,50 @@ func (v *EventValidator) GetState() *ValidationState {
 	defer v.state.mutex.RUnlock()
 	
 	// Return a copy to prevent external modification
-	stateCopy := *v.state
-	return &stateCopy
+	stateCopy := &ValidationState{
+		CurrentPhase:     v.state.CurrentPhase,
+		ActiveRuns:       make(map[string]*RunState),
+		FinishedRuns:     make(map[string]*RunState),
+		ActiveMessages:   make(map[string]*MessageState),
+		FinishedMessages: make(map[string]*MessageState),
+		ActiveTools:      make(map[string]*ToolState),
+		FinishedTools:    make(map[string]*ToolState),
+		ActiveSteps:      make(map[string]bool),
+		EventCount:       v.state.EventCount,
+		LastEventTime:    v.state.LastEventTime,
+		StartTime:        v.state.StartTime,
+	}
+	
+	// Deep copy maps
+	for k, v := range v.state.ActiveRuns {
+		runCopy := *v
+		stateCopy.ActiveRuns[k] = &runCopy
+	}
+	for k, v := range v.state.FinishedRuns {
+		runCopy := *v
+		stateCopy.FinishedRuns[k] = &runCopy
+	}
+	for k, v := range v.state.ActiveMessages {
+		msgCopy := *v
+		stateCopy.ActiveMessages[k] = &msgCopy
+	}
+	for k, v := range v.state.FinishedMessages {
+		msgCopy := *v
+		stateCopy.FinishedMessages[k] = &msgCopy
+	}
+	for k, v := range v.state.ActiveTools {
+		toolCopy := *v
+		stateCopy.ActiveTools[k] = &toolCopy
+	}
+	for k, v := range v.state.FinishedTools {
+		toolCopy := *v
+		stateCopy.FinishedTools[k] = &toolCopy
+	}
+	for k, v := range v.state.ActiveSteps {
+		stateCopy.ActiveSteps[k] = v
+	}
+	
+	return stateCopy
 }
 
 // GetMetrics returns the validation metrics
@@ -841,8 +886,22 @@ func (v *EventValidator) GetMetrics() *ValidationMetrics {
 	defer v.metrics.mutex.RUnlock()
 	
 	// Return a copy to prevent external modification
-	metricsCopy := *v.metrics
-	return &metricsCopy
+	metricsCopy := &ValidationMetrics{
+		EventsProcessed:     v.metrics.EventsProcessed,
+		ValidationDuration:  v.metrics.ValidationDuration,
+		AverageEventLatency: v.metrics.AverageEventLatency,
+		ErrorCount:          v.metrics.ErrorCount,
+		WarningCount:        v.metrics.WarningCount,
+		RuleExecutionTimes:  make(map[string]time.Duration),
+		StartTime:           v.metrics.StartTime,
+	}
+	
+	// Deep copy the map
+	for k, v := range v.metrics.RuleExecutionTimes {
+		metricsCopy.RuleExecutionTimes[k] = v
+	}
+	
+	return metricsCopy
 }
 
 // Reset resets the validator state

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -330,9 +331,19 @@ func (e *httpGetExecutor) Execute(ctx context.Context, params map[string]interfa
 	// Make request
 	resp, err := client.Do(req)
 	if err != nil {
+		errorMsg := err.Error()
+		if errorMsg == "" {
+			errorMsg = "request failed with unknown error"
+		}
+		// Check for context errors specifically
+		if errors.Is(err, context.DeadlineExceeded) {
+			errorMsg = "context deadline exceeded"
+		} else if errors.Is(err, context.Canceled) {
+			errorMsg = "context canceled"
+		}
 		return &ToolExecutionResult{
 			Success: false,
-			Error:   err.Error(),
+			Error:   errorMsg,
 		}, nil
 	}
 	defer func() {
@@ -455,9 +466,19 @@ func (e *httpPostExecutor) Execute(ctx context.Context, params map[string]interf
 	// Make request
 	resp, err := client.Do(req)
 	if err != nil {
+		errorMsg := err.Error()
+		if errorMsg == "" {
+			errorMsg = "request failed with unknown error"
+		}
+		// Check for context errors specifically
+		if errors.Is(err, context.DeadlineExceeded) {
+			errorMsg = "context deadline exceeded"
+		} else if errors.Is(err, context.Canceled) {
+			errorMsg = "context canceled"
+		}
 		return &ToolExecutionResult{
 			Success: false,
-			Error:   err.Error(),
+			Error:   errorMsg,
 		}, nil
 	}
 	defer func() {

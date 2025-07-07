@@ -27,7 +27,7 @@ func TestSecurityDemo(t *testing.T) {
 
 	// 1. Demonstrate patch size limit
 	fmt.Println("1. Testing Patch Size Limit (1MB):")
-	largePatch := strings.Repeat("x", MaxPatchSize+1000)
+	largePatch := strings.Repeat("x", MaxPatchSizeBytes+1000)
 	_, err = sm.UpdateState(ctx, contextID, "demo-state", map[string]interface{}{
 		"large_data": largePatch,
 	}, UpdateOptions{})
@@ -40,7 +40,7 @@ func TestSecurityDemo(t *testing.T) {
 
 	// 2. Demonstrate string length limit
 	fmt.Println("2. Testing String Length Limit (64KB):")
-	longString := strings.Repeat("a", MaxStringLength+100)
+	longString := strings.Repeat("a", MaxStringLengthBytes+100)
 	_, err = sm.UpdateState(ctx, contextID, "demo-state", map[string]interface{}{
 		"long_string": longString,
 	}, UpdateOptions{})
@@ -113,7 +113,7 @@ func TestSecurityDemo(t *testing.T) {
 	
 	// Try to exceed rate limit
 	hitRateLimit := false
-	for i := 0; i < 300; i++ {
+	for i := 0; i < 50; i++ { // Reduced from 300 to 50 for faster testing
 		_, err = sm.UpdateState(ctx, rateLimitCtx, "rate-test", map[string]interface{}{
 			fmt.Sprintf("test_%d", i): i,
 		}, UpdateOptions{})

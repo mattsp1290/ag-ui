@@ -334,7 +334,7 @@ func (cr *ConflictResolverImpl) resolveLastWriteWins(conflict *StateConflict) (*
 	}
 	
 	// Create patch for the winning change
-	patch := JSONPatch{{
+	patch := JSONPatch{JSONPatchOperation{
 		Op:    JSONPatchOpReplace,
 		Path:  winningChange.Path,
 		Value: winningChange.NewValue,
@@ -368,7 +368,7 @@ func (cr *ConflictResolverImpl) resolveFirstWriteWins(conflict *StateConflict) (
 	}
 	
 	// Create patch for the winning change
-	patch := JSONPatch{{
+	patch := JSONPatch{JSONPatchOperation{
 		Op:    JSONPatchOpReplace,
 		Path:  winningChange.Path,
 		Value: winningChange.NewValue,
@@ -443,7 +443,7 @@ func (cr *ConflictResolverImpl) mergeChanges(conflict *StateConflict) (interface
 			}
 		}
 		
-		patch := JSONPatch{{
+		patch := JSONPatch{JSONPatchOperation{
 			Op:    JSONPatchOpReplace,
 			Path:  conflict.Path,
 			Value: merged,

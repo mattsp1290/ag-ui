@@ -287,12 +287,12 @@ func TestDeltaHistory(t *testing.T) {
 	dh := NewDeltaHistory(10)
 
 	// Add some deltas
-	patch1 := JSONPatch{{Op: JSONPatchOpAdd, Path: "/a", Value: 1}}
+	patch1 := JSONPatch{JSONPatchOperation{Op: JSONPatchOpAdd, Path: "/a", Value: 1}}
 	id1 := dh.AddDelta(patch1, map[string]interface{}{"user": "test"})
 
 	time.Sleep(10 * time.Millisecond)
 
-	patch2 := JSONPatch{{Op: JSONPatchOpReplace, Path: "/a", Value: 2}}
+	patch2 := JSONPatch{JSONPatchOperation{Op: JSONPatchOpReplace, Path: "/a", Value: 2}}
 	id2 := dh.AddDelta(patch2, map[string]interface{}{"user": "test"})
 
 	// Get delta by ID

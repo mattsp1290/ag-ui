@@ -271,9 +271,9 @@
 //
 //	// Incremental state changes using JSON Patch
 //	deltaOps := []events.JSONPatchOperation{
-//		{Op: "add", Path: "/newField", Value: "newValue"},
-//		{Op: "replace", Path: "/counter", Value: 43},
-//		{Op: "remove", Path: "/data/0"},
+//		events.JSONPatchOperation{Op: "add", Path: "/newField", Value: "newValue"},
+//		events.JSONPatchOperation{Op: "replace", Path: "/counter", Value: 43},
+//		events.JSONPatchOperation{Op: "remove", Path: "/data/0"},
 //	}
 //	deltaEvent := events.NewStateDeltaEvent(deltaOps)
 //

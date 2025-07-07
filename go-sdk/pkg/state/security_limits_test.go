@@ -23,63 +23,46 @@ func TestSecurityLimits(t *testing.T) {
 		t.Fatalf("Failed to create context: %v", err)
 	}
 
-	t.Run("MaxPatchSize", func(t *testing.T) {
-		// Create a patch that exceeds MaxPatchSize (1MB)
-		largeValue := strings.Repeat("a", MaxPatchSize+1)
+	t.Run("MaxPatchSizeBytes", func(t *testing.T) {
+		// Create a patch that exceeds MaxPatchSizeBytes (1MB)
+		largeValue := strings.Repeat("a", MaxPatchSizeBytes+1)
 		updates := map[string]interface{}{
 			"large": largeValue,
 		}
 
 		_, err := sm.UpdateState(ctx, contextID, "test-state", updates, UpdateOptions{})
 		if err == nil {
-			t.Error("Expected error for patch exceeding MaxPatchSize")
+			t.Error("Expected error for patch exceeding MaxPatchSizeBytes")
 		}
 	})
 
-	t.Run("MaxStateSize", func(t *testing.T) {
-		// Reset state for this test
+	t.Run("MaxStateSizeBytes", func(t *testing.T) {
+		// Reset state for this test  
 		contextID2, err := sm.CreateContext(ctx, "test-state-size", nil)
 		if err != nil {
 			t.Fatalf("Failed to create context for state size test: %v", err)
 		}
 		
-		// Create multiple updates that together exceed MaxStateSize (10MB)
-		// Use chunks smaller than MaxStringLength (64KB)
-		chunkSize := 50 * 1024   // 50KB chunks (under 64KB limit)
+		// Try to create a single update that exceeds MaxStateSizeBytes
+		// Create a chunk that's definitely larger than MaxStateSizeBytes (10MB)
+		// Note: We need to stay under MaxStringLengthBytes (64KB) per string
+		// So we'll create multiple fields that together exceed MaxStateSizeBytes
 		
-		// Keep adding chunks until we hit the limit
-		successCount := 0
-		for i := 0; i < 250; i++ {
-			chunk := strings.Repeat("b", chunkSize)
-			updates := map[string]interface{}{
-				fmt.Sprintf("chunk_%d", i): chunk,
-			}
-
-			_, err := sm.UpdateState(ctx, contextID2, "test-state-size", updates, UpdateOptions{})
-			if err != nil {
-				// We should have been able to add at least some chunks
-				if successCount < 10 {
-					t.Errorf("Failed too early at chunk %d with only %d successful chunks: %v", i, successCount, err)
-				}
-				// But we should eventually hit the limit
-				if strings.Contains(err.Error(), "state size") || strings.Contains(err.Error(), "exceeds") {
-					// Expected - we hit the size limit
-					return
-				}
-				t.Errorf("Unexpected error type at chunk %d: %v", i, err)
-				return
-			}
-			successCount++
-			
-			// If we've added way too much data without error, that's a problem
-			totalSize := int64(successCount * chunkSize)
-			if totalSize > MaxStateSize+1024*1024 { // Allow 1MB buffer for overhead
-				t.Errorf("Added %d bytes without hitting size limit (limit is %d)", totalSize, MaxStateSize)
-				return
-			}
+		// Calculate how many max-size strings we need to exceed MaxStateSizeBytes
+		maxStringSize := MaxStringLengthBytes - 1 // 64KB - 1
+		numStrings := int(MaxStateSizeBytes/int64(maxStringSize)) + 2 // +2 to ensure we exceed
+		
+		updates := make(map[string]interface{})
+		for i := 0; i < numStrings; i++ {
+			updates[fmt.Sprintf("large_field_%d", i)] = strings.Repeat("z", maxStringSize)
 		}
 		
-		t.Error("Never hit state size limit despite adding lots of data")
+		_, err = sm.UpdateState(ctx, contextID2, "test-state-size", updates, UpdateOptions{})
+		if err == nil {
+			t.Error("Expected error when exceeding MaxStateSizeBytes with large update")
+		} else if !strings.Contains(err.Error(), "state size") && !strings.Contains(err.Error(), "exceeds") {
+			t.Errorf("Expected state size error, got: %v", err)
+		}
 	})
 
 	t.Run("MaxJSONDepth", func(t *testing.T) {
@@ -101,16 +84,16 @@ func TestSecurityLimits(t *testing.T) {
 		}
 	})
 
-	t.Run("MaxStringLength", func(t *testing.T) {
-		// Create a string exceeding MaxStringLength (64KB)
-		longString := strings.Repeat("c", MaxStringLength+1)
+	t.Run("MaxStringLengthBytes", func(t *testing.T) {
+		// Create a string exceeding MaxStringLengthBytes (64KB)
+		longString := strings.Repeat("c", MaxStringLengthBytes+1)
 		updates := map[string]interface{}{
 			"longString": longString,
 		}
 
 		_, err := sm.UpdateState(ctx, contextID, "test-state", updates, UpdateOptions{})
 		if err == nil {
-			t.Error("Expected error for string exceeding MaxStringLength")
+			t.Error("Expected error for string exceeding MaxStringLengthBytes")
 		}
 	})
 
@@ -277,7 +260,7 @@ func TestConcurrentSecurityValidation(t *testing.T) {
 					}
 				case 1: // String too long
 					updates = map[string]interface{}{
-						"long": strings.Repeat("x", MaxStringLength+1),
+						"long": strings.Repeat("x", MaxStringLengthBytes+1),
 					}
 				case 2: // Array too long
 					arr := make([]interface{}, MaxArrayLength+1)

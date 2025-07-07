@@ -45,7 +45,17 @@ func ExampleBasicMonitoring() {
 	
 	// Get metrics summary
 	metrics := monitoringIntegration.GetMonitoringSystem().GetMetrics()
-	fmt.Printf("Metrics: %+v\n", metrics)
+	fmt.Printf("Metrics:\n")
+	fmt.Printf("  Timestamp: %v\n", metrics.Timestamp)
+	fmt.Printf("  Operations: %d\n", len(metrics.Operations))
+	fmt.Printf("  Memory Usage: %d bytes\n", metrics.Memory.Usage)
+	fmt.Printf("  Goroutines: %d\n", metrics.Memory.Goroutines)
+	fmt.Printf("  Connection Pool:\n")
+	fmt.Printf("    Total: %d\n", metrics.ConnectionPool.TotalConnections)
+	fmt.Printf("    Active: %d\n", metrics.ConnectionPool.ActiveConnections)
+	fmt.Printf("    Waiting: %d\n", metrics.ConnectionPool.WaitingConnections)
+	fmt.Printf("    Errors: %d\n", metrics.ConnectionPool.ErrorCount)
+	fmt.Printf("  Health Checks: %d\n", len(metrics.Health))
 }
 
 // ExampleProductionMonitoring demonstrates production monitoring setup

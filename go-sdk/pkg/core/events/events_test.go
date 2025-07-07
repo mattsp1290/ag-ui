@@ -273,8 +273,8 @@ func TestStateEvents(t *testing.T) {
 
 	t.Run("StateDeltaEvent", func(t *testing.T) {
 		delta := []JSONPatchOperation{
-			{Op: "add", Path: "/counter", Value: 42},
-			{Op: "replace", Path: "/status", Value: "inactive"},
+			JSONPatchOperation{Op: "add", Path: "/counter", Value: 42},
+			JSONPatchOperation{Op: "replace", Path: "/status", Value: "inactive"},
 		}
 
 		event := NewStateDeltaEvent(delta)
@@ -289,25 +289,25 @@ func TestStateEvents(t *testing.T) {
 
 		// Invalid operation
 		event.Delta = []JSONPatchOperation{
-			{Op: "invalid", Path: "/counter", Value: 42},
+			JSONPatchOperation{Op: "invalid", Path: "/counter", Value: 42},
 		}
 		assert.Error(t, event.Validate())
 
 		// Missing path
 		event.Delta = []JSONPatchOperation{
-			{Op: "add", Value: 42},
+			JSONPatchOperation{Op: "add", Value: 42},
 		}
 		assert.Error(t, event.Validate())
 
 		// Missing value for add operation
 		event.Delta = []JSONPatchOperation{
-			{Op: "add", Path: "/counter"},
+			JSONPatchOperation{Op: "add", Path: "/counter"},
 		}
 		assert.Error(t, event.Validate())
 
 		// Missing from for move operation
 		event.Delta = []JSONPatchOperation{
-			{Op: "move", Path: "/counter"},
+			JSONPatchOperation{Op: "move", Path: "/counter"},
 		}
 		assert.Error(t, event.Validate())
 	})

@@ -745,6 +745,16 @@ func (sm *StateManager) Close() error {
 		<-drainDone
 	}
 	
+	// Stop rate limiter
+	if sm.rateLimiter != nil {
+		sm.rateLimiter.Stop()
+	}
+	
+	// Reset client rate limiter (clear tracked clients)
+	if sm.clientRateLimiter != nil {
+		sm.clientRateLimiter.Reset()
+	}
+	
 	// Close audit manager
 	if sm.auditManager != nil && sm.auditManager.logger != nil {
 		if err := sm.auditManager.logger.Close(); err != nil {
@@ -1493,4 +1503,9 @@ func (sm *StateManager) enqueueUpdate(req *updateRequest) error {
 	default:
 		return ErrQueueFull
 	}
+}
+
+// isClosing returns true if the manager is in the process of closing
+func (sm *StateManager) isClosing() bool {
+	return atomic.LoadInt32(&sm.closing) == 1
 }

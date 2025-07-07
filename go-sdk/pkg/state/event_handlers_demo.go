@@ -72,14 +72,14 @@ func main() {
 	
 	// Single delta
 	delta1 := events.NewStateDeltaEvent([]events.JSONPatchOperation{
-		{Op: "replace", Path: "/users/user1/role", Value: "superadmin"},
+		events.JSONPatchOperation{Op: "replace", Path: "/users/user1/role", Value: "superadmin"},
 	})
 	handler.HandleStateDelta(delta1)
 
 	// Multiple deltas (will batch)
 	for i := 0; i < 3; i++ {
 		delta := events.NewStateDeltaEvent([]events.JSONPatchOperation{
-			{Op: "add", Path: fmt.Sprintf("/logs/entry%d", i), Value: fmt.Sprintf("Log entry %d", i)},
+			events.JSONPatchOperation{Op: "add", Path: fmt.Sprintf("/logs/entry%d", i), Value: fmt.Sprintf("Log entry %d", i)},
 		})
 		handler.HandleStateDelta(delta)
 	}

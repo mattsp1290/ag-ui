@@ -121,16 +121,16 @@ func (dc *DeltaComputer) computeDiff(old, new interface{}, path string) JSONPatc
 	if old == nil {
 		// For root path, we need to handle it specially
 		if path == "" {
-			return JSONPatch{{Op: JSONPatchOpAdd, Path: "", Value: new}}
+			return JSONPatch{JSONPatchOperation{Op: JSONPatchOpAdd, Path: "", Value: new}}
 		}
-		return JSONPatch{{Op: JSONPatchOpAdd, Path: path, Value: new}}
+		return JSONPatch{JSONPatchOperation{Op: JSONPatchOpAdd, Path: path, Value: new}}
 	}
 	if new == nil {
 		// For root path, use replace instead of remove since we can't remove root
 		if path == "" {
-			return JSONPatch{{Op: JSONPatchOpReplace, Path: "", Value: nil}}
+			return JSONPatch{JSONPatchOperation{Op: JSONPatchOpReplace, Path: "", Value: nil}}
 		}
-		return JSONPatch{{Op: JSONPatchOpRemove, Path: path}}
+		return JSONPatch{JSONPatchOperation{Op: JSONPatchOpRemove, Path: path}}
 	}
 
 	// Check if values are equal
@@ -142,7 +142,7 @@ func (dc *DeltaComputer) computeDiff(old, new interface{}, path string) JSONPatc
 	oldType := reflect.TypeOf(old)
 	newType := reflect.TypeOf(new)
 	if oldType != newType {
-		return JSONPatch{{Op: JSONPatchOpReplace, Path: path, Value: new}}
+		return JSONPatch{JSONPatchOperation{Op: JSONPatchOpReplace, Path: path, Value: new}}
 	}
 
 	// Handle specific types
@@ -150,21 +150,21 @@ func (dc *DeltaComputer) computeDiff(old, new interface{}, path string) JSONPatc
 	case map[string]interface{}:
 		newVal, ok := new.(map[string]interface{})
 		if !ok {
-			return JSONPatch{{Op: JSONPatchOpReplace, Path: path, Value: new}}
+			return JSONPatch{JSONPatchOperation{Op: JSONPatchOpReplace, Path: path, Value: new}}
 		}
 		return dc.computeObjectDiff(oldVal, newVal, path)
 
 	case []interface{}:
 		newVal, ok := new.([]interface{})
 		if !ok {
-			return JSONPatch{{Op: JSONPatchOpReplace, Path: path, Value: new}}
+			return JSONPatch{JSONPatchOperation{Op: JSONPatchOpReplace, Path: path, Value: new}}
 		}
 		return dc.computeArrayDiff(oldVal, newVal, path)
 
 	default:
 		// Primitive values
 		if !reflect.DeepEqual(old, new) {
-			return JSONPatch{{Op: JSONPatchOpReplace, Path: path, Value: new}}
+			return JSONPatch{JSONPatchOperation{Op: JSONPatchOpReplace, Path: path, Value: new}}
 		}
 		return nil
 	}
@@ -295,7 +295,7 @@ func (dc *DeltaComputer) computeArrayDiff(old, new []interface{}, path string) J
 // computeArrayDiffSimple treats arrays as atomic values
 func (dc *DeltaComputer) computeArrayDiffSimple(old, new []interface{}, path string) JSONPatch {
 	if !reflect.DeepEqual(old, new) {
-		return JSONPatch{{Op: JSONPatchOpReplace, Path: path, Value: new}}
+		return JSONPatch{JSONPatchOperation{Op: JSONPatchOpReplace, Path: path, Value: new}}
 	}
 	return nil
 }

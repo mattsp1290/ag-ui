@@ -17,10 +17,10 @@ import (
 // PerformanceOptimizer provides performance optimization for state operations
 type PerformanceOptimizer struct {
 	// Object pools for reducing allocations
-	patchPool       sync.Pool
-	stateChangePool sync.Pool
-	eventPool       sync.Pool
-	bufferPool      sync.Pool // Buffer pool for compression/decompression
+	patchPool       *BoundedPool
+	stateChangePool *BoundedPool
+	eventPool       *BoundedPool
+	bufferPool      sync.Pool// Buffer pool for compression/decompression
 
 	// Metrics
 	allocations   atomic.Int64
@@ -90,6 +90,8 @@ type PerformanceOptions struct {
 	CompressionLevel  int
 	MaxConcurrency    int
 	MaxOpsPerSecond   int
+	MaxPoolSize       int  // Maximum number of objects in each pool
+	MaxIdleObjects    int  // Maximum idle objects to keep
 	MaxMemoryUsage    int64
 	ShardCount        int
 	ConnectionPoolSize int
@@ -110,11 +112,72 @@ func DefaultPerformanceOptions() PerformanceOptions {
 		CompressionLevel:   DefaultCompressionLevel,
 		MaxConcurrency:     runtime.NumCPU() * 2,
 		MaxOpsPerSecond:    DefaultMaxOpsPerSecond,
+		MaxPoolSize:        10000,
+		MaxIdleObjects:     1000,
 		MaxMemoryUsage:     DefaultMaxMemoryUsage, // 100MB
 		ShardCount:         DefaultShardCount,
 		ConnectionPoolSize: DefaultConnectionPoolSize,
 		LazyCacheSize:      DefaultLazyCacheSize,
 		CacheExpiryTime:    DefaultLazyCacheExpiryTime,
+	}
+}
+
+// BoundedPool implements a size-limited object pool
+type BoundedPool struct {
+	pool       sync.Pool
+	maxSize    int
+	maxIdle    int
+	activeCount atomic.Int64
+	idleCount   atomic.Int64
+	factory    func() interface{}
+}
+
+// NewBoundedPool creates a new bounded pool
+func NewBoundedPool(maxSize, maxIdle int, factory func() interface{}) *BoundedPool {
+	bp := &BoundedPool{
+		maxSize: maxSize,
+		maxIdle: maxIdle,
+		factory: factory,
+	}
+	bp.pool.New = func() interface{} {
+		// This is called when pool is empty
+		// We'll handle creation in Get() to properly track counts
+		return nil
+	}
+	return bp
+}
+
+// Get retrieves an object from the pool
+func (bp *BoundedPool) Get() interface{} {
+	// Try to get from pool first
+	obj := bp.pool.Get()
+	if obj != nil {
+		bp.idleCount.Add(-1)
+		return obj
+	}
+	
+	// Pool is empty, check if we can create new
+	if bp.activeCount.Load() < int64(bp.maxSize) {
+		bp.activeCount.Add(1)
+		return bp.factory()
+	}
+	
+	return nil
+}
+
+// Put returns an object to the pool
+func (bp *BoundedPool) Put(obj interface{}) {
+	if obj == nil {
+		return
+	}
+	
+	// Respect maxIdle parameter
+	if bp.idleCount.Load() < int64(bp.maxIdle) {
+		bp.pool.Put(obj)
+		bp.idleCount.Add(1)
+	} else {
+		// Too many idle objects, discard this one
+		bp.activeCount.Add(-1)
 	}
 }
 
@@ -141,27 +204,21 @@ func NewPerformanceOptimizer(opts PerformanceOptions) *PerformanceOptimizer {
 		cancel:          cancel,
 	}
 
-	// Initialize object pools
-	po.patchPool = sync.Pool{
-		New: func() interface{} {
-			po.poolMisses.Add(1)
-			return &JSONPatchOperation{}
-		},
-	}
+	// Initialize bounded object pools
+	po.patchPool = NewBoundedPool(opts.MaxPoolSize, opts.MaxIdleObjects, func() interface{} {
+		po.poolMisses.Add(1)
+		return &JSONPatchOperation{}
+	})
 
-	po.stateChangePool = sync.Pool{
-		New: func() interface{} {
-			po.poolMisses.Add(1)
-			return &StateChange{}
-		},
-	}
+	po.stateChangePool = NewBoundedPool(opts.MaxPoolSize, opts.MaxIdleObjects, func() interface{} {
+		po.poolMisses.Add(1)
+		return &StateChange{}
+	})
 
-	po.eventPool = sync.Pool{
-		New: func() interface{} {
-			po.poolMisses.Add(1)
-			return &StateEvent{}
-		},
-	}
+	po.eventPool = NewBoundedPool(opts.MaxPoolSize, opts.MaxIdleObjects, func() interface{} {
+		po.poolMisses.Add(1)
+		return &StateEvent{}
+	})
 
 	po.bufferPool = sync.Pool{
 		New: func() interface{} {
@@ -216,8 +273,15 @@ func (po *PerformanceOptimizer) GetPatchOperation() *JSONPatchOperation {
 		return &JSONPatchOperation{}
 	}
 	
-	po.poolHits.Add(1)
-	return po.patchPool.Get().(*JSONPatchOperation)
+	obj := po.patchPool.Get()
+	if obj != nil {
+		po.poolHits.Add(1)
+		return obj.(*JSONPatchOperation)
+	}
+	
+	// Pool is at capacity, create new object
+	po.poolMisses.Add(1)
+	return &JSONPatchOperation{}
 }
 
 // PutPatchOperation returns a patch operation to the pool
@@ -241,8 +305,15 @@ func (po *PerformanceOptimizer) GetStateChange() *StateChange {
 		return &StateChange{}
 	}
 	
-	po.poolHits.Add(1)
-	return po.stateChangePool.Get().(*StateChange)
+	obj := po.stateChangePool.Get()
+	if obj != nil {
+		po.poolHits.Add(1)
+		return obj.(*StateChange)
+	}
+	
+	// Pool is at capacity, create new object
+	po.poolMisses.Add(1)
+	return &StateChange{}
 }
 
 // PutStateChange returns a state change to the pool
@@ -275,8 +346,15 @@ func (po *PerformanceOptimizer) GetStateEvent() *StateEvent {
 		return &StateEvent{}
 	}
 	
-	po.poolHits.Add(1)
-	return po.eventPool.Get().(*StateEvent)
+	obj := po.eventPool.Get()
+	if obj != nil {
+		po.poolHits.Add(1)
+		return obj.(*StateEvent)
+	}
+	
+	// Pool is at capacity, create new object
+	po.poolMisses.Add(1)
+	return &StateEvent{}
 }
 
 // PutStateEvent returns a state event to the pool
@@ -315,29 +393,48 @@ func (po *PerformanceOptimizer) batchWorker() {
 	batch := make([]batchItem, 0, po.batchSize)
 	timer := time.NewTimer(po.batchTimeout)
 	timer.Stop()
+	timerActive := false
 	
 	for {
 		select {
 		case item := <-po.batchQueue:
 			batch = append(batch, item)
 			
-			if len(batch) == 1 {
+			// Start timer only if not already active
+			if len(batch) == 1 && !timerActive {
 				timer.Reset(po.batchTimeout)
+				timerActive = true
 			}
 			
 			if len(batch) >= po.batchSize {
 				po.processBatch(batch)
 				batch = batch[:0]
-				timer.Stop()
+				if timerActive {
+					if !timer.Stop() {
+						// Drain the timer channel if Stop returns false
+						select {
+						case <-timer.C:
+						default:
+						}
+					}
+					timerActive = false
+				}
 			}
 			
 		case <-timer.C:
+			timerActive = false
 			if len(batch) > 0 {
 				po.processBatch(batch)
 				batch = batch[:0]
 			}
 			
 		case <-po.stopBatch:
+			if timerActive && !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
 			if len(batch) > 0 {
 				po.processBatch(batch)
 			}
@@ -509,6 +606,7 @@ type RateLimiter struct {
 	bucket     chan struct{}
 	ticker     *time.Ticker
 	stop       chan struct{}
+	stopped    atomic.Bool
 }
 
 // NewRateLimiter creates a new rate limiter
@@ -561,7 +659,9 @@ func (rl *RateLimiter) Wait(ctx context.Context) error {
 
 // Stop stops the rate limiter
 func (rl *RateLimiter) Stop() {
-	close(rl.stop)
+	if rl.stopped.CompareAndSwap(false, true) {
+		close(rl.stop)
+	}
 }
 
 // OptimizedDelta represents an optimized delta with compression

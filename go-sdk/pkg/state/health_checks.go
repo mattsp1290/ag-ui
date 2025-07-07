@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
@@ -436,21 +435,3 @@ func (hc *CustomHealthCheck) Check(ctx context.Context) error {
 // Helper methods for StateManager and StateEventHandler
 // These would need to be added to the respective structs
 
-// isClosing checks if the state manager is closing
-func (sm *StateManager) isClosing() bool {
-	return atomic.LoadInt32(&sm.closing) != 0
-}
-
-// isRunning checks if the event handler is running
-func (seh *StateEventHandler) isRunning() bool {
-	// This would need to be implemented in the actual StateEventHandler
-	// For now, return true as a placeholder
-	return true
-}
-
-// getQueueDepth returns the current queue depth
-func (seh *StateEventHandler) getQueueDepth() int64 {
-	// This would need to be implemented in the actual StateEventHandler
-	// For now, return 0 as a placeholder
-	return 0
-}

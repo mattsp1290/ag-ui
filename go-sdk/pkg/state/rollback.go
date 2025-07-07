@@ -511,7 +511,7 @@ func (f *FastRollbackStrategy) Validate(store *StateStore, targetVersion *StateV
 func (f *FastRollbackStrategy) Execute(store *StateStore, targetVersion *StateVersion) error {
 	// Direct state replacement using a single patch
 	patch := JSONPatch{
-		{
+		JSONPatchOperation{
 			Op:    JSONPatchOpReplace,
 			Path:  "/",
 			Value: targetVersion.State,
@@ -577,7 +577,7 @@ func createTransformPatch(from, to map[string]interface{}) JSONPatch {
 	// This is a simplified implementation
 	// A full implementation would calculate minimal patches
 	return JSONPatch{
-		{
+		JSONPatchOperation{
 			Op:    JSONPatchOpReplace,
 			Path:  "/",
 			Value: to,

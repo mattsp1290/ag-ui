@@ -311,8 +311,8 @@ func TestIntegration_StateManagementFlow(t *testing.T) {
 		&StateDeltaEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeStateDelta, TimestampMs: timePtr(time.Now().UnixMilli() + 200)},
 			Delta: []JSONPatchOperation{
-				{Op: "replace", Path: "/counter", Value: json.RawMessage("1")},
-				{Op: "add", Path: "/messages/-", Value: json.RawMessage(`"First message"`)},
+				JSONPatchOperation{Op: "replace", Path: "/counter", Value: json.RawMessage("1")},
+				JSONPatchOperation{Op: "add", Path: "/messages/-", Value: json.RawMessage(`"First message"`)},
 			},
 		},
 		
@@ -320,9 +320,9 @@ func TestIntegration_StateManagementFlow(t *testing.T) {
 		&StateDeltaEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeStateDelta, TimestampMs: timePtr(time.Now().UnixMilli() + 300)},
 			Delta: []JSONPatchOperation{
-				{Op: "replace", Path: "/counter", Value: json.RawMessage("2")},
-				{Op: "add", Path: "/messages/-", Value: json.RawMessage(`"Second message"`)},
-				{Op: "replace", Path: "/config/temperature", Value: json.RawMessage("0.9")},
+				JSONPatchOperation{Op: "replace", Path: "/counter", Value: json.RawMessage("2")},
+				JSONPatchOperation{Op: "add", Path: "/messages/-", Value: json.RawMessage(`"Second message"`)},
+				JSONPatchOperation{Op: "replace", Path: "/config/temperature", Value: json.RawMessage("0.9")},
 			},
 		},
 		

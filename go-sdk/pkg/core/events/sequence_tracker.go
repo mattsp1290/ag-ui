@@ -43,10 +43,10 @@ func NewEventSequenceTracker(config *SequenceTrackerConfig) *EventSequenceTracke
 	if config == nil {
 		config = DefaultSequenceTrackerConfig()
 	}
-	
+
 	// Create a more lenient validation config for the tracker
 	validationConfig := PermissiveValidationConfig()
-	
+
 	return &EventSequenceTracker{
 		state:        NewValidationState(),
 		eventHistory: make([]Event, 0),
@@ -59,11 +59,11 @@ func NewEventSequenceTracker(config *SequenceTrackerConfig) *EventSequenceTracke
 func (t *EventSequenceTracker) TrackEvent(event Event) error {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
-	
+
 	if event == nil {
 		return fmt.Errorf("cannot track nil event")
 	}
-	
+
 	// Validate event if configured
 	if t.config.ValidateOnAdd {
 		result := t.validator.ValidateEvent(context.Background(), event)
@@ -71,19 +71,19 @@ func (t *EventSequenceTracker) TrackEvent(event Event) error {
 			return fmt.Errorf("event validation failed: %v", result.Errors)
 		}
 	}
-	
+
 	// Add to history
 	t.eventHistory = append(t.eventHistory, event)
-	
+
 	// Trim history if needed
 	if len(t.eventHistory) > t.config.MaxHistorySize {
 		// Remove oldest events
 		t.eventHistory = t.eventHistory[len(t.eventHistory)-t.config.MaxHistorySize:]
 	}
-	
+
 	// Update state
 	t.updateStateFromEvent(event)
-	
+
 	return nil
 }
 
@@ -91,7 +91,7 @@ func (t *EventSequenceTracker) TrackEvent(event Event) error {
 func (t *EventSequenceTracker) ValidateSequence() *ValidationResult {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	return t.validator.ValidateSequence(context.Background(), t.eventHistory)
 }
 
@@ -99,7 +99,7 @@ func (t *EventSequenceTracker) ValidateSequence() *ValidationResult {
 func (t *EventSequenceTracker) GetCurrentState() *ValidationState {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	// Return a reference to the state - it's already protected by the validator's mutex
 	// The ValidationState itself has its own mutex for thread safety
 	return t.state
@@ -109,7 +109,7 @@ func (t *EventSequenceTracker) GetCurrentState() *ValidationState {
 func (t *EventSequenceTracker) GetEventHistory() []Event {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	// Return a copy to prevent external modification
 	history := make([]Event, len(t.eventHistory))
 	copy(history, t.eventHistory)
@@ -120,7 +120,7 @@ func (t *EventSequenceTracker) GetEventHistory() []Event {
 func (t *EventSequenceTracker) GetEventCount() int {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	return len(t.eventHistory)
 }
 
@@ -128,7 +128,7 @@ func (t *EventSequenceTracker) GetEventCount() int {
 func (t *EventSequenceTracker) GetActiveRuns() map[string]*RunState {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	activeRuns := make(map[string]*RunState)
 	for k, v := range t.state.ActiveRuns {
 		activeRuns[k] = v
@@ -140,7 +140,7 @@ func (t *EventSequenceTracker) GetActiveRuns() map[string]*RunState {
 func (t *EventSequenceTracker) GetActiveMessages() map[string]*MessageState {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	activeMessages := make(map[string]*MessageState)
 	for k, v := range t.state.ActiveMessages {
 		activeMessages[k] = v
@@ -152,7 +152,7 @@ func (t *EventSequenceTracker) GetActiveMessages() map[string]*MessageState {
 func (t *EventSequenceTracker) GetActiveTools() map[string]*ToolState {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	activeTools := make(map[string]*ToolState)
 	for k, v := range t.state.ActiveTools {
 		activeTools[k] = v
@@ -164,7 +164,7 @@ func (t *EventSequenceTracker) GetActiveTools() map[string]*ToolState {
 func (t *EventSequenceTracker) GetActiveSteps() map[string]bool {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	activeSteps := make(map[string]bool)
 	for k, v := range t.state.ActiveSteps {
 		activeSteps[k] = v
@@ -176,7 +176,7 @@ func (t *EventSequenceTracker) GetActiveSteps() map[string]bool {
 func (t *EventSequenceTracker) IsRunActive(runID string) bool {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	_, exists := t.state.ActiveRuns[runID]
 	return exists
 }
@@ -185,7 +185,7 @@ func (t *EventSequenceTracker) IsRunActive(runID string) bool {
 func (t *EventSequenceTracker) IsMessageActive(messageID string) bool {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	_, exists := t.state.ActiveMessages[messageID]
 	return exists
 }
@@ -194,7 +194,7 @@ func (t *EventSequenceTracker) IsMessageActive(messageID string) bool {
 func (t *EventSequenceTracker) IsToolActive(toolCallID string) bool {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	_, exists := t.state.ActiveTools[toolCallID]
 	return exists
 }
@@ -203,7 +203,7 @@ func (t *EventSequenceTracker) IsToolActive(toolCallID string) bool {
 func (t *EventSequenceTracker) IsStepActive(stepName string) bool {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	return t.state.ActiveSteps[stepName]
 }
 
@@ -216,11 +216,11 @@ func (t *EventSequenceTracker) GetMetrics() *ValidationMetrics {
 func (t *EventSequenceTracker) Reset() error {
 	t.mutex.Lock()
 	defer t.mutex.Unlock()
-	
+
 	t.state = NewValidationState()
 	t.eventHistory = make([]Event, 0)
 	t.validator.Reset()
-	
+
 	return nil
 }
 
@@ -228,7 +228,7 @@ func (t *EventSequenceTracker) Reset() error {
 func (t *EventSequenceTracker) GetSequenceInfo() *SequenceInfo {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	return &SequenceInfo{
 		TotalEvents:      len(t.eventHistory),
 		ActiveRuns:       len(t.state.ActiveRuns),
@@ -263,11 +263,11 @@ type SequenceInfo struct {
 func (t *EventSequenceTracker) GetLastEvent() Event {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	if len(t.eventHistory) == 0 {
 		return nil
 	}
-	
+
 	return t.eventHistory[len(t.eventHistory)-1]
 }
 
@@ -275,7 +275,7 @@ func (t *EventSequenceTracker) GetLastEvent() Event {
 func (t *EventSequenceTracker) GetEventsInRange(start, end time.Time) []Event {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	var events []Event
 	for _, event := range t.eventHistory {
 		if event.Timestamp() != nil {
@@ -285,7 +285,7 @@ func (t *EventSequenceTracker) GetEventsInRange(start, end time.Time) []Event {
 			}
 		}
 	}
-	
+
 	return events
 }
 
@@ -293,14 +293,14 @@ func (t *EventSequenceTracker) GetEventsInRange(start, end time.Time) []Event {
 func (t *EventSequenceTracker) GetEventsByType(eventType EventType) []Event {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	var events []Event
 	for _, event := range t.eventHistory {
 		if event.Type() == eventType {
 			events = append(events, event)
 		}
 	}
-	
+
 	return events
 }
 
@@ -308,7 +308,7 @@ func (t *EventSequenceTracker) GetEventsByType(eventType EventType) []Event {
 func (t *EventSequenceTracker) GetEventsByRunID(runID string) []Event {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	var events []Event
 	for _, event := range t.eventHistory {
 		// Check if event belongs to the run
@@ -327,7 +327,7 @@ func (t *EventSequenceTracker) GetEventsByRunID(runID string) []Event {
 			}
 		}
 	}
-	
+
 	return events
 }
 
@@ -335,7 +335,7 @@ func (t *EventSequenceTracker) GetEventsByRunID(runID string) []Event {
 func (t *EventSequenceTracker) GetEventsByMessageID(messageID string) []Event {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	var events []Event
 	for _, event := range t.eventHistory {
 		// Check if event belongs to the message
@@ -354,7 +354,7 @@ func (t *EventSequenceTracker) GetEventsByMessageID(messageID string) []Event {
 			}
 		}
 	}
-	
+
 	return events
 }
 
@@ -362,7 +362,7 @@ func (t *EventSequenceTracker) GetEventsByMessageID(messageID string) []Event {
 func (t *EventSequenceTracker) GetEventsByToolCallID(toolCallID string) []Event {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	var events []Event
 	for _, event := range t.eventHistory {
 		// Check if event belongs to the tool call
@@ -381,7 +381,7 @@ func (t *EventSequenceTracker) GetEventsByToolCallID(toolCallID string) []Event 
 			}
 		}
 	}
-	
+
 	return events
 }
 
@@ -389,7 +389,7 @@ func (t *EventSequenceTracker) GetEventsByToolCallID(toolCallID string) []Event 
 func (t *EventSequenceTracker) ValidateEventSequence(events []Event) *ValidationResult {
 	// Create a temporary validator for sequence validation
 	tempValidator := NewEventValidator(t.validator.config)
-	
+
 	return tempValidator.ValidateSequence(context.Background(), events)
 }
 
@@ -397,22 +397,22 @@ func (t *EventSequenceTracker) ValidateEventSequence(events []Event) *Validation
 func (t *EventSequenceTracker) CheckSequenceCompliance() *ComplianceReport {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
-	
+
 	report := &ComplianceReport{
 		IsCompliant: true,
 		Issues:      make([]*ComplianceIssue, 0),
 		Timestamp:   time.Now(),
 	}
-	
+
 	// Check for orphaned events
 	t.checkOrphanedEvents(report)
-	
+
 	// Check for incomplete sequences
 	t.checkIncompleteSequences(report)
-	
+
 	// Check for protocol violations
 	t.checkProtocolViolations(report)
-	
+
 	return report
 }
 
@@ -439,7 +439,7 @@ func (t *EventSequenceTracker) updateStateFromEvent(event Event) {
 	// Update our own state directly
 	t.state.EventCount++
 	t.state.LastEventTime = time.Now()
-	
+
 	switch event.Type() {
 	case EventTypeRunStarted:
 		if runEvent, ok := event.(*RunStartedEvent); ok {
@@ -451,7 +451,7 @@ func (t *EventSequenceTracker) updateStateFromEvent(event Event) {
 				Phase:     PhaseRunning,
 			}
 		}
-		
+
 	case EventTypeRunFinished:
 		if runEvent, ok := event.(*RunFinishedEvent); ok {
 			t.state.CurrentPhase = PhaseFinished
@@ -461,7 +461,7 @@ func (t *EventSequenceTracker) updateStateFromEvent(event Event) {
 				delete(t.state.ActiveRuns, runEvent.RunID)
 			}
 		}
-		
+
 	case EventTypeRunError:
 		if runEvent, ok := event.(*RunErrorEvent); ok {
 			t.state.CurrentPhase = PhaseError
@@ -471,7 +471,7 @@ func (t *EventSequenceTracker) updateStateFromEvent(event Event) {
 				delete(t.state.ActiveRuns, runEvent.RunID)
 			}
 		}
-		
+
 	case EventTypeStepStarted:
 		if stepEvent, ok := event.(*StepStartedEvent); ok {
 			t.state.ActiveSteps[stepEvent.StepName] = true
@@ -480,12 +480,12 @@ func (t *EventSequenceTracker) updateStateFromEvent(event Event) {
 				runState.StepCount++
 			}
 		}
-		
+
 	case EventTypeStepFinished:
 		if stepEvent, ok := event.(*StepFinishedEvent); ok {
 			delete(t.state.ActiveSteps, stepEvent.StepName)
 		}
-		
+
 	case EventTypeTextMessageStart:
 		if msgEvent, ok := event.(*TextMessageStartEvent); ok {
 			parentMsgID := ""
@@ -498,14 +498,14 @@ func (t *EventSequenceTracker) updateStateFromEvent(event Event) {
 				IsActive:     true,
 			}
 		}
-		
+
 	case EventTypeTextMessageContent:
 		if msgEvent, ok := event.(*TextMessageContentEvent); ok {
 			if msgState, exists := t.state.ActiveMessages[msgEvent.MessageID]; exists {
 				msgState.ContentCount++
 			}
 		}
-		
+
 	case EventTypeTextMessageEnd:
 		if msgEvent, ok := event.(*TextMessageEndEvent); ok {
 			if msgState, exists := t.state.ActiveMessages[msgEvent.MessageID]; exists {
@@ -514,7 +514,7 @@ func (t *EventSequenceTracker) updateStateFromEvent(event Event) {
 				delete(t.state.ActiveMessages, msgEvent.MessageID)
 			}
 		}
-		
+
 	case EventTypeToolCallStart:
 		if toolEvent, ok := event.(*ToolCallStartEvent); ok {
 			parentMsgID := ""
@@ -530,14 +530,14 @@ func (t *EventSequenceTracker) updateStateFromEvent(event Event) {
 				IsActive:    true,
 			}
 		}
-		
+
 	case EventTypeToolCallArgs:
 		if toolEvent, ok := event.(*ToolCallArgsEvent); ok {
 			if toolState, exists := t.state.ActiveTools[toolEvent.ToolCallID]; exists {
 				toolState.ArgsCount++
 			}
 		}
-		
+
 	case EventTypeToolCallEnd:
 		if toolEvent, ok := event.(*ToolCallEndEvent); ok {
 			if toolState, exists := t.state.ActiveTools[toolEvent.ToolCallID]; exists {
@@ -565,7 +565,7 @@ func (t *EventSequenceTracker) checkOrphanedEvents(report *ComplianceReport) {
 			})
 		}
 	}
-	
+
 	// Check for orphaned tool calls
 	for toolCallID, toolState := range t.state.ActiveTools {
 		if time.Since(toolState.StartTime) > time.Hour { // Configurable timeout
@@ -616,7 +616,7 @@ func (t *EventSequenceTracker) checkProtocolViolations(report *ComplianceReport)
 			Suggestions: []string{"Start the sequence with a RUN_STARTED event"},
 		})
 	}
-	
+
 	// Check for events after RUN_FINISHED
 	foundFinished := false
 	for _, event := range t.eventHistory {
@@ -624,7 +624,7 @@ func (t *EventSequenceTracker) checkProtocolViolations(report *ComplianceReport)
 			foundFinished = true
 			continue
 		}
-		
+
 		if foundFinished && event.Type() != EventTypeRunError {
 			report.IsCompliant = false
 			report.Issues = append(report.Issues, &ComplianceIssue{

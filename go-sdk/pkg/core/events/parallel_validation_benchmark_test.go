@@ -11,23 +11,23 @@ import (
 // BenchmarkSequentialValidation benchmarks traditional sequential rule execution
 func BenchmarkSequentialValidation(b *testing.B) {
 	validator := NewEventValidator(DefaultValidationConfig())
-	
+
 	// Disable parallel validation to force sequential execution
 	validator.EnableParallelValidation(false)
-	
+
 	event := &RunStartedEvent{
 		BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
 		RunID:     "benchmark-run",
 		ThreadID:  "benchmark-thread",
 	}
-	
+
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// Reset validator state for each iteration
 		validator.Reset()
-		
+
 		result := validator.ValidateEvent(ctx, event)
 		if !result.IsValid {
 			b.Fatalf("Validation failed: %v", result.Errors)
@@ -38,27 +38,27 @@ func BenchmarkSequentialValidation(b *testing.B) {
 // BenchmarkParallelValidationExecution benchmarks parallel rule execution
 func BenchmarkParallelValidationExecution(b *testing.B) {
 	validator := NewEventValidator(DefaultValidationConfig())
-	
+
 	// Configure for optimal parallel execution
 	parallelConfig := DefaultParallelValidationConfig()
 	parallelConfig.MaxGoroutines = runtime.NumCPU()
 	parallelConfig.MinRulesForParallel = 1 // Force parallel execution
 	parallelConfig.EnableParallelExecution = true
 	validator.SetParallelConfig(parallelConfig)
-	
+
 	event := &RunStartedEvent{
 		BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
 		RunID:     "benchmark-run",
 		ThreadID:  "benchmark-thread",
 	}
-	
+
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		// Reset validator state for each iteration
 		validator.Reset()
-		
+
 		result := validator.ValidateEventParallel(ctx, event)
 		if !result.IsValid {
 			b.Fatalf("Validation failed: %v", result.Errors)
@@ -69,11 +69,11 @@ func BenchmarkParallelValidationExecution(b *testing.B) {
 // BenchmarkParallelValidationWithDifferentRuleCounts benchmarks parallel validation with varying rule counts
 func BenchmarkParallelValidationWithDifferentRuleCounts(b *testing.B) {
 	ruleCounts := []int{1, 3, 5, 10, 20}
-	
+
 	for _, ruleCount := range ruleCounts {
 		b.Run(fmt.Sprintf("Rules%d", ruleCount), func(b *testing.B) {
 			validator := NewEventValidator(DefaultValidationConfig())
-			
+
 			// Add additional mock rules to reach desired count
 			for i := len(validator.GetRules()); i < ruleCount; i++ {
 				validator.AddRule(&MockValidationRule{
@@ -82,26 +82,26 @@ func BenchmarkParallelValidationWithDifferentRuleCounts(b *testing.B) {
 					delay:   1 * time.Millisecond, // Small delay to simulate real work
 				})
 			}
-			
+
 			// Configure for parallel execution
 			parallelConfig := DefaultParallelValidationConfig()
 			parallelConfig.MaxGoroutines = runtime.NumCPU()
 			parallelConfig.MinRulesForParallel = 1
 			validator.SetParallelConfig(parallelConfig)
-			
+
 			event := &RunStartedEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
 				RunID:     "benchmark-run",
 				ThreadID:  "benchmark-thread",
 			}
-			
+
 			ctx := context.Background()
-			
+
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				// Reset validator state for each iteration
 				validator.Reset()
-				
+
 				result := validator.ValidateEventParallel(ctx, event)
 				if !result.IsValid {
 					b.Fatalf("Validation failed: %v", result.Errors)
@@ -114,11 +114,11 @@ func BenchmarkParallelValidationWithDifferentRuleCounts(b *testing.B) {
 // BenchmarkParallelValidationWithDifferentGoroutineCounts benchmarks parallel validation with varying goroutine counts
 func BenchmarkParallelValidationWithDifferentGoroutineCounts(b *testing.B) {
 	goroutineCounts := []int{1, 2, 4, 8, 16}
-	
+
 	for _, goroutineCount := range goroutineCounts {
 		b.Run(fmt.Sprintf("Goroutines%d", goroutineCount), func(b *testing.B) {
 			validator := NewEventValidator(DefaultValidationConfig())
-			
+
 			// Add some mock rules to ensure we have work to parallelize
 			for i := 0; i < 10; i++ {
 				validator.AddRule(&MockValidationRule{
@@ -127,26 +127,26 @@ func BenchmarkParallelValidationWithDifferentGoroutineCounts(b *testing.B) {
 					delay:   1 * time.Millisecond,
 				})
 			}
-			
+
 			// Configure parallel execution with specific goroutine count
 			parallelConfig := DefaultParallelValidationConfig()
 			parallelConfig.MaxGoroutines = goroutineCount
 			parallelConfig.MinRulesForParallel = 1
 			validator.SetParallelConfig(parallelConfig)
-			
+
 			event := &RunStartedEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
 				RunID:     "benchmark-run",
 				ThreadID:  "benchmark-thread",
 			}
-			
+
 			ctx := context.Background()
-			
+
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				// Reset validator state for each iteration
 				validator.Reset()
-				
+
 				result := validator.ValidateEventParallel(ctx, event)
 				if !result.IsValid {
 					b.Fatalf("Validation failed: %v", result.Errors)
@@ -159,27 +159,27 @@ func BenchmarkParallelValidationWithDifferentGoroutineCounts(b *testing.B) {
 // BenchmarkParallelWorkerPool benchmarks the worker pool performance
 func BenchmarkParallelWorkerPool(b *testing.B) {
 	workerCounts := []int{1, 2, 4, 8}
-	
+
 	for _, workerCount := range workerCounts {
 		b.Run(fmt.Sprintf("Workers%d", workerCount), func(b *testing.B) {
 			pool := NewParallelWorkerPool(workerCount, 10)
 			pool.Start()
 			defer pool.Stop()
-			
+
 			event := &RunStartedEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
 				RunID:     "benchmark-run",
 				ThreadID:  "benchmark-thread",
 			}
-			
+
 			rule := &MockValidationRule{
 				id:      "BENCHMARK_RULE",
 				enabled: true,
 				delay:   100 * time.Microsecond,
 			}
-			
+
 			context := &ValidationContext{State: NewValidationState()}
-			
+
 			b.ResetTimer()
 			for i := 0; i < b.N; i++ {
 				job := ParallelValidationJob{
@@ -188,12 +188,12 @@ func BenchmarkParallelWorkerPool(b *testing.B) {
 					Context: context,
 					JobID:   i,
 				}
-				
+
 				err := pool.SubmitJob(job)
 				if err != nil {
 					b.Fatalf("Failed to submit job: %v", err)
 				}
-				
+
 				_, err = pool.GetResult()
 				if err != nil {
 					b.Fatalf("Failed to get result: %v", err)
@@ -206,7 +206,7 @@ func BenchmarkParallelWorkerPool(b *testing.B) {
 // BenchmarkRuleDependencyAnalysis benchmarks the rule dependency analysis
 func BenchmarkRuleDependencyAnalysis(b *testing.B) {
 	analyzer := NewRuleDependencyAnalyzer()
-	
+
 	// Create a large set of rules
 	rules := make([]ValidationRule, 100)
 	for i := 0; i < 100; i++ {
@@ -215,7 +215,7 @@ func BenchmarkRuleDependencyAnalysis(b *testing.B) {
 			enabled: true,
 		}
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_, _ = analyzer.AnalyzeRules(rules)
@@ -225,13 +225,13 @@ func BenchmarkRuleDependencyAnalysis(b *testing.B) {
 // BenchmarkComplexEventValidation benchmarks validation of complex events with nested structures
 func BenchmarkComplexEventValidation(b *testing.B) {
 	validator := NewEventValidator(DefaultValidationConfig())
-	
+
 	// Configure for parallel execution
 	parallelConfig := DefaultParallelValidationConfig()
 	parallelConfig.MaxGoroutines = runtime.NumCPU()
 	parallelConfig.MinRulesForParallel = 1
 	validator.SetParallelConfig(parallelConfig)
-	
+
 	// Create a complex event sequence
 	events := []Event{
 		&RunStartedEvent{
@@ -250,17 +250,17 @@ func BenchmarkComplexEventValidation(b *testing.B) {
 			Delta:     "This is a complex message with lots of content that needs validation",
 		},
 		&ToolCallStartEvent{
-			BaseEvent: &BaseEvent{EventType: EventTypeToolCallStart, TimestampMs: timePtr(time.Now().UnixMilli())},
+			BaseEvent:    &BaseEvent{EventType: EventTypeToolCallStart, TimestampMs: timePtr(time.Now().UnixMilli())},
 			ToolCallID:   "complex-tool",
 			ToolCallName: "complex_tool",
 		},
 		&ToolCallArgsEvent{
-			BaseEvent: &BaseEvent{EventType: EventTypeToolCallArgs, TimestampMs: timePtr(time.Now().UnixMilli())},
+			BaseEvent:  &BaseEvent{EventType: EventTypeToolCallArgs, TimestampMs: timePtr(time.Now().UnixMilli())},
 			ToolCallID: "complex-tool",
 			Delta:      `{"param1": "value1", "param2": "value2"}`,
 		},
 		&ToolCallEndEvent{
-			BaseEvent: &BaseEvent{EventType: EventTypeToolCallEnd, TimestampMs: timePtr(time.Now().UnixMilli())},
+			BaseEvent:  &BaseEvent{EventType: EventTypeToolCallEnd, TimestampMs: timePtr(time.Now().UnixMilli())},
 			ToolCallID: "complex-tool",
 		},
 		&TextMessageEndEvent{
@@ -272,9 +272,9 @@ func BenchmarkComplexEventValidation(b *testing.B) {
 			RunID:     "complex-run",
 		},
 	}
-	
+
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for _, event := range events {
@@ -283,7 +283,7 @@ func BenchmarkComplexEventValidation(b *testing.B) {
 				b.Fatalf("Validation failed for event %T: %v", event, result.Errors)
 			}
 		}
-		
+
 		// Reset validator state for next iteration
 		validator.Reset()
 	}
@@ -292,27 +292,27 @@ func BenchmarkComplexEventValidation(b *testing.B) {
 // BenchmarkMemoryUsage benchmarks memory usage during parallel validation
 func BenchmarkMemoryUsage(b *testing.B) {
 	validator := NewEventValidator(DefaultValidationConfig())
-	
+
 	// Configure for parallel execution
 	parallelConfig := DefaultParallelValidationConfig()
 	parallelConfig.MaxGoroutines = runtime.NumCPU()
 	parallelConfig.MinRulesForParallel = 1
 	validator.SetParallelConfig(parallelConfig)
-	
+
 	event := &RunStartedEvent{
 		BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
 		RunID:     "memory-test-run",
 		ThreadID:  "memory-test-thread",
 	}
-	
+
 	ctx := context.Background()
-	
+
 	// Force garbage collection before benchmark
 	runtime.GC()
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		result := validator.ValidateEventParallel(ctx, event)
 		if !result.IsValid {
@@ -324,7 +324,7 @@ func BenchmarkMemoryUsage(b *testing.B) {
 // BenchmarkParallelValidationLatency measures latency characteristics
 func BenchmarkParallelValidationLatency(b *testing.B) {
 	validator := NewEventValidator(DefaultValidationConfig())
-	
+
 	// Add some rules with varying processing times to simulate real-world scenarios
 	for i := 0; i < 5; i++ {
 		validator.AddRule(&MockValidationRule{
@@ -333,40 +333,40 @@ func BenchmarkParallelValidationLatency(b *testing.B) {
 			delay:   time.Duration(i+1) * time.Millisecond,
 		})
 	}
-	
+
 	// Configure for parallel execution
 	parallelConfig := DefaultParallelValidationConfig()
 	parallelConfig.MaxGoroutines = runtime.NumCPU()
 	parallelConfig.MinRulesForParallel = 1
 	validator.SetParallelConfig(parallelConfig)
-	
+
 	event := &RunStartedEvent{
 		BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
 		RunID:     "latency-test-run",
 		ThreadID:  "latency-test-thread",
 	}
-	
+
 	ctx := context.Background()
-	
+
 	latencies := make([]time.Duration, b.N)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		start := time.Now()
 		result := validator.ValidateEventParallel(ctx, event)
 		latencies[i] = time.Since(start)
-		
+
 		if !result.IsValid {
 			b.Fatalf("Validation failed: %v", result.Errors)
 		}
 	}
-	
+
 	// Calculate and report statistics
 	if b.N > 0 {
 		var total time.Duration
 		min := latencies[0]
 		max := latencies[0]
-		
+
 		for _, latency := range latencies {
 			total += latency
 			if latency < min {
@@ -376,7 +376,7 @@ func BenchmarkParallelValidationLatency(b *testing.B) {
 				max = latency
 			}
 		}
-		
+
 		avg := total / time.Duration(b.N)
 		b.Logf("Latency stats - Min: %v, Max: %v, Avg: %v", min, max, avg)
 	}
@@ -386,7 +386,7 @@ func BenchmarkParallelValidationLatency(b *testing.B) {
 func BenchmarkSpeedupMeasurement(b *testing.B) {
 	// This benchmark measures both sequential and parallel execution to calculate speedup
 	validator := NewEventValidator(DefaultValidationConfig())
-	
+
 	// Add several rules with processing delays to simulate real validation work
 	for i := 0; i < 8; i++ {
 		validator.AddRule(&MockValidationRule{
@@ -395,38 +395,38 @@ func BenchmarkSpeedupMeasurement(b *testing.B) {
 			delay:   2 * time.Millisecond, // Simulated processing time
 		})
 	}
-	
+
 	event := &RunStartedEvent{
 		BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
 		RunID:     "speedup-test-run",
 		ThreadID:  "speedup-test-thread",
 	}
-	
+
 	ctx := context.Background()
-	
+
 	b.Run("Sequential", func(b *testing.B) {
 		// Disable parallel validation
 		validator.EnableParallelValidation(false)
-		
+
 		var totalDuration time.Duration
 		b.ResetTimer()
-		
+
 		for i := 0; i < b.N; i++ {
 			start := time.Now()
 			result := validator.ValidateEvent(ctx, event)
 			totalDuration += time.Since(start)
-			
+
 			if !result.IsValid {
 				b.Fatalf("Sequential validation failed: %v", result.Errors)
 			}
 		}
-		
+
 		if b.N > 0 {
 			avgSeq := totalDuration / time.Duration(b.N)
 			b.Logf("Sequential average: %v", avgSeq)
 		}
 	})
-	
+
 	b.Run("Parallel", func(b *testing.B) {
 		// Enable parallel validation
 		parallelConfig := DefaultParallelValidationConfig()
@@ -434,27 +434,27 @@ func BenchmarkSpeedupMeasurement(b *testing.B) {
 		parallelConfig.MinRulesForParallel = 1
 		validator.SetParallelConfig(parallelConfig)
 		validator.EnableParallelValidation(true)
-		
+
 		var totalDuration time.Duration
 		var totalSpeedup float64
 		b.ResetTimer()
-		
+
 		for i := 0; i < b.N; i++ {
 			start := time.Now()
 			result := validator.ValidateEventParallel(ctx, event)
 			totalDuration += time.Since(start)
-			
+
 			if !result.IsValid {
 				b.Fatalf("Parallel validation failed: %v", result.Errors)
 			}
-			
+
 			// Calculate speedup for this iteration
 			if result.SequentialExecutionTime > 0 && result.ParallelExecutionTime > 0 {
 				speedup := float64(result.SequentialExecutionTime) / float64(result.ParallelExecutionTime)
 				totalSpeedup += speedup
 			}
 		}
-		
+
 		if b.N > 0 {
 			avgPar := totalDuration / time.Duration(b.N)
 			avgSpeedup := totalSpeedup / float64(b.N)

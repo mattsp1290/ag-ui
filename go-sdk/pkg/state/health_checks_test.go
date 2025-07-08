@@ -69,7 +69,7 @@ func (m *MockStateManager) isClosing() bool {
 
 func (m *MockStateManager) SetComponentFail(component string, fail bool) {
 	m.failComponents[component] = fail
-	
+
 	switch component {
 	case "store":
 		if fail {
@@ -143,7 +143,7 @@ func (m *MockAuditLogger) Log(ctx context.Context, log *AuditLog) error {
 	if m.fail {
 		return errors.New("mock logger failure")
 	}
-	
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.logs = append(m.logs, *log)
@@ -154,10 +154,10 @@ func (m *MockAuditLogger) Query(ctx context.Context, criteria AuditCriteria) ([]
 	if m.fail {
 		return nil, errors.New("mock logger failure")
 	}
-	
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	result := make([]*AuditLog, 0)
 	for i := range m.logs {
 		result = append(result, &m.logs[i])
@@ -169,7 +169,7 @@ func (m *MockAuditLogger) Verify(ctx context.Context, startTime, endTime time.Ti
 	if m.fail {
 		return nil, errors.New("mock logger failure")
 	}
-	
+
 	return &AuditVerification{
 		Valid:        true,
 		TotalLogs:    len(m.logs),
@@ -303,7 +303,7 @@ func TestStateManagerHealthCheck(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			var manager *StateManager
 			var healthCheck *StateManagerHealthCheck
-			
+
 			if tt.name == "nil state manager" {
 				healthCheck = NewStateManagerHealthCheck(nil)
 			} else {
@@ -362,17 +362,17 @@ func TestStateManagerHealthCheckWithContext(t *testing.T) {
 // TestMemoryHealthCheck tests the MemoryHealthCheck
 func TestMemoryHealthCheck(t *testing.T) {
 	tests := []struct {
-		name            string
-		maxMemoryMB     int64
-		maxGCPauseMs    int64
-		maxGoroutines   int
-		expectError     bool
-		errorContains   string
+		name          string
+		maxMemoryMB   int64
+		maxGCPauseMs  int64
+		maxGoroutines int
+		expectError   bool
+		errorContains string
 	}{
 		{
 			name:          "healthy memory",
-			maxMemoryMB:   1024, // 1GB - should be enough for tests
-			maxGCPauseMs:  1000, // 1 second - very generous
+			maxMemoryMB:   1024,  // 1GB - should be enough for tests
+			maxGCPauseMs:  1000,  // 1 second - very generous
 			maxGoroutines: 10000, // High limit
 			expectError:   false,
 		},
@@ -397,7 +397,7 @@ func TestMemoryHealthCheck(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			healthCheck := NewMemoryHealthCheck(tt.maxMemoryMB, tt.maxGCPauseMs, tt.maxGoroutines)
-			
+
 			ctx := context.Background()
 			err := healthCheck.Check(ctx)
 
@@ -495,10 +495,10 @@ func TestStoreHealthCheckTimeout(t *testing.T) {
 // TestEventHandlerHealthCheck tests the EventHandlerHealthCheck
 func TestEventHandlerHealthCheck(t *testing.T) {
 	tests := []struct {
-		name        string
+		name         string
 		setupHandler func() *StateEventHandler
-		expectError bool
-		errorMsg    string
+		expectError  bool
+		errorMsg     string
 	}{
 		{
 			name: "healthy event handler",
@@ -564,36 +564,36 @@ func TestEventHandlerHealthCheck(t *testing.T) {
 // TestRateLimiterHealthCheck tests the RateLimiterHealthCheck
 func TestRateLimiterHealthCheck(t *testing.T) {
 	tests := []struct {
-		name               string
-		rateLimiter        *RateLimiter
-		clientRateLimiter  *ClientRateLimiter
-		expectError        bool
-		errorMsg           string
+		name              string
+		rateLimiter       *RateLimiter
+		clientRateLimiter *ClientRateLimiter
+		expectError       bool
+		errorMsg          string
 	}{
 		{
-			name:               "healthy rate limiter",
-			rateLimiter:        NewRateLimiter(100),
-			clientRateLimiter:  nil,
-			expectError:        false,
+			name:              "healthy rate limiter",
+			rateLimiter:       NewRateLimiter(100),
+			clientRateLimiter: nil,
+			expectError:       false,
 		},
 		{
-			name:               "healthy client rate limiter",
-			rateLimiter:        nil,
-			clientRateLimiter:  NewClientRateLimiter(DefaultClientRateLimiterConfig()),
-			expectError:        false,
+			name:              "healthy client rate limiter",
+			rateLimiter:       nil,
+			clientRateLimiter: NewClientRateLimiter(DefaultClientRateLimiterConfig()),
+			expectError:       false,
 		},
 		{
-			name:               "both rate limiters",
-			rateLimiter:        NewRateLimiter(100),
-			clientRateLimiter:  NewClientRateLimiter(DefaultClientRateLimiterConfig()),
-			expectError:        false,
+			name:              "both rate limiters",
+			rateLimiter:       NewRateLimiter(100),
+			clientRateLimiter: NewClientRateLimiter(DefaultClientRateLimiterConfig()),
+			expectError:       false,
 		},
 		{
-			name:               "no rate limiters",
-			rateLimiter:        nil,
-			clientRateLimiter:  nil,
-			expectError:        true,
-			errorMsg:           "no rate limiters configured",
+			name:              "no rate limiters",
+			rateLimiter:       nil,
+			clientRateLimiter: nil,
+			expectError:       true,
+			errorMsg:          "no rate limiters configured",
 		},
 	}
 
@@ -711,15 +711,15 @@ func TestCompositeHealthCheck(t *testing.T) {
 		errorMsg    string
 	}{
 		{
-			name:     "empty checks sequential",
-			parallel: false,
-			checks:   []HealthCheck{},
+			name:        "empty checks sequential",
+			parallel:    false,
+			checks:      []HealthCheck{},
 			expectError: false,
 		},
 		{
-			name:     "empty checks parallel",
-			parallel: true,
-			checks:   []HealthCheck{},
+			name:        "empty checks parallel",
+			parallel:    true,
+			checks:      []HealthCheck{},
 			expectError: false,
 		},
 		{
@@ -793,7 +793,7 @@ func TestCompositeHealthCheck(t *testing.T) {
 func TestCompositeHealthCheckConcurrency(t *testing.T) {
 	var counter int32
 	checks := make([]HealthCheck, 10)
-	
+
 	for i := 0; i < 10; i++ {
 		checks[i] = NewCustomHealthCheck("test", func(ctx context.Context) error {
 			atomic.AddInt32(&counter, 1)
@@ -995,12 +995,12 @@ func TestHealthCheckWithContextCancellation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			healthCheck := tt.factory()
-			
+
 			ctx, cancel := context.WithCancel(context.Background())
 			cancel() // Cancel immediately
-			
+
 			err := healthCheck.Check(ctx)
-			
+
 			// Should handle context cancellation gracefully
 			if err != nil && err != context.Canceled {
 				t.Logf("Health check returned error (expected cancellation or success): %v", err)
@@ -1035,7 +1035,7 @@ func TestHealthCheckEdgeCases(t *testing.T) {
 		healthCheck := NewMemoryHealthCheck(0, 0, 0)
 		ctx := context.Background()
 		err := healthCheck.Check(ctx)
-		
+
 		// Should fail with zero limits
 		if err == nil {
 			t.Error("Expected error with zero limits")
@@ -1046,7 +1046,7 @@ func TestHealthCheckEdgeCases(t *testing.T) {
 		store := createTestStateStore()
 		healthCheck := NewStoreHealthCheck(store, 1*time.Nanosecond)
 		ctx := context.Background()
-		
+
 		// Should either pass quickly or timeout
 		err := healthCheck.Check(ctx)
 		if err != nil {
@@ -1060,16 +1060,16 @@ func TestHealthCheckEdgeCases(t *testing.T) {
 			NewCustomHealthCheck("fail", func(ctx context.Context) error { return errors.New("fail") }),
 			NewCustomHealthCheck("pass2", func(ctx context.Context) error { return nil }),
 		}
-		
+
 		healthCheck := NewCompositeHealthCheck("mixed", false, checks...)
 		ctx := context.Background()
 		err := healthCheck.Check(ctx)
-		
+
 		// Should fail on the first failing check
 		if err == nil {
 			t.Error("Expected error from mixed results")
 		}
-		
+
 		if !strings.Contains(err.Error(), "fail") {
 			t.Errorf("Expected error to contain 'fail', got '%s'", err.Error())
 		}
@@ -1080,10 +1080,10 @@ func TestHealthCheckEdgeCases(t *testing.T) {
 func TestHealthCheckStress(t *testing.T) {
 	t.Run("concurrent health checks", func(t *testing.T) {
 		healthCheck := NewMemoryHealthCheck(1024, 1000, 10000)
-		
+
 		var wg sync.WaitGroup
 		errors := make(chan error, 100)
-		
+
 		// Run 100 concurrent health checks
 		for i := 0; i < 100; i++ {
 			wg.Add(1)
@@ -1096,17 +1096,17 @@ func TestHealthCheckStress(t *testing.T) {
 				}
 			}()
 		}
-		
+
 		wg.Wait()
 		close(errors)
-		
+
 		// Collect any errors
 		var errorCount int
 		for err := range errors {
 			t.Logf("Concurrent health check error: %v", err)
 			errorCount++
 		}
-		
+
 		if errorCount > 10 { // Allow some errors under stress
 			t.Errorf("Too many errors in concurrent health checks: %d", errorCount)
 		}
@@ -1117,7 +1117,7 @@ func TestHealthCheckStress(t *testing.T) {
 func BenchmarkMemoryHealthCheck(b *testing.B) {
 	healthCheck := NewMemoryHealthCheck(1024, 1000, 10000)
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = healthCheck.Check(ctx)
@@ -1131,7 +1131,7 @@ func BenchmarkCompositeHealthCheckSequential(b *testing.B) {
 	}
 	healthCheck := NewCompositeHealthCheck("bench", false, checks...)
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = healthCheck.Check(ctx)
@@ -1145,7 +1145,7 @@ func BenchmarkCompositeHealthCheckParallel(b *testing.B) {
 	}
 	healthCheck := NewCompositeHealthCheck("bench", true, checks...)
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = healthCheck.Check(ctx)
@@ -1233,4 +1233,3 @@ func createTestPerformanceOptimizer() PerformanceOptimizer {
 	opts.EnablePooling = true
 	return NewPerformanceOptimizer(opts)
 }
-

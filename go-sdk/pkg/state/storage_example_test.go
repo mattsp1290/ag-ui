@@ -32,7 +32,7 @@ func ExampleRedisBackend() {
 		WithMaxHistory(100),
 		WithLogger(DefaultLogger()),
 	}
-	
+
 	persistOpts := []PersistentStateStoreOption{
 		WithSynchronousPersistence(false), // Use async persistence
 	}
@@ -54,15 +54,15 @@ func ExampleRedisBackend() {
 	}
 
 	fmt.Printf("Retrieved value: %v\n", value)
-	
+
 	// Create a snapshot
 	snapshot, err := store.CreatePersistentSnapshot()
 	if err != nil {
 		log.Fatalf("Failed to create snapshot: %v", err)
 	}
-	
+
 	fmt.Printf("Created snapshot: %s\n", snapshot.ID)
-	
+
 	// Output: Retrieved value: John Doe
 }
 
@@ -88,7 +88,7 @@ func ExamplePostgreSQLBackend() {
 		WithMaxHistory(50),
 		WithShardCount(8),
 	}
-	
+
 	persistOpts := []PersistentStateStoreOption{
 		WithSynchronousPersistence(true), // Use sync persistence for critical data
 	}
@@ -207,7 +207,7 @@ func ExampleFileBackend() {
 	}
 
 	fmt.Printf("Created %d snapshots\n", len(snapshots))
-	
+
 	// Restore from snapshot
 	if err := store.RestorePersistentSnapshot("default", snapshot.ID); err != nil {
 		log.Fatalf("Failed to restore snapshot: %v", err)
@@ -220,7 +220,7 @@ func ExampleFileBackend() {
 	}
 
 	fmt.Printf("Restored version: %v\n", version)
-	
+
 	// Output: Created 1 snapshots
 	// Restored version: 1.0.0
 }
@@ -238,13 +238,13 @@ func Example_storageBackendConfiguration() {
 		Type:          StorageBackendRedis,
 		ConnectionURL: "redis://prod-redis:6379",
 		RedisOptions: &RedisOptions{
-			PoolSize:        20,
-			MinIdleConns:    10,
-			MaxRetries:      5,
-			Password:        "your-redis-password",
-			DB:              1,
-			KeyPrefix:       "prod:state:",
-			EnableTLS:       true,
+			PoolSize:     20,
+			MinIdleConns: 10,
+			MaxRetries:   5,
+			Password:     "your-redis-password",
+			DB:           1,
+			KeyPrefix:    "prod:state:",
+			EnableTLS:    true,
 		},
 		MaxConnections: 20,
 		ConnectTimeout: 10 * time.Second,
@@ -260,11 +260,11 @@ func Example_storageBackendConfiguration() {
 		ConnectionURL: "postgres://user:pass@prod-db:5432/state_db?sslmode=require",
 		Schema:        "state",
 		PostgreSQLOptions: &PostgreSQLOptions{
-			SSLMode:             "require",
-			ApplicationName:     "ag-ui-state-prod",
-			StatementTimeout:    "30s",
-			EnablePartitioning:  true,
-			CompressionType:     "gzip",
+			SSLMode:            "require",
+			ApplicationName:    "ag-ui-state-prod",
+			StatementTimeout:   "30s",
+			EnablePartitioning: true,
+			CompressionType:    "gzip",
 		},
 		MaxConnections: 50,
 		ConnectTimeout: 15 * time.Second,
@@ -277,7 +277,7 @@ func Example_storageBackendConfiguration() {
 	// Validate configurations
 	configs := []*StorageConfig{devConfig, prodRedisConfig, prodPgConfig}
 	configNames := []string{"Development", "Production Redis", "Production PostgreSQL"}
-	
+
 	for i, config := range configs {
 		if err := ValidateStorageConfig(config); err != nil {
 			fmt.Printf("%s config is invalid: %v\n", configNames[i], err)
@@ -285,7 +285,7 @@ func Example_storageBackendConfiguration() {
 			fmt.Printf("%s config is valid\n", configNames[i])
 		}
 	}
-	
+
 	// Output: Development config is valid
 	// Production Redis config is valid
 	// Production PostgreSQL config is valid
@@ -296,7 +296,7 @@ func Example_storageBackendHealthCheck() {
 	// File backend health check
 	config := DefaultStorageConfig()
 	config.FileOptions.BaseDir = "/tmp/health-check-demo"
-	
+
 	store, err := NewPersistentStateStore(config, nil)
 	if err != nil {
 		log.Fatalf("Failed to create store: %v", err)
@@ -314,7 +314,7 @@ func Example_storageBackendHealthCheck() {
 	// Get statistics
 	stats := store.Stats()
 	fmt.Printf("Storage stats: %+v\n", stats)
-	
+
 	// Output: Storage backend is healthy
 }
 
@@ -334,7 +334,7 @@ func Example_asyncVsSyncPersistence() {
 	}
 
 	// Test async persistence
-	asyncStore, err := NewPersistentStateStore(config, nil, 
+	asyncStore, err := NewPersistentStateStore(config, nil,
 		WithSynchronousPersistence(false))
 	if err != nil {
 		log.Fatalf("Failed to create async store: %v", err)
@@ -374,9 +374,9 @@ func Example_asyncVsSyncPersistence() {
 func Example_errorHandling() {
 	// Try to connect to a non-existent Redis instance
 	config := &StorageConfig{
-		Type:          StorageBackendRedis,
-		ConnectionURL: "localhost:9999", // Non-existent port
-		RedisOptions:  &RedisOptions{},
+		Type:           StorageBackendRedis,
+		ConnectionURL:  "localhost:9999", // Non-existent port
+		RedisOptions:   &RedisOptions{},
 		ConnectTimeout: 1 * time.Second,
 	}
 
@@ -396,7 +396,7 @@ func Example_errorHandling() {
 	if err != nil {
 		fmt.Printf("Expected validation error: %v\n", err)
 	}
-	
+
 	// Output: Expected connection error: failed to create storage backend: failed to connect to Redis: dial tcp [::1]:9999: connect: connection refused
 	// Expected validation error: invalid storage config: unsupported storage backend type: invalid
 }
@@ -476,6 +476,6 @@ func Example_migrationBetweenBackends() {
 	}
 
 	destStore.Close()
-	
+
 	// Output: Successfully migrated 2 users
 }

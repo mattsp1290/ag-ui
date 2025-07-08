@@ -1,12 +1,10 @@
-package events
+package debug
 
 import (
 	"fmt"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 // StartInteractiveSession starts an interactive debugging session
@@ -14,7 +12,7 @@ func (d *ValidationDebugger) StartInteractiveSession() {
 	d.interactive = true
 	d.logger.Info("Starting interactive debugging session")
 	d.logger.Info("Available commands: help, status, sessions, replay, export, profile, quit")
-	
+
 	for d.interactive {
 		fmt.Print("debug> ")
 		input, err := d.debugReader.ReadString('\n')
@@ -22,7 +20,7 @@ func (d *ValidationDebugger) StartInteractiveSession() {
 			d.logger.WithError(err).Error("Failed to read input")
 			continue
 		}
-		
+
 		input = strings.TrimSpace(input)
 		d.handleInteractiveCommand(input)
 	}
@@ -39,9 +37,9 @@ func (d *ValidationDebugger) handleInteractiveCommand(input string) {
 	if len(parts) == 0 {
 		return
 	}
-	
+
 	command := parts[0]
-	
+
 	switch command {
 	case "help":
 		d.printHelp()
@@ -89,7 +87,7 @@ func (d *ValidationDebugger) printStatus() {
 	fmt.Printf("Active Sessions: %d\n", len(d.sessions))
 	fmt.Printf("Event Sequence Length: %d\n", len(d.eventSequence))
 	fmt.Printf("Error Patterns: %d\n", len(d.errorPatterns))
-	
+
 	if d.currentSession != nil {
 		fmt.Printf("Current Session: %s (%s)\n", d.currentSession.ID, d.currentSession.Name)
 	}
@@ -102,14 +100,14 @@ func (d *ValidationDebugger) printSessions() {
 		fmt.Println("No sessions available.")
 		return
 	}
-	
+
 	fmt.Println("Available sessions:")
 	for _, session := range sessions {
 		status := "active"
 		if session.EndTime != nil {
 			status = "ended"
 		}
-		fmt.Printf("  %s - %s (%s) - %d events\n", 
+		fmt.Printf("  %s - %s (%s) - %d events\n",
 			session.ID, session.Name, status, len(session.Events))
 	}
 }
@@ -120,23 +118,23 @@ func (d *ValidationDebugger) handleReplayCommand(args []string) {
 		fmt.Println("Usage: replay <session_id> <start_index> <end_index>")
 		return
 	}
-	
+
 	sessionID := args[0]
 	startIndex, err1 := strconv.Atoi(args[1])
 	endIndex, err2 := strconv.Atoi(args[2])
-	
+
 	if err1 != nil || err2 != nil {
 		fmt.Println("Invalid indices. Please provide numeric values.")
 		return
 	}
-	
+
 	result, err := d.ReplayEventSequence(sessionID, startIndex, endIndex)
 	if err != nil {
 		fmt.Printf("Replay failed: %v\n", err)
 		return
 	}
-	
-	fmt.Printf("Replay completed: %d events, %d errors, %d warnings\n", 
+
+	fmt.Printf("Replay completed: %d events, %d errors, %d warnings\n",
 		result.EventCount, len(result.Errors), len(result.Warnings))
 }
 
@@ -146,16 +144,16 @@ func (d *ValidationDebugger) handleExportCommand(args []string) {
 		fmt.Println("Usage: export <session_id> <format>")
 		return
 	}
-	
+
 	sessionID := args[0]
 	format := args[1]
-	
+
 	filepath, err := d.ExportSession(sessionID, format)
 	if err != nil {
 		fmt.Printf("Export failed: %v\n", err)
 		return
 	}
-	
+
 	fmt.Printf("Session exported to: %s\n", filepath)
 }
 
@@ -165,7 +163,7 @@ func (d *ValidationDebugger) handleProfileCommand(args []string) {
 		fmt.Println("Usage: profile <cpu|mem>")
 		return
 	}
-	
+
 	switch args[0] {
 	case "cpu":
 		if d.cpuProfile == nil {
@@ -198,14 +196,14 @@ func (d *ValidationDebugger) handleTimelineCommand(args []string) {
 		fmt.Println("Usage: timeline <session_id>")
 		return
 	}
-	
+
 	sessionID := args[0]
 	timeline, err := d.GetVisualTimeline(sessionID)
 	if err != nil {
 		fmt.Printf("Failed to generate timeline: %v\n", err)
 		return
 	}
-	
+
 	fmt.Print(timeline)
 }
 
@@ -216,7 +214,7 @@ func (d *ValidationDebugger) printErrorPatterns() {
 		fmt.Println("No error patterns detected.")
 		return
 	}
-	
+
 	fmt.Println("Error Patterns (most frequent first):")
 	for _, pattern := range patterns {
 		fmt.Printf("  %s: %d occurrences\n", pattern.Pattern, pattern.Count)

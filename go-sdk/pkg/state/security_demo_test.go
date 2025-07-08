@@ -110,7 +110,7 @@ func TestSecurityDemo(t *testing.T) {
 	fmt.Println("7. Testing Rate Limiting:")
 	// Create a new context for rate limit testing
 	rateLimitCtx, _ := sm.CreateContext(ctx, "rate-test", nil)
-	
+
 	// Try to exceed rate limit
 	hitRateLimit := false
 	for i := 0; i < 50; i++ { // Reduced from 300 to 50 for faster testing
@@ -131,17 +131,17 @@ func TestSecurityDemo(t *testing.T) {
 	// 8. Demonstrate valid operations
 	fmt.Println("8. Testing Valid Operations:")
 	validUpdates := map[string]interface{}{
-		"name":    "Test User",
-		"age":     30,
-		"active":  true,
-		"tags":    []string{"tag1", "tag2", "tag3"},
+		"name":   "Test User",
+		"age":    30,
+		"active": true,
+		"tags":   []string{"tag1", "tag2", "tag3"},
 		"address": map[string]interface{}{
 			"street": "123 Main St",
 			"city":   "TestCity",
 			"zip":    "12345",
 		},
 	}
-	
+
 	delta, err := sm.UpdateState(ctx, contextID, "demo-state", validUpdates, UpdateOptions{})
 	if err != nil {
 		fmt.Printf("   ✗ ERROR: Valid update failed: %v\n", err)

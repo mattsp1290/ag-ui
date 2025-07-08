@@ -145,16 +145,16 @@ func demonstrateMergeStrategy() {
 
 	localUser := map[string]interface{}{
 		"id":    "123",
-		"name":  "Updated Name",      // Changed
+		"name":  "Updated Name", // Changed
 		"email": "original@example.com",
-		"phone": "555-1234",          // Added locally
+		"phone": "555-1234", // Added locally
 	}
 
 	remoteUser := map[string]interface{}{
 		"id":      "123",
-		"name":    "Different Name",    // Also changed (conflict!)
-		"email":   "new@example.com",   // Changed
-		"address": "123 Main St",       // Added remotely
+		"name":    "Different Name",  // Also changed (conflict!)
+		"email":   "new@example.com", // Changed
+		"address": "123 Main St",     // Added remotely
 	}
 
 	conflict := &state.StateConflict{

@@ -38,20 +38,20 @@ func NewContextManager(maxSize int) *ContextManager {
 func (cm *ContextManager) Get(id string) (*StateContext, bool) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	
+
 	if elem, ok := cm.index[id]; ok {
 		cm.lru.MoveToFront(elem)
 		entry := elem.Value.(*contextEntry)
 		ctx := entry.ctx
-		
+
 		// Update last accessed time
 		ctx.mu.Lock()
 		ctx.LastAccessed = time.Now()
 		ctx.mu.Unlock()
-		
+
 		return ctx, true
 	}
-	
+
 	return nil, false
 }
 
@@ -59,7 +59,7 @@ func (cm *ContextManager) Get(id string) (*StateContext, bool) {
 func (cm *ContextManager) Put(id string, ctx *StateContext) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	
+
 	// Check if already exists
 	if elem, ok := cm.index[id]; ok {
 		cm.lru.MoveToFront(elem)
@@ -68,7 +68,7 @@ func (cm *ContextManager) Put(id string, ctx *StateContext) {
 		cm.contexts[id] = ctx
 		return
 	}
-	
+
 	// Add new entry
 	entry := &contextEntry{
 		id:  id,
@@ -77,7 +77,7 @@ func (cm *ContextManager) Put(id string, ctx *StateContext) {
 	elem := cm.lru.PushFront(entry)
 	cm.index[id] = elem
 	cm.contexts[id] = ctx
-	
+
 	// Evict if over capacity
 	if cm.lru.Len() > cm.maxSize {
 		oldest := cm.lru.Back()
@@ -91,7 +91,7 @@ func (cm *ContextManager) Put(id string, ctx *StateContext) {
 func (cm *ContextManager) Delete(id string) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	
+
 	if elem, ok := cm.index[id]; ok {
 		cm.removeElement(elem)
 	}
@@ -101,13 +101,13 @@ func (cm *ContextManager) Delete(id string) {
 func (cm *ContextManager) Range(f func(key, value interface{}) bool) {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
-	
+
 	// Create a snapshot to avoid holding the lock during iteration
 	snapshot := make(map[string]*StateContext, len(cm.contexts))
 	for k, v := range cm.contexts {
 		snapshot[k] = v
 	}
-	
+
 	// Iterate over snapshot
 	for k, v := range snapshot {
 		if !f(k, v) {
@@ -127,7 +127,7 @@ func (cm *ContextManager) Size() int {
 func (cm *ContextManager) Clear() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	
+
 	cm.contexts = make(map[string]*StateContext)
 	cm.lru = list.New()
 	cm.index = make(map[string]*list.Element)
@@ -145,30 +145,30 @@ func (cm *ContextManager) removeElement(elem *list.Element) {
 func (cm *ContextManager) GetExpiredContexts(ttl time.Duration) []string {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
-	
+
 	var expired []string
 	cutoff := time.Now().Add(-ttl)
-	
+
 	for id, ctx := range cm.contexts {
 		ctx.mu.RLock()
 		lastAccessed := ctx.LastAccessed
 		ctx.mu.RUnlock()
-		
+
 		if lastAccessed.Before(cutoff) {
 			expired = append(expired, id)
 		}
 	}
-	
+
 	return expired
 }
 
 // CleanupExpired removes contexts that haven't been accessed within the TTL
 func (cm *ContextManager) CleanupExpired(ttl time.Duration) int {
 	expired := cm.GetExpiredContexts(ttl)
-	
+
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	
+
 	count := 0
 	for _, id := range expired {
 		if elem, ok := cm.index[id]; ok {
@@ -176,6 +176,6 @@ func (cm *ContextManager) CleanupExpired(ttl time.Duration) int {
 			count++
 		}
 	}
-	
+
 	return count
 }

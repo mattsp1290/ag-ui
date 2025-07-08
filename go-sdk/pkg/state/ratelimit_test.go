@@ -20,14 +20,14 @@ func TestClientRateLimiter_BasicFunctionality(t *testing.T) {
 
 	t.Run("Allow", func(t *testing.T) {
 		clientID := "test-client-1"
-		
+
 		// Should allow up to burst size immediately
 		for i := 0; i < config.BurstSize; i++ {
 			if !rl.Allow(clientID) {
 				t.Errorf("Request %d should be allowed within burst size", i+1)
 			}
 		}
-		
+
 		// Next request should be rate limited
 		if rl.Allow(clientID) {
 			t.Error("Request beyond burst size should be rate limited")
@@ -36,12 +36,12 @@ func TestClientRateLimiter_BasicFunctionality(t *testing.T) {
 
 	t.Run("AllowN", func(t *testing.T) {
 		clientID := "test-client-2"
-		
+
 		// Should allow N requests within burst
 		if !rl.AllowN(clientID, 5) {
 			t.Error("AllowN(5) should succeed within burst")
 		}
-		
+
 		// Should not allow more than remaining burst
 		if rl.AllowN(clientID, config.BurstSize) {
 			t.Error("AllowN should fail when exceeding burst")
@@ -50,21 +50,21 @@ func TestClientRateLimiter_BasicFunctionality(t *testing.T) {
 
 	t.Run("Wait", func(t *testing.T) {
 		clientID := "test-client-3"
-		
+
 		// Exhaust burst
 		for i := 0; i < config.BurstSize; i++ {
 			rl.Allow(clientID)
 		}
-		
+
 		// Wait should eventually succeed
 		start := time.Now()
 		err := rl.Wait(clientID)
 		duration := time.Since(start)
-		
+
 		if err != nil {
 			t.Errorf("Wait failed: %v", err)
 		}
-		
+
 		// Should have waited approximately 1/rate seconds
 		expectedWait := time.Second / time.Duration(config.RatePerSecond)
 		if duration < expectedWait/2 || duration > expectedWait*2 {
@@ -74,12 +74,12 @@ func TestClientRateLimiter_BasicFunctionality(t *testing.T) {
 
 	t.Run("Reserve", func(t *testing.T) {
 		clientID := "test-client-4"
-		
+
 		reservation := rl.Reserve(clientID)
 		if !reservation.OK() {
 			t.Error("Reserve should succeed")
 		}
-		
+
 		// Cancel the reservation
 		reservation.Cancel()
 	})
@@ -97,16 +97,16 @@ func TestClientRateLimiter_MultipleClients(t *testing.T) {
 
 	// Each client should have independent rate limit
 	clients := []string{"client-1", "client-2", "client-3"}
-	
+
 	// Exhaust rate limit for first client
 	for i := 0; i < config.BurstSize; i++ {
 		rl.Allow(clients[0])
 	}
-	
+
 	if rl.Allow(clients[0]) {
 		t.Error("Client 1 should be rate limited")
 	}
-	
+
 	// Other clients should still be allowed
 	for _, clientID := range clients[1:] {
 		if !rl.Allow(clientID) {
@@ -130,18 +130,18 @@ func TestClientRateLimiter_Cleanup(t *testing.T) {
 		clientID := fmt.Sprintf("cleanup-test-%d", i)
 		rl.Allow(clientID)
 	}
-	
+
 	initialCount := rl.GetClientCount()
 	if initialCount != 20 {
 		t.Errorf("Expected 20 clients, got %d", initialCount)
 	}
-	
+
 	// Wait for cleanup to run
 	time.Sleep(config.ClientTTL + config.CleanupInterval + 50*time.Millisecond)
-	
+
 	// Trigger cleanup by adding a new client
 	rl.Allow("trigger-cleanup")
-	
+
 	// Old clients should be cleaned up
 	finalCount := rl.GetClientCount()
 	if finalCount > 5 {
@@ -164,7 +164,7 @@ func TestClientRateLimiter_MaxClients(t *testing.T) {
 		clientID := fmt.Sprintf("max-test-%d", i)
 		rl.Allow(clientID)
 	}
-	
+
 	// Should not exceed max clients
 	count := rl.GetClientCount()
 	if count > config.MaxClients {
@@ -193,14 +193,14 @@ func TestClientRateLimiter_ConcurrentAccess(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			clientID := fmt.Sprintf("concurrent-%d", id)
-			
+
 			for j := 0; j < numRequests; j++ {
 				if rl.Allow(clientID) {
 					allowed.Add(1)
 				} else {
 					denied.Add(1)
 				}
-				
+
 				// Small random delay
 				time.Sleep(time.Microsecond * time.Duration(j%10))
 			}
@@ -235,18 +235,18 @@ func TestClientRateLimiter_Reset(t *testing.T) {
 		clientID := fmt.Sprintf("reset-test-%d", i)
 		rl.Allow(clientID)
 	}
-	
+
 	if rl.GetClientCount() == 0 {
 		t.Error("Should have some clients before reset")
 	}
-	
+
 	// Reset
 	rl.Reset()
-	
+
 	if rl.GetClientCount() != 0 {
 		t.Error("Should have no clients after reset")
 	}
-	
+
 	// Should still work after reset
 	if !rl.Allow("after-reset") {
 		t.Error("Should allow requests after reset")

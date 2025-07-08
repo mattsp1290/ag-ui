@@ -1,4 +1,4 @@
-package events
+package debug
 
 import (
 	"fmt"
@@ -22,17 +22,17 @@ type ErrorPattern struct {
 func (d *ValidationDebugger) AnalyzeErrorPatterns() []ErrorPattern {
 	d.mutex.RLock()
 	defer d.mutex.RUnlock()
-	
+
 	patterns := make([]ErrorPattern, 0, len(d.errorPatterns))
 	for _, pattern := range d.errorPatterns {
 		patterns = append(patterns, *pattern)
 	}
-	
+
 	// Sort by count (most frequent first)
 	sort.Slice(patterns, func(i, j int) bool {
 		return patterns[i].Count > patterns[j].Count
 	})
-	
+
 	return patterns
 }
 
@@ -40,13 +40,13 @@ func (d *ValidationDebugger) AnalyzeErrorPatterns() []ErrorPattern {
 func (d *ValidationDebugger) analyzeErrors(errors []*ValidationError) {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
-	
+
 	now := time.Now()
-	
+
 	for _, err := range errors {
 		// Create a pattern key based on rule ID and message type
 		patternKey := fmt.Sprintf("%s:%s", err.RuleID, d.extractErrorType(err.Message))
-		
+
 		pattern, exists := d.errorPatterns[patternKey]
 		if !exists {
 			pattern = &ErrorPattern{
@@ -59,20 +59,20 @@ func (d *ValidationDebugger) analyzeErrors(errors []*ValidationError) {
 			}
 			d.errorPatterns[patternKey] = pattern
 		}
-		
+
 		pattern.Count++
 		pattern.LastSeen = now
-		
+
 		// Add unique rule IDs
 		if !contains(pattern.RuleIDs, err.RuleID) {
 			pattern.RuleIDs = append(pattern.RuleIDs, err.RuleID)
 		}
-		
+
 		// Add example if we don't have too many
 		if len(pattern.Examples) < 5 {
 			pattern.Examples = append(pattern.Examples, err.Message)
 		}
-		
+
 		// Add suggestions if available
 		for _, suggestion := range err.Suggestions {
 			if !contains(pattern.Suggestions, suggestion) {
@@ -86,7 +86,7 @@ func (d *ValidationDebugger) analyzeErrors(errors []*ValidationError) {
 func (d *ValidationDebugger) extractErrorType(message string) string {
 	// Simple heuristic to categorize error types
 	message = strings.ToLower(message)
-	
+
 	if strings.Contains(message, "missing") || strings.Contains(message, "required") {
 		return "missing_field"
 	} else if strings.Contains(message, "invalid") || strings.Contains(message, "malformed") {

@@ -13,16 +13,16 @@ import (
 type StateValidator interface {
 	// Validate checks if the given state data is valid
 	Validate(state map[string]interface{}) (*ValidationResult, error)
-	
+
 	// ValidatePath validates a specific path in the state
 	ValidatePath(state map[string]interface{}, path string) (*ValidationResult, error)
-	
+
 	// AddRule adds a custom validation rule
 	AddRule(rule ValidationRule) error
-	
+
 	// RemoveRule removes a validation rule by ID
 	RemoveRule(ruleID string) error
-	
+
 	// SetSchema sets the JSON schema for validation
 	SetSchema(schema *StateSchema) error
 }
@@ -31,16 +31,16 @@ type StateValidator interface {
 type ValidationResult struct {
 	// Valid indicates if the validation passed
 	Valid bool `json:"valid"`
-	
+
 	// Errors contains validation errors
 	Errors []ValidationError `json:"errors,omitempty"`
-	
+
 	// Warnings contains non-fatal validation issues
 	Warnings []ValidationWarning `json:"warnings,omitempty"`
-	
+
 	// Metadata contains additional validation information
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
-	
+
 	// Timestamp indicates when the validation was performed
 	Timestamp time.Time `json:"timestamp"`
 }
@@ -49,13 +49,13 @@ type ValidationResult struct {
 type ValidationError struct {
 	// Path is the JSON pointer path where the error occurred
 	Path string `json:"path"`
-	
+
 	// Message describes the error
 	Message string `json:"message"`
-	
+
 	// Code is a machine-readable error code
 	Code string `json:"code"`
-	
+
 	// Details contains additional error information
 	Details map[string]interface{} `json:"details,omitempty"`
 }
@@ -64,13 +64,13 @@ type ValidationError struct {
 type ValidationWarning struct {
 	// Path is the JSON pointer path where the warning occurred
 	Path string `json:"path"`
-	
+
 	// Message describes the warning
 	Message string `json:"message"`
-	
+
 	// Code is a machine-readable warning code
 	Code string `json:"code"`
-	
+
 	// Severity indicates the warning severity (low, medium, high)
 	Severity string `json:"severity"`
 }
@@ -79,19 +79,19 @@ type ValidationWarning struct {
 type StateSchema struct {
 	// Type is typically "object" for state data
 	Type string `json:"type"`
-	
+
 	// Properties defines the schema for each state property
 	Properties map[string]*SchemaProperty `json:"properties,omitempty"`
-	
+
 	// Required lists mandatory properties
 	Required []string `json:"required,omitempty"`
-	
+
 	// AdditionalProperties controls whether extra properties are allowed
 	AdditionalProperties *bool `json:"additionalProperties,omitempty"`
-	
+
 	// PatternProperties defines schemas for properties matching patterns
 	PatternProperties map[string]*SchemaProperty `json:"patternProperties,omitempty"`
-	
+
 	// Dependencies defines property dependencies
 	Dependencies map[string]interface{} `json:"dependencies,omitempty"`
 }
@@ -100,46 +100,46 @@ type StateSchema struct {
 type SchemaProperty struct {
 	// Type defines the JSON type
 	Type string `json:"type"`
-	
+
 	// Description explains the property
 	Description string `json:"description,omitempty"`
-	
+
 	// Format provides additional type constraints
 	Format string `json:"format,omitempty"`
-	
+
 	// Enum restricts values to a set
 	Enum []interface{} `json:"enum,omitempty"`
-	
+
 	// Const requires an exact value
 	Const interface{} `json:"const,omitempty"`
-	
+
 	// Default provides a default value
 	Default interface{} `json:"default,omitempty"`
-	
+
 	// Numeric constraints
 	Minimum          *float64 `json:"minimum,omitempty"`
 	Maximum          *float64 `json:"maximum,omitempty"`
 	ExclusiveMinimum *float64 `json:"exclusiveMinimum,omitempty"`
 	ExclusiveMaximum *float64 `json:"exclusiveMaximum,omitempty"`
 	MultipleOf       *float64 `json:"multipleOf,omitempty"`
-	
+
 	// String constraints
 	MinLength *int   `json:"minLength,omitempty"`
 	MaxLength *int   `json:"maxLength,omitempty"`
 	Pattern   string `json:"pattern,omitempty"`
-	
+
 	// Array constraints
-	MinItems    *int             `json:"minItems,omitempty"`
-	MaxItems    *int             `json:"maxItems,omitempty"`
-	UniqueItems *bool            `json:"uniqueItems,omitempty"`
-	Items       *SchemaProperty  `json:"items,omitempty"`
-	
+	MinItems    *int            `json:"minItems,omitempty"`
+	MaxItems    *int            `json:"maxItems,omitempty"`
+	UniqueItems *bool           `json:"uniqueItems,omitempty"`
+	Items       *SchemaProperty `json:"items,omitempty"`
+
 	// Object constraints
-	MinProperties *int                        `json:"minProperties,omitempty"`
-	MaxProperties *int                        `json:"maxProperties,omitempty"`
-	Properties    map[string]*SchemaProperty   `json:"properties,omitempty"`
-	Required      []string                    `json:"required,omitempty"`
-	
+	MinProperties *int                       `json:"minProperties,omitempty"`
+	MaxProperties *int                       `json:"maxProperties,omitempty"`
+	Properties    map[string]*SchemaProperty `json:"properties,omitempty"`
+	Required      []string                   `json:"required,omitempty"`
+
 	// Conditional schema
 	If   *SchemaProperty `json:"if,omitempty"`
 	Then *SchemaProperty `json:"then,omitempty"`
@@ -150,10 +150,10 @@ type SchemaProperty struct {
 type ValidationRule interface {
 	// ID returns the unique identifier for this rule
 	ID() string
-	
+
 	// Validate checks if the state meets the rule requirements
 	Validate(state map[string]interface{}) []ValidationError
-	
+
 	// Description returns a human-readable description
 	Description() string
 }
@@ -209,28 +209,28 @@ func (v *stateValidator) Validate(state map[string]interface{}) (*ValidationResu
 		Metadata:  make(map[string]interface{}),
 		Timestamp: time.Now(),
 	}
-	
+
 	// Validate against schema
 	if v.schema != nil {
 		schemaErrors := v.validateAgainstSchema(state, v.schema, "")
 		result.Errors = append(result.Errors, schemaErrors...)
 	}
-	
+
 	// Apply custom rules
 	for _, rule := range v.rules {
 		ruleErrors := rule.Validate(state)
 		result.Errors = append(result.Errors, ruleErrors...)
 	}
-	
+
 	// Update validity
 	result.Valid = len(result.Errors) == 0
-	
+
 	// Add metadata
 	result.Metadata["schemaValidation"] = v.schema != nil
 	result.Metadata["customRules"] = len(v.rules)
 	result.Metadata["errorCount"] = len(result.Errors)
 	result.Metadata["warningCount"] = len(result.Warnings)
-	
+
 	return result, nil
 }
 
@@ -243,7 +243,7 @@ func (v *stateValidator) ValidatePath(state map[string]interface{}, path string)
 		Metadata:  make(map[string]interface{}),
 		Timestamp: time.Now(),
 	}
-	
+
 	// Get value at path
 	value, err := getValueAtPath(state, path)
 	if err != nil {
@@ -255,7 +255,7 @@ func (v *stateValidator) ValidatePath(state map[string]interface{}, path string)
 		})
 		return result, nil
 	}
-	
+
 	// Find schema for path
 	if v.schema != nil {
 		prop := v.findSchemaForPath(path)
@@ -264,12 +264,12 @@ func (v *stateValidator) ValidatePath(state map[string]interface{}, path string)
 			result.Errors = append(result.Errors, errors...)
 		}
 	}
-	
+
 	// Update validity
 	result.Valid = len(result.Errors) == 0
 	result.Metadata["path"] = path
 	result.Metadata["valueType"] = fmt.Sprintf("%T", value)
-	
+
 	return result, nil
 }
 
@@ -306,7 +306,7 @@ func (v *stateValidator) SetSchema(schema *StateSchema) error {
 // validateAgainstSchema validates state against a schema.
 func (v *stateValidator) validateAgainstSchema(value interface{}, schema *StateSchema, path string) []ValidationError {
 	errors := []ValidationError{}
-	
+
 	// Type check
 	if schema.Type != "" {
 		if !v.checkType(value, schema.Type) {
@@ -318,7 +318,7 @@ func (v *stateValidator) validateAgainstSchema(value interface{}, schema *StateS
 			return errors
 		}
 	}
-	
+
 	// Object validation
 	if obj, ok := value.(map[string]interface{}); ok {
 		// Check required properties
@@ -331,11 +331,11 @@ func (v *stateValidator) validateAgainstSchema(value interface{}, schema *StateS
 				})
 			}
 		}
-		
+
 		// Validate properties
 		for name, propValue := range obj {
 			propPath := joinPath(path, name)
-			
+
 			// Check if property is defined in schema
 			if prop, exists := schema.Properties[name]; exists {
 				propErrors := v.validateValue(propValue, prop, propPath)
@@ -357,7 +357,7 @@ func (v *stateValidator) validateAgainstSchema(value interface{}, schema *StateS
 				}
 			}
 		}
-		
+
 		// Check property count constraints
 		propCount := len(obj)
 		if schema.Properties != nil {
@@ -370,14 +370,14 @@ func (v *stateValidator) validateAgainstSchema(value interface{}, schema *StateS
 			}
 		}
 	}
-	
+
 	return errors
 }
 
 // validateValue validates a single value against a property schema.
 func (v *stateValidator) validateValue(value interface{}, prop *SchemaProperty, path string) []ValidationError {
 	errors := []ValidationError{}
-	
+
 	// Null check
 	if value == nil {
 		if prop.Type != "null" {
@@ -389,7 +389,7 @@ func (v *stateValidator) validateValue(value interface{}, prop *SchemaProperty, 
 		}
 		return errors
 	}
-	
+
 	// Type validation
 	if !v.checkType(value, prop.Type) {
 		errors = append(errors, ValidationError{
@@ -399,7 +399,7 @@ func (v *stateValidator) validateValue(value interface{}, prop *SchemaProperty, 
 		})
 		return errors
 	}
-	
+
 	// Type-specific validation
 	switch prop.Type {
 	case "string":
@@ -420,7 +420,7 @@ func (v *stateValidator) validateValue(value interface{}, prop *SchemaProperty, 
 			errors = append(errors, v.validateAgainstSchema(obj, objSchema, path)...)
 		}
 	}
-	
+
 	// Enum validation
 	if len(prop.Enum) > 0 {
 		if !v.isInEnum(value, prop.Enum) {
@@ -431,7 +431,7 @@ func (v *stateValidator) validateValue(value interface{}, prop *SchemaProperty, 
 			})
 		}
 	}
-	
+
 	// Const validation
 	if prop.Const != nil && !reflect.DeepEqual(value, prop.Const) {
 		errors = append(errors, ValidationError{
@@ -440,7 +440,7 @@ func (v *stateValidator) validateValue(value interface{}, prop *SchemaProperty, 
 			Code:    "CONST_VIOLATION",
 		})
 	}
-	
+
 	// Conditional validation
 	if prop.If != nil {
 		ifErrors := v.validateValue(value, prop.If, path)
@@ -452,14 +452,14 @@ func (v *stateValidator) validateValue(value interface{}, prop *SchemaProperty, 
 			errors = append(errors, v.validateValue(value, prop.Else, path)...)
 		}
 	}
-	
+
 	return errors
 }
 
 // validateString validates string constraints.
 func (v *stateValidator) validateString(str string, prop *SchemaProperty, path string) []ValidationError {
 	errors := []ValidationError{}
-	
+
 	// Length constraints
 	if prop.MinLength != nil && len(str) < *prop.MinLength {
 		errors = append(errors, ValidationError{
@@ -475,7 +475,7 @@ func (v *stateValidator) validateString(str string, prop *SchemaProperty, path s
 			Code:    "MAX_LENGTH_VIOLATION",
 		})
 	}
-	
+
 	// Pattern validation
 	if prop.Pattern != "" {
 		if matched, err := regexp.MatchString(prop.Pattern, str); err != nil || !matched {
@@ -486,7 +486,7 @@ func (v *stateValidator) validateString(str string, prop *SchemaProperty, path s
 			})
 		}
 	}
-	
+
 	// Format validation
 	if prop.Format != "" {
 		if err := v.validateFormat(str, prop.Format); err != nil {
@@ -497,14 +497,14 @@ func (v *stateValidator) validateString(str string, prop *SchemaProperty, path s
 			})
 		}
 	}
-	
+
 	return errors
 }
 
 // validateNumber validates numeric constraints.
 func (v *stateValidator) validateNumber(value interface{}, prop *SchemaProperty, path string) []ValidationError {
 	errors := []ValidationError{}
-	
+
 	var num float64
 	switch val := value.(type) {
 	case float64:
@@ -519,7 +519,7 @@ func (v *stateValidator) validateNumber(value interface{}, prop *SchemaProperty,
 		f, _ := val.Float64()
 		num = f
 	}
-	
+
 	// Range constraints
 	if prop.Minimum != nil && num < *prop.Minimum {
 		errors = append(errors, ValidationError{
@@ -549,7 +549,7 @@ func (v *stateValidator) validateNumber(value interface{}, prop *SchemaProperty,
 			Code:    "EXCLUSIVE_MAX_VIOLATION",
 		})
 	}
-	
+
 	// Multiple constraint
 	if prop.MultipleOf != nil && *prop.MultipleOf != 0 {
 		if remainder := num / *prop.MultipleOf; remainder != float64(int64(remainder)) {
@@ -560,19 +560,19 @@ func (v *stateValidator) validateNumber(value interface{}, prop *SchemaProperty,
 			})
 		}
 	}
-	
+
 	return errors
 }
 
 // validateArray validates array constraints.
 func (v *stateValidator) validateArray(value interface{}, prop *SchemaProperty, path string) []ValidationError {
 	errors := []ValidationError{}
-	
+
 	arr, ok := value.([]interface{})
 	if !ok {
 		return errors
 	}
-	
+
 	// Length constraints
 	if prop.MinItems != nil && len(arr) < *prop.MinItems {
 		errors = append(errors, ValidationError{
@@ -588,7 +588,7 @@ func (v *stateValidator) validateArray(value interface{}, prop *SchemaProperty, 
 			Code:    "MAX_ITEMS_VIOLATION",
 		})
 	}
-	
+
 	// Unique items constraint
 	if prop.UniqueItems != nil && *prop.UniqueItems {
 		seen := make(map[string]bool)
@@ -604,7 +604,7 @@ func (v *stateValidator) validateArray(value interface{}, prop *SchemaProperty, 
 			seen[key] = true
 		}
 	}
-	
+
 	// Item validation
 	if prop.Items != nil {
 		for i, item := range arr {
@@ -613,7 +613,7 @@ func (v *stateValidator) validateArray(value interface{}, prop *SchemaProperty, 
 			errors = append(errors, itemErrors...)
 		}
 	}
-	
+
 	return errors
 }
 
@@ -701,27 +701,27 @@ func (v *stateValidator) findSchemaForPath(path string) *SchemaProperty {
 	if v.schema == nil || path == "" || path == "/" {
 		return nil
 	}
-	
+
 	tokens := parseJSONPointer(path)
 	current := v.schema.Properties
-	
+
 	for i, token := range tokens {
 		if current == nil {
 			return nil
 		}
-		
+
 		prop, exists := current[token]
 		if !exists {
 			return nil
 		}
-		
+
 		if i == len(tokens)-1 {
 			return prop
 		}
-		
+
 		current = prop.Properties
 	}
-	
+
 	return nil
 }
 
@@ -790,7 +790,7 @@ func checkDepth(value interface{}, path string, currentDepth, maxDepth int, erro
 		})
 		return
 	}
-	
+
 	switch v := value.(type) {
 	case map[string]interface{}:
 		for key, val := range v {

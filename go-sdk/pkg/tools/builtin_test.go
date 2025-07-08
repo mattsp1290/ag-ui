@@ -288,13 +288,13 @@ func TestHTTPGetTool(t *testing.T) {
 		result, err := tool.Executor.Execute(context.Background(), params)
 		require.NoError(t, err)
 		assert.False(t, result.Success)
-		
+
 		// More robust error checking
 		assert.NotEmpty(t, result.Error, "Error message should not be empty")
-		assert.True(t, 
+		assert.True(t,
 			strings.Contains(result.Error, "deadline exceeded") ||
-			strings.Contains(result.Error, "timeout") ||
-			strings.Contains(result.Error, "context canceled"),
+				strings.Contains(result.Error, "timeout") ||
+				strings.Contains(result.Error, "context canceled"),
 			"Expected timeout-related error, got: %s", result.Error)
 	})
 

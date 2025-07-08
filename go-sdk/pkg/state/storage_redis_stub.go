@@ -1,3 +1,4 @@
+//go:build !redis
 // +build !redis
 
 package state
@@ -60,13 +61,13 @@ func (r *RedisBackend) Ping(ctx context.Context) error {
 func (r *RedisBackend) Stats() map[string]interface{} {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	// Return basic stats without Redis-specific metrics
 	stats := make(map[string]interface{})
 	for k, v := range r.stats {
 		stats[k] = v
 	}
-	
+
 	return stats
 }
 

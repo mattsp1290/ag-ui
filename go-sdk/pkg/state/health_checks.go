@@ -33,12 +33,12 @@ func (hc *StateManagerHealthCheck) Check(ctx context.Context) error {
 	if hc.manager == nil {
 		return errors.New("state manager is nil")
 	}
-	
+
 	// Check if manager is closing or closed
 	if hc.manager.isClosing() {
 		return errors.New("state manager is closing")
 	}
-	
+
 	// Check if update queue is available
 	select {
 	case <-ctx.Done():
@@ -46,29 +46,29 @@ func (hc *StateManagerHealthCheck) Check(ctx context.Context) error {
 	default:
 		// Queue is available
 	}
-	
+
 	// Check if core components are initialized
 	if hc.manager.store == nil {
 		return errors.New("state store is not initialized")
 	}
-	
+
 	if hc.manager.deltaComputer == nil {
 		return errors.New("delta computer is not initialized")
 	}
-	
+
 	if hc.manager.conflictResolver == nil {
 		return errors.New("conflict resolver is not initialized")
 	}
-	
+
 	return nil
 }
 
 // MemoryHealthCheck checks memory usage and GC performance
 type MemoryHealthCheck struct {
-	maxMemoryMB    int64
-	maxGCPauseMs   int64
-	maxGoroutines  int
-	name           string
+	maxMemoryMB   int64
+	maxGCPauseMs  int64
+	maxGoroutines int
+	name          string
 }
 
 // NewMemoryHealthCheck creates a new memory health check
@@ -90,13 +90,13 @@ func (hc *MemoryHealthCheck) Name() string {
 func (hc *MemoryHealthCheck) Check(ctx context.Context) error {
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
-	
+
 	// Check memory usage
 	memoryMB := int64(memStats.Alloc / 1024 / 1024)
 	if memoryMB > hc.maxMemoryMB {
 		return fmt.Errorf("memory usage (%d MB) exceeds threshold (%d MB)", memoryMB, hc.maxMemoryMB)
 	}
-	
+
 	// Check GC pause time
 	if memStats.NumGC > 0 {
 		lastGCPause := memStats.PauseNs[(memStats.NumGC+255)%256]
@@ -105,13 +105,13 @@ func (hc *MemoryHealthCheck) Check(ctx context.Context) error {
 			return fmt.Errorf("GC pause time (%d ms) exceeds threshold (%d ms)", gcPauseMs, hc.maxGCPauseMs)
 		}
 	}
-	
+
 	// Check goroutine count
 	goroutines := runtime.NumGoroutine()
 	if goroutines > hc.maxGoroutines {
 		return fmt.Errorf("goroutine count (%d) exceeds threshold (%d)", goroutines, hc.maxGoroutines)
 	}
-	
+
 	return nil
 }
 
@@ -141,22 +141,22 @@ func (hc *StoreHealthCheck) Check(ctx context.Context) error {
 	if hc.store == nil {
 		return errors.New("state store is nil")
 	}
-	
+
 	// Create a test context with timeout
 	testCtx, cancel := context.WithTimeout(ctx, hc.timeout)
 	defer cancel()
-	
+
 	// Try to get a non-existent state (should not error, just return nil)
 	testStateID := fmt.Sprintf("health_check_%d", time.Now().UnixNano())
 	state := hc.store.GetState()
 	_, exists := state[testStateID]
-	_ = exists // Variable to check if state exists
+	_ = exists  // Variable to check if state exists
 	_ = testCtx // Use the test context
 	var err error
 	if err != nil && !errors.Is(err, ErrStateNotFound) {
 		return fmt.Errorf("store health check failed: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -184,18 +184,18 @@ func (hc *EventHandlerHealthCheck) Check(ctx context.Context) error {
 	if hc.handler == nil {
 		return errors.New("event handler is nil")
 	}
-	
+
 	// Check if event handler is running
 	if !hc.handler.isRunning() {
 		return errors.New("event handler is not running")
 	}
-	
+
 	// Check event queue depth
 	queueDepth := hc.handler.getQueueDepth()
 	if queueDepth > 10000 { // Arbitrary high threshold
 		return fmt.Errorf("event queue depth (%d) is too high", queueDepth)
 	}
-	
+
 	return nil
 }
 
@@ -226,7 +226,7 @@ func (hc *RateLimiterHealthCheck) Check(ctx context.Context) error {
 	if hc.rateLimiter == nil && hc.clientRateLimiter == nil {
 		return errors.New("no rate limiters configured")
 	}
-	
+
 	// For now, just check that they exist
 	// In a real implementation, you might check their internal state
 	return nil
@@ -256,27 +256,27 @@ func (hc *AuditHealthCheck) Check(ctx context.Context) error {
 	if hc.auditManager == nil {
 		return errors.New("audit manager is nil")
 	}
-	
+
 	if !hc.auditManager.isEnabled() {
 		return errors.New("audit logging is disabled")
 	}
-	
+
 	// Try to verify recent audit logs
 	endTime := time.Now()
 	startTime := endTime.Add(-1 * time.Minute)
-	
+
 	if hc.auditManager.logger != nil {
 		verification, err := hc.auditManager.logger.Verify(ctx, startTime, endTime)
 		if err != nil {
 			return fmt.Errorf("audit verification failed: %w", err)
 		}
-		
+
 		if !verification.Valid {
-			return fmt.Errorf("audit logs are invalid: %d tampered logs, %d missing logs", 
+			return fmt.Errorf("audit logs are invalid: %d tampered logs, %d missing logs",
 				len(verification.TamperedLogs), len(verification.MissingLogs))
 		}
 	}
-	
+
 	return nil
 }
 
@@ -306,11 +306,11 @@ func (hc *CompositeHealthCheck) Check(ctx context.Context) error {
 	if len(hc.checks) == 0 {
 		return nil
 	}
-	
+
 	if hc.parallel {
 		return hc.checkParallel(ctx)
 	}
-	
+
 	return hc.checkSequential(ctx)
 }
 
@@ -328,10 +328,10 @@ func (hc *CompositeHealthCheck) checkParallel(ctx context.Context) error {
 		name string
 		err  error
 	}
-	
+
 	results := make(chan result, len(hc.checks))
 	var wg sync.WaitGroup
-	
+
 	for _, check := range hc.checks {
 		wg.Add(1)
 		go func(check HealthCheck) {
@@ -340,13 +340,13 @@ func (hc *CompositeHealthCheck) checkParallel(ctx context.Context) error {
 			results <- result{name: check.Name(), err: err}
 		}(check)
 	}
-	
+
 	// Wait for all checks to complete
 	go func() {
 		wg.Wait()
 		close(results)
 	}()
-	
+
 	// Collect results
 	var failures []string
 	for result := range results {
@@ -354,11 +354,11 @@ func (hc *CompositeHealthCheck) checkParallel(ctx context.Context) error {
 			failures = append(failures, fmt.Sprintf("%s: %v", result.name, result.err))
 		}
 	}
-	
+
 	if len(failures) > 0 {
 		return fmt.Errorf("health checks failed: %v", failures)
 	}
-	
+
 	return nil
 }
 
@@ -390,25 +390,25 @@ func (hc *PerformanceHealthCheck) Check(ctx context.Context) error {
 	if hc.performanceOptimizer == nil {
 		return errors.New("performance optimizer is nil")
 	}
-	
+
 	metrics := hc.performanceOptimizer.GetMetrics()
-	
+
 	// Check pool efficiency
 	if metrics.PoolEfficiency < (100.0 - hc.maxPoolMissRate) {
-		return fmt.Errorf("pool efficiency (%.2f%%) is below threshold (%.2f%%)", 
+		return fmt.Errorf("pool efficiency (%.2f%%) is below threshold (%.2f%%)",
 			metrics.PoolEfficiency, 100.0-hc.maxPoolMissRate)
 	}
-	
+
 	// TODO: Add error rate check once ErrorRate is added to PerformanceMetrics
 	// The maxErrorRate parameter is currently not being validated
-	
+
 	return nil
 }
 
 // CustomHealthCheck allows for custom health check implementations
 type CustomHealthCheck struct {
-	name     string
-	checkFn  func(context.Context) error
+	name    string
+	checkFn func(context.Context) error
 }
 
 // NewCustomHealthCheck creates a custom health check
@@ -434,4 +434,3 @@ func (hc *CustomHealthCheck) Check(ctx context.Context) error {
 
 // Helper methods for StateManager and StateEventHandler
 // These would need to be added to the respective structs
-

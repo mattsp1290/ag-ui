@@ -134,7 +134,7 @@ func Example_streaming() {
 	// Create components
 	store := state.NewStateStore()
 	generator := state.NewStateEventGenerator(store)
-	
+
 	// Create stream with fast updates for demo
 	stream := state.NewStateEventStream(store, generator,
 		state.WithStreamInterval(100*time.Millisecond),
@@ -161,10 +161,10 @@ func Example_streaming() {
 
 	// Make some state changes
 	time.Sleep(150 * time.Millisecond) // Wait for initial snapshot
-	
+
 	store.Set("/counter", 1)
 	time.Sleep(150 * time.Millisecond)
-	
+
 	store.Set("/counter", 2)
 	time.Sleep(150 * time.Millisecond)
 
@@ -177,7 +177,7 @@ func Example_streaming() {
 // Example_batchProcessing demonstrates batched delta processing
 func Example_batchProcessing() {
 	store := state.NewStateStore()
-	
+
 	// Create handler with batching configuration
 	handler := state.NewStateEventHandler(store,
 		state.WithBatchSize(5),
@@ -210,10 +210,10 @@ func Example_batchProcessing() {
 // Example_errorHandling demonstrates error handling and recovery
 func Example_errorHandling() {
 	store := state.NewStateStore()
-	
+
 	// Set initial state
 	store.Set("/important", "data")
-	
+
 	// Create handler with error callbacks
 	handler := state.NewStateEventHandler(store,
 		state.WithSnapshotCallback(func(event *events.StateSnapshotEvent) error {
@@ -264,7 +264,7 @@ func Example_metrics() {
 	// Process some deltas
 	for i := 0; i < 5; i++ {
 		delta := events.NewStateDeltaEvent([]events.JSONPatchOperation{
-			events.JSONPatchOperation{Op: "add", Path: fmt.Sprintf("/delta%d", i), Value: i},
+			{Op: "add", Path: fmt.Sprintf("/delta%d", i), Value: i},
 		})
 		handler.HandleStateDelta(delta)
 		time.Sleep(15 * time.Millisecond) // Ensure processing
@@ -286,11 +286,11 @@ func Example_transactionalUpdates() {
 
 	// Simulate a transaction
 	tx := store.Begin()
-	
+
 	// Get current values
 	balance, _ := store.Get("/balance")
 	transactions, _ := store.Get("/transactions")
-	
+
 	// Update balance
 	newBalance := balance.(float64) - 25
 	txList := transactions.([]interface{})
@@ -304,7 +304,7 @@ func Example_transactionalUpdates() {
 		{Op: state.JSONPatchOpReplace, Path: "/balance", Value: newBalance},
 		{Op: state.JSONPatchOpReplace, Path: "/transactions", Value: txList},
 	})
-	
+
 	// Commit transaction
 	if err := tx.Commit(); err != nil {
 		log.Fatal(err)
@@ -371,7 +371,7 @@ func Example_complexStateSync() {
 	// Verify synchronization
 	sourceJSON, _ := sourceStore.Export()
 	targetJSON, _ := targetStore.Export()
-	
+
 	fmt.Printf("States synchronized: %v\n", string(sourceJSON) == string(targetJSON))
 
 	// Output:

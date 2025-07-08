@@ -27,10 +27,10 @@ func TestEventValidator_TracingIntegration(t *testing.T) {
 	validator := NewEventValidator(DefaultValidationConfig())
 
 	tests := []struct {
-		name           string
-		event          Event
-		expectedSpans  int
-		validateSpan   func(t *testing.T)
+		name          string
+		event         Event
+		expectedSpans int
+		validateSpan  func(t *testing.T)
 	}{
 		{
 			name: "valid run started event creates spans",
@@ -77,7 +77,7 @@ func TestEventValidator_TracingIntegration(t *testing.T) {
 			// For now, we mainly verify that tracing doesn't break the validation
 			// In a production environment, you would use a test span recorder
 			// to verify the actual span creation and attributes
-			t.Logf("Validation result: IsValid=%v, Errors=%d, Warnings=%d", 
+			t.Logf("Validation result: IsValid=%v, Errors=%d, Warnings=%d",
 				result.IsValid, len(result.Errors), len(result.Warnings))
 		})
 	}
@@ -139,7 +139,7 @@ func TestEventValidator_SequenceTracingIntegration(t *testing.T) {
 		t.Errorf("ValidateSequence() expected valid sequence but got errors: %v", result.Errors)
 	}
 
-	t.Logf("Sequence validation result: IsValid=%v, Events=%d, Duration=%v", 
+	t.Logf("Sequence validation result: IsValid=%v, Events=%d, Duration=%v",
 		result.IsValid, result.EventCount, result.Duration)
 }
 
@@ -337,4 +337,3 @@ func BenchmarkEventValidator_WithoutTracing(b *testing.B) {
 		validator.Reset()
 	}
 }
-

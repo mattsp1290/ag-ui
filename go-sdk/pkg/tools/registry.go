@@ -35,18 +35,30 @@ type Registry struct {
 	conflictResolvers []ConflictResolver
 	migrationHandlers map[string]MigrationHandler
 	dynamicLoaders    map[string]DynamicLoader
-	watchers          map[string]*FileWatcher
+	watchers          sync.Map // Use sync.Map for concurrent access
 	dependencyGraph   *DependencyGraph
 	loadingStrategies map[string]LoadingStrategy
 
 	// Configuration
 	config *RegistryConfig
 
-	// Separate mutex for conflict resolution to prevent deadlocks
-	conflictMu sync.Mutex
+	// Hook protection mutex
+	hookMu sync.RWMutex
 }
 
 // RegistryValidator is a function that validates tools during registration.
+// It receives a tool and returns an error if validation fails.
+// Custom validators can be added to enforce specific business rules or constraints
+// beyond the standard schema validation.
+//
+// Example:
+//
+//	func requireAuthorValidator(tool *Tool) error {
+//		if tool.Metadata == nil || tool.Metadata.Author == "" {
+//			return fmt.Errorf("tool must have an author")
+//		}
+//		return nil
+//	}
 type RegistryValidator func(tool *Tool) error
 
 // RegistryConfig holds configuration for the registry.
@@ -86,36 +98,88 @@ func DefaultRegistryConfig() *RegistryConfig {
 	}
 }
 
-// ConflictStrategy defines how to handle tool conflicts.
+// ConflictStrategy defines how to handle tool conflicts when registering a tool
+// with an ID or name that already exists in the registry.
 type ConflictStrategy int
 
 const (
+	// ConflictStrategyError returns an error when a conflict is detected (default)
 	ConflictStrategyError ConflictStrategy = iota
+	// ConflictStrategyOverwrite replaces the existing tool with the new one
 	ConflictStrategyOverwrite
+	// ConflictStrategySkip keeps the existing tool and ignores the new one
 	ConflictStrategySkip
+	// ConflictStrategyVersionBased uses semantic versioning to decide (keeps newer version)
 	ConflictStrategyVersionBased
+	// ConflictStrategyPriorityBased uses tool metadata priority field to decide
 	ConflictStrategyPriorityBased
 )
 
 // ConflictResolver defines a function that resolves tool conflicts.
+// It receives the existing and new tools and returns the tool to keep,
+// or nil to skip registration. Custom resolvers are called before
+// the built-in conflict resolution strategy.
+//
+// Example:
+//
+//	func timestampResolver(existing, new *Tool) (*Tool, error) {
+//		if getTimestamp(new) > getTimestamp(existing) {
+//			return new, nil
+//		}
+//		return existing, nil
+//	}
 type ConflictResolver func(existing *Tool, new *Tool) (*Tool, error)
 
 // MigrationHandler defines a function that handles tool version migrations.
+// It is called when a tool with the same ID but different version is registered.
+// The handler can perform data migration, compatibility checks, or other
+// version-specific operations.
+//
+// Example:
+//
+//	func migrateV1ToV2(ctx context.Context, oldTool, newTool *Tool) error {
+//		// Perform migration logic
+//		return nil
+//	}
 type MigrationHandler func(ctx context.Context, oldTool, newTool *Tool) error
 
 // DynamicLoader defines a function that loads tools from external sources.
+// It enables runtime tool discovery and loading from files, URLs, or other systems.
+// The function should return a slice of tools loaded from the specified source.
+//
+// Example:
+//
+//	func loadFromAPI(ctx context.Context, source string) ([]*Tool, error) {
+//		// Fetch and parse tools from API endpoint
+//		return tools, nil
+//	}
 type DynamicLoader func(ctx context.Context, source string) ([]*Tool, error)
 
-// LoadingStrategy defines how tools are loaded and cached.
+// LoadingStrategy defines how tools are loaded and cached in the registry.
 type LoadingStrategy int
 
 const (
+	// LoadingStrategyImmediate loads tools synchronously when requested
 	LoadingStrategyImmediate LoadingStrategy = iota
+	// LoadingStrategyLazy defers loading until the tool is actually used
 	LoadingStrategyLazy
+	// LoadingStrategyPreemptive loads tools in advance based on usage patterns
 	LoadingStrategyPreemptive
 )
 
 // CategoryTree represents a hierarchical category structure for tools.
+// It enables organizing tools into nested categories with inheritance
+// of properties like tags, capabilities, and metadata.
+//
+// Example structure:
+//
+//	root
+//	├── data-processing
+//	│   ├── transformation
+//	│   └── validation
+//	└── communication
+//	    ├── email
+//	    └── messaging
 type CategoryTree struct {
 	mu     sync.RWMutex
 	root   *CategoryNode
@@ -124,6 +188,9 @@ type CategoryTree struct {
 }
 
 // CategoryNode represents a node in the category tree.
+// Each node can have child categories and associated tools.
+// Properties can be inherited from parent categories based on
+// the inheritance configuration.
 type CategoryNode struct {
 	Name        string
 	Path        string
@@ -133,7 +200,8 @@ type CategoryNode struct {
 	Inheritance *CategoryInheritance
 }
 
-// CategoryInheritance defines how categories inherit properties.
+// CategoryInheritance defines how categories inherit properties from their parents.
+// This enables consistent behavior and metadata across category hierarchies.
 type CategoryInheritance struct {
 	InheritTags         bool
 	InheritCapabilities bool
@@ -155,24 +223,31 @@ func NewCategoryTree() *CategoryTree {
 }
 
 // FileWatcher watches files for changes and triggers reloading.
+// It enables hot-reloading of tool definitions from JSON files,
+// automatically updating the registry when files are modified.
 type FileWatcher struct {
-	mu       sync.RWMutex
+	mu       sync.Mutex
 	path     string
 	modTime  time.Time
 	callback func(string) error
 	stop     chan struct{}
-	stopped  bool
+	stopOnce sync.Once
 	wg       sync.WaitGroup // Track goroutine lifecycle
 }
 
 // DependencyGraph manages tool dependencies and resolution.
+// It tracks which tools depend on others, enforces version constraints,
+// and detects circular dependencies. The graph supports both required
+// and optional dependencies with transitive resolution.
 type DependencyGraph struct {
 	mu           sync.RWMutex
 	dependencies map[string]map[string]*DependencyConstraint
-	resolved     map[string][]*Tool
+	cache        sync.Map // Use sync.Map for thread-safe caching
 }
 
 // DependencyConstraint defines a dependency with version constraints.
+// It specifies which version of a tool is required, whether the
+// dependency is optional, and if transitive dependencies should be resolved.
 type DependencyConstraint struct {
 	ToolID           string
 	VersionConstraint string
@@ -184,7 +259,7 @@ type DependencyConstraint struct {
 func NewDependencyGraph() *DependencyGraph {
 	return &DependencyGraph{
 		dependencies: make(map[string]map[string]*DependencyConstraint),
-		resolved:     make(map[string][]*Tool),
+		// cache initialized as sync.Map (zero value)
 	}
 }
 
@@ -205,7 +280,7 @@ func NewRegistryWithConfig(config *RegistryConfig) *Registry {
 		conflictResolvers: []ConflictResolver{},
 		migrationHandlers: make(map[string]MigrationHandler),
 		dynamicLoaders:    make(map[string]DynamicLoader),
-		watchers:          make(map[string]*FileWatcher),
+		// watchers initialized as sync.Map (zero value)
 		dependencyGraph:   NewDependencyGraph(),
 		loadingStrategies: make(map[string]LoadingStrategy),
 		config:            config,
@@ -219,40 +294,52 @@ func (r *Registry) Register(tool *Tool) error {
 }
 
 // RegisterWithContext adds a new tool to the registry with context support.
+// This implementation fixes the TOCTOU race condition by holding the write lock
+// for the entire registration process.
 func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 	if tool == nil {
-		return fmt.Errorf("tool cannot be nil")
+		return NewToolError(ErrorTypeValidation, "NIL_TOOL", "tool cannot be nil")
 	}
 
 	// Validate the tool
 	if err := tool.Validate(); err != nil {
-		return fmt.Errorf("tool validation failed: %w", err)
+		return NewToolError(ErrorTypeValidation, "VALIDATION_FAILED", "tool validation failed").
+		WithToolID(tool.ID).
+		WithCause(err)
 	}
 
-	// Run custom validators
-	for _, validator := range r.validators {
+	// Run custom validators with hook protection
+	r.hookMu.RLock()
+	validators := append([]RegistryValidator{}, r.validators...)
+	r.hookMu.RUnlock()
+
+	for _, validator := range validators {
 		if err := validator(tool); err != nil {
-			return fmt.Errorf("custom validation failed: %w", err)
+			return NewToolError(ErrorTypeValidation, "CUSTOM_VALIDATION_FAILED", "custom validation failed").
+			WithToolID(tool.ID).
+			WithCause(err)
 		}
 	}
 
-	// Handle conflict resolution with separate mutex to prevent deadlocks
-	r.mu.RLock()
+	// Acquire write lock for the entire registration process to prevent TOCTOU races
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Check for existing tools while holding the write lock
 	existingTool, idExists := r.tools[tool.ID]
 	existingID, nameExists := r.nameIndex[tool.Name]
 	var existingByName *Tool
 	if nameExists && existingID != tool.ID {
 		existingByName = r.tools[existingID]
 	}
-	r.mu.RUnlock()
 
-	// Resolve conflicts outside of main mutex to prevent deadlocks
+	// Resolve conflicts while holding the lock
 	if idExists {
-		r.conflictMu.Lock()
 		resolvedTool, err := r.resolveConflict(ctx, existingTool, tool)
-		r.conflictMu.Unlock()
 		if err != nil {
-			return fmt.Errorf("conflict resolution failed: %w", err)
+			return NewToolError(ErrorTypeInternal, "CONFLICT_RESOLUTION_FAILED", "conflict resolution failed").
+			WithToolID(tool.ID).
+			WithCause(err)
 		}
 		if resolvedTool == nil {
 			// Conflict resolution decided to skip registration
@@ -263,11 +350,10 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 
 	// Check for name conflicts
 	if existingByName != nil {
-		r.conflictMu.Lock()
 		resolvedTool, err := r.resolveConflict(ctx, existingByName, tool)
-		r.conflictMu.Unlock()
 		if err != nil {
-			return fmt.Errorf("name conflict resolution failed: %w", err)
+			return NewConflictError(CodeNameConflict, "name conflict resolution failed", existingByName.ID, tool.ID).
+				WithCause(err)
 		}
 		if resolvedTool == nil {
 			return nil
@@ -275,14 +361,12 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 		tool = resolvedTool
 	}
 
-	// Now acquire write lock for actual registration
-	r.mu.Lock()
-	defer r.mu.Unlock()
-
 	// Handle version migration if enabled
 	if r.config.EnableVersionMigration {
 		if err := r.handleVersionMigration(ctx, tool); err != nil {
-			return fmt.Errorf("version migration failed: %w", err)
+			return NewMigrationError(CodeMigrationFailed, "version migration failed", "", tool.Version).
+				WithToolID(tool.ID).
+				WithCause(err)
 		}
 	}
 
@@ -311,7 +395,8 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 
 	// Update dependency graph
 	if err := r.dependencyGraph.AddTool(tool); err != nil {
-		return fmt.Errorf("dependency graph update failed: %w", err)
+		return NewDependencyError(CodeDependencyNotFound, "dependency graph update failed", tool.ID).
+			WithCause(err)
 	}
 
 	return nil
@@ -325,7 +410,8 @@ func (r *Registry) Unregister(toolID string) error {
 
 	tool, exists := r.tools[toolID]
 	if !exists {
-		return fmt.Errorf("tool with ID %q not found", toolID)
+		return NewToolError(ErrorTypeValidation, "TOOL_NOT_FOUND", "tool not found").
+		WithToolID(toolID)
 	}
 
 	// Remove from main storage
@@ -358,7 +444,8 @@ func (r *Registry) Get(toolID string) (*Tool, error) {
 
 	tool, exists := r.tools[toolID]
 	if !exists {
-		return nil, fmt.Errorf("tool with ID %q not found", toolID)
+		return nil, NewToolError(ErrorTypeValidation, "TOOL_NOT_FOUND", "tool not found").
+			WithToolID(toolID)
 	}
 
 	// Return a clone to prevent external modifications
@@ -373,7 +460,8 @@ func (r *Registry) GetReadOnly(toolID string) (ReadOnlyTool, error) {
 
 	tool, exists := r.tools[toolID]
 	if !exists {
-		return nil, fmt.Errorf("tool with ID %q not found", toolID)
+		return nil, NewToolError(ErrorTypeValidation, "TOOL_NOT_FOUND", "tool not found").
+			WithToolID(toolID)
 	}
 
 	// Return a read-only view without cloning
@@ -389,7 +477,7 @@ func (r *Registry) GetByName(name string) (*Tool, error) {
 
 	toolID, exists := r.nameIndex[name]
 	if !exists {
-		return nil, fmt.Errorf("tool with name %q not found", name)
+		return nil, NewValidationError(CodeToolNotFound, fmt.Sprintf("tool with name %q not found", name), "")
 	}
 
 	tool := r.tools[toolID]
@@ -404,7 +492,7 @@ func (r *Registry) GetByNameReadOnly(name string) (ReadOnlyTool, error) {
 
 	toolID, exists := r.nameIndex[name]
 	if !exists {
-		return nil, fmt.Errorf("tool with name %q not found", name)
+		return nil, NewValidationError(CodeToolNotFound, fmt.Sprintf("tool with name %q not found", name), "")
 	}
 
 	tool := r.tools[toolID]
@@ -472,8 +560,8 @@ func (r *Registry) Clear() {
 // AddValidator adds a custom validation function that will be run
 // during tool registration.
 func (r *Registry) AddValidator(validator RegistryValidator) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.hookMu.Lock()
+	defer r.hookMu.Unlock()
 	r.validators = append(r.validators, validator)
 }
 
@@ -485,12 +573,14 @@ func (r *Registry) Validate() error {
 
 	for id, tool := range r.tools {
 		if err := tool.Validate(); err != nil {
-			return fmt.Errorf("tool %q validation failed: %w", id, err)
+			return NewValidationError(CodeValidationFailed, fmt.Sprintf("tool %q validation failed", id), id).
+				WithCause(err)
 		}
 
 		for _, validator := range r.validators {
 			if err := validator(tool); err != nil {
-				return fmt.Errorf("tool %q custom validation failed: %w", id, err)
+				return NewValidationError(CodeCustomValidationFailed, fmt.Sprintf("tool %q custom validation failed", id), id).
+					WithCause(err)
 			}
 		}
 	}
@@ -587,7 +677,8 @@ func (r *Registry) GetDependencies(toolID string) ([]*Tool, error) {
 
 	tool, exists := r.tools[toolID]
 	if !exists {
-		return nil, fmt.Errorf("tool with ID %q not found", toolID)
+		return nil, NewToolError(ErrorTypeValidation, "TOOL_NOT_FOUND", "tool not found").
+			WithToolID(toolID)
 	}
 
 	if tool.Metadata == nil || len(tool.Metadata.Dependencies) == 0 {
@@ -598,7 +689,7 @@ func (r *Registry) GetDependencies(toolID string) ([]*Tool, error) {
 	for _, depID := range tool.Metadata.Dependencies {
 		dep, exists := r.tools[depID]
 		if !exists {
-			return nil, fmt.Errorf("dependency %q not found for tool %q", depID, toolID)
+			return nil, NewDependencyError(CodeDependencyNotFound, fmt.Sprintf("dependency %q not found for tool %q", depID, toolID), toolID)
 		}
 		dependencies = append(dependencies, dep.Clone())
 	}
@@ -663,7 +754,7 @@ func (r *Registry) ImportTools(tools map[string]*Tool) []error {
 
 	for _, tool := range tools {
 		if err := r.Register(tool); err != nil {
-			errors = append(errors, fmt.Errorf("failed to import tool %q: %w", tool.ID, err))
+			errors = append(errors, NewIOError(CodeRegistrationFailed, fmt.Sprintf("failed to import tool %q", tool.ID), tool.ID, err))
 		}
 	}
 
@@ -674,8 +765,12 @@ func (r *Registry) ImportTools(tools map[string]*Tool) []error {
 
 // resolveConflict resolves conflicts between existing and new tools.
 func (r *Registry) resolveConflict(ctx context.Context, existing, new *Tool) (*Tool, error) {
-	// Apply custom conflict resolvers first
-	for _, resolver := range r.conflictResolvers {
+	// Apply custom conflict resolvers first with hook protection
+	r.hookMu.RLock()
+	resolvers := append([]ConflictResolver{}, r.conflictResolvers...)
+	r.hookMu.RUnlock()
+	
+	for _, resolver := range resolvers {
 		resolved, err := resolver(existing, new)
 		if err != nil {
 			return nil, err
@@ -688,7 +783,7 @@ func (r *Registry) resolveConflict(ctx context.Context, existing, new *Tool) (*T
 	// Apply built-in conflict resolution strategy
 	switch r.config.ConflictResolutionStrategy {
 	case ConflictStrategyError:
-		return nil, fmt.Errorf("tool with ID %q already exists", existing.ID)
+		return nil, NewConflictError(CodeConflictResolutionFailed, fmt.Sprintf("tool with ID %q already exists", existing.ID), existing.ID, new.ID)
 	case ConflictStrategyOverwrite:
 		return new, nil
 	case ConflictStrategySkip:
@@ -698,7 +793,7 @@ func (r *Registry) resolveConflict(ctx context.Context, existing, new *Tool) (*T
 	case ConflictStrategyPriorityBased:
 		return r.resolvePriorityBasedConflict(existing, new)
 	default:
-		return nil, fmt.Errorf("unknown conflict resolution strategy: %v", r.config.ConflictResolutionStrategy)
+		return nil, NewToolError(ErrorTypeConfiguration, CodeUnknownConflictStrategy, fmt.Sprintf("unknown conflict resolution strategy: %v", r.config.ConflictResolutionStrategy))
 	}
 }
 
@@ -706,7 +801,8 @@ func (r *Registry) resolveConflict(ctx context.Context, existing, new *Tool) (*T
 func (r *Registry) resolveVersionBasedConflict(existing, new *Tool) (*Tool, error) {
 	matches, err := matchesVersionConstraint(new.Version, ">"+existing.Version)
 	if err != nil {
-		return nil, fmt.Errorf("version comparison failed: %w", err)
+		return nil, NewConflictError(CodeVersionComparisonFailed, "version comparison failed", existing.ID, new.ID).
+			WithCause(err)
 	}
 	if matches {
 		return new, nil // New version is higher
@@ -763,7 +859,9 @@ func (r *Registry) defaultVersionMigration(ctx context.Context, oldTool, newTool
 	
 	// Perform basic compatibility checks
 	if err := r.validateMigrationCompatibility(oldTool, newTool); err != nil {
-		return fmt.Errorf("migration compatibility check failed: %w", err)
+		return NewMigrationError(CodeMigrationCompatibilityFailed, "migration compatibility check failed", oldTool.Version, newTool.Version).
+			WithToolID(newTool.ID).
+			WithCause(err)
 	}
 	
 	return nil
@@ -782,7 +880,8 @@ func (r *Registry) validateMigrationCompatibility(oldTool, newTool *Tool) error 
 				}
 			}
 			if !found {
-				return fmt.Errorf("required parameter %q removed in new version", req)
+				return NewMigrationError(CodeParameterRemoved, fmt.Sprintf("required parameter %q removed in new version", req), oldTool.Version, newTool.Version).
+					WithToolID(newTool.ID)
 			}
 		}
 	}
@@ -813,8 +912,8 @@ func (r *Registry) updateCategoryTree(tool *Tool) error {
 
 // AddConflictResolver adds a custom conflict resolver.
 func (r *Registry) AddConflictResolver(resolver ConflictResolver) {
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	r.hookMu.Lock()
+	defer r.hookMu.Unlock()
 	r.conflictResolvers = append(r.conflictResolvers, resolver)
 }
 
@@ -829,7 +928,7 @@ func (r *Registry) AddMigrationHandler(version string, handler MigrationHandler)
 func (r *Registry) LoadFromFile(ctx context.Context, filename string) error {
 	file, err := os.Open(filename)
 	if err != nil {
-		return fmt.Errorf("failed to open file %q: %w", filename, err)
+		return NewIOError(CodeFileOpenFailed, fmt.Sprintf("failed to open file %q", filename), filename, err)
 	}
 	defer file.Close()
 	
@@ -842,7 +941,7 @@ func (r *Registry) LoadFromReader(ctx context.Context, reader io.Reader) error {
 	decoder := json.NewDecoder(reader)
 	
 	if err := decoder.Decode(&tools); err != nil {
-		return fmt.Errorf("failed to decode tools: %w", err)
+		return NewIOError(CodeDecodeFailed, "failed to decode tools", "", err)
 	}
 	
 	for _, tool := range tools {
@@ -852,7 +951,7 @@ func (r *Registry) LoadFromReader(ctx context.Context, reader io.Reader) error {
 		}
 		
 		if err := r.RegisterWithContext(ctx, tool); err != nil {
-			return fmt.Errorf("failed to register tool %q: %w", tool.ID, err)
+			return NewIOError(CodeRegistrationFailed, fmt.Sprintf("failed to register tool %q", tool.ID), tool.ID, err)
 		}
 	}
 	
@@ -879,17 +978,18 @@ func (r *Registry) LoadFromURL(ctx context.Context, url string) error {
 	
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+		return NewNetworkError(CodeRequestCreationFailed, "failed to create request", url, err)
 	}
 	
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to fetch from URL: %w", err)
+		return NewNetworkError(CodeHTTPRequestFailed, "failed to fetch from URL", url, err)
 	}
 	defer resp.Body.Close()
 	
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("HTTP error: %s", resp.Status)
+		return NewNetworkError(CodeHTTPError, fmt.Sprintf("HTTP error: %s", resp.Status), url, nil).
+			WithDetail("status_code", resp.StatusCode)
 	}
 	
 	return r.LoadFromReader(ctx, resp.Body)
@@ -898,27 +998,37 @@ func (r *Registry) LoadFromURL(ctx context.Context, url string) error {
 // WatchFile watches a file for changes and reloads tools.
 func (r *Registry) WatchFile(filename string) error {
 	if !r.config.EnableHotReloading {
-		return fmt.Errorf("hot reloading is disabled")
+		return NewToolError(ErrorTypeConfiguration, CodeHotReloadingDisabled, "hot reloading is disabled")
 	}
 	
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	// Check if already watching using sync.Map
+	if _, loaded := r.watchers.Load(filename); loaded {
+		return NewToolError(ErrorTypeConfiguration, CodeFileAlreadyWatched, fmt.Sprintf("file %q is already being watched", filename)).
+			WithDetail("filename", filename)
+	}
 	
-	// Check and insert atomically to prevent TOCTOU race condition
-	if _, exists := r.watchers[filename]; exists {
-		return fmt.Errorf("file %q is already being watched", filename)
+	// Get initial file info
+	info, err := os.Stat(filename)
+	if err != nil {
+		return NewIOError(CodeFileOpenFailed, fmt.Sprintf("failed to stat file %q", filename), filename, err)
 	}
 	
 	watcher := &FileWatcher{
-		path: filename,
-		stop: make(chan struct{}),
+		path:    filename,
+		modTime: info.ModTime(),
+		stop:    make(chan struct{}),
 		callback: func(path string) error {
 			return r.LoadFromFile(context.Background(), path)
 		},
 	}
 	
-	// Insert watcher before starting goroutine to prevent races
-	r.watchers[filename] = watcher
+	// Use LoadOrStore to prevent race conditions
+	_, loaded := r.watchers.LoadOrStore(filename, watcher)
+	if loaded {
+		// Another goroutine beat us to it
+		return NewToolError(ErrorTypeConfiguration, CodeFileAlreadyWatched, fmt.Sprintf("file %q is already being watched", filename)).
+			WithDetail("filename", filename)
+	}
 	
 	// Start goroutine with proper lifecycle tracking
 	watcher.wg.Add(1)
@@ -968,25 +1078,22 @@ func (r *Registry) checkFileForChanges(watcher *FileWatcher) error {
 
 // StopWatching stops watching a file.
 func (r *Registry) StopWatching(filename string) error {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	
-	watcher, exists := r.watchers[filename]
+	value, exists := r.watchers.LoadAndDelete(filename)
 	if !exists {
-		return fmt.Errorf("file %q is not being watched", filename)
+		return NewToolError(ErrorTypeConfiguration, CodeFileNotWatched, fmt.Sprintf("file %q is not being watched", filename)).
+			WithDetail("filename", filename)
 	}
 	
-	watcher.mu.Lock()
-	if !watcher.stopped {
+	watcher := value.(*FileWatcher)
+	
+	// Use sync.Once to ensure stop is closed only once
+	watcher.stopOnce.Do(func() {
 		close(watcher.stop)
-		watcher.stopped = true
-	}
-	watcher.mu.Unlock()
+	})
 	
-	// Wait for goroutine to complete before removing from registry
+	// Wait for goroutine to complete
 	watcher.wg.Wait()
 	
-	delete(r.watchers, filename)
 	return nil
 }
 
@@ -1181,13 +1288,13 @@ func (dg *DependencyGraph) AddDependency(toolID, depID, versionConstraint string
 
 // ResolveDependencies resolves all dependencies for a tool.
 func (dg *DependencyGraph) ResolveDependencies(toolID string, tools map[string]*Tool) ([]*Tool, error) {
+	// Check cache first using sync.Map
+	if cached, exists := dg.cache.Load(toolID); exists {
+		return cached.([]*Tool), nil
+	}
+	
 	dg.mu.RLock()
 	defer dg.mu.RUnlock()
-	
-	// Check cache first
-	if resolved, exists := dg.resolved[toolID]; exists {
-		return resolved, nil
-	}
 	
 	visited := make(map[string]bool)
 	var result []*Tool
@@ -1196,19 +1303,21 @@ func (dg *DependencyGraph) ResolveDependencies(toolID string, tools map[string]*
 		return nil, err
 	}
 	
-	// Cache the result
-	dg.resolved[toolID] = result
+	// Cache the result using sync.Map
+	dg.cache.Store(toolID, result)
 	return result, nil
 }
 
 // resolveDependenciesRecursive recursively resolves dependencies.
 func (dg *DependencyGraph) resolveDependenciesRecursive(toolID string, tools map[string]*Tool, visited map[string]bool, result *[]*Tool, depth, maxDepth int) error {
 	if depth > maxDepth {
-		return fmt.Errorf("dependency resolution depth exceeded for tool %q", toolID)
+		return NewDependencyError(CodeDependencyDepthExceeded, fmt.Sprintf("dependency resolution depth exceeded for tool %q", toolID), toolID).
+			WithDetail("depth", depth).
+			WithDetail("max_depth", maxDepth)
 	}
 	
 	if visited[toolID] {
-		return fmt.Errorf("circular dependency detected for tool %q", toolID)
+		return NewDependencyError(CodeCircularDependency, fmt.Sprintf("circular dependency detected for tool %q", toolID), toolID)
 	}
 	
 	visited[toolID] = true
@@ -1219,7 +1328,8 @@ func (dg *DependencyGraph) resolveDependenciesRecursive(toolID string, tools map
 		tool, exists := tools[constraint.ToolID]
 		if !exists {
 			if !constraint.Optional {
-				return fmt.Errorf("required dependency %q not found for tool %q", constraint.ToolID, toolID)
+				return NewDependencyError(CodeDependencyNotFound, fmt.Sprintf("required dependency %q not found for tool %q", constraint.ToolID, toolID), toolID).
+					WithDetail("dependency", constraint.ToolID)
 			}
 			continue
 		}
@@ -1228,11 +1338,17 @@ func (dg *DependencyGraph) resolveDependenciesRecursive(toolID string, tools map
 		if constraint.VersionConstraint != "" {
 			matches, err := matchesVersionConstraint(tool.Version, constraint.VersionConstraint)
 			if err != nil {
-				return fmt.Errorf("version constraint check failed for %q: %w", constraint.ToolID, err)
+				return NewDependencyError(CodeVersionConstraintFailed, fmt.Sprintf("version constraint check failed for %q", constraint.ToolID), toolID).
+					WithDetail("dependency", constraint.ToolID).
+					WithDetail("constraint", constraint.VersionConstraint).
+					WithCause(err)
 			}
 			if !matches {
 				if !constraint.Optional {
-					return fmt.Errorf("version constraint %q not satisfied for dependency %q", constraint.VersionConstraint, constraint.ToolID)
+					return NewDependencyError(CodeVersionConstraintFailed, fmt.Sprintf("version constraint %q not satisfied for dependency %q", constraint.VersionConstraint, constraint.ToolID), toolID).
+						WithDetail("dependency", constraint.ToolID).
+						WithDetail("constraint", constraint.VersionConstraint).
+						WithDetail("actual_version", tool.Version)
 				}
 				continue
 			}

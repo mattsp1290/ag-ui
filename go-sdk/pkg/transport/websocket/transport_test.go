@@ -29,12 +29,12 @@ type MockEvent struct {
 	ValidationFunc func() error     `json:"-"`
 }
 
-func (m *MockEvent) Type() events.EventType                  { return m.EventType }
-func (m *MockEvent) Timestamp() *int64                       { return m.TimestampMs }
-func (m *MockEvent) SetTimestamp(timestamp int64)            { m.TimestampMs = &timestamp }
-func (m *MockEvent) ToJSON() ([]byte, error)                 { return json.Marshal(m) }
-func (m *MockEvent) ToProtobuf() (*generated.Event, error)   { return nil, nil }
-func (m *MockEvent) GetBaseEvent() *events.BaseEvent         { return nil }
+func (m *MockEvent) Type() events.EventType                { return m.EventType }
+func (m *MockEvent) Timestamp() *int64                     { return m.TimestampMs }
+func (m *MockEvent) SetTimestamp(timestamp int64)          { m.TimestampMs = &timestamp }
+func (m *MockEvent) ToJSON() ([]byte, error)               { return json.Marshal(m) }
+func (m *MockEvent) ToProtobuf() (*generated.Event, error) { return nil, nil }
+func (m *MockEvent) GetBaseEvent() *events.BaseEvent       { return nil }
 func (m *MockEvent) Validate() error {
 	if m.ValidationFunc != nil {
 		return m.ValidationFunc()
@@ -53,7 +53,7 @@ func (v *MockEventValidator) ValidateEvent(ctx context.Context, event events.Eve
 		IsValid:   !v.ShouldFail,
 		Timestamp: time.Now(),
 	}
-	
+
 	if v.ShouldFail {
 		for _, errMsg := range v.Errors {
 			result.AddError(&events.ValidationError{
@@ -65,7 +65,7 @@ func (v *MockEventValidator) ValidateEvent(ctx context.Context, event events.Eve
 			})
 		}
 	}
-	
+
 	return result
 }
 
@@ -124,7 +124,7 @@ func TestTransportCreationAndConfiguration(t *testing.T) {
 		require.NoError(t, err)
 		assert.NotNil(t, transport)
 		assert.Equal(t, 5*time.Second, transport.config.DialTimeout)
-		
+
 		// Verify the dial timeout is passed to the connection template
 		assert.Equal(t, 5*time.Second, transport.pool.config.ConnectionTemplate.DialTimeout)
 	})
@@ -652,7 +652,7 @@ func TestTransportErrorHandling(t *testing.T) {
 
 		// The error will come from size limits instead
 		event.Data = strings.Repeat("x", int(transport.config.MaxEventSize)+1)
-		
+
 		err = transport.SendEvent(ctx, event)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "event size")

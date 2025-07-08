@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -119,10 +120,10 @@ type SecurityEvent struct {
 type SecurityManager struct {
 	config          *SecurityConfig
 	globalLimiter   *rate.Limiter
-	clientLimiters  map[string]*rate.Limiter
-	connectionCount int
-	connections     map[string]*SecureConnection
-	mu              sync.RWMutex
+	clientLimiters  sync.Map // map[string]*rate.Limiter
+	connectionCount atomic.Int64
+	connections     sync.Map     // map[string]*SecureConnection
+	mu              sync.RWMutex // still needed for some operations
 	shutdownCh      chan struct{}
 	cleanupTicker   *time.Ticker
 }
@@ -147,11 +148,9 @@ func NewSecurityManager(config *SecurityConfig) *SecurityManager {
 	}
 
 	sm := &SecurityManager{
-		config:         config,
-		globalLimiter:  rate.NewLimiter(rate.Limit(config.GlobalRateLimit), int(config.GlobalRateLimit)),
-		clientLimiters: make(map[string]*rate.Limiter),
-		connections:    make(map[string]*SecureConnection),
-		shutdownCh:     make(chan struct{}),
+		config:        config,
+		globalLimiter: rate.NewLimiter(rate.Limit(config.GlobalRateLimit), int(config.GlobalRateLimit)),
+		shutdownCh:    make(chan struct{}),
 	}
 
 	// Start cleanup routine
@@ -195,10 +194,7 @@ func (sm *SecurityManager) ValidateUpgrade(w http.ResponseWriter, r *http.Reques
 	}
 
 	// Check connection count
-	sm.mu.RLock()
-	connCount := sm.connectionCount
-	sm.mu.RUnlock()
-
+	connCount := int(sm.connectionCount.Load())
 	if connCount >= sm.config.MaxConnections {
 		sm.logSecurityEvent(ctx, &SecurityEvent{
 			Type:      "connection_limit_exceeded",
@@ -335,11 +331,9 @@ func (sm *SecurityManager) SecureConnection(conn *websocket.Conn, authContext *A
 	})
 
 	// Register connection
-	sm.mu.Lock()
 	connectionID := fmt.Sprintf("%s_%d", clientIP, time.Now().UnixNano())
-	sm.connections[connectionID] = secureConn
-	sm.connectionCount++
-	sm.mu.Unlock()
+	sm.connections.Store(connectionID, secureConn)
+	sm.connectionCount.Add(1)
 
 	// Start ping routine
 	go sm.pingRoutine(secureConn)
@@ -399,16 +393,17 @@ func (sm *SecurityManager) checkOrigin(r *http.Request) bool {
 
 // getClientLimiter returns a rate limiter for the client
 func (sm *SecurityManager) getClientLimiter(clientIP string) *rate.Limiter {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
-	limiter, exists := sm.clientLimiters[clientIP]
-	if !exists {
-		limiter = rate.NewLimiter(rate.Limit(sm.config.ClientRateLimit), sm.config.ClientBurstSize)
-		sm.clientLimiters[clientIP] = limiter
+	if limiter, ok := sm.clientLimiters.Load(clientIP); ok {
+		return limiter.(*rate.Limiter)
 	}
 
-	return limiter
+	newLimiter := rate.NewLimiter(rate.Limit(sm.config.ClientRateLimit), sm.config.ClientBurstSize)
+
+	if actual, loaded := sm.clientLimiters.LoadOrStore(clientIP, newLimiter); loaded {
+		return actual.(*rate.Limiter)
+	}
+
+	return newLimiter
 }
 
 // pingRoutine handles ping/pong keepalive
@@ -451,26 +446,29 @@ func (sm *SecurityManager) cleanupRoutine() {
 
 // cleanupExpiredLimiters removes unused client limiters
 func (sm *SecurityManager) cleanupExpiredLimiters() {
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
 	// Remove limiters that haven't been used recently
 	cutoff := time.Now().Add(-30 * time.Minute)
-	for clientIP, limiter := range sm.clientLimiters {
+	sm.clientLimiters.Range(func(key, value interface{}) bool {
+		clientIP := key.(string)
+		limiter := value.(*rate.Limiter)
 		// Check if the limiter has been used recently
 		if limiter.Tokens() == float64(sm.config.ClientBurstSize) {
 			// If limiter is full, it hasn't been used recently
-			delete(sm.clientLimiters, clientIP)
+			sm.clientLimiters.Delete(clientIP)
 		}
-	}
+		return true
+	})
 
 	// Clean up disconnected connections
-	for id, conn := range sm.connections {
+	sm.connections.Range(func(key, value interface{}) bool {
+		id := key.(string)
+		conn := value.(*SecureConnection)
 		if conn.lastActivity.Before(cutoff) {
-			delete(sm.connections, id)
-			sm.connectionCount--
+			sm.connections.Delete(id)
+			sm.connectionCount.Add(-1)
 		}
-	}
+		return true
+	})
 }
 
 // updateActivity updates the last activity time
@@ -517,22 +515,25 @@ func (sm *SecurityManager) Shutdown() {
 	close(sm.shutdownCh)
 
 	// Close all connections
-	sm.mu.Lock()
-	defer sm.mu.Unlock()
-
-	for _, conn := range sm.connections {
+	sm.connections.Range(func(key, value interface{}) bool {
+		conn := value.(*SecureConnection)
 		conn.conn.Close()
-	}
+		return true
+	})
 }
 
 // GetStats returns security statistics
 func (sm *SecurityManager) GetStats() map[string]interface{} {
-	sm.mu.RLock()
-	defer sm.mu.RUnlock()
+	// Count client limiters
+	limiterCount := 0
+	sm.clientLimiters.Range(func(key, value interface{}) bool {
+		limiterCount++
+		return true
+	})
 
 	return map[string]interface{}{
-		"active_connections": sm.connectionCount,
-		"client_limiters":    len(sm.clientLimiters),
+		"active_connections": sm.connectionCount.Load(),
+		"client_limiters":    limiterCount,
 		"max_connections":    sm.config.MaxConnections,
 		"global_rate_limit":  sm.config.GlobalRateLimit,
 		"client_rate_limit":  sm.config.ClientRateLimit,
@@ -613,8 +614,8 @@ func getStringValue(obj interface{}, field string) string {
 
 // JWTTokenValidator provides JWT token validation
 type JWTTokenValidator struct {
-	secretKey     []byte          // For HMAC signing
-	publicKey     *rsa.PublicKey  // For RSA signing
+	secretKey     []byte         // For HMAC signing
+	publicKey     *rsa.PublicKey // For RSA signing
 	issuer        string
 	audience      string
 	signingMethod jwt.SigningMethod

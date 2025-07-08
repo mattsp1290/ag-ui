@@ -91,7 +91,7 @@ func TestConnectionStateTransitions(t *testing.T) {
 func TestConnectionReconnection(t *testing.T) {
 	// Setup test WebSocket server that can be stopped and started
 	server := createTestWebSocketServer(t)
-	
+
 	config := DefaultConnectionConfig()
 	config.URL = "ws" + strings.TrimPrefix(server.URL, "http")
 	config.Logger = zaptest.NewLogger(t)
@@ -362,7 +362,7 @@ func TestConnectionBackoffCalculation(t *testing.T) {
 	assert.Equal(t, 4*time.Second, conn.calculateBackoffDelay(2))
 	assert.Equal(t, 8*time.Second, conn.calculateBackoffDelay(3))
 	assert.Equal(t, 16*time.Second, conn.calculateBackoffDelay(4))
-	assert.Equal(t, 30*time.Second, conn.calculateBackoffDelay(5)) // Capped at max
+	assert.Equal(t, 30*time.Second, conn.calculateBackoffDelay(5))  // Capped at max
 	assert.Equal(t, 30*time.Second, conn.calculateBackoffDelay(10)) // Still capped
 }
 
@@ -380,7 +380,7 @@ func TestConnectionDialTimeout(t *testing.T) {
 
 	t.Run("DialTimeoutEnforced", func(t *testing.T) {
 		config := DefaultConnectionConfig()
-		config.URL = "ws://192.0.2.1:8080" // RFC 5737 TEST-NET-1 address that should timeout
+		config.URL = "ws://192.0.2.1:8080"          // RFC 5737 TEST-NET-1 address that should timeout
 		config.DialTimeout = 100 * time.Millisecond // Very short timeout
 		config.Logger = zaptest.NewLogger(t)
 

@@ -82,10 +82,10 @@ func ExampleFullConfig() (*TransportConfig, error) {
 
 	// Create transport config
 	config := &TransportConfig{
-		URLs: []string{"wss://api.yourdomain.com/ws"},
+		URLs:           []string{"wss://api.yourdomain.com/ws"},
 		SecurityConfig: securityConfig,
-		EventTimeout: 30 * time.Second,
-		MaxEventSize: 1024 * 1024, // 1MB
+		EventTimeout:   30 * time.Second,
+		MaxEventSize:   1024 * 1024, // 1MB
 	}
 
 	return config, nil

@@ -70,17 +70,17 @@ type HeartbeatManager struct {
 
 // HeartbeatStats tracks heartbeat statistics
 type HeartbeatStats struct {
-	PingsSent       int64
-	PongsReceived   int64
-	MissedPongs     int64
-	HealthChecks    int64
+	PingsSent        int64
+	PongsReceived    int64
+	MissedPongs      int64
+	HealthChecks     int64
 	UnhealthyPeriods int64
-	LastPingAt      time.Time
-	LastPongAt      time.Time
-	AverageRTT      time.Duration
-	MinRTT          time.Duration
-	MaxRTT          time.Duration
-	mutex           sync.RWMutex
+	LastPingAt       time.Time
+	LastPongAt       time.Time
+	AverageRTT       time.Duration
+	MinRTT           time.Duration
+	MaxRTT           time.Duration
+	mutex            sync.RWMutex
 }
 
 // NewHeartbeatManager creates a new heartbeat manager
@@ -122,12 +122,12 @@ func (h *HeartbeatManager) Start(ctx context.Context) {
 func (h *HeartbeatManager) Stop() {
 	h.stopOnce.Do(func() {
 		h.connection.config.Logger.Debug("Stopping heartbeat manager")
-		
+
 		h.setState(HeartbeatStopping)
 		close(h.stopCh)
 		h.wg.Wait()
 		h.setState(HeartbeatStopped)
-		
+
 		h.connection.config.Logger.Debug("Heartbeat manager stopped")
 	})
 }
@@ -143,7 +143,7 @@ func (h *HeartbeatManager) OnPong() {
 	h.stats.mutex.Lock()
 	h.stats.PongsReceived++
 	h.stats.LastPongAt = now
-	
+
 	// Calculate RTT if we have a recent ping
 	if h.stats.LastPingAt.After(now.Add(-h.pingPeriod)) {
 		rtt := now.Sub(h.stats.LastPingAt)
@@ -184,18 +184,18 @@ func (h *HeartbeatManager) Reset() {
 // setState atomically sets the heartbeat state
 func (h *HeartbeatManager) setState(state HeartbeatState) bool {
 	oldState := HeartbeatState(atomic.LoadInt32(&h.state))
-	
+
 	// Check if state transition is valid
 	if !h.isValidStateTransition(oldState, state) {
 		return false
 	}
 
 	atomic.StoreInt32(&h.state, int32(state))
-	
+
 	h.connection.config.Logger.Debug("Heartbeat state changed",
 		zap.String("from", oldState.String()),
 		zap.String("to", state.String()))
-	
+
 	return true
 }
 
@@ -235,7 +235,7 @@ func (h *HeartbeatManager) pingLoop(ctx context.Context) {
 			if err := h.sendPing(); err != nil {
 				h.connection.config.Logger.Error("Failed to send ping",
 					zap.Error(err))
-				
+
 				// Mark as unhealthy and potentially trigger reconnection
 				atomic.StoreInt32(&h.isHealthy, 0)
 				if h.connection.State() == StateConnected {
@@ -277,7 +277,7 @@ func (h *HeartbeatManager) sendPing() error {
 	}
 
 	now := time.Now()
-	
+
 	// Set write deadline
 	conn.SetWriteDeadline(now.Add(h.connection.config.WriteTimeout))
 
@@ -288,7 +288,7 @@ func (h *HeartbeatManager) sendPing() error {
 
 	// Update statistics
 	atomic.StoreInt64(&h.lastPingAt, now.Unix())
-	
+
 	h.stats.mutex.Lock()
 	h.stats.PingsSent++
 	h.stats.LastPingAt = now
@@ -304,7 +304,7 @@ func (h *HeartbeatManager) sendPing() error {
 func (h *HeartbeatManager) checkHealth() {
 	now := time.Now()
 	lastPongAt := time.Unix(atomic.LoadInt64(&h.lastPongAt), 0)
-	
+
 	h.stats.mutex.Lock()
 	h.stats.HealthChecks++
 	h.stats.mutex.Unlock()
@@ -312,7 +312,7 @@ func (h *HeartbeatManager) checkHealth() {
 	// Check if we've missed a pong
 	if now.Sub(lastPongAt) > h.pongWait {
 		missedPongs := atomic.AddInt32(&h.missedPongs, 1)
-		
+
 		h.stats.mutex.Lock()
 		h.stats.MissedPongs++
 		h.stats.mutex.Unlock()
@@ -325,11 +325,11 @@ func (h *HeartbeatManager) checkHealth() {
 		// Mark as unhealthy after first missed pong
 		if atomic.LoadInt32(&h.isHealthy) == 1 {
 			atomic.StoreInt32(&h.isHealthy, 0)
-			
+
 			h.stats.mutex.Lock()
 			h.stats.UnhealthyPeriods++
 			h.stats.mutex.Unlock()
-			
+
 			h.connection.config.Logger.Warn("Connection marked as unhealthy")
 		}
 
@@ -337,7 +337,7 @@ func (h *HeartbeatManager) checkHealth() {
 		if missedPongs >= 3 {
 			h.connection.config.Logger.Error("Too many missed pongs, triggering reconnection",
 				zap.Int32("missed_pongs", missedPongs))
-			
+
 			if h.connection.State() == StateConnected {
 				h.connection.triggerReconnect()
 			}
@@ -413,7 +413,7 @@ func (h *HeartbeatManager) GetConnectionHealth() float64 {
 
 	now := time.Now()
 	lastPongAt := h.GetLastPongTime()
-	
+
 	// Calculate health based on how recent the last pong was
 	// within the pong wait period
 	timeSinceLastPong := now.Sub(lastPongAt)
@@ -434,24 +434,24 @@ func (h *HeartbeatManager) GetConnectionHealth() float64 {
 func (h *HeartbeatManager) GetDetailedHealthStatus() map[string]interface{} {
 	stats := h.GetStats()
 	now := time.Now()
-	
+
 	return map[string]interface{}{
-		"is_healthy":            h.IsHealthy(),
-		"health_score":          h.GetConnectionHealth(),
-		"state":                 h.GetState().String(),
-		"last_ping_at":          h.GetLastPingTime(),
-		"last_pong_at":          h.GetLastPongTime(),
-		"time_since_last_pong":  now.Sub(h.GetLastPongTime()),
-		"missed_pongs":          h.GetMissedPongCount(),
-		"ping_period":           h.GetPingPeriod(),
-		"pong_wait":             h.GetPongWait(),
-		"total_pings_sent":      stats.PingsSent,
-		"total_pongs_received":  stats.PongsReceived,
-		"total_missed_pongs":    stats.MissedPongs,
-		"health_checks":         stats.HealthChecks,
-		"unhealthy_periods":     stats.UnhealthyPeriods,
-		"average_rtt":           stats.AverageRTT,
-		"min_rtt":               stats.MinRTT,
-		"max_rtt":               stats.MaxRTT,
+		"is_healthy":           h.IsHealthy(),
+		"health_score":         h.GetConnectionHealth(),
+		"state":                h.GetState().String(),
+		"last_ping_at":         h.GetLastPingTime(),
+		"last_pong_at":         h.GetLastPongTime(),
+		"time_since_last_pong": now.Sub(h.GetLastPongTime()),
+		"missed_pongs":         h.GetMissedPongCount(),
+		"ping_period":          h.GetPingPeriod(),
+		"pong_wait":            h.GetPongWait(),
+		"total_pings_sent":     stats.PingsSent,
+		"total_pongs_received": stats.PongsReceived,
+		"total_missed_pongs":   stats.MissedPongs,
+		"health_checks":        stats.HealthChecks,
+		"unhealthy_periods":    stats.UnhealthyPeriods,
+		"average_rtt":          stats.AverageRTT,
+		"min_rtt":              stats.MinRTT,
+		"max_rtt":              stats.MaxRTT,
 	}
 }

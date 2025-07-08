@@ -38,6 +38,16 @@ The performance optimization system provides comprehensive enhancements to suppo
 - **Implementation**: Optimized serialization and minimal processing overhead
 - **Benefits**: Real-time communication capabilities
 
+### 7. Dynamic Memory Monitoring
+- **Target**: Adaptive memory monitoring based on actual system pressure
+- **Implementation**: Pressure-based monitoring intervals that adjust automatically
+- **Benefits**: Reduced overhead during low pressure, rapid response during high pressure
+- **Interval Ranges**:
+  - Low pressure (<50%): 60-second intervals
+  - Medium pressure (50-70%): 15-second intervals
+  - High pressure (85%+): 2-second intervals
+  - Critical pressure (95%+): 500ms intervals
+
 ## Architecture
 
 ### Core Components
@@ -48,7 +58,7 @@ The performance optimization system provides comprehensive enhancements to suppo
 4. **ConnectionPoolManager**: Connection slot management for scalability
 5. **SerializerFactory**: Optimized serialization with pooled serializers
 6. **MetricsCollector**: Performance monitoring and analytics
-7. **MemoryManager**: Memory usage tracking and garbage collection optimization
+7. **MemoryManager**: Memory usage tracking with dynamic monitoring intervals based on memory pressure
 8. **AdaptiveOptimizer**: Automatic performance tuning based on runtime metrics
 
 ### Integration with Transport
@@ -127,9 +137,10 @@ The system collects comprehensive performance metrics:
 - P95 and P99 latency percentiles
 
 ### Memory Metrics
-- Memory usage
+- Memory usage and pressure percentage
 - Buffer pool utilization
 - Garbage collection statistics
+- Dynamic monitoring interval (adjusts based on memory pressure)
 
 ### System Metrics
 - CPU usage
@@ -193,6 +204,16 @@ if metrics != nil {
 // Monitor memory usage
 memoryUsage := transport.GetMemoryUsage()
 log.Printf("Current memory usage: %d MB", memoryUsage/(1024*1024))
+
+// Get memory pressure and monitoring interval
+if perfManager := transport.GetPerformanceManager(); perfManager != nil {
+    if memManager := perfManager.GetMemoryManager(); memManager != nil {
+        pressure := memManager.GetMemoryPressure()
+        interval := memManager.GetMonitoringInterval()
+        log.Printf("Memory pressure: %.2f%%", pressure)
+        log.Printf("Monitoring interval: %v", interval)
+    }
+}
 ```
 
 ### Optimization Strategies

@@ -46,7 +46,7 @@ type ChaosServer struct {
 	connections  map[string]*ChaosConnection
 	connMutex    sync.RWMutex
 	logger       *zap.Logger
-	
+
 	// Chaos injection
 	randomDisconnects bool
 	disconnectRate    float64
@@ -82,7 +82,7 @@ func NewChaosServer(t testing.TB) *ChaosServer {
 func NewChaosTLSServer(t testing.TB) *ChaosServer {
 	server := NewChaosServer(t)
 	server.server.Close()
-	
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", server.handleWebSocket)
 	server.server = httptest.NewTLSServer(mux)
@@ -318,7 +318,7 @@ func (m *NetworkTestMetrics) RecordNetworkError() {
 func (m *NetworkTestMetrics) RecordRecoveryTime(duration time.Duration) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	m.recoveryTime = duration
 	if duration > m.maxRecoveryTime {
 		m.maxRecoveryTime = duration
@@ -428,11 +428,11 @@ func TestNetworkLatency(t *testing.T) {
 
 			// Verify messages were sent successfully
 			assert.Equal(t, int64(numMessages), successfulMessages)
-			
+
 			// Average time per message should account for latency
 			avgTimePerMessage := totalTime / time.Duration(numMessages)
 			t.Logf("Average time per message with %v latency: %v", latency, avgTimePerMessage)
-			
+
 			// Should still maintain connectivity
 			assert.True(t, transport.IsConnected())
 		})
@@ -494,7 +494,7 @@ func TestPacketLoss(t *testing.T) {
 			}
 
 			successRate := float64(successfulMessages) / float64(numMessages)
-			t.Logf("Success rate with %.0f%% packet loss: %.2f%%", 
+			t.Logf("Success rate with %.0f%% packet loss: %.2f%%",
 				lossRate*100, successRate*100)
 
 			// Even with packet loss, should maintain reasonable success rate
@@ -579,7 +579,7 @@ func TestNetworkPartition(t *testing.T) {
 		partitionDuration := 5 * time.Second
 		time.Sleep(partitionDuration)
 		t.Log("Simulating network recovery...")
-		
+
 		recoveryStart := time.Now()
 		server.SetDisconnected(false)
 
@@ -597,9 +597,9 @@ func TestNetworkPartition(t *testing.T) {
 			recoveryTime := time.Since(recoveryStart)
 			metrics.RecordRecoveryTime(recoveryTime)
 			metrics.AddDowntime(partitionDuration + recoveryTime)
-			
+
 			t.Logf("Network recovery completed in %v", recoveryTime)
-			
+
 			// Verify connections are re-established
 			assert.Eventually(t, func() bool {
 				return transport.GetActiveConnectionCount() >= initialConnections
@@ -621,7 +621,7 @@ func TestNetworkPartition(t *testing.T) {
 			}
 
 			// Recovery should be reasonably fast
-			assert.Less(t, recoveryTime, 15*time.Second, 
+			assert.Less(t, recoveryTime, 15*time.Second,
 				"Recovery should complete within 15 seconds")
 		}
 
@@ -700,19 +700,19 @@ func TestIntermittentConnectivity(t *testing.T) {
 			// Wait a bit more for potential recovery
 			assert.Eventually(t, func() bool {
 				return transport.IsConnected()
-			}, 10*time.Second, 500*time.Millisecond, 
-			"Should eventually reconnect after intermittent issues")
+			}, 10*time.Second, 500*time.Millisecond,
+				"Should eventually reconnect after intermittent issues")
 		}
 
 		// Even with intermittent issues, should achieve reasonable success rate
 		summary := metrics.GetSummary()
 		successRate := summary["message_success_rate"].(float64)
-		
+
 		t.Logf("Message success rate under intermittent connectivity: %.2f%%", successRate*100)
 		t.Logf("Intermittent Connectivity Test Summary: %+v", summary)
 
 		// Should maintain reasonable performance despite intermittent issues
-		assert.Greater(t, successRate, 0.7, 
+		assert.Greater(t, successRate, 0.7,
 			"Should maintain >70% success rate despite intermittent connectivity")
 	})
 }
@@ -827,7 +827,7 @@ func TestMessageCorruption(t *testing.T) {
 		t.Logf("Message send success rate with corruption: %.2f%%", successRate*100)
 
 		// Should be able to send messages despite corruption
-		assert.Greater(t, successRate, 0.9, 
+		assert.Greater(t, successRate, 0.9,
 			"Should maintain high send success rate despite message corruption")
 
 		// Connection should remain stable
@@ -890,7 +890,7 @@ func TestCascadingFailures(t *testing.T) {
 
 		// Should still have connections to other servers
 		assert.True(t, transport.IsConnected(), "Should maintain connectivity after 1 server failure")
-		
+
 		// Test message sending
 		for i := 0; i < 5; i++ {
 			event := &MockEvent{
@@ -933,10 +933,10 @@ func TestCascadingFailures(t *testing.T) {
 
 		// Phase 4: Gradual recovery
 		t.Log("Phase 4: Starting recovery")
-		
+
 		// Restore servers one by one
 		servers[2].SetDisconnected(false)
-		
+
 		// Should reconnect to available server
 		assert.Eventually(t, func() bool {
 			return transport.IsConnected()
@@ -964,7 +964,7 @@ func TestCascadingFailures(t *testing.T) {
 			assert.NoError(t, err, "Should send messages after full recovery")
 		}
 
-		assert.GreaterOrEqual(t, finalConnections, 2, 
+		assert.GreaterOrEqual(t, finalConnections, 2,
 			"Should restore reasonable number of connections")
 	})
 }
@@ -1021,9 +1021,9 @@ func TestSlowNetworkConditions(t *testing.T) {
 		t.Logf("Average message time with high jitter: %v", avgTime)
 
 		// Should handle jittery network conditions
-		assert.Equal(t, int64(numMessages), successfulMessages, 
+		assert.Equal(t, int64(numMessages), successfulMessages,
 			"Should send all messages despite network jitter")
-		assert.True(t, transport.IsConnected(), 
+		assert.True(t, transport.IsConnected(),
 			"Should maintain connectivity despite jitter")
 	})
 }

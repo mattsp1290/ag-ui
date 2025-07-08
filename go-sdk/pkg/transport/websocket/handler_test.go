@@ -17,12 +17,12 @@ func TestEventHandlerReliableRemoval(t *testing.T) {
 	// Create a transport with minimal config
 	config := &TransportConfig{
 		URLs:                  []string{"ws://localhost:8080"},
-		PoolConfig:           DefaultPoolConfig(),
-		PerformanceConfig:    DefaultPerformanceConfig(),
-		EventTimeout:         30 * time.Second,
-		MaxEventSize:         1024 * 1024,
+		PoolConfig:            DefaultPoolConfig(),
+		PerformanceConfig:     DefaultPerformanceConfig(),
+		EventTimeout:          30 * time.Second,
+		MaxEventSize:          1024 * 1024,
 		EnableEventValidation: false,
-		Logger:               zap.NewNop(),
+		Logger:                zap.NewNop(),
 	}
 
 	transport, err := NewTransport(config)
@@ -187,7 +187,7 @@ func TestEventHandlerReliableRemoval(t *testing.T) {
 func getHandlerCount(t *Transport, eventType string) int {
 	t.handlersMutex.RLock()
 	defer t.handlersMutex.RUnlock()
-	
+
 	if handlers, exists := t.eventHandlers[eventType]; exists {
 		return len(handlers)
 	}

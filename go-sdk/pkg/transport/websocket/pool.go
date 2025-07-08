@@ -18,27 +18,27 @@ import (
 type ConnectionPool struct {
 	// Configuration
 	config *PoolConfig
-	
+
 	// Connection management
 	connections map[string]*Connection
 	connMutex   sync.RWMutex
-	
+
 	// Load balancing
 	roundRobinIndex int64
 	connectionKeys  []string
 	keysMutex       sync.RWMutex
-	
+
 	// Health monitoring
 	healthChecker *HealthChecker
-	
+
 	// Statistics
 	stats *PoolStats
-	
+
 	// Lifecycle management
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
-	
+
 	// Event handlers
 	onConnectionStateChange func(connID string, state ConnectionState)
 	onHealthChange          func(connID string, healthy bool)
@@ -50,31 +50,31 @@ type ConnectionPool struct {
 type PoolConfig struct {
 	// MinConnections is the minimum number of connections to maintain
 	MinConnections int
-	
+
 	// MaxConnections is the maximum number of connections allowed
 	MaxConnections int
-	
+
 	// ConnectionTimeout is the timeout for establishing connections
 	ConnectionTimeout time.Duration
-	
+
 	// HealthCheckInterval is the interval for health checks
 	HealthCheckInterval time.Duration
-	
+
 	// IdleTimeout is the timeout for idle connections
 	IdleTimeout time.Duration
-	
+
 	// MaxIdleConnections is the maximum number of idle connections
 	MaxIdleConnections int
-	
+
 	// LoadBalancingStrategy defines how connections are selected
 	LoadBalancingStrategy LoadBalancingStrategy
-	
+
 	// ConnectionTemplate is the template configuration for new connections
 	ConnectionTemplate *ConnectionConfig
-	
+
 	// URLs are the WebSocket URLs to connect to
 	URLs []string
-	
+
 	// Logger is the logger instance
 	Logger *zap.Logger
 }
@@ -111,17 +111,17 @@ func (s LoadBalancingStrategy) String() string {
 
 // PoolStats tracks connection pool statistics
 type PoolStats struct {
-	TotalConnections    int64
-	ActiveConnections   int64
-	IdleConnections     int64
-	HealthyConnections  int64
+	TotalConnections     int64
+	ActiveConnections    int64
+	IdleConnections      int64
+	HealthyConnections   int64
 	UnhealthyConnections int64
-	TotalRequests       int64
-	FailedRequests      int64
-	TotalBytesReceived  int64
-	TotalBytesSent      int64
-	AverageResponseTime time.Duration
-	mutex               sync.RWMutex
+	TotalRequests        int64
+	FailedRequests       int64
+	TotalBytesReceived   int64
+	TotalBytesSent       int64
+	AverageResponseTime  time.Duration
+	mutex                sync.RWMutex
 }
 
 // DefaultPoolConfig returns a default configuration for the connection pool
@@ -279,7 +279,7 @@ func (p *ConnectionPool) GetConnection(ctx context.Context) (*Connection, error)
 // SendMessage sends a message through the pool using load balancing
 func (p *ConnectionPool) SendMessage(ctx context.Context, message []byte) error {
 	start := time.Now()
-	
+
 	// Update stats
 	p.stats.mutex.Lock()
 	p.stats.TotalRequests++
@@ -477,7 +477,7 @@ func (p *ConnectionPool) removeConnection(connID string) {
 		conn.Close()
 		delete(p.connections, connID)
 		p.updateConnectionKeys()
-		
+
 		p.config.Logger.Info("Removed connection",
 			zap.String("id", connID))
 	}
@@ -604,7 +604,7 @@ func (h *HealthChecker) checkHealth() {
 
 	for id, conn := range connections {
 		healthy := conn.IsConnected() && conn.heartbeat.IsHealthy()
-		
+
 		// Check if health status changed
 		if previousHealth, exists := h.cache.Get(id); exists {
 			if previousHealth != healthy {
@@ -644,7 +644,7 @@ func (h *HealthChecker) checkHealth() {
 			h.pool.connMutex.RLock()
 			currentConnCount := len(h.pool.connections)
 			h.pool.connMutex.RUnlock()
-			
+
 			if currentConnCount >= h.pool.config.MaxConnections {
 				break
 			}
@@ -664,14 +664,14 @@ func (p *ConnectionPool) GetDetailedStatus() map[string]interface{} {
 	connections := make(map[string]interface{})
 	for id, conn := range p.connections {
 		connections[id] = map[string]interface{}{
-			"url":           conn.GetURL(),
-			"state":         conn.State().String(),
-			"is_connected":  conn.IsConnected(),
-			"last_connected": conn.GetLastConnected(),
+			"url":                conn.GetURL(),
+			"state":              conn.State().String(),
+			"is_connected":       conn.IsConnected(),
+			"last_connected":     conn.GetLastConnected(),
 			"reconnect_attempts": conn.GetReconnectAttempts(),
-			"last_error":    conn.LastError(),
-			"metrics":       conn.GetMetrics(),
-			"heartbeat":     conn.heartbeat.GetDetailedHealthStatus(),
+			"last_error":         conn.LastError(),
+			"metrics":            conn.GetMetrics(),
+			"heartbeat":          conn.heartbeat.GetDetailedHealthStatus(),
 		}
 	}
 

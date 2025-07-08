@@ -78,7 +78,7 @@ func (s *TestWebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Req
 	}
 
 	connID := fmt.Sprintf("%s_%d", r.RemoteAddr, time.Now().UnixNano())
-	
+
 	s.connMutex.Lock()
 	s.connections[connID] = conn
 	s.connMutex.Unlock()
@@ -95,9 +95,9 @@ func (s *TestWebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Req
 		if s.closeDelay > 0 {
 			time.Sleep(s.closeDelay)
 		}
-		
+
 		conn.Close()
-		
+
 		if s.onDisconnect != nil {
 			s.onDisconnect(conn, nil)
 		}
@@ -386,7 +386,7 @@ func TestReconnectionIntegration(t *testing.T) {
 		// Note: In a real scenario, the URL would be the same but the server would restart
 		// For testing, we'll verify that reconnection attempts occur
 		poolStats := transport.GetConnectionPoolStats()
-		
+
 		// Should eventually try to reconnect
 		assert.Eventually(t, func() bool {
 			currentStats := transport.GetConnectionPoolStats()
@@ -687,13 +687,13 @@ func TestHighThroughputIntegration(t *testing.T) {
 		duration := time.Since(startTime)
 
 		assert.Equal(t, int32(0), errors)
-		
+
 		stats := transport.GetStats()
 		assert.Equal(t, int64(numMessages), stats.EventsSent)
-		
+
 		throughput := float64(numMessages) / duration.Seconds()
 		t.Logf("Sent %d messages in %v (%.2f messages/sec)", numMessages, duration, throughput)
-		
+
 		// Should achieve reasonable throughput
 		assert.Greater(t, throughput, 100.0) // At least 100 messages per second
 	})
@@ -740,7 +740,7 @@ func TestRealWorldScenarios(t *testing.T) {
 			wg.Add(1)
 			go func(conversationID int) {
 				defer wg.Done()
-				
+
 				for msg := 0; msg < messagesPerConversation; msg++ {
 					for _, eventType := range eventTypes {
 						event := &MockEvent{
@@ -750,7 +750,7 @@ func TestRealWorldScenarios(t *testing.T) {
 
 						err := transport.SendEvent(ctx, event)
 						assert.NoError(t, err)
-						
+
 						// Small delay between message parts
 						time.Sleep(10 * time.Millisecond)
 					}
@@ -780,7 +780,7 @@ func TestRealWorldScenarios(t *testing.T) {
 			eventTypes := []string{fmt.Sprintf("dynamic_event_%d", i)}
 			sub, err := transport.Subscribe(ctx, eventTypes, handler)
 			require.NoError(t, err)
-			
+
 			mu.Lock()
 			subscriptions = append(subscriptions, sub)
 			mu.Unlock()
@@ -846,15 +846,15 @@ func TestConnectionPoolIntegration(t *testing.T) {
 		// Verify connections are distributed across servers
 		assert.Eventually(t, func() bool {
 			return server1.GetConnectionCount() >= 1 &&
-				   server2.GetConnectionCount() >= 1 &&
-				   server3.GetConnectionCount() >= 1
+				server2.GetConnectionCount() >= 1 &&
+				server3.GetConnectionCount() >= 1
 		}, 5*time.Second, 100*time.Millisecond)
 
 		// Check detailed status
 		status := transport.GetDetailedStatus()
 		connectionPool, ok := status["connection_pool"].(map[string]interface{})
 		require.True(t, ok)
-		
+
 		totalConnections, ok := connectionPool["total_connections"].(int)
 		require.True(t, ok)
 		assert.GreaterOrEqual(t, totalConnections, 3)
@@ -882,9 +882,9 @@ func TestConnectionPoolIntegration(t *testing.T) {
 		assert.Equal(t, int64(numMessages), stats.EventsSent)
 
 		// All servers should have received some connections
-		totalServerConnections := server1.GetConnectionCount() + 
-								 server2.GetConnectionCount() + 
-								 server3.GetConnectionCount()
+		totalServerConnections := server1.GetConnectionCount() +
+			server2.GetConnectionCount() +
+			server3.GetConnectionCount()
 		assert.GreaterOrEqual(t, totalServerConnections, 3)
 	})
 }

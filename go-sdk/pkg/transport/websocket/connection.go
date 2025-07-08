@@ -325,7 +325,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 	c.wg.Add(2)
 	go c.readPump()
 	go c.writePump()
-	
+
 	// Start heartbeat (manages its own goroutines)
 	c.heartbeat.Start(c.ctx)
 
@@ -448,18 +448,18 @@ func (c *Connection) State() ConnectionState {
 // setState atomically sets the connection state
 func (c *Connection) setState(state ConnectionState) bool {
 	oldState := ConnectionState(atomic.LoadInt32(&c.state))
-	
+
 	// Check if state transition is valid
 	if !c.isValidStateTransition(oldState, state) {
 		return false
 	}
 
 	atomic.StoreInt32(&c.state, int32(state))
-	
+
 	c.config.Logger.Debug("Connection state changed",
 		zap.String("from", oldState.String()),
 		zap.String("to", state.String()))
-	
+
 	return true
 }
 
@@ -579,7 +579,7 @@ func (c *Connection) readPump() {
 			_, message, err := conn.ReadMessage()
 			if err != nil {
 				c.setError(fmt.Errorf("failed to read message: %w", err))
-				
+
 				// Check if we should reconnect
 				if c.State() == StateConnected {
 					c.triggerReconnect()
@@ -628,7 +628,7 @@ func (c *Connection) writePump() {
 			// Write message
 			if err := conn.WriteMessage(websocket.TextMessage, message); err != nil {
 				c.setError(fmt.Errorf("failed to write message: %w", err))
-				
+
 				// Check if we should reconnect
 				if c.State() == StateConnected {
 					c.triggerReconnect()
@@ -649,7 +649,7 @@ func (c *Connection) writePump() {
 func (c *Connection) triggerReconnect() {
 	if c.State() == StateConnected {
 		c.setState(StateReconnecting)
-		
+
 		select {
 		case c.reconnectCh <- struct{}{}:
 		default:
@@ -682,7 +682,7 @@ func (c *Connection) autoReconnectLoop(ctx context.Context) {
 // performReconnect performs the actual reconnection logic
 func (c *Connection) performReconnect(ctx context.Context) {
 	attempts := atomic.LoadInt32(&c.reconnectAttempts)
-	
+
 	// Check if we've exceeded max attempts
 	if c.config.MaxReconnectAttempts > 0 && int(attempts) >= c.config.MaxReconnectAttempts {
 		c.config.Logger.Error("Max reconnection attempts exceeded",
@@ -697,7 +697,7 @@ func (c *Connection) performReconnect(ctx context.Context) {
 
 	// Calculate backoff delay
 	delay := c.calculateBackoffDelay(int(attempts))
-	
+
 	c.config.Logger.Info("Attempting to reconnect",
 		zap.Int32("attempt", attempts+1),
 		zap.Duration("delay", delay))
@@ -713,7 +713,7 @@ func (c *Connection) performReconnect(ctx context.Context) {
 
 	// Increment attempt counter
 	atomic.AddInt32(&c.reconnectAttempts, 1)
-	
+
 	c.metrics.mutex.Lock()
 	c.metrics.ReconnectAttempts++
 	c.metrics.mutex.Unlock()
@@ -723,7 +723,7 @@ func (c *Connection) performReconnect(ctx context.Context) {
 		c.config.Logger.Error("Reconnection failed",
 			zap.Error(err),
 			zap.Int32("attempt", attempts+1))
-		
+
 		// Trigger another reconnection attempt
 		c.triggerReconnect()
 	} else {
@@ -741,12 +741,12 @@ func (c *Connection) calculateBackoffDelay(attempts int) time.Duration {
 	// Calculate exponential backoff: base * multiplier^attempts
 	base := float64(c.config.InitialReconnectDelay)
 	multiplier := c.config.ReconnectBackoffMultiplier
-	
+
 	delay := base
 	for i := 0; i < attempts; i++ {
 		delay *= multiplier
 	}
-	
+
 	// Cap at maximum delay
 	if delay > float64(c.config.MaxReconnectDelay) {
 		delay = float64(c.config.MaxReconnectDelay)

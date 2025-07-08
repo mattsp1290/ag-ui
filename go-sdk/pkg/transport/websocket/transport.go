@@ -105,15 +105,15 @@ type Subscription struct {
 
 // TransportStats tracks transport statistics
 type TransportStats struct {
-	EventsSent        int64
-	EventsReceived    int64
-	EventsProcessed   int64
-	EventsFailed      int64
+	EventsSent          int64
+	EventsReceived      int64
+	EventsProcessed     int64
+	EventsFailed        int64
 	ActiveSubscriptions int64
-	TotalSubscriptions int64
-	BytesTransferred  int64
-	AverageLatency    time.Duration
-	mutex             sync.RWMutex
+	TotalSubscriptions  int64
+	BytesTransferred    int64
+	AverageLatency      time.Duration
+	mutex               sync.RWMutex
 }
 
 // DefaultTransportConfig returns a default configuration for the WebSocket transport
@@ -519,13 +519,13 @@ func (t *Transport) GetDetailedStatus() map[string]interface{} {
 	t.handlersMutex.RLock()
 	eventHandlersCount := len(t.eventHandlers)
 	t.handlersMutex.RUnlock()
-	
+
 	return map[string]interface{}{
-		"transport_stats":     t.GetStats(),
-		"connection_pool":     t.pool.GetDetailedStatus(),
-		"subscriptions":       subscriptions,
+		"transport_stats":      t.GetStats(),
+		"connection_pool":      t.pool.GetDetailedStatus(),
+		"subscriptions":        subscriptions,
 		"active_subscriptions": len(subscriptions),
-		"event_handlers":      eventHandlersCount,
+		"event_handlers":       eventHandlersCount,
 	}
 }
 
@@ -631,7 +631,7 @@ func (t *Transport) processIncomingEvent(data []byte) error {
 	// Execute handlers
 	for _, wrapper := range handlers {
 		handlerCtx, cancel := context.WithTimeout(context.Background(), t.config.EventTimeout)
-		
+
 		if err := wrapper.Handler(handlerCtx, event); err != nil {
 			t.config.Logger.Error("Event handler failed",
 				zap.String("event_type", eventTypeStr),
@@ -668,7 +668,7 @@ func (m *mockEvent) ToJSON() ([]byte, error) {
 	return json.Marshal(m.data)
 }
 func (m *mockEvent) ToProtobuf() (*generated.Event, error) { return nil, nil }
-func (m *mockEvent) GetBaseEvent() *events.BaseEvent      { return nil }
+func (m *mockEvent) GetBaseEvent() *events.BaseEvent       { return nil }
 
 // IsConnected returns true if the transport has healthy connections
 func (t *Transport) IsConnected() bool {
@@ -784,9 +784,9 @@ func (t *Transport) EnableAdaptiveOptimization() {
 	if t.performanceManager == nil {
 		return
 	}
-	
+
 	adaptiveOptimizer := NewAdaptiveOptimizer(t.performanceManager)
-	
+
 	// Start adaptive optimizer in background
 	t.wg.Add(1)
 	go func() {

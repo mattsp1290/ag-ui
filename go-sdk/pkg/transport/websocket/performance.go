@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unsafe"
 
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
@@ -370,11 +371,11 @@ type MessageBatcher struct {
 	messages     chan []byte
 	batches      chan [][]byte
 	stats        struct {
-		messagesIn  int64
-		batchesOut  int64
+		messagesIn   int64
+		batchesOut   int64
 		avgBatchSize float64
 	}
-	mutex        sync.RWMutex // Protect avgBatchSize field
+	mutex sync.RWMutex // Protect avgBatchSize field
 }
 
 // NewMessageBatcher creates a new message batcher
@@ -472,7 +473,7 @@ func (mb *MessageBatcher) GetStats() map[string]interface{} {
 	mb.mutex.RLock()
 	avgBatchSize := mb.stats.avgBatchSize
 	mb.mutex.RUnlock()
-	
+
 	return map[string]interface{}{
 		"messages_in":    atomic.LoadInt64(&mb.stats.messagesIn),
 		"batches_out":    atomic.LoadInt64(&mb.stats.batchesOut),
@@ -495,10 +496,10 @@ type ConnectionPoolManager struct {
 
 // ConnectionSlot represents a connection slot
 type ConnectionSlot struct {
-	ID        string
+	ID         string
 	AcquiredAt time.Time
-	InUse     bool
-	mutex     sync.RWMutex
+	InUse      bool
+	mutex      sync.RWMutex
 }
 
 // NewConnectionPoolManager creates a new connection pool manager
@@ -571,7 +572,7 @@ func (cpm *ConnectionPoolManager) GetStats() map[string]int64 {
 	cpm.mutex.RLock()
 	activeSlots := int64(len(cpm.activeSlots))
 	cpm.mutex.RUnlock()
-	
+
 	return map[string]int64{
 		"slots_acquired": atomic.LoadInt64(&cpm.stats.slotsAcquired),
 		"slots_released": atomic.LoadInt64(&cpm.stats.slotsReleased),
@@ -717,7 +718,10 @@ func (zcb *ZeroCopyBuffer) Bytes() []byte {
 // String returns the buffer data as a string using zero-copy
 func (zcb *ZeroCopyBuffer) String() string {
 	data := zcb.data[zcb.offset:]
-	return string(data)
+	if len(data) == 0 {
+		return ""
+	}
+	return unsafe.String(unsafe.SliceData(data), len(data))
 }
 
 // Advance advances the buffer offset
@@ -748,35 +752,35 @@ type MetricsCollector struct {
 // PerformanceMetrics contains various performance metrics
 type PerformanceMetrics struct {
 	// Connection metrics
-	ActiveConnections     int64
-	TotalConnections      int64
-	ConnectionsPerSecond  float64
-	AvgConnectionTime     time.Duration
+	ActiveConnections    int64
+	TotalConnections     int64
+	ConnectionsPerSecond float64
+	AvgConnectionTime    time.Duration
 
 	// Message metrics
-	MessagesPerSecond     float64
-	MessagesSent          int64
-	MessagesReceived      int64
-	MessagesFailures      int64
-	AvgMessageSize        float64
+	MessagesPerSecond float64
+	MessagesSent      int64
+	MessagesReceived  int64
+	MessagesFailures  int64
+	AvgMessageSize    float64
 
 	// Latency metrics
-	AvgLatency            time.Duration
-	MinLatency            time.Duration
-	MaxLatency            time.Duration
-	P95Latency            time.Duration
-	P99Latency            time.Duration
+	AvgLatency time.Duration
+	MinLatency time.Duration
+	MaxLatency time.Duration
+	P95Latency time.Duration
+	P99Latency time.Duration
 
 	// Throughput metrics
-	BytesPerSecond        float64
-	TotalBytesSent        int64
-	TotalBytesReceived    int64
+	BytesPerSecond     float64
+	TotalBytesSent     int64
+	TotalBytesReceived int64
 
 	// Memory metrics
-	MemoryUsage           int64
-	BufferPoolUsage       int64
-	GCPauses              int64
-	AvgGCPause            time.Duration
+	MemoryUsage     int64
+	BufferPoolUsage int64
+	GCPauses        int64
+	AvgGCPause      time.Duration
 
 	// Serialization metrics
 	SerializationTime     time.Duration
@@ -784,21 +788,21 @@ type PerformanceMetrics struct {
 	SerializationFailures int64
 
 	// Error metrics
-	ErrorRate             float64
-	TotalErrors           int64
-	ConnectionErrors      int64
-	TimeoutErrors         int64
+	ErrorRate        float64
+	TotalErrors      int64
+	ConnectionErrors int64
+	TimeoutErrors    int64
 
 	// System metrics
-	CPUUsage              float64
-	GoroutineCount        int64
-	HeapSize              int64
-	StackSize             int64
+	CPUUsage       float64
+	GoroutineCount int64
+	HeapSize       int64
+	StackSize      int64
 
 	// Timestamps
-	StartTime             time.Time
-	LastUpdate            time.Time
-	Uptime                time.Duration
+	StartTime  time.Time
+	LastUpdate time.Time
+	Uptime     time.Duration
 }
 
 // NewMetricsCollector creates a new metrics collector
@@ -950,12 +954,12 @@ func (mc *MetricsCollector) GetMetrics() *PerformanceMetrics {
 
 // Profiler handles CPU and memory profiling
 type Profiler struct {
-	interval      time.Duration
-	cpuProfile    *pprof.Profile
-	memProfile    *pprof.Profile
-	enabled       bool
-	profileData   map[string]interface{}
-	mutex         sync.RWMutex
+	interval    time.Duration
+	cpuProfile  *pprof.Profile
+	memProfile  *pprof.Profile
+	enabled     bool
+	profileData map[string]interface{}
+	mutex       sync.RWMutex
 }
 
 // NewProfiler creates a new profiler
@@ -1040,12 +1044,15 @@ func (p *Profiler) Disable() {
 
 // MemoryManager manages memory usage and optimization
 type MemoryManager struct {
-	maxMemory     int64
-	currentUsage  int64
-	gcThreshold   int64
-	bufferPools   []*BufferPool
-	mutex         sync.RWMutex
-	stats         struct {
+	maxMemory       int64
+	currentUsage    int64
+	gcThreshold     int64
+	bufferPools     []*BufferPool
+	mutex           sync.RWMutex
+	currentInterval time.Duration
+	lastPressure    float64
+	checkNow        chan struct{} // Channel to trigger immediate checks
+	stats           struct {
 		allocations   int64
 		deallocations int64
 		gcTriggers    int64
@@ -1056,17 +1063,43 @@ type MemoryManager struct {
 // NewMemoryManager creates a new memory manager
 func NewMemoryManager(maxMemory int64) *MemoryManager {
 	return &MemoryManager{
-		maxMemory:   maxMemory,
-		gcThreshold: maxMemory * 80 / 100, // 80% of max memory
-		bufferPools: make([]*BufferPool, 0),
+		maxMemory:       maxMemory,
+		gcThreshold:     maxMemory * 80 / 100, // 80% of max memory
+		bufferPools:     make([]*BufferPool, 0),
+		currentInterval: 60 * time.Second, // Start with low pressure interval
+		lastPressure:    0,
+		checkNow:        make(chan struct{}, 1),
 	}
 }
 
-// Start starts the memory manager
+// calculateMemoryPressure calculates the current memory pressure as a percentage
+func (mm *MemoryManager) calculateMemoryPressure() float64 {
+	if mm.maxMemory == 0 {
+		return 0
+	}
+	return float64(mm.currentUsage) / float64(mm.maxMemory) * 100
+}
+
+// getMonitoringInterval returns the appropriate monitoring interval based on memory pressure
+func (mm *MemoryManager) getMonitoringInterval(pressure float64) time.Duration {
+	switch {
+	case pressure >= 95: // Critical pressure
+		return 500 * time.Millisecond
+	case pressure >= 85: // High pressure
+		return 2 * time.Second
+	case pressure >= 50: // Medium pressure
+		return 15 * time.Second
+	default: // Low pressure
+		return 60 * time.Second
+	}
+}
+
+// Start starts the memory manager with dynamic monitoring intervals
 func (mm *MemoryManager) Start(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
 
-	ticker := time.NewTicker(5 * time.Second)
+	// Create initial ticker with current interval
+	ticker := time.NewTicker(mm.currentInterval)
 	defer ticker.Stop()
 
 	for {
@@ -1074,8 +1107,35 @@ func (mm *MemoryManager) Start(ctx context.Context, wg *sync.WaitGroup) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			mm.checkMemoryUsage()
+			mm.performCheck(&ticker)
+		case <-mm.checkNow:
+			// Immediate check requested
+			mm.performCheck(&ticker)
 		}
+	}
+}
+
+// performCheck performs memory check and updates monitoring interval
+func (mm *MemoryManager) performCheck(ticker **time.Ticker) {
+	mm.checkMemoryUsage()
+
+	// Calculate new interval based on current pressure
+	mm.mutex.RLock()
+	pressure := mm.calculateMemoryPressure()
+	newInterval := mm.getMonitoringInterval(pressure)
+	oldInterval := mm.currentInterval
+	mm.mutex.RUnlock()
+
+	// Update interval if it has changed
+	if newInterval != oldInterval {
+		mm.mutex.Lock()
+		mm.currentInterval = newInterval
+		mm.lastPressure = pressure
+		mm.mutex.Unlock()
+
+		// Reset ticker with new interval
+		(*ticker).Stop()
+		*ticker = time.NewTicker(newInterval)
 	}
 }
 
@@ -1091,6 +1151,9 @@ func (mm *MemoryManager) checkMemoryUsage() {
 	if mm.currentUsage > mm.stats.peakUsage {
 		mm.stats.peakUsage = mm.currentUsage
 	}
+
+	// Update last pressure reading
+	mm.lastPressure = mm.calculateMemoryPressure()
 
 	// Trigger GC if we're approaching the limit
 	if mm.currentUsage > mm.gcThreshold {
@@ -1139,12 +1202,38 @@ func (mm *MemoryManager) GetStats() map[string]int64 {
 	defer mm.mutex.RUnlock()
 
 	return map[string]int64{
-		"current_usage":  mm.currentUsage,
-		"max_memory":     mm.maxMemory,
-		"peak_usage":     mm.stats.peakUsage,
-		"allocations":    atomic.LoadInt64(&mm.stats.allocations),
-		"deallocations":  atomic.LoadInt64(&mm.stats.deallocations),
-		"gc_triggers":    atomic.LoadInt64(&mm.stats.gcTriggers),
+		"current_usage":           mm.currentUsage,
+		"max_memory":              mm.maxMemory,
+		"peak_usage":              mm.stats.peakUsage,
+		"allocations":             atomic.LoadInt64(&mm.stats.allocations),
+		"deallocations":           atomic.LoadInt64(&mm.stats.deallocations),
+		"gc_triggers":             atomic.LoadInt64(&mm.stats.gcTriggers),
+		"memory_pressure_percent": int64(mm.lastPressure),
+		"monitoring_interval_ms":  mm.currentInterval.Milliseconds(),
+	}
+}
+
+// GetMemoryPressure returns the current memory pressure percentage
+func (mm *MemoryManager) GetMemoryPressure() float64 {
+	mm.mutex.RLock()
+	defer mm.mutex.RUnlock()
+	return mm.lastPressure
+}
+
+// GetMonitoringInterval returns the current monitoring interval
+func (mm *MemoryManager) GetMonitoringInterval() time.Duration {
+	mm.mutex.RLock()
+	defer mm.mutex.RUnlock()
+	return mm.currentInterval
+}
+
+// TriggerCheck triggers an immediate memory check and interval update
+func (mm *MemoryManager) TriggerCheck() {
+	select {
+	case mm.checkNow <- struct{}{}:
+		// Triggered successfully
+	default:
+		// Channel is full, check already pending
 	}
 }
 
@@ -1163,17 +1252,17 @@ func NewPerformanceOptimizer(manager *PerformanceManager) *PerformanceOptimizer 
 // OptimizeForThroughput optimizes configuration for maximum throughput
 func (po *PerformanceOptimizer) OptimizeForThroughput() {
 	config := po.manager.config
-	
+
 	// Increase batch size for better throughput
 	if config.MessageBatchSize < 50 {
 		config.MessageBatchSize = 50
 	}
-	
+
 	// Increase batch timeout for better batching
 	if config.MessageBatchTimeout < 10*time.Millisecond {
 		config.MessageBatchTimeout = 10 * time.Millisecond
 	}
-	
+
 	// Use optimized serialization
 	config.MessageSerializerType = OptimizedJSONSerializer
 }
@@ -1181,17 +1270,17 @@ func (po *PerformanceOptimizer) OptimizeForThroughput() {
 // OptimizeForLatency optimizes configuration for minimum latency
 func (po *PerformanceOptimizer) OptimizeForLatency() {
 	config := po.manager.config
-	
+
 	// Reduce batch size for lower latency
 	if config.MessageBatchSize > 5 {
 		config.MessageBatchSize = 5
 	}
-	
+
 	// Reduce batch timeout for immediate sending
 	if config.MessageBatchTimeout > 1*time.Millisecond {
 		config.MessageBatchTimeout = 1 * time.Millisecond
 	}
-	
+
 	// Use fastest serialization
 	config.MessageSerializerType = OptimizedJSONSerializer
 }
@@ -1199,17 +1288,17 @@ func (po *PerformanceOptimizer) OptimizeForLatency() {
 // OptimizeForMemory optimizes configuration for minimum memory usage
 func (po *PerformanceOptimizer) OptimizeForMemory() {
 	config := po.manager.config
-	
+
 	// Reduce buffer pool size
 	if config.BufferPoolSize > 100 {
 		config.BufferPoolSize = 100
 	}
-	
+
 	// Reduce max buffer size
 	if config.MaxBufferSize > 32*1024 {
 		config.MaxBufferSize = 32 * 1024
 	}
-	
+
 	// Enable aggressive memory pooling
 	config.EnableMemoryPooling = true
 }

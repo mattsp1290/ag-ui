@@ -118,20 +118,20 @@ func (s *LoadTestServer) SetEchoMode(enabled bool) {
 
 // LoadTestMetrics tracks performance metrics during load testing
 type LoadTestMetrics struct {
-	mu                    sync.RWMutex
-	startTime             time.Time
-	endTime               time.Time
-	messagesSent          int64
-	messagesReceived      int64
-	errorsOccurred        int64
+	mu                     sync.RWMutex
+	startTime              time.Time
+	endTime                time.Time
+	messagesSent           int64
+	messagesReceived       int64
+	errorsOccurred         int64
 	connectionsEstablished int64
-	connectionsFailed     int64
-	totalLatency          time.Duration
-	minLatency            time.Duration
-	maxLatency            time.Duration
-	latencySamples        int64
-	memUsagePeek          uint64
-	goroutinesPeak        int
+	connectionsFailed      int64
+	totalLatency           time.Duration
+	minLatency             time.Duration
+	maxLatency             time.Duration
+	latencySamples         int64
+	memUsagePeek           uint64
+	goroutinesPeak         int
 }
 
 func NewLoadTestMetrics() *LoadTestMetrics {
@@ -178,7 +178,7 @@ func (m *LoadTestMetrics) RecordLatency(latency time.Duration) {
 func (m *LoadTestMetrics) UpdateMemoryUsage() {
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
-	
+
 	m.mu.Lock()
 	if memStats.Alloc > m.memUsagePeek {
 		m.memUsagePeek = memStats.Alloc
@@ -219,20 +219,20 @@ func (m *LoadTestMetrics) GetSummary() map[string]interface{} {
 	}
 
 	return map[string]interface{}{
-		"duration_seconds":         duration.Seconds(),
-		"messages_sent":            messagesSent,
-		"messages_received":        messagesReceived,
-		"errors_occurred":          errorsOccurred,
-		"connections_established":  connectionsEstablished,
-		"connections_failed":       connectionsFailed,
-		"messages_per_second":      float64(messagesSent) / duration.Seconds(),
-		"error_rate":               float64(errorsOccurred) / float64(messagesSent+errorsOccurred),
-		"connection_success_rate":  float64(connectionsEstablished) / float64(connectionsEstablished+connectionsFailed),
-		"average_latency_ms":       avgLatency.Milliseconds(),
-		"min_latency_ms":           m.minLatency.Milliseconds(),
-		"max_latency_ms":           m.maxLatency.Milliseconds(),
-		"memory_peak_mb":           float64(m.memUsagePeek) / (1024 * 1024),
-		"goroutines_peak":          m.goroutinesPeak,
+		"duration_seconds":        duration.Seconds(),
+		"messages_sent":           messagesSent,
+		"messages_received":       messagesReceived,
+		"errors_occurred":         errorsOccurred,
+		"connections_established": connectionsEstablished,
+		"connections_failed":      connectionsFailed,
+		"messages_per_second":     float64(messagesSent) / duration.Seconds(),
+		"error_rate":              float64(errorsOccurred) / float64(messagesSent+errorsOccurred),
+		"connection_success_rate": float64(connectionsEstablished) / float64(connectionsEstablished+connectionsFailed),
+		"average_latency_ms":      avgLatency.Milliseconds(),
+		"min_latency_ms":          m.minLatency.Milliseconds(),
+		"max_latency_ms":          m.maxLatency.Milliseconds(),
+		"memory_peak_mb":          float64(m.memUsagePeek) / (1024 * 1024),
+		"goroutines_peak":         m.goroutinesPeak,
 	}
 }
 
@@ -331,7 +331,7 @@ func TestHighConcurrencyConnections(t *testing.T) {
 		assert.Equal(t, expectedMessages, stats.EventsSent)
 
 		throughput := float64(expectedMessages) / duration.Seconds()
-		t.Logf("Load test completed: %d messages in %v (%.2f msg/sec)", 
+		t.Logf("Load test completed: %d messages in %v (%.2f msg/sec)",
 			expectedMessages, duration, throughput)
 
 		// Performance assertions
@@ -455,7 +455,7 @@ func TestSustainedLoad(t *testing.T) {
 					elapsed := time.Since(startTime)
 					currentThroughput := float64(currentMessages) / elapsed.Seconds()
 
-					t.Logf("Progress: %d messages, %d errors, %.2f msg/sec", 
+					t.Logf("Progress: %d messages, %d errors, %.2f msg/sec",
 						currentMessages, currentErrors, currentThroughput)
 				}
 			}
@@ -476,9 +476,9 @@ func TestSustainedLoad(t *testing.T) {
 		t.Logf("  Throughput: %.2f msg/sec", actualThroughput)
 
 		// Performance assertions
-		assert.Greater(t, actualThroughput, float64(targetThroughput)*0.8, 
+		assert.Greater(t, actualThroughput, float64(targetThroughput)*0.8,
 			"Should achieve at least 80% of target throughput")
-		assert.Less(t, float64(finalErrors)/float64(finalMessages), 0.01, 
+		assert.Less(t, float64(finalErrors)/float64(finalMessages), 0.01,
 			"Error rate should be less than 1%")
 
 		// Transport should remain stable
@@ -564,7 +564,7 @@ func TestBurstLoad(t *testing.T) {
 			burstDuration := time.Since(burstStart)
 			burstThroughput := float64(burstSize) / burstDuration.Seconds()
 
-			t.Logf("Burst %d completed in %v (%.2f msg/sec)", 
+			t.Logf("Burst %d completed in %v (%.2f msg/sec)",
 				burst+1, burstDuration, burstThroughput)
 
 			// Update system metrics
@@ -573,7 +573,7 @@ func TestBurstLoad(t *testing.T) {
 
 			// Verify transport stability after burst
 			assert.True(t, transport.IsConnected(), "Transport should remain connected after burst")
-			
+
 			// Wait between bursts (except for the last one)
 			if burst < numBursts-1 {
 				time.Sleep(burstInterval)
@@ -653,7 +653,7 @@ func TestMemoryLeakDetection(t *testing.T) {
 			runtime.ReadMemStats(&memStats)
 			memoryUsages = append(memoryUsages, memStats.Alloc)
 
-			t.Logf("Iteration %d: Memory usage: %.2f MB", 
+			t.Logf("Iteration %d: Memory usage: %.2f MB",
 				i+1, float64(memStats.Alloc)/(1024*1024))
 		}
 
@@ -677,7 +677,7 @@ func TestMemoryLeakDetection(t *testing.T) {
 			t.Logf("Memory growth ratio: %.2f", growthRatio)
 
 			// Memory usage should not grow significantly
-			assert.Less(t, growthRatio, 1.5, 
+			assert.Less(t, growthRatio, 1.5,
 				"Memory usage should not grow by more than 50% over iterations")
 		}
 	})
@@ -752,12 +752,12 @@ func TestConnectionPoolScaling(t *testing.T) {
 			duration := time.Since(startTime)
 			currentConnections := transport.GetActiveConnectionCount()
 
-			t.Logf("Load %d completed in %v, connections: %d, errors: %d", 
+			t.Logf("Load %d completed in %v, connections: %d, errors: %d",
 				load, duration, currentConnections, errors)
 
 			// Verify performance under load
 			assert.Equal(t, int64(0), errors, "No errors should occur under load %d", load)
-			
+
 			// Connection count should scale with load (up to max)
 			expectedMinConnections := min(load/20+1, 50) // Rough heuristic
 			assert.GreaterOrEqual(t, currentConnections, expectedMinConnections,
@@ -870,7 +870,7 @@ func TestUnderAdverseConditions(t *testing.T) {
 
 		// Under adverse conditions, we should still achieve reasonable success rate
 		assert.Greater(t, successRate, 0.8, "Success rate should be > 80% even under adverse conditions")
-		
+
 		// Transport should remain operational
 		assert.True(t, transport.IsConnected())
 		assert.Greater(t, transport.GetActiveConnectionCount(), 0)
@@ -912,7 +912,7 @@ func BenchmarkHighConcurrencyLoad(b *testing.B) {
 
 	b.ResetTimer()
 	b.SetParallelism(100) // High parallelism for load testing
-	
+
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			_ = transport.SendEvent(ctx, event)

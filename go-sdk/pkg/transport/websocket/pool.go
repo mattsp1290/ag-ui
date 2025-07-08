@@ -521,9 +521,42 @@ func (p *ConnectionPool) selectLeastConnections(connections []*Connection) *Conn
 		return nil
 	}
 
-	// For now, just return the first connection
-	// In a real implementation, we would track active requests per connection
-	return connections[0]
+	var bestConn *Connection
+	var minLoad int64 = int64(^uint64(0) >> 1) // Max int64
+
+	for _, conn := range connections {
+		// Calculate connection load based on multiple factors
+		metrics := conn.GetMetrics()
+		
+		// Primary metric: pending messages in channel (approximate active requests)
+		pendingMessages := int64(len(conn.messageCh))
+		
+		// Secondary metric: message rate difference (sent vs received)
+		// Higher difference indicates more outbound load
+		messageRate := metrics.MessagesSent - metrics.MessagesReceived
+		if messageRate < 0 {
+			messageRate = 0 // Only count positive outbound load
+		}
+		
+		// Tertiary metric: error rate (higher errors = higher load/instability)
+		errorRate := metrics.Errors
+		
+		// Calculate composite load score
+		load := pendingMessages*100 + messageRate*10 + errorRate*5
+		
+		// Select connection with lowest load
+		if load < minLoad {
+			minLoad = load
+			bestConn = conn
+		}
+	}
+
+	// Fallback to first connection if no best connection found
+	if bestConn == nil {
+		return connections[0]
+	}
+
+	return bestConn
 }
 
 // selectHealthBased selects the healthiest connection

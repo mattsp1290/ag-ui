@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rsa"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -15,6 +16,17 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 	"golang.org/x/time/rate"
+)
+
+// Common JWT validation errors
+var (
+	ErrTokenExpired     = errors.New("token is expired")
+	ErrTokenNotYetValid = errors.New("token is not valid yet")
+	ErrInvalidToken     = errors.New("invalid token")
+	ErrEmptyToken       = errors.New("empty token")
+	ErrInvalidIssuer    = errors.New("invalid issuer")
+	ErrInvalidAudience  = errors.New("invalid audience")
+	ErrMissingClaims    = errors.New("missing required claims")
 )
 
 // SecurityConfig defines WebSocket security configuration
@@ -138,6 +150,7 @@ type SecureConnection struct {
 	connectedAt  time.Time
 	lastActivity time.Time
 	subprotocol  string
+	manager      *SecurityManager
 	mu           sync.RWMutex
 }
 
@@ -319,6 +332,7 @@ func (sm *SecurityManager) SecureConnection(conn *websocket.Conn, authContext *A
 		connectedAt:  time.Now(),
 		lastActivity: time.Now(),
 		subprotocol:  conn.Subprotocol(),
+		manager:      sm,
 	}
 
 	// Configure connection limits
@@ -482,8 +496,11 @@ func (sc *SecureConnection) updateActivity() {
 func (sc *SecureConnection) ValidateMessage(messageType int, data []byte) error {
 	sc.updateActivity()
 
-	// Check message size (using a default limit)
-	maxMessageSize := int64(1024 * 1024) // 1MB default
+	// Check message size against configured limit
+	maxMessageSize := sc.manager.config.MaxMessageSize
+	if maxMessageSize == 0 {
+		maxMessageSize = int64(1024 * 1024) // 1MB default if not configured
+	}
 	if int64(len(data)) > maxMessageSize {
 		return fmt.Errorf("message size %d exceeds limit", len(data))
 	}
@@ -657,7 +674,7 @@ func NewJWTTokenValidatorRSA(publicKey *rsa.PublicKey, issuer, audience string) 
 // ValidateToken validates a JWT token
 func (v *JWTTokenValidator) ValidateToken(ctx context.Context, tokenString string) (*AuthContext, error) {
 	if tokenString == "" {
-		return nil, fmt.Errorf("empty token")
+		return nil, ErrEmptyToken
 	}
 
 	// Parse and validate the token
@@ -690,13 +707,13 @@ func (v *JWTTokenValidator) ValidateToken(ctx context.Context, tokenString strin
 
 	// Check if token is valid
 	if !token.Valid {
-		return nil, fmt.Errorf("invalid token")
+		return nil, ErrInvalidToken
 	}
 
 	// Extract claims
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
-		return nil, fmt.Errorf("invalid token claims")
+		return nil, ErrMissingClaims
 	}
 
 	// Validate standard claims
@@ -704,7 +721,7 @@ func (v *JWTTokenValidator) ValidateToken(ctx context.Context, tokenString strin
 	if v.issuer != "" {
 		issuer, ok := claims["iss"].(string)
 		if !ok || issuer != v.issuer {
-			return nil, fmt.Errorf("invalid issuer")
+			return nil, ErrInvalidIssuer
 		}
 	}
 
@@ -713,7 +730,7 @@ func (v *JWTTokenValidator) ValidateToken(ctx context.Context, tokenString strin
 		switch aud := claims["aud"].(type) {
 		case string:
 			if aud != v.audience {
-				return nil, fmt.Errorf("invalid audience")
+				return nil, ErrInvalidAudience
 			}
 		case []interface{}:
 			found := false
@@ -724,28 +741,28 @@ func (v *JWTTokenValidator) ValidateToken(ctx context.Context, tokenString strin
 				}
 			}
 			if !found {
-				return nil, fmt.Errorf("invalid audience")
+				return nil, ErrInvalidAudience
 			}
 		default:
-			return nil, fmt.Errorf("invalid audience claim type")
+			return nil, ErrInvalidAudience
 		}
 	}
 
 	// Check expiration
 	exp, ok := claims["exp"].(float64)
 	if !ok {
-		return nil, fmt.Errorf("missing expiration claim")
+		return nil, ErrMissingClaims
 	}
 	expiresAt := time.Unix(int64(exp), 0)
 	if time.Now().After(expiresAt) {
-		return nil, fmt.Errorf("token expired")
+		return nil, ErrTokenExpired
 	}
 
 	// Check not before
 	if nbf, ok := claims["nbf"].(float64); ok {
 		notBefore := time.Unix(int64(nbf), 0)
 		if time.Now().Before(notBefore) {
-			return nil, fmt.Errorf("token not yet valid")
+			return nil, ErrTokenNotYetValid
 		}
 	}
 

@@ -641,8 +641,7 @@ func (js *PerfJSONSerializer) Deserialize(data []byte) (events.Event, error) {
 
 // PerfOptimizedJSONSerializer implements optimized JSON serialization
 type PerfOptimizedJSONSerializer struct {
-	encoder *json.Encoder
-	buffer  []byte
+	buffer []byte
 }
 
 // Serialize serializes an event to optimized JSON

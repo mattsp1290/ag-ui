@@ -12,7 +12,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools"
+	"github.com/ag-ui/go-sdk/pkg/tools"
 )
 
 // CacheDemoExecutor demonstrates various caching strategies and performance optimizations.

@@ -11,7 +11,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools"
+	"github.com/ag-ui/go-sdk/pkg/tools"
 )
 
 // MockFileOperationsExecutor provides a testable version of the file operations tool

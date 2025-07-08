@@ -9,7 +9,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools"
+	"github.com/ag-ui/go-sdk/pkg/tools"
 )
 
 // BatchProcessorTool demonstrates batch processing optimization techniques.

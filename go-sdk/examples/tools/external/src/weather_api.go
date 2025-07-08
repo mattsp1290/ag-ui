@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools"
+	"github.com/ag-ui/go-sdk/pkg/tools"
 )
 
 // WeatherAPIExecutor implements weather data retrieval from external APIs.

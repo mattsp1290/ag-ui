@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools"
+	"github.com/ag-ui/go-sdk/pkg/tools"
 )
 
 // APIValidatorExecutor implements comprehensive API request/response validation.
@@ -190,6 +190,8 @@ func (a *APIValidatorExecutor) Execute(ctx context.Context, params map[string]in
 	return &tools.ToolExecutionResult{
 		Success: true,
 		Data:    responseData,
+		Timestamp: time.Now(),
+		Duration: result.Stats.ValidationTime,
 		Metadata: map[string]interface{}{
 			"validation_type": validationType,
 			"schema_version":  schema.Type,

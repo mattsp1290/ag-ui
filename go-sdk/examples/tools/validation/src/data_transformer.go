@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools"
+	"github.com/ag-ui/go-sdk/pkg/tools"
 )
 
 // DataTransformerExecutor implements comprehensive data transformation with validation.
@@ -191,6 +191,8 @@ func (d *DataTransformerExecutor) Execute(ctx context.Context, params map[string
 	return &tools.ToolExecutionResult{
 		Success: true,
 		Data:    responseData,
+		Timestamp: time.Now(),
+		Duration: time.Since(startTime),
 		Metadata: map[string]interface{}{
 			"pipeline_name":    pipeline.Name,
 			"pipeline_steps":   len(pipeline.Steps),

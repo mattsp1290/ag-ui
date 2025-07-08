@@ -118,7 +118,7 @@ type ToolSchema struct {
 // Property represents a single parameter in the tool schema.
 type Property struct {
 	// Type defines the JSON type (string, number, integer, boolean, array, object)
-	Type string `json:"type"`
+	Type string `json:"type,omitempty"`
 
 	// Description explains the parameter's purpose
 	Description string `json:"description,omitempty"`
@@ -151,6 +151,56 @@ type Property struct {
 
 	// Required properties for nested objects
 	Required []string `json:"required,omitempty"`
+
+	// Advanced JSON Schema features
+	
+	// OneOf specifies that the value must match exactly one of the schemas
+	OneOf []*Property `json:"oneOf,omitempty"`
+	
+	// AnyOf specifies that the value must match at least one of the schemas
+	AnyOf []*Property `json:"anyOf,omitempty"`
+	
+	// AllOf specifies that the value must match all of the schemas
+	AllOf []*Property `json:"allOf,omitempty"`
+	
+	// Not specifies that the value must not match the schema
+	Not *Property `json:"not,omitempty"`
+	
+	// Conditional validation
+	If   *Property `json:"if,omitempty"`
+	Then *Property `json:"then,omitempty"`
+	Else *Property `json:"else,omitempty"`
+	
+	// Schema reference
+	Ref string `json:"$ref,omitempty"`
+	
+	// Additional constraints
+	ExclusiveMinimum *float64 `json:"exclusiveMinimum,omitempty"`
+	ExclusiveMaximum *float64 `json:"exclusiveMaximum,omitempty"`
+	MultipleOf       *float64 `json:"multipleOf,omitempty"`
+	
+	// Object-specific constraints
+	MinProperties        *int  `json:"minProperties,omitempty"`
+	MaxProperties        *int  `json:"maxProperties,omitempty"`
+	AdditionalProperties *bool `json:"additionalProperties,omitempty"`
+	
+	// Array-specific constraints
+	MinItems    *int  `json:"minItems,omitempty"`
+	MaxItems    *int  `json:"maxItems,omitempty"`
+	UniqueItems *bool `json:"uniqueItems,omitempty"`
+	
+	// String-specific constraints
+	ContentMediaType *string `json:"contentMediaType,omitempty"`
+	ContentEncoding  *string `json:"contentEncoding,omitempty"`
+	
+	// Metadata
+	Title    string                 `json:"title,omitempty"`
+	Examples []interface{}          `json:"examples,omitempty"`
+	ReadOnly *bool                  `json:"readOnly,omitempty"`
+	WriteOnly *bool                 `json:"writeOnly,omitempty"`
+	
+	// Custom extensions
+	Extensions map[string]interface{} `json:"-"`
 }
 
 // ToolMetadata contains additional information about a tool.

@@ -1,0 +1,156 @@
+package tools
+
+import (
+	"context"
+	"testing"
+	"time"
+
+	"github.com/ag-ui/go-sdk/pkg/core/events"
+)
+
+func TestEventIntegrationBasic(t *testing.T) {
+	// Test that we can create an event emitter
+	emitter := NewDefaultEventEmitter()
+	if emitter == nil {
+		t.Fatal("Failed to create event emitter")
+	}
+
+	ctx := context.Background()
+	toolCallID := "test-integration-1"
+	toolName := "test-tool"
+	params := map[string]interface{}{"test": "value"}
+
+	// Test emitting a start event
+	err := emitter.EmitToolCallStart(ctx, toolCallID, toolName, params)
+	if err != nil {
+		t.Fatalf("Failed to emit start event: %v", err)
+	}
+
+	// Test emitting an args event
+	err = emitter.EmitToolCallArgs(ctx, toolCallID, "test delta")
+	if err != nil {
+		t.Fatalf("Failed to emit args event: %v", err)
+	}
+
+	// Test emitting an end event
+	result := &ToolExecutionResult{
+		Success:   true,
+		Duration:  100 * time.Millisecond,
+		Timestamp: time.Now(),
+	}
+	err = emitter.EmitToolCallEnd(ctx, toolCallID, result)
+	if err != nil {
+		t.Fatalf("Failed to emit end event: %v", err)
+	}
+
+	// Get metrics to verify events were processed
+	metrics := emitter.(*DefaultEventEmitter).metrics.GetMetrics()
+	if metrics["totalEvents"].(int64) != 3 {
+		t.Fatalf("Expected 3 total events, got %v", metrics["totalEvents"])
+	}
+}
+
+func TestExecutorWithEvents(t *testing.T) {
+	// Create a simple tool for testing
+	registry := NewRegistry()
+	
+	// Register a simple test tool
+	tool := &Tool{
+		ID: "test-executor-events",
+		Name: "Test Tool",
+		Description: "A simple test tool",
+		Version: "1.0.0",
+		Executor: &SimpleExecutor{
+			result: &ToolExecutionResult{
+				Success: true,
+				Data:  map[string]interface{}{"result": "test"},
+			},
+		},
+		Schema: &ToolSchema{
+			Type: "object",
+			Properties: map[string]*Property{
+				"input": {Type: "string"},
+			},
+		},
+		Capabilities: &ToolCapabilities{
+			Timeout:   5 * time.Second,
+			Cacheable: false,
+		},
+	}
+	
+	err := registry.Register(tool)
+	if err != nil {
+		t.Fatalf("Failed to register tool: %v", err)
+	}
+
+	// Create emitter and engine
+	emitter := NewDefaultEventEmitter()
+	engine := NewExecutionEngine(registry, WithEventEmitter(emitter))
+
+	ctx := context.Background()
+	params := map[string]interface{}{"input": "test"}
+
+	// Execute the tool
+	result, err := engine.Execute(ctx, "test-executor-events", params)
+	if err != nil {
+		t.Fatalf("Failed to execute tool: %v", err)
+	}
+
+	if !result.Success {
+		t.Fatalf("Expected successful execution")
+	}
+
+	// Check that events were emitted
+	metrics := emitter.(*DefaultEventEmitter).metrics.GetMetrics()
+	totalEvents := metrics["totalEvents"].(int64)
+	if totalEvents < 2 { // At least start and end
+		t.Fatalf("Expected at least 2 events, got %v", totalEvents)
+	}
+}
+
+// Simple test tool implementation
+type SimpleTool struct {
+	id       string
+	executor ToolExecutor
+}
+
+func (t *SimpleTool) GetID() string {
+	return t.id
+}
+
+func (t *SimpleTool) GetExecutor() ToolExecutor {
+	return t.executor
+}
+
+func (t *SimpleTool) GetSchema() *ToolSchema {
+	return &ToolSchema{
+		Type: "object",
+		Properties: map[string]*Property{
+			"input": {Type: "string"},
+		},
+	}
+}
+
+func (t *SimpleTool) GetCapabilities() *ToolCapabilities {
+	return &ToolCapabilities{
+		Timeout:   5 * time.Second,
+		Cacheable: false,
+	}
+}
+
+// Simple test executor
+type SimpleExecutor struct {
+	result *ToolExecutionResult
+}
+
+func (e *SimpleExecutor) Execute(ctx context.Context, params map[string]interface{}) (*ToolExecutionResult, error) {
+	if e.result != nil {
+		return e.result, nil
+	}
+	
+	return &ToolExecutionResult{
+		Success:   true,
+		Data:    map[string]interface{}{"executed": true},
+		Timestamp: time.Now(),
+	}, nil
+}

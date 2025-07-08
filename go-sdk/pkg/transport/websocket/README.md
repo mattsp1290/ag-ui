@@ -91,6 +91,7 @@ messageIntegration.SetEventHandler(websocket.CoreEventHandlerFunc(func(ctx conte
 ```go
 config := websocket.DefaultTransportConfig()
 config.URLs = []string{"ws://localhost:8080/ws"}
+config.DialTimeout = 30 * time.Second  // Timeout for establishing WebSocket connections
 config.EventTimeout = 30 * time.Second
 config.MaxEventSize = 1024 * 1024 // 1MB
 ```

@@ -73,6 +73,9 @@ type ConnectionConfig struct {
 	// ReconnectBackoffMultiplier is the multiplier for exponential backoff
 	ReconnectBackoffMultiplier float64
 
+	// DialTimeout is the timeout for establishing the connection
+	DialTimeout time.Duration
+
 	// HandshakeTimeout is the timeout for the WebSocket handshake
 	HandshakeTimeout time.Duration
 
@@ -117,6 +120,7 @@ func DefaultConnectionConfig() *ConnectionConfig {
 		InitialReconnectDelay:      1 * time.Second,
 		MaxReconnectDelay:          30 * time.Second,
 		ReconnectBackoffMultiplier: 2.0,
+		DialTimeout:                30 * time.Second,
 		HandshakeTimeout:           10 * time.Second,
 		ReadTimeout:                60 * time.Second,
 		WriteTimeout:               10 * time.Second,
@@ -267,8 +271,16 @@ func (c *Connection) Connect(ctx context.Context) error {
 		EnableCompression: c.config.EnableCompression,
 	}
 
+	// Create a context with dial timeout
+	dialCtx := ctx
+	if c.config.DialTimeout > 0 {
+		var cancel context.CancelFunc
+		dialCtx, cancel = context.WithTimeout(ctx, c.config.DialTimeout)
+		defer cancel()
+	}
+
 	// Connect to WebSocket
-	conn, _, err := dialer.DialContext(ctx, c.url.String(), c.getHeaders())
+	conn, _, err := dialer.DialContext(dialCtx, c.url.String(), c.getHeaders())
 	if err != nil {
 		c.setState(StateDisconnected)
 		c.setError(fmt.Errorf("failed to connect to WebSocket: %w", err))

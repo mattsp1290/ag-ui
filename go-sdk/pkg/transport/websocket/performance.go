@@ -374,6 +374,7 @@ type MessageBatcher struct {
 		batchesOut  int64
 		avgBatchSize float64
 	}
+	mutex        sync.RWMutex // Protect avgBatchSize field
 }
 
 // NewMessageBatcher creates a new message batcher
@@ -455,10 +456,12 @@ func (mb *MessageBatcher) flushBatch(batch [][]byte) {
 	select {
 	case mb.batches <- batchCopy:
 		atomic.AddInt64(&mb.stats.batchesOut, 1)
-		// Update average batch size
+		// Update average batch size with proper locking
+		mb.mutex.Lock()
 		currentAvg := mb.stats.avgBatchSize
 		newAvg := (currentAvg*float64(mb.stats.batchesOut-1) + float64(len(batch))) / float64(mb.stats.batchesOut)
 		mb.stats.avgBatchSize = newAvg
+		mb.mutex.Unlock()
 	default:
 		// Batch queue full, drop batch
 	}
@@ -466,10 +469,14 @@ func (mb *MessageBatcher) flushBatch(batch [][]byte) {
 
 // GetStats returns batcher statistics
 func (mb *MessageBatcher) GetStats() map[string]interface{} {
+	mb.mutex.RLock()
+	avgBatchSize := mb.stats.avgBatchSize
+	mb.mutex.RUnlock()
+	
 	return map[string]interface{}{
 		"messages_in":    atomic.LoadInt64(&mb.stats.messagesIn),
 		"batches_out":    atomic.LoadInt64(&mb.stats.batchesOut),
-		"avg_batch_size": mb.stats.avgBatchSize,
+		"avg_batch_size": avgBatchSize,
 	}
 }
 
@@ -561,11 +568,15 @@ func (cpm *ConnectionPoolManager) ReleaseSlot(slot *ConnectionSlot) {
 
 // GetStats returns connection pool manager statistics
 func (cpm *ConnectionPoolManager) GetStats() map[string]int64 {
+	cpm.mutex.RLock()
+	activeSlots := int64(len(cpm.activeSlots))
+	cpm.mutex.RUnlock()
+	
 	return map[string]int64{
 		"slots_acquired": atomic.LoadInt64(&cpm.stats.slotsAcquired),
 		"slots_released": atomic.LoadInt64(&cpm.stats.slotsReleased),
 		"max_usage":      atomic.LoadInt64(&cpm.stats.maxUsage),
-		"active_slots":   int64(len(cpm.activeSlots)),
+		"active_slots":   activeSlots,
 	}
 }
 

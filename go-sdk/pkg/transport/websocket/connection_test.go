@@ -366,6 +366,40 @@ func TestConnectionBackoffCalculation(t *testing.T) {
 	assert.Equal(t, 30*time.Second, conn.calculateBackoffDelay(10)) // Still capped
 }
 
+func TestConnectionDialTimeout(t *testing.T) {
+	t.Run("DialTimeoutConfiguration", func(t *testing.T) {
+		config := DefaultConnectionConfig()
+		config.URL = "ws://localhost:8080" // Invalid URL to test timeout
+		config.DialTimeout = 1 * time.Second
+		config.Logger = zaptest.NewLogger(t)
+
+		conn, err := NewConnection(config)
+		require.NoError(t, err)
+		assert.Equal(t, 1*time.Second, conn.config.DialTimeout)
+	})
+
+	t.Run("DialTimeoutEnforced", func(t *testing.T) {
+		config := DefaultConnectionConfig()
+		config.URL = "ws://192.0.2.1:8080" // RFC 5737 TEST-NET-1 address that should timeout
+		config.DialTimeout = 100 * time.Millisecond // Very short timeout
+		config.Logger = zaptest.NewLogger(t)
+
+		conn, err := NewConnection(config)
+		require.NoError(t, err)
+
+		// Test that connection times out quickly
+		start := time.Now()
+		ctx := context.Background()
+		err = conn.Connect(ctx)
+		elapsed := time.Since(start)
+
+		// Should fail due to timeout
+		assert.Error(t, err)
+		// Should timeout roughly within the dial timeout (allowing some margin)
+		assert.Less(t, elapsed, 5*time.Second) // Much less than default timeout
+	})
+}
+
 // Helper function to create a test WebSocket server
 func createTestWebSocketServer(t *testing.T) *httptest.Server {
 	upgrader := websocket.Upgrader{

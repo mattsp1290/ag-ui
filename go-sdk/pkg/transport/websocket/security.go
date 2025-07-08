@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	"crypto/rsa"
 	"crypto/tls"
 	"fmt"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 	"golang.org/x/time/rate"
 )
@@ -611,44 +613,195 @@ func getStringValue(obj interface{}, field string) string {
 
 // JWTTokenValidator provides JWT token validation
 type JWTTokenValidator struct {
-	secretKey []byte
-	issuer    string
+	secretKey     []byte          // For HMAC signing
+	publicKey     *rsa.PublicKey  // For RSA signing
+	issuer        string
+	audience      string
+	signingMethod jwt.SigningMethod
 }
 
 // NewJWTTokenValidator creates a new JWT token validator
 func NewJWTTokenValidator(secretKey []byte, issuer string) *JWTTokenValidator {
 	return &JWTTokenValidator{
-		secretKey: secretKey,
-		issuer:    issuer,
+		secretKey:     secretKey,
+		issuer:        issuer,
+		audience:      "",
+		signingMethod: jwt.SigningMethodHS256,
+	}
+}
+
+// NewJWTTokenValidatorWithOptions creates a new JWT token validator with full options
+func NewJWTTokenValidatorWithOptions(secretKey []byte, issuer, audience string, signingMethod jwt.SigningMethod) *JWTTokenValidator {
+	if signingMethod == nil {
+		signingMethod = jwt.SigningMethodHS256
+	}
+	return &JWTTokenValidator{
+		secretKey:     secretKey,
+		issuer:        issuer,
+		audience:      audience,
+		signingMethod: signingMethod,
+	}
+}
+
+// NewJWTTokenValidatorRSA creates a new JWT token validator for RSA signatures
+func NewJWTTokenValidatorRSA(publicKey *rsa.PublicKey, issuer, audience string) *JWTTokenValidator {
+	return &JWTTokenValidator{
+		publicKey:     publicKey,
+		issuer:        issuer,
+		audience:      audience,
+		signingMethod: jwt.SigningMethodRS256,
 	}
 }
 
 // ValidateToken validates a JWT token
-func (v *JWTTokenValidator) ValidateToken(ctx context.Context, token string) (*AuthContext, error) {
-	// This is a simplified JWT validation
-	// In production, use a proper JWT library like github.com/golang-jwt/jwt/v5
-
-	// Parse the token (simplified - just check if it's not empty)
-	if token == "" {
+func (v *JWTTokenValidator) ValidateToken(ctx context.Context, tokenString string) (*AuthContext, error) {
+	if tokenString == "" {
 		return nil, fmt.Errorf("empty token")
 	}
 
-	// In a real implementation, you would:
-	// 1. Parse the JWT token
-	// 2. Verify the signature
-	// 3. Check expiration
-	// 4. Validate issuer/audience
-	// 5. Extract claims
+	// Parse and validate the token
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		// Verify the signing method
+		if token.Method != v.signingMethod {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
 
-	// For now, return a mock auth context
-	return &AuthContext{
-		UserID:      "user123",
-		Username:    "testuser",
-		Roles:       []string{"user"},
-		Permissions: []string{"read", "write"},
-		ExpiresAt:   time.Now().Add(1 * time.Hour),
-		Claims:      map[string]interface{}{"sub": "user123"},
-	}, nil
+		// Return the appropriate key based on signing method
+		switch token.Method.(type) {
+		case *jwt.SigningMethodHMAC:
+			if v.secretKey == nil {
+				return nil, fmt.Errorf("HMAC key not configured")
+			}
+			return v.secretKey, nil
+		case *jwt.SigningMethodRSA, *jwt.SigningMethodRSAPSS:
+			if v.publicKey == nil {
+				return nil, fmt.Errorf("RSA public key not configured")
+			}
+			return v.publicKey, nil
+		default:
+			return nil, fmt.Errorf("unsupported signing method: %v", token.Header["alg"])
+		}
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse token: %w", err)
+	}
+
+	// Check if token is valid
+	if !token.Valid {
+		return nil, fmt.Errorf("invalid token")
+	}
+
+	// Extract claims
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, fmt.Errorf("invalid token claims")
+	}
+
+	// Validate standard claims
+	// Check issuer
+	if v.issuer != "" {
+		issuer, ok := claims["iss"].(string)
+		if !ok || issuer != v.issuer {
+			return nil, fmt.Errorf("invalid issuer")
+		}
+	}
+
+	// Check audience
+	if v.audience != "" {
+		switch aud := claims["aud"].(type) {
+		case string:
+			if aud != v.audience {
+				return nil, fmt.Errorf("invalid audience")
+			}
+		case []interface{}:
+			found := false
+			for _, a := range aud {
+				if audStr, ok := a.(string); ok && audStr == v.audience {
+					found = true
+					break
+				}
+			}
+			if !found {
+				return nil, fmt.Errorf("invalid audience")
+			}
+		default:
+			return nil, fmt.Errorf("invalid audience claim type")
+		}
+	}
+
+	// Check expiration
+	exp, ok := claims["exp"].(float64)
+	if !ok {
+		return nil, fmt.Errorf("missing expiration claim")
+	}
+	expiresAt := time.Unix(int64(exp), 0)
+	if time.Now().After(expiresAt) {
+		return nil, fmt.Errorf("token expired")
+	}
+
+	// Check not before
+	if nbf, ok := claims["nbf"].(float64); ok {
+		notBefore := time.Unix(int64(nbf), 0)
+		if time.Now().Before(notBefore) {
+			return nil, fmt.Errorf("token not yet valid")
+		}
+	}
+
+	// Extract user information
+	authContext := &AuthContext{
+		ExpiresAt: expiresAt,
+		Claims:    make(map[string]interface{}),
+	}
+
+	// Extract user ID from subject or custom claim
+	if sub, ok := claims["sub"].(string); ok {
+		authContext.UserID = sub
+	} else if userID, ok := claims["user_id"].(string); ok {
+		authContext.UserID = userID
+	}
+
+	// Extract username
+	if username, ok := claims["username"].(string); ok {
+		authContext.Username = username
+	} else if email, ok := claims["email"].(string); ok {
+		authContext.Username = email
+	}
+
+	// Extract roles
+	if rolesInterface, ok := claims["roles"]; ok {
+		switch roles := rolesInterface.(type) {
+		case []interface{}:
+			for _, role := range roles {
+				if roleStr, ok := role.(string); ok {
+					authContext.Roles = append(authContext.Roles, roleStr)
+				}
+			}
+		case []string:
+			authContext.Roles = roles
+		}
+	}
+
+	// Extract permissions
+	if permsInterface, ok := claims["permissions"]; ok {
+		switch perms := permsInterface.(type) {
+		case []interface{}:
+			for _, perm := range perms {
+				if permStr, ok := perm.(string); ok {
+					authContext.Permissions = append(authContext.Permissions, permStr)
+				}
+			}
+		case []string:
+			authContext.Permissions = perms
+		}
+	}
+
+	// Store all claims for reference
+	for k, v := range claims {
+		authContext.Claims[k] = v
+	}
+
+	return authContext, nil
 }
 
 // NoOpWSAuditLogger provides a no-op audit logger for testing

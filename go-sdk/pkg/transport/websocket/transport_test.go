@@ -112,6 +112,22 @@ func TestTransportCreationAndConfiguration(t *testing.T) {
 		require.Error(t, err) // Should fail because default config has no URLs
 		assert.Nil(t, transport)
 	})
+
+	t.Run("DialTimeoutConfiguration", func(t *testing.T) {
+		config := &TransportConfig{
+			URLs:        []string{"ws://localhost:8080"},
+			DialTimeout: 5 * time.Second,
+			Logger:      zaptest.NewLogger(t),
+		}
+
+		transport, err := NewTransport(config)
+		require.NoError(t, err)
+		assert.NotNil(t, transport)
+		assert.Equal(t, 5*time.Second, transport.config.DialTimeout)
+		
+		// Verify the dial timeout is passed to the connection template
+		assert.Equal(t, 5*time.Second, transport.pool.config.ConnectionTemplate.DialTimeout)
+	})
 }
 
 func TestTransportLifecycle(t *testing.T) {

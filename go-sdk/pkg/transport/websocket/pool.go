@@ -42,6 +42,7 @@ type ConnectionPool struct {
 	// Event handlers
 	onConnectionStateChange func(connID string, state ConnectionState)
 	onHealthChange          func(connID string, healthy bool)
+	onMessage               func(data []byte)
 	handlersMutex           sync.RWMutex
 }
 
@@ -349,11 +350,15 @@ func (p *ConnectionPool) GetHealthyConnectionCount() int {
 
 // GetStats returns a copy of the pool statistics
 func (p *ConnectionPool) GetStats() PoolStats {
-	p.stats.mutex.RLock()
-	defer p.stats.mutex.RUnlock()
+	p.stats.mutex.Lock()
+	defer p.stats.mutex.Unlock()
 
-	// Update real-time stats
-	p.stats.TotalConnections = int64(len(p.connections))
+	// Update real-time stats - need to read connections safely
+	p.connMutex.RLock()
+	totalConnections := int64(len(p.connections))
+	p.connMutex.RUnlock()
+
+	p.stats.TotalConnections = totalConnections
 	p.stats.ActiveConnections = int64(p.GetActiveConnectionCount())
 	p.stats.HealthyConnections = int64(p.GetHealthyConnectionCount())
 	p.stats.UnhealthyConnections = p.stats.TotalConnections - p.stats.HealthyConnections
@@ -373,6 +378,20 @@ func (p *ConnectionPool) SetOnHealthChange(handler func(connID string, healthy b
 	p.handlersMutex.Lock()
 	p.onHealthChange = handler
 	p.handlersMutex.Unlock()
+}
+
+// SetMessageHandler sets the message handler for all connections
+func (p *ConnectionPool) SetMessageHandler(handler func(data []byte)) {
+	p.handlersMutex.Lock()
+	p.onMessage = handler
+	p.handlersMutex.Unlock()
+
+	// Update existing connections
+	p.connMutex.RLock()
+	for _, conn := range p.connections {
+		conn.SetOnMessage(handler)
+	}
+	p.connMutex.RUnlock()
 }
 
 // createConnection creates a new connection and adds it to the pool
@@ -415,6 +434,15 @@ func (p *ConnectionPool) createConnection(ctx context.Context) error {
 			handler(connID, StateDisconnected)
 		}
 	})
+
+	// Set message handler if available
+	p.handlersMutex.RLock()
+	messageHandler := p.onMessage
+	p.handlersMutex.RUnlock()
+
+	if messageHandler != nil {
+		conn.SetOnMessage(messageHandler)
+	}
 
 	// Connect with timeout
 	connectCtx, cancel := context.WithTimeout(ctx, p.config.ConnectionTimeout)
@@ -612,7 +640,12 @@ func (h *HealthChecker) checkHealth() {
 	if healthyCount < h.pool.config.MinConnections {
 		needed := h.pool.config.MinConnections - healthyCount
 		for i := 0; i < needed; i++ {
-			if len(h.pool.connections) >= h.pool.config.MaxConnections {
+			// Check connection count with proper locking
+			h.pool.connMutex.RLock()
+			currentConnCount := len(h.pool.connections)
+			h.pool.connMutex.RUnlock()
+			
+			if currentConnCount >= h.pool.config.MaxConnections {
 				break
 			}
 			if err := h.pool.createConnection(context.Background()); err != nil {

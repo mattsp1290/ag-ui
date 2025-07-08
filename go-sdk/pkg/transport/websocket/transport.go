@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand"
 	"sync"
 	"time"
 
@@ -27,8 +28,11 @@ type Transport struct {
 	performanceManager *PerformanceManager
 
 	// Event handling
-	eventHandlers map[string][]EventHandler
+	eventHandlers map[string][]*EventHandlerWrapper
 	handlersMutex sync.RWMutex
+
+	// Event channel for incoming messages
+	eventCh chan []byte
 
 	// Subscriptions
 	subscriptions map[string]*Subscription
@@ -54,6 +58,12 @@ type TransportConfig struct {
 	// PerformanceConfig configures performance optimizations
 	PerformanceConfig *PerformanceConfig
 
+	// SecurityConfig configures security settings
+	SecurityConfig *SecurityConfig
+
+	// DialTimeout is the timeout for establishing WebSocket connections
+	DialTimeout time.Duration
+
 	// EventTimeout is the timeout for event processing
 	EventTimeout time.Duration
 
@@ -73,11 +83,18 @@ type TransportConfig struct {
 // EventHandler represents a function that handles events
 type EventHandler func(ctx context.Context, event events.Event) error
 
+// EventHandlerWrapper wraps an event handler with a unique ID
+type EventHandlerWrapper struct {
+	ID      string
+	Handler EventHandler
+}
+
 // Subscription represents an event subscription
 type Subscription struct {
 	ID          string
 	EventTypes  []string
 	Handler     EventHandler
+	HandlerIDs  []string // Track handler IDs for reliable removal
 	Context     context.Context
 	Cancel      context.CancelFunc
 	CreatedAt   time.Time
@@ -104,6 +121,7 @@ func DefaultTransportConfig() *TransportConfig {
 	return &TransportConfig{
 		PoolConfig:            DefaultPoolConfig(),
 		PerformanceConfig:     DefaultPerformanceConfig(),
+		DialTimeout:           30 * time.Second,
 		EventTimeout:          30 * time.Second,
 		MaxEventSize:          1024 * 1024, // 1MB
 		EnableEventValidation: true,
@@ -133,6 +151,15 @@ func NewTransport(config *TransportConfig) (*Transport, error) {
 	}
 	poolConfig.URLs = config.URLs
 
+	// Configure connection template with dial timeout
+	if poolConfig.ConnectionTemplate == nil {
+		poolConfig.ConnectionTemplate = DefaultConnectionConfig()
+	}
+	// Apply the dial timeout from the transport config
+	if config.DialTimeout > 0 {
+		poolConfig.ConnectionTemplate.DialTimeout = config.DialTimeout
+	}
+
 	// Create connection pool
 	pool, err := NewConnectionPool(poolConfig)
 	if err != nil {
@@ -158,7 +185,8 @@ func NewTransport(config *TransportConfig) (*Transport, error) {
 		config:             config,
 		pool:               pool,
 		performanceManager: performanceManager,
-		eventHandlers:      make(map[string][]EventHandler),
+		eventHandlers:      make(map[string][]*EventHandlerWrapper),
+		eventCh:            make(chan []byte, 1000), // Buffered channel for incoming events
 		subscriptions:      make(map[string]*Subscription),
 		ctx:                ctx,
 		cancel:             cancel,
@@ -221,6 +249,9 @@ func (t *Transport) Stop() error {
 	}
 	t.subscriptions = make(map[string]*Subscription)
 	t.subsMutex.Unlock()
+
+	// Close event channel to signal shutdown
+	close(t.eventCh)
 
 	// Wait for goroutines to finish
 	t.wg.Wait()
@@ -300,6 +331,74 @@ func (t *Transport) SendEvent(ctx context.Context, event events.Event) error {
 	return nil
 }
 
+// AddEventHandler adds an event handler for a specific event type and returns a handler ID
+func (t *Transport) AddEventHandler(eventType string, handler EventHandler) string {
+	if handler == nil {
+		return ""
+	}
+
+	handlerID := fmt.Sprintf("handler_%d_%d", time.Now().UnixNano(), rand.Int63())
+	wrapper := &EventHandlerWrapper{
+		ID:      handlerID,
+		Handler: handler,
+	}
+
+	t.handlersMutex.Lock()
+	defer t.handlersMutex.Unlock()
+
+	if _, exists := t.eventHandlers[eventType]; !exists {
+		t.eventHandlers[eventType] = make([]*EventHandlerWrapper, 0)
+	}
+	t.eventHandlers[eventType] = append(t.eventHandlers[eventType], wrapper)
+
+	t.config.Logger.Debug("Added event handler",
+		zap.String("id", handlerID),
+		zap.String("event_type", eventType))
+
+	return handlerID
+}
+
+// RemoveEventHandler removes an event handler by its ID
+func (t *Transport) RemoveEventHandler(eventType string, handlerID string) error {
+	if handlerID == "" {
+		return errors.New("handler ID cannot be empty")
+	}
+
+	t.handlersMutex.Lock()
+	defer t.handlersMutex.Unlock()
+
+	handlers, exists := t.eventHandlers[eventType]
+	if !exists {
+		return fmt.Errorf("no handlers found for event type: %s", eventType)
+	}
+
+	// Find and remove the handler
+	found := false
+	for i, wrapper := range handlers {
+		if wrapper.ID == handlerID {
+			// Remove handler from slice
+			t.eventHandlers[eventType] = append(handlers[:i], handlers[i+1:]...)
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		return fmt.Errorf("handler with ID %s not found for event type %s", handlerID, eventType)
+	}
+
+	// Remove event type if no handlers left
+	if len(t.eventHandlers[eventType]) == 0 {
+		delete(t.eventHandlers, eventType)
+	}
+
+	t.config.Logger.Debug("Removed event handler",
+		zap.String("id", handlerID),
+		zap.String("event_type", eventType))
+
+	return nil
+}
+
 // Subscribe creates a subscription for specific event types
 func (t *Transport) Subscribe(ctx context.Context, eventTypes []string, handler EventHandler) (*Subscription, error) {
 	if len(eventTypes) == 0 {
@@ -316,6 +415,7 @@ func (t *Transport) Subscribe(ctx context.Context, eventTypes []string, handler 
 		ID:         fmt.Sprintf("sub_%d", time.Now().UnixNano()),
 		EventTypes: eventTypes,
 		Handler:    handler,
+		HandlerIDs: make([]string, 0, len(eventTypes)),
 		Context:    subCtx,
 		Cancel:     cancel,
 		CreatedAt:  time.Now(),
@@ -324,19 +424,19 @@ func (t *Transport) Subscribe(ctx context.Context, eventTypes []string, handler 
 	// Add to subscriptions
 	t.subsMutex.Lock()
 	t.subscriptions[sub.ID] = sub
-	t.stats.TotalSubscriptions++
-	t.stats.ActiveSubscriptions++
 	t.subsMutex.Unlock()
 
-	// Register event handlers
-	t.handlersMutex.Lock()
+	// Update statistics with proper mutex
+	t.stats.mutex.Lock()
+	t.stats.TotalSubscriptions++
+	t.stats.ActiveSubscriptions++
+	t.stats.mutex.Unlock()
+
+	// Register event handlers and track their IDs
 	for _, eventType := range eventTypes {
-		if _, exists := t.eventHandlers[eventType]; !exists {
-			t.eventHandlers[eventType] = make([]EventHandler, 0)
-		}
-		t.eventHandlers[eventType] = append(t.eventHandlers[eventType], handler)
+		handlerID := t.AddEventHandler(eventType, handler)
+		sub.HandlerIDs = append(sub.HandlerIDs, handlerID)
 	}
-	t.handlersMutex.Unlock()
 
 	t.config.Logger.Info("Created subscription",
 		zap.String("id", sub.ID),
@@ -351,9 +451,15 @@ func (t *Transport) Unsubscribe(subscriptionID string) error {
 	sub, exists := t.subscriptions[subscriptionID]
 	if exists {
 		delete(t.subscriptions, subscriptionID)
-		t.stats.ActiveSubscriptions--
 	}
 	t.subsMutex.Unlock()
+
+	if exists {
+		// Update statistics with proper mutex
+		t.stats.mutex.Lock()
+		t.stats.ActiveSubscriptions--
+		t.stats.mutex.Unlock()
+	}
 
 	if !exists {
 		return errors.New("subscription not found")
@@ -362,24 +468,18 @@ func (t *Transport) Unsubscribe(subscriptionID string) error {
 	// Cancel subscription
 	sub.Cancel()
 
-	// Remove event handlers
-	t.handlersMutex.Lock()
-	for _, eventType := range sub.EventTypes {
-		if handlers, exists := t.eventHandlers[eventType]; exists {
-			// Remove handler from slice
-			for i, handler := range handlers {
-				if fmt.Sprintf("%p", handler) == fmt.Sprintf("%p", sub.Handler) {
-					t.eventHandlers[eventType] = append(handlers[:i], handlers[i+1:]...)
-					break
-				}
-			}
-			// Remove event type if no handlers left
-			if len(t.eventHandlers[eventType]) == 0 {
-				delete(t.eventHandlers, eventType)
+	// Remove event handlers using the stored handler IDs
+	for i, eventType := range sub.EventTypes {
+		if i < len(sub.HandlerIDs) {
+			if err := t.RemoveEventHandler(eventType, sub.HandlerIDs[i]); err != nil {
+				t.config.Logger.Warn("Failed to remove event handler",
+					zap.String("subscription_id", subscriptionID),
+					zap.String("event_type", eventType),
+					zap.String("handler_id", sub.HandlerIDs[i]),
+					zap.Error(err))
 			}
 		}
 	}
-	t.handlersMutex.Unlock()
 
 	t.config.Logger.Info("Removed subscription",
 		zap.String("id", subscriptionID))
@@ -415,19 +515,42 @@ func (t *Transport) GetDetailedStatus() map[string]interface{} {
 	}
 	t.subsMutex.RUnlock()
 
+	// Get event handlers count safely
+	t.handlersMutex.RLock()
+	eventHandlersCount := len(t.eventHandlers)
+	t.handlersMutex.RUnlock()
+	
 	return map[string]interface{}{
 		"transport_stats":     t.GetStats(),
 		"connection_pool":     t.pool.GetDetailedStatus(),
 		"subscriptions":       subscriptions,
 		"active_subscriptions": len(subscriptions),
-		"event_handlers":      len(t.eventHandlers),
+		"event_handlers":      eventHandlersCount,
 	}
 }
 
 // setupMessageHandlers sets up message handlers for all connections
 func (t *Transport) setupMessageHandlers() {
-	// This would be called when connections are created in the pool
-	// The pool would need to be modified to call this method
+	// Set up a message handler that forwards messages to the event channel
+	messageHandler := func(data []byte) {
+		select {
+		case t.eventCh <- data:
+			// Successfully queued the event
+		case <-t.ctx.Done():
+			// Transport is shutting down
+		default:
+			// Channel is full, log and drop the message
+			t.config.Logger.Warn("Event channel full, dropping message",
+				zap.Int("channel_size", len(t.eventCh)),
+				zap.Int("channel_capacity", cap(t.eventCh)))
+			t.stats.mutex.Lock()
+			t.stats.EventsFailed++
+			t.stats.mutex.Unlock()
+		}
+	}
+
+	// This will be called by the pool when setting up connections
+	t.pool.SetMessageHandler(messageHandler)
 }
 
 // onConnectionStateChange handles connection state changes
@@ -448,15 +571,20 @@ func (t *Transport) onHealthChange(connID string, healthy bool) {
 func (t *Transport) eventProcessingLoop() {
 	defer t.wg.Done()
 
+	t.config.Logger.Info("Starting event processing loop")
+
 	for {
 		select {
 		case <-t.ctx.Done():
+			t.config.Logger.Info("Stopping event processing loop")
 			return
-		default:
-			// This would process events from the connection pool
-			// In a real implementation, we would have a channel from the pool
-			// that delivers incoming messages
-			time.Sleep(100 * time.Millisecond)
+		case data := <-t.eventCh:
+			// Process the incoming event
+			if err := t.processIncomingEvent(data); err != nil {
+				t.config.Logger.Error("Failed to process incoming event",
+					zap.Error(err),
+					zap.Int("data_size", len(data)))
+			}
 		}
 	}
 }
@@ -495,18 +623,19 @@ func (t *Transport) processIncomingEvent(data []byte) error {
 
 	// Create a mock event for handler execution
 	// In a real implementation, this would be properly parsed
-	mockEvent := &mockEvent{
+	event := &mockEvent{
 		eventType: events.EventType(eventTypeStr),
 		data:      eventData,
 	}
 
 	// Execute handlers
-	for _, handler := range handlers {
-		ctx, cancel := context.WithTimeout(context.Background(), t.config.EventTimeout)
+	for _, wrapper := range handlers {
+		handlerCtx, cancel := context.WithTimeout(context.Background(), t.config.EventTimeout)
 		
-		if err := handler(ctx, mockEvent); err != nil {
+		if err := wrapper.Handler(handlerCtx, event); err != nil {
 			t.config.Logger.Error("Event handler failed",
 				zap.String("event_type", eventTypeStr),
+				zap.String("handler_id", wrapper.ID),
 				zap.Error(err))
 			t.stats.mutex.Lock()
 			t.stats.EventsFailed++

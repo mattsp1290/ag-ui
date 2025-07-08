@@ -737,11 +737,34 @@ func (d *DataProcessorExecutor) sendChunk(outputCh chan<- *tools.ToolStreamChunk
 		Timestamp: time.Now(),
 	}
 
+	// Implement proper backpressure handling
+	timeout := time.NewTimer(time.Second * 5)
+	defer timeout.Stop()
+	
 	select {
 	case outputCh <- chunk:
 		*chunkIndex++
-	default:
-		// Channel is full or closed, drop the chunk
+	case <-timeout.C:
+		// Create error chunk for dropped data
+		errorChunk := &tools.ToolStreamChunk{
+			Type:      "error",
+			Data:      map[string]interface{}{
+				"error": fmt.Sprintf("Data chunk %d dropped due to backpressure", *chunkIndex),
+				"original_chunk_index": *chunkIndex,
+				"dropped_data_type": chunkType,
+			},
+			Index:     *chunkIndex,
+			Timestamp: time.Now(),
+		}
+		
+		// Try to send error notification (with shorter timeout)
+		select {
+		case outputCh <- errorChunk:
+			*chunkIndex++
+		case <-time.After(time.Second):
+			// If even error notification can't be sent, log to stdout
+			fmt.Printf("Critical: failed to send chunk %d and error notification due to severe backpressure\n", *chunkIndex)
+		}
 	}
 }
 

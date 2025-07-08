@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"go/format"
+	"os"
 	"text/template"
 	"sync/atomic"
 	"regexp"
@@ -268,6 +269,14 @@ func (s *ToolScaffolder) GenerateTool(ctx context.Context, opts *ToolScaffoldOpt
 		Dependencies: make([]string, 0),
 	}
 	
+	// Set up cleanup for partial failure
+	var generationFailed bool = true
+	defer func() {
+		if generationFailed {
+			s.cleanupPartialFiles(genCtx)
+		}
+	}()
+	
 	// Generate main tool file
 	if err := s.generateMainFile(genCtx); err != nil {
 		return nil, fmt.Errorf("failed to generate main file: %w", err)
@@ -293,6 +302,9 @@ func (s *ToolScaffolder) GenerateTool(ctx context.Context, opts *ToolScaffoldOpt
 			return nil, fmt.Errorf("failed to generate documentation file: %w", err)
 		}
 	}
+	
+	// Mark generation as successful
+	generationFailed = false
 	
 	// Create generated tool
 	tool := &GeneratedTool{
@@ -3613,4 +3625,24 @@ func (u *ToolUtilities) SetConfig(config *UtilitiesConfig) {
 	u.docGenerator.config = config
 	u.packager.config = config
 	u.benchmarker.config = config
+}
+
+// cleanupPartialFiles cleans up files that were created during failed generation
+func (s *ToolScaffolder) cleanupPartialFiles(genCtx *generationContext) {
+	for _, file := range genCtx.Files {
+		if err := os.Remove(file.Path); err != nil {
+			// Log error but don't fail cleanup
+			if !os.IsNotExist(err) {
+				// Could add logging here in the future
+				continue
+			}
+		}
+	}
+	
+	// If output directory was created and is empty, remove it
+	if genCtx.OutputPath != "" {
+		if entries, err := os.ReadDir(genCtx.OutputPath); err == nil && len(entries) == 0 {
+			os.Remove(genCtx.OutputPath)
+		}
+	}
 }

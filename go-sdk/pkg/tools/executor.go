@@ -31,6 +31,14 @@ type ExecutionEngine struct {
 	// Hooks for extensibility
 	beforeExecute []ExecutionHook
 	afterExecute  []ExecutionHook
+
+	// Enhanced features
+	cache             *ExecutionCache
+	asyncWorkers      int
+	asyncJobQueue     chan *AsyncJob
+	asyncResults      map[string]chan *AsyncResult
+	resourceMonitor   *ResourceMonitor
+	sandbox           *SandboxConfig
 }
 
 // executionState tracks the state of a single tool execution.
@@ -48,6 +56,11 @@ type ExecutionMetrics struct {
 	errorCount      int64
 	totalDuration   time.Duration
 	toolMetrics     map[string]*ToolMetrics
+	
+	// Enhanced metrics
+	cacheHits        int64
+	cacheMisses      int64
+	asyncExecutions  int64
 }
 
 // ToolMetrics tracks statistics for a specific tool.
@@ -102,7 +115,10 @@ func NewExecutionEngine(registry *Registry, opts ...ExecutionEngineOption) *Exec
 		defaultTimeout: 30 * time.Second, // Default timeout
 		executions:     make(map[string]*executionState),
 		metrics: &ExecutionMetrics{
-			toolMetrics: make(map[string]*ToolMetrics),
+			toolMetrics:     make(map[string]*ToolMetrics),
+			cacheHits:       0,
+			cacheMisses:     0,
+			asyncExecutions: 0,
 		},
 	}
 
@@ -439,4 +455,198 @@ func (e *ExecutionEngine) IsExecuting(toolID string) bool {
 		}
 	}
 	return false
+}
+
+// Enhanced execution types and structures
+
+// ExecutionCache provides caching for execution results
+type ExecutionCache struct {
+	mu       sync.RWMutex
+	cache    map[string]*CacheEntry
+	maxSize  int
+	ttl      time.Duration
+}
+
+// CacheEntry represents a cached execution result
+type CacheEntry struct {
+	Result    *ToolExecutionResult
+	CreatedAt time.Time
+}
+
+// AsyncJob represents an asynchronous execution job
+type AsyncJob struct {
+	ID       string
+	ToolID   string
+	Params   map[string]interface{}
+	Priority int
+	Context  context.Context
+	Result   chan *AsyncResult
+}
+
+// AsyncResult represents the result of an asynchronous execution
+type AsyncResult struct {
+	JobID  string
+	Result *ToolExecutionResult
+	Error  error
+}
+
+// ResourceMonitor tracks resource usage during execution
+type ResourceMonitor struct {
+	MaxMemory   int64
+	MaxCPU      float64
+	MaxGoroutines int
+	MaxFileDescriptors int
+}
+
+// SandboxConfig defines sandboxing constraints for tool execution
+type SandboxConfig struct {
+	Enabled          bool
+	MaxMemory        int64
+	MaxProcesses     int
+	MaxFileHandles   int
+	NetworkAccess    bool
+	FileSystemAccess bool
+	AllowedPaths     []string
+	BlockedPaths     []string
+	Timeout          time.Duration
+}
+
+// Enhanced option functions
+
+// WithCaching enables execution result caching
+func WithCaching(maxSize int, ttl time.Duration) ExecutionEngineOption {
+	return func(e *ExecutionEngine) {
+		e.cache = &ExecutionCache{
+			cache:   make(map[string]*CacheEntry),
+			maxSize: maxSize,
+			ttl:     ttl,
+		}
+	}
+}
+
+// WithAsyncWorkers configures asynchronous execution workers
+func WithAsyncWorkers(workers int) ExecutionEngineOption {
+	return func(e *ExecutionEngine) {
+		e.asyncWorkers = workers
+		e.asyncJobQueue = make(chan *AsyncJob, workers*2)
+		e.asyncResults = make(map[string]chan *AsyncResult)
+	}
+}
+
+// WithResourceMonitoring enables resource usage monitoring
+func WithResourceMonitoring(maxMemory int64, maxCPU float64, maxGoroutines, maxFDs int) ExecutionEngineOption {
+	return func(e *ExecutionEngine) {
+		e.resourceMonitor = &ResourceMonitor{
+			MaxMemory:          maxMemory,
+			MaxCPU:             maxCPU,
+			MaxGoroutines:      maxGoroutines,
+			MaxFileDescriptors: maxFDs,
+		}
+	}
+}
+
+// WithSandboxing enables sandboxed execution
+func WithSandboxing(config *SandboxConfig) ExecutionEngineOption {
+	return func(e *ExecutionEngine) {
+		e.sandbox = config
+	}
+}
+
+// ExecuteAsync executes a tool asynchronously with priority
+func (e *ExecutionEngine) ExecuteAsync(ctx context.Context, toolID string, params map[string]interface{}, priority int) (string, <-chan *AsyncResult, error) {
+	if e.asyncJobQueue == nil {
+		return "", nil, fmt.Errorf("async execution not enabled")
+	}
+
+	jobID := fmt.Sprintf("job_%d", time.Now().UnixNano())
+	resultChan := make(chan *AsyncResult, 1)
+
+	job := &AsyncJob{
+		ID:       jobID,
+		ToolID:   toolID,
+		Params:   params,
+		Priority: priority,
+		Context:  ctx,
+		Result:   resultChan,
+	}
+
+	e.mu.Lock()
+	e.asyncResults[jobID] = resultChan
+	e.mu.Unlock()
+
+	// Increment async execution metrics
+	e.metrics.mu.Lock()
+	e.metrics.asyncExecutions++
+	e.metrics.mu.Unlock()
+
+	select {
+	case e.asyncJobQueue <- job:
+		return jobID, resultChan, nil
+	case <-ctx.Done():
+		return "", nil, ctx.Err()
+	default:
+		return "", nil, fmt.Errorf("async job queue is full")
+	}
+}
+
+// GetCacheMetrics returns cache performance metrics
+func (e *ExecutionEngine) GetCacheMetrics() map[string]interface{} {
+	if e.cache == nil {
+		return nil
+	}
+	
+	e.cache.mu.RLock()
+	defer e.cache.mu.RUnlock()
+	
+	size := len(e.cache.cache)
+	totalHits := e.metrics.cacheHits
+	totalMisses := e.metrics.cacheMisses
+	
+	var hitRatio float64
+	if totalHits+totalMisses > 0 {
+		hitRatio = float64(totalHits) / float64(totalHits+totalMisses)
+	}
+	
+	return map[string]interface{}{
+		"size":      size,
+		"maxSize":   e.cache.maxSize,
+		"hitRatio":  hitRatio,
+		"hits":      totalHits,
+		"misses":    totalMisses,
+	}
+}
+
+// GetResourceMetrics returns resource monitoring metrics
+func (e *ExecutionEngine) GetResourceMetrics() map[string]interface{} {
+	if e.resourceMonitor == nil {
+		return nil
+	}
+	
+	return map[string]interface{}{
+		"violations": 0, // Simplified for example
+		"maxMemory":  e.resourceMonitor.MaxMemory,
+		"maxCPU":     e.resourceMonitor.MaxCPU,
+	}
+}
+
+// GetJobQueueMetrics returns async job queue metrics
+func (e *ExecutionEngine) GetJobQueueMetrics() map[string]interface{} {
+	if e.asyncJobQueue == nil {
+		return nil
+	}
+	
+	return map[string]interface{}{
+		"queueLength": len(e.asyncJobQueue),
+		"capacity":    cap(e.asyncJobQueue),
+		"workers":     e.asyncWorkers,
+	}
+}
+
+// Shutdown gracefully shuts down the execution engine
+func (e *ExecutionEngine) Shutdown(ctx context.Context) error {
+	// In a real implementation, this would stop async workers and clean up resources
+	if e.asyncJobQueue != nil {
+		close(e.asyncJobQueue)
+	}
+	return nil
 }

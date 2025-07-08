@@ -41,6 +41,9 @@ type Registry struct {
 
 	// Configuration
 	config *RegistryConfig
+
+	// Separate mutex for conflict resolution to prevent deadlocks
+	conflictMu sync.Mutex
 }
 
 // RegistryValidator is a function that validates tools during registration.
@@ -159,6 +162,7 @@ type FileWatcher struct {
 	callback func(string) error
 	stop     chan struct{}
 	stopped  bool
+	wg       sync.WaitGroup // Track goroutine lifecycle
 }
 
 // DependencyGraph manages tool dependencies and resolution.
@@ -232,12 +236,21 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 		}
 	}
 
-	r.mu.Lock()
-	defer r.mu.Unlock()
+	// Handle conflict resolution with separate mutex to prevent deadlocks
+	r.mu.RLock()
+	existingTool, idExists := r.tools[tool.ID]
+	existingID, nameExists := r.nameIndex[tool.Name]
+	var existingByName *Tool
+	if nameExists && existingID != tool.ID {
+		existingByName = r.tools[existingID]
+	}
+	r.mu.RUnlock()
 
-	// Check for conflicts and resolve them
-	if existingTool, exists := r.tools[tool.ID]; exists {
+	// Resolve conflicts outside of main mutex to prevent deadlocks
+	if idExists {
+		r.conflictMu.Lock()
 		resolvedTool, err := r.resolveConflict(ctx, existingTool, tool)
+		r.conflictMu.Unlock()
 		if err != nil {
 			return fmt.Errorf("conflict resolution failed: %w", err)
 		}
@@ -249,18 +262,22 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 	}
 
 	// Check for name conflicts
-	if existingID, exists := r.nameIndex[tool.Name]; exists && existingID != tool.ID {
-		if existingTool, exists := r.tools[existingID]; exists {
-			resolvedTool, err := r.resolveConflict(ctx, existingTool, tool)
-			if err != nil {
-				return fmt.Errorf("name conflict resolution failed: %w", err)
-			}
-			if resolvedTool == nil {
-				return nil
-			}
-			tool = resolvedTool
+	if existingByName != nil {
+		r.conflictMu.Lock()
+		resolvedTool, err := r.resolveConflict(ctx, existingByName, tool)
+		r.conflictMu.Unlock()
+		if err != nil {
+			return fmt.Errorf("name conflict resolution failed: %w", err)
 		}
+		if resolvedTool == nil {
+			return nil
+		}
+		tool = resolvedTool
 	}
+
+	// Now acquire write lock for actual registration
+	r.mu.Lock()
+	defer r.mu.Unlock()
 
 	// Handle version migration if enabled
 	if r.config.EnableVersionMigration {
@@ -887,6 +904,7 @@ func (r *Registry) WatchFile(filename string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	
+	// Check and insert atomically to prevent TOCTOU race condition
 	if _, exists := r.watchers[filename]; exists {
 		return fmt.Errorf("file %q is already being watched", filename)
 	}
@@ -899,9 +917,15 @@ func (r *Registry) WatchFile(filename string) error {
 		},
 	}
 	
+	// Insert watcher before starting goroutine to prevent races
 	r.watchers[filename] = watcher
 	
-	go r.watchFileChanges(watcher)
+	// Start goroutine with proper lifecycle tracking
+	watcher.wg.Add(1)
+	go func() {
+		defer watcher.wg.Done()
+		r.watchFileChanges(watcher)
+	}()
 	
 	return nil
 }
@@ -953,12 +977,14 @@ func (r *Registry) StopWatching(filename string) error {
 	}
 	
 	watcher.mu.Lock()
-	defer watcher.mu.Unlock()
-	
 	if !watcher.stopped {
 		close(watcher.stop)
 		watcher.stopped = true
 	}
+	watcher.mu.Unlock()
+	
+	// Wait for goroutine to complete before removing from registry
+	watcher.wg.Wait()
 	
 	delete(r.watchers, filename)
 	return nil

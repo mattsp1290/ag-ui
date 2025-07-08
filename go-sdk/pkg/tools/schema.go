@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"net/url"
 	"net/mail"
-	"crypto/md5"
+	"hash/fnv"
 	"encoding/hex"
 )
 
@@ -24,6 +24,8 @@ type SchemaValidator struct {
 
 	// customFormats holds custom format validators
 	customFormats map[string]FormatValidator
+	// mu protects customFormats from concurrent access
+	mu sync.RWMutex
 
 	// coercionEnabled determines if type coercion is enabled
 	coercionEnabled bool
@@ -60,7 +62,9 @@ func NewAdvancedSchemaValidator(schema *ToolSchema, opts *ValidatorOptions) *Sch
 			v.cache = NewValidationCacheWithSize(opts.CacheSize)
 		}
 		for name, validator := range opts.CustomFormats {
+			v.mu.Lock()
 			v.customFormats[name] = validator
+			v.mu.Unlock()
 		}
 	}
 
@@ -142,11 +146,15 @@ func (v *SchemaValidator) SetDebugMode(enabled bool) {
 
 // AddCustomFormat adds a custom format validator.
 func (v *SchemaValidator) AddCustomFormat(name string, validator FormatValidator) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
 	v.customFormats[name] = validator
 }
 
 // RemoveCustomFormat removes a custom format validator.
 func (v *SchemaValidator) RemoveCustomFormat(name string) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
 	delete(v.customFormats, name)
 }
 
@@ -523,29 +531,38 @@ type ValidationCache struct {
 	mutex sync.RWMutex
 	size  int
 	maxSize int
+	// LRU tracking
+	accessOrder []string
 }
 
 // NewValidationCache creates a new validation cache with default size.
 func NewValidationCache() *ValidationCache {
 	return &ValidationCache{
-		cache:   make(map[string]*ValidationResult),
-		maxSize: 1000,
+		cache:       make(map[string]*ValidationResult),
+		maxSize:     1000,
+		accessOrder: make([]string, 0),
 	}
 }
 
 // NewValidationCacheWithSize creates a new validation cache with specified size.
 func NewValidationCacheWithSize(size int) *ValidationCache {
 	return &ValidationCache{
-		cache:   make(map[string]*ValidationResult),
-		maxSize: size,
+		cache:       make(map[string]*ValidationResult),
+		maxSize:     size,
+		accessOrder: make([]string, 0),
 	}
 }
 
 // Get retrieves a cached validation result.
 func (c *ValidationCache) Get(key string) (*ValidationResult, bool) {
-	c.mutex.RLock()
-	defer c.mutex.RUnlock()
+	c.mutex.Lock()
+	defer c.mutex.Unlock()
+	
 	result, exists := c.cache[key]
+	if exists {
+		// Move to end of access order (most recently used)
+		c.moveToEnd(key)
+	}
 	return result, exists
 }
 
@@ -554,16 +571,21 @@ func (c *ValidationCache) Set(key string, result *ValidationResult) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	
-	if c.size >= c.maxSize {
-		// Simple eviction: remove oldest entry
-		for k := range c.cache {
-			delete(c.cache, k)
-			c.size--
-			break
-		}
+	// If key already exists, update and move to end
+	if _, exists := c.cache[key]; exists {
+		c.cache[key] = result
+		c.moveToEnd(key)
+		return
 	}
 	
+	// If cache is full, evict least recently used
+	if c.size >= c.maxSize && c.maxSize > 0 {
+		c.evictLRU()
+	}
+	
+	// Add new entry
 	c.cache[key] = result
+	c.accessOrder = append(c.accessOrder, key)
 	c.size++
 }
 
@@ -572,7 +594,34 @@ func (c *ValidationCache) Clear() {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 	c.cache = make(map[string]*ValidationResult)
+	c.accessOrder = make([]string, 0)
 	c.size = 0
+}
+
+// moveToEnd moves a key to the end of the access order (most recently used)
+func (c *ValidationCache) moveToEnd(key string) {
+	// Find and remove the key from its current position
+	for i, k := range c.accessOrder {
+		if k == key {
+			c.accessOrder = append(c.accessOrder[:i], c.accessOrder[i+1:]...)
+			break
+		}
+	}
+	// Add to end
+	c.accessOrder = append(c.accessOrder, key)
+}
+
+// evictLRU removes the least recently used entry
+func (c *ValidationCache) evictLRU() {
+	if len(c.accessOrder) == 0 {
+		return
+	}
+	
+	// Remove the first entry (least recently used)
+	lruKey := c.accessOrder[0]
+	c.accessOrder = c.accessOrder[1:]
+	delete(c.cache, lruKey)
+	c.size--
 }
 
 // SchemaComposition represents schema composition patterns.
@@ -978,8 +1027,9 @@ func (v *SchemaValidator) coerceToArray(value interface{}) []interface{} {
 // generateCacheKey generates a cache key for the given parameters.
 func (v *SchemaValidator) generateCacheKey(params map[string]interface{}) string {
 	data, _ := json.Marshal(params)
-	hash := md5.Sum(data)
-	return hex.EncodeToString(hash[:])
+	hash := fnv.New64a()
+	hash.Write(data)
+	return hex.EncodeToString(hash.Sum(nil))
 }
 
 // newValidationErrorWithCode creates a new validation error with a specific code.
@@ -996,7 +1046,11 @@ func newValidationErrorWithCode(path, message, code string) error {
 // validateFormat validates string format constraints with custom formats.
 func (v *SchemaValidator) validateFormat(format, value, path string) error {
 	// Check custom formats first
-	if validator, exists := v.customFormats[format]; exists {
+	v.mu.RLock()
+	validator, exists := v.customFormats[format]
+	v.mu.RUnlock()
+	
+	if exists {
 		if err := validator(value); err != nil {
 			return newValidationErrorWithCode(path, fmt.Sprintf("format %q validation failed: %v", format, err), "FORMAT_CUSTOM_FAILED")
 		}

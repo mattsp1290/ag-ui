@@ -1,4 +1,4 @@
-package events
+package debug
 
 import (
 	"encoding/csv"
@@ -8,8 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
-
-	"github.com/sirupsen/logrus"
 )
 
 // ExportSession exports a debugging session to the specified format
@@ -18,10 +16,10 @@ func (d *ValidationDebugger) ExportSession(sessionID string, format string) (str
 	if session == nil {
 		return "", fmt.Errorf("session not found: %s", sessionID)
 	}
-	
+
 	filename := fmt.Sprintf("%s_%s.%s", sessionID, time.Now().Format("20060102_150405"), format)
 	filepath := filepath.Join(d.outputDir, filename)
-	
+
 	switch format {
 	case "json":
 		return d.exportToJSON(session, filepath)
@@ -39,14 +37,14 @@ func (d *ValidationDebugger) exportToJSON(session *ValidationSession, filepath s
 		return "", fmt.Errorf("failed to create JSON file: %w", err)
 	}
 	defer file.Close()
-	
+
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
-	
+
 	if err := encoder.Encode(session); err != nil {
 		return "", fmt.Errorf("failed to encode JSON: %w", err)
 	}
-	
+
 	d.logger.WithField("file", filepath).Info("Exported session to JSON")
 	return filepath, nil
 }
@@ -58,10 +56,10 @@ func (d *ValidationDebugger) exportToCSV(session *ValidationSession, filepath st
 		return "", fmt.Errorf("failed to create CSV file: %w", err)
 	}
 	defer file.Close()
-	
+
 	writer := csv.NewWriter(file)
 	defer writer.Flush()
-	
+
 	// Write header
 	header := []string{
 		"Index", "Timestamp", "EventType", "RuleID", "Duration", "Valid", "Errors", "Warnings",
@@ -70,7 +68,7 @@ func (d *ValidationDebugger) exportToCSV(session *ValidationSession, filepath st
 	if err := writer.Write(header); err != nil {
 		return "", fmt.Errorf("failed to write CSV header: %w", err)
 	}
-	
+
 	// Write data rows
 	for _, entry := range session.Events {
 		for _, exec := range entry.Executions {
@@ -87,13 +85,13 @@ func (d *ValidationDebugger) exportToCSV(session *ValidationSession, filepath st
 				strconv.FormatUint(exec.MemoryAfter.HeapObjects-exec.MemoryBefore.HeapObjects, 10),
 				exec.Error,
 			}
-			
+
 			if err := writer.Write(row); err != nil {
 				return "", fmt.Errorf("failed to write CSV row: %w", err)
 			}
 		}
 	}
-	
+
 	d.logger.WithField("file", filepath).Info("Exported session to CSV")
 	return filepath, nil
 }

@@ -1,4 +1,4 @@
-package events
+package debug
 
 import (
 	"bufio"
@@ -44,20 +44,80 @@ func (l DebugLevel) String() string {
 	}
 }
 
+// EventType represents the type of AG-UI event (local definition)
+type EventType string
+
+// Event defines a basic event interface (local definition)  
+type Event interface {
+	Type() EventType
+	Validate() error
+	Timestamp() *int64
+}
+
+// ValidationError represents a validation error (local definition)
+type ValidationError struct {
+	RuleID      string
+	Message     string
+	Timestamp   time.Time
+	Suggestions []string
+}
+
+// ValidationResult represents the result of validation (local definition)
+type ValidationResult struct {
+	IsValid     bool
+	Errors      []*ValidationError
+	Warnings    []*ValidationError
+	Information []*ValidationError
+	EventCount  int
+	Duration    time.Duration
+	Timestamp   time.Time
+}
+
+// HasErrors returns true if there are any validation errors
+func (r *ValidationResult) HasErrors() bool {
+	return len(r.Errors) > 0
+}
+
+// HasWarnings returns true if there are any validation warnings
+func (r *ValidationResult) HasWarnings() bool {
+	return len(r.Warnings) > 0
+}
+
+// AddError adds a validation error to the result
+func (r *ValidationResult) AddError(err *ValidationError) {
+	r.Errors = append(r.Errors, err)
+	r.IsValid = false
+}
+
+// AddWarning adds a validation warning to the result
+func (r *ValidationResult) AddWarning(warning *ValidationError) {
+	r.Warnings = append(r.Warnings, warning)
+}
+
+// AddInfo adds a validation info to the result
+func (r *ValidationResult) AddInfo(info *ValidationError) {
+	r.Information = append(r.Information, info)
+}
+
+// ValidationConfig represents validation configuration (local definition)
+type ValidationConfig struct {
+	Level int
+}
+
 // RuleExecution represents a single rule execution with trace information
 type RuleExecution struct {
-	RuleID        string                 `json:"rule_id"`
-	EventID       string                 `json:"event_id,omitempty"`
-	EventType     EventType              `json:"event_type"`
-	StartTime     time.Time              `json:"start_time"`
-	EndTime       time.Time              `json:"end_time"`
-	Duration      time.Duration          `json:"duration"`
-	Result        *ValidationResult      `json:"result"`
-	Context       map[string]interface{} `json:"context"`
-	MemoryBefore  MemoryStats            `json:"memory_before"`
-	MemoryAfter   MemoryStats            `json:"memory_after"`
-	StackTrace    []string               `json:"stack_trace,omitempty"`
-	Error         string                 `json:"error,omitempty"`
+	RuleID       string                 `json:"rule_id"`
+	EventID      string                 `json:"event_id,omitempty"`
+	EventType    EventType              `json:"event_type"`
+	StartTime    time.Time              `json:"start_time"`
+	EndTime      time.Time              `json:"end_time"`
+	Duration     time.Duration          `json:"duration"`
+	Result       *ValidationResult      `json:"result"`
+	Context      map[string]interface{} `json:"context"`
+	MemoryBefore MemoryStats            `json:"memory_before"`
+	MemoryAfter  MemoryStats            `json:"memory_after"`
+	StackTrace   []string               `json:"stack_trace,omitempty"`
+	Error        string                 `json:"error,omitempty"`
 }
 
 // EventSequenceEntry represents a single event in a captured sequence
@@ -65,7 +125,7 @@ type EventSequenceEntry struct {
 	Index           int                    `json:"index"`
 	Timestamp       time.Time              `json:"timestamp"`
 	Event           Event                  `json:"event"`
-	ValidationState *ValidationState       `json:"validation_state"`
+	ValidationState interface{}            `json:"validation_state"`
 	Executions      []RuleExecution        `json:"executions"`
 	Metadata        map[string]interface{} `json:"metadata"`
 }
@@ -77,29 +137,29 @@ type ValidationDebugger struct {
 	captureStack  bool
 	captureMemory bool
 	outputDir     string
-	
+
 	// Session management
-	sessions map[string]*ValidationSession
+	sessions       map[string]*ValidationSession
 	currentSession *ValidationSession
-	
+
 	// Event sequence capture
-	eventSequence []EventSequenceEntry
+	eventSequence   []EventSequenceEntry
 	maxSequenceSize int
-	
+
 	// Error pattern detection
 	errorPatterns map[string]*ErrorPattern
-	
+
 	// Performance profiling
-	cpuProfile   *os.File
-	memProfile   *os.File
-	
+	cpuProfile *os.File
+	memProfile *os.File
+
 	// Export formats
 	exportFormats []string
-	
+
 	// Interactive debugging
 	interactive bool
 	debugReader *bufio.Reader
-	
+
 	// Thread safety
 	mutex sync.RWMutex
 }
@@ -108,12 +168,12 @@ type ValidationDebugger struct {
 func NewValidationDebugger(level DebugLevel, outputDir string) *ValidationDebugger {
 	logger := logrus.New()
 	logger.SetLevel(logrus.Level(level))
-	
+
 	// Create output directory if it doesn't exist
 	if outputDir != "" {
 		os.MkdirAll(outputDir, 0755)
 	}
-	
+
 	return &ValidationDebugger{
 		logger:          logger,
 		level:           level,
@@ -133,7 +193,7 @@ func NewValidationDebugger(level DebugLevel, outputDir string) *ValidationDebugg
 func (d *ValidationDebugger) SetLevel(level DebugLevel) {
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
-	
+
 	d.level = level
 	d.logger.SetLevel(logrus.Level(level))
 	d.captureStack = level >= DebugLevelDebug
@@ -166,22 +226,22 @@ func (d *ValidationDebugger) CaptureRuleExecution(ruleID string, eventType Event
 	if d.level == DebugLevelOff {
 		return fn()
 	}
-	
+
 	var memBefore, memAfter MemoryStats
 	if d.captureMemory {
 		memBefore = d.captureMemoryStats()
 	}
-	
+
 	startTime := time.Now()
 	var stackTrace []string
-	
+
 	if d.captureStack {
 		stackTrace = d.captureStackTrace()
 	}
-	
+
 	var result *ValidationResult
 	var executeError string
-	
+
 	// Execute the rule with panic recovery
 	func() {
 		defer func() {
@@ -195,17 +255,17 @@ func (d *ValidationDebugger) CaptureRuleExecution(ruleID string, eventType Event
 				}).Error("Rule execution panic")
 			}
 		}()
-		
+
 		result = fn()
 	}()
-	
+
 	endTime := time.Now()
 	duration := endTime.Sub(startTime)
-	
+
 	if d.captureMemory {
 		memAfter = d.captureMemoryStats()
 	}
-	
+
 	execution := RuleExecution{
 		RuleID:       ruleID,
 		EventID:      eventID,
@@ -220,26 +280,26 @@ func (d *ValidationDebugger) CaptureRuleExecution(ruleID string, eventType Event
 		StackTrace:   stackTrace,
 		Error:        executeError,
 	}
-	
+
 	d.logRuleExecution(execution)
-	
+
 	// Analyze errors for pattern detection
 	if result != nil && len(result.Errors) > 0 {
 		d.analyzeErrors(result.Errors)
 	}
-	
+
 	return result
 }
 
 // CaptureEventSequence captures an event with its validation context
-func (d *ValidationDebugger) CaptureEventSequence(event Event, state *ValidationState, executions []RuleExecution) {
+func (d *ValidationDebugger) CaptureEventSequence(event Event, state interface{}, executions []RuleExecution) {
 	if d.level == DebugLevelOff {
 		return
 	}
-	
+
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
-	
+
 	entry := EventSequenceEntry{
 		Index:           len(d.eventSequence),
 		Timestamp:       time.Now(),
@@ -248,7 +308,7 @@ func (d *ValidationDebugger) CaptureEventSequence(event Event, state *Validation
 		Executions:      executions,
 		Metadata:        make(map[string]interface{}),
 	}
-	
+
 	// Add event ID if available
 	if event != nil {
 		entry.Metadata["event_type"] = event.Type()
@@ -256,19 +316,19 @@ func (d *ValidationDebugger) CaptureEventSequence(event Event, state *Validation
 			entry.Metadata["event_timestamp"] = *ts
 		}
 	}
-	
+
 	d.eventSequence = append(d.eventSequence, entry)
-	
+
 	// Add to current session if active
 	if d.currentSession != nil {
 		d.currentSession.Events = append(d.currentSession.Events, entry)
 	}
-	
+
 	// Maintain sequence size limit
 	if len(d.eventSequence) > d.maxSequenceSize {
 		d.eventSequence = d.eventSequence[1:]
 	}
-	
+
 	d.logger.WithFields(logrus.Fields{
 		"index":      entry.Index,
 		"event_type": entry.Event.Type(),
@@ -280,9 +340,9 @@ func (d *ValidationDebugger) CaptureEventSequence(event Event, state *Validation
 func (d *ValidationDebugger) captureStackTrace() []string {
 	buf := make([]byte, 1024*64) // 64KB buffer
 	n := runtime.Stack(buf, false)
-	
+
 	lines := strings.Split(string(buf[:n]), "\n")
-	
+
 	// Filter out internal Go runtime frames
 	var filtered []string
 	for _, line := range lines {
@@ -290,7 +350,7 @@ func (d *ValidationDebugger) captureStackTrace() []string {
 			filtered = append(filtered, line)
 		}
 	}
-	
+
 	return filtered
 }
 
@@ -301,44 +361,44 @@ func (d *ValidationDebugger) logRuleExecution(execution RuleExecution) {
 		"event_type": execution.EventType,
 		"duration":   execution.Duration,
 	}
-	
+
 	if execution.EventID != "" {
 		fields["event_id"] = execution.EventID
 	}
-	
+
 	if execution.Result != nil {
 		fields["errors"] = len(execution.Result.Errors)
 		fields["warnings"] = len(execution.Result.Warnings)
 		fields["valid"] = execution.Result.IsValid
 	}
-	
+
 	if execution.Error != "" {
 		fields["execution_error"] = execution.Error
 	}
-	
+
 	if d.captureMemory {
 		fields["memory_allocated"] = execution.MemoryAfter.Alloc - execution.MemoryBefore.Alloc
 		fields["heap_objects"] = execution.MemoryAfter.HeapObjects - execution.MemoryBefore.HeapObjects
 	}
-	
+
 	level := logrus.DebugLevel
 	if execution.Error != "" {
 		level = logrus.ErrorLevel
 	} else if execution.Result != nil && execution.Result.HasErrors() {
 		level = logrus.WarnLevel
 	}
-	
+
 	d.logger.WithFields(fields).Log(level, "Rule execution completed")
 }
 
 // DebuggerWrapper wraps a validator with debugging capabilities
 type DebuggerWrapper struct {
-	validator *EventValidator
+	validator interface{}
 	debugger  *ValidationDebugger
 }
 
 // NewDebuggerWrapper creates a new debugger wrapper
-func NewDebuggerWrapper(validator *EventValidator, debugger *ValidationDebugger) *DebuggerWrapper {
+func NewDebuggerWrapper(validator interface{}, debugger *ValidationDebugger) *DebuggerWrapper {
 	return &DebuggerWrapper{
 		validator: validator,
 		debugger:  debugger,
@@ -347,12 +407,8 @@ func NewDebuggerWrapper(validator *EventValidator, debugger *ValidationDebugger)
 
 // ValidateEvent validates an event with debugging support
 func (w *DebuggerWrapper) ValidateEvent(ctx context.Context, event Event) *ValidationResult {
-	// Start capturing
-	executions := make([]RuleExecution, 0)
-	
-	// Capture each rule execution
-	rules := w.validator.GetRules()
-	combinedResult := &ValidationResult{
+	// Create a simple validation result
+	result := &ValidationResult{
 		IsValid:     true,
 		Errors:      make([]*ValidationError, 0),
 		Warnings:    make([]*ValidationError, 0),
@@ -360,50 +416,27 @@ func (w *DebuggerWrapper) ValidateEvent(ctx context.Context, event Event) *Valid
 		EventCount:  1,
 		Timestamp:   time.Now(),
 	}
-	
-	for _, rule := range rules {
-		if !rule.IsEnabled() {
-			continue
-		}
-		
-		eventID := ""
-		result := w.debugger.CaptureRuleExecution(
-			rule.ID(),
-			event.Type(),
-			eventID,
-			func() *ValidationResult {
-				return rule.Validate(event, &ValidationContext{
-					State:        w.validator.GetState(),
-					CurrentEvent: event,
-					Config:       w.validator.config,
-				})
-			},
-		)
-		
-		if result != nil {
-			for _, err := range result.Errors {
-				combinedResult.AddError(err)
-			}
-			for _, warning := range result.Warnings {
-				combinedResult.AddWarning(warning)
-			}
-			for _, info := range result.Information {
-				combinedResult.AddInfo(info)
-			}
-		}
+
+	// Simple validation - just check if event validates
+	if err := event.Validate(); err != nil {
+		result.IsValid = false
+		result.Errors = append(result.Errors, &ValidationError{
+			Message:   err.Error(),
+			Timestamp: time.Now(),
+		})
 	}
-	
+
 	// Capture the event sequence
-	w.debugger.CaptureEventSequence(event, w.validator.GetState(), executions)
-	
-	return combinedResult
+	w.debugger.CaptureEventSequence(event, nil, []RuleExecution{})
+
+	return result
 }
 
 // ValidateSequence validates a sequence of events with debugging support
 func (w *DebuggerWrapper) ValidateSequence(ctx context.Context, events []Event) *ValidationResult {
 	sessionID := w.debugger.StartSession(fmt.Sprintf("sequence_%d", time.Now().Unix()))
 	defer w.debugger.EndSession()
-	
+
 	result := &ValidationResult{
 		IsValid:     true,
 		Errors:      make([]*ValidationError, 0),
@@ -412,10 +445,10 @@ func (w *DebuggerWrapper) ValidateSequence(ctx context.Context, events []Event) 
 		EventCount:  len(events),
 		Timestamp:   time.Now(),
 	}
-	
+
 	for _, event := range events {
 		eventResult := w.ValidateEvent(ctx, event)
-		
+
 		// Merge results
 		for _, err := range eventResult.Errors {
 			result.AddError(err)
@@ -427,13 +460,13 @@ func (w *DebuggerWrapper) ValidateSequence(ctx context.Context, events []Event) 
 			result.AddInfo(info)
 		}
 	}
-	
+
 	w.debugger.logger.WithFields(logrus.Fields{
 		"session_id": sessionID,
 		"events":     len(events),
 		"errors":     len(result.Errors),
 		"warnings":   len(result.Warnings),
 	}).Info("Completed sequence validation with debugging")
-	
+
 	return result
 }

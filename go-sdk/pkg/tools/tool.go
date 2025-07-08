@@ -4,11 +4,47 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync"
+	"sync/atomic"
 	"time"
 )
 
 // Tool represents a function that can be called by an AI agent.
 // It includes metadata, parameter schema, and execution logic.
+//
+// A tool encapsulates:
+//   - Identity: Unique ID, name, and version
+//   - Documentation: Description and usage examples
+//   - Schema: JSON Schema defining expected parameters
+//   - Executor: The actual implementation logic
+//   - Capabilities: Feature support like streaming or async execution
+//   - Metadata: Additional information like author, tags, and dependencies
+//
+// Example tool definition:
+//
+//	tool := &Tool{
+//		ID:          "text-analyzer",
+//		Name:        "Text Analyzer",
+//		Description: "Analyzes text for sentiment, keywords, and statistics",
+//		Version:     "1.0.0",
+//		Schema: &ToolSchema{
+//			Type: "object",
+//			Properties: map[string]*Property{
+//				"text": {
+//					Type:        "string",
+//					Description: "Text to analyze",
+//					MinLength:   intPtr(1),
+//					MaxLength:   intPtr(10000),
+//				},
+//			},
+//			Required: []string{"text"},
+//		},
+//		Executor: &TextAnalyzerExecutor{},
+//		Capabilities: &ToolCapabilities{
+//			Cacheable: true,
+//			Timeout:   30 * time.Second,
+//		},
+//	}
 type Tool struct {
 	// ID is the unique identifier for the tool
 	ID string `json:"id"`
@@ -33,10 +69,22 @@ type Tool struct {
 
 	// Capabilities defines what features this tool supports
 	Capabilities *ToolCapabilities `json:"capabilities,omitempty"`
+	
+	// Copy-on-write optimization fields
+	refCount int32            `json:"-"`
+	isShared bool             `json:"-"`
+	mu       sync.RWMutex     `json:"-"`
 }
 
 // ReadOnlyTool provides a read-only view of a tool to avoid cloning overhead.
 // This interface prevents modifications while allowing access to tool properties.
+//
+// ReadOnlyTool is used by the execution engine and registry for:
+//   - Memory efficiency (no cloning for read operations)
+//   - Thread safety (prevents concurrent modifications)
+//   - API clarity (explicit read-only semantics)
+//
+// If modification is needed, use the Clone() method to get a mutable copy.
 type ReadOnlyTool interface {
 	GetID() string
 	GetName() string
@@ -56,6 +104,8 @@ type readOnlyToolView struct {
 }
 
 // NewReadOnlyTool creates a read-only view of a tool without cloning.
+// The returned view shares the underlying tool data, so the original
+// tool should not be modified while the view is in use.
 func NewReadOnlyTool(tool *Tool) ReadOnlyTool {
 	return &readOnlyToolView{tool: tool}
 }
@@ -98,6 +148,33 @@ func (r *readOnlyToolView) Clone() *Tool {
 
 // ToolSchema represents a JSON Schema for tool parameters.
 // It validates and describes the expected input structure.
+//
+// The schema follows JSON Schema draft-07 with common patterns:
+//   - Type: Usually "object" for tool parameters
+//   - Properties: Defines individual parameters with their types and constraints
+//   - Required: Lists mandatory parameters
+//   - AdditionalProperties: Controls whether extra parameters are allowed
+//
+// Example schema:
+//
+//	schema := &ToolSchema{
+//		Type: "object",
+//		Properties: map[string]*Property{
+//			"query": {
+//				Type:        "string",
+//				Description: "Search query",
+//				MinLength:   intPtr(1),
+//			},
+//			"limit": {
+//				Type:        "integer",
+//				Description: "Maximum results",
+//				Minimum:     float64Ptr(1),
+//				Maximum:     float64Ptr(100),
+//				Default:     10,
+//			},
+//		},
+//		Required: []string{"query"},
+//	}
 type ToolSchema struct {
 	// Type is typically "object" for tool parameters
 	Type string `json:"type"`
@@ -116,6 +193,37 @@ type ToolSchema struct {
 }
 
 // Property represents a single parameter in the tool schema.
+// It supports all JSON Schema features including:
+//   - Basic types: string, number, integer, boolean, array, object, null
+//   - Validation: format, pattern, enum, min/max constraints
+//   - Composition: oneOf, anyOf, allOf, not
+//   - Conditional: if-then-else patterns
+//   - References: $ref for schema reuse
+//
+// Example property definitions:
+//
+//	// Email with format validation
+//	emailProp := &Property{
+//		Type:        "string",
+//		Format:      "email",
+//		Description: "User email address",
+//	}
+//	
+//	// Enum with specific values
+//	statusProp := &Property{
+//		Type:        "string",
+//		Enum:        []interface{}{"active", "inactive", "pending"},
+//		Description: "Account status",
+//	}
+//	
+//	// Array with item constraints
+//	tagsProp := &Property{
+//		Type:        "array",
+//		Items:       &Property{Type: "string", Pattern: "^[a-z]+$"},
+//		MinItems:    intPtr(1),
+//		MaxItems:    intPtr(10),
+//		UniqueItems: boolPtr(true),
+//	}
 type Property struct {
 	// Type defines the JSON type (string, number, integer, boolean, array, object)
 	Type string `json:"type,omitempty"`
@@ -204,6 +312,25 @@ type Property struct {
 }
 
 // ToolMetadata contains additional information about a tool.
+// This includes documentation, categorization, and dependency information
+// that helps with tool discovery, organization, and management.
+//
+// Example metadata:
+//
+//	metadata := &ToolMetadata{
+//		Author:        "ACME Corp",
+//		License:       "MIT",
+//		Documentation: "https://docs.example.com/tools/analyzer",
+//		Tags:          []string{"nlp", "analysis", "text"},
+//		Examples: []ToolExample{
+//			{
+//				Name:        "Basic sentiment analysis",
+//				Description: "Analyze sentiment of customer feedback",
+//				Input:       map[string]interface{}{"text": "Great product!"},
+//				Output:      map[string]interface{}{"sentiment": "positive", "score": 0.95},
+//			},
+//		},
+//	}
 type ToolMetadata struct {
 	// Author identifies who created the tool
 	Author string `json:"author,omitempty"`
@@ -228,6 +355,8 @@ type ToolMetadata struct {
 }
 
 // ToolExample shows how to use a tool.
+// Examples help users understand the tool's purpose and correct usage.
+// They can be used for documentation, testing, and AI model training.
 type ToolExample struct {
 	// Name identifies the example
 	Name string `json:"name"`
@@ -243,6 +372,17 @@ type ToolExample struct {
 }
 
 // ToolCapabilities defines what features a tool supports.
+// These capabilities help the execution engine optimize tool execution
+// and provide appropriate features to users.
+//
+// Capabilities include:
+//   - Streaming: Tool can produce output incrementally
+//   - Async: Tool supports background execution
+//   - Cancelable: Tool execution can be interrupted
+//   - Retryable: Tool can be safely retried on failure
+//   - Cacheable: Tool results can be cached
+//   - RateLimit: Maximum requests per minute
+//   - Timeout: Maximum execution duration
 type ToolCapabilities struct {
 	// Streaming indicates if the tool supports streaming arguments/results
 	Streaming bool `json:"streaming"`
@@ -267,6 +407,34 @@ type ToolCapabilities struct {
 }
 
 // ToolExecutor is the interface that tool implementations must satisfy.
+// It defines the contract for tool execution logic.
+//
+// Implementation guidelines:
+//   - Respect context cancellation for graceful shutdown
+//   - Return appropriate errors with context
+//   - Handle panics gracefully (the engine provides recovery)
+//   - Validate critical invariants even though parameters are pre-validated
+//
+// Example implementation:
+//
+//	type MyToolExecutor struct{}
+//	
+//	func (e *MyToolExecutor) Execute(ctx context.Context, params map[string]interface{}) (*ToolExecutionResult, error) {
+//		// Check context
+//		select {
+//		case <-ctx.Done():
+//			return nil, ctx.Err()
+//		default:
+//		}
+//		
+//		// Execute tool logic
+//		result := processData(params["input"].(string))
+//		
+//		return &ToolExecutionResult{
+//			Success: true,
+//			Data:    result,
+//		}, nil
+//	}
 type ToolExecutor interface {
 	// Execute runs the tool with the given parameters.
 	// The context can be used for cancellation and timeout.
@@ -275,6 +443,38 @@ type ToolExecutor interface {
 }
 
 // StreamingToolExecutor extends ToolExecutor with streaming capabilities.
+// Tools that produce large outputs or real-time data should implement this interface.
+//
+// The ExecuteStream method returns a channel that emits chunks of output.
+// The channel must be closed when execution completes or an error occurs.
+//
+// Example streaming implementation:
+//
+//	func (e *LogReaderExecutor) ExecuteStream(ctx context.Context, params map[string]interface{}) (<-chan *ToolStreamChunk, error) {
+//		stream := make(chan *ToolStreamChunk)
+//		
+//		go func() {
+//			defer close(stream)
+//			
+//			file := params["file"].(string)
+//			lines := readFileByLine(file)
+//			
+//			for i, line := range lines {
+//				select {
+//				case <-ctx.Done():
+//					return
+//				case stream <- &ToolStreamChunk{
+//					Type:  "data",
+//					Data:  line,
+//					Index: i,
+//					Timestamp: time.Now(),
+//				}:
+//				}
+//			}
+//		}()
+//		
+//		return stream, nil
+//	}
 type StreamingToolExecutor interface {
 	ToolExecutor
 
@@ -284,6 +484,15 @@ type StreamingToolExecutor interface {
 }
 
 // ToolExecutionResult represents the outcome of a tool execution.
+// It contains the result data, success status, and execution metadata.
+//
+// Fields:
+//   - Success: Whether execution completed without errors
+//   - Data: The tool's output (any JSON-serializable type)
+//   - Error: Error message if execution failed
+//   - Metadata: Additional execution information (timing, warnings, etc.)
+//   - Duration: How long the execution took
+//   - Timestamp: When execution completed
 type ToolExecutionResult struct {
 	// Success indicates if the execution completed successfully
 	Success bool `json:"success"`
@@ -305,6 +514,21 @@ type ToolExecutionResult struct {
 }
 
 // ToolStreamChunk represents a piece of streaming output.
+// Chunks are emitted sequentially during streaming execution.
+//
+// Chunk types:
+//   - "data": Normal output data
+//   - "error": Error information
+//   - "metadata": Execution metadata (progress, stats)
+//   - "complete": Final chunk indicating completion
+//
+// Example chunk sequence:
+//
+//	{Type: "metadata", Data: {"total": 100}}
+//	{Type: "data", Data: "Processing item 1...", Index: 0}
+//	{Type: "data", Data: "Processing item 2...", Index: 1}
+//	{Type: "metadata", Data: {"progress": 50}}
+//	{Type: "complete", Data: {"processed": 100}}
 type ToolStreamChunk struct {
 	// Type indicates the chunk type (data, error, metadata, complete)
 	Type string `json:"type"`
@@ -320,6 +544,27 @@ type ToolStreamChunk struct {
 }
 
 // ToolFilter is used to query tools in the registry.
+// It supports flexible querying by various tool attributes.
+//
+// Filter examples:
+//
+//	// Find all text processing tools
+//	filter := &ToolFilter{
+//		Tags: []string{"text", "nlp"},
+//	}
+//	
+//	// Find tools by name pattern
+//	filter := &ToolFilter{
+//		Name: "*analyzer*",  // Wildcards supported
+//	}
+//	
+//	// Find tools with specific capabilities
+//	filter := &ToolFilter{
+//		Capabilities: &ToolCapabilities{
+//			Streaming: true,
+//			Cacheable: true,
+//		},
+//	}
 type ToolFilter struct {
 	// Name filters by tool name (supports wildcards)
 	Name string
@@ -341,6 +586,15 @@ type ToolFilter struct {
 }
 
 // Validate checks if the tool definition is valid.
+// It ensures all required fields are present and properly formatted.
+// This method is called automatically during tool registration.
+//
+// Validation includes:
+//   - Required fields (ID, name, description, version)
+//   - Schema validity
+//   - Executor presence
+//
+// Returns nil if valid, or an error describing the validation failure.
 func (t *Tool) Validate() error {
 	if t.ID == "" {
 		return fmt.Errorf("tool ID is required")
@@ -370,6 +624,15 @@ func (t *Tool) Validate() error {
 }
 
 // Validate checks if the tool schema is valid.
+// It ensures the schema follows JSON Schema rules and all
+// referenced properties are properly defined.
+//
+// Validation includes:
+//   - Schema type must be "object"
+//   - All properties must be valid
+//   - Required properties must exist in properties map
+//
+// Returns nil if valid, or an error describing the validation failure.
 func (s *ToolSchema) Validate() error {
 	if s.Type != "object" {
 		return fmt.Errorf("schema type must be 'object', got %q", s.Type)
@@ -393,6 +656,10 @@ func (s *ToolSchema) Validate() error {
 }
 
 // Validate checks if the property definition is valid.
+// It ensures the property type is recognized and nested
+// properties (for arrays and objects) are also valid.
+//
+// Returns nil if valid, or an error describing the validation failure.
 func (p *Property) Validate() error {
 	validTypes := map[string]bool{
 		"string":  true,
@@ -428,6 +695,8 @@ func (p *Property) Validate() error {
 }
 
 // MarshalJSON customizes JSON marshaling for Tool.
+// It includes the executor type name in the JSON output for debugging
+// and logging purposes, since the actual executor cannot be serialized.
 func (t *Tool) MarshalJSON() ([]byte, error) {
 	type Alias Tool
 	return json.Marshal(&struct {
@@ -440,6 +709,11 @@ func (t *Tool) MarshalJSON() ([]byte, error) {
 }
 
 // Clone creates a deep copy of the tool.
+// This is useful when you need to modify a tool without affecting
+// the original instance in the registry.
+//
+// Note: The Executor field is shared (not cloned) since executors
+// are typically stateless and safe to share.
 func (t *Tool) Clone() *Tool {
 	clone := &Tool{
 		ID:          t.ID,
@@ -472,7 +746,127 @@ func (t *Tool) Clone() *Tool {
 	return clone
 }
 
+// CloneOptimized creates a copy-on-write clone of the tool for performance optimization.
+// This is much faster than regular Clone() for read-only operations.
+func (t *Tool) CloneOptimized() *Tool {
+	if t == nil {
+		return nil
+	}
+
+	// If this tool is already shared, just increase reference count
+	if t.isShared {
+		atomic.AddInt32(&t.refCount, 1)
+		return t
+	}
+
+	// Create a shallow copy with copy-on-write semantics
+	clone := &Tool{
+		ID:            t.ID,
+		Name:          t.Name,
+		Description:   t.Description,
+		Version:       t.Version,
+		Schema:        t.Schema,        // Shared initially
+		Metadata:      t.Metadata,     // Shared initially
+		Executor:      t.Executor,     // Always shared
+		Capabilities:  t.Capabilities, // Shared initially
+		refCount:      1,
+		isShared:      true,
+	}
+
+	// Mark original as shared too
+	t.isShared = true
+	t.refCount = 1
+
+	return clone
+}
+
+// ensureWritable ensures the tool is writable by creating a deep copy if needed.
+func (t *Tool) ensureWritable() {
+	if !t.isShared {
+		return
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	// Double-check after acquiring lock
+	if !t.isShared {
+		return
+	}
+
+	// Create deep copies of shared structures
+	if t.Schema != nil {
+		t.Schema = t.Schema.Clone()
+	}
+	if t.Metadata != nil {
+		t.Metadata = t.Metadata.Clone()
+	}
+	if t.Capabilities != nil {
+		t.Capabilities = &ToolCapabilities{
+			Streaming:  t.Capabilities.Streaming,
+			Async:      t.Capabilities.Async,
+			Cancelable: t.Capabilities.Cancelable,
+			Retryable:  t.Capabilities.Retryable,
+			Cacheable:  t.Capabilities.Cacheable,
+			RateLimit:  t.Capabilities.RateLimit,
+			Timeout:    t.Capabilities.Timeout,
+		}
+	}
+
+	// Mark as no longer shared
+	t.isShared = false
+	t.refCount = 0
+}
+
+// SetName sets the tool name (triggers copy-on-write if needed).
+func (t *Tool) SetName(name string) {
+	t.ensureWritable()
+	t.Name = name
+}
+
+// SetDescription sets the tool description (triggers copy-on-write if needed).
+func (t *Tool) SetDescription(description string) {
+	t.ensureWritable()
+	t.Description = description
+}
+
+// SetVersion sets the tool version (triggers copy-on-write if needed).
+func (t *Tool) SetVersion(version string) {
+	t.ensureWritable()
+	t.Version = version
+}
+
+// SetSchema sets the tool schema (triggers copy-on-write if needed).
+func (t *Tool) SetSchema(schema *ToolSchema) {
+	t.ensureWritable()
+	t.Schema = schema
+}
+
+// SetMetadata sets the tool metadata (triggers copy-on-write if needed).
+func (t *Tool) SetMetadata(metadata *ToolMetadata) {
+	t.ensureWritable()
+	t.Metadata = metadata
+}
+
+// SetCapabilities sets the tool capabilities (triggers copy-on-write if needed).
+func (t *Tool) SetCapabilities(capabilities *ToolCapabilities) {
+	t.ensureWritable()
+	t.Capabilities = capabilities
+}
+
+// IsShared returns true if the tool is using copy-on-write semantics.
+func (t *Tool) IsShared() bool {
+	return t.isShared
+}
+
+// GetRefCount returns the current reference count for debugging.
+func (t *Tool) GetRefCount() int32 {
+	return atomic.LoadInt32(&t.refCount)
+}
+
 // Clone creates a deep copy of the schema.
+// All nested properties and arrays are recursively cloned
+// to ensure complete isolation from the original.
 func (s *ToolSchema) Clone() *ToolSchema {
 	clone := &ToolSchema{
 		Type:        s.Type,
@@ -500,6 +894,8 @@ func (s *ToolSchema) Clone() *ToolSchema {
 }
 
 // Clone creates a deep copy of the property.
+// All nested structures are recursively cloned.
+// Pointer fields are dereferenced and copied to prevent sharing.
 func (p *Property) Clone() *Property {
 	clone := &Property{
 		Type:        p.Type,
@@ -554,6 +950,8 @@ func (p *Property) Clone() *Property {
 }
 
 // Clone creates a deep copy of the metadata.
+// All arrays and maps are copied to ensure isolation.
+// The custom map is shallow-copied (values are not deep-cloned).
 func (m *ToolMetadata) Clone() *ToolMetadata {
 	clone := &ToolMetadata{
 		Author:        m.Author,

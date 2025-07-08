@@ -14,7 +14,23 @@ import (
 	"time"
 )
 
-// BuiltinToolsOptions configures how built-in tools are registered
+// BuiltinToolsOptions configures how built-in tools are registered.
+// It allows enabling security restrictions and customizing the behavior
+// of file and HTTP operations.
+//
+// Example:
+//
+//	options := &BuiltinToolsOptions{
+//		SecureMode: true,
+//		FileOptions: &SecureFileOptions{
+//			AllowedPaths: []string{"/data", "/tmp"},
+//			MaxFileSize:  10 << 20, // 10MB
+//		},
+//		HTTPOptions: &SecureHTTPOptions{
+//			AllowedDomains: []string{"api.example.com"},
+//			Timeout:        30 * time.Second,
+//		},
+//	}
 type BuiltinToolsOptions struct {
 	// SecureMode enables security restrictions on file and HTTP operations
 	SecureMode bool
@@ -27,11 +43,34 @@ type BuiltinToolsOptions struct {
 }
 
 // RegisterBuiltinTools registers all built-in tools to the given registry.
+// This includes file operations, HTTP requests, and data encoding tools.
+// Tools are registered with default (non-secure) settings.
+//
+// Built-in tools include:
+//   - read_file: Read file contents
+//   - write_file: Write data to files
+//   - http_get: Make HTTP GET requests
+//   - http_post: Make HTTP POST requests
+//   - json_parse: Parse JSON strings
+//   - json_format: Format data as JSON
+//   - base64_encode: Encode data to base64
+//   - base64_decode: Decode base64 data
+//
+// Returns an error if any tool fails to register.
 func RegisterBuiltinTools(registry *Registry) error {
 	return RegisterBuiltinToolsWithOptions(registry, nil)
 }
 
-// RegisterBuiltinToolsWithOptions registers built-in tools with custom options
+// RegisterBuiltinToolsWithOptions registers built-in tools with custom options.
+// Use this to enable security restrictions or customize tool behavior.
+//
+// When SecureMode is enabled:
+//   - File operations are restricted to allowed paths
+//   - File size limits are enforced
+//   - HTTP requests are limited to allowed domains
+//   - Request timeouts and size limits are enforced
+//
+// Returns an error if any tool fails to register.
 func RegisterBuiltinToolsWithOptions(registry *Registry, options *BuiltinToolsOptions) error {
 	var tools []*Tool
 

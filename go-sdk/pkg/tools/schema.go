@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"regexp"
@@ -14,7 +15,30 @@ import (
 	"encoding/hex"
 )
 
+// Global schema cache for compiled validators
+var globalSchemaCache *SchemaCache
+var globalSchemaCacheOnce sync.Once
+
 // SchemaValidator provides JSON Schema validation for tool parameters.
+// It supports the JSON Schema draft-07 specification with additional
+// features like custom formats, type coercion, and caching.
+//
+// Key features:
+//   - Full JSON Schema validation including composition (oneOf, anyOf, allOf)
+//   - Custom format validators for domain-specific validation
+//   - Type coercion for flexible parameter handling
+//   - Validation result caching for performance
+//   - Detailed error reporting with paths and codes
+//
+// Example usage:
+//
+//	validator := NewSchemaValidator(tool.Schema)
+//	validator.SetCoercionEnabled(true)
+//	validator.AddCustomFormat("phone", validatePhoneNumber)
+//	
+//	if err := validator.Validate(params); err != nil {
+//		// Handle validation error
+//	}
 type SchemaValidator struct {
 	// schema is the tool's parameter schema
 	schema *ToolSchema
@@ -32,20 +56,60 @@ type SchemaValidator struct {
 
 	// debug enables detailed validation logging
 	debug bool
+	
+	// schemaHash is the hash of the schema for caching
+	schemaHash string
+	
+	// globalCache is the global schema cache
+	globalCache *SchemaCache
 }
 
 // NewSchemaValidator creates a new schema validator for the given tool schema.
+// It uses default settings with type coercion enabled and a standard cache size.
 func NewSchemaValidator(schema *ToolSchema) *SchemaValidator {
-	return &SchemaValidator{
+	// Initialize global cache once
+	globalSchemaCacheOnce.Do(func() {
+		globalSchemaCache = NewSchemaCache()
+	})
+
+	// Generate schema hash for caching
+	schemaHash := generateSchemaHash(schema)
+	
+	// Check if we have a cached validator
+	if cachedValidator, exists := globalSchemaCache.Get(schemaHash); exists {
+		return cachedValidator
+	}
+
+	validator := &SchemaValidator{
 		schema:          schema,
 		cache:           NewValidationCache(),
 		customFormats:   make(map[string]FormatValidator),
 		coercionEnabled: true,
 		debug:           false,
+		schemaHash:      schemaHash,
+		globalCache:     globalSchemaCache,
 	}
+
+	// Cache the validator
+	globalSchemaCache.Set(schemaHash, validator, schema)
+
+	return validator
 }
 
 // NewAdvancedSchemaValidator creates a new schema validator with advanced options.
+// This allows fine-grained control over validation behavior, caching, and custom formats.
+//
+// Example:
+//
+//	opts := &ValidatorOptions{
+//		CoercionEnabled:  true,
+//		Debug:           true,
+//		CacheSize:       500,
+//		CustomFormats: map[string]FormatValidator{
+//			"ssn": validateSSN,
+//		},
+//	}
+//	validator := NewAdvancedSchemaValidator(schema, opts)
 func NewAdvancedSchemaValidator(schema *ToolSchema, opts *ValidatorOptions) *SchemaValidator {
 	v := &SchemaValidator{
 		schema:          schema,
@@ -73,6 +137,15 @@ func NewAdvancedSchemaValidator(schema *ToolSchema, opts *ValidatorOptions) *Sch
 
 // Validate checks if the given parameters match the tool's schema.
 // It returns a detailed error if validation fails.
+//
+// The validation process includes:
+//   - Type checking against schema definitions
+//   - Required field validation
+//   - Format validation (email, URL, date-time, etc.)
+//   - Constraint validation (min/max, pattern, enum)
+//   - Nested object and array validation
+//
+// Returns nil if validation succeeds, or a ValidationError with details.
 func (v *SchemaValidator) Validate(params map[string]interface{}) error {
 	if v.schema == nil {
 		return nil // No schema means any parameters are valid
@@ -83,6 +156,24 @@ func (v *SchemaValidator) Validate(params map[string]interface{}) error {
 }
 
 // ValidateWithResult performs validation and returns a detailed result.
+// Unlike Validate, this method returns a structured result containing
+// all validation errors, warnings, and the processed data (with type coercion applied).
+//
+// This is useful when you need:
+//   - Multiple validation errors at once
+//   - Access to coerced/normalized data
+//   - Validation warnings (future feature)
+//
+// Example:
+//
+//	result := validator.ValidateWithResult(params)
+//	if !result.Valid {
+//		for _, err := range result.Errors {
+//			log.Printf("Error at %s: %s", err.Path, err.Message)
+//		}
+//	} else {
+//		// Use result.Data which has been coerced to correct types
+//	}
 func (v *SchemaValidator) ValidateWithResult(params map[string]interface{}) *ValidationResult {
 	result := &ValidationResult{
 		Valid: true,
@@ -135,16 +226,32 @@ func (v *SchemaValidator) ValidateWithResult(params map[string]interface{}) *Val
 }
 
 // SetCoercionEnabled enables or disables type coercion.
+// When enabled, the validator attempts to convert parameter types
+// to match the schema (e.g., string "123" to integer 123).
+// This provides flexibility when receiving parameters from various sources.
 func (v *SchemaValidator) SetCoercionEnabled(enabled bool) {
 	v.coercionEnabled = enabled
 }
 
 // SetDebugMode enables or disables debug mode.
+// In debug mode, the validator provides more detailed logging
+// and validation traces for troubleshooting.
 func (v *SchemaValidator) SetDebugMode(enabled bool) {
 	v.debug = enabled
 }
 
 // AddCustomFormat adds a custom format validator.
+// Custom formats extend the built-in format validation with
+// domain-specific rules.
+//
+// Example:
+//
+//	validator.AddCustomFormat("credit-card", func(value string) error {
+//		if !isValidCreditCard(value) {
+//			return fmt.Errorf("invalid credit card number")
+//		}
+//		return nil
+//	})
 func (v *SchemaValidator) AddCustomFormat(name string, validator FormatValidator) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -152,6 +259,7 @@ func (v *SchemaValidator) AddCustomFormat(name string, validator FormatValidator
 }
 
 // RemoveCustomFormat removes a custom format validator.
+// This restores default behavior for the specified format.
 func (v *SchemaValidator) RemoveCustomFormat(name string) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -159,6 +267,8 @@ func (v *SchemaValidator) RemoveCustomFormat(name string) {
 }
 
 // ClearCache clears the validation cache.
+// This forces revalidation of previously cached parameter sets.
+// Useful after schema changes or when memory usage is a concern.
 func (v *SchemaValidator) ClearCache() {
 	v.cache.Clear()
 }
@@ -479,6 +589,13 @@ func (v *SchemaValidator) validateObjectProperty(prop *Property, value interface
 
 
 // ValidationError represents a schema validation error.
+// It provides detailed information about what failed and where.
+//
+// Fields:
+//   - Path: JSON path to the invalid value (e.g., "user.email")
+//   - Message: Human-readable error description
+//   - Code: Machine-readable error code for programmatic handling
+//   - Details: Additional context about the error
 type ValidationError struct {
 	Path    string `json:"path"`
 	Message string `json:"message"`
@@ -494,6 +611,16 @@ func (e *ValidationError) Error() string {
 }
 
 // ValidationResult represents the result of schema validation.
+// It provides a complete view of the validation outcome including
+// all errors, warnings, and the processed data.
+//
+// Example usage:
+//
+//	if result.Valid {
+//		// Use result.Data safely
+//	} else {
+//		// Handle result.Errors
+//	}
 type ValidationResult struct {
 	Valid    bool               `json:"valid"`
 	Errors   []*ValidationError `json:"errors,omitempty"`
@@ -502,6 +629,15 @@ type ValidationResult struct {
 }
 
 // ValidatorOptions configures advanced schema validation behavior.
+// It provides fine-grained control over validation features and performance.
+//
+// Options:
+//   - CoercionEnabled: Automatically convert compatible types
+//   - Debug: Enable detailed validation logging
+//   - CacheSize: Number of validation results to cache (0 = default)
+//   - CustomFormats: Additional format validators
+//   - DefaultInjection: Inject default values for missing fields
+//   - StrictMode: Disable all coercion and flexibility features
 type ValidatorOptions struct {
 	// CoercionEnabled enables automatic type coercion
 	CoercionEnabled bool
@@ -523,9 +659,19 @@ type ValidatorOptions struct {
 }
 
 // FormatValidator defines a custom format validation function.
+// It receives a string value and returns an error if the format is invalid.
+// Format validators are used to extend the built-in format validation
+// with application-specific rules.
 type FormatValidator func(value string) error
 
 // ValidationCache caches validation results for performance optimization.
+// It uses an LRU (Least Recently Used) eviction strategy to maintain
+// a bounded size while keeping frequently validated parameter sets in memory.
+//
+// The cache significantly improves performance for:
+//   - Repeated validations of the same parameters
+//   - High-frequency tool executions
+//   - Complex schemas with expensive validation logic
 type ValidationCache struct {
 	cache map[string]*ValidationResult
 	mutex sync.RWMutex
@@ -536,6 +682,7 @@ type ValidationCache struct {
 }
 
 // NewValidationCache creates a new validation cache with default size.
+// The default size is 1000 entries, suitable for most applications.
 func NewValidationCache() *ValidationCache {
 	return &ValidationCache{
 		cache:       make(map[string]*ValidationResult),
@@ -545,6 +692,8 @@ func NewValidationCache() *ValidationCache {
 }
 
 // NewValidationCacheWithSize creates a new validation cache with specified size.
+// Use a larger size for applications with many unique parameter combinations,
+// or a smaller size to reduce memory usage.
 func NewValidationCacheWithSize(size int) *ValidationCache {
 	return &ValidationCache{
 		cache:       make(map[string]*ValidationResult),
@@ -554,6 +703,8 @@ func NewValidationCacheWithSize(size int) *ValidationCache {
 }
 
 // Get retrieves a cached validation result.
+// Returns the cached result and true if found, or nil and false if not cached.
+// Accessing a cached entry updates its position in the LRU order.
 func (c *ValidationCache) Get(key string) (*ValidationResult, bool) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -567,6 +718,8 @@ func (c *ValidationCache) Get(key string) (*ValidationResult, bool) {
 }
 
 // Set stores a validation result in the cache.
+// If the cache is at capacity, the least recently used entry is evicted.
+// If the key already exists, it's updated and moved to the most recent position.
 func (c *ValidationCache) Set(key string, result *ValidationResult) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -590,6 +743,8 @@ func (c *ValidationCache) Set(key string, result *ValidationResult) {
 }
 
 // Clear empties the validation cache.
+// All cached validation results are removed, forcing fresh validation
+// for all subsequent requests.
 func (c *ValidationCache) Clear() {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
@@ -625,6 +780,22 @@ func (c *ValidationCache) evictLRU() {
 }
 
 // SchemaComposition represents schema composition patterns.
+// These patterns enable complex validation logic by combining multiple schemas.
+//
+// Composition types:
+//   - OneOf: Exactly one schema must match
+//   - AnyOf: At least one schema must match
+//   - AllOf: All schemas must match
+//   - Not: The schema must not match
+//
+// Example:
+//
+//	property := &Property{
+//		OneOf: []*Property{
+//			{Type: "string", Pattern: "^https://"},
+//			{Type: "string", Pattern: "^file://"},
+//		},
+//	}
 type SchemaComposition struct {
 	// OneOf specifies that the value must match exactly one of the schemas
 	OneOf []*Property `json:"oneOf,omitempty"`
@@ -640,6 +811,15 @@ type SchemaComposition struct {
 }
 
 // ConditionalSchema represents conditional validation logic.
+// It enables if-then-else validation patterns based on data values.
+//
+// Example:
+//
+//	property := &Property{
+//		If:   &Property{Properties: map[string]*Property{"type": {Enum: []interface{}{"premium"}}}},
+//		Then: &Property{Required: []string{"creditCard"}},
+//		Else: &Property{Required: []string{"email"}},
+//	}
 type ConditionalSchema struct {
 	// If specifies the condition schema
 	If *Property `json:"if,omitempty"`
@@ -652,6 +832,8 @@ type ConditionalSchema struct {
 }
 
 // SchemaReference represents a JSON Schema reference.
+// References enable schema reuse and modular schema design.
+// The $ref property contains a URI pointing to another schema definition.
 type SchemaReference struct {
 	// Ref is the schema reference URI
 	Ref string `json:"$ref,omitempty"`
@@ -661,6 +843,13 @@ type SchemaReference struct {
 }
 
 // PropertyTransformation defines type transformation rules.
+// These rules control how values are coerced, normalized, and defaulted
+// during validation.
+//
+// Features:
+//   - CoercionRules: Type conversion mappings
+//   - NormalizationRules: Value standardization (e.g., lowercase emails)
+//   - DefaultValueRules: Automatic default value injection
 type PropertyTransformation struct {
 	// CoercionRules define how to coerce types
 	CoercionRules map[string][]string `json:"coercionRules,omitempty"`
@@ -889,7 +1078,9 @@ func (v *SchemaValidator) coerceTypes(params map[string]interface{}, schema *Too
 		if value, exists := coerced[name]; exists {
 			coercedValue, err := v.coerceValue(value, prop)
 			if err != nil {
-				return nil, fmt.Errorf("failed to coerce property %q: %w", name, err)
+				return nil, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("failed to coerce property %q", name), "").
+					WithCause(err).
+					WithDetail("property", name)
 			}
 			coerced[name] = coercedValue
 		} else if prop.Default != nil {
@@ -954,9 +1145,13 @@ func (v *SchemaValidator) coerceToNumber(value interface{}) (float64, error) {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			return f, nil
 		}
-		return 0, fmt.Errorf("cannot convert %q to number", v)
+		return 0, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("cannot convert %q to number", v), "").
+			WithDetail("value", v).
+			WithDetail("target_type", "number")
 	default:
-		return 0, fmt.Errorf("cannot convert %T to number", v)
+		return 0, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("cannot convert %T to number", v), "").
+			WithDetail("source_type", fmt.Sprintf("%T", v)).
+			WithDetail("target_type", "number")
 	}
 }
 
@@ -971,14 +1166,20 @@ func (v *SchemaValidator) coerceToInteger(value interface{}) (int64, error) {
 		if v == float64(int64(v)) {
 			return int64(v), nil
 		}
-		return 0, fmt.Errorf("cannot convert %f to integer", v)
+		return 0, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("cannot convert %f to integer", v), "").
+			WithDetail("value", v).
+			WithDetail("target_type", "integer")
 	case string:
 		if i, err := strconv.ParseInt(v, 10, 64); err == nil {
 			return i, nil
 		}
-		return 0, fmt.Errorf("cannot convert %q to integer", v)
+		return 0, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("cannot convert %q to integer", v), "").
+			WithDetail("value", v).
+			WithDetail("target_type", "integer")
 	default:
-		return 0, fmt.Errorf("cannot convert %T to integer", v)
+		return 0, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("cannot convert %T to integer", v), "").
+			WithDetail("source_type", fmt.Sprintf("%T", v)).
+			WithDetail("target_type", "integer")
 	}
 }
 
@@ -1189,4 +1390,21 @@ func isValidJSONPointer(pointer string) bool {
 func isValidRegex(pattern string) bool {
 	_, err := regexp.Compile(pattern)
 	return err == nil
+}
+
+// generateSchemaHash generates a SHA-256 hash of the schema for caching.
+func generateSchemaHash(schema *ToolSchema) string {
+	if schema == nil {
+		return ""
+	}
+
+	// Serialize the schema to JSON for hashing
+	data, err := json.Marshal(schema)
+	if err != nil {
+		// Fallback to a default hash if serialization fails
+		return "default"
+	}
+
+	hash := sha256.Sum256(data)
+	return hex.EncodeToString(hash[:])
 }

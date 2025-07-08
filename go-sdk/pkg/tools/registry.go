@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -44,6 +45,11 @@ type Registry struct {
 
 	// Hook protection mutex
 	hookMu sync.RWMutex
+
+	// Performance optimization components
+	listCache    *ListCache
+	schemaCache  *SchemaCache
+	memoryPool   *MemoryPool
 }
 
 // RegistryValidator is a function that validates tools during registration.
@@ -114,6 +120,91 @@ const (
 	// ConflictStrategyPriorityBased uses tool metadata priority field to decide
 	ConflictStrategyPriorityBased
 )
+
+// PaginationOptions defines options for paginated operations.
+type PaginationOptions struct {
+	// Page is the page number (1-based)
+	Page int
+	// Size is the number of items per page
+	Size int
+	// SortBy specifies the field to sort by
+	SortBy string
+	// SortOrder specifies the sort direction (asc/desc)
+	SortOrder string
+}
+
+// PaginatedResult contains paginated results with metadata.
+type PaginatedResult struct {
+	// Tools contains the tools for the current page
+	Tools []ReadOnlyTool
+	// TotalCount is the total number of tools matching the filter
+	TotalCount int
+	// Page is the current page number
+	Page int
+	// Size is the page size
+	Size int
+	// TotalPages is the total number of pages
+	TotalPages int
+	// HasNext indicates if there's a next page
+	HasNext bool
+	// HasPrevious indicates if there's a previous page
+	HasPrevious bool
+}
+
+// ListCache provides fast caching for list operations.
+type ListCache struct {
+	mu    sync.RWMutex
+	cache map[string]*CachedListResult
+	// LRU tracking
+	accessOrder []string
+	maxSize     int
+	size        int
+}
+
+// CachedListResult represents a cached list result with expiration.
+type CachedListResult struct {
+	Result    *PaginatedResult
+	ExpiresAt time.Time
+	Filter    *ToolFilter
+	Options   *PaginationOptions
+}
+
+// SchemaCache provides LRU caching for compiled schemas.
+type SchemaCache struct {
+	mu       sync.RWMutex
+	cache    map[string]*CachedSchema
+	order    []string
+	maxSize  int
+	size     int
+	hitCount int64
+	missCount int64
+}
+
+// CachedSchema represents a cached compiled schema.
+type CachedSchema struct {
+	Validator *SchemaValidator
+	Schema    *ToolSchema
+	Hash      string
+	CreatedAt time.Time
+	AccessCount int64
+}
+
+// MemoryPool provides object pooling for frequently allocated objects.
+type MemoryPool struct {
+	toolPool       sync.Pool
+	resultPool     sync.Pool
+	filterPool     sync.Pool
+	stringSlicePool sync.Pool
+	mapPool        sync.Pool
+}
+
+// ToolWrapper provides copy-on-write semantics for tools.
+type ToolWrapper struct {
+	tool      *Tool
+	refCount  int32
+	copyOnWrite bool
+	mu        sync.RWMutex
+}
 
 // ConflictResolver defines a function that resolves tool conflicts.
 // It receives the existing and new tools and returns the tool to keep,
@@ -284,6 +375,10 @@ func NewRegistryWithConfig(config *RegistryConfig) *Registry {
 		dependencyGraph:   NewDependencyGraph(),
 		loadingStrategies: make(map[string]LoadingStrategy),
 		config:            config,
+		// Performance optimization components
+		listCache:   NewListCache(),
+		schemaCache: NewSchemaCache(),
+		memoryPool:  NewMemoryPool(),
 	}
 }
 
@@ -399,6 +494,9 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 			WithCause(err)
 	}
 
+	// Invalidate caches after successful registration
+	r.invalidateListCache()
+
 	return nil
 }
 
@@ -431,6 +529,9 @@ func (r *Registry) Unregister(toolID string) error {
 			}
 		}
 	}
+
+	// Invalidate caches after successful unregistration
+	r.invalidateListCache()
 
 	return nil
 }
@@ -532,6 +633,90 @@ func (r *Registry) ListReadOnly(filter *ToolFilter) ([]ReadOnlyTool, error) {
 	}
 
 	return results, nil
+}
+
+// ListPaginated returns paginated results for tools matching the filter.
+// This method provides efficient pagination with caching and optimized filtering.
+func (r *Registry) ListPaginated(filter *ToolFilter, options *PaginationOptions) (*PaginatedResult, error) {
+	// Set default pagination options
+	if options == nil {
+		options = &PaginationOptions{
+			Page:      1,
+			Size:      50,
+			SortBy:    "name",
+			SortOrder: "asc",
+		}
+	}
+
+	// Validate options
+	if options.Page < 1 {
+		options.Page = 1
+	}
+	if options.Size < 1 || options.Size > 1000 {
+		options.Size = 50
+	}
+	if options.SortBy == "" {
+		options.SortBy = "name"
+	}
+	if options.SortOrder != "asc" && options.SortOrder != "desc" {
+		options.SortOrder = "asc"
+	}
+
+	// Check cache first
+	cacheKey := r.generateListCacheKey(filter, options)
+	if cached, found := r.listCache.Get(cacheKey); found {
+		return cached.Result, nil
+	}
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	// Get filtered tools using optimized approach
+	filteredTools := r.getFilteredToolsOptimized(filter)
+
+	// Sort tools
+	r.sortTools(filteredTools, options.SortBy, options.SortOrder)
+
+	// Calculate pagination
+	totalCount := len(filteredTools)
+	totalPages := (totalCount + options.Size - 1) / options.Size
+	startIndex := (options.Page - 1) * options.Size
+	endIndex := startIndex + options.Size
+	
+	if endIndex > totalCount {
+		endIndex = totalCount
+	}
+
+	// Create paginated result
+	result := &PaginatedResult{
+		TotalCount:  totalCount,
+		Page:        options.Page,
+		Size:        options.Size,
+		TotalPages:  totalPages,
+		HasNext:     options.Page < totalPages,
+		HasPrevious: options.Page > 1,
+	}
+
+	// Get tools for current page
+	if startIndex < totalCount {
+		pageTools := filteredTools[startIndex:endIndex]
+		result.Tools = make([]ReadOnlyTool, len(pageTools))
+		for i, tool := range pageTools {
+			result.Tools[i] = NewReadOnlyTool(tool)
+		}
+	} else {
+		result.Tools = []ReadOnlyTool{}
+	}
+
+	// Cache the result
+	r.listCache.Set(cacheKey, &CachedListResult{
+		Result:    result,
+		ExpiresAt: time.Now().Add(5 * time.Minute),
+		Filter:    filter,
+		Options:   options,
+	})
+
+	return result, nil
 }
 
 // ListAll returns all registered tools.
@@ -1141,6 +1326,112 @@ func (r *Registry) GetConfig() *RegistryConfig {
 	return r.config
 }
 
+// Performance optimization helper methods
+
+// getFilteredToolsOptimized efficiently filters tools using indexes.
+func (r *Registry) getFilteredToolsOptimized(filter *ToolFilter) []*Tool {
+	if filter == nil {
+		// Return all tools
+		result := make([]*Tool, 0, len(r.tools))
+		for _, tool := range r.tools {
+			result = append(result, tool)
+		}
+		return result
+	}
+
+	// Use tag index for efficient filtering if tags are specified
+	var candidateTools map[string]*Tool
+	if len(filter.Tags) > 0 {
+		candidateTools = r.getToolsByTags(filter.Tags)
+	} else {
+		candidateTools = r.tools
+	}
+
+	// Apply remaining filters
+	result := make([]*Tool, 0, len(candidateTools))
+	for _, tool := range candidateTools {
+		if r.matchesFilter(tool, filter) {
+			result = append(result, tool)
+		}
+	}
+
+	return result
+}
+
+// getToolsByTags efficiently retrieves tools by tags using the tag index.
+func (r *Registry) getToolsByTags(tags []string) map[string]*Tool {
+	if len(tags) == 0 {
+		return r.tools
+	}
+
+	// Find tools that have all required tags
+	var result map[string]*Tool
+	for i, tag := range tags {
+		toolsWithTag := r.tagIndex[tag]
+		if toolsWithTag == nil {
+			// No tools have this tag
+			return make(map[string]*Tool)
+		}
+
+		if i == 0 {
+			// First tag - initialize result
+			result = make(map[string]*Tool)
+			for toolID := range toolsWithTag {
+				if tool, exists := r.tools[toolID]; exists {
+					result[toolID] = tool
+				}
+			}
+		} else {
+			// Subsequent tags - intersect with existing result
+			for toolID := range result {
+				if !toolsWithTag[toolID] {
+					delete(result, toolID)
+				}
+			}
+		}
+	}
+
+	return result
+}
+
+// sortTools sorts tools by the specified field and order.
+func (r *Registry) sortTools(tools []*Tool, sortBy, sortOrder string) {
+	sort.Slice(tools, func(i, j int) bool {
+		var less bool
+		switch sortBy {
+		case "name":
+			less = tools[i].Name < tools[j].Name
+		case "id":
+			less = tools[i].ID < tools[j].ID
+		case "version":
+			less = tools[i].Version < tools[j].Version
+		case "description":
+			less = tools[i].Description < tools[j].Description
+		default:
+			less = tools[i].Name < tools[j].Name
+		}
+
+		if sortOrder == "desc" {
+			return !less
+		}
+		return less
+	})
+}
+
+// generateListCacheKey generates a cache key for list operations.
+func (r *Registry) generateListCacheKey(filter *ToolFilter, options *PaginationOptions) string {
+	key := fmt.Sprintf("list:%d:%d:%s:%s", options.Page, options.Size, options.SortBy, options.SortOrder)
+	if filter != nil {
+		key += fmt.Sprintf(":%s:%v:%s:%s:%v", filter.Name, filter.Tags, filter.Category, filter.Version, filter.Keywords)
+	}
+	return key
+}
+
+// invalidateListCache invalidates the list cache after tool changes.
+func (r *Registry) invalidateListCache() {
+	r.listCache.Clear()
+}
+
 // CategoryTree Methods
 
 // AddCategory adds a new category to the tree.
@@ -1425,4 +1716,322 @@ func (dg *DependencyGraph) GetDependencyGraph() map[string]map[string]*Dependenc
 	}
 	
 	return result
+}
+
+// Performance optimization implementations
+
+// NewListCache creates a new list cache with default settings.
+func NewListCache() *ListCache {
+	return &ListCache{
+		cache:   make(map[string]*CachedListResult),
+		maxSize: 1000,
+		accessOrder: make([]string, 0),
+	}
+}
+
+// Get retrieves a cached list result if it exists and hasn't expired.
+func (lc *ListCache) Get(key string) (*CachedListResult, bool) {
+	lc.mu.RLock()
+	defer lc.mu.RUnlock()
+
+	cached, exists := lc.cache[key]
+	if !exists {
+		return nil, false
+	}
+
+	// Check expiration
+	if time.Now().After(cached.ExpiresAt) {
+		// Remove expired entry
+		delete(lc.cache, key)
+		lc.removeFromAccessOrder(key)
+		return nil, false
+	}
+
+	// Move to end of access order
+	lc.moveToEnd(key)
+	return cached, true
+}
+
+// Set stores a cached list result with LRU eviction.
+func (lc *ListCache) Set(key string, result *CachedListResult) {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+
+	// If key already exists, update and move to end
+	if _, exists := lc.cache[key]; exists {
+		lc.cache[key] = result
+		lc.moveToEnd(key)
+		return
+	}
+
+	// If cache is full, evict least recently used
+	if lc.size >= lc.maxSize {
+		lc.evictLRU()
+	}
+
+	// Add new entry
+	lc.cache[key] = result
+	lc.accessOrder = append(lc.accessOrder, key)
+	lc.size++
+}
+
+// Clear removes all cached entries.
+func (lc *ListCache) Clear() {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+
+	lc.cache = make(map[string]*CachedListResult)
+	lc.accessOrder = make([]string, 0)
+	lc.size = 0
+}
+
+// moveToEnd moves a key to the end of the access order.
+func (lc *ListCache) moveToEnd(key string) {
+	lc.removeFromAccessOrder(key)
+	lc.accessOrder = append(lc.accessOrder, key)
+}
+
+// removeFromAccessOrder removes a key from the access order.
+func (lc *ListCache) removeFromAccessOrder(key string) {
+	for i, k := range lc.accessOrder {
+		if k == key {
+			lc.accessOrder = append(lc.accessOrder[:i], lc.accessOrder[i+1:]...)
+			break
+		}
+	}
+}
+
+// evictLRU removes the least recently used entry.
+func (lc *ListCache) evictLRU() {
+	if len(lc.accessOrder) == 0 {
+		return
+	}
+
+	// Remove the first entry (least recently used)
+	lruKey := lc.accessOrder[0]
+	lc.accessOrder = lc.accessOrder[1:]
+	delete(lc.cache, lruKey)
+	lc.size--
+}
+
+// NewSchemaCache creates a new schema cache with default settings.
+func NewSchemaCache() *SchemaCache {
+	return &SchemaCache{
+		cache:   make(map[string]*CachedSchema),
+		order:   make([]string, 0),
+		maxSize: 500,
+	}
+}
+
+// Get retrieves a cached schema validator.
+func (sc *SchemaCache) Get(schemaHash string) (*SchemaValidator, bool) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	cached, exists := sc.cache[schemaHash]
+	if !exists {
+		sc.missCount++
+		return nil, false
+	}
+
+	// Update access statistics
+	cached.AccessCount++
+	sc.hitCount++
+
+	// Move to end of access order
+	sc.moveToEnd(schemaHash)
+	return cached.Validator, true
+}
+
+// Set stores a cached schema validator.
+func (sc *SchemaCache) Set(schemaHash string, validator *SchemaValidator, schema *ToolSchema) {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	// If key already exists, update and move to end
+	if _, exists := sc.cache[schemaHash]; exists {
+		sc.cache[schemaHash] = &CachedSchema{
+			Validator:   validator,
+			Schema:      schema,
+			Hash:        schemaHash,
+			CreatedAt:   time.Now(),
+			AccessCount: 1,
+		}
+		sc.moveToEnd(schemaHash)
+		return
+	}
+
+	// If cache is full, evict least recently used
+	if sc.size >= sc.maxSize {
+		sc.evictLRU()
+	}
+
+	// Add new entry
+	sc.cache[schemaHash] = &CachedSchema{
+		Validator:   validator,
+		Schema:      schema,
+		Hash:        schemaHash,
+		CreatedAt:   time.Now(),
+		AccessCount: 1,
+	}
+	sc.order = append(sc.order, schemaHash)
+	sc.size++
+}
+
+// Clear removes all cached schema validators.
+func (sc *SchemaCache) Clear() {
+	sc.mu.Lock()
+	defer sc.mu.Unlock()
+
+	sc.cache = make(map[string]*CachedSchema)
+	sc.order = make([]string, 0)
+	sc.size = 0
+}
+
+// GetStats returns cache statistics.
+func (sc *SchemaCache) GetStats() (hitCount, missCount int64, hitRate float64) {
+	sc.mu.RLock()
+	defer sc.mu.RUnlock()
+
+	total := sc.hitCount + sc.missCount
+	hitRate = 0.0
+	if total > 0 {
+		hitRate = float64(sc.hitCount) / float64(total)
+	}
+
+	return sc.hitCount, sc.missCount, hitRate
+}
+
+// moveToEnd moves a key to the end of the access order.
+func (sc *SchemaCache) moveToEnd(key string) {
+	sc.removeFromOrder(key)
+	sc.order = append(sc.order, key)
+}
+
+// removeFromOrder removes a key from the access order.
+func (sc *SchemaCache) removeFromOrder(key string) {
+	for i, k := range sc.order {
+		if k == key && i < len(sc.order) {
+			if i == len(sc.order)-1 {
+				sc.order = sc.order[:i]
+			} else {
+				sc.order = append(sc.order[:i], sc.order[i+1:]...)
+			}
+			break
+		}
+	}
+}
+
+// evictLRU removes the least recently used entry.
+func (sc *SchemaCache) evictLRU() {
+	if len(sc.order) == 0 {
+		return
+	}
+
+	// Remove the first entry (least recently used)
+	lruKey := sc.order[0]
+	sc.order = sc.order[1:]
+	delete(sc.cache, lruKey)
+	sc.size--
+}
+
+// NewMemoryPool creates a new memory pool.
+func NewMemoryPool() *MemoryPool {
+	return &MemoryPool{
+		toolPool: sync.Pool{
+			New: func() interface{} {
+				return &Tool{}
+			},
+		},
+		resultPool: sync.Pool{
+			New: func() interface{} {
+				return &PaginatedResult{}
+			},
+		},
+		filterPool: sync.Pool{
+			New: func() interface{} {
+				return &ToolFilter{}
+			},
+		},
+		stringSlicePool: sync.Pool{
+			New: func() interface{} {
+				return make([]string, 0, 10)
+			},
+		},
+		mapPool: sync.Pool{
+			New: func() interface{} {
+				return make(map[string]interface{})
+			},
+		},
+	}
+}
+
+// GetTool retrieves a tool from the pool.
+func (mp *MemoryPool) GetTool() *Tool {
+	return mp.toolPool.Get().(*Tool)
+}
+
+// PutTool returns a tool to the pool.
+func (mp *MemoryPool) PutTool(tool *Tool) {
+	// Reset the tool to avoid memory leaks
+	*tool = Tool{}
+	mp.toolPool.Put(tool)
+}
+
+// GetResult retrieves a paginated result from the pool.
+func (mp *MemoryPool) GetResult() *PaginatedResult {
+	result := mp.resultPool.Get().(*PaginatedResult)
+	// Reset the result
+	*result = PaginatedResult{}
+	return result
+}
+
+// PutResult returns a paginated result to the pool.
+func (mp *MemoryPool) PutResult(result *PaginatedResult) {
+	mp.resultPool.Put(result)
+}
+
+// GetFilter retrieves a filter from the pool.
+func (mp *MemoryPool) GetFilter() *ToolFilter {
+	filter := mp.filterPool.Get().(*ToolFilter)
+	// Reset the filter
+	*filter = ToolFilter{}
+	return filter
+}
+
+// PutFilter returns a filter to the pool.
+func (mp *MemoryPool) PutFilter(filter *ToolFilter) {
+	mp.filterPool.Put(filter)
+}
+
+// GetStringSlice retrieves a string slice from the pool.
+func (mp *MemoryPool) GetStringSlice() []string {
+	slice := mp.stringSlicePool.Get().([]string)
+	return slice[:0] // Reset length but keep capacity
+}
+
+// PutStringSlice returns a string slice to the pool.
+func (mp *MemoryPool) PutStringSlice(slice []string) {
+	if cap(slice) > 100 { // Avoid keeping very large slices
+		return
+	}
+	mp.stringSlicePool.Put(slice)
+}
+
+// GetMap retrieves a map from the pool.
+func (mp *MemoryPool) GetMap() map[string]interface{} {
+	m := mp.mapPool.Get().(map[string]interface{})
+	// Clear the map
+	for k := range m {
+		delete(m, k)
+	}
+	return m
+}
+
+// PutMap returns a map to the pool.
+func (mp *MemoryPool) PutMap(m map[string]interface{}) {
+	if len(m) > 100 { // Avoid keeping very large maps
+		return
+	}
+	mp.mapPool.Put(m)
 }

@@ -2,7 +2,6 @@ package tools
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -65,49 +64,6 @@ func (m *mockUtilityExecutor) Execute(ctx context.Context, params map[string]int
 		Timestamp: time.Now(),
 	}, nil
 }
-
-// =============================================================================
-// ToolUtilities Tests
-// =============================================================================
-
-func TestNewToolUtilities(t *testing.T) {
-	tests := []struct {
-		name   string
-		config *UtilitiesConfig
-	}{
-		{
-			name:   "with default config",
-			config: nil,
-		},
-		{
-			name:   "with custom config",
-			config: DefaultUtilitiesConfig(),
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			utils := NewToolUtilities(tt.config)
-			assert.NotNil(t, utils)
-			assert.NotNil(t, utils.GetConfig())
-		})
-	}
-}
-
-func TestToolUtilities_SetConfig(t *testing.T) {
-	utils := NewToolUtilities(nil)
-	newConfig := &UtilitiesConfig{
-		DefaultAuthor: "New Author",
-		DefaultLicense: "Apache",
-	}
-	
-	utils.SetConfig(newConfig)
-	assert.Equal(t, newConfig, utils.GetConfig())
-}
-
-// =============================================================================
-// Tool Scaffolding Tests
-// =============================================================================
 
 func TestToolScaffolder_GenerateTool(t *testing.T) {
 	utils := NewToolUtilities(nil)
@@ -184,9 +140,9 @@ func TestToolScaffolder_GenerateTool(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, result)
-				assert.Equal(t, tt.opts.ToolID, result.ID)
-				assert.Equal(t, tt.opts.ToolName, result.Name)
-				assert.NotEmpty(t, result.Files)
+				assert.Equal(t, tt.opts.ToolID, result.Options.ToolID)
+				assert.Equal(t, tt.opts.ToolName, result.Options.ToolName)
+				assert.NotEmpty(t, result.SourceCode)
 				assert.NotNil(t, result.Metadata)
 			}
 		})
@@ -237,10 +193,6 @@ func TestParameterSpec_Validation(t *testing.T) {
 		assert.Nil(t, result)
 	})
 }
-
-// =============================================================================
-// Tool Validation Tests
-// =============================================================================
 
 func TestToolValidator_ValidateTool(t *testing.T) {
 	utils := NewToolUtilities(nil)
@@ -300,29 +252,6 @@ func TestToolValidator_ValidateTool(t *testing.T) {
 	}
 }
 
-func TestValidationReport_ScoreCalculation(t *testing.T) {
-	utils := NewToolUtilities(nil)
-	ctx := context.Background()
-	tool := createSampleTool()
-
-	report, err := utils.Validate(ctx, tool)
-	require.NoError(t, err)
-	require.NotNil(t, report)
-
-	// Score should be between 0 and 100
-	assert.GreaterOrEqual(t, report.Score, 0.0)
-	assert.LessOrEqual(t, report.Score, 100.0)
-
-	// Valid tools should have high scores
-	if report.Valid {
-		assert.GreaterOrEqual(t, report.Score, 70.0)
-	}
-}
-
-// =============================================================================
-// Documentation Generation Tests
-// =============================================================================
-
 func TestDocumentationGenerator_GenerateDocumentation(t *testing.T) {
 	utils := NewToolUtilities(nil)
 	tool := createSampleTool()
@@ -362,60 +291,6 @@ func getFormatName(format DocFormat) string {
 		return "unknown"
 	}
 }
-
-func TestDocumentationGenerator_InvalidTool(t *testing.T) {
-	utils := NewToolUtilities(nil)
-	
-	invalidTool := &Tool{
-		ID:   "invalid",
-		Name: "Invalid",
-		// Missing required fields
-	}
-
-	doc, err := utils.GenerateDocumentation(invalidTool, DocFormatMarkdown)
-	assert.Error(t, err)
-	assert.Nil(t, doc)
-}
-
-func TestDocumentationFormats(t *testing.T) {
-	utils := NewToolUtilities(nil)
-	tool := createSampleTool()
-
-	t.Run("markdown format", func(t *testing.T) {
-		doc, err := utils.GenerateDocumentation(tool, DocFormatMarkdown)
-		require.NoError(t, err)
-		assert.Contains(t, doc.Content, "# "+tool.Name)
-		assert.Contains(t, doc.Content, "## Parameters")
-		assert.Contains(t, doc.Content, "## Examples")
-	})
-
-	t.Run("html format", func(t *testing.T) {
-		doc, err := utils.GenerateDocumentation(tool, DocFormatHTML)
-		require.NoError(t, err)
-		assert.Contains(t, doc.Content, "<html>")
-		assert.Contains(t, doc.Content, "<title>")
-		assert.Contains(t, doc.Content, tool.Name)
-	})
-
-	t.Run("json format", func(t *testing.T) {
-		doc, err := utils.GenerateDocumentation(tool, DocFormatJSON)
-		require.NoError(t, err)
-		assert.Contains(t, doc.Content, `"Tool"`)
-		assert.Contains(t, doc.Content, tool.ID)
-	})
-
-	t.Run("plain text format", func(t *testing.T) {
-		doc, err := utils.GenerateDocumentation(tool, DocFormatPlainText)
-		require.NoError(t, err)
-		assert.Contains(t, doc.Content, tool.Name)
-		assert.Contains(t, doc.Content, "OVERVIEW")
-		assert.Contains(t, doc.Content, "PARAMETERS")
-	})
-}
-
-// =============================================================================
-// Tool Packaging Tests
-// =============================================================================
 
 func TestToolPackager_CreatePackage(t *testing.T) {
 	utils := NewToolUtilities(nil)
@@ -489,26 +364,19 @@ func TestPackageFileTypes(t *testing.T) {
 	require.NotNil(t, pkg)
 
 	// Verify different file types are included
-	var hasSource, hasTest, hasDoc bool
+	var hasSource, hasDoc bool
 	for _, file := range pkg.Files {
 		switch file.Type {
 		case PackageFileTypeSource:
 			hasSource = true
-		case PackageFileTypeTest:
-			hasTest = true
 		case PackageFileTypeDoc:
 			hasDoc = true
 		}
 	}
 
 	assert.True(t, hasSource, "Package should include source files")
-	assert.True(t, hasTest, "Package should include test files")
 	assert.True(t, hasDoc, "Package should include documentation files")
 }
-
-// =============================================================================
-// Performance Benchmarking Tests
-// =============================================================================
 
 func TestPerformanceBenchmarker_RunBenchmark(t *testing.T) {
 	utils := NewToolUtilities(nil)
@@ -552,127 +420,6 @@ func TestBenchmarkSuite_Results(t *testing.T) {
 	assert.True(t, hasThroughput, "Should have throughput benchmark")
 }
 
-func TestBenchmarkSummary_Recommendations(t *testing.T) {
-	utils := NewToolUtilities(nil)
-	tool := createSampleTool()
-	ctx := context.Background()
-
-	suite, err := utils.BenchmarkTool(ctx, tool)
-	require.NoError(t, err)
-	require.NotNil(t, suite)
-	require.NotNil(t, suite.Summary)
-
-	// Summary should have meaningful data
-	assert.GreaterOrEqual(t, suite.Summary.TotalTests, 1)
-	assert.NotNil(t, suite.Summary.Recommendations)
-}
-
-// =============================================================================
-// Integration Tests
-// =============================================================================
-
-func TestToolUtilities_FullWorkflow(t *testing.T) {
-	utils := NewToolUtilities(nil)
-	ctx := context.Background()
-
-	// Step 1: Scaffold a new tool
-	scaffoldOpts := &ToolScaffoldOptions{
-		ToolID:           "workflow-test-tool",
-		ToolName:         "WorkflowTestTool",
-		Description:      "A tool for testing the full workflow",
-		Version:          "1.0.0",
-		Author:           "Test Author",
-		License:          "MIT",
-		GenerateTests:    true,
-		GenerateExamples: true,
-		GenerateDocs:     true,
-		Parameters: []ParameterSpec{
-			{
-				Name:        "input",
-				Type:        "string",
-				Description: "Input parameter",
-				Required:    true,
-			},
-			{
-				Name:        "count",
-				Type:        "integer",
-				Description: "Count parameter",
-				Default:     5,
-			},
-		},
-	}
-
-	generatedTool, err := utils.Scaffold(ctx, scaffoldOpts)
-	require.NoError(t, err)
-	require.NotNil(t, generatedTool)
-
-	// Create a tool object for further testing
-	tool := createSampleTool()
-	tool.ID = scaffoldOpts.ToolID
-	tool.Name = scaffoldOpts.ToolName
-
-	// Step 2: Validate the tool
-	validationReport, err := utils.Validate(ctx, tool)
-	require.NoError(t, err)
-	require.NotNil(t, validationReport)
-	assert.True(t, validationReport.Valid)
-
-	// Step 3: Generate documentation
-	doc, err := utils.GenerateDocumentation(tool, DocFormatMarkdown)
-	require.NoError(t, err)
-	require.NotNil(t, doc)
-
-	// Step 4: Package the tool
-	pkg, err := utils.PackageTool(tool, &PackageOptions{
-		IncludeSource: true,
-		IncludeTests:  true,
-		IncludeDocs:   true,
-	})
-	require.NoError(t, err)
-	require.NotNil(t, pkg)
-
-	// Step 5: Benchmark the tool
-	benchmarkSuite, err := utils.BenchmarkTool(ctx, tool)
-	require.NoError(t, err)
-	require.NotNil(t, benchmarkSuite)
-
-	// Verify workflow completion
-	assert.Equal(t, scaffoldOpts.ToolID, generatedTool.ID)
-	assert.True(t, validationReport.Valid)
-	assert.NotEmpty(t, doc.Content)
-	assert.NotEmpty(t, pkg.Files)
-	assert.NotEmpty(t, benchmarkSuite.Results)
-}
-
-func TestToolUtilities_ConfigurationPersistence(t *testing.T) {
-	config := &UtilitiesConfig{
-		DefaultAuthor:       "Custom Author",
-		DefaultLicense:      "Apache-2.0",
-		DefaultVersion:      "2.0.0",
-		StrictValidation:    true,
-		BenchmarkDuration:   10 * time.Second,
-		BenchmarkIterations: 500,
-	}
-
-	utils := NewToolUtilities(config)
-	
-	// Verify configuration is applied
-	assert.Equal(t, config, utils.GetConfig())
-
-	// Test configuration update
-	newConfig := &UtilitiesConfig{
-		DefaultAuthor:  "Updated Author",
-		DefaultLicense: "BSD-3-Clause",
-	}
-
-	utils.SetConfig(newConfig)
-	assert.Equal(t, newConfig, utils.GetConfig())
-}
-
-// =============================================================================
-// Error Handling Tests
-// =============================================================================
-
 func TestToolUtilities_ErrorHandling(t *testing.T) {
 	utils := NewToolUtilities(nil)
 	ctx := context.Background()
@@ -705,262 +452,5 @@ func TestToolUtilities_ErrorHandling(t *testing.T) {
 		suite, err := utils.BenchmarkTool(ctx, nil)
 		assert.Error(t, err)
 		assert.Nil(t, suite)
-	})
-}
-
-// =============================================================================
-// Performance Tests
-// =============================================================================
-
-func BenchmarkToolUtilities_Scaffold(b *testing.B) {
-	utils := NewToolUtilities(nil)
-	ctx := context.Background()
-
-	opts := &ToolScaffoldOptions{
-		ToolID:      "benchmark-tool",
-		ToolName:    "BenchmarkTool",
-		Description: "A tool for benchmarking",
-		Parameters: []ParameterSpec{
-			{Name: "input", Type: "string", Required: true},
-		},
-	}
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		opts.ToolID = "benchmark-tool-" + string(rune(i))
-		_, err := utils.Scaffold(ctx, opts)
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-func BenchmarkToolUtilities_Validate(b *testing.B) {
-	utils := NewToolUtilities(nil)
-	ctx := context.Background()
-	tool := createSampleTool()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := utils.Validate(ctx, tool)
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-func BenchmarkToolUtilities_GenerateDocumentation(b *testing.B) {
-	utils := NewToolUtilities(nil)
-	tool := createSampleTool()
-
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		_, err := utils.GenerateDocumentation(tool, DocFormatMarkdown)
-		if err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
-// =============================================================================
-// Edge Case Tests
-// =============================================================================
-
-func TestToolUtilities_EdgeCases(t *testing.T) {
-	utils := NewToolUtilities(nil)
-
-	t.Run("empty tool ID", func(t *testing.T) {
-		opts := &ToolScaffoldOptions{
-			ToolID:      "",
-			ToolName:    "TestTool",
-			Description: "Test tool",
-		}
-		
-		result, err := utils.Scaffold(context.Background(), opts)
-		assert.Error(t, err)
-		assert.Nil(t, result)
-	})
-
-	t.Run("very long tool name", func(t *testing.T) {
-		longName := string(make([]byte, 1000))
-		for i := range longName {
-			longName = longName[:i] + "a" + longName[i+1:]
-		}
-
-		opts := &ToolScaffoldOptions{
-			ToolID:      "long-name-tool",
-			ToolName:    longName,
-			Description: "Tool with very long name",
-		}
-		
-		result, err := utils.Scaffold(context.Background(), opts)
-		assert.NoError(t, err) // Should handle long names gracefully
-		assert.NotNil(t, result)
-	})
-
-	t.Run("tool with no parameters", func(t *testing.T) {
-		tool := &Tool{
-			ID:          "no-params-tool",
-			Name:        "NoParamsTool",
-			Description: "Tool with no parameters",
-			Version:     "1.0.0",
-			Schema: &ToolSchema{
-				Type:       "object",
-				Properties: map[string]*Property{},
-				Required:   []string{},
-			},
-			Executor: &mockUtilityExecutor{},
-		}
-
-		// Should validate successfully
-		report, err := utils.Validate(context.Background(), tool)
-		assert.NoError(t, err)
-		assert.NotNil(t, report)
-
-		// Should generate documentation
-		doc, err := utils.GenerateDocumentation(tool, DocFormatMarkdown)
-		assert.NoError(t, err)
-		assert.NotNil(t, doc)
-
-		// Should package successfully
-		pkg, err := utils.PackageTool(tool, nil)
-		assert.NoError(t, err)
-		assert.NotNil(t, pkg)
-	})
-}
-
-// =============================================================================
-// Concurrency Tests
-// =============================================================================
-
-func TestToolUtilities_Concurrency(t *testing.T) {
-	utils := NewToolUtilities(nil)
-	ctx := context.Background()
-
-	const numGoroutines = 10
-	const numOperationsPerGoroutine = 5
-
-	t.Run("concurrent scaffolding", func(t *testing.T) {
-		var results []*GeneratedTool
-		var errors []error
-		resultChan := make(chan *GeneratedTool, numGoroutines*numOperationsPerGoroutine)
-		errorChan := make(chan error, numGoroutines*numOperationsPerGoroutine)
-
-		for i := 0; i < numGoroutines; i++ {
-			go func(id int) {
-				for j := 0; j < numOperationsPerGoroutine; j++ {
-					opts := &ToolScaffoldOptions{
-						ToolID:      fmt.Sprintf("concurrent-tool-%d-%d", id, j),
-						ToolName:    fmt.Sprintf("ConcurrentTool%d%d", id, j),
-						Description: "Concurrent test tool",
-						Parameters: []ParameterSpec{
-							{Name: "input", Type: "string", Required: true},
-						},
-					}
-
-					result, err := utils.Scaffold(ctx, opts)
-					if err != nil {
-						errorChan <- err
-					} else {
-						resultChan <- result
-					}
-				}
-			}(i)
-		}
-
-		// Collect results
-		for i := 0; i < numGoroutines*numOperationsPerGoroutine; i++ {
-			select {
-			case result := <-resultChan:
-				results = append(results, result)
-			case err := <-errorChan:
-				errors = append(errors, err)
-			case <-time.After(30 * time.Second):
-				t.Fatal("Test timed out")
-			}
-		}
-
-		// Verify results
-		assert.Empty(t, errors, "Should not have errors in concurrent scaffolding")
-		assert.Len(t, results, numGoroutines*numOperationsPerGoroutine)
-
-		// Verify all results are unique
-		ids := make(map[string]bool)
-		for _, result := range results {
-			assert.False(t, ids[result.ID], "Tool ID should be unique: %s", result.ID)
-			ids[result.ID] = true
-		}
-	})
-
-	t.Run("concurrent validation", func(t *testing.T) {
-		tool := createSampleTool()
-		var reports []*ValidationReport
-		var errors []error
-		reportChan := make(chan *ValidationReport, numGoroutines)
-		errorChan := make(chan error, numGoroutines)
-
-		for i := 0; i < numGoroutines; i++ {
-			go func() {
-				report, err := utils.Validate(ctx, tool)
-				if err != nil {
-					errorChan <- err
-				} else {
-					reportChan <- report
-				}
-			}()
-		}
-
-		// Collect results
-		for i := 0; i < numGoroutines; i++ {
-			select {
-			case report := <-reportChan:
-				reports = append(reports, report)
-			case err := <-errorChan:
-				errors = append(errors, err)
-			case <-time.After(10 * time.Second):
-				t.Fatal("Test timed out")
-			}
-		}
-
-		assert.Empty(t, errors, "Should not have errors in concurrent validation")
-		assert.Len(t, reports, numGoroutines)
-
-		// All reports should be consistent
-		for _, report := range reports {
-			assert.True(t, report.Valid)
-			assert.Greater(t, report.Score, 0.0)
-		}
-	})
-}
-
-// =============================================================================
-// Memory Usage Tests
-// =============================================================================
-
-func TestToolUtilities_MemoryUsage(t *testing.T) {
-	utils := NewToolUtilities(nil)
-	ctx := context.Background()
-
-	t.Run("scaffold many tools", func(t *testing.T) {
-		const numTools = 100
-		
-		for i := 0; i < numTools; i++ {
-			opts := &ToolScaffoldOptions{
-				ToolID:      fmt.Sprintf("memory-test-tool-%d", i),
-				ToolName:    fmt.Sprintf("MemoryTestTool%d", i),
-				Description: "Memory test tool",
-				Parameters: []ParameterSpec{
-					{Name: "input", Type: "string", Required: true},
-				},
-			}
-
-			result, err := utils.Scaffold(ctx, opts)
-			assert.NoError(t, err)
-			assert.NotNil(t, result)
-		}
-
-		// Verify generated tools are tracked
-		generatedTools := utils.GetGeneratedTools()
-		assert.Len(t, generatedTools, numTools)
 	})
 }

@@ -14,6 +14,29 @@ const (
 )
 
 // StreamingContext provides context and utilities for streaming tool execution.
+// It manages the streaming channel, maintains chunk ordering, and ensures
+// proper cleanup when streaming completes.
+//
+// StreamingContext is thread-safe and can be used concurrently.
+// The stream is automatically closed when the context is done or
+// when Close() is called explicitly.
+//
+// Example usage:
+//
+//	stream := NewStreamingContext(ctx)
+//	defer stream.Close()
+//	
+//	// Send data chunks
+//	for _, item := range items {
+//		if err := stream.Send(item); err != nil {
+//			return nil, err
+//		}
+//	}
+//	
+//	// Send completion
+//	stream.SendComplete(map[string]interface{}{"total": len(items)})
+//	
+//	return stream.Channel(), nil
 type StreamingContext struct {
 	ctx    context.Context
 	chunks chan *ToolStreamChunk
@@ -23,6 +46,9 @@ type StreamingContext struct {
 }
 
 // NewStreamingContext creates a new streaming context.
+// The context parameter controls the lifetime of the stream.
+// If nil, context.Background() is used.
+// The streaming channel is buffered to prevent blocking on sends.
 func NewStreamingContext(ctx context.Context) *StreamingContext {
 	if ctx == nil {
 		ctx = context.Background()
@@ -35,16 +61,22 @@ func NewStreamingContext(ctx context.Context) *StreamingContext {
 }
 
 // Send sends a data chunk to the stream.
+// Data can be any JSON-serializable value.
+// Returns an error if the stream is closed or the context is cancelled.
 func (sc *StreamingContext) Send(data interface{}) error {
 	return sc.sendChunk("data", data)
 }
 
 // SendError sends an error chunk to the stream.
+// The error is converted to a string for transmission.
+// This does not close the stream - use Close() if needed.
 func (sc *StreamingContext) SendError(err error) error {
 	return sc.sendChunk("error", err.Error())
 }
 
 // SendMetadata sends metadata to the stream.
+// Metadata provides additional information about the stream,
+// such as progress updates, statistics, or configuration.
 func (sc *StreamingContext) SendMetadata(metadata map[string]interface{}) error {
 	return sc.sendChunk("metadata", metadata)
 }

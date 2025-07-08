@@ -37,26 +37,26 @@ func TestSecurityLimits(t *testing.T) {
 	})
 
 	t.Run("MaxStateSizeBytes", func(t *testing.T) {
-		// Reset state for this test  
+		// Reset state for this test
 		contextID2, err := sm.CreateContext(ctx, "test-state-size", nil)
 		if err != nil {
 			t.Fatalf("Failed to create context for state size test: %v", err)
 		}
-		
+
 		// Try to create a single update that exceeds MaxStateSizeBytes
 		// Create a chunk that's definitely larger than MaxStateSizeBytes (10MB)
 		// Note: We need to stay under MaxStringLengthBytes (64KB) per string
 		// So we'll create multiple fields that together exceed MaxStateSizeBytes
-		
+
 		// Calculate how many max-size strings we need to exceed MaxStateSizeBytes
-		maxStringSize := MaxStringLengthBytes - 1 // 64KB - 1
+		maxStringSize := MaxStringLengthBytes - 1                     // 64KB - 1
 		numStrings := int(MaxStateSizeBytes/int64(maxStringSize)) + 2 // +2 to ensure we exceed
-		
+
 		updates := make(map[string]interface{})
 		for i := 0; i < numStrings; i++ {
 			updates[fmt.Sprintf("large_field_%d", i)] = strings.Repeat("z", maxStringSize)
 		}
-		
+
 		_, err = sm.UpdateState(ctx, contextID2, "test-state-size", updates, UpdateOptions{})
 		if err == nil {
 			t.Error("Expected error when exceeding MaxStateSizeBytes with large update")
@@ -159,8 +159,8 @@ func TestRateLimiting_Disabled(t *testing.T) {
 
 func TestRateLimiting_Original(t *testing.T) {
 	config := DefaultClientRateLimiterConfig()
-	config.RatePerSecond = 10  // 10 requests per second
-	config.BurstSize = 20      // Allow burst of 20
+	config.RatePerSecond = 10 // 10 requests per second
+	config.BurstSize = 20     // Allow burst of 20
 	rl := NewClientRateLimiter(config)
 
 	t.Run("BasicRateLimit", func(t *testing.T) {
@@ -226,7 +226,7 @@ func TestConcurrentSecurityValidation(t *testing.T) {
 	defer sm.Close()
 
 	ctx := context.Background()
-	
+
 	// Create multiple contexts
 	numContexts := 10
 	contexts := make([]string, numContexts)
@@ -250,7 +250,7 @@ func TestConcurrentSecurityValidation(t *testing.T) {
 
 			for j := 0; j < updatesPerWorker; j++ {
 				contextID := contexts[j%numContexts]
-				
+
 				// Mix of valid and invalid updates
 				var updates map[string]interface{}
 				switch j % 5 {
@@ -283,7 +283,7 @@ func TestConcurrentSecurityValidation(t *testing.T) {
 				}
 
 				_, err := sm.UpdateState(ctx, contextID, fmt.Sprintf("state-%d", j%numContexts), updates, UpdateOptions{})
-				
+
 				// Check that appropriate errors are returned
 				if j%5 == 0 && err != nil {
 					t.Errorf("Worker %d: Valid update %d failed: %v", workerID, j, err)

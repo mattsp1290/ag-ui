@@ -44,11 +44,9 @@ type ExecutionEngine struct {
 
 	// Execution tracking
 	mu          sync.RWMutex
+	cond        *sync.Cond
 	activeCount int32             // Changed to int32 for atomic operations
 	executions  sync.Map          // Changed to sync.Map for concurrent access
-	
-	// Condition variable for waiting on concurrent execution slots
-	cond *sync.Cond
 
 	// Metrics
 	metrics *ExecutionMetrics
@@ -191,7 +189,7 @@ func NewExecutionEngine(registry *Registry, opts ...ExecutionEngineOption) *Exec
 		},
 	}
 
-	// Initialize condition variable
+	// Initialize the condition variable with the mutex
 	e.cond = sync.NewCond(&e.mu)
 
 	// Apply options
@@ -375,7 +373,6 @@ func (e *ExecutionEngine) ExecuteStream(ctx context.Context, toolID string, para
 	}
 
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
-	// Note: cancel is called in the goroutine, not here
 
 	// Track execution
 	execID := fmt.Sprintf("%s-stream-%d", toolID, time.Now().UnixNano())
@@ -391,8 +388,9 @@ func (e *ExecutionEngine) ExecuteStream(ctx context.Context, toolID string, para
 			WithCause(err)
 	}
 
-	// Wrap the stream to handle cleanup
-	wrappedStream := make(chan *ToolStreamChunk)
+	// Wrap the stream to handle cleanup with buffered channel to prevent goroutine blocking
+	wrappedStream := make(chan *ToolStreamChunk, 10)
+	
 	go func() {
 		defer close(wrappedStream)
 		defer cancel()
@@ -401,21 +399,47 @@ func (e *ExecutionEngine) ExecuteStream(ctx context.Context, toolID string, para
 		startTime := time.Now()
 		hasError := false
 
-		for chunk := range stream {
+		// Add a timeout to prevent indefinite blocking
+		streamTimeout := time.NewTimer(timeout + 10*time.Second) // Give extra time beyond execution timeout
+		defer streamTimeout.Stop()
+
+		// Ensure metrics are updated when the goroutine exits
+		defer func() {
+			duration := time.Since(startTime)
+			e.updateMetrics(toolID, !hasError, duration)
+		}()
+
+		for {
 			select {
-			case wrappedStream <- chunk:
-				if chunk.Type == "error" {
-					hasError = true
+			case chunk, ok := <-stream:
+				if !ok {
+					// Stream closed, exit normally
+					return
 				}
+				
+				// Try to send chunk with timeout protection
+				select {
+				case wrappedStream <- chunk:
+					if chunk.Type == "error" {
+						hasError = true
+					}
+				case <-execCtx.Done():
+					// Context canceled, stop streaming
+					return
+				case <-streamTimeout.C:
+					// Stream processing timeout, prevent goroutine leak
+					return
+				}
+				
 			case <-execCtx.Done():
 				// Context canceled, stop streaming
 				return
+				
+			case <-streamTimeout.C:
+				// Stream processing timeout, prevent goroutine leak
+				return
 			}
 		}
-
-		// Update metrics
-		duration := time.Since(startTime)
-		e.updateMetrics(toolID, !hasError, duration)
 	}()
 
 	return wrappedStream, nil
@@ -441,16 +465,44 @@ func (e *ExecutionEngine) checkConcurrencyLimit(ctx context.Context) error {
 
 	maxConcurrent := atomic.LoadInt32(&e.maxConcurrent)
 	
+	// Wait for a slot to become available if we're at capacity
 	for atomic.LoadInt32(&e.activeCount) >= maxConcurrent {
-		// Check for context cancellation before waiting
+		// Check if context is already cancelled before waiting
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
+
+		// Use a simple approach without goroutines to avoid leaks
+		// We'll rely on the Signal() call in untrackExecution() to wake us up
+		// and check context cancellation after each Wait()
 		
-		// Wait using condition variable - this will release the lock
+		// Set up a timeout channel to prevent indefinite blocking
+		timeoutCh := make(chan struct{})
+		timeout := time.AfterFunc(30*time.Second, func() {
+			close(timeoutCh)
+			e.cond.Broadcast()
+		})
+		
+		// Wait releases the lock and waits for a signal
 		e.cond.Wait()
+		
+		// Cancel the timeout since we woke up
+		if !timeout.Stop() {
+			// Timer already fired, drain the channel
+			select {
+			case <-timeoutCh:
+			default:
+			}
+		}
+
+		// Check if context was cancelled while waiting
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
 	}
 
 	atomic.AddInt32(&e.activeCount, 1)
@@ -506,6 +558,10 @@ func (e *ExecutionEngine) trackExecution(execID, toolID string, cancel context.C
 // untrackExecution removes an execution from tracking (FIXED).
 func (e *ExecutionEngine) untrackExecution(execID string) {
 	e.executions.Delete(execID)
+	atomic.AddInt32(&e.activeCount, -1)
+	
+	// Signal any waiting goroutines that a slot is now available
+	e.cond.Broadcast()
 }
 
 // updateMetrics updates execution metrics with atomic operations (FIXED).

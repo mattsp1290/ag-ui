@@ -1,4 +1,4 @@
-.PHONY: build test lint clean install fmt vet help dev ci deps deps-update deps-verify security proto-gen proto-clean build-all
+.PHONY: build test lint clean install fmt vet help dev ci deps deps-update deps-verify security proto-gen proto-clean build-all pre-commit pre-commit-install
 
 # Build variables
 BINARY_NAME=ag-ui-cli
@@ -240,9 +240,30 @@ tools-install:
 full-check: deps-verify security lint test
 	@echo "Full quality check completed ✓"
 
-## pre-commit: Run pre-commit checks
-pre-commit: fmt lint-fix test-short
+## pre-commit: Run pre-commit framework hooks
+pre-commit:
+	@echo "Running pre-commit hooks..."
+	@if command -v pre-commit >/dev/null 2>&1; then \
+		pre-commit run --all-files; \
+	else \
+		echo "pre-commit not found. Run ./scripts/setup-pre-commit.sh to install"; \
+		echo "Falling back to manual checks..."; \
+		$(MAKE) fmt lint-fix test-short; \
+	fi
 	@echo "Pre-commit checks completed ✓"
+
+## pre-commit-install: Install pre-commit hooks
+pre-commit-install:
+	@echo "Installing pre-commit hooks..."
+	@if command -v pre-commit >/dev/null 2>&1; then \
+		pre-commit install; \
+		pre-commit install --hook-type commit-msg; \
+		pre-commit install --hook-type pre-push; \
+		echo "Pre-commit hooks installed ✓"; \
+	else \
+		echo "pre-commit not found. Run ./scripts/setup-pre-commit.sh to install"; \
+		exit 1; \
+	fi
 
 # Default target
 all: ci 

@@ -1,0 +1,434 @@
+package websocket_test
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"time"
+
+	"github.com/gorilla/websocket"
+	"go.uber.org/zap"
+
+	wsTransport "github.com/ag-ui/go-sdk/pkg/transport/websocket"
+	"github.com/ag-ui/go-sdk/pkg/core/events"
+)
+
+// Example demonstrating basic WebSocket connection usage
+func ExampleConnection() {
+	// Create a test WebSocket server
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		// Echo messages back to client
+		for {
+			messageType, message, err := conn.ReadMessage()
+			if err != nil {
+				break
+			}
+			if err := conn.WriteMessage(messageType, message); err != nil {
+				break
+			}
+		}
+	}))
+	defer server.Close()
+
+	// Create connection configuration
+	config := wsTransport.DefaultConnectionConfig()
+	config.URL = "ws" + strings.TrimPrefix(server.URL, "http")
+	config.Logger = zap.NewExample()
+	config.PingPeriod = 1 * time.Second
+	config.PongWait = 2 * time.Second
+
+	// Create connection
+	conn, err := wsTransport.NewConnection(config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+
+	// Set up event handlers
+	conn.SetOnConnect(func() {
+		fmt.Println("Connected to WebSocket server")
+	})
+
+	conn.SetOnMessage(func(data []byte) {
+		fmt.Printf("Received message: %s\n", data)
+	})
+
+	// Connect
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := conn.Connect(ctx); err != nil {
+		log.Fatal(err)
+	}
+
+	// Send a message
+	if err := conn.SendMessage(ctx, []byte("Hello, WebSocket!")); err != nil {
+		log.Printf("Failed to send message: %v", err)
+	}
+
+	// Wait a moment for the echo
+	time.Sleep(100 * time.Millisecond)
+
+	// Output:
+	// Connected to WebSocket server
+	// Received message: Hello, WebSocket!
+}
+
+// Example demonstrating connection pool usage
+func ExampleConnectionPool() {
+	// Create multiple test WebSocket servers
+	servers := make([]*httptest.Server, 3)
+	urls := make([]string, 3)
+
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+
+	for i := 0; i < 3; i++ {
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			conn, err := upgrader.Upgrade(w, r, nil)
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+
+			// Echo messages back
+			for {
+				messageType, message, err := conn.ReadMessage()
+				if err != nil {
+					break
+				}
+				if err := conn.WriteMessage(messageType, message); err != nil {
+					break
+				}
+			}
+		}))
+		servers[i] = server
+		urls[i] = "ws" + strings.TrimPrefix(server.URL, "http")
+	}
+
+	// Clean up servers
+	defer func() {
+		for _, server := range servers {
+			server.Close()
+		}
+	}()
+
+	// Create pool configuration
+	config := wsTransport.DefaultPoolConfig()
+	config.URLs = urls
+	config.MinConnections = 2
+	config.MaxConnections = 5
+	config.LoadBalancingStrategy = wsTransport.RoundRobin
+	config.Logger = zap.NewExample()
+
+	// Create connection pool
+	pool, err := wsTransport.NewConnectionPool(config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer pool.Stop()
+
+	// Set up event handlers
+	pool.SetOnConnectionStateChange(func(connID string, state wsTransport.ConnectionState) {
+		fmt.Printf("Connection %s: %s\n", connID, state.String())
+	})
+
+	// Start the pool
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := pool.Start(ctx); err != nil {
+		log.Fatal(err)
+	}
+
+	// Send messages through the pool
+	for i := 0; i < 3; i++ {
+		message := fmt.Sprintf("Pool message %d", i)
+		if err := pool.SendMessage(ctx, []byte(message)); err != nil {
+			log.Printf("Failed to send message: %v", err)
+		}
+	}
+
+	// Wait for processing
+	time.Sleep(100 * time.Millisecond)
+
+	// Get pool statistics
+	stats := pool.GetStats()
+	fmt.Printf("Pool stats - Active: %d, Healthy: %d, Messages sent: %d\n",
+		stats.ActiveConnections, stats.HealthyConnections, stats.TotalRequests)
+
+	// Output will vary based on timing, but should show:
+	// Connection states changing to connected
+	// Pool statistics showing active connections and message counts
+}
+
+// Example demonstrating full transport integration with AG-UI events
+func ExampleTransport() {
+	// Create a test WebSocket server that handles AG-UI events
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+
+		// Handle AG-UI events
+		for {
+			messageType, message, err := conn.ReadMessage()
+			if err != nil {
+				break
+			}
+
+			// Echo the event back (in a real server, this would process the event)
+			if err := conn.WriteMessage(messageType, message); err != nil {
+				break
+			}
+		}
+	}))
+	defer server.Close()
+
+	// Create transport configuration
+	config := wsTransport.DefaultTransportConfig()
+	config.URLs = []string{"ws" + strings.TrimPrefix(server.URL, "http")}
+	config.Logger = zap.NewExample()
+	config.EnableEventValidation = false // Disable for simplicity in example
+
+	// Create transport
+	transport, err := wsTransport.NewTransport(config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer transport.Close()
+
+	// Start transport
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	if err := transport.Start(ctx); err != nil {
+		log.Fatal(err)
+	}
+
+	// Subscribe to events
+	sub, err := transport.Subscribe(ctx, []string{"RUN_STARTED", "TEXT_MESSAGE_CONTENT"},
+		func(ctx context.Context, event events.Event) error {
+			fmt.Printf("Received event: %s\n", string(event.Type()))
+			return nil
+		})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer transport.Unsubscribe(sub.ID)
+
+	// Create and send an AG-UI event
+	runEvent := events.NewRunStartedEvent("thread-123", "run-456")
+	if err := transport.SendEvent(ctx, runEvent); err != nil {
+		log.Printf("Failed to send event: %v", err)
+	}
+
+	// Wait for processing
+	time.Sleep(100 * time.Millisecond)
+
+	// Get transport statistics
+	stats := transport.GetStats()
+	fmt.Printf("Transport stats - Events sent: %d, Events received: %d\n",
+		stats.EventsSent, stats.EventsReceived)
+
+	// Output will show:
+	// Event processing and statistics
+}
+
+// Example demonstrating heartbeat monitoring
+func ExampleHeartbeat_monitoring() {
+	// Create connection with custom heartbeat settings
+	config := wsTransport.DefaultConnectionConfig()
+	config.URL = "ws://example.com" // This will fail to connect, which is fine for the example
+	config.PingPeriod = 500 * time.Millisecond
+	config.PongWait = 1 * time.Second
+	config.Logger = zap.NewExample()
+
+	conn, err := wsTransport.NewConnection(config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+
+	// Get heartbeat manager
+	heartbeat := conn.GetHeartbeat() // This method would need to be added to Connection
+
+	// Check initial health
+	fmt.Printf("Initial health: %v\n", heartbeat.IsHealthy())
+	fmt.Printf("Health score: %.2f\n", heartbeat.GetConnectionHealth())
+
+	// Simulate receiving a pong
+	heartbeat.OnPong()
+	fmt.Printf("After pong - Health: %v\n", heartbeat.IsHealthy())
+
+	// Get detailed health status
+	status := heartbeat.GetDetailedHealthStatus()
+	fmt.Printf("Ping period: %v\n", status["ping_period"])
+	fmt.Printf("Pong wait: %v\n", status["pong_wait"])
+	fmt.Printf("Total pongs received: %d\n", status["total_pongs_received"])
+
+	// Output:
+	// Initial health: true
+	// Health score: 1.00
+	// After pong - Health: true
+	// Ping period: 500ms
+	// Pong wait: 1s
+	// Total pongs received: 1
+}
+
+// Example demonstrating error handling and recovery
+func ExampleErrorHandling_recovery() {
+	// Create connection configuration
+	config := wsTransport.DefaultConnectionConfig()
+	config.URL = "ws://nonexistent:8080/ws" // Invalid URL to trigger errors
+	config.MaxReconnectAttempts = 3
+	config.InitialReconnectDelay = 100 * time.Millisecond
+	config.Logger = zap.NewExample()
+
+	conn, err := wsTransport.NewConnection(config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer conn.Close()
+
+	// Set up error handler
+	conn.SetOnError(func(err error) {
+		fmt.Printf("Connection error: %v\n", err)
+	})
+
+	// Attempt to connect (will fail)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	err = conn.Connect(ctx)
+	if err != nil {
+		fmt.Printf("Connection failed as expected: %v\n", err)
+	}
+
+	// Check metrics for error tracking
+	metrics := conn.GetMetrics()
+	fmt.Printf("Connection attempts: %d\n", metrics.ConnectAttempts)
+	fmt.Printf("Errors: %d\n", metrics.Errors)
+
+	// Output:
+	// Connection failed as expected: [error message]
+	// Connection attempts: 1
+	// Errors: 1
+}
+
+// Example demonstrating connection pool health monitoring
+func ExamplePoolHealthMonitoring_demo() {
+	// This example shows how to monitor pool health
+	config := wsTransport.DefaultPoolConfig()
+	config.URLs = []string{
+		"ws://localhost:8080/ws", // These would be real URLs in practice
+		"ws://localhost:8081/ws",
+	}
+	config.HealthCheckInterval = 1 * time.Second
+	config.Logger = zap.NewExample()
+
+	pool, err := wsTransport.NewConnectionPool(config)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer pool.Stop()
+
+	// Set up health monitoring
+	pool.SetOnHealthChange(func(connID string, healthy bool) {
+		fmt.Printf("Connection %s health changed to: %v\n", connID, healthy)
+	})
+
+	// Get detailed status periodically
+	ticker := time.NewTicker(2 * time.Second)
+	defer ticker.Stop()
+
+	go func() {
+		for range ticker.C {
+			status := pool.GetDetailedStatus()
+			fmt.Printf("Pool health - Total: %d, Active: %d, Healthy: %d\n",
+				status["total_connections"],
+				status["active_connections"],
+				status["healthy_connections"])
+		}
+	}()
+
+	// In a real application, you would keep the monitoring running
+	time.Sleep(5 * time.Second)
+
+	// Output will show periodic health updates
+}
+
+// Example demonstrating configuration best practices
+func ExampleConfiguration_bestPractices() {
+	// Production configuration example
+	prodConfig := &wsTransport.ConnectionConfig{
+		URL:                        "wss://api.example.com/ag-ui",
+		MaxReconnectAttempts:       10,
+		InitialReconnectDelay:      1 * time.Second,
+		MaxReconnectDelay:          30 * time.Second,
+		ReconnectBackoffMultiplier: 2.0,
+		HandshakeTimeout:           10 * time.Second,
+		ReadTimeout:                60 * time.Second,
+		WriteTimeout:               10 * time.Second,
+		PingPeriod:                 30 * time.Second,
+		PongWait:                   35 * time.Second,
+		MaxMessageSize:             1024 * 1024, // 1MB
+		WriteBufferSize:            8192,
+		ReadBufferSize:             8192,
+		EnableCompression:          true,
+		Headers: map[string]string{
+			"Authorization": "Bearer your-token-here",
+			"User-Agent":    "AG-UI-Go-SDK/1.0",
+		},
+		Logger: func() *zap.Logger {
+			logger, _ := zap.NewProduction()
+			return logger
+		}(),
+	}
+
+	fmt.Printf("Production config URL: %s\n", prodConfig.URL)
+	fmt.Printf("Max reconnect attempts: %d\n", prodConfig.MaxReconnectAttempts)
+	fmt.Printf("Ping period: %v\n", prodConfig.PingPeriod)
+	fmt.Printf("Message size limit: %d bytes\n", prodConfig.MaxMessageSize)
+
+	// Development configuration example
+	devConfig := wsTransport.DefaultConnectionConfig()
+	devConfig.URL = "ws://localhost:8080/ag-ui"
+	devConfig.MaxReconnectAttempts = 3 // Fewer retries in development
+	devConfig.PingPeriod = 10 * time.Second
+	devConfig.Logger = func() *zap.Logger {
+		logger, _ := zap.NewDevelopment()
+		return logger
+	}()
+
+	fmt.Printf("Development config URL: %s\n", devConfig.URL)
+	fmt.Printf("Development ping period: %v\n", devConfig.PingPeriod)
+
+	// Output:
+	// Production config URL: wss://api.example.com/ag-ui
+	// Max reconnect attempts: 10
+	// Ping period: 30s
+	// Message size limit: 1048576 bytes
+	// Development config URL: ws://localhost:8080/ag-ui
+	// Development ping period: 10s
+}

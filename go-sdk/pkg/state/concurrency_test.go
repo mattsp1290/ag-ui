@@ -16,7 +16,7 @@ import (
 // TestConcurrentStateUpdates_RaceCondition tests for race conditions during concurrent state updates
 func TestConcurrentStateUpdates_RaceCondition(t *testing.T) {
 	t.Parallel()
-	
+
 	manager, err := NewStateManager(DefaultManagerOptions())
 	if err != nil {
 		t.Fatalf("failed to create manager: %v", err)
@@ -43,21 +43,21 @@ func TestConcurrentStateUpdates_RaceCondition(t *testing.T) {
 	// Test concurrent updates to the same field
 	const numGoroutines = 100
 	const updatesPerGoroutine = 10 // Reduced for faster test execution
-	
+
 	var wg sync.WaitGroup
 	var successCount atomic.Int64
 	var errorCount atomic.Int64
-	
+
 	startSignal := make(chan struct{})
 
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
-			
+
 			// Wait for start signal to ensure maximum concurrency
 			<-startSignal
-			
+
 			for j := 0; j < updatesPerGoroutine; j++ {
 				updates := map[string]interface{}{
 					"counter": goroutineID*1000 + j,
@@ -66,11 +66,11 @@ func TestConcurrentStateUpdates_RaceCondition(t *testing.T) {
 						fmt.Sprintf("g%d", goroutineID): j,
 					},
 				}
-				
+
 				_, err := manager.UpdateState(ctx, contextID, "race-test", updates, UpdateOptions{
 					ConflictStrategy: LastWriteWins,
 				})
-				
+
 				if err != nil {
 					t.Logf("goroutine %d update %d failed: %v", goroutineID, j, err)
 					errorCount.Add(1)
@@ -83,7 +83,7 @@ func TestConcurrentStateUpdates_RaceCondition(t *testing.T) {
 
 	// Start all goroutines simultaneously
 	close(startSignal)
-	
+
 	// Wait for completion
 	wg.Wait()
 
@@ -114,7 +114,7 @@ func TestConcurrentStateUpdates_RaceCondition(t *testing.T) {
 // TestConcurrentReadsAndWrites tests parallel reads and writes
 func TestConcurrentReadsAndWrites(t *testing.T) {
 	t.Parallel()
-	
+
 	manager, err := NewStateManager(DefaultManagerOptions())
 	if err != nil {
 		t.Fatalf("failed to create manager: %v", err)
@@ -129,10 +129,10 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 
 	// Initialize state with multiple fields
 	initialState := map[string]interface{}{
-		"field1": "initial1",
-		"field2": "initial2",
-		"field3": map[string]int{"a": 1, "b": 2},
-		"field4": []string{"one", "two", "three"},
+		"field1":  "initial1",
+		"field2":  "initial2",
+		"field3":  map[string]int{"a": 1, "b": 2},
+		"field4":  []string{"one", "two", "three"},
 		"counter": 0,
 	}
 	_, err = manager.UpdateState(ctx, contextID, "rw-test", initialState, UpdateOptions{})
@@ -149,7 +149,7 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 	var writeErrors atomic.Int64
 	var totalReads atomic.Int64
 	var totalWrites atomic.Int64
-	
+
 	startSignal := make(chan struct{})
 	stopSignal := make(chan struct{})
 
@@ -158,9 +158,9 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 		wg.Add(1)
 		go func(readerID int) {
 			defer wg.Done()
-			
+
 			<-startSignal
-			
+
 			for j := 0; j < operationsPerWorker; j++ {
 				select {
 				case <-stopSignal:
@@ -174,13 +174,13 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 						totalReads.Add(1)
 						// Verify state structure
 						if stateMap, ok := state.(map[string]interface{}); ok {
-							if stateMap["field1"] == nil || stateMap["field2"] == nil || 
-							   stateMap["field3"] == nil || stateMap["field4"] == nil {
+							if stateMap["field1"] == nil || stateMap["field2"] == nil ||
+								stateMap["field3"] == nil || stateMap["field4"] == nil {
 								t.Errorf("reader %d: incomplete state structure", readerID)
 							}
 						}
 					}
-					
+
 					// Small delay to simulate processing
 					time.Sleep(time.Microsecond * 10)
 				}
@@ -193,20 +193,20 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 		wg.Add(1)
 		go func(writerID int) {
 			defer wg.Done()
-			
+
 			<-startSignal
-			
+
 			for j := 0; j < operationsPerWorker; j++ {
 				select {
 				case <-stopSignal:
 					return
 				default:
 					updates := map[string]interface{}{
-						"field1": fmt.Sprintf("writer%d-update%d", writerID, j),
-						"field2": fmt.Sprintf("data-%d-%d", writerID, j),
+						"field1":  fmt.Sprintf("writer%d-update%d", writerID, j),
+						"field2":  fmt.Sprintf("data-%d-%d", writerID, j),
 						"counter": writerID*1000 + j,
 					}
-					
+
 					_, err := manager.UpdateState(ctx, contextID, "rw-test", updates, UpdateOptions{})
 					if err != nil {
 						writeErrors.Add(1)
@@ -214,7 +214,7 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 					} else {
 						totalWrites.Add(1)
 					}
-					
+
 					// Small delay to simulate processing
 					time.Sleep(time.Microsecond * 10)
 				}
@@ -224,17 +224,17 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 
 	// Start all workers
 	close(startSignal)
-	
+
 	// Let them run for a bit
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Stop all workers
 	close(stopSignal)
-	
+
 	// Wait for completion
 	wg.Wait()
 
-	t.Logf("Total reads: %d (errors: %d), Total writes: %d (errors: %d)", 
+	t.Logf("Total reads: %d (errors: %d), Total writes: %d (errors: %d)",
 		totalReads.Load(), readErrors.Load(), totalWrites.Load(), writeErrors.Load())
 
 	// Verify final state is consistent
@@ -242,7 +242,7 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to get final state: %v", err)
 	}
-	
+
 	// All fields should still exist
 	if stateMap, ok := finalState.(map[string]interface{}); ok {
 		expectedFields := []string{"field1", "field2", "field3", "field4", "counter"}
@@ -259,7 +259,7 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 // TestConcurrentSubscriptions tests multiple subscribers with concurrent events
 func TestConcurrentSubscriptions(t *testing.T) {
 	t.Parallel()
-	
+
 	manager, err := NewStateManager(DefaultManagerOptions())
 	if err != nil {
 		t.Fatalf("failed to create manager: %v", err)
@@ -280,23 +280,23 @@ func TestConcurrentSubscriptions(t *testing.T) {
 	var wg sync.WaitGroup
 	var totalEventsReceived atomic.Int64
 	var subscriptionErrors atomic.Int64
-	
+
 	unsubscribers := make([]func(), numSubscribers)
 	subscriberCounts := make([]atomic.Int64, numSubscribers)
-	
+
 	// Create subscribers
 	for i := 0; i < numSubscribers; i++ {
 		subIndex := i
 		unsubscribe := manager.Subscribe("/", func(event StateChange) {
 			subscriberCounts[subIndex].Add(1)
 			totalEventsReceived.Add(1)
-			
+
 			// Verify event structure
 			if event.Path == "" || event.Timestamp.IsZero() {
 				subscriptionErrors.Add(1)
 				t.Errorf("subscriber %d: invalid event structure", subIndex)
 			}
-			
+
 			// Simulate processing
 			time.Sleep(time.Microsecond * 50)
 		})
@@ -308,14 +308,14 @@ func TestConcurrentSubscriptions(t *testing.T) {
 
 	// Start publishers
 	startSignal := make(chan struct{})
-	
+
 	for i := 0; i < numPublishers; i++ {
 		wg.Add(1)
 		go func(publisherID int) {
 			defer wg.Done()
-			
+
 			<-startSignal
-			
+
 			for j := 0; j < eventsPerPublisher; j++ {
 				updates := map[string]interface{}{
 					"publisher": publisherID,
@@ -323,12 +323,12 @@ func TestConcurrentSubscriptions(t *testing.T) {
 					"timestamp": time.Now().UnixNano(),
 					"data":      fmt.Sprintf("event-%d-%d", publisherID, j),
 				}
-				
+
 				_, err := manager.UpdateState(ctx, contextID, "sub-test", updates, UpdateOptions{})
 				if err != nil {
 					t.Logf("publisher %d event %d failed: %v", publisherID, j, err)
 				}
-				
+
 				// Small delay between events
 				time.Sleep(time.Microsecond * 100)
 			}
@@ -337,13 +337,13 @@ func TestConcurrentSubscriptions(t *testing.T) {
 
 	// Start all publishers
 	close(startSignal)
-	
+
 	// Wait for publishers to finish
 	wg.Wait()
-	
+
 	// Give time for event processing
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Unsubscribe all
 	for _, unsubscribe := range unsubscribers {
 		if unsubscribe != nil {
@@ -361,18 +361,18 @@ func TestConcurrentSubscriptions(t *testing.T) {
 // TestGracefulShutdownUnderLoad tests shutdown while operations are active
 func TestGracefulShutdownUnderLoad(t *testing.T) {
 	t.Parallel()
-	
+
 	manager, err := NewStateManager(DefaultManagerOptions())
 	if err != nil {
 		t.Fatalf("failed to create manager: %v", err)
 	}
 
 	ctx := context.Background()
-	
+
 	// Create multiple contexts
 	const numContexts = 3
 	contextIDs := make([]string, numContexts)
-	
+
 	for i := 0; i < numContexts; i++ {
 		contextID, err := manager.CreateContext(ctx, fmt.Sprintf("shutdown-test-%d", i), nil)
 		if err != nil {
@@ -385,15 +385,15 @@ func TestGracefulShutdownUnderLoad(t *testing.T) {
 	var wg sync.WaitGroup
 	stopWorkers := make(chan struct{})
 	shutdownStarted := make(chan struct{})
-	
+
 	const workersPerContext = 5
-	
+
 	for i, contextID := range contextIDs {
 		for w := 0; w < workersPerContext; w++ {
 			wg.Add(1)
 			go func(ctxIndex, workerID int, ctxID string) {
 				defer wg.Done()
-				
+
 				for {
 					select {
 					case <-stopWorkers:
@@ -418,7 +418,7 @@ func TestGracefulShutdownUnderLoad(t *testing.T) {
 									t.Errorf("writer error before shutdown: %v", err)
 								}
 							}
-							
+
 						case 1: // Reader
 							_, err := manager.GetState(ctx, ctxID, fmt.Sprintf("state-%d", ctxIndex))
 							if err != nil {
@@ -429,7 +429,7 @@ func TestGracefulShutdownUnderLoad(t *testing.T) {
 									t.Errorf("reader error before shutdown: %v", err)
 								}
 							}
-							
+
 						case 2: // History reader
 							_, err := manager.GetHistory(ctx, fmt.Sprintf("state-%d", ctxIndex), 10)
 							if err != nil {
@@ -441,7 +441,7 @@ func TestGracefulShutdownUnderLoad(t *testing.T) {
 								}
 							}
 						}
-						
+
 						// Small delay
 						time.Sleep(time.Microsecond * 100)
 					}
@@ -452,17 +452,17 @@ func TestGracefulShutdownUnderLoad(t *testing.T) {
 
 	// Let workers run for a bit
 	time.Sleep(50 * time.Millisecond)
-	
+
 	// Start shutdown
 	close(shutdownStarted)
-	
+
 	// Begin graceful shutdown
 	shutdownDone := make(chan struct{})
 	go func() {
 		manager.Close()
 		close(shutdownDone)
 	}()
-	
+
 	// Give shutdown some time
 	select {
 	case <-shutdownDone:
@@ -470,10 +470,10 @@ func TestGracefulShutdownUnderLoad(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Error("shutdown took too long")
 	}
-	
+
 	// Stop all workers
 	close(stopWorkers)
-	
+
 	// Wait for all workers
 	wg.Wait()
 
@@ -489,7 +489,7 @@ func TestNoGoroutineLeaks(t *testing.T) {
 	// Get initial goroutine count
 	runtime.GC()
 	initialCount := runtime.NumGoroutine()
-	
+
 	// Run a full lifecycle test
 	func() {
 		manager, err := NewStateManager(DefaultManagerOptions())
@@ -497,13 +497,13 @@ func TestNoGoroutineLeaks(t *testing.T) {
 			t.Fatalf("failed to create manager: %v", err)
 		}
 		defer manager.Close()
-		
+
 		ctx := context.Background()
-		
+
 		// Create contexts and perform operations
 		const numContexts = 3
 		contextIDs := make([]string, numContexts)
-		
+
 		for i := 0; i < numContexts; i++ {
 			contextID, err := manager.CreateContext(ctx, fmt.Sprintf("leak-test-%d", i), nil)
 			if err != nil {
@@ -511,7 +511,7 @@ func TestNoGoroutineLeaks(t *testing.T) {
 			}
 			contextIDs[i] = contextID
 		}
-		
+
 		// Create subscriptions
 		var subscriptions []func()
 		for range contextIDs {
@@ -520,7 +520,7 @@ func TestNoGoroutineLeaks(t *testing.T) {
 			})
 			subscriptions = append(subscriptions, unsubscribe)
 		}
-		
+
 		// Perform some operations
 		for i := 0; i < 10; i++ {
 			for _, contextID := range contextIDs {
@@ -534,7 +534,7 @@ func TestNoGoroutineLeaks(t *testing.T) {
 				}
 			}
 		}
-		
+
 		// Unsubscribe all
 		for _, unsubscribe := range subscriptions {
 			if unsubscribe != nil {
@@ -542,19 +542,19 @@ func TestNoGoroutineLeaks(t *testing.T) {
 			}
 		}
 	}()
-	
+
 	// Wait for goroutines to clean up
 	time.Sleep(100 * time.Millisecond)
 	runtime.GC()
-	
+
 	// Check final goroutine count
 	finalCount := runtime.NumGoroutine()
 	leaked := finalCount - initialCount
-	
+
 	if leaked > 2 { // Allow small tolerance for test framework
-		t.Errorf("goroutine leak detected: initial=%d, final=%d, leaked=%d", 
+		t.Errorf("goroutine leak detected: initial=%d, final=%d, leaked=%d",
 			initialCount, finalCount, leaked)
-		
+
 		// Print goroutine stack traces for debugging
 		buf := make([]byte, 1<<20)
 		stackLen := runtime.Stack(buf, true)
@@ -565,7 +565,7 @@ func TestNoGoroutineLeaks(t *testing.T) {
 // TestDeadlockPrevention tests scenarios that could cause deadlocks
 func TestDeadlockPrevention(t *testing.T) {
 	t.Parallel()
-	
+
 	manager, err := NewStateManager(DefaultManagerOptions())
 	if err != nil {
 		t.Fatalf("failed to create manager: %v", err)
@@ -573,15 +573,15 @@ func TestDeadlockPrevention(t *testing.T) {
 	defer manager.Close()
 
 	ctx := context.Background()
-	
+
 	// Test 1: Multiple locks in different orders
 	t.Run("LockOrdering", func(t *testing.T) {
 		ctx1, _ := manager.CreateContext(ctx, "lock-order-1", nil)
 		ctx2, _ := manager.CreateContext(ctx, "lock-order-2", nil)
-		
+
 		var wg sync.WaitGroup
 		const iterations = 50
-		
+
 		// Goroutine 1: Updates ctx1 then ctx2
 		wg.Add(1)
 		go func() {
@@ -592,7 +592,7 @@ func TestDeadlockPrevention(t *testing.T) {
 					"counter": i,
 					"thread":  1,
 				}, UpdateOptions{})
-				
+
 				// Immediately update context 2
 				manager.UpdateState(ctx, ctx2, "lock-order-2", map[string]interface{}{
 					"counter": i,
@@ -600,7 +600,7 @@ func TestDeadlockPrevention(t *testing.T) {
 				}, UpdateOptions{})
 			}
 		}()
-		
+
 		// Goroutine 2: Updates ctx2 then ctx1 (opposite order)
 		wg.Add(1)
 		go func() {
@@ -611,7 +611,7 @@ func TestDeadlockPrevention(t *testing.T) {
 					"counter": i,
 					"thread":  2,
 				}, UpdateOptions{})
-				
+
 				// Immediately update context 1
 				manager.UpdateState(ctx, ctx1, "lock-order-1", map[string]interface{}{
 					"counter": i,
@@ -619,14 +619,14 @@ func TestDeadlockPrevention(t *testing.T) {
 				}, UpdateOptions{})
 			}
 		}()
-		
+
 		// Wait with timeout
 		done := make(chan struct{})
 		go func() {
 			wg.Wait()
 			close(done)
 		}()
-		
+
 		select {
 		case <-done:
 			// Success - no deadlock
@@ -634,11 +634,11 @@ func TestDeadlockPrevention(t *testing.T) {
 			t.Error("potential deadlock detected - operations took too long")
 		}
 	})
-	
+
 	// Test 2: Nested operations
 	t.Run("NestedOperations", func(t *testing.T) {
 		ctxID, _ := manager.CreateContext(ctx, "nested-ops", nil)
-		
+
 		// Subscribe and perform nested updates
 		events := make(chan StateChange, 100)
 		unsubscribe := manager.Subscribe("/", func(event StateChange) {
@@ -650,10 +650,10 @@ func TestDeadlockPrevention(t *testing.T) {
 		})
 		defer manager.Unsubscribe(unsubscribe)
 		defer close(events)
-		
+
 		var wg sync.WaitGroup
 		done := make(chan struct{})
-		
+
 		// Event handler that triggers more updates
 		wg.Add(1)
 		go func() {
@@ -675,15 +675,15 @@ func TestDeadlockPrevention(t *testing.T) {
 				}
 			}
 		}()
-		
+
 		// Trigger initial update
 		manager.UpdateState(ctx, ctxID, "nested-ops", map[string]interface{}{
 			"initial": true,
 		}, UpdateOptions{})
-		
+
 		// Wait a bit
 		time.Sleep(100 * time.Millisecond)
-		
+
 		// Clean up
 		close(done)
 		wg.Wait()
@@ -695,9 +695,9 @@ func TestHighConcurrencyStress(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping stress test in short mode")
 	}
-	
+
 	t.Parallel()
-	
+
 	manager, err := NewStateManager(DefaultManagerOptions())
 	if err != nil {
 		t.Fatalf("failed to create manager: %v", err)
@@ -705,12 +705,12 @@ func TestHighConcurrencyStress(t *testing.T) {
 	defer manager.Close()
 
 	ctx := context.Background()
-	
+
 	// Create multiple contexts for stress testing
 	const numContexts = 5
 	const goroutinesPerContext = 20 // Total 100 goroutines
 	const operationsPerGoroutine = 50
-	
+
 	contextIDs := make([]string, numContexts)
 	for i := 0; i < numContexts; i++ {
 		contextID, err := manager.CreateContext(ctx, fmt.Sprintf("stress-%d", i), nil)
@@ -718,7 +718,7 @@ func TestHighConcurrencyStress(t *testing.T) {
 			t.Fatalf("failed to create context %d: %v", i, err)
 		}
 		contextIDs[i] = contextID
-		
+
 		// Initialize state
 		_, err = manager.UpdateState(ctx, contextID, fmt.Sprintf("stress-%d", i), map[string]interface{}{
 			"counter": 0,
@@ -728,23 +728,23 @@ func TestHighConcurrencyStress(t *testing.T) {
 			t.Fatalf("failed to initialize state: %v", err)
 		}
 	}
-	
+
 	var wg sync.WaitGroup
 	var totalOps atomic.Int64
 	var errors atomic.Int64
-	
+
 	startTime := time.Now()
 	startSignal := make(chan struct{})
-	
+
 	// Launch goroutines
 	for ctxIdx, contextID := range contextIDs {
 		for g := 0; g < goroutinesPerContext; g++ {
 			wg.Add(1)
 			go func(contextIndex, goroutineID int, ctxID string) {
 				defer wg.Done()
-				
+
 				<-startSignal // Wait for simultaneous start
-				
+
 				for op := 0; op < operationsPerGoroutine; op++ {
 					// Mix of operations
 					switch op % 5 {
@@ -761,7 +761,7 @@ func TestHighConcurrencyStress(t *testing.T) {
 						if err != nil {
 							errors.Add(1)
 						}
-						
+
 					case 2, 3: // 40% reads
 						state, err := manager.GetState(ctx, ctxID, fmt.Sprintf("stress-%d", contextIndex))
 						if err != nil {
@@ -770,35 +770,35 @@ func TestHighConcurrencyStress(t *testing.T) {
 							errors.Add(1)
 							t.Errorf("got nil state")
 						}
-						
+
 					case 4: // 20% history reads
 						_, err := manager.GetHistory(ctx, fmt.Sprintf("stress-%d", contextIndex), 5)
 						if err != nil {
 							errors.Add(1)
 						}
 					}
-					
+
 					totalOps.Add(1)
 				}
 			}(ctxIdx, g, contextID)
 		}
 	}
-	
+
 	// Start all goroutines
 	close(startSignal)
-	
+
 	// Wait for completion
 	wg.Wait()
-	
+
 	duration := time.Since(startTime)
 	opsPerSecond := float64(totalOps.Load()) / duration.Seconds()
-	
+
 	t.Logf("Stress test completed:")
 	t.Logf("  Total operations: %d", totalOps.Load())
 	t.Logf("  Errors: %d", errors.Load())
 	t.Logf("  Duration: %v", duration)
 	t.Logf("  Operations/second: %.2f", opsPerSecond)
-	
+
 	// Verify final state consistency
 	for i, contextID := range contextIDs {
 		state, err := manager.GetState(ctx, contextID, fmt.Sprintf("stress-%d", i))
@@ -813,7 +813,7 @@ func TestHighConcurrencyStress(t *testing.T) {
 // TestDataConsistencyAfterConcurrentOps verifies data remains consistent after concurrent operations
 func TestDataConsistencyAfterConcurrentOps(t *testing.T) {
 	t.Parallel()
-	
+
 	manager, err := NewStateManager(DefaultManagerOptions())
 	if err != nil {
 		t.Fatalf("failed to create manager: %v", err)
@@ -842,7 +842,7 @@ func TestDataConsistencyAfterConcurrentOps(t *testing.T) {
 			"last_update": time.Now().Unix(),
 		},
 	}
-	
+
 	_, err = manager.UpdateState(ctx, contextID, "consistency-test", initialData, UpdateOptions{})
 	if err != nil {
 		t.Fatalf("failed to set initial state: %v", err)
@@ -851,17 +851,17 @@ func TestDataConsistencyAfterConcurrentOps(t *testing.T) {
 	// Perform concurrent increments
 	const numGoroutines = 20
 	const incrementsPerGoroutine = 25
-	
+
 	var wg sync.WaitGroup
 	startSignal := make(chan struct{})
-	
+
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
-			
+
 			<-startSignal
-			
+
 			for j := 0; j < incrementsPerGoroutine; j++ {
 				// Get current state
 				state, err := manager.GetState(ctx, contextID, "consistency-test")
@@ -869,20 +869,20 @@ func TestDataConsistencyAfterConcurrentOps(t *testing.T) {
 					t.Errorf("failed to get state: %v", err)
 					continue
 				}
-				
+
 				// Extract counters
 				stateMap, ok := state.(map[string]interface{})
 				if !ok {
 					t.Errorf("state is not a map")
 					continue
 				}
-				
+
 				counters, ok := stateMap["counters"].(map[string]interface{})
 				if !ok {
 					t.Errorf("counters not found or wrong type")
 					continue
 				}
-				
+
 				// Increment each counter
 				updates := map[string]interface{}{
 					"counters": map[string]interface{}{
@@ -895,7 +895,7 @@ func TestDataConsistencyAfterConcurrentOps(t *testing.T) {
 						"updated_by":  goroutineID,
 					},
 				}
-				
+
 				_, err = manager.UpdateState(ctx, contextID, "consistency-test", updates, UpdateOptions{
 					ConflictStrategy: LastWriteWins,
 				})
@@ -905,44 +905,44 @@ func TestDataConsistencyAfterConcurrentOps(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	// Start all goroutines
 	close(startSignal)
-	
+
 	// Wait for completion
 	wg.Wait()
-	
+
 	// Verify final consistency
 	finalState, err := manager.GetState(ctx, contextID, "consistency-test")
 	if err != nil {
 		t.Fatalf("failed to get final state: %v", err)
 	}
-	
+
 	// Check structure
 	stateMap, ok := finalState.(map[string]interface{})
 	if !ok {
 		t.Fatalf("final state is not a map")
 	}
-	
+
 	// Check counters
 	counters, ok := stateMap["counters"].(map[string]interface{})
 	if !ok {
 		t.Fatalf("counters not found in final state")
 	}
-	
+
 	// Due to conflict resolution, we might not have exact counts
 	// but they should be positive and reasonable
 	counterA := getIntValue(counters["a"])
 	counterB := getIntValue(counters["b"])
 	counterC := getIntValue(counters["c"])
-	
+
 	t.Logf("Final counters: a=%d, b=%d, c=%d", counterA, counterB, counterC)
-	
+
 	// Counters should be positive after increments
 	if counterA <= 0 || counterB <= 0 || counterC <= 0 {
 		t.Error("counters should be positive after increments")
 	}
-	
+
 	// Arrays should still exist
 	arrays, ok := stateMap["arrays"].(map[string]interface{})
 	if !ok {
@@ -952,7 +952,7 @@ func TestDataConsistencyAfterConcurrentOps(t *testing.T) {
 			t.Error("array data was corrupted")
 		}
 	}
-	
+
 	// Metadata should exist
 	metadata, ok := stateMap["metadata"].(map[string]interface{})
 	if !ok {

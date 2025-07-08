@@ -118,26 +118,26 @@ func (l *MonitoringConfigLoader) LoadFromFile(filename string) (MonitoringConfig
 		return MonitoringConfig{}, fmt.Errorf("failed to open config file: %w", err)
 	}
 	defer file.Close()
-	
+
 	return l.LoadFromReader(file)
 }
 
 // LoadFromReader loads configuration from a reader
 func (l *MonitoringConfigLoader) LoadFromReader(reader io.Reader) (MonitoringConfig, error) {
 	var configData map[string]interface{}
-	
+
 	decoder := json.NewDecoder(reader)
 	if err := decoder.Decode(&configData); err != nil {
 		return MonitoringConfig{}, fmt.Errorf("failed to decode config: %w", err)
 	}
-	
+
 	return l.parseConfig(configData)
 }
 
 // LoadFromEnv loads configuration from environment variables
 func (l *MonitoringConfigLoader) LoadFromEnv() MonitoringConfig {
 	config := DefaultMonitoringConfig()
-	
+
 	// Prometheus configuration
 	if val := os.Getenv("MONITORING_PROMETHEUS_ENABLED"); val != "" {
 		config.EnablePrometheus = val == "true"
@@ -148,7 +148,7 @@ func (l *MonitoringConfigLoader) LoadFromEnv() MonitoringConfig {
 	if val := os.Getenv("MONITORING_PROMETHEUS_SUBSYSTEM"); val != "" {
 		config.PrometheusSubsystem = val
 	}
-	
+
 	// Metrics configuration
 	if val := os.Getenv("MONITORING_METRICS_ENABLED"); val != "" {
 		config.MetricsEnabled = val == "true"
@@ -158,7 +158,7 @@ func (l *MonitoringConfigLoader) LoadFromEnv() MonitoringConfig {
 			config.MetricsInterval = duration
 		}
 	}
-	
+
 	// Logging configuration
 	if val := os.Getenv("MONITORING_LOG_LEVEL"); val != "" {
 		if level, err := zapcore.ParseLevel(val); err == nil {
@@ -171,7 +171,7 @@ func (l *MonitoringConfigLoader) LoadFromEnv() MonitoringConfig {
 	if val := os.Getenv("MONITORING_LOG_SAMPLING"); val != "" {
 		config.LogSampling = val == "true"
 	}
-	
+
 	// Tracing configuration
 	if val := os.Getenv("MONITORING_TRACING_ENABLED"); val != "" {
 		config.EnableTracing = val == "true"
@@ -187,7 +187,7 @@ func (l *MonitoringConfigLoader) LoadFromEnv() MonitoringConfig {
 			config.TraceSampleRate = rate
 		}
 	}
-	
+
 	// Health check configuration
 	if val := os.Getenv("MONITORING_HEALTH_CHECKS_ENABLED"); val != "" {
 		config.EnableHealthChecks = val == "true"
@@ -202,7 +202,7 @@ func (l *MonitoringConfigLoader) LoadFromEnv() MonitoringConfig {
 			config.HealthCheckTimeout = duration
 		}
 	}
-	
+
 	// Alert thresholds
 	if val := os.Getenv("MONITORING_ALERT_ERROR_RATE"); val != "" {
 		if rate, err := parseFloat(val); err == nil {
@@ -219,7 +219,7 @@ func (l *MonitoringConfigLoader) LoadFromEnv() MonitoringConfig {
 			config.AlertThresholds.MemoryUsagePercent = usage
 		}
 	}
-	
+
 	// Resource monitoring
 	if val := os.Getenv("MONITORING_RESOURCE_MONITORING_ENABLED"); val != "" {
 		config.EnableResourceMonitoring = val == "true"
@@ -229,7 +229,7 @@ func (l *MonitoringConfigLoader) LoadFromEnv() MonitoringConfig {
 			config.ResourceSampleInterval = duration
 		}
 	}
-	
+
 	// Audit integration
 	if val := os.Getenv("MONITORING_AUDIT_INTEGRATION"); val != "" {
 		config.AuditIntegration = val == "true"
@@ -237,14 +237,14 @@ func (l *MonitoringConfigLoader) LoadFromEnv() MonitoringConfig {
 	if val := os.Getenv("MONITORING_AUDIT_SEVERITY_LEVEL"); val != "" {
 		config.AuditSeverityLevel = parseAuditSeverityLevel(val)
 	}
-	
+
 	return config
 }
 
 // parseConfig parses configuration from a map
 func (l *MonitoringConfigLoader) parseConfig(configData map[string]interface{}) (MonitoringConfig, error) {
 	config := DefaultMonitoringConfig()
-	
+
 	// Prometheus configuration
 	if prometheus, ok := configData["prometheus"].(map[string]interface{}); ok {
 		if enabled, ok := prometheus["enabled"].(bool); ok {
@@ -257,7 +257,7 @@ func (l *MonitoringConfigLoader) parseConfig(configData map[string]interface{}) 
 			config.PrometheusSubsystem = subsystem
 		}
 	}
-	
+
 	// Metrics configuration
 	if metrics, ok := configData["metrics"].(map[string]interface{}); ok {
 		if enabled, ok := metrics["enabled"].(bool); ok {
@@ -269,7 +269,7 @@ func (l *MonitoringConfigLoader) parseConfig(configData map[string]interface{}) 
 			}
 		}
 	}
-	
+
 	// Logging configuration
 	if logging, ok := configData["logging"].(map[string]interface{}); ok {
 		if level, ok := logging["level"].(string); ok {
@@ -287,7 +287,7 @@ func (l *MonitoringConfigLoader) parseConfig(configData map[string]interface{}) 
 			config.LogSampling = sampling
 		}
 	}
-	
+
 	// Tracing configuration
 	if tracing, ok := configData["tracing"].(map[string]interface{}); ok {
 		if enabled, ok := tracing["enabled"].(bool); ok {
@@ -303,7 +303,7 @@ func (l *MonitoringConfigLoader) parseConfig(configData map[string]interface{}) 
 			config.TraceSampleRate = sampleRate
 		}
 	}
-	
+
 	// Health checks configuration
 	if healthChecks, ok := configData["health_checks"].(map[string]interface{}); ok {
 		if enabled, ok := healthChecks["enabled"].(bool); ok {
@@ -320,12 +320,12 @@ func (l *MonitoringConfigLoader) parseConfig(configData map[string]interface{}) 
 			}
 		}
 	}
-	
+
 	// Alert thresholds
 	if alertThresholds, ok := configData["alert_thresholds"].(map[string]interface{}); ok {
 		config.AlertThresholds = parseAlertThresholds(alertThresholds)
 	}
-	
+
 	// Resource monitoring
 	if resourceMonitoring, ok := configData["resource_monitoring"].(map[string]interface{}); ok {
 		if enabled, ok := resourceMonitoring["enabled"].(bool); ok {
@@ -337,7 +337,7 @@ func (l *MonitoringConfigLoader) parseConfig(configData map[string]interface{}) 
 			}
 		}
 	}
-	
+
 	// Audit integration
 	if audit, ok := configData["audit"].(map[string]interface{}); ok {
 		if integration, ok := audit["integration"].(bool); ok {
@@ -347,27 +347,27 @@ func (l *MonitoringConfigLoader) parseConfig(configData map[string]interface{}) 
 			config.AuditSeverityLevel = parseAuditSeverityLevel(severityLevel)
 		}
 	}
-	
+
 	return config, nil
 }
 
 // parseAlertThresholds parses alert thresholds from configuration
 func parseAlertThresholds(thresholds map[string]interface{}) AlertThresholds {
 	result := AlertThresholds{
-		ErrorRate:             5.0,
-		ErrorRateWindow:       5 * time.Minute,
-		P95LatencyMs:          100,
-		P99LatencyMs:          500,
-		MemoryUsagePercent:    80,
-		GCPauseMs:             50,
-		ConnectionPoolUtil:    85,
-		ConnectionErrors:      10,
-		QueueDepth:            1000,
-		QueueLatencyMs:        100,
-		RateLimitRejects:      100,
-		RateLimitUtil:         90,
+		ErrorRate:          5.0,
+		ErrorRateWindow:    5 * time.Minute,
+		P95LatencyMs:       100,
+		P99LatencyMs:       500,
+		MemoryUsagePercent: 80,
+		GCPauseMs:          50,
+		ConnectionPoolUtil: 85,
+		ConnectionErrors:   10,
+		QueueDepth:         1000,
+		QueueLatencyMs:     100,
+		RateLimitRejects:   100,
+		RateLimitUtil:      90,
 	}
-	
+
 	if errorRate, ok := thresholds["error_rate"].(float64); ok {
 		result.ErrorRate = errorRate
 	}
@@ -406,7 +406,7 @@ func parseAlertThresholds(thresholds map[string]interface{}) AlertThresholds {
 	if rateLimitUtil, ok := thresholds["rate_limit_util"].(float64); ok {
 		result.RateLimitUtil = rateLimitUtil
 	}
-	
+
 	return result
 }
 
@@ -417,15 +417,15 @@ func (c *MonitoringConfig) SaveToFile(filename string) error {
 		return fmt.Errorf("failed to create config file: %w", err)
 	}
 	defer file.Close()
-	
+
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
-	
+
 	configMap := c.ToMap()
 	if err := encoder.Encode(configMap); err != nil {
 		return fmt.Errorf("failed to encode config: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -459,18 +459,18 @@ func (c *MonitoringConfig) ToMap() map[string]interface{} {
 			"timeout":  c.HealthCheckTimeout.String(),
 		},
 		"alert_thresholds": map[string]interface{}{
-			"error_rate":               c.AlertThresholds.ErrorRate,
-			"error_rate_window":        c.AlertThresholds.ErrorRateWindow.String(),
-			"p95_latency_ms":           c.AlertThresholds.P95LatencyMs,
-			"p99_latency_ms":           c.AlertThresholds.P99LatencyMs,
-			"memory_usage_percent":     c.AlertThresholds.MemoryUsagePercent,
-			"gc_pause_ms":              c.AlertThresholds.GCPauseMs,
-			"connection_pool_util":     c.AlertThresholds.ConnectionPoolUtil,
-			"connection_errors":        c.AlertThresholds.ConnectionErrors,
-			"queue_depth":              c.AlertThresholds.QueueDepth,
-			"queue_latency_ms":         c.AlertThresholds.QueueLatencyMs,
-			"rate_limit_rejects":       c.AlertThresholds.RateLimitRejects,
-			"rate_limit_util":          c.AlertThresholds.RateLimitUtil,
+			"error_rate":           c.AlertThresholds.ErrorRate,
+			"error_rate_window":    c.AlertThresholds.ErrorRateWindow.String(),
+			"p95_latency_ms":       c.AlertThresholds.P95LatencyMs,
+			"p99_latency_ms":       c.AlertThresholds.P99LatencyMs,
+			"memory_usage_percent": c.AlertThresholds.MemoryUsagePercent,
+			"gc_pause_ms":          c.AlertThresholds.GCPauseMs,
+			"connection_pool_util": c.AlertThresholds.ConnectionPoolUtil,
+			"connection_errors":    c.AlertThresholds.ConnectionErrors,
+			"queue_depth":          c.AlertThresholds.QueueDepth,
+			"queue_latency_ms":     c.AlertThresholds.QueueLatencyMs,
+			"rate_limit_rejects":   c.AlertThresholds.RateLimitRejects,
+			"rate_limit_util":      c.AlertThresholds.RateLimitUtil,
 		},
 		"resource_monitoring": map[string]interface{}{
 			"enabled":         c.EnableResourceMonitoring,
@@ -481,8 +481,8 @@ func (c *MonitoringConfig) ToMap() map[string]interface{} {
 			"severity_level": auditSeverityToString(c.AuditSeverityLevel),
 		},
 		"profiling": map[string]interface{}{
-			"enabled":             c.EnableProfiling,
-			"cpu_profile_interval": c.CPUProfileInterval.String(),
+			"enabled":                 c.EnableProfiling,
+			"cpu_profile_interval":    c.CPUProfileInterval.String(),
 			"memory_profile_interval": c.MemoryProfileInterval.String(),
 		},
 	}
@@ -493,35 +493,35 @@ func (c *MonitoringConfig) Validate() error {
 	if c.MetricsInterval <= 0 {
 		return fmt.Errorf("metrics interval must be positive")
 	}
-	
+
 	if c.HealthCheckInterval <= 0 {
 		return fmt.Errorf("health check interval must be positive")
 	}
-	
+
 	if c.HealthCheckTimeout <= 0 {
 		return fmt.Errorf("health check timeout must be positive")
 	}
-	
+
 	if c.TraceSampleRate < 0 || c.TraceSampleRate > 1 {
 		return fmt.Errorf("trace sample rate must be between 0 and 1")
 	}
-	
+
 	if c.AlertThresholds.ErrorRate < 0 || c.AlertThresholds.ErrorRate > 100 {
 		return fmt.Errorf("error rate threshold must be between 0 and 100")
 	}
-	
+
 	if c.AlertThresholds.MemoryUsagePercent < 0 || c.AlertThresholds.MemoryUsagePercent > 100 {
 		return fmt.Errorf("memory usage threshold must be between 0 and 100")
 	}
-	
+
 	if c.AlertThresholds.ConnectionPoolUtil < 0 || c.AlertThresholds.ConnectionPoolUtil > 100 {
 		return fmt.Errorf("connection pool utilization threshold must be between 0 and 100")
 	}
-	
+
 	if c.AlertThresholds.RateLimitUtil < 0 || c.AlertThresholds.RateLimitUtil > 100 {
 		return fmt.Errorf("rate limit utilization threshold must be between 0 and 100")
 	}
-	
+
 	return nil
 }
 
@@ -573,18 +573,18 @@ func ExampleProductionConfig() MonitoringConfig {
 		WithResourceMonitoring(true, 10*time.Second).
 		WithAuditIntegration(true, AuditSeverityInfo).
 		WithAlertThresholds(AlertThresholds{
-			ErrorRate:             1.0,
-			ErrorRateWindow:       5 * time.Minute,
-			P95LatencyMs:          50,
-			P99LatencyMs:          200,
-			MemoryUsagePercent:    70,
-			GCPauseMs:             30,
-			ConnectionPoolUtil:    80,
-			ConnectionErrors:      5,
-			QueueDepth:            500,
-			QueueLatencyMs:        50,
-			RateLimitRejects:      50,
-			RateLimitUtil:         85,
+			ErrorRate:          1.0,
+			ErrorRateWindow:    5 * time.Minute,
+			P95LatencyMs:       50,
+			P99LatencyMs:       200,
+			MemoryUsagePercent: 70,
+			GCPauseMs:          30,
+			ConnectionPoolUtil: 80,
+			ConnectionErrors:   5,
+			QueueDepth:         500,
+			QueueLatencyMs:     50,
+			RateLimitRejects:   50,
+			RateLimitUtil:      85,
 		}).
 		Build()
 }

@@ -1,9 +1,15 @@
 package events
 
 import (
+	stdcontext "context"
 	"fmt"
 	"strings"
 	"time"
+
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 )
 
 // AddDefaultRules adds all default validation rules to the validator
@@ -12,30 +18,30 @@ func (v *EventValidator) AddDefaultRules() {
 	v.AddRule(NewRunLifecycleRule())
 	v.AddRule(NewEventOrderingRule())
 	v.AddRule(NewEventSequenceRule())
-	
+
 	// Message Validation Rules
 	v.AddRule(NewMessageLifecycleRule())
 	v.AddRule(NewMessageContentRule())
 	v.AddRule(NewMessageNestingRule())
-	
+
 	// Tool Call Validation Rules
 	v.AddRule(NewToolCallLifecycleRule())
 	v.AddRule(NewToolCallContentRule())
 	v.AddRule(NewToolCallNestingRule())
-	
+
 	// ID Consistency Rules
 	v.AddRule(NewIDConsistencyRule())
 	v.AddRule(NewIDFormatRule())
 	v.AddRule(NewIDUniquenessRule())
-	
+
 	// State Management Rules
 	v.AddRule(NewStateValidationRule())
 	v.AddRule(NewStateConsistencyRule())
-	
+
 	// Content Validation Rules
 	v.AddRule(NewContentValidationRule())
 	v.AddRule(NewTimestampValidationRule())
-	
+
 	// Custom Event Rules
 	v.AddRule(NewCustomEventRule())
 }
@@ -56,24 +62,62 @@ func NewRunLifecycleRule() *RunLifecycleRule {
 }
 
 func (r *RunLifecycleRule) Validate(event Event, context *ValidationContext) *ValidationResult {
+	// Start distributed tracing span for rule validation
+	ctx := stdcontext.Background()
+	if context != nil && context.Context != nil {
+		ctx = context.Context
+	}
+	tracer := otel.Tracer("ag-ui/events/validation/rules")
+	ruleCtx, span := tracer.Start(ctx, "run_lifecycle_rule",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("validation.rule.id", r.ID()),
+		attribute.String("validation.rule.type", "RunLifecycleRule"),
+	)
+
 	result := &ValidationResult{
 		IsValid:   true,
 		Timestamp: time.Now(),
 	}
-	
+
 	if !r.IsEnabled() {
+		span.SetStatus(codes.Ok, "Rule disabled")
+		span.AddEvent("validation.rule.disabled")
 		return result
 	}
-	
+
+	if event != nil {
+		span.SetAttributes(attribute.String("event.type", string(event.Type())))
+	}
+
 	switch event.Type() {
 	case EventTypeRunStarted:
+		span.AddEvent("validation.rule.run_started")
 		r.validateRunStarted(event, context, result)
 	case EventTypeRunFinished:
+		span.AddEvent("validation.rule.run_finished")
 		r.validateRunFinished(event, context, result)
 	case EventTypeRunError:
+		span.AddEvent("validation.rule.run_error")
 		r.validateRunError(event, context, result)
 	}
-	
+
+	// Record validation result in span
+	if len(result.Errors) > 0 {
+		span.SetStatus(codes.Error, fmt.Sprintf("Rule validation failed with %d errors", len(result.Errors)))
+		for _, err := range result.Errors {
+			span.AddEvent("validation.rule.error", trace.WithAttributes(
+				attribute.String("error.message", err.Message),
+			))
+		}
+	} else {
+		span.SetStatus(codes.Ok, "Rule validation completed")
+	}
+
+	_ = ruleCtx // Mark as used
 	return result
 }
 
@@ -83,31 +127,31 @@ func (r *RunLifecycleRule) validateRunStarted(event Event, context *ValidationCo
 		result.AddError(r.CreateError(event, "Invalid run started event type", nil, nil))
 		return
 	}
-	
+
 	// Check if run is already started
 	if _, exists := context.State.ActiveRuns[runEvent.RunID]; exists {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Run %s is already started", runEvent.RunID),
 			map[string]interface{}{"run_id": runEvent.RunID},
 			[]string{"Use a different run ID or finish the current run first"}))
 	}
-	
+
 	// Check if run was already finished
 	if _, exists := context.State.FinishedRuns[runEvent.RunID]; exists {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Cannot restart finished run %s", runEvent.RunID),
 			map[string]interface{}{"run_id": runEvent.RunID},
 			[]string{"Use a different run ID for a new run"}))
 	}
-	
+
 	// Validate required fields
 	if runEvent.RunID == "" {
-		result.AddError(r.CreateError(event, ErrMsgRunIDRequired, nil, 
+		result.AddError(r.CreateError(event, ErrMsgRunIDRequired, nil,
 			[]string{SuggestProvideRunID}))
 	}
-	
+
 	if runEvent.ThreadID == "" {
-		result.AddError(r.CreateError(event, ErrMsgThreadIDRequired, nil, 
+		result.AddError(r.CreateError(event, ErrMsgThreadIDRequired, nil,
 			[]string{SuggestProvideThreadID}))
 	}
 }
@@ -118,18 +162,18 @@ func (r *RunLifecycleRule) validateRunFinished(event Event, context *ValidationC
 		result.AddError(r.CreateError(event, "Invalid run finished event type", nil, nil))
 		return
 	}
-	
+
 	// Check if run is active
 	if _, exists := context.State.ActiveRuns[runEvent.RunID]; !exists {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Cannot finish run %s that was not started", runEvent.RunID),
 			map[string]interface{}{"run_id": runEvent.RunID},
 			[]string{"Start the run first with RUN_STARTED event"}))
 	}
-	
+
 	// Validate required fields
 	if runEvent.RunID == "" {
-		result.AddError(r.CreateError(event, "Run ID is required", nil, 
+		result.AddError(r.CreateError(event, "Run ID is required", nil,
 			[]string{"Provide the run ID to finish"}))
 	}
 }
@@ -140,20 +184,20 @@ func (r *RunLifecycleRule) validateRunError(event Event, context *ValidationCont
 		result.AddError(r.CreateError(event, "Invalid run error event type", nil, nil))
 		return
 	}
-	
+
 	// Check if run is active (if run ID is provided)
 	if runEvent.RunID != "" {
 		if _, exists := context.State.ActiveRuns[runEvent.RunID]; !exists {
-			result.AddError(r.CreateError(event, 
+			result.AddError(r.CreateError(event,
 				fmt.Sprintf("Cannot error run %s that was not started", runEvent.RunID),
 				map[string]interface{}{"run_id": runEvent.RunID},
 				[]string{"Start the run first with RUN_STARTED event"}))
 		}
 	}
-	
+
 	// Validate required fields
 	if runEvent.Message == "" {
-		result.AddError(r.CreateError(event, "Error message is required", nil, 
+		result.AddError(r.CreateError(event, "Error message is required", nil,
 			[]string{"Provide an error message describing what went wrong"}))
 	}
 }
@@ -178,27 +222,27 @@ func (r *EventOrderingRule) Validate(event Event, context *ValidationContext) *V
 		IsValid:   true,
 		Timestamp: time.Now(),
 	}
-	
+
 	if !r.IsEnabled() {
 		return result
 	}
-	
+
 	// Check if first event is RUN_STARTED
 	if context.EventIndex == 0 && event.Type() != EventTypeRunStarted {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			"First event must be RUN_STARTED",
 			map[string]interface{}{"actual_type": event.Type()},
 			[]string{"Start the sequence with a RUN_STARTED event"}))
 	}
-	
+
 	// Check for events after RUN_FINISHED
 	if context.State.CurrentPhase == PhaseFinished && event.Type() != EventTypeRunError {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			"No events allowed after RUN_FINISHED except RUN_ERROR",
 			map[string]interface{}{"event_type": event.Type()},
 			[]string{"Do not send events after RUN_FINISHED"}))
 	}
-	
+
 	return result
 }
 
@@ -222,11 +266,11 @@ func (r *EventSequenceRule) Validate(event Event, context *ValidationContext) *V
 		IsValid:   true,
 		Timestamp: time.Now(),
 	}
-	
+
 	if !r.IsEnabled() {
 		return result
 	}
-	
+
 	// Validate step events
 	switch event.Type() {
 	case EventTypeStepStarted:
@@ -234,7 +278,7 @@ func (r *EventSequenceRule) Validate(event Event, context *ValidationContext) *V
 	case EventTypeStepFinished:
 		r.validateStepFinished(event, context, result)
 	}
-	
+
 	return result
 }
 
@@ -244,18 +288,18 @@ func (r *EventSequenceRule) validateStepStarted(event Event, context *Validation
 		result.AddError(r.CreateError(event, "Invalid step started event type", nil, nil))
 		return
 	}
-	
+
 	// Check if step is already active
 	if context.State.ActiveSteps[stepEvent.StepName] {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Step %s is already active", stepEvent.StepName),
 			map[string]interface{}{"step_name": stepEvent.StepName},
 			[]string{"Use a different step name or finish the current step first"}))
 	}
-	
+
 	// Validate required fields
 	if stepEvent.StepName == "" {
-		result.AddError(r.CreateError(event, "Step name is required", nil, 
+		result.AddError(r.CreateError(event, "Step name is required", nil,
 			[]string{"Provide a step name"}))
 	}
 }
@@ -266,18 +310,18 @@ func (r *EventSequenceRule) validateStepFinished(event Event, context *Validatio
 		result.AddError(r.CreateError(event, "Invalid step finished event type", nil, nil))
 		return
 	}
-	
+
 	// Check if step is active
 	if !context.State.ActiveSteps[stepEvent.StepName] {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Cannot finish step %s that was not started", stepEvent.StepName),
 			map[string]interface{}{"step_name": stepEvent.StepName},
 			[]string{"Start the step first with STEP_STARTED event"}))
 	}
-	
+
 	// Validate required fields
 	if stepEvent.StepName == "" {
-		result.AddError(r.CreateError(event, "Step name is required", nil, 
+		result.AddError(r.CreateError(event, "Step name is required", nil,
 			[]string{"Provide the step name to finish"}))
 	}
 }
@@ -298,24 +342,62 @@ func NewMessageLifecycleRule() *MessageLifecycleRule {
 }
 
 func (r *MessageLifecycleRule) Validate(event Event, context *ValidationContext) *ValidationResult {
+	// Start distributed tracing span for message lifecycle rule validation
+	ctx := stdcontext.Background()
+	if context != nil && context.Context != nil {
+		ctx = context.Context
+	}
+	tracer := otel.Tracer("ag-ui/events/validation/rules")
+	ruleCtx, span := tracer.Start(ctx, "message_lifecycle_rule",
+		trace.WithSpanKind(trace.SpanKindInternal),
+	)
+	defer span.End()
+
+	span.SetAttributes(
+		attribute.String("validation.rule.id", r.ID()),
+		attribute.String("validation.rule.type", "MessageLifecycleRule"),
+	)
+
 	result := &ValidationResult{
 		IsValid:   true,
 		Timestamp: time.Now(),
 	}
-	
+
 	if !r.IsEnabled() {
+		span.SetStatus(codes.Ok, "Rule disabled")
+		span.AddEvent("validation.rule.disabled")
 		return result
 	}
-	
+
+	if event != nil {
+		span.SetAttributes(attribute.String("event.type", string(event.Type())))
+	}
+
 	switch event.Type() {
 	case EventTypeTextMessageStart:
+		span.AddEvent("validation.rule.message_start")
 		r.validateMessageStart(event, context, result)
 	case EventTypeTextMessageContent:
+		span.AddEvent("validation.rule.message_content")
 		r.validateMessageContent(event, context, result)
 	case EventTypeTextMessageEnd:
+		span.AddEvent("validation.rule.message_end")
 		r.validateMessageEnd(event, context, result)
 	}
-	
+
+	// Record validation result in span
+	if len(result.Errors) > 0 {
+		span.SetStatus(codes.Error, fmt.Sprintf("Rule validation failed with %d errors", len(result.Errors)))
+		for _, err := range result.Errors {
+			span.AddEvent("validation.rule.error", trace.WithAttributes(
+				attribute.String("error.message", err.Message),
+			))
+		}
+	} else {
+		span.SetStatus(codes.Ok, "Rule validation completed")
+	}
+
+	_ = ruleCtx // Mark as used
 	return result
 }
 
@@ -325,18 +407,18 @@ func (r *MessageLifecycleRule) validateMessageStart(event Event, context *Valida
 		result.AddError(r.CreateError(event, "Invalid message start event type", nil, nil))
 		return
 	}
-	
+
 	// Check if message is already started
 	if _, exists := context.State.ActiveMessages[msgEvent.MessageID]; exists {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Message %s is already started", msgEvent.MessageID),
 			map[string]interface{}{"message_id": msgEvent.MessageID},
 			[]string{"Use a different message ID or finish the current message first"}))
 	}
-	
+
 	// Validate required fields
 	if msgEvent.MessageID == "" {
-		result.AddError(r.CreateError(event, "Message ID is required", nil, 
+		result.AddError(r.CreateError(event, "Message ID is required", nil,
 			[]string{"Provide a unique message ID"}))
 	}
 }
@@ -347,23 +429,23 @@ func (r *MessageLifecycleRule) validateMessageContent(event Event, context *Vali
 		result.AddError(r.CreateError(event, "Invalid message content event type", nil, nil))
 		return
 	}
-	
+
 	// Check if message is active
 	if _, exists := context.State.ActiveMessages[msgEvent.MessageID]; !exists {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Cannot add content to message %s that was not started", msgEvent.MessageID),
 			map[string]interface{}{"message_id": msgEvent.MessageID},
 			[]string{"Start the message first with TEXT_MESSAGE_START event"}))
 	}
-	
+
 	// Validate required fields
 	if msgEvent.MessageID == "" {
-		result.AddError(r.CreateError(event, "Message ID is required", nil, 
+		result.AddError(r.CreateError(event, "Message ID is required", nil,
 			[]string{"Provide the message ID for the content"}))
 	}
-	
+
 	if msgEvent.Delta == "" {
-		result.AddError(r.CreateError(event, "Delta content is required", nil, 
+		result.AddError(r.CreateError(event, "Delta content is required", nil,
 			[]string{"Provide the content delta for the message"}))
 	}
 }
@@ -374,18 +456,18 @@ func (r *MessageLifecycleRule) validateMessageEnd(event Event, context *Validati
 		result.AddError(r.CreateError(event, "Invalid message end event type", nil, nil))
 		return
 	}
-	
+
 	// Check if message is active
 	if _, exists := context.State.ActiveMessages[msgEvent.MessageID]; !exists {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Cannot end message %s that was not started", msgEvent.MessageID),
 			map[string]interface{}{"message_id": msgEvent.MessageID},
 			[]string{"Start the message first with TEXT_MESSAGE_START event"}))
 	}
-	
+
 	// Validate required fields
 	if msgEvent.MessageID == "" {
-		result.AddError(r.CreateError(event, "Message ID is required", nil, 
+		result.AddError(r.CreateError(event, "Message ID is required", nil,
 			[]string{"Provide the message ID to end"}))
 	}
 }
@@ -410,34 +492,34 @@ func (r *MessageContentRule) Validate(event Event, context *ValidationContext) *
 		IsValid:   true,
 		Timestamp: time.Now(),
 	}
-	
+
 	if !r.IsEnabled() {
 		return result
 	}
-	
+
 	if event.Type() == EventTypeTextMessageContent {
 		msgEvent, ok := event.(*TextMessageContentEvent)
 		if !ok {
 			return result
 		}
-		
+
 		// Check for extremely long content
 		if len(msgEvent.Delta) > MaxContentLength {
-			result.AddWarning(r.CreateError(event, 
+			result.AddWarning(r.CreateError(event,
 				fmt.Sprintf("Message content delta is very long (%d characters)", len(msgEvent.Delta)),
 				map[string]interface{}{"delta_length": len(msgEvent.Delta)},
 				[]string{SuggestChunkLongContent}))
 		}
-		
+
 		// Check for potential control characters
 		if strings.ContainsAny(msgEvent.Delta, "\x00\x01\x02\x03\x04\x05\x06\x07\x08\x0B\x0C\x0E\x0F") {
-			result.AddWarning(r.CreateError(event, 
+			result.AddWarning(r.CreateError(event,
 				"Message content contains control characters",
 				map[string]interface{}{"content": msgEvent.Delta},
 				[]string{"Remove control characters from message content"}))
 		}
 	}
-	
+
 	return result
 }
 
@@ -461,18 +543,18 @@ func (r *MessageNestingRule) Validate(event Event, context *ValidationContext) *
 		IsValid:   true,
 		Timestamp: time.Now(),
 	}
-	
+
 	if !r.IsEnabled() {
 		return result
 	}
-	
+
 	// Check parent message relationships
 	switch event.Type() {
 	case EventTypeTextMessageStart:
 		// TextMessageStartEvent doesn't have ParentMessageID field
 		// Skip parent message validation for this event type
 	}
-	
+
 	return result
 }
 
@@ -496,11 +578,11 @@ func (r *ToolCallLifecycleRule) Validate(event Event, context *ValidationContext
 		IsValid:   true,
 		Timestamp: time.Now(),
 	}
-	
+
 	if !r.IsEnabled() {
 		return result
 	}
-	
+
 	switch event.Type() {
 	case EventTypeToolCallStart:
 		r.validateToolCallStart(event, context, result)
@@ -509,7 +591,7 @@ func (r *ToolCallLifecycleRule) Validate(event Event, context *ValidationContext
 	case EventTypeToolCallEnd:
 		r.validateToolCallEnd(event, context, result)
 	}
-	
+
 	return result
 }
 
@@ -519,23 +601,23 @@ func (r *ToolCallLifecycleRule) validateToolCallStart(event Event, context *Vali
 		result.AddError(r.CreateError(event, "Invalid tool call start event type", nil, nil))
 		return
 	}
-	
+
 	// Check if tool call is already started
 	if _, exists := context.State.ActiveTools[toolEvent.ToolCallID]; exists {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Tool call %s is already started", toolEvent.ToolCallID),
 			map[string]interface{}{"tool_call_id": toolEvent.ToolCallID},
 			[]string{"Use a different tool call ID or finish the current tool call first"}))
 	}
-	
+
 	// Validate required fields
 	if toolEvent.ToolCallID == "" {
-		result.AddError(r.CreateError(event, "Tool call ID is required", nil, 
+		result.AddError(r.CreateError(event, "Tool call ID is required", nil,
 			[]string{"Provide a unique tool call ID"}))
 	}
-	
+
 	if toolEvent.ToolCallName == "" {
-		result.AddError(r.CreateError(event, "Tool call name is required", nil, 
+		result.AddError(r.CreateError(event, "Tool call name is required", nil,
 			[]string{"Provide the name of the tool being called"}))
 	}
 }
@@ -546,23 +628,23 @@ func (r *ToolCallLifecycleRule) validateToolCallArgs(event Event, context *Valid
 		result.AddError(r.CreateError(event, "Invalid tool call args event type", nil, nil))
 		return
 	}
-	
+
 	// Check if tool call is active
 	if _, exists := context.State.ActiveTools[toolEvent.ToolCallID]; !exists {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Cannot add args to tool call %s that was not started", toolEvent.ToolCallID),
 			map[string]interface{}{"tool_call_id": toolEvent.ToolCallID},
 			[]string{"Start the tool call first with TOOL_CALL_START event"}))
 	}
-	
+
 	// Validate required fields
 	if toolEvent.ToolCallID == "" {
-		result.AddError(r.CreateError(event, "Tool call ID is required", nil, 
+		result.AddError(r.CreateError(event, "Tool call ID is required", nil,
 			[]string{"Provide the tool call ID for the arguments"}))
 	}
-	
+
 	if toolEvent.Delta == "" {
-		result.AddError(r.CreateError(event, "Delta arguments are required", nil, 
+		result.AddError(r.CreateError(event, "Delta arguments are required", nil,
 			[]string{"Provide the arguments delta for the tool call"}))
 	}
 }
@@ -573,18 +655,18 @@ func (r *ToolCallLifecycleRule) validateToolCallEnd(event Event, context *Valida
 		result.AddError(r.CreateError(event, "Invalid tool call end event type", nil, nil))
 		return
 	}
-	
+
 	// Check if tool call is active
 	if _, exists := context.State.ActiveTools[toolEvent.ToolCallID]; !exists {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Cannot end tool call %s that was not started", toolEvent.ToolCallID),
 			map[string]interface{}{"tool_call_id": toolEvent.ToolCallID},
 			[]string{"Start the tool call first with TOOL_CALL_START event"}))
 	}
-	
+
 	// Validate required fields
 	if toolEvent.ToolCallID == "" {
-		result.AddError(r.CreateError(event, "Tool call ID is required", nil, 
+		result.AddError(r.CreateError(event, "Tool call ID is required", nil,
 			[]string{"Provide the tool call ID to end"}))
 	}
 }
@@ -609,26 +691,26 @@ func (r *ToolCallContentRule) Validate(event Event, context *ValidationContext) 
 		IsValid:   true,
 		Timestamp: time.Now(),
 	}
-	
+
 	if !r.IsEnabled() {
 		return result
 	}
-	
+
 	if event.Type() == EventTypeToolCallArgs {
 		toolEvent, ok := event.(*ToolCallArgsEvent)
 		if !ok {
 			return result
 		}
-		
+
 		// Check for extremely long arguments
 		if len(toolEvent.Delta) > 50000 {
-			result.AddWarning(r.CreateError(event, 
+			result.AddWarning(r.CreateError(event,
 				fmt.Sprintf("Tool call arguments delta is very long (%d characters)", len(toolEvent.Delta)),
 				map[string]interface{}{"delta_length": len(toolEvent.Delta)},
 				[]string{"Consider breaking long arguments into smaller chunks"}))
 		}
 	}
-	
+
 	return result
 }
 
@@ -652,11 +734,11 @@ func (r *ToolCallNestingRule) Validate(event Event, context *ValidationContext) 
 		IsValid:   true,
 		Timestamp: time.Now(),
 	}
-	
+
 	if !r.IsEnabled() {
 		return result
 	}
-	
+
 	// Check parent message relationships for tool calls
 	switch event.Type() {
 	case EventTypeToolCallStart:
@@ -664,7 +746,7 @@ func (r *ToolCallNestingRule) Validate(event Event, context *ValidationContext) 
 		if !ok {
 			return result
 		}
-		
+
 		// If parent message ID is provided, check if it exists
 		if toolEvent.ParentMessageID != nil && *toolEvent.ParentMessageID != "" {
 			found := false
@@ -677,15 +759,15 @@ func (r *ToolCallNestingRule) Validate(event Event, context *ValidationContext) 
 			if _, exists := context.State.FinishedMessages[parentMsgID]; exists {
 				found = true
 			}
-			
+
 			if !found {
-				result.AddError(r.CreateError(event, 
+				result.AddError(r.CreateError(event,
 					fmt.Sprintf("Parent message %s not found for tool call", parentMsgID),
 					map[string]interface{}{"parent_message_id": parentMsgID},
 					[]string{"Ensure the parent message exists before referencing it"}))
 			}
 		}
 	}
-	
+
 	return result
 }

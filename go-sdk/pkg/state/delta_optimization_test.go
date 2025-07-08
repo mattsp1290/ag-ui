@@ -141,7 +141,7 @@ func BenchmarkOptimizationPasses(b *testing.B) {
 // TestHashCollisions verifies that our hash function doesn't produce false positives
 func TestHashCollisions(t *testing.T) {
 	dc := NewDeltaComputer(DefaultDeltaOptions())
-	
+
 	// Test different values that should have different hashes
 	values := []interface{}{
 		"hello",
@@ -226,12 +226,12 @@ func modifyLargeObject(obj map[string]interface{}, modifications int) map[string
 
 func generateComplexPatch(size int) JSONPatch {
 	patch := make(JSONPatch, 0, size)
-	
+
 	for i := 0; i < size; i++ {
 		op := JSONPatchOperation{
 			Path: fmt.Sprintf("/path/%d/item", i%10),
 		}
-		
+
 		switch i % 4 {
 		case 0:
 			op.Op = JSONPatchOpAdd
@@ -245,20 +245,20 @@ func generateComplexPatch(size int) JSONPatch {
 			op.Op = JSONPatchOpMove
 			op.From = fmt.Sprintf("/old/path/%d", i)
 		}
-		
+
 		patch = append(patch, op)
 	}
-	
+
 	return patch
 }
 
 func jsonEqualOpt(a, b interface{}) bool {
 	aJSON, _ := json.Marshal(a)
 	bJSON, _ := json.Marshal(b)
-	
+
 	var aNorm, bNorm interface{}
 	json.Unmarshal(aJSON, &aNorm)
 	json.Unmarshal(bJSON, &bNorm)
-	
+
 	return fmt.Sprintf("%v", aNorm) == fmt.Sprintf("%v", bNorm)
 }

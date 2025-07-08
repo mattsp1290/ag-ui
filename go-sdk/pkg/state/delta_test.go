@@ -63,7 +63,7 @@ func TestDeltaComputer_ComputeDelta(t *testing.T) {
 			},
 		},
 		{
-			name:     "nested object change",
+			name: "nested object change",
 			oldState: map[string]interface{}{
 				"user": map[string]interface{}{
 					"name": "John",
@@ -226,7 +226,7 @@ func TestDeltaComputer_MergePatch(t *testing.T) {
 	if len(merged) != 3 {
 		t.Errorf("MergePatch() length = %d, want 3", len(merged))
 	}
-	
+
 	// Verify the optimization: add + replace should become add with final value
 	var hasCorrectA bool
 	for _, op := range merged {
@@ -254,7 +254,7 @@ func TestDeltaComputer_MergePatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Apply patch1 error = %v", err)
 	}
-	
+
 	result1, err := patch2.Apply(intermediate)
 	if err != nil {
 		t.Fatalf("Apply patch2 error = %v", err)

@@ -178,4 +178,3 @@ func (m *mockAgent) HandleEvent(ctx context.Context, event any) ([]any, error) {
 	}
 	return nil, nil
 }
-

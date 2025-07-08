@@ -24,10 +24,10 @@ func NewMockRedisBackend(config *StorageConfig, logger Logger) (*MockRedisBacken
 		config: config,
 		logger: logger,
 	}
-	
+
 	logger.Info("Mock Redis storage backend initialized (development mode)",
 		String("connection_url", config.ConnectionURL))
-	
+
 	return backend, nil
 }
 
@@ -126,7 +126,7 @@ func (m *MockRedisBackend) Stats() map[string]interface{} {
 		count++
 		return true
 	})
-	
+
 	return map[string]interface{}{
 		"type":        "mock_redis",
 		"total_keys":  count,
@@ -147,10 +147,10 @@ func NewMockPostgreSQLBackend(config *StorageConfig, logger Logger) (*MockPostgr
 		config: config,
 		logger: logger,
 	}
-	
+
 	logger.Info("Mock PostgreSQL storage backend initialized (development mode)",
 		String("connection_url", config.ConnectionURL))
-	
+
 	return backend, nil
 }
 
@@ -249,7 +249,7 @@ func (m *MockPostgreSQLBackend) Stats() map[string]interface{} {
 		count++
 		return true
 	})
-	
+
 	return map[string]interface{}{
 		"type":        "mock_postgresql",
 		"total_keys":  count,
@@ -275,7 +275,7 @@ func (t *MockTransaction) SetState(ctx context.Context, stateID string, state ma
 	if t.committed {
 		return fmt.Errorf("transaction already committed")
 	}
-	
+
 	t.changes = append(t.changes, mockTxOp{
 		Op:      "set_state",
 		Key:     "state:" + stateID,
@@ -289,7 +289,7 @@ func (t *MockTransaction) SaveVersion(ctx context.Context, stateID string, versi
 	if t.committed {
 		return fmt.Errorf("transaction already committed")
 	}
-	
+
 	t.changes = append(t.changes, mockTxOp{
 		Op:      "save_version",
 		Key:     "version:" + stateID + ":" + version.ID,
@@ -303,10 +303,10 @@ func (t *MockTransaction) Commit(ctx context.Context) error {
 	if t.committed {
 		return fmt.Errorf("transaction already committed")
 	}
-	
+
 	// Apply all changes atomically
 	var dataStore *sync.Map
-	
+
 	switch backend := t.backend.(type) {
 	case *MockRedisBackend:
 		dataStore = &backend.data
@@ -315,11 +315,11 @@ func (t *MockTransaction) Commit(ctx context.Context) error {
 	default:
 		return fmt.Errorf("unsupported backend type")
 	}
-	
+
 	for _, change := range t.changes {
 		dataStore.Store(change.Key, change.Value)
 	}
-	
+
 	t.committed = true
 	return nil
 }
@@ -328,7 +328,7 @@ func (t *MockTransaction) Rollback(ctx context.Context) error {
 	if t.committed {
 		return fmt.Errorf("transaction already committed")
 	}
-	
+
 	t.changes = nil
 	t.committed = true
 	return nil
@@ -345,7 +345,7 @@ func CreateProductionRedisBackend(config *StorageConfig, logger Logger) (Storage
 	// Placeholder for production Redis implementation
 	// When redis dependency is available, replace this with:
 	// return NewRedisBackend(config, logger)
-	
+
 	logger.Warn("Production Redis backend not available, using mock implementation",
 		String("reason", "redis dependency not available"))
 	return NewMockRedisBackend(config, logger)
@@ -356,7 +356,7 @@ func CreateProductionPostgreSQLBackend(config *StorageConfig, logger Logger) (St
 	// Placeholder for production PostgreSQL implementation
 	// When pq dependency is available, replace this with:
 	// return NewPostgreSQLBackend(config, logger)
-	
+
 	logger.Warn("Production PostgreSQL backend not available, using mock implementation",
 		String("reason", "postgresql dependency not available"))
 	return NewMockPostgreSQLBackend(config, logger)

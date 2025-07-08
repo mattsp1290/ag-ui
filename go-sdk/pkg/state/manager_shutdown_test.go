@@ -17,30 +17,30 @@ func TestManagerShutdownNoRace(t *testing.T) {
 	// Start multiple writers
 	var wg sync.WaitGroup
 	stopWriters := make(chan struct{})
-	
+
 	// Writer goroutines
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			ctx := context.Background()
 			contextID, err := manager.CreateContext(ctx, "test-state", nil)
 			if err != nil {
 				t.Logf("writer %d: failed to create context: %v", id, err)
 				return
 			}
-			
+
 			for {
 				select {
 				case <-stopWriters:
 					return
 				default:
 					updates := map[string]interface{}{
-						"counter": id,
+						"counter":   id,
 						"timestamp": time.Now().Unix(),
 					}
-					
+
 					_, err := manager.UpdateState(ctx, contextID, "test-state", updates, UpdateOptions{})
 					if err != nil {
 						// Expected errors during shutdown
@@ -50,7 +50,7 @@ func TestManagerShutdownNoRace(t *testing.T) {
 						}
 						t.Logf("writer %d: update error: %v", id, err)
 					}
-					
+
 					time.Sleep(10 * time.Millisecond)
 				}
 			}
@@ -91,7 +91,7 @@ func TestManagerGracefulShutdown(t *testing.T) {
 	opts := DefaultManagerOptions()
 	opts.EventBufferSize = 10
 	opts.BatchSize = 5
-	
+
 	manager, err := NewStateManager(opts)
 	if err != nil {
 		t.Fatalf("failed to create manager: %v", err)
@@ -129,10 +129,10 @@ func TestManagerGracefulShutdown(t *testing.T) {
 	go func() {
 		done <- manager.Close()
 	}()
-	
+
 	// Wait for update goroutines to finish
 	updateWg.Wait()
-	
+
 	// Wait for close to complete
 	select {
 	case err = <-done:

@@ -148,20 +148,20 @@ func (n *LogAlertNotifier) SendAlert(ctx context.Context, alert Alert) error {
 			zap.Float64("threshold", alert.Threshold),
 			zap.Any("labels", alert.Labels))
 	}
-	
+
 	return nil
 }
 
 // EmailAlertNotifier sends alerts via email (placeholder implementation)
 type EmailAlertNotifier struct {
-	smtpServer   string
-	smtpPort     int
-	username     string
-	password     string
-	from         string
-	to           []string
-	subject      string
-	enabled      bool
+	smtpServer string
+	smtpPort   int
+	username   string
+	password   string
+	from       string
+	to         []string
+	subject    string
+	enabled    bool
 }
 
 // NewEmailAlertNotifier creates a new email alert notifier
@@ -183,7 +183,7 @@ func (n *EmailAlertNotifier) SendAlert(ctx context.Context, alert Alert) error {
 	if !n.enabled {
 		return nil
 	}
-	
+
 	// For now, just log that we would send an email
 	// In a real implementation, you would use an SMTP library
 	fmt.Printf("EMAIL ALERT: %s - %s\n", alert.Title, alert.Description)
@@ -250,34 +250,34 @@ func (n *WebhookAlertNotifier) SendAlert(ctx context.Context, alert Alert) error
 		"labels":      alert.Labels,
 		"severity":    auditSeverityToString(alert.Severity),
 	}
-	
+
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal alert payload: %w", err)
 	}
-	
+
 	req, err := http.NewRequestWithContext(ctx, n.method, n.url, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create webhook request: %w", err)
 	}
-	
+
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
 	for key, value := range n.headers {
 		req.Header.Set(key, value)
 	}
-	
+
 	resp, err := n.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send webhook request: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode >= 400 {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("webhook request failed with status %d: %s", resp.StatusCode, string(body))
 	}
-	
+
 	return nil
 }
 
@@ -304,7 +304,7 @@ func NewSlackAlertNotifier(webhookURL, channel, username string) *SlackAlertNoti
 // SendAlert sends an alert to Slack
 func (n *SlackAlertNotifier) SendAlert(ctx context.Context, alert Alert) error {
 	color := n.getColorForLevel(alert.Level)
-	
+
 	payload := map[string]interface{}{
 		"channel":  n.channel,
 		"username": n.username,
@@ -340,30 +340,30 @@ func (n *SlackAlertNotifier) SendAlert(ctx context.Context, alert Alert) error {
 			},
 		},
 	}
-	
+
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal Slack payload: %w", err)
 	}
-	
+
 	req, err := http.NewRequestWithContext(ctx, "POST", n.webhookURL, bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create Slack request: %w", err)
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	resp, err := n.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send Slack request: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("Slack request failed with status %d: %s", resp.StatusCode, string(body))
 	}
-	
+
 	return nil
 }
 
@@ -404,16 +404,16 @@ func (n *PagerDutyAlertNotifier) SendAlert(ctx context.Context, alert Alert) err
 	if alert.Level == AlertLevelInfo {
 		eventAction = "resolve"
 	}
-	
+
 	payload := map[string]interface{}{
 		"routing_key":  n.integrationKey,
 		"event_action": eventAction,
 		"dedup_key":    fmt.Sprintf("state-manager-%s-%s", alert.Component, alert.Title),
 		"payload": map[string]interface{}{
-			"summary":        alert.Title,
-			"source":         "state-manager",
-			"severity":       n.getSeverityForLevel(alert.Level),
-			"component":      alert.Component,
+			"summary":   alert.Title,
+			"source":    "state-manager",
+			"severity":  n.getSeverityForLevel(alert.Level),
+			"component": alert.Component,
 			"custom_details": map[string]interface{}{
 				"description": alert.Description,
 				"value":       alert.Value,
@@ -422,30 +422,30 @@ func (n *PagerDutyAlertNotifier) SendAlert(ctx context.Context, alert Alert) err
 			},
 		},
 	}
-	
+
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		return fmt.Errorf("failed to marshal PagerDuty payload: %w", err)
 	}
-	
+
 	req, err := http.NewRequestWithContext(ctx, "POST", "https://events.pagerduty.com/v2/enqueue", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("failed to create PagerDuty request: %w", err)
 	}
-	
+
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	resp, err := n.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("failed to send PagerDuty request: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusAccepted {
 		body, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("PagerDuty request failed with status %d: %s", resp.StatusCode, string(body))
 	}
-	
+
 	return nil
 }
 
@@ -476,7 +476,7 @@ func NewFileAlertNotifier(filename string) (*FileAlertNotifier, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to open alert file: %w", err)
 	}
-	
+
 	return &FileAlertNotifier{
 		filename: filename,
 		file:     file,
@@ -496,17 +496,17 @@ func (n *FileAlertNotifier) SendAlert(ctx context.Context, alert Alert) error {
 		"labels":      alert.Labels,
 		"severity":    auditSeverityToString(alert.Severity),
 	}
-	
+
 	jsonData, err := json.Marshal(alertData)
 	if err != nil {
 		return fmt.Errorf("failed to marshal alert data: %w", err)
 	}
-	
+
 	_, err = n.file.Write(append(jsonData, '\n'))
 	if err != nil {
 		return fmt.Errorf("failed to write alert to file: %w", err)
 	}
-	
+
 	return n.file.Sync()
 }
 
@@ -533,17 +533,17 @@ func NewCompositeAlertNotifier(notifiers ...AlertNotifier) *CompositeAlertNotifi
 // SendAlert sends an alert to all configured notifiers
 func (n *CompositeAlertNotifier) SendAlert(ctx context.Context, alert Alert) error {
 	var errors []string
-	
+
 	for _, notifier := range n.notifiers {
 		if err := notifier.SendAlert(ctx, alert); err != nil {
 			errors = append(errors, err.Error())
 		}
 	}
-	
+
 	if len(errors) > 0 {
 		return fmt.Errorf("failed to send alert to some notifiers: %s", strings.Join(errors, "; "))
 	}
-	
+
 	return nil
 }
 
@@ -571,8 +571,8 @@ func (n *ConditionalAlertNotifier) SendAlert(ctx context.Context, alert Alert) e
 
 // ThrottledAlertNotifier prevents alert spam by throttling
 type ThrottledAlertNotifier struct {
-	notifier     AlertNotifier
-	lastSent     map[string]time.Time
+	notifier         AlertNotifier
+	lastSent         map[string]time.Time
 	throttleDuration time.Duration
 }
 
@@ -588,18 +588,18 @@ func NewThrottledAlertNotifier(notifier AlertNotifier, throttleDuration time.Dur
 // SendAlert sends an alert if it hasn't been sent recently
 func (n *ThrottledAlertNotifier) SendAlert(ctx context.Context, alert Alert) error {
 	alertKey := fmt.Sprintf("%s_%s", alert.Component, alert.Title)
-	
+
 	if lastSent, exists := n.lastSent[alertKey]; exists {
 		if time.Since(lastSent) < n.throttleDuration {
 			return nil // Skip sending, too recent
 		}
 	}
-	
+
 	err := n.notifier.SendAlert(ctx, alert)
 	if err == nil {
 		n.lastSent[alertKey] = time.Now()
 	}
-	
+
 	return err
 }
 

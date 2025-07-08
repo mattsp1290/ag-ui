@@ -22,22 +22,22 @@ import (
 type ComprehensiveConfig struct {
 	// Connection Configuration
 	Connection ConnectionConfig `json:"connection" yaml:"connection"`
-	
+
 	// Retry Configuration
 	Retry RetryConfig `json:"retry" yaml:"retry"`
-	
+
 	// Security Configuration
 	Security SecurityConfig `json:"security" yaml:"security"`
-	
+
 	// Performance Configuration
 	Performance PerformanceConfig `json:"performance" yaml:"performance"`
-	
+
 	// Monitoring Configuration
 	Monitoring MonitoringConfig `json:"monitoring" yaml:"monitoring"`
-	
+
 	// Environment-specific settings
 	Environment Environment `json:"environment" yaml:"environment"`
-	
+
 	// Feature flags
 	Features FeatureFlags `json:"features" yaml:"features"`
 }
@@ -46,28 +46,28 @@ type ComprehensiveConfig struct {
 type ConnectionConfig struct {
 	// Base URL for the SSE endpoint
 	BaseURL string `json:"base_url" yaml:"base_url"`
-	
+
 	// Endpoint path for SSE connections
 	Endpoint string `json:"endpoint" yaml:"endpoint"`
-	
+
 	// Connection timeout
 	ConnectTimeout time.Duration `json:"connect_timeout" yaml:"connect_timeout"`
-	
+
 	// Read timeout for receiving events
 	ReadTimeout time.Duration `json:"read_timeout" yaml:"read_timeout"`
-	
+
 	// Write timeout for sending requests
 	WriteTimeout time.Duration `json:"write_timeout" yaml:"write_timeout"`
-	
+
 	// Keep-alive settings
 	KeepAlive KeepAliveConfig `json:"keep_alive" yaml:"keep_alive"`
-	
+
 	// TLS configuration
 	TLS TLSConfig `json:"tls" yaml:"tls"`
-	
+
 	// HTTP client configuration
 	HTTPClient HTTPClientConfig `json:"http_client" yaml:"http_client"`
-	
+
 	// Connection pool settings
 	ConnectionPool ConnectionPoolConfig `json:"connection_pool" yaml:"connection_pool"`
 }
@@ -76,13 +76,13 @@ type ConnectionConfig struct {
 type KeepAliveConfig struct {
 	// Enable TCP keep-alive
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Keep-alive interval
 	Interval time.Duration `json:"interval" yaml:"interval"`
-	
+
 	// Idle timeout before sending keep-alive probes
 	IdleTimeout time.Duration `json:"idle_timeout" yaml:"idle_timeout"`
-	
+
 	// Number of keep-alive probes before connection is considered dead
 	ProbeCount int `json:"probe_count" yaml:"probe_count"`
 }
@@ -91,28 +91,28 @@ type KeepAliveConfig struct {
 type TLSConfig struct {
 	// Enable TLS
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Skip certificate verification (insecure)
 	InsecureSkipVerify bool `json:"insecure_skip_verify" yaml:"insecure_skip_verify"`
-	
+
 	// Certificate file path
 	CertFile string `json:"cert_file" yaml:"cert_file"`
-	
+
 	// Private key file path
 	KeyFile string `json:"key_file" yaml:"key_file"`
-	
+
 	// CA certificate file path
 	CAFile string `json:"ca_file" yaml:"ca_file"`
-	
+
 	// Server name for certificate verification
 	ServerName string `json:"server_name" yaml:"server_name"`
-	
+
 	// Minimum TLS version
 	MinVersion uint16 `json:"min_version" yaml:"min_version"`
-	
+
 	// Maximum TLS version
 	MaxVersion uint16 `json:"max_version" yaml:"max_version"`
-	
+
 	// Cipher suites
 	CipherSuites []uint16 `json:"cipher_suites" yaml:"cipher_suites"`
 }
@@ -121,31 +121,31 @@ type TLSConfig struct {
 type HTTPClientConfig struct {
 	// User agent string
 	UserAgent string `json:"user_agent" yaml:"user_agent"`
-	
+
 	// Custom headers
 	Headers map[string]string `json:"headers" yaml:"headers"`
-	
+
 	// HTTP proxy URL
 	ProxyURL string `json:"proxy_url" yaml:"proxy_url"`
-	
+
 	// Disable HTTP/2
 	DisableHTTP2 bool `json:"disable_http2" yaml:"disable_http2"`
-	
+
 	// Maximum idle connections
 	MaxIdleConns int `json:"max_idle_conns" yaml:"max_idle_conns"`
-	
+
 	// Maximum idle connections per host
 	MaxIdleConnsPerHost int `json:"max_idle_conns_per_host" yaml:"max_idle_conns_per_host"`
-	
+
 	// Maximum connections per host
 	MaxConnsPerHost int `json:"max_conns_per_host" yaml:"max_conns_per_host"`
-	
+
 	// Idle connection timeout
 	IdleConnTimeout time.Duration `json:"idle_conn_timeout" yaml:"idle_conn_timeout"`
-	
+
 	// Response header timeout
 	ResponseHeaderTimeout time.Duration `json:"response_header_timeout" yaml:"response_header_timeout"`
-	
+
 	// Expect continue timeout
 	ExpectContinueTimeout time.Duration `json:"expect_continue_timeout" yaml:"expect_continue_timeout"`
 }
@@ -154,16 +154,16 @@ type HTTPClientConfig struct {
 type ConnectionPoolConfig struct {
 	// Maximum number of connections in the pool
 	MaxConnections int `json:"max_connections" yaml:"max_connections"`
-	
+
 	// Maximum number of idle connections
 	MaxIdleConnections int `json:"max_idle_connections" yaml:"max_idle_connections"`
-	
+
 	// Connection lifetime
 	ConnectionLifetime time.Duration `json:"connection_lifetime" yaml:"connection_lifetime"`
-	
+
 	// Connection idle timeout
 	IdleTimeout time.Duration `json:"idle_timeout" yaml:"idle_timeout"`
-	
+
 	// Health check interval
 	HealthCheckInterval time.Duration `json:"health_check_interval" yaml:"health_check_interval"`
 }
@@ -172,31 +172,31 @@ type ConnectionPoolConfig struct {
 type RetryConfig struct {
 	// Enable retry mechanism
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Maximum number of retries
 	MaxRetries int `json:"max_retries" yaml:"max_retries"`
-	
+
 	// Initial retry delay
 	InitialDelay time.Duration `json:"initial_delay" yaml:"initial_delay"`
-	
+
 	// Maximum retry delay
 	MaxDelay time.Duration `json:"max_delay" yaml:"max_delay"`
-	
+
 	// Backoff strategy
 	BackoffStrategy BackoffStrategy `json:"backoff_strategy" yaml:"backoff_strategy"`
-	
+
 	// Backoff multiplier (for exponential backoff)
 	BackoffMultiplier float64 `json:"backoff_multiplier" yaml:"backoff_multiplier"`
-	
+
 	// Jitter factor (0.0 to 1.0)
 	JitterFactor float64 `json:"jitter_factor" yaml:"jitter_factor"`
-	
+
 	// Retry on specific HTTP status codes
 	RetryOnStatusCodes []int `json:"retry_on_status_codes" yaml:"retry_on_status_codes"`
-	
+
 	// Retry on specific errors
 	RetryOnErrors []string `json:"retry_on_errors" yaml:"retry_on_errors"`
-	
+
 	// Circuit breaker settings
 	CircuitBreaker CircuitBreakerConfig `json:"circuit_breaker" yaml:"circuit_breaker"`
 }
@@ -205,8 +205,8 @@ type RetryConfig struct {
 type BackoffStrategy string
 
 const (
-	BackoffStrategyFixed      BackoffStrategy = "fixed"
-	BackoffStrategyLinear     BackoffStrategy = "linear"
+	BackoffStrategyFixed       BackoffStrategy = "fixed"
+	BackoffStrategyLinear      BackoffStrategy = "linear"
 	BackoffStrategyExponential BackoffStrategy = "exponential"
 )
 
@@ -214,16 +214,16 @@ const (
 type CircuitBreakerConfig struct {
 	// Enable circuit breaker
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Failure threshold before opening the circuit
 	FailureThreshold int `json:"failure_threshold" yaml:"failure_threshold"`
-	
+
 	// Success threshold for closing the circuit
 	SuccessThreshold int `json:"success_threshold" yaml:"success_threshold"`
-	
+
 	// Timeout before attempting to close the circuit
 	Timeout time.Duration `json:"timeout" yaml:"timeout"`
-	
+
 	// Maximum number of requests allowed in half-open state
 	MaxRequests int `json:"max_requests" yaml:"max_requests"`
 }
@@ -232,16 +232,16 @@ type CircuitBreakerConfig struct {
 type SecurityConfig struct {
 	// Authentication configuration
 	Auth AuthConfig `json:"auth" yaml:"auth"`
-	
+
 	// CORS configuration
 	CORS CORSConfig `json:"cors" yaml:"cors"`
-	
+
 	// Rate limiting configuration
 	RateLimit RateLimitConfig `json:"rate_limit" yaml:"rate_limit"`
-	
+
 	// Input validation settings
 	Validation ValidationConfig `json:"validation" yaml:"validation"`
-	
+
 	// Request signing configuration
 	RequestSigning RequestSigningConfig `json:"request_signing" yaml:"request_signing"`
 }
@@ -250,22 +250,22 @@ type SecurityConfig struct {
 type AuthConfig struct {
 	// Authentication type
 	Type AuthType `json:"type" yaml:"type"`
-	
+
 	// Bearer token
 	BearerToken string `json:"bearer_token" yaml:"bearer_token"`
-	
+
 	// API key
 	APIKey string `json:"api_key" yaml:"api_key"`
-	
+
 	// API key header name
 	APIKeyHeader string `json:"api_key_header" yaml:"api_key_header"`
-	
+
 	// Basic authentication
 	BasicAuth BasicAuthConfig `json:"basic_auth" yaml:"basic_auth"`
-	
+
 	// OAuth2 configuration
 	OAuth2 OAuth2Config `json:"oauth2" yaml:"oauth2"`
-	
+
 	// JWT configuration
 	JWT JWTConfig `json:"jwt" yaml:"jwt"`
 }
@@ -274,12 +274,12 @@ type AuthConfig struct {
 type AuthType string
 
 const (
-	AuthTypeNone        AuthType = "none"
-	AuthTypeBearer      AuthType = "bearer"
-	AuthTypeAPIKey      AuthType = "api_key"
-	AuthTypeBasic       AuthType = "basic"
-	AuthTypeOAuth2      AuthType = "oauth2"
-	AuthTypeJWT         AuthType = "jwt"
+	AuthTypeNone   AuthType = "none"
+	AuthTypeBearer AuthType = "bearer"
+	AuthTypeAPIKey AuthType = "api_key"
+	AuthTypeBasic  AuthType = "basic"
+	AuthTypeOAuth2 AuthType = "oauth2"
+	AuthTypeJWT    AuthType = "jwt"
 )
 
 // BasicAuthConfig defines basic authentication settings
@@ -290,9 +290,9 @@ type BasicAuthConfig struct {
 
 // OAuth2Config defines OAuth2 settings
 type OAuth2Config struct {
-	ClientID     string `json:"client_id" yaml:"client_id"`
-	ClientSecret string `json:"client_secret" yaml:"client_secret"`
-	TokenURL     string `json:"token_url" yaml:"token_url"`
+	ClientID     string   `json:"client_id" yaml:"client_id"`
+	ClientSecret string   `json:"client_secret" yaml:"client_secret"`
+	TokenURL     string   `json:"token_url" yaml:"token_url"`
 	Scopes       []string `json:"scopes" yaml:"scopes"`
 }
 
@@ -300,13 +300,13 @@ type OAuth2Config struct {
 type JWTConfig struct {
 	// JWT token
 	Token string `json:"token" yaml:"token"`
-	
+
 	// JWT signing key
 	SigningKey string `json:"signing_key" yaml:"signing_key"`
-	
+
 	// JWT algorithm
 	Algorithm string `json:"algorithm" yaml:"algorithm"`
-	
+
 	// JWT expiration
 	Expiration time.Duration `json:"expiration" yaml:"expiration"`
 }
@@ -315,22 +315,22 @@ type JWTConfig struct {
 type CORSConfig struct {
 	// Enable CORS
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Allowed origins
 	AllowedOrigins []string `json:"allowed_origins" yaml:"allowed_origins"`
-	
+
 	// Allowed methods
 	AllowedMethods []string `json:"allowed_methods" yaml:"allowed_methods"`
-	
+
 	// Allowed headers
 	AllowedHeaders []string `json:"allowed_headers" yaml:"allowed_headers"`
-	
+
 	// Exposed headers
 	ExposedHeaders []string `json:"exposed_headers" yaml:"exposed_headers"`
-	
+
 	// Allow credentials
 	AllowCredentials bool `json:"allow_credentials" yaml:"allow_credentials"`
-	
+
 	// Max age
 	MaxAge time.Duration `json:"max_age" yaml:"max_age"`
 }
@@ -339,16 +339,16 @@ type CORSConfig struct {
 type RateLimitConfig struct {
 	// Enable rate limiting
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Requests per second
 	RequestsPerSecond int `json:"requests_per_second" yaml:"requests_per_second"`
-	
+
 	// Burst size
 	BurstSize int `json:"burst_size" yaml:"burst_size"`
-	
+
 	// Rate limit per client
 	PerClient RateLimitPerClientConfig `json:"per_client" yaml:"per_client"`
-	
+
 	// Rate limit per endpoint
 	PerEndpoint map[string]RateLimitEndpointConfig `json:"per_endpoint" yaml:"per_endpoint"`
 }
@@ -357,13 +357,13 @@ type RateLimitConfig struct {
 type RateLimitPerClientConfig struct {
 	// Enable per-client rate limiting
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Requests per second per client
 	RequestsPerSecond int `json:"requests_per_second" yaml:"requests_per_second"`
-	
+
 	// Burst size per client
 	BurstSize int `json:"burst_size" yaml:"burst_size"`
-	
+
 	// Client identification method
 	IdentificationMethod string `json:"identification_method" yaml:"identification_method"`
 }
@@ -378,22 +378,22 @@ type RateLimitEndpointConfig struct {
 type ValidationConfig struct {
 	// Enable input validation
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Maximum request size
 	MaxRequestSize int64 `json:"max_request_size" yaml:"max_request_size"`
-	
+
 	// Maximum header size
 	MaxHeaderSize int64 `json:"max_header_size" yaml:"max_header_size"`
-	
+
 	// Allowed content types
 	AllowedContentTypes []string `json:"allowed_content_types" yaml:"allowed_content_types"`
-	
+
 	// Request timeout
 	RequestTimeout time.Duration `json:"request_timeout" yaml:"request_timeout"`
-	
+
 	// Validate JSON schema
 	ValidateJSONSchema bool `json:"validate_json_schema" yaml:"validate_json_schema"`
-	
+
 	// JSON schema file path
 	JSONSchemaFile string `json:"json_schema_file" yaml:"json_schema_file"`
 }
@@ -402,22 +402,22 @@ type ValidationConfig struct {
 type RequestSigningConfig struct {
 	// Enable request signing
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Signing algorithm
 	Algorithm string `json:"algorithm" yaml:"algorithm"`
-	
+
 	// Signing key
 	SigningKey string `json:"signing_key" yaml:"signing_key"`
-	
+
 	// Headers to include in signature
 	SignedHeaders []string `json:"signed_headers" yaml:"signed_headers"`
-	
+
 	// Signature header name
 	SignatureHeader string `json:"signature_header" yaml:"signature_header"`
-	
+
 	// Timestamp header name
 	TimestampHeader string `json:"timestamp_header" yaml:"timestamp_header"`
-	
+
 	// Maximum timestamp skew
 	MaxTimestampSkew time.Duration `json:"max_timestamp_skew" yaml:"max_timestamp_skew"`
 }
@@ -426,16 +426,16 @@ type RequestSigningConfig struct {
 type PerformanceConfig struct {
 	// Buffer configuration
 	Buffering BufferingConfig `json:"buffering" yaml:"buffering"`
-	
+
 	// Compression configuration
 	Compression CompressionConfig `json:"compression" yaml:"compression"`
-	
+
 	// Batching configuration
 	Batching BatchingConfig `json:"batching" yaml:"batching"`
-	
+
 	// Caching configuration
 	Caching CachingConfig `json:"caching" yaml:"caching"`
-	
+
 	// Connection tuning
 	ConnectionTuning ConnectionTuningConfig `json:"connection_tuning" yaml:"connection_tuning"`
 }
@@ -444,19 +444,19 @@ type PerformanceConfig struct {
 type BufferingConfig struct {
 	// Enable buffering
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Read buffer size
 	ReadBufferSize int `json:"read_buffer_size" yaml:"read_buffer_size"`
-	
+
 	// Write buffer size
 	WriteBufferSize int `json:"write_buffer_size" yaml:"write_buffer_size"`
-	
+
 	// Event buffer size
 	EventBufferSize int `json:"event_buffer_size" yaml:"event_buffer_size"`
-	
+
 	// Buffer flush interval
 	FlushInterval time.Duration `json:"flush_interval" yaml:"flush_interval"`
-	
+
 	// Maximum buffer size
 	MaxBufferSize int `json:"max_buffer_size" yaml:"max_buffer_size"`
 }
@@ -465,16 +465,16 @@ type BufferingConfig struct {
 type CompressionConfig struct {
 	// Enable compression
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Compression algorithm
 	Algorithm CompressionAlgorithm `json:"algorithm" yaml:"algorithm"`
-	
+
 	// Compression level
 	Level int `json:"level" yaml:"level"`
-	
+
 	// Minimum size for compression
 	MinSize int `json:"min_size" yaml:"min_size"`
-	
+
 	// Content types to compress
 	ContentTypes []string `json:"content_types" yaml:"content_types"`
 }
@@ -492,16 +492,16 @@ const (
 type BatchingConfig struct {
 	// Enable batching
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Batch size
 	BatchSize int `json:"batch_size" yaml:"batch_size"`
-	
+
 	// Batch timeout
 	BatchTimeout time.Duration `json:"batch_timeout" yaml:"batch_timeout"`
-	
+
 	// Maximum batch size
 	MaxBatchSize int `json:"max_batch_size" yaml:"max_batch_size"`
-	
+
 	// Batch compression
 	Compression bool `json:"compression" yaml:"compression"`
 }
@@ -510,16 +510,16 @@ type BatchingConfig struct {
 type CachingConfig struct {
 	// Enable caching
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Cache size
 	CacheSize int `json:"cache_size" yaml:"cache_size"`
-	
+
 	// Cache TTL
 	TTL time.Duration `json:"ttl" yaml:"ttl"`
-	
+
 	// Cache key prefix
 	KeyPrefix string `json:"key_prefix" yaml:"key_prefix"`
-	
+
 	// Cache eviction policy
 	EvictionPolicy EvictionPolicy `json:"eviction_policy" yaml:"eviction_policy"`
 }
@@ -538,16 +538,16 @@ const (
 type ConnectionTuningConfig struct {
 	// TCP no delay
 	TCPNoDelay bool `json:"tcp_no_delay" yaml:"tcp_no_delay"`
-	
+
 	// TCP keep alive
 	TCPKeepAlive bool `json:"tcp_keep_alive" yaml:"tcp_keep_alive"`
-	
+
 	// Socket linger timeout
 	SocketLinger int `json:"socket_linger" yaml:"socket_linger"`
-	
+
 	// Receive buffer size
 	ReceiveBufferSize int `json:"receive_buffer_size" yaml:"receive_buffer_size"`
-	
+
 	// Send buffer size
 	SendBufferSize int `json:"send_buffer_size" yaml:"send_buffer_size"`
 }
@@ -556,19 +556,19 @@ type ConnectionTuningConfig struct {
 type MonitoringConfig struct {
 	// Enable monitoring
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Metrics configuration
 	Metrics MetricsConfig `json:"metrics" yaml:"metrics"`
-	
+
 	// Logging configuration
 	Logging LoggingConfig `json:"logging" yaml:"logging"`
-	
+
 	// Health checks configuration
 	HealthChecks HealthChecksConfig `json:"health_checks" yaml:"health_checks"`
-	
+
 	// Tracing configuration
 	Tracing TracingConfig `json:"tracing" yaml:"tracing"`
-	
+
 	// Alerting configuration
 	Alerting AlertingConfig `json:"alerting" yaml:"alerting"`
 }
@@ -577,16 +577,16 @@ type MonitoringConfig struct {
 type MetricsConfig struct {
 	// Enable metrics collection
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Metrics endpoint
 	Endpoint string `json:"endpoint" yaml:"endpoint"`
-	
+
 	// Collection interval
 	Interval time.Duration `json:"interval" yaml:"interval"`
-	
+
 	// Prometheus configuration
 	Prometheus PrometheusConfig `json:"prometheus" yaml:"prometheus"`
-	
+
 	// Custom metrics
 	Custom map[string]interface{} `json:"custom" yaml:"custom"`
 }
@@ -595,13 +595,13 @@ type MetricsConfig struct {
 type PrometheusConfig struct {
 	// Enable Prometheus metrics
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Metrics namespace
 	Namespace string `json:"namespace" yaml:"namespace"`
-	
+
 	// Metrics subsystem
 	Subsystem string `json:"subsystem" yaml:"subsystem"`
-	
+
 	// Labels to add to all metrics
 	Labels map[string]string `json:"labels" yaml:"labels"`
 }
@@ -610,22 +610,22 @@ type PrometheusConfig struct {
 type LoggingConfig struct {
 	// Enable logging
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Log level
 	Level zapcore.Level `json:"level" yaml:"level"`
-	
+
 	// Log format
 	Format string `json:"format" yaml:"format"`
-	
+
 	// Log output
 	Output []string `json:"output" yaml:"output"`
-	
+
 	// Structured logging
 	Structured bool `json:"structured" yaml:"structured"`
-	
+
 	// Log sampling
 	Sampling LogSamplingConfig `json:"sampling" yaml:"sampling"`
-	
+
 	// Log rotation
 	Rotation LogRotationConfig `json:"rotation" yaml:"rotation"`
 }
@@ -634,10 +634,10 @@ type LoggingConfig struct {
 type LogSamplingConfig struct {
 	// Enable sampling
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Initial sampling rate
 	Initial int `json:"initial" yaml:"initial"`
-	
+
 	// Thereafter sampling rate
 	Thereafter int `json:"thereafter" yaml:"thereafter"`
 }
@@ -646,16 +646,16 @@ type LogSamplingConfig struct {
 type LogRotationConfig struct {
 	// Enable rotation
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Maximum file size
 	MaxSize int `json:"max_size" yaml:"max_size"`
-	
+
 	// Maximum number of files
 	MaxFiles int `json:"max_files" yaml:"max_files"`
-	
+
 	// Maximum age
 	MaxAge time.Duration `json:"max_age" yaml:"max_age"`
-	
+
 	// Compress rotated files
 	Compress bool `json:"compress" yaml:"compress"`
 }
@@ -664,26 +664,26 @@ type LogRotationConfig struct {
 type HealthChecksConfig struct {
 	// Enable health checks
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Health check interval
 	Interval time.Duration `json:"interval" yaml:"interval"`
-	
+
 	// Health check timeout
 	Timeout time.Duration `json:"timeout" yaml:"timeout"`
-	
+
 	// Health check endpoint
 	Endpoint string `json:"endpoint" yaml:"endpoint"`
-	
+
 	// Custom health checks
 	Custom []HealthCheckConfig `json:"custom" yaml:"custom"`
 }
 
 // HealthCheckConfig defines a custom health check
 type HealthCheckConfig struct {
-	Name     string        `json:"name" yaml:"name"`
-	Endpoint string        `json:"endpoint" yaml:"endpoint"`
-	Method   string        `json:"method" yaml:"method"`
-	Timeout  time.Duration `json:"timeout" yaml:"timeout"`
+	Name     string            `json:"name" yaml:"name"`
+	Endpoint string            `json:"endpoint" yaml:"endpoint"`
+	Method   string            `json:"method" yaml:"method"`
+	Timeout  time.Duration     `json:"timeout" yaml:"timeout"`
 	Headers  map[string]string `json:"headers" yaml:"headers"`
 }
 
@@ -691,19 +691,19 @@ type HealthCheckConfig struct {
 type TracingConfig struct {
 	// Enable tracing
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Tracing provider
 	Provider string `json:"provider" yaml:"provider"`
-	
+
 	// Service name
 	ServiceName string `json:"service_name" yaml:"service_name"`
-	
+
 	// Sampling rate
 	SamplingRate float64 `json:"sampling_rate" yaml:"sampling_rate"`
-	
+
 	// Jaeger configuration
 	Jaeger JaegerConfig `json:"jaeger" yaml:"jaeger"`
-	
+
 	// Zipkin configuration
 	Zipkin ZipkinConfig `json:"zipkin" yaml:"zipkin"`
 }
@@ -723,10 +723,10 @@ type ZipkinConfig struct {
 type AlertingConfig struct {
 	// Enable alerting
 	Enabled bool `json:"enabled" yaml:"enabled"`
-	
+
 	// Alert thresholds
 	Thresholds AlertThresholds `json:"thresholds" yaml:"thresholds"`
-	
+
 	// Alert channels
 	Channels []AlertChannel `json:"channels" yaml:"channels"`
 }
@@ -735,16 +735,16 @@ type AlertingConfig struct {
 type AlertThresholds struct {
 	// Error rate threshold (percentage)
 	ErrorRate float64 `json:"error_rate" yaml:"error_rate"`
-	
+
 	// Latency threshold (milliseconds)
 	Latency float64 `json:"latency" yaml:"latency"`
-	
+
 	// Memory usage threshold (percentage)
 	MemoryUsage float64 `json:"memory_usage" yaml:"memory_usage"`
-	
+
 	// CPU usage threshold (percentage)
 	CPUUsage float64 `json:"cpu_usage" yaml:"cpu_usage"`
-	
+
 	// Connection count threshold
 	ConnectionCount int `json:"connection_count" yaml:"connection_count"`
 }
@@ -768,16 +768,16 @@ const (
 type FeatureFlags struct {
 	// Enable experimental features
 	ExperimentalFeatures bool `json:"experimental_features" yaml:"experimental_features"`
-	
+
 	// Enable debug mode
 	DebugMode bool `json:"debug_mode" yaml:"debug_mode"`
-	
+
 	// Enable performance profiling
 	PerformanceProfiling bool `json:"performance_profiling" yaml:"performance_profiling"`
-	
+
 	// Enable detailed metrics
 	DetailedMetrics bool `json:"detailed_metrics" yaml:"detailed_metrics"`
-	
+
 	// Enable request tracing
 	RequestTracing bool `json:"request_tracing" yaml:"request_tracing"`
 }
@@ -914,17 +914,17 @@ func (l *ConfigLoader) LoadFromFile(filename string) (ComprehensiveConfig, error
 		}
 	}
 	defer file.Close()
-	
+
 	return l.LoadFromReader(file)
 }
 
 // LoadFromReader loads configuration from a reader
 func (l *ConfigLoader) LoadFromReader(reader io.Reader) (ComprehensiveConfig, error) {
 	var config ComprehensiveConfig
-	
+
 	decoder := json.NewDecoder(reader)
 	decoder.DisallowUnknownFields()
-	
+
 	if err := decoder.Decode(&config); err != nil {
 		return ComprehensiveConfig{}, &core.ConfigError{
 			Field: "json",
@@ -932,14 +932,14 @@ func (l *ConfigLoader) LoadFromReader(reader io.Reader) (ComprehensiveConfig, er
 			Err:   fmt.Errorf("failed to decode config: %w", err),
 		}
 	}
-	
+
 	return config, nil
 }
 
 // LoadFromEnv loads configuration from environment variables
 func (l *ConfigLoader) LoadFromEnv() ComprehensiveConfig {
 	config := DefaultComprehensiveConfig()
-	
+
 	// Connection configuration
 	if val := os.Getenv("SSE_BASE_URL"); val != "" {
 		config.Connection.BaseURL = val
@@ -962,7 +962,7 @@ func (l *ConfigLoader) LoadFromEnv() ComprehensiveConfig {
 			config.Connection.WriteTimeout = duration
 		}
 	}
-	
+
 	// TLS configuration
 	if val := os.Getenv("SSE_TLS_ENABLED"); val != "" {
 		config.Connection.TLS.Enabled = val == "true"
@@ -979,7 +979,7 @@ func (l *ConfigLoader) LoadFromEnv() ComprehensiveConfig {
 	if val := os.Getenv("SSE_TLS_CA_FILE"); val != "" {
 		config.Connection.TLS.CAFile = val
 	}
-	
+
 	// Retry configuration
 	if val := os.Getenv("SSE_RETRY_ENABLED"); val != "" {
 		config.Retry.Enabled = val == "true"
@@ -1002,7 +1002,7 @@ func (l *ConfigLoader) LoadFromEnv() ComprehensiveConfig {
 	if val := os.Getenv("SSE_RETRY_BACKOFF_STRATEGY"); val != "" {
 		config.Retry.BackoffStrategy = BackoffStrategy(val)
 	}
-	
+
 	// Authentication configuration
 	if val := os.Getenv("SSE_AUTH_TYPE"); val != "" {
 		config.Security.Auth.Type = AuthType(val)
@@ -1022,7 +1022,7 @@ func (l *ConfigLoader) LoadFromEnv() ComprehensiveConfig {
 	if val := os.Getenv("SSE_AUTH_BASIC_PASSWORD"); val != "" {
 		config.Security.Auth.BasicAuth.Password = val
 	}
-	
+
 	// Rate limiting configuration
 	if val := os.Getenv("SSE_RATE_LIMIT_ENABLED"); val != "" {
 		config.Security.RateLimit.Enabled = val == "true"
@@ -1037,7 +1037,7 @@ func (l *ConfigLoader) LoadFromEnv() ComprehensiveConfig {
 			config.Security.RateLimit.BurstSize = burst
 		}
 	}
-	
+
 	// Performance configuration
 	if val := os.Getenv("SSE_COMPRESSION_ENABLED"); val != "" {
 		config.Performance.Compression.Enabled = val == "true"
@@ -1050,7 +1050,7 @@ func (l *ConfigLoader) LoadFromEnv() ComprehensiveConfig {
 			config.Performance.Compression.Level = level
 		}
 	}
-	
+
 	// Buffering configuration
 	if val := os.Getenv("SSE_BUFFERING_ENABLED"); val != "" {
 		config.Performance.Buffering.Enabled = val == "true"
@@ -1065,7 +1065,7 @@ func (l *ConfigLoader) LoadFromEnv() ComprehensiveConfig {
 			config.Performance.Buffering.WriteBufferSize = size
 		}
 	}
-	
+
 	// Monitoring configuration
 	if val := os.Getenv("SSE_MONITORING_ENABLED"); val != "" {
 		config.Monitoring.Enabled = val == "true"
@@ -1087,7 +1087,7 @@ func (l *ConfigLoader) LoadFromEnv() ComprehensiveConfig {
 	if val := os.Getenv("SSE_MONITORING_PROMETHEUS_SUBSYSTEM"); val != "" {
 		config.Monitoring.Metrics.Prometheus.Subsystem = val
 	}
-	
+
 	// Logging configuration
 	if val := os.Getenv("SSE_LOGGING_ENABLED"); val != "" {
 		config.Monitoring.Logging.Enabled = val == "true"
@@ -1103,12 +1103,12 @@ func (l *ConfigLoader) LoadFromEnv() ComprehensiveConfig {
 	if val := os.Getenv("SSE_LOGGING_STRUCTURED"); val != "" {
 		config.Monitoring.Logging.Structured = val == "true"
 	}
-	
+
 	// Environment
 	if val := os.Getenv("SSE_ENVIRONMENT"); val != "" {
 		config.Environment = Environment(val)
 	}
-	
+
 	// Feature flags
 	if val := os.Getenv("SSE_FEATURE_DEBUG_MODE"); val != "" {
 		config.Features.DebugMode = val == "true"
@@ -1119,7 +1119,7 @@ func (l *ConfigLoader) LoadFromEnv() ComprehensiveConfig {
 	if val := os.Getenv("SSE_FEATURE_PERFORMANCE_PROFILING"); val != "" {
 		config.Features.PerformanceProfiling = val == "true"
 	}
-	
+
 	return config
 }
 
@@ -1164,15 +1164,15 @@ func DefaultComprehensiveConfig() ComprehensiveConfig {
 			},
 		},
 		Retry: RetryConfig{
-			Enabled:           true,
-			MaxRetries:        3,
-			InitialDelay:      100 * time.Millisecond,
-			MaxDelay:          30 * time.Second,
-			BackoffStrategy:   BackoffStrategyExponential,
-			BackoffMultiplier: 2.0,
-			JitterFactor:      0.1,
+			Enabled:            true,
+			MaxRetries:         3,
+			InitialDelay:       100 * time.Millisecond,
+			MaxDelay:           30 * time.Second,
+			BackoffStrategy:    BackoffStrategyExponential,
+			BackoffMultiplier:  2.0,
+			JitterFactor:       0.1,
 			RetryOnStatusCodes: []int{500, 502, 503, 504},
-			RetryOnErrors:     []string{"connection", "timeout", "network"},
+			RetryOnErrors:      []string{"connection", "timeout", "network"},
 			CircuitBreaker: CircuitBreakerConfig{
 				Enabled:          true,
 				FailureThreshold: 5,
@@ -1216,12 +1216,12 @@ func DefaultComprehensiveConfig() ComprehensiveConfig {
 				ValidateJSONSchema:  false,
 			},
 			RequestSigning: RequestSigningConfig{
-				Enabled:           false,
-				Algorithm:         "HMAC-SHA256",
-				SignedHeaders:     []string{"host", "date", "content-type"},
-				SignatureHeader:   "X-Signature",
-				TimestampHeader:   "X-Timestamp",
-				MaxTimestampSkew:  5 * time.Minute,
+				Enabled:          false,
+				Algorithm:        "HMAC-SHA256",
+				SignedHeaders:    []string{"host", "date", "content-type"},
+				SignatureHeader:  "X-Signature",
+				TimestampHeader:  "X-Timestamp",
+				MaxTimestampSkew: 5 * time.Minute,
 			},
 		},
 		Performance: PerformanceConfig{
@@ -1394,27 +1394,27 @@ func (c *ComprehensiveConfig) Validate() error {
 	if err := c.validateConnection(); err != nil {
 		return err
 	}
-	
+
 	// Validate retry configuration
 	if err := c.validateRetry(); err != nil {
 		return err
 	}
-	
+
 	// Validate security configuration
 	if err := c.validateSecurity(); err != nil {
 		return err
 	}
-	
+
 	// Validate performance configuration
 	if err := c.validatePerformance(); err != nil {
 		return err
 	}
-	
+
 	// Validate monitoring configuration
 	if err := c.validateMonitoring(); err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
@@ -1428,7 +1428,7 @@ func (c *ComprehensiveConfig) validateConnection() error {
 			Err:   errors.New("base URL is required"),
 		}
 	}
-	
+
 	// Parse and validate base URL
 	if _, err := url.Parse(c.Connection.BaseURL); err != nil {
 		return &core.ConfigError{
@@ -1437,7 +1437,7 @@ func (c *ComprehensiveConfig) validateConnection() error {
 			Err:   fmt.Errorf("invalid base URL: %w", err),
 		}
 	}
-	
+
 	// Validate timeouts
 	if c.Connection.ConnectTimeout <= 0 {
 		return &core.ConfigError{
@@ -1446,7 +1446,7 @@ func (c *ComprehensiveConfig) validateConnection() error {
 			Err:   errors.New("connect timeout must be positive"),
 		}
 	}
-	
+
 	if c.Connection.ReadTimeout <= 0 {
 		return &core.ConfigError{
 			Field: "connection.read_timeout",
@@ -1454,7 +1454,7 @@ func (c *ComprehensiveConfig) validateConnection() error {
 			Err:   errors.New("read timeout must be positive"),
 		}
 	}
-	
+
 	if c.Connection.WriteTimeout <= 0 {
 		return &core.ConfigError{
 			Field: "connection.write_timeout",
@@ -1462,7 +1462,7 @@ func (c *ComprehensiveConfig) validateConnection() error {
 			Err:   errors.New("write timeout must be positive"),
 		}
 	}
-	
+
 	// Validate keep-alive configuration
 	if c.Connection.KeepAlive.Enabled {
 		if c.Connection.KeepAlive.Interval <= 0 {
@@ -1472,7 +1472,7 @@ func (c *ComprehensiveConfig) validateConnection() error {
 				Err:   errors.New("keep-alive interval must be positive"),
 			}
 		}
-		
+
 		if c.Connection.KeepAlive.IdleTimeout <= 0 {
 			return &core.ConfigError{
 				Field: "connection.keep_alive.idle_timeout",
@@ -1480,7 +1480,7 @@ func (c *ComprehensiveConfig) validateConnection() error {
 				Err:   errors.New("keep-alive idle timeout must be positive"),
 			}
 		}
-		
+
 		if c.Connection.KeepAlive.ProbeCount <= 0 {
 			return &core.ConfigError{
 				Field: "connection.keep_alive.probe_count",
@@ -1489,7 +1489,7 @@ func (c *ComprehensiveConfig) validateConnection() error {
 			}
 		}
 	}
-	
+
 	// Validate TLS configuration
 	if c.Connection.TLS.Enabled {
 		if c.Connection.TLS.MinVersion > c.Connection.TLS.MaxVersion {
@@ -1500,7 +1500,7 @@ func (c *ComprehensiveConfig) validateConnection() error {
 			}
 		}
 	}
-	
+
 	// Validate HTTP client configuration
 	if c.Connection.HTTPClient.MaxIdleConns < 0 {
 		return &core.ConfigError{
@@ -1509,7 +1509,7 @@ func (c *ComprehensiveConfig) validateConnection() error {
 			Err:   errors.New("max idle connections cannot be negative"),
 		}
 	}
-	
+
 	if c.Connection.HTTPClient.MaxIdleConnsPerHost < 0 {
 		return &core.ConfigError{
 			Field: "connection.http_client.max_idle_conns_per_host",
@@ -1517,7 +1517,7 @@ func (c *ComprehensiveConfig) validateConnection() error {
 			Err:   errors.New("max idle connections per host cannot be negative"),
 		}
 	}
-	
+
 	// Validate connection pool configuration
 	if c.Connection.ConnectionPool.MaxConnections <= 0 {
 		return &core.ConfigError{
@@ -1526,7 +1526,7 @@ func (c *ComprehensiveConfig) validateConnection() error {
 			Err:   errors.New("max connections must be positive"),
 		}
 	}
-	
+
 	if c.Connection.ConnectionPool.MaxIdleConnections < 0 {
 		return &core.ConfigError{
 			Field: "connection.connection_pool.max_idle_connections",
@@ -1534,7 +1534,7 @@ func (c *ComprehensiveConfig) validateConnection() error {
 			Err:   errors.New("max idle connections cannot be negative"),
 		}
 	}
-	
+
 	if c.Connection.ConnectionPool.MaxIdleConnections > c.Connection.ConnectionPool.MaxConnections {
 		return &core.ConfigError{
 			Field: "connection.connection_pool.max_idle_connections",
@@ -1542,7 +1542,7 @@ func (c *ComprehensiveConfig) validateConnection() error {
 			Err:   errors.New("max idle connections cannot exceed max connections"),
 		}
 	}
-	
+
 	return nil
 }
 
@@ -1551,7 +1551,7 @@ func (c *ComprehensiveConfig) validateRetry() error {
 	if !c.Retry.Enabled {
 		return nil
 	}
-	
+
 	if c.Retry.MaxRetries < 0 {
 		return &core.ConfigError{
 			Field: "retry.max_retries",
@@ -1559,7 +1559,7 @@ func (c *ComprehensiveConfig) validateRetry() error {
 			Err:   errors.New("max retries cannot be negative"),
 		}
 	}
-	
+
 	if c.Retry.InitialDelay <= 0 {
 		return &core.ConfigError{
 			Field: "retry.initial_delay",
@@ -1567,7 +1567,7 @@ func (c *ComprehensiveConfig) validateRetry() error {
 			Err:   errors.New("initial delay must be positive"),
 		}
 	}
-	
+
 	if c.Retry.MaxDelay <= 0 {
 		return &core.ConfigError{
 			Field: "retry.max_delay",
@@ -1575,7 +1575,7 @@ func (c *ComprehensiveConfig) validateRetry() error {
 			Err:   errors.New("max delay must be positive"),
 		}
 	}
-	
+
 	if c.Retry.InitialDelay > c.Retry.MaxDelay {
 		return &core.ConfigError{
 			Field: "retry.initial_delay",
@@ -1583,7 +1583,7 @@ func (c *ComprehensiveConfig) validateRetry() error {
 			Err:   errors.New("initial delay cannot exceed max delay"),
 		}
 	}
-	
+
 	// Validate backoff strategy
 	switch c.Retry.BackoffStrategy {
 	case BackoffStrategyFixed, BackoffStrategyLinear, BackoffStrategyExponential:
@@ -1595,7 +1595,7 @@ func (c *ComprehensiveConfig) validateRetry() error {
 			Err:   errors.New("invalid backoff strategy"),
 		}
 	}
-	
+
 	if c.Retry.BackoffMultiplier <= 0 {
 		return &core.ConfigError{
 			Field: "retry.backoff_multiplier",
@@ -1603,7 +1603,7 @@ func (c *ComprehensiveConfig) validateRetry() error {
 			Err:   errors.New("backoff multiplier must be positive"),
 		}
 	}
-	
+
 	if c.Retry.JitterFactor < 0 || c.Retry.JitterFactor > 1 {
 		return &core.ConfigError{
 			Field: "retry.jitter_factor",
@@ -1611,7 +1611,7 @@ func (c *ComprehensiveConfig) validateRetry() error {
 			Err:   errors.New("jitter factor must be between 0 and 1"),
 		}
 	}
-	
+
 	// Validate circuit breaker configuration
 	if c.Retry.CircuitBreaker.Enabled {
 		if c.Retry.CircuitBreaker.FailureThreshold <= 0 {
@@ -1621,7 +1621,7 @@ func (c *ComprehensiveConfig) validateRetry() error {
 				Err:   errors.New("failure threshold must be positive"),
 			}
 		}
-		
+
 		if c.Retry.CircuitBreaker.SuccessThreshold <= 0 {
 			return &core.ConfigError{
 				Field: "retry.circuit_breaker.success_threshold",
@@ -1629,7 +1629,7 @@ func (c *ComprehensiveConfig) validateRetry() error {
 				Err:   errors.New("success threshold must be positive"),
 			}
 		}
-		
+
 		if c.Retry.CircuitBreaker.Timeout <= 0 {
 			return &core.ConfigError{
 				Field: "retry.circuit_breaker.timeout",
@@ -1637,7 +1637,7 @@ func (c *ComprehensiveConfig) validateRetry() error {
 				Err:   errors.New("circuit breaker timeout must be positive"),
 			}
 		}
-		
+
 		if c.Retry.CircuitBreaker.MaxRequests <= 0 {
 			return &core.ConfigError{
 				Field: "retry.circuit_breaker.max_requests",
@@ -1646,7 +1646,7 @@ func (c *ComprehensiveConfig) validateRetry() error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -1731,7 +1731,7 @@ func (c *ComprehensiveConfig) validateSecurity() error {
 			Err:   errors.New("invalid authentication type"),
 		}
 	}
-	
+
 	// Validate rate limiting configuration
 	if c.Security.RateLimit.Enabled {
 		if c.Security.RateLimit.RequestsPerSecond <= 0 {
@@ -1741,7 +1741,7 @@ func (c *ComprehensiveConfig) validateSecurity() error {
 				Err:   errors.New("requests per second must be positive"),
 			}
 		}
-		
+
 		if c.Security.RateLimit.BurstSize <= 0 {
 			return &core.ConfigError{
 				Field: "security.rate_limit.burst_size",
@@ -1749,7 +1749,7 @@ func (c *ComprehensiveConfig) validateSecurity() error {
 				Err:   errors.New("burst size must be positive"),
 			}
 		}
-		
+
 		if c.Security.RateLimit.PerClient.Enabled {
 			if c.Security.RateLimit.PerClient.RequestsPerSecond <= 0 {
 				return &core.ConfigError{
@@ -1758,7 +1758,7 @@ func (c *ComprehensiveConfig) validateSecurity() error {
 					Err:   errors.New("per-client requests per second must be positive"),
 				}
 			}
-			
+
 			if c.Security.RateLimit.PerClient.BurstSize <= 0 {
 				return &core.ConfigError{
 					Field: "security.rate_limit.per_client.burst_size",
@@ -1768,7 +1768,7 @@ func (c *ComprehensiveConfig) validateSecurity() error {
 			}
 		}
 	}
-	
+
 	// Validate validation configuration
 	if c.Security.Validation.Enabled {
 		if c.Security.Validation.MaxRequestSize <= 0 {
@@ -1778,7 +1778,7 @@ func (c *ComprehensiveConfig) validateSecurity() error {
 				Err:   errors.New("max request size must be positive"),
 			}
 		}
-		
+
 		if c.Security.Validation.MaxHeaderSize <= 0 {
 			return &core.ConfigError{
 				Field: "security.validation.max_header_size",
@@ -1786,7 +1786,7 @@ func (c *ComprehensiveConfig) validateSecurity() error {
 				Err:   errors.New("max header size must be positive"),
 			}
 		}
-		
+
 		if c.Security.Validation.RequestTimeout <= 0 {
 			return &core.ConfigError{
 				Field: "security.validation.request_timeout",
@@ -1795,7 +1795,7 @@ func (c *ComprehensiveConfig) validateSecurity() error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -1810,7 +1810,7 @@ func (c *ComprehensiveConfig) validatePerformance() error {
 				Err:   errors.New("read buffer size must be positive"),
 			}
 		}
-		
+
 		if c.Performance.Buffering.WriteBufferSize <= 0 {
 			return &core.ConfigError{
 				Field: "performance.buffering.write_buffer_size",
@@ -1818,7 +1818,7 @@ func (c *ComprehensiveConfig) validatePerformance() error {
 				Err:   errors.New("write buffer size must be positive"),
 			}
 		}
-		
+
 		if c.Performance.Buffering.EventBufferSize <= 0 {
 			return &core.ConfigError{
 				Field: "performance.buffering.event_buffer_size",
@@ -1826,7 +1826,7 @@ func (c *ComprehensiveConfig) validatePerformance() error {
 				Err:   errors.New("event buffer size must be positive"),
 			}
 		}
-		
+
 		if c.Performance.Buffering.MaxBufferSize <= 0 {
 			return &core.ConfigError{
 				Field: "performance.buffering.max_buffer_size",
@@ -1834,7 +1834,7 @@ func (c *ComprehensiveConfig) validatePerformance() error {
 				Err:   errors.New("max buffer size must be positive"),
 			}
 		}
-		
+
 		if c.Performance.Buffering.FlushInterval <= 0 {
 			return &core.ConfigError{
 				Field: "performance.buffering.flush_interval",
@@ -1843,7 +1843,7 @@ func (c *ComprehensiveConfig) validatePerformance() error {
 			}
 		}
 	}
-	
+
 	// Validate compression configuration
 	if c.Performance.Compression.Enabled {
 		// Validate compression algorithm
@@ -1857,7 +1857,7 @@ func (c *ComprehensiveConfig) validatePerformance() error {
 				Err:   errors.New("invalid compression algorithm"),
 			}
 		}
-		
+
 		if c.Performance.Compression.Level < 0 || c.Performance.Compression.Level > 9 {
 			return &core.ConfigError{
 				Field: "performance.compression.level",
@@ -1865,7 +1865,7 @@ func (c *ComprehensiveConfig) validatePerformance() error {
 				Err:   errors.New("compression level must be between 0 and 9"),
 			}
 		}
-		
+
 		if c.Performance.Compression.MinSize < 0 {
 			return &core.ConfigError{
 				Field: "performance.compression.min_size",
@@ -1874,7 +1874,7 @@ func (c *ComprehensiveConfig) validatePerformance() error {
 			}
 		}
 	}
-	
+
 	// Validate batching configuration
 	if c.Performance.Batching.Enabled {
 		if c.Performance.Batching.BatchSize <= 0 {
@@ -1884,7 +1884,7 @@ func (c *ComprehensiveConfig) validatePerformance() error {
 				Err:   errors.New("batch size must be positive"),
 			}
 		}
-		
+
 		if c.Performance.Batching.MaxBatchSize <= 0 {
 			return &core.ConfigError{
 				Field: "performance.batching.max_batch_size",
@@ -1892,7 +1892,7 @@ func (c *ComprehensiveConfig) validatePerformance() error {
 				Err:   errors.New("max batch size must be positive"),
 			}
 		}
-		
+
 		if c.Performance.Batching.BatchSize > c.Performance.Batching.MaxBatchSize {
 			return &core.ConfigError{
 				Field: "performance.batching.batch_size",
@@ -1900,7 +1900,7 @@ func (c *ComprehensiveConfig) validatePerformance() error {
 				Err:   errors.New("batch size cannot exceed max batch size"),
 			}
 		}
-		
+
 		if c.Performance.Batching.BatchTimeout <= 0 {
 			return &core.ConfigError{
 				Field: "performance.batching.batch_timeout",
@@ -1909,7 +1909,7 @@ func (c *ComprehensiveConfig) validatePerformance() error {
 			}
 		}
 	}
-	
+
 	// Validate caching configuration
 	if c.Performance.Caching.Enabled {
 		if c.Performance.Caching.CacheSize <= 0 {
@@ -1919,7 +1919,7 @@ func (c *ComprehensiveConfig) validatePerformance() error {
 				Err:   errors.New("cache size must be positive"),
 			}
 		}
-		
+
 		if c.Performance.Caching.TTL <= 0 {
 			return &core.ConfigError{
 				Field: "performance.caching.ttl",
@@ -1927,7 +1927,7 @@ func (c *ComprehensiveConfig) validatePerformance() error {
 				Err:   errors.New("cache TTL must be positive"),
 			}
 		}
-		
+
 		// Validate eviction policy
 		switch c.Performance.Caching.EvictionPolicy {
 		case EvictionPolicyLRU, EvictionPolicyLFU, EvictionPolicyFIFO, EvictionPolicyTTL:
@@ -1940,7 +1940,7 @@ func (c *ComprehensiveConfig) validatePerformance() error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -1949,7 +1949,7 @@ func (c *ComprehensiveConfig) validateMonitoring() error {
 	if !c.Monitoring.Enabled {
 		return nil
 	}
-	
+
 	// Validate metrics configuration
 	if c.Monitoring.Metrics.Enabled {
 		if c.Monitoring.Metrics.Interval <= 0 {
@@ -1960,7 +1960,7 @@ func (c *ComprehensiveConfig) validateMonitoring() error {
 			}
 		}
 	}
-	
+
 	// Validate health checks configuration
 	if c.Monitoring.HealthChecks.Enabled {
 		if c.Monitoring.HealthChecks.Interval <= 0 {
@@ -1970,7 +1970,7 @@ func (c *ComprehensiveConfig) validateMonitoring() error {
 				Err:   errors.New("health check interval must be positive"),
 			}
 		}
-		
+
 		if c.Monitoring.HealthChecks.Timeout <= 0 {
 			return &core.ConfigError{
 				Field: "monitoring.health_checks.timeout",
@@ -1978,7 +1978,7 @@ func (c *ComprehensiveConfig) validateMonitoring() error {
 				Err:   errors.New("health check timeout must be positive"),
 			}
 		}
-		
+
 		// Validate custom health checks
 		for i, check := range c.Monitoring.HealthChecks.Custom {
 			if check.Name == "" {
@@ -1988,7 +1988,7 @@ func (c *ComprehensiveConfig) validateMonitoring() error {
 					Err:   errors.New("health check name is required"),
 				}
 			}
-			
+
 			if check.Endpoint == "" {
 				return &core.ConfigError{
 					Field: fmt.Sprintf("monitoring.health_checks.custom[%d].endpoint", i),
@@ -1996,7 +1996,7 @@ func (c *ComprehensiveConfig) validateMonitoring() error {
 					Err:   errors.New("health check endpoint is required"),
 				}
 			}
-			
+
 			if check.Timeout <= 0 {
 				return &core.ConfigError{
 					Field: fmt.Sprintf("monitoring.health_checks.custom[%d].timeout", i),
@@ -2006,7 +2006,7 @@ func (c *ComprehensiveConfig) validateMonitoring() error {
 			}
 		}
 	}
-	
+
 	// Validate tracing configuration
 	if c.Monitoring.Tracing.Enabled {
 		if c.Monitoring.Tracing.ServiceName == "" {
@@ -2016,7 +2016,7 @@ func (c *ComprehensiveConfig) validateMonitoring() error {
 				Err:   errors.New("service name is required for tracing"),
 			}
 		}
-		
+
 		if c.Monitoring.Tracing.SamplingRate < 0 || c.Monitoring.Tracing.SamplingRate > 1 {
 			return &core.ConfigError{
 				Field: "monitoring.tracing.sampling_rate",
@@ -2025,7 +2025,7 @@ func (c *ComprehensiveConfig) validateMonitoring() error {
 			}
 		}
 	}
-	
+
 	// Validate alerting configuration
 	if c.Monitoring.Alerting.Enabled {
 		if c.Monitoring.Alerting.Thresholds.ErrorRate < 0 || c.Monitoring.Alerting.Thresholds.ErrorRate > 100 {
@@ -2035,7 +2035,7 @@ func (c *ComprehensiveConfig) validateMonitoring() error {
 				Err:   errors.New("error rate threshold must be between 0 and 100"),
 			}
 		}
-		
+
 		if c.Monitoring.Alerting.Thresholds.Latency < 0 {
 			return &core.ConfigError{
 				Field: "monitoring.alerting.thresholds.latency",
@@ -2043,7 +2043,7 @@ func (c *ComprehensiveConfig) validateMonitoring() error {
 				Err:   errors.New("latency threshold cannot be negative"),
 			}
 		}
-		
+
 		if c.Monitoring.Alerting.Thresholds.MemoryUsage < 0 || c.Monitoring.Alerting.Thresholds.MemoryUsage > 100 {
 			return &core.ConfigError{
 				Field: "monitoring.alerting.thresholds.memory_usage",
@@ -2051,7 +2051,7 @@ func (c *ComprehensiveConfig) validateMonitoring() error {
 				Err:   errors.New("memory usage threshold must be between 0 and 100"),
 			}
 		}
-		
+
 		if c.Monitoring.Alerting.Thresholds.CPUUsage < 0 || c.Monitoring.Alerting.Thresholds.CPUUsage > 100 {
 			return &core.ConfigError{
 				Field: "monitoring.alerting.thresholds.cpu_usage",
@@ -2059,7 +2059,7 @@ func (c *ComprehensiveConfig) validateMonitoring() error {
 				Err:   errors.New("CPU usage threshold must be between 0 and 100"),
 			}
 		}
-		
+
 		if c.Monitoring.Alerting.Thresholds.ConnectionCount < 0 {
 			return &core.ConfigError{
 				Field: "monitoring.alerting.thresholds.connection_count",
@@ -2068,7 +2068,7 @@ func (c *ComprehensiveConfig) validateMonitoring() error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -2083,10 +2083,10 @@ func (c *ComprehensiveConfig) SaveToFile(filename string) error {
 		}
 	}
 	defer file.Close()
-	
+
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
-	
+
 	if err := encoder.Encode(c); err != nil {
 		return &core.ConfigError{
 			Field: "json",
@@ -2094,7 +2094,7 @@ func (c *ComprehensiveConfig) SaveToFile(filename string) error {
 			Err:   fmt.Errorf("failed to encode config: %w", err),
 		}
 	}
-	
+
 	return nil
 }
 
@@ -2103,22 +2103,22 @@ func (c *ComprehensiveConfig) Clone() ComprehensiveConfig {
 	// This is a simplified clone implementation
 	// In a real implementation, you would want to properly deep copy all nested structures
 	clone := *c
-	
+
 	// Deep copy slices and maps
 	clone.Security.CORS.AllowedOrigins = make([]string, len(c.Security.CORS.AllowedOrigins))
 	copy(clone.Security.CORS.AllowedOrigins, c.Security.CORS.AllowedOrigins)
-	
+
 	clone.Security.CORS.AllowedMethods = make([]string, len(c.Security.CORS.AllowedMethods))
 	copy(clone.Security.CORS.AllowedMethods, c.Security.CORS.AllowedMethods)
-	
+
 	clone.Security.CORS.AllowedHeaders = make([]string, len(c.Security.CORS.AllowedHeaders))
 	copy(clone.Security.CORS.AllowedHeaders, c.Security.CORS.AllowedHeaders)
-	
+
 	clone.Connection.HTTPClient.Headers = make(map[string]string)
 	for k, v := range c.Connection.HTTPClient.Headers {
 		clone.Connection.HTTPClient.Headers[k] = v
 	}
-	
+
 	return clone
 }
 
@@ -2126,7 +2126,7 @@ func (c *ComprehensiveConfig) Clone() ComprehensiveConfig {
 func (c *ComprehensiveConfig) Merge(other ComprehensiveConfig) {
 	// This is a simplified merge implementation
 	// In a real implementation, you would want to properly merge all nested structures
-	
+
 	// Override non-zero values
 	if other.Connection.BaseURL != "" {
 		c.Connection.BaseURL = other.Connection.BaseURL
@@ -2143,12 +2143,12 @@ func (c *ComprehensiveConfig) Merge(other ComprehensiveConfig) {
 	if other.Connection.WriteTimeout != 0 {
 		c.Connection.WriteTimeout = other.Connection.WriteTimeout
 	}
-	
+
 	// Merge authentication
 	if other.Security.Auth.Type != AuthTypeNone {
 		c.Security.Auth = other.Security.Auth
 	}
-	
+
 	// Merge feature flags
 	if other.Features.DebugMode {
 		c.Features.DebugMode = other.Features.DebugMode
@@ -2182,7 +2182,7 @@ func (c *ComprehensiveConfig) GetHTTPClient() *http.Client {
 		IdleConnTimeout:     c.Connection.HTTPClient.IdleConnTimeout,
 		DisableKeepAlives:   !c.Connection.KeepAlive.Enabled,
 	}
-	
+
 	// Configure TLS
 	if c.Connection.TLS.Enabled {
 		transport.TLSClientConfig = &tls.Config{
@@ -2193,19 +2193,19 @@ func (c *ComprehensiveConfig) GetHTTPClient() *http.Client {
 			CipherSuites:       c.Connection.TLS.CipherSuites,
 		}
 	}
-	
+
 	// Configure proxy
 	if c.Connection.HTTPClient.ProxyURL != "" {
 		if proxyURL, err := url.Parse(c.Connection.HTTPClient.ProxyURL); err == nil {
 			transport.Proxy = http.ProxyURL(proxyURL)
 		}
 	}
-	
+
 	// Configure HTTP/2
 	if c.Connection.HTTPClient.DisableHTTP2 {
 		transport.TLSNextProto = make(map[string]func(authority string, c *tls.Conn) http.RoundTripper)
 	}
-	
+
 	return &http.Client{
 		Transport: transport,
 		Timeout:   c.Connection.ConnectTimeout,
@@ -2239,12 +2239,12 @@ func (c *ComprehensiveConfig) IsStagingEnvironment() bool {
 // ToSimpleConfig converts ComprehensiveConfig to the simple Config format used by transport.go
 func (c *ComprehensiveConfig) ToSimpleConfig() *Config {
 	headers := make(map[string]string)
-	
+
 	// Copy headers from HTTP client config
 	for k, v := range c.Connection.HTTPClient.Headers {
 		headers[k] = v
 	}
-	
+
 	// Add authentication headers
 	switch c.Security.Auth.Type {
 	case AuthTypeBearer:
@@ -2254,7 +2254,7 @@ func (c *ComprehensiveConfig) ToSimpleConfig() *Config {
 	case AuthTypeBasic:
 		// Basic auth is typically handled by the HTTP client
 	}
-	
+
 	return &Config{
 		BaseURL:        c.Connection.BaseURL + c.Connection.Endpoint,
 		Headers:        headers,
@@ -2270,11 +2270,11 @@ func (c *ComprehensiveConfig) ToSimpleConfig() *Config {
 // FromSimpleConfig creates a ComprehensiveConfig from the simple Config format
 func FromSimpleConfig(simpleConfig *Config) *ComprehensiveConfig {
 	config := DefaultComprehensiveConfig()
-	
+
 	if simpleConfig == nil {
 		return &config
 	}
-	
+
 	// Parse base URL and endpoint
 	baseURL := simpleConfig.BaseURL
 	endpoint := ""
@@ -2285,7 +2285,7 @@ func FromSimpleConfig(simpleConfig *Config) *ComprehensiveConfig {
 			endpoint = "/events" + strings.Join(parts[1:], "/events")
 		}
 	}
-	
+
 	config.Connection.BaseURL = baseURL
 	config.Connection.Endpoint = endpoint
 	config.Connection.ReadTimeout = simpleConfig.ReadTimeout
@@ -2294,7 +2294,7 @@ func FromSimpleConfig(simpleConfig *Config) *ComprehensiveConfig {
 	config.Performance.Buffering.EventBufferSize = simpleConfig.BufferSize
 	config.Retry.InitialDelay = simpleConfig.ReconnectDelay
 	config.Retry.MaxRetries = simpleConfig.MaxReconnects
-	
+
 	// Extract authentication from headers
 	if authHeader, exists := simpleConfig.Headers["Authorization"]; exists {
 		if strings.HasPrefix(authHeader, "Bearer ") {
@@ -2302,7 +2302,7 @@ func FromSimpleConfig(simpleConfig *Config) *ComprehensiveConfig {
 			config.Security.Auth.BearerToken = strings.TrimPrefix(authHeader, "Bearer ")
 		}
 	}
-	
+
 	// Check for API key in common headers
 	for header, value := range simpleConfig.Headers {
 		if strings.ToLower(header) == "x-api-key" || strings.ToLower(header) == "api-key" {
@@ -2312,7 +2312,7 @@ func FromSimpleConfig(simpleConfig *Config) *ComprehensiveConfig {
 			break
 		}
 	}
-	
+
 	return &config
 }
 

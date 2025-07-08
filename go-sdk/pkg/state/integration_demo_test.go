@@ -34,7 +34,7 @@ func TestIntegrationDemo(t *testing.T) {
 	// Test secure state updates
 	updates := map[string]interface{}{
 		"data": map[string]interface{}{
-			"count": 1,
+			"count":   1,
 			"message": "Hello, secure world!",
 		},
 	}

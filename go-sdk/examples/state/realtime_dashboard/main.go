@@ -25,48 +25,48 @@ import (
 
 // DashboardState represents the complete dashboard state
 type DashboardState struct {
-	SystemMetrics   SystemMetrics              `json:"systemMetrics"`
-	NetworkStats    NetworkStats               `json:"networkStats"`
-	ServiceHealth   map[string]ServiceStatus   `json:"serviceHealth"`
-	ActivityFeed    []ActivityEvent            `json:"activityFeed"`
-	Alerts          []Alert                    `json:"alerts"`
-	Analytics       AnalyticsData              `json:"analytics"`
-	LastUpdate      time.Time                  `json:"lastUpdate"`
+	SystemMetrics SystemMetrics            `json:"systemMetrics"`
+	NetworkStats  NetworkStats             `json:"networkStats"`
+	ServiceHealth map[string]ServiceStatus `json:"serviceHealth"`
+	ActivityFeed  []ActivityEvent          `json:"activityFeed"`
+	Alerts        []Alert                  `json:"alerts"`
+	Analytics     AnalyticsData            `json:"analytics"`
+	LastUpdate    time.Time                `json:"lastUpdate"`
 }
 
 // SystemMetrics contains system performance metrics
 type SystemMetrics struct {
-	CPUUsage       float64   `json:"cpuUsage"`
-	MemoryUsage    float64   `json:"memoryUsage"`
-	DiskUsage      float64   `json:"diskUsage"`
-	Temperature    float64   `json:"temperature"`
-	ProcessCount   int       `json:"processCount"`
-	ThreadCount    int       `json:"threadCount"`
-	Timestamp      time.Time `json:"timestamp"`
+	CPUUsage     float64   `json:"cpuUsage"`
+	MemoryUsage  float64   `json:"memoryUsage"`
+	DiskUsage    float64   `json:"diskUsage"`
+	Temperature  float64   `json:"temperature"`
+	ProcessCount int       `json:"processCount"`
+	ThreadCount  int       `json:"threadCount"`
+	Timestamp    time.Time `json:"timestamp"`
 }
 
 // NetworkStats contains network statistics
 type NetworkStats struct {
-	BytesIn        int64     `json:"bytesIn"`
-	BytesOut       int64     `json:"bytesOut"`
-	PacketsIn      int64     `json:"packetsIn"`
-	PacketsOut     int64     `json:"packetsOut"`
-	Connections    int       `json:"connections"`
-	Bandwidth      float64   `json:"bandwidth"`
-	Latency        float64   `json:"latency"`
-	PacketLoss     float64   `json:"packetLoss"`
-	Timestamp      time.Time `json:"timestamp"`
+	BytesIn     int64     `json:"bytesIn"`
+	BytesOut    int64     `json:"bytesOut"`
+	PacketsIn   int64     `json:"packetsIn"`
+	PacketsOut  int64     `json:"packetsOut"`
+	Connections int       `json:"connections"`
+	Bandwidth   float64   `json:"bandwidth"`
+	Latency     float64   `json:"latency"`
+	PacketLoss  float64   `json:"packetLoss"`
+	Timestamp   time.Time `json:"timestamp"`
 }
 
 // ServiceStatus represents a service's health status
 type ServiceStatus struct {
-	Name           string    `json:"name"`
-	Status         string    `json:"status"` // healthy, degraded, unhealthy
-	Uptime         float64   `json:"uptime"`
-	ResponseTime   float64   `json:"responseTime"`
-	ErrorRate      float64   `json:"errorRate"`
-	LastCheck      time.Time `json:"lastCheck"`
-	Message        string    `json:"message"`
+	Name         string    `json:"name"`
+	Status       string    `json:"status"` // healthy, degraded, unhealthy
+	Uptime       float64   `json:"uptime"`
+	ResponseTime float64   `json:"responseTime"`
+	ErrorRate    float64   `json:"errorRate"`
+	LastCheck    time.Time `json:"lastCheck"`
+	Message      string    `json:"message"`
 }
 
 // ActivityEvent represents a system activity
@@ -81,14 +81,14 @@ type ActivityEvent struct {
 
 // Alert represents a system alert
 type Alert struct {
-	ID          string    `json:"id"`
-	Title       string    `json:"title"`
-	Message     string    `json:"message"`
-	Severity    string    `json:"severity"` // info, warning, error, critical
-	Source      string    `json:"source"`
+	ID           string    `json:"id"`
+	Title        string    `json:"title"`
+	Message      string    `json:"message"`
+	Severity     string    `json:"severity"` // info, warning, error, critical
+	Source       string    `json:"source"`
 	Acknowledged bool      `json:"acknowledged"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	CreatedAt    time.Time `json:"createdAt"`
+	UpdatedAt    time.Time `json:"updatedAt"`
 }
 
 // AnalyticsData contains aggregated analytics
@@ -111,14 +111,14 @@ type EndpointStats struct {
 
 // MetricsCollector simulates collecting metrics from various sources
 type MetricsCollector struct {
-	store        *state.StateStore
-	eventGen     *state.StateEventGenerator
-	eventStream  *state.StateEventStream
-	updateCount  int64
-	errorCount   int64
-	mu           sync.RWMutex
-	ctx          context.Context
-	cancel       context.CancelFunc
+	store       *state.StateStore
+	eventGen    *state.StateEventGenerator
+	eventStream *state.StateEventStream
+	updateCount int64
+	errorCount  int64
+	mu          sync.RWMutex
+	ctx         context.Context
+	cancel      context.CancelFunc
 }
 
 // DashboardServer simulates a dashboard server handling client connections
@@ -193,10 +193,10 @@ func main() {
 	defer cancel()
 
 	collector := &MetricsCollector{
-		store:       store,
-		eventGen:    state.NewStateEventGenerator(store),
-		ctx:         ctx,
-		cancel:      cancel,
+		store:    store,
+		eventGen: state.NewStateEventGenerator(store),
+		ctx:      ctx,
+		cancel:   cancel,
 	}
 
 	// Create event stream for real-time updates
@@ -204,7 +204,7 @@ func main() {
 		store,
 		collector.eventGen,
 		state.WithStreamInterval(50*time.Millisecond), // High frequency updates
-		state.WithDeltaOnly(true),                      // Only send deltas for efficiency
+		state.WithDeltaOnly(true),                     // Only send deltas for efficiency
 	)
 
 	// Create dashboard server
@@ -213,7 +213,7 @@ func main() {
 		clients:   make(map[string]*DashboardClient),
 		eventHandler: state.NewStateEventHandler(
 			store,
-			state.WithBatchSize(50),                    // Larger batch for high frequency
+			state.WithBatchSize(50), // Larger batch for high frequency
 			state.WithBatchTimeout(25*time.Millisecond), // Shorter timeout for real-time
 		),
 	}
@@ -227,20 +227,20 @@ func main() {
 
 	// Subscribe to state changes for monitoring
 	fmt.Println("\n=== Starting Real-Time Updates ===")
-	
+
 	// Monitor update frequency
 	var updateFrequency int64
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
-		
+
 		var lastCount int64
 		for range ticker.C {
 			currentCount := atomic.LoadInt64(&collector.updateCount)
 			frequency := currentCount - lastCount
 			atomic.StoreInt64(&updateFrequency, frequency)
 			lastCount = currentCount
-			
+
 			if frequency > 0 {
 				fmt.Printf("Update frequency: %d updates/sec, Total: %d, Errors: %d\n",
 					frequency, currentCount, atomic.LoadInt64(&collector.errorCount))
@@ -299,7 +299,7 @@ func main() {
 			for _, client := range server.clients {
 				atomic.AddInt64(&client.EventCount, 1)
 			}
-			
+
 			// Sample logging (every 100th event)
 			if atomic.LoadInt64(&collector.updateCount)%100 == 0 {
 				fmt.Printf("Delta event: %d operations\n", len(e.Delta))
@@ -317,10 +317,10 @@ func main() {
 	go func() {
 		time.Sleep(5 * time.Second)
 		collector.generateAlert("High CPU Usage", "CPU usage exceeded 80%", "warning")
-		
+
 		time.Sleep(10 * time.Second)
 		collector.generateAlert("Service Degradation", "API service response time increased", "error")
-		
+
 		time.Sleep(5 * time.Second)
 		collector.generateAlert("Network Congestion", "Packet loss detected on primary link", "critical")
 	}()
@@ -329,7 +329,7 @@ func main() {
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
-		
+
 		for range ticker.C {
 			collector.showPerformanceStats()
 		}
@@ -374,7 +374,7 @@ func main() {
 func initializeServices() map[string]ServiceStatus {
 	services := []string{"api", "database", "cache", "queue", "storage"}
 	serviceHealth := make(map[string]ServiceStatus)
-	
+
 	for _, name := range services {
 		serviceHealth[name] = ServiceStatus{
 			Name:         name,
@@ -386,7 +386,7 @@ func initializeServices() map[string]ServiceStatus {
 			Message:      "Service operating normally",
 		}
 	}
-	
+
 	return serviceHealth
 }
 
@@ -562,7 +562,7 @@ func (c *MetricsCollector) aggregateAnalytics(interval time.Duration) {
 		case <-ticker.C:
 			// Get current metrics
 			sysMetrics, _ := c.store.Get("/systemMetrics")
-			
+
 			// Update time series data
 			if sm, ok := sysMetrics.(map[string]interface{}); ok {
 				if cpu, ok := sm["cpuUsage"].(float64); ok {
@@ -599,10 +599,10 @@ func (c *MetricsCollector) updateMetrics(path string, value interface{}) error {
 	defer c.mu.Unlock()
 
 	atomic.AddInt64(&c.updateCount, 1)
-	
+
 	// Update last update timestamp
 	c.store.Set("/lastUpdate", time.Now())
-	
+
 	return c.store.Set(path, value)
 }
 
@@ -646,11 +646,11 @@ func (c *MetricsCollector) showPerformanceStats() {
 	fmt.Printf("Total updates: %d\n", atomic.LoadInt64(&c.updateCount))
 	fmt.Printf("Error count: %d\n", atomic.LoadInt64(&c.errorCount))
 	fmt.Printf("Store version: %d\n", c.store.GetVersion())
-	
+
 	// Get state size estimate
 	exported, _ := c.store.Export()
 	fmt.Printf("State size: %d bytes\n", len(exported))
-	
+
 	// Show event generator stats
 	if c.eventGen != nil {
 		// In a real implementation, we'd have metrics from the generator
@@ -709,12 +709,12 @@ func showFinalStats(collector *MetricsCollector, server *DashboardServer) {
 	fmt.Printf("Total updates processed: %d\n", atomic.LoadInt64(&collector.updateCount))
 	fmt.Printf("Total errors: %d\n", atomic.LoadInt64(&collector.errorCount))
 	fmt.Printf("Error rate: %.2f%%\n", float64(atomic.LoadInt64(&collector.errorCount))/float64(atomic.LoadInt64(&collector.updateCount))*100)
-	
+
 	fmt.Println("\nClient statistics:")
 	for _, client := range server.clients {
 		fmt.Printf("  %s: %d events received\n", client.ID, atomic.LoadInt64(&client.EventCount))
 	}
-	
+
 	// Show final state summary
 	finalState, _ := collector.store.Get("/")
 	if state, ok := finalState.(map[string]interface{}); ok {
@@ -731,18 +731,18 @@ func demonstrateCompression(store *state.StateStore) {
 	// Export full state
 	fullExport, _ := store.Export()
 	fmt.Printf("Full state size: %d bytes\n", len(fullExport))
-	
+
 	// Create snapshot for comparison
 	snapshot, _ := store.CreateSnapshot()
 	snapshotData, _ := json.Marshal(snapshot.State)
 	fmt.Printf("Snapshot size: %d bytes\n", len(snapshotData))
-	
+
 	// Show compression ratio
 	if len(fullExport) > 0 {
 		ratio := float64(len(snapshotData)) / float64(len(fullExport)) * 100
 		fmt.Printf("Size ratio: %.2f%%\n", ratio)
 	}
-	
+
 	// Demonstrate delta efficiency
 	history, _ := store.GetHistory()
 	if len(history) > 10 {
@@ -795,7 +795,7 @@ func showOptimizationTechniques() {
 			Description: "Non-blocking updates with goroutines",
 		},
 	}
-	
+
 	for _, tech := range techniques {
 		fmt.Printf("- %s: %s\n", tech.Name, tech.Description)
 	}

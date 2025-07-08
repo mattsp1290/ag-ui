@@ -198,7 +198,7 @@ func TestBoundedResolverRegistryConcurrentAccess(t *testing.T) {
 
 	// Verify no data corruption
 	assert.LessOrEqual(t, br.Size(), 50, "Size should not exceed max")
-	
+
 	// Verify statistics are consistent
 	stats := br.GetStatistics()
 	assert.Equal(t, br.Size(), stats["current_size"])
@@ -213,7 +213,7 @@ func TestStateManagerMemoryLeakPrevention(t *testing.T) {
 
 	opts := DefaultManagerOptions()
 	opts.CacheSize = 100 // Small cache to test eviction
-	
+
 	sm, err := NewStateManager(opts)
 	require.NoError(t, err)
 	defer sm.Close()
@@ -232,7 +232,7 @@ func TestStateManagerMemoryLeakPrevention(t *testing.T) {
 			"data":  fmt.Sprintf("some data for context %d", i),
 		})
 		require.NoError(t, err)
-		
+
 		// Simulate some work
 		_, err = sm.GetState(ctx, contextID, fmt.Sprintf("state-%d", i))
 		assert.NoError(t, err)
@@ -241,7 +241,7 @@ func TestStateManagerMemoryLeakPrevention(t *testing.T) {
 	// Force cleanup
 	time.Sleep(100 * time.Millisecond)
 	runtime.GC()
-	
+
 	// Check final memory
 	var m2 runtime.MemStats
 	runtime.ReadMemStats(&m2)
@@ -249,9 +249,9 @@ func TestStateManagerMemoryLeakPrevention(t *testing.T) {
 	// Memory growth should be bounded despite creating 1000 contexts
 	memGrowth := m2.Alloc - m1.Alloc
 	maxExpectedGrowth := uint64(10 * 1024 * 1024) // 10MB max growth
-	
-	assert.Less(t, memGrowth, maxExpectedGrowth, 
-		"Memory growth (%d bytes) exceeded expected maximum (%d bytes)", 
+
+	assert.Less(t, memGrowth, maxExpectedGrowth,
+		"Memory growth (%d bytes) exceeded expected maximum (%d bytes)",
 		memGrowth, maxExpectedGrowth)
 
 	// Verify context count is bounded
@@ -260,9 +260,9 @@ func TestStateManagerMemoryLeakPrevention(t *testing.T) {
 		contextCount++
 		return true
 	})
-	
-	assert.LessOrEqual(t, contextCount, opts.CacheSize, 
-		"Active contexts (%d) should not exceed cache size (%d)", 
+
+	assert.LessOrEqual(t, contextCount, opts.CacheSize,
+		"Active contexts (%d) should not exceed cache size (%d)",
 		contextCount, opts.CacheSize)
 }
 
@@ -275,8 +275,8 @@ func TestConflictResolverMemoryLeakPrevention(t *testing.T) {
 		name := fmt.Sprintf("custom-resolver-%d", i)
 		resolver := func(conflict *StateConflict) (*ConflictResolution, error) {
 			return &ConflictResolution{
-				ID:        fmt.Sprintf("resolution-%d", i),
-				Strategy:  CustomStrategy,
+				ID:       fmt.Sprintf("resolution-%d", i),
+				Strategy: CustomStrategy,
 			}, nil
 		}
 		cr.RegisterCustomResolver(name, resolver)
@@ -284,15 +284,15 @@ func TestConflictResolverMemoryLeakPrevention(t *testing.T) {
 
 	// Verify resolver count is bounded
 	resolverCount := cr.customResolvers.Size()
-	assert.LessOrEqual(t, resolverCount, 100, 
-		"Custom resolvers (%d) should not exceed max size (100)", 
+	assert.LessOrEqual(t, resolverCount, 100,
+		"Custom resolvers (%d) should not exceed max size (100)",
 		resolverCount)
 
 	// Verify we can still register new resolvers (old ones evicted)
 	cr.RegisterCustomResolver("final-resolver", func(conflict *StateConflict) (*ConflictResolution, error) {
 		return nil, nil
 	})
-	
+
 	_, exists := cr.customResolvers.Get("final-resolver")
 	assert.True(t, exists, "Should be able to register new resolver after eviction")
 }

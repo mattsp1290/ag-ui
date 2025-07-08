@@ -48,7 +48,7 @@ func DefaultParallelValidationConfig() *ParallelValidationConfig {
 		ValidationTimeout:        ValidationTimeoutDefault,
 		BufferSize:               10,
 		EnableDependencyAnalysis: true,
-		StopOnFirstError:        false,
+		StopOnFirstError:         false,
 	}
 }
 
@@ -58,16 +58,16 @@ type RuleDependencyType int
 const (
 	// DependencyNone means the rule has no dependencies and can run independently
 	DependencyNone RuleDependencyType = iota
-	
+
 	// DependencyStateRead means the rule reads from validation state
 	DependencyStateRead
-	
+
 	// DependencyStateWrite means the rule modifies validation state
 	DependencyStateWrite
-	
+
 	// DependencySequence means the rule depends on event sequence/ordering
 	DependencySequence
-	
+
 	// DependencyIDTracking means the rule depends on ID uniqueness tracking
 	DependencyIDTracking
 )
@@ -109,10 +109,10 @@ func NewRuleDependencyAnalyzer() *RuleDependencyAnalyzer {
 	analyzer := &RuleDependencyAnalyzer{
 		dependencies: make(map[string]*RuleDependency),
 	}
-	
+
 	// Initialize with known rule dependencies
 	analyzer.initializeKnownDependencies()
-	
+
 	return analyzer
 }
 
@@ -121,13 +121,13 @@ func (a *RuleDependencyAnalyzer) initializeKnownDependencies() {
 	// Independent rules that can run in parallel
 	independentRules := []string{
 		"MESSAGE_CONTENT",
-		"TOOL_CALL_CONTENT", 
+		"TOOL_CALL_CONTENT",
 		"CONTENT_VALIDATION",
 		"TIMESTAMP_VALIDATION",
 		"ID_FORMAT",
 		"CUSTOM_EVENT",
 	}
-	
+
 	for _, ruleID := range independentRules {
 		a.dependencies[ruleID] = &RuleDependency{
 			RuleID:           ruleID,
@@ -137,25 +137,25 @@ func (a *RuleDependencyAnalyzer) initializeKnownDependencies() {
 			CanRunInParallel: true,
 		}
 	}
-	
+
 	// State-dependent rules that require sequential execution
 	stateDependentRules := map[string]RuleDependencyType{
-		"RUN_LIFECYCLE":        DependencyStateWrite,
-		"EVENT_ORDERING":       DependencySequence,
-		"EVENT_SEQUENCE":       DependencyStateWrite,
-		"MESSAGE_LIFECYCLE":    DependencyStateWrite,
-		"TOOL_CALL_LIFECYCLE":  DependencyStateWrite,
-		"MESSAGE_NESTING":      DependencyStateRead,
-		"TOOL_CALL_NESTING":    DependencyStateRead,
-		"ID_CONSISTENCY":       DependencyIDTracking,
-		"ID_UNIQUENESS":        DependencyIDTracking,
-		"STATE_VALIDATION":     DependencyStateRead,
-		"STATE_CONSISTENCY":    DependencyStateRead,
+		"RUN_LIFECYCLE":       DependencyStateWrite,
+		"EVENT_ORDERING":      DependencySequence,
+		"EVENT_SEQUENCE":      DependencyStateWrite,
+		"MESSAGE_LIFECYCLE":   DependencyStateWrite,
+		"TOOL_CALL_LIFECYCLE": DependencyStateWrite,
+		"MESSAGE_NESTING":     DependencyStateRead,
+		"TOOL_CALL_NESTING":   DependencyStateRead,
+		"ID_CONSISTENCY":      DependencyIDTracking,
+		"ID_UNIQUENESS":       DependencyIDTracking,
+		"STATE_VALIDATION":    DependencyStateRead,
+		"STATE_CONSISTENCY":   DependencyStateRead,
 	}
-	
+
 	for ruleID, depType := range stateDependentRules {
 		conflictingRules := []string{}
-		
+
 		// Rules that write to state conflict with each other
 		if depType == DependencyStateWrite {
 			for otherRuleID, otherDepType := range stateDependentRules {
@@ -164,7 +164,7 @@ func (a *RuleDependencyAnalyzer) initializeKnownDependencies() {
 				}
 			}
 		}
-		
+
 		a.dependencies[ruleID] = &RuleDependency{
 			RuleID:           ruleID,
 			DependencyType:   depType,
@@ -179,15 +179,15 @@ func (a *RuleDependencyAnalyzer) initializeKnownDependencies() {
 func (a *RuleDependencyAnalyzer) AnalyzeRules(rules []ValidationRule) (independentRules []ValidationRule, dependentRules []ValidationRule) {
 	a.mutex.RLock()
 	defer a.mutex.RUnlock()
-	
+
 	independent := make([]ValidationRule, 0)
 	dependent := make([]ValidationRule, 0)
-	
+
 	for _, rule := range rules {
 		if !rule.IsEnabled() {
 			continue
 		}
-		
+
 		ruleID := rule.ID()
 		if dep, exists := a.dependencies[ruleID]; exists {
 			if dep.CanRunInParallel {
@@ -200,7 +200,7 @@ func (a *RuleDependencyAnalyzer) AnalyzeRules(rules []ValidationRule) (independe
 			dependent = append(dependent, rule)
 		}
 	}
-	
+
 	return independent, dependent
 }
 
@@ -222,34 +222,34 @@ func (a *RuleDependencyAnalyzer) GetRuleDependency(ruleID string) (*RuleDependen
 // ParallelValidationResult aggregates results from parallel rule execution
 type ParallelValidationResult struct {
 	*ValidationResult
-	ParallelExecutionTime time.Duration
-	SequentialExecutionTime time.Duration
-	RulesExecutedInParallel int
+	ParallelExecutionTime     time.Duration
+	SequentialExecutionTime   time.Duration
+	RulesExecutedInParallel   int
 	RulesExecutedSequentially int
-	GoroutinesUsed int
+	GoroutinesUsed            int
 }
 
 // ParallelValidator executes validation rules in parallel when possible
 type ParallelValidator struct {
-	config            *ParallelValidationConfig
+	config             *ParallelValidationConfig
 	dependencyAnalyzer *RuleDependencyAnalyzer
-	workerPool        *ParallelWorkerPool
-	metrics           *ParallelValidationMetrics
-	mutex             sync.RWMutex
+	workerPool         *ParallelWorkerPool
+	metrics            *ParallelValidationMetrics
+	mutex              sync.RWMutex
 }
 
 // ParallelValidationMetrics tracks metrics for parallel validation
 type ParallelValidationMetrics struct {
-	TotalValidations       int64
-	ParallelValidations    int64
-	SequentialValidations  int64
-	AverageParallelTime    time.Duration
-	AverageSequentialTime  time.Duration
-	AverageSpeedup         float64
-	GoroutinesUsedTotal    int64
-	RulesExecutedParallel  int64
+	TotalValidations        int64
+	ParallelValidations     int64
+	SequentialValidations   int64
+	AverageParallelTime     time.Duration
+	AverageSequentialTime   time.Duration
+	AverageSpeedup          float64
+	GoroutinesUsedTotal     int64
+	RulesExecutedParallel   int64
 	RulesExecutedSequential int64
-	
+
 	mutex sync.RWMutex
 }
 
@@ -262,12 +262,12 @@ func NewParallelValidationMetrics() *ParallelValidationMetrics {
 func (m *ParallelValidationMetrics) RecordParallelValidation(duration time.Duration, goroutinesUsed int, rulesExecuted int) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	m.TotalValidations++
 	m.ParallelValidations++
 	m.GoroutinesUsedTotal += int64(goroutinesUsed)
 	m.RulesExecutedParallel += int64(rulesExecuted)
-	
+
 	// Update average parallel time
 	if m.ParallelValidations == 1 {
 		m.AverageParallelTime = duration
@@ -276,7 +276,7 @@ func (m *ParallelValidationMetrics) RecordParallelValidation(duration time.Durat
 			(int64(m.AverageParallelTime)*(m.ParallelValidations-1) + int64(duration)) / m.ParallelValidations,
 		)
 	}
-	
+
 	// Update speedup calculation
 	m.updateSpeedup()
 }
@@ -285,11 +285,11 @@ func (m *ParallelValidationMetrics) RecordParallelValidation(duration time.Durat
 func (m *ParallelValidationMetrics) RecordSequentialValidation(duration time.Duration, rulesExecuted int) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	m.TotalValidations++
 	m.SequentialValidations++
 	m.RulesExecutedSequential += int64(rulesExecuted)
-	
+
 	// Update average sequential time
 	if m.SequentialValidations == 1 {
 		m.AverageSequentialTime = duration
@@ -298,7 +298,7 @@ func (m *ParallelValidationMetrics) RecordSequentialValidation(duration time.Dur
 			(int64(m.AverageSequentialTime)*(m.SequentialValidations-1) + int64(duration)) / m.SequentialValidations,
 		)
 	}
-	
+
 	// Update speedup calculation
 	m.updateSpeedup()
 }
@@ -314,7 +314,7 @@ func (m *ParallelValidationMetrics) updateSpeedup() {
 func (m *ParallelValidationMetrics) GetMetrics() *ParallelValidationMetrics {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	return &ParallelValidationMetrics{
 		TotalValidations:        m.TotalValidations,
 		ParallelValidations:     m.ParallelValidations,
@@ -357,7 +357,7 @@ type ParallelValidationJobResult struct {
 // NewParallelWorkerPool creates a new worker pool with the specified number of workers
 func NewParallelWorkerPool(workerCount int, bufferSize int) *ParallelWorkerPool {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &ParallelWorkerPool{
 		workerCount: workerCount,
 		jobCh:       make(chan ParallelValidationJob, bufferSize),
@@ -386,7 +386,7 @@ func (wp *ParallelWorkerPool) Stop() {
 // worker is the worker goroutine function
 func (wp *ParallelWorkerPool) worker(workerID int) {
 	defer wp.wg.Done()
-	
+
 	for {
 		select {
 		case <-wp.ctx.Done():
@@ -395,11 +395,11 @@ func (wp *ParallelWorkerPool) worker(workerID int) {
 			if !ok {
 				return
 			}
-			
+
 			start := time.Now()
 			result := job.Rule.Validate(job.Event, job.Context)
 			duration := time.Since(start)
-			
+
 			wp.resultCh <- ParallelValidationJobResult{
 				JobID:    job.JobID,
 				Result:   result,
@@ -440,7 +440,7 @@ func NewParallelValidator(config *ParallelValidationConfig) *ParallelValidator {
 	if config == nil {
 		config = DefaultParallelValidationConfig()
 	}
-	
+
 	return &ParallelValidator{
 		config:             config,
 		dependencyAnalyzer: NewRuleDependencyAnalyzer(),
@@ -451,15 +451,15 @@ func NewParallelValidator(config *ParallelValidationConfig) *ParallelValidator {
 // ValidateEventParallel validates an event using parallel rule execution when possible
 func (pv *ParallelValidator) ValidateEventParallel(ctx context.Context, event Event, rules []ValidationRule, validationContext *ValidationContext) *ParallelValidationResult {
 	start := time.Now()
-	
+
 	result := &ParallelValidationResult{
 		ValidationResult: &ValidationResult{
-			IsValid:    true,
-			Errors:     make([]*ValidationError, 0),
-			Warnings:   make([]*ValidationError, 0),
+			IsValid:     true,
+			Errors:      make([]*ValidationError, 0),
+			Warnings:    make([]*ValidationError, 0),
 			Information: make([]*ValidationError, 0),
-			EventCount: 1,
-			Timestamp:  time.Now(),
+			EventCount:  1,
+			Timestamp:   time.Now(),
 		},
 		GoroutinesUsed: 1, // Default to 1 for sequential execution
 	}
@@ -486,7 +486,7 @@ func (pv *ParallelValidator) ValidateEventParallel(ctx context.Context, event Ev
 		// Execute sequentially
 		result.RulesExecutedSequentially = len(enabledRules)
 		seqStart := time.Now()
-		
+
 		for _, rule := range enabledRules {
 			ruleResult := rule.Validate(event, validationContext)
 			if ruleResult != nil {
@@ -502,7 +502,7 @@ func (pv *ParallelValidator) ValidateEventParallel(ctx context.Context, event Ev
 				}
 			}
 		}
-		
+
 		result.SequentialExecutionTime = time.Since(seqStart)
 		pv.metrics.RecordSequentialValidation(result.SequentialExecutionTime, len(enabledRules))
 		result.Duration = time.Since(start)
@@ -543,7 +543,7 @@ func (pv *ParallelValidator) ValidateEventParallel(ctx context.Context, event Ev
 	// Execute independent rules in parallel if we have any
 	if len(independentRules) > 0 {
 		parallelStart := time.Now()
-		
+
 		// Create worker pool for parallel execution
 		workerCount := pv.config.MaxGoroutines
 		if workerCount <= 0 {
@@ -552,10 +552,10 @@ func (pv *ParallelValidator) ValidateEventParallel(ctx context.Context, event Ev
 		if workerCount > len(independentRules) {
 			workerCount = len(independentRules)
 		}
-		
+
 		workerPool := NewParallelWorkerPool(workerCount, pv.config.BufferSize)
 		workerPool.Start()
-		
+
 		// Submit jobs
 		for i, rule := range independentRules {
 			job := ParallelValidationJob{
@@ -564,7 +564,7 @@ func (pv *ParallelValidator) ValidateEventParallel(ctx context.Context, event Ev
 				Context: validationContext,
 				JobID:   i,
 			}
-			
+
 			if err := workerPool.SubmitJob(job); err != nil {
 				// Fallback to sequential execution for this rule
 				ruleResult := rule.Validate(event, validationContext)
@@ -581,7 +581,7 @@ func (pv *ParallelValidator) ValidateEventParallel(ctx context.Context, event Ev
 				}
 			}
 		}
-		
+
 		// Collect results
 		resultsCollected := 0
 		for resultsCollected < len(independentRules) {
@@ -596,13 +596,13 @@ func (pv *ParallelValidator) ValidateEventParallel(ctx context.Context, event Ev
 				})
 				result.Duration = time.Since(start)
 				return result
-				
+
 			default:
 				jobResult, err := workerPool.GetResult()
 				if err != nil {
 					continue
 				}
-				
+
 				if jobResult.Result != nil {
 					// Merge results
 					for _, err := range jobResult.Result.Errors {
@@ -623,16 +623,16 @@ func (pv *ParallelValidator) ValidateEventParallel(ctx context.Context, event Ev
 						result.AddInfo(info)
 					}
 				}
-				
+
 				resultsCollected++
 			}
 		}
-		
+
 		workerPool.Stop()
 		result.ParallelExecutionTime = time.Since(parallelStart)
 		result.RulesExecutedInParallel = len(independentRules)
 		result.GoroutinesUsed = workerCount
-		
+
 		// Record metrics
 		pv.metrics.RecordParallelValidation(result.ParallelExecutionTime, workerCount, len(independentRules))
 	}
@@ -650,7 +650,7 @@ func (pv *ParallelValidator) GetMetrics() *ParallelValidationMetrics {
 func (pv *ParallelValidator) GetConfig() *ParallelValidationConfig {
 	pv.mutex.RLock()
 	defer pv.mutex.RUnlock()
-	
+
 	// Return a copy to prevent external modification
 	configCopy := *pv.config
 	return &configCopy
@@ -660,7 +660,7 @@ func (pv *ParallelValidator) GetConfig() *ParallelValidationConfig {
 func (pv *ParallelValidator) UpdateConfig(config *ParallelValidationConfig) {
 	pv.mutex.Lock()
 	defer pv.mutex.Unlock()
-	
+
 	if config != nil {
 		pv.config = config
 	}

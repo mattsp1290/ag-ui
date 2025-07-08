@@ -11,11 +11,11 @@ import (
 // TestEventValidator_ConcurrentAccess tests thread safety of the validator
 func TestEventValidator_ConcurrentAccess(t *testing.T) {
 	validator := NewEventValidator(DefaultValidationConfig())
-	
+
 	// Test concurrent rule addition/removal
 	t.Run("concurrent rule management", func(t *testing.T) {
 		var wg sync.WaitGroup
-		
+
 		// Add rules concurrently
 		for i := 0; i < 10; i++ {
 			wg.Add(1)
@@ -32,7 +32,7 @@ func TestEventValidator_ConcurrentAccess(t *testing.T) {
 				validator.AddRule(rule)
 			}(i)
 		}
-		
+
 		// Remove rules concurrently
 		for i := 0; i < 5; i++ {
 			wg.Add(1)
@@ -41,7 +41,7 @@ func TestEventValidator_ConcurrentAccess(t *testing.T) {
 				validator.RemoveRule(fmt.Sprintf("RULE_%d", id))
 			}(i)
 		}
-		
+
 		// Get rules concurrently
 		for i := 0; i < 5; i++ {
 			wg.Add(1)
@@ -53,16 +53,16 @@ func TestEventValidator_ConcurrentAccess(t *testing.T) {
 				}
 			}()
 		}
-		
+
 		wg.Wait()
-		
+
 		// Verify final state
 		rules := validator.GetRules()
 		if len(rules) == 0 {
 			t.Error("Should have some rules remaining")
 		}
 	})
-	
+
 	// Test concurrent validation operations
 	t.Run("concurrent validation", func(t *testing.T) {
 		var wg sync.WaitGroup
@@ -91,7 +91,7 @@ func TestEventValidator_ConcurrentAccess(t *testing.T) {
 				RunID:     "run-1",
 			},
 		}
-		
+
 		// Validate events concurrently
 		for i := 0; i < 50; i++ {
 			wg.Add(1)
@@ -104,14 +104,14 @@ func TestEventValidator_ConcurrentAccess(t *testing.T) {
 				}
 			}(i)
 		}
-		
+
 		wg.Wait()
 	})
-	
+
 	// Test concurrent state access
 	t.Run("concurrent state access", func(t *testing.T) {
 		var wg sync.WaitGroup
-		
+
 		// Get state concurrently
 		for i := 0; i < 20; i++ {
 			wg.Add(1)
@@ -123,7 +123,7 @@ func TestEventValidator_ConcurrentAccess(t *testing.T) {
 				}
 			}()
 		}
-		
+
 		// Get metrics concurrently
 		for i := 0; i < 20; i++ {
 			wg.Add(1)
@@ -135,7 +135,7 @@ func TestEventValidator_ConcurrentAccess(t *testing.T) {
 				}
 			}()
 		}
-		
+
 		wg.Wait()
 	})
 }
@@ -143,9 +143,9 @@ func TestEventValidator_ConcurrentAccess(t *testing.T) {
 // TestEventValidator_ConcurrentSequenceValidation tests concurrent sequence validation
 func TestEventValidator_ConcurrentSequenceValidation(t *testing.T) {
 	// Fixed: ValidateSequence now uses isolated validator instances for thread safety
-	
+
 	validator := NewEventValidator(DefaultValidationConfig())
-	
+
 	// Create test sequences
 	sequences := make([][]Event, 5)
 	for i := 0; i < 5; i++ {
@@ -170,9 +170,9 @@ func TestEventValidator_ConcurrentSequenceValidation(t *testing.T) {
 			},
 		}
 	}
-	
+
 	var wg sync.WaitGroup
-	
+
 	// Validate sequences concurrently
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
@@ -184,7 +184,7 @@ func TestEventValidator_ConcurrentSequenceValidation(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
 }
 
@@ -192,28 +192,28 @@ func TestEventValidator_ConcurrentSequenceValidation(t *testing.T) {
 func TestIDTracker_ConcurrentAccess(t *testing.T) {
 	tracker := NewIDTracker()
 	var wg sync.WaitGroup
-	
+
 	// Track events concurrently
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			msgID := fmt.Sprintf("msg-%d", id)
-			
+
 			// Track message start
 			tracker.TrackEvent(&TextMessageStartEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeTextMessageStart},
 				MessageID: msgID,
 			})
-			
+
 			// Track message content
 			tracker.TrackEvent(&TextMessageContentEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeTextMessageContent},
 				MessageID: msgID,
 				Delta:     fmt.Sprintf("content %d", id),
 			})
-			
+
 			// Track message end
 			tracker.TrackEvent(&TextMessageEndEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeTextMessageEnd},
@@ -221,7 +221,7 @@ func TestIDTracker_ConcurrentAccess(t *testing.T) {
 			})
 		}(i)
 	}
-	
+
 	// Validate consistency concurrently
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
@@ -233,7 +233,7 @@ func TestIDTracker_ConcurrentAccess(t *testing.T) {
 			}
 		}()
 	}
-	
+
 	// Get statistics concurrently
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
@@ -245,9 +245,9 @@ func TestIDTracker_ConcurrentAccess(t *testing.T) {
 			}
 		}()
 	}
-	
+
 	wg.Wait()
-	
+
 	// Final validation
 	errors := tracker.ValidateIDConsistency()
 	if len(errors) > 0 {
@@ -259,7 +259,7 @@ func TestIDTracker_ConcurrentAccess(t *testing.T) {
 func TestEventSequenceTracker_ConcurrentAccess(t *testing.T) {
 	tracker := NewEventSequenceTracker(DefaultSequenceTrackerConfig())
 	var wg sync.WaitGroup
-	
+
 	// Track events concurrently
 	events := []Event{
 		&RunStartedEvent{
@@ -276,7 +276,7 @@ func TestEventSequenceTracker_ConcurrentAccess(t *testing.T) {
 			MessageID: "msg-concurrent",
 		},
 	}
-	
+
 	// Track events from multiple goroutines
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
@@ -289,28 +289,28 @@ func TestEventSequenceTracker_ConcurrentAccess(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	// Query events concurrently
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			
+
 			// Get events by type
 			_ = tracker.GetEventsByType(EventTypeTextMessageStart)
-			
+
 			// Get event history
 			_ = tracker.GetEventHistory()
-			
+
 			// Get events by run ID
 			_ = tracker.GetEventsByRunID("run-concurrent")
-			
+
 			// Check active states
 			_ = tracker.IsMessageActive("msg-concurrent")
 			_ = tracker.IsRunActive("run-concurrent")
 		}()
 	}
-	
+
 	// Generate compliance reports concurrently
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
@@ -322,7 +322,7 @@ func TestEventSequenceTracker_ConcurrentAccess(t *testing.T) {
 			}
 		}()
 	}
-	
+
 	wg.Wait()
 }
 
@@ -330,7 +330,7 @@ func TestEventSequenceTracker_ConcurrentAccess(t *testing.T) {
 func TestValidationMetrics_ConcurrentAccess(t *testing.T) {
 	metrics := NewValidationMetrics()
 	var wg sync.WaitGroup
-	
+
 	// Record events concurrently
 	for i := 0; i < 100; i++ {
 		wg.Add(1)
@@ -340,7 +340,7 @@ func TestValidationMetrics_ConcurrentAccess(t *testing.T) {
 			metrics.RecordEvent(duration)
 		}(i)
 	}
-	
+
 	// Record errors and warnings concurrently
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
@@ -350,7 +350,7 @@ func TestValidationMetrics_ConcurrentAccess(t *testing.T) {
 			metrics.RecordWarning()
 		}()
 	}
-	
+
 	// Record rule executions concurrently
 	for i := 0; i < 30; i++ {
 		wg.Add(1)
@@ -361,9 +361,9 @@ func TestValidationMetrics_ConcurrentAccess(t *testing.T) {
 			metrics.RecordRuleExecution(ruleID, duration)
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Verify metrics
 	if metrics.EventsProcessed == 0 {
 		t.Error("Should have recorded events")
@@ -381,25 +381,25 @@ func TestValidator_RaceConditions(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping race condition test in short mode")
 	}
-	
+
 	validator := NewEventValidator(DefaultValidationConfig())
 	ctx := context.Background()
-	
+
 	// Create shared events
 	event1 := &RunStartedEvent{
 		BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
 		RunID:     "run-race",
 		ThreadID:  "thread-race",
 	}
-	
+
 	event2 := &TextMessageStartEvent{
 		BaseEvent: &BaseEvent{EventType: EventTypeTextMessageStart},
 		MessageID: "msg-race",
 		Role:      stringPtr("user"),
 	}
-	
+
 	var wg sync.WaitGroup
-	
+
 	// Start multiple goroutines doing various operations
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
@@ -407,25 +407,25 @@ func TestValidator_RaceConditions(t *testing.T) {
 			defer wg.Done()
 			_ = validator.ValidateEvent(ctx, event1)
 		}()
-		
+
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			_ = validator.ValidateEvent(ctx, event2)
 		}()
-		
+
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			_ = validator.GetState()
 		}()
-		
+
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			_ = validator.GetMetrics()
 		}()
-		
+
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -438,29 +438,29 @@ func TestValidator_RaceConditions(t *testing.T) {
 			})
 		}()
 	}
-	
+
 	wg.Wait()
 }
 
 // TestValidator_ContextCancellation tests context cancellation handling
 func TestValidator_ContextCancellation(t *testing.T) {
 	validator := NewEventValidator(DefaultValidationConfig())
-	
+
 	t.Run("immediate cancellation", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
-		
+
 		event := &RunStartedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
 			RunID:     "run-1",
 			ThreadID:  "thread-1",
 		}
-		
+
 		result := validator.ValidateEvent(ctx, event)
 		if result.IsValid {
 			t.Error("Validation should fail with cancelled context")
 		}
-		
+
 		found := false
 		for _, err := range result.Errors {
 			if err.RuleID == RuleIDContextCancelled {
@@ -472,11 +472,11 @@ func TestValidator_ContextCancellation(t *testing.T) {
 			t.Error("Should have context cancellation error")
 		}
 	})
-	
+
 	t.Run("cancellation during sequence", func(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Microsecond)
 		defer cancel()
-		
+
 		// Create a large sequence
 		events := make([]Event, 200)
 		for i := 0; i < 200; i++ {
@@ -486,10 +486,10 @@ func TestValidator_ContextCancellation(t *testing.T) {
 				Delta:     fmt.Sprintf("content %d", i),
 			}
 		}
-		
+
 		// Add small delay to ensure context times out
 		time.Sleep(2 * time.Microsecond)
-		
+
 		result := validator.ValidateSequence(ctx, events)
 		if result.IsValid {
 			t.Error("Validation should fail with cancelled context")

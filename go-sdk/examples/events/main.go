@@ -301,10 +301,10 @@ func demonstrateStateEvents() {
 
 	// State delta with JSON Patch operations
 	deltaOps := []events.JSONPatchOperation{
-		events.JSONPatchOperation{Op: "add", Path: "/newField", Value: "newValue"},
-		events.JSONPatchOperation{Op: "replace", Path: "/counter", Value: 43},
-		events.JSONPatchOperation{Op: "remove", Path: "/data/1"}, // Remove "item2"
-		events.JSONPatchOperation{Op: "replace", Path: "/config/timeout", Value: 60},
+		{Op: "add", Path: "/newField", Value: "newValue"},
+		{Op: "replace", Path: "/counter", Value: 43},
+		{Op: "remove", Path: "/data/1"}, // Remove "item2"
+		{Op: "replace", Path: "/config/timeout", Value: 60},
 	}
 
 	deltaEvent := events.NewStateDeltaEvent(deltaOps)

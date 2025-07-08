@@ -22,20 +22,20 @@ import (
 
 // Document represents a collaborative document
 type Document struct {
-	ID          string                 `json:"id"`
-	Title       string                 `json:"title"`
-	Content     string                 `json:"content"`
-	Sections    []Section              `json:"sections"`
-	Metadata    DocumentMetadata       `json:"metadata"`
-	Permissions map[string]Permission  `json:"permissions"`
+	ID          string                `json:"id"`
+	Title       string                `json:"title"`
+	Content     string                `json:"content"`
+	Sections    []Section             `json:"sections"`
+	Metadata    DocumentMetadata      `json:"metadata"`
+	Permissions map[string]Permission `json:"permissions"`
 }
 
 // Section represents a document section
 type Section struct {
-	ID      string `json:"id"`
-	Title   string `json:"title"`
-	Content string `json:"content"`
-	Author  string `json:"author"`
+	ID      string    `json:"id"`
+	Title   string    `json:"title"`
+	Content string    `json:"content"`
+	Author  string    `json:"author"`
 	Created time.Time `json:"created"`
 	Updated time.Time `json:"updated"`
 }
@@ -196,14 +196,14 @@ func main() {
 
 	// Scenario 2: Conflicting edits on same field
 	fmt.Println("\n2. Conflicting edits (same field):")
-	
+
 	// Multiple users try to update the document title
 	wg.Add(3)
 	for i, user := range users {
 		go func(idx int, u *User) {
 			defer wg.Done()
 			time.Sleep(time.Duration(50+rand.Intn(100)) * time.Millisecond)
-			
+
 			newTitle := fmt.Sprintf("Collaborative Design Document - %s's Version", u.Name)
 			err := session.UpdateField(u.ID, "/title", newTitle)
 			if err != nil {
@@ -213,13 +213,13 @@ func main() {
 			}
 		}(i, user)
 	}
-	
+
 	wg.Wait()
 	time.Sleep(500 * time.Millisecond)
 
 	// Scenario 3: Complex nested updates
 	fmt.Println("\n3. Complex nested updates:")
-	
+
 	// Alice updates section 1 content
 	wg.Add(1)
 	go func() {
@@ -252,7 +252,7 @@ func main() {
 
 	// Scenario 4: Demonstrate conflict resolution strategies
 	fmt.Println("\n4. Conflict resolution strategies:")
-	
+
 	// Create conflicting changes with different strategies
 	strategies := []state.ConflictResolutionStrategy{
 		state.LastWriteWins,
@@ -262,7 +262,7 @@ func main() {
 
 	for _, strategy := range strategies {
 		fmt.Printf("\n  Testing %s strategy:\n", strategy)
-		
+
 		// Set resolution strategy for all users
 		for _, user := range users {
 			user.Resolver.SetStrategy(strategy)
@@ -276,7 +276,7 @@ func main() {
 		// Simultaneous updates
 		var conflictWg sync.WaitGroup
 		conflictWg.Add(2)
-		
+
 		go func() {
 			defer conflictWg.Done()
 			newValue := baseValue + " - Modified by Alice"
@@ -300,14 +300,14 @@ func main() {
 
 	// Scenario 5: Collaborative list editing
 	fmt.Println("\n5. Collaborative list editing:")
-	
+
 	// Each user adds authors concurrently
 	wg.Add(3)
 	for _, user := range users {
 		go func(u *User) {
 			defer wg.Done()
 			time.Sleep(time.Duration(rand.Intn(100)) * time.Millisecond)
-			
+
 			session.EditDocument(u.ID, func(doc *Document) {
 				// Add user as author if not already present
 				found := false
@@ -324,7 +324,7 @@ func main() {
 			})
 		}(user)
 	}
-	
+
 	wg.Wait()
 	time.Sleep(500 * time.Millisecond)
 
@@ -345,7 +345,7 @@ func main() {
 			fmt.Printf("  Error: %v\n", err)
 			continue
 		}
-		
+
 		fmt.Printf("  Title: %s\n", userDoc.Title)
 		fmt.Printf("  Sections: %d\n", len(userDoc.Sections))
 		fmt.Printf("  Authors: %v\n", userDoc.Metadata.Authors)
@@ -373,12 +373,12 @@ func main() {
 // NewCollaborationSession creates a new collaboration session
 func NewCollaborationSession(doc *Document) *CollaborationSession {
 	mainStore := state.NewStateStore(state.WithMaxHistory(1000))
-	
+
 	// Initialize document in store
 	data, _ := json.Marshal(doc)
 	var docMap map[string]interface{}
 	json.Unmarshal(data, &docMap)
-	
+
 	for key, value := range docMap {
 		mainStore.Set("/"+key, value)
 	}
@@ -398,7 +398,7 @@ func (s *CollaborationSession) AddUser(user *User) {
 
 	// Create user's local store
 	user.Store = state.NewStateStore(state.WithMaxHistory(100))
-	
+
 	// Create conflict resolver
 	user.Resolver = state.NewConflictResolver(state.LastWriteWins)
 
@@ -423,7 +423,7 @@ func (s *CollaborationSession) AddUser(user *User) {
 				Value: change.NewValue,
 			},
 		})
-		
+
 		s.syncChannel <- SyncMessage{
 			UserID:    user.ID,
 			EventType: "delta",
@@ -578,7 +578,7 @@ func (s *CollaborationSession) ShowStatistics() {
 
 	fmt.Printf("Active users: %d\n", len(s.users))
 	fmt.Printf("Document version: %d\n", s.document.Metadata.Version)
-	
+
 	// Get state statistics
 	history, _ := s.mainStore.GetHistory()
 	fmt.Printf("Total state changes: %d\n", len(history))

@@ -18,7 +18,7 @@ func Example_basicUsage() {
 		BufferSize:  100,
 		ReadTimeout: 30 * time.Second,
 	}
-	
+
 	transport, err := NewSSETransport(config)
 	if err != nil {
 		log.Fatal(err)
@@ -28,7 +28,7 @@ func Example_basicUsage() {
 	// Send an event
 	ctx := context.Background()
 	event := events.NewRunStartedEvent("thread-123", "run-456")
-	
+
 	err = transport.Send(ctx, event)
 	if err != nil {
 		log.Printf("Failed to send event: %v", err)
@@ -44,7 +44,7 @@ func Example_receiveEvents() {
 	config := &Config{
 		BaseURL: "http://localhost:8080",
 	}
-	
+
 	transport, err := NewSSETransport(config)
 	if err != nil {
 		log.Fatal(err)
@@ -70,7 +70,7 @@ func Example_receiveEvents() {
 					continue
 				}
 				fmt.Printf("Received event: %s\n", event.Type())
-				
+
 				// Handle specific event types
 				switch event.Type() {
 				case events.EventTypeRunStarted:
@@ -80,7 +80,7 @@ func Example_receiveEvents() {
 				default:
 					fmt.Printf("Unknown event type: %s\n", event.Type())
 				}
-				
+
 			case <-ctx.Done():
 				fmt.Println("Context cancelled, stopping event processing")
 				return
@@ -110,7 +110,7 @@ func Example_customHeaders() {
 
 	// Set authentication header
 	transport.SetHeader("Authorization", "Bearer your-token-here")
-	
+
 	// Set custom application headers
 	transport.SetHeader("X-Client-Version", "1.0.0")
 	transport.SetHeader("X-Request-ID", "req-12345")
@@ -118,7 +118,7 @@ func Example_customHeaders() {
 	// The headers will be included in all HTTP requests
 	ctx := context.Background()
 	event := events.NewRunStartedEvent("thread-123", "run-456")
-	
+
 	err = transport.Send(ctx, event)
 	if err != nil {
 		log.Printf("Failed to send event: %v", err)
@@ -166,7 +166,7 @@ func Example_connectionManagement() {
 		ReconnectDelay: 1 * time.Second,
 		MaxReconnects:  3,
 	}
-	
+
 	transport, err := NewSSETransport(config)
 	if err != nil {
 		log.Fatal(err)
@@ -197,7 +197,7 @@ func Example_connectionManagement() {
 		fmt.Println("Transport reset successfully")
 	}
 
-	// Output: 
+	// Output:
 	// Initial status: disconnected
 	// Transport stats: SSETransport{status=disconnected, reconnects=0, baseURL=http://localhost:8080, bufferSize=1000}
 	// Transport reset successfully
@@ -244,7 +244,7 @@ func Example_errorHandling() {
 func Example_formatSSEEvent() {
 	// Create a test event
 	event := events.NewRunStartedEvent("thread-123", "run-456")
-	
+
 	// Format as SSE
 	sseData, err := FormatSSEEvent(event)
 	if err != nil {
@@ -273,9 +273,9 @@ func Example_advancedConfiguration() {
 	}
 
 	config := &Config{
-		BaseURL:        "http://localhost:8080",
-		Headers:        map[string]string{
-			"User-Agent":     "AG-UI-SDK/1.0.0",
+		BaseURL: "http://localhost:8080",
+		Headers: map[string]string{
+			"User-Agent":    "AG-UI-SDK/1.0.0",
 			"Authorization": "Bearer token123",
 		},
 		BufferSize:     500,
@@ -306,7 +306,7 @@ func Example_eventTypeHandling() {
 
 	// Example event data received from server
 	testData := map[string]interface{}{
-		"type":     "TEXT_MESSAGE_CONTENT",
+		"type":      "TEXT_MESSAGE_CONTENT",
 		"messageId": "msg-123",
 		"delta":     "Hello, world!",
 		"timestamp": float64(time.Now().UnixMilli()),
@@ -321,7 +321,7 @@ func Example_eventTypeHandling() {
 
 	// Type assertion to access specific fields
 	if textEvent, ok := event.(*events.TextMessageContentEvent); ok {
-		fmt.Printf("Received text content: %s for message %s\n", 
+		fmt.Printf("Received text content: %s for message %s\n",
 			textEvent.Delta, textEvent.MessageID)
 	}
 

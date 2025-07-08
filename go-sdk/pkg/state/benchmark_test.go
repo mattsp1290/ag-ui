@@ -11,10 +11,10 @@ import (
 
 // Benchmark sizes for testing different scenarios
 const (
-	smallDataSize  = 100     // 100 items
-	mediumDataSize = 1000    // 1K items
-	largeDataSize  = 10000   // 10K items
-	xLargeDataSize = 100000  // 100K items
+	smallDataSize  = 100    // 100 items
+	mediumDataSize = 1000   // 1K items
+	largeDataSize  = 10000  // 10K items
+	xLargeDataSize = 100000 // 100K items
 )
 
 // Helper functions for generating test data
@@ -45,7 +45,7 @@ func generateComplexNestedData(depth, breadth int) map[string]interface{} {
 			"leaf":  true,
 		}
 	}
-	
+
 	data := make(map[string]interface{}, breadth)
 	for i := 0; i < breadth; i++ {
 		key := fmt.Sprintf("node_%d", i)
@@ -68,7 +68,7 @@ func BenchmarkStateUpdate(b *testing.B) {
 	for _, tc := range sizes {
 		b.Run(tc.name, func(b *testing.B) {
 			store := NewStateStore()
-			
+
 			// Initial setup
 			initialData := generateTestData(tc.size)
 			err := store.Set("/", initialData)
@@ -97,7 +97,7 @@ func BenchmarkBatchUpdate(b *testing.B) {
 	for _, batchSize := range batchSizes {
 		b.Run(fmt.Sprintf("Batch_%d", batchSize), func(b *testing.B) {
 			store := NewStateStore()
-			
+
 			// Initial setup
 			initialData := generateTestData(largeDataSize)
 			err := store.Set("/", initialData)
@@ -119,7 +119,7 @@ func BenchmarkBatchUpdate(b *testing.B) {
 						Value: rand.Float64() * 1000,
 					})
 				}
-				
+
 				// Apply batch update
 				err := store.ApplyPatch(patches)
 				if err != nil {
@@ -147,7 +147,7 @@ func BenchmarkStateRead(b *testing.B) {
 	for _, tc := range scenarios {
 		b.Run(tc.name, func(b *testing.B) {
 			store := NewStateStore()
-			
+
 			// Setup data
 			data := generateTestData(tc.dataSize)
 			err := store.Set("/", data)
@@ -176,7 +176,7 @@ func BenchmarkConcurrentReads(b *testing.B) {
 	for _, concurrency := range concurrencyLevels {
 		b.Run(fmt.Sprintf("Concurrency_%d", concurrency), func(b *testing.B) {
 			store := NewStateStore()
-			
+
 			// Setup large dataset
 			data := generateTestData(largeDataSize)
 			err := store.Set("/", data)
@@ -210,7 +210,7 @@ func BenchmarkConcurrentWrites(b *testing.B) {
 	for _, concurrency := range concurrencyLevels {
 		b.Run(fmt.Sprintf("Concurrency_%d", concurrency), func(b *testing.B) {
 			store := NewStateStore()
-			
+
 			// Setup initial data
 			data := generateTestData(largeDataSize)
 			err := store.Set("/", data)
@@ -253,16 +253,16 @@ func BenchmarkDeltaComputationPerf(b *testing.B) {
 	for _, tc := range testCases {
 		b.Run(tc.name, func(b *testing.B) {
 			delta := NewDeltaComputer(DefaultDeltaOptions())
-			
+
 			// Generate old and new states
 			oldState := generateTestData(tc.oldSize)
 			newState := make(map[string]interface{})
-			
+
 			// Copy old state to new state
 			for k, v := range oldState {
 				newState[k] = v
 			}
-			
+
 			// Modify percentage of items
 			changeCount := int(float64(tc.oldSize) * tc.changeRatio)
 			for i := 0; i < changeCount; i++ {
@@ -308,7 +308,7 @@ func BenchmarkJSONPatch(b *testing.B) {
 	for _, tc := range patchSizes {
 		b.Run(tc.name, func(b *testing.B) {
 			store := NewStateStore()
-			
+
 			// Setup initial data
 			data := generateTestData(largeDataSize)
 			err := store.Set("/", data)
@@ -329,7 +329,7 @@ func BenchmarkJSONPatch(b *testing.B) {
 						Value: rand.Float64() * 1000,
 					})
 				}
-				
+
 				// Apply patch
 				err := store.ApplyPatch(patches)
 				if err != nil {
@@ -354,7 +354,7 @@ func BenchmarkSubscriptions(b *testing.B) {
 	for _, tc := range subscriberCounts {
 		b.Run(tc.name, func(b *testing.B) {
 			store := NewStateStore()
-			
+
 			// Setup initial data
 			data := generateTestData(mediumDataSize)
 			err := store.Set("/", data)
@@ -388,7 +388,7 @@ func BenchmarkSubscriptions(b *testing.B) {
 			}
 
 			b.StopTimer()
-			
+
 			// Cleanup
 			for _, unsubscribe := range subscribers {
 				unsubscribe()
@@ -441,7 +441,7 @@ func BenchmarkMemoryUsage(b *testing.B) {
 	for _, tc := range scenarios {
 		b.Run(tc.name, func(b *testing.B) {
 			store := NewStateStore()
-			
+
 			// Setup initial data
 			data := generateTestData(mediumDataSize)
 			err := store.Set("/", data)
@@ -484,7 +484,7 @@ func BenchmarkMemoryUsage(b *testing.B) {
 func BenchmarkWorstCase(b *testing.B) {
 	b.Run("DeepNesting", func(b *testing.B) {
 		store := NewStateStore()
-		
+
 		// Create deeply nested structure
 		deepData := generateComplexNestedData(10, 5) // 10 levels deep, 5 branches each
 		err := store.Set("/", deepData)
@@ -507,7 +507,7 @@ func BenchmarkWorstCase(b *testing.B) {
 
 	b.Run("LargeArrayModification", func(b *testing.B) {
 		store := NewStateStore()
-		
+
 		// Create large array
 		largeArray := make([]interface{}, 10000)
 		for i := range largeArray {
@@ -516,7 +516,7 @@ func BenchmarkWorstCase(b *testing.B) {
 				"value": rand.Float64(),
 			}
 		}
-		
+
 		err := store.Set("/", map[string]interface{}{
 			"array": largeArray,
 		})
@@ -539,7 +539,7 @@ func BenchmarkWorstCase(b *testing.B) {
 
 	b.Run("RapidStateChurn", func(b *testing.B) {
 		store := NewStateStore()
-		
+
 		// Initial small state
 		err := store.Set("/", map[string]interface{}{"counter": 0})
 		if err != nil {
@@ -564,10 +564,10 @@ func BenchmarkWorstCase(b *testing.B) {
 func BenchmarkRegressionDetection(b *testing.B) {
 	// These benchmarks establish baseline performance metrics
 	// Run with: go test -bench=BenchmarkRegressionDetection -benchmem -benchtime=10s
-	
+
 	b.Run("Baseline_Update", func(b *testing.B) {
 		store := NewStateStore()
-		
+
 		data := generateTestData(1000)
 		err := store.Set("/", data)
 		if err != nil {
@@ -583,14 +583,14 @@ func BenchmarkRegressionDetection(b *testing.B) {
 				b.Fatal(err)
 			}
 		}
-		
+
 		// Expected performance: < 10µs per operation
 		// Expected allocations: < 10 per operation
 	})
 
 	b.Run("Baseline_Read", func(b *testing.B) {
 		store := NewStateStore()
-		
+
 		data := generateTestData(1000)
 		err := store.Set("/", data)
 		if err != nil {
@@ -606,14 +606,14 @@ func BenchmarkRegressionDetection(b *testing.B) {
 				b.Fatal(err)
 			}
 		}
-		
+
 		// Expected performance: < 1µs per operation
 		// Expected allocations: 0-1 per operation
 	})
 
 	b.Run("Baseline_Delta", func(b *testing.B) {
 		delta := NewDeltaComputer(DefaultDeltaOptions())
-		
+
 		oldState := generateTestData(1000)
 		newState := make(map[string]interface{})
 		for k, v := range oldState {
@@ -637,7 +637,7 @@ func BenchmarkRegressionDetection(b *testing.B) {
 				b.Fatal(err)
 			}
 		}
-		
+
 		// Expected performance: < 1ms per operation
 		// Expected allocations: < 1000 per operation
 	})
@@ -702,7 +702,7 @@ func BenchmarkCOWEfficiency(b *testing.B) {
 func BenchmarkTransactionPerformance(b *testing.B) {
 	b.Run("SimpleTransaction", func(b *testing.B) {
 		store := NewStateStore()
-		
+
 		data := generateTestData(1000)
 		err := store.Set("/", data)
 		if err != nil {
@@ -728,7 +728,7 @@ func BenchmarkTransactionPerformance(b *testing.B) {
 
 	b.Run("BatchTransaction", func(b *testing.B) {
 		store := NewStateStore()
-		
+
 		data := generateTestData(1000)
 		err := store.Set("/", data)
 		if err != nil {

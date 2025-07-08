@@ -15,26 +15,26 @@ func ExampleDeltaComputer_ComputeDelta() {
 	// Define old and new states
 	oldState := map[string]interface{}{
 		"user": map[string]interface{}{
-			"name": "John Doe",
-			"age":  30,
+			"name":  "John Doe",
+			"age":   30,
 			"email": "john@example.com",
 		},
 		"settings": map[string]interface{}{
-			"theme": "light",
+			"theme":         "light",
 			"notifications": true,
 		},
 	}
 
 	newState := map[string]interface{}{
 		"user": map[string]interface{}{
-			"name": "John Doe",
-			"age":  31, // Changed
+			"name":  "John Doe",
+			"age":   31,                     // Changed
 			"email": "john.doe@example.com", // Changed
 		},
 		"settings": map[string]interface{}{
-			"theme": "dark", // Changed
+			"theme":         "dark", // Changed
 			"notifications": true,
-			"language": "en", // Added
+			"language":      "en", // Added
 		},
 	}
 

@@ -35,7 +35,7 @@ func BenchmarkAtomicVsMutexCounter(b *testing.B) {
 			}
 		})
 	})
-	
+
 	b.Run("MutexCounter", func(b *testing.B) {
 		counter := &SimpleCounter{}
 		b.ResetTimer()
@@ -51,13 +51,13 @@ func BenchmarkAtomicVsMutexCounter(b *testing.B) {
 func BenchmarkAtomicVsMutexReadPerf(b *testing.B) {
 	atomicCounter := NewAtomicCounter()
 	mutexCounter := &SimpleCounter{}
-	
+
 	// Pre-populate
 	for i := 0; i < 1000; i++ {
 		atomicCounter.Inc()
 		mutexCounter.Inc()
 	}
-	
+
 	b.Run("AtomicRead", func(b *testing.B) {
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
@@ -65,7 +65,7 @@ func BenchmarkAtomicVsMutexReadPerf(b *testing.B) {
 			}
 		})
 	})
-	
+
 	b.Run("MutexRead", func(b *testing.B) {
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
@@ -78,7 +78,7 @@ func BenchmarkAtomicVsMutexReadPerf(b *testing.B) {
 // BenchmarkRuleMetricComparison compares atomic vs mutex rule metrics
 func BenchmarkRuleMetricComparison(b *testing.B) {
 	duration := 100 * time.Millisecond
-	
+
 	b.Run("AtomicRuleMetric", func(b *testing.B) {
 		metric := NewRuleExecutionMetric("test")
 		b.ResetTimer()
@@ -88,7 +88,7 @@ func BenchmarkRuleMetricComparison(b *testing.B) {
 			}
 		})
 	})
-	
+
 	b.Run("MutexRuleMetric", func(b *testing.B) {
 		metric := NewMutexRuleMetric("test")
 		b.ResetTimer()

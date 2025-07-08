@@ -155,7 +155,7 @@
 //	go func() {
 //		for err := range transport.GetErrorChannel() {
 //			log.Printf("Transport error: %v", err)
-//			
+//
 //			// Implement custom error handling
 //			if shouldRestart(err) {
 //				transport.Reset()

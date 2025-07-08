@@ -45,24 +45,24 @@ func TestSSETransport_NewSSETransport(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			transport, err := NewSSETransport(tt.config)
-			
+
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("Expected error but got none")
 				}
 				return
 			}
-			
+
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
 				return
 			}
-			
+
 			if transport == nil {
 				t.Errorf("Expected transport to be created")
 				return
 			}
-			
+
 			// Test default values
 			if tt.config == nil {
 				if transport.baseURL != "http://localhost:8080" {
@@ -80,15 +80,15 @@ func TestSSETransport_Send(t *testing.T) {
 		if r.URL.Path != "/events" {
 			t.Errorf("Expected path /events, got %s", r.URL.Path)
 		}
-		
+
 		if r.Method != "POST" {
 			t.Errorf("Expected POST method, got %s", r.Method)
 		}
-		
+
 		if r.Header.Get("Content-Type") != "application/json" {
 			t.Errorf("Expected Content-Type application/json, got %s", r.Header.Get("Content-Type"))
 		}
-		
+
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
@@ -96,7 +96,7 @@ func TestSSETransport_Send(t *testing.T) {
 	config := &Config{
 		BaseURL: server.URL,
 	}
-	
+
 	transport, err := NewSSETransport(config)
 	if err != nil {
 		t.Fatalf("Failed to create transport: %v", err)
@@ -118,7 +118,7 @@ func TestSSETransport_Send_ValidationError(t *testing.T) {
 	config := &Config{
 		BaseURL: "http://localhost:8080",
 	}
-	
+
 	transport, err := NewSSETransport(config)
 	if err != nil {
 		t.Fatalf("Failed to create transport: %v", err)
@@ -126,13 +126,13 @@ func TestSSETransport_Send_ValidationError(t *testing.T) {
 	defer transport.Close()
 
 	ctx := context.Background()
-	
+
 	// Test nil event
 	err = transport.Send(ctx, nil)
 	if err == nil {
 		t.Errorf("Expected error for nil event")
 	}
-	
+
 	// Test invalid event (empty required field)
 	event := events.NewRunStartedEvent("", "run-123") // Empty thread ID
 	err = transport.Send(ctx, event)
@@ -159,8 +159,8 @@ func TestSSETransport_ParseEvents(t *testing.T) {
 			name:      "run started event",
 			eventType: "RUN_STARTED",
 			data: map[string]interface{}{
-				"threadId": "thread-123",
-				"runId":    "run-123",
+				"threadId":  "thread-123",
+				"runId":     "run-123",
 				"timestamp": float64(1234567890),
 			},
 			expectErr: false,
@@ -231,30 +231,30 @@ func TestSSETransport_ParseEvents(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			event, err := transport.createEventFromData(tt.eventType, tt.data)
-			
+
 			if tt.expectErr {
 				if err == nil {
 					t.Errorf("Expected error but got none")
 				}
 				return
 			}
-			
+
 			if err != nil {
 				t.Errorf("Unexpected error: %v", err)
 				return
 			}
-			
+
 			if event == nil {
 				t.Errorf("Expected event to be created")
 				return
 			}
-			
+
 			// Verify the event type
 			expectedType := events.EventType(tt.eventType)
 			if event.Type() != expectedType {
 				t.Errorf("Expected event type %s, got %s", expectedType, event.Type())
 			}
-			
+
 			// Verify timestamp was set
 			if event.Timestamp() == nil {
 				t.Errorf("Expected timestamp to be set")
@@ -270,36 +270,36 @@ func TestSSETransport_Receive(t *testing.T) {
 		if r.URL.Path != "/events/stream" {
 			t.Errorf("Expected path /events/stream, got %s", r.URL.Path)
 		}
-		
+
 		if r.Header.Get("Accept") != "text/event-stream" {
 			t.Errorf("Expected Accept text/event-stream, got %s", r.Header.Get("Accept"))
 		}
-		
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-		
+
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			t.Errorf("Streaming unsupported")
 			return
 		}
-		
+
 		// Send a test event
 		event := map[string]interface{}{
-			"type":     "RUN_STARTED",
-			"threadId": "thread-123",
-			"runId":    "run-123",
+			"type":      "RUN_STARTED",
+			"threadId":  "thread-123",
+			"runId":     "run-123",
 			"timestamp": time.Now().UnixMilli(),
 		}
-		
+
 		eventData, _ := json.Marshal(event)
-		
+
 		w.Write([]byte("event: RUN_STARTED\n"))
 		w.Write([]byte("data: " + string(eventData) + "\n"))
 		w.Write([]byte("\n"))
 		flusher.Flush()
-		
+
 		// Send another event
 		w.Write([]byte("data: " + string(eventData) + "\n"))
 		w.Write([]byte("\n"))
@@ -310,7 +310,7 @@ func TestSSETransport_Receive(t *testing.T) {
 	config := &Config{
 		BaseURL: server.URL,
 	}
-	
+
 	transport, err := NewSSETransport(config)
 	if err != nil {
 		t.Fatalf("Failed to create transport: %v", err)
@@ -334,11 +334,11 @@ func TestSSETransport_Receive(t *testing.T) {
 				t.Errorf("Received nil event")
 				continue
 			}
-			
+
 			if event.Type() != events.EventTypeRunStarted {
 				t.Errorf("Expected RUN_STARTED event, got %s", event.Type())
 			}
-			
+
 			eventCount++
 		case <-ctx.Done():
 			t.Errorf("Timeout waiting for events, received %d events", eventCount)
@@ -448,7 +448,7 @@ func TestSSETransport_ErrorHandling(t *testing.T) {
 	config := &Config{
 		BaseURL: server.URL + "/error",
 	}
-	
+
 	transport, err := NewSSETransport(config)
 	if err != nil {
 		t.Fatalf("Failed to create transport: %v", err)

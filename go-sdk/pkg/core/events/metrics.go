@@ -19,18 +19,18 @@ type MetricsCollector interface {
 	RecordEvent(duration time.Duration, success bool)
 	RecordWarning()
 	RecordRuleExecution(ruleID string, duration time.Duration, success bool)
-	
+
 	// Rule management methods
 	SetRuleBaseline(ruleID string, baseline time.Duration)
 	GetRuleMetrics(ruleID string) *RuleExecutionMetric
 	GetAllRuleMetrics() map[string]*RuleExecutionMetric
-	
+
 	// Dashboard and monitoring methods
 	GetDashboardData() *DashboardData
 	GetPerformanceRegressions() []PerformanceRegression
 	GetMemoryHistory() []MemoryUsageMetric
 	GetOverallStats() map[string]interface{}
-	
+
 	// Lifecycle methods
 	Export() error
 	Shutdown() error
@@ -69,29 +69,29 @@ func (l MetricsLevel) String() string {
 
 // MetricsConfig contains configuration for metrics collection
 type MetricsConfig struct {
-	Level            MetricsLevel
-	SamplingRate     float64       // Sampling rate for metrics collection (0.0 to 1.0)
-	FlushInterval    time.Duration // How often to flush metrics
-	RetentionPeriod  time.Duration // How long to retain metrics data
-	MaxMemoryUsage   int64         // Maximum memory usage in bytes before cleanup
-	EnableLeakDetection bool       // Enable memory leak detection
-	EnableRegression    bool       // Enable performance regression detection
-	DashboardEnabled    bool       // Enable real-time dashboard data
-	
+	Level               MetricsLevel
+	SamplingRate        float64       // Sampling rate for metrics collection (0.0 to 1.0)
+	FlushInterval       time.Duration // How often to flush metrics
+	RetentionPeriod     time.Duration // How long to retain metrics data
+	MaxMemoryUsage      int64         // Maximum memory usage in bytes before cleanup
+	EnableLeakDetection bool          // Enable memory leak detection
+	EnableRegression    bool          // Enable performance regression detection
+	DashboardEnabled    bool          // Enable real-time dashboard data
+
 	// Ring buffer configuration
-	RingBufferSize      int           // Size of the memory history ring buffer (default: 60)
-	GCStatsInterval     time.Duration // Interval for GC stats collection (default: 30s)
-	
+	RingBufferSize  int           // Size of the memory history ring buffer (default: 60)
+	GCStatsInterval time.Duration // Interval for GC stats collection (default: 30s)
+
 	// Backends configuration
 	PrometheusEnabled bool
 	OTLPEnabled       bool
 	PrometheusPort    int
 	OTLPEndpoint      string
-	
+
 	// Thresholds
-	SlowRuleThreshold     time.Duration // Threshold for slow rule execution
-	MemoryLeakThreshold   int64         // Memory leak detection threshold
-	RegressionThreshold   float64       // Performance regression threshold (percentage)
+	SlowRuleThreshold   time.Duration // Threshold for slow rule execution
+	MemoryLeakThreshold int64         // Memory leak detection threshold
+	RegressionThreshold float64       // Performance regression threshold (percentage)
 }
 
 // DefaultMetricsConfig returns the default metrics configuration
@@ -105,15 +105,15 @@ func DefaultMetricsConfig() *MetricsConfig {
 		EnableLeakDetection: true,
 		EnableRegression:    true,
 		DashboardEnabled:    true,
-		RingBufferSize:      60,                // 1 hour of data at 1-minute intervals
-		GCStatsInterval:     30 * time.Second,  // Cache GC stats for 30 seconds
+		RingBufferSize:      60,               // 1 hour of data at 1-minute intervals
+		GCStatsInterval:     30 * time.Second, // Cache GC stats for 30 seconds
 		PrometheusEnabled:   false,
-		OTLPEnabled:        false,
-		PrometheusPort:     8080,
-		OTLPEndpoint:       "localhost:4317",
-		SlowRuleThreshold:  100 * time.Millisecond,
+		OTLPEnabled:         false,
+		PrometheusPort:      8080,
+		OTLPEndpoint:        "localhost:4317",
+		SlowRuleThreshold:   100 * time.Millisecond,
 		MemoryLeakThreshold: 50 * 1024 * 1024, // 50MB
-		RegressionThreshold: 0.2,               // 20%
+		RegressionThreshold: 0.2,              // 20%
 	}
 }
 
@@ -121,8 +121,8 @@ func DefaultMetricsConfig() *MetricsConfig {
 func ProductionMetricsConfig() *MetricsConfig {
 	config := DefaultMetricsConfig()
 	config.Level = MetricsLevelDetailed
-	config.SamplingRate = 0.1 // Sample 10% of events
-	config.RingBufferSize = 120 // 2 hours of data in production
+	config.SamplingRate = 0.1                 // Sample 10% of events
+	config.RingBufferSize = 120               // 2 hours of data in production
 	config.GCStatsInterval = 60 * time.Second // Less frequent GC stats collection
 	config.PrometheusEnabled = true
 	config.OTLPEnabled = true
@@ -135,7 +135,7 @@ func DevelopmentMetricsConfig() *MetricsConfig {
 	config.Level = MetricsLevelDebug
 	config.SamplingRate = 1.0
 	config.FlushInterval = 30 * time.Second
-	config.RingBufferSize = 30 // 30 minutes for development
+	config.RingBufferSize = 30                // 30 minutes for development
 	config.GCStatsInterval = 10 * time.Second // More frequent for debugging
 	return config
 }
@@ -228,7 +228,7 @@ func NewAtomicMinMax() *AtomicMinMax {
 // Update atomically updates min and max values with the new duration
 func (mm *AtomicMinMax) Update(duration time.Duration) {
 	nanos := int64(duration)
-	
+
 	// Update minimum value
 	for {
 		current := atomic.LoadInt64(&mm.minNanos)
@@ -239,7 +239,7 @@ func (mm *AtomicMinMax) Update(duration time.Duration) {
 			break
 		}
 	}
-	
+
 	// Update maximum value
 	for {
 		current := atomic.LoadInt64(&mm.maxNanos)
@@ -268,13 +268,13 @@ func (mm *AtomicMinMax) Max() time.Duration {
 
 // RuleExecutionMetric tracks execution metrics for a specific rule using atomic operations
 type RuleExecutionMetric struct {
-	RuleID          string
-	executionCount  *AtomicCounter
-	totalDuration   *AtomicDuration
-	minMaxDuration  *AtomicMinMax
-	lastExecution   int64 // Unix nanoseconds, atomic
-	errorCount      *AtomicCounter
-	
+	RuleID         string
+	executionCount *AtomicCounter
+	totalDuration  *AtomicDuration
+	minMaxDuration *AtomicMinMax
+	lastExecution  int64 // Unix nanoseconds, atomic
+	errorCount     *AtomicCounter
+
 	// Histogram buckets for detailed timing analysis
 	DurationBuckets []time.Duration
 	bucketCounts    []*AtomicCounter // Atomic counters for each bucket
@@ -294,12 +294,12 @@ func NewRuleExecutionMetric(ruleID string) *RuleExecutionMetric {
 		time.Second,
 		5 * time.Second,
 	}
-	
+
 	bucketCounts := make([]*AtomicCounter, len(buckets))
 	for i := range bucketCounts {
 		bucketCounts[i] = NewAtomicCounter()
 	}
-	
+
 	return &RuleExecutionMetric{
 		RuleID:          ruleID,
 		executionCount:  NewAtomicCounter(),
@@ -317,14 +317,14 @@ func (m *RuleExecutionMetric) RecordExecution(duration time.Duration, success bo
 	m.executionCount.Inc()
 	m.totalDuration.Add(duration)
 	atomic.StoreInt64(&m.lastExecution, time.Now().UnixNano())
-	
+
 	// Update min/max atomically
 	m.minMaxDuration.Update(duration)
-	
+
 	if !success {
 		m.errorCount.Inc()
 	}
-	
+
 	// Update histogram buckets atomically
 	for i, bucket := range m.DurationBuckets {
 		if duration <= bucket {
@@ -408,7 +408,7 @@ type MemoryUsageMetric struct {
 func GetMemoryUsage() *MemoryUsageMetric {
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	
+
 	return &MemoryUsageMetric{
 		Timestamp:    time.Now(),
 		AllocBytes:   m.Alloc,
@@ -443,10 +443,10 @@ func NewRingBuffer(capacity int) *RingBuffer {
 func (rb *RingBuffer) Add(metric MemoryUsageMetric) {
 	rb.mutex.Lock()
 	defer rb.mutex.Unlock()
-	
+
 	rb.buffer[rb.head] = metric
 	rb.head = (rb.head + 1) % rb.maxSize
-	
+
 	if rb.size < rb.maxSize {
 		rb.size++
 	} else {
@@ -459,11 +459,11 @@ func (rb *RingBuffer) Add(metric MemoryUsageMetric) {
 func (rb *RingBuffer) GetAll() []MemoryUsageMetric {
 	rb.mutex.RLock()
 	defer rb.mutex.RUnlock()
-	
+
 	if rb.size == 0 {
 		return nil
 	}
-	
+
 	result := make([]MemoryUsageMetric, rb.size)
 	for i := 0; i < rb.size; i++ {
 		idx := (rb.tail + i) % rb.maxSize
@@ -476,15 +476,15 @@ func (rb *RingBuffer) GetAll() []MemoryUsageMetric {
 func (rb *RingBuffer) GetRecent(n int) []MemoryUsageMetric {
 	rb.mutex.RLock()
 	defer rb.mutex.RUnlock()
-	
+
 	if rb.size == 0 {
 		return nil
 	}
-	
+
 	if n > rb.size {
 		n = rb.size
 	}
-	
+
 	result := make([]MemoryUsageMetric, n)
 	for i := 0; i < n; i++ {
 		idx := (rb.head - 1 - i + rb.maxSize) % rb.maxSize
@@ -516,10 +516,10 @@ func (rb *RingBuffer) Clear() {
 
 // OptimizedMemoryStats holds cached memory statistics with reduced GC impact
 type OptimizedMemoryStats struct {
-	lastUpdate    time.Time
+	lastUpdate     time.Time
 	updateInterval time.Duration
-	stats         runtime.MemStats
-	mutex         sync.RWMutex
+	stats          runtime.MemStats
+	mutex          sync.RWMutex
 }
 
 // NewOptimizedMemoryStats creates a new optimized memory stats collector
@@ -538,16 +538,16 @@ func (oms *OptimizedMemoryStats) GetStats() runtime.MemStats {
 		return stats
 	}
 	oms.mutex.RUnlock()
-	
+
 	// Need to update
 	oms.mutex.Lock()
 	defer oms.mutex.Unlock()
-	
+
 	// Double-check after acquiring write lock
 	if time.Since(oms.lastUpdate) < oms.updateInterval {
 		return oms.stats
 	}
-	
+
 	runtime.ReadMemStats(&oms.stats)
 	oms.lastUpdate = time.Now()
 	return oms.stats
@@ -556,7 +556,7 @@ func (oms *OptimizedMemoryStats) GetStats() runtime.MemStats {
 // GetOptimizedMemoryUsage returns memory usage metrics using cached GC stats
 func GetOptimizedMemoryUsage(oms *OptimizedMemoryStats) *MemoryUsageMetric {
 	stats := oms.GetStats()
-	
+
 	return &MemoryUsageMetric{
 		Timestamp:    time.Now(),
 		AllocBytes:   stats.Alloc,
@@ -576,18 +576,18 @@ func (m *ValidationPerformanceMetrics) GetOptimizedMemoryUsage() *MemoryUsageMet
 
 // ThroughputMetric tracks throughput statistics
 type ThroughputMetric struct {
-	EventsProcessed      int64
-	EventsPerSecond      float64
-	ValidationDuration   time.Duration
-	LastMeasurement      time.Time
-	WindowSize           time.Duration
-	SampleCount          int64
-	
+	EventsProcessed    int64
+	EventsPerSecond    float64
+	ValidationDuration time.Duration
+	LastMeasurement    time.Time
+	WindowSize         time.Duration
+	SampleCount        int64
+
 	// SLA tracking
-	SLATarget            float64 // Target events per second
-	SLAViolations        int64   // Number of SLA violations
-	SLAComplianceRate    float64 // Percentage of time meeting SLA
-	
+	SLATarget         float64 // Target events per second
+	SLAViolations     int64   // Number of SLA violations
+	SLAComplianceRate float64 // Percentage of time meeting SLA
+
 	mutex sync.RWMutex
 }
 
@@ -605,28 +605,28 @@ func NewThroughputMetric(windowSize time.Duration, slaTarget float64) *Throughpu
 func (m *ThroughputMetric) RecordEvents(count int64, duration time.Duration) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	m.EventsProcessed += count
 	m.ValidationDuration += duration
 	m.SampleCount++
-	
+
 	// Calculate current throughput
 	now := time.Now()
 	elapsed := now.Sub(m.LastMeasurement)
-	
+
 	if elapsed >= m.WindowSize {
 		m.EventsPerSecond = float64(m.EventsProcessed) / elapsed.Seconds()
-		
+
 		// Check SLA compliance
 		if m.EventsPerSecond < m.SLATarget {
 			m.SLAViolations++
 		}
-		
+
 		// Update compliance rate
 		if m.SampleCount > 0 {
 			m.SLAComplianceRate = float64(m.SampleCount-m.SLAViolations) / float64(m.SampleCount) * 100.0
 		}
-		
+
 		m.LastMeasurement = now
 		m.EventsProcessed = 0
 		m.ValidationDuration = 0
@@ -635,86 +635,86 @@ func (m *ThroughputMetric) RecordEvents(count int64, duration time.Duration) {
 
 // DashboardData contains real-time metrics for dashboard display
 type DashboardData struct {
-	Timestamp       time.Time                        `json:"timestamp"`
-	TotalEvents     int64                           `json:"total_events"`
-	EventsPerSecond float64                         `json:"events_per_second"`
-	AverageLatency  time.Duration                   `json:"average_latency"`
-	ErrorRate       float64                         `json:"error_rate"`
-	MemoryUsage     *MemoryUsageMetric              `json:"memory_usage"`
-	TopSlowRules    []RulePerformanceSnapshot       `json:"top_slow_rules"`
-	SLACompliance   float64                         `json:"sla_compliance"`
-	ActiveRules     int                             `json:"active_rules"`
-	
+	Timestamp       time.Time                 `json:"timestamp"`
+	TotalEvents     int64                     `json:"total_events"`
+	EventsPerSecond float64                   `json:"events_per_second"`
+	AverageLatency  time.Duration             `json:"average_latency"`
+	ErrorRate       float64                   `json:"error_rate"`
+	MemoryUsage     *MemoryUsageMetric        `json:"memory_usage"`
+	TopSlowRules    []RulePerformanceSnapshot `json:"top_slow_rules"`
+	SLACompliance   float64                   `json:"sla_compliance"`
+	ActiveRules     int                       `json:"active_rules"`
+
 	// Performance indicators
-	HealthStatus    string                          `json:"health_status"`
-	Warnings        []string                        `json:"warnings"`
-	Alerts          []string                        `json:"alerts"`
+	HealthStatus string   `json:"health_status"`
+	Warnings     []string `json:"warnings"`
+	Alerts       []string `json:"alerts"`
 }
 
 // RulePerformanceSnapshot contains performance snapshot for a rule
 type RulePerformanceSnapshot struct {
-	RuleID         string        `json:"rule_id"`
-	ExecutionCount int64         `json:"execution_count"`
+	RuleID          string        `json:"rule_id"`
+	ExecutionCount  int64         `json:"execution_count"`
 	AverageDuration time.Duration `json:"average_duration"`
-	ErrorRate      float64       `json:"error_rate"`
-	LastExecution  time.Time     `json:"last_execution"`
+	ErrorRate       float64       `json:"error_rate"`
+	LastExecution   time.Time     `json:"last_execution"`
 }
 
 // PerformanceRegression tracks performance regression data
 type PerformanceRegression struct {
-	RuleID             string        `json:"rule_id"`
-	BaselineAverage    time.Duration `json:"baseline_average"`
-	CurrentAverage     time.Duration `json:"current_average"`
-	RegressionPercent  float64       `json:"regression_percent"`
-	DetectedAt         time.Time     `json:"detected_at"`
-	Severity           string        `json:"severity"`
+	RuleID            string        `json:"rule_id"`
+	BaselineAverage   time.Duration `json:"baseline_average"`
+	CurrentAverage    time.Duration `json:"current_average"`
+	RegressionPercent float64       `json:"regression_percent"`
+	DetectedAt        time.Time     `json:"detected_at"`
+	Severity          string        `json:"severity"`
 }
 
 // ValidationPerformanceMetrics is the main metrics collection struct
 type ValidationPerformanceMetrics struct {
-	config         *MetricsConfig
-	startTime      time.Time
-	
+	config    *MetricsConfig
+	startTime time.Time
+
 	// Core metrics
-	totalEvents    int64
-	totalErrors    int64
-	totalWarnings  int64
-	
+	totalEvents   int64
+	totalErrors   int64
+	totalWarnings int64
+
 	// Rule metrics
-	ruleMetrics    map[string]*RuleExecutionMetric
-	ruleBaselines  map[string]time.Duration
-	rulesMutex     sync.RWMutex
-	
+	ruleMetrics   map[string]*RuleExecutionMetric
+	ruleBaselines map[string]time.Duration
+	rulesMutex    sync.RWMutex
+
 	// Throughput metrics
 	throughputMetric *ThroughputMetric
-	
+
 	// Memory tracking with ring buffer
-	memoryHistory    *RingBuffer
+	memoryHistory     *RingBuffer
 	optimizedMemStats *OptimizedMemoryStats
-	
+
 	// Performance regression tracking
 	regressions      []PerformanceRegression
 	regressionsMutex sync.RWMutex
-	
+
 	// OpenTelemetry metrics
 	meterProvider metric.MeterProvider
 	meter         metric.Meter
-	
+
 	// Metric instruments
-	eventCounter         metric.Int64Counter
-	validationHistogram  metric.Int64Histogram
-	ruleHistogram        metric.Int64Histogram
-	errorCounter         metric.Int64Counter
-	memoryGauge          metric.Int64Gauge
-	
+	eventCounter        metric.Int64Counter
+	validationHistogram metric.Int64Histogram
+	ruleHistogram       metric.Int64Histogram
+	errorCounter        metric.Int64Counter
+	memoryGauge         metric.Int64Gauge
+
 	// Cleanup and lifecycle
 	cleanupTicker *time.Ticker
 	ctx           context.Context
 	cancel        context.CancelFunc
-	
+
 	// Sampling
 	sampleCounter int64
-	
+
 	mutex sync.RWMutex
 }
 
@@ -723,30 +723,30 @@ func NewValidationPerformanceMetrics(config *MetricsConfig) (*ValidationPerforma
 	if config == nil {
 		config = DefaultMetricsConfig()
 	}
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	m := &ValidationPerformanceMetrics{
-		config:           config,
-		startTime:        time.Now(),
-		ruleMetrics:      make(map[string]*RuleExecutionMetric),
-		ruleBaselines:    make(map[string]time.Duration),
-		memoryHistory:    NewRingBuffer(config.RingBufferSize),
+		config:            config,
+		startTime:         time.Now(),
+		ruleMetrics:       make(map[string]*RuleExecutionMetric),
+		ruleBaselines:     make(map[string]time.Duration),
+		memoryHistory:     NewRingBuffer(config.RingBufferSize),
 		optimizedMemStats: NewOptimizedMemoryStats(config.GCStatsInterval),
-		regressions:      make([]PerformanceRegression, 0),
-		throughputMetric: NewThroughputMetric(time.Minute, 100.0), // Default 100 events/sec SLA
-		ctx:              ctx,
-		cancel:           cancel,
+		regressions:       make([]PerformanceRegression, 0),
+		throughputMetric:  NewThroughputMetric(time.Minute, 100.0), // Default 100 events/sec SLA
+		ctx:               ctx,
+		cancel:            cancel,
 	}
-	
+
 	// Initialize OpenTelemetry metrics
 	if err := m.initializeOpenTelemetry(); err != nil {
 		return nil, fmt.Errorf("failed to initialize OpenTelemetry metrics: %w", err)
 	}
-	
+
 	// Start background routines
 	m.startBackgroundTasks()
-	
+
 	return m, nil
 }
 
@@ -756,15 +756,15 @@ func (m *ValidationPerformanceMetrics) initializeOpenTelemetry() error {
 	if m.meterProvider == nil {
 		return nil
 	}
-	
+
 	// Create meter
 	m.meter = m.meterProvider.Meter("ag-ui/events/validation")
 	if m.meter == nil {
 		return fmt.Errorf("meter provider returned nil meter")
 	}
-	
+
 	var err error
-	
+
 	// Create metric instruments
 	m.eventCounter, err = m.meter.Int64Counter(
 		"validation_events_total",
@@ -773,7 +773,7 @@ func (m *ValidationPerformanceMetrics) initializeOpenTelemetry() error {
 	if err != nil {
 		return fmt.Errorf("failed to create event counter: %w", err)
 	}
-	
+
 	m.validationHistogram, err = m.meter.Int64Histogram(
 		"validation_duration_ms",
 		metric.WithDescription("Validation duration in milliseconds"),
@@ -782,7 +782,7 @@ func (m *ValidationPerformanceMetrics) initializeOpenTelemetry() error {
 	if err != nil {
 		return fmt.Errorf("failed to create validation histogram: %w", err)
 	}
-	
+
 	m.ruleHistogram, err = m.meter.Int64Histogram(
 		"rule_execution_duration_ms",
 		metric.WithDescription("Rule execution duration in milliseconds"),
@@ -791,7 +791,7 @@ func (m *ValidationPerformanceMetrics) initializeOpenTelemetry() error {
 	if err != nil {
 		return fmt.Errorf("failed to create rule histogram: %w", err)
 	}
-	
+
 	m.errorCounter, err = m.meter.Int64Counter(
 		"validation_errors_total",
 		metric.WithDescription("Total number of validation errors"),
@@ -799,7 +799,7 @@ func (m *ValidationPerformanceMetrics) initializeOpenTelemetry() error {
 	if err != nil {
 		return fmt.Errorf("failed to create error counter: %w", err)
 	}
-	
+
 	m.memoryGauge, err = m.meter.Int64Gauge(
 		"memory_usage_bytes",
 		metric.WithDescription("Current memory usage in bytes"),
@@ -808,7 +808,7 @@ func (m *ValidationPerformanceMetrics) initializeOpenTelemetry() error {
 	if err != nil {
 		return fmt.Errorf("failed to create memory gauge: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -817,12 +817,12 @@ func (m *ValidationPerformanceMetrics) startBackgroundTasks() {
 	// Start cleanup routine
 	m.cleanupTicker = time.NewTicker(m.config.FlushInterval)
 	go m.cleanupRoutine()
-	
+
 	// Start memory monitoring
 	if m.config.EnableLeakDetection {
 		go m.memoryMonitoringRoutine()
 	}
-	
+
 	// Start performance regression detection
 	if m.config.EnableRegression {
 		go m.regressionDetectionRoutine()
@@ -835,29 +835,29 @@ func (m *ValidationPerformanceMetrics) RecordEvent(duration time.Duration, succe
 	if !m.shouldSample() {
 		return
 	}
-	
+
 	atomic.AddInt64(&m.totalEvents, 1)
-	
+
 	if !success {
 		atomic.AddInt64(&m.totalErrors, 1)
 	}
-	
+
 	// Record throughput
 	m.throughputMetric.RecordEvents(1, duration)
-	
+
 	// Record OpenTelemetry metrics
 	if m.eventCounter != nil {
 		m.eventCounter.Add(m.ctx, 1, metric.WithAttributes(
 			attribute.Bool("success", success),
 		))
 	}
-	
+
 	if m.validationHistogram != nil {
 		m.validationHistogram.Record(m.ctx, duration.Milliseconds(), metric.WithAttributes(
 			attribute.Bool("success", success),
 		))
 	}
-	
+
 	if !success && m.errorCounter != nil {
 		m.errorCounter.Add(m.ctx, 1)
 	}
@@ -874,14 +874,14 @@ func (m *ValidationPerformanceMetrics) RecordRuleExecution(ruleID string, durati
 	if !m.shouldSample() {
 		return
 	}
-	
+
 	m.rulesMutex.Lock()
 	if _, exists := m.ruleMetrics[ruleID]; !exists {
 		m.ruleMetrics[ruleID] = NewRuleExecutionMetric(ruleID)
 	}
 	m.ruleMetrics[ruleID].RecordExecution(duration, success)
 	m.rulesMutex.Unlock()
-	
+
 	// Record OpenTelemetry metrics
 	if m.ruleHistogram != nil {
 		m.ruleHistogram.Record(m.ctx, duration.Milliseconds(), metric.WithAttributes(
@@ -889,7 +889,7 @@ func (m *ValidationPerformanceMetrics) RecordRuleExecution(ruleID string, durati
 			attribute.Bool("success", success),
 		))
 	}
-	
+
 	// Check for slow rules
 	if duration > m.config.SlowRuleThreshold {
 		// Log slow rule execution if in debug mode
@@ -920,7 +920,7 @@ func (m *ValidationPerformanceMetrics) GetRuleMetrics(ruleID string) *RuleExecut
 func (m *ValidationPerformanceMetrics) GetAllRuleMetrics() map[string]*RuleExecutionMetric {
 	m.rulesMutex.RLock()
 	defer m.rulesMutex.RUnlock()
-	
+
 	result := make(map[string]*RuleExecutionMetric)
 	for k, v := range m.ruleMetrics {
 		result[k] = v
@@ -932,15 +932,15 @@ func (m *ValidationPerformanceMetrics) GetAllRuleMetrics() map[string]*RuleExecu
 func (m *ValidationPerformanceMetrics) GetDashboardData() *DashboardData {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	totalEvents := atomic.LoadInt64(&m.totalEvents)
 	totalErrors := atomic.LoadInt64(&m.totalErrors)
-	
+
 	var errorRate float64
 	if totalEvents > 0 {
 		errorRate = float64(totalErrors) / float64(totalEvents) * 100.0
 	}
-	
+
 	// Calculate average latency
 	var avgLatency time.Duration
 	if m.throughputMetric != nil {
@@ -950,23 +950,23 @@ func (m *ValidationPerformanceMetrics) GetDashboardData() *DashboardData {
 		}
 		m.throughputMetric.mutex.RUnlock()
 	}
-	
+
 	// Get top slow rules
 	topSlowRules := m.getTopSlowRules(5)
-	
+
 	// Get current memory usage (optimized)
 	memoryUsage := m.GetOptimizedMemoryUsage()
-	
+
 	// Record memory usage in gauge
 	if m.memoryGauge != nil {
 		m.memoryGauge.Record(m.ctx, int64(memoryUsage.AllocBytes))
 	}
-	
+
 	// Determine health status
 	healthStatus := m.determineHealthStatus()
 	warnings := m.getWarnings()
 	alerts := m.getAlerts()
-	
+
 	return &DashboardData{
 		Timestamp:       time.Now(),
 		TotalEvents:     totalEvents,
@@ -987,7 +987,7 @@ func (m *ValidationPerformanceMetrics) GetDashboardData() *DashboardData {
 func (m *ValidationPerformanceMetrics) getTopSlowRules(n int) []RulePerformanceSnapshot {
 	m.rulesMutex.RLock()
 	defer m.rulesMutex.RUnlock()
-	
+
 	var snapshots []RulePerformanceSnapshot
 	for _, metric := range m.ruleMetrics {
 		snapshot := RulePerformanceSnapshot{
@@ -999,7 +999,7 @@ func (m *ValidationPerformanceMetrics) getTopSlowRules(n int) []RulePerformanceS
 		}
 		snapshots = append(snapshots, snapshot)
 	}
-	
+
 	// Sort by average duration (descending)
 	for i := 0; i < len(snapshots)-1; i++ {
 		for j := i + 1; j < len(snapshots); j++ {
@@ -1008,11 +1008,11 @@ func (m *ValidationPerformanceMetrics) getTopSlowRules(n int) []RulePerformanceS
 			}
 		}
 	}
-	
+
 	if len(snapshots) > n {
 		snapshots = snapshots[:n]
 	}
-	
+
 	return snapshots
 }
 
@@ -1020,20 +1020,20 @@ func (m *ValidationPerformanceMetrics) getTopSlowRules(n int) []RulePerformanceS
 func (m *ValidationPerformanceMetrics) determineHealthStatus() string {
 	totalEvents := atomic.LoadInt64(&m.totalEvents)
 	totalErrors := atomic.LoadInt64(&m.totalErrors)
-	
+
 	if totalEvents == 0 {
 		return "Unknown"
 	}
-	
+
 	errorRate := float64(totalErrors) / float64(totalEvents) * 100.0
-	
+
 	// Check SLA compliance
 	slaCompliance := m.throughputMetric.SLAComplianceRate
-	
+
 	// Check memory usage (optimized)
 	memUsage := m.GetOptimizedMemoryUsage()
 	memoryPressure := float64(memUsage.AllocBytes) / float64(m.config.MaxMemoryUsage) * 100.0
-	
+
 	// Determine status based on multiple factors
 	if errorRate > 10.0 || slaCompliance < 80.0 || memoryPressure > 90.0 {
 		return "Critical"
@@ -1047,43 +1047,43 @@ func (m *ValidationPerformanceMetrics) determineHealthStatus() string {
 // getWarnings returns current warnings
 func (m *ValidationPerformanceMetrics) getWarnings() []string {
 	var warnings []string
-	
+
 	// Check for slow rules
 	for _, metric := range m.ruleMetrics {
 		if metric.GetAverageDuration() > m.config.SlowRuleThreshold {
 			warnings = append(warnings, fmt.Sprintf("Rule %s is running slow (avg: %v)", metric.RuleID, metric.GetAverageDuration()))
 		}
 	}
-	
+
 	// Check memory usage (optimized)
 	memUsage := m.GetOptimizedMemoryUsage()
 	if float64(memUsage.AllocBytes) > float64(m.config.MaxMemoryUsage)*0.7 {
 		warnings = append(warnings, fmt.Sprintf("High memory usage: %d bytes", memUsage.AllocBytes))
 	}
-	
+
 	return warnings
 }
 
 // getAlerts returns current alerts
 func (m *ValidationPerformanceMetrics) getAlerts() []string {
 	var alerts []string
-	
+
 	// Check for critical issues
 	totalEvents := atomic.LoadInt64(&m.totalEvents)
 	totalErrors := atomic.LoadInt64(&m.totalErrors)
-	
+
 	if totalEvents > 0 {
 		errorRate := float64(totalErrors) / float64(totalEvents) * 100.0
 		if errorRate > 10.0 {
 			alerts = append(alerts, fmt.Sprintf("High error rate: %.2f%%", errorRate))
 		}
 	}
-	
+
 	// Check SLA violations
 	if m.throughputMetric.SLAComplianceRate < 80.0 {
 		alerts = append(alerts, fmt.Sprintf("SLA compliance below 80%%: %.2f%%", m.throughputMetric.SLAComplianceRate))
 	}
-	
+
 	// Check memory leaks (optimized)
 	if m.config.EnableLeakDetection {
 		memUsage := m.GetOptimizedMemoryUsage()
@@ -1091,7 +1091,7 @@ func (m *ValidationPerformanceMetrics) getAlerts() []string {
 			alerts = append(alerts, fmt.Sprintf("Potential memory leak detected: %d bytes", memUsage.AllocBytes))
 		}
 	}
-	
+
 	return alerts
 }
 
@@ -1100,7 +1100,7 @@ func (m *ValidationPerformanceMetrics) shouldSample() bool {
 	if m.config.SamplingRate >= 1.0 {
 		return true
 	}
-	
+
 	sampleCount := atomic.AddInt64(&m.sampleCounter, 1)
 	return float64(sampleCount%int64(1.0/m.config.SamplingRate)) == 0
 }
@@ -1120,9 +1120,9 @@ func (m *ValidationPerformanceMetrics) cleanupRoutine() {
 // performCleanup performs cleanup of old metrics data
 func (m *ValidationPerformanceMetrics) performCleanup() {
 	cutoff := time.Now().Add(-m.config.RetentionPeriod)
-	
+
 	// Ring buffer automatically manages memory history size, so no cleanup needed
-	
+
 	// Clean up old regressions
 	m.regressionsMutex.Lock()
 	var newRegressions []PerformanceRegression
@@ -1133,7 +1133,7 @@ func (m *ValidationPerformanceMetrics) performCleanup() {
 	}
 	m.regressions = newRegressions
 	m.regressionsMutex.Unlock()
-	
+
 	// Force garbage collection if memory usage is high (using optimized version)
 	memUsage := m.GetOptimizedMemoryUsage()
 	if memUsage.AllocBytes > uint64(m.config.MaxMemoryUsage) {
@@ -1145,7 +1145,7 @@ func (m *ValidationPerformanceMetrics) performCleanup() {
 func (m *ValidationPerformanceMetrics) memoryMonitoringRoutine() {
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-m.ctx.Done():
@@ -1153,10 +1153,10 @@ func (m *ValidationPerformanceMetrics) memoryMonitoringRoutine() {
 		case <-ticker.C:
 			// Use optimized memory usage to reduce GC pressure
 			memUsage := m.GetOptimizedMemoryUsage()
-			
+
 			// Add to ring buffer (no need for manual size management)
 			m.memoryHistory.Add(*memUsage)
-			
+
 			// Check for memory leaks
 			if m.memoryHistory.Size() > 10 {
 				m.detectMemoryLeaks()
@@ -1168,28 +1168,28 @@ func (m *ValidationPerformanceMetrics) memoryMonitoringRoutine() {
 // detectMemoryLeaks detects potential memory leaks
 func (m *ValidationPerformanceMetrics) detectMemoryLeaks() {
 	history := m.memoryHistory.GetAll()
-	
+
 	if len(history) < 10 {
 		return
 	}
-	
+
 	// Simple leak detection: check if memory usage is consistently increasing
 	// Get the last 5 and previous 5 measurements
 	totalLen := len(history)
 	recent := history[totalLen-5:]
 	older := history[totalLen-10 : totalLen-5]
-	
+
 	var recentAvg, olderAvg uint64
 	for _, usage := range recent {
 		recentAvg += usage.AllocBytes
 	}
 	recentAvg /= uint64(len(recent))
-	
+
 	for _, usage := range older {
 		olderAvg += usage.AllocBytes
 	}
 	olderAvg /= uint64(len(older))
-	
+
 	// If recent average is significantly higher than older average, potential leak
 	if recentAvg > olderAvg && float64(recentAvg-olderAvg)/float64(olderAvg) > 0.3 {
 		if m.config.Level == MetricsLevelDebug {
@@ -1202,7 +1202,7 @@ func (m *ValidationPerformanceMetrics) detectMemoryLeaks() {
 func (m *ValidationPerformanceMetrics) regressionDetectionRoutine() {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-m.ctx.Done():
@@ -1217,13 +1217,13 @@ func (m *ValidationPerformanceMetrics) regressionDetectionRoutine() {
 func (m *ValidationPerformanceMetrics) detectPerformanceRegressions() {
 	m.rulesMutex.RLock()
 	defer m.rulesMutex.RUnlock()
-	
+
 	for ruleID, metric := range m.ruleMetrics {
 		if baseline, exists := m.ruleBaselines[ruleID]; exists {
 			current := metric.GetAverageDuration()
 			if current > 0 && baseline > 0 {
 				regressionPercent := (float64(current-baseline) / float64(baseline)) * 100.0
-				
+
 				if regressionPercent > m.config.RegressionThreshold*100 {
 					regression := PerformanceRegression{
 						RuleID:            ruleID,
@@ -1233,11 +1233,11 @@ func (m *ValidationPerformanceMetrics) detectPerformanceRegressions() {
 						DetectedAt:        time.Now(),
 						Severity:          m.determineSeverity(regressionPercent),
 					}
-					
+
 					m.regressionsMutex.Lock()
 					m.regressions = append(m.regressions, regression)
 					m.regressionsMutex.Unlock()
-					
+
 					if m.config.Level == MetricsLevelDebug {
 						fmt.Printf("Performance regression detected in rule %s: %.2f%% slower\n", ruleID, regressionPercent)
 					}
@@ -1264,7 +1264,7 @@ func (m *ValidationPerformanceMetrics) determineSeverity(regressionPercent float
 func (m *ValidationPerformanceMetrics) GetPerformanceRegressions() []PerformanceRegression {
 	m.regressionsMutex.RLock()
 	defer m.regressionsMutex.RUnlock()
-	
+
 	result := make([]PerformanceRegression, len(m.regressions))
 	copy(result, m.regressions)
 	return result
@@ -1275,7 +1275,7 @@ func (m *ValidationPerformanceMetrics) GetMemoryHistory() []MemoryUsageMetric {
 	if m.memoryHistory == nil {
 		return []MemoryUsageMetric{}
 	}
-	
+
 	// Get all items from the ring buffer
 	return m.memoryHistory.GetAll()
 }
@@ -1292,14 +1292,14 @@ func (m *ValidationPerformanceMetrics) Shutdown() error {
 	if m.cancel != nil {
 		m.cancel()
 	}
-	
+
 	if m.cleanupTicker != nil {
 		m.cleanupTicker.Stop()
 	}
-	
+
 	// Final cleanup
 	m.performCleanup()
-	
+
 	return nil
 }
 
@@ -1308,28 +1308,28 @@ func (m *ValidationPerformanceMetrics) GetOverallStats() map[string]interface{} 
 	totalEvents := atomic.LoadInt64(&m.totalEvents)
 	totalErrors := atomic.LoadInt64(&m.totalErrors)
 	totalWarnings := atomic.LoadInt64(&m.totalWarnings)
-	
+
 	var errorRate, warningRate float64
 	if totalEvents > 0 {
 		errorRate = float64(totalErrors) / float64(totalEvents) * 100.0
 		warningRate = float64(totalWarnings) / float64(totalEvents) * 100.0
 	}
-	
+
 	uptime := time.Since(m.startTime)
-	
+
 	return map[string]interface{}{
-		"uptime":                uptime,
-		"total_events":          totalEvents,
-		"total_errors":          totalErrors,
-		"total_warnings":        totalWarnings,
-		"error_rate":           errorRate,
-		"warning_rate":         warningRate,
-		"events_per_second":    m.throughputMetric.EventsPerSecond,
-		"sla_compliance":       m.throughputMetric.SLAComplianceRate,
-		"active_rules":         len(m.ruleMetrics),
-		"config_level":         m.config.Level.String(),
-		"sampling_rate":        m.config.SamplingRate,
-		"memory_usage":         m.GetOptimizedMemoryUsage(),
-		"regression_count":     len(m.regressions),
+		"uptime":            uptime,
+		"total_events":      totalEvents,
+		"total_errors":      totalErrors,
+		"total_warnings":    totalWarnings,
+		"error_rate":        errorRate,
+		"warning_rate":      warningRate,
+		"events_per_second": m.throughputMetric.EventsPerSecond,
+		"sla_compliance":    m.throughputMetric.SLAComplianceRate,
+		"active_rules":      len(m.ruleMetrics),
+		"config_level":      m.config.Level.String(),
+		"sampling_rate":     m.config.SamplingRate,
+		"memory_usage":      m.GetOptimizedMemoryUsage(),
+		"regression_count":  len(m.regressions),
 	}
 }

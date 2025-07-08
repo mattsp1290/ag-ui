@@ -77,27 +77,27 @@ type subscription struct {
 // StateStore provides versioned state management with history and transactions
 type StateStore struct {
 	// Sharded state implementation for fine-grained locking
-	shards            []*stateShard   // 16 shards for better concurrency
-	shardCount        uint32          // Number of shards (power of 2)
-	
+	shards     []*stateShard // 16 shards for better concurrency
+	shardCount uint32        // Number of shards (power of 2)
+
 	// Global operations locks
-	transactionsMu    sync.RWMutex    // Lock for transaction management
-	historyMu         sync.Mutex      // Lock for history operations
-	
-	version           int64
-	history           []*StateVersion
-	maxHistory        int
-	subscriptions     sync.Map // Using sync.Map to reduce lock contention
-	transactions      map[string]*StateTransaction
-	
+	transactionsMu sync.RWMutex // Lock for transaction management
+	historyMu      sync.Mutex   // Lock for history operations
+
+	version       int64
+	history       []*StateVersion
+	maxHistory    int
+	subscriptions sync.Map // Using sync.Map to reduce lock contention
+	transactions  map[string]*StateTransaction
+
 	// Subscription management
-	subscriptionTTL   time.Duration
-	lastCleanup       time.Time
-	cleanupInterval   time.Duration
-	
+	subscriptionTTL time.Duration
+	lastCleanup     time.Time
+	cleanupInterval time.Duration
+
 	// Error handling
-	errorHandler      func(error)
-	logger            Logger
+	errorHandler func(error)
+	logger       Logger
 }
 
 // stateShard represents a single shard with its own lock
@@ -109,23 +109,23 @@ type stateShard struct {
 // NewStateStore creates a new state store instance
 func NewStateStore(options ...StateStoreOption) *StateStore {
 	store := &StateStore{
-		shardCount:        DefaultShardCount, // Default to 16 shards for better concurrency
-		version:           0,
-		history:           make([]*StateVersion, 0),
-		maxHistory:        DefaultMaxHistorySizeSharding, // Default max history for sharded operations
-		transactions:      make(map[string]*StateTransaction),
-		subscriptionTTL:   DefaultSubscriptionTTL,   // Default TTL for subscriptions
-		cleanupInterval:   DefaultSubscriptionCleanup, // Default cleanup interval
-		lastCleanup:       time.Now(),
-		logger:            DefaultLogger(),
-		errorHandler:      nil, // Will be set after initialization
+		shardCount:      DefaultShardCount, // Default to 16 shards for better concurrency
+		version:         0,
+		history:         make([]*StateVersion, 0),
+		maxHistory:      DefaultMaxHistorySizeSharding, // Default max history for sharded operations
+		transactions:    make(map[string]*StateTransaction),
+		subscriptionTTL: DefaultSubscriptionTTL,     // Default TTL for subscriptions
+		cleanupInterval: DefaultSubscriptionCleanup, // Default cleanup interval
+		lastCleanup:     time.Now(),
+		logger:          DefaultLogger(),
+		errorHandler:    nil, // Will be set after initialization
 	}
 
 	// Apply options
 	for _, opt := range options {
 		opt(store)
 	}
-	
+
 	// Set default error handler after store is initialized
 	if store.errorHandler == nil {
 		store.errorHandler = func(err error) {
@@ -234,11 +234,11 @@ func (s *StateStore) Get(path string) (interface{}, error) {
 
 		return deepCopy(value), nil
 	}
-	
+
 	// Use the top-level key to determine the shard
 	topLevelPath := "/" + tokens[0]
 	shard := s.getShardForPath(topLevelPath)
-	
+
 	// Lock-free read using atomic value from the specific shard
 	state := shard.current.Load().(*ImmutableState)
 	atomic.AddInt32(&state.refs, 1)
@@ -255,20 +255,20 @@ func (s *StateStore) Get(path string) (interface{}, error) {
 // getAllShardsData merges data from all shards for root path access
 func (s *StateStore) getAllShardsData() map[string]interface{} {
 	merged := make(map[string]interface{})
-	
+
 	// Collect data from all shards
 	for _, shard := range s.shards {
 		state := shard.current.Load().(*ImmutableState)
 		atomic.AddInt32(&state.refs, 1)
-		
+
 		// Merge shard data into result
 		for k, v := range state.data {
 			merged[k] = deepCopy(v)
 		}
-		
+
 		atomic.AddInt32(&state.refs, -1)
 	}
-	
+
 	return merged
 }
 
@@ -306,11 +306,11 @@ func (s *StateStore) Set(path string, value interface{}) error {
 
 		return s.applyPatchToShard(shard, patch)
 	}
-	
+
 	// Use the top-level key to determine the shard
 	topLevelPath := "/" + tokens[0]
 	shard := s.getShardForPath(topLevelPath)
-	
+
 	// Lock only the specific shard
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
@@ -353,20 +353,20 @@ func (s *StateStore) setRootPath(value interface{}) error {
 			}
 			shard.current.Store(newState)
 		}
-		
+
 		// Create a map to hold new data for each shard
 		shardData := make([]map[string]interface{}, s.shardCount)
 		for i := range shardData {
 			shardData[i] = make(map[string]interface{})
 		}
-		
+
 		// Distribute the data
 		for k, v := range m {
 			path := "/" + k
 			shardIdx := s.getShardIndex(path)
 			shardData[shardIdx][k] = v
 		}
-		
+
 		// Update each shard with its new data
 		newVersion := atomic.AddInt64(&s.version, 1)
 		for i, shard := range s.shards {
@@ -386,7 +386,7 @@ func (s *StateStore) setRootPath(value interface{}) error {
 	} else {
 		s.createVersionWithState(patch, map[string]interface{}{"": value}, nil)
 	}
-	
+
 	// Notify subscribers
 	changes := []StateChange{{
 		Path:      "/",
@@ -395,7 +395,7 @@ func (s *StateStore) setRootPath(value interface{}) error {
 		Timestamp: time.Now(),
 	}}
 	s.notifySubscribers(changes)
-	
+
 	return nil
 }
 
@@ -411,7 +411,7 @@ func (s *StateStore) ensureParentPaths(path string, data map[string]interface{})
 
 	for i := 0; i < len(tokens)-1; i++ {
 		token := tokens[i]
-		
+
 		switch c := current.(type) {
 		case map[string]interface{}:
 			if val, exists := c[token]; exists {
@@ -441,7 +441,7 @@ func (s *StateStore) ensureParentPathsCOW(path string, data map[string]interface
 
 	for i := 0; i < len(tokens)-1; i++ {
 		token := tokens[i]
-		
+
 		switch c := current.(type) {
 		case map[string]interface{}:
 			if val, exists := c[token]; exists {
@@ -471,7 +471,7 @@ func (s *StateStore) Delete(path string) error {
 	// Parse the path to get the top-level key
 	tokens := parseJSONPointer(path)
 	var shard *stateShard
-	
+
 	if len(tokens) == 0 {
 		// Path doesn't start with '/', might be a stateID - fallback to original behavior
 		shard = s.getShardForPath(path)
@@ -480,7 +480,7 @@ func (s *StateStore) Delete(path string) error {
 		topLevelPath := "/" + tokens[0]
 		shard = s.getShardForPath(topLevelPath)
 	}
-	
+
 	// Lock only the specific shard
 	shard.mu.Lock()
 	defer shard.mu.Unlock()
@@ -500,7 +500,7 @@ func (s *StateStore) ApplyPatch(patch JSONPatch) error {
 	// Group patches by shard to minimize lock contention
 	patchesByShard := make(map[uint32]JSONPatch)
 	globalPatches := JSONPatch{}
-	
+
 	for _, op := range patch {
 		if op.Path == "" || op.Path == "/" {
 			globalPatches = append(globalPatches, op)
@@ -508,7 +508,7 @@ func (s *StateStore) ApplyPatch(patch JSONPatch) error {
 			// For nested paths, we need to find the correct shard based on the top-level key
 			tokens := parseJSONPointer(op.Path)
 			var shardIdx uint32
-			
+
 			if len(tokens) == 0 {
 				// Path doesn't start with '/', might be a stateID - fallback to original behavior
 				shardIdx = s.getShardIndex(op.Path)
@@ -517,25 +517,25 @@ func (s *StateStore) ApplyPatch(patch JSONPatch) error {
 				topLevelPath := "/" + tokens[0]
 				shardIdx = s.getShardIndex(topLevelPath)
 			}
-			
+
 			patchesByShard[shardIdx] = append(patchesByShard[shardIdx], op)
 		}
 	}
-	
+
 	// Apply global patches first (requires all shards locked)
 	if len(globalPatches) > 0 {
 		for _, shard := range s.shards {
 			shard.mu.Lock()
 			defer shard.mu.Unlock()
 		}
-		
+
 		for _, op := range globalPatches {
 			if err := s.applyGlobalPatch(op); err != nil {
 				return err
 			}
 		}
 	}
-	
+
 	// Apply shard-specific patches
 	for shardIdx, shardPatches := range patchesByShard {
 		shard := s.shards[shardIdx]
@@ -546,7 +546,7 @@ func (s *StateStore) ApplyPatch(patch JSONPatch) error {
 		}
 		shard.mu.Unlock()
 	}
-	
+
 	return nil
 }
 
@@ -604,7 +604,7 @@ func (s *StateStore) applyPatchToShard(shard *stateShard, patch JSONPatch) error
 
 	// Notify subscribers
 	s.notifySubscribers(changes)
-	
+
 	// Note: Version creation is skipped for per-shard operations to avoid deadlock.
 	// The sharded architecture trades off complete version history for better concurrency.
 
@@ -626,20 +626,20 @@ func (s *StateStore) applyGlobalPatch(op JSONPatchOperation) error {
 				}
 				shard.current.Store(newState)
 			}
-			
+
 			// Create a map to hold new data for each shard
 			shardData := make([]map[string]interface{}, s.shardCount)
 			for i := range shardData {
 				shardData[i] = make(map[string]interface{})
 			}
-			
+
 			// Distribute the data
 			for k, v := range m {
 				path := "/" + k
 				shardIdx := s.getShardIndex(path)
 				shardData[shardIdx][k] = v
 			}
-			
+
 			// Update each shard with its new data
 			newVersion := atomic.AddInt64(&s.version, 1)
 			for i, shard := range s.shards {
@@ -654,7 +654,7 @@ func (s *StateStore) applyGlobalPatch(op JSONPatchOperation) error {
 	default:
 		return fmt.Errorf("unsupported global operation: %s", op.Op)
 	}
-	
+
 	return nil
 }
 
@@ -668,7 +668,7 @@ func (s *StateStore) applyPatchInternalCOW(patch JSONPatch) error {
 func (s *StateStore) CreateSnapshot() (*StateSnapshot, error) {
 	// Get data from all shards
 	stateCopy := s.getAllShardsData()
-	
+
 	id, err := generateID()
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate snapshot ID: %w", err)
@@ -860,13 +860,13 @@ func (s *StateStore) deepCopyState(state map[string]interface{}) map[string]inte
 // createVersion creates a new version entry
 func (s *StateStore) createVersion(delta JSONPatch, metadata map[string]interface{}) {
 	id, _ := generateID()
-	
+
 	// Get current state from all shards
 	stateCopy := s.getAllShardsData()
-	
+
 	s.historyMu.Lock()
 	defer s.historyMu.Unlock()
-	
+
 	parentID := ""
 	if len(s.history) > 0 {
 		parentID = s.history[len(s.history)-1].ID
@@ -894,10 +894,10 @@ func (s *StateStore) createVersion(delta JSONPatch, metadata map[string]interfac
 // createVersionWithState creates a new version entry with pre-computed state
 func (s *StateStore) createVersionWithState(delta JSONPatch, state map[string]interface{}, metadata map[string]interface{}) {
 	id, _ := generateID()
-	
+
 	s.historyMu.Lock()
 	defer s.historyMu.Unlock()
-	
+
 	parentID := ""
 	if len(s.history) > 0 {
 		parentID = s.history[len(s.history)-1].ID
@@ -956,18 +956,18 @@ func (s *StateStore) detectChanges(oldState, newState map[string]interface{}, pa
 func (s *StateStore) notifySubscribers(changes []StateChange) {
 	// Collect notifications without holding locks
 	var notifications []func()
-	
+
 	for _, change := range changes {
 		s.subscriptions.Range(func(key, value interface{}) bool {
 			sub := value.(*subscription)
 			if s.pathMatches(sub.path, change.Path) {
 				// Update last accessed time
 				sub.lastAccessed = time.Now()
-				
+
 				// Capture variables for closure
 				cb := sub.callback
 				ch := change
-				
+
 				notifications = append(notifications, func() {
 					defer func() {
 						if r := recover(); r != nil {
@@ -977,7 +977,7 @@ func (s *StateStore) notifySubscribers(changes []StateChange) {
 							}
 						}
 					}()
-					
+
 					// Additional safety check - ensure callback is not nil
 					if cb != nil {
 						cb(ch)
@@ -989,7 +989,7 @@ func (s *StateStore) notifySubscribers(changes []StateChange) {
 			return true
 		})
 	}
-	
+
 	// Execute all notifications asynchronously
 	for _, notify := range notifications {
 		go notify()
@@ -1002,7 +1002,7 @@ func (s *StateStore) pathMatches(subPath, changePath string) bool {
 	if subPath == changePath {
 		return true
 	}
-	
+
 	// Root path matches everything
 	if subPath == "/" || subPath == "" {
 		return true
@@ -1057,7 +1057,7 @@ func (s *StateStore) GetStateView() *StateView {
 	// For sharded implementation, we need to merge data from all shards
 	// This is less efficient than single-shard access but maintains compatibility
 	merged := s.getAllShardsData()
-	
+
 	return &StateView{
 		data: merged,
 		cleanup: func() {
@@ -1096,14 +1096,14 @@ func (s *StateStore) Clear() {
 		}
 		shard.current.Store(newState)
 	}
-	
+
 	atomic.StoreInt64(&s.version, 0)
-	
+
 	// Clear history under separate lock
 	s.historyMu.Lock()
 	s.history = make([]*StateVersion, 0)
 	s.historyMu.Unlock()
-	
+
 	// Skip version creation for Clear to avoid issues
 }
 
@@ -1142,15 +1142,15 @@ func (s *StateStore) Import(data []byte) error {
 	for i := range shardData {
 		shardData[i] = make(map[string]interface{})
 	}
-	
+
 	// Distribute the data
 	for k, v := range newStateData {
 		path := "/" + k
 		shardIdx := s.getShardIndex(path)
 		shardData[shardIdx][k] = v
 	}
-	
-	// Update each shard with its new data  
+
+	// Update each shard with its new data
 	for i, shard := range s.shards {
 		state := shard.current.Load().(*ImmutableState)
 		newState := &ImmutableState{
@@ -1174,7 +1174,7 @@ func (s *StateStore) maybeCleanupSubscriptions() {
 	if now.Sub(s.lastCleanup) < s.cleanupInterval {
 		return
 	}
-	
+
 	s.lastCleanup = now
 	go s.cleanupExpiredSubscriptions()
 }
@@ -1182,7 +1182,7 @@ func (s *StateStore) maybeCleanupSubscriptions() {
 // cleanupExpiredSubscriptions removes expired subscriptions
 func (s *StateStore) cleanupExpiredSubscriptions() {
 	cutoff := time.Now().Add(-s.subscriptionTTL)
-	
+
 	s.subscriptions.Range(func(key, value interface{}) bool {
 		sub := value.(*subscription)
 		if sub.lastAccessed.Before(cutoff) {

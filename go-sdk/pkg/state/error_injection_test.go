@@ -91,15 +91,15 @@ func (fs *FailingStore) ApplyPatch(patch JSONPatch) error {
 // shouldFail determines if the operation should fail based on failure rate
 func (fs *FailingStore) shouldFail(path string) bool {
 	atomic.AddInt32(&fs.callCount, 1)
-	
+
 	fs.mu.RLock()
 	defer fs.mu.RUnlock()
-	
+
 	// Check if we should fail for specific path
 	if fs.specificPath != "" && fs.specificPath != path {
 		return false
 	}
-	
+
 	return rand.Float64() < fs.failureRate
 }
 
@@ -217,7 +217,7 @@ func TestStateManager_WithErrors(t *testing.T) {
 			// Create base components
 			baseStore := NewStateStore()
 			failingStore := NewFailingStore(baseStore, tt.failureMode, tt.failureRate)
-			
+
 			// Create manager with failing store
 			opts := DefaultManagerOptions()
 			opts.MaxRetries = 3
@@ -228,36 +228,36 @@ func TestStateManager_WithErrors(t *testing.T) {
 				t.Fatalf("Failed to create manager: %v", err)
 			}
 			defer manager.Close()
-			
+
 			// For this test, we'll inject failures by simulating error conditions
 			// In a real implementation, this would be done through dependency injection
 			_ = failingStore // Keep the failingStore for reference
-			
+
 			// Create context
 			ctx := context.Background()
 			contextID, err := manager.CreateContext(ctx, "test-state", nil)
 			if err != nil {
 				t.Fatalf("Failed to create context: %v", err)
 			}
-			
+
 			// Track errors
 			var errorCount int32
 			var successCount int32
-			
+
 			// Run operations concurrently
 			var wg sync.WaitGroup
 			for i := 0; i < tt.operations; i++ {
 				wg.Add(1)
 				go func(i int) {
 					defer wg.Done()
-					
+
 					updates := map[string]interface{}{
 						fmt.Sprintf("key_%d", i): fmt.Sprintf("value_%d", i),
 					}
-					
+
 					ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 					defer cancel()
-					
+
 					_, err := manager.UpdateState(ctx, contextID, "test-state", updates, UpdateOptions{})
 					if err != nil {
 						atomic.AddInt32(&errorCount, 1)
@@ -266,22 +266,22 @@ func TestStateManager_WithErrors(t *testing.T) {
 					}
 				}(i)
 			}
-			
+
 			wg.Wait()
-			
+
 			// Check results
 			failCount, totalCalls := failingStore.GetFailureStats()
 			t.Logf("Test %s: Errors: %d, Success: %d, Fail injections: %d, Total calls: %d",
 				tt.name, errorCount, successCount, failCount, totalCalls)
-			
+
 			if tt.expectErrors && errorCount == 0 {
 				t.Errorf("Expected errors but got none")
 			}
-			
+
 			if !tt.expectErrors && errorCount > 0 {
 				t.Errorf("Expected no errors but got %d", errorCount)
 			}
-			
+
 			// Verify some operations succeeded despite failures
 			if tt.failureRate < 1.0 && successCount == 0 {
 				t.Errorf("Expected some successful operations but got none")
@@ -310,13 +310,13 @@ func TestStateManager_ValidationErrors(t *testing.T) {
 			return nil
 		}),
 	}
-	
+
 	manager, err := NewStateManager(opts)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 	defer manager.Close()
-	
+
 	// Replace validator with failing validator
 	failingValidator := &FailingValidator{
 		StateValidator: manager.validator,
@@ -324,39 +324,39 @@ func TestStateManager_ValidationErrors(t *testing.T) {
 		failureType:    "invalid",
 	}
 	manager.validator = failingValidator
-	
+
 	ctx := context.Background()
 	contextID, err := manager.CreateContext(ctx, "test-state", nil)
 	if err != nil {
 		t.Fatalf("Failed to create context: %v", err)
 	}
-	
+
 	// Test validation failures
 	var validationErrors int32
 	var wg sync.WaitGroup
-	
+
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			
+
 			updates := map[string]interface{}{
 				"data": fmt.Sprintf("test_%d", i),
 			}
-			
+
 			_, err := manager.UpdateState(ctx, contextID, "test-state", updates, UpdateOptions{})
 			if err != nil && errors.Is(err, ErrInjectedValidation) {
 				atomic.AddInt32(&validationErrors, 1)
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	if validationErrors == 0 {
 		t.Error("Expected validation errors but got none")
 	}
-	
+
 	t.Logf("Validation errors: %d/50", validationErrors)
 }
 
@@ -364,25 +364,25 @@ func TestStateManager_ValidationErrors(t *testing.T) {
 func TestStateManager_CascadingFailures(t *testing.T) {
 	// Create manager
 	opts := DefaultManagerOptions()
-	opts.EventBufferSize = 10 // Small buffer to trigger backpressure
+	opts.EventBufferSize = 10  // Small buffer to trigger backpressure
 	opts.EnableMetrics = false // Disable to avoid logger issues
 	manager, err := NewStateManager(opts)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 	defer manager.Close()
-	
+
 	// Create failing store that fails after some operations
 	baseStore := NewStateStore()
 	failingStore := NewFailingStore(baseStore, "storage", 0)
 	_ = failingStore // Reference for future enhancement
-	
+
 	ctx := context.Background()
 	contextID, err := manager.CreateContext(ctx, "test-state", nil)
 	if err != nil {
 		t.Fatalf("Failed to create context: %v", err)
 	}
-	
+
 	// Start with normal operations
 	for i := 0; i < 10; i++ {
 		updates := map[string]interface{}{
@@ -393,44 +393,44 @@ func TestStateManager_CascadingFailures(t *testing.T) {
 			t.Errorf("Unexpected error during normal operation: %v", err)
 		}
 	}
-	
+
 	// Inject failures
 	failingStore.SetFailureMode("storage", 0.8)
-	
+
 	// Try more operations, expect failures to cascade
 	var errors int32
 	var wg sync.WaitGroup
-	
+
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			
+
 			updates := map[string]interface{}{
 				fmt.Sprintf("fail_key_%d", i): fmt.Sprintf("fail_value_%d", i),
 			}
-			
+
 			ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 			defer cancel()
-			
+
 			_, err := manager.UpdateState(ctx, contextID, "test-state", updates, UpdateOptions{})
 			if err != nil {
 				atomic.AddInt32(&errors, 1)
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	if errors == 0 {
 		t.Error("Expected cascading failures but got none")
 	}
-	
+
 	t.Logf("Cascading failures: %d/20", errors)
-	
+
 	// Reduce failure rate and verify recovery
 	failingStore.SetFailureMode("storage", 0.1)
-	
+
 	var recovered int32
 	for i := 0; i < 10; i++ {
 		updates := map[string]interface{}{
@@ -441,7 +441,7 @@ func TestStateManager_CascadingFailures(t *testing.T) {
 			atomic.AddInt32(&recovered, 1)
 		}
 	}
-	
+
 	if recovered < 5 {
 		t.Errorf("Expected recovery but only %d/10 operations succeeded", recovered)
 	}
@@ -457,19 +457,19 @@ func TestStateManager_PathSpecificFailures(t *testing.T) {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 	defer manager.Close()
-	
+
 	// Create failing store
 	baseStore := NewStateStore()
 	failingStore := NewFailingStore(baseStore, "storage", 1.0) // 100% failure rate
 	failingStore.SetPathSpecificFailure("/critical/path")
 	_ = failingStore // Reference for future enhancement
-	
+
 	ctx := context.Background()
 	contextID, err := manager.CreateContext(ctx, "test-state", nil)
 	if err != nil {
 		t.Fatalf("Failed to create context: %v", err)
 	}
-	
+
 	// Test normal path - should work
 	normalUpdates := map[string]interface{}{
 		"normal": "data",
@@ -478,7 +478,7 @@ func TestStateManager_PathSpecificFailures(t *testing.T) {
 	if err != nil {
 		t.Errorf("Normal path failed unexpectedly: %v", err)
 	}
-	
+
 	// Test critical path - should fail
 	criticalUpdates := map[string]interface{}{
 		"critical": map[string]interface{}{
@@ -503,18 +503,18 @@ func TestStateManager_ErrorRecovery(t *testing.T) {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 	defer manager.Close()
-	
+
 	// Create store that fails initially then recovers
 	baseStore := NewStateStore()
 	failingStore := NewFailingStore(baseStore, "storage", 1.0)
 	_ = failingStore // Reference for future enhancement
-	
+
 	ctx := context.Background()
 	contextID, err := manager.CreateContext(ctx, "test-state", nil)
 	if err != nil {
 		t.Fatalf("Failed to create context: %v", err)
 	}
-	
+
 	// Start a goroutine to reduce failure rate after some time
 	go func() {
 		time.Sleep(100 * time.Millisecond)
@@ -522,24 +522,24 @@ func TestStateManager_ErrorRecovery(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		failingStore.SetFailureMode("storage", 0)
 	}()
-	
+
 	// Try operations that should eventually succeed
 	start := time.Now()
 	updates := map[string]interface{}{
 		"retry_test": "data",
 	}
-	
+
 	_, err = manager.UpdateState(ctx, contextID, "test-state", updates, UpdateOptions{})
 	duration := time.Since(start)
-	
+
 	if err != nil {
 		t.Errorf("Operation failed even with retries: %v", err)
 	}
-	
+
 	if duration < 100*time.Millisecond {
 		t.Error("Operation succeeded too quickly, retries may not be working")
 	}
-	
+
 	t.Logf("Operation succeeded after %v with retries", duration)
 }
 
@@ -554,14 +554,14 @@ func TestStateManager_ConcurrentFailures(t *testing.T) {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 	defer manager.Close()
-	
+
 	// Create failing store with variable failure rate
 	baseStore := NewStateStore()
 	failingStore := NewFailingStore(baseStore, "storage", 0.3)
 	_ = failingStore // Reference for future enhancement
-	
+
 	ctx := context.Background()
-	
+
 	// Create multiple contexts
 	var contexts []string
 	for i := 0; i < 5; i++ {
@@ -571,33 +571,33 @@ func TestStateManager_ConcurrentFailures(t *testing.T) {
 		}
 		contexts = append(contexts, contextID)
 	}
-	
+
 	// Run concurrent operations with failures
 	var wg sync.WaitGroup
 	var successCount int32
 	var errorCount int32
-	
+
 	// Simulate varying load and failure patterns
 	for round := 0; round < 3; round++ {
 		// Vary failure rate each round
 		failureRate := float64(round+1) * 0.2
 		failingStore.SetFailureMode("storage", failureRate)
-		
+
 		for i := 0; i < 20; i++ {
 			wg.Add(1)
 			go func(round, i int) {
 				defer wg.Done()
-				
+
 				// Pick random context
 				contextID := contexts[rand.Intn(len(contexts))]
-				
+
 				updates := map[string]interface{}{
 					fmt.Sprintf("round_%d_op_%d", round, i): time.Now().UnixNano(),
 				}
-				
+
 				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 				defer cancel()
-				
+
 				_, err := manager.UpdateState(ctx, contextID, fmt.Sprintf("state_%d", i%5), updates, UpdateOptions{})
 				if err != nil {
 					atomic.AddInt32(&errorCount, 1)
@@ -606,15 +606,15 @@ func TestStateManager_ConcurrentFailures(t *testing.T) {
 				}
 			}(round, i)
 		}
-		
+
 		// Add some delay between rounds
 		time.Sleep(100 * time.Millisecond)
 	}
-	
+
 	wg.Wait()
-	
+
 	t.Logf("Concurrent test results - Success: %d, Errors: %d", successCount, errorCount)
-	
+
 	// Verify both successes and failures occurred
 	if successCount == 0 {
 		t.Error("No operations succeeded")

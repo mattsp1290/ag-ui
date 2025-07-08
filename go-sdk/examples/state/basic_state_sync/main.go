@@ -20,9 +20,9 @@ import (
 
 // ApplicationState represents our example application state
 type ApplicationState struct {
-	User        UserInfo              `json:"user"`
-	Settings    Settings              `json:"settings"`
-	LastUpdated time.Time             `json:"lastUpdated"`
+	User        UserInfo               `json:"user"`
+	Settings    Settings               `json:"settings"`
+	LastUpdated time.Time              `json:"lastUpdated"`
 	Metadata    map[string]interface{} `json:"metadata"`
 }
 
@@ -36,8 +36,8 @@ type UserInfo struct {
 
 // Settings contains application settings
 type Settings struct {
-	Theme        string `json:"theme"`
-	Language     string `json:"language"`
+	Theme         string `json:"theme"`
+	Language      string `json:"language"`
 	Notifications bool   `json:"notifications"`
 }
 
@@ -56,8 +56,8 @@ func main() {
 			IsActive: true,
 		},
 		Settings: Settings{
-			Theme:        "dark",
-			Language:     "en",
+			Theme:         "dark",
+			Language:      "en",
 			Notifications: true,
 		},
 		LastUpdated: time.Now(),
@@ -94,7 +94,7 @@ func main() {
 
 	// Simulate state changes
 	fmt.Println("\n=== Simulating State Changes ===")
-	
+
 	// Update user name
 	fmt.Println("\n1. Updating user name...")
 	if err := store.Set("/user/name", "Jane Smith"); err != nil {
@@ -112,13 +112,13 @@ func main() {
 	// Apply a batch of changes using transaction
 	fmt.Println("\n3. Applying batch changes using transaction...")
 	tx := store.Begin()
-	
+
 	patch := state.JSONPatch{
 		{Op: state.JSONPatchOpReplace, Path: "/user/email", Value: "jane@example.com"},
 		{Op: state.JSONPatchOpReplace, Path: "/settings/notifications", Value: false},
 		{Op: state.JSONPatchOpAdd, Path: "/metadata/lastSync", Value: time.Now().Unix()},
 	}
-	
+
 	if err := tx.Apply(patch); err != nil {
 		log.Printf("Failed to apply patch in transaction: %v", err)
 		tx.Rollback()
@@ -131,7 +131,7 @@ func main() {
 
 	// Demonstrate snapshot and restore
 	fmt.Println("\n=== Snapshot and Restore Demo ===")
-	
+
 	// Create a snapshot
 	snapshot, err := store.CreateSnapshot()
 	if err != nil {
@@ -164,10 +164,10 @@ func main() {
 
 	// Demonstrate event-based synchronization
 	fmt.Println("\n=== Event-Based Synchronization Demo ===")
-	
+
 	// Generate and handle a state snapshot event
 	generator := state.NewStateEventGenerator(store)
-	
+
 	snapshotEvent, err := generator.GenerateSnapshot()
 	if err != nil {
 		log.Printf("Failed to generate snapshot event: %v", err)
@@ -177,7 +177,7 @@ func main() {
 		if ts := snapshotEvent.Timestamp(); ts != nil {
 			fmt.Printf("Timestamp: %s\n", time.UnixMilli(*ts).Format(time.RFC3339))
 		}
-		
+
 		// Handle the snapshot event (simulate receiving it)
 		if err := eventHandler.HandleStateSnapshot(snapshotEvent); err != nil {
 			log.Printf("Failed to handle snapshot event: %v", err)
@@ -189,7 +189,7 @@ func main() {
 	oldState := store.GetState()
 	store.Set("/user/name", "John Updated")
 	newState := store.GetState()
-	
+
 	deltaEvent, err := generator.GenerateDelta(oldState, newState)
 	if err != nil {
 		log.Printf("Failed to generate delta event: %v", err)
@@ -226,7 +226,7 @@ func main() {
 
 	// Export and import state
 	fmt.Println("\n=== Export/Import Demo ===")
-	
+
 	// Export current state
 	exported, err := store.Export()
 	if err != nil {
@@ -239,7 +239,7 @@ func main() {
 	// Clear store and import
 	fmt.Println("\nClearing store and importing...")
 	store.Clear()
-	
+
 	if err := store.Import(exported); err != nil {
 		log.Printf("Failed to import state: %v", err)
 	} else {

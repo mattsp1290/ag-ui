@@ -25,17 +25,17 @@ const (
 
 // PerformanceConfig holds performance tuning parameters
 type PerformanceConfig struct {
-	Mode              PerformanceMode
-	CacheTTL          time.Duration
-	CacheSize         int
-	WorkerPoolSize    int
-	BatchSize         int
-	MaxConcurrency    int
-	EnableHotPath     bool
-	EnableAsync       bool
-	MemoryPoolSize    int
-	ResourceMonitor   bool
-	MonitorInterval   time.Duration
+	Mode            PerformanceMode
+	CacheTTL        time.Duration
+	CacheSize       int
+	WorkerPoolSize  int
+	BatchSize       int
+	MaxConcurrency  int
+	EnableHotPath   bool
+	EnableAsync     bool
+	MemoryPoolSize  int
+	ResourceMonitor bool
+	MonitorInterval time.Duration
 }
 
 // DefaultPerformanceConfig returns a balanced performance configuration
@@ -65,11 +65,11 @@ type CachedValidationResult struct {
 
 // ValidationResultCache implements an LRU cache for validation results
 type ValidationResultCache struct {
-	cache    *lru.Cache[string, *CachedValidationResult]
-	ttl      time.Duration
-	mu       sync.RWMutex
-	hits     uint64
-	misses   uint64
+	cache     *lru.Cache[string, *CachedValidationResult]
+	ttl       time.Duration
+	mu        sync.RWMutex
+	hits      uint64
+	misses    uint64
 	evictions uint64
 }
 
@@ -153,10 +153,10 @@ type WorkerPool struct {
 
 // ValidationJob represents a validation task
 type ValidationJob struct {
-	ID       string
-	Event    Event
-	Rules    []ValidationRule
-	Context  context.Context
+	ID      string
+	Event   Event
+	Rules   []ValidationRule
+	Context context.Context
 }
 
 // ValidationJobResult represents the result of a validation job
@@ -384,14 +384,14 @@ func (hpo *HotPathOptimizer) optimize(path *HotPath) {
 
 // BatchProcessor handles batch validation of events
 type BatchProcessor struct {
-	batchSize      int
-	timeout        time.Duration
-	processor      func([]Event) []ValidationJobResult
-	input          chan Event
-	output         chan ValidationJobResult
-	wg             sync.WaitGroup
-	ctx            context.Context
-	cancel         context.CancelFunc
+	batchSize int
+	timeout   time.Duration
+	processor func([]Event) []ValidationJobResult
+	input     chan Event
+	output    chan ValidationJobResult
+	wg        sync.WaitGroup
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
 // NewBatchProcessor creates a new batch processor
@@ -735,7 +735,7 @@ func (po *PerformanceOptimizer) parallelValidation(event Event, rules []Validati
 
 	// Generate a unique ID for this job
 	jobID := fmt.Sprintf("%s-%d", event.Type(), time.Now().UnixNano())
-	
+
 	job := ValidationJob{
 		ID:      jobID,
 		Event:   event,

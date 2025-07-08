@@ -23,69 +23,69 @@ type EventStream struct {
 	// Configuration
 	config      *StreamConfig
 	compression CompressionType
-	
+
 	// Event processing
-	eventChan       chan events.Event
-	batchChan       chan *EventBatch
-	outputChan      chan *StreamChunk
-	errorChan       chan error
-	
+	eventChan  chan events.Event
+	batchChan  chan *EventBatch
+	outputChan chan *StreamChunk
+	errorChan  chan error
+
 	// Flow control and backpressure
-	flowController  *FlowController
-	sequencer       *EventSequencer
-	
+	flowController *FlowController
+	sequencer      *EventSequencer
+
 	// Buffer management
-	bufferPool      *BufferPool
-	chunkBuffer     *ChunkBuffer
-	
+	bufferPool  *BufferPool
+	chunkBuffer *ChunkBuffer
+
 	// Performance monitoring
-	metrics         *StreamMetrics
-	
+	metrics *StreamMetrics
+
 	// Lifecycle management
-	ctx             context.Context
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
-	started         int32
-	closed          int32
-	
+	ctx     context.Context
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
+	started int32
+	closed  int32
+
 	// Synchronization
-	mu              sync.RWMutex
+	mu sync.RWMutex
 }
 
 // StreamConfig defines configuration for the event stream
 type StreamConfig struct {
 	// Buffering settings
-	EventBufferSize    int           `json:"event_buffer_size"`
-	ChunkBufferSize    int           `json:"chunk_buffer_size"`
-	MaxChunkSize       int           `json:"max_chunk_size"`
-	FlushInterval      time.Duration `json:"flush_interval"`
-	
+	EventBufferSize int           `json:"event_buffer_size"`
+	ChunkBufferSize int           `json:"chunk_buffer_size"`
+	MaxChunkSize    int           `json:"max_chunk_size"`
+	FlushInterval   time.Duration `json:"flush_interval"`
+
 	// Batching settings
-	BatchEnabled       bool          `json:"batch_enabled"`
-	BatchSize          int           `json:"batch_size"`
-	BatchTimeout       time.Duration `json:"batch_timeout"`
-	MaxBatchSize       int           `json:"max_batch_size"`
-	
+	BatchEnabled bool          `json:"batch_enabled"`
+	BatchSize    int           `json:"batch_size"`
+	BatchTimeout time.Duration `json:"batch_timeout"`
+	MaxBatchSize int           `json:"max_batch_size"`
+
 	// Compression settings
 	CompressionEnabled bool            `json:"compression_enabled"`
 	CompressionType    CompressionType `json:"compression_type"`
 	CompressionLevel   int             `json:"compression_level"`
 	MinCompressionSize int             `json:"min_compression_size"`
-	
+
 	// Flow control settings
 	MaxConcurrentEvents int           `json:"max_concurrent_events"`
 	BackpressureTimeout time.Duration `json:"backpressure_timeout"`
 	DrainTimeout        time.Duration `json:"drain_timeout"`
-	
+
 	// Sequencing settings
-	SequenceEnabled     bool `json:"sequence_enabled"`
-	OrderingRequired    bool `json:"ordering_required"`
-	OutOfOrderBuffer    int  `json:"out_of_order_buffer"`
-	
+	SequenceEnabled  bool `json:"sequence_enabled"`
+	OrderingRequired bool `json:"ordering_required"`
+	OutOfOrderBuffer int  `json:"out_of_order_buffer"`
+
 	// Performance settings
-	WorkerCount         int  `json:"worker_count"`
-	EnableMetrics       bool `json:"enable_metrics"`
-	MetricsInterval     time.Duration `json:"metrics_interval"`
+	WorkerCount     int           `json:"worker_count"`
+	EnableMetrics   bool          `json:"enable_metrics"`
+	MetricsInterval time.Duration `json:"metrics_interval"`
 }
 
 // CompressionType defines supported compression algorithms
@@ -107,49 +107,49 @@ type EventBatch struct {
 
 // StreamChunk represents a processed chunk ready for transmission
 type StreamChunk struct {
-	Data         []byte          `json:"data"`
-	EventType    string          `json:"event_type"`
-	EventID      string          `json:"event_id"`
-	Retry        *int            `json:"retry,omitempty"`
-	Compressed   bool            `json:"compressed"`
-	SequenceNum  uint64          `json:"sequence_num"`
-	ChunkIndex   int             `json:"chunk_index"`
-	TotalChunks  int             `json:"total_chunks"`
-	Timestamp    time.Time       `json:"timestamp"`
+	Data        []byte    `json:"data"`
+	EventType   string    `json:"event_type"`
+	EventID     string    `json:"event_id"`
+	Retry       *int      `json:"retry,omitempty"`
+	Compressed  bool      `json:"compressed"`
+	SequenceNum uint64    `json:"sequence_num"`
+	ChunkIndex  int       `json:"chunk_index"`
+	TotalChunks int       `json:"total_chunks"`
+	Timestamp   time.Time `json:"timestamp"`
 }
 
 // FlowController manages backpressure and flow control
 type FlowController struct {
-	maxConcurrent   int32
-	current         int32
-	backpressureCh  chan struct{}
-	timeout         time.Duration
-	drainTimeout    time.Duration
-	metrics         *FlowMetrics
-	mu              sync.RWMutex
+	maxConcurrent  int32
+	current        int32
+	backpressureCh chan struct{}
+	timeout        time.Duration
+	drainTimeout   time.Duration
+	metrics        *FlowMetrics
+	mu             sync.RWMutex
 }
 
 // FlowMetrics tracks flow control statistics
 type FlowMetrics struct {
-	EventsProcessed     uint64 `json:"events_processed"`
-	EventsDropped       uint64 `json:"events_dropped"`
-	BackpressureEvents  uint64 `json:"backpressure_events"`
-	AverageWaitTime     int64  `json:"average_wait_time_ns"`
-	MaxWaitTime         int64  `json:"max_wait_time_ns"`
-	CurrentConcurrent   int32  `json:"current_concurrent"`
+	EventsProcessed    uint64 `json:"events_processed"`
+	EventsDropped      uint64 `json:"events_dropped"`
+	BackpressureEvents uint64 `json:"backpressure_events"`
+	AverageWaitTime    int64  `json:"average_wait_time_ns"`
+	MaxWaitTime        int64  `json:"max_wait_time_ns"`
+	CurrentConcurrent  int32  `json:"current_concurrent"`
 }
 
 // EventSequencer manages event ordering and sequencing
 type EventSequencer struct {
-	enabled         bool
+	enabled          bool
 	orderingRequired bool
-	nextSequence    uint64
-	sequenceBuffer  map[uint64]*SequencedEvent
-	bufferSize      int
-	timeout         time.Duration
-	outputChan      chan *SequencedEvent
-	metrics         *SequenceMetrics
-	mu              sync.RWMutex
+	nextSequence     uint64
+	sequenceBuffer   map[uint64]*SequencedEvent
+	bufferSize       int
+	timeout          time.Duration
+	outputChan       chan *SequencedEvent
+	metrics          *SequenceMetrics
+	mu               sync.RWMutex
 }
 
 // SequencedEvent wraps an event with sequence information
@@ -162,12 +162,12 @@ type SequencedEvent struct {
 
 // SequenceMetrics tracks sequencing statistics
 type SequenceMetrics struct {
-	EventsSequenced     uint64 `json:"events_sequenced"`
-	OutOfOrderEvents    uint64 `json:"out_of_order_events"`
-	DroppedEvents       uint64 `json:"dropped_events"`
-	BufferUtilization   float64 `json:"buffer_utilization"`
-	AverageDelay        int64   `json:"average_delay_ns"`
-	MaxDelay            int64   `json:"max_delay_ns"`
+	EventsSequenced   uint64  `json:"events_sequenced"`
+	OutOfOrderEvents  uint64  `json:"out_of_order_events"`
+	DroppedEvents     uint64  `json:"dropped_events"`
+	BufferUtilization float64 `json:"buffer_utilization"`
+	AverageDelay      int64   `json:"average_delay_ns"`
+	MaxDelay          int64   `json:"max_delay_ns"`
 }
 
 // BufferPool manages reusable buffers for efficient memory usage
@@ -188,69 +188,69 @@ type ChunkBuffer struct {
 // StreamMetrics tracks overall stream performance
 type StreamMetrics struct {
 	// Event statistics
-	TotalEvents         uint64 `json:"total_events"`
-	EventsPerSecond     float64 `json:"events_per_second"`
-	EventsProcessed     uint64 `json:"events_processed"`
-	EventsDropped       uint64 `json:"events_dropped"`
-	EventsCompressed    uint64 `json:"events_compressed"`
-	
+	TotalEvents      uint64  `json:"total_events"`
+	EventsPerSecond  float64 `json:"events_per_second"`
+	EventsProcessed  uint64  `json:"events_processed"`
+	EventsDropped    uint64  `json:"events_dropped"`
+	EventsCompressed uint64  `json:"events_compressed"`
+
 	// Batch statistics
-	TotalBatches        uint64 `json:"total_batches"`
+	TotalBatches        uint64  `json:"total_batches"`
 	AverageBatchSize    float64 `json:"average_batch_size"`
 	BatchProcessingTime int64   `json:"batch_processing_time_ns"`
-	
+
 	// Compression statistics
-	CompressionRatio    float64 `json:"compression_ratio"`
-	CompressionTime     int64   `json:"compression_time_ns"`
-	BytesSaved          uint64  `json:"bytes_saved"`
-	
+	CompressionRatio float64 `json:"compression_ratio"`
+	CompressionTime  int64   `json:"compression_time_ns"`
+	BytesSaved       uint64  `json:"bytes_saved"`
+
 	// Performance statistics
-	AverageLatency      int64   `json:"average_latency_ns"`
-	MaxLatency          int64   `json:"max_latency_ns"`
-	ThroughputBps       uint64  `json:"throughput_bps"`
-	MemoryUsage         uint64  `json:"memory_usage_bytes"`
-	
+	AverageLatency int64  `json:"average_latency_ns"`
+	MaxLatency     int64  `json:"max_latency_ns"`
+	ThroughputBps  uint64 `json:"throughput_bps"`
+	MemoryUsage    uint64 `json:"memory_usage_bytes"`
+
 	// Error statistics
-	ProcessingErrors    uint64 `json:"processing_errors"`
-	CompressionErrors   uint64 `json:"compression_errors"`
-	SequencingErrors    uint64 `json:"sequencing_errors"`
-	
+	ProcessingErrors  uint64 `json:"processing_errors"`
+	CompressionErrors uint64 `json:"compression_errors"`
+	SequencingErrors  uint64 `json:"sequencing_errors"`
+
 	// Flow control statistics
-	FlowControl         *FlowMetrics     `json:"flow_control"`
-	Sequencing          *SequenceMetrics `json:"sequencing"`
-	
+	FlowControl *FlowMetrics     `json:"flow_control"`
+	Sequencing  *SequenceMetrics `json:"sequencing"`
+
 	// Timing
-	StartTime           time.Time `json:"start_time"`
-	LastEventTime       time.Time `json:"last_event_time"`
-	
+	StartTime     time.Time `json:"start_time"`
+	LastEventTime time.Time `json:"last_event_time"`
+
 	// Synchronization
-	mu                  sync.RWMutex
+	mu sync.RWMutex
 }
 
 // DefaultStreamConfig returns a default stream configuration
 func DefaultStreamConfig() *StreamConfig {
 	return &StreamConfig{
-		EventBufferSize:       1000,
-		ChunkBufferSize:       100,
-		MaxChunkSize:          64 * 1024, // 64KB
-		FlushInterval:         100 * time.Millisecond,
-		BatchEnabled:          true,
-		BatchSize:             50,
-		BatchTimeout:          50 * time.Millisecond,
-		MaxBatchSize:          500,
-		CompressionEnabled:    true,
-		CompressionType:       CompressionGzip,
-		CompressionLevel:      6,
-		MinCompressionSize:    1024,
-		MaxConcurrentEvents:   100,
-		BackpressureTimeout:   5 * time.Second,
-		DrainTimeout:          30 * time.Second,
-		SequenceEnabled:       true,
-		OrderingRequired:      false,
-		OutOfOrderBuffer:      1000,
-		WorkerCount:           4,
-		EnableMetrics:         true,
-		MetricsInterval:       30 * time.Second,
+		EventBufferSize:     1000,
+		ChunkBufferSize:     100,
+		MaxChunkSize:        64 * 1024, // 64KB
+		FlushInterval:       100 * time.Millisecond,
+		BatchEnabled:        true,
+		BatchSize:           50,
+		BatchTimeout:        50 * time.Millisecond,
+		MaxBatchSize:        500,
+		CompressionEnabled:  true,
+		CompressionType:     CompressionGzip,
+		CompressionLevel:    6,
+		MinCompressionSize:  1024,
+		MaxConcurrentEvents: 100,
+		BackpressureTimeout: 5 * time.Second,
+		DrainTimeout:        30 * time.Second,
+		SequenceEnabled:     true,
+		OrderingRequired:    false,
+		OutOfOrderBuffer:    1000,
+		WorkerCount:         4,
+		EnableMetrics:       true,
+		MetricsInterval:     30 * time.Second,
 	}
 }
 
@@ -259,13 +259,13 @@ func NewEventStream(config *StreamConfig) (*EventStream, error) {
 	if config == nil {
 		config = DefaultStreamConfig()
 	}
-	
+
 	if err := validateStreamConfig(config); err != nil {
 		return nil, fmt.Errorf("invalid stream config: %w", err)
 	}
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	stream := &EventStream{
 		config:      config,
 		compression: config.CompressionType,
@@ -276,19 +276,19 @@ func NewEventStream(config *StreamConfig) (*EventStream, error) {
 		ctx:         ctx,
 		cancel:      cancel,
 	}
-	
+
 	// Initialize components
-	stream.flowController = NewFlowController(config.MaxConcurrentEvents, 
+	stream.flowController = NewFlowController(config.MaxConcurrentEvents,
 		config.BackpressureTimeout, config.DrainTimeout)
-	stream.sequencer = NewEventSequencer(config.SequenceEnabled, 
+	stream.sequencer = NewEventSequencer(config.SequenceEnabled,
 		config.OrderingRequired, config.OutOfOrderBuffer)
 	stream.bufferPool = NewBufferPool(config.MaxChunkSize)
 	stream.chunkBuffer = NewChunkBuffer(config.MaxChunkSize)
-	
+
 	if config.EnableMetrics {
 		stream.metrics = NewStreamMetrics()
 	}
-	
+
 	return stream, nil
 }
 
@@ -297,50 +297,50 @@ func (s *EventStream) Start() error {
 	if !atomic.CompareAndSwapInt32(&s.started, 0, 1) {
 		return messages.NewStreamingError("stream", 0, "stream already started")
 	}
-	
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if s.isClosed() {
 		return messages.NewStreamingError("stream", 0, "stream is closed")
 	}
-	
+
 	// Start processing workers
 	for i := 0; i < s.config.WorkerCount; i++ {
 		s.wg.Add(1)
 		go s.eventProcessor(i)
 	}
-	
+
 	// Start batching processor if enabled
 	if s.config.BatchEnabled {
 		s.wg.Add(1)
 		go s.batchProcessor()
 	}
-	
+
 	// Start chunk processor
 	s.wg.Add(1)
 	go s.chunkProcessor()
-	
+
 	// Start flow controller
 	s.wg.Add(1)
 	go s.flowController.Run(s.ctx)
-	
+
 	// Start sequencer if enabled
 	if s.config.SequenceEnabled {
 		s.wg.Add(1)
 		go s.sequencer.Run(s.ctx)
 	}
-	
+
 	// Start metrics collector if enabled
 	if s.config.EnableMetrics && s.metrics != nil {
 		s.wg.Add(1)
 		go s.metricsCollector()
 	}
-	
+
 	if s.metrics != nil {
 		s.metrics.StartTime = time.Now()
 	}
-	
+
 	return nil
 }
 
@@ -349,20 +349,20 @@ func (s *EventStream) SendEvent(event events.Event) error {
 	if s.isClosed() {
 		return messages.NewStreamingError("stream", 0, "stream is closed")
 	}
-	
+
 	if !s.isStarted() {
 		return messages.NewStreamingError("stream", 0, "stream not started")
 	}
-	
+
 	if event == nil {
 		return messages.NewValidationError("event cannot be nil")
 	}
-	
+
 	// Validate event
 	if err := event.Validate(); err != nil {
 		return messages.NewValidationError(fmt.Sprintf("event validation failed: %v", err))
 	}
-	
+
 	// Apply flow control
 	if err := s.flowController.Acquire(s.ctx); err != nil {
 		if s.metrics != nil {
@@ -370,7 +370,7 @@ func (s *EventStream) SendEvent(event events.Event) error {
 		}
 		return fmt.Errorf("flow control rejected event: %w", err)
 	}
-	
+
 	// Send event to processing pipeline
 	select {
 	case s.eventChan <- event:
@@ -406,10 +406,10 @@ func (s *EventStream) GetMetrics() *StreamMetrics {
 	if s.metrics == nil {
 		return nil
 	}
-	
+
 	s.metrics.mu.RLock()
 	defer s.metrics.mu.RUnlock()
-	
+
 	// Create a copy to avoid data races
 	metrics := *s.metrics
 	if s.metrics.FlowControl != nil {
@@ -420,7 +420,7 @@ func (s *EventStream) GetMetrics() *StreamMetrics {
 		seqMetrics := *s.metrics.Sequencing
 		metrics.Sequencing = &seqMetrics
 	}
-	
+
 	return &metrics
 }
 
@@ -429,76 +429,76 @@ func (s *EventStream) Close() error {
 	if !atomic.CompareAndSwapInt32(&s.closed, 0, 1) {
 		return nil // Already closed
 	}
-	
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Cancel context to signal shutdown
 	s.cancel()
-	
+
 	// Close input channel
 	close(s.eventChan)
-	
+
 	// Wait for all workers to finish with timeout
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// Clean shutdown
 	case <-time.After(s.config.DrainTimeout):
 		// Force shutdown after timeout
 	}
-	
+
 	// Close output channels
 	close(s.outputChan)
 	close(s.errorChan)
-	
+
 	return nil
 }
 
 // eventProcessor processes individual events
 func (s *EventStream) eventProcessor(workerID int) {
 	defer s.wg.Done()
-	
+
 	for {
 		select {
 		case event, ok := <-s.eventChan:
 			if !ok {
 				return // Channel closed
 			}
-			
+
 			startTime := time.Now()
-			
+
 			if err := s.processEvent(event, workerID); err != nil {
 				s.handleError(fmt.Errorf("worker %d: event processing failed: %w", workerID, err))
 				if s.metrics != nil {
 					atomic.AddUint64(&s.metrics.ProcessingErrors, 1)
 				}
 			}
-			
+
 			// Release flow control
 			s.flowController.Release()
-			
+
 			// Update metrics
 			if s.metrics != nil {
 				latency := time.Since(startTime).Nanoseconds()
 				atomic.AddUint64(&s.metrics.EventsProcessed, 1)
-				
+
 				s.metrics.mu.Lock()
 				if latency > s.metrics.MaxLatency {
 					s.metrics.MaxLatency = latency
 				}
-				
+
 				// Update average latency using exponential moving average
 				alpha := 0.1
 				s.metrics.AverageLatency = int64(float64(s.metrics.AverageLatency)*(1-alpha) + float64(latency)*alpha)
 				s.metrics.mu.Unlock()
 			}
-			
+
 		case <-s.ctx.Done():
 			return
 		}
@@ -515,12 +515,12 @@ func (s *EventStream) processEvent(event events.Event, workerID int) error {
 			return fmt.Errorf("event rejected by sequencer")
 		}
 	}
-	
+
 	// Handle batching
 	if s.config.BatchEnabled {
 		return s.addToBatch(event)
 	}
-	
+
 	// Process event directly
 	return s.processEventDirect(event, sequencedEvent)
 }
@@ -532,7 +532,7 @@ func (s *EventStream) processEventDirect(event events.Event, seqEvent *Sequenced
 	if err != nil {
 		return fmt.Errorf("event serialization failed: %w", err)
 	}
-	
+
 	// Apply compression if enabled and size threshold met
 	compressed := false
 	if s.config.CompressionEnabled && len(data) >= s.config.MinCompressionSize {
@@ -550,7 +550,7 @@ func (s *EventStream) processEventDirect(event events.Event, seqEvent *Sequenced
 			}
 		}
 	}
-	
+
 	// Create chunks if data exceeds chunk size
 	return s.createChunks(data, event, seqEvent, compressed)
 }
@@ -565,7 +565,7 @@ func (s *EventStream) addToBatch(event events.Event) error {
 		BatchID:   fmt.Sprintf("batch-%d", time.Now().UnixNano()),
 		Size:      1,
 	}
-	
+
 	select {
 	case s.batchChan <- batch:
 		return nil
@@ -579,12 +579,12 @@ func (s *EventStream) addToBatch(event events.Event) error {
 // batchProcessor processes event batches
 func (s *EventStream) batchProcessor() {
 	defer s.wg.Done()
-	
+
 	ticker := time.NewTicker(s.config.BatchTimeout)
 	defer ticker.Stop()
-	
+
 	var currentBatch *EventBatch
-	
+
 	for {
 		select {
 		case batch, ok := <-s.batchChan:
@@ -594,7 +594,7 @@ func (s *EventStream) batchProcessor() {
 				}
 				return
 			}
-			
+
 			if currentBatch == nil {
 				currentBatch = batch
 			} else {
@@ -602,19 +602,19 @@ func (s *EventStream) batchProcessor() {
 				currentBatch.Events = append(currentBatch.Events, batch.Events...)
 				currentBatch.Size += batch.Size
 			}
-			
+
 			// Process batch if it reaches max size
 			if currentBatch.Size >= s.config.BatchSize {
 				s.processBatch(currentBatch)
 				currentBatch = nil
 			}
-			
+
 		case <-ticker.C:
 			if currentBatch != nil && currentBatch.Size > 0 {
 				s.processBatch(currentBatch)
 				currentBatch = nil
 			}
-			
+
 		case <-s.ctx.Done():
 			if currentBatch != nil {
 				s.processBatch(currentBatch)
@@ -627,13 +627,13 @@ func (s *EventStream) batchProcessor() {
 // processBatch processes a complete batch of events
 func (s *EventStream) processBatch(batch *EventBatch) error {
 	startTime := time.Now()
-	
+
 	// Serialize batch
 	data, err := json.Marshal(batch.Events)
 	if err != nil {
 		return fmt.Errorf("batch serialization failed: %w", err)
 	}
-	
+
 	// Apply compression if enabled
 	compressed := false
 	if s.config.CompressionEnabled && len(data) >= s.config.MinCompressionSize {
@@ -650,7 +650,7 @@ func (s *EventStream) processBatch(batch *EventBatch) error {
 			}
 		}
 	}
-	
+
 	// Create batch chunk
 	chunk := &StreamChunk{
 		Data:        data,
@@ -661,11 +661,11 @@ func (s *EventStream) processBatch(batch *EventBatch) error {
 		TotalChunks: 1,
 		Timestamp:   batch.Timestamp,
 	}
-	
+
 	if s.config.SequenceEnabled {
 		chunk.SequenceNum = s.sequencer.GetNextSequence()
 	}
-	
+
 	// Send chunk to output
 	select {
 	case s.outputChan <- chunk:
@@ -683,16 +683,16 @@ func (s *EventStream) processBatch(batch *EventBatch) error {
 // chunkProcessor handles chunk creation and management
 func (s *EventStream) chunkProcessor() {
 	defer s.wg.Done()
-	
+
 	ticker := time.NewTicker(s.config.FlushInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:
 			// Flush any pending chunks
 			s.chunkBuffer.Flush(s.outputChan)
-			
+
 		case <-s.ctx.Done():
 			// Final flush
 			s.chunkBuffer.Flush(s.outputChan)
@@ -713,15 +713,15 @@ func (s *EventStream) createChunks(data []byte, event events.Event, seqEvent *Se
 			TotalChunks: 1,
 			Timestamp:   time.Now(),
 		}
-		
+
 		if event.Timestamp() != nil {
 			chunk.EventID = fmt.Sprintf("%d", *event.Timestamp())
 		}
-		
+
 		if seqEvent != nil {
 			chunk.SequenceNum = seqEvent.SequenceNum
 		}
-		
+
 		select {
 		case s.outputChan <- chunk:
 			return nil
@@ -729,21 +729,21 @@ func (s *EventStream) createChunks(data []byte, event events.Event, seqEvent *Se
 			return fmt.Errorf("context cancelled")
 		}
 	}
-	
+
 	// Multiple chunks needed
 	totalChunks := (len(data) + s.config.MaxChunkSize - 1) / s.config.MaxChunkSize
 	eventID := fmt.Sprintf("event-%d", time.Now().UnixNano())
 	if event.Timestamp() != nil {
 		eventID = fmt.Sprintf("%d", *event.Timestamp())
 	}
-	
+
 	for i := 0; i < totalChunks; i++ {
 		start := i * s.config.MaxChunkSize
 		end := start + s.config.MaxChunkSize
 		if end > len(data) {
 			end = len(data)
 		}
-		
+
 		chunk := &StreamChunk{
 			Data:        data[start:end],
 			EventType:   string(event.Type()),
@@ -753,29 +753,29 @@ func (s *EventStream) createChunks(data []byte, event events.Event, seqEvent *Se
 			TotalChunks: totalChunks,
 			Timestamp:   time.Now(),
 		}
-		
+
 		if seqEvent != nil {
 			chunk.SequenceNum = seqEvent.SequenceNum
 		}
-		
+
 		select {
 		case s.outputChan <- chunk:
 		case <-s.ctx.Done():
 			return fmt.Errorf("context cancelled")
 		}
 	}
-	
+
 	return nil
 }
 
 // compressData compresses data using the configured compression algorithm
 func (s *EventStream) compressData(data []byte) ([]byte, error) {
 	startTime := time.Now()
-	
+
 	var buf bytes.Buffer
 	var writer io.WriteCloser
 	var err error
-	
+
 	switch s.compression {
 	case CompressionGzip:
 		if s.config.CompressionLevel > 0 {
@@ -792,61 +792,61 @@ func (s *EventStream) compressData(data []byte) ([]byte, error) {
 	default:
 		return data, fmt.Errorf("unsupported compression type: %s", s.compression)
 	}
-	
+
 	if err != nil {
 		return data, fmt.Errorf("compression writer creation failed: %w", err)
 	}
-	
+
 	if _, err := writer.Write(data); err != nil {
 		writer.Close()
 		return data, fmt.Errorf("compression write failed: %w", err)
 	}
-	
+
 	if err := writer.Close(); err != nil {
 		return data, fmt.Errorf("compression close failed: %w", err)
 	}
-	
+
 	if s.metrics != nil {
 		compressionTime := time.Since(startTime).Nanoseconds()
 		atomic.StoreInt64(&s.metrics.CompressionTime, compressionTime)
-		
+
 		s.metrics.mu.Lock()
 		if len(data) > 0 {
 			s.metrics.CompressionRatio = float64(buf.Len()) / float64(len(data))
 		}
 		s.metrics.mu.Unlock()
 	}
-	
+
 	return buf.Bytes(), nil
 }
 
 // metricsCollector periodically collects and updates metrics
 func (s *EventStream) metricsCollector() {
 	defer s.wg.Done()
-	
+
 	ticker := time.NewTicker(s.config.MetricsInterval)
 	defer ticker.Stop()
-	
+
 	lastEventCount := uint64(0)
 	lastTime := time.Now()
-	
+
 	for {
 		select {
 		case <-ticker.C:
 			if s.metrics != nil {
 				s.metrics.mu.Lock()
-				
+
 				// Calculate events per second
 				currentEvents := atomic.LoadUint64(&s.metrics.TotalEvents)
 				currentTime := time.Now()
-				
+
 				if elapsed := currentTime.Sub(lastTime).Seconds(); elapsed > 0 {
 					s.metrics.EventsPerSecond = float64(currentEvents-lastEventCount) / elapsed
 				}
-				
+
 				lastEventCount = currentEvents
 				lastTime = currentTime
-				
+
 				// Update flow control metrics
 				if s.flowController != nil && s.flowController.metrics != nil {
 					s.metrics.FlowControl = &FlowMetrics{
@@ -858,15 +858,15 @@ func (s *EventStream) metricsCollector() {
 						CurrentConcurrent:  atomic.LoadInt32(&s.flowController.metrics.CurrentConcurrent),
 					}
 				}
-				
+
 				// Update sequencing metrics
 				if s.sequencer != nil && s.sequencer.metrics != nil {
 					s.metrics.Sequencing = s.sequencer.GetMetrics()
 				}
-				
+
 				s.metrics.mu.Unlock()
 			}
-			
+
 		case <-s.ctx.Done():
 			return
 		}
@@ -897,41 +897,41 @@ func validateStreamConfig(config *StreamConfig) error {
 	if config.EventBufferSize <= 0 {
 		return fmt.Errorf("event buffer size must be positive")
 	}
-	
+
 	if config.ChunkBufferSize <= 0 {
 		return fmt.Errorf("chunk buffer size must be positive")
 	}
-	
+
 	if config.MaxChunkSize <= 0 {
 		return fmt.Errorf("max chunk size must be positive")
 	}
-	
+
 	if config.BatchEnabled {
 		if config.BatchSize <= 0 {
 			return fmt.Errorf("batch size must be positive")
 		}
-		
+
 		if config.MaxBatchSize <= 0 {
 			return fmt.Errorf("max batch size must be positive")
 		}
-		
+
 		if config.BatchSize > config.MaxBatchSize {
 			return fmt.Errorf("batch size cannot exceed max batch size")
 		}
-		
+
 		if config.BatchTimeout <= 0 {
 			return fmt.Errorf("batch timeout must be positive")
 		}
 	}
-	
+
 	if config.MaxConcurrentEvents <= 0 {
 		return fmt.Errorf("max concurrent events must be positive")
 	}
-	
+
 	if config.WorkerCount <= 0 {
 		return fmt.Errorf("worker count must be positive")
 	}
-	
+
 	if config.CompressionEnabled {
 		switch config.CompressionType {
 		case CompressionGzip, CompressionDeflate:
@@ -941,12 +941,12 @@ func validateStreamConfig(config *StreamConfig) error {
 		default:
 			return fmt.Errorf("invalid compression type: %s", config.CompressionType)
 		}
-		
+
 		if config.CompressionLevel < 0 || config.CompressionLevel > 9 {
 			return fmt.Errorf("compression level must be between 0 and 9")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -957,26 +957,26 @@ func NewFlowController(maxConcurrent int, timeout, drainTimeout time.Duration) *
 		backpressureCh: make(chan struct{}, maxConcurrent),
 		timeout:        timeout,
 		drainTimeout:   drainTimeout,
-		metrics: &FlowMetrics{},
+		metrics:        &FlowMetrics{},
 	}
 }
 
 // Acquire acquires a flow control slot
 func (fc *FlowController) Acquire(ctx context.Context) error {
 	start := time.Now()
-	
+
 	select {
 	case fc.backpressureCh <- struct{}{}:
 		current := atomic.AddInt32(&fc.current, 1)
 		atomic.StoreInt32(&fc.metrics.CurrentConcurrent, current)
-		
+
 		waitTime := time.Since(start).Nanoseconds()
 		atomic.AddInt64(&fc.metrics.AverageWaitTime, waitTime)
-		
+
 		if waitTime > atomic.LoadInt64(&fc.metrics.MaxWaitTime) {
 			atomic.StoreInt64(&fc.metrics.MaxWaitTime, waitTime)
 		}
-		
+
 		return nil
 	case <-ctx.Done():
 		atomic.AddUint64(&fc.metrics.EventsDropped, 1)
@@ -1026,23 +1026,23 @@ func (es *EventSequencer) AddEvent(event events.Event) *SequencedEvent {
 			Timestamp:   time.Now(),
 		}
 	}
-	
+
 	es.mu.Lock()
 	defer es.mu.Unlock()
-	
+
 	sequenceNum := atomic.AddUint64(&es.nextSequence, 1)
 	seqEvent := &SequencedEvent{
 		Event:       event,
 		SequenceNum: sequenceNum,
 		Timestamp:   time.Now(),
 	}
-	
+
 	if es.orderingRequired {
 		es.sequenceBuffer[sequenceNum] = seqEvent
 		atomic.AddUint64(&es.metrics.EventsSequenced, 1)
 		return nil // Will be processed in order by Run()
 	}
-	
+
 	atomic.AddUint64(&es.metrics.EventsSequenced, 1)
 	return seqEvent
 }
@@ -1056,7 +1056,7 @@ func (es *EventSequencer) GetNextSequence() uint64 {
 func (es *EventSequencer) GetMetrics() *SequenceMetrics {
 	es.mu.RLock()
 	defer es.mu.RUnlock()
-	
+
 	metrics := *es.metrics
 	metrics.BufferUtilization = float64(len(es.sequenceBuffer)) / float64(es.bufferSize)
 	return &metrics
@@ -1067,22 +1067,22 @@ func (es *EventSequencer) Run(ctx context.Context) {
 	if !es.orderingRequired {
 		return
 	}
-	
+
 	ticker := time.NewTicker(es.timeout)
 	defer ticker.Stop()
-	
+
 	expectedSeq := uint64(1)
-	
+
 	for {
 		select {
 		case <-ticker.C:
 			es.mu.Lock()
-			
+
 			// Process events in order
 			for {
 				if seqEvent, exists := es.sequenceBuffer[expectedSeq]; exists {
 					delete(es.sequenceBuffer, expectedSeq)
-					
+
 					select {
 					case es.outputChan <- seqEvent:
 						expectedSeq++
@@ -1095,7 +1095,7 @@ func (es *EventSequencer) Run(ctx context.Context) {
 					break
 				}
 			}
-			
+
 			// Clean up old events
 			for seq, seqEvent := range es.sequenceBuffer {
 				if time.Since(seqEvent.Timestamp) > es.timeout {
@@ -1103,9 +1103,9 @@ func (es *EventSequencer) Run(ctx context.Context) {
 					atomic.AddUint64(&es.metrics.DroppedEvents, 1)
 				}
 			}
-			
+
 			es.mu.Unlock()
-			
+
 		case <-ctx.Done():
 			return
 		}
@@ -1148,7 +1148,7 @@ func NewChunkBuffer(maxChunkSize int) *ChunkBuffer {
 func (cb *ChunkBuffer) AddChunk(chunk *StreamChunk) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-	
+
 	cb.chunks = append(cb.chunks, chunk)
 }
 
@@ -1156,7 +1156,7 @@ func (cb *ChunkBuffer) AddChunk(chunk *StreamChunk) {
 func (cb *ChunkBuffer) Flush(outputChan chan<- *StreamChunk) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-	
+
 	for _, chunk := range cb.chunks {
 		select {
 		case outputChan <- chunk:
@@ -1164,7 +1164,7 @@ func (cb *ChunkBuffer) Flush(outputChan chan<- *StreamChunk) {
 			// Output channel full, skip
 		}
 	}
-	
+
 	cb.chunks = cb.chunks[:0] // Reset slice
 }
 
@@ -1180,14 +1180,14 @@ func FormatSSEChunk(chunk *StreamChunk) (string, error) {
 	if chunk == nil {
 		return "", fmt.Errorf("chunk cannot be nil")
 	}
-	
+
 	var sse strings.Builder
-	
+
 	// Event type
 	if chunk.EventType != "" {
 		sse.WriteString(fmt.Sprintf("event: %s\n", chunk.EventType))
 	}
-	
+
 	// Event ID
 	if chunk.EventID != "" {
 		eventID := chunk.EventID
@@ -1196,12 +1196,12 @@ func FormatSSEChunk(chunk *StreamChunk) (string, error) {
 		}
 		sse.WriteString(fmt.Sprintf("id: %s\n", eventID))
 	}
-	
+
 	// Retry
 	if chunk.Retry != nil {
 		sse.WriteString(fmt.Sprintf("retry: %d\n", *chunk.Retry))
 	}
-	
+
 	// Data
 	if chunk.Compressed {
 		// For compressed data, we need to base64 encode
@@ -1210,7 +1210,7 @@ func FormatSSEChunk(chunk *StreamChunk) (string, error) {
 	} else {
 		sse.WriteString(fmt.Sprintf("data: %s\n", string(chunk.Data)))
 	}
-	
+
 	// Chunking metadata
 	if chunk.TotalChunks > 1 {
 		metadata := map[string]interface{}{
@@ -1221,9 +1221,9 @@ func FormatSSEChunk(chunk *StreamChunk) (string, error) {
 		metadataBytes, _ := json.Marshal(metadata)
 		sse.WriteString(fmt.Sprintf("data: %s\n", string(metadataBytes)))
 	}
-	
+
 	sse.WriteString("\n")
-	
+
 	return sse.String(), nil
 }
 
@@ -1233,7 +1233,7 @@ func WriteSSEChunk(w io.Writer, chunk *StreamChunk) error {
 	if err != nil {
 		return err
 	}
-	
+
 	_, err = w.Write([]byte(sseData))
 	return err
 }

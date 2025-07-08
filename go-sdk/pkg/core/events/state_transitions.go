@@ -21,36 +21,36 @@ const (
 
 // StateTransitionConfig contains configuration for state transition validation
 type StateTransitionConfig struct {
-	Level                     StateTransitionLevel
+	Level                      StateTransitionLevel
 	EnableConcurrentValidation bool
 	EnableRollbackValidation   bool
 	EnableVersionCompatibility bool
 	MaxConcurrentOperations    int
-	MaxRollbackDepth          int
+	MaxRollbackDepth           int
 	VersionCompatibilityWindow time.Duration
 }
 
 // DefaultStateTransitionConfig returns the default configuration
 func DefaultStateTransitionConfig() *StateTransitionConfig {
 	return &StateTransitionConfig{
-		Level:                     StateTransitionStrict,
+		Level:                      StateTransitionStrict,
 		EnableConcurrentValidation: true,
 		EnableRollbackValidation:   true,
 		EnableVersionCompatibility: true,
 		MaxConcurrentOperations:    10,
-		MaxRollbackDepth:          50,
+		MaxRollbackDepth:           50,
 		VersionCompatibilityWindow: 24 * time.Hour,
 	}
 }
 
 // StateTransition represents a state transition definition
 type StateTransition struct {
-	FromState    string   `json:"from_state"`
-	ToState      string   `json:"to_state"`
-	EventType    EventType `json:"event_type"`
-	Conditions   []string `json:"conditions,omitempty"`
-	Preconditions []string `json:"preconditions,omitempty"`
-	PostConditions []string `json:"post_conditions,omitempty"`
+	FromState      string    `json:"from_state"`
+	ToState        string    `json:"to_state"`
+	EventType      EventType `json:"event_type"`
+	Conditions     []string  `json:"conditions,omitempty"`
+	Preconditions  []string  `json:"preconditions,omitempty"`
+	PostConditions []string  `json:"post_conditions,omitempty"`
 }
 
 // StateVersion represents a state version for compatibility checks
@@ -71,11 +71,11 @@ type ConcurrentStateOperation struct {
 
 // RollbackOperation represents a rollback operation
 type RollbackOperation struct {
-	OperationID     string    `json:"operation_id"`
-	TargetState     string    `json:"target_state"`
-	RollbackReason  string    `json:"rollback_reason"`
-	Timestamp       time.Time `json:"timestamp"`
-	PreviousDeltas  []JSONPatchOperation `json:"previous_deltas"`
+	OperationID    string               `json:"operation_id"`
+	TargetState    string               `json:"target_state"`
+	RollbackReason string               `json:"rollback_reason"`
+	Timestamp      time.Time            `json:"timestamp"`
+	PreviousDeltas []JSONPatchOperation `json:"previous_deltas"`
 }
 
 // StateTransitionRule validates state transitions and consistency
@@ -95,7 +95,7 @@ func NewStateTransitionRule(config *StateTransitionConfig) *StateTransitionRule 
 	if config == nil {
 		config = DefaultStateTransitionConfig()
 	}
-	
+
 	rule := &StateTransitionRule{
 		BaseValidationRule: NewBaseValidationRule(
 			"STATE_TRANSITION_VALIDATION",
@@ -109,84 +109,84 @@ func NewStateTransitionRule(config *StateTransitionConfig) *StateTransitionRule 
 		rollbackHistory:  make([]RollbackOperation, 0),
 		stateLocks:       make(map[string]*sync.RWMutex),
 	}
-	
+
 	// Initialize valid state transitions
 	rule.initializeValidTransitions()
-	
+
 	return rule
 }
 
 // initializeValidTransitions initializes the valid state transition definitions
 func (r *StateTransitionRule) initializeValidTransitions() {
 	// Run state transitions
-	r.addTransition("INIT", "RUNNING", EventTypeRunStarted, 
-		[]string{"run_id_valid", "thread_id_valid"}, 
-		[]string{"no_active_run_with_same_id"}, 
+	r.addTransition("INIT", "RUNNING", EventTypeRunStarted,
+		[]string{"run_id_valid", "thread_id_valid"},
+		[]string{"no_active_run_with_same_id"},
 		[]string{"run_state_active"})
-	
-	r.addTransition("RUNNING", "FINISHED", EventTypeRunFinished, 
-		[]string{"run_id_matches"}, 
-		[]string{"run_is_active"}, 
+
+	r.addTransition("RUNNING", "FINISHED", EventTypeRunFinished,
+		[]string{"run_id_matches"},
+		[]string{"run_is_active"},
 		[]string{"run_state_finished"})
-	
-	r.addTransition("RUNNING", "ERROR", EventTypeRunError, 
-		[]string{"error_message_provided"}, 
-		[]string{"run_is_active"}, 
+
+	r.addTransition("RUNNING", "ERROR", EventTypeRunError,
+		[]string{"error_message_provided"},
+		[]string{"run_is_active"},
 		[]string{"run_state_error"})
-	
+
 	// Message state transitions
-	r.addTransition("INIT", "ACTIVE", EventTypeTextMessageStart, 
-		[]string{"message_id_valid"}, 
-		[]string{"no_active_message_with_same_id"}, 
+	r.addTransition("INIT", "ACTIVE", EventTypeTextMessageStart,
+		[]string{"message_id_valid"},
+		[]string{"no_active_message_with_same_id"},
 		[]string{"message_state_active"})
-	
-	r.addTransition("ACTIVE", "ACTIVE", EventTypeTextMessageContent, 
-		[]string{"message_id_matches", "delta_provided"}, 
-		[]string{"message_is_active"}, 
+
+	r.addTransition("ACTIVE", "ACTIVE", EventTypeTextMessageContent,
+		[]string{"message_id_matches", "delta_provided"},
+		[]string{"message_is_active"},
 		[]string{"content_accumulated"})
-	
-	r.addTransition("ACTIVE", "FINISHED", EventTypeTextMessageEnd, 
-		[]string{"message_id_matches"}, 
-		[]string{"message_is_active"}, 
+
+	r.addTransition("ACTIVE", "FINISHED", EventTypeTextMessageEnd,
+		[]string{"message_id_matches"},
+		[]string{"message_is_active"},
 		[]string{"message_state_finished"})
-	
+
 	// Tool call state transitions
-	r.addTransition("INIT", "ACTIVE", EventTypeToolCallStart, 
-		[]string{"tool_call_id_valid", "tool_name_provided"}, 
-		[]string{"no_active_tool_with_same_id"}, 
+	r.addTransition("INIT", "ACTIVE", EventTypeToolCallStart,
+		[]string{"tool_call_id_valid", "tool_name_provided"},
+		[]string{"no_active_tool_with_same_id"},
 		[]string{"tool_state_active"})
-	
-	r.addTransition("ACTIVE", "ACTIVE", EventTypeToolCallArgs, 
-		[]string{"tool_call_id_matches", "args_delta_provided"}, 
-		[]string{"tool_is_active"}, 
+
+	r.addTransition("ACTIVE", "ACTIVE", EventTypeToolCallArgs,
+		[]string{"tool_call_id_matches", "args_delta_provided"},
+		[]string{"tool_is_active"},
 		[]string{"args_accumulated"})
-	
-	r.addTransition("ACTIVE", "FINISHED", EventTypeToolCallEnd, 
-		[]string{"tool_call_id_matches"}, 
-		[]string{"tool_is_active"}, 
+
+	r.addTransition("ACTIVE", "FINISHED", EventTypeToolCallEnd,
+		[]string{"tool_call_id_matches"},
+		[]string{"tool_is_active"},
 		[]string{"tool_state_finished"})
-	
+
 	// Step state transitions
-	r.addTransition("INIT", "ACTIVE", EventTypeStepStarted, 
-		[]string{"step_name_provided"}, 
-		[]string{"no_active_step_with_same_name"}, 
+	r.addTransition("INIT", "ACTIVE", EventTypeStepStarted,
+		[]string{"step_name_provided"},
+		[]string{"no_active_step_with_same_name"},
 		[]string{"step_state_active"})
-	
-	r.addTransition("ACTIVE", "FINISHED", EventTypeStepFinished, 
-		[]string{"step_name_matches"}, 
-		[]string{"step_is_active"}, 
+
+	r.addTransition("ACTIVE", "FINISHED", EventTypeStepFinished,
+		[]string{"step_name_matches"},
+		[]string{"step_is_active"},
 		[]string{"step_state_finished"})
-	
+
 	// State snapshot transitions
-	r.addTransition("ANY", "SNAPSHOT", EventTypeStateSnapshot, 
-		[]string{"snapshot_provided"}, 
-		[]string{}, 
+	r.addTransition("ANY", "SNAPSHOT", EventTypeStateSnapshot,
+		[]string{"snapshot_provided"},
+		[]string{},
 		[]string{"snapshot_captured"})
-	
+
 	// State delta transitions
-	r.addTransition("ANY", "DELTA_APPLIED", EventTypeStateDelta, 
-		[]string{"delta_operations_valid"}, 
-		[]string{"state_consistent"}, 
+	r.addTransition("ANY", "DELTA_APPLIED", EventTypeStateDelta,
+		[]string{"delta_operations_valid"},
+		[]string{"state_consistent"},
 		[]string{"delta_applied"})
 }
 
@@ -200,7 +200,7 @@ func (r *StateTransitionRule) addTransition(fromState, toState string, eventType
 		Preconditions:  preconditions,
 		PostConditions: postconditions,
 	}
-	
+
 	key := fmt.Sprintf("%s:%s", fromState, string(eventType))
 	r.validTransitions[key] = append(r.validTransitions[key], transition)
 }
@@ -211,11 +211,11 @@ func (r *StateTransitionRule) Validate(event Event, context *ValidationContext) 
 		IsValid:   true,
 		Timestamp: time.Now(),
 	}
-	
+
 	if !r.IsEnabled() {
 		return result
 	}
-	
+
 	// Validate state transitions based on configuration level
 	switch r.config.Level {
 	case StateTransitionStrict:
@@ -225,27 +225,27 @@ func (r *StateTransitionRule) Validate(event Event, context *ValidationContext) 
 	case StateTransitionCustom:
 		r.validateCustom(event, context, result)
 	}
-	
+
 	// Validate concurrent operations if enabled
 	if r.config.EnableConcurrentValidation {
 		r.validateConcurrentOperations(event, context, result)
 	}
-	
+
 	// Validate rollback scenarios if enabled
 	if r.config.EnableRollbackValidation {
 		r.validateRollbackScenarios(event, context, result)
 	}
-	
+
 	// Validate state version compatibility if enabled
 	if r.config.EnableVersionCompatibility {
 		r.validateVersionCompatibility(event, context, result)
 	}
-	
+
 	// Validate delta operations for state delta events
 	if event.Type() == EventTypeStateDelta {
 		r.validateDeltaOperations(event, context, result)
 	}
-	
+
 	return result
 }
 
@@ -253,13 +253,13 @@ func (r *StateTransitionRule) Validate(event Event, context *ValidationContext) 
 func (r *StateTransitionRule) validateStrict(event Event, context *ValidationContext, result *ValidationResult) {
 	// Determine current state based on event type and context
 	currentState := r.determineCurrentState(event, context)
-	
+
 	// Get valid transitions for current state and event type
 	transitionKey := fmt.Sprintf("%s:%s", currentState, string(event.Type()))
 	validTransitions, exists := r.validTransitions[transitionKey]
-	
+
 	if !exists {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			fmt.Sprintf("No valid state transition found from %s for event %s", currentState, event.Type()),
 			map[string]interface{}{
 				"current_state": currentState,
@@ -271,7 +271,7 @@ func (r *StateTransitionRule) validateStrict(event Event, context *ValidationCon
 			}))
 		return
 	}
-	
+
 	// Validate each possible transition
 	var validTransition *StateTransition
 	for _, transition := range validTransitions {
@@ -280,13 +280,13 @@ func (r *StateTransitionRule) validateStrict(event Event, context *ValidationCon
 			break
 		}
 	}
-	
+
 	if validTransition == nil {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			fmt.Sprintf("State transition conditions not met for %s from %s", event.Type(), currentState),
 			map[string]interface{}{
-				"current_state":      currentState,
-				"event_type":         event.Type(),
+				"current_state":         currentState,
+				"event_type":            event.Type(),
 				"available_transitions": validTransitions,
 			},
 			[]string{
@@ -295,7 +295,7 @@ func (r *StateTransitionRule) validateStrict(event Event, context *ValidationCon
 			}))
 		return
 	}
-	
+
 	// Validate state consistency
 	r.validateStateConsistency(event, context, result, validTransition)
 }
@@ -324,10 +324,10 @@ func (r *StateTransitionRule) validateCustom(event Event, context *ValidationCon
 func (r *StateTransitionRule) validateConcurrentOperations(event Event, context *ValidationContext, result *ValidationResult) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	
+
 	// Check if we have too many concurrent operations
 	if len(r.concurrentOps) >= r.config.MaxConcurrentOperations {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Maximum concurrent operations limit reached (%d)", r.config.MaxConcurrentOperations),
 			map[string]interface{}{
 				"max_concurrent_ops": r.config.MaxConcurrentOperations,
@@ -339,14 +339,14 @@ func (r *StateTransitionRule) validateConcurrentOperations(event Event, context 
 			}))
 		return
 	}
-	
+
 	// Generate operation ID
 	operationID := r.generateOperationID(event)
-	
+
 	// Check for conflicting operations
 	for _, op := range r.concurrentOps {
 		if r.operationsConflict(event, op) {
-			result.AddError(r.CreateError(event, 
+			result.AddError(r.CreateError(event,
 				fmt.Sprintf("Concurrent operation conflict detected with operation %s", op.OperationID),
 				map[string]interface{}{
 					"conflicting_operation": op.OperationID,
@@ -360,7 +360,7 @@ func (r *StateTransitionRule) validateConcurrentOperations(event Event, context 
 			return
 		}
 	}
-	
+
 	// Register the operation
 	r.concurrentOps[operationID] = &ConcurrentStateOperation{
 		OperationID: operationID,
@@ -369,7 +369,7 @@ func (r *StateTransitionRule) validateConcurrentOperations(event Event, context 
 		State:       r.determineCurrentState(event, context),
 		LockHeld:    false,
 	}
-	
+
 	// Clean up completed operations
 	r.cleanupCompletedOperations()
 }
@@ -378,14 +378,14 @@ func (r *StateTransitionRule) validateConcurrentOperations(event Event, context 
 func (r *StateTransitionRule) validateRollbackScenarios(event Event, context *ValidationContext, result *ValidationResult) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	
+
 	// Check if this is a rollback operation
 	if r.isRollbackOperation(event) {
 		rollbackOp := r.extractRollbackOperation(event)
-		
+
 		// Validate rollback depth
 		if len(r.rollbackHistory) >= r.config.MaxRollbackDepth {
-			result.AddError(r.CreateError(event, 
+			result.AddError(r.CreateError(event,
 				fmt.Sprintf("Maximum rollback depth exceeded (%d)", r.config.MaxRollbackDepth),
 				map[string]interface{}{
 					"max_rollback_depth": r.config.MaxRollbackDepth,
@@ -397,10 +397,10 @@ func (r *StateTransitionRule) validateRollbackScenarios(event Event, context *Va
 				}))
 			return
 		}
-		
+
 		// Validate rollback target state
 		if !r.isValidRollbackTarget(rollbackOp.TargetState, context) {
-			result.AddError(r.CreateError(event, 
+			result.AddError(r.CreateError(event,
 				fmt.Sprintf("Invalid rollback target state: %s", rollbackOp.TargetState),
 				map[string]interface{}{
 					"target_state": rollbackOp.TargetState,
@@ -411,10 +411,10 @@ func (r *StateTransitionRule) validateRollbackScenarios(event Event, context *Va
 				}))
 			return
 		}
-		
+
 		// Record rollback operation
 		r.rollbackHistory = append(r.rollbackHistory, *rollbackOp)
-		
+
 		// Clean up old rollback history
 		r.cleanupRollbackHistory()
 	}
@@ -424,17 +424,17 @@ func (r *StateTransitionRule) validateRollbackScenarios(event Event, context *Va
 func (r *StateTransitionRule) validateVersionCompatibility(event Event, context *ValidationContext, result *ValidationResult) {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	
+
 	// Check if event contains version information
 	if versionInfo := r.extractVersionInfo(event); versionInfo != nil {
 		stateKey := r.getStateKey(event)
 		currentVersion, exists := r.stateVersions[stateKey]
-		
+
 		if exists {
 			// Check compatibility window
 			timeDiff := time.Since(currentVersion.Timestamp)
 			if timeDiff > r.config.VersionCompatibilityWindow {
-				result.AddError(r.CreateError(event, 
+				result.AddError(r.CreateError(event,
 					fmt.Sprintf("Version compatibility window exceeded: %v > %v", timeDiff, r.config.VersionCompatibilityWindow),
 					map[string]interface{}{
 						"current_version": currentVersion.Version,
@@ -448,10 +448,10 @@ func (r *StateTransitionRule) validateVersionCompatibility(event Event, context 
 					}))
 				return
 			}
-			
+
 			// Check version compatibility
 			if !r.versionsCompatible(currentVersion.Version, versionInfo.Version) {
-				result.AddError(r.CreateError(event, 
+				result.AddError(r.CreateError(event,
 					fmt.Sprintf("Incompatible state version: current=%s, event=%s", currentVersion.Version, versionInfo.Version),
 					map[string]interface{}{
 						"current_version": currentVersion.Version,
@@ -464,7 +464,7 @@ func (r *StateTransitionRule) validateVersionCompatibility(event Event, context 
 				return
 			}
 		}
-		
+
 		// Update version information
 		r.stateVersions[stateKey] = versionInfo
 	}
@@ -476,11 +476,11 @@ func (r *StateTransitionRule) validateDeltaOperations(event Event, context *Vali
 	if !ok {
 		return
 	}
-	
+
 	// Validate each delta operation
 	for i, operation := range deltaEvent.Delta {
 		if err := r.validateDeltaOperation(operation, context); err != nil {
-			result.AddError(r.CreateError(event, 
+			result.AddError(r.CreateError(event,
 				fmt.Sprintf("Invalid delta operation at index %d: %s", i, err.Error()),
 				map[string]interface{}{
 					"operation_index": i,
@@ -492,10 +492,10 @@ func (r *StateTransitionRule) validateDeltaOperations(event Event, context *Vali
 				}))
 		}
 	}
-	
+
 	// Validate operation sequence
 	if err := r.validateDeltaSequence(deltaEvent.Delta, context); err != nil {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Invalid delta operation sequence: %s", err.Error()),
 			map[string]interface{}{
 				"delta_operations": deltaEvent.Delta,
@@ -548,14 +548,14 @@ func (r *StateTransitionRule) validateTransitionConditions(event Event, context 
 			return false
 		}
 	}
-	
+
 	// Validate conditions
 	for _, condition := range transition.Conditions {
 		if !r.checkCondition(condition, event, context) {
 			return false
 		}
 	}
-	
+
 	return true
 }
 
@@ -654,7 +654,7 @@ func (r *StateTransitionRule) checkRunIDMatches(event Event, context *Validation
 	default:
 		return true
 	}
-	
+
 	_, exists := context.State.ActiveRuns[runID]
 	return exists
 }
@@ -693,7 +693,7 @@ func (r *StateTransitionRule) checkMessageIDMatches(event Event, context *Valida
 	default:
 		return true
 	}
-	
+
 	_, exists := context.State.ActiveMessages[messageID]
 	return exists
 }
@@ -746,7 +746,7 @@ func (r *StateTransitionRule) checkToolCallIDMatches(event Event, context *Valid
 	default:
 		return true
 	}
-	
+
 	_, exists := context.State.ActiveTools[toolCallID]
 	return exists
 }
@@ -822,7 +822,7 @@ func (r *StateTransitionRule) validateStateConsistency(event Event, context *Val
 	// Validate post-conditions
 	for _, postcondition := range transition.PostConditions {
 		if !r.checkPostCondition(postcondition, event, context) {
-			result.AddError(r.CreateError(event, 
+			result.AddError(r.CreateError(event,
 				fmt.Sprintf("Post-condition '%s' not satisfied after state transition", postcondition),
 				map[string]interface{}{
 					"postcondition": postcondition,
@@ -847,14 +847,14 @@ func (r *StateTransitionRule) validateRunStartTransition(event Event, context *V
 	if !ok {
 		return
 	}
-	
+
 	if runEvent.RunID == "" {
-		result.AddError(r.CreateError(event, "Run ID is required for run start transition", nil, 
+		result.AddError(r.CreateError(event, "Run ID is required for run start transition", nil,
 			[]string{"Provide a valid run ID"}))
 	}
-	
+
 	if _, exists := context.State.ActiveRuns[runEvent.RunID]; exists {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Run %s is already active", runEvent.RunID),
 			map[string]interface{}{"run_id": runEvent.RunID},
 			[]string{"Use a different run ID or finish the current run"}))
@@ -871,15 +871,15 @@ func (r *StateTransitionRule) validateRunEndTransition(event Event, context *Val
 	default:
 		return
 	}
-	
+
 	if runID == "" {
-		result.AddError(r.CreateError(event, "Run ID is required for run end transition", nil, 
+		result.AddError(r.CreateError(event, "Run ID is required for run end transition", nil,
 			[]string{"Provide a valid run ID"}))
 		return
 	}
-	
+
 	if _, exists := context.State.ActiveRuns[runID]; !exists {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Cannot end run %s that is not active", runID),
 			map[string]interface{}{"run_id": runID},
 			[]string{"Start the run first before ending it"}))
@@ -891,9 +891,9 @@ func (r *StateTransitionRule) validateBasicDeltaOperations(event Event, context 
 	if !ok {
 		return
 	}
-	
+
 	if len(deltaEvent.Delta) == 0 {
-		result.AddError(r.CreateError(event, "Delta operations are required", nil, 
+		result.AddError(r.CreateError(event, "Delta operations are required", nil,
 			[]string{"Provide at least one delta operation"}))
 	}
 }
@@ -909,18 +909,18 @@ func (r *StateTransitionRule) operationsConflict(event Event, op *ConcurrentStat
 		EventTypeRunFinished: {EventTypeRunStarted, EventTypeRunError},
 		EventTypeRunError:    {EventTypeRunStarted, EventTypeRunFinished},
 	}
-	
+
 	conflicts, exists := conflictingTypes[event.Type()]
 	if !exists {
 		return false
 	}
-	
+
 	for _, conflictType := range conflicts {
 		if op.EventType == conflictType {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -991,11 +991,11 @@ func (r *StateTransitionRule) validateDeltaOperation(operation JSONPatchOperatio
 	if operation.Op == "" {
 		return fmt.Errorf("operation type is required")
 	}
-	
+
 	if operation.Path == "" {
 		return fmt.Errorf("operation path is required")
 	}
-	
+
 	// Additional validation based on operation type
 	switch operation.Op {
 	case "add", "replace", "test":
@@ -1007,14 +1007,14 @@ func (r *StateTransitionRule) validateDeltaOperation(operation JSONPatchOperatio
 			return fmt.Errorf("from path is required for %s operation", operation.Op)
 		}
 	}
-	
+
 	return nil
 }
 
 func (r *StateTransitionRule) validateDeltaSequence(operations []JSONPatchOperation, context *ValidationContext) error {
 	// Validate that delta operations can be applied in sequence
 	// This is a simplified implementation
-	
+
 	// Check for conflicting operations
 	paths := make(map[string]bool)
 	for _, op := range operations {
@@ -1023,7 +1023,7 @@ func (r *StateTransitionRule) validateDeltaSequence(operations []JSONPatchOperat
 		}
 		paths[op.Path] = true
 	}
-	
+
 	return nil
 }
 
@@ -1031,7 +1031,7 @@ func (r *StateTransitionRule) validateDeltaSequence(operations []JSONPatchOperat
 func (r *StateTransitionRule) GetConcurrentOperations() map[string]*ConcurrentStateOperation {
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
-	
+
 	result := make(map[string]*ConcurrentStateOperation)
 	for k, v := range r.concurrentOps {
 		result[k] = v
@@ -1043,7 +1043,7 @@ func (r *StateTransitionRule) GetConcurrentOperations() map[string]*ConcurrentSt
 func (r *StateTransitionRule) GetRollbackHistory() []RollbackOperation {
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
-	
+
 	result := make([]RollbackOperation, len(r.rollbackHistory))
 	copy(result, r.rollbackHistory)
 	return result
@@ -1053,7 +1053,7 @@ func (r *StateTransitionRule) GetRollbackHistory() []RollbackOperation {
 func (r *StateTransitionRule) GetStateVersions() map[string]*StateVersion {
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
-	
+
 	result := make(map[string]*StateVersion)
 	for k, v := range r.stateVersions {
 		result[k] = v

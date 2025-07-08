@@ -13,27 +13,27 @@ import (
 func ExampleEventStreaming() {
 	// Create a custom stream configuration
 	config := &StreamConfig{
-		EventBufferSize:       500,
-		ChunkBufferSize:       100,
-		MaxChunkSize:          32 * 1024, // 32KB chunks
-		FlushInterval:         50 * time.Millisecond,
-		BatchEnabled:          true,
-		BatchSize:            25,
-		BatchTimeout:         25 * time.Millisecond,
-		MaxBatchSize:         250,
-		CompressionEnabled:   true,
-		CompressionType:      CompressionGzip,
-		CompressionLevel:     6,
-		MinCompressionSize:   512,
-		MaxConcurrentEvents:  50,
-		BackpressureTimeout:  3 * time.Second,
-		DrainTimeout:         15 * time.Second,
-		SequenceEnabled:      true,
-		OrderingRequired:     false,
-		OutOfOrderBuffer:     500,
-		WorkerCount:          2,
-		EnableMetrics:        true,
-		MetricsInterval:      10 * time.Second,
+		EventBufferSize:     500,
+		ChunkBufferSize:     100,
+		MaxChunkSize:        32 * 1024, // 32KB chunks
+		FlushInterval:       50 * time.Millisecond,
+		BatchEnabled:        true,
+		BatchSize:           25,
+		BatchTimeout:        25 * time.Millisecond,
+		MaxBatchSize:        250,
+		CompressionEnabled:  true,
+		CompressionType:     CompressionGzip,
+		CompressionLevel:    6,
+		MinCompressionSize:  512,
+		MaxConcurrentEvents: 50,
+		BackpressureTimeout: 3 * time.Second,
+		DrainTimeout:        15 * time.Second,
+		SequenceEnabled:     true,
+		OrderingRequired:    false,
+		OutOfOrderBuffer:    500,
+		WorkerCount:         2,
+		EnableMetrics:       true,
+		MetricsInterval:     10 * time.Second,
 	}
 
 	// Create the event stream
@@ -60,14 +60,14 @@ func ExampleEventStreaming() {
 		for chunk := range stream.ReceiveChunks() {
 			fmt.Printf("Received chunk: Type=%s, ID=%s, Size=%d bytes, Compressed=%t\n",
 				chunk.EventType, chunk.EventID, len(chunk.Data), chunk.Compressed)
-			
+
 			// In a real implementation, you would write this to SSE clients
 			sseData, err := FormatSSEChunk(chunk)
 			if err != nil {
 				log.Printf("Failed to format SSE chunk: %v", err)
 				continue
 			}
-			
+
 			fmt.Printf("SSE Data:\n%s\n", sseData)
 		}
 	}()
@@ -133,11 +133,11 @@ func ExampleCompressionComparison() {
 	// Fill with repetitive data (good for compression)
 	for i := range largeState["users"].([]map[string]interface{}) {
 		largeState["users"].([]map[string]interface{})[i] = map[string]interface{}{
-			"id":       fmt.Sprintf("user-%d", i),
-			"name":     fmt.Sprintf("User %d", i),
-			"email":    fmt.Sprintf("user%d@example.com", i),
-			"status":   "active",
-			"role":     "member",
+			"id":     fmt.Sprintf("user-%d", i),
+			"name":   fmt.Sprintf("User %d", i),
+			"email":  fmt.Sprintf("user%d@example.com", i),
+			"status": "active",
+			"role":   "member",
 			"settings": map[string]interface{}{
 				"theme":         "dark",
 				"notifications": true,
@@ -252,7 +252,7 @@ func ExampleChunking() {
 	go func() {
 		for chunk := range stream.ReceiveChunks() {
 			chunks = append(chunks, chunk)
-			fmt.Printf("Chunk %d/%d: %d bytes\n", 
+			fmt.Printf("Chunk %d/%d: %d bytes\n",
 				chunk.ChunkIndex+1, chunk.TotalChunks, len(chunk.Data))
 		}
 	}()
@@ -267,13 +267,13 @@ func ExampleChunking() {
 
 	fmt.Printf("Original event size: %d bytes\n", len(largeContent))
 	fmt.Printf("Number of chunks: %d\n", len(chunks))
-	
+
 	// Verify chunks can be reassembled
 	var reassembled []byte
 	for _, chunk := range chunks {
 		reassembled = append(reassembled, chunk.Data...)
 	}
-	
+
 	fmt.Printf("Reassembled size: %d bytes\n", len(reassembled))
 	fmt.Printf("Data integrity: %t\n", string(reassembled) == largeContent)
 }
@@ -305,10 +305,10 @@ func ExampleBatching() {
 	go func() {
 		for chunk := range stream.ReceiveChunks() {
 			if chunk.EventType == "batch" {
-				fmt.Printf("Received batch: ID=%s, Size=%d bytes\n", 
+				fmt.Printf("Received batch: ID=%s, Size=%d bytes\n",
 					chunk.EventID, len(chunk.Data))
 			} else {
-				fmt.Printf("Received single event: Type=%s, Size=%d bytes\n", 
+				fmt.Printf("Received single event: Type=%s, Size=%d bytes\n",
 					chunk.EventType, len(chunk.Data))
 			}
 		}
@@ -377,7 +377,7 @@ func ExampleFlowControl() {
 	// Send events rapidly to trigger backpressure
 	for i := 0; i < 10; i++ {
 		event := events.NewTextMessageContentEvent(fmt.Sprintf("msg-%d", i), fmt.Sprintf("Content %d", i))
-		
+
 		fmt.Printf("Sending event %d...\n", i+1)
 		if err := stream.SendEvent(event); err != nil {
 			fmt.Printf("Event %d rejected due to backpressure: %v\n", i+1, err)

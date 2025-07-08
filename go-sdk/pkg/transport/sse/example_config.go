@@ -5,18 +5,20 @@ package sse
 import (
 	"fmt"
 	"time"
+
+	"go.uber.org/zap/zapcore"
 )
 
 // ExampleBasicUsage demonstrates basic usage of the configuration system
 func ExampleBasicUsage() {
 	// Create a default configuration
 	config := DefaultComprehensiveConfig()
-	
+
 	// Validate the configuration
 	if err := config.Validate(); err != nil {
 		panic(fmt.Sprintf("Configuration validation failed: %v", err))
 	}
-	
+
 	fmt.Printf("Default config created with base URL: %s\n", config.Connection.BaseURL)
 }
 
@@ -31,12 +33,12 @@ func ExampleBuilderPattern() {
 		WithMetrics(true, 30*time.Second).
 		WithEnvironment(EnvironmentProduction).
 		Build()
-	
+
 	if err := config.Validate(); err != nil {
 		panic(fmt.Sprintf("Builder config validation failed: %v", err))
 	}
-	
-	fmt.Printf("Builder config created with URL: %s%s\n", 
+
+	fmt.Printf("Builder config created with URL: %s%s\n",
 		config.Connection.BaseURL, config.Connection.Endpoint)
 }
 
@@ -44,17 +46,17 @@ func ExampleBuilderPattern() {
 func ExampleEnvironmentConfigs() {
 	// Development configuration
 	devConfig := DevelopmentConfig()
-	fmt.Printf("Development - Debug mode: %v, Trace sampling: %.2f\n", 
+	fmt.Printf("Development - Debug mode: %v, Trace sampling: %.2f\n",
 		devConfig.Features.DebugMode, devConfig.Monitoring.Tracing.SamplingRate)
-	
+
 	// Production configuration
 	prodConfig := ProductionConfig()
-	fmt.Printf("Production - Compression: %v, Rate limiting: %v\n", 
+	fmt.Printf("Production - Compression: %v, Rate limiting: %v\n",
 		prodConfig.Performance.Compression.Enabled, prodConfig.Security.RateLimit.Enabled)
-	
+
 	// Staging configuration
 	stagingConfig := StagingConfig()
-	fmt.Printf("Staging - Debug mode: %v, Detailed metrics: %v\n", 
+	fmt.Printf("Staging - Debug mode: %v, Detailed metrics: %v\n",
 		stagingConfig.Features.DebugMode, stagingConfig.Features.DetailedMetrics)
 }
 
@@ -62,12 +64,12 @@ func ExampleEnvironmentConfigs() {
 func ExampleConfigFromEnvironment() {
 	// This would typically read from actual environment variables
 	// For demonstration, we show what variables would be read
-	
+
 	loader := NewConfigLoader()
 	config := loader.LoadFromEnv()
-	
+
 	fmt.Printf("Environment config loaded with base URL: %s\n", config.Connection.BaseURL)
-	
+
 	// Example environment variables that would be read:
 	fmt.Println("Example environment variables:")
 	fmt.Println("  SSE_BASE_URL=https://api.example.com")
@@ -102,8 +104,8 @@ func ExampleSecurityConfiguration() {
 			},
 		}).
 		Build()
-	
-	fmt.Printf("Security config - Auth type: %s, Rate limiting: %v\n", 
+
+	fmt.Printf("Security config - Auth type: %s, Rate limiting: %v\n",
 		config.Security.Auth.Type, config.Security.RateLimit.Enabled)
 }
 
@@ -136,8 +138,8 @@ func ExamplePerformanceConfiguration() {
 			},
 		}).
 		Build()
-	
-	fmt.Printf("Performance config - Compression: %v, Batching: %v, Caching: %v\n", 
+
+	fmt.Printf("Performance config - Compression: %v, Batching: %v, Caching: %v\n",
 		config.Performance.Compression.Enabled,
 		config.Performance.Batching.Enabled,
 		config.Performance.Caching.Enabled)
@@ -176,8 +178,8 @@ func ExampleMonitoringConfiguration() {
 			},
 		}).
 		Build()
-	
-	fmt.Printf("Monitoring config - Metrics: %v, Tracing: %v, Health checks: %v\n", 
+
+	fmt.Printf("Monitoring config - Metrics: %v, Tracing: %v, Health checks: %v\n",
 		config.Monitoring.Metrics.Enabled,
 		config.Monitoring.Tracing.Enabled,
 		config.Monitoring.HealthChecks.Enabled)
@@ -190,17 +192,17 @@ func ExampleBackwardCompatibility() {
 		WithBaseURL("https://api.example.com").
 		WithBearerToken("token").
 		Build()
-	
+
 	// Convert to simple config for use with existing transport code
 	simple := comprehensive.ToSimpleConfig()
-	
-	fmt.Printf("Simple config - BaseURL: %s, BufferSize: %d\n", 
+
+	fmt.Printf("Simple config - BaseURL: %s, BufferSize: %d\n",
 		simple.BaseURL, simple.BufferSize)
-	
+
 	// Convert back to comprehensive config
 	backToComprehensive := FromSimpleConfig(simple)
-	
-	fmt.Printf("Back to comprehensive - BaseURL: %s, Auth type: %s\n", 
+
+	fmt.Printf("Back to comprehensive - BaseURL: %s, Auth type: %s\n",
 		backToComprehensive.Connection.BaseURL, backToComprehensive.Security.Auth.Type)
 }
 
@@ -212,14 +214,14 @@ func ExampleConfigPersistence() {
 		WithBearerToken("my-token").
 		WithEnvironment(EnvironmentProduction).
 		Build()
-	
+
 	// Save to file (in real usage)
 	// config.SaveToFile("/path/to/config.json")
-	
+
 	// Load from file (in real usage)
 	// loader := NewConfigLoader()
 	// loadedConfig, err := loader.LoadFromFile("/path/to/config.json")
-	
+
 	fmt.Printf("Config can be saved to and loaded from JSON files\n")
 	fmt.Printf("Config JSON representation:\n%s\n", config.String())
 }
@@ -228,17 +230,12 @@ func ExampleConfigPersistence() {
 func ExampleValidationAndErrorHandling() {
 	// Create an invalid configuration
 	config := ComprehensiveConfig{}
-	
+
 	// Validate and handle errors
 	if err := config.Validate(); err != nil {
 		fmt.Printf("Validation error: %v\n", err)
-		
-		// Check if it's a ConfigError for detailed information
-		if configErr, ok := err.(*core.ConfigError); ok {
-			fmt.Printf("Field: %s, Value: %v\n", configErr.Field, configErr.Value)
-		}
 	}
-	
+
 	// Create a valid configuration
 	validConfig := DefaultComprehensiveConfig()
 	if err := validConfig.Validate(); err != nil {
@@ -304,9 +301,9 @@ func ExampleCustomConfiguration() {
 			},
 		}).
 		Build()
-	
+
 	fmt.Printf("Custom high-throughput config created\n")
-	fmt.Printf("Max connections: %d, Max retries: %d, Batch size: %d\n", 
+	fmt.Printf("Max connections: %d, Max retries: %d, Batch size: %d\n",
 		config.Connection.ConnectionPool.MaxConnections,
 		config.Retry.MaxRetries,
 		config.Performance.Batching.BatchSize)
@@ -314,48 +311,48 @@ func ExampleCustomConfiguration() {
 
 // RunAllExamples runs all configuration examples
 func RunAllExamples() {
-	fmt.Println("=== SSE Transport Configuration Examples ===\n")
-	
+	fmt.Println("=== SSE Transport Configuration Examples ===")
+
 	fmt.Println("1. Basic Usage:")
 	ExampleBasicUsage()
 	fmt.Println()
-	
+
 	fmt.Println("2. Builder Pattern:")
 	ExampleBuilderPattern()
 	fmt.Println()
-	
+
 	fmt.Println("3. Environment Configs:")
 	ExampleEnvironmentConfigs()
 	fmt.Println()
-	
+
 	fmt.Println("4. Environment Variables:")
 	ExampleConfigFromEnvironment()
 	fmt.Println()
-	
+
 	fmt.Println("5. Security Configuration:")
 	ExampleSecurityConfiguration()
 	fmt.Println()
-	
+
 	fmt.Println("6. Performance Configuration:")
 	ExamplePerformanceConfiguration()
 	fmt.Println()
-	
+
 	fmt.Println("7. Monitoring Configuration:")
 	ExampleMonitoringConfiguration()
 	fmt.Println()
-	
+
 	fmt.Println("8. Backward Compatibility:")
 	ExampleBackwardCompatibility()
 	fmt.Println()
-	
+
 	fmt.Println("9. Config Persistence:")
 	ExampleConfigPersistence()
 	fmt.Println()
-	
+
 	fmt.Println("10. Validation and Error Handling:")
 	ExampleValidationAndErrorHandling()
 	fmt.Println()
-	
+
 	fmt.Println("11. Custom Configuration:")
 	ExampleCustomConfiguration()
 	fmt.Println()

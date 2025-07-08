@@ -106,6 +106,7 @@ type DistributedNode struct {
 	mu            sync.RWMutex
 	messageQueue  chan NetworkMessage
 	stats         NodeStats
+	wg            sync.WaitGroup
 }
 
 // NetworkMessage represents a message between nodes
@@ -133,6 +134,7 @@ type DistributedCluster struct {
 	ctx     context.Context
 	cancel  context.CancelFunc
 	mu      sync.RWMutex
+	wg      sync.WaitGroup
 }
 
 func main() {
@@ -188,11 +190,10 @@ func main() {
 
 	// Start all nodes
 	fmt.Println("\n=== Starting Nodes ===")
-	var wg sync.WaitGroup
 	for _, node := range cluster.nodes {
-		wg.Add(1)
+		cluster.wg.Add(1)
 		go func(n *DistributedNode) {
-			defer wg.Done()
+			defer cluster.wg.Done()
 			n.Start()
 		}(node)
 	}
@@ -294,7 +295,11 @@ func main() {
 	fmt.Printf("\nRestarting %s...\n", failedNode.ID)
 	failedNode = cluster.CreateNode("node-2", "us-east", "zone-b")
 	cluster.nodes["node-2"] = failedNode
-	go failedNode.Start()
+	cluster.wg.Add(1)
+	go func() {
+		defer cluster.wg.Done()
+		failedNode.Start()
+	}()
 	time.Sleep(2 * time.Second)
 
 	// Scenario 5: Conflict resolution
@@ -351,19 +356,27 @@ func main() {
 
 	// Graceful shutdown
 	fmt.Println("\n=== Graceful Shutdown ===")
+
+	// Stop all nodes
+	for _, node := range cluster.nodes {
+		node.Stop()
+	}
+
+	// Cancel cluster context
 	cancel()
 
+	// Wait for all nodes to shutdown with timeout
 	done := make(chan struct{})
 	go func() {
-		wg.Wait()
+		cluster.wg.Wait()
 		close(done)
 	}()
 
 	select {
 	case <-done:
 		fmt.Println("All nodes shut down gracefully")
-	case <-time.After(5 * time.Second):
-		fmt.Println("Shutdown timeout")
+	case <-time.After(10 * time.Second):
+		fmt.Println("Shutdown timeout - forcing exit")
 	}
 }
 
@@ -373,20 +386,55 @@ func (n *DistributedNode) Start() {
 	fmt.Printf("Node %s starting...\n", n.ID)
 
 	// Start message processing
-	go n.processMessages()
+	n.wg.Add(1)
+	go func() {
+		defer n.wg.Done()
+		n.processMessages()
+	}()
 
 	// Start heartbeat
-	go n.sendHeartbeats()
+	n.wg.Add(1)
+	go func() {
+		defer n.wg.Done()
+		n.sendHeartbeats()
+	}()
 
 	// Start state synchronization
-	go n.syncState()
+	n.wg.Add(1)
+	go func() {
+		defer n.wg.Done()
+		n.syncState()
+	}()
 
 	// Start monitoring
-	go n.monitor()
+	n.wg.Add(1)
+	go func() {
+		defer n.wg.Done()
+		n.monitor()
+	}()
 }
 
 func (n *DistributedNode) Stop() {
+	fmt.Printf("Node %s stopping...\n", n.ID)
+
+	// Cancel context to signal goroutines to stop
 	n.cancel()
+
+	// Wait for all goroutines to finish with timeout
+	done := make(chan struct{})
+	go func() {
+		n.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		fmt.Printf("Node %s stopped gracefully\n", n.ID)
+	case <-time.After(5 * time.Second):
+		fmt.Printf("Node %s stop timeout\n", n.ID)
+	}
+
+	// Close message queue after goroutines finish
 	close(n.messageQueue)
 }
 
@@ -448,6 +496,8 @@ func (n *DistributedNode) broadcastHeartbeat() {
 				go func(p *DistributedNode, m NetworkMessage) {
 					time.Sleep(time.Duration(n.networkSim.latencyMs) * time.Millisecond)
 					select {
+					case <-n.ctx.Done():
+						return
 					case p.messageQueue <- m:
 					case <-time.After(100 * time.Millisecond):
 						// Drop message if queue is full
@@ -495,6 +545,8 @@ func (n *DistributedNode) performStateSync() {
 					}
 
 					select {
+					case <-n.ctx.Done():
+						return
 					case peer.messageQueue <- msg:
 						atomic.AddInt64(&n.stats.MessagesSent, 1)
 					default:
@@ -601,6 +653,8 @@ func (n *DistributedNode) WriteSharedData(key string, value interface{}) error {
 
 	for _, peer := range n.peers {
 		select {
+		case <-n.ctx.Done():
+			return nil
 		case peer.messageQueue <- msg:
 		default:
 		}

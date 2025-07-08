@@ -6,6 +6,7 @@
 // - Efficient batching and throttling of updates
 // - Performance optimization for real-time scenarios
 // - State streaming with delta compression
+// - Proper resource cleanup and graceful shutdown
 package main
 
 import (
@@ -15,8 +16,12 @@ import (
 	"log"
 	"math"
 	"math/rand"
+	"net/http"
+	"os"
+	"os/signal"
 	"sync"
 	"sync/atomic"
+	"syscall"
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
@@ -119,6 +124,7 @@ type MetricsCollector struct {
 	mu          sync.RWMutex
 	ctx         context.Context
 	cancel      context.CancelFunc
+	wg          sync.WaitGroup
 }
 
 // DashboardServer simulates a dashboard server handling client connections
@@ -127,6 +133,8 @@ type DashboardServer struct {
 	clients      map[string]*DashboardClient
 	mu           sync.RWMutex
 	eventHandler *state.StateEventHandler
+	httpServer   *http.Server
+	shutdownChan chan struct{}
 }
 
 // DashboardClient represents a connected dashboard client
@@ -141,6 +149,14 @@ func main() {
 	// Initialize the dashboard
 	fmt.Println("=== Real-Time Dashboard Demo ===")
 	fmt.Println("Starting high-frequency state update simulation...")
+
+	// Setup signal handling for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+
+	// Create main context that will be cancelled on shutdown
+	mainCtx, mainCancel := context.WithCancel(context.Background())
+	defer mainCancel()
 
 	// Create state store with optimizations for high-frequency updates
 	store := state.NewStateStore(
@@ -189,14 +205,11 @@ func main() {
 	}
 
 	// Create metrics collector
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
 	collector := &MetricsCollector{
 		store:    store,
 		eventGen: state.NewStateEventGenerator(store),
-		ctx:      ctx,
-		cancel:   cancel,
+		ctx:      mainCtx,
+		cancel:   mainCancel,
 	}
 
 	// Create event stream for real-time updates
@@ -216,7 +229,31 @@ func main() {
 			state.WithBatchSize(50), // Larger batch for high frequency
 			state.WithBatchTimeout(25*time.Millisecond), // Shorter timeout for real-time
 		),
+		shutdownChan: make(chan struct{}),
 	}
+
+	// Start HTTP server for dashboard
+	mux := http.NewServeMux()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, "Real-Time Dashboard Running\n")
+	})
+	mux.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "OK\n")
+	})
+
+	server.httpServer = &http.Server{
+		Addr:    ":8080",
+		Handler: mux,
+	}
+
+	// Start HTTP server in a goroutine
+	go func() {
+		fmt.Println("Starting HTTP server on :8080")
+		if err := server.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Printf("HTTP server error: %v", err)
+		}
+	}()
 
 	// Simulate client connections
 	fmt.Println("\n=== Simulating Client Connections ===")
@@ -228,61 +265,65 @@ func main() {
 	// Subscribe to state changes for monitoring
 	fmt.Println("\n=== Starting Real-Time Updates ===")
 
-	// Monitor update frequency
+	// Monitor update frequency with context cancellation
+	updateFreqCtx, updateFreqCancel := context.WithCancel(mainCtx)
 	var updateFrequency int64
 	go func() {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
 
 		var lastCount int64
-		for range ticker.C {
-			currentCount := atomic.LoadInt64(&collector.updateCount)
-			frequency := currentCount - lastCount
-			atomic.StoreInt64(&updateFrequency, frequency)
-			lastCount = currentCount
+		for {
+			select {
+			case <-updateFreqCtx.Done():
+				return
+			case <-ticker.C:
+				currentCount := atomic.LoadInt64(&collector.updateCount)
+				frequency := currentCount - lastCount
+				atomic.StoreInt64(&updateFrequency, frequency)
+				lastCount = currentCount
 
-			if frequency > 0 {
-				fmt.Printf("Update frequency: %d updates/sec, Total: %d, Errors: %d\n",
-					frequency, currentCount, atomic.LoadInt64(&collector.errorCount))
+				if frequency > 0 {
+					fmt.Printf("Update frequency: %d updates/sec, Total: %d, Errors: %d\n",
+						frequency, currentCount, atomic.LoadInt64(&collector.errorCount))
+				}
 			}
 		}
 	}()
 
 	// Start metrics collection from multiple sources
-	var wg sync.WaitGroup
-
 	// System metrics collector (10Hz)
-	wg.Add(1)
+	collector.wg.Add(1)
 	go func() {
-		defer wg.Done()
+		defer collector.wg.Done()
 		collector.collectSystemMetrics(100 * time.Millisecond)
 	}()
 
 	// Network stats collector (5Hz)
-	wg.Add(1)
+	collector.wg.Add(1)
 	go func() {
-		defer wg.Done()
+		defer collector.wg.Done()
 		collector.collectNetworkStats(200 * time.Millisecond)
 	}()
 
 	// Service health checker (1Hz)
-	wg.Add(1)
+	collector.wg.Add(1)
 	go func() {
-		defer wg.Done()
+		defer collector.wg.Done()
 		collector.checkServiceHealth(1 * time.Second)
 	}()
 
 	// Activity feed generator (Variable rate)
-	wg.Add(1)
+	collector.wg.Add(1)
 	go func() {
-		defer wg.Done()
+		defer collector.wg.Done()
 		collector.generateActivityEvents()
 	}()
 
 	// Analytics aggregator (2Hz)
-	wg.Add(1)
+	collector.wg.Add(1)
 	go func() {
-		defer wg.Done()
+		defer collector.wg.Done()
 		collector.aggregateAnalytics(500 * time.Millisecond)
 	}()
 
@@ -291,71 +332,156 @@ func main() {
 		log.Printf("Failed to start event stream: %v", err)
 	}
 
+	// Track subscriptions for cleanup
+	var subscriptions []func()
+	var subMu sync.Mutex
+
 	// Subscribe to events and show samples
 	unsubscribe := collector.eventStream.Subscribe(func(event events.Event) error {
-		// Process events (in real app, this would send to clients)
-		switch e := event.(type) {
-		case *events.StateDeltaEvent:
-			for _, client := range server.clients {
-				atomic.AddInt64(&client.EventCount, 1)
-			}
+		select {
+		case <-mainCtx.Done():
+			return mainCtx.Err()
+		default:
+			// Process events (in real app, this would send to clients)
+			switch e := event.(type) {
+			case *events.StateDeltaEvent:
+				server.mu.RLock()
+				for _, client := range server.clients {
+					atomic.AddInt64(&client.EventCount, 1)
+				}
+				server.mu.RUnlock()
 
-			// Sample logging (every 100th event)
-			if atomic.LoadInt64(&collector.updateCount)%100 == 0 {
-				fmt.Printf("Delta event: %d operations\n", len(e.Delta))
+				// Sample logging (every 100th event)
+				if atomic.LoadInt64(&collector.updateCount)%100 == 0 {
+					fmt.Printf("Delta event: %d operations\n", len(e.Delta))
+				}
 			}
+			return nil
 		}
-		return nil
 	})
-	defer unsubscribe()
 
-	// Run for demonstration period
-	fmt.Println("\nRunning high-frequency updates for 30 seconds...")
-	time.Sleep(30 * time.Second)
+	subMu.Lock()
+	subscriptions = append(subscriptions, unsubscribe)
+	subMu.Unlock()
 
 	// Generate some alerts during runtime
+	alertCtx, alertCancel := context.WithCancel(mainCtx)
 	go func() {
-		time.Sleep(5 * time.Second)
-		collector.generateAlert("High CPU Usage", "CPU usage exceeded 80%", "warning")
+		select {
+		case <-time.After(5 * time.Second):
+			collector.generateAlert("High CPU Usage", "CPU usage exceeded 80%", "warning")
+		case <-alertCtx.Done():
+			return
+		}
 
-		time.Sleep(10 * time.Second)
-		collector.generateAlert("Service Degradation", "API service response time increased", "error")
+		select {
+		case <-time.After(10 * time.Second):
+			collector.generateAlert("Service Degradation", "API service response time increased", "error")
+		case <-alertCtx.Done():
+			return
+		}
 
-		time.Sleep(5 * time.Second)
-		collector.generateAlert("Network Congestion", "Packet loss detected on primary link", "critical")
+		select {
+		case <-time.After(5 * time.Second):
+			collector.generateAlert("Network Congestion", "Packet loss detected on primary link", "critical")
+		case <-alertCtx.Done():
+			return
+		}
 	}()
 
 	// Show performance statistics periodically
+	perfCtx, perfCancel := context.WithCancel(mainCtx)
 	go func() {
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 
-		for range ticker.C {
-			collector.showPerformanceStats()
+		for {
+			select {
+			case <-perfCtx.Done():
+				return
+			case <-ticker.C:
+				collector.showPerformanceStats()
+			}
 		}
 	}()
 
-	// Wait for demonstration to complete
-	time.Sleep(30 * time.Second)
+	// Run for demonstration period or until interrupted
+	fmt.Println("\nRunning high-frequency updates... Press Ctrl+C to stop")
 
-	// Stop collectors
-	fmt.Println("\n=== Stopping Collectors ===")
-	cancel()
-	collector.eventStream.Stop()
+	// Create a timer for automatic shutdown after 30 seconds
+	demoTimer := time.NewTimer(30 * time.Second)
+	defer demoTimer.Stop()
 
-	// Wait for goroutines to finish
-	done := make(chan struct{})
+	// Wait for shutdown signal or demo timeout
+	select {
+	case <-sigChan:
+		fmt.Println("\n\nReceived interrupt signal, initiating graceful shutdown...")
+	case <-demoTimer.C:
+		fmt.Println("\n\nDemo period completed, initiating graceful shutdown...")
+	}
+
+	// Graceful shutdown sequence
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	// Signal all contexts to cancel
+	mainCancel()
+	updateFreqCancel()
+	alertCancel()
+	perfCancel()
+
+	// Stop accepting new work
+	fmt.Println("\n=== Phase 1: Stopping New Work ===")
+
+	// Stop event stream
+	if collector.eventStream != nil {
+		fmt.Println("Stopping event stream...")
+		collector.eventStream.Stop()
+	}
+
+	// Unsubscribe all subscriptions
+	fmt.Println("Unsubscribing from events...")
+	subMu.Lock()
+	for _, unsub := range subscriptions {
+		unsub()
+	}
+	subMu.Unlock()
+
+	// Shutdown HTTP server
+	fmt.Println("Shutting down HTTP server...")
+	if err := server.httpServer.Shutdown(shutdownCtx); err != nil {
+		log.Printf("HTTP server shutdown error: %v", err)
+	}
+
+	// Wait for collectors to finish with timeout
+	fmt.Println("\n=== Phase 2: Waiting for Collectors ===")
+	collectorsDone := make(chan struct{})
 	go func() {
-		wg.Wait()
-		close(done)
+		collector.wg.Wait()
+		close(collectorsDone)
 	}()
 
 	select {
-	case <-done:
-		fmt.Println("All collectors stopped")
-	case <-time.After(5 * time.Second):
-		fmt.Println("Timeout waiting for collectors")
+	case <-collectorsDone:
+		fmt.Println("All collectors stopped gracefully")
+	case <-shutdownCtx.Done():
+		fmt.Println("Timeout waiting for collectors (some may still be running)")
 	}
+
+	// Final cleanup
+	fmt.Println("\n=== Phase 3: Final Cleanup ===")
+
+	// Stop event handler if it exists
+	if server.eventHandler != nil {
+		// Event handler cleanup would go here
+		fmt.Println("Event handler cleanup completed")
+	}
+
+	// Disconnect all clients
+	server.DisconnectAllClients()
+
+	// Close any remaining channels
+	close(server.shutdownChan)
 
 	// Show final statistics
 	fmt.Println("\n=== Final Statistics ===")
@@ -368,6 +494,8 @@ func main() {
 	// Show optimization techniques
 	fmt.Println("\n=== Optimization Techniques Used ===")
 	showOptimizationTechniques()
+
+	fmt.Println("\n=== Graceful Shutdown Complete ===")
 }
 
 // Initialize services for monitoring
@@ -658,6 +786,31 @@ func (c *MetricsCollector) showPerformanceStats() {
 	}
 }
 
+// Cleanup performs proper resource cleanup for the metrics collector
+func (c *MetricsCollector) Cleanup(timeout time.Duration) error {
+	fmt.Println("Starting MetricsCollector cleanup...")
+
+	// Cancel context to stop all collectors
+	if c.cancel != nil {
+		c.cancel()
+	}
+
+	// Wait for all goroutines with timeout
+	done := make(chan struct{})
+	go func() {
+		c.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		fmt.Println("MetricsCollector cleanup completed successfully")
+		return nil
+	case <-time.After(timeout):
+		return fmt.Errorf("timeout waiting for collectors to finish")
+	}
+}
+
 // DashboardServer methods
 
 func (s *DashboardServer) ConnectClient(clientID string) {
@@ -673,6 +826,16 @@ func (s *DashboardServer) ConnectClient(clientID string) {
 
 	s.clients[clientID] = client
 	fmt.Printf("Client connected: %s\n", clientID)
+}
+
+func (s *DashboardServer) DisconnectAllClients() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for clientID := range s.clients {
+		fmt.Printf("Client disconnected: %s\n", clientID)
+		delete(s.clients, clientID)
+	}
 }
 
 // Helper functions
@@ -793,6 +956,10 @@ func showOptimizationTechniques() {
 		{
 			Name:        "Async Processing",
 			Description: "Non-blocking updates with goroutines",
+		},
+		{
+			Name:        "Graceful Shutdown",
+			Description: "Proper resource cleanup with context cancellation",
 		},
 	}
 

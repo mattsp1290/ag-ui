@@ -45,10 +45,10 @@ func (br *BoundedResolverRegistry) Register(name string, resolver CustomResolver
 	if resolver == nil {
 		return fmt.Errorf("resolver function cannot be nil")
 	}
-	
+
 	br.mu.Lock()
 	defer br.mu.Unlock()
-	
+
 	// Check if already exists
 	if elem, ok := br.index[name]; ok {
 		// Update existing resolver
@@ -59,7 +59,7 @@ func (br *BoundedResolverRegistry) Register(name string, resolver CustomResolver
 		br.accessTime[name] = time.Now()
 		return nil
 	}
-	
+
 	// Add new resolver
 	entry := &resolverEntry{
 		name:     name,
@@ -69,7 +69,7 @@ func (br *BoundedResolverRegistry) Register(name string, resolver CustomResolver
 	br.index[name] = elem
 	br.resolvers[name] = resolver
 	br.accessTime[name] = time.Now()
-	
+
 	// Evict if over capacity
 	if br.lru.Len() > br.maxSize {
 		oldest := br.lru.Back()
@@ -77,7 +77,7 @@ func (br *BoundedResolverRegistry) Register(name string, resolver CustomResolver
 			br.removeElement(oldest)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -85,14 +85,14 @@ func (br *BoundedResolverRegistry) Register(name string, resolver CustomResolver
 func (br *BoundedResolverRegistry) Get(name string) (CustomResolverFunc, bool) {
 	br.mu.Lock()
 	defer br.mu.Unlock()
-	
+
 	if elem, ok := br.index[name]; ok {
 		br.lru.MoveToFront(elem)
 		entry := elem.Value.(*resolverEntry)
 		br.accessTime[name] = time.Now()
 		return entry.resolver, true
 	}
-	
+
 	return nil, false
 }
 
@@ -100,7 +100,7 @@ func (br *BoundedResolverRegistry) Get(name string) (CustomResolverFunc, bool) {
 func (br *BoundedResolverRegistry) Delete(name string) {
 	br.mu.Lock()
 	defer br.mu.Unlock()
-	
+
 	if elem, ok := br.index[name]; ok {
 		br.removeElement(elem)
 	}
@@ -117,7 +117,7 @@ func (br *BoundedResolverRegistry) Size() int {
 func (br *BoundedResolverRegistry) Clear() {
 	br.mu.Lock()
 	defer br.mu.Unlock()
-	
+
 	br.resolvers = make(map[string]CustomResolverFunc)
 	br.lru = list.New()
 	br.index = make(map[string]*list.Element)
@@ -128,13 +128,13 @@ func (br *BoundedResolverRegistry) Clear() {
 func (br *BoundedResolverRegistry) GetNames() []string {
 	br.mu.RLock()
 	defer br.mu.RUnlock()
-	
+
 	names := make([]string, 0, br.lru.Len())
 	for elem := br.lru.Front(); elem != nil; elem = elem.Next() {
 		entry := elem.Value.(*resolverEntry)
 		names = append(names, entry.name)
 	}
-	
+
 	return names
 }
 
@@ -151,10 +151,10 @@ func (br *BoundedResolverRegistry) removeElement(elem *list.Element) {
 func (br *BoundedResolverRegistry) CleanupOldResolvers(maxAge time.Duration) int {
 	br.mu.Lock()
 	defer br.mu.Unlock()
-	
+
 	cutoff := time.Now().Add(-maxAge)
 	count := 0
-	
+
 	// Collect resolvers to remove
 	var toRemove []*list.Element
 	for elem := br.lru.Back(); elem != nil; elem = elem.Prev() {
@@ -168,13 +168,13 @@ func (br *BoundedResolverRegistry) CleanupOldResolvers(maxAge time.Duration) int
 			}
 		}
 	}
-	
+
 	// Remove collected resolvers
 	for _, elem := range toRemove {
 		br.removeElement(elem)
 		count++
 	}
-	
+
 	return count
 }
 
@@ -182,13 +182,13 @@ func (br *BoundedResolverRegistry) CleanupOldResolvers(maxAge time.Duration) int
 func (br *BoundedResolverRegistry) GetStatistics() map[string]interface{} {
 	br.mu.RLock()
 	defer br.mu.RUnlock()
-	
+
 	stats := map[string]interface{}{
 		"current_size": len(br.resolvers),
 		"max_size":     br.maxSize,
 		"capacity":     float64(len(br.resolvers)) / float64(br.maxSize),
 	}
-	
+
 	// Find oldest access time
 	var oldestAccess time.Time
 	for _, t := range br.accessTime {
@@ -196,11 +196,11 @@ func (br *BoundedResolverRegistry) GetStatistics() map[string]interface{} {
 			oldestAccess = t
 		}
 	}
-	
+
 	if !oldestAccess.IsZero() {
 		stats["oldest_access"] = oldestAccess
 		stats["oldest_age"] = time.Since(oldestAccess)
 	}
-	
+
 	return stats
 }

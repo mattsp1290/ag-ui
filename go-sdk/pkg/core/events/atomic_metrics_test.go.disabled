@@ -1,0 +1,441 @@
+package events
+
+import (
+	"math"
+	"sync"
+	"testing"
+	"time"
+)
+
+// TestAtomicCounter tests the AtomicCounter functionality
+func TestAtomicCounter(t *testing.T) {
+	counter := NewAtomicCounter()
+	
+	// Test initial value
+	if counter.Load() != 0 {
+		t.Errorf("Expected initial value 0, got %d", counter.Load())
+	}
+	
+	// Test increment
+	result := counter.Inc()
+	if result != 1 {
+		t.Errorf("Expected Inc() to return 1, got %d", result)
+	}
+	if counter.Load() != 1 {
+		t.Errorf("Expected Load() to return 1, got %d", counter.Load())
+	}
+	
+	// Test add
+	result = counter.Add(5)
+	if result != 6 {
+		t.Errorf("Expected Add(5) to return 6, got %d", result)
+	}
+	
+	// Test decrement
+	result = counter.Dec()
+	if result != 5 {
+		t.Errorf("Expected Dec() to return 5, got %d", result)
+	}
+	
+	// Test store
+	counter.Store(10)
+	if counter.Load() != 10 {
+		t.Errorf("Expected Load() after Store(10) to return 10, got %d", counter.Load())
+	}
+	
+	// Test compare and swap
+	success := counter.CompareAndSwap(10, 20)
+	if !success {
+		t.Error("Expected CompareAndSwap(10, 20) to succeed")
+	}
+	if counter.Load() != 20 {
+		t.Errorf("Expected Load() after CompareAndSwap to return 20, got %d", counter.Load())
+	}
+	
+	// Test failed compare and swap
+	success = counter.CompareAndSwap(10, 30)
+	if success {
+		t.Error("Expected CompareAndSwap(10, 30) to fail")
+	}
+	if counter.Load() != 20 {
+		t.Errorf("Expected Load() after failed CompareAndSwap to remain 20, got %d", counter.Load())
+	}
+}
+
+// TestAtomicCounterConcurrency tests AtomicCounter under concurrent access
+func TestAtomicCounterConcurrency(t *testing.T) {
+	counter := NewAtomicCounter()
+	numGoroutines := 100
+	incrementsPerGoroutine := 1000
+	
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+	
+	// Spawn goroutines that increment the counter
+	for i := 0; i < numGoroutines; i++ {
+		go func() {
+			defer wg.Done()
+			for j := 0; j < incrementsPerGoroutine; j++ {
+				counter.Inc()
+			}
+		}()
+	}
+	
+	wg.Wait()
+	
+	expected := int64(numGoroutines * incrementsPerGoroutine)
+	if counter.Load() != expected {
+		t.Errorf("Expected %d, got %d", expected, counter.Load())
+	}
+}
+
+// TestAtomicDuration tests the AtomicDuration functionality
+func TestAtomicDuration(t *testing.T) {
+	duration := NewAtomicDuration()
+	
+	// Test initial value
+	if duration.Load() != 0 {
+		t.Errorf("Expected initial duration 0, got %v", duration.Load())
+	}
+	
+	// Test add
+	d1 := 100 * time.Millisecond
+	result := duration.Add(d1)
+	if result != d1 {
+		t.Errorf("Expected Add() to return %v, got %v", d1, result)
+	}
+	if duration.Load() != d1 {
+		t.Errorf("Expected Load() to return %v, got %v", d1, duration.Load())
+	}
+	
+	// Test store
+	d2 := 500 * time.Millisecond
+	duration.Store(d2)
+	if duration.Load() != d2 {
+		t.Errorf("Expected Load() after Store() to return %v, got %v", d2, duration.Load())
+	}
+	
+	// Test compare and swap
+	d3 := 1 * time.Second
+	success := duration.CompareAndSwap(d2, d3)
+	if !success {
+		t.Error("Expected CompareAndSwap to succeed")
+	}
+	if duration.Load() != d3 {
+		t.Errorf("Expected Load() after CompareAndSwap to return %v, got %v", d3, duration.Load())
+	}
+}
+
+// TestAtomicMinMax tests the AtomicMinMax functionality
+func TestAtomicMinMax(t *testing.T) {
+	minMax := NewAtomicMinMax()
+	
+	// Test initial values
+	if minMax.Min() != 0 {
+		t.Errorf("Expected initial min 0, got %v", minMax.Min())
+	}
+	if minMax.Max() != 0 {
+		t.Errorf("Expected initial max 0, got %v", minMax.Max())
+	}
+	
+	// Test first update
+	d1 := 100 * time.Millisecond
+	minMax.Update(d1)
+	if minMax.Min() != d1 {
+		t.Errorf("Expected min %v, got %v", d1, minMax.Min())
+	}
+	if minMax.Max() != d1 {
+		t.Errorf("Expected max %v, got %v", d1, minMax.Max())
+	}
+	
+	// Test updating with smaller value
+	d2 := 50 * time.Millisecond
+	minMax.Update(d2)
+	if minMax.Min() != d2 {
+		t.Errorf("Expected min %v, got %v", d2, minMax.Min())
+	}
+	if minMax.Max() != d1 {
+		t.Errorf("Expected max %v, got %v", d1, minMax.Max())
+	}
+	
+	// Test updating with larger value
+	d3 := 200 * time.Millisecond
+	minMax.Update(d3)
+	if minMax.Min() != d2 {
+		t.Errorf("Expected min %v, got %v", d2, minMax.Min())
+	}
+	if minMax.Max() != d3 {
+		t.Errorf("Expected max %v, got %v", d3, minMax.Max())
+	}
+}
+
+// TestAtomicMinMaxConcurrency tests AtomicMinMax under concurrent access
+func TestAtomicMinMaxConcurrency(t *testing.T) {
+	minMax := NewAtomicMinMax()
+	numGoroutines := 50
+	
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+	
+	// Spawn goroutines that update min/max with different values
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			// Each goroutine updates with a unique duration
+			duration := time.Duration(id+1) * time.Millisecond
+			minMax.Update(duration)
+		}(i)
+	}
+	
+	wg.Wait()
+	
+	expectedMin := 1 * time.Millisecond
+	expectedMax := time.Duration(numGoroutines) * time.Millisecond
+	
+	if minMax.Min() != expectedMin {
+		t.Errorf("Expected min %v, got %v", expectedMin, minMax.Min())
+	}
+	if minMax.Max() != expectedMax {
+		t.Errorf("Expected max %v, got %v", expectedMax, minMax.Max())
+	}
+}
+
+// TestRuleExecutionMetricAtomic tests the atomic RuleExecutionMetric
+func TestRuleExecutionMetricAtomic(t *testing.T) {
+	metric := NewRuleExecutionMetric("test-rule")
+	
+	// Test initial state
+	if metric.GetExecutionCount() != 0 {
+		t.Errorf("Expected initial execution count 0, got %d", metric.GetExecutionCount())
+	}
+	if metric.GetErrorCount() != 0 {
+		t.Errorf("Expected initial error count 0, got %d", metric.GetErrorCount())
+	}
+	if metric.GetAverageDuration() != 0 {
+		t.Errorf("Expected initial average duration 0, got %v", metric.GetAverageDuration())
+	}
+	
+	// Record some executions
+	metric.RecordExecution(100*time.Millisecond, true)
+	metric.RecordExecution(200*time.Millisecond, false)
+	metric.RecordExecution(150*time.Millisecond, true)
+	
+	// Verify counts
+	if metric.GetExecutionCount() != 3 {
+		t.Errorf("Expected execution count 3, got %d", metric.GetExecutionCount())
+	}
+	if metric.GetErrorCount() != 1 {
+		t.Errorf("Expected error count 1, got %d", metric.GetErrorCount())
+	}
+	
+	// Verify average duration
+	expectedAvg := (100 + 200 + 150) * time.Millisecond / 3
+	if metric.GetAverageDuration() != expectedAvg {
+		t.Errorf("Expected average duration %v, got %v", expectedAvg, metric.GetAverageDuration())
+	}
+	
+	// Verify error rate
+	expectedErrorRate := 1.0 / 3.0 * 100.0
+	if math.Abs(metric.GetErrorRate()-expectedErrorRate) > 0.01 {
+		t.Errorf("Expected error rate %f, got %f", expectedErrorRate, metric.GetErrorRate())
+	}
+	
+	// Verify min/max
+	expectedMin := 100 * time.Millisecond
+	expectedMax := 200 * time.Millisecond
+	if metric.GetMinDuration() != expectedMin {
+		t.Errorf("Expected min duration %v, got %v", expectedMin, metric.GetMinDuration())
+	}
+	if metric.GetMaxDuration() != expectedMax {
+		t.Errorf("Expected max duration %v, got %v", expectedMax, metric.GetMaxDuration())
+	}
+	
+	// Verify bucket counts
+	buckets := metric.GetBucketCounts()
+	if len(buckets) != len(metric.DurationBuckets) {
+		t.Errorf("Expected %d buckets, got %d", len(metric.DurationBuckets), len(buckets))
+	}
+	
+	// All durations should fall in bucket 6 (250ms bucket) or earlier
+	totalInBuckets := int64(0)
+	for i := 0; i <= 6; i++ {
+		totalInBuckets += buckets[i]
+	}
+	if totalInBuckets != 3 {
+		t.Errorf("Expected 3 entries in early buckets, got %d", totalInBuckets)
+	}
+}
+
+// TestRuleExecutionMetricConcurrency tests RuleExecutionMetric under concurrent access
+func TestRuleExecutionMetricConcurrency(t *testing.T) {
+	metric := NewRuleExecutionMetric("concurrent-test-rule")
+	numGoroutines := 100
+	executionsPerGoroutine := 100
+	
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines)
+	
+	// Spawn goroutines that record executions
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < executionsPerGoroutine; j++ {
+				duration := time.Duration(id*10+j) * time.Microsecond
+				success := (j % 10) != 0 // 10% error rate
+				metric.RecordExecution(duration, success)
+			}
+		}(i)
+	}
+	
+	wg.Wait()
+	
+	expectedExecutions := int64(numGoroutines * executionsPerGoroutine)
+	expectedErrors := int64(numGoroutines * executionsPerGoroutine / 10)
+	
+	if metric.GetExecutionCount() != expectedExecutions {
+		t.Errorf("Expected execution count %d, got %d", expectedExecutions, metric.GetExecutionCount())
+	}
+	if metric.GetErrorCount() != expectedErrors {
+		t.Errorf("Expected error count %d, got %d", expectedErrors, metric.GetErrorCount())
+	}
+	
+	// Verify error rate is approximately 10%
+	errorRate := metric.GetErrorRate()
+	if math.Abs(errorRate-10.0) > 1.0 {
+		t.Errorf("Expected error rate around 10%%, got %f%%", errorRate)
+	}
+}
+
+// TestThroughputMetricAtomic tests the atomic ThroughputMetric
+func TestThroughputMetricAtomic(t *testing.T) {
+	metric := NewThroughputMetric(100*time.Millisecond, 100.0)
+	
+	// Test initial state
+	if metric.EventsProcessed != 0 {
+		t.Errorf("Expected initial events processed 0, got %d", metric.EventsProcessed)
+	}
+	if metric.SampleCount != 0 {
+		t.Errorf("Expected initial sample count 0, got %d", metric.SampleCount)
+	}
+	if metric.SLAViolations != 0 {
+		t.Errorf("Expected initial SLA violations 0, got %d", metric.SLAViolations)
+	}
+	
+	// Record some events
+	metric.RecordEvents(10, 50*time.Millisecond)
+	
+	if metric.GetEventsProcessed() != 10 {
+		t.Errorf("Expected events processed 10, got %d", metric.GetEventsProcessed())
+	}
+	if metric.GetSampleCount() != 1 {
+		t.Errorf("Expected sample count 1, got %d", metric.GetSampleCount())
+	}
+	
+	// Record more events to trigger window calculation
+	time.Sleep(110 * time.Millisecond) // Wait for window to pass
+	metric.RecordEvents(5, 25*time.Millisecond)
+	
+	// The first window should have been processed
+	if metric.GetEventsProcessed() != 5 { // Reset after window
+		t.Errorf("Expected events processed 5 after window reset, got %d", metric.GetEventsProcessed())
+	}
+}
+
+// TestAsyncMetricRecorder tests the async metric recording system
+func TestAsyncMetricRecorder(t *testing.T) {
+	config := &AsyncMetricsConfig{
+		BufferSize:     100,
+		WorkerCount:    2,
+		FlushTimeout:   10 * time.Millisecond,
+		DropOnOverflow: false,
+	}
+	
+	// Create a mock metrics instance
+	metricsConfig := DefaultMetricsConfig()
+	metricsConfig.AsyncMetrics = nil // Disable async for the main metrics to avoid recursion
+	
+	metrics, err := NewValidationPerformanceMetrics(metricsConfig)
+	if err != nil {
+		t.Fatalf("Failed to create metrics: %v", err)
+	}
+	defer metrics.Shutdown()
+	
+	// Create async recorder
+	recorder := NewAsyncMetricRecorder(config, metrics)
+	defer recorder.Shutdown()
+	
+	// Record some async events
+	for i := 0; i < 10; i++ {
+		recorder.RecordEvent(AsyncMetricEvent{
+			Type:      "rule_execution",
+			RuleID:    "test-rule",
+			Duration:  time.Duration(i*10) * time.Millisecond,
+			Success:   i%2 == 0,
+			Timestamp: time.Now(),
+		})
+	}
+	
+	// Wait for processing
+	time.Sleep(50 * time.Millisecond)
+	
+	// Verify the rule metric was created and updated
+	ruleMetric := metrics.GetRuleMetrics("test-rule")
+	if ruleMetric == nil {
+		t.Fatal("Expected rule metric to be created")
+	}
+	
+	if ruleMetric.GetExecutionCount() != 10 {
+		t.Errorf("Expected execution count 10, got %d", ruleMetric.GetExecutionCount())
+	}
+	
+	if ruleMetric.GetErrorCount() != 5 { // Half are errors
+		t.Errorf("Expected error count 5, got %d", ruleMetric.GetErrorCount())
+	}
+}
+
+// TestAsyncMetricRecorderOverflow tests buffer overflow handling
+func TestAsyncMetricRecorderOverflow(t *testing.T) {
+	config := &AsyncMetricsConfig{
+		BufferSize:     5, // Small buffer
+		WorkerCount:    1,
+		FlushTimeout:   100 * time.Millisecond, // Slow flush
+		DropOnOverflow: true,
+	}
+	
+	// Create a mock metrics instance
+	metricsConfig := DefaultMetricsConfig()
+	metricsConfig.AsyncMetrics = nil
+	
+	metrics, err := NewValidationPerformanceMetrics(metricsConfig)
+	if err != nil {
+		t.Fatalf("Failed to create metrics: %v", err)
+	}
+	defer metrics.Shutdown()
+	
+	// Create async recorder
+	recorder := NewAsyncMetricRecorder(config, metrics)
+	defer recorder.Shutdown()
+	
+	// Record more events than buffer size
+	for i := 0; i < 20; i++ {
+		recorder.RecordEvent(AsyncMetricEvent{
+			Type:      "rule_execution",
+			RuleID:    "overflow-test",
+			Duration:  time.Millisecond,
+			Success:   true,
+			Timestamp: time.Now(),
+		})
+	}
+	
+	// Wait for processing
+	time.Sleep(200 * time.Millisecond)
+	
+	// Some events should have been dropped due to overflow
+	ruleMetric := metrics.GetRuleMetrics("overflow-test")
+	if ruleMetric != nil {
+		executionCount := ruleMetric.GetExecutionCount()
+		if executionCount >= 20 {
+			t.Errorf("Expected fewer than 20 executions due to overflow, got %d", executionCount)
+		}
+	}
+}

@@ -60,7 +60,7 @@ func Example_stateValidation() {
 		"API key must start with 'sk-'",
 		func(s map[string]interface{}) []state.ValidationError {
 			errors := []state.ValidationError{}
-			
+
 			if config, ok := s["config"].(map[string]interface{}); ok {
 				if apiKey, ok := config["apiKey"].(string); ok {
 					if len(apiKey) < 3 || apiKey[:3] != "sk-" {
@@ -72,7 +72,7 @@ func Example_stateValidation() {
 					}
 				}
 			}
-			
+
 			return errors
 		},
 	)
@@ -104,7 +104,7 @@ func Example_stateValidation() {
 	invalidState := map[string]interface{}{
 		"config": map[string]interface{}{
 			"apiKey":  "invalid-key", // Wrong prefix and too short
-			"timeout": 500,            // Exceeds maximum
+			"timeout": 500,           // Exceeds maximum
 		},
 		"features": map[string]interface{}{
 			"language": "jp", // Not in enum

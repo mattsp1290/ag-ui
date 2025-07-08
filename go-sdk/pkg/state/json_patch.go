@@ -395,14 +395,14 @@ func getValueAtPathTokens(document interface{}, tokens []string) (interface{}, e
 	if document == nil {
 		return nil, fmt.Errorf("document is nil")
 	}
-	
+
 	current := document
 
 	for i, token := range tokens {
 		if current == nil {
 			return nil, fmt.Errorf("encountered nil value at path segment %d", i)
 		}
-		
+
 		switch c := current.(type) {
 		case map[string]interface{}:
 			if c == nil {
@@ -497,7 +497,7 @@ func parseJSONPointer(pointer string) []string {
 	}
 
 	tokens := strings.Split(pointer, "/")
-	
+
 	// Unescape tokens
 	for i, token := range tokens {
 		tokens[i] = unescapeJSONPointer(token)
@@ -528,11 +528,11 @@ func validateJSONPointer(pointer string) error {
 	if strings.Contains(pointer, "..") {
 		return fmt.Errorf("JSON Pointer contains path traversal pattern (..)")
 	}
-	
+
 	if strings.Contains(pointer, "//") {
 		return fmt.Errorf("JSON Pointer contains empty path segments")
 	}
-	
+
 	// Check for control characters
 	for i, r := range pointer {
 		if r < 32 && r != 9 && r != 10 && r != 13 { // Allow tab, LF, CR

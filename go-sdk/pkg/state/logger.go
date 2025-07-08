@@ -119,22 +119,22 @@ func (l *structuredLogger) WithContext(ctx context.Context) Logger {
 func (l *structuredLogger) log(level slog.Level, msg string, fields ...Field) {
 	// Add goroutine ID
 	gid := getGoroutineID()
-	
+
 	// Combine persistent fields with call fields
 	allFields := make([]Field, 0, len(l.fields)+len(fields)+2)
 	allFields = append(allFields, l.fields...)
 	allFields = append(allFields, fields...)
-	allFields = append(allFields, 
+	allFields = append(allFields,
 		Int64("goroutine_id", gid),
 		Time("timestamp", time.Now()),
 	)
-	
+
 	// Convert to slog attributes
 	attrs := make([]slog.Attr, 0, len(allFields))
 	for _, f := range allFields {
 		attrs = append(attrs, slog.Any(f.Key, f.Value))
 	}
-	
+
 	l.logger.LogAttrs(context.Background(), level, msg, attrs...)
 }
 
@@ -151,9 +151,9 @@ func getGoroutineID() int64 {
 // NoOpLogger is a logger that discards all log messages
 type NoOpLogger struct{}
 
-func (n NoOpLogger) Debug(msg string, fields ...Field) {}
-func (n NoOpLogger) Info(msg string, fields ...Field)  {}
-func (n NoOpLogger) Warn(msg string, fields ...Field)  {}
-func (n NoOpLogger) Error(msg string, fields ...Field) {}
-func (n NoOpLogger) WithFields(fields ...Field) Logger { return n }
+func (n NoOpLogger) Debug(msg string, fields ...Field)      {}
+func (n NoOpLogger) Info(msg string, fields ...Field)       {}
+func (n NoOpLogger) Warn(msg string, fields ...Field)       {}
+func (n NoOpLogger) Error(msg string, fields ...Field)      {}
+func (n NoOpLogger) WithFields(fields ...Field) Logger      { return n }
 func (n NoOpLogger) WithContext(ctx context.Context) Logger { return n }

@@ -17,28 +17,28 @@ type AuditAction string
 
 const (
 	// State management actions
-	AuditActionStateUpdate    AuditAction = "STATE_UPDATE"
-	AuditActionStateAccess    AuditAction = "STATE_ACCESS"
-	AuditActionStateRollback  AuditAction = "STATE_ROLLBACK"
-	AuditActionCheckpoint     AuditAction = "CHECKPOINT_CREATE"
-	
+	AuditActionStateUpdate   AuditAction = "STATE_UPDATE"
+	AuditActionStateAccess   AuditAction = "STATE_ACCESS"
+	AuditActionStateRollback AuditAction = "STATE_ROLLBACK"
+	AuditActionCheckpoint    AuditAction = "CHECKPOINT_CREATE"
+
 	// Context management actions
-	AuditActionContextCreate  AuditAction = "CONTEXT_CREATE"
-	AuditActionContextExpire  AuditAction = "CONTEXT_EXPIRE"
-	AuditActionContextAccess  AuditAction = "CONTEXT_ACCESS"
-	
+	AuditActionContextCreate AuditAction = "CONTEXT_CREATE"
+	AuditActionContextExpire AuditAction = "CONTEXT_EXPIRE"
+	AuditActionContextAccess AuditAction = "CONTEXT_ACCESS"
+
 	// Security actions
 	AuditActionRateLimit      AuditAction = "RATE_LIMIT_EXCEEDED"
 	AuditActionSizeLimit      AuditAction = "SIZE_LIMIT_EXCEEDED"
 	AuditActionValidationFail AuditAction = "VALIDATION_FAILED"
 	AuditActionSecurityBlock  AuditAction = "SECURITY_BLOCKED"
-	
+
 	// Configuration actions
-	AuditActionConfigChange   AuditAction = "CONFIG_CHANGE"
-	
+	AuditActionConfigChange AuditAction = "CONFIG_CHANGE"
+
 	// Error conditions
-	AuditActionError          AuditAction = "ERROR"
-	AuditActionPanic          AuditAction = "PANIC_RECOVERED"
+	AuditActionError AuditAction = "ERROR"
+	AuditActionPanic AuditAction = "PANIC_RECOVERED"
 )
 
 // AuditResult represents the outcome of an audited action
@@ -53,53 +53,53 @@ const (
 // AuditLog represents a single audit log entry
 type AuditLog struct {
 	// Core fields
-	ID        string       `json:"id"`        // Unique identifier for the log entry
-	Timestamp time.Time    `json:"timestamp"` // When the action occurred
-	Action    AuditAction  `json:"action"`    // What action was performed
-	Result    AuditResult  `json:"result"`    // Outcome of the action
-	
+	ID        string      `json:"id"`        // Unique identifier for the log entry
+	Timestamp time.Time   `json:"timestamp"` // When the action occurred
+	Action    AuditAction `json:"action"`    // What action was performed
+	Result    AuditResult `json:"result"`    // Outcome of the action
+
 	// Context information
 	UserID    string `json:"user_id,omitempty"`    // User performing the action
 	ContextID string `json:"context_id,omitempty"` // State context ID
 	StateID   string `json:"state_id,omitempty"`   // State ID being acted upon
 	SessionID string `json:"session_id,omitempty"` // Session identifier
-	
+
 	// Resource information
-	Resource     string                 `json:"resource,omitempty"`      // Resource being accessed
-	ResourcePath string                 `json:"resource_path,omitempty"` // Full path to resource
-	OldValue     interface{}            `json:"old_value,omitempty"`     // Previous value (for updates)
-	NewValue     interface{}            `json:"new_value,omitempty"`     // New value (for updates)
-	
+	Resource     string      `json:"resource,omitempty"`      // Resource being accessed
+	ResourcePath string      `json:"resource_path,omitempty"` // Full path to resource
+	OldValue     interface{} `json:"old_value,omitempty"`     // Previous value (for updates)
+	NewValue     interface{} `json:"new_value,omitempty"`     // New value (for updates)
+
 	// Security information
-	IPAddress    string `json:"ip_address,omitempty"`    // Client IP address
-	UserAgent    string `json:"user_agent,omitempty"`    // Client user agent
-	AuthMethod   string `json:"auth_method,omitempty"`   // Authentication method used
-	
+	IPAddress  string `json:"ip_address,omitempty"`  // Client IP address
+	UserAgent  string `json:"user_agent,omitempty"`  // Client user agent
+	AuthMethod string `json:"auth_method,omitempty"` // Authentication method used
+
 	// Error information
 	ErrorCode    string `json:"error_code,omitempty"`    // Error code if applicable
 	ErrorMessage string `json:"error_message,omitempty"` // Error message if applicable
-	
+
 	// Additional details
-	Details      map[string]interface{} `json:"details,omitempty"`       // Additional context
-	Duration     time.Duration          `json:"duration,omitempty"`      // How long the operation took
-	
+	Details  map[string]interface{} `json:"details,omitempty"`  // Additional context
+	Duration time.Duration          `json:"duration,omitempty"` // How long the operation took
+
 	// Tamper-evidence fields
-	Hash         string `json:"hash"`                     // SHA256 hash of the log entry
-	PreviousHash string `json:"previous_hash,omitempty"`  // Hash of the previous log entry
-	Sequence     int64  `json:"sequence"`                 // Sequence number for ordering
+	Hash         string `json:"hash"`                    // SHA256 hash of the log entry
+	PreviousHash string `json:"previous_hash,omitempty"` // Hash of the previous log entry
+	Sequence     int64  `json:"sequence"`                // Sequence number for ordering
 }
 
 // AuditLogger is the interface for different audit log backends
 type AuditLogger interface {
 	// Log writes an audit log entry
 	Log(ctx context.Context, log *AuditLog) error
-	
+
 	// Query retrieves audit logs based on criteria
 	Query(ctx context.Context, criteria AuditCriteria) ([]*AuditLog, error)
-	
+
 	// Verify checks the integrity of audit logs
 	Verify(ctx context.Context, startTime, endTime time.Time) (*AuditVerification, error)
-	
+
 	// Close cleanly shuts down the audit logger
 	Close() error
 }
@@ -124,7 +124,7 @@ type AuditVerification struct {
 	TotalLogs    int
 	ValidLogs    int
 	InvalidLogs  int
-	MissingLogs  []int64 // Sequence numbers of missing logs
+	MissingLogs  []int64  // Sequence numbers of missing logs
 	TamperedLogs []string // IDs of tampered logs
 	FirstLog     *AuditLog
 	LastLog      *AuditLog
@@ -138,7 +138,7 @@ type JSONAuditLogger struct {
 	sequence     int64
 	previousHash string
 	closed       bool
-	
+
 	// For verification
 	logCache     map[string]*AuditLog
 	sequenceMap  map[int64]string
@@ -150,7 +150,7 @@ func NewJSONAuditLogger(writer io.Writer) *JSONAuditLogger {
 	if writer == nil {
 		writer = os.Stdout
 	}
-	
+
 	return &JSONAuditLogger{
 		writer:       writer,
 		encoder:      json.NewEncoder(writer),
@@ -166,18 +166,18 @@ func NewJSONAuditLogger(writer io.Writer) *JSONAuditLogger {
 func (l *JSONAuditLogger) Log(ctx context.Context, log *AuditLog) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	
+
 	if l.closed {
 		return fmt.Errorf("audit logger is closed")
 	}
-	
+
 	// Set sequence number
 	l.sequence++
 	log.Sequence = l.sequence
-	
+
 	// Set previous hash for chain integrity
 	log.PreviousHash = l.previousHash
-	
+
 	// Calculate hash
 	hash, err := l.calculateHash(log)
 	if err != nil {
@@ -185,15 +185,15 @@ func (l *JSONAuditLogger) Log(ctx context.Context, log *AuditLog) error {
 	}
 	log.Hash = hash
 	l.previousHash = hash
-	
+
 	// Write to output
 	if err := l.encoder.Encode(log); err != nil {
 		return fmt.Errorf("failed to write audit log: %w", err)
 	}
-	
+
 	// Update cache for verification
 	l.updateCache(log)
-	
+
 	return nil
 }
 
@@ -201,21 +201,21 @@ func (l *JSONAuditLogger) Log(ctx context.Context, log *AuditLog) error {
 func (l *JSONAuditLogger) Query(ctx context.Context, criteria AuditCriteria) ([]*AuditLog, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	
+
 	// For JSON logger, we only query from cache
 	// A production implementation would read from the JSON file
 	var results []*AuditLog
-	
+
 	for _, log := range l.logCache {
 		if l.matchesCriteria(log, criteria) {
 			results = append(results, log)
 		}
-		
+
 		if criteria.Limit > 0 && len(results) >= criteria.Limit {
 			break
 		}
 	}
-	
+
 	return results, nil
 }
 
@@ -223,16 +223,16 @@ func (l *JSONAuditLogger) Query(ctx context.Context, criteria AuditCriteria) ([]
 func (l *JSONAuditLogger) Verify(ctx context.Context, startTime, endTime time.Time) (*AuditVerification, error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	
+
 	verification := &AuditVerification{
 		Valid:        true,
 		MissingLogs:  []int64{},
 		TamperedLogs: []string{},
 	}
-	
+
 	var firstLog, lastLog *AuditLog
 	var previousHash string
-	
+
 	// Check sequence continuity and hash chain
 	for seq := int64(1); seq <= l.sequence; seq++ {
 		logID, exists := l.sequenceMap[seq]
@@ -241,23 +241,23 @@ func (l *JSONAuditLogger) Verify(ctx context.Context, startTime, endTime time.Ti
 			verification.Valid = false
 			continue
 		}
-		
+
 		log, exists := l.logCache[logID]
 		if !exists {
 			verification.MissingLogs = append(verification.MissingLogs, seq)
 			verification.Valid = false
 			continue
 		}
-		
+
 		// Skip logs outside time range
 		if !log.Timestamp.IsZero() {
 			if log.Timestamp.Before(startTime) || log.Timestamp.After(endTime) {
 				continue
 			}
 		}
-		
+
 		verification.TotalLogs++
-		
+
 		// Verify hash chain
 		if log.PreviousHash != previousHash {
 			verification.TamperedLogs = append(verification.TamperedLogs, log.ID)
@@ -267,7 +267,7 @@ func (l *JSONAuditLogger) Verify(ctx context.Context, startTime, endTime time.Ti
 			// Recalculate hash to verify integrity
 			originalHash := log.Hash
 			log.Hash = "" // Clear hash for recalculation
-			
+
 			calculatedHash, err := l.calculateHash(log)
 			if err != nil || calculatedHash != originalHash {
 				verification.TamperedLogs = append(verification.TamperedLogs, log.ID)
@@ -276,21 +276,21 @@ func (l *JSONAuditLogger) Verify(ctx context.Context, startTime, endTime time.Ti
 			} else {
 				verification.ValidLogs++
 			}
-			
+
 			log.Hash = originalHash // Restore original hash
 		}
-		
+
 		previousHash = log.Hash
-		
+
 		if firstLog == nil {
 			firstLog = log
 		}
 		lastLog = log
 	}
-	
+
 	verification.FirstLog = firstLog
 	verification.LastLog = lastLog
-	
+
 	return verification, nil
 }
 
@@ -298,23 +298,23 @@ func (l *JSONAuditLogger) Verify(ctx context.Context, startTime, endTime time.Ti
 func (l *JSONAuditLogger) Close() error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	
+
 	if l.closed {
 		return nil
 	}
-	
+
 	l.closed = true
-	
+
 	// Flush any buffered data
 	if flusher, ok := l.writer.(interface{ Flush() error }); ok {
 		return flusher.Flush()
 	}
-	
+
 	// Close writer if it's closeable
 	if closer, ok := l.writer.(io.Closer); ok {
 		return closer.Close()
 	}
-	
+
 	return nil
 }
 
@@ -323,13 +323,13 @@ func (l *JSONAuditLogger) calculateHash(log *AuditLog) (string, error) {
 	// Create a copy without the hash field
 	logCopy := *log
 	logCopy.Hash = ""
-	
+
 	// Marshal to JSON for consistent hashing
 	data, err := json.Marshal(logCopy)
 	if err != nil {
 		return "", err
 	}
-	
+
 	// Calculate SHA256
 	hash := sha256.Sum256(data)
 	return hex.EncodeToString(hash[:]), nil
@@ -340,7 +340,7 @@ func (l *JSONAuditLogger) updateCache(log *AuditLog) {
 	// Add to cache
 	l.logCache[log.ID] = log
 	l.sequenceMap[log.Sequence] = log.ID
-	
+
 	// Prune cache if it's too large
 	if len(l.logCache) > l.maxCacheSize {
 		// Find and remove oldest entries
@@ -364,7 +364,7 @@ func (l *JSONAuditLogger) matchesCriteria(log *AuditLog, criteria AuditCriteria)
 	if criteria.EndTime != nil && log.Timestamp.After(*criteria.EndTime) {
 		return false
 	}
-	
+
 	// Check other fields
 	if criteria.UserID != "" && log.UserID != criteria.UserID {
 		return false
@@ -384,16 +384,16 @@ func (l *JSONAuditLogger) matchesCriteria(log *AuditLog, criteria AuditCriteria)
 	if criteria.ResourcePath != "" && log.ResourcePath != criteria.ResourcePath {
 		return false
 	}
-	
+
 	return true
 }
 
 // AuditManager integrates audit logging with the StateManager
 type AuditManager struct {
-	logger    AuditLogger
-	enabled   bool
-	mu        sync.RWMutex
-	
+	logger  AuditLogger
+	enabled bool
+	mu      sync.RWMutex
+
 	// Configuration
 	logStateValues bool // Whether to log old/new state values
 	maxValueSize   int  // Maximum size of values to log
@@ -414,7 +414,7 @@ func (am *AuditManager) LogStateUpdate(ctx context.Context, contextID, stateID, 
 	if !am.isEnabled() {
 		return
 	}
-	
+
 	log := &AuditLog{
 		ID:        generateAuditID(),
 		Timestamp: time.Now(),
@@ -426,22 +426,22 @@ func (am *AuditManager) LogStateUpdate(ctx context.Context, contextID, stateID, 
 		Resource:  "state",
 		Details:   make(map[string]interface{}),
 	}
-	
+
 	// Add values if configured
 	if am.logStateValues {
 		log.OldValue = am.truncateValue(oldValue)
 		log.NewValue = am.truncateValue(newValue)
 	}
-	
+
 	// Add error information if present
 	if err != nil {
 		log.ErrorMessage = err.Error()
 		log.Details["error_type"] = categorizeError(err)
 	}
-	
+
 	// Extract additional context from context
 	am.enrichFromContext(ctx, log)
-	
+
 	// Log asynchronously to avoid blocking
 	go func() {
 		if err := am.logger.Log(context.Background(), log); err != nil {
@@ -456,7 +456,7 @@ func (am *AuditManager) LogSecurityEvent(ctx context.Context, action AuditAction
 	if !am.isEnabled() {
 		return
 	}
-	
+
 	log := &AuditLog{
 		ID:        generateAuditID(),
 		Timestamp: time.Now(),
@@ -467,10 +467,10 @@ func (am *AuditManager) LogSecurityEvent(ctx context.Context, action AuditAction
 		Resource:  resource,
 		Details:   details,
 	}
-	
+
 	// Extract additional context
 	am.enrichFromContext(ctx, log)
-	
+
 	// Security events are always logged synchronously
 	if err := am.logger.Log(ctx, log); err != nil {
 		fmt.Fprintf(os.Stderr, "Failed to write security audit log: %v\n", err)
@@ -482,7 +482,7 @@ func (am *AuditManager) LogError(ctx context.Context, action AuditAction, err er
 	if !am.isEnabled() {
 		return
 	}
-	
+
 	log := &AuditLog{
 		ID:           generateAuditID(),
 		Timestamp:    time.Now(),
@@ -491,10 +491,10 @@ func (am *AuditManager) LogError(ctx context.Context, action AuditAction, err er
 		ErrorMessage: err.Error(),
 		Details:      details,
 	}
-	
+
 	// Extract additional context
 	am.enrichFromContext(ctx, log)
-	
+
 	// Error logs are written asynchronously
 	go func() {
 		if err := am.logger.Log(context.Background(), log); err != nil {
@@ -522,17 +522,17 @@ func (am *AuditManager) truncateValue(value interface{}) interface{} {
 	if value == nil {
 		return nil
 	}
-	
+
 	// Convert to JSON to check size
 	data, err := json.Marshal(value)
 	if err != nil {
 		return fmt.Sprintf("<error marshaling: %v>", err)
 	}
-	
+
 	if len(data) <= am.maxValueSize {
 		return value
 	}
-	
+
 	// Return truncated string representation
 	return fmt.Sprintf("<truncated %d bytes>", len(data))
 }
@@ -542,24 +542,24 @@ func (am *AuditManager) enrichFromContext(ctx context.Context, log *AuditLog) {
 	if ctx == nil {
 		return
 	}
-	
+
 	// Extract standard context values
 	if userID, ok := ctx.Value("user_id").(string); ok && log.UserID == "" {
 		log.UserID = userID
 	}
-	
+
 	if sessionID, ok := ctx.Value("session_id").(string); ok {
 		log.SessionID = sessionID
 	}
-	
+
 	if ipAddress, ok := ctx.Value("ip_address").(string); ok {
 		log.IPAddress = ipAddress
 	}
-	
+
 	if userAgent, ok := ctx.Value("user_agent").(string); ok {
 		log.UserAgent = userAgent
 	}
-	
+
 	if authMethod, ok := ctx.Value("auth_method").(string); ok {
 		log.AuthMethod = authMethod
 	}

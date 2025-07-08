@@ -10,79 +10,171 @@ jobs:
   python:
     name: Python SDK Tests
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.9'
-        
-    - name: Install Poetry
-      uses: snok/install-poetry@v1
-      with:
-        version: latest
-        virtualenvs-create: true
-        virtualenvs-in-project: true
-        
-    - name: Load cached venv
-      id: cached-poetry-dependencies
-      uses: actions/cache@v4
-      with:
-        path: python-sdk/.venv
-        key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
-        
-    - name: Install dependencies
-      if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
-      working-directory: python-sdk
-      run: poetry install --no-interaction --no-root
-      
-    - name: Install project
-      working-directory: python-sdk
-      run: poetry install --no-interaction
-      
-    - name: Run tests
-      working-directory: python-sdk
-      run: poetry run python -m unittest discover tests -v
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install Poetry
+        uses: snok/install-poetry@v1
+        with:
+          version: latest
+          virtualenvs-create: true
+          virtualenvs-in-project: true
+
+      - name: Load cached venv
+        id: cached-poetry-dependencies
+        uses: actions/cache@v4
+        with:
+          path: python-sdk/.venv
+          key: venv-${{ runner.os }}-${{ hashFiles('**/poetry.lock') }}
+
+      - name: Install dependencies
+        if: steps.cached-poetry-dependencies.outputs.cache-hit != 'true'
+        working-directory: python-sdk
+        run: poetry install --no-interaction --no-root
+
+      - name: Install project
+        working-directory: python-sdk
+        run: poetry install --no-interaction
+
+      - name: Run tests
+        working-directory: python-sdk
+        run: poetry run python -m unittest discover tests -v
 
   typescript:
     name: TypeScript SDK Tests
     runs-on: ubuntu-latest
-    
+
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Set up Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: '18'
-        
-    - name: Install protoc
-      uses: arduino/setup-protoc@v3
-      with:
-        version: "25.x"
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
-        
-    - name: Install pnpm
-      uses: pnpm/action-setup@v4
-      with:
-        version: 9.0.0
-        
-    - name: Setup pnpm cache
-      uses: actions/cache@v4
-      with:
-        path: ~/.local/share/pnpm/store
-        key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
-        restore-keys: |
-          ${{ runner.os }}-pnpm-store-
-        
-    - name: Install dependencies
-      working-directory: typescript-sdk
-      run: pnpm install --frozen-lockfile
-      
-    - name: Run tests
-      working-directory: typescript-sdk
-      run: pnpm run test 
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install protoc
+        uses: arduino/setup-protoc@v3
+        with:
+          version: "25.x"
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9.0.0
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        working-directory: typescript-sdk
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        working-directory: typescript-sdk
+        run: pnpm run test
+
+  golang:
+    name: Go SDK Tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+          cache-dependency-path: go-sdk/go.sum
+
+      - name: Setup Go module cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Install development tools
+        working-directory: go-sdk
+        run: make tools-install
+
+      - name: Cache development tools
+        uses: actions/cache@v4
+        with:
+          path: ~/go/bin
+          key: ${{ runner.os }}-go-tools-${{ hashFiles('go-sdk/Makefile') }}
+          restore-keys: |
+            ${{ runner.os }}-go-tools-
+
+      - name: Download dependencies
+        working-directory: go-sdk
+        run: go mod download
+
+      - name: Verify dependencies
+        working-directory: go-sdk
+        run: go mod verify
+
+      - name: Check code formatting (gofmt)
+        working-directory: go-sdk
+        run: |
+          unformatted=$(gofmt -l .)
+          if [ -n "$unformatted" ]; then
+            echo "The following files are not formatted with gofmt:"
+            echo "$unformatted"
+            echo "Please run 'make fmt' to format the code."
+            exit 1
+          fi
+
+      - name: Check import formatting (goimports)
+        working-directory: go-sdk
+        run: |
+          go install golang.org/x/tools/cmd/goimports@latest
+          unformatted=$(goimports -l .)
+          if [ -n "$unformatted" ]; then
+            echo "The following files have incorrect imports:"
+            echo "$unformatted"
+            echo "Please run 'goimports -w .' to fix import formatting."
+            exit 1
+          fi
+
+      - name: Run linter
+        working-directory: go-sdk
+        run: make lint
+
+      - name: Run go vet
+        working-directory: go-sdk
+        run: make vet
+
+      - name: Run tests
+        working-directory: go-sdk
+        run: make test
+
+      - name: Run build
+        working-directory: go-sdk
+        run: make build
+
+      - name: Upload coverage reports
+        uses: codecov/codecov-action@v4
+        with:
+          file: go-sdk/coverage.out
+          flags: go-sdk
+          name: go-sdk-coverage
+          fail_ci_if_error: false 

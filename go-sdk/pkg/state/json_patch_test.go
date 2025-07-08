@@ -987,44 +987,44 @@ func TestValidateJSONPointer(t *testing.T) {
 // TestParseArrayIndex tests array index parsing
 func TestParseArrayIndex(t *testing.T) {
 	tests := []struct {
-		name      string
-		token     string
-		length    int
-		wantIdx   int
+		name       string
+		token      string
+		length     int
+		wantIdx    int
 		wantAppend bool
-		wantErr   bool
+		wantErr    bool
 	}{
 		{
-			name:      "append token",
-			token:     "-",
-			length:    3,
-			wantIdx:   3,
+			name:       "append token",
+			token:      "-",
+			length:     3,
+			wantIdx:    3,
 			wantAppend: true,
-			wantErr:   false,
+			wantErr:    false,
 		},
 		{
-			name:      "valid index 0",
-			token:     "0",
-			length:    3,
-			wantIdx:   0,
+			name:       "valid index 0",
+			token:      "0",
+			length:     3,
+			wantIdx:    0,
 			wantAppend: false,
-			wantErr:   false,
+			wantErr:    false,
 		},
 		{
-			name:      "valid index middle",
-			token:     "1",
-			length:    3,
-			wantIdx:   1,
+			name:       "valid index middle",
+			token:      "1",
+			length:     3,
+			wantIdx:    1,
 			wantAppend: false,
-			wantErr:   false,
+			wantErr:    false,
 		},
 		{
-			name:      "valid index last",
-			token:     "2",
-			length:    3,
-			wantIdx:   2,
+			name:       "valid index last",
+			token:      "2",
+			length:     3,
+			wantIdx:    2,
 			wantAppend: false,
-			wantErr:   false,
+			wantErr:    false,
 		},
 		{
 			name:    "invalid token",
@@ -1138,7 +1138,7 @@ func BenchmarkJSONPatchApply(b *testing.B) {
 			map[string]interface{}{"id": 3, "name": "Charlie"},
 		},
 		"settings": map[string]interface{}{
-			"theme": "dark",
+			"theme":         "dark",
 			"notifications": true,
 		},
 	}
@@ -1185,7 +1185,7 @@ func BenchmarkDeepCopy(b *testing.B) {
 		"nested": map[string]interface{}{
 			"deep": map[string]interface{}{
 				"value": "test",
-				"more": []interface{}{"a", "b", "c"},
+				"more":  []interface{}{"a", "b", "c"},
 			},
 		},
 		"string": "hello world",
@@ -1291,7 +1291,7 @@ func TestConcurrentOperations(t *testing.T) {
 	// and doesn't modify the original
 	original := map[string]interface{}{
 		"counter": 0,
-		"list": []interface{}{"a", "b", "c"},
+		"list":    []interface{}{"a", "b", "c"},
 	}
 
 	patch1 := JSONPatch{

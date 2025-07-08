@@ -258,7 +258,7 @@ func TestStateStore_Subscriptions(t *testing.T) {
 	// Make changes
 	wg.Add(1)
 	store.Set("/users/123", map[string]interface{}{"name": "John"})
-	
+
 	wg.Add(1)
 	store.Set("/users/456", map[string]interface{}{"name": "Jane"})
 

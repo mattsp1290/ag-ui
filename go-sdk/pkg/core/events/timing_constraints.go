@@ -9,114 +9,114 @@ import (
 // TimingConstraints defines configurable timing thresholds for validation
 type TimingConstraints struct {
 	// Event timing constraints
-	MaxEventInterval          time.Duration // Maximum time between consecutive events
-	MaxRunDuration           time.Duration // Maximum duration for a complete run
-	MaxMessageDuration       time.Duration // Maximum duration for a message lifecycle
-	MaxToolCallDuration      time.Duration // Maximum duration for a tool call lifecycle
-	MaxStepDuration          time.Duration // Maximum duration for a step
-	
+	MaxEventInterval    time.Duration // Maximum time between consecutive events
+	MaxRunDuration      time.Duration // Maximum duration for a complete run
+	MaxMessageDuration  time.Duration // Maximum duration for a message lifecycle
+	MaxToolCallDuration time.Duration // Maximum duration for a tool call lifecycle
+	MaxStepDuration     time.Duration // Maximum duration for a step
+
 	// Timeout detection
-	RunTimeout               time.Duration // Timeout for incomplete runs
-	MessageTimeout           time.Duration // Timeout for incomplete messages
-	ToolCallTimeout          time.Duration // Timeout for incomplete tool calls
-	StepTimeout              time.Duration // Timeout for incomplete steps
-	
+	RunTimeout      time.Duration // Timeout for incomplete runs
+	MessageTimeout  time.Duration // Timeout for incomplete messages
+	ToolCallTimeout time.Duration // Timeout for incomplete tool calls
+	StepTimeout     time.Duration // Timeout for incomplete steps
+
 	// Rate limiting
-	MaxEventsPerSecond       float64       // Maximum events per second
-	MaxEventsPerMinute       int64         // Maximum events per minute
-	BurstLimit               int           // Burst limit for rate limiting
-	
+	MaxEventsPerSecond float64 // Maximum events per second
+	MaxEventsPerMinute int64   // Maximum events per minute
+	BurstLimit         int     // Burst limit for rate limiting
+
 	// Timestamp validation
-	MaxTimestampDrift        time.Duration // Maximum allowed timestamp drift from system time
-	MinTimestampInterval     time.Duration // Minimum interval between event timestamps
-	MaxTimestampSkew         time.Duration // Maximum allowed timestamp skew in sequence
-	
+	MaxTimestampDrift    time.Duration // Maximum allowed timestamp drift from system time
+	MinTimestampInterval time.Duration // Minimum interval between event timestamps
+	MaxTimestampSkew     time.Duration // Maximum allowed timestamp skew in sequence
+
 	// Sequence timing
-	MaxSequenceGap           time.Duration // Maximum gap between events in a sequence
-	MaxOutOfOrderWindow      time.Duration // Maximum window for out-of-order events
-	RequireStrictOrdering    bool          // Whether to require strict timestamp ordering
+	MaxSequenceGap        time.Duration // Maximum gap between events in a sequence
+	MaxOutOfOrderWindow   time.Duration // Maximum window for out-of-order events
+	RequireStrictOrdering bool          // Whether to require strict timestamp ordering
 }
 
 // DefaultTimingConstraints returns default timing constraints
 func DefaultTimingConstraints() *TimingConstraints {
 	return &TimingConstraints{
-		MaxEventInterval:          30 * time.Second,
-		MaxRunDuration:           10 * time.Minute,
-		MaxMessageDuration:       5 * time.Minute,
-		MaxToolCallDuration:      2 * time.Minute,
-		MaxStepDuration:          5 * time.Minute,
-		RunTimeout:               15 * time.Minute,
-		MessageTimeout:           10 * time.Minute,
-		ToolCallTimeout:          5 * time.Minute,
-		StepTimeout:              10 * time.Minute,
-		MaxEventsPerSecond:       100.0,
-		MaxEventsPerMinute:       5000,
-		BurstLimit:               50,
-		MaxTimestampDrift:        5 * time.Minute,
-		MinTimestampInterval:     time.Millisecond,
-		MaxTimestampSkew:         30 * time.Second,
-		MaxSequenceGap:           1 * time.Minute,
-		MaxOutOfOrderWindow:      10 * time.Second,
-		RequireStrictOrdering:    true,
+		MaxEventInterval:      30 * time.Second,
+		MaxRunDuration:        10 * time.Minute,
+		MaxMessageDuration:    5 * time.Minute,
+		MaxToolCallDuration:   2 * time.Minute,
+		MaxStepDuration:       5 * time.Minute,
+		RunTimeout:            15 * time.Minute,
+		MessageTimeout:        10 * time.Minute,
+		ToolCallTimeout:       5 * time.Minute,
+		StepTimeout:           10 * time.Minute,
+		MaxEventsPerSecond:    100.0,
+		MaxEventsPerMinute:    5000,
+		BurstLimit:            50,
+		MaxTimestampDrift:     5 * time.Minute,
+		MinTimestampInterval:  time.Millisecond,
+		MaxTimestampSkew:      30 * time.Second,
+		MaxSequenceGap:        1 * time.Minute,
+		MaxOutOfOrderWindow:   10 * time.Second,
+		RequireStrictOrdering: true,
 	}
 }
 
 // PermissiveTimingConstraints returns more lenient timing constraints for development
 func PermissiveTimingConstraints() *TimingConstraints {
 	return &TimingConstraints{
-		MaxEventInterval:          5 * time.Minute,
-		MaxRunDuration:           30 * time.Minute,
-		MaxMessageDuration:       15 * time.Minute,
-		MaxToolCallDuration:      10 * time.Minute,
-		MaxStepDuration:          15 * time.Minute,
-		RunTimeout:               1 * time.Hour,
-		MessageTimeout:           30 * time.Minute,
-		ToolCallTimeout:          15 * time.Minute,
-		StepTimeout:              30 * time.Minute,
-		MaxEventsPerSecond:       1000.0,
-		MaxEventsPerMinute:       50000,
-		BurstLimit:               500,
-		MaxTimestampDrift:        30 * time.Minute,
-		MinTimestampInterval:     0, // No minimum interval
-		MaxTimestampSkew:         5 * time.Minute,
-		MaxSequenceGap:           10 * time.Minute,
-		MaxOutOfOrderWindow:      5 * time.Minute,
-		RequireStrictOrdering:    false,
+		MaxEventInterval:      5 * time.Minute,
+		MaxRunDuration:        30 * time.Minute,
+		MaxMessageDuration:    15 * time.Minute,
+		MaxToolCallDuration:   10 * time.Minute,
+		MaxStepDuration:       15 * time.Minute,
+		RunTimeout:            1 * time.Hour,
+		MessageTimeout:        30 * time.Minute,
+		ToolCallTimeout:       15 * time.Minute,
+		StepTimeout:           30 * time.Minute,
+		MaxEventsPerSecond:    1000.0,
+		MaxEventsPerMinute:    50000,
+		BurstLimit:            500,
+		MaxTimestampDrift:     30 * time.Minute,
+		MinTimestampInterval:  0, // No minimum interval
+		MaxTimestampSkew:      5 * time.Minute,
+		MaxSequenceGap:        10 * time.Minute,
+		MaxOutOfOrderWindow:   5 * time.Minute,
+		RequireStrictOrdering: false,
 	}
 }
 
 // StrictTimingConstraints returns very strict timing constraints for production
 func StrictTimingConstraints() *TimingConstraints {
 	return &TimingConstraints{
-		MaxEventInterval:          10 * time.Second,
-		MaxRunDuration:           5 * time.Minute,
-		MaxMessageDuration:       2 * time.Minute,
-		MaxToolCallDuration:      1 * time.Minute,
-		MaxStepDuration:          2 * time.Minute,
-		RunTimeout:               10 * time.Minute,
-		MessageTimeout:           5 * time.Minute,
-		ToolCallTimeout:          3 * time.Minute,
-		StepTimeout:              5 * time.Minute,
-		MaxEventsPerSecond:       50.0,
-		MaxEventsPerMinute:       2000,
-		BurstLimit:               20,
-		MaxTimestampDrift:        1 * time.Minute,
-		MinTimestampInterval:     10 * time.Millisecond,
-		MaxTimestampSkew:         5 * time.Second,
-		MaxSequenceGap:           30 * time.Second,
-		MaxOutOfOrderWindow:      2 * time.Second,
-		RequireStrictOrdering:    true,
+		MaxEventInterval:      10 * time.Second,
+		MaxRunDuration:        5 * time.Minute,
+		MaxMessageDuration:    2 * time.Minute,
+		MaxToolCallDuration:   1 * time.Minute,
+		MaxStepDuration:       2 * time.Minute,
+		RunTimeout:            10 * time.Minute,
+		MessageTimeout:        5 * time.Minute,
+		ToolCallTimeout:       3 * time.Minute,
+		StepTimeout:           5 * time.Minute,
+		MaxEventsPerSecond:    50.0,
+		MaxEventsPerMinute:    2000,
+		BurstLimit:            20,
+		MaxTimestampDrift:     1 * time.Minute,
+		MinTimestampInterval:  10 * time.Millisecond,
+		MaxTimestampSkew:      5 * time.Second,
+		MaxSequenceGap:        30 * time.Second,
+		MaxOutOfOrderWindow:   2 * time.Second,
+		RequireStrictOrdering: true,
 	}
 }
 
 // RateLimitState tracks rate limiting state
 type RateLimitState struct {
-	eventCounts   map[int64]int64   // Event counts per second
-	lastMinute    int64             // Last minute we tracked
-	minuteCount   int64             // Events in the current minute
-	tokens        int               // Current tokens in bucket
-	lastRefill    time.Time         // Last time tokens were refilled
-	mutex         sync.RWMutex      // Protects the rate limit state
+	eventCounts map[int64]int64 // Event counts per second
+	lastMinute  int64           // Last minute we tracked
+	minuteCount int64           // Events in the current minute
+	tokens      int             // Current tokens in bucket
+	lastRefill  time.Time       // Last time tokens were refilled
+	mutex       sync.RWMutex    // Protects the rate limit state
 }
 
 // NewRateLimitState creates a new rate limiting state
@@ -130,11 +130,11 @@ func NewRateLimitState(burstLimit int) *RateLimitState {
 
 // TimingState tracks timing information for validation
 type TimingState struct {
-	startTimes      map[string]time.Time // Start times for various entities
-	lastEventTime   time.Time            // Last event timestamp
-	eventTimeline   []time.Time          // Timeline of event timestamps
-	rateLimitState  *RateLimitState      // Rate limiting state
-	mutex           sync.RWMutex         // Protects the timing state
+	startTimes     map[string]time.Time // Start times for various entities
+	lastEventTime  time.Time            // Last event timestamp
+	eventTimeline  []time.Time          // Timeline of event timestamps
+	rateLimitState *RateLimitState      // Rate limiting state
+	mutex          sync.RWMutex         // Protects the timing state
 }
 
 // NewTimingState creates a new timing state
@@ -158,7 +158,7 @@ func NewEventTimingRule(constraints *TimingConstraints) *EventTimingRule {
 	if constraints == nil {
 		constraints = DefaultTimingConstraints()
 	}
-	
+
 	return &EventTimingRule{
 		BaseValidationRule: NewBaseValidationRule(
 			"EVENT_TIMING_CONSTRAINTS",
@@ -176,50 +176,50 @@ func (r *EventTimingRule) Validate(event Event, context *ValidationContext) *Val
 		IsValid:   true,
 		Timestamp: time.Now(),
 	}
-	
+
 	if !r.IsEnabled() {
 		return result
 	}
-	
+
 	// Get event timestamp
 	timestamp := event.Timestamp()
 	if timestamp == nil {
-		result.AddError(r.CreateError(event, 
+		result.AddError(r.CreateError(event,
 			"Event timestamp is required for timing validation",
 			map[string]interface{}{"event_type": event.Type()},
 			[]string{"Set a timestamp on the event before validation"}))
 		return result
 	}
-	
+
 	eventTime := time.UnixMilli(*timestamp)
-	
+
 	// Validate timestamp consistency
 	r.validateTimestampConsistency(event, eventTime, result)
-	
+
 	// Validate event intervals
 	r.validateEventIntervals(event, eventTime, result)
-	
+
 	// Validate rate limiting
 	r.validateRateLimit(event, eventTime, result)
-	
+
 	// Validate timeout detection
 	r.validateTimeouts(event, eventTime, context, result)
-	
+
 	// Validate sequence timing
 	r.validateSequenceTiming(event, eventTime, context, result)
-	
+
 	// Update timing state if validation passed
 	if result.IsValid {
 		r.updateTimingState(event, eventTime)
 	}
-	
+
 	return result
 }
 
 // validateTimestampConsistency validates timestamp consistency requirements
 func (r *EventTimingRule) validateTimestampConsistency(event Event, eventTime time.Time, result *ValidationResult) {
 	now := time.Now()
-	
+
 	// Check for timestamp drift
 	if eventTime.After(now.Add(r.constraints.MaxTimestampDrift)) {
 		result.AddError(r.CreateError(event,
@@ -227,8 +227,8 @@ func (r *EventTimingRule) validateTimestampConsistency(event Event, eventTime ti
 			map[string]interface{}{
 				"event_timestamp": eventTime,
 				"current_time":    now,
-				"drift":          eventTime.Sub(now).String(),
-				"max_drift":      r.constraints.MaxTimestampDrift.String(),
+				"drift":           eventTime.Sub(now).String(),
+				"max_drift":       r.constraints.MaxTimestampDrift.String(),
 			},
 			[]string{
 				"Check system clock synchronization",
@@ -236,15 +236,15 @@ func (r *EventTimingRule) validateTimestampConsistency(event Event, eventTime ti
 				fmt.Sprintf("Maximum allowed drift is %v", r.constraints.MaxTimestampDrift),
 			}))
 	}
-	
+
 	if eventTime.Before(now.Add(-r.constraints.MaxTimestampDrift)) {
 		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Event timestamp is too far in the past (drift: %v)", now.Sub(eventTime)),
 			map[string]interface{}{
 				"event_timestamp": eventTime,
 				"current_time":    now,
-				"drift":          now.Sub(eventTime).String(),
-				"max_drift":      r.constraints.MaxTimestampDrift.String(),
+				"drift":           now.Sub(eventTime).String(),
+				"max_drift":       r.constraints.MaxTimestampDrift.String(),
 			},
 			[]string{
 				"Check system clock synchronization",
@@ -252,12 +252,12 @@ func (r *EventTimingRule) validateTimestampConsistency(event Event, eventTime ti
 				fmt.Sprintf("Maximum allowed drift is %v", r.constraints.MaxTimestampDrift),
 			}))
 	}
-	
+
 	// Check minimum interval from last event
 	r.timingState.mutex.RLock()
 	lastEventTime := r.timingState.lastEventTime
 	r.timingState.mutex.RUnlock()
-	
+
 	if !lastEventTime.IsZero() && r.constraints.MinTimestampInterval > 0 {
 		interval := eventTime.Sub(lastEventTime)
 		if interval < r.constraints.MinTimestampInterval && interval >= 0 {
@@ -280,16 +280,16 @@ func (r *EventTimingRule) validateEventIntervals(event Event, eventTime time.Tim
 	r.timingState.mutex.RLock()
 	lastEventTime := r.timingState.lastEventTime
 	r.timingState.mutex.RUnlock()
-	
+
 	if !lastEventTime.IsZero() {
 		interval := eventTime.Sub(lastEventTime)
 		if interval > r.constraints.MaxEventInterval {
 			result.AddWarning(r.CreateError(event,
 				fmt.Sprintf("Large gap between events (%v), maximum expected is %v", interval, r.constraints.MaxEventInterval),
 				map[string]interface{}{
-					"interval":     interval.String(),
-					"max_interval": r.constraints.MaxEventInterval.String(),
-					"last_event":   lastEventTime,
+					"interval":      interval.String(),
+					"max_interval":  r.constraints.MaxEventInterval.String(),
+					"last_event":    lastEventTime,
 					"current_event": eventTime,
 				},
 				[]string{
@@ -305,28 +305,28 @@ func (r *EventTimingRule) validateEventIntervals(event Event, eventTime time.Tim
 func (r *EventTimingRule) validateRateLimit(event Event, eventTime time.Time, result *ValidationResult) {
 	r.timingState.rateLimitState.mutex.Lock()
 	defer r.timingState.rateLimitState.mutex.Unlock()
-	
+
 	state := r.timingState.rateLimitState
-	
+
 	// Token bucket rate limiting
 	now := time.Now()
 	timeSinceLastRefill := now.Sub(state.lastRefill)
-	
+
 	// Refill tokens based on time elapsed
 	if timeSinceLastRefill > 0 {
 		tokensToAdd := int(r.constraints.MaxEventsPerSecond * timeSinceLastRefill.Seconds())
 		state.tokens = min(state.tokens+tokensToAdd, r.constraints.BurstLimit)
 		state.lastRefill = now
 	}
-	
+
 	// Check if we have tokens
 	if state.tokens <= 0 {
 		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Rate limit exceeded: %v events/second, burst limit: %d", r.constraints.MaxEventsPerSecond, r.constraints.BurstLimit),
 			map[string]interface{}{
 				"max_events_per_second": r.constraints.MaxEventsPerSecond,
-				"burst_limit":          r.constraints.BurstLimit,
-				"tokens_available":     state.tokens,
+				"burst_limit":           r.constraints.BurstLimit,
+				"tokens_available":      state.tokens,
 			},
 			[]string{
 				"Reduce event sending rate",
@@ -336,16 +336,16 @@ func (r *EventTimingRule) validateRateLimit(event Event, eventTime time.Time, re
 			}))
 		return
 	}
-	
+
 	// Consume a token
 	state.tokens--
-	
+
 	// Per-minute rate limiting
 	currentMinute := now.Unix() / 60
 	if state.lastMinute != currentMinute {
 		state.lastMinute = currentMinute
 		state.minuteCount = 0
-		
+
 		// Clean up old per-second counters
 		for second := range state.eventCounts {
 			if second < now.Unix()-60 {
@@ -353,14 +353,14 @@ func (r *EventTimingRule) validateRateLimit(event Event, eventTime time.Time, re
 			}
 		}
 	}
-	
+
 	state.minuteCount++
 	if state.minuteCount > r.constraints.MaxEventsPerMinute {
 		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Per-minute rate limit exceeded: %d events in current minute, maximum is %d", state.minuteCount, r.constraints.MaxEventsPerMinute),
 			map[string]interface{}{
 				"events_this_minute": state.minuteCount,
-				"max_per_minute":    r.constraints.MaxEventsPerMinute,
+				"max_per_minute":     r.constraints.MaxEventsPerMinute,
 			},
 			[]string{
 				"Reduce event sending rate",
@@ -368,17 +368,17 @@ func (r *EventTimingRule) validateRateLimit(event Event, eventTime time.Time, re
 				"Implement client-side rate limiting with minute-based windows",
 			}))
 	}
-	
+
 	// Per-second tracking
 	currentSecond := now.Unix()
 	state.eventCounts[currentSecond]++
-	
+
 	if state.eventCounts[currentSecond] > int64(r.constraints.MaxEventsPerSecond) {
 		result.AddWarning(r.CreateError(event,
 			fmt.Sprintf("High event rate detected: %d events in current second", state.eventCounts[currentSecond]),
 			map[string]interface{}{
 				"events_this_second": state.eventCounts[currentSecond],
-				"max_per_second":    r.constraints.MaxEventsPerSecond,
+				"max_per_second":     r.constraints.MaxEventsPerSecond,
 			},
 			[]string{
 				"Consider spreading events across multiple seconds",
@@ -391,16 +391,16 @@ func (r *EventTimingRule) validateRateLimit(event Event, eventTime time.Time, re
 func (r *EventTimingRule) validateTimeouts(event Event, eventTime time.Time, context *ValidationContext, result *ValidationResult) {
 	r.timingState.mutex.RLock()
 	defer r.timingState.mutex.RUnlock()
-	
+
 	// Check for run timeouts
 	for runID, runState := range context.State.ActiveRuns {
 		if runState.StartTime.Add(r.constraints.RunTimeout).Before(eventTime) {
 			result.AddWarning(r.CreateError(event,
 				fmt.Sprintf("Run %s has been active for %v, exceeding timeout of %v", runID, eventTime.Sub(runState.StartTime), r.constraints.RunTimeout),
 				map[string]interface{}{
-					"run_id":      runID,
-					"duration":    eventTime.Sub(runState.StartTime).String(),
-					"timeout":     r.constraints.RunTimeout.String(),
+					"run_id":   runID,
+					"duration": eventTime.Sub(runState.StartTime).String(),
+					"timeout":  r.constraints.RunTimeout.String(),
 				},
 				[]string{
 					"Check if the run should be completed",
@@ -408,14 +408,14 @@ func (r *EventTimingRule) validateTimeouts(event Event, eventTime time.Time, con
 					"Consider extending timeout for long-running operations",
 				}))
 		}
-		
+
 		// Check run duration limit
 		if eventTime.Sub(runState.StartTime) > r.constraints.MaxRunDuration {
 			result.AddError(r.CreateError(event,
 				fmt.Sprintf("Run %s duration (%v) exceeds maximum allowed duration (%v)", runID, eventTime.Sub(runState.StartTime), r.constraints.MaxRunDuration),
 				map[string]interface{}{
-					"run_id":      runID,
-					"duration":    eventTime.Sub(runState.StartTime).String(),
+					"run_id":       runID,
+					"duration":     eventTime.Sub(runState.StartTime).String(),
 					"max_duration": r.constraints.MaxRunDuration.String(),
 				},
 				[]string{
@@ -425,7 +425,7 @@ func (r *EventTimingRule) validateTimeouts(event Event, eventTime time.Time, con
 				}))
 		}
 	}
-	
+
 	// Check for message timeouts
 	for messageID, messageState := range context.State.ActiveMessages {
 		if messageState.StartTime.Add(r.constraints.MessageTimeout).Before(eventTime) {
@@ -441,7 +441,7 @@ func (r *EventTimingRule) validateTimeouts(event Event, eventTime time.Time, con
 					"Check for stuck message processing",
 				}))
 		}
-		
+
 		// Check message duration limit
 		if eventTime.Sub(messageState.StartTime) > r.constraints.MaxMessageDuration {
 			result.AddError(r.CreateError(event,
@@ -457,7 +457,7 @@ func (r *EventTimingRule) validateTimeouts(event Event, eventTime time.Time, con
 				}))
 		}
 	}
-	
+
 	// Check for tool call timeouts
 	for toolCallID, toolState := range context.State.ActiveTools {
 		if toolState.StartTime.Add(r.constraints.ToolCallTimeout).Before(eventTime) {
@@ -473,7 +473,7 @@ func (r *EventTimingRule) validateTimeouts(event Event, eventTime time.Time, con
 					"Check for stuck tool call processing",
 				}))
 		}
-		
+
 		// Check tool call duration limit
 		if eventTime.Sub(toolState.StartTime) > r.constraints.MaxToolCallDuration {
 			result.AddError(r.CreateError(event,
@@ -489,7 +489,7 @@ func (r *EventTimingRule) validateTimeouts(event Event, eventTime time.Time, con
 				}))
 		}
 	}
-	
+
 	// Check for step timeouts
 	for stepName := range context.State.ActiveSteps {
 		if startTime, exists := r.timingState.startTimes["step:"+stepName]; exists {
@@ -506,7 +506,7 @@ func (r *EventTimingRule) validateTimeouts(event Event, eventTime time.Time, con
 						"Check for stuck step processing",
 					}))
 			}
-			
+
 			// Check step duration limit
 			if eventTime.Sub(startTime) > r.constraints.MaxStepDuration {
 				result.AddError(r.CreateError(event,
@@ -530,7 +530,7 @@ func (r *EventTimingRule) validateSequenceTiming(event Event, eventTime time.Tim
 	if context.EventSequence == nil || len(context.EventSequence) == 0 {
 		return
 	}
-	
+
 	// Check for out-of-order events
 	if r.constraints.RequireStrictOrdering && context.EventIndex > 0 {
 		prevEvent := context.EventSequence[context.EventIndex-1]
@@ -542,7 +542,7 @@ func (r *EventTimingRule) validateSequenceTiming(event Event, eventTime time.Tim
 					map[string]interface{}{
 						"event_timestamp":    eventTime,
 						"previous_timestamp": prevTime,
-						"skew":              prevTime.Sub(eventTime).String(),
+						"skew":               prevTime.Sub(eventTime).String(),
 					},
 					[]string{
 						"Ensure events are sent in chronological order",
@@ -552,7 +552,7 @@ func (r *EventTimingRule) validateSequenceTiming(event Event, eventTime time.Tim
 			}
 		}
 	}
-	
+
 	// Check for timestamp skew within allowed window
 	if !r.constraints.RequireStrictOrdering && context.EventIndex > 0 {
 		prevEvent := context.EventSequence[context.EventIndex-1]
@@ -576,7 +576,7 @@ func (r *EventTimingRule) validateSequenceTiming(event Event, eventTime time.Tim
 			}
 		}
 	}
-	
+
 	// Check for sequence gaps
 	if context.EventIndex > 0 {
 		prevEvent := context.EventSequence[context.EventIndex-1]
@@ -604,15 +604,15 @@ func (r *EventTimingRule) validateSequenceTiming(event Event, eventTime time.Tim
 func (r *EventTimingRule) updateTimingState(event Event, eventTime time.Time) {
 	r.timingState.mutex.Lock()
 	defer r.timingState.mutex.Unlock()
-	
+
 	r.timingState.lastEventTime = eventTime
 	r.timingState.eventTimeline = append(r.timingState.eventTimeline, eventTime)
-	
+
 	// Limit timeline size to prevent memory growth
 	if len(r.timingState.eventTimeline) > 10000 {
 		r.timingState.eventTimeline = r.timingState.eventTimeline[5000:]
 	}
-	
+
 	// Track start times for lifecycle events
 	switch event.Type() {
 	case EventTypeRunStarted:
@@ -667,20 +667,20 @@ func (r *EventTimingRule) SetTimingConstraints(constraints *TimingConstraints) {
 func (r *EventTimingRule) GetTimingMetrics() map[string]interface{} {
 	r.timingState.mutex.RLock()
 	defer r.timingState.mutex.RUnlock()
-	
+
 	metrics := map[string]interface{}{
-		"active_entities":    len(r.timingState.startTimes),
+		"active_entities":     len(r.timingState.startTimes),
 		"event_timeline_size": len(r.timingState.eventTimeline),
-		"last_event_time":    r.timingState.lastEventTime,
+		"last_event_time":     r.timingState.lastEventTime,
 	}
-	
+
 	// Add rate limiting metrics
 	r.timingState.rateLimitState.mutex.RLock()
 	metrics["rate_limit_tokens"] = r.timingState.rateLimitState.tokens
 	metrics["rate_limit_minute_count"] = r.timingState.rateLimitState.minuteCount
 	metrics["rate_limit_per_second"] = len(r.timingState.rateLimitState.eventCounts)
 	r.timingState.rateLimitState.mutex.RUnlock()
-	
+
 	return metrics
 }
 
@@ -688,11 +688,11 @@ func (r *EventTimingRule) GetTimingMetrics() map[string]interface{} {
 func (r *EventTimingRule) ResetTimingState() {
 	r.timingState.mutex.Lock()
 	defer r.timingState.mutex.Unlock()
-	
+
 	r.timingState.startTimes = make(map[string]time.Time)
 	r.timingState.eventTimeline = make([]time.Time, 0)
 	r.timingState.lastEventTime = time.Time{}
-	
+
 	// Reset rate limiting state
 	r.timingState.rateLimitState.mutex.Lock()
 	r.timingState.rateLimitState.eventCounts = make(map[int64]int64)

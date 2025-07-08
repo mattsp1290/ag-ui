@@ -41,7 +41,7 @@ func TestIDTracker_TrackEvent(t *testing.T) {
 
 	// Verify events are tracked
 	start, contents, end := tracker.GetMessageTriplet("msg-123")
-	
+
 	if start == nil {
 		t.Error("Message start should be tracked")
 	}
@@ -102,7 +102,7 @@ func TestIDTracker_ToolCallTracking(t *testing.T) {
 
 	// Verify events are tracked
 	start, args, end := tracker.GetToolCallTriplet("tool-123")
-	
+
 	if start == nil {
 		t.Error("Tool call start should be tracked")
 	}
@@ -152,7 +152,7 @@ func TestIDTracker_RunLifecycle(t *testing.T) {
 
 	// Verify events are tracked
 	start, finish, error := tracker.GetRunLifecycle("run-123")
-	
+
 	if start == nil {
 		t.Error("Run start should be tracked")
 	}
@@ -198,7 +198,7 @@ func TestIDTracker_StepPairs(t *testing.T) {
 
 	// Verify events are tracked
 	start, finish := tracker.GetStepPair("step-1")
-	
+
 	if start == nil {
 		t.Error("Step start should be tracked")
 	}
@@ -528,7 +528,7 @@ func TestIDTracker_ValidateIDConsistency_DuplicateStarts(t *testing.T) {
 
 	// Note: The current implementation doesn't actually track duplicate starts
 	// since the map just overwrites. This test documents the current behavior.
-	
+
 	// Get the final start event (should be the last one)
 	start, _, _ := tracker.GetRunLifecycle("run-123")
 	if start.ThreadID != "thread-789" {
@@ -584,23 +584,23 @@ func TestIDTracker_GetStatistics(t *testing.T) {
 
 	// Get statistics
 	stats := tracker.GetStatistics()
-	
+
 	if stats.MessageStartCount != 1 {
 		t.Errorf("Expected 1 message start, got %d", stats.MessageStartCount)
 	}
-	
+
 	if stats.MessageContentCount != 1 {
 		t.Errorf("Expected 1 message content, got %d", stats.MessageContentCount)
 	}
-	
+
 	if stats.ToolStartCount != 1 {
 		t.Errorf("Expected 1 tool start, got %d", stats.ToolStartCount)
 	}
-	
+
 	if stats.RunStartCount != 1 {
 		t.Errorf("Expected 1 run start, got %d", stats.RunStartCount)
 	}
-	
+
 	if stats.MessageEndCount != 0 {
 		t.Errorf("Expected 0 message ends, got %d", stats.MessageEndCount)
 	}
@@ -704,7 +704,7 @@ func TestSequenceIDValidator_ValidateSequence(t *testing.T) {
 
 func TestSequenceIDValidator_GetTracker(t *testing.T) {
 	validator := NewSequenceIDValidator()
-	
+
 	tracker := validator.GetTracker()
 	if tracker == nil {
 		t.Error("GetTracker() should return the internal tracker")
@@ -719,9 +719,9 @@ func TestSequenceIDValidator_GetTracker(t *testing.T) {
 		},
 		MessageID: "msg-123",
 	}
-	
+
 	tracker.TrackEvent(msgStart)
-	
+
 	// Get the tracker again and verify it has the same state
 	tracker2 := validator.GetTracker()
 	start, _, _ := tracker2.GetMessageTriplet("msg-123")

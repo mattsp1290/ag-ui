@@ -1,0 +1,246 @@
+# Pre-commit configuration for ag-ui Go SDK
+# This configuration includes comprehensive Go tooling for code quality, formatting, and security
+
+repos:
+  # Go formatting and imports
+  - repo: https://github.com/dnephin/pre-commit-golang
+    rev: v0.5.1
+    hooks:
+      - id: go-fmt
+        name: Go Format
+        description: Formats Go code using gofmt
+        entry: gofmt
+        language: system
+        files: \.go$
+        args: [-w, -s]
+      
+      - id: go-imports
+        name: Go Imports
+        description: Organizes Go imports using goimports
+        entry: goimports
+        language: system
+        files: \.go$
+        args: [-w, -local, github.com/ag-ui/go-sdk]
+      
+      - id: go-vet
+        name: Go Vet
+        description: Examines Go source code and reports suspicious constructs
+        entry: go
+        language: system
+        files: \.go$
+        args: [vet]
+        pass_filenames: false
+      
+      - id: go-mod-tidy
+        name: Go Mod Tidy
+        description: Ensures go.mod matches the source code in the module
+        entry: go
+        language: system
+        files: go\.(mod|sum)$
+        args: [mod, tidy]
+        pass_filenames: false
+      
+      - id: go-unit-tests
+        name: Go Unit Tests
+        description: Runs Go unit tests
+        entry: go
+        language: system
+        files: \.go$
+        args: [test, -short, -race, ./...]
+        pass_filenames: false
+
+  # Go linting with golangci-lint
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v1.61.0
+    hooks:
+      - id: golangci-lint
+        name: golangci-lint
+        description: Fast linters runner for Go
+        entry: golangci-lint
+        language: system
+        files: \.go$
+        args: [run, --fix]
+        pass_filenames: false
+
+  # Security scanning
+  - repo: https://github.com/securecodewarrior/gosec
+    rev: v2.21.4
+    hooks:
+      - id: gosec
+        name: Gosec Security Scanner
+        description: Inspects Go source code for security problems
+        entry: gosec
+        language: system
+        files: \.go$
+        args: [-fmt, sarif, -out, gosec-report.sarif, -severity, medium, ./...]
+        pass_filenames: false
+
+  # General file checks
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        name: Trim Trailing Whitespace
+        description: Trims trailing whitespace
+        exclude: \.pb\.go$
+      
+      - id: end-of-file-fixer
+        name: Fix End of Files
+        description: Ensures that a file is either empty or ends with one newline
+        exclude: \.pb\.go$
+      
+      - id: check-yaml
+        name: Check YAML
+        description: Validates YAML files
+        files: \.(yaml|yml)$
+      
+      - id: check-json
+        name: Check JSON
+        description: Validates JSON files
+        files: \.json$
+      
+      - id: check-added-large-files
+        name: Check for Large Files
+        description: Prevents giant files from being committed
+        args: [--maxkb=1000]
+      
+      - id: check-merge-conflict
+        name: Check for Merge Conflicts
+        description: Checks for files that contain merge conflict strings
+      
+      - id: check-case-conflict
+        name: Check Case Conflicts
+        description: Checks for files that would conflict in case-insensitive filesystems
+      
+      - id: mixed-line-ending
+        name: Mixed Line Endings
+        description: Replaces or checks mixed line endings
+        args: [--fix=lf]
+
+  # Protocol Buffers
+  - repo: https://github.com/bufbuild/buf
+    rev: v1.47.2
+    hooks:
+      - id: buf-lint
+        name: Buf Lint
+        description: Lints Protocol Buffer files
+        files: \.proto$
+        args: [lint]
+      
+      - id: buf-format
+        name: Buf Format
+        description: Formats Protocol Buffer files
+        files: \.proto$
+        args: [format, -w]
+
+  # Documentation and Markdown
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.42.0
+    hooks:
+      - id: markdownlint
+        name: Markdown Lint
+        description: Lints Markdown files
+        files: \.(md|markdown)$
+        args: [--fix]
+
+  # Dockerfile linting
+  - repo: https://github.com/hadolint/hadolint
+    rev: v2.12.0
+    hooks:
+      - id: hadolint
+        name: Hadolint
+        description: Lints Dockerfiles
+        files: Dockerfile.*$
+
+  # Shell script linting
+  - repo: https://github.com/shellcheck-py/shellcheck-py
+    rev: v0.10.0.1
+    hooks:
+      - id: shellcheck
+        name: ShellCheck
+        description: Lints shell scripts
+        files: \.(sh|bash)$
+
+  # Vulnerability scanning
+  - repo: https://github.com/Yelp/detect-secrets
+    rev: v1.5.0
+    hooks:
+      - id: detect-secrets
+        name: Detect Secrets
+        description: Detects secrets in code
+        args: [--baseline, .secrets.baseline]
+
+  # Local hooks for project-specific checks
+  - repo: local
+    hooks:
+      - id: go-generate
+        name: Go Generate
+        description: Runs go generate to ensure generated code is up to date
+        entry: go
+        language: system
+        files: \.go$
+        args: [generate, ./...]
+        pass_filenames: false
+
+      - id: go-build
+        name: Go Build
+        description: Builds the project to ensure it compiles
+        entry: go
+        language: system
+        files: \.go$
+        args: [build, ./...]
+        pass_filenames: false
+
+      - id: proto-validate
+        name: Protocol Buffer Validation
+        description: Validates that protobuf files can be compiled
+        entry: bash
+        language: system
+        files: \.proto$
+        args: [-c, 'if [ -f "Makefile" ]; then make proto-gen; else echo "Makefile not found, skipping proto generation"; fi']
+        pass_filenames: false
+
+      - id: go-govulncheck
+        name: Go Vulnerability Check
+        description: Checks for known vulnerabilities in Go dependencies
+        entry: govulncheck
+        language: system
+        files: go\.(mod|sum)$
+        args: [./...]
+        pass_filenames: false
+
+# Configuration for specific hooks
+default_language_version:
+  python: python3
+
+# Files to exclude from all hooks
+exclude: |
+  (?x)^(
+    \.pb\.go$|
+    vendor/|
+    node_modules/|
+    \.git/|
+    \.vscode/|
+    \.idea/|
+    coverage\.out$|
+    .*\.log$|
+    bin/|
+    dist/|
+    build/
+  )$
+
+# Minimum pre-commit version
+minimum_pre_commit_version: 3.0.0
+
+# CI configuration
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit.com hooks
+    
+    for more information, see https://pre-commit.ci
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: []
+  submodules: false

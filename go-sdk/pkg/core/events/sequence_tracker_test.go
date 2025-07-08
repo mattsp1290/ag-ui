@@ -606,7 +606,7 @@ func TestEventSequenceTracker_GetEventsInRange(t *testing.T) {
 	// Get events in specific range
 	start := baseTime.Add(-30 * time.Minute)
 	end := baseTime.Add(90 * time.Minute)
-	
+
 	rangeEvents := tracker.GetEventsInRange(start, end)
 	if len(rangeEvents) != 2 {
 		t.Errorf("Should have 2 events in range, got %d", len(rangeEvents))

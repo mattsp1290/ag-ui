@@ -55,11 +55,11 @@ type NodeInfo struct {
 
 // NodeMetadata contains node-specific metadata
 type NodeMetadata struct {
-	StartTime    time.Time         `json:"startTime"`
-	Version      string            `json:"version"`
-	Capabilities []string          `json:"capabilities"`
-	Resources    ResourceInfo      `json:"resources"`
-	Stats        NodeStats         `json:"stats"`
+	StartTime    time.Time    `json:"startTime"`
+	Version      string       `json:"version"`
+	Capabilities []string     `json:"capabilities"`
+	Resources    ResourceInfo `json:"resources"`
+	Stats        NodeStats    `json:"stats"`
 }
 
 // ResourceInfo contains node resource information
@@ -92,20 +92,21 @@ type ConsensusInfo struct {
 
 // DistributedNode represents a node in the distributed system
 type DistributedNode struct {
-	ID              string
-	store           *state.StateStore
-	eventGen        *state.StateEventGenerator
-	eventHandler    *state.StateEventHandler
-	resolver        state.ConflictResolver
-	networkSim      *NetworkSimulator
-	peers           map[string]*DistributedNode
-	isLeader        bool
-	isPartitioned   bool
-	ctx             context.Context
-	cancel          context.CancelFunc
-	mu              sync.RWMutex
-	messageQueue    chan NetworkMessage
-	stats           NodeStats
+	ID            string
+	store         *state.StateStore
+	eventGen      *state.StateEventGenerator
+	eventHandler  *state.StateEventHandler
+	resolver      state.ConflictResolver
+	networkSim    *NetworkSimulator
+	peers         map[string]*DistributedNode
+	isLeader      bool
+	isPartitioned bool
+	ctx           context.Context
+	cancel        context.CancelFunc
+	mu            sync.RWMutex
+	messageQueue  chan NetworkMessage
+	stats         NodeStats
+	wg            sync.WaitGroup
 }
 
 // NetworkMessage represents a message between nodes
@@ -128,11 +129,12 @@ type NetworkSimulator struct {
 
 // DistributedCluster manages the distributed cluster
 type DistributedCluster struct {
-	nodes       map[string]*DistributedNode
-	network     *NetworkSimulator
-	ctx         context.Context
-	cancel      context.CancelFunc
-	mu          sync.RWMutex
+	nodes   map[string]*DistributedNode
+	network *NetworkSimulator
+	ctx     context.Context
+	cancel  context.CancelFunc
+	mu      sync.RWMutex
+	wg      sync.WaitGroup
 }
 
 func main() {
@@ -188,11 +190,10 @@ func main() {
 
 	// Start all nodes
 	fmt.Println("\n=== Starting Nodes ===")
-	var wg sync.WaitGroup
 	for _, node := range cluster.nodes {
-		wg.Add(1)
+		cluster.wg.Add(1)
 		go func(n *DistributedNode) {
-			defer wg.Done()
+			defer cluster.wg.Done()
 			n.Start()
 		}(node)
 	}
@@ -294,7 +295,11 @@ func main() {
 	fmt.Printf("\nRestarting %s...\n", failedNode.ID)
 	failedNode = cluster.CreateNode("node-2", "us-east", "zone-b")
 	cluster.nodes["node-2"] = failedNode
-	go failedNode.Start()
+	cluster.wg.Add(1)
+	go func() {
+		defer cluster.wg.Done()
+		failedNode.Start()
+	}()
 	time.Sleep(2 * time.Second)
 
 	// Scenario 5: Conflict resolution
@@ -302,7 +307,7 @@ func main() {
 	// Create conflicting writes
 	var conflictWg sync.WaitGroup
 	conflictKey := "shared-counter"
-	
+
 	for i := 0; i < 3; i++ {
 		conflictWg.Add(1)
 		go func(idx int) {
@@ -351,19 +356,27 @@ func main() {
 
 	// Graceful shutdown
 	fmt.Println("\n=== Graceful Shutdown ===")
+
+	// Stop all nodes
+	for _, node := range cluster.nodes {
+		node.Stop()
+	}
+
+	// Cancel cluster context
 	cancel()
-	
+
+	// Wait for all nodes to shutdown with timeout
 	done := make(chan struct{})
 	go func() {
-		wg.Wait()
+		cluster.wg.Wait()
 		close(done)
 	}()
 
 	select {
 	case <-done:
 		fmt.Println("All nodes shut down gracefully")
-	case <-time.After(5 * time.Second):
-		fmt.Println("Shutdown timeout")
+	case <-time.After(10 * time.Second):
+		fmt.Println("Shutdown timeout - forcing exit")
 	}
 }
 
@@ -371,22 +384,57 @@ func main() {
 
 func (n *DistributedNode) Start() {
 	fmt.Printf("Node %s starting...\n", n.ID)
-	
+
 	// Start message processing
-	go n.processMessages()
-	
+	n.wg.Add(1)
+	go func() {
+		defer n.wg.Done()
+		n.processMessages()
+	}()
+
 	// Start heartbeat
-	go n.sendHeartbeats()
-	
+	n.wg.Add(1)
+	go func() {
+		defer n.wg.Done()
+		n.sendHeartbeats()
+	}()
+
 	// Start state synchronization
-	go n.syncState()
-	
+	n.wg.Add(1)
+	go func() {
+		defer n.wg.Done()
+		n.syncState()
+	}()
+
 	// Start monitoring
-	go n.monitor()
+	n.wg.Add(1)
+	go func() {
+		defer n.wg.Done()
+		n.monitor()
+	}()
 }
 
 func (n *DistributedNode) Stop() {
+	fmt.Printf("Node %s stopping...\n", n.ID)
+
+	// Cancel context to signal goroutines to stop
 	n.cancel()
+
+	// Wait for all goroutines to finish with timeout
+	done := make(chan struct{})
+	go func() {
+		n.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		fmt.Printf("Node %s stopped gracefully\n", n.ID)
+	case <-time.After(5 * time.Second):
+		fmt.Printf("Node %s stop timeout\n", n.ID)
+	}
+
+	// Close message queue after goroutines finish
 	close(n.messageQueue)
 }
 
@@ -403,7 +451,7 @@ func (n *DistributedNode) processMessages() {
 
 func (n *DistributedNode) handleMessage(msg NetworkMessage) {
 	atomic.AddInt64(&n.stats.MessagesReceived, 1)
-	
+
 	switch msg.Type {
 	case "sync":
 		n.handleSyncMessage(msg)
@@ -419,7 +467,7 @@ func (n *DistributedNode) handleMessage(msg NetworkMessage) {
 func (n *DistributedNode) sendHeartbeats() {
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-n.ctx.Done():
@@ -433,7 +481,7 @@ func (n *DistributedNode) sendHeartbeats() {
 func (n *DistributedNode) broadcastHeartbeat() {
 	n.mu.RLock()
 	defer n.mu.RUnlock()
-	
+
 	for peerID, peer := range n.peers {
 		if !n.networkSim.IsPartitioned(n.ID, peerID) {
 			msg := NetworkMessage{
@@ -443,11 +491,13 @@ func (n *DistributedNode) broadcastHeartbeat() {
 				Type:      "heartbeat",
 				Timestamp: time.Now(),
 			}
-			
+
 			if n.networkSim.ShouldDeliver() {
 				go func(p *DistributedNode, m NetworkMessage) {
 					time.Sleep(time.Duration(n.networkSim.latencyMs) * time.Millisecond)
 					select {
+					case <-n.ctx.Done():
+						return
 					case p.messageQueue <- m:
 					case <-time.After(100 * time.Millisecond):
 						// Drop message if queue is full
@@ -461,7 +511,7 @@ func (n *DistributedNode) broadcastHeartbeat() {
 func (n *DistributedNode) syncState() {
 	ticker := time.NewTicker(2 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-n.ctx.Done():
@@ -475,9 +525,9 @@ func (n *DistributedNode) syncState() {
 func (n *DistributedNode) performStateSync() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	
+
 	atomic.AddInt64(&n.stats.SyncOperations, 1)
-	
+
 	// Generate delta since last sync
 	if n.eventGen != nil {
 		delta, err := n.eventGen.GenerateDeltaFromCurrent()
@@ -493,8 +543,10 @@ func (n *DistributedNode) performStateSync() {
 						Payload:   delta,
 						Timestamp: time.Now(),
 					}
-					
+
 					select {
+					case <-n.ctx.Done():
+						return
 					case peer.messageQueue <- msg:
 						atomic.AddInt64(&n.stats.MessagesSent, 1)
 					default:
@@ -504,7 +556,7 @@ func (n *DistributedNode) performStateSync() {
 			}
 		}
 	}
-	
+
 	// Update last sync time
 	n.store.Set("/metadata/lastSync", time.Now())
 }
@@ -530,7 +582,7 @@ func (n *DistributedNode) handleElectionMessage(msg NetworkMessage) {
 	// Simple leader election - highest ID wins
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	
+
 	if msg.From > n.ID {
 		n.isLeader = false
 		n.store.Set("/clusterState/leaderId", msg.From)
@@ -548,7 +600,7 @@ func (n *DistributedNode) handleDataMessage(msg NetworkMessage) {
 func (n *DistributedNode) monitor() {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-n.ctx.Done():
@@ -562,7 +614,7 @@ func (n *DistributedNode) monitor() {
 func (n *DistributedNode) updateNodeStats() {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	
+
 	statsData := map[string]interface{}{
 		"messagesReceived": atomic.LoadInt64(&n.stats.MessagesReceived),
 		"messagesSent":     atomic.LoadInt64(&n.stats.MessagesSent),
@@ -571,24 +623,24 @@ func (n *DistributedNode) updateNodeStats() {
 		"lastError":        n.stats.LastError,
 		"lastErrorTime":    n.stats.LastErrorTime,
 	}
-	
+
 	n.store.Set("/metadata/stats", statsData)
 }
 
 func (n *DistributedNode) WriteSharedData(key string, value interface{}) error {
 	n.mu.Lock()
 	defer n.mu.Unlock()
-	
+
 	if n.isPartitioned {
 		return fmt.Errorf("node is partitioned")
 	}
-	
+
 	// Write to local store
 	err := n.store.Set(fmt.Sprintf("/clusterState/sharedData/%s", key), value)
 	if err != nil {
 		return err
 	}
-	
+
 	// Broadcast to peers
 	msg := NetworkMessage{
 		ID:        fmt.Sprintf("data-%d", time.Now().UnixNano()),
@@ -598,14 +650,16 @@ func (n *DistributedNode) WriteSharedData(key string, value interface{}) error {
 		Payload:   map[string]interface{}{key: value},
 		Timestamp: time.Now(),
 	}
-	
+
 	for _, peer := range n.peers {
 		select {
+		case <-n.ctx.Done():
+			return nil
 		case peer.messageQueue <- msg:
 		default:
 		}
 	}
-	
+
 	return nil
 }
 
@@ -622,7 +676,7 @@ func (n *DistributedNode) ReadSharedData(key string) (interface{}, error) {
 func (ns *NetworkSimulator) IsPartitioned(node1, node2 string) bool {
 	ns.mu.RLock()
 	defer ns.mu.RUnlock()
-	
+
 	return ns.partitions[node1] || ns.partitions[node2]
 }
 
@@ -633,7 +687,7 @@ func (ns *NetworkSimulator) ShouldDeliver() bool {
 func (ns *NetworkSimulator) SetPartition(nodeID string, partitioned bool) {
 	ns.mu.Lock()
 	defer ns.mu.Unlock()
-	
+
 	ns.partitions[nodeID] = partitioned
 }
 
@@ -641,23 +695,23 @@ func (ns *NetworkSimulator) SetPartition(nodeID string, partitioned bool) {
 
 func (c *DistributedCluster) CreateNode(id, dataCenter, zone string) *DistributedNode {
 	nodeCtx, nodeCancel := context.WithCancel(c.ctx)
-	
+
 	node := &DistributedNode{
-		ID:            id,
-		store:         state.NewStateStore(state.WithMaxHistory(100)),
-		networkSim:    c.network,
-		peers:         make(map[string]*DistributedNode),
-		ctx:           nodeCtx,
-		cancel:        nodeCancel,
-		messageQueue:  make(chan NetworkMessage, 1000),
+		ID:           id,
+		store:        state.NewStateStore(state.WithMaxHistory(100)),
+		networkSim:   c.network,
+		peers:        make(map[string]*DistributedNode),
+		ctx:          nodeCtx,
+		cancel:       nodeCancel,
+		messageQueue: make(chan NetworkMessage, 1000),
 	}
-	
+
 	// Initialize node state
 	initialState := NodeState{
 		NodeID: id,
 		ClusterState: ClusterState{
-			Version:  1,
-			Members:  make(map[string]NodeInfo),
+			Version:    1,
+			Members:    make(map[string]NodeInfo),
 			SharedData: make(map[string]interface{}),
 			Consensus: ConsensusInfo{
 				Algorithm: "raft",
@@ -679,7 +733,7 @@ func (c *DistributedCluster) CreateNode(id, dataCenter, zone string) *Distribute
 		},
 		LastSync: time.Now(),
 	}
-	
+
 	// Add self to members
 	initialState.ClusterState.Members[id] = NodeInfo{
 		ID:         id,
@@ -690,16 +744,16 @@ func (c *DistributedCluster) CreateNode(id, dataCenter, zone string) *Distribute
 		DataCenter: dataCenter,
 		Zone:       zone,
 	}
-	
+
 	// Set initial state
 	stateData, _ := json.Marshal(initialState)
 	var stateMap map[string]interface{}
 	json.Unmarshal(stateData, &stateMap)
-	
+
 	for key, value := range stateMap {
 		node.store.Set("/"+key, value)
 	}
-	
+
 	// Create event generator and handler
 	node.eventGen = state.NewStateEventGenerator(node.store)
 	node.eventHandler = state.NewStateEventHandler(
@@ -707,17 +761,17 @@ func (c *DistributedCluster) CreateNode(id, dataCenter, zone string) *Distribute
 		state.WithBatchSize(10),
 		state.WithBatchTimeout(100*time.Millisecond),
 	)
-	
+
 	// Create conflict resolver
 	node.resolver = state.NewConflictResolver(state.LastWriteWins)
-	
+
 	return node
 }
 
 func (c *DistributedCluster) EstablishPeerConnections() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	// Connect all nodes to each other
 	for id1, node1 := range c.nodes {
 		for id2, node2 := range c.nodes {
@@ -731,7 +785,7 @@ func (c *DistributedCluster) EstablishPeerConnections() {
 func (c *DistributedCluster) ElectLeader() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	// Simple election - node with highest ID becomes leader
 	var leaderID string
 	for id := range c.nodes {
@@ -739,7 +793,7 @@ func (c *DistributedCluster) ElectLeader() {
 			leaderID = id
 		}
 	}
-	
+
 	// Update leader status
 	for id, node := range c.nodes {
 		if id == leaderID {
@@ -757,7 +811,7 @@ func (c *DistributedCluster) ElectLeader() {
 func (c *DistributedCluster) GetLeader() *DistributedNode {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	for _, node := range c.nodes {
 		if node.isLeader {
 			return node
@@ -781,7 +835,7 @@ func (c *DistributedCluster) HealPartition() {
 		c.network.partitions[nodeID] = false
 	}
 	c.network.mu.Unlock()
-	
+
 	c.mu.Lock()
 	for _, node := range c.nodes {
 		node.isPartitioned = false
@@ -791,18 +845,18 @@ func (c *DistributedCluster) HealPartition() {
 
 func (c *DistributedCluster) PerformRollingUpdate() {
 	fmt.Println("Starting rolling update...")
-	
+
 	updateVersion := "2.0.0"
 	for _, node := range c.nodes {
 		fmt.Printf("Updating node %s to version %s\n", node.ID, updateVersion)
-		
+
 		// Simulate update
 		node.store.Set("/metadata/version", updateVersion)
 		node.store.Set("/metadata/capabilities", []string{"storage", "compute", "analytics"})
-		
+
 		time.Sleep(500 * time.Millisecond) // Simulate update time
 	}
-	
+
 	fmt.Println("Rolling update completed")
 }
 
@@ -823,10 +877,10 @@ func (c *DistributedCluster) ShowStatistics() {
 
 func (c *DistributedCluster) CheckStateConsistency() {
 	fmt.Println("Checking state consistency across nodes...")
-	
+
 	// Compare shared data across all nodes
 	sharedKeys := make(map[string]map[string]interface{})
-	
+
 	for _, node := range c.nodes {
 		sharedData, err := node.store.Get("/clusterState/sharedData")
 		if err == nil {
@@ -835,7 +889,7 @@ func (c *DistributedCluster) CheckStateConsistency() {
 			}
 		}
 	}
-	
+
 	// Check for inconsistencies
 	inconsistencies := 0
 	for key := range sharedKeys[c.nodes["node-1"].ID] {
@@ -845,7 +899,7 @@ func (c *DistributedCluster) CheckStateConsistency() {
 				values[nodeID] = val
 			}
 		}
-		
+
 		// Check if all values are the same
 		var firstVal interface{}
 		consistent := true
@@ -858,7 +912,7 @@ func (c *DistributedCluster) CheckStateConsistency() {
 				break
 			}
 		}
-		
+
 		if !consistent {
 			fmt.Printf("  Inconsistency found for key '%s'\n", key)
 			for nodeID, val := range values {
@@ -866,7 +920,7 @@ func (c *DistributedCluster) CheckStateConsistency() {
 			}
 		}
 	}
-	
+
 	if inconsistencies == 0 {
 		fmt.Println("  All nodes have consistent shared state")
 	} else {
@@ -876,14 +930,14 @@ func (c *DistributedCluster) CheckStateConsistency() {
 
 func (c *DistributedCluster) DemonstrateDataLocality() {
 	fmt.Println("Demonstrating data locality optimization...")
-	
+
 	// Each region stores region-specific data
 	regions := map[string][]string{
 		"us-east": {"node-1", "node-2"},
 		"us-west": {"node-3", "node-4"},
 		"eu-west": {"node-5"},
 	}
-	
+
 	for region, nodes := range regions {
 		for _, nodeID := range nodes {
 			if node, exists := c.nodes[nodeID]; exists {
@@ -894,7 +948,7 @@ func (c *DistributedCluster) DemonstrateDataLocality() {
 					"currency":   getRegionCurrency(region),
 					"timezone":   getRegionTimezone(region),
 				}
-				
+
 				node.WriteLocalData(fmt.Sprintf("%s-config", region), regionData)
 				fmt.Printf("  Node %s storing %s region data locally\n", nodeID, region)
 			}
@@ -905,17 +959,17 @@ func (c *DistributedCluster) DemonstrateDataLocality() {
 func (c *DistributedCluster) ShowNetworkMetrics() {
 	fmt.Printf("Network latency: %dms\n", c.network.latencyMs)
 	fmt.Printf("Packet loss rate: %.2f%%\n", c.network.packetLossRate*100)
-	
+
 	// Calculate total message volume
 	var totalReceived, totalSent int64
 	for _, node := range c.nodes {
 		totalReceived += atomic.LoadInt64(&node.stats.MessagesReceived)
 		totalSent += atomic.LoadInt64(&node.stats.MessagesSent)
 	}
-	
+
 	fmt.Printf("Total messages sent: %d\n", totalSent)
 	fmt.Printf("Total messages received: %d\n", totalReceived)
-	
+
 	if totalSent > 0 {
 		deliveryRate := float64(totalReceived) / float64(totalSent) * 100
 		fmt.Printf("Message delivery rate: %.2f%%\n", deliveryRate)

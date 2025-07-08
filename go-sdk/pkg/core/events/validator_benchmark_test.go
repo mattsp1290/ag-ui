@@ -27,7 +27,7 @@ func createTestRunStartedEvent() *RunStartedEvent {
 // Helper function to generate a test sequence
 func generateTestSequence(size int) []Event {
 	events := make([]Event, 0, size)
-	
+
 	// Start with RUN_STARTED
 	events = append(events, &RunStartedEvent{
 		BaseEvent: &BaseEvent{
@@ -37,7 +37,7 @@ func generateTestSequence(size int) []Event {
 		RunID:    "run-bench",
 		ThreadID: "thread-bench",
 	})
-	
+
 	// Add message sequences
 	msgCount := (size - 2) / 4 // Reserve 2 for run start/finish, 4 events per message
 	for i := 0; i < msgCount; i++ {
@@ -76,7 +76,7 @@ func generateTestSequence(size int) []Event {
 			},
 		)
 	}
-	
+
 	// End with RUN_FINISHED
 	events = append(events, &RunFinishedEvent{
 		BaseEvent: &BaseEvent{
@@ -85,7 +85,7 @@ func generateTestSequence(size int) []Event {
 		},
 		RunID: "run-bench",
 	})
-	
+
 	return events
 }
 
@@ -94,7 +94,7 @@ func BenchmarkEventValidator_ValidateEvent(b *testing.B) {
 	validator := NewEventValidator(DefaultValidationConfig())
 	event := createTestRunStartedEvent()
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		result := validator.ValidateEvent(ctx, event)
@@ -109,7 +109,7 @@ func BenchmarkEventValidator_ValidateEvent_Permissive(b *testing.B) {
 	validator := NewEventValidator(PermissiveValidationConfig())
 	event := createTestRunStartedEvent()
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		result := validator.ValidateEvent(ctx, event)
@@ -124,7 +124,7 @@ func BenchmarkEventValidator_ValidateSequence_Small(b *testing.B) {
 	validator := NewEventValidator(DefaultValidationConfig())
 	events := generateTestSequence(10) // 10 events
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		result := validator.ValidateSequence(ctx, events)
@@ -139,7 +139,7 @@ func BenchmarkEventValidator_ValidateSequence_Medium(b *testing.B) {
 	validator := NewEventValidator(DefaultValidationConfig())
 	events := generateTestSequence(100) // 100 events
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		result := validator.ValidateSequence(ctx, events)
@@ -154,7 +154,7 @@ func BenchmarkEventValidator_ValidateSequence_Large(b *testing.B) {
 	validator := NewEventValidator(DefaultValidationConfig())
 	events := generateTestSequence(1000) // 1000 events
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		result := validator.ValidateSequence(ctx, events)
@@ -167,7 +167,7 @@ func BenchmarkEventValidator_ValidateSequence_Large(b *testing.B) {
 // BenchmarkIDTracker_ValidateConsistency tests ID validation performance
 func BenchmarkIDTracker_ValidateConsistency(b *testing.B) {
 	tracker := NewIDTracker()
-	
+
 	// Populate with test data
 	for i := 0; i < 100; i++ {
 		msgID := fmt.Sprintf("msg-%d", i)
@@ -185,7 +185,7 @@ func BenchmarkIDTracker_ValidateConsistency(b *testing.B) {
 			MessageID: msgID,
 		})
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = tracker.ValidateIDConsistency()
@@ -201,7 +201,7 @@ func BenchmarkEventSequenceTracker_TrackEvent(b *testing.B) {
 	}
 	tracker := NewEventSequenceTracker(config)
 	event := createTestRunStartedEvent()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		err := tracker.TrackEvent(event)
@@ -215,13 +215,13 @@ func BenchmarkEventSequenceTracker_TrackEvent(b *testing.B) {
 func BenchmarkEventSequenceTracker_GetEventsByType(b *testing.B) {
 	config := DefaultSequenceTrackerConfig()
 	tracker := NewEventSequenceTracker(config)
-	
+
 	// Populate with mixed events
 	events := generateTestSequence(1000)
 	for _, event := range events {
 		tracker.TrackEvent(event)
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		results := tracker.GetEventsByType(EventTypeTextMessageContent)
@@ -242,20 +242,20 @@ func BenchmarkValidationRule_MessageLifecycle(b *testing.B) {
 		MessageID: "msg-bench",
 		Delta:     "benchmark content",
 	}
-	
+
 	context := &ValidationContext{
-		State: NewValidationState(),
-		Config: DefaultValidationConfig(),
+		State:    NewValidationState(),
+		Config:   DefaultValidationConfig(),
 		Metadata: make(map[string]interface{}),
 	}
-	
+
 	// Set up state
 	context.State.ActiveMessages["msg-bench"] = &MessageState{
 		MessageID: "msg-bench",
 		StartTime: time.Now(),
 		IsActive:  true,
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		result := rule.Validate(event, context)
@@ -269,7 +269,7 @@ func BenchmarkValidationRule_MessageLifecycle(b *testing.B) {
 func BenchmarkValidationMetrics_RecordEvent(b *testing.B) {
 	metrics := NewValidationMetrics()
 	duration := 100 * time.Microsecond
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		metrics.RecordEvent(duration)
@@ -281,7 +281,7 @@ func BenchmarkConcurrentValidation(b *testing.B) {
 	validator := NewEventValidator(DefaultValidationConfig())
 	event := createTestRunStartedEvent()
 	ctx := context.Background()
-	
+
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			result := validator.ValidateEvent(ctx, event)
@@ -297,10 +297,10 @@ func BenchmarkMemoryAllocation_ValidateEvent(b *testing.B) {
 	validator := NewEventValidator(DefaultValidationConfig())
 	event := createTestRunStartedEvent()
 	ctx := context.Background()
-	
+
 	b.ReportAllocs()
 	b.ResetTimer()
-	
+
 	for i := 0; i < b.N; i++ {
 		_ = validator.ValidateEvent(ctx, event)
 	}
@@ -311,10 +311,10 @@ func BenchmarkMemoryAllocation_ValidateSequence(b *testing.B) {
 	validator := NewEventValidator(DefaultValidationConfig())
 	events := generateTestSequence(100)
 	ctx := context.Background()
-	
+
 	b.ReportAllocs()
 	b.ResetTimer()
-	
+
 	for i := 0; i < b.N; i++ {
 		_ = validator.ValidateSequence(ctx, events)
 	}

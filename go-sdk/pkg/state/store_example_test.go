@@ -51,10 +51,10 @@ func ExampleStateStore() {
 
 	// Create a snapshot
 	snapshot, _ := store.CreateSnapshot()
-	
+
 	// Make more changes
 	store.Delete("/users/123")
-	
+
 	// Restore from snapshot
 	store.RestoreSnapshot(snapshot)
 

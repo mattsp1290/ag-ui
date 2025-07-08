@@ -304,7 +304,7 @@ func TestEventValidator_StateTracking(t *testing.T) {
 		runEvent,
 		&TextMessageStartEvent{
 			BaseEvent: &BaseEvent{
-				EventType: EventTypeTextMessageStart,
+				EventType:   EventTypeTextMessageStart,
 				TimestampMs: timePtr(time.Now().UnixMilli() + 1000),
 			},
 			MessageID: "msg-abc456", // Different ID to avoid conflicts
@@ -544,7 +544,7 @@ func TestEventValidator_ComplexScenarios(t *testing.T) {
 
 	t.Run("complete message lifecycle", func(t *testing.T) {
 		validator := NewEventValidator(DefaultValidationConfig()) // Fresh validator for this test
-		
+
 		events := []Event{
 			&RunStartedEvent{
 				BaseEvent: &BaseEvent{

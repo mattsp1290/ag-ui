@@ -104,7 +104,7 @@ func TestIsInternalIP(t *testing.T) {
 		// IPv4 loopback
 		{"127.0.0.1", "127.0.0.1", true},
 		{"127.255.255.255", "127.255.255.255", true},
-		
+
 		// IPv4 private ranges
 		{"10.0.0.1", "10.0.0.1", true},
 		{"10.255.255.255", "10.255.255.255", true},
@@ -112,22 +112,22 @@ func TestIsInternalIP(t *testing.T) {
 		{"172.31.255.255", "172.31.255.255", true},
 		{"192.168.0.1", "192.168.0.1", true},
 		{"192.168.255.255", "192.168.255.255", true},
-		
+
 		// IPv4 link-local
 		{"169.254.1.1", "169.254.1.1", true},
-		
+
 		// IPv6 loopback
 		{"::1", "::1", true},
-		
+
 		// IPv6 unique local
 		{"fc00::1", "fc00::1", true},
 		{"fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", "fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff", true},
-		
+
 		// Public IPv4 addresses
 		{"8.8.8.8", "8.8.8.8", false},
 		{"1.1.1.1", "1.1.1.1", false},
 		{"208.67.222.222", "208.67.222.222", false},
-		
+
 		// Public IPv6 addresses
 		{"2001:4860:4860::8888", "2001:4860:4860::8888", false},
 		{"2606:4700:4700::1111", "2606:4700:4700::1111", false},
@@ -180,7 +180,7 @@ func TestLogAlertNotifier(t *testing.T) {
 	t.Run("cancelled_context", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
-		
+
 		err := notifier.SendAlert(ctx, alert)
 		if err != nil {
 			t.Errorf("SendAlert() with cancelled context failed: %v", err)
@@ -245,12 +245,12 @@ func TestWebhookAlertNotifier(t *testing.T) {
 			t.Errorf("Failed to read request body: %v", err)
 			return
 		}
-		
+
 		if err := json.Unmarshal(body, &receivedPayload); err != nil {
 			t.Errorf("Failed to unmarshal request body: %v", err)
 			return
 		}
-		
+
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte(`{"status":"ok"}`))
 	}))
@@ -402,7 +402,7 @@ func TestWebhookTLSConfiguration(t *testing.T) {
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
-	
+
 	server.TLS = &tls.Config{
 		MinVersion: tls.VersionTLS12,
 	}
@@ -556,10 +556,10 @@ func TestFileAlertNotifierErrors(t *testing.T) {
 // TestCompositeAlertNotifier tests the composite alert notifier
 func TestCompositeAlertNotifier(t *testing.T) {
 	logger := zaptest.NewLogger(t)
-	
+
 	logNotifier1 := NewLogAlertNotifier(logger)
 	logNotifier2 := NewLogAlertNotifier(logger)
-	
+
 	tempDir := t.TempDir()
 	alertFile := filepath.Join(tempDir, "alerts.log")
 	fileNotifier, err := NewFileAlertNotifier(alertFile)
@@ -598,7 +598,7 @@ func TestCompositeAlertNotifier(t *testing.T) {
 // TestCompositeAlertNotifierErrors tests error handling in composite notifier
 func TestCompositeAlertNotifierErrors(t *testing.T) {
 	failingNotifier := &mockFailingNotifier{shouldFail: true}
-	
+
 	logger := zaptest.NewLogger(t)
 	successNotifier := NewLogAlertNotifier(logger)
 
@@ -631,8 +631,8 @@ func TestConditionalAlertNotifier(t *testing.T) {
 	conditionalNotifier := NewConditionalAlertNotifier(baseNotifier, condition)
 
 	tests := []struct {
-		name      string
-		level     AlertLevel
+		name       string
+		level      AlertLevel
 		shouldSend bool
 	}{
 		{"info alert", AlertLevelInfo, false},
@@ -835,10 +835,10 @@ func TestConcurrentNotifierUsage(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			testAlert := alert
 			testAlert.Title = fmt.Sprintf("Concurrent Test %d", id)
-			
+
 			err := notifier.SendAlert(context.Background(), testAlert)
 			if err != nil {
 				errChan <- err
@@ -906,7 +906,7 @@ func (m *mockFailingNotifier) SendAlert(ctx context.Context, alert Alert) error 
 func BenchmarkLogAlertNotifier(b *testing.B) {
 	logger := zaptest.NewLogger(b)
 	notifier := NewLogAlertNotifier(logger)
-	
+
 	alert := Alert{
 		Level:       AlertLevelWarning,
 		Title:       "Benchmark Test",
@@ -926,13 +926,13 @@ func BenchmarkLogAlertNotifier(b *testing.B) {
 func BenchmarkFileAlertNotifier(b *testing.B) {
 	tempDir := b.TempDir()
 	alertFile := filepath.Join(tempDir, "benchmark.log")
-	
+
 	notifier, err := NewFileAlertNotifier(alertFile)
 	if err != nil {
 		b.Fatalf("Failed to create file notifier: %v", err)
 	}
 	defer notifier.Close()
-	
+
 	alert := Alert{
 		Level:       AlertLevelWarning,
 		Title:       "Benchmark Test",
@@ -952,9 +952,9 @@ func BenchmarkFileAlertNotifier(b *testing.B) {
 func BenchmarkCompositeAlertNotifier(b *testing.B) {
 	logger := zaptest.NewLogger(b)
 	logNotifier := NewLogAlertNotifier(logger)
-	
+
 	compositeNotifier := NewCompositeAlertNotifier(logNotifier, logNotifier, logNotifier)
-	
+
 	alert := Alert{
 		Level:       AlertLevelWarning,
 		Title:       "Benchmark Test",

@@ -16,19 +16,32 @@
 //
 // Example usage:
 //
-//	import "github.com/ag-ui/go-sdk/pkg/transport"
+//	import "github.com/ag-ui/go-sdk/pkg/transport/sse"
 //
 //	// Create an HTTP/SSE transport
-//	t, err := transport.NewHTTPSSE(transport.Config{
-//		BaseURL: "http://localhost:8080",
-//	})
+//	config := sse.DefaultConfig()
+//	config.BaseURL = "http://localhost:8080"
+//
+//	t, err := sse.NewTransport(config)
+//	if err != nil {
+//		log.Fatal(err)
+//	}
+//	defer t.Close()
+//
+//	// Send an event
+//	err = t.Send(ctx, event)
 //	if err != nil {
 //		log.Fatal(err)
 //	}
 //
-//	// Send an event
-//	err = t.SendEvent(ctx, event)
+//	// Receive events
+//	eventChan, err := t.Receive(ctx)
 //	if err != nil {
 //		log.Fatal(err)
+//	}
+//
+//	for event := range eventChan {
+//		// Process event
+//		log.Printf("Received event: %s", event.Type())
 //	}
 package transport

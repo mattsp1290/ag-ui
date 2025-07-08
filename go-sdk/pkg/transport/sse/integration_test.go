@@ -13,6 +13,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -1314,13 +1315,9 @@ func calculatePercentiles(latencies []time.Duration) Percentiles {
 	sorted := make([]time.Duration, len(latencies))
 	copy(sorted, latencies)
 
-	for i := 0; i < len(sorted); i++ {
-		for j := i + 1; j < len(sorted); j++ {
-			if sorted[i] > sorted[j] {
-				sorted[i], sorted[j] = sorted[j], sorted[i]
-			}
-		}
-	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i] < sorted[j]
+	})
 
 	p50Index := len(sorted) * 50 / 100
 	p95Index := len(sorted) * 95 / 100

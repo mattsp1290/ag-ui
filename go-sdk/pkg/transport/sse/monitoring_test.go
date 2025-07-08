@@ -175,6 +175,52 @@ func testPerformanceTracking(t *testing.T) {
 	assert.NotZero(t, benchmark.avgLatency)
 }
 
+func testThroughputFirstCall(t *testing.T) {
+	config := DefaultMonitoringConfig()
+	config.Enabled = false
+	ms, err := NewMonitoringSystem(config)
+	require.NoError(t, err)
+	defer ms.Shutdown(context.Background())
+
+	// Get initial metrics - should be zero
+	metrics := ms.GetPerformanceMetrics()
+	assert.Equal(t, float64(0), metrics.Throughput.EventsPerSecond)
+	assert.Equal(t, float64(0), metrics.Throughput.BytesPerSecond)
+
+	// First call to updateThroughput - should not panic or calculate huge rates
+	ms.updateThroughput(100, 102400) // 100 events, 100KB
+
+	// Should still be zero after first call (no rate calculated yet)
+	metrics = ms.GetPerformanceMetrics()
+	assert.Equal(t, float64(0), metrics.Throughput.EventsPerSecond)
+	assert.Equal(t, float64(0), metrics.Throughput.BytesPerSecond)
+
+	// Wait a bit
+	time.Sleep(200 * time.Millisecond)
+
+	// Second call should calculate reasonable rates
+	ms.updateThroughput(50, 51200) // 50 events, 50KB
+
+	metrics = ms.GetPerformanceMetrics()
+	// Rates should be reasonable (roughly 250 events/sec, 256KB/sec based on 200ms elapsed)
+	assert.Greater(t, metrics.Throughput.EventsPerSecond, float64(100))
+	assert.Less(t, metrics.Throughput.EventsPerSecond, float64(500))
+	assert.Greater(t, metrics.Throughput.BytesPerSecond, float64(100000))
+	assert.Less(t, metrics.Throughput.BytesPerSecond, float64(500000))
+
+	// Test RecordEventReceived which calls updateThroughput internally
+	connID := "test-conn-1"
+	ms.RecordConnectionEstablished(connID, "127.0.0.1:8080", "TestAgent")
+	
+	// Record events and verify no panic on first event
+	ms.RecordEventReceived(connID, "test-event", 1024)
+	
+	// Verify it was tracked
+	stats := ms.GetEventStats()
+	assert.Contains(t, stats, "test-event")
+	assert.Equal(t, int64(1), stats["test-event"].Count)
+}
+
 func testHealthChecks(t *testing.T) {
 	config := DefaultMonitoringConfig()
 	config.Enabled = false

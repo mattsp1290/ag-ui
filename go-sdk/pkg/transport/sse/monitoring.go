@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -397,7 +398,9 @@ func NewMonitoringSystem(config MonitoringConfig) (*MonitoringSystem, error) {
 
 	performanceTracker := &PerformanceTracker{
 		latencyBuckets:  make(map[string]*LatencyBucket),
-		throughputStats: &ThroughputStats{},
+		throughputStats: &ThroughputStats{
+			lastUpdate: time.Now(), // Initialize with current time to avoid zero time issues
+		},
 		benchmarks:      make(map[string]*Benchmark),
 	}
 
@@ -1092,7 +1095,16 @@ func (ms *MonitoringSystem) checkAlertThresholds() {
 	memoryUsage := ms.resourceMonitor.memoryUsage
 	ms.resourceMonitor.mu.RUnlock()
 
-	memoryPercent := float64(memoryUsage) / float64(runtime.MemStats{}.Sys) * 100
+	// Read current memory stats to get Sys value
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	
+	// Calculate memory percentage - avoid divide by zero
+	var memoryPercent float64
+	if memStats.Sys > 0 {
+		memoryPercent = float64(memoryUsage) / float64(memStats.Sys) * 100
+	}
+	
 	if memoryPercent > ms.config.Alerting.Thresholds.MemoryUsage {
 		ms.sendAlert(Alert{
 			Level:       AlertLevelWarning,
@@ -1155,25 +1167,35 @@ func (ms *MonitoringSystem) updateThroughput(events int64, bytes int64) {
 	defer ms.performanceTracker.mu.Unlock()
 
 	now := time.Now()
-	elapsed := now.Sub(ms.performanceTracker.throughputStats.lastUpdate).Seconds()
+	stats := ms.performanceTracker.throughputStats
 
-	if elapsed > 0 {
+	// Check if this is the first update
+	if stats.lastUpdate.IsZero() {
+		// For the first update, initialize lastUpdate and skip rate calculation
+		stats.lastUpdate = now
+		return
+	}
+
+	elapsed := now.Sub(stats.lastUpdate).Seconds()
+
+	// Only update if enough time has passed (avoid division by very small numbers)
+	if elapsed > 0.1 { // At least 100ms
 		eventsPerSec := float64(events) / elapsed
 		bytesPerSec := float64(bytes) / elapsed
 
 		// Update current rates
-		ms.performanceTracker.throughputStats.eventsPerSecond = eventsPerSec
-		ms.performanceTracker.throughputStats.bytesPerSecond = bytesPerSec
+		stats.eventsPerSecond = eventsPerSec
+		stats.bytesPerSecond = bytesPerSec
 
 		// Update peaks
-		if eventsPerSec > ms.performanceTracker.throughputStats.peakEventsPerSec {
-			ms.performanceTracker.throughputStats.peakEventsPerSec = eventsPerSec
+		if eventsPerSec > stats.peakEventsPerSec {
+			stats.peakEventsPerSec = eventsPerSec
 		}
-		if bytesPerSec > ms.performanceTracker.throughputStats.peakBytesPerSec {
-			ms.performanceTracker.throughputStats.peakBytesPerSec = bytesPerSec
+		if bytesPerSec > stats.peakBytesPerSec {
+			stats.peakBytesPerSec = bytesPerSec
 		}
 
-		ms.performanceTracker.throughputStats.lastUpdate = now
+		stats.lastUpdate = now
 	}
 }
 
@@ -1292,6 +1314,46 @@ func (lb *LatencyBucket) addSample(nanos int64) {
 	if len(lb.samples) > 1000 {
 		lb.samples = lb.samples[1:]
 	}
+
+	// Calculate percentiles
+	lb.calculatePercentilesLocked()
+}
+
+// calculatePercentilesLocked calculates percentiles from samples
+// Note: caller must hold the lock
+func (lb *LatencyBucket) calculatePercentilesLocked() {
+	if len(lb.samples) == 0 {
+		return
+	}
+
+	// Create a copy of samples for sorting
+	sorted := make([]int64, len(lb.samples))
+	copy(sorted, lb.samples)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i] < sorted[j]
+	})
+
+	// Calculate percentile indices (0-based)
+	// For percentile p, the index is (n-1) * p / 100
+	p50Index := ((len(sorted) - 1) * 50) / 100
+	p95Index := ((len(sorted) - 1) * 95) / 100
+	p99Index := ((len(sorted) - 1) * 99) / 100
+
+	// Ensure indices are within bounds
+	if p50Index >= len(sorted) {
+		p50Index = len(sorted) - 1
+	}
+	if p95Index >= len(sorted) {
+		p95Index = len(sorted) - 1
+	}
+	if p99Index >= len(sorted) {
+		p99Index = len(sorted) - 1
+	}
+
+	// Update percentile values
+	lb.p50 = sorted[p50Index]
+	lb.p95 = sorted[p95Index]
+	lb.p99 = sorted[p99Index]
 }
 
 func (lb *LatencyBucket) getStats() LatencyStats {
@@ -1816,14 +1878,12 @@ func categorizeSSEError(err error) string {
 	switch {
 	case strings.Contains(errStr, "timeout"):
 		return "timeout"
-	case strings.Contains(errStr, "connection"):
-		return "connection"
-	case strings.Contains(errStr, "closed"):
-		return "closed"
-	case strings.Contains(errStr, "reset"):
-		return "reset"
 	case strings.Contains(errStr, "refused"):
 		return "refused"
+	case strings.Contains(errStr, "reset"):
+		return "reset"
+	case strings.Contains(errStr, "closed"):
+		return "closed"
 	case strings.Contains(errStr, "eof"):
 		return "eof"
 	case strings.Contains(errStr, "parse"):
@@ -1832,6 +1892,8 @@ func categorizeSSEError(err error) string {
 		return "auth"
 	case strings.Contains(errStr, "rate"):
 		return "rate_limit"
+	case strings.Contains(errStr, "connection"):
+		return "connection"
 	default:
 		return "other"
 	}

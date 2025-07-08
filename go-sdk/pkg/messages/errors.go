@@ -16,6 +16,8 @@ const (
 	ErrorTypeNotFound ErrorType = "not_found"
 	// ErrorTypeInvalidInput indicates invalid input error
 	ErrorTypeInvalidInput ErrorType = "invalid_input"
+	// ErrorTypeConnection indicates a connection error
+	ErrorTypeConnection ErrorType = "connection"
 )
 
 // MessageError is the base error type for message-related errors
@@ -231,5 +233,48 @@ func IsStreamingError(err error) bool {
 // IsNotFoundError checks if an error is a not found error
 func IsNotFoundError(err error) bool {
 	_, ok := err.(*NotFoundError)
+	return ok
+}
+
+// ConnectionError represents connection-related errors
+type ConnectionError struct {
+	MessageError
+	Operation string
+}
+
+// NewConnectionError creates a new connection error
+func NewConnectionError(message string, cause error) *ConnectionError {
+	return &ConnectionError{
+		MessageError: MessageError{
+			Type:    ErrorTypeConnection,
+			Message: message,
+			Cause:   cause,
+		},
+	}
+}
+
+// NewConnectionErrorWithOperation creates a new connection error with operation context
+func NewConnectionErrorWithOperation(operation, message string, cause error) *ConnectionError {
+	return &ConnectionError{
+		MessageError: MessageError{
+			Type:    ErrorTypeConnection,
+			Message: message,
+			Cause:   cause,
+		},
+		Operation: operation,
+	}
+}
+
+// Error implements the error interface
+func (e ConnectionError) Error() string {
+	if e.Operation != "" {
+		return fmt.Sprintf("connection error during %s: %s", e.Operation, e.Message)
+	}
+	return fmt.Sprintf("connection error: %s", e.Message)
+}
+
+// IsConnectionError checks if an error is a connection error
+func IsConnectionError(err error) bool {
+	_, ok := err.(*ConnectionError)
 	return ok
 }

@@ -21,25 +21,21 @@ func NewProtobufCodec(encOptions *encoding.EncodingOptions, decOptions *encoding
 // StreamingProtobufCodec implements StreamCodec for Protocol Buffer format
 type StreamingProtobufCodec struct {
 	*ProtobufCodec
-	streamEncoder *StreamingProtobufEncoder
-	streamDecoder *StreamingProtobufDecoder
 }
 
 // NewStreamingProtobufCodec creates a new StreamingProtobufCodec
 func NewStreamingProtobufCodec(encOptions *encoding.EncodingOptions, decOptions *encoding.DecodingOptions) *StreamingProtobufCodec {
 	return &StreamingProtobufCodec{
 		ProtobufCodec: NewProtobufCodec(encOptions, decOptions),
-		streamEncoder: NewStreamingProtobufEncoder(encOptions),
-		streamDecoder: NewStreamingProtobufDecoder(decOptions),
 	}
 }
 
-// GetStreamEncoder returns the stream encoder
+// GetStreamEncoder returns a new stream encoder instance
 func (c *StreamingProtobufCodec) GetStreamEncoder() encoding.StreamEncoder {
-	return c.streamEncoder
+	return NewStreamingProtobufEncoder(c.ProtobufEncoder.options)
 }
 
-// GetStreamDecoder returns the stream decoder
+// GetStreamDecoder returns a new stream decoder instance
 func (c *StreamingProtobufCodec) GetStreamDecoder() encoding.StreamDecoder {
-	return c.streamDecoder
+	return NewStreamingProtobufDecoder(c.ProtobufDecoder.options)
 }

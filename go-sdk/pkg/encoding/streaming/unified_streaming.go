@@ -8,7 +8,6 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/encoding"
-	"github.com/ag-ui/go-sdk/pkg/proto/generated"
 )
 
 // UnifiedStreamCodec provides a format-agnostic streaming wrapper
@@ -391,25 +390,37 @@ func (d *unifiedStreamDecoder) EndStream() error {
 	return nil
 }
 
-// ChunkEvent represents a chunk as an event
+// ChunkEvent represents a chunk as a custom event
 type ChunkEvent struct {
-	*events.BaseEvent
+	*events.CustomEvent
 	Header ChunkHeader
 	Data   []byte
 }
 
-// NewChunkEvent creates a new chunk event
+// NewChunkEvent creates a new chunk event as a custom event
 func NewChunkEvent(header ChunkHeader, data []byte) *ChunkEvent {
+	// Create custom event with chunk data
+	customEvent := events.NewCustomEvent("streaming.chunk", 
+		events.WithValue(map[string]interface{}{
+			"chunk_id":     header.ChunkID,
+			"sequence_num": header.SequenceNum,
+			"event_count":  header.EventCount,
+			"byte_size":    header.ByteSize,
+			"compressed":   header.Compressed,
+			"checksum":     header.Checksum,
+		}),
+	)
+	
 	return &ChunkEvent{
-		BaseEvent: events.NewBaseEvent(events.EventType("chunk")),
-		Header:    header,
-		Data:      data,
+		CustomEvent: customEvent,
+		Header:      header,
+		Data:        data,
 	}
 }
 
 // Validate implements events.Event
 func (ce *ChunkEvent) Validate() error {
-	if err := ce.BaseEvent.Validate(); err != nil {
+	if err := ce.CustomEvent.Validate(); err != nil {
 		return err
 	}
 	if ce.Header.ChunkID == "" {
@@ -419,17 +430,4 @@ func (ce *ChunkEvent) Validate() error {
 		return fmt.Errorf("chunk data is empty")
 	}
 	return nil
-}
-
-// ToJSON implements events.Event
-func (ce *ChunkEvent) ToJSON() ([]byte, error) {
-	// Simplified JSON representation
-	return []byte(fmt.Sprintf(`{"type":"chunk","id":"%s","size":%d}`, 
-		ce.Header.ChunkID, ce.Header.ByteSize)), nil
-}
-
-// ToProtobuf implements events.Event
-func (ce *ChunkEvent) ToProtobuf() (*generated.Event, error) {
-	// This would need proper protobuf definition
-	return nil, fmt.Errorf("chunk events don't support protobuf")
 }

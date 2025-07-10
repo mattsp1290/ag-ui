@@ -5,7 +5,6 @@ import (
 	"context"
 	"io"
 	"testing"
-	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/encoding"
@@ -20,44 +19,22 @@ func TestProtobufEncoder_Encode(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "text message start",
-			event: &events.TextMessageStartEvent{
-				BaseEvent: events.BaseEvent{
-					EventType: events.TextMessageStart,
-					ID:        "msg-123",
-					Timestamp: time.Now().Unix(),
-					SessionID: "session-456",
-				},
-				Role:   "assistant",
-				Sender: "ai-agent",
-			},
+			name:    "text message start",
+			event:   events.NewTextMessageStartEvent("msg-123", events.WithRole("assistant")),
 			wantErr: false,
 		},
 		{
-			name: "tool call start",
-			event: &events.ToolCallStartEvent{
-				BaseEvent: events.BaseEvent{
-					EventType: events.ToolCallStart,
-					ID:        "tool-123",
-				},
-				ToolCallID: "call-456",
-				ToolName:   "calculate",
-			},
+			name:    "tool call start",
+			event:   events.NewToolCallStartEvent("call-456", "calculate"),
 			wantErr: false,
 		},
 		{
 			name: "state snapshot",
-			event: &events.StateSnapshotEvent{
-				BaseEvent: events.BaseEvent{
-					EventType: events.StateSnapshot,
-					ID:        "state-123",
-				},
-				State: map[string]interface{}{
-					"counter": 42,
-					"active":  true,
-					"name":    "test",
-				},
-			},
+			event: events.NewStateSnapshotEvent(map[string]interface{}{
+				"counter": 42,
+				"active":  true,
+				"name":    "test",
+			}),
 			wantErr: false,
 		},
 		{
@@ -86,14 +63,7 @@ func TestProtobufDecoder_Decode(t *testing.T) {
 	decoder := NewProtobufDecoder(nil)
 
 	// Test round-trip encoding/decoding
-	originalEvent := &events.TextMessageContentEvent{
-		BaseEvent: events.BaseEvent{
-			EventType: events.TextMessageContent,
-			ID:        "content-123",
-			Timestamp: time.Now().Unix(),
-		},
-		Content: "Hello, world!",
-	}
+	originalEvent := events.NewTextMessageContentEvent("msg-123", "Hello, world!")
 
 	// Encode
 	data, err := encoder.Encode(originalEvent)
@@ -113,12 +83,12 @@ func TestProtobufDecoder_Decode(t *testing.T) {
 		t.Fatalf("Wrong event type: got %T", decoded)
 	}
 
-	if decodedContent.Content != originalEvent.Content {
-		t.Errorf("Content mismatch: got %q, want %q", decodedContent.Content, originalEvent.Content)
+	if decodedContent.Delta != originalEvent.Delta {
+		t.Errorf("Delta mismatch: got %q, want %q", decodedContent.Delta, originalEvent.Delta)
 	}
 
-	if decodedContent.ID != originalEvent.ID {
-		t.Errorf("ID mismatch: got %q, want %q", decodedContent.ID, originalEvent.ID)
+	if decodedContent.MessageID != originalEvent.MessageID {
+		t.Errorf("MessageID mismatch: got %q, want %q", decodedContent.MessageID, originalEvent.MessageID)
 	}
 }
 
@@ -127,28 +97,15 @@ func TestProtobufCodec_MultipleEvents(t *testing.T) {
 	decoder := NewProtobufDecoder(nil)
 
 	// Create multiple events
-	events := []events.Event{
-		&events.RunStartedEvent{
-			BaseEvent: events.BaseEvent{EventType: events.RunStarted},
-			RunID:     "run-123",
-		},
-		&events.StepStartedEvent{
-			BaseEvent: events.BaseEvent{EventType: events.StepStarted},
-			StepID:    "step-456",
-			StepType:  "process",
-		},
-		&events.StepFinishedEvent{
-			BaseEvent: events.BaseEvent{EventType: events.StepFinished},
-			StepID:    "step-456",
-		},
-		&events.RunFinishedEvent{
-			BaseEvent: events.BaseEvent{EventType: events.RunFinished},
-			RunID:     "run-123",
-		},
+	testEvents := []events.Event{
+		events.NewRunStartedEvent("thread-123", "run-123"),
+		events.NewStepStartedEvent("step-456"),
+		events.NewStepFinishedEvent("step-456"),
+		events.NewRunFinishedEvent("thread-123", "run-123"),
 	}
 
 	// Encode multiple
-	data, err := encoder.EncodeMultiple(events)
+	data, err := encoder.EncodeMultiple(testEvents)
 	if err != nil {
 		t.Fatalf("EncodeMultiple failed: %v", err)
 	}
@@ -160,14 +117,14 @@ func TestProtobufCodec_MultipleEvents(t *testing.T) {
 	}
 
 	// Verify count
-	if len(decoded) != len(events) {
-		t.Fatalf("Event count mismatch: got %d, want %d", len(decoded), len(events))
+	if len(decoded) != len(testEvents) {
+		t.Fatalf("Event count mismatch: got %d, want %d", len(decoded), len(testEvents))
 	}
 
 	// Verify each event
 	for i, event := range decoded {
-		if event.Type() != events[i].Type() {
-			t.Errorf("Event %d type mismatch: got %s, want %s", i, event.Type(), events[i].Type())
+		if event.Type() != testEvents[i].Type() {
+			t.Errorf("Event %d type mismatch: got %s, want %s", i, event.Type(), testEvents[i].Type())
 		}
 	}
 }
@@ -185,23 +142,15 @@ func TestStreamingProtobuf(t *testing.T) {
 	}
 
 	// Write events
-	events := []events.Event{
-		&events.CustomEvent{
-			BaseEvent: events.BaseEvent{EventType: events.Custom},
-			EventName: "user.action",
-			Data: map[string]interface{}{
-				"action": "click",
-				"target": "button",
-			},
-		},
-		&events.RawEvent{
-			BaseEvent: events.BaseEvent{EventType: events.Raw},
-			Type:      "telemetry",
-			Data:      map[string]interface{}{"cpu": 45.2, "memory": 1024},
-		},
+	eventsToStream := []events.Event{
+		events.NewCustomEvent("user.action", events.WithValue(map[string]interface{}{
+			"action": "click",
+			"target": "button",
+		})),
+		events.NewRawEvent(map[string]interface{}{"cpu": 45.2, "memory": 1024}, events.WithSource("telemetry")),
 	}
 
-	for _, event := range events {
+	for _, event := range eventsToStream {
 		if err := encoder.WriteEvent(event); err != nil {
 			t.Fatalf("WriteEvent failed: %v", err)
 		}
@@ -233,13 +182,13 @@ func TestStreamingProtobuf(t *testing.T) {
 	}
 
 	// Verify
-	if len(decoded) != len(events) {
-		t.Fatalf("Event count mismatch: got %d, want %d", len(decoded), len(events))
+	if len(decoded) != len(eventsToStream) {
+		t.Fatalf("Event count mismatch: got %d, want %d", len(decoded), len(eventsToStream))
 	}
 
 	for i, event := range decoded {
-		if event.Type() != events[i].Type() {
-			t.Errorf("Event %d type mismatch: got %s, want %s", i, event.Type(), events[i].Type())
+		if event.Type() != eventsToStream[i].Type() {
+			t.Errorf("Event %d type mismatch: got %s, want %s", i, event.Type(), eventsToStream[i].Type())
 		}
 	}
 }
@@ -251,12 +200,9 @@ func TestProtobufOptions(t *testing.T) {
 		})
 
 		// Create a large event
-		event := &events.StateSnapshotEvent{
-			BaseEvent: events.BaseEvent{EventType: events.StateSnapshot},
-			State: map[string]interface{}{
-				"data": "this is a very long string that will exceed the size limit when encoded to protobuf format",
-			},
-		}
+		event := events.NewStateSnapshotEvent(map[string]interface{}{
+			"data": "this is a very long string that will exceed the size limit when encoded to protobuf format",
+		})
 
 		_, err := encoder.Encode(event)
 		if err == nil {
@@ -269,11 +215,7 @@ func TestProtobufOptions(t *testing.T) {
 			ValidateOutput: true,
 		})
 
-		event := &events.ToolCallEndEvent{
-			BaseEvent:  events.BaseEvent{EventType: events.ToolCallEnd},
-			ToolCallID: "call-123",
-			Output:     "result",
-		}
+		event := events.NewToolCallEndEvent("call-123")
 
 		data, err := encoder.Encode(event)
 		if err != nil {
@@ -292,15 +234,8 @@ func TestProtobufOptions(t *testing.T) {
 		// Create an encoder to generate test data
 		encoder := NewProtobufEncoder(nil)
 		
-		// Create an invalid event (empty ID)
-		event := &events.RunErrorEvent{
-			BaseEvent: events.BaseEvent{
-				EventType: events.RunError,
-				ID:        "", // Invalid: empty ID
-			},
-			RunID: "run-123",
-			Error: "test error",
-		}
+		// Create an invalid event (empty error message)
+		event := events.NewRunErrorEvent("") // Invalid: empty error message
 
 		data, _ := encoder.Encode(event)
 		
@@ -317,88 +252,34 @@ func TestProtobufAllEventTypes(t *testing.T) {
 	// Test all event types
 	testEvents := []events.Event{
 		// Message events
-		&events.TextMessageStartEvent{
-			BaseEvent: events.BaseEvent{EventType: events.TextMessageStart, ID: "1"},
-			Role:      "user",
-			Sender:    "test",
-		},
-		&events.TextMessageContentEvent{
-			BaseEvent: events.BaseEvent{EventType: events.TextMessageContent, ID: "2"},
-			Content:   "test content",
-		},
-		&events.TextMessageEndEvent{
-			BaseEvent: events.BaseEvent{EventType: events.TextMessageEnd, ID: "3"},
-		},
+		events.NewTextMessageStartEvent("msg-1", events.WithRole("user")),
+		events.NewTextMessageContentEvent("msg-1", "test content"),
+		events.NewTextMessageEndEvent("msg-1"),
 		// Tool events
-		&events.ToolCallStartEvent{
-			BaseEvent:  events.BaseEvent{EventType: events.ToolCallStart, ID: "4"},
-			ToolCallID: "tool-1",
-			ToolName:   "calculator",
-		},
-		&events.ToolCallArgsEvent{
-			BaseEvent:  events.BaseEvent{EventType: events.ToolCallArgs, ID: "5"},
-			ToolCallID: "tool-1",
-			Arguments:  `{"a": 1, "b": 2}`,
-			Complete:   true,
-		},
-		&events.ToolCallEndEvent{
-			BaseEvent:  events.BaseEvent{EventType: events.ToolCallEnd, ID: "6"},
-			ToolCallID: "tool-1",
-			Output:     "3",
-		},
+		events.NewToolCallStartEvent("tool-1", "calculator"),
+		events.NewToolCallArgsEvent("tool-1", `{"a": 1, "b": 2}`),
+		events.NewToolCallEndEvent("tool-1"),
 		// State events
-		&events.StateSnapshotEvent{
-			BaseEvent: events.BaseEvent{EventType: events.StateSnapshot, ID: "7"},
-			State:     map[string]interface{}{"key": "value"},
-		},
-		&events.StateDeltaEvent{
-			BaseEvent: events.BaseEvent{EventType: events.StateDelta, ID: "8"},
-			Patches: []*events.JSONPatch{
-				{Op: "add", Path: "/key", Value: "value"},
-			},
-		},
-		&events.MessagesSnapshotEvent{
-			BaseEvent: events.BaseEvent{EventType: events.MessagesSnapshot, ID: "9"},
-			Messages:  []interface{}{map[string]interface{}{"role": "user", "content": "hi"}},
-		},
+		events.NewStateSnapshotEvent(map[string]interface{}{"key": "value"}),
+		events.NewStateDeltaEvent([]events.JSONPatchOperation{
+			{Op: "add", Path: "/key", Value: "value"},
+		}),
+		events.NewMessagesSnapshotEvent([]events.Message{
+			{Role: "user", Content: func(s string) *string { return &s }("hi")},
+		}),
 		// Custom events
-		&events.RawEvent{
-			BaseEvent: events.BaseEvent{EventType: events.Raw, ID: "10"},
-			Type:      "custom",
-			Data:      map[string]interface{}{"test": true},
-		},
-		&events.CustomEvent{
-			BaseEvent: events.BaseEvent{EventType: events.Custom, ID: "11"},
-			EventName: "test.event",
-			Data:      map[string]interface{}{"value": 42},
-		},
+		events.NewRawEvent(map[string]interface{}{"test": true}, events.WithSource("custom")),
+		events.NewCustomEvent("test.event", events.WithValue(map[string]interface{}{"value": 42})),
 		// Run events
-		&events.RunStartedEvent{
-			BaseEvent: events.BaseEvent{EventType: events.RunStarted, ID: "12"},
-			RunID:     "run-1",
-		},
-		&events.RunFinishedEvent{
-			BaseEvent: events.BaseEvent{EventType: events.RunFinished, ID: "13"},
-			RunID:     "run-1",
-		},
-		&events.RunErrorEvent{
-			BaseEvent: events.BaseEvent{EventType: events.RunError, ID: "14"},
-			RunID:     "run-1",
-			Error:     "test error",
-		},
-		&events.StepStartedEvent{
-			BaseEvent: events.BaseEvent{EventType: events.StepStarted, ID: "15"},
-			StepID:    "step-1",
-			StepType:  "process",
-		},
-		&events.StepFinishedEvent{
-			BaseEvent: events.BaseEvent{EventType: events.StepFinished, ID: "16"},
-			StepID:    "step-1",
-		},
+		events.NewRunStartedEvent("thread-1", "run-1"),
+		events.NewRunFinishedEvent("thread-1", "run-1"),
+		events.NewRunErrorEvent("test error", events.WithRunID("run-1")),
+		events.NewStepStartedEvent("step-1"),
+		events.NewStepFinishedEvent("step-1"),
 	}
 
 	for _, originalEvent := range testEvents {
-		t.Run(originalEvent.Type(), func(t *testing.T) {
+		t.Run(string(originalEvent.Type()), func(t *testing.T) {
 			// Encode
 			data, err := codec.Encode(originalEvent)
 			if err != nil {
@@ -414,11 +295,6 @@ func TestProtobufAllEventTypes(t *testing.T) {
 			// Verify type
 			if decoded.Type() != originalEvent.Type() {
 				t.Errorf("Type mismatch: got %s, want %s", decoded.Type(), originalEvent.Type())
-			}
-
-			// Verify ID
-			if decoded.GetID() != originalEvent.GetID() {
-				t.Errorf("ID mismatch: got %s, want %s", decoded.GetID(), originalEvent.GetID())
 			}
 		})
 	}

@@ -2,11 +2,9 @@ package protobuf
 
 import (
 	"bytes"
-	"context"
 	"fmt"
 	"sync"
 	"testing"
-	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/encoding"
@@ -19,112 +17,26 @@ func TestProtobufIntegration_CompleteWorkflow(t *testing.T) {
 	// Simulate a complete workflow
 	workflow := []events.Event{
 		// Run starts
-		&events.RunStartedEvent{
-			BaseEvent: events.BaseEvent{
-				EventType: events.RunStarted,
-				ID:        "run-001",
-				Timestamp: time.Now().Unix(),
-				SessionID: "session-123",
-			},
-			RunID: "workflow-run-001",
-		},
+		events.NewRunStartedEvent("thread-001", "workflow-run-001"),
 		// Step 1: User message
-		&events.StepStartedEvent{
-			BaseEvent: events.BaseEvent{
-				EventType: events.StepStarted,
-				ID:        "step-001",
-			},
-			StepID:   "user-input",
-			StepType: "message",
-		},
-		&events.TextMessageStartEvent{
-			BaseEvent: events.BaseEvent{
-				EventType: events.TextMessageStart,
-				ID:        "msg-001",
-			},
-			Role:   "user",
-			Sender: "user-123",
-		},
-		&events.TextMessageContentEvent{
-			BaseEvent: events.BaseEvent{
-				EventType: events.TextMessageContent,
-				ID:        "content-001",
-			},
-			Content: "Calculate the sum of 15 and 27",
-		},
-		&events.TextMessageEndEvent{
-			BaseEvent: events.BaseEvent{
-				EventType: events.TextMessageEnd,
-				ID:        "msg-end-001",
-			},
-		},
-		&events.StepFinishedEvent{
-			BaseEvent: events.BaseEvent{
-				EventType: events.StepFinished,
-				ID:        "step-end-001",
-			},
-			StepID: "user-input",
-		},
+		events.NewStepStartedEvent("user-input"),
+		events.NewTextMessageStartEvent("msg-001", events.WithRole("user")),
+		events.NewTextMessageContentEvent("msg-001", "Calculate the sum of 15 and 27"),
+		events.NewTextMessageEndEvent("msg-001"),
+		events.NewStepFinishedEvent("user-input"),
 		// Step 2: Tool call
-		&events.StepStartedEvent{
-			BaseEvent: events.BaseEvent{
-				EventType: events.StepStarted,
-				ID:        "step-002",
-			},
-			StepID:   "tool-execution",
-			StepType: "tool",
-		},
-		&events.ToolCallStartEvent{
-			BaseEvent: events.BaseEvent{
-				EventType: events.ToolCallStart,
-				ID:        "tool-001",
-			},
-			ToolCallID: "calc-001",
-			ToolName:   "calculator",
-		},
-		&events.ToolCallArgsEvent{
-			BaseEvent: events.BaseEvent{
-				EventType: events.ToolCallArgs,
-				ID:        "args-001",
-			},
-			ToolCallID: "calc-001",
-			Arguments:  `{"operation": "add", "a": 15, "b": 27}`,
-			Complete:   true,
-		},
-		&events.ToolCallEndEvent{
-			BaseEvent: events.BaseEvent{
-				EventType: events.ToolCallEnd,
-				ID:        "tool-end-001",
-			},
-			ToolCallID: "calc-001",
-			Output:     "42",
-		},
-		&events.StepFinishedEvent{
-			BaseEvent: events.BaseEvent{
-				EventType: events.StepFinished,
-				ID:        "step-end-002",
-			},
-			StepID: "tool-execution",
-		},
+		events.NewStepStartedEvent("tool-execution"),
+		events.NewToolCallStartEvent("calc-001", "calculator"),
+		events.NewToolCallArgsEvent("calc-001", `{"operation": "add", "a": 15, "b": 27}`),
+		events.NewToolCallEndEvent("calc-001"),
+		events.NewStepFinishedEvent("tool-execution"),
 		// State update
-		&events.StateSnapshotEvent{
-			BaseEvent: events.BaseEvent{
-				EventType: events.StateSnapshot,
-				ID:        "state-001",
-			},
-			State: map[string]interface{}{
-				"last_calculation": 42,
-				"total_calculations": 1,
-			},
-		},
+		events.NewStateSnapshotEvent(map[string]interface{}{
+			"last_calculation": 42,
+			"total_calculations": 1,
+		}),
 		// Run completes
-		&events.RunFinishedEvent{
-			BaseEvent: events.BaseEvent{
-				EventType: events.RunFinished,
-				ID:        "run-end-001",
-			},
-			RunID: "workflow-run-001",
-		},
+		events.NewRunFinishedEvent("thread-001", "workflow-run-001"),
 	}
 
 	// Test 1: Single event encoding/decoding
@@ -180,7 +92,6 @@ func TestProtobufIntegration_CompleteWorkflow(t *testing.T) {
 	}
 
 	// Stream decode
-	ctx := context.Background()
 	eventChan := make(chan events.Event, len(workflow))
 	
 	streamDecoder := streamCodec.GetStreamDecoder()
@@ -236,17 +147,13 @@ func TestProtobufIntegration_ConcurrentStreaming(t *testing.T) {
 			}
 
 			for j := 0; j < eventsPerGoroutine; j++ {
-				event := &events.CustomEvent{
-					BaseEvent: events.BaseEvent{
-						EventType: events.Custom,
-						ID:        string(rune(id*1000 + j)),
-					},
-					EventName: "concurrent.test",
-					Data: map[string]interface{}{
+				event := events.NewCustomEvent(
+					"concurrent.test",
+					events.WithValue(map[string]interface{}{
 						"goroutine": id,
 						"index":     j,
-					},
-				}
+					}),
+				)
 
 				if err := encoder.WriteEvent(event); err != nil {
 					errors <- err
@@ -272,7 +179,7 @@ func TestProtobufIntegration_ConcurrentStreaming(t *testing.T) {
 					return
 				}
 
-				if event.Type() != events.Custom.String() {
+				if event.Type() != events.EventTypeCustom {
 					errors <- fmt.Errorf("unexpected event type: %s", event.Type())
 					return
 				}
@@ -315,13 +222,12 @@ func TestProtobufIntegration_ErrorHandling(t *testing.T) {
 		})
 
 		// Create large event
-		event := &events.CustomEvent{
-			BaseEvent: events.BaseEvent{EventType: events.Custom, ID: "large"},
-			EventName: "large.event",
-			Data: map[string]interface{}{
+		event := events.NewCustomEvent(
+			"large.event",
+			events.WithValue(map[string]interface{}{
 				"data": "This is a very large piece of data that should exceed our size limit",
-			},
-		}
+			}),
+		)
 
 		_, err := encoder.Encode(event)
 		if err == nil {
@@ -336,13 +242,7 @@ func TestProtobufIntegration_ErrorHandling(t *testing.T) {
 
 		// Create invalid event (will fail validation)
 		encoder := NewProtobufEncoder(nil)
-		event := &events.RunStartedEvent{
-			BaseEvent: events.BaseEvent{
-				EventType: events.RunStarted,
-				ID:        "", // Invalid: empty ID
-			},
-			RunID: "", // Invalid: empty RunID
-		}
+		event := events.NewRunStartedEvent("", "") // Invalid: empty thread and run IDs
 
 		data, _ := encoder.Encode(event)
 		_, err := decoder.Decode(data)

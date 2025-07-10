@@ -15,15 +15,7 @@ func ExampleProtobufEncoder() {
 	encoder := protobuf.NewProtobufEncoder(nil)
 
 	// Create a sample event
-	event := &events.TextMessageStartEvent{
-		BaseEvent: events.BaseEvent{
-			EventType: events.TextMessageStart,
-			ID:        "msg-123",
-			SessionID: "session-456",
-		},
-		Role:   "assistant",
-		Sender: "ai-agent",
-	}
+	event := events.NewTextMessageStartEvent("msg-123", events.WithRole("assistant"))
 
 	// Encode the event
 	data, err := encoder.Encode(event)
@@ -32,7 +24,7 @@ func ExampleProtobufEncoder() {
 	}
 
 	fmt.Printf("Encoded %d bytes\n", len(data))
-	// Output: Encoded 45 bytes
+	// Output: Encoded 31 bytes
 }
 
 func ExampleProtobufDecoder() {
@@ -41,14 +33,7 @@ func ExampleProtobufDecoder() {
 	decoder := protobuf.NewProtobufDecoder(nil)
 
 	// Create and encode an event
-	event := &events.ToolCallStartEvent{
-		BaseEvent: events.BaseEvent{
-			EventType: events.ToolCallStart,
-			ID:        "tool-123",
-		},
-		ToolCallID: "call-456",
-		ToolName:   "calculate",
-	}
+	event := events.NewToolCallStartEvent("call-456", "calculate")
 
 	data, _ := encoder.Encode(event)
 
@@ -59,7 +44,7 @@ func ExampleProtobufDecoder() {
 	}
 
 	if toolCall, ok := decoded.(*events.ToolCallStartEvent); ok {
-		fmt.Printf("Tool: %s\n", toolCall.ToolName)
+		fmt.Printf("Tool: %s\n", toolCall.ToolCallName)
 	}
 	// Output: Tool: calculate
 }
@@ -78,15 +63,8 @@ func ExampleStreamingProtobufEncoder() {
 
 	// Write multiple events
 	events := []events.Event{
-		&events.RunStartedEvent{
-			BaseEvent: events.BaseEvent{EventType: events.RunStarted},
-			RunID:     "run-123",
-		},
-		&events.StepStartedEvent{
-			BaseEvent: events.BaseEvent{EventType: events.StepStarted},
-			StepID:    "step-456",
-			StepType:  "process",
-		},
+		events.NewRunStartedEvent("thread-123", "run-123"),
+		events.NewStepStartedEvent("step-456"),
 	}
 
 	for _, event := range events {
@@ -113,10 +91,7 @@ func ExampleStreamingProtobufDecoder() {
 
 	// Encode some events
 	encoder.StartStream(&buf)
-	encoder.WriteEvent(&events.RunStartedEvent{
-		BaseEvent: events.BaseEvent{EventType: events.RunStarted},
-		RunID:     "run-123",
-	})
+	encoder.WriteEvent(events.NewRunStartedEvent("thread-123", "run-123"))
 	encoder.EndStream()
 
 	// Decode events from stream
@@ -132,5 +107,5 @@ func ExampleStreamingProtobufDecoder() {
 	for event := range eventChan {
 		fmt.Printf("Event type: %s\n", event.Type())
 	}
-	// Output: Event type: run_started
+	// Output: Event type: RUN_STARTED
 }

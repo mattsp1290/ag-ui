@@ -11,18 +11,13 @@ import (
 // Benchmark comparing protobuf vs JSON encoding
 
 func createTestEvent() events.Event {
+	timestamp := time.Now().UnixMilli()
 	return &events.StateSnapshotEvent{
-		BaseEvent: events.BaseEvent{
-			EventType: events.StateSnapshot,
-			ID:        "bench-123",
-			Timestamp: time.Now().Unix(),
-			SessionID: "session-456",
-			Metadata: map[string]string{
-				"source": "benchmark",
-				"test":   "true",
-			},
+		BaseEvent: &events.BaseEvent{
+			EventType:   events.EventTypeStateSnapshot,
+			TimestampMs: &timestamp,
 		},
-		State: map[string]interface{}{
+		Snapshot: map[string]interface{}{
 			"counter":     42,
 			"temperature": 23.5,
 			"active":      true,
@@ -157,16 +152,17 @@ func BenchmarkProtobufEventTypes(b *testing.B) {
 		{
 			name: "TextMessage",
 			event: &events.TextMessageContentEvent{
-				BaseEvent: events.BaseEvent{EventType: events.TextMessageContent, ID: "1"},
-				Content:   "This is a sample message content for benchmarking purposes.",
+				BaseEvent: &events.BaseEvent{EventType: events.EventTypeTextMessageContent},
+				MessageID: "msg-123",
+				Delta:     "This is a sample message content for benchmarking purposes.",
 			},
 		},
 		{
 			name: "ToolCall",
 			event: &events.ToolCallArgsEvent{
-				BaseEvent:  events.BaseEvent{EventType: events.ToolCallArgs, ID: "2"},
+				BaseEvent:  &events.BaseEvent{EventType: events.EventTypeToolCallArgs},
 				ToolCallID: "tool-123",
-				Arguments:  `{"function": "calculate", "params": {"a": 10, "b": 20}}`,
+				Delta:      `{"function": "calculate", "params": {"a": 10, "b": 20}}`,
 			},
 		},
 		{
@@ -176,8 +172,8 @@ func BenchmarkProtobufEventTypes(b *testing.B) {
 		{
 			name: "StateDelta",
 			event: &events.StateDeltaEvent{
-				BaseEvent: events.BaseEvent{EventType: events.StateDelta, ID: "3"},
-				Patches: []*events.JSONPatch{
+				BaseEvent: &events.BaseEvent{EventType: events.EventTypeStateDelta},
+				Delta: []events.JSONPatchOperation{
 					{Op: "add", Path: "/key1", Value: "value1"},
 					{Op: "replace", Path: "/key2", Value: 42},
 					{Op: "remove", Path: "/key3"},

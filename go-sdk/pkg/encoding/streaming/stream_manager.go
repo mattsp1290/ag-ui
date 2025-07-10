@@ -126,6 +126,12 @@ func NewStreamManager(encoder encoding.StreamEncoder, decoder encoding.StreamDec
 
 // Start initializes the stream manager
 func (sm *StreamManager) Start() error {
+	// Check if already started or closed
+	currentState := StreamState(sm.state.Load())
+	if currentState != StreamStateIdle {
+		return fmt.Errorf("stream manager already started or closed")
+	}
+	
 	var startErr error
 	sm.startOnce.Do(func() {
 		if !sm.state.CompareAndSwap(int32(StreamStateIdle), int32(StreamStateActive)) {

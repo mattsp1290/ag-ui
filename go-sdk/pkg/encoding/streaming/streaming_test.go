@@ -3,13 +3,30 @@ package streaming
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"testing"
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/encoding"
+	"github.com/ag-ui/go-sdk/pkg/proto/generated"
 )
+
+// mockEvent implements the Event interface for testing
+type mockEvent struct {
+	EventType   events.EventType `json:"type"`
+	TimestampMs *int64           `json:"timestamp,omitempty"`
+	Data        string           `json:"data,omitempty"`
+}
+
+func (m *mockEvent) Type() events.EventType                { return m.EventType }
+func (m *mockEvent) Timestamp() *int64                     { return m.TimestampMs }
+func (m *mockEvent) SetTimestamp(timestamp int64)          { m.TimestampMs = &timestamp }
+func (m *mockEvent) ToJSON() ([]byte, error)               { return json.Marshal(m) }
+func (m *mockEvent) ToProtobuf() (*generated.Event, error) { return nil, nil }
+func (m *mockEvent) GetBaseEvent() *events.BaseEvent       { return nil }
+func (m *mockEvent) Validate() error                       { return nil }
 
 // mockStreamCodec implements a basic StreamCodec for testing
 type mockStreamCodec struct {
@@ -34,21 +51,24 @@ func newMockStreamCodec() *mockStreamCodec {
 }
 
 func (c *mockStreamCodec) Encode(event events.Event) ([]byte, error) {
-	return []byte(event.GetID()), nil
+	// Use event type as a simple identifier for testing
+	return []byte(string(event.Type())), nil
 }
 
 func (c *mockStreamCodec) EncodeMultiple(events []events.Event) ([]byte, error) {
 	var buf bytes.Buffer
 	for _, e := range events {
-		buf.WriteString(e.GetID() + "\n")
+		buf.WriteString(string(e.Type()) + "\n")
 	}
 	return buf.Bytes(), nil
 }
 
 func (c *mockStreamCodec) Decode(data []byte) (events.Event, error) {
-	return &events.BaseEvent{
-		ID:   string(data),
-		Type: "test",
+	timestamp := time.Now().UnixMilli()
+	return &mockEvent{
+		EventType:   events.EventType("test"),
+		TimestampMs: &timestamp,
+		Data:        string(data),
 	}, nil
 }
 
@@ -75,13 +95,13 @@ func (c *mockStreamCodec) GetStreamDecoder() encoding.StreamDecoder {
 
 // mockStreamEncoder implementation
 func (e *mockStreamEncoder) Encode(event events.Event) ([]byte, error) {
-	return []byte(event.GetID()), nil
+	return []byte(string(event.Type())), nil
 }
 
 func (e *mockStreamEncoder) EncodeMultiple(events []events.Event) ([]byte, error) {
 	var buf bytes.Buffer
 	for _, ev := range events {
-		buf.WriteString(ev.GetID() + "\n")
+		buf.WriteString(string(ev.Type()) + "\n")
 	}
 	return buf.Bytes(), nil
 }
@@ -119,9 +139,11 @@ func (e *mockStreamEncoder) EndStream() error {
 
 // mockStreamDecoder implementation
 func (d *mockStreamDecoder) Decode(data []byte) (events.Event, error) {
-	return &events.BaseEvent{
-		ID:   string(data),
-		Type: "test",
+	timestamp := time.Now().UnixMilli()
+	return &mockEvent{
+		EventType:   events.EventType("test"),
+		TimestampMs: &timestamp,
+		Data:        string(data),
 	}, nil
 }
 
@@ -176,10 +198,11 @@ func TestUnifiedStreamCodec_BasicFunctionality(t *testing.T) {
 	codec := NewUnifiedStreamCodec(baseCodec, config)
 
 	// Test basic encoding
-	event := &events.BaseEvent{
-		ID:        "test-1",
-		Type:      "test",
-		Timestamp: time.Now().Unix(),
+	timestamp := time.Now().UnixMilli()
+	event := &mockEvent{
+		EventType:   events.EventType("test"),
+		TimestampMs: &timestamp,
+		Data:        "test-1",
 	}
 
 	data, err := codec.Encode(event)
@@ -187,8 +210,8 @@ func TestUnifiedStreamCodec_BasicFunctionality(t *testing.T) {
 		t.Fatalf("Failed to encode: %v", err)
 	}
 
-	if string(data) != "test-1" {
-		t.Errorf("Expected 'test-1', got %s", string(data))
+	if string(data) != "test" {
+		t.Errorf("Expected 'test', got %s", string(data))
 	}
 
 	// Test content type
@@ -248,9 +271,11 @@ func TestChunkedEncoder_BasicChunking(t *testing.T) {
 	go func() {
 		defer close(input)
 		for i := 0; i < 5; i++ {
-			input <- &events.BaseEvent{
-				ID:   string(rune('a' + i)),
-				Type: "test",
+			timestamp := time.Now().UnixMilli()
+			input <- &mockEvent{
+				EventType:   events.EventType("test"),
+				TimestampMs: &timestamp,
+				Data:        string(rune('a' + i)),
 			}
 		}
 	}()
@@ -310,9 +335,11 @@ func TestStreamMetrics_Collection(t *testing.T) {
 
 	// Record some events
 	for i := 0; i < 100; i++ {
-		event := &events.BaseEvent{
-			ID:   string(rune('a' + i%26)),
-			Type: "test",
+		timestamp := time.Now().UnixMilli()
+		event := &mockEvent{
+			EventType:   events.EventType("test"),
+			TimestampMs: &timestamp,
+			Data:        string(rune('a' + i%26)),
 		}
 		metrics.RecordEvent(event)
 	}

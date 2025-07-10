@@ -1,0 +1,695 @@
+package tools_test
+
+import (
+	"context"
+	"fmt"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/ag-ui/go-sdk/pkg/tools"
+)
+
+// CaptureEventEmitter captures all emitted events for testing
+type CaptureEventEmitter struct {
+	mu             sync.RWMutex
+	startEvents    []*events.ToolCallStartEvent
+	argsEvents     []*events.ToolCallArgsEvent
+	endEvents      []*events.ToolCallEndEvent
+	eventSequence  []events.Event
+	errors         []error
+}
+
+func NewCaptureEventEmitter() *CaptureEventEmitter {
+	return &CaptureEventEmitter{
+		startEvents:   make([]*events.ToolCallStartEvent, 0),
+		argsEvents:    make([]*events.ToolCallArgsEvent, 0),
+		endEvents:     make([]*events.ToolCallEndEvent, 0),
+		eventSequence: make([]events.Event, 0),
+		errors:        make([]error, 0),
+	}
+}
+
+func (c *CaptureEventEmitter) EmitToolCallStart(ctx context.Context, toolCallID, toolCallName string, params map[string]interface{}, options ...events.ToolCallStartOption) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	event := events.NewToolCallStartEvent(toolCallID, toolCallName, options...)
+	c.startEvents = append(c.startEvents, event)
+	c.eventSequence = append(c.eventSequence, event)
+	return nil
+}
+
+func (c *CaptureEventEmitter) EmitToolCallArgs(ctx context.Context, toolCallID, delta string, options ...events.ToolCallArgsOption) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	event := events.NewToolCallArgsEventWithOptions(toolCallID, delta, options...)
+	c.argsEvents = append(c.argsEvents, event)
+	c.eventSequence = append(c.eventSequence, event)
+	return nil
+}
+
+func (c *CaptureEventEmitter) EmitToolCallEnd(ctx context.Context, toolCallID string, result *ToolExecutionResult, options ...events.ToolCallEndOption) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	event := events.NewToolCallEndEventWithOptions(toolCallID, options...)
+	c.endEvents = append(c.endEvents, event)
+	c.eventSequence = append(c.eventSequence, event)
+	return nil
+}
+
+func (c *CaptureEventEmitter) SetEventHandler(handler EventHandler) {
+	// No-op for capture emitter
+}
+
+func (c *CaptureEventEmitter) GetEventHandler() EventHandler {
+	return nil
+}
+
+func (c *CaptureEventEmitter) GetEvents() (starts []*events.ToolCallStartEvent, args []*events.ToolCallArgsEvent, ends []*events.ToolCallEndEvent) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	
+	// Return copies to avoid race conditions
+	starts = make([]*events.ToolCallStartEvent, len(c.startEvents))
+	copy(starts, c.startEvents)
+	
+	args = make([]*events.ToolCallArgsEvent, len(c.argsEvents))
+	copy(args, c.argsEvents)
+	
+	ends = make([]*events.ToolCallEndEvent, len(c.endEvents))
+	copy(ends, c.endEvents)
+	
+	return
+}
+
+func (c *CaptureEventEmitter) GetEventSequence() []events.Event {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	
+	sequence := make([]events.Event, len(c.eventSequence))
+	copy(sequence, c.eventSequence)
+	return sequence
+}
+
+func (c *CaptureEventEmitter) Reset() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	c.startEvents = c.startEvents[:0]
+	c.argsEvents = c.argsEvents[:0]
+	c.endEvents = c.endEvents[:0]
+	c.eventSequence = c.eventSequence[:0]
+	c.errors = c.errors[:0]
+}
+
+// Test tool for executor testing
+type TestTool struct {
+	id       string
+	executor ToolExecutor
+	schema   *Schema
+}
+
+func (t *TestTool) GetID() string {
+	return t.id
+}
+
+func (t *TestTool) GetExecutor() ToolExecutor {
+	return t.executor
+}
+
+func (t *TestTool) GetSchema() *Schema {
+	return t.schema
+}
+
+func (t *TestTool) GetCapabilities() *ToolCapabilities {
+	return &ToolCapabilities{
+		Timeout:   10 * time.Second,
+		Cacheable: true,
+	}
+}
+
+// Simple test executor
+type SimpleTestExecutor struct {
+	result *ToolExecutionResult
+	delay  time.Duration
+}
+
+func (e *SimpleTestExecutor) Execute(ctx context.Context, params map[string]interface{}) (*ToolExecutionResult, error) {
+	if e.delay > 0 {
+		time.Sleep(e.delay)
+	}
+	
+	if e.result != nil {
+		return e.result, nil
+	}
+	
+	return &ToolExecutionResult{
+		Success:   true,
+		Output:    map[string]interface{}{"result": "test output"},
+		Timestamp: time.Now(),
+	}, nil
+}
+
+// Streaming test executor
+type StreamingTestExecutor struct {
+	chunks []string
+	delay  time.Duration
+}
+
+func (e *StreamingTestExecutor) Execute(ctx context.Context, params map[string]interface{}) (*ToolExecutionResult, error) {
+	return &ToolExecutionResult{
+		Success:   true,
+		Output:    map[string]interface{}{"result": "streaming test output"},
+		Timestamp: time.Now(),
+	}, nil
+}
+
+func (e *StreamingTestExecutor) ExecuteStream(ctx context.Context, params map[string]interface{}) (<-chan *ToolStreamChunk, error) {
+	stream := make(chan *ToolStreamChunk, len(e.chunks)+1)
+	
+	go func() {
+		defer close(stream)
+		
+		for i, chunk := range e.chunks {
+			if e.delay > 0 {
+				time.Sleep(e.delay)
+			}
+			
+			select {
+			case stream <- &ToolStreamChunk{
+				Type: "data",
+				Data: chunk,
+				Index: i,
+			}:
+			case <-ctx.Done():
+				return
+			}
+		}
+		
+		// Send final chunk
+		stream <- &ToolStreamChunk{
+			Type: "end",
+			Data: "",
+			Index: len(e.chunks),
+		}
+	}()
+	
+	return stream, nil
+}
+
+func TestExecutionEngine_ExecuteWithEvents(t *testing.T) {
+	// Create test registry
+	registry := NewRegistry()
+	
+	// Create test tool
+	testTool := &TestTool{
+		id:       "test-execute-events",
+		executor: &SimpleTestExecutor{},
+		schema: &Schema{
+			Type: "object",
+			Properties: map[string]*Schema{
+				"input": {Type: "string"},
+			},
+		},
+	}
+	
+	err := registry.Register(testTool)
+	if err != nil {
+		t.Fatalf("Failed to register test tool: %v", err)
+	}
+	
+	// Create capture event emitter
+	captureEmitter := NewCaptureEventEmitter()
+	
+	// Create execution engine with event emitter
+	engine := NewExecutionEngine(registry, WithEventEmitter(captureEmitter))
+	
+	ctx := context.Background()
+	params := map[string]interface{}{"input": "test value"}
+	
+	// Execute tool
+	result, err := engine.Execute(ctx, "test-execute-events", params)
+	if err != nil {
+		t.Fatalf("Expected no error executing tool, got: %v", err)
+	}
+	
+	if !result.Success {
+		t.Fatalf("Expected successful execution, got: %v", result)
+	}
+	
+	// Check events were emitted
+	starts, args, ends := captureEmitter.GetEvents()
+	
+	// Should have exactly 1 start and 1 end event, no args events for non-streaming
+	if len(starts) != 1 {
+		t.Fatalf("Expected 1 start event, got %d", len(starts))
+	}
+	if len(args) != 0 {
+		t.Fatalf("Expected 0 args events for non-streaming, got %d", len(args))
+	}
+	if len(ends) != 1 {
+		t.Fatalf("Expected 1 end event, got %d", len(ends))
+	}
+	
+	// Check event details
+	startEvent := starts[0]
+	if startEvent.ToolCallName != "test-execute-events" {
+		t.Fatalf("Expected tool call name 'test-execute-events', got '%s'", startEvent.ToolCallName)
+	}
+	
+	endEvent := ends[0]
+	if startEvent.ToolCallID != endEvent.ToolCallID {
+		t.Fatalf("Start and end events should have same tool call ID: start=%s, end=%s", startEvent.ToolCallID, endEvent.ToolCallID)
+	}
+	
+	// Check event sequence
+	sequence := captureEmitter.GetEventSequence()
+	if len(sequence) != 2 {
+		t.Fatalf("Expected 2 events in sequence, got %d", len(sequence))
+	}
+	if sequence[0].Type() != events.EventTypeToolCallStart {
+		t.Fatalf("Expected first event to be start, got %v", sequence[0].Type())
+	}
+	if sequence[1].Type() != events.EventTypeToolCallEnd {
+		t.Fatalf("Expected second event to be end, got %v", sequence[1].Type())
+	}
+}
+
+func TestExecutionEngine_ExecuteStreamWithEvents(t *testing.T) {
+	// Create test registry
+	registry := NewRegistry()
+	
+	// Create streaming test tool
+	chunks := []string{"chunk1", "chunk2", "chunk3"}
+	testTool := &TestTool{
+		id:       "test-stream-events",
+		executor: &StreamingTestExecutor{chunks: chunks, delay: time.Millisecond},
+		schema: &Schema{
+			Type: "object",
+			Properties: map[string]*Schema{
+				"input": {Type: "string"},
+			},
+		},
+	}
+	
+	err := registry.Register(testTool)
+	if err != nil {
+		t.Fatalf("Failed to register test tool: %v", err)
+	}
+	
+	// Create capture event emitter
+	captureEmitter := NewCaptureEventEmitter()
+	
+	// Create execution engine with event emitter
+	engine := NewExecutionEngine(registry, WithEventEmitter(captureEmitter))
+	
+	ctx := context.Background()
+	params := map[string]interface{}{"input": "test stream value"}
+	
+	// Execute streaming tool
+	stream, err := engine.ExecuteStream(ctx, "test-stream-events", params)
+	if err != nil {
+		t.Fatalf("Expected no error executing streaming tool, got: %v", err)
+	}
+	
+	// Consume the stream
+	var receivedChunks []string
+	for chunk := range stream {
+		if chunk.Type == "data" && chunk.Data != "" {
+			receivedChunks = append(receivedChunks, chunk.Data)
+		}
+	}
+	
+	// Verify we received all chunks
+	if len(receivedChunks) != len(chunks) {
+		t.Fatalf("Expected %d chunks, got %d", len(chunks), len(receivedChunks))
+	}
+	
+	for i, expected := range chunks {
+		if receivedChunks[i] != expected {
+			t.Fatalf("Expected chunk %d to be '%s', got '%s'", i, expected, receivedChunks[i])
+		}
+	}
+	
+	// Check events were emitted
+	starts, args, ends := captureEmitter.GetEvents()
+	
+	// Should have 1 start, multiple args (one per chunk), and 1 end event
+	if len(starts) != 1 {
+		t.Fatalf("Expected 1 start event, got %d", len(starts))
+	}
+	if len(args) != len(chunks) {
+		t.Fatalf("Expected %d args events (one per chunk), got %d", len(chunks), len(args))
+	}
+	if len(ends) != 1 {
+		t.Fatalf("Expected 1 end event, got %d", len(ends))
+	}
+	
+	// Check event sequence
+	sequence := captureEmitter.GetEventSequence()
+	expectedSequenceLength := 1 + len(chunks) + 1 // start + args + end
+	if len(sequence) != expectedSequenceLength {
+		t.Fatalf("Expected %d events in sequence, got %d", expectedSequenceLength, len(sequence))
+	}
+	
+	// Verify sequence order
+	if sequence[0].Type() != events.EventTypeToolCallStart {
+		t.Fatalf("Expected first event to be start, got %v", sequence[0].Type())
+	}
+	
+	for i := 1; i <= len(chunks); i++ {
+		if sequence[i].Type() != events.EventTypeToolCallArgs {
+			t.Fatalf("Expected event %d to be args, got %v", i, sequence[i].Type())
+		}
+	}
+	
+	if sequence[len(sequence)-1].Type() != events.EventTypeToolCallEnd {
+		t.Fatalf("Expected last event to be end, got %v", sequence[len(sequence)-1].Type())
+	}
+	
+	// Verify all events have the same tool call ID
+	toolCallID := starts[0].ToolCallID
+	for _, argsEvent := range args {
+		if argsEvent.ToolCallID != toolCallID {
+			t.Fatalf("Args event has different tool call ID: expected %s, got %s", toolCallID, argsEvent.ToolCallID)
+		}
+	}
+	if ends[0].ToolCallID != toolCallID {
+		t.Fatalf("End event has different tool call ID: expected %s, got %s", toolCallID, ends[0].ToolCallID)
+	}
+}
+
+func TestExecutionEngine_AsyncExecuteWithEvents(t *testing.T) {
+	// Create test registry
+	registry := NewRegistry()
+	
+	// Create test tool
+	testTool := &TestTool{
+		id:       "test-async-events",
+		executor: &SimpleTestExecutor{delay: 100 * time.Millisecond},
+		schema: &Schema{
+			Type: "object",
+			Properties: map[string]*Schema{
+				"input": {Type: "string"},
+			},
+		},
+	}
+	
+	err := registry.Register(testTool)
+	if err != nil {
+		t.Fatalf("Failed to register test tool: %v", err)
+	}
+	
+	// Create capture event emitter
+	captureEmitter := NewCaptureEventEmitter()
+	
+	// Create execution engine with event emitter
+	engine := NewExecutionEngine(registry, WithEventEmitter(captureEmitter))
+	
+	ctx := context.Background()
+	params := map[string]interface{}{"input": "test async value"}
+	
+	// Execute tool asynchronously
+	jobID, resultChan, err := engine.ExecuteAsync(ctx, "test-async-events", params, 1)
+	if err != nil {
+		t.Fatalf("Expected no error executing async tool, got: %v", err)
+	}
+	
+	if jobID == "" {
+		t.Fatal("Expected non-empty job ID")
+	}
+	
+	// Wait for result
+	select {
+	case asyncResult := <-resultChan:
+		if asyncResult.Error != nil {
+			t.Fatalf("Expected no error in async result, got: %v", asyncResult.Error)
+		}
+		if !asyncResult.Result.Success {
+			t.Fatalf("Expected successful async execution, got: %v", asyncResult.Result)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Timeout waiting for async result")
+	}
+	
+	// Give a bit of time for events to be emitted
+	time.Sleep(100 * time.Millisecond)
+	
+	// Check events were emitted
+	starts, args, ends := captureEmitter.GetEvents()
+	
+	// Should have exactly 1 start and 1 end event for async execution
+	if len(starts) != 1 {
+		t.Fatalf("Expected 1 start event, got %d", len(starts))
+	}
+	if len(args) != 0 {
+		t.Fatalf("Expected 0 args events for async non-streaming, got %d", len(args))
+	}
+	if len(ends) != 1 {
+		t.Fatalf("Expected 1 end event, got %d", len(ends))
+	}
+	
+	// Check that tool call IDs match
+	if starts[0].ToolCallID != ends[0].ToolCallID {
+		t.Fatalf("Start and end events should have same tool call ID: start=%s, end=%s", starts[0].ToolCallID, ends[0].ToolCallID)
+	}
+}
+
+func TestExecutionEngine_ErrorHandlingWithEvents(t *testing.T) {
+	// Create test registry
+	registry := NewRegistry()
+	
+	// Create test tool that will fail
+	failingExecutor := &SimpleTestExecutor{
+		result: &ToolExecutionResult{
+			Success:   false,
+			Error:     "simulated test error",
+			Timestamp: time.Now(),
+		},
+	}
+	
+	testTool := &TestTool{
+		id:       "test-error-events",
+		executor: failingExecutor,
+		schema: &Schema{
+			Type: "object",
+			Properties: map[string]*Schema{
+				"input": {Type: "string"},
+			},
+		},
+	}
+	
+	err := registry.Register(testTool)
+	if err != nil {
+		t.Fatalf("Failed to register test tool: %v", err)
+	}
+	
+	// Create capture event emitter
+	captureEmitter := NewCaptureEventEmitter()
+	
+	// Create execution engine with event emitter
+	engine := NewExecutionEngine(registry, WithEventEmitter(captureEmitter))
+	
+	ctx := context.Background()
+	params := map[string]interface{}{"input": "test error value"}
+	
+	// Execute tool (should fail)
+	result, err := engine.Execute(ctx, "test-error-events", params)
+	if err != nil {
+		t.Fatalf("Expected no execution error (error should be in result), got: %v", err)
+	}
+	
+	if result.Success {
+		t.Fatal("Expected failed execution")
+	}
+	
+	if result.Error != "simulated test error" {
+		t.Fatalf("Expected error message 'simulated test error', got '%s'", result.Error)
+	}
+	
+	// Check events were still emitted properly
+	starts, args, ends := captureEmitter.GetEvents()
+	
+	// Should have exactly 1 start and 1 end event even for failed execution
+	if len(starts) != 1 {
+		t.Fatalf("Expected 1 start event, got %d", len(starts))
+	}
+	if len(args) != 0 {
+		t.Fatalf("Expected 0 args events, got %d", len(args))
+	}
+	if len(ends) != 1 {
+		t.Fatalf("Expected 1 end event, got %d", len(ends))
+	}
+	
+	// Verify tool call IDs match
+	if starts[0].ToolCallID != ends[0].ToolCallID {
+		t.Fatalf("Start and end events should have same tool call ID: start=%s, end=%s", starts[0].ToolCallID, ends[0].ToolCallID)
+	}
+}
+
+func TestExecutionEngine_ConcurrentExecutionsWithEvents(t *testing.T) {
+	// Create test registry
+	registry := NewRegistry()
+	
+	// Create test tool
+	testTool := &TestTool{
+		id:       "test-concurrent-events",
+		executor: &SimpleTestExecutor{delay: 50 * time.Millisecond},
+		schema: &Schema{
+			Type: "object",
+			Properties: map[string]*Schema{
+				"input": {Type: "string"},
+			},
+		},
+	}
+	
+	err := registry.Register(testTool)
+	if err != nil {
+		t.Fatalf("Failed to register test tool: %v", err)
+	}
+	
+	// Create capture event emitter
+	captureEmitter := NewCaptureEventEmitter()
+	
+	// Create execution engine with event emitter
+	engine := NewExecutionEngine(registry, WithEventEmitter(captureEmitter))
+	
+	ctx := context.Background()
+	numConcurrent := 5
+	
+	var wg sync.WaitGroup
+	wg.Add(numConcurrent)
+	
+	// Execute multiple tools concurrently
+	for i := 0; i < numConcurrent; i++ {
+		go func(id int) {
+			defer wg.Done()
+			
+			params := map[string]interface{}{"input": fmt.Sprintf("concurrent test %d", id)}
+			
+			result, err := engine.Execute(ctx, "test-concurrent-events", params)
+			if err != nil {
+				t.Errorf("Expected no error executing concurrent tool %d, got: %v", id, err)
+				return
+			}
+			
+			if !result.Success {
+				t.Errorf("Expected successful execution for concurrent tool %d, got: %v", id, result)
+			}
+		}(i)
+	}
+	
+	// Wait for all executions to complete
+	wg.Wait()
+	
+	// Check events
+	starts, args, ends := captureEmitter.GetEvents()
+	
+	// Should have exactly numConcurrent start and end events
+	if len(starts) != numConcurrent {
+		t.Fatalf("Expected %d start events, got %d", numConcurrent, len(starts))
+	}
+	if len(args) != 0 {
+		t.Fatalf("Expected 0 args events, got %d", len(args))
+	}
+	if len(ends) != numConcurrent {
+		t.Fatalf("Expected %d end events, got %d", numConcurrent, len(ends))
+	}
+	
+	// Verify each start event has a corresponding end event
+	startIDs := make(map[string]bool)
+	for _, start := range starts {
+		startIDs[start.ToolCallID] = true
+	}
+	
+	for _, end := range ends {
+		if !startIDs[end.ToolCallID] {
+			t.Fatalf("End event with tool call ID %s has no corresponding start event", end.ToolCallID)
+		}
+	}
+	
+	// Verify sequence integrity
+	sequence := captureEmitter.GetEventSequence()
+	expectedSequenceLength := numConcurrent * 2 // start + end for each
+	if len(sequence) != expectedSequenceLength {
+		t.Fatalf("Expected %d events in sequence, got %d", expectedSequenceLength, len(sequence))
+	}
+}
+
+// Benchmark the overhead of event emission
+func BenchmarkExecutionEngineWithEvents(b *testing.B) {
+	// Create test registry
+	registry := NewRegistry()
+	
+	// Create simple test tool
+	testTool := &TestTool{
+		id:       "bench-events",
+		executor: &SimpleTestExecutor{},
+		schema: &Schema{
+			Type: "object",
+			Properties: map[string]*Schema{
+				"input": {Type: "string"},
+			},
+		},
+	}
+	
+	registry.Register(testTool)
+	
+	// Create capture event emitter
+	captureEmitter := NewCaptureEventEmitter()
+	
+	// Create execution engine with event emitter
+	engine := NewExecutionEngine(registry, WithEventEmitter(captureEmitter))
+	
+	ctx := context.Background()
+	params := map[string]interface{}{"input": "benchmark test"}
+	
+	b.ResetTimer()
+	
+	for i := 0; i < b.N; i++ {
+		_, err := engine.Execute(ctx, "bench-events", params)
+		if err != nil {
+			b.Fatalf("Unexpected error: %v", err)
+		}
+	}
+}
+
+// Benchmark without events for comparison
+func BenchmarkExecutionEngineWithoutEvents(b *testing.B) {
+	// Create test registry
+	registry := NewRegistry()
+	
+	// Create simple test tool
+	testTool := &TestTool{
+		id:       "bench-no-events",
+		executor: &SimpleTestExecutor{},
+		schema: &Schema{
+			Type: "object",
+			Properties: map[string]*Schema{
+				"input": {Type: "string"},
+			},
+		},
+	}
+	
+	registry.Register(testTool)
+	
+	// Create execution engine without event emitter (use nil)
+	engine := NewExecutionEngine(registry)
+	engine.SetEventEmitter(nil)
+	
+	ctx := context.Background()
+	params := map[string]interface{}{"input": "benchmark test"}
+	
+	b.ResetTimer()
+	
+	for i := 0; i < b.N; i++ {
+		_, err := engine.Execute(ctx, "bench-no-events", params)
+		if err != nil {
+			b.Fatalf("Unexpected error: %v", err)
+		}
+	}
+}

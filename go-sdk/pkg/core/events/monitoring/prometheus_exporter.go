@@ -1,6 +1,7 @@
 package monitoring
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"sync"
@@ -16,6 +17,7 @@ type PrometheusExporter struct {
 	config           *Config
 	metricsCollector events.MetricsCollector
 	server           *http.Server
+	registry         *prometheus.Registry
 	
 	// Standard metrics
 	eventCounter        *prometheus.CounterVec
@@ -33,6 +35,11 @@ type PrometheusExporter struct {
 	// Summary metrics
 	latencySummary      *prometheus.SummaryVec
 	
+	// Context for graceful shutdown
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+	
 	mu sync.RWMutex
 }
 
@@ -45,9 +52,13 @@ func NewPrometheusExporter(config *Config, collector events.MetricsCollector) *P
 		}
 	}
 	
+	// Create a new registry for this exporter to avoid conflicts
+	registry := prometheus.NewRegistry()
+	
 	pe := &PrometheusExporter{
 		config:           config,
 		metricsCollector: collector,
+		registry:         registry,
 		
 		eventCounter: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
@@ -151,8 +162,8 @@ func NewPrometheusExporter(config *Config, collector events.MetricsCollector) *P
 		),
 	}
 	
-	// Register all metrics
-	prometheus.MustRegister(
+	// Register all metrics with local registry
+	pe.registry.MustRegister(
 		pe.eventCounter,
 		pe.eventDuration,
 		pe.ruleExecutionHist,
@@ -165,16 +176,29 @@ func NewPrometheusExporter(config *Config, collector events.MetricsCollector) *P
 		pe.latencySummary,
 	)
 	
+	// Create context for lifecycle management
+	pe.ctx, pe.cancel = context.WithCancel(context.Background())
+	
 	// Start metrics update routine
-	go pe.updateMetricsRoutine()
+	pe.wg.Add(1)
+	go func() {
+		defer pe.wg.Done()
+		pe.updateMetricsRoutine()
+	}()
 	
 	return pe
 }
 
 // Start starts the Prometheus HTTP server
 func (pe *PrometheusExporter) Start() error {
+	// Don't start server if port is 0 (used in tests)
+	if pe.config.PrometheusPort == 0 {
+		return nil
+	}
+	
 	mux := http.NewServeMux()
-	mux.Handle(pe.config.PrometheusPath, promhttp.Handler())
+	// Use handler from local registry instead of global one
+	mux.Handle(pe.config.PrometheusPath, promhttp.HandlerFor(pe.registry, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/health", pe.healthHandler)
 	mux.HandleFunc("/ready", pe.readyHandler)
 	
@@ -183,15 +207,52 @@ func (pe *PrometheusExporter) Start() error {
 		Handler: mux,
 	}
 	
-	return pe.server.ListenAndServe()
+	// Start server in a goroutine and handle shutdown
+	pe.wg.Add(1)
+	go func() {
+		defer pe.wg.Done()
+		
+		// Listen for context cancellation
+		go func() {
+			<-pe.ctx.Done()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			pe.server.Shutdown(ctx)
+		}()
+		
+		err := pe.server.ListenAndServe()
+		if err != nil && err != http.ErrServerClosed {
+			fmt.Printf("Prometheus server error: %v\n", err)
+		}
+	}()
+	
+	return nil
 }
 
 // Shutdown gracefully shuts down the Prometheus server
 func (pe *PrometheusExporter) Shutdown() error {
+	// Cancel context to stop all goroutines
+	pe.cancel()
+	
+	// Shutdown HTTP server if running
 	if pe.server != nil {
-		return pe.server.Close()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := pe.server.Shutdown(ctx); err != nil {
+			// Force close if graceful shutdown fails
+			pe.server.Close()
+		}
 	}
+	
+	// Wait for all goroutines to finish
+	pe.wg.Wait()
+	
 	return nil
+}
+
+// GetRegistry returns the Prometheus registry for custom collectors
+func (pe *PrometheusExporter) GetRegistry() *prometheus.Registry {
+	return pe.registry
 }
 
 // updateMetricsRoutine periodically updates Prometheus metrics from the collector
@@ -199,8 +260,13 @@ func (pe *PrometheusExporter) updateMetricsRoutine() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	
-	for range ticker.C {
-		pe.updateMetrics()
+	for {
+		select {
+		case <-pe.ctx.Done():
+			return
+		case <-ticker.C:
+			pe.updateMetrics()
+		}
 	}
 }
 

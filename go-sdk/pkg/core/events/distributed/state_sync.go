@@ -470,18 +470,18 @@ func (ss *StateSynchronizer) createAndDistributeSnapshot() {
 
 // processSyncQueue processes pending sync requests
 func (ss *StateSynchronizer) processSyncQueue() {
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	
 	for {
 		select {
 		case <-ss.ctx.Done():
 			return
-		default:
+		case <-ticker.C:
 			request := ss.dequeueSyncRequest()
-			if request == nil {
-				time.Sleep(100 * time.Millisecond)
-				continue
+			if request != nil {
+				ss.processSyncRequest(request)
 			}
-
-			ss.processSyncRequest(request)
 		}
 	}
 }

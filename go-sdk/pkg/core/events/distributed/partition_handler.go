@@ -275,34 +275,37 @@ func (ph *PartitionHandler) GetPartitionHistory() []*PartitionInfo {
 
 // UpdateNodeHealth updates health information for a node
 func (ph *PartitionHandler) UpdateNodeHealth(nodeID NodeID, isReachable bool, responseTime time.Duration) {
-	ph.nodeHealthMutex.Lock()
-	defer ph.nodeHealthMutex.Unlock()
+	// Update health information with lock
+	func() {
+		ph.nodeHealthMutex.Lock()
+		defer ph.nodeHealthMutex.Unlock()
 
-	health, exists := ph.nodeHealth[nodeID]
-	if !exists {
-		health = &NodeHealthInfo{
-			NodeID:      nodeID,
-			IsReachable: true,
+		health, exists := ph.nodeHealth[nodeID]
+		if !exists {
+			health = &NodeHealthInfo{
+				NodeID:      nodeID,
+				IsReachable: true,
+			}
+			ph.nodeHealth[nodeID] = health
 		}
-		ph.nodeHealth[nodeID] = health
-	}
 
-	health.LastResponse = time.Now()
-	health.ResponseTimeMs = float64(responseTime.Milliseconds())
+		health.LastResponse = time.Now()
+		health.ResponseTimeMs = float64(responseTime.Milliseconds())
 
-	if isReachable {
-		health.LastHeartbeat = time.Now()
-		health.IsReachable = true
-		health.ConsecutiveFails = 0
-	} else {
-		health.FailureCount++
-		health.ConsecutiveFails++
-		if health.ConsecutiveFails >= 3 {
-			health.IsReachable = false
+		if isReachable {
+			health.LastHeartbeat = time.Now()
+			health.IsReachable = true
+			health.ConsecutiveFails = 0
+		} else {
+			health.FailureCount++
+			health.ConsecutiveFails++
+			if health.ConsecutiveFails >= 3 {
+				health.IsReachable = false
+			}
 		}
-	}
+	}()
 
-	// Check for partition after health update
+	// Check for partition after health update (without holding the lock)
 	ph.checkForPartition()
 }
 
@@ -385,39 +388,51 @@ func (ph *PartitionHandler) runCleanupRoutine() {
 
 // checkHeartbeats checks node heartbeats for failures
 func (ph *PartitionHandler) checkHeartbeats() {
-	ph.nodeHealthMutex.RLock()
-	defer ph.nodeHealthMutex.RUnlock()
-
-	now := time.Now()
+	// Count failed nodes while holding the lock
 	failedNodes := 0
+	totalNodes := 0
+	
+	func() {
+		ph.nodeHealthMutex.RLock()
+		defer ph.nodeHealthMutex.RUnlock()
 
-	for _, health := range ph.nodeHealth {
-		if now.Sub(health.LastHeartbeat) > ph.config.HeartbeatTimeout {
-			failedNodes++
+		now := time.Now()
+		totalNodes = len(ph.nodeHealth)
+
+		for _, health := range ph.nodeHealth {
+			if now.Sub(health.LastHeartbeat) > ph.config.HeartbeatTimeout {
+				failedNodes++
+			}
 		}
-	}
+	}()
 
 	// If too many nodes have failed, we might be partitioned
-	if failedNodes > len(ph.nodeHealth)/2 {
+	// Check outside the lock to avoid potential deadlock
+	if totalNodes > 0 && failedNodes > totalNodes/2 {
 		ph.detectPartition(PartitionDetectionHeartbeat)
 	}
 }
 
 // checkQuorum checks if we have quorum
 func (ph *PartitionHandler) checkQuorum() {
-	ph.nodeHealthMutex.RLock()
+	// Count reachable nodes while holding the lock
 	reachableNodes := 0
 	
-	for _, health := range ph.nodeHealth {
-		if health.IsReachable {
-			reachableNodes++
+	func() {
+		ph.nodeHealthMutex.RLock()
+		defer ph.nodeHealthMutex.RUnlock()
+		
+		for _, health := range ph.nodeHealth {
+			if health.IsReachable {
+				reachableNodes++
+			}
 		}
-	}
-	ph.nodeHealthMutex.RUnlock()
+	}()
 
 	// Add self to reachable count
 	reachableNodes++
 
+	// Check quorum outside the lock to avoid potential deadlock
 	if reachableNodes < ph.config.QuorumSize {
 		ph.detectPartition(PartitionDetectionQuorum)
 	}

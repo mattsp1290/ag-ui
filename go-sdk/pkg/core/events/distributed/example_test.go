@@ -80,7 +80,7 @@ func ExampleDistributedValidator() {
 }
 
 // ExampleConsensusAlgorithms demonstrates different consensus algorithms
-func ExampleConsensusAlgorithms() {
+func ExampleDistributedValidator_consensus() {
 	algorithms := []distributed.ConsensusAlgorithm{
 		distributed.ConsensusMajority,
 		distributed.ConsensusUnanimous,
@@ -115,7 +115,7 @@ func ExampleConsensusAlgorithms() {
 }
 
 // ExampleLoadBalancing demonstrates load balancing across nodes
-func ExampleLoadBalancing() {
+func ExampleDistributedValidator_loadBalancing() {
 	config := distributed.DefaultLoadBalancerConfig()
 	config.Algorithm = distributed.LoadBalancingLeastResponseTime
 
@@ -137,7 +137,7 @@ func ExampleLoadBalancing() {
 }
 
 // ExamplePartitionHandling demonstrates partition detection and handling
-func ExamplePartitionHandling() {
+func ExampleDistributedValidator_partitionHandling() {
 	config := distributed.DefaultPartitionHandlerConfig()
 	config.HeartbeatTimeout = 100 * time.Millisecond
 

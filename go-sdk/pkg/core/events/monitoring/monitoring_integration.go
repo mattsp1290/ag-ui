@@ -280,25 +280,31 @@ func (m *MonitoringIntegration) createResource() *resource.Resource {
 
 // registerCustomCollectors registers Prometheus custom collectors
 func (m *MonitoringIntegration) registerCustomCollectors() {
+	// Get registry from prometheus exporter
+	registry := m.prometheusExporter.GetRegistry()
+	if registry == nil {
+		return
+	}
+	
 	// Event validation collector
 	eventCollector := NewEventValidationCollector(m.metricsCollector, m.config.CustomLabels)
 	m.customCollectors = append(m.customCollectors, eventCollector)
-	prometheus.MustRegister(eventCollector)
+	registry.MustRegister(eventCollector)
 	
 	// Rule execution collector
 	ruleCollector := NewRuleExecutionCollector(m.metricsCollector, m.config.CustomLabels)
 	m.customCollectors = append(m.customCollectors, ruleCollector)
-	prometheus.MustRegister(ruleCollector)
+	registry.MustRegister(ruleCollector)
 	
 	// SLA compliance collector
 	slaCollector := NewSLAComplianceCollector(m.slaMonitor, m.config.CustomLabels)
 	m.customCollectors = append(m.customCollectors, slaCollector)
-	prometheus.MustRegister(slaCollector)
+	registry.MustRegister(slaCollector)
 	
 	// Memory usage collector
 	memoryCollector := NewMemoryUsageCollector(m.metricsCollector, m.config.CustomLabels)
 	m.customCollectors = append(m.customCollectors, memoryCollector)
-	prometheus.MustRegister(memoryCollector)
+	registry.MustRegister(memoryCollector)
 }
 
 // startBackgroundTasks starts all background monitoring tasks

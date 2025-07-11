@@ -28,6 +28,7 @@ type AlertManager struct {
 	cancel            context.CancelFunc
 	wg                sync.WaitGroup
 	mu                sync.RWMutex
+	evaluationInterval time.Duration
 }
 
 // AlertRule defines a rule for generating alerts
@@ -80,6 +81,13 @@ type WebhookClient struct {
 func NewAlertManager(config *Config, collector events.MetricsCollector) *AlertManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	
+	// Default evaluation interval
+	evalInterval := 30 * time.Second
+	// For tests, use a much shorter interval when prometheus port is 0
+	if config.PrometheusPort == 0 {
+		evalInterval = 100 * time.Millisecond
+	}
+	
 	am := &AlertManager{
 		config:           config,
 		metricsCollector: collector,
@@ -88,6 +96,7 @@ func NewAlertManager(config *Config, collector events.MetricsCollector) *AlertMa
 		alertChannel:     make(chan Alert, 100),
 		ctx:              ctx,
 		cancel:           cancel,
+		evaluationInterval: evalInterval,
 	}
 	
 	// Initialize webhook client if configured
@@ -520,21 +529,30 @@ type SLAMonitor struct {
 	
 	// Lifecycle
 	mu               sync.RWMutex
+	updateInterval   time.Duration
 }
 
 // NewSLAMonitor creates a new SLA monitor
 func NewSLAMonitor(config *Config, collector events.MetricsCollector) *SLAMonitor {
+	// Default update interval
+	updateInterval := 1 * time.Minute
+	// For tests, use a much shorter interval when prometheus port is 0
+	if config.PrometheusPort == 0 {
+		updateInterval = 100 * time.Millisecond
+	}
+	
 	return &SLAMonitor{
 		config:           config,
 		metricsCollector: collector,
 		slaStatus:        make(map[string]*SLAStatus),
 		slaHistory:       make(map[string][]SLADataPoint),
+		updateInterval:   updateInterval,
 	}
 }
 
 // Start starts the SLA monitor
 func (sm *SLAMonitor) Start(ctx context.Context) {
-	ticker := time.NewTicker(1 * time.Minute)
+	ticker := time.NewTicker(sm.updateInterval)
 	defer ticker.Stop()
 	
 	for {

@@ -149,10 +149,10 @@ type StateSynchronizer struct {
 	conflictCount uint64
 	
 	// Lifecycle
-	ctx          context.Context
-	cancel       context.CancelFunc
 	running      bool
 	runningMutex sync.RWMutex
+	stopChan     chan struct{}
+	stopOnce     sync.Once
 }
 
 // NewStateSynchronizer creates a new state synchronizer
@@ -161,8 +161,6 @@ func NewStateSynchronizer(config *StateSyncConfig, nodeID NodeID) (*StateSynchro
 		return nil, fmt.Errorf("config cannot be nil")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-
 	ss := &StateSynchronizer{
 		config:       config,
 		nodeID:       nodeID,
@@ -170,8 +168,7 @@ func NewStateSynchronizer(config *StateSyncConfig, nodeID NodeID) (*StateSynchro
 		nodeVersions: make(map[NodeID]uint64),
 		syncQueue:    make([]*SyncRequest, 0),
 		pendingSync:  make(map[string]time.Time),
-		ctx:          ctx,
-		cancel:       cancel,
+		stopChan:     make(chan struct{}),
 	}
 
 	// Initialize protocol-specific components
@@ -186,7 +183,7 @@ func NewStateSynchronizer(config *StateSyncConfig, nodeID NodeID) (*StateSynchro
 }
 
 // Start starts the state synchronizer
-func (ss *StateSynchronizer) Start() error {
+func (ss *StateSynchronizer) Start(ctx context.Context) error {
 	ss.runningMutex.Lock()
 	defer ss.runningMutex.Unlock()
 
@@ -197,20 +194,62 @@ func (ss *StateSynchronizer) Start() error {
 	// Start sync routine based on protocol
 	switch ss.config.Protocol {
 	case SyncProtocolGossip:
-		go ss.runGossipSync()
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("Panic in state sync gossip routine: %v\n", r)
+				}
+			}()
+			ss.runGossipSync(ctx)
+		}()
 	case SyncProtocolMerkle:
-		go ss.runMerkleSync()
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("Panic in state sync merkle routine: %v\n", r)
+				}
+			}()
+			ss.runMerkleSync(ctx)
+		}()
 	case SyncProtocolCRDT:
-		go ss.runCRDTSync()
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("Panic in state sync CRDT routine: %v\n", r)
+				}
+			}()
+			ss.runCRDTSync(ctx)
+		}()
 	case SyncProtocolSnapshot:
-		go ss.runSnapshotSync()
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("Panic in state sync snapshot routine: %v\n", r)
+				}
+			}()
+			ss.runSnapshotSync(ctx)
+		}()
 	default:
 		return fmt.Errorf("unknown sync protocol: %s", ss.config.Protocol)
 	}
 
 	// Start common background routines
-	go ss.processSyncQueue()
-	go ss.cleanupRoutine()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Panic in state sync queue processor: %v\n", r)
+			}
+		}()
+		ss.processSyncQueue(ctx)
+	}()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Panic in state sync cleanup routine: %v\n", r)
+			}
+		}()
+		ss.cleanupRoutine(ctx)
+	}()
 
 	ss.running = true
 	return nil
@@ -225,7 +264,9 @@ func (ss *StateSynchronizer) Stop() error {
 		return nil
 	}
 
-	ss.cancel()
+	ss.stopOnce.Do(func() {
+		close(ss.stopChan)
+	})
 	ss.running = false
 	return nil
 }
@@ -302,7 +343,14 @@ func (ss *StateSynchronizer) SetState(key string, value interface{}) error {
 
 	// Trigger sync if using gossip protocol
 	if ss.config.Protocol == SyncProtocolGossip {
-		go ss.gossipUpdate(stateVersion)
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("Panic in state sync gossip update: %v\n", r)
+				}
+			}()
+			ss.gossipUpdate(stateVersion)
+		}()
 	}
 
 	return nil
@@ -371,13 +419,15 @@ func (ss *StateSynchronizer) ApplySnapshot(snapshot *StateSnapshot) error {
 }
 
 // runGossipSync implements gossip protocol for state synchronization
-func (ss *StateSynchronizer) runGossipSync() {
+func (ss *StateSynchronizer) runGossipSync(ctx context.Context) {
 	ticker := time.NewTicker(ss.config.SyncInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-ss.ctx.Done():
+		case <-ctx.Done():
+			return
+		case <-ss.stopChan:
 			return
 		case <-ticker.C:
 			ss.performGossipRound()
@@ -386,13 +436,15 @@ func (ss *StateSynchronizer) runGossipSync() {
 }
 
 // runMerkleSync implements Merkle tree-based synchronization
-func (ss *StateSynchronizer) runMerkleSync() {
+func (ss *StateSynchronizer) runMerkleSync(ctx context.Context) {
 	ticker := time.NewTicker(ss.config.SyncInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-ss.ctx.Done():
+		case <-ctx.Done():
+			return
+		case <-ss.stopChan:
 			return
 		case <-ticker.C:
 			ss.performMerkleSync()
@@ -401,13 +453,15 @@ func (ss *StateSynchronizer) runMerkleSync() {
 }
 
 // runCRDTSync implements CRDT-based synchronization
-func (ss *StateSynchronizer) runCRDTSync() {
+func (ss *StateSynchronizer) runCRDTSync(ctx context.Context) {
 	ticker := time.NewTicker(ss.config.SyncInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-ss.ctx.Done():
+		case <-ctx.Done():
+			return
+		case <-ss.stopChan:
 			return
 		case <-ticker.C:
 			ss.performCRDTSync()
@@ -416,7 +470,7 @@ func (ss *StateSynchronizer) runCRDTSync() {
 }
 
 // runSnapshotSync implements snapshot-based synchronization
-func (ss *StateSynchronizer) runSnapshotSync() {
+func (ss *StateSynchronizer) runSnapshotSync(ctx context.Context) {
 	ticker := time.NewTicker(ss.config.SyncInterval)
 	defer ticker.Stop()
 
@@ -424,7 +478,9 @@ func (ss *StateSynchronizer) runSnapshotSync() {
 
 	for {
 		select {
-		case <-ss.ctx.Done():
+		case <-ctx.Done():
+			return
+		case <-ss.stopChan:
 			return
 		case <-ticker.C:
 			changeCount++
@@ -446,7 +502,14 @@ func (ss *StateSynchronizer) performGossipRound() {
 	
 	// Send updates to selected nodes
 	for _, nodeID := range nodes {
-		go ss.sendGossipUpdate(nodeID, updates)
+		go func(nID NodeID) {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("Panic in state sync send gossip update: %v\n", r)
+				}
+			}()
+			ss.sendGossipUpdate(nID, updates)
+		}(nodeID)
 	}
 }
 
@@ -469,13 +532,15 @@ func (ss *StateSynchronizer) createAndDistributeSnapshot() {
 }
 
 // processSyncQueue processes pending sync requests
-func (ss *StateSynchronizer) processSyncQueue() {
+func (ss *StateSynchronizer) processSyncQueue(ctx context.Context) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	
 	for {
 		select {
-		case <-ss.ctx.Done():
+		case <-ctx.Done():
+			return
+		case <-ss.stopChan:
 			return
 		case <-ticker.C:
 			request := ss.dequeueSyncRequest()
@@ -493,13 +558,15 @@ func (ss *StateSynchronizer) processSyncRequest(request *SyncRequest) {
 }
 
 // cleanupRoutine performs periodic cleanup
-func (ss *StateSynchronizer) cleanupRoutine() {
+func (ss *StateSynchronizer) cleanupRoutine(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-ss.ctx.Done():
+		case <-ctx.Done():
+			return
+		case <-ss.stopChan:
 			return
 		case <-ticker.C:
 			ss.cleanupPendingSync()
@@ -551,7 +618,14 @@ func (ss *StateSynchronizer) getRecentUpdates() []*StateVersion {
 func (ss *StateSynchronizer) gossipUpdate(update *StateVersion) {
 	nodes := ss.selectGossipNodes()
 	for _, nodeID := range nodes {
-		go ss.sendGossipUpdate(nodeID, []*StateVersion{update})
+		go func(nID NodeID) {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("Panic in state sync send single gossip update: %v\n", r)
+				}
+			}()
+			ss.sendGossipUpdate(nID, []*StateVersion{update})
+		}(nodeID)
 	}
 }
 
@@ -609,6 +683,19 @@ func (ss *StateSynchronizer) waitForSyncCompletion() <-chan struct{} {
 	done := make(chan struct{})
 	
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Log panic but ensure done channel is closed
+				fmt.Printf("Panic in state sync completion goroutine: %v\n", r)
+				// Ensure channel is closed even if panic occurs
+				select {
+				case <-done:
+					// Already closed
+				default:
+					close(done)
+				}
+			}
+		}()
 		// TODO: Implement proper sync completion detection
 		time.Sleep(1 * time.Second)
 		close(done)

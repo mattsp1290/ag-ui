@@ -73,11 +73,11 @@ func TestDistributedValidatorLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	// Test Start
-	err = dv.Start()
+	err = dv.Start(ctx)
 	assert.NoError(t, err)
 
 	// Test double start
-	err = dv.Start()
+	err = dv.Start(ctx)
 	assert.Error(t, err)
 
 	// Test Stop with timeout
@@ -163,7 +163,7 @@ func TestDistributedValidationWithPartition(t *testing.T) {
 	dv, err := NewDistributedValidator(config, localValidator)
 	require.NoError(t, err)
 
-	err = dv.Start()
+	err = dv.Start(testCtx)
 	require.NoError(t, err)
 	
 	// Ensure cleanup happens even if test fails
@@ -332,7 +332,7 @@ func TestStateSynchronization(t *testing.T) {
 	ss, err := NewStateSynchronizer(config, "node-1")
 	require.NoError(t, err)
 
-	err = ss.Start()
+	err = ss.Start(ctx)
 	require.NoError(t, err)
 	
 	// Ensure cleanup
@@ -418,7 +418,7 @@ func TestPartitionDetectionAndRecovery(t *testing.T) {
 		},
 	)
 
-	err := ph.Start()
+	err := ph.Start(ctx)
 	require.NoError(t, err)
 	
 	// Ensure cleanup
@@ -588,7 +588,7 @@ func TestConcurrentDistributedValidation(t *testing.T) {
 	dv, err := NewDistributedValidator(config, localValidator)
 	require.NoError(t, err)
 
-	err = dv.Start()
+	err = dv.Start(ctx)
 	require.NoError(t, err)
 	
 	// Ensure cleanup
@@ -709,7 +709,7 @@ func TestDistributedLock(t *testing.T) {
 	require.NoError(t, err)
 
 	// Start consensus manager
-	err = cm1.Start()
+	err = cm1.Start(ctx)
 	require.NoError(t, err)
 	defer cm1.Stop()
 
@@ -779,7 +779,7 @@ func TestDistributedMetrics(t *testing.T) {
 	dv, err := NewDistributedValidator(config, localValidator)
 	require.NoError(t, err)
 
-	err = dv.Start()
+	err = dv.Start(ctx)
 	require.NoError(t, err)
 	
 	// Ensure cleanup
@@ -830,7 +830,8 @@ func BenchmarkDistributedValidation(b *testing.B) {
 		b.Fatal(err)
 	}
 
-	err = dv.Start()
+	ctx := context.Background()
+	err = dv.Start(ctx)
 	if err != nil {
 		b.Fatal(err)
 	}
@@ -845,8 +846,6 @@ func BenchmarkDistributedValidation(b *testing.B) {
 		}
 		dv.RegisterNode(node)
 	}
-
-	ctx := context.Background()
 	event := &mockEvent{
 		BaseEvent: &events.BaseEvent{
 			EventType: events.EventType("MOCK"),

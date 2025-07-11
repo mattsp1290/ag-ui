@@ -126,7 +126,8 @@ func TestSimplePartitionDetection(t *testing.T) {
 	ph := NewPartitionHandler(config, "node-1")
 
 	// Start the partition handler to enable detection
-	err := ph.Start()
+	ctx := context.Background()
+	err := ph.Start(ctx)
 	require.NoError(t, err)
 	defer ph.Stop()
 
@@ -199,7 +200,8 @@ func TestSimpleLocalValidationFallback(t *testing.T) {
 	require.NoError(t, err)
 
 	// Start the distributed validator
-	err = dv.Start()
+	ctx := context.Background()
+	err = dv.Start(ctx)
 	require.NoError(t, err)
 	defer dv.Stop()
 

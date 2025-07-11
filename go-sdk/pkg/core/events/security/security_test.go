@@ -529,3 +529,51 @@ func contains(s, substr string) bool {
 func timePtr(t int64) *int64 {
 	return &t
 }
+
+// TestRateLimiterRefillPrecision tests that the rate limiter refill logic
+// uses proper precision for sub-minute intervals
+func TestRateLimiterRefillPrecision(t *testing.T) {
+	// Create a token bucket with 60 tokens per minute refill rate
+	tb := NewTokenBucket(10, 60)
+	
+	// Consume all tokens
+	for i := 0; i < 10; i++ {
+		if !tb.TryConsume(1) {
+			t.Fatalf("Failed to consume token %d", i+1)
+		}
+	}
+	
+	// Verify bucket is empty
+	if tb.TryConsume(1) {
+		t.Error("Expected bucket to be empty")
+	}
+	
+	// Wait for 1 second (should refill 1 token with 60/minute rate)
+	time.Sleep(1 * time.Second)
+	
+	// Should have exactly 1 token available
+	if !tb.TryConsume(1) {
+		t.Error("Expected to have 1 token after 1 second")
+	}
+	
+	// Should not have more tokens
+	if tb.TryConsume(1) {
+		t.Error("Expected to have only 1 token, but got more")
+	}
+	
+	// Wait for 500ms more (should refill 0.5 tokens, rounded down to 0)
+	time.Sleep(500 * time.Millisecond)
+	
+	// Should still have no tokens
+	if tb.TryConsume(1) {
+		t.Error("Expected no tokens after 500ms")
+	}
+	
+	// Wait another 500ms (total 1 second, should have 1 token)
+	time.Sleep(500 * time.Millisecond)
+	
+	// Should have exactly 1 token available
+	if !tb.TryConsume(1) {
+		t.Error("Expected to have 1 token after another 1 second")
+	}
+}

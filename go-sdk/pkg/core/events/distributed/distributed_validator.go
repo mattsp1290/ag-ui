@@ -120,10 +120,10 @@ type DistributedValidator struct {
 	metrics          *DistributedMetrics
 	
 	// Lifecycle
-	ctx              context.Context
-	cancel           context.CancelFunc
 	running          bool
 	runningMutex     sync.RWMutex
+	stopChan         chan struct{}
+	stopOnce         sync.Once
 	
 	// Tracing
 	tracer           trace.Tracer
@@ -148,16 +148,13 @@ func NewDistributedValidator(config *DistributedValidatorConfig, localValidator 
 		return nil, fmt.Errorf("localValidator cannot be nil")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-
 	dv := &DistributedValidator{
 		config:             config,
 		localValidator:     localValidator,
 		nodes:              make(map[NodeID]*NodeInfo),
 		pendingValidations: make(map[string]*PendingValidation),
 		metrics:            NewDistributedMetrics(),
-		ctx:                ctx,
-		cancel:             cancel,
+		stopChan:           make(chan struct{}),
 		tracer:             otel.Tracer("ag-ui/distributed-validation"),
 	}
 
@@ -167,14 +164,12 @@ func NewDistributedValidator(config *DistributedValidatorConfig, localValidator 
 	// Initialize consensus manager
 	dv.consensus, err = NewConsensusManager(config.ConsensusConfig, config.NodeID)
 	if err != nil {
-		cancel()
 		return nil, fmt.Errorf("failed to create consensus manager: %w", err)
 	}
 
 	// Initialize state synchronizer
 	dv.stateSync, err = NewStateSynchronizer(config.StateSync, config.NodeID)
 	if err != nil {
-		cancel()
 		return nil, fmt.Errorf("failed to create state synchronizer: %w", err)
 	}
 
@@ -188,7 +183,7 @@ func NewDistributedValidator(config *DistributedValidatorConfig, localValidator 
 }
 
 // Start starts the distributed validator
-func (dv *DistributedValidator) Start() error {
+func (dv *DistributedValidator) Start(ctx context.Context) error {
 	dv.runningMutex.Lock()
 	defer dv.runningMutex.Unlock()
 
@@ -197,25 +192,46 @@ func (dv *DistributedValidator) Start() error {
 	}
 
 	// Start components
-	if err := dv.consensus.Start(); err != nil {
+	if err := dv.consensus.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start consensus: %w", err)
 	}
 
-	if err := dv.stateSync.Start(); err != nil {
+	if err := dv.stateSync.Start(ctx); err != nil {
 		dv.consensus.Stop()
 		return fmt.Errorf("failed to start state sync: %w", err)
 	}
 
-	if err := dv.partitionHandler.Start(); err != nil {
+	if err := dv.partitionHandler.Start(ctx); err != nil {
 		dv.consensus.Stop()
 		dv.stateSync.Stop()
 		return fmt.Errorf("failed to start partition handler: %w", err)
 	}
 
 	// Start background routines
-	go dv.heartbeatRoutine()
-	go dv.cleanupRoutine()
-	go dv.metricsRoutine()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Panic in distributed validator heartbeat routine: %v\n", r)
+			}
+		}()
+		dv.heartbeatRoutine(ctx)
+	}()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Panic in distributed validator cleanup routine: %v\n", r)
+			}
+		}()
+		dv.cleanupRoutine(ctx)
+	}()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Panic in distributed validator metrics routine: %v\n", r)
+			}
+		}()
+		dv.metricsRoutine(ctx)
+	}()
 
 	dv.running = true
 	return nil
@@ -230,8 +246,10 @@ func (dv *DistributedValidator) Stop() error {
 		return nil
 	}
 
-	// Cancel context to stop background routines
-	dv.cancel()
+	// Signal stop to background routines
+	dv.stopOnce.Do(func() {
+		close(dv.stopChan)
+	})
 
 	// Stop components
 	var errs []error
@@ -592,6 +610,12 @@ func (dv *DistributedValidator) broadcastValidationRequest(ctx context.Context, 
 		}
 
 		go func(nID NodeID) {
+			defer func() {
+				if r := recover(); r != nil {
+					// Log panic but continue
+					fmt.Printf("Panic in distributed validator broadcast: %v\n", r)
+				}
+			}()
 			// TODO: Implement actual network communication
 			// For now, this is a placeholder
 			_ = nID
@@ -633,13 +657,15 @@ func (dv *DistributedValidator) getNextSequence() uint64 {
 }
 
 // heartbeatRoutine sends periodic heartbeats
-func (dv *DistributedValidator) heartbeatRoutine() {
+func (dv *DistributedValidator) heartbeatRoutine(ctx context.Context) {
 	ticker := time.NewTicker(dv.config.HeartbeatInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-dv.ctx.Done():
+		case <-ctx.Done():
+			return
+		case <-dv.stopChan:
 			return
 		case <-ticker.C:
 			dv.sendHeartbeat()
@@ -664,13 +690,15 @@ func (dv *DistributedValidator) sendHeartbeat() {
 }
 
 // cleanupRoutine performs periodic cleanup tasks
-func (dv *DistributedValidator) cleanupRoutine() {
+func (dv *DistributedValidator) cleanupRoutine(ctx context.Context) {
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case <-dv.ctx.Done():
+		case <-ctx.Done():
+			return
+		case <-dv.stopChan:
 			return
 		case <-ticker.C:
 			dv.cleanup()
@@ -704,7 +732,7 @@ func (dv *DistributedValidator) cleanup() {
 }
 
 // metricsRoutine collects and reports metrics
-func (dv *DistributedValidator) metricsRoutine() {
+func (dv *DistributedValidator) metricsRoutine(ctx context.Context) {
 	if !dv.config.EnableMetrics {
 		return
 	}
@@ -714,7 +742,9 @@ func (dv *DistributedValidator) metricsRoutine() {
 
 	for {
 		select {
-		case <-dv.ctx.Done():
+		case <-ctx.Done():
+			return
+		case <-dv.stopChan:
 			return
 		case <-ticker.C:
 			dv.collectMetrics()

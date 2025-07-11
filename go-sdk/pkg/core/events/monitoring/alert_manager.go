@@ -244,12 +244,22 @@ func (am *AlertManager) Start(ctx context.Context) {
 	// Start alert evaluation routine
 	go func() {
 		defer am.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Panic in alert evaluation routine: %v\n", r)
+			}
+		}()
 		am.evaluateAlerts()
 	}()
 	
 	// Start alert processing routine
 	go func() {
 		defer am.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Panic in alert processing routine: %v\n", r)
+			}
+		}()
 		am.processAlerts()
 	}()
 }

@@ -27,7 +27,8 @@ func ExampleDistributedValidator() {
 	}
 
 	// Start the validator
-	err = dv.Start()
+	ctx := context.Background()
+	err = dv.Start(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -61,7 +62,6 @@ func ExampleDistributedValidator() {
 	}
 
 	// Validate the event using distributed consensus
-	ctx := context.Background()
 	result := dv.ValidateEvent(ctx, event)
 
 	if result.IsValid {
@@ -152,7 +152,8 @@ func ExampleDistributedValidator_partitionHandling() {
 		nil,
 	)
 
-	err := ph.Start()
+	ctx := context.Background()
+	err := ph.Start(ctx)
 	if err != nil {
 		log.Fatal(err)
 	}

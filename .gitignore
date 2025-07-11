@@ -1,1 +1,4 @@
 proompts/
+
+# Go test binaries
+*.test

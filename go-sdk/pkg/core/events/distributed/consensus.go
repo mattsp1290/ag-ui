@@ -101,10 +101,10 @@ type ConsensusManager struct {
 	locksMutex  sync.RWMutex
 	
 	// Lifecycle
-	ctx         context.Context
-	cancel      context.CancelFunc
 	running     bool
 	mutex       sync.RWMutex
+	stopChan    chan struct{}
+	stopOnce    sync.Once
 }
 
 // LogEntry represents an entry in the consensus log
@@ -142,8 +142,6 @@ func NewConsensusManager(config *ConsensusConfig, nodeID NodeID) (*ConsensusMana
 		return nil, fmt.Errorf("config cannot be nil")
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-
 	cm := &ConsensusManager{
 		config:      config,
 		nodeID:      nodeID,
@@ -154,15 +152,14 @@ func NewConsensusManager(config *ConsensusConfig, nodeID NodeID) (*ConsensusMana
 		matchIndex:  make(map[NodeID]uint64),
 		votes:       make(map[NodeID]bool),
 		locks:       make(map[string]*DistributedLock),
-		ctx:         ctx,
-		cancel:      cancel,
+		stopChan:    make(chan struct{}),
 	}
 
 	return cm, nil
 }
 
 // Start starts the consensus manager
-func (cm *ConsensusManager) Start() error {
+func (cm *ConsensusManager) Start(ctx context.Context) error {
 	cm.mutex.Lock()
 	defer cm.mutex.Unlock()
 
@@ -173,9 +170,9 @@ func (cm *ConsensusManager) Start() error {
 	// Start consensus protocol based on algorithm
 	switch cm.config.Algorithm {
 	case ConsensusRaft:
-		go cm.runRaft()
+		go cm.runRaft(ctx)
 	case ConsensusPBFT:
-		go cm.runPBFT()
+		go cm.runPBFT(ctx)
 	case ConsensusMajority, ConsensusUnanimous:
 		// These don't require background routines
 	default:
@@ -195,7 +192,9 @@ func (cm *ConsensusManager) Stop() error {
 		return nil
 	}
 
-	cm.cancel()
+	cm.stopOnce.Do(func() {
+		close(cm.stopChan)
+	})
 	cm.running = false
 	return nil
 }
@@ -468,7 +467,7 @@ func (cm *ConsensusManager) ReleaseLock(ctx context.Context, lockID string) erro
 }
 
 // runRaft implements the Raft consensus protocol
-func (cm *ConsensusManager) runRaft() {
+func (cm *ConsensusManager) runRaft(ctx context.Context) {
 	electionTimer := time.NewTimer(cm.randomElectionTimeout())
 	heartbeatTimer := time.NewTicker(cm.config.HeartbeatInterval)
 	defer electionTimer.Stop()
@@ -476,7 +475,9 @@ func (cm *ConsensusManager) runRaft() {
 
 	for {
 		select {
-		case <-cm.ctx.Done():
+		case <-ctx.Done():
+			return
+		case <-cm.stopChan:
 			return
 
 		case <-electionTimer.C:
@@ -501,10 +502,15 @@ func (cm *ConsensusManager) runRaft() {
 }
 
 // runPBFT implements the PBFT consensus protocol
-func (cm *ConsensusManager) runPBFT() {
+func (cm *ConsensusManager) runPBFT(ctx context.Context) {
 	// TODO: Implement PBFT protocol
 	// For now, this is a placeholder
-	<-cm.ctx.Done()
+	select {
+	case <-ctx.Done():
+		return
+	case <-cm.stopChan:
+		return
+	}
 }
 
 // startElection starts a new leader election

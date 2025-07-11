@@ -183,6 +183,11 @@ func NewPrometheusExporter(config *Config, collector events.MetricsCollector) *P
 	pe.wg.Add(1)
 	go func() {
 		defer pe.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Panic in prometheus metrics update routine: %v\n", r)
+			}
+		}()
 		pe.updateMetricsRoutine()
 	}()
 	
@@ -211,9 +216,19 @@ func (pe *PrometheusExporter) Start() error {
 	pe.wg.Add(1)
 	go func() {
 		defer pe.wg.Done()
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Panic in prometheus server goroutine: %v\n", r)
+			}
+		}()
 		
 		// Listen for context cancellation
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("Panic in prometheus shutdown goroutine: %v\n", r)
+				}
+			}()
 			<-pe.ctx.Done()
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()

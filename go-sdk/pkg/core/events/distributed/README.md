@@ -66,7 +66,8 @@ if err != nil {
 }
 
 // Start the validator
-err = dv.Start()
+ctx := context.Background()
+err = dv.Start(ctx)
 if err != nil {
     log.Fatal(err)
 }

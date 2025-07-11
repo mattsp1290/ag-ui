@@ -134,7 +134,7 @@ func (tb *TokenBucket) refill() {
 	elapsed := now.Sub(tb.lastRefill)
 	
 	// Calculate tokens to add (rate is per minute)
-	tokensToAdd := int(elapsed.Minutes() * float64(tb.refillRate))
+	tokensToAdd := int(elapsed.Seconds() * float64(tb.refillRate) / 60.0)
 	
 	if tokensToAdd > 0 {
 		tb.tokens += tokensToAdd

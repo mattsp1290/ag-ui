@@ -88,7 +88,7 @@
 //	if err != nil {
 //		log.Fatal(err)
 //	}
-//	defer manager.Stop()
+//	defer manager.Stop(ctx)
 //
 //	// Send events through the best available transport
 //	err = manager.Send(ctx, event)

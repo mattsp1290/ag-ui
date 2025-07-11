@@ -45,6 +45,33 @@ var (
 
 	// ErrHealthCheckFailed is returned when a health check fails
 	ErrHealthCheckFailed = errors.New("health check failed")
+
+	// ErrBackpressureActive is returned when backpressure is active and blocking operations
+	ErrBackpressureActive = errors.New("backpressure active")
+
+	// ErrBackpressureTimeout is returned when backpressure timeout is exceeded
+	ErrBackpressureTimeout = errors.New("backpressure timeout exceeded")
+
+	// ErrValidationFailed is returned when message validation fails
+	ErrValidationFailed = errors.New("message validation failed")
+
+	// ErrInvalidMessageSize is returned when message size exceeds limits
+	ErrInvalidMessageSize = errors.New("message size exceeds limits")
+
+	// ErrMissingRequiredFields is returned when required fields are missing
+	ErrMissingRequiredFields = errors.New("missing required fields")
+
+	// ErrInvalidEventType is returned when event type is not allowed
+	ErrInvalidEventType = errors.New("invalid event type")
+
+	// ErrInvalidDataFormat is returned when data format is invalid
+	ErrInvalidDataFormat = errors.New("invalid data format")
+
+	// ErrFieldValidationFailed is returned when field validation fails
+	ErrFieldValidationFailed = errors.New("field validation failed")
+
+	// ErrPatternValidationFailed is returned when pattern validation fails
+	ErrPatternValidationFailed = errors.New("pattern validation failed")
 )
 
 // TransportError represents a transport-specific error with additional context

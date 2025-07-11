@@ -2,7 +2,6 @@ package transport
 
 import (
 	"context"
-	"io"
 	"time"
 )
 
@@ -32,7 +31,8 @@ type Transport interface {
 
 	// Close gracefully shuts down the transport connection.
 	// It should clean up all resources and notify any active listeners.
-	Close() error
+	// The context allows for timeout control during graceful shutdown.
+	Close(ctx context.Context) error
 
 	// Send transmits an event through the transport.
 	// It should handle serialization and any transport-specific encoding.
@@ -102,10 +102,18 @@ type StreamTransport interface {
 
 // Stream represents a single stream within a transport.
 type Stream interface {
-	io.ReadWriteCloser
-
 	// ID returns the unique identifier for this stream
 	ID() string
+
+	// Read reads data from the stream
+	Read(p []byte) (n int, err error)
+
+	// Write writes data to the stream
+	Write(p []byte) (n int, err error)
+
+	// Close closes the stream gracefully
+	// The context allows for timeout control during graceful shutdown.
+	Close(ctx context.Context) error
 
 	// SendEvent sends an event on this stream
 	SendEvent(ctx context.Context, event TransportEvent) error

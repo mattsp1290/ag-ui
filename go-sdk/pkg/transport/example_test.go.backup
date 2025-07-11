@@ -1,0 +1,163 @@
+package transport_test
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"time"
+
+	"github.com/ag-ui/go-sdk/pkg/transport"
+)
+
+// ExampleLogger demonstrates basic logging functionality
+func ExampleLogger() {
+	// Create a logger with default configuration
+	logger := transport.NewLogger(transport.DefaultLoggerConfig())
+	
+	// Log messages at different levels
+	logger.Info("Transport system starting")
+	logger.Debug("Debug information", transport.String("component", "transport"))
+	logger.Warn("Warning message", transport.Int("retry_count", 3))
+	logger.Error("Error occurred", transport.Error(fmt.Errorf("connection failed")))
+	
+	// Create a logger with fields
+	contextLogger := logger.WithFields(
+		transport.String("transport_type", "websocket"),
+		transport.String("endpoint", "ws://localhost:8080"),
+	)
+	
+	contextLogger.Info("Connection established")
+	contextLogger.Debug("Message sent", transport.String("message_id", "msg-123"))
+	
+	// Output:
+	// [2024-01-01T00:00:00Z] INFO Transport system starting
+	// [2024-01-01T00:00:00Z] DEBUG Debug information component=transport
+	// [2024-01-01T00:00:00Z] WARN Warning message retry_count=3
+	// [2024-01-01T00:00:00Z] ERROR Error occurred error=connection failed
+	// [2024-01-01T00:00:00Z] INFO Connection established transport_type=websocket endpoint=ws://localhost:8080
+	// [2024-01-01T00:00:00Z] DEBUG Message sent transport_type=websocket endpoint=ws://localhost:8080 message_id=msg-123
+}
+
+// ExampleSimpleManagerWithLogging demonstrates using the SimpleManager with logging
+func ExampleSimpleManagerWithLogging() {
+	// Create a custom logger configuration
+	loggerConfig := &transport.LoggerConfig{
+		Level:           transport.LogLevelInfo,
+		Format:          "text",
+		Output:          os.Stdout,
+		TimestampFormat: time.RFC3339,
+		EnableCaller:    false,
+		EnableStacktrace: false,
+	}
+	
+	// Create a logger
+	logger := transport.NewLogger(loggerConfig)
+	
+	// Create a simple manager with logging
+	manager := transport.NewSimpleManagerWithLogger(logger)
+	
+	// Start the manager
+	ctx := context.Background()
+	err := manager.Start(ctx)
+	if err != nil {
+		log.Printf("Failed to start manager: %v", err)
+		return
+	}
+	
+	// Stop the manager
+	err = manager.Stop(ctx)
+	if err != nil {
+		log.Printf("Failed to stop manager: %v", err)
+		return
+	}
+	
+	fmt.Println("Manager lifecycle completed successfully")
+	
+	// Output:
+	// Manager lifecycle completed successfully
+}
+
+// ExampleManagerWithLogging demonstrates using the full Manager with logging
+func ExampleManagerWithLogging() {
+	// Create a logger
+	logger := transport.NewLogger(transport.DefaultLoggerConfig())
+	
+	// Create a simple config
+	config := &transport.Config{
+		Primary:     "websocket",
+		Fallback:    []string{"sse", "http"},
+		BufferSize:  1024,
+		LogLevel:    "info",
+		EnableMetrics: true,
+	}
+	
+	// Create a manager with logging
+	manager := transport.NewManagerWithLogger(config, logger)
+	
+	// Start the manager
+	ctx := context.Background()
+	err := manager.Start(ctx)
+	if err != nil {
+		log.Printf("Failed to start manager: %v", err)
+		return
+	}
+	
+	// Stop the manager
+	err = manager.Stop(ctx)
+	if err != nil {
+		log.Printf("Failed to stop manager: %v", err)
+		return
+	}
+	
+	fmt.Println("Full manager lifecycle completed successfully")
+	
+	// Output:
+	// Full manager lifecycle completed successfully
+}
+
+// ExampleTransportErrorLogging demonstrates error logging
+func ExampleTransportErrorLogging() {
+	// Create a logger
+	logger := transport.NewLogger(transport.DefaultLoggerConfig())
+	
+	// Create transport errors with logging
+	transportErr := transport.NewTransportErrorWithLogger(
+		"websocket",
+		"connect",
+		fmt.Errorf("connection refused"),
+		logger,
+	)
+	
+	tempErr := transport.NewTemporaryErrorWithLogger(
+		"websocket",
+		"send",
+		fmt.Errorf("network timeout"),
+		logger,
+	)
+	
+	connErr := transport.NewConnectionErrorWithLogger(
+		"ws://localhost:8080",
+		fmt.Errorf("connection refused"),
+		logger,
+	)
+	
+	configErr := transport.NewConfigurationErrorWithLogger(
+		"endpoint",
+		"invalid-url",
+		"URL format is invalid",
+		logger,
+	)
+	
+	// Use the errors
+	fmt.Printf("Transport error: %v\n", transportErr)
+	fmt.Printf("Temporary error: %v\n", tempErr)
+	fmt.Printf("Connection error: %v\n", connErr)
+	fmt.Printf("Configuration error: %v\n", configErr)
+	
+	// Output:
+	// Transport error: websocket connect: connection refused
+	// Temporary error: websocket send: network timeout
+	// Connection error: connection error to ws://localhost:8080: connection refused
+	// Configuration error: configuration error for field endpoint (value: invalid-url): URL format is invalid
+}

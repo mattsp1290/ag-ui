@@ -2,6 +2,9 @@ package transport
 
 import (
 	"context"
+	"errors"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -25,6 +28,8 @@ type DemoTransport struct {
 	capabilities Capabilities
 	eventChan   chan Event
 	errorChan   chan error
+	closed      bool
+	mu          sync.Mutex
 }
 
 func NewDemoTransport() *DemoTransport {
@@ -41,28 +46,50 @@ func NewDemoTransport() *DemoTransport {
 }
 
 func (t *DemoTransport) Connect(ctx context.Context) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	t.connected = true
 	return nil
 }
 
-func (t *DemoTransport) Close() error {
+func (t *DemoTransport) Close(ctx context.Context) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	
 	t.connected = false
-	close(t.eventChan)
-	close(t.errorChan)
+	
+	// Only close channels if not already closed
+	if !t.closed {
+		close(t.eventChan)
+		close(t.errorChan)
+		t.closed = true
+	}
 	return nil
 }
 
 func (t *DemoTransport) Send(ctx context.Context, event TransportEvent) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	
 	if !t.connected {
 		return ErrNotConnected
 	}
+	
+	if t.closed {
+		return ErrConnectionClosed
+	}
+	
 	// Echo the event back
-	t.eventChan <- Event{
+	select {
+	case t.eventChan <- Event{
 		Event:     event,
 		Metadata:  EventMetadata{TransportID: "demo"},
 		Timestamp: time.Now(),
+	}:
+		return nil
+	default:
+		return errors.New("event channel full")
 	}
-	return nil
 }
 
 func (t *DemoTransport) Receive() <-chan Event {
@@ -74,6 +101,8 @@ func (t *DemoTransport) Errors() <-chan error {
 }
 
 func (t *DemoTransport) IsConnected() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	return t.connected
 }
 
@@ -82,6 +111,9 @@ func (t *DemoTransport) Capabilities() Capabilities {
 }
 
 func (t *DemoTransport) Health(ctx context.Context) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	
 	if !t.connected {
 		return ErrNotConnected
 	}
@@ -167,7 +199,7 @@ func TestTransportInterface(t *testing.T) {
 	}
 	
 	// Test close
-	err = transport.Close()
+	err = transport.Close(ctx)
 	if err != nil {
 		t.Fatalf("Failed to close transport: %v", err)
 	}
@@ -189,7 +221,7 @@ func TestSimpleManager(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
-	defer manager.Stop()
+	defer manager.Stop(ctx)
 	
 	// Test sending through manager
 	event := &DemoEvent{
@@ -213,4 +245,101 @@ func TestSimpleManager(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		t.Error("Timeout waiting for event through manager")
 	}
+}
+
+// TestDemoTransportErrorPaths tests error scenarios with DemoTransport
+func TestDemoTransportErrorPaths(t *testing.T) {
+	t.Run("send_when_not_connected", func(t *testing.T) {
+		transport := NewDemoTransport()
+		event := &DemoEvent{
+			id:        "error-test-1",
+			eventType: "demo",
+			timestamp: time.Now(),
+		}
+		
+		ctx := context.Background()
+		err := transport.Send(ctx, event)
+		if err != ErrNotConnected {
+			t.Errorf("Expected ErrNotConnected, got %v", err)
+		}
+	})
+	
+	t.Run("health_check_when_not_connected", func(t *testing.T) {
+		transport := NewDemoTransport()
+		ctx := context.Background()
+		
+		err := transport.Health(ctx)
+		if err != ErrNotConnected {
+			t.Errorf("Expected ErrNotConnected, got %v", err)
+		}
+	})
+	
+	t.Run("double_close", func(t *testing.T) {
+		transport := NewDemoTransport()
+		ctx := context.Background()
+		
+		// Connect first
+		if err := transport.Connect(ctx); err != nil {
+			t.Fatalf("Failed to connect: %v", err)
+		}
+		
+		// Close once
+		if err := transport.Close(ctx); err != nil {
+			t.Fatalf("First close failed: %v", err)
+		}
+		
+		// Close again - should not panic
+		if err := transport.Close(ctx); err != nil {
+			t.Fatalf("Second close failed: %v", err)
+		}
+	})
+	
+	t.Run("manager_lifecycle_errors", func(t *testing.T) {
+		manager := NewSimpleManager()
+		ctx := context.Background()
+		
+		// Stop without start
+		err := manager.Stop(ctx)
+		if err != nil {
+			t.Errorf("Stop without start should not error, got %v", err)
+		}
+		
+		// Send without transport
+		event := &DemoEvent{id: "test", eventType: "demo"}
+		err = manager.Send(ctx, event)
+		if err != ErrNotConnected {
+			t.Errorf("Expected ErrNotConnected, got %v", err)
+		}
+	})
+	
+	t.Run("concurrent_manager_operations", func(t *testing.T) {
+		manager := NewSimpleManager()
+		transport := NewDemoTransport()
+		manager.SetTransport(transport)
+		
+		ctx := context.Background()
+		if err := manager.Start(ctx); err != nil {
+			t.Fatalf("Failed to start: %v", err)
+		}
+		defer manager.Stop(ctx)
+		
+		// Launch concurrent operations
+		var wg sync.WaitGroup
+		for i := 0; i < 10; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				event := &DemoEvent{
+					id:        fmt.Sprintf("concurrent-%d", id),
+					eventType: "demo",
+					timestamp: time.Now(),
+				}
+				if err := manager.Send(ctx, event); err != nil {
+					t.Errorf("Concurrent send %d failed: %v", id, err)
+				}
+			}(i)
+		}
+		
+		wg.Wait()
+	})
 }

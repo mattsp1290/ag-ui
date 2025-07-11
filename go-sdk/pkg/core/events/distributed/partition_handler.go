@@ -194,62 +194,72 @@ func (ph *PartitionHandler) Start(ctx context.Context) error {
 	}
 
 	// Start detection routines based on method
+	ph.startDetectionRoutines(ctx)
+
+	// Start recovery routine if enabled
+	ph.startRecoveryRoutine(ctx)
+
+	// Start cleanup routine
+	ph.startCleanupRoutine(ctx)
+
+	ph.running = true
+	return nil
+}
+
+// startDetectionRoutines starts the appropriate detection routines
+func (ph *PartitionHandler) startDetectionRoutines(ctx context.Context) {
 	switch ph.config.DetectionMethod {
 	case PartitionDetectionHeartbeat:
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					fmt.Printf("Panic in partition handler heartbeat detection: %v\n", r)
-				}
-			}()
-			ph.runHeartbeatDetection(ctx)
-		}()
+		ph.startHeartbeatDetection(ctx)
 	case PartitionDetectionQuorum:
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					fmt.Printf("Panic in partition handler quorum detection: %v\n", r)
-				}
-			}()
-			ph.runQuorumDetection(ctx)
-		}()
+		ph.startQuorumDetection(ctx)
 	case PartitionDetectionGossip:
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					fmt.Printf("Panic in partition handler gossip detection: %v\n", r)
-				}
-			}()
-			ph.runGossipDetection(ctx)
-		}()
+		ph.startGossipDetection(ctx)
 	case PartitionDetectionHybrid:
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					fmt.Printf("Panic in partition handler heartbeat detection (hybrid): %v\n", r)
-				}
-			}()
-			ph.runHeartbeatDetection(ctx)
-		}()
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					fmt.Printf("Panic in partition handler quorum detection (hybrid): %v\n", r)
-				}
-			}()
-			ph.runQuorumDetection(ctx)
-		}()
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					fmt.Printf("Panic in partition handler gossip detection (hybrid): %v\n", r)
-				}
-			}()
-			ph.runGossipDetection(ctx)
-		}()
+		ph.startHeartbeatDetection(ctx)
+		ph.startQuorumDetection(ctx)
+		ph.startGossipDetection(ctx)
 	}
+}
 
-	// Start recovery routine
+// startHeartbeatDetection starts heartbeat detection routine
+func (ph *PartitionHandler) startHeartbeatDetection(ctx context.Context) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Panic in partition handler heartbeat detection: %v\n", r)
+			}
+		}()
+		ph.runHeartbeatDetection(ctx)
+	}()
+}
+
+// startQuorumDetection starts quorum detection routine
+func (ph *PartitionHandler) startQuorumDetection(ctx context.Context) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Panic in partition handler quorum detection: %v\n", r)
+			}
+		}()
+		ph.runQuorumDetection(ctx)
+	}()
+}
+
+// startGossipDetection starts gossip detection routine
+func (ph *PartitionHandler) startGossipDetection(ctx context.Context) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Panic in partition handler gossip detection: %v\n", r)
+			}
+		}()
+		ph.runGossipDetection(ctx)
+	}()
+}
+
+// startRecoveryRoutine starts recovery routine if auto-recovery is enabled
+func (ph *PartitionHandler) startRecoveryRoutine(ctx context.Context) {
 	if ph.config.AutoRecovery {
 		go func() {
 			defer func() {
@@ -260,8 +270,10 @@ func (ph *PartitionHandler) Start(ctx context.Context) error {
 			ph.runRecoveryRoutine(ctx)
 		}()
 	}
+}
 
-	// Start cleanup routine
+// startCleanupRoutine starts cleanup routine
+func (ph *PartitionHandler) startCleanupRoutine(ctx context.Context) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -270,9 +282,6 @@ func (ph *PartitionHandler) Start(ctx context.Context) error {
 		}()
 		ph.runCleanupRoutine(ctx)
 	}()
-
-	ph.running = true
-	return nil
 }
 
 // Stop stops the partition handler
@@ -539,7 +548,24 @@ func (ph *PartitionHandler) detectPartition(method PartitionDetectionMethod) {
 		return
 	}
 
+	// Analyze current node health
+	reachableNodes, unreachableNodes, totalNodes := ph.analyzeNodeHealth()
+
+	// Create partition info
+	partition := ph.createPartitionInfo(reachableNodes, unreachableNodes, totalNodes)
+
+	// Record the partition
+	ph.recordPartition(partition)
+
+	// Notify callback
+	ph.notifyPartitionDetected(partition)
+}
+
+// analyzeNodeHealth analyzes the health of all nodes
+func (ph *PartitionHandler) analyzeNodeHealth() ([]NodeID, []NodeID, int) {
 	ph.nodeHealthMutex.RLock()
+	defer ph.nodeHealthMutex.RUnlock()
+
 	reachableNodes := []NodeID{ph.nodeID}
 	unreachableNodes := []NodeID{}
 	totalNodes := len(ph.nodeHealth) + 1 // Include self
@@ -551,14 +577,17 @@ func (ph *PartitionHandler) detectPartition(method PartitionDetectionMethod) {
 			unreachableNodes = append(unreachableNodes, nodeID)
 		}
 	}
-	ph.nodeHealthMutex.RUnlock()
 
-	// Determine partition type
+	return reachableNodes, unreachableNodes, totalNodes
+}
+
+// createPartitionInfo creates partition information from node analysis
+func (ph *PartitionHandler) createPartitionInfo(reachableNodes, unreachableNodes []NodeID, totalNodes int) *PartitionInfo {
+	// Determine partition type and severity
 	partitionType := ph.determinePartitionType(len(reachableNodes), totalNodes)
 	severity := ph.determinePartitionSeverity(partitionType, len(reachableNodes))
 
-	// Create partition info
-	partition := &PartitionInfo{
+	return &PartitionInfo{
 		ID:               fmt.Sprintf("partition-%d", time.Now().UnixNano()),
 		DetectedAt:       time.Now(),
 		AffectedNodes:    append(reachableNodes, unreachableNodes...),
@@ -569,12 +598,17 @@ func (ph *PartitionHandler) detectPartition(method PartitionDetectionMethod) {
 		RecoveryStrategy: ph.config.RecoveryStrategy,
 		IsActive:         true,
 	}
+}
 
+// recordPartition records the partition in history and state
+func (ph *PartitionHandler) recordPartition(partition *PartitionInfo) {
 	ph.currentPartition = partition
 	ph.partitionHistory = append(ph.partitionHistory, partition)
 	ph.partitionCount++
+}
 
-	// Notify callback
+// notifyPartitionDetected notifies the callback about partition detection
+func (ph *PartitionHandler) notifyPartitionDetected(partition *PartitionInfo) {
 	if ph.onPartitionDetected != nil {
 		go func() {
 			defer func() {

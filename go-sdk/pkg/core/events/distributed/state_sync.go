@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/ag-ui/go-sdk/pkg/core/events/internal/worker"
+	"go.uber.org/zap"
 )
 
 // SyncProtocol represents the state synchronization protocol
@@ -153,6 +155,10 @@ type StateSynchronizer struct {
 	runningMutex sync.RWMutex
 	stopChan     chan struct{}
 	stopOnce     sync.Once
+	
+	// Worker management
+	workerManager *worker.WorkerManager
+	logger        *zap.Logger
 }
 
 // NewStateSynchronizer creates a new state synchronizer
@@ -161,14 +167,31 @@ func NewStateSynchronizer(config *StateSyncConfig, nodeID NodeID) (*StateSynchro
 		return nil, fmt.Errorf("config cannot be nil")
 	}
 
+	// Create logger
+	logger, err := zap.NewProduction()
+	if err != nil {
+		return nil, fmt.Errorf("failed to create logger: %w", err)
+	}
+
+	// Create worker manager
+	workerConfig := &worker.WorkerConfig{
+		MaxWorkers:      10,
+		ShutdownTimeout: 30 * time.Second,
+		Logger:          logger,
+		PanicHandler:    worker.NewDefaultPanicHandler(logger),
+	}
+	workerManager := worker.NewWorkerManager(workerConfig)
+
 	ss := &StateSynchronizer{
-		config:       config,
-		nodeID:       nodeID,
-		state:        make(map[string]*StateVersion),
-		nodeVersions: make(map[NodeID]uint64),
-		syncQueue:    make([]*SyncRequest, 0),
-		pendingSync:  make(map[string]time.Time),
-		stopChan:     make(chan struct{}),
+		config:        config,
+		nodeID:        nodeID,
+		state:         make(map[string]*StateVersion),
+		nodeVersions:  make(map[NodeID]uint64),
+		syncQueue:     make([]*SyncRequest, 0),
+		pendingSync:   make(map[string]time.Time),
+		stopChan:      make(chan struct{}),
+		workerManager: workerManager,
+		logger:        logger,
 	}
 
 	// Initialize protocol-specific components
@@ -192,67 +215,95 @@ func (ss *StateSynchronizer) Start(ctx context.Context) error {
 	}
 
 	// Start sync routine based on protocol
-	switch ss.config.Protocol {
-	case SyncProtocolGossip:
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					fmt.Printf("Panic in state sync gossip routine: %v\n", r)
-				}
-			}()
-			ss.runGossipSync(ctx)
-		}()
-	case SyncProtocolMerkle:
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					fmt.Printf("Panic in state sync merkle routine: %v\n", r)
-				}
-			}()
-			ss.runMerkleSync(ctx)
-		}()
-	case SyncProtocolCRDT:
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					fmt.Printf("Panic in state sync CRDT routine: %v\n", r)
-				}
-			}()
-			ss.runCRDTSync(ctx)
-		}()
-	case SyncProtocolSnapshot:
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					fmt.Printf("Panic in state sync snapshot routine: %v\n", r)
-				}
-			}()
-			ss.runSnapshotSync(ctx)
-		}()
-	default:
-		return fmt.Errorf("unknown sync protocol: %s", ss.config.Protocol)
+	if err := ss.startSyncProtocol(ctx); err != nil {
+		return err
 	}
 
 	// Start common background routines
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("Panic in state sync queue processor: %v\n", r)
-			}
-		}()
-		ss.processSyncQueue(ctx)
-	}()
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("Panic in state sync cleanup routine: %v\n", r)
-			}
-		}()
-		ss.cleanupRoutine(ctx)
-	}()
+	ss.startBackgroundRoutines(ctx)
 
 	ss.running = true
 	return nil
+}
+
+// startSyncProtocol starts the appropriate sync protocol routine
+func (ss *StateSynchronizer) startSyncProtocol(ctx context.Context) error {
+	switch ss.config.Protocol {
+	case SyncProtocolGossip:
+		ss.startGossipSync(ctx)
+	case SyncProtocolMerkle:
+		ss.startMerkleSync(ctx)
+	case SyncProtocolCRDT:
+		ss.startCRDTSync(ctx)
+	case SyncProtocolSnapshot:
+		ss.startSnapshotSync(ctx)
+	default:
+		return fmt.Errorf("unknown sync protocol: %s", ss.config.Protocol)
+	}
+	return nil
+}
+
+// startGossipSync starts gossip sync routine
+func (ss *StateSynchronizer) startGossipSync(ctx context.Context) {
+	_, err := ss.workerManager.StartBackgroundWorker("gossip-sync", func(ctx context.Context) error {
+		ss.runGossipSync(ctx)
+		return nil
+	})
+	if err != nil {
+		ss.logger.Error("Failed to start gossip sync worker", zap.Error(err))
+	}
+}
+
+// startMerkleSync starts merkle sync routine
+func (ss *StateSynchronizer) startMerkleSync(ctx context.Context) {
+	_, err := ss.workerManager.StartBackgroundWorker("merkle-sync", func(ctx context.Context) error {
+		ss.runMerkleSync(ctx)
+		return nil
+	})
+	if err != nil {
+		ss.logger.Error("Failed to start merkle sync worker", zap.Error(err))
+	}
+}
+
+// startCRDTSync starts CRDT sync routine
+func (ss *StateSynchronizer) startCRDTSync(ctx context.Context) {
+	_, err := ss.workerManager.StartBackgroundWorker("crdt-sync", func(ctx context.Context) error {
+		ss.runCRDTSync(ctx)
+		return nil
+	})
+	if err != nil {
+		ss.logger.Error("Failed to start CRDT sync worker", zap.Error(err))
+	}
+}
+
+// startSnapshotSync starts snapshot sync routine
+func (ss *StateSynchronizer) startSnapshotSync(ctx context.Context) {
+	_, err := ss.workerManager.StartBackgroundWorker("snapshot-sync", func(ctx context.Context) error {
+		ss.runSnapshotSync(ctx)
+		return nil
+	})
+	if err != nil {
+		ss.logger.Error("Failed to start snapshot sync worker", zap.Error(err))
+	}
+}
+
+// startBackgroundRoutines starts common background routines
+func (ss *StateSynchronizer) startBackgroundRoutines(ctx context.Context) {
+	_, err := ss.workerManager.StartBackgroundWorker("queue-processor", func(ctx context.Context) error {
+		ss.processSyncQueue(ctx)
+		return nil
+	})
+	if err != nil {
+		ss.logger.Error("Failed to start queue processor worker", zap.Error(err))
+	}
+	
+	_, err = ss.workerManager.StartBackgroundWorker("cleanup-routine", func(ctx context.Context) error {
+		ss.cleanupRoutine(ctx)
+		return nil
+	})
+	if err != nil {
+		ss.logger.Error("Failed to start cleanup routine worker", zap.Error(err))
+	}
 }
 
 // Stop stops the state synchronizer
@@ -267,6 +318,12 @@ func (ss *StateSynchronizer) Stop() error {
 	ss.stopOnce.Do(func() {
 		close(ss.stopChan)
 	})
+	
+	// Stop worker manager
+	if err := ss.workerManager.Stop(); err != nil {
+		ss.logger.Error("Failed to stop worker manager", zap.Error(err))
+	}
+	
 	ss.running = false
 	return nil
 }

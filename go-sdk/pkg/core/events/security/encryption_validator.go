@@ -3,6 +3,7 @@ package security
 import (
 	"crypto/aes"
 	"crypto/cipher"
+	"crypto/rand"
 	"encoding/base64"
 	"fmt"
 	"strings"
@@ -265,7 +266,10 @@ func (ev *EncryptionValidator) EncryptContent(content string, key []byte) (strin
 	
 	// Create nonce
 	nonce := make([]byte, gcm.NonceSize())
-	// In production, use crypto/rand to generate nonce
+	// Generate secure random nonce
+	if _, err := rand.Read(nonce); err != nil {
+		return "", fmt.Errorf("failed to generate nonce: %w", err)
+	}
 	
 	// Encrypt
 	ciphertext := gcm.Seal(nonce, nonce, []byte(content), nil)

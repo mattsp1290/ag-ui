@@ -284,42 +284,68 @@ func (dv *DistributedValidator) ValidateEvent(ctx context.Context, event events.
 
 	start := time.Now()
 
-	// Add event attributes to span
+	// Setup tracing
+	dv.setupEventTracing(span, event)
+
+	// Check for partition and handle if necessary
+	if partitionResult := dv.handlePartitionValidation(ctx, span, event, start); partitionResult != nil {
+		return partitionResult
+	}
+
+	// Prepare for distributed validation
+	nodes, pending, eventID := dv.prepareDistributedValidation(ctx, span, event, start)
+
+	// Perform local validation and create decision
+	dv.performLocalValidation(ctx, event, eventID, pending)
+
+	// Coordinate distributed validation
+	return dv.coordinateDistributedValidation(ctx, span, eventID, event, nodes, pending, start)
+}
+
+// setupEventTracing sets up tracing attributes for the event
+func (dv *DistributedValidator) setupEventTracing(span trace.Span, event events.Event) {
 	if event != nil {
 		span.SetAttributes(
 			attribute.String("event.type", string(event.Type())),
 			attribute.String("node.id", string(dv.config.NodeID)),
 		)
 	}
+}
 
-	// Check if we're in a partition
-	if dv.partitionHandler.IsPartitioned() {
-		span.SetAttributes(attribute.Bool("node.partitioned", true))
-		
-		// Handle partition based on configuration
-		if dv.config.PartitionHandler.AllowLocalValidation {
-			span.AddEvent("validating_locally_due_to_partition")
-			localResult := dv.localValidator.ValidateEvent(ctx, event)
-			return dv.convertValidationResult(localResult)
-		}
-
-		result := &ValidationResult{
-			IsValid:   false,
-			Errors:    []*ValidationError{{
-				RuleID:    "DISTRIBUTED_PARTITION",
-				Message:   "Node is partitioned from cluster",
-				Severity:  ValidationSeverityError,
-				Timestamp: time.Now(),
-			}},
-			EventCount: 1,
-			Duration:   time.Since(start),
-			Timestamp:  time.Now(),
-		}
-		
-		span.SetStatus(codes.Error, "node partitioned")
-		return result
+// handlePartitionValidation handles validation during network partition
+func (dv *DistributedValidator) handlePartitionValidation(ctx context.Context, span trace.Span, event events.Event, startTime time.Time) *ValidationResult {
+	if !dv.partitionHandler.IsPartitioned() {
+		return nil
 	}
 
+	span.SetAttributes(attribute.Bool("node.partitioned", true))
+
+	// Handle partition based on configuration
+	if dv.config.PartitionHandler.AllowLocalValidation {
+		span.AddEvent("validating_locally_due_to_partition")
+		localResult := dv.localValidator.ValidateEvent(ctx, event)
+		return dv.convertValidationResult(localResult)
+	}
+
+	result := &ValidationResult{
+		IsValid:   false,
+		Errors:    []*ValidationError{{
+			RuleID:    "DISTRIBUTED_PARTITION",
+			Message:   "Node is partitioned from cluster",
+			Severity:  ValidationSeverityError,
+			Timestamp: time.Now(),
+		}},
+		EventCount: 1,
+		Duration:   time.Since(startTime),
+		Timestamp:  time.Now(),
+	}
+
+	span.SetStatus(codes.Error, "node partitioned")
+	return result
+}
+
+// prepareDistributedValidation prepares the distributed validation setup
+func (dv *DistributedValidator) prepareDistributedValidation(ctx context.Context, span trace.Span, event events.Event, startTime time.Time) ([]NodeID, *PendingValidation, string) {
 	// Select validation nodes based on load balancing
 	nodes := dv.selectValidationNodes(event)
 	span.SetAttributes(attribute.Int("validation.nodes", len(nodes)))
@@ -329,7 +355,7 @@ func (dv *DistributedValidator) ValidateEvent(ctx context.Context, event events.
 	pending := &PendingValidation{
 		Event:        event,
 		Decisions:    make(map[NodeID]*ValidationDecision),
-		StartTime:    start,
+		StartTime:    startTime,
 		CompleteChan: make(chan *ValidationResult, 1),
 	}
 
@@ -337,12 +363,11 @@ func (dv *DistributedValidator) ValidateEvent(ctx context.Context, event events.
 	dv.pendingValidations[eventID] = pending
 	dv.validationMutex.Unlock()
 
-	defer func() {
-		dv.validationMutex.Lock()
-		delete(dv.pendingValidations, eventID)
-		dv.validationMutex.Unlock()
-	}()
+	return nodes, pending, eventID
+}
 
+// performLocalValidation performs local validation and creates decision
+func (dv *DistributedValidator) performLocalValidation(ctx context.Context, event events.Event, eventID string, pending *PendingValidation) *ValidationDecision {
 	// Perform local validation
 	localResult := dv.localValidator.ValidateEvent(ctx, event)
 	localDecision := &ValidationDecision{
@@ -360,6 +385,17 @@ func (dv *DistributedValidator) ValidateEvent(ctx context.Context, event events.
 	pending.Decisions[dv.config.NodeID] = localDecision
 	pending.DecisionsMutex.Unlock()
 
+	return localDecision
+}
+
+// coordinateDistributedValidation coordinates the distributed validation process
+func (dv *DistributedValidator) coordinateDistributedValidation(ctx context.Context, span trace.Span, eventID string, event events.Event, nodes []NodeID, pending *PendingValidation, startTime time.Time) *ValidationResult {
+	defer func() {
+		dv.validationMutex.Lock()
+		delete(dv.pendingValidations, eventID)
+		dv.validationMutex.Unlock()
+	}()
+
 	// Broadcast validation request to other nodes
 	dv.broadcastValidationRequest(ctx, eventID, event, nodes)
 
@@ -369,33 +405,43 @@ func (dv *DistributedValidator) ValidateEvent(ctx context.Context, event events.
 
 	select {
 	case result := <-pending.CompleteChan:
-		duration := time.Since(start)
-		result.Duration = duration
-		
-		span.SetAttributes(
-			attribute.Bool("validation.valid", result.IsValid),
-			attribute.Int("validation.errors", len(result.Errors)),
-			attribute.Int("validation.warnings", len(result.Warnings)),
-			attribute.Int64("validation.duration_ms", duration.Milliseconds()),
-		)
-		
-		dv.metrics.RecordValidation(duration, result.IsValid)
-		return result
+		return dv.handleValidationSuccess(span, result, startTime)
 		
 	case <-consensusCtx.Done():
-		// Timeout - use available decisions
-		result := dv.aggregateDecisions(pending)
-		result.Duration = time.Since(start)
-		
-		span.SetAttributes(
-			attribute.Bool("validation.timeout", true),
-			attribute.Bool("validation.valid", result.IsValid),
-			attribute.Int("validation.errors", len(result.Errors)),
-		)
-		
-		dv.metrics.RecordTimeout()
-		return result
+		return dv.handleValidationTimeout(span, pending, startTime)
 	}
+}
+
+// handleValidationSuccess handles successful validation completion
+func (dv *DistributedValidator) handleValidationSuccess(span trace.Span, result *ValidationResult, startTime time.Time) *ValidationResult {
+	duration := time.Since(startTime)
+	result.Duration = duration
+
+	span.SetAttributes(
+		attribute.Bool("validation.valid", result.IsValid),
+		attribute.Int("validation.errors", len(result.Errors)),
+		attribute.Int("validation.warnings", len(result.Warnings)),
+		attribute.Int64("validation.duration_ms", duration.Milliseconds()),
+	)
+
+	dv.metrics.RecordValidation(duration, result.IsValid)
+	return result
+}
+
+// handleValidationTimeout handles validation timeout
+func (dv *DistributedValidator) handleValidationTimeout(span trace.Span, pending *PendingValidation, startTime time.Time) *ValidationResult {
+	// Timeout - use available decisions
+	result := dv.aggregateDecisions(pending)
+	result.Duration = time.Since(startTime)
+
+	span.SetAttributes(
+		attribute.Bool("validation.timeout", true),
+		attribute.Bool("validation.valid", result.IsValid),
+		attribute.Int("validation.errors", len(result.Errors)),
+	)
+
+	dv.metrics.RecordTimeout()
+	return result
 }
 
 // ValidateSequence validates a sequence of events using distributed consensus

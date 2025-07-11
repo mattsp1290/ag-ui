@@ -7,6 +7,8 @@ import (
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/ag-ui/go-sdk/pkg/core/events/internal/worker"
+	"go.uber.org/zap"
 )
 
 // AlertManager manages alerting configuration and active alerts
@@ -29,6 +31,10 @@ type AlertManager struct {
 	wg                sync.WaitGroup
 	mu                sync.RWMutex
 	evaluationInterval time.Duration
+	
+	// Worker management
+	workerManager     *worker.WorkerManager
+	logger            *zap.Logger
 }
 
 // AlertRule defines a rule for generating alerts
@@ -81,6 +87,21 @@ type WebhookClient struct {
 func NewAlertManager(config *Config, collector events.MetricsCollector) *AlertManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	
+	// Create logger
+	logger, err := zap.NewProduction()
+	if err != nil {
+		logger = zap.NewNop() // Fallback to no-op logger
+	}
+	
+	// Create worker manager
+	workerConfig := &worker.WorkerConfig{
+		MaxWorkers:      5,
+		ShutdownTimeout: 30 * time.Second,
+		Logger:          logger,
+		PanicHandler:    worker.NewDefaultPanicHandler(logger),
+	}
+	workerManager := worker.NewWorkerManager(workerConfig)
+	
 	// Default evaluation interval
 	evalInterval := 30 * time.Second
 	// For tests, use a much shorter interval when prometheus port is 0
@@ -97,6 +118,8 @@ func NewAlertManager(config *Config, collector events.MetricsCollector) *AlertMa
 		ctx:              ctx,
 		cancel:           cancel,
 		evaluationInterval: evalInterval,
+		workerManager:    workerManager,
+		logger:           logger,
 	}
 	
 	// Initialize webhook client if configured
@@ -239,29 +262,23 @@ func (am *AlertManager) loadCustomRules(path string) {
 
 // Start starts the alert manager
 func (am *AlertManager) Start(ctx context.Context) {
-	am.wg.Add(2)
-	
 	// Start alert evaluation routine
-	go func() {
-		defer am.wg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("Panic in alert evaluation routine: %v\n", r)
-			}
-		}()
+	_, err := am.workerManager.StartBackgroundWorker("alert-evaluation", func(ctx context.Context) error {
 		am.evaluateAlerts()
-	}()
+		return nil
+	})
+	if err != nil {
+		am.logger.Error("Failed to start alert evaluation worker", zap.Error(err))
+	}
 	
 	// Start alert processing routine
-	go func() {
-		defer am.wg.Done()
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("Panic in alert processing routine: %v\n", r)
-			}
-		}()
+	_, err = am.workerManager.StartBackgroundWorker("alert-processing", func(ctx context.Context) error {
 		am.processAlerts()
-	}()
+		return nil
+	})
+	if err != nil {
+		am.logger.Error("Failed to start alert processing worker", zap.Error(err))
+	}
 }
 
 // evaluateAlerts continuously evaluates alert rules
@@ -513,6 +530,12 @@ func (am *AlertManager) GetAlertHistory(limit int) []AlertEvent {
 // Shutdown gracefully shuts down the alert manager
 func (am *AlertManager) Shutdown() error {
 	am.cancel()
+	
+	// Stop worker manager
+	if err := am.workerManager.Stop(); err != nil {
+		am.logger.Error("Failed to stop worker manager", zap.Error(err))
+	}
+	
 	am.wg.Wait()
 	close(am.alertChannel)
 	return nil

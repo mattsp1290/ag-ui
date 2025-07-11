@@ -285,7 +285,25 @@ func (cm *ConsensusManager) aggregateUnanimous(decisions []*ValidationDecision) 
 
 // aggregateMajority uses simple majority voting
 func (cm *ConsensusManager) aggregateMajority(decisions []*ValidationDecision) *ValidationResult {
-	result := &ValidationResult{
+	result := cm.initializeValidationResult()
+
+	// Check if we have enough decisions for a quorum
+	if !cm.hasQuorum(decisions, result) {
+		return result
+	}
+
+	// Count and categorize decisions
+	validCount, invalidCount, errorMap, warningMap := cm.categorizeDecisions(decisions)
+
+	// Determine consensus result
+	cm.determineMajorityResult(result, validCount, invalidCount, errorMap, warningMap)
+
+	return result
+}
+
+// initializeValidationResult creates a new ValidationResult with default values
+func (cm *ConsensusManager) initializeValidationResult() *ValidationResult {
+	return &ValidationResult{
 		IsValid:     true,
 		Errors:      make([]*ValidationError, 0),
 		Warnings:    make([]*ValidationError, 0),
@@ -293,8 +311,10 @@ func (cm *ConsensusManager) aggregateMajority(decisions []*ValidationDecision) *
 		EventCount:  1,
 		Timestamp:   time.Now(),
 	}
+}
 
-	// Check if we have enough decisions for a quorum
+// hasQuorum checks if we have enough decisions for a quorum
+func (cm *ConsensusManager) hasQuorum(decisions []*ValidationDecision, result *ValidationResult) bool {
 	if len(decisions) < cm.config.QuorumSize {
 		result.IsValid = false
 		result.Errors = append(result.Errors, &ValidationError{
@@ -303,10 +323,13 @@ func (cm *ConsensusManager) aggregateMajority(decisions []*ValidationDecision) *
 			Severity:  ValidationSeverityError,
 			Timestamp: time.Now(),
 		})
-		return result
+		return false
 	}
+	return true
+}
 
-	// Count valid and invalid decisions
+// categorizeDecisions counts valid/invalid decisions and collects errors/warnings
+func (cm *ConsensusManager) categorizeDecisions(decisions []*ValidationDecision) (int, int, map[string]*ValidationError, map[string]*ValidationError) {
 	validCount := 0
 	invalidCount := 0
 	errorMap := make(map[string]*ValidationError)
@@ -328,7 +351,11 @@ func (cm *ConsensusManager) aggregateMajority(decisions []*ValidationDecision) *
 		}
 	}
 
-	// Determine consensus result
+	return validCount, invalidCount, errorMap, warningMap
+}
+
+// determineMajorityResult determines the final result based on majority voting
+func (cm *ConsensusManager) determineMajorityResult(result *ValidationResult, validCount, invalidCount int, errorMap, warningMap map[string]*ValidationError) {
 	if validCount > invalidCount {
 		result.IsValid = true
 		// Include warnings even if validation passed
@@ -342,8 +369,6 @@ func (cm *ConsensusManager) aggregateMajority(decisions []*ValidationDecision) *
 			result.Errors = append(result.Errors, err)
 		}
 	}
-
-	return result
 }
 
 // aggregateRaft uses Raft consensus for decision aggregation

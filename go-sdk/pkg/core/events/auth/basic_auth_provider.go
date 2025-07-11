@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -9,6 +10,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"golang.org/x/crypto/bcrypt"
 )
 
 // BasicAuthProvider provides a simple in-memory authentication implementation
@@ -153,7 +156,7 @@ func (p *BasicAuthProvider) authenticateBasic(ctx context.Context, creds *BasicC
 	}
 	
 	// Verify password
-	if user.PasswordHash != hashPassword(creds.Password) {
+	if !verifyPassword(creds.Password, user.PasswordHash) {
 		return nil, ErrInvalidCredentials
 	}
 	
@@ -438,8 +441,19 @@ func (p *BasicAuthProvider) CleanupExpiredSessions() {
 // Helper functions
 
 func hashPassword(password string) string {
-	hash := sha256.Sum256([]byte(password))
-	return hex.EncodeToString(hash[:])
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		// Fallback to a secure default if bcrypt fails
+		// This should not happen in normal circumstances
+		panic(fmt.Sprintf("failed to hash password: %v", err))
+	}
+	return string(hash)
+}
+
+// verifyPassword verifies a password against a hash
+func verifyPassword(password, hash string) bool {
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
 }
 
 func generateToken() string {
@@ -447,9 +461,17 @@ func generateToken() string {
 }
 
 func generateID(prefix string) string {
-	timestamp := time.Now().UnixNano()
-	hash := sha256.Sum256([]byte(fmt.Sprintf("%s-%d", prefix, timestamp)))
-	return fmt.Sprintf("%s-%s", prefix, hex.EncodeToString(hash[:])[:16])
+	// Generate 16 random bytes
+	randomBytes := make([]byte, 16)
+	_, err := rand.Read(randomBytes)
+	if err != nil {
+		// Fallback to timestamp-based generation if crypto/rand fails
+		// This should not happen in normal circumstances
+		timestamp := time.Now().UnixNano()
+		hash := sha256.Sum256([]byte(fmt.Sprintf("%s-%d", prefix, timestamp)))
+		return fmt.Sprintf("%s-%s", prefix, hex.EncodeToString(hash[:])[:16])
+	}
+	return fmt.Sprintf("%s-%s", prefix, hex.EncodeToString(randomBytes))
 }
 
 func isAnonymousAllowed(resource, action string) bool {

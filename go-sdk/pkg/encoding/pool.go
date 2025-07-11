@@ -27,17 +27,31 @@ type Pool[T any] interface {
 
 // BufferPool manages a pool of bytes.Buffer instances
 type BufferPool struct {
-	pool    sync.Pool
-	metrics PoolMetrics
-	maxSize int // Maximum buffer size to keep in pool
+	pool       sync.Pool
+	metrics    PoolMetrics
+	maxSize    int   // Maximum buffer size to keep in pool
+	maxBuffers int32 // Maximum number of buffers to allocate
+	activeBuffers int32 // Current number of active buffers
+	mu         sync.RWMutex
 }
 
 // NewBufferPool creates a new buffer pool
 func NewBufferPool(maxSize int) *BufferPool {
+	return NewBufferPoolWithCapacity(maxSize, 1000) // Default max 1000 buffers
+}
+
+// NewBufferPoolWithCapacity creates a new buffer pool with a capacity limit
+func NewBufferPoolWithCapacity(maxSize int, maxBuffers int32) *BufferPool {
 	bp := &BufferPool{
-		maxSize: maxSize,
+		maxSize:    maxSize,
+		maxBuffers: maxBuffers,
 	}
 	bp.pool.New = func() interface{} {
+		// Check if we're exceeding the buffer limit
+		if current := atomic.LoadInt32(&bp.activeBuffers); current >= bp.maxBuffers {
+			return nil // Return nil to indicate resource exhaustion
+		}
+		atomic.AddInt32(&bp.activeBuffers, 1)
 		atomic.AddInt64(&bp.metrics.News, 1)
 		return &bytes.Buffer{}
 	}
@@ -47,7 +61,12 @@ func NewBufferPool(maxSize int) *BufferPool {
 // Get retrieves a buffer from the pool
 func (bp *BufferPool) Get() *bytes.Buffer {
 	atomic.AddInt64(&bp.metrics.Gets, 1)
-	buf := bp.pool.Get().(*bytes.Buffer)
+	bufInterface := bp.pool.Get()
+	if bufInterface == nil {
+		// Resource limit exceeded
+		return nil
+	}
+	buf := bufInterface.(*bytes.Buffer)
 	buf.Reset()
 	return buf
 }
@@ -60,11 +79,22 @@ func (bp *BufferPool) Put(buf *bytes.Buffer) {
 	
 	// Don't keep very large buffers in the pool
 	if bp.maxSize > 0 && buf.Cap() > bp.maxSize {
+		// Decrement active count for oversized buffers that won't be pooled
+		atomic.AddInt32(&bp.activeBuffers, -1)
 		return
 	}
 	
 	atomic.AddInt64(&bp.metrics.Puts, 1)
 	atomic.AddInt64(&bp.metrics.Resets, 1)
+	
+	// Zero out the buffer contents before returning to pool
+	// This prevents sensitive data from being exposed to the next consumer
+	if buf.Len() > 0 {
+		bufBytes := buf.Bytes()
+		for i := range bufBytes {
+			bufBytes[i] = 0
+		}
+	}
 	buf.Reset()
 	bp.pool.Put(buf)
 }
@@ -95,17 +125,30 @@ func (bp *BufferPool) Reset() {
 
 // SlicePool manages a pool of byte slices
 type SlicePool struct {
-	pool    sync.Pool
-	metrics PoolMetrics
-	maxSize int // Maximum slice size to keep in pool
+	pool       sync.Pool
+	metrics    PoolMetrics
+	maxSize    int   // Maximum slice size to keep in pool
+	maxSlices  int32 // Maximum number of slices to allocate
+	activeSlices int32 // Current number of active slices
 }
 
 // NewSlicePool creates a new slice pool
 func NewSlicePool(initialSize, maxSize int) *SlicePool {
+	return NewSlicePoolWithCapacity(initialSize, maxSize, 1000) // Default max 1000 slices
+}
+
+// NewSlicePoolWithCapacity creates a new slice pool with a capacity limit
+func NewSlicePoolWithCapacity(initialSize, maxSize int, maxSlices int32) *SlicePool {
 	sp := &SlicePool{
-		maxSize: maxSize,
+		maxSize:   maxSize,
+		maxSlices: maxSlices,
 	}
 	sp.pool.New = func() interface{} {
+		// Check if we're exceeding the slice limit
+		if current := atomic.LoadInt32(&sp.activeSlices); current >= sp.maxSlices {
+			return nil // Return nil to indicate resource exhaustion
+		}
+		atomic.AddInt32(&sp.activeSlices, 1)
 		atomic.AddInt64(&sp.metrics.News, 1)
 		return make([]byte, 0, initialSize)
 	}
@@ -115,7 +158,12 @@ func NewSlicePool(initialSize, maxSize int) *SlicePool {
 // Get retrieves a slice from the pool
 func (sp *SlicePool) Get() []byte {
 	atomic.AddInt64(&sp.metrics.Gets, 1)
-	slice := sp.pool.Get().([]byte)
+	sliceInterface := sp.pool.Get()
+	if sliceInterface == nil {
+		// Resource limit exceeded
+		return nil
+	}
+	slice := sliceInterface.([]byte)
 	return slice[:0] // Reset length but keep capacity
 }
 
@@ -127,11 +175,19 @@ func (sp *SlicePool) Put(slice []byte) {
 	
 	// Don't keep very large slices in the pool
 	if sp.maxSize > 0 && cap(slice) > sp.maxSize {
+		// Decrement active count for oversized slices that won't be pooled
+		atomic.AddInt32(&sp.activeSlices, -1)
 		return
 	}
 	
 	atomic.AddInt64(&sp.metrics.Puts, 1)
 	atomic.AddInt64(&sp.metrics.Resets, 1)
+	
+	// Zero out the slice contents before returning to pool
+	// This prevents sensitive data from being exposed to the next consumer
+	for i := range slice {
+		slice[i] = 0
+	}
 	sp.pool.Put(slice[:0]) // Reset length
 }
 
@@ -270,21 +326,22 @@ func (e *DecodingError) Reset() {
 
 // Global pools for common objects
 var (
-	// Buffer pools with different size limits
-	smallBufferPool  = NewBufferPool(4096)   // 4KB max
-	mediumBufferPool = NewBufferPool(65536)  // 64KB max
-	largeBufferPool  = NewBufferPool(1048576) // 1MB max
+	// Buffer pools with different size limits and capacity limits
+	smallBufferPool  = NewBufferPoolWithCapacity(4096, 500)     // 4KB max, 500 buffers
+	mediumBufferPool = NewBufferPoolWithCapacity(65536, 200)    // 64KB max, 200 buffers
+	largeBufferPool  = NewBufferPoolWithCapacity(1048576, 50)   // 1MB max, 50 buffers
 
-	// Slice pools for different sizes
-	smallSlicePool  = NewSlicePool(1024, 4096)   // 1KB initial, 4KB max
-	mediumSlicePool = NewSlicePool(4096, 65536)  // 4KB initial, 64KB max
-	largeSlicePool  = NewSlicePool(16384, 1048576) // 16KB initial, 1MB max
+	// Slice pools for different sizes with capacity limits
+	smallSlicePool  = NewSlicePoolWithCapacity(1024, 4096, 500)     // 1KB initial, 4KB max, 500 slices
+	mediumSlicePool = NewSlicePoolWithCapacity(4096, 65536, 200)    // 4KB initial, 64KB max, 200 slices
+	largeSlicePool  = NewSlicePoolWithCapacity(16384, 1048576, 50)  // 16KB initial, 1MB max, 50 slices
 
 	// Error pool
 	errorPool = NewErrorPool()
 )
 
 // GetBuffer returns a buffer from the appropriate pool based on expected size
+// Returns nil if resource limits are exceeded
 func GetBuffer(expectedSize int) *bytes.Buffer {
 	switch {
 	case expectedSize <= 4096:
@@ -296,12 +353,26 @@ func GetBuffer(expectedSize int) *bytes.Buffer {
 	}
 }
 
+// GetBufferSafe returns a buffer from the appropriate pool or creates a new one if pool is exhausted
+func GetBufferSafe(expectedSize int) *bytes.Buffer {
+	buf := GetBuffer(expectedSize)
+	if buf == nil {
+		// Pool exhausted, create a new buffer but don't exceed reasonable limits
+		if expectedSize > 100*1024*1024 { // 100MB limit
+			return nil
+		}
+		return &bytes.Buffer{}
+	}
+	return buf
+}
+
 // PutBuffer returns a buffer to the appropriate pool
 func PutBuffer(buf *bytes.Buffer) {
 	if buf == nil {
 		return
 	}
 	
+	// The individual pool's Put method will handle zeroing
 	switch {
 	case buf.Cap() <= 4096:
 		smallBufferPool.Put(buf)
@@ -313,6 +384,7 @@ func PutBuffer(buf *bytes.Buffer) {
 }
 
 // GetSlice returns a slice from the appropriate pool based on expected size
+// Returns nil if resource limits are exceeded
 func GetSlice(expectedSize int) []byte {
 	switch {
 	case expectedSize <= 4096:
@@ -324,12 +396,26 @@ func GetSlice(expectedSize int) []byte {
 	}
 }
 
+// GetSliceSafe returns a slice from the appropriate pool or creates a new one if pool is exhausted
+func GetSliceSafe(expectedSize int) []byte {
+	slice := GetSlice(expectedSize)
+	if slice == nil {
+		// Pool exhausted, create a new slice but don't exceed reasonable limits
+		if expectedSize > 100*1024*1024 { // 100MB limit
+			return nil
+		}
+		return make([]byte, 0, expectedSize)
+	}
+	return slice
+}
+
 // PutSlice returns a slice to the appropriate pool
 func PutSlice(slice []byte) {
 	if slice == nil {
 		return
 	}
 	
+	// The individual pool's Put method will handle zeroing
 	switch {
 	case cap(slice) <= 4096:
 		smallSlicePool.Put(slice)
@@ -383,6 +469,7 @@ func ResetAllPools() {
 	largeSlicePool.Reset()
 	errorPool.Reset()
 }
+
 
 // PoolManager manages lifecycle of pools
 type PoolManager struct {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/encoding"
@@ -12,7 +13,9 @@ import (
 // JSONDecoder implements the Decoder interface for JSON format
 // This decoder is stateless and thread-safe for concurrent use.
 type JSONDecoder struct {
-	options *encoding.DecodingOptions
+	options           *encoding.DecodingOptions
+	activeOperations  int32  // Track active decoding operations
+	maxConcurrent     int32  // Maximum concurrent operations
 }
 
 // NewJSONDecoder creates a new JSON decoder with the given options
@@ -24,7 +27,22 @@ func NewJSONDecoder(options *encoding.DecodingOptions) *JSONDecoder {
 		}
 	}
 	return &JSONDecoder{
-		options: options,
+		options:       options,
+		maxConcurrent: 100, // Default limit of 100 concurrent operations
+	}
+}
+
+// NewJSONDecoderWithConcurrencyLimit creates a new JSON decoder with specified concurrency limit
+func NewJSONDecoderWithConcurrencyLimit(options *encoding.DecodingOptions, maxConcurrent int32) *JSONDecoder {
+	if options == nil {
+		options = &encoding.DecodingOptions{
+			Strict:         true,
+			ValidateEvents: true,
+		}
+	}
+	return &JSONDecoder{
+		options:       options,
+		maxConcurrent: maxConcurrent,
 	}
 }
 
@@ -43,6 +61,21 @@ func (d *JSONDecoder) Decode(ctx context.Context, data []byte) (events.Event, er
 			Cause:   err,
 		}
 	}
+
+	// Check concurrency limits
+	if d.maxConcurrent > 0 {
+		if current := atomic.LoadInt32(&d.activeOperations); current >= d.maxConcurrent {
+			return nil, &encoding.DecodingError{
+				Format:  "json",
+				Data:    data,
+				Message: fmt.Sprintf("decoding concurrency limit exceeded: %d", d.maxConcurrent),
+			}
+		}
+	}
+
+	// Track active operation
+	atomic.AddInt32(&d.activeOperations, 1)
+	defer atomic.AddInt32(&d.activeOperations, -1)
 
 	if len(data) == 0 {
 		return nil, &encoding.DecodingError{
@@ -104,6 +137,21 @@ func (d *JSONDecoder) DecodeMultiple(ctx context.Context, data []byte) ([]events
 		}
 	}
 
+	// Check concurrency limits
+	if d.maxConcurrent > 0 {
+		if current := atomic.LoadInt32(&d.activeOperations); current >= d.maxConcurrent {
+			return nil, &encoding.DecodingError{
+				Format:  "json",
+				Data:    data,
+				Message: fmt.Sprintf("decoding concurrency limit exceeded: %d", d.maxConcurrent),
+			}
+		}
+	}
+
+	// Track active operation
+	atomic.AddInt32(&d.activeOperations, 1)
+	defer atomic.AddInt32(&d.activeOperations, -1)
+
 	if len(data) == 0 {
 		return nil, &encoding.DecodingError{
 			Format:  "json",
@@ -152,7 +200,14 @@ func (d *JSONDecoder) DecodeMultiple(ctx context.Context, data []byte) ([]events
 // createEvent creates the appropriate event type based on the type string
 func (d *JSONDecoder) createEvent(eventType events.EventType, data []byte) (events.Event, error) {
 	// Use buffer pooling for creating a byte reader
-	buf := encoding.GetBuffer(len(data))
+	buf := encoding.GetBufferSafe(len(data))
+	if buf == nil {
+		return nil, &encoding.DecodingError{
+			Format:  "json",
+			Data:    data,
+			Message: "failed to allocate buffer: resource limits exceeded",
+		}
+	}
 	defer encoding.PutBuffer(buf)
 	
 	buf.Write(data)

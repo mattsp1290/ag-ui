@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
@@ -16,7 +18,9 @@ import (
 
 // SecurityValidator provides security validation for encoding/decoding operations
 type SecurityValidator struct {
-	config SecurityConfig
+	config           SecurityConfig
+	currentMemory    int64  // Current memory usage being tracked
+	activeOperations int32  // Number of active validation operations
 }
 
 // SecurityConfig defines security validation configuration
@@ -100,26 +104,60 @@ func NewSecurityValidator(config SecurityConfig) *SecurityValidator {
 
 // ValidateInput validates input data for security issues
 func (v *SecurityValidator) ValidateInput(ctx context.Context, data []byte) error {
+	// Check context cancellation before starting
+	if err := ctx.Err(); err != nil {
+		return agerrors.NewSecurityError(agerrors.CodeValidationFailed, "validation cancelled").WithCause(err)
+	}
+
+	// Check resource limits before processing
+	if err := v.checkResourceLimits(); err != nil {
+		return err
+	}
+
+	// Track active operation
+	atomic.AddInt32(&v.activeOperations, 1)
+	defer atomic.AddInt32(&v.activeOperations, -1)
+
+	// Estimate and track memory usage for this validation
+	dataSize := int64(len(data))
+	atomic.AddInt64(&v.currentMemory, dataSize)
+	defer atomic.AddInt64(&v.currentMemory, -dataSize)
+
 	// Check size limits
 	if err := v.validateSize(data); err != nil {
 		return err
 	}
 
+	// Check context cancellation after size validation
+	if err := ctx.Err(); err != nil {
+		return agerrors.NewSecurityError(agerrors.CodeValidationFailed, "validation cancelled after size check").WithCause(err)
+	}
+
 	// Check for malformed data
-	if err := v.validateFormat(data); err != nil {
+	if err := v.validateFormat(ctx, data); err != nil {
 		return err
+	}
+
+	// Check context cancellation after format validation
+	if err := ctx.Err(); err != nil {
+		return agerrors.NewSecurityError(agerrors.CodeValidationFailed, "validation cancelled after format check").WithCause(err)
 	}
 
 	// Check for injection attacks
 	if v.config.EnableInjectionPrevention {
-		if err := v.validateInjectionPatterns(data); err != nil {
+		if err := v.validateInjectionPatterns(ctx, data); err != nil {
 			return err
 		}
 	}
 
+	// Check context cancellation after injection validation
+	if err := ctx.Err(); err != nil {
+		return agerrors.NewSecurityError(agerrors.CodeValidationFailed, "validation cancelled after injection check").WithCause(err)
+	}
+
 	// Check for DoS patterns
 	if v.config.EnableDOSPrevention {
-		if err := v.validateDOSPatterns(data); err != nil {
+		if err := v.validateDOSPatterns(ctx, data); err != nil {
 			return err
 		}
 	}
@@ -132,6 +170,20 @@ func (v *SecurityValidator) ValidateEvent(ctx context.Context, event events.Even
 	if event == nil {
 		return agerrors.NewSecurityError(agerrors.CodeMissingEvent, "nil event provided for validation")
 	}
+
+	// Check resource limits before processing
+	if err := v.checkResourceLimits(); err != nil {
+		return err
+	}
+
+	// Track active operation
+	atomic.AddInt32(&v.activeOperations, 1)
+	defer atomic.AddInt32(&v.activeOperations, -1)
+
+	// Estimate and track memory usage for this event
+	eventSize := v.estimateEventSize(event)
+	atomic.AddInt64(&v.currentMemory, eventSize)
+	defer atomic.AddInt64(&v.currentMemory, -eventSize)
 
 	// Validate event structure
 	if err := v.validateEventStructure(event); err != nil {
@@ -183,7 +235,7 @@ func (v *SecurityValidator) validateSize(data []byte) error {
 }
 
 // validateFormat validates data format for malformed content
-func (v *SecurityValidator) validateFormat(data []byte) error {
+func (v *SecurityValidator) validateFormat(ctx context.Context, data []byte) error {
 	// Check for null bytes
 	if bytes.Contains(data, []byte{0}) {
 		return agerrors.NewSecurityError(agerrors.CodeNullByteDetected, "input contains null bytes").
@@ -194,6 +246,13 @@ func (v *SecurityValidator) validateFormat(data []byte) error {
 	// Check for extremely long lines (potential DoS)
 	lines := bytes.Split(data, []byte("\n"))
 	for i, line := range lines {
+		// Check context cancellation periodically for large inputs
+		if i%1000 == 0 {
+			if err := ctx.Err(); err != nil {
+				return agerrors.NewSecurityError(agerrors.CodeValidationFailed, "format validation cancelled").WithCause(err)
+			}
+		}
+
 		if len(line) > 100*1024 { // 100KB per line
 			return agerrors.NewSecurityError(agerrors.CodeSizeExceeded, fmt.Sprintf("line %d exceeds maximum length", i+1)).
 				WithViolationType("line_length").
@@ -214,11 +273,18 @@ func (v *SecurityValidator) validateFormat(data []byte) error {
 }
 
 // validateInjectionPatterns validates against injection attack patterns
-func (v *SecurityValidator) validateInjectionPatterns(data []byte) error {
+func (v *SecurityValidator) validateInjectionPatterns(ctx context.Context, data []byte) error {
 	dataStr := string(data)
 
 	// Check blocked patterns
-	for _, pattern := range v.config.BlockedPatterns {
+	for i, pattern := range v.config.BlockedPatterns {
+		// Check context cancellation periodically
+		if i%10 == 0 {
+			if err := ctx.Err(); err != nil {
+				return agerrors.NewSecurityError(agerrors.CodeValidationFailed, "injection pattern validation cancelled").WithCause(err)
+			}
+		}
+
 		matched, err := regexp.MatchString(pattern, dataStr)
 		if err != nil {
 			return agerrors.NewSecurityError(agerrors.CodeSecurityViolation, "regex pattern error").WithPattern(pattern).WithCause(err)
@@ -268,7 +334,7 @@ func (v *SecurityValidator) validateInjectionPatterns(data []byte) error {
 }
 
 // validateDOSPatterns validates against DoS attack patterns
-func (v *SecurityValidator) validateDOSPatterns(data []byte) error {
+func (v *SecurityValidator) validateDOSPatterns(ctx context.Context, data []byte) error {
 	dataStr := string(data)
 
 	// Check for billion laughs attack patterns
@@ -285,16 +351,26 @@ func (v *SecurityValidator) validateDOSPatterns(data []byte) error {
 			WithRiskLevel("high")
 	}
 
+	// Check context before expensive operations
+	if err := ctx.Err(); err != nil {
+		return agerrors.NewSecurityError(agerrors.CodeValidationFailed, "DoS pattern validation cancelled").WithCause(err)
+	}
+
 	// Check for nested structures (JSON bomb)
 	var jsonData interface{}
 	if err := json.Unmarshal(data, &jsonData); err == nil {
-		if err := v.validateNestingDepth(jsonData, 0); err != nil {
+		if err := v.validateNestingDepth(ctx, jsonData, 0); err != nil {
 			return err
 		}
 	}
 
+	// Check context before repetition validation
+	if err := ctx.Err(); err != nil {
+		return agerrors.NewSecurityError(agerrors.CodeValidationFailed, "DoS pattern validation cancelled before repetition check").WithCause(err)
+	}
+
 	// Check for excessive repetition
-	if err := v.validateRepetition(dataStr); err != nil {
+	if err := v.validateRepetition(ctx, dataStr); err != nil {
 		return err
 	}
 
@@ -302,12 +378,17 @@ func (v *SecurityValidator) validateDOSPatterns(data []byte) error {
 }
 
 // validateNestingDepth validates nesting depth to prevent stack overflow
-func (v *SecurityValidator) validateNestingDepth(data interface{}, depth int) error {
+func (v *SecurityValidator) validateNestingDepth(ctx context.Context, data interface{}, depth int) error {
 	if depth > v.config.MaxNestingDepth {
 		return agerrors.NewSecurityError(agerrors.CodeDepthExceeded, fmt.Sprintf("nesting depth %d exceeds maximum %d", depth, v.config.MaxNestingDepth)).
 			WithViolationType("depth_limit").
 			WithDetail("depth", depth).
 			WithDetail("max_depth", v.config.MaxNestingDepth)
+	}
+
+	// Check context cancellation at each depth level
+	if err := ctx.Err(); err != nil {
+		return agerrors.NewSecurityError(agerrors.CodeValidationFailed, "nesting depth validation cancelled").WithCause(err)
 	}
 
 	switch typed := data.(type) {
@@ -318,10 +399,18 @@ func (v *SecurityValidator) validateNestingDepth(data interface{}, depth int) er
 				WithDetail("field_count", len(typed)).
 				WithDetail("max_fields", v.config.MaxFieldCount)
 		}
+		i := 0
 		for _, value := range typed {
-			if err := v.validateNestingDepth(value, depth+1); err != nil {
+			// Check context periodically for large objects
+			if i%100 == 0 {
+				if err := ctx.Err(); err != nil {
+					return agerrors.NewSecurityError(agerrors.CodeValidationFailed, "nesting depth validation cancelled in object").WithCause(err)
+				}
+			}
+			if err := v.validateNestingDepth(ctx, value, depth+1); err != nil {
 				return err
 			}
+			i++
 		}
 	case []interface{}:
 		if len(typed) > v.config.MaxArrayLength {
@@ -330,8 +419,14 @@ func (v *SecurityValidator) validateNestingDepth(data interface{}, depth int) er
 				WithDetail("array_length", len(typed)).
 				WithDetail("max_length", v.config.MaxArrayLength)
 		}
-		for _, value := range typed {
-			if err := v.validateNestingDepth(value, depth+1); err != nil {
+		for i, value := range typed {
+			// Check context periodically for large arrays
+			if i%100 == 0 {
+				if err := ctx.Err(); err != nil {
+					return agerrors.NewSecurityError(agerrors.CodeValidationFailed, "nesting depth validation cancelled in array").WithCause(err)
+				}
+			}
+			if err := v.validateNestingDepth(ctx, value, depth+1); err != nil {
 				return err
 			}
 		}
@@ -348,9 +443,16 @@ func (v *SecurityValidator) validateNestingDepth(data interface{}, depth int) er
 }
 
 // validateRepetition validates against excessive repetition
-func (v *SecurityValidator) validateRepetition(data string) error {
+func (v *SecurityValidator) validateRepetition(ctx context.Context, data string) error {
 	// Check for excessive character repetition
 	for i := 0; i < len(data)-1000; i++ {
+		// Check context cancellation periodically
+		if i%10000 == 0 {
+			if err := ctx.Err(); err != nil {
+				return agerrors.NewSecurityError(agerrors.CodeValidationFailed, "repetition validation cancelled").WithCause(err)
+			}
+		}
+
 		if data[i] == data[i+1000] {
 			// Check if this pattern repeats
 			pattern := data[i : i+1000]
@@ -524,7 +626,7 @@ func (v *SecurityValidator) validateSnapshot(snapshot interface{}) error {
 		return fmt.Errorf("failed to marshal snapshot: %w", err)
 	}
 
-	return v.validateNestingDepth(snapshot, 0)
+	return v.validateNestingDepth(context.Background(), snapshot, 0)
 }
 
 // validateCustomData validates custom event data
@@ -543,7 +645,7 @@ func (v *SecurityValidator) validateCustomData(data interface{}) error {
 		return fmt.Errorf("custom data too large: %d bytes", len(jsonData))
 	}
 
-	return v.validateNestingDepth(data, 0)
+	return v.validateNestingDepth(context.Background(), data, 0)
 }
 
 // sanitizeValue recursively sanitizes data values
@@ -680,5 +782,99 @@ func (m *ResourceMonitor) UpdateMemoryUsage(usage int64) {
 	m.currentMemory = usage
 	if usage > m.maxMemory {
 		m.maxMemory = usage
+	}
+}
+
+// checkResourceLimits checks if current resource usage is within limits
+func (v *SecurityValidator) checkResourceLimits() error {
+	if !v.config.EnableResourceMonitor {
+		return nil
+	}
+
+	// Check memory limits
+	if v.config.MaxMemoryUsage > 0 {
+		// Get current system memory usage
+		var memStats runtime.MemStats
+		runtime.ReadMemStats(&memStats)
+		
+		// Check if we would exceed memory limits
+		currentTracked := atomic.LoadInt64(&v.currentMemory)
+		totalMemory := int64(memStats.Alloc) + currentTracked
+		
+		if totalMemory > v.config.MaxMemoryUsage {
+			return agerrors.NewSecurityError(agerrors.CodeSizeExceeded, 
+				fmt.Sprintf("memory usage limit exceeded: %d > %d", totalMemory, v.config.MaxMemoryUsage))
+		}
+	}
+
+	// Check concurrent operation limits (prevent too many concurrent validations)
+	maxConcurrent := int32(10) // Default limit
+	if v.config.MaxMemoryUsage > 0 {
+		// Scale concurrent operations based on memory limit
+		maxConcurrent = int32(v.config.MaxMemoryUsage / (10 * 1024 * 1024)) // 1 operation per 10MB
+		if maxConcurrent < 1 {
+			maxConcurrent = 1
+		}
+		if maxConcurrent > 100 {
+			maxConcurrent = 100
+		}
+	}
+
+	if current := atomic.LoadInt32(&v.activeOperations); current >= maxConcurrent {
+		return agerrors.NewSecurityError(agerrors.CodeSizeExceeded, 
+			fmt.Sprintf("concurrent validation limit exceeded: %d >= %d", current, maxConcurrent))
+	}
+
+	return nil
+}
+
+// estimateEventSize estimates the memory footprint of an event
+func (v *SecurityValidator) estimateEventSize(event events.Event) int64 {
+	if event == nil {
+		return 0
+	}
+
+	// Base size for event structure
+	size := int64(200) // Approximate overhead
+
+	// Try to marshal to JSON to get a rough size estimate
+	if jsonData, err := event.ToJSON(); err == nil {
+		size += int64(len(jsonData))
+	} else {
+		// Fallback: estimate based on event type
+		switch event.GetBaseEvent().EventType {
+		case "text_message_content":
+			size += 1024 // Estimate 1KB for text content
+		case "tool_call_args":
+			size += 2048 // Estimate 2KB for tool arguments
+		case "state_snapshot":
+			size += 4096 // Estimate 4KB for state data
+		default:
+			size += 512 // Default estimate
+		}
+	}
+
+	return size
+}
+
+// GetResourceStats returns current resource usage statistics
+func (v *SecurityValidator) GetResourceStats() map[string]interface{} {
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+
+	return map[string]interface{}{
+		"system_memory_alloc":    memStats.Alloc,
+		"system_memory_sys":      memStats.Sys,
+		"tracked_memory":         atomic.LoadInt64(&v.currentMemory),
+		"active_operations":      atomic.LoadInt32(&v.activeOperations),
+		"max_memory_limit":       v.config.MaxMemoryUsage,
+		"resource_monitor_enabled": v.config.EnableResourceMonitor,
+		"memory_utilization": func() float64 {
+			if v.config.MaxMemoryUsage == 0 {
+				return 0.0
+			}
+			totalMemory := int64(memStats.Alloc) + atomic.LoadInt64(&v.currentMemory)
+			return float64(totalMemory) / float64(v.config.MaxMemoryUsage)
+		}(),
 	}
 }

@@ -50,6 +50,10 @@ type Registry struct {
 	listCache    *ListCache
 	schemaCache  *SchemaCache
 	memoryPool   *MemoryPool
+
+	// Resource tracking
+	currentMemoryUsage   int64  // Current memory usage in bytes
+	activeRegistrations  int32  // Number of active registration operations
 }
 
 // RegistryValidator is a function that validates tools during registration.
@@ -87,20 +91,29 @@ type RegistryConfig struct {
 	EnableCaching bool
 	// CacheExpiration specifies how long cached tools remain valid
 	CacheExpiration time.Duration
+	// MaxTools limits the maximum number of tools that can be registered
+	MaxTools int
+	// MaxMemoryUsage limits the total memory usage of the registry in bytes
+	MaxMemoryUsage int64
+	// MaxConcurrentRegistrations limits concurrent registration operations
+	MaxConcurrentRegistrations int32
 }
 
 // DefaultRegistryConfig returns the default configuration.
 func DefaultRegistryConfig() *RegistryConfig {
 	return &RegistryConfig{
-		EnableHotReloading:         false,
-		HotReloadInterval:          30 * time.Second,
-		MaxDependencyDepth:         10,
-		ConflictResolutionStrategy: ConflictStrategyError,
-		EnableVersionMigration:     true,
-		MigrationTimeout:           30 * time.Second,
-		LoadingTimeout:             10 * time.Second,
-		EnableCaching:              true,
-		CacheExpiration:            5 * time.Minute,
+		EnableHotReloading:             false,
+		HotReloadInterval:              30 * time.Second,
+		MaxDependencyDepth:             10,
+		ConflictResolutionStrategy:     ConflictStrategyError,
+		EnableVersionMigration:         true,
+		MigrationTimeout:               30 * time.Second,
+		LoadingTimeout:                 10 * time.Second,
+		EnableCaching:                  true,
+		CacheExpiration:                5 * time.Minute,
+		MaxTools:                       10000,                // Limit to 10k tools
+		MaxMemoryUsage:                 100 * 1024 * 1024,    // 100MB memory limit
+		MaxConcurrentRegistrations:     10,                   // Max 10 concurrent registrations
 	}
 }
 
@@ -396,6 +409,23 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 		return NewToolError(ErrorTypeValidation, "NIL_TOOL", "tool cannot be nil")
 	}
 
+	// Check context cancellation early
+	if err := ctx.Err(); err != nil {
+		return NewToolError(ErrorTypeInternal, "CONTEXT_CANCELLED", "context was cancelled").WithCause(err)
+	}
+
+	// Check concurrency limits before acquiring lock
+	if r.config.MaxConcurrentRegistrations > 0 {
+		if current := atomic.LoadInt32(&r.activeRegistrations); current >= r.config.MaxConcurrentRegistrations {
+			return NewToolError(ErrorTypeResource, "CONCURRENT_REGISTRATIONS_EXCEEDED", 
+				fmt.Sprintf("maximum concurrent registrations (%d) exceeded", r.config.MaxConcurrentRegistrations))
+		}
+	}
+
+	// Increment active registrations counter
+	atomic.AddInt32(&r.activeRegistrations, 1)
+	defer atomic.AddInt32(&r.activeRegistrations, -1)
+
 	// Validate the tool
 	if err := tool.Validate(); err != nil {
 		return NewToolError(ErrorTypeValidation, "VALIDATION_FAILED", "tool validation failed").
@@ -419,6 +449,22 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 	// Acquire write lock for the entire registration process to prevent TOCTOU races
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	// Check resource limits while holding the lock
+	if r.config.MaxTools > 0 && len(r.tools) >= r.config.MaxTools {
+		return NewToolError(ErrorTypeResource, "MAX_TOOLS_EXCEEDED", 
+			fmt.Sprintf("maximum number of tools (%d) exceeded", r.config.MaxTools))
+	}
+
+	// Check memory usage limits
+	if r.config.MaxMemoryUsage > 0 {
+		estimatedSize := r.estimateToolMemoryUsage(tool)
+		if r.currentMemoryUsage+estimatedSize > r.config.MaxMemoryUsage {
+			return NewToolError(ErrorTypeResource, "MEMORY_LIMIT_EXCEEDED", 
+				fmt.Sprintf("memory limit (%d bytes) would be exceeded by %d bytes", 
+					r.config.MaxMemoryUsage, estimatedSize))
+		}
+	}
 
 	// Check for existing tools while holding the write lock
 	existingTool, idExists := r.tools[tool.ID]
@@ -467,7 +513,9 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 
 	// Store a clone to prevent external modifications
 	clonedTool := tool.Clone()
+	estimatedSize := r.estimateToolMemoryUsage(clonedTool)
 	r.tools[tool.ID] = clonedTool
+	r.currentMemoryUsage += estimatedSize
 
 	// Update indexes
 	r.nameIndex[tool.Name] = tool.ID
@@ -512,8 +560,15 @@ func (r *Registry) Unregister(toolID string) error {
 		WithToolID(toolID)
 	}
 
+	// Calculate memory usage to be freed
+	estimatedSize := r.estimateToolMemoryUsage(tool)
+
 	// Remove from main storage
 	delete(r.tools, toolID)
+	r.currentMemoryUsage -= estimatedSize
+	if r.currentMemoryUsage < 0 {
+		r.currentMemoryUsage = 0 // Prevent negative values
+	}
 
 	// Remove from name index
 	delete(r.nameIndex, tool.Name)
@@ -2034,4 +2089,139 @@ func (mp *MemoryPool) PutMap(m map[string]interface{}) {
 		return
 	}
 	mp.mapPool.Put(m)
+}
+
+// estimateToolMemoryUsage estimates the memory usage of a tool in bytes
+func (r *Registry) estimateToolMemoryUsage(tool *Tool) int64 {
+	if tool == nil {
+		return 0
+	}
+
+	size := int64(0)
+
+	// Basic fields
+	size += int64(len(tool.ID))
+	size += int64(len(tool.Name))
+	size += int64(len(tool.Description))
+	size += int64(len(tool.Version))
+
+	// Schema size
+	if tool.Schema != nil {
+		size += r.estimateSchemaSize(tool.Schema)
+	}
+
+	// Metadata size
+	if tool.Metadata != nil {
+		size += int64(len(tool.Metadata.Author))
+		size += int64(len(tool.Metadata.Description))
+		for _, tag := range tool.Metadata.Tags {
+			size += int64(len(tag))
+		}
+		for _, dep := range tool.Metadata.Dependencies {
+			size += int64(len(dep))
+		}
+		if tool.Metadata.Custom != nil {
+			size += r.estimateMapSize(tool.Metadata.Custom)
+		}
+	}
+
+	// Add overhead for Go object headers and pointers
+	size += 200 // Approximate overhead
+
+	return size
+}
+
+// estimateSchemaSize estimates the memory usage of a tool schema
+func (r *Registry) estimateSchemaSize(schema *ToolSchema) int64 {
+	if schema == nil {
+		return 0
+	}
+
+	size := int64(0)
+	size += int64(len(schema.Type))
+	size += int64(len(schema.Description))
+
+	for _, req := range schema.Required {
+		size += int64(len(req))
+	}
+
+	if schema.Properties != nil {
+		size += r.estimateMapSize(schema.Properties)
+	}
+
+	return size
+}
+
+// estimateMapSize estimates the memory usage of a map[string]interface{}
+func (r *Registry) estimateMapSize(m map[string]interface{}) int64 {
+	if m == nil {
+		return 0
+	}
+
+	size := int64(0)
+	for k, v := range m {
+		size += int64(len(k))
+		size += r.estimateInterfaceSize(v)
+	}
+
+	// Map overhead
+	size += int64(len(m) * 24) // Approximate overhead per entry
+
+	return size
+}
+
+// estimateInterfaceSize estimates the memory usage of an interface{} value
+func (r *Registry) estimateInterfaceSize(v interface{}) int64 {
+	if v == nil {
+		return 0
+	}
+
+	switch val := v.(type) {
+	case string:
+		return int64(len(val))
+	case []string:
+		size := int64(0)
+		for _, s := range val {
+			size += int64(len(s))
+		}
+		return size
+	case map[string]interface{}:
+		return r.estimateMapSize(val)
+	case []interface{}:
+		size := int64(0)
+		for _, item := range val {
+			size += r.estimateInterfaceSize(item)
+		}
+		return size
+	default:
+		// For other types, use a conservative estimate
+		return 50
+	}
+}
+
+// GetResourceUsage returns current resource usage statistics
+func (r *Registry) GetResourceUsage() map[string]interface{} {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	return map[string]interface{}{
+		"tool_count":          len(r.tools),
+		"max_tools":           r.config.MaxTools,
+		"memory_usage":        r.currentMemoryUsage,
+		"max_memory_usage":    r.config.MaxMemoryUsage,
+		"active_registrations": atomic.LoadInt32(&r.activeRegistrations),
+		"max_concurrent_registrations": r.config.MaxConcurrentRegistrations,
+		"memory_utilization": func() float64 {
+			if r.config.MaxMemoryUsage == 0 {
+				return 0.0
+			}
+			return float64(r.currentMemoryUsage) / float64(r.config.MaxMemoryUsage)
+		}(),
+		"tool_utilization": func() float64 {
+			if r.config.MaxTools == 0 {
+				return 0.0
+			}
+			return float64(len(r.tools)) / float64(r.config.MaxTools)
+		}(),
+	}
 }

@@ -20,7 +20,7 @@ func ExampleJSONCodec() {
 	event := events.NewTextMessageStartEvent("msg123", events.WithRole("assistant"))
 
 	// Encode the event
-	data, err := codec.Encode(event)
+	data, err := codec.Encode(context.Background(), event)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -28,7 +28,7 @@ func ExampleJSONCodec() {
 	fmt.Printf("Encoded JSON: %s\n", string(data))
 
 	// Decode the event
-	decoded, err := codec.Decode(data)
+	decoded, err := codec.Decode(context.Background(), data)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func ExampleJSONCodec_pretty() {
 	}
 
 	// Encode multiple events
-	data, err := codec.EncodeMultiple(events)
+	data, err := codec.EncodeMultiple(context.Background(), events)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -70,10 +70,10 @@ func ExampleStreamingJSONEncoder() {
 	var buf bytes.Buffer
 
 	// Start streaming
-	if err := encoder.StartStream(&buf); err != nil {
+	if err := encoder.StartStream(context.Background(), &buf); err != nil {
 		log.Fatal(err)
 	}
-	defer encoder.EndStream()
+	defer encoder.EndStream(context.Background())
 
 	// Write events one by one
 	events := []events.Event{
@@ -85,7 +85,7 @@ func ExampleStreamingJSONEncoder() {
 	}
 
 	for _, event := range events {
-		if err := encoder.WriteEvent(event); err != nil {
+		if err := encoder.WriteEvent(context.Background(), event); err != nil {
 			log.Fatal(err)
 		}
 	}
@@ -105,14 +105,14 @@ func ExampleStreamingJSONDecoder() {
 
 	// Start streaming from reader
 	reader := bytes.NewReader([]byte(ndjson))
-	if err := decoder.StartStream(reader); err != nil {
+	if err := decoder.StartStream(context.Background(), reader); err != nil {
 		log.Fatal(err)
 	}
-	defer decoder.EndStream()
+	defer decoder.EndStream(context.Background())
 
 	// Read events one by one
 	for {
-		event, err := decoder.ReadEvent()
+		event, err := decoder.ReadEvent(context.Background())
 		if err != nil {
 			break // EOF or error
 		}

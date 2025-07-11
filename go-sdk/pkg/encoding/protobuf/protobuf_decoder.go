@@ -1,11 +1,13 @@
 package protobuf
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/encoding"
+	"github.com/ag-ui/go-sdk/pkg/errors"
 	"github.com/ag-ui/go-sdk/pkg/proto/generated"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
@@ -27,7 +29,16 @@ func NewProtobufDecoder(options *encoding.DecodingOptions) *ProtobufDecoder {
 }
 
 // Decode decodes a single event from protobuf binary format
-func (d *ProtobufDecoder) Decode(data []byte) (events.Event, error) {
+func (d *ProtobufDecoder) Decode(ctx context.Context, data []byte) (events.Event, error) {
+	// Check context cancellation
+	if err := ctx.Err(); err != nil {
+		return nil, &encoding.DecodingError{
+			Format:  "protobuf",
+			Message: "context cancelled",
+			Cause:   err,
+		}
+	}
+
 	if len(data) == 0 {
 		return nil, &encoding.DecodingError{
 			Format:  "protobuf",
@@ -44,7 +55,10 @@ func (d *ProtobufDecoder) Decode(data []byte) (events.Event, error) {
 		}
 	}
 
-	// Unmarshal protobuf
+	// Unmarshal protobuf using buffer pooling for intermediate operations
+	buf := encoding.GetBuffer(len(data))
+	defer encoding.PutBuffer(buf)
+	
 	var pbEvent generated.Event
 	if err := proto.Unmarshal(data, &pbEvent); err != nil {
 		return nil, &encoding.DecodingError{
@@ -82,7 +96,16 @@ func (d *ProtobufDecoder) Decode(data []byte) (events.Event, error) {
 }
 
 // DecodeMultiple decodes multiple events from length-prefixed format
-func (d *ProtobufDecoder) DecodeMultiple(data []byte) ([]events.Event, error) {
+func (d *ProtobufDecoder) DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error) {
+	// Check context cancellation
+	if err := ctx.Err(); err != nil {
+		return nil, &encoding.DecodingError{
+			Format:  "protobuf",
+			Message: "context cancelled",
+			Cause:   err,
+		}
+	}
+
 	if len(data) == 0 {
 		return nil, &encoding.DecodingError{
 			Format:  "protobuf",
@@ -101,6 +124,10 @@ func (d *ProtobufDecoder) DecodeMultiple(data []byte) ([]events.Event, error) {
 
 	// Check if it's length-prefixed format
 	if len(data) >= 4 {
+		// Use buffer pooling for processing length-prefixed data
+		processingBuf := encoding.GetBuffer(len(data))
+		defer encoding.PutBuffer(processingBuf)
+		
 		// Try to read as length-prefixed format
 		offset := 0
 		count := binary.BigEndian.Uint32(data[offset:])
@@ -122,7 +149,7 @@ func (d *ProtobufDecoder) DecodeMultiple(data []byte) ([]events.Event, error) {
 					break // Not enough data, fall back to single event
 				}
 				
-				event, err := d.Decode(data[offset : offset+int(length)])
+				event, err := d.Decode(ctx, data[offset : offset+int(length)])
 				if err != nil {
 					break // Decoding failed, fall back to single event
 				}
@@ -139,7 +166,7 @@ func (d *ProtobufDecoder) DecodeMultiple(data []byte) ([]events.Event, error) {
 	}
 
 	// Fall back to trying as single event
-	event, err := d.Decode(data)
+	event, err := d.Decode(ctx, data)
 	if err != nil {
 		return nil, err
 	}
@@ -151,15 +178,20 @@ func (d *ProtobufDecoder) ContentType() string {
 	return "application/x-protobuf"
 }
 
-// CanStream indicates that protobuf supports streaming
+// CanStream indicates that protobuf supports streaming (backward compatibility)
 func (d *ProtobufDecoder) CanStream() bool {
+	return true
+}
+
+// SupportsStreaming indicates that protobuf decoder supports streaming
+func (d *ProtobufDecoder) SupportsStreaming() bool {
 	return true
 }
 
 // protobufToEvent converts a protobuf Event to internal event type
 func protobufToEvent(pbEvent *generated.Event) (events.Event, error) {
 	if pbEvent == nil {
-		return nil, fmt.Errorf("nil protobuf event")
+		return nil, errors.NewDecodingError("PROTOBUF_NIL_EVENT", "nil protobuf event").WithFormat("protobuf")
 	}
 
 	switch evt := pbEvent.Event.(type) {
@@ -196,7 +228,7 @@ func protobufToEvent(pbEvent *generated.Event) (events.Event, error) {
 	case *generated.Event_StepFinished:
 		return protobufToStepFinished(evt.StepFinished)
 	default:
-		return nil, fmt.Errorf("unknown event type: %T", evt)
+		return nil, errors.NewDecodingError("PROTOBUF_UNKNOWN_EVENT_TYPE", fmt.Sprintf("unknown event type: %T", evt)).WithFormat("protobuf").WithDetail("event_type", fmt.Sprintf("%T", evt))
 	}
 }
 
@@ -524,4 +556,12 @@ func protobufToMessage(msg *generated.Message) events.Message {
 	}
 	
 	return message
+}
+
+// Reset resets the decoder with new options (for pooling)
+func (d *ProtobufDecoder) Reset(options *encoding.DecodingOptions) {
+	if options == nil {
+		options = &encoding.DecodingOptions{}
+	}
+	d.options = options
 }

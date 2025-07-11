@@ -4,20 +4,21 @@
 package negotiation
 
 import (
-	"errors"
 	"fmt"
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/ag-ui/go-sdk/pkg/errors"
 )
 
 var (
 	// ErrNoAcceptableType indicates no acceptable content type could be found
-	ErrNoAcceptableType = errors.New("no acceptable content type found")
+	ErrNoAcceptableType = errors.ErrNegotiationFailed
 	// ErrInvalidAcceptHeader indicates the Accept header is malformed
-	ErrInvalidAcceptHeader = errors.New("invalid Accept header")
+	ErrInvalidAcceptHeader = errors.ErrValidationFailed
 	// ErrNoSupportedTypes indicates no content types are supported
-	ErrNoSupportedTypes = errors.New("no supported content types configured")
+	ErrNoSupportedTypes = errors.ErrNegotiationFailed
 )
 
 // ContentNegotiator implements RFC 7231 compliant content negotiation
@@ -126,7 +127,7 @@ func (cn *ContentNegotiator) Negotiate(acceptHeader string) (string, error) {
 	// Parse the Accept header
 	acceptTypes, err := ParseAcceptHeader(acceptHeader)
 	if err != nil {
-		return "", fmt.Errorf("%w: %v", ErrInvalidAcceptHeader, err)
+		return "", errors.NewEncodingError(errors.CodeNegotiationFailed, "invalid Accept header").WithOperation("negotiate").WithCause(err)
 	}
 
 	// Select the best matching type
@@ -290,7 +291,7 @@ func (cn *ContentNegotiator) SetPreferredType(contentType string) error {
 	defer cn.mu.Unlock()
 
 	if !cn.canHandleUnlocked(contentType) {
-		return fmt.Errorf("unsupported content type: %s", contentType)
+		return errors.NewEncodingError(errors.CodeUnsupportedFormat, fmt.Sprintf("unsupported content type: %s", contentType)).WithOperation("validate").WithDetail("content_type", contentType)
 	}
 
 	cn.preferredType = contentType

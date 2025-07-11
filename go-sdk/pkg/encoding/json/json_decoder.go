@@ -1,19 +1,18 @@
 package json
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/encoding"
 )
 
 // JSONDecoder implements the Decoder interface for JSON format
+// This decoder is stateless and thread-safe for concurrent use.
 type JSONDecoder struct {
 	options *encoding.DecodingOptions
-	mu      sync.Mutex
 }
 
 // NewJSONDecoder creates a new JSON decoder with the given options
@@ -35,9 +34,15 @@ type eventTypeWrapper struct {
 }
 
 // Decode decodes a single event from JSON data
-func (d *JSONDecoder) Decode(data []byte) (events.Event, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+func (d *JSONDecoder) Decode(ctx context.Context, data []byte) (events.Event, error) {
+	// Check context cancellation
+	if err := ctx.Err(); err != nil {
+		return nil, &encoding.DecodingError{
+			Format:  "json",
+			Message: "context cancelled",
+			Cause:   err,
+		}
+	}
 
 	if len(data) == 0 {
 		return nil, &encoding.DecodingError{
@@ -89,9 +94,15 @@ func (d *JSONDecoder) Decode(data []byte) (events.Event, error) {
 }
 
 // DecodeMultiple decodes multiple events from JSON array data
-func (d *JSONDecoder) DecodeMultiple(data []byte) ([]events.Event, error) {
-	d.mu.Lock()
-	defer d.mu.Unlock()
+func (d *JSONDecoder) DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error) {
+	// Check context cancellation
+	if err := ctx.Err(); err != nil {
+		return nil, &encoding.DecodingError{
+			Format:  "json",
+			Message: "context cancelled",
+			Cause:   err,
+		}
+	}
 
 	if len(data) == 0 {
 		return nil, &encoding.DecodingError{
@@ -124,7 +135,7 @@ func (d *JSONDecoder) DecodeMultiple(data []byte) ([]events.Event, error) {
 	// Decode each event
 	events := make([]events.Event, 0, len(rawEvents))
 	for i, rawEvent := range rawEvents {
-		event, err := d.Decode(rawEvent)
+		event, err := d.Decode(ctx, rawEvent)
 		if err != nil {
 			// Enhance error with index information
 			if decErr, ok := err.(*encoding.DecodingError); ok {
@@ -140,7 +151,13 @@ func (d *JSONDecoder) DecodeMultiple(data []byte) ([]events.Event, error) {
 
 // createEvent creates the appropriate event type based on the type string
 func (d *JSONDecoder) createEvent(eventType events.EventType, data []byte) (events.Event, error) {
-	decoder := json.NewDecoder(bytes.NewReader(data))
+	// Use buffer pooling for creating a byte reader
+	buf := encoding.GetBuffer(len(data))
+	defer encoding.PutBuffer(buf)
+	
+	buf.Write(data)
+	
+	decoder := json.NewDecoder(buf)
 	if d.options.Strict && !d.options.AllowUnknownFields {
 		decoder.DisallowUnknownFields()
 	}
@@ -292,7 +309,23 @@ func (d *JSONDecoder) ContentType() string {
 	return "application/json"
 }
 
-// CanStream indicates that JSON decoder supports streaming
+// CanStream indicates that JSON decoder supports streaming (backward compatibility)
 func (d *JSONDecoder) CanStream() bool {
 	return true
+}
+
+// SupportsStreaming indicates that JSON decoder supports streaming
+func (d *JSONDecoder) SupportsStreaming() bool {
+	return true
+}
+
+// Reset resets the decoder with new options (for pooling)
+func (d *JSONDecoder) Reset(options *encoding.DecodingOptions) {
+	if options == nil {
+		options = &encoding.DecodingOptions{
+			Strict:         true,
+			ValidateEvents: true,
+		}
+	}
+	d.options = options
 }

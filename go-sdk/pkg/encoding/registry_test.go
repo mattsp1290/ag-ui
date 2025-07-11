@@ -1,6 +1,7 @@
 package encoding_test
 
 import (
+	"context"
 	"testing"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
@@ -205,7 +206,7 @@ func TestDefaultFactories(t *testing.T) {
 		})
 		
 		// Create encoder
-		encoder, err := factory.CreateEncoder("application/test", nil)
+		encoder, err := factory.CreateEncoder(context.Background(), "application/test", nil)
 		require.NoError(t, err)
 		assert.Equal(t, "application/test", encoder.ContentType())
 		
@@ -219,11 +220,11 @@ func TestDefaultFactories(t *testing.T) {
 		
 		// Register a test decoder
 		factory.RegisterDecoder("application/test", func(opts *encoding.DecodingOptions) (encoding.Decoder, error) {
-			return &mockDecoder{contentType: "application/test"}, nil
+			return &mockRegistryDecoder{contentType: "application/test"}, nil
 		})
 		
 		// Create decoder
-		decoder, err := factory.CreateDecoder("application/test", nil)
+		decoder, err := factory.CreateDecoder(context.Background(), "application/test", nil)
 		require.NoError(t, err)
 		assert.Equal(t, "application/test", decoder.ContentType())
 		
@@ -242,19 +243,19 @@ func TestDefaultFactories(t *testing.T) {
 				return &mockEncoder{contentType: "application/test"}, nil
 			},
 			func(opts *encoding.DecodingOptions) (encoding.Decoder, error) {
-				return &mockDecoder{contentType: "application/test"}, nil
+				return &mockRegistryDecoder{contentType: "application/test"}, nil
 			},
 			nil,
 			nil,
 		)
 		
 		// Create encoder through codec factory
-		encoder, err := factory.CreateEncoder("application/test", nil)
+		encoder, err := factory.CreateEncoder(context.Background(), "application/test", nil)
 		require.NoError(t, err)
 		assert.Equal(t, "application/test", encoder.ContentType())
 		
 		// Create decoder through codec factory
-		decoder, err := factory.CreateDecoder("application/test", nil)
+		decoder, err := factory.CreateDecoder(context.Background(), "application/test", nil)
 		require.NoError(t, err)
 		assert.Equal(t, "application/test", decoder.ContentType())
 	})
@@ -276,18 +277,18 @@ func TestCachingFactory(t *testing.T) {
 	// Create encoder multiple times with same options
 	opts := &encoding.EncodingOptions{Pretty: true}
 	
-	encoder1, err := cachingFactory.CreateEncoder("application/test", opts)
+	encoder1, err := cachingFactory.CreateEncoder(context.Background(), "application/test", opts)
 	require.NoError(t, err)
 	assert.Equal(t, 1, createCount)
 	
-	encoder2, err := cachingFactory.CreateEncoder("application/test", opts)
+	encoder2, err := cachingFactory.CreateEncoder(context.Background(), "application/test", opts)
 	require.NoError(t, err)
 	assert.Equal(t, 1, createCount) // Should not create new one
 	assert.Same(t, encoder1, encoder2)
 	
 	// Create with different options
 	opts2 := &encoding.EncodingOptions{Pretty: false}
-	encoder3, err := cachingFactory.CreateEncoder("application/test", opts2)
+	encoder3, err := cachingFactory.CreateEncoder(context.Background(), "application/test", opts2)
 	require.NoError(t, err)
 	assert.Equal(t, 2, createCount) // Should create new one
 	assert.NotSame(t, encoder1, encoder3)
@@ -295,42 +296,42 @@ func TestCachingFactory(t *testing.T) {
 
 // Mock types for testing
 
-type mockEncoder struct {
+type mockRegistryTestEncoder struct {
 	contentType string
 }
 
-func (m *mockEncoder) Encode(event events.Event) ([]byte, error) {
+func (m *mockRegistryTestEncoder) Encode(ctx context.Context, event events.Event) ([]byte, error) {
 	return []byte("mock"), nil
 }
 
-func (m *mockEncoder) EncodeMultiple(events []events.Event) ([]byte, error) {
+func (m *mockRegistryTestEncoder) EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error) {
 	return []byte("mock"), nil
 }
 
-func (m *mockEncoder) ContentType() string {
+func (m *mockRegistryTestEncoder) ContentType() string {
 	return m.contentType
 }
 
-func (m *mockEncoder) CanStream() bool {
+func (m *mockRegistryTestEncoder) CanStream() bool {
 	return false
 }
 
-type mockDecoder struct {
+type mockRegistryDecoder struct {
 	contentType string
 }
 
-func (m *mockDecoder) Decode(data []byte) (events.Event, error) {
+func (m *mockRegistryDecoder) Decode(ctx context.Context, data []byte) (events.Event, error) {
 	return nil, nil
 }
 
-func (m *mockDecoder) DecodeMultiple(data []byte) ([]events.Event, error) {
+func (m *mockRegistryDecoder) DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error) {
 	return nil, nil
 }
 
-func (m *mockDecoder) ContentType() string {
+func (m *mockRegistryDecoder) ContentType() string {
 	return m.contentType
 }
 
-func (m *mockDecoder) CanStream() bool {
+func (m *mockRegistryDecoder) CanStream() bool {
 	return false
 }

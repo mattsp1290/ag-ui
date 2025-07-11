@@ -3,12 +3,12 @@ package validation
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/encoding"
+	"github.com/ag-ui/go-sdk/pkg/errors"
 )
 
 // CrossSDKValidator validates compatibility with other SDK implementations
@@ -56,18 +56,18 @@ func (v *CrossSDKValidator) RegisterTestVectors(sdk string, vectors []TestVector
 func (v *CrossSDKValidator) ValidateCompatibility(ctx context.Context, sdk string, decoder encoding.Decoder) error {
 	vectors, ok := v.testVectors[sdk]
 	if !ok {
-		return fmt.Errorf("no test vectors found for SDK: %s", sdk)
+		return errors.NewValidationError("COMPATIBILITY_NO_TEST_VECTORS", fmt.Sprintf("no test vectors found for SDK: %s", sdk)).WithDetail("sdk", sdk)
 	}
 
-	var errors []error
+	var errs []error
 	for _, vector := range vectors {
 		if err := v.validateVector(ctx, vector, decoder); err != nil {
-			errors = append(errors, fmt.Errorf("vector '%s' failed: %w", vector.Name, err))
+			errs = append(errs, errors.Wrap(err, fmt.Sprintf("vector '%s' failed", vector.Name)))
 		}
 	}
 
-	if len(errors) > 0 {
-		return fmt.Errorf("compatibility validation failed with %d errors: %v", len(errors), errors)
+	if len(errs) > 0 {
+		return errors.NewValidationError("COMPATIBILITY_VALIDATION_FAILED", fmt.Sprintf("compatibility validation failed with %d errors", len(errs))).WithDetail("error_count", len(errs)).WithDetail("errors", errs)
 	}
 
 	return nil
@@ -79,29 +79,29 @@ func (v *CrossSDKValidator) validateVector(ctx context.Context, vector TestVecto
 	if validator, ok := v.validators[vector.Format]; ok {
 		if err := validator.ValidateFormat(vector.Input); err != nil {
 			if !vector.ShouldFail {
-				return fmt.Errorf("format validation failed unexpectedly: %w", err)
+				return errors.NewValidationError("COMPATIBILITY_FORMAT_VALIDATION_FAILED", "format validation failed unexpectedly").WithCause(err)
 			}
 			return nil // Expected failure
 		}
 	}
 
 	// Decode the input
-	decoded, err := decoder.Decode(vector.Input)
+	decoded, err := decoder.Decode(context.Background(), vector.Input)
 	if err != nil {
 		if vector.ShouldFail {
 			return nil // Expected failure
 		}
-		return fmt.Errorf("decoding failed: %w", err)
+		return errors.NewDecodingError("COMPATIBILITY_DECODING_FAILED", "decoding failed").WithCause(err)
 	}
 
 	if vector.ShouldFail {
-		return errors.New("expected failure but decoding succeeded")
+		return errors.NewValidationError("COMPATIBILITY_UNEXPECTED_SUCCESS", "expected failure but decoding succeeded")
 	}
 
 	// Compare with expected event
 	if vector.Expected != nil {
 		if err := compareEvents(vector.Expected, decoded); err != nil {
-			return fmt.Errorf("event comparison failed: %w", err)
+			return errors.NewValidationError("COMPATIBILITY_EVENT_COMPARISON_FAILED", "event comparison failed").WithCause(err)
 		}
 	}
 
@@ -129,7 +129,7 @@ func (v *CrossSDKValidator) loadDefaultTestVectors() {
 			Format:      "application/json",
 			SDK:         "typescript",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"run.started","timestamp":1234567890,"runId":"run-123","threadId":"thread-456"}`),
+			Input:       []byte(`{"type":"RUN_STARTED","timestamp":1234567890,"runId":"run-123","threadId":"thread-456"}`),
 			Expected: &events.RunStartedEvent{
 				BaseEvent: &events.BaseEvent{
 					EventType:   events.EventTypeRunStarted,
@@ -145,7 +145,7 @@ func (v *CrossSDKValidator) loadDefaultTestVectors() {
 			Format:      "application/json",
 			SDK:         "typescript",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"text.message.content","timestamp":1234567890,"messageId":"msg-789","delta":"Hello, world!"}`),
+			Input:       []byte(`{"type":"TEXT_MESSAGE_CONTENT","timestamp":1234567890,"messageId":"msg-789","delta":"Hello, world!"}`),
 			Expected: &events.TextMessageContentEvent{
 				BaseEvent: &events.BaseEvent{
 					EventType: events.EventTypeTextMessageContent,
@@ -161,7 +161,7 @@ func (v *CrossSDKValidator) loadDefaultTestVectors() {
 			Format:      "application/json",
 			SDK:         "typescript",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"run.started", invalid json`),
+			Input:       []byte(`{"type":"RUN_STARTED", invalid json`),
 			ShouldFail:  true,
 			FailureMsg:  "Invalid JSON format",
 		},
@@ -175,7 +175,7 @@ func (v *CrossSDKValidator) loadDefaultTestVectors() {
 			Format:      "application/json",
 			SDK:         "python",
 			Version:     "1.0.0",
-			Input:       []byte(`{"event_type":"tool.call.start","timestamp":1234567890,"tool_call_id":"tool-abc","tool_call_name":"calculator"}`),
+			Input:       []byte(`{"type":"TOOL_CALL_START","timestamp":1234567890,"toolCallId":"tool-abc","toolCallName":"calculator"}`),
 			Expected: &events.ToolCallStartEvent{
 				BaseEvent: &events.BaseEvent{
 					EventType: events.EventTypeToolCallStart,
@@ -191,7 +191,7 @@ func (v *CrossSDKValidator) loadDefaultTestVectors() {
 			Format:      "application/json",
 			SDK:         "python",
 			Version:     "1.0.0",
-			Input:       []byte(`{"event_type":"state.snapshot","timestamp":1234567890,"snapshot":{"key":"value","count":42}}`),
+			Input:       []byte(`{"type":"STATE_SNAPSHOT","timestamp":1234567890,"snapshot":{"key":"value","count":42}}`),
 			Expected: &events.StateSnapshotEvent{
 				BaseEvent: &events.BaseEvent{
 					EventType: events.EventTypeStateSnapshot,
@@ -232,12 +232,15 @@ func NewVersionCompatibilityValidator() *VersionCompatibilityValidator {
 func (v *VersionCompatibilityValidator) ValidateVersion(component, version string) error {
 	versionRange, ok := v.supportedVersions[component]
 	if !ok {
-		return fmt.Errorf("unknown component: %s", component)
+		return errors.NewValidationError("COMPATIBILITY_UNKNOWN_COMPONENT", fmt.Sprintf("unknown component: %s", component)).WithDetail("component", component)
 	}
 
 	if !isVersionInRange(version, versionRange.MinVersion, versionRange.MaxVersion) {
-		return fmt.Errorf("version %s is not in supported range [%s, %s] for component %s",
-			version, versionRange.MinVersion, versionRange.MaxVersion, component)
+		return errors.NewValidationError("COMPATIBILITY_VERSION_NOT_SUPPORTED", fmt.Sprintf("version %s is not in supported range [%s, %s] for component %s", version, versionRange.MinVersion, versionRange.MaxVersion, component)).
+			WithDetail("version", version).
+			WithDetail("min_version", versionRange.MinVersion).
+			WithDetail("max_version", versionRange.MaxVersion).
+			WithDetail("component", component)
 	}
 
 	return nil
@@ -334,7 +337,7 @@ type JSONTestVectorSource struct {
 func (s *JSONTestVectorSource) LoadVectors(ctx context.Context) ([]TestVector, error) {
 	var vectors []TestVector
 	if err := json.Unmarshal(s.data, &vectors); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal test vectors: %w", err)
+		return nil, errors.NewValidationError("COMPATIBILITY_UNMARSHAL_FAILED", "failed to unmarshal test vectors").WithCause(err)
 	}
 	return vectors, nil
 }
@@ -415,7 +418,7 @@ func (s *CrossSDKTestSuite) generateTestEvents() []events.Event {
 // testEncodingCompatibility tests encoding compatibility
 func (s *CrossSDKTestSuite) testEncodingCompatibility(ctx context.Context, event events.Event) error {
 	// Encode the event
-	encoded, err := s.encoder.Encode(event)
+	encoded, err := s.encoder.Encode(context.Background(), event)
 	if err != nil {
 		return fmt.Errorf("encoding failed: %w", err)
 	}
@@ -429,9 +432,9 @@ func (s *CrossSDKTestSuite) testEncodingCompatibility(ctx context.Context, event
 	}
 
 	// Test round-trip
-	decoded, err := s.decoder.Decode(encoded)
+	decoded, err := s.decoder.Decode(context.Background(), encoded)
 	if err != nil {
-		return fmt.Errorf("decoding failed: %w", err)
+		return errors.NewDecodingError("COMPATIBILITY_DECODING_FAILED", "decoding failed").WithCause(err)
 	}
 
 	// Compare events

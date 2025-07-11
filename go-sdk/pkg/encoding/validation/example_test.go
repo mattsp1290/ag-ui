@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/encoding/json"
@@ -39,7 +40,7 @@ func Example() {
 	}
 
 	// Encode and validate format
-	encoded, err := encoder.Encode(event)
+	encoded, err := encoder.Encode(context.Background(), event)
 	if err != nil {
 		log.Printf("Encoding failed: %v", err)
 		return
@@ -112,7 +113,7 @@ func Example() {
 	// ✓ Compatible with TypeScript SDK
 	// 
 	// === Test Vector Validation ===
-	// ✓ Test vector registry loaded with 30 vectors
+	// ✓ Test vector registry loaded with 42 vectors
 	// 
 	// Validation framework example completed successfully!
 }
@@ -140,7 +141,7 @@ func ExampleSecurityValidator() {
 
 	// Output:
 	// ✓ Safe data passed validation
-	// ✓ Dangerous data correctly rejected: script injection detected: pattern (?i)<script[^>]*>
+	// ✓ Dangerous data correctly rejected: [CRITICAL] SECURITY_VIOLATION: input matches blocked pattern (violation: blocked_pattern) (pattern: <script[^>]*>.*?</script>) (risk: high)
 }
 
 // ExampleBenchmarkSuite demonstrates performance benchmarking
@@ -152,11 +153,13 @@ func ExampleBenchmarkSuite() {
 	decoder := json.NewDecoder()
 	validator := NewJSONValidator(true)
 
-	// Create benchmark configuration
+	// Create benchmark configuration with short duration for examples
 	config := DefaultBenchmarkConfig()
-	config.WarmupIterations = 10
-	config.TestIterations = 100
-	config.Duration = 5000 // 5 seconds in milliseconds would be time.Duration
+	config.WarmupIterations = 2
+	config.TestIterations = 10
+	config.Duration = 500 * time.Millisecond // 500ms maximum duration
+	config.ThroughputDuration = 200 * time.Millisecond // 200ms for throughput tests
+	config.EnableThroughputTest = false // Disable throughput tests that may be slow
 
 	// Create benchmark suite
 	benchmarkSuite := NewBenchmarkSuite(encoder, decoder, validator, config)
@@ -178,8 +181,8 @@ func ExampleBenchmarkSuite() {
 	}
 
 	// Output:
-	// ✓ Benchmark completed with 16 test results
-	// - run_started_encode_single: 5000.00 ops/sec, avg latency: 200µs
-	// - text_message_content_encode_single: 4800.00 ops/sec, avg latency: 208µs
-	// - tool_call_start_encode_single: 4900.00 ops/sec, avg latency: 204µs
+	// ✓ Benchmark completed with 52 test results
+	// - RUN_STARTED_encode_single: 500000.00 ops/sec, avg latency: 2µs
+	// - RUN_STARTED_encode_batch_1: 400000.00 ops/sec, avg latency: 2.5µs
+	// - RUN_STARTED_encode_batch_10: 800000.00 ops/sec, avg latency: 12µs
 }

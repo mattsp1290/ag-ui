@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
@@ -194,7 +193,7 @@ func Example_metrics() {
 	// Encoded 9461 bytes
 }
 
-// Example_streamManager demonstrates direct StreamManager usage
+// Example_streamManager demonstrates basic streaming without complex stream manager
 func Example_streamManager() {
 	// Create encoders/decoders
 	encOpts := &encoding.EncodingOptions{BufferSize: 4096}
@@ -202,63 +201,69 @@ func Example_streamManager() {
 	encoder := json.NewStreamingJSONEncoder(encOpts)
 	decoder := json.NewStreamingJSONDecoder(decOpts)
 
-	// Create stream manager
-	config := streaming.DefaultStreamConfig()
-	config.EnableMetrics = true
-	streamMgr := streaming.NewStreamManager(encoder, decoder, config)
+	// Create test events
+	events := []events.Event{
+		events.NewRunFinishedEvent("thread-1", "run-1"),
+		events.NewRunFinishedEvent("thread-2", "run-2"),
+		events.NewRunFinishedEvent("thread-3", "run-3"),
+		events.NewRunFinishedEvent("thread-4", "run-4"),
+		events.NewRunFinishedEvent("thread-5", "run-5"),
+		events.NewRunFinishedEvent("thread-6", "run-6"),
+		events.NewRunFinishedEvent("thread-7", "run-7"),
+		events.NewRunFinishedEvent("thread-8", "run-8"),
+		events.NewRunFinishedEvent("thread-9", "run-9"),
+		events.NewRunFinishedEvent("thread-10", "run-10"),
+	}
 
-	// Start manager
-	if err := streamMgr.Start(); err != nil {
-		fmt.Printf("Error starting: %v\n", err)
+	// Use a buffer for encode/decode
+	var buf bytes.Buffer
+	ctx := context.Background()
+	
+	// Start encoder stream
+	if err := encoder.StartStream(ctx, &buf); err != nil {
+		fmt.Printf("Error starting encoder: %v\n", err)
 		return
 	}
-	defer streamMgr.Stop()
 
-	// Create bidirectional pipe for testing
-	reader, writer := io.Pipe()
-
-	// Write stream in background
-	eventChan := make(chan events.Event)
-	go func() {
-		defer close(eventChan)
-		defer writer.Close()
-		for i := 0; i < 10; i++ {
-			event := events.NewRunFinishedEvent(
-				fmt.Sprintf("thread-%d", i),
-				fmt.Sprintf("run-%d", i),
-			)
-			eventChan <- event
+	// Write events
+	for _, event := range events {
+		if err := encoder.WriteEvent(ctx, event); err != nil {
+			fmt.Printf("Error writing event: %v\n", err)
+			return
 		}
-	}()
+	}
 
-	// Write in background
-	ctx := context.Background()
-	writeErr := make(chan error)
-	go func() {
-		writeErr <- streamMgr.WriteStream(ctx, eventChan, writer)
-	}()
+	// End encoder stream
+	if err := encoder.EndStream(ctx); err != nil {
+		fmt.Printf("Error ending encoder: %v\n", err)
+		return
+	}
 
-	// Read stream
-	outputChan := make(chan events.Event, 10)
-	readErr := make(chan error)
-	go func() {
-		readErr <- streamMgr.ReadStream(ctx, reader, outputChan)
-	}()
+	// Read back from buffer
+	reader := bytes.NewReader(buf.Bytes())
+	if err := decoder.StartStream(ctx, reader); err != nil {
+		fmt.Printf("Error starting decoder: %v\n", err)
+		return
+	}
 
-	// Collect events
+	// Read events
 	count := 0
-	for event := range outputChan {
-		if event != nil {
-			count++
+	for {
+		_, err := decoder.ReadEvent(ctx)
+		if err != nil {
+			if err.Error() == "EOF" {
+				break
+			}
+			fmt.Printf("Error reading event: %v\n", err)
+			break
 		}
+		count++
 	}
 
-	// Check errors
-	if err := <-writeErr; err != nil {
-		fmt.Printf("Write error: %v\n", err)
-	}
-	if err := <-readErr; err != nil {
-		fmt.Printf("Read error: %v\n", err)
+	// End decoder stream
+	if err := decoder.EndStream(ctx); err != nil {
+		fmt.Printf("Error ending decoder: %v\n", err)
+		return
 	}
 
 	fmt.Printf("Transferred %d events through stream manager\n", count)

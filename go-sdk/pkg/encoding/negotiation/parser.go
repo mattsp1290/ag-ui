@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+
+	"github.com/ag-ui/go-sdk/pkg/errors"
 )
 
 // AcceptType represents a single media type from an Accept header
@@ -27,7 +29,7 @@ func ParseAcceptHeader(header string) ([]AcceptType, error) {
 	for _, part := range parts {
 		acceptType, err := parseAcceptType(strings.TrimSpace(part))
 		if err != nil {
-			return nil, fmt.Errorf("invalid accept type '%s': %w", part, err)
+			return nil, errors.NewEncodingError(errors.CodeNegotiationFailed, fmt.Sprintf("invalid accept type '%s'", part)).WithOperation("parse_accept_header").WithCause(err)
 		}
 		acceptTypes = append(acceptTypes, acceptType)
 	}
@@ -41,7 +43,7 @@ func ParseAcceptHeader(header string) ([]AcceptType, error) {
 // parseAcceptType parses a single accept type with parameters
 func parseAcceptType(s string) (AcceptType, error) {
 	if s == "" {
-		return AcceptType{}, fmt.Errorf("empty accept type")
+		return AcceptType{}, errors.NewEncodingError(errors.CodeNegotiationFailed, "empty accept type").WithOperation("parse_accept_type")
 	}
 
 	acceptType := AcceptType{
@@ -55,12 +57,12 @@ func parseAcceptType(s string) (AcceptType, error) {
 	// First part is the media type
 	acceptType.Type = strings.TrimSpace(parts[0])
 	if acceptType.Type == "" {
-		return AcceptType{}, fmt.Errorf("empty media type")
+		return AcceptType{}, errors.NewEncodingError(errors.CodeNegotiationFailed, "empty media type").WithOperation("parse_accept_type")
 	}
 
 	// Validate media type format
 	if !isValidMediaType(acceptType.Type) {
-		return AcceptType{}, fmt.Errorf("invalid media type format: %s", acceptType.Type)
+		return AcceptType{}, errors.NewEncodingError(errors.CodeNegotiationFailed, fmt.Sprintf("invalid media type format: %s", acceptType.Type)).WithOperation("parse_accept_type").WithDetail("type", acceptType.Type)
 	}
 
 	// Parse parameters
@@ -73,7 +75,7 @@ func parseAcceptType(s string) (AcceptType, error) {
 		// Split parameter by equals sign
 		paramParts := strings.SplitN(param, "=", 2)
 		if len(paramParts) != 2 {
-			return AcceptType{}, fmt.Errorf("invalid parameter format: %s", param)
+			return AcceptType{}, errors.NewEncodingError(errors.CodeNegotiationFailed, fmt.Sprintf("invalid parameter format: %s", param)).WithOperation("parse_accept_type").WithDetail("parameter", param)
 		}
 
 		key := strings.TrimSpace(paramParts[0])
@@ -86,7 +88,7 @@ func parseAcceptType(s string) (AcceptType, error) {
 		if key == "q" {
 			q, err := parseQuality(value)
 			if err != nil {
-				return AcceptType{}, fmt.Errorf("invalid q-value: %w", err)
+				return AcceptType{}, errors.NewEncodingError(errors.CodeNegotiationFailed, "invalid q-value").WithOperation("parse_accept_type").WithCause(err)
 			}
 			acceptType.Quality = q
 		} else {
@@ -107,7 +109,7 @@ func parseQuality(s string) (float64, error) {
 
 	// Validate range
 	if q < 0 || q > 1 {
-		return 0, fmt.Errorf("q-value must be between 0 and 1, got %f", q)
+		return 0, errors.NewEncodingError(errors.CodeNegotiationFailed, fmt.Sprintf("q-value must be between 0 and 1, got %f", q)).WithOperation("parse_q_value").WithDetail("q_value", q)
 	}
 
 	// Round to 3 decimal places as per RFC
@@ -190,13 +192,13 @@ func ParseMediaType(mediaType string) (string, map[string]string, error) {
 	// Split by semicolon
 	parts := strings.Split(mediaType, ";")
 	if len(parts) == 0 {
-		return "", nil, fmt.Errorf("empty media type")
+		return "", nil, errors.NewEncodingError(errors.CodeNegotiationFailed, "empty media type").WithOperation("parse_media_type")
 	}
 
 	// First part is the media type
 	baseType := strings.TrimSpace(parts[0])
 	if !isValidMediaType(baseType) {
-		return "", nil, fmt.Errorf("invalid media type: %s", baseType)
+		return "", nil, errors.NewEncodingError(errors.CodeNegotiationFailed, fmt.Sprintf("invalid media type: %s", baseType)).WithOperation("parse_media_type").WithDetail("media_type", baseType)
 	}
 
 	// Parse parameters

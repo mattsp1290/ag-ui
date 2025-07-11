@@ -46,7 +46,7 @@ func TestProtobufEncoder_Encode(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			data, err := encoder.Encode(tt.event)
+			data, err := encoder.Encode(context.Background(), tt.event)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Encode() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -66,13 +66,13 @@ func TestProtobufDecoder_Decode(t *testing.T) {
 	originalEvent := events.NewTextMessageContentEvent("msg-123", "Hello, world!")
 
 	// Encode
-	data, err := encoder.Encode(originalEvent)
+	data, err := encoder.Encode(context.Background(), originalEvent)
 	if err != nil {
 		t.Fatalf("Failed to encode: %v", err)
 	}
 
 	// Decode
-	decoded, err := decoder.Decode(data)
+	decoded, err := decoder.Decode(context.Background(), data)
 	if err != nil {
 		t.Fatalf("Failed to decode: %v", err)
 	}
@@ -105,13 +105,13 @@ func TestProtobufCodec_MultipleEvents(t *testing.T) {
 	}
 
 	// Encode multiple
-	data, err := encoder.EncodeMultiple(testEvents)
+	data, err := encoder.EncodeMultiple(context.Background(), testEvents)
 	if err != nil {
 		t.Fatalf("EncodeMultiple failed: %v", err)
 	}
 
 	// Decode multiple
-	decoded, err := decoder.DecodeMultiple(data)
+	decoded, err := decoder.DecodeMultiple(context.Background(), data)
 	if err != nil {
 		t.Fatalf("DecodeMultiple failed: %v", err)
 	}
@@ -137,7 +137,7 @@ func TestStreamingProtobuf(t *testing.T) {
 	var buf bytes.Buffer
 
 	// Start encoding stream
-	if err := encoder.StartStream(&buf); err != nil {
+	if err := encoder.StartStream(context.Background(), &buf); err != nil {
 		t.Fatalf("StartStream failed: %v", err)
 	}
 
@@ -151,12 +151,12 @@ func TestStreamingProtobuf(t *testing.T) {
 	}
 
 	for _, event := range eventsToStream {
-		if err := encoder.WriteEvent(event); err != nil {
+		if err := encoder.WriteEvent(context.Background(), event); err != nil {
 			t.Fatalf("WriteEvent failed: %v", err)
 		}
 	}
 
-	if err := encoder.EndStream(); err != nil {
+	if err := encoder.EndStream(context.Background()); err != nil {
 		t.Fatalf("EndStream failed: %v", err)
 	}
 
@@ -204,7 +204,7 @@ func TestProtobufOptions(t *testing.T) {
 			"data": "this is a very long string that will exceed the size limit when encoded to protobuf format",
 		})
 
-		_, err := encoder.Encode(event)
+		_, err := encoder.Encode(context.Background(), event)
 		if err == nil {
 			t.Error("Expected error for exceeding max size")
 		}
@@ -217,7 +217,7 @@ func TestProtobufOptions(t *testing.T) {
 
 		event := events.NewToolCallEndEvent("call-123")
 
-		data, err := encoder.Encode(event)
+		data, err := encoder.Encode(context.Background(), event)
 		if err != nil {
 			t.Errorf("Encode with validation failed: %v", err)
 		}
@@ -237,9 +237,9 @@ func TestProtobufOptions(t *testing.T) {
 		// Create an invalid event (empty error message)
 		event := events.NewRunErrorEvent("") // Invalid: empty error message
 
-		data, _ := encoder.Encode(event)
+		data, _ := encoder.Encode(context.Background(), event)
 		
-		_, err := decoder.Decode(data)
+		_, err := decoder.Decode(context.Background(), data)
 		if err == nil {
 			t.Error("Expected validation error for invalid event")
 		}
@@ -281,13 +281,13 @@ func TestProtobufAllEventTypes(t *testing.T) {
 	for _, originalEvent := range testEvents {
 		t.Run(string(originalEvent.Type()), func(t *testing.T) {
 			// Encode
-			data, err := codec.Encode(originalEvent)
+			data, err := codec.Encode(context.Background(), originalEvent)
 			if err != nil {
 				t.Fatalf("Encode failed: %v", err)
 			}
 
 			// Decode
-			decoded, err := codec.Decode(data)
+			decoded, err := codec.Decode(context.Background(), data)
 			if err != nil {
 				t.Fatalf("Decode failed: %v", err)
 			}

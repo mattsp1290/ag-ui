@@ -199,13 +199,13 @@ func NewRoundTripValidator(encoder encoding.Encoder, decoder encoding.Decoder) *
 // ValidateRoundTrip validates that an event survives encode->decode->compare
 func (v *RoundTripValidator) ValidateRoundTrip(ctx context.Context, event events.Event) error {
 	// Encode the event
-	encoded, err := v.encoder.Encode(event)
+	encoded, err := v.encoder.Encode(context.Background(), event)
 	if err != nil {
 		return fmt.Errorf("round-trip encode failed: %w", err)
 	}
 
 	// Decode the event
-	decoded, err := v.decoder.Decode(encoded)
+	decoded, err := v.decoder.Decode(context.Background(), encoded)
 	if err != nil {
 		return fmt.Errorf("round-trip decode failed: %w", err)
 	}
@@ -221,13 +221,13 @@ func (v *RoundTripValidator) ValidateRoundTrip(ctx context.Context, event events
 // ValidateRoundTripMultiple validates multiple events through round-trip
 func (v *RoundTripValidator) ValidateRoundTripMultiple(ctx context.Context, events []events.Event) error {
 	// Encode the events
-	encoded, err := v.encoder.EncodeMultiple(events)
+	encoded, err := v.encoder.EncodeMultiple(context.Background(), events)
 	if err != nil {
 		return fmt.Errorf("round-trip encode multiple failed: %w", err)
 	}
 
 	// Decode the events
-	decoded, err := v.decoder.DecodeMultiple(encoded)
+	decoded, err := v.decoder.DecodeMultiple(context.Background(), encoded)
 	if err != nil {
 		return fmt.Errorf("round-trip decode multiple failed: %w", err)
 	}

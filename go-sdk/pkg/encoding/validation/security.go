@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
+	agerrors "github.com/ag-ui/go-sdk/pkg/errors"
 )
 
 // SecurityValidator provides security validation for encoding/decoding operations
@@ -129,7 +130,7 @@ func (v *SecurityValidator) ValidateInput(ctx context.Context, data []byte) erro
 // ValidateEvent validates an event for security issues
 func (v *SecurityValidator) ValidateEvent(ctx context.Context, event events.Event) error {
 	if event == nil {
-		return errors.New("nil event")
+		return agerrors.NewSecurityError(agerrors.CodeMissingEvent, "nil event provided for validation")
 	}
 
 	// Validate event structure
@@ -154,7 +155,7 @@ func (v *SecurityValidator) SanitizeInput(data []byte) ([]byte, error) {
 	// Parse as JSON for sanitization
 	var jsonData interface{}
 	if err := json.Unmarshal(data, &jsonData); err != nil {
-		return nil, fmt.Errorf("failed to parse JSON for sanitization: %w", err)
+		return nil, agerrors.NewEncodingError(agerrors.CodeDecodingFailed, "failed to parse JSON for sanitization").WithOperation("sanitize").WithCause(err)
 	}
 
 	// Sanitize the data structure
@@ -163,7 +164,7 @@ func (v *SecurityValidator) SanitizeInput(data []byte) ([]byte, error) {
 	// Marshal back to JSON
 	result, err := json.Marshal(sanitized)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal sanitized data: %w", err)
+		return nil, agerrors.NewEncodingError(agerrors.CodeEncodingFailed, "failed to marshal sanitized data").WithOperation("sanitize").WithCause(err)
 	}
 
 	return result, nil
@@ -173,7 +174,10 @@ func (v *SecurityValidator) SanitizeInput(data []byte) ([]byte, error) {
 func (v *SecurityValidator) validateSize(data []byte) error {
 	size := int64(len(data))
 	if size > v.config.MaxInputSize {
-		return fmt.Errorf("input size %d exceeds maximum %d", size, v.config.MaxInputSize)
+		return agerrors.NewSecurityError(agerrors.CodeSizeExceeded, fmt.Sprintf("input size %d exceeds maximum %d", size, v.config.MaxInputSize)).
+			WithViolationType("size_limit").
+			WithDetail("size", size).
+			WithDetail("max_size", v.config.MaxInputSize)
 	}
 	return nil
 }
@@ -182,20 +186,28 @@ func (v *SecurityValidator) validateSize(data []byte) error {
 func (v *SecurityValidator) validateFormat(data []byte) error {
 	// Check for null bytes
 	if bytes.Contains(data, []byte{0}) {
-		return errors.New("input contains null bytes")
+		return agerrors.NewSecurityError(agerrors.CodeNullByteDetected, "input contains null bytes").
+			WithViolationType("null_byte_injection").
+			WithRiskLevel("high")
 	}
 
 	// Check for extremely long lines (potential DoS)
 	lines := bytes.Split(data, []byte("\n"))
 	for i, line := range lines {
 		if len(line) > 100*1024 { // 100KB per line
-			return fmt.Errorf("line %d exceeds maximum length", i+1)
+			return agerrors.NewSecurityError(agerrors.CodeSizeExceeded, fmt.Sprintf("line %d exceeds maximum length", i+1)).
+				WithViolationType("line_length").
+				WithLocation(fmt.Sprintf("line_%d", i+1)).
+				WithDetail("line_length", len(line)).
+				WithDetail("max_length", 100*1024)
 		}
 	}
 
 	// Check for valid UTF-8
 	if !isValidUTF8(data) {
-		return errors.New("input contains invalid UTF-8")
+		return agerrors.NewSecurityError(agerrors.CodeInvalidUTF8, "input contains invalid UTF-8").
+			WithViolationType("encoding_violation").
+			WithRiskLevel("medium")
 	}
 
 	return nil
@@ -209,10 +221,13 @@ func (v *SecurityValidator) validateInjectionPatterns(data []byte) error {
 	for _, pattern := range v.config.BlockedPatterns {
 		matched, err := regexp.MatchString(pattern, dataStr)
 		if err != nil {
-			return fmt.Errorf("regex pattern error: %w", err)
+			return agerrors.NewSecurityError(agerrors.CodeSecurityViolation, "regex pattern error").WithPattern(pattern).WithCause(err)
 		}
 		if matched {
-			return fmt.Errorf("input matches blocked pattern: %s", pattern)
+			return agerrors.NewSecurityError(agerrors.CodeSecurityViolation, "input matches blocked pattern").
+				WithViolationType("blocked_pattern").
+				WithPattern(pattern).
+				WithRiskLevel("high")
 		}
 	}
 
@@ -228,7 +243,7 @@ func (v *SecurityValidator) validateInjectionPatterns(data []byte) error {
 		for _, pattern := range scriptPatterns {
 			matched, _ := regexp.MatchString(pattern, dataStr)
 			if matched {
-				return fmt.Errorf("script injection detected: pattern %s", pattern)
+				return agerrors.NewScriptInjectionError("script injection detected", pattern)
 			}
 		}
 	}
@@ -245,7 +260,7 @@ func (v *SecurityValidator) validateInjectionPatterns(data []byte) error {
 	for _, pattern := range sqlPatterns {
 		matched, _ := regexp.MatchString(pattern, dataStr)
 		if matched {
-			return fmt.Errorf("SQL injection pattern detected: %s", pattern)
+			return agerrors.NewSQLInjectionError("SQL injection pattern detected", pattern)
 		}
 	}
 
@@ -258,12 +273,16 @@ func (v *SecurityValidator) validateDOSPatterns(data []byte) error {
 
 	// Check for billion laughs attack patterns
 	if strings.Contains(dataStr, "&lol;") || strings.Contains(dataStr, "<!ENTITY") {
-		return errors.New("XML entity expansion attack detected")
+		return agerrors.NewSecurityError(agerrors.CodeEntityExpansion, "XML entity expansion attack detected").
+			WithViolationType("entity_expansion").
+			WithRiskLevel("critical")
 	}
 
 	// Check for zip bomb patterns
 	if strings.Contains(dataStr, "PK\x03\x04") {
-		return errors.New("potential zip bomb detected")
+		return agerrors.NewSecurityError(agerrors.CodeZipBomb, "potential zip bomb detected").
+			WithViolationType("zip_bomb").
+			WithRiskLevel("high")
 	}
 
 	// Check for nested structures (JSON bomb)
@@ -285,13 +304,19 @@ func (v *SecurityValidator) validateDOSPatterns(data []byte) error {
 // validateNestingDepth validates nesting depth to prevent stack overflow
 func (v *SecurityValidator) validateNestingDepth(data interface{}, depth int) error {
 	if depth > v.config.MaxNestingDepth {
-		return fmt.Errorf("nesting depth %d exceeds maximum %d", depth, v.config.MaxNestingDepth)
+		return agerrors.NewSecurityError(agerrors.CodeDepthExceeded, fmt.Sprintf("nesting depth %d exceeds maximum %d", depth, v.config.MaxNestingDepth)).
+			WithViolationType("depth_limit").
+			WithDetail("depth", depth).
+			WithDetail("max_depth", v.config.MaxNestingDepth)
 	}
 
 	switch typed := data.(type) {
 	case map[string]interface{}:
 		if len(typed) > v.config.MaxFieldCount {
-			return fmt.Errorf("object field count %d exceeds maximum %d", len(typed), v.config.MaxFieldCount)
+			return agerrors.NewSecurityError(agerrors.CodeSizeExceeded, fmt.Sprintf("object field count %d exceeds maximum %d", len(typed), v.config.MaxFieldCount)).
+				WithViolationType("field_count").
+				WithDetail("field_count", len(typed)).
+				WithDetail("max_fields", v.config.MaxFieldCount)
 		}
 		for _, value := range typed {
 			if err := v.validateNestingDepth(value, depth+1); err != nil {
@@ -300,7 +325,10 @@ func (v *SecurityValidator) validateNestingDepth(data interface{}, depth int) er
 		}
 	case []interface{}:
 		if len(typed) > v.config.MaxArrayLength {
-			return fmt.Errorf("array length %d exceeds maximum %d", len(typed), v.config.MaxArrayLength)
+			return agerrors.NewSecurityError(agerrors.CodeSizeExceeded, fmt.Sprintf("array length %d exceeds maximum %d", len(typed), v.config.MaxArrayLength)).
+				WithViolationType("array_length").
+				WithDetail("array_length", len(typed)).
+				WithDetail("max_length", v.config.MaxArrayLength)
 		}
 		for _, value := range typed {
 			if err := v.validateNestingDepth(value, depth+1); err != nil {
@@ -309,7 +337,10 @@ func (v *SecurityValidator) validateNestingDepth(data interface{}, depth int) er
 		}
 	case string:
 		if len(typed) > v.config.MaxStringLength {
-			return fmt.Errorf("string length %d exceeds maximum %d", len(typed), v.config.MaxStringLength)
+			return agerrors.NewSecurityError(agerrors.CodeSizeExceeded, fmt.Sprintf("string length %d exceeds maximum %d", len(typed), v.config.MaxStringLength)).
+				WithViolationType("string_length").
+				WithDetail("string_length", len(typed)).
+				WithDetail("max_length", v.config.MaxStringLength)
 		}
 	}
 
@@ -332,7 +363,7 @@ func (v *SecurityValidator) validateRepetition(data string) error {
 				}
 			}
 			if count > 10 { // More than 10 repetitions of 1KB pattern
-				return errors.New("excessive repetition detected (potential DoS)")
+				return agerrors.NewDOSError("excessive repetition detected (potential DoS)", "repetition_check")
 			}
 		}
 	}
@@ -344,17 +375,21 @@ func (v *SecurityValidator) validateRepetition(data string) error {
 func (v *SecurityValidator) validateEventStructure(event events.Event) error {
 	baseEvent := event.GetBaseEvent()
 	if baseEvent == nil {
-		return errors.New("missing base event")
+		return agerrors.NewSecurityError(agerrors.CodeMissingEvent, "missing base event").
+			WithViolationType("structure_validation")
 	}
 
 	// Validate event type
 	if baseEvent.EventType == "" {
-		return errors.New("missing event type")
+		return agerrors.NewSecurityError(agerrors.CodeMissingEventType, "missing event type").
+			WithViolationType("structure_validation")
 	}
 
 	// Validate timestamp if present
 	if baseEvent.TimestampMs != nil && *baseEvent.TimestampMs < 0 {
-		return errors.New("negative timestamp")
+		return agerrors.NewSecurityError(agerrors.CodeNegativeTimestamp, "negative timestamp").
+			WithViolationType("timestamp_validation").
+			WithDetail("timestamp", *baseEvent.TimestampMs)
 	}
 
 	// Note: BaseEvent doesn't have SequenceNumber field in this implementation
@@ -367,7 +402,7 @@ func (v *SecurityValidator) validateEventContent(event events.Event) error {
 	switch typed := event.(type) {
 	case *events.TextMessageContentEvent:
 		if err := v.validateStringContent(typed.Delta); err != nil {
-			return fmt.Errorf("invalid message content: %w", err)
+			return agerrors.Wrap(err, "invalid message content")
 		}
 		if err := v.validateID(typed.MessageID, "message"); err != nil {
 			return err
@@ -375,7 +410,7 @@ func (v *SecurityValidator) validateEventContent(event events.Event) error {
 
 	case *events.ToolCallStartEvent:
 		if err := v.validateStringContent(typed.ToolCallName); err != nil {
-			return fmt.Errorf("invalid tool call name: %w", err)
+			return agerrors.Wrap(err, "invalid tool call name")
 		}
 		if err := v.validateID(typed.ToolCallID, "tool call"); err != nil {
 			return err
@@ -392,16 +427,16 @@ func (v *SecurityValidator) validateEventContent(event events.Event) error {
 	case *events.StateSnapshotEvent:
 		// Validate snapshot data structure
 		if err := v.validateSnapshot(typed.Snapshot); err != nil {
-			return fmt.Errorf("invalid snapshot: %w", err)
+			return agerrors.Wrap(err, "invalid snapshot")
 		}
 
 	case *events.CustomEvent:
 		if err := v.validateStringContent(typed.Name); err != nil {
-			return fmt.Errorf("invalid custom event name: %w", err)
+			return agerrors.Wrap(err, "invalid custom event name")
 		}
 		if typed.Value != nil {
 			if err := v.validateCustomData(typed.Value); err != nil {
-				return fmt.Errorf("invalid custom event data: %w", err)
+				return agerrors.Wrap(err, "invalid custom event data")
 			}
 		}
 	}
@@ -412,7 +447,10 @@ func (v *SecurityValidator) validateEventContent(event events.Event) error {
 // validateStringContent validates string content for security issues
 func (v *SecurityValidator) validateStringContent(content string) error {
 	if len(content) > v.config.MaxStringLength {
-		return fmt.Errorf("string length %d exceeds maximum %d", len(content), v.config.MaxStringLength)
+		return agerrors.NewSecurityError(agerrors.CodeSizeExceeded, fmt.Sprintf("string length %d exceeds maximum %d", len(content), v.config.MaxStringLength)).
+			WithViolationType("string_length").
+			WithDetail("length", len(content)).
+			WithDetail("max_length", v.config.MaxStringLength)
 	}
 
 	// Check for XSS patterns if XSS prevention is enabled
@@ -429,14 +467,16 @@ func (v *SecurityValidator) validateStringContent(content string) error {
 		for _, pattern := range xssPatterns {
 			matched, _ := regexp.MatchString(pattern, content)
 			if matched {
-				return fmt.Errorf("XSS pattern detected: %s", pattern)
+				return agerrors.NewXSSError("XSS pattern detected in content", pattern)
 			}
 		}
 	}
 
 	// Check for HTML content if not allowed
 	if !v.config.AllowHTMLContent && containsHTML(content) {
-		return errors.New("HTML content not allowed")
+		return agerrors.NewSecurityError(agerrors.CodeHTMLNotAllowed, "HTML content not allowed").
+			WithViolationType("html_content").
+			WithRiskLevel("medium")
 	}
 
 	return nil
@@ -450,14 +490,22 @@ func (v *SecurityValidator) validateID(id, idType string) error {
 
 	// Check length
 	if len(id) > 1000 { // Reasonable ID length limit
-		return fmt.Errorf("%s ID too long: %d", idType, len(id))
+		return agerrors.NewSecurityError(agerrors.CodeIDTooLong, fmt.Sprintf("%s ID too long: %d", idType, len(id))).
+			WithViolationType("id_length").
+			WithDetail("id_type", idType).
+			WithDetail("length", len(id)).
+			WithDetail("max_length", 1000)
 	}
 
 	// Check for dangerous characters
 	dangerousChars := []string{"\x00", "\n", "\r", "\t", "<", ">", "\"", "'", "&"}
 	for _, char := range dangerousChars {
 		if strings.Contains(id, char) {
-			return fmt.Errorf("%s ID contains dangerous character: %s", idType, char)
+			return agerrors.NewSecurityError(agerrors.CodeInvalidData, fmt.Sprintf("%s ID contains dangerous character: %s", idType, char)).
+				WithViolationType("dangerous_character").
+				WithRiskLevel("medium").
+				WithDetail("id_type", idType).
+				WithDetail("character", char)
 		}
 	}
 

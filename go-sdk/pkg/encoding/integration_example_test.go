@@ -1,6 +1,7 @@
 package encoding_test
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -18,14 +19,14 @@ func ExampleFormatRegistry_integration() {
 	event := events.NewTextMessageStartEvent("msg-123", events.WithRole("assistant"))
 	
 	// Encode with JSON
-	jsonEncoder, err := registry.GetEncoder("application/json", &encoding.EncodingOptions{
+	jsonEncoder, err := registry.GetEncoder(context.Background(), "application/json", &encoding.EncodingOptions{
 		Pretty: true,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
 	
-	jsonData, err := jsonEncoder.Encode(event)
+	jsonData, err := jsonEncoder.Encode(context.Background(), event)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -33,12 +34,12 @@ func ExampleFormatRegistry_integration() {
 	fmt.Printf("JSON encoded %d bytes\n", len(jsonData))
 	
 	// Encode with Protobuf
-	protobufEncoder, err := registry.GetEncoder("application/x-protobuf", nil)
+	protobufEncoder, err := registry.GetEncoder(context.Background(), "application/x-protobuf", nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	
-	protobufData, err := protobufEncoder.Encode(event)
+	protobufData, err := protobufEncoder.Encode(context.Background(), event)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -115,7 +116,7 @@ func ExampleFormatRegistry_streaming() {
 	for _, format := range formats {
 		if format.Capabilities.Streaming {
 			// Try to create a streaming encoder
-			_, err := registry.GetStreamEncoder(format.MIMEType, nil)
+			_, err := registry.GetStreamEncoder(context.Background(), format.MIMEType, nil)
 			hasStreaming := err == nil
 			
 			fmt.Printf("  %s: %v\n", format.Name, hasStreaming)

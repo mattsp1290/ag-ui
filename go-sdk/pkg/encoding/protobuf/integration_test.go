@@ -2,6 +2,7 @@ package protobuf
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"sync"
 	"testing"
@@ -41,12 +42,12 @@ func TestProtobufIntegration_CompleteWorkflow(t *testing.T) {
 
 	// Test 1: Single event encoding/decoding
 	for _, event := range workflow {
-		data, err := codec.Encode(event)
+		data, err := codec.Encode(context.Background(), event)
 		if err != nil {
 			t.Fatalf("Failed to encode %s: %v", event.Type(), err)
 		}
 
-		decoded, err := codec.Decode(data)
+		decoded, err := codec.Decode(context.Background(), data)
 		if err != nil {
 			t.Fatalf("Failed to decode %s: %v", event.Type(), err)
 		}
@@ -57,12 +58,12 @@ func TestProtobufIntegration_CompleteWorkflow(t *testing.T) {
 	}
 
 	// Test 2: Batch encoding/decoding
-	batchData, err := codec.EncodeMultiple(workflow)
+	batchData, err := codec.EncodeMultiple(context.Background(), workflow)
 	if err != nil {
 		t.Fatalf("Failed to encode batch: %v", err)
 	}
 
-	decodedBatch, err := codec.DecodeMultiple(batchData)
+	decodedBatch, err := codec.DecodeMultiple(context.Background(), batchData)
 	if err != nil {
 		t.Fatalf("Failed to decode batch: %v", err)
 	}
@@ -77,17 +78,17 @@ func TestProtobufIntegration_CompleteWorkflow(t *testing.T) {
 
 	// Stream encode
 	streamEncoder := streamCodec.GetStreamEncoder()
-	if err := streamEncoder.StartStream(&buf); err != nil {
+	if err := streamEncoder.StartStream(context.Background(), &buf); err != nil {
 		t.Fatalf("Failed to start stream: %v", err)
 	}
 
 	for _, event := range workflow {
-		if err := streamEncoder.WriteEvent(event); err != nil {
+		if err := streamEncoder.WriteEvent(context.Background(), event); err != nil {
 			t.Fatalf("Failed to write event: %v", err)
 		}
 	}
 
-	if err := streamEncoder.EndStream(); err != nil {
+	if err := streamEncoder.EndStream(context.Background()); err != nil {
 		t.Fatalf("Failed to end stream: %v", err)
 	}
 
@@ -95,13 +96,13 @@ func TestProtobufIntegration_CompleteWorkflow(t *testing.T) {
 	eventChan := make(chan events.Event, len(workflow))
 	
 	streamDecoder := streamCodec.GetStreamDecoder()
-	if err := streamDecoder.StartStream(&buf); err != nil {
+	if err := streamDecoder.StartStream(context.Background(), &buf); err != nil {
 		t.Fatalf("Failed to start decode stream: %v", err)
 	}
 
 	go func() {
 		for i := 0; i < len(workflow); i++ {
-			event, err := streamDecoder.ReadEvent()
+			event, err := streamDecoder.ReadEvent(context.Background())
 			if err != nil {
 				break
 			}
@@ -141,7 +142,7 @@ func TestProtobufIntegration_ConcurrentStreaming(t *testing.T) {
 			decoder := streamCodec.GetStreamDecoder()
 
 			// Encode events
-			if err := encoder.StartStream(&buf); err != nil {
+			if err := encoder.StartStream(context.Background(), &buf); err != nil {
 				errors <- err
 				return
 			}
@@ -155,25 +156,25 @@ func TestProtobufIntegration_ConcurrentStreaming(t *testing.T) {
 					}),
 				)
 
-				if err := encoder.WriteEvent(event); err != nil {
+				if err := encoder.WriteEvent(context.Background(), event); err != nil {
 					errors <- err
 					return
 				}
 			}
 
-			if err := encoder.EndStream(); err != nil {
+			if err := encoder.EndStream(context.Background()); err != nil {
 				errors <- err
 				return
 			}
 
 			// Decode events
-			if err := decoder.StartStream(&buf); err != nil {
+			if err := decoder.StartStream(context.Background(), &buf); err != nil {
 				errors <- err
 				return
 			}
 
 			for j := 0; j < eventsPerGoroutine; j++ {
-				event, err := decoder.ReadEvent()
+				event, err := decoder.ReadEvent(context.Background())
 				if err != nil {
 					errors <- err
 					return
@@ -185,7 +186,7 @@ func TestProtobufIntegration_ConcurrentStreaming(t *testing.T) {
 				}
 			}
 
-			if err := decoder.EndStream(); err != nil {
+			if err := decoder.EndStream(context.Background()); err != nil {
 				errors <- err
 				return
 			}
@@ -210,7 +211,7 @@ func TestProtobufIntegration_ErrorHandling(t *testing.T) {
 		decoder := NewProtobufDecoder(nil)
 		
 		// Random invalid data
-		_, err := decoder.Decode([]byte("invalid protobuf data"))
+		_, err := decoder.Decode(context.Background(), []byte("invalid protobuf data"))
 		if err == nil {
 			t.Error("Expected error for invalid data")
 		}
@@ -229,7 +230,7 @@ func TestProtobufIntegration_ErrorHandling(t *testing.T) {
 			}),
 		)
 
-		_, err := encoder.Encode(event)
+		_, err := encoder.Encode(context.Background(), event)
 		if err == nil {
 			t.Error("Expected error for size limit exceeded")
 		}
@@ -244,8 +245,8 @@ func TestProtobufIntegration_ErrorHandling(t *testing.T) {
 		encoder := NewProtobufEncoder(nil)
 		event := events.NewRunStartedEvent("", "") // Invalid: empty thread and run IDs
 
-		data, _ := encoder.Encode(event)
-		_, err := decoder.Decode(data)
+		data, _ := encoder.Encode(context.Background(), event)
+		_, err := decoder.Decode(context.Background(), data)
 		if err == nil {
 			t.Error("Expected validation error")
 		}

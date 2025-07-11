@@ -93,13 +93,13 @@ func testBasicPipeline(ctx context.Context, t *testing.T, encoder encoding.Encod
 
 	for _, event := range testEvents {
 		// Encode the event
-		encoded, err := encoder.Encode(event)
+		encoded, err := encoder.Encode(context.Background(), event)
 		if err != nil {
 			return err
 		}
 
 		// Decode the event
-		decoded, err := decoder.Decode(encoded)
+		decoded, err := decoder.Decode(context.Background(), encoded)
 		if err != nil {
 			return err
 		}
@@ -143,7 +143,7 @@ func testValidationPipeline(ctx context.Context, t *testing.T, encoder encoding.
 	}
 
 	// Encode and validate format
-	encoded, err := encoder.Encode(testEvent)
+	encoded, err := encoder.Encode(context.Background(), testEvent)
 	if err != nil {
 		return err
 	}
@@ -170,7 +170,7 @@ func testSecurityPipeline(ctx context.Context, t *testing.T, encoder encoding.En
 	}
 
 	// Encode safe event
-	encoded, err := encoder.Encode(safeEvent)
+	encoded, err := encoder.Encode(context.Background(), safeEvent)
 	if err != nil {
 		return err
 	}
@@ -289,7 +289,7 @@ func TestStandardTestVectors(t *testing.T) {
 			for _, vector := range vectorSet.Vectors {
 				t.Run(vector.Name, func(t *testing.T) {
 					// Decode the input
-					decoded, err := jsonDecoder.Decode(vector.Input)
+					decoded, err := jsonDecoder.Decode(context.Background(), vector.Input)
 
 					if vector.ShouldFail {
 						// This vector should fail
@@ -505,7 +505,7 @@ func BenchmarkJSONEncoding(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := encoder.Encode(event)
+		_, err := encoder.Encode(context.Background(), event)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -524,14 +524,14 @@ func BenchmarkJSONDecoding(b *testing.B) {
 		ThreadID: "benchmark-thread-456",
 	}
 
-	encoded, err := encoder.Encode(event)
+	encoded, err := encoder.Encode(context.Background(), event)
 	if err != nil {
 		b.Fatal(err)
 	}
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := decoder.Decode(encoded)
+		_, err := decoder.Decode(context.Background(), encoded)
 		if err != nil {
 			b.Fatal(err)
 		}

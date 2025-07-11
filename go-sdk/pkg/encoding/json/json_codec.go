@@ -1,11 +1,13 @@
 package json
 
 import (
+	"context"
+
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/encoding"
 )
 
-// JSONCodec implements the Codec interface combining JSON encoder and decoder
+// JSONCodec implements the simplified Codec interface for JSON encoding/decoding
 type JSONCodec struct {
 	*JSONEncoder
 	*JSONDecoder
@@ -34,23 +36,23 @@ func NewDefaultJSONCodec() *JSONCodec {
 }
 
 // Encode delegates to the encoder
-func (c *JSONCodec) Encode(event events.Event) ([]byte, error) {
-	return c.JSONEncoder.Encode(event)
+func (c *JSONCodec) Encode(ctx context.Context, event events.Event) ([]byte, error) {
+	return c.JSONEncoder.Encode(ctx, event)
 }
 
 // EncodeMultiple delegates to the encoder
-func (c *JSONCodec) EncodeMultiple(events []events.Event) ([]byte, error) {
-	return c.JSONEncoder.EncodeMultiple(events)
+func (c *JSONCodec) EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error) {
+	return c.JSONEncoder.EncodeMultiple(ctx, events)
 }
 
 // Decode delegates to the decoder
-func (c *JSONCodec) Decode(data []byte) (events.Event, error) {
-	return c.JSONDecoder.Decode(data)
+func (c *JSONCodec) Decode(ctx context.Context, data []byte) (events.Event, error) {
+	return c.JSONDecoder.Decode(ctx, data)
 }
 
 // DecodeMultiple delegates to the decoder
-func (c *JSONCodec) DecodeMultiple(data []byte) ([]events.Event, error) {
-	return c.JSONDecoder.DecodeMultiple(data)
+func (c *JSONCodec) DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error) {
+	return c.JSONDecoder.DecodeMultiple(ctx, data)
 }
 
 // ContentType returns the MIME type for JSON
@@ -58,9 +60,14 @@ func (c *JSONCodec) ContentType() string {
 	return "application/json"
 }
 
-// CanStream indicates that JSON codec supports streaming
-func (c *JSONCodec) CanStream() bool {
+// SupportsStreaming indicates that JSON codec supports streaming
+func (c *JSONCodec) SupportsStreaming() bool {
 	return true
+}
+
+// CanStream indicates that JSON codec supports streaming (backward compatibility)
+func (c *JSONCodec) CanStream() bool {
+	return c.SupportsStreaming()
 }
 
 // CodecOptions provides combined options for JSON codec

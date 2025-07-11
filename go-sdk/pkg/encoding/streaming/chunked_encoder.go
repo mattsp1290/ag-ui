@@ -8,6 +8,7 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/encoding"
+	"github.com/ag-ui/go-sdk/pkg/errors"
 )
 
 // ChunkConfig holds configuration for chunked encoding
@@ -287,9 +288,9 @@ func (ce *ChunkedEncoder) chunkWorker(ctx context.Context, input <-chan *Chunk, 
 // encodeChunk encodes a single chunk
 func (ce *ChunkedEncoder) encodeChunk(chunk *Chunk) (*Chunk, error) {
 	// Encode events
-	data, err := ce.baseEncoder.EncodeMultiple(chunk.Events)
+	data, err := ce.baseEncoder.EncodeMultiple(context.Background(), chunk.Events)
 	if err != nil {
-		return nil, fmt.Errorf("failed to encode chunk: %w", err)
+		return nil, errors.NewStreamingError("CHUNK_ENCODE_FAILED", "failed to encode chunk").WithCause(err)
 	}
 
 	// Update header

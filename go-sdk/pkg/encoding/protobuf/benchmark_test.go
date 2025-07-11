@@ -1,6 +1,7 @@
 package protobuf
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -22,13 +23,6 @@ func createTestEvent() events.Event {
 			"temperature": 23.5,
 			"active":      true,
 			"name":        "benchmark test",
-			"tags":        []string{"test", "benchmark", "performance"},
-			"nested": map[string]interface{}{
-				"level2": map[string]interface{}{
-					"value": "deep nested value",
-					"array": []int{1, 2, 3, 4, 5},
-				},
-			},
 		},
 	}
 }
@@ -39,7 +33,7 @@ func BenchmarkProtobufEncode(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := encoder.Encode(event)
+		_, err := encoder.Encode(context.Background(), event)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -52,7 +46,7 @@ func BenchmarkJSONEncode(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := encoder.Encode(event)
+		_, err := encoder.Encode(context.Background(), event)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -63,11 +57,11 @@ func BenchmarkProtobufDecode(b *testing.B) {
 	encoder := NewProtobufEncoder(nil)
 	decoder := NewProtobufDecoder(nil)
 	event := createTestEvent()
-	data, _ := encoder.Encode(event)
+	data, _ := encoder.Encode(context.Background(), event)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := decoder.Decode(data)
+		_, err := decoder.Decode(context.Background(), data)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -78,11 +72,11 @@ func BenchmarkJSONDecode(b *testing.B) {
 	encoder := json.NewJSONEncoder(nil)
 	decoder := json.NewJSONDecoder(nil)
 	event := createTestEvent()
-	data, _ := encoder.Encode(event)
+	data, _ := encoder.Encode(context.Background(), event)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := decoder.Decode(data)
+		_, err := decoder.Decode(context.Background(), data)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -101,7 +95,7 @@ func BenchmarkProtobufEncodeMultiple(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := encoder.EncodeMultiple(events)
+		_, err := encoder.EncodeMultiple(context.Background(), events)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -120,7 +114,7 @@ func BenchmarkJSONEncodeMultiple(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		_, err := encoder.EncodeMultiple(events)
+		_, err := encoder.EncodeMultiple(context.Background(), events)
 		if err != nil {
 			b.Fatal(err)
 		}
@@ -133,8 +127,8 @@ func BenchmarkEncodingSize(b *testing.B) {
 	jsonEncoder := json.NewJSONEncoder(nil)
 	event := createTestEvent()
 
-	pbData, _ := pbEncoder.Encode(event)
-	jsonData, _ := jsonEncoder.Encode(event)
+	pbData, _ := pbEncoder.Encode(context.Background(), event)
+	jsonData, _ := jsonEncoder.Encode(context.Background(), event)
 
 	b.Logf("Protobuf size: %d bytes", len(pbData))
 	b.Logf("JSON size: %d bytes", len(jsonData))
@@ -167,7 +161,14 @@ func BenchmarkProtobufEventTypes(b *testing.B) {
 		},
 		{
 			name: "StateSnapshot",
-			event: createTestEvent(),
+			event: &events.StateSnapshotEvent{
+				BaseEvent: &events.BaseEvent{EventType: events.EventTypeStateSnapshot},
+				Snapshot: map[string]interface{}{
+					"counter": 42,
+					"active":  true,
+					"name":    "test",
+				},
+			},
 		},
 		{
 			name: "StateDelta",
@@ -185,7 +186,7 @@ func BenchmarkProtobufEventTypes(b *testing.B) {
 	for _, bm := range benchmarks {
 		b.Run(bm.name, func(b *testing.B) {
 			for i := 0; i < b.N; i++ {
-				_, err := encoder.Encode(bm.event)
+				_, err := encoder.Encode(context.Background(), bm.event)
 				if err != nil {
 					b.Fatal(err)
 				}

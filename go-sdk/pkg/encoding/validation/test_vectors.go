@@ -29,10 +29,10 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Format:      "application/json",
 				SDK:         "go",
 				Version:     "1.0.0",
-				Input:       []byte(`{"eventType":"run.started","timestamp":1640995200,"runId":"run-12345","threadId":"thread-67890"}`),
+				Input:       []byte(`{"type":"RUN_STARTED","timestamp":1640995200,"runId":"run-12345","threadId":"thread-67890"}`),
 				Expected: &events.RunStartedEvent{
 					BaseEvent: &events.BaseEvent{
-						EventType:   events.EventType("run.started"),
+						EventType:   events.EventTypeRunStarted,
 						TimestampMs: int64Ptr(1640995200),
 					},
 					RunID:    "run-12345",
@@ -45,7 +45,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Format:      "application/json",
 				SDK:         "go",
 				Version:     "1.0.0",
-				Input:       []byte(`{"eventType":"run.started","timestamp":1640995200,"sequenceNumber":1,"runId":"run-12345","threadId":"thread-67890"}`),
+				Input:       []byte(`{"type":"RUN_STARTED","timestamp":1640995200,"sequenceNumber":1,"runId":"run-12345","threadId":"thread-67890"}`),
 				Expected: &events.RunStartedEvent{
 					BaseEvent: &events.BaseEvent{
 						EventType:   events.EventTypeRunStarted,
@@ -61,7 +61,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Format:      "application/json",
 				SDK:         "go",
 				Version:     "1.0.0",
-				Input:       []byte(`{"eventType":"run.finished","timestamp":1640995300,"runId":"run-12345"}`),
+				Input:       []byte(`{"type":"RUN_FINISHED","timestamp":1640995300,"runId":"run-12345"}`),
 				Expected: &events.RunFinishedEvent{
 					BaseEvent: &events.BaseEvent{
 						EventType: events.EventTypeRunFinished,
@@ -83,7 +83,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Format:      "application/json",
 				SDK:         "go",
 				Version:     "1.0.0",
-				Input:       []byte(`{"eventType":"text.message.start","timestamp":1640995200,"messageId":"msg-abc123"}`),
+				Input:       []byte(`{"type":"TEXT_MESSAGE_START","timestamp":1640995200,"messageId":"msg-abc123"}`),
 				Expected: &events.TextMessageStartEvent{
 					BaseEvent: &events.BaseEvent{
 						EventType: events.EventTypeTextMessageStart,
@@ -98,7 +98,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Format:      "application/json",
 				SDK:         "go",
 				Version:     "1.0.0",
-				Input:       []byte(`{"eventType":"text.message.content","timestamp":1640995200,"messageId":"msg-abc123","delta":"Hello, world!"}`),
+				Input:       []byte(`{"type":"TEXT_MESSAGE_CONTENT","timestamp":1640995200,"messageId":"msg-abc123","delta":"Hello, world!"}`),
 				Expected: &events.TextMessageContentEvent{
 					BaseEvent: &events.BaseEvent{
 						EventType: events.EventTypeTextMessageContent,
@@ -114,7 +114,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Format:      "application/json",
 				SDK:         "go",
 				Version:     "1.0.0",
-				Input:       []byte(`{"eventType":"text.message.content","timestamp":1640995200,"messageId":"msg-abc123","delta":"Hello 🌍! こんにちは世界"}`),
+				Input:       []byte(`{"type":"TEXT_MESSAGE_CONTENT","timestamp":1640995200,"messageId":"msg-abc123","delta":"Hello 🌍! こんにちは世界"}`),
 				Expected: &events.TextMessageContentEvent{
 					BaseEvent: &events.BaseEvent{
 						EventType: events.EventTypeTextMessageContent,
@@ -130,7 +130,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Format:      "application/json",
 				SDK:         "go",
 				Version:     "1.0.0",
-				Input:       []byte(`{"eventType":"text.message.end","timestamp":1640995300,"messageId":"msg-abc123"}`),
+				Input:       []byte(`{"type":"TEXT_MESSAGE_END","timestamp":1640995300,"messageId":"msg-abc123"}`),
 				Expected: &events.TextMessageEndEvent{
 					BaseEvent: &events.BaseEvent{
 						EventType: events.EventTypeTextMessageEnd,
@@ -152,7 +152,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Format:      "application/json",
 				SDK:         "go",
 				Version:     "1.0.0",
-				Input:       []byte(`{"eventType":"tool.call.start","timestamp":1640995200,"toolCallId":"tool-xyz789","toolCallName":"calculator"}`),
+				Input:       []byte(`{"type":"TOOL_CALL_START","timestamp":1640995200,"toolCallId":"tool-xyz789","toolCallName":"calculator"}`),
 				Expected: &events.ToolCallStartEvent{
 					BaseEvent: &events.BaseEvent{
 						EventType: events.EventTypeToolCallStart,
@@ -168,7 +168,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Format:      "application/json",
 				SDK:         "go",
 				Version:     "1.0.0",
-				Input:       []byte(`{"eventType":"tool.call.args","timestamp":1640995200,"toolCallId":"tool-xyz789","delta":"{\"operation\":\"add\",\"a\":5,\"b\":3}"}`),
+				Input:       []byte(`{"type":"TOOL_CALL_ARGS","timestamp":1640995200,"toolCallId":"tool-xyz789","delta":"{\"operation\":\"add\",\"a\":5,\"b\":3}"}`),
 				Expected: &events.ToolCallArgsEvent{
 					BaseEvent: &events.BaseEvent{
 						EventType: events.EventTypeToolCallArgs,
@@ -184,7 +184,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Format:      "application/json",
 				SDK:         "go",
 				Version:     "1.0.0",
-				Input:       []byte(`{"eventType":"tool.call.end","timestamp":1640995300,"toolCallId":"tool-xyz789"}`),
+				Input:       []byte(`{"type":"TOOL_CALL_END","timestamp":1640995300,"toolCallId":"tool-xyz789"}`),
 				Expected: &events.ToolCallEndEvent{
 					BaseEvent: &events.BaseEvent{
 						EventType: events.EventTypeToolCallEnd,
@@ -206,7 +206,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Format:      "application/json",
 				SDK:         "go",
 				Version:     "1.0.0",
-				Input:       []byte(`{"eventType":"state.snapshot","timestamp":1640995200,"snapshot":{"counter":42,"status":"active"}}`),
+				Input:       []byte(`{"type":"STATE_SNAPSHOT","timestamp":1640995200,"snapshot":{"counter":42,"status":"active"}}`),
 				Expected: &events.StateSnapshotEvent{
 					BaseEvent: &events.BaseEvent{
 						EventType: events.EventTypeStateSnapshot,
@@ -224,7 +224,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Format:      "application/json",
 				SDK:         "go",
 				Version:     "1.0.0",
-				Input:       []byte(`{"eventType":"state.snapshot","timestamp":1640995200,"snapshot":{"user":{"id":123,"name":"John","preferences":{"theme":"dark","lang":"en"}},"sessions":[{"id":"sess1","active":true},{"id":"sess2","active":false}]}}`),
+				Input:       []byte(`{"type":"STATE_SNAPSHOT","timestamp":1640995200,"snapshot":{"user":{"id":123,"name":"John","preferences":{"theme":"dark","lang":"en"}},"sessions":[{"id":"sess1","active":true},{"id":"sess2","active":false}]}}`),
 				Expected: &events.StateSnapshotEvent{
 					BaseEvent: &events.BaseEvent{
 						EventType: events.EventTypeStateSnapshot,
@@ -258,7 +258,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Format:      "application/json",
 				SDK:         "go",
 				Version:     "1.0.0",
-				Input:       []byte(`{"eventType":"state.delta","timestamp":1640995200,"delta":[{"op":"add","path":"/counter","value":1}]}`),
+				Input:       []byte(`{"type":"STATE_DELTA","timestamp":1640995200,"delta":[{"op":"add","path":"/counter","value":1}]}`),
 				Expected: &events.StateDeltaEvent{
 					BaseEvent: &events.BaseEvent{
 						EventType: events.EventTypeStateDelta,
@@ -289,7 +289,7 @@ var EdgeCaseTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"text.message.content","timestamp":1640995200,"messageId":"msg-empty","delta":""}`),
+			Input:       []byte(`{"type":"TEXT_MESSAGE_CONTENT","timestamp":1640995200,"messageId":"msg-empty","delta":""}`),
 			Expected: &events.TextMessageContentEvent{
 				BaseEvent: &events.BaseEvent{
 					EventType: events.EventTypeTextMessageContent,
@@ -305,7 +305,7 @@ var EdgeCaseTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"run.started","timestamp":9223372036854775807,"runId":"run-max","threadId":"thread-max"}`),
+			Input:       []byte(`{"type":"RUN_STARTED","timestamp":9223372036854775807,"runId":"run-max","threadId":"thread-max"}`),
 			Expected: &events.RunStartedEvent{
 				BaseEvent: &events.BaseEvent{
 					EventType: events.EventTypeRunStarted,
@@ -321,7 +321,7 @@ var EdgeCaseTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"run.started","timestamp":0,"runId":"run-zero","threadId":"thread-zero"}`),
+			Input:       []byte(`{"type":"RUN_STARTED","timestamp":0,"runId":"run-zero","threadId":"thread-zero"}`),
 			Expected: &events.RunStartedEvent{
 				BaseEvent: &events.BaseEvent{
 					EventType: events.EventTypeRunStarted,
@@ -337,7 +337,7 @@ var EdgeCaseTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"run.started","runId":"run-minimal","threadId":"thread-minimal"}`),
+			Input:       []byte(`{"type":"RUN_STARTED","runId":"run-minimal","threadId":"thread-minimal"}`),
 			Expected: &events.RunStartedEvent{
 				BaseEvent: &events.BaseEvent{
 					EventType: events.EventTypeRunStarted,
@@ -352,7 +352,7 @@ var EdgeCaseTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"run.started","timestamp":1640995200,"runId":"run-測試-🚀","threadId":"thread-тест-🔧"}`),
+			Input:       []byte(`{"type":"RUN_STARTED","timestamp":1640995200,"runId":"run-測試-🚀","threadId":"thread-тест-🔧"}`),
 			Expected: &events.RunStartedEvent{
 				BaseEvent: &events.BaseEvent{
 					EventType: events.EventTypeRunStarted,
@@ -368,7 +368,7 @@ var EdgeCaseTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"text.message.content","timestamp":1640995200,"messageId":"msg-long","delta":"` + generateLongString(10000) + `"}`),
+			Input:       []byte(`{"type":"TEXT_MESSAGE_CONTENT","timestamp":1640995200,"messageId":"msg-long","delta":"` + generateLongString(10000) + `"}`),
 			Expected: &events.TextMessageContentEvent{
 				BaseEvent: &events.BaseEvent{
 					EventType: events.EventTypeTextMessageContent,
@@ -384,7 +384,7 @@ var EdgeCaseTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"state.snapshot","timestamp":1640995200,"snapshot":` + generateDeeplyNestedJSON(10) + `}`),
+			Input:       []byte(`{"type":"STATE_SNAPSHOT","timestamp":1640995200,"snapshot":` + generateDeeplyNestedJSON(10) + `}`),
 			Expected: &events.StateSnapshotEvent{
 				BaseEvent: &events.BaseEvent{
 					EventType: events.EventTypeStateSnapshot,
@@ -399,7 +399,7 @@ var EdgeCaseTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"state.snapshot","timestamp":1640995200,"snapshot":{"nullValue":null,"emptyString":"","zeroNumber":0}}`),
+			Input:       []byte(`{"type":"STATE_SNAPSHOT","timestamp":1640995200,"snapshot":{"nullValue":null,"emptyString":"","zeroNumber":0}}`),
 			Expected: &events.StateSnapshotEvent{
 				BaseEvent: &events.BaseEvent{
 					EventType: events.EventTypeStateSnapshot,
@@ -427,7 +427,7 @@ var MalformedTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"run.started", "runId":"run-123" invalid json`),
+			Input:       []byte(`{"type":"RUN_STARTED", "runId":"run-123" invalid json`),
 			ShouldFail:  true,
 			FailureMsg:  "Invalid JSON syntax",
 		},
@@ -447,7 +447,7 @@ var MalformedTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"unknown.event.type","timestamp":1640995200}`),
+			Input:       []byte(`{"type":"UNKNOWN_EVENT_TYPE","timestamp":1640995200}`),
 			ShouldFail:  true,
 			FailureMsg:  "Unknown event type",
 		},
@@ -457,7 +457,7 @@ var MalformedTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"run.started","timestamp":-1,"runId":"run-123","threadId":"thread-456"}`),
+			Input:       []byte(`{"type":"RUN_STARTED","timestamp":-1,"runId":"run-123","threadId":"thread-456"}`),
 			ShouldFail:  true,
 			FailureMsg:  "Negative timestamp not allowed",
 		},
@@ -467,7 +467,7 @@ var MalformedTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"run.started","timestamp":1640995200,"threadId":"thread-456"}`),
+			Input:       []byte(`{"type":"RUN_STARTED","timestamp":1640995200,"threadId":"thread-456"}`),
 			ShouldFail:  true,
 			FailureMsg:  "Missing required runId field",
 		},
@@ -477,7 +477,7 @@ var MalformedTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"text.message.start","timestamp":1640995200,"messageId":""}`),
+			Input:       []byte(`{"type":"TEXT_MESSAGE_START","timestamp":1640995200,"messageId":""}`),
 			ShouldFail:  true,
 			FailureMsg:  "Empty messageId not allowed",
 		},
@@ -487,7 +487,7 @@ var MalformedTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"state.delta","timestamp":1640995200,"delta":[{"op":"invalid","path":"/test","value":123}]}`),
+			Input:       []byte(`{"type":"STATE_DELTA","timestamp":1640995200,"delta":[{"op":"invalid","path":"/test","value":123}]}`),
 			ShouldFail:  true,
 			FailureMsg:  "Invalid delta operation",
 		},
@@ -497,7 +497,7 @@ var MalformedTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte("{\x22eventType\x22:\x22run.started\x22,\x22runId\x22:\x22run-\xff\xfe\x22}"),
+			Input:       []byte("{\x22type\x22:\x22RUN_STARTED\x22,\x22runId\x22:\x22run-\xff\xfe\x22}"),
 			ShouldFail:  true,
 			FailureMsg:  "Malformed UTF-8 encoding",
 		},
@@ -507,7 +507,7 @@ var MalformedTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"state.snapshot","timestamp":1640995200,"snapshot":{"self":{"$ref":"#"}}}`),
+			Input:       []byte(`{"type":"STATE_SNAPSHOT","timestamp":1640995200,"snapshot":{"self":{"$ref":"#"}}}`),
 			ShouldFail:  true,
 			FailureMsg:  "Circular reference detected",
 		},
@@ -517,7 +517,7 @@ var MalformedTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"text.message.content","messageId":"msg-123","delta":"<script>alert('xss')</script>"}`),
+			Input:       []byte(`{"type":"TEXT_MESSAGE_CONTENT","messageId":"msg-123","delta":"<script>alert('xss')</script>"}`),
 			ShouldFail:  true,
 			FailureMsg:  "Script injection detected",
 		},
@@ -537,7 +537,7 @@ var CrossSDKTestVectors = map[string]TestVectorSet{
 				Format:      "application/json",
 				SDK:         "typescript",
 				Version:     "1.0.0",
-				Input:       []byte(`{"eventType":"run.started","timestamp":1640995200,"runId":"run-ts-123","threadId":"thread-ts-456"}`),
+				Input:       []byte(`{"type":"RUN_STARTED","timestamp":1640995200,"runId":"run-ts-123","threadId":"thread-ts-456"}`),
 				Expected: &events.RunStartedEvent{
 					BaseEvent: &events.BaseEvent{
 						EventType: events.EventTypeRunStarted,
@@ -553,7 +553,7 @@ var CrossSDKTestVectors = map[string]TestVectorSet{
 				Format:      "application/json",
 				SDK:         "typescript",
 				Version:     "1.0.0",
-				Input:       []byte(`{"eventType":"run.started","timestamp":"2022-01-01T12:00:00Z","runId":"run-ts-iso","threadId":"thread-ts-iso"}`),
+				Input:       []byte(`{"type":"RUN_STARTED","timestamp":"2022-01-01T12:00:00Z","runId":"run-ts-iso","threadId":"thread-ts-iso"}`),
 				ShouldFail:  true, // Our Go SDK expects numeric timestamps
 				FailureMsg:  "ISO timestamp format not supported",
 			},
@@ -570,7 +570,7 @@ var CrossSDKTestVectors = map[string]TestVectorSet{
 				Format:      "application/json",
 				SDK:         "python",
 				Version:     "1.0.0",
-				Input:       []byte(`{"event_type":"run.started","timestamp":1640995200,"run_id":"run-py-123","thread_id":"thread-py-456"}`),
+				Input:       []byte(`{"type":"RUN_STARTED","timestamp":1640995200,"runId":"run-py-123","threadId":"thread-py-456"}`),
 				Expected: &events.RunStartedEvent{
 					BaseEvent: &events.BaseEvent{
 						EventType: events.EventTypeRunStarted,
@@ -586,7 +586,7 @@ var CrossSDKTestVectors = map[string]TestVectorSet{
 				Format:      "application/json",
 				SDK:         "python",
 				Version:     "1.0.0",
-				Input:       []byte(`{"event_type":"state.snapshot","timestamp":1640995200,"snapshot":{"key":null,"value":"test"}}`),
+				Input:       []byte(`{"type":"STATE_SNAPSHOT","timestamp":1640995200,"snapshot":{"key":null,"value":"test"}}`),
 				Expected: &events.StateSnapshotEvent{
 					BaseEvent: &events.BaseEvent{
 						EventType: events.EventTypeStateSnapshot,
@@ -614,7 +614,7 @@ var SecurityTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"text.message.content","messageId":"msg-xss","delta":"<script>alert('XSS')</script>"}`),
+			Input:       []byte(`{"type":"TEXT_MESSAGE_CONTENT","messageId":"msg-xss","delta":"<script>alert('XSS')</script>"}`),
 			ShouldFail:  true,
 			FailureMsg:  "XSS attempt detected",
 		},
@@ -624,7 +624,7 @@ var SecurityTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"text.message.content","messageId":"msg-sql","delta":"'; DROP TABLE users; --"}`),
+			Input:       []byte(`{"type":"TEXT_MESSAGE_CONTENT","messageId":"msg-sql","delta":"'; DROP TABLE users; --"}`),
 			ShouldFail:  true,
 			FailureMsg:  "SQL injection attempt detected",
 		},
@@ -634,7 +634,7 @@ var SecurityTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"text.message.content","messageId":"msg-js","delta":"javascript:alert('XSS')"}`),
+			Input:       []byte(`{"type":"TEXT_MESSAGE_CONTENT","messageId":"msg-js","delta":"javascript:alert('XSS')"}`),
 			ShouldFail:  true,
 			FailureMsg:  "JavaScript protocol injection detected",
 		},
@@ -644,7 +644,7 @@ var SecurityTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"text.message.content","messageId":"msg-data","delta":"data:text/html,<script>alert('XSS')</script>"}`),
+			Input:       []byte(`{"type":"TEXT_MESSAGE_CONTENT","messageId":"msg-data","delta":"data:text/html,<script>alert('XSS')</script>"}`),
 			ShouldFail:  true,
 			FailureMsg:  "Data URI HTML injection detected",
 		},
@@ -654,7 +654,7 @@ var SecurityTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"text.message.content","messageId":"msg-large","delta":"` + generateLongString(1000000) + `"}`),
+			Input:       []byte(`{"type":"TEXT_MESSAGE_CONTENT","messageId":"msg-large","delta":"` + generateLongString(1000000) + `"}`),
 			ShouldFail:  true,
 			FailureMsg:  "Payload size exceeds limit",
 		},
@@ -664,7 +664,7 @@ var SecurityTestVectors = TestVectorSet{
 			Format:      "application/json",
 			SDK:         "go",
 			Version:     "1.0.0",
-			Input:       []byte(`{"eventType":"text.message.content","messageId":"msg-xml","delta":"<!DOCTYPE lolz [<!ENTITY lol \"lol\"><!ENTITY lol2 \"&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;\">]><lolz>&lol2;</lolz>"}`),
+			Input:       []byte(`{"type":"TEXT_MESSAGE_CONTENT","messageId":"msg-xml","delta":"<!DOCTYPE lolz [<!ENTITY lol \"lol\"><!ENTITY lol2 \"&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;\">]><lolz>&lol2;</lolz>"}`),
 			ShouldFail:  true,
 			FailureMsg:  "XML entity expansion attack detected",
 		},

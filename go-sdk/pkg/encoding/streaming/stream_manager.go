@@ -2,7 +2,6 @@ package streaming
 
 import (
 	"context"
-	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -10,6 +9,7 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/encoding"
+	"github.com/ag-ui/go-sdk/pkg/errors"
 )
 
 // StreamState represents the current state of a stream
@@ -129,13 +129,13 @@ func (sm *StreamManager) Start() error {
 	// Check if already started or closed
 	currentState := StreamState(sm.state.Load())
 	if currentState != StreamStateIdle {
-		return fmt.Errorf("stream manager already started or closed")
+		return errors.NewStreamingError("STREAM_MANAGER_INVALID_STATE", "stream manager already started or closed")
 	}
 	
 	var startErr error
 	sm.startOnce.Do(func() {
 		if !sm.state.CompareAndSwap(int32(StreamStateIdle), int32(StreamStateActive)) {
-			startErr = fmt.Errorf("stream manager already started or closed")
+			startErr = errors.NewStreamingError("STREAM_MANAGER_INVALID_STATE", "stream manager already started or closed")
 			return
 		}
 
@@ -177,14 +177,14 @@ func (sm *StreamManager) Stop() error {
 // WriteStream handles writing events to a stream
 func (sm *StreamManager) WriteStream(ctx context.Context, input <-chan events.Event, output io.Writer) error {
 	if sm.GetState() != StreamStateActive {
-		return fmt.Errorf("stream manager not active")
+		return errors.NewStreamingError("STREAM_MANAGER_NOT_ACTIVE", "stream manager not active")
 	}
 
 	// Start encoder stream
-	if err := sm.encoder.StartStream(output); err != nil {
-		return fmt.Errorf("failed to start encoder stream: %w", err)
+	if err := sm.encoder.StartStream(ctx, output); err != nil {
+		return errors.NewStreamingError("ENCODER_STREAM_START_FAILED", "failed to start encoder stream").WithCause(err)
 	}
-	defer sm.encoder.EndStream()
+	defer sm.encoder.EndStream(ctx)
 
 	// Start write worker
 	sm.wg.Add(1)
@@ -234,14 +234,14 @@ func (sm *StreamManager) WriteStream(ctx context.Context, input <-chan events.Ev
 // ReadStream handles reading events from a stream
 func (sm *StreamManager) ReadStream(ctx context.Context, input io.Reader, output chan<- events.Event) error {
 	if sm.GetState() != StreamStateActive {
-		return fmt.Errorf("stream manager not active")
+		return errors.NewStreamingError("STREAM_MANAGER_NOT_ACTIVE", "stream manager not active")
 	}
 
 	// Start decoder stream
-	if err := sm.decoder.StartStream(input); err != nil {
-		return fmt.Errorf("failed to start decoder stream: %w", err)
+	if err := sm.decoder.StartStream(ctx, input); err != nil {
+		return errors.NewStreamingError("DECODER_STREAM_START_FAILED", "failed to start decoder stream").WithCause(err)
 	}
-	defer sm.decoder.EndStream()
+	defer sm.decoder.EndStream(ctx)
 
 	// Start read worker
 	sm.wg.Add(1)
@@ -289,7 +289,7 @@ func (sm *StreamManager) writeWorker(output io.Writer) {
 			}
 
 			// Write event
-			err := sm.encoder.WriteEvent(req.event)
+			err := sm.encoder.WriteEvent(context.Background(), req.event)
 			if err != nil {
 				req.done <- err
 				sm.reportError(err)
@@ -310,7 +310,7 @@ func (sm *StreamManager) writeWorker(output io.Writer) {
 			// Periodic flush if needed
 			if flusher, ok := output.(interface{ Flush() error }); ok {
 				if err := flusher.Flush(); err != nil {
-					sm.reportError(fmt.Errorf("flush error: %w", err))
+					sm.reportError(errors.NewStreamingError("FLUSH_ERROR", "flush error").WithCause(err))
 				}
 			}
 		}
@@ -328,7 +328,7 @@ func (sm *StreamManager) readWorker(input io.Reader) {
 			return
 		default:
 			// Read event
-			event, err := sm.decoder.ReadEvent()
+			event, err := sm.decoder.ReadEvent(context.Background())
 			if err != nil {
 				if err == io.EOF {
 					return // Normal end of stream
@@ -410,7 +410,7 @@ func (sm *StreamManager) GetMetrics() *StreamMetrics {
 // Pause pauses the stream
 func (sm *StreamManager) Pause() error {
 	if !sm.state.CompareAndSwap(int32(StreamStateActive), int32(StreamStatePaused)) {
-		return fmt.Errorf("cannot pause: stream not active")
+		return errors.NewStreamingError("PAUSE_INVALID_STATE", "cannot pause: stream not active")
 	}
 	return nil
 }
@@ -418,7 +418,7 @@ func (sm *StreamManager) Pause() error {
 // Resume resumes the stream
 func (sm *StreamManager) Resume() error {
 	if !sm.state.CompareAndSwap(int32(StreamStatePaused), int32(StreamStateActive)) {
-		return fmt.Errorf("cannot resume: stream not paused")
+		return errors.NewStreamingError("RESUME_INVALID_STATE", "cannot resume: stream not paused")
 	}
 	return nil
 }

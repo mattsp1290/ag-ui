@@ -195,7 +195,7 @@ func (b *BenchmarkSuite) runDecodingBenchmarks(ctx context.Context) error {
 		eventName := string(event.Type())
 		
 		// Encode the event first
-		encoded, err := b.encoder.Encode(event)
+		encoded, err := b.encoder.Encode(context.Background(), event)
 		if err != nil {
 			return fmt.Errorf("failed to encode event for decoding benchmark: %w", err)
 		}
@@ -214,7 +214,7 @@ func (b *BenchmarkSuite) runDecodingBenchmarks(ctx context.Context) error {
 				batch[i] = event
 			}
 			
-			encodedBatch, err := b.encoder.EncodeMultiple(batch)
+			encodedBatch, err := b.encoder.EncodeMultiple(context.Background(), batch)
 			if err != nil {
 				return fmt.Errorf("failed to encode batch for decoding benchmark: %w", err)
 			}
@@ -251,7 +251,7 @@ func (b *BenchmarkSuite) runValidationBenchmarks(ctx context.Context) error {
 		b.addResult(result)
 
 		// Format validation
-		encoded, err := b.encoder.Encode(event)
+		encoded, err := b.encoder.Encode(context.Background(), event)
 		if err != nil {
 			return fmt.Errorf("failed to encode event for format validation benchmark: %w", err)
 		}
@@ -303,7 +303,7 @@ func (b *BenchmarkSuite) runThroughputTests(ctx context.Context) error {
 		b.addResult(result)
 
 		// Decoding throughput
-		encoded, err := b.encoder.Encode(event)
+		encoded, err := b.encoder.Encode(context.Background(), event)
 		if err != nil {
 			return fmt.Errorf("failed to encode event for decoding throughput test: %w", err)
 		}
@@ -322,28 +322,28 @@ func (b *BenchmarkSuite) runThroughputTests(ctx context.Context) error {
 
 func (b *BenchmarkSuite) benchmarkSingleEncoding(ctx context.Context, name string, event events.Event) (BenchmarkResult, error) {
 	return b.benchmarkOperation(ctx, fmt.Sprintf("%s_encode_single", name), func() error {
-		_, err := b.encoder.Encode(event)
+		_, err := b.encoder.Encode(context.Background(), event)
 		return err
 	}, 1)
 }
 
 func (b *BenchmarkSuite) benchmarkBatchEncoding(ctx context.Context, name string, events []events.Event) (BenchmarkResult, error) {
 	return b.benchmarkOperation(ctx, fmt.Sprintf("%s_encode_batch_%d", name, len(events)), func() error {
-		_, err := b.encoder.EncodeMultiple(events)
+		_, err := b.encoder.EncodeMultiple(context.Background(), events)
 		return err
 	}, len(events))
 }
 
 func (b *BenchmarkSuite) benchmarkSingleDecoding(ctx context.Context, name string, data []byte) (BenchmarkResult, error) {
 	return b.benchmarkOperation(ctx, fmt.Sprintf("%s_decode_single", name), func() error {
-		_, err := b.decoder.Decode(data)
+		_, err := b.decoder.Decode(context.Background(), data)
 		return err
 	}, 1)
 }
 
 func (b *BenchmarkSuite) benchmarkBatchDecoding(ctx context.Context, name string, data []byte, batchSize int) (BenchmarkResult, error) {
 	return b.benchmarkOperation(ctx, fmt.Sprintf("%s_decode_batch_%d", name, batchSize), func() error {
-		_, err := b.decoder.DecodeMultiple(data)
+		_, err := b.decoder.DecodeMultiple(context.Background(), data)
 		return err
 	}, batchSize)
 }
@@ -470,11 +470,14 @@ func (b *BenchmarkSuite) benchmarkEncodingThroughput(ctx context.Context, name s
 	start := time.Now()
 	iterations := 0
 	errorCount := 0
+	var totalLatency time.Duration
 
 	for time.Since(start) < b.config.ThroughputDuration {
-		if _, err := b.encoder.Encode(event); err != nil {
+		opStart := time.Now()
+		if _, err := b.encoder.Encode(context.Background(), event); err != nil {
 			errorCount++
 		}
+		totalLatency += time.Since(opStart)
 		iterations++
 
 		select {
@@ -489,6 +492,9 @@ func (b *BenchmarkSuite) benchmarkEncodingThroughput(ctx context.Context, name s
 	result.Iterations = iterations
 	result.Throughput = float64(iterations) / duration.Seconds()
 	result.ErrorRate = float64(errorCount) / float64(iterations) * 100
+	if iterations > 0 {
+		result.Latency = totalLatency / time.Duration(iterations)
+	}
 
 	return result, nil
 }
@@ -503,11 +509,14 @@ func (b *BenchmarkSuite) benchmarkDecodingThroughput(ctx context.Context, name s
 	start := time.Now()
 	iterations := 0
 	errorCount := 0
+	var totalLatency time.Duration
 
 	for time.Since(start) < b.config.ThroughputDuration {
-		if _, err := b.decoder.Decode(data); err != nil {
+		opStart := time.Now()
+		if _, err := b.decoder.Decode(context.Background(), data); err != nil {
 			errorCount++
 		}
+		totalLatency += time.Since(opStart)
 		iterations++
 
 		select {
@@ -522,6 +531,9 @@ func (b *BenchmarkSuite) benchmarkDecodingThroughput(ctx context.Context, name s
 	result.Iterations = iterations
 	result.Throughput = float64(iterations) / duration.Seconds()
 	result.ErrorRate = float64(errorCount) / float64(iterations) * 100
+	if iterations > 0 {
+		result.Latency = totalLatency / time.Duration(iterations)
+	}
 
 	return result, nil
 }

@@ -1,6 +1,7 @@
 package encoding_test
 
 import (
+	"context"
 	"fmt"
 	"log"
 
@@ -27,7 +28,7 @@ func ExampleFormatRegistry_GetEncoder() {
 	registry := encoding.GetGlobalRegistry()
 	
 	// Get a JSON encoder
-	encoder, err := registry.GetEncoder("application/json", &encoding.EncodingOptions{
+	encoder, err := registry.GetEncoder(context.Background(), "application/json", &encoding.EncodingOptions{
 		Pretty: true,
 	})
 	if err != nil {
@@ -37,7 +38,7 @@ func ExampleFormatRegistry_GetEncoder() {
 	// Use the encoder
 	event := events.NewTextMessageStartEvent("msg-123", events.WithRole("assistant"))
 	
-	data, err := encoder.Encode(event)
+	data, err := encoder.Encode(context.Background(), event)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -145,7 +146,7 @@ func ExampleFormatRegistry_plugin() {
 	}
 	
 	// Now MessagePack encoding is available
-	encoder, err := factory.CreateEncoder("application/x-msgpack", nil)
+	encoder, err := factory.CreateEncoder(context.Background(), "application/x-msgpack", nil)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -167,12 +168,33 @@ func (p *exampleEncoderPlugin) ContentTypes() []string {
 	return p.contentTypes
 }
 
-func (p *exampleEncoderPlugin) CreateEncoder(contentType string, options *encoding.EncodingOptions) (encoding.Encoder, error) {
+func (p *exampleEncoderPlugin) CreateEncoder(ctx context.Context, contentType string, options *encoding.EncodingOptions) (encoding.Encoder, error) {
 	// In a real implementation, this would create a MessagePack encoder
-	return &mockEncoder{contentType: contentType}, nil
+	return &mockRegistryEncoder{contentType: contentType}, nil
 }
 
-func (p *exampleEncoderPlugin) CreateStreamEncoder(contentType string, options *encoding.EncodingOptions) (encoding.StreamEncoder, error) {
+func (p *exampleEncoderPlugin) CreateStreamEncoder(ctx context.Context, contentType string, options *encoding.EncodingOptions) (encoding.StreamEncoder, error) {
 	// In a real implementation, this would create a streaming MessagePack encoder
 	return nil, fmt.Errorf("streaming not implemented in example")
+}
+
+// mockRegistryEncoder is a simple mock encoder for the example
+type mockRegistryEncoder struct {
+	contentType string
+}
+
+func (m *mockRegistryEncoder) Encode(ctx context.Context, event events.Event) ([]byte, error) {
+	return []byte("mock encoded data"), nil
+}
+
+func (m *mockRegistryEncoder) EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error) {
+	return []byte("mock encoded multiple events"), nil
+}
+
+func (m *mockRegistryEncoder) ContentType() string {
+	return m.contentType
+}
+
+func (m *mockRegistryEncoder) CanStream() bool {
+	return false
 }

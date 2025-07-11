@@ -5,9 +5,11 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+	"sync"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/encoding"
+	"github.com/ag-ui/go-sdk/pkg/errors"
 	"github.com/ag-ui/go-sdk/pkg/proto/generated"
 	"google.golang.org/protobuf/proto"
 )
@@ -17,6 +19,7 @@ type StreamingProtobufEncoder struct {
 	*ProtobufEncoder
 	writer io.Writer
 	buffer []byte
+	mutex  sync.RWMutex // Protects concurrent access to writer and buffer
 }
 
 // NewStreamingProtobufEncoder creates a new streaming protobuf encoder
@@ -29,7 +32,9 @@ func NewStreamingProtobufEncoder(options *encoding.EncodingOptions) *StreamingPr
 
 // EncodeStream encodes events from a channel to a writer
 func (e *StreamingProtobufEncoder) EncodeStream(ctx context.Context, input <-chan events.Event, output io.Writer) error {
+	e.mutex.Lock()
 	e.writer = output
+	e.mutex.Unlock()
 
 	for {
 		select {
@@ -39,7 +44,7 @@ func (e *StreamingProtobufEncoder) EncodeStream(ctx context.Context, input <-cha
 			if !ok {
 				return nil // Channel closed
 			}
-			if err := e.WriteEvent(event); err != nil {
+			if err := e.WriteEvent(ctx, event); err != nil {
 				return err
 			}
 		}
@@ -47,17 +52,24 @@ func (e *StreamingProtobufEncoder) EncodeStream(ctx context.Context, input <-cha
 }
 
 // StartStream initializes a streaming session
-func (e *StreamingProtobufEncoder) StartStream(w io.Writer) error {
+func (e *StreamingProtobufEncoder) StartStream(ctx context.Context, w io.Writer) error {
+	// Check context cancellation
+	if err := ctx.Err(); err != nil {
+		return &encoding.EncodingError{
+			Format:  "protobuf",
+			Message: "context cancelled",
+			Cause:   err,
+		}
+	}
+	
+	e.mutex.Lock()
 	e.writer = w
+	e.mutex.Unlock()
 	return nil
 }
 
 // WriteEvent writes a single event to the stream with length prefix
-func (e *StreamingProtobufEncoder) WriteEvent(event events.Event) error {
-	if e.writer == nil {
-		return fmt.Errorf("stream not initialized")
-	}
-
+func (e *StreamingProtobufEncoder) WriteEvent(ctx context.Context, event events.Event) error {
 	if event == nil {
 		return &encoding.EncodingError{
 			Format:  "protobuf",
@@ -87,9 +99,22 @@ func (e *StreamingProtobufEncoder) WriteEvent(event events.Event) error {
 		}
 	}
 
+	// Use mutex to protect concurrent access to writer and buffer
+	e.mutex.Lock()
+	defer e.mutex.Unlock()
+
+	// Check if writer is initialized after acquiring lock
+	if e.writer == nil {
+		return errors.NewStreamingError("PROTOBUF_STREAM_NOT_INITIALIZED", "stream not initialized")
+	}
+
+	// Create a local buffer for this operation to avoid race conditions
+	// This is more efficient than allocating a new buffer on each call
+	lengthPrefix := make([]byte, 4)
+	binary.BigEndian.PutUint32(lengthPrefix, uint32(len(data)))
+	
 	// Write length prefix
-	binary.BigEndian.PutUint32(e.buffer, uint32(len(data)))
-	if _, err := e.writer.Write(e.buffer); err != nil {
+	if _, err := e.writer.Write(lengthPrefix); err != nil {
 		return &encoding.EncodingError{
 			Format:  "protobuf",
 			Event:   event,
@@ -112,8 +137,10 @@ func (e *StreamingProtobufEncoder) WriteEvent(event events.Event) error {
 }
 
 // EndStream finalizes the streaming session
-func (e *StreamingProtobufEncoder) EndStream() error {
+func (e *StreamingProtobufEncoder) EndStream(ctx context.Context) error {
+	e.mutex.Lock()
 	e.writer = nil
+	e.mutex.Unlock()
 	return nil
 }
 
@@ -122,6 +149,7 @@ type StreamingProtobufDecoder struct {
 	*ProtobufDecoder
 	reader io.Reader
 	buffer []byte
+	mutex  sync.RWMutex // Protects concurrent access to reader
 }
 
 // NewStreamingProtobufDecoder creates a new streaming protobuf decoder
@@ -139,14 +167,16 @@ func NewStreamingProtobufDecoder(options *encoding.DecodingOptions) *StreamingPr
 
 // DecodeStream decodes events from a reader to a channel
 func (d *StreamingProtobufDecoder) DecodeStream(ctx context.Context, input io.Reader, output chan<- events.Event) error {
+	d.mutex.Lock()
 	d.reader = input
+	d.mutex.Unlock()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			event, err := d.ReadEvent()
+			event, err := d.ReadEvent(ctx)
 			if err != nil {
 				if err == io.EOF {
 					return nil // Normal end of stream
@@ -164,15 +194,31 @@ func (d *StreamingProtobufDecoder) DecodeStream(ctx context.Context, input io.Re
 }
 
 // StartStream initializes a streaming session
-func (d *StreamingProtobufDecoder) StartStream(r io.Reader) error {
+func (d *StreamingProtobufDecoder) StartStream(ctx context.Context, r io.Reader) error {
+	// Check context cancellation
+	if err := ctx.Err(); err != nil {
+		return &encoding.DecodingError{
+			Format:  "protobuf",
+			Message: "context cancelled",
+			Cause:   err,
+		}
+	}
+	
+	d.mutex.Lock()
 	d.reader = r
+	d.mutex.Unlock()
 	return nil
 }
 
 // ReadEvent reads a single event from the stream
-func (d *StreamingProtobufDecoder) ReadEvent() (events.Event, error) {
+func (d *StreamingProtobufDecoder) ReadEvent(ctx context.Context) (events.Event, error) {
+	// Use mutex to protect concurrent access to reader
+	d.mutex.Lock()
+	defer d.mutex.Unlock()
+
+	// Check if reader is initialized after acquiring lock
 	if d.reader == nil {
-		return nil, fmt.Errorf("stream not initialized")
+		return nil, errors.NewStreamingError("PROTOBUF_STREAM_NOT_INITIALIZED", "stream not initialized")
 	}
 
 	// Read length prefix
@@ -246,7 +292,9 @@ func (d *StreamingProtobufDecoder) ReadEvent() (events.Event, error) {
 }
 
 // EndStream finalizes the streaming session
-func (d *StreamingProtobufDecoder) EndStream() error {
+func (d *StreamingProtobufDecoder) EndStream(ctx context.Context) error {
+	d.mutex.Lock()
 	d.reader = nil
+	d.mutex.Unlock()
 	return nil
 }

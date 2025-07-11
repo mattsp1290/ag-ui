@@ -1,19 +1,18 @@
 package json
 
 import (
-	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
-	"sync"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/encoding"
 )
 
 // JSONEncoder implements the Encoder interface for JSON format
+// This encoder is stateless and thread-safe for concurrent use.
 type JSONEncoder struct {
 	options *encoding.EncodingOptions
-	mu      sync.Mutex
 }
 
 // NewJSONEncoder creates a new JSON encoder with the given options
@@ -30,9 +29,15 @@ func NewJSONEncoder(options *encoding.EncodingOptions) *JSONEncoder {
 }
 
 // Encode encodes a single event to JSON
-func (e *JSONEncoder) Encode(event events.Event) ([]byte, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+func (e *JSONEncoder) Encode(ctx context.Context, event events.Event) ([]byte, error) {
+	// Check context cancellation
+	if err := ctx.Err(); err != nil {
+		return nil, &encoding.EncodingError{
+			Format:  "json",
+			Message: "context cancelled",
+			Cause:   err,
+		}
+	}
 
 	if event == nil {
 		return nil, &encoding.EncodingError{
@@ -67,8 +72,10 @@ func (e *JSONEncoder) Encode(event events.Event) ([]byte, error) {
 
 		// Pretty print if requested
 		if e.options.Pretty {
-			var buf bytes.Buffer
-			if err := json.Indent(&buf, data, "", "  "); err != nil {
+			buf := encoding.GetBuffer(len(data) * 2) // Estimate 2x size for pretty printing
+			defer encoding.PutBuffer(buf)
+			
+			if err := json.Indent(buf, data, "", "  "); err != nil {
 				return nil, &encoding.EncodingError{
 					Format:  "json",
 					Event:   event,
@@ -76,7 +83,8 @@ func (e *JSONEncoder) Encode(event events.Event) ([]byte, error) {
 					Cause:   err,
 				}
 			}
-			data = buf.Bytes()
+			data = make([]byte, buf.Len())
+			copy(data, buf.Bytes())
 		}
 
 		// Check size limits
@@ -91,14 +99,40 @@ func (e *JSONEncoder) Encode(event events.Event) ([]byte, error) {
 		return data, nil
 	}
 
-	// Standard JSON encoding
+	// Standard JSON encoding with buffer pooling
 	var data []byte
 	var err error
 
 	if e.options.Pretty {
-		data, err = json.MarshalIndent(event, "", "  ")
+		// Use buffer pooling for pretty printing with optimized size
+		optimalSize := encoding.GetOptimalBufferSizeForEvent(event)
+		buf := encoding.GetBuffer(optimalSize * 2) // Pretty printing needs more space
+		defer encoding.PutBuffer(buf)
+		
+		encoder := json.NewEncoder(buf)
+		encoder.SetIndent("", "  ")
+		err = encoder.Encode(event)
+		if err == nil {
+			data = make([]byte, buf.Len())
+			copy(data, buf.Bytes())
+		}
 	} else {
-		data, err = json.Marshal(event)
+		// Use buffer pooling for compact encoding with optimized size
+		optimalSize := encoding.GetOptimalBufferSizeForEvent(event)
+		buf := encoding.GetBuffer(optimalSize)
+		defer encoding.PutBuffer(buf)
+		
+		encoder := json.NewEncoder(buf)
+		err = encoder.Encode(event)
+		if err == nil {
+			// Remove trailing newline added by json.Encoder
+			bytes := buf.Bytes()
+			if len(bytes) > 0 && bytes[len(bytes)-1] == '\n' {
+				bytes = bytes[:len(bytes)-1]
+			}
+			data = make([]byte, len(bytes))
+			copy(data, bytes)
+		}
 	}
 
 	if err != nil {
@@ -123,9 +157,15 @@ func (e *JSONEncoder) Encode(event events.Event) ([]byte, error) {
 }
 
 // EncodeMultiple encodes multiple events efficiently
-func (e *JSONEncoder) EncodeMultiple(events []events.Event) ([]byte, error) {
-	e.mu.Lock()
-	defer e.mu.Unlock()
+func (e *JSONEncoder) EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error) {
+	// Check context cancellation
+	if err := ctx.Err(); err != nil {
+		return nil, &encoding.EncodingError{
+			Format:  "json",
+			Message: "context cancelled",
+			Cause:   err,
+		}
+	}
 
 	if len(events) == 0 {
 		return []byte("[]"), nil
@@ -154,16 +194,49 @@ func (e *JSONEncoder) EncodeMultiple(events []events.Event) ([]byte, error) {
 	// Create a slice to hold all encoded events
 	encodedEvents := make([]json.RawMessage, 0, len(events))
 	totalSize := int64(2) // Account for "[]"
+	
+	// Use a pooled buffer for better memory efficiency - estimate based on actual events
+	estimatedSize := encoding.GetOptimalBufferSizeForMultiple(events)
+	mainBuf := encoding.GetBuffer(estimatedSize)
+	defer encoding.PutBuffer(mainBuf)
 
 	for i, event := range events {
-		// Use ToJSON for cross-SDK compatibility
+		// Check context cancellation periodically
+		if i%100 == 0 {
+			if err := ctx.Err(); err != nil {
+				return nil, &encoding.EncodingError{
+					Format:  "json",
+					Message: "context cancelled during encoding",
+					Cause:   err,
+				}
+			}
+		}
+
 		var data []byte
 		var err error
 
 		if e.options.CrossSDKCompatibility {
+			// Use ToJSON for cross-SDK compatibility
 			data, err = event.ToJSON()
 		} else {
-			data, err = json.Marshal(event)
+			// Use buffer pooling for standard JSON encoding with optimized size
+			optimalSize := encoding.GetOptimalBufferSizeForEvent(event)
+			eventBuf := encoding.GetBuffer(optimalSize)
+			
+			// Ensure buffer is returned to pool even if an error occurs
+			defer encoding.PutBuffer(eventBuf)
+			
+			encoder := json.NewEncoder(eventBuf)
+			err = encoder.Encode(event)
+			if err == nil {
+				// Remove trailing newline added by json.Encoder
+				bytes := eventBuf.Bytes()
+				if len(bytes) > 0 && bytes[len(bytes)-1] == '\n' {
+					bytes = bytes[:len(bytes)-1]
+				}
+				data = make([]byte, len(bytes))
+				copy(data, bytes)
+			}
 		}
 
 		if err != nil {
@@ -191,14 +264,39 @@ func (e *JSONEncoder) EncodeMultiple(events []events.Event) ([]byte, error) {
 		encodedEvents = append(encodedEvents, json.RawMessage(data))
 	}
 
-	// Marshal the array of raw messages
+	// Marshal the array of raw messages using buffer pooling
 	var result []byte
 	var err error
 
+	// Use buffer pooling for the final array marshalling
+	arrayBuf := encoding.GetBuffer(int(totalSize)) // Use estimated total size
+	defer encoding.PutBuffer(arrayBuf)
+
 	if e.options.Pretty {
-		result, err = json.MarshalIndent(encodedEvents, "", "  ")
+		encoder := json.NewEncoder(arrayBuf)
+		encoder.SetIndent("", "  ")
+		err = encoder.Encode(encodedEvents)
+		if err == nil {
+			// Remove trailing newline added by json.Encoder
+			bytes := arrayBuf.Bytes()
+			if len(bytes) > 0 && bytes[len(bytes)-1] == '\n' {
+				bytes = bytes[:len(bytes)-1]
+			}
+			result = make([]byte, len(bytes))
+			copy(result, bytes)
+		}
 	} else {
-		result, err = json.Marshal(encodedEvents)
+		encoder := json.NewEncoder(arrayBuf)
+		err = encoder.Encode(encodedEvents)
+		if err == nil {
+			// Remove trailing newline added by json.Encoder
+			bytes := arrayBuf.Bytes()
+			if len(bytes) > 0 && bytes[len(bytes)-1] == '\n' {
+				bytes = bytes[:len(bytes)-1]
+			}
+			result = make([]byte, len(bytes))
+			copy(result, bytes)
+		}
 	}
 
 	if err != nil {
@@ -217,7 +315,23 @@ func (e *JSONEncoder) ContentType() string {
 	return "application/json"
 }
 
-// CanStream indicates that JSON encoder supports streaming
+// CanStream indicates that JSON encoder supports streaming (backward compatibility)
 func (e *JSONEncoder) CanStream() bool {
 	return true
+}
+
+// SupportsStreaming indicates that JSON encoder supports streaming
+func (e *JSONEncoder) SupportsStreaming() bool {
+	return true
+}
+
+// Reset resets the encoder with new options (for pooling)
+func (e *JSONEncoder) Reset(options *encoding.EncodingOptions) {
+	if options == nil {
+		options = &encoding.EncodingOptions{
+			CrossSDKCompatibility: true,
+			ValidateOutput:        true,
+		}
+	}
+	e.options = options
 }

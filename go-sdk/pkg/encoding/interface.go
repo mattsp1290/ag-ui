@@ -7,85 +7,65 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 )
 
-// Encoder defines the interface for encoding events into various formats
-type Encoder interface {
+// Codec defines the core interface for encoding and decoding events
+// This replaces the previous Encoder/Decoder split to simplify the interface hierarchy
+type Codec interface {
 	// Encode encodes a single event
-	Encode(event events.Event) ([]byte, error)
+	Encode(ctx context.Context, event events.Event) ([]byte, error)
 
 	// EncodeMultiple encodes multiple events efficiently
-	EncodeMultiple(events []events.Event) ([]byte, error)
+	EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error)
 
-	// ContentType returns the MIME type for this encoder
-	ContentType() string
-
-	// CanStream indicates if this encoder supports streaming
-	CanStream() bool
-}
-
-// Decoder defines the interface for decoding events from various formats
-type Decoder interface {
 	// Decode decodes a single event from raw data
-	Decode(data []byte) (events.Event, error)
+	Decode(ctx context.Context, data []byte) (events.Event, error)
 
 	// DecodeMultiple decodes multiple events from raw data
-	DecodeMultiple(data []byte) ([]events.Event, error)
+	DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error)
 
-	// ContentType returns the MIME type this decoder handles
+	// ContentType returns the MIME type for this codec
 	ContentType() string
 
-	// CanStream indicates if this decoder supports streaming
+	// SupportsStreaming indicates if this codec has streaming capabilities
+	SupportsStreaming() bool
+	
+	// CanStream indicates if this codec supports streaming (backward compatibility)
 	CanStream() bool
 }
 
-// StreamEncoder defines the interface for streaming event encoding
-type StreamEncoder interface {
-	Encoder
+// StreamCodec defines the interface for streaming event encoding/decoding
+// This extends the basic Codec interface to include streaming capabilities
+type StreamCodec interface {
+	// Embed the basic Codec interface
+	Codec
 
 	// EncodeStream encodes events from a channel to a writer
 	EncodeStream(ctx context.Context, input <-chan events.Event, output io.Writer) error
 
-	// StartStream initializes a streaming session
-	StartStream(w io.Writer) error
-
-	// WriteEvent writes a single event to the stream
-	WriteEvent(event events.Event) error
-
-	// EndStream finalizes the streaming session
-	EndStream() error
-}
-
-// StreamDecoder defines the interface for streaming event decoding
-type StreamDecoder interface {
-	Decoder
-
 	// DecodeStream decodes events from a reader to a channel
 	DecodeStream(ctx context.Context, input io.Reader, output chan<- events.Event) error
 
-	// StartStream initializes a streaming session
-	StartStream(r io.Reader) error
+	// StartEncoding initializes a streaming encoding session
+	StartEncoding(ctx context.Context, w io.Writer) error
 
-	// ReadEvent reads a single event from the stream
-	ReadEvent() (events.Event, error)
+	// WriteEvent writes a single event to the encoding stream
+	WriteEvent(ctx context.Context, event events.Event) error
 
-	// EndStream finalizes the streaming session
-	EndStream() error
-}
+	// EndEncoding finalizes the streaming encoding session
+	EndEncoding(ctx context.Context) error
 
-// Codec combines both encoder and decoder interfaces
-type Codec interface {
-	Encoder
-	Decoder
-}
+	// StartDecoding initializes a streaming decoding session
+	StartDecoding(ctx context.Context, r io.Reader) error
 
-// StreamCodec combines codec with streaming capabilities
-// Note: Does not embed StreamEncoder/StreamDecoder due to method conflicts
-type StreamCodec interface {
-	Codec
-	
-	// GetStreamEncoder returns the stream encoder
+	// ReadEvent reads a single event from the decoding stream
+	ReadEvent(ctx context.Context) (events.Event, error)
+
+	// EndDecoding finalizes the streaming decoding session
+	EndDecoding(ctx context.Context) error
+
+	// GetStreamEncoder returns the underlying stream encoder
 	GetStreamEncoder() StreamEncoder
-	
-	// GetStreamDecoder returns the stream decoder  
+
+	// GetStreamDecoder returns the underlying stream decoder
 	GetStreamDecoder() StreamDecoder
 }
 
@@ -192,32 +172,56 @@ type ContentNegotiator interface {
 	CanHandle(contentType string) bool
 }
 
-// EncoderFactory creates encoders for specific content types
-type EncoderFactory interface {
-	// CreateEncoder creates an encoder for the specified content type
-	CreateEncoder(contentType string, options *EncodingOptions) (Encoder, error)
-
-	// CreateStreamEncoder creates a streaming encoder
-	CreateStreamEncoder(contentType string, options *EncodingOptions) (StreamEncoder, error)
-
-	// SupportedEncoders returns list of supported encoder types
-	SupportedEncoders() []string
-}
-
-// DecoderFactory creates decoders for specific content types
-type DecoderFactory interface {
-	// CreateDecoder creates a decoder for the specified content type
-	CreateDecoder(contentType string, options *DecodingOptions) (Decoder, error)
-
-	// CreateStreamDecoder creates a streaming decoder
-	CreateStreamDecoder(contentType string, options *DecodingOptions) (StreamDecoder, error)
-
-	// SupportedDecoders returns list of supported decoder types
-	SupportedDecoders() []string
-}
-
-// CodecFactory combines encoder and decoder factories
+// CodecFactory creates codecs for specific content types
 type CodecFactory interface {
-	EncoderFactory
-	DecoderFactory
+	// CreateCodec creates a codec for the specified content type
+	CreateCodec(ctx context.Context, contentType string, encOptions *EncodingOptions, decOptions *DecodingOptions) (Codec, error)
+
+	// CreateStreamCodec creates a streaming codec for the specified content type
+	CreateStreamCodec(ctx context.Context, contentType string, encOptions *EncodingOptions, decOptions *DecodingOptions) (StreamCodec, error)
+
+	// SupportedTypes returns list of supported content types
+	SupportedTypes() []string
+
+	// SupportsStreaming indicates if streaming is supported for the given content type
+	SupportsStreaming(contentType string) bool
+}
+
+// Backward compatibility interfaces - DEPRECATED
+// These interfaces are provided for backward compatibility and will be removed in a future version
+
+// Encoder is deprecated - use Codec instead
+type Encoder interface {
+	Encode(ctx context.Context, event events.Event) ([]byte, error)
+	EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error)
+	ContentType() string
+	CanStream() bool
+	SupportsStreaming() bool
+}
+
+// Decoder is deprecated - use Codec instead
+type Decoder interface {
+	Decode(ctx context.Context, data []byte) (events.Event, error)
+	DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error)
+	ContentType() string
+	CanStream() bool
+	SupportsStreaming() bool
+}
+
+// StreamEncoder is deprecated - use StreamCodec instead
+type StreamEncoder interface {
+	Encoder
+	EncodeStream(ctx context.Context, input <-chan events.Event, output io.Writer) error
+	StartStream(ctx context.Context, w io.Writer) error
+	WriteEvent(ctx context.Context, event events.Event) error
+	EndStream(ctx context.Context) error
+}
+
+// StreamDecoder is deprecated - use StreamCodec instead
+type StreamDecoder interface {
+	Decoder
+	DecodeStream(ctx context.Context, input io.Reader, output chan<- events.Event) error
+	StartStream(ctx context.Context, r io.Reader) error
+	ReadEvent(ctx context.Context) (events.Event, error)
+	EndStream(ctx context.Context) error
 }

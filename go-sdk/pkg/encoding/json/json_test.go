@@ -19,7 +19,7 @@ func TestJSONEncoder_Encode(t *testing.T) {
 
 	t.Run("encode text message start event", func(t *testing.T) {
 		event := events.NewTextMessageStartEvent("msg123", events.WithRole("assistant"))
-		data, err := encoder.Encode(event)
+		data, err := encoder.Encode(context.Background(), event)
 		if err != nil {
 			t.Fatalf("failed to encode event: %v", err)
 		}
@@ -52,7 +52,7 @@ func TestJSONEncoder_Encode(t *testing.T) {
 			MessageID: "", // Invalid: empty messageId
 		}
 
-		_, err := encoder.Encode(event)
+		_, err := encoder.Encode(context.Background(), event)
 		if err == nil {
 			t.Error("expected validation error, got nil")
 		}
@@ -64,14 +64,14 @@ func TestJSONEncoder_Encode(t *testing.T) {
 		})
 
 		event := events.NewTextMessageStartEvent("msg123")
-		_, err := encoder.Encode(event)
+		_, err := encoder.Encode(context.Background(), event)
 		if err == nil {
 			t.Error("expected size limit error, got nil")
 		}
 	})
 
 	t.Run("encode nil event", func(t *testing.T) {
-		_, err := encoder.Encode(nil)
+		_, err := encoder.Encode(context.Background(), nil)
 		if err == nil {
 			t.Error("expected error for nil event, got nil")
 		}
@@ -87,7 +87,7 @@ func TestJSONEncoder_EncodeMultiple(t *testing.T) {
 		events.NewTextMessageEndEvent("msg1"),
 	}
 
-	data, err := encoder.EncodeMultiple(testEvents)
+	data, err := encoder.EncodeMultiple(context.Background(), testEvents)
 	if err != nil {
 		t.Fatalf("failed to encode multiple events: %v", err)
 	}
@@ -109,7 +109,7 @@ func TestJSONDecoder_Decode(t *testing.T) {
 	t.Run("decode text message start event", func(t *testing.T) {
 		jsonData := `{"type":"TEXT_MESSAGE_START","messageId":"msg123","role":"assistant","timestamp":1234567890}`
 		
-		event, err := decoder.Decode([]byte(jsonData))
+		event, err := decoder.Decode(context.Background(), []byte(jsonData))
 		if err != nil {
 			t.Fatalf("failed to decode event: %v", err)
 		}
@@ -135,7 +135,7 @@ func TestJSONDecoder_Decode(t *testing.T) {
 		// Invalid event (missing messageId)
 		jsonData := `{"type":"TEXT_MESSAGE_START","timestamp":1234567890}`
 		
-		_, err := decoder.Decode([]byte(jsonData))
+		_, err := decoder.Decode(context.Background(), []byte(jsonData))
 		if err == nil {
 			t.Error("expected validation error, got nil")
 		}
@@ -144,21 +144,21 @@ func TestJSONDecoder_Decode(t *testing.T) {
 	t.Run("decode unknown event type", func(t *testing.T) {
 		jsonData := `{"type":"UNKNOWN_EVENT_TYPE"}`
 		
-		_, err := decoder.Decode([]byte(jsonData))
+		_, err := decoder.Decode(context.Background(), []byte(jsonData))
 		if err == nil {
 			t.Error("expected error for unknown event type, got nil")
 		}
 	})
 
 	t.Run("decode empty data", func(t *testing.T) {
-		_, err := decoder.Decode([]byte{})
+		_, err := decoder.Decode(context.Background(), []byte{})
 		if err == nil {
 			t.Error("expected error for empty data, got nil")
 		}
 	})
 
 	t.Run("decode invalid JSON", func(t *testing.T) {
-		_, err := decoder.Decode([]byte("not json"))
+		_, err := decoder.Decode(context.Background(), []byte("not json"))
 		if err == nil {
 			t.Error("expected error for invalid JSON, got nil")
 		}
@@ -174,7 +174,7 @@ func TestJSONDecoder_DecodeMultiple(t *testing.T) {
 		{"type":"TEXT_MESSAGE_END","messageId":"msg1","timestamp":1234567892}
 	]`
 
-	decodedEvents, err := decoder.DecodeMultiple([]byte(jsonData))
+	decodedEvents, err := decoder.DecodeMultiple(context.Background(), []byte(jsonData))
 	if err != nil {
 		t.Fatalf("failed to decode multiple events: %v", err)
 	}
@@ -200,7 +200,7 @@ func TestStreamingJSONEncoder(t *testing.T) {
 		encoder := NewStreamingJSONEncoder(nil)
 		var buf bytes.Buffer
 
-		if err := encoder.StartStream(&buf); err != nil {
+		if err := encoder.StartStream(context.Background(), &buf); err != nil {
 			t.Fatalf("failed to start stream: %v", err)
 		}
 
@@ -211,12 +211,12 @@ func TestStreamingJSONEncoder(t *testing.T) {
 		}
 
 		for _, event := range testEvents {
-			if err := encoder.WriteEvent(event); err != nil {
+			if err := encoder.WriteEvent(context.Background(), event); err != nil {
 				t.Fatalf("failed to write event: %v", err)
 			}
 		}
 
-		if err := encoder.EndStream(); err != nil {
+		if err := encoder.EndStream(context.Background()); err != nil {
 			t.Fatalf("failed to end stream: %v", err)
 		}
 
@@ -239,7 +239,7 @@ func TestStreamingJSONEncoder(t *testing.T) {
 		encoder := NewStreamingJSONEncoder(nil)
 		event := events.NewTextMessageStartEvent("msg1")
 		
-		err := encoder.WriteEvent(event)
+		err := encoder.WriteEvent(context.Background(), event)
 		if err == nil {
 			t.Error("expected error when writing to unstarted stream")
 		}
@@ -289,14 +289,14 @@ func TestStreamingJSONDecoder(t *testing.T) {
 `
 		reader := strings.NewReader(ndjson)
 
-		if err := decoder.StartStream(reader); err != nil {
+		if err := decoder.StartStream(context.Background(), reader); err != nil {
 			t.Fatalf("failed to start stream: %v", err)
 		}
 
 		// Read all events
 		var decodedEvents []events.Event
 		for {
-			event, err := decoder.ReadEvent()
+			event, err := decoder.ReadEvent(context.Background())
 			if err == io.EOF {
 				break
 			}
@@ -306,7 +306,7 @@ func TestStreamingJSONDecoder(t *testing.T) {
 			decodedEvents = append(decodedEvents, event)
 		}
 
-		if err := decoder.EndStream(); err != nil {
+		if err := decoder.EndStream(context.Background()); err != nil {
 			t.Fatalf("failed to end stream: %v", err)
 		}
 
@@ -324,14 +324,14 @@ func TestStreamingJSONDecoder(t *testing.T) {
 `
 		reader := strings.NewReader(ndjson)
 
-		if err := decoder.StartStream(reader); err != nil {
+		if err := decoder.StartStream(context.Background(), reader); err != nil {
 			t.Fatalf("failed to start stream: %v", err)
 		}
 
 		// Read all events
 		var decodedEvents []events.Event
 		for {
-			event, err := decoder.ReadEvent()
+			event, err := decoder.ReadEvent(context.Background())
 			if err == io.EOF {
 				break
 			}
@@ -384,13 +384,13 @@ func TestJSONCodec(t *testing.T) {
 		original := events.NewTextMessageStartEvent("msg123", events.WithRole("user"))
 		
 		// Encode
-		data, err := codec.Encode(original)
+		data, err := codec.Encode(context.Background(), original)
 		if err != nil {
 			t.Fatalf("failed to encode: %v", err)
 		}
 
 		// Decode
-		decoded, err := codec.Decode(data)
+		decoded, err := codec.Decode(context.Background(), data)
 		if err != nil {
 			t.Fatalf("failed to decode: %v", err)
 		}
@@ -414,13 +414,13 @@ func TestJSONCodec(t *testing.T) {
 		}
 
 		// Encode
-		data, err := codec.EncodeMultiple(originals)
+		data, err := codec.EncodeMultiple(context.Background(), originals)
 		if err != nil {
 			t.Fatalf("failed to encode: %v", err)
 		}
 
 		// Decode
-		decoded, err := codec.DecodeMultiple(data)
+		decoded, err := codec.DecodeMultiple(context.Background(), data)
 		if err != nil {
 			t.Fatalf("failed to decode: %v", err)
 		}
@@ -452,7 +452,7 @@ func TestThreadSafety(t *testing.T) {
 			go func(id int) {
 				defer wg.Done()
 				event := events.NewTextMessageContentEvent("msg1", "content")
-				_, err := encoder.Encode(event)
+				_, err := encoder.Encode(context.Background(), event)
 				if err != nil {
 					errors <- err
 				}
@@ -477,7 +477,7 @@ func TestThreadSafety(t *testing.T) {
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
-				_, err := decoder.Decode([]byte(jsonData))
+				_, err := decoder.Decode(context.Background(), []byte(jsonData))
 				if err != nil {
 					errors <- err
 				}

@@ -1,6 +1,7 @@
 package protobuf
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 
@@ -26,7 +27,16 @@ func NewProtobufEncoder(options *encoding.EncodingOptions) *ProtobufEncoder {
 }
 
 // Encode encodes a single event to protobuf binary format
-func (e *ProtobufEncoder) Encode(event events.Event) ([]byte, error) {
+func (e *ProtobufEncoder) Encode(ctx context.Context, event events.Event) ([]byte, error) {
+	// Check context cancellation
+	if err := ctx.Err(); err != nil {
+		return nil, &encoding.EncodingError{
+			Format:  "protobuf",
+			Message: "context cancelled",
+			Cause:   err,
+		}
+	}
+
 	if event == nil {
 		return nil, &encoding.EncodingError{
 			Format:  "protobuf",
@@ -45,7 +55,11 @@ func (e *ProtobufEncoder) Encode(event events.Event) ([]byte, error) {
 		}
 	}
 
-	// Marshal to binary
+	// Marshal to binary using buffer pooling with optimized size
+	optimalSize := encoding.GetOptimalBufferSizeForEvent(event)
+	buf := encoding.GetBuffer(optimalSize / 2) // Protobuf is typically more compact than JSON
+	defer encoding.PutBuffer(buf)
+	
 	data, err := proto.Marshal(pbEvent)
 	if err != nil {
 		return nil, &encoding.EncodingError{
@@ -67,6 +81,10 @@ func (e *ProtobufEncoder) Encode(event events.Event) ([]byte, error) {
 
 	// Validate output if requested
 	if e.options.ValidateOutput {
+		// Use buffer pooling for validation operations
+		validationBuf := encoding.GetBuffer(len(data))
+		defer encoding.PutBuffer(validationBuf)
+		
 		var validateEvent generated.Event
 		if err := proto.Unmarshal(data, &validateEvent); err != nil {
 			return nil, &encoding.EncodingError{
@@ -82,7 +100,16 @@ func (e *ProtobufEncoder) Encode(event events.Event) ([]byte, error) {
 }
 
 // EncodeMultiple encodes multiple events using length-prefixed format
-func (e *ProtobufEncoder) EncodeMultiple(events []events.Event) ([]byte, error) {
+func (e *ProtobufEncoder) EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error) {
+	// Check context cancellation
+	if err := ctx.Err(); err != nil {
+		return nil, &encoding.EncodingError{
+			Format:  "protobuf",
+			Message: "context cancelled",
+			Cause:   err,
+		}
+	}
+
 	if len(events) == 0 {
 		return nil, &encoding.EncodingError{
 			Format:  "protobuf",
@@ -96,6 +123,11 @@ func (e *ProtobufEncoder) EncodeMultiple(events []events.Event) ([]byte, error) 
 	totalSize := 4 // 4 bytes for count
 	encodedEvents := make([][]byte, 0, len(events))
 	
+	// Use buffer pooling for better memory efficiency with optimized sizing
+	estimatedSize := encoding.GetOptimalBufferSizeForMultiple(events) / 2 // Protobuf is more compact
+	workingBuf := encoding.GetBuffer(estimatedSize)
+	defer encoding.PutBuffer(workingBuf)
+	
 	// First pass: encode all events and calculate total size
 	for i, event := range events {
 		if event == nil {
@@ -105,7 +137,7 @@ func (e *ProtobufEncoder) EncodeMultiple(events []events.Event) ([]byte, error) 
 			}
 		}
 
-		encoded, err := e.Encode(event)
+		encoded, err := e.Encode(ctx, event)
 		if err != nil {
 			return nil, &encoding.EncodingError{
 				Format:  "protobuf",
@@ -127,22 +159,27 @@ func (e *ProtobufEncoder) EncodeMultiple(events []events.Event) ([]byte, error) 
 		}
 	}
 
-	// Second pass: build the final output
-	output := make([]byte, totalSize)
-	offset := 0
+	// Second pass: build the final output using buffer pooling
+	outputBuf := encoding.GetBuffer(totalSize)
+	defer encoding.PutBuffer(outputBuf)
 	
 	// Write event count
-	writeUint32(output[offset:], uint32(len(events)))
-	offset += 4
+	countBytes := make([]byte, 4)
+	writeUint32(countBytes, uint32(len(events)))
+	outputBuf.Write(countBytes)
 	
 	// Write each event with its length
 	for _, encoded := range encodedEvents {
-		writeUint32(output[offset:], uint32(len(encoded)))
-		offset += 4
-		copy(output[offset:], encoded)
-		offset += len(encoded)
+		lengthBytes := make([]byte, 4)
+		writeUint32(lengthBytes, uint32(len(encoded)))
+		outputBuf.Write(lengthBytes)
+		outputBuf.Write(encoded)
 	}
 
+	// Copy final result
+	output := make([]byte, outputBuf.Len())
+	copy(output, outputBuf.Bytes())
+	
 	return output, nil
 }
 
@@ -151,12 +188,25 @@ func (e *ProtobufEncoder) ContentType() string {
 	return "application/x-protobuf"
 }
 
-// CanStream indicates that protobuf supports streaming
+// CanStream indicates that protobuf supports streaming (backward compatibility)
 func (e *ProtobufEncoder) CanStream() bool {
+	return true
+}
+
+// SupportsStreaming indicates that protobuf encoder supports streaming
+func (e *ProtobufEncoder) SupportsStreaming() bool {
 	return true
 }
 
 // writeUint32 writes a 32-bit unsigned integer in big-endian format
 func writeUint32(b []byte, v uint32) {
 	binary.BigEndian.PutUint32(b, v)
+}
+
+// Reset resets the encoder with new options (for pooling)
+func (e *ProtobufEncoder) Reset(options *encoding.EncodingOptions) {
+	if options == nil {
+		options = &encoding.EncodingOptions{}
+	}
+	e.options = options
 }

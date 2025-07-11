@@ -2,6 +2,7 @@ package json_test
 
 import (
 	"bytes"
+	"context"
 	"testing"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
@@ -17,7 +18,7 @@ func TestJSONIntegration(t *testing.T) {
 		original := events.NewTextMessageStartEvent("msg123", events.WithRole("assistant"))
 		
 		// Encode
-		data, err := codec.Encode(original)
+		data, err := codec.Encode(context.Background(), original)
 		if err != nil {
 			t.Fatalf("Failed to encode: %v", err)
 		}
@@ -25,7 +26,7 @@ func TestJSONIntegration(t *testing.T) {
 		t.Logf("Encoded JSON: %s", string(data))
 		
 		// Decode
-		decoded, err := codec.Decode(data)
+		decoded, err := codec.Decode(context.Background(), data)
 		if err != nil {
 			t.Fatalf("Failed to decode: %v", err)
 		}
@@ -54,7 +55,7 @@ func TestJSONIntegration(t *testing.T) {
 		var buf bytes.Buffer
 		
 		// Start encoding stream
-		if err := encoder.StartStream(&buf); err != nil {
+		if err := encoder.StartStream(context.Background(), &buf); err != nil {
 			t.Fatalf("Failed to start encoder stream: %v", err)
 		}
 		
@@ -66,12 +67,12 @@ func TestJSONIntegration(t *testing.T) {
 		}
 		
 		for _, event := range testEvents {
-			if err := encoder.WriteEvent(event); err != nil {
+			if err := encoder.WriteEvent(context.Background(), event); err != nil {
 				t.Fatalf("Failed to write event: %v", err)
 			}
 		}
 		
-		if err := encoder.EndStream(); err != nil {
+		if err := encoder.EndStream(context.Background()); err != nil {
 			t.Fatalf("Failed to end encoder stream: %v", err)
 		}
 		
@@ -79,20 +80,20 @@ func TestJSONIntegration(t *testing.T) {
 		
 		// Decode stream
 		reader := bytes.NewReader(buf.Bytes())
-		if err := decoder.StartStream(reader); err != nil {
+		if err := decoder.StartStream(context.Background(), reader); err != nil {
 			t.Fatalf("Failed to start decoder stream: %v", err)
 		}
 		
 		var decodedEvents []events.Event
 		for i := 0; i < len(testEvents); i++ {
-			event, err := decoder.ReadEvent()
+			event, err := decoder.ReadEvent(context.Background())
 			if err != nil {
 				t.Fatalf("Failed to read event %d: %v", i, err)
 			}
 			decodedEvents = append(decodedEvents, event)
 		}
 		
-		if err := decoder.EndStream(); err != nil {
+		if err := decoder.EndStream(context.Background()); err != nil {
 			t.Fatalf("Failed to end decoder stream: %v", err)
 		}
 		
@@ -115,7 +116,7 @@ func TestJSONIntegration(t *testing.T) {
 		
 		event := events.NewToolCallStartEvent("tool123", "calculate")
 		
-		data, err := codec.Encode(event)
+		data, err := codec.Encode(context.Background(), event)
 		if err != nil {
 			t.Fatalf("Failed to encode: %v", err)
 		}
@@ -123,7 +124,7 @@ func TestJSONIntegration(t *testing.T) {
 		t.Logf("Cross-SDK compatible JSON: %s", string(data))
 		
 		// Verify it's valid JSON and has expected fields
-		decoded, err := codec.Decode(data)
+		decoded, err := codec.Decode(context.Background(), data)
 		if err != nil {
 			t.Errorf("Failed to decode: %v", err)
 		}

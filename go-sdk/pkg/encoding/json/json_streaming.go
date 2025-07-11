@@ -28,7 +28,16 @@ func NewStreamingJSONEncoder(options *encoding.EncodingOptions) *StreamingJSONEn
 }
 
 // StartStream initializes a streaming session
-func (e *StreamingJSONEncoder) StartStream(w io.Writer) error {
+func (e *StreamingJSONEncoder) StartStream(ctx context.Context, w io.Writer) error {
+	// Check context cancellation
+	if err := ctx.Err(); err != nil {
+		return &encoding.EncodingError{
+			Format:  "json",
+			Message: "context cancelled",
+			Cause:   err,
+		}
+	}
+
 	e.streamMu.Lock()
 	defer e.streamMu.Unlock()
 
@@ -51,7 +60,7 @@ func (e *StreamingJSONEncoder) StartStream(w io.Writer) error {
 }
 
 // WriteEvent writes a single event to the stream
-func (e *StreamingJSONEncoder) WriteEvent(event events.Event) error {
+func (e *StreamingJSONEncoder) WriteEvent(ctx context.Context, event events.Event) error {
 	e.streamMu.Lock()
 	defer e.streamMu.Unlock()
 
@@ -63,7 +72,7 @@ func (e *StreamingJSONEncoder) WriteEvent(event events.Event) error {
 	}
 
 	// Encode the event
-	data, err := e.Encode(event)
+	data, err := e.Encode(ctx, event)
 	if err != nil {
 		return err
 	}
@@ -101,7 +110,7 @@ func (e *StreamingJSONEncoder) WriteEvent(event events.Event) error {
 }
 
 // EndStream finalizes the streaming session
-func (e *StreamingJSONEncoder) EndStream() error {
+func (e *StreamingJSONEncoder) EndStream(ctx context.Context) error {
 	e.streamMu.Lock()
 	defer e.streamMu.Unlock()
 
@@ -129,10 +138,10 @@ func (e *StreamingJSONEncoder) EndStream() error {
 
 // EncodeStream encodes events from a channel to a writer
 func (e *StreamingJSONEncoder) EncodeStream(ctx context.Context, input <-chan events.Event, output io.Writer) error {
-	if err := e.StartStream(output); err != nil {
+	if err := e.StartStream(ctx, output); err != nil {
 		return err
 	}
-	defer e.EndStream()
+	defer e.EndStream(ctx)
 
 	for {
 		select {
@@ -143,7 +152,7 @@ func (e *StreamingJSONEncoder) EncodeStream(ctx context.Context, input <-chan ev
 				// Channel closed, end streaming
 				return nil
 			}
-			if err := e.WriteEvent(event); err != nil {
+			if err := e.WriteEvent(ctx, event); err != nil {
 				return err
 			}
 		}
@@ -167,7 +176,16 @@ func NewStreamingJSONDecoder(options *encoding.DecodingOptions) *StreamingJSONDe
 }
 
 // StartStream initializes a streaming session
-func (d *StreamingJSONDecoder) StartStream(r io.Reader) error {
+func (d *StreamingJSONDecoder) StartStream(ctx context.Context, r io.Reader) error {
+	// Check context cancellation
+	if err := ctx.Err(); err != nil {
+		return &encoding.DecodingError{
+			Format:  "json",
+			Message: "context cancelled",
+			Cause:   err,
+		}
+	}
+
 	d.streamMu.Lock()
 	defer d.streamMu.Unlock()
 
@@ -194,7 +212,7 @@ func (d *StreamingJSONDecoder) StartStream(r io.Reader) error {
 }
 
 // ReadEvent reads a single event from the stream
-func (d *StreamingJSONDecoder) ReadEvent() (events.Event, error) {
+func (d *StreamingJSONDecoder) ReadEvent(ctx context.Context) (events.Event, error) {
 	d.streamMu.Lock()
 	defer d.streamMu.Unlock()
 
@@ -223,15 +241,32 @@ func (d *StreamingJSONDecoder) ReadEvent() (events.Event, error) {
 	// Skip empty lines
 	line = bytes.TrimSpace(line)
 	if len(line) == 0 {
-		return d.ReadEvent() // Recursively try next line
+		// Try next line in a loop to avoid stack overflow from recursion
+		for {
+			if !d.scanner.Scan() {
+				if err := d.scanner.Err(); err != nil {
+					return nil, &encoding.DecodingError{
+						Format:  "json",
+						Message: "failed to read from stream",
+						Cause:   err,
+					}
+				}
+				// EOF
+				return nil, io.EOF
+			}
+			line = bytes.TrimSpace(d.scanner.Bytes())
+			if len(line) > 0 {
+				break
+			}
+		}
 	}
 
 	// Decode the event
-	return d.Decode(line)
+	return d.Decode(ctx, line)
 }
 
 // EndStream finalizes the streaming session
-func (d *StreamingJSONDecoder) EndStream() error {
+func (d *StreamingJSONDecoder) EndStream(ctx context.Context) error {
 	d.streamMu.Lock()
 	defer d.streamMu.Unlock()
 
@@ -248,10 +283,10 @@ func (d *StreamingJSONDecoder) EndStream() error {
 
 // DecodeStream decodes events from a reader to a channel
 func (d *StreamingJSONDecoder) DecodeStream(ctx context.Context, input io.Reader, output chan<- events.Event) error {
-	if err := d.StartStream(input); err != nil {
+	if err := d.StartStream(ctx, input); err != nil {
 		return err
 	}
-	defer d.EndStream()
+	defer d.EndStream(ctx)
 	defer close(output)
 
 	for {
@@ -259,7 +294,7 @@ func (d *StreamingJSONDecoder) DecodeStream(ctx context.Context, input io.Reader
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
-			event, err := d.ReadEvent()
+			event, err := d.ReadEvent(ctx)
 			if err == io.EOF {
 				// Normal end of stream
 				return nil
@@ -279,7 +314,7 @@ func (d *StreamingJSONDecoder) DecodeStream(ctx context.Context, input io.Reader
 	}
 }
 
-// JSONStreamCodec implements StreamCodec interface for JSON/NDJSON format
+// JSONStreamCodec implements the simplified StreamCodec interface for JSON/NDJSON format
 type JSONStreamCodec struct {
 	encoder *StreamingJSONEncoder
 	decoder *StreamingJSONDecoder
@@ -293,42 +328,87 @@ func NewJSONStreamCodec(encOptions *encoding.EncodingOptions, decOptions *encodi
 	}
 }
 
-// Encode encodes a single event
-func (c *JSONStreamCodec) Encode(event events.Event) ([]byte, error) {
-	return c.encoder.Encode(event)
-}
-
-// EncodeMultiple encodes multiple events
-func (c *JSONStreamCodec) EncodeMultiple(events []events.Event) ([]byte, error) {
-	return c.encoder.EncodeMultiple(events)
-}
-
-// Decode decodes a single event
-func (c *JSONStreamCodec) Decode(data []byte) (events.Event, error) {
-	return c.decoder.Decode(data)
-}
-
-// DecodeMultiple decodes multiple events
-func (c *JSONStreamCodec) DecodeMultiple(data []byte) ([]events.Event, error) {
-	return c.decoder.DecodeMultiple(data)
-}
-
-// ContentType returns the MIME type
+// ContentType returns the MIME type for NDJSON streaming
 func (c *JSONStreamCodec) ContentType() string {
 	return "application/x-ndjson"
 }
 
-// CanStream returns true
-func (c *JSONStreamCodec) CanStream() bool {
-	return true
+// EncodeStream encodes events from a channel to a writer
+func (c *JSONStreamCodec) EncodeStream(ctx context.Context, input <-chan events.Event, output io.Writer) error {
+	return c.encoder.EncodeStream(ctx, input, output)
 }
 
-// GetStreamEncoder returns the stream encoder
+// DecodeStream decodes events from a reader to a channel
+func (c *JSONStreamCodec) DecodeStream(ctx context.Context, input io.Reader, output chan<- events.Event) error {
+	return c.decoder.DecodeStream(ctx, input, output)
+}
+
+// StartEncoding initializes a streaming encoding session
+func (c *JSONStreamCodec) StartEncoding(ctx context.Context, w io.Writer) error {
+	return c.encoder.StartStream(ctx, w)
+}
+
+// WriteEvent writes a single event to the encoding stream
+func (c *JSONStreamCodec) WriteEvent(ctx context.Context, event events.Event) error {
+	return c.encoder.WriteEvent(ctx, event)
+}
+
+// EndEncoding finalizes the streaming encoding session
+func (c *JSONStreamCodec) EndEncoding(ctx context.Context) error {
+	return c.encoder.EndStream(ctx)
+}
+
+// StartDecoding initializes a streaming decoding session
+func (c *JSONStreamCodec) StartDecoding(ctx context.Context, r io.Reader) error {
+	return c.decoder.StartStream(ctx, r)
+}
+
+// ReadEvent reads a single event from the decoding stream
+func (c *JSONStreamCodec) ReadEvent(ctx context.Context) (events.Event, error) {
+	return c.decoder.ReadEvent(ctx)
+}
+
+// EndDecoding finalizes the streaming decoding session
+func (c *JSONStreamCodec) EndDecoding(ctx context.Context) error {
+	return c.decoder.EndStream(ctx)
+}
+
+// GetStreamEncoder returns the underlying stream encoder
 func (c *JSONStreamCodec) GetStreamEncoder() encoding.StreamEncoder {
 	return c.encoder
 }
 
-// GetStreamDecoder returns the stream decoder
+// GetStreamDecoder returns the underlying stream decoder
 func (c *JSONStreamCodec) GetStreamDecoder() encoding.StreamDecoder {
 	return c.decoder
+}
+
+// Encode implements the Codec interface - single event encoding
+func (c *JSONStreamCodec) Encode(ctx context.Context, event events.Event) ([]byte, error) {
+	return c.encoder.Encode(ctx, event)
+}
+
+// EncodeMultiple implements the Codec interface - multiple event encoding
+func (c *JSONStreamCodec) EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error) {
+	return c.encoder.EncodeMultiple(ctx, events)
+}
+
+// Decode implements the Codec interface - single event decoding
+func (c *JSONStreamCodec) Decode(ctx context.Context, data []byte) (events.Event, error) {
+	return c.decoder.Decode(ctx, data)
+}
+
+// DecodeMultiple implements the Codec interface - multiple event decoding
+func (c *JSONStreamCodec) DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error) {
+	return c.decoder.DecodeMultiple(ctx, data)
+}
+
+// SupportsStreaming indicates if this codec has streaming capabilities
+func (c *JSONStreamCodec) SupportsStreaming() bool {
+	return true
+}
+
+// CanStream indicates if this codec supports streaming (backward compatibility)
+func (c *JSONStreamCodec) CanStream() bool {
+	return true
 }

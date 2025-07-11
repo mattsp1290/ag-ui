@@ -18,7 +18,7 @@ func ExampleProtobufEncoder() {
 	event := events.NewTextMessageStartEvent("msg-123", events.WithRole("assistant"))
 
 	// Encode the event
-	data, err := encoder.Encode(event)
+	data, err := encoder.Encode(context.Background(), event)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -35,10 +35,10 @@ func ExampleProtobufDecoder() {
 	// Create and encode an event
 	event := events.NewToolCallStartEvent("call-456", "calculate")
 
-	data, _ := encoder.Encode(event)
+	data, _ := encoder.Encode(context.Background(), event)
 
 	// Decode the event
-	decoded, err := decoder.Decode(data)
+	decoded, err := decoder.Decode(context.Background(), data)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -57,7 +57,7 @@ func ExampleStreamingProtobufEncoder() {
 	var buf bytes.Buffer
 
 	// Initialize the stream
-	if err := encoder.StartStream(&buf); err != nil {
+	if err := encoder.StartStream(context.Background(), &buf); err != nil {
 		log.Fatal(err)
 	}
 
@@ -68,13 +68,13 @@ func ExampleStreamingProtobufEncoder() {
 	}
 
 	for _, event := range events {
-		if err := encoder.WriteEvent(event); err != nil {
+		if err := encoder.WriteEvent(context.Background(), event); err != nil {
 			log.Fatal(err)
 		}
 	}
 
 	// End the stream
-	if err := encoder.EndStream(); err != nil {
+	if err := encoder.EndStream(context.Background()); err != nil {
 		log.Fatal(err)
 	}
 
@@ -90,9 +90,9 @@ func ExampleStreamingProtobufDecoder() {
 	var buf bytes.Buffer
 
 	// Encode some events
-	encoder.StartStream(&buf)
-	encoder.WriteEvent(events.NewRunStartedEvent("thread-123", "run-123"))
-	encoder.EndStream()
+	encoder.StartStream(context.Background(), &buf)
+	encoder.WriteEvent(context.Background(), events.NewRunStartedEvent("thread-123", "run-123"))
+	encoder.EndStream(context.Background())
 
 	// Decode events from stream
 	ctx := context.Background()

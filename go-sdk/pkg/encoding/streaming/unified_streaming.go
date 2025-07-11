@@ -8,6 +8,7 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/encoding"
+	"github.com/ag-ui/go-sdk/pkg/errors"
 )
 
 // UnifiedStreamCodec provides a format-agnostic streaming wrapper
@@ -109,7 +110,7 @@ func (usc *UnifiedStreamCodec) StreamEncode(ctx context.Context, input <-chan ev
 	usc.mu.Lock()
 	if usc.active {
 		usc.mu.Unlock()
-		return fmt.Errorf("stream already active")
+		return errors.NewStreamingError("STREAM_ALREADY_ACTIVE", "stream already active")
 	}
 	usc.active = true
 	usc.mu.Unlock()
@@ -123,7 +124,7 @@ func (usc *UnifiedStreamCodec) StreamEncode(ctx context.Context, input <-chan ev
 	// Start stream manager if enabled
 	if usc.streamManager != nil {
 		if err := usc.streamManager.Start(); err != nil {
-			return fmt.Errorf("failed to start stream manager: %w", err)
+			return errors.NewStreamingError("STREAM_MANAGER_START_FAILED", "failed to start stream manager").WithCause(err)
 		}
 		defer usc.streamManager.Stop()
 	}
@@ -147,7 +148,7 @@ func (usc *UnifiedStreamCodec) StreamDecode(ctx context.Context, input io.Reader
 	usc.mu.Lock()
 	if usc.active {
 		usc.mu.Unlock()
-		return fmt.Errorf("stream already active")
+		return errors.NewStreamingError("STREAM_ALREADY_ACTIVE", "stream already active")
 	}
 	usc.active = true
 	usc.mu.Unlock()
@@ -161,7 +162,7 @@ func (usc *UnifiedStreamCodec) StreamDecode(ctx context.Context, input io.Reader
 	// Start stream manager if enabled
 	if usc.streamManager != nil {
 		if err := usc.streamManager.Start(); err != nil {
-			return fmt.Errorf("failed to start stream manager: %w", err)
+			return errors.NewStreamingError("STREAM_MANAGER_START_FAILED", "failed to start stream manager").WithCause(err)
 		}
 		defer usc.streamManager.Stop()
 
@@ -185,10 +186,10 @@ func (usc *UnifiedStreamCodec) streamEncodeChunked(ctx context.Context, input <-
 
 	// Start base encoder for output
 	encoder := usc.baseCodec.GetStreamEncoder()
-	if err := encoder.StartStream(output); err != nil {
-		return fmt.Errorf("failed to start output stream: %w", err)
+	if err := encoder.StartStream(ctx, output); err != nil {
+		return errors.NewStreamingError("OUTPUT_STREAM_START_FAILED", "failed to start output stream").WithCause(err)
 	}
-	defer encoder.EndStream()
+	defer encoder.EndStream(ctx)
 
 	// Process chunks
 	for {
@@ -197,7 +198,7 @@ func (usc *UnifiedStreamCodec) streamEncodeChunked(ctx context.Context, input <-
 			return ctx.Err()
 		case err := <-encodeErr:
 			if err != nil {
-				return fmt.Errorf("chunk encoding error: %w", err)
+				return errors.NewStreamingError("CHUNK_ENCODING_FAILED", "chunk encoding error").WithCause(err)
 			}
 			return nil // Encoding completed
 		case chunk, ok := <-chunkChan:
@@ -215,8 +216,8 @@ func (usc *UnifiedStreamCodec) streamEncodeChunked(ctx context.Context, input <-
 			chunkEvent := NewChunkEvent(chunk.Header, chunk.Data)
 
 			// Write chunk as event
-			if err := encoder.WriteEvent(chunkEvent); err != nil {
-				return fmt.Errorf("failed to write chunk: %w", err)
+			if err := encoder.WriteEvent(ctx, chunkEvent); err != nil {
+				return errors.NewStreamingError("CHUNK_WRITE_FAILED", "failed to write chunk").WithCause(err)
 			}
 
 			// Update metrics
@@ -234,23 +235,23 @@ func (usc *UnifiedStreamCodec) streamEncodeChunked(ctx context.Context, input <-
 }
 
 // Encode implements encoding.Encoder
-func (usc *UnifiedStreamCodec) Encode(event events.Event) ([]byte, error) {
-	return usc.baseCodec.Encode(event)
+func (usc *UnifiedStreamCodec) Encode(ctx context.Context, event events.Event) ([]byte, error) {
+	return usc.baseCodec.Encode(ctx, event)
 }
 
 // EncodeMultiple implements encoding.Encoder
-func (usc *UnifiedStreamCodec) EncodeMultiple(events []events.Event) ([]byte, error) {
-	return usc.baseCodec.EncodeMultiple(events)
+func (usc *UnifiedStreamCodec) EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error) {
+	return usc.baseCodec.EncodeMultiple(ctx, events)
 }
 
 // Decode implements encoding.Decoder
-func (usc *UnifiedStreamCodec) Decode(data []byte) (events.Event, error) {
-	return usc.baseCodec.Decode(data)
+func (usc *UnifiedStreamCodec) Decode(ctx context.Context, data []byte) (events.Event, error) {
+	return usc.baseCodec.Decode(ctx, data)
 }
 
 // DecodeMultiple implements encoding.Decoder
-func (usc *UnifiedStreamCodec) DecodeMultiple(data []byte) ([]events.Event, error) {
-	return usc.baseCodec.DecodeMultiple(data)
+func (usc *UnifiedStreamCodec) DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error) {
+	return usc.baseCodec.DecodeMultiple(ctx, data)
 }
 
 // ContentType returns the content type
@@ -263,6 +264,11 @@ func (usc *UnifiedStreamCodec) CanStream() bool {
 	return true
 }
 
+// SupportsStreaming indicates if this codec has streaming capabilities
+func (usc *UnifiedStreamCodec) SupportsStreaming() bool {
+	return true
+}
+
 // GetStreamEncoder returns the stream encoder
 func (usc *UnifiedStreamCodec) GetStreamEncoder() encoding.StreamEncoder {
 	return &unifiedStreamEncoder{codec: usc}
@@ -271,6 +277,46 @@ func (usc *UnifiedStreamCodec) GetStreamEncoder() encoding.StreamEncoder {
 // GetStreamDecoder returns the stream decoder
 func (usc *UnifiedStreamCodec) GetStreamDecoder() encoding.StreamDecoder {
 	return &unifiedStreamDecoder{codec: usc}
+}
+
+// EncodeStream implements StreamCodec - encodes events from a channel to a writer
+func (usc *UnifiedStreamCodec) EncodeStream(ctx context.Context, input <-chan events.Event, output io.Writer) error {
+	return usc.StreamEncode(ctx, input, output)
+}
+
+// DecodeStream implements StreamCodec - decodes events from a reader to a channel
+func (usc *UnifiedStreamCodec) DecodeStream(ctx context.Context, input io.Reader, output chan<- events.Event) error {
+	return usc.StreamDecode(ctx, input, output)
+}
+
+// StartEncoding implements StreamCodec - initializes a streaming encoding session
+func (usc *UnifiedStreamCodec) StartEncoding(ctx context.Context, w io.Writer) error {
+	return usc.baseCodec.StartEncoding(ctx, w)
+}
+
+// WriteEvent implements StreamCodec - writes a single event to the encoding stream
+func (usc *UnifiedStreamCodec) WriteEvent(ctx context.Context, event events.Event) error {
+	return usc.baseCodec.WriteEvent(ctx, event)
+}
+
+// EndEncoding implements StreamCodec - finalizes the streaming encoding session
+func (usc *UnifiedStreamCodec) EndEncoding(ctx context.Context) error {
+	return usc.baseCodec.EndEncoding(ctx)
+}
+
+// StartDecoding implements StreamCodec - initializes a streaming decoding session
+func (usc *UnifiedStreamCodec) StartDecoding(ctx context.Context, r io.Reader) error {
+	return usc.baseCodec.StartDecoding(ctx, r)
+}
+
+// ReadEvent implements StreamCodec - reads a single event from the decoding stream
+func (usc *UnifiedStreamCodec) ReadEvent(ctx context.Context) (events.Event, error) {
+	return usc.baseCodec.ReadEvent(ctx)
+}
+
+// EndDecoding implements StreamCodec - finalizes the streaming decoding session
+func (usc *UnifiedStreamCodec) EndDecoding(ctx context.Context) error {
+	return usc.baseCodec.EndDecoding(ctx)
 }
 
 // GetMetrics returns current metrics
@@ -303,12 +349,12 @@ type unifiedStreamEncoder struct {
 	writer io.Writer
 }
 
-func (e *unifiedStreamEncoder) Encode(event events.Event) ([]byte, error) {
-	return e.codec.Encode(event)
+func (e *unifiedStreamEncoder) Encode(ctx context.Context, event events.Event) ([]byte, error) {
+	return e.codec.Encode(ctx, event)
 }
 
-func (e *unifiedStreamEncoder) EncodeMultiple(events []events.Event) ([]byte, error) {
-	return e.codec.EncodeMultiple(events)
+func (e *unifiedStreamEncoder) EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error) {
+	return e.codec.EncodeMultiple(ctx, events)
 }
 
 func (e *unifiedStreamEncoder) ContentType() string {
@@ -319,20 +365,24 @@ func (e *unifiedStreamEncoder) CanStream() bool {
 	return true
 }
 
+func (e *unifiedStreamEncoder) SupportsStreaming() bool {
+	return true
+}
+
 func (e *unifiedStreamEncoder) EncodeStream(ctx context.Context, input <-chan events.Event, output io.Writer) error {
 	return e.codec.StreamEncode(ctx, input, output)
 }
 
-func (e *unifiedStreamEncoder) StartStream(w io.Writer) error {
+func (e *unifiedStreamEncoder) StartStream(ctx context.Context, w io.Writer) error {
 	e.writer = w
 	return nil
 }
 
-func (e *unifiedStreamEncoder) WriteEvent(event events.Event) error {
+func (e *unifiedStreamEncoder) WriteEvent(ctx context.Context, event events.Event) error {
 	if e.writer == nil {
-		return fmt.Errorf("stream not started")
+		return errors.NewStreamingError("STREAM_NOT_STARTED", "stream not started")
 	}
-	data, err := e.codec.Encode(event)
+	data, err := e.codec.Encode(ctx, event)
 	if err != nil {
 		return err
 	}
@@ -340,7 +390,7 @@ func (e *unifiedStreamEncoder) WriteEvent(event events.Event) error {
 	return err
 }
 
-func (e *unifiedStreamEncoder) EndStream() error {
+func (e *unifiedStreamEncoder) EndStream(ctx context.Context) error {
 	e.writer = nil
 	return nil
 }
@@ -351,12 +401,12 @@ type unifiedStreamDecoder struct {
 	reader io.Reader
 }
 
-func (d *unifiedStreamDecoder) Decode(data []byte) (events.Event, error) {
-	return d.codec.Decode(data)
+func (d *unifiedStreamDecoder) Decode(ctx context.Context, data []byte) (events.Event, error) {
+	return d.codec.Decode(ctx, data)
 }
 
-func (d *unifiedStreamDecoder) DecodeMultiple(data []byte) ([]events.Event, error) {
-	return d.codec.DecodeMultiple(data)
+func (d *unifiedStreamDecoder) DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error) {
+	return d.codec.DecodeMultiple(ctx, data)
 }
 
 func (d *unifiedStreamDecoder) ContentType() string {
@@ -367,25 +417,29 @@ func (d *unifiedStreamDecoder) CanStream() bool {
 	return true
 }
 
+func (d *unifiedStreamDecoder) SupportsStreaming() bool {
+	return true
+}
+
 func (d *unifiedStreamDecoder) DecodeStream(ctx context.Context, input io.Reader, output chan<- events.Event) error {
 	return d.codec.StreamDecode(ctx, input, output)
 }
 
-func (d *unifiedStreamDecoder) StartStream(r io.Reader) error {
+func (d *unifiedStreamDecoder) StartStream(ctx context.Context, r io.Reader) error {
 	d.reader = r
 	return nil
 }
 
-func (d *unifiedStreamDecoder) ReadEvent() (events.Event, error) {
+func (d *unifiedStreamDecoder) ReadEvent(ctx context.Context) (events.Event, error) {
 	if d.reader == nil {
-		return nil, fmt.Errorf("stream not started")
+		return nil, errors.NewStreamingError("STREAM_NOT_STARTED", "stream not started")
 	}
 	// This is a simplified implementation
 	// In practice, this would need proper buffering and parsing
-	return nil, fmt.Errorf("not implemented")
+	return nil, errors.NewStreamingError("NOT_IMPLEMENTED", "streaming decode not implemented")
 }
 
-func (d *unifiedStreamDecoder) EndStream() error {
+func (d *unifiedStreamDecoder) EndStream(ctx context.Context) error {
 	d.reader = nil
 	return nil
 }

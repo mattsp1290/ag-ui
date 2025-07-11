@@ -1,12 +1,13 @@
 package encoding
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
 	"sync"
 	
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/ag-ui/go-sdk/pkg/errors"
 )
 
 // FormatRegistry manages encoders, decoders, and format information
@@ -16,14 +17,19 @@ type FormatRegistry struct {
 	// Maps MIME type to format info
 	formats map[string]*FormatInfo
 	
-	// Maps MIME type to encoder factory
-	encoderFactories map[string]EncoderFactory
+	// Maps MIME type to encoder factory (concrete types)
+	encoderFactories map[string]*DefaultEncoderFactory
 	
-	// Maps MIME type to decoder factory
-	decoderFactories map[string]DecoderFactory
+	// Maps MIME type to decoder factory (concrete types)
+	decoderFactories map[string]*DefaultDecoderFactory
 	
-	// Maps MIME type to codec factory
-	codecFactories map[string]CodecFactory
+	// Maps MIME type to codec factory (concrete types)
+	codecFactories map[string]*DefaultCodecFactory
+	
+	// Legacy interface maps for backward compatibility
+	legacyEncoderFactories map[string]EncoderFactory
+	legacyDecoderFactories map[string]DecoderFactory
+	legacyCodecFactories map[string]CodecFactory
 	
 	// Maps aliases to canonical MIME types
 	aliases map[string]string
@@ -64,9 +70,12 @@ func GetGlobalRegistry() *FormatRegistry {
 func NewFormatRegistry() *FormatRegistry {
 	return &FormatRegistry{
 		formats:          make(map[string]*FormatInfo),
-		encoderFactories: make(map[string]EncoderFactory),
-		decoderFactories: make(map[string]DecoderFactory),
-		codecFactories:   make(map[string]CodecFactory),
+		encoderFactories: make(map[string]*DefaultEncoderFactory),
+		decoderFactories: make(map[string]*DefaultDecoderFactory),
+		codecFactories:   make(map[string]*DefaultCodecFactory),
+		legacyEncoderFactories: make(map[string]EncoderFactory),
+		legacyDecoderFactories: make(map[string]DecoderFactory),
+		legacyCodecFactories:   make(map[string]CodecFactory),
 		aliases:          make(map[string]string),
 		priorities:       []string{},
 		defaultFormat:    "application/json",
@@ -79,11 +88,11 @@ func (r *FormatRegistry) RegisterFormat(info *FormatInfo) error {
 	defer r.mu.Unlock()
 	
 	if info == nil {
-		return fmt.Errorf("format info cannot be nil")
+		return errors.NewEncodingError(errors.CodeNilFactory, "format info cannot be nil").WithOperation("register_format")
 	}
 	
 	if info.MIMEType == "" {
-		return fmt.Errorf("MIME type cannot be empty")
+		return errors.NewEncodingError(errors.CodeEmptyMimeType, "MIME type cannot be empty").WithOperation("register_format")
 	}
 	
 	// Register the format
@@ -100,58 +109,141 @@ func (r *FormatRegistry) RegisterFormat(info *FormatInfo) error {
 	return nil
 }
 
-// RegisterEncoder registers an encoder factory
+// RegisterEncoder registers an encoder factory (legacy method - accepts interface)
 func (r *FormatRegistry) RegisterEncoder(mimeType string, factory EncoderFactory) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	
 	if mimeType == "" {
-		return fmt.Errorf("MIME type cannot be empty")
+		return errors.NewEncodingError(errors.CodeEmptyMimeType, "MIME type cannot be empty").WithOperation("register_encoder")
 	}
 	
 	if factory == nil {
-		return fmt.Errorf("encoder factory cannot be nil")
+		return errors.NewEncodingError(errors.CodeNilFactory, "encoder factory cannot be nil").WithOperation("register_encoder")
 	}
 	
-	r.encoderFactories[mimeType] = factory
+	r.legacyEncoderFactories[mimeType] = factory
+	
+	// If it's a concrete type, also register it in the concrete map
+	if concreteFactory, ok := factory.(*DefaultEncoderFactory); ok {
+		r.encoderFactories[mimeType] = concreteFactory
+	}
+	
 	return nil
 }
 
-// RegisterDecoder registers a decoder factory
+// RegisterEncoderFactory registers a concrete encoder factory (preferred method)
+func (r *FormatRegistry) RegisterEncoderFactory(mimeType string, factory *DefaultEncoderFactory) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	
+	if mimeType == "" {
+		return errors.NewEncodingError(errors.CodeEmptyMimeType, "MIME type cannot be empty").WithOperation("register_encoder_factory")
+	}
+	
+	if factory == nil {
+		return errors.NewEncodingError(errors.CodeNilFactory, "encoder factory cannot be nil").WithOperation("register_encoder_factory")
+	}
+	
+	r.encoderFactories[mimeType] = factory
+	r.legacyEncoderFactories[mimeType] = factory
+	return nil
+}
+
+// RegisterDecoder registers a decoder factory (legacy method - accepts interface)
 func (r *FormatRegistry) RegisterDecoder(mimeType string, factory DecoderFactory) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	
 	if mimeType == "" {
-		return fmt.Errorf("MIME type cannot be empty")
+		return errors.NewEncodingError(errors.CodeEmptyMimeType, "MIME type cannot be empty").WithOperation("register_decoder")
 	}
 	
 	if factory == nil {
-		return fmt.Errorf("decoder factory cannot be nil")
+		return errors.NewEncodingError(errors.CodeNilFactory, "decoder factory cannot be nil").WithOperation("register_decoder")
 	}
 	
-	r.decoderFactories[mimeType] = factory
+	r.legacyDecoderFactories[mimeType] = factory
+	
+	// If it's a concrete type, also register it in the concrete map
+	if concreteFactory, ok := factory.(*DefaultDecoderFactory); ok {
+		r.decoderFactories[mimeType] = concreteFactory
+	}
+	
 	return nil
 }
 
-// RegisterCodec registers a codec factory
+// RegisterDecoderFactory registers a concrete decoder factory (preferred method)
+func (r *FormatRegistry) RegisterDecoderFactory(mimeType string, factory *DefaultDecoderFactory) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	
+	if mimeType == "" {
+		return errors.NewEncodingError(errors.CodeEmptyMimeType, "MIME type cannot be empty").WithOperation("register_decoder_factory")
+	}
+	
+	if factory == nil {
+		return errors.NewEncodingError(errors.CodeNilFactory, "decoder factory cannot be nil").WithOperation("register_decoder_factory")
+	}
+	
+	r.decoderFactories[mimeType] = factory
+	r.legacyDecoderFactories[mimeType] = factory
+	return nil
+}
+
+// RegisterCodec registers a codec factory (legacy method - accepts interface)
 func (r *FormatRegistry) RegisterCodec(mimeType string, factory CodecFactory) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	
 	if mimeType == "" {
-		return fmt.Errorf("MIME type cannot be empty")
+		return errors.NewEncodingError(errors.CodeEmptyMimeType, "MIME type cannot be empty").WithOperation("register_codec")
 	}
 	
 	if factory == nil {
-		return fmt.Errorf("codec factory cannot be nil")
+		return errors.NewEncodingError(errors.CodeNilFactory, "codec factory cannot be nil").WithOperation("register_codec")
+	}
+	
+	r.legacyCodecFactories[mimeType] = factory
+	
+	// If it's a concrete type, also register it in the concrete map
+	if concreteFactory, ok := factory.(*DefaultCodecFactory); ok {
+		r.codecFactories[mimeType] = concreteFactory
+		
+		// Create backward compatibility factories
+		r.encoderFactories[mimeType] = &DefaultEncoderFactory{DefaultCodecFactory: concreteFactory}
+		r.decoderFactories[mimeType] = &DefaultDecoderFactory{DefaultCodecFactory: concreteFactory}
+		
+		// Register legacy interfaces
+		r.legacyEncoderFactories[mimeType] = r.encoderFactories[mimeType]
+		r.legacyDecoderFactories[mimeType] = r.decoderFactories[mimeType]
+	}
+	
+	return nil
+}
+
+// RegisterCodecFactory registers a concrete codec factory (preferred method)
+func (r *FormatRegistry) RegisterCodecFactory(mimeType string, factory *DefaultCodecFactory) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	
+	if mimeType == "" {
+		return errors.NewEncodingError(errors.CodeEmptyMimeType, "MIME type cannot be empty").WithOperation("register_codec_factory")
+	}
+	
+	if factory == nil {
+		return errors.NewEncodingError(errors.CodeNilFactory, "codec factory cannot be nil").WithOperation("register_codec_factory")
 	}
 	
 	r.codecFactories[mimeType] = factory
 	
-	// Also register as encoder and decoder
-	r.encoderFactories[mimeType] = factory
-	r.decoderFactories[mimeType] = factory
+	// Create backward compatibility factories
+	r.encoderFactories[mimeType] = &DefaultEncoderFactory{DefaultCodecFactory: factory}
+	r.decoderFactories[mimeType] = &DefaultDecoderFactory{DefaultCodecFactory: factory}
+	
+	r.legacyCodecFactories[mimeType] = factory
+	r.legacyEncoderFactories[mimeType] = r.encoderFactories[mimeType]
+	r.legacyDecoderFactories[mimeType] = r.decoderFactories[mimeType]
 	
 	return nil
 }
@@ -166,7 +258,7 @@ func (r *FormatRegistry) UnregisterFormat(mimeType string) error {
 	// Remove format info
 	info, exists := r.formats[canonical]
 	if !exists {
-		return fmt.Errorf("format %s not registered", mimeType)
+		return errors.NewEncodingError(errors.CodeFormatNotRegistered, "format not registered").WithMimeType(mimeType).WithOperation("unregister_format")
 	}
 	
 	delete(r.formats, canonical)
@@ -180,6 +272,9 @@ func (r *FormatRegistry) UnregisterFormat(mimeType string) error {
 	delete(r.encoderFactories, canonical)
 	delete(r.decoderFactories, canonical)
 	delete(r.codecFactories, canonical)
+	delete(r.legacyEncoderFactories, canonical)
+	delete(r.legacyDecoderFactories, canonical)
+	delete(r.legacyCodecFactories, canonical)
 	
 	// Update priorities
 	r.updatePriorities()
@@ -202,66 +297,97 @@ func (r *FormatRegistry) GetFormat(mimeType string) (*FormatInfo, error) {
 }
 
 // GetEncoder creates an encoder for the specified MIME type
-func (r *FormatRegistry) GetEncoder(mimeType string, options *EncodingOptions) (Encoder, error) {
+func (r *FormatRegistry) GetEncoder(ctx context.Context, mimeType string, options *EncodingOptions) (Encoder, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	
+	canonical := r.resolveAlias(mimeType)
+	
+	// Try concrete factory first
+	if factory, exists := r.encoderFactories[canonical]; exists {
+		return factory.CreateEncoder(ctx, canonical, options)
+	}
+	
+	// Fall back to legacy interface
+	if factory, exists := r.legacyEncoderFactories[canonical]; exists {
+		return factory.CreateEncoder(ctx, canonical, options)
+	}
+	
+	return nil, errors.NewEncodingError(errors.CodeFormatNotRegistered, "no encoder registered for format").WithMimeType(mimeType).WithOperation("get_encoder")
+}
+
+// GetEncoderFactory returns the concrete encoder factory for the specified MIME type
+func (r *FormatRegistry) GetEncoderFactory(mimeType string) (*DefaultEncoderFactory, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	
 	canonical := r.resolveAlias(mimeType)
 	factory, exists := r.encoderFactories[canonical]
 	if !exists {
-		return nil, fmt.Errorf("no encoder registered for %s", mimeType)
+		return nil, errors.NewEncodingError(errors.CodeFormatNotRegistered, "no concrete encoder factory registered for format").WithMimeType(mimeType).WithOperation("get_encoder_factory")
 	}
 	
-	return factory.CreateEncoder(canonical, options)
+	return factory, nil
 }
 
 // GetDecoder creates a decoder for the specified MIME type
-func (r *FormatRegistry) GetDecoder(mimeType string, options *DecodingOptions) (Decoder, error) {
+func (r *FormatRegistry) GetDecoder(ctx context.Context, mimeType string, options *DecodingOptions) (Decoder, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	
+	canonical := r.resolveAlias(mimeType)
+	
+	// Try concrete factory first
+	if factory, exists := r.decoderFactories[canonical]; exists {
+		return factory.CreateDecoder(ctx, canonical, options)
+	}
+	
+	// Fall back to legacy interface
+	if factory, exists := r.legacyDecoderFactories[canonical]; exists {
+		return factory.CreateDecoder(ctx, canonical, options)
+	}
+	
+	return nil, errors.NewEncodingError(errors.CodeFormatNotRegistered, "no decoder registered for format").WithMimeType(mimeType).WithOperation("get_decoder")
+}
+
+// GetDecoderFactory returns the concrete decoder factory for the specified MIME type
+func (r *FormatRegistry) GetDecoderFactory(mimeType string) (*DefaultDecoderFactory, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	
 	canonical := r.resolveAlias(mimeType)
 	factory, exists := r.decoderFactories[canonical]
 	if !exists {
-		return nil, fmt.Errorf("no decoder registered for %s", mimeType)
+		return nil, errors.NewEncodingError(errors.CodeFormatNotRegistered, "no concrete decoder factory registered for format").WithMimeType(mimeType).WithOperation("get_decoder_factory")
 	}
 	
-	return factory.CreateDecoder(canonical, options)
+	return factory, nil
 }
 
 // GetCodec creates a codec for the specified MIME type
-func (r *FormatRegistry) GetCodec(mimeType string, encOptions *EncodingOptions, decOptions *DecodingOptions) (Codec, error) {
+func (r *FormatRegistry) GetCodec(ctx context.Context, mimeType string, encOptions *EncodingOptions, decOptions *DecodingOptions) (Codec, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	
 	canonical := r.resolveAlias(mimeType)
 	
-	// Try codec factory first
+	// Try concrete codec factory first
 	if factory, exists := r.codecFactories[canonical]; exists {
-		encoder, err := factory.CreateEncoder(canonical, encOptions)
-		if err != nil {
-			return nil, err
-		}
-		
-		decoder, err := factory.CreateDecoder(canonical, decOptions)
-		if err != nil {
-			return nil, err
-		}
-		
-		// Create a composite codec
-		return &compositeCodec{
-			encoder: encoder,
-			decoder: decoder,
-		}, nil
+		return factory.CreateCodec(ctx, canonical, encOptions, decOptions)
+	}
+	
+	// Try legacy codec factory
+	if factory, exists := r.legacyCodecFactories[canonical]; exists {
+		return factory.CreateCodec(ctx, canonical, encOptions, decOptions)
 	}
 	
 	// Fall back to separate encoder/decoder
-	encoder, err := r.GetEncoder(mimeType, encOptions)
+	encoder, err := r.GetEncoder(ctx, mimeType, encOptions)
 	if err != nil {
 		return nil, err
 	}
 	
-	decoder, err := r.GetDecoder(mimeType, decOptions)
+	decoder, err := r.GetDecoder(ctx, mimeType, decOptions)
 	if err != nil {
 		return nil, err
 	}
@@ -272,32 +398,58 @@ func (r *FormatRegistry) GetCodec(mimeType string, encOptions *EncodingOptions, 
 	}, nil
 }
 
-// GetStreamEncoder creates a streaming encoder for the specified MIME type
-func (r *FormatRegistry) GetStreamEncoder(mimeType string, options *EncodingOptions) (StreamEncoder, error) {
+// GetCodecFactory returns the concrete codec factory for the specified MIME type
+func (r *FormatRegistry) GetCodecFactory(mimeType string) (*DefaultCodecFactory, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	
 	canonical := r.resolveAlias(mimeType)
-	factory, exists := r.encoderFactories[canonical]
+	factory, exists := r.codecFactories[canonical]
 	if !exists {
-		return nil, fmt.Errorf("no encoder registered for %s", mimeType)
+		return nil, errors.NewEncodingError(errors.CodeFormatNotRegistered, "no concrete codec factory registered for format").WithMimeType(mimeType).WithOperation("get_codec_factory")
 	}
 	
-	return factory.CreateStreamEncoder(canonical, options)
+	return factory, nil
+}
+
+// GetStreamEncoder creates a streaming encoder for the specified MIME type
+func (r *FormatRegistry) GetStreamEncoder(ctx context.Context, mimeType string, options *EncodingOptions) (StreamEncoder, error) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	
+	canonical := r.resolveAlias(mimeType)
+	
+	// Try concrete factory first
+	if factory, exists := r.encoderFactories[canonical]; exists {
+		return factory.CreateStreamEncoder(ctx, canonical, options)
+	}
+	
+	// Fall back to legacy interface
+	if factory, exists := r.legacyEncoderFactories[canonical]; exists {
+		return factory.CreateStreamEncoder(ctx, canonical, options)
+	}
+	
+	return nil, errors.NewEncodingError(errors.CodeFormatNotRegistered, "no encoder registered for format").WithMimeType(mimeType).WithOperation("get_stream_encoder")
 }
 
 // GetStreamDecoder creates a streaming decoder for the specified MIME type
-func (r *FormatRegistry) GetStreamDecoder(mimeType string, options *DecodingOptions) (StreamDecoder, error) {
+func (r *FormatRegistry) GetStreamDecoder(ctx context.Context, mimeType string, options *DecodingOptions) (StreamDecoder, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	
 	canonical := r.resolveAlias(mimeType)
-	factory, exists := r.decoderFactories[canonical]
-	if !exists {
-		return nil, fmt.Errorf("no decoder registered for %s", mimeType)
+	
+	// Try concrete factory first
+	if factory, exists := r.decoderFactories[canonical]; exists {
+		return factory.CreateStreamDecoder(ctx, canonical, options)
 	}
 	
-	return factory.CreateStreamDecoder(canonical, options)
+	// Fall back to legacy interface
+	if factory, exists := r.legacyDecoderFactories[canonical]; exists {
+		return factory.CreateStreamDecoder(ctx, canonical, options)
+	}
+	
+	return nil, errors.NewEncodingError(errors.CodeFormatNotRegistered, "no decoder registered for format").WithMimeType(mimeType).WithOperation("get_stream_decoder")
 }
 
 // ListFormats returns all registered formats
@@ -334,8 +486,18 @@ func (r *FormatRegistry) SupportsEncoding(mimeType string) bool {
 	defer r.mu.RUnlock()
 	
 	canonical := r.resolveAlias(mimeType)
-	_, exists := r.encoderFactories[canonical]
-	return exists
+	
+	// Check concrete factory first
+	if _, exists := r.encoderFactories[canonical]; exists {
+		return true
+	}
+	
+	// Check legacy factory
+	if _, exists := r.legacyEncoderFactories[canonical]; exists {
+		return true
+	}
+	
+	return false
 }
 
 // SupportsDecoding checks if decoding is supported for a format
@@ -344,8 +506,18 @@ func (r *FormatRegistry) SupportsDecoding(mimeType string) bool {
 	defer r.mu.RUnlock()
 	
 	canonical := r.resolveAlias(mimeType)
-	_, exists := r.decoderFactories[canonical]
-	return exists
+	
+	// Check concrete factory first
+	if _, exists := r.decoderFactories[canonical]; exists {
+		return true
+	}
+	
+	// Check legacy factory
+	if _, exists := r.legacyDecoderFactories[canonical]; exists {
+		return true
+	}
+	
+	return false
 }
 
 // GetCapabilities returns the capabilities of a format
@@ -390,7 +562,7 @@ func (r *FormatRegistry) SelectFormat(acceptedFormats []string, requiredCapabili
 		return canonical, nil
 	}
 	
-	return "", fmt.Errorf("no suitable format found")
+	return "", errors.NewEncodingError(errors.CodeNoSuitableFormat, "no suitable format found").WithOperation("select_format")
 }
 
 // SetDefaultFormat sets the default format
@@ -400,7 +572,7 @@ func (r *FormatRegistry) SetDefaultFormat(mimeType string) error {
 	
 	canonical := r.resolveAlias(mimeType)
 	if _, exists := r.formats[canonical]; !exists {
-		return fmt.Errorf("format %s not registered", mimeType)
+		return errors.NewEncodingError(errors.CodeFormatNotRegistered, "format not registered").WithMimeType(mimeType).WithOperation("set_default_format")
 	}
 	
 	r.defaultFormat = canonical
@@ -507,45 +679,25 @@ func (r *FormatRegistry) matchesCapabilities(formatCaps, requiredCaps *FormatCap
 }
 
 // compositeCodec combines separate encoder and decoder into a codec
-type compositeCodec struct {
-	encoder Encoder
-	decoder Decoder
-}
+// compositeCodec is defined in codec_pool.go to avoid duplication
 
-func (c *compositeCodec) Encode(event events.Event) ([]byte, error) {
-	return c.encoder.Encode(event)
-}
-
-func (c *compositeCodec) EncodeMultiple(events []events.Event) ([]byte, error) {
-	return c.encoder.EncodeMultiple(events)
-}
-
-func (c *compositeCodec) Decode(data []byte) (events.Event, error) {
-	return c.decoder.Decode(data)
-}
-
-func (c *compositeCodec) DecodeMultiple(data []byte) ([]events.Event, error) {
-	return c.decoder.DecodeMultiple(data)
-}
-
-func (c *compositeCodec) ContentType() string {
-	return c.encoder.ContentType()
-}
-
-func (c *compositeCodec) CanStream() bool {
-	return c.encoder.CanStream() && c.decoder.CanStream()
-}
+// CanStream method is defined in codec_pool.go
 
 // RegisterDefaults registers default formats (JSON and Protobuf)
+// Deprecated: This method only registers format info, not the actual codecs.
+// Import the specific codec packages (json, protobuf) to register their codecs.
 func (r *FormatRegistry) RegisterDefaults() {
-	// Register JSON format
+	// Register JSON format info only
 	jsonInfo := JSONFormatInfo()
-	r.RegisterFormat(jsonInfo)
+	_ = r.RegisterFormat(jsonInfo)
 	
-	// Register Protobuf format
+	// Register Protobuf format info only
 	protobufInfo := ProtobufFormatInfo()
-	r.RegisterFormat(protobufInfo)
+	_ = r.RegisterFormat(protobufInfo)
 	
-	// Note: The actual encoder/decoder factories are registered by the 
-	// respective packages' init functions when they are imported
+	// Note: The actual encoder/decoder factories must be registered by
+	// importing the respective packages:
+	//   import _ "github.com/ag-ui/go-sdk/pkg/encoding/json"
+	//   import _ "github.com/ag-ui/go-sdk/pkg/encoding/protobuf"
+	// Or by explicitly calling their Register() functions.
 }

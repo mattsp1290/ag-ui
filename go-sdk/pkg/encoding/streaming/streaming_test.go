@@ -50,12 +50,12 @@ func newMockStreamCodec() *mockStreamCodec {
 	}
 }
 
-func (c *mockStreamCodec) Encode(event events.Event) ([]byte, error) {
+func (c *mockStreamCodec) Encode(ctx context.Context, event events.Event) ([]byte, error) {
 	// Use event type as a simple identifier for testing
 	return []byte(string(event.Type())), nil
 }
 
-func (c *mockStreamCodec) EncodeMultiple(events []events.Event) ([]byte, error) {
+func (c *mockStreamCodec) EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error) {
 	var buf bytes.Buffer
 	for _, e := range events {
 		buf.WriteString(string(e.Type()) + "\n")
@@ -63,7 +63,7 @@ func (c *mockStreamCodec) EncodeMultiple(events []events.Event) ([]byte, error) 
 	return buf.Bytes(), nil
 }
 
-func (c *mockStreamCodec) Decode(data []byte) (events.Event, error) {
+func (c *mockStreamCodec) Decode(ctx context.Context, data []byte) (events.Event, error) {
 	timestamp := time.Now().UnixMilli()
 	return &mockEvent{
 		EventType:   events.EventType("test"),
@@ -72,7 +72,7 @@ func (c *mockStreamCodec) Decode(data []byte) (events.Event, error) {
 	}, nil
 }
 
-func (c *mockStreamCodec) DecodeMultiple(data []byte) ([]events.Event, error) {
+func (c *mockStreamCodec) DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error) {
 	// Simple implementation for testing
 	return nil, nil
 }
@@ -93,12 +93,48 @@ func (c *mockStreamCodec) GetStreamDecoder() encoding.StreamDecoder {
 	return c.decoder
 }
 
+func (c *mockStreamCodec) SupportsStreaming() bool {
+	return true
+}
+
+func (c *mockStreamCodec) EncodeStream(ctx context.Context, input <-chan events.Event, output io.Writer) error {
+	return c.encoder.EncodeStream(ctx, input, output)
+}
+
+func (c *mockStreamCodec) DecodeStream(ctx context.Context, input io.Reader, output chan<- events.Event) error {
+	return c.decoder.DecodeStream(ctx, input, output)
+}
+
+func (c *mockStreamCodec) StartEncoding(ctx context.Context, w io.Writer) error {
+	return c.encoder.StartStream(ctx, w)
+}
+
+func (c *mockStreamCodec) WriteEvent(ctx context.Context, event events.Event) error {
+	return c.encoder.WriteEvent(ctx, event)
+}
+
+func (c *mockStreamCodec) EndEncoding(ctx context.Context) error {
+	return c.encoder.EndStream(ctx)
+}
+
+func (c *mockStreamCodec) StartDecoding(ctx context.Context, r io.Reader) error {
+	return c.decoder.StartStream(ctx, r)
+}
+
+func (c *mockStreamCodec) ReadEvent(ctx context.Context) (events.Event, error) {
+	return c.decoder.ReadEvent(ctx)
+}
+
+func (c *mockStreamCodec) EndDecoding(ctx context.Context) error {
+	return c.decoder.EndStream(ctx)
+}
+
 // mockStreamEncoder implementation
-func (e *mockStreamEncoder) Encode(event events.Event) ([]byte, error) {
+func (e *mockStreamEncoder) Encode(ctx context.Context, event events.Event) ([]byte, error) {
 	return []byte(string(event.Type())), nil
 }
 
-func (e *mockStreamEncoder) EncodeMultiple(events []events.Event) ([]byte, error) {
+func (e *mockStreamEncoder) EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error) {
 	var buf bytes.Buffer
 	for _, ev := range events {
 		buf.WriteString(string(ev.Type()) + "\n")
@@ -114,31 +150,35 @@ func (e *mockStreamEncoder) CanStream() bool {
 	return true
 }
 
+func (e *mockStreamEncoder) SupportsStreaming() bool {
+	return true
+}
+
 func (e *mockStreamEncoder) EncodeStream(ctx context.Context, input <-chan events.Event, output io.Writer) error {
 	for event := range input {
 		e.events = append(e.events, event)
-		data, _ := e.Encode(event)
+		data, _ := e.Encode(ctx, event)
 		output.Write(data)
 		output.Write([]byte("\n"))
 	}
 	return nil
 }
 
-func (e *mockStreamEncoder) StartStream(w io.Writer) error {
+func (e *mockStreamEncoder) StartStream(ctx context.Context, w io.Writer) error {
 	return nil
 }
 
-func (e *mockStreamEncoder) WriteEvent(event events.Event) error {
+func (e *mockStreamEncoder) WriteEvent(ctx context.Context, event events.Event) error {
 	e.events = append(e.events, event)
 	return nil
 }
 
-func (e *mockStreamEncoder) EndStream() error {
+func (e *mockStreamEncoder) EndStream(ctx context.Context) error {
 	return nil
 }
 
 // mockStreamDecoder implementation
-func (d *mockStreamDecoder) Decode(data []byte) (events.Event, error) {
+func (d *mockStreamDecoder) Decode(ctx context.Context, data []byte) (events.Event, error) {
 	timestamp := time.Now().UnixMilli()
 	return &mockEvent{
 		EventType:   events.EventType("test"),
@@ -147,7 +187,7 @@ func (d *mockStreamDecoder) Decode(data []byte) (events.Event, error) {
 	}, nil
 }
 
-func (d *mockStreamDecoder) DecodeMultiple(data []byte) ([]events.Event, error) {
+func (d *mockStreamDecoder) DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error) {
 	return nil, nil
 }
 
@@ -156,6 +196,10 @@ func (d *mockStreamDecoder) ContentType() string {
 }
 
 func (d *mockStreamDecoder) CanStream() bool {
+	return true
+}
+
+func (d *mockStreamDecoder) SupportsStreaming() bool {
 	return true
 }
 
@@ -171,11 +215,11 @@ func (d *mockStreamDecoder) DecodeStream(ctx context.Context, input io.Reader, o
 	return nil
 }
 
-func (d *mockStreamDecoder) StartStream(r io.Reader) error {
+func (d *mockStreamDecoder) StartStream(ctx context.Context, r io.Reader) error {
 	return nil
 }
 
-func (d *mockStreamDecoder) ReadEvent() (events.Event, error) {
+func (d *mockStreamDecoder) ReadEvent(ctx context.Context) (events.Event, error) {
 	if d.index >= len(d.events) {
 		return nil, io.EOF
 	}
@@ -184,7 +228,7 @@ func (d *mockStreamDecoder) ReadEvent() (events.Event, error) {
 	return event, nil
 }
 
-func (d *mockStreamDecoder) EndStream() error {
+func (d *mockStreamDecoder) EndStream(ctx context.Context) error {
 	return nil
 }
 
@@ -205,7 +249,7 @@ func TestUnifiedStreamCodec_BasicFunctionality(t *testing.T) {
 		Data:        "test-1",
 	}
 
-	data, err := codec.Encode(event)
+	data, err := codec.Encode(context.Background(), event)
 	if err != nil {
 		t.Fatalf("Failed to encode: %v", err)
 	}

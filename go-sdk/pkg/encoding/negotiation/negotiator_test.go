@@ -2,6 +2,7 @@ package negotiation_test
 
 import (
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -443,4 +444,82 @@ func TestFormatMediaType(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestConcurrentPerformanceAccess(t *testing.T) {
+	negotiator := negotiation.NewContentNegotiator("application/json")
+	
+	// Number of concurrent goroutines
+	numGoroutines := 100
+	numIterations := 1000
+	
+	var wg sync.WaitGroup
+	wg.Add(numGoroutines * 3) // 3 types of operations
+	
+	// Goroutines that update performance metrics
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < numIterations; j++ {
+				contentType := "application/json"
+				if j%2 == 0 {
+					contentType = "application/x-protobuf"
+				}
+				
+				negotiator.UpdatePerformance(contentType, negotiation.PerformanceMetrics{
+					EncodingTime: time.Duration(id+j) * time.Microsecond,
+					DecodingTime: time.Duration(id+j) * time.Microsecond,
+					PayloadSize:  int64(id * j),
+					SuccessRate:  float64(j%100) / 100.0,
+					Throughput:   float64(id * j * 1000),
+					MemoryUsage:  int64(id * j * 1024),
+					CPUUsage:     float64(id+j) / 100.0,
+				})
+			}
+		}(i)
+	}
+	
+	// Goroutines that read performance scores
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < numIterations; j++ {
+				contentType := "application/json"
+				if j%3 == 0 {
+					contentType = "application/x-protobuf"
+				}
+				
+				// This should not panic or race
+				score := negotiator.GetPerformanceScore(contentType)
+				_ = score // Use the score to avoid compiler optimization
+			}
+		}(i)
+	}
+	
+	// Goroutines that negotiate content types (which internally access performance)
+	for i := 0; i < numGoroutines; i++ {
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < numIterations; j++ {
+				acceptHeader := "application/json, application/x-protobuf"
+				if j%2 == 0 {
+					acceptHeader = "application/json;q=0.9, application/x-protobuf;q=0.9"
+				}
+				
+				// This should not panic or race
+				result, err := negotiator.Negotiate(acceptHeader)
+				if err != nil {
+					t.Errorf("Unexpected error during concurrent negotiation: %v", err)
+				}
+				_ = result // Use the result to avoid compiler optimization
+			}
+		}(i)
+	}
+	
+	// Wait for all goroutines to complete
+	wg.Wait()
+	
+	// If we get here without panics or data races, the test passes
+	t.Logf("Successfully completed %d concurrent operations across %d goroutines", 
+		numGoroutines*numIterations*3, numGoroutines*3)
 }

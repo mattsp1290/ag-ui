@@ -109,16 +109,10 @@ func ExampleFormatRegistry_RegisterFormat() {
 	factory := encoding.NewDefaultCodecFactory()
 	factory.RegisterCodec(
 		"application/x-custom",
-		func(opts *encoding.EncodingOptions) (encoding.Encoder, error) {
-			// Return custom encoder implementation
+		func(encOptions *encoding.EncodingOptions, decOptions *encoding.DecodingOptions) (encoding.Codec, error) {
+			// Return custom codec implementation
 			return nil, fmt.Errorf("not implemented in example")
 		},
-		func(opts *encoding.DecodingOptions) (encoding.Decoder, error) {
-			// Return custom decoder implementation
-			return nil, fmt.Errorf("not implemented in example")
-		},
-		nil,
-		nil,
 	)
 	
 	if err := registry.RegisterCodec("application/x-custom", factory); err != nil {
@@ -130,52 +124,62 @@ func ExampleFormatRegistry_RegisterFormat() {
 	// Output: Custom format registered: true
 }
 
-func ExampleFormatRegistry_plugin() {
-	// Create a plugin-enabled factory
-	factory := encoding.NewPluginEncoderFactory()
+func ExampleFormatRegistry_factoryExample() {
+	// Create a default codec factory
+	factory := encoding.NewDefaultCodecFactory()
 	
-	// Define a plugin
-	plugin := &exampleEncoderPlugin{
-		name:         "MessagePack Plugin",
-		contentTypes: []string{"application/x-msgpack", "application/msgpack"},
-	}
+	// Register a simple codec
+	factory.RegisterCodec("application/x-simple", func(encOptions *encoding.EncodingOptions, decOptions *encoding.DecodingOptions) (encoding.Codec, error) {
+		// Return a simple codec implementation
+		return &mockSimpleCodec{contentType: "application/x-simple"}, nil
+	})
 	
-	// Register the plugin
-	if err := factory.RegisterPlugin(plugin); err != nil {
+	// Create a registry and register the factory
+	registry := encoding.NewFormatRegistry()
+	if err := registry.RegisterCodecFactory("application/x-simple", factory); err != nil {
 		log.Fatal(err)
 	}
 	
-	// Now MessagePack encoding is available
-	encoder, err := factory.CreateEncoder(context.Background(), "application/x-msgpack", nil)
+	// Now the codec is available
+	codec, err := registry.GetCodec(context.Background(), "application/x-simple", nil, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
 	
-	fmt.Printf("Plugin encoder created: %s\n", encoder.ContentType())
+	fmt.Printf("Factory codec created: %s\n", codec.ContentType())
 }
 
-// Example plugin implementation
-type exampleEncoderPlugin struct {
-	name         string
-	contentTypes []string
+// mockSimpleCodec is a simple mock codec for the example
+type mockSimpleCodec struct {
+	contentType string
 }
 
-func (p *exampleEncoderPlugin) Name() string {
-	return p.name
+func (m *mockSimpleCodec) Encode(ctx context.Context, event events.Event) ([]byte, error) {
+	return []byte("mock encoded data"), nil
 }
 
-func (p *exampleEncoderPlugin) ContentTypes() []string {
-	return p.contentTypes
+func (m *mockSimpleCodec) EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error) {
+	return []byte("mock encoded multiple events"), nil
 }
 
-func (p *exampleEncoderPlugin) CreateEncoder(ctx context.Context, contentType string, options *encoding.EncodingOptions) (encoding.Encoder, error) {
-	// In a real implementation, this would create a MessagePack encoder
-	return &mockRegistryEncoder{contentType: contentType}, nil
+func (m *mockSimpleCodec) Decode(ctx context.Context, data []byte) (events.Event, error) {
+	return nil, fmt.Errorf("decode not implemented in example")
 }
 
-func (p *exampleEncoderPlugin) CreateStreamEncoder(ctx context.Context, contentType string, options *encoding.EncodingOptions) (encoding.StreamEncoder, error) {
-	// In a real implementation, this would create a streaming MessagePack encoder
-	return nil, fmt.Errorf("streaming not implemented in example")
+func (m *mockSimpleCodec) DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error) {
+	return nil, fmt.Errorf("decode multiple not implemented in example")
+}
+
+func (m *mockSimpleCodec) ContentType() string {
+	return m.contentType
+}
+
+func (m *mockSimpleCodec) CanStream() bool {
+	return false
+}
+
+func (m *mockSimpleCodec) SupportsStreaming() bool {
+	return false
 }
 
 // mockRegistryEncoder is a simple mock encoder for the example
@@ -196,5 +200,9 @@ func (m *mockRegistryEncoder) ContentType() string {
 }
 
 func (m *mockRegistryEncoder) CanStream() bool {
+	return false
+}
+
+func (m *mockRegistryEncoder) SupportsStreaming() bool {
 	return false
 }

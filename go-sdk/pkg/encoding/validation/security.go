@@ -16,6 +16,21 @@ import (
 	agerrors "github.com/ag-ui/go-sdk/pkg/errors"
 )
 
+// Recursion depth limits to prevent stack overflow attacks
+const (
+	// DefaultMaxValidationDepth is the default maximum depth for validation operations
+	DefaultMaxValidationDepth = 100
+	
+	// DefaultMaxSanitizationDepth is the default maximum depth for sanitization operations  
+	DefaultMaxSanitizationDepth = 50
+	
+	// StrictMaxValidationDepth is the strict maximum depth for security-critical operations
+	StrictMaxValidationDepth = 50
+	
+	// StrictMaxSanitizationDepth is the strict maximum depth for security-critical sanitization
+	StrictMaxSanitizationDepth = 25
+)
+
 // SecurityValidator provides security validation for encoding/decoding operations
 type SecurityValidator struct {
 	config           SecurityConfig
@@ -49,6 +64,10 @@ type SecurityConfig struct {
 	EnableInjectionPrevention bool // Enable injection attack prevention
 	EnableDOSPrevention       bool // Enable DoS attack prevention
 	EnableXSSPrevention       bool // Enable XSS attack prevention
+	
+	// Recursion depth limits to prevent stack overflow attacks
+	MaxValidationDepth    int // Maximum recursion depth for validation operations
+	MaxSanitizationDepth  int // Maximum recursion depth for sanitization operations
 }
 
 // DefaultSecurityConfig returns the default security configuration
@@ -78,6 +97,8 @@ func DefaultSecurityConfig() SecurityConfig {
 		EnableInjectionPrevention: true,
 		EnableDOSPrevention:      true,
 		EnableXSSPrevention:      true,
+		MaxValidationDepth:       DefaultMaxValidationDepth,
+		MaxSanitizationDepth:     DefaultMaxSanitizationDepth,
 	}
 }
 
@@ -92,6 +113,8 @@ func StrictSecurityConfig() SecurityConfig {
 	config.MaxFieldCount = 100
 	config.MaxProcessingTime = 10 * time.Second
 	config.MaxMemoryUsage = 50 * 1024 * 1024   // 50MB
+	config.MaxValidationDepth = StrictMaxValidationDepth
+	config.MaxSanitizationDepth = StrictMaxSanitizationDepth
 	return config
 }
 
@@ -379,9 +402,23 @@ func (v *SecurityValidator) validateDOSPatterns(ctx context.Context, data []byte
 
 // validateNestingDepth validates nesting depth to prevent stack overflow
 func (v *SecurityValidator) validateNestingDepth(ctx context.Context, data interface{}, depth int) error {
+	return v.validateNestingDepthWithLimit(ctx, data, depth, v.config.MaxValidationDepth)
+}
+
+// validateNestingDepthWithLimit validates nesting depth with a specific recursion limit
+func (v *SecurityValidator) validateNestingDepthWithLimit(ctx context.Context, data interface{}, depth int, maxDepth int) error {
+	// Check recursion depth limit first to prevent stack overflow
+	if depth > maxDepth {
+		return agerrors.NewSecurityError(agerrors.CodeDepthExceeded, fmt.Sprintf("recursion depth %d exceeds maximum %d", depth, maxDepth)).
+			WithViolationType("recursion_depth_limit").
+			WithDetail("depth", depth).
+			WithDetail("max_depth", maxDepth)
+	}
+	
+	// Check data nesting depth limit (this is different from recursion depth)
 	if depth > v.config.MaxNestingDepth {
-		return agerrors.NewSecurityError(agerrors.CodeDepthExceeded, fmt.Sprintf("nesting depth %d exceeds maximum %d", depth, v.config.MaxNestingDepth)).
-			WithViolationType("depth_limit").
+		return agerrors.NewSecurityError(agerrors.CodeDepthExceeded, fmt.Sprintf("data nesting depth %d exceeds maximum %d", depth, v.config.MaxNestingDepth)).
+			WithViolationType("data_nesting_limit").
 			WithDetail("depth", depth).
 			WithDetail("max_depth", v.config.MaxNestingDepth)
 	}
@@ -407,7 +444,7 @@ func (v *SecurityValidator) validateNestingDepth(ctx context.Context, data inter
 					return agerrors.NewSecurityError(agerrors.CodeValidationFailed, "nesting depth validation cancelled in object").WithCause(err)
 				}
 			}
-			if err := v.validateNestingDepth(ctx, value, depth+1); err != nil {
+			if err := v.validateNestingDepthWithLimit(ctx, value, depth+1, maxDepth); err != nil {
 				return err
 			}
 			i++
@@ -426,7 +463,7 @@ func (v *SecurityValidator) validateNestingDepth(ctx context.Context, data inter
 					return agerrors.NewSecurityError(agerrors.CodeValidationFailed, "nesting depth validation cancelled in array").WithCause(err)
 				}
 			}
-			if err := v.validateNestingDepth(ctx, value, depth+1); err != nil {
+			if err := v.validateNestingDepthWithLimit(ctx, value, depth+1, maxDepth); err != nil {
 				return err
 			}
 		}
@@ -504,7 +541,7 @@ func (v *SecurityValidator) validateEventContent(event events.Event) error {
 	switch typed := event.(type) {
 	case *events.TextMessageContentEvent:
 		if err := v.validateStringContent(typed.Delta); err != nil {
-			return agerrors.Wrap(err, "invalid message content")
+			return fmt.Errorf("invalid message content: %w", err)
 		}
 		if err := v.validateID(typed.MessageID, "message"); err != nil {
 			return err
@@ -512,7 +549,7 @@ func (v *SecurityValidator) validateEventContent(event events.Event) error {
 
 	case *events.ToolCallStartEvent:
 		if err := v.validateStringContent(typed.ToolCallName); err != nil {
-			return agerrors.Wrap(err, "invalid tool call name")
+			return fmt.Errorf("invalid tool call name: %w", err)
 		}
 		if err := v.validateID(typed.ToolCallID, "tool call"); err != nil {
 			return err
@@ -529,16 +566,16 @@ func (v *SecurityValidator) validateEventContent(event events.Event) error {
 	case *events.StateSnapshotEvent:
 		// Validate snapshot data structure
 		if err := v.validateSnapshot(typed.Snapshot); err != nil {
-			return agerrors.Wrap(err, "invalid snapshot")
+			return fmt.Errorf("invalid snapshot: %w", err)
 		}
 
 	case *events.CustomEvent:
 		if err := v.validateStringContent(typed.Name); err != nil {
-			return agerrors.Wrap(err, "invalid custom event name")
+			return fmt.Errorf("invalid custom event name: %w", err)
 		}
 		if typed.Value != nil {
 			if err := v.validateCustomData(typed.Value); err != nil {
-				return agerrors.Wrap(err, "invalid custom event data")
+				return fmt.Errorf("invalid custom event data: %w", err)
 			}
 		}
 	}
@@ -650,6 +687,17 @@ func (v *SecurityValidator) validateCustomData(data interface{}) error {
 
 // sanitizeValue recursively sanitizes data values
 func (v *SecurityValidator) sanitizeValue(value interface{}) interface{} {
+	return v.sanitizeValueWithDepth(value, 0, v.config.MaxSanitizationDepth)
+}
+
+// sanitizeValueWithDepth recursively sanitizes data values with depth tracking
+func (v *SecurityValidator) sanitizeValueWithDepth(value interface{}, depth int, maxDepth int) interface{} {
+	// Check recursion depth limit to prevent stack overflow attacks
+	if depth > maxDepth {
+		// Log the attack attempt and return the value unsanitized to avoid crashes
+		// In a production system, this should be logged as a security incident
+		return value
+	}
 	switch typed := value.(type) {
 	case string:
 		return v.sanitizeString(typed)
@@ -657,13 +705,13 @@ func (v *SecurityValidator) sanitizeValue(value interface{}) interface{} {
 		sanitized := make(map[string]interface{})
 		for k, val := range typed {
 			sanitizedKey := v.sanitizeString(k)
-			sanitized[sanitizedKey] = v.sanitizeValue(val)
+			sanitized[sanitizedKey] = v.sanitizeValueWithDepth(val, depth+1, maxDepth)
 		}
 		return sanitized
 	case []interface{}:
 		sanitized := make([]interface{}, len(typed))
 		for i, val := range typed {
-			sanitized[i] = v.sanitizeValue(val)
+			sanitized[i] = v.sanitizeValueWithDepth(val, depth+1, maxDepth)
 		}
 		return sanitized
 	default:

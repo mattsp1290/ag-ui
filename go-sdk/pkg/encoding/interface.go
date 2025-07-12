@@ -170,6 +170,9 @@ type ContentNegotiator interface {
 
 	// CanHandle checks if a content type can be handled
 	CanHandle(contentType string) bool
+
+	// AddFormat adds a format with its priority/quality value
+	AddFormat(contentType string, priority float64) error
 }
 
 // CodecFactory creates codecs for specific content types

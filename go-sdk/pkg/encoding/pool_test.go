@@ -149,6 +149,10 @@ func (m *mockPoolEncoder) CanStream() bool {
 	return true
 }
 
+func (m *mockPoolEncoder) SupportsStreaming() bool {
+	return true
+}
+
 // Mock decoder for testing
 type mockPoolDecoder struct{}
 
@@ -165,6 +169,10 @@ func (m *mockPoolDecoder) ContentType() string {
 }
 
 func (m *mockPoolDecoder) CanStream() bool {
+	return true
+}
+
+func (m *mockPoolDecoder) SupportsStreaming() bool {
 	return true
 }
 

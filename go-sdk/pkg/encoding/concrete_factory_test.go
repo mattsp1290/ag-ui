@@ -113,16 +113,17 @@ func TestBackwardCompatibility(t *testing.T) {
 		
 		// Create a concrete factory and register constructors
 		concreteFactory := encoding.NewDefaultCodecFactory()
-		concreteFactory.RegisterCodec("application/test", 
+		
+		// Register encoder and decoder separately using the new methods
+		concreteFactory.RegisterEncoder("application/test", 
 			func(options *encoding.EncodingOptions) (encoding.Encoder, error) {
 				return &mockTestEncoder{}, nil
-			},
+			})
+		
+		concreteFactory.RegisterDecoder("application/test", 
 			func(options *encoding.DecodingOptions) (encoding.Decoder, error) {
 				return &mockTestDecoder{}, nil
-			},
-			nil, // no stream encoder
-			nil, // no stream decoder
-		)
+			})
 		
 		// Register using legacy interface method
 		err := registry.RegisterCodec("application/test", concreteFactory)
@@ -158,6 +159,10 @@ func (m *mockTestEncoder) CanStream() bool {
 	return false
 }
 
+func (m *mockTestEncoder) SupportsStreaming() bool {
+	return false
+}
+
 type mockTestDecoder struct{}
 
 func (m *mockTestDecoder) Decode(ctx context.Context, data []byte) (events.Event, error) {
@@ -173,5 +178,9 @@ func (m *mockTestDecoder) ContentType() string {
 }
 
 func (m *mockTestDecoder) CanStream() bool {
+	return false
+}
+
+func (m *mockTestDecoder) SupportsStreaming() bool {
 	return false
 }

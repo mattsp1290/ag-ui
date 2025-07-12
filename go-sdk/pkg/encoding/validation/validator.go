@@ -23,6 +23,12 @@ type FormatValidator interface {
 	// ValidateSchema validates data against a schema (if applicable)
 	ValidateSchema(data []byte, schema interface{}) error
 
+	// ValidateEncoding validates encoding-specific requirements
+	ValidateEncoding(data []byte) error
+
+	// ValidateDecoding validates decoding-specific requirements
+	ValidateDecoding(data []byte) error
+
 	// GetFormat returns the format name
 	GetFormat() string
 }
@@ -106,6 +112,18 @@ func (v *JSONValidator) ValidateSchema(data []byte, schema interface{}) error {
 	return nil
 }
 
+// ValidateEncoding validates encoding-specific requirements
+func (v *JSONValidator) ValidateEncoding(data []byte) error {
+	// For JSON encoding validation, check if the data is valid JSON
+	return v.ValidateFormat(data)
+}
+
+// ValidateDecoding validates decoding-specific requirements
+func (v *JSONValidator) ValidateDecoding(data []byte) error {
+	// For JSON decoding validation, check if the data is valid JSON
+	return v.ValidateFormat(data)
+}
+
 // GetFormat returns the format name
 func (v *JSONValidator) GetFormat() string {
 	return "application/json"
@@ -177,6 +195,18 @@ func (v *ProtobufValidator) ValidateSchema(data []byte, schema interface{}) erro
 	return v.ValidateFormat(data)
 }
 
+// ValidateEncoding validates encoding-specific requirements
+func (v *ProtobufValidator) ValidateEncoding(data []byte) error {
+	// For Protobuf encoding validation, check if the data is valid Protobuf
+	return v.ValidateFormat(data)
+}
+
+// ValidateDecoding validates decoding-specific requirements
+func (v *ProtobufValidator) ValidateDecoding(data []byte) error {
+	// For Protobuf decoding validation, check if the data is valid Protobuf
+	return v.ValidateFormat(data)
+}
+
 // GetFormat returns the format name
 func (v *ProtobufValidator) GetFormat() string {
 	return "application/x-protobuf"
@@ -198,16 +228,31 @@ func NewRoundTripValidator(encoder encoding.Encoder, decoder encoding.Decoder) *
 
 // ValidateRoundTrip validates that an event survives encode->decode->compare
 func (v *RoundTripValidator) ValidateRoundTrip(ctx context.Context, event events.Event) error {
+	// Check context cancellation before starting
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("round-trip validation cancelled: %w", err)
+	}
+
 	// Encode the event
-	encoded, err := v.encoder.Encode(context.Background(), event)
+	encoded, err := v.encoder.Encode(ctx, event)
 	if err != nil {
 		return fmt.Errorf("round-trip encode failed: %w", err)
 	}
 
+	// Check context cancellation after encoding
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("round-trip validation cancelled after encoding: %w", err)
+	}
+
 	// Decode the event
-	decoded, err := v.decoder.Decode(context.Background(), encoded)
+	decoded, err := v.decoder.Decode(ctx, encoded)
 	if err != nil {
 		return fmt.Errorf("round-trip decode failed: %w", err)
+	}
+
+	// Check context cancellation after decoding
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("round-trip validation cancelled after decoding: %w", err)
 	}
 
 	// Compare events
@@ -220,16 +265,31 @@ func (v *RoundTripValidator) ValidateRoundTrip(ctx context.Context, event events
 
 // ValidateRoundTripMultiple validates multiple events through round-trip
 func (v *RoundTripValidator) ValidateRoundTripMultiple(ctx context.Context, events []events.Event) error {
+	// Check context cancellation before starting
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("round-trip multiple validation cancelled: %w", err)
+	}
+
 	// Encode the events
-	encoded, err := v.encoder.EncodeMultiple(context.Background(), events)
+	encoded, err := v.encoder.EncodeMultiple(ctx, events)
 	if err != nil {
 		return fmt.Errorf("round-trip encode multiple failed: %w", err)
 	}
 
+	// Check context cancellation after encoding
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("round-trip multiple validation cancelled after encoding: %w", err)
+	}
+
 	// Decode the events
-	decoded, err := v.decoder.DecodeMultiple(context.Background(), encoded)
+	decoded, err := v.decoder.DecodeMultiple(ctx, encoded)
 	if err != nil {
 		return fmt.Errorf("round-trip decode multiple failed: %w", err)
+	}
+
+	// Check context cancellation after decoding
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("round-trip multiple validation cancelled after decoding: %w", err)
 	}
 
 	// Compare event counts
@@ -237,8 +297,15 @@ func (v *RoundTripValidator) ValidateRoundTripMultiple(ctx context.Context, even
 		return fmt.Errorf("round-trip event count mismatch: expected %d, got %d", len(events), len(decoded))
 	}
 
-	// Compare each event
+	// Compare each event with periodic context checks for large datasets
 	for i, original := range events {
+		// Check context cancellation periodically for large event sets
+		if i%100 == 0 {
+			if err := ctx.Err(); err != nil {
+				return fmt.Errorf("round-trip multiple validation cancelled during comparison at event %d: %w", i, err)
+			}
+		}
+
 		if err := compareEvents(original, decoded[i]); err != nil {
 			return fmt.Errorf("round-trip comparison failed for event %d: %w", i, err)
 		}

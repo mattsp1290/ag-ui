@@ -191,10 +191,17 @@ func (usc *UnifiedStreamCodec) streamEncodeChunked(ctx context.Context, input <-
 	}
 	defer encoder.EndStream(ctx)
 
-	// Process chunks
+	// Process chunks with proper cleanup on cancellation
 	for {
 		select {
 		case <-ctx.Done():
+			// Context cancelled - ensure proper cleanup
+			// Drain any remaining chunks to prevent goroutine leaks
+			go func() {
+				for range chunkChan {
+					// Drain remaining chunks
+				}
+			}()
 			return ctx.Err()
 		case err := <-encodeErr:
 			if err != nil {

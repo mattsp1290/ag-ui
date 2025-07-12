@@ -93,6 +93,9 @@ type writeRequest struct {
 
 // NewStreamManager creates a new stream manager
 func NewStreamManager(encoder encoding.StreamEncoder, decoder encoding.StreamDecoder, config *StreamConfig) *StreamManager {
+	if encoder == nil || decoder == nil {
+		return nil // Return nil for invalid parameters to prevent panics
+	}
 	if config == nil {
 		config = DefaultStreamConfig()
 	}
@@ -117,7 +120,7 @@ func NewStreamManager(encoder encoding.StreamEncoder, decoder encoding.StreamDec
 	}
 
 	if config.EnableMetrics {
-		sm.metrics = NewStreamMetrics()
+		sm.metrics = NewStreamMetricsWithContext(ctx)
 	}
 
 	sm.state.Store(int32(StreamStateIdle))
@@ -194,8 +197,11 @@ func (sm *StreamManager) WriteStream(ctx context.Context, input <-chan events.Ev
 	for {
 		select {
 		case <-ctx.Done():
+			// Context cancelled - ensure proper cleanup
+			// Signal write worker to stop processing any pending requests
 			return ctx.Err()
 		case <-sm.ctx.Done():
+			// Stream manager context cancelled
 			return sm.ctx.Err()
 		case event, ok := <-input:
 			if !ok {
@@ -251,8 +257,10 @@ func (sm *StreamManager) ReadStream(ctx context.Context, input io.Reader, output
 	for {
 		select {
 		case <-ctx.Done():
+			// Context cancelled - ensure proper cleanup of read operations
 			return ctx.Err()
 		case <-sm.ctx.Done():
+			// Stream manager context cancelled
 			return sm.ctx.Err()
 		case event, ok := <-sm.readBuffer:
 			if !ok {
@@ -288,8 +296,13 @@ func (sm *StreamManager) writeWorker(output io.Writer) {
 				return // Channel closed
 			}
 
-			// Write event
-			err := sm.encoder.WriteEvent(context.Background(), req.event)
+			// Write event with context check
+			if err := sm.ctx.Err(); err != nil {
+				req.done <- err
+				return
+			}
+
+			err := sm.encoder.WriteEvent(sm.ctx, req.event)
 			if err != nil {
 				req.done <- err
 				sm.reportError(err)
@@ -327,8 +340,13 @@ func (sm *StreamManager) readWorker(input io.Reader) {
 		case <-sm.ctx.Done():
 			return
 		default:
+			// Check context before reading
+			if err := sm.ctx.Err(); err != nil {
+				return
+			}
+
 			// Read event
-			event, err := sm.decoder.ReadEvent(context.Background())
+			event, err := sm.decoder.ReadEvent(sm.ctx)
 			if err != nil {
 				if err == io.EOF {
 					return // Normal end of stream

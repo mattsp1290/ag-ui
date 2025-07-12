@@ -15,7 +15,6 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/encoding/json"
 	"github.com/ag-ui/go-sdk/pkg/encoding/negotiation"
 	"github.com/ag-ui/go-sdk/pkg/encoding/protobuf"
-	"github.com/ag-ui/go-sdk/pkg/encoding/streaming"
 	"github.com/ag-ui/go-sdk/pkg/encoding/validation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -218,15 +217,25 @@ func testStreamingPipeline(t *testing.T, ctx context.Context, registry *encoding
 
 // TestContentNegotiation tests content negotiation and format selection
 func TestContentNegotiation(t *testing.T) {
-	ctx := context.Background()
-	
 	// Create negotiator
 	negotiator := negotiation.NewContentNegotiator("application/json")
 	
-	// Add supported formats
-	negotiator.AddFormat("application/json", 1.0)
-	negotiator.AddFormat("application/x-protobuf", 0.9)
-	negotiator.AddFormat("text/plain", 0.5)
+	// Add supported formats using RegisterType
+	negotiator.RegisterType(&negotiation.TypeCapabilities{
+		ContentType: "application/json",
+		Priority: 1.0,
+		CanStream: true,
+	})
+	negotiator.RegisterType(&negotiation.TypeCapabilities{
+		ContentType: "application/x-protobuf",
+		Priority: 0.9,
+		CanStream: true,
+	})
+	negotiator.RegisterType(&negotiation.TypeCapabilities{
+		ContentType: "text/plain",
+		Priority: 0.5,
+		CanStream: false,
+	})
 	
 	testCases := []struct {
 		name          string
@@ -321,7 +330,10 @@ func TestValidationIntegration(t *testing.T) {
 	// Create registry with validation
 	registry := encoding.NewFormatRegistry()
 	validator := validation.NewJSONValidator(false)
-	registry.SetValidator(validator)
+	
+	// Create adapter for the validator interface
+	adapter := &validatorAdapter{validator: validator}
+	registry.SetValidator(adapter)
 	
 	// Register formats with validation
 	require.NoError(t, registry.RegisterFormat(encoding.JSONFormatInfo()))
@@ -620,6 +632,23 @@ func TestResourceCleanup(t *testing.T) {
 	
 	// Test should complete without hanging
 	assert.True(t, true, "Resource cleanup completed successfully")
+}
+
+// validatorAdapter adapts validation.FormatValidator to encoding.FormatValidator
+type validatorAdapter struct {
+	validator validation.FormatValidator
+}
+
+func (a *validatorAdapter) ValidateFormat(mimeType string, data []byte) error {
+	return a.validator.ValidateFormat(data)
+}
+
+func (a *validatorAdapter) ValidateEncoding(mimeType string, data []byte) error {
+	return a.validator.ValidateEncoding(data)
+}
+
+func (a *validatorAdapter) ValidateDecoding(mimeType string, data []byte) error {
+	return a.validator.ValidateDecoding(data)
 }
 
 // TestMemoryPressure tests behavior under memory pressure

@@ -1,6 +1,7 @@
 package streaming
 
 import (
+	"context"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -44,6 +45,8 @@ type StreamMetrics struct {
 	sampleTicker    *time.Ticker
 	stopChan        chan struct{}
 	wg              sync.WaitGroup
+	ctx             context.Context
+	cancel          context.CancelFunc
 }
 
 // EventTypeMetrics tracks metrics for a specific event type
@@ -83,11 +86,19 @@ type EventTypeSnapshot struct {
 
 // NewStreamMetrics creates a new metrics collector
 func NewStreamMetrics() *StreamMetrics {
+	return NewStreamMetricsWithContext(context.Background())
+}
+
+// NewStreamMetricsWithContext creates a new metrics collector with a parent context
+func NewStreamMetricsWithContext(parentCtx context.Context) *StreamMetrics {
+	ctx, cancel := context.WithCancel(parentCtx)
 	sm := &StreamMetrics{
 		startTime:      time.Now(),
 		eventTypes:     make(map[string]*EventTypeMetrics),
 		sampleInterval: time.Second,
 		stopChan:       make(chan struct{}),
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 
 	// Start background sampling
@@ -246,6 +257,7 @@ func (sm *StreamMetrics) Reset() {
 
 // Close stops the metrics collector
 func (sm *StreamMetrics) Close() {
+	sm.cancel()
 	close(sm.stopChan)
 	sm.wg.Wait()
 	if sm.sampleTicker != nil {
@@ -267,6 +279,8 @@ func (sm *StreamMetrics) startSampling() {
 
 		for {
 			select {
+			case <-sm.ctx.Done():
+				return
 			case <-sm.stopChan:
 				return
 			case <-sm.sampleTicker.C:

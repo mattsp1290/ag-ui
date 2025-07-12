@@ -87,6 +87,9 @@ type ChunkMetrics struct {
 
 // NewChunkedEncoder creates a new chunked encoder
 func NewChunkedEncoder(baseEncoder encoding.Encoder, config *ChunkConfig) *ChunkedEncoder {
+	if baseEncoder == nil {
+		return nil // Return nil for invalid encoder to prevent panics
+	}
 	if config == nil {
 		config = DefaultChunkConfig()
 	}
@@ -126,7 +129,7 @@ func (ce *ChunkedEncoder) encodeSequential(ctx context.Context, input <-chan eve
 		}
 
 		// Encode chunk
-		encoded, err := ce.encodeChunk(currentChunk)
+		encoded, err := ce.encodeChunkWithContext(ctx, currentChunk)
 		if err != nil {
 			return err
 		}
@@ -270,7 +273,7 @@ func (ce *ChunkedEncoder) chunkWorker(ctx context.Context, input <-chan *Chunk, 
 				return
 			}
 
-			encoded, err := ce.encodeChunk(chunk)
+			encoded, err := ce.encodeChunkWithContext(ctx, chunk)
 			if err != nil {
 				// Log error and continue
 				continue
@@ -287,8 +290,18 @@ func (ce *ChunkedEncoder) chunkWorker(ctx context.Context, input <-chan *Chunk, 
 
 // encodeChunk encodes a single chunk
 func (ce *ChunkedEncoder) encodeChunk(chunk *Chunk) (*Chunk, error) {
+	return ce.encodeChunkWithContext(context.Background(), chunk)
+}
+
+// encodeChunkWithContext encodes a single chunk with context
+func (ce *ChunkedEncoder) encodeChunkWithContext(ctx context.Context, chunk *Chunk) (*Chunk, error) {
+	// Check context cancellation before encoding
+	if err := ctx.Err(); err != nil {
+		return nil, errors.NewStreamingError("CHUNK_ENCODE_CANCELLED", "chunk encoding cancelled").WithCause(err)
+	}
+
 	// Encode events
-	data, err := ce.baseEncoder.EncodeMultiple(context.Background(), chunk.Events)
+	data, err := ce.baseEncoder.EncodeMultiple(ctx, chunk.Events)
 	if err != nil {
 		return nil, errors.NewStreamingError("CHUNK_ENCODE_FAILED", "failed to encode chunk").WithCause(err)
 	}

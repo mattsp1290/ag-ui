@@ -8,20 +8,38 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/encoding"
+	_ "github.com/ag-ui/go-sdk/pkg/encoding/json" // Register JSON codec
 	"github.com/ag-ui/go-sdk/pkg/encoding/negotiation"
+	_ "github.com/ag-ui/go-sdk/pkg/encoding/protobuf" // Register Protobuf codec
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 // TestContentNegotiationRegression tests for content negotiation regressions
 func TestContentNegotiationRegression(t *testing.T) {
-	negotiator := negotiation.NewNegotiator()
+	negotiator := negotiation.NewContentNegotiator("application/json")
 	
-	// Add formats with different priorities
-	negotiator.AddFormat("application/json", 1.0)
-	negotiator.AddFormat("application/x-protobuf", 0.9)
-	negotiator.AddFormat("text/plain", 0.8)
-	negotiator.AddFormat("application/xml", 0.7)
+	// Add formats with different priorities using RegisterType
+	negotiator.RegisterType(&negotiation.TypeCapabilities{
+		ContentType: "application/json",
+		Priority: 1.0,
+		CanStream: true,
+	})
+	negotiator.RegisterType(&negotiation.TypeCapabilities{
+		ContentType: "application/x-protobuf",
+		Priority: 0.9,
+		CanStream: true,
+	})
+	negotiator.RegisterType(&negotiation.TypeCapabilities{
+		ContentType: "text/plain",
+		Priority: 0.8,
+		CanStream: false,
+	})
+	negotiator.RegisterType(&negotiation.TypeCapabilities{
+		ContentType: "application/xml",
+		Priority: 0.7,
+		CanStream: false,
+	})
 	
 	testCases := []struct {
 		name          string
@@ -446,14 +464,14 @@ func TestFactoryRegistrationRegression(t *testing.T) {
 	
 	// Test encoder factory registration
 	t.Run("EncoderFactoryRegistration", func(t *testing.T) {
-		factory := encoding.NewDefaultEncoderFactory()
+		factory := encoding.NewDefaultCodecFactory()
 		
-		// Register mock encoder
-		factory.RegisterEncoder("application/test", func(opts *encoding.EncodingOptions) (encoding.Encoder, error) {
-			return &mockEncoder{contentType: "application/test"}, nil
+		// Register mock codec (which provides encoder)
+		factory.RegisterCodec("application/test", func(encOptions *encoding.EncodingOptions, decOptions *encoding.DecodingOptions) (encoding.Codec, error) {
+			return &mockCodec{contentType: "application/test"}, nil
 		})
 		
-		err := registry.RegisterEncoderFactory("application/test", factory)
+		err := registry.RegisterCodecFactory("application/test", factory)
 		require.NoError(t, err)
 		
 		// Verify we can get encoder
@@ -466,14 +484,14 @@ func TestFactoryRegistrationRegression(t *testing.T) {
 	
 	// Test decoder factory registration
 	t.Run("DecoderFactoryRegistration", func(t *testing.T) {
-		factory := encoding.NewDefaultDecoderFactory()
+		factory := encoding.NewDefaultCodecFactory()
 		
-		// Register mock decoder
-		factory.RegisterDecoder("application/test", func(opts *encoding.DecodingOptions) (encoding.Decoder, error) {
-			return &mockDecoder{contentType: "application/test"}, nil
+		// Register mock codec (which provides decoder)
+		factory.RegisterCodec("application/test", func(encOptions *encoding.EncodingOptions, decOptions *encoding.DecodingOptions) (encoding.Codec, error) {
+			return &mockCodec{contentType: "application/test"}, nil
 		})
 		
-		err := registry.RegisterDecoderFactory("application/test", factory)
+		err := registry.RegisterCodecFactory("application/test", factory)
 		require.NoError(t, err)
 		
 		// Verify we can get decoder
@@ -489,17 +507,9 @@ func TestFactoryRegistrationRegression(t *testing.T) {
 		factory := encoding.NewDefaultCodecFactory()
 		
 		// Register mock codec
-		factory.RegisterCodec(
-			"application/test",
-			func(opts *encoding.EncodingOptions) (encoding.Encoder, error) {
-				return &mockEncoder{contentType: "application/test"}, nil
-			},
-			func(opts *encoding.DecodingOptions) (encoding.Decoder, error) {
-				return &mockDecoder{contentType: "application/test"}, nil
-			},
-			nil, // No stream encoder
-			nil, // No stream decoder
-		)
+		factory.RegisterCodec("application/test", func(encOptions *encoding.EncodingOptions, decOptions *encoding.DecodingOptions) (encoding.Codec, error) {
+			return &mockCodec{contentType: "application/test"}, nil
+		})
 		
 		err := registry.RegisterCodecFactory("application/test", factory)
 		require.NoError(t, err)
@@ -561,17 +571,9 @@ func TestBackwardCompatibilityRegression(t *testing.T) {
 		
 		// Register new concrete factory for same type (should overwrite)
 		newFactory := encoding.NewDefaultCodecFactory()
-		newFactory.RegisterCodec(
-			"application/mixed",
-			func(opts *encoding.EncodingOptions) (encoding.Encoder, error) {
-				return &mockEncoder{contentType: "application/mixed-new"}, nil
-			},
-			func(opts *encoding.DecodingOptions) (encoding.Decoder, error) {
-				return &mockDecoder{contentType: "application/mixed-new"}, nil
-			},
-			nil,
-			nil,
-		)
+		newFactory.RegisterCodec("application/mixed", func(encOptions *encoding.EncodingOptions, decOptions *encoding.DecodingOptions) (encoding.Codec, error) {
+			return &mockCodec{contentType: "application/mixed-new"}, nil
+		})
 		
 		err = registry.RegisterCodecFactory("application/mixed", newFactory)
 		require.NoError(t, err)
@@ -638,17 +640,9 @@ func TestUnregistrationRegression(t *testing.T) {
 	
 	// Register factory
 	factory := encoding.NewDefaultCodecFactory()
-	factory.RegisterCodec(
-		"application/test",
-		func(opts *encoding.EncodingOptions) (encoding.Encoder, error) {
-			return &mockEncoder{contentType: "application/test"}, nil
-		},
-		func(opts *encoding.DecodingOptions) (encoding.Decoder, error) {
-			return &mockDecoder{contentType: "application/test"}, nil
-		},
-		nil,
-		nil,
-	)
+	factory.RegisterCodec("application/test", func(encOptions *encoding.EncodingOptions, decOptions *encoding.DecodingOptions) (encoding.Codec, error) {
+		return &mockCodec{contentType: "application/test"}, nil
+	})
 	require.NoError(t, registry.RegisterCodecFactory("application/test", factory))
 	
 	// Verify format is registered
@@ -760,6 +754,10 @@ func (m *mockEncoder) CanStream() bool {
 	return false
 }
 
+func (m *mockEncoder) SupportsStreaming() bool {
+	return false
+}
+
 type mockDecoder struct {
 	contentType string
 }
@@ -772,11 +770,11 @@ func (m *mockDecoder) Decode(ctx context.Context, data []byte) (events.Event, er
 func (m *mockDecoder) DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error) {
 	// Count semicolons to determine number of events
 	count := strings.Count(string(data), ";")
-	events := make([]events.Event, count)
+	eventList := make([]events.Event, count)
 	for i := 0; i < count; i++ {
-		events[i] = events.NewTextMessageContentEvent("mock", "mock")
+		eventList[i] = events.NewTextMessageContentEvent("mock", "mock")
 	}
-	return events, nil
+	return eventList, nil
 }
 
 func (m *mockDecoder) ContentType() string {
@@ -784,6 +782,54 @@ func (m *mockDecoder) ContentType() string {
 }
 
 func (m *mockDecoder) CanStream() bool {
+	return false
+}
+
+func (m *mockDecoder) SupportsStreaming() bool {
+	return false
+}
+
+// mockCodec implements both Encoder and Decoder interfaces
+type mockCodec struct {
+	encoder     encoding.Encoder
+	decoder     encoding.Decoder
+	contentType string
+}
+
+func (m *mockCodec) Encode(ctx context.Context, event events.Event) ([]byte, error) {
+	return []byte(fmt.Sprintf("encoded:%s", event.Type())), nil
+}
+
+func (m *mockCodec) EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error) {
+	var result strings.Builder
+	for _, event := range events {
+		result.WriteString(fmt.Sprintf("encoded:%s;", event.Type()))
+	}
+	return []byte(result.String()), nil
+}
+
+func (m *mockCodec) Decode(ctx context.Context, data []byte) (events.Event, error) {
+	return events.NewTextMessageContentEvent("mock", "mock"), nil
+}
+
+func (m *mockCodec) DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error) {
+	count := strings.Count(string(data), ";")
+	eventList := make([]events.Event, count)
+	for i := 0; i < count; i++ {
+		eventList[i] = events.NewTextMessageContentEvent("mock", "mock")
+	}
+	return eventList, nil
+}
+
+func (m *mockCodec) ContentType() string {
+	return m.contentType
+}
+
+func (m *mockCodec) SupportsStreaming() bool {
+	return false
+}
+
+func (m *mockCodec) CanStream() bool {
 	return false
 }
 
@@ -814,4 +860,30 @@ func (m *mockLegacyFactory) SupportedEncoders() []string {
 
 func (m *mockLegacyFactory) SupportedDecoders() []string {
 	return []string{"application/legacy"}
+}
+
+// Implement CodecFactory interface methods
+func (m *mockLegacyFactory) CreateCodec(ctx context.Context, contentType string, encOptions *encoding.EncodingOptions, decOptions *encoding.DecodingOptions) (encoding.Codec, error) {
+	// Create a composite codec from encoder and decoder
+	encoder, err := m.encoderFunc(ctx, contentType, encOptions)
+	if err != nil {
+		return nil, err
+	}
+	decoder, err := m.decoderFunc(ctx, contentType, decOptions)
+	if err != nil {
+		return nil, err
+	}
+	return &mockCodec{encoder: encoder, decoder: decoder, contentType: contentType}, nil
+}
+
+func (m *mockLegacyFactory) CreateStreamCodec(ctx context.Context, contentType string, encOptions *encoding.EncodingOptions, decOptions *encoding.DecodingOptions) (encoding.StreamCodec, error) {
+	return nil, fmt.Errorf("streaming not supported by legacy factory")
+}
+
+func (m *mockLegacyFactory) SupportedTypes() []string {
+	return []string{"application/legacy"}
+}
+
+func (m *mockLegacyFactory) SupportsStreaming(contentType string) bool {
+	return false
 }

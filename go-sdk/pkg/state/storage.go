@@ -246,6 +246,13 @@ type RedisBackend struct {
 
 // NewRedisBackend creates a new Redis storage backend
 func NewRedisBackend(config *StorageConfig, logger Logger) (*RedisBackend, error) {
+	if config == nil {
+		return nil, fmt.Errorf("storage config cannot be nil")
+	}
+	if logger == nil {
+		return nil, fmt.Errorf("logger cannot be nil")
+	}
+	
 	// TODO: Implement Redis backend when redis package is available
 	// TODO: Uncomment when redis package is available
 	// opts := &redis.Options{

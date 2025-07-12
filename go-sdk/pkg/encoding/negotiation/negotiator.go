@@ -156,8 +156,8 @@ func (cn *ContentNegotiator) selectBestType(acceptTypes []AcceptType) (string, e
 				// Calculate combined score
 				score := quality * capabilities.Priority
 
-				// Get performance score
-				perfScore := cn.performance.GetScore(contentType)
+				// Get performance score (thread-safe)
+				perfScore := cn.getPerformanceScore(contentType)
 
 				candidates = append(candidates, candidate{
 					contentType: contentType,
@@ -282,7 +282,19 @@ func (cn *ContentNegotiator) GetCapabilities(contentType string) (*TypeCapabilit
 
 // UpdatePerformance updates performance metrics for a content type
 func (cn *ContentNegotiator) UpdatePerformance(contentType string, metrics PerformanceMetrics) {
+	// Note: UpdateMetrics is already thread-safe with its own mutex
 	cn.performance.UpdateMetrics(contentType, metrics)
+}
+
+// getPerformanceScore safely retrieves performance score for a content type
+func (cn *ContentNegotiator) getPerformanceScore(contentType string) float64 {
+	// GetScore is thread-safe as it calls GetMetrics which uses RLock
+	return cn.performance.GetScore(contentType)
+}
+
+// GetPerformanceScore safely retrieves performance score for a content type (public API)
+func (cn *ContentNegotiator) GetPerformanceScore(contentType string) float64 {
+	return cn.getPerformanceScore(contentType)
 }
 
 // SetPreferredType updates the preferred content type
@@ -308,4 +320,28 @@ func (cn *ContentNegotiator) canHandleUnlocked(contentType string) bool {
 	baseType = strings.TrimSpace(baseType)
 	_, ok := cn.supportedTypes[baseType]
 	return ok
+}
+
+// AddFormat adds a format with its priority/quality value
+func (cn *ContentNegotiator) AddFormat(contentType string, priority float64) error {
+	if contentType == "" {
+		return errors.NewEncodingError(errors.CodeValidationFailed, "content type cannot be empty").WithOperation("add_format")
+	}
+
+	if priority < 0 || priority > 1 {
+		return errors.NewEncodingError(errors.CodeValidationFailed, "priority must be between 0 and 1").WithOperation("add_format").WithDetail("priority", priority)
+	}
+
+	// Create type capabilities with the specified priority
+	capabilities := &TypeCapabilities{
+		ContentType:        contentType,
+		CanStream:          false, // Default to no streaming
+		CompressionSupport: []string{},
+		Priority:           priority,
+		Extensions:         []string{},
+		Aliases:            []string{},
+	}
+
+	cn.RegisterType(capabilities)
+	return nil
 }

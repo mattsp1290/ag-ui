@@ -101,7 +101,7 @@ func (fs *FormatSelector) getCandidates(acceptTypes []AcceptType) []Candidate {
 		for _, supportedType := range fs.negotiator.SupportedTypes() {
 			if matched, quality := fs.matchType(supportedType, acceptType); matched {
 				capabilities, _ := fs.negotiator.GetCapabilities(supportedType)
-				perfScore := fs.negotiator.performance.GetScore(supportedType)
+				perfScore := fs.negotiator.GetPerformanceScore(supportedType)
 
 				candidate := Candidate{
 					ContentType:   supportedType,

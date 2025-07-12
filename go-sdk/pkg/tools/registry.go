@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"container/list"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -10,14 +11,23 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
-// Registry manages the collection of available tools.
+// ToolRegistryEntry wraps tool data with metadata for cleanup tracking
+type ToolRegistryEntry struct {
+	tool        *Tool
+	createdAt   time.Time
+	lastAccess  time.Time
+	accessCount int64
+}
+
+// Registry manages the collection of available tools with bounded memory usage.
 // It provides thread-safe registration, discovery, and management of tools.
 type Registry struct {
 	mu    sync.RWMutex
-	tools map[string]*Tool
+	tools map[string]*ToolRegistryEntry
 
 	// categoryIndex maps categories to tool IDs for fast lookup
 	categoryIndex map[string]map[string]bool
@@ -27,6 +37,10 @@ type Registry struct {
 
 	// nameIndex maps tool names to IDs for fast lookup
 	nameIndex map[string]string
+
+	// LRU tracking for tools map
+	toolsLRU   *list.List
+	toolsIndex map[string]*list.Element
 
 	// validators for custom validation rules
 	validators []RegistryValidator
@@ -54,6 +68,10 @@ type Registry struct {
 	// Resource tracking
 	currentMemoryUsage   int64  // Current memory usage in bytes
 	activeRegistrations  int32  // Number of active registration operations
+	
+	// Tool cleanup control
+	toolCleanupStop chan struct{}
+	toolCleanupOnce sync.Once
 }
 
 // RegistryValidator is a function that validates tools during registration.
@@ -97,6 +115,14 @@ type RegistryConfig struct {
 	MaxMemoryUsage int64
 	// MaxConcurrentRegistrations limits concurrent registration operations
 	MaxConcurrentRegistrations int32
+	// ToolTTL is the time-to-live for individual tools (0 = no TTL)
+	ToolTTL time.Duration
+	// EnableToolLRU enables LRU eviction for tools when MaxTools is reached
+	EnableToolLRU bool
+	// ToolCleanupInterval is how often to run TTL cleanup for tools
+	ToolCleanupInterval time.Duration
+	// EnableBackgroundToolCleanup enables automatic TTL-based tool cleanup
+	EnableBackgroundToolCleanup bool
 }
 
 // DefaultRegistryConfig returns the default configuration.
@@ -114,6 +140,10 @@ func DefaultRegistryConfig() *RegistryConfig {
 		MaxTools:                       10000,                // Limit to 10k tools
 		MaxMemoryUsage:                 100 * 1024 * 1024,    // 100MB memory limit
 		MaxConcurrentRegistrations:     10,                   // Max 10 concurrent registrations
+		ToolTTL:                        2 * time.Hour,        // 2 hour TTL for tools
+		EnableToolLRU:                  true,                 // Enable LRU eviction
+		ToolCleanupInterval:            15 * time.Minute,     // Cleanup every 15 minutes
+		EnableBackgroundToolCleanup:    true,                 // Enable background cleanup
 	}
 }
 
@@ -374,11 +404,17 @@ func NewRegistry() *Registry {
 
 // NewRegistryWithConfig creates a new tool registry with custom configuration.
 func NewRegistryWithConfig(config *RegistryConfig) *Registry {
-	return &Registry{
-		tools:             make(map[string]*Tool),
+	if config == nil {
+		config = DefaultRegistryConfig()
+	}
+	
+	r := &Registry{
+		tools:             make(map[string]*ToolRegistryEntry),
 		categoryIndex:     make(map[string]map[string]bool),
 		tagIndex:          make(map[string]map[string]bool),
 		nameIndex:         make(map[string]string),
+		toolsLRU:          list.New(),
+		toolsIndex:        make(map[string]*list.Element),
 		validators:        []RegistryValidator{},
 		categories:        NewCategoryTree(),
 		conflictResolvers: []ConflictResolver{},
@@ -389,10 +425,18 @@ func NewRegistryWithConfig(config *RegistryConfig) *Registry {
 		loadingStrategies: make(map[string]LoadingStrategy),
 		config:            config,
 		// Performance optimization components
-		listCache:   NewListCache(),
-		schemaCache: NewSchemaCache(),
-		memoryPool:  NewMemoryPool(),
+		listCache:        NewListCache(),
+		schemaCache:      NewSchemaCache(),
+		memoryPool:       NewMemoryPool(),
+		toolCleanupStop:  make(chan struct{}),
 	}
+	
+	// Start background cleanup if enabled
+	if config.EnableBackgroundToolCleanup && config.ToolCleanupInterval > 0 {
+		go r.backgroundToolCleanup()
+	}
+	
+	return r
 }
 
 // Register adds a new tool to the registry.
@@ -467,11 +511,18 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 	}
 
 	// Check for existing tools while holding the write lock
-	existingTool, idExists := r.tools[tool.ID]
+	existingEntry, idExists := r.tools[tool.ID]
 	existingID, nameExists := r.nameIndex[tool.Name]
 	var existingByName *Tool
 	if nameExists && existingID != tool.ID {
-		existingByName = r.tools[existingID]
+		if existingEntryByName, exists := r.tools[existingID]; exists {
+			existingByName = existingEntryByName.tool
+		}
+	}
+	
+	var existingTool *Tool
+	if idExists {
+		existingTool = existingEntry.tool
 	}
 
 	// Resolve conflicts while holding the lock
@@ -511,23 +562,53 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 		}
 	}
 
+	// Check if we need to evict tools before adding
+	if r.config.EnableToolLRU && r.config.MaxTools > 0 && len(r.tools) >= r.config.MaxTools {
+		r.evictLRUTool()
+	}
+	
 	// Store a clone to prevent external modifications
 	clonedTool := tool.Clone()
 	estimatedSize := r.estimateToolMemoryUsage(clonedTool)
-	r.tools[tool.ID] = clonedTool
+	
+	// Create registry entry with metadata
+	entry := &ToolRegistryEntry{
+		tool:        clonedTool,
+		createdAt:   time.Now(),
+		lastAccess:  time.Now(),
+		accessCount: 1,
+	}
+	r.tools[tool.ID] = entry
 	r.currentMemoryUsage += estimatedSize
+	
+	// Update LRU tracking
+	if r.config.EnableToolLRU {
+		elem := r.toolsLRU.PushFront(tool.ID)
+		r.toolsIndex[tool.ID] = elem
+	}
 
 	// Update indexes
-	r.nameIndex[tool.Name] = tool.ID
+	r.nameIndex[clonedTool.Name] = clonedTool.ID
 
 	// Update tag index
-	if tool.Metadata != nil && len(tool.Metadata.Tags) > 0 {
-		for _, tag := range tool.Metadata.Tags {
+	if clonedTool.Metadata != nil && len(clonedTool.Metadata.Tags) > 0 {
+		for _, tag := range clonedTool.Metadata.Tags {
 			if r.tagIndex[tag] == nil {
 				r.tagIndex[tag] = make(map[string]bool)
 			}
-			r.tagIndex[tag][tool.ID] = true
+			r.tagIndex[tag][clonedTool.ID] = true
 		}
+	}
+
+	// Update category tree
+	if err := r.updateCategoryTree(clonedTool); err != nil {
+		// Log error but don't fail registration
+	}
+
+	// Update dependency graph
+	if err := r.dependencyGraph.AddTool(clonedTool); err != nil {
+		return NewDependencyError(CodeDependencyNotFound, "dependency graph update failed", clonedTool.ID).
+			WithCause(err)
 	}
 
 	// Update category tree
@@ -554,14 +635,14 @@ func (r *Registry) Unregister(toolID string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	tool, exists := r.tools[toolID]
+	entry, exists := r.tools[toolID]
 	if !exists {
 		return NewToolError(ErrorTypeValidation, "TOOL_NOT_FOUND", "tool not found").
 		WithToolID(toolID)
 	}
 
 	// Calculate memory usage to be freed
-	estimatedSize := r.estimateToolMemoryUsage(tool)
+	estimatedSize := r.estimateToolMemoryUsage(entry.tool)
 
 	// Remove from main storage
 	delete(r.tools, toolID)
@@ -570,12 +651,20 @@ func (r *Registry) Unregister(toolID string) error {
 		r.currentMemoryUsage = 0 // Prevent negative values
 	}
 
+	// Remove from LRU tracking
+	if r.config.EnableToolLRU {
+		if elem, exists := r.toolsIndex[toolID]; exists {
+			r.toolsLRU.Remove(elem)
+			delete(r.toolsIndex, toolID)
+		}
+	}
+
 	// Remove from name index
-	delete(r.nameIndex, tool.Name)
+	delete(r.nameIndex, entry.tool.Name)
 
 	// Remove from tag index
-	if tool.Metadata != nil && len(tool.Metadata.Tags) > 0 {
-		for _, tag := range tool.Metadata.Tags {
+	if entry.tool.Metadata != nil && len(entry.tool.Metadata.Tags) > 0 {
+		for _, tag := range entry.tool.Metadata.Tags {
 			if tagMap := r.tagIndex[tag]; tagMap != nil {
 				delete(tagMap, toolID)
 				if len(tagMap) == 0 {
@@ -595,49 +684,133 @@ func (r *Registry) Unregister(toolID string) error {
 // It returns nil if the tool is not found.
 // This method returns a clone for backward compatibility.
 func (r *Registry) Get(toolID string) (*Tool, error) {
+	if r == nil {
+		return nil, NewToolError(ErrorTypeValidation, "REGISTRY_NIL", "registry is nil")
+	}
+	if toolID == "" {
+		return nil, NewToolError(ErrorTypeValidation, "EMPTY_TOOL_ID", "tool ID cannot be empty")
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	tool, exists := r.tools[toolID]
+	if r.tools == nil {
+		return nil, NewToolError(ErrorTypeInternal, "TOOLS_MAP_NIL", "tools map is nil")
+	}
+
+	entry, exists := r.tools[toolID]
 	if !exists {
 		return nil, NewToolError(ErrorTypeValidation, "TOOL_NOT_FOUND", "tool not found").
 			WithToolID(toolID)
 	}
 
+	if entry == nil || entry.tool == nil {
+		return nil, NewToolError(ErrorTypeInternal, "TOOL_NIL", "stored tool is nil").
+			WithToolID(toolID)
+	}
+
+	// Update access tracking
+	entry.lastAccess = time.Now()
+	atomic.AddInt64(&entry.accessCount, 1)
+
+	// Update LRU position if enabled
+	if r.config.EnableToolLRU {
+		if elem, found := r.toolsIndex[toolID]; found {
+			r.toolsLRU.MoveToFront(elem)
+		}
+	}
+
 	// Return a clone to prevent external modifications
-	return tool.Clone(), nil
+	return entry.tool.Clone(), nil
 }
 
 // GetReadOnly retrieves a read-only view of a tool by its ID.
 // This is more memory-efficient than Get() as it avoids cloning.
 func (r *Registry) GetReadOnly(toolID string) (ReadOnlyTool, error) {
+	if r == nil {
+		return nil, NewToolError(ErrorTypeValidation, "REGISTRY_NIL", "registry is nil")
+	}
+	if toolID == "" {
+		return nil, NewToolError(ErrorTypeValidation, "EMPTY_TOOL_ID", "tool ID cannot be empty")
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	tool, exists := r.tools[toolID]
+	if r.tools == nil {
+		return nil, NewToolError(ErrorTypeInternal, "TOOLS_MAP_NIL", "tools map is nil")
+	}
+
+	entry, exists := r.tools[toolID]
 	if !exists {
 		return nil, NewToolError(ErrorTypeValidation, "TOOL_NOT_FOUND", "tool not found").
 			WithToolID(toolID)
 	}
 
+	if entry == nil || entry.tool == nil {
+		return nil, NewToolError(ErrorTypeInternal, "TOOL_NIL", "stored tool is nil").
+			WithToolID(toolID)
+	}
+
+	// Update access tracking
+	entry.lastAccess = time.Now()
+	atomic.AddInt64(&entry.accessCount, 1)
+
+	// Update LRU position if enabled
+	if r.config.EnableToolLRU {
+		if elem, found := r.toolsIndex[toolID]; found {
+			r.toolsLRU.MoveToFront(elem)
+		}
+	}
+
 	// Return a read-only view without cloning
-	return NewReadOnlyTool(tool), nil
+	return NewReadOnlyTool(entry.tool), nil
 }
 
 // GetByName retrieves a tool by its name.
 // It returns nil if the tool is not found.
 // This method returns a clone for backward compatibility.
 func (r *Registry) GetByName(name string) (*Tool, error) {
+	if r == nil {
+		return nil, NewValidationError(CodeToolNotFound, "registry is nil", "")
+	}
+	if name == "" {
+		return nil, NewValidationError(CodeToolNotFound, "tool name cannot be empty", "")
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	if r.nameIndex == nil {
+		return nil, NewValidationError(CodeToolNotFound, "name index is nil", "")
+	}
 
 	toolID, exists := r.nameIndex[name]
 	if !exists {
 		return nil, NewValidationError(CodeToolNotFound, fmt.Sprintf("tool with name %q not found", name), "")
 	}
 
-	tool := r.tools[toolID]
-	return tool.Clone(), nil
+	if r.tools == nil {
+		return nil, NewValidationError(CodeToolNotFound, "tools map is nil", toolID)
+	}
+
+	entry := r.tools[toolID]
+	if entry == nil || entry.tool == nil {
+		return nil, NewValidationError(CodeToolNotFound, fmt.Sprintf("tool with name %q has nil tool reference", name), toolID)
+	}
+
+	// Update access tracking
+	entry.lastAccess = time.Now()
+	atomic.AddInt64(&entry.accessCount, 1)
+
+	// Update LRU position if enabled
+	if r.config.EnableToolLRU {
+		if elem, found := r.toolsIndex[toolID]; found {
+			r.toolsLRU.MoveToFront(elem)
+		}
+	}
+
+	return entry.tool.Clone(), nil
 }
 
 // GetByNameReadOnly retrieves a read-only view of a tool by its name.
@@ -651,8 +824,23 @@ func (r *Registry) GetByNameReadOnly(name string) (ReadOnlyTool, error) {
 		return nil, NewValidationError(CodeToolNotFound, fmt.Sprintf("tool with name %q not found", name), "")
 	}
 
-	tool := r.tools[toolID]
-	return NewReadOnlyTool(tool), nil
+	entry := r.tools[toolID]
+	if entry == nil || entry.tool == nil {
+		return nil, NewValidationError(CodeToolNotFound, fmt.Sprintf("tool with name %q has nil tool reference", name), toolID)
+	}
+
+	// Update access tracking
+	entry.lastAccess = time.Now()
+	atomic.AddInt64(&entry.accessCount, 1)
+
+	// Update LRU position if enabled
+	if r.config.EnableToolLRU {
+		if elem, found := r.toolsIndex[toolID]; found {
+			r.toolsLRU.MoveToFront(elem)
+		}
+	}
+
+	return NewReadOnlyTool(entry.tool), nil
 }
 
 // List returns all tools that match the given filter.
@@ -664,9 +852,11 @@ func (r *Registry) List(filter *ToolFilter) ([]*Tool, error) {
 
 	var results []*Tool
 
-	for _, tool := range r.tools {
-		if filter == nil || r.matchesFilter(tool, filter) {
-			results = append(results, tool.Clone())
+	for _, entry := range r.tools {
+		if entry != nil && entry.tool != nil {
+			if filter == nil || r.matchesFilter(entry.tool, filter) {
+				results = append(results, entry.tool.Clone())
+			}
 		}
 	}
 
@@ -681,9 +871,11 @@ func (r *Registry) ListReadOnly(filter *ToolFilter) ([]ReadOnlyTool, error) {
 
 	var results []ReadOnlyTool
 
-	for _, tool := range r.tools {
-		if filter == nil || r.matchesFilter(tool, filter) {
-			results = append(results, NewReadOnlyTool(tool))
+	for _, entry := range r.tools {
+		if entry != nil && entry.tool != nil {
+			if filter == nil || r.matchesFilter(entry.tool, filter) {
+				results = append(results, NewReadOnlyTool(entry.tool))
+			}
 		}
 	}
 
@@ -791,7 +983,7 @@ func (r *Registry) Clear() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
-	r.tools = make(map[string]*Tool)
+	r.tools = make(map[string]*ToolRegistryEntry)
 	r.categoryIndex = make(map[string]map[string]bool)
 	r.tagIndex = make(map[string]map[string]bool)
 	r.nameIndex = make(map[string]string)
@@ -800,8 +992,17 @@ func (r *Registry) Clear() {
 // AddValidator adds a custom validation function that will be run
 // during tool registration.
 func (r *Registry) AddValidator(validator RegistryValidator) {
+	if r == nil || validator == nil {
+		return // Silently ignore to prevent panics
+	}
+	
 	r.hookMu.Lock()
 	defer r.hookMu.Unlock()
+	
+	if r.validators == nil {
+		r.validators = []RegistryValidator{}
+	}
+	
 	r.validators = append(r.validators, validator)
 }
 
@@ -811,14 +1012,18 @@ func (r *Registry) Validate() error {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	for id, tool := range r.tools {
-		if err := tool.Validate(); err != nil {
+	for id, entry := range r.tools {
+		if entry == nil || entry.tool == nil {
+			return NewValidationError(CodeValidationFailed, fmt.Sprintf("tool entry %q is nil", id), id)
+		}
+
+		if err := entry.tool.Validate(); err != nil {
 			return NewValidationError(CodeValidationFailed, fmt.Sprintf("tool %q validation failed", id), id).
 				WithCause(err)
 		}
 
 		for _, validator := range r.validators {
-			if err := validator(tool); err != nil {
+			if err := validator(entry.tool); err != nil {
 				return NewValidationError(CodeCustomValidationFailed, fmt.Sprintf("tool %q custom validation failed", id), id).
 					WithCause(err)
 			}
@@ -915,23 +1120,31 @@ func (r *Registry) GetDependencies(toolID string) ([]*Tool, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
-	tool, exists := r.tools[toolID]
+	entry, exists := r.tools[toolID]
 	if !exists {
 		return nil, NewToolError(ErrorTypeValidation, "TOOL_NOT_FOUND", "tool not found").
 			WithToolID(toolID)
 	}
 
-	if tool.Metadata == nil || len(tool.Metadata.Dependencies) == 0 {
+	if entry == nil || entry.tool == nil {
+		return nil, NewToolError(ErrorTypeInternal, "TOOL_NIL", "stored tool is nil").
+			WithToolID(toolID)
+	}
+
+	if entry.tool.Metadata == nil || len(entry.tool.Metadata.Dependencies) == 0 {
 		return []*Tool{}, nil
 	}
 
 	var dependencies []*Tool
-	for _, depID := range tool.Metadata.Dependencies {
-		dep, exists := r.tools[depID]
+	for _, depID := range entry.tool.Metadata.Dependencies {
+		depEntry, exists := r.tools[depID]
 		if !exists {
 			return nil, NewDependencyError(CodeDependencyNotFound, fmt.Sprintf("dependency %q not found for tool %q", depID, toolID), toolID)
 		}
-		dependencies = append(dependencies, dep.Clone())
+		if depEntry == nil || depEntry.tool == nil {
+			return nil, NewDependencyError(CodeDependencyNotFound, fmt.Sprintf("dependency %q has nil tool reference", depID), toolID)
+		}
+		dependencies = append(dependencies, depEntry.tool.Clone())
 	}
 
 	return dependencies, nil
@@ -951,8 +1164,12 @@ func (r *Registry) HasCircularDependency(tool *Tool) bool {
 		visited[toolID] = true
 		stack[toolID] = true
 
-		t, exists := r.tools[toolID]
-		if !exists && toolID == tool.ID {
+		var t *Tool
+		if entry, exists := r.tools[toolID]; exists {
+			if entry != nil && entry.tool != nil {
+				t = entry.tool
+			}
+		} else if toolID == tool.ID {
 			t = tool // Check the tool being registered
 		}
 
@@ -981,8 +1198,10 @@ func (r *Registry) ExportTools() map[string]*Tool {
 	defer r.mu.RUnlock()
 
 	export := make(map[string]*Tool, len(r.tools))
-	for id, tool := range r.tools {
-		export[id] = tool.Clone()
+	for id, entry := range r.tools {
+		if entry != nil && entry.tool != nil {
+			export[id] = entry.tool.Clone()
+		}
 	}
 	return export
 }
@@ -1079,13 +1298,18 @@ func (r *Registry) getToolPriority(tool *Tool) int {
 
 // handleVersionMigration handles version migration for tools.
 func (r *Registry) handleVersionMigration(ctx context.Context, tool *Tool) error {
-	if existing, exists := r.tools[tool.ID]; exists {
-		if handler, exists := r.migrationHandlers[existing.Version]; exists {
-			return handler(ctx, existing, tool)
+	if entry, exists := r.tools[tool.ID]; exists {
+		if entry == nil || entry.tool == nil {
+			return NewMigrationError(CodeMigrationFailed, "existing tool is nil", "", tool.Version).
+				WithToolID(tool.ID)
+		}
+		
+		if handler, exists := r.migrationHandlers[entry.tool.Version]; exists {
+			return handler(ctx, entry.tool, tool)
 		}
 		
 		// Default migration behavior
-		return r.defaultVersionMigration(ctx, existing, tool)
+		return r.defaultVersionMigration(ctx, entry.tool, tool)
 	}
 	return nil
 }
@@ -1152,15 +1376,33 @@ func (r *Registry) updateCategoryTree(tool *Tool) error {
 
 // AddConflictResolver adds a custom conflict resolver.
 func (r *Registry) AddConflictResolver(resolver ConflictResolver) {
+	if r == nil || resolver == nil {
+		return // Silently ignore to prevent panics
+	}
+	
 	r.hookMu.Lock()
 	defer r.hookMu.Unlock()
+	
+	if r.conflictResolvers == nil {
+		r.conflictResolvers = []ConflictResolver{}
+	}
+	
 	r.conflictResolvers = append(r.conflictResolvers, resolver)
 }
 
 // AddMigrationHandler adds a custom migration handler for a specific version.
 func (r *Registry) AddMigrationHandler(version string, handler MigrationHandler) {
+	if r == nil || version == "" || handler == nil {
+		return // Silently ignore to prevent panics
+	}
+	
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	
+	if r.migrationHandlers == nil {
+		r.migrationHandlers = make(map[string]MigrationHandler)
+	}
+	
 	r.migrationHandlers[version] = handler
 }
 
@@ -1342,7 +1584,15 @@ func (r *Registry) GetDependenciesWithConstraints(toolID string) ([]*Tool, error
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	
-	return r.dependencyGraph.ResolveDependencies(toolID, r.tools)
+	// Convert ToolRegistryEntry map to Tool map for the dependency graph
+	toolsMap := make(map[string]*Tool)
+	for id, entry := range r.tools {
+		if entry != nil && entry.tool != nil {
+			toolsMap[id] = entry.tool
+		}
+	}
+	
+	return r.dependencyGraph.ResolveDependencies(toolID, toolsMap)
 }
 
 // GetByCategory returns all tools in a category.
@@ -1354,8 +1604,10 @@ func (r *Registry) GetByCategory(category string) ([]*Tool, error) {
 	tools := make([]*Tool, 0, len(toolIDs))
 	
 	for _, toolID := range toolIDs {
-		if tool, exists := r.tools[toolID]; exists {
-			tools = append(tools, tool.Clone())
+		if entry, exists := r.tools[toolID]; exists {
+			if entry != nil && entry.tool != nil {
+				tools = append(tools, entry.tool.Clone())
+			}
 		}
 	}
 	
@@ -1369,6 +1621,13 @@ func (r *Registry) GetCategoryTree() *CategoryTree {
 
 // SetConfig updates the registry configuration.
 func (r *Registry) SetConfig(config *RegistryConfig) {
+	if r == nil {
+		return // Silently ignore to prevent panics
+	}
+	if config == nil {
+		config = DefaultRegistryConfig()
+	}
+	
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.config = config
@@ -1376,8 +1635,17 @@ func (r *Registry) SetConfig(config *RegistryConfig) {
 
 // GetConfig returns the current registry configuration.
 func (r *Registry) GetConfig() *RegistryConfig {
+	if r == nil {
+		return DefaultRegistryConfig()
+	}
+	
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+	
+	if r.config == nil {
+		return DefaultRegistryConfig()
+	}
+	
 	return r.config
 }
 
@@ -1388,8 +1656,10 @@ func (r *Registry) getFilteredToolsOptimized(filter *ToolFilter) []*Tool {
 	if filter == nil {
 		// Return all tools
 		result := make([]*Tool, 0, len(r.tools))
-		for _, tool := range r.tools {
-			result = append(result, tool)
+		for _, entry := range r.tools {
+			if entry != nil && entry.tool != nil {
+				result = append(result, entry.tool)
+			}
 		}
 		return result
 	}
@@ -1399,7 +1669,13 @@ func (r *Registry) getFilteredToolsOptimized(filter *ToolFilter) []*Tool {
 	if len(filter.Tags) > 0 {
 		candidateTools = r.getToolsByTags(filter.Tags)
 	} else {
-		candidateTools = r.tools
+		// Convert ToolRegistryEntry map to Tool map
+		candidateTools = make(map[string]*Tool)
+		for id, entry := range r.tools {
+			if entry != nil && entry.tool != nil {
+				candidateTools[id] = entry.tool
+			}
+		}
 	}
 
 	// Apply remaining filters
@@ -1416,7 +1692,14 @@ func (r *Registry) getFilteredToolsOptimized(filter *ToolFilter) []*Tool {
 // getToolsByTags efficiently retrieves tools by tags using the tag index.
 func (r *Registry) getToolsByTags(tags []string) map[string]*Tool {
 	if len(tags) == 0 {
-		return r.tools
+		// Convert ToolRegistryEntry map to Tool map
+		result := make(map[string]*Tool)
+		for id, entry := range r.tools {
+			if entry != nil && entry.tool != nil {
+				result[id] = entry.tool
+			}
+		}
+		return result
 	}
 
 	// Find tools that have all required tags
@@ -1432,8 +1715,10 @@ func (r *Registry) getToolsByTags(tags []string) map[string]*Tool {
 			// First tag - initialize result
 			result = make(map[string]*Tool)
 			for toolID := range toolsWithTag {
-				if tool, exists := r.tools[toolID]; exists {
-					result[toolID] = tool
+				if entry, exists := r.tools[toolID]; exists {
+					if entry != nil && entry.tool != nil {
+						result[toolID] = entry.tool
+					}
 				}
 			}
 		} else {
@@ -2113,7 +2398,8 @@ func (r *Registry) estimateToolMemoryUsage(tool *Tool) int64 {
 	// Metadata size
 	if tool.Metadata != nil {
 		size += int64(len(tool.Metadata.Author))
-		size += int64(len(tool.Metadata.Description))
+		size += int64(len(tool.Metadata.License))
+		size += int64(len(tool.Metadata.Documentation))
 		for _, tag := range tool.Metadata.Tags {
 			size += int64(len(tag))
 		}
@@ -2146,8 +2432,32 @@ func (r *Registry) estimateSchemaSize(schema *ToolSchema) int64 {
 	}
 
 	if schema.Properties != nil {
-		size += r.estimateMapSize(schema.Properties)
+		size += r.estimatePropertyMapSize(schema.Properties)
 	}
+
+	return size
+}
+
+// estimatePropertyMapSize estimates the memory usage of a map[string]*Property
+func (r *Registry) estimatePropertyMapSize(properties map[string]*Property) int64 {
+	if properties == nil {
+		return 0
+	}
+
+	size := int64(0)
+	for k, v := range properties {
+		size += int64(len(k))
+		if v != nil {
+			size += int64(len(v.Type))
+			size += int64(len(v.Description))
+			size += int64(len(v.Format))
+			// Add some overhead for the Property struct itself
+			size += 50
+		}
+	}
+
+	// Map overhead
+	size += int64(len(properties) * 24) // Approximate overhead per entry
 
 	return size
 }
@@ -2223,5 +2533,293 @@ func (r *Registry) GetResourceUsage() map[string]interface{} {
 			}
 			return float64(len(r.tools)) / float64(r.config.MaxTools)
 		}(),
+		"tool_ttl_seconds":           r.config.ToolTTL.Seconds(),
+		"tool_lru_enabled":           r.config.EnableToolLRU,
+		"background_cleanup_enabled": r.config.EnableBackgroundToolCleanup,
 	}
+}
+
+// Tool Cleanup Methods for Memory Management
+
+// evictLRUTool removes the least recently used tool from the registry
+func (r *Registry) evictLRUTool() {
+	if r.toolsLRU.Len() == 0 {
+		return
+	}
+	
+	// Get the least recently used tool
+	elem := r.toolsLRU.Back()
+	if elem == nil {
+		return
+	}
+	
+	toolID := elem.Value.(string)
+	
+	// Remove from all structures
+	r.toolsLRU.Remove(elem)
+	delete(r.toolsIndex, toolID)
+	
+	// Remove the tool entry and update memory tracking
+	if entry, exists := r.tools[toolID]; exists {
+		estimatedSize := r.estimateToolMemoryUsage(entry.tool)
+		r.currentMemoryUsage -= estimatedSize
+		if r.currentMemoryUsage < 0 {
+			r.currentMemoryUsage = 0
+		}
+		delete(r.tools, toolID)
+		
+		// Clean up indexes
+		r.removeFromIndexes(entry.tool)
+	}
+}
+
+// removeFromIndexes removes a tool from all secondary indexes
+func (r *Registry) removeFromIndexes(tool *Tool) {
+	// Remove from name index
+	delete(r.nameIndex, tool.Name)
+	
+	// Remove from tag index
+	if tool.Metadata != nil && len(tool.Metadata.Tags) > 0 {
+		for _, tag := range tool.Metadata.Tags {
+			if tagMap := r.tagIndex[tag]; tagMap != nil {
+				delete(tagMap, tool.ID)
+				if len(tagMap) == 0 {
+					delete(r.tagIndex, tag)
+				}
+			}
+		}
+	}
+	
+	// Remove from category index (if using categories)
+	if tool.Metadata != nil && len(tool.Metadata.Tags) > 0 {
+		for _, category := range tool.Metadata.Tags {
+			if categoryMap := r.categoryIndex[category]; categoryMap != nil {
+				delete(categoryMap, tool.ID)
+				if len(categoryMap) == 0 {
+					delete(r.categoryIndex, category)
+				}
+			}
+		}
+	}
+}
+
+// backgroundToolCleanup runs periodic cleanup of expired tools
+func (r *Registry) backgroundToolCleanup() {
+	ticker := time.NewTicker(r.config.ToolCleanupInterval)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ticker.C:
+			r.CleanupExpiredTools()
+		case <-r.toolCleanupStop:
+			return
+		}
+	}
+}
+
+// CleanupExpiredTools removes all expired tools based on TTL
+func (r *Registry) CleanupExpiredTools() (int, error) {
+	if r.config.ToolTTL <= 0 {
+		return 0, nil // TTL not configured
+	}
+	
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	
+	cutoff := time.Now().Add(-r.config.ToolTTL)
+	var toRemove []string
+	
+	// Collect expired tools
+	for toolID, entry := range r.tools {
+		if entry.createdAt.Before(cutoff) {
+			toRemove = append(toRemove, toolID)
+		}
+	}
+	
+	// Remove expired tools
+	for _, toolID := range toRemove {
+		if entry, exists := r.tools[toolID]; exists {
+			estimatedSize := r.estimateToolMemoryUsage(entry.tool)
+			r.currentMemoryUsage -= estimatedSize
+			if r.currentMemoryUsage < 0 {
+				r.currentMemoryUsage = 0
+			}
+			
+			// Remove from LRU tracking
+			if elem, exists := r.toolsIndex[toolID]; exists {
+				r.toolsLRU.Remove(elem)
+				delete(r.toolsIndex, toolID)
+			}
+			
+			// Remove from all indexes
+			r.removeFromIndexes(entry.tool)
+			
+			// Remove the tool entry
+			delete(r.tools, toolID)
+		}
+	}
+	
+	// Invalidate caches after cleanup
+	r.invalidateListCache()
+	
+	return len(toRemove), nil
+}
+
+// CleanupByAccessTime removes tools that haven't been accessed within the given duration
+func (r *Registry) CleanupByAccessTime(maxAge time.Duration) (int, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	
+	cutoff := time.Now().Add(-maxAge)
+	var toRemove []string
+	
+	// Collect old tools
+	for toolID, entry := range r.tools {
+		if entry.lastAccess.Before(cutoff) {
+			toRemove = append(toRemove, toolID)
+		}
+	}
+	
+	// Remove old tools
+	for _, toolID := range toRemove {
+		if entry, exists := r.tools[toolID]; exists {
+			estimatedSize := r.estimateToolMemoryUsage(entry.tool)
+			r.currentMemoryUsage -= estimatedSize
+			if r.currentMemoryUsage < 0 {
+				r.currentMemoryUsage = 0
+			}
+			
+			// Remove from LRU tracking
+			if elem, exists := r.toolsIndex[toolID]; exists {
+				r.toolsLRU.Remove(elem)
+				delete(r.toolsIndex, toolID)
+			}
+			
+			// Remove from all indexes
+			r.removeFromIndexes(entry.tool)
+			
+			// Remove the tool entry
+			delete(r.tools, toolID)
+		}
+	}
+	
+	// Invalidate caches after cleanup
+	r.invalidateListCache()
+	
+	return len(toRemove), nil
+}
+
+// ClearAllTools removes all tools from the registry
+func (r *Registry) ClearAllTools() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	
+	// Clear main tools map
+	r.tools = make(map[string]*ToolRegistryEntry)
+	
+	// Clear all indexes
+	r.categoryIndex = make(map[string]map[string]bool)
+	r.tagIndex = make(map[string]map[string]bool)
+	r.nameIndex = make(map[string]string)
+	
+	// Clear LRU tracking
+	r.toolsLRU = list.New()
+	r.toolsIndex = make(map[string]*list.Element)
+	
+	// Reset memory usage
+	r.currentMemoryUsage = 0
+	
+	// Invalidate caches
+	r.invalidateListCache()
+	
+	return nil
+}
+
+// GetToolsCleanupStats returns statistics about tool cleanup
+func (r *Registry) GetToolsCleanupStats() map[string]interface{} {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	
+	stats := map[string]interface{}{
+		"total_tools":        len(r.tools),
+		"lru_list_length":    r.toolsLRU.Len(),
+		"lru_index_length":   len(r.toolsIndex),
+		"ttl_seconds":        r.config.ToolTTL.Seconds(),
+		"cleanup_interval":   r.config.ToolCleanupInterval.Seconds(),
+		"lru_enabled":        r.config.EnableToolLRU,
+		"cleanup_enabled":    r.config.EnableBackgroundToolCleanup,
+	}
+	
+	// Find oldest and newest tools
+	var oldestCreated, newestCreated time.Time
+	var oldestAccess, newestAccess time.Time
+	totalAccessCount := int64(0)
+	
+	for _, entry := range r.tools {
+		if oldestCreated.IsZero() || entry.createdAt.Before(oldestCreated) {
+			oldestCreated = entry.createdAt
+		}
+		if newestCreated.IsZero() || entry.createdAt.After(newestCreated) {
+			newestCreated = entry.createdAt
+		}
+		if oldestAccess.IsZero() || entry.lastAccess.Before(oldestAccess) {
+			oldestAccess = entry.lastAccess
+		}
+		if newestAccess.IsZero() || entry.lastAccess.After(newestAccess) {
+			newestAccess = entry.lastAccess
+		}
+		totalAccessCount += entry.accessCount
+	}
+	
+	if !oldestCreated.IsZero() {
+		stats["oldest_created"] = oldestCreated
+		stats["newest_created"] = newestCreated
+		stats["oldest_access"] = oldestAccess
+		stats["newest_access"] = newestAccess
+		stats["total_access_count"] = totalAccessCount
+		stats["average_access_count"] = float64(totalAccessCount) / float64(len(r.tools))
+	}
+	
+	return stats
+}
+
+// UpdateToolsConfig updates the tool cleanup configuration
+func (r *Registry) UpdateToolsConfig(config *RegistryConfig) error {
+	if config == nil {
+		return fmt.Errorf("config cannot be nil")
+	}
+	
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	
+	oldConfig := r.config
+	r.config = config
+	
+	// If background cleanup settings changed, restart background cleanup
+	if oldConfig.EnableBackgroundToolCleanup != config.EnableBackgroundToolCleanup ||
+		oldConfig.ToolCleanupInterval != config.ToolCleanupInterval {
+		
+		// Stop existing cleanup
+		r.toolCleanupOnce.Do(func() {
+			close(r.toolCleanupStop)
+		})
+		
+		// Start new cleanup if enabled
+		if config.EnableBackgroundToolCleanup && config.ToolCleanupInterval > 0 {
+			r.toolCleanupStop = make(chan struct{})
+			r.toolCleanupOnce = sync.Once{}
+			go r.backgroundToolCleanup()
+		}
+	}
+	
+	return nil
+}
+
+// CloseToolsCleanup stops background cleanup and releases resources
+func (r *Registry) CloseToolsCleanup() error {
+	r.toolCleanupOnce.Do(func() {
+		close(r.toolCleanupStop)
+	})
+	return nil
 }

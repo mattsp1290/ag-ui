@@ -58,5 +58,5 @@ func Example_errorHandling() {
 		fmt.Println("Got expected error:", err.Error())
 	}
 	
-	// Output: Got expected error: registry cannot be nil
+	// Output: Got expected error: [ERROR] JSON_NIL_REGISTRY: registry cannot be nil (operation: register)
 }

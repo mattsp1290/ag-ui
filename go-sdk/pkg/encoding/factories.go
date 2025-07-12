@@ -45,6 +45,16 @@ func NewCodecFactory() *DefaultCodecFactory {
 
 // RegisterCodec registers a codec constructor
 func (f *DefaultCodecFactory) RegisterCodec(contentType string, ctor CodecConstructor) {
+	if f == nil {
+		return // Silently ignore nil factory to prevent panics
+	}
+	if contentType == "" {
+		return // Silently ignore empty content type
+	}
+	if ctor == nil {
+		return // Silently ignore nil constructor
+	}
+	
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	
@@ -54,6 +64,16 @@ func (f *DefaultCodecFactory) RegisterCodec(contentType string, ctor CodecConstr
 
 // RegisterStreamCodec registers a stream codec constructor
 func (f *DefaultCodecFactory) RegisterStreamCodec(contentType string, ctor StreamCodecConstructor) {
+	if f == nil {
+		return // Silently ignore nil factory to prevent panics
+	}
+	if contentType == "" {
+		return // Silently ignore empty content type
+	}
+	if ctor == nil {
+		return // Silently ignore nil constructor
+	}
+	
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	
@@ -63,12 +83,25 @@ func (f *DefaultCodecFactory) RegisterStreamCodec(contentType string, ctor Strea
 
 // CreateCodec creates a codec for the specified content type
 func (f *DefaultCodecFactory) CreateCodec(ctx context.Context, contentType string, encOptions *EncodingOptions, decOptions *DecodingOptions) (Codec, error) {
+	if f == nil {
+		return nil, fmt.Errorf("codec factory is nil")
+	}
+	if ctx == nil {
+		return nil, fmt.Errorf("context cannot be nil")
+	}
+	if contentType == "" {
+		return nil, fmt.Errorf("content type cannot be empty")
+	}
+	
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	
 	ctor, exists := f.codecCtors[contentType]
 	if !exists {
 		return nil, fmt.Errorf("no codec registered for content type: %s", contentType)
+	}
+	if ctor == nil {
+		return nil, fmt.Errorf("codec constructor is nil for content type: %s", contentType)
 	}
 	
 	if encOptions == nil {
@@ -83,12 +116,25 @@ func (f *DefaultCodecFactory) CreateCodec(ctx context.Context, contentType strin
 
 // CreateStreamCodec creates a streaming codec for the specified content type
 func (f *DefaultCodecFactory) CreateStreamCodec(ctx context.Context, contentType string, encOptions *EncodingOptions, decOptions *DecodingOptions) (StreamCodec, error) {
+	if f == nil {
+		return nil, fmt.Errorf("codec factory is nil")
+	}
+	if ctx == nil {
+		return nil, fmt.Errorf("context cannot be nil")
+	}
+	if contentType == "" {
+		return nil, fmt.Errorf("content type cannot be empty")
+	}
+	
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	
 	ctor, exists := f.streamCodecCtors[contentType]
 	if !exists {
 		return nil, fmt.Errorf("no stream codec registered for content type: %s", contentType)
+	}
+	if ctor == nil {
+		return nil, fmt.Errorf("stream codec constructor is nil for content type: %s", contentType)
 	}
 	
 	if encOptions == nil {
@@ -103,8 +149,16 @@ func (f *DefaultCodecFactory) CreateStreamCodec(ctx context.Context, contentType
 
 // SupportedTypes returns list of supported content types
 func (f *DefaultCodecFactory) SupportedTypes() []string {
+	if f == nil {
+		return []string{} // Return empty slice instead of nil to prevent panics
+	}
+	
 	f.mu.RLock()
 	defer f.mu.RUnlock()
+	
+	if f.supportedTypes == nil {
+		return []string{}
+	}
 	
 	types := make([]string, len(f.supportedTypes))
 	copy(types, f.supportedTypes)
@@ -113,11 +167,109 @@ func (f *DefaultCodecFactory) SupportedTypes() []string {
 
 // SupportsStreaming indicates if streaming is supported for the given content type
 func (f *DefaultCodecFactory) SupportsStreaming(contentType string) bool {
+	if f == nil || contentType == "" {
+		return false
+	}
+	
 	f.mu.RLock()
 	defer f.mu.RUnlock()
 	
+	if f.streamCodecCtors == nil {
+		return false
+	}
+	
 	_, exists := f.streamCodecCtors[contentType]
 	return exists
+}
+
+// RegisterEncoder registers an encoder constructor for backward compatibility
+func (f *DefaultCodecFactory) RegisterEncoder(contentType string, ctor EncoderConstructor) {
+	if f == nil {
+		return // Silently ignore nil factory to prevent panics
+	}
+	if contentType == "" {
+		return // Silently ignore empty content type
+	}
+	if ctor == nil {
+		return // Silently ignore nil constructor
+	}
+	
+	// Create a codec constructor that wraps the encoder
+	codecCtor := func(encOptions *EncodingOptions, decOptions *DecodingOptions) (Codec, error) {
+		encoder, err := ctor(encOptions)
+		if err != nil {
+			return nil, err
+		}
+		// Create an encoder-only codec that returns errors for decode operations
+		return &encoderOnlyCodec{encoder: encoder}, nil
+	}
+	
+	f.RegisterCodec(contentType, codecCtor)
+}
+
+// RegisterDecoder registers a decoder constructor for backward compatibility
+func (f *DefaultCodecFactory) RegisterDecoder(contentType string, ctor DecoderConstructor) {
+	if f == nil {
+		return // Silently ignore nil factory to prevent panics
+	}
+	if contentType == "" {
+		return // Silently ignore empty content type
+	}
+	if ctor == nil {
+		return // Silently ignore nil constructor
+	}
+	
+	// Create a codec constructor that wraps the decoder
+	codecCtor := func(encOptions *EncodingOptions, decOptions *DecodingOptions) (Codec, error) {
+		decoder, err := ctor(decOptions)
+		if err != nil {
+			return nil, err
+		}
+		// Create a decoder-only codec that returns errors for encode operations
+		return &decoderOnlyCodec{decoder: decoder}, nil
+	}
+	
+	f.RegisterCodec(contentType, codecCtor)
+}
+
+// RegisterStreamEncoder registers a stream encoder constructor for backward compatibility
+// Note: This is a simplified implementation that doesn't fully support streaming
+func (f *DefaultCodecFactory) RegisterStreamEncoder(contentType string, ctor StreamEncoderConstructor) {
+	if f == nil {
+		return // Silently ignore nil factory to prevent panics
+	}
+	if contentType == "" {
+		return // Silently ignore empty content type
+	}
+	if ctor == nil {
+		return // Silently ignore nil constructor
+	}
+	
+	// For now, just register it as a regular encoder since full stream codec composition is complex
+	encoderCtor := func(options *EncodingOptions) (Encoder, error) {
+		return ctor(options)
+	}
+	f.RegisterEncoder(contentType, encoderCtor)
+}
+
+// RegisterStreamDecoder registers a stream decoder constructor for backward compatibility
+// Note: This is a simplified implementation that doesn't fully support streaming
+func (f *DefaultCodecFactory) RegisterStreamDecoder(contentType string, ctor StreamDecoderConstructor) {
+	if f == nil {
+		return // Silently ignore nil factory to prevent panics
+	}
+	if contentType == "" {
+		return // Silently ignore empty content type
+	}
+	if ctor == nil {
+		return // Silently ignore nil constructor
+	}
+	
+	// For now, just register it as a regular decoder since full stream codec composition is complex
+	decoderCtor := func(options *DecodingOptions) (Decoder, error) {
+		return ctor(options)
+	}
+	f.RegisterDecoder(contentType, decoderCtor)
 }
 
 // updateSupportedTypes updates the list of supported types
@@ -212,6 +364,9 @@ type CachingCodecFactory struct {
 
 // NewCachingCodecFactory creates a new caching codec factory
 func NewCachingCodecFactory(factory CodecFactory) *CachingCodecFactory {
+	if factory == nil {
+		return nil
+	}
 	return &CachingCodecFactory{
 		factory: factory,
 	}
@@ -219,18 +374,39 @@ func NewCachingCodecFactory(factory CodecFactory) *CachingCodecFactory {
 
 // CreateCodec creates or retrieves a cached codec
 func (f *CachingCodecFactory) CreateCodec(ctx context.Context, contentType string, encOptions *EncodingOptions, decOptions *DecodingOptions) (Codec, error) {
+	if f == nil {
+		return nil, fmt.Errorf("caching codec factory is nil")
+	}
+	if f.factory == nil {
+		return nil, fmt.Errorf("underlying codec factory is nil")
+	}
+	if ctx == nil {
+		return nil, fmt.Errorf("context cannot be nil")
+	}
+	if contentType == "" {
+		return nil, fmt.Errorf("content type cannot be empty")
+	}
+	
 	// Create a cache key from content type and options
 	key := f.cacheKey(contentType, encOptions, decOptions)
 	
 	// Check cache
 	if cached, ok := f.cache.Load(key); ok {
-		return cached.(Codec), nil
+		if codec, ok := cached.(Codec); ok {
+			return codec, nil
+		}
+		// If cached value is not a Codec, remove it and continue
+		f.cache.Delete(key)
 	}
 	
 	// Create new codec
 	codec, err := f.factory.CreateCodec(ctx, contentType, encOptions, decOptions)
 	if err != nil {
 		return nil, err
+	}
+	
+	if codec == nil {
+		return nil, fmt.Errorf("underlying factory returned nil codec for content type: %s", contentType)
 	}
 	
 	// Cache it
@@ -240,16 +416,35 @@ func (f *CachingCodecFactory) CreateCodec(ctx context.Context, contentType strin
 
 // CreateStreamCodec creates a streaming codec (not cached due to stateful nature)
 func (f *CachingCodecFactory) CreateStreamCodec(ctx context.Context, contentType string, encOptions *EncodingOptions, decOptions *DecodingOptions) (StreamCodec, error) {
+	if f == nil {
+		return nil, fmt.Errorf("caching codec factory is nil")
+	}
+	if f.factory == nil {
+		return nil, fmt.Errorf("underlying codec factory is nil")
+	}
+	if ctx == nil {
+		return nil, fmt.Errorf("context cannot be nil")
+	}
+	if contentType == "" {
+		return nil, fmt.Errorf("content type cannot be empty")
+	}
+	
 	return f.factory.CreateStreamCodec(ctx, contentType, encOptions, decOptions)
 }
 
 // SupportedTypes returns list of supported content types
 func (f *CachingCodecFactory) SupportedTypes() []string {
+	if f == nil || f.factory == nil {
+		return []string{}
+	}
 	return f.factory.SupportedTypes()
 }
 
 // SupportsStreaming indicates if streaming is supported for the given content type
 func (f *CachingCodecFactory) SupportsStreaming(contentType string) bool {
+	if f == nil || f.factory == nil || contentType == "" {
+		return false
+	}
 	return f.factory.SupportsStreaming(contentType)
 }
 
@@ -461,6 +656,99 @@ func NewDefaultDecoderFactory() *DefaultDecoderFactory {
 	}
 }
 
+// NewEncoderFactory creates a new encoder factory (convenience function)
+func NewEncoderFactory() *DefaultEncoderFactory {
+	return NewDefaultEncoderFactory()
+}
+
+// NewDecoderFactory creates a new decoder factory (convenience function)
+func NewDecoderFactory() *DefaultDecoderFactory {
+	return NewDefaultDecoderFactory()
+}
+
+// PluginEncoderFactory is a plugin-based encoder factory for backward compatibility
+type PluginEncoderFactory struct {
+	*PluginCodecFactory
+}
+
+// PluginDecoderFactory is a plugin-based decoder factory for backward compatibility
+type PluginDecoderFactory struct {
+	*PluginCodecFactory
+}
+
+// NewPluginBasedEncoderFactory creates a new plugin-based encoder factory
+func NewPluginBasedEncoderFactory() *PluginEncoderFactory {
+	return &PluginEncoderFactory{
+		PluginCodecFactory: NewPluginCodecFactory(),
+	}
+}
+
+// NewPluginBasedDecoderFactory creates a new plugin-based decoder factory
+func NewPluginBasedDecoderFactory() *PluginDecoderFactory {
+	return &PluginDecoderFactory{
+		PluginCodecFactory: NewPluginCodecFactory(),
+	}
+}
+
+// SupportedEncoders returns supported encoders (implements EncoderFactory interface)
+func (f *PluginEncoderFactory) SupportedEncoders() []string {
+	return f.SupportedTypes()
+}
+
+// SupportedDecoders returns supported decoders (implements DecoderFactory interface)
+func (f *PluginDecoderFactory) SupportedDecoders() []string {
+	return f.SupportedTypes()
+}
+
+// CachingEncoderFactory is a caching encoder factory for backward compatibility
+type CachingEncoderFactory struct {
+	*CachingCodecFactory
+}
+
+// CachingDecoderFactory is a caching decoder factory for backward compatibility
+type CachingDecoderFactory struct {
+	*CachingCodecFactory
+}
+
+// NewCachingEncoderFactoryWithConcrete creates a caching encoder factory
+func NewCachingEncoderFactoryWithConcrete(baseFactory *DefaultEncoderFactory) *CachingEncoderFactory {
+	if baseFactory == nil {
+		return nil
+	}
+	return &CachingEncoderFactory{
+		CachingCodecFactory: NewCachingCodecFactory(baseFactory.DefaultCodecFactory),
+	}
+}
+
+// NewCachingDecoderFactoryWithConcrete creates a caching decoder factory
+func NewCachingDecoderFactoryWithConcrete(baseFactory *DefaultDecoderFactory) *CachingDecoderFactory {
+	if baseFactory == nil {
+		return nil
+	}
+	return &CachingDecoderFactory{
+		CachingCodecFactory: NewCachingCodecFactory(baseFactory.DefaultCodecFactory),
+	}
+}
+
+// CreateEncoder creates an encoder using the caching mechanism
+func (f *CachingEncoderFactory) CreateEncoder(ctx context.Context, contentType string, options *EncodingOptions) (Encoder, error) {
+	codec, err := f.CreateCodec(ctx, contentType, options, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &encoderAdapter{codec}, nil
+}
+
+// SupportedEncoders returns supported encoders (implements EncoderFactory interface)
+func (f *CachingEncoderFactory) SupportedEncoders() []string {
+	return f.SupportedTypes()
+}
+
+// SupportedDecoders returns supported decoders (implements DecoderFactory interface)
+func (f *CachingDecoderFactory) SupportedDecoders() []string {
+	return f.SupportedTypes()
+}
+
 // CreateEncoder creates an encoder (backward compatibility)
 func (f *DefaultEncoderFactory) CreateEncoder(ctx context.Context, contentType string, options *EncodingOptions) (Encoder, error) {
 	codec, err := f.CreateCodec(ctx, contentType, options, nil)
@@ -508,3 +796,99 @@ func (f *DefaultDecoderFactory) SupportedDecoders() []string {
 }
 
 // Note: Adapter types are defined earlier in the file to avoid duplication
+
+// encoderOnlyCodec implements Codec with only encoding support
+type encoderOnlyCodec struct {
+	encoder Encoder
+}
+
+func (c *encoderOnlyCodec) Encode(ctx context.Context, event events.Event) ([]byte, error) {
+	if c.encoder == nil {
+		return nil, fmt.Errorf("encoder not available")
+	}
+	return c.encoder.Encode(ctx, event)
+}
+
+func (c *encoderOnlyCodec) EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error) {
+	if c.encoder == nil {
+		return nil, fmt.Errorf("encoder not available")
+	}
+	return c.encoder.EncodeMultiple(ctx, events)
+}
+
+func (c *encoderOnlyCodec) Decode(ctx context.Context, data []byte) (events.Event, error) {
+	return nil, fmt.Errorf("decode operation not supported by encoder-only codec")
+}
+
+func (c *encoderOnlyCodec) DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error) {
+	return nil, fmt.Errorf("decode operation not supported by encoder-only codec")
+}
+
+func (c *encoderOnlyCodec) ContentType() string {
+	if c.encoder == nil {
+		return ""
+	}
+	return c.encoder.ContentType()
+}
+
+func (c *encoderOnlyCodec) SupportsStreaming() bool {
+	if c.encoder == nil {
+		return false
+	}
+	return c.encoder.SupportsStreaming()
+}
+
+func (c *encoderOnlyCodec) CanStream() bool {
+	if c.encoder == nil {
+		return false
+	}
+	return c.encoder.CanStream()
+}
+
+// decoderOnlyCodec implements Codec with only decoding support
+type decoderOnlyCodec struct {
+	decoder Decoder
+}
+
+func (c *decoderOnlyCodec) Encode(ctx context.Context, event events.Event) ([]byte, error) {
+	return nil, fmt.Errorf("encode operation not supported by decoder-only codec")
+}
+
+func (c *decoderOnlyCodec) EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error) {
+	return nil, fmt.Errorf("encode operation not supported by decoder-only codec")
+}
+
+func (c *decoderOnlyCodec) Decode(ctx context.Context, data []byte) (events.Event, error) {
+	if c.decoder == nil {
+		return nil, fmt.Errorf("decoder not available")
+	}
+	return c.decoder.Decode(ctx, data)
+}
+
+func (c *decoderOnlyCodec) DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error) {
+	if c.decoder == nil {
+		return nil, fmt.Errorf("decoder not available")
+	}
+	return c.decoder.DecodeMultiple(ctx, data)
+}
+
+func (c *decoderOnlyCodec) ContentType() string {
+	if c.decoder == nil {
+		return ""
+	}
+	return c.decoder.ContentType()
+}
+
+func (c *decoderOnlyCodec) SupportsStreaming() bool {
+	if c.decoder == nil {
+		return false
+	}
+	return c.decoder.SupportsStreaming()
+}
+
+func (c *decoderOnlyCodec) CanStream() bool {
+	if c.decoder == nil {
+		return false
+	}
+	return c.decoder.CanStream()
+}

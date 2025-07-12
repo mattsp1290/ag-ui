@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"math/rand"
 	"runtime"
 	"sync"
@@ -14,8 +13,9 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/encoding"
-	"github.com/ag-ui/go-sdk/pkg/encoding/json"
+	_ "github.com/ag-ui/go-sdk/pkg/encoding/json" // Register JSON codec
 	"github.com/ag-ui/go-sdk/pkg/encoding/negotiation"
+	_ "github.com/ag-ui/go-sdk/pkg/encoding/protobuf" // Register Protobuf codec
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

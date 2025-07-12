@@ -62,7 +62,7 @@ func (v *CrossSDKValidator) ValidateCompatibility(ctx context.Context, sdk strin
 	var errs []error
 	for _, vector := range vectors {
 		if err := v.validateVector(ctx, vector, decoder); err != nil {
-			errs = append(errs, errors.Wrap(err, fmt.Sprintf("vector '%s' failed", vector.Name)))
+			errs = append(errs, fmt.Errorf("vector '%s' failed: %w", vector.Name, err))
 		}
 	}
 

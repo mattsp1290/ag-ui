@@ -432,3 +432,27 @@ func isValidIDFormat(id, expectedPrefix string) bool {
 	// Check if the ID starts with the expected prefix
 	return strings.HasPrefix(id, expectedPrefix)
 }
+
+// WithAuthentication is a helper function that wraps an existing validator with authentication support
+// This allows easy integration of authentication into existing validation flows.
+//
+// Example:
+//
+//	// Create a standard validator
+//	validator := events.NewValidator(events.DefaultValidationConfig())
+//	
+//	// Add authentication
+//	authProvider := auth.NewBasicAuthProvider(nil)
+//	authConfig := auth.DefaultAuthConfig()
+//	
+//	// Wrap with authentication
+//	authValidator := events.WithAuthentication(validator, authProvider, authConfig)
+//	
+//	// Now use authValidator for validation with authentication support
+//	result := authValidator.ValidateEvent(ctx, event)
+func WithAuthentication(validator *Validator, authProvider interface{}, authConfig interface{}) interface{} {
+	// This is a placeholder function that indicates how authentication can be integrated.
+	// The actual implementation would be in the auth package to avoid circular dependencies.
+	// Users should use auth.NewAuthenticatedValidator directly or wrap their validators.
+	panic("Use auth.NewAuthenticatedValidator to create an authenticated validator")
+}

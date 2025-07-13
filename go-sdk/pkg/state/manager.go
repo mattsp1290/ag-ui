@@ -446,6 +446,11 @@ func (sm *StateManager) GetState(ctx context.Context, contextID, stateID string)
 		}
 		sm.auditManager.enrichFromContext(ctx, log)
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					sm.logger.Error("panic in audit log goroutine", Err(fmt.Errorf("recovered panic: %v", r)))
+				}
+			}()
 			if err := sm.auditManager.logger.Log(context.Background(), log); err != nil {
 				sm.logger.Error("failed to write audit log", Err(err))
 			}
@@ -579,6 +584,11 @@ func (sm *StateManager) CreateCheckpoint(ctx context.Context, stateID, name stri
 		}
 		sm.auditManager.enrichFromContext(ctx, log)
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					sm.logger.Error("panic in audit log goroutine", Err(fmt.Errorf("recovered panic: %v", r)))
+				}
+			}()
 			if err := sm.auditManager.logger.Log(context.Background(), log); err != nil {
 				sm.logger.Error("failed to write audit log", Err(err))
 			}
@@ -640,6 +650,11 @@ func (sm *StateManager) Rollback(ctx context.Context, stateID, checkpointID stri
 		}
 		sm.auditManager.enrichFromContext(ctx, log)
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					sm.logger.Error("panic in audit log goroutine", Err(fmt.Errorf("recovered panic: %v", r)))
+				}
+			}()
 			if err := sm.auditManager.logger.Log(context.Background(), log); err != nil {
 				sm.logger.Error("failed to write audit log", Err(err))
 			}
@@ -697,6 +712,11 @@ func (sm *StateManager) Close() error {
 	// Wait for workers with timeout
 	done := make(chan struct{})
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				sm.logger.Error("panic in shutdown wait goroutine", Err(fmt.Errorf("recovered panic: %v", r)))
+			}
+		}()
 		sm.wg.Wait()
 		close(done)
 	}()
@@ -712,6 +732,11 @@ func (sm *StateManager) Close() error {
 	drainDone := make(chan struct{}, 3)
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				sm.logger.Error("panic in updateQueue drain goroutine", Err(fmt.Errorf("recovered panic: %v", r)))
+			}
+		}()
 		for range sm.updateQueue {
 			// Drain
 		}
@@ -719,6 +744,11 @@ func (sm *StateManager) Close() error {
 	}()
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				sm.logger.Error("panic in eventQueue drain goroutine", Err(fmt.Errorf("recovered panic: %v", r)))
+			}
+		}()
 		for range sm.eventQueue {
 			// Drain
 		}
@@ -726,6 +756,11 @@ func (sm *StateManager) Close() error {
 	}()
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				sm.logger.Error("panic in errCh drain goroutine", Err(fmt.Errorf("recovered panic: %v", r)))
+			}
+		}()
 		for range sm.errCh {
 			// Drain
 		}

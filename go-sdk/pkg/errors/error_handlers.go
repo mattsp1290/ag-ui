@@ -215,6 +215,14 @@ func (h *NotificationHandler) Handle(ctx context.Context, err error) error {
 	if severity >= h.minLevel && h.notifier != nil {
 		// Run notification in background to avoid blocking
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					// Log panic but don't propagate
+					if h.logger != nil {
+						h.logger.Error("panic in notification handler", Err(fmt.Errorf("recovered panic: %v", r)))
+					}
+				}
+			}()
 			notifyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			_ = h.notifier(notifyCtx, err)
@@ -227,6 +235,14 @@ func (h *NotificationHandler) Handle(ctx context.Context, err error) error {
 func (h *NotificationHandler) HandleWithSeverity(ctx context.Context, err error, severity Severity) error {
 	if severity >= h.minLevel && h.notifier != nil {
 		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					// Log panic but don't propagate
+					if h.logger != nil {
+						h.logger.Error("panic in notification handler with severity", Err(fmt.Errorf("recovered panic: %v", r)))
+					}
+				}
+			}()
 			notifyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			_ = h.notifier(notifyCtx, err)

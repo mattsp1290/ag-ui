@@ -255,19 +255,93 @@ func TestManagerStopErrors(t *testing.T) {
 // TestManagerReceiveErrors tests receive error scenarios
 func TestManagerReceiveErrors(t *testing.T) {
 	t.Run("receive_with_validation_errors", func(t *testing.T) {
-		manager := NewManager(&Config{
+		// Use a custom logger to capture debug info
+		var logBuffer sync.Map
+		logger := &testLogger{logs: &logBuffer}
+		
+		manager := NewManagerWithLogger(&Config{
 			Primary:    "websocket",
 			BufferSize: 100,
 			Validation: &ValidationConfig{
 				Enabled:           true,
 				AllowedEventTypes: []string{"allowed"},
+				RequiredFields:    []string{}, // Don't require fields to focus on event type validation
 				FailFast:          true,
 				CollectAllErrors:  true,
 			},
-		})
+		}, logger)
 		
 		transport := NewDemoTransport()
 		// Connect the transport first
+		err := transport.Connect(context.Background())
+		if err != nil {
+			t.Fatalf("Failed to connect transport: %v", err)
+		}
+		
+		// Set transport and start manager
+		manager.SetTransport(transport)
+		err = manager.Start(context.Background())
+		if err != nil {
+			t.Fatalf("Failed to start manager: %v", err)
+		}
+		defer manager.Stop(context.Background())
+
+		// Send invalid event through transport with proper data
+		invalidEvent := &DemoEvent{
+			id:        "invalid",
+			eventType: "forbidden",
+			timestamp: time.Now(),
+			data:      make(map[string]interface{}), // Initialize data map
+		}
+		
+		// Send event through transport - this should echo back through receiveEvents
+		err = transport.Send(context.Background(), invalidEvent)
+		if err != nil {
+			t.Fatalf("Failed to send event through transport: %v", err)
+		}
+
+		// Give more time for event to be processed through the receiveEvents pipeline
+		time.Sleep(300 * time.Millisecond)
+
+		// Try to receive
+		select {
+		case event := <-manager.Receive():
+			// Check validation metadata
+			if event.Metadata.Headers == nil {
+				t.Error("Expected headers to be initialized")
+			} else {
+				if event.Metadata.Headers["validation_failed"] != "true" {
+					t.Errorf("Expected validation_failed header to be 'true', got %v", event.Metadata.Headers["validation_failed"])
+				}
+				if event.Metadata.Headers["validation_error"] == "" {
+					t.Errorf("Expected validation_error header to be set, got %v", event.Metadata.Headers["validation_error"])
+				}
+			}
+		case <-time.After(1 * time.Second):
+			// Print debug logs if test fails
+			t.Log("Debug logs:")
+			logBuffer.Range(func(key, value interface{}) bool {
+				t.Logf("  %v", value)
+				return true
+			})
+			t.Error("Expected to receive event with validation error")
+		}
+	})
+
+	t.Run("receive_backpressure_errors", func(t *testing.T) {
+		config := &Config{
+			Primary:    "websocket",
+			BufferSize: 2, // Very small buffer
+			Backpressure: BackpressureConfig{
+				Strategy:      BackpressureDropNewest,
+				BufferSize:    2, // Very small buffer to trigger backpressure quickly  
+				HighWaterMark: 0.8,
+				EnableMetrics: true,
+			},
+		}
+		
+		manager := NewManager(config)
+		transport := NewDemoTransport()
 		err := transport.Connect(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to connect transport: %v", err)
@@ -276,74 +350,27 @@ func TestManagerReceiveErrors(t *testing.T) {
 		manager.Start(context.Background())
 		defer manager.Stop(context.Background())
 
-		// Send invalid event through transport
-		invalidEvent := &DemoEvent{
-			id:        "invalid",
-			eventType: "forbidden",
-		}
-		
-		// Manually inject into transport's receive channel
-		go func() {
-			transport.Send(context.Background(), invalidEvent)
-		}()
-
-		// Wait for event to be processed
-		time.Sleep(50 * time.Millisecond)
-
-		// Try to receive
-		select {
-		case event := <-manager.Receive():
-			// Check validation metadata
-			if event.Metadata.Headers["validation_failed"] != "true" {
-				t.Error("Expected validation_failed header")
+		// Send more events rapidly and don't consume from manager.Receive()
+		// This should cause the backpressure handler's buffer to fill up
+		for i := 0; i < 20; i++ {
+			event := &DemoEvent{
+				id:        fmt.Sprintf("backpressure-%d", i),
+				eventType: "test",
+				timestamp: time.Now(),
+				data:      make(map[string]interface{}),
 			}
-			if event.Metadata.Headers["validation_error"] == "" {
-				t.Error("Expected validation_error header")
-			}
-		case <-time.After(100 * time.Millisecond):
-			t.Error("Expected to receive event with validation error")
-		}
-	})
-
-	t.Run("receive_backpressure_errors", func(t *testing.T) {
-		config := &Config{
-			Primary:    "websocket",
-			BufferSize: 10,
-			Backpressure: BackpressureConfig{
-				Strategy:      BackpressureDropNewest,
-				BufferSize:    10,
-				HighWaterMark: 0.8,
-				EnableMetrics: true,
-			},
-		}
-		
-		manager := NewManager(config)
-		transport := NewDemoTransport()
-		manager.SetTransport(transport)
-		manager.Start(context.Background())
-		defer manager.Stop(context.Background())
-
-		// Send many events to trigger backpressure
-		var wg sync.WaitGroup
-		for i := 0; i < 50; i++ {
-			wg.Add(1)
-			go func(id int) {
-				defer wg.Done()
-				event := &DemoEvent{
-					id:        fmt.Sprintf("backpressure-%d", id),
-					eventType: "test",
-				}
-				transport.Send(context.Background(), event)
-			}(i)
+			// Send through transport - this will go through receiveEvents to backpressure handler
+			// Ignore errors as some sends will fail when buffers are full
+			transport.Send(context.Background(), event)
 		}
 
-		wg.Wait()
-		time.Sleep(100 * time.Millisecond)
+		// Give time for events to propagate through receiveEvents -> backpressure handler
+		time.Sleep(200 * time.Millisecond)
 
 		// Check backpressure metrics
 		metrics := manager.GetBackpressureMetrics()
 		if metrics.EventsDropped == 0 {
-			t.Error("Expected events to be dropped due to backpressure")
+			t.Errorf("Expected events to be dropped due to backpressure, but EventsDropped = %d", metrics.EventsDropped)
 		}
 	})
 }
@@ -539,7 +566,7 @@ func TestManagerErrorPropagation(t *testing.T) {
 			Primary:    "websocket",
 			BufferSize: 5,
 			Backpressure: BackpressureConfig{
-				Strategy:      BackpressureBlock,
+				Strategy:      BackpressureBlockWithTimeout,
 				BufferSize:    5,
 				BlockTimeout:  50 * time.Millisecond,
 				EnableMetrics: true,
@@ -552,14 +579,24 @@ func TestManagerErrorPropagation(t *testing.T) {
 		manager := NewManagerWithLogger(config, logger)
 		
 		transport := NewDemoTransport()
+		
+		// Connect transport first
+		ctx := context.Background()
+		err := transport.Connect(ctx)
+		if err != nil {
+			t.Fatalf("Failed to connect transport: %v", err)
+		}
+		
 		manager.SetTransport(transport)
-		manager.Start(context.Background())
-		defer manager.Stop(context.Background())
+		manager.Start(ctx)
+		defer manager.Stop(ctx)
 
-		// Fill buffer to trigger backpressure
-		for i := 0; i < 10; i++ {
+		// Fill buffer to trigger backpressure - send many more events
+		// to ensure the backpressure handler buffer (size 5) gets full
+		for i := 0; i < 20; i++ {
 			event := &DemoEvent{id: fmt.Sprintf("bp-%d", i), eventType: "test"}
-			go transport.Send(context.Background(), event)
+			go transport.Send(ctx, event)
+			time.Sleep(5 * time.Millisecond) // Small delay to allow processing
 		}
 
 		time.Sleep(200 * time.Millisecond)

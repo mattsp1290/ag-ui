@@ -85,8 +85,11 @@ func NewManager(cfg *Config) *Manager {
 	}
 	
 	// Validate backpressure configuration
-	if cfg.Backpressure.BufferSize < 0 {
+	if cfg.Backpressure.BufferSize <= 0 {
 		cfg.Backpressure.BufferSize = cfg.BufferSize
+	}
+	if cfg.Backpressure.Strategy == "" {
+		cfg.Backpressure.Strategy = BackpressureNone
 	}
 	if cfg.Backpressure.HighWaterMark > 1.0 {
 		cfg.Backpressure.HighWaterMark = 0.8
@@ -168,14 +171,19 @@ func (m *Manager) Stop(ctx context.Context) error {
 		return nil
 	}
 
+	// Signal stop first to unblock receiveEvents goroutine
+	select {
+	case <-m.stopChan:
+		// Already closed
+	default:
+		close(m.stopChan)
+	}
+
+	// Wait for receiveEvents goroutine to finish before acquiring lock
+	m.receiveWg.Wait()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	// Signal stop
-	close(m.stopChan)
-
-	// Wait for receiveEvents goroutine to finish
-	m.receiveWg.Wait()
 
 	// Drain event channels with timeout
 	drainCtx, cancel := context.WithTimeout(ctx, 2*time.Second)

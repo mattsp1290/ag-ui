@@ -37,14 +37,18 @@ func TestDefaultValidator(t *testing.T) {
 	config := DefaultValidationConfig()
 	validator := NewValidator(config)
 
-	// Test valid event using type-safe API
-	validDataEvent := CreateDataEvent("test-123", []byte("hello world"),
-		func(data *DataEventData) {
-			data.ContentType = "text/plain"
-			data.Encoding = "utf-8"
+	// Test valid event with required fields in data
+	validEvent := &TestEvent{
+		id:        "test-123",
+		eventType: "data",
+		timestamp: time.Now(),
+		data: map[string]interface{}{
+			"id":        "test-123",
+			"type":      "data", 
+			"timestamp": time.Now(),
+			"message":   "hello world",
 		},
-	)
-	validEvent := NewTransportEventAdapter(validDataEvent)
+	}
 
 	ctx := context.Background()
 	if err := validator.Validate(ctx, validEvent); err != nil {

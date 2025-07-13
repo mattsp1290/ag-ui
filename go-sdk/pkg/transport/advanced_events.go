@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"encoding/json"
 	"fmt"
 	"time"
 )
@@ -622,9 +621,22 @@ func (s *SystemEventData) ToMap() map[string]interface{} {
 	// Add resources if any are set
 	if s.Resources.CPU > 0 || s.Resources.Memory > 0 || s.Resources.Disk > 0 || 
 	   s.Resources.Network > 0 || s.Resources.Instances > 0 {
-		resourceData, _ := json.Marshal(s.Resources)
-		var resourceMap map[string]interface{}
-		json.Unmarshal(resourceData, &resourceMap)
+		resourceMap := make(map[string]interface{})
+		if s.Resources.CPU > 0 {
+			resourceMap["cpu"] = s.Resources.CPU
+		}
+		if s.Resources.Memory > 0 {
+			resourceMap["memory"] = s.Resources.Memory
+		}
+		if s.Resources.Disk > 0 {
+			resourceMap["disk"] = s.Resources.Disk
+		}
+		if s.Resources.Network > 0 {
+			resourceMap["network"] = s.Resources.Network
+		}
+		if s.Resources.Instances > 0 {
+			resourceMap["instances"] = s.Resources.Instances
+		}
 		data["resources"] = resourceMap
 	}
 	

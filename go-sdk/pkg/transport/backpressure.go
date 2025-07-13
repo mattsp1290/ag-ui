@@ -69,7 +69,6 @@ type BackpressureHandler struct {
 	metrics         *BackpressureMetrics
 	eventChan       chan Event
 	errorChan       chan error
-	buffer          []Event
 	backpressureOn  bool
 	stopChan        chan struct{}
 	ctx             context.Context
@@ -86,7 +85,6 @@ func NewBackpressureHandler(config BackpressureConfig) *BackpressureHandler {
 		metrics:    &BackpressureMetrics{MaxBufferSize: config.BufferSize},
 		eventChan:  make(chan Event, config.BufferSize),
 		errorChan:  make(chan error, config.BufferSize),
-		buffer:     make([]Event, 0, config.BufferSize),
 		stopChan:   make(chan struct{}),
 		ctx:        ctx,
 		cancel:     cancel,

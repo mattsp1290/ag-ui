@@ -493,6 +493,10 @@ func TestManagerMetricsErrors(t *testing.T) {
 	})
 	
 	transport := NewErrorTransport()
+	// Connect the transport so it can accept Send() calls
+	if err := transport.Connect(context.Background()); err != nil {
+		t.Fatalf("Failed to connect transport: %v", err)
+	}
 	manager.SetTransport(transport)
 	manager.Start(context.Background())
 	defer manager.Stop(context.Background())

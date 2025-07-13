@@ -165,8 +165,11 @@ func (v *DefaultValidator) Validate(ctx context.Context, event TransportEvent) e
 			if v.config.FailFast {
 				return err
 			}
-			if v.config.CollectAllErrors {
-				errors = append(errors, err)
+			// Always collect the first error
+			errors = append(errors, err)
+			// If not collecting all errors, stop after first error
+			if !v.config.CollectAllErrors {
+				break
 			}
 		}
 	}

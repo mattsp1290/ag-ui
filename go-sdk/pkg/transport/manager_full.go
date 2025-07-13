@@ -35,7 +35,6 @@ type Manager struct {
 	logger              Logger
 	backpressureHandler *BackpressureHandler
 	validator           Validator
-	validationEnabled   bool
 	receiveWg           sync.WaitGroup // Track receiveEvents goroutines
 }
 
@@ -123,7 +122,6 @@ func NewManager(cfg *Config) *Manager {
 	// Initialize validation
 	if cfg.Validation != nil {
 		manager.validator = NewValidator(cfg.Validation)
-		manager.validationEnabled = cfg.Validation.Enabled
 	}
 
 	return manager
@@ -284,7 +282,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 func (m *Manager) Send(ctx context.Context, event TransportEvent) error {
 	m.mu.RLock()
 	transport := m.activeTransport
-	validationEnabled := m.validationEnabled
+	validationEnabled := m.config.Validation != nil && m.config.Validation.Enabled
 	validator := m.validator
 	m.mu.RUnlock()
 
@@ -460,7 +458,7 @@ func (m *Manager) receiveEvents(transport Transport) {
 			
 			// Validate incoming event if validation is enabled
 			m.mu.RLock()
-			validationEnabled := m.validationEnabled
+			validationEnabled := m.config.Validation != nil && m.config.Validation.Enabled
 			validator := m.validator
 			m.mu.RUnlock()
 			
@@ -539,19 +537,28 @@ func (m *Manager) updateSendMetrics() {
 
 // SetValidationConfig sets the validation configuration
 func (m *Manager) SetValidationConfig(config *ValidationConfig) {
+	var validator Validator
+	
+	if config != nil {
+		// Create validator outside the lock to minimize critical section
+		validator = NewValidator(config)
+	}
+	
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	
 	if config == nil {
-		m.validationEnabled = false
 		m.validator = nil
 		m.config.Validation = nil
+		m.logger.Debug("Validation configuration cleared", 
+			String("operation", "set_validation_config"),
+			Bool("enabled", false))
 		return
 	}
 	
+	// Update fields atomically to ensure consistency
 	m.config.Validation = config
-	m.validator = NewValidator(config)
-	m.validationEnabled = config.Enabled
+	m.validator = validator
 	
 	m.logger.Debug("Validation configuration updated", 
 		String("operation", "set_validation_config"),
@@ -562,7 +569,13 @@ func (m *Manager) SetValidationConfig(config *ValidationConfig) {
 func (m *Manager) GetValidationConfig() *ValidationConfig {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.config.Validation
+	if m.config.Validation == nil {
+		return nil
+	}
+	
+	// Return a copy to prevent external modification
+	configCopy := *m.config.Validation
+	return &configCopy
 }
 
 // SetValidationEnabled enables or disables validation
@@ -570,7 +583,13 @@ func (m *Manager) SetValidationEnabled(enabled bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	
-	m.validationEnabled = enabled
+	// Update the config's enabled flag if config exists
+	if m.config.Validation != nil {
+		// Create a copy of the config to avoid modifying the original
+		configCopy := *m.config.Validation
+		configCopy.Enabled = enabled
+		m.config.Validation = &configCopy
+	}
 	
 	m.logger.Debug("Validation enabled/disabled", 
 		String("operation", "set_validation_enabled"),
@@ -581,5 +600,5 @@ func (m *Manager) SetValidationEnabled(enabled bool) {
 func (m *Manager) IsValidationEnabled() bool {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	return m.validationEnabled
+	return m.config.Validation != nil && m.config.Validation.Enabled
 }

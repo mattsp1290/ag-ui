@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -669,7 +670,7 @@ func TestErrorTypes(t *testing.T) {
 	})
 	
 	t.Run("configuration_error", func(t *testing.T) {
-		err := &ConfigurationError{
+		err := &LegacyConfigurationError{
 			Field:   "timeout",
 			Value:   -1,
 			Message: "timeout must be positive",
@@ -770,7 +771,7 @@ func TestManagerErrorScenarios(t *testing.T) {
 		}
 		
 		// Manager should not be running after failed start
-		if manager.running {
+		if atomic.LoadInt32(&manager.running) != 0 {
 			t.Error("Manager should not be running after failed start")
 		}
 	})

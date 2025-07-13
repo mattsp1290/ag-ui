@@ -7,6 +7,146 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+// Type-safe parameter structures for schema testing
+
+// BasicUserParams represents basic user parameters for schema testing
+type BasicUserParams struct {
+	Name string `json:"name"`
+}
+
+// UserWithEmailParams represents user parameters with email
+type UserWithEmailParams struct {
+	Name  string `json:"name"`
+	Email string `json:"email"`
+	Age   int    `json:"age,omitempty"`
+}
+
+// AddressParams represents address parameters
+type AddressParams struct {
+	Street string `json:"street,omitempty"`
+	City   string `json:"city"`
+	Zip    string `json:"zip,omitempty"`
+}
+
+// UserWithAddressParams represents user with address
+type UserWithAddressParams struct {
+	Address AddressParams `json:"address"`
+}
+
+// ComplexUserParams represents complex user structure
+type ComplexUserParams struct {
+	Name        string            `json:"name"`
+	Email       string            `json:"email"`
+	Age         int               `json:"age,omitempty"`
+	Roles       []string          `json:"roles,omitempty"`
+	Preferences UserPreferences   `json:"preferences,omitempty"`
+}
+
+// UserPreferences represents user preferences
+type UserPreferences struct {
+	Theme         string `json:"theme,omitempty"`
+	Notifications bool   `json:"notifications,omitempty"`
+}
+
+// ArrayTestParams represents array test parameters
+type ArrayTestParams struct {
+	Tags    []string `json:"tags,omitempty"`
+	Items   []string `json:"items,omitempty"`
+	Numbers []int    `json:"numbers,omitempty"`
+	Users   []ComplexUserParams `json:"users,omitempty"`
+}
+
+// ValidationTestData represents typed test data with validation info
+type ValidationTestData struct {
+	ID    int    `json:"id"`
+	Value string `json:"value"`
+}
+
+// ComplexValidationParams represents complex validation test parameters
+type ComplexValidationParams struct {
+	Data []ValidationTestData `json:"data"`
+}
+
+// Helper functions to convert typed structures to map[string]interface{}
+
+// basicUserParamsToMap converts BasicUserParams to map
+func basicUserParamsToMap(params BasicUserParams) map[string]interface{} {
+	return map[string]interface{}{
+		"name": params.Name,
+	}
+}
+
+// userWithEmailParamsToMap converts UserWithEmailParams to map
+func userWithEmailParamsToMap(params UserWithEmailParams) map[string]interface{} {
+	result := map[string]interface{}{
+		"name":  params.Name,
+		"email": params.Email,
+	}
+	if params.Age > 0 {
+		result["age"] = params.Age
+	}
+	return result
+}
+
+// complexUserParamsToMap converts ComplexUserParams to map
+func complexUserParamsToMap(params ComplexUserParams) map[string]interface{} {
+	result := map[string]interface{}{
+		"name":  params.Name,
+		"email": params.Email,
+	}
+	if params.Age > 0 {
+		result["age"] = params.Age
+	}
+	if len(params.Roles) > 0 {
+		roles := make([]interface{}, len(params.Roles))
+		for i, role := range params.Roles {
+			roles[i] = role
+		}
+		result["roles"] = roles
+	}
+	if params.Preferences.Theme != "" || params.Preferences.Notifications {
+		prefs := make(map[string]interface{})
+		if params.Preferences.Theme != "" {
+			prefs["theme"] = params.Preferences.Theme
+		}
+		prefs["notifications"] = params.Preferences.Notifications
+		result["preferences"] = prefs
+	}
+	return result
+}
+
+// arrayTestParamsToMap converts ArrayTestParams to map
+func arrayTestParamsToMap(params ArrayTestParams) map[string]interface{} {
+	result := make(map[string]interface{})
+	if len(params.Users) > 0 {
+		users := make([]interface{}, len(params.Users))
+		for i, user := range params.Users {
+			users[i] = complexUserParamsToMap(user)
+		}
+		result["users"] = users
+	}
+	return result
+}
+
+// validationTestDataToMap converts ValidationTestData to map
+func validationTestDataToMap(data ValidationTestData) map[string]interface{} {
+	return map[string]interface{}{
+		"id":    data.ID,
+		"value": data.Value,
+	}
+}
+
+// complexValidationParamsToMap converts ComplexValidationParams to map
+func complexValidationParamsToMap(params ComplexValidationParams) map[string]interface{} {
+	data := make([]interface{}, len(params.Data))
+	for i, item := range params.Data {
+		data[i] = validationTestDataToMap(item)
+	}
+	return map[string]interface{}{
+		"data": data,
+	}
+}
+
 func TestNewSchemaValidator(t *testing.T) {
 	schema := &tools.ToolSchema{
 		Type: "object",
@@ -36,7 +176,7 @@ func TestSchemaValidator_ValidateString(t *testing.T) {
 					"name": {Type: "string"},
 				},
 			},
-			params:  map[string]interface{}{"name": "John"},
+			params:  basicUserParamsToMap(BasicUserParams{Name: "John"}),
 			wantErr: false,
 		},
 		{
@@ -47,7 +187,7 @@ func TestSchemaValidator_ValidateString(t *testing.T) {
 					"name": {Type: "string"},
 				},
 			},
-			params:  map[string]interface{}{"name": 123},
+			params:  map[string]interface{}{"name": 123}, // Keep as raw map for error case
 			wantErr: true,
 			errMsg:  "name: expected string, got int",
 		},
@@ -1001,11 +1141,11 @@ func TestSchemaValidator_RequiredProperties(t *testing.T) {
 				},
 				Required: []string{"name", "email"},
 			},
-			params: map[string]interface{}{
-				"name":  "John",
-				"email": "john@example.com",
-				"age":   30,
-			},
+			params: userWithEmailParamsToMap(UserWithEmailParams{
+				Name:  "John",
+				Email: "john@example.com",
+				Age:   30,
+			}),
 			wantErr: false,
 		},
 		{
@@ -1205,30 +1345,30 @@ func TestSchemaValidator_ComplexScenarios(t *testing.T) {
 				},
 				Required: []string{"users"},
 			},
-			params: map[string]interface{}{
-				"users": []interface{}{
-					map[string]interface{}{
-						"name":  "Alice Smith",
-						"email": "alice@example.com",
-						"age":   30,
-						"roles": []interface{}{"admin", "user"},
-						"preferences": map[string]interface{}{
-							"theme":         "dark",
-							"notifications": true,
+			params: arrayTestParamsToMap(ArrayTestParams{
+				Users: []ComplexUserParams{
+					{
+						Name:  "Alice Smith",
+						Email: "alice@example.com",
+						Age:   30,
+						Roles: []string{"admin", "user"},
+						Preferences: UserPreferences{
+							Theme:         "dark",
+							Notifications: true,
 						},
 					},
-					map[string]interface{}{
-						"name":  "Bob Johnson",
-						"email": "bob@example.com",
-						"age":   25,
-						"roles": []interface{}{"user"},
-						"preferences": map[string]interface{}{
-							"theme":         "light",
-							"notifications": false,
+					{
+						Name:  "Bob Johnson",
+						Email: "bob@example.com",
+						Age:   25,
+						Roles: []string{"user"},
+						Preferences: UserPreferences{
+							Theme:         "light",
+							Notifications: false,
 						},
 					},
 				},
-			},
+			}),
 			wantErr: false,
 		},
 		{
@@ -1255,18 +1395,18 @@ func TestSchemaValidator_ComplexScenarios(t *testing.T) {
 					},
 				},
 			},
-			params: map[string]interface{}{
-				"data": []interface{}{
-					map[string]interface{}{
-						"id":    1,
-						"value": "ABC",
+			params: complexValidationParamsToMap(ComplexValidationParams{
+				Data: []ValidationTestData{
+					{
+						ID:    1,
+						Value: "ABC",
 					},
-					map[string]interface{}{
-						"id":    2,
-						"value": "abc", // This should fail the pattern
+					{
+						ID:    2,
+						Value: "abc", // This should fail the pattern
 					},
 				},
-			},
+			}),
 			wantErr: true,
 			errMsg:  "data[1].value: string \"abc\" does not match pattern \"^[A-Z]+$\"",
 		},

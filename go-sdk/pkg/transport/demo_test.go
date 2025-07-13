@@ -10,6 +10,7 @@ import (
 )
 
 // DemoEvent implements TransportEvent for testing
+// Deprecated: Use typed events with CreateConnectionEvent, CreateDataEvent, etc.
 type DemoEvent struct {
 	id        string
 	eventType string
@@ -33,13 +34,34 @@ type DemoTransport struct {
 }
 
 func NewDemoTransport() *DemoTransport {
-	return &DemoTransport{
-		capabilities: Capabilities{
-			Streaming:     true,
-			Bidirectional: true,
-			Compression:   []CompressionType{CompressionGzip},
-			Security:      []SecurityFeature{SecurityTLS},
+	// Use typed capabilities for better type safety
+	_ = CompressionFeatures{
+		SupportedAlgorithms: []CompressionType{CompressionGzip},
+		DefaultAlgorithm:    CompressionGzip,
+		CompressionLevel:    6,
+		MinSizeThreshold:    1024,
+		MaxCompressionRatio: 0.9,
+	}
+	
+	securityFeatures := SecurityFeatures{
+		SupportedFeatures: []SecurityFeature{SecurityTLS},
+		DefaultFeature:    SecurityTLS,
+		TLSConfig: &TLSConfig{
+			MinVersion:        "1.2",
+			MaxVersion:        "1.3",
+			RequireClientCert: false,
 		},
+	}
+	
+	baseCaps := Capabilities{
+		Streaming:     true,
+		Bidirectional: true,
+		Compression:   []CompressionType{CompressionGzip},
+		Security:      []SecurityFeature{SecurityTLS},
+	}
+	
+	return &DemoTransport{
+		capabilities: ToCapabilities(NewSecurityCapabilities(baseCaps, securityFeatures)),
 		eventChan: make(chan Event, 10),
 		errorChan: make(chan error, 10),
 	}
@@ -48,6 +70,14 @@ func NewDemoTransport() *DemoTransport {
 func (t *DemoTransport) Connect(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	
+	// Check context before proceeding
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	
 	t.connected = true
 	return nil
 }
@@ -55,6 +85,13 @@ func (t *DemoTransport) Connect(ctx context.Context) error {
 func (t *DemoTransport) Close(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	
+	// Check context before proceeding
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
 	
 	t.connected = false
 	
@@ -79,7 +116,14 @@ func (t *DemoTransport) Send(ctx context.Context, event TransportEvent) error {
 		return ErrConnectionClosed
 	}
 	
-	// Echo the event back
+	// Check context before proceeding
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	
+	// Echo the event back with context support
 	select {
 	case t.eventChan <- Event{
 		Event:     event,
@@ -87,6 +131,8 @@ func (t *DemoTransport) Send(ctx context.Context, event TransportEvent) error {
 		Timestamp: time.Now(),
 	}:
 		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	default:
 		return errors.New("event channel full")
 	}
@@ -113,6 +159,13 @@ func (t *DemoTransport) Capabilities() Capabilities {
 func (t *DemoTransport) Health(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	
+	// Check context before proceeding
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
 	
 	if !t.connected {
 		return ErrNotConnected
@@ -160,15 +213,19 @@ func TestTransportInterface(t *testing.T) {
 		t.Error("Expected bidirectional capability")
 	}
 	
-	// Test sending events
-	event := &DemoEvent{
-		id:        "test-1",
-		eventType: "demo",
-		timestamp: time.Now(),
-		data:      map[string]interface{}{"message": "hello"},
-	}
+	// Test sending events using type-safe API
+	event := CreateConnectionEvent("test-1", "connected", 
+		func(data *ConnectionEventData) {
+			data.RemoteAddress = "demo://localhost:8080"
+			data.Protocol = "demo"
+			data.Version = "1.0"
+		},
+	)
 	
-	err = transport.Send(ctx, event)
+	// Convert to legacy event for transport interface compatibility
+	legacyEvent := NewTransportEventAdapter(event)
+	
+	err = transport.Send(ctx, legacyEvent)
 	if err != nil {
 		t.Fatalf("Failed to send event: %v", err)
 	}
@@ -223,13 +280,16 @@ func TestSimpleManager(t *testing.T) {
 	}
 	defer manager.Stop(ctx)
 	
-	// Test sending through manager
-	event := &DemoEvent{
-		id:        "manager-test-1",
-		eventType: "demo",
-		timestamp: time.Now(),
-		data:      map[string]interface{}{"message": "hello from manager"},
-	}
+	// Test sending through manager using type-safe API
+	dataEvent := CreateDataEvent("manager-test-1", []byte("hello from manager"),
+		func(data *DataEventData) {
+			data.ContentType = "text/plain"
+			data.Encoding = "utf-8"
+		},
+	)
+	
+	// Convert to legacy event for manager interface compatibility
+	event := NewTransportEventAdapter(dataEvent)
 	
 	err = manager.Send(ctx, event)
 	if err != nil {
@@ -251,11 +311,16 @@ func TestSimpleManager(t *testing.T) {
 func TestDemoTransportErrorPaths(t *testing.T) {
 	t.Run("send_when_not_connected", func(t *testing.T) {
 		transport := NewDemoTransport()
-		event := &DemoEvent{
-			id:        "error-test-1",
-			eventType: "demo",
-			timestamp: time.Now(),
-		}
+		// Create a typed error event for testing
+		errorEvent := CreateErrorEvent("error-test-1", "test error",
+			func(data *ErrorEventData) {
+				data.Code = "TEST_ERROR"
+				data.Severity = "error"
+				data.Category = "transport"
+				data.Retryable = false
+			},
+		)
+		event := NewTransportEventAdapter(errorEvent)
 		
 		ctx := context.Background()
 		err := transport.Send(ctx, event)
@@ -304,8 +369,15 @@ func TestDemoTransportErrorPaths(t *testing.T) {
 			t.Errorf("Stop without start should not error, got %v", err)
 		}
 		
-		// Send without transport
-		event := &DemoEvent{id: "test", eventType: "demo"}
+		// Send without transport using type-safe API
+		errorEvent := CreateErrorEvent("test", "manager error test",
+			func(data *ErrorEventData) {
+				data.Code = "MANAGER_ERROR"
+				data.Severity = "warning"
+				data.Retryable = true
+			},
+		)
+		event := NewTransportEventAdapter(errorEvent)
 		err = manager.Send(ctx, event)
 		if err != ErrNotConnected {
 			t.Errorf("Expected ErrNotConnected, got %v", err)
@@ -329,11 +401,15 @@ func TestDemoTransportErrorPaths(t *testing.T) {
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
-				event := &DemoEvent{
-					id:        fmt.Sprintf("concurrent-%d", id),
-					eventType: "demo",
-					timestamp: time.Now(),
-				}
+				// Create typed data event for concurrent testing
+				dataEvent := CreateDataEvent(fmt.Sprintf("concurrent-%d", id), 
+					[]byte(fmt.Sprintf("concurrent message %d", id)),
+					func(data *DataEventData) {
+						data.ContentType = "text/plain"
+						data.SequenceNumber = uint64(id)
+					},
+				)
+				event := NewTransportEventAdapter(dataEvent)
 				if err := manager.Send(ctx, event); err != nil {
 					t.Errorf("Concurrent send %d failed: %v", id, err)
 				}

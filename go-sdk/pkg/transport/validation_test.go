@@ -9,6 +9,7 @@ import (
 )
 
 // TestEvent implements TransportEvent for testing
+// Deprecated: Use typed events with CreateDataEvent, CreateConnectionEvent, etc.
 type TestEvent struct {
 	id        string
 	eventType string
@@ -36,18 +37,14 @@ func TestDefaultValidator(t *testing.T) {
 	config := DefaultValidationConfig()
 	validator := NewValidator(config)
 
-	// Test valid event
-	validEvent := &TestEvent{
-		id:        "test-123",
-		eventType: "test",
-		timestamp: time.Now(),
-		data: map[string]interface{}{
-			"id":        "test-123",
-			"type":      "test",
-			"timestamp": time.Now(),
-			"message":   "hello world",
+	// Test valid event using type-safe API
+	validDataEvent := CreateDataEvent("test-123", []byte("hello world"),
+		func(data *DataEventData) {
+			data.ContentType = "text/plain"
+			data.Encoding = "utf-8"
 		},
-	}
+	)
+	validEvent := NewTransportEventAdapter(validDataEvent)
 
 	ctx := context.Background()
 	if err := validator.Validate(ctx, validEvent); err != nil {

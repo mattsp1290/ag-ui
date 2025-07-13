@@ -26,6 +26,7 @@ import (
 )
 
 // BenchmarkEvent implements TransportEvent for benchmarking
+// Deprecated: Use typed events with CreateDataEvent, CreateConnectionEvent, etc.
 type BenchmarkEvent struct {
 	id        string
 	eventType string
@@ -55,19 +56,40 @@ type MockTransport struct {
 }
 
 func NewMockTransport(bufferSize int) *MockTransport {
+	// Use typed capabilities for better type safety
+	compressionFeatures := CompressionFeatures{
+		SupportedAlgorithms: []CompressionType{CompressionNone},
+		DefaultAlgorithm:    CompressionNone,
+		CompressionLevel:    0,
+		MinSizeThreshold:    0,
+		MaxCompressionRatio: 1.0,
+	}
+	
+	_ = SecurityFeatures{
+		SupportedFeatures: []SecurityFeature{SecurityTLS},
+		DefaultFeature:    SecurityTLS,
+		TLSConfig: &TLSConfig{
+			MinVersion:        "1.3",
+			MaxVersion:        "1.3",
+			RequireClientCert: false,
+		},
+	}
+	
+	baseCaps := Capabilities{
+		Streaming:       true,
+		Bidirectional:   true,
+		Compression:     []CompressionType{CompressionNone},
+		Multiplexing:    false,
+		Reconnection:    true,
+		MaxMessageSize:  1024 * 1024,
+		Security:        []SecurityFeature{SecurityTLS},
+		ProtocolVersion: "1.0",
+	}
+	
 	return &MockTransport{
 		eventChan:    make(chan Event, bufferSize),
 		errorChan:    make(chan error, bufferSize),
-		capabilities: Capabilities{
-			Streaming:       true,
-			Bidirectional:   true,
-			Compression:     []CompressionType{CompressionNone},
-			Multiplexing:    false,
-			Reconnection:    true,
-			MaxMessageSize:  1024 * 1024,
-			Security:        []SecurityFeature{SecurityTLS},
-			ProtocolVersion: "1.0",
-		},
+		capabilities: ToCapabilities(NewCompressionCapabilities(baseCaps, compressionFeatures)),
 		metrics: Metrics{
 			ConnectionUptime: 0,
 			AverageLatency:   10 * time.Millisecond,
@@ -79,6 +101,14 @@ func NewMockTransport(bufferSize int) *MockTransport {
 func (t *MockTransport) Connect(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	
+	// Check context before proceeding
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	
 	t.connected = true
 	t.metrics.ConnectionUptime = time.Since(time.Now())
 	return nil
@@ -87,6 +117,14 @@ func (t *MockTransport) Connect(ctx context.Context) error {
 func (t *MockTransport) Close(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	
+	// Check context before proceeding
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	
 	if t.connected {
 		t.connected = false
 		close(t.eventChan)
@@ -97,7 +135,11 @@ func (t *MockTransport) Close(ctx context.Context) error {
 
 func (t *MockTransport) Send(ctx context.Context, event TransportEvent) error {
 	if t.sendDelay > 0 {
-		time.Sleep(t.sendDelay)
+		select {
+		case <-time.After(t.sendDelay):
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	
 	t.mu.Lock()
@@ -136,6 +178,13 @@ func (t *MockTransport) Capabilities() Capabilities {
 }
 
 func (t *MockTransport) Health(ctx context.Context) error {
+	// Check context before proceeding
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	
 	if !t.IsConnected() {
 		return ErrNotConnected
 	}
@@ -152,24 +201,25 @@ func (t *MockTransport) SetMiddleware(middleware ...Middleware) {
 	t.middleware = middleware
 }
 
-// Generate test events of various sizes
+// Generate test events of various sizes using type-safe APIs
 func generateEvent(id string, payloadSize int) TransportEvent {
-	data := make(map[string]interface{})
-	if payloadSize > 0 {
-		// Create payload of specified size
-		payload := make([]byte, payloadSize)
-		for i := range payload {
-			payload[i] = byte(i % 256)
-		}
-		data["payload"] = payload
+	// Create payload of specified size
+	payload := make([]byte, payloadSize)
+	for i := range payload {
+		payload[i] = byte(i % 256)
 	}
 	
-	return &BenchmarkEvent{
-		id:        id,
-		eventType: "benchmark",
-		data:      data,
-		timestamp: time.Now(),
-	}
+	// Use type-safe data event creation
+	dataEvent := CreateDataEvent(id, payload,
+		func(data *DataEventData) {
+			data.ContentType = "application/octet-stream"
+			data.Encoding = "binary"
+			data.Compressed = false
+		},
+	)
+	
+	// Convert to legacy event for backward compatibility
+	return NewTransportEventAdapter(dataEvent)
 }
 
 // Benchmark send operations with different payload sizes

@@ -78,6 +78,13 @@ func (t *RaceTestTransport) Connect(ctx context.Context) error {
 func (t *RaceTestTransport) Close(ctx context.Context) error {
 	atomic.AddInt64(&t.closeCount, 1)
 	
+	// Check context before proceeding
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	
 	// Use CAS to handle the close operation atomically
 	if !atomic.CompareAndSwapInt32(&t.connected, 1, 0) {
 		return nil // Already closed or not connected
@@ -763,6 +770,559 @@ func TestMemoryLeakDetection(t *testing.T) {
 	// Check for excessive memory growth (this is a rough heuristic)
 	if allocDiff > 10*1024*1024 { // 10MB
 		t.Errorf("Potential memory leak detected: %d bytes allocated", allocDiff)
+	}
+}
+
+// TestConcurrentMetricsAccess tests concurrent access to metrics
+func TestConcurrentMetricsAccess(t *testing.T) {
+	const numGoroutines = 100
+	const numIterations = 1000
+	
+	manager := NewManager(&Config{
+		Primary:       "websocket",
+		Fallback:      []string{"sse", "http"},
+		BufferSize:    1024,
+		EnableMetrics: true,
+	})
+	transport := NewRaceTestTransport()
+	manager.SetTransport(transport)
+	
+	ctx := context.Background()
+	if err := manager.Start(ctx); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop(ctx)
+	
+	var wg sync.WaitGroup
+	var readErrors, writeErrors int64
+	
+	// Launch goroutines that read metrics
+	for i := 0; i < numGoroutines/2; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < numIterations; j++ {
+				metrics := manager.GetMetrics()
+				// Verify metrics are valid
+				if metrics.TotalMessagesSent < 0 || metrics.TotalMessagesReceived < 0 {
+					atomic.AddInt64(&readErrors, 1)
+				}
+				// Access transport metrics
+				if transport != nil {
+					tMetrics := transport.Metrics()
+					if tMetrics.MessagesSent < 0 || tMetrics.MessagesReceived < 0 {
+						atomic.AddInt64(&readErrors, 1)
+					}
+				}
+			}
+		}()
+	}
+	
+	// Launch goroutines that modify metrics (through operations)
+	for i := 0; i < numGoroutines/2; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < numIterations; j++ {
+				event := &DemoEvent{
+					id:        fmt.Sprintf("metrics-test-%d-%d", id, j),
+					eventType: "metrics-test",
+					timestamp: time.Now(),
+				}
+				
+				sendCtx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+				err := manager.Send(sendCtx, event)
+				cancel()
+				
+				if err != nil && !errors.Is(err, context.DeadlineExceeded) {
+					atomic.AddInt64(&writeErrors, 1)
+				}
+			}
+		}(i)
+	}
+	
+	wg.Wait()
+	
+	if atomic.LoadInt64(&readErrors) > 0 {
+		t.Errorf("Detected %d read errors during concurrent metrics access", readErrors)
+	}
+	if atomic.LoadInt64(&writeErrors) > 0 {
+		t.Errorf("Detected %d write errors during concurrent operations", writeErrors)
+	}
+}
+
+// TestConcurrentStateAccess tests concurrent access to transport state
+func TestConcurrentStateAccess(t *testing.T) {
+	const numGoroutines = 50
+	const numIterations = 100
+	
+	for iteration := 0; iteration < numIterations; iteration++ {
+		transport := NewRaceTestTransport()
+		
+		var wg sync.WaitGroup
+		var stateErrors int64
+		
+		// Launch goroutines that check connection state
+		for i := 0; i < numGoroutines/3; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for j := 0; j < 10; j++ {
+					isConnected := transport.IsConnected()
+					ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+					healthErr := transport.Health(ctx)
+					cancel()
+					
+					// Verify consistency
+					if isConnected && healthErr != nil {
+						if !errors.Is(healthErr, context.DeadlineExceeded) {
+							atomic.AddInt64(&stateErrors, 1)
+						}
+					}
+					if !isConnected && healthErr == nil {
+						atomic.AddInt64(&stateErrors, 1)
+					}
+				}
+			}()
+		}
+		
+		// Launch goroutines that connect
+		for i := 0; i < numGoroutines/3; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+				transport.Connect(ctx)
+				cancel()
+			}()
+		}
+		
+		// Launch goroutines that disconnect
+		for i := 0; i < numGoroutines/3; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
+				ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+				transport.Close(ctx)
+				cancel()
+			}()
+		}
+		
+		wg.Wait()
+		
+		if atomic.LoadInt64(&stateErrors) > 0 {
+			t.Errorf("Iteration %d: Detected %d state consistency errors", iteration, stateErrors)
+		}
+	}
+}
+
+// TestRapidTransportSwitching tests rapid transport switching under load
+func TestRapidTransportSwitching(t *testing.T) {
+	const numSwitches = 100
+	const numConcurrentOps = 20
+	
+	manager := NewSimpleManager()
+	
+	ctx := context.Background()
+	if err := manager.Start(ctx); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop(ctx)
+	
+	var wg sync.WaitGroup
+	var switchErrors, sendErrors int64
+	done := make(chan struct{})
+	
+	// Goroutine that rapidly switches transports
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < numSwitches; i++ {
+			transport := NewRaceTestTransport()
+			// Randomly set failure conditions
+			if rand.Intn(10) < 3 {
+				transport.SetShouldFailConnect(true)
+			}
+			manager.SetTransport(transport)
+			
+			// Small random delay
+			time.Sleep(time.Duration(rand.Intn(5)) * time.Millisecond)
+		}
+		close(done)
+	}()
+	
+	// Goroutines that continuously send events
+	for i := 0; i < numConcurrentOps; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			eventCount := 0
+			for {
+				select {
+				case <-done:
+					return
+				default:
+					event := &DemoEvent{
+						id:        fmt.Sprintf("switch-test-%d-%d", id, eventCount),
+						eventType: "switch-test",
+						timestamp: time.Now(),
+					}
+					eventCount++
+					
+					sendCtx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+					err := manager.Send(sendCtx, event)
+					cancel()
+					
+					if err != nil {
+						if !errors.Is(err, ErrNotConnected) && 
+						   !errors.Is(err, context.DeadlineExceeded) &&
+						   !errors.Is(err, ErrConnectionClosed) {
+							atomic.AddInt64(&sendErrors, 1)
+						}
+					}
+				}
+			}
+		}(i)
+	}
+	
+	// Goroutines that continuously receive events
+	for i := 0; i < numConcurrentOps; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-done:
+					return
+				case <-manager.Receive():
+					// Successfully received
+				case <-manager.Errors():
+					// Error received
+				case <-time.After(10 * time.Millisecond):
+					// Timeout is ok during switching
+				}
+			}
+		}()
+	}
+	
+	wg.Wait()
+	
+	if atomic.LoadInt64(&switchErrors) > 0 {
+		t.Errorf("Detected %d errors during transport switching", switchErrors)
+	}
+	if atomic.LoadInt64(&sendErrors) > numSwitches/2 {
+		t.Errorf("Too many send errors during switching: %d", sendErrors)
+	}
+}
+
+// TestBackpressureRaceConditions tests backpressure handling under concurrent load
+func TestBackpressureRaceConditions(t *testing.T) {
+	const numProducers = 50
+	const numConsumers = 10
+	const eventsPerProducer = 100
+	
+	config := BackpressureConfig{
+		Strategy:      BackpressureDropOldest,
+		BufferSize:    100,
+		HighWaterMark: 0.8,
+		LowWaterMark:  0.2,
+		BlockTimeout:  1 * time.Second,
+		EnableMetrics: true,
+	}
+	
+	manager := NewSimpleManagerWithBackpressure(config)
+	transport := NewRaceTestTransport()
+	manager.SetTransport(transport)
+	
+	ctx := context.Background()
+	if err := manager.Start(ctx); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop(ctx)
+	
+	var wg sync.WaitGroup
+	var sentEvents, receivedEvents, droppedEvents int64
+	
+	// Fast producers
+	for i := 0; i < numProducers; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < eventsPerProducer; j++ {
+				event := &DemoEvent{
+					id:        fmt.Sprintf("backpressure-%d-%d", id, j),
+					eventType: "backpressure-test",
+					timestamp: time.Now(),
+				}
+				
+				sendCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+				err := manager.Send(sendCtx, event)
+				cancel()
+				
+				if err == nil {
+					atomic.AddInt64(&sentEvents, 1)
+				} else if !errors.Is(err, context.DeadlineExceeded) {
+					atomic.AddInt64(&droppedEvents, 1)
+				}
+			}
+		}(i)
+	}
+	
+	// Slow consumers
+	for i := 0; i < numConsumers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			timeout := time.After(5 * time.Second)
+			for {
+				select {
+				case <-manager.Receive():
+					atomic.AddInt64(&receivedEvents, 1)
+					// Simulate slow processing
+					time.Sleep(time.Millisecond)
+				case <-timeout:
+					return
+				}
+			}
+		}()
+	}
+	
+	wg.Wait()
+	
+	metrics := manager.GetBackpressureMetrics()
+	
+	t.Logf("Backpressure test results:")
+	t.Logf("  Sent events: %d", atomic.LoadInt64(&sentEvents))
+	t.Logf("  Received events: %d", atomic.LoadInt64(&receivedEvents))
+	t.Logf("  Dropped events: %d", atomic.LoadInt64(&droppedEvents))
+	t.Logf("  Metrics - Events dropped: %d", metrics.EventsDropped)
+	t.Logf("  Metrics - High water mark hits: %d", metrics.HighWaterMarkHits)
+	
+	// Verify no data corruption
+	if atomic.LoadInt64(&receivedEvents) > atomic.LoadInt64(&sentEvents) {
+		t.Errorf("Received more events than sent: %d > %d", 
+			atomic.LoadInt64(&receivedEvents), atomic.LoadInt64(&sentEvents))
+	}
+}
+
+// TestValidationRaceConditions tests concurrent validation operations
+func TestValidationRaceConditions(t *testing.T) {
+	const numGoroutines = 30
+	const numOperations = 100
+	
+	validationConfig := &ValidationConfig{
+		Enabled:            true,
+		MaxEventSize:       1024,
+		RequiredFields:     []string{"id", "type"},
+		AllowedEventTypes:  []string{"test", "validation-test"},
+		ValidateTimestamps: true,
+		StrictMode:         false,
+	}
+	
+	manager := NewSimpleManagerWithValidation(
+		BackpressureConfig{
+			Strategy:   BackpressureNone,
+			BufferSize: 100,
+		},
+		validationConfig,
+	)
+	transport := NewRaceTestTransport()
+	manager.SetTransport(transport)
+	
+	ctx := context.Background()
+	if err := manager.Start(ctx); err != nil {
+		t.Fatalf("Failed to start manager: %v", err)
+	}
+	defer manager.Stop(ctx)
+	
+	var wg sync.WaitGroup
+	var validationErrors int64
+	
+	// Goroutines that toggle validation
+	for i := 0; i < numGoroutines/3; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < numOperations; j++ {
+				enabled := j%2 == 0
+				manager.SetValidationEnabled(enabled)
+				time.Sleep(time.Microsecond * 100)
+			}
+		}()
+	}
+	
+	// Goroutines that update validation config
+	for i := 0; i < numGoroutines/3; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for j := 0; j < numOperations; j++ {
+				newConfig := &ValidationConfig{
+					Enabled:            j%2 == 0,
+					MaxEventSize:       1024 + j,
+					RequiredFields:     []string{"id", "type"},
+					AllowedEventTypes:  []string{"test", fmt.Sprintf("type-%d", j)},
+					ValidateTimestamps: true,
+					StrictMode:         j%3 == 0,
+				}
+				manager.SetValidationConfig(newConfig)
+				time.Sleep(time.Microsecond * 200)
+			}
+		}()
+	}
+	
+	// Goroutines that send events
+	for i := 0; i < numGoroutines/3; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			for j := 0; j < numOperations; j++ {
+				event := &DemoEvent{
+					id:        fmt.Sprintf("validation-%d-%d", id, j),
+					eventType: "validation-test",
+					timestamp: time.Now(),
+				}
+				
+				sendCtx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+				err := manager.Send(sendCtx, event)
+				cancel()
+				
+				if err != nil && !errors.Is(err, context.DeadlineExceeded) {
+					atomic.AddInt64(&validationErrors, 1)
+				}
+			}
+		}(i)
+	}
+	
+	wg.Wait()
+	
+	t.Logf("Validation race test completed with %d validation errors", 
+		atomic.LoadInt64(&validationErrors))
+}
+
+// TestEdgeCaseRaceConditions tests edge cases that might expose race conditions
+func TestEdgeCaseRaceConditions(t *testing.T) {
+	const numIterations = 50
+	
+	for i := 0; i < numIterations; i++ {
+		t.Run(fmt.Sprintf("iteration_%d", i), func(t *testing.T) {
+			// Test 1: Start/Stop with nil transport
+			manager1 := NewSimpleManager()
+			
+			var wg sync.WaitGroup
+			
+			// Try to start without transport
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+				manager1.Start(ctx)
+				cancel()
+			}()
+			
+			// Set transport while starting
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				time.Sleep(time.Microsecond * 100)
+				transport := NewRaceTestTransport()
+				manager1.SetTransport(transport)
+			}()
+			
+			// Try to send without being ready
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				event := &DemoEvent{
+					id:        "edge-case-1",
+					eventType: "test",
+					timestamp: time.Now(),
+				}
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+				manager1.Send(ctx, event)
+				cancel()
+			}()
+			
+			wg.Wait()
+			
+			ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			manager1.Stop(ctx)
+			cancel()
+			
+			// Test 2: Multiple stops
+			manager2 := NewSimpleManager()
+			transport2 := NewRaceTestTransport()
+			manager2.SetTransport(transport2)
+			
+			ctx2 := context.Background()
+			manager2.Start(ctx2)
+			
+			// Launch multiple concurrent stops
+			for j := 0; j < 10; j++ {
+				wg.Add(1)
+				go func() {
+					defer wg.Done()
+					stopCtx, stopCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+					manager2.Stop(stopCtx)
+					stopCancel()
+				}()
+			}
+			
+			wg.Wait()
+			
+			// Test 3: Transport switching during active operations
+			manager3 := NewSimpleManager()
+			transport3a := NewRaceTestTransport()
+			transport3b := NewRaceTestTransport()
+			
+			manager3.SetTransport(transport3a)
+			ctx3 := context.Background()
+			manager3.Start(ctx3)
+			
+			// Send events while switching transports
+			done := make(chan struct{})
+			
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for k := 0; k < 100; k++ {
+					event := &DemoEvent{
+						id:        fmt.Sprintf("edge-case-3-%d", k),
+						eventType: "test",
+						timestamp: time.Now(),
+					}
+					sendCtx, sendCancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
+					manager3.Send(sendCtx, event)
+					sendCancel()
+				}
+				close(done)
+			}()
+			
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				for {
+					select {
+					case <-done:
+						return
+					default:
+						if rand.Intn(2) == 0 {
+							manager3.SetTransport(transport3a)
+						} else {
+							manager3.SetTransport(transport3b)
+						}
+						time.Sleep(time.Microsecond * 500)
+					}
+				}
+			}()
+			
+			wg.Wait()
+			
+			stopCtx, stopCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			manager3.Stop(stopCtx)
+			stopCancel()
+		})
 	}
 }
 

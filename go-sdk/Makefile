@@ -79,7 +79,7 @@ test-resilience:
 lint:
 	@echo "Running linter..."
 	@if command -v golangci-lint >/dev/null 2>&1; then \
-		golangci-lint run; \
+		golangci-lint run --config=.golangci.yml; \
 	else \
 		echo "golangci-lint not found. Please install it: https://golangci-lint.run/usage/install/"; \
 		exit 1; \
@@ -117,8 +117,8 @@ install: build
 ## dev: Development target - format, vet, test
 dev: fmt vet test-short
 
-## ci: CI target - all checks including linting
-ci: fmt vet lint test build
+## ci: CI target - all checks including linting and type safety
+ci: fmt vet lint-all test build
 
 ## check: Quick validation (fmt, vet, build)
 check: fmt vet build
@@ -219,11 +219,45 @@ build-all: clean
 lint-fix:
 	@echo "Running linter with auto-fix..."
 	@if command -v $(GOLANGCI_LINT) >/dev/null 2>&1; then \
-		$(GOLANGCI_LINT) run --fix; \
+		$(GOLANGCI_LINT) run --config=.golangci.yml --fix; \
 	else \
 		echo "golangci-lint not found. Install with: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest"; \
 		exit 1; \
 	fi
+
+## lint-typesafety: Check for interface{} usage and type safety violations
+lint-typesafety:
+	@echo "Running type safety checks..."
+	@chmod +x scripts/pre-commit-hooks/check-typesafety.sh
+	@./scripts/pre-commit-hooks/check-typesafety.sh
+
+## lint-migration: Analyze migration progress and suggest improvements
+lint-migration:
+	@echo "Running migration analysis..."
+	@$(GOCMD) run ./lint/migration_rules.go ./...
+
+## lint-suggest: Get type-safe alternatives for current files
+lint-suggest:
+	@echo "Generating type-safe suggestions..."
+	@chmod +x scripts/pre-commit-hooks/suggest-alternatives.sh
+	@./scripts/pre-commit-hooks/suggest-alternatives.sh
+
+## lint-format-migration: Auto-format migrated code
+lint-format-migration:
+	@echo "Formatting migrated code..."
+	@chmod +x scripts/pre-commit-hooks/format-migration.sh
+	@./scripts/pre-commit-hooks/format-migration.sh
+
+## lint-docs: Generate linting rules documentation
+lint-docs:
+	@echo "Generating linting documentation..."
+	@mkdir -p docs/linting
+	@$(GOCMD) run ./lint/generate_rules_doc.go -output docs/linting
+	@echo "Documentation generated in docs/linting/"
+
+## lint-all: Run all linting and type safety checks
+lint-all: lint lint-typesafety lint-migration
+	@echo "All linting checks completed ✓"
 
 ## tools-install: Install all required development tools
 tools-install:
@@ -234,15 +268,23 @@ tools-install:
 	$(GOCMD) install golang.org/x/vuln/cmd/govulncheck@latest
 	$(GOCMD) install github.com/securego/gosec/v2/cmd/gosec@latest
 	$(GOCMD) install go.uber.org/mock/mockgen@latest
+	$(GOCMD) install golang.org/x/tools/go/analysis/passes/...@latest
 	@echo "Development tools installed ✓"
+	@echo "Setting up pre-commit hooks..."
+	@chmod +x scripts/pre-commit-hooks/*.sh
+	@echo "Pre-commit hooks configured ✓"
 
 ## full-check: Run comprehensive quality checks
-full-check: deps-verify security lint test
+full-check: deps-verify security lint-all test
 	@echo "Full quality check completed ✓"
 
-## pre-commit: Run pre-commit checks
-pre-commit: fmt lint-fix test-short
+## pre-commit: Run pre-commit checks including type safety
+pre-commit: fmt lint-fix lint-typesafety test-short
 	@echo "Pre-commit checks completed ✓"
+
+## pre-commit-full: Run comprehensive pre-commit checks
+pre-commit-full: fmt lint-all test
+	@echo "Comprehensive pre-commit checks completed ✓"
 
 # Default target
 all: ci 

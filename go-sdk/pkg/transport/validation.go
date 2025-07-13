@@ -86,6 +86,15 @@ type ValidationConfig struct {
 	
 	// CollectAllErrors collects all validation errors
 	CollectAllErrors bool
+	
+	// ValidateTimestamps enables timestamp validation
+	ValidateTimestamps bool
+	
+	// StrictMode enables strict validation mode
+	StrictMode bool
+	
+	// MaxEventSize is the maximum size of an event in bytes
+	MaxEventSize int
 }
 
 // DefaultValidationConfig returns a default validation configuration
@@ -107,6 +116,9 @@ func DefaultValidationConfig() *ValidationConfig {
 		SkipValidationOnOutgoing: false,
 		FailFast:                 false,
 		CollectAllErrors:         true,
+		ValidateTimestamps:       true,
+		StrictMode:               false,
+		MaxEventSize:             1024 * 1024, // 1MB
 	}
 }
 
@@ -254,7 +266,7 @@ func (r *MessageSizeRule) Validate(ctx context.Context, event TransportEvent) er
 	
 	size := int64(len(data))
 	if size > r.maxSize {
-		return NewValidationError(fmt.Sprintf("message size %d exceeds maximum allowed size %d", size, r.maxSize), nil)
+		return ErrInvalidMessageSize
 	}
 	
 	return nil
@@ -293,7 +305,7 @@ func (r *RequiredFieldsRule) Validate(ctx context.Context, event TransportEvent)
 	}
 	
 	if len(missingFields) > 0 {
-		return NewValidationError(fmt.Sprintf("missing required fields: %s", strings.Join(missingFields, ", ")), nil)
+		return ErrMissingRequiredFields
 	}
 	
 	return nil
@@ -328,7 +340,7 @@ func (r *EventTypeRule) Validate(ctx context.Context, event TransportEvent) erro
 	// Check denied types first
 	for _, deniedType := range r.deniedTypes {
 		if eventType == deniedType {
-			return NewValidationError(fmt.Sprintf("event type '%s' is not allowed", eventType), nil)
+			return ErrInvalidEventType
 		}
 	}
 	
@@ -339,7 +351,7 @@ func (r *EventTypeRule) Validate(ctx context.Context, event TransportEvent) erro
 				return nil
 			}
 		}
-		return NewValidationError(fmt.Sprintf("event type '%s' is not in allowed types", eventType), nil)
+		return ErrInvalidEventType
 	}
 	
 	return nil

@@ -9,6 +9,43 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/tools"
 )
 
+// Type-safe test parameter structures
+type WeatherParams struct {
+	Location string `json:"location"`
+	Units    string `json:"units,omitempty"`
+}
+
+type CounterParams struct {
+	Count int `json:"count"`
+}
+
+type SearchParams struct {
+	Query      string `json:"query"`
+	MaxResults int    `json:"max_results,omitempty"`
+}
+
+// Helper function to convert typed params to map[string]interface{}
+func paramsToMap(params interface{}) map[string]interface{} {
+	switch p := params.(type) {
+	case WeatherParams:
+		result := map[string]interface{}{"location": p.Location}
+		if p.Units != "" {
+			result["units"] = p.Units
+		}
+		return result
+	case CounterParams:
+		return map[string]interface{}{"count": float64(p.Count)}
+	case SearchParams:
+		result := map[string]interface{}{"query": p.Query}
+		if p.MaxResults > 0 {
+			result["max_results"] = p.MaxResults
+		}
+		return result
+	default:
+		return map[string]interface{}{}
+	}
+}
+
 // Example demonstrates basic tool usage
 func Example() {
 	// Create a new tool registry
@@ -52,12 +89,12 @@ func Example() {
 	engine := tools.NewExecutionEngine(registry)
 
 	// Execute the tool
-	params := map[string]interface{}{
-		"location": "San Francisco",
-		"units":    "fahrenheit",
+	weatherParams := WeatherParams{
+		Location: "San Francisco",
+		Units:    "fahrenheit",
 	}
 
-	result, err := engine.Execute(context.Background(), "example.weather", params)
+	result, err := engine.Execute(context.Background(), "example.weather", paramsToMap(weatherParams))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -109,11 +146,11 @@ func ExampleTool_streaming() {
 	engine := tools.NewExecutionEngine(registry)
 
 	// Execute streaming tool
-	params := map[string]interface{}{
-		"count": 5.0,
+	counterParams := CounterParams{
+		Count: 5,
 	}
 
-	stream, err := engine.ExecuteStream(context.Background(), "example.counter", params)
+	stream, err := engine.ExecuteStream(context.Background(), "example.counter", paramsToMap(counterParams))
 	if err != nil {
 		log.Fatal(err)
 	}

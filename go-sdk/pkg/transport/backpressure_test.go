@@ -7,6 +7,7 @@ import (
 )
 
 // MockEvent implements TransportEvent for testing
+// Deprecated: Use typed events with CreateDataEvent, CreateConnectionEvent, etc.
 type MockEvent struct {
 	id   string
 	typ  string
@@ -17,6 +18,19 @@ func (e *MockEvent) ID() string                      { return e.id }
 func (e *MockEvent) Type() string                    { return e.typ }
 func (e *MockEvent) Timestamp() time.Time            { return time.Now() }
 func (e *MockEvent) Data() map[string]interface{}    { return e.data }
+
+// createTypedTestEvent creates a type-safe test event for backpressure testing
+func createTypedTestEvent(id string) Event {
+	// Use type-safe data event creation
+	dataEvent := CreateDataEvent(id, []byte("backpressure test data"),
+		func(data *DataEventData) {
+			data.ContentType = "text/plain"
+			data.Encoding = "utf-8"
+		},
+	)
+	
+	return Event{Event: NewTransportEventAdapter(dataEvent)}
+}
 
 func TestBackpressureHandler_DropOldest(t *testing.T) {
 	config := BackpressureConfig{
@@ -31,10 +45,10 @@ func TestBackpressureHandler_DropOldest(t *testing.T) {
 	handler := NewBackpressureHandler(config)
 	defer handler.Stop()
 	
-	// Fill the buffer
-	event1 := Event{Event: &MockEvent{id: "1", typ: "test", data: nil}}
-	event2 := Event{Event: &MockEvent{id: "2", typ: "test", data: nil}}
-	event3 := Event{Event: &MockEvent{id: "3", typ: "test", data: nil}}
+	// Fill the buffer using type-safe events
+	event1 := createTypedTestEvent("1")
+	event2 := createTypedTestEvent("2")
+	event3 := createTypedTestEvent("3")
 	
 	// Send first two events - should succeed
 	err := handler.SendEvent(event1)
@@ -92,10 +106,10 @@ func TestBackpressureHandler_DropNewest(t *testing.T) {
 	handler := NewBackpressureHandler(config)
 	defer handler.Stop()
 	
-	// Fill the buffer
-	event1 := Event{Event: &MockEvent{id: "1", typ: "test", data: nil}}
-	event2 := Event{Event: &MockEvent{id: "2", typ: "test", data: nil}}
-	event3 := Event{Event: &MockEvent{id: "3", typ: "test", data: nil}}
+	// Fill the buffer using type-safe events
+	event1 := createTypedTestEvent("1")
+	event2 := createTypedTestEvent("2")
+	event3 := createTypedTestEvent("3")
 	
 	// Send first two events - should succeed
 	err := handler.SendEvent(event1)
@@ -153,9 +167,9 @@ func TestBackpressureHandler_BlockTimeout(t *testing.T) {
 	handler := NewBackpressureHandler(config)
 	defer handler.Stop()
 	
-	// Fill the buffer
-	event1 := Event{Event: &MockEvent{id: "1", typ: "test", data: nil}}
-	event2 := Event{Event: &MockEvent{id: "2", typ: "test", data: nil}}
+	// Fill the buffer using type-safe events
+	event1 := createTypedTestEvent("1")
+	event2 := createTypedTestEvent("2")
 	
 	// Send first event - should succeed
 	err := handler.SendEvent(event1)
@@ -197,9 +211,9 @@ func TestBackpressureHandler_None(t *testing.T) {
 	handler := NewBackpressureHandler(config)
 	defer handler.Stop()
 	
-	// Fill the buffer
-	event1 := Event{Event: &MockEvent{id: "1", typ: "test", data: nil}}
-	event2 := Event{Event: &MockEvent{id: "2", typ: "test", data: nil}}
+	// Fill the buffer using type-safe events
+	event1 := createTypedTestEvent("1")
+	event2 := createTypedTestEvent("2")
 	
 	// Send first event - should succeed
 	err := handler.SendEvent(event1)

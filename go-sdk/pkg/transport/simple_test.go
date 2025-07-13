@@ -16,13 +16,25 @@ func TestBasicTypes(t *testing.T) {
 		t.Errorf("Expected SecurityTLS to be 'tls', got %s", SecurityTLS)
 	}
 	
-	// Test Capabilities struct
-	caps := Capabilities{
+	// Test Capabilities struct with type-safe capabilities
+	compressionFeatures := CompressionFeatures{
+		SupportedAlgorithms: []CompressionType{CompressionGzip},
+		DefaultAlgorithm:    CompressionGzip,
+		CompressionLevel:    6,
+		MinSizeThreshold:    1024,
+		MaxCompressionRatio: 0.9,
+	}
+	
+	baseCaps := Capabilities{
 		Streaming:     true,
 		Bidirectional: true,
 		Compression:   []CompressionType{CompressionGzip},
 		Security:      []SecurityFeature{SecurityTLS},
 	}
+	
+	// Use typed capabilities
+	typedCaps := NewCompressionCapabilities(baseCaps, compressionFeatures)
+	caps := ToCapabilities(typedCaps)
 	
 	if !caps.Streaming {
 		t.Error("Expected streaming to be true")

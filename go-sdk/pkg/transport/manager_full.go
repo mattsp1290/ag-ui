@@ -3,7 +3,9 @@ package transport
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -28,12 +30,13 @@ type Manager struct {
 	eventChan           chan Event
 	errorChan           chan error
 	stopChan            chan struct{}
-	running             bool
+	running             int32 // Use atomic int32 for thread-safe access
 	metrics             *ManagerMetrics
 	logger              Logger
 	backpressureHandler *BackpressureHandler
 	validator           Validator
 	validationEnabled   bool
+	receiveWg           sync.WaitGroup // Track receiveEvents goroutines
 }
 
 // ManagerMetrics contains metrics for the transport manager
@@ -71,6 +74,28 @@ func NewManager(cfg *Config) *Manager {
 			},
 			Validation: DefaultValidationConfig(),
 		}
+	}
+	
+	// Validate and sanitize configuration
+	if cfg.BufferSize < 0 {
+		cfg.BufferSize = 1024 // Default to reasonable buffer size
+	}
+	if cfg.BufferSize == 0 {
+		cfg.BufferSize = 1 // Minimum buffer size
+	}
+	
+	// Validate backpressure configuration
+	if cfg.Backpressure.BufferSize < 0 {
+		cfg.Backpressure.BufferSize = cfg.BufferSize
+	}
+	if cfg.Backpressure.HighWaterMark > 1.0 {
+		cfg.Backpressure.HighWaterMark = 0.8
+	}
+	if cfg.Backpressure.LowWaterMark < 0 {
+		cfg.Backpressure.LowWaterMark = 0.2
+	}
+	if cfg.Backpressure.BlockTimeout < 0 {
+		cfg.Backpressure.BlockTimeout = 5 * time.Second
 	}
 	
 	manager := &Manager{
@@ -118,14 +143,13 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.logger.Info("Starting transport manager", 
 		String("operation", "start"))
 
-	if m.running {
+	if !atomic.CompareAndSwapInt32(&m.running, 0, 1) {
 		m.logger.Debug("Manager already running", 
 			String("operation", "start"))
 		return fmt.Errorf("transport manager already running")
 	}
-
-	// Start the manager
-	m.running = true
+	
+	// The receiveEvents goroutine is started in SetTransport
 	
 	m.logger.Info("Transport manager started successfully", 
 		String("operation", "start"))
@@ -135,20 +159,23 @@ func (m *Manager) Start(ctx context.Context) error {
 
 // Stop stops the transport manager
 func (m *Manager) Stop(ctx context.Context) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	m.logger.Info("Stopping transport manager", 
 		String("operation", "stop"))
 
-	if !m.running {
+	if !atomic.CompareAndSwapInt32(&m.running, 1, 0) {
 		m.logger.Debug("Manager already stopped", 
 			String("operation", "stop"))
 		return nil
 	}
 
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
 	// Signal stop
 	close(m.stopChan)
+
+	// Wait for receiveEvents goroutine to finish
+	m.receiveWg.Wait()
 
 	// Drain event channels with timeout
 	drainCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -224,7 +251,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 		if err := m.activeTransport.Close(ctx); err != nil {
 			m.logger.Error("Failed to close active transport", 
 				String("operation", "stop"),
-				Error(err))
+				Err(err))
 			return fmt.Errorf("failed to close active transport: %w", err)
 		}
 		
@@ -239,7 +266,6 @@ func (m *Manager) Stop(ctx context.Context) error {
 			String("operation", "stop"))
 	}
 
-	m.running = false
 	m.logger.Info("Transport manager stopped successfully", 
 		String("operation", "stop"))
 	
@@ -254,24 +280,50 @@ func (m *Manager) Send(ctx context.Context, event TransportEvent) error {
 	validator := m.validator
 	m.mu.RUnlock()
 
-	if transport == nil {
-		m.logger.Error("Cannot send event: no active transport", 
-			String("operation", "send"),
-			String("event_id", event.ID()),
-			String("event_type", event.Type()))
-		return ErrNotConnected
-	}
-
-	// Validate outgoing event if validation is enabled
+	// Validate outgoing event if validation is enabled (do this before transport check)
 	if validationEnabled && validator != nil {
 		if err := validator.ValidateOutgoing(ctx, event); err != nil {
 			m.logger.Error("Event validation failed", 
 				String("operation", "send"),
 				String("event_id", event.ID()),
 				String("event_type", event.Type()),
-				Error(err))
+				Err(err))
+			
+			// Map validation errors to transport errors
+			if IsValidationError(err) {
+				errMsg := err.Error()
+				if strings.Contains(errMsg, "event type") && strings.Contains(errMsg, "not in allowed types") {
+					return ErrInvalidEventType
+				}
+				if strings.Contains(errMsg, "missing required fields") {
+					return ErrMissingRequiredFields
+				}
+				if strings.Contains(errMsg, "message size") && strings.Contains(errMsg, "exceeds") {
+					return ErrInvalidMessageSize
+				}
+				if strings.Contains(errMsg, "data format") {
+					return ErrInvalidDataFormat
+				}
+				if strings.Contains(errMsg, "field") && strings.Contains(errMsg, "validation failed") {
+					return ErrFieldValidationFailed
+				}
+				if strings.Contains(errMsg, "pattern") {
+					return ErrPatternValidationFailed
+				}
+				// Default validation error
+				return ErrValidationFailed
+			}
+			
 			return err
 		}
+	}
+
+	if transport == nil {
+		m.logger.Error("Cannot send event: no active transport", 
+			String("operation", "send"),
+			String("event_id", event.ID()),
+			String("event_type", event.Type()))
+		return ErrNotConnected
 	}
 
 	m.logger.Debug("Sending event through active transport", 
@@ -291,7 +343,7 @@ func (m *Manager) Send(ctx context.Context, event TransportEvent) error {
 		m.logger.Error("Failed to send event", 
 			String("operation", "send"),
 			String("event_id", event.ID()),
-			Error(err))
+			Err(err))
 		return err
 	}
 
@@ -375,12 +427,15 @@ func (m *Manager) SetTransport(transport Transport) {
 			String("operation", "set_transport"))
 		
 		// Start receiving events from the new transport
+		m.receiveWg.Add(1)
 		go m.receiveEvents(transport)
 	}
 }
 
 // receiveEvents receives events from a transport
 func (m *Manager) receiveEvents(transport Transport) {
+	defer m.receiveWg.Done()
+	
 	m.logger.Debug("Starting event receiver for transport", 
 		String("operation", "receive_events"))
 	
@@ -408,12 +463,18 @@ func (m *Manager) receiveEvents(transport Transport) {
 						String("operation", "receive_events"),
 						String("event_id", event.Event.ID()),
 						String("event_type", event.Event.Type()),
-						Error(err))
+						Err(err))
 					
 					// Add validation error to event metadata
+					if event.Metadata.Headers == nil {
+						event.Metadata.Headers = make(map[string]string)
+					}
 					event.Metadata.Headers["validation_error"] = err.Error()
 					event.Metadata.Headers["validation_failed"] = "true"
 				} else {
+					if event.Metadata.Headers == nil {
+						event.Metadata.Headers = make(map[string]string)
+					}
 					event.Metadata.Headers["validation_passed"] = "true"
 				}
 			}
@@ -423,7 +484,7 @@ func (m *Manager) receiveEvents(transport Transport) {
 				m.logger.Warn("Failed to send event due to backpressure", 
 					String("operation", "receive_events"),
 					String("event_id", event.Event.ID()),
-					Error(err))
+					Err(err))
 			} else {
 				m.logger.Debug("Event forwarded to event channel", 
 					String("operation", "receive_events"),
@@ -432,13 +493,13 @@ func (m *Manager) receiveEvents(transport Transport) {
 		case err := <-transport.Errors():
 			m.logger.Error("Received error from transport", 
 				String("operation", "receive_events"),
-				Error(err))
+				Err(err))
 			
 			// Use backpressure handler to send error
 			if sendErr := m.backpressureHandler.SendError(err); sendErr != nil {
 				m.logger.Warn("Failed to send error due to backpressure", 
 					String("operation", "receive_events"),
-					Error(err),
+					Err(err),
 					Any("send_error", sendErr))
 			} else {
 				m.logger.Debug("Error forwarded to error channel", 

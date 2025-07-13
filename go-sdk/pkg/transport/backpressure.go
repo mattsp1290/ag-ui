@@ -102,8 +102,13 @@ func NewBackpressureHandler(config BackpressureConfig) *BackpressureHandler {
 
 // SendEvent sends an event through the backpressure handler
 func (h *BackpressureHandler) SendEvent(event Event) error {
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	// Check if stopped
+	h.mu.RLock()
+	if h.stopped {
+		h.mu.RUnlock()
+		return ErrConnectionClosed
+	}
+	h.mu.RUnlock()
 	
 	if h.config.EnableMetrics {
 		h.metrics.mu.Lock()
@@ -111,18 +116,30 @@ func (h *BackpressureHandler) SendEvent(event Event) error {
 		h.metrics.mu.Unlock()
 	}
 	
+	// For non-blocking strategies, we can hold the lock
+	// For blocking strategies, we need to release it
 	switch h.config.Strategy {
 	case BackpressureNone:
+		h.mu.Lock()
+		defer h.mu.Unlock()
 		return h.sendEventNone(event)
 	case BackpressureDropOldest:
+		h.mu.Lock()
+		defer h.mu.Unlock()
 		return h.sendEventDropOldest(event)
 	case BackpressureDropNewest:
+		h.mu.Lock()
+		defer h.mu.Unlock()
 		return h.sendEventDropNewest(event)
 	case BackpressureBlock:
+		// Don't hold lock for blocking operations
 		return h.sendEventBlock(event)
 	case BackpressureBlockWithTimeout:
+		// Don't hold lock for blocking operations
 		return h.sendEventBlockTimeout(event)
 	default:
+		h.mu.Lock()
+		defer h.mu.Unlock()
 		return h.sendEventNone(event)
 	}
 }
@@ -167,23 +184,24 @@ func (h *BackpressureHandler) GetMetrics() BackpressureMetrics {
 
 // Stop stops the backpressure handler
 func (h *BackpressureHandler) Stop() {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-	
-	if h.stopped {
-		return
-	}
-	
-	h.stopped = true
+	// Cancel context first to signal all goroutines to stop
 	h.cancel()
 	
-	// Close stopChan safely
-	select {
-	case <-h.stopChan:
-		// Already closed
-	default:
-		close(h.stopChan)
+	// Close stopChan to signal monitor goroutine
+	h.mu.Lock()
+	if !h.stopped {
+		h.stopped = true
+		select {
+		case <-h.stopChan:
+			// Already closed
+		default:
+			close(h.stopChan)
+		}
 	}
+	h.mu.Unlock()
+	
+	// Give monitor goroutine time to exit
+	time.Sleep(10 * time.Millisecond)
 }
 
 // sendEventNone sends event with no backpressure handling (original behavior)
@@ -324,32 +342,37 @@ func (h *BackpressureHandler) monitorBackpressure() {
 
 // checkBackpressureConditions checks if backpressure conditions are met
 func (h *BackpressureHandler) checkBackpressureConditions() {
-	h.mu.RLock()
+	// Quick check if we're stopped
+	select {
+	case <-h.ctx.Done():
+		return
+	default:
+	}
+	
+	// Get channel info without holding main lock
 	currentSize := len(h.eventChan)
 	maxSize := cap(h.eventChan)
-	h.mu.RUnlock()
 	
 	if !h.config.EnableMetrics {
 		return
 	}
 	
-	h.metrics.mu.Lock()
-	defer h.metrics.mu.Unlock()
-	
-	h.metrics.CurrentBufferSize = currentSize
 	fillPercentage := float64(currentSize) / float64(maxSize)
 	
+	// Update metrics
+	h.metrics.mu.Lock()
+	h.metrics.CurrentBufferSize = currentSize
+	
 	// Check high water mark
-	if fillPercentage >= h.config.HighWaterMark && !h.backpressureOn {
-		h.backpressureOn = true
+	if fillPercentage >= h.config.HighWaterMark && !h.metrics.BackpressureActive {
 		h.metrics.BackpressureActive = true
 		h.metrics.HighWaterMarkHits++
 	}
 	
 	// Check low water mark
-	if fillPercentage <= h.config.LowWaterMark && h.backpressureOn {
-		h.backpressureOn = false
+	if fillPercentage <= h.config.LowWaterMark && h.metrics.BackpressureActive {
 		h.metrics.BackpressureActive = false
 		h.metrics.LowWaterMarkHits++
 	}
+	h.metrics.mu.Unlock()
 }

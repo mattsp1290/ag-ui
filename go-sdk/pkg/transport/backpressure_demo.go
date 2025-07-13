@@ -47,12 +47,17 @@ func demoDropOldest() {
 	
 	// Send more events than buffer can hold
 	for i := 1; i <= 5; i++ {
-		event := Event{
-			Event: &DemoEvent{
-				id:   fmt.Sprintf("event-%d", i),
-				typ:  "demo",
-				data: map[string]interface{}{"order": i},
+		// Use type-safe data event creation
+		dataEvent := CreateDataEvent(fmt.Sprintf("event-%d", i), 
+			[]byte(fmt.Sprintf("backpressure test data %d", i)),
+			func(data *DataEventData) {
+				data.ContentType = "text/plain"
+				data.SequenceNumber = uint64(i)
 			},
+		)
+		
+		event := Event{
+			Event: NewTransportEventAdapter(dataEvent),
 		}
 		
 		err := handler.SendEvent(event)
@@ -97,12 +102,17 @@ func demoDropNewest() {
 	
 	// Send more events than buffer can hold
 	for i := 1; i <= 5; i++ {
-		event := Event{
-			Event: &DemoEvent{
-				id:   fmt.Sprintf("event-%d", i),
-				typ:  "demo",
-				data: map[string]interface{}{"order": i},
+		// Use type-safe data event creation
+		dataEvent := CreateDataEvent(fmt.Sprintf("event-%d", i), 
+			[]byte(fmt.Sprintf("backpressure test data %d", i)),
+			func(data *DataEventData) {
+				data.ContentType = "text/plain"
+				data.SequenceNumber = uint64(i)
 			},
+		)
+		
+		event := Event{
+			Event: NewTransportEventAdapter(dataEvent),
 		}
 		
 		err := handler.SendEvent(event)
@@ -147,12 +157,17 @@ func demoBlockTimeout() {
 	
 	// Fill buffer
 	for i := 1; i <= 2; i++ {
-		event := Event{
-			Event: &DemoEvent{
-				id:   fmt.Sprintf("event-%d", i),
-				typ:  "demo",
-				data: map[string]interface{}{"order": i},
+		// Use type-safe data event creation
+		dataEvent := CreateDataEvent(fmt.Sprintf("event-%d", i), 
+			[]byte(fmt.Sprintf("block timeout test data %d", i)),
+			func(data *DataEventData) {
+				data.ContentType = "text/plain"
+				data.SequenceNumber = uint64(i)
 			},
+		)
+		
+		event := Event{
+			Event: NewTransportEventAdapter(dataEvent),
 		}
 		
 		err := handler.SendEvent(event)
@@ -165,12 +180,18 @@ func demoBlockTimeout() {
 	
 	// This should timeout
 	start := time.Now()
-	event := Event{
-		Event: &DemoEvent{
-			id:   "timeout-event",
-			typ:  "demo",
-			data: map[string]interface{}{"order": 3},
+	// Use type-safe error event for timeout test
+	errorEvent := CreateErrorEvent("timeout-event", "timeout test message",
+		func(data *ErrorEventData) {
+			data.Code = "TIMEOUT_TEST"
+			data.Severity = "warning"
+			data.Category = "backpressure"
+			data.Retryable = true
 		},
+	)
+	
+	event := Event{
+		Event: NewTransportEventAdapter(errorEvent),
 	}
 	
 	err := handler.SendEvent(event)

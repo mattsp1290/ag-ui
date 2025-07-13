@@ -17,6 +17,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Type-safe test parameter structures for executor tests
+type TestExecutorParams struct {
+	Input string `json:"input"`
+}
+
+// Helper function to convert typed params to map[string]interface{}
+func testParamsToMap(input string) map[string]interface{} {
+	return map[string]interface{}{"input": input}
+}
+
 // mockRateLimiter is a test rate limiter
 type mockRateLimiter struct {
 	allowFunc func(toolID string) bool
@@ -107,7 +117,7 @@ func TestExecutionEngine_Execute(t *testing.T) {
 		require.NoError(t, registry.Register(tool))
 
 		engine := tools.NewExecutionEngine(registry)
-		params := map[string]interface{}{"input": "test value"}
+		params := testParamsToMap("test value")
 
 		result, err := engine.Execute(context.Background(), "test-tool", params)
 		require.NoError(t, err)
@@ -131,7 +141,7 @@ func TestExecutionEngine_Execute(t *testing.T) {
 		require.NoError(t, registry.Register(tool))
 
 		engine := tools.NewExecutionEngine(registry)
-		params := map[string]interface{}{} // Missing required "input"
+		params := map[string]interface{}{} // Missing required "input" - intentionally empty for validation test
 
 		result, err := engine.Execute(context.Background(), "test-tool", params)
 		assert.Error(t, err)
@@ -150,7 +160,7 @@ func TestExecutionEngine_Execute(t *testing.T) {
 		require.NoError(t, registry.Register(tool))
 
 		engine := tools.NewExecutionEngine(registry)
-		params := map[string]interface{}{"input": "test"}
+		params := testParamsToMap("test")
 
 		result, err := engine.Execute(context.Background(), "test-tool", params)
 		require.NoError(t, err) // Execute wraps errors in result
@@ -171,7 +181,7 @@ func TestExecutionEngine_Execute(t *testing.T) {
 		require.NoError(t, registry.Register(tool))
 
 		engine := tools.NewExecutionEngine(registry)
-		params := map[string]interface{}{"input": "test"}
+		params := testParamsToMap("test")
 
 		start := time.Now()
 		result, err := engine.Execute(context.Background(), "test-tool", params)

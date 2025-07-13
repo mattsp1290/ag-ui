@@ -67,6 +67,9 @@ func NewDefaultTransportRegistry() *DefaultTransportRegistry {
 
 // Register registers a transport factory for a specific type.
 func (r *DefaultTransportRegistry) Register(transportType string, factory TransportFactory) error {
+	if r == nil {
+		return fmt.Errorf("transport registry is nil")
+	}
 	if transportType == "" {
 		return fmt.Errorf("transport type cannot be empty")
 	}
@@ -77,6 +80,10 @@ func (r *DefaultTransportRegistry) Register(transportType string, factory Transp
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if r.factories == nil {
+		r.factories = make(map[string]TransportFactory)
+	}
 
 	if _, exists := r.factories[transportType]; exists {
 		return fmt.Errorf("transport type %s is already registered", transportType)
@@ -106,14 +113,28 @@ func (r *DefaultTransportRegistry) Create(config Config) (Transport, error) {
 
 // CreateWithContext creates a transport instance with context.
 func (r *DefaultTransportRegistry) CreateWithContext(ctx context.Context, config Config) (Transport, error) {
+	if r == nil {
+		return nil, fmt.Errorf("transport registry is nil")
+	}
+	if ctx == nil {
+		return nil, fmt.Errorf("context cannot be nil")
+	}
 	if config == nil {
 		return nil, fmt.Errorf("config cannot be nil")
 	}
 
 	transportType := config.GetType()
+	if transportType == "" {
+		return nil, fmt.Errorf("transport type cannot be empty")
+	}
+
 	factory, err := r.GetFactory(transportType)
 	if err != nil {
 		return nil, err
+	}
+
+	if factory == nil {
+		return nil, fmt.Errorf("factory is nil for transport type: %s", transportType)
 	}
 
 	return factory.CreateWithContext(ctx, config)
@@ -121,8 +142,19 @@ func (r *DefaultTransportRegistry) CreateWithContext(ctx context.Context, config
 
 // GetFactory returns the factory for a specific transport type.
 func (r *DefaultTransportRegistry) GetFactory(transportType string) (TransportFactory, error) {
+	if r == nil {
+		return nil, fmt.Errorf("transport registry is nil")
+	}
+	if transportType == "" {
+		return nil, fmt.Errorf("transport type cannot be empty")
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	if r.factories == nil {
+		return nil, fmt.Errorf("factories map is nil")
+	}
 
 	factory, exists := r.factories[transportType]
 	if !exists {
@@ -134,8 +166,16 @@ func (r *DefaultTransportRegistry) GetFactory(transportType string) (TransportFa
 
 // GetRegisteredTypes returns all registered transport types.
 func (r *DefaultTransportRegistry) GetRegisteredTypes() []string {
+	if r == nil {
+		return []string{}
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	if r.factories == nil {
+		return []string{}
+	}
 
 	types := make([]string, 0, len(r.factories))
 	for transportType := range r.factories {
@@ -147,8 +187,16 @@ func (r *DefaultTransportRegistry) GetRegisteredTypes() []string {
 
 // IsRegistered checks if a transport type is registered.
 func (r *DefaultTransportRegistry) IsRegistered(transportType string) bool {
+	if r == nil || transportType == "" {
+		return false
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	if r.factories == nil {
+		return false
+	}
 
 	_, exists := r.factories[transportType]
 	return exists
@@ -179,6 +227,10 @@ type DefaultTransportManager struct {
 
 // NewDefaultTransportManager creates a new default transport manager.
 func NewDefaultTransportManager(registry TransportRegistry) *DefaultTransportManager {
+	if registry == nil {
+		return nil
+	}
+	
 	ctx, cancel := context.WithCancel(context.Background())
 	return &DefaultTransportManager{
 		transports:  make(map[string]Transport),
@@ -193,6 +245,9 @@ func NewDefaultTransportManager(registry TransportRegistry) *DefaultTransportMan
 
 // AddTransport adds a transport to the manager.
 func (m *DefaultTransportManager) AddTransport(name string, transport Transport) error {
+	if m == nil {
+		return fmt.Errorf("transport manager is nil")
+	}
 	if name == "" {
 		return fmt.Errorf("transport name cannot be empty")
 	}
@@ -203,6 +258,10 @@ func (m *DefaultTransportManager) AddTransport(name string, transport Transport)
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if m.transports == nil {
+		m.transports = make(map[string]Transport)
+	}
 
 	if _, exists := m.transports[name]; exists {
 		return fmt.Errorf("transport %s already exists", name)
@@ -268,8 +327,19 @@ func (m *DefaultTransportManager) RemoveTransport(name string) error {
 
 // GetTransport retrieves a transport by name.
 func (m *DefaultTransportManager) GetTransport(name string) (Transport, error) {
+	if m == nil {
+		return nil, fmt.Errorf("transport manager is nil")
+	}
+	if name == "" {
+		return nil, fmt.Errorf("transport name cannot be empty")
+	}
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
+	if m.transports == nil {
+		return nil, fmt.Errorf("transports map is nil")
+	}
 
 	transport, exists := m.transports[name]
 	if !exists {
@@ -281,12 +351,20 @@ func (m *DefaultTransportManager) GetTransport(name string) (Transport, error) {
 
 // GetActiveTransports returns all active transports.
 func (m *DefaultTransportManager) GetActiveTransports() map[string]Transport {
+	if m == nil {
+		return make(map[string]Transport)
+	}
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	if m.transports == nil {
+		return make(map[string]Transport)
+	}
+
 	result := make(map[string]Transport, len(m.transports))
 	for name, transport := range m.transports {
-		if transport.IsConnected() {
+		if transport != nil && transport.IsConnected() {
 			result[name] = transport
 		}
 	}
@@ -296,6 +374,16 @@ func (m *DefaultTransportManager) GetActiveTransports() map[string]Transport {
 
 // SendEvent sends an event using the best available transport.
 func (m *DefaultTransportManager) SendEvent(ctx context.Context, event any) error {
+	if m == nil {
+		return fmt.Errorf("transport manager is nil")
+	}
+	if ctx == nil {
+		return fmt.Errorf("context cannot be nil")
+	}
+	if event == nil {
+		return fmt.Errorf("event cannot be nil")
+	}
+
 	activeTransports := m.GetActiveTransports()
 	if len(activeTransports) == 0 {
 		return fmt.Errorf("no active transports available")

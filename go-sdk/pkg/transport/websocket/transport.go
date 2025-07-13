@@ -630,7 +630,14 @@ func (t *Transport) processIncomingEvent(data []byte) error {
 
 	// Execute handlers
 	for _, wrapper := range handlers {
-		handlerCtx, cancel := context.WithTimeout(context.Background(), t.config.EventTimeout)
+		// Check if the transport context is cancelled before processing each handler
+		if err := t.ctx.Err(); err != nil {
+			t.config.Logger.Debug("Transport context cancelled, skipping event handlers",
+				zap.String("event_type", eventTypeStr))
+			return err
+		}
+
+		handlerCtx, cancel := context.WithTimeout(t.ctx, t.config.EventTimeout)
 
 		if err := wrapper.Handler(handlerCtx, event); err != nil {
 			t.config.Logger.Error("Event handler failed",

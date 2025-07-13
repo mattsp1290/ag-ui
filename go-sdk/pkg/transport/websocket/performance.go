@@ -3,7 +3,6 @@ package websocket
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"runtime"
 	"runtime/pprof"
@@ -262,7 +261,7 @@ func (pm *PerformanceManager) OptimizeMessage(event events.Event) ([]byte, error
 // BatchMessage adds a message to the batch for optimized transmission
 func (pm *PerformanceManager) BatchMessage(data []byte) error {
 	if !pm.rateLimiter.Allow() {
-		return errors.New("rate limit exceeded")
+		return fmt.Errorf("websocket performance manager: rate limit exceeded for message batching")
 	}
 
 	return pm.messageBatcher.AddMessage(data)
@@ -431,7 +430,7 @@ func (mb *MessageBatcher) AddMessage(data []byte) error {
 	case mb.messages <- data:
 		return nil
 	default:
-		return errors.New("message queue full")
+		return fmt.Errorf("websocket performance manager: message queue is full")
 	}
 }
 
@@ -636,7 +635,7 @@ func (js *PerfJSONSerializer) Serialize(event events.Event) ([]byte, error) {
 // Deserialize deserializes JSON to an event
 func (js *PerfJSONSerializer) Deserialize(data []byte) (events.Event, error) {
 	// This would need proper event type detection and parsing
-	return nil, errors.New("not implemented")
+	return nil, fmt.Errorf("PerfJSONSerializer.Deserialize: method not yet implemented")
 }
 
 // PerfOptimizedJSONSerializer implements optimized JSON serialization
@@ -672,7 +671,7 @@ func (ojs *PerfOptimizedJSONSerializer) Serialize(event events.Event) ([]byte, e
 // Deserialize deserializes optimized JSON to an event
 func (ojs *PerfOptimizedJSONSerializer) Deserialize(data []byte) (events.Event, error) {
 	// This would need proper event type detection and parsing
-	return nil, errors.New("not implemented")
+	return nil, fmt.Errorf("PerfOptimizedJSONSerializer.Deserialize: method not yet implemented")
 }
 
 // PerfProtobufSerializer implements Protocol Buffers serialization
@@ -693,7 +692,7 @@ func (ps *PerfProtobufSerializer) Serialize(event events.Event) ([]byte, error) 
 // Deserialize deserializes Protocol Buffers to an event
 func (ps *PerfProtobufSerializer) Deserialize(data []byte) (events.Event, error) {
 	// This would need proper protobuf parsing
-	return nil, errors.New("not implemented")
+	return nil, fmt.Errorf("PerfProtobufSerializer.Deserialize: method not yet implemented")
 }
 
 // ZeroCopyBuffer implements zero-copy buffer operations

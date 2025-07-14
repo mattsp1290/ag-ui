@@ -38,9 +38,9 @@ func TestStateEventHandler_HandleStateSnapshot(t *testing.T) {
 			},
 		},
 		{
-			name:     "empty snapshot",
-			snapshot: map[string]interface{}{},
-			wantErr:  false,
+			name:          "empty snapshot",
+			snapshot:      map[string]interface{}{},
+			wantErr:       false,
 			expectedState: map[string]interface{}{},
 		},
 		{
@@ -183,16 +183,16 @@ func TestStateEventHandler_HandleStateDelta(t *testing.T) {
 func TestStateEventHandler_Batching(t *testing.T) {
 	// Create store and handler with batching
 	store := NewStateStore()
-	handler := NewStateEventHandler(store, 
+	handler := NewStateEventHandler(store,
 		WithBatchSize(3),
 		WithBatchTimeout(50*time.Millisecond),
 	)
 
 	// Send multiple delta events
 	deltas := [][]events.JSONPatchOperation{
-		{{Op: "add", Path: "/field1", Value: "value1"}},
-		{{Op: "add", Path: "/field2", Value: "value2"}},
-		{{Op: "add", Path: "/field3", Value: "value3"}},
+		{events.JSONPatchOperation{Op: "add", Path: "/field1", Value: "value1"}},
+		{events.JSONPatchOperation{Op: "add", Path: "/field2", Value: "value2"}},
+		{events.JSONPatchOperation{Op: "add", Path: "/field3", Value: "value3"}},
 	}
 
 	for _, delta := range deltas {
@@ -268,7 +268,7 @@ func TestStateEventGenerator_GenerateDelta(t *testing.T) {
 
 	// Verify delta operations
 	assert.Len(t, event.Delta, 2)
-	
+
 	// Find the operations
 	var hasEmailReplace, hasAgeAdd bool
 	for _, op := range event.Delta {
@@ -281,7 +281,7 @@ func TestStateEventGenerator_GenerateDelta(t *testing.T) {
 			assert.Equal(t, float64(30), op.Value)
 		}
 	}
-	
+
 	assert.True(t, hasEmailReplace, "Expected email replace operation")
 	assert.True(t, hasAgeAdd, "Expected age add operation")
 }
@@ -355,10 +355,10 @@ func TestStateMetrics(t *testing.T) {
 	metrics.IncrementEvents("snapshot")
 	metrics.IncrementEvents("snapshot")
 	metrics.IncrementEvents("delta")
-	
+
 	// Record some errors
 	metrics.IncrementErrors("validation")
-	
+
 	// Record processing times
 	metrics.RecordEventProcessing("snapshot", 10*time.Millisecond)
 	metrics.RecordEventProcessing("snapshot", 20*time.Millisecond)
@@ -366,15 +366,15 @@ func TestStateMetrics(t *testing.T) {
 
 	// Get stats
 	stats := metrics.GetStats()
-	
+
 	// Verify counters
 	eventsProcessed := stats["events_processed"].(map[string]int64)
 	assert.Equal(t, int64(2), eventsProcessed["snapshot"])
 	assert.Equal(t, int64(1), eventsProcessed["delta"])
-	
+
 	errors := stats["errors"].(map[string]int64)
 	assert.Equal(t, int64(1), errors["validation"])
-	
+
 	// Verify average processing times
 	avgTimes := stats["avg_processing_times_ms"].(map[string]float64)
 	assert.Equal(t, float64(15), avgTimes["snapshot"]) // (10+20)/2
@@ -383,10 +383,10 @@ func TestStateMetrics(t *testing.T) {
 
 func TestStateEventHandler_Callbacks(t *testing.T) {
 	store := NewStateStore()
-	
+
 	// Track callback invocations
 	var snapshotCalled, deltaCalled, stateChangeCalled bool
-	
+
 	handler := NewStateEventHandler(store,
 		WithSnapshotCallback(func(event *events.StateSnapshotEvent) error {
 			snapshotCalled = true
@@ -408,7 +408,7 @@ func TestStateEventHandler_Callbacks(t *testing.T) {
 	err := handler.HandleStateSnapshot(snapshotEvent)
 	assert.NoError(t, err)
 	assert.True(t, snapshotCalled)
-	
+
 	// Wait a bit for async state change callback
 	time.Sleep(10 * time.Millisecond)
 	assert.True(t, stateChangeCalled)
@@ -423,12 +423,12 @@ func TestStateEventHandler_Callbacks(t *testing.T) {
 	})
 	err = handler.HandleStateDelta(deltaEvent)
 	assert.NoError(t, err)
-	
+
 	// Wait for batch processing
 	time.Sleep(20 * time.Millisecond)
-	
+
 	assert.True(t, deltaCalled)
-	
+
 	// Wait a bit more for async state change callback
 	time.Sleep(10 * time.Millisecond)
 	assert.True(t, stateChangeCalled)
@@ -457,7 +457,7 @@ func TestStateEventHandler_ErrorRecovery(t *testing.T) {
 
 func TestConcurrentEventHandling(t *testing.T) {
 	store := NewStateStore()
-	handler := NewStateEventHandler(store, 
+	handler := NewStateEventHandler(store,
 		WithBatchSize(10),
 		WithBatchTimeout(50*time.Millisecond),
 	)
@@ -471,7 +471,7 @@ func TestConcurrentEventHandling(t *testing.T) {
 		defer wg.Done()
 		snapshot := map[string]interface{}{
 			"counter": 0,
-			"base": "value",
+			"base":    "value",
 		}
 		event := events.NewStateSnapshotEvent(snapshot)
 		err := handler.HandleStateSnapshot(event)
@@ -483,7 +483,7 @@ func TestConcurrentEventHandling(t *testing.T) {
 		defer wg.Done()
 		// Wait a bit to ensure snapshot is applied first
 		time.Sleep(20 * time.Millisecond)
-		
+
 		for i := 0; i < 5; i++ {
 			delta := []events.JSONPatchOperation{
 				{Op: "add", Path: "/delta" + string(rune('0'+i)), Value: i},
@@ -496,14 +496,14 @@ func TestConcurrentEventHandling(t *testing.T) {
 	}()
 
 	wg.Wait()
-	
+
 	// Wait for final batch processing
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify final state has content from both operations
 	state := store.GetState()
 	assert.NotNil(t, state["counter"])
-	
+
 	// Check that at least some deltas were applied
 	deltaCount := 0
 	for i := 0; i < 5; i++ {

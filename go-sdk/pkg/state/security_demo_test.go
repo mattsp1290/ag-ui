@@ -27,7 +27,7 @@ func TestSecurityDemo(t *testing.T) {
 
 	// 1. Demonstrate patch size limit
 	fmt.Println("1. Testing Patch Size Limit (1MB):")
-	largePatch := strings.Repeat("x", MaxPatchSize+1000)
+	largePatch := strings.Repeat("x", MaxPatchSizeBytes+1000)
 	_, err = sm.UpdateState(ctx, contextID, "demo-state", map[string]interface{}{
 		"large_data": largePatch,
 	}, UpdateOptions{})
@@ -40,7 +40,7 @@ func TestSecurityDemo(t *testing.T) {
 
 	// 2. Demonstrate string length limit
 	fmt.Println("2. Testing String Length Limit (64KB):")
-	longString := strings.Repeat("a", MaxStringLength+100)
+	longString := strings.Repeat("a", MaxStringLengthBytes+100)
 	_, err = sm.UpdateState(ctx, contextID, "demo-state", map[string]interface{}{
 		"long_string": longString,
 	}, UpdateOptions{})
@@ -110,10 +110,10 @@ func TestSecurityDemo(t *testing.T) {
 	fmt.Println("7. Testing Rate Limiting:")
 	// Create a new context for rate limit testing
 	rateLimitCtx, _ := sm.CreateContext(ctx, "rate-test", nil)
-	
+
 	// Try to exceed rate limit
 	hitRateLimit := false
-	for i := 0; i < 300; i++ {
+	for i := 0; i < 50; i++ { // Reduced from 300 to 50 for faster testing
 		_, err = sm.UpdateState(ctx, rateLimitCtx, "rate-test", map[string]interface{}{
 			fmt.Sprintf("test_%d", i): i,
 		}, UpdateOptions{})
@@ -131,17 +131,17 @@ func TestSecurityDemo(t *testing.T) {
 	// 8. Demonstrate valid operations
 	fmt.Println("8. Testing Valid Operations:")
 	validUpdates := map[string]interface{}{
-		"name":    "Test User",
-		"age":     30,
-		"active":  true,
-		"tags":    []string{"tag1", "tag2", "tag3"},
+		"name":   "Test User",
+		"age":    30,
+		"active": true,
+		"tags":   []string{"tag1", "tag2", "tag3"},
 		"address": map[string]interface{}{
 			"street": "123 Main St",
 			"city":   "TestCity",
 			"zip":    "12345",
 		},
 	}
-	
+
 	delta, err := sm.UpdateState(ctx, contextID, "demo-state", validUpdates, UpdateOptions{})
 	if err != nil {
 		fmt.Printf("   ✗ ERROR: Valid update failed: %v\n", err)

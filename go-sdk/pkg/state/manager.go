@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/google/uuid"
 )
 
 // Common errors
@@ -36,88 +36,88 @@ type ManagerOptions struct {
 	StrictMode      bool
 
 	// Rollback configuration
-	MaxCheckpoints       int
-	CheckpointInterval   time.Duration
-	AutoCheckpoint       bool
-	CompressCheckpoints  bool
+	MaxCheckpoints      int
+	CheckpointInterval  time.Duration
+	AutoCheckpoint      bool
+	CompressCheckpoints bool
 
 	// Event handling configuration
-	EventBufferSize      int
-	ProcessingWorkers    int
-	EventRetryBackoff    time.Duration
+	EventBufferSize   int
+	ProcessingWorkers int
+	EventRetryBackoff time.Duration
 
 	// Performance configuration
-	CacheSize          int
-	CacheTTL           time.Duration
-	EnableCompression  bool
-	EnableBatching     bool
-	BatchSize          int
-	BatchTimeout       time.Duration
+	CacheSize         int
+	CacheTTL          time.Duration
+	EnableCompression bool
+	EnableBatching    bool
+	BatchSize         int
+	BatchTimeout      time.Duration
 
 	// Monitoring configuration
-	EnableMetrics      bool
-	MetricsInterval    time.Duration
-	EnableTracing      bool
-	
+	EnableMetrics   bool
+	MetricsInterval time.Duration
+	EnableTracing   bool
+
 	// Audit configuration
-	EnableAudit        bool
-	AuditLogger        AuditLogger
+	EnableAudit bool
+	AuditLogger AuditLogger
 }
 
 // DefaultManagerOptions returns sensible defaults
 func DefaultManagerOptions() ManagerOptions {
 	return ManagerOptions{
-		MaxHistorySize:       100,
-		ConflictStrategy:     LastWriteWins,
-		MaxRetries:           3,
-		RetryDelay:           100 * time.Millisecond,
-		StrictMode:           true,
-		MaxCheckpoints:       10,
-		CheckpointInterval:   5 * time.Minute,
-		AutoCheckpoint:       true,
-		CompressCheckpoints:  true,
-		EventBufferSize:      1000,
-		ProcessingWorkers:    4,
-		EventRetryBackoff:    time.Second,
-		CacheSize:            1000,
-		CacheTTL:             5 * time.Minute,
-		EnableCompression:    true,
-		EnableBatching:       true,
-		BatchSize:            100,
-		BatchTimeout:         100 * time.Millisecond,
-		EnableMetrics:        true,
-		MetricsInterval:      30 * time.Second,
-		EnableTracing:        false,
-		EnableAudit:          true,
-		AuditLogger:          nil, // Will use default JSON logger
+		MaxHistorySize:      DefaultMaxHistorySize,
+		ConflictStrategy:    LastWriteWins,
+		MaxRetries:          DefaultMaxRetries,
+		RetryDelay:          DefaultRetryDelay,
+		StrictMode:          true,
+		MaxCheckpoints:      DefaultMaxCheckpoints,
+		CheckpointInterval:  DefaultCheckpointInterval,
+		AutoCheckpoint:      true,
+		CompressCheckpoints: true,
+		EventBufferSize:     DefaultEventBufferSize,
+		ProcessingWorkers:   DefaultProcessingWorkers,
+		EventRetryBackoff:   DefaultEventRetryBackoff,
+		CacheSize:           DefaultCacheSize,
+		CacheTTL:            DefaultCacheTTL,
+		EnableCompression:   true,
+		EnableBatching:      true,
+		BatchSize:           DefaultBatchSize,
+		BatchTimeout:        DefaultBatchTimeout,
+		EnableMetrics:       true,
+		MetricsInterval:     DefaultMetricsInterval,
+		EnableTracing:       false,
+		EnableAudit:         true,
+		AuditLogger:         nil, // Will use default JSON logger
 	}
 }
 
 // StateManager is the main entry point for state management
 type StateManager struct {
 	// Core components
-	store            *StateStore
-	deltaComputer    *DeltaComputer
-	conflictResolver *ConflictResolverImpl
-	validator        StateValidator
-	rollbackManager  *StateRollback
-	eventHandler     *StateEventHandler
+	store             *StateStore
+	deltaComputer     *DeltaComputer
+	conflictResolver  *ConflictResolverImpl
+	validator         StateValidator
+	rollbackManager   *StateRollback
+	eventHandler      *StateEventHandler
 	securityValidator *SecurityValidator
-	rateLimiter      *RateLimiter
+	rateLimiter       *RateLimiter
 	clientRateLimiter *ClientRateLimiter
-	logger           Logger
-	auditManager     *AuditManager
+	logger            Logger
+	auditManager      *AuditManager
 
 	// Configuration
 	options ManagerOptions
 
 	// Runtime state
-	mu              sync.RWMutex
-	activeContexts  *ContextManager // Bounded context manager to prevent memory leaks
-	updateQueue     chan *updateRequest
-	eventQueue      chan *stateEvent
+	mu               sync.RWMutex
+	activeContexts   *ContextManager // Bounded context manager to prevent memory leaks
+	updateQueue      chan *updateRequest
+	eventQueue       chan *stateEvent
 	metricsCollector *metricsCollector
-	errCh           chan error // Channel for error propagation from goroutines
+	errCh            chan error // Channel for error propagation from goroutines
 
 	// Context management
 	contextTTL      time.Duration
@@ -195,9 +195,9 @@ func NewStateManager(opts ManagerOptions) (*StateManager, error) {
 	logger := DefaultLogger()
 	// Create core components
 	store := NewStateStore(WithLogger(logger))
-	
+
 	deltaComputer := NewDeltaComputer(DefaultDeltaOptions())
-	
+
 	conflictResolver := NewConflictResolver(opts.ConflictStrategy)
 	conflictResolver.SetLogger(logger)
 
@@ -219,13 +219,13 @@ func NewStateManager(opts ManagerOptions) (*StateManager, error) {
 
 	// Create security validator with safe defaults
 	securityValidator := NewSecurityValidator(DefaultSecurityConfig())
-	
+
 	// Create rate limiter with default configuration
-	rateLimiter := NewRateLimiter(1000) // 1000 operations per second default
-	
+	rateLimiter := NewRateLimiter(DefaultGlobalRateLimit) // Global rate limit operations per second
+
 	// Create client rate limiter with default configuration
 	clientRateLimiter := NewClientRateLimiter(DefaultClientRateLimiterConfig())
-	
+
 	// Create audit manager if enabled
 	var auditManager *AuditManager
 	if opts.EnableAudit {
@@ -236,13 +236,13 @@ func NewStateManager(opts ManagerOptions) (*StateManager, error) {
 		}
 		auditManager = NewAuditManager(auditLogger)
 	}
-	
+
 	// Determine max contexts based on cache size or use default
 	maxContexts := opts.CacheSize
 	if maxContexts <= 0 {
-		maxContexts = 1000 // Default max contexts
+		maxContexts = DefaultMaxContexts // Default max contexts
 	}
-	
+
 	sm := &StateManager{
 		store:             store,
 		deltaComputer:     deltaComputer,
@@ -259,9 +259,9 @@ func NewStateManager(opts ManagerOptions) (*StateManager, error) {
 		activeContexts:    NewContextManager(maxContexts),
 		updateQueue:       make(chan *updateRequest, opts.BatchSize*2),
 		eventQueue:        make(chan *stateEvent, opts.EventBufferSize),
-		errCh:             make(chan error, 100), // Buffer for error propagation
-		contextTTL:        1 * time.Hour,   // Default context TTL
-		cleanupInterval:   15 * time.Minute, // Default cleanup interval
+		errCh:             make(chan error, DefaultErrorChannelSize), // Buffer for error propagation
+		contextTTL:        DefaultContextTTL,                         // Default context TTL
+		cleanupInterval:   DefaultCleanupInterval,                    // Default cleanup interval
 		lastCleanup:       time.Now(),
 		ctx:               ctx,
 		cancel:            cancel,
@@ -277,7 +277,7 @@ func NewStateManager(opts ManagerOptions) (*StateManager, error) {
 	sm.store.SetErrorHandler(func(err error) {
 		sm.reportError(err)
 	})
-	
+
 	sm.logger.Info("state manager initialized",
 		Int("max_contexts", maxContexts),
 		Int("batch_size", opts.BatchSize),
@@ -314,29 +314,29 @@ func (sm *StateManager) CreateContext(ctx context.Context, stateID string, metad
 	if stateID == "" {
 		return "", fmt.Errorf("stateID cannot be empty")
 	}
-	
+
 	// Check if manager is shutting down
 	select {
 	case <-sm.ctx.Done():
 		return "", fmt.Errorf("manager is shutting down: %w", sm.ctx.Err())
 	default:
 	}
-	
+
 	contextID := uuid.New().String()
 	now := time.Now()
-	
+
 	// Security validation for metadata
 	if err := sm.securityValidator.ValidateMetadata(metadata); err != nil {
 		// Audit security violation
 		if sm.auditManager != nil {
 			sm.auditManager.LogSecurityEvent(ctx, AuditActionSecurityBlock, "", "", "context_metadata", map[string]interface{}{
 				"state_id": stateID,
-				"error": err.Error(),
+				"error":    err.Error(),
 			})
 		}
 		return "", fmt.Errorf("security validation failed for metadata: %w", err)
 	}
-	
+
 	// Create metadata copy to avoid external modifications
 	metadataCopy := make(map[string]interface{})
 	if metadata != nil {
@@ -344,7 +344,7 @@ func (sm *StateManager) CreateContext(ctx context.Context, stateID string, metad
 			metadataCopy[k] = v
 		}
 	}
-	
+
 	context := &StateContext{
 		ID:           contextID,
 		StateID:      stateID,
@@ -352,7 +352,7 @@ func (sm *StateManager) CreateContext(ctx context.Context, stateID string, metad
 		LastAccessed: now,
 		Metadata:     metadataCopy,
 	}
-	
+
 	sm.activeContexts.Put(contextID, context)
 
 	// Trigger cleanup if needed
@@ -368,7 +368,7 @@ func (sm *StateManager) CreateContext(ctx context.Context, stateID string, metad
 			"metadata":  metadataCopy,
 		},
 	})
-	
+
 	sm.logger.Debug("context created",
 		String("context_id", contextID),
 		String("state_id", stateID),
@@ -393,7 +393,7 @@ func (sm *StateManager) GetState(ctx context.Context, contextID, stateID string)
 	if stateID == "" {
 		return nil, fmt.Errorf("stateID cannot be empty")
 	}
-	
+
 	// Check if manager is shutting down
 	select {
 	case <-sm.ctx.Done():
@@ -469,7 +469,7 @@ func (sm *StateManager) UpdateState(ctx context.Context, contextID, stateID stri
 			return nil, fmt.Errorf("rate limit exceeded: %w", err)
 		}
 	}
-	
+
 	// Apply per-client rate limiting using contextID as the client identifier
 	if !sm.clientRateLimiter.Allow(contextID) {
 		// Audit client rate limit violation
@@ -480,7 +480,7 @@ func (sm *StateManager) UpdateState(ctx context.Context, contextID, stateID stri
 		}
 		return nil, ErrRateLimited
 	}
-	
+
 	// Create update request
 	req := &updateRequest{
 		ctx:       ctx,
@@ -494,7 +494,7 @@ func (sm *StateManager) UpdateState(ctx context.Context, contextID, stateID stri
 	// Set default timeout if not specified
 	timeout := opts.Timeout
 	if timeout == 0 {
-		timeout = 30 * time.Second
+		timeout = DefaultUpdateTimeout
 	}
 
 	// Create timeout context
@@ -544,7 +544,7 @@ func (sm *StateManager) CreateCheckpoint(ctx context.Context, stateID, name stri
 	if err != nil {
 		return "", fmt.Errorf("failed to create checkpoint: %w", err)
 	}
-	
+
 	checkpointID := uuid.New().String()
 
 	sm.emitEvent(&stateEvent{
@@ -557,7 +557,7 @@ func (sm *StateManager) CreateCheckpoint(ctx context.Context, stateID, name stri
 			"name":         name,
 		},
 	})
-	
+
 	sm.logger.Info("checkpoint created",
 		String("checkpoint_id", checkpointID),
 		String("checkpoint_name", name),
@@ -573,7 +573,7 @@ func (sm *StateManager) CreateCheckpoint(ctx context.Context, stateID, name stri
 			StateID:   stateID,
 			Resource:  "checkpoint",
 			Details: map[string]interface{}{
-				"checkpoint_id": checkpointID,
+				"checkpoint_id":   checkpointID,
 				"checkpoint_name": name,
 			},
 		}
@@ -595,13 +595,13 @@ func (sm *StateManager) Rollback(ctx context.Context, stateID, checkpointID stri
 	if sm.auditManager != nil {
 		oldState, _ = sm.store.Get("/")
 	}
-	
+
 	err := sm.rollbackManager.RollbackToMarker(checkpointID)
 	if err != nil {
 		// Audit failed rollback
 		if sm.auditManager != nil {
 			sm.auditManager.LogError(ctx, AuditActionStateRollback, err, map[string]interface{}{
-				"state_id": stateID,
+				"state_id":      stateID,
 				"checkpoint_id": checkpointID,
 			})
 		}
@@ -617,7 +617,7 @@ func (sm *StateManager) Rollback(ctx context.Context, stateID, checkpointID stri
 			"checkpointID": checkpointID,
 		},
 	})
-	
+
 	sm.logger.Info("state rolled back",
 		String("checkpoint_id", checkpointID),
 		String("state_id", stateID))
@@ -665,7 +665,7 @@ func (sm *StateManager) GetMetrics() map[string]interface{} {
 // Close shuts down the state manager
 func (sm *StateManager) Close() error {
 	sm.logger.Info("shutting down state manager")
-	
+
 	// Audit shutdown
 	if sm.auditManager != nil {
 		log := &AuditLog{
@@ -675,7 +675,7 @@ func (sm *StateManager) Close() error {
 			Result:    AuditResultSuccess,
 			Resource:  "state_manager",
 			Details: map[string]interface{}{
-				"operation": "shutdown",
+				"operation":       "shutdown",
 				"active_contexts": sm.activeContexts.Size(),
 			},
 		}
@@ -684,74 +684,84 @@ func (sm *StateManager) Close() error {
 			sm.logger.Error("failed to write shutdown audit log", Err(err))
 		}
 	}
-	
+
 	// Signal shutdown
 	sm.cancel()
-	
+
 	// Stop accepting new work
 	atomic.StoreInt32(&sm.closing, 1)
-	
+
 	// Give a moment for any in-flight enqueues to complete
-	time.Sleep(10 * time.Millisecond)
-	
+	time.Sleep(DefaultShutdownGracePeriod)
+
 	// Wait for workers with timeout
 	done := make(chan struct{})
 	go func() {
 		sm.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// Workers finished cleanly
-	case <-time.After(30 * time.Second):
-		sm.logger.Error("shutdown timeout, forcing close", Duration("timeout", 30*time.Second))
+	case <-time.After(DefaultShutdownTimeout):
+		sm.logger.Error("shutdown timeout, forcing close", Duration("timeout", DefaultShutdownTimeout))
 	}
-	
+
 	// Start drain goroutines
 	drainDone := make(chan struct{}, 3)
-	
+
 	go func() {
 		for range sm.updateQueue {
 			// Drain
 		}
 		drainDone <- struct{}{}
 	}()
-	
+
 	go func() {
 		for range sm.eventQueue {
 			// Drain
 		}
 		drainDone <- struct{}{}
 	}()
-	
+
 	go func() {
 		for range sm.errCh {
 			// Drain
 		}
 		drainDone <- struct{}{}
 	}()
-	
+
 	// Give drain goroutines time to start
-	time.Sleep(10 * time.Millisecond)
-	
+	time.Sleep(DefaultShutdownGracePeriod)
+
 	// Now safe to close channels
 	close(sm.updateQueue)
 	close(sm.eventQueue)
 	close(sm.errCh)
-	
+
 	// Wait for drain goroutines to complete
 	for i := 0; i < 3; i++ {
 		<-drainDone
 	}
-	
+
+	// Stop rate limiter
+	if sm.rateLimiter != nil {
+		sm.rateLimiter.Stop()
+	}
+
+	// Reset client rate limiter (clear tracked clients)
+	if sm.clientRateLimiter != nil {
+		sm.clientRateLimiter.Reset()
+	}
+
 	// Close audit manager
 	if sm.auditManager != nil && sm.auditManager.logger != nil {
 		if err := sm.auditManager.logger.Close(); err != nil {
 			sm.logger.Error("failed to close audit logger", Err(err))
 		}
 	}
-	
+
 	sm.logger.Info("state manager shutdown complete")
 	return nil
 }
@@ -785,7 +795,7 @@ func (sm *StateManager) processUpdates() {
 				}
 				return
 			}
-			
+
 			// Check if we're closing and should not process
 			if atomic.LoadInt32(&sm.closing) == 1 {
 				// Send error to request
@@ -826,7 +836,7 @@ func (sm *StateManager) processBatch(batch []*updateRequest) {
 	for _, req := range batch {
 		groups[req.stateID] = append(groups[req.stateID], req)
 	}
-	
+
 	sm.logger.Debug("processing update batch",
 		Int("batch_size", len(batch)),
 		Int("state_groups", len(groups)))
@@ -869,14 +879,14 @@ func (sm *StateManager) processSingleUpdate(state interface{}, req *updateReques
 
 	// Track start time for duration logging
 	startTime := time.Now()
-	
+
 	// Security validation for updates
 	if err := sm.securityValidator.ValidateState(req.updates); err != nil {
 		// Audit security validation failure
 		if sm.auditManager != nil {
 			sm.auditManager.LogSecurityEvent(req.ctx, AuditActionValidationFail, req.contextID, "", "update_validation", map[string]interface{}{
 				"state_id": req.stateID,
-				"error": err.Error(),
+				"error":    err.Error(),
 			})
 		}
 		return updateResult{err: fmt.Errorf("security validation failed for updates: %w", err)}
@@ -887,14 +897,14 @@ func (sm *StateManager) processSingleUpdate(state interface{}, req *updateReques
 	if err != nil {
 		return updateResult{err: fmt.Errorf("delta computation failed: %w", err)}
 	}
-	
+
 	// Security validation for computed delta
 	if err := sm.securityValidator.ValidatePatch(delta); err != nil {
 		// Audit security validation failure
 		if sm.auditManager != nil {
 			sm.auditManager.LogSecurityEvent(req.ctx, AuditActionSizeLimit, req.contextID, "", "delta_validation", map[string]interface{}{
 				"state_id": req.stateID,
-				"error": err.Error(),
+				"error":    err.Error(),
 			})
 		}
 		return updateResult{err: fmt.Errorf("security validation failed for delta: %w", err)}
@@ -905,14 +915,14 @@ func (sm *StateManager) processSingleUpdate(state interface{}, req *updateReques
 	if err != nil {
 		return updateResult{err: fmt.Errorf("delta application failed: %w", err)}
 	}
-	
+
 	// Security validation for resulting state
 	if err := sm.securityValidator.ValidateState(newState); err != nil {
 		// Audit security validation failure
 		if sm.auditManager != nil {
 			sm.auditManager.LogSecurityEvent(req.ctx, AuditActionSizeLimit, req.contextID, "", "state_size_limit", map[string]interface{}{
 				"state_id": req.stateID,
-				"error": err.Error(),
+				"error":    err.Error(),
 			})
 		}
 		return updateResult{err: fmt.Errorf("security validation failed for new state: %w", err)}
@@ -937,8 +947,8 @@ func (sm *StateManager) processSingleUpdate(state interface{}, req *updateReques
 		if sm.auditManager != nil {
 			sm.auditManager.LogError(req.ctx, AuditActionError, err, map[string]interface{}{
 				"context_id": req.contextID,
-				"state_id": req.stateID,
-				"operation": "store_update",
+				"state_id":   req.stateID,
+				"operation":  "store_update",
 			})
 		}
 		return updateResult{err: fmt.Errorf("store update failed: %w", err)}
@@ -988,11 +998,11 @@ func (sm *StateManager) processSingleUpdate(state interface{}, req *updateReques
 			NewValue:  newState,
 			Duration:  time.Since(startTime),
 			Details: map[string]interface{}{
-				"delta_operations": len(delta),
+				"delta_operations":   len(delta),
 				"checkpoint_created": req.options.CreateCheckpoint,
 			},
 		}
-		
+
 		sm.auditManager.enrichFromContext(req.ctx, log)
 		go func() {
 			if err := sm.auditManager.logger.Log(context.Background(), log); err != nil {
@@ -1097,7 +1107,7 @@ func (sm *StateManager) createAutoCheckpoints() {
 		return true
 	})
 
-	for _ = range stateIDs {
+	for range stateIDs {
 		// Ensure state exists before creating checkpoint
 		_, err := sm.store.Get("/")
 		if err != nil {
@@ -1106,7 +1116,7 @@ func (sm *StateManager) createAutoCheckpoints() {
 			continue
 		}
 
-		name := fmt.Sprintf("auto-%s", time.Now().Format("20060102-150405"))
+		name := fmt.Sprintf("auto-%s", time.Now().Format("20060102-150405")) // AutoCheckpointNameLength format
 		if err := sm.rollbackManager.CreateMarker(name); err != nil {
 			sm.logger.Error("auto checkpoint creation failed",
 				Err(err),
@@ -1158,26 +1168,25 @@ func (sm *StateManager) emitEvent(event *stateEvent) {
 	if atomic.LoadInt32(&sm.closing) == 1 {
 		return
 	}
-	
+
 	select {
 	case sm.eventQueue <- event:
 	case <-sm.ctx.Done():
 		// Manager is shutting down
 	default:
 		// Queue full, log and drop
-		sm.logger.Warn("event queue full, dropping event", 
+		sm.logger.Warn("event queue full, dropping event",
 			String("event_type", event.Type),
 			String("state_id", event.StateID))
 	}
 }
-
 
 // reportError sends an error to the error channel if possible
 func (sm *StateManager) reportError(err error) {
 	if err == nil {
 		return
 	}
-	
+
 	// Try to send error to channel, but don't block
 	select {
 	case sm.errCh <- err:
@@ -1192,9 +1201,9 @@ func (sm *StateManager) reportError(err error) {
 // handleErrors processes errors from goroutines
 func (sm *StateManager) handleErrors() {
 	defer sm.wg.Done()
-	
+
 	errorCounts := make(map[string]int)
-	resetTicker := time.NewTicker(5 * time.Minute)
+	resetTicker := time.NewTicker(DefaultErrorResetInterval)
 	defer resetTicker.Stop()
 
 	for {
@@ -1209,25 +1218,25 @@ func (sm *StateManager) handleErrors() {
 			if err == nil {
 				continue
 			}
-			
+
 			// Log the error
-			sm.logger.Error("async operation failed", 
+			sm.logger.Error("async operation failed",
 				Err(err),
 				String("error_type", categorizeError(err)))
-			
+
 			// Track error counts for circuit breaker
 			errType := categorizeError(err)
 			errorCounts[errType]++
-			
+
 			// Check if we should enter degraded mode
 			if sm.shouldCircuitBreak(errorCounts) {
 				sm.enterDegradedMode()
 			}
-			
+
 		case <-resetTicker.C:
 			// Reset error counts periodically
 			errorCounts = make(map[string]int)
-			
+
 		case <-sm.ctx.Done():
 			sm.logger.Debug("handleErrors context cancelled", Err(sm.ctx.Err()))
 			// Drain remaining errors before exiting
@@ -1268,15 +1277,15 @@ func (sm *StateManager) shouldCircuitBreak(errorCounts map[string]int) bool {
 	for errType, count := range errorCounts {
 		switch errType {
 		case "update":
-			if count > 10 {
+			if count > DefaultUpdateErrorThreshold {
 				return true
 			}
 		case "checkpoint":
-			if count > 5 {
+			if count > DefaultCheckpointErrorThreshold {
 				return true
 			}
 		default:
-			if count > 20 {
+			if count > DefaultMaxErrorCount {
 				return true
 			}
 		}
@@ -1287,7 +1296,7 @@ func (sm *StateManager) shouldCircuitBreak(errorCounts map[string]int) bool {
 // enterDegradedMode puts the system in a degraded state
 func (sm *StateManager) enterDegradedMode() {
 	sm.logger.Warn("entering degraded mode due to excessive errors")
-	
+
 	// Emit degraded mode event
 	sm.emitEvent(&stateEvent{
 		Type:      "system.degraded",
@@ -1297,7 +1306,7 @@ func (sm *StateManager) enterDegradedMode() {
 			"reason": "excessive_errors",
 		},
 	})
-	
+
 	// Could implement additional degraded mode behavior here
 	// For example: disable non-critical features, increase timeouts, etc.
 }
@@ -1306,12 +1315,12 @@ func (sm *StateManager) enterDegradedMode() {
 
 func applyUpdates(data, updates map[string]interface{}) map[string]interface{} {
 	result := make(map[string]interface{})
-	
+
 	// Copy existing data
 	for k, v := range data {
 		result[k] = v
 	}
-	
+
 	// Apply updates
 	for k, v := range updates {
 		if v == nil {
@@ -1320,10 +1329,9 @@ func applyUpdates(data, updates map[string]interface{}) map[string]interface{} {
 			result[k] = v
 		}
 	}
-	
+
 	return result
 }
-
 
 // metricsCollector collects and stores metrics
 type metricsCollector struct {
@@ -1347,7 +1355,7 @@ func (mc *metricsCollector) Collect(sm *StateManager) {
 	activeContexts := sm.activeContexts.Size()
 
 	mc.metrics = map[string]interface{}{
-		"active_contexts":    activeContexts,
+		"active_contexts":   activeContexts,
 		"update_queue_size": len(sm.updateQueue),
 		"event_queue_size":  len(sm.eventQueue),
 		"timestamp":         time.Now(),
@@ -1404,7 +1412,7 @@ func (sm *StateManager) maybeCleanupContexts() {
 	if now.Sub(sm.lastCleanup) < sm.cleanupInterval {
 		return
 	}
-	
+
 	sm.lastCleanup = now
 	// Launch cleanup in a goroutine with proper error handling
 	go func() {
@@ -1426,15 +1434,15 @@ func (sm *StateManager) maybeCleanupContexts() {
 func (sm *StateManager) cleanupExpiredContexts() {
 	// Get expired contexts
 	expired := sm.activeContexts.GetExpiredContexts(sm.contextTTL)
-	
+
 	// Remove each expired context
 	for _, contextID := range expired {
 		// Get context before deletion for event
 		ctx, _ := sm.activeContexts.Get(contextID)
-		
+
 		// Delete the context
 		sm.activeContexts.Delete(contextID)
-		
+
 		// Emit context expired event
 		if ctx != nil {
 			sm.emitEvent(&stateEvent{
@@ -1446,12 +1454,12 @@ func (sm *StateManager) cleanupExpiredContexts() {
 					"reason":    "expired",
 				},
 			})
-			
+
 			sm.logger.Debug("context expired",
 				String("context_id", ctx.ID),
 				String("state_id", ctx.StateID),
 				Duration("age", time.Since(ctx.Created)))
-			
+
 			// Audit context expiration
 			if sm.auditManager != nil {
 				log := &AuditLog{
@@ -1463,8 +1471,8 @@ func (sm *StateManager) cleanupExpiredContexts() {
 					StateID:   ctx.StateID,
 					Resource:  "context",
 					Details: map[string]interface{}{
-						"reason": "expired",
-						"age_seconds": time.Since(ctx.Created).Seconds(),
+						"reason":        "expired",
+						"age_seconds":   time.Since(ctx.Created).Seconds(),
 						"last_accessed": ctx.LastAccessed,
 					},
 				}
@@ -1484,7 +1492,7 @@ func (sm *StateManager) enqueueUpdate(req *updateRequest) error {
 	if atomic.LoadInt32(&sm.closing) == 1 {
 		return ErrManagerClosing
 	}
-	
+
 	select {
 	case sm.updateQueue <- req:
 		return nil
@@ -1493,4 +1501,9 @@ func (sm *StateManager) enqueueUpdate(req *updateRequest) error {
 	default:
 		return ErrQueueFull
 	}
+}
+
+// isClosing returns true if the manager is in the process of closing
+func (sm *StateManager) isClosing() bool {
+	return atomic.LoadInt32(&sm.closing) == 1
 }

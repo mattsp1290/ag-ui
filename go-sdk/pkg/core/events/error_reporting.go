@@ -39,7 +39,7 @@ func NewErrorReporter(config *ErrorReportingConfig) *ErrorReporter {
 	if config == nil {
 		config = DefaultErrorReportingConfig()
 	}
-	
+
 	return &ErrorReporter{
 		config: config,
 	}
@@ -54,81 +54,81 @@ func (r *ErrorReporter) GenerateReport(result *ValidationResult, context *Valida
 		Context:   r.generateContextInfo(context),
 		Timestamp: time.Now(),
 	}
-	
+
 	if r.config.GroupSimilarErrors {
 		report.GroupedErrors = r.groupSimilarErrors(result.Errors)
 		report.GroupedWarnings = r.groupSimilarErrors(result.Warnings)
 	}
-	
+
 	if r.config.IncludeSuggestions {
 		report.Recommendations = r.generateRecommendations(result, context)
 	}
-	
+
 	return report
 }
 
 // ErrorReport represents a comprehensive error report
 type ErrorReport struct {
-	Summary          *ErrorSummary              `json:"summary"`
-	Errors           []*EnhancedValidationError `json:"errors,omitempty"`
-	Warnings         []*EnhancedValidationError `json:"warnings,omitempty"`
-	Context          *ReportContext             `json:"context,omitempty"`
-	GroupedErrors    map[string][]*ValidationError `json:"grouped_errors,omitempty"`
-	GroupedWarnings  map[string][]*ValidationError `json:"grouped_warnings,omitempty"`
-	Recommendations  []*Recommendation          `json:"recommendations,omitempty"`
-	Timestamp        time.Time                  `json:"timestamp"`
+	Summary         *ErrorSummary                 `json:"summary"`
+	Errors          []*EnhancedValidationError    `json:"errors,omitempty"`
+	Warnings        []*EnhancedValidationError    `json:"warnings,omitempty"`
+	Context         *ReportContext                `json:"context,omitempty"`
+	GroupedErrors   map[string][]*ValidationError `json:"grouped_errors,omitempty"`
+	GroupedWarnings map[string][]*ValidationError `json:"grouped_warnings,omitempty"`
+	Recommendations []*Recommendation             `json:"recommendations,omitempty"`
+	Timestamp       time.Time                     `json:"timestamp"`
 }
 
 // ErrorSummary provides a high-level summary of validation results
 type ErrorSummary struct {
-	TotalErrors        int                        `json:"total_errors"`
-	TotalWarnings      int                        `json:"total_warnings"`
-	TotalEvents        int                        `json:"total_events"`
-	ErrorRate          float64                    `json:"error_rate"`
-	WarningRate        float64                    `json:"warning_rate"`
-	MostCommonError    string                     `json:"most_common_error,omitempty"`
-	MostCommonWarning  string                     `json:"most_common_warning,omitempty"`
-	CriticalErrors     int                        `json:"critical_errors"`
-	ErrorsByType       map[EventType]int          `json:"errors_by_type"`
-	ErrorsByRule       map[string]int             `json:"errors_by_rule"`
+	TotalErrors       int               `json:"total_errors"`
+	TotalWarnings     int               `json:"total_warnings"`
+	TotalEvents       int               `json:"total_events"`
+	ErrorRate         float64           `json:"error_rate"`
+	WarningRate       float64           `json:"warning_rate"`
+	MostCommonError   string            `json:"most_common_error,omitempty"`
+	MostCommonWarning string            `json:"most_common_warning,omitempty"`
+	CriticalErrors    int               `json:"critical_errors"`
+	ErrorsByType      map[EventType]int `json:"errors_by_type"`
+	ErrorsByRule      map[string]int    `json:"errors_by_rule"`
 }
 
 // EnhancedValidationError extends ValidationError with additional context
 type EnhancedValidationError struct {
 	*ValidationError
-	EventContext    *EventContextInfo `json:"event_context,omitempty"`
+	EventContext    *EventContextInfo    `json:"event_context,omitempty"`
 	SequenceContext *SequenceContextInfo `json:"sequence_context,omitempty"`
-	RelatedEvents   []Event           `json:"related_events,omitempty"`
-	FixExamples     []*FixExample     `json:"fix_examples,omitempty"`
+	RelatedEvents   []Event              `json:"related_events,omitempty"`
+	FixExamples     []*FixExample        `json:"fix_examples,omitempty"`
 }
 
 // EventContextInfo provides context about the problematic event
 type EventContextInfo struct {
-	EventIndex       int                    `json:"event_index"`
-	EventJSON        string                 `json:"event_json,omitempty"`
-	PreviousEvent    Event                  `json:"previous_event,omitempty"`
-	NextEvent        Event                  `json:"next_event,omitempty"`
-	ParentEvent      Event                  `json:"parent_event,omitempty"`
-	RelatedEventIDs  []string               `json:"related_event_ids,omitempty"`
-	StateAtEvent     map[string]interface{} `json:"state_at_event,omitempty"`
+	EventIndex      int                    `json:"event_index"`
+	EventJSON       string                 `json:"event_json,omitempty"`
+	PreviousEvent   Event                  `json:"previous_event,omitempty"`
+	NextEvent       Event                  `json:"next_event,omitempty"`
+	ParentEvent     Event                  `json:"parent_event,omitempty"`
+	RelatedEventIDs []string               `json:"related_event_ids,omitempty"`
+	StateAtEvent    map[string]interface{} `json:"state_at_event,omitempty"`
 }
 
 // SequenceContextInfo provides context about the event sequence
 type SequenceContextInfo struct {
-	SequenceLength    int       `json:"sequence_length"`
-	CurrentPhase      EventPhase `json:"current_phase"`
-	ActiveRuns        []string  `json:"active_runs,omitempty"`
-	ActiveMessages    []string  `json:"active_messages,omitempty"`
-	ActiveTools       []string  `json:"active_tools,omitempty"`
+	SequenceLength    int         `json:"sequence_length"`
+	CurrentPhase      EventPhase  `json:"current_phase"`
+	ActiveRuns        []string    `json:"active_runs,omitempty"`
+	ActiveMessages    []string    `json:"active_messages,omitempty"`
+	ActiveTools       []string    `json:"active_tools,omitempty"`
 	RecentEventTypes  []EventType `json:"recent_event_types,omitempty"`
-	ProtocolViolation bool      `json:"protocol_violation"`
+	ProtocolViolation bool        `json:"protocol_violation"`
 }
 
 // ReportContext provides overall context for the report
 type ReportContext struct {
-	ValidationConfig  *ValidationConfig     `json:"validation_config,omitempty"`
-	SequenceInfo      *SequenceInfo         `json:"sequence_info,omitempty"`
-	ValidationMetrics *ValidationMetrics    `json:"validation_metrics,omitempty"`
+	ValidationConfig  *ValidationConfig      `json:"validation_config,omitempty"`
+	SequenceInfo      *SequenceInfo          `json:"sequence_info,omitempty"`
+	ValidationMetrics *ValidationMetrics     `json:"validation_metrics,omitempty"`
 	Environment       map[string]interface{} `json:"environment,omitempty"`
 }
 
@@ -186,12 +186,12 @@ func (r *ErrorReporter) generateSummary(result *ValidationResult) *ErrorSummary 
 		ErrorsByType:  make(map[EventType]int),
 		ErrorsByRule:  make(map[string]int),
 	}
-	
+
 	if result.EventCount > 0 {
 		summary.ErrorRate = float64(summary.TotalErrors) / float64(result.EventCount)
 		summary.WarningRate = float64(summary.TotalWarnings) / float64(result.EventCount)
 	}
-	
+
 	// Count critical errors
 	for _, err := range result.Errors {
 		if err.Severity == ValidationSeverityError {
@@ -200,34 +200,34 @@ func (r *ErrorReporter) generateSummary(result *ValidationResult) *ErrorSummary 
 		summary.ErrorsByType[err.EventType]++
 		summary.ErrorsByRule[err.RuleID]++
 	}
-	
+
 	// Find most common error and warning
 	summary.MostCommonError = r.findMostCommonRule(result.Errors)
 	summary.MostCommonWarning = r.findMostCommonRule(result.Warnings)
-	
+
 	return summary
 }
 
 // enhanceErrors enhances errors with additional context
 func (r *ErrorReporter) enhanceErrors(errors []*ValidationError, context *ValidationContext) []*EnhancedValidationError {
 	enhanced := make([]*EnhancedValidationError, len(errors))
-	
+
 	for i, err := range errors {
 		enhanced[i] = &EnhancedValidationError{
 			ValidationError: err,
 		}
-		
+
 		if r.config.IncludeEventContext && context != nil {
 			enhanced[i].EventContext = r.generateEventContext(err, context)
 			enhanced[i].SequenceContext = r.generateSequenceContext(err, context)
 			enhanced[i].RelatedEvents = r.findRelatedEvents(err, context)
 		}
-		
+
 		if r.config.IncludeSuggestions {
 			enhanced[i].FixExamples = r.generateFixExamples(err)
 		}
 	}
-	
+
 	return enhanced
 }
 
@@ -236,18 +236,18 @@ func (r *ErrorReporter) generateEventContext(err *ValidationError, context *Vali
 	if context.CurrentEvent == nil {
 		return nil
 	}
-	
+
 	eventContext := &EventContextInfo{
 		EventIndex: context.EventIndex,
 	}
-	
+
 	// Include event JSON if configured
 	if r.config.VerboseMessages {
 		if eventJSON, jsonErr := json.Marshal(context.CurrentEvent); jsonErr == nil {
 			eventContext.EventJSON = string(eventJSON)
 		}
 	}
-	
+
 	// Find previous and next events
 	if context.EventSequence != nil && len(context.EventSequence) > 0 {
 		if context.EventIndex > 0 {
@@ -257,10 +257,10 @@ func (r *ErrorReporter) generateEventContext(err *ValidationError, context *Vali
 			eventContext.NextEvent = context.EventSequence[context.EventIndex+1]
 		}
 	}
-	
+
 	// Find related event IDs
 	eventContext.RelatedEventIDs = r.findRelatedEventIDs(err, context)
-	
+
 	return eventContext
 }
 
@@ -269,22 +269,22 @@ func (r *ErrorReporter) generateSequenceContext(err *ValidationError, context *V
 	if context.State == nil {
 		return nil
 	}
-	
+
 	seqContext := &SequenceContextInfo{
 		CurrentPhase:      context.State.CurrentPhase,
 		ProtocolViolation: r.isProtocolViolation(err),
 	}
-	
+
 	if context.EventSequence != nil {
 		seqContext.SequenceLength = len(context.EventSequence)
-		
+
 		// Get recent event types
 		start := max(0, len(context.EventSequence)-5)
 		for i := start; i < len(context.EventSequence); i++ {
 			seqContext.RecentEventTypes = append(seqContext.RecentEventTypes, context.EventSequence[i].Type())
 		}
 	}
-	
+
 	// Get active IDs
 	for runID := range context.State.ActiveRuns {
 		seqContext.ActiveRuns = append(seqContext.ActiveRuns, runID)
@@ -295,7 +295,7 @@ func (r *ErrorReporter) generateSequenceContext(err *ValidationError, context *V
 	for toolID := range context.State.ActiveTools {
 		seqContext.ActiveTools = append(seqContext.ActiveTools, toolID)
 	}
-	
+
 	return seqContext
 }
 
@@ -304,12 +304,12 @@ func (r *ErrorReporter) generateContextInfo(context *ValidationContext) *ReportC
 	if context == nil {
 		return nil
 	}
-	
+
 	reportContext := &ReportContext{
 		ValidationConfig: context.Config,
 		Environment:      make(map[string]interface{}),
 	}
-	
+
 	if context.State != nil {
 		// Create a summary of the sequence info
 		reportContext.SequenceInfo = &SequenceInfo{
@@ -326,56 +326,56 @@ func (r *ErrorReporter) generateContextInfo(context *ValidationContext) *ReportC
 			LastEventTime:    context.State.LastEventTime,
 		}
 	}
-	
+
 	// Add environment information
 	reportContext.Environment["timestamp"] = time.Now()
 	reportContext.Environment["go_version"] = "1.21+"
 	reportContext.Environment["ag_ui_version"] = "1.0.0"
-	
+
 	return reportContext
 }
 
 // groupSimilarErrors groups similar errors together
 func (r *ErrorReporter) groupSimilarErrors(errors []*ValidationError) map[string][]*ValidationError {
 	groups := make(map[string][]*ValidationError)
-	
+
 	for _, err := range errors {
 		key := fmt.Sprintf("%s:%s", err.RuleID, err.EventType)
 		groups[key] = append(groups[key], err)
 	}
-	
+
 	return groups
 }
 
 // generateRecommendations generates actionable recommendations
 func (r *ErrorReporter) generateRecommendations(result *ValidationResult, context *ValidationContext) []*Recommendation {
 	var recommendations []*Recommendation
-	
+
 	// Analyze error patterns and generate recommendations
 	recommendations = append(recommendations, r.analyzeErrorPatterns(result)...)
 	recommendations = append(recommendations, r.analyzeSequenceIssues(result, context)...)
 	recommendations = append(recommendations, r.analyzePerformanceIssues(result, context)...)
-	
+
 	return recommendations
 }
 
 // analyzeErrorPatterns analyzes error patterns for recommendations
 func (r *ErrorReporter) analyzeErrorPatterns(result *ValidationResult) []*Recommendation {
 	var recommendations []*Recommendation
-	
+
 	// Count error types
 	ruleErrors := make(map[string]int)
 	for _, err := range result.Errors {
 		ruleErrors[err.RuleID]++
 	}
-	
+
 	// Generate recommendations based on common errors
 	for ruleID, count := range ruleErrors {
 		if count >= 3 {
 			recommendations = append(recommendations, r.generateRuleRecommendation(ruleID, count))
 		}
 	}
-	
+
 	return recommendations
 }
 
@@ -384,7 +384,7 @@ func (r *ErrorReporter) generateRuleRecommendation(ruleID string, count int) *Re
 	var title, description string
 	var actions []string
 	var priority RecommendationPriority
-	
+
 	switch ruleID {
 	case "MESSAGE_LIFECYCLE":
 		title = "Fix Message Lifecycle Issues"
@@ -395,7 +395,7 @@ func (r *ErrorReporter) generateRuleRecommendation(ruleID string, count int) *Re
 			"Send TEXT_MESSAGE_END to complete messages",
 		}
 		priority = RecommendationPriorityHigh
-		
+
 	case "TOOL_CALL_LIFECYCLE":
 		title = "Fix Tool Call Lifecycle Issues"
 		description = fmt.Sprintf("Found %d tool call lifecycle violations. Ensure proper start→args→end sequences.", count)
@@ -405,7 +405,7 @@ func (r *ErrorReporter) generateRuleRecommendation(ruleID string, count int) *Re
 			"Send TOOL_CALL_END to complete tool calls",
 		}
 		priority = RecommendationPriorityHigh
-		
+
 	case "RUN_LIFECYCLE":
 		title = "Fix Run Lifecycle Issues"
 		description = fmt.Sprintf("Found %d run lifecycle violations. Ensure proper run management.", count)
@@ -415,7 +415,7 @@ func (r *ErrorReporter) generateRuleRecommendation(ruleID string, count int) *Re
 			"Use unique run IDs",
 		}
 		priority = RecommendationPriorityCritical
-		
+
 	default:
 		title = fmt.Sprintf("Address %s Rule Violations", ruleID)
 		description = fmt.Sprintf("Found %d violations of the %s rule.", count, ruleID)
@@ -426,7 +426,7 @@ func (r *ErrorReporter) generateRuleRecommendation(ruleID string, count int) *Re
 		}
 		priority = RecommendationPriorityMedium
 	}
-	
+
 	return &Recommendation{
 		Priority:    priority,
 		Category:    "Error Pattern",
@@ -439,11 +439,11 @@ func (r *ErrorReporter) generateRuleRecommendation(ruleID string, count int) *Re
 // analyzeSequenceIssues analyzes sequence-related issues
 func (r *ErrorReporter) analyzeSequenceIssues(result *ValidationResult, context *ValidationContext) []*Recommendation {
 	var recommendations []*Recommendation
-	
+
 	if context == nil || context.State == nil {
 		return recommendations
 	}
-	
+
 	// Check for incomplete sequences
 	incompleteCount := len(context.State.ActiveMessages) + len(context.State.ActiveTools)
 	if incompleteCount > 5 {
@@ -459,14 +459,14 @@ func (r *ErrorReporter) analyzeSequenceIssues(result *ValidationResult, context 
 			},
 		})
 	}
-	
+
 	return recommendations
 }
 
 // analyzePerformanceIssues analyzes performance-related issues
 func (r *ErrorReporter) analyzePerformanceIssues(result *ValidationResult, context *ValidationContext) []*Recommendation {
 	var recommendations []*Recommendation
-	
+
 	// Check validation duration
 	if result.Duration > time.Second {
 		recommendations = append(recommendations, &Recommendation{
@@ -481,7 +481,7 @@ func (r *ErrorReporter) analyzePerformanceIssues(result *ValidationResult, conte
 			},
 		})
 	}
-	
+
 	return recommendations
 }
 
@@ -492,7 +492,7 @@ func (r *ErrorReporter) findMostCommonRule(errors []*ValidationError) string {
 	for _, err := range errors {
 		ruleCounts[err.RuleID]++
 	}
-	
+
 	maxCount := 0
 	mostCommon := ""
 	for rule, count := range ruleCounts {
@@ -501,34 +501,34 @@ func (r *ErrorReporter) findMostCommonRule(errors []*ValidationError) string {
 			mostCommon = rule
 		}
 	}
-	
+
 	return mostCommon
 }
 
 func (r *ErrorReporter) findRelatedEvents(err *ValidationError, context *ValidationContext) []Event {
 	var related []Event
-	
+
 	if context.EventSequence == nil || err.EventID == "" {
 		return related
 	}
-	
+
 	// Find events with the same ID or related IDs
 	for _, event := range context.EventSequence {
 		if r.isRelatedEvent(event, err.EventID) {
 			related = append(related, event)
 		}
 	}
-	
+
 	return related
 }
 
 func (r *ErrorReporter) findRelatedEventIDs(err *ValidationError, context *ValidationContext) []string {
 	var relatedIDs []string
-	
+
 	if err.EventID == "" {
 		return relatedIDs
 	}
-	
+
 	// Find related IDs based on event type and relationships
 	switch err.EventType {
 	case EventTypeTextMessageContent:
@@ -536,7 +536,7 @@ func (r *ErrorReporter) findRelatedEventIDs(err *ValidationError, context *Valid
 	case EventTypeToolCallArgs:
 		relatedIDs = append(relatedIDs, err.EventID+"-start", err.EventID+"-end")
 	}
-	
+
 	return relatedIDs
 }
 
@@ -561,7 +561,7 @@ func (r *ErrorReporter) isRelatedEvent(event Event, eventID string) bool {
 	case *RunErrorEvent:
 		return e.RunID == eventID
 	}
-	
+
 	return false
 }
 
@@ -572,19 +572,19 @@ func (r *ErrorReporter) isProtocolViolation(err *ValidationError) bool {
 		"MESSAGE_LIFECYCLE",
 		"TOOL_CALL_LIFECYCLE",
 	}
-	
+
 	for _, rule := range protocolRules {
 		if err.RuleID == rule {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
 func (r *ErrorReporter) generateFixExamples(err *ValidationError) []*FixExample {
 	var examples []*FixExample
-	
+
 	switch err.RuleID {
 	case "MESSAGE_LIFECYCLE":
 		examples = append(examples, &FixExample{
@@ -595,7 +595,7 @@ startEvent := &TextMessageStartEvent{MessageID: "msg-123"}
 contentEvent := &TextMessageContentEvent{MessageID: "msg-123", Delta: "Hello"}
 endEvent := &TextMessageEndEvent{MessageID: "msg-123"}`,
 		})
-		
+
 	case "TOOL_CALL_LIFECYCLE":
 		examples = append(examples, &FixExample{
 			Title:       "Proper Tool Call Sequence",
@@ -606,7 +606,7 @@ argsEvent := &ToolCallArgsEvent{ToolCallID: "tool-123", Delta: "2 + 2"}
 endEvent := &ToolCallEndEvent{ToolCallID: "tool-123"}`,
 		})
 	}
-	
+
 	return examples
 }
 
@@ -616,13 +616,13 @@ func (r *ErrorReporter) FormatReport(report *ErrorReport, format string) (string
 	case "json":
 		data, err := json.MarshalIndent(report, "", "  ")
 		return string(data), err
-		
+
 	case "text", "plain":
 		return r.formatAsText(report), nil
-		
+
 	case "markdown", "md":
 		return r.formatAsMarkdown(report), nil
-		
+
 	default:
 		return "", fmt.Errorf("unsupported format: %s", format)
 	}
@@ -631,7 +631,7 @@ func (r *ErrorReporter) FormatReport(report *ErrorReport, format string) (string
 // formatAsText formats the report as plain text
 func (r *ErrorReporter) formatAsText(report *ErrorReport) string {
 	var builder strings.Builder
-	
+
 	// Summary
 	builder.WriteString(fmt.Sprintf("Event Validation Report - %s\n", report.Timestamp.Format(time.RFC3339)))
 	builder.WriteString(strings.Repeat("=", 50) + "\n")
@@ -639,7 +639,7 @@ func (r *ErrorReporter) formatAsText(report *ErrorReport) string {
 	builder.WriteString(fmt.Sprintf("Errors: %d (%.2f%%)\n", report.Summary.TotalErrors, report.Summary.ErrorRate*100))
 	builder.WriteString(fmt.Sprintf("Warnings: %d (%.2f%%)\n", report.Summary.TotalWarnings, report.Summary.WarningRate*100))
 	builder.WriteString("\n")
-	
+
 	// Errors
 	if len(report.Errors) > 0 {
 		builder.WriteString("ERRORS:\n")
@@ -659,7 +659,7 @@ func (r *ErrorReporter) formatAsText(report *ErrorReport) string {
 			builder.WriteString("\n")
 		}
 	}
-	
+
 	// Warnings
 	if len(report.Warnings) > 0 {
 		builder.WriteString("WARNINGS:\n")
@@ -672,7 +672,7 @@ func (r *ErrorReporter) formatAsText(report *ErrorReport) string {
 			builder.WriteString("\n")
 		}
 	}
-	
+
 	// Recommendations
 	if len(report.Recommendations) > 0 {
 		builder.WriteString("RECOMMENDATIONS:\n")
@@ -689,25 +689,25 @@ func (r *ErrorReporter) formatAsText(report *ErrorReport) string {
 			builder.WriteString("\n")
 		}
 	}
-	
+
 	return builder.String()
 }
 
 // formatAsMarkdown formats the report as Markdown
 func (r *ErrorReporter) formatAsMarkdown(report *ErrorReport) string {
 	var builder strings.Builder
-	
+
 	// Title
 	builder.WriteString(fmt.Sprintf("# Event Validation Report\n\n"))
 	builder.WriteString(fmt.Sprintf("**Generated:** %s\n\n", report.Timestamp.Format(time.RFC3339)))
-	
+
 	// Summary
 	builder.WriteString("## Summary\n\n")
 	builder.WriteString(fmt.Sprintf("- **Total Events:** %d\n", report.Summary.TotalEvents))
 	builder.WriteString(fmt.Sprintf("- **Errors:** %d (%.2f%%)\n", report.Summary.TotalErrors, report.Summary.ErrorRate*100))
 	builder.WriteString(fmt.Sprintf("- **Warnings:** %d (%.2f%%)\n", report.Summary.TotalWarnings, report.Summary.WarningRate*100))
 	builder.WriteString(fmt.Sprintf("- **Critical Errors:** %d\n\n", report.Summary.CriticalErrors))
-	
+
 	// Errors
 	if len(report.Errors) > 0 {
 		builder.WriteString("## Errors\n\n")
@@ -718,7 +718,7 @@ func (r *ErrorReporter) formatAsMarkdown(report *ErrorReport) string {
 				builder.WriteString(fmt.Sprintf("**Event ID:** `%s`\n\n", err.EventID))
 			}
 			builder.WriteString(fmt.Sprintf("**Event Type:** `%s`\n\n", err.EventType))
-			
+
 			if len(err.Suggestions) > 0 {
 				builder.WriteString("**Suggestions:**\n")
 				for _, suggestion := range err.Suggestions {
@@ -728,7 +728,7 @@ func (r *ErrorReporter) formatAsMarkdown(report *ErrorReport) string {
 			}
 		}
 	}
-	
+
 	// Warnings
 	if len(report.Warnings) > 0 {
 		builder.WriteString("## Warnings\n\n")
@@ -740,14 +740,14 @@ func (r *ErrorReporter) formatAsMarkdown(report *ErrorReport) string {
 			}
 		}
 	}
-	
+
 	// Recommendations
 	if len(report.Recommendations) > 0 {
 		builder.WriteString("## Recommendations\n\n")
 		for i, rec := range report.Recommendations {
 			builder.WriteString(fmt.Sprintf("### %d. %s (%s Priority)\n\n", i+1, rec.Title, rec.Priority))
 			builder.WriteString(fmt.Sprintf("%s\n\n", rec.Description))
-			
+
 			if len(rec.Actions) > 0 {
 				builder.WriteString("**Recommended Actions:**\n")
 				for _, action := range rec.Actions {
@@ -757,7 +757,7 @@ func (r *ErrorReporter) formatAsMarkdown(report *ErrorReport) string {
 			}
 		}
 	}
-	
+
 	return builder.String()
 }
 

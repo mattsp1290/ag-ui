@@ -6,12 +6,16 @@ import (
 )
 
 // OpenAITool represents a tool in OpenAI's function calling format.
+// This structure is used when converting tools for use with OpenAI's API.
+// The Type field is always "function" for tool definitions.
 type OpenAITool struct {
 	Type     string             `json:"type"`
 	Function OpenAIToolFunction `json:"function"`
 }
 
 // OpenAIToolFunction represents the function definition in OpenAI format.
+// It contains the function name, description, and parameter schema
+// formatted according to OpenAI's specifications.
 type OpenAIToolFunction struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
@@ -19,6 +23,8 @@ type OpenAIToolFunction struct {
 }
 
 // OpenAIToolCall represents a tool call in OpenAI format.
+// This is used when OpenAI's API requests a tool execution.
+// The ID field is used to correlate responses with requests.
 type OpenAIToolCall struct {
 	ID       string             `json:"id"`
 	Type     string             `json:"type"`
@@ -26,12 +32,15 @@ type OpenAIToolCall struct {
 }
 
 // OpenAIFunctionCall represents a function call in OpenAI format.
+// The Arguments field contains JSON-encoded parameters for the function.
 type OpenAIFunctionCall struct {
 	Name      string `json:"name"`
 	Arguments string `json:"arguments"`
 }
 
 // OpenAIToolMessage represents a tool response message in OpenAI format.
+// This is used to send tool execution results back to OpenAI.
+// The role is always "tool" and ToolCallID must match the request ID.
 type OpenAIToolMessage struct {
 	Role       string `json:"role"`
 	Content    string `json:"content"`
@@ -39,6 +48,8 @@ type OpenAIToolMessage struct {
 }
 
 // AnthropicTool represents a tool in Anthropic's format.
+// This structure is used when converting tools for use with Anthropic's Claude API.
+// The InputSchema follows JSON Schema format.
 type AnthropicTool struct {
 	Name        string                 `json:"name"`
 	Description string                 `json:"description"`
@@ -46,6 +57,8 @@ type AnthropicTool struct {
 }
 
 // AnthropicToolUse represents a tool use request in Anthropic format.
+// This is used when Claude requests a tool execution.
+// The ID field is used to track the tool use throughout the conversation.
 type AnthropicToolUse struct {
 	ID    string                 `json:"id"`
 	Name  string                 `json:"name"`
@@ -53,6 +66,8 @@ type AnthropicToolUse struct {
 }
 
 // AnthropicToolResult represents a tool result in Anthropic format.
+// This is used to send tool execution results back to Claude.
+// The IsError field indicates whether the tool execution failed.
 type AnthropicToolResult struct {
 	ToolUseID string      `json:"tool_use_id"`
 	Content   interface{} `json:"content"`
@@ -60,14 +75,27 @@ type AnthropicToolResult struct {
 }
 
 // ProviderConverter handles conversion between AG-UI tools and provider formats.
+// It provides methods to convert tool definitions and execution requests/results
+// between AG-UI's internal format and various AI provider formats.
+//
+// Supported conversions:
+//   - AG-UI Tool → OpenAI Tool
+//   - AG-UI Tool → Anthropic Tool
+//   - OpenAI Tool Call → AG-UI execution request
+//   - Anthropic Tool Use → AG-UI execution request
+//   - AG-UI Result → OpenAI Tool Message
+//   - AG-UI Result → Anthropic Tool Result
 type ProviderConverter struct{}
 
 // NewProviderConverter creates a new provider converter.
+// The converter is stateless and can be reused for multiple conversions.
 func NewProviderConverter() *ProviderConverter {
 	return &ProviderConverter{}
 }
 
 // ConvertToOpenAITool converts an AG-UI tool to OpenAI format.
+// The tool's schema is transformed to match OpenAI's parameter format.
+// Returns an error if the tool is nil or the schema cannot be converted.
 func (pc *ProviderConverter) ConvertToOpenAITool(tool *Tool) (*OpenAITool, error) {
 	if tool == nil {
 		return nil, fmt.Errorf("tool cannot be nil")
@@ -87,6 +115,8 @@ func (pc *ProviderConverter) ConvertToOpenAITool(tool *Tool) (*OpenAITool, error
 }
 
 // ConvertToAnthropicTool converts an AG-UI tool to Anthropic format.
+// The tool's schema is transformed to match Anthropic's input schema format.
+// Returns an error if the tool is nil or the schema cannot be converted.
 func (pc *ProviderConverter) ConvertToAnthropicTool(tool *Tool) (*AnthropicTool, error) {
 	if tool == nil {
 		return nil, fmt.Errorf("tool cannot be nil")
@@ -103,6 +133,8 @@ func (pc *ProviderConverter) ConvertToAnthropicTool(tool *Tool) (*AnthropicTool,
 }
 
 // ConvertOpenAIToolCall converts an OpenAI tool call to AG-UI format.
+// Extracts the tool name and parses the JSON arguments.
+// Returns the tool name and parsed parameters, or an error if parsing fails.
 func (pc *ProviderConverter) ConvertOpenAIToolCall(call *OpenAIToolCall) (string, map[string]interface{}, error) {
 	if call == nil {
 		return "", nil, fmt.Errorf("tool call cannot be nil")
@@ -118,6 +150,8 @@ func (pc *ProviderConverter) ConvertOpenAIToolCall(call *OpenAIToolCall) (string
 }
 
 // ConvertAnthropicToolUse converts an Anthropic tool use to AG-UI format.
+// Extracts the tool name and input parameters.
+// Returns the tool name and parameters, or an error if the input is nil.
 func (pc *ProviderConverter) ConvertAnthropicToolUse(use *AnthropicToolUse) (string, map[string]interface{}, error) {
 	if use == nil {
 		return "", nil, fmt.Errorf("tool use cannot be nil")
@@ -127,6 +161,8 @@ func (pc *ProviderConverter) ConvertAnthropicToolUse(use *AnthropicToolUse) (str
 }
 
 // ConvertResultToOpenAI converts an AG-UI tool result to OpenAI format.
+// Creates a tool message with the execution result formatted as JSON.
+// The toolCallID must match the ID from the original OpenAI tool call.
 func (pc *ProviderConverter) ConvertResultToOpenAI(result *ToolExecutionResult, toolCallID string) (*OpenAIToolMessage, error) {
 	if result == nil {
 		return nil, fmt.Errorf("result cannot be nil")

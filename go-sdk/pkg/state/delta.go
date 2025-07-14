@@ -121,16 +121,16 @@ func (dc *DeltaComputer) computeDiff(old, new interface{}, path string) JSONPatc
 	if old == nil {
 		// For root path, we need to handle it specially
 		if path == "" {
-			return JSONPatch{{Op: JSONPatchOpAdd, Path: "", Value: new}}
+			return JSONPatch{JSONPatchOperation{Op: JSONPatchOpAdd, Path: "", Value: new}}
 		}
-		return JSONPatch{{Op: JSONPatchOpAdd, Path: path, Value: new}}
+		return JSONPatch{JSONPatchOperation{Op: JSONPatchOpAdd, Path: path, Value: new}}
 	}
 	if new == nil {
 		// For root path, use replace instead of remove since we can't remove root
 		if path == "" {
-			return JSONPatch{{Op: JSONPatchOpReplace, Path: "", Value: nil}}
+			return JSONPatch{JSONPatchOperation{Op: JSONPatchOpReplace, Path: "", Value: nil}}
 		}
-		return JSONPatch{{Op: JSONPatchOpRemove, Path: path}}
+		return JSONPatch{JSONPatchOperation{Op: JSONPatchOpRemove, Path: path}}
 	}
 
 	// Check if values are equal
@@ -142,7 +142,7 @@ func (dc *DeltaComputer) computeDiff(old, new interface{}, path string) JSONPatc
 	oldType := reflect.TypeOf(old)
 	newType := reflect.TypeOf(new)
 	if oldType != newType {
-		return JSONPatch{{Op: JSONPatchOpReplace, Path: path, Value: new}}
+		return JSONPatch{JSONPatchOperation{Op: JSONPatchOpReplace, Path: path, Value: new}}
 	}
 
 	// Handle specific types
@@ -150,21 +150,21 @@ func (dc *DeltaComputer) computeDiff(old, new interface{}, path string) JSONPatc
 	case map[string]interface{}:
 		newVal, ok := new.(map[string]interface{})
 		if !ok {
-			return JSONPatch{{Op: JSONPatchOpReplace, Path: path, Value: new}}
+			return JSONPatch{JSONPatchOperation{Op: JSONPatchOpReplace, Path: path, Value: new}}
 		}
 		return dc.computeObjectDiff(oldVal, newVal, path)
 
 	case []interface{}:
 		newVal, ok := new.([]interface{})
 		if !ok {
-			return JSONPatch{{Op: JSONPatchOpReplace, Path: path, Value: new}}
+			return JSONPatch{JSONPatchOperation{Op: JSONPatchOpReplace, Path: path, Value: new}}
 		}
 		return dc.computeArrayDiff(oldVal, newVal, path)
 
 	default:
 		// Primitive values
 		if !reflect.DeepEqual(old, new) {
-			return JSONPatch{{Op: JSONPatchOpReplace, Path: path, Value: new}}
+			return JSONPatch{JSONPatchOperation{Op: JSONPatchOpReplace, Path: path, Value: new}}
 		}
 		return nil
 	}
@@ -179,39 +179,39 @@ func (dc *DeltaComputer) computeObjectDiff(old, new map[string]interface{}, path
 // computeEfficientDiff uses a hash-based linear algorithm for O(n) complexity
 func (dc *DeltaComputer) computeEfficientDiff(old, new map[string]interface{}, path string) JSONPatch {
 	var patch JSONPatch
-	
+
 	// Pre-allocate patch slice with estimated capacity to reduce allocations
 	estimatedOps := len(old)/4 + len(new)/4
 	patch = make(JSONPatch, 0, estimatedOps)
-	
+
 	// Build hash index for old values for O(1) lookups
 	// We store a hash of the value for quick comparison
 	oldValueHashes := make(map[string]uint64, len(old))
 	for k, v := range old {
 		oldValueHashes[k] = dc.hashValue(v)
 	}
-	
+
 	// Single pass through new map to detect additions and modifications
 	processedKeys := make(map[string]bool, len(new))
-	
+
 	// Process keys in sorted order for consistent output
 	newKeys := make([]string, 0, len(new))
 	for k := range new {
 		newKeys = append(newKeys, k)
 	}
 	sort.Strings(newKeys)
-	
+
 	// Single pass comparison for additions and modifications
 	for _, key := range newKeys {
 		processedKeys[key] = true
 		childPath := path + "/" + escapeJSONPointer(key)
 		newVal := new[key]
-		
+
 		if oldHash, exists := oldValueHashes[key]; exists {
 			// Key exists in old - check if modified
 			oldVal := old[key]
 			newHash := dc.hashValue(newVal)
-			
+
 			// Quick hash comparison first
 			if oldHash != newHash {
 				// Hashes differ, do deep comparison
@@ -231,7 +231,7 @@ func (dc *DeltaComputer) computeEfficientDiff(old, new map[string]interface{}, p
 			})
 		}
 	}
-	
+
 	// Single pass through old map to detect deletions
 	// We need to check which keys from old are not in new
 	for key := range old {
@@ -244,7 +244,7 @@ func (dc *DeltaComputer) computeEfficientDiff(old, new map[string]interface{}, p
 			})
 		}
 	}
-	
+
 	return patch
 }
 
@@ -257,7 +257,7 @@ func (dc *DeltaComputer) hashValue(value interface{}) uint64 {
 		// Fallback to a simple hash based on type and string representation
 		return uint64(len(fmt.Sprintf("%T%v", value, value)))
 	}
-	
+
 	// Use FNV-1a hash for good distribution and speed
 	h := fnv64a(data)
 	return h
@@ -269,7 +269,7 @@ func fnv64a(data []byte) uint64 {
 		offset64 = 14695981039346656037
 		prime64  = 1099511628211
 	)
-	
+
 	hash := uint64(offset64)
 	for _, b := range data {
 		hash ^= uint64(b)
@@ -295,7 +295,7 @@ func (dc *DeltaComputer) computeArrayDiff(old, new []interface{}, path string) J
 // computeArrayDiffSimple treats arrays as atomic values
 func (dc *DeltaComputer) computeArrayDiffSimple(old, new []interface{}, path string) JSONPatch {
 	if !reflect.DeepEqual(old, new) {
-		return JSONPatch{{Op: JSONPatchOpReplace, Path: path, Value: new}}
+		return JSONPatch{JSONPatchOperation{Op: JSONPatchOpReplace, Path: path, Value: new}}
 	}
 	return nil
 }
@@ -391,21 +391,21 @@ func (dc *DeltaComputer) OptimizePatch(patch JSONPatch) JSONPatch {
 	copy(optimized, patch)
 
 	// Apply optimization passes in optimal order
-	optimized = dc.batchRelatedOps(optimized)        // NEW: Batch related operations
+	optimized = dc.batchRelatedOps(optimized) // NEW: Batch related operations
 	optimized = dc.combineAdjacentOps(optimized)
 	optimized = dc.optimizePathOperations(optimized) // NEW: Optimize JSON pointer paths
 	optimized = dc.eliminateRedundantOps(optimized)
-	
+
 	if dc.options.OptimizeMove {
 		optimized = dc.detectMoveOps(optimized)
 	}
-	
+
 	if dc.options.OptimizeCopy {
 		optimized = dc.detectCopyOps(optimized)
 	}
 
 	optimized = dc.reorderOps(optimized)
-	optimized = dc.mergeArrayOperations(optimized)   // NEW: Merge array operations
+	optimized = dc.mergeArrayOperations(optimized) // NEW: Merge array operations
 
 	return optimized
 }
@@ -470,11 +470,11 @@ func (dc *DeltaComputer) eliminateRedundantOps(patch JSONPatch) JSONPatch {
 			// Multiple operations on same path
 			// We need to be careful not to eliminate operations that create paths
 			// needed by later operations
-			
+
 			// First pass: identify the effective final operation
 			var hasAdd, hasReplace, hasRemove bool
 			var lastAddIdx, lastReplaceIdx, lastRemoveIdx int = -1, -1, -1
-			
+
 			for _, idx := range indices {
 				switch patch[idx].Op {
 				case JSONPatchOpAdd:
@@ -488,7 +488,7 @@ func (dc *DeltaComputer) eliminateRedundantOps(patch JSONPatch) JSONPatch {
 					lastRemoveIdx = idx
 				}
 			}
-			
+
 			// Determine what to keep based on the sequence
 			if hasRemove && lastRemoveIdx == indices[len(indices)-1] {
 				// Last operation is remove, only keep that
@@ -538,7 +538,7 @@ func (dc *DeltaComputer) eliminateRedundantOps(patch JSONPatch) JSONPatch {
 func (dc *DeltaComputer) detectMoveOps(patch JSONPatch) JSONPatch {
 	// Map to track removed values
 	removedValues := make(map[string]valueInfo)
-	
+
 	// First pass: collect all removed values
 	for i, op := range patch {
 		if op.Op == JSONPatchOpRemove {
@@ -610,7 +610,7 @@ func (dc *DeltaComputer) reorderOps(patch JSONPatch) JSONPatch {
 
 	// Topological sort
 	sorted := dc.topologicalSort(patch, deps)
-	
+
 	// Build reordered patch
 	var reordered JSONPatch
 	for _, idx := range sorted {
@@ -625,31 +625,31 @@ func (dc *DeltaComputer) batchRelatedOps(patch JSONPatch) JSONPatch {
 	if len(patch) <= 1 {
 		return patch
 	}
-	
+
 	// Group operations by parent path
 	groups := make(map[string][]JSONPatchOperation)
 	for _, op := range patch {
 		parentPath := getParentPath(op.Path)
 		groups[parentPath] = append(groups[parentPath], op)
 	}
-	
+
 	// Rebuild patch with grouped operations
 	var batched JSONPatch
-	
+
 	// Process groups in sorted order for consistency
 	var paths []string
 	for path := range groups {
 		paths = append(paths, path)
 	}
 	sort.Strings(paths)
-	
+
 	for _, path := range paths {
 		ops := groups[path]
 		// Don't reorder operations within the same path to preserve semantics
 		// Just keep them in their original order
 		batched = append(batched, ops...)
 	}
-	
+
 	return batched
 }
 
@@ -660,11 +660,11 @@ func (dc *DeltaComputer) optimizePathOperations(patch JSONPatch) JSONPatch {
 	for i, op := range patch {
 		pathOps[op.Path] = append(pathOps[op.Path], i)
 	}
-	
+
 	// Optimize operations that affect the same path
 	optimized := make(JSONPatch, 0, len(patch))
 	processed := make(map[int]bool)
-	
+
 	// Process paths in order of first occurrence to maintain operation order
 	processOrder := make([]string, 0, len(pathOps))
 	seen := make(map[string]bool)
@@ -674,13 +674,13 @@ func (dc *DeltaComputer) optimizePathOperations(patch JSONPatch) JSONPatch {
 			processOrder = append(processOrder, op.Path)
 		}
 	}
-	
+
 	for _, path := range processOrder {
 		indices := pathOps[path]
 		if len(indices) == 0 {
 			continue
 		}
-		
+
 		// Skip if already processed
 		allProcessed := true
 		for _, idx := range indices {
@@ -692,7 +692,7 @@ func (dc *DeltaComputer) optimizePathOperations(patch JSONPatch) JSONPatch {
 		if allProcessed {
 			continue
 		}
-		
+
 		if len(indices) > 1 {
 			// Find the most efficient combination
 			finalOp := dc.combinePathOperations(patch, indices)
@@ -705,7 +705,7 @@ func (dc *DeltaComputer) optimizePathOperations(patch JSONPatch) JSONPatch {
 				continue
 			}
 		}
-		
+
 		// Single operation or couldn't combine - add all unprocessed ops for this path
 		for _, idx := range indices {
 			if !processed[idx] {
@@ -714,7 +714,7 @@ func (dc *DeltaComputer) optimizePathOperations(patch JSONPatch) JSONPatch {
 			}
 		}
 	}
-	
+
 	return optimized
 }
 
@@ -723,7 +723,7 @@ func (dc *DeltaComputer) mergeArrayOperations(patch JSONPatch) JSONPatch {
 	// Group array operations by array path
 	arrayOps := make(map[string][]JSONPatchOperation)
 	var nonArrayOps JSONPatch
-	
+
 	for _, op := range patch {
 		if isArrayOperation(op) {
 			arrayPath := getArrayPath(op.Path)
@@ -732,7 +732,7 @@ func (dc *DeltaComputer) mergeArrayOperations(patch JSONPatch) JSONPatch {
 			nonArrayOps = append(nonArrayOps, op)
 		}
 	}
-	
+
 	// Process each array's operations
 	var merged JSONPatch
 	for _, ops := range arrayOps {
@@ -744,10 +744,10 @@ func (dc *DeltaComputer) mergeArrayOperations(patch JSONPatch) JSONPatch {
 			merged = append(merged, ops...)
 		}
 	}
-	
+
 	// Combine with non-array operations
 	merged = append(merged, nonArrayOps...)
-	
+
 	return merged
 }
 
@@ -776,17 +776,17 @@ func (dc *DeltaComputer) combinePathOperations(patch JSONPatch, indices []int) *
 	if len(indices) == 0 {
 		return nil
 	}
-	
+
 	// Sort indices to process operations in order
 	sortedIndices := make([]int, len(indices))
 	copy(sortedIndices, indices)
 	sort.Ints(sortedIndices)
-	
+
 	// Analyze the sequence of operations
 	var hasAdd, hasRemove, hasReplace bool
 	var lastValue interface{}
 	var firstOpIsAdd bool
-	
+
 	for i, idx := range sortedIndices {
 		op := patch[idx]
 		switch op.Op {
@@ -803,7 +803,7 @@ func (dc *DeltaComputer) combinePathOperations(patch JSONPatch, indices []int) *
 			lastValue = op.Value
 		}
 	}
-	
+
 	// Determine the final operation
 	if hasRemove && !hasAdd && !hasReplace {
 		// Only removes - keep the remove
@@ -834,7 +834,7 @@ func (dc *DeltaComputer) combinePathOperations(patch JSONPatch, indices []int) *
 			Value: lastValue,
 		}
 	}
-	
+
 	return nil
 }
 
@@ -844,14 +844,14 @@ func (dc *DeltaComputer) mergeArrayOps(ops []JSONPatchOperation) JSONPatch {
 	sort.Slice(ops, func(i, j int) bool {
 		idxI := getArrayIndex(ops[i].Path)
 		idxJ := getArrayIndex(ops[j].Path)
-		
+
 		if ops[i].Op == JSONPatchOpRemove && ops[j].Op == JSONPatchOpRemove {
 			// For removes, process in reverse order
 			return idxI > idxJ
 		}
 		return idxI < idxJ
 	})
-	
+
 	// Return sorted operations (actual merging logic can be more complex)
 	return JSONPatch(ops)
 }
@@ -1137,19 +1137,19 @@ func isInLCS(value interface{}, lcs []interface{}) bool {
 func (dc *DeltaComputer) computeCacheKey(old, new interface{}) string {
 	oldData, _ := json.Marshal(old)
 	newData, _ := json.Marshal(new)
-	
+
 	h := sha256.New()
 	h.Write(oldData)
 	h.Write([]byte("|"))
 	h.Write(newData)
-	
+
 	return fmt.Sprintf("%x", h.Sum(nil))
 }
 
 func (dc *DeltaComputer) getCached(key string) (JSONPatch, bool) {
 	dc.cacheMu.RLock()
 	defer dc.cacheMu.RUnlock()
-	
+
 	patch, found := dc.cache[key]
 	return patch, found
 }
@@ -1157,7 +1157,7 @@ func (dc *DeltaComputer) getCached(key string) (JSONPatch, bool) {
 func (dc *DeltaComputer) putCached(key string, patch JSONPatch) {
 	dc.cacheMu.Lock()
 	defer dc.cacheMu.Unlock()
-	
+
 	// Simple LRU eviction
 	if dc.cacheSize >= dc.options.MaxCacheSize {
 		// Remove a random entry (simplified LRU)
@@ -1167,7 +1167,7 @@ func (dc *DeltaComputer) putCached(key string, patch JSONPatch) {
 			break
 		}
 	}
-	
+
 	dc.cache[key] = patch
 	dc.cacheSize++
 }
@@ -1194,7 +1194,7 @@ type DeltaEntry struct {
 	Timestamp time.Time
 	Patch     JSONPatch
 	Metadata  map[string]interface{}
-	
+
 	// Compression info
 	Compressed   bool
 	OriginalSize int
@@ -1297,7 +1297,7 @@ func (dh *DeltaHistory) ReplayDeltas(baseState interface{}, deltaIDs []string) (
 // compressOldDeltas compresses deltas older than the threshold
 func (dh *DeltaHistory) compressOldDeltas() {
 	threshold := time.Now().Add(-dh.compressAfter)
-	
+
 	for i := range dh.deltas {
 		if dh.deltas[i].Timestamp.Before(threshold) && !dh.deltas[i].Compressed {
 			// Mark for compression (simplified - in practice, we'd actually compress)

@@ -267,6 +267,7 @@ func TestStreamingToolHelper(t *testing.T) {
 	t.Run("StreamJSON_ContextCancellation", func(t *testing.T) {
 		helper := NewStreamingToolHelper()
 		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 		// Large data to ensure multiple chunks
 		data := strings.Repeat("a", 1000)
@@ -371,6 +372,7 @@ func TestStreamingToolHelper(t *testing.T) {
 	t.Run("StreamReader_ContextCancellation", func(t *testing.T) {
 		helper := NewStreamingToolHelper()
 		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 
 		// Large data to ensure multiple chunks
 		data := strings.Repeat("a", 1000)

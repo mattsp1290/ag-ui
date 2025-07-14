@@ -120,11 +120,11 @@
 //
 //	// Create a validator with default configuration (strict mode)
 //	validator := events.NewEventValidator(nil)
-//	
+//
 //	// Validate a single event
 //	event := events.NewRunStartedEvent("thread-1", "run-1")
 //	result := validator.ValidateEvent(context.Background(), event)
-//	
+//
 //	if result.HasErrors() {
 //		for _, err := range result.Errors {
 //			log.Printf("[%s] %s: %s", err.Severity, err.RuleID, err.Message)
@@ -140,7 +140,7 @@
 //		events.NewTextMessageEndEvent("msg-1"),
 //		events.NewRunFinishedEvent("thread-1", "run-1"),
 //	}
-//	
+//
 //	seqResult := validator.ValidateSequence(context.Background(), sequence)
 //	if !seqResult.IsValid {
 //		log.Printf("Sequence validation failed with %d errors", len(seqResult.Errors))
@@ -152,16 +152,16 @@
 //
 //	// Production - enforces all AG-UI protocol rules strictly
 //	prodValidator := events.NewEventValidator(events.ProductionValidationConfig())
-//	
+//
 //	// Development - validates protocol but lenient with IDs/timestamps
 //	devValidator := events.NewEventValidator(events.DevelopmentValidationConfig())
-//	
+//
 //	// Testing - allows out-of-order events for unit tests
 //	testValidator := events.NewEventValidator(events.TestingValidationConfig())
-//	
+//
 //	// Permissive - minimal checks for prototyping
 //	permissiveValidator := events.NewEventValidator(events.PermissiveValidationConfig())
-//	
+//
 //	// Custom validation configuration for specific needs
 //	config := &events.ValidationConfig{
 //		Level: events.ValidationStrict,
@@ -200,10 +200,10 @@
 //	type MyCustomRule struct {
 //		events.BaseValidationRule
 //	}
-//	
+//
 //	func (r *MyCustomRule) Validate(event events.Event, ctx *events.ValidationContext) *events.ValidationResult {
 //		result := &events.ValidationResult{IsValid: true}
-//		
+//
 //		// Your validation logic here
 //		if event.Type() == events.EventTypeRunStarted {
 //			runEvent := event.(*events.RunStartedEvent)
@@ -215,10 +215,10 @@
 //				})
 //			}
 //		}
-//		
+//
 //		return result
 //	}
-//	
+//
 //	// Add custom rule to validator
 //	validator.AddRule(&MyCustomRule{
 //		BaseValidationRule: events.BaseValidationRule{
@@ -271,9 +271,9 @@
 //
 //	// Incremental state changes using JSON Patch
 //	deltaOps := []events.JSONPatchOperation{
-//		{Op: "add", Path: "/newField", Value: "newValue"},
-//		{Op: "replace", Path: "/counter", Value: 43},
-//		{Op: "remove", Path: "/data/0"},
+//		events.JSONPatchOperation{Op: "add", Path: "/newField", Value: "newValue"},
+//		events.JSONPatchOperation{Op: "replace", Path: "/counter", Value: 43},
+//		events.JSONPatchOperation{Op: "remove", Path: "/data/0"},
 //	}
 //	deltaEvent := events.NewStateDeltaEvent(deltaOps)
 //
@@ -519,19 +519,19 @@
 //
 //	// Create validator with cleanup for production use
 //	validator := events.NewEventValidator(events.ProductionValidationConfig())
-//	
+//
 //	// Start automatic cleanup routine
 //	ctx, cancel := context.WithCancel(context.Background())
 //	defer cancel()
-//	
+//
 //	// Clean up items older than 24 hours every hour
 //	validator.StartCleanupRoutine(ctx, time.Hour, 24*time.Hour)
-//	
+//
 //	// Monitor memory usage
 //	stats := validator.GetState().GetMemoryStats()
-//	log.Printf("Active runs: %d, Finished runs: %d", 
+//	log.Printf("Active runs: %d, Finished runs: %d",
 //		stats["active_runs"], stats["finished_runs"])
-//	
+//
 //	// Manual cleanup if needed
 //	validator.GetState().CleanupFinishedItems(time.Now().Add(-12*time.Hour))
 package events

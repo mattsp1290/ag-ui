@@ -14,7 +14,7 @@
 //
 //	// Apply a patch
 //	patch := state.Patch{
-//		{Op: "add", Path: "/users/123", Value: user},
+//		state.JSONPatchOperation{Op: "add", Path: "/users/123", Value: user},
 //	}
 //	err := sm.ApplyPatch(patch)
 //

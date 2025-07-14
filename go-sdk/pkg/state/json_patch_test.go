@@ -177,8 +177,8 @@ func TestJSONPatchValidate(t *testing.T) {
 		{
 			name: "valid patch with multiple operations",
 			patch: JSONPatch{
-				{Op: JSONPatchOpAdd, Path: "/foo", Value: "bar"},
-				{Op: JSONPatchOpRemove, Path: "/baz"},
+				JSONPatchOperation{Op: JSONPatchOpAdd, Path: "/foo", Value: "bar"},
+				JSONPatchOperation{Op: JSONPatchOpRemove, Path: "/baz"},
 			},
 			wantErr: false,
 		},
@@ -190,8 +190,8 @@ func TestJSONPatchValidate(t *testing.T) {
 		{
 			name: "patch with invalid operation",
 			patch: JSONPatch{
-				{Op: JSONPatchOpAdd, Path: "/foo", Value: "bar"},
-				{Op: "invalid", Path: "/baz"},
+				JSONPatchOperation{Op: JSONPatchOpAdd, Path: "/foo", Value: "bar"},
+				JSONPatchOperation{Op: "invalid", Path: "/baz"},
 			},
 			wantErr: true,
 		},
@@ -761,9 +761,9 @@ func TestJSONPatchApply(t *testing.T) {
 			name:     "multiple operations",
 			document: map[string]interface{}{"foo": "bar"},
 			patch: JSONPatch{
-				{Op: JSONPatchOpAdd, Path: "/baz", Value: "qux"},
-				{Op: JSONPatchOpReplace, Path: "/foo", Value: "replaced"},
-				{Op: JSONPatchOpTest, Path: "/baz", Value: "qux"},
+				JSONPatchOperation{Op: JSONPatchOpAdd, Path: "/baz", Value: "qux"},
+				JSONPatchOperation{Op: JSONPatchOpReplace, Path: "/foo", Value: "replaced"},
+				JSONPatchOperation{Op: JSONPatchOpTest, Path: "/baz", Value: "qux"},
 			},
 			want:    map[string]interface{}{"foo": "replaced", "baz": "qux"},
 			wantErr: false,
@@ -772,9 +772,9 @@ func TestJSONPatchApply(t *testing.T) {
 			name:     "array manipulation",
 			document: map[string]interface{}{"arr": []interface{}{"a", "b", "c"}},
 			patch: JSONPatch{
-				{Op: JSONPatchOpAdd, Path: "/arr/-", Value: "d"},
-				{Op: JSONPatchOpRemove, Path: "/arr/1"},
-				{Op: JSONPatchOpReplace, Path: "/arr/0", Value: "A"},
+				JSONPatchOperation{Op: JSONPatchOpAdd, Path: "/arr/-", Value: "d"},
+				JSONPatchOperation{Op: JSONPatchOpRemove, Path: "/arr/1"},
+				JSONPatchOperation{Op: JSONPatchOpReplace, Path: "/arr/0", Value: "A"},
 			},
 			want:    map[string]interface{}{"arr": []interface{}{"A", "c", "d"}},
 			wantErr: false,
@@ -783,8 +783,8 @@ func TestJSONPatchApply(t *testing.T) {
 			name:     "move and copy operations",
 			document: map[string]interface{}{"foo": "bar", "baz": []interface{}{1, 2, 3}},
 			patch: JSONPatch{
-				{Op: JSONPatchOpCopy, From: "/baz/0", Path: "/first"},
-				{Op: JSONPatchOpMove, From: "/foo", Path: "/moved"},
+				JSONPatchOperation{Op: JSONPatchOpCopy, From: "/baz/0", Path: "/first"},
+				JSONPatchOperation{Op: JSONPatchOpMove, From: "/foo", Path: "/moved"},
 			},
 			want:    map[string]interface{}{"baz": []interface{}{float64(1), float64(2), float64(3)}, "first": float64(1), "moved": "bar"},
 			wantErr: false,
@@ -793,8 +793,8 @@ func TestJSONPatchApply(t *testing.T) {
 			name:     "failed test stops execution",
 			document: map[string]interface{}{"foo": "bar"},
 			patch: JSONPatch{
-				{Op: JSONPatchOpTest, Path: "/foo", Value: "wrong"},
-				{Op: JSONPatchOpAdd, Path: "/should_not_add", Value: "value"},
+				JSONPatchOperation{Op: JSONPatchOpTest, Path: "/foo", Value: "wrong"},
+				JSONPatchOperation{Op: JSONPatchOpAdd, Path: "/should_not_add", Value: "value"},
 			},
 			wantErr: true,
 		},
@@ -802,8 +802,8 @@ func TestJSONPatchApply(t *testing.T) {
 			name:     "invalid operation stops execution",
 			document: map[string]interface{}{"foo": "bar"},
 			patch: JSONPatch{
-				{Op: JSONPatchOpAdd, Path: "/baz", Value: "qux"},
-				{Op: JSONPatchOpRemove, Path: "/non_existent"},
+				JSONPatchOperation{Op: JSONPatchOpAdd, Path: "/baz", Value: "qux"},
+				JSONPatchOperation{Op: JSONPatchOpRemove, Path: "/non_existent"},
 			},
 			wantErr: true,
 		},
@@ -987,44 +987,44 @@ func TestValidateJSONPointer(t *testing.T) {
 // TestParseArrayIndex tests array index parsing
 func TestParseArrayIndex(t *testing.T) {
 	tests := []struct {
-		name      string
-		token     string
-		length    int
-		wantIdx   int
+		name       string
+		token      string
+		length     int
+		wantIdx    int
 		wantAppend bool
-		wantErr   bool
+		wantErr    bool
 	}{
 		{
-			name:      "append token",
-			token:     "-",
-			length:    3,
-			wantIdx:   3,
+			name:       "append token",
+			token:      "-",
+			length:     3,
+			wantIdx:    3,
 			wantAppend: true,
-			wantErr:   false,
+			wantErr:    false,
 		},
 		{
-			name:      "valid index 0",
-			token:     "0",
-			length:    3,
-			wantIdx:   0,
+			name:       "valid index 0",
+			token:      "0",
+			length:     3,
+			wantIdx:    0,
 			wantAppend: false,
-			wantErr:   false,
+			wantErr:    false,
 		},
 		{
-			name:      "valid index middle",
-			token:     "1",
-			length:    3,
-			wantIdx:   1,
+			name:       "valid index middle",
+			token:      "1",
+			length:     3,
+			wantIdx:    1,
 			wantAppend: false,
-			wantErr:   false,
+			wantErr:    false,
 		},
 		{
-			name:      "valid index last",
-			token:     "2",
-			length:    3,
-			wantIdx:   2,
+			name:       "valid index last",
+			token:      "2",
+			length:     3,
+			wantIdx:    2,
 			wantAppend: false,
-			wantErr:   false,
+			wantErr:    false,
 		},
 		{
 			name:    "invalid token",
@@ -1138,17 +1138,17 @@ func BenchmarkJSONPatchApply(b *testing.B) {
 			map[string]interface{}{"id": 3, "name": "Charlie"},
 		},
 		"settings": map[string]interface{}{
-			"theme": "dark",
+			"theme":         "dark",
 			"notifications": true,
 		},
 	}
 
 	patch := JSONPatch{
-		{Op: JSONPatchOpAdd, Path: "/users/-", Value: map[string]interface{}{"id": 4, "name": "David"}},
-		{Op: JSONPatchOpReplace, Path: "/settings/theme", Value: "light"},
-		{Op: JSONPatchOpRemove, Path: "/users/0"},
-		{Op: JSONPatchOpCopy, From: "/users/0", Path: "/backup"},
-		{Op: JSONPatchOpTest, Path: "/settings/notifications", Value: true},
+		JSONPatchOperation{Op: JSONPatchOpAdd, Path: "/users/-", Value: map[string]interface{}{"id": 4, "name": "David"}},
+		JSONPatchOperation{Op: JSONPatchOpReplace, Path: "/settings/theme", Value: "light"},
+		JSONPatchOperation{Op: JSONPatchOpRemove, Path: "/users/0"},
+		JSONPatchOperation{Op: JSONPatchOpCopy, From: "/users/0", Path: "/backup"},
+		JSONPatchOperation{Op: JSONPatchOpTest, Path: "/settings/notifications", Value: true},
 	}
 
 	b.ResetTimer()
@@ -1185,7 +1185,7 @@ func BenchmarkDeepCopy(b *testing.B) {
 		"nested": map[string]interface{}{
 			"deep": map[string]interface{}{
 				"value": "test",
-				"more": []interface{}{"a", "b", "c"},
+				"more":  []interface{}{"a", "b", "c"},
 			},
 		},
 		"string": "hello world",
@@ -1205,7 +1205,7 @@ func TestEdgeCases(t *testing.T) {
 	t.Run("operations on empty document", func(t *testing.T) {
 		var doc interface{}
 		patch := JSONPatch{
-			{Op: JSONPatchOpReplace, Path: "", Value: map[string]interface{}{"new": "doc"}},
+			JSONPatchOperation{Op: JSONPatchOpReplace, Path: "", Value: map[string]interface{}{"new": "doc"}},
 		}
 		got, err := patch.Apply(doc)
 		if err != nil {
@@ -1221,7 +1221,7 @@ func TestEdgeCases(t *testing.T) {
 		// Start with a string, replace with object
 		doc := "string"
 		patch := JSONPatch{
-			{Op: JSONPatchOpReplace, Path: "", Value: map[string]interface{}{"type": "object"}},
+			JSONPatchOperation{Op: JSONPatchOpReplace, Path: "", Value: map[string]interface{}{"type": "object"}},
 		}
 		got, err := patch.Apply(doc)
 		if err != nil {
@@ -1243,10 +1243,10 @@ func TestEdgeCases(t *testing.T) {
 			[]interface{}{1, 2, 3},
 		}
 		patch := JSONPatch{
-			{Op: JSONPatchOpTest, Path: "/0", Value: "string"},
-			{Op: JSONPatchOpTest, Path: "/1", Value: 42.0},
-			{Op: JSONPatchOpTest, Path: "/2", Value: true},
-			{Op: JSONPatchOpTest, Path: "/3", Value: nil},
+			JSONPatchOperation{Op: JSONPatchOpTest, Path: "/0", Value: "string"},
+			JSONPatchOperation{Op: JSONPatchOpTest, Path: "/1", Value: 42.0},
+			JSONPatchOperation{Op: JSONPatchOpTest, Path: "/2", Value: true},
+			JSONPatchOperation{Op: JSONPatchOpTest, Path: "/3", Value: nil},
 		}
 		_, err := patch.Apply(doc)
 		if err != nil {
@@ -1267,9 +1267,9 @@ func TestEdgeCases(t *testing.T) {
 			},
 		}
 		patch := JSONPatch{
-			{Op: JSONPatchOpReplace, Path: "/a/b/c/d/e", Value: "replaced"},
-			{Op: JSONPatchOpAdd, Path: "/a/b/c/d/f", Value: "added"},
-			{Op: JSONPatchOpCopy, From: "/a/b/c/d", Path: "/copied"},
+			JSONPatchOperation{Op: JSONPatchOpReplace, Path: "/a/b/c/d/e", Value: "replaced"},
+			JSONPatchOperation{Op: JSONPatchOpAdd, Path: "/a/b/c/d/f", Value: "added"},
+			JSONPatchOperation{Op: JSONPatchOpCopy, From: "/a/b/c/d", Path: "/copied"},
 		}
 		got, err := patch.Apply(doc)
 		if err != nil {
@@ -1291,17 +1291,17 @@ func TestConcurrentOperations(t *testing.T) {
 	// and doesn't modify the original
 	original := map[string]interface{}{
 		"counter": 0,
-		"list": []interface{}{"a", "b", "c"},
+		"list":    []interface{}{"a", "b", "c"},
 	}
 
 	patch1 := JSONPatch{
-		{Op: JSONPatchOpReplace, Path: "/counter", Value: 1},
-		{Op: JSONPatchOpAdd, Path: "/list/-", Value: "d"},
+		JSONPatchOperation{Op: JSONPatchOpReplace, Path: "/counter", Value: 1},
+		JSONPatchOperation{Op: JSONPatchOpAdd, Path: "/list/-", Value: "d"},
 	}
 
 	patch2 := JSONPatch{
-		{Op: JSONPatchOpReplace, Path: "/counter", Value: 2},
-		{Op: JSONPatchOpRemove, Path: "/list/0"},
+		JSONPatchOperation{Op: JSONPatchOpReplace, Path: "/counter", Value: 2},
+		JSONPatchOperation{Op: JSONPatchOpRemove, Path: "/list/0"},
 	}
 
 	// Apply patches
@@ -1335,12 +1335,12 @@ func TestConcurrentOperations(t *testing.T) {
 // TestJSONMarshalUnmarshal tests JSON marshaling/unmarshaling of patches
 func TestJSONMarshalUnmarshal(t *testing.T) {
 	patch := JSONPatch{
-		{Op: JSONPatchOpAdd, Path: "/foo", Value: "bar"},
-		{Op: JSONPatchOpRemove, Path: "/baz"},
-		{Op: JSONPatchOpReplace, Path: "/qux", Value: 42},
-		{Op: JSONPatchOpMove, From: "/a", Path: "/b"},
-		{Op: JSONPatchOpCopy, From: "/c", Path: "/d"},
-		{Op: JSONPatchOpTest, Path: "/e", Value: true},
+		JSONPatchOperation{Op: JSONPatchOpAdd, Path: "/foo", Value: "bar"},
+		JSONPatchOperation{Op: JSONPatchOpRemove, Path: "/baz"},
+		JSONPatchOperation{Op: JSONPatchOpReplace, Path: "/qux", Value: 42},
+		JSONPatchOperation{Op: JSONPatchOpMove, From: "/a", Path: "/b"},
+		JSONPatchOperation{Op: JSONPatchOpCopy, From: "/c", Path: "/d"},
+		JSONPatchOperation{Op: JSONPatchOpTest, Path: "/e", Value: true},
 	}
 
 	// Marshal to JSON

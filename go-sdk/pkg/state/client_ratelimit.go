@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 	"time"
-	
+
 	"golang.org/x/time/rate"
 )
 
@@ -25,11 +25,11 @@ type ClientRateLimiterConfig struct {
 // DefaultClientRateLimiterConfig returns default rate limiter configuration
 func DefaultClientRateLimiterConfig() ClientRateLimiterConfig {
 	return ClientRateLimiterConfig{
-		RatePerSecond:   100,              // 100 operations per second per client
-		BurstSize:       200,              // Allow bursts up to 200
-		MaxClients:      10000,            // Track up to 10k clients
-		ClientTTL:       30 * time.Minute, // Remove inactive clients after 30 minutes
-		CleanupInterval: 5 * time.Minute,  // Run cleanup every 5 minutes
+		RatePerSecond:   DefaultClientRateLimit,       // Operations per second per client
+		BurstSize:       DefaultClientBurstSize,       // Allow bursts up to this size
+		MaxClients:      DefaultMaxClients,            // Track up to this many clients
+		ClientTTL:       DefaultClientTTL,             // Remove inactive clients after this time
+		CleanupInterval: DefaultClientCleanupInterval, // Run cleanup at this frequency
 	}
 }
 
@@ -38,7 +38,7 @@ type ClientRateLimiter struct {
 	limiters map[string]*clientLimiter
 	mu       sync.RWMutex
 	config   ClientRateLimiterConfig
-	
+
 	// Cleanup management
 	lastCleanup time.Time
 	cleanupMu   sync.Mutex
@@ -68,7 +68,7 @@ func NewClientRateLimiter(config ClientRateLimiterConfig) *ClientRateLimiter {
 	if config.CleanupInterval <= 0 {
 		config.CleanupInterval = DefaultClientRateLimiterConfig().CleanupInterval
 	}
-	
+
 	return &ClientRateLimiter{
 		limiters:    make(map[string]*clientLimiter),
 		config:      config,
@@ -81,18 +81,18 @@ func (rl *ClientRateLimiter) Allow(clientID string) bool {
 	rl.mu.RLock()
 	client, exists := rl.limiters[clientID]
 	rl.mu.RUnlock()
-	
+
 	if exists {
 		client.mu.Lock()
 		client.lastAccessed = time.Now()
 		client.mu.Unlock()
 		return client.limiter.Allow()
 	}
-	
+
 	// Create new limiter for client
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
-	
+
 	// Double-check after acquiring write lock
 	if client, exists = rl.limiters[clientID]; exists {
 		client.mu.Lock()
@@ -100,22 +100,22 @@ func (rl *ClientRateLimiter) Allow(clientID string) bool {
 		client.mu.Unlock()
 		return client.limiter.Allow()
 	}
-	
+
 	// Check if we need to clean up before adding new client
 	if len(rl.limiters) >= rl.config.MaxClients {
 		rl.cleanupLocked()
 	}
-	
+
 	// Create new client limiter
 	client = &clientLimiter{
 		limiter:      rate.NewLimiter(rate.Limit(rl.config.RatePerSecond), rl.config.BurstSize),
 		lastAccessed: time.Now(),
 	}
 	rl.limiters[clientID] = client
-	
+
 	// Trigger cleanup if needed
 	rl.maybeCleanup()
-	
+
 	return client.limiter.Allow()
 }
 
@@ -124,23 +124,23 @@ func (rl *ClientRateLimiter) AllowN(clientID string, n int) bool {
 	rl.mu.RLock()
 	client, exists := rl.limiters[clientID]
 	rl.mu.RUnlock()
-	
+
 	if exists {
 		client.mu.Lock()
 		client.lastAccessed = time.Now()
 		client.mu.Unlock()
 		return client.limiter.AllowN(time.Now(), n)
 	}
-	
+
 	// For new clients, check if n is within burst size
 	if n > rl.config.BurstSize {
 		return false
 	}
-	
+
 	// Create new limiter and check
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
-	
+
 	// Double-check after acquiring write lock
 	if client, exists = rl.limiters[clientID]; exists {
 		client.mu.Lock()
@@ -148,22 +148,22 @@ func (rl *ClientRateLimiter) AllowN(clientID string, n int) bool {
 		client.mu.Unlock()
 		return client.limiter.AllowN(time.Now(), n)
 	}
-	
+
 	// Check if we need to clean up before adding new client
 	if len(rl.limiters) >= rl.config.MaxClients {
 		rl.cleanupLocked()
 	}
-	
+
 	// Create new client limiter
 	client = &clientLimiter{
 		limiter:      rate.NewLimiter(rate.Limit(rl.config.RatePerSecond), rl.config.BurstSize),
 		lastAccessed: time.Now(),
 	}
 	rl.limiters[clientID] = client
-	
+
 	// Trigger cleanup if needed
 	rl.maybeCleanup()
-	
+
 	return client.limiter.AllowN(time.Now(), n)
 }
 
@@ -196,17 +196,17 @@ func (rl *ClientRateLimiter) getOrCreateLimiter(clientID string) *rate.Limiter {
 	rl.mu.RLock()
 	client, exists := rl.limiters[clientID]
 	rl.mu.RUnlock()
-	
+
 	if exists {
 		client.mu.Lock()
 		client.lastAccessed = time.Now()
 		client.mu.Unlock()
 		return client.limiter
 	}
-	
+
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
-	
+
 	// Double-check after acquiring write lock
 	if client, exists = rl.limiters[clientID]; exists {
 		client.mu.Lock()
@@ -214,22 +214,22 @@ func (rl *ClientRateLimiter) getOrCreateLimiter(clientID string) *rate.Limiter {
 		client.mu.Unlock()
 		return client.limiter
 	}
-	
+
 	// Check if we need to clean up before adding new client
 	if len(rl.limiters) >= rl.config.MaxClients {
 		rl.cleanupLocked()
 	}
-	
+
 	// Create new client limiter
 	client = &clientLimiter{
 		limiter:      rate.NewLimiter(rate.Limit(rl.config.RatePerSecond), rl.config.BurstSize),
 		lastAccessed: time.Now(),
 	}
 	rl.limiters[clientID] = client
-	
+
 	// Trigger cleanup if needed
 	rl.maybeCleanup()
-	
+
 	return client.limiter
 }
 
@@ -237,7 +237,7 @@ func (rl *ClientRateLimiter) getOrCreateLimiter(clientID string) *rate.Limiter {
 func (rl *ClientRateLimiter) maybeCleanup() {
 	rl.cleanupMu.Lock()
 	defer rl.cleanupMu.Unlock()
-	
+
 	now := time.Now()
 	if now.Sub(rl.lastCleanup) >= rl.config.CleanupInterval {
 		rl.lastCleanup = now
@@ -249,7 +249,7 @@ func (rl *ClientRateLimiter) maybeCleanup() {
 func (rl *ClientRateLimiter) cleanup() {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
-	
+
 	rl.cleanupLocked()
 }
 
@@ -257,7 +257,7 @@ func (rl *ClientRateLimiter) cleanup() {
 func (rl *ClientRateLimiter) cleanupLocked() {
 	now := time.Now()
 	cutoff := now.Add(-rl.config.ClientTTL)
-	
+
 	// Find expired clients
 	toDelete := make([]string, 0)
 	for clientID, client := range rl.limiters {
@@ -268,12 +268,12 @@ func (rl *ClientRateLimiter) cleanupLocked() {
 			toDelete = append(toDelete, clientID)
 		}
 	}
-	
+
 	// Remove expired clients
 	for _, clientID := range toDelete {
 		delete(rl.limiters, clientID)
 	}
-	
+
 	// If still over limit, remove oldest entries
 	if len(rl.limiters) >= rl.config.MaxClients {
 		// Find oldest entries
@@ -281,7 +281,7 @@ func (rl *ClientRateLimiter) cleanupLocked() {
 			id           string
 			lastAccessed time.Time
 		}
-		
+
 		clients := make([]clientAge, 0, len(rl.limiters))
 		for id, client := range rl.limiters {
 			client.mu.RLock()
@@ -289,7 +289,7 @@ func (rl *ClientRateLimiter) cleanupLocked() {
 			client.mu.RUnlock()
 			clients = append(clients, clientAge{id: id, lastAccessed: lastAccessed})
 		}
-		
+
 		// Sort by last accessed (oldest first)
 		// Simple bubble sort for small datasets
 		for i := 0; i < len(clients)-1; i++ {
@@ -299,13 +299,13 @@ func (rl *ClientRateLimiter) cleanupLocked() {
 				}
 			}
 		}
-		
-		// Remove oldest 10%
-		toRemove := len(rl.limiters) / 10
+
+		// Remove oldest entries based on LRU eviction percentage
+		toRemove := len(rl.limiters) / DefaultLRUEvictionPercent
 		if toRemove < 1 {
 			toRemove = 1
 		}
-		
+
 		for i := 0; i < toRemove && i < len(clients); i++ {
 			delete(rl.limiters, clients[i].id)
 		}

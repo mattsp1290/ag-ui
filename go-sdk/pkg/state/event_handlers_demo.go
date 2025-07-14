@@ -1,3 +1,4 @@
+//go:build ignore
 // +build ignore
 
 package main
@@ -69,7 +70,7 @@ func main() {
 
 	// 2. Apply incremental changes via deltas
 	fmt.Println("\n2️⃣ Applying delta changes...")
-	
+
 	// Single delta
 	delta1 := events.NewStateDeltaEvent([]events.JSONPatchOperation{
 		{Op: "replace", Path: "/users/user1/role", Value: "superadmin"},
@@ -89,10 +90,10 @@ func main() {
 
 	// 3. Generate events from state changes
 	fmt.Println("\n3️⃣ Generating events from state changes...")
-	
+
 	// Capture current state
 	beforeState := store.GetState()
-	
+
 	// Make direct changes to store
 	store.Set("/users/user3", map[string]interface{}{
 		"name":   "Charlie",
@@ -100,14 +101,14 @@ func main() {
 		"active": false,
 	})
 	store.Set("/config/notifications", true)
-	
+
 	// Generate delta event for the changes
 	afterState := store.GetState()
 	deltaEvent, err := generator.GenerateDelta(beforeState, afterState)
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	fmt.Printf("Generated delta with %d operations:\n", len(deltaEvent.Delta))
 	for _, op := range deltaEvent.Delta {
 		fmt.Printf("  - %s %s\n", op.Op, op.Path)
@@ -115,7 +116,7 @@ func main() {
 
 	// 4. Real-time streaming
 	fmt.Println("\n4️⃣ Starting real-time event stream...")
-	
+
 	stream := state.NewStateEventStream(store, generator,
 		state.WithStreamInterval(500*time.Millisecond),
 		state.WithDeltaOnly(true),
@@ -140,10 +141,10 @@ func main() {
 	// Make some changes while streaming
 	time.Sleep(600 * time.Millisecond)
 	store.Set("/streaming/test1", "value1")
-	
+
 	time.Sleep(600 * time.Millisecond)
 	store.Set("/streaming/test2", "value2")
-	
+
 	time.Sleep(600 * time.Millisecond)
 
 	// 5. Show final state

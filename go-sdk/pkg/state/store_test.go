@@ -213,13 +213,15 @@ func TestStateStore_Snapshot(t *testing.T) {
 	}
 
 	// Modify state
-	store.Set("/data/value", 200)
-	store.Set("/data/items", []interface{}{"x", "y", "z"})
+	store.Set("/data", map[string]interface{}{
+		"value": 200,
+		"items": []interface{}{"x", "y", "z"},
+	})
 
 	// Verify state changed
 	data, _ := store.Get("/data")
 	dataMap := data.(map[string]interface{})
-	if dataMap["value"].(float64) != 200 {
+	if dataMap["value"].(int) != 200 {
 		t.Error("State not modified as expected")
 	}
 
@@ -256,7 +258,7 @@ func TestStateStore_Subscriptions(t *testing.T) {
 	// Make changes
 	wg.Add(1)
 	store.Set("/users/123", map[string]interface{}{"name": "John"})
-	
+
 	wg.Add(1)
 	store.Set("/users/456", map[string]interface{}{"name": "Jane"})
 
@@ -369,7 +371,7 @@ func TestStateStore_VersionTracking(t *testing.T) {
 		t.Error("Version not incremented after Delete")
 	}
 
-	patch := JSONPatch{{Op: JSONPatchOpAdd, Path: "/new", Value: "value"}}
+	patch := JSONPatch{JSONPatchOperation{Op: JSONPatchOpAdd, Path: "/new", Value: "value"}}
 	store.ApplyPatch(patch)
 	if store.GetVersion() != 3 {
 		t.Error("Version not incremented after ApplyPatch")
@@ -409,7 +411,7 @@ func TestStateStore_ComplexPaths(t *testing.T) {
 	// Verify update
 	value, _ = store.Get("/deeply/nested/structure/with/data")
 	arr = value.([]interface{})
-	if arr[0].(float64) != 4 {
+	if arr[0].(int) != 4 {
 		t.Error("Failed to update nested array")
 	}
 }

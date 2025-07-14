@@ -17,16 +17,16 @@ type ConflictResolutionStrategy string
 const (
 	// LastWriteWins uses timestamp to determine winner
 	LastWriteWins ConflictResolutionStrategy = "last_write_wins"
-	
+
 	// FirstWriteWins uses the first successful modification
 	FirstWriteWins ConflictResolutionStrategy = "first_write_wins"
-	
+
 	// MergeStrategy attempts to merge non-conflicting changes
 	MergeStrategy ConflictResolutionStrategy = "merge"
-	
+
 	// UserChoiceStrategy presents conflicts to user for resolution
 	UserChoiceStrategy ConflictResolutionStrategy = "user_choice"
-	
+
 	// CustomStrategy allows custom resolution logic
 	CustomStrategy ConflictResolutionStrategy = "custom"
 )
@@ -35,10 +35,10 @@ const (
 type ConflictResolver interface {
 	// Resolve resolves a conflict using the configured strategy
 	Resolve(conflict *StateConflict) (*ConflictResolution, error)
-	
+
 	// SetStrategy sets the resolution strategy
 	SetStrategy(strategy ConflictResolutionStrategy)
-	
+
 	// RegisterCustomResolver registers a custom resolution function
 	RegisterCustomResolver(name string, resolver CustomResolverFunc)
 }
@@ -64,26 +64,26 @@ type ConflictSeverity int
 const (
 	// SeverityLow indicates a minor conflict that can be auto-resolved
 	SeverityLow ConflictSeverity = iota
-	
+
 	// SeverityMedium indicates a conflict that may need user attention
 	SeverityMedium
-	
+
 	// SeverityHigh indicates a critical conflict requiring manual resolution
 	SeverityHigh
 )
 
 // ConflictResolution represents the resolution decision for a conflict
 type ConflictResolution struct {
-	ID               string                    // Resolution identifier
-	ConflictID       string                    // Reference to the conflict
-	Timestamp        time.Time                 // When resolved
+	ID               string                     // Resolution identifier
+	ConflictID       string                     // Reference to the conflict
+	Timestamp        time.Time                  // When resolved
 	Strategy         ConflictResolutionStrategy // Strategy used
-	ResolvedValue    interface{}               // Final resolved value
-	ResolvedPatch    JSONPatch                 // Patch to apply for resolution
-	WinningChange    string                    // "local" or "remote"
-	MergedChanges    bool                      // Whether changes were merged
-	UserIntervention bool                      // Whether user intervened
-	Metadata         map[string]interface{}    // Additional metadata
+	ResolvedValue    interface{}                // Final resolved value
+	ResolvedPatch    JSONPatch                  // Patch to apply for resolution
+	WinningChange    string                     // "local" or "remote"
+	MergedChanges    bool                       // Whether changes were merged
+	UserIntervention bool                       // Whether user intervened
+	Metadata         map[string]interface{}     // Additional metadata
 }
 
 // ConflictDetector detects conflicts between concurrent changes
@@ -98,13 +98,13 @@ type ConflictDetector struct {
 type ConflictDetectorOptions struct {
 	// StrictMode enables strict conflict detection
 	StrictMode bool
-	
+
 	// IgnorePaths specifies paths to ignore during conflict detection
 	IgnorePaths []string
-	
+
 	// ConflictThreshold for determining severity
 	ConflictThreshold float64
-	
+
 	// EnableSemanticDetection enables semantic conflict detection
 	EnableSemanticDetection bool
 }
@@ -132,21 +132,21 @@ func NewConflictDetector(options ConflictDetectorOptions) *ConflictDetector {
 func (cd *ConflictDetector) DetectConflict(local, remote *StateChange) (*StateConflict, error) {
 	cd.mu.RLock()
 	defer cd.mu.RUnlock()
-	
+
 	if local == nil || remote == nil {
 		return nil, errors.New("both local and remote changes must be provided")
 	}
-	
+
 	// Check if paths are in ignore list
 	if cd.shouldIgnorePath(local.Path) || cd.shouldIgnorePath(remote.Path) {
 		return nil, nil
 	}
-	
+
 	// No conflict if operating on different paths
 	if local.Path != remote.Path && !cd.pathsOverlap(local.Path, remote.Path) {
 		return nil, nil
 	}
-	
+
 	// Analyze the changes
 	conflict := &StateConflict{
 		ID:           generateConflictID(),
@@ -157,18 +157,18 @@ func (cd *ConflictDetector) DetectConflict(local, remote *StateChange) (*StateCo
 		BaseValue:    local.OldValue, // Assuming both started from same base
 		Metadata:     make(map[string]interface{}),
 	}
-	
+
 	// Determine conflict severity
 	conflict.Severity = cd.calculateSeverity(local, remote)
-	
+
 	// Check if there's an actual conflict
 	if cd.changesCompatible(local, remote) {
 		return nil, nil
 	}
-	
+
 	// Record the conflict
 	cd.conflictHistory.RecordConflict(conflict)
-	
+
 	return conflict, nil
 }
 
@@ -190,17 +190,17 @@ func (cd *ConflictDetector) pathsOverlap(path1, path2 string) bool {
 // changesCompatible checks if two changes are compatible (no conflict)
 func (cd *ConflictDetector) changesCompatible(local, remote *StateChange) bool {
 	// Same operation with same value = no conflict
-	if local.Operation == remote.Operation && 
-	   reflect.DeepEqual(local.NewValue, remote.NewValue) {
+	if local.Operation == remote.Operation &&
+		reflect.DeepEqual(local.NewValue, remote.NewValue) {
 		return true
 	}
-	
+
 	// Both adding to different array positions might be compatible
 	if local.Operation == "add" && remote.Operation == "add" {
 		// Simplified check - in practice would need more sophisticated logic
 		return false
 	}
-	
+
 	// Different operations on same path typically conflict
 	return false
 }
@@ -211,7 +211,7 @@ func (cd *ConflictDetector) calculateSeverity(local, remote *StateChange) Confli
 	if local.Operation == "remove" || remote.Operation == "remove" {
 		return SeverityHigh
 	}
-	
+
 	// Type changes are medium severity
 	if local.NewValue != nil && remote.NewValue != nil {
 		localType := reflect.TypeOf(local.NewValue)
@@ -220,20 +220,20 @@ func (cd *ConflictDetector) calculateSeverity(local, remote *StateChange) Confli
 			return SeverityMedium
 		}
 	}
-	
+
 	// Default to low severity
 	return SeverityLow
 }
 
 // ConflictResolverImpl implements the ConflictResolver interface
 type ConflictResolverImpl struct {
-	mu               sync.RWMutex
-	strategy         ConflictResolutionStrategy
-	customResolvers  *BoundedResolverRegistry
-	conflictHistory  *ConflictHistory
-	deltaComputer    *DeltaComputer
-	userResolver     UserConflictResolver
-	logger           Logger
+	mu              sync.RWMutex
+	strategy        ConflictResolutionStrategy
+	customResolvers *BoundedResolverRegistry
+	conflictHistory *ConflictHistory
+	deltaComputer   *DeltaComputer
+	userResolver    UserConflictResolver
+	logger          Logger
 }
 
 // UserConflictResolver interface for user-driven conflict resolution
@@ -291,10 +291,10 @@ func (cr *ConflictResolverImpl) Resolve(conflict *StateConflict) (*ConflictResol
 	cr.mu.RLock()
 	strategy := cr.strategy
 	cr.mu.RUnlock()
-	
+
 	var resolution *ConflictResolution
 	var err error
-	
+
 	switch strategy {
 	case LastWriteWins:
 		resolution, err = cr.resolveLastWriteWins(conflict)
@@ -309,14 +309,14 @@ func (cr *ConflictResolverImpl) Resolve(conflict *StateConflict) (*ConflictResol
 	default:
 		return nil, fmt.Errorf("unknown resolution strategy: %s", strategy)
 	}
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Record the resolution
 	cr.conflictHistory.RecordResolution(resolution)
-	
+
 	return resolution, nil
 }
 
@@ -324,7 +324,7 @@ func (cr *ConflictResolverImpl) Resolve(conflict *StateConflict) (*ConflictResol
 func (cr *ConflictResolverImpl) resolveLastWriteWins(conflict *StateConflict) (*ConflictResolution, error) {
 	var winningChange *StateChange
 	var winner string
-	
+
 	if conflict.LocalChange.Timestamp.After(conflict.RemoteChange.Timestamp) {
 		winningChange = conflict.LocalChange
 		winner = "local"
@@ -332,14 +332,14 @@ func (cr *ConflictResolverImpl) resolveLastWriteWins(conflict *StateConflict) (*
 		winningChange = conflict.RemoteChange
 		winner = "remote"
 	}
-	
+
 	// Create patch for the winning change
-	patch := JSONPatch{{
+	patch := JSONPatch{JSONPatchOperation{
 		Op:    JSONPatchOpReplace,
 		Path:  winningChange.Path,
 		Value: winningChange.NewValue,
 	}}
-	
+
 	return &ConflictResolution{
 		ID:               generateResolutionID(),
 		ConflictID:       conflict.ID,
@@ -358,7 +358,7 @@ func (cr *ConflictResolverImpl) resolveLastWriteWins(conflict *StateConflict) (*
 func (cr *ConflictResolverImpl) resolveFirstWriteWins(conflict *StateConflict) (*ConflictResolution, error) {
 	var winningChange *StateChange
 	var winner string
-	
+
 	if conflict.LocalChange.Timestamp.Before(conflict.RemoteChange.Timestamp) {
 		winningChange = conflict.LocalChange
 		winner = "local"
@@ -366,14 +366,14 @@ func (cr *ConflictResolverImpl) resolveFirstWriteWins(conflict *StateConflict) (
 		winningChange = conflict.RemoteChange
 		winner = "remote"
 	}
-	
+
 	// Create patch for the winning change
-	patch := JSONPatch{{
+	patch := JSONPatch{JSONPatchOperation{
 		Op:    JSONPatchOpReplace,
 		Path:  winningChange.Path,
 		Value: winningChange.NewValue,
 	}}
-	
+
 	return &ConflictResolution{
 		ID:               generateResolutionID(),
 		ConflictID:       conflict.ID,
@@ -396,7 +396,7 @@ func (cr *ConflictResolverImpl) resolveMerge(conflict *StateConflict) (*Conflict
 		// If merge fails, fall back to last-write-wins
 		return cr.resolveLastWriteWins(conflict)
 	}
-	
+
 	return &ConflictResolution{
 		ID:               generateResolutionID(),
 		ConflictID:       conflict.ID,
@@ -416,19 +416,19 @@ func (cr *ConflictResolverImpl) mergeChanges(conflict *StateConflict) (interface
 	// Simple merge logic - can be enhanced for specific types
 	localVal := conflict.LocalChange.NewValue
 	remoteVal := conflict.RemoteChange.NewValue
-	
+
 	// If both are maps, try to merge
 	localMap, localOk := localVal.(map[string]interface{})
 	remoteMap, remoteOk := remoteVal.(map[string]interface{})
-	
+
 	if localOk && remoteOk {
 		merged := make(map[string]interface{})
-		
+
 		// Start with local values
 		for k, v := range localMap {
 			merged[k] = v
 		}
-		
+
 		// Add remote values, checking for conflicts
 		for k, v := range remoteMap {
 			if localV, exists := merged[k]; exists {
@@ -442,16 +442,16 @@ func (cr *ConflictResolverImpl) mergeChanges(conflict *StateConflict) (interface
 				merged[k] = v
 			}
 		}
-		
-		patch := JSONPatch{{
+
+		patch := JSONPatch{JSONPatchOperation{
 			Op:    JSONPatchOpReplace,
 			Path:  conflict.Path,
 			Value: merged,
 		}}
-		
+
 		return merged, patch, nil
 	}
-	
+
 	// If both are arrays, could implement array merge logic
 	// For now, return error to indicate merge not possible
 	return nil, nil, errors.New("cannot merge non-object types")
@@ -462,16 +462,16 @@ func (cr *ConflictResolverImpl) resolveUserChoice(conflict *StateConflict) (*Con
 	cr.mu.RLock()
 	userResolver := cr.userResolver
 	cr.mu.RUnlock()
-	
+
 	if userResolver == nil {
 		return nil, errors.New("user resolver not configured")
 	}
-	
+
 	resolution, err := userResolver.ResolveConflict(conflict)
 	if err != nil {
 		return nil, fmt.Errorf("user resolution failed: %w", err)
 	}
-	
+
 	resolution.UserIntervention = true
 	return resolution, nil
 }
@@ -479,11 +479,11 @@ func (cr *ConflictResolverImpl) resolveUserChoice(conflict *StateConflict) (*Con
 // resolveCustom implements custom strategy
 func (cr *ConflictResolverImpl) resolveCustom(conflict *StateConflict) (*ConflictResolution, error) {
 	customResolver, exists := cr.customResolvers.Get("default")
-	
+
 	if !exists {
 		return nil, errors.New("no custom resolver registered")
 	}
-	
+
 	return customResolver(conflict)
 }
 
@@ -536,17 +536,17 @@ func NewConflictHistory(maxSize int) *ConflictHistory {
 func (ch *ConflictHistory) RecordConflict(conflict *StateConflict) {
 	ch.mu.Lock()
 	defer ch.mu.Unlock()
-	
+
 	record := ConflictRecord{
 		Conflict:  conflict,
 		Timestamp: time.Now(),
 	}
-	
+
 	ch.conflicts = append(ch.conflicts, record)
 	if len(ch.conflicts) > ch.maxSize {
 		ch.conflicts = ch.conflicts[1:]
 	}
-	
+
 	// Update statistics
 	ch.statistics.TotalConflicts++
 	ch.statistics.ConflictsByPath[conflict.Path]++
@@ -557,17 +557,17 @@ func (ch *ConflictHistory) RecordConflict(conflict *StateConflict) {
 func (ch *ConflictHistory) RecordResolution(resolution *ConflictResolution) {
 	ch.mu.Lock()
 	defer ch.mu.Unlock()
-	
+
 	record := ResolutionRecord{
 		Resolution: resolution,
 		Timestamp:  time.Now(),
 	}
-	
+
 	ch.resolutions = append(ch.resolutions, record)
 	if len(ch.resolutions) > ch.maxSize {
 		ch.resolutions = ch.resolutions[1:]
 	}
-	
+
 	// Update statistics
 	ch.statistics.TotalResolutions++
 	ch.statistics.ResolutionsByType[resolution.Strategy]++
@@ -578,7 +578,7 @@ func (ch *ConflictHistory) RecordResolution(resolution *ConflictResolution) {
 func (ch *ConflictHistory) GetStatistics() ConflictStatistics {
 	ch.mu.RLock()
 	defer ch.mu.RUnlock()
-	
+
 	// Create a copy of statistics
 	stats := ConflictStatistics{
 		TotalConflicts:     ch.statistics.TotalConflicts,
@@ -588,15 +588,15 @@ func (ch *ConflictHistory) GetStatistics() ConflictStatistics {
 		LastConflictTime:   ch.statistics.LastConflictTime,
 		LastResolutionTime: ch.statistics.LastResolutionTime,
 	}
-	
+
 	for k, v := range ch.statistics.ResolutionsByType {
 		stats.ResolutionsByType[k] = v
 	}
-	
+
 	for k, v := range ch.statistics.ConflictsByPath {
 		stats.ConflictsByPath[k] = v
 	}
-	
+
 	return stats
 }
 
@@ -604,12 +604,12 @@ func (ch *ConflictHistory) GetStatistics() ConflictStatistics {
 func (ch *ConflictHistory) GetRecentConflicts(limit int) []ConflictRecord {
 	ch.mu.RLock()
 	defer ch.mu.RUnlock()
-	
+
 	start := len(ch.conflicts) - limit
 	if start < 0 {
 		start = 0
 	}
-	
+
 	result := make([]ConflictRecord, len(ch.conflicts[start:]))
 	copy(result, ch.conflicts[start:])
 	return result
@@ -619,12 +619,12 @@ func (ch *ConflictHistory) GetRecentConflicts(limit int) []ConflictRecord {
 func (ch *ConflictHistory) GetRecentResolutions(limit int) []ResolutionRecord {
 	ch.mu.RLock()
 	defer ch.mu.RUnlock()
-	
+
 	start := len(ch.resolutions) - limit
 	if start < 0 {
 		start = 0
 	}
-	
+
 	result := make([]ResolutionRecord, len(ch.resolutions[start:]))
 	copy(result, ch.resolutions[start:])
 	return result
@@ -632,10 +632,10 @@ func (ch *ConflictHistory) GetRecentResolutions(limit int) []ResolutionRecord {
 
 // ConflictManager provides high-level conflict management
 type ConflictManager struct {
-	detector  *ConflictDetector
-	resolver  ConflictResolver
-	store     *StateStore
-	mu        sync.RWMutex
+	detector *ConflictDetector
+	resolver ConflictResolver
+	store    *StateStore
+	mu       sync.RWMutex
 }
 
 // NewConflictManager creates a new conflict manager
@@ -654,18 +654,18 @@ func (cm *ConflictManager) ResolveConflict(local, remote *StateChange) (*Conflic
 	if err != nil {
 		return nil, fmt.Errorf("conflict detection failed: %w", err)
 	}
-	
+
 	// No conflict detected
 	if conflict == nil {
 		return nil, nil
 	}
-	
+
 	// Resolve conflict
 	resolution, err := cm.resolver.Resolve(conflict)
 	if err != nil {
 		return nil, fmt.Errorf("conflict resolution failed: %w", err)
 	}
-	
+
 	return resolution, nil
 }
 
@@ -674,15 +674,15 @@ func (cm *ConflictManager) ApplyResolution(resolution *ConflictResolution) error
 	if resolution == nil {
 		return errors.New("resolution cannot be nil")
 	}
-	
+
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	
+
 	// Apply the resolution patch to the store
 	if err := cm.store.ApplyPatch(resolution.ResolvedPatch); err != nil {
 		return fmt.Errorf("failed to apply resolution: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -747,7 +747,7 @@ func NewConflictAnalyzer(history *ConflictHistory) *ConflictAnalyzer {
 // AnalyzePatterns analyzes conflict patterns
 func (ca *ConflictAnalyzer) AnalyzePatterns() map[string]interface{} {
 	stats := ca.history.GetStatistics()
-	
+
 	analysis := map[string]interface{}{
 		"total_conflicts":   stats.TotalConflicts,
 		"total_resolutions": stats.TotalResolutions,
@@ -755,7 +755,7 @@ func (ca *ConflictAnalyzer) AnalyzePatterns() map[string]interface{} {
 		"hot_paths":         ca.findHotPaths(stats.ConflictsByPath),
 		"strategy_usage":    stats.ResolutionsByType,
 	}
-	
+
 	return analysis
 }
 
@@ -765,20 +765,20 @@ func (ca *ConflictAnalyzer) findHotPaths(conflictsByPath map[string]int64) []str
 	if len(conflictsByPath) == 0 {
 		return []string{}
 	}
-	
+
 	var total int64
 	for _, count := range conflictsByPath {
 		total += count
 	}
-	
+
 	average := total / int64(len(conflictsByPath))
-	
+
 	var hotPaths []string
 	for path, count := range conflictsByPath {
 		if count > average {
 			hotPaths = append(hotPaths, path)
 		}
 	}
-	
+
 	return hotPaths
 }

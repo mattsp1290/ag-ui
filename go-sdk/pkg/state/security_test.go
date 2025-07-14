@@ -79,7 +79,7 @@ func TestStateManagerSecurity(t *testing.T) {
 		cancelCtx, cancel := context.WithCancel(ctx)
 		cancel() // Cancel immediately
 
-		_, err := manager.UpdateState(cancelCtx, contextID, "test", 
+		_, err := manager.UpdateState(cancelCtx, contextID, "test",
 			map[string]interface{}{"safe": "update"}, UpdateOptions{})
 		if err == nil {
 			t.Error("Should have respected context cancellation")
@@ -89,17 +89,17 @@ func TestStateManagerSecurity(t *testing.T) {
 
 func TestMemoryManagement(t *testing.T) {
 	store := NewStateStore(WithMaxHistory(5)) // Small history for testing
-	
+
 	// Create many versions to test history trimming
 	for i := 0; i < 10; i++ {
 		store.Set("/counter", i)
 	}
-	
+
 	history, err := store.GetHistory()
 	if err != nil {
 		t.Fatalf("Failed to get history: %v", err)
 	}
-	
+
 	if len(history) > 5 {
 		t.Errorf("History not properly trimmed: got %d versions, expected ≤ 5", len(history))
 	}
@@ -108,34 +108,34 @@ func TestMemoryManagement(t *testing.T) {
 func TestConcurrentSafety(t *testing.T) {
 	store := NewStateStore()
 	done := make(chan bool, 10)
-	
+
 	// Test concurrent subscriptions and cleanup
 	for i := 0; i < 10; i++ {
 		go func(id int) {
 			defer func() { done <- true }()
-			
+
 			// Subscribe
 			unsubscribe := store.Subscribe("/test", func(change StateChange) {
 				// Do nothing
 			})
-			
+
 			// Do some operations
 			for j := 0; j < 10; j++ {
 				store.Set("/test", j)
 			}
-			
+
 			// Unsubscribe
 			unsubscribe()
 		}(i)
 	}
-	
+
 	// Wait for all goroutines to complete
 	for i := 0; i < 10; i++ {
 		<-done
 	}
-	
+
 	// Force subscription cleanup
 	store.cleanupExpiredSubscriptions()
-	
+
 	// Test should complete without hanging or crashing
 }

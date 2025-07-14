@@ -1,6 +1,7 @@
 package tools_test
 
 import (
+	"fmt"
 	"testing"
 
 	"github.com/ag-ui/go-sdk/pkg/tools"
@@ -1564,4 +1565,708 @@ func BenchmarkSchemaValidator_ValidationFailure(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_ = validator.Validate(params)
 	}
+}
+
+// Tests for advanced JSON Schema features
+
+func TestSchemaValidator_OneOf(t *testing.T) {
+	tests := []struct {
+		name    string
+		schema  *tools.ToolSchema
+		params  map[string]interface{}
+		wantErr bool
+		errMsg  string
+	}{
+		{
+			name: "valid oneOf - matches first schema",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"value": {
+						OneOf: []*tools.Property{
+							{Type: "string", MinLength: intPtr2(5)},
+							{Type: "integer", Minimum: float64Ptr2(10)},
+						},
+					},
+				},
+			},
+			params:  map[string]interface{}{"value": "hello"},
+			wantErr: false,
+		},
+		{
+			name: "valid oneOf - matches second schema",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"value": {
+						OneOf: []*tools.Property{
+							{Type: "string", MinLength: intPtr2(10)},
+							{Type: "integer", Minimum: float64Ptr2(5)},
+						},
+					},
+				},
+			},
+			params:  map[string]interface{}{"value": 15},
+			wantErr: false,
+		},
+		{
+			name: "invalid oneOf - matches no schemas",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"value": {
+						OneOf: []*tools.Property{
+							{Type: "string", MinLength: intPtr2(10)},
+							{Type: "integer", Minimum: float64Ptr2(20)},
+						},
+					},
+				},
+			},
+			params:  map[string]interface{}{"value": "short"},
+			wantErr: true,
+		},
+		{
+			name: "invalid oneOf - matches multiple schemas",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"value": {
+						OneOf: []*tools.Property{
+							{Type: "string"},
+							{Type: "string", MinLength: intPtr2(1)},
+						},
+					},
+				},
+			},
+			params:  map[string]interface{}{"value": "test"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := tools.NewSchemaValidator(tt.schema)
+			err := validator.Validate(tt.params)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestSchemaValidator_AnyOf(t *testing.T) {
+	tests := []struct {
+		name    string
+		schema  *tools.ToolSchema
+		params  map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name: "valid anyOf - matches first schema",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"value": {
+						AnyOf: []*tools.Property{
+							{Type: "string"},
+							{Type: "integer"},
+						},
+					},
+				},
+			},
+			params:  map[string]interface{}{"value": "test"},
+			wantErr: false,
+		},
+		{
+			name: "valid anyOf - matches multiple schemas",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"value": {
+						AnyOf: []*tools.Property{
+							{Type: "string"},
+							{Type: "string", MinLength: intPtr2(1)},
+						},
+					},
+				},
+			},
+			params:  map[string]interface{}{"value": "test"},
+			wantErr: false,
+		},
+		{
+			name: "invalid anyOf - matches no schemas",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"value": {
+						AnyOf: []*tools.Property{
+							{Type: "string", MinLength: intPtr2(10)},
+							{Type: "integer", Minimum: float64Ptr2(100)},
+						},
+					},
+				},
+			},
+			params:  map[string]interface{}{"value": "short"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := tools.NewSchemaValidator(tt.schema)
+			err := validator.Validate(tt.params)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestSchemaValidator_AllOf(t *testing.T) {
+	tests := []struct {
+		name    string
+		schema  *tools.ToolSchema
+		params  map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name: "valid allOf - matches all schemas",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"value": {
+						AllOf: []*tools.Property{
+							{Type: "string"},
+							{MinLength: intPtr2(3)},
+							{MaxLength: intPtr2(10)},
+						},
+					},
+				},
+			},
+			params:  map[string]interface{}{"value": "test"},
+			wantErr: false,
+		},
+		{
+			name: "invalid allOf - fails one schema",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"value": {
+						AllOf: []*tools.Property{
+							{Type: "string"},
+							{MinLength: intPtr2(10)},
+						},
+					},
+				},
+			},
+			params:  map[string]interface{}{"value": "short"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := tools.NewSchemaValidator(tt.schema)
+			err := validator.Validate(tt.params)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestSchemaValidator_Not(t *testing.T) {
+	tests := []struct {
+		name    string
+		schema  *tools.ToolSchema
+		params  map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name: "valid not - value does not match",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"value": {
+						Not: &tools.Property{Type: "string"},
+					},
+				},
+			},
+			params:  map[string]interface{}{"value": 123},
+			wantErr: false,
+		},
+		{
+			name: "invalid not - value matches",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"value": {
+						Not: &tools.Property{Type: "string"},
+					},
+				},
+			},
+			params:  map[string]interface{}{"value": "test"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := tools.NewSchemaValidator(tt.schema)
+			err := validator.Validate(tt.params)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestSchemaValidator_Conditional(t *testing.T) {
+	tests := []struct {
+		name    string
+		schema  *tools.ToolSchema
+		params  map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name: "conditional - if true, then applies",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"value": {
+						If:   &tools.Property{Type: "string"},
+						Then: &tools.Property{MinLength: intPtr2(5)},
+					},
+				},
+			},
+			params:  map[string]interface{}{"value": "hello"},
+			wantErr: false,
+		},
+		{
+			name: "conditional - if true, then fails",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"value": {
+						If:   &tools.Property{Type: "string"},
+						Then: &tools.Property{MinLength: intPtr2(10)},
+					},
+				},
+			},
+			params:  map[string]interface{}{"value": "short"},
+			wantErr: true,
+		},
+		{
+			name: "conditional - if false, else applies",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"value": {
+						If:   &tools.Property{Type: "string"},
+						Else: &tools.Property{Minimum: float64Ptr2(10)},
+					},
+				},
+			},
+			params:  map[string]interface{}{"value": 15},
+			wantErr: false,
+		},
+		{
+			name: "conditional - if false, else fails",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"value": {
+						If:   &tools.Property{Type: "string"},
+						Else: &tools.Property{Minimum: float64Ptr2(20)},
+					},
+				},
+			},
+			params:  map[string]interface{}{"value": 15},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := tools.NewSchemaValidator(tt.schema)
+			err := validator.Validate(tt.params)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestSchemaValidator_TypeCoercion(t *testing.T) {
+	tests := []struct {
+		name           string
+		schema         *tools.ToolSchema
+		params         map[string]interface{}
+		expectedParams map[string]interface{}
+		wantErr        bool
+	}{
+		{
+			name: "string to number coercion",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"age": {Type: "number"},
+				},
+			},
+			params:         map[string]interface{}{"age": "25"},
+			expectedParams: map[string]interface{}{"age": 25.0},
+			wantErr:        false,
+		},
+		{
+			name: "number to string coercion",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"id": {Type: "string"},
+				},
+			},
+			params:         map[string]interface{}{"id": 123},
+			expectedParams: map[string]interface{}{"id": "123"},
+			wantErr:        false,
+		},
+		{
+			name: "string to boolean coercion",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"active": {Type: "boolean"},
+				},
+			},
+			params:         map[string]interface{}{"active": "true"},
+			expectedParams: map[string]interface{}{"active": true},
+			wantErr:        false,
+		},
+		{
+			name: "default value injection",
+			schema: &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"count": {Type: "integer", Default: 10},
+				},
+			},
+			params:         map[string]interface{}{},
+			expectedParams: map[string]interface{}{"count": 10},
+			wantErr:        false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := tools.NewSchemaValidator(tt.schema)
+			validator.SetCoercionEnabled(true)
+			
+			result := validator.ValidateWithResult(tt.params)
+			if tt.wantErr {
+				assert.False(t, result.Valid)
+			} else {
+				assert.True(t, result.Valid)
+				assert.Equal(t, tt.expectedParams, result.Data)
+			}
+		})
+	}
+}
+
+func TestSchemaValidator_CustomFormats(t *testing.T) {
+	validator := tools.NewSchemaValidator(&tools.ToolSchema{
+		Type: "object",
+		Properties: map[string]*tools.Property{
+			"code": {Type: "string", Format: "product-code"},
+		},
+	})
+
+	// Add custom format validator
+	validator.AddCustomFormat("product-code", func(value string) error {
+		if len(value) != 8 || value[:2] != "PC" {
+			return fmt.Errorf("invalid product code format")
+		}
+		return nil
+	})
+
+	tests := []struct {
+		name    string
+		params  map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name:    "valid custom format",
+			params:  map[string]interface{}{"code": "PC123456"},
+			wantErr: false,
+		},
+		{
+			name:    "invalid custom format",
+			params:  map[string]interface{}{"code": "AB123456"},
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validator.Validate(tt.params)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestSchemaValidator_EnhancedFormats(t *testing.T) {
+	tests := []struct {
+		name    string
+		format  string
+		value   string
+		valid   bool
+	}{
+		// Enhanced email validation
+		{
+			name:   "valid RFC5322 email",
+			format: "email",
+			value:  "user@example.com",
+			valid:  true,
+		},
+		{
+			name:   "valid email with display name",
+			format: "email",
+			value:  "John Doe <john@example.com>",
+			valid:  true,
+		},
+		// Enhanced URL validation
+		{
+			name:   "valid URL with path",
+			format: "url",
+			value:  "https://example.com/path?query=value",
+			valid:  true,
+		},
+		{
+			name:   "invalid URL missing scheme",
+			format: "url",
+			value:  "example.com",
+			valid:  false,
+		},
+		// IPv4 validation
+		{
+			name:   "valid IPv4",
+			format: "ipv4",
+			value:  "192.168.1.1",
+			valid:  true,
+		},
+		{
+			name:   "invalid IPv4",
+			format: "ipv4",
+			value:  "256.1.1.1",
+			valid:  false,
+		},
+		// IPv6 validation
+		{
+			name:   "valid IPv6",
+			format: "ipv6",
+			value:  "2001:0db8:85a3:0000:0000:8a2e:0370:7334",
+			valid:  true,
+		},
+		{
+			name:   "valid IPv6 compressed",
+			format: "ipv6",
+			value:  "2001:db8::8a2e:370:7334",
+			valid:  true,
+		},
+		// Hostname validation
+		{
+			name:   "valid hostname",
+			format: "hostname",
+			value:  "example.com",
+			valid:  true,
+		},
+		{
+			name:   "invalid hostname",
+			format: "hostname",
+			value:  "ex ample.com",
+			valid:  false,
+		},
+		// UUID validation
+		{
+			name:   "valid UUID v4",
+			format: "uuid",
+			value:  "550e8400-e29b-41d4-a716-446655440000",
+			valid:  true,
+		},
+		{
+			name:   "invalid UUID",
+			format: "uuid",
+			value:  "550e8400-e29b-41d4-a716",
+			valid:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			schema := &tools.ToolSchema{
+				Type: "object",
+				Properties: map[string]*tools.Property{
+					"field": {Type: "string", Format: tt.format},
+				},
+			}
+			validator := tools.NewSchemaValidator(schema)
+			err := validator.Validate(map[string]interface{}{"field": tt.value})
+			if tt.valid {
+				assert.NoError(t, err)
+			} else {
+				assert.Error(t, err)
+			}
+		})
+	}
+}
+
+func TestSchemaValidator_ValidationCache(t *testing.T) {
+	schema := &tools.ToolSchema{
+		Type: "object",
+		Properties: map[string]*tools.Property{
+			"name": {Type: "string"},
+		},
+	}
+	
+	validator := tools.NewSchemaValidator(schema)
+	params := map[string]interface{}{"name": "test"}
+	
+	// First validation
+	result1 := validator.ValidateWithResult(params)
+	assert.True(t, result1.Valid)
+	
+	// Second validation should use cache
+	result2 := validator.ValidateWithResult(params)
+	assert.True(t, result2.Valid)
+	assert.Equal(t, result1.Data, result2.Data)
+	
+	// Clear cache
+	validator.ClearCache()
+	
+	// Third validation should work after cache clear
+	result3 := validator.ValidateWithResult(params)
+	assert.True(t, result3.Valid)
+}
+
+func TestSchemaValidator_AdvancedOptions(t *testing.T) {
+	schema := &tools.ToolSchema{
+		Type: "object",
+		Properties: map[string]*tools.Property{
+			"age": {Type: "number"},
+		},
+	}
+	
+	opts := &tools.ValidatorOptions{
+		CoercionEnabled: false,
+		Debug:           true,
+		CacheSize:       100,
+	}
+	
+	validator := tools.NewAdvancedSchemaValidator(schema, opts)
+	
+	// Without coercion, string should fail for number type
+	result := validator.ValidateWithResult(map[string]interface{}{"age": "25"})
+	assert.False(t, result.Valid)
+	
+	// Enable coercion
+	validator.SetCoercionEnabled(true)
+	result = validator.ValidateWithResult(map[string]interface{}{"age": "25"})
+	assert.True(t, result.Valid)
+	assert.Equal(t, 25.0, result.Data.(map[string]interface{})["age"])
+}
+
+func TestSchemaValidator_ComplexComposition(t *testing.T) {
+	// Test complex schema with multiple composition types
+	schema := &tools.ToolSchema{
+		Type: "object",
+		Properties: map[string]*tools.Property{
+			"data": {
+				AllOf: []*tools.Property{
+					{
+						OneOf: []*tools.Property{
+							{Type: "string", MinLength: intPtr2(1)},
+							{Type: "number", Minimum: float64Ptr2(0)},
+						},
+					},
+					{
+						Not: &tools.Property{
+							Type: "boolean",
+						},
+					},
+				},
+			},
+		},
+	}
+	
+	tests := []struct {
+		name    string
+		params  map[string]interface{}
+		wantErr bool
+	}{
+		{
+			name:    "valid string",
+			params:  map[string]interface{}{"data": "test"},
+			wantErr: false,
+		},
+		{
+			name:    "valid number",
+			params:  map[string]interface{}{"data": 42},
+			wantErr: false,
+		},
+		{
+			name:    "invalid boolean (matches not)",
+			params:  map[string]interface{}{"data": true},
+			wantErr: true,
+		},
+		{
+			name:    "invalid empty string",
+			params:  map[string]interface{}{"data": ""},
+			wantErr: true,
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			validator := tools.NewSchemaValidator(schema)
+			err := validator.Validate(tt.params)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidationResult_ErrorCodes(t *testing.T) {
+	schema := &tools.ToolSchema{
+		Type: "object",
+		Properties: map[string]*tools.Property{
+			"value": {
+				OneOf: []*tools.Property{
+					{Type: "string"},
+					{Type: "number"},
+				},
+			},
+		},
+	}
+	
+	validator := tools.NewSchemaValidator(schema)
+	result := validator.ValidateWithResult(map[string]interface{}{"value": true})
+	
+	assert.False(t, result.Valid)
+	assert.Len(t, result.Errors, 1)
+	assert.Contains(t, result.Errors[0].Code, "ONEOF")
 }

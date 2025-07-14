@@ -3,6 +3,7 @@ package messages
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -794,36 +795,7 @@ func (h *History) Search(options SearchOptions) []Message {
 
 // containsIgnoreCase performs case-insensitive string search
 func containsIgnoreCase(s, substr string) bool {
-	if len(substr) == 0 {
-		return true
-	}
-	if len(s) < len(substr) {
-		return false
-	}
-
-	// Simple case-insensitive search
-	// In production, consider using strings.ToLower or a more efficient algorithm
-	for i := 0; i <= len(s)-len(substr); i++ {
-		match := true
-		for j := 0; j < len(substr); j++ {
-			if toLower(s[i+j]) != toLower(substr[j]) {
-				match = false
-				break
-			}
-		}
-		if match {
-			return true
-		}
-	}
-	return false
-}
-
-// toLower converts a single character to lowercase
-func toLower(c byte) byte {
-	if c >= 'A' && c <= 'Z' {
-		return c + 32
-	}
-	return c
+	return strings.Contains(strings.ToLower(s), strings.ToLower(substr))
 }
 
 // ThreadedHistory manages multiple conversation threads

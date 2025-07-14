@@ -13,7 +13,7 @@ import (
 func TestIntegration_CompleteUserAssistantConversation(t *testing.T) {
 	validator := NewEventValidator(ProductionValidationConfig())
 	ctx := context.Background()
-	
+
 	// Simulate a complete conversation flow
 	events := []Event{
 		// 1. Start the run
@@ -25,7 +25,7 @@ func TestIntegration_CompleteUserAssistantConversation(t *testing.T) {
 			RunID:    "run-conv-001",
 			ThreadID: "thread-conv-001",
 		},
-		
+
 		// 2. User message
 		&TextMessageStartEvent{
 			BaseEvent: &BaseEvent{
@@ -50,7 +50,7 @@ func TestIntegration_CompleteUserAssistantConversation(t *testing.T) {
 			},
 			MessageID: "msg-user-001",
 		},
-		
+
 		// 3. Assistant thinking and responding
 		&TextMessageStartEvent{
 			BaseEvent: &BaseEvent{
@@ -75,7 +75,7 @@ func TestIntegration_CompleteUserAssistantConversation(t *testing.T) {
 			},
 			MessageID: "msg-assistant-001",
 		},
-		
+
 		// 4. Assistant uses a tool
 		&ToolCallStartEvent{
 			BaseEvent: &BaseEvent{
@@ -101,7 +101,7 @@ func TestIntegration_CompleteUserAssistantConversation(t *testing.T) {
 			},
 			ToolCallID: "tool-weather-001",
 		},
-		
+
 		// 5. Assistant provides final response
 		&TextMessageStartEvent{
 			BaseEvent: &BaseEvent{
@@ -134,7 +134,7 @@ func TestIntegration_CompleteUserAssistantConversation(t *testing.T) {
 			},
 			MessageID: "msg-assistant-002",
 		},
-		
+
 		// 6. Finish the run
 		&RunFinishedEvent{
 			BaseEvent: &BaseEvent{
@@ -144,17 +144,17 @@ func TestIntegration_CompleteUserAssistantConversation(t *testing.T) {
 			RunID: "run-conv-001",
 		},
 	}
-	
+
 	// Validate the complete sequence
 	result := validator.ValidateSequence(ctx, events)
-	
+
 	if !result.IsValid {
 		t.Errorf("Complete conversation should be valid, got %d errors", len(result.Errors))
 		for _, err := range result.Errors {
 			t.Logf("Error: [%s] %s", err.RuleID, err.Message)
 		}
 	}
-	
+
 	// Note: ValidateSequence uses an isolated validator, so state tracking
 	// is not visible in the main validator. This is by design to ensure
 	// thread safety. For state tracking tests, we would need to use
@@ -166,7 +166,7 @@ func TestIntegration_CompleteUserAssistantConversation(t *testing.T) {
 func TestIntegration_StreamingToolCallWithMultipleArgs(t *testing.T) {
 	validator := NewEventValidator(ProductionValidationConfig())
 	ctx := context.Background()
-	
+
 	// Simulate a tool call with streaming JSON arguments
 	events := []Event{
 		&RunStartedEvent{
@@ -174,7 +174,7 @@ func TestIntegration_StreamingToolCallWithMultipleArgs(t *testing.T) {
 			RunID:     "run-stream-001",
 			ThreadID:  "thread-stream-001",
 		},
-		
+
 		// Assistant message with tool call
 		&TextMessageStartEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeTextMessageStart, TimestampMs: timePtr(time.Now().UnixMilli() + 100)},
@@ -185,7 +185,7 @@ func TestIntegration_StreamingToolCallWithMultipleArgs(t *testing.T) {
 			BaseEvent: &BaseEvent{EventType: EventTypeTextMessageEnd, TimestampMs: timePtr(time.Now().UnixMilli() + 200)},
 			MessageID: "msg-stream-001",
 		},
-		
+
 		// Tool call with streaming arguments
 		&ToolCallStartEvent{
 			BaseEvent:       &BaseEvent{EventType: EventTypeToolCallStart, TimestampMs: timePtr(time.Now().UnixMilli() + 300)},
@@ -193,37 +193,37 @@ func TestIntegration_StreamingToolCallWithMultipleArgs(t *testing.T) {
 			ToolCallName:    "complex_calculation",
 			ParentMessageID: stringPtr("msg-stream-001"),
 		},
-		
+
 		// Streaming JSON arguments in chunks
 		&ToolCallArgsEvent{
 			BaseEvent:  &BaseEvent{EventType: EventTypeToolCallArgs, TimestampMs: timePtr(time.Now().UnixMilli() + 400)},
 			ToolCallID: "tool-stream-001",
-			Delta:  `{"operation": "matrix_multiply",`,
+			Delta:      `{"operation": "matrix_multiply",`,
 		},
 		&ToolCallArgsEvent{
 			BaseEvent:  &BaseEvent{EventType: EventTypeToolCallArgs, TimestampMs: timePtr(time.Now().UnixMilli() + 500)},
 			ToolCallID: "tool-stream-001",
-			Delta:  ` "matrix_a": [[1, 2], [3, 4]],`,
+			Delta:      ` "matrix_a": [[1, 2], [3, 4]],`,
 		},
 		&ToolCallArgsEvent{
 			BaseEvent:  &BaseEvent{EventType: EventTypeToolCallArgs, TimestampMs: timePtr(time.Now().UnixMilli() + 600)},
 			ToolCallID: "tool-stream-001",
-			Delta:  ` "matrix_b": [[5, 6], [7, 8]]}`,
+			Delta:      ` "matrix_b": [[5, 6], [7, 8]]}`,
 		},
-		
+
 		&ToolCallEndEvent{
 			BaseEvent:  &BaseEvent{EventType: EventTypeToolCallEnd, TimestampMs: timePtr(time.Now().UnixMilli() + 700)},
 			ToolCallID: "tool-stream-001",
 		},
-		
+
 		&RunFinishedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli() + 800)},
 			RunID:     "run-stream-001",
 		},
 	}
-	
+
 	result := validator.ValidateSequence(ctx, events)
-	
+
 	if !result.IsValid {
 		t.Errorf("Streaming tool call should be valid, got %d errors", len(result.Errors))
 		for _, err := range result.Errors {
@@ -236,7 +236,7 @@ func TestIntegration_StreamingToolCallWithMultipleArgs(t *testing.T) {
 func TestIntegration_ErrorRecoveryScenario(t *testing.T) {
 	validator := NewEventValidator(ProductionValidationConfig())
 	ctx := context.Background()
-	
+
 	// Simulate a run that encounters an error
 	events := []Event{
 		&RunStartedEvent{
@@ -244,7 +244,7 @@ func TestIntegration_ErrorRecoveryScenario(t *testing.T) {
 			RunID:     "run-error-001",
 			ThreadID:  "thread-error-001",
 		},
-		
+
 		&TextMessageStartEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeTextMessageStart, TimestampMs: timePtr(time.Now().UnixMilli() + 100)},
 			MessageID: "msg-error-001",
@@ -259,7 +259,7 @@ func TestIntegration_ErrorRecoveryScenario(t *testing.T) {
 			BaseEvent: &BaseEvent{EventType: EventTypeTextMessageEnd, TimestampMs: timePtr(time.Now().UnixMilli() + 300)},
 			MessageID: "msg-error-001",
 		},
-		
+
 		// Run encounters an error
 		&RunErrorEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunError, TimestampMs: timePtr(time.Now().UnixMilli() + 400)},
@@ -267,9 +267,9 @@ func TestIntegration_ErrorRecoveryScenario(t *testing.T) {
 			Message:   "Invalid request: missing required parameters",
 		},
 	}
-	
+
 	result := validator.ValidateSequence(ctx, events)
-	
+
 	if !result.IsValid {
 		t.Errorf("Error recovery scenario should be valid, got %d errors", len(result.Errors))
 		for _, err := range result.Errors {
@@ -282,7 +282,7 @@ func TestIntegration_ErrorRecoveryScenario(t *testing.T) {
 func TestIntegration_StateManagementFlow(t *testing.T) {
 	validator := NewEventValidator(ProductionValidationConfig())
 	ctx := context.Background()
-	
+
 	// Create initial state
 	initialState := map[string]interface{}{
 		"counter":   0,
@@ -293,20 +293,20 @@ func TestIntegration_StateManagementFlow(t *testing.T) {
 			"temperature": 0.7,
 		},
 	}
-	
+
 	events := []Event{
 		&RunStartedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
 			RunID:     "run-state-001",
 			ThreadID:  "thread-state-001",
 		},
-		
+
 		// Initial state snapshot
 		&StateSnapshotEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeStateSnapshot, TimestampMs: timePtr(time.Now().UnixMilli() + 100)},
 			Snapshot:  initialState,
 		},
-		
+
 		// State updates via delta
 		&StateDeltaEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeStateDelta, TimestampMs: timePtr(time.Now().UnixMilli() + 200)},
@@ -315,7 +315,7 @@ func TestIntegration_StateManagementFlow(t *testing.T) {
 				{Op: "add", Path: "/messages/-", Value: json.RawMessage(`"First message"`)},
 			},
 		},
-		
+
 		// More state updates
 		&StateDeltaEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeStateDelta, TimestampMs: timePtr(time.Now().UnixMilli() + 300)},
@@ -325,7 +325,7 @@ func TestIntegration_StateManagementFlow(t *testing.T) {
 				{Op: "replace", Path: "/config/temperature", Value: json.RawMessage("0.9")},
 			},
 		},
-		
+
 		// Messages snapshot
 		&MessagesSnapshotEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeMessagesSnapshot, TimestampMs: timePtr(time.Now().UnixMilli() + 400)},
@@ -342,15 +342,15 @@ func TestIntegration_StateManagementFlow(t *testing.T) {
 				},
 			},
 		},
-		
+
 		&RunFinishedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli() + 500)},
 			RunID:     "run-state-001",
 		},
 	}
-	
+
 	result := validator.ValidateSequence(ctx, events)
-	
+
 	if !result.IsValid {
 		t.Errorf("State management flow should be valid, got %d errors", len(result.Errors))
 		for _, err := range result.Errors {
@@ -363,7 +363,7 @@ func TestIntegration_StateManagementFlow(t *testing.T) {
 func TestIntegration_ConcurrentMessagesAndTools(t *testing.T) {
 	validator := NewEventValidator(ProductionValidationConfig())
 	ctx := context.Background()
-	
+
 	// Simulate multiple concurrent messages and tool calls
 	events := []Event{
 		&RunStartedEvent{
@@ -371,7 +371,7 @@ func TestIntegration_ConcurrentMessagesAndTools(t *testing.T) {
 			RunID:     "run-concurrent-001",
 			ThreadID:  "thread-concurrent-001",
 		},
-		
+
 		// Start multiple messages
 		&TextMessageStartEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeTextMessageStart, TimestampMs: timePtr(time.Now().UnixMilli() + 100)},
@@ -383,14 +383,14 @@ func TestIntegration_ConcurrentMessagesAndTools(t *testing.T) {
 			MessageID: "msg-2",
 			Role:      stringPtr("assistant"),
 		},
-		
+
 		// Content for first message
 		&TextMessageContentEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeTextMessageContent, TimestampMs: timePtr(time.Now().UnixMilli() + 200)},
 			MessageID: "msg-1",
 			Delta:     "Processing your request...",
 		},
-		
+
 		// Start tool calls while messages are active
 		&ToolCallStartEvent{
 			BaseEvent:       &BaseEvent{EventType: EventTypeToolCallStart, TimestampMs: timePtr(time.Now().UnixMilli() + 300)},
@@ -404,7 +404,7 @@ func TestIntegration_ConcurrentMessagesAndTools(t *testing.T) {
 			ToolCallName:    "calculate",
 			ParentMessageID: stringPtr("msg-2"),
 		},
-		
+
 		// Interleaved operations
 		&TextMessageContentEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeTextMessageContent, TimestampMs: timePtr(time.Now().UnixMilli() + 400)},
@@ -414,7 +414,7 @@ func TestIntegration_ConcurrentMessagesAndTools(t *testing.T) {
 		&ToolCallArgsEvent{
 			BaseEvent:  &BaseEvent{EventType: EventTypeToolCallArgs, TimestampMs: timePtr(time.Now().UnixMilli() + 500)},
 			ToolCallID: "tool-1",
-			Delta:  `{"query": "latest news"}`,
+			Delta:      `{"query": "latest news"}`,
 		},
 		&TextMessageEndEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeTextMessageEnd, TimestampMs: timePtr(time.Now().UnixMilli() + 600)},
@@ -427,7 +427,7 @@ func TestIntegration_ConcurrentMessagesAndTools(t *testing.T) {
 		&ToolCallArgsEvent{
 			BaseEvent:  &BaseEvent{EventType: EventTypeToolCallArgs, TimestampMs: timePtr(time.Now().UnixMilli() + 800)},
 			ToolCallID: "tool-2",
-			Delta:  `{"expression": "2 + 2"}`,
+			Delta:      `{"expression": "2 + 2"}`,
 		},
 		&ToolCallEndEvent{
 			BaseEvent:  &BaseEvent{EventType: EventTypeToolCallEnd, TimestampMs: timePtr(time.Now().UnixMilli() + 900)},
@@ -437,15 +437,15 @@ func TestIntegration_ConcurrentMessagesAndTools(t *testing.T) {
 			BaseEvent: &BaseEvent{EventType: EventTypeTextMessageEnd, TimestampMs: timePtr(time.Now().UnixMilli() + 1000)},
 			MessageID: "msg-2",
 		},
-		
+
 		&RunFinishedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli() + 1100)},
 			RunID:     "run-concurrent-001",
 		},
 	}
-	
+
 	result := validator.ValidateSequence(ctx, events)
-	
+
 	if !result.IsValid {
 		t.Errorf("Concurrent operations should be valid, got %d errors", len(result.Errors))
 		for _, err := range result.Errors {
@@ -459,20 +459,20 @@ func TestIntegration_LongRunningApplicationSimulation(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping long-running simulation in short mode")
 	}
-	
+
 	// Create validator with cleanup
 	validator := NewEventValidator(ProductionValidationConfig())
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	
+
 	// Start cleanup routine with aggressive settings for testing
 	validator.StartCleanupRoutine(ctx, 100*time.Millisecond, 200*time.Millisecond)
-	
+
 	// Simulate multiple runs over time
 	for i := 0; i < 10; i++ {
 		runID := fmt.Sprintf("run-%03d", i)
 		threadID := fmt.Sprintf("thread-%03d", i)
-		
+
 		events := []Event{
 			&RunStartedEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
@@ -498,25 +498,25 @@ func TestIntegration_LongRunningApplicationSimulation(t *testing.T) {
 				RunID:     runID,
 			},
 		}
-		
+
 		result := validator.ValidateSequence(ctx, events)
 		if !result.IsValid {
 			t.Errorf("Run %d should be valid", i)
 		}
-		
+
 		// Simulate time passing between runs
 		if i > 5 {
 			time.Sleep(250 * time.Millisecond) // Allow cleanup to trigger
 		}
 	}
-	
+
 	// Wait for cleanup to run
 	time.Sleep(500 * time.Millisecond)
-	
+
 	// Check memory stats
 	stats := validator.GetState().GetMemoryStats()
 	t.Logf("Final memory stats: %+v", stats)
-	
+
 	// Verify cleanup is working
 	if stats["finished_runs"] > 5 {
 		t.Errorf("Expected cleanup to limit finished runs, got %d", stats["finished_runs"])
@@ -598,24 +598,24 @@ func TestIntegration_InvalidSequences(t *testing.T) {
 			errors: []string{"TOOL_CALL_LIFECYCLE"},
 		},
 	}
-	
+
 	validator := NewEventValidator(ProductionValidationConfig())
 	ctx := context.Background()
-	
+
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result := validator.ValidateSequence(ctx, tc.events)
-			
+
 			if result.IsValid {
 				t.Error("Expected validation to fail")
 			}
-			
+
 			// Check expected errors
 			foundErrors := make(map[string]bool)
 			for _, err := range result.Errors {
 				foundErrors[err.RuleID] = true
 			}
-			
+
 			for _, expectedError := range tc.errors {
 				found := false
 				for ruleID := range foundErrors {
@@ -637,7 +637,7 @@ func TestIntegration_InvalidSequences(t *testing.T) {
 func TestIntegration_CustomEventsFlow(t *testing.T) {
 	validator := NewEventValidator(ProductionValidationConfig())
 	ctx := context.Background()
-	
+
 	// Create custom event data
 	customData := map[string]interface{}{
 		"action":    "model_switch",
@@ -646,21 +646,21 @@ func TestIntegration_CustomEventsFlow(t *testing.T) {
 		"reason":    "optimize_cost",
 		"timestamp": time.Now().Unix(),
 	}
-	
+
 	events := []Event{
 		&RunStartedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
 			RunID:     "run-custom-001",
 			ThreadID:  "thread-custom-001",
 		},
-		
+
 		// Custom event for model switching
 		&CustomEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeCustom, TimestampMs: timePtr(time.Now().UnixMilli() + 100)},
 			Name:      "model_switch",
 			Value:     customData,
 		},
-		
+
 		// Continue with normal flow
 		&TextMessageStartEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeTextMessageStart, TimestampMs: timePtr(time.Now().UnixMilli() + 200)},
@@ -676,7 +676,7 @@ func TestIntegration_CustomEventsFlow(t *testing.T) {
 			BaseEvent: &BaseEvent{EventType: EventTypeTextMessageEnd, TimestampMs: timePtr(time.Now().UnixMilli() + 400)},
 			MessageID: "msg-custom-001",
 		},
-		
+
 		// Raw event (passthrough)
 		&RawEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRaw, TimestampMs: timePtr(time.Now().UnixMilli() + 500)},
@@ -687,15 +687,15 @@ func TestIntegration_CustomEventsFlow(t *testing.T) {
 				"timestamp": time.Now().Unix(),
 			},
 		},
-		
+
 		&RunFinishedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli() + 600)},
 			RunID:     "run-custom-001",
 		},
 	}
-	
+
 	result := validator.ValidateSequence(ctx, events)
-	
+
 	if !result.IsValid {
 		t.Errorf("Custom events flow should be valid, got %d errors", len(result.Errors))
 		for _, err := range result.Errors {
@@ -708,7 +708,7 @@ func TestIntegration_CustomEventsFlow(t *testing.T) {
 func TestIntegration_JSONSerializationRoundTrip(t *testing.T) {
 	validator := NewEventValidator(ProductionValidationConfig())
 	ctx := context.Background()
-	
+
 	// Create events
 	originalEvents := []Event{
 		&RunStartedEvent{
@@ -731,7 +731,7 @@ func TestIntegration_JSONSerializationRoundTrip(t *testing.T) {
 			RunID:     "run-json-001",
 		},
 	}
-	
+
 	// Serialize to JSON
 	var jsonEvents []string
 	for _, event := range originalEvents {
@@ -741,7 +741,7 @@ func TestIntegration_JSONSerializationRoundTrip(t *testing.T) {
 		}
 		jsonEvents = append(jsonEvents, string(jsonData))
 	}
-	
+
 	// Deserialize back
 	var deserializedEvents []Event
 	for _, jsonData := range jsonEvents {
@@ -751,10 +751,10 @@ func TestIntegration_JSONSerializationRoundTrip(t *testing.T) {
 		}
 		deserializedEvents = append(deserializedEvents, event)
 	}
-	
+
 	// Validate deserialized events
 	result := validator.ValidateSequence(ctx, deserializedEvents)
-	
+
 	if !result.IsValid {
 		t.Errorf("Deserialized events should be valid, got %d errors", len(result.Errors))
 		for _, err := range result.Errors {
@@ -767,7 +767,7 @@ func TestIntegration_JSONSerializationRoundTrip(t *testing.T) {
 func BenchmarkIntegration_CompleteConversationFlow(b *testing.B) {
 	validator := NewEventValidator(ProductionValidationConfig())
 	ctx := context.Background()
-	
+
 	// Pre-create events to avoid allocation in benchmark loop
 	events := []Event{
 		&RunStartedEvent{
@@ -808,10 +808,10 @@ func BenchmarkIntegration_CompleteConversationFlow(b *testing.B) {
 			RunID:     "run-bench-001",
 		},
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		result := validator.ValidateSequence(ctx, events)
 		if !result.IsValid {
@@ -819,4 +819,3 @@ func BenchmarkIntegration_CompleteConversationFlow(b *testing.B) {
 		}
 	}
 }
-

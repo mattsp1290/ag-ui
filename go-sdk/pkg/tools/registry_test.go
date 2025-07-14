@@ -190,7 +190,7 @@ func TestRegistry_RegisterDuplicate(t *testing.T) {
 	// Duplicate ID should fail
 	err = reg.Register(tool2)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already registered")
+	assert.Contains(t, err.Error(), "already exists")
 
 	// Same name with different ID should fail
 	err = reg.Register(tool3)

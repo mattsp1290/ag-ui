@@ -1,0 +1,425 @@
+package tools_test
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"time"
+
+	"github.com/ag-ui/go-sdk/pkg/core/events"
+)
+
+// ExampleCustomEventHandler shows how to implement a custom event handler
+// that can process tool execution events and integrate with external systems.
+type ExampleCustomEventHandler struct {
+	logFile     string
+	webhookURL  string
+	alertThreshold time.Duration
+}
+
+func NewExampleCustomEventHandler(logFile, webhookURL string, alertThreshold time.Duration) *ExampleCustomEventHandler {
+	return &ExampleCustomEventHandler{
+		logFile:        logFile,
+		webhookURL:     webhookURL,
+		alertThreshold: alertThreshold,
+	}
+}
+
+func (h *ExampleCustomEventHandler) HandleToolCallStart(ctx context.Context, event *events.ToolCallStartEvent) error {
+	// Log the start of tool execution
+	log.Printf("Tool execution started: ID=%s, Name=%s, Time=%v",
+		event.ToolCallID, event.ToolCallName, time.Now())
+	
+	// You could send this to an external monitoring system
+	// sendToMonitoring("tool_start", event.ToolCallID, event.ToolCallName)
+	
+	return nil
+}
+
+func (h *ExampleCustomEventHandler) HandleToolCallArgs(ctx context.Context, event *events.ToolCallArgsEvent) error {
+	// Log argument streaming (you might want to rate-limit this in production)
+	log.Printf("Tool args received: ID=%s, Delta=%s", event.ToolCallID, event.Delta)
+	
+	// You could process or transform the streaming data here
+	// processStreamingData(event.ToolCallID, event.Delta)
+	
+	return nil
+}
+
+func (h *ExampleCustomEventHandler) HandleToolCallEnd(ctx context.Context, event *events.ToolCallEndEvent) error {
+	// Log the end of tool execution
+	log.Printf("Tool execution ended: ID=%s, Time=%v", event.ToolCallID, time.Now())
+	
+	// You could trigger alerts or notifications based on execution patterns
+	// checkForAlertsAndNotify(event.ToolCallID)
+	
+	return nil
+}
+
+func (h *ExampleCustomEventHandler) ValidateEventSequence(ctx context.Context, toolCallID string, eventType events.EventType) error {
+	// Custom validation logic can be implemented here
+	// For example, you might want to enforce specific business rules
+	
+	if eventType == events.EventTypeToolCallStart {
+		// Check if this tool is allowed to run at this time
+		if !h.isToolAllowedNow(toolCallID) {
+			return fmt.Errorf("tool %s is not allowed to run at this time", toolCallID)
+		}
+	}
+	
+	return nil
+}
+
+func (h *ExampleCustomEventHandler) isToolAllowedNow(toolCallID string) bool {
+	// Example business logic - could check schedules, quotas, etc.
+	return true
+}
+
+// ExampleEventEmitter_BasicUsage demonstrates basic event emission usage
+func ExampleEventEmitter_BasicUsage() {
+	// Create a custom event emitter with specific configuration
+	emitter := NewDefaultEventEmitter(
+		WithValidation(true),
+		WithMetrics(true),
+		WithStreamingConfiguration(1024, 10*time.Millisecond),
+	)
+	
+	ctx := context.Background()
+	toolCallID := "example-tool-call-1"
+	toolName := "example-calculator"
+	params := map[string]interface{}{
+		"operation": "add",
+		"a":         10,
+		"b":         20,
+	}
+	
+	// Emit a tool call start event
+	err := emitter.EmitToolCallStart(ctx, toolCallID, toolName, params)
+	if err != nil {
+		log.Printf("Error emitting start event: %v", err)
+		return
+	}
+	
+	// Simulate streaming tool arguments
+	argumentData := "Processing addition of 10 and 20..."
+	err = emitter.EmitToolCallArgs(ctx, toolCallID, argumentData)
+	if err != nil {
+		log.Printf("Error emitting args event: %v", err)
+		return
+	}
+	
+	// Emit tool call end event with result
+	result := &ToolExecutionResult{
+		Success:   true,
+		Output:    map[string]interface{}{"result": 30},
+		Duration:  100 * time.Millisecond,
+		Timestamp: time.Now(),
+	}
+	
+	err = emitter.EmitToolCallEnd(ctx, toolCallID, result)
+	if err != nil {
+		log.Printf("Error emitting end event: %v", err)
+		return
+	}
+	
+	fmt.Println("Successfully emitted complete tool execution event sequence")
+	// Output: Successfully emitted complete tool execution event sequence
+}
+
+// ExampleExecutionEngine_WithCustomEventHandler demonstrates how to use
+// a custom event handler with the execution engine
+func ExampleExecutionEngine_WithCustomEventHandler() {
+	// Create a tool registry
+	registry := NewRegistry()
+	
+	// Register a simple calculator tool (implementation details omitted for brevity)
+	calculatorTool := &SimpleCalculatorTool{}
+	err := registry.Register(calculatorTool)
+	if err != nil {
+		log.Printf("Error registering tool: %v", err)
+		return
+	}
+	
+	// Create custom event handler
+	customHandler := NewExampleCustomEventHandler(
+		"/var/log/tool-execution.log",
+		"https://webhooks.example.com/tool-events",
+		5*time.Second,
+	)
+	
+	// Create event emitter with custom handler
+	emitter := NewDefaultEventEmitter(
+		WithEventHandler(customHandler),
+		WithValidation(true),
+		WithMetrics(true),
+	)
+	
+	// Create execution engine with event emitter
+	engine := NewExecutionEngine(registry, WithEventEmitter(emitter))
+	
+	ctx := context.Background()
+	params := map[string]interface{}{
+		"operation": "multiply",
+		"a":         7,
+		"b":         6,
+	}
+	
+	// Execute tool - events will be automatically emitted
+	result, err := engine.Execute(ctx, "calculator", params)
+	if err != nil {
+		log.Printf("Error executing tool: %v", err)
+		return
+	}
+	
+	fmt.Printf("Tool execution completed successfully: %v\n", result.Success)
+	// Output: Tool execution completed successfully: true
+}
+
+// ExampleEventMetrics demonstrates how to access and use event metrics
+func ExampleEventMetrics() {
+	emitter := NewDefaultEventEmitter(WithMetrics(true))
+	ctx := context.Background()
+	
+	// Simulate some tool executions
+	for i := 0; i < 5; i++ {
+		toolCallID := fmt.Sprintf("tool-call-%d", i)
+		toolName := "test-tool"
+		params := map[string]interface{}{"iteration": i}
+		
+		// Emit events
+		emitter.EmitToolCallStart(ctx, toolCallID, toolName, params)
+		emitter.EmitToolCallArgs(ctx, toolCallID, fmt.Sprintf("Processing iteration %d", i))
+		
+		result := &ToolExecutionResult{
+			Success:   true,
+			Duration:  time.Duration(i+1) * 10 * time.Millisecond,
+			Timestamp: time.Now(),
+		}
+		emitter.EmitToolCallEnd(ctx, toolCallID, result)
+	}
+	
+	// Get metrics
+	metrics := emitter.(*DefaultEventEmitter).metrics.GetMetrics()
+	
+	fmt.Printf("Total events: %v\n", metrics["totalEvents"])
+	fmt.Printf("Start events: %v\n", metrics["startEvents"])
+	fmt.Printf("Args events: %v\n", metrics["argsEvents"])
+	fmt.Printf("End events: %v\n", metrics["endEvents"])
+	fmt.Printf("Active tool calls: %v\n", metrics["activeCallCount"])
+	fmt.Printf("Completed tool calls: %v\n", metrics["completedCallCount"])
+	
+	// Output:
+	// Total events: 15
+	// Start events: 5
+	// Args events: 5
+	// End events: 5
+	// Active tool calls: 0
+	// Completed tool calls: 5
+}
+
+// ExampleStreamingToolWithEvents demonstrates streaming tool execution with events
+func ExampleStreamingToolWithEvents() {
+	// Create registry and register streaming tool
+	registry := NewRegistry()
+	streamingTool := &StreamingDataProcessorTool{}
+	registry.Register(streamingTool)
+	
+	// Create execution engine with events
+	emitter := NewDefaultEventEmitter(WithValidation(true))
+	engine := NewExecutionEngine(registry, WithEventEmitter(emitter))
+	
+	ctx := context.Background()
+	params := map[string]interface{}{
+		"data_source": "large_dataset.csv",
+		"chunk_size":  1000,
+	}
+	
+	// Execute streaming tool
+	stream, err := engine.ExecuteStream(ctx, "data-processor", params)
+	if err != nil {
+		log.Printf("Error starting stream: %v", err)
+		return
+	}
+	
+	// Process streaming results
+	chunkCount := 0
+	for chunk := range stream {
+		chunkCount++
+		fmt.Printf("Received chunk %d: %s\n", chunkCount, chunk.Data)
+		
+		// Events are automatically emitted for each chunk
+		// You can access them through the event emitter's metrics or storage
+	}
+	
+	fmt.Printf("Streaming completed with %d chunks processed\n", chunkCount)
+}
+
+// ExampleAsyncExecutionWithEvents demonstrates asynchronous tool execution with events
+func ExampleAsyncExecutionWithEvents() {
+	// Setup
+	registry := NewRegistry()
+	longRunningTool := &LongRunningAnalysisTool{}
+	registry.Register(longRunningTool)
+	
+	emitter := NewDefaultEventEmitter(WithMetrics(true))
+	engine := NewExecutionEngine(registry, WithEventEmitter(emitter))
+	
+	ctx := context.Background()
+	params := map[string]interface{}{
+		"analysis_type": "comprehensive",
+		"dataset_size":  "large",
+	}
+	
+	// Start async execution
+	jobID, resultChan, err := engine.ExecuteAsync(ctx, "analysis-tool", params, 1)
+	if err != nil {
+		log.Printf("Error starting async execution: %v", err)
+		return
+	}
+	
+	fmt.Printf("Started async job: %s\n", jobID)
+	
+	// You can do other work while the tool executes
+	// Events are being emitted in the background
+	
+	// Wait for completion
+	select {
+	case result := <-resultChan:
+		if result.Error != nil {
+			fmt.Printf("Async execution failed: %v\n", result.Error)
+		} else {
+			fmt.Printf("Async execution completed successfully: %v\n", result.Result.Success)
+		}
+	case <-time.After(30 * time.Second):
+		fmt.Println("Async execution timed out")
+	}
+	
+	// Check metrics for the async execution
+	metrics := emitter.(*DefaultEventEmitter).metrics.GetMetrics()
+	fmt.Printf("Total async events processed: %v\n", metrics["totalEvents"])
+}
+
+// ExampleCustomEventStorage demonstrates implementing custom event storage
+type DatabaseEventStorage struct {
+	connectionString string
+	tableName        string
+}
+
+func NewDatabaseEventStorage(connectionString, tableName string) *DatabaseEventStorage {
+	return &DatabaseEventStorage{
+		connectionString: connectionString,
+		tableName:        tableName,
+	}
+}
+
+func (s *DatabaseEventStorage) StoreEvent(ctx context.Context, event events.Event) error {
+	// In a real implementation, you would:
+	// 1. Connect to your database
+	// 2. Serialize the event
+	// 3. Insert into the events table
+	// 4. Handle errors appropriately
+	
+	eventJSON, err := event.ToJSON()
+	if err != nil {
+		return fmt.Errorf("failed to serialize event: %w", err)
+	}
+	
+	// Simulate database insert
+	fmt.Printf("Storing event in database: %s\n", string(eventJSON))
+	
+	return nil
+}
+
+func (s *DatabaseEventStorage) GetEvents(ctx context.Context, toolCallID string) ([]events.Event, error) {
+	// In a real implementation, you would:
+	// 1. Query the database for events with the given tool call ID
+	// 2. Deserialize the events
+	// 3. Return them in chronological order
+	
+	fmt.Printf("Retrieving events for tool call: %s\n", toolCallID)
+	return nil, fmt.Errorf("not implemented - this is just an example")
+}
+
+func (s *DatabaseEventStorage) GetEventSequence(ctx context.Context, toolCallID string) ([]events.EventType, error) {
+	// Similar to GetEvents but return just the event types
+	return nil, fmt.Errorf("not implemented - this is just an example")
+}
+
+func ExampleCustomEventStorage() {
+	// Create custom event storage
+	dbStorage := NewDatabaseEventStorage(
+		"postgresql://user:pass@localhost/events",
+		"tool_execution_events",
+	)
+	
+	// Create event emitter with custom storage
+	emitter := NewDefaultEventEmitter(
+		WithEventStorage(dbStorage),
+		WithValidation(true),
+	)
+	
+	ctx := context.Background()
+	
+	// Events will now be stored in the database
+	err := emitter.EmitToolCallStart(ctx, "test-call", "test-tool", nil)
+	if err != nil {
+		log.Printf("Error: %v", err)
+	}
+	
+	// Output: Storing event in database: {"type":"TOOL_CALL_START","timestamp":...}
+}
+
+// Mock tool implementations for examples (these would be real implementations in practice)
+
+type SimpleCalculatorTool struct{}
+
+func (t *SimpleCalculatorTool) GetID() string { return "calculator" }
+func (t *SimpleCalculatorTool) GetExecutor() ToolExecutor {
+	return &SimpleTestExecutor{
+		result: &ToolExecutionResult{
+			Success: true,
+			Output:  map[string]interface{}{"result": 42},
+		},
+	}
+}
+func (t *SimpleCalculatorTool) GetSchema() *Schema {
+	return &Schema{Type: "object"}
+}
+func (t *SimpleCalculatorTool) GetCapabilities() *ToolCapabilities {
+	return &ToolCapabilities{Timeout: 5 * time.Second}
+}
+
+type StreamingDataProcessorTool struct{}
+
+func (t *StreamingDataProcessorTool) GetID() string { return "data-processor" }
+func (t *StreamingDataProcessorTool) GetExecutor() ToolExecutor {
+	return &StreamingTestExecutor{
+		chunks: []string{"chunk1", "chunk2", "chunk3"},
+		delay:  100 * time.Millisecond,
+	}
+}
+func (t *StreamingDataProcessorTool) GetSchema() *Schema {
+	return &Schema{Type: "object"}
+}
+func (t *StreamingDataProcessorTool) GetCapabilities() *ToolCapabilities {
+	return &ToolCapabilities{Timeout: 30 * time.Second}
+}
+
+type LongRunningAnalysisTool struct{}
+
+func (t *LongRunningAnalysisTool) GetID() string { return "analysis-tool" }
+func (t *LongRunningAnalysisTool) GetExecutor() ToolExecutor {
+	return &SimpleTestExecutor{
+		delay: 2 * time.Second,
+		result: &ToolExecutionResult{
+			Success: true,
+			Output:  map[string]interface{}{"analysis": "completed"},
+		},
+	}
+}
+func (t *LongRunningAnalysisTool) GetSchema() *Schema {
+	return &Schema{Type: "object"}
+}
+func (t *LongRunningAnalysisTool) GetCapabilities() *ToolCapabilities {
+	return &ToolCapabilities{Timeout: 60 * time.Second}
+}

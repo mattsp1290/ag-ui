@@ -391,12 +391,13 @@ func TestExecutionEngine_ExecuteStream(t *testing.T) {
 		params := map[string]interface{}{"input": "test"}
 
 		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
 		stream, err := engine.ExecuteStream(ctx, "test-tool", params)
 		require.NoError(t, err)
 
 		// Read a few chunks then cancel
 		count := 0
-		for _ = range stream {
+		for range stream {
 			count++
 			if count == 3 {
 				cancel()

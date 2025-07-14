@@ -7,10 +7,12 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	
+	"github.com/ag-ui/go-sdk/pkg/core"
 )
 
-// Config represents simplified transport configuration
-type Config struct {
+// ManagerConfig represents simplified transport configuration
+type ManagerConfig struct {
 	Primary       string
 	Fallback      []string
 	BufferSize    int
@@ -23,11 +25,11 @@ type Config struct {
 // Manager orchestrates transport operations including selection, failover, and load balancing
 type Manager struct {
 	mu                  sync.RWMutex
-	config              *Config
+	config              *ManagerConfig
 	activeTransport     Transport
 	fallbackQueue       []string
 	middleware          []Middleware
-	eventChan           chan Event
+	eventChan           chan core.Event[map[string]interface{}]
 	errorChan           chan error
 	stopChan            chan struct{}
 	running             int32 // Use atomic int32 for thread-safe access
@@ -55,9 +57,9 @@ type ManagerMetrics struct {
 }
 
 // NewManager creates a new transport manager
-func NewManager(cfg *Config) *Manager {
+func NewManager(cfg *ManagerConfig) *Manager {
 	if cfg == nil {
-		cfg = &Config{
+		cfg = &ManagerConfig{
 			Primary:     "websocket",
 			Fallback:    []string{"sse", "http"},
 			BufferSize:  1024,
@@ -128,7 +130,7 @@ func NewManager(cfg *Config) *Manager {
 }
 
 // NewManagerWithLogger creates a new transport manager with a custom logger
-func NewManagerWithLogger(cfg *Config, logger Logger) *Manager {
+func NewManagerWithLogger(cfg *ManagerConfig, logger Logger) *Manager {
 	manager := NewManager(cfg)
 	if logger != nil {
 		manager.logger = logger

@@ -308,7 +308,7 @@ type ConditionalEvent[T EventData] struct {
 	Priority int `json:"priority,omitempty"`
 	
 	// RetryPolicy for condition evaluation failures
-	RetryPolicy *RetryPolicy `json:"retry_policy,omitempty"`
+	RetryPolicy *EventRetryPolicy `json:"retry_policy,omitempty"`
 }
 
 // EventCondition defines a condition for conditional events
@@ -344,8 +344,8 @@ type EventCondition struct {
 	MaxCount *int `json:"max_count,omitempty"`
 }
 
-// RetryPolicy defines retry behavior for conditional events
-type RetryPolicy struct {
+// EventRetryPolicy defines retry behavior for conditional events
+type EventRetryPolicy struct {
 	// MaxRetries maximum number of retry attempts
 	MaxRetries int `json:"max_retries"`
 	

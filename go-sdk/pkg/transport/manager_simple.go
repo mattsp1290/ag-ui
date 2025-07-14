@@ -5,13 +5,15 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	
+	"github.com/ag-ui/go-sdk/pkg/core"
 )
 
 // SimpleManager provides basic transport management without import cycles
 type SimpleManager struct {
 	mu                  sync.RWMutex
 	activeTransport     Transport
-	eventChan           chan Event
+	eventChan           chan core.Event[map[string]interface{}]
 	errorChan           chan error
 	stopChan            chan struct{}
 	transportStopChan   chan struct{} // To stop receiveEvents for old transport

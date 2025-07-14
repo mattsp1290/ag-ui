@@ -299,9 +299,9 @@ func (t *ToolData) FromMap(data map[string]interface{}) error {
 }
 
 // Concrete typed event types
-type TypedMessageEvent = TypedEvent[MessageData]
-type TypedStateEvent = TypedEvent[StateData]
-type TypedToolEvent = TypedEvent[ToolData]
+type TypedMessageEvent = TypedEvent[*MessageData]
+type TypedStateEvent = TypedEvent[*StateData]
+type TypedToolEvent = TypedEvent[*ToolData]
 
 // Legacy concrete event types for backward compatibility
 type MessageEvent = Event[MessageData]
@@ -427,7 +427,7 @@ func (p *EventProcessor[T, R]) Process(ctx context.Context, event TypedEvent[T])
 type EventAdapter struct{}
 
 // ToTypedEvent converts a legacy event to a typed event
-func (a *EventAdapter) ToTypedEvent[T EventData](
+func ToTypedEvent[T EventData](
 	event Event[map[string]interface{}], 
 	constructor func() T,
 ) (TypedEvent[T], error) {
@@ -440,7 +440,7 @@ func (a *EventAdapter) ToTypedEvent[T EventData](
 }
 
 // ToLegacyEvent converts a typed event to a legacy event
-func (a *EventAdapter) ToLegacyEvent[T EventData](
+func ToLegacyEvent[T EventData](
 	event TypedEvent[T],
 ) Event[map[string]interface{}] {
 	return NewEvent[map[string]interface{}](

@@ -409,7 +409,7 @@ type TransportEventAdapter struct {
 }
 
 // NewTransportEventAdapter creates an adapter from any TypedTransportEvent to TransportEvent
-func NewTransportEventAdapter[T EventData](typedEvent TypedTransportEvent[T]) TransportEvent {
+func NewTransportEventAdapter[T EventData](typedEvent TypedTransportEvent[T]) *TransportEventAdapter {
 	return &TransportEventAdapter{
 		typedEvent: typedEvent,
 		id:         typedEvent.ID(),
@@ -454,7 +454,7 @@ type legacyEventImpl struct {
 }
 
 // NewLegacyEvent creates a new legacy transport event
-func NewLegacyEvent(id, eventType string, data map[string]interface{}) TransportEvent {
+func NewLegacyEvent(id, eventType string, data map[string]interface{}) *legacyEventImpl {
 	return &legacyEventImpl{
 		id:        id,
 		eventType: eventType,

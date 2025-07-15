@@ -8,6 +8,47 @@ import (
 // Composite event types that combine multiple events or add advanced functionality
 // These provide sophisticated event handling patterns for complex scenarios
 
+// CompositeEvent represents a transport event that contains multiple child events
+type CompositeEvent struct {
+	BaseEvent SimpleTransportEvent
+	Events    []TransportEvent
+}
+
+// ID returns the composite event ID
+func (e *CompositeEvent) ID() string {
+	return e.BaseEvent.ID()
+}
+
+// Type returns the composite event type
+func (e *CompositeEvent) Type() string {
+	return e.BaseEvent.Type()
+}
+
+// Timestamp returns the composite event timestamp
+func (e *CompositeEvent) Timestamp() time.Time {
+	return e.BaseEvent.Timestamp()
+}
+
+// Data returns the composite event data including child events
+func (e *CompositeEvent) Data() map[string]interface{} {
+	data := e.BaseEvent.Data()
+	if data == nil {
+		data = make(map[string]interface{})
+	}
+	
+	// Add child event count
+	data["event_count"] = len(e.Events)
+	
+	// Add child event IDs
+	childIDs := make([]string, len(e.Events))
+	for i, event := range e.Events {
+		childIDs[i] = event.ID()
+	}
+	data["child_event_ids"] = childIDs
+	
+	return data
+}
+
 // BatchEvent represents a collection of events processed together
 type BatchEvent[T EventData] struct {
 	// BatchID is the unique identifier for this batch

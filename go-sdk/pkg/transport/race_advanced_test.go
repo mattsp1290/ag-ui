@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ag-ui/go-sdk/pkg/core/events"
 )
 
 // TestConcurrentTransportMetricsUpdate tests concurrent updates to transport metrics
@@ -59,10 +61,10 @@ func TestConcurrentTransportMetricsUpdate(t *testing.T) {
 		go func() {
 			defer wg.Done()
 			for j := 0; j < numOperations; j++ {
-				metrics := transport.Metrics()
+				stats := transport.Stats()
 				
-				// Validate metrics consistency
-				if metrics.MessagesSent > metrics.MessagesReceived+uint64(numGoroutines*numOperations) {
+				// Validate stats consistency
+				if int64(stats.EventsSent) > stats.EventsReceived+int64(numGoroutines*numOperations) {
 					atomic.AddInt64(&metricsErrors, 1)
 				}
 				
@@ -111,7 +113,7 @@ func TestConcurrentChannelOperations(t *testing.T) {
 			for {
 				select {
 				case event := <-transport.Receive():
-					if event.Event != nil {
+					if event != nil {
 						atomic.AddInt64(&receivedCount, 1)
 					}
 				case <-done:
@@ -355,18 +357,19 @@ func TestConcurrentBackpressureMetrics(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			for j := 0; j < operationsPerGoroutine; j++ {
-				event := Event{
-					Event: &DemoEvent{
-						id:        fmt.Sprintf("backpressure-metrics-%d-%d", id, j),
-						eventType: "metrics-test",
-						timestamp: time.Now(),
-					},
-					Metadata:  EventMetadata{},
-					Timestamp: time.Now(),
+				// Create a base event for backpressure handler
+				demoEvent := &DemoEvent{
+					id:        fmt.Sprintf("backpressure-metrics-%d-%d", id, j),
+					eventType: "metrics-test",
+					timestamp: time.Now(),
 				}
+				baseEvent := &events.BaseEvent{
+					EventType: events.EventType(demoEvent.Type()),
+				}
+				baseEvent.SetTimestamp(demoEvent.Timestamp().UnixMilli())
 				
 				// Try to send, which may update metrics
-				handler.SendEvent(event)
+				handler.SendEvent(baseEvent)
 				
 				// Occasionally send errors too
 				if j%10 == 0 {
@@ -713,7 +716,7 @@ func TestContextCancellationRaceConditions(t *testing.T) {
 
 // BenchmarkConcurrentMetricsAccess benchmarks concurrent metrics access
 func BenchmarkConcurrentMetricsAccess(b *testing.B) {
-	manager := NewManager(&Config{
+	manager := NewManager(&ManagerConfig{
 		Primary:       "websocket",
 		Fallback:      []string{"sse", "http"},
 		BufferSize:    1024,

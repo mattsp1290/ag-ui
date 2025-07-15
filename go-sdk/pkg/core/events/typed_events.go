@@ -91,6 +91,34 @@ func (e *TypedBaseEvent[T]) ToJSON() ([]byte, error) {
 	return json.Marshal(eventData)
 }
 
+// ID returns the unique identifier for this event
+func (e *TypedBaseEvent[T]) ID() string {
+	if e.BaseEvent == nil {
+		return ""
+	}
+	return e.BaseEvent.ID()
+}
+
+// Type returns the event type
+func (e *TypedBaseEvent[T]) Type() EventType {
+	return e.EventType
+}
+
+// Timestamp returns the event timestamp
+func (e *TypedBaseEvent[T]) Timestamp() *int64 {
+	return e.TimestampMs
+}
+
+// SetTimestamp sets the event timestamp
+func (e *TypedBaseEvent[T]) SetTimestamp(timestamp int64) {
+	e.TimestampMs = &timestamp
+}
+
+// GetBaseEvent returns the underlying base event
+func (e *TypedBaseEvent[T]) GetBaseEvent() *BaseEvent {
+	return e.BaseEvent
+}
+
 // ToLegacyEvent converts to the legacy Event interface
 func (e *TypedBaseEvent[T]) ToLegacyEvent() Event {
 	// This requires mapping to the appropriate legacy event type
@@ -607,32 +635,34 @@ func (a *EventAdapter) FromTypedEvent(typedEvent interface{}) (Event, error) {
 // Integration with core package types
 
 // ToCoreTypedEvent converts to core package TypedEvent
-func ToCoreTypedEvent[T core.EventData](event TypedEvent[T]) (core.TypedEvent[T], error) {
-	// This requires the event data to implement both EventDataType and core.EventData
-	// We need to create an adapter
+func ToCoreTypedEvent[T EventDataType](event TypedEvent[T]) (core.Event[map[string]interface{}], error) {
+	// Convert EventDataType to core.EventData format
 	eventData := event.TypedData()
 	
-	// Convert EventDataType to core.EventData
-	coreData, ok := any(eventData).(core.EventData)
-	if !ok {
-		return nil, fmt.Errorf("event data does not implement core.EventData interface")
-	}
+	// Use the ToMap method to convert to map format
+	mapData := eventData.ToMap()
 	
-	return core.NewTypedEvent[T]("", string(event.Type()), coreData), nil
+	// Create a core event with map data
+	coreEvent := core.NewEvent[map[string]interface{}]("", string(event.Type()), mapData)
+	
+	return coreEvent, nil
 }
 
-// FromCoreTypedEvent converts from core package TypedEvent
-func FromCoreTypedEvent[T core.EventData](coreEvent core.TypedEvent[T]) (TypedEvent[T], error) {
-	// Convert core.EventData to EventDataType
-	eventData := coreEvent.TypedData()
-	
-	eventsData, ok := any(eventData).(EventDataType)
-	if !ok {
-		return nil, fmt.Errorf("core event data does not implement events.EventDataType interface")
-	}
+// FromCoreEvent converts from core package Event
+func FromCoreEvent(coreEvent core.Event[map[string]interface{}]) (Event, error) {
+	// Convert map data back to a typed event
+	eventData := coreEvent.Data()
 	
 	// Parse the event type string to EventType
 	eventType := EventType(coreEvent.Type())
 	
-	return NewTypedEvent(eventType, eventsData), nil
+	// Create a BaseEvent with the raw data
+	timestamp := coreEvent.Timestamp().UnixMilli()
+	baseEvent := &BaseEvent{
+		EventType:   eventType,
+		TimestampMs: &timestamp,
+		RawEvent:    eventData,
+	}
+	
+	return baseEvent, nil
 }

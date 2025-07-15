@@ -8,28 +8,28 @@ import (
 	"time"
 )
 
-// TestEvent implements TransportEvent for testing
+// ValidationTestEvent implements TransportEvent for testing
 // Deprecated: Use typed events with CreateDataEvent, CreateConnectionEvent, etc.
-type TestEvent struct {
+type ValidationTestEvent struct {
 	id        string
 	eventType string
 	timestamp time.Time
 	data      map[string]interface{}
 }
 
-func (e *TestEvent) ID() string {
+func (e *ValidationTestEvent) ID() string {
 	return e.id
 }
 
-func (e *TestEvent) Type() string {
+func (e *ValidationTestEvent) Type() string {
 	return e.eventType
 }
 
-func (e *TestEvent) Timestamp() time.Time {
+func (e *ValidationTestEvent) Timestamp() time.Time {
 	return e.timestamp
 }
 
-func (e *TestEvent) Data() map[string]interface{} {
+func (e *ValidationTestEvent) Data() map[string]interface{} {
 	return e.data
 }
 
@@ -38,7 +38,7 @@ func TestDefaultValidator(t *testing.T) {
 	validator := NewValidator(config)
 
 	// Test valid event with required fields in data
-	validEvent := &TestEvent{
+	validEvent := &ValidationTestEvent{
 		id:        "test-123",
 		eventType: "data",
 		timestamp: time.Now(),
@@ -56,7 +56,7 @@ func TestDefaultValidator(t *testing.T) {
 	}
 
 	// Test invalid event - missing required field
-	invalidEvent := &TestEvent{
+	invalidEvent := &ValidationTestEvent{
 		id:        "test-456",
 		eventType: "test",
 		timestamp: time.Now(),
@@ -95,7 +95,7 @@ func TestMessageSizeValidation(t *testing.T) {
 	largeData["type"] = "test"
 	largeData["large_field"] = string(make([]byte, 200)) // Larger than limit
 
-	largeEvent := &TestEvent{
+	largeEvent := &ValidationTestEvent{
 		id:        "test-123",
 		eventType: "test",
 		timestamp: time.Now(),
@@ -138,7 +138,7 @@ func TestEventTypeValidation(t *testing.T) {
 	ctx := context.Background()
 
 	// Test allowed type
-	allowedEvent := &TestEvent{
+	allowedEvent := &ValidationTestEvent{
 		id:        "test-123",
 		eventType: "allowed_type",
 		timestamp: time.Now(),
@@ -150,7 +150,7 @@ func TestEventTypeValidation(t *testing.T) {
 	}
 
 	// Test denied type
-	deniedEvent := &TestEvent{
+	deniedEvent := &ValidationTestEvent{
 		id:        "test-456",
 		eventType: "denied_type",
 		timestamp: time.Now(),
@@ -164,7 +164,7 @@ func TestEventTypeValidation(t *testing.T) {
 	}
 
 	// Test disallowed type
-	disallowedEvent := &TestEvent{
+	disallowedEvent := &ValidationTestEvent{
 		id:        "test-789",
 		eventType: "disallowed_type",
 		timestamp: time.Now(),
@@ -197,7 +197,7 @@ func TestDataFormatValidation(t *testing.T) {
 	ctx := context.Background()
 
 	// Test valid data
-	validEvent := &TestEvent{
+	validEvent := &ValidationTestEvent{
 		id:        "test-123",
 		eventType: "test",
 		timestamp: time.Now(),
@@ -217,7 +217,7 @@ func TestDataFormatValidation(t *testing.T) {
 	}
 
 	// Test string too long
-	longStringEvent := &TestEvent{
+	longStringEvent := &ValidationTestEvent{
 		id:        "test-456",
 		eventType: "test",
 		timestamp: time.Now(),
@@ -233,7 +233,7 @@ func TestDataFormatValidation(t *testing.T) {
 	}
 
 	// Test array too large
-	largeArrayEvent := &TestEvent{
+	largeArrayEvent := &ValidationTestEvent{
 		id:        "test-789",
 		eventType: "test",
 		timestamp: time.Now(),
@@ -249,7 +249,7 @@ func TestDataFormatValidation(t *testing.T) {
 	}
 
 	// Test depth too deep
-	deepEvent := &TestEvent{
+	deepEvent := &ValidationTestEvent{
 		id:        "test-101",
 		eventType: "test",
 		timestamp: time.Now(),
@@ -292,7 +292,7 @@ func TestPatternValidation(t *testing.T) {
 	ctx := context.Background()
 
 	// Test valid email
-	validEmailEvent := &TestEvent{
+	validEmailEvent := &ValidationTestEvent{
 		id:        "test-123",
 		eventType: "test",
 		timestamp: time.Now(),
@@ -306,7 +306,7 @@ func TestPatternValidation(t *testing.T) {
 	}
 
 	// Test invalid email
-	invalidEmailEvent := &TestEvent{
+	invalidEmailEvent := &ValidationTestEvent{
 		id:        "test-456",
 		eventType: "test",
 		timestamp: time.Now(),
@@ -322,7 +322,7 @@ func TestPatternValidation(t *testing.T) {
 	}
 
 	// Test valid phone
-	validPhoneEvent := &TestEvent{
+	validPhoneEvent := &ValidationTestEvent{
 		id:        "test-789",
 		eventType: "test",
 		timestamp: time.Now(),
@@ -336,7 +336,7 @@ func TestPatternValidation(t *testing.T) {
 	}
 
 	// Test invalid phone
-	invalidPhoneEvent := &TestEvent{
+	invalidPhoneEvent := &ValidationTestEvent{
 		id:        "test-101",
 		eventType: "test",
 		timestamp: time.Now(),
@@ -379,24 +379,30 @@ func TestValidationMiddleware(t *testing.T) {
 	
 	middleware := NewValidationMiddleware(config)
 	
+	// Cast to concrete type to access methods
+	vm, ok := middleware.(*ValidationMiddleware)
+	if !ok {
+		t.Fatal("Expected ValidationMiddleware concrete type")
+	}
+	
 	// Test that middleware can be created and configured
-	if !middleware.IsEnabled() {
+	if !vm.IsEnabled() {
 		t.Error("Expected middleware to be enabled")
 	}
 
-	metrics := middleware.GetMetrics()
+	metrics := vm.GetMetrics()
 	if metrics.TotalValidations != 0 {
 		t.Error("Expected initial metrics to be zero")
 	}
 
 	// Test enabling/disabling
-	middleware.SetEnabled(false)
-	if middleware.IsEnabled() {
+	vm.SetEnabled(false)
+	if vm.IsEnabled() {
 		t.Error("Expected middleware to be disabled")
 	}
 
-	middleware.SetEnabled(true)
-	if !middleware.IsEnabled() {
+	vm.SetEnabled(true)
+	if !vm.IsEnabled() {
 		t.Error("Expected middleware to be enabled")
 	}
 }
@@ -413,7 +419,7 @@ func TestFastValidator(t *testing.T) {
 	ctx := context.Background()
 
 	// Test valid event
-	validEvent := &TestEvent{
+	validEvent := &ValidationTestEvent{
 		id:        "test-123",
 		eventType: "test",
 		timestamp: time.Now(),
@@ -428,7 +434,7 @@ func TestFastValidator(t *testing.T) {
 	}
 
 	// Test invalid event type
-	invalidEvent := &TestEvent{
+	invalidEvent := &ValidationTestEvent{
 		id:        "test-456",
 		eventType: "invalid",
 		timestamp: time.Now(),
@@ -449,7 +455,7 @@ func TestCachedValidator(t *testing.T) {
 
 	ctx := context.Background()
 	fixedTime := time.Now()
-	event := &TestEvent{
+	event := &ValidationTestEvent{
 		id:        "test-123",
 		eventType: "test",
 		timestamp: fixedTime,
@@ -516,7 +522,7 @@ func TestBatchValidator(t *testing.T) {
 
 	ctx := context.Background()
 	events := []TransportEvent{
-		&TestEvent{
+		&ValidationTestEvent{
 			id:        "test-1",
 			eventType: "test",
 			timestamp: time.Now(),
@@ -526,7 +532,7 @@ func TestBatchValidator(t *testing.T) {
 				"timestamp": time.Now(),
 			},
 		},
-		&TestEvent{
+		&ValidationTestEvent{
 			id:        "test-2",
 			eventType: "test",
 			timestamp: time.Now(),
@@ -536,7 +542,7 @@ func TestBatchValidator(t *testing.T) {
 				"timestamp": time.Now(),
 			},
 		},
-		&TestEvent{
+		&ValidationTestEvent{
 			id:        "test-3",
 			eventType: "test",
 			timestamp: time.Now(),
@@ -571,7 +577,7 @@ func BenchmarkDefaultValidator(b *testing.B) {
 	config := DefaultValidationConfig()
 	validator := NewValidator(config)
 
-	event := &TestEvent{
+	event := &ValidationTestEvent{
 		id:        "test-123",
 		eventType: "test",
 		timestamp: time.Now(),
@@ -601,7 +607,7 @@ func BenchmarkFastValidator(b *testing.B) {
 	}
 	validator := NewFastValidator(config)
 
-	event := &TestEvent{
+	event := &ValidationTestEvent{
 		id:        "test-123",
 		eventType: "test",
 		timestamp: time.Now(),
@@ -627,7 +633,7 @@ func BenchmarkCachedValidator(b *testing.B) {
 	baseValidator := NewValidator(DefaultValidationConfig())
 	cachedValidator := NewCachedValidator(baseValidator, 1000, time.Minute)
 
-	event := &TestEvent{
+	event := &ValidationTestEvent{
 		id:        "test-123",
 		eventType: "test",
 		timestamp: time.Now(),

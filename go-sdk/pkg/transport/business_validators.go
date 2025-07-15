@@ -7,6 +7,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/ag-ui/go-sdk/pkg/common"
 )
 
 // RangeValidator validates that a value falls within a specified range
@@ -657,8 +659,13 @@ func NewEmailPatternValidator() *PatternValidator {
 // NewURLPatternValidator creates a pattern validator for URLs
 func NewURLPatternValidator() *PatternValidator {
 	validator := NewPatternValidator("url")
-	// Basic URL pattern
-	err := validator.AddPattern("url", `^https?://[^\s/$.?#].[^\s]*$`, true)
+	// More comprehensive URL pattern that validates structure
+	// This pattern checks for:
+	// - Valid scheme (http/https)
+	// - Valid hostname or IP
+	// - Optional port
+	// - Optional path, query, and fragment
+	err := validator.AddPattern("url", `^https?://([a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+(:[0-9]+)?(/[^?\s]*)?(\?[^#\s]*)?(#[^\s]*)?$`, true)
 	if err != nil {
 		panic(fmt.Sprintf("failed to create URL validator: %v", err))
 	}
@@ -674,6 +681,82 @@ func NewPhonePatternValidator() *PatternValidator {
 		panic(fmt.Sprintf("failed to create phone validator: %v", err))
 	}
 	return validator
+}
+
+// URLValidator provides comprehensive URL validation with security checks
+type URLValidator struct {
+	name    string
+	options common.URLValidationOptions
+	enabled bool
+	priority int
+}
+
+// NewSecureURLValidator creates a URL validator with security checks
+func NewSecureURLValidator(name string) *URLValidator {
+	return &URLValidator{
+		name:     name,
+		options:  common.DefaultHTTPValidationOptions(),
+		enabled:  true,
+		priority: 60, // Higher priority for security validations
+	}
+}
+
+// NewWebhookURLValidator creates a URL validator specifically for webhooks
+func NewWebhookURLValidator(name string) *URLValidator {
+	return &URLValidator{
+		name:     name,
+		options:  common.DefaultWebhookValidationOptions(),
+		enabled:  true,
+		priority: 60,
+	}
+}
+
+// SetOptions sets custom validation options
+func (v *URLValidator) SetOptions(opts common.URLValidationOptions) *URLValidator {
+	v.options = opts
+	return v
+}
+
+// SetEnabled enables or disables the validator
+func (v *URLValidator) SetEnabled(enabled bool) *URLValidator {
+	v.enabled = enabled
+	return v
+}
+
+// SetPriority sets the validator priority
+func (v *URLValidator) SetPriority(priority int) *URLValidator {
+	v.priority = priority
+	return v
+}
+
+// Name returns the validator name
+func (v *URLValidator) Name() string {
+	return fmt.Sprintf("url_%s", v.name)
+}
+
+// Validate validates a URL string
+func (v *URLValidator) Validate(ctx context.Context, value string) ValidationResult {
+	if !v.enabled {
+		return NewValidationResult(true)
+	}
+
+	result := NewValidationResult(true)
+
+	if err := common.ValidateURL(value, v.options); err != nil {
+		result.AddError(NewValidationError(err.Error(), nil))
+	}
+
+	return result
+}
+
+// IsEnabled returns whether the validator is enabled
+func (v *URLValidator) IsEnabled() bool {
+	return v.enabled
+}
+
+// Priority returns the validator priority
+func (v *URLValidator) Priority() int {
+	return v.priority
 }
 
 // Common cross-field validation helpers

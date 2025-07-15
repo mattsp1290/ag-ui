@@ -535,7 +535,7 @@ func TestConditionalEventValidation(t *testing.T) {
 					Type:       "field_match",
 					Expression: "id == '1'",
 				},
-				RetryPolicy: &RetryPolicy{
+				RetryPolicy: &EventRetryPolicy{
 					MaxRetries:        -1,
 					BackoffMultiplier: 2.0,
 				},
@@ -552,7 +552,7 @@ func TestConditionalEventValidation(t *testing.T) {
 					Type:       "field_match",
 					Expression: "id == '1'",
 				},
-				RetryPolicy: &RetryPolicy{
+				RetryPolicy: &EventRetryPolicy{
 					MaxRetries:        3,
 					BackoffMultiplier: 0.5,
 				},
@@ -615,7 +615,7 @@ func TestConditionalEventToMap(t *testing.T) {
 		TimeoutAt:             &now,
 		Dependencies:          []string{"dep1", "dep2"},
 		Priority:              1,
-		RetryPolicy: &RetryPolicy{
+		RetryPolicy: &EventRetryPolicy{
 			MaxRetries:        3,
 			InitialDelay:      1 * time.Second,
 			MaxDelay:          30 * time.Second,

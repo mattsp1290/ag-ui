@@ -92,10 +92,20 @@ func NewTypedRegistry[T any]() *TypedRegistry[T] {
 }
 
 // RegisterTypedConverter registers a new type-safe converter
-func (tr *TypedRegistry[T]) RegisterTypedConverter[TRequest, TResponse any](
-	converter TypedConverter[TRequest, TResponse, T],
+func (tr *TypedRegistry[T]) RegisterTypedConverter(
+	converter interface{},
 ) error {
-	name := converter.GetProviderName()
+	// Type assert to get provider name
+	type providerNamer interface {
+		GetProviderName() string
+	}
+	
+	pn, ok := converter.(providerNamer)
+	if !ok {
+		return fmt.Errorf("converter does not implement GetProviderName method")
+	}
+	
+	name := pn.GetProviderName()
 	if _, exists := tr.converters[name]; exists {
 		return fmt.Errorf("typed converter for provider %s already registered", name)
 	}
@@ -104,20 +114,15 @@ func (tr *TypedRegistry[T]) RegisterTypedConverter[TRequest, TResponse any](
 }
 
 // GetTypedConverter retrieves a type-safe converter by provider name
-func (tr *TypedRegistry[T]) GetTypedConverter[TRequest, TResponse any](
+func (tr *TypedRegistry[T]) GetTypedConverter(
 	providerName string,
-) (TypedConverter[TRequest, TResponse, T], error) {
+) (interface{}, error) {
 	conv, exists := tr.converters[providerName]
 	if !exists {
 		return nil, fmt.Errorf("no typed converter found for provider %s", providerName)
 	}
 	
-	typedConv, ok := conv.(TypedConverter[TRequest, TResponse, T])
-	if !ok {
-		return nil, fmt.Errorf("converter for provider %s does not match expected types", providerName)
-	}
-	
-	return typedConv, nil
+	return conv, nil
 }
 
 // ListProviders returns a list of all registered provider names

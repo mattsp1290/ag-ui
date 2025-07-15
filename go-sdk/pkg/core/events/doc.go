@@ -1,7 +1,8 @@
-// Package events provides comprehensive event types and utilities for the AG-UI protocol.
+// Package events provides a comprehensive type-safe event system for the AG-UI Go SDK.
 //
-// The AG-UI (Agent-User Interaction) protocol defines 16 standardized event types
-// that enable real-time streaming, bidirectional state synchronization, and
+// This package implements the complete AG-UI (Agent-User Interaction) protocol with
+// compile-time type safety, automatic validation, and seamless serialization. The
+// event system enables real-time streaming, bidirectional state synchronization, and
 // human-in-the-loop collaboration between AI agents and front-end applications.
 //
 // # Event Types
@@ -38,19 +39,25 @@
 //
 //	import "github.com/ag-ui/go-sdk/pkg/core/events"
 //
-//	// Create a run started event
+//	// Create type-safe events
 //	runEvent := events.NewRunStartedEvent("thread-123", "run-456")
+//	if err := runEvent.Validate(); err != nil {
+//		log.Fatal("Invalid event:", err)
+//	}
 //
-//	// Create a text message with streaming content
-//	msgStart := events.NewTextMessageStartEvent("msg-1", events.WithRole("user"))
+//	// Create streaming message content
+//	msgStart := events.NewTextMessageStartEvent("msg-1", 
+//		events.WithMessageRole("user"))
 //	msgContent := events.NewTextMessageContentEvent("msg-1", "Hello, ")
 //	msgContent2 := events.NewTextMessageContentEvent("msg-1", "world!")
 //	msgEnd := events.NewTextMessageEndEvent("msg-1")
 //
-//	// Validate event sequence
-//	sequence := []events.Event{runEvent, msgStart, msgContent, msgContent2, msgEnd}
-//	if err := events.ValidateSequence(sequence); err != nil {
-//		log.Fatal("Invalid sequence:", err)
+//	// All events have automatic validation
+//	events := []events.Event{runEvent, msgStart, msgContent, msgContent2, msgEnd}
+//	for _, event := range events {
+//		if err := event.Validate(); err != nil {
+//			log.Printf("Event validation failed: %v", err)
+//		}
 //	}
 //
 // # Event Creation with Options
@@ -58,11 +65,12 @@
 // Events support various options for flexible configuration:
 //
 //	// Text message with role
-//	msgEvent := events.NewTextMessageStartEvent("msg-1", events.WithRole("assistant"))
+//	msgEvent := events.NewTextMessageStartEvent("msg-1", 
+//		events.WithMessageRole("assistant"))
 //
 //	// Tool call with parent message
 //	toolEvent := events.NewToolCallStartEvent("tool-1", "get_weather",
-//		events.WithParentMessageID("msg-1"))
+//		events.WithParentMessage("msg-1"))
 //
 //	// Run error with code
 //	errorEvent := events.NewRunErrorEvent("Connection failed",
@@ -85,7 +93,7 @@
 //
 //	msgEvent := events.NewTextMessageStartEvent("",
 //		events.WithAutoMessageID(),
-//		events.WithRole("user"))
+//		events.WithMessageRole("user"))
 //
 // # Fluent Event Builder
 //

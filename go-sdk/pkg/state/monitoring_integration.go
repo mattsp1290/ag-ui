@@ -335,17 +335,24 @@ func SetupProductionMonitoring(stateManager *StateManager, slackWebhookURL strin
 	// Add multiple notifiers (create a new zap logger for monitoring)
 	zapLogger, _ := zap.NewProduction()
 	logNotifier := NewLogAlertNotifier(zapLogger)
-	slackNotifier := NewSlackAlertNotifier(slackWebhookURL, "#alerts", "StateManager")
-
-	// Use throttled notifiers to prevent spam
-	throttledSlack := NewThrottledAlertNotifier(slackNotifier, 5*time.Minute)
-
-	config.AlertNotifiers = []AlertNotifier{
-		logNotifier,
-		NewConditionalAlertNotifier(throttledSlack, func(alert Alert) bool {
+	
+	// Create notifiers list starting with log notifier
+	notifiers := []AlertNotifier{logNotifier}
+	
+	// Try to create Slack notifier
+	slackNotifier, err := NewSlackAlertNotifier(slackWebhookURL, "#alerts", "StateManager")
+	if err != nil {
+		// Log error but continue with other notifiers
+		zapLogger.Error("Failed to create Slack notifier", zap.Error(err))
+	} else {
+		// Use throttled notifiers to prevent spam
+		throttledSlack := NewThrottledAlertNotifier(slackNotifier, 5*time.Minute)
+		notifiers = append(notifiers, NewConditionalAlertNotifier(throttledSlack, func(alert Alert) bool {
 			return alert.Level >= AlertLevelWarning
-		}),
+		}))
 	}
+
+	config.AlertNotifiers = notifiers
 
 	return NewMonitoringIntegration(stateManager, config)
 }

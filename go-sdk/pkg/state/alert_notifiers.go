@@ -5,99 +5,29 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"time"
 
+	"github.com/ag-ui/go-sdk/pkg/common"
 	"go.uber.org/zap"
 )
 
 // validateWebhookURL validates a webhook URL to prevent SSRF attacks
 func validateWebhookURL(urlStr string) error {
-	if urlStr == "" {
-		return errors.New("webhook URL cannot be empty")
-	}
-
-	u, err := url.Parse(urlStr)
-	if err != nil {
-		return fmt.Errorf("invalid URL format: %w", err)
-	}
-
-	// Only allow HTTPS for security
-	if u.Scheme != "https" {
-		return errors.New("only HTTPS webhook URLs are allowed")
-	}
-
-	// Prevent localhost and internal network access
-	host := u.Hostname()
-	if host == "" {
-		return errors.New("URL must have a valid hostname")
-	}
-
-	// Check for localhost
-	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
-		return errors.New("webhook URL cannot point to localhost")
-	}
-
-	// Resolve hostname to check for internal IPs
-	ips, err := net.LookupIP(host)
-	if err != nil {
-		return fmt.Errorf("failed to resolve hostname: %w", err)
-	}
-
-	for _, ip := range ips {
-		if isInternalIP(ip) {
-			return fmt.Errorf("webhook URL resolves to internal IP address: %s", ip.String())
-		}
-	}
-
-	return nil
+	// Use the consolidated URL validator with webhook-specific options
+	opts := common.DefaultWebhookValidationOptions()
+	return common.ValidateURL(urlStr, opts)
 }
 
 // isInternalIP checks if an IP address is in internal/private ranges
+// This now delegates to the common implementation to ensure consistency
 func isInternalIP(ip net.IP) bool {
-	// Check for loopback
-	if ip.IsLoopback() {
-		return true
-	}
-
-	// Check for link-local
-	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return true
-	}
-
-	// Check for private IPv4 ranges
-	if ip.To4() != nil {
-		// 10.0.0.0/8
-		if ip[0] == 10 {
-			return true
-		}
-		// 172.16.0.0/12
-		if ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31 {
-			return true
-		}
-		// 192.168.0.0/16
-		if ip[0] == 192 && ip[1] == 168 {
-			return true
-		}
-		// 169.254.0.0/16 (link-local)
-		if ip[0] == 169 && ip[1] == 254 {
-			return true
-		}
-	}
-
-	// Check for IPv6 unique local addresses (fc00::/7)
-	if len(ip) == 16 && (ip[0]&0xfe) == 0xfc {
-		return true
-	}
-
-	return false
+	return common.IsInternalIP(ip)
 }
 
 // LogAlertNotifier sends alerts to a logger
@@ -290,7 +220,12 @@ type SlackAlertNotifier struct {
 }
 
 // NewSlackAlertNotifier creates a new Slack alert notifier
-func NewSlackAlertNotifier(webhookURL, channel, username string) *SlackAlertNotifier {
+func NewSlackAlertNotifier(webhookURL, channel, username string) (*SlackAlertNotifier, error) {
+	// Validate the webhook URL
+	if err := validateWebhookURL(webhookURL); err != nil {
+		return nil, fmt.Errorf("invalid Slack webhook URL: %w", err)
+	}
+
 	return &SlackAlertNotifier{
 		webhookURL: webhookURL,
 		channel:    channel,
@@ -298,7 +233,7 @@ func NewSlackAlertNotifier(webhookURL, channel, username string) *SlackAlertNoti
 		client: &http.Client{
 			Timeout: 10 * time.Second,
 		},
-	}
+	}, nil
 }
 
 // SendAlert sends an alert to Slack

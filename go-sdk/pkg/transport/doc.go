@@ -1,121 +1,173 @@
-// Package transport provides a pluggable transport abstraction layer for the AG-UI protocol.
+// Package transport provides a comprehensive transport abstraction layer for the AG-UI Go SDK.
 //
-// This package implements a comprehensive transport abstraction that allows easy addition
-// of new transport mechanisms, including transport factory, capability negotiation,
-// automatic transport selection, and transport-specific configuration options.
+// This package implements a robust, type-safe transport system that enables reliable,
+// bidirectional communication between agents and front-end applications. The transport
+// layer supports multiple protocols, connection management, error handling, and advanced
+// features like streaming, compression, and security.
 //
 // Key Features:
-//   - Pluggable transport interface supporting HTTP/SSE, WebSocket, HTTP, and gRPC
-//   - Automatic transport selection based on capabilities and performance
-//   - Capability negotiation between client and server
-//   - Transport factory and registry system for dynamic transport creation
-//   - Middleware system for authentication, logging, metrics, retry, and compression
-//   - Central transport manager with failover and load balancing
-//   - Unified configuration management with environment variable support
-//   - Health monitoring and performance metrics collection
+//   - Type-safe transport interfaces with comprehensive validation
+//   - Support for multiple transport protocols (WebSocket, HTTP, gRPC)
+//   - Streaming and reliable transport capabilities
+//   - Advanced capabilities system with type-safe feature configuration
+//   - Comprehensive error handling and circuit breaker patterns
+//   - Middleware and interceptor support for cross-cutting concerns
+//   - Transport manager with load balancing and failover
+//   - Health checking and performance monitoring
+//   - Security features including TLS, JWT, API keys, and OAuth2
 //
-// Architecture:
+// Core Interfaces:
 //
-// The transport layer consists of several key components:
+// The transport layer is built around several key interfaces:
 //
-//   1. Transport Interface: Core abstraction for all transport implementations
-//   2. Factory System: Creates and manages transport instances
-//   3. Registry: Discovers and selects appropriate transports based on requirements
-//   4. Capability System: Negotiates and matches transport capabilities
-//   5. Configuration: Unified configuration management across all transports
-//   6. Manager: Orchestrates transport operations, failover, and load balancing
-//   7. Middleware: Pluggable middleware for cross-cutting concerns
+//   1. Transport: Basic transport operations (connect, send, receive, close)
+//   2. StreamingTransport: Real-time bidirectional streaming capabilities
+//   3. ReliableTransport: Guaranteed delivery with acknowledgments and retries
+//   4. TransportManager: Manages multiple transports with load balancing
+//   5. Config: Type-safe configuration with validation
+//   6. Middleware: Interceptors for cross-cutting concerns
 //
-// Supported Transport Types:
-//   - WebSocket: Full-duplex, streaming, multiplexing, low-latency
-//   - HTTP/SSE: Server-Sent Events for real-time streaming
-//   - HTTP: Traditional request-response for simple interactions
-//   - gRPC: High-performance RPC with streaming support
+// Type-Safe Capabilities:
 //
-// Transport Selection:
+// The capabilities system provides compile-time type safety for transport features:
+//   - CompressionFeatures: Algorithm selection and configuration
+//   - SecurityFeatures: TLS, JWT, API key, and OAuth2 configuration
+//   - StreamingFeatures: Flow control, buffering, and concurrency limits
+//   - CustomFeatures: Backward compatibility for transport-specific features
 //
-// The transport manager automatically selects the best transport based on:
-//   - Capability requirements (streaming, bidirectional, compression, etc.)
-//   - Performance thresholds (latency, throughput)
-//   - Transport priorities and availability
-//   - Configuration preferences and fallback options
+// Transport Protocols:
+//   - WebSocket: Full-duplex, real-time communication
+//   - HTTP: Request-response with SSE support for streaming
+//   - gRPC: High-performance RPC with bidirectional streaming
+//   - Mock: Testing and development transport
 //
-// Example usage:
+// Advanced Features:
+//   - Circuit breakers for fault tolerance
+//   - Automatic reconnection with exponential backoff
+//   - Event filtering and middleware chains
+//   - Comprehensive metrics and health checking
+//   - Load balancing strategies (round-robin, failover, performance-based)
+//
+// Basic Transport Usage:
 //
 //	import (
+//		"context"
+//		"time"
 //		"github.com/ag-ui/go-sdk/pkg/transport"
-//		"github.com/ag-ui/go-sdk/pkg/transport/config"
-//		"github.com/ag-ui/go-sdk/pkg/transport/factory"
-//		"github.com/ag-ui/go-sdk/pkg/transport/middleware"
+//		"github.com/ag-ui/go-sdk/pkg/core/events"
 //	)
 //
-//	// Create configuration
-//	cfg := &config.Config{
-//		Primary:  "websocket",
-//		Fallback: []string{"sse", "http"},
-//		Selection: config.SelectionConfig{
-//			Strategy: "performance",
-//			HealthCheckInterval: 30 * time.Second,
-//			FailoverThreshold: 3,
+//	// Create type-safe configuration
+//	config := &transport.BasicConfig{
+//		Type:     "websocket",
+//		Endpoint: "ws://localhost:8080/ws",
+//		Timeout:  30 * time.Second,
+//		Headers: map[string]string{
+//			"Authorization": "Bearer token123",
 //		},
-//		Capabilities: config.CapabilityConfig{
-//			Required: []string{"streaming", "bidirectional"},
-//		},
+//		Secure: true,
 //	}
 //
-//	// Create factory and registry
-//	transportFactory := factory.New()
-//	registry := factory.NewRegistry(transportFactory)
+//	// Validate configuration
+//	if err := config.Validate(); err != nil {
+//		log.Fatalf("Invalid config: %v", err)
+//	}
 //
-//	// Register transport implementations
-//	transportFactory.Register(NewWebSocketFactory())
-//	transportFactory.Register(NewHTTPSSEFactory())
-//	transportFactory.Register(NewHTTPFactory())
+//	// Create transport
+//	transport := transport.NewWebSocketTransport(config)
 //
-//	// Create transport manager
-//	manager := transport.NewManager(cfg, registry, transportFactory)
-//
-//	// Add middleware
-//	manager.AddMiddleware(
-//		middleware.NewLoggingMiddleware(logger),
-//		middleware.NewMetricsMiddleware(),
-//		middleware.NewRetryMiddleware(3, time.Second, 2.0),
-//	)
-//
-//	// Start the manager
+//	// Connect
 //	ctx := context.Background()
-//	err := manager.Start(ctx)
-//	if err != nil {
-//		log.Fatal(err)
+//	if err := transport.Connect(ctx); err != nil {
+//		log.Fatalf("Connection failed: %v", err)
 //	}
-//	defer manager.Stop(ctx)
+//	defer transport.Close(ctx)
 //
-//	// Send events through the best available transport
-//	err = manager.Send(ctx, event)
-//	if err != nil {
-//		log.Fatal(err)
+//	// Send type-safe events
+//	event := events.NewRunStartedEvent("thread-123", "run-456")
+//	if err := transport.Send(ctx, event); err != nil {
+//		log.Printf("Send failed: %v", err)
 //	}
 //
 //	// Receive events
 //	go func() {
-//		for event := range manager.Receive() {
-//			log.Printf("Received: %s", event.Event.ID())
+//		for event := range transport.Receive() {
+//			log.Printf("Received: %s", event.GetEventType())
 //		}
 //	}()
 //
-// Configuration can also be loaded from files or environment variables:
+//	// Handle errors
+//	go func() {
+//		for err := range transport.Errors() {
+//			log.Printf("Transport error: %v", err)
+//		}
+//	}()
 //
-//	// Load from YAML file
-//	configManager := config.NewConfigManager()
-//	err := configManager.LoadFromFile("transport.yaml")
+// Type-Safe Capabilities:
 //
-//	// Or from environment variables
-//	err := configManager.LoadFromEnvironment()
+//	// Configure compression features
+//	compressionFeatures := transport.CompressionFeatures{
+//		SupportedAlgorithms: []transport.CompressionType{
+//			transport.CompressionGzip,
+//			transport.CompressionZstd,
+//		},
+//		DefaultAlgorithm:     transport.CompressionGzip,
+//		CompressionLevel:     6,
+//		MinSizeThreshold:     1024,
+//	}
 //
-// Transport capabilities can be discovered automatically:
+//	// Create typed capabilities
+//	capabilities := transport.NewCompressionCapabilities(
+//		transport.Capabilities{
+//			Streaming:       true,
+//			Bidirectional:   true,
+//			Compression:     compressionFeatures.SupportedAlgorithms,
+//			MaxMessageSize:  1024 * 1024,
+//		},
+//		compressionFeatures,
+//	)
 //
-//	discovery := capabilities.NewHTTPDiscoveryService(httpClient)
-//	caps, err := discovery.DiscoverCapabilities(ctx, "https://api.example.com")
+//	// Validate capabilities
+//	if err := transport.ValidateCapabilities(capabilities); err != nil {
+//		log.Fatalf("Invalid capabilities: %v", err)
+//	}
 //
-// For more advanced usage, see the examples directory and integration tests.
+// Streaming Transport:
+//
+//	streamingTransport := transport.NewGRPCStreamingTransport(config)
+//	
+//	// Start bidirectional streaming
+//	send, receive, errors, err := streamingTransport.StartStreaming(ctx)
+//	if err != nil {
+//		log.Fatalf("Streaming failed: %v", err)
+//	}
+//
+//	// Send events via channel
+//	go func() {
+//		event := events.NewTextMessageContentEvent("msg-123", "Hello")
+//		send <- event
+//	}()
+//
+//	// Batch sending for performance
+//	events := []transport.TransportEvent{
+//		events.NewStepStartedEvent("step-1"),
+//		events.NewStepFinishedEvent("step-1"),
+//	}
+//	err = streamingTransport.SendBatch(ctx, events)
+//
+// Transport Manager with Load Balancing:
+//
+//	manager := transport.NewTransportManager()
+//	
+//	// Add multiple transports
+//	manager.AddTransport("primary", primaryTransport)
+//	manager.AddTransport("backup", backupTransport)
+//	
+//	// Configure load balancer
+//	manager.SetLoadBalancer(transport.NewFailoverLoadBalancer())
+//	
+//	// Send using best available transport
+//	err = manager.SendEvent(ctx, event)
+//
+// For comprehensive examples, see the examples/ directory and API documentation.
 package transport

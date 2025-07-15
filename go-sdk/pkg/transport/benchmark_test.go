@@ -23,6 +23,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+	
+	"github.com/ag-ui/go-sdk/pkg/core/events"
 )
 
 // BenchmarkEvent implements TransportEvent for benchmarking
@@ -39,10 +41,11 @@ func (e *BenchmarkEvent) Type() string                    { return e.eventType }
 func (e *BenchmarkEvent) Timestamp() time.Time            { return e.timestamp }
 func (e *BenchmarkEvent) Data() map[string]interface{}    { return e.data }
 
-// MockTransport implements Transport interface for benchmarking
-type MockTransport struct {
+
+// BenchmarkMockTransport implements Transport interface for benchmarking
+type BenchmarkMockTransport struct {
 	connected      bool
-	eventChan      chan Event
+	eventChan      chan events.Event
 	errorChan      chan error
 	capabilities   Capabilities
 	metrics        Metrics
@@ -55,7 +58,7 @@ type MockTransport struct {
 	mu             sync.RWMutex
 }
 
-func NewMockTransport(bufferSize int) *MockTransport {
+func NewBenchmarkMockTransport(bufferSize int) *BenchmarkMockTransport {
 	// Use typed capabilities for better type safety
 	compressionFeatures := CompressionFeatures{
 		SupportedAlgorithms: []CompressionType{CompressionNone},
@@ -86,8 +89,8 @@ func NewMockTransport(bufferSize int) *MockTransport {
 		ProtocolVersion: "1.0",
 	}
 	
-	return &MockTransport{
-		eventChan:    make(chan Event, bufferSize),
+	return &BenchmarkMockTransport{
+		eventChan:    make(chan events.Event, bufferSize),
 		errorChan:    make(chan error, bufferSize),
 		capabilities: ToCapabilities(NewCompressionCapabilities(baseCaps, compressionFeatures)),
 		metrics: Metrics{
@@ -98,7 +101,7 @@ func NewMockTransport(bufferSize int) *MockTransport {
 	}
 }
 
-func (t *MockTransport) Connect(ctx context.Context) error {
+func (t *BenchmarkMockTransport) Connect(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	
@@ -114,7 +117,7 @@ func (t *MockTransport) Connect(ctx context.Context) error {
 	return nil
 }
 
-func (t *MockTransport) Close(ctx context.Context) error {
+func (t *BenchmarkMockTransport) Close(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	
@@ -133,7 +136,7 @@ func (t *MockTransport) Close(ctx context.Context) error {
 	return nil
 }
 
-func (t *MockTransport) Send(ctx context.Context, event TransportEvent) error {
+func (t *BenchmarkMockTransport) Send(ctx context.Context, event TransportEvent) error {
 	if t.sendDelay > 0 {
 		select {
 		case <-time.After(t.sendDelay):
@@ -152,53 +155,49 @@ func (t *MockTransport) Send(ctx context.Context, event TransportEvent) error {
 	// Simulate sending by incrementing counter
 	t.messagesSent++
 	if t.enableMetrics {
-		t.metrics.MessagesSent++
 		t.metrics.BytesSent += uint64(len(event.ID()) + len(event.Type()))
 	}
 	
 	return nil
 }
 
-func (t *MockTransport) Receive() <-chan Event {
+func (t *BenchmarkMockTransport) Receive() <-chan events.Event {
 	return t.eventChan
 }
 
-func (t *MockTransport) Errors() <-chan error {
+func (t *BenchmarkMockTransport) Errors() <-chan error {
 	return t.errorChan
 }
 
-func (t *MockTransport) IsConnected() bool {
+func (t *BenchmarkMockTransport) IsConnected() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.connected
 }
 
-func (t *MockTransport) Capabilities() Capabilities {
-	return t.capabilities
+// Capabilities, Health and Metrics functionality removed - not part of Transport interface
+
+// SetMiddleware removed - not part of Transport interface
+
+// Config returns the transport configuration
+func (t *BenchmarkMockTransport) Config() Config {
+	return &BaseConfig{
+		Type:     "mock",
+		Endpoint: "mock://localhost",
+	}
 }
 
-func (t *MockTransport) Health(ctx context.Context) error {
-	// Check context before proceeding
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	default:
-	}
-	
-	if !t.IsConnected() {
-		return ErrNotConnected
-	}
-	return nil
-}
-
-func (t *MockTransport) Metrics() Metrics {
+// Stats returns transport statistics
+func (t *BenchmarkMockTransport) Stats() TransportStats {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return t.metrics
-}
-
-func (t *MockTransport) SetMiddleware(middleware ...Middleware) {
-	t.middleware = middleware
+	return TransportStats{
+		EventsSent:     int64(t.messagesSent),
+		EventsReceived: int64(t.messagesReceived),
+		BytesSent:      0,
+		BytesReceived:  0,
+		ConnectedAt:    time.Now(),
+	}
 }
 
 // Generate test events of various sizes using type-safe APIs
@@ -209,17 +208,16 @@ func generateEvent(id string, payloadSize int) TransportEvent {
 		payload[i] = byte(i % 256)
 	}
 	
-	// Use type-safe data event creation
-	dataEvent := CreateDataEvent(id, payload,
-		func(data *DataEventData) {
-			data.ContentType = "application/octet-stream"
-			data.Encoding = "binary"
-			data.Compressed = false
+	// Create benchmark event
+	return &BenchmarkEvent{
+		id:        id,
+		eventType: "benchmark",
+		data: map[string]interface{}{
+			"payload": payload,
+			"size":    payloadSize,
 		},
-	)
-	
-	// Convert to legacy event for backward compatibility
-	return NewTransportEventAdapter(dataEvent)
+		timestamp: time.Now(),
+	}
 }
 
 // Benchmark send operations with different payload sizes
@@ -244,7 +242,7 @@ func BenchmarkSend_WithMetrics(b *testing.B) {
 }
 
 func benchmarkSend(b *testing.B, payloadSize int, enableMetrics bool) {
-	transport := NewMockTransport(1000)
+	transport := NewBenchmarkMockTransport(1000)
 	transport.enableMetrics = enableMetrics
 	
 	ctx := context.Background()
@@ -279,7 +277,7 @@ func BenchmarkSendBatch_1000Events(b *testing.B) {
 }
 
 func benchmarkSendBatch(b *testing.B, batchSize, payloadSize int) {
-	transport := NewMockTransport(batchSize * 2)
+	transport := NewBenchmarkMockTransport(batchSize * 2)
 	
 	ctx := context.Background()
 	if err := transport.Connect(ctx); err != nil {
@@ -315,7 +313,7 @@ func BenchmarkReceive_Burst(b *testing.B) {
 }
 
 func benchmarkReceive(b *testing.B, burstSize, payloadSize int) {
-	transport := NewMockTransport(burstSize * 2)
+	transport := NewBenchmarkMockTransport(burstSize * 2)
 	
 	ctx := context.Background()
 	if err := transport.Connect(ctx); err != nil {
@@ -326,14 +324,14 @@ func benchmarkReceive(b *testing.B, burstSize, payloadSize int) {
 	// Pre-populate events
 	go func() {
 		for i := 0; i < b.N*burstSize; i++ {
-			event := Event{
-				Event: generateEvent(fmt.Sprintf("receive-%d", i), payloadSize),
-				Metadata: EventMetadata{
-					TransportID: "mock",
-					Size:        int64(payloadSize),
-					Latency:     10 * time.Millisecond,
+			// Create a mock core event for benchmarking
+			timestamp := time.Now().UnixMilli()
+			event := &MockCoreEvent{
+				BaseEvent: &events.BaseEvent{
+					EventType:   events.EventTypeCustom,
+					TimestampMs: &timestamp,
 				},
-				Timestamp: time.Now(),
+				id: fmt.Sprintf("receive-%d", i),
 			}
 			select {
 			case transport.eventChan <- event:
@@ -374,7 +372,7 @@ func BenchmarkManagerLifecycle_StartStop(b *testing.B) {
 	
 	for i := 0; i < b.N; i++ {
 		manager := NewSimpleManager()
-		transport := NewMockTransport(100)
+		transport := NewBenchmarkMockTransport(100)
 		manager.SetTransport(transport)
 		
 		ctx := context.Background()
@@ -393,7 +391,7 @@ func BenchmarkManagerLifecycle_SetTransport(b *testing.B) {
 	b.ReportAllocs()
 	
 	for i := 0; i < b.N; i++ {
-		transport := NewMockTransport(100)
+		transport := NewBenchmarkMockTransport(100)
 		manager.SetTransport(transport)
 	}
 }
@@ -412,7 +410,7 @@ func BenchmarkConcurrentSend_100Goroutines(b *testing.B) {
 }
 
 func benchmarkConcurrentSend(b *testing.B, numGoroutines, payloadSize int) {
-	transport := NewMockTransport(numGoroutines * 100)
+	transport := NewBenchmarkMockTransport(numGoroutines * 100)
 	
 	ctx := context.Background()
 	if err := transport.Connect(ctx); err != nil {
@@ -457,25 +455,24 @@ func benchmarkConcurrentReceive(b *testing.B, numGoroutines, payloadSize int) {
 	b.ReportAllocs()
 	
 	var wg sync.WaitGroup
-	eventChan := make(chan Event, numGoroutines*10)
+	eventChan := make(chan events.Event, numGoroutines*10)
 	
 	// Create events for processing
-	events := make([]Event, b.N)
+	testEvents := make([]events.Event, b.N)
 	for i := 0; i < b.N; i++ {
-		events[i] = Event{
-			Event: generateEvent(fmt.Sprintf("concurrent-%d", i), payloadSize),
-			Metadata: EventMetadata{
-				TransportID: "mock",
-				Size:        int64(payloadSize),
-				Latency:     10 * time.Millisecond,
+		timestamp := time.Now().UnixMilli()
+		testEvents[i] = &MockCoreEvent{
+			BaseEvent: &events.BaseEvent{
+				EventType:   events.EventTypeCustom,
+				TimestampMs: &timestamp,
 			},
-			Timestamp: time.Now(),
+			id: fmt.Sprintf("concurrent-%d", i),
 		}
 	}
 	
 	// Start producer
 	go func() {
-		for _, event := range events {
+		for _, event := range testEvents {
 			eventChan <- event
 		}
 		close(eventChan)
@@ -517,29 +514,22 @@ func BenchmarkMemoryAllocation_EventWrapping(b *testing.B) {
 	b.ReportAllocs()
 	
 	for i := 0; i < b.N; i++ {
-		event := Event{
-			Event: baseEvent,
-			Metadata: EventMetadata{
-				TransportID: "mock",
-				Size:        1024,
-				Latency:     10 * time.Millisecond,
-			},
-			Timestamp: time.Now(),
-		}
+		// Simple allocation test
+		event := generateEvent(fmt.Sprintf("wrap-%d", i), 1024)
 		_ = event
+		_ = baseEvent
 	}
 }
 
 func BenchmarkMemoryAllocation_ChannelOperations(b *testing.B) {
-	eventChan := make(chan Event, 1000)
-	event := Event{
-		Event: generateEvent("channel", 1024),
-		Metadata: EventMetadata{
-			TransportID: "mock",
-			Size:        1024,
-			Latency:     10 * time.Millisecond,
+	eventChan := make(chan events.Event, 1000)
+	timestamp := time.Now().UnixMilli()
+	event := &MockCoreEvent{
+		BaseEvent: &events.BaseEvent{
+			EventType:   events.EventTypeCustom,
+			TimestampMs: &timestamp,
 		},
-		Timestamp: time.Now(),
+		id: "channel-test",
 	}
 	
 	b.ResetTimer()
@@ -553,7 +543,7 @@ func BenchmarkMemoryAllocation_ChannelOperations(b *testing.B) {
 
 // Benchmark error conditions
 func BenchmarkError_NotConnected(b *testing.B) {
-	transport := NewMockTransport(100)
+	transport := NewBenchmarkMockTransport(100)
 	event := generateEvent("error", 1024)
 	ctx := context.Background()
 	
@@ -569,7 +559,7 @@ func BenchmarkError_NotConnected(b *testing.B) {
 }
 
 func BenchmarkError_ContextCanceled(b *testing.B) {
-	transport := NewMockTransport(100)
+	transport := NewBenchmarkMockTransport(100)
 	event := generateEvent("canceled", 1024)
 	
 	if err := transport.Connect(context.Background()); err != nil {
@@ -615,14 +605,13 @@ func benchmarkBackpressure(b *testing.B, strategy BackpressureStrategy, bufferSi
 	handler := NewBackpressureHandler(config)
 	defer handler.Stop()
 	
-	event := Event{
-		Event: generateEvent("backpressure", 1024),
-		Metadata: EventMetadata{
-			TransportID: "mock",
-			Size:        1024,
-			Latency:     10 * time.Millisecond,
+	timestamp := time.Now().UnixMilli()
+	event := &MockCoreEvent{
+		BaseEvent: &events.BaseEvent{
+			EventType:   events.EventTypeCustom,
+			TimestampMs: &timestamp,
 		},
-		Timestamp: time.Now(),
+		id: "backpressure-test",
 	}
 	
 	// Start a consumer to drain the channel for blocking strategies
@@ -669,7 +658,7 @@ func BenchmarkWithAllFeatures(b *testing.B) {
 }
 
 func benchmarkWithFeatures(b *testing.B, enableLogging, enableValidation bool) {
-	transport := NewMockTransport(1000)
+	transport := NewBenchmarkMockTransport(1000)
 	transport.enableMetrics = true
 	
 	// Simulate logging overhead
@@ -705,7 +694,7 @@ func benchmarkWithFeatures(b *testing.B, enableLogging, enableValidation bool) {
 // Benchmark comparative scenarios
 func BenchmarkComparative_SimpleManager(b *testing.B) {
 	manager := NewSimpleManager()
-	transport := NewMockTransport(1000)
+	transport := NewBenchmarkMockTransport(1000)
 	manager.SetTransport(transport)
 	
 	ctx := context.Background()
@@ -727,7 +716,7 @@ func BenchmarkComparative_SimpleManager(b *testing.B) {
 }
 
 func BenchmarkComparative_DirectTransport(b *testing.B) {
-	transport := NewMockTransport(1000)
+	transport := NewBenchmarkMockTransport(1000)
 	
 	ctx := context.Background()
 	if err := transport.Connect(ctx); err != nil {
@@ -749,7 +738,7 @@ func BenchmarkComparative_DirectTransport(b *testing.B) {
 
 // Benchmark memory usage
 func BenchmarkMemoryUsage(b *testing.B) {
-	transport := NewMockTransport(1000)
+	transport := NewBenchmarkMockTransport(1000)
 	ctx := context.Background()
 	transport.Connect(ctx)
 	defer transport.Close(ctx)

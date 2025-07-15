@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ag-ui/go-sdk/pkg/core/events"
 )
 
 // TestEdgeCaseErrors tests various edge case error scenarios
@@ -212,7 +214,7 @@ func TestEdgeCaseErrors(t *testing.T) {
 		}()
 		
 		// Manager should still be usable after fixing state
-		manager.eventChan = make(chan Event, 100)
+		manager.eventChan = make(chan events.Event, 100)
 		manager.errorChan = make(chan error, 100)
 		
 		transport := NewErrorTransport()
@@ -609,7 +611,7 @@ func (t *PanicTransport) Send(ctx context.Context, event TransportEvent) error {
 	return t.baseTransport.Send(ctx, event)
 }
 
-func (t *PanicTransport) Receive() <-chan Event {
+func (t *PanicTransport) Receive() <-chan events.Event {
 	if t.panicOnReceive {
 		panic("intentional panic in Receive")
 	}
@@ -624,21 +626,17 @@ func (t *PanicTransport) IsConnected() bool {
 	return t.baseTransport.IsConnected()
 }
 
-func (t *PanicTransport) Capabilities() Capabilities {
-	return t.baseTransport.Capabilities()
+func (t *PanicTransport) Config() Config {
+	return t.baseTransport.Config()
 }
 
-func (t *PanicTransport) Health(ctx context.Context) error {
-	return t.baseTransport.Health(ctx)
+func (t *PanicTransport) Stats() TransportStats {
+	return t.baseTransport.Stats()
 }
 
-func (t *PanicTransport) Metrics() Metrics {
-	return t.baseTransport.Metrics()
-}
+// Health and Metrics functionality removed - not part of Transport interface
 
-func (t *PanicTransport) SetMiddleware(middleware ...Middleware) {
-	t.baseTransport.SetMiddleware(middleware...)
-}
+// SetMiddleware removed - not part of Transport interface
 
 // BenchmarkEdgeCasePerformance benchmarks performance under edge conditions
 func BenchmarkEdgeCasePerformance(b *testing.B) {

@@ -451,6 +451,11 @@ func (ms *MonitoringSystem) RecordMemoryUsage(usage uint64, allocations int64, g
 	ms.promMetrics.MemoryAllocations.Add(float64(allocations))
 	ms.promMetrics.GCPauseDuration.Observe(gcPause.Seconds())
 
+	// Update resource monitor with proper locking
+	ms.resourceMonitor.mu.Lock()
+	ms.resourceMonitor.memoryUsage = usage
+	ms.resourceMonitor.mu.Unlock()
+
 	// Check memory thresholds
 	ms.checkMemoryThresholds(usage, gcPause)
 }

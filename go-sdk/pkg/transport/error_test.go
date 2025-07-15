@@ -8,6 +8,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ag-ui/go-sdk/pkg/core/events"
 )
 
 // ErrorTransport is a transport implementation that simulates various error conditions
@@ -17,7 +19,6 @@ type ErrorTransport struct {
 	// Control error behavior
 	connectError       error
 	sendError          error
-	healthError        error
 	closeError         error
 	
 	// Control connection state
@@ -25,7 +26,7 @@ type ErrorTransport struct {
 	forceDisconnect    bool
 	
 	// Channels
-	eventChan          chan Event
+	eventChan          chan events.Event
 	errorChan          chan error
 	
 	// Simulate delays
@@ -40,7 +41,7 @@ type ErrorTransport struct {
 
 func NewErrorTransport() *ErrorTransport {
 	return &ErrorTransport{
-		eventChan: make(chan Event, 10),
+		eventChan: make(chan events.Event, 10),
 		errorChan: make(chan error, 10),
 	}
 }
@@ -148,7 +149,7 @@ func (t *ErrorTransport) Send(ctx context.Context, event TransportEvent) error {
 	return nil
 }
 
-func (t *ErrorTransport) Receive() <-chan Event {
+func (t *ErrorTransport) Receive() <-chan events.Event {
 	return t.eventChan
 }
 
@@ -162,42 +163,31 @@ func (t *ErrorTransport) IsConnected() bool {
 	return t.connected
 }
 
-func (t *ErrorTransport) Capabilities() Capabilities {
-	return Capabilities{
-		Streaming:      true,
-		Bidirectional:  true,
+func (t *ErrorTransport) Config() Config {
+	return &BaseConfig{
+		Type:           "error",
+		Endpoint:       "error://test",
+		Timeout:        30 * time.Second,
 		MaxMessageSize: 1024,
 	}
 }
 
-func (t *ErrorTransport) Health(ctx context.Context) error {
+func (t *ErrorTransport) Stats() TransportStats {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	
-	if t.healthError != nil {
-		return t.healthError
-	}
-	
-	if !t.connected {
-		return ErrNotConnected
-	}
-	
-	return nil
-}
-
-func (t *ErrorTransport) Metrics() Metrics {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	
-	return Metrics{
-		MessagesSent: uint64(t.sendAttempts),
-		ErrorCount:   uint64(t.connectAttempts - 1),
+	return TransportStats{
+		EventsSent:     int64(t.sendAttempts),
+		ErrorCount:     int64(t.connectAttempts - 1),
+		ReconnectCount: t.connectAttempts - 1,
 	}
 }
 
-func (t *ErrorTransport) SetMiddleware(middleware ...Middleware) {
-	// No-op for error transport
-}
+// Health check functionality removed - not part of Transport interface
+
+// Metrics functionality moved to Stats() method
+
+// SetMiddleware removed - not part of Transport interface
 
 // Helper methods for test control
 func (t *ErrorTransport) SetConnectError(err error) {
@@ -212,11 +202,7 @@ func (t *ErrorTransport) SetSendError(err error) {
 	t.sendError = err
 }
 
-func (t *ErrorTransport) SetHealthError(err error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	t.healthError = err
-}
+// SetHealthError removed - Health is no longer part of Transport interface
 
 func (t *ErrorTransport) SetCloseError(err error) {
 	t.mu.Lock()
@@ -683,57 +669,7 @@ func TestErrorTypes(t *testing.T) {
 	})
 }
 
-// Test health check failures
-func TestHealthCheckFailures(t *testing.T) {
-	transport := NewErrorTransport()
-	
-	tests := []struct {
-		name          string
-		setupFunc     func()
-		expectedError error
-	}{
-		{
-			name: "not_connected",
-			setupFunc: func() {
-				// Transport not connected
-			},
-			expectedError: ErrNotConnected,
-		},
-		{
-			name: "health_check_failure",
-			setupFunc: func() {
-				transport.connected = true
-				transport.SetHealthError(ErrHealthCheckFailed)
-			},
-			expectedError: ErrHealthCheckFailed,
-		},
-		{
-			name: "custom_health_error",
-			setupFunc: func() {
-				transport.connected = true
-				transport.SetHealthError(errors.New("service unavailable"))
-			},
-			expectedError: errors.New("service unavailable"),
-		},
-	}
-	
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Reset transport state
-			transport = NewErrorTransport()
-			tt.setupFunc()
-			
-			ctx := context.Background()
-			err := transport.Health(ctx)
-			
-			if err == nil {
-				t.Error("Expected error, got nil")
-			} else if err.Error() != tt.expectedError.Error() {
-				t.Errorf("Expected error %v, got %v", tt.expectedError, err)
-			}
-		})
-	}
-}
+// TestHealthCheckFailures removed - Health is no longer part of Transport interface
 
 // Test manager error scenarios
 func TestManagerErrorScenarios(t *testing.T) {
@@ -832,9 +768,9 @@ func TestEdgeCases(t *testing.T) {
 			transport.Connect(ctx)
 		}
 		
-		metrics := transport.Metrics()
-		if metrics.ErrorCount != 2 { // 3 attempts - 1 success = 2 errors
-			t.Errorf("Expected error count 2, got %d", metrics.ErrorCount)
+		stats := transport.Stats()
+		if stats.ErrorCount != 2 { // 3 attempts - 1 success = 2 errors
+			t.Errorf("Expected error count 2, got %d", stats.ErrorCount)
 		}
 	})
 	
@@ -855,28 +791,7 @@ func TestEdgeCases(t *testing.T) {
 		}
 	})
 	
-	t.Run("event_metadata_edge_cases", func(t *testing.T) {
-		metadata := EventMetadata{
-			Headers:    nil,
-			Size:       -1, // Invalid size
-			Latency:    -1 * time.Second, // Negative latency
-			Compressed: false,
-		}
-		
-		// Should handle nil headers
-		if metadata.Headers != nil {
-			t.Error("Expected nil headers")
-		}
-		
-		// Should allow negative values (for error cases)
-		if metadata.Size != -1 {
-			t.Error("Size should be -1")
-		}
-		
-		if metadata.Latency != -1*time.Second {
-			t.Error("Latency should be negative")
-		}
-	})
+	// event_metadata_edge_cases test removed - EventMetadata type no longer exists
 }
 
 // Test SimpleManager channel draining scenarios
@@ -927,9 +842,15 @@ func TestChannelDrainingTimeout(t *testing.T) {
 			eventType: "demo",
 			timestamp: time.Now(),
 		}
+		// Convert TransportEvent to events.Event
+		baseEvent := &events.BaseEvent{
+			EventType: events.EventType(event.Type()),
+		}
+		baseEvent.SetTimestamp(event.Timestamp().UnixMilli())
+		
 		// Send directly to simulate overflow
 		select {
-		case manager.eventChan <- Event{Event: event}:
+		case manager.eventChan <- baseEvent:
 		default:
 			// Channel full
 		}

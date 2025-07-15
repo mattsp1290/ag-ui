@@ -9,6 +9,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/ag-ui/go-sdk/pkg/core/events"
 )
 
 // DeterministicErrorTransport is a wrapper around ErrorTransport that fails based on event ID
@@ -632,8 +634,15 @@ func TestSimpleManagerTimeoutScenarios(t *testing.T) {
 		
 		// Fill event channel
 		for i := 0; i < 200; i++ {
+			// Convert DemoEvent to events.Event
+			demoEvent := &DemoEvent{id: fmt.Sprintf("drain-%d", i), eventType: "test", timestamp: time.Now()}
+			baseEvent := &events.BaseEvent{
+				EventType: events.EventType(demoEvent.Type()),
+			}
+			baseEvent.SetTimestamp(demoEvent.Timestamp().UnixMilli())
+			
 			select {
-			case manager.eventChan <- Event{Event: &DemoEvent{id: fmt.Sprintf("drain-%d", i)}}:
+			case manager.eventChan <- baseEvent:
 			default:
 				// Channel full
 			}

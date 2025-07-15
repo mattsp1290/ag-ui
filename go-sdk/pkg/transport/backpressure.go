@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 	"time"
+	
+	"github.com/ag-ui/go-sdk/pkg/core/events"
 )
 
 // BackpressureStrategy defines how backpressure should be handled
@@ -67,7 +69,7 @@ type BackpressureHandler struct {
 	mu              sync.RWMutex
 	config          BackpressureConfig
 	metrics         *BackpressureMetrics
-	eventChan       chan Event
+	eventChan       chan events.Event
 	errorChan       chan error
 	backpressureOn  bool
 	stopChan        chan struct{}
@@ -83,7 +85,7 @@ func NewBackpressureHandler(config BackpressureConfig) *BackpressureHandler {
 	handler := &BackpressureHandler{
 		config:     config,
 		metrics:    &BackpressureMetrics{MaxBufferSize: config.BufferSize},
-		eventChan:  make(chan Event, config.BufferSize),
+		eventChan:  make(chan events.Event, config.BufferSize),
 		errorChan:  make(chan error, config.BufferSize),
 		stopChan:   make(chan struct{}),
 		ctx:        ctx,
@@ -99,7 +101,7 @@ func NewBackpressureHandler(config BackpressureConfig) *BackpressureHandler {
 }
 
 // SendEvent sends an event through the backpressure handler
-func (h *BackpressureHandler) SendEvent(event Event) error {
+func (h *BackpressureHandler) SendEvent(event events.Event) error {
 	// Check if stopped
 	h.mu.RLock()
 	if h.stopped {
@@ -164,7 +166,7 @@ func (h *BackpressureHandler) SendError(err error) error {
 }
 
 // EventChan returns the event channel
-func (h *BackpressureHandler) EventChan() <-chan Event {
+func (h *BackpressureHandler) EventChan() <-chan events.Event {
 	return h.eventChan
 }
 
@@ -203,7 +205,7 @@ func (h *BackpressureHandler) Stop() {
 }
 
 // sendEventNone sends event with no backpressure handling (original behavior)
-func (h *BackpressureHandler) sendEventNone(event Event) error {
+func (h *BackpressureHandler) sendEventNone(event events.Event) error {
 	select {
 	case h.eventChan <- event:
 		return nil
@@ -213,7 +215,7 @@ func (h *BackpressureHandler) sendEventNone(event Event) error {
 }
 
 // sendEventDropOldest sends event and drops oldest if buffer is full
-func (h *BackpressureHandler) sendEventDropOldest(event Event) error {
+func (h *BackpressureHandler) sendEventDropOldest(event events.Event) error {
 	select {
 	case h.eventChan <- event:
 		return nil
@@ -236,7 +238,7 @@ func (h *BackpressureHandler) sendEventDropOldest(event Event) error {
 }
 
 // sendEventDropNewest sends event and drops newest if buffer is full
-func (h *BackpressureHandler) sendEventDropNewest(event Event) error {
+func (h *BackpressureHandler) sendEventDropNewest(event events.Event) error {
 	select {
 	case h.eventChan <- event:
 		return nil
@@ -253,7 +255,7 @@ func (h *BackpressureHandler) sendEventDropNewest(event Event) error {
 }
 
 // sendEventBlock sends event and blocks if buffer is full
-func (h *BackpressureHandler) sendEventBlock(event Event) error {
+func (h *BackpressureHandler) sendEventBlock(event events.Event) error {
 	startTime := time.Now()
 	
 	select {
@@ -285,7 +287,7 @@ func (h *BackpressureHandler) sendEventBlock(event Event) error {
 }
 
 // sendEventBlockTimeout sends event and blocks with timeout if buffer is full
-func (h *BackpressureHandler) sendEventBlockTimeout(event Event) error {
+func (h *BackpressureHandler) sendEventBlockTimeout(event events.Event) error {
 	startTime := time.Now()
 	
 	select {

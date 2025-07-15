@@ -21,6 +21,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
+	
+	"github.com/ag-ui/go-sdk/pkg/common"
 )
 
 // ============================================================================
@@ -968,9 +970,25 @@ func (rv *RequestValidator) isAllowedContentType(contentType string) bool {
 
 // validateURL validates the request URL
 func (rv *RequestValidator) validateURL(u *url.URL) error {
-	// Check for suspicious patterns
+	// First check for path traversal
 	if strings.Contains(u.Path, "..") {
 		return errors.New("path traversal detected")
+	}
+
+	// If this is a full URL (not just a path), validate it with common validator
+	if u.Scheme != "" && u.Host != "" {
+		// Use the common URL validator for comprehensive checks
+		opts := common.URLValidationOptions{
+			RequireHTTPS:           false, // Allow both HTTP and HTTPS for SSE
+			AllowedSchemes:         []string{"http", "https"},
+			BlockPrivateNetworks:   true,
+			BlockLocalhost:         true,
+			ValidateHostResolution: false, // Don't resolve during request validation
+		}
+		
+		if err := common.ValidateURL(u.String(), opts); err != nil {
+			return fmt.Errorf("URL validation failed: %w", err)
+		}
 	}
 
 	// Validate query parameters

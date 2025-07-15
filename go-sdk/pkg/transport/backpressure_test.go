@@ -2,8 +2,12 @@ package transport
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
+
+	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/ag-ui/go-sdk/pkg/proto/generated"
 )
 
 // MockEvent implements TransportEvent for testing
@@ -19,17 +23,34 @@ func (e *MockEvent) Type() string                    { return e.typ }
 func (e *MockEvent) Timestamp() time.Time            { return time.Now() }
 func (e *MockEvent) Data() map[string]interface{}    { return e.data }
 
-// createTypedTestEvent creates a type-safe test event for backpressure testing
-func createTypedTestEvent(id string) Event {
-	// Use type-safe data event creation
-	dataEvent := CreateDataEvent(id, []byte("backpressure test data"),
-		func(data *DataEventData) {
-			data.ContentType = "text/plain"
-			data.Encoding = "utf-8"
+// MockCoreEvent implements events.Event for testing
+type MockCoreEvent struct {
+	*events.BaseEvent
+	id string // for test tracking
+}
+
+func (e *MockCoreEvent) Validate() error                  { return nil }
+func (e *MockCoreEvent) ToJSON() ([]byte, error) {
+	return json.Marshal(map[string]interface{}{
+		"type": e.Type(),
+		"timestamp": e.Timestamp(),
+		"id": e.id,
+	})
+}
+func (e *MockCoreEvent) ToProtobuf() (*generated.Event, error) { return nil, nil }
+func (e *MockCoreEvent) GetBaseEvent() *events.BaseEvent  { return e.BaseEvent }
+
+
+// createCoreTestEvent creates a core event for backpressure testing
+func createCoreTestEvent(id string) *MockCoreEvent {
+	timestamp := time.Now().UnixMilli()
+	return &MockCoreEvent{
+		BaseEvent: &events.BaseEvent{
+			EventType:   events.EventTypeCustom,
+			TimestampMs: &timestamp,
 		},
-	)
-	
-	return Event{Event: NewTransportEventAdapter(dataEvent)}
+		id: id,
+	}
 }
 
 func TestBackpressureHandler_DropOldest(t *testing.T) {
@@ -46,9 +67,9 @@ func TestBackpressureHandler_DropOldest(t *testing.T) {
 	defer handler.Stop()
 	
 	// Fill the buffer using type-safe events
-	event1 := createTypedTestEvent("1")
-	event2 := createTypedTestEvent("2")
-	event3 := createTypedTestEvent("3")
+	event1 := createCoreTestEvent("1")
+	event2 := createCoreTestEvent("2")
+	event3 := createCoreTestEvent("3")
 	
 	// Send first two events - should succeed
 	err := handler.SendEvent(event1)
@@ -70,8 +91,9 @@ func TestBackpressureHandler_DropOldest(t *testing.T) {
 	// Verify we get event2 and event3 (event1 should be dropped)
 	select {
 	case receivedEvent := <-handler.EventChan():
-		if receivedEvent.Event.ID() != "2" {
-			t.Errorf("Expected event ID '2', got '%s'", receivedEvent.Event.ID())
+		mockEvent := receivedEvent.(*MockCoreEvent)
+		if mockEvent.id != "2" {
+			t.Errorf("Expected event ID '2', got '%s'", mockEvent.id)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Timeout waiting for event")
@@ -79,8 +101,9 @@ func TestBackpressureHandler_DropOldest(t *testing.T) {
 	
 	select {
 	case receivedEvent := <-handler.EventChan():
-		if receivedEvent.Event.ID() != "3" {
-			t.Errorf("Expected event ID '3', got '%s'", receivedEvent.Event.ID())
+		mockEvent := receivedEvent.(*MockCoreEvent)
+		if mockEvent.id != "3" {
+			t.Errorf("Expected event ID '3', got '%s'", mockEvent.id)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Timeout waiting for event")
@@ -107,9 +130,9 @@ func TestBackpressureHandler_DropNewest(t *testing.T) {
 	defer handler.Stop()
 	
 	// Fill the buffer using type-safe events
-	event1 := createTypedTestEvent("1")
-	event2 := createTypedTestEvent("2")
-	event3 := createTypedTestEvent("3")
+	event1 := createCoreTestEvent("1")
+	event2 := createCoreTestEvent("2")
+	event3 := createCoreTestEvent("3")
 	
 	// Send first two events - should succeed
 	err := handler.SendEvent(event1)
@@ -131,8 +154,9 @@ func TestBackpressureHandler_DropNewest(t *testing.T) {
 	// Verify we get event1 and event2 (event3 should be dropped)
 	select {
 	case receivedEvent := <-handler.EventChan():
-		if receivedEvent.Event.ID() != "1" {
-			t.Errorf("Expected event ID '1', got '%s'", receivedEvent.Event.ID())
+		mockEvent := receivedEvent.(*MockCoreEvent)
+		if mockEvent.id != "1" {
+			t.Errorf("Expected event ID '1', got '%s'", mockEvent.id)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Timeout waiting for event")
@@ -140,8 +164,9 @@ func TestBackpressureHandler_DropNewest(t *testing.T) {
 	
 	select {
 	case receivedEvent := <-handler.EventChan():
-		if receivedEvent.Event.ID() != "2" {
-			t.Errorf("Expected event ID '2', got '%s'", receivedEvent.Event.ID())
+		mockEvent := receivedEvent.(*MockCoreEvent)
+		if mockEvent.id != "2" {
+			t.Errorf("Expected event ID '2', got '%s'", mockEvent.id)
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Timeout waiting for event")
@@ -168,8 +193,8 @@ func TestBackpressureHandler_BlockTimeout(t *testing.T) {
 	defer handler.Stop()
 	
 	// Fill the buffer using type-safe events
-	event1 := createTypedTestEvent("1")
-	event2 := createTypedTestEvent("2")
+	event1 := createCoreTestEvent("1")
+	event2 := createCoreTestEvent("2")
 	
 	// Send first event - should succeed
 	err := handler.SendEvent(event1)
@@ -212,8 +237,8 @@ func TestBackpressureHandler_None(t *testing.T) {
 	defer handler.Stop()
 	
 	// Fill the buffer using type-safe events
-	event1 := createTypedTestEvent("1")
-	event2 := createTypedTestEvent("2")
+	event1 := createCoreTestEvent("1")
+	event2 := createCoreTestEvent("2")
 	
 	// Send first event - should succeed
 	err := handler.SendEvent(event1)
@@ -261,7 +286,7 @@ func TestSimpleManagerWithBackpressure(t *testing.T) {
 }
 
 func TestFullManagerWithBackpressure(t *testing.T) {
-	config := &Config{
+	config := &ManagerConfig{
 		Primary:     "websocket",
 		Fallback:    []string{"sse", "http"},
 		BufferSize:  1024,
@@ -324,7 +349,7 @@ func TestBackpressureMetrics(t *testing.T) {
 	
 	// Send events to trigger drops
 	for i := 0; i < 5; i++ {
-		event := Event{Event: &MockEvent{id: string(rune('1' + i)), typ: "test", data: nil}}
+		event := createCoreTestEvent(string(rune('1' + i)))
 		handler.SendEvent(event)
 	}
 	

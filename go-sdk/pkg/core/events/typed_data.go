@@ -2,7 +2,6 @@ package events
 
 import (
 	"fmt"
-	"time"
 )
 
 // EventDataType interface ensures all event data types implement required methods
@@ -13,11 +12,14 @@ type EventDataType interface {
 	// ToMap converts the event data to a map[string]interface{} for backward compatibility
 	ToMap() map[string]interface{}
 	
-	// FromMap populates the event data from a map[string]interface{} for backward compatibility
-	FromMap(data map[string]interface{}) error
-	
 	// DataType returns the type identifier for this data
 	DataType() string
+}
+
+// EventDataMutable interface for methods that need to modify the event data
+type EventDataMutable interface {
+	// FromMap populates the event data from a map[string]interface{} for backward compatibility
+	FromMap(data map[string]interface{}) error
 }
 
 // MessageEventData represents typed data for message events

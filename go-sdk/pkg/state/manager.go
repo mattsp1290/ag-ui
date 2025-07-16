@@ -25,6 +25,7 @@ type ManagerOptions struct {
 	// Storage configuration
 	MaxHistorySize int
 	EnableCaching  bool
+	CustomStore    StoreInterface // Custom store for dependency injection
 
 	// Conflict resolution configuration
 	ConflictStrategy ConflictResolutionStrategy
@@ -96,7 +97,7 @@ func DefaultManagerOptions() ManagerOptions {
 // StateManager is the main entry point for state management
 type StateManager struct {
 	// Core components
-	store             *StateStore
+	store             StoreInterface
 	deltaComputer     *DeltaComputer
 	conflictResolver  *ConflictResolverImpl
 	validator         StateValidator
@@ -194,7 +195,12 @@ type UpdateOptions struct {
 func NewStateManager(opts ManagerOptions) (*StateManager, error) {
 	logger := DefaultLogger()
 	// Create core components
-	store := NewStateStore(WithLogger(logger))
+	var store StoreInterface
+	if opts.CustomStore != nil {
+		store = opts.CustomStore
+	} else {
+		store = NewStateStore(WithLogger(logger))
+	}
 
 	deltaComputer := NewDeltaComputer(DefaultDeltaOptions())
 
@@ -756,9 +762,17 @@ func (sm *StateManager) Close() error {
 	}
 
 	// Close audit manager
-	if sm.auditManager != nil && sm.auditManager.logger != nil {
-		if err := sm.auditManager.logger.Close(); err != nil {
-			sm.logger.Error("failed to close audit logger", Err(err))
+	if sm.auditManager != nil {
+		// First close the audit manager to wait for goroutines
+		if err := sm.auditManager.Close(); err != nil {
+			sm.logger.Error("failed to close audit manager", Err(err))
+		}
+		
+		// Then close the logger
+		if sm.auditManager.logger != nil {
+			if err := sm.auditManager.logger.Close(); err != nil {
+				sm.logger.Error("failed to close audit logger", Err(err))
+			}
 		}
 	}
 

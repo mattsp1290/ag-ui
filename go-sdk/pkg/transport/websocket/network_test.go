@@ -386,7 +386,7 @@ func TestNetworkLatency(t *testing.T) {
 			server.SetNetworkCondition(NetworkHighLatency)
 			server.SetLatency(latency)
 
-			config := DefaultTransportConfig()
+			config := FastTransportConfig()
 			config.URLs = []string{server.URL()}
 			config.Logger = zaptest.NewLogger(t)
 			config.PoolConfig.ConnectionTemplate.ReadTimeout = 10 * time.Second
@@ -450,7 +450,7 @@ func TestPacketLoss(t *testing.T) {
 			server.SetNetworkCondition(NetworkPacketLoss)
 			server.SetPacketLoss(lossRate)
 
-			config := DefaultTransportConfig()
+			config := FastTransportConfig()
 			config.URLs = []string{server.URL()}
 			config.Logger = zaptest.NewLogger(t)
 			config.PoolConfig.ConnectionTemplate.MaxReconnectAttempts = 5
@@ -513,7 +513,7 @@ func TestNetworkPartition(t *testing.T) {
 	server := NewChaosServer(t)
 	defer server.Close()
 
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zaptest.NewLogger(t)
 	config.PoolConfig.ConnectionTemplate.MaxReconnectAttempts = 10
@@ -638,7 +638,7 @@ func TestIntermittentConnectivity(t *testing.T) {
 	server.SetNetworkCondition(NetworkIntermittent)
 	server.EnableRandomDisconnects(0.05) // 5% chance of random disconnect
 
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zaptest.NewLogger(t)
 	config.PoolConfig.ConnectionTemplate.MaxReconnectAttempts = 20
@@ -728,7 +728,7 @@ func TestTLSNetworkFailures(t *testing.T) {
 	websocket.DefaultDialer = &testDialer
 	defer func() { websocket.DefaultDialer = originalDialer }()
 
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.URLs = []string{server.TLSURL()}
 	config.Logger = zaptest.NewLogger(t)
 	config.PoolConfig.ConnectionTemplate.MaxReconnectAttempts = 5
@@ -785,7 +785,7 @@ func TestMessageCorruption(t *testing.T) {
 
 	server.EnableMessageCorruption(0.2) // 20% message corruption rate
 
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zaptest.NewLogger(t)
 	config.EnableEventValidation = false
@@ -854,7 +854,7 @@ func TestCascadingFailures(t *testing.T) {
 		}
 	}()
 
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.URLs = urls
 	config.Logger = zaptest.NewLogger(t)
 	config.PoolConfig.MinConnections = 3
@@ -886,7 +886,7 @@ func TestCascadingFailures(t *testing.T) {
 		servers[0].SetDisconnected(true)
 		servers[0].DisconnectAllConnections()
 
-		time.Sleep(2 * time.Second)
+		time.Sleep(500 * time.Millisecond)
 
 		// Should still have connections to other servers
 		assert.True(t, transport.IsConnected(), "Should maintain connectivity after 1 server failure")
@@ -906,7 +906,7 @@ func TestCascadingFailures(t *testing.T) {
 		servers[1].SetDisconnected(true)
 		servers[1].DisconnectAllConnections()
 
-		time.Sleep(2 * time.Second)
+		time.Sleep(500 * time.Millisecond)
 
 		// Should still have connection to the last server
 		assert.True(t, transport.IsConnected(), "Should maintain connectivity after 2 server failures")
@@ -976,7 +976,7 @@ func TestSlowNetworkConditions(t *testing.T) {
 	server.SetNetworkCondition(NetworkJitter)
 	server.SetJitter(2 * time.Second) // High jitter
 
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zaptest.NewLogger(t)
 	config.PoolConfig.ConnectionTemplate.ReadTimeout = 30 * time.Second
@@ -1036,7 +1036,7 @@ func BenchmarkNetworkLatencyPerformance(b *testing.B) {
 	server.SetNetworkCondition(NetworkHighLatency)
 	server.SetLatency(100 * time.Millisecond)
 
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zap.NewNop()
 	config.EnableEventValidation = false
@@ -1069,7 +1069,7 @@ func BenchmarkNetworkRecoveryTime(b *testing.B) {
 	server := NewChaosServer(b)
 	defer server.Close()
 
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zap.NewNop()
 	config.PoolConfig.ConnectionTemplate.MaxReconnectAttempts = 5

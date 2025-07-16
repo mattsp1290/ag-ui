@@ -1201,8 +1201,13 @@ func createTestEventHandler(running bool, queueDepth int) *StateEventHandler {
 	if !running {
 		return nil // A nil handler is considered not running
 	}
+	
+	// Create a failing store for error injection testing
+	baseStore := createTestStateStore()
+	failingStore := NewFailingStore(baseStore, "storage", 0.1)
+	
 	handler := &StateEventHandler{
-		store:         createTestStateStore(),
+		store:         failingStore,
 		deltaComputer: &DeltaComputer{},
 		metrics:       &StateMetrics{},
 		batchSize:     100,

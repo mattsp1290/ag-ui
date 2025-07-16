@@ -139,6 +139,9 @@ type SchemaProperty struct {
 	MaxProperties *int                       `json:"maxProperties,omitempty"`
 	Properties    map[string]*SchemaProperty `json:"properties,omitempty"`
 	Required      []string                   `json:"required,omitempty"`
+	
+	// PatternProperties defines schemas for properties matching patterns
+	PatternProperties map[string]*SchemaProperty `json:"patternProperties,omitempty"`
 
 	// Conditional schema
 	If   *SchemaProperty `json:"if,omitempty"`
@@ -413,9 +416,10 @@ func (v *stateValidator) validateValue(value interface{}, prop *SchemaProperty, 
 	case "object":
 		if obj, ok := value.(map[string]interface{}); ok {
 			objSchema := &StateSchema{
-				Type:       "object",
-				Properties: prop.Properties,
-				Required:   prop.Required,
+				Type:              "object",
+				Properties:        prop.Properties,
+				Required:          prop.Required,
+				PatternProperties: prop.PatternProperties,
 			}
 			errors = append(errors, v.validateAgainstSchema(obj, objSchema, path)...)
 		}

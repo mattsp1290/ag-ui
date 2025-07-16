@@ -610,6 +610,50 @@ func (r *FormatRegistry) RegisterCodec(mimeType string, factory CodecFactory) er
 			elem := r.legacyDecodersLRU.PushFront(mimeType)
 			r.legacyDecodersIndex[mimeType] = elem
 		}
+	} else {
+		// For non-concrete types that implement both EncoderFactory and DecoderFactory,
+		// register them in the legacy encoder/decoder maps as well
+		if encoderFactory, ok := factory.(EncoderFactory); ok {
+			// Check if we need to evict entries before adding
+			if r.config.MaxEntries > 0 && len(r.legacyEncoderFactories) >= r.config.MaxEntries {
+				r.evictLRU(r.legacyEncodersLRU, r.legacyEncoderFactories, r.legacyEncodersIndex)
+			}
+			
+			encoderEntry := &RegistryEntry{
+				value:       encoderFactory,
+				createdAt:   time.Now(),
+				lastAccess:  time.Now(),
+				accessCount: 1,
+			}
+			r.legacyEncoderFactories[mimeType] = encoderEntry
+			
+			// Update LRU tracking
+			if r.config.EnableLRU {
+				elem := r.legacyEncodersLRU.PushFront(mimeType)
+				r.legacyEncodersIndex[mimeType] = elem
+			}
+		}
+		
+		if decoderFactory, ok := factory.(DecoderFactory); ok {
+			// Check if we need to evict entries before adding
+			if r.config.MaxEntries > 0 && len(r.legacyDecoderFactories) >= r.config.MaxEntries {
+				r.evictLRU(r.legacyDecodersLRU, r.legacyDecoderFactories, r.legacyDecodersIndex)
+			}
+			
+			decoderEntry := &RegistryEntry{
+				value:       decoderFactory,
+				createdAt:   time.Now(),
+				lastAccess:  time.Now(),
+				accessCount: 1,
+			}
+			r.legacyDecoderFactories[mimeType] = decoderEntry
+			
+			// Update LRU tracking
+			if r.config.EnableLRU {
+				elem := r.legacyDecodersLRU.PushFront(mimeType)
+				r.legacyDecodersIndex[mimeType] = elem
+			}
+		}
 	}
 	
 	return nil
@@ -760,7 +804,7 @@ func (r *FormatRegistry) UnregisterFormat(mimeType string) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	
-	canonical := r.resolveAlias(mimeType)
+	canonical := r.resolveAliasWithTracking(mimeType)
 	
 	// Remove format info
 	entry, exists := r.formats[canonical]
@@ -792,10 +836,10 @@ func (r *FormatRegistry) UnregisterFormat(mimeType string) error {
 
 // GetFormat returns format information for a MIME type
 func (r *FormatRegistry) GetFormat(mimeType string) (*FormatInfo, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	
-	canonical := r.resolveAlias(mimeType)
+	canonical := r.resolveAliasWithTracking(mimeType)
 	entry, exists := r.formats[canonical]
 	if !exists {
 		return nil, fmt.Errorf("format %s not registered", mimeType)
@@ -817,10 +861,10 @@ func (r *FormatRegistry) GetFormat(mimeType string) (*FormatInfo, error) {
 
 // GetEncoder creates an encoder for the specified MIME type
 func (r *FormatRegistry) GetEncoder(ctx context.Context, mimeType string, options *EncodingOptions) (Encoder, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	
-	canonical := r.resolveAlias(mimeType)
+	canonical := r.resolveAliasWithTracking(mimeType)
 	
 	// Try concrete factory first
 	if entry, exists := r.encoderFactories[canonical]; exists {
@@ -861,10 +905,10 @@ func (r *FormatRegistry) GetEncoder(ctx context.Context, mimeType string, option
 
 // GetEncoderFactory returns the concrete encoder factory for the specified MIME type
 func (r *FormatRegistry) GetEncoderFactory(mimeType string) (*DefaultEncoderFactory, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	
-	canonical := r.resolveAlias(mimeType)
+	canonical := r.resolveAliasWithTracking(mimeType)
 	entry, exists := r.encoderFactories[canonical]
 	if !exists {
 		return nil, errors.NewEncodingError(errors.CodeFormatNotRegistered, "no concrete encoder factory registered for format").WithMimeType(mimeType).WithOperation("get_encoder_factory")
@@ -886,10 +930,10 @@ func (r *FormatRegistry) GetEncoderFactory(mimeType string) (*DefaultEncoderFact
 
 // GetDecoder creates a decoder for the specified MIME type
 func (r *FormatRegistry) GetDecoder(ctx context.Context, mimeType string, options *DecodingOptions) (Decoder, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	
-	canonical := r.resolveAlias(mimeType)
+	canonical := r.resolveAliasWithTracking(mimeType)
 	
 	// Try concrete factory first
 	if entry, exists := r.decoderFactories[canonical]; exists {
@@ -930,10 +974,10 @@ func (r *FormatRegistry) GetDecoder(ctx context.Context, mimeType string, option
 
 // GetDecoderFactory returns the concrete decoder factory for the specified MIME type
 func (r *FormatRegistry) GetDecoderFactory(mimeType string) (*DefaultDecoderFactory, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	
-	canonical := r.resolveAlias(mimeType)
+	canonical := r.resolveAliasWithTracking(mimeType)
 	entry, exists := r.decoderFactories[canonical]
 	if !exists {
 		return nil, errors.NewEncodingError(errors.CodeFormatNotRegistered, "no concrete decoder factory registered for format").WithMimeType(mimeType).WithOperation("get_decoder_factory")
@@ -955,8 +999,8 @@ func (r *FormatRegistry) GetDecoderFactory(mimeType string) (*DefaultDecoderFact
 
 // GetCodec creates a codec for the specified MIME type
 func (r *FormatRegistry) GetCodec(ctx context.Context, mimeType string, encOptions *EncodingOptions, decOptions *DecodingOptions) (Codec, error) {
-	r.mu.RLock()
-	canonical := r.resolveAlias(mimeType)
+	r.mu.Lock()
+	canonical := r.resolveAliasWithTracking(mimeType)
 	
 	// Try concrete codec factory first
 	if entry, exists := r.codecFactories[canonical]; exists {
@@ -973,7 +1017,7 @@ func (r *FormatRegistry) GetCodec(ctx context.Context, mimeType string, encOptio
 		
 		factory := entry.value.(*DefaultCodecFactory)
 		codec, err := factory.CreateCodec(ctx, canonical, encOptions, decOptions)
-		r.mu.RUnlock()
+		r.mu.Unlock()
 		return codec, err
 	}
 	
@@ -992,12 +1036,12 @@ func (r *FormatRegistry) GetCodec(ctx context.Context, mimeType string, encOptio
 		
 		factory := entry.value.(CodecFactory)
 		codec, err := factory.CreateCodec(ctx, canonical, encOptions, decOptions)
-		r.mu.RUnlock()
+		r.mu.Unlock()
 		return codec, err
 	}
 	
 	// Need to create composite codec - release lock before calling GetEncoder/GetDecoder
-	r.mu.RUnlock()
+	r.mu.Unlock()
 	
 	// Fall back to separate encoder/decoder
 	encoder, err := r.GetEncoder(ctx, mimeType, encOptions)
@@ -1018,10 +1062,10 @@ func (r *FormatRegistry) GetCodec(ctx context.Context, mimeType string, encOptio
 
 // GetCodecFactory returns the concrete codec factory for the specified MIME type
 func (r *FormatRegistry) GetCodecFactory(mimeType string) (*DefaultCodecFactory, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	
-	canonical := r.resolveAlias(mimeType)
+	canonical := r.resolveAliasWithTracking(mimeType)
 	entry, exists := r.codecFactories[canonical]
 	if !exists {
 		return nil, errors.NewEncodingError(errors.CodeFormatNotRegistered, "no concrete codec factory registered for format").WithMimeType(mimeType).WithOperation("get_codec_factory")
@@ -1043,10 +1087,10 @@ func (r *FormatRegistry) GetCodecFactory(mimeType string) (*DefaultCodecFactory,
 
 // GetStreamEncoder creates a streaming encoder for the specified MIME type
 func (r *FormatRegistry) GetStreamEncoder(ctx context.Context, mimeType string, options *EncodingOptions) (StreamEncoder, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	
-	canonical := r.resolveAlias(mimeType)
+	canonical := r.resolveAliasWithTracking(mimeType)
 	
 	// Try concrete factory first
 	if entry, exists := r.encoderFactories[canonical]; exists {
@@ -1087,10 +1131,10 @@ func (r *FormatRegistry) GetStreamEncoder(ctx context.Context, mimeType string, 
 
 // GetStreamDecoder creates a streaming decoder for the specified MIME type
 func (r *FormatRegistry) GetStreamDecoder(ctx context.Context, mimeType string, options *DecodingOptions) (StreamDecoder, error) {
-	r.mu.RLock()
-	defer r.mu.RUnlock()
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	
-	canonical := r.resolveAlias(mimeType)
+	canonical := r.resolveAliasWithTracking(mimeType)
 	
 	// Try concrete factory first
 	if entry, exists := r.decoderFactories[canonical]; exists {
@@ -1132,16 +1176,35 @@ func (r *FormatRegistry) GetStreamDecoder(ctx context.Context, mimeType string, 
 // ListFormats returns all registered formats
 func (r *FormatRegistry) ListFormats() []*FormatInfo {
 	r.mu.RLock()
-	defer r.mu.RUnlock()
 	
+	// Create copies of data needed for sorting to avoid deadlock
 	formats := make([]*FormatInfo, 0, len(r.formats))
+	priorities := make(map[string]int)
+	
+	// Copy format info and priority data
 	for _, entry := range r.formats {
 		formats = append(formats, entry.value.(*FormatInfo))
 	}
 	
-	// Sort by priority
+	// Copy priority mapping
+	for i, mimeType := range r.priorities {
+		priorities[mimeType] = i
+	}
+	defaultPriority := len(r.priorities)
+	
+	r.mu.RUnlock()
+	
+	// Sort by priority using copied data
 	sort.Slice(formats, func(i, j int) bool {
-		return r.getPriority(formats[i].MIMEType) < r.getPriority(formats[j].MIMEType)
+		priorityI, exists := priorities[formats[i].MIMEType]
+		if !exists {
+			priorityI = defaultPriority
+		}
+		priorityJ, exists := priorities[formats[j].MIMEType]
+		if !exists {
+			priorityJ = defaultPriority
+		}
+		return priorityI < priorityJ
 	})
 	
 	return formats
@@ -1275,9 +1338,29 @@ func (r *FormatRegistry) SetValidator(validator FormatValidator) {
 	r.validator = validator
 }
 
-// resolveAlias resolves an alias to canonical MIME type
+// resolveAlias resolves an alias to canonical MIME type without tracking access
 // IMPORTANT: This method accesses the aliases map and MUST be called with at least a read lock held
 func (r *FormatRegistry) resolveAlias(mimeType string) string {
+	// Check if it's an alias
+	if entry, exists := r.aliases[strings.ToLower(mimeType)]; exists {
+		return entry.value.(string)
+	}
+	
+	// Also check without parameters (e.g., "application/json; charset=utf-8" -> "application/json")
+	if idx := strings.Index(mimeType, ";"); idx > 0 {
+		base := strings.TrimSpace(mimeType[:idx])
+		if entry, exists := r.aliases[strings.ToLower(base)]; exists {
+			return entry.value.(string)
+		}
+		return base
+	}
+	
+	return mimeType
+}
+
+// resolveAliasWithTracking resolves an alias to canonical MIME type and updates access tracking
+// IMPORTANT: This method requires a write lock to be held
+func (r *FormatRegistry) resolveAliasWithTracking(mimeType string) string {
 	// Check if it's an alias
 	if entry, exists := r.aliases[strings.ToLower(mimeType)]; exists {
 		// Update access tracking

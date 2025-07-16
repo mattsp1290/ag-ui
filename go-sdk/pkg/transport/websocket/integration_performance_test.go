@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -163,6 +164,7 @@ func TestMessageOptimization(t *testing.T) {
 
 	// Verify the serialized data contains expected content
 	dataStr := string(data)
+	t.Logf("Serialized data: %s", dataStr)
 	assert.Contains(t, dataStr, "test")
 	assert.Contains(t, dataStr, "test data")
 }
@@ -346,4 +348,11 @@ func (m *integrationMockEvent) ToProtobuf() (*generated.Event, error) {
 
 func (m *integrationMockEvent) GetBaseEvent() *events.BaseEvent {
 	return nil
+}
+
+func (m *integrationMockEvent) MarshalJSON() ([]byte, error) {
+	return json.Marshal(map[string]interface{}{
+		"type": m.eventType,
+		"data": m.data,
+	})
 }

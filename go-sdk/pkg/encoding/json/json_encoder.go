@@ -303,9 +303,7 @@ func (e *JSONEncoder) EncodeMultiple(ctx context.Context, events []events.Event)
 				}
 			}
 			
-			// Ensure buffer is returned to pool even if an error occurs
-			defer encoding.PutBuffer(eventBuf)
-			
+			// Use the buffer and ensure it's returned to pool immediately after use
 			encoder := json.NewEncoder(eventBuf)
 			err = encoder.Encode(event)
 			if err == nil {
@@ -317,6 +315,9 @@ func (e *JSONEncoder) EncodeMultiple(ctx context.Context, events []events.Event)
 				data = make([]byte, len(bytes))
 				copy(data, bytes)
 			}
+			
+			// Return buffer to pool immediately after use to reduce memory pressure
+			encoding.PutBuffer(eventBuf)
 		}
 
 		if err != nil {

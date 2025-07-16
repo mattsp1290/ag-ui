@@ -30,6 +30,9 @@ func validateWebhookURL(urlStr string) error {
 	}
 
 	// Only allow HTTPS for security
+	if u.Scheme == "" {
+		return errors.New("invalid URL format")
+	}
 	if u.Scheme != "https" {
 		return errors.New("only HTTPS webhook URLs are allowed")
 	}
@@ -73,21 +76,21 @@ func isInternalIP(ip net.IP) bool {
 	}
 
 	// Check for private IPv4 ranges
-	if ip.To4() != nil {
+	if ipv4 := ip.To4(); ipv4 != nil {
 		// 10.0.0.0/8
-		if ip[0] == 10 {
+		if ipv4[0] == 10 {
 			return true
 		}
 		// 172.16.0.0/12
-		if ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31 {
+		if ipv4[0] == 172 && ipv4[1] >= 16 && ipv4[1] <= 31 {
 			return true
 		}
 		// 192.168.0.0/16
-		if ip[0] == 192 && ip[1] == 168 {
+		if ipv4[0] == 192 && ipv4[1] == 168 {
 			return true
 		}
 		// 169.254.0.0/16 (link-local)
-		if ip[0] == 169 && ip[1] == 254 {
+		if ipv4[0] == 169 && ipv4[1] == 254 {
 			return true
 		}
 	}
@@ -215,6 +218,35 @@ func NewWebhookAlertNotifier(url string, timeout time.Duration) (*WebhookAlertNo
 				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
 				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 			},
+		},
+		// Prevent connection reuse that could bypass URL validation
+		DisableKeepAlives: true,
+	}
+
+	return &WebhookAlertNotifier{
+		url:     url,
+		method:  "POST",
+		headers: make(map[string]string),
+		timeout: timeout,
+		client: &http.Client{
+			Timeout:   timeout,
+			Transport: transport,
+		},
+	}, nil
+}
+
+// NewWebhookAlertNotifierForTesting creates a webhook notifier without URL validation (for testing only)
+func NewWebhookAlertNotifierForTesting(url string, timeout time.Duration) (*WebhookAlertNotifier, error) {
+	// Create HTTP client with secure TLS configuration
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			CipherSuites: []uint16{
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			},
+			InsecureSkipVerify: true, // For testing with self-signed certs
 		},
 		// Prevent connection reuse that could bypass URL validation
 		DisableKeepAlives: true,

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +12,20 @@ import (
 	"sync/atomic"
 	"time"
 )
+
+// StoreInterface defines the interface that all state stores must implement
+type StoreInterface interface {
+	Get(path string) (interface{}, error)
+	Set(path string, value interface{}) error
+	ApplyPatch(patch JSONPatch) error
+	Subscribe(path string, handler SubscriptionCallback) func()
+	GetHistory() ([]*StateVersion, error)
+	SetErrorHandler(handler func(error))
+	CreateSnapshot() (*StateSnapshot, error)
+	RestoreSnapshot(snapshot *StateSnapshot) error
+	Import(data []byte) error
+	GetState() map[string]interface{}
+}
 
 // StateChange represents a change to the state
 type StateChange struct {
@@ -98,6 +113,11 @@ type StateStore struct {
 	// Error handling
 	errorHandler func(error)
 	logger       Logger
+	
+	// Lifecycle management
+	wg        sync.WaitGroup
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
 // stateShard represents a single shard with its own lock
@@ -108,6 +128,8 @@ type stateShard struct {
 
 // NewStateStore creates a new state store instance
 func NewStateStore(options ...StateStoreOption) *StateStore {
+	ctx, cancel := context.WithCancel(context.Background())
+	
 	store := &StateStore{
 		shardCount:      DefaultShardCount, // Default to 16 shards for better concurrency
 		version:         0,
@@ -119,6 +141,8 @@ func NewStateStore(options ...StateStoreOption) *StateStore {
 		lastCleanup:     time.Now(),
 		logger:          DefaultLogger(),
 		errorHandler:    nil, // Will be set after initialization
+		ctx:             ctx,
+		cancel:          cancel,
 	}
 
 	// Apply options
@@ -206,8 +230,60 @@ func (s *StateStore) getShardIndex(path string) uint32 {
 
 // getShardForPath returns the shard responsible for the given path
 func (s *StateStore) getShardForPath(path string) *stateShard {
+	if s == nil || s.shards == nil {
+		return nil
+	}
 	index := s.getShardIndex(path)
+	if index >= uint32(len(s.shards)) {
+		return nil
+	}
 	return s.shards[index]
+}
+
+// lockAllShardsInOrder locks all shards in a consistent order to prevent deadlocks
+func (s *StateStore) lockAllShardsInOrder() {
+	if s == nil || s.shards == nil {
+		return
+	}
+	for i := 0; i < len(s.shards); i++ {
+		if s.shards[i] != nil {
+			s.shards[i].mu.Lock()
+		}
+	}
+}
+
+// unlockAllShardsInReverseOrder unlocks all shards in reverse order
+func (s *StateStore) unlockAllShardsInReverseOrder() {
+	if s == nil || s.shards == nil {
+		return
+	}
+	for i := len(s.shards) - 1; i >= 0; i-- {
+		if s.shards[i] != nil {
+			s.shards[i].mu.Unlock()
+		}
+	}
+}
+
+// lockAllShardsWithTimeout locks all shards with a timeout to prevent deadlocks
+func (s *StateStore) lockAllShardsWithTimeout(timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	
+	lockChan := make(chan bool, 1)
+	go func() {
+		s.lockAllShardsInOrder()
+		lockChan <- true
+	}()
+	
+	select {
+	case <-lockChan:
+		return nil
+	case <-ctx.Done():
+		// If we timeout, we don't know how many locks were acquired
+		// This is a best-effort cleanup that might not work perfectly
+		// The goroutine will eventually complete and clean up
+		return fmt.Errorf("failed to acquire all shard locks within timeout %v", timeout)
+	}
 }
 
 // Get retrieves a value at the specified path
@@ -227,7 +303,13 @@ func (s *StateStore) Get(path string) (interface{}, error) {
 		atomic.AddInt32(&state.refs, 1)
 		defer atomic.AddInt32(&state.refs, -1)
 
-		value, err := getValueAtPath(state.data, path)
+		// Create a safe copy of the data map to prevent concurrent access
+		dataCopy := make(map[string]interface{}, len(state.data))
+		for k, v := range state.data {
+			dataCopy[k] = v
+		}
+
+		value, err := getValueAtPath(dataCopy, path)
 		if err != nil {
 			return nil, fmt.Errorf("failed to get value at path %s: %w", path, err)
 		}
@@ -244,7 +326,13 @@ func (s *StateStore) Get(path string) (interface{}, error) {
 	atomic.AddInt32(&state.refs, 1)
 	defer atomic.AddInt32(&state.refs, -1)
 
-	value, err := getValueAtPath(state.data, path)
+	// Create a safe copy of the data map to prevent concurrent access
+	dataCopy := make(map[string]interface{}, len(state.data))
+	for k, v := range state.data {
+		dataCopy[k] = v
+	}
+
+	value, err := getValueAtPath(dataCopy, path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get value at path %s: %w", path, err)
 	}
@@ -254,16 +342,47 @@ func (s *StateStore) Get(path string) (interface{}, error) {
 
 // getAllShardsData merges data from all shards for root path access
 func (s *StateStore) getAllShardsData() map[string]interface{} {
+	// Defensive check for nil store
+	if s == nil {
+		return make(map[string]interface{})
+	}
+	
+	// Check if shards are initialized
+	if s.shards == nil || len(s.shards) == 0 {
+		return make(map[string]interface{})
+	}
+	
 	merged := make(map[string]interface{})
 
 	// Collect data from all shards
 	for _, shard := range s.shards {
-		state := shard.current.Load().(*ImmutableState)
+		if shard == nil {
+			continue
+		}
+		
+		stateInterface := shard.current.Load()
+		if stateInterface == nil {
+			continue
+		}
+		
+		state, ok := stateInterface.(*ImmutableState)
+		if !ok || state == nil {
+			continue
+		}
+		
 		atomic.AddInt32(&state.refs, 1)
 
-		// Merge shard data into result
-		for k, v := range state.data {
-			merged[k] = deepCopy(v)
+		// Create a safe copy of the data map to prevent concurrent access
+		if state.data != nil {
+			dataCopy := make(map[string]interface{}, len(state.data))
+			for k, v := range state.data {
+				dataCopy[k] = v
+			}
+
+			// Merge shard data into result
+			for k, v := range dataCopy {
+				merged[k] = deepCopy(v)
+			}
 		}
 
 		atomic.AddInt32(&state.refs, -1)
@@ -336,11 +455,9 @@ func (s *StateStore) Set(path string, value interface{}) error {
 
 // setRootPath handles setting the root path which affects all shards
 func (s *StateStore) setRootPath(value interface{}) error {
-	// Need to lock all shards for root path update
-	for _, shard := range s.shards {
-		shard.mu.Lock()
-		defer shard.mu.Unlock()
-	}
+	// Need to lock all shards for root path update - use consistent ordering
+	s.lockAllShardsInOrder()
+	defer s.unlockAllShardsInReverseOrder()
 
 	// Clear all shards and redistribute data
 	if m, ok := value.(map[string]interface{}); ok {
@@ -524,10 +641,8 @@ func (s *StateStore) ApplyPatch(patch JSONPatch) error {
 
 	// Apply global patches first (requires all shards locked)
 	if len(globalPatches) > 0 {
-		for _, shard := range s.shards {
-			shard.mu.Lock()
-			defer shard.mu.Unlock()
-		}
+		s.lockAllShardsInOrder()
+		defer s.unlockAllShardsInReverseOrder()
 
 		for _, op := range globalPatches {
 			if err := s.applyGlobalPatch(op); err != nil {
@@ -602,11 +717,14 @@ func (s *StateStore) applyPatchToShard(shard *stateShard, patch JSONPatch) error
 	// Atomically update shard state
 	shard.current.Store(newImmutableState)
 
+	// Create history entry for the operation 
+	// Use async creation to avoid deadlock while maintaining history
+	go func() {
+		s.createVersionWithState(patch, s.getAllShardsData(), nil)
+	}()
+
 	// Notify subscribers
 	s.notifySubscribers(changes)
-
-	// Note: Version creation is skipped for per-shard operations to avoid deadlock.
-	// The sharded architecture trades off complete version history for better concurrency.
 
 	return nil
 }
@@ -698,11 +816,9 @@ func (s *StateStore) RestoreSnapshot(snapshot *StateSnapshot) error {
 		return fmt.Errorf("snapshot cannot be nil")
 	}
 
-	// Lock all shards for snapshot restore
-	for _, shard := range s.shards {
-		shard.mu.Lock()
-		defer shard.mu.Unlock()
-	}
+	// Lock all shards for snapshot restore - use consistent ordering
+	s.lockAllShardsInOrder()
+	defer s.unlockAllShardsInReverseOrder()
 
 	currentState := s.getAllShardsData()
 
@@ -992,7 +1108,19 @@ func (s *StateStore) notifySubscribers(changes []StateChange) {
 
 	// Execute all notifications asynchronously
 	for _, notify := range notifications {
-		go notify()
+		s.wg.Add(1)
+		go func(n func()) {
+			defer s.wg.Done()
+			
+			// Check if context is cancelled
+			select {
+			case <-s.ctx.Done():
+				return
+			default:
+			}
+			
+			n()
+		}(notify)
 	}
 }
 
@@ -1047,6 +1175,11 @@ func (s *StateStore) GetVersion() int64 {
 
 // GetState returns a copy of the complete current state
 func (s *StateStore) GetState() map[string]interface{} {
+	// Defensive check for nil store
+	if s == nil {
+		return make(map[string]interface{})
+	}
+	
 	// Get data from all shards
 	return s.getAllShardsData()
 }
@@ -1054,14 +1187,24 @@ func (s *StateStore) GetState() map[string]interface{} {
 // GetStateView returns a read-only view of the current state
 // This is more efficient than GetState as it avoids deep copying
 func (s *StateStore) GetStateView() *StateView {
+	// Collect current states from all shards and increment their reference counts
+	var states []*ImmutableState
+	for _, shard := range s.shards {
+		state := shard.current.Load().(*ImmutableState)
+		atomic.AddInt32(&state.refs, 1)
+		states = append(states, state)
+	}
+
 	// For sharded implementation, we need to merge data from all shards
-	// This is less efficient than single-shard access but maintains compatibility
 	merged := s.getAllShardsData()
 
 	return &StateView{
 		data: merged,
 		cleanup: func() {
-			// No cleanup needed for merged data
+			// Decrement reference counts for all states
+			for _, state := range states {
+				atomic.AddInt32(&state.refs, -1)
+			}
 		},
 	}
 }
@@ -1079,13 +1222,22 @@ func (v *StateView) Cleanup() {
 	}
 }
 
+// Close gracefully shuts down the StateStore
+func (s *StateStore) Close() error {
+	// Cancel context to signal all goroutines to stop
+	s.cancel()
+	
+	// Wait for all goroutines to complete
+	s.wg.Wait()
+	
+	return nil
+}
+
 // Clear removes all state and history
 func (s *StateStore) Clear() {
-	// Lock all shards
-	for _, shard := range s.shards {
-		shard.mu.Lock()
-		defer shard.mu.Unlock()
-	}
+	// Lock all shards - use consistent ordering
+	s.lockAllShardsInOrder()
+	defer s.unlockAllShardsInReverseOrder()
 
 	// Clear all shards
 	for _, shard := range s.shards {
@@ -1121,11 +1273,9 @@ func (s *StateStore) Import(data []byte) error {
 		return fmt.Errorf("failed to unmarshal state: %w", err)
 	}
 
-	// Lock all shards for import
-	for _, shard := range s.shards {
-		shard.mu.Lock()
-		defer shard.mu.Unlock()
-	}
+	// Lock all shards for import - use consistent ordering
+	s.lockAllShardsInOrder()
+	defer s.unlockAllShardsInReverseOrder()
 
 	// Clear all shards first
 	for _, shard := range s.shards {

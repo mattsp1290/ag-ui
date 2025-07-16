@@ -256,7 +256,7 @@ func TestWebhookAlertNotifier(t *testing.T) {
 	}))
 	defer server.Close()
 
-	notifier, err := NewWebhookAlertNotifier(server.URL, 10*time.Second)
+	notifier, err := NewWebhookAlertNotifierForTesting(server.URL, 10*time.Second)
 	if err != nil {
 		t.Fatalf("Failed to create webhook notifier: %v", err)
 	}
@@ -325,7 +325,7 @@ func TestWebhookAlertNotifierErrors(t *testing.T) {
 		}))
 		defer server.Close()
 
-		notifier, err := NewWebhookAlertNotifier(server.URL, 10*time.Second)
+		notifier, err := NewWebhookAlertNotifierForTesting(server.URL, 10*time.Second)
 		if err != nil {
 			t.Fatalf("Failed to create webhook notifier: %v", err)
 		}
@@ -352,7 +352,7 @@ func TestWebhookAlertNotifierErrors(t *testing.T) {
 		}))
 		defer server.Close()
 
-		notifier, err := NewWebhookAlertNotifier(server.URL, 10*time.Millisecond)
+		notifier, err := NewWebhookAlertNotifierForTesting(server.URL, 10*time.Millisecond)
 		if err != nil {
 			t.Fatalf("Failed to create webhook notifier: %v", err)
 		}
@@ -376,7 +376,7 @@ func TestWebhookAlertNotifierErrors(t *testing.T) {
 		}))
 		defer server.Close()
 
-		notifier, err := NewWebhookAlertNotifier(server.URL, 10*time.Second)
+		notifier, err := NewWebhookAlertNotifierForTesting(server.URL, 10*time.Second)
 		if err != nil {
 			t.Fatalf("Failed to create webhook notifier: %v", err)
 		}
@@ -409,7 +409,7 @@ func TestWebhookTLSConfiguration(t *testing.T) {
 	server.StartTLS()
 	defer server.Close()
 
-	notifier, err := NewWebhookAlertNotifier(server.URL, 10*time.Second)
+	notifier, err := NewWebhookAlertNotifierForTesting(server.URL, 10*time.Second)
 	if err != nil {
 		t.Fatalf("Failed to create webhook notifier: %v", err)
 	}

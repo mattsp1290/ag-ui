@@ -249,6 +249,13 @@ func BenchmarkBufferPooling(b *testing.B) {
 		
 		for i := 0; i < b.N; i++ {
 			buf := encoding.GetBuffer(1024)
+			if buf == nil {
+				// Use safe version for benchmarks
+				buf = encoding.GetBufferSafe(1024)
+				if buf == nil {
+					b.Fatal("Failed to allocate buffer")
+				}
+			}
 			buf.WriteString("test data")
 			buf.WriteString(strings.Repeat("x", 500))
 			encoding.PutBuffer(buf)

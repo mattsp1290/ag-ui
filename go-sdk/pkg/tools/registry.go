@@ -734,37 +734,58 @@ func (r *Registry) GetReadOnly(toolID string) (ReadOnlyTool, error) {
 		return nil, NewToolError(ErrorTypeValidation, "EMPTY_TOOL_ID", "tool ID cannot be empty")
 	}
 
+	// First, read the tool with read lock
 	r.mu.RLock()
-	defer r.mu.RUnlock()
-
 	if r.tools == nil {
+		r.mu.RUnlock()
 		return nil, NewToolError(ErrorTypeInternal, "TOOLS_MAP_NIL", "tools map is nil")
 	}
 
 	entry, exists := r.tools[toolID]
 	if !exists {
+		r.mu.RUnlock()
 		return nil, NewToolError(ErrorTypeValidation, "TOOL_NOT_FOUND", "tool not found").
 			WithToolID(toolID)
 	}
 
 	if entry == nil || entry.tool == nil {
+		r.mu.RUnlock()
 		return nil, NewToolError(ErrorTypeInternal, "TOOL_NIL", "stored tool is nil").
 			WithToolID(toolID)
 	}
 
-	// Update access tracking
-	entry.lastAccess = time.Now()
+	// Get the tool reference while holding read lock
+	tool := entry.tool
+	needsLRUUpdate := r.config.EnableToolLRU
+	r.mu.RUnlock()
+
+	// Update access tracking atomically (safe without lock)
 	atomic.AddInt64(&entry.accessCount, 1)
 
-	// Update LRU position if enabled
-	if r.config.EnableToolLRU {
-		if elem, found := r.toolsIndex[toolID]; found {
-			r.toolsLRU.MoveToFront(elem)
+	// Update access time and LRU position with write lock only if needed
+	if needsLRUUpdate {
+		r.mu.Lock()
+		// Double-check entry still exists after acquiring write lock
+		if currentEntry, stillExists := r.tools[toolID]; stillExists && currentEntry == entry {
+			currentEntry.lastAccess = time.Now()
+			if elem, found := r.toolsIndex[toolID]; found {
+				r.toolsLRU.MoveToFront(elem)
+			}
 		}
+		r.mu.Unlock()
+	} else {
+		// For non-LRU case, just update lastAccess atomically
+		// We can't update time.Time atomically, so we use a separate lock-free approach
+		// or accept that lastAccess might not be perfectly accurate in high-concurrency scenarios
+		r.mu.Lock()
+		if currentEntry, stillExists := r.tools[toolID]; stillExists && currentEntry == entry {
+			currentEntry.lastAccess = time.Now()
+		}
+		r.mu.Unlock()
 	}
 
 	// Return a read-only view without cloning
-	return NewReadOnlyTool(entry.tool), nil
+	return NewReadOnlyTool(tool), nil
 }
 
 // GetByName retrieves a tool by its name.

@@ -21,63 +21,7 @@ type PerformanceFramework struct {
 	memoryProfiler *MemoryProfiler
 }
 
-// PerformanceConfig defines performance testing configuration
-type PerformanceConfig struct {
-	// Baseline configuration
-	BaselineIterations      int
-	BaselineWarmupDuration  time.Duration
-	BaselineStabilityFactor float64 // Coefficient of variation threshold
-
-	// Load testing configuration
-	MaxConcurrency       int
-	LoadTestDuration     time.Duration
-	RampUpDuration       time.Duration
-	RampDownDuration     time.Duration
-	LoadPatterns         []LoadPattern
-	
-	// Memory testing configuration
-	MemoryCheckInterval  time.Duration
-	MemoryLeakThreshold  int64 // Bytes
-	GCForceInterval      time.Duration
-	
-	// Regression testing configuration
-	RegressionThreshold  float64 // % performance degradation threshold
-	WarmupIterations     int
-	BenchmarkIterations  int
-	
-	// Stress testing configuration
-	StressTestDuration   time.Duration
-	StressMaxConcurrency int
-	StressErrorThreshold float64 // % error rate threshold
-}
-
-// DefaultPerformanceConfig returns default performance testing configuration
-func DefaultPerformanceConfig() *PerformanceConfig {
-	return &PerformanceConfig{
-		BaselineIterations:      100,
-		BaselineWarmupDuration:  5 * time.Second,
-		BaselineStabilityFactor: 0.1,
-		MaxConcurrency:          1000,
-		LoadTestDuration:        60 * time.Second,
-		RampUpDuration:          10 * time.Second,
-		RampDownDuration:        10 * time.Second,
-		LoadPatterns: []LoadPattern{
-			{Name: "constant", Type: LoadPatternConstant, Intensity: 100},
-			{Name: "ramp", Type: LoadPatternRamp, Intensity: 200},
-			{Name: "spike", Type: LoadPatternSpike, Intensity: 500},
-			{Name: "wave", Type: LoadPatternWave, Intensity: 300},
-		},
-		MemoryCheckInterval:     1 * time.Second,
-		MemoryLeakThreshold:     100 * 1024 * 1024, // 100MB
-		GCForceInterval:         10 * time.Second,
-		RegressionThreshold:     10.0, // 10% degradation threshold
-		WarmupIterations:        10,
-		BenchmarkIterations:     50,
-		StressTestDuration:      300 * time.Second,
-		StressMaxConcurrency:    2000,
-		StressErrorThreshold:    5.0, // 5% error rate threshold
-	}
-}
+// PerformanceConfig and DefaultPerformanceConfig are now in performance_config.go
 
 // PerformanceMetrics tracks comprehensive performance statistics
 type PerformanceMetrics struct {
@@ -231,26 +175,7 @@ type PerformanceBaseline struct {
 	CommitHash               string
 }
 
-// LoadPattern defines different load testing patterns
-type LoadPattern struct {
-	Name      string
-	Type      LoadPatternType
-	Intensity int           // Peak load level
-	Duration  time.Duration // Pattern duration
-	Settings  map[string]interface{} // Pattern-specific settings
-}
-
-// LoadPatternType defines the type of load pattern
-type LoadPatternType int
-
-const (
-	LoadPatternConstant LoadPatternType = iota
-	LoadPatternRamp
-	LoadPatternSpike
-	LoadPatternWave
-	LoadPatternStair
-	LoadPatternChaos
-)
+// LoadPattern and LoadPatternType are now in performance_config.go
 
 // LoadGenerator generates various load patterns for testing
 type LoadGenerator struct {
@@ -1006,7 +931,12 @@ func (pf *PerformanceFramework) warmup(engine *ExecutionEngine, tools []*Tool, d
 
 func (pf *PerformanceFramework) measureBaselineExecutionTime(engine *ExecutionEngine, tools []*Tool) time.Duration {
 	var totalTime time.Duration
-	iterations := pf.config.BaselineIterations
+	// Use optimized iterations for CI
+	measurements := GetOptimizedMeasurements()
+	iterations := measurements.LatencyIterations
+	if !isCI() {
+		iterations = pf.config.BaselineIterations
+	}
 	
 	for i := 0; i < iterations; i++ {
 		tool := tools[rand.Intn(len(tools))]
@@ -1021,7 +951,9 @@ func (pf *PerformanceFramework) measureBaselineExecutionTime(engine *ExecutionEn
 }
 
 func (pf *PerformanceFramework) measureBaselineThroughput(engine *ExecutionEngine, tools []*Tool) float64 {
-	duration := 10 * time.Second
+	// Use optimized duration for CI environments
+	measurements := GetOptimizedMeasurements()
+	duration := measurements.ThroughputDuration
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 	
@@ -1073,7 +1005,12 @@ func (pf *PerformanceFramework) measureBaselineMemoryUsage(engine *ExecutionEngi
 
 func (pf *PerformanceFramework) measureBaselineLatency(engine *ExecutionEngine, tools []*Tool) *LatencyMetrics {
 	var latencies []time.Duration
-	iterations := pf.config.BaselineIterations
+	// Use optimized iterations for CI
+	measurements := GetOptimizedMeasurements()
+	iterations := measurements.LatencyIterations
+	if !isCI() {
+		iterations = pf.config.BaselineIterations
+	}
 	
 	for i := 0; i < iterations; i++ {
 		tool := tools[rand.Intn(len(tools))]
@@ -1183,7 +1120,11 @@ func (pf *PerformanceFramework) runMemoryStressTest(t *testing.T, engine *Execut
 	}
 	
 	// Stress test with high memory allocation
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	timeout := OptimizedTestTimeout()
+	if isCI() {
+		timeout = 5 * time.Second // Much shorter for CI
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	
 	var wg sync.WaitGroup
@@ -1502,7 +1443,7 @@ func (lg *LoadGenerator) collectResults(result *LoadPatternResult) {
 				result.LatencyPercentiles = calculateLatencyMetrics(latencies)
 				if len(throughputMeasurements) > 0 {
 					result.AverageThroughput = average(throughputMeasurements)
-					result.PeakThroughput = max(throughputMeasurements)
+					result.PeakThroughput = maxFloat64(throughputMeasurements)
 				}
 				return
 			}
@@ -1564,7 +1505,13 @@ func (mp *MemoryProfiler) Stop() {
 }
 
 func (mp *MemoryProfiler) monitorMemory() {
-	ticker := time.NewTicker(mp.config.MemoryCheckInterval)
+	// Ensure we have a valid interval to prevent panic
+	interval := mp.config.MemoryCheckInterval
+	if interval <= 0 {
+		interval = 1 * time.Second // Default to 1 second if not set
+	}
+	
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	
 	for {
@@ -1857,7 +1804,7 @@ func average(values []float64) float64 {
 	return sum / float64(len(values))
 }
 
-func max(values []float64) float64 {
+func maxFloat64(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}

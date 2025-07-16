@@ -1730,11 +1730,13 @@ func TestInjectionAttackPreventionIntegration(t *testing.T) {
 	options := &BuiltinToolsOptions{
 		SecureMode: true,
 		FileOptions: &SecureFileOptions{
-			AllowedPaths: []string{tempDir},
-			MaxFileSize:  1024 * 1024,
+			AllowedPaths:  []string{tempDir},
+			MaxFileSize:   1024 * 1024,
+			AllowSymlinks: true, // Allow symlinks for testing since temp dirs may contain them
 		},
 		HTTPOptions: &SecureHTTPOptions{
-			AllowedHosts: []string{"example.com"},
+			AllowedHosts:   []string{"example.com"},
+			AllowedSchemes: []string{"http", "https"},
 		},
 	}
 
@@ -1786,7 +1788,7 @@ func TestInjectionAttackPreventionIntegration(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			tool, err := registry.Get(tc.toolName)
+			tool, err := registry.GetByName(tc.toolName)
 			if err != nil {
 				t.Fatalf("Tool %s not found: %v", tc.toolName, err)
 			}

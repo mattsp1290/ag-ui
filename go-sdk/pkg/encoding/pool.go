@@ -9,12 +9,10 @@ import (
 
 // PoolMetrics tracks pooling statistics
 type PoolMetrics struct {
-	Gets    int64 // Number of objects retrieved from pool
-	Puts    int64 // Number of objects returned to pool
-	News    int64 // Number of new objects created
-	Resets  int64 // Number of objects reset
-	Size    int64 // Current pool size
-	MaxSize int64 // Maximum pool size observed
+	Gets   int64 // Number of objects retrieved from pool
+	Puts   int64 // Number of objects returned to pool
+	News   int64 // Number of new objects created
+	Resets int64 // Number of objects reset
 }
 
 // Pool interface for object pooling
@@ -77,6 +75,8 @@ func (bp *BufferPool) Put(buf *bytes.Buffer) {
 		return
 	}
 	
+	atomic.AddInt64(&bp.metrics.Puts, 1)
+	
 	// Don't keep very large buffers in the pool
 	if bp.maxSize > 0 && buf.Cap() > bp.maxSize {
 		// Decrement active count for oversized buffers that won't be pooled
@@ -84,7 +84,6 @@ func (bp *BufferPool) Put(buf *bytes.Buffer) {
 		return
 	}
 	
-	atomic.AddInt64(&bp.metrics.Puts, 1)
 	atomic.AddInt64(&bp.metrics.Resets, 1)
 	
 	// Zero out the buffer contents before returning to pool
@@ -113,6 +112,11 @@ func (bp *BufferPool) Metrics() PoolMetrics {
 func (bp *BufferPool) Reset() {
 	bp.pool = sync.Pool{
 		New: func() interface{} {
+			// Check if we're exceeding the buffer limit
+			if current := atomic.LoadInt32(&bp.activeBuffers); current >= bp.maxBuffers {
+				return nil // Return nil to indicate resource exhaustion
+			}
+			atomic.AddInt32(&bp.activeBuffers, 1)
 			atomic.AddInt64(&bp.metrics.News, 1)
 			return &bytes.Buffer{}
 		},
@@ -121,6 +125,7 @@ func (bp *BufferPool) Reset() {
 	atomic.StoreInt64(&bp.metrics.Puts, 0)
 	atomic.StoreInt64(&bp.metrics.News, 0)
 	atomic.StoreInt64(&bp.metrics.Resets, 0)
+	atomic.StoreInt32(&bp.activeBuffers, 0)
 }
 
 // SlicePool manages a pool of byte slices
@@ -173,6 +178,8 @@ func (sp *SlicePool) Put(slice []byte) {
 		return
 	}
 	
+	atomic.AddInt64(&sp.metrics.Puts, 1)
+	
 	// Don't keep very large slices in the pool
 	if sp.maxSize > 0 && cap(slice) > sp.maxSize {
 		// Decrement active count for oversized slices that won't be pooled
@@ -180,7 +187,6 @@ func (sp *SlicePool) Put(slice []byte) {
 		return
 	}
 	
-	atomic.AddInt64(&sp.metrics.Puts, 1)
 	atomic.AddInt64(&sp.metrics.Resets, 1)
 	
 	// Zero out the slice contents before returning to pool
@@ -205,6 +211,11 @@ func (sp *SlicePool) Metrics() PoolMetrics {
 func (sp *SlicePool) Reset() {
 	sp.pool = sync.Pool{
 		New: func() interface{} {
+			// Check if we're exceeding the slice limit
+			if current := atomic.LoadInt32(&sp.activeSlices); current >= sp.maxSlices {
+				return nil // Return nil to indicate resource exhaustion
+			}
+			atomic.AddInt32(&sp.activeSlices, 1)
 			atomic.AddInt64(&sp.metrics.News, 1)
 			return make([]byte, 0, 1024)
 		},
@@ -213,6 +224,7 @@ func (sp *SlicePool) Reset() {
 	atomic.StoreInt64(&sp.metrics.Puts, 0)
 	atomic.StoreInt64(&sp.metrics.News, 0)
 	atomic.StoreInt64(&sp.metrics.Resets, 0)
+	atomic.StoreInt32(&sp.activeSlices, 0)
 }
 
 // ErrorPool manages a pool of error objects

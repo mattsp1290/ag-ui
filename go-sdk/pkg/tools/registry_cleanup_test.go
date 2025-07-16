@@ -10,6 +10,19 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// createMinimalTestSchema creates a minimal valid schema for test tools
+func createMinimalTestSchema() *ToolSchema {
+	return &ToolSchema{
+		Type: "object",
+		Properties: map[string]*Property{
+			"input": {
+				Type:        "string",
+				Description: "Test input parameter",
+			},
+		},
+	}
+}
+
 // TestRegistryToolLRUEviction tests LRU eviction when MaxTools is reached
 func TestRegistryToolLRUEviction(t *testing.T) {
 	config := &RegistryConfig{
@@ -29,6 +42,7 @@ func TestRegistryToolLRUEviction(t *testing.T) {
 			Name:        fmt.Sprintf("Tool %d", i),
 			Description: fmt.Sprintf("Test tool %d", i),
 			Version:     "1.0.0",
+			Schema:      createMinimalTestSchema(),
 			Executor:    &testExecutor{},
 		}
 		err := registry.Register(tool)
@@ -72,6 +86,7 @@ func TestRegistryToolTTLCleanup(t *testing.T) {
 			Name:        fmt.Sprintf("Tool %d", i),
 			Description: fmt.Sprintf("Test tool %d", i),
 			Version:     "1.0.0",
+			Schema:      createMinimalTestSchema(),
 			Executor:    &testExecutor{},
 		}
 		err := registry.Register(tool)
@@ -116,6 +131,7 @@ func TestRegistryAccessTimeCleanup(t *testing.T) {
 			Name:        fmt.Sprintf("Tool %d", i),
 			Description: fmt.Sprintf("Test tool %d", i),
 			Version:     "1.0.0",
+			Schema:      createMinimalTestSchema(),
 			Executor:    &testExecutor{},
 		}
 		err := registry.Register(tool)
@@ -173,6 +189,7 @@ func TestRegistryBackgroundCleanup(t *testing.T) {
 			Name:        fmt.Sprintf("Tool %d", i),
 			Description: fmt.Sprintf("Test tool %d", i),
 			Version:     "1.0.0",
+			Schema:      createMinimalTestSchema(),
 			Executor:    &testExecutor{},
 		}
 		err := registry.Register(tool)
@@ -210,6 +227,7 @@ func TestRegistryLRUAccessPattern(t *testing.T) {
 			Name:     toolID,
 			Description: "Test tool",
 			Version:  "1.0.0",
+			Schema:   createMinimalTestSchema(),
 			Executor: &testExecutor{},
 		}
 		err := registry.Register(tool)
@@ -275,6 +293,7 @@ func TestRegistryConcurrentCleanup(t *testing.T) {
 					Name:        fmt.Sprintf("Tool %d-%d", goroutineID, j),
 					Description: "Concurrent test tool",
 					Version:     "1.0.0",
+					Schema:      createMinimalTestSchema(),
 					Executor:    &testExecutor{},
 				}
 				_ = registry.Register(tool) // Ignore errors due to eviction/concurrency
@@ -317,6 +336,7 @@ func TestRegistryClearAllTools(t *testing.T) {
 			Name:        fmt.Sprintf("Tool %d", i),
 			Description: "Test tool",
 			Version:     "1.0.0",
+			Schema:      createMinimalTestSchema(),
 			Executor:    &testExecutor{},
 		}
 		err := registry.Register(tool)
@@ -363,6 +383,7 @@ func TestRegistryCleanupStats(t *testing.T) {
 			Name:        fmt.Sprintf("Tool %d", i),
 			Description: "Test tool",
 			Version:     "1.0.0",
+			Schema:      createMinimalTestSchema(),
 			Executor:    &testExecutor{},
 		}
 		err := registry.Register(tool)
@@ -418,6 +439,7 @@ func TestRegistryConfigUpdate(t *testing.T) {
 		Name:     "Test Tool",
 		Description: "Test tool",
 		Version:  "1.0.0",
+		Schema:   createMinimalTestSchema(),
 		Executor: &testExecutor{},
 	}
 	err := registry.Register(tool)
@@ -471,6 +493,7 @@ func TestRegistryMemoryTracking(t *testing.T) {
 			Name:        fmt.Sprintf("Tool %d", i),
 			Description: fmt.Sprintf("Test tool %d with some longer description to use more memory", i),
 			Version:     "1.0.0",
+			Schema:      createMinimalTestSchema(),
 			Executor:    &testExecutor{},
 			Metadata: &ToolMetadata{
 				Author:        "Test Author",
@@ -494,6 +517,7 @@ func TestRegistryMemoryTracking(t *testing.T) {
 			Name:        fmt.Sprintf("Tool %d", i),
 			Description: "Test tool",
 			Version:     "1.0.0",
+			Schema:      createMinimalTestSchema(),
 			Executor:    &testExecutor{},
 		}
 		err := registry.Register(tool)

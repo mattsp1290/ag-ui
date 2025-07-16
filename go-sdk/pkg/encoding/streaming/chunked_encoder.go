@@ -162,17 +162,17 @@ func (ce *ChunkedEncoder) encodeSequential(ctx context.Context, input <-chan eve
 			// Estimate event size
 			eventSize := ce.estimateEventSize(event)
 
-			// Check if we need to flush
-			if ce.shouldFlush(currentChunk, currentSize, eventSize) {
-				if err := flushChunk(); err != nil {
-					return err
-				}
-			}
-
 			// Add event to chunk
 			currentChunk.Events = append(currentChunk.Events, event)
 			currentSize += eventSize
 			ce.processedCount.Add(1)
+
+			// Check if we need to flush after adding the event
+			if ce.shouldFlushAfterAdd(currentChunk, currentSize) {
+				if err := flushChunk(); err != nil {
+					return err
+				}
+			}
 		}
 	}
 }
@@ -239,7 +239,13 @@ func (ce *ChunkedEncoder) encodeParallel(ctx context.Context, input <-chan event
 
 			eventSize := ce.estimateEventSize(event)
 
-			if ce.shouldFlush(currentChunk, currentSize, eventSize) {
+			// Add event to chunk
+			currentChunk.Events = append(currentChunk.Events, event)
+			currentSize += eventSize
+			ce.processedCount.Add(1)
+
+			// Check if we need to flush after adding the event
+			if ce.shouldFlushAfterAdd(currentChunk, currentSize) {
 				select {
 				case workerInput <- currentChunk:
 					currentChunk = ce.getChunk()
@@ -252,10 +258,6 @@ func (ce *ChunkedEncoder) encodeParallel(ctx context.Context, input <-chan event
 					return ctx.Err()
 				}
 			}
-
-			currentChunk.Events = append(currentChunk.Events, event)
-			currentSize += eventSize
-			ce.processedCount.Add(1)
 		}
 	}
 }
@@ -300,17 +302,23 @@ func (ce *ChunkedEncoder) encodeChunkWithContext(ctx context.Context, chunk *Chu
 		return nil, errors.NewStreamingError("CHUNK_ENCODE_CANCELLED", "chunk encoding cancelled").WithCause(err)
 	}
 
+	// Create a new chunk for the result to avoid modifying the input
+	resultChunk := &Chunk{
+		Events: make([]events.Event, len(chunk.Events)),
+	}
+	copy(resultChunk.Events, chunk.Events)
+
 	// Encode events
-	data, err := ce.baseEncoder.EncodeMultiple(ctx, chunk.Events)
+	data, err := ce.baseEncoder.EncodeMultiple(ctx, resultChunk.Events)
 	if err != nil {
 		return nil, errors.NewStreamingError("CHUNK_ENCODE_FAILED", "failed to encode chunk").WithCause(err)
 	}
 
 	// Update header
-	chunk.Header = ChunkHeader{
+	resultChunk.Header = ChunkHeader{
 		ChunkID:     fmt.Sprintf("chunk-%d", ce.chunkSequence.Add(1)),
 		SequenceNum: ce.chunkSequence.Load(),
-		EventCount:  len(chunk.Events),
+		EventCount:  len(resultChunk.Events),
 		ByteSize:    len(data),
 		Compressed:  false,
 	}
@@ -319,34 +327,49 @@ func (ce *ChunkedEncoder) encodeChunkWithContext(ctx context.Context, chunk *Chu
 	if len(data) > ce.config.CompressionThreshold {
 		compressed, err := ce.compressData(data)
 		if err == nil && len(compressed) < len(data) {
-			chunk.Header.Compressed = true
+			resultChunk.Header.Compressed = true
 			compressionRate := uint64((1 - float64(len(compressed))/float64(len(data))) * 10000)
 			ce.metrics.CompressionRate.Store(compressionRate)
 			data = compressed
 		}
 	}
 
-	chunk.Data = data
-	chunk.Header.Checksum = ce.calculateChecksum(data)
+	resultChunk.Data = data
+	resultChunk.Header.Checksum = ce.calculateChecksum(data)
 
 	// Update metrics
 	ce.metrics.ChunksCreated.Add(1)
-	ce.metrics.EventsProcessed.Add(int64(len(chunk.Events)))
+	ce.metrics.EventsProcessed.Add(int64(len(resultChunk.Events)))
 	ce.metrics.BytesProcessed.Add(int64(len(data)))
 	ce.totalBytes.Add(int64(len(data)))
 
-	return chunk, nil
+	return resultChunk, nil
 }
 
-// shouldFlush determines if a chunk should be flushed
+// shouldFlush determines if a chunk should be flushed before adding the next event
 func (ce *ChunkedEncoder) shouldFlush(chunk *Chunk, currentSize, nextEventSize int) bool {
-	// Check event count
+	// Check if adding the next event would exceed event count limit
 	if len(chunk.Events) >= ce.config.MaxEventsPerChunk {
 		return true
 	}
 
-	// Check size limit
+	// Check if adding the next event would exceed size limit
 	if currentSize+nextEventSize > ce.config.MaxChunkSize {
+		return true
+	}
+
+	return false
+}
+
+// shouldFlushAfterAdd determines if a chunk should be flushed after adding an event
+func (ce *ChunkedEncoder) shouldFlushAfterAdd(chunk *Chunk, currentSize int) bool {
+	// Check if we've reached the event count limit
+	if len(chunk.Events) >= ce.config.MaxEventsPerChunk {
+		return true
+	}
+
+	// Check if we've reached the size limit
+	if currentSize >= ce.config.MaxChunkSize {
 		return true
 	}
 

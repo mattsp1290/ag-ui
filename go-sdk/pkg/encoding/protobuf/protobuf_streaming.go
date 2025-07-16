@@ -171,6 +171,8 @@ func (d *StreamingProtobufDecoder) DecodeStream(ctx context.Context, input io.Re
 	d.reader = input
 	d.mutex.Unlock()
 
+	defer close(output) // Always close the output channel when done
+	
 	for {
 		select {
 		case <-ctx.Done():

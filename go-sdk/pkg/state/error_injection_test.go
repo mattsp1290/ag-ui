@@ -81,9 +81,26 @@ func (fs *FailingStore) Set(path string, value interface{}) error {
 
 // ApplyPatch overrides the StateStore ApplyPatch method with failure injection
 func (fs *FailingStore) ApplyPatch(patch JSONPatch) error {
-	if fs.shouldFail("") {
-		atomic.AddInt32(&fs.failCount, 1)
-		return ErrInjectedStorage
+	// Check all paths in the patch for path-specific failures
+	for _, op := range patch {
+		if fs.shouldFail(op.Path) {
+			atomic.AddInt32(&fs.failCount, 1)
+			switch fs.failureMode {
+			case "storage":
+				return ErrInjectedStorage
+			case "conflict":
+				return ErrInjectedConflict
+			case "partial":
+				// Simulate partial write by doing nothing but returning success
+				return nil
+			case "corrupt":
+				// For corruption, let the operation succeed but the data will be corrupted
+				// We could modify the patch here, but for simplicity, just let it pass
+				return fs.store.ApplyPatch(patch)
+			default:
+				return fmt.Errorf("injected error: %s", fs.failureMode)
+			}
+		}
 	}
 	return fs.store.ApplyPatch(patch)
 }
@@ -121,6 +138,53 @@ func (fs *FailingStore) SetPathSpecificFailure(path string) {
 // GetFailureStats returns failure statistics
 func (fs *FailingStore) GetFailureStats() (failCount, totalCalls int32) {
 	return atomic.LoadInt32(&fs.failCount), atomic.LoadInt32(&fs.callCount)
+}
+
+// Subscribe implements StoreInterface - forwards to underlying store
+func (fs *FailingStore) Subscribe(path string, handler SubscriptionCallback) func() {
+	return fs.store.Subscribe(path, handler)
+}
+
+// GetHistory implements StoreInterface - forwards to underlying store
+func (fs *FailingStore) GetHistory() ([]*StateVersion, error) {
+	return fs.store.GetHistory()
+}
+
+// SetErrorHandler implements StoreInterface - forwards to underlying store
+func (fs *FailingStore) SetErrorHandler(handler func(error)) {
+	fs.store.SetErrorHandler(handler)
+}
+
+// CreateSnapshot implements StoreInterface - forwards to underlying store
+func (fs *FailingStore) CreateSnapshot() (*StateSnapshot, error) {
+	if fs.shouldFail("") {
+		atomic.AddInt32(&fs.failCount, 1)
+		return nil, ErrInjectedStorage
+	}
+	return fs.store.CreateSnapshot()
+}
+
+// RestoreSnapshot implements StoreInterface - forwards to underlying store
+func (fs *FailingStore) RestoreSnapshot(snapshot *StateSnapshot) error {
+	if fs.shouldFail("") {
+		atomic.AddInt32(&fs.failCount, 1)
+		return ErrInjectedStorage
+	}
+	return fs.store.RestoreSnapshot(snapshot)
+}
+
+// Import implements StoreInterface - forwards to underlying store
+func (fs *FailingStore) Import(data []byte) error {
+	if fs.shouldFail("") {
+		atomic.AddInt32(&fs.failCount, 1)
+		return ErrInjectedStorage
+	}
+	return fs.store.Import(data)
+}
+
+// GetState implements StoreInterface - forwards to underlying store
+func (fs *FailingStore) GetState() map[string]interface{} {
+	return fs.store.GetState()
 }
 
 // FailingValidator implements a validator that can inject failures
@@ -218,20 +282,17 @@ func TestStateManager_WithErrors(t *testing.T) {
 			baseStore := NewStateStore()
 			failingStore := NewFailingStore(baseStore, tt.failureMode, tt.failureRate)
 
-			// Create manager with failing store
+			// Create manager with failing store injected via CustomStore
 			opts := DefaultManagerOptions()
 			opts.MaxRetries = 3
 			opts.RetryDelay = 10 * time.Millisecond
 			opts.EnableMetrics = false // Disable to avoid logger issues
+			opts.CustomStore = failingStore // Inject the failing store
 			manager, err := NewStateManager(opts)
 			if err != nil {
 				t.Fatalf("Failed to create manager: %v", err)
 			}
 			defer manager.Close()
-
-			// For this test, we'll inject failures by simulating error conditions
-			// In a real implementation, this would be done through dependency injection
-			_ = failingStore // Keep the failingStore for reference
 
 			// Create context
 			ctx := context.Background()
@@ -311,6 +372,11 @@ func TestStateManager_ValidationErrors(t *testing.T) {
 		}),
 	}
 
+	// Create a failing store for validation errors
+	baseStore := NewStateStore()
+	failingStore := NewFailingStore(baseStore, "validation", 0.3)
+	opts.CustomStore = failingStore
+
 	manager, err := NewStateManager(opts)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
@@ -362,20 +428,20 @@ func TestStateManager_ValidationErrors(t *testing.T) {
 
 // TestStateManager_CascadingFailures tests cascading failure scenarios
 func TestStateManager_CascadingFailures(t *testing.T) {
-	// Create manager
+	// Create failing store that fails after some operations
+	baseStore := NewStateStore()
+	failingStore := NewFailingStore(baseStore, "storage", 0)
+
+	// Create manager with failing store injected
 	opts := DefaultManagerOptions()
 	opts.EventBufferSize = 10  // Small buffer to trigger backpressure
 	opts.EnableMetrics = false // Disable to avoid logger issues
+	opts.CustomStore = failingStore // Inject the failing store
 	manager, err := NewStateManager(opts)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 	defer manager.Close()
-
-	// Create failing store that fails after some operations
-	baseStore := NewStateStore()
-	failingStore := NewFailingStore(baseStore, "storage", 0)
-	_ = failingStore // Reference for future enhancement
 
 	ctx := context.Background()
 	contextID, err := manager.CreateContext(ctx, "test-state", nil)
@@ -449,20 +515,20 @@ func TestStateManager_CascadingFailures(t *testing.T) {
 
 // TestStateManager_PathSpecificFailures tests failures on specific paths
 func TestStateManager_PathSpecificFailures(t *testing.T) {
-	// Create manager
+	// Create failing store
+	baseStore := NewStateStore()
+	failingStore := NewFailingStore(baseStore, "storage", 1.0) // 100% failure rate
+	failingStore.SetPathSpecificFailure("/critical")
+
+	// Create manager with failing store injected
 	opts := DefaultManagerOptions()
 	opts.EnableMetrics = false // Disable to avoid logger issues
+	opts.CustomStore = failingStore // Inject the failing store
 	manager, err := NewStateManager(opts)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 	defer manager.Close()
-
-	// Create failing store
-	baseStore := NewStateStore()
-	failingStore := NewFailingStore(baseStore, "storage", 1.0) // 100% failure rate
-	failingStore.SetPathSpecificFailure("/critical/path")
-	_ = failingStore // Reference for future enhancement
 
 	ctx := context.Background()
 	contextID, err := manager.CreateContext(ctx, "test-state", nil)
@@ -493,21 +559,21 @@ func TestStateManager_PathSpecificFailures(t *testing.T) {
 
 // TestStateManager_ErrorRecovery tests error recovery mechanisms
 func TestStateManager_ErrorRecovery(t *testing.T) {
-	// Create manager with retry configuration
+	// Create store that fails initially then recovers
+	baseStore := NewStateStore()
+	failingStore := NewFailingStore(baseStore, "storage", 1.0)
+
+	// Create manager with retry configuration and failing store injected
 	opts := DefaultManagerOptions()
 	opts.MaxRetries = 5
 	opts.RetryDelay = 50 * time.Millisecond
 	opts.EnableMetrics = false // Disable to avoid logger issues
+	opts.CustomStore = failingStore // Inject the failing store
 	manager, err := NewStateManager(opts)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 	defer manager.Close()
-
-	// Create store that fails initially then recovers
-	baseStore := NewStateStore()
-	failingStore := NewFailingStore(baseStore, "storage", 1.0)
-	_ = failingStore // Reference for future enhancement
 
 	ctx := context.Background()
 	contextID, err := manager.CreateContext(ctx, "test-state", nil)
@@ -545,20 +611,20 @@ func TestStateManager_ErrorRecovery(t *testing.T) {
 
 // TestStateManager_ConcurrentFailures tests behavior under concurrent failures
 func TestStateManager_ConcurrentFailures(t *testing.T) {
-	// Create manager
+	// Create failing store with variable failure rate
+	baseStore := NewStateStore()
+	failingStore := NewFailingStore(baseStore, "storage", 0.3)
+
+	// Create manager with failing store injected
 	opts := DefaultManagerOptions()
 	opts.ProcessingWorkers = 2 // Limited workers to increase contention
 	opts.EnableMetrics = false // Disable to avoid logger issues
+	opts.CustomStore = failingStore // Inject the failing store
 	manager, err := NewStateManager(opts)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
 	defer manager.Close()
-
-	// Create failing store with variable failure rate
-	baseStore := NewStateStore()
-	failingStore := NewFailingStore(baseStore, "storage", 0.3)
-	_ = failingStore // Reference for future enhancement
 
 	ctx := context.Background()
 

@@ -2,6 +2,7 @@ package sse
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,13 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+)
+
+var (
+	// sseMetricsOnce ensures Prometheus metrics are only registered once
+	sseMetricsOnce sync.Once
+	// ssePromMetrics holds the singleton instance of Prometheus metrics
+	ssePromMetrics *SSEPrometheusMetrics
 )
 
 // MonitoringSystem provides comprehensive monitoring and observability for SSE transport
@@ -1275,9 +1283,18 @@ func (ms *MonitoringSystem) sendAlert(alert Alert) {
 
 	// Send to notifiers
 	for _, notifier := range ms.alertManager.notifiers {
+		ms.wg.Add(1)
 		go func(n AlertNotifier) {
-			if err := n.SendAlert(context.Background(), alert); err != nil {
-				ms.logger.Error("Failed to send alert", zap.Error(err))
+			defer ms.wg.Done()
+			// Use the monitoring system's context to allow for cancellation during shutdown
+			ctx, cancel := context.WithTimeout(ms.ctx, 5*time.Second)
+			defer cancel()
+			
+			if err := n.SendAlert(ctx, alert); err != nil {
+				// Only log error if not due to context cancellation
+				if !errors.Is(err, context.Canceled) {
+					ms.logger.Error("Failed to send alert", zap.Error(err))
+				}
 			}
 		}(notifier)
 	}
@@ -1447,10 +1464,11 @@ func initializeSSELogger(config MonitoringConfig) (*zap.Logger, error) {
 }
 
 func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetrics {
-	namespace := config.Metrics.Prometheus.Namespace
-	subsystem := config.Metrics.Prometheus.Subsystem
+	sseMetricsOnce.Do(func() {
+		namespace := config.Metrics.Prometheus.Namespace
+		subsystem := config.Metrics.Prometheus.Subsystem
 
-	return &SSEPrometheusMetrics{
+		ssePromMetrics = &SSEPrometheusMetrics{
 		// Connection metrics
 		ConnectionsTotal: promauto.NewCounterVec(
 			prometheus.CounterOpts{
@@ -1865,7 +1883,9 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"stream"},
 		),
-	}
+		}
+	})
+	return ssePromMetrics
 }
 
 func categorizeSSEError(err error) string {

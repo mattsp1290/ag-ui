@@ -234,6 +234,22 @@ func (sm *SecurityManager) Metrics() *SecurityMetrics {
 	return sm.metrics
 }
 
+// Close gracefully shuts down the security manager
+func (sm *SecurityManager) Close() error {
+	sm.mutex.Lock()
+	defer sm.mutex.Unlock()
+	
+	// Stop the rate limiter if it exists
+	if sm.rateLimiter != nil {
+		sm.rateLimiter.Stop()
+	}
+	
+	// Close audit logger if it has resources to clean up
+	// (currently it doesn't, but good practice for future extensions)
+	
+	return nil
+}
+
 // ============================================================================
 // Authentication Interfaces and Implementations
 // ============================================================================

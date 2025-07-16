@@ -215,26 +215,49 @@ func (p *ConnectionPool) Start(ctx context.Context) error {
 // Stop gracefully shuts down the connection pool
 func (p *ConnectionPool) Stop() error {
 	p.config.Logger.Info("Stopping connection pool")
-
+	
 	// Cancel context to stop all goroutines
 	p.cancel()
-
-	// Close all connections
+	
+	// Since connections share the pool's context, they should close automatically
+	// Just give them a moment to react to context cancellation - optimized for tests
+	time.Sleep(50 * time.Millisecond)
+	
+	// Now explicitly close any remaining connections
 	p.connMutex.Lock()
-	for id, conn := range p.connections {
-		p.config.Logger.Debug("Closing connection", zap.String("id", id))
-		if err := conn.Close(); err != nil {
-			p.config.Logger.Error("Error closing connection",
-				zap.String("id", id),
-				zap.Error(err))
+	remainingConns := len(p.connections)
+	if remainingConns > 0 {
+		p.config.Logger.Debug("Closing remaining connections", zap.Int("count", remainingConns))
+		for id, conn := range p.connections {
+			p.config.Logger.Debug("Closing connection", zap.String("id", id))
+			// Close synchronously to avoid creating more goroutines
+			if err := conn.Close(); err != nil {
+				p.config.Logger.Error("Error closing connection",
+					zap.String("id", id),
+					zap.Error(err))
+			}
 		}
 	}
 	p.connections = make(map[string]*Connection)
 	p.connMutex.Unlock()
-
-	// Wait for all goroutines to finish
-	p.wg.Wait()
-
+	
+	// Wait for pool goroutines with timeout - optimized for faster shutdown
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	defer waitCancel()
+	
+	waitDone := make(chan struct{})
+	go func() {
+		defer close(waitDone)
+		p.wg.Wait()
+	}()
+	
+	select {
+	case <-waitDone:
+		p.config.Logger.Debug("All pool goroutines stopped successfully")
+	case <-waitCtx.Done():
+		p.config.Logger.Warn("Timeout waiting for pool goroutines to stop")
+	}
+	
 	p.config.Logger.Info("Connection pool stopped")
 	return nil
 }
@@ -405,8 +428,8 @@ func (p *ConnectionPool) createConnection(ctx context.Context) error {
 	connConfig.URL = url
 	connConfig.Logger = p.config.Logger
 
-	// Create connection
-	conn, err := NewConnection(&connConfig)
+	// Create connection with pool's context
+	conn, err := NewConnectionWithContext(ctx, &connConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create connection: %w", err)
 	}
@@ -595,6 +618,7 @@ type HealthChecker struct {
 	pool     *ConnectionPool
 	interval time.Duration
 	cache    *lru.Cache[string, bool]
+	ctx      context.Context
 }
 
 // NewHealthChecker creates a new health checker
@@ -610,6 +634,9 @@ func NewHealthChecker(pool *ConnectionPool, interval time.Duration) *HealthCheck
 // Start begins health checking
 func (h *HealthChecker) Start(ctx context.Context, wg *sync.WaitGroup) {
 	defer wg.Done()
+	
+	h.ctx = ctx
+	h.pool.config.Logger.Debug("Starting health checker")
 
 	ticker := time.NewTicker(h.interval)
 	defer ticker.Stop()
@@ -617,9 +644,17 @@ func (h *HealthChecker) Start(ctx context.Context, wg *sync.WaitGroup) {
 	for {
 		select {
 		case <-ctx.Done():
+			h.pool.config.Logger.Debug("Health checker stopped due to context cancellation")
 			return
 		case <-ticker.C:
-			h.checkHealth()
+			// Check context again before performing health check
+			select {
+			case <-ctx.Done():
+				h.pool.config.Logger.Debug("Context cancelled before health check")
+				return
+			default:
+				h.checkHealth()
+			}
 		}
 	}
 }
@@ -681,7 +716,7 @@ func (h *HealthChecker) checkHealth() {
 			if currentConnCount >= h.pool.config.MaxConnections {
 				break
 			}
-			if err := h.pool.createConnection(context.Background()); err != nil {
+			if err := h.pool.createConnection(h.ctx); err != nil {
 				h.pool.config.Logger.Error("Failed to create replacement connection",
 					zap.Error(err))
 			}

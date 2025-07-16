@@ -1,6 +1,7 @@
 package encoding
 
 import (
+	"bytes"
 	"context"
 	"testing"
 	"time"
@@ -278,6 +279,58 @@ func TestPoolReset(t *testing.T) {
 	if !allZero {
 		t.Error("Expected all metrics to be zero after reset")
 	}
+}
+
+func TestBufferPoolResetActiveCounters(t *testing.T) {
+	pool := NewBufferPoolWithCapacity(1024, 10)
+	
+	// Get multiple buffers to increase activeBuffers counter
+	buffers := make([]*bytes.Buffer, 5)
+	for i := 0; i < 5; i++ {
+		buffers[i] = pool.Get()
+		if buffers[i] == nil {
+			t.Fatalf("Failed to get buffer %d", i)
+		}
+	}
+	
+	// Reset the pool
+	pool.Reset()
+	
+	// After reset, we should be able to get buffers again
+	// This verifies that activeBuffers was properly reset
+	newBuf := pool.Get()
+	if newBuf == nil {
+		t.Error("Failed to get buffer after reset - activeBuffers counter not properly reset")
+	}
+	
+	// Clean up
+	pool.Put(newBuf)
+}
+
+func TestSlicePoolResetActiveCounters(t *testing.T) {
+	pool := NewSlicePoolWithCapacity(1024, 4096, 10)
+	
+	// Get multiple slices to increase activeSlices counter
+	slices := make([][]byte, 5)
+	for i := 0; i < 5; i++ {
+		slices[i] = pool.Get()
+		if slices[i] == nil {
+			t.Fatalf("Failed to get slice %d", i)
+		}
+	}
+	
+	// Reset the pool
+	pool.Reset()
+	
+	// After reset, we should be able to get slices again
+	// This verifies that activeSlices was properly reset
+	newSlice := pool.Get()
+	if newSlice == nil {
+		t.Error("Failed to get slice after reset - activeSlices counter not properly reset")
+	}
+	
+	// Clean up
+	pool.Put(newSlice)
 }
 
 func TestPooledFactory(t *testing.T) {

@@ -17,7 +17,7 @@ import (
 // TestEventProcessingPipeline tests the event processing pipeline
 func TestEventProcessingPipeline(t *testing.T) {
 	// Create transport
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.Logger = zap.NewNop()
 	config.URLs = []string{"ws://localhost:8080"} // Dummy URL
 
@@ -80,7 +80,7 @@ func TestEventProcessingPipeline(t *testing.T) {
 
 // TestEventChannelCapacity tests that the event channel can handle multiple events
 func TestEventChannelCapacity(t *testing.T) {
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.Logger = zap.NewNop()
 	config.URLs = []string{"ws://localhost:8080"}
 
@@ -110,7 +110,7 @@ func TestEventChannelCapacity(t *testing.T) {
 
 // TestEventProcessingShutdown tests graceful shutdown of event processing
 func TestEventProcessingShutdown(t *testing.T) {
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.Logger = zap.NewNop()
 	config.URLs = []string{"ws://localhost:8080"}
 

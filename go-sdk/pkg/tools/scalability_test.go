@@ -6,6 +6,7 @@ import (
 	"math"
 	"math/rand"
 	"runtime"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -1149,10 +1150,12 @@ func (str *StressTestRunner) Run(t *testing.T) *TestStressTestResults {
 		}
 	}()
 	
-	// Stress worker spawner
+	// Stress worker spawner - use separate WaitGroup to avoid deadlock
+	var workerWg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
+		defer workerWg.Wait() // Wait for all spawned workers to finish
 		
 		for {
 			select {
@@ -1160,9 +1163,9 @@ func (str *StressTestRunner) Run(t *testing.T) *TestStressTestResults {
 				return
 			case <-rampTicker.C:
 				if activeWorkers < str.config.StressTestIntensity {
-					wg.Add(1)
+					workerWg.Add(1)
 					go func() {
-						defer wg.Done()
+						defer workerWg.Done()
 						
 						for {
 							select {
@@ -1633,14 +1636,10 @@ func calculateResponseTimeMetrics(times []time.Duration) *ResponseTimeMetrics {
 		return &ResponseTimeMetrics{}
 	}
 	
-	// Sort times
-	for i := 0; i < len(times); i++ {
-		for j := i + 1; j < len(times); j++ {
-			if times[i] > times[j] {
-				times[i], times[j] = times[j], times[i]
-			}
-		}
-	}
+	// Sort times efficiently using built-in sort
+	sort.Slice(times, func(i, j int) bool {
+		return times[i] < times[j]
+	})
 	
 	metrics := &ResponseTimeMetrics{
 		Min:    times[0],
@@ -1741,12 +1740,7 @@ func calculateConsistency(responseTimes []time.Duration) float64 {
 	return math.Max(0, consistency)
 }
 
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
+// min function is in performance_optimization.go
 
 // Profiler methods
 func (p *ScalabilityProfiler) Start() {

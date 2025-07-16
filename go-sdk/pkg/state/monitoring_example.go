@@ -93,6 +93,7 @@ func ExampleProductionMonitoring() {
 		log.Printf("Failed to create file notifier: %v", err)
 	} else {
 		monitoringIntegration.AddAlertNotifier(fileNotifier)
+		defer fileNotifier.Close()
 	}
 
 	// Simulate high-load operations

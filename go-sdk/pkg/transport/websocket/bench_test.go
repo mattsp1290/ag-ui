@@ -641,19 +641,31 @@ func TestMemoryManagerConstraints(t *testing.T) {
 	buf1 := mm.AllocateBuffer(512 * 1024) // 512KB
 	assert.NotNil(t, buf1)
 
+	// Check intermediate stats
+	stats := mm.GetStats()
+	t.Logf("After first allocation: allocations=%d", stats["allocations"])
+
 	// Try to allocate beyond limit
 	buf2 := mm.AllocateBuffer(1024 * 1024) // 1MB (should fail due to existing allocation)
 	assert.Nil(t, buf2)
 
+	// Check stats after failed allocation
+	stats = mm.GetStats()
+	t.Logf("After failed allocation: allocations=%d", stats["allocations"])
+
 	// Clean up
 	mm.DeallocateBuffer(buf1)
+
+	// Let memory manager do a final check  
+	time.Sleep(50 * time.Millisecond)
 
 	cancel()
 	wg.Wait()
 
-	// Check stats
-	stats := mm.GetStats()
-	assert.Equal(t, int64(1), stats["allocations"])
+	// Check final stats
+	stats = mm.GetStats()
+	t.Logf("Final stats: allocations=%d, deallocations=%d", stats["allocations"], stats["deallocations"])
+	assert.Equal(t, int64(1), stats["allocations"]) // Only successful allocations are counted
 	assert.Equal(t, int64(1), stats["deallocations"])
 }
 

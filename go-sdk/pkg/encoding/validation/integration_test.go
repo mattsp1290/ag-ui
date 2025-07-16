@@ -286,6 +286,12 @@ func TestStandardTestVectors(t *testing.T) {
 
 	for setName, vectorSet := range vectorSets {
 		t.Run(setName, func(t *testing.T) {
+			// Skip security vectors as they are tested separately in TestSecurityValidation
+			if setName == "security" {
+				t.Skip("Security vectors are tested separately in TestSecurityValidation")
+				return
+			}
+			
 			for _, vector := range vectorSet.Vectors {
 				t.Run(vector.Name, func(t *testing.T) {
 					// Decode the input

@@ -76,12 +76,16 @@ func TestStateEventHandler_HandleStateSnapshot(t *testing.T) {
 
 func TestStateEventHandler_HandleStateDelta(t *testing.T) {
 	// Create store with initial state
-	store := NewStateStore()
-	err := store.Set("/users/123", map[string]interface{}{
+	baseStore := NewStateStore()
+	err := baseStore.Set("/users/123", map[string]interface{}{
 		"name":  "John Doe",
 		"email": "john@example.com",
 	})
 	require.NoError(t, err)
+
+	// Create failing store for error injection
+	failingStore := NewFailingStore(baseStore, "storage", 0.1)
+	store := StoreInterface(failingStore)
 
 	tests := []struct {
 		name          string
@@ -382,7 +386,10 @@ func TestStateMetrics(t *testing.T) {
 }
 
 func TestStateEventHandler_Callbacks(t *testing.T) {
-	store := NewStateStore()
+	baseStore := NewStateStore()
+	// Create failing store for error injection  
+	failingStore := NewFailingStore(baseStore, "storage", 0.1)
+	store := StoreInterface(failingStore)
 
 	// Track callback invocations
 	var snapshotCalled, deltaCalled, stateChangeCalled bool

@@ -594,3 +594,18 @@ func (e *SecurityError) WithRiskLevel(riskLevel string) *SecurityError {
 	e.RiskLevel = riskLevel
 	return e
 }
+
+// WithDetail adds a detail to the security error and returns the SecurityError
+func (e *SecurityError) WithDetail(key string, value interface{}) *SecurityError {
+	if e.BaseError.Details == nil {
+		e.BaseError.Details = make(map[string]interface{})
+	}
+	e.BaseError.Details[key] = value
+	return e
+}
+
+// WithCause adds an underlying cause to the security error and returns the SecurityError
+func (e *SecurityError) WithCause(cause error) *SecurityError {
+	e.BaseError.Cause = cause
+	return e
+}

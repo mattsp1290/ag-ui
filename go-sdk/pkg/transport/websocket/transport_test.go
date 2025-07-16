@@ -48,6 +48,21 @@ type MockEventValidator struct {
 	Errors     []string
 }
 
+// FastTransportConfig returns a transport config optimized for tests
+func FastTransportConfig() *TransportConfig {
+	config := DefaultTransportConfig()
+	config.ShutdownTimeout = 200 * time.Millisecond // Very fast shutdown for tests
+	config.DialTimeout = 5 * time.Second // Reasonable dial timeout
+	config.EventTimeout = 5 * time.Second // Reasonable event timeout
+	
+	// Optimize pool config for tests
+	if config.PoolConfig.ConnectionTemplate != nil {
+		config.PoolConfig.ConnectionTemplate.PingPeriod = 100 * time.Millisecond
+		config.PoolConfig.ConnectionTemplate.PongWait = 200 * time.Millisecond
+	}
+	return config
+}
+
 func (v *MockEventValidator) ValidateEvent(ctx context.Context, event events.Event) *events.ValidationResult {
 	result := &events.ValidationResult{
 		IsValid:   !v.ShouldFail,

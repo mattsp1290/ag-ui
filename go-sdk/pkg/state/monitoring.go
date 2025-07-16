@@ -219,6 +219,10 @@ type PrometheusMetrics struct {
 	MemoryAllocations prometheus.Counter
 	GCPauseDuration   prometheus.Histogram
 	ObjectPoolHitRate prometheus.Gauge
+	
+	// System resource metrics
+	CPUUsage       prometheus.Gauge
+	GoroutineCount prometheus.Gauge
 
 	// Event processing metrics
 	EventsProcessed        *prometheus.CounterVec
@@ -335,9 +339,9 @@ func NewMonitoringSystem(config MonitoringConfig) (*MonitoringSystem, error) {
 
 	// Initialize resource monitor
 	resourceMonitor := &ResourceMonitor{
-		cpuGauge:       promMetrics.createCPUGauge(),
-		memoryGauge:    promMetrics.createMemoryGauge(),
-		goroutineGauge: promMetrics.createGoroutineGauge(),
+		cpuGauge:       promMetrics.CPUUsage,       // Use the already registered gauge
+		memoryGauge:    promMetrics.MemoryUsage,    // Use the already registered gauge
+		goroutineGauge: promMetrics.GoroutineCount, // Use the already registered gauge
 	}
 
 	// Initialize operation metrics
@@ -765,6 +769,22 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 				Help:      "Object pool hit rate percentage",
 			},
 		),
+		CPUUsage: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Namespace: namespace,
+				Subsystem: subsystem,
+				Name:      "cpu_usage_percent",
+				Help:      "Current CPU usage percentage",
+			},
+		),
+		GoroutineCount: prometheus.NewGauge(
+			prometheus.GaugeOpts{
+				Namespace: namespace,
+				Subsystem: subsystem,
+				Name:      "goroutines_count",
+				Help:      "Current number of goroutines",
+			},
+		),
 		EventsProcessed: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
@@ -934,6 +954,8 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 		metrics.MemoryAllocations,
 		metrics.GCPauseDuration,
 		metrics.ObjectPoolHitRate,
+		metrics.CPUUsage,
+		metrics.GoroutineCount,
 		metrics.EventsProcessed,
 		metrics.EventProcessingLatency,
 		metrics.EventQueueDepth,
@@ -957,32 +979,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 	return metrics
 }
 
-func (pm *PrometheusMetrics) createCPUGauge() prometheus.Gauge {
-	gauge := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "cpu_usage_percent",
-		Help: "Current CPU usage percentage",
-	})
-	pm.Registry.MustRegister(gauge)
-	return gauge
-}
-
-func (pm *PrometheusMetrics) createMemoryGauge() prometheus.Gauge {
-	gauge := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "memory_usage_bytes",
-		Help: "Current memory usage in bytes",
-	})
-	pm.Registry.MustRegister(gauge)
-	return gauge
-}
-
-func (pm *PrometheusMetrics) createGoroutineGauge() prometheus.Gauge {
-	gauge := prometheus.NewGauge(prometheus.GaugeOpts{
-		Name: "goroutines_count",
-		Help: "Current number of goroutines",
-	})
-	pm.Registry.MustRegister(gauge)
-	return gauge
-}
+// These methods are no longer needed as the gauges are created in initializePrometheusMetrics
 
 func (ms *MonitoringSystem) startResourceMonitoring() {
 	ms.wg.Add(1)
@@ -1062,7 +1059,17 @@ func (ms *MonitoringSystem) runHealthChecks() {
 	defer ms.healthMu.RUnlock()
 
 	for name, check := range ms.healthChecks {
+		ms.wg.Add(1)
 		go func(name string, check HealthCheck) {
+			defer ms.wg.Done()
+			
+			// Check if context is cancelled before proceeding
+			select {
+			case <-ms.ctx.Done():
+				return
+			default:
+			}
+			
 			start := time.Now()
 			ctx, cancel := context.WithTimeout(ms.ctx, ms.config.HealthCheckTimeout)
 			defer cancel()
@@ -1182,8 +1189,15 @@ func (ms *MonitoringSystem) sendAlert(alert Alert) {
 
 	// Send to notifiers
 	for _, notifier := range ms.alertManager.notifiers {
+		ms.wg.Add(1)
 		go func(notifier AlertNotifier) {
-			if err := notifier.SendAlert(context.Background(), alert); err != nil {
+			defer ms.wg.Done()
+			
+			// Use monitoring system context instead of background context
+			ctx, cancel := context.WithTimeout(ms.ctx, 5*time.Second)
+			defer cancel()
+			
+			if err := notifier.SendAlert(ctx, alert); err != nil {
 				ms.logger.Error("Failed to send alert", zap.Error(err))
 			}
 		}(notifier)

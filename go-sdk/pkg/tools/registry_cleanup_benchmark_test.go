@@ -6,6 +6,19 @@ import (
 	"time"
 )
 
+// createMinimalBenchmarkSchema creates a minimal valid schema for benchmark test tools
+func createMinimalBenchmarkSchema() *ToolSchema {
+	return &ToolSchema{
+		Type: "object",
+		Properties: map[string]*Property{
+			"input": {
+				Type:        "string",
+				Description: "Test input parameter",
+			},
+		},
+	}
+}
+
 // BenchmarkRegistryWithCleanup benchmarks registry operations with cleanup enabled
 func BenchmarkRegistryWithCleanup(b *testing.B) {
 	config := &RegistryConfig{
@@ -27,6 +40,7 @@ func BenchmarkRegistryWithCleanup(b *testing.B) {
 				Name:        fmt.Sprintf("Benchmark Tool %d", i),
 				Description: "Benchmark test tool",
 				Version:     "1.0.0",
+				Schema:      createMinimalBenchmarkSchema(),
 				Executor:    &testExecutor{},
 			}
 			_ = registry.Register(tool) // Ignore errors due to eviction
@@ -40,6 +54,7 @@ func BenchmarkRegistryWithCleanup(b *testing.B) {
 			Name:        fmt.Sprintf("Get Tool %d", i),
 			Description: "Get benchmark test tool",
 			Version:     "1.0.0",
+			Schema:      createMinimalBenchmarkSchema(),
 			Executor:    &testExecutor{},
 		}
 		_ = registry.Register(tool)
@@ -91,6 +106,7 @@ func BenchmarkRegistryWithoutCleanup(b *testing.B) {
 				Name:        fmt.Sprintf("Benchmark Tool No Cleanup %d", i),
 				Description: "Benchmark test tool without cleanup",
 				Version:     "1.0.0",
+				Schema:      createMinimalBenchmarkSchema(),
 				Executor:    &testExecutor{},
 			}
 			_ = registry.Register(tool)
@@ -104,6 +120,7 @@ func BenchmarkRegistryWithoutCleanup(b *testing.B) {
 			Name:        fmt.Sprintf("Get Tool No Cleanup %d", i),
 			Description: "Get benchmark test tool without cleanup",
 			Version:     "1.0.0",
+			Schema:      createMinimalBenchmarkSchema(),
 			Executor:    &testExecutor{},
 		}
 		_ = registry.Register(tool)
@@ -154,6 +171,7 @@ func BenchmarkRegistryCleanupOperations(b *testing.B) {
 			Name:        fmt.Sprintf("Cleanup Tool %d", i),
 			Description: "Cleanup benchmark test tool",
 			Version:     "1.0.0",
+			Schema:      createMinimalBenchmarkSchema(),
 			Executor:    &testExecutor{},
 		}
 		_ = registry.Register(tool)
@@ -173,6 +191,7 @@ func BenchmarkRegistryCleanupOperations(b *testing.B) {
 						Name:        fmt.Sprintf("Cleanup Tool %d-%d", i, j),
 						Description: "Cleanup benchmark test tool",
 						Version:     "1.0.0",
+						Schema:      createMinimalBenchmarkSchema(),
 						Executor:    &testExecutor{},
 					}
 					_ = registry.Register(tool)
@@ -191,6 +210,7 @@ func BenchmarkRegistryCleanupOperations(b *testing.B) {
 			Name:        fmt.Sprintf("Access Cleanup Tool %d", i),
 			Description: "Access cleanup benchmark test tool",
 			Version:     "1.0.0",
+			Schema:      createMinimalBenchmarkSchema(),
 			Executor:    &testExecutor{},
 		}
 		_ = registry.Register(tool)
@@ -209,6 +229,7 @@ func BenchmarkRegistryCleanupOperations(b *testing.B) {
 						Name:        fmt.Sprintf("Access Cleanup Tool %d-%d", i, j),
 						Description: "Access cleanup benchmark test tool",
 						Version:     "1.0.0",
+						Schema:      createMinimalBenchmarkSchema(),
 						Executor:    &testExecutor{},
 					}
 					_ = registry.Register(tool)
@@ -231,6 +252,7 @@ func BenchmarkRegistryCleanupOperations(b *testing.B) {
 						Name:        fmt.Sprintf("Clear Tool %d-%d", i, j),
 						Description: "Clear benchmark test tool",
 						Version:     "1.0.0",
+						Schema:      createMinimalBenchmarkSchema(),
 						Executor:    &testExecutor{},
 					}
 					_ = registry.Register(tool)
@@ -261,6 +283,7 @@ func BenchmarkRegistryLRUEviction(b *testing.B) {
 			Name:        fmt.Sprintf("LRU Tool %d", i),
 			Description: "LRU benchmark test tool",
 			Version:     "1.0.0",
+			Schema:      createMinimalBenchmarkSchema(),
 			Executor:    &testExecutor{},
 		}
 		_ = registry.Register(tool) // Will trigger evictions after first 100
@@ -279,6 +302,7 @@ func BenchmarkRegistryMemoryUsage(b *testing.B) {
 			Name:        fmt.Sprintf("Memory Tool %d", i),
 			Description: "Memory usage benchmark test tool with longer description for more realistic memory usage",
 			Version:     "1.0.0",
+			Schema:      createMinimalBenchmarkSchema(),
 			Executor:    &testExecutor{},
 			Metadata: &ToolMetadata{
 				Author:        "Benchmark Author",
@@ -324,6 +348,7 @@ func BenchmarkRegistryConcurrentOperations(b *testing.B) {
 			Name:        fmt.Sprintf("Concurrent Tool %d", i),
 			Description: "Concurrent benchmark test tool",
 			Version:     "1.0.0",
+			Schema:      createMinimalBenchmarkSchema(),
 			Executor:    &testExecutor{},
 		}
 		_ = registry.Register(tool)
@@ -338,6 +363,7 @@ func BenchmarkRegistryConcurrentOperations(b *testing.B) {
 					Name:        fmt.Sprintf("Parallel Tool %d", i),
 					Description: "Parallel benchmark test tool",
 					Version:     "1.0.0",
+					Schema:      createMinimalBenchmarkSchema(),
 					Executor:    &testExecutor{},
 				}
 				_ = registry.Register(tool)

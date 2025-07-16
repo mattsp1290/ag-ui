@@ -498,10 +498,10 @@ func TestConcurrentResourceAccess(t *testing.T) {
 
 		for i := 0; i < 50; i++ {
 			wg.Add(1)
-			go func() {
+			go func(idx int) {
 				defer wg.Done()
 				// Add a small delay to increase concurrency
-				time.Sleep(time.Millisecond * time.Duration(i%10))
+				time.Sleep(time.Millisecond * time.Duration(idx%10))
 				
 				_, err := encoder.Encode(ctx, event)
 				if err != nil {
@@ -513,7 +513,7 @@ func TestConcurrentResourceAccess(t *testing.T) {
 				} else {
 					atomic.AddInt32(&successCount, 1)
 				}
-			}()
+			}(i)
 		}
 
 		wg.Wait()

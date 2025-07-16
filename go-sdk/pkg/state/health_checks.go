@@ -117,13 +117,18 @@ func (hc *MemoryHealthCheck) Check(ctx context.Context) error {
 
 // StoreHealthCheck checks the health of the state store
 type StoreHealthCheck struct {
-	store   *StateStore
+	store   StoreInterface
 	name    string
 	timeout time.Duration
 }
 
 // NewStoreHealthCheck creates a new store health check
-func NewStoreHealthCheck(store *StateStore, timeout time.Duration) *StoreHealthCheck {
+func NewStoreHealthCheck(store StoreInterface, timeout time.Duration) *StoreHealthCheck {
+	// Validate timeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second // Default timeout
+	}
+	
 	return &StoreHealthCheck{
 		store:   store,
 		name:    "store",
@@ -146,16 +151,43 @@ func (hc *StoreHealthCheck) Check(ctx context.Context) error {
 	testCtx, cancel := context.WithTimeout(ctx, hc.timeout)
 	defer cancel()
 
-	// Try to get a non-existent state (should not error, just return nil)
-	testStateID := fmt.Sprintf("health_check_%d", time.Now().UnixNano())
-	state := hc.store.GetState()
-	_, exists := state[testStateID]
-	_ = exists  // Variable to check if state exists
-	_ = testCtx // Use the test context
+	// Safely attempt to get state with panic recovery
+	var state map[string]interface{}
 	var err error
-	if err != nil && !errors.Is(err, ErrStateNotFound) {
-		return fmt.Errorf("store health check failed: %w", err)
+	
+	// Use a channel to handle timeout
+	done := make(chan bool, 1)
+	
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic in store.GetState(): %v", r)
+				done <- true
+			}
+		}()
+		
+		// Try to get the state
+		state = hc.store.GetState()
+		done <- true
+	}()
+	
+	// Wait for either completion or timeout
+	select {
+	case <-done:
+		if err != nil {
+			return fmt.Errorf("store health check failed: %w", err)
+		}
+		if state == nil {
+			return errors.New("store returned nil state")
+		}
+	case <-testCtx.Done():
+		return fmt.Errorf("store health check timed out: %w", testCtx.Err())
 	}
+
+	// Verify we can check for a non-existent key (basic operation test)
+	testStateID := fmt.Sprintf("health_check_%d", time.Now().UnixNano())
+	_, exists := state[testStateID]
+	_ = exists  // This is expected to be false for a non-existent key
 
 	return nil
 }

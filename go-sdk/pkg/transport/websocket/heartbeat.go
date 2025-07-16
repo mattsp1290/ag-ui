@@ -85,15 +85,19 @@ type HeartbeatStats struct {
 
 // NewHeartbeatManager creates a new heartbeat manager
 func NewHeartbeatManager(connection *Connection, pingPeriod, pongWait time.Duration) *HeartbeatManager {
+	now := time.Now()
 	return &HeartbeatManager{
 		pingPeriod: pingPeriod,
 		pongWait:   pongWait,
 		connection: connection,
 		state:      int32(HeartbeatStopped),
 		isHealthy:  1, // Start as healthy
+		lastPongAt: now.Unix(), // Initialize to current time
 		stopCh:     make(chan struct{}),
 		resetCh:    make(chan struct{}, 1),
-		stats:      &HeartbeatStats{},
+		stats:      &HeartbeatStats{
+			LastPongAt: now, // Initialize stats too
+		},
 	}
 }
 
@@ -125,10 +129,22 @@ func (h *HeartbeatManager) Stop() {
 
 		h.setState(HeartbeatStopping)
 		close(h.stopCh)
-		h.wg.Wait()
-		h.setState(HeartbeatStopped)
 
-		h.connection.config.Logger.Debug("Heartbeat manager stopped")
+		// Wait for goroutines with timeout
+		done := make(chan struct{})
+		go func() {
+			h.wg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			h.connection.config.Logger.Debug("Heartbeat manager stopped")
+		case <-time.After(1 * time.Second):
+			h.connection.config.Logger.Warn("Timeout waiting for heartbeat goroutines to stop")
+		}
+
+		h.setState(HeartbeatStopped)
 	})
 }
 
@@ -219,29 +235,49 @@ func (h *HeartbeatManager) isValidStateTransition(from, to HeartbeatState) bool 
 func (h *HeartbeatManager) pingLoop(ctx context.Context) {
 	defer h.wg.Done()
 
+	// Skip ping loop if pingPeriod is not configured
+	if h.pingPeriod <= 0 {
+		h.connection.config.Logger.Debug("Ping loop disabled (pingPeriod=0)")
+		return
+	}
+
 	ticker := time.NewTicker(h.pingPeriod)
 	defer ticker.Stop()
+
+	h.connection.config.Logger.Debug("Starting ping loop")
 
 	for {
 		select {
 		case <-ctx.Done():
+			h.connection.config.Logger.Debug("Ping loop stopped due to context cancellation")
 			return
 		case <-h.stopCh:
+			h.connection.config.Logger.Debug("Ping loop stopped due to stop signal")
 			return
 		case <-h.resetCh:
 			ticker.Reset(h.pingPeriod)
 			continue
 		case <-ticker.C:
-			if err := h.sendPing(); err != nil {
-				h.connection.config.Logger.Error("Failed to send ping",
-					zap.Error(err))
-
-				// Mark as unhealthy and potentially trigger reconnection
-				atomic.StoreInt32(&h.isHealthy, 0)
-				if h.connection.State() == StateConnected {
-					h.connection.triggerReconnect()
-				}
+			// Check if we should still be running before sending ping
+			select {
+			case <-ctx.Done():
+				h.connection.config.Logger.Debug("Context cancelled before sending ping")
 				return
+			case <-h.stopCh:
+				h.connection.config.Logger.Debug("Stop signal received before sending ping")
+				return
+			default:
+				if err := h.sendPing(); err != nil {
+					h.connection.config.Logger.Error("Failed to send ping",
+						zap.Error(err))
+
+					// Mark as unhealthy and potentially trigger reconnection
+					atomic.StoreInt32(&h.isHealthy, 0)
+					if h.connection.State() == StateConnected {
+						h.connection.triggerReconnect()
+					}
+					return
+				}
 			}
 		}
 	}
@@ -251,17 +287,37 @@ func (h *HeartbeatManager) pingLoop(ctx context.Context) {
 func (h *HeartbeatManager) healthCheckLoop(ctx context.Context) {
 	defer h.wg.Done()
 
+	// Skip health checks if pongWait is not configured
+	if h.pongWait <= 0 {
+		h.connection.config.Logger.Debug("Health check loop disabled (pongWait=0)")
+		return
+	}
+
 	ticker := time.NewTicker(h.pongWait / 2) // Check twice per pong wait period
 	defer ticker.Stop()
+
+	h.connection.config.Logger.Debug("Starting health check loop")
 
 	for {
 		select {
 		case <-ctx.Done():
+			h.connection.config.Logger.Debug("Health check loop stopped due to context cancellation")
 			return
 		case <-h.stopCh:
+			h.connection.config.Logger.Debug("Health check loop stopped due to stop signal")
 			return
 		case <-ticker.C:
-			h.checkHealth()
+			// Check if we should still be running before checking health
+			select {
+			case <-ctx.Done():
+				h.connection.config.Logger.Debug("Context cancelled before health check")
+				return
+			case <-h.stopCh:
+				h.connection.config.Logger.Debug("Stop signal received before health check")
+				return
+			default:
+				h.checkHealth()
+			}
 		}
 	}
 }

@@ -508,17 +508,23 @@ func (po *PerformanceOptimizerImpl) BatchOperation(ctx context.Context, operatio
 		}
 	}
 
+	// Create result channel with timeout to prevent goroutine leaks
 	result := make(chan error, 1)
+	
+	// Create a timeout context with a reasonable max timeout
+	batchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	
 	select {
 	case po.batchQueue <- batchItem{operation: operation, result: result}:
 		select {
 		case err := <-result:
 			return err
-		case <-ctx.Done():
-			return ctx.Err()
+		case <-batchCtx.Done():
+			return batchCtx.Err()
 		}
-	case <-ctx.Done():
-		return ctx.Err()
+	case <-batchCtx.Done():
+		return batchCtx.Err()
 	}
 }
 
@@ -600,12 +606,42 @@ func (po *PerformanceOptimizerImpl) Stop() {
 	// Cancel context to stop monitoring goroutines
 	po.cancel()
 
-	// Wait for all goroutines to finish
-	po.wg.Wait()
+	// Wait for all goroutines to finish with timeout
+	done := make(chan struct{})
+	go func() {
+		po.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Goroutines finished normally
+	case <-time.After(5 * time.Second):
+		// Timeout waiting for goroutines
+	}
 
 	if po.enableBatching {
-		close(po.stopBatch)
-		po.batchWorkers.Wait()
+		// Signal stop to batch workers
+		select {
+		case <-po.stopBatch:
+			// Already closed
+		default:
+			close(po.stopBatch)
+		}
+		
+		// Wait for batch workers with timeout
+		batchDone := make(chan struct{})
+		go func() {
+			po.batchWorkers.Wait()
+			close(batchDone)
+		}()
+		
+		select {
+		case <-batchDone:
+			// Batch workers finished normally
+		case <-time.After(2 * time.Second):
+			// Timeout waiting for batch workers
+		}
 	}
 
 	// Stop rate limiter
@@ -621,6 +657,11 @@ func (po *PerformanceOptimizerImpl) Stop() {
 	// Shutdown concurrent optimizer
 	if po.concurrentOptimizer != nil {
 		po.concurrentOptimizer.Shutdown()
+	}
+
+	// Shutdown lazy cache cleanup goroutine
+	if po.lazyCache != nil {
+		po.lazyCache.shutdown()
 	}
 }
 
@@ -701,7 +742,12 @@ func (rl *RateLimiter) Wait(ctx context.Context) error {
 // Stop stops the rate limiter
 func (rl *RateLimiter) Stop() {
 	if rl.stopped.CompareAndSwap(false, true) {
-		close(rl.stop)
+		select {
+		case <-rl.stop:
+			// Already closed
+		default:
+			close(rl.stop)
+		}
 	}
 }
 
@@ -959,6 +1005,8 @@ type LazyCache struct {
 	misses  atomic.Int64
 	mu      sync.RWMutex
 	keys    []string // For LRU eviction
+	cleanupDone chan struct{}
+	cleanupStop chan struct{}
 }
 
 // CacheEntry represents a cached entry
@@ -971,9 +1019,11 @@ type CacheEntry struct {
 // NewLazyCache creates a new lazy cache
 func NewLazyCache(maxSize int, ttl time.Duration) *LazyCache {
 	lc := &LazyCache{
-		maxSize: maxSize,
-		ttl:     ttl,
-		keys:    make([]string, 0, maxSize),
+		maxSize:     maxSize,
+		ttl:         ttl,
+		keys:        make([]string, 0, maxSize),
+		cleanupDone: make(chan struct{}),
+		cleanupStop: make(chan struct{}),
 	}
 
 	// Start cleanup goroutine
@@ -1059,22 +1109,29 @@ func (lc *LazyCache) removeKey(key string) {
 
 // cleanup removes expired entries
 func (lc *LazyCache) cleanup() {
+	defer close(lc.cleanupDone)
+	
 	ticker := time.NewTicker(DefaultCleanupWorkerInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		now := time.Now()
-		lc.cache.Range(func(key, value interface{}) bool {
-			entry := value.(*CacheEntry)
-			if now.After(entry.expires) {
-				lc.cache.Delete(key)
-				lc.mu.Lock()
-				lc.removeKey(key.(string))
-				lc.size--
-				lc.mu.Unlock()
-			}
-			return true
-		})
+	for {
+		select {
+		case <-ticker.C:
+			now := time.Now()
+			lc.cache.Range(func(key, value interface{}) bool {
+				entry := value.(*CacheEntry)
+				if now.After(entry.expires) {
+					lc.cache.Delete(key)
+					lc.mu.Lock()
+					lc.removeKey(key.(string))
+					lc.size--
+					lc.mu.Unlock()
+				}
+				return true
+			})
+		case <-lc.cleanupStop:
+			return
+		}
 	}
 }
 
@@ -1089,6 +1146,25 @@ func (lc *LazyCache) GetStats() (hits, misses int64, hitRate float64) {
 	}
 
 	return h, m, hitRate
+}
+
+// shutdown stops the cleanup goroutine
+func (lc *LazyCache) shutdown() {
+	select {
+	case <-lc.cleanupStop:
+		// Already stopped
+		return
+	default:
+		close(lc.cleanupStop)
+	}
+	
+	// Wait for cleanup goroutine to finish with timeout
+	select {
+	case <-lc.cleanupDone:
+		// Cleanup finished normally
+	case <-time.After(time.Second):
+		// Timeout waiting for cleanup
+	}
 }
 
 // MemoryOptimizer manages memory usage and garbage collection
@@ -1200,8 +1276,27 @@ func (co *ConcurrentOptimizer) GetActiveTasks() int64 {
 
 // Shutdown shuts down the concurrent optimizer
 func (co *ConcurrentOptimizer) Shutdown() {
-	close(co.shutdown)
-	co.workers.Wait()
+	select {
+	case <-co.shutdown:
+		// Already shut down
+		return
+	default:
+		close(co.shutdown)
+	}
+	
+	// Wait for workers with timeout
+	done := make(chan struct{})
+	go func() {
+		co.workers.Wait()
+		close(done)
+	}()
+	
+	select {
+	case <-done:
+		// Workers finished normally
+	case <-time.After(3 * time.Second):
+		// Timeout waiting for workers
+	}
 }
 
 // GetBuffer gets a buffer from the pool
@@ -1306,11 +1401,15 @@ func (po *PerformanceOptimizerImpl) ProcessLargeStateUpdate(ctx context.Context,
 		if po.concurrentOptimizer.Execute(func() {
 			done <- update()
 		}) {
+			// Create a timeout context to prevent hanging
+			updateCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
+			defer cancel()
+			
 			select {
 			case err := <-done:
 				return err
-			case <-ctx.Done():
-				return ctx.Err()
+			case <-updateCtx.Done():
+				return updateCtx.Err()
 			}
 		} else {
 			// Fall back to direct execution if queue is full
@@ -1373,9 +1472,9 @@ func (po *PerformanceOptimizerImpl) CompressData(data []byte) ([]byte, error) {
 	defer po.PutBuffer(buf)
 
 	writer := gzip.NewWriter(buf)
-	defer writer.Close()
 
 	if _, err := writer.Write(data); err != nil {
+		writer.Close()
 		return nil, fmt.Errorf("failed to compress data: %w", err)
 	}
 
@@ -1384,7 +1483,10 @@ func (po *PerformanceOptimizerImpl) CompressData(data []byte) ([]byte, error) {
 	}
 
 	po.bytesWritten.Add(int64(len(data)))
-	return buf.Bytes(), nil
+	// Make a copy of the buffer bytes since we're returning the buffer to the pool
+	result := make([]byte, buf.Len())
+	copy(result, buf.Bytes())
+	return result, nil
 }
 
 // DecompressData decompresses gzip data
@@ -1407,7 +1509,10 @@ func (po *PerformanceOptimizerImpl) DecompressData(data []byte) ([]byte, error) 
 	}
 
 	po.bytesRead.Add(int64(len(data)))
-	return buf.Bytes(), nil
+	// Make a copy of the buffer bytes since we're returning the buffer to the pool
+	result := make([]byte, buf.Len())
+	copy(result, buf.Bytes())
+	return result, nil
 }
 
 // IsCompressionEnabled returns whether compression is enabled

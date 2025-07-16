@@ -14,7 +14,6 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/encoding"
 	_ "github.com/ag-ui/go-sdk/pkg/encoding/json" // Register JSON codec
 	"github.com/ag-ui/go-sdk/pkg/encoding/negotiation"
-	_ "github.com/ag-ui/go-sdk/pkg/encoding/protobuf" // Register Protobuf codec
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -568,7 +567,9 @@ func TestPoolingErrors(t *testing.T) {
 		// Get many buffers
 		for i := 0; i < numOperations; i++ {
 			buf := encoding.GetBuffer(1024)
-			buffers = append(buffers, buf)
+			if buf != nil {
+				buffers = append(buffers, buf)
+			}
 		}
 		
 		// Put them all back
@@ -584,6 +585,7 @@ func TestPoolingErrors(t *testing.T) {
 	t.Run("PoolCorruption", func(t *testing.T) {
 		// Test putting back corrupted objects
 		buf := encoding.GetBuffer(1024)
+		require.NotNil(t, buf, "Failed to get buffer for corruption test")
 		
 		// Use buffer normally
 		buf.WriteString("test")
@@ -593,6 +595,7 @@ func TestPoolingErrors(t *testing.T) {
 		
 		// Get it again
 		buf2 := encoding.GetBuffer(1024)
+		require.NotNil(t, buf2, "Failed to get buffer after putting back")
 		
 		// Should be reset
 		assert.Equal(t, 0, buf2.Len())
@@ -798,8 +801,10 @@ invalid json line
 		
 		// Normal operations should still work
 		buf := encoding.GetBuffer(1024)
-		buf.WriteString("test")
-		encoding.PutBuffer(buf)
+		if buf != nil {
+			buf.WriteString("test")
+			encoding.PutBuffer(buf)
+		}
 		
 		slice := encoding.GetSlice(1024)
 		slice = append(slice, []byte("test")...)

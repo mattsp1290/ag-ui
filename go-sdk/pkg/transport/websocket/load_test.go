@@ -32,9 +32,14 @@ type LoadTestServer struct {
 	logger      *zap.Logger
 	echoMode    bool
 	dropRate    float64
+	ctx         context.Context
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+	conns       sync.Map // Track active connections
 }
 
 func NewLoadTestServer(t testing.TB) *LoadTestServer {
+	ctx, cancel := context.WithCancel(context.Background())
 	server := &LoadTestServer{
 		upgrader: websocket.Upgrader{
 			CheckOrigin:     func(r *http.Request) bool { return true },
@@ -43,6 +48,8 @@ func NewLoadTestServer(t testing.TB) *LoadTestServer {
 		},
 		logger:   zaptest.NewLogger(t),
 		echoMode: true,
+		ctx:      ctx,
+		cancel:   cancel,
 	}
 
 	mux := http.NewServeMux()
@@ -53,27 +60,72 @@ func NewLoadTestServer(t testing.TB) *LoadTestServer {
 }
 
 func (s *LoadTestServer) handleWebSocket(w http.ResponseWriter, r *http.Request) {
+	// Check if server is shutting down
+	select {
+	case <-s.ctx.Done():
+		http.Error(w, "Server shutting down", http.StatusServiceUnavailable)
+		return
+	default:
+	}
+
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		atomic.AddInt64(&s.errors, 1)
 		return
 	}
-	defer conn.Close()
+
+	// Track connection
+	connID := fmt.Sprintf("%p", conn)
+	s.conns.Store(connID, conn)
+	s.wg.Add(1)
+	defer func() {
+		s.conns.Delete(connID)
+		s.wg.Done()
+		conn.Close()
+	}()
 
 	atomic.AddInt64(&s.connections, 1)
 	defer atomic.AddInt64(&s.connections, -1)
 
-	// Set read/write deadlines for load testing
+	// Set initial deadlines
 	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 
 	for {
+		// Check context for shutdown
+		select {
+		case <-s.ctx.Done():
+			// Send close message
+			conn.WriteControl(websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseGoingAway, "server shutdown"),
+				time.Now().Add(time.Second))
+			return
+		default:
+		}
+
+		// Set read deadline with context awareness
+		readDeadline := time.Now().Add(1 * time.Second)
+		if deadline, ok := s.ctx.Deadline(); ok && deadline.Before(readDeadline) {
+			readDeadline = deadline
+		}
+		conn.SetReadDeadline(readDeadline)
+
 		messageType, message, err := conn.ReadMessage()
 		if err != nil {
-			if !websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
-				atomic.AddInt64(&s.errors, 1)
+			// Check if error is due to context cancellation
+			select {
+			case <-s.ctx.Done():
+				return
+			default:
+				if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
+					// Timeout is expected for periodic context checks
+					continue
+				}
+				if !websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNormalClosure) {
+					atomic.AddInt64(&s.errors, 1)
+				}
+				return
 			}
-			break
 		}
 
 		atomic.AddInt64(&s.messages, 1)
@@ -87,12 +139,9 @@ func (s *LoadTestServer) handleWebSocket(w http.ResponseWriter, r *http.Request)
 			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
 			if err := conn.WriteMessage(messageType, message); err != nil {
 				atomic.AddInt64(&s.errors, 1)
-				break
+				return
 			}
 		}
-
-		// Reset read deadline
-		conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	}
 }
 
@@ -101,7 +150,40 @@ func (s *LoadTestServer) URL() string {
 }
 
 func (s *LoadTestServer) Close() {
+	s.logger.Debug("Closing load test server")
+	
+	// Cancel context to signal all handlers to stop
+	s.cancel()
+	
+	// Force close all active connections
+	s.conns.Range(func(key, value interface{}) bool {
+		if conn, ok := value.(*websocket.Conn); ok {
+			// Send close message with short deadline
+			conn.WriteControl(websocket.CloseMessage,
+				websocket.FormatCloseMessage(websocket.CloseGoingAway, "server shutdown"),
+				time.Now().Add(100*time.Millisecond))
+			// Force close
+			conn.Close()
+		}
+		return true
+	})
+	
+	// Close HTTP server
 	s.server.Close()
+	
+	// Wait for all handlers to complete with timeout
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	
+	select {
+	case <-done:
+		s.logger.Debug("All handlers completed")
+	case <-time.After(2 * time.Second):
+		s.logger.Warn("Timeout waiting for handlers to complete")
+	}
 }
 
 func (s *LoadTestServer) GetStats() (connections, messages, errors int64) {
@@ -244,7 +326,7 @@ func TestHighConcurrencyConnections(t *testing.T) {
 	server := NewLoadTestServer(t)
 	defer server.Close()
 
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zap.NewNop() // Reduce logging overhead
 	config.PoolConfig.MinConnections = 50
@@ -266,7 +348,7 @@ func TestHighConcurrencyConnections(t *testing.T) {
 		defer transport.Stop()
 
 		// Wait for initial connections
-		time.Sleep(2 * time.Second)
+		time.Sleep(100 * time.Millisecond)
 
 		const numGoroutines = 1000
 		const messagesPerGoroutine = 10
@@ -356,7 +438,7 @@ func TestSustainedLoad(t *testing.T) {
 	server := NewLoadTestServer(t)
 	defer server.Close()
 
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zap.NewNop()
 	config.PoolConfig.MinConnections = 10
@@ -499,7 +581,7 @@ func TestBurstLoad(t *testing.T) {
 	server := NewLoadTestServer(t)
 	defer server.Close()
 
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zap.NewNop()
 	config.PoolConfig.MinConnections = 5
@@ -607,7 +689,7 @@ func TestMemoryLeakDetection(t *testing.T) {
 	server := NewLoadTestServer(t)
 	defer server.Close()
 
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zap.NewNop()
 	config.EnableEventValidation = false
@@ -629,7 +711,7 @@ func TestMemoryLeakDetection(t *testing.T) {
 			require.NoError(t, err)
 
 			// Wait for connections
-			time.Sleep(500 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 
 			// Send messages
 			for j := 0; j < messagesPerIteration; j++ {
@@ -691,7 +773,7 @@ func TestConnectionPoolScaling(t *testing.T) {
 	server := NewLoadTestServer(t)
 	defer server.Close()
 
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zap.NewNop()
 	config.PoolConfig.MinConnections = 1
@@ -764,7 +846,7 @@ func TestConnectionPoolScaling(t *testing.T) {
 				"Connection pool should scale with load")
 
 			// Brief cooldown between load levels
-			time.Sleep(2 * time.Second)
+			time.Sleep(100 * time.Millisecond)
 		}
 
 		// Verify final state
@@ -790,7 +872,7 @@ func TestUnderAdverseConditions(t *testing.T) {
 	// Configure server with adverse conditions
 	server.SetDropRate(0.1) // Drop 10% of messages
 
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zap.NewNop()
 	config.PoolConfig.MinConnections = 5
@@ -886,7 +968,7 @@ func BenchmarkHighConcurrencyLoad(b *testing.B) {
 	server := NewLoadTestServer(b)
 	defer server.Close()
 
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zap.NewNop()
 	config.PoolConfig.MaxConnections = 100
@@ -930,7 +1012,7 @@ func BenchmarkConnectionPoolPerformance(b *testing.B) {
 	server3 := NewLoadTestServer(b)
 	defer server3.Close()
 
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.URLs = []string{server1.URL(), server2.URL(), server3.URL()}
 	config.Logger = zap.NewNop()
 	config.PoolConfig.MinConnections = 10

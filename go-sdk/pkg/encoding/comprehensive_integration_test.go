@@ -400,6 +400,11 @@ func TestPoolingIntegration(t *testing.T) {
 	// Use buffers
 	for i := 0; i < 100; i++ {
 		buf := encoding.GetBuffer(1024)
+		if buf == nil {
+			// Use safe version that handles resource exhaustion
+			buf = encoding.GetBufferSafe(1024)
+			require.NotNil(t, buf, "Failed to allocate buffer")
+		}
 		buf.WriteString("test data")
 		encoding.PutBuffer(buf)
 	}

@@ -100,7 +100,7 @@ func ExampleStreamingProtobufDecoder() {
 
 	go func() {
 		decoder.DecodeStream(ctx, &buf, eventChan)
-		close(eventChan)
+		// Don't close eventChan here - DecodeStream closes it
 	}()
 
 	// Read decoded events

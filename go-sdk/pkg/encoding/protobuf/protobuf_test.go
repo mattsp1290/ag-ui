@@ -167,7 +167,7 @@ func TestStreamingProtobuf(t *testing.T) {
 
 	go func() {
 		errChan <- decoder.DecodeStream(ctx, &buf, eventChan)
-		close(eventChan)
+		// Don't close eventChan here - DecodeStream closes it
 	}()
 
 	// Collect decoded events

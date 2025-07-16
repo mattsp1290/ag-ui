@@ -197,26 +197,27 @@ func NewPerformanceManager(config *PerformanceConfig) (*PerformanceManager, erro
 func (pm *PerformanceManager) Start(ctx context.Context) error {
 	pm.config.Logger.Info("Starting performance manager")
 
+	// Use internal context for all goroutines so they can be properly cancelled in Stop()
 	// Start message batcher
 	pm.wg.Add(1)
-	go pm.messageBatcher.Start(ctx, &pm.wg)
+	go pm.messageBatcher.Start(pm.ctx, &pm.wg)
 
 	// Start metrics collector
 	if pm.metricsCollector != nil {
 		pm.wg.Add(1)
-		go pm.metricsCollector.Start(ctx, &pm.wg)
+		go pm.metricsCollector.Start(pm.ctx, &pm.wg)
 	}
 
 	// Start profiler
 	if pm.profiler != nil {
 		pm.wg.Add(1)
-		go pm.profiler.Start(ctx, &pm.wg)
+		go pm.profiler.Start(pm.ctx, &pm.wg)
 	}
 
 	// Start memory manager
 	if pm.memoryManager != nil {
 		pm.wg.Add(1)
-		go pm.memoryManager.Start(ctx, &pm.wg)
+		go pm.memoryManager.Start(pm.ctx, &pm.wg)
 	}
 
 	pm.config.Logger.Info("Performance manager started")
@@ -230,11 +231,21 @@ func (pm *PerformanceManager) Stop() error {
 	// Cancel context
 	pm.cancel()
 
-	// Wait for all goroutines to finish
-	pm.wg.Wait()
+	// Wait for all goroutines to finish with timeout
+	done := make(chan struct{})
+	go func() {
+		pm.wg.Wait()
+		close(done)
+	}()
 
-	pm.config.Logger.Info("Performance manager stopped")
-	return nil
+	select {
+	case <-done:
+		pm.config.Logger.Info("Performance manager stopped")
+		return nil
+	case <-time.After(200 * time.Millisecond):
+		pm.config.Logger.Warn("Performance manager stop timeout")
+		return fmt.Errorf("timeout waiting for performance manager to stop")
+	}
 }
 
 // OptimizeMessage optimizes a message for transmission
@@ -382,8 +393,8 @@ func NewMessageBatcher(batchSize int, batchTimeout time.Duration) *MessageBatche
 	return &MessageBatcher{
 		batchSize:    batchSize,
 		batchTimeout: batchTimeout,
-		messages:     make(chan []byte, batchSize*10),
-		batches:      make(chan [][]byte, 100),
+		messages:     make(chan []byte, batchSize*100), // Increased for high throughput
+		batches:      make(chan [][]byte, 1000), // Increased for high throughput
 	}
 }
 
@@ -1066,7 +1077,7 @@ func NewMemoryManager(maxMemory int64) *MemoryManager {
 		bufferPools:     make([]*BufferPool, 0),
 		currentInterval: 60 * time.Second, // Start with low pressure interval
 		lastPressure:    0,
-		checkNow:        make(chan struct{}, 1),
+		checkNow:        make(chan struct{}, 10), // Increased buffer to prevent blocking
 	}
 }
 
@@ -1166,23 +1177,36 @@ func (mm *MemoryManager) AllocateBuffer(size int) []byte {
 	defer mm.mutex.Unlock()
 
 	if mm.currentUsage+int64(size) > mm.maxMemory {
-		// Try to trigger GC and recheck
+		// Try to trigger GC and recheck system memory
 		runtime.GC()
 		var memStats runtime.MemStats
 		runtime.ReadMemStats(&memStats)
-		mm.currentUsage = int64(memStats.Alloc)
-
+		
+		// Still check against our limit, not system memory
 		if mm.currentUsage+int64(size) > mm.maxMemory {
 			return nil // Out of memory
 		}
 	}
 
+	// Update our tracked usage
+	mm.currentUsage += int64(size)
 	atomic.AddInt64(&mm.stats.allocations, 1)
 	return make([]byte, size)
 }
 
 // DeallocateBuffer deallocates a buffer
 func (mm *MemoryManager) DeallocateBuffer(buf []byte) {
+	if buf == nil {
+		return
+	}
+	
+	mm.mutex.Lock()
+	mm.currentUsage -= int64(cap(buf))
+	if mm.currentUsage < 0 {
+		mm.currentUsage = 0
+	}
+	mm.mutex.Unlock()
+	
 	atomic.AddInt64(&mm.stats.deallocations, 1)
 	// Buffer will be garbage collected automatically
 }
@@ -1325,10 +1349,18 @@ func (ao *AdaptiveOptimizer) Start(ctx context.Context, wg *sync.WaitGroup) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
+	// Initial adaptation after short delay
+	initialTimer := time.NewTimer(100 * time.Millisecond)
+	defer initialTimer.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-initialTimer.C:
+			if ao.enabled {
+				ao.adaptSettings()
+			}
 		case <-ticker.C:
 			if ao.enabled {
 				ao.adaptSettings()

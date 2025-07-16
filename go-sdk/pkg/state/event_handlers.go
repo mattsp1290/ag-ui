@@ -18,7 +18,7 @@ import (
 
 // StateEventHandler handles state-related events from the AG-UI protocol
 type StateEventHandler struct {
-	store         *StateStore
+	store         StoreInterface
 	deltaComputer *DeltaComputer
 	metrics       *StateMetrics
 	mu            sync.RWMutex
@@ -161,7 +161,7 @@ func WithConflictResolver(resolver ConflictResolver) StateEventHandlerOption {
 }
 
 // NewStateEventHandler creates a new state event handler
-func NewStateEventHandler(store *StateStore, options ...StateEventHandlerOption) *StateEventHandler {
+func NewStateEventHandler(store StoreInterface, options ...StateEventHandlerOption) *StateEventHandler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	handler := &StateEventHandler{
@@ -962,6 +962,7 @@ type StateEventStream struct {
 	stopCh    chan struct{}
 	interval  time.Duration
 	deltaOnly bool
+	wg        sync.WaitGroup
 }
 
 // StateEventStreamOption is a configuration option for StateEventStream
@@ -1036,6 +1037,7 @@ func (s *StateEventStream) Start() error {
 // Stop stops the event stream
 func (s *StateEventStream) Stop() {
 	close(s.stopCh)
+	s.wg.Wait() // Wait for all handler goroutines to complete
 }
 
 // streamLoop continuously monitors for state changes
@@ -1082,7 +1084,17 @@ func (s *StateEventStream) emit(event events.Event) {
 
 	for _, handler := range handlers {
 		// Call handlers in separate goroutines to prevent blocking
+		s.wg.Add(1)
 		go func(h func(events.Event) error) {
+			defer s.wg.Done()
+			
+			// Check if we're stopping
+			select {
+			case <-s.stopCh:
+				return
+			default:
+			}
+			
 			if err := h(event); err != nil {
 				// Log error but continue with other handlers
 			}

@@ -1238,9 +1238,9 @@ func (v *EventValidator) updateState(event Event) {
 	case EventTypeRunStarted:
 		if runEvent, ok := event.(*RunStartedEvent); ok {
 			v.state.CurrentPhase = PhaseRunning
-			v.state.ActiveRuns[runEvent.RunID] = &RunState{
-				RunID:     runEvent.RunID,
-				ThreadID:  runEvent.ThreadID,
+			v.state.ActiveRuns[runEvent.RunID()] = &RunState{
+				RunID:     runEvent.RunID(),
+				ThreadID:  runEvent.ThreadID(),
 				StartTime: time.Now(),
 				Phase:     PhaseRunning,
 			}
@@ -1249,20 +1249,20 @@ func (v *EventValidator) updateState(event Event) {
 	case EventTypeRunFinished:
 		if runEvent, ok := event.(*RunFinishedEvent); ok {
 			v.state.CurrentPhase = PhaseFinished
-			if runState, exists := v.state.ActiveRuns[runEvent.RunID]; exists {
+			if runState, exists := v.state.ActiveRuns[runEvent.RunID()]; exists {
 				runState.Phase = PhaseFinished
-				v.state.FinishedRuns[runEvent.RunID] = runState
-				delete(v.state.ActiveRuns, runEvent.RunID)
+				v.state.FinishedRuns[runEvent.RunID()] = runState
+				delete(v.state.ActiveRuns, runEvent.RunID())
 			}
 		}
 
 	case EventTypeRunError:
 		if runEvent, ok := event.(*RunErrorEvent); ok {
 			v.state.CurrentPhase = PhaseError
-			if runState, exists := v.state.ActiveRuns[runEvent.RunID]; exists {
+			if runState, exists := v.state.ActiveRuns[runEvent.RunID()]; exists {
 				runState.Phase = PhaseError
-				v.state.FinishedRuns[runEvent.RunID] = runState
-				delete(v.state.ActiveRuns, runEvent.RunID)
+				v.state.FinishedRuns[runEvent.RunID()] = runState
+				delete(v.state.ActiveRuns, runEvent.RunID())
 			}
 		}
 

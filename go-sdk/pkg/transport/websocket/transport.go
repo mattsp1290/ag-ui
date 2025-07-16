@@ -33,6 +33,8 @@ type Transport struct {
 
 	// Event channel for incoming messages
 	eventCh chan []byte
+	eventChClosed bool
+	eventChMutex sync.RWMutex
 
 	// Subscriptions
 	subscriptions map[string]*Subscription
@@ -207,6 +209,14 @@ func NewTransport(config *TransportConfig) (*Transport, error) {
 func (t *Transport) Start(ctx context.Context) error {
 	t.config.Logger.Info("Starting WebSocket transport")
 
+	// Recreate event channel if it was closed
+	t.eventChMutex.Lock()
+	if t.eventChClosed {
+		t.eventCh = make(chan []byte, 1000)
+		t.eventChClosed = false
+	}
+	t.eventChMutex.Unlock()
+
 	// Start performance manager
 	if err := t.performanceManager.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start performance manager: %w", err)
@@ -251,7 +261,12 @@ func (t *Transport) Stop() error {
 	t.subsMutex.Unlock()
 
 	// Close event channel to signal shutdown
-	close(t.eventCh)
+	t.eventChMutex.Lock()
+	if !t.eventChClosed {
+		close(t.eventCh)
+		t.eventChClosed = true
+	}
+	t.eventChMutex.Unlock()
 
 	// Wait for goroutines to finish
 	t.wg.Wait()
@@ -533,6 +548,14 @@ func (t *Transport) GetDetailedStatus() map[string]interface{} {
 func (t *Transport) setupMessageHandlers() {
 	// Set up a message handler that forwards messages to the event channel
 	messageHandler := func(data []byte) {
+		// Check if channel is closed before attempting to send
+		t.eventChMutex.RLock()
+		if t.eventChClosed {
+			t.eventChMutex.RUnlock()
+			return
+		}
+		t.eventChMutex.RUnlock()
+
 		select {
 		case t.eventCh <- data:
 			// Successfully queued the event
@@ -669,6 +692,8 @@ func (m *mockEvent) ToJSON() ([]byte, error) {
 }
 func (m *mockEvent) ToProtobuf() (*generated.Event, error) { return nil, nil }
 func (m *mockEvent) GetBaseEvent() *events.BaseEvent       { return nil }
+func (m *mockEvent) ThreadID() string                     { return "" }
+func (m *mockEvent) RunID() string                        { return "" }
 
 // IsConnected returns true if the transport has healthy connections
 func (t *Transport) IsConnected() bool {

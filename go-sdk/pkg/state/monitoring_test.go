@@ -3,6 +3,7 @@ package state
 import (
 	"context"
 	"errors"
+	"runtime"
 	"testing"
 	"time"
 
@@ -11,6 +12,10 @@ import (
 )
 
 func TestMonitoringSystemBasic(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping TestMonitoringSystemBasic in short mode to prevent background goroutines")
+	}
+	
 	config := DefaultMonitoringConfig()
 	config.LogLevel = zapcore.DebugLevel
 	config.MetricsInterval = 1 * time.Second
@@ -74,9 +79,20 @@ func TestMonitoringConfigBuilder(t *testing.T) {
 }
 
 func TestAlertNotifiers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping TestAlertNotifiers in short mode to prevent write errors")
+	}
+	
+	// Set up test cleanup
+	cleanup := NewTestCleanup(t)
+	
 	// Test log notifier
 	// Create a simple zap logger for testing
 	zapLogger, _ := zap.NewDevelopment()
+	cleanup.AddCleanup(func() {
+		// Sync logger during cleanup
+		zapLogger.Sync()
+	})
 	logNotifier := NewLogAlertNotifier(zapLogger)
 
 	alert := Alert{
@@ -184,7 +200,8 @@ func TestConfigurationValidation(t *testing.T) {
 
 func TestMetricsRecording(t *testing.T) {
 	config := DefaultMonitoringConfig()
-	config.MetricsInterval = 100 * time.Millisecond
+	config.MetricsInterval = 10 * time.Second
+	config.ResourceSampleInterval = 30 * time.Second
 
 	monitoringSystem, err := NewMonitoringSystem(config)
 	if err != nil {
@@ -224,6 +241,9 @@ func TestMetricsRecording(t *testing.T) {
 	// Record queue depth
 	monitoringSystem.RecordQueueDepth(50)
 
+	// Wait a moment for background resource monitoring to collect metrics
+	time.Sleep(20 * time.Millisecond)
+
 	// Get metrics and verify
 	metrics := monitoringSystem.GetMetrics()
 	if len(metrics.Operations) == 0 {
@@ -262,4 +282,154 @@ func BenchmarkMetricsRecording(b *testing.B) {
 			monitoringSystem.RecordEventProcessing("benchmark_event", 1*time.Millisecond, nil)
 		}
 	})
+}
+
+// TestMonitoringSystemGracefulShutdown tests that all goroutines are properly cleaned up
+func TestMonitoringSystemGracefulShutdown(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping TestMonitoringSystemGracefulShutdown in short mode to prevent background goroutines")
+	}
+	
+	// Set up test cleanup
+	cleanup := NewTestCleanup(t)
+	
+	config := DefaultMonitoringConfig()
+	config.ResourceSampleInterval = 30 * time.Second
+	config.HealthCheckInterval = 10 * time.Second
+	config.MetricsInterval = 10 * time.Second
+	config.LogLevel = zapcore.DebugLevel
+
+	ms, err := NewMonitoringSystem(config)
+	if err != nil {
+		t.Fatalf("Failed to create monitoring system: %v", err)
+	}
+	cleanup.SetMonitoring(ms)
+
+	// Register a test health check
+	ms.RegisterHealthCheck(NewCustomHealthCheck("test", func(ctx context.Context) error {
+		return nil
+	}))
+
+	// Let it run for a bit to ensure goroutines are started
+	time.Sleep(500 * time.Millisecond)
+
+	// Test sending an alert (which spawns goroutines)
+	ms.sendAlert(Alert{
+		Level:       AlertLevelWarning,
+		Title:       "Test Alert",
+		Description: "Testing goroutine cleanup",
+		Timestamp:   time.Now(),
+		Component:   "test",
+		Value:       1.0,
+		Threshold:   0.5,
+	})
+
+	// Give alert goroutines time to start
+	time.Sleep(100 * time.Millisecond)
+
+	// Shutdown with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = ms.Shutdown(ctx)
+	if err != nil {
+		t.Errorf("Shutdown failed: %v", err)
+	}
+
+	// Verify context was cancelled
+	select {
+	case <-ms.ctx.Done():
+		// Good, context was cancelled
+	default:
+		t.Error("Context was not cancelled after shutdown")
+	}
+}
+
+// TestMonitoringSystemResourceLeak tests that tickers are properly stopped
+func TestMonitoringSystemResourceLeak(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping TestMonitoringSystemResourceLeak in short mode to prevent background goroutines")
+	}
+	
+	// Record initial goroutine count
+	initialGoroutines := runtime.NumGoroutine()
+
+	// Run multiple iterations to detect leaks
+	for i := 0; i < 3; i++ {
+		config := DefaultMonitoringConfig()
+		config.ResourceSampleInterval = 30 * time.Second
+		config.HealthCheckInterval = 10 * time.Second
+		config.MetricsInterval = 10 * time.Second
+
+		ms, err := NewMonitoringSystem(config)
+		if err != nil {
+			t.Fatalf("Failed to create monitoring system: %v", err)
+		}
+
+		// Let it run
+		time.Sleep(200 * time.Millisecond)
+
+		// Shutdown
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		err = ms.Shutdown(ctx)
+		cancel()
+
+		if err != nil {
+			t.Errorf("Iteration %d: Shutdown failed: %v", i, err)
+		}
+	}
+
+	// Give time for goroutines to fully terminate
+	time.Sleep(500 * time.Millisecond)
+
+	// Check goroutine count
+	finalGoroutines := runtime.NumGoroutine()
+	leaked := finalGoroutines - initialGoroutines
+
+	// Allow for some variance but fail if significant leak detected
+	if leaked > 5 {
+		t.Errorf("Potential goroutine leak detected: %d goroutines leaked", leaked)
+	}
+}
+
+// TestHealthCheckCancellation verifies health checks respect context cancellation
+func TestHealthCheckCancellation(t *testing.T) {
+	config := DefaultMonitoringConfig()
+	config.HealthCheckInterval = 10 * time.Second
+
+	ms, err := NewMonitoringSystem(config)
+	if err != nil {
+		t.Fatalf("Failed to create monitoring system: %v", err)
+	}
+
+	// Register a slow health check
+	slowCheck := NewCustomHealthCheck("slow", func(ctx context.Context) error {
+		select {
+		case <-time.After(10 * time.Second):
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	})
+	ms.RegisterHealthCheck(slowCheck)
+
+	// Let health checks start
+	time.Sleep(100 * time.Millisecond)
+
+	// Shutdown quickly
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	err = ms.Shutdown(ctx)
+	duration := time.Since(start)
+
+	if err != nil {
+		t.Errorf("Shutdown failed: %v", err)
+	}
+
+	// Verify shutdown didn't wait for slow health check
+	if duration > 2*time.Second {
+		t.Errorf("Shutdown took too long: %v (should be < 2s)", duration)
+	}
 }

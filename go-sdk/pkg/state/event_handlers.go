@@ -61,6 +61,9 @@ type StateEventHandler struct {
 	// Context for cancellation
 	ctx    context.Context
 	cancel context.CancelFunc
+	
+	// Running state
+	running bool
 }
 
 // StateEventHandlerOption is a configuration option for StateEventHandler
@@ -185,6 +188,7 @@ func NewStateEventHandler(store *StateStore, options ...StateEventHandlerOption)
 		clientID:             generateClientID(),
 		ctx:                  ctx,
 		cancel:               cancel,
+		running:              true, // Start in running state
 	}
 
 	// Apply options
@@ -1361,8 +1365,12 @@ func (h *StateEventHandler) GetMetrics() map[string]interface{} {
 
 // isRunning returns true if the event handler is running
 func (h *StateEventHandler) isRunning() bool {
-	// For now, assume it's always running if not nil
-	return h != nil
+	if h == nil {
+		return false
+	}
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.running
 }
 
 // getQueueDepth returns the current queue depth

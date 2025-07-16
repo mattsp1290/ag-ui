@@ -278,7 +278,7 @@ func TestApplyAdd(t *testing.T) {
 			document: map[string]interface{}{},
 			path:     "/foo",
 			value:    map[string]interface{}{"bar": []interface{}{1, 2, 3}},
-			want:     map[string]interface{}{"foo": map[string]interface{}{"bar": []interface{}{1.0, 2.0, 3.0}}},
+			want:     map[string]interface{}{"foo": map[string]interface{}{"bar": []interface{}{1, 2, 3}}},
 			wantErr:  false,
 		},
 		{
@@ -1324,10 +1324,10 @@ func TestConcurrentOperations(t *testing.T) {
 	}
 
 	// Verify results are independent
-	if result1.(map[string]interface{})["counter"] != float64(1) {
+	if result1.(map[string]interface{})["counter"] != 1 {
 		t.Error("Result1 counter incorrect")
 	}
-	if result2.(map[string]interface{})["counter"] != float64(2) {
+	if result2.(map[string]interface{})["counter"] != 2 {
 		t.Error("Result2 counter incorrect")
 	}
 }

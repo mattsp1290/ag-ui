@@ -91,6 +91,7 @@ func NewHeartbeatManager(connection *Connection, pingPeriod, pongWait time.Durat
 		connection: connection,
 		state:      int32(HeartbeatStopped),
 		isHealthy:  1, // Start as healthy
+		lastPongAt: time.Now().Unix(), // Initialize to current time
 		stopCh:     make(chan struct{}),
 		resetCh:    make(chan struct{}, 1),
 		stats:      &HeartbeatStats{},

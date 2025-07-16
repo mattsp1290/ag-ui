@@ -3,6 +3,36 @@ proompts/
 # Go test binaries
 *.test
 
+# Go compiled binaries
+go-sdk/examples/*/auth_middleware
+go-sdk/examples/*/*/auth_middleware
+
+# Profiling data
+*.prof
+*.pprof
+
+# Test output and logs
+*.log
+test_output.log
+
+# Generated reports
+go-sdk/pkg/tools/performance-reports/
+performance-report.*
+
+# Temporary documentation
+*_SUMMARY.md
+*_FIX_SUMMARY.md
+GIT_COMMANDS.md
+IMPLEMENTATION_SUMMARY.md
+INFRASTRUCTURE_IMPROVEMENTS.md
+
+# Temporary scripts
+build_test.sh
+git-commit-changes.sh
+test-all.sh
+test-state.sh
+test_runner.sh
+
 # Backup files
 *.bak
 *~

@@ -205,9 +205,9 @@ func (f *FileOperationsExecutor) writeFile(ctx context.Context, params map[strin
 	var err error
 	switch mode {
 	case "create", "overwrite":
-		err = os.WriteFile(path, []byte(content), 0644)
+		err = os.WriteFile(path, []byte(content), 0600)
 	case "append":
-		file, openErr := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		file, openErr := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 		if openErr != nil {
 			err = openErr
 		} else {

@@ -145,11 +145,11 @@ func (suite *CacheStrategyTestSuite) TestLFUStrategyDecay() {
 	
 	initialScore := strategy.Score(entry)
 	
-	// Wait for decay
+	// Wait for decay interval to pass
 	time.Sleep(150 * time.Millisecond)
 	
-	// Trigger decay by calling OnHit
-	strategy.OnHit(key, entry)
+	// Manually trigger decay without adding a hit
+	strategy.TriggerDecay()
 	
 	decayedScore := strategy.Score(entry)
 	suite.Less(decayedScore, initialScore)

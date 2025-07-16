@@ -23,6 +23,7 @@ const (
 // ValidationConfig contains configuration for event validation
 type ValidationConfig struct {
 	Level ValidationLevel
+	Strict bool
 
 	// Custom validation options
 	SkipTimestampValidation bool
@@ -400,11 +401,11 @@ func NewIDFormatValidator() CustomValidator {
 		switch event.Type() {
 		case EventTypeRunStarted:
 			if runEvent, ok := event.(*RunStartedEvent); ok {
-				if !isValidIDFormat(runEvent.RunID, "run-") {
-					return fmt.Errorf("invalid run ID format: %s", runEvent.RunID)
+				if !isValidIDFormat(runEvent.RunID(), "run-") {
+					return fmt.Errorf("invalid run ID format: %s", runEvent.RunID())
 				}
-				if !isValidIDFormat(runEvent.ThreadID, "thread-") {
-					return fmt.Errorf("invalid thread ID format: %s", runEvent.ThreadID)
+				if !isValidIDFormat(runEvent.ThreadID(), "thread-") {
+					return fmt.Errorf("invalid thread ID format: %s", runEvent.ThreadID())
 				}
 			}
 		case EventTypeTextMessageStart:

@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ag-ui/go-sdk/pkg/testhelper"
 	"github.com/ag-ui/go-sdk/pkg/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,6 +17,11 @@ import (
 
 // TestIntegrationFullWorkflow tests a complete tool workflow
 func TestIntegrationFullWorkflow(t *testing.T) {
+	defer testhelper.VerifyNoGoroutineLeaks(t)
+	
+	// Set up cleanup helpers
+	cleanup := testhelper.NewCleanupManager(t)
+	
 	// Create registry and execution engine
 	registry := tools.NewRegistry()
 	engine := tools.NewExecutionEngine(registry, tools.WithMaxConcurrent(10))
@@ -98,6 +104,11 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	t.Run("concurrent executions", func(t *testing.T) {
 		var wg sync.WaitGroup
 		results := make(chan *tools.ToolExecutionResult, 20)
+		
+		// Register channel cleanup
+		cleanup.Register("results-channel", func() {
+			testhelper.CloseChannel(t, results, "results")
+		})
 
 		// Execute 20 tools concurrently
 		for i := 0; i < 20; i++ {
@@ -118,7 +129,9 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 			}(i)
 		}
 
-		wg.Wait()
+		if !testhelper.WaitGroupTimeout(t, &wg, 5*time.Second) {
+			t.Fatal("Timeout waiting for concurrent executions")
+		}
 		close(results)
 
 		// Verify all results
@@ -142,6 +155,8 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 
 // TestIntegrationProviderConversion tests AI provider integration
 func TestIntegrationProviderConversion(t *testing.T) {
+	defer testhelper.VerifyNoGoroutineLeaks(t)
+	
 	// Create registry with tools
 	registry := tools.NewRegistry()
 	err := tools.RegisterBuiltinTools(registry)

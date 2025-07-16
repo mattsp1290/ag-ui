@@ -232,6 +232,14 @@ func (dv *DistributedValidator) Start(ctx context.Context) error {
 		}()
 		dv.metricsRoutine(ctx)
 	}()
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Panic in distributed validator consensus routine: %v\n", r)
+			}
+		}()
+		dv.consensusRoutine(ctx)
+	}()
 
 	dv.running = true
 	return nil
@@ -383,9 +391,39 @@ func (dv *DistributedValidator) performLocalValidation(ctx context.Context, even
 
 	pending.DecisionsMutex.Lock()
 	pending.Decisions[dv.config.NodeID] = localDecision
+	decisionCount := len(pending.Decisions)
 	pending.DecisionsMutex.Unlock()
 
+	// Check if we can reach consensus with current decisions
+	dv.checkAndTriggerConsensus(pending, decisionCount)
+
 	return localDecision
+}
+
+// checkAndTriggerConsensus checks if consensus can be reached and triggers completion
+func (dv *DistributedValidator) checkAndTriggerConsensus(pending *PendingValidation, decisionCount int) {
+	// For single-node scenarios, complete immediately
+	if dv.config.ConsensusConfig.MinNodes <= 1 {
+		result := dv.aggregateDecisions(pending)
+		select {
+		case pending.CompleteChan <- result:
+		default:
+			// Channel might already be closed or have a result
+		}
+		return
+	}
+
+	// Check if we have enough decisions for consensus
+	requiredNodes := dv.consensus.GetRequiredNodes()
+	if decisionCount >= requiredNodes {
+		// We have enough decisions, aggregate and complete
+		result := dv.aggregateDecisions(pending)
+		select {
+		case pending.CompleteChan <- result:
+		default:
+			// Channel might already be closed or have a result
+		}
+	}
 }
 
 // coordinateDistributedValidation coordinates the distributed validation process
@@ -662,6 +700,14 @@ func (dv *DistributedValidator) broadcastValidationRequest(ctx context.Context, 
 					fmt.Printf("Panic in distributed validator broadcast: %v\n", r)
 				}
 			}()
+			
+			// Check if context is already cancelled
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			
 			// TODO: Implement actual network communication
 			// For now, this is a placeholder
 			_ = nID
@@ -813,6 +859,55 @@ func (dv *DistributedValidator) collectMetrics() {
 	dv.nodesMutex.RUnlock()
 
 	dv.metrics.UpdateClusterMetrics(activeNodes, totalLoad)
+}
+
+// consensusRoutine periodically checks for consensus completion
+func (dv *DistributedValidator) consensusRoutine(ctx context.Context) {
+	ticker := time.NewTicker(100 * time.Millisecond) // Check every 100ms
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-dv.stopChan:
+			return
+		case <-ticker.C:
+			dv.checkPendingConsensus()
+		}
+	}
+}
+
+// checkPendingConsensus checks all pending validations for consensus opportunities
+func (dv *DistributedValidator) checkPendingConsensus() {
+	dv.validationMutex.RLock()
+	pendingCopy := make(map[string]*PendingValidation)
+	for k, v := range dv.pendingValidations {
+		pendingCopy[k] = v
+	}
+	dv.validationMutex.RUnlock()
+
+	for _, pending := range pendingCopy {
+		pending.DecisionsMutex.RLock()
+		decisionCount := len(pending.Decisions)
+		pending.DecisionsMutex.RUnlock()
+
+		// Check if timeout is approaching
+		timeRemaining := dv.config.ValidationTimeout - time.Since(pending.StartTime)
+		if timeRemaining <= 500*time.Millisecond { // If less than 500ms remaining
+			// Force consensus with available decisions
+			result := dv.aggregateDecisions(pending)
+			select {
+			case pending.CompleteChan <- result:
+				// Successfully sent result
+			default:
+				// Channel might already be closed or have a result
+			}
+		} else {
+			// Check if we can reach consensus early
+			dv.checkAndTriggerConsensus(pending, decisionCount)
+		}
+	}
 }
 
 // DistributedMetrics tracks metrics for distributed validation

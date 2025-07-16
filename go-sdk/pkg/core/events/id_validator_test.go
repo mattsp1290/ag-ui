@@ -135,8 +135,8 @@ func TestIDTracker_RunLifecycle(t *testing.T) {
 			// EventID:   "event-1",
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 	tracker.TrackEvent(runStart)
 
@@ -146,7 +146,7 @@ func TestIDTracker_RunLifecycle(t *testing.T) {
 			// EventID:   "event-2",
 			TimestampMs: timePtr(time.Now().UnixMilli() + 1000),
 		},
-		RunID: "run-123",
+		RunIDValue: "run-123",
 	}
 	tracker.TrackEvent(runFinish)
 
@@ -156,15 +156,15 @@ func TestIDTracker_RunLifecycle(t *testing.T) {
 	if start == nil {
 		t.Error("Run start should be tracked")
 	}
-	if start.RunID != "run-123" {
-		t.Errorf("Start run ID should be run-123, got %s", start.RunID)
+	if start.RunID() != "run-123" {
+		t.Errorf("Start run ID should be run-123, got %s", start.RunID())
 	}
 
 	if finish == nil {
 		t.Error("Run finish should be tracked")
 	}
-	if finish.RunID != "run-123" {
-		t.Errorf("Finish run ID should be run-123, got %s", finish.RunID)
+	if finish.RunID() != "run-123" {
+		t.Errorf("Finish run ID should be run-123, got %s", finish.RunID())
 	}
 
 	if error != nil {
@@ -444,7 +444,7 @@ func TestIDTracker_ValidateIDConsistency_RunErrors(t *testing.T) {
 			// EventID:   "event-1",
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID: "run-123",
+		RunIDValue: "run-123",
 	}
 	tracker.TrackEvent(runFinish)
 
@@ -510,8 +510,8 @@ func TestIDTracker_ValidateIDConsistency_DuplicateStarts(t *testing.T) {
 			// EventID:   "event-1",
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 	tracker.TrackEvent(runStart1)
 
@@ -521,8 +521,8 @@ func TestIDTracker_ValidateIDConsistency_DuplicateStarts(t *testing.T) {
 			// EventID:   "event-2",
 			TimestampMs: timePtr(time.Now().UnixMilli() + 1000),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-789",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-789",
 	}
 	tracker.TrackEvent(runStart2)
 
@@ -531,8 +531,8 @@ func TestIDTracker_ValidateIDConsistency_DuplicateStarts(t *testing.T) {
 
 	// Get the final start event (should be the last one)
 	start, _, _ := tracker.GetRunLifecycle("run-123")
-	if start.ThreadID != "thread-789" {
-		t.Errorf("Expected thread-789, got %s", start.ThreadID)
+	if start.ThreadID() != "thread-789" {
+		t.Errorf("Expected thread-789, got %s", start.ThreadID())
 	}
 }
 
@@ -573,8 +573,8 @@ func TestIDTracker_GetStatistics(t *testing.T) {
 				// EventID:   "event-4",
 				TimestampMs: timePtr(time.Now().UnixMilli() + 3000),
 			},
-			RunID:    "run-123",
-			ThreadID: "thread-456",
+			RunIDValue:    "run-123",
+			ThreadIDValue: "thread-456",
 		},
 	}
 

@@ -180,7 +180,10 @@ config := NewMonitoringConfigBuilder().
     Build()
 
 // Add alert notifiers
-slackNotifier := NewSlackAlertNotifier(webhookURL, "#alerts", "StateManager")
+slackNotifier, err := NewSlackAlertNotifier(webhookURL, "#alerts", "StateManager")
+if err != nil {
+    log.Fatalf("Failed to create Slack notifier: %v", err)
+}
 logNotifier := NewLogAlertNotifier(logger)
 throttledSlack := NewThrottledAlertNotifier(slackNotifier, 5*time.Minute)
 

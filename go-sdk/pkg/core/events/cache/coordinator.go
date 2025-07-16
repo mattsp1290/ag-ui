@@ -8,6 +8,12 @@ import (
 	"time"
 )
 
+// CacheValidatorInterface defines the interface for cache invalidation coordination
+type CacheValidatorInterface interface {
+	InvalidateByKeys(ctx context.Context, keys []string) error
+	InvalidateEventType(ctx context.Context, eventType string) error
+}
+
 // CacheCoordinator coordinates distributed cache operations
 type CacheCoordinator struct {
 	nodeID        string
@@ -22,6 +28,9 @@ type CacheCoordinator struct {
 	
 	// State
 	clusterState  *ClusterState
+	
+	// Cache validators for coordination (simple approach for testing)
+	cacheValidators map[string]CacheValidatorInterface
 	
 	// Synchronization
 	mu            sync.RWMutex
@@ -160,6 +169,7 @@ func NewCacheCoordinator(nodeID string, transport Transport, config *Coordinator
 		clusterState:   &ClusterState{
 			ShardMap: make(map[int][]string),
 		},
+		cacheValidators: make(map[string]CacheValidatorInterface),
 		shutdownCh:     make(chan struct{}),
 	}
 	
@@ -201,7 +211,10 @@ func (cc *CacheCoordinator) Stop(ctx context.Context) error {
 	
 	select {
 	case <-done:
-		return cc.transport.Close()
+		if cc.transport != nil {
+			return cc.transport.Close()
+		}
+		return nil
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -209,6 +222,10 @@ func (cc *CacheCoordinator) Stop(ctx context.Context) error {
 
 // BroadcastInvalidation broadcasts a cache invalidation
 func (cc *CacheCoordinator) BroadcastInvalidation(ctx context.Context, msg InvalidationMessage) error {
+	if cc.transport == nil {
+		return fmt.Errorf("transport not initialized")
+	}
+	
 	message := Message{
 		Type:      "invalidation",
 		Source:    cc.nodeID,
@@ -245,7 +262,7 @@ func (cc *CacheCoordinator) NotifyCacheUpdate(ctx context.Context, msg CacheUpda
 		
 		// Send to relevant nodes only
 		for _, nodeID := range nodes {
-			if nodeID != cc.nodeID {
+			if nodeID != cc.nodeID && cc.transport != nil {
 				if err := cc.transport.Send(ctx, nodeID, message); err != nil {
 					// Log error but continue
 					continue
@@ -274,6 +291,10 @@ func (cc *CacheCoordinator) ReportMetrics(ctx context.Context, report MetricsRep
 func (cc *CacheCoordinator) RequestConsensus(ctx context.Context, request ConsensusRequest) (bool, error) {
 	if !cc.config.EnableConsensus {
 		return true, nil
+	}
+	
+	if cc.transport == nil {
+		return false, fmt.Errorf("transport not initialized")
 	}
 	
 	// Get active nodes
@@ -348,9 +369,27 @@ func (cc *CacheCoordinator) GetClusterInfo() map[string]interface{} {
 	}
 }
 
+// RegisterCacheValidator registers a cache validator for coordination
+func (cc *CacheCoordinator) RegisterCacheValidator(nodeID string, validator CacheValidatorInterface) {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	cc.cacheValidators[nodeID] = validator
+}
+
+// UnregisterCacheValidator unregisters a cache validator
+func (cc *CacheCoordinator) UnregisterCacheValidator(nodeID string) {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	delete(cc.cacheValidators, nodeID)
+}
+
 // Private methods
 
 func (cc *CacheCoordinator) subscribeToMessages() {
+	if cc.transport == nil {
+		return
+	}
+	
 	// Subscribe to various message types
 	go cc.handleMessages("invalidation", cc.handleInvalidation)
 	go cc.handleMessages("cache_update", cc.handleCacheUpdate)
@@ -361,10 +400,17 @@ func (cc *CacheCoordinator) subscribeToMessages() {
 }
 
 func (cc *CacheCoordinator) handleMessages(messageType string, handler func(Message)) {
+	if cc.transport == nil {
+		return
+	}
+	
 	ch := cc.transport.Subscribe(messageType)
 	for {
 		select {
-		case msg := <-ch:
+		case msg, ok := <-ch:
+			if !ok {
+				return
+			}
 			handler(msg)
 		case <-cc.shutdownCh:
 			return
@@ -440,7 +486,9 @@ func (cc *CacheCoordinator) handleConsensusRequest(msg Message) {
 	
 	if payload, err := json.Marshal(response); err == nil {
 		responseMsg.Payload = payload
-		cc.transport.Send(context.Background(), msg.Source, responseMsg)
+		if cc.transport != nil {
+			cc.transport.Send(context.Background(), msg.Source, responseMsg)
+		}
 	}
 }
 
@@ -481,6 +529,10 @@ func (cc *CacheCoordinator) heartbeatWorker(ctx context.Context) {
 }
 
 func (cc *CacheCoordinator) sendHeartbeat(ctx context.Context) {
+	if cc.transport == nil {
+		return
+	}
+	
 	message := Message{
 		Type:      "heartbeat",
 		Source:    cc.nodeID,
@@ -683,6 +735,10 @@ func (cc *CacheCoordinator) getNodeShards() []int {
 }
 
 func (cc *CacheCoordinator) broadcastUpdate(ctx context.Context, msg CacheUpdateMessage) error {
+	if cc.transport == nil {
+		return fmt.Errorf("transport not initialized")
+	}
+	
 	message := Message{
 		Type:      "cache_update",
 		Source:    cc.nodeID,
@@ -704,7 +760,21 @@ func (cc *CacheCoordinator) processConsensusRequest(request ConsensusRequest) bo
 }
 
 func (cc *CacheCoordinator) processInvalidation(inv InvalidationMessage) {
-	// TODO: Implement invalidation processing
+	// Invalidate caches on all registered validators except the originating node
+	cc.mu.RLock()
+	defer cc.mu.RUnlock()
+	
+	for nodeID, validator := range cc.cacheValidators {
+		if nodeID != inv.NodeID { // Don't invalidate on the originating node
+			// If EventType is specified, invalidate by event type
+			if inv.EventType != "" {
+				validator.InvalidateEventType(context.Background(), inv.EventType)
+			} else if len(inv.Keys) > 0 {
+				// Otherwise, invalidate by keys
+				validator.InvalidateByKeys(context.Background(), inv.Keys)
+			}
+		}
+	}
 }
 
 func (cc *CacheCoordinator) processCacheUpdate(update CacheUpdateMessage) {

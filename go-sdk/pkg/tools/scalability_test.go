@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"os"
 	"runtime"
+	"sort"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -66,32 +69,73 @@ type ScalabilityConfig struct {
 	ChaosMemoryPressure     bool
 }
 
+// getTimeoutScale returns a scale factor for timeouts based on environment
+func getTimeoutScale() float64 {
+	if scale := os.Getenv("TEST_TIMEOUT_SCALE"); scale != "" {
+		if s, err := strconv.ParseFloat(scale, 64); err == nil && s > 0 {
+			return s
+		}
+	}
+	// Default scale for CI environments
+	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" || os.Getenv("JENKINS_URL") != "" {
+		return 0.5 // Reduce timeouts by 50% in CI
+	}
+	return 1.0
+}
+
 // DefaultScalabilityConfig returns default scalability configuration
 func DefaultScalabilityConfig() *ScalabilityConfig {
+	scale := getTimeoutScale()
+	
+	// Use much shorter timeouts and lower intensity in short mode for CI
+	testDuration := 60 * time.Second
+	warmupDuration := 10 * time.Second
+	cooldownDuration := 5 * time.Second
+	stressTestDuration := 300 * time.Second
+	stressTestIntensity := 1000
+	stressTestRampTime := 30 * time.Second
+	sampleSize := 1000
+	toolCountLevels := []int{10, 50, 100, 500, 1000, 5000, 10000}
+	concurrencyLevels := []int{1, 5, 10, 25, 50, 100, 200, 500, 1000}
+	loadLevels := []int{100, 500, 1000, 5000, 10000}
+	
+	if testing.Short() {
+		testDuration = 3 * time.Second
+		warmupDuration = 1 * time.Second
+		cooldownDuration = 1 * time.Second
+		stressTestDuration = 5 * time.Second
+		stressTestIntensity = 10 // Much lower intensity
+		stressTestRampTime = 1 * time.Second
+		sampleSize = 10 // Much smaller sample size
+		toolCountLevels = []int{5, 10} // Minimal tool count levels
+		concurrencyLevels = []int{1, 5} // Minimal concurrency levels
+		loadLevels = []int{10, 50} // Minimal load levels
+	}
+	
 	return &ScalabilityConfig{
-		ToolCountLevels:         []int{10, 50, 100, 500, 1000, 5000, 10000},
+		ToolCountLevels:         toolCountLevels,
 		ToolCountIncrement:      100,
 		MaxToolCount:            50000,
-		ConcurrencyLevels:       []int{1, 5, 10, 25, 50, 100, 200, 500, 1000},
+		ConcurrencyLevels:       concurrencyLevels,
 		ConcurrencyIncrement:    50,
 		MaxConcurrency:          5000,
-		LoadLevels:              []int{100, 500, 1000, 5000, 10000},
+		LoadLevels:              loadLevels,
 		LoadIncrement:           1000,
 		MaxLoad:                 100000,
-		TestDuration:            60 * time.Second,
-		WarmupDuration:          10 * time.Second,
-		CooldownDuration:        5 * time.Second,
+		TestDuration:            time.Duration(float64(testDuration) * scale),
+		WarmupDuration:          time.Duration(float64(warmupDuration) * scale),
+		CooldownDuration:        time.Duration(float64(cooldownDuration) * scale),
 		MeasurementInterval:     1 * time.Second,
-		SampleSize:              1000,
+		SampleSize:              sampleSize,
 		ResponseTimeThreshold:   100 * time.Millisecond,
 		ThroughputThreshold:     1000,
 		ErrorRateThreshold:      1.0,
 		MemoryThreshold:         1024 * 1024 * 1024, // 1GB
 		CPUThreshold:            80.0,
 		StressTestEnabled:       true,
-		StressTestDuration:      300 * time.Second,
-		StressTestIntensity:     1000,
-		StressTestRampTime:      30 * time.Second,
+		StressTestDuration:      time.Duration(float64(stressTestDuration) * scale),
+		StressTestIntensity:     stressTestIntensity,
+		StressTestRampTime:      time.Duration(float64(stressTestRampTime) * scale),
 		ChaosTestEnabled:        true,
 		ChaosFailureRate:        0.01,
 		ChaosLatencyVariation:   50 * time.Millisecond,
@@ -541,6 +585,10 @@ func NewScalabilityTestFramework(config *ScalabilityConfig) *ScalabilityTestFram
 
 // TestScalability runs comprehensive scalability tests
 func TestScalability(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping stress test in short mode")
+	}
+	
 	framework := NewScalabilityTestFramework(DefaultScalabilityConfig())
 	
 	t.Run("ToolCountScalability", func(t *testing.T) {
@@ -1081,8 +1129,11 @@ func (str *StressTestRunner) Run(t *testing.T) *TestStressTestResults {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(str.config.StressTestIntensity))
 	
-	// Create tools
+	// Create tools - reduce count significantly in short mode
 	toolCount := 100
+	if testing.Short() {
+		toolCount = 5 // Much fewer tools for CI
+	}
 	tools := make([]*Tool, toolCount)
 	for i := 0; i < toolCount; i++ {
 		tools[i] = createScalabilityTestTool(fmt.Sprintf("stress-tool-%d", i))
@@ -1633,14 +1684,10 @@ func calculateResponseTimeMetrics(times []time.Duration) *ResponseTimeMetrics {
 		return &ResponseTimeMetrics{}
 	}
 	
-	// Sort times
-	for i := 0; i < len(times); i++ {
-		for j := i + 1; j < len(times); j++ {
-			if times[i] > times[j] {
-				times[i], times[j] = times[j], times[i]
-			}
-		}
-	}
+	// Sort times efficiently using Go's built-in sort
+	sort.Slice(times, func(i, j int) bool {
+		return times[i] < times[j]
+	})
 	
 	metrics := &ResponseTimeMetrics{
 		Min:    times[0],

@@ -136,8 +136,8 @@ func (s *LFUStrategy) OnHit(key ValidationCacheKey, entry *ValidationCacheEntry)
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	
-	// Apply decay if needed
-	s.applyDecay()
+	// Apply decay if needed (no lock needed, we already hold it)
+	s.applyDecayLocked()
 	
 	// Increment frequency
 	s.frequencies[key.EventHash]++
@@ -166,7 +166,9 @@ func (s *LFUStrategy) Score(entry *ValidationCacheEntry) float64 {
 	return freq*0.7 + recencyScore*0.3
 }
 
-func (s *LFUStrategy) applyDecay() {
+// applyDecayLocked applies decay without locking (caller must hold the lock)
+func (s *LFUStrategy) applyDecayLocked() {
+	// Check if decay is needed
 	if time.Since(s.lastDecay) < s.DecayInterval {
 		return
 	}
@@ -180,6 +182,18 @@ func (s *LFUStrategy) applyDecay() {
 	}
 	
 	s.lastDecay = time.Now()
+}
+
+// applyDecay safely applies decay with proper locking
+func (s *LFUStrategy) applyDecay() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.applyDecayLocked()
+}
+
+// TriggerDecay manually triggers decay (for testing purposes)
+func (s *LFUStrategy) TriggerDecay() {
+	s.applyDecay()
 }
 
 // AdaptiveStrategy adjusts caching based on system conditions
@@ -255,7 +269,20 @@ func (s *AdaptiveStrategy) Score(entry *ValidationCacheEntry) float64 {
 	// Adjust score based on system conditions
 	if s.systemLoad > s.LoadThreshold {
 		// Prefer smaller entries during high load
-		sizeScore := 1.0 / (1.0 + float64(entry.Metadata["event_size"].(int))/1024.0)
+		eventSize := 0
+		if entry.Metadata != nil {
+			if size, ok := entry.Metadata["event_size"]; ok {
+				switch v := size.(type) {
+				case int:
+					eventSize = v
+				case int64:
+					eventSize = int(v)
+				case float64:
+					eventSize = int(v)
+				}
+			}
+		}
+		sizeScore := 1.0 / (1.0 + float64(eventSize)/1024.0)
 		baseScore = baseScore*0.7 + sizeScore*0.3
 	}
 	

@@ -314,15 +314,15 @@ func (t *EventSequenceTracker) GetEventsByRunID(runID string) []Event {
 		// Check if event belongs to the run
 		switch e := event.(type) {
 		case *RunStartedEvent:
-			if e.RunID == runID {
+			if e.RunID() == runID {
 				events = append(events, event)
 			}
 		case *RunFinishedEvent:
-			if e.RunID == runID {
+			if e.RunID() == runID {
 				events = append(events, event)
 			}
 		case *RunErrorEvent:
-			if e.RunID == runID {
+			if e.RunID() == runID {
 				events = append(events, event)
 			}
 		}
@@ -444,9 +444,9 @@ func (t *EventSequenceTracker) updateStateFromEvent(event Event) {
 	case EventTypeRunStarted:
 		if runEvent, ok := event.(*RunStartedEvent); ok {
 			t.state.CurrentPhase = PhaseRunning
-			t.state.ActiveRuns[runEvent.RunID] = &RunState{
-				RunID:     runEvent.RunID,
-				ThreadID:  runEvent.ThreadID,
+			t.state.ActiveRuns[runEvent.RunID()] = &RunState{
+				RunID:     runEvent.RunID(),
+				ThreadID:  runEvent.ThreadID(),
 				StartTime: time.Now(),
 				Phase:     PhaseRunning,
 			}
@@ -455,20 +455,20 @@ func (t *EventSequenceTracker) updateStateFromEvent(event Event) {
 	case EventTypeRunFinished:
 		if runEvent, ok := event.(*RunFinishedEvent); ok {
 			t.state.CurrentPhase = PhaseFinished
-			if runState, exists := t.state.ActiveRuns[runEvent.RunID]; exists {
+			if runState, exists := t.state.ActiveRuns[runEvent.RunID()]; exists {
 				runState.Phase = PhaseFinished
-				t.state.FinishedRuns[runEvent.RunID] = runState
-				delete(t.state.ActiveRuns, runEvent.RunID)
+				t.state.FinishedRuns[runEvent.RunID()] = runState
+				delete(t.state.ActiveRuns, runEvent.RunID())
 			}
 		}
 
 	case EventTypeRunError:
 		if runEvent, ok := event.(*RunErrorEvent); ok {
 			t.state.CurrentPhase = PhaseError
-			if runState, exists := t.state.ActiveRuns[runEvent.RunID]; exists {
+			if runState, exists := t.state.ActiveRuns[runEvent.RunID()]; exists {
 				runState.Phase = PhaseError
-				t.state.FinishedRuns[runEvent.RunID] = runState
-				delete(t.state.ActiveRuns, runEvent.RunID)
+				t.state.FinishedRuns[runEvent.RunID()] = runState
+				delete(t.state.ActiveRuns, runEvent.RunID())
 			}
 		}
 

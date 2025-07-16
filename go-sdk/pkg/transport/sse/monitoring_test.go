@@ -115,6 +115,7 @@ func testEventTracking(t *testing.T) {
 	}
 
 	// Record event with error
+	ms.RecordEventReceived(connID, "error-event", 500)
 	ms.RecordEventProcessed("error-event", 5*time.Millisecond, fmt.Errorf("processing failed"))
 
 	// Get event stats

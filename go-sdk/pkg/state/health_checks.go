@@ -93,6 +93,10 @@ func (hc *MemoryHealthCheck) Check(ctx context.Context) error {
 
 	// Check memory usage
 	memoryMB := int64(memStats.Alloc / 1024 / 1024)
+	// Special case: if maxMemoryMB is 0 and we have any memory allocation, it's an error
+	if hc.maxMemoryMB == 0 && memStats.Alloc > 0 {
+		return fmt.Errorf("memory usage (%d bytes) exceeds threshold (0 MB)", memStats.Alloc)
+	}
 	if memoryMB > hc.maxMemoryMB {
 		return fmt.Errorf("memory usage (%d MB) exceeds threshold (%d MB)", memoryMB, hc.maxMemoryMB)
 	}
@@ -261,20 +265,23 @@ func (hc *AuditHealthCheck) Check(ctx context.Context) error {
 		return errors.New("audit logging is disabled")
 	}
 
+	// Check if audit logger is available
+	if hc.auditManager.logger == nil {
+		return errors.New("audit verification failed: audit logger is not configured")
+	}
+
 	// Try to verify recent audit logs
 	endTime := time.Now()
 	startTime := endTime.Add(-1 * time.Minute)
 
-	if hc.auditManager.logger != nil {
-		verification, err := hc.auditManager.logger.Verify(ctx, startTime, endTime)
-		if err != nil {
-			return fmt.Errorf("audit verification failed: %w", err)
-		}
+	verification, err := hc.auditManager.logger.Verify(ctx, startTime, endTime)
+	if err != nil {
+		return fmt.Errorf("audit verification failed: %w", err)
+	}
 
-		if !verification.Valid {
-			return fmt.Errorf("audit logs are invalid: %d tampered logs, %d missing logs",
-				len(verification.TamperedLogs), len(verification.MissingLogs))
-		}
+	if !verification.Valid {
+		return fmt.Errorf("audit logs are invalid: %d tampered logs, %d missing logs",
+			len(verification.TamperedLogs), len(verification.MissingLogs))
 	}
 
 	return nil

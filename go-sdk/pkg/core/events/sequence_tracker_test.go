@@ -16,8 +16,8 @@ func TestEventSequenceTracker_TrackEvent(t *testing.T) {
 			// EventID:   "event-1",
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 
 	err := tracker.TrackEvent(runEvent)
@@ -52,8 +52,8 @@ func TestEventSequenceTracker_MessageLifecycle(t *testing.T) {
 			// EventID:   "event-1",
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 	tracker.TrackEvent(runEvent)
 
@@ -117,8 +117,8 @@ func TestEventSequenceTracker_ToolCallLifecycle(t *testing.T) {
 			// EventID:   "event-1",
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 	tracker.TrackEvent(runEvent)
 
@@ -178,8 +178,8 @@ func TestEventSequenceTracker_StepLifecycle(t *testing.T) {
 			// EventID:   "event-1",
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 	tracker.TrackEvent(runEvent)
 
@@ -227,8 +227,8 @@ func TestEventSequenceTracker_GetEventHistory(t *testing.T) {
 				// EventID:   "event-1",
 				TimestampMs: timePtr(time.Now().UnixMilli()),
 			},
-			RunID:    "run-123",
-			ThreadID: "thread-456",
+			RunIDValue:    "run-123",
+			ThreadIDValue: "thread-456",
 		},
 		&TextMessageStartEvent{
 			BaseEvent: &BaseEvent{
@@ -277,8 +277,8 @@ func TestEventSequenceTracker_GetSequenceInfo(t *testing.T) {
 			// EventID:   "event-1",
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 	tracker.TrackEvent(runEvent)
 
@@ -306,8 +306,8 @@ func TestEventSequenceTracker_ValidateSequence(t *testing.T) {
 				// EventID:   "event-1",
 				TimestampMs: timePtr(time.Now().UnixMilli()),
 			},
-			RunID:    "run-123",
-			ThreadID: "thread-456",
+			RunIDValue:    "run-123",
+			ThreadIDValue: "thread-456",
 		},
 		&RunFinishedEvent{
 			BaseEvent: &BaseEvent{
@@ -315,7 +315,7 @@ func TestEventSequenceTracker_ValidateSequence(t *testing.T) {
 				// EventID:   "event-2",
 				TimestampMs: timePtr(time.Now().UnixMilli() + 1000),
 			},
-			RunID: "run-123",
+			RunIDValue: "run-123",
 		},
 	}
 
@@ -340,8 +340,8 @@ func TestEventSequenceTracker_CheckSequenceCompliance(t *testing.T) {
 			// EventID:   "event-1",
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 	tracker.TrackEvent(runEvent)
 
@@ -396,8 +396,8 @@ func TestEventSequenceTracker_GetEventsByType(t *testing.T) {
 				// EventID:   "event-1",
 				TimestampMs: timePtr(time.Now().UnixMilli()),
 			},
-			RunID:    "run-123",
-			ThreadID: "thread-456",
+			RunIDValue:    "run-123",
+			ThreadIDValue: "thread-456",
 		},
 		&TextMessageStartEvent{
 			BaseEvent: &BaseEvent{
@@ -449,8 +449,8 @@ func TestEventSequenceTracker_GetEventsByRunID(t *testing.T) {
 				// EventID:   "event-1",
 				TimestampMs: timePtr(time.Now().UnixMilli()),
 			},
-			RunID:    "run-123",
-			ThreadID: "thread-456",
+			RunIDValue:    "run-123",
+			ThreadIDValue: "thread-456",
 		},
 		&RunStartedEvent{
 			BaseEvent: &BaseEvent{
@@ -458,8 +458,8 @@ func TestEventSequenceTracker_GetEventsByRunID(t *testing.T) {
 				// EventID:   "event-2",
 				TimestampMs: timePtr(time.Now().UnixMilli() + 1000),
 			},
-			RunID:    "run-456",
-			ThreadID: "thread-789",
+			RunIDValue:    "run-456",
+			ThreadIDValue: "thread-789",
 		},
 		&RunFinishedEvent{
 			BaseEvent: &BaseEvent{
@@ -467,7 +467,7 @@ func TestEventSequenceTracker_GetEventsByRunID(t *testing.T) {
 				// EventID:   "event-3",
 				TimestampMs: timePtr(time.Now().UnixMilli() + 2000),
 			},
-			RunID: "run-123",
+			RunIDValue: "run-123",
 		},
 	}
 
@@ -502,8 +502,8 @@ func TestEventSequenceTracker_Reset(t *testing.T) {
 			// EventID:   "event-1",
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 	tracker.TrackEvent(runEvent)
 
@@ -546,8 +546,8 @@ func TestEventSequenceTracker_HistoryLimit(t *testing.T) {
 				// EventID:   fmt.Sprintf("event-%d", i+1),
 				TimestampMs: timePtr(time.Now().UnixMilli() + int64(i*1000)),
 			},
-			RunID:    fmt.Sprintf("run-%d", i+1),
-			ThreadID: "thread-456",
+			RunIDValue:    fmt.Sprintf("run-%d", i+1),
+			ThreadIDValue: "thread-456",
 		}
 		tracker.TrackEvent(event)
 	}
@@ -560,8 +560,8 @@ func TestEventSequenceTracker_HistoryLimit(t *testing.T) {
 
 	// Verify we kept the most recent events
 	lastEvent := history[len(history)-1].(*RunStartedEvent)
-	if lastEvent.RunID != "run-5" {
-		t.Errorf("Last event should be run-5, got %s", lastEvent.RunID)
+	if lastEvent.RunID() != "run-5" {
+		t.Errorf("Last event should be run-5, got %s", lastEvent.RunID())
 	}
 }
 
@@ -578,8 +578,8 @@ func TestEventSequenceTracker_GetEventsInRange(t *testing.T) {
 				// EventID:   "event-1",
 				TimestampMs: timePtr(baseTime.UnixMilli()),
 			},
-			RunID:    "run-123",
-			ThreadID: "thread-456",
+			RunIDValue:    "run-123",
+			ThreadIDValue: "thread-456",
 		},
 		&TextMessageStartEvent{
 			BaseEvent: &BaseEvent{
@@ -654,8 +654,8 @@ func TestEventSequenceTracker_GetLastEvent(t *testing.T) {
 			// EventID:   "event-1",
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 	tracker.TrackEvent(runEvent)
 

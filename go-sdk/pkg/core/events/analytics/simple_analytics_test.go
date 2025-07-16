@@ -13,6 +13,8 @@ type MockEvent struct {
 	eventType   events.EventType
 	timestamp   *int64
 	baseEvent   *events.BaseEvent
+	threadID    string
+	runID       string
 }
 
 func (m *MockEvent) Type() events.EventType {
@@ -43,6 +45,14 @@ func (m *MockEvent) GetBaseEvent() *events.BaseEvent {
 	return m.baseEvent
 }
 
+func (m *MockEvent) ThreadID() string {
+	return m.threadID
+}
+
+func (m *MockEvent) RunID() string {
+	return m.runID
+}
+
 // Helper function to create a mock event
 func createMockEvent(eventType events.EventType) events.Event {
 	now := time.Now().UnixMilli()
@@ -53,6 +63,8 @@ func createMockEvent(eventType events.EventType) events.Event {
 			EventType:   eventType,
 			TimestampMs: &now,
 		},
+		threadID: "test-thread-id",
+		runID:    "test-run-id",
 	}
 }
 

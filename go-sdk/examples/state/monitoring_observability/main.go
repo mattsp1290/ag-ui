@@ -155,13 +155,23 @@ func initializeDemoApplication(config *state.MonitoringConfig) *DemoApplication 
 	performanceOpt := state.NewPerformanceOptimizer(perfOptions)
 
 	// Create alert manager
+	webhookURL := os.Getenv("ALERT_WEBHOOK_URL")
+	if webhookURL == "" {
+		webhookURL = "http://localhost:8080/alerts" // Default for local development
+	}
+	
+	emailAddress := os.Getenv("ALERT_EMAIL_ADDRESS")
+	if emailAddress == "" {
+		emailAddress = "alerts@example.com" // Default for local development
+	}
+	
 	alertManager := &AlertManager{
 		alerts:      make(chan state.Alert, 100),
 		alertCounts: make(map[string]int),
 		notifiers: []state.AlertNotifier{
 			state.NewConsoleNotifier(),
-			state.NewWebhookNotifier("http://localhost:8080/alerts"),
-			state.NewEmailNotifier("alerts@example.com"),
+			state.NewWebhookNotifier(webhookURL),
+			state.NewEmailNotifier(emailAddress),
 		},
 	}
 
@@ -659,7 +669,11 @@ func demonstrateDashboardMetrics(app *DemoApplication) {
 		}
 	}
 
-	fmt.Println("\n  Dashboard URL: http://localhost:9090/metrics")
+	metricsPort := os.Getenv("METRICS_PORT")
+	if metricsPort == "" {
+		metricsPort = "9090"
+	}
+	fmt.Printf("\n  Dashboard URL: http://localhost:%s/metrics\n", metricsPort)
 	fmt.Println()
 }
 
@@ -697,10 +711,25 @@ func showMonitoringSummary(app *DemoApplication) {
 	fmt.Printf("  Total Alerts Triggered: %d\n", totalAlerts)
 	fmt.Printf("  Alert Types: %d\n", len(app.alertManager.alertCounts))
 
+	metricsPort := os.Getenv("METRICS_PORT")
+	if metricsPort == "" {
+		metricsPort = "9090"
+	}
+	
+	healthPort := os.Getenv("HEALTH_PORT")
+	if healthPort == "" {
+		healthPort = "8080"
+	}
+	
+	jaegerPort := os.Getenv("JAEGER_UI_PORT")
+	if jaegerPort == "" {
+		jaegerPort = "16686"
+	}
+	
 	fmt.Println("\nMonitoring Endpoints:")
-	fmt.Println("  Metrics: http://localhost:9090/metrics (Prometheus)")
-	fmt.Println("  Health:  http://localhost:8080/health")
-	fmt.Println("  Traces:  http://localhost:16686 (Jaeger UI)")
+	fmt.Printf("  Metrics: http://localhost:%s/metrics (Prometheus)\n", metricsPort)
+	fmt.Printf("  Health:  http://localhost:%s/health\n", healthPort)
+	fmt.Printf("  Traces:  http://localhost:%s (Jaeger UI)\n", jaegerPort)
 }
 
 // Helper functions
@@ -730,14 +759,24 @@ func initializeDemoData(store *state.StateStore) {
 }
 
 func startMetricsServer() {
+	metricsPort := os.Getenv("METRICS_PORT")
+	if metricsPort == "" {
+		metricsPort = "9090"
+	}
+	
 	http.Handle("/metrics", promhttp.Handler())
-	log.Println("Metrics server listening on :9090")
-	if err := http.ListenAndServe(":9090", nil); err != nil {
+	log.Printf("Metrics server listening on :%s", metricsPort)
+	if err := http.ListenAndServe(":"+metricsPort, nil); err != nil {
 		log.Printf("Metrics server error: %v", err)
 	}
 }
 
 func startHealthCheckServer(checker *state.HealthChecker) {
+	healthPort := os.Getenv("HEALTH_PORT")
+	if healthPort == "" {
+		healthPort = "8080"
+	}
+	
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		report := checker.CheckHealth(r.Context())
 
@@ -751,8 +790,8 @@ func startHealthCheckServer(checker *state.HealthChecker) {
 		json.NewEncoder(w).Encode(report)
 	})
 
-	log.Println("Health check server listening on :8080")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	log.Printf("Health check server listening on :%s", healthPort)
+	if err := http.ListenAndServe(":"+healthPort, nil); err != nil {
 		log.Printf("Health server error: %v", err)
 	}
 }

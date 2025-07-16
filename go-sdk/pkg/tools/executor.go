@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -246,6 +247,18 @@ func (e *ExecutionEngine) Execute(ctx context.Context, toolID string, params map
 			WithDetail("parameters", params)
 	}
 
+	// Check cache if tool is cacheable
+	if e.cache != nil && toolView.GetCapabilities() != nil && toolView.GetCapabilities().Cacheable {
+		cacheKey := e.generateCacheKey(toolID, params)
+		if cachedResult := e.cache.Get(cacheKey); cachedResult != nil {
+			// Update cache hit metrics
+			atomic.AddInt64(&e.metrics.cacheHits, 1)
+			return cachedResult, nil
+		}
+		// Update cache miss metrics
+		atomic.AddInt64(&e.metrics.cacheMisses, 1)
+	}
+
 	// Run before-execute hooks with proper locking
 	if err := e.runBeforeHooks(ctx, toolID, params); err != nil {
 		return nil, err
@@ -295,6 +308,12 @@ func (e *ExecutionEngine) Execute(ctx context.Context, toolID string, params map
 
 	// Update metrics based on final result
 	e.updateMetrics(toolID, result.Success, duration)
+
+	// Store successful results in cache if tool is cacheable
+	if e.cache != nil && result.Success && toolView.GetCapabilities() != nil && toolView.GetCapabilities().Cacheable {
+		cacheKey := e.generateCacheKey(toolID, params)
+		e.cache.Set(cacheKey, result)
+	}
 
 	// Run after-execute hooks
 	e.runAfterHooks(ctx, toolID, params)
@@ -558,10 +577,8 @@ func (e *ExecutionEngine) trackExecution(execID, toolID string, cancel context.C
 // untrackExecution removes an execution from tracking (FIXED).
 func (e *ExecutionEngine) untrackExecution(execID string) {
 	e.executions.Delete(execID)
-	atomic.AddInt32(&e.activeCount, -1)
-	
-	// Signal any waiting goroutines that a slot is now available
-	e.cond.Broadcast()
+	// Don't decrement activeCount here - it's handled by decrementActiveCount()
+	// to avoid double decrement
 }
 
 // updateMetrics updates execution metrics with atomic operations (FIXED).
@@ -706,6 +723,51 @@ type CacheEntry struct {
 	CreatedAt time.Time
 }
 
+// Get retrieves a cached result if it exists and is not expired
+func (c *ExecutionCache) Get(key string) *ToolExecutionResult {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	
+	entry, exists := c.cache[key]
+	if !exists {
+		return nil
+	}
+	
+	// Check if entry has expired
+	if time.Since(entry.CreatedAt) > c.ttl {
+		// Don't delete here to avoid write lock, let Set handle cleanup
+		return nil
+	}
+	
+	return entry.Result
+}
+
+// Set stores a result in the cache
+func (c *ExecutionCache) Set(key string, result *ToolExecutionResult) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	// Simple LRU: if cache is full, remove oldest entry
+	if len(c.cache) >= c.maxSize {
+		var oldestKey string
+		var oldestTime time.Time
+		for k, v := range c.cache {
+			if oldestKey == "" || v.CreatedAt.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = v.CreatedAt
+			}
+		}
+		if oldestKey != "" {
+			delete(c.cache, oldestKey)
+		}
+	}
+	
+	c.cache[key] = &CacheEntry{
+		Result:    result,
+		CreatedAt: time.Now(),
+	}
+}
+
 // AsyncJob represents an asynchronous execution job.
 // Jobs can be prioritized and queued for background execution
 // by worker goroutines.
@@ -781,6 +843,11 @@ func WithAsyncWorkers(workers int) ExecutionEngineOption {
 		e.asyncWorkers = workers
 		e.asyncJobQueue = make(chan *AsyncJob, workers*2)
 		// e.asyncResults is already initialized as sync.Map
+		
+		// Start async workers
+		for i := 0; i < workers; i++ {
+			go e.processAsyncJobs()
+		}
 	}
 }
 
@@ -863,6 +930,38 @@ func (e *ExecutionEngine) ExecuteAsync(ctx context.Context, toolID string, param
 	}
 }
 
+// generateCacheKey generates a cache key from tool ID and parameters
+func (e *ExecutionEngine) generateCacheKey(toolID string, params map[string]interface{}) string {
+	// Create a deterministic string representation of params
+	paramBytes, _ := json.Marshal(params)
+	return fmt.Sprintf("%s:%s", toolID, string(paramBytes))
+}
+
+// processAsyncJobs processes jobs from the async queue
+func (e *ExecutionEngine) processAsyncJobs() {
+	for job := range e.asyncJobQueue {
+		// Execute the job
+		result, err := e.Execute(job.Context, job.ToolID, job.Params)
+		
+		// Send result
+		asyncResult := &AsyncResult{
+			JobID:  job.ID,
+			Result: result,
+			Error:  err,
+		}
+		
+		select {
+		case job.Result <- asyncResult:
+			// Result sent successfully
+		case <-job.Context.Done():
+			// Context cancelled, result channel might be closed
+		}
+		
+		// Clean up result channel from map
+		e.asyncResults.Delete(job.ID)
+	}
+}
+
 // GetCacheMetrics returns cache performance metrics (FIXED).
 // Metrics include cache size, hit ratio, and hit/miss counts.
 // Returns nil if caching is not enabled.
@@ -936,9 +1035,30 @@ func (e *ExecutionEngine) GetJobQueueMetrics() map[string]interface{} {
 //		log.Printf("shutdown error: %v", err)
 //	}
 func (e *ExecutionEngine) Shutdown(ctx context.Context) error {
-	// In a real implementation, this would stop async workers and clean up resources
+	// Cancel all active executions
+	e.CancelAll()
+	
+	// Close async job queue if it exists
 	if e.asyncJobQueue != nil {
 		close(e.asyncJobQueue)
 	}
-	return nil
+	
+	// Wait for active executions to complete or timeout
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		// Wait until all active executions are done
+		for atomic.LoadInt32(&e.activeCount) > 0 {
+			time.Sleep(10 * time.Millisecond)
+		}
+	}()
+	
+	// Wait for completion or context timeout
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		// Force shutdown if context times out
+		return ctx.Err()
+	}
 }

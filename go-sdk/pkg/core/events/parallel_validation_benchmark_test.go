@@ -17,8 +17,8 @@ func BenchmarkSequentialValidation(b *testing.B) {
 
 	event := &RunStartedEvent{
 		BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-		RunID:     "benchmark-run",
-		ThreadID:  "benchmark-thread",
+		RunIDValue:     "benchmark-run",
+		ThreadIDValue:  "benchmark-thread",
 	}
 
 	ctx := context.Background()
@@ -48,8 +48,8 @@ func BenchmarkParallelValidationExecution(b *testing.B) {
 
 	event := &RunStartedEvent{
 		BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-		RunID:     "benchmark-run",
-		ThreadID:  "benchmark-thread",
+		RunIDValue:     "benchmark-run",
+		ThreadIDValue:  "benchmark-thread",
 	}
 
 	ctx := context.Background()
@@ -91,8 +91,8 @@ func BenchmarkParallelValidationWithDifferentRuleCounts(b *testing.B) {
 
 			event := &RunStartedEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-				RunID:     "benchmark-run",
-				ThreadID:  "benchmark-thread",
+				RunIDValue:     "benchmark-run",
+				ThreadIDValue:  "benchmark-thread",
 			}
 
 			ctx := context.Background()
@@ -136,8 +136,8 @@ func BenchmarkParallelValidationWithDifferentGoroutineCounts(b *testing.B) {
 
 			event := &RunStartedEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-				RunID:     "benchmark-run",
-				ThreadID:  "benchmark-thread",
+				RunIDValue:     "benchmark-run",
+				ThreadIDValue:  "benchmark-thread",
 			}
 
 			ctx := context.Background()
@@ -168,8 +168,8 @@ func BenchmarkParallelWorkerPool(b *testing.B) {
 
 			event := &RunStartedEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-				RunID:     "benchmark-run",
-				ThreadID:  "benchmark-thread",
+				RunIDValue:     "benchmark-run",
+				ThreadIDValue:  "benchmark-thread",
 			}
 
 			rule := &MockValidationRule{
@@ -236,8 +236,8 @@ func BenchmarkComplexEventValidation(b *testing.B) {
 	events := []Event{
 		&RunStartedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-			RunID:     "complex-run",
-			ThreadID:  "complex-thread",
+			RunIDValue:     "complex-run",
+			ThreadIDValue:  "complex-thread",
 		},
 		&TextMessageStartEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeTextMessageStart, TimestampMs: timePtr(time.Now().UnixMilli())},
@@ -269,7 +269,7 @@ func BenchmarkComplexEventValidation(b *testing.B) {
 		},
 		&RunFinishedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli())},
-			RunID:     "complex-run",
+			RunIDValue:     "complex-run",
 		},
 	}
 
@@ -301,8 +301,8 @@ func BenchmarkMemoryUsage(b *testing.B) {
 
 	event := &RunStartedEvent{
 		BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-		RunID:     "memory-test-run",
-		ThreadID:  "memory-test-thread",
+		RunIDValue:     "memory-test-run",
+		ThreadIDValue:  "memory-test-thread",
 	}
 
 	ctx := context.Background()
@@ -342,8 +342,8 @@ func BenchmarkParallelValidationLatency(b *testing.B) {
 
 	event := &RunStartedEvent{
 		BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-		RunID:     "latency-test-run",
-		ThreadID:  "latency-test-thread",
+		RunIDValue:     "latency-test-run",
+		ThreadIDValue:  "latency-test-thread",
 	}
 
 	ctx := context.Background()
@@ -398,8 +398,8 @@ func BenchmarkSpeedupMeasurement(b *testing.B) {
 
 	event := &RunStartedEvent{
 		BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-		RunID:     "speedup-test-run",
-		ThreadID:  "speedup-test-thread",
+		RunIDValue:     "speedup-test-run",
+		ThreadIDValue:  "speedup-test-thread",
 	}
 
 	ctx := context.Background()

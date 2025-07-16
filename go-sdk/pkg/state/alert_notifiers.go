@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -20,6 +21,11 @@ import (
 
 // validateWebhookURL validates a webhook URL to prevent SSRF attacks
 func validateWebhookURL(urlStr string) error {
+	return validateWebhookURLWithOptions(urlStr, false)
+}
+
+// validateWebhookURLWithOptions validates a webhook URL with configurable options
+func validateWebhookURLWithOptions(urlStr string, allowLocalhost bool) error {
 	if urlStr == "" {
 		return errors.New("webhook URL cannot be empty")
 	}
@@ -29,31 +35,50 @@ func validateWebhookURL(urlStr string) error {
 		return fmt.Errorf("invalid URL format: %w", err)
 	}
 
-	// Only allow HTTPS for security
-	if u.Scheme != "https" {
-		return errors.New("only HTTPS webhook URLs are allowed")
+	// Check if the URL has a valid scheme
+	if u.Scheme == "" {
+		return errors.New("invalid URL format: missing scheme")
 	}
 
-	// Prevent localhost and internal network access
+	// Allow HTTP for localhost in test environments, otherwise require HTTPS
+	if !allowLocalhost && u.Scheme != "https" {
+		return errors.New("only HTTPS webhook URLs are allowed")
+	}
+	if allowLocalhost && u.Scheme != "https" && u.Scheme != "http" {
+		return errors.New("only HTTP and HTTPS webhook URLs are allowed")
+	}
+
+	// Prevent localhost and internal network access (unless explicitly allowed)
 	host := u.Hostname()
 	if host == "" {
 		return errors.New("URL must have a valid hostname")
 	}
 
-	// Check for localhost
-	if host == "localhost" || host == "127.0.0.1" || host == "::1" {
+	// Check for localhost (skip if allowed in test mode)
+	if !allowLocalhost && (host == "localhost" || host == "127.0.0.1" || host == "::1") {
 		return errors.New("webhook URL cannot point to localhost")
 	}
 
-	// Resolve hostname to check for internal IPs
-	ips, err := net.LookupIP(host)
-	if err != nil {
-		return fmt.Errorf("failed to resolve hostname: %w", err)
+	// First check if the host is already an IP address
+	if ip := net.ParseIP(host); ip != nil {
+		if !allowLocalhost && isInternalIP(ip) {
+			return fmt.Errorf("webhook URL points to internal IP address: %s", ip.String())
+		}
+		// If it's a valid external IP, or localhost is allowed, we're done
+		return nil
 	}
 
-	for _, ip := range ips {
-		if isInternalIP(ip) {
-			return fmt.Errorf("webhook URL resolves to internal IP address: %s", ip.String())
+	// If it's not an IP, resolve the hostname to check for internal IPs (unless localhost is allowed)
+	if !allowLocalhost {
+		ips, err := net.LookupIP(host)
+		if err != nil {
+			return fmt.Errorf("failed to resolve hostname: %w", err)
+		}
+
+		for _, ip := range ips {
+			if isInternalIP(ip) {
+				return fmt.Errorf("webhook URL resolves to internal IP address: %s", ip.String())
+			}
 		}
 	}
 
@@ -73,21 +98,23 @@ func isInternalIP(ip net.IP) bool {
 	}
 
 	// Check for private IPv4 ranges
-	if ip.To4() != nil {
+	// Convert to IPv4 representation if possible
+	ipv4 := ip.To4()
+	if ipv4 != nil {
 		// 10.0.0.0/8
-		if ip[0] == 10 {
+		if ipv4[0] == 10 {
 			return true
 		}
 		// 172.16.0.0/12
-		if ip[0] == 172 && ip[1] >= 16 && ip[1] <= 31 {
+		if ipv4[0] == 172 && ipv4[1] >= 16 && ipv4[1] <= 31 {
 			return true
 		}
 		// 192.168.0.0/16
-		if ip[0] == 192 && ip[1] == 168 {
+		if ipv4[0] == 192 && ipv4[1] == 168 {
 			return true
 		}
 		// 169.254.0.0/16 (link-local)
-		if ip[0] == 169 && ip[1] == 254 {
+		if ipv4[0] == 169 && ipv4[1] == 254 {
 			return true
 		}
 	}
@@ -201,21 +228,38 @@ type WebhookAlertNotifier struct {
 
 // NewWebhookAlertNotifier creates a new webhook alert notifier
 func NewWebhookAlertNotifier(url string, timeout time.Duration) (*WebhookAlertNotifier, error) {
+	return NewWebhookAlertNotifierWithOptions(url, timeout, false)
+}
+
+// NewWebhookAlertNotifierForTest creates a new webhook alert notifier for testing (allows localhost)
+func NewWebhookAlertNotifierForTest(url string, timeout time.Duration) (*WebhookAlertNotifier, error) {
+	return NewWebhookAlertNotifierWithOptions(url, timeout, true)
+}
+
+// NewWebhookAlertNotifierWithOptions creates a new webhook alert notifier with configurable security options
+func NewWebhookAlertNotifierWithOptions(url string, timeout time.Duration, allowLocalhost bool) (*WebhookAlertNotifier, error) {
 	// Validate the webhook URL to prevent SSRF attacks
-	if err := validateWebhookURL(url); err != nil {
+	if err := validateWebhookURLWithOptions(url, allowLocalhost); err != nil {
 		return nil, fmt.Errorf("invalid webhook URL: %w", err)
 	}
 
-	// Create HTTP client with secure TLS configuration
-	transport := &http.Transport{
-		TLSClientConfig: &tls.Config{
-			MinVersion: tls.VersionTLS12,
-			CipherSuites: []uint16{
-				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
-				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-			},
+	// Create HTTP client with TLS configuration
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 		},
+	}
+	
+	// For test environments, allow insecure TLS (self-signed certificates)
+	if allowLocalhost {
+		tlsConfig.InsecureSkipVerify = true
+	}
+	
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
 		// Prevent connection reuse that could bypass URL validation
 		DisableKeepAlives: true,
 	}
@@ -290,15 +334,57 @@ type SlackAlertNotifier struct {
 }
 
 // NewSlackAlertNotifier creates a new Slack alert notifier
-func NewSlackAlertNotifier(webhookURL, channel, username string) *SlackAlertNotifier {
+func NewSlackAlertNotifier(webhookURL, channel, username string) (*SlackAlertNotifier, error) {
+	return NewSlackAlertNotifierWithOptions(webhookURL, channel, username, 10*time.Second, false)
+}
+
+// NewSlackAlertNotifierForTest creates a new Slack alert notifier for testing (allows localhost)
+func NewSlackAlertNotifierForTest(webhookURL, channel, username string) (*SlackAlertNotifier, error) {
+	return NewSlackAlertNotifierWithOptions(webhookURL, channel, username, 10*time.Second, true)
+}
+
+// NewSlackAlertNotifierForTestWithTimeout creates a new Slack alert notifier for testing with custom timeout
+func NewSlackAlertNotifierForTestWithTimeout(webhookURL, channel, username string, timeout time.Duration) (*SlackAlertNotifier, error) {
+	return NewSlackAlertNotifierWithOptions(webhookURL, channel, username, timeout, true)
+}
+
+// NewSlackAlertNotifierWithOptions creates a new Slack alert notifier with configurable security options and timeout
+func NewSlackAlertNotifierWithOptions(webhookURL, channel, username string, timeout time.Duration, allowLocalhost bool) (*SlackAlertNotifier, error) {
+	// Validate the webhook URL to prevent SSRF attacks
+	if err := validateWebhookURLWithOptions(webhookURL, allowLocalhost); err != nil {
+		return nil, fmt.Errorf("invalid Slack webhook URL: %w", err)
+	}
+
+	// Create HTTP client with TLS configuration
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		},
+	}
+	
+	// For test environments, allow insecure TLS (self-signed certificates)
+	if allowLocalhost {
+		tlsConfig.InsecureSkipVerify = true
+	}
+	
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+		// Prevent connection reuse that could bypass URL validation
+		DisableKeepAlives: true,
+	}
+
 	return &SlackAlertNotifier{
 		webhookURL: webhookURL,
 		channel:    channel,
 		username:   username,
 		client: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout:   timeout,
+			Transport: transport,
 		},
-	}
+	}, nil
 }
 
 // SendAlert sends an alert to Slack
@@ -390,10 +476,15 @@ type PagerDutyAlertNotifier struct {
 
 // NewPagerDutyAlertNotifier creates a new PagerDuty alert notifier
 func NewPagerDutyAlertNotifier(integrationKey string) *PagerDutyAlertNotifier {
+	return NewPagerDutyAlertNotifierWithTimeout(integrationKey, 10*time.Second)
+}
+
+// NewPagerDutyAlertNotifierWithTimeout creates a new PagerDuty alert notifier with custom timeout
+func NewPagerDutyAlertNotifierWithTimeout(integrationKey string, timeout time.Duration) *PagerDutyAlertNotifier {
 	return &PagerDutyAlertNotifier{
 		integrationKey: integrationKey,
 		client: &http.Client{
-			Timeout: 10 * time.Second,
+			Timeout: timeout,
 		},
 	}
 }
@@ -532,16 +623,16 @@ func NewCompositeAlertNotifier(notifiers ...AlertNotifier) *CompositeAlertNotifi
 
 // SendAlert sends an alert to all configured notifiers
 func (n *CompositeAlertNotifier) SendAlert(ctx context.Context, alert Alert) error {
-	var errors []string
+	var errorList []string
 
 	for _, notifier := range n.notifiers {
 		if err := notifier.SendAlert(ctx, alert); err != nil {
-			errors = append(errors, err.Error())
+			errorList = append(errorList, err.Error())
 		}
 	}
 
-	if len(errors) > 0 {
-		return fmt.Errorf("failed to send alert to some notifiers: %s", strings.Join(errors, "; "))
+	if len(errorList) > 0 {
+		return fmt.Errorf("failed to send alert to some notifiers: %s", strings.Join(errorList, "; "))
 	}
 
 	return nil
@@ -563,7 +654,8 @@ func NewConditionalAlertNotifier(notifier AlertNotifier, condition func(Alert) b
 
 // SendAlert sends an alert if the condition is met
 func (n *ConditionalAlertNotifier) SendAlert(ctx context.Context, alert Alert) error {
-	if n.condition(alert) {
+	// If condition is nil, treat as always true (send the alert)
+	if n.condition == nil || n.condition(alert) {
 		return n.notifier.SendAlert(ctx, alert)
 	}
 	return nil
@@ -574,6 +666,7 @@ type ThrottledAlertNotifier struct {
 	notifier         AlertNotifier
 	lastSent         map[string]time.Time
 	throttleDuration time.Duration
+	mu               sync.RWMutex
 }
 
 // NewThrottledAlertNotifier creates a new throttled alert notifier
@@ -589,17 +682,36 @@ func NewThrottledAlertNotifier(notifier AlertNotifier, throttleDuration time.Dur
 func (n *ThrottledAlertNotifier) SendAlert(ctx context.Context, alert Alert) error {
 	alertKey := fmt.Sprintf("%s_%s", alert.Component, alert.Title)
 
-	if lastSent, exists := n.lastSent[alertKey]; exists {
-		if time.Since(lastSent) < n.throttleDuration {
-			return nil // Skip sending, too recent
-		}
+	// Use a temporary timestamp to track when we're attempting to send
+	attemptTime := time.Now()
+	
+	n.mu.Lock()
+	lastSent, exists := n.lastSent[alertKey]
+	
+	// Check if we should throttle
+	if exists && time.Since(lastSent) < n.throttleDuration {
+		n.mu.Unlock()
+		return nil // Skip sending, too recent
 	}
+	
+	// Mark that we're attempting to send now (prevents other concurrent calls)
+	n.lastSent[alertKey] = attemptTime
+	n.mu.Unlock()
 
+	// Send the alert
 	err := n.notifier.SendAlert(ctx, alert)
-	if err == nil {
-		n.lastSent[alertKey] = time.Now()
+	
+	// If the send failed, revert the timestamp to the previous value
+	if err != nil {
+		n.mu.Lock()
+		if exists {
+			n.lastSent[alertKey] = lastSent // Restore previous timestamp
+		} else {
+			delete(n.lastSent, alertKey) // Remove if there was no previous timestamp
+		}
+		n.mu.Unlock()
 	}
-
+	
 	return err
 }
 

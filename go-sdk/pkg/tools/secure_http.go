@@ -6,6 +6,7 @@ import (
 	"golang.org/x/net/idna"
 	"net"
 	"net/url"
+	"strconv"
 	"strings"
 )
 
@@ -82,6 +83,16 @@ func (e *SecureHTTPExecutor) Execute(ctx context.Context, params map[string]inte
 
 // validateURL checks if the URL is allowed based on security options
 func (e *SecureHTTPExecutor) validateURL(urlStr string) error {
+	// Check for empty URL
+	if urlStr == "" {
+		return fmt.Errorf("URL cannot be empty")
+	}
+	
+	// Check URL length limit (2048 characters is reasonable for security while allowing most valid URLs)
+	if len(urlStr) > 2048 {
+		return fmt.Errorf("URL length %d exceeds maximum allowed length of 2048", len(urlStr))
+	}
+	
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
 		return fmt.Errorf("invalid URL format: %w", err)
@@ -111,6 +122,11 @@ func (e *SecureHTTPExecutor) validateURL(urlStr string) error {
 			return err
 		}
 	} else {
+		// Check for various forms of obfuscated IP addresses
+		if e.isObfuscatedIP(hostname) {
+			return fmt.Errorf("obfuscated IP addresses are not allowed")
+		}
+		
 		// It's a hostname, resolve it to check the IP
 		if err := e.validateHostname(hostname); err != nil {
 			return err
@@ -139,6 +155,12 @@ func (e *SecureHTTPExecutor) validateURL(urlStr string) error {
 
 // isSchemeAllowed checks if the URL scheme is allowed
 func (e *SecureHTTPExecutor) isSchemeAllowed(scheme string) bool {
+	// Allow empty scheme for relative URLs
+	if scheme == "" {
+		return true
+	}
+	
+	// Case-insensitive comparison for schemes
 	for _, allowed := range e.options.AllowedSchemes {
 		if strings.EqualFold(scheme, allowed) {
 			return true
@@ -217,6 +239,44 @@ func (e *SecureHTTPExecutor) normalizeHostname(hostname string) string {
 	}
 
 	return normalized
+}
+
+// isObfuscatedIP checks if a hostname is an obfuscated IP address
+func (e *SecureHTTPExecutor) isObfuscatedIP(hostname string) bool {
+	// Check for decimal IP (e.g., 2130706433)
+	if _, err := strconv.ParseUint(hostname, 10, 32); err == nil {
+		return true
+	}
+
+	// Check for hexadecimal IP (e.g., 0x7f000001)
+	if strings.HasPrefix(strings.ToLower(hostname), "0x") {
+		if _, err := strconv.ParseUint(hostname[2:], 16, 32); err == nil {
+			return true
+		}
+	}
+
+	// Check for octal IP (e.g., 0177.0000.0000.0001)
+	if strings.HasPrefix(hostname, "0") && strings.Contains(hostname, ".") {
+		parts := strings.Split(hostname, ".")
+		if len(parts) == 4 {
+			isOctal := true
+			for _, part := range parts {
+				if part == "" || !strings.HasPrefix(part, "0") {
+					isOctal = false
+					break
+				}
+				if _, err := strconv.ParseUint(part, 8, 8); err != nil {
+					isOctal = false
+					break
+				}
+			}
+			if isOctal {
+				return true
+			}
+		}
+	}
+
+	return false
 }
 
 // NewSecureHTTPGetTool creates a secure HTTP GET tool

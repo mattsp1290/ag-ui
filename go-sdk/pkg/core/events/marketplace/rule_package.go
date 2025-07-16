@@ -455,7 +455,7 @@ func (pm *PackageManager) addFileToTar(tarWriter *tar.Writer, filename string, d
 	header := &tar.Header{
 		Name: filename,
 		Size: int64(len(data)),
-		Mode: 0644,
+		Mode: 0600,
 		ModTime: time.Now(),
 	}
 	

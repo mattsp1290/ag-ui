@@ -258,8 +258,8 @@ func TestSimpleLocalValidationFallback(t *testing.T) {
 			EventType: events.EventTypeRunStarted,
 			TimestampMs: func() *int64 { t := time.Now().UnixMilli(); return &t }(),
 		},
-		RunID:    "test-run-1",
-		ThreadID: "test-thread-1",
+		RunIDValue:    "test-run-1",
+		ThreadIDValue: "test-thread-1",
 	}
 
 	// Don't register any other nodes - this will force local validation

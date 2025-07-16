@@ -592,7 +592,7 @@ func main() {
 2024-01-01T10:00:08 INFO Request processed successfully
 2024-01-01T10:00:09 INFO Application running normally`
 
-	if err := os.WriteFile(testLogPath, []byte(testContent), 0644); err != nil {
+	if err := os.WriteFile(testLogPath, []byte(testContent), 0600); err != nil {
 		log.Fatalf("Failed to create test log file: %v", err)
 	}
 
@@ -662,7 +662,7 @@ func main() {
 		go func() {
 			time.Sleep(1 * time.Second)
 			newContent := "\n2024-01-01T10:00:10 INFO New log entry while following"
-			file, err := os.OpenFile(testLogPath, os.O_APPEND|os.O_WRONLY, 0644)
+			file, err := os.OpenFile(testLogPath, os.O_APPEND|os.O_WRONLY, 0600)
 			if err == nil {
 				file.WriteString(newContent)
 				file.Close()

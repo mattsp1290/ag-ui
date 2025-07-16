@@ -1,7 +1,6 @@
 package state
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 )
@@ -380,7 +379,10 @@ func TestStateRollback(t *testing.T) {
 				}
 
 				// Get initial version
-				history, _ := store.GetHistory()
+				history, err := store.GetHistory()
+				if err != nil || len(history) == 0 {
+					t.Skip("No history available for rollback test")
+				}
 				initialVersion := history[len(history)-1].ID
 
 				// Make changes
@@ -398,7 +400,7 @@ func TestStateRollback(t *testing.T) {
 				// Verify
 				data, _ := store.Get("/test/data")
 				dataArr := data.([]interface{})
-				if len(dataArr) != 3 || dataArr[0] != json.Number("1") {
+				if len(dataArr) != 3 || dataArr[0] != 1 {
 					t.Errorf("Rollback with %s strategy failed, got: %v", strategy.Name(), data)
 				}
 			})

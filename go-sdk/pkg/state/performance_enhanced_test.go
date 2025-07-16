@@ -212,15 +212,18 @@ func testConcurrentOptimization(t *testing.T) {
 	var wg sync.WaitGroup
 
 	for i := 0; i < 10; i++ {
-		wg.Add(1)
 		idx := i
+		wg.Add(1)
 		success := co.Execute(func() {
 			executed[idx] = true
 			wg.Done()
 		})
 
-		if !success && idx < maxConcurrency*2 {
-			t.Errorf("Expected task %d to be accepted", idx)
+		if !success {
+			wg.Done() // Task won't run, so decrement counter
+			if idx < maxConcurrency*2 {
+				t.Errorf("Expected task %d to be accepted", idx)
+			}
 		}
 	}
 

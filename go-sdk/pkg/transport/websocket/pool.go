@@ -169,13 +169,9 @@ func NewConnectionPool(config *PoolConfig) (*ConnectionPool, error) {
 		}
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-
 	pool := &ConnectionPool{
 		config:      config,
 		connections: make(map[string]*Connection),
-		ctx:         ctx,
-		cancel:      cancel,
 		stats:       &PoolStats{},
 	}
 
@@ -192,13 +188,16 @@ func (p *ConnectionPool) Start(ctx context.Context) error {
 		zap.Int("max_connections", p.config.MaxConnections),
 		zap.Int("urls", len(p.config.URLs)))
 
+	// Create a derived context that we can cancel
+	p.ctx, p.cancel = context.WithCancel(ctx)
+
 	// Start health checker
 	p.wg.Add(1)
-	go p.healthChecker.Start(ctx, &p.wg)
+	go p.healthChecker.Start(p.ctx, &p.wg)
 
 	// Establish minimum connections
 	for i := 0; i < p.config.MinConnections; i++ {
-		if err := p.createConnection(ctx); err != nil {
+		if err := p.createConnection(p.ctx); err != nil {
 			p.config.Logger.Error("Failed to create minimum connection",
 				zap.Int("index", i),
 				zap.Error(err))
@@ -681,7 +680,7 @@ func (h *HealthChecker) checkHealth() {
 			if currentConnCount >= h.pool.config.MaxConnections {
 				break
 			}
-			if err := h.pool.createConnection(context.Background()); err != nil {
+			if err := h.pool.createConnection(h.pool.ctx); err != nil {
 				h.pool.config.Logger.Error("Failed to create replacement connection",
 					zap.Error(err))
 			}

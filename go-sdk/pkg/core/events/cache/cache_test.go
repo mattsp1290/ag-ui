@@ -243,7 +243,9 @@ func contains(s, substr string) bool {
 }
 
 func (suite *CacheTestSuite) SetupTest() {
-	suite.ctx, suite.cancel = context.WithCancel(context.Background())
+	// Create context with test_mode flag for synchronous L2 writes
+	ctx := context.WithValue(context.Background(), "test_mode", true)
+	suite.ctx, suite.cancel = context.WithCancel(ctx)
 	suite.mockL2Cache = NewMockDistributedCache()
 	
 	config := DefaultCacheValidatorConfig()
@@ -340,7 +342,7 @@ func (suite *CacheTestSuite) TestCacheInvalidationByEventType() {
 	suite.NoError(err)
 	
 	// Invalidate all RunStarted events
-	err = suite.cacheValidator.InvalidateEventType(suite.ctx, events.EventTypeRunStarted)
+	err = suite.cacheValidator.InvalidateEventTypeInternal(suite.ctx, events.EventTypeRunStarted)
 	suite.NoError(err)
 	
 	// RunStarted events should miss cache

@@ -153,12 +153,8 @@ func NewPerformanceManager(config *PerformanceConfig) (*PerformanceManager, erro
 		config = DefaultPerformanceConfig()
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
-
 	pm := &PerformanceManager{
 		config: config,
-		ctx:    ctx,
-		cancel: cancel,
 	}
 
 	// Initialize buffer pool
@@ -198,26 +194,29 @@ func NewPerformanceManager(config *PerformanceConfig) (*PerformanceManager, erro
 func (pm *PerformanceManager) Start(ctx context.Context) error {
 	pm.config.Logger.Info("Starting performance manager")
 
+	// Create a derived context that we can cancel
+	pm.ctx, pm.cancel = context.WithCancel(ctx)
+
 	// Start message batcher
 	pm.wg.Add(1)
-	go pm.messageBatcher.Start(ctx, &pm.wg)
+	go pm.messageBatcher.Start(pm.ctx, &pm.wg)
 
 	// Start metrics collector
 	if pm.metricsCollector != nil {
 		pm.wg.Add(1)
-		go pm.metricsCollector.Start(ctx, &pm.wg)
+		go pm.metricsCollector.Start(pm.ctx, &pm.wg)
 	}
 
 	// Start profiler
 	if pm.profiler != nil {
 		pm.wg.Add(1)
-		go pm.profiler.Start(ctx, &pm.wg)
+		go pm.profiler.Start(pm.ctx, &pm.wg)
 	}
 
 	// Start memory manager
 	if pm.memoryManager != nil {
 		pm.wg.Add(1)
-		go pm.memoryManager.Start(ctx, &pm.wg)
+		go pm.memoryManager.Start(pm.ctx, &pm.wg)
 	}
 
 	pm.config.Logger.Info("Performance manager started")
@@ -630,7 +629,7 @@ type PerfJSONSerializer struct{}
 
 // Serialize serializes an event to JSON
 func (js *PerfJSONSerializer) Serialize(event events.Event) ([]byte, error) {
-	return json.Marshal(event)
+	return event.ToJSON()
 }
 
 // Deserialize deserializes JSON to an event
@@ -654,8 +653,8 @@ func (ojs *PerfOptimizedJSONSerializer) Serialize(event events.Event) ([]byte, e
 	// Reset buffer
 	ojs.buffer = ojs.buffer[:0]
 
-	// Use unsafe string to bytes conversion for zero-copy
-	data, err := json.Marshal(event)
+	// Use event's ToJSON method for proper serialization
+	data, err := event.ToJSON()
 	if err != nil {
 		return nil, err
 	}
@@ -1178,12 +1177,21 @@ func (mm *MemoryManager) AllocateBuffer(size int) []byte {
 		}
 	}
 
+	// Update current usage
+	mm.currentUsage += int64(size)
 	atomic.AddInt64(&mm.stats.allocations, 1)
 	return make([]byte, size)
 }
 
 // DeallocateBuffer deallocates a buffer
 func (mm *MemoryManager) DeallocateBuffer(buf []byte) {
+	mm.mutex.Lock()
+	mm.currentUsage -= int64(len(buf))
+	if mm.currentUsage < 0 {
+		mm.currentUsage = 0
+	}
+	mm.mutex.Unlock()
+	
 	atomic.AddInt64(&mm.stats.deallocations, 1)
 	// Buffer will be garbage collected automatically
 }

@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -840,6 +841,12 @@ func TestCascadingFailures(t *testing.T) {
 		t.Skip("Skipping cascading failures test in short mode")
 	}
 
+	// Environment-based timeout scaling
+	timeout := 120 * time.Second
+	if os.Getenv("CI") == "true" {
+		timeout = 180 * time.Second
+	}
+
 	// Create multiple servers to simulate cascading failures
 	servers := make([]*ChaosServer, 3)
 	urls := make([]string, 3)
@@ -865,7 +872,7 @@ func TestCascadingFailures(t *testing.T) {
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	err = transport.Start(ctx)
@@ -876,7 +883,7 @@ func TestCascadingFailures(t *testing.T) {
 		// Wait for connections to all servers
 		assert.Eventually(t, func() bool {
 			return transport.GetActiveConnectionCount() >= 3
-		}, 15*time.Second, 500*time.Millisecond)
+		}, timeout/6, 500*time.Millisecond)
 
 		initialConnections := transport.GetActiveConnectionCount()
 		t.Logf("Initial connections: %d", initialConnections)
@@ -929,7 +936,7 @@ func TestCascadingFailures(t *testing.T) {
 		// Wait for disconnection
 		assert.Eventually(t, func() bool {
 			return !transport.IsConnected()
-		}, 10*time.Second, 500*time.Millisecond, "Should detect complete failure")
+		}, timeout/8, 500*time.Millisecond, "Should detect complete failure")
 
 		// Phase 4: Gradual recovery
 		t.Log("Phase 4: Starting recovery")
@@ -940,7 +947,7 @@ func TestCascadingFailures(t *testing.T) {
 		// Should reconnect to available server
 		assert.Eventually(t, func() bool {
 			return transport.IsConnected()
-		}, 15*time.Second, 500*time.Millisecond, "Should reconnect when server becomes available")
+		}, timeout/6, 500*time.Millisecond, "Should reconnect when server becomes available")
 
 		// Restore more servers
 		servers[1].SetDisconnected(false)
@@ -949,7 +956,7 @@ func TestCascadingFailures(t *testing.T) {
 		// Should eventually restore full connectivity
 		assert.Eventually(t, func() bool {
 			return transport.GetActiveConnectionCount() >= 2
-		}, 20*time.Second, 1*time.Second, "Should restore multiple connections")
+		}, timeout/4, 1*time.Second, "Should restore multiple connections")
 
 		finalConnections := transport.GetActiveConnectionCount()
 		t.Logf("Final connections after recovery: %d", finalConnections)

@@ -69,8 +69,8 @@ func TestEventValidator_ConcurrentAccess(t *testing.T) {
 		events := []Event{
 			&RunStartedEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-				RunID:     "run-1",
-				ThreadID:  "thread-1",
+				RunIDValue:     "run-1",
+				ThreadIDValue:  "thread-1",
 			},
 			&TextMessageStartEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeTextMessageStart, TimestampMs: timePtr(time.Now().UnixMilli())},
@@ -88,7 +88,7 @@ func TestEventValidator_ConcurrentAccess(t *testing.T) {
 			},
 			&RunFinishedEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli())},
-				RunID:     "run-1",
+				RunIDValue:     "run-1",
 			},
 		}
 
@@ -152,8 +152,8 @@ func TestEventValidator_ConcurrentSequenceValidation(t *testing.T) {
 		sequences[i] = []Event{
 			&RunStartedEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-				RunID:     fmt.Sprintf("run-%d", i),
-				ThreadID:  fmt.Sprintf("thread-%d", i),
+				RunIDValue:     fmt.Sprintf("run-%d", i),
+				ThreadIDValue:  fmt.Sprintf("thread-%d", i),
 			},
 			&TextMessageStartEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeTextMessageStart, TimestampMs: timePtr(time.Now().UnixMilli())},
@@ -166,7 +166,7 @@ func TestEventValidator_ConcurrentSequenceValidation(t *testing.T) {
 			},
 			&RunFinishedEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli())},
-				RunID:     fmt.Sprintf("run-%d", i),
+				RunIDValue:     fmt.Sprintf("run-%d", i),
 			},
 		}
 	}
@@ -264,8 +264,8 @@ func TestEventSequenceTracker_ConcurrentAccess(t *testing.T) {
 	events := []Event{
 		&RunStartedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-			RunID:     "run-concurrent",
-			ThreadID:  "thread-concurrent",
+			RunIDValue:     "run-concurrent",
+			ThreadIDValue:  "thread-concurrent",
 		},
 		&TextMessageStartEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeTextMessageStart},
@@ -388,8 +388,8 @@ func TestValidator_RaceConditions(t *testing.T) {
 	// Create shared events
 	event1 := &RunStartedEvent{
 		BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-		RunID:     "run-race",
-		ThreadID:  "thread-race",
+		RunIDValue:     "run-race",
+		ThreadIDValue:  "thread-race",
 	}
 
 	event2 := &TextMessageStartEvent{
@@ -452,8 +452,8 @@ func TestValidator_ContextCancellation(t *testing.T) {
 
 		event := &RunStartedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-			RunID:     "run-1",
-			ThreadID:  "thread-1",
+			RunIDValue:     "run-1",
+			ThreadIDValue:  "thread-1",
 		}
 
 		result := validator.ValidateEvent(ctx, event)

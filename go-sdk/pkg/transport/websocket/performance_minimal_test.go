@@ -586,6 +586,14 @@ func (m *testMockEvent) GetBaseEvent() *events.BaseEvent {
 	return nil
 }
 
+func (m *testMockEvent) ThreadID() string {
+	return ""
+}
+
+func (m *testMockEvent) RunID() string {
+	return ""
+}
+
 // Helper function to measure memory usage
 func measureMemoryUsage() uint64 {
 	var m runtime.MemStats

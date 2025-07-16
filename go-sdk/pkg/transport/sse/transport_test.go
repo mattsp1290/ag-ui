@@ -94,7 +94,8 @@ func TestSSETransport_Send(t *testing.T) {
 	defer server.Close()
 
 	config := &Config{
-		BaseURL: server.URL,
+		BaseURL:      server.URL,
+		WriteTimeout: 5 * time.Second,
 	}
 
 	transport, err := NewSSETransport(config)
@@ -106,7 +107,8 @@ func TestSSETransport_Send(t *testing.T) {
 	// Create a test event
 	event := events.NewRunStartedEvent("thread-123", "run-123")
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	err = transport.Send(ctx, event)
 	if err != nil {
 		t.Errorf("Failed to send event: %v", err)

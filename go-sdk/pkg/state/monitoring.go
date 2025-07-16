@@ -622,8 +622,11 @@ type MemoryMetrics struct {
 func (ms *MonitoringSystem) Shutdown(ctx context.Context) error {
 	ms.logger.Info("Shutting down monitoring system")
 
-	// Cancel background processes
+	// Cancel background processes first to stop new work
 	ms.cancel()
+
+	// Give a brief moment for goroutines to notice the cancellation
+	time.Sleep(10 * time.Millisecond)
 
 	// Wait for background goroutines with timeout
 	done := make(chan struct{})
@@ -637,18 +640,27 @@ func (ms *MonitoringSystem) Shutdown(ctx context.Context) error {
 		ms.logger.Info("Monitoring system shut down successfully")
 	case <-ctx.Done():
 		ms.logger.Warn("Monitoring system shutdown timed out")
+		// Even on timeout, try to sync the logger
+		ms.tryLoggerSync()
 		return ctx.Err()
 	}
 
-	// Sync logger
+	// Sync logger after all goroutines are done
+	return ms.tryLoggerSync()
+}
+
+// tryLoggerSync attempts to sync the logger, ignoring expected errors
+func (ms *MonitoringSystem) tryLoggerSync() error {
 	if err := ms.logger.Sync(); err != nil {
-		// Ignore sync errors on stdout/stderr
-		if !strings.Contains(err.Error(), "sync /dev/stdout") &&
-			!strings.Contains(err.Error(), "sync /dev/stderr") {
+		// Ignore sync errors on stdout/stderr which are common during shutdown
+		errStr := err.Error()
+		if !strings.Contains(errStr, "sync /dev/stdout") &&
+			!strings.Contains(errStr, "sync /dev/stderr") &&
+			!strings.Contains(errStr, "file already closed") &&
+			!strings.Contains(errStr, "bad file descriptor") {
 			return err
 		}
 	}
-
 	return nil
 }
 
@@ -689,9 +701,13 @@ func initializeLogger(config MonitoringConfig) (*zap.Logger, error) {
 func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 	namespace := config.PrometheusNamespace
 	subsystem := config.PrometheusSubsystem
+	
+	// Create a new registry for this monitoring system to avoid conflicts in tests
+	registry := prometheus.NewRegistry()
+	factory := promauto.With(registry)
 
 	return &PrometheusMetrics{
-		StateOperationsTotal: promauto.NewCounterVec(
+		StateOperationsTotal: factory.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -700,7 +716,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 			},
 			[]string{"operation"},
 		),
-		StateOperationDuration: promauto.NewHistogramVec(
+		StateOperationDuration: factory.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -710,7 +726,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 			},
 			[]string{"operation"},
 		),
-		StateOperationErrors: promauto.NewCounterVec(
+		StateOperationErrors: factory.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -719,7 +735,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 			},
 			[]string{"operation", "error_type"},
 		),
-		MemoryUsage: promauto.NewGauge(
+		MemoryUsage: factory.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -727,7 +743,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 				Help:      "Current memory usage in bytes",
 			},
 		),
-		MemoryAllocations: promauto.NewCounter(
+		MemoryAllocations: factory.NewCounter(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -735,7 +751,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 				Help:      "Total number of memory allocations",
 			},
 		),
-		GCPauseDuration: promauto.NewHistogram(
+		GCPauseDuration: factory.NewHistogram(
 			prometheus.HistogramOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -744,7 +760,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 				Buckets:   prometheus.DefBuckets,
 			},
 		),
-		ObjectPoolHitRate: promauto.NewGauge(
+		ObjectPoolHitRate: factory.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -752,7 +768,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 				Help:      "Object pool hit rate percentage",
 			},
 		),
-		EventsProcessed: promauto.NewCounterVec(
+		EventsProcessed: factory.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -761,7 +777,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 			},
 			[]string{"event_type"},
 		),
-		EventProcessingLatency: promauto.NewHistogramVec(
+		EventProcessingLatency: factory.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -771,7 +787,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 			},
 			[]string{"event_type"},
 		),
-		EventQueueDepth: promauto.NewGauge(
+		EventQueueDepth: factory.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -779,7 +795,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 				Help:      "Current event queue depth",
 			},
 		),
-		StorageOperations: promauto.NewCounterVec(
+		StorageOperations: factory.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -788,7 +804,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 			},
 			[]string{"operation"},
 		),
-		StorageLatency: promauto.NewHistogramVec(
+		StorageLatency: factory.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -798,7 +814,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 			},
 			[]string{"operation"},
 		),
-		StorageErrors: promauto.NewCounterVec(
+		StorageErrors: factory.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -807,7 +823,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 			},
 			[]string{"operation", "error_type"},
 		),
-		ConnectionPoolSize: promauto.NewGauge(
+		ConnectionPoolSize: factory.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -815,7 +831,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 				Help:      "Current connection pool size",
 			},
 		),
-		ConnectionPoolActive: promauto.NewGauge(
+		ConnectionPoolActive: factory.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -823,7 +839,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 				Help:      "Number of active connections in pool",
 			},
 		),
-		ConnectionPoolWaiting: promauto.NewGauge(
+		ConnectionPoolWaiting: factory.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -831,7 +847,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 				Help:      "Number of waiting connections in pool",
 			},
 		),
-		ConnectionPoolErrors: promauto.NewCounter(
+		ConnectionPoolErrors: factory.NewCounter(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -839,7 +855,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 				Help:      "Total number of connection pool errors",
 			},
 		),
-		RateLimitRequests: promauto.NewCounterVec(
+		RateLimitRequests: factory.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -848,7 +864,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 			},
 			[]string{"status"},
 		),
-		RateLimitRejects: promauto.NewCounterVec(
+		RateLimitRejects: factory.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -857,7 +873,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 			},
 			[]string{"status"},
 		),
-		RateLimitUtilization: promauto.NewGauge(
+		RateLimitUtilization: factory.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -865,7 +881,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 				Help:      "Rate limit utilization percentage",
 			},
 		),
-		HealthCheckStatus: promauto.NewGaugeVec(
+		HealthCheckStatus: factory.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -874,7 +890,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 			},
 			[]string{"check_name"},
 		),
-		HealthCheckDuration: promauto.NewHistogramVec(
+		HealthCheckDuration: factory.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -884,7 +900,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 			},
 			[]string{"check_name"},
 		),
-		AuditLogsWritten: promauto.NewCounterVec(
+		AuditLogsWritten: factory.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -893,7 +909,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 			},
 			[]string{"action"},
 		),
-		AuditLogErrors: promauto.NewCounter(
+		AuditLogErrors: factory.NewCounter(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -901,7 +917,7 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 				Help:      "Total number of audit log errors",
 			},
 		),
-		AuditVerificationTime: promauto.NewHistogram(
+		AuditVerificationTime: factory.NewHistogram(
 			prometheus.HistogramOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -914,21 +930,21 @@ func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
 }
 
 func (pm *PrometheusMetrics) createCPUGauge() prometheus.Gauge {
-	return promauto.NewGauge(prometheus.GaugeOpts{
+	return prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "cpu_usage_percent",
 		Help: "Current CPU usage percentage",
 	})
 }
 
 func (pm *PrometheusMetrics) createMemoryGauge() prometheus.Gauge {
-	return promauto.NewGauge(prometheus.GaugeOpts{
+	return prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "memory_usage_bytes",
 		Help: "Current memory usage in bytes",
 	})
 }
 
 func (pm *PrometheusMetrics) createGoroutineGauge() prometheus.Gauge {
-	return promauto.NewGauge(prometheus.GaugeOpts{
+	return prometheus.NewGauge(prometheus.GaugeOpts{
 		Name: "goroutines_count",
 		Help: "Current number of goroutines",
 	})
@@ -1011,7 +1027,17 @@ func (ms *MonitoringSystem) runHealthChecks() {
 	defer ms.healthMu.RUnlock()
 
 	for name, check := range ms.healthChecks {
+		ms.wg.Add(1)
 		go func(name string, check HealthCheck) {
+			defer ms.wg.Done()
+			
+			// Check if context is already cancelled
+			select {
+			case <-ms.ctx.Done():
+				return
+			default:
+			}
+			
 			start := time.Now()
 			ctx, cancel := context.WithTimeout(ms.ctx, ms.config.HealthCheckTimeout)
 			defer cancel()
@@ -1131,8 +1157,15 @@ func (ms *MonitoringSystem) sendAlert(alert Alert) {
 
 	// Send to notifiers
 	for _, notifier := range ms.alertManager.notifiers {
+		ms.wg.Add(1)
 		go func(notifier AlertNotifier) {
-			if err := notifier.SendAlert(context.Background(), alert); err != nil {
+			defer ms.wg.Done()
+			
+			// Use monitoring system context instead of Background
+			ctx, cancel := context.WithTimeout(ms.ctx, 5*time.Second)
+			defer cancel()
+			
+			if err := notifier.SendAlert(ctx, alert); err != nil {
 				ms.logger.Error("Failed to send alert", zap.Error(err))
 			}
 		}(notifier)

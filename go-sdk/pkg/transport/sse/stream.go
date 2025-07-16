@@ -323,12 +323,18 @@ func (s *EventStream) Start() error {
 
 	// Start flow controller
 	s.wg.Add(1)
-	go s.flowController.Run(s.ctx)
+	go func() {
+		defer s.wg.Done()
+		s.flowController.Run(s.ctx)
+	}()
 
 	// Start sequencer if enabled
 	if s.config.SequenceEnabled {
 		s.wg.Add(1)
-		go s.sequencer.Run(s.ctx)
+		go func() {
+			defer s.wg.Done()
+			s.sequencer.Run(s.ctx)
+		}()
 	}
 
 	// Start metrics collector if enabled

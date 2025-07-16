@@ -1,6 +1,7 @@
 package events
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -64,6 +65,12 @@ type Event interface {
 	// SetTimestamp sets the event timestamp
 	SetTimestamp(timestamp int64)
 
+	// ThreadID returns the thread ID associated with this event
+	ThreadID() string
+
+	// RunID returns the run ID associated with this event
+	RunID() string
+
 	// Validate validates the event structure and content
 	Validate() error
 
@@ -104,6 +111,16 @@ func (b *BaseEvent) GetBaseEvent() *BaseEvent {
 	return b
 }
 
+// ThreadID returns the thread ID (default implementation returns empty string)
+func (b *BaseEvent) ThreadID() string {
+	return ""
+}
+
+// RunID returns the run ID (default implementation returns empty string)
+func (b *BaseEvent) RunID() string {
+	return ""
+}
+
 // NewBaseEvent creates a new base event with the given type and current timestamp
 func NewBaseEvent(eventType EventType) *BaseEvent {
 	now := time.Now().UnixMilli()
@@ -124,6 +141,17 @@ func (b *BaseEvent) Validate() error {
 	}
 
 	return nil
+}
+
+// ToJSON serializes the event to JSON
+func (b *BaseEvent) ToJSON() ([]byte, error) {
+	return json.Marshal(b)
+}
+
+// ToProtobuf converts the event to its protobuf representation
+func (b *BaseEvent) ToProtobuf() (*generated.Event, error) {
+	// BaseEvent cannot be converted to Event directly as it's abstract
+	return nil, fmt.Errorf("BaseEvent cannot be converted to protobuf Event directly")
 }
 
 // ToProtobufBase converts the base event to its protobuf representation
@@ -249,32 +277,32 @@ func ValidateSequence(events []Event) error {
 		switch event.Type() {
 		case EventTypeRunStarted:
 			if runEvent, ok := event.(*RunStartedEvent); ok {
-				if activeRuns[runEvent.RunID] {
-					return fmt.Errorf("run %s already started", runEvent.RunID)
+				if activeRuns[runEvent.RunID()] {
+					return fmt.Errorf("run %s already started", runEvent.RunID())
 				}
-				if finishedRuns[runEvent.RunID] {
-					return fmt.Errorf("cannot restart finished run %s", runEvent.RunID)
+				if finishedRuns[runEvent.RunID()] {
+					return fmt.Errorf("cannot restart finished run %s", runEvent.RunID())
 				}
-				activeRuns[runEvent.RunID] = true
+				activeRuns[runEvent.RunID()] = true
 			}
 
 		case EventTypeRunFinished:
 			if runEvent, ok := event.(*RunFinishedEvent); ok {
-				if !activeRuns[runEvent.RunID] {
-					return fmt.Errorf("cannot finish run %s that was not started", runEvent.RunID)
+				if !activeRuns[runEvent.RunID()] {
+					return fmt.Errorf("cannot finish run %s that was not started", runEvent.RunID())
 				}
-				delete(activeRuns, runEvent.RunID)
-				finishedRuns[runEvent.RunID] = true
+				delete(activeRuns, runEvent.RunID())
+				finishedRuns[runEvent.RunID()] = true
 			}
 
 		case EventTypeRunError:
 			if runEvent, ok := event.(*RunErrorEvent); ok {
-				if runEvent.RunID != "" && !activeRuns[runEvent.RunID] {
-					return fmt.Errorf("cannot error run %s that was not started", runEvent.RunID)
+				if runEvent.RunID() != "" && !activeRuns[runEvent.RunID()] {
+					return fmt.Errorf("cannot error run %s that was not started", runEvent.RunID())
 				}
-				if runEvent.RunID != "" {
-					delete(activeRuns, runEvent.RunID)
-					finishedRuns[runEvent.RunID] = true
+				if runEvent.RunID() != "" {
+					delete(activeRuns, runEvent.RunID())
+					finishedRuns[runEvent.RunID()] = true
 				}
 			}
 

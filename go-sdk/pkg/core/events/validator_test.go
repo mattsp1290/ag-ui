@@ -27,8 +27,8 @@ func TestEventValidator_ValidateEvent(t *testing.T) {
 					// EventID:   "event-1",
 					TimestampMs: timePtr(time.Now().UnixMilli()),
 				},
-				RunID:    "run-123",
-				ThreadID: "thread-456",
+				RunIDValue:    "run-123",
+				ThreadIDValue: "thread-456",
 			},
 			expectedValid: true, // First RUN_STARTED event should be valid
 		},
@@ -40,7 +40,7 @@ func TestEventValidator_ValidateEvent(t *testing.T) {
 					// EventID:   "event-1",
 					TimestampMs: timePtr(time.Now().UnixMilli()),
 				},
-				ThreadID: "thread-456",
+				ThreadIDValue: "thread-456",
 			},
 			expectedValid: false,
 			expectedError: "Run ID is required",
@@ -124,8 +124,8 @@ func TestEventValidator_ValidateSequence(t *testing.T) {
 						// EventID:   "event-1",
 						TimestampMs: timePtr(time.Now().UnixMilli()),
 					},
-					RunID:    "run-simple001",
-					ThreadID: "thread-simple002",
+					RunIDValue:    "run-simple001",
+					ThreadIDValue: "thread-simple002",
 				},
 				&RunFinishedEvent{
 					BaseEvent: &BaseEvent{
@@ -133,7 +133,7 @@ func TestEventValidator_ValidateSequence(t *testing.T) {
 						// EventID:   "event-2",
 						TimestampMs: timePtr(time.Now().UnixMilli() + 1000),
 					},
-					RunID: "run-simple001",
+					RunIDValue: "run-simple001",
 				},
 			},
 			expectedValid: true,
@@ -147,8 +147,8 @@ func TestEventValidator_ValidateSequence(t *testing.T) {
 						// EventID:   "event-1",
 						TimestampMs: timePtr(time.Now().UnixMilli()),
 					},
-					RunID:    "run-invalid001",
-					ThreadID: "thread-invalid001",
+					RunIDValue:    "run-invalid001",
+					ThreadIDValue: "thread-invalid001",
 				},
 				&TextMessageContentEvent{
 					BaseEvent: &BaseEvent{
@@ -275,8 +275,8 @@ func TestEventValidator_StateTracking(t *testing.T) {
 			// EventID:   "event-1",
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 
 	result := validator.ValidateEvent(context.Background(), runEvent)
@@ -329,8 +329,8 @@ func TestEventValidator_Reset(t *testing.T) {
 			// EventID:   "event-1",
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 
 	validator.ValidateEvent(context.Background(), runEvent)
@@ -370,8 +370,8 @@ func TestEventValidator_Metrics(t *testing.T) {
 				// EventID:   "event-1",
 				TimestampMs: timePtr(time.Now().UnixMilli()),
 			},
-			RunID:    "run-123",
-			ThreadID: "thread-456",
+			RunIDValue:    "run-123",
+			ThreadIDValue: "thread-456",
 		},
 		&TextMessageStartEvent{
 			BaseEvent: &BaseEvent{
@@ -552,8 +552,8 @@ func TestEventValidator_ComplexScenarios(t *testing.T) {
 					// EventID:   "event-1",
 					TimestampMs: timePtr(time.Now().UnixMilli()),
 				},
-				RunID:    "run-abc123", // Use unique run ID
-				ThreadID: "thread-def456",
+				RunIDValue:    "run-abc123", // Use unique run ID
+				ThreadIDValue: "thread-def456",
 			},
 			&TextMessageStartEvent{
 				BaseEvent: &BaseEvent{
@@ -595,7 +595,7 @@ func TestEventValidator_ComplexScenarios(t *testing.T) {
 					// EventID:   "event-6",
 					TimestampMs: timePtr(time.Now().UnixMilli() + 5000),
 				},
-				RunID: "run-abc123",
+				RunIDValue: "run-abc123",
 			},
 		}
 
@@ -615,8 +615,8 @@ func TestEventValidator_ComplexScenarios(t *testing.T) {
 					// EventID:   "event-1",
 					TimestampMs: timePtr(time.Now().UnixMilli()),
 				},
-				RunID:    "run-pqr890", // Use unique run ID
-				ThreadID: "thread-stu123",
+				RunIDValue:    "run-pqr890", // Use unique run ID
+				ThreadIDValue: "thread-stu123",
 			},
 			&ToolCallStartEvent{
 				BaseEvent: &BaseEvent{
@@ -650,7 +650,7 @@ func TestEventValidator_ComplexScenarios(t *testing.T) {
 					// EventID:   "event-5",
 					TimestampMs: timePtr(time.Now().UnixMilli() + 4000),
 				},
-				RunID: "run-pqr890",
+				RunIDValue: "run-pqr890",
 			},
 		}
 
@@ -670,8 +670,8 @@ func TestEventValidator_ComplexScenarios(t *testing.T) {
 					// EventID:   "event-1",
 					TimestampMs: timePtr(time.Now().UnixMilli()),
 				},
-				RunID:    "run-hij789", // Use unique run ID
-				ThreadID: "thread-klm012",
+				RunIDValue:    "run-hij789", // Use unique run ID
+				ThreadIDValue: "thread-klm012",
 			},
 			&TextMessageStartEvent{
 				BaseEvent: &BaseEvent{
@@ -729,7 +729,7 @@ func TestEventValidator_ComplexScenarios(t *testing.T) {
 					// EventID:   "event-8",
 					TimestampMs: timePtr(time.Now().UnixMilli() + 7000),
 				},
-				RunID: "run-hij789",
+				RunIDValue: "run-hij789",
 			},
 		}
 

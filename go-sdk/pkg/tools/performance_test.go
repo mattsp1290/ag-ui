@@ -9,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/your-org/ag-ui/go-sdk/pkg/testhelper"
 )
 
 // PerformanceFramework provides comprehensive performance testing capabilities
@@ -53,28 +55,57 @@ type PerformanceConfig struct {
 
 // DefaultPerformanceConfig returns default performance testing configuration
 func DefaultPerformanceConfig() *PerformanceConfig {
+	// Use much shorter durations and lower concurrency in short mode for CI
+	baselineIterations := 100
+	baselineWarmupDuration := 5 * time.Second
+	maxConcurrency := 1000
+	loadTestDuration := testhelper.GetCITimeouts().Long // Reduced from 60s
+	rampUpDuration := 10 * time.Second
+	rampDownDuration := 10 * time.Second
+	warmupIterations := 10
+	benchmarkIterations := 50
+	stressTestDuration := time.Duration(float64(testhelper.GetCITimeouts().Long) * 2) // Reduced from 300s
+	stressMaxConcurrency := 2000
+	loadPatterns := []LoadPattern{
+		{Name: "constant", Type: LoadPatternConstant, Intensity: 100},
+		{Name: "ramp", Type: LoadPatternRamp, Intensity: 200},
+		{Name: "spike", Type: LoadPatternSpike, Intensity: 500},
+		{Name: "wave", Type: LoadPatternWave, Intensity: 300},
+	}
+	
+	if testing.Short() {
+		baselineIterations = 5
+		baselineWarmupDuration = 1 * time.Second
+		maxConcurrency = 10
+		loadTestDuration = 3 * time.Second
+		rampUpDuration = 1 * time.Second
+		rampDownDuration = 1 * time.Second
+		warmupIterations = 2
+		benchmarkIterations = 5
+		stressTestDuration = 5 * time.Second
+		stressMaxConcurrency = 20
+		loadPatterns = []LoadPattern{
+			{Name: "constant", Type: LoadPatternConstant, Intensity: 5},
+		}
+	}
+	
 	return &PerformanceConfig{
-		BaselineIterations:      100,
-		BaselineWarmupDuration:  5 * time.Second,
+		BaselineIterations:      baselineIterations,
+		BaselineWarmupDuration:  baselineWarmupDuration,
 		BaselineStabilityFactor: 0.1,
-		MaxConcurrency:          1000,
-		LoadTestDuration:        60 * time.Second,
-		RampUpDuration:          10 * time.Second,
-		RampDownDuration:        10 * time.Second,
-		LoadPatterns: []LoadPattern{
-			{Name: "constant", Type: LoadPatternConstant, Intensity: 100},
-			{Name: "ramp", Type: LoadPatternRamp, Intensity: 200},
-			{Name: "spike", Type: LoadPatternSpike, Intensity: 500},
-			{Name: "wave", Type: LoadPatternWave, Intensity: 300},
-		},
+		MaxConcurrency:          maxConcurrency,
+		LoadTestDuration:        loadTestDuration,
+		RampUpDuration:          rampUpDuration,
+		RampDownDuration:        rampDownDuration,
+		LoadPatterns:            loadPatterns,
 		MemoryCheckInterval:     1 * time.Second,
 		MemoryLeakThreshold:     100 * 1024 * 1024, // 100MB
 		GCForceInterval:         10 * time.Second,
 		RegressionThreshold:     10.0, // 10% degradation threshold
-		WarmupIterations:        10,
-		BenchmarkIterations:     50,
-		StressTestDuration:      300 * time.Second,
-		StressMaxConcurrency:    2000,
+		WarmupIterations:        warmupIterations,
+		BenchmarkIterations:     benchmarkIterations,
+		StressTestDuration:      stressTestDuration,
+		StressMaxConcurrency:    stressMaxConcurrency,
 		StressErrorThreshold:    5.0, // 5% error rate threshold
 	}
 }
@@ -365,7 +396,7 @@ func NewPerformanceFramework(config *PerformanceConfig) *PerformanceFramework {
 		measurements: make([]MemoryMeasurement, 0),
 		leakDetector: &LeakDetector{
 			threshold:        uint64(config.MemoryLeakThreshold),
-			detectionWindow:  60 * time.Second,
+			detectionWindow:  testhelper.GetCITimeouts().Long, // Reduced from 60s
 			confidenceLevel:  0.95,
 			samples:          make([]uint64, 0),
 		},

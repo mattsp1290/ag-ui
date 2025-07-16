@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -480,7 +481,6 @@ func NewJWTAuthenticator(config JWTConfig) (*JWTAuthenticator, error) {
 		config: config,
 		parser: jwt.NewParser(
 			jwt.WithValidMethods([]string{config.Algorithm}),
-			jwt.WithoutClaimsValidation(),
 		),
 	}
 
@@ -640,7 +640,21 @@ func NewOAuth2Authenticator(config OAuth2Config) (*OAuth2Authenticator, error) {
 	return &OAuth2Authenticator{
 		config:     config,
 		tokenCache: &TokenCache{tokens: make(map[string]*CachedToken)},
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					MinVersion: tls.VersionTLS12,
+					CipherSuites: []uint16{
+						tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+						tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+						tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+						tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+						tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+					},
+				},
+			},
+		},
 	}, nil
 }
 
@@ -1038,7 +1052,7 @@ func (rv *RequestValidator) validateHeaders(headers http.Header) error {
 
 // containsSQLInjectionPattern checks for common SQL injection patterns
 func (rv *RequestValidator) containsSQLInjectionPattern(value string) bool {
-	// Common SQL injection patterns (simplified)
+	// Common SQL injection patterns (comprehensive)
 	patterns := []string{
 		"(?i)(union.*select)",
 		"(?i)(select.*from)",
@@ -1047,6 +1061,20 @@ func (rv *RequestValidator) containsSQLInjectionPattern(value string) bool {
 		"(?i)(drop.*table)",
 		"(?i)(script.*>)",
 		"(?i)(<.*iframe)",
+		"(?i)(.*'.*or.*'.*)",      // Single quote OR attacks
+		"(?i)(.*\".*or.*\".*)",    // Double quote OR attacks
+		"(?i)(.*'.*union.*)",      // Single quote UNION attacks
+		"(?i)(.*\".*union.*)",     // Double quote UNION attacks
+		"(?i)(.*--.*)",            // SQL comment attacks
+		"(?i)(/\\*.*\\*/)",        // Multi-line comment attacks
+		"(?i)(.*'.*and.*'.*)",     // Single quote AND attacks
+		"(?i)(.*\".*and.*\".*)",   // Double quote AND attacks
+		"(?i)(.*'.*=.*'.*)",       // Single quote equality attacks
+		"(?i)(.*\".*=.*\".*)",     // Double quote equality attacks
+		"(?i)(.*\\+.*or.*\\+.*)",  // URL encoded OR attacks
+		"(?i)(.*%27.*or.*%27.*)",  // URL encoded single quote OR
+		"(?i)(.*%22.*or.*%22.*)",  // URL encoded double quote OR
+		"(?i)(.*1.*=.*1.*)",       // Common tautology
 	}
 
 	for _, pattern := range patterns {
@@ -1587,3 +1615,4 @@ func (rs *RequestSigner) buildStringToSign(r *http.Request) string {
 
 	return strings.Join(parts, "\n")
 }
+

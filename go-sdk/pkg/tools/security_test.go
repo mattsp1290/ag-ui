@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"io/ioutil"
 	"net/http"
@@ -77,9 +78,21 @@ func (e *mockSecureHTTPExecutor) Execute(ctx context.Context, params map[string]
 		}
 	}
 	
-	// Create HTTP client with timeout
+	// Create HTTP client with secure TLS configuration and timeout
 	client := &http.Client{
 		Timeout: e.timeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				CipherSuites: []uint16{
+					tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+					tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+					tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+				},
+			},
+		},
 	}
 	
 	resp, err := client.Get(url)
@@ -256,7 +269,7 @@ func TestSecureFileOperations(t *testing.T) {
 			
 			if tt.expectError {
 				assert.Error(t, err)
-				if tt.errorType != "" {
+				if tt.errorType != "" && err != nil {
 					assert.Contains(t, err.Error(), tt.errorType)
 				}
 				assert.Nil(t, result)
@@ -378,7 +391,7 @@ func TestSecureHTTPOperations(t *testing.T) {
 			
 			if tt.expectError {
 				assert.Error(t, err)
-				if tt.errorType != "" {
+				if tt.errorType != "" && err != nil {
 					assert.Contains(t, err.Error(), tt.errorType)
 				}
 				assert.Nil(t, result)
@@ -533,7 +546,7 @@ func TestInputValidationSecurity(t *testing.T) {
 			
 			if tt.expectError {
 				assert.Error(t, err)
-				if tt.errorType != "" {
+				if tt.errorType != "" && err != nil {
 					assert.Contains(t, err.Error(), tt.errorType)
 				}
 				assert.Nil(t, result)
@@ -552,6 +565,13 @@ func validateFilePath(filePath string, allowedDirs []string) error {
 	resolvedPath, err := filepath.Abs(filePath)
 	if err != nil {
 		return NewSecurityError("SECURITY_VIOLATION", "Invalid file path")
+	}
+
+	// Check for symbolic links - security check
+	if info, err := os.Lstat(resolvedPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			return NewSecurityError("SECURITY_VIOLATION", "Symbolic links are not allowed")
+		}
 	}
 
 	// Check if path is within allowed directories

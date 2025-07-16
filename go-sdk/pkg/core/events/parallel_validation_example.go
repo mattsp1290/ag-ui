@@ -32,8 +32,8 @@ func ExampleParallelValidation() {
 			EventType:   EventTypeRunStarted,
 			TimestampMs: func() *int64 { t := time.Now().UnixMilli(); return &t }(),
 		},
-		RunID:    "example-run-123",
-		ThreadID: "example-thread-456",
+		RunIDValue:    "example-run-123",
+		ThreadIDValue: "example-thread-456",
 	}
 
 	// Validate using parallel execution

@@ -19,6 +19,7 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/proto/generated"
+	"github.com/ag-ui/go-sdk/pkg/testhelper"
 )
 
 // MockEvent implements the events.Event interface for testing
@@ -35,6 +36,8 @@ func (m *MockEvent) SetTimestamp(timestamp int64)          { m.TimestampMs = &ti
 func (m *MockEvent) ToJSON() ([]byte, error)               { return json.Marshal(m) }
 func (m *MockEvent) ToProtobuf() (*generated.Event, error) { return nil, nil }
 func (m *MockEvent) GetBaseEvent() *events.BaseEvent       { return nil }
+func (m *MockEvent) ThreadID() string                     { return "" }
+func (m *MockEvent) RunID() string                        { return "" }
 func (m *MockEvent) Validate() error {
 	if m.ValidationFunc != nil {
 		return m.ValidationFunc()
@@ -161,6 +164,42 @@ func TestTransportLifecycle(t *testing.T) {
 
 		assert.False(t, transport.IsConnected())
 		assert.Equal(t, 0, transport.GetActiveConnectionCount())
+	})
+
+	t.Run("DoubleStopTransport", func(t *testing.T) {
+		// First stop should work
+		err := transport.Stop()
+		require.NoError(t, err)
+
+		// Second stop should not panic or return error
+		err = transport.Stop()
+		require.NoError(t, err)
+
+		assert.False(t, transport.IsConnected())
+		assert.Equal(t, 0, transport.GetActiveConnectionCount())
+	})
+
+	t.Run("RestartAfterStop", func(t *testing.T) {
+		// Ensure transport is stopped
+		err := transport.Stop()
+		require.NoError(t, err)
+
+		// Should be able to start again
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+
+		err = transport.Start(ctx)
+		require.NoError(t, err)
+
+		// Wait for connections to be established
+		time.Sleep(200 * time.Millisecond)
+
+		assert.True(t, transport.IsConnected())
+		assert.Greater(t, transport.GetActiveConnectionCount(), 0)
+
+		// Clean up
+		err = transport.Stop()
+		require.NoError(t, err)
 	})
 }
 
@@ -476,8 +515,13 @@ func TestTransportDetailedStatus(t *testing.T) {
 }
 
 func TestTransportConcurrency(t *testing.T) {
+	defer testhelper.VerifyNoGoroutineLeaks(t)
+	
 	server := createTestWebSocketServer(t)
 	defer server.Close()
+	
+	// Set up cleanup helpers
+	cleanup := testhelper.NewCleanupManager(t)
 
 	config := DefaultTransportConfig()
 	config.URLs = []string{"ws" + strings.TrimPrefix(server.URL, "http")}
@@ -487,12 +531,17 @@ func TestTransportConcurrency(t *testing.T) {
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
+	ctx := testhelper.NewTestContextWithTimeout(t, 15*time.Second)
 
 	err = transport.Start(ctx)
 	require.NoError(t, err)
-	defer transport.Stop()
+	
+	// Register transport cleanup
+	cleanup.Register("transport", func() {
+		if err := transport.Stop(); err != nil {
+			t.Logf("Error stopping transport: %v", err)
+		}
+	})
 
 	// Wait for connections
 	time.Sleep(200 * time.Millisecond)

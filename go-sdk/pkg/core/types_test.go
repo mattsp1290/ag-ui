@@ -5,6 +5,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/your-org/ag-ui/go-sdk/pkg/testhelper"
 )
 
 func TestEventInterface(t *testing.T) {
@@ -139,9 +141,11 @@ func TestAgentInterface(t *testing.T) {
 }
 
 func TestStreamConfig(t *testing.T) {
+	timeouts := testhelper.GlobalTimeouts
+	
 	config := StreamConfig{
 		BufferSize:        100,
-		Timeout:           30 * time.Second,
+		Timeout:           timeouts.Medium, // Reduced from 30s to configurable timeout
 		EnableCompression: true,
 	}
 
@@ -149,8 +153,8 @@ func TestStreamConfig(t *testing.T) {
 		t.Errorf("BufferSize = %v, want %v", config.BufferSize, 100)
 	}
 
-	if config.Timeout != 30*time.Second {
-		t.Errorf("Timeout = %v, want %v", config.Timeout, 30*time.Second)
+	if config.Timeout != timeouts.Medium {
+		t.Errorf("Timeout = %v, want %v", config.Timeout, timeouts.Medium)
 	}
 
 	if !config.EnableCompression {

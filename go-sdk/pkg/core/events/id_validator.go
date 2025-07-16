@@ -69,12 +69,12 @@ func (t *IDTracker) TrackEvent(event Event) {
 		t.toolEnds[e.ToolCallID] = e
 
 	case *RunStartedEvent:
-		t.runStarts[e.RunID] = e
+		t.runStarts[e.RunID()] = e
 	case *RunFinishedEvent:
-		t.runFinishes[e.RunID] = e
+		t.runFinishes[e.RunID()] = e
 	case *RunErrorEvent:
-		if e.RunID != "" {
-			t.runErrors[e.RunID] = e
+		if e.RunID() != "" {
+			t.runErrors[e.RunID()] = e
 		}
 
 	case *StepStartedEvent:

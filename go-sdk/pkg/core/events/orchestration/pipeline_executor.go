@@ -281,8 +281,20 @@ func (pe *PipelineExecutor) executeValidatorsSequential(ctx context.Context, pip
 // executeValidator executes a single validator
 func (pe *PipelineExecutor) executeValidator(ctx context.Context, validator Validator, pipelineCtx *PipelineContext) (*OrchestrationValidationResult, error) {
 	// Create validation context
+	eventData := make(map[string]interface{})
+	if pipelineCtx.ValidationCtx.Properties != nil {
+		for k, v := range pipelineCtx.ValidationCtx.Properties {
+			eventData[k] = v
+		}
+	}
+	// Ensure event_type is available in EventData
+	if pipelineCtx.ValidationCtx.EventType != "" {
+		eventData["event_type"] = pipelineCtx.ValidationCtx.EventType
+	}
+	
 	valCtx := &OrchestrationValidationContext{
-		EventData:   pipelineCtx.ValidationCtx.Properties,
+		EventData:   eventData,
+		Properties:  pipelineCtx.ValidationCtx.Properties,
 		Metadata:    pipelineCtx.ValidationCtx.Metadata,
 		Source:      pipelineCtx.ValidationCtx.Source,
 		Environment: pipelineCtx.ValidationCtx.Environment,

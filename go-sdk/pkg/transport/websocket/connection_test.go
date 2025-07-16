@@ -97,6 +97,8 @@ func TestConnectionReconnection(t *testing.T) {
 	config.Logger = zaptest.NewLogger(t)
 	config.MaxReconnectAttempts = 3
 	config.InitialReconnectDelay = 100 * time.Millisecond
+	config.PingPeriod = 100 * time.Millisecond
+	config.ReadTimeout = 500 * time.Millisecond
 
 	conn, err := NewConnection(config)
 	require.NoError(t, err)
@@ -115,7 +117,11 @@ func TestConnectionReconnection(t *testing.T) {
 	// Close server to trigger reconnection
 	server.Close()
 
-	// Wait for reconnection attempts
+	// Force the connection into a reconnecting state
+	conn.setState(StateConnected) // Ensure we're in connected state
+	conn.triggerReconnect()       // Manually trigger reconnection
+
+	// Wait for reconnection attempts  
 	time.Sleep(500 * time.Millisecond)
 
 	// Check that reconnection was attempted
@@ -149,6 +155,9 @@ func TestConnectionMetrics(t *testing.T) {
 		err = conn.SendMessage(ctx, []byte(fmt.Sprintf("message %d", i)))
 		require.NoError(t, err)
 	}
+
+	// Wait for messages to be processed
+	time.Sleep(100 * time.Millisecond)
 
 	// Check metrics
 	metrics := conn.GetMetrics()

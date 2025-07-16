@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -604,6 +605,9 @@ type PrometheusConfig struct {
 
 	// Labels to add to all metrics
 	Labels map[string]string `json:"labels" yaml:"labels"`
+
+	// Custom registry for metrics (optional, uses default if nil)
+	Registry *prometheus.Registry `json:"-" yaml:"-"`
 }
 
 // LoggingConfig defines logging settings
@@ -2183,16 +2187,38 @@ func (c *ComprehensiveConfig) GetHTTPClient() *http.Client {
 		DisableKeepAlives:   !c.Connection.KeepAlive.Enabled,
 	}
 
-	// Configure TLS
+	// Configure TLS with secure defaults
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		},
+	}
+	
 	if c.Connection.TLS.Enabled {
-		transport.TLSClientConfig = &tls.Config{
-			InsecureSkipVerify: c.Connection.TLS.InsecureSkipVerify,
-			ServerName:         c.Connection.TLS.ServerName,
-			MinVersion:         c.Connection.TLS.MinVersion,
-			MaxVersion:         c.Connection.TLS.MaxVersion,
-			CipherSuites:       c.Connection.TLS.CipherSuites,
+		// Override defaults with configuration values
+		if c.Connection.TLS.InsecureSkipVerify {
+			tlsConfig.InsecureSkipVerify = true
+		}
+		if c.Connection.TLS.ServerName != "" {
+			tlsConfig.ServerName = c.Connection.TLS.ServerName
+		}
+		if c.Connection.TLS.MinVersion != 0 {
+			tlsConfig.MinVersion = c.Connection.TLS.MinVersion
+		}
+		if c.Connection.TLS.MaxVersion != 0 {
+			tlsConfig.MaxVersion = c.Connection.TLS.MaxVersion
+		}
+		if len(c.Connection.TLS.CipherSuites) > 0 {
+			tlsConfig.CipherSuites = c.Connection.TLS.CipherSuites
 		}
 	}
+	
+	transport.TLSClientConfig = tlsConfig
 
 	// Configure proxy
 	if c.Connection.HTTPClient.ProxyURL != "" {

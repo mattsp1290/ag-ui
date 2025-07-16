@@ -129,28 +129,28 @@ func (r *RunLifecycleRule) validateRunStarted(event Event, context *ValidationCo
 	}
 
 	// Check if run is already started
-	if _, exists := context.State.ActiveRuns[runEvent.RunID]; exists {
+	if _, exists := context.State.ActiveRuns[runEvent.RunID()]; exists {
 		result.AddError(r.CreateError(event,
-			fmt.Sprintf("Run %s is already started", runEvent.RunID),
-			map[string]interface{}{"run_id": runEvent.RunID},
+			fmt.Sprintf("Run %s is already started", runEvent.RunID()),
+			map[string]interface{}{"run_id": runEvent.RunID()},
 			[]string{"Use a different run ID or finish the current run first"}))
 	}
 
 	// Check if run was already finished
-	if _, exists := context.State.FinishedRuns[runEvent.RunID]; exists {
+	if _, exists := context.State.FinishedRuns[runEvent.RunID()]; exists {
 		result.AddError(r.CreateError(event,
-			fmt.Sprintf("Cannot restart finished run %s", runEvent.RunID),
-			map[string]interface{}{"run_id": runEvent.RunID},
+			fmt.Sprintf("Cannot restart finished run %s", runEvent.RunID()),
+			map[string]interface{}{"run_id": runEvent.RunID()},
 			[]string{"Use a different run ID for a new run"}))
 	}
 
 	// Validate required fields
-	if runEvent.RunID == "" {
+	if runEvent.RunID() == "" {
 		result.AddError(r.CreateError(event, ErrMsgRunIDRequired, nil,
 			[]string{SuggestProvideRunID}))
 	}
 
-	if runEvent.ThreadID == "" {
+	if runEvent.ThreadID() == "" {
 		result.AddError(r.CreateError(event, ErrMsgThreadIDRequired, nil,
 			[]string{SuggestProvideThreadID}))
 	}
@@ -164,15 +164,15 @@ func (r *RunLifecycleRule) validateRunFinished(event Event, context *ValidationC
 	}
 
 	// Check if run is active
-	if _, exists := context.State.ActiveRuns[runEvent.RunID]; !exists {
+	if _, exists := context.State.ActiveRuns[runEvent.RunID()]; !exists {
 		result.AddError(r.CreateError(event,
-			fmt.Sprintf("Cannot finish run %s that was not started", runEvent.RunID),
-			map[string]interface{}{"run_id": runEvent.RunID},
+			fmt.Sprintf("Cannot finish run %s that was not started", runEvent.RunID()),
+			map[string]interface{}{"run_id": runEvent.RunID()},
 			[]string{"Start the run first with RUN_STARTED event"}))
 	}
 
 	// Validate required fields
-	if runEvent.RunID == "" {
+	if runEvent.RunID() == "" {
 		result.AddError(r.CreateError(event, "Run ID is required", nil,
 			[]string{"Provide the run ID to finish"}))
 	}
@@ -186,11 +186,11 @@ func (r *RunLifecycleRule) validateRunError(event Event, context *ValidationCont
 	}
 
 	// Check if run is active (if run ID is provided)
-	if runEvent.RunID != "" {
-		if _, exists := context.State.ActiveRuns[runEvent.RunID]; !exists {
+	if runEvent.RunID() != "" {
+		if _, exists := context.State.ActiveRuns[runEvent.RunID()]; !exists {
 			result.AddError(r.CreateError(event,
-				fmt.Sprintf("Cannot error run %s that was not started", runEvent.RunID),
-				map[string]interface{}{"run_id": runEvent.RunID},
+				fmt.Sprintf("Cannot error run %s that was not started", runEvent.RunID()),
+				map[string]interface{}{"run_id": runEvent.RunID()},
 				[]string{"Start the run first with RUN_STARTED event"}))
 		}
 	}

@@ -10,25 +10,25 @@ import (
 // RunStartedEvent indicates that an agent run has started
 type RunStartedEvent struct {
 	*BaseEvent
-	ThreadID string `json:"threadId"`
-	RunID    string `json:"runId"`
+	ThreadIDValue string `json:"threadId"`
+	RunIDValue    string `json:"runId"`
 }
 
 // NewRunStartedEvent creates a new run started event
 func NewRunStartedEvent(threadID, runID string) *RunStartedEvent {
 	return &RunStartedEvent{
-		BaseEvent: NewBaseEvent(EventTypeRunStarted),
-		ThreadID:  threadID,
-		RunID:     runID,
+		BaseEvent:     NewBaseEvent(EventTypeRunStarted),
+		ThreadIDValue: threadID,
+		RunIDValue:    runID,
 	}
 }
 
 // NewRunStartedEventWithOptions creates a new run started event with options
 func NewRunStartedEventWithOptions(threadID, runID string, options ...RunStartedOption) *RunStartedEvent {
 	event := &RunStartedEvent{
-		BaseEvent: NewBaseEvent(EventTypeRunStarted),
-		ThreadID:  threadID,
-		RunID:     runID,
+		BaseEvent:     NewBaseEvent(EventTypeRunStarted),
+		ThreadIDValue: threadID,
+		RunIDValue:    runID,
 	}
 
 	for _, opt := range options {
@@ -44,8 +44,8 @@ type RunStartedOption func(*RunStartedEvent)
 // WithAutoRunID automatically generates a unique run ID if the provided runID is empty
 func WithAutoRunID() RunStartedOption {
 	return func(e *RunStartedEvent) {
-		if e.RunID == "" {
-			e.RunID = GenerateRunID()
+		if e.RunIDValue == "" {
+			e.RunIDValue = GenerateRunID()
 		}
 	}
 }
@@ -53,8 +53,8 @@ func WithAutoRunID() RunStartedOption {
 // WithAutoThreadID automatically generates a unique thread ID if the provided threadID is empty
 func WithAutoThreadID() RunStartedOption {
 	return func(e *RunStartedEvent) {
-		if e.ThreadID == "" {
-			e.ThreadID = GenerateThreadID()
+		if e.ThreadIDValue == "" {
+			e.ThreadIDValue = GenerateThreadID()
 		}
 	}
 }
@@ -65,15 +65,26 @@ func (e *RunStartedEvent) Validate() error {
 		return err
 	}
 
-	if e.ThreadID == "" {
+	if e.ThreadIDValue == "" {
 		return fmt.Errorf("RunStartedEvent validation failed: threadId field is required")
 	}
 
-	if e.RunID == "" {
+	if e.RunIDValue == "" {
 		return fmt.Errorf("RunStartedEvent validation failed: runId field is required")
 	}
 
 	return nil
+}
+
+
+// ThreadID returns the thread ID
+func (e *RunStartedEvent) ThreadID() string {
+	return e.ThreadIDValue
+}
+
+// RunID returns the run ID
+func (e *RunStartedEvent) RunID() string {
+	return e.RunIDValue
 }
 
 // ToJSON serializes the event to JSON
@@ -81,12 +92,13 @@ func (e *RunStartedEvent) ToJSON() ([]byte, error) {
 	return json.Marshal(e)
 }
 
+
 // ToProtobuf converts the event to its protobuf representation
 func (e *RunStartedEvent) ToProtobuf() (*generated.Event, error) {
 	pbEvent := &generated.RunStartedEvent{
 		BaseEvent: e.BaseEvent.ToProtobufBase(),
-		ThreadId:  e.ThreadID,
-		RunId:     e.RunID,
+		ThreadId:  e.ThreadIDValue,
+		RunId:     e.RunIDValue,
 	}
 
 	return &generated.Event{
@@ -99,25 +111,25 @@ func (e *RunStartedEvent) ToProtobuf() (*generated.Event, error) {
 // RunFinishedEvent indicates that an agent run has finished successfully
 type RunFinishedEvent struct {
 	*BaseEvent
-	ThreadID string `json:"threadId"`
-	RunID    string `json:"runId"`
+	ThreadIDValue string `json:"threadId"`
+	RunIDValue    string `json:"runId"`
 }
 
 // NewRunFinishedEvent creates a new run finished event
 func NewRunFinishedEvent(threadID, runID string) *RunFinishedEvent {
 	return &RunFinishedEvent{
-		BaseEvent: NewBaseEvent(EventTypeRunFinished),
-		ThreadID:  threadID,
-		RunID:     runID,
+		BaseEvent:     NewBaseEvent(EventTypeRunFinished),
+		ThreadIDValue: threadID,
+		RunIDValue:    runID,
 	}
 }
 
 // NewRunFinishedEventWithOptions creates a new run finished event with options
 func NewRunFinishedEventWithOptions(threadID, runID string, options ...RunFinishedOption) *RunFinishedEvent {
 	event := &RunFinishedEvent{
-		BaseEvent: NewBaseEvent(EventTypeRunFinished),
-		ThreadID:  threadID,
-		RunID:     runID,
+		BaseEvent:     NewBaseEvent(EventTypeRunFinished),
+		ThreadIDValue: threadID,
+		RunIDValue:    runID,
 	}
 
 	for _, opt := range options {
@@ -133,8 +145,8 @@ type RunFinishedOption func(*RunFinishedEvent)
 // WithAutoRunIDFinished automatically generates a unique run ID if the provided runID is empty
 func WithAutoRunIDFinished() RunFinishedOption {
 	return func(e *RunFinishedEvent) {
-		if e.RunID == "" {
-			e.RunID = GenerateRunID()
+		if e.RunIDValue == "" {
+			e.RunIDValue = GenerateRunID()
 		}
 	}
 }
@@ -142,8 +154,8 @@ func WithAutoRunIDFinished() RunFinishedOption {
 // WithAutoThreadIDFinished automatically generates a unique thread ID if the provided threadID is empty
 func WithAutoThreadIDFinished() RunFinishedOption {
 	return func(e *RunFinishedEvent) {
-		if e.ThreadID == "" {
-			e.ThreadID = GenerateThreadID()
+		if e.ThreadIDValue == "" {
+			e.ThreadIDValue = GenerateThreadID()
 		}
 	}
 }
@@ -154,15 +166,25 @@ func (e *RunFinishedEvent) Validate() error {
 		return err
 	}
 
-	if e.ThreadID == "" {
+	if e.ThreadIDValue == "" {
 		return fmt.Errorf("RunFinishedEvent validation failed: threadId field is required")
 	}
 
-	if e.RunID == "" {
+	if e.RunIDValue == "" {
 		return fmt.Errorf("RunFinishedEvent validation failed: runId field is required")
 	}
 
 	return nil
+}
+
+// ThreadID returns the thread ID
+func (e *RunFinishedEvent) ThreadID() string {
+	return e.ThreadIDValue
+}
+
+// RunID returns the run ID
+func (e *RunFinishedEvent) RunID() string {
+	return e.RunIDValue
 }
 
 // ToJSON serializes the event to JSON
@@ -170,12 +192,13 @@ func (e *RunFinishedEvent) ToJSON() ([]byte, error) {
 	return json.Marshal(e)
 }
 
+
 // ToProtobuf converts the event to its protobuf representation
 func (e *RunFinishedEvent) ToProtobuf() (*generated.Event, error) {
 	pbEvent := &generated.RunFinishedEvent{
 		BaseEvent: e.BaseEvent.ToProtobufBase(),
-		ThreadId:  e.ThreadID,
-		RunId:     e.RunID,
+		ThreadId:  e.ThreadIDValue,
+		RunId:     e.RunIDValue,
 	}
 
 	return &generated.Event{
@@ -188,9 +211,9 @@ func (e *RunFinishedEvent) ToProtobuf() (*generated.Event, error) {
 // RunErrorEvent indicates that an agent run has encountered an error
 type RunErrorEvent struct {
 	*BaseEvent
-	Code    *string `json:"code,omitempty"`
-	Message string  `json:"message"`
-	RunID   string  `json:"runId,omitempty"`
+	Code       *string `json:"code,omitempty"`
+	Message    string  `json:"message"`
+	RunIDValue string  `json:"runId,omitempty"`
 }
 
 // NewRunErrorEvent creates a new run error event
@@ -220,15 +243,15 @@ func WithErrorCode(code string) RunErrorOption {
 // WithRunID sets the run ID for the error
 func WithRunID(runID string) RunErrorOption {
 	return func(e *RunErrorEvent) {
-		e.RunID = runID
+		e.RunIDValue = runID
 	}
 }
 
 // WithAutoRunIDError automatically generates a unique run ID if the provided runID is empty
 func WithAutoRunIDError() RunErrorOption {
 	return func(e *RunErrorEvent) {
-		if e.RunID == "" {
-			e.RunID = GenerateRunID()
+		if e.RunIDValue == "" {
+			e.RunIDValue = GenerateRunID()
 		}
 	}
 }
@@ -244,6 +267,12 @@ func (e *RunErrorEvent) Validate() error {
 	}
 
 	return nil
+}
+
+
+// RunID returns the run ID
+func (e *RunErrorEvent) RunID() string {
+	return e.RunIDValue
 }
 
 // ToJSON serializes the event to JSON

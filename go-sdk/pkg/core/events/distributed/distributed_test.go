@@ -9,6 +9,7 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/proto/generated"
+	"github.com/ag-ui/go-sdk/pkg/testhelper"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -41,6 +42,8 @@ func (m *mockEvent) GetEventID() string {
 
 // Test DistributedValidator creation and initialization
 func TestNewDistributedValidator(t *testing.T) {
+	defer testhelper.VerifyNoGoroutineLeaks(t)
+	
 	config := DefaultDistributedValidatorConfig("node-1")
 	localValidator := events.NewEventValidator(nil)
 
@@ -58,10 +61,10 @@ func TestNewDistributedValidator(t *testing.T) {
 // Test DistributedValidator lifecycle
 func TestDistributedValidatorLifecycle(t *testing.T) {
 	t.Parallel()
+	defer testhelper.VerifyNoGoroutineLeaks(t)
 	
-	// Set a timeout for the entire test
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
+	// Use test context with automatic cleanup
+	ctx := testhelper.NewTestContextWithTimeout(t, 10*time.Second)
 	
 	config := DefaultDistributedValidatorConfig("node-1")
 	// Use shorter timeouts for testing
@@ -188,8 +191,8 @@ func TestDistributedValidationWithPartition(t *testing.T) {
 			EventType: events.EventTypeRunStarted,
 			TimestampMs: func() *int64 { t := time.Now().UnixMilli(); return &t }(),
 		},
-		RunID: "test-run-1",
-		ThreadID: "test-thread-1",
+		RunIDValue: "test-run-1",
+		ThreadIDValue: "test-thread-1",
 	}
 
 	// First, register some nodes to create a cluster
@@ -560,10 +563,13 @@ func TestCircuitBreaker(t *testing.T) {
 // Test concurrent validation
 func TestConcurrentDistributedValidation(t *testing.T) {
 	t.Parallel()
+	defer testhelper.VerifyNoGoroutineLeaks(t)
 	
-	// Set a timeout for the entire test
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
+	// Use test context with automatic cleanup
+	ctx := testhelper.NewTestContextWithTimeout(t, 30*time.Second)
+	
+	// Set up cleanup manager
+	cleanup := testhelper.NewCleanupManager(t)
 	
 	config := DefaultDistributedValidatorConfig("node-1")
 	// Use shorter timeouts for testing
@@ -591,21 +597,12 @@ func TestConcurrentDistributedValidation(t *testing.T) {
 	err = dv.Start(ctx)
 	require.NoError(t, err)
 	
-	// Ensure cleanup
-	defer func() {
-		stopDone := make(chan bool)
-		go func() {
-			dv.Stop()
-			stopDone <- true
-		}()
-		
-		select {
-		case <-stopDone:
-			// Stop completed
-		case <-time.After(2 * time.Second):
-			t.Log("Warning: Stop timed out during cleanup")
+	// Register cleanup for the distributed validator
+	cleanup.Register("distributed-validator", func() {
+		if err := dv.Stop(); err != nil {
+			t.Logf("Error stopping distributed validator: %v", err)
 		}
-	}()
+	})
 
 	// Perform concurrent validations with limited concurrency
 	var wg sync.WaitGroup
@@ -613,6 +610,11 @@ func TestConcurrentDistributedValidation(t *testing.T) {
 	semaphore := make(chan struct{}, 10) // Limit concurrent validations
 	errorCount := 0
 	var errorMutex sync.Mutex
+	
+	// Register cleanup for semaphore channel
+	cleanup.Register("semaphore", func() {
+		testhelper.CloseChannel(t, semaphore, "semaphore")
+	})
 
 	// Run concurrent validations
 	for i := 0; i < 50; i++ {
@@ -637,8 +639,8 @@ func TestConcurrentDistributedValidation(t *testing.T) {
 					EventType: events.EventTypeRunStarted,
 					TimestampMs: func() *int64 { t := time.Now().UnixMilli() + int64(idx*10); return &t }(),
 				},
-				RunID: fmt.Sprintf("test-run-%d", idx),
-				ThreadID: fmt.Sprintf("test-thread-%d", idx),
+				RunIDValue: fmt.Sprintf("test-run-%d", idx),
+				ThreadIDValue: fmt.Sprintf("test-thread-%d", idx),
 			}
 
 			// Use context with timeout for each validation
@@ -660,16 +662,7 @@ func TestConcurrentDistributedValidation(t *testing.T) {
 	}
 
 	// Wait for all validations with timeout
-	done := make(chan bool)
-	go func() {
-		wg.Wait()
-		done <- true
-	}()
-	
-	select {
-	case <-done:
-		// All validations completed
-	case <-ctx.Done():
+	if !testhelper.WaitGroupTimeout(t, &wg, 5*time.Second) {
 		t.Fatal("Test timed out waiting for concurrent validations")
 	}
 

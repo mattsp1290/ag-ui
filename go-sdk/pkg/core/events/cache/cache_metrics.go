@@ -249,7 +249,7 @@ func (mc *MetricsCollector) RecordHit(level CacheLevel, latency time.Duration) {
 		atomic.AddUint64(&mc.l2Hits, 1)
 	}
 	
-	if mc.config.EnableDetailedLatency {
+	if mc.config != nil && mc.config.EnableDetailedLatency && mc.hitLatencies != nil {
 		mc.hitLatencies.Record(latency)
 	}
 }
@@ -259,20 +259,20 @@ func (mc *MetricsCollector) RecordMiss(latency time.Duration) {
 	atomic.AddUint64(&mc.misses, 1)
 	atomic.AddUint64(&mc.l1Misses, 1)
 	
-	if mc.config.EnableDetailedLatency {
+	if mc.config != nil && mc.config.EnableDetailedLatency && mc.missLatencies != nil {
 		mc.missLatencies.Record(latency)
 	}
 }
 
 // RecordSet records a cache set operation
 func (mc *MetricsCollector) RecordSet(latency time.Duration, size int64) {
-	if mc.config.EnableDetailedLatency {
+	if mc.config != nil && mc.config.EnableDetailedLatency && mc.setLatencies != nil {
 		mc.setLatencies.Record(latency)
 	}
 	
 	atomic.AddInt64(&mc.totalBytes, size)
 	
-	if mc.config.EnableHistograms && mc.sizeHistogram != nil {
+	if mc.config != nil && mc.config.EnableHistograms && mc.sizeHistogram != nil {
 		mc.sizeHistogram.Record(float64(size))
 	}
 }
@@ -392,16 +392,18 @@ func (mc *MetricsCollector) getLatencyMetrics() *LatencyMetrics {
 		MissPercentiles: make(map[string]time.Duration),
 	}
 	
-	if mc.config.EnableDetailedLatency {
+	if mc.config.EnableDetailedLatency && mc.hitLatencies != nil && mc.missLatencies != nil && mc.setLatencies != nil {
 		metrics.AvgHitLatency = mc.hitLatencies.Average()
 		metrics.AvgMissLatency = mc.missLatencies.Average()
 		metrics.AvgSetLatency = mc.setLatencies.Average()
 		
 		// Calculate percentiles
-		for _, p := range mc.config.PercentilesToTrack {
-			pStr := fmt.Sprintf("p%.0f", p*100)
-			metrics.HitPercentiles[pStr] = mc.hitLatencies.Percentile(p)
-			metrics.MissPercentiles[pStr] = mc.missLatencies.Percentile(p)
+		if mc.config.PercentilesToTrack != nil {
+			for _, p := range mc.config.PercentilesToTrack {
+				pStr := fmt.Sprintf("p%.0f", p*100)
+				metrics.HitPercentiles[pStr] = mc.hitLatencies.Percentile(p)
+				metrics.MissPercentiles[pStr] = mc.missLatencies.Percentile(p)
+			}
 		}
 	}
 	
@@ -441,13 +443,18 @@ func (mc *MetricsCollector) getSizeMetrics() *SizeMetrics {
 }
 
 func (mc *MetricsCollector) getPerformanceMetrics() *PerformanceMetrics {
+	responseTime := time.Duration(0)
+	if mc.hitLatencies != nil {
+		responseTime = mc.hitLatencies.Average()
+	}
+	
 	// TODO: Calculate actual rates based on time windows
 	return &PerformanceMetrics{
 		ThroughputPerSec:  0,
 		OperationsPerSec:  0,
 		CacheMissesPerSec: 0,
 		EvictionsPerSec:   0,
-		ResponseTime:      mc.hitLatencies.Average(),
+		ResponseTime:      responseTime,
 	}
 }
 
@@ -582,7 +589,11 @@ func (mc *MetricsCollector) aggregateMetrics() {
 		Timestamp:  time.Now(),
 		HitRate:    mc.getBasicMetrics().HitRate,
 		Size:       atomic.LoadInt64(&mc.currentSize),
-		AvgLatency: mc.hitLatencies.Average(),
+	}
+	
+	// Only add average latency if hitLatencies is initialized
+	if mc.hitLatencies != nil {
+		point.AvgLatency = mc.hitLatencies.Average()
 	}
 	
 	// TODO: Add more metrics to time series
@@ -751,12 +762,17 @@ func (h *Histogram) ToJSON() ([]byte, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	
+	average := float64(0)
+	if h.count > 0 {
+		average = h.sum / float64(h.count)
+	}
+	
 	data := map[string]interface{}{
 		"buckets":    h.buckets,
 		"boundaries": h.boundaries,
 		"count":      h.count,
 		"sum":        h.sum,
-		"average":    h.sum / float64(h.count),
+		"average":    average,
 	}
 	
 	return json.Marshal(data)

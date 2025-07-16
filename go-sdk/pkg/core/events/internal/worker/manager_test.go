@@ -14,6 +14,21 @@ import (
 	"go.uber.org/zap/zaptest/observer"
 )
 
+// eventuallyWithTimeout is a helper function that retries a condition until it's true or timeout
+func eventuallyWithTimeout(t *testing.T, timeout time.Duration, interval time.Duration, condition func() bool, msgAndArgs ...interface{}) bool {
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if condition() {
+			return true
+		}
+		time.Sleep(interval)
+	}
+	if len(msgAndArgs) > 0 {
+		t.Errorf(msgAndArgs[0].(string), msgAndArgs[1:]...)
+	}
+	return false
+}
+
 func TestWorkerManager_StartWorker(t *testing.T) {
 	wm := NewWorkerManager(nil)
 	defer wm.Stop()
@@ -34,11 +49,9 @@ func TestWorkerManager_StartWorker(t *testing.T) {
 	}
 
 	// Wait for worker to complete
-	time.Sleep(100 * time.Millisecond)
-
-	if atomic.LoadInt32(&executed) != 1 {
-		t.Errorf("Expected worker to be executed once, got %d", atomic.LoadInt32(&executed))
-	}
+	eventuallyWithTimeout(t, 1*time.Second, 50*time.Millisecond, func() bool {
+		return atomic.LoadInt32(&executed) == 1
+	}, "Expected worker to be executed once, got %d", atomic.LoadInt32(&executed))
 
 	metrics := wm.GetMetrics()
 	if metrics.WorkersCreated != 1 {
@@ -53,7 +66,7 @@ func TestWorkerManager_WorkerTimeout(t *testing.T) {
 	workerFunc := func(ctx context.Context) error {
 		// This will timeout
 		select {
-		case <-time.After(time.Second):
+		case <-time.After(5 * time.Second):
 			return nil
 		case <-ctx.Done():
 			return ctx.Err()
@@ -62,7 +75,7 @@ func TestWorkerManager_WorkerTimeout(t *testing.T) {
 
 	opts := &WorkerOptions{
 		Name:    "timeout-worker",
-		Timeout: 50 * time.Millisecond,
+		Timeout: 500 * time.Millisecond, // Increased from 50ms to 500ms
 	}
 
 	_, err := wm.StartWorker("timeout-worker", workerFunc, opts)
@@ -70,14 +83,11 @@ func TestWorkerManager_WorkerTimeout(t *testing.T) {
 		t.Fatalf("Failed to start worker: %v", err)
 	}
 
-	// Wait for timeout
-	time.Sleep(200 * time.Millisecond)
-
-	// Worker should have been cancelled due to timeout
-	metrics := wm.GetMetrics()
-	if metrics.WorkersCompleted != 1 {
-		t.Errorf("Expected 1 worker completed, got %d", metrics.WorkersCompleted)
-	}
+	// Use Eventually pattern for reliable assertions
+	eventuallyWithTimeout(t, 2*time.Second, 100*time.Millisecond, func() bool {
+		metrics := wm.GetMetrics()
+		return metrics.WorkersCompleted == 1
+	}, "Expected 1 worker completed, got %d", wm.GetMetrics().WorkersCompleted)
 }
 
 func TestWorkerManager_PanicRecovery(t *testing.T) {
@@ -105,13 +115,12 @@ func TestWorkerManager_PanicRecovery(t *testing.T) {
 	}
 
 	// Wait for panic recovery
-	time.Sleep(100 * time.Millisecond)
-
-	metrics := wm.GetMetrics()
-	if metrics.PanicsRecovered != 1 {
-		t.Errorf("Expected 1 panic recovered, got %d", metrics.PanicsRecovered)
-	}
+	eventuallyWithTimeout(t, 1*time.Second, 50*time.Millisecond, func() bool {
+		metrics := wm.GetMetrics()
+		return metrics.PanicsRecovered == 1
+	}, "Expected 1 panic recovered, got %d", wm.GetMetrics().PanicsRecovered)
 	
+	metrics := wm.GetMetrics()
 	if metrics.WorkersFailed != 1 {
 		t.Errorf("Expected 1 worker failed, got %d", metrics.WorkersFailed)
 	}
@@ -146,7 +155,7 @@ func TestWorkerManager_WorkerRetries(t *testing.T) {
 	opts := &WorkerOptions{
 		Name:       "retry-worker",
 		MaxRetries: 3,
-		RetryDelay: 10 * time.Millisecond,
+		RetryDelay: 100 * time.Millisecond, // Increased from 10ms to 100ms
 	}
 
 	_, err := wm.StartWorker("retry-worker", workerFunc, opts)
@@ -154,17 +163,15 @@ func TestWorkerManager_WorkerRetries(t *testing.T) {
 		t.Fatalf("Failed to start worker: %v", err)
 	}
 
-	// Wait for retries to complete
-	time.Sleep(200 * time.Millisecond)
-
-	if atomic.LoadInt32(&attempts) != 3 {
-		t.Errorf("Expected 3 attempts, got %d", atomic.LoadInt32(&attempts))
-	}
-
-	metrics := wm.GetMetrics()
-	if metrics.WorkersCompleted != 1 {
-		t.Errorf("Expected 1 worker completed, got %d", metrics.WorkersCompleted)
-	}
+	// Use Eventually pattern for reliable assertions
+	eventuallyWithTimeout(t, 2*time.Second, 100*time.Millisecond, func() bool {
+		return atomic.LoadInt32(&attempts) == 3
+	}, "Expected 3 attempts, got %d", atomic.LoadInt32(&attempts))
+	
+	eventuallyWithTimeout(t, 2*time.Second, 100*time.Millisecond, func() bool {
+		metrics := wm.GetMetrics()
+		return metrics.WorkersCompleted == 1
+	}, "Expected 1 worker completed, got %d", wm.GetMetrics().WorkersCompleted)
 }
 
 func TestWorkerManager_CancelWorker(t *testing.T) {
@@ -188,19 +195,17 @@ func TestWorkerManager_CancelWorker(t *testing.T) {
 	}
 
 	// Give worker time to start
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	err = wm.CancelWorker(workerID)
 	if err != nil {
 		t.Fatalf("Failed to cancel worker: %v", err)
 	}
 
-	// Wait for cancellation
-	time.Sleep(100 * time.Millisecond)
-
-	if atomic.LoadInt32(&cancelled) != 1 {
-		t.Errorf("Expected worker to be cancelled, got %d", atomic.LoadInt32(&cancelled))
-	}
+	// Use Eventually pattern for reliable assertion
+	eventuallyWithTimeout(t, 2*time.Second, 100*time.Millisecond, func() bool {
+		return atomic.LoadInt32(&cancelled) == 1
+	}, "Expected worker to be cancelled, got %d", atomic.LoadInt32(&cancelled))
 }
 
 func TestWorkerManager_MaxWorkersLimit(t *testing.T) {
@@ -285,19 +290,16 @@ func TestWorkerManager_GracefulShutdown(t *testing.T) {
 		}
 	}
 
-	// Give workers time to complete
-	time.Sleep(50 * time.Millisecond)
+	// Wait for workers to complete
+	eventuallyWithTimeout(t, 1*time.Second, 50*time.Millisecond, func() bool {
+		metrics := wm.GetMetrics()
+		return metrics.WorkersCompleted == 5
+	}, "Expected 5 workers completed before shutdown, got %d", wm.GetMetrics().WorkersCompleted)
 
 	// Stop worker manager
 	err := wm.Stop()
 	if err != nil {
 		t.Fatalf("Failed to stop worker manager: %v", err)
-	}
-
-	// Check that all workers completed
-	metrics := wm.GetMetrics()
-	if metrics.WorkersCompleted != 5 {
-		t.Errorf("Expected 5 workers completed, got %d", metrics.WorkersCompleted)
 	}
 
 	// Manager should not be running
@@ -355,11 +357,9 @@ func TestWorkerManager_ConvenienceMethods(t *testing.T) {
 	}
 
 	// Wait for workers to complete
-	time.Sleep(200 * time.Millisecond)
-
-	if atomic.LoadInt32(&executed) != 3 {
-		t.Errorf("Expected 3 workers executed, got %d", atomic.LoadInt32(&executed))
-	}
+	eventuallyWithTimeout(t, 2*time.Second, 100*time.Millisecond, func() bool {
+		return atomic.LoadInt32(&executed) == 3
+	}, "Expected 3 workers executed, got %d", atomic.LoadInt32(&executed))
 }
 
 func TestWorkerManager_ConcurrentOperations(t *testing.T) {
@@ -396,12 +396,10 @@ func TestWorkerManager_ConcurrentOperations(t *testing.T) {
 	}
 
 	// Wait for all workers to complete
-	time.Sleep(200 * time.Millisecond)
-
-	metrics := wm.GetMetrics()
-	if metrics.WorkersCreated != 50 {
-		t.Errorf("Expected 50 workers created, got %d", metrics.WorkersCreated)
-	}
+	eventuallyWithTimeout(t, 2*time.Second, 100*time.Millisecond, func() bool {
+		metrics := wm.GetMetrics()
+		return metrics.WorkersCreated == 50
+	}, "Expected 50 workers created, got %d", wm.GetMetrics().WorkersCreated)
 }
 
 func TestWorkerManager_MemoryLeaks(t *testing.T) {
@@ -489,11 +487,9 @@ func TestWorkerManager_CustomPanicHandler(t *testing.T) {
 	}
 
 	// Wait for panic to be handled
-	time.Sleep(100 * time.Millisecond)
-
-	if !panicHandled {
-		t.Error("Expected custom panic handler to be called")
-	}
+	eventuallyWithTimeout(t, 1*time.Second, 50*time.Millisecond, func() bool {
+		return panicHandled
+	}, "Expected custom panic handler to be called")
 
 	if panicValue != expectedPanic {
 		t.Errorf("Expected panic value %v, got %v", expectedPanic, panicValue)

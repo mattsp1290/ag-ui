@@ -49,8 +49,8 @@ func TestRunEvents(t *testing.T) {
 		event := NewRunStartedEvent(threadID, runID)
 
 		assert.Equal(t, EventTypeRunStarted, event.Type())
-		assert.Equal(t, threadID, event.ThreadID)
-		assert.Equal(t, runID, event.RunID)
+		assert.Equal(t, threadID, event.ThreadID())
+		assert.Equal(t, runID, event.RunID())
 		assert.NoError(t, event.Validate())
 
 		// Test JSON serialization
@@ -65,11 +65,11 @@ func TestRunEvents(t *testing.T) {
 		assert.NotNil(t, pbEvent.GetRunStarted())
 
 		// Test validation errors
-		event.ThreadID = ""
+		event.ThreadIDValue = ""
 		assert.Error(t, event.Validate())
 
-		event.ThreadID = threadID
-		event.RunID = ""
+		event.ThreadIDValue = threadID
+		event.RunIDValue = ""
 		assert.Error(t, event.Validate())
 	})
 
@@ -80,8 +80,8 @@ func TestRunEvents(t *testing.T) {
 		event := NewRunFinishedEvent(threadID, runID)
 
 		assert.Equal(t, EventTypeRunFinished, event.Type())
-		assert.Equal(t, threadID, event.ThreadID)
-		assert.Equal(t, runID, event.RunID)
+		assert.Equal(t, threadID, event.ThreadID())
+		assert.Equal(t, runID, event.RunID())
 		assert.NoError(t, event.Validate())
 
 		// Test JSON serialization
@@ -105,7 +105,7 @@ func TestRunEvents(t *testing.T) {
 		assert.Equal(t, EventTypeRunError, event.Type())
 		assert.Equal(t, message, event.Message)
 		assert.Equal(t, &code, event.Code)
-		assert.Equal(t, runID, event.RunID)
+		assert.Equal(t, runID, event.RunID())
 		assert.NoError(t, event.Validate())
 
 		// Test validation error

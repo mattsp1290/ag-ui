@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -337,7 +338,11 @@ func (m *integrationMockEvent) Validate() error {
 }
 
 func (m *integrationMockEvent) ToJSON() ([]byte, error) {
-	return []byte(fmt.Sprintf(`{"type":"%s","data":%v}`, m.eventType, m.data)), nil
+	dataJSON, err := json.Marshal(m.data)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(fmt.Sprintf(`{"type":"%s","data":%s}`, m.eventType, dataJSON)), nil
 }
 
 func (m *integrationMockEvent) ToProtobuf() (*generated.Event, error) {
@@ -346,4 +351,12 @@ func (m *integrationMockEvent) ToProtobuf() (*generated.Event, error) {
 
 func (m *integrationMockEvent) GetBaseEvent() *events.BaseEvent {
 	return nil
+}
+
+func (m *integrationMockEvent) ThreadID() string {
+	return ""
+}
+
+func (m *integrationMockEvent) RunID() string {
+	return ""
 }

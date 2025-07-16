@@ -153,16 +153,16 @@ func protobufToBaseEvent(pbBase *generated.BaseEvent) *BaseEvent {
 func protobufToRunStartedEvent(pb *generated.RunStartedEvent) *RunStartedEvent {
 	return &RunStartedEvent{
 		BaseEvent: protobufToBaseEvent(pb.BaseEvent),
-		ThreadID:  pb.ThreadId,
-		RunID:     pb.RunId,
+		ThreadIDValue: pb.ThreadId,
+		RunIDValue:    pb.RunId,
 	}
 }
 
 func protobufToRunFinishedEvent(pb *generated.RunFinishedEvent) *RunFinishedEvent {
 	return &RunFinishedEvent{
 		BaseEvent: protobufToBaseEvent(pb.BaseEvent),
-		ThreadID:  pb.ThreadId,
-		RunID:     pb.RunId,
+		ThreadIDValue: pb.ThreadId,
+		RunIDValue:    pb.RunId,
 	}
 }
 

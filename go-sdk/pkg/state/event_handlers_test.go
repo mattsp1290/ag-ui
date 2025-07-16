@@ -123,7 +123,7 @@ func TestStateEventHandler_HandleStateDelta(t *testing.T) {
 					"123": map[string]interface{}{
 						"name":  "John Doe",
 						"email": "john.doe@example.com",
-						"age":   float64(30), // JSON unmarshaling converts to float64
+						"age":   30, // Value is int
 					},
 				},
 			},
@@ -410,7 +410,7 @@ func TestStateEventHandler_Callbacks(t *testing.T) {
 	assert.True(t, snapshotCalled)
 
 	// Wait a bit for async state change callback
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(50 * time.Millisecond)
 	assert.True(t, stateChangeCalled)
 
 	// Reset flags

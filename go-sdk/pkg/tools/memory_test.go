@@ -4,7 +4,9 @@ import (
 	"context"
 	"fmt"
 	"math"
+	"os"
 	"runtime"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -52,24 +54,59 @@ type MemoryTestConfig struct {
 	RegressionThreshold  float64 // Percentage increase threshold
 }
 
+// getMemoryTimeoutScale returns a scale factor for timeouts based on environment
+func getMemoryTimeoutScale() float64 {
+	if scale := os.Getenv("TEST_TIMEOUT_SCALE"); scale != "" {
+		if s, err := strconv.ParseFloat(scale, 64); err == nil && s > 0 {
+			return s
+		}
+	}
+	// Default scale for CI environments
+	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" || os.Getenv("JENKINS_URL") != "" {
+		return 0.5 // Reduce timeouts by 50% in CI
+	}
+	return 1.0
+}
+
 // DefaultMemoryTestConfig returns default memory testing configuration
 func DefaultMemoryTestConfig() *MemoryTestConfig {
+	scale := getMemoryTimeoutScale()
+	
+	// Use much shorter timeouts in short mode for CI
+	leakWindow := 30 * time.Second
+	profileDuration := 60 * time.Second
+	warmupDuration := 10 * time.Second
+	testDuration := 60 * time.Second
+	stabilizationTime := 5 * time.Second
+	stressTestDuration := 120 * time.Second
+	stressIntensity := 100
+	
+	if testing.Short() {
+		leakWindow = 1 * time.Second
+		profileDuration = 3 * time.Second
+		warmupDuration = 1 * time.Second
+		testDuration = 5 * time.Second
+		stabilizationTime = 1 * time.Second
+		stressTestDuration = 5 * time.Second
+		stressIntensity = 10 // Reduce stress in short mode
+	}
+	
 	return &MemoryTestConfig{
 		SamplingInterval:     100 * time.Millisecond,
-		ProfileDuration:      60 * time.Second,
+		ProfileDuration:      time.Duration(float64(profileDuration) * scale),
 		GCForceInterval:      5 * time.Second,
-		LeakDetectionWindow:  30 * time.Second,
+		LeakDetectionWindow:  time.Duration(float64(leakWindow) * scale),
 		LeakThreshold:        1024 * 1024, // 1MB/sec
 		MinSamples:           50,
 		ConfidenceLevel:      0.95,
-		WarmupDuration:       10 * time.Second,
-		TestDuration:         60 * time.Second,
-		StabilizationTime:    5 * time.Second,
+		WarmupDuration:       time.Duration(float64(warmupDuration) * scale),
+		TestDuration:         time.Duration(float64(testDuration) * scale),
+		StabilizationTime:    time.Duration(float64(stabilizationTime) * scale),
 		MaxMemoryUsage:       1024 * 1024 * 1024, // 1GB
 		MaxHeapSize:          512 * 1024 * 1024,  // 512MB
 		MaxGoroutines:        10000,
-		StressTestDuration:   120 * time.Second,
-		StressIntensity:      100,
+		StressTestDuration:   time.Duration(float64(stressTestDuration) * scale),
+		StressIntensity:      stressIntensity,
 		BaselineFile:         "memory_baseline.json",
 		RegressionThreshold:  20.0, // 20% increase
 	}
@@ -444,6 +481,10 @@ func NewMemoryTestSuite(config *MemoryTestConfig) *MemoryTestSuite {
 
 // TestMemoryUsage runs comprehensive memory usage tests
 func TestMemoryUsage(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping stress test in short mode")
+	}
+	
 	suite := NewMemoryTestSuite(DefaultMemoryTestConfig())
 	
 	t.Run("BasicMemoryUsage", func(t *testing.T) {
@@ -579,9 +620,13 @@ func (suite *MemoryTestSuite) testMemoryStressTest(t *testing.T) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(suite.config.StressIntensity))
 	
-	// Create stress test tools
-	tools := make([]*Tool, 10)
-	for i := 0; i < 10; i++ {
+	// Create stress test tools - reduce count in short mode
+	toolCount := 10
+	if testing.Short() {
+		toolCount = 3 // Fewer tools for CI
+	}
+	tools := make([]*Tool, toolCount)
+	for i := 0; i < toolCount; i++ {
 		tools[i] = createMemoryStressTool(fmt.Sprintf("stress-test-%d", i))
 		if err := registry.Register(tools[i]); err != nil {
 			t.Fatalf("Failed to register stress tool: %v", err)
@@ -1068,6 +1113,11 @@ func (suite *MemoryTestSuite) analyzeGCBehavior(t *testing.T, initial, final *ru
 		avgPauseTime := time.Duration(totalPauseTime / uint64(gcCount))
 		gcFrequency := float64(gcCount) / suite.config.TestDuration.Seconds()
 		
+		// Ensure MemoryStats is initialized
+		if suite.results.MemoryStats == nil {
+			suite.results.MemoryStats = &MemoryStatistics{}
+		}
+		
 		suite.results.MemoryStats.GCStats = &GCStatistics{
 			TotalGCs:         gcCount,
 			GCFrequency:      gcFrequency,
@@ -1356,9 +1406,14 @@ func (e *GoroutineLeakyExecutor) Execute(ctx context.Context, params map[string]
 	// Create goroutines that don't terminate
 	for i := 0; i < count; i++ {
 		go func() {
-			// Infinite loop - goroutine leak
+			// Goroutine leak with context handling for test cleanup
 			for {
-				time.Sleep(time.Second)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(time.Second):
+					// Continue looping unless context is cancelled
+				}
 			}
 		}()
 	}
@@ -1476,12 +1531,12 @@ func (suite *MemoryTestSuite) calculateRegressionSeverity(change float64) PerfRe
 func (suite *MemoryTestSuite) generateRecommendations() {
 	// Generate recommendations based on analysis results
 	if suite.results.MemoryStats != nil {
-		if suite.results.MemoryStats.HeapStats.Growth > 50 {
+		if suite.results.MemoryStats.HeapStats != nil && suite.results.MemoryStats.HeapStats.Growth > 50 {
 			suite.results.Recommendations = append(suite.results.Recommendations,
 				"Consider implementing object pooling to reduce allocation pressure")
 		}
 		
-		if suite.results.MemoryStats.GCStats.GCFrequency > 10 {
+		if suite.results.MemoryStats.GCStats != nil && suite.results.MemoryStats.GCStats.GCFrequency > 10 {
 			suite.results.Recommendations = append(suite.results.Recommendations,
 				"High GC frequency detected - consider reducing allocation rate")
 		}
@@ -1594,10 +1649,16 @@ func (suite *MemoryTestSuite) calculateGCStatistics(snapshots []MemorySnapshot) 
 	
 	totalGCs := last.NumGC - first.NumGC
 	duration := last.Timestamp.Sub(first.Timestamp)
-	frequency := float64(totalGCs) / duration.Seconds()
+	var frequency float64
+	if duration.Seconds() > 0 {
+		frequency = float64(totalGCs) / duration.Seconds()
+	}
 	
 	totalPause := last.PauseTotalNs - first.PauseTotalNs
-	avgPause := time.Duration(totalPause / uint64(totalGCs))
+	var avgPause time.Duration
+	if totalGCs > 0 {
+		avgPause = time.Duration(totalPause / uint64(totalGCs))
+	}
 	
 	return &GCStatistics{
 		TotalGCs:         totalGCs,

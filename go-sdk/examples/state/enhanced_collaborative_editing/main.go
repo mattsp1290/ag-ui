@@ -1,5 +1,10 @@
 // Package main demonstrates enhanced collaborative editing with production features
 // including storage backends, monitoring, resilient event handling, and performance optimization.
+//
+// Environment Variables:
+//   REDIS_CONN_STRING - Redis connection string for storage backend
+//                      Example: "redis://user:password@redis-host:6379/0"
+//                      Default: "redis://localhost:6379/0" (no authentication)
 package main
 
 import (
@@ -8,6 +13,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"os"
 	"sync"
 	"time"
 
@@ -153,9 +159,18 @@ func createEnhancedSession(ctx context.Context) *EnhancedCollaborationSession {
 	sessionCtx, cancel := context.WithCancel(ctx)
 
 	// Configure storage backend (using Redis for production)
+	// Get connection URL from environment variable with safe default (no credentials)
+	redisURL := os.Getenv("REDIS_CONN_STRING")
+	if redisURL == "" {
+		// Use a safe default without credentials
+		// In production, this should fail or use a different approach
+		redisURL = "redis://localhost:6379/0"
+		log.Println("Warning: REDIS_CONN_STRING not set, using default localhost connection")
+	}
+
 	storageConfig := &state.StorageConfig{
 		Type:              state.StorageTypeRedis,
-		ConnectionURL:     "redis://localhost:6379/0",
+		ConnectionURL:     redisURL,
 		MaxConnections:    50,
 		ConnectionTimeout: 10 * time.Second,
 		Compression: state.CompressionConfig{

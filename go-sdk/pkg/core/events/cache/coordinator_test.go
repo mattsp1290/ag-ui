@@ -101,12 +101,21 @@ func (m *MockTransport) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	
+	if m.closed {
+		return nil // Already closed
+	}
+	
 	m.closed = true
 	
 	// Close all subscriber channels
 	for _, channels := range m.subscribers {
 		for _, ch := range channels {
-			close(ch)
+			select {
+			case <-ch:
+				// Channel already closed
+			default:
+				close(ch)
+			}
 		}
 	}
 	
@@ -387,9 +396,21 @@ func (suite *CacheCoordinatorTestSuite) TestShardedCacheUpdate() {
 	}
 	coordinator.mu.Unlock()
 	
+	// Find a key that maps to shard 1 (which has node-2)
+	testKey := "a" // Simple key that should map to shard 1
+	hash := 0
+	for _, b := range []byte(testKey) {
+		hash = hash*31 + int(b)
+	}
+	expectedShard := hash % 4
+	// If it doesn't map to shard 1, try a different key
+	if expectedShard != 1 && expectedShard != 3 { // shard 1 or 3 both have node-2
+		testKey = "b"
+	}
+	
 	updateMsg := CacheUpdateMessage{
 		NodeID:    "node-1",
-		Key:       "test-key",
+		Key:       testKey,
 		EventType: "test-event",
 		Operation: "SET",
 		Timestamp: time.Now(),

@@ -564,8 +564,11 @@ func TestAdaptiveOptimization(t *testing.T) {
 		pm.metricsCollector.TrackMessageLatency(100 * time.Millisecond)
 	}
 
-	// Wait for adaptation
-	time.Sleep(1 * time.Second)
+	// Force immediate adaptation instead of waiting for the interval
+	ao.adaptSettings()
+
+	// Give a small delay for settings to take effect
+	time.Sleep(100 * time.Millisecond)
 
 	// Check that settings were adapted
 	assert.True(t, config.MessageBatchSize <= 5, "Batch size should be reduced for latency")
@@ -717,6 +720,14 @@ func (m *benchMockEvent) ToProtobuf() (*generated.Event, error) {
 
 func (m *benchMockEvent) GetBaseEvent() *events.BaseEvent {
 	return nil
+}
+
+func (m *benchMockEvent) ThreadID() string {
+	return ""
+}
+
+func (m *benchMockEvent) RunID() string {
+	return ""
 }
 
 // Helper function to measure memory usage

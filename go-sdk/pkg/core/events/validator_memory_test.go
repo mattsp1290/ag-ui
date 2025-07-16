@@ -89,8 +89,8 @@ func TestEventSequenceTracker_MemoryLeakDetection(t *testing.T) {
 			// Add run started
 			tracker.TrackEvent(&RunStartedEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-				RunID:     runID,
-				ThreadID:  "thread-1",
+				RunIDValue:     runID,
+				ThreadIDValue:  "thread-1",
 			})
 
 			// Add message events
@@ -113,7 +113,7 @@ func TestEventSequenceTracker_MemoryLeakDetection(t *testing.T) {
 			// Finish run
 			tracker.TrackEvent(&RunFinishedEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeRunFinished},
-				RunID:     runID,
+				RunIDValue:     runID,
 			})
 		}
 
@@ -253,8 +253,8 @@ func TestValidator_LargeSequenceMemory(t *testing.T) {
 	// Start with RUN_STARTED
 	events[0] = &RunStartedEvent{
 		BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-		RunID:     "run-large",
-		ThreadID:  "thread-large",
+		RunIDValue:     "run-large",
+		ThreadIDValue:  "thread-large",
 	}
 
 	// Add many message events with proper start/content/end sequences
@@ -293,7 +293,7 @@ func TestValidator_LargeSequenceMemory(t *testing.T) {
 	// End with RUN_FINISHED
 	events[9999] = &RunFinishedEvent{
 		BaseEvent: &BaseEvent{EventType: EventTypeRunFinished},
-		RunID:     "run-large",
+		RunIDValue:     "run-large",
 	}
 
 	// Record memory before validation

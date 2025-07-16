@@ -8,6 +8,10 @@ import (
 
 // TestMemoryProfile compares memory usage between GetState and GetStateView
 func TestMemoryProfile(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping memory profile test in short mode")
+	}
+	
 	store := NewStateStore()
 
 	// Create a large state

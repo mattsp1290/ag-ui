@@ -477,6 +477,11 @@ func parseArrayIndex(token string, length int) (int, bool, error) {
 		return 0, false, fmt.Errorf("invalid array index: %s", token)
 	}
 
+	// Check for negative index
+	if idx < 0 {
+		return 0, false, fmt.Errorf("negative array index not allowed: %s", token)
+	}
+
 	return idx, false, nil
 }
 

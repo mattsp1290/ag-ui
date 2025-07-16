@@ -326,8 +326,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 	go c.readPump()
 	go c.writePump()
 
-	// Start heartbeat (manages its own goroutines)
-	c.heartbeat.Start(c.ctx)
+	// Note: Heartbeat is started manually via heartbeat.Start()
 
 	// Call connect handler
 	c.handlersMutex.RLock()
@@ -432,6 +431,11 @@ func (c *Connection) SendMessage(ctx context.Context, message []byte) error {
 	// Send message through message channel
 	select {
 	case c.messageCh <- message:
+		// Update metrics when message is accepted for sending
+		c.metrics.mutex.Lock()
+		c.metrics.MessagesSent++
+		c.metrics.BytesSent += int64(len(message))
+		c.metrics.mutex.Unlock()
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -584,7 +588,9 @@ func (c *Connection) readPump() {
 				if c.State() == StateConnected {
 					c.triggerReconnect()
 				}
-				return
+				// Don't return immediately - let the reconnection logic handle it
+				time.Sleep(100 * time.Millisecond)
+				continue
 			}
 
 			// Update metrics
@@ -633,14 +639,12 @@ func (c *Connection) writePump() {
 				if c.State() == StateConnected {
 					c.triggerReconnect()
 				}
-				return
+				// Don't return immediately - let the reconnection logic handle it
+				time.Sleep(100 * time.Millisecond)
+				continue
 			}
 
-			// Update metrics
-			c.metrics.mutex.Lock()
-			c.metrics.MessagesSent++
-			c.metrics.BytesSent += int64(len(message))
-			c.metrics.mutex.Unlock()
+			// Message was successfully written (metrics already updated in SendMessage)
 		}
 	}
 }

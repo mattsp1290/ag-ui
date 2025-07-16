@@ -39,8 +39,8 @@ func Example_basicAuthentication() {
 			EventType:   events.EventTypeRunStarted,
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 	
 	// Validate with authentication
@@ -90,8 +90,8 @@ func Example_tokenAuthentication() {
 			EventType:   events.EventTypeRunStarted,
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 	
 	// Validate with token
@@ -119,8 +119,8 @@ func Example_requiredAuthentication() {
 			EventType:   events.EventTypeRunStarted,
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 	
 	ctx := context.Background()
@@ -182,8 +182,8 @@ func Example_authorizationRoles() {
 			EventType:   events.EventTypeRunStarted,
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 	
 	ctx := context.Background()
@@ -231,8 +231,8 @@ func Example_customHooks() {
 			EventType:   events.EventTypeRunStarted,
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 	
 	ctx := context.Background()

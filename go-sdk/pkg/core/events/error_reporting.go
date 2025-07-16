@@ -555,11 +555,11 @@ func (r *ErrorReporter) isRelatedEvent(event Event, eventID string) bool {
 	case *ToolCallEndEvent:
 		return e.ToolCallID == eventID
 	case *RunStartedEvent:
-		return e.RunID == eventID
+		return e.RunID() == eventID
 	case *RunFinishedEvent:
-		return e.RunID == eventID
+		return e.RunID() == eventID
 	case *RunErrorEvent:
-		return e.RunID == eventID
+		return e.RunID() == eventID
 	}
 
 	return false

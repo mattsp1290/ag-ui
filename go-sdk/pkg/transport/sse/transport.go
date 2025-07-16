@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -83,6 +84,18 @@ func DefaultConfig() *Config {
 		MaxReconnects:  5,
 		Client: &http.Client{
 			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					MinVersion: tls.VersionTLS12,
+					CipherSuites: []uint16{
+						tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+						tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+						tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+						tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+						tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+					},
+				},
+			},
 		},
 	}
 }
@@ -100,6 +113,18 @@ func NewSSETransport(config *Config) (*SSETransport, error) {
 	if config.Client == nil {
 		config.Client = &http.Client{
 			Timeout: 30 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					MinVersion: tls.VersionTLS12,
+					CipherSuites: []uint16{
+						tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+						tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+						tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+						tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+						tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+					},
+				},
+			},
 		}
 	}
 
@@ -272,11 +297,28 @@ func (t *SSETransport) readEvents() {
 			event, err := t.readEvent()
 			if err != nil {
 				if !t.isClosed() {
-					t.errorChan <- err
+					// Send error to channel safely
+					select {
+					case t.errorChan <- err:
+					case <-t.ctx.Done():
+						return
+					default:
+						// Channel is full or closed, continue
+					}
+					
 					// Try to reconnect
 					if t.shouldReconnect(err) {
 						if reconnectErr := t.reconnect(); reconnectErr != nil {
-							t.errorChan <- reconnectErr
+							// Send reconnection error safely
+							if !t.isClosed() {
+								select {
+								case t.errorChan <- reconnectErr:
+								case <-t.ctx.Done():
+									return
+								default:
+									// Channel is full or closed, continue
+								}
+							}
 							return
 						}
 						continue
@@ -285,11 +327,13 @@ func (t *SSETransport) readEvents() {
 				return
 			}
 
-			if event != nil {
+			if event != nil && !t.isClosed() {
 				select {
 				case t.eventChan <- event:
 				case <-t.ctx.Done():
 					return
+				default:
+					// Channel is full or closed, continue
 				}
 			}
 		}

@@ -65,10 +65,10 @@ const (
 	DefaultMaxConnections     = 100             // Maximum connections
 
 	// Performance and Monitoring
-	DefaultGCMonitoringInterval       = 100 * time.Millisecond // GC monitoring frequency
-	DefaultResourceSampleInterval     = 10 * time.Second       // Resource monitoring interval
-	DefaultMemoryMonitoringInterval   = 5 * time.Second        // Memory monitoring frequency
-	DefaultPerformanceMetricsInterval = 30 * time.Second       // Performance metrics collection
+	DefaultGCMonitoringInterval       = 30 * time.Second       // GC monitoring frequency
+	DefaultResourceSampleInterval     = 5 * time.Minute        // Resource monitoring interval
+	DefaultMemoryMonitoringInterval   = 2 * time.Minute        // Memory monitoring frequency
+	DefaultPerformanceMetricsInterval = 2 * time.Minute        // Performance metrics collection
 	DefaultCompressionLevel           = 6                      // Default compression level
 	DefaultCompressionThreshold       = 50 * 1024 * 1024       // 50MB threshold for compression
 
@@ -103,8 +103,8 @@ const (
 // Health Check and Monitoring Constants
 const (
 	// Health Check Settings
-	DefaultHealthCheckInterval = 30 * time.Second // Health check frequency
-	DefaultHealthCheckTimeout  = 5 * time.Second  // Health check timeout
+	DefaultHealthCheckInterval = 5 * time.Minute // Health check frequency
+	DefaultHealthCheckTimeout  = 30 * time.Second // Health check timeout
 
 	// Alert Thresholds
 	DefaultErrorRateThreshold       = 5.0                    // 5% error rate threshold
@@ -173,9 +173,9 @@ const (
 // Cleanup and Maintenance Constants
 const (
 	// Cleanup Frequencies
-	DefaultCleanupWorkerInterval  = time.Minute     // Cleanup worker run frequency
-	DefaultExpiredCleanupInterval = 5 * time.Minute // Expired entries cleanup
-	DefaultMaintenanceInterval    = 1 * time.Hour   // General maintenance interval
+	DefaultCleanupWorkerInterval  = 10 * time.Minute // Cleanup worker run frequency
+	DefaultExpiredCleanupInterval = 30 * time.Minute // Expired entries cleanup
+	DefaultMaintenanceInterval    = 2 * time.Hour    // General maintenance interval
 
 	// Retention Policies
 	DefaultMetricsRetention  = 24 * time.Hour      // Metrics retention period

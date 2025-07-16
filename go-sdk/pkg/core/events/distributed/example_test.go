@@ -27,7 +27,9 @@ func ExampleDistributedValidator() {
 	}
 
 	// Start the validator
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	
 	err = dv.Start(ctx)
 	if err != nil {
 		log.Fatal(err)
@@ -57,12 +59,14 @@ func ExampleDistributedValidator() {
 			EventType:   events.EventTypeRunStarted,
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "test-run-1",
-		ThreadID: "test-thread-1",
+		RunIDValue:    "test-run-1",
+		ThreadIDValue: "test-thread-1",
 	}
 
-	// Validate the event using distributed consensus
-	result := dv.ValidateEvent(ctx, event)
+	// Validate the event using distributed consensus with timeout
+	validationCtx, validationCancel := context.WithTimeout(ctx, 2*time.Second)
+	defer validationCancel()
+	result := dv.ValidateEvent(validationCtx, event)
 
 	if result.IsValid {
 		fmt.Println("Event validation successful")

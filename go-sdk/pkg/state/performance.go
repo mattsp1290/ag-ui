@@ -597,6 +597,11 @@ func (po *PerformanceOptimizerImpl) calculateCacheHitRate() float64 {
 
 // Stop stops the performance optimizer
 func (po *PerformanceOptimizerImpl) Stop() {
+	// Prevent double-stopping
+	if po.ctx.Err() != nil {
+		return
+	}
+
 	// Cancel context to stop monitoring goroutines
 	po.cancel()
 
@@ -604,7 +609,12 @@ func (po *PerformanceOptimizerImpl) Stop() {
 	po.wg.Wait()
 
 	if po.enableBatching {
-		close(po.stopBatch)
+		select {
+		case <-po.stopBatch:
+			// Channel already closed
+		default:
+			close(po.stopBatch)
+		}
 		po.batchWorkers.Wait()
 	}
 
@@ -621,6 +631,11 @@ func (po *PerformanceOptimizerImpl) Stop() {
 	// Shutdown concurrent optimizer
 	if po.concurrentOptimizer != nil {
 		po.concurrentOptimizer.Shutdown()
+	}
+
+	// Stop lazy cache
+	if po.lazyCache != nil {
+		po.lazyCache.Stop()
 	}
 }
 
@@ -959,6 +974,7 @@ type LazyCache struct {
 	misses  atomic.Int64
 	mu      sync.RWMutex
 	keys    []string // For LRU eviction
+	stop    chan struct{}
 }
 
 // CacheEntry represents a cached entry
@@ -974,6 +990,7 @@ func NewLazyCache(maxSize int, ttl time.Duration) *LazyCache {
 		maxSize: maxSize,
 		ttl:     ttl,
 		keys:    make([]string, 0, maxSize),
+		stop:    make(chan struct{}),
 	}
 
 	// Start cleanup goroutine
@@ -1062,11 +1079,15 @@ func (lc *LazyCache) cleanup() {
 	ticker := time.NewTicker(DefaultCleanupWorkerInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		now := time.Now()
-		lc.cache.Range(func(key, value interface{}) bool {
-			entry := value.(*CacheEntry)
-			if now.After(entry.expires) {
+	for {
+		select {
+		case <-lc.stop:
+			return
+		case <-ticker.C:
+			now := time.Now()
+			lc.cache.Range(func(key, value interface{}) bool {
+				entry := value.(*CacheEntry)
+				if now.After(entry.expires) {
 				lc.cache.Delete(key)
 				lc.mu.Lock()
 				lc.removeKey(key.(string))
@@ -1075,7 +1096,13 @@ func (lc *LazyCache) cleanup() {
 			}
 			return true
 		})
+		}
 	}
+}
+
+// Stop stops the cleanup goroutine
+func (lc *LazyCache) Stop() {
+	close(lc.stop)
 }
 
 // GetStats returns cache statistics
@@ -1200,8 +1227,17 @@ func (co *ConcurrentOptimizer) GetActiveTasks() int64 {
 
 // Shutdown shuts down the concurrent optimizer
 func (co *ConcurrentOptimizer) Shutdown() {
+	// Signal shutdown to all workers
 	close(co.shutdown)
+	
+	// Wait for all workers to finish
 	co.workers.Wait()
+	
+	// Now that workers are done, drain and close the task queue
+	close(co.taskQueue)
+	for range co.taskQueue {
+		// Drain any remaining tasks
+	}
 }
 
 // GetBuffer gets a buffer from the pool
@@ -1373,7 +1409,6 @@ func (po *PerformanceOptimizerImpl) CompressData(data []byte) ([]byte, error) {
 	defer po.PutBuffer(buf)
 
 	writer := gzip.NewWriter(buf)
-	defer writer.Close()
 
 	if _, err := writer.Write(data); err != nil {
 		return nil, fmt.Errorf("failed to compress data: %w", err)
@@ -1384,7 +1419,11 @@ func (po *PerformanceOptimizerImpl) CompressData(data []byte) ([]byte, error) {
 	}
 
 	po.bytesWritten.Add(int64(len(data)))
-	return buf.Bytes(), nil
+	
+	// Create a copy of the compressed data before returning the buffer to the pool
+	compressed := make([]byte, buf.Len())
+	copy(compressed, buf.Bytes())
+	return compressed, nil
 }
 
 // DecompressData decompresses gzip data
@@ -1407,7 +1446,11 @@ func (po *PerformanceOptimizerImpl) DecompressData(data []byte) ([]byte, error) 
 	}
 
 	po.bytesRead.Add(int64(len(data)))
-	return buf.Bytes(), nil
+	
+	// Create a copy of the decompressed data before returning the buffer to the pool
+	decompressed := make([]byte, buf.Len())
+	copy(decompressed, buf.Bytes())
+	return decompressed, nil
 }
 
 // IsCompressionEnabled returns whether compression is enabled

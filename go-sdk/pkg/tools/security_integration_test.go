@@ -199,7 +199,7 @@ func testCrossToolSecurityValidation(t *testing.T, env *SecurityTestEnvironment)
 	for _, scenario := range testScenarios {
 		t.Run(scenario.name, func(t *testing.T) {
 			for i, operation := range scenario.operations {
-				tool, err := registry.Get(operation.tool)
+				tool, err := registry.GetByName(operation.tool)
 				if err != nil {
 					t.Fatalf("Tool %s not found in registry: %v", operation.tool, err)
 				}
@@ -294,13 +294,13 @@ func testSecureRegistryIntegration(t *testing.T, env *SecurityTestEnvironment) {
 			// Test tool availability
 			expectedTools := []string{"read_file", "write_file", "http_get", "http_post"}
 			for _, toolName := range expectedTools {
-				if _, err := testRegistry.Get(toolName); err != nil {
+				if _, err := testRegistry.GetByName(toolName); err != nil {
 					t.Errorf("Expected tool %s not found in registry with %s config: %v", toolName, config.name, err)
 				}
 			}
 
 			// Test security enforcement
-			readTool, err := testRegistry.Get("read_file")
+			readTool, err := testRegistry.GetByName("read_file")
 			if err != nil {
 				t.Fatalf("Failed to get read_file tool: %v", err)
 			}
@@ -487,6 +487,10 @@ func testAttackVectorCombinations(t *testing.T, env *SecurityTestEnvironment) {
 
 // testSecurityPolicyEnforcement tests security policy enforcement
 func testSecurityPolicyEnforcement(t *testing.T, env *SecurityTestEnvironment) {
+	// Create a test file for read operations
+	utils := env.GetUtils()
+	testFile := utils.CreateTestFile(t, "test.txt", "test content for policy enforcement")
+	
 	// Test different security policies
 	policies := []struct {
 		name        string
@@ -512,7 +516,7 @@ func testSecurityPolicyEnforcement(t *testing.T, env *SecurityTestEnvironment) {
 				{
 					name:        "ValidFileAccess",
 					operation:   "file",
-					params:      map[string]interface{}{"path": filepath.Join(env.GetTempDir(), "test.txt")},
+					params:      map[string]interface{}{"path": testFile},
 					expectAllow: true,
 				},
 				{
@@ -544,7 +548,7 @@ func testSecurityPolicyEnforcement(t *testing.T, env *SecurityTestEnvironment) {
 				DenyPaths:     []string{"/etc/shadow", "/root"},
 			},
 			httpOptions: &SecureHTTPOptions{
-				AllowedHosts:         []string{"example.com", "api.example.com", "cdn.example.com"},
+				AllowedHosts:         []string{"example.com"},
 				AllowPrivateNetworks: false,
 				AllowedSchemes:       []string{"http", "https"},
 				MaxRedirects:         10,
@@ -553,13 +557,13 @@ func testSecurityPolicyEnforcement(t *testing.T, env *SecurityTestEnvironment) {
 				{
 					name:        "ValidFileAccess",
 					operation:   "file",
-					params:      map[string]interface{}{"path": filepath.Join(env.GetTempDir(), "test.txt")},
+					params:      map[string]interface{}{"path": testFile},
 					expectAllow: true,
 				},
 				{
 					name:        "ValidHTTPAccess",
 					operation:   "http",
-					params:      map[string]interface{}{"url": "https://api.example.com"},
+					params:      map[string]interface{}{"url": "https://example.com"},
 					expectAllow: true,
 				},
 				{
@@ -674,14 +678,14 @@ func testRealWorldScenarios(t *testing.T, env *SecurityTestEnvironment) {
 			description: "Application making API call to trusted service",
 			setup: func() (ToolExecutor, map[string]interface{}) {
 				options := &SecureHTTPOptions{
-					AllowedHosts:         []string{"api.example.com", "cdn.example.com"},
+					AllowedHosts:         []string{"example.com"},
 					AllowPrivateNetworks: false,
 					AllowedSchemes:       []string{"https"},
 					MaxRedirects:         5,
 				}
 				executor := NewSecureHTTPExecutor(&mockHTTPExecutorForIntegration{}, options)
 				params := map[string]interface{}{
-					"url": "https://api.example.com/v1/data",
+					"url": "https://example.com/v1/data",
 				}
 				return executor, params
 			},

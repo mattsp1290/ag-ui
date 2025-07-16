@@ -158,13 +158,13 @@ func (r *ProtocolSequenceRule) validateEventContext(currentEvent, previousEvent 
 	// For run events, they should be from the same run
 	if currentRunEvent, ok := currentEvent.(*RunFinishedEvent); ok {
 		if prevRunEvent, ok := previousEvent.(*RunStartedEvent); ok {
-			return currentRunEvent.RunID == prevRunEvent.RunID
+			return currentRunEvent.RunID() == prevRunEvent.RunID()
 		}
 	}
 
 	if currentRunEvent, ok := currentEvent.(*RunErrorEvent); ok {
 		if prevRunEvent, ok := previousEvent.(*RunStartedEvent); ok {
-			return currentRunEvent.RunID == prevRunEvent.RunID
+			return currentRunEvent.RunID() == prevRunEvent.RunID()
 		}
 	}
 

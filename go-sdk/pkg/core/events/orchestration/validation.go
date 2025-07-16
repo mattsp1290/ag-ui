@@ -11,6 +11,7 @@ import (
 type OrchestrationValidationContext struct {
 	EventData   map[string]interface{}
 	Metadata    map[string]interface{}
+	Properties  map[string]interface{}
 	Source      string
 	Environment string
 	Tags        map[string]string

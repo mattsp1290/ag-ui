@@ -218,9 +218,8 @@ func (h *NotificationHandler) Handle(ctx context.Context, err error) error {
 			defer func() {
 				if r := recover(); r != nil {
 					// Log panic but don't propagate
-					if h.logger != nil {
-						h.logger.Error("panic in notification handler", Err(fmt.Errorf("recovered panic: %v", r)))
-					}
+					// Since we don't have a logger in NotificationHandler, we'll just ignore the panic
+					_ = fmt.Errorf("recovered panic in notification handler: %v", r)
 				}
 			}()
 			notifyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -238,9 +237,8 @@ func (h *NotificationHandler) HandleWithSeverity(ctx context.Context, err error,
 			defer func() {
 				if r := recover(); r != nil {
 					// Log panic but don't propagate
-					if h.logger != nil {
-						h.logger.Error("panic in notification handler with severity", Err(fmt.Errorf("recovered panic: %v", r)))
-					}
+					// Since we don't have a logger in NotificationHandler, we'll just ignore the panic
+					_ = fmt.Errorf("recovered panic in notification handler with severity: %v", r)
 				}
 			}()
 			notifyCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)

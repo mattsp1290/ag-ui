@@ -80,6 +80,11 @@ func (e *SecureFileExecutor) Execute(ctx context.Context, params map[string]inte
 
 // validatePath checks if the path is allowed based on security options
 func (e *SecureFileExecutor) validatePath(path string) error {
+	// First check for null bytes which are always invalid
+	if strings.Contains(path, "\x00") {
+		return fmt.Errorf("invalid path: contains null bytes")
+	}
+	
 	// Clean and resolve the path
 	cleanPath, err := filepath.Abs(filepath.Clean(path))
 	if err != nil {
@@ -94,16 +99,19 @@ func (e *SecureFileExecutor) validatePath(path string) error {
 			continue // Skip invalid deny paths
 		}
 		rel, err := filepath.Rel(absDeny, cleanPath)
-		if err == nil && !strings.HasPrefix(rel, "..") {
+		if err == nil && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." {
 			return fmt.Errorf("access denied: path is in restricted directory")
 		}
 	}
 
 	// Check symbolic links if not allowed
 	if !e.options.AllowSymlinks {
-		realPath, err := filepath.EvalSymlinks(cleanPath)
-		if err == nil && realPath != cleanPath {
-			return fmt.Errorf("symbolic links are not allowed")
+		// Only check for symlinks if the file exists
+		if info, err := os.Lstat(cleanPath); err == nil {
+			// Check if it's actually a symlink
+			if info.Mode()&os.ModeSymlink != 0 {
+				return fmt.Errorf("symbolic links are not allowed")
+			}
 		}
 	}
 
@@ -119,8 +127,18 @@ func (e *SecureFileExecutor) validatePath(path string) error {
 		if err != nil {
 			continue
 		}
+		
+		// Check if cleanPath is within absAllowed
+		// A path is within another if the relative path doesn't escape with ../
 		rel, err := filepath.Rel(absAllowed, cleanPath)
-		if err == nil && !strings.HasPrefix(rel, "..") {
+		if err != nil {
+			continue // Paths are on different volumes or other error
+		}
+		
+		// Check if the relative path escapes the allowed directory
+		// We need to check for ".." as a path component, not just as a prefix
+		if !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." {
+			// Path is within the allowed directory
 			return nil
 		}
 	}
@@ -149,7 +167,7 @@ func (e *SecureFileExecutor) checkFileSize(path string) error {
 
 // validateFileDescriptor performs security validation on an open file descriptor
 // This helps prevent TOCTOU race conditions by validating after opening
-func (e *SecureFileExecutor) validateFileDescriptor(file *os.File) error {
+func (e *SecureFileExecutor) validateFileDescriptor(file *os.File, originalPath string) error {
 	stat, err := file.Stat()
 	if err != nil {
 		return fmt.Errorf("cannot stat file descriptor: %w", err)
@@ -166,8 +184,47 @@ func (e *SecureFileExecutor) validateFileDescriptor(file *os.File) error {
 		return fmt.Errorf("access denied: not a regular file")
 	}
 
-	// For additional security, we could check ownership, permissions, etc.
-	// but this provides basic protection against special files
+	// If symlinks are allowed, we need to verify the resolved path is still within allowed paths
+	if e.options.AllowSymlinks && len(e.options.AllowedPaths) > 0 {
+		// Get the real path of the file (follows symlinks)
+		realPath, err := filepath.EvalSymlinks(originalPath)
+		if err != nil {
+			return fmt.Errorf("cannot resolve file path: %w", err)
+		}
+		
+		// Validate the resolved path
+		cleanPath, err := filepath.Abs(filepath.Clean(realPath))
+		if err != nil {
+			return fmt.Errorf("invalid resolved path: %w", err)
+		}
+		
+		// Check if resolved path is within allowed paths
+		allowed := false
+		for _, allowedPath := range e.options.AllowedPaths {
+			expandedAllow := expandPath(allowedPath)
+			absAllowed, err := filepath.Abs(expandedAllow)
+			if err != nil {
+				continue
+			}
+			
+			// Resolve symlinks in the allowed path as well for proper comparison
+			resolvedAllowed, err := filepath.EvalSymlinks(absAllowed)
+			if err != nil {
+				// If we can't resolve, use the original
+				resolvedAllowed = absAllowed
+			}
+			
+			rel, err := filepath.Rel(resolvedAllowed, cleanPath)
+			if err == nil && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && rel != ".." {
+				allowed = true
+				break
+			}
+		}
+		
+		if !allowed {
+			return fmt.Errorf("symlink target is not in allowed directories")
+		}
+	}
 
 	return nil
 }
@@ -223,7 +280,7 @@ func (e *SecureFileExecutor) executeAtomicRead(ctx context.Context, path string)
 	defer file.Close()
 
 	// Validate the opened file descriptor to prevent TOCTOU attacks
-	if validationErr := e.validateFileDescriptor(file); validationErr != nil {
+	if validationErr := e.validateFileDescriptor(file, path); validationErr != nil {
 		return &ToolExecutionResult{
 			Success: false,
 			Error:   fmt.Sprintf("file validation failed: %v", validationErr),
@@ -302,7 +359,7 @@ func (e *SecureFileExecutor) executeAtomicWrite(ctx context.Context, params map[
 	}
 
 	// Open the file atomically
-	file, err := os.OpenFile(path, flags, 0644)
+	file, err := os.OpenFile(path, flags, 0600)
 	if err != nil {
 		return &ToolExecutionResult{
 			Success: false,
@@ -312,7 +369,7 @@ func (e *SecureFileExecutor) executeAtomicWrite(ctx context.Context, params map[
 	defer file.Close()
 
 	// Validate the file descriptor for security
-	if validationErr := e.validateFileDescriptor(file); validationErr != nil {
+	if validationErr := e.validateFileDescriptor(file, path); validationErr != nil {
 		return &ToolExecutionResult{
 			Success: false,
 			Error:   fmt.Sprintf("file validation failed: %v", validationErr),

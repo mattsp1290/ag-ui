@@ -103,6 +103,7 @@ func TestCacheEvictionPolicies(t *testing.T) {
 			L1TTL:         5 * time.Minute,
 			L2Enabled:     false,
 			MetricsEnabled: true,
+			Validator:     events.NewValidator(events.DefaultValidationConfig()),
 		}
 
 		cv, err := NewCacheValidator(config)
@@ -138,6 +139,7 @@ func TestCacheEvictionPolicies(t *testing.T) {
 			L1TTL:         5 * time.Minute,
 			L2Enabled:     false,
 			MetricsEnabled: true,
+			Validator:     events.NewValidator(events.DefaultValidationConfig()),
 		}
 
 		cv, err := NewCacheValidator(config)
@@ -165,6 +167,7 @@ func TestConcurrentCacheOperations(t *testing.T) {
 		L1TTL:         5 * time.Minute,
 		L2Enabled:     false,
 		MetricsEnabled: true,
+		Validator:     events.NewValidator(events.DefaultValidationConfig()),
 	}
 
 	cv, err := NewCacheValidator(config)
@@ -239,6 +242,7 @@ func TestTTLExpirationHandling(t *testing.T) {
 			L1TTL:         200 * time.Millisecond,
 			L2Enabled:     false,
 			MetricsEnabled: true,
+			Validator:     events.NewValidator(events.DefaultValidationConfig()),
 		}
 
 		cv, err := NewCacheValidator(config)
@@ -276,6 +280,7 @@ func TestTTLExpirationHandling(t *testing.T) {
 			L1TTL:         500 * time.Millisecond,
 			L2Enabled:     false,
 			MetricsEnabled: true,
+			Validator:     events.NewValidator(events.DefaultValidationConfig()),
 		}
 
 		cv, err := NewCacheValidator(config)
@@ -393,6 +398,7 @@ func TestCacheErrorHandling(t *testing.T) {
 			L2Enabled:     true,
 			L2TTL:         10 * time.Minute,
 			MetricsEnabled: true,
+			Validator:     events.NewValidator(events.DefaultValidationConfig()),
 		}
 
 		cv, err := NewCacheValidator(config)
@@ -428,6 +434,7 @@ func TestCacheWarmup(t *testing.T) {
 		L1TTL:         5 * time.Minute,
 		L2Enabled:     false,
 		MetricsEnabled: true,
+		Validator:     events.NewValidator(events.DefaultValidationConfig()),
 	}
 
 	cv, err := NewCacheValidator(config)
@@ -511,7 +518,7 @@ func TestCacheInvalidation(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Invalidate all RunStarted events
-		err = cv.InvalidateEventType(ctx, events.EventType("RunStarted"))
+		err = cv.InvalidateEventTypeInternal(ctx, events.EventTypeRunStarted)
 		assert.NoError(t, err)
 
 		// Run events should miss cache
@@ -536,6 +543,7 @@ func TestCacheMetrics(t *testing.T) {
 		L1TTL:         5 * time.Minute,
 		L2Enabled:     false,
 		MetricsEnabled: true,
+		Validator:     events.NewValidator(events.DefaultValidationConfig()),
 	}
 
 	cv, err := NewCacheValidator(config)

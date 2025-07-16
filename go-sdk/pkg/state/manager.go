@@ -445,14 +445,22 @@ func (sm *StateManager) GetState(ctx context.Context, contextID, stateID string)
 			Resource:  "state",
 		}
 		sm.auditManager.enrichFromContext(ctx, log)
+		sm.wg.Add(1)
 		go func() {
+			defer sm.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					sm.logger.Error("panic in audit log goroutine", Err(fmt.Errorf("recovered panic: %v", r)))
 				}
 			}()
-			if err := sm.auditManager.logger.Log(context.Background(), log); err != nil {
-				sm.logger.Error("failed to write audit log", Err(err))
+			// Use manager context with timeout to respect shutdown
+			auditCtx, cancel := context.WithTimeout(sm.ctx, 5*time.Second)
+			defer cancel()
+			if err := sm.auditManager.logger.Log(auditCtx, log); err != nil {
+				// Only log if not due to shutdown
+				if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+					sm.logger.Error("failed to write audit log", Err(err))
+				}
 			}
 		}()
 	}
@@ -583,14 +591,22 @@ func (sm *StateManager) CreateCheckpoint(ctx context.Context, stateID, name stri
 			},
 		}
 		sm.auditManager.enrichFromContext(ctx, log)
+		sm.wg.Add(1)
 		go func() {
+			defer sm.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					sm.logger.Error("panic in audit log goroutine", Err(fmt.Errorf("recovered panic: %v", r)))
 				}
 			}()
-			if err := sm.auditManager.logger.Log(context.Background(), log); err != nil {
-				sm.logger.Error("failed to write audit log", Err(err))
+			// Use manager context with timeout to respect shutdown
+			auditCtx, cancel := context.WithTimeout(sm.ctx, 5*time.Second)
+			defer cancel()
+			if err := sm.auditManager.logger.Log(auditCtx, log); err != nil {
+				// Only log if not due to shutdown
+				if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+					sm.logger.Error("failed to write audit log", Err(err))
+				}
 			}
 		}()
 	}
@@ -649,14 +665,22 @@ func (sm *StateManager) Rollback(ctx context.Context, stateID, checkpointID stri
 			},
 		}
 		sm.auditManager.enrichFromContext(ctx, log)
+		sm.wg.Add(1)
 		go func() {
+			defer sm.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					sm.logger.Error("panic in audit log goroutine", Err(fmt.Errorf("recovered panic: %v", r)))
 				}
 			}()
-			if err := sm.auditManager.logger.Log(context.Background(), log); err != nil {
-				sm.logger.Error("failed to write audit log", Err(err))
+			// Use manager context with timeout to respect shutdown
+			auditCtx, cancel := context.WithTimeout(sm.ctx, 5*time.Second)
+			defer cancel()
+			if err := sm.auditManager.logger.Log(auditCtx, log); err != nil {
+				// Only log if not due to shutdown
+				if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+					sm.logger.Error("failed to write audit log", Err(err))
+				}
 			}
 		}()
 	}
@@ -1039,9 +1063,17 @@ func (sm *StateManager) processSingleUpdate(state interface{}, req *updateReques
 		}
 
 		sm.auditManager.enrichFromContext(req.ctx, log)
+		sm.wg.Add(1)
 		go func() {
-			if err := sm.auditManager.logger.Log(context.Background(), log); err != nil {
-				sm.logger.Error("failed to write audit log", Err(err))
+			defer sm.wg.Done()
+			// Use manager context with timeout to respect shutdown
+			auditCtx, cancel := context.WithTimeout(sm.ctx, 5*time.Second)
+			defer cancel()
+			if err := sm.auditManager.logger.Log(auditCtx, log); err != nil {
+				// Only log if not due to shutdown
+				if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+					sm.logger.Error("failed to write audit log", Err(err))
+				}
 			}
 		}()
 	}
@@ -1511,9 +1543,17 @@ func (sm *StateManager) cleanupExpiredContexts() {
 						"last_accessed": ctx.LastAccessed,
 					},
 				}
+				sm.wg.Add(1)
 				go func() {
-					if err := sm.auditManager.logger.Log(context.Background(), log); err != nil {
-						sm.logger.Error("failed to write audit log", Err(err))
+					defer sm.wg.Done()
+					// Use manager context with timeout to respect shutdown
+					auditCtx, cancel := context.WithTimeout(sm.ctx, 5*time.Second)
+					defer cancel()
+					if err := sm.auditManager.logger.Log(auditCtx, log); err != nil {
+						// Only log if not due to shutdown
+						if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+							sm.logger.Error("failed to write audit log", Err(err))
+						}
 					}
 				}()
 			}

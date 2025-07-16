@@ -3,7 +3,6 @@ package test
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -377,7 +376,7 @@ func (f *MockFileOperationsExecutor) statFile(ctx context.Context, filePath stri
 		"readable": true,
 		"writable": true,
 		"modified": time.Now().Add(-time.Hour).Format(time.RFC3339),
-		"created":  time.Now().Add(-time.Day).Format(time.RFC3339),
+		"created":  time.Now().Add(-24 * time.Hour).Format(time.RFC3339),
 	}
 
 	return &tools.ToolExecutionResult{
@@ -1370,7 +1369,7 @@ func BenchmarkFileOperationsTool_Operations(b *testing.B) {
 }
 
 // Example test showing how to use the file operations tool
-func ExampleFileOperationsTool_BasicUsage() {
+func Example_fileOperationsBasicUsage() {
 	tool := createFileOperationsTool()
 	executor := tool.Executor.(*MockFileOperationsExecutor)
 	executor.files["/example/test.txt"] = []byte("Hello, World!")

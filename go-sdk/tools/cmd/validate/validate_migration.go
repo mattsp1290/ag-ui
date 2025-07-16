@@ -2,14 +2,12 @@
 package main
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"go/ast"
-	"go/build"
 	"go/parser"
 	"go/token"
 	"log"
@@ -17,7 +15,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -238,6 +235,9 @@ type BenchmarkComparison struct {
 
 // BenchmarkResult represents a single benchmark result
 type BenchmarkResult struct {
+	// Name is the benchmark name
+	Name string `json:"name"`
+	
 	// Iterations is the number of iterations
 	Iterations int `json:"iterations"`
 	
@@ -648,7 +648,7 @@ func extractFunctionSignature(fn *ast.FuncDecl) string {
 	buf.WriteString("(")
 	// Simplified parameter representation
 	if fn.Type.Params != nil {
-		for i, param := range fn.Type.Params.List {
+		for i, _ := range fn.Type.Params.List {
 			if i > 0 {
 				buf.WriteString(", ")
 			}
@@ -840,25 +840,27 @@ func parseBenchmarkOutput(output string) []BenchmarkResult {
 	var results []BenchmarkResult
 	
 	lines := strings.Split(output, "\n")
-	benchmarkRe := regexp.MustCompile(`^Benchmark\w+\s+(\d+)\s+([\d.]+)\s+ns/op(?:\s+(\d+)\s+B/op)?(?:\s+(\d+)\s+allocs/op)?`)
+	benchmarkRe := regexp.MustCompile(`^(Benchmark\w+)\s+(\d+)\s+([\d.]+)\s+ns/op(?:\s+(\d+)\s+B/op)?(?:\s+(\d+)\s+allocs/op)?`)
 	
 	for _, line := range lines {
 		matches := benchmarkRe.FindStringSubmatch(line)
-		if len(matches) >= 3 {
-			iterations, _ := strconv.Atoi(matches[1])
-			nsPerOp, _ := strconv.ParseFloat(matches[2], 64)
+		if len(matches) >= 4 {
+			name := matches[1]
+			iterations, _ := strconv.Atoi(matches[2])
+			nsPerOp, _ := strconv.ParseFloat(matches[3], 64)
 			
 			result := BenchmarkResult{
+				Name:       name,
 				Iterations: iterations,
 				NsPerOp:    nsPerOp,
 			}
 			
-			if len(matches) >= 4 && matches[3] != "" {
-				result.BytesPerOp, _ = strconv.Atoi(matches[3])
+			if len(matches) >= 5 && matches[4] != "" {
+				result.BytesPerOp, _ = strconv.Atoi(matches[4])
 			}
 			
-			if len(matches) >= 5 && matches[4] != "" {
-				result.AllocsPerOp, _ = strconv.Atoi(matches[4])
+			if len(matches) >= 6 && matches[5] != "" {
+				result.AllocsPerOp, _ = strconv.Atoi(matches[5])
 			}
 			
 			results = append(results, result)

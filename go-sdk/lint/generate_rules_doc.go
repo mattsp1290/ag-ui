@@ -67,7 +67,7 @@ Generated on: {{.GeneratedAt}}
 
 ## Overview
 
-This document provides comprehensive documentation for the type safety linting rules used in the AG-UI Go SDK project. These rules help enforce type-safe coding practices and guide migration from \`interface{}\` usage to more specific, type-safe alternatives.
+This document provides comprehensive documentation for the type safety linting rules used in the AG-UI Go SDK project. These rules help enforce type-safe coding practices and guide migration from ` + "`interface{}`" + ` usage to more specific, type-safe alternatives.
 
 ## Rule Categories
 
@@ -91,14 +91,12 @@ This document provides comprehensive documentation for the type safety linting r
 {{.Description}}
 
 Before (❌):
-\`\`\`go
-{{.Before}}
-\`\`\`
+` + "```go\n" + `{{.Before}}
+` + "```" + `
 
 After (✅):
-\`\`\`go
-{{.After}}
-\`\`\`
+` + "```go\n" + `{{.After}}
+` + "```" + `
 
 {{.Explanation}}
 {{end}}
@@ -108,9 +106,8 @@ After (✅):
 **Type-Safe Alternatives:**
 {{range .Alternatives}}
 - **{{.Name}}**: {{.Description}}
-  \`\`\`go
-  {{.Code}}
-  \`\`\`
+  ` + "```go\n" + `  {{.Code}}
+  ` + "```" + `
   - Use case: {{.UseCase}}
   {{if .Pros}}- Pros: {{join .Pros ", "}}{{end}}
   {{if .Cons}}- Cons: {{join .Cons ", "}}{{end}}
@@ -131,23 +128,21 @@ After (✅):
 ## Integration Guide
 
 ### IDE Integration
-- **VS Code**: Rules are automatically enforced through the \`.vscode/settings.json\` configuration
-- **GoLand**: Use the \`.golangci.yml\` configuration file
+- **VS Code**: Rules are automatically enforced through the ` + "`.vscode/settings.json`" + ` configuration
+- **GoLand**: Use the ` + "`.golangci.yml`" + ` configuration file
 - **Vim/Neovim**: Configure with your Go language server
 
 ### CI/CD Integration
 Add the following to your CI pipeline:
-\`\`\`yaml
-- name: Type Safety Check
+` + "```yaml\n" + `- name: Type Safety Check
   run: golangci-lint run --config=.golangci.yml
-\`\`\`
+` + "```" + `
 
 ### Pre-commit Hooks
 Install the pre-commit hooks:
-\`\`\`bash
-cp scripts/pre-commit-hooks/* .git/hooks/
+` + "```bash\n" + `cp scripts/pre-commit-hooks/* .git/hooks/
 chmod +x .git/hooks/*
-\`\`\`
+` + "```" + `
 
 ## Migration Strategy
 
@@ -160,17 +155,17 @@ chmod +x .git/hooks/*
 
 | Pattern | Replacement | Tool |
 |---------|-------------|------|
-| \`interface{}\` | Specific types, generics | \`forbidigo\` |
-| \`[]interface{}\` | Typed slices | \`forbidigo\` |
-| \`map[string]interface{}\` | Structs, typed maps | \`forbidigo\` |
-| \`.Any()\` logger | Typed methods | \`forbidigo\` |
-| Unsafe type assertions | Comma ok idiom | \`typesafety\` |
+| ` + "`interface{}`" + ` | Specific types, generics | ` + "`forbidigo`" + ` |
+| ` + "`[]interface{}`" + ` | Typed slices | ` + "`forbidigo`" + ` |
+| ` + "`map[string]interface{}`" + ` | Structs, typed maps | ` + "`forbidigo`" + ` |
+| ` + "`.Any()`" + ` logger | Typed methods | ` + "`forbidigo`" + ` |
+| Unsafe type assertions | Comma ok idiom | ` + "`typesafety`" + ` |
 
 ## Support
 
 For questions or issues with these linting rules, please:
 1. Check the examples in this documentation
-2. Run the suggestion tool: \`./scripts/pre-commit-hooks/suggest-alternatives.sh\`
+2. Run the suggestion tool: ` + "`./scripts/pre-commit-hooks/suggest-alternatives.sh`" + `
 3. Review the migration guide
 4. Contact the development team
 `
@@ -179,25 +174,22 @@ For questions or issues with these linting rules, please:
 
 ## Quick Start
 
-This guide helps you migrate from \`interface{}\` usage to type-safe alternatives in the AG-UI Go SDK.
+This guide helps you migrate from ` + "`interface{}`" + ` usage to type-safe alternatives in the AG-UI Go SDK.
 
 ### Step 1: Assessment
 Run the migration analyzer:
-\`\`\`bash
-go run ./lint/migration_rules.go ./...
-\`\`\`
+` + "```bash\n" + `go run ./lint/migration_rules.go ./...
+` + "```" + `
 
 ### Step 2: Get Suggestions
 Use the suggestion tool:
-\`\`\`bash
-./scripts/pre-commit-hooks/suggest-alternatives.sh [file]
-\`\`\`
+` + "```bash\n" + `./scripts/pre-commit-hooks/suggest-alternatives.sh [file]
+` + "```" + `
 
 ### Step 3: Apply Fixes
 Use the formatting tool:
-\`\`\`bash
-./scripts/pre-commit-hooks/format-migration.sh [file]
-\`\`\`
+` + "```bash\n" + `./scripts/pre-commit-hooks/format-migration.sh [file]
+` + "```" + `
 
 ## Common Migration Patterns
 
@@ -205,14 +197,12 @@ Use the formatting tool:
 ### {{.Name}}
 
 **Problem:**
-\`\`\`go
-{{.Problem}}
-\`\`\`
+` + "```go\n" + `{{.Problem}}
+` + "```" + `
 
 **Solution:**
-\`\`\`go
-{{.Solution}}
-\`\`\`
+` + "```go\n" + `{{.Solution}}
+` + "```" + `
 
 **Benefits:**
 {{range .Benefits}}
@@ -232,10 +222,10 @@ Use the formatting tool:
 ### Common Issues and Solutions
 
 1. **"Cannot use generic type without type parameters"**
-   - Add type parameters: \`func MyFunc[T any](v T)\`
+   - Add type parameters: ` + "`func MyFunc[T any](v T)`" + `
 
 2. **"Type assertion error"**
-   - Use comma ok idiom: \`val, ok := x.(Type)\`
+   - Use comma ok idiom: ` + "`val, ok := x.(Type)`" + `
 
 3. **"JSON unmarshaling issues"**
    - Define struct types with json tags
@@ -441,13 +431,16 @@ func (g *RuleDocGenerator) buildExamplesContent() string {
 }
 
 func (g *RuleDocGenerator) buildIDEIntegrationContent() string {
-	return `# IDE Integration Guide
+	var content strings.Builder
+	content.WriteString(`# IDE Integration Guide
 
 ## VS Code
 
 ### Setup
 1. Install the Go extension
-2. The project includes pre-configured settings in ` + "`.vscode/settings.json`" + `
+2. The project includes pre-configured settings in `)
+	content.WriteString("`.vscode/settings.json`")
+	content.WriteString(`
 3. Install recommended extensions when prompted
 
 ### Features
@@ -470,46 +463,56 @@ func (g *RuleDocGenerator) buildIDEIntegrationContent() string {
 3. Enable "File Watchers" for automatic checking
 
 ### Configuration
-\`\`\`
-Settings → Tools → File Watchers → Add golangci-lint
+`)
+	content.WriteString("```\n")
+	content.WriteString(`Settings → Tools → File Watchers → Add golangci-lint
 Program: golangci-lint
 Arguments: run --config=.golangci.yml $FileDir$
-\`\`\`
-
+`)
+	content.WriteString("```\n")
+	content.WriteString(`
 ## Vim/Neovim
 
 ### Setup with vim-go
-\`\`\`vim
-let g:go_metalinter_command = "golangci-lint"
+`)
+	content.WriteString("```vim\n")
+	content.WriteString(`let g:go_metalinter_command = "golangci-lint"
 let g:go_metalinter_enabled = ['golangci-lint']
-\`\`\`
-
+`)
+	content.WriteString("```\n")
+	content.WriteString(`
 ### Setup with coc.nvim
-\`\`\`json
-{
+`)
+	content.WriteString("```json\n")
+	content.WriteString(`{
   "go.goplsOptions": {
     "staticcheck": true
   }
 }
-\`\`\`
-
+`)
+	content.WriteString("```\n")
+	content.WriteString(`
 ## Emacs
 
 ### Setup with lsp-mode
-\`\`\`elisp
-(setq lsp-go-gopls-server-args '("--config=.golangci.yml"))
-\`\`\`
-`
+`)
+	content.WriteString("```elisp\n")
+	content.WriteString(`(setq lsp-go-gopls-server-args '("--config=.golangci.yml"))
+`)
+	content.WriteString("```\n")
+	return content.String()
 }
 
 func (g *RuleDocGenerator) buildCIIntegrationContent() string {
-	return `# CI/CD Integration Guide
+	var content strings.Builder
+	content.WriteString(`# CI/CD Integration Guide
 
 ## GitHub Actions
 
 ### Basic Setup
-\`\`\`yaml
-name: Type Safety Check
+`)
+	content.WriteString("```yaml\n")
+	content.WriteString(`name: Type Safety Check
 on: [push, pull_request]
 
 jobs:
@@ -525,30 +528,36 @@ jobs:
       with:
         version: latest
         args: --config=.golangci.yml
-\`\`\`
-
+`)
+	content.WriteString("```\n")
+	content.WriteString(`
 ### Advanced Setup with Migration Check
-\`\`\`yaml
-    - name: Interface{} Migration Check
+`)
+	content.WriteString("```yaml\n")
+	content.WriteString(`    - name: Interface{} Migration Check
       run: |
         chmod +x scripts/pre-commit-hooks/check-typesafety.sh
         ./scripts/pre-commit-hooks/check-typesafety.sh
-\`\`\`
-
+`)
+	content.WriteString("```\n")
+	content.WriteString(`
 ## GitLab CI
 
-\`\`\`yaml
-lint:
+`)
+	content.WriteString("```yaml\n")
+	content.WriteString(`lint:
   stage: test
   image: golangci/golangci-lint:latest
   script:
     - golangci-lint run --config=.golangci.yml
-\`\`\`
-
+`)
+	content.WriteString("```\n")
+	content.WriteString(`
 ## Jenkins
 
-\`\`\`groovy
-pipeline {
+`)
+	content.WriteString("```groovy\n")
+	content.WriteString(`pipeline {
     agent any
     stages {
         stage('Lint') {
@@ -558,13 +567,15 @@ pipeline {
         }
     }
 }
-\`\`\`
-
+`)
+	content.WriteString("```\n")
+	content.WriteString(`
 ## Pre-commit Integration
 
 ### Setup
-\`\`\`yaml
-# .pre-commit-config.yaml
+`)
+	content.WriteString("```yaml\n")
+	content.WriteString(`# .pre-commit-config.yaml
 repos:
   - repo: local
     hooks:
@@ -573,51 +584,65 @@ repos:
         entry: ./scripts/pre-commit-hooks/check-typesafety.sh
         language: script
         files: \.go$
-\`\`\`
-
+`)
+	content.WriteString("```\n")
+	content.WriteString(`
 ## Docker Integration
 
-\`\`\`dockerfile
-FROM golangci/golangci-lint:latest
+`)
+	content.WriteString("```dockerfile\n")
+	content.WriteString(`FROM golangci/golangci-lint:latest
 COPY . /workspace
 WORKDIR /workspace
 RUN golangci-lint run --config=.golangci.yml
-\`\`\`
-`
+`)
+	content.WriteString("```\n")
+	return content.String()
 }
 
 func (g *RuleDocGenerator) buildTroubleshootingContent() string {
-	return `# Troubleshooting Guide
+	var content strings.Builder
+	content.WriteString(`# Troubleshooting Guide
 
 ## Common Issues
 
 ### 1. "golangci-lint not found"
 **Solution:**
-\`\`\`bash
-go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
-\`\`\`
-
+`)
+	content.WriteString("```bash\n")
+	content.WriteString(`go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+`)
+	content.WriteString("```\n")
+	content.WriteString(`
 ### 2. "Configuration file not found"
 **Solution:**
-Ensure ` + "`.golangci.yml`" + ` is in your project root.
+Ensure `)
+	content.WriteString("`.golangci.yml`")
+	content.WriteString(` is in your project root.
 
 ### 3. "Too many false positives"
 **Solution:**
-Add exclusions to ` + "`.golangci.yml`" + `:
-\`\`\`yaml
-issues:
+Add exclusions to `)
+	content.WriteString("`.golangci.yml`")
+	content.WriteString(`:
+`)
+	content.WriteString("```yaml\n")
+	content.WriteString(`issues:
   exclude-rules:
     - path: legacy_file.go
       linters: [forbidigo]
-\`\`\`
-
+`)
+	content.WriteString("```\n")
+	content.WriteString(`
 ### 4. "Migration suggestions not helpful"
 **Solution:**
 Run the detailed analyzer:
-\`\`\`bash
-./scripts/pre-commit-hooks/suggest-alternatives.sh [file]
-\`\`\`
-
+`)
+	content.WriteString("```bash\n")
+	content.WriteString(`./scripts/pre-commit-hooks/suggest-alternatives.sh [file]
+`)
+	content.WriteString("```\n")
+	content.WriteString(`
 ### 5. "Tests failing after migration"
 **Solution:**
 1. Check type assertions
@@ -627,13 +652,19 @@ Run the detailed analyzer:
 ## Performance Issues
 
 ### Large Codebase
-- Use ` + "`--timeout=10m`" + ` flag
+- Use `)
+	content.WriteString("`--timeout=10m`")
+	content.WriteString(` flag
 - Exclude vendor directories
 - Run on specific packages only
 
 ### Memory Usage
-- Increase ` + "`GOMAXPROCS`" + `
-- Use ` + "`--concurrency=N`" + ` flag
+- Increase `)
+	content.WriteString("`GOMAXPROCS`")
+	content.WriteString(`
+- Use `)
+	content.WriteString("`--concurrency=N`")
+	content.WriteString(` flag
 
 ## Getting Help
 
@@ -645,10 +676,12 @@ Run the detailed analyzer:
 ## Debug Mode
 
 Enable debug output:
-\`\`\`bash
-golangci-lint run --config=.golangci.yml --verbose
-\`\`\`
-`
+`)
+	content.WriteString("```bash\n")
+	content.WriteString(`golangci-lint run --config=.golangci.yml --verbose
+`)
+	content.WriteString("```\n")
+	return content.String()
 }
 
 // Data definitions

@@ -2,13 +2,9 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
-	"sort"
 	"sync"
 	"time"
 

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
-	"path/filepath"
 	"regexp"
 	"strings"
 
@@ -145,9 +144,6 @@ func analyzeFileForMigration(pass *analysis.Pass, file *ast.File, ctx *Migration
 	filename := fset.Position(file.Pos()).Filename
 	
 	// Get file content as string for pattern matching
-	startPos := fset.Position(file.Pos())
-	endPos := fset.Position(file.End())
-	
 	// Read file content (simplified - in practice you'd want to use the token.FileSet properly)
 	fileContent := getFileContent(pass, file)
 	
@@ -273,7 +269,6 @@ func analyzeProjectMigrationStatus(pass *analysis.Pass, ctx *MigrationContext, i
 	}
 
 	modernFiles := len(ctx.ModernFiles)
-	legacyFiles := len(ctx.LegacyFiles)
 	mixedFiles := len(ctx.PartiallyMigrated)
 	
 	migrationProgress := float64(modernFiles) / float64(totalFiles) * 100

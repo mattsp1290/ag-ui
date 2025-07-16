@@ -1343,7 +1343,7 @@ func max(a, b float64) float64 {
 }
 
 func main() {
-	tool := CreateBatchProcessorTool()
+	_ = CreateBatchProcessorTool()
 	
 	// Example usage
 	params := map[string]interface{}{

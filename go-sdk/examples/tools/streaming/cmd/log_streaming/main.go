@@ -612,7 +612,7 @@ func main() {
 	if err != nil {
 		fmt.Printf("  Error: %v\n", err)
 	} else {
-		l.consumeStream(streamCh, 10) // Consume up to 10 chunks
+		consumeStream(streamCh, 10) // Consume up to 10 chunks
 	}
 	fmt.Println()
 
@@ -626,7 +626,7 @@ func main() {
 	if err != nil {
 		fmt.Printf("  Error: %v\n", err)
 	} else {
-		l.consumeStream(streamCh, 10)
+		consumeStream(streamCh, 10)
 	}
 	fmt.Println()
 
@@ -640,7 +640,7 @@ func main() {
 	if err != nil {
 		fmt.Printf("  Error: %v\n", err)
 	} else {
-		l.consumeStream(streamCh, 10)
+		consumeStream(streamCh, 10)
 	}
 	fmt.Println()
 
@@ -669,7 +669,7 @@ func main() {
 			}
 		}()
 
-		l.consumeStream(streamCh, 20) // May receive historical + new entries
+		consumeStream(streamCh, 20) // May receive historical + new entries
 	}
 	fmt.Println()
 
@@ -683,7 +683,7 @@ func main() {
 }
 
 // consumeStream consumes chunks from a stream channel for demonstration
-func (l *LogStreamingExecutor) consumeStream(streamCh <-chan *tools.ToolStreamChunk, maxChunks int) {
+func consumeStream(streamCh <-chan *tools.ToolStreamChunk, maxChunks int) {
 	count := 0
 	for chunk := range streamCh {
 		if count >= maxChunks {

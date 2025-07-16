@@ -3,10 +3,9 @@ package tools
 import (
 	"context"
 	"fmt"
-	"github.com/adaptive-go/ag-ui/go-sdk/pkg/common"
+	"github.com/ag-ui/go-sdk/pkg/common"
 	"golang.org/x/net/idna"
 	"net"
-	"net/url"
 	"strings"
 )
 

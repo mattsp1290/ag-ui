@@ -894,7 +894,7 @@ func (e *AsyncExecutor) Close() {
 }
 
 func main() {
-	tool := CreateAsyncExecutorTool()
+	_ = CreateAsyncExecutorTool()
 	
 	// Example usage
 	params := map[string]interface{}{

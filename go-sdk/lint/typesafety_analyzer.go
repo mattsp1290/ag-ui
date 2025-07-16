@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"go/ast"
 	"go/token"
-	"go/types"
 	"regexp"
 	"strings"
 

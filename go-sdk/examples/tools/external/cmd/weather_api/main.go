@@ -2,13 +2,9 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -1014,7 +1010,7 @@ func printWeatherResult(result *tools.ToolExecutionResult, err error, title stri
 	data := result.Data.(map[string]interface{})
 	
 	// Handle different operation types
-	if weatherData, exists := data["weather_data"]; exists {
+	if _, exists := data["weather_data"]; exists {
 		// Weather data response
 		fmt.Printf("  Success: Weather data retrieved\n")
 		if summary, exists := data["summary"]; exists {

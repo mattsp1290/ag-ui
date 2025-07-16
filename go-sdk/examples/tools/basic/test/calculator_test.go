@@ -43,7 +43,6 @@ func (c *MockCalculatorExecutor) Execute(ctx context.Context, params map[string]
 	}
 
 	var result float64
-	var err error
 
 	switch operation {
 	case "add":
@@ -683,7 +682,7 @@ func BenchmarkCalculatorTool_Operations(b *testing.B) {
 }
 
 // Example test showing how to use the calculator tool
-func ExampleCalculatorTool_BasicUsage() {
+func Example_calculatorBasicUsage() {
 	tool := createCalculatorTool()
 	ctx := context.Background()
 

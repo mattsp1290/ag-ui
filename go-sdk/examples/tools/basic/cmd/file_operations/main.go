@@ -613,17 +613,8 @@ func CreateFileOperationsTool() *tools.Tool {
 				},
 			},
 			Required: []string{"operation", "path"},
-			// Use conditional validation for operation-specific requirements
-			If: &tools.Property{
-				Properties: map[string]*tools.Property{
-					"operation": {
-						Enum: []interface{}{"write"},
-					},
-				},
-			},
-			Then: &tools.Property{
-				Required: []string{"operation", "path", "content"},
-			},
+			// Note: For write operations, content parameter is also required
+			// This would be enforced in the Execute method
 		},
 		Metadata: &tools.ToolMetadata{
 			Author:        "AG-UI SDK Examples",

@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/ag-ui/go-sdk/lint"
 	"golang.org/x/tools/go/analysis/singlechecker"
 )
 
@@ -31,9 +32,9 @@ func main() {
 	// Run static analyzer
 	switch *analyzer {
 	case "typesafety":
-		singlechecker.Main(TypeSafetyAnalyzer)
+		singlechecker.Main(lint.TypeSafetyAnalyzer)
 	case "migration":
-		singlechecker.Main(MigrationRulesAnalyzer)
+		singlechecker.Main(lint.MigrationRulesAnalyzer)
 	default:
 		fmt.Fprintf(os.Stderr, "Unknown analyzer: %s\n", *analyzer)
 		fmt.Fprintf(os.Stderr, "Available analyzers: typesafety, migration\n")
@@ -43,6 +44,6 @@ func main() {
 
 // generateDocumentation generates all documentation files.
 func generateDocumentation(outputDir string) error {
-	generator := NewRuleDocGenerator(outputDir)
+	generator := lint.NewRuleDocGenerator(outputDir)
 	return generator.GenerateAll()
 }

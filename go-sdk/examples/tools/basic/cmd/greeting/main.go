@@ -394,8 +394,8 @@ func main() {
 			fmt.Printf("  Failed: %s\n", result.Error)
 		} else {
 			fmt.Printf("  Greeting: %s\n", result.Data.(map[string]interface{})["greeting"])
-			if metadata := result.Metadata.(map[string]interface{}); metadata != nil {
-				if personalization := metadata["personalization"]; personalization != nil {
+			if result.Metadata != nil {
+				if personalization := result.Metadata["personalization"]; personalization != nil {
 					fmt.Printf("  Personalization: %v\n", personalization)
 				}
 			}

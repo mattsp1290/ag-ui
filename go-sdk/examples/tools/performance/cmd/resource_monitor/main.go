@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"runtime"
 	"runtime/debug"
-	"sort"
 	"sync"
 	"time"
 
@@ -462,8 +461,8 @@ func (t *ResourceMonitorTool) Execute(ctx context.Context, params map[string]int
 		Metadata: map[string]interface{}{
 			"samples_collected": len(results.Summary.Samples),
 			"alerts_triggered":  len(results.Alerts),
-			"peak_memory":       analysis.Memory.PeakUsage,
-			"avg_cpu":          analysis.CPU.AverageUsage,
+			"peak_memory":       results.Trends.Memory.PeakUsage,
+			"avg_cpu":          results.Trends.CPU.AverageUsage,
 		},
 	}, nil
 }
@@ -1114,7 +1113,7 @@ func max(a, b int) int {
 }
 
 func main() {
-	tool := CreateResourceMonitorTool()
+	_ = CreateResourceMonitorTool()
 	
 	// Example usage
 	params := map[string]interface{}{

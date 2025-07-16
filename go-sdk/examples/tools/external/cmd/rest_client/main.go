@@ -10,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -560,7 +559,6 @@ func (r *RESTClientExecutor) executeHTTPRequestOnce(ctx context.Context, httpReq
 	if httpReq.Options.FollowRedirects {
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 			if len(via) > 0 {
-				lastReq := via[len(via)-1]
 				redirects = append(redirects, RedirectInfo{
 					StatusCode: 302, // Approximate, as we don't have access to the actual status
 					Location:   req.URL.String(),

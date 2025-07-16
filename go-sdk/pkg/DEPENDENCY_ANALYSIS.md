@@ -13,12 +13,17 @@ github.com/ag-ui/go-sdk/pkg/core/events imports:
 
 github.com/ag-ui/go-sdk/pkg/transport imports:
   - github.com/ag-ui/go-sdk/pkg/core/events
+  - github.com/ag-ui/go-sdk/pkg/common
 
 github.com/ag-ui/go-sdk/pkg/state imports:
+  - github.com/ag-ui/go-sdk/pkg/common
   - github.com/ag-ui/go-sdk/pkg/core/events
 
 github.com/ag-ui/go-sdk/pkg/messages imports:
   - github.com/ag-ui/go-sdk/pkg/core/events
+
+github.com/ag-ui/go-sdk/pkg/tools imports:
+  - github.com/ag-ui/go-sdk/pkg/common
 
 
 Circular Dependencies:

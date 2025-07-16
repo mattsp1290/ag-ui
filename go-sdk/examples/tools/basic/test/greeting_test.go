@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -830,7 +831,7 @@ func BenchmarkGreetingTool_Languages(b *testing.B) {
 }
 
 // Example test showing how to use the greeting tool
-func ExampleGreetingTool_BasicUsage() {
+func Example_greetingBasicUsage() {
 	tool := createGreetingTool()
 	ctx := context.Background()
 
@@ -853,7 +854,7 @@ func ExampleGreetingTool_BasicUsage() {
 	// Output: Greeting: Hello, Alice.
 }
 
-func ExampleGreetingTool_MultiLanguage() {
+func Example_greetingMultiLanguage() {
 	tool := createGreetingTool()
 	ctx := context.Background()
 

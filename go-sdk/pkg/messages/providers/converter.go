@@ -191,7 +191,18 @@ func RegisterTyped[TRequest, TResponse any](
 func GetTyped[TRequest, TResponse any](
 	providerName string,
 ) (TypedConverter[TRequest, TResponse, map[string]interface{}], error) {
-	return DefaultTypedRegistry.GetTypedConverter[TRequest, TResponse](providerName)
+	conv, err := DefaultTypedRegistry.GetTypedConverter(providerName)
+	if err != nil {
+		return nil, err
+	}
+	
+	// Type assert to the specific converter type
+	typedConv, ok := conv.(TypedConverter[TRequest, TResponse, map[string]interface{}])
+	if !ok {
+		return nil, fmt.Errorf("converter for provider %s is not of the expected type", providerName)
+	}
+	
+	return typedConv, nil
 }
 
 // Get retrieves a converter from the default registry
@@ -322,17 +333,22 @@ func (tbc *TypedBaseConverter[T]) mergeConsecutiveTypedMessages(msgList messages
 			mergedContent := *current.GetContent() + "\n\n" + *next.GetContent()
 
 			// Create a new typed message with merged content based on role
-			// Note: This is simplified - in practice, you would need proper type handling
-			switch current.GetRole() {
-			case messages.RoleUser:
-				// For typed messages, we would need to create the appropriate typed message
-				// This is a placeholder implementation
-			case messages.RoleAssistant:
-				// Similar handling for assistant messages
-			case messages.RoleSystem:
-				// Similar handling for system messages
-			case messages.RoleDeveloper:
-				// Similar handling for developer messages
+			// For now, we'll keep the current message and update its content
+			// This preserves the typed data while merging the content
+			switch msg := current.(type) {
+			case *messages.TypedUserMessage[T]:
+				current = messages.NewTypedUserMessage(mergedContent, msg.GetTypedData())
+			case *messages.TypedAssistantMessage[T]:
+				current = messages.NewTypedAssistantMessage(mergedContent, msg.GetTypedData())
+			case *messages.TypedSystemMessage[T]:
+				current = messages.NewTypedSystemMessage(mergedContent, msg.GetTypedData())
+			case *messages.TypedDeveloperMessage[T]:
+				current = messages.NewTypedDeveloperMessage(mergedContent, msg.GetTypedData())
+			default:
+				// If we can't handle the type, just add current and move on
+				merged = append(merged, current)
+				current = next
+				continue
 			}
 		} else {
 			// Can't merge, add current and move to next

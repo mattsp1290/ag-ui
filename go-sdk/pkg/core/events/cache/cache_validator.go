@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
+	eventerrors "github.com/ag-ui/go-sdk/pkg/core/events/errors"
 	"github.com/hashicorp/golang-lru/v2"
 )
 
@@ -99,8 +100,8 @@ type CacheValidator struct {
 	metricsEnabled bool
 	
 	// Error handling
-	logger      interface{} // Simplified for refactoring demo
-	retryPolicy interface{} // Simplified for refactoring demo
+	logger      eventerrors.Logger
+	retryPolicy *eventerrors.RetryPolicy
 	
 	// Synchronization
 	mu            sync.RWMutex
@@ -172,15 +173,27 @@ func NewCacheValidator(config *CacheValidatorConfig) (*CacheValidator, error) {
 	}
 	
 	// Set default logger if not provided
-	logger := config.Logger
-	if logger == nil {
-		logger = nil // Simplified for refactoring demo
+	var logger eventerrors.Logger
+	if config.Logger != nil {
+		if l, ok := config.Logger.(eventerrors.Logger); ok {
+			logger = l
+		} else {
+			logger = eventerrors.NewDefaultLogger("cache")
+		}
+	} else {
+		logger = eventerrors.NewDefaultLogger("cache")
 	}
 	
-	// Set default retry policy if not provided
-	retryPolicy := config.RetryPolicy
-	if retryPolicy == nil {
-		retryPolicy = nil // Simplified for refactoring demo
+	// Set default retry policy if not provided  
+	var retryPolicy *eventerrors.RetryPolicy
+	if config.RetryPolicy != nil {
+		if rp, ok := config.RetryPolicy.(*eventerrors.RetryPolicy); ok {
+			retryPolicy = rp
+		} else {
+			retryPolicy = eventerrors.DefaultRetryPolicy()
+		}
+	} else {
+		retryPolicy = eventerrors.DefaultRetryPolicy()
 	}
 
 	cv := &CacheValidator{
@@ -377,9 +390,7 @@ func (cv *CacheValidator) InvalidateEventType(ctx context.Context, eventType str
 					WithOperation("delete").
 					WithCause(err)
 				
-				if cv.logger != nil {
-					cv.logger.Warn(fmt.Sprintf("L2 cache deletion failed: %v", cacheErr))
-				}
+				cv.logger.Warn(fmt.Sprintf("L2 cache deletion failed: %v", cacheErr))
 				
 				// Continue with other keys even if one fails
 				continue
@@ -434,9 +445,7 @@ func (cv *CacheValidator) InvalidateEventTypeInternal(ctx context.Context, event
 					WithOperation("delete").
 					WithCause(err)
 				
-				if cv.logger != nil {
-					cv.logger.Warn(fmt.Sprintf("L2 cache deletion failed: %v", cacheErr))
-				}
+				cv.logger.Warn(fmt.Sprintf("L2 cache deletion failed: %v", cacheErr))
 				
 				// Continue with other keys even if one fails
 				continue
@@ -572,7 +581,7 @@ func (cv *CacheValidator) getFromL2(ctx context.Context, key *ValidationCacheKey
 	data, err := cv.l2Cache.Get(ctx, keyStr)
 	if err != nil {
 		// Log L2 cache get error but don't fail the operation
-		if cv.logger != nil {
+		{
 			getErr := eventerrors.NewCacheError(eventerrors.CacheErrorKeyNotFound, 
 				"Failed to retrieve entry from L2 cache").
 				WithLevel("L2").
@@ -589,7 +598,7 @@ func (cv *CacheValidator) getFromL2(ctx context.Context, key *ValidationCacheKey
 		data, err = cv.decompress(data)
 		if err != nil {
 			// Log decompression error
-			if cv.logger != nil {
+			{
 				decompErr := eventerrors.NewCacheError(eventerrors.CacheErrorCompressionFailed, 
 					"Failed to decompress entry from L2 cache").
 					WithLevel("L2").
@@ -606,7 +615,7 @@ func (cv *CacheValidator) getFromL2(ctx context.Context, key *ValidationCacheKey
 	var entry ValidationCacheEntry
 	if err := json.Unmarshal(data, &entry); err != nil {
 		// Log deserialization error
-		if cv.logger != nil {
+		{
 			deserErr := eventerrors.NewCacheError(eventerrors.CacheErrorSerializationFailed, 
 				"Failed to deserialize entry from L2 cache").
 				WithLevel("L2").
@@ -623,7 +632,7 @@ func (cv *CacheValidator) getFromL2(ctx context.Context, key *ValidationCacheKey
 		// Clean up expired entry
 		if delErr := cv.l2Cache.Delete(ctx, keyStr); delErr != nil {
 			// Log deletion error but don't fail
-			if cv.logger != nil {
+			{
 				delCacheErr := eventerrors.NewCacheError(eventerrors.CacheErrorEvictionFailed, 
 					"Failed to delete expired entry from L2 cache").
 					WithLevel("L2").
@@ -683,7 +692,7 @@ func (cv *CacheValidator) storeInL2(ctx context.Context, key string, entry *Vali
 				WithOperation("serialize").
 				WithCause(err)
 			
-			if cv.logger != nil {
+			{
 				cv.logger.Error(fmt.Sprintf("Cache serialization failed: %v", serErr))
 			}
 			return serErr
@@ -699,7 +708,7 @@ func (cv *CacheValidator) storeInL2(ctx context.Context, key string, entry *Vali
 					WithKey(key).
 					WithOperation("compress")
 				
-				if cv.logger != nil {
+				{
 					cv.logger.Error(fmt.Sprintf("Cache compression failed: %v", compErr))
 				}
 				return compErr
@@ -719,7 +728,7 @@ func (cv *CacheValidator) storeInL2(ctx context.Context, key string, entry *Vali
 				WithSize(int64(len(data))).
 				WithCause(err)
 			
-			if cv.logger != nil {
+			{
 				cv.logger.Error(fmt.Sprintf("L2 cache set failed: %v", setErr))
 			}
 			return setErr
@@ -730,7 +739,7 @@ func (cv *CacheValidator) storeInL2(ctx context.Context, key string, entry *Vali
 	
 	// If all retries failed, log the final error but don't crash the system
 	if err != nil {
-		if cv.logger != nil {
+		{
 			cv.logger.Error(fmt.Sprintf("L2 cache store operation failed after retries: %v", err))
 		}
 	}
@@ -770,7 +779,7 @@ func (cv *CacheValidator) invalidateKey(ctx context.Context, key *ValidationCach
 		
 		if err != nil {
 			// Log final error but don't fail the invalidation completely
-			if cv.logger != nil {
+			{
 				cv.logger.Error(fmt.Sprintf("L2 cache invalidation failed after retries: %v", err))
 			}
 			// Return the error for this specific case since invalidation is critical

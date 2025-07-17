@@ -3,71 +3,7 @@ package cache
 import (
 	"context"
 	"time"
-
-	"github.com/ag-ui/go-sdk/pkg/core/events"
 )
-
-// CacheStats provides detailed cache statistics
-type CacheStats struct {
-	L1Hits          uint64
-	L1Misses        uint64
-	L2Hits          uint64
-	L2Misses        uint64
-	TotalHits       uint64
-	TotalMisses     uint64
-	Evictions       uint64
-	Expirations     uint64
-	CompressionRate float64
-	AvgHitLatency   time.Duration
-	AvgMissLatency  time.Duration
-}
-
-// ValidationCacheKey represents a cache key for validation results
-type ValidationCacheKey struct {
-	EventType   events.EventType
-	EventHash   string
-	ConfigHash  string
-	ValidatorID string
-}
-
-// ValidationCacheEntry represents a cached validation result
-type ValidationCacheEntry struct {
-	Key              ValidationCacheKey
-	Valid            bool
-	Errors           []error
-	Metadata         map[string]interface{}
-	CreatedAt        time.Time
-	ExpiresAt        time.Time
-	AccessCount      uint64
-	LastAccessedAt   time.Time
-	CompressionRatio float64
-}
-
-// NodeInfo represents information about a cache node
-type NodeInfo struct {
-	ID            string
-	Address       string
-	State         NodeState
-	LastHeartbeat time.Time
-	Metrics       CacheStats
-	Shards        []int
-}
-
-// NodeState represents the state of a node
-type NodeState int
-
-const (
-	NodeStateActive NodeState = iota
-	NodeStateInactive
-	NodeStateSuspect
-	NodeStateFailed
-)
-
-// CacheValidatorInterface defines the interface for cache invalidation coordination
-type CacheValidatorInterface interface {
-	InvalidateByKeys(ctx context.Context, keys []string) error
-	InvalidateEventType(ctx context.Context, eventType string) error
-}
 
 // BasicCache defines the fundamental cache operations
 // Following Interface Segregation Principle - only basic read/write operations

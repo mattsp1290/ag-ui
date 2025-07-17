@@ -1,10 +1,11 @@
-package events
+package events_test
 
 import (
 	"context"
 	"testing"
 	"time"
 
+	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/core/events/auth"
 	"github.com/ag-ui/go-sdk/pkg/core/events/cache"
 )
@@ -196,13 +197,13 @@ func testSeparateMetricsInterface(t *testing.T) {
 
 func testEventBusPubSub(t *testing.T) {
 	// Test basic publish-subscribe functionality
-	eventBus := NewEventBus(DefaultEventBusConfig())
+	eventBus := events.NewEventBus(events.DefaultEventBusConfig())
 	defer eventBus.Close()
 	
-	received := make(chan BusEvent, 1)
+	received := make(chan events.BusEvent, 1)
 	
 	// Subscribe to events
-	handler := func(ctx context.Context, event BusEvent) error {
+	handler := func(ctx context.Context, event events.BusEvent) error {
 		received <- event
 		return nil
 	}
@@ -214,7 +215,7 @@ func testEventBusPubSub(t *testing.T) {
 	defer eventBus.Unsubscribe(subID)
 	
 	// Publish an event
-	testEvent := BusEvent{
+	testEvent := events.BusEvent{
 		ID:        "test-1",
 		Type:      "test.event",
 		Source:    "test",
@@ -242,32 +243,32 @@ func testEventBusPubSub(t *testing.T) {
 
 func testAuthCacheEventDriven(t *testing.T) {
 	// Test that auth events trigger cache invalidation without direct coupling
-	eventBus := NewEventBus(DefaultEventBusConfig())
+	eventBus := events.NewEventBus(events.DefaultEventBusConfig())
 	defer eventBus.Close()
 	
 	invalidationTriggered := make(chan bool, 1)
 	
 	// Mock cache manager that responds to auth events
-	authEventHandler := func(ctx context.Context, event BusEvent) error {
-		if event.Type == EventTypeAuthExpiration {
+	authEventHandler := func(ctx context.Context, event events.BusEvent) error {
+		if event.Type == events.EventTypeAuthExpiration {
 			// Simulate cache invalidation
 			invalidationTriggered <- true
 		}
 		return nil
 	}
 	
-	subID, err := eventBus.Subscribe(EventTypeAuthExpiration, authEventHandler)
+	subID, err := eventBus.Subscribe(events.EventTypeAuthExpiration, authEventHandler)
 	if err != nil {
 		t.Fatalf("Failed to subscribe to auth events: %v", err)
 	}
 	defer eventBus.Unsubscribe(subID)
 	
 	// Simulate auth expiration
-	authEvent := NewAuthEvent(
-		EventTypeAuthExpiration,
+	authEvent := events.NewAuthEvent(
+		events.EventTypeAuthExpiration,
 		"auth_manager",
 		"user123",
-		AuthEventData{
+		events.AuthEventData{
 			UserID: "user123",
 			Reason: "session_timeout",
 		},
@@ -289,31 +290,31 @@ func testAuthCacheEventDriven(t *testing.T) {
 
 func testDistributedEventCoordination(t *testing.T) {
 	// Test that distributed operations use events instead of direct calls
-	eventBus := NewEventBus(DefaultEventBusConfig())
+	eventBus := events.NewEventBus(events.DefaultEventBusConfig())
 	defer eventBus.Close()
 	
 	nodeJoinReceived := make(chan bool, 1)
 	
 	// Mock distributed manager
-	distributedHandler := func(ctx context.Context, event BusEvent) error {
-		if event.Type == EventTypeNodeJoin {
+	distributedHandler := func(ctx context.Context, event events.BusEvent) error {
+		if event.Type == events.EventTypeNodeJoin {
 			nodeJoinReceived <- true
 		}
 		return nil
 	}
 	
-	subID, err := eventBus.Subscribe(EventTypeNodeJoin, distributedHandler)
+	subID, err := eventBus.Subscribe(events.EventTypeNodeJoin, distributedHandler)
 	if err != nil {
 		t.Fatalf("Failed to subscribe to distributed events: %v", err)
 	}
 	defer eventBus.Unsubscribe(subID)
 	
 	// Simulate node joining
-	nodeEvent := NewDistributedEvent(
-		EventTypeNodeJoin,
+	nodeEvent := events.NewDistributedEvent(
+		events.EventTypeNodeJoin,
 		"distributed_manager",
 		"node-2",
-		DistributedEventData{
+		events.DistributedEventData{
 			NodeAddress: "node://node-2",
 			ClusterSize: 2,
 		},
@@ -337,8 +338,8 @@ func testModuleIndependence(t *testing.T) {
 	// Test that modules can operate independently
 	
 	// Create separate event buses to simulate module independence
-	authEventBus := NewEventBus(DefaultEventBusConfig())
-	cacheEventBus := NewEventBus(DefaultEventBusConfig())
+	authEventBus := events.NewEventBus(events.DefaultEventBusConfig())
+	cacheEventBus := events.NewEventBus(events.DefaultEventBusConfig())
 	defer authEventBus.Close()
 	defer cacheEventBus.Close()
 	

@@ -17,11 +17,14 @@ import (
 // BasicAuthProvider provides a simple in-memory authentication implementation
 // This can be used for testing or as a foundation for more complex providers
 type BasicAuthProvider struct {
-	config    *AuthConfig
-	users     map[string]*User
-	sessions  map[string]*AuthContext
+	config        *AuthConfig
+	users         map[string]*User
+	sessions      map[string]*AuthContext
 	revokedTokens map[string]time.Time
-	mutex     sync.RWMutex
+	auditLogger   AuditLogger
+	rotationInfo  map[string]*TokenRotationInfo // token -> rotation info
+	stopRotation  chan struct{}
+	mutex         sync.RWMutex
 }
 
 // User represents a user in the basic auth provider
@@ -43,12 +46,26 @@ func NewBasicAuthProvider(config *AuthConfig) *BasicAuthProvider {
 		config = DefaultAuthConfig()
 	}
 	
-	return &BasicAuthProvider{
+	provider := &BasicAuthProvider{
 		config:        config,
 		users:         make(map[string]*User),
 		sessions:      make(map[string]*AuthContext),
 		revokedTokens: make(map[string]time.Time),
+		rotationInfo:  make(map[string]*TokenRotationInfo),
+		stopRotation:  make(chan struct{}),
 	}
+	
+	// Initialize audit logger if enabled
+	if config.EnableAuditLogging {
+		provider.auditLogger = NewMemoryAuditLogger()
+	}
+	
+	// Start token rotation if enabled
+	if config.AutoRotateTokens {
+		go provider.startTokenRotation()
+	}
+	
+	return provider
 }
 
 // AddUser adds a user to the provider
@@ -148,15 +165,50 @@ func (p *BasicAuthProvider) authenticateBasic(ctx context.Context, creds *BasicC
 	p.mutex.RUnlock()
 	
 	if !exists {
+		p.logAuditEvent(&AuditEvent{
+			ID:        generateID("audit"),
+			Timestamp: time.Now(),
+			EventType: AuditEventAuthFailure,
+			Username:  creds.Username,
+			Result:    "FAILURE",
+			Error:     "user not found",
+			Metadata: map[string]interface{}{
+				"credential_type": "basic",
+			},
+		})
 		return nil, ErrInvalidCredentials
 	}
 	
 	if !user.Active {
+		p.logAuditEvent(&AuditEvent{
+			ID:        generateID("audit"),
+			Timestamp: time.Now(),
+			EventType: AuditEventAuthFailure,
+			UserID:    user.ID,
+			Username:  user.Username,
+			Result:    "FAILURE",
+			Error:     "user inactive",
+			Metadata: map[string]interface{}{
+				"credential_type": "basic",
+			},
+		})
 		return nil, ErrUnauthorized
 	}
 	
 	// Verify password
 	if !verifyPassword(creds.Password, user.PasswordHash) {
+		p.logAuditEvent(&AuditEvent{
+			ID:        generateID("audit"),
+			Timestamp: time.Now(),
+			EventType: AuditEventAuthFailure,
+			UserID:    user.ID,
+			Username:  user.Username,
+			Result:    "FAILURE",
+			Error:     "invalid password",
+			Metadata: map[string]interface{}{
+				"credential_type": "basic",
+			},
+		})
 		return nil, ErrInvalidCredentials
 	}
 	
@@ -180,6 +232,20 @@ func (p *BasicAuthProvider) authenticateBasic(ctx context.Context, creds *BasicC
 	p.mutex.Lock()
 	p.sessions[token] = authCtx
 	p.mutex.Unlock()
+	
+	// Log successful authentication
+	p.logAuditEvent(&AuditEvent{
+		ID:        generateID("audit"),
+		Timestamp: time.Now(),
+		EventType: AuditEventLogin,
+		UserID:    user.ID,
+		Username:  user.Username,
+		Result:    "SUCCESS",
+		TokenID:   token,
+		Metadata: map[string]interface{}{
+			"credential_type": "basic",
+		},
+	})
 	
 	return authCtx, nil
 }
@@ -363,6 +429,21 @@ func (p *BasicAuthProvider) Refresh(ctx context.Context, authCtx *AuthContext) (
 	p.revokedTokens[authCtx.Token] = time.Now()
 	delete(p.sessions, authCtx.Token)
 	
+	// Log token refresh
+	p.logAuditEvent(&AuditEvent{
+		ID:        generateID("audit"),
+		Timestamp: time.Now(),
+		EventType: AuditEventTokenRefresh,
+		UserID:    oldSession.UserID,
+		Username:  oldSession.Username,
+		Result:    "SUCCESS",
+		TokenID:   newToken,
+		Metadata: map[string]interface{}{
+			"old_token_id": authCtx.Token,
+			"new_token_id": newToken,
+		},
+	})
+	
 	return newAuthCtx, nil
 }
 
@@ -377,6 +458,17 @@ func (p *BasicAuthProvider) Revoke(ctx context.Context, authCtx *AuthContext) er
 	
 	p.revokedTokens[authCtx.Token] = time.Now()
 	delete(p.sessions, authCtx.Token)
+	
+	// Log logout/revocation
+	p.logAuditEvent(&AuditEvent{
+		ID:        generateID("audit"),
+		Timestamp: time.Now(),
+		EventType: AuditEventLogout,
+		UserID:    authCtx.UserID,
+		Username:  authCtx.Username,
+		Result:    "SUCCESS",
+		TokenID:   authCtx.Token,
+	})
 	
 	return nil
 }
@@ -511,4 +603,229 @@ func matchPermission(pattern, resource, action string) bool {
 	}
 	
 	return true
+}
+
+// Helper methods for audit logging and token rotation
+
+// logAuditEvent logs an audit event if audit logging is enabled
+func (p *BasicAuthProvider) logAuditEvent(event *AuditEvent) {
+	if p.config.EnableAuditLogging && p.auditLogger != nil {
+		p.auditLogger.LogEvent(event)
+	}
+}
+
+// startTokenRotation starts the automatic token rotation process
+func (p *BasicAuthProvider) startTokenRotation() {
+	ticker := time.NewTicker(p.config.TokenRotationInterval)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ticker.C:
+			p.rotateAllTokens()
+		case <-p.stopRotation:
+			return
+		}
+	}
+}
+
+// rotateAllTokens rotates all active tokens that are eligible for rotation
+func (p *BasicAuthProvider) rotateAllTokens() {
+	p.mutex.Lock()
+	defer p.mutex.Unlock()
+	
+	now := time.Now()
+	tokensToRotate := make([]string, 0)
+	
+	// Find tokens that need rotation
+	for token, session := range p.sessions {
+		if session.IssuedAt.Add(p.config.TokenRotationInterval).Before(now) {
+			tokensToRotate = append(tokensToRotate, token)
+		}
+	}
+	
+	// Rotate eligible tokens
+	for _, oldToken := range tokensToRotate {
+		if session, exists := p.sessions[oldToken]; exists {
+			newToken := generateToken()
+			expiresAt := now.Add(p.config.TokenExpiration)
+			
+			// Create new session
+			newSession := &AuthContext{
+				UserID:       session.UserID,
+				Username:     session.Username,
+				Roles:        session.Roles,
+				Permissions:  session.Permissions,
+				Token:        newToken,
+				ExpiresAt:    &expiresAt,
+				IssuedAt:     now,
+				Metadata:     session.Metadata,
+				ProviderType: p.GetProviderType(),
+			}
+			
+			// Update rotation info
+			rotationCount := 0
+			if info, exists := p.rotationInfo[oldToken]; exists {
+				rotationCount = info.RotationCount + 1
+			}
+			
+			p.rotationInfo[newToken] = &TokenRotationInfo{
+				OldTokenID:    oldToken,
+				NewTokenID:    newToken,
+				RotatedAt:     now,
+				NextRotation:  now.Add(p.config.TokenRotationInterval),
+				RotationCount: rotationCount,
+			}
+			
+			// Store new session and revoke old one
+			p.sessions[newToken] = newSession
+			p.revokedTokens[oldToken] = now
+			delete(p.sessions, oldToken)
+			delete(p.rotationInfo, oldToken)
+			
+			// Log token rotation
+			p.logAuditEvent(&AuditEvent{
+				ID:        generateID("audit"),
+				Timestamp: now,
+				EventType: AuditEventTokenRotation,
+				UserID:    session.UserID,
+				Username:  session.Username,
+				Result:    "SUCCESS",
+				TokenID:   newToken,
+				Metadata: map[string]interface{}{
+					"old_token_id":    oldToken,
+					"new_token_id":    newToken,
+					"rotation_count":  rotationCount,
+					"auto_rotation":   true,
+				},
+			})
+		}
+	}
+}
+
+// StopTokenRotation stops the automatic token rotation process
+func (p *BasicAuthProvider) StopTokenRotation() {
+	close(p.stopRotation)
+}
+
+// GetAuditEvents returns audit events based on the provided filter
+func (p *BasicAuthProvider) GetAuditEvents(filter *AuditEventFilter) ([]*AuditEvent, error) {
+	if p.auditLogger == nil {
+		return nil, errors.New("audit logging is not enabled")
+	}
+	return p.auditLogger.GetEvents(filter)
+}
+
+// CleanupOldAuditEvents removes audit events older than the retention period
+func (p *BasicAuthProvider) CleanupOldAuditEvents() error {
+	if p.auditLogger == nil {
+		return nil
+	}
+	
+	cutoff := time.Now().Add(-p.config.AuditLogRetention)
+	return p.auditLogger.CleanupOldEvents(cutoff)
+}
+
+// MemoryAuditLogger is a simple in-memory implementation of AuditLogger
+type MemoryAuditLogger struct {
+	events []AuditEvent
+	mutex  sync.RWMutex
+}
+
+// NewMemoryAuditLogger creates a new in-memory audit logger
+func NewMemoryAuditLogger() *MemoryAuditLogger {
+	return &MemoryAuditLogger{
+		events: make([]AuditEvent, 0),
+	}
+}
+
+// LogEvent logs an audit event
+func (mal *MemoryAuditLogger) LogEvent(event *AuditEvent) error {
+	mal.mutex.Lock()
+	defer mal.mutex.Unlock()
+	
+	mal.events = append(mal.events, *event)
+	return nil
+}
+
+// GetEvents returns audit events based on the provided filter
+func (mal *MemoryAuditLogger) GetEvents(filter *AuditEventFilter) ([]*AuditEvent, error) {
+	mal.mutex.RLock()
+	defer mal.mutex.RUnlock()
+	
+	var filtered []*AuditEvent
+	
+	for i := range mal.events {
+		event := &mal.events[i]
+		
+		// Apply filters
+		if filter != nil {
+			// Filter by event types
+			if len(filter.EventTypes) > 0 {
+				found := false
+				for _, eventType := range filter.EventTypes {
+					if event.EventType == eventType {
+						found = true
+						break
+					}
+				}
+				if !found {
+					continue
+				}
+			}
+			
+			// Filter by user ID
+			if filter.UserID != "" && event.UserID != filter.UserID {
+				continue
+			}
+			
+			// Filter by username
+			if filter.Username != "" && event.Username != filter.Username {
+				continue
+			}
+			
+			// Filter by result
+			if filter.Result != "" && event.Result != filter.Result {
+				continue
+			}
+			
+			// Filter by time range
+			if filter.StartTime != nil && event.Timestamp.Before(*filter.StartTime) {
+				continue
+			}
+			if filter.EndTime != nil && event.Timestamp.After(*filter.EndTime) {
+				continue
+			}
+		}
+		
+		filtered = append(filtered, event)
+	}
+	
+	// Apply limit and offset
+	if filter != nil {
+		if filter.Offset > 0 && filter.Offset < len(filtered) {
+			filtered = filtered[filter.Offset:]
+		}
+		if filter.Limit > 0 && filter.Limit < len(filtered) {
+			filtered = filtered[:filter.Limit]
+		}
+	}
+	
+	return filtered, nil
+}
+
+// CleanupOldEvents removes audit events older than the specified time
+func (mal *MemoryAuditLogger) CleanupOldEvents(before time.Time) error {
+	mal.mutex.Lock()
+	defer mal.mutex.Unlock()
+	
+	var kept []AuditEvent
+	for _, event := range mal.events {
+		if event.Timestamp.After(before) {
+			kept = append(kept, event)
+		}
+	}
+	
+	mal.events = kept
+	return nil
 }

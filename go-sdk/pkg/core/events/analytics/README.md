@@ -303,6 +303,536 @@ When the advanced analytics engine becomes available:
 3. Backward compatibility will be maintained for existing integrations
 4. Performance improvements will benefit both implementations
 
+## Troubleshooting
+
+### Common Issues and Solutions
+
+#### Low Pattern Detection Accuracy
+
+**Problem**: Analytics engine not detecting expected patterns
+```
+Warning: pattern detection confidence below 50%
+Info: only 2 patterns detected in last hour with 10K events
+```
+
+**Diagnostic Commands:**
+```bash
+# Test pattern detection
+go test -v -run TestPatternDetection ./pkg/core/events/analytics/
+
+# Run analytics benchmarks
+go test -bench=BenchmarkAnalytics ./pkg/core/events/analytics/
+```
+
+**Diagnostic Steps:**
+1. Check analytics configuration:
+   ```go
+   config := engine.GetConfig()
+   log.Printf("Buffer size: %d", config.BufferSize)
+   log.Printf("Analysis window: %v", config.AnalysisWindow)
+   log.Printf("Min pattern count: %d", config.MinPatternCount)
+   ```
+
+2. Analyze event distribution:
+   ```go
+   metrics := engine.GetMetrics()
+   log.Printf("Events processed: %d", metrics.EventsProcessed)
+   log.Printf("Patterns detected: %d", metrics.PatternsDetected)
+   
+   patterns := engine.GetPatterns()
+   for patternID, pattern := range patterns {
+       log.Printf("Pattern %s: count=%d, frequency=%.2f", 
+           patternID, pattern.Count, float64(pattern.Count)/float64(metrics.EventsProcessed))
+   }
+   ```
+
+3. Check event variety:
+   ```go
+   recentEvents := engine.GetRecentEvents(config.AnalysisWindow)
+   eventTypeCount := make(map[events.EventType]int)
+   
+   for _, event := range recentEvents {
+       eventTypeCount[event.GetEventType()]++
+   }
+   
+   log.Printf("Event type distribution:")
+   for eventType, count := range eventTypeCount {
+       log.Printf("  %s: %d events", eventType, count)
+   }
+   ```
+
+**Solutions:**
+- Adjust minimum pattern count: `config.MinPatternCount = 2` for smaller datasets
+- Extend analysis window: `config.AnalysisWindow = 10 * time.Minute`
+- Increase buffer size: `config.BufferSize = 2000` for longer history
+- Verify event types have sufficient variety
+- Check for clock synchronization issues affecting timestamps
+
+#### High Memory Usage
+
+**Problem**: Analytics engine consuming excessive memory
+```
+Error: analytics buffer using 500MB+ memory
+Warning: GC pressure increased due to analytics
+```
+
+**Diagnostic Commands:**
+```bash
+# Profile memory usage
+go test -memprofile=analytics.prof -bench=BenchmarkMemory ./pkg/core/events/analytics/
+go tool pprof analytics.prof
+
+# Monitor memory over time
+watch -n 5 'ps aux | grep analytics'
+```
+
+**Diagnostic Steps:**
+1. Check buffer size and usage:
+   ```go
+   import "runtime"
+   
+   var m runtime.MemStats
+   runtime.ReadMemStats(&m)
+   log.Printf("Total memory: %d MB", m.Alloc/1024/1024)
+   
+   metrics := engine.GetMetrics()
+   bufferEvents := len(engine.GetRecentEvents(24 * time.Hour))
+   log.Printf("Buffer contains %d events", bufferEvents)
+   
+   // Estimate memory per event
+   if bufferEvents > 0 {
+       avgEventSize := m.Alloc / uint64(bufferEvents)
+       log.Printf("Average event size: %d bytes", avgEventSize)
+   }
+   ```
+
+2. Analyze memory growth:
+   ```go
+   func monitorMemoryGrowth(engine *SimpleAnalyticsEngine) {
+       var m1, m2 runtime.MemStats
+       
+       runtime.ReadMemStats(&m1)
+       
+       // Process events for a period
+       time.Sleep(5 * time.Minute)
+       
+       runtime.ReadMemStats(&m2)
+       growth := m2.Alloc - m1.Alloc
+       
+       log.Printf("Memory growth in 5 minutes: %d MB", growth/1024/1024)
+       
+       if growth > 50*1024*1024 { // 50MB
+           log.Printf("WARNING: High memory growth detected")
+       }
+   }
+   ```
+
+**Solutions:**
+- Reduce buffer size: `config.BufferSize = 500`
+- Shorten analysis window: `config.AnalysisWindow = 2 * time.Minute`
+- Implement event sampling for high-volume scenarios
+- Use more efficient data structures for large event buffers
+- Implement periodic buffer cleanup
+- Consider using external storage for historical data
+
+#### Poor Anomaly Detection Performance
+
+**Problem**: Anomaly detection missing obvious anomalies or generating false positives
+```
+Warning: anomaly detection sensitivity too low
+Error: false positive rate at 25%
+```
+
+**Diagnostic Steps:**
+1. Analyze anomaly detection parameters:
+   ```go
+   result, _ := engine.AnalyzeEvent(event)
+   log.Printf("Event frequency: %.4f", getEventFrequency(event, engine))
+   log.Printf("Anomaly score: %.2f", result.AnomalyScore)
+   log.Printf("Is anomaly: %t", result.IsAnomaly)
+   
+   // Check frequency distribution
+   recentEvents := engine.GetRecentEvents(config.AnalysisWindow)
+   freqMap := make(map[events.EventType]int)
+   for _, e := range recentEvents {
+       freqMap[e.GetEventType()]++
+   }
+   
+   total := len(recentEvents)
+   for eventType, count := range freqMap {
+       frequency := float64(count) / float64(total)
+       log.Printf("Event type %s: frequency=%.2f%%", eventType, frequency*100)
+   }
+   ```
+
+2. Test anomaly detection with known anomalies:
+   ```go
+   // Create rare event (should be anomaly)
+   rareEvent := createRareEvent()
+   result, _ := engine.AnalyzeEvent(rareEvent)
+   log.Printf("Rare event detected as anomaly: %t (score: %.2f)", 
+       result.IsAnomaly, result.AnomalyScore)
+   
+   // Create common event (should not be anomaly)
+   commonEvent := createCommonEvent()
+   result, _ = engine.AnalyzeEvent(commonEvent)
+   log.Printf("Common event detected as anomaly: %t (score: %.2f)", 
+       result.IsAnomaly, result.AnomalyScore)
+   ```
+
+**Solutions:**
+- Tune anomaly thresholds based on data characteristics
+- Implement adaptive thresholds that adjust over time
+- Use statistical methods (z-score, IQR) for more sophisticated detection
+- Implement learning period to establish baseline behavior
+- Add whitelist for known non-anomalous rare events
+- Consider time-based patterns (e.g., daily/weekly cycles)
+
+#### Performance Degradation with High Event Volume
+
+**Problem**: Analytics engine slowing down with increased event load
+```
+Warning: event processing time increased to 50ms
+Error: analytics processing lag: 5000 events behind
+```
+
+**Performance Benchmarking:**
+```bash
+# Benchmark high-volume processing
+go test -bench=BenchmarkHighVolume -benchtime=10s ./pkg/core/events/analytics/
+
+# Profile CPU usage
+go test -cpuprofile=analytics_cpu.prof -bench=. ./pkg/core/events/analytics/
+go tool pprof analytics_cpu.prof
+```
+
+**Diagnostic Steps:**
+1. Measure processing latency:
+   ```go
+   func measureProcessingLatency(engine *SimpleAnalyticsEngine) {
+       events := make([]events.Event, 1000)
+       for i := range events {
+           events[i] = createTestEvent()
+       }
+       
+       start := time.Now()
+       for _, event := range events {
+           _, err := engine.AnalyzeEvent(event)
+           if err != nil {
+               log.Printf("Analysis error: %v", err)
+           }
+       }
+       duration := time.Since(start)
+       
+       avgLatency := duration / time.Duration(len(events))
+       throughput := float64(len(events)) / duration.Seconds()
+       
+       log.Printf("Average latency: %v", avgLatency)
+       log.Printf("Throughput: %.0f events/second", throughput)
+   }
+   ```
+
+2. Identify bottlenecks:
+   ```go
+   // Profile individual operations
+   start := time.Now()
+   patterns := engine.GetPatterns()
+   patternTime := time.Since(start)
+   
+   start = time.Now()
+   recentEvents := engine.GetRecentEvents(5 * time.Minute)
+   bufferTime := time.Since(start)
+   
+   start = time.Now()
+   result, _ := engine.AnalyzeEvent(event)
+   analysisTime := time.Since(start)
+   
+   log.Printf("Performance breakdown:")
+   log.Printf("  Pattern retrieval: %v", patternTime)
+   log.Printf("  Buffer access: %v", bufferTime)
+   log.Printf("  Event analysis: %v", analysisTime)
+   ```
+
+**Solutions:**
+- Implement asynchronous processing for non-critical analytics
+- Use sampling for high-volume streams: analyze every Nth event
+- Optimize data structures (use circular buffers, hash maps)
+- Implement batch processing for multiple events
+- Consider moving to external analytics systems (e.g., Elasticsearch, InfluxDB)
+- Use worker pools for concurrent processing
+
+### Concurrency and Thread Safety Issues
+
+**Problem**: Race conditions or data corruption in concurrent scenarios
+```
+Error: concurrent map writes detected
+panic: slice bounds out of range
+```
+
+**Diagnostic Commands:**
+```bash
+# Test for race conditions
+go test -race ./pkg/core/events/analytics/
+
+# Concurrent stress testing
+go test -race -count=100 ./pkg/core/events/analytics/
+```
+
+**Testing Concurrent Access:**
+```go
+func testConcurrentAccess(engine *SimpleAnalyticsEngine) {
+    var wg sync.WaitGroup
+    numGoroutines := 100
+    eventsPerGoroutine := 100
+    
+    for i := 0; i < numGoroutines; i++ {
+        wg.Add(1)
+        go func(routineID int) {
+            defer wg.Done()
+            
+            for j := 0; j < eventsPerGoroutine; j++ {
+                event := createTestEvent()
+                _, err := engine.AnalyzeEvent(event)
+                if err != nil {
+                    log.Printf("Goroutine %d error: %v", routineID, err)
+                }
+                
+                // Occasionally read patterns
+                if j%10 == 0 {
+                    patterns := engine.GetPatterns()
+                    _ = patterns // Use patterns to avoid optimization
+                }
+            }
+        }(i)
+    }
+    
+    wg.Wait()
+    log.Printf("Concurrent test completed successfully")
+}
+```
+
+**Solutions:**
+- Ensure proper mutex usage around shared data structures
+- Use atomic operations for counters and simple values
+- Implement read-write mutexes for read-heavy operations
+- Use channels for communication between goroutines
+- Consider lock-free data structures for high-performance scenarios
+
+### Configuration and Integration Issues
+
+#### Analytics Not Starting Properly
+
+**Problem**: Analytics engine failing to initialize
+```
+Error: failed to create analytics engine: invalid configuration
+panic: nil pointer dereference in analytics initialization
+```
+
+**Diagnostic Steps:**
+1. Validate configuration:
+   ```go
+   config := &analytics.SimpleAnalyticsConfig{
+       BufferSize:      1000,
+       AnalysisWindow:  5 * time.Minute,
+       MinPatternCount: 3,
+   }
+   
+   // Validate configuration
+   if config.BufferSize <= 0 {
+       log.Printf("ERROR: Invalid buffer size: %d", config.BufferSize)
+   }
+   if config.AnalysisWindow <= 0 {
+       log.Printf("ERROR: Invalid analysis window: %v", config.AnalysisWindow)
+   }
+   if config.MinPatternCount <= 0 {
+       log.Printf("ERROR: Invalid min pattern count: %d", config.MinPatternCount)
+   }
+   ```
+
+2. Test engine creation:
+   ```go
+   engine := analytics.NewSimpleAnalyticsEngine(config)
+   if engine == nil {
+       log.Printf("ERROR: Failed to create analytics engine")
+       return
+   }
+   
+   // Test basic functionality
+   testEvent := createTestEvent()
+   result, err := engine.AnalyzeEvent(testEvent)
+   if err != nil {
+       log.Printf("ERROR: Basic analysis failed: %v", err)
+   } else {
+       log.Printf("SUCCESS: Analytics engine working, result: %+v", result)
+   }
+   ```
+
+**Solutions:**
+- Use `analytics.DefaultSimpleAnalyticsConfig()` for safe defaults
+- Validate all configuration parameters before engine creation
+- Implement configuration validation in the constructor
+- Add proper error handling and logging during initialization
+
+### Performance Monitoring and Debugging
+
+#### Real-time Performance Monitoring
+
+```go
+func monitorAnalyticsPerformance(engine *SimpleAnalyticsEngine) {
+    ticker := time.NewTicker(30 * time.Second)
+    defer ticker.Stop()
+    
+    var lastMetrics *analytics.SimpleMetrics
+    
+    for range ticker.C {
+        currentMetrics := engine.GetMetrics()
+        
+        log.Printf("Analytics Performance Report:")
+        log.Printf("  Events processed: %d", currentMetrics.EventsProcessed)
+        log.Printf("  Patterns detected: %d", currentMetrics.PatternsDetected)
+        log.Printf("  Anomalies detected: %d", currentMetrics.AnomaliesDetected)
+        
+        if lastMetrics != nil {
+            eventsPerSecond := float64(currentMetrics.EventsProcessed - lastMetrics.EventsProcessed) / 30.0
+            log.Printf("  Processing rate: %.1f events/second", eventsPerSecond)
+        }
+        
+        // Memory usage
+        var m runtime.MemStats
+        runtime.ReadMemStats(&m)
+        log.Printf("  Memory usage: %d MB", m.Alloc/1024/1024)
+        
+        lastMetrics = currentMetrics
+    }
+}
+```
+
+#### Pattern Analysis and Debugging
+
+```go
+func analyzePatternDetection(engine *SimpleAnalyticsEngine) {
+    patterns := engine.GetPatterns()
+    
+    log.Printf("Pattern Analysis Report:")
+    log.Printf("  Total patterns: %d", len(patterns))
+    
+    if len(patterns) == 0 {
+        log.Printf("  WARNING: No patterns detected")
+        
+        // Analyze why no patterns were found
+        recentEvents := engine.GetRecentEvents(engine.GetConfig().AnalysisWindow)
+        log.Printf("  Recent events count: %d", len(recentEvents))
+        
+        if len(recentEvents) < engine.GetConfig().MinPatternCount {
+            log.Printf("  Insufficient events for pattern detection")
+        }
+        
+        return
+    }
+    
+    // Analyze pattern quality
+    for patternID, pattern := range patterns {
+        timeSinceLastSeen := time.Since(pattern.LastSeen)
+        log.Printf("  Pattern %s:", patternID)
+        log.Printf("    Count: %d", pattern.Count)
+        log.Printf("    Last seen: %v ago", timeSinceLastSeen)
+        log.Printf("    Event type: %s", pattern.EventType)
+        
+        if timeSinceLastSeen > pattern.Window {
+            log.Printf("    WARNING: Pattern may be stale")
+        }
+    }
+}
+```
+
+#### Event Processing Latency Analysis
+
+```go
+func analyzeProcessingLatency(engine *SimpleAnalyticsEngine) {
+    const numSamples = 1000
+    latencies := make([]time.Duration, numSamples)
+    
+    for i := 0; i < numSamples; i++ {
+        event := createTestEvent()
+        
+        start := time.Now()
+        _, err := engine.AnalyzeEvent(event)
+        latency := time.Since(start)
+        
+        if err != nil {
+            log.Printf("Error in sample %d: %v", i, err)
+            continue
+        }
+        
+        latencies[i] = latency
+    }
+    
+    // Calculate statistics
+    sort.Slice(latencies, func(i, j int) bool {
+        return latencies[i] < latencies[j]
+    })
+    
+    p50 := latencies[numSamples/2]
+    p95 := latencies[int(float64(numSamples)*0.95)]
+    p99 := latencies[int(float64(numSamples)*0.99)]
+    
+    var total time.Duration
+    for _, latency := range latencies {
+        total += latency
+    }
+    avg := total / time.Duration(numSamples)
+    
+    log.Printf("Processing Latency Analysis:")
+    log.Printf("  Average: %v", avg)
+    log.Printf("  P50: %v", p50)
+    log.Printf("  P95: %v", p95)
+    log.Printf("  P99: %v", p99)
+    log.Printf("  Max: %v", latencies[numSamples-1])
+    
+    if avg > 10*time.Millisecond {
+        log.Printf("  WARNING: High average latency")
+    }
+    if p99 > 100*time.Millisecond {
+        log.Printf("  WARNING: High tail latency")
+    }
+}
+```
+
+### Advanced Debugging Techniques
+
+#### Event Stream Analysis
+
+```go
+func analyzeEventStream(engine *SimpleAnalyticsEngine, duration time.Duration) {
+    start := time.Now()
+    eventCounts := make(map[events.EventType]int)
+    var totalEvents int
+    
+    ticker := time.NewTicker(duration)
+    defer ticker.Stop()
+    
+    <-ticker.C
+    
+    recentEvents := engine.GetRecentEvents(duration)
+    for _, event := range recentEvents {
+        eventCounts[event.GetEventType()]++
+        totalEvents++
+    }
+    
+    log.Printf("Event Stream Analysis (last %v):", duration)
+    log.Printf("  Total events: %d", totalEvents)
+    log.Printf("  Event types: %d", len(eventCounts))
+    log.Printf("  Average rate: %.1f events/minute", 
+        float64(totalEvents)/duration.Minutes())
+    
+    log.Printf("  Event distribution:")
+    for eventType, count := range eventCounts {
+        percentage := float64(count) / float64(totalEvents) * 100
+        log.Printf("    %s: %d (%.1f%%)", eventType, count, percentage)
+    }
+}
+```
+
 ## Contributing
 
 To contribute to the analytics package:

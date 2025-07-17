@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/your-org/ag-ui/go-sdk/pkg/testhelper"
+	"github.com/ag-ui/go-sdk/pkg/testhelper"
 )
 
 func TestEventInterface(t *testing.T) {

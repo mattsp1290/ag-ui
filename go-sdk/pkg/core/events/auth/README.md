@@ -228,6 +228,291 @@ See `example_test.go` for complete examples including:
 - Custom hooks
 - Rate limiting
 
+## Troubleshooting
+
+### Common Issues and Solutions
+
+#### Authentication Failures
+
+**Problem**: Users unable to authenticate despite correct credentials
+```
+Error: authentication failed for user 'alice'
+```
+
+**Diagnostic Steps:**
+1. Check user exists and is active:
+   ```go
+   user, exists := provider.GetUser("alice")
+   if !exists || !user.Active {
+       // User doesn't exist or is disabled
+   }
+   ```
+
+2. Verify password hash:
+   ```go
+   if !provider.ValidatePassword("alice", "password") {
+       // Password validation failed
+   }
+   ```
+
+3. Check provider configuration:
+   ```go
+   config := provider.GetConfig()
+   if config == nil {
+       // Provider not properly configured
+   }
+   ```
+
+**Solutions:**
+- Ensure user is added with `provider.AddUser()` and `provider.SetUserPassword()`
+- Verify user `Active` field is set to `true`
+- Check password complexity requirements
+- Validate password hashing algorithm compatibility
+
+#### Authorization Errors
+
+**Problem**: User authenticated but validation fails with permission errors
+```
+Error: user 'alice' does not have permission 'event:validate'
+```
+
+**Diagnostic Steps:**
+1. Check user permissions:
+   ```go
+   authCtx, _ := provider.Authenticate(ctx, credentials)
+   hasPermission := provider.CheckPermission(authCtx, "event", "validate")
+   ```
+
+2. Verify role assignments:
+   ```go
+   user, _ := provider.GetUser("alice")
+   log.Printf("User roles: %v", user.Roles)
+   log.Printf("User permissions: %v", user.Permissions)
+   ```
+
+**Solutions:**
+- Add required permissions to user: `user.Permissions = append(user.Permissions, "event:validate")`
+- Assign appropriate roles with sufficient permissions
+- Use wildcard permission `*:*` for admin users
+- Check resource and action naming conventions
+
+#### Token Expiration Issues
+
+**Problem**: Valid tokens being rejected as expired
+```
+Error: token expired at 2024-01-01T12:00:00Z
+```
+
+**Diagnostic Steps:**
+1. Check token timestamps:
+   ```go
+   authCtx, _ := provider.Authenticate(ctx, tokenCredentials)
+   if authCtx.ExpiresAt != nil && time.Now().After(*authCtx.ExpiresAt) {
+       // Token is expired
+   }
+   ```
+
+2. Verify system time synchronization
+3. Check token refresh configuration
+
+**Solutions:**
+- Implement token refresh mechanism
+- Adjust token expiration times in `AuthConfig`
+- Ensure system clocks are synchronized across nodes
+- Use refresh tokens for long-lived sessions
+
+#### Performance Issues
+
+**Problem**: Authentication operations taking too long
+```
+Warning: authentication took 2.5s for user 'alice'
+```
+
+**Diagnostic Commands:**
+```bash
+# Monitor authentication metrics
+go test -bench=BenchmarkAuthentication ./pkg/core/events/auth/
+```
+
+**Solutions:**
+- Cache authentication results with short TTL
+- Use more efficient password hashing (consider bcrypt with lower cost)
+- Implement connection pooling for external auth providers
+- Add authentication timeout configurations
+
+### Memory Leaks and Resource Issues
+
+**Problem**: Authentication validator consuming excessive memory
+
+**Diagnostic Commands:**
+```bash
+# Run memory profiling
+go test -memprofile=mem.prof -bench=. ./pkg/core/events/auth/
+go tool pprof mem.prof
+
+# Check for goroutine leaks
+go test -race -count=10 ./pkg/core/events/auth/
+```
+
+**Solutions:**
+- Implement proper cleanup in `defer` statements
+- Use context cancellation for long-running operations
+- Limit concurrent authentication operations
+- Implement user session cleanup
+
+### Configuration Problems
+
+**Problem**: Authentication hooks not being executed
+
+**Diagnostic Steps:**
+1. Verify hook registration:
+   ```go
+   hooks := validator.GetPreValidationHooks()
+   log.Printf("Registered hooks: %d", len(hooks))
+   ```
+
+2. Check hook execution order:
+   ```go
+   validator.AddPreValidationHook(func(ctx context.Context, event Event, authCtx *AuthContext) error {
+       log.Printf("Hook executed for user: %s", authCtx.Username)
+       return nil
+   })
+   ```
+
+**Solutions:**
+- Ensure hooks are added before validation operations
+- Check hook return values (non-nil errors abort validation)
+- Verify context propagation through hook chain
+- Use proper error handling in hook implementations
+
+### Debugging Commands
+
+#### Enable Debug Logging
+```go
+config := &auth.AuthConfig{
+    Enabled:     true,
+    DebugMode:   true,
+    LogLevel:    "DEBUG",
+}
+```
+
+#### Authentication Metrics
+```go
+metrics := validator.GetMetrics()
+log.Printf("Auth attempts: %d", metrics.AuthAttempts)
+log.Printf("Auth successes: %d", metrics.AuthSuccesses)
+log.Printf("Auth failures: %d", metrics.AuthFailures)
+log.Printf("Success rate: %.2f%%", metrics.SuccessRate*100)
+```
+
+#### Provider Health Check
+```go
+health := provider.HealthCheck()
+if !health.Healthy {
+    log.Printf("Provider unhealthy: %s", health.Message)
+    for _, issue := range health.Issues {
+        log.Printf("Issue: %s", issue)
+    }
+}
+```
+
+#### User Activity Audit
+```go
+// Enable audit logging
+validator.AddPostValidationHook(auth.AuditHook())
+
+// Query audit logs
+auditEntries := validator.GetAuditLog()
+for _, entry := range auditEntries {
+    log.Printf("User: %s, Action: %s, Time: %v", 
+        entry.Username, entry.Action, entry.Timestamp)
+}
+```
+
+### Performance Debugging
+
+#### Authentication Latency Analysis
+```go
+func measureAuthLatency() {
+    start := time.Now()
+    result := validator.ValidateWithBasicAuth(ctx, event, "user", "pass")
+    latency := time.Since(start)
+    
+    if latency > 100*time.Millisecond {
+        log.Printf("Slow authentication: %v", latency)
+    }
+}
+```
+
+#### Memory Usage Monitoring
+```go
+import "runtime"
+
+func monitorMemory() {
+    var m runtime.MemStats
+    runtime.ReadMemStats(&m)
+    
+    log.Printf("Auth memory usage:")
+    log.Printf("  Allocated: %d KB", m.Alloc/1024)
+    log.Printf("  Total allocated: %d KB", m.TotalAlloc/1024)
+    log.Printf("  System memory: %d KB", m.Sys/1024)
+}
+```
+
+#### Rate Limiting Diagnostics
+```go
+rateLimiter := validator.GetRateLimiter()
+if rateLimiter != nil {
+    stats := rateLimiter.GetStats()
+    log.Printf("Rate limit stats:")
+    log.Printf("  Requests: %d", stats.Requests)
+    log.Printf("  Allowed: %d", stats.Allowed)
+    log.Printf("  Blocked: %d", stats.Blocked)
+    log.Printf("  Current rate: %.2f req/s", stats.CurrentRate)
+}
+```
+
+### Integration Debugging
+
+#### External Provider Connectivity
+```go
+// For LDAP/AD integration
+func testLDAPConnection() error {
+    conn, err := ldap.Dial("tcp", "ldap.example.com:389")
+    if err != nil {
+        return fmt.Errorf("LDAP connection failed: %w", err)
+    }
+    defer conn.Close()
+    
+    err = conn.Bind("cn=admin,dc=example,dc=com", "password")
+    if err != nil {
+        return fmt.Errorf("LDAP bind failed: %w", err)
+    }
+    
+    return nil
+}
+```
+
+#### JWT Token Validation
+```go
+func debugJWTToken(tokenString string) {
+    token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+        return []byte("secret"), nil
+    })
+    
+    if err != nil {
+        log.Printf("JWT parse error: %v", err)
+        return
+    }
+    
+    if claims, ok := token.Claims.(jwt.MapClaims); ok && token.Valid {
+        log.Printf("JWT claims: %v", claims)
+        log.Printf("Expires at: %v", claims["exp"])
+        log.Printf("Issued at: %v", claims["iat"])
+    }
+}
+```
+
 ## Future Enhancements
 
 This foundation can be extended with:

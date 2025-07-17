@@ -3,10 +3,14 @@ package distributed
 import (
 	"context"
 	"fmt"
+	"log"
+	"math"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/ag-ui/go-sdk/pkg/errors"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
@@ -54,6 +58,192 @@ type NodeInfo struct {
 	Load            float64       `json:"load"`
 }
 
+// GoroutineRestartPolicy defines the restart policy for goroutines
+type GoroutineRestartPolicy struct {
+	// MaxRestarts is the maximum number of restarts allowed
+	MaxRestarts int
+	
+	// RestartWindow is the time window for restart counting
+	RestartWindow time.Duration
+	
+	// BaseBackoff is the base backoff duration
+	BaseBackoff time.Duration
+	
+	// MaxBackoff is the maximum backoff duration
+	MaxBackoff time.Duration
+	
+	// BackoffMultiplier is the multiplier for exponential backoff
+	BackoffMultiplier float64
+}
+
+// DefaultGoroutineRestartPolicy returns a default restart policy
+func DefaultGoroutineRestartPolicy() *GoroutineRestartPolicy {
+	return &GoroutineRestartPolicy{
+		MaxRestarts:       10,
+		RestartWindow:     5 * time.Minute,
+		BaseBackoff:       100 * time.Millisecond,
+		MaxBackoff:        30 * time.Second,
+		BackoffMultiplier: 2.0,
+	}
+}
+
+// GoroutineManager manages goroutine lifecycle with restart capabilities
+type GoroutineManager struct {
+	name               string
+	restartPolicy      *GoroutineRestartPolicy
+	restartCount       int64
+	lastRestartTime    time.Time
+	isRunning          bool
+	shouldRestart      bool
+	ctx                context.Context
+	cancel             context.CancelFunc
+	mu                 sync.RWMutex
+	wg                 sync.WaitGroup
+}
+
+// NewGoroutineManager creates a new goroutine manager
+func NewGoroutineManager(name string, policy *GoroutineRestartPolicy) *GoroutineManager {
+	if policy == nil {
+		policy = DefaultGoroutineRestartPolicy()
+	}
+	
+	return &GoroutineManager{
+		name:          name,
+		restartPolicy: policy,
+		shouldRestart: true,
+	}
+}
+
+// Start starts the managed goroutine
+func (gm *GoroutineManager) Start(parentCtx context.Context, fn func(context.Context)) {
+	gm.mu.Lock()
+	defer gm.mu.Unlock()
+	
+	if gm.isRunning {
+		return
+	}
+	
+	gm.ctx, gm.cancel = context.WithCancel(parentCtx)
+	gm.isRunning = true
+	gm.shouldRestart = true
+	
+	gm.wg.Add(1)
+	go gm.runWithRestart(fn)
+}
+
+// Stop stops the managed goroutine
+func (gm *GoroutineManager) Stop() {
+	gm.mu.Lock()
+	defer gm.mu.Unlock()
+	
+	gm.shouldRestart = false
+	if gm.cancel != nil {
+		gm.cancel()
+	}
+	
+	gm.wg.Wait()
+	gm.isRunning = false
+}
+
+// runWithRestart runs the function with restart capability
+func (gm *GoroutineManager) runWithRestart(fn func(context.Context)) {
+	defer gm.wg.Done()
+	
+	for {
+		select {
+		case <-gm.ctx.Done():
+			return
+		default:
+		}
+		
+		gm.mu.RLock()
+		shouldRestart := gm.shouldRestart
+		gm.mu.RUnlock()
+		
+		if !shouldRestart {
+			return
+		}
+		
+		// Run the function with panic recovery
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("Panic in goroutine %s: %v", gm.name, r)
+					gm.handleRestart()
+				}
+			}()
+			
+			fn(gm.ctx)
+		}()
+		
+		// If we reach here, the function exited normally
+		gm.mu.RLock()
+		shouldRestart = gm.shouldRestart
+		gm.mu.RUnlock()
+		
+		if !shouldRestart {
+			return
+		}
+		
+		// Function exited, attempt restart
+		gm.handleRestart()
+	}
+}
+
+// handleRestart handles the restart logic with exponential backoff
+func (gm *GoroutineManager) handleRestart() {
+	now := time.Now()
+	
+	// Check if we're within the restart window
+	if now.Sub(gm.lastRestartTime) > gm.restartPolicy.RestartWindow {
+		// Reset restart count if outside window
+		atomic.StoreInt64(&gm.restartCount, 0)
+	}
+	
+	restarts := atomic.AddInt64(&gm.restartCount, 1)
+	gm.lastRestartTime = now
+	
+	// Check if we've exceeded max restarts
+	if int(restarts) > gm.restartPolicy.MaxRestarts {
+		log.Printf("Goroutine %s exceeded max restarts (%d), stopping", gm.name, gm.restartPolicy.MaxRestarts)
+		gm.mu.Lock()
+		gm.shouldRestart = false
+		gm.mu.Unlock()
+		return
+	}
+	
+	// Calculate backoff duration
+	backoffDuration := time.Duration(float64(gm.restartPolicy.BaseBackoff) * 
+		math.Pow(gm.restartPolicy.BackoffMultiplier, float64(restarts-1)))
+	
+	if backoffDuration > gm.restartPolicy.MaxBackoff {
+		backoffDuration = gm.restartPolicy.MaxBackoff
+	}
+	
+	log.Printf("Restarting goroutine %s in %v (attempt %d/%d)", 
+		gm.name, backoffDuration, restarts, gm.restartPolicy.MaxRestarts)
+	
+	// Wait for backoff period
+	select {
+	case <-gm.ctx.Done():
+		return
+	case <-time.After(backoffDuration):
+		// Continue with restart
+	}
+}
+
+// GetRestartCount returns the current restart count
+func (gm *GoroutineManager) GetRestartCount() int64 {
+	return atomic.LoadInt64(&gm.restartCount)
+}
+
+// IsRunning returns whether the goroutine is currently running
+func (gm *GoroutineManager) IsRunning() bool {
+	gm.mu.RLock()
+	defer gm.mu.RUnlock()
+	return gm.isRunning
+}
+
 // DistributedValidatorConfig contains configuration for the distributed validator
 type DistributedValidatorConfig struct {
 	// NodeID is the unique identifier for this validator node
@@ -82,20 +272,32 @@ type DistributedValidatorConfig struct {
 
 	// EnableMetrics enables distributed metrics collection
 	EnableMetrics bool
+	
+	// Circuit Breaker settings
+	ConsensusCircuitBreakerConfig   *errors.CircuitBreakerConfig
+	StateSyncCircuitBreakerConfig   *errors.CircuitBreakerConfig
+	HeartbeatCircuitBreakerConfig   *errors.CircuitBreakerConfig
+	
+	// GoroutineRestartPolicy defines restart behavior for background goroutines
+	GoroutineRestartPolicy *GoroutineRestartPolicy
 }
 
 // DefaultDistributedValidatorConfig returns default configuration
 func DefaultDistributedValidatorConfig(nodeID NodeID) *DistributedValidatorConfig {
 	return &DistributedValidatorConfig{
-		NodeID:             nodeID,
-		ConsensusConfig:    DefaultConsensusConfig(),
-		StateSync:          DefaultStateSyncConfig(),
-		LoadBalancer:       DefaultLoadBalancerConfig(),
-		PartitionHandler:   DefaultPartitionHandlerConfig(),
-		MaxNodeFailures:    2,
-		ValidationTimeout:  5 * time.Second,
-		HeartbeatInterval:  1 * time.Second,
-		EnableMetrics:      true,
+		NodeID:                 nodeID,
+		ConsensusConfig:        DefaultConsensusConfig(),
+		StateSync:              DefaultStateSyncConfig(),
+		LoadBalancer:           DefaultLoadBalancerConfig(),
+		PartitionHandler:       DefaultPartitionHandlerConfig(),
+		MaxNodeFailures:        2,
+		ValidationTimeout:      5 * time.Second,
+		HeartbeatInterval:      1 * time.Second,
+		EnableMetrics:          true,
+		ConsensusCircuitBreakerConfig:   errors.DefaultCircuitBreakerConfig("consensus"),
+		StateSyncCircuitBreakerConfig:   errors.DefaultCircuitBreakerConfig("state-sync"),
+		HeartbeatCircuitBreakerConfig:   errors.DefaultCircuitBreakerConfig("heartbeat"),
+		GoroutineRestartPolicy: DefaultGoroutineRestartPolicy(),
 	}
 }
 
@@ -116,6 +318,11 @@ type DistributedValidator struct {
 	pendingValidations map[string]*PendingValidation
 	validationMutex    sync.RWMutex
 	
+	// Circuit Breakers
+	consensusCircuitBreaker   errors.CircuitBreaker
+	stateSyncCircuitBreaker   errors.CircuitBreaker
+	heartbeatCircuitBreaker   errors.CircuitBreaker
+	
 	// Metrics
 	metrics          *DistributedMetrics
 	
@@ -124,6 +331,16 @@ type DistributedValidator struct {
 	runningMutex     sync.RWMutex
 	stopChan         chan struct{}
 	stopOnce         sync.Once
+	
+	// Goroutine managers for background routines
+	heartbeatManager   *GoroutineManager
+	cleanupManager     *GoroutineManager
+	metricsManager     *GoroutineManager
+	consensusManager   *GoroutineManager
+	
+	// Resource cleanup
+	resourceCleanup    []func() error
+	cleanupMutex       sync.Mutex
 	
 	// Tracing
 	tracer           trace.Tracer
@@ -155,8 +372,18 @@ func NewDistributedValidator(config *DistributedValidatorConfig, localValidator 
 		pendingValidations: make(map[string]*PendingValidation),
 		metrics:            NewDistributedMetrics(),
 		stopChan:           make(chan struct{}),
+		resourceCleanup:    make([]func() error, 0),
 		tracer:             otel.Tracer("ag-ui/distributed-validation"),
+		consensusCircuitBreaker: errors.GetCircuitBreaker("consensus", config.ConsensusCircuitBreakerConfig),
+		stateSyncCircuitBreaker: errors.GetCircuitBreaker("state-sync", config.StateSyncCircuitBreakerConfig),
+		heartbeatCircuitBreaker: errors.GetCircuitBreaker("heartbeat", config.HeartbeatCircuitBreakerConfig),
 	}
+	
+	// Initialize goroutine managers
+	dv.heartbeatManager = NewGoroutineManager("heartbeat", config.GoroutineRestartPolicy)
+	dv.cleanupManager = NewGoroutineManager("cleanup", config.GoroutineRestartPolicy)
+	dv.metricsManager = NewGoroutineManager("metrics", config.GoroutineRestartPolicy)
+	dv.consensusManager = NewGoroutineManager("consensus", config.GoroutineRestartPolicy)
 
 	// Initialize components
 	var err error
@@ -207,39 +434,11 @@ func (dv *DistributedValidator) Start(ctx context.Context) error {
 		return fmt.Errorf("failed to start partition handler: %w", err)
 	}
 
-	// Start background routines
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("Panic in distributed validator heartbeat routine: %v\n", r)
-			}
-		}()
-		dv.heartbeatRoutine(ctx)
-	}()
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("Panic in distributed validator cleanup routine: %v\n", r)
-			}
-		}()
-		dv.cleanupRoutine(ctx)
-	}()
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("Panic in distributed validator metrics routine: %v\n", r)
-			}
-		}()
-		dv.metricsRoutine(ctx)
-	}()
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				fmt.Printf("Panic in distributed validator consensus routine: %v\n", r)
-			}
-		}()
-		dv.consensusRoutine(ctx)
-	}()
+	// Start background routines with managed goroutines
+	dv.heartbeatManager.Start(ctx, dv.heartbeatRoutine)
+	dv.cleanupManager.Start(ctx, dv.cleanupRoutine)
+	dv.metricsManager.Start(ctx, dv.metricsRoutine)
+	dv.consensusManager.Start(ctx, dv.consensusRoutine)
 
 	dv.running = true
 	return nil
@@ -259,6 +458,20 @@ func (dv *DistributedValidator) Stop() error {
 		close(dv.stopChan)
 	})
 
+	// Stop managed goroutines
+	if dv.heartbeatManager != nil {
+		dv.heartbeatManager.Stop()
+	}
+	if dv.cleanupManager != nil {
+		dv.cleanupManager.Stop()
+	}
+	if dv.metricsManager != nil {
+		dv.metricsManager.Stop()
+	}
+	if dv.consensusManager != nil {
+		dv.consensusManager.Stop()
+	}
+
 	// Stop components
 	var errs []error
 	
@@ -273,6 +486,15 @@ func (dv *DistributedValidator) Stop() error {
 	if err := dv.consensus.Stop(); err != nil {
 		errs = append(errs, fmt.Errorf("failed to stop consensus: %w", err))
 	}
+	
+	// Execute resource cleanup functions
+	dv.cleanupMutex.Lock()
+	for _, cleanup := range dv.resourceCleanup {
+		if err := cleanup(); err != nil {
+			errs = append(errs, fmt.Errorf("resource cleanup error: %w", err))
+		}
+	}
+	dv.cleanupMutex.Unlock()
 
 	dv.running = false
 
@@ -667,6 +889,59 @@ func (dv *DistributedValidator) GetAllNodes() map[NodeID]*NodeInfo {
 // GetMetrics returns distributed validation metrics
 func (dv *DistributedValidator) GetMetrics() *DistributedMetrics {
 	return dv.metrics
+}
+
+// RegisterCleanupFunc registers a function to be called during shutdown
+func (dv *DistributedValidator) RegisterCleanupFunc(cleanup func() error) {
+	dv.cleanupMutex.Lock()
+	defer dv.cleanupMutex.Unlock()
+	dv.resourceCleanup = append(dv.resourceCleanup, cleanup)
+}
+
+// GetGoroutineStatus returns status of all managed goroutines
+func (dv *DistributedValidator) GetGoroutineStatus() map[string]GoroutineStatus {
+	status := make(map[string]GoroutineStatus)
+	
+	if dv.heartbeatManager != nil {
+		status["heartbeat"] = GoroutineStatus{
+			Name:         "heartbeat",
+			IsRunning:    dv.heartbeatManager.IsRunning(),
+			RestartCount: dv.heartbeatManager.GetRestartCount(),
+		}
+	}
+	
+	if dv.cleanupManager != nil {
+		status["cleanup"] = GoroutineStatus{
+			Name:         "cleanup",
+			IsRunning:    dv.cleanupManager.IsRunning(),
+			RestartCount: dv.cleanupManager.GetRestartCount(),
+		}
+	}
+	
+	if dv.metricsManager != nil {
+		status["metrics"] = GoroutineStatus{
+			Name:         "metrics",
+			IsRunning:    dv.metricsManager.IsRunning(),
+			RestartCount: dv.metricsManager.GetRestartCount(),
+		}
+	}
+	
+	if dv.consensusManager != nil {
+		status["consensus"] = GoroutineStatus{
+			Name:         "consensus",
+			IsRunning:    dv.consensusManager.IsRunning(),
+			RestartCount: dv.consensusManager.GetRestartCount(),
+		}
+	}
+	
+	return status
+}
+
+// GoroutineStatus represents the status of a managed goroutine
+type GoroutineStatus struct {
+	Name         string `json:"name"`
+	IsRunning    bool   `json:"is_running"`
+	RestartCount int64  `json:"restart_count"`
 }
 
 // selectValidationNodes selects nodes for validation based on load balancing

@@ -8,9 +8,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
@@ -32,9 +34,10 @@ type Transport interface {
 // SSETransport implements the Transport interface for Server-Sent Events
 type SSETransport struct {
 	// Configuration
-	baseURL string
-	client  *http.Client
-	headers map[string]string
+	baseURL            string
+	client             *http.Client
+	headers            map[string]string
+	backpressureConfig *BackpressureConfig
 
 	// Connection management
 	conn      *http.Response
@@ -58,30 +61,86 @@ type SSETransport struct {
 	reconnectDelay time.Duration
 	maxReconnects  int
 	reconnectCount int
+	
+	// Backpressure tracking
+	droppedEvents      int64
+	droppedErrors      int64
+	backpressureActive bool
+	backpressureMutex  sync.RWMutex
+	lastDropTime       time.Time
+}
+
+// BackpressureConfig configures backpressure behavior
+type BackpressureConfig struct {
+	// ErrorChannelBuffer is the buffer size for error channel
+	ErrorChannelBuffer int
+	
+	// EventChannelBuffer is the buffer size for event channel
+	EventChannelBuffer int
+	
+	// MaxDroppedEvents is the maximum number of events that can be dropped before taking action
+	MaxDroppedEvents int
+	
+	// DropActionType defines what to do when max dropped events is reached
+	DropActionType DropActionType
+	
+	// EnableBackpressureLogging enables detailed logging of backpressure events
+	EnableBackpressureLogging bool
+	
+	// BackpressureThresholdPercent is the percentage at which to start applying backpressure (0-100)
+	BackpressureThresholdPercent int
+}
+
+// DropActionType defines actions to take when events are dropped
+type DropActionType int
+
+const (
+	// DropActionLog logs dropped events but continues
+	DropActionLog DropActionType = iota
+	
+	// DropActionReconnect attempts to reconnect
+	DropActionReconnect
+	
+	// DropActionStop stops the transport
+	DropActionStop
+)
+
+// DefaultBackpressureConfig returns default backpressure configuration
+func DefaultBackpressureConfig() *BackpressureConfig {
+	return &BackpressureConfig{
+		ErrorChannelBuffer:           50,
+		EventChannelBuffer:           1000,
+		MaxDroppedEvents:             100,
+		DropActionType:               DropActionReconnect,
+		EnableBackpressureLogging:    true,
+		BackpressureThresholdPercent: 80,
+	}
 }
 
 // Config holds configuration for SSE transport
 type Config struct {
-	BaseURL        string
-	Headers        map[string]string
-	BufferSize     int
-	ReadTimeout    time.Duration
-	WriteTimeout   time.Duration
-	ReconnectDelay time.Duration
-	MaxReconnects  int
-	Client         *http.Client
+	BaseURL            string
+	Headers            map[string]string
+	BufferSize         int
+	ReadTimeout        time.Duration
+	WriteTimeout       time.Duration
+	ReconnectDelay     time.Duration
+	MaxReconnects      int
+	Client             *http.Client
+	BackpressureConfig *BackpressureConfig
 }
 
 // DefaultConfig returns a default configuration
 func DefaultConfig() *Config {
 	return &Config{
-		BaseURL:        "http://localhost:8080",
-		Headers:        make(map[string]string),
-		BufferSize:     1000,
-		ReadTimeout:    30 * time.Second,
-		WriteTimeout:   10 * time.Second,
-		ReconnectDelay: 5 * time.Second,
-		MaxReconnects:  5,
+		BaseURL:            "http://localhost:8080",
+		Headers:            make(map[string]string),
+		BufferSize:         1000,
+		ReadTimeout:        30 * time.Second,
+		WriteTimeout:       10 * time.Second,
+		ReconnectDelay:     5 * time.Second,
+		MaxReconnects:      5,
+		BackpressureConfig: DefaultBackpressureConfig(),
 		Client: &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
@@ -127,28 +186,42 @@ func NewSSETransport(config *Config) (*SSETransport, error) {
 			},
 		}
 	}
+	
+	if config.BackpressureConfig == nil {
+		config.BackpressureConfig = DefaultBackpressureConfig()
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	// Set default values if not provided
 	bufferSize := config.BufferSize
 	if bufferSize == 0 {
-		bufferSize = 1000
+		if config.BackpressureConfig.EventChannelBuffer > 0 {
+			bufferSize = config.BackpressureConfig.EventChannelBuffer
+		} else {
+			bufferSize = 1000
+		}
+	}
+	
+	errorBufferSize := config.BackpressureConfig.ErrorChannelBuffer
+	if errorBufferSize == 0 {
+		errorBufferSize = 10
 	}
 
 	transport := &SSETransport{
-		baseURL:        config.BaseURL,
-		client:         config.Client,
-		headers:        config.Headers,
-		eventChan:      make(chan events.Event, bufferSize),
-		errorChan:      make(chan error, 10),
-		ctx:            ctx,
-		cancel:         cancel,
-		bufferSize:     bufferSize,
-		readTimeout:    config.ReadTimeout,
-		writeTimeout:   config.WriteTimeout,
-		reconnectDelay: config.ReconnectDelay,
-		maxReconnects:  config.MaxReconnects,
+		baseURL:            config.BaseURL,
+		client:             config.Client,
+		headers:            config.Headers,
+		backpressureConfig: config.BackpressureConfig,
+		eventChan:          make(chan events.Event, bufferSize),
+		errorChan:          make(chan error, errorBufferSize),
+		ctx:                ctx,
+		cancel:             cancel,
+		bufferSize:         bufferSize,
+		readTimeout:        config.ReadTimeout,
+		writeTimeout:       config.WriteTimeout,
+		reconnectDelay:     config.ReconnectDelay,
+		maxReconnects:      config.MaxReconnects,
 	}
 
 	// Set default headers for SSE
@@ -297,27 +370,15 @@ func (t *SSETransport) readEvents() {
 			event, err := t.readEvent()
 			if err != nil {
 				if !t.isClosed() {
-					// Send error to channel safely
-					select {
-					case t.errorChan <- err:
-					case <-t.ctx.Done():
-						return
-					default:
-						// Channel is full or closed, continue
-					}
+					// Handle error with backpressure control
+					t.handleErrorWithBackpressure(err)
 					
 					// Try to reconnect
 					if t.shouldReconnect(err) {
 						if reconnectErr := t.reconnect(); reconnectErr != nil {
-							// Send reconnection error safely
+							// Handle reconnection error with backpressure control
 							if !t.isClosed() {
-								select {
-								case t.errorChan <- reconnectErr:
-								case <-t.ctx.Done():
-									return
-								default:
-									// Channel is full or closed, continue
-								}
+								t.handleErrorWithBackpressure(reconnectErr)
 							}
 							return
 						}
@@ -328,13 +389,7 @@ func (t *SSETransport) readEvents() {
 			}
 
 			if event != nil && !t.isClosed() {
-				select {
-				case t.eventChan <- event:
-				case <-t.ctx.Done():
-					return
-				default:
-					// Channel is full or closed, continue
-				}
+				t.handleEventWithBackpressure(event)
 			}
 		}
 	}

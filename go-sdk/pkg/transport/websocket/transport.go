@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
@@ -47,6 +49,101 @@ type Transport struct {
 
 	// Statistics
 	stats *TransportStats
+	
+	// Backpressure management
+	droppedEvents     int64
+	backpressureActive bool
+	lastDropTime      time.Time
+	backpressureMutex sync.RWMutex
+	
+	// Resource management
+	activeGoroutines  map[string]*GoroutineInfo
+	goroutinesMutex   sync.RWMutex
+	resourceCleanup   []func() error
+	cleanupMutex      sync.Mutex
+	
+	// Monitoring
+	monitoringCtx    context.Context
+	monitoringCancel context.CancelFunc
+}
+
+// BackpressureConfig configures backpressure behavior for WebSocket transport
+type BackpressureConfig struct {
+	// EventChannelBuffer is the buffer size for event channel
+	EventChannelBuffer int
+	
+	// MaxDroppedEvents is the maximum number of events that can be dropped before taking action
+	MaxDroppedEvents int64
+	
+	// DropActionType defines what to do when max dropped events is reached
+	DropActionType DropActionType
+	
+	// EnableBackpressureLogging enables detailed logging of backpressure events
+	EnableBackpressureLogging bool
+	
+	// BackpressureThresholdPercent is the percentage at which to start applying backpressure (0-100)
+	BackpressureThresholdPercent int
+	
+	// EnableChannelMonitoring enables monitoring of channel usage
+	EnableChannelMonitoring bool
+	
+	// MonitoringInterval is the interval for channel monitoring
+	MonitoringInterval time.Duration
+}
+
+// DropActionType defines actions to take when events are dropped
+type DropActionType int
+
+const (
+	// DropActionLog logs dropped events but continues
+	DropActionLog DropActionType = iota
+	
+	// DropActionReconnect attempts to reconnect
+	DropActionReconnect
+	
+	// DropActionStop stops the transport
+	DropActionStop
+	
+	// DropActionSlowDown applies flow control
+	DropActionSlowDown
+)
+
+// DefaultBackpressureConfig returns default backpressure configuration for WebSocket
+func DefaultBackpressureConfig() *BackpressureConfig {
+	return &BackpressureConfig{
+		EventChannelBuffer:           10000,
+		MaxDroppedEvents:             1000,
+		DropActionType:               DropActionSlowDown,
+		EnableBackpressureLogging:    true,
+		BackpressureThresholdPercent: 85,
+		EnableChannelMonitoring:      true,
+		MonitoringInterval:           5 * time.Second,
+	}
+}
+
+// ResourceCleanupConfig configures resource cleanup behavior
+type ResourceCleanupConfig struct {
+	// EnableGoroutineTracking enables tracking of goroutines
+	EnableGoroutineTracking bool
+	
+	// CleanupInterval is the interval for resource cleanup
+	CleanupInterval time.Duration
+	
+	// MaxGoroutineIdleTime is the maximum time a goroutine can be idle before cleanup
+	MaxGoroutineIdleTime time.Duration
+	
+	// EnableResourceMonitoring enables monitoring of resource usage
+	EnableResourceMonitoring bool
+}
+
+// DefaultResourceCleanupConfig returns default resource cleanup configuration
+func DefaultResourceCleanupConfig() *ResourceCleanupConfig {
+	return &ResourceCleanupConfig{
+		EnableGoroutineTracking:  true,
+		CleanupInterval:          30 * time.Second,
+		MaxGoroutineIdleTime:     5 * time.Minute,
+		EnableResourceMonitoring: true,
+	}
 }
 
 // TransportConfig contains configuration for the WebSocket transport
@@ -80,6 +177,12 @@ type TransportConfig struct {
 
 	// Logger is the logger instance
 	Logger *zap.Logger
+	
+	// BackpressureConfig configures backpressure behavior
+	BackpressureConfig *BackpressureConfig
+	
+	// ResourceCleanupConfig configures resource cleanup
+	ResourceCleanupConfig *ResourceCleanupConfig
 }
 
 // EventHandler represents a function that handles events
@@ -105,16 +208,30 @@ type Subscription struct {
 	mutex       sync.RWMutex
 }
 
+// GoroutineInfo tracks information about active goroutines
+type GoroutineInfo struct {
+	Name      string
+	StartTime time.Time
+	LastSeen  time.Time
+	Function  string
+	Context   context.Context
+	Cancel    context.CancelFunc
+}
+
 // TransportStats tracks transport statistics
 type TransportStats struct {
 	EventsSent          int64
 	EventsReceived      int64
 	EventsProcessed     int64
 	EventsFailed        int64
+	EventsDropped       int64
 	ActiveSubscriptions int64
 	TotalSubscriptions  int64
 	BytesTransferred    int64
 	AverageLatency      time.Duration
+	ActiveGoroutines    int64
+	BackpressureEvents  int64
+	ResourceCleanups    int64
 	mutex               sync.RWMutex
 }
 
@@ -129,6 +246,8 @@ func DefaultTransportConfig() *TransportConfig {
 		EnableEventValidation: true,
 		EventValidator:        events.NewEventValidator(events.ProductionValidationConfig()),
 		Logger:                zap.NewNop(),
+		BackpressureConfig:    DefaultBackpressureConfig(),
+		ResourceCleanupConfig: DefaultResourceCleanupConfig(),
 	}
 }
 
@@ -181,18 +300,37 @@ func NewTransport(config *TransportConfig) (*Transport, error) {
 		return nil, fmt.Errorf("failed to create performance manager: %w", err)
 	}
 
+	// Set default configs if nil
+	if config.BackpressureConfig == nil {
+		config.BackpressureConfig = DefaultBackpressureConfig()
+	}
+	if config.ResourceCleanupConfig == nil {
+		config.ResourceCleanupConfig = DefaultResourceCleanupConfig()
+	}
+
 	ctx, cancel := context.WithCancel(context.Background())
+	monitoringCtx, monitoringCancel := context.WithCancel(context.Background())
+
+	// Determine event channel buffer size
+	eventChannelSize := config.BackpressureConfig.EventChannelBuffer
+	if eventChannelSize <= 0 {
+		eventChannelSize = 1000
+	}
 
 	transport := &Transport{
 		config:             config,
 		pool:               pool,
 		performanceManager: performanceManager,
 		eventHandlers:      make(map[string][]*EventHandlerWrapper),
-		eventCh:            make(chan []byte, 1000), // Buffered channel for incoming events
+		eventCh:            make(chan []byte, eventChannelSize),
 		subscriptions:      make(map[string]*Subscription),
 		ctx:                ctx,
 		cancel:             cancel,
 		stats:              &TransportStats{},
+		activeGoroutines:   make(map[string]*GoroutineInfo),
+		resourceCleanup:    make([]func() error, 0),
+		monitoringCtx:      monitoringCtx,
+		monitoringCancel:   monitoringCancel,
 	}
 
 	// Set up connection pool handlers
@@ -229,7 +367,19 @@ func (t *Transport) Start(ctx context.Context) error {
 
 	// Start event processing
 	t.wg.Add(1)
-	go t.eventProcessingLoop()
+	t.startGoroutine("event-processing", t.eventProcessingLoop)
+
+	// Start monitoring if enabled
+	if t.config.BackpressureConfig.EnableChannelMonitoring {
+		t.wg.Add(1)
+		t.startGoroutine("channel-monitor", t.channelMonitoringLoop)
+	}
+	
+	// Start resource cleanup if enabled
+	if t.config.ResourceCleanupConfig.EnableResourceMonitoring {
+		t.wg.Add(1)
+		t.startGoroutine("resource-cleanup", t.resourceCleanupLoop)
+	}
 
 	t.config.Logger.Info("WebSocket transport started")
 	return nil
@@ -239,7 +389,10 @@ func (t *Transport) Start(ctx context.Context) error {
 func (t *Transport) Stop() error {
 	t.config.Logger.Info("Stopping WebSocket transport")
 
-	// Cancel context
+	// Cancel monitoring context first
+	t.monitoringCancel()
+
+	// Cancel main context
 	t.cancel()
 
 	// Stop performance manager
@@ -259,6 +412,28 @@ func (t *Transport) Stop() error {
 	}
 	t.subscriptions = make(map[string]*Subscription)
 	t.subsMutex.Unlock()
+
+	// Cancel all active goroutines
+	t.goroutinesMutex.Lock()
+	for _, goroutineInfo := range t.activeGoroutines {
+		if goroutineInfo.Cancel != nil {
+			goroutineInfo.Cancel()
+		}
+	}
+	t.activeGoroutines = make(map[string]*GoroutineInfo)
+	t.goroutinesMutex.Unlock()
+
+	// Execute resource cleanup functions
+	t.cleanupMutex.Lock()
+	for _, cleanup := range t.resourceCleanup {
+		if err := cleanup(); err != nil {
+			t.config.Logger.Error("Resource cleanup error", zap.Error(err))
+		}
+	}
+	t.stats.mutex.Lock()
+	t.stats.ResourceCleanups += int64(len(t.resourceCleanup))
+	t.stats.mutex.Unlock()
+	t.cleanupMutex.Unlock()
 
 	// Close event channel to signal shutdown
 	t.eventChMutex.Lock()
@@ -556,20 +731,8 @@ func (t *Transport) setupMessageHandlers() {
 		}
 		t.eventChMutex.RUnlock()
 
-		select {
-		case t.eventCh <- data:
-			// Successfully queued the event
-		case <-t.ctx.Done():
-			// Transport is shutting down
-		default:
-			// Channel is full, log and drop the message
-			t.config.Logger.Warn("Event channel full, dropping message",
-				zap.Int("channel_size", len(t.eventCh)),
-				zap.Int("channel_capacity", cap(t.eventCh)))
-			t.stats.mutex.Lock()
-			t.stats.EventsFailed++
-			t.stats.mutex.Unlock()
-		}
+		// Handle message with backpressure control
+		t.handleEventWithBackpressure(data)
 	}
 
 	// This will be called by the pool when setting up connections

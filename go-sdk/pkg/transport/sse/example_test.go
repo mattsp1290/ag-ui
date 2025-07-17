@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/your-org/ag-ui/go-sdk/pkg/testhelper"
+	"github.com/ag-ui/go-sdk/pkg/testhelper"
 )
 
 // Example_basicUsage demonstrates basic SSE transport usage

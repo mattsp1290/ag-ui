@@ -80,10 +80,11 @@ func (av *AuthenticatedValidator) ValidateEvent(ctx context.Context, event event
 	// Validate with authentication context
 	result := av.validator.ValidateEvent(ctx, event)
 	
-	// Track auth failures
+	// Track auth failures using structured error detection
 	if !result.IsValid {
 		for _, err := range result.Errors {
-			if err.RuleID == "AUTH_VALIDATION" {
+			// Check if this is an authentication-related error using structured approach
+			if av.isAuthenticationError(err) {
 				av.mutex.Lock()
 				av.authFailures++
 				av.mutex.Unlock()
@@ -331,4 +332,36 @@ func Example() {
 	// Get metrics
 	metrics := validator.GetMetrics()
 	fmt.Printf("Metrics: %+v\n", metrics)
+}
+
+// isAuthenticationError determines if a validation error is authentication-related
+// This replaces magic string matching with a more structured approach
+func (av *AuthenticatedValidator) isAuthenticationError(err *events.ValidationError) bool {
+	if err == nil {
+		return false
+	}
+	
+	// Check for known authentication rule IDs
+	authRuleIDs := []string{
+		"AUTH_VALIDATION",
+		"POST_AUTH_VALIDATION",
+	}
+	
+	for _, ruleID := range authRuleIDs {
+		if err.RuleID == ruleID {
+			return true
+		}
+	}
+	
+	// Check for authentication-related error messages/context
+	if err.Context != nil {
+		if _, hasAuthError := err.Context["auth_error"]; hasAuthError {
+			return true
+		}
+		if _, hasAuthRequired := err.Context["require_auth"]; hasAuthRequired {
+			return true
+		}
+	}
+	
+	return false
 }

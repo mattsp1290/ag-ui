@@ -207,19 +207,90 @@ type AuthConfig struct {
 	// RefreshExpiration is the refresh token expiration duration
 	RefreshExpiration time.Duration `json:"refresh_expiration"`
 	
+	// AutoRotateTokens enables automatic token rotation
+	AutoRotateTokens bool `json:"auto_rotate_tokens"`
+	
+	// TokenRotationInterval specifies how often tokens should be rotated
+	TokenRotationInterval time.Duration `json:"token_rotation_interval"`
+	
+	// EnableAuditLogging enables audit logging for authentication events
+	EnableAuditLogging bool `json:"enable_audit_logging"`
+	
+	// AuditLogRetention specifies how long audit logs are retained
+	AuditLogRetention time.Duration `json:"audit_log_retention"`
+	
 	// ProviderConfig contains provider-specific configuration
 	ProviderConfig map[string]interface{} `json:"provider_config,omitempty"`
+}
+
+// AuditLogger interface for audit logging
+type AuditLogger interface {
+	LogEvent(event *AuditEvent) error
+	GetEvents(filter *AuditEventFilter) ([]*AuditEvent, error)
+	CleanupOldEvents(before time.Time) error
+}
+
+// AuditEvent represents an authentication audit event
+type AuditEvent struct {
+	ID          string                 `json:"id"`
+	Timestamp   time.Time              `json:"timestamp"`
+	EventType   AuditEventType         `json:"event_type"`
+	UserID      string                 `json:"user_id,omitempty"`
+	Username    string                 `json:"username,omitempty"`
+	Result      string                 `json:"result"` // SUCCESS, FAILURE
+	Error       string                 `json:"error,omitempty"`
+	TokenID     string                 `json:"token_id,omitempty"`
+	IPAddress   string                 `json:"ip_address,omitempty"`
+	UserAgent   string                 `json:"user_agent,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// AuditEventType represents the type of audit event
+type AuditEventType string
+
+const (
+	AuditEventLogin            AuditEventType = "login"
+	AuditEventLogout           AuditEventType = "logout"
+	AuditEventAuthFailure      AuditEventType = "auth_failure"
+	AuditEventTokenRefresh     AuditEventType = "token_refresh"
+	AuditEventTokenRotation    AuditEventType = "token_rotation"
+	AuditEventPermissionDenied AuditEventType = "permission_denied"
+)
+
+// AuditEventFilter filters audit events
+type AuditEventFilter struct {
+	EventTypes []AuditEventType `json:"event_types,omitempty"`
+	UserID     string           `json:"user_id,omitempty"`
+	Username   string           `json:"username,omitempty"`
+	Result     string           `json:"result,omitempty"`
+	StartTime  *time.Time       `json:"start_time,omitempty"`
+	EndTime    *time.Time       `json:"end_time,omitempty"`
+	Limit      int              `json:"limit,omitempty"`
+	Offset     int              `json:"offset,omitempty"`
+}
+
+// TokenRotationInfo tracks token rotation history
+type TokenRotationInfo struct {
+	OldTokenID    string    `json:"old_token_id"`
+	NewTokenID    string    `json:"new_token_id"`
+	RotatedAt     time.Time `json:"rotated_at"`
+	NextRotation  time.Time `json:"next_rotation"`
+	RotationCount int       `json:"rotation_count"`
 }
 
 // DefaultAuthConfig returns the default authentication configuration
 func DefaultAuthConfig() *AuthConfig {
 	return &AuthConfig{
-		Enabled:           true,
-		RequireAuth:       false,
-		AllowAnonymous:    true,
-		TokenExpiration:   24 * time.Hour,
-		RefreshEnabled:    true,
-		RefreshExpiration: 7 * 24 * time.Hour,
-		ProviderConfig:    make(map[string]interface{}),
+		Enabled:               true,
+		RequireAuth:           false,
+		AllowAnonymous:        true,
+		TokenExpiration:       24 * time.Hour,
+		RefreshEnabled:        true,
+		RefreshExpiration:     7 * 24 * time.Hour,
+		AutoRotateTokens:      true,
+		TokenRotationInterval: 12 * time.Hour, // Rotate tokens every 12 hours
+		EnableAuditLogging:    true,
+		AuditLogRetention:     30 * 24 * time.Hour, // 30 days
+		ProviderConfig:        make(map[string]interface{}),
 	}
 }

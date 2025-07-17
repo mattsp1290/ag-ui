@@ -52,13 +52,13 @@ func NewMockHTTPServer(t *testing.T) *MockHTTPServer {
 		responses:  make(map[string]MockHTTPResponse),
 		middleware: make([]func(http.HandlerFunc) http.HandlerFunc, 0),
 	}
-	
+
 	m.server = httptest.NewServer(http.HandlerFunc(m.handler))
-	
+
 	t.Cleanup(func() {
 		m.Close()
 	})
-	
+
 	return m
 }
 
@@ -70,13 +70,13 @@ func NewMockHTTPSServer(t *testing.T) *MockHTTPServer {
 		responses:  make(map[string]MockHTTPResponse),
 		middleware: make([]func(http.HandlerFunc) http.HandlerFunc, 0),
 	}
-	
+
 	m.server = httptest.NewTLSServer(http.HandlerFunc(m.handler))
-	
+
 	t.Cleanup(func() {
 		m.Close()
 	})
-	
+
 	return m
 }
 
@@ -91,7 +91,7 @@ func (m *MockHTTPServer) GetClient() *http.Client {
 		// For HTTPS servers, use the test server's client
 		return m.server.Client()
 	}
-	
+
 	return &http.Client{
 		Timeout: GlobalTimeouts.Network,
 		Transport: &http.Transport{
@@ -113,7 +113,7 @@ func (m *MockHTTPServer) Close() {
 func (m *MockHTTPServer) SetResponse(method, path string, response MockHTTPResponse) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	key := method + " " + path
 	m.responses[key] = response
 	m.t.Logf("MockHTTP: Set response for %s", key)
@@ -125,16 +125,16 @@ func (m *MockHTTPServer) SetJSONResponse(method, path string, statusCode int, da
 	if err != nil {
 		return err
 	}
-	
+
 	headers := make(http.Header)
 	headers.Set("Content-Type", "application/json")
-	
+
 	m.SetResponse(method, path, MockHTTPResponse{
 		StatusCode: statusCode,
 		Headers:    headers,
 		Body:       body,
 	})
-	
+
 	return nil
 }
 
@@ -142,7 +142,7 @@ func (m *MockHTTPServer) SetJSONResponse(method, path string, statusCode int, da
 func (m *MockHTTPServer) SetTextResponse(method, path string, statusCode int, text string) {
 	headers := make(http.Header)
 	headers.Set("Content-Type", "text/plain")
-	
+
 	m.SetResponse(method, path, MockHTTPResponse{
 		StatusCode: statusCode,
 		Headers:    headers,
@@ -182,7 +182,7 @@ func (m *MockHTTPServer) SetRequestHandler(handler func(*http.Request)) {
 func (m *MockHTTPServer) GetRequests() []MockHTTPRequest {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	result := make([]MockHTTPRequest, len(m.requestLog))
 	copy(result, m.requestLog)
 	return result
@@ -199,11 +199,11 @@ func (m *MockHTTPServer) GetRequestCount() int {
 func (m *MockHTTPServer) GetLastRequest() *MockHTTPRequest {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	if len(m.requestLog) == 0 {
 		return nil
 	}
-	
+
 	return &m.requestLog[len(m.requestLog)-1]
 }
 
@@ -217,14 +217,14 @@ func (m *MockHTTPServer) ClearRequests() {
 // WaitForRequests waits for a specific number of requests with timeout
 func (m *MockHTTPServer) WaitForRequests(count int, timeout time.Duration) bool {
 	deadline := time.Now().Add(timeout)
-	
+
 	for time.Now().Before(deadline) {
 		if m.GetRequestCount() >= count {
 			return true
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	
+
 	return false
 }
 
@@ -237,21 +237,21 @@ func (m *MockHTTPServer) handler(w http.ResponseWriter, r *http.Request) {
 		body = []byte{}
 	}
 	r.Body.Close()
-	
+
 	// Log the request
 	m.logRequest(r, body)
-	
+
 	// Call request handler if set
 	if m.onRequest != nil {
 		m.onRequest(r)
 	}
-	
+
 	// Apply middleware
 	finalHandler := m.handleResponse
 	for i := len(m.middleware) - 1; i >= 0; i-- {
 		finalHandler = m.middleware[i](finalHandler)
 	}
-	
+
 	// Restore body for handler
 	r.Body = io.NopCloser(bytes.NewReader(body))
 	finalHandler(w, r)
@@ -261,7 +261,7 @@ func (m *MockHTTPServer) handler(w http.ResponseWriter, r *http.Request) {
 func (m *MockHTTPServer) logRequest(r *http.Request, body []byte) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	req := MockHTTPRequest{
 		Method:    r.Method,
 		URL:       r.URL.String(),
@@ -270,7 +270,7 @@ func (m *MockHTTPServer) logRequest(r *http.Request, body []byte) {
 		Timestamp: time.Now(),
 	}
 	copy(req.Body, body)
-	
+
 	m.requestLog = append(m.requestLog, req)
 	m.t.Logf("MockHTTP: %s %s", r.Method, r.URL.String())
 }
@@ -282,14 +282,14 @@ func (m *MockHTTPServer) handleResponse(w http.ResponseWriter, r *http.Request) 
 	response, exists := m.responses[key]
 	defaultDelay := m.defaultDelay
 	m.mu.RUnlock()
-	
+
 	// Apply delay
 	if response.Delay > 0 {
 		time.Sleep(response.Delay)
 	} else if defaultDelay > 0 {
 		time.Sleep(defaultDelay)
 	}
-	
+
 	// Handle configured error
 	if response.Error != nil {
 		// Can't really simulate network error at this level,
@@ -298,24 +298,24 @@ func (m *MockHTTPServer) handleResponse(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, response.Error.Error(), http.StatusInternalServerError)
 		return
 	}
-	
+
 	if !exists {
 		// Return 404 for unconfigured endpoints
 		http.NotFound(w, r)
 		return
 	}
-	
+
 	// Set headers
 	for k, v := range response.Headers {
 		w.Header()[k] = v
 	}
-	
+
 	// Set status code
 	if response.StatusCode == 0 {
 		response.StatusCode = http.StatusOK
 	}
 	w.WriteHeader(response.StatusCode)
-	
+
 	// Write body
 	if len(response.Body) > 0 {
 		w.Write(response.Body)
@@ -346,11 +346,11 @@ func NewHTTPTestSuite(t *testing.T) *HTTPTestSuite {
 func (suite *HTTPTestSuite) CreateServer(name string) *MockHTTPServer {
 	server := NewMockHTTPServer(suite.t)
 	suite.servers[name] = server
-	
+
 	suite.cleanup.Add(func() {
 		server.Close()
 	})
-	
+
 	return server
 }
 
@@ -358,11 +358,11 @@ func (suite *HTTPTestSuite) CreateServer(name string) *MockHTTPServer {
 func (suite *HTTPTestSuite) CreateHTTPSServer(name string) *MockHTTPServer {
 	server := NewMockHTTPSServer(suite.t)
 	suite.servers[name] = server
-	
+
 	suite.cleanup.Add(func() {
 		server.Close()
 	})
-	
+
 	return server
 }
 
@@ -379,11 +379,11 @@ func (suite *HTTPTestSuite) CreateClient(name string, timeout time.Duration) *ht
 			DialContext: (&net.Dialer{
 				Timeout: suite.timeouts.Network,
 			}).DialContext,
-			TLSHandshakeTimeout: suite.timeouts.Network,
+			TLSHandshakeTimeout:   suite.timeouts.Network,
 			ResponseHeaderTimeout: suite.timeouts.Network,
 		},
 	}
-	
+
 	suite.clients[name] = client
 	return client
 }
@@ -425,17 +425,17 @@ func (m *MockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 		m.onRequest(req)
 	}
 	m.mu.Unlock()
-	
+
 	key := req.Method + " " + req.URL.String()
-	
+
 	m.mu.RLock()
 	resp, exists := m.responses[key]
 	m.mu.RUnlock()
-	
+
 	if !exists {
 		return nil, fmt.Errorf("no response configured for %s", key)
 	}
-	
+
 	return resp, nil
 }
 
@@ -443,7 +443,7 @@ func (m *MockRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) 
 func (m *MockRoundTripper) SetResponse(method, url string, resp *http.Response) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	key := method + " " + url
 	m.responses[key] = resp
 }
@@ -452,7 +452,7 @@ func (m *MockRoundTripper) SetResponse(method, url string, resp *http.Response) 
 func (m *MockRoundTripper) GetRequests() []*http.Request {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	result := make([]*http.Request, len(m.requests))
 	copy(result, m.requests)
 	return result
@@ -480,7 +480,7 @@ func NewSSEMockServer(t *testing.T) *SSEMockServer {
 		events:         make(chan string, 100),
 		clients:        make(map[string]chan string),
 	}
-	
+
 	// Set up SSE endpoint
 	sse.SetResponse("GET", "/events", MockHTTPResponse{
 		StatusCode: 200,
@@ -490,7 +490,7 @@ func NewSSEMockServer(t *testing.T) *SSEMockServer {
 			"Connection":    {"keep-alive"},
 		},
 	})
-	
+
 	// Override handler for SSE endpoint
 	sse.AddMiddleware(func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -501,7 +501,7 @@ func NewSSEMockServer(t *testing.T) *SSEMockServer {
 			next(w, r)
 		}
 	})
-	
+
 	return sse
 }
 
@@ -521,27 +521,27 @@ func (sse *SSEMockServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Server does not support streaming", http.StatusInternalServerError)
 		return
 	}
-	
+
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.WriteHeader(http.StatusOK)
 	flusher.Flush()
-	
+
 	clientID := fmt.Sprintf("client_%d", time.Now().UnixNano())
 	clientChan := make(chan string, 10)
-	
+
 	sse.clientsMu.Lock()
 	sse.clients[clientID] = clientChan
 	sse.clientsMu.Unlock()
-	
+
 	defer func() {
 		sse.clientsMu.Lock()
 		delete(sse.clients, clientID)
 		close(clientChan)
 		sse.clientsMu.Unlock()
 	}()
-	
+
 	// Distribute events to this client
 	go func() {
 		for event := range sse.events {
@@ -556,7 +556,7 @@ func (sse *SSEMockServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 			sse.clientsMu.RUnlock()
 		}
 	}()
-	
+
 	// Send events to client
 	for {
 		select {

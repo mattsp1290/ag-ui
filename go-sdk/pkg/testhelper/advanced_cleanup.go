@@ -1,7 +1,6 @@
 package testhelper
 
 import (
-	"context"
 	"database/sql"
 	"fmt"
 	"os"
@@ -14,18 +13,18 @@ import (
 
 // AdvancedCleanupManager provides enhanced cleanup capabilities
 type AdvancedCleanupManager struct {
-	t                  *testing.T
-	mu                 sync.Mutex
-	cleanupStack       []cleanupItem
-	resourceTrackers   map[string]*ResourceCounter
-	tempDirs           []string
-	tempFiles          []string
-	onPanic            func(interface{})
-	timeouts           *TimeoutConfig
-	parallelCleanup    bool
-	maxCleanupWorkers  int
-	cleanupTimeout     time.Duration
-	errorHandler       func(string, error)
+	t                 *testing.T
+	mu                sync.Mutex
+	cleanupStack      []cleanupItem
+	resourceTrackers  map[string]*ResourceCounter
+	tempDirs          []string
+	tempFiles         []string
+	onPanic           func(interface{})
+	timeouts          *TimeoutConfig
+	parallelCleanup   bool
+	maxCleanupWorkers int
+	cleanupTimeout    time.Duration
+	errorHandler      func(string, error)
 }
 
 type cleanupItem struct {
@@ -55,11 +54,11 @@ func NewAdvancedCleanupManager(t *testing.T) *AdvancedCleanupManager {
 		maxCleanupWorkers: runtime.NumCPU(),
 		cleanupTimeout:    GlobalTimeouts.Cleanup,
 	}
-	
+
 	t.Cleanup(func() {
 		acm.ExecuteAllCleanup()
 	})
-	
+
 	return acm
 }
 
@@ -67,14 +66,14 @@ func NewAdvancedCleanupManager(t *testing.T) *AdvancedCleanupManager {
 func (acm *AdvancedCleanupManager) AddCleanup(name string, fn func() error, priority int) {
 	acm.mu.Lock()
 	defer acm.mu.Unlock()
-	
+
 	acm.cleanupStack = append(acm.cleanupStack, cleanupItem{
 		name:     name,
 		fn:       fn,
 		priority: priority,
 		timeout:  acm.cleanupTimeout,
 	})
-	
+
 	acm.t.Logf("Added cleanup: %s (priority: %d)", name, priority)
 }
 
@@ -82,7 +81,7 @@ func (acm *AdvancedCleanupManager) AddCleanup(name string, fn func() error, prio
 func (acm *AdvancedCleanupManager) AddCleanupWithTimeout(name string, fn func() error, priority int, timeout time.Duration) {
 	acm.mu.Lock()
 	defer acm.mu.Unlock()
-	
+
 	acm.cleanupStack = append(acm.cleanupStack, cleanupItem{
 		name:     name,
 		fn:       fn,
@@ -117,11 +116,11 @@ func (acm *AdvancedCleanupManager) SetErrorHandler(handler func(string, error)) 
 func (acm *AdvancedCleanupManager) TrackResource(resourceType string) *ResourceCounter {
 	acm.mu.Lock()
 	defer acm.mu.Unlock()
-	
+
 	if counter, exists := acm.resourceTrackers[resourceType]; exists {
 		return counter
 	}
-	
+
 	counter := &ResourceCounter{}
 	acm.resourceTrackers[resourceType] = counter
 	return counter
@@ -161,15 +160,15 @@ func (acm *AdvancedCleanupManager) CreateTempDir(prefix string) (string, error) 
 	if err != nil {
 		return "", err
 	}
-	
+
 	acm.mu.Lock()
 	acm.tempDirs = append(acm.tempDirs, tempDir)
 	acm.mu.Unlock()
-	
+
 	acm.AddCleanup(fmt.Sprintf("temp-dir-%s", filepath.Base(tempDir)), func() error {
 		return os.RemoveAll(tempDir)
 	}, 10) // Lower priority for file cleanup
-	
+
 	acm.t.Logf("Created temp directory: %s", tempDir)
 	return tempDir, nil
 }
@@ -180,16 +179,16 @@ func (acm *AdvancedCleanupManager) CreateTempFile(pattern string) (*os.File, err
 	if err != nil {
 		return nil, err
 	}
-	
+
 	acm.mu.Lock()
 	acm.tempFiles = append(acm.tempFiles, tempFile.Name())
 	acm.mu.Unlock()
-	
+
 	acm.AddCleanup(fmt.Sprintf("temp-file-%s", filepath.Base(tempFile.Name())), func() error {
 		tempFile.Close()
 		return os.Remove(tempFile.Name())
 	}, 10)
-	
+
 	acm.t.Logf("Created temp file: %s", tempFile.Name())
 	return tempFile, nil
 }
@@ -202,13 +201,13 @@ func (acm *AdvancedCleanupManager) ExecuteAllCleanup() {
 	parallel := acm.parallelCleanup
 	maxWorkers := acm.maxCleanupWorkers
 	acm.mu.Unlock()
-	
+
 	if len(items) == 0 {
 		return
 	}
-	
+
 	acm.t.Logf("Executing %d cleanup items", len(items))
-	
+
 	// Sort by priority (higher first)
 	for i := 0; i < len(items); i++ {
 		for j := i + 1; j < len(items); j++ {
@@ -217,13 +216,13 @@ func (acm *AdvancedCleanupManager) ExecuteAllCleanup() {
 			}
 		}
 	}
-	
+
 	if parallel && len(items) > 1 {
 		acm.executeParallelCleanup(items, maxWorkers)
 	} else {
 		acm.executeSequentialCleanup(items)
 	}
-	
+
 	acm.reportResourceLeaks()
 }
 
@@ -240,10 +239,10 @@ func (acm *AdvancedCleanupManager) executeParallelCleanup(items []cleanupItem, m
 	if len(items) < workers {
 		workers = len(items)
 	}
-	
+
 	itemChan := make(chan cleanupItem, len(items))
 	var wg sync.WaitGroup
-	
+
 	// Start workers
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
@@ -254,13 +253,13 @@ func (acm *AdvancedCleanupManager) executeParallelCleanup(items []cleanupItem, m
 			}
 		}()
 	}
-	
+
 	// Send items to workers
 	for _, item := range items {
 		itemChan <- item
 	}
 	close(itemChan)
-	
+
 	// Wait for completion
 	wg.Wait()
 }
@@ -275,14 +274,14 @@ func (acm *AdvancedCleanupManager) executeCleanupItem(item cleanupItem) {
 			}
 		}
 	}()
-	
+
 	start := time.Now()
-	
+
 	done := make(chan error, 1)
 	go func() {
 		done <- item.fn()
 	}()
-	
+
 	select {
 	case err := <-done:
 		duration := time.Since(start)
@@ -306,7 +305,7 @@ func (acm *AdvancedCleanupManager) executeCleanupItem(item cleanupItem) {
 func (acm *AdvancedCleanupManager) reportResourceLeaks() {
 	acm.mu.Lock()
 	defer acm.mu.Unlock()
-	
+
 	hasLeaks := false
 	for resourceType, counter := range acm.resourceTrackers {
 		allocated, released := counter.GetCounts()
@@ -316,7 +315,7 @@ func (acm *AdvancedCleanupManager) reportResourceLeaks() {
 				resourceType, allocated, released, allocated-released)
 		}
 	}
-	
+
 	if !hasLeaks {
 		acm.t.Log("No resource leaks detected")
 	}
@@ -381,7 +380,7 @@ func (pc *ProcessCleanup) AddProcess(name string, pid int, cmd string) {
 		PID:  pid,
 		Cmd:  cmd,
 	})
-	
+
 	pc.acm.AddCleanup(fmt.Sprintf("kill-process-%s-%d", name, pid), func() error {
 		// Implementation would depend on the OS
 		// This is a placeholder for process termination
@@ -424,7 +423,7 @@ func (cg *CleanupGuard) Execute() error {
 	if !cg.active {
 		return nil
 	}
-	
+
 	cg.active = false
 	return cg.cleanup()
 }
@@ -433,13 +432,13 @@ func (cg *CleanupGuard) Execute() error {
 func WithCleanup[T any](acm *AdvancedCleanupManager, name string, fn func() (T, error), cleanup func() error) (T, error) {
 	guard := NewCleanupGuard(acm, name, cleanup)
 	defer guard.Defer()
-	
+
 	result, err := fn()
 	if err != nil {
 		// If the function failed, execute cleanup immediately
 		guard.Execute()
 	}
-	
+
 	return result, err
 }
 

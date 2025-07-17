@@ -1,4 +1,4 @@
-package main
+package performance
 
 import (
 	"context"
@@ -893,8 +893,9 @@ func (e *AsyncExecutor) Close() {
 	}
 }
 
-func main() {
-	tool := CreateAsyncExecutorTool()
+// RunAsyncExecutorExample demonstrates the async executor tool functionality
+func RunAsyncExecutorExample() {
+	_ = CreateAsyncExecutorTool()
 	
 	// Example usage
 	params := map[string]interface{}{

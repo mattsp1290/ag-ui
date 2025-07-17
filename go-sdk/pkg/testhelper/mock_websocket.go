@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"net/url"
 	"sync"
 	"testing"
 	"time"
@@ -51,17 +50,17 @@ func NewMockWebSocketConn(t *testing.T) *MockWebSocketConn {
 func (m *MockWebSocketConn) WriteMessage(messageType int, data []byte) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.closed {
 		return websocket.ErrCloseSent
 	}
-	
+
 	m.t.Logf("MockWebSocket: Writing message type %d, data: %s", messageType, string(data))
-	
+
 	if m.onWriteMessage != nil {
 		return m.onWriteMessage(messageType, data)
 	}
-	
+
 	return nil
 }
 
@@ -69,21 +68,21 @@ func (m *MockWebSocketConn) WriteMessage(messageType int, data []byte) error {
 func (m *MockWebSocketConn) ReadMessage() (messageType int, p []byte, err error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.closed {
 		return 0, nil, websocket.ErrCloseSent
 	}
-	
+
 	if len(m.messages) == 0 {
 		// Simulate waiting for a message
 		return 0, nil, errors.New("no messages available")
 	}
-	
+
 	message := m.messages[0]
 	m.messages = m.messages[1:]
-	
+
 	m.t.Logf("MockWebSocket: Reading message type %d, data: %s", message.Type, string(message.Data))
-	
+
 	return message.Type, message.Data, nil
 }
 
@@ -91,18 +90,18 @@ func (m *MockWebSocketConn) ReadMessage() (messageType int, p []byte, err error)
 func (m *MockWebSocketConn) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.closed {
 		return nil
 	}
-	
+
 	m.closed = true
 	m.t.Log("MockWebSocket: Connection closed")
-	
+
 	if m.onClose != nil {
 		return m.onClose(m.closeCode, m.closeText)
 	}
-	
+
 	return nil
 }
 
@@ -148,7 +147,7 @@ func (m *MockWebSocketConn) RemoteAddr() net.Addr {
 func (m *MockWebSocketConn) AddMessage(messageType int, data []byte) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	m.messages = append(m.messages, MockMessage{
 		Type: messageType,
 		Data: data,
@@ -205,20 +204,20 @@ func NewMockWebSocketDialer(t *testing.T) *MockWebSocketDialer {
 func (d *MockWebSocketDialer) Dial(urlStr string, requestHeader http.Header) (*MockWebSocketConn, *http.Response, error) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	
+
 	if d.dialDelay > 0 {
 		time.Sleep(d.dialDelay)
 	}
-	
+
 	if d.dialError != nil {
 		return nil, nil, d.dialError
 	}
-	
+
 	d.t.Logf("MockWebSocket: Dialing %s", urlStr)
-	
+
 	conn := NewMockWebSocketConn(d.t)
 	d.connections[urlStr] = conn
-	
+
 	// Create a mock HTTP response
 	resp := &http.Response{
 		Status:     "101 Switching Protocols",
@@ -227,7 +226,7 @@ func (d *MockWebSocketDialer) Dial(urlStr string, requestHeader http.Header) (*M
 	}
 	resp.Header.Set("Upgrade", "websocket")
 	resp.Header.Set("Connection", "Upgrade")
-	
+
 	return conn, resp, nil
 }
 
@@ -266,7 +265,7 @@ func (d *MockWebSocketDialer) GetConnection(urlStr string) *MockWebSocketConn {
 func (d *MockWebSocketDialer) GetAllConnections() map[string]*MockWebSocketConn {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	
+
 	result := make(map[string]*MockWebSocketConn)
 	for k, v := range d.connections {
 		result[k] = v
@@ -278,7 +277,7 @@ func (d *MockWebSocketDialer) GetAllConnections() map[string]*MockWebSocketConn 
 func (d *MockWebSocketDialer) CloseAll() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	
+
 	for _, conn := range d.connections {
 		conn.Close()
 	}
@@ -315,20 +314,20 @@ func (s *MockWebSocketServer) Start() error {
 	if err != nil {
 		return err
 	}
-	
+
 	s.listener = listener
-	
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
-	
+
 	s.server = &http.Server{Handler: mux}
-	
+
 	go func() {
 		if err := s.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			s.t.Logf("Server error: %v", err)
 		}
 	}()
-	
+
 	s.t.Logf("MockWebSocket server started on %s", listener.Addr().String())
 	return nil
 }
@@ -351,7 +350,7 @@ func (s *MockWebSocketServer) GetURL() string {
 	return fmt.Sprintf("ws://%s/ws", s.listener.Addr().String())
 }
 
-// GetHTTPURL returns the HTTP URL for the server  
+// GetHTTPURL returns the HTTP URL for the server
 func (s *MockWebSocketServer) GetHTTPURL() string {
 	if s.listener == nil {
 		return ""
@@ -367,7 +366,7 @@ func (s *MockWebSocketServer) SetHandlers(
 ) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	s.onConnect = onConnect
 	s.onMessage = onMessage
 	s.onClose = onClose
@@ -377,7 +376,7 @@ func (s *MockWebSocketServer) SetHandlers(
 func (s *MockWebSocketServer) BroadcastMessage(messageType int, data []byte) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	for _, conn := range s.connections {
 		if err := conn.WriteMessage(messageType, data); err != nil {
 			s.t.Logf("Error broadcasting message: %v", err)
@@ -399,24 +398,24 @@ func (s *MockWebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Req
 		s.t.Logf("WebSocket upgrade error: %v", err)
 		return
 	}
-	
+
 	connID := fmt.Sprintf("%s_%d", conn.RemoteAddr().String(), time.Now().UnixNano())
-	
+
 	s.mu.Lock()
 	s.connections[connID] = conn
 	s.mu.Unlock()
-	
+
 	defer func() {
 		s.mu.Lock()
 		delete(s.connections, connID)
 		s.mu.Unlock()
 		conn.Close()
 	}()
-	
+
 	if s.onConnect != nil {
 		s.onConnect(conn)
 	}
-	
+
 	for {
 		messageType, data, err := conn.ReadMessage()
 		if err != nil {
@@ -425,7 +424,7 @@ func (s *MockWebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Req
 			}
 			break
 		}
-		
+
 		if s.onMessage != nil {
 			s.onMessage(conn, messageType, data)
 		}
@@ -434,11 +433,11 @@ func (s *MockWebSocketServer) handleWebSocket(w http.ResponseWriter, r *http.Req
 
 // WebSocketTestSuite provides a complete test setup for WebSocket testing
 type WebSocketTestSuite struct {
-	t           *testing.T
-	server      *MockWebSocketServer
-	dialer      *MockWebSocketDialer
-	cleanup     *CleanupHelper
-	timeouts    *TimeoutConfig
+	t        *testing.T
+	server   *MockWebSocketServer
+	dialer   *MockWebSocketDialer
+	cleanup  *CleanupHelper
+	timeouts *TimeoutConfig
 }
 
 // NewWebSocketTestSuite creates a new WebSocket test suite
@@ -457,12 +456,12 @@ func (suite *WebSocketTestSuite) Setup() error {
 	if err := suite.server.Start(); err != nil {
 		return err
 	}
-	
+
 	suite.cleanup.Add(func() {
 		suite.server.Stop()
 		suite.dialer.CloseAll()
 	})
-	
+
 	return nil
 }
 

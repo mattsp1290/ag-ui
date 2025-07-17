@@ -32,12 +32,12 @@ func NewDeferredCleanup(t *testing.T) *DeferredCleanup {
 		active:  true,
 		timeout: GlobalTimeouts.Cleanup,
 	}
-	
+
 	// Automatically register with test cleanup
 	t.Cleanup(func() {
 		dc.ExecuteAll()
 	})
-	
+
 	return dc
 }
 
@@ -45,22 +45,22 @@ func NewDeferredCleanup(t *testing.T) *DeferredCleanup {
 func (dc *DeferredCleanup) Defer(name string, fn func() error) {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
-	
+
 	if !dc.active {
 		dc.t.Logf("DeferredCleanup: Cannot defer %s - cleanup already executed", name)
 		return
 	}
-	
+
 	// Capture caller location for debugging
 	_, file, line, _ := runtime.Caller(1)
 	location := fmt.Sprintf("%s:%d", file, line)
-	
+
 	dc.stack = append(dc.stack, deferredItem{
 		name:     name,
 		fn:       fn,
 		location: location,
 	})
-	
+
 	dc.t.Logf("DeferredCleanup: Deferred %s at %s", name, location)
 }
 
@@ -96,25 +96,25 @@ func (dc *DeferredCleanup) DeferCancel(name string, cancel context.CancelFunc) {
 func (dc *DeferredCleanup) ExecuteAll() {
 	dc.mu.Lock()
 	defer dc.mu.Unlock()
-	
+
 	if !dc.active {
 		return
 	}
-	
+
 	dc.active = false
-	
+
 	if len(dc.stack) == 0 {
 		return
 	}
-	
+
 	dc.t.Logf("DeferredCleanup: Executing %d deferred items", len(dc.stack))
-	
+
 	// Execute in reverse order (LIFO)
 	for i := len(dc.stack) - 1; i >= 0; i-- {
 		item := dc.stack[i]
 		dc.executeItem(item)
 	}
-	
+
 	dc.stack = nil
 }
 
@@ -125,14 +125,14 @@ func (dc *DeferredCleanup) executeItem(item deferredItem) {
 			dc.t.Logf("DeferredCleanup: Panic in %s (from %s): %v", item.name, item.location, r)
 		}
 	}()
-	
+
 	start := time.Now()
-	
+
 	done := make(chan error, 1)
 	go func() {
 		done <- item.fn()
 	}()
-	
+
 	select {
 	case err := <-done:
 		duration := time.Since(start)
@@ -170,11 +170,11 @@ func NewDeferredCloser[T any](dc *DeferredCleanup, name string, resource T, clos
 		closer:   closer,
 		dc:       dc,
 	}
-	
+
 	dc.Defer(name, func() error {
 		return defer_closer.Close()
 	})
-	
+
 	return defer_closer
 }
 
@@ -187,11 +187,11 @@ func (dc_res *DeferredCloser[T]) Get() T {
 func (dc_res *DeferredCloser[T]) Close() error {
 	dc_res.mu.Lock()
 	defer dc_res.mu.Unlock()
-	
+
 	if dc_res.closed {
 		return nil
 	}
-	
+
 	dc_res.closed = true
 	return dc_res.closer(dc_res.resource)
 }
@@ -224,16 +224,16 @@ func NewAutoCleanup(t *testing.T) *AutoCleanup {
 func (ac *AutoCleanup) Use(name string, create func() (interface{}, func() error, error)) (interface{}, error) {
 	ac.mu.Lock()
 	defer ac.mu.Unlock()
-	
+
 	if !ac.active {
 		return nil, fmt.Errorf("AutoCleanup is no longer active")
 	}
-	
+
 	resource, cleanup, err := create()
 	if err != nil {
 		return nil, err
 	}
-	
+
 	ac.deferred.Defer(name, cleanup)
 	return resource, nil
 }
@@ -249,16 +249,26 @@ func (ac *AutoCleanup) MustUse(name string, create func() (interface{}, func() e
 
 // CreateTempDir creates a temporary directory with automatic cleanup
 func (ac *AutoCleanup) CreateTempDir(prefix string) (string, error) {
-	return ac.Use(fmt.Sprintf("temp-dir-%s", prefix), func() (interface{}, func() error, error) {
+	result, err := ac.Use(fmt.Sprintf("temp-dir-%s", prefix), func() (interface{}, func() error, error) {
 		tempDir, err := NewAdvancedCleanupManager(ac.t).CreateTempDir(prefix)
 		if err != nil {
 			return nil, nil, err
 		}
-		
+
 		return tempDir, func() error {
 			return nil // Already handled by AdvancedCleanupManager
 		}, nil
 	})
+	if err != nil {
+		return "", err
+	}
+
+	tempDir, ok := result.(string)
+	if !ok {
+		return "", fmt.Errorf("expected string result from CreateTempDir, got %T", result)
+	}
+
+	return tempDir, nil
 }
 
 // CreateMockServer creates a mock server with automatic cleanup
@@ -270,25 +280,25 @@ func (ac *AutoCleanup) CreateMockServer() (*MockHTTPServer, error) {
 			return nil
 		}, nil
 	})
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return server.(*MockHTTPServer), nil
 }
 
 // WithResource executes a function with a resource that gets automatically cleaned up
 func WithResource[T any](t *testing.T, name string, create func() (T, func() error, error), use func(T) error) error {
 	dc := NewDeferredCleanup(t)
-	
+
 	resource, cleanup, err := create()
 	if err != nil {
 		return err
 	}
-	
+
 	dc.Defer(name, cleanup)
-	
+
 	return use(resource)
 }
 
@@ -300,7 +310,7 @@ func WithTempDir(t *testing.T, prefix string, fn func(string) error) error {
 		if err != nil {
 			return "", nil, err
 		}
-		
+
 		return tempDir, func() error {
 			return nil // Handled by AdvancedCleanupManager
 		}, nil
@@ -322,14 +332,14 @@ func WithMockServer(t *testing.T, fn func(*MockHTTPServer) error) error {
 func WithTimeout[T any](t *testing.T, timeout time.Duration, fn func() (T, error)) (T, error) {
 	var result T
 	var resultErr error
-	
+
 	done := make(chan struct{})
-	
+
 	go func() {
 		defer close(done)
 		result, resultErr = fn()
 	}()
-	
+
 	select {
 	case <-done:
 		return result, resultErr
@@ -353,11 +363,11 @@ func NewCleanupOnExit(t *testing.T) *CleanupOnExit {
 		cleanup: make([]func(), 0),
 		active:  true,
 	}
-	
+
 	t.Cleanup(func() {
 		coe.ExecuteAll()
 	})
-	
+
 	return coe
 }
 
@@ -365,7 +375,7 @@ func NewCleanupOnExit(t *testing.T) *CleanupOnExit {
 func (coe *CleanupOnExit) Register(fn func()) {
 	coe.mu.Lock()
 	defer coe.mu.Unlock()
-	
+
 	if coe.active {
 		coe.cleanup = append(coe.cleanup, fn)
 	}
@@ -375,13 +385,13 @@ func (coe *CleanupOnExit) Register(fn func()) {
 func (coe *CleanupOnExit) ExecuteAll() {
 	coe.mu.Lock()
 	defer coe.mu.Unlock()
-	
+
 	if !coe.active {
 		return
 	}
-	
+
 	coe.active = false
-	
+
 	for i := len(coe.cleanup) - 1; i >= 0; i-- {
 		func() {
 			defer func() {
@@ -418,14 +428,14 @@ func (ds *DeferStack) Push(fn func()) {
 func (ds *DeferStack) Pop() {
 	ds.mu.Lock()
 	defer ds.mu.Unlock()
-	
+
 	if len(ds.stack) == 0 {
 		return
 	}
-	
+
 	fn := ds.stack[len(ds.stack)-1]
 	ds.stack = ds.stack[:len(ds.stack)-1]
-	
+
 	func() {
 		defer func() {
 			if r := recover(); r != nil {

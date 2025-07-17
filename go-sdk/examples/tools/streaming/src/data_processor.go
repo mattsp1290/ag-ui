@@ -1,4 +1,4 @@
-package main
+package streaming
 
 import (
 	"context"
@@ -905,7 +905,8 @@ func CreateDataProcessorTool() *tools.Tool {
 	}
 }
 
-func main() {
+// RunDataProcessorExample demonstrates the data processor tool functionality
+func RunDataProcessorExample() {
 	// Create registry and register the data processor tool
 	registry := tools.NewRegistry()
 	dataProcessorTool := CreateDataProcessorTool()

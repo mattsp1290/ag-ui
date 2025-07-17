@@ -1,4 +1,4 @@
-package main
+package basic
 
 import (
 	"context"
@@ -350,7 +350,8 @@ func CreateGreetingTool() *tools.Tool {
 	}
 }
 
-func main() {
+// RunGreetingExample demonstrates the greeting tool functionality
+func RunGreetingExample() {
 	// Create registry and register the greeting tool
 	registry := tools.NewRegistry()
 	greetingTool := CreateGreetingTool()
@@ -394,8 +395,8 @@ func main() {
 			fmt.Printf("  Failed: %s\n", result.Error)
 		} else {
 			fmt.Printf("  Greeting: %s\n", result.Data.(map[string]interface{})["greeting"])
-			if metadata := result.Metadata.(map[string]interface{}); metadata != nil {
-				if personalization := metadata["personalization"]; personalization != nil {
+			if result.Metadata != nil {
+				if personalization := result.Metadata["personalization"]; personalization != nil {
 					fmt.Printf("  Personalization: %v\n", personalization)
 				}
 			}

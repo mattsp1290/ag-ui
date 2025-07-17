@@ -1,4 +1,4 @@
-package main
+package external
 
 import (
 	"bytes"
@@ -10,7 +10,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -73,7 +72,7 @@ type HTTPResponse struct {
 	ResponseTime  time.Duration          `json:"response_time"`
 	Redirects     []RedirectInfo         `json:"redirects,omitempty"`
 	SSLInfo       *SSLInfo               `json:"ssl_info,omitempty"`
-	RequestInfo   RequestInfo            `json:"request_info"`
+	RequestInfo   RestRequestInfo            `json:"request_info"`
 }
 
 // RedirectInfo contains information about HTTP redirects
@@ -100,8 +99,8 @@ type CertInfo struct {
 	SerialNumber string  `json:"serial_number"`
 }
 
-// RequestInfo contains information about the actual HTTP request made
-type RequestInfo struct {
+// RestRequestInfo contains information about the actual HTTP request made
+type RestRequestInfo struct {
 	FinalURL      string            `json:"final_url"`
 	Method        string            `json:"method"`
 	Headers       map[string]string `json:"headers"`
@@ -570,7 +569,6 @@ func (r *RESTClientExecutor) executeHTTPRequestOnce(ctx context.Context, httpReq
 	if httpReq.Options.FollowRedirects {
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 			if len(via) > 0 {
-				lastReq := via[len(via)-1]
 				redirects = append(redirects, RedirectInfo{
 					StatusCode: 302, // Approximate, as we don't have access to the actual status
 					Location:   req.URL.String(),
@@ -653,7 +651,7 @@ func (r *RESTClientExecutor) executeHTTPRequestOnce(ctx context.Context, httpReq
 	}
 
 	// Build request info
-	requestInfo := RequestInfo{
+	requestInfo := RestRequestInfo{
 		FinalURL:      resp.Request.URL.String(),
 		Method:        req.Method,
 		Headers:       make(map[string]string),
@@ -1090,7 +1088,8 @@ func CreateRESTClientTool() *tools.Tool {
 	}
 }
 
-func main() {
+// RunRestClientExample demonstrates the REST client tool functionality
+func RunRestClientExample() {
 	// Create registry and register the REST client tool
 	registry := tools.NewRegistry()
 	restClientTool := CreateRESTClientTool()

@@ -1,4 +1,4 @@
-package main
+package validation
 
 import (
 	"context"
@@ -1343,7 +1343,8 @@ func CreateAPIValidatorTool() *tools.Tool {
 	}
 }
 
-func main() {
+// RunApiValidatorExample demonstrates the API validator tool functionality
+func RunApiValidatorExample() {
 	// Create registry and register the API validator tool
 	registry := tools.NewRegistry()
 	apiValidatorTool := CreateAPIValidatorTool()

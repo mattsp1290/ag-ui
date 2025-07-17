@@ -1,7 +1,6 @@
 package testhelper
 
 import (
-	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -13,23 +12,23 @@ import (
 
 // MockNetworkConnection provides a mock network connection for testing
 type MockNetworkConnection struct {
-	t                *testing.T
-	mu               sync.RWMutex
-	localAddr        net.Addr
-	remoteAddr       net.Addr
-	readBuffer       []byte
-	writeBuffer      []byte
-	closed           bool
-	readDeadline     time.Time
-	writeDeadline    time.Time
-	onRead           func([]byte) (int, error)
-	onWrite          func([]byte) (int, error)
-	onClose          func() error
-	readBlockTime    time.Duration
-	writeBlockTime   time.Duration
-	simulateError    error
-	bytesRead        int64
-	bytesWritten     int64
+	t              *testing.T
+	mu             sync.RWMutex
+	localAddr      net.Addr
+	remoteAddr     net.Addr
+	readBuffer     []byte
+	writeBuffer    []byte
+	closed         bool
+	readDeadline   time.Time
+	writeDeadline  time.Time
+	onRead         func([]byte) (int, error)
+	onWrite        func([]byte) (int, error)
+	onClose        func() error
+	readBlockTime  time.Duration
+	writeBlockTime time.Duration
+	simulateError  error
+	bytesRead      int64
+	bytesWritten   int64
 }
 
 // NewMockNetworkConnection creates a new mock network connection
@@ -47,33 +46,33 @@ func NewMockNetworkConnection(t *testing.T, localAddr, remoteAddr net.Addr) *Moc
 func (m *MockNetworkConnection) Read(b []byte) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.closed {
 		return 0, io.EOF
 	}
-	
+
 	if m.simulateError != nil {
 		return 0, m.simulateError
 	}
-	
+
 	// Simulate read blocking
 	if m.readBlockTime > 0 {
 		time.Sleep(m.readBlockTime)
 	}
-	
+
 	if m.onRead != nil {
 		return m.onRead(b)
 	}
-	
+
 	if len(m.readBuffer) == 0 {
 		// No data available
 		return 0, fmt.Errorf("no data available")
 	}
-	
+
 	n := copy(b, m.readBuffer)
 	m.readBuffer = m.readBuffer[n:]
 	m.bytesRead += int64(n)
-	
+
 	m.t.Logf("MockNetwork: Read %d bytes", n)
 	return n, nil
 }
@@ -82,27 +81,27 @@ func (m *MockNetworkConnection) Read(b []byte) (int, error) {
 func (m *MockNetworkConnection) Write(b []byte) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.closed {
 		return 0, fmt.Errorf("connection closed")
 	}
-	
+
 	if m.simulateError != nil {
 		return 0, m.simulateError
 	}
-	
+
 	// Simulate write blocking
 	if m.writeBlockTime > 0 {
 		time.Sleep(m.writeBlockTime)
 	}
-	
+
 	if m.onWrite != nil {
 		return m.onWrite(b)
 	}
-	
+
 	m.writeBuffer = append(m.writeBuffer, b...)
 	m.bytesWritten += int64(len(b))
-	
+
 	m.t.Logf("MockNetwork: Wrote %d bytes", len(b))
 	return len(b), nil
 }
@@ -111,18 +110,18 @@ func (m *MockNetworkConnection) Write(b []byte) (int, error) {
 func (m *MockNetworkConnection) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.closed {
 		return nil
 	}
-	
+
 	m.closed = true
 	m.t.Log("MockNetwork: Connection closed")
-	
+
 	if m.onClose != nil {
 		return m.onClose()
 	}
-	
+
 	return nil
 }
 
@@ -255,20 +254,20 @@ func (m *MockListener) Accept() (net.Conn, error) {
 		m.mu.Unlock()
 		return nil, fmt.Errorf("listener closed")
 	}
-	
+
 	if m.acceptError != nil {
 		err := m.acceptError
 		m.mu.Unlock()
 		return nil, err
 	}
-	
+
 	delay := m.acceptDelay
 	m.mu.Unlock()
-	
+
 	if delay > 0 {
 		time.Sleep(delay)
 	}
-	
+
 	select {
 	case conn := <-m.acceptQueue:
 		m.mu.Lock()
@@ -285,11 +284,11 @@ func (m *MockListener) Accept() (net.Conn, error) {
 func (m *MockListener) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.closed {
 		return nil
 	}
-	
+
 	m.closed = true
 	close(m.acceptQueue)
 	m.t.Log("MockListener: Listener closed")
@@ -307,7 +306,7 @@ func (m *MockListener) Addr() net.Addr {
 func (m *MockListener) AddConnection(conn net.Conn) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if !m.closed {
 		select {
 		case m.acceptQueue <- conn:
@@ -340,12 +339,12 @@ func (m *MockListener) GetConnectionCount() int64 {
 
 // MockDialer provides a mock dialer for testing
 type MockDialer struct {
-	t             *testing.T
-	mu            sync.Mutex
-	connections   map[string]net.Conn
-	dialDelay     time.Duration
-	dialError     error
-	onDial        func(network, address string) (net.Conn, error)
+	t           *testing.T
+	mu          sync.Mutex
+	connections map[string]net.Conn
+	dialDelay   time.Duration
+	dialError   error
+	onDial      func(network, address string) (net.Conn, error)
 }
 
 // NewMockDialer creates a new mock dialer
@@ -365,7 +364,7 @@ func (m *MockDialer) Dial(network, address string) (net.Conn, error) {
 func (m *MockDialer) DialContext(ctx context.Context, network, address string) (net.Conn, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.dialDelay > 0 {
 		select {
 		case <-time.After(m.dialDelay):
@@ -373,27 +372,27 @@ func (m *MockDialer) DialContext(ctx context.Context, network, address string) (
 			return nil, ctx.Err()
 		}
 	}
-	
+
 	if m.dialError != nil {
 		return nil, m.dialError
 	}
-	
+
 	if m.onDial != nil {
 		return m.onDial(network, address)
 	}
-	
+
 	key := network + ":" + address
 	if conn, exists := m.connections[key]; exists {
 		return conn, nil
 	}
-	
+
 	// Create a new mock connection
 	localAddr := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 0}
 	remoteAddr := &net.TCPAddr{IP: net.ParseIP("127.0.0.1"), Port: 8080}
-	
+
 	conn := NewMockNetworkConnection(m.t, localAddr, remoteAddr)
 	m.connections[key] = conn
-	
+
 	m.t.Logf("MockDialer: Dialed %s %s", network, address)
 	return conn, nil
 }
@@ -451,11 +450,11 @@ func NewNetworkTestSuite(t *testing.T) *NetworkTestSuite {
 func (nts *NetworkTestSuite) CreateListener(name string, addr net.Addr) *MockListener {
 	listener := NewMockListener(nts.t, addr)
 	nts.listeners[name] = listener
-	
+
 	nts.cleanup.Add(func() {
 		listener.Close()
 	})
-	
+
 	return listener
 }
 
@@ -470,11 +469,11 @@ func (nts *NetworkTestSuite) CreateDialer(name string) *MockDialer {
 func (nts *NetworkTestSuite) CreateConnection(name string, localAddr, remoteAddr net.Addr) *MockNetworkConnection {
 	conn := NewMockNetworkConnection(nts.t, localAddr, remoteAddr)
 	nts.conns[name] = conn
-	
+
 	nts.cleanup.Add(func() {
 		conn.Close()
 	})
-	
+
 	return conn
 }
 
@@ -513,15 +512,15 @@ func (nts *NetworkTestSuite) RestoreNetworkConnectivity(connNames ...string) {
 
 // MockPacketConn provides a mock packet connection for UDP testing
 type MockPacketConn struct {
-	t            *testing.T
-	mu           sync.RWMutex
-	localAddr    net.Addr
-	packets      []mockPacket
-	closed       bool
-	readDeadline time.Time
+	t             *testing.T
+	mu            sync.RWMutex
+	localAddr     net.Addr
+	packets       []mockPacket
+	closed        bool
+	readDeadline  time.Time
 	writeDeadline time.Time
-	onReadFrom   func([]byte) (int, net.Addr, error)
-	onWriteTo    func([]byte, net.Addr) (int, error)
+	onReadFrom    func([]byte) (int, net.Addr, error)
+	onWriteTo     func([]byte, net.Addr) (int, error)
 }
 
 type mockPacket struct {
@@ -543,25 +542,25 @@ func NewMockPacketConn(t *testing.T, localAddr net.Addr) *MockPacketConn {
 func (m *MockPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.closed {
 		return 0, nil, io.EOF
 	}
-	
+
 	if m.onReadFrom != nil {
 		return m.onReadFrom(p)
 	}
-	
+
 	if len(m.packets) == 0 {
 		return 0, nil, fmt.Errorf("no packets available")
 	}
-	
+
 	packet := m.packets[0]
 	m.packets = m.packets[1:]
-	
+
 	n := copy(p, packet.data)
 	m.t.Logf("MockPacketConn: Read %d bytes from %s", n, packet.addr)
-	
+
 	return n, packet.addr, nil
 }
 
@@ -569,15 +568,15 @@ func (m *MockPacketConn) ReadFrom(p []byte) (int, net.Addr, error) {
 func (m *MockPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.closed {
 		return 0, fmt.Errorf("connection closed")
 	}
-	
+
 	if m.onWriteTo != nil {
 		return m.onWriteTo(p, addr)
 	}
-	
+
 	m.t.Logf("MockPacketConn: Wrote %d bytes to %s", len(p), addr)
 	return len(p), nil
 }
@@ -586,11 +585,11 @@ func (m *MockPacketConn) WriteTo(p []byte, addr net.Addr) (int, error) {
 func (m *MockPacketConn) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.closed {
 		return nil
 	}
-	
+
 	m.closed = true
 	m.t.Log("MockPacketConn: Connection closed")
 	return nil
@@ -628,7 +627,7 @@ func (m *MockPacketConn) SetWriteDeadline(t time.Time) error {
 func (m *MockPacketConn) AddPacket(data []byte, addr net.Addr) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	m.packets = append(m.packets, mockPacket{
 		data: data,
 		addr: addr,

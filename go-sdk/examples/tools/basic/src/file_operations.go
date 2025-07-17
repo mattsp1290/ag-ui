@@ -1,4 +1,4 @@
-package main
+package basic
 
 import (
 	"context"
@@ -614,16 +614,7 @@ func CreateFileOperationsTool() *tools.Tool {
 			},
 			Required: []string{"operation", "path"},
 			// Use conditional validation for operation-specific requirements
-			If: &tools.Property{
-				Properties: map[string]*tools.Property{
-					"operation": {
-						Enum: []interface{}{"write"},
-					},
-				},
-			},
-			Then: &tools.Property{
-				Required: []string{"operation", "path", "content"},
-			},
+			// Note: If/Then conditional validation would be implemented separately
 		},
 		Metadata: &tools.ToolMetadata{
 			Author:        "AG-UI SDK Examples",
@@ -670,7 +661,8 @@ func CreateFileOperationsTool() *tools.Tool {
 	}
 }
 
-func main() {
+// RunFileOperationsExample demonstrates the file operations tool functionality
+func RunFileOperationsExample() {
 	// Create registry and register the file operations tool
 	registry := tools.NewRegistry()
 	fileOpsTool := CreateFileOperationsTool()

@@ -1119,8 +1119,6 @@ func TestStreamingDataProcessor_Performance(t *testing.T) {
 
 // TestStreamingDataProcessor_ConcurrentStreaming tests concurrent streaming
 func TestStreamingDataProcessor_ConcurrentStreaming(t *testing.T) {
-	tool := createStreamingDataProcessorTool()
-	
 	const numStreams = 3
 	var wg sync.WaitGroup
 	results := make(chan error, numStreams)
@@ -1206,7 +1204,6 @@ func TestStreamingDataProcessor_Capabilities(t *testing.T) {
 
 // BenchmarkStreamingDataProcessor benchmarks streaming performance
 func BenchmarkStreamingDataProcessor(b *testing.B) {
-	tool := createStreamingDataProcessorTool()
 	ctx := context.Background()
 
 	b.Run("HighFrequencyStreaming", func(b *testing.B) {
@@ -1261,7 +1258,7 @@ func BenchmarkStreamingDataProcessor(b *testing.B) {
 }
 
 // Example tests
-func ExampleStreamingDataProcessor_BasicUsage() {
+func Example_streamingDataProcessorBasicUsage() {
 	tool := createStreamingDataProcessorTool()
 	processor := tool.Executor.(*MockStreamingDataProcessor)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

@@ -1,15 +1,11 @@
-package main
+package external
 
 import (
 	"context"
 	"crypto/tls"
-	"encoding/json"
 	"fmt"
-	"io"
 	"log"
 	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
 	"time"
 
@@ -35,7 +31,7 @@ type WeatherResponse struct {
 	Alerts       []WeatherAlert   `json:"alerts,omitempty"`
 	DataSources  []string         `json:"data_sources"`
 	LastUpdated  string           `json:"last_updated"`
-	RequestInfo  RequestInfo      `json:"request_info"`
+	RequestInfo  WeatherRequestInfo      `json:"request_info"`
 }
 
 // LocationInfo contains location details
@@ -112,8 +108,8 @@ type WeatherAlert struct {
 	Instruction string `json:"instruction,omitempty"`
 }
 
-// RequestInfo contains information about the API request
-type RequestInfo struct {
+// WeatherRequestInfo contains information about the API request
+type WeatherRequestInfo struct {
 	Provider      string        `json:"provider"`
 	QueryType     string        `json:"query_type"`
 	Units         string        `json:"units"`
@@ -278,7 +274,7 @@ func (w *WeatherAPIExecutor) Execute(ctx context.Context, params map[string]inte
 
 	// Update request info
 	if result != nil {
-		result.RequestInfo = RequestInfo{
+		result.RequestInfo = WeatherRequestInfo{
 			Provider:     "WeatherAPI",
 			QueryType:    operation,
 			Units:        options.Units,
@@ -905,7 +901,8 @@ func CreateWeatherAPITool() *tools.Tool {
 	}
 }
 
-func main() {
+// RunWeatherApiExample demonstrates the weather API tool functionality
+func RunWeatherApiExample() {
 	// Create registry and register the weather API tool
 	registry := tools.NewRegistry()
 	weatherTool := CreateWeatherAPITool()
@@ -1025,7 +1022,7 @@ func printWeatherResult(result *tools.ToolExecutionResult, err error, title stri
 	data := result.Data.(map[string]interface{})
 	
 	// Handle different operation types
-	if weatherData, exists := data["weather_data"]; exists {
+	if _, exists := data["weather_data"]; exists {
 		// Weather data response
 		fmt.Printf("  Success: Weather data retrieved\n")
 		if summary, exists := data["summary"]; exists {

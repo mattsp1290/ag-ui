@@ -1,11 +1,10 @@
-package main
+package performance
 
 import (
 	"context"
 	"fmt"
 	"runtime"
 	"runtime/debug"
-	"sort"
 	"sync"
 	"time"
 
@@ -52,7 +51,7 @@ type SystemMonitor struct {
 type ResourceSnapshot struct {
 	Timestamp      time.Time `json:"timestamp"`
 	CPU            CPUMetrics `json:"cpu"`
-	Memory         MemoryMetrics `json:"memory"`
+	Memory         RuntimeMemoryMetrics `json:"memory"`
 	GC             GCMetrics `json:"gc"`
 	Goroutines     GoroutineMetrics `json:"goroutines"`
 	System         SystemMetrics `json:"system"`
@@ -73,7 +72,7 @@ type CPUMetrics struct {
 }
 
 // MemoryMetrics tracks memory usage patterns
-type MemoryMetrics struct {
+type RuntimeMemoryMetrics struct {
 	// Go runtime memory stats
 	Alloc         uint64 `json:"alloc"`
 	TotalAlloc    uint64 `json:"total_alloc"`
@@ -204,7 +203,7 @@ type CPUTracker struct {
 
 type MemoryTracker struct {
 	baseline runtime.MemStats
-	samples  []MemoryMetrics
+	samples  []RuntimeMemoryMetrics
 	leakDetector *MemoryLeakDetector
 }
 
@@ -462,8 +461,8 @@ func (t *ResourceMonitorTool) Execute(ctx context.Context, params map[string]int
 		Metadata: map[string]interface{}{
 			"samples_collected": len(results.Summary.Samples),
 			"alerts_triggered":  len(results.Alerts),
-			"peak_memory":       analysis.Memory.PeakUsage,
-			"avg_cpu":          analysis.CPU.AverageUsage,
+			"peak_memory":       analysis["memory_analysis"],
+			"avg_cpu":          analysis["cpu_analysis"],
 		},
 	}, nil
 }
@@ -599,11 +598,11 @@ func (m *SystemMonitor) collectCPUMetrics() CPUMetrics {
 	}
 }
 
-func (m *SystemMonitor) collectMemoryMetrics() MemoryMetrics {
+func (m *SystemMonitor) collectMemoryMetrics() RuntimeMemoryMetrics {
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 	
-	return MemoryMetrics{
+	return RuntimeMemoryMetrics{
 		Alloc:        memStats.Alloc,
 		TotalAlloc:   memStats.TotalAlloc,
 		Sys:          memStats.Sys,
@@ -1016,7 +1015,7 @@ func analyzeResults(results *MonitoringResults) map[string]interface{} {
 		"memory_analysis": results.Trends.Memory,
 		"gc_analysis":     results.Trends.GC,
 		"stability_score": calculateStabilityScore(results),
-		"efficiency_score": calculateEfficiencyScore(results),
+		"efficiency_score": calculateMonitoringEfficiencyScore(results),
 	}
 }
 
@@ -1044,7 +1043,7 @@ func calculateStabilityScore(results *MonitoringResults) float64 {
 	return score
 }
 
-func calculateEfficiencyScore(results *MonitoringResults) float64 {
+func calculateMonitoringEfficiencyScore(results *MonitoringResults) float64 {
 	// Simplified efficiency calculation
 	score := 100.0
 	
@@ -1106,15 +1105,16 @@ func (m *SystemMonitor) collectProfiles() ProfileData {
 	}
 }
 
-func max(a, b int) int {
+func maxInt(a, b int) int {
 	if a > b {
 		return a
 	}
 	return b
 }
 
-func main() {
-	tool := CreateResourceMonitorTool()
+// RunResourceMonitorExample demonstrates the resource monitor tool functionality
+func RunResourceMonitorExample() {
+	_ = CreateResourceMonitorTool()
 	
 	// Example usage
 	params := map[string]interface{}{

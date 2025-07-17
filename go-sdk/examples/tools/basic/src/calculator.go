@@ -1,4 +1,4 @@
-package main
+package basic
 
 import (
 	"context"
@@ -183,7 +183,8 @@ func CreateCalculatorTool() *tools.Tool {
 	}
 }
 
-func main() {
+// RunCalculatorExample demonstrates the calculator tool functionality
+func RunCalculatorExample() {
 	// Create registry and register the calculator tool
 	registry := tools.NewRegistry()
 	calculatorTool := CreateCalculatorTool()

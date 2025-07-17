@@ -1,8 +1,6 @@
 package testhelper
 
 import (
-	"context"
-	"fmt"
 	"io"
 	"net"
 	"sync"
@@ -22,11 +20,11 @@ func NewCleanupHelper(t *testing.T) *CleanupHelper {
 	ch := &CleanupHelper{
 		t: t,
 	}
-	
+
 	t.Cleanup(func() {
 		ch.RunCleanup()
 	})
-	
+
 	return ch
 }
 
@@ -41,7 +39,7 @@ func (ch *CleanupHelper) Add(cleanup func()) {
 func (ch *CleanupHelper) RunCleanup() {
 	ch.mu.Lock()
 	defer ch.mu.Unlock()
-	
+
 	for i := len(ch.cleanup) - 1; i >= 0; i-- {
 		func() {
 			defer func() {
@@ -52,20 +50,20 @@ func (ch *CleanupHelper) RunCleanup() {
 			ch.cleanup[i]()
 		}()
 	}
-	
+
 	ch.cleanup = nil
 }
 
 // CloseChannel safely closes a channel with panic recovery
 func CloseChannel[T any](t *testing.T, ch chan T, name string) {
 	t.Helper()
-	
+
 	defer func() {
 		if r := recover(); r != nil {
 			t.Logf("Panic closing channel %s: %v", name, r)
 		}
 	}()
-	
+
 	if ch != nil {
 		close(ch)
 		t.Logf("Closed channel: %s", name)
@@ -75,10 +73,10 @@ func CloseChannel[T any](t *testing.T, ch chan T, name string) {
 // DrainChannel drains all values from a channel before closing
 func DrainChannel[T any](t *testing.T, ch chan T, name string, timeout time.Duration) {
 	t.Helper()
-	
+
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
-	
+
 	drained := 0
 	for {
 		select {
@@ -99,11 +97,11 @@ func DrainChannel[T any](t *testing.T, ch chan T, name string, timeout time.Dura
 // CloseConnection safely closes any io.Closer (connections, files, etc.)
 func CloseConnection(t *testing.T, conn io.Closer, name string) {
 	t.Helper()
-	
+
 	if conn == nil {
 		return
 	}
-	
+
 	if err := conn.Close(); err != nil {
 		t.Logf("Error closing %s: %v", name, err)
 	} else {
@@ -114,7 +112,7 @@ func CloseConnection(t *testing.T, conn io.Closer, name string) {
 // StopWorker stops a worker goroutine using a done channel
 func StopWorker(t *testing.T, done chan<- struct{}, name string, timeout time.Duration) {
 	t.Helper()
-	
+
 	select {
 	case done <- struct{}{}:
 		t.Logf("Sent stop signal to worker: %s", name)
@@ -126,14 +124,14 @@ func StopWorker(t *testing.T, done chan<- struct{}, name string, timeout time.Du
 // WaitGroupTimeout waits for a WaitGroup with timeout
 func WaitGroupTimeout(t *testing.T, wg *sync.WaitGroup, timeout time.Duration) bool {
 	t.Helper()
-	
+
 	done := make(chan struct{})
-	
+
 	go func() {
 		wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		return true
@@ -156,11 +154,11 @@ func NewCleanupManager(t *testing.T) *CleanupManager {
 		t:         t,
 		resources: make(map[string]func()),
 	}
-	
+
 	t.Cleanup(func() {
 		cm.CleanupAll()
 	})
-	
+
 	return cm
 }
 
@@ -168,11 +166,11 @@ func NewCleanupManager(t *testing.T) *CleanupManager {
 func (cm *CleanupManager) Register(name string, cleanup func()) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	
+
 	if _, exists := cm.resources[name]; exists {
 		cm.t.Logf("Warning: overwriting cleanup for resource: %s", name)
 	}
-	
+
 	cm.resources[name] = cleanup
 }
 
@@ -180,7 +178,7 @@ func (cm *CleanupManager) Register(name string, cleanup func()) {
 func (cm *CleanupManager) Cleanup(name string) {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	
+
 	if cleanup, exists := cm.resources[name]; exists {
 		cm.runCleanup(name, cleanup)
 		delete(cm.resources, name)
@@ -191,13 +189,13 @@ func (cm *CleanupManager) Cleanup(name string) {
 func (cm *CleanupManager) CleanupAll() {
 	cm.mu.Lock()
 	defer cm.mu.Unlock()
-	
+
 	cm.t.Logf("Cleaning up %d resources", len(cm.resources))
-	
+
 	for name, cleanup := range cm.resources {
 		cm.runCleanup(name, cleanup)
 	}
-	
+
 	cm.resources = make(map[string]func())
 }
 
@@ -208,7 +206,7 @@ func (cm *CleanupManager) runCleanup(name string, cleanup func()) {
 			cm.t.Logf("Panic during cleanup of %s: %v", name, r)
 		}
 	}()
-	
+
 	start := time.Now()
 	cleanup()
 	cm.t.Logf("Cleaned up %s in %v", name, time.Since(start))
@@ -216,20 +214,20 @@ func (cm *CleanupManager) runCleanup(name string, cleanup func()) {
 
 // NetworkCleanup helps clean up network resources
 type NetworkCleanup struct {
-	t          *testing.T
-	listeners  []net.Listener
-	conns      []net.Conn
-	mu         sync.Mutex
+	t         *testing.T
+	listeners []net.Listener
+	conns     []net.Conn
+	mu        sync.Mutex
 }
 
 // NewNetworkCleanup creates a network cleanup helper
 func NewNetworkCleanup(t *testing.T) *NetworkCleanup {
 	nc := &NetworkCleanup{t: t}
-	
+
 	t.Cleanup(func() {
 		nc.CleanupAll()
 	})
-	
+
 	return nc
 }
 
@@ -251,21 +249,21 @@ func (nc *NetworkCleanup) AddConnection(conn net.Conn) {
 func (nc *NetworkCleanup) CleanupAll() {
 	nc.mu.Lock()
 	defer nc.mu.Unlock()
-	
+
 	// Close connections first
 	for _, conn := range nc.conns {
 		if err := conn.Close(); err != nil {
 			nc.t.Logf("Error closing connection: %v", err)
 		}
 	}
-	
+
 	// Then close listeners
 	for _, l := range nc.listeners {
 		if err := l.Close(); err != nil {
 			nc.t.Logf("Error closing listener: %v", err)
 		}
 	}
-	
+
 	nc.conns = nil
 	nc.listeners = nil
 }
@@ -285,11 +283,11 @@ type channelInfo struct {
 // NewChannelCleanup creates a channel cleanup helper
 func NewChannelCleanup(t *testing.T) *ChannelCleanup {
 	cc := &ChannelCleanup{t: t}
-	
+
 	t.Cleanup(func() {
 		cc.CleanupAll()
 	})
-	
+
 	return cc
 }
 
@@ -297,7 +295,7 @@ func NewChannelCleanup(t *testing.T) *ChannelCleanup {
 func (cc *ChannelCleanup) Add(name string, cleanup func()) {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
-	
+
 	cc.channels = append(cc.channels, channelInfo{
 		name:    name,
 		cleanup: cleanup,
@@ -315,9 +313,9 @@ func AddChan[T any](cc *ChannelCleanup, name string, ch chan T) {
 func (cc *ChannelCleanup) CleanupAll() {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
-	
+
 	cc.t.Logf("Cleaning up %d channels", len(cc.channels))
-	
+
 	for _, ch := range cc.channels {
 		func() {
 			defer func() {
@@ -328,7 +326,7 @@ func (cc *ChannelCleanup) CleanupAll() {
 			ch.cleanup()
 		}()
 	}
-	
+
 	cc.channels = nil
 }
 
@@ -347,11 +345,11 @@ func NewResourceTracker(t *testing.T) *ResourceTracker {
 		allocated: make(map[string]time.Time),
 		cleaned:   make(map[string]time.Time),
 	}
-	
+
 	t.Cleanup(func() {
 		rt.Report()
 	})
-	
+
 	return rt
 }
 
@@ -373,7 +371,7 @@ func (rt *ResourceTracker) Cleaned(name string) {
 func (rt *ResourceTracker) Report() {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	
+
 	var leaks []string
 	for name, allocTime := range rt.allocated {
 		if cleanTime, cleaned := rt.cleaned[name]; !cleaned {
@@ -383,7 +381,7 @@ func (rt *ResourceTracker) Report() {
 			rt.t.Logf("Resource %s lived for %v", name, duration)
 		}
 	}
-	
+
 	if len(leaks) > 0 {
 		rt.t.Errorf("Resource leaks detected: %v", leaks)
 	}
@@ -392,7 +390,7 @@ func (rt *ResourceTracker) Report() {
 // EnsureCleanup wraps a function to ensure cleanup happens
 func EnsureCleanup(t *testing.T, name string, fn func(), cleanup func()) {
 	t.Helper()
-	
+
 	defer func() {
 		if r := recover(); r != nil {
 			t.Logf("Panic in %s: %v", name, r)
@@ -402,6 +400,6 @@ func EnsureCleanup(t *testing.T, name string, fn func(), cleanup func()) {
 			cleanup()
 		}
 	}()
-	
+
 	fn()
 }

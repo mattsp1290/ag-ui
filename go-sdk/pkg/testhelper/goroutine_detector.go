@@ -65,7 +65,7 @@ func VerifyNoGoroutineLeaks(t *testing.T) {
 	t.Helper()
 	detector := NewGoroutineLeakDetector(t)
 	detector.Start()
-	
+
 	t.Cleanup(func() {
 		detector.Check()
 	})
@@ -83,7 +83,7 @@ func getGoroutineStacks() map[string]int {
 		if trace == "" {
 			continue
 		}
-		
+
 		// Extract meaningful stack info (first few lines)
 		lines := strings.Split(trace, "\n")
 		if len(lines) > 0 {
@@ -127,24 +127,24 @@ func compareGoroutines(initial, final map[string]int) []string {
 // reportLeak reports detected goroutine leaks
 func (d *GoroutineLeakDetector) reportLeak(leaked []string, final map[string]int) {
 	d.t.Helper()
-	
+
 	initialCount := countGoroutines(d.initialGoroutines)
 	finalCount := countGoroutines(final)
-	
-	d.t.Errorf("Goroutine leak detected: %d -> %d goroutines (+%d)", 
+
+	d.t.Errorf("Goroutine leak detected: %d -> %d goroutines (+%d)",
 		initialCount, finalCount, len(leaked))
-	
+
 	// Group similar stacks
 	stackCounts := make(map[string]int)
 	for _, stack := range leaked {
 		stackCounts[stack]++
 	}
-	
+
 	d.t.Log("Leaked goroutines:")
 	for stack, count := range stackCounts {
 		d.t.Logf("\n[%d instances]\n%s", count, stack)
 	}
-	
+
 	// Provide debugging hints
 	d.t.Log("\nCommon causes of goroutine leaks:")
 	d.t.Log("- Unclosed channels causing goroutines to block")
@@ -164,13 +164,13 @@ func min(a, b int) int {
 // MonitorGoroutines logs goroutine counts periodically during test execution
 func MonitorGoroutines(t *testing.T, interval time.Duration) func() {
 	t.Helper()
-	
+
 	done := make(chan struct{})
-	
+
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ticker.C:
@@ -181,7 +181,7 @@ func MonitorGoroutines(t *testing.T, interval time.Duration) func() {
 			}
 		}
 	}()
-	
+
 	return func() {
 		close(done)
 	}
@@ -190,10 +190,10 @@ func MonitorGoroutines(t *testing.T, interval time.Duration) func() {
 // WaitForGoroutines waits for goroutine count to stabilize
 func WaitForGoroutines(t *testing.T, expectedDelta int, timeout time.Duration) {
 	t.Helper()
-	
+
 	initialCount := runtime.NumGoroutine()
 	deadline := time.Now().Add(timeout)
-	
+
 	for time.Now().Before(deadline) {
 		currentCount := runtime.NumGoroutine()
 		if currentCount <= initialCount+expectedDelta {
@@ -201,7 +201,7 @@ func WaitForGoroutines(t *testing.T, expectedDelta int, timeout time.Duration) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	
+
 	t.Errorf("Goroutine count did not stabilize: started with %d, have %d (expected delta: %d)",
 		initialCount, runtime.NumGoroutine(), expectedDelta)
 }
@@ -209,11 +209,11 @@ func WaitForGoroutines(t *testing.T, expectedDelta int, timeout time.Duration) {
 // DetectBlockedGoroutines checks for goroutines that might be blocked
 func DetectBlockedGoroutines(t *testing.T) {
 	t.Helper()
-	
+
 	buf := make([]byte, 2<<20)
 	n := runtime.Stack(buf, true)
 	stack := string(buf[:n])
-	
+
 	// Look for common blocking patterns
 	blockingPatterns := []string{
 		"chan send",
@@ -223,10 +223,10 @@ func DetectBlockedGoroutines(t *testing.T) {
 		"sync.(*RWMutex).RLock",
 		"sync.(*WaitGroup).Wait",
 	}
-	
+
 	var blocked []string
 	traces := strings.Split(stack, "\n\n")
-	
+
 	for _, trace := range traces {
 		for _, pattern := range blockingPatterns {
 			if strings.Contains(trace, pattern) {
@@ -234,7 +234,7 @@ func DetectBlockedGoroutines(t *testing.T) {
 			}
 		}
 	}
-	
+
 	if len(blocked) > 0 {
 		t.Log("Potentially blocked goroutines detected:")
 		for _, b := range blocked {

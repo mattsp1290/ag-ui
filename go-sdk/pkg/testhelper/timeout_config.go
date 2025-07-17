@@ -37,44 +37,44 @@ func DefaultTimeouts() *TimeoutConfig {
 // NewTimeoutConfig creates a timeout configuration with environment variable overrides
 func NewTimeoutConfig() *TimeoutConfig {
 	config := DefaultTimeouts()
-	
+
 	// Allow environment variable overrides
 	if val := os.Getenv("TEST_TIMEOUT_SHORT"); val != "" {
 		if d, err := time.ParseDuration(val); err == nil {
 			config.Short = d
 		}
 	}
-	
+
 	if val := os.Getenv("TEST_TIMEOUT_MEDIUM"); val != "" {
 		if d, err := time.ParseDuration(val); err == nil {
 			config.Medium = d
 		}
 	}
-	
+
 	if val := os.Getenv("TEST_TIMEOUT_LONG"); val != "" {
 		if d, err := time.ParseDuration(val); err == nil {
 			config.Long = d
 		}
 	}
-	
+
 	if val := os.Getenv("TEST_TIMEOUT_CONTEXT"); val != "" {
 		if d, err := time.ParseDuration(val); err == nil {
 			config.Context = d
 		}
 	}
-	
+
 	if val := os.Getenv("TEST_TIMEOUT_NETWORK"); val != "" {
 		if d, err := time.ParseDuration(val); err == nil {
 			config.Network = d
 		}
 	}
-	
+
 	if val := os.Getenv("TEST_TIMEOUT_CLEANUP"); val != "" {
 		if d, err := time.ParseDuration(val); err == nil {
 			config.Cleanup = d
 		}
 	}
-	
+
 	// Global scale factor for CI environments
 	if val := os.Getenv("TEST_TIMEOUT_SCALE"); val != "" {
 		if scale, err := strconv.ParseFloat(val, 64); err == nil && scale > 0 {
@@ -86,7 +86,7 @@ func NewTimeoutConfig() *TimeoutConfig {
 			config.Cleanup = time.Duration(float64(config.Cleanup) * scale)
 		}
 	}
-	
+
 	return config
 }
 
@@ -156,11 +156,11 @@ func (tc *TimeoutConfig) WithScale(scale float64) *TimeoutConfig {
 
 // IsCI detects if running in a CI environment
 func IsCI() bool {
-	return os.Getenv("CI") != "" || 
-		   os.Getenv("GITHUB_ACTIONS") != "" ||
-		   os.Getenv("JENKINS_URL") != "" ||
-		   os.Getenv("TRAVIS") != "" ||
-		   os.Getenv("CIRCLECI") != ""
+	return os.Getenv("CI") != "" ||
+		os.Getenv("GITHUB_ACTIONS") != "" ||
+		os.Getenv("JENKINS_URL") != "" ||
+		os.Getenv("TRAVIS") != "" ||
+		os.Getenv("CIRCLECI") != ""
 }
 
 // GetCITimeouts returns timeouts appropriate for CI environments

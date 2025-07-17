@@ -1,4 +1,4 @@
-package main
+package validation
 
 import (
 	"context"
@@ -1189,7 +1189,8 @@ func CreateDataTransformerTool() *tools.Tool {
 	}
 }
 
-func main() {
+// RunDataTransformerExample demonstrates the data transformer tool functionality
+func RunDataTransformerExample() {
 	// Create registry and register the data transformer tool
 	registry := tools.NewRegistry()
 	dataTransformerTool := CreateDataTransformerTool()

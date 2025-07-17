@@ -1,4 +1,4 @@
-package main
+package performance
 
 import (
 	"context"
@@ -148,7 +148,7 @@ type MemoryManager struct {
 	pools         map[string]*ObjectPool
 	gc            *GCManager
 	mu            sync.RWMutex
-	metrics       *MemoryMetrics
+	metrics       *BatchMemoryMetrics
 }
 
 type ObjectPool struct {
@@ -166,7 +166,7 @@ type GCManager struct {
 	forcedGCCount int64
 }
 
-type MemoryMetrics struct {
+type BatchMemoryMetrics struct {
 	AllocatedBytes   int64   `json:"allocated_bytes"`
 	PooledBytes      int64   `json:"pooled_bytes"`
 	GCCount          int64   `json:"gc_count"`
@@ -765,7 +765,7 @@ func NewMemoryManager(maxMemory int64) *MemoryManager {
 			threshold: maxMemory / 2,
 			interval:  time.Minute,
 		},
-		metrics: &MemoryMetrics{},
+		metrics: &BatchMemoryMetrics{},
 	}
 }
 
@@ -1070,7 +1070,7 @@ func (bp *BatchProcessor) AnalyzePerformance() map[string]interface{} {
 	metrics := bp.GetMetrics()
 	
 	analysis := map[string]interface{}{
-		"efficiency_score":     calculateEfficiencyScore(metrics),
+		"efficiency_score":     calculateBatchEfficiencyScore(metrics),
 		"bottleneck_analysis":  identifyBottlenecks(metrics),
 		"resource_utilization": calculateResourceUtilization(metrics),
 		"scaling_potential":    assessScalingPotential(metrics, bp.params),
@@ -1089,7 +1089,7 @@ func (bp *BatchProcessor) GetOptimizationReport() map[string]interface{} {
 
 // Additional helper functions...
 
-func calculateEfficiencyScore(metrics *BatchMetrics) float64 {
+func calculateBatchEfficiencyScore(metrics *BatchMetrics) float64 {
 	score := 100.0
 	
 	// Penalize for failures
@@ -1103,7 +1103,7 @@ func calculateEfficiencyScore(metrics *BatchMetrics) float64 {
 		score -= 25
 	}
 	
-	return max(0, score)
+	return batchMax(0, score)
 }
 
 func identifyBottlenecks(metrics *BatchMetrics) map[string]string {
@@ -1335,15 +1335,16 @@ func (bp *BatchProcessor) Close() {
 	}
 }
 
-func max(a, b float64) float64 {
+func batchMax(a, b float64) float64 {
 	if a > b {
 		return a
 	}
 	return b
 }
 
-func main() {
-	tool := CreateBatchProcessorTool()
+// RunBatchProcessorExample demonstrates the batch processor tool functionality
+func RunBatchProcessorExample() {
+	_ = CreateBatchProcessorTool()
 	
 	// Example usage
 	params := map[string]interface{}{

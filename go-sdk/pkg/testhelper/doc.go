@@ -11,10 +11,10 @@
 //	func TestExample(t *testing.T) {
 //	    // Detect goroutine leaks
 //	    defer testhelper.VerifyNoGoroutineLeaks(t)
-//	    
+//
 //	    // Use auto-cleanup context
 //	    ctx := testhelper.NewTestContext(t)
-//	    
+//
 //	    // Your test code here
 //	}
 package testhelper

@@ -2,9 +2,7 @@ package testhelper
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"testing"
 	"time"
@@ -12,12 +10,12 @@ import (
 
 // TestFixture represents a reusable test setup
 type TestFixture struct {
-	t       *testing.T
-	name    string
-	setup   func() error
+	t        *testing.T
+	name     string
+	setup    func() error
 	teardown func() error
-	data    map[string]interface{}
-	cleanup *DeferredCleanup
+	data     map[string]interface{}
+	cleanup  *DeferredCleanup
 }
 
 // FixtureManager manages multiple test fixtures
@@ -46,10 +44,10 @@ func (fm *FixtureManager) RegisterFixture(name string, setup, teardown func() er
 		data:     make(map[string]interface{}),
 		cleanup:  NewDeferredCleanup(fm.t),
 	}
-	
+
 	fm.fixtures[name] = fixture
 	fm.cleanup.AddCleanup(fmt.Sprintf("fixture-%s", name), teardown, 50)
-	
+
 	return fixture
 }
 
@@ -123,7 +121,7 @@ type WebSocketTestFixture struct {
 // NewWebSocketTestFixture creates a WebSocket test fixture
 func NewWebSocketTestFixture(t *testing.T) *WebSocketTestFixture {
 	suite := NewWebSocketTestSuite(t)
-	
+
 	fixture := &WebSocketTestFixture{
 		TestFixture: &TestFixture{
 			t:       t,
@@ -133,7 +131,7 @@ func NewWebSocketTestFixture(t *testing.T) *WebSocketTestFixture {
 		},
 		Suite: suite,
 	}
-	
+
 	fixture.setup = func() error {
 		if err := suite.Setup(); err != nil {
 			return err
@@ -143,14 +141,14 @@ func NewWebSocketTestFixture(t *testing.T) *WebSocketTestFixture {
 		fixture.SetData("url", fixture.URL)
 		return nil
 	}
-	
+
 	fixture.teardown = func() error {
 		if fixture.Server != nil {
 			return fixture.Server.Stop()
 		}
 		return nil
 	}
-	
+
 	return fixture
 }
 
@@ -172,7 +170,7 @@ func NewHTTPTestFixture(t *testing.T) *HTTPTestFixture {
 			cleanup: NewDeferredCleanup(t),
 		},
 	}
-	
+
 	fixture.setup = func() error {
 		fixture.Server = NewMockHTTPServer(t)
 		fixture.URL = fixture.Server.GetURL()
@@ -180,14 +178,14 @@ func NewHTTPTestFixture(t *testing.T) *HTTPTestFixture {
 		fixture.SetData("url", fixture.URL)
 		return nil
 	}
-	
+
 	fixture.teardown = func() error {
 		if fixture.Server != nil {
 			fixture.Server.Close()
 		}
 		return nil
 	}
-	
+
 	return fixture
 }
 
@@ -205,7 +203,7 @@ func (htf *HTTPTestFixture) SetupTextEndpoint(method, path string, statusCode in
 type DatabaseTestFixture struct {
 	*TestFixture
 	ConnectionString string
-	Tables          []string
+	Tables           []string
 }
 
 // NewDatabaseTestFixture creates a database test fixture
@@ -218,21 +216,21 @@ func NewDatabaseTestFixture(t *testing.T, connectionString string) *DatabaseTest
 			cleanup: NewDeferredCleanup(t),
 		},
 		ConnectionString: connectionString,
-		Tables:          make([]string, 0),
+		Tables:           make([]string, 0),
 	}
-	
+
 	fixture.setup = func() error {
 		// Database setup logic would go here
 		t.Log("Setting up database fixture")
 		return nil
 	}
-	
+
 	fixture.teardown = func() error {
 		// Database cleanup logic would go here
 		t.Log("Tearing down database fixture")
 		return nil
 	}
-	
+
 	return fixture
 }
 
@@ -252,7 +250,7 @@ type EventTestFixture struct {
 // NewEventTestFixture creates an event test fixture
 func NewEventTestFixture(t *testing.T) *EventTestFixture {
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalTimeouts.Context)
-	
+
 	fixture := &EventTestFixture{
 		TestFixture: &TestFixture{
 			t:       t,
@@ -264,19 +262,19 @@ func NewEventTestFixture(t *testing.T) *EventTestFixture {
 		Context:   ctx,
 		Cancel:    cancel,
 	}
-	
+
 	fixture.setup = func() error {
 		t.Log("Setting up event fixture")
 		return nil
 	}
-	
+
 	fixture.teardown = func() error {
 		cancel()
 		close(fixture.EventChan)
 		t.Log("Tearing down event fixture")
 		return nil
 	}
-	
+
 	return fixture
 }
 
@@ -321,7 +319,7 @@ func NewFileSystemTestFixture(t *testing.T) *FileSystemTestFixture {
 		},
 		TempFiles: make([]string, 0),
 	}
-	
+
 	fixture.setup = func() error {
 		acm := NewAdvancedCleanupManager(t)
 		tempDir, err := acm.CreateTempDir("testhelper-")
@@ -332,12 +330,12 @@ func NewFileSystemTestFixture(t *testing.T) *FileSystemTestFixture {
 		fixture.SetData("tempdir", tempDir)
 		return nil
 	}
-	
+
 	fixture.teardown = func() error {
 		// Cleanup is handled by AdvancedCleanupManager
 		return nil
 	}
-	
+
 	return fixture
 }
 
@@ -348,13 +346,13 @@ func (fsf *FileSystemTestFixture) CreateTempFile(name, content string) (string, 
 	if err != nil {
 		return "", err
 	}
-	
+
 	if content != "" {
 		if _, err := tempFile.WriteString(content); err != nil {
 			return "", err
 		}
 	}
-	
+
 	fileName := tempFile.Name()
 	fsf.TempFiles = append(fsf.TempFiles, fileName)
 	return fileName, nil
@@ -372,7 +370,7 @@ type ConcurrencyTestFixture struct {
 // NewConcurrencyTestFixture creates a concurrency test fixture
 func NewConcurrencyTestFixture(t *testing.T) *ConcurrencyTestFixture {
 	ctx, cancel := context.WithTimeout(context.Background(), GlobalTimeouts.Context)
-	
+
 	fixture := &ConcurrencyTestFixture{
 		TestFixture: &TestFixture{
 			t:       t,
@@ -385,26 +383,26 @@ func NewConcurrencyTestFixture(t *testing.T) *ConcurrencyTestFixture {
 		WaitGroups: make(map[string]*SafeWaitGroup),
 		Channels:   make(map[string]interface{}),
 	}
-	
+
 	fixture.setup = func() error {
 		t.Log("Setting up concurrency fixture")
 		return nil
 	}
-	
+
 	fixture.teardown = func() error {
 		cancel()
-		
+
 		// Wait for all wait groups with timeout
 		for name, wg := range fixture.WaitGroups {
-			if !WaitGroupTimeout(t, wg.WaitGroup, GlobalTimeouts.Cleanup) {
+			if !WaitGroupTimeout(t, wg.GetWaitGroup(), GlobalTimeouts.Cleanup) {
 				t.Logf("WaitGroup %s did not complete within timeout", name)
 			}
 		}
-		
+
 		t.Log("Tearing down concurrency fixture")
 		return nil
 	}
-	
+
 	return fixture
 }
 
@@ -419,14 +417,14 @@ func (ctf *ConcurrencyTestFixture) CreateWaitGroup(name string) *SafeWaitGroup {
 func (ctf *ConcurrencyTestFixture) CreateChannel(name string, size int) chan interface{} {
 	ch := make(chan interface{}, size)
 	ctf.Channels[name] = ch
-	
+
 	// Register for cleanup
 	ctf.cleanup.DeferSimple(fmt.Sprintf("close-channel-%s", name), func() {
 		if ch := ctf.Channels[name]; ch != nil {
 			close(ch.(chan interface{}))
 		}
 	})
-	
+
 	return ch
 }
 
@@ -450,30 +448,30 @@ func NewPerformanceTestFixture(t *testing.T) *PerformanceTestFixture {
 		Measurements: make(map[string]time.Duration),
 		Counters:     make(map[string]int64),
 	}
-	
+
 	fixture.setup = func() error {
 		fixture.StartTime = time.Now()
 		t.Log("Setting up performance fixture")
 		return nil
 	}
-	
+
 	fixture.teardown = func() error {
 		totalDuration := time.Since(fixture.StartTime)
 		t.Logf("Performance fixture total duration: %v", totalDuration)
-		
+
 		// Log all measurements
 		for name, duration := range fixture.Measurements {
 			t.Logf("Performance measurement %s: %v", name, duration)
 		}
-		
+
 		// Log all counters
 		for name, count := range fixture.Counters {
 			t.Logf("Performance counter %s: %d", name, count)
 		}
-		
+
 		return nil
 	}
-	
+
 	return fixture
 }
 
@@ -531,13 +529,13 @@ func (cf *CommonFixtures) SetupAll() error {
 		cf.Concurrency.TestFixture,
 		cf.Performance.TestFixture,
 	}
-	
+
 	for _, fixture := range fixtures {
 		if err := fixture.Setup(); err != nil {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
@@ -551,13 +549,13 @@ func QuickFixture(t *testing.T, name string, setup func() error, teardown func()
 		data:     make(map[string]interface{}),
 		cleanup:  NewDeferredCleanup(t),
 	}
-	
+
 	if setup != nil {
 		if err := setup(); err != nil {
 			t.Fatalf("Quick fixture %s setup failed: %v", name, err)
 		}
 	}
-	
+
 	if teardown != nil {
 		t.Cleanup(func() {
 			if err := teardown(); err != nil {
@@ -565,6 +563,6 @@ func QuickFixture(t *testing.T, name string, setup func() error, teardown func()
 			}
 		})
 	}
-	
+
 	return fixture
 }

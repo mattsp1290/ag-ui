@@ -1,14 +1,10 @@
-package main
+package performance
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"log"
 	"math/rand"
-	"sort"
 	"sync"
 	"time"
 
@@ -1497,7 +1493,8 @@ func CreateCacheDemoTool() *tools.Tool {
 	}
 }
 
-func main() {
+// RunCacheDemoExample demonstrates the cache demo tool functionality
+func RunCacheDemoExample() {
 	// Create registry and register the cache demo tool
 	registry := tools.NewRegistry()
 	cacheDemoTool := CreateCacheDemoTool()

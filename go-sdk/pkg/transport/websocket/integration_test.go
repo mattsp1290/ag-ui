@@ -23,6 +23,7 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 )
 
+
 // TestWebSocketServer provides a configurable WebSocket test server
 type TestWebSocketServer struct {
 	server         *httptest.Server
@@ -219,7 +220,7 @@ func TestBasicWebSocketIntegration(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Verify statistics
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Greater(t, stats.EventsSent, int64(0))
 	})
 }
@@ -276,7 +277,7 @@ func TestMultiServerIntegration(t *testing.T) {
 			assert.NoError(t, err)
 		}
 
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Equal(t, int64(10), stats.EventsSent)
 	})
 }
@@ -556,7 +557,7 @@ func TestCompressionIntegration(t *testing.T) {
 		err := transport.SendEvent(ctx, event)
 		assert.NoError(t, err)
 
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Greater(t, stats.EventsSent, int64(0))
 		assert.Greater(t, stats.BytesTransferred, int64(0))
 	})
@@ -688,7 +689,7 @@ func TestHighThroughputIntegration(t *testing.T) {
 
 		assert.Equal(t, int32(0), errors)
 
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Equal(t, int64(numMessages), stats.EventsSent)
 
 		throughput := float64(numMessages) / duration.Seconds()
@@ -761,7 +762,7 @@ func TestRealWorldScenarios(t *testing.T) {
 		wg.Wait()
 
 		expectedMessages := int64(numConversations * messagesPerConversation * len(eventTypes))
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Equal(t, expectedMessages, stats.EventsSent)
 	})
 
@@ -878,7 +879,7 @@ func TestConnectionPoolIntegration(t *testing.T) {
 			assert.NoError(t, err)
 		}
 
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Equal(t, int64(numMessages), stats.EventsSent)
 
 		// All servers should have received some connections

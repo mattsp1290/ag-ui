@@ -17,7 +17,7 @@ type MemoryConfig struct {
 // Validate validates the configuration
 func (c *MemoryConfig) Validate() error {
 	if c.BufferSize <= 0 {
-		return fmt.Errorf("buffer size must be positive")
+		return fmt.Errorf("buffer size must be positive: got %d", c.BufferSize)
 	}
 	return nil
 }
@@ -84,7 +84,7 @@ func (t *MemoryTransport) Connect(ctx context.Context) error {
 	defer t.mu.Unlock()
 
 	if t.connected {
-		return fmt.Errorf("already connected")
+		return ErrAlreadyConnected
 	}
 
 	t.connected = true
@@ -98,7 +98,7 @@ func (t *MemoryTransport) Send(ctx context.Context, event TransportEvent) error 
 	t.mu.RUnlock()
 
 	if !connected {
-		return fmt.Errorf("transport not connected")
+		return ErrNotConnected
 	}
 
 	// Convert TransportEvent to events.Event
@@ -113,10 +113,10 @@ func (t *MemoryTransport) Send(ctx context.Context, event TransportEvent) error 
 	case <-ctx.Done():
 		return ctx.Err()
 	case <-t.ctx.Done():
-		return fmt.Errorf("transport closed")
+		return fmt.Errorf("transport closed: %w", t.ctx.Err())
 	default:
 		// Buffer full - backpressure error
-		err := fmt.Errorf("transport buffer full (size: %d)", t.bufferSize)
+		err := fmt.Errorf("transport buffer full (size: %d): %w", t.bufferSize, ErrBackpressureActive)
 		select {
 		case t.errorChan <- err:
 		default:
@@ -133,6 +133,11 @@ func (t *MemoryTransport) Receive() <-chan events.Event {
 // Errors returns the channel for receiving errors
 func (t *MemoryTransport) Errors() <-chan error {
 	return t.errorChan
+}
+
+// Channels returns both event and error channels together
+func (t *MemoryTransport) Channels() (<-chan events.Event, <-chan error) {
+	return t.eventChan, t.errorChan
 }
 
 // Close closes the transport
@@ -198,7 +203,7 @@ func (t *MemoryTransport) Stats() TransportStats {
 // SetOption sets a transport option
 func (t *MemoryTransport) SetOption(key string, value interface{}) error {
 	// Memory transport doesn't support runtime options
-	return fmt.Errorf("option %s not supported", key)
+	return fmt.Errorf("option %s not supported: %w", key, ErrUnsupportedCapability)
 }
 
 // GetOption gets a transport option
@@ -207,6 +212,6 @@ func (t *MemoryTransport) GetOption(key string) (interface{}, error) {
 	case "buffer_size":
 		return t.bufferSize, nil
 	default:
-		return nil, fmt.Errorf("option %s not found", key)
+		return nil, fmt.Errorf("option %s not found: %w", key, ErrUnsupportedCapability)
 	}
 }

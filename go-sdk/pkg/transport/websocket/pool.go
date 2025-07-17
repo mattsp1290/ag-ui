@@ -216,10 +216,7 @@ func (p *ConnectionPool) Start(ctx context.Context) error {
 func (p *ConnectionPool) Stop() error {
 	p.config.Logger.Info("Stopping connection pool")
 
-	// Cancel context to stop all goroutines
-	p.cancel()
-
-	// Close all connections
+	// Close all connections first to prevent goroutine leaks
 	p.connMutex.Lock()
 	for id, conn := range p.connections {
 		p.config.Logger.Debug("Closing connection", zap.String("id", id))
@@ -231,6 +228,9 @@ func (p *ConnectionPool) Stop() error {
 	}
 	p.connections = make(map[string]*Connection)
 	p.connMutex.Unlock()
+
+	// Cancel context to stop all goroutines after connections are closed
+	p.cancel()
 
 	// Wait for all goroutines to finish
 	p.wg.Wait()
@@ -349,7 +349,7 @@ func (p *ConnectionPool) GetHealthyConnectionCount() int {
 }
 
 // GetStats returns a copy of the pool statistics
-func (p *ConnectionPool) GetStats() PoolStats {
+func (p *ConnectionPool) Stats() PoolStats {
 	p.stats.mutex.Lock()
 	defer p.stats.mutex.Unlock()
 
@@ -713,7 +713,7 @@ func (p *ConnectionPool) GetDetailedStatus() map[string]interface{} {
 		"active_connections":  p.GetActiveConnectionCount(),
 		"healthy_connections": p.GetHealthyConnectionCount(),
 		"load_balancing":      p.config.LoadBalancingStrategy.String(),
-		"stats":               p.GetStats(),
+		"stats":               p.Stats(),
 		"connections":         connections,
 	}
 }

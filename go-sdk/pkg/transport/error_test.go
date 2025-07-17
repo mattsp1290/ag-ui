@@ -157,6 +157,10 @@ func (t *ErrorTransport) Errors() <-chan error {
 	return t.errorChan
 }
 
+func (t *ErrorTransport) Channels() (<-chan events.Event, <-chan error) {
+	return t.eventChan, t.errorChan
+}
+
 func (t *ErrorTransport) IsConnected() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()

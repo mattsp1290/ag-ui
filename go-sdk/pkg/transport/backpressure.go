@@ -166,13 +166,20 @@ func (h *BackpressureHandler) SendError(err error) error {
 }
 
 // EventChan returns the event channel
+// Deprecated: Use Channels() instead for consistency
 func (h *BackpressureHandler) EventChan() <-chan events.Event {
 	return h.eventChan
 }
 
 // ErrorChan returns the error channel
+// Deprecated: Use Channels() instead for consistency
 func (h *BackpressureHandler) ErrorChan() <-chan error {
 	return h.errorChan
+}
+
+// Channels returns both event and error channels together
+func (h *BackpressureHandler) Channels() (<-chan events.Event, <-chan error) {
+	return h.eventChan, h.errorChan
 }
 
 // GetMetrics returns the current backpressure metrics

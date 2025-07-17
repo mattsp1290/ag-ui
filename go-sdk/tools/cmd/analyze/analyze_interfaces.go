@@ -475,10 +475,10 @@ func analyzeFile(filename string) ([]InterfaceUsage, error) {
 		
 		for _, match := range matches {
 			start := match[0]
-			end := match[1]
+			_ = match[1] // end position not currently used
 			
 			// Convert byte offset to line/column
-			position := fset.Position(fset.PositionFor(token.Pos(start+1), false))
+			position := fset.Position(token.Pos(start + 1))
 			
 			// Extract context (current line and surrounding lines)
 			lineNum := position.Line - 1 // Convert to 0-based

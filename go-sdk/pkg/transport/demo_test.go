@@ -150,6 +150,10 @@ func (t *DemoTransport) Errors() <-chan error {
 	return t.errorChan
 }
 
+func (t *DemoTransport) Channels() (<-chan events.Event, <-chan error) {
+	return t.eventChan, t.errorChan
+}
+
 func (t *DemoTransport) IsConnected() bool {
 	t.mu.Lock()
 	defer t.mu.Unlock()

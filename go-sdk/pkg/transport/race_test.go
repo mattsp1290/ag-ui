@@ -181,6 +181,10 @@ func (t *RaceTestTransport) Errors() <-chan error {
 	return t.errorChan
 }
 
+func (t *RaceTestTransport) Channels() (<-chan events.Event, <-chan error) {
+	return t.eventChan, t.errorChan
+}
+
 func (t *RaceTestTransport) IsConnected() bool {
 	return atomic.LoadInt32(&t.connected) == 1
 }

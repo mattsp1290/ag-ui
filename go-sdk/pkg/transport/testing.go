@@ -2,7 +2,6 @@ package transport
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -20,6 +19,10 @@ type MockTransport struct {
 	connectBehavior    func(ctx context.Context) error
 	sendBehavior       func(ctx context.Context, event TransportEvent) error
 	closeBehavior      func(ctx context.Context) error
+	
+	// Simulation delays
+	connectDelay       time.Duration
+	sendDelay          time.Duration
 	
 	// State
 	connected      atomic.Bool
@@ -61,6 +64,23 @@ func (m *MockTransport) Connect(ctx context.Context) error {
 	
 	m.recordCall("Connect", ctx)
 	
+	// Check if context is already cancelled or expired
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	
+	// Simulate delay that can be interrupted by context cancellation
+	if m.connectDelay > 0 {
+		select {
+		case <-time.After(m.connectDelay):
+			// Delay completed
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	
 	if m.connectBehavior != nil {
 		if err := m.connectBehavior(ctx); err != nil {
 			return err
@@ -83,8 +103,25 @@ func (m *MockTransport) Send(ctx context.Context, event TransportEvent) error {
 	
 	m.recordCall("Send", ctx, event)
 	
+	// Check if context is already cancelled or expired
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	
 	if !m.connected.Load() {
 		return ErrNotConnected
+	}
+	
+	// Simulate delay that can be interrupted by context cancellation
+	if m.sendDelay > 0 {
+		select {
+		case <-time.After(m.sendDelay):
+			// Delay completed
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	}
 	
 	if m.sendBehavior != nil {
@@ -106,6 +143,11 @@ func (m *MockTransport) Receive() <-chan events.Event {
 // Errors implements Transport.Errors
 func (m *MockTransport) Errors() <-chan error {
 	return m.errorChan
+}
+
+// Channels implements Transport.Channels
+func (m *MockTransport) Channels() (<-chan events.Event, <-chan error) {
+	return m.eventChan, m.errorChan
 }
 
 // Close implements Transport.Close
@@ -181,10 +223,24 @@ func (m *MockTransport) SetCloseBehavior(fn func(ctx context.Context) error) {
 	m.closeBehavior = fn
 }
 
+// SetConnectDelay sets a delay for Connect operations (for testing timeouts)
+func (m *MockTransport) SetConnectDelay(delay time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.connectDelay = delay
+}
+
+// SetSendDelay sets a delay for Send operations (for testing cancellation)
+func (m *MockTransport) SetSendDelay(delay time.Duration) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sendDelay = delay
+}
+
 // SimulateEvent simulates receiving an event
 func (m *MockTransport) SimulateEvent(event events.Event) error {
 	if m.closed.Load() {
-		return errors.New("transport is closed")
+		return fmt.Errorf("transport is closed: %w", ErrConnectionClosed)
 	}
 	
 	select {
@@ -196,14 +252,14 @@ func (m *MockTransport) SimulateEvent(event events.Event) error {
 		m.mu.Unlock()
 		return nil
 	default:
-		return errors.New("event channel full")
+		return fmt.Errorf("event channel full (size: %d): %w", cap(m.eventChan), ErrBackpressureActive)
 	}
 }
 
 // SimulateError simulates an error
 func (m *MockTransport) SimulateError(err error) error {
 	if m.closed.Load() {
-		return errors.New("transport is closed")
+		return fmt.Errorf("transport is closed: %w", ErrConnectionClosed)
 	}
 	
 	select {
@@ -214,7 +270,7 @@ func (m *MockTransport) SimulateError(err error) error {
 		m.mu.Unlock()
 		return nil
 	default:
-		return errors.New("error channel full")
+		return fmt.Errorf("error channel full (size: %d): %w", cap(m.errorChan), ErrBackpressureActive)
 	}
 }
 

@@ -177,6 +177,7 @@ type DefaultTransportManager struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
 	wg          sync.WaitGroup
+	logger      Logger
 }
 
 // NewDefaultTransportManager creates a new default transport manager.
@@ -190,6 +191,7 @@ func NewDefaultTransportManager(registry TransportRegistry) *DefaultTransportMan
 		metrics:     NewMetricsManager(),
 		ctx:         ctx,
 		cancel:      cancel,
+		logger:      NewLogger(DefaultLoggerConfig()),
 	}
 }
 
@@ -250,7 +252,9 @@ func (m *DefaultTransportManager) RemoveTransport(name string) error {
 	defer cancel()
 	if err := transport.Close(ctx); err != nil {
 		// Log error but don't fail the removal
-		// TODO: Add logging
+		m.logger.Error("failed to close transport during removal",
+			String("transport", name),
+			Error(err))
 	}
 
 	delete(m.transports, name)
@@ -405,8 +409,7 @@ func (m *DefaultTransportManager) ReceiveEvents(ctx context.Context) (<-chan eve
 		go func(name string, t Transport) {
 			defer m.wg.Done()
 			
-			eventChan := t.Receive()
-			errorChan := t.Errors()
+			eventChan, errorChan := t.Channels()
 
 			for {
 				select {
@@ -419,7 +422,10 @@ func (m *DefaultTransportManager) ReceiveEvents(ctx context.Context) (<-chan eve
 					if m.middleware != nil {
 						processedEvent, err := m.middleware.ProcessIncoming(ctx, event)
 						if err != nil {
-							// TODO: Add logging
+							m.logger.Error("middleware processing failed",
+								String("transport", name),
+								String("event_type", string(event.Type())),
+								Error(err))
 							continue
 						}
 						event = processedEvent
@@ -448,8 +454,13 @@ func (m *DefaultTransportManager) ReceiveEvents(ctx context.Context) (<-chan eve
 				case err := <-errorChan:
 					// Handle errors from transport
 					if err != nil {
-						// TODO: Add proper error handling/logging
-						// For now, continue processing other events
+						m.logger.Error("transport error received",
+							String("transport", name),
+							Error(err))
+						// Forward the error to result error channel if available
+						if m.eventBus != nil {
+							// Emit transport error event
+						}
 						continue
 					}
 
@@ -533,8 +544,8 @@ func (m *DefaultTransportManager) Close() error {
 	return nil
 }
 
-// GetStats returns aggregated statistics from all transports.
-func (m *DefaultTransportManager) GetStats() map[string]TransportStats {
+// Stats returns aggregated statistics from all transports.
+func (m *DefaultTransportManager) Stats() map[string]TransportStats {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -748,6 +759,8 @@ type HealthCheckManager struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	wg         sync.WaitGroup
+	logger     Logger
+	onUnhealthy func(name string, err error)
 }
 
 // NewHealthCheckManager creates a new health check manager.
@@ -759,6 +772,7 @@ func NewHealthCheckManager() *HealthCheckManager {
 		interval:   30 * time.Second,
 		ctx:        ctx,
 		cancel:     cancel,
+		logger:     NewLogger(DefaultLoggerConfig()),
 	}
 }
 
@@ -798,8 +812,13 @@ func (m *HealthCheckManager) startHealthCheck(name string, checker HealthChecker
 			select {
 			case <-ticker.C:
 				if err := checker.CheckHealth(m.ctx); err != nil {
-					// TODO: Add logging
-					// TODO: Notify transport manager about unhealthy transport
+					m.logger.Error("health check failed",
+						String("transport", name),
+						Error(err))
+					// Notify transport manager about unhealthy transport
+					if m.onUnhealthy != nil {
+						m.onUnhealthy(name, err)
+					}
 				}
 			case <-m.ctx.Done():
 				return

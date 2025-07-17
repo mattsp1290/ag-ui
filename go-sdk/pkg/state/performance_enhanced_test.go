@@ -325,14 +325,13 @@ func testHighConcurrency(t *testing.T) {
 
 			for j := 0; j < numOpsPerGoroutine; j++ {
 				ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+				defer cancel()
 
 				err := po.ProcessLargeStateUpdate(ctx, func() error {
 					// Simulate some work
 					time.Sleep(time.Microsecond)
 					return nil
 				})
-
-				cancel()
 
 				if err != nil {
 					errors <- err
@@ -571,14 +570,13 @@ func testLowLatencyTarget(t *testing.T) {
 		start := time.Now()
 
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
 
 		err := po.BatchOperation(ctx, func() error {
 			// Simulate state update
 			time.Sleep(time.Microsecond)
 			return nil
 		})
-
-		cancel()
 
 		if err != nil {
 			t.Fatalf("Batch operation failed: %v", err)

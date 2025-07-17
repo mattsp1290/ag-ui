@@ -18,7 +18,7 @@ type AdvancedMockTransport struct {
 	// State machine
 	state           atomic.Value // ConnectionState
 	stateHistory    []ConnectionState
-	stateCallbacks  []ConnectionCallback
+	stateCallbacks  []ConnectionHandler
 	
 	// Network simulation
 	latency         time.Duration
@@ -150,7 +150,7 @@ func (t *AdvancedMockTransport) setState(state ConnectionState) {
 	
 	t.mu.Lock()
 	t.stateHistory = append(t.stateHistory, state)
-	callbacks := append([]ConnectionCallback{}, t.stateCallbacks...)
+	callbacks := append([]ConnectionHandler{}, t.stateCallbacks...)
 	t.mu.Unlock()
 	
 	// Notify callbacks

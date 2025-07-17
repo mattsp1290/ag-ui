@@ -62,14 +62,14 @@ type StateTransaction struct {
 	mu        sync.Mutex
 }
 
-// SubscriptionCallback is the function signature for state change subscriptions
-type SubscriptionCallback func(StateChange)
+// SubscriptionHandler is the function signature for state change subscriptions
+type SubscriptionHandler func(StateChange)
 
 // subscription represents an active subscription
 type subscription struct {
 	id           string
 	path         string
-	callback     SubscriptionCallback
+	callback     SubscriptionHandler
 	lastAccessed time.Time // Track access time for cleanup
 	created      time.Time // Track creation time
 }
@@ -739,7 +739,7 @@ func (s *StateStore) GetHistory() ([]*StateVersion, error) {
 }
 
 // Subscribe registers a callback for state changes at the specified path
-func (s *StateStore) Subscribe(path string, callback SubscriptionCallback) func() {
+func (s *StateStore) Subscribe(path string, callback SubscriptionHandler) func() {
 	id, _ := generateID()
 	now := time.Now()
 	sub := &subscription{

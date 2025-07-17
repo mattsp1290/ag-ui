@@ -488,7 +488,7 @@ func (t *Transport) Unsubscribe(subscriptionID string) error {
 }
 
 // GetStats returns a copy of the transport statistics
-func (t *Transport) GetStats() TransportStats {
+func (t *Transport) Stats() TransportStats {
 	t.stats.mutex.RLock()
 	defer t.stats.mutex.RUnlock()
 	return *t.stats
@@ -496,7 +496,7 @@ func (t *Transport) GetStats() TransportStats {
 
 // GetConnectionPoolStats returns the connection pool statistics
 func (t *Transport) GetConnectionPoolStats() PoolStats {
-	return t.pool.GetStats()
+	return t.pool.Stats()
 }
 
 // GetDetailedStatus returns detailed status information
@@ -521,7 +521,7 @@ func (t *Transport) GetDetailedStatus() map[string]interface{} {
 	t.handlersMutex.RUnlock()
 
 	return map[string]interface{}{
-		"transport_stats":      t.GetStats(),
+		"transport_stats":      t.Stats(),
 		"connection_pool":      t.pool.GetDetailedStatus(),
 		"subscriptions":        subscriptions,
 		"active_subscriptions": len(subscriptions),

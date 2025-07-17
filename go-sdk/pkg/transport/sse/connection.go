@@ -13,6 +13,7 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/messages"
+	"github.com/ag-ui/go-sdk/pkg/transport/common"
 )
 
 // ConnectionState represents the current state of a connection
@@ -307,7 +308,7 @@ type Connection struct {
 // NewConnection creates a new managed connection
 func NewConnection(config *Config, pool *ConnectionPool) (*Connection, error) {
 	if config == nil {
-		return nil, messages.NewValidationError("config is required")
+		return nil, fmt.Errorf("config is required: %w", common.NewValidationError("config", "required", "config must be provided", nil))
 	}
 
 	// Generate unique connection ID
@@ -664,7 +665,8 @@ func (c *Connection) performHeartbeat() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("heartbeat failed with status %d", resp.StatusCode)
+		c.metrics.NetworkErrors.Inc()
+		return fmt.Errorf("heartbeat failed with status %d: %w", resp.StatusCode, common.NewNetworkError("heartbeat", "http", c.config.BaseURL, nil))
 	}
 
 	return nil
@@ -791,7 +793,7 @@ type PoolMetrics struct {
 // NewConnectionPool creates a new connection pool
 func NewConnectionPool(config *Config) (*ConnectionPool, error) {
 	if config == nil {
-		return nil, messages.NewValidationError("config is required")
+		return nil, fmt.Errorf("config is required: %w", common.NewValidationError("config", "required", "config must be provided", nil))
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

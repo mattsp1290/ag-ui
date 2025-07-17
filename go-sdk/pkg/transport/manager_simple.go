@@ -325,6 +325,14 @@ func (m *SimpleManager) Errors() <-chan error {
 	return m.errorChan
 }
 
+// Channels returns both event and error channels together
+func (m *SimpleManager) Channels() (<-chan events.Event, <-chan error) {
+	if m.backpressureHandler != nil {
+		return m.backpressureHandler.Channels()
+	}
+	return m.eventChan, m.errorChan
+}
+
 // GetBackpressureMetrics returns the current backpressure metrics
 func (m *SimpleManager) GetBackpressureMetrics() BackpressureMetrics {
 	if m.backpressureHandler != nil {
@@ -428,8 +436,9 @@ func (m *SimpleManager) receiveEvents() {
 			m.mu.RUnlock()
 			
 			if transport != nil {
+				eventCh, errorCh := transport.Channels()
 				select {
-				case event := <-transport.Receive():
+				case event := <-eventCh:
 					// Validate incoming event if validation is enabled
 					m.mu.RLock()
 					validationEnabled := m.validationConfig != nil && m.validationConfig.Enabled
@@ -456,7 +465,7 @@ func (m *SimpleManager) receiveEvents() {
 							return
 						}
 					}
-				case err := <-transport.Errors():
+				case err := <-errorCh:
 					// Use backpressure handler to send error
 					if m.backpressureHandler != nil {
 						m.backpressureHandler.SendError(err)

@@ -16,6 +16,7 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/messages"
+	"github.com/ag-ui/go-sdk/pkg/transport/common"
 )
 
 // EventStream manages efficient event streaming for HTTP SSE transport
@@ -355,12 +356,12 @@ func (s *EventStream) SendEvent(event events.Event) error {
 	}
 
 	if event == nil {
-		return messages.NewValidationError("event cannot be nil")
+		return fmt.Errorf("event cannot be nil: %w", common.NewValidationError("event", "required", "event must not be nil", nil))
 	}
 
 	// Validate event
 	if err := event.Validate(); err != nil {
-		return messages.NewValidationError(fmt.Sprintf("event validation failed: %v", err))
+		return fmt.Errorf("event validation failed: %w", err)
 	}
 
 	// Apply flow control

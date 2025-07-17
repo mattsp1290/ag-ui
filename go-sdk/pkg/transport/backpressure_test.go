@@ -10,41 +10,41 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/proto/generated"
 )
 
-// MockEvent implements TransportEvent for testing
+// BackpressureMockEvent implements TransportEvent for testing
 // Deprecated: Use typed events with CreateDataEvent, CreateConnectionEvent, etc.
-type MockEvent struct {
+type BackpressureMockEvent struct {
 	id   string
 	typ  string
 	data map[string]interface{}
 }
 
-func (e *MockEvent) ID() string                      { return e.id }
-func (e *MockEvent) Type() string                    { return e.typ }
-func (e *MockEvent) Timestamp() time.Time            { return time.Now() }
-func (e *MockEvent) Data() map[string]interface{}    { return e.data }
+func (e *BackpressureMockEvent) ID() string                      { return e.id }
+func (e *BackpressureMockEvent) Type() string                    { return e.typ }
+func (e *BackpressureMockEvent) Timestamp() time.Time            { return time.Now() }
+func (e *BackpressureMockEvent) Data() map[string]interface{}    { return e.data }
 
-// MockCoreEvent implements events.Event for testing
-type MockCoreEvent struct {
+// BackpressureMockCoreEvent implements events.Event for testing
+type BackpressureMockCoreEvent struct {
 	*events.BaseEvent
 	id string // for test tracking
 }
 
-func (e *MockCoreEvent) Validate() error                  { return nil }
-func (e *MockCoreEvent) ToJSON() ([]byte, error) {
+func (e *BackpressureMockCoreEvent) Validate() error                  { return nil }
+func (e *BackpressureMockCoreEvent) ToJSON() ([]byte, error) {
 	return json.Marshal(map[string]interface{}{
 		"type": e.Type(),
 		"timestamp": e.Timestamp(),
 		"id": e.id,
 	})
 }
-func (e *MockCoreEvent) ToProtobuf() (*generated.Event, error) { return nil, nil }
-func (e *MockCoreEvent) GetBaseEvent() *events.BaseEvent  { return e.BaseEvent }
+func (e *BackpressureMockCoreEvent) ToProtobuf() (*generated.Event, error) { return nil, nil }
+func (e *BackpressureMockCoreEvent) GetBaseEvent() *events.BaseEvent  { return e.BaseEvent }
 
 
 // createCoreTestEvent creates a core event for backpressure testing
-func createCoreTestEvent(id string) *MockCoreEvent {
+func createCoreTestEvent(id string) *BackpressureMockCoreEvent {
 	timestamp := time.Now().UnixMilli()
-	return &MockCoreEvent{
+	return &BackpressureMockCoreEvent{
 		BaseEvent: &events.BaseEvent{
 			EventType:   events.EventTypeCustom,
 			TimestampMs: &timestamp,
@@ -91,7 +91,7 @@ func TestBackpressureHandler_DropOldest(t *testing.T) {
 	// Verify we get event2 and event3 (event1 should be dropped)
 	select {
 	case receivedEvent := <-handler.EventChan():
-		mockEvent := receivedEvent.(*MockCoreEvent)
+		mockEvent := receivedEvent.(*BackpressureMockCoreEvent)
 		if mockEvent.id != "2" {
 			t.Errorf("Expected event ID '2', got '%s'", mockEvent.id)
 		}
@@ -101,7 +101,7 @@ func TestBackpressureHandler_DropOldest(t *testing.T) {
 	
 	select {
 	case receivedEvent := <-handler.EventChan():
-		mockEvent := receivedEvent.(*MockCoreEvent)
+		mockEvent := receivedEvent.(*BackpressureMockCoreEvent)
 		if mockEvent.id != "3" {
 			t.Errorf("Expected event ID '3', got '%s'", mockEvent.id)
 		}
@@ -154,7 +154,7 @@ func TestBackpressureHandler_DropNewest(t *testing.T) {
 	// Verify we get event1 and event2 (event3 should be dropped)
 	select {
 	case receivedEvent := <-handler.EventChan():
-		mockEvent := receivedEvent.(*MockCoreEvent)
+		mockEvent := receivedEvent.(*BackpressureMockCoreEvent)
 		if mockEvent.id != "1" {
 			t.Errorf("Expected event ID '1', got '%s'", mockEvent.id)
 		}
@@ -164,7 +164,7 @@ func TestBackpressureHandler_DropNewest(t *testing.T) {
 	
 	select {
 	case receivedEvent := <-handler.EventChan():
-		mockEvent := receivedEvent.(*MockCoreEvent)
+		mockEvent := receivedEvent.(*BackpressureMockCoreEvent)
 		if mockEvent.id != "2" {
 			t.Errorf("Expected event ID '2', got '%s'", mockEvent.id)
 		}

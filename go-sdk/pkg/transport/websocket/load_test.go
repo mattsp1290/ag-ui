@@ -22,6 +22,7 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 )
 
+
 // LoadTestServer provides a WebSocket server optimized for load testing
 type LoadTestServer struct {
 	server      *httptest.Server
@@ -326,7 +327,7 @@ func TestHighConcurrencyConnections(t *testing.T) {
 		// Verify results
 		assert.Equal(t, int64(0), errors, "No errors should occur during load test")
 
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		expectedMessages := int64(numGoroutines * messagesPerGoroutine)
 		assert.Equal(t, expectedMessages, stats.EventsSent)
 

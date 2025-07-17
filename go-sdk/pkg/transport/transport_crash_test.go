@@ -131,6 +131,10 @@ func (t *CrashingTransport) Errors() <-chan error {
 	return t.errorChan
 }
 
+func (t *CrashingTransport) Channels() (<-chan events.Event, <-chan error) {
+	return t.eventChan, t.errorChan
+}
+
 func (t *CrashingTransport) IsConnected() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()

@@ -14,6 +14,7 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/messages"
+	"github.com/ag-ui/go-sdk/pkg/transport/common"
 )
 
 // Transport interface defines the methods for event transport
@@ -94,7 +95,7 @@ func NewSSETransport(config *Config) (*SSETransport, error) {
 	}
 
 	if config.BaseURL == "" {
-		return nil, messages.NewValidationError("baseURL is required")
+		return nil, fmt.Errorf("baseURL is required: %w", common.NewValidationError("baseURL", "required", "baseURL must be provided", ""))
 	}
 
 	if config.Client == nil {
@@ -144,12 +145,12 @@ func (t *SSETransport) Send(ctx context.Context, event events.Event) error {
 	}
 
 	if event == nil {
-		return messages.NewValidationError("event cannot be nil")
+		return fmt.Errorf("event cannot be nil: %w", common.NewValidationError("event", "required", "event must not be nil", nil))
 	}
 
 	// Validate the event
 	if err := event.Validate(); err != nil {
-		return messages.NewValidationError(fmt.Sprintf("event validation failed: %v", err))
+		return fmt.Errorf("event validation failed: %w", err)
 	}
 
 	// Serialize event to JSON
@@ -920,7 +921,7 @@ func (s ConnectionStatus) String() string {
 // FormatSSEEvent formats an event as SSE data
 func FormatSSEEvent(event events.Event) (string, error) {
 	if event == nil {
-		return "", messages.NewValidationError("event cannot be nil")
+		return "", fmt.Errorf("event cannot be nil: %w", common.NewValidationError("event", "required", "event must not be nil", nil))
 	}
 
 	eventData, err := event.ToJSON()
@@ -953,7 +954,7 @@ func WriteSSEEvent(w io.Writer, event events.Event) error {
 }
 
 // GetStats returns transport statistics
-func (t *SSETransport) GetStats() TransportStats {
+func (t *SSETransport) Stats() TransportStats {
 	t.connMutex.RLock()
 	defer t.connMutex.RUnlock()
 
@@ -1046,28 +1047,42 @@ func (t *SSETransport) SendBatch(ctx context.Context, events []events.Event) err
 	}
 
 	if len(events) == 0 {
-		return messages.NewValidationError("events list cannot be empty")
+		return fmt.Errorf("events list cannot be empty: %w", common.NewValidationError("events", "required", "events list must contain at least one event", len(events)))
 	}
 
-	// Validate all events first
+	// Validate all events first and collect validation errors
+	batchErr := common.NewBatchError("SendBatch validation", len(events))
 	for i, event := range events {
 		if event == nil {
-			return messages.NewValidationError(fmt.Sprintf("event at index %d cannot be nil", i))
+			batchErr.AddError(i, fmt.Errorf("event at index %d cannot be nil: %w", i, common.NewValidationError("event", "required", "event must not be nil", nil)))
+			continue
 		}
 
 		if err := event.Validate(); err != nil {
-			return messages.NewValidationError(fmt.Sprintf("event at index %d validation failed: %v", i, err))
+			batchErr.AddError(i, fmt.Errorf("event at index %d validation failed: %w", i, err))
 		}
 	}
+	
+	// Return combined validation errors if any occurred
+	if batchErr.HasErrors() {
+		return fmt.Errorf("batch validation failed: %w", batchErr)
+	}
 
-	// Serialize events to JSON array
+	// Serialize events to JSON array and collect serialization errors
 	var eventDataList []json.RawMessage
-	for _, event := range events {
+	serializationErr := common.NewBatchError("SendBatch serialization", len(events))
+	for i, event := range events {
 		eventData, err := event.ToJSON()
 		if err != nil {
-			return messages.NewConversionError("event", "json", string(event.Type()), err.Error())
+			serializationErr.AddError(i, fmt.Errorf("event at index %d serialization failed: %w", i, err))
+			continue
 		}
 		eventDataList = append(eventDataList, eventData)
+	}
+	
+	// Return combined serialization errors if any occurred
+	if serializationErr.HasErrors() {
+		return fmt.Errorf("batch serialization failed: %w", serializationErr)
 	}
 
 	batchData, err := json.Marshal(eventDataList)

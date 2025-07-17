@@ -72,6 +72,18 @@ var (
 
 	// ErrPatternValidationFailed is returned when pattern validation fails
 	ErrPatternValidationFailed = errors.New("pattern validation failed")
+
+	// ErrAlreadyStarted is returned when trying to start an already started component
+	ErrAlreadyStarted = errors.New("already started")
+
+	// ErrInvalidTaskName is returned when a task name is invalid
+	ErrInvalidTaskName = errors.New("invalid task name")
+
+	// ErrInvalidCleanupFunc is returned when a cleanup function is invalid
+	ErrInvalidCleanupFunc = errors.New("invalid cleanup function")
+
+	// ErrTaskNotFound is returned when a cleanup task is not found
+	ErrTaskNotFound = errors.New("task not found")
 )
 
 // TransportError represents a transport-specific error with additional context

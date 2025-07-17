@@ -135,6 +135,10 @@ func (t *MockTransport) Errors() <-chan error {
 	return t.errorChan
 }
 
+func (t *MockTransport) Channels() (<-chan events.Event, <-chan error) {
+	return t.eventChan, t.errorChan
+}
+
 func (t *MockTransport) Close(ctx context.Context) error {
 	if !t.connected {
 		return nil

@@ -532,8 +532,8 @@ func (ms *MonitoringSystem) GetHealthStatus() map[string]bool {
 	status := make(map[string]bool)
 	for name, check := range ms.healthChecks {
 		ctx, cancel := context.WithTimeout(ms.ctx, ms.config.HealthCheckTimeout)
+		defer cancel()
 		err := check.Check(ctx)
-		cancel()
 
 		status[name] = err == nil
 		ms.promMetrics.HealthCheckStatus.WithLabelValues(name).Set(boolToFloat(err == nil))

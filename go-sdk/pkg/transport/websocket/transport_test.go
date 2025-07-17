@@ -21,21 +21,22 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/proto/generated"
 )
 
-// MockEvent implements the events.Event interface for testing
-type MockEvent struct {
+
+// WebSocketMockEvent implements the events.Event interface for testing
+type WebSocketMockEvent struct {
 	EventType      events.EventType `json:"type"`
 	TimestampMs    *int64           `json:"timestamp,omitempty"`
 	Data           string           `json:"data"`
 	ValidationFunc func() error     `json:"-"`
 }
 
-func (m *MockEvent) Type() events.EventType                { return m.EventType }
-func (m *MockEvent) Timestamp() *int64                     { return m.TimestampMs }
-func (m *MockEvent) SetTimestamp(timestamp int64)          { m.TimestampMs = &timestamp }
-func (m *MockEvent) ToJSON() ([]byte, error)               { return json.Marshal(m) }
-func (m *MockEvent) ToProtobuf() (*generated.Event, error) { return nil, nil }
-func (m *MockEvent) GetBaseEvent() *events.BaseEvent       { return nil }
-func (m *MockEvent) Validate() error {
+func (m *WebSocketMockEvent) Type() events.EventType                { return m.EventType }
+func (m *WebSocketMockEvent) Timestamp() *int64                     { return m.TimestampMs }
+func (m *WebSocketMockEvent) SetTimestamp(timestamp int64)          { m.TimestampMs = &timestamp }
+func (m *WebSocketMockEvent) ToJSON() ([]byte, error)               { return json.Marshal(m) }
+func (m *WebSocketMockEvent) ToProtobuf() (*generated.Event, error) { return nil, nil }
+func (m *WebSocketMockEvent) GetBaseEvent() *events.BaseEvent       { return nil }
+func (m *WebSocketMockEvent) Validate() error {
 	if m.ValidationFunc != nil {
 		return m.ValidationFunc()
 	}
@@ -187,7 +188,7 @@ func TestEventSending(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	t.Run("SendValidEvent", func(t *testing.T) {
-		event := &MockEvent{
+		event := &WebSocketMockEvent{
 			EventType: events.EventTypeTextMessageContent,
 			Data:      "test message",
 		}
@@ -195,7 +196,7 @@ func TestEventSending(t *testing.T) {
 		err := transport.SendEvent(ctx, event)
 		assert.NoError(t, err)
 
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Greater(t, stats.EventsSent, int64(0))
 		assert.Greater(t, stats.BytesTransferred, int64(0))
 	})
@@ -204,7 +205,7 @@ func TestEventSending(t *testing.T) {
 		// For this test, we'll just disable validation to avoid complex interface issues
 		transport.config.EnableEventValidation = false
 
-		event := &MockEvent{
+		event := &WebSocketMockEvent{
 			EventType: events.EventTypeTextMessageContent,
 			Data:      "validated message",
 		}
@@ -219,7 +220,7 @@ func TestEventSending(t *testing.T) {
 
 		// This test is simplified - the original validation logic would be tested
 		// elsewhere with proper mocking setup
-		event := &MockEvent{
+		event := &WebSocketMockEvent{
 			EventType: events.EventTypeTextMessageContent,
 			Data:      "test message",
 		}
@@ -233,7 +234,7 @@ func TestEventSending(t *testing.T) {
 		transport.config.MaxEventSize = 100 // Very small limit
 
 		largeData := strings.Repeat("x", 200)
-		event := &MockEvent{
+		event := &WebSocketMockEvent{
 			EventType: events.EventTypeTextMessageContent,
 			Data:      largeData,
 		}
@@ -282,7 +283,7 @@ func TestSubscriptionManagement(t *testing.T) {
 		assert.Equal(t, eventTypes, subscription.EventTypes)
 		assert.NotNil(t, subscription.Handler)
 
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Equal(t, int64(1), stats.ActiveSubscriptions)
 		assert.Equal(t, int64(1), stats.TotalSubscriptions)
 	})
@@ -311,7 +312,7 @@ func TestSubscriptionManagement(t *testing.T) {
 		err = transport.Unsubscribe(subscription.ID)
 		assert.NoError(t, err)
 
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Equal(t, int64(0), stats.ActiveSubscriptions)
 	})
 
@@ -389,7 +390,7 @@ func TestTransportStatistics(t *testing.T) {
 	time.Sleep(200 * time.Millisecond)
 
 	t.Run("InitialStats", func(t *testing.T) {
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Equal(t, int64(0), stats.EventsSent)
 		assert.Equal(t, int64(0), stats.EventsReceived)
 		assert.Equal(t, int64(0), stats.EventsProcessed)
@@ -401,7 +402,7 @@ func TestTransportStatistics(t *testing.T) {
 	})
 
 	t.Run("StatsAfterSending", func(t *testing.T) {
-		event := &MockEvent{
+		event := &WebSocketMockEvent{
 			EventType: events.EventTypeTextMessageContent,
 			Data:      "test message for stats",
 		}
@@ -409,7 +410,7 @@ func TestTransportStatistics(t *testing.T) {
 		err := transport.SendEvent(ctx, event)
 		require.NoError(t, err)
 
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Equal(t, int64(1), stats.EventsSent)
 		assert.Greater(t, stats.BytesTransferred, int64(0))
 		assert.Greater(t, stats.AverageLatency, time.Duration(0))
@@ -420,7 +421,7 @@ func TestTransportStatistics(t *testing.T) {
 		_, err := transport.Subscribe(ctx, []string{"test"}, handler)
 		require.NoError(t, err)
 
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Equal(t, int64(1), stats.ActiveSubscriptions)
 		assert.Equal(t, int64(1), stats.TotalSubscriptions)
 	})
@@ -508,7 +509,7 @@ func TestTransportConcurrency(t *testing.T) {
 			go func(id int) {
 				defer wg.Done()
 				for j := 0; j < eventsPerGoroutine; j++ {
-					event := &MockEvent{
+					event := &WebSocketMockEvent{
 						EventType: events.EventTypeTextMessageContent,
 						Data:      fmt.Sprintf("concurrent message from goroutine %d, event %d", id, j),
 					}
@@ -523,7 +524,7 @@ func TestTransportConcurrency(t *testing.T) {
 		wg.Wait()
 
 		assert.Equal(t, int32(0), errors)
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Equal(t, int64(numGoroutines*eventsPerGoroutine), stats.EventsSent)
 	})
 
@@ -580,7 +581,7 @@ func TestTransportConcurrency(t *testing.T) {
 		wg.Wait()
 		assert.Equal(t, int32(0), errors)
 
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Equal(t, int64(0), stats.ActiveSubscriptions)
 	})
 }
@@ -601,7 +602,7 @@ func TestTransportErrorHandling(t *testing.T) {
 		err = transport.Start(ctx)
 		// This might not error immediately as connection attempts are async
 
-		event := &MockEvent{
+		event := &WebSocketMockEvent{
 			EventType: events.EventTypeTextMessageContent,
 			Data:      "test message",
 		}
@@ -636,7 +637,7 @@ func TestTransportErrorHandling(t *testing.T) {
 		time.Sleep(200 * time.Millisecond)
 
 		// Create an event that fails JSON serialization by using a special MockEvent
-		event := &MockEvent{
+		event := &WebSocketMockEvent{
 			EventType: events.EventTypeTextMessageContent,
 			Data:      "test",
 			ValidationFunc: func() error {
@@ -863,7 +864,7 @@ func TestTransportEdgeCases(t *testing.T) {
 		// Wait for connections
 		time.Sleep(200 * time.Millisecond)
 
-		event := &MockEvent{
+		event := &WebSocketMockEvent{
 			EventType: events.EventTypeTextMessageContent,
 			Data:      "", // Empty data
 		}

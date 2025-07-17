@@ -169,6 +169,10 @@ func (t *BenchmarkMockTransport) Errors() <-chan error {
 	return t.errorChan
 }
 
+func (t *BenchmarkMockTransport) Channels() (<-chan events.Event, <-chan error) {
+	return t.eventChan, t.errorChan
+}
+
 func (t *BenchmarkMockTransport) IsConnected() bool {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -326,7 +330,7 @@ func benchmarkReceive(b *testing.B, burstSize, payloadSize int) {
 		for i := 0; i < b.N*burstSize; i++ {
 			// Create a mock core event for benchmarking
 			timestamp := time.Now().UnixMilli()
-			event := &MockCoreEvent{
+			event := &BackpressureMockCoreEvent{
 				BaseEvent: &events.BaseEvent{
 					EventType:   events.EventTypeCustom,
 					TimestampMs: &timestamp,
@@ -461,7 +465,7 @@ func benchmarkConcurrentReceive(b *testing.B, numGoroutines, payloadSize int) {
 	testEvents := make([]events.Event, b.N)
 	for i := 0; i < b.N; i++ {
 		timestamp := time.Now().UnixMilli()
-		testEvents[i] = &MockCoreEvent{
+		testEvents[i] = &BackpressureMockCoreEvent{
 			BaseEvent: &events.BaseEvent{
 				EventType:   events.EventTypeCustom,
 				TimestampMs: &timestamp,
@@ -524,7 +528,7 @@ func BenchmarkMemoryAllocation_EventWrapping(b *testing.B) {
 func BenchmarkMemoryAllocation_ChannelOperations(b *testing.B) {
 	eventChan := make(chan events.Event, 1000)
 	timestamp := time.Now().UnixMilli()
-	event := &MockCoreEvent{
+	event := &BackpressureMockCoreEvent{
 		BaseEvent: &events.BaseEvent{
 			EventType:   events.EventTypeCustom,
 			TimestampMs: &timestamp,
@@ -606,7 +610,7 @@ func benchmarkBackpressure(b *testing.B, strategy BackpressureStrategy, bufferSi
 	defer handler.Stop()
 	
 	timestamp := time.Now().UnixMilli()
-	event := &MockCoreEvent{
+	event := &BackpressureMockCoreEvent{
 		BaseEvent: &events.BaseEvent{
 			EventType:   events.EventTypeCustom,
 			TimestampMs: &timestamp,

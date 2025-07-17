@@ -381,6 +381,14 @@ func (m *Manager) Errors() <-chan error {
 	return m.errorChan
 }
 
+// Channels returns both event and error channels together
+func (m *Manager) Channels() (<-chan events.Event, <-chan error) {
+	if m.backpressureHandler != nil {
+		return m.backpressureHandler.Channels()
+	}
+	return m.eventChan, m.errorChan
+}
+
 // GetActiveTransport returns the currently active transport
 func (m *Manager) GetActiveTransport() Transport {
 	m.mu.RLock()
@@ -450,9 +458,10 @@ func (m *Manager) receiveEvents(transport Transport) {
 	defer m.logger.Debug("Event receiver stopped for transport", 
 		String("operation", "receive_events"))
 
+	eventCh, errorCh := transport.Channels()
 	for {
 		select {
-		case event := <-transport.Receive():
+		case event := <-eventCh:
 			m.logger.Debug("Received event from transport", 
 				String("operation", "receive_events"),
 				String("event_type", string(event.Type())))
@@ -482,7 +491,7 @@ func (m *Manager) receiveEvents(transport Transport) {
 					String("operation", "receive_events"),
 					String("event_type", string(event.Type())))
 			}
-		case err := <-transport.Errors():
+		case err := <-errorCh:
 			m.logger.Error("Received error from transport", 
 				String("operation", "receive_events"),
 				Err(err))

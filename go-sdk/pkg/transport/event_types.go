@@ -53,7 +53,7 @@ type ConnectionEventData struct {
 	Version string `json:"version,omitempty"`
 	
 	// Capabilities are the negotiated capabilities
-	Capabilities map[string]interface{} `json:"capabilities,omitempty"`
+	Capabilities ConnectionCapabilities `json:"capabilities,omitempty"`
 	
 	// Error contains error information if the connection failed
 	Error string `json:"error,omitempty"`
@@ -87,8 +87,8 @@ func (c ConnectionEventData) ToMap() map[string]interface{} {
 	if c.Version != "" {
 		result["version"] = c.Version
 	}
-	if c.Capabilities != nil {
-		result["capabilities"] = c.Capabilities
+	if !c.Capabilities.IsEmpty() {
+		result["capabilities"] = c.Capabilities.ToMap()
 	}
 	if c.Error != "" {
 		result["error"] = c.Error
@@ -185,7 +185,7 @@ type ErrorEventData struct {
 	Retryable bool `json:"retryable"`
 	
 	// Details contains additional error context
-	Details map[string]interface{} `json:"details,omitempty"`
+	Details ErrorDetails `json:"details,omitempty"`
 	
 	// StackTrace for debugging (should be omitted in production)
 	StackTrace string `json:"stack_trace,omitempty"`
@@ -217,8 +217,8 @@ func (e ErrorEventData) ToMap() map[string]interface{} {
 	if e.Category != "" {
 		result["category"] = e.Category
 	}
-	if e.Details != nil {
-		result["details"] = e.Details
+	if !e.Details.IsEmpty() {
+		result["details"] = e.Details.ToMap()
 	}
 	if e.StackTrace != "" {
 		result["stack_trace"] = e.StackTrace

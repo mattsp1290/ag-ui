@@ -36,7 +36,7 @@ func WithVersion(version string) ConnectionEventOption {
 }
 
 // WithCapabilities sets the capabilities for a connection event
-func WithCapabilities(capabilities map[string]interface{}) ConnectionEventOption {
+func WithCapabilities(capabilities ConnectionCapabilities) ConnectionEventOption {
 	return func(c *ConnectionEventData) {
 		c.Capabilities = capabilities
 	}
@@ -174,7 +174,7 @@ func WithRetryable(retryable bool) ErrorEventOption {
 }
 
 // WithErrorDetails sets additional error details
-func WithErrorDetails(details map[string]interface{}) ErrorEventOption {
+func WithErrorDetails(details ErrorDetails) ErrorEventOption {
 	return func(e *ErrorEventData) {
 		e.Details = details
 	}

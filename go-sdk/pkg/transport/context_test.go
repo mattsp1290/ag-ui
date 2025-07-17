@@ -87,12 +87,12 @@ func TestMockTransportContextHandling(t *testing.T) {
 	t.Run("connect_with_timeout", func(t *testing.T) {
 		transport := NewMockTransport()
 		
-		// Create a context with very short timeout
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
-		defer cancel()
+		// Set a delay longer than the timeout
+		transport.SetConnectDelay(50 * time.Millisecond)
 		
-		// Give the context time to expire
-		time.Sleep(1 * time.Millisecond)
+		// Create a context with very short timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
+		defer cancel()
 		
 		err := transport.Connect(ctx)
 		if err != context.DeadlineExceeded {
@@ -102,7 +102,9 @@ func TestMockTransportContextHandling(t *testing.T) {
 	
 	t.Run("send_with_delay_and_cancellation", func(t *testing.T) {
 		transport := NewMockTransport()
-		// sendDelay configuration not available in new MockTransport
+		
+		// Set a delay that will be interrupted by cancellation
+		transport.SetSendDelay(50 * time.Millisecond)
 		
 		// Connect first
 		ctx := context.Background()

@@ -270,26 +270,40 @@ func (t *validatedTransport) Send(ctx context.Context, event TransportEvent) err
 	return t.Transport.Send(ctx, event)
 }
 
-// Receive returns a channel that validates incoming events
-func (t *validatedTransport) Receive() <-chan events.Event {
-	originalChan := t.Transport.Receive()
-	validatedChan := make(chan events.Event, 100) // Buffer for validation processing
+// Channels returns channels that validate incoming events and errors
+func (t *validatedTransport) Channels() (<-chan events.Event, <-chan error) {
+	originalEventChan, originalErrorChan := t.Transport.Channels()
+	validatedEventChan := make(chan events.Event, 100) // Buffer for validation processing
+	validatedErrorChan := make(chan error, 100) // Buffer for validation processing
 	
 	go func() {
-		defer close(validatedChan)
+		defer close(validatedEventChan)
+		defer close(validatedErrorChan)
 		
-		for event := range originalChan {
-			// For now, validation is disabled due to interface compatibility
-			// TODO: Implement proper validation with events.Event interface
-			t.middleware.logger.Debug("Event validation is disabled due to interface compatibility", 
-				String("event_type", string(event.Type())))
-			
-			// Send the event directly without validation
-			validatedChan <- event
+		for {
+			select {
+			case event, ok := <-originalEventChan:
+				if !ok {
+					return
+				}
+				// For now, validation is disabled due to interface compatibility
+				// TODO: Implement proper validation with events.Event interface
+				t.middleware.logger.Debug("Event validation is disabled due to interface compatibility", 
+					String("event_type", string(event.Type())))
+				
+				// Send the event directly without validation
+				validatedEventChan <- event
+			case err, ok := <-originalErrorChan:
+				if !ok {
+					return
+				}
+				// Forward errors without modification
+				validatedErrorChan <- err
+			}
 		}
 	}()
 	
-	return validatedChan
+	return validatedEventChan, validatedErrorChan
 }
 
 // ValidationTransport provides a transport wrapper focused on validation
@@ -343,27 +357,40 @@ func (vt *ValidationTransport) Send(ctx context.Context, event TransportEvent) e
 	return vt.Transport.Send(ctx, event)
 }
 
-// Receive returns validated events
-func (vt *ValidationTransport) Receive() <-chan events.Event {
-	originalChan := vt.Transport.Receive()
-	validatedChan := make(chan events.Event, 100)
+// Channels returns validated events and errors
+func (vt *ValidationTransport) Channels() (<-chan events.Event, <-chan error) {
+	originalEventChan, originalErrorChan := vt.Transport.Channels()
+	validatedEventChan := make(chan events.Event, 100)
+	validatedErrorChan := make(chan error, 100)
 	
 	go func() {
-		defer close(validatedChan)
+		defer close(validatedEventChan)
+		defer close(validatedErrorChan)
 		
-		for event := range originalChan {
-			if vt.config.Enabled && !vt.config.SkipValidationOnIncoming {
-				// For now, validation is disabled due to interface compatibility
-				// TODO: Implement proper validation with events.Event interface
-				vt.logger.Debug("Event validation is disabled due to interface compatibility", 
-					String("event_type", string(event.Type())))
+		for {
+			select {
+			case event, ok := <-originalEventChan:
+				if !ok {
+					return
+				}
+				if vt.config.Enabled && !vt.config.SkipValidationOnIncoming {
+					// For now, validation is disabled due to interface compatibility
+					// TODO: Implement proper validation with events.Event interface
+					vt.logger.Debug("Event validation is disabled due to interface compatibility", 
+						String("event_type", string(event.Type())))
+				}
+				
+				validatedEventChan <- event
+			case err, ok := <-originalErrorChan:
+				if !ok {
+					return
+				}
+				validatedErrorChan <- err
 			}
-			
-			validatedChan <- event
 		}
 	}()
 	
-	return validatedChan
+	return validatedEventChan, validatedErrorChan
 }
 
 // GetValidationMetrics returns validation metrics

@@ -615,11 +615,17 @@ func (t *PanicTransport) Receive() <-chan events.Event {
 	if t.panicOnReceive {
 		panic("intentional panic in Receive")
 	}
-	return t.baseTransport.Receive()
+	eventCh, _ := t.baseTransport.Channels()
+	return eventCh
 }
 
 func (t *PanicTransport) Errors() <-chan error {
-	return t.baseTransport.Errors()
+	_, errorCh := t.baseTransport.Channels()
+	return errorCh
+}
+
+func (t *PanicTransport) Channels() (<-chan events.Event, <-chan error) {
+	return t.baseTransport.Channels()
 }
 
 func (t *PanicTransport) IsConnected() bool {

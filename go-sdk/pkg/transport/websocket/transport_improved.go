@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -338,10 +339,22 @@ func (t *ImprovedTransport) RemoveEventHandler(eventType string, handlerID strin
 	}
 
 	handlers := value.(*transport.Slice)
+	var removedWrapper *EventHandlerWrapper
 	removed := handlers.RemoveFunc(func(item interface{}) bool {
 		wrapper := item.(*EventHandlerWrapper)
-		return wrapper.ID == handlerID
+		if wrapper.ID == handlerID {
+			removedWrapper = wrapper
+			return true
+		}
+		return false
 	})
+	
+	// Clear wrapper references to prevent memory leaks
+	if removedWrapper != nil {
+		runtime.SetFinalizer(removedWrapper, nil)
+		removedWrapper.Handler = nil
+		removedWrapper.ID = ""
+	}
 
 	if !removed {
 		return fmt.Errorf("handler with ID %s not found for event type %s", handlerID, eventType)
@@ -497,12 +510,35 @@ func (t *ImprovedTransport) registerCleanupTasks() {
 		cleaned := 0
 		t.eventHandlers.Range(func(key, value interface{}) bool {
 			handlers := value.(*transport.Slice)
+			
+			// Clean up nil handlers within slices
+			handlers.RemoveFunc(func(item interface{}) bool {
+				wrapper := item.(*EventHandlerWrapper)
+				if wrapper == nil || wrapper.Handler == nil {
+					if wrapper != nil {
+						runtime.SetFinalizer(wrapper, nil)
+						wrapper.ID = ""
+					}
+					cleaned++
+					return true
+				}
+				return false
+			})
+			
+			// Remove entire event type if no handlers left
 			if handlers.Len() == 0 {
 				t.eventHandlers.Delete(key)
 				cleaned++
 			}
+			
 			return true
 		})
+		
+		// Force GC if we cleaned up handlers
+		if cleaned > 0 {
+			runtime.GC()
+		}
+		
 		return cleaned, nil
 	})
 

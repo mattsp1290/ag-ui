@@ -28,8 +28,15 @@ func TestValidateURL(t *testing.T) {
 			errMsg:  "URL cannot be empty",
 		},
 		{
-			name:    "invalid URL format",
+			name:    "URL without scheme (requires HTTPS)",
 			url:     "not a url",
+			opts:    DefaultWebhookValidationOptions(),
+			wantErr: true,
+			errMsg:  "only HTTPS URLs are allowed",
+		},
+		{
+			name:    "invalid URL format",
+			url:     "://invalid",
 			opts:    DefaultWebhookValidationOptions(),
 			wantErr: true,
 			errMsg:  "invalid URL format",

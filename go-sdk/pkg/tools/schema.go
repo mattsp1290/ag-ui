@@ -19,6 +19,7 @@ import (
 var globalSchemaCache *SchemaCache
 var globalSchemaCacheOnce sync.Once
 
+
 // SchemaValidator provides JSON Schema validation for tool parameters.
 // It supports the JSON Schema draft-07 specification with additional
 // features like custom formats, type coercion, and caching.
@@ -354,8 +355,29 @@ func (v *SchemaValidator) validateValue(prop *Property, value interface{}, path 
 		return nil
 	}
 
-	// If no type is specified, allow any type (this supports advanced composition)
+	// If no type is specified, try to infer from constraints and validate accordingly
 	if prop.Type == "" {
+		// If we have string-specific constraints, validate as string
+		if prop.MinLength != nil || prop.MaxLength != nil || prop.Pattern != "" || prop.Format != "" {
+			return v.validateString(prop, value, path)
+		}
+		// If we have number-specific constraints, validate as number
+		if prop.Minimum != nil || prop.Maximum != nil || prop.ExclusiveMinimum != nil || prop.ExclusiveMaximum != nil || prop.MultipleOf != nil {
+			return v.validateNumber(prop, value, path)
+		}
+		// If we have array-specific constraints, validate as array
+		if prop.Items != nil || prop.MinItems != nil || prop.MaxItems != nil || prop.UniqueItems != nil {
+			return v.validateArray(prop, value, path)
+		}
+		// If we have object-specific constraints, validate as object
+		if prop.Properties != nil || prop.Required != nil || prop.MinProperties != nil || prop.MaxProperties != nil || prop.AdditionalProperties != nil {
+			return v.validateObjectProperty(prop, value, path)
+		}
+		// If we have enum, validate enum without type checking
+		if len(prop.Enum) > 0 {
+			return v.validateEnum(prop, value, path)
+		}
+		// No type and no constraints - allow any type
 		return nil
 	}
 
@@ -380,6 +402,21 @@ func (v *SchemaValidator) validateValue(prop *Property, value interface{}, path 
 	default:
 		return newValidationError(path, fmt.Sprintf("unknown type %q", prop.Type))
 	}
+}
+
+// validateEnum validates a value against an enum constraint without type checking
+func (v *SchemaValidator) validateEnum(prop *Property, value interface{}, path string) error {
+	if len(prop.Enum) == 0 {
+		return nil
+	}
+	
+	for _, allowed := range prop.Enum {
+		if allowed == value {
+			return nil
+		}
+	}
+	
+	return newValidationError(path, fmt.Sprintf("value %v is not in enum %v", value, prop.Enum))
 }
 
 // validateString validates a string value.
@@ -1078,9 +1115,7 @@ func (v *SchemaValidator) coerceTypes(params map[string]interface{}, schema *Too
 		if value, exists := coerced[name]; exists {
 			coercedValue, err := v.coerceValue(value, prop)
 			if err != nil {
-				return nil, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("failed to coerce property %q", name), "").
-					WithCause(err).
-					WithDetail("property", name)
+				return nil, fmt.Errorf("failed to coerce property %q: %w", name, err)
 			}
 			coerced[name] = coercedValue
 		} else if prop.Default != nil {
@@ -1145,13 +1180,9 @@ func (v *SchemaValidator) coerceToNumber(value interface{}) (float64, error) {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			return f, nil
 		}
-		return 0, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("cannot convert %q to number", v), "").
-			WithDetail("value", v).
-			WithDetail("target_type", "number")
+		return 0, fmt.Errorf("cannot convert %q to number", v)
 	default:
-		return 0, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("cannot convert %T to number", v), "").
-			WithDetail("source_type", fmt.Sprintf("%T", v)).
-			WithDetail("target_type", "number")
+		return 0, fmt.Errorf("cannot convert %T to number", v)
 	}
 }
 
@@ -1166,20 +1197,14 @@ func (v *SchemaValidator) coerceToInteger(value interface{}) (int64, error) {
 		if v == float64(int64(v)) {
 			return int64(v), nil
 		}
-		return 0, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("cannot convert %f to integer", v), "").
-			WithDetail("value", v).
-			WithDetail("target_type", "integer")
+		return 0, fmt.Errorf("cannot convert %f to integer", v)
 	case string:
 		if i, err := strconv.ParseInt(v, 10, 64); err == nil {
 			return i, nil
 		}
-		return 0, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("cannot convert %q to integer", v), "").
-			WithDetail("value", v).
-			WithDetail("target_type", "integer")
+		return 0, fmt.Errorf("cannot convert %q to integer", v)
 	default:
-		return 0, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("cannot convert %T to integer", v), "").
-			WithDetail("source_type", fmt.Sprintf("%T", v)).
-			WithDetail("target_type", "integer")
+		return 0, fmt.Errorf("cannot convert %T to integer", v)
 	}
 }
 
@@ -1227,7 +1252,18 @@ func (v *SchemaValidator) coerceToArray(value interface{}) []interface{} {
 
 // generateCacheKey generates a cache key for the given parameters.
 func (v *SchemaValidator) generateCacheKey(params map[string]interface{}) string {
-	data, _ := json.Marshal(params)
+	// Include validation settings in cache key to ensure correct caching
+	cacheData := struct {
+		Params          map[string]interface{} `json:"params"`
+		CoercionEnabled bool                   `json:"coercionEnabled"`
+		Debug           bool                   `json:"debug"`
+	}{
+		Params:          params,
+		CoercionEnabled: v.coercionEnabled,
+		Debug:           v.debug,
+	}
+	
+	data, _ := json.Marshal(cacheData)
 	hash := fnv.New64a()
 	hash.Write(data)
 	return hex.EncodeToString(hash.Sum(nil))

@@ -109,7 +109,7 @@ func (h *HeartbeatManager) Start(ctx context.Context) {
 
 	// Mark as healthy initially
 	atomic.StoreInt32(&h.isHealthy, 1)
-	atomic.StoreInt64(&h.lastPongAt, time.Now().Unix())
+	atomic.StoreInt64(&h.lastPongAt, time.Now().UnixNano())
 
 	h.setState(HeartbeatRunning)
 
@@ -135,7 +135,7 @@ func (h *HeartbeatManager) Stop() {
 // OnPong is called when a pong message is received
 func (h *HeartbeatManager) OnPong() {
 	now := time.Now()
-	atomic.StoreInt64(&h.lastPongAt, now.Unix())
+	atomic.StoreInt64(&h.lastPongAt, now.UnixNano())
 	atomic.StoreInt32(&h.isHealthy, 1)
 	atomic.StoreInt32(&h.missedPongs, 0)
 
@@ -287,7 +287,7 @@ func (h *HeartbeatManager) sendPing() error {
 	}
 
 	// Update statistics
-	atomic.StoreInt64(&h.lastPingAt, now.Unix())
+	atomic.StoreInt64(&h.lastPingAt, now.UnixNano())
 
 	h.stats.mutex.Lock()
 	h.stats.PingsSent++
@@ -303,7 +303,7 @@ func (h *HeartbeatManager) sendPing() error {
 // checkHealth monitors the connection health based on pong responses
 func (h *HeartbeatManager) checkHealth() {
 	now := time.Now()
-	lastPongAt := time.Unix(atomic.LoadInt64(&h.lastPongAt), 0)
+	lastPongAt := time.Unix(0, atomic.LoadInt64(&h.lastPongAt))
 
 	h.stats.mutex.Lock()
 	h.stats.HealthChecks++
@@ -370,12 +370,12 @@ func (h *HeartbeatManager) updateRTTStats(rtt time.Duration) {
 
 // GetLastPongTime returns the timestamp of the last received pong
 func (h *HeartbeatManager) GetLastPongTime() time.Time {
-	return time.Unix(atomic.LoadInt64(&h.lastPongAt), 0)
+	return time.Unix(0, atomic.LoadInt64(&h.lastPongAt))
 }
 
 // GetLastPingTime returns the timestamp of the last sent ping
 func (h *HeartbeatManager) GetLastPingTime() time.Time {
-	return time.Unix(atomic.LoadInt64(&h.lastPingAt), 0)
+	return time.Unix(0, atomic.LoadInt64(&h.lastPingAt))
 }
 
 // GetMissedPongCount returns the number of consecutive missed pongs

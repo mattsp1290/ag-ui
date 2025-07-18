@@ -2247,6 +2247,11 @@ func (f *HTMLFormatter) MimeType() string {
 
 // TestRegressionFramework is the main test function
 func TestRegressionFramework(t *testing.T) {
+	// Skip in short mode
+	if testing.Short() {
+		t.Skip("Skipping regression framework test in short mode")
+	}
+	
 	config := DefaultRegressionConfig()
 	config.ReportOutputDir = "./test-regression-reports"
 	

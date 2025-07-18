@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"sync"
@@ -15,7 +16,8 @@ import (
 
 	"go.uber.org/zap"
 
-	// Using local stubs for testing
+	"github.com/ag-ui/go-sdk/pkg/transport"
+	"github.com/ag-ui/go-sdk/pkg/transport/common"
 )
 
 // EventValidator defines the interface for event validation
@@ -263,12 +265,12 @@ func NewTransport(config *TransportConfig) (*HTTPTransport, error) {
 	}
 
 	if config.BaseURL == "" {
-		return nil, fmt.Errorf("base URL must be provided")
+		return nil, fmt.Errorf("base URL must be provided: %w", transport.ErrInvalidConfiguration)
 	}
 
 	// Validate URL
 	if _, err := url.Parse(config.BaseURL); err != nil {
-		return nil, fmt.Errorf("invalid base URL: %w", err)
+		return nil, transport.NewTransportError("http", "NewTransport", err)
 	}
 
 	if config.Logger == nil {
@@ -362,7 +364,7 @@ func (t *HTTPTransport) IsConnected() bool {
 // SendEvent sends a single event
 func (t *HTTPTransport) SendEvent(ctx context.Context, event Event) error {
 	if !t.IsConnected() {
-		return fmt.Errorf("transport is not connected")
+		return fmt.Errorf("transport is not connected: %w", transport.ErrNotConnected)
 	}
 
 	// Check context
@@ -375,7 +377,8 @@ func (t *HTTPTransport) SendEvent(ctx context.Context, event Event) error {
 		result := t.config.EventValidator.ValidateEvent(ctx, event)
 		if !result.IsValid {
 			t.updateStats(0, 0, 1)
-			return fmt.Errorf("event validation failed: %v", result.Errors)
+			return transport.NewTransportError("http", "SendEvent", 
+				fmt.Errorf("event validation failed: %v", result.Errors))
 		}
 	}
 
@@ -383,13 +386,14 @@ func (t *HTTPTransport) SendEvent(ctx context.Context, event Event) error {
 	data, err := event.ToJSON()
 	if err != nil {
 		t.updateStats(0, 0, 1)
-		return fmt.Errorf("failed to serialize event: %w", err)
+		return transport.NewTransportError("http", "SendEvent", err)
 	}
 
 	// Check event size
 	if int64(len(data)) > t.config.MaxEventSize {
 		t.updateStats(0, 0, 1)
-		return fmt.Errorf("event size %d exceeds maximum %d", len(data), t.config.MaxEventSize)
+		return fmt.Errorf("event size %d exceeds maximum %d: %w", 
+			len(data), t.config.MaxEventSize, transport.ErrMessageTooLarge)
 	}
 
 	// Send with retry
@@ -399,15 +403,16 @@ func (t *HTTPTransport) SendEvent(ctx context.Context, event Event) error {
 // SendBatch sends multiple events in a batch
 func (t *HTTPTransport) SendBatch(ctx context.Context, events []Event) error {
 	if !t.IsConnected() {
-		return fmt.Errorf("transport is not connected")
+		return fmt.Errorf("transport is not connected: %w", transport.ErrNotConnected)
 	}
 
 	if len(events) == 0 {
-		return fmt.Errorf("empty batch")
+		return fmt.Errorf("empty batch: %w", transport.ErrInvalidConfiguration)
 	}
 
 	if len(events) > t.config.MaxBatchSize {
-		return fmt.Errorf("batch size %d exceeds maximum %d", len(events), t.config.MaxBatchSize)
+		return fmt.Errorf("batch size %d exceeds maximum %d: %w", 
+			len(events), t.config.MaxBatchSize, transport.ErrMessageTooLarge)
 	}
 
 	// Validate and serialize events
@@ -418,18 +423,19 @@ func (t *HTTPTransport) SendBatch(ctx context.Context, events []Event) error {
 		if t.config.EnableEventValidation && t.config.EventValidator != nil {
 			result := t.config.EventValidator.ValidateEvent(ctx, event)
 			if !result.IsValid {
-				return fmt.Errorf("event validation failed: %v", result.Errors)
+				return transport.NewTransportError("http", "SendBatch", 
+					fmt.Errorf("event validation failed: %v", result.Errors))
 			}
 		}
 
 		data, err := event.ToJSON()
 		if err != nil {
-			return fmt.Errorf("failed to serialize event: %w", err)
+			return transport.NewTransportError("http", "SendBatch", err)
 		}
 
 		totalSize += int64(len(data))
 		if totalSize > t.config.MaxEventSize {
-			return fmt.Errorf("batch size exceeds maximum")
+			return fmt.Errorf("batch size exceeds maximum: %w", transport.ErrMessageTooLarge)
 		}
 
 		batch = append(batch, json.RawMessage(data))
@@ -438,7 +444,7 @@ func (t *HTTPTransport) SendBatch(ctx context.Context, events []Event) error {
 	// Serialize batch
 	batchData, err := json.Marshal(batch)
 	if err != nil {
-		return fmt.Errorf("failed to serialize batch: %w", err)
+		return transport.NewTransportError("http", "SendBatch", err)
 	}
 
 	// Send with retry
@@ -533,13 +539,22 @@ func (t *HTTPTransport) sendWithRetry(ctx context.Context, endpoint string, data
 	var lastErr error
 	
 	for attempt := 0; attempt <= t.config.MaxRetries; attempt++ {
+		// Check context before each attempt
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("context cancelled: %w", err)
+		}
+		
 		if attempt > 0 {
-			// Exponential backoff
+			// Exponential backoff with jitter
 			backoff := t.config.RetryBackoff * time.Duration(1<<(attempt-1))
+			// Add jitter (up to 10% of backoff time)
+			jitter := time.Duration(float64(backoff) * 0.1 * (0.5 - rand.Float64()))
+			backoff += jitter
+			
 			select {
 			case <-time.After(backoff):
 			case <-ctx.Done():
-				return ctx.Err()
+				return fmt.Errorf("context cancelled during retry backoff: %w", ctx.Err())
 			}
 		}
 
@@ -561,7 +576,7 @@ func (t *HTTPTransport) sendWithRetry(ctx context.Context, endpoint string, data
 func (t *HTTPTransport) sendRequest(ctx context.Context, endpoint string, data []byte) error {
 	// Check circuit breaker
 	if !t.circuitBreaker.ShouldAllow() {
-		return fmt.Errorf("circuit breaker open")
+		return fmt.Errorf("circuit breaker open: %w", transport.ErrConnectionFailed)
 	}
 
 	atomic.AddInt64(&t.activeRequests, 1)
@@ -575,7 +590,7 @@ func (t *HTTPTransport) sendRequest(ctx context.Context, endpoint string, data [
 	if err != nil {
 		t.updateStats(0, 0, 1)
 		t.circuitBreaker.RecordFailure()
-		return fmt.Errorf("failed to create request: %w", err)
+		return transport.NewTransportError("http", "sendRequest", err)
 	}
 
 	// Set headers
@@ -590,7 +605,7 @@ func (t *HTTPTransport) sendRequest(ctx context.Context, endpoint string, data [
 	// Apply request middleware
 	for _, mw := range t.config.RequestMiddleware {
 		if err := mw(req); err != nil {
-			return fmt.Errorf("request middleware error: %w", err)
+			return transport.NewTransportError("http", "sendRequest", err)
 		}
 	}
 
@@ -600,14 +615,14 @@ func (t *HTTPTransport) sendRequest(ctx context.Context, endpoint string, data [
 		t.updateStats(0, 0, 1)
 		t.recordError("connection_refused")
 		t.circuitBreaker.RecordFailure()
-		return fmt.Errorf("request failed: %w", err)
+		return transport.NewTemporaryError("http", "sendRequest", err)
 	}
 	defer resp.Body.Close()
 
 	// Apply response middleware
 	for _, mw := range t.config.ResponseMiddleware {
 		if err := mw(resp); err != nil {
-			return fmt.Errorf("response middleware error: %w", err)
+			return transport.NewTransportError("http", "sendRequest", err)
 		}
 	}
 
@@ -615,7 +630,7 @@ func (t *HTTPTransport) sendRequest(ctx context.Context, endpoint string, data [
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		t.updateStats(0, 0, 1)
-		return fmt.Errorf("failed to read response: %w", err)
+		return transport.NewTransportError("http", "sendRequest", err)
 	}
 
 	// Check status code
@@ -623,9 +638,11 @@ func (t *HTTPTransport) sendRequest(ctx context.Context, endpoint string, data [
 		t.updateStats(0, 0, 1)
 		t.circuitBreaker.RecordFailure()
 		if resp.StatusCode >= 500 {
-			return fmt.Errorf("server error: status %d, body: %s", resp.StatusCode, string(respBody))
+			return transport.NewTemporaryError("http", "sendRequest", 
+				fmt.Errorf("server error: status %d, body: %s", resp.StatusCode, string(respBody)))
 		}
-		return fmt.Errorf("client error: status %d, body: %s", resp.StatusCode, string(respBody))
+		return transport.NewTransportError("http", "sendRequest", 
+			fmt.Errorf("client error: status %d, body: %s", resp.StatusCode, string(respBody)))
 	}
 
 	// Update stats
@@ -640,17 +657,17 @@ func (t *HTTPTransport) sendRequest(ctx context.Context, endpoint string, data [
 func (t *HTTPTransport) performHealthCheck(ctx context.Context) error {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, t.config.BaseURL+"/health", nil)
 	if err != nil {
-		return err
+		return transport.NewTransportError("http", "performHealthCheck", err)
 	}
 
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return err
+		return transport.NewTemporaryError("http", "performHealthCheck", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("health check failed: status %d", resp.StatusCode)
+		return fmt.Errorf("health check failed: status %d: %w", resp.StatusCode, transport.ErrHealthCheckFailed)
 	}
 
 	return nil

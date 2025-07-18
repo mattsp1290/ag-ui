@@ -152,7 +152,8 @@ func TestErrorTransportContextHandling(t *testing.T) {
 	
 	t.Run("send_with_delay_and_timeout", func(t *testing.T) {
 		transport := NewErrorTransport()
-		// sendDelay configuration not available in new MockTransport
+		// Set a send delay longer than the timeout
+		transport.sendDelay = 100 * time.Millisecond
 		
 		// Connect first
 		ctx := context.Background()

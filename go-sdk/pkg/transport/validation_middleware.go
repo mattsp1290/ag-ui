@@ -171,11 +171,15 @@ func (m *ValidationMiddleware) UpdateConfig(config *ValidationConfig) {
 	m.enabled = config.Enabled
 }
 
-// validateEvent validates an event and updates metrics
+// validateEvent validates an event with proper context timeout handling and updates metrics
 func (m *ValidationMiddleware) validateEvent(ctx context.Context, event TransportEvent, direction string) error {
 	if !m.IsEnabled() {
 		return nil
 	}
+	
+	// Create a timeout context for validation if none exists
+	validationCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	
 	start := time.Now()
 	defer func() {
@@ -183,14 +187,21 @@ func (m *ValidationMiddleware) validateEvent(ctx context.Context, event Transpor
 		m.updateMetrics(event, direction, duration, nil)
 	}()
 	
+	// Check if context was cancelled before validation
+	select {
+	case <-validationCtx.Done():
+		return fmt.Errorf("validation cancelled: %w", validationCtx.Err())
+	default:
+	}
+	
 	var err error
 	switch direction {
 	case "incoming":
-		err = m.validator.ValidateIncoming(ctx, event)
+		err = m.validator.ValidateIncoming(validationCtx, event)
 	case "outgoing":
-		err = m.validator.ValidateOutgoing(ctx, event)
+		err = m.validator.ValidateOutgoing(validationCtx, event)
 	default:
-		err = m.validator.Validate(ctx, event)
+		err = m.validator.Validate(validationCtx, event)
 	}
 	
 	if err != nil {
@@ -286,10 +297,26 @@ func (t *validatedTransport) Channels() (<-chan events.Event, <-chan error) {
 				if !ok {
 					return
 				}
-				// For now, validation is disabled due to interface compatibility
-				// TODO: Implement proper validation with events.Event interface
-				t.middleware.logger.Debug("Event validation is disabled due to interface compatibility", 
-					String("event_type", string(event.Type())))
+				// Validate event using events.Event interface
+				if err := event.Validate(); err != nil {
+					t.middleware.logger.Warn("Event validation failed with built-in validator", 
+						String("event_type", string(event.Type())),
+						Err(err))
+					// Continue processing - middleware should not block pipeline
+					// Invalid events are still passed through but logged
+				} else {
+					// Additionally, use the events package validator for comprehensive validation
+					ctx := context.Background()
+					if err := events.ValidateEventWithContext(ctx, event); err != nil {
+						t.middleware.logger.Warn("Event validation failed with events package validator", 
+							String("event_type", string(event.Type())),
+							Err(err))
+						// Continue processing - log error but don't block pipeline
+					} else {
+						t.middleware.logger.Debug("Event validation passed", 
+							String("event_type", string(event.Type())))
+					}
+				}
 				
 				// Send the event directly without validation
 				validatedEventChan <- event
@@ -374,10 +401,26 @@ func (vt *ValidationTransport) Channels() (<-chan events.Event, <-chan error) {
 					return
 				}
 				if vt.config.Enabled && !vt.config.SkipValidationOnIncoming {
-					// For now, validation is disabled due to interface compatibility
-					// TODO: Implement proper validation with events.Event interface
-					vt.logger.Debug("Event validation is disabled due to interface compatibility", 
-						String("event_type", string(event.Type())))
+					// Validate event using events.Event interface
+					if err := event.Validate(); err != nil {
+						vt.logger.Warn("Event validation failed with built-in validator", 
+							String("event_type", string(event.Type())),
+							Err(err))
+						// Continue processing - middleware should not block pipeline
+						// Invalid events are still passed through but logged
+					} else {
+						// Additionally, use the events package validator for comprehensive validation
+						ctx := context.Background()
+						if err := events.ValidateEventWithContext(ctx, event); err != nil {
+							vt.logger.Warn("Event validation failed with events package validator", 
+								String("event_type", string(event.Type())),
+								Err(err))
+							// Continue processing - log error but don't block pipeline
+						} else {
+							vt.logger.Debug("Event validation passed", 
+								String("event_type", string(event.Type())))
+						}
+					}
 				}
 				
 				validatedEventChan <- event

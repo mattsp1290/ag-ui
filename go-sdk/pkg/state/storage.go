@@ -1730,6 +1730,11 @@ func (p *PersistentStateStore) Close() error {
 	// Wait for workers to finish
 	p.wg.Wait()
 
+	// Close the underlying state store
+	if p.StateStore != nil {
+		p.StateStore.Close()
+	}
+
 	// Close storage backend
 	if err := p.backend.Close(); err != nil {
 		p.logger.Error("failed to close storage backend", Err(err))

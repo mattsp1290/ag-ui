@@ -119,8 +119,10 @@ func (cm *CleanupManager) Start() error {
 	cm.wg.Add(1)
 	go cm.cleanupLoop()
 
-	cm.logger.Info("Cleanup manager started",
-		zap.Duration("check_interval", cm.checkInterval))
+	if cm.logger != nil {
+		cm.logger.Info("Cleanup manager started",
+			zap.Duration("check_interval", cm.checkInterval))
+	}
 
 	return nil
 }
@@ -134,7 +136,9 @@ func (cm *CleanupManager) Stop() error {
 	cm.cancel()
 	cm.wg.Wait()
 
-	cm.logger.Info("Cleanup manager stopped")
+	if cm.logger != nil {
+		cm.logger.Info("Cleanup manager stopped")
+	}
 	return nil
 }
 
@@ -170,9 +174,11 @@ func (cm *CleanupManager) RegisterTask(name string, ttl time.Duration, cleanupFu
 	}
 	cm.metrics.mu.Unlock()
 
-	cm.logger.Info("Registered cleanup task",
-		zap.String("name", name),
-		zap.Duration("ttl", ttl))
+	if cm.logger != nil {
+		cm.logger.Info("Registered cleanup task",
+			zap.String("name", name),
+			zap.Duration("ttl", ttl))
+	}
 
 	return nil
 }
@@ -187,7 +193,9 @@ func (cm *CleanupManager) UnregisterTask(name string) error {
 	cm.metrics.ActiveTasks--
 	cm.metrics.mu.Unlock()
 
-	cm.logger.Info("Unregistered cleanup task", zap.String("name", name))
+	if cm.logger != nil {
+		cm.logger.Info("Unregistered cleanup task", zap.String("name", name))
+	}
 	return nil
 }
 
@@ -289,10 +297,12 @@ func (cm *CleanupManager) runCleanup() {
 	cm.updateGlobalMetrics(totalCleaned, errors, duration)
 
 	if totalCleaned > 0 || errors > 0 {
-		cm.logger.Debug("Cleanup cycle completed",
-			zap.Int("items_cleaned", totalCleaned),
-			zap.Int("errors", errors),
-			zap.Duration("duration", duration))
+		if cm.logger != nil {
+			cm.logger.Debug("Cleanup cycle completed",
+				zap.Int("items_cleaned", totalCleaned),
+				zap.Int("errors", errors),
+				zap.Duration("duration", duration))
+		}
 	}
 }
 
@@ -325,14 +335,18 @@ func (cm *CleanupManager) runTask(task *CleanupTask) (int, error) {
 	cm.updateTaskMetrics(task.Name, itemsCleaned, err != nil, duration)
 
 	if err != nil {
-		cm.logger.Error("Cleanup task failed",
-			zap.String("task", task.Name),
-			zap.Error(err))
+		if cm.logger != nil {
+			cm.logger.Error("Cleanup task failed",
+				zap.String("task", task.Name),
+				zap.Error(err))
+		}
 	} else if itemsCleaned > 0 {
-		cm.logger.Debug("Cleanup task completed",
-			zap.String("task", task.Name),
-			zap.Int("items_cleaned", itemsCleaned),
-			zap.Duration("duration", duration))
+		if cm.logger != nil {
+			cm.logger.Debug("Cleanup task completed",
+				zap.String("task", task.Name),
+				zap.Int("items_cleaned", itemsCleaned),
+				zap.Duration("duration", duration))
+		}
 	}
 
 	return itemsCleaned, err

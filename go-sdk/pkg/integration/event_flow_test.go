@@ -19,22 +19,12 @@ import (
 func TestEventFlowIntegration(t *testing.T) {
 	ctx := context.Background()
 
-	// Create transport manager with full manager for advanced features
-	tm := transport.NewFullManager()
-	
-	// Create transport with validation
-	tr, err := tm.CreateTransport(ctx, transport.TransportConfig{
-		Type: "memory",
-		Options: map[string]interface{}{
-			"buffer_size": 100,
-			"validate":    true,
-		},
-	})
-	require.NoError(t, err)
+	// Create memory transport directly
+	tr := transport.NewMemoryTransport(100)
 	defer tr.Close(ctx)
 
 	// Connect
-	err = tr.Connect(ctx)
+	err := tr.Connect(ctx)
 	require.NoError(t, err)
 
 	// Test event builder
@@ -49,11 +39,12 @@ func TestEventFlowIntegration(t *testing.T) {
 		{
 			name: "TextMessageEvent",
 			buildFn: func() events.Event {
-				return builder.
-					WithType(events.EventTypeTextMessageStart).
-					WithData("messageID", "msg-123").
-					WithData("role", "assistant").
+				event, _ := builder.
+					TextMessageStart().
+					WithMessageID("msg-123").
+					WithRole("assistant").
 					Build()
+				return event
 			},
 			validate: func(t *testing.T, event events.Event) {
 				assert.Equal(t, events.EventTypeTextMessageStart, event.Type())
@@ -63,14 +54,12 @@ func TestEventFlowIntegration(t *testing.T) {
 		{
 			name: "ToolCallEvent",
 			buildFn: func() events.Event {
-				return builder.
-					WithType(events.EventTypeToolCallStart).
-					WithData("toolCallID", "tool-456").
-					WithData("toolName", "search").
-					WithData("arguments", map[string]interface{}{
-						"query": "weather today",
-					}).
+				event, _ := builder.
+					ToolCallStart().
+					WithToolCallID("tool-456").
+					WithToolCallName("search").
 					Build()
+				return event
 			},
 			validate: func(t *testing.T, event events.Event) {
 				assert.Equal(t, events.EventTypeToolCallStart, event.Type())
@@ -79,20 +68,23 @@ func TestEventFlowIntegration(t *testing.T) {
 		{
 			name: "CustomEvent",
 			buildFn: func() events.Event {
-				return events.NewTypedEvent("app.custom", map[string]interface{}{
-					"action": "user_click",
-					"target": "submit_button",
-					"metadata": map[string]interface{}{
-						"timestamp": time.Now().Unix(),
-						"session":   "sess-789",
-					},
-				})
+				event, _ := builder.
+					Custom().
+					WithCustomName("app.custom").
+					WithCustomValue(map[string]interface{}{
+						"action": "user_click",
+						"target": "submit_button",
+						"metadata": map[string]interface{}{
+							"timestamp": time.Now().Unix(),
+							"session":   "sess-789",
+						},
+					}).
+					Build()
+				return event
 			},
 			validate: func(t *testing.T, event events.Event) {
-				typedEvent, ok := event.(*events.TypedEvent)
-				require.True(t, ok)
-				assert.Equal(t, "app.custom", typedEvent.EventType)
-				assert.NotEmpty(t, typedEvent.ID())
+				assert.Equal(t, events.EventTypeCustom, event.Type())
+				assert.NotNil(t, event.Timestamp())
 			},
 		},
 	}
@@ -118,10 +110,13 @@ func TestEventFlowIntegration(t *testing.T) {
 			assert.NoError(t, err)
 
 			// Receive and verify
+			receiveChan, errChan := tr.Channels()
 			select {
-			case received := <-tr.Receive():
+			case received := <-receiveChan:
 				assert.NotNil(t, received)
 				assert.Equal(t, event.Type(), received.Type())
+			case err := <-errChan:
+				t.Fatalf("received error: %v", err)
 			case <-time.After(time.Second):
 				t.Fatal("timeout waiting for event")
 			}
@@ -134,21 +129,15 @@ func TestStateEventIntegration(t *testing.T) {
 	ctx := context.Background()
 
 	// Create state manager
-	sm := state.NewManager(state.ManagerConfig{
-		MaxHistorySize: 100,
-		SyncInterval:   50 * time.Millisecond,
-	})
-	defer sm.Shutdown(ctx)
+	opts := state.DefaultManagerOptions()
+	opts.MaxHistorySize = 100
+	opts.EnableMetrics = true
+	sm, err := state.NewStateManager(opts)
+	require.NoError(t, err)
+	defer sm.Close()
 
 	// Create transport
-	tm := transport.NewFullManager()
-	tr, err := tm.CreateTransport(ctx, transport.TransportConfig{
-		Type: "memory",
-		Options: map[string]interface{}{
-			"buffer_size": 100,
-		},
-	})
-	require.NoError(t, err)
+	tr := transport.NewMemoryTransport(100)
 	defer tr.Close(ctx)
 
 	err = tr.Connect(ctx)
@@ -158,21 +147,26 @@ func TestStateEventIntegration(t *testing.T) {
 	stateEvents := make(chan events.Event, 10)
 
 	// Set up state change handler
-	sm.OnStateChange(func(oldState, newState map[string]interface{}) {
+	unsubscribe := sm.Subscribe("/", func(change state.StateChange) {
+		// Convert StateChange to old/new state maps for compatibility
+		oldState := make(map[string]interface{})
+		newState := make(map[string]interface{})
+		oldState[change.Path] = change.OldValue
+		newState[change.Path] = change.NewValue
 		// Create snapshot event
 		snapshotEvent := &events.StateSnapshotEvent{
-			BaseEvent: events.BaseEvent{
-				EventType:      events.EventTypeStateSnapshot,
-				EventTimestamp: ptr(time.Now().UnixMilli()),
+			BaseEvent: &events.BaseEvent{
+				EventType:   events.EventTypeStateSnapshot,
+				TimestampMs: ptr(time.Now().UnixMilli()),
 			},
-			StateData: newState,
+			Snapshot: newState,
 		}
 
 		// Create delta event
 		deltaEvent := &events.StateDeltaEvent{
-			BaseEvent: events.BaseEvent{
-				EventType:      events.EventTypeStateDelta,
-				EventTimestamp: ptr(time.Now().UnixMilli()),
+			BaseEvent: &events.BaseEvent{
+				EventType:   events.EventTypeStateDelta,
+				TimestampMs: ptr(time.Now().UnixMilli()),
 			},
 			Delta: calculateDelta(oldState, newState),
 		}
@@ -186,6 +180,7 @@ func TestStateEventIntegration(t *testing.T) {
 			}
 		}
 	})
+	defer unsubscribe()
 
 	// Test state operations
 	operations := []struct {
@@ -196,21 +191,32 @@ func TestStateEventIntegration(t *testing.T) {
 		{
 			name: "SetState",
 			action: func() error {
-				return sm.SetState(ctx, "user", map[string]interface{}{
-					"id":   "user-123",
-					"name": "John Doe",
-				})
+				contextID, err := sm.CreateContext(ctx, "test-state", nil)
+				if err != nil {
+					return err
+				}
+				updates := map[string]interface{}{
+					"user": map[string]interface{}{
+						"id":   "user-123",
+						"name": "John Doe",
+					},
+				}
+				_, err = sm.UpdateState(ctx, contextID, "test-state", updates, state.UpdateOptions{})
+				return err
 			},
 			verify: func() {
 				// Should receive snapshot and delta events
+				receiveChan, errChan := tr.Channels()
 				for i := 0; i < 2; i++ {
 					select {
-					case event := <-tr.Receive():
+					case event := <-receiveChan:
 						assert.NotNil(t, event)
 						assert.Contains(t, []events.EventType{
 							events.EventTypeStateSnapshot,
 							events.EventTypeStateDelta,
 						}, event.Type())
+					case err := <-errChan:
+						t.Fatalf("received error: %v", err)
 					case <-time.After(time.Second):
 						t.Fatal("timeout waiting for state event")
 					}
@@ -220,15 +226,26 @@ func TestStateEventIntegration(t *testing.T) {
 		{
 			name: "UpdateState",
 			action: func() error {
-				return sm.SetState(ctx, "counter", 1)
+				contextID, err := sm.CreateContext(ctx, "test-state-2", nil)
+				if err != nil {
+					return err
+				}
+				updates := map[string]interface{}{
+					"counter": 1,
+				}
+				_, err = sm.UpdateState(ctx, contextID, "test-state-2", updates, state.UpdateOptions{})
+				return err
 			},
 			verify: func() {
 				// Verify counter update events
+				receiveChan, errChan := tr.Channels()
 				eventCount := 0
 				for i := 0; i < 2; i++ {
 					select {
-					case <-tr.Receive():
+					case <-receiveChan:
 						eventCount++
+					case <-errChan:
+						// Ignore errors for this test
 					case <-time.After(100 * time.Millisecond):
 						break
 					}
@@ -252,27 +269,20 @@ func TestConcurrentIntegration(t *testing.T) {
 	ctx := context.Background()
 
 	// Create components
-	sm := state.NewManager(state.ManagerConfig{
-		MaxHistorySize: 1000,
-	})
-	defer sm.Shutdown(ctx)
+	opts := state.DefaultManagerOptions()
+	opts.MaxHistorySize = 1000
+	opts.EnableMetrics = true
+	sm, err := state.NewStateManager(opts)
+	require.NoError(t, err)
+	defer sm.Close()
 
-	tm := transport.NewFullManager()
-	
 	// Create multiple transports
 	numTransports := 3
 	transports := make([]transport.Transport, numTransports)
 	
 	for i := 0; i < numTransports; i++ {
-		tr, err := tm.CreateTransport(ctx, transport.TransportConfig{
-			Type: "memory",
-			Options: map[string]interface{}{
-				"buffer_size": 100,
-				"id":          fmt.Sprintf("transport-%d", i),
-			},
-		})
-		require.NoError(t, err)
-		err = tr.Connect(ctx)
+		tr := transport.NewMemoryTransport(100)
+		err := tr.Connect(ctx)
 		require.NoError(t, err)
 		transports[i] = tr
 		defer tr.Close(ctx)
@@ -288,14 +298,25 @@ func TestConcurrentIntegration(t *testing.T) {
 		wg.Add(1)
 		go func(transportID int, transport transport.Transport) {
 			defer wg.Done()
-			for event := range transport.Receive() {
-				mu.Lock()
-				receivedCount++
-				mu.Unlock()
-				
-				// Validate event
-				assert.NotNil(t, event)
-				assert.NoError(t, event.Validate())
+			receiveChan, errChan := transport.Channels()
+			for {
+				select {
+				case event, ok := <-receiveChan:
+					if !ok {
+						return
+					}
+					mu.Lock()
+					receivedCount++
+					mu.Unlock()
+					
+					// Validate event
+					assert.NotNil(t, event)
+					assert.NoError(t, event.Validate())
+				case <-errChan:
+					// Ignore errors for this test
+				case <-time.After(time.Second):
+					return
+				}
 			}
 		}(i, tr)
 	}
@@ -315,28 +336,40 @@ func TestConcurrentIntegration(t *testing.T) {
 				switch j % 4 {
 				case 0:
 					event = &events.TextMessageContentEvent{
-						BaseEvent: events.BaseEvent{
-							EventType:      events.EventTypeTextMessageContent,
-							EventTimestamp: ptr(time.Now().UnixMilli()),
+						BaseEvent: &events.BaseEvent{
+							EventType:   events.EventTypeTextMessageContent,
+							TimestampMs: ptr(time.Now().UnixMilli()),
 						},
-						Content: fmt.Sprintf("Message %d from sender %d", j, senderID),
+						MessageID: fmt.Sprintf("msg-%d-%d", senderID, j),
+						Delta:     fmt.Sprintf("Message %d from sender %d", j, senderID),
 					}
 				case 1:
-					event = events.NewTypedEvent("test.event", map[string]interface{}{
-						"sender": senderID,
-						"index":  j,
-					})
+					event, _ = events.NewEventBuilder().
+						Custom().
+						WithCustomName("test.event").
+						WithCustomValue(map[string]interface{}{
+							"sender": senderID,
+							"index":  j,
+						}).
+						Build()
 				case 2:
 					event = &events.RunStartedEvent{
-						BaseEvent: events.BaseEvent{
-							EventType:      events.EventTypeRunStarted,
-							EventTimestamp: ptr(time.Now().UnixMilli()),
+						BaseEvent: &events.BaseEvent{
+							EventType:   events.EventTypeRunStarted,
+							TimestampMs: ptr(time.Now().UnixMilli()),
 						},
-						RunID: fmt.Sprintf("run-%d-%d", senderID, j),
+						ThreadID: fmt.Sprintf("thread-%d", senderID),
+						RunID:    fmt.Sprintf("run-%d-%d", senderID, j),
 					}
 				case 3:
 					// State update that triggers events
-					sm.SetState(ctx, fmt.Sprintf("key-%d", senderID), j)
+					contextID, err := sm.CreateContext(ctx, fmt.Sprintf("state-%d", senderID), nil)
+					if err == nil {
+						updates := map[string]interface{}{
+							fmt.Sprintf("key-%d", senderID): j,
+						}
+						sm.UpdateState(ctx, contextID, fmt.Sprintf("state-%d", senderID), updates, state.UpdateOptions{})
+					}
 					continue
 				}
 
@@ -376,19 +409,26 @@ func eventToTransportEvent(event events.Event) transport.TransportEvent {
 	
 	// Type-specific data extraction
 	switch e := event.(type) {
-	case *events.TypedEvent:
-		data = e.Data()
-		data["id"] = e.ID()
 	case *events.StateSnapshotEvent:
 		data = map[string]interface{}{
-			"state": e.StateData,
+			"snapshot": e.Snapshot,
 		}
 	case *events.StateDeltaEvent:
 		data = map[string]interface{}{
 			"delta": e.Delta,
 		}
+	case *events.TextMessageContentEvent:
+		data = map[string]interface{}{
+			"messageId": e.MessageID,
+			"delta":     e.Delta,
+		}
+	case *events.RunStartedEvent:
+		data = map[string]interface{}{
+			"threadId": e.ThreadID,
+			"runId":    e.RunID,
+		}
 	default:
-		// Generic extraction
+		// Generic extraction - try to get any available data
 		data = map[string]interface{}{
 			"type": string(event.Type()),
 		}
@@ -402,31 +442,33 @@ func eventToTransportEvent(event events.Event) transport.TransportEvent {
 	}
 }
 
-func calculateDelta(oldState, newState map[string]interface{}) map[string]interface{} {
-	delta := make(map[string]interface{})
+func calculateDelta(oldState, newState map[string]interface{}) []events.JSONPatchOperation {
+	var delta []events.JSONPatchOperation
 	
 	// Added or modified keys
 	for key, newValue := range newState {
 		if oldValue, exists := oldState[key]; !exists {
-			delta[key] = map[string]interface{}{
-				"op":    "add",
-				"value": newValue,
-			}
+			delta = append(delta, events.JSONPatchOperation{
+				Op:    "add",
+				Path:  "/" + key,
+				Value: newValue,
+			})
 		} else if oldValue != newValue {
-			delta[key] = map[string]interface{}{
-				"op":       "replace",
-				"oldValue": oldValue,
-				"newValue": newValue,
-			}
+			delta = append(delta, events.JSONPatchOperation{
+				Op:    "replace",
+				Path:  "/" + key,
+				Value: newValue,
+			})
 		}
 	}
 	
 	// Removed keys
 	for key := range oldState {
 		if _, exists := newState[key]; !exists {
-			delta[key] = map[string]interface{}{
-				"op": "remove",
-			}
+			delta = append(delta, events.JSONPatchOperation{
+				Op:   "remove",
+				Path: "/" + key,
+			})
 		}
 	}
 	

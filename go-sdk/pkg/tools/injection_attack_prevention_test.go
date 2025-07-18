@@ -1786,7 +1786,7 @@ func TestInjectionAttackPreventionIntegration(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			tool, err := registry.Get(tc.toolName)
+			tool, err := registry.GetByName(tc.toolName)
 			if err != nil {
 				t.Fatalf("Tool %s not found: %v", tc.toolName, err)
 			}

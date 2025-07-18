@@ -645,19 +645,18 @@ func NewStringLengthRangeValidator(name string) *RangeValidator[string] {
 }
 
 // NewEmailPatternValidator creates a pattern validator for email addresses
-func NewEmailPatternValidator() *PatternValidator {
+func NewEmailPatternValidator() (*PatternValidator, error) {
 	validator := NewPatternValidator("email")
 	// Basic email pattern - can be enhanced for more sophisticated validation
 	err := validator.AddPattern("email", `^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`, true)
 	if err != nil {
-		// This should not happen with a valid regex
-		panic(fmt.Sprintf("failed to create email validator: %v", err))
+		return nil, fmt.Errorf("failed to create email validator: %w", err)
 	}
-	return validator
+	return validator, nil
 }
 
 // NewURLPatternValidator creates a pattern validator for URLs
-func NewURLPatternValidator() *PatternValidator {
+func NewURLPatternValidator() (*PatternValidator, error) {
 	validator := NewPatternValidator("url")
 	// More comprehensive URL pattern that validates structure
 	// This pattern checks for:
@@ -667,16 +666,49 @@ func NewURLPatternValidator() *PatternValidator {
 	// - Optional path, query, and fragment
 	err := validator.AddPattern("url", `^https?://([a-zA-Z0-9-]+\.)*[a-zA-Z0-9-]+(:[0-9]+)?(/[^?\s]*)?(\?[^#\s]*)?(#[^\s]*)?$`, true)
 	if err != nil {
+		return nil, fmt.Errorf("failed to create URL validator: %w", err)
+	}
+	return validator, nil
+}
+
+// NewPhonePatternValidator creates a pattern validator for phone numbers
+func NewPhonePatternValidator() (*PatternValidator, error) {
+	validator := NewPatternValidator("phone")
+	// Basic phone pattern - supports various formats
+	err := validator.AddPattern("phone", `^[\+]?[\d\s\-\(\)]{10,}$`, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create phone validator: %w", err)
+	}
+	return validator, nil
+}
+
+// MustNewEmailPatternValidator creates a pattern validator for email addresses and panics on error.
+// This function is provided for backward compatibility where panicking is desired.
+// For production code, prefer using NewEmailPatternValidator() which returns an error.
+func MustNewEmailPatternValidator() *PatternValidator {
+	validator, err := NewEmailPatternValidator()
+	if err != nil {
+		panic(fmt.Sprintf("failed to create email validator: %v", err))
+	}
+	return validator
+}
+
+// MustNewURLPatternValidator creates a pattern validator for URLs and panics on error.
+// This function is provided for backward compatibility where panicking is desired.
+// For production code, prefer using NewURLPatternValidator() which returns an error.
+func MustNewURLPatternValidator() *PatternValidator {
+	validator, err := NewURLPatternValidator()
+	if err != nil {
 		panic(fmt.Sprintf("failed to create URL validator: %v", err))
 	}
 	return validator
 }
 
-// NewPhonePatternValidator creates a pattern validator for phone numbers
-func NewPhonePatternValidator() *PatternValidator {
-	validator := NewPatternValidator("phone")
-	// Basic phone pattern - supports various formats
-	err := validator.AddPattern("phone", `^[\+]?[\d\s\-\(\)]{10,}$`, true)
+// MustNewPhonePatternValidator creates a pattern validator for phone numbers and panics on error.
+// This function is provided for backward compatibility where panicking is desired.
+// For production code, prefer using NewPhonePatternValidator() which returns an error.
+func MustNewPhonePatternValidator() *PatternValidator {
+	validator, err := NewPhonePatternValidator()
 	if err != nil {
 		panic(fmt.Sprintf("failed to create phone validator: %v", err))
 	}

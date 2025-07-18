@@ -1020,8 +1020,6 @@ func TestStreamingDataProcessor_NonStreamingMode(t *testing.T) {
 func TestStreamingDataProcessor_ParameterValidation(t *testing.T) {
 	tool := createStreamingDataProcessorTool()
 	processor := tool.Executor.(*MockStreamingDataProcessor)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
 
 	testCases := []struct {
 		name   string
@@ -1029,15 +1027,17 @@ func TestStreamingDataProcessor_ParameterValidation(t *testing.T) {
 	}{
 		{
 			name: "Default parameters",
-			params: map[string]interface{}{},
+			params: map[string]interface{}{
+				"duration_seconds": 1, // Override default to fit within test timeout
+			},
 		},
 		{
 			name: "All parameters specified",
 			params: map[string]interface{}{
 				"data_type":         "sensor",
 				"processing_type":   "analytics",
-				"batch_size":        20,
-				"interval_ms":       500,
+				"batch_size":        5,
+				"interval_ms":       100,
 				"duration_seconds":  1,
 				"enable_statistics": false,
 			},
@@ -1054,6 +1054,10 @@ func TestStreamingDataProcessor_ParameterValidation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			// Create fresh context for each test case
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			
 			outputChan := make(chan interface{}, 100)
 			
 			err := processor.StreamingExecute(ctx, tc.params, outputChan)

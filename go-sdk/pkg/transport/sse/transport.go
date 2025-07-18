@@ -80,10 +80,10 @@ func DefaultConfig() *Config {
 		BufferSize:     1000,
 		ReadTimeout:    30 * time.Second,
 		WriteTimeout:   10 * time.Second,
-		ReconnectDelay: 5 * time.Second,
-		MaxReconnects:  5,
+		ReconnectDelay: 1 * time.Second,  // Reduced for faster test execution
+		MaxReconnects:  3,                // Reduced for faster failure detection
 		Client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 15 * time.Second,    // Reduced for faster test execution
 		},
 	}
 }
@@ -95,7 +95,7 @@ func NewSSETransport(config *Config) (*SSETransport, error) {
 	}
 
 	if config.BaseURL == "" {
-		return nil, fmt.Errorf("baseURL is required: %w", common.NewValidationError("baseURL", "required", "baseURL must be provided", ""))
+		return nil, fmt.Errorf("baseURL must be provided")
 	}
 
 	if config.Client == nil {
@@ -145,7 +145,7 @@ func (t *SSETransport) Send(ctx context.Context, event events.Event) error {
 	}
 
 	if event == nil {
-		return fmt.Errorf("event cannot be nil: %w", common.NewValidationError("event", "required", "event must not be nil", nil))
+		return fmt.Errorf("event cannot be nil")
 	}
 
 	// Validate the event
@@ -226,7 +226,7 @@ func (t *SSETransport) connect(ctx context.Context) error {
 	sseURL := t.baseURL + "/events/stream"
 	req, err := http.NewRequestWithContext(ctx, "GET", sseURL, nil)
 	if err != nil {
-		return messages.NewStreamingError("transport", 0, fmt.Sprintf("failed to create SSE request: %v", err))
+		return fmt.Errorf("failed to create SSE request: %w", err)
 	}
 
 	// Set SSE headers
@@ -237,7 +237,7 @@ func (t *SSETransport) connect(ctx context.Context) error {
 	// Send request
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return messages.NewStreamingError("transport", 0, fmt.Sprintf("failed to connect to SSE endpoint: %v", err))
+		return fmt.Errorf("failed to connect to SSE endpoint: %w", err)
 	}
 
 	// Check response status
@@ -811,8 +811,13 @@ func (t *SSETransport) reconnect() error {
 	// Close existing connection
 	t.closeConnection()
 
-	// Wait before reconnecting
-	time.Sleep(t.reconnectDelay)
+	// Wait before reconnecting with context cancellation support
+	select {
+	case <-time.After(t.reconnectDelay):
+		// Continue with reconnection
+	case <-t.ctx.Done():
+		return fmt.Errorf("reconnect cancelled: %w", t.ctx.Err())
+	}
 
 	// Attempt to reconnect
 	return t.connect(t.ctx)

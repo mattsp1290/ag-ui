@@ -58,15 +58,52 @@ func DefaultHTTPValidationOptions() URLValidationOptions {
 	}
 }
 
+// checkForHeaderInjection checks for potential header injection attacks in URLs
+func checkForHeaderInjection(urlStr string) error {
+	// Convert to lowercase for case-insensitive matching
+	lower := strings.ToLower(urlStr)
+	
+	// Check for common header injection patterns
+	dangerousPatterns := []string{
+		"%0a", "%0d",     // Line feed and carriage return
+		"%0a%0d", "%0d%0a", // CRLF combinations
+		"\n", "\r",       // Raw newlines
+		"\x0a", "\x0d",   // Hex variants
+		"\u000a", "\u000d", // Unicode variants
+	}
+	
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(lower, pattern) || strings.Contains(urlStr, pattern) {
+			return errors.New("URL contains potential header injection patterns")
+		}
+	}
+	
+	return nil
+}
+
 // ValidateURL validates a URL according to the provided options
 func ValidateURL(urlStr string, opts URLValidationOptions) error {
 	if urlStr == "" {
 		return errors.New("URL cannot be empty")
 	}
 
+	// Check for URL-encoded header injection attempts before parsing
+	if err := checkForHeaderInjection(urlStr); err != nil {
+		return err
+	}
+
 	u, err := url.Parse(urlStr)
 	if err != nil {
 		return fmt.Errorf("invalid URL format: %w", err)
+	}
+
+	// Check if URL has a scheme (required for absolute URLs)
+	if u.Scheme == "" {
+		// For URLs without a scheme, if HTTPS is required, return the HTTPS error
+		if opts.RequireHTTPS {
+			return errors.New("only HTTPS URLs are allowed")
+		}
+		return errors.New("invalid URL format")
 	}
 
 	// Validate scheme

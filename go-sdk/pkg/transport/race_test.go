@@ -1493,7 +1493,7 @@ func TestRaceConditionDetection(t *testing.T) {
 }
 
 // BenchmarkConcurrentOperations benchmarks concurrent operations
-func BenchmarkConcurrentOperations(b *testing.B) {
+func BenchmarkConcurrentOperationsRace(b *testing.B) {
 	b.Run("concurrent_sends", func(b *testing.B) {
 		manager := NewSimpleManager()
 		transport := NewRaceTestTransport()

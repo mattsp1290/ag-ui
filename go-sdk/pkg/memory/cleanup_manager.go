@@ -297,10 +297,12 @@ func (cm *CleanupManager) runCleanup() {
 	cm.updateGlobalMetrics(totalCleaned, errors, duration)
 
 	if totalCleaned > 0 || errors > 0 {
-		cm.logger.Debug("Cleanup cycle completed",
-			zap.Int("items_cleaned", totalCleaned),
-			zap.Int("errors", errors),
-			zap.Duration("duration", duration))
+		if cm.logger != nil {
+			cm.logger.Debug("Cleanup cycle completed",
+				zap.Int("items_cleaned", totalCleaned),
+				zap.Int("errors", errors),
+				zap.Duration("duration", duration))
+		}
 	}
 }
 

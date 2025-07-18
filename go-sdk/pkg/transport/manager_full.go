@@ -32,7 +32,11 @@ type Manager struct {
 	eventChan           chan events.Event
 	errorChan           chan error
 	stopChan            chan struct{}
+	ctx                 context.Context    // Manager lifecycle context
+	cancel              context.CancelFunc // Cancel function for lifecycle context
 	running             int32 // Use atomic int32 for thread-safe access
+	receiverActive      int32 // Use atomic int32 to track active receiveEvents goroutine
+	startStopMu         sync.Mutex // Serialize Start/Stop operations
 	metrics             *ManagerMetrics
 	logger              Logger
 	backpressureHandler *BackpressureHandler
@@ -102,12 +106,16 @@ func NewManager(cfg *ManagerConfig) *Manager {
 		cfg.Backpressure.BlockTimeout = 5 * time.Second
 	}
 	
+	ctx, cancel := context.WithCancel(context.Background())
+	
 	manager := &Manager{
 		config:        cfg,
 		middleware:    []Middleware{},
 		eventChan:     make(chan events.Event, cfg.BufferSize),
 		errorChan:     make(chan error, cfg.BufferSize),
 		stopChan:      make(chan struct{}),
+		ctx:           ctx,
+		cancel:        cancel,
 		metrics:       &ManagerMetrics{
 			TransportHealthScores: make(map[string]float64),
 		},
@@ -140,6 +148,10 @@ func NewManagerWithLogger(cfg *ManagerConfig, logger Logger) *Manager {
 
 // Start starts the transport manager
 func (m *Manager) Start(ctx context.Context) error {
+	// Serialize Start/Stop operations to prevent WaitGroup reuse issues
+	m.startStopMu.Lock()
+	defer m.startStopMu.Unlock()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -152,7 +164,28 @@ func (m *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("transport manager already running")
 	}
 	
-	// The receiveEvents goroutine is started in SetTransport
+	// Cancel any existing context and wait for goroutines to finish
+	if m.cancel != nil {
+		m.cancel()
+	}
+	
+	// Wait for any existing receiveEvents goroutines to finish
+	m.mu.Unlock() // Release lock while waiting
+	m.receiveWg.Wait()
+	m.mu.Lock() // Re-acquire lock
+	
+	// Create fresh context and stop channel for this start cycle
+	m.ctx, m.cancel = context.WithCancel(context.Background())
+	m.stopChan = make(chan struct{})
+	
+	// Start receiveEvents goroutine if we have an active transport but no receiver is running
+	if m.activeTransport != nil && atomic.CompareAndSwapInt32(&m.receiverActive, 0, 1) {
+		m.logger.Debug("Starting receiveEvents goroutine for existing transport", 
+			String("operation", "start"))
+		
+		m.receiveWg.Add(1)
+		go m.receiveEvents(m.activeTransport)
+	}
 	
 	m.logger.Info("Transport manager started successfully", 
 		String("operation", "start"))
@@ -162,6 +195,10 @@ func (m *Manager) Start(ctx context.Context) error {
 
 // Stop stops the transport manager
 func (m *Manager) Stop(ctx context.Context) error {
+	// Serialize Start/Stop operations to prevent WaitGroup reuse issues
+	m.startStopMu.Lock()
+	defer m.startStopMu.Unlock()
+
 	m.logger.Info("Stopping transport manager", 
 		String("operation", "stop"))
 
@@ -172,14 +209,20 @@ func (m *Manager) Stop(ctx context.Context) error {
 	}
 
 	// Signal stop first to unblock receiveEvents goroutine
+	// Hold lock briefly to safely close stopChan and cancel context
+	m.mu.Lock()
 	select {
 	case <-m.stopChan:
 		// Already closed
 	default:
 		close(m.stopChan)
 	}
+	if m.cancel != nil {
+		m.cancel()
+	}
+	m.mu.Unlock()
 
-	// Wait for receiveEvents goroutine to finish before acquiring lock
+	// Wait for receiveEvents goroutine to finish before acquiring lock for cleanup
 	m.receiveWg.Wait()
 
 	m.mu.Lock()
@@ -257,14 +300,21 @@ func (m *Manager) Stop(ctx context.Context) error {
 	// Close active transport
 	if m.activeTransport != nil {
 		if err := m.activeTransport.Close(ctx); err != nil {
-			m.logger.Error("Failed to close active transport", 
-				String("operation", "stop"),
-				Err(err))
-			return fmt.Errorf("failed to close active transport: %w", err)
+			// Check if this is a timeout error - if so, log but don't return error
+			if ctx.Err() == context.DeadlineExceeded {
+				m.logger.Warn("Transport close timed out, but continuing cleanup", 
+					String("operation", "stop"),
+					Err(err))
+			} else {
+				m.logger.Error("Failed to close active transport", 
+					String("operation", "stop"),
+					Err(err))
+				return fmt.Errorf("failed to close active transport: %w", err)
+			}
+		} else {
+			m.logger.Debug("Active transport closed successfully", 
+				String("operation", "stop"))
 		}
-		
-		m.logger.Debug("Active transport closed successfully", 
-			String("operation", "stop"))
 	}
 
 	// Stop backpressure handler
@@ -438,19 +488,32 @@ func (m *Manager) SetTransport(transport Transport) {
 	
 	m.activeTransport = transport
 	
-	if transport != nil {
-		m.logger.Debug("New transport set successfully", 
+	// Only start receiveEvents goroutine if:
+	// 1. We have a valid transport
+	// 2. Manager is running
+	// 3. No receiveEvents goroutine is currently active
+	if transport != nil && atomic.LoadInt32(&m.running) == 1 {
+		// Use atomic CAS to ensure only one receiveEvents goroutine is started
+		if atomic.CompareAndSwapInt32(&m.receiverActive, 0, 1) {
+			m.logger.Debug("Starting new receiveEvents goroutine", 
+				String("operation", "set_transport"))
+			
+			m.receiveWg.Add(1)
+			go m.receiveEvents(transport)
+		} else {
+			m.logger.Debug("receiveEvents goroutine already active, skipping start", 
+				String("operation", "set_transport"))
+		}
+	} else if transport != nil {
+		m.logger.Debug("Manager not running, will start receiveEvents on Start()", 
 			String("operation", "set_transport"))
-		
-		// Start receiving events from the new transport
-		m.receiveWg.Add(1)
-		go m.receiveEvents(transport)
 	}
 }
 
 // receiveEvents receives events from a transport
 func (m *Manager) receiveEvents(transport Transport) {
 	defer m.receiveWg.Done()
+	defer atomic.StoreInt32(&m.receiverActive, 0) // Reset receiver active flag
 	
 	m.logger.Debug("Starting event receiver for transport", 
 		String("operation", "receive_events"))
@@ -472,12 +535,32 @@ func (m *Manager) receiveEvents(transport Transport) {
 			validator := m.validator
 			m.mu.RUnlock()
 			
-			// Validation is temporarily disabled due to interface compatibility issues
-			// TODO: Implement proper validation with events.Event interface
+			// Validate incoming event if validation is enabled
 			if validationEnabled && validator != nil {
-				m.logger.Debug("Event validation is disabled due to interface compatibility", 
-					String("operation", "receive_events"),
-					String("event_type", string(event.Type())))
+				// First, use the event's built-in validation
+				if err := event.Validate(); err != nil {
+					m.logger.Warn("Event validation failed with built-in validator", 
+						String("operation", "receive_events"),
+						String("event_type", string(event.Type())),
+						Err(err))
+					// Continue processing - log error but don't block pipeline
+					// In production, you might want to increment validation error metrics here
+				} else {
+					// Additionally, use the events package validator for comprehensive validation
+					ctx := context.Background()
+					if err := events.ValidateEventWithContext(ctx, event); err != nil {
+						m.logger.Warn("Event validation failed with events package validator", 
+							String("operation", "receive_events"),
+							String("event_type", string(event.Type())),
+							Err(err))
+						// Continue processing - log error but don't block pipeline
+						// In production, you might want to increment validation error metrics here
+					} else {
+						m.logger.Debug("Event validation passed", 
+							String("operation", "receive_events"),
+							String("event_type", string(event.Type())))
+					}
+				}
 			}
 			
 			// Use backpressure handler to send event
@@ -508,6 +591,10 @@ func (m *Manager) receiveEvents(transport Transport) {
 			}
 		case <-m.stopChan:
 			m.logger.Debug("Stop signal received", 
+				String("operation", "receive_events"))
+			return
+		case <-m.ctx.Done():
+			m.logger.Debug("Manager context cancelled", 
 				String("operation", "receive_events"))
 			return
 		}

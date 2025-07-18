@@ -213,6 +213,7 @@ func TestStateManagerMemoryLeakPrevention(t *testing.T) {
 
 	opts := DefaultManagerOptions()
 	opts.CacheSize = 100 // Small cache to test eviction
+	opts.EnableMetrics = false // Disable metrics to reduce noise
 
 	sm, err := NewStateManager(opts)
 	require.NoError(t, err)

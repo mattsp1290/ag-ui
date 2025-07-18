@@ -661,7 +661,7 @@ func createBenchmarkTool(id string, processingTime time.Duration) *Tool {
 			Cacheable:  true,
 			Cancelable: true,
 			Retryable:  true,
-			Timeout:    30 * time.Second,
+			Timeout:    5 * time.Second,  // Reduced from 30s to 5s
 		},
 	}
 }
@@ -1026,7 +1026,7 @@ func benchmarkWaveLoad(b *testing.B) {
 	b.ReportAllocs()
 	
 	// Wave load - sinusoidal pattern
-	duration := 30 * time.Second
+	duration := 5 * time.Second  // Reduced from 30s to 5s
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
 	

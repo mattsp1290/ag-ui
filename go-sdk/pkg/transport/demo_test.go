@@ -33,6 +33,7 @@ type DemoTransport struct {
 	errorChan   chan error
 	closed      bool
 	mu          sync.Mutex
+	eventsSent  int64
 }
 
 func NewDemoTransport() *DemoTransport {
@@ -134,6 +135,7 @@ func (t *DemoTransport) Send(ctx context.Context, event TransportEvent) error {
 	
 	select {
 	case t.eventChan <- baseEvent:
+		t.eventsSent++
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -170,10 +172,22 @@ func (t *DemoTransport) Config() Config {
 }
 
 func (t *DemoTransport) Stats() TransportStats {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	
+	// Return realistic stats based on actual transport state
+	if !t.connected {
+		return TransportStats{
+			EventsSent:       0,
+			EventsReceived:   0,
+			AverageLatency:   0,
+		}
+	}
+	
 	return TransportStats{
 		ConnectedAt:      time.Now().Add(-time.Hour),
-		EventsSent:       10,
-		EventsReceived:   5,
+		EventsSent:       t.eventsSent,
+		EventsReceived:   0,
 		AverageLatency:   50 * time.Millisecond,
 	}
 }

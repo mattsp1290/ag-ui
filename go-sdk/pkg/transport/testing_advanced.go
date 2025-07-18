@@ -366,12 +366,18 @@ func (h *MockHealthChecker) SetCheckError(err error) {
 // ScenarioTransport provides pre-configured transport behaviors for common test scenarios
 type ScenarioTransport struct {
 	*AdvancedMockTransport
+	ctx        context.Context
+	cancel     context.CancelFunc
+	shutdownWG sync.WaitGroup
 }
 
 // NewScenarioTransport creates a new scenario transport
 func NewScenarioTransport(scenario string) *ScenarioTransport {
+	ctx, cancel := context.WithCancel(context.Background())
 	st := &ScenarioTransport{
 		AdvancedMockTransport: NewAdvancedMockTransport(),
+		ctx:                   ctx,
+		cancel:                cancel,
 	}
 	
 	switch scenario {
@@ -420,20 +426,65 @@ func NewScenarioTransport(scenario string) *ScenarioTransport {
 		})
 		
 	case "reconnecting":
-		// Simulate periodic disconnections
+		// Simulate periodic disconnections with proper lifecycle management
+		st.shutdownWG.Add(1)
 		go func() {
+			defer st.shutdownWG.Done()
+			
+			ticker := time.NewTicker(2 * time.Second)
+			defer ticker.Stop()
+			
 			for {
-				time.Sleep(2 * time.Second)
-				if st.GetState() == StateConnected {
-					st.setState(StateReconnecting)
-					time.Sleep(500 * time.Millisecond)
-					st.setState(StateConnected)
+				select {
+				case <-ticker.C:
+					if st.GetState() == StateConnected {
+						st.setState(StateReconnecting)
+						
+						// Use context-aware sleep for reconnection delay
+						select {
+						case <-time.After(500 * time.Millisecond):
+							st.setState(StateConnected)
+						case <-st.ctx.Done():
+							// Shutdown requested during reconnection delay
+							return
+						}
+					}
+				case <-st.ctx.Done():
+					// Shutdown requested
+					return
 				}
 			}
 		}()
 	}
 	
 	return st
+}
+
+// Close shuts down the ScenarioTransport and waits for all goroutines to finish
+func (st *ScenarioTransport) Close(ctx context.Context) error {
+	// Signal shutdown to all goroutines
+	st.cancel()
+	
+	// Wait for all background goroutines to finish with timeout
+	done := make(chan struct{})
+	go func() {
+		st.shutdownWG.Wait()
+		close(done)
+	}()
+	
+	select {
+	case <-done:
+		// All goroutines finished successfully
+	case <-ctx.Done():
+		// Timeout while waiting for goroutines - this is a leak warning
+		return fmt.Errorf("timeout waiting for scenario transport goroutines to finish: %w", ctx.Err())
+	case <-time.After(5 * time.Second):
+		// Default timeout to prevent hanging tests
+		return fmt.Errorf("scenario transport goroutines failed to finish within 5 seconds")
+	}
+	
+	// Call parent Close method
+	return st.AdvancedMockTransport.Close(ctx)
 }
 
 // ChaosTransport introduces random failures and delays for chaos testing

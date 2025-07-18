@@ -1377,10 +1377,12 @@ func DevelopmentConfig() ComprehensiveConfig {
 	config.Monitoring.Logging.Format = "console"
 	config.Monitoring.Tracing.Enabled = true
 	config.Monitoring.Tracing.SamplingRate = 1.0
-	config.Retry.MaxRetries = 1
-	config.Connection.ConnectTimeout = 5 * time.Second
-	config.Connection.ReadTimeout = 10 * time.Second
-	config.Connection.WriteTimeout = 5 * time.Second
+	config.Retry.MaxRetries = 2                          // Increased slightly for stability
+	config.Retry.InitialDelay = 250 * time.Millisecond  // Faster retry for tests
+	config.Connection.ConnectTimeout = 3 * time.Second   // Optimized for test speed
+	config.Connection.ReadTimeout = 8 * time.Second      // Reasonable for test operations
+	config.Connection.WriteTimeout = 3 * time.Second     // Faster writes for tests
+	config.Monitoring.HealthChecks.Timeout = 2 * time.Second  // Faster health checks
 	return config
 }
 

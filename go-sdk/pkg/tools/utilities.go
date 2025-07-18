@@ -77,8 +77,8 @@ func DefaultUtilitiesConfig() *UtilitiesConfig {
 		CompressionLevel:   6,
 		IncludeSource:      true,
 		IncludeDependencies: true,
-		BenchmarkDuration:  30 * time.Second,
-		BenchmarkIterations: 1000,
+		BenchmarkDuration:  5 * time.Second,  // Reduced from 30s to 5s
+		BenchmarkIterations: 100,  // Reduced from 1000 to 100
 		ProfileMemory:      true,
 		ProfileCPU:         true,
 		CustomSettings:     make(map[string]interface{}),

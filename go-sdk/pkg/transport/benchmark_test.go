@@ -741,7 +741,7 @@ func BenchmarkComparative_DirectTransport(b *testing.B) {
 }
 
 // Benchmark memory usage
-func BenchmarkMemoryUsage(b *testing.B) {
+func BenchmarkMemoryUsageTransport(b *testing.B) {
 	transport := NewBenchmarkMockTransport(1000)
 	ctx := context.Background()
 	transport.Connect(ctx)

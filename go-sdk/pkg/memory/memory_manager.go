@@ -309,9 +309,38 @@ func (mm *MemoryManager) notifyPressureChange(level MemoryPressureLevel) {
 	copy(callbacks, mm.onMemoryPressure)
 	mm.callbacksMutex.RUnlock()
 
+	// Use a WaitGroup to ensure all callbacks complete before returning
+	var wg sync.WaitGroup
 	for _, callback := range callbacks {
-		go callback(level)
+		wg.Add(1)
+		go func(cb func(MemoryPressureLevel)) {
+			defer wg.Done()
+			// Add timeout to prevent hanging on stuck callbacks
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				cb(level)
+			}()
+			
+			select {
+			case <-done:
+				// Callback completed successfully
+			case <-time.After(5 * time.Second):
+				// Callback timed out, log warning
+				if mm.logger != nil {
+					mm.logger.Warn("Memory pressure callback timed out")
+				}
+			case <-mm.ctx.Done():
+				// Memory manager is shutting down
+				return
+			}
+		}(callback)
 	}
+	
+	// Wait for all callbacks to complete or timeout, but don't block shutdown
+	go func() {
+		wg.Wait()
+	}()
 }
 
 // adaptToMemoryPressure takes adaptive actions based on memory pressure
@@ -327,10 +356,15 @@ func (mm *MemoryManager) adaptToMemoryPressure(level MemoryPressureLevel) {
 		}
 		
 	case MemoryPressureHigh:
-		// Schedule GC
+		// Schedule GC with proper context cancellation
 		go func() {
-			time.Sleep(100 * time.Millisecond)
-			runtime.GC()
+			select {
+			case <-time.After(100 * time.Millisecond):
+				runtime.GC()
+			case <-mm.ctx.Done():
+				// Memory manager is shutting down, abort scheduled GC
+				return
+			}
 		}()
 		
 	case MemoryPressureLow:

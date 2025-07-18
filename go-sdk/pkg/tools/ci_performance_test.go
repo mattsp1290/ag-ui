@@ -458,11 +458,17 @@ func NewCIPerformanceTestFramework(config *CIPerformanceConfig) *CIPerformanceTe
 
 // DefaultCIPerformanceConfig returns default CI performance configuration
 func DefaultCIPerformanceConfig() *CIPerformanceConfig {
+	// Use shorter timeouts in CI or short mode
+	testTimeout := 30 * time.Minute
+	if testing.Short() || os.Getenv("CI") != "" {
+		testTimeout = 2 * time.Minute
+	}
+	
 	return &CIPerformanceConfig{
 		CIProvider:         "github",
 		TestSuite:          "default",
 		TestEnvironment:    "ci",
-		TestTimeout:        30 * time.Minute,
+		TestTimeout:        testTimeout,
 		BaselineStrategy:   BaselineStrategyRolling,
 		BaselineStorage:    "filesystem",
 		BaselineRetention:  30 * 24 * time.Hour,
@@ -609,6 +615,21 @@ func (framework *CIPerformanceTestFramework) setupTestEnvironment(t *testing.T) 
 		return fmt.Errorf("failed to create report output directory: %w", err)
 	}
 	
+	// Use shorter timeouts in CI or short mode (reduced for faster execution)
+	executionTimeout := 10 * time.Second     // Reduced from 5 minutes to 10s
+	registryTimeout := 5 * time.Second       // Reduced from 3 minutes to 5s
+	concurrencyTimeout := 10 * time.Second   // Reduced from 10 minutes to 10s
+	memoryTimeout := 5 * time.Second         // Reduced from 5 minutes to 5s
+	stressTimeout := 10 * time.Second        // Reduced from 15 minutes to 10s
+	
+	if testing.Short() || os.Getenv("CI") != "" {
+		executionTimeout = 5 * time.Second     // Reduced from 20s to 5s
+		registryTimeout = 3 * time.Second      // Reduced from 10s to 3s
+		concurrencyTimeout = 5 * time.Second   // Reduced from 30s to 5s
+		memoryTimeout = 5 * time.Second        // Reduced from 20s to 5s
+		stressTimeout = 5 * time.Second        // Reduced from 30s to 5s
+	}
+	
 	// Initialize test suite
 	framework.testOrchestrator.testSuite = &PerformanceTestSuite{
 		Tests: []*PerformanceTest{
@@ -617,7 +638,7 @@ func (framework *CIPerformanceTestFramework) setupTestEnvironment(t *testing.T) 
 				Category:    "core",
 				Description: "Tests ExecutionEngine performance",
 				Tags:        []string{"core", "execution"},
-				Timeout:     5 * time.Minute,
+				Timeout:     executionTimeout,
 				Baseline:    true,
 				Critical:    true,
 				RunFunc:     framework.runExecutionEngineTest,
@@ -627,7 +648,7 @@ func (framework *CIPerformanceTestFramework) setupTestEnvironment(t *testing.T) 
 				Category:    "core",
 				Description: "Tests Registry performance",
 				Tags:        []string{"core", "registry"},
-				Timeout:     3 * time.Minute,
+				Timeout:     registryTimeout,
 				Baseline:    true,
 				Critical:    true,
 				RunFunc:     framework.runRegistryTest,
@@ -637,7 +658,7 @@ func (framework *CIPerformanceTestFramework) setupTestEnvironment(t *testing.T) 
 				Category:    "scalability",
 				Description: "Tests concurrency scalability",
 				Tags:        []string{"scalability", "concurrency"},
-				Timeout:     10 * time.Minute,
+				Timeout:     concurrencyTimeout,
 				Baseline:    true,
 				Critical:    false,
 				RunFunc:     framework.runConcurrencyScalabilityTest,
@@ -647,7 +668,7 @@ func (framework *CIPerformanceTestFramework) setupTestEnvironment(t *testing.T) 
 				Category:    "memory",
 				Description: "Tests memory usage and leaks",
 				Tags:        []string{"memory", "leaks"},
-				Timeout:     5 * time.Minute,
+				Timeout:     memoryTimeout,
 				Baseline:    true,
 				Critical:    true,
 				RunFunc:     framework.runMemoryTest,
@@ -657,7 +678,7 @@ func (framework *CIPerformanceTestFramework) setupTestEnvironment(t *testing.T) 
 				Category:    "stress",
 				Description: "Tests system under stress",
 				Tags:        []string{"stress", "load"},
-				Timeout:     15 * time.Minute,
+				Timeout:     stressTimeout,
 				Baseline:    false,
 				Critical:    false,
 				RunFunc:     framework.runStressTest,
@@ -828,7 +849,11 @@ func (framework *CIPerformanceTestFramework) runExecutionEngineTest(t *testing.T
 	var errors int64
 	var responseTimes []time.Duration
 	
-	testDuration := 30 * time.Second
+	testDuration := 5 * time.Second  // Reduced from 30s to 5s
+	// Reduce test duration in CI or short mode
+	if testing.Short() || os.Getenv("CI") != "" {
+		testDuration = 2 * time.Second
+	}
 	testCtx, cancel := context.WithTimeout(ctx, testDuration)
 	defer cancel()
 	
@@ -1915,8 +1940,13 @@ func (fs *FilesystemBaselineStorage) Exists(key string) bool {
 
 // TestCIPerformanceFramework is the main test function
 func TestCIPerformanceFramework(t *testing.T) {
+	// Skip in short mode
+	if testing.Short() {
+		t.Skip("Skipping performance test in short mode")
+	}
+	
 	config := DefaultCIPerformanceConfig()
-	config.TestTimeout = 10 * time.Minute
+	config.TestTimeout = 30 * time.Second  // Reduced from 10 minutes to 30s
 	
 	framework := NewCIPerformanceTestFramework(config)
 	

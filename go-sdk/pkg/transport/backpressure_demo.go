@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"sync"
 	"time"
 )
 
@@ -264,8 +265,11 @@ func ExampleBackpressureUsage() {
 	}
 	defer manager.Stop(ctx)
 	
-	// Monitor backpressure metrics
+	// Monitor backpressure metrics with proper lifecycle management
+	var monitorWG sync.WaitGroup
+	monitorWG.Add(1)
 	go func() {
+		defer monitorWG.Done()
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
 		
@@ -282,15 +286,32 @@ func ExampleBackpressureUsage() {
 		}
 	}()
 	
-	// Use the manager normally
+	// Use the manager normally with proper lifecycle management
 	eventChan := manager.Receive()
+	monitorWG.Add(1)
 	go func() {
-		for event := range eventChan {
-			// Process events
-			log.Printf("Processing event: %s", event.Event.ID())
+		defer monitorWG.Done()
+		for {
+			select {
+			case event, ok := <-eventChan:
+				if !ok {
+					// Channel closed, exit gracefully
+					return
+				}
+				// Process events
+				log.Printf("Processing event: %s", event.Event.ID())
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 	
 	// The manager will now handle backpressure automatically
 	fmt.Println("Manager is running with backpressure handling...")
+	
+	// Wait for all goroutines to finish when context is cancelled
+	go func() {
+		<-ctx.Done()
+		monitorWG.Wait()
+	}()
 }

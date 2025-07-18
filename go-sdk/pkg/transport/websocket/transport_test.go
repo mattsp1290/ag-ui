@@ -19,6 +19,7 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/proto/generated"
+	"github.com/ag-ui/go-sdk/pkg/transport/common"
 )
 
 
@@ -143,14 +144,15 @@ func TestTransportLifecycle(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("StartTransport", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		helper := common.NewTestHelper(t)
+		ctx, cancel := helper.ConnectContext()
 		defer cancel()
 
 		err := transport.Start(ctx)
 		require.NoError(t, err)
 
-		// Wait for connections to be established
-		time.Sleep(200 * time.Millisecond)
+		// Wait for connections to be established with helper method
+		helper.SleepMedium()
 
 		assert.True(t, transport.IsConnected())
 		assert.Greater(t, transport.GetActiveConnectionCount(), 0)
@@ -177,15 +179,16 @@ func TestEventSending(t *testing.T) {
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	helper := common.NewTestHelper(t)
+	ctx, cancel := helper.ConnectContext()
 	defer cancel()
 
 	err = transport.Start(ctx)
 	require.NoError(t, err)
 	defer transport.Stop()
 
-	// Wait for connections
-	time.Sleep(200 * time.Millisecond)
+	// Wait for connections with helper method
+	helper.SleepShort()
 
 	t.Run("SendValidEvent", func(t *testing.T) {
 		event := &WebSocketMockEvent{
@@ -193,7 +196,10 @@ func TestEventSending(t *testing.T) {
 			Data:      "test message",
 		}
 
-		err := transport.SendEvent(ctx, event)
+		sendCtx, sendCancel := helper.SendContext()
+		defer sendCancel()
+
+		err := transport.SendEvent(sendCtx, event)
 		assert.NoError(t, err)
 
 		stats := transport.Stats()
@@ -257,7 +263,8 @@ func TestSubscriptionManagement(t *testing.T) {
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	helper := common.NewTestHelper(t)
+	ctx, cancel := helper.ConnectContext()
 	defer cancel()
 
 	err = transport.Start(ctx)
@@ -379,15 +386,15 @@ func TestTransportStatistics(t *testing.T) {
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // Reduced timeout
 	defer cancel()
 
 	err = transport.Start(ctx)
 	require.NoError(t, err)
 	defer transport.Stop()
 
-	// Wait for connections
-	time.Sleep(200 * time.Millisecond)
+	// Wait for connections with reduced delay
+	time.Sleep(100 * time.Millisecond)
 
 	t.Run("InitialStats", func(t *testing.T) {
 		stats := transport.Stats()
@@ -488,15 +495,15 @@ func TestTransportConcurrency(t *testing.T) {
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second) // Reduced timeout
 	defer cancel()
 
 	err = transport.Start(ctx)
 	require.NoError(t, err)
 	defer transport.Stop()
 
-	// Wait for connections
-	time.Sleep(200 * time.Millisecond)
+	// Wait for connections with reduced delay
+	time.Sleep(100 * time.Millisecond)
 
 	t.Run("ConcurrentEventSending", func(t *testing.T) {
 		var wg sync.WaitGroup
@@ -595,7 +602,7 @@ func TestTransportErrorHandling(t *testing.T) {
 		transport, err := NewTransport(config)
 		require.NoError(t, err)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second) // Reduced timeout for error cases
 		defer cancel()
 
 		// Start will fail to establish connections
@@ -626,15 +633,15 @@ func TestTransportErrorHandling(t *testing.T) {
 		transport, err := NewTransport(config)
 		require.NoError(t, err)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // Reduced timeout
 		defer cancel()
 
 		err = transport.Start(ctx)
 		require.NoError(t, err)
 		defer transport.Stop()
 
-		// Wait for connections
-		time.Sleep(200 * time.Millisecond)
+		// Wait for connections with reduced delay
+		time.Sleep(100 * time.Millisecond)
 
 		// Create an event that fails JSON serialization by using a special MockEvent
 		event := &WebSocketMockEvent{
@@ -674,15 +681,15 @@ func TestTransportEventProcessing(t *testing.T) {
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // Reduced timeout
 	defer cancel()
 
 	err = transport.Start(ctx)
 	require.NoError(t, err)
 	defer transport.Stop()
 
-	// Wait for connections
-	time.Sleep(200 * time.Millisecond)
+	// Wait for connections with reduced delay
+	time.Sleep(100 * time.Millisecond)
 
 	t.Run("EventHandlerCount", func(t *testing.T) {
 		// Initially no handlers
@@ -854,15 +861,15 @@ func TestTransportEdgeCases(t *testing.T) {
 		transport, err := NewTransport(config)
 		require.NoError(t, err)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // Reduced timeout
 		defer cancel()
 
 		err = transport.Start(ctx)
 		require.NoError(t, err)
 		defer transport.Stop()
 
-		// Wait for connections
-		time.Sleep(200 * time.Millisecond)
+		// Wait for connections with reduced delay
+		time.Sleep(100 * time.Millisecond)
 
 		event := &WebSocketMockEvent{
 			EventType: events.EventTypeTextMessageContent,
@@ -887,15 +894,15 @@ func BenchmarkTransportSendEvent(b *testing.B) {
 	transport, err := NewTransport(config)
 	require.NoError(b, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // Reduced timeout for benchmarks
 	defer cancel()
 
 	err = transport.Start(ctx)
 	require.NoError(b, err)
 	defer transport.Stop()
 
-	// Wait for connections
-	time.Sleep(200 * time.Millisecond)
+	// Wait for connections with reduced delay
+	time.Sleep(100 * time.Millisecond)
 
 	event := &MockEvent{
 		EventType: events.EventTypeTextMessageContent,
@@ -921,7 +928,7 @@ func BenchmarkTransportSubscription(b *testing.B) {
 	transport, err := NewTransport(config)
 	require.NoError(b, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // Reduced timeout for benchmarks
 	defer cancel()
 
 	err = transport.Start(ctx)

@@ -80,10 +80,30 @@ func (e *SecureFileExecutor) Execute(ctx context.Context, params map[string]inte
 
 // validatePath checks if the path is allowed based on security options
 func (e *SecureFileExecutor) validatePath(path string) error {
+	// Check for null bytes and control characters first
+	if strings.Contains(path, "\x00") || containsControlChars(path) {
+		return fmt.Errorf("invalid path")
+	}
+
+	// Check for very long paths
+	if len(path) > 1000 {
+		return fmt.Errorf("path too long")
+	}
+
+	// Check for empty path
+	if path == "" {
+		return fmt.Errorf("invalid path")
+	}
+
 	// Clean and resolve the path
 	cleanPath, err := filepath.Abs(filepath.Clean(path))
 	if err != nil {
-		return fmt.Errorf("invalid path format: %w", err)
+		return fmt.Errorf("invalid path")
+	}
+
+	// Special case: Always deny root directory access
+	if cleanPath == "/" {
+		return fmt.Errorf("access denied")
 	}
 
 	// Expand home directory in deny paths
@@ -95,15 +115,26 @@ func (e *SecureFileExecutor) validatePath(path string) error {
 		}
 		rel, err := filepath.Rel(absDeny, cleanPath)
 		if err == nil && !strings.HasPrefix(rel, "..") {
-			return fmt.Errorf("access denied: path is in restricted directory")
+			return fmt.Errorf("access denied")
 		}
 	}
 
-	// Check symbolic links if not allowed
-	if !e.options.AllowSymlinks {
-		realPath, err := filepath.EvalSymlinks(cleanPath)
-		if err == nil && realPath != cleanPath {
-			return fmt.Errorf("symbolic links are not allowed")
+	// Check symbolic links
+	if info, err := os.Lstat(cleanPath); err == nil {
+		if info.Mode()&os.ModeSymlink != 0 {
+			if !e.options.AllowSymlinks {
+				return fmt.Errorf("symbolic links are not allowed")
+			}
+			// Even if symlinks are allowed, validate the target path
+			if target, err := os.Readlink(cleanPath); err == nil {
+				// If target is relative, make it absolute relative to the symlink's directory
+				if !filepath.IsAbs(target) {
+					target = filepath.Join(filepath.Dir(cleanPath), target)
+				}
+				if err := e.validateSymlinkTarget(target); err != nil {
+					return err
+				}
+			}
 		}
 	}
 
@@ -120,12 +151,12 @@ func (e *SecureFileExecutor) validatePath(path string) error {
 			continue
 		}
 		rel, err := filepath.Rel(absAllowed, cleanPath)
-		if err == nil && !strings.HasPrefix(rel, "..") {
+		if err == nil && !isPathTraversal(rel) {
 			return nil
 		}
 	}
 
-	return fmt.Errorf("access denied: path is not in allowed directories")
+	return fmt.Errorf("access denied")
 }
 
 // checkFileSize verifies the file size is within limits
@@ -163,7 +194,7 @@ func (e *SecureFileExecutor) validateFileDescriptor(file *os.File) error {
 
 	// Check that it's a regular file (not a device, pipe, etc.)
 	if !stat.Mode().IsRegular() {
-		return fmt.Errorf("access denied: not a regular file")
+		return fmt.Errorf("not a regular file")
 	}
 
 	// For additional security, we could check ownership, permissions, etc.
@@ -187,6 +218,95 @@ func expandPath(path string) string {
 	}
 	return path
 }
+
+// containsControlChars checks if a string contains control characters
+func containsControlChars(s string) bool {
+	for _, r := range s {
+		if r < 32 && r != '\t' && r != '\n' && r != '\r' {
+			return true
+		}
+	}
+	return false
+}
+
+// isPathTraversal checks if a relative path represents path traversal
+// It distinguishes between actual ".." path components and filenames starting with ".."
+func isPathTraversal(rel string) bool {
+	if rel == "" {
+		return false
+	}
+	
+	// Split the path into components
+	components := strings.Split(rel, string(filepath.Separator))
+	
+	// Check if any component is exactly ".."
+	for _, component := range components {
+		if component == ".." {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// validateSymlinkTarget validates a symlink target path (without recursion)
+func (e *SecureFileExecutor) validateSymlinkTarget(path string) error {
+	// Check for null bytes and control characters first
+	if strings.Contains(path, "\x00") || containsControlChars(path) {
+		return fmt.Errorf("invalid path")
+	}
+
+	// Check for very long paths
+	if len(path) > 1000 {
+		return fmt.Errorf("path too long")
+	}
+
+	// Check for empty path
+	if path == "" {
+		return fmt.Errorf("invalid path")
+	}
+
+	// Clean and resolve the path
+	cleanPath, err := filepath.Abs(filepath.Clean(path))
+	if err != nil {
+		return fmt.Errorf("invalid path")
+	}
+
+	// Expand home directory in deny paths
+	for _, denyPath := range e.options.DenyPaths {
+		expandedDeny := expandPath(denyPath)
+		absDeny, err := filepath.Abs(filepath.Clean(expandedDeny))
+		if err != nil {
+			continue // Skip invalid deny paths
+		}
+		rel, err := filepath.Rel(absDeny, cleanPath)
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			return fmt.Errorf("access denied")
+		}
+	}
+
+	// If no allowed paths are specified, allow all (except denied)
+	if len(e.options.AllowedPaths) == 0 {
+		return nil
+	}
+
+	// Check if path is within allowed paths
+	for _, allowedPath := range e.options.AllowedPaths {
+		expandedAllow := expandPath(allowedPath)
+		absAllowed, err := filepath.Abs(expandedAllow)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(absAllowed, cleanPath)
+		if err == nil && !isPathTraversal(rel) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("access denied")
+}
+
+
 
 // NewSecureReadFileTool creates a secure file reading tool
 func NewSecureReadFileTool(options *SecureFileOptions) *Tool {
@@ -343,4 +463,57 @@ func (e *SecureFileExecutor) executeAtomicWrite(ctx context.Context, params map[
 			"bytes_written": len(content),
 		},
 	}, nil
+}
+
+// checkSymlinksInPath checks if any component in the path is a symbolic link
+func (e *SecureFileExecutor) checkSymlinksInPath(path string) error {
+	// Check each component of the path from root down
+	current := ""
+	components := strings.Split(path, string(filepath.Separator))
+	
+	for i, component := range components {
+		if component == "" {
+			if i == 0 {
+				current = string(filepath.Separator)
+			}
+			continue
+		}
+		
+		if current == string(filepath.Separator) {
+			current = filepath.Join(current, component)
+		} else {
+			current = filepath.Join(current, component)
+		}
+		
+		// Check if this component is a symbolic link
+		if info, err := os.Lstat(current); err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				// Allow certain system symlinks that are safe (like /var -> private/var on macOS)
+				if e.isAllowedSystemSymlink(current) {
+					continue
+				}
+				return fmt.Errorf("symbolic links are not allowed")
+			}
+		}
+		// If the component doesn't exist, we can't check it, but that's okay for write operations
+	}
+	return nil
+}
+
+// isAllowedSystemSymlink checks if a symlink is a known safe system symlink
+func (e *SecureFileExecutor) isAllowedSystemSymlink(path string) bool {
+	// Allow common macOS system symlinks
+	allowedSystemSymlinks := []string{
+		"/var",        // /var -> private/var
+		"/tmp",        // /tmp -> private/tmp
+		"/etc",        // /etc -> private/etc on some systems
+	}
+	
+	for _, allowed := range allowedSystemSymlinks {
+		if path == allowed {
+			return true
+		}
+	}
+	
+	return false
 }

@@ -2,7 +2,9 @@ package transport
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
 	
@@ -883,9 +885,151 @@ func (m *MetricsManager) RecordEvent(transportName string, event any) {
 	defer m.mu.RUnlock()
 
 	if collector, exists := m.collectors[transportName]; exists {
-		// TODO: Calculate event size and latency
-		collector.RecordEvent("event", 0, 0)
+		// Calculate event size
+		eventSize := m.calculateEventSize(event)
+		
+		// Calculate latency based on event timestamp
+		latency := m.calculateEventLatency(event)
+		
+		// Record the event with calculated metrics
+		collector.RecordEvent("event", eventSize, latency)
 	}
+}
+
+// calculateEventSize calculates the size of an event in bytes.
+func (m *MetricsManager) calculateEventSize(event any) int64 {
+	if event == nil {
+		return 0
+	}
+
+	// Handle TransportEvent interface specifically
+	if transportEvent, ok := event.(TransportEvent); ok {
+		// Create a serializable representation of the transport event
+		eventMap := map[string]interface{}{
+			"id":        transportEvent.ID(),
+			"type":      transportEvent.Type(),
+			"timestamp": transportEvent.Timestamp(),
+			"data":      transportEvent.Data(),
+		}
+		
+		// Marshal to JSON to calculate size
+		if jsonData, err := json.Marshal(eventMap); err == nil {
+			return int64(len(jsonData))
+		}
+	}
+
+	// Fallback: try to marshal the event directly
+	if jsonData, err := json.Marshal(event); err == nil {
+		return int64(len(jsonData))
+	}
+
+	// If JSON marshaling fails, estimate size using reflection
+	return m.estimateEventSize(event)
+}
+
+// calculateEventLatency calculates the latency for an event based on its timestamp.
+func (m *MetricsManager) calculateEventLatency(event any) time.Duration {
+	if event == nil {
+		return 0
+	}
+
+	// Handle TransportEvent interface
+	if transportEvent, ok := event.(TransportEvent); ok {
+		eventTimestamp := transportEvent.Timestamp()
+		if !eventTimestamp.IsZero() {
+			return time.Since(eventTimestamp)
+		}
+	}
+
+	// Handle events.Event interface
+	if coreEvent, ok := event.(events.Event); ok {
+		eventTimestamp := coreEvent.Timestamp()
+		if eventTimestamp != nil && *eventTimestamp > 0 {
+			// Convert Unix milliseconds to time.Time
+			timestamp := time.Unix(0, *eventTimestamp*int64(time.Millisecond))
+			return time.Since(timestamp)
+		}
+	}
+
+	// Try to extract timestamp using reflection
+	v := reflect.ValueOf(event)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+
+	if v.Kind() == reflect.Struct {
+		// Look for common timestamp field names
+		timestampFields := []string{"Timestamp", "CreatedAt", "EventTimestamp", "Time"}
+		for _, fieldName := range timestampFields {
+			if field := v.FieldByName(fieldName); field.IsValid() && field.Type() == reflect.TypeOf(time.Time{}) {
+				if timestamp, ok := field.Interface().(time.Time); ok && !timestamp.IsZero() {
+					return time.Since(timestamp)
+				}
+			}
+		}
+	}
+
+	// If no timestamp found, return 0 (no latency calculated)
+	return 0
+}
+
+// estimateEventSize estimates the size of an event using reflection when JSON marshaling fails.
+func (m *MetricsManager) estimateEventSize(event any) int64 {
+	if event == nil {
+		return 0
+	}
+
+	v := reflect.ValueOf(event)
+	return m.estimateValueSize(v)
+}
+
+// estimateValueSize recursively estimates the memory size of a value.
+func (m *MetricsManager) estimateValueSize(v reflect.Value) int64 {
+	if !v.IsValid() {
+		return 0
+	}
+
+	var size int64
+
+	switch v.Kind() {
+	case reflect.String:
+		size = int64(len(v.String()))
+	case reflect.Slice, reflect.Array:
+		size = int64(v.Len()) * 8 // Estimate 8 bytes per element
+		for i := 0; i < v.Len(); i++ {
+			size += m.estimateValueSize(v.Index(i))
+		}
+	case reflect.Map:
+		size = int64(v.Len()) * 16 // Estimate 16 bytes per map entry
+		for _, key := range v.MapKeys() {
+			size += m.estimateValueSize(key)
+			size += m.estimateValueSize(v.MapIndex(key))
+		}
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			size += m.estimateValueSize(v.Field(i))
+		}
+	case reflect.Ptr:
+		if !v.IsNil() {
+			size = 8 + m.estimateValueSize(v.Elem()) // 8 bytes for pointer + content
+		}
+	case reflect.Interface:
+		if !v.IsNil() {
+			size = 8 + m.estimateValueSize(v.Elem()) // 8 bytes for interface + content
+		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		size = 8
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		size = 8
+	case reflect.Float32, reflect.Float64:
+		size = 8
+	case reflect.Bool:
+		size = 1
+	default:
+		size = 8 // Default size for unknown types
+	}
+
+	return size
 }
 
 // RecordError records an error metric.

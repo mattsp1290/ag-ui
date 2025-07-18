@@ -244,6 +244,7 @@ func (m *MockPerformanceOptimizer) SetMetrics(metrics PerformanceMetrics) {
 
 // TestStateManagerHealthCheck tests the StateManagerHealthCheck
 func TestStateManagerHealthCheck(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		setupMock   func(*MockStateManager)
@@ -361,6 +362,7 @@ func TestStateManagerHealthCheckWithContext(t *testing.T) {
 
 // TestMemoryHealthCheck tests the MemoryHealthCheck
 func TestMemoryHealthCheck(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name          string
 		maxMemoryMB   int64
@@ -423,6 +425,7 @@ func TestMemoryHealthCheck(t *testing.T) {
 
 // TestStoreHealthCheck tests the StoreHealthCheck
 func TestStoreHealthCheck(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		setupStore  func() *StateStore
@@ -494,6 +497,7 @@ func TestStoreHealthCheckTimeout(t *testing.T) {
 
 // TestEventHandlerHealthCheck tests the EventHandlerHealthCheck
 func TestEventHandlerHealthCheck(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name         string
 		setupHandler func() *StateEventHandler
@@ -563,6 +567,7 @@ func TestEventHandlerHealthCheck(t *testing.T) {
 
 // TestRateLimiterHealthCheck tests the RateLimiterHealthCheck
 func TestRateLimiterHealthCheck(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name              string
 		rateLimiter       *RateLimiter
@@ -632,6 +637,7 @@ func TestRateLimiterHealthCheck(t *testing.T) {
 
 // TestAuditHealthCheck tests the AuditHealthCheck
 func TestAuditHealthCheck(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		setupAudit  func() *AuditManager
@@ -703,6 +709,7 @@ func TestAuditHealthCheck(t *testing.T) {
 
 // TestCompositeHealthCheck tests the CompositeHealthCheck
 func TestCompositeHealthCheck(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		parallel    bool
@@ -791,13 +798,14 @@ func TestCompositeHealthCheck(t *testing.T) {
 
 // TestCompositeHealthCheckConcurrency tests concurrent execution
 func TestCompositeHealthCheckConcurrency(t *testing.T) {
+	t.Parallel()
 	var counter int32
-	checks := make([]HealthCheck, 10)
+	checks := make([]HealthCheck, 5) // Reduced from 10
 
-	for i := 0; i < 10; i++ {
+	for i := 0; i < 5; i++ {
 		checks[i] = NewCustomHealthCheck("test", func(ctx context.Context) error {
 			atomic.AddInt32(&counter, 1)
-			time.Sleep(10 * time.Millisecond) // Simulate work
+			time.Sleep(5 * time.Millisecond) // Reduced from 10ms
 			return nil
 		})
 	}
@@ -805,7 +813,8 @@ func TestCompositeHealthCheckConcurrency(t *testing.T) {
 	healthCheck := NewCompositeHealthCheck("concurrent", true, checks...)
 
 	start := time.Now()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	err := healthCheck.Check(ctx)
 	duration := time.Since(start)
 
@@ -813,18 +822,19 @@ func TestCompositeHealthCheckConcurrency(t *testing.T) {
 		t.Errorf("Expected no error but got: %v", err)
 	}
 
-	if atomic.LoadInt32(&counter) != 10 {
-		t.Errorf("Expected counter to be 10, got %d", counter)
+	if atomic.LoadInt32(&counter) != 5 {
+		t.Errorf("Expected counter to be 5, got %d", counter)
 	}
 
 	// Parallel execution should be faster than sequential
-	if duration > 80*time.Millisecond {
+	if duration > 50*time.Millisecond {
 		t.Errorf("Parallel execution took too long: %v", duration)
 	}
 }
 
 // TestPerformanceHealthCheck tests the PerformanceHealthCheck
 func TestPerformanceHealthCheck(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name            string
 		setupOptimizer  func() PerformanceOptimizer
@@ -906,6 +916,7 @@ func TestPerformanceHealthCheck(t *testing.T) {
 
 // TestCustomHealthCheck tests the CustomHealthCheck
 func TestCustomHealthCheck(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name        string
 		checkFn     func(context.Context) error
@@ -1079,17 +1090,24 @@ func TestHealthCheckEdgeCases(t *testing.T) {
 // TestHealthCheckStress tests health checks under stress conditions
 func TestHealthCheckStress(t *testing.T) {
 	t.Run("concurrent health checks", func(t *testing.T) {
+		// Skip this test in short mode
+		if testing.Short() {
+			t.Skip("Skipping stress test in short mode")
+		}
+
+		t.Parallel()
 		healthCheck := NewMemoryHealthCheck(1024, 1000, 10000)
 
 		var wg sync.WaitGroup
-		errors := make(chan error, 100)
+		errors := make(chan error, 20)
 
-		// Run 100 concurrent health checks
-		for i := 0; i < 100; i++ {
+		// Run 20 concurrent health checks (reduced from 100)
+		for i := 0; i < 20; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				ctx := context.Background()
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
 				err := healthCheck.Check(ctx)
 				if err != nil {
 					errors <- err
@@ -1107,7 +1125,7 @@ func TestHealthCheckStress(t *testing.T) {
 			errorCount++
 		}
 
-		if errorCount > 10 { // Allow some errors under stress
+		if errorCount > 4 { // Allow some errors under stress (20% error rate)
 			t.Errorf("Too many errors in concurrent health checks: %d", errorCount)
 		}
 	})

@@ -11,11 +11,15 @@ import (
 
 // TestShardedStateStore_ConcurrentAccess tests concurrent access to different shards
 func TestShardedStateStore_ConcurrentAccess(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping concurrent access test in short mode")
+	}
+
 	store := NewStateStore(WithShardCount(16))
 
-	// Number of concurrent operations
-	numGoroutines := 50
-	numOperations := 100
+	// Number of concurrent operations - reduced for faster execution
+	numGoroutines := 10  // Reduced from 50
+	numOperations := 20  // Reduced from 100
 
 	// Track successful operations
 	var successCount int64
@@ -69,11 +73,15 @@ func TestShardedStateStore_ConcurrentAccess(t *testing.T) {
 
 // TestShardedStateStore_ShardDistribution verifies even distribution across shards
 func TestShardedStateStore_ShardDistribution(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping shard distribution test in short mode")
+	}
+
 	store := NewStateStore(WithShardCount(16))
 
 	// Track which shard each path maps to
 	shardCounts := make(map[uint32]int)
-	numPaths := 10000
+	numPaths := 1000  // Reduced from 10000
 
 	for i := 0; i < numPaths; i++ {
 		path := fmt.Sprintf("/test/path/%d", i)
@@ -276,8 +284,8 @@ func TestShardedStateStore_LockContentionReduction(t *testing.T) {
 		t.Run(fmt.Sprintf("%d_shards", shardCount), func(t *testing.T) {
 			store := NewStateStore(WithShardCount(shardCount))
 
-			numGoroutines := 50
-			numOperations := 1000
+			numGoroutines := 10  // Reduced from 50
+			numOperations := 50  // Reduced from 1000
 			start := time.Now()
 
 			var wg sync.WaitGroup

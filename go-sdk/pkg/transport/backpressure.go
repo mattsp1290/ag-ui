@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 	
 	"github.com/ag-ui/go-sdk/pkg/core/events"
@@ -75,7 +76,7 @@ type BackpressureHandler struct {
 	stopChan        chan struct{}
 	ctx             context.Context
 	cancel          context.CancelFunc
-	stopped         bool
+	stopped         int32 // Use atomic int32 for thread-safe access
 }
 
 // NewBackpressureHandler creates a new backpressure handler
@@ -102,14 +103,12 @@ func NewBackpressureHandler(config BackpressureConfig) *BackpressureHandler {
 
 // SendEvent sends an event through the backpressure handler
 func (h *BackpressureHandler) SendEvent(event events.Event) error {
-	// Check if stopped
-	h.mu.RLock()
-	if h.stopped {
-		h.mu.RUnlock()
+	// Check if stopped using atomic operation to avoid TOCTOU race
+	if atomic.LoadInt32(&h.stopped) == 1 {
 		return ErrConnectionClosed
 	}
-	h.mu.RUnlock()
 	
+	// Update metrics if enabled
 	if h.config.EnableMetrics {
 		h.metrics.mu.Lock()
 		h.metrics.CurrentBufferSize = len(h.eventChan)
@@ -122,14 +121,26 @@ func (h *BackpressureHandler) SendEvent(event events.Event) error {
 	case BackpressureNone:
 		h.mu.Lock()
 		defer h.mu.Unlock()
+		// Double-check stopped state while holding lock
+		if atomic.LoadInt32(&h.stopped) == 1 {
+			return ErrConnectionClosed
+		}
 		return h.sendEventNone(event)
 	case BackpressureDropOldest:
 		h.mu.Lock()
 		defer h.mu.Unlock()
+		// Double-check stopped state while holding lock
+		if atomic.LoadInt32(&h.stopped) == 1 {
+			return ErrConnectionClosed
+		}
 		return h.sendEventDropOldest(event)
 	case BackpressureDropNewest:
 		h.mu.Lock()
 		defer h.mu.Unlock()
+		// Double-check stopped state while holding lock
+		if atomic.LoadInt32(&h.stopped) == 1 {
+			return ErrConnectionClosed
+		}
 		return h.sendEventDropNewest(event)
 	case BackpressureBlock:
 		// Don't hold lock for blocking operations
@@ -140,17 +151,31 @@ func (h *BackpressureHandler) SendEvent(event events.Event) error {
 	default:
 		h.mu.Lock()
 		defer h.mu.Unlock()
+		// Double-check stopped state while holding lock
+		if atomic.LoadInt32(&h.stopped) == 1 {
+			return ErrConnectionClosed
+		}
 		return h.sendEventNone(event)
 	}
 }
 
 // SendError sends an error through the backpressure handler
 func (h *BackpressureHandler) SendError(err error) error {
+	// Check if stopped using atomic operation
+	if atomic.LoadInt32(&h.stopped) == 1 {
+		return ErrConnectionClosed
+	}
+	
 	// Errors use the same backpressure strategy as events
 	select {
 	case h.errorChan <- err:
 		return nil
 	default:
+		// Check stopped state again before handling backpressure
+		if atomic.LoadInt32(&h.stopped) == 1 {
+			return ErrConnectionClosed
+		}
+		
 		if h.config.Strategy == BackpressureDropOldest || h.config.Strategy == BackpressureDropNewest {
 			// For drop strategies, just drop the error
 			if h.config.EnableMetrics {
@@ -191,19 +216,22 @@ func (h *BackpressureHandler) GetMetrics() BackpressureMetrics {
 
 // Stop stops the backpressure handler
 func (h *BackpressureHandler) Stop() {
+	// Use atomic compare-and-swap to ensure we only stop once
+	if !atomic.CompareAndSwapInt32(&h.stopped, 0, 1) {
+		// Already stopped
+		return
+	}
+	
 	// Cancel context first to signal all goroutines to stop
 	h.cancel()
 	
 	// Close stopChan to signal monitor goroutine
 	h.mu.Lock()
-	if !h.stopped {
-		h.stopped = true
-		select {
-		case <-h.stopChan:
-			// Already closed
-		default:
-			close(h.stopChan)
-		}
+	select {
+	case <-h.stopChan:
+		// Already closed
+	default:
+		close(h.stopChan)
 	}
 	h.mu.Unlock()
 	
@@ -263,6 +291,11 @@ func (h *BackpressureHandler) sendEventDropNewest(event events.Event) error {
 
 // sendEventBlock sends event and blocks if buffer is full
 func (h *BackpressureHandler) sendEventBlock(event events.Event) error {
+	// Check if stopped before any blocking operations
+	if atomic.LoadInt32(&h.stopped) == 1 {
+		return ErrConnectionClosed
+	}
+	
 	startTime := time.Now()
 	
 	select {
@@ -271,7 +304,12 @@ func (h *BackpressureHandler) sendEventBlock(event events.Event) error {
 	case <-h.ctx.Done():
 		return ErrBackpressureActive
 	default:
-		// Channel is full, block
+		// Channel is full, check stopped state again before blocking
+		if atomic.LoadInt32(&h.stopped) == 1 {
+			return ErrConnectionClosed
+		}
+		
+		// Update metrics before blocking
 		if h.config.EnableMetrics {
 			h.metrics.mu.Lock()
 			h.metrics.EventsBlocked++
@@ -295,6 +333,11 @@ func (h *BackpressureHandler) sendEventBlock(event events.Event) error {
 
 // sendEventBlockTimeout sends event and blocks with timeout if buffer is full
 func (h *BackpressureHandler) sendEventBlockTimeout(event events.Event) error {
+	// Check if stopped before any blocking operations
+	if atomic.LoadInt32(&h.stopped) == 1 {
+		return ErrConnectionClosed
+	}
+	
 	startTime := time.Now()
 	
 	select {
@@ -303,7 +346,12 @@ func (h *BackpressureHandler) sendEventBlockTimeout(event events.Event) error {
 	case <-h.ctx.Done():
 		return ErrBackpressureActive
 	default:
-		// Channel is full, block with timeout
+		// Channel is full, check stopped state again before blocking
+		if atomic.LoadInt32(&h.stopped) == 1 {
+			return ErrConnectionClosed
+		}
+		
+		// Update metrics before blocking
 		if h.config.EnableMetrics {
 			h.metrics.mu.Lock()
 			h.metrics.EventsBlocked++
@@ -349,7 +397,12 @@ func (h *BackpressureHandler) monitorBackpressure() {
 
 // checkBackpressureConditions checks if backpressure conditions are met
 func (h *BackpressureHandler) checkBackpressureConditions() {
-	// Quick check if we're stopped
+	// Quick check if we're stopped using atomic operation
+	if atomic.LoadInt32(&h.stopped) == 1 {
+		return
+	}
+	
+	// Quick check if context is done
 	select {
 	case <-h.ctx.Done():
 		return
@@ -366,8 +419,15 @@ func (h *BackpressureHandler) checkBackpressureConditions() {
 	
 	fillPercentage := float64(currentSize) / float64(maxSize)
 	
-	// Update metrics
+	// Update metrics with additional stopped check
 	h.metrics.mu.Lock()
+	defer h.metrics.mu.Unlock()
+	
+	// Double-check stopped state while holding metrics lock
+	if atomic.LoadInt32(&h.stopped) == 1 {
+		return
+	}
+	
 	h.metrics.CurrentBufferSize = currentSize
 	
 	// Check high water mark
@@ -381,5 +441,4 @@ func (h *BackpressureHandler) checkBackpressureConditions() {
 		h.metrics.BackpressureActive = false
 		h.metrics.LowWaterMarkHits++
 	}
-	h.metrics.mu.Unlock()
 }

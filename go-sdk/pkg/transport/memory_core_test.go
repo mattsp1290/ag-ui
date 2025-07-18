@@ -69,6 +69,7 @@ func TestCleanupManagerCore(t *testing.T) {
 	config := &CleanupManagerConfig{
 		DefaultTTL:    100 * time.Millisecond,
 		CheckInterval: 50 * time.Millisecond,
+		Logger:        nil, // Test with nil logger to ensure nil checks work
 	}
 
 	cm := NewCleanupManager(config)

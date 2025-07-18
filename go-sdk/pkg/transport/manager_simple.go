@@ -445,10 +445,23 @@ func (m *SimpleManager) receiveEvents() {
 					validator := m.validator
 					m.mu.RUnlock()
 					
-					// Validation is temporarily disabled due to interface compatibility issues
-					// TODO: Implement proper validation with events.Event interface
+					// Validate incoming event if validation is enabled
 					if validationEnabled && validator != nil {
-						// Event validation is disabled for now
+						// First, use the event's built-in validation
+						if err := event.Validate(); err != nil {
+							// Log validation error but continue processing to avoid blocking the pipeline
+							// The backpressure handler will handle the event, and we can log metrics
+							// In production, you might want to increment validation error metrics here
+							// Note: Continue processing - middleware should not block pipeline
+						} else {
+							// Additionally, use the events package validator for comprehensive validation
+							ctx := context.Background()
+							if err := events.ValidateEventWithContext(ctx, event); err != nil {
+								// Log validation error but continue processing
+								// In production, you might want to increment validation error metrics here
+								// Note: Continue processing - middleware should not block pipeline
+							}
+						}
 					}
 					
 					// Use backpressure handler to send event
@@ -484,13 +497,21 @@ func (m *SimpleManager) receiveEvents() {
 					return
 				}
 			} else {
-				// Wait for transport to be ready
+				// Wait for transport to be ready with a timeout to prevent indefinite blocking
+				waitCtx, waitCancel := context.WithTimeout(context.Background(), 30*time.Second)
 				select {
 				case <-m.transportReady:
 					// Transport is ready, continue to process events
+					waitCancel()
+				case <-waitCtx.Done():
+					// Timeout waiting for transport, continue to retry
+					waitCancel()
+					time.Sleep(100 * time.Millisecond)
 				case <-m.stopChan:
+					waitCancel()
 					return
 				case <-transportStopChan:
+					waitCancel()
 					return
 				}
 			}

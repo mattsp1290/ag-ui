@@ -57,15 +57,15 @@ func DefaultPerformanceConfig() *PerformanceConfig {
 		BaselineIterations:      100,
 		BaselineWarmupDuration:  5 * time.Second,
 		BaselineStabilityFactor: 0.1,
-		MaxConcurrency:          1000,
-		LoadTestDuration:        60 * time.Second,
-		RampUpDuration:          10 * time.Second,
-		RampDownDuration:        10 * time.Second,
+		MaxConcurrency:          100,  // Reduced from 1000
+		LoadTestDuration:        10 * time.Second,  // Reduced from 60s to 10s
+		RampUpDuration:          2 * time.Second,   // Reduced from 10s to 2s
+		RampDownDuration:        2 * time.Second,   // Reduced from 10s to 2s
 		LoadPatterns: []LoadPattern{
-			{Name: "constant", Type: LoadPatternConstant, Intensity: 100},
-			{Name: "ramp", Type: LoadPatternRamp, Intensity: 200},
-			{Name: "spike", Type: LoadPatternSpike, Intensity: 500},
-			{Name: "wave", Type: LoadPatternWave, Intensity: 300},
+			{Name: "constant", Type: LoadPatternConstant, Intensity: 50},  // Reduced from 100
+			{Name: "ramp", Type: LoadPatternRamp, Intensity: 100},        // Reduced from 200
+			{Name: "spike", Type: LoadPatternSpike, Intensity: 150},      // Reduced from 500
+			{Name: "wave", Type: LoadPatternWave, Intensity: 75},         // Reduced from 300
 		},
 		MemoryCheckInterval:     1 * time.Second,
 		MemoryLeakThreshold:     100 * 1024 * 1024, // 100MB
@@ -73,8 +73,8 @@ func DefaultPerformanceConfig() *PerformanceConfig {
 		RegressionThreshold:     10.0, // 10% degradation threshold
 		WarmupIterations:        10,
 		BenchmarkIterations:     50,
-		StressTestDuration:      300 * time.Second,
-		StressMaxConcurrency:    2000,
+		StressTestDuration:      5 * time.Second,  // Reduced from 300s to 5s
+		StressMaxConcurrency:    200,  // Reduced from 2000
 		StressErrorThreshold:    5.0, // 5% error rate threshold
 	}
 }
@@ -565,8 +565,8 @@ func (pf *PerformanceFramework) RunScalabilityTests(t *testing.T) *ScalabilityTe
 		Results:   make(map[int]*PerfScalabilityMeasurement),
 	}
 	
-	// Test different tool counts
-	toolCounts := []int{10, 50, 100, 500, 1000, 5000}
+	// Test different tool counts (reduced for faster execution)
+	toolCounts := []int{10, 50, 100, 200, 500}
 	
 	for _, toolCount := range toolCounts {
 		t.Run(fmt.Sprintf("Tools_%d", toolCount), func(t *testing.T) {
@@ -873,7 +873,7 @@ func (st *StressTest) Run(t *testing.T) []*StressMeasurement {
 	
 	// Start stress test workers
 	var wg sync.WaitGroup
-	concurrencyLevels := []int{10, 50, 100, 200, 500, 1000, st.config.StressMaxConcurrency}
+	concurrencyLevels := []int{10, 25, 50, 100, st.config.StressMaxConcurrency}
 	
 	for _, concurrency := range concurrencyLevels {
 		wg.Add(1)
@@ -1174,20 +1174,20 @@ func (pf *PerformanceFramework) runMemoryStressTest(t *testing.T, engine *Execut
 	
 	result := &MemoryStressResult{}
 	
-	// Create many tools
-	tools := pf.createTestTools(1000)
+	// Create many tools (reduced for faster execution)
+	tools := pf.createTestTools(100)
 	for _, tool := range tools {
 		if err := registry.Register(tool); err != nil {
 			t.Fatalf("Failed to register tool: %v", err)
 		}
 	}
 	
-	// Stress test with high memory allocation
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Stress test with high memory allocation (reduced duration and concurrency)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	
 	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()

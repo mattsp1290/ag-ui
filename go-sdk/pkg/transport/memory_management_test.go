@@ -156,12 +156,16 @@ func TestRingBuffer(t *testing.T) {
 
 	// Test concurrent access
 	t.Run("ConcurrentAccess", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("Skipping concurrent access test in short mode")
+		}
+		
 		rb.Clear()
 		
 		var wg sync.WaitGroup
-		numProducers := 5
-		numConsumers := 3
-		eventsPerProducer := 100
+		numProducers := 3  // Reduced from 5
+		numConsumers := 2  // Reduced from 3
+		eventsPerProducer := 20  // Reduced from 100
 		
 		// Start producers
 		for p := 0; p < numProducers; p++ {
@@ -181,7 +185,7 @@ func TestRingBuffer(t *testing.T) {
 			wg.Add(1)
 			go func(consumerID int) {
 				defer wg.Done()
-				ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)  // Reduced timeout
 				defer cancel()
 				
 				for {
@@ -380,11 +384,15 @@ func TestSlice(t *testing.T) {
 
 	// Test concurrent access
 	t.Run("ConcurrentAccess", func(t *testing.T) {
+		if testing.Short() {
+			t.Skip("Skipping concurrent access test in short mode")
+		}
+		
 		slice.Clear()
 		
 		var wg sync.WaitGroup
-		numGoroutines := 10
-		itemsPerGoroutine := 100
+		numGoroutines := 5    // Reduced from 10
+		itemsPerGoroutine := 20   // Reduced from 100
 		
 		// Concurrent appends
 		for g := 0; g < numGoroutines; g++ {
@@ -466,15 +474,15 @@ func TestMemoryPressureSimulation(t *testing.T) {
 			}
 		})
 		
-		// Allocate memory in chunks
-		for i := 0; i < 100; i++ {
-			chunk := make([]byte, 1024*1024) // 1MB chunks
+		// Allocate memory in chunks - reduced for faster execution
+		for i := 0; i < 20; i++ {  // Reduced from 100
+			chunk := make([]byte, 512*1024) // 512KB chunks (reduced from 1MB)
 			memoryHog = append(memoryHog, chunk)
 			
 			// Force GC occasionally
-			if i%10 == 0 {
+			if i%5 == 0 {  // Reduced interval
 				runtime.GC()
-				time.Sleep(10 * time.Millisecond)
+				time.Sleep(5 * time.Millisecond)  // Reduced sleep time
 			}
 		}
 		

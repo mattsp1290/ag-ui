@@ -396,6 +396,9 @@ func (p *ConnectionPool) SetMessageHandler(handler func(data []byte)) {
 
 // createConnection creates a new connection and adds it to the pool
 func (p *ConnectionPool) createConnection(ctx context.Context) error {
+	// Create a timeout context for connection creation
+	connectCtx, cancel := context.WithTimeout(ctx, p.config.ConnectionTimeout)
+	defer cancel()
 	// Select URL using round-robin
 	urlIndex := int(atomic.AddInt64(&p.roundRobinIndex, 1)-1) % len(p.config.URLs)
 	url := p.config.URLs[urlIndex]
@@ -444,10 +447,7 @@ func (p *ConnectionPool) createConnection(ctx context.Context) error {
 		conn.SetOnMessage(messageHandler)
 	}
 
-	// Connect with timeout
-	connectCtx, cancel := context.WithTimeout(ctx, p.config.ConnectionTimeout)
-	defer cancel()
-
+	// Use the already created timeout context for connection
 	if err := conn.Connect(connectCtx); err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
 	}

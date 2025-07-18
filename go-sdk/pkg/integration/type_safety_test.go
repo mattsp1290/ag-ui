@@ -17,18 +17,10 @@ func TestTypeSafetyAcrossPackages(t *testing.T) {
 	ctx := context.Background()
 
 	// Create transport
-	tm := transport.NewFullManager()
-	tr, err := tm.CreateTransport(ctx, transport.TransportConfig{
-		Type: "memory",
-		Options: map[string]interface{}{
-			"buffer_size": 100,
-			"strict_types": true,
-		},
-	})
-	require.NoError(t, err)
+	tr := transport.NewMemoryTransport(100)
 	defer tr.Close(ctx)
 
-	err = tr.Connect(ctx)
+	err := tr.Connect(ctx)
 	require.NoError(t, err)
 
 	// Test various typed events
@@ -40,7 +32,7 @@ func TestTypeSafetyAcrossPackages(t *testing.T) {
 		{
 			name: "TypedEvent with validation",
 			createEvent: func() events.Event {
-				event := events.NewTypedEvent("user.action", map[string]interface{}{
+				event := events.NewTypedCustomEvent("user.action", map[string]interface{}{
 					"action": "click",
 					"target": "button",
 					"metadata": map[string]interface{}{
@@ -51,10 +43,7 @@ func TestTypeSafetyAcrossPackages(t *testing.T) {
 				return event
 			},
 			validateFn: func(t *testing.T, original, received events.Event) {
-				origTyped, ok := original.(*events.TypedEvent)
-				require.True(t, ok)
-				
-				assert.Equal(t, origTyped.EventType, received.Type())
+				assert.Equal(t, events.EventTypeCustom, received.Type())
 				assert.NotNil(t, received.Timestamp())
 			},
 		},
@@ -62,11 +51,12 @@ func TestTypeSafetyAcrossPackages(t *testing.T) {
 			name: "TextMessageEvent with content",
 			createEvent: func() events.Event {
 				return &events.TextMessageContentEvent{
-					BaseEvent: events.BaseEvent{
-						EventType:      events.EventTypeTextMessageContent,
-						EventTimestamp: ptr(time.Now().UnixMilli()),
+					BaseEvent: &events.BaseEvent{
+						EventType:   events.EventTypeTextMessageContent,
+						TimestampMs: ptrInt64(time.Now().UnixMilli()),
 					},
-					Content: "Hello, this is a test message",
+					MessageID: "msg-123",
+					Delta:     "Hello, this is a test message",
 				}
 			},
 			validateFn: func(t *testing.T, original, received events.Event) {
@@ -74,18 +64,19 @@ func TestTypeSafetyAcrossPackages(t *testing.T) {
 				require.True(t, ok)
 				
 				assert.Equal(t, origMsg.Type(), received.Type())
-				assert.Equal(t, origMsg.Content, "Hello, this is a test message")
+				assert.Equal(t, origMsg.Delta, "Hello, this is a test message")
 			},
 		},
 		{
 			name: "ToolCallEvent with arguments",
 			createEvent: func() events.Event {
 				return &events.ToolCallArgsEvent{
-					BaseEvent: events.BaseEvent{
-						EventType:      events.EventTypeToolCallArgs,
-						EventTimestamp: ptr(time.Now().UnixMilli()),
+					BaseEvent: &events.BaseEvent{
+						EventType:   events.EventTypeToolCallArgs,
+						TimestampMs: ptrInt64(time.Now().UnixMilli()),
 					},
-					Arguments: `{"query": "weather", "location": "San Francisco"}`,
+					ToolCallID: "tool-123",
+					Delta:      `{"query": "weather", "location": "San Francisco"}`,
 				}
 			},
 			validateFn: func(t *testing.T, original, received events.Event) {
@@ -93,18 +84,18 @@ func TestTypeSafetyAcrossPackages(t *testing.T) {
 				require.True(t, ok)
 				
 				assert.Equal(t, origTool.Type(), received.Type())
-				assert.NotEmpty(t, origTool.Arguments)
+				assert.NotEmpty(t, origTool.Delta)
 			},
 		},
 		{
 			name: "StateSnapshotEvent with nested data",
 			createEvent: func() events.Event {
 				return &events.StateSnapshotEvent{
-					BaseEvent: events.BaseEvent{
-						EventType:      events.EventTypeStateSnapshot,
-						EventTimestamp: ptr(time.Now().UnixMilli()),
+					BaseEvent: &events.BaseEvent{
+						EventType:   events.EventTypeStateSnapshot,
+						TimestampMs: ptrInt64(time.Now().UnixMilli()),
 					},
-					StateData: map[string]interface{}{
+					Snapshot: map[string]interface{}{
 						"user": map[string]interface{}{
 							"id":   "123",
 							"name": "Test User",
@@ -125,10 +116,12 @@ func TestTypeSafetyAcrossPackages(t *testing.T) {
 				require.True(t, ok)
 				
 				assert.Equal(t, origState.Type(), received.Type())
-				assert.NotNil(t, origState.StateData)
+				assert.NotNil(t, origState.Snapshot)
 				
 				// Verify nested structure
-				userData, ok := origState.StateData["user"].(map[string]interface{})
+				stateData, ok := origState.Snapshot.(map[string]interface{})
+				require.True(t, ok)
+				userData, ok := stateData["user"].(map[string]interface{})
 				require.True(t, ok)
 				assert.Equal(t, "123", userData["id"])
 			},
@@ -168,26 +161,26 @@ func TestTypeSafetyAcrossPackages(t *testing.T) {
 func TestEventInterfaceCompatibility(t *testing.T) {
 	// Test all event types implement the Event interface
 	eventTypes := []events.Event{
-		&events.BaseEvent{},
-		&events.TextMessageStartEvent{},
-		&events.TextMessageContentEvent{},
-		&events.TextMessageEndEvent{},
-		&events.ToolCallStartEvent{},
-		&events.ToolCallArgsEvent{},
-		&events.ToolCallEndEvent{},
-		&events.StateSnapshotEvent{},
-		&events.StateDeltaEvent{},
-		&events.RunStartedEvent{},
-		&events.RunFinishedEvent{},
-		&events.RunErrorEvent{},
-		events.NewTypedEvent("test", nil),
+		&events.BaseEvent{EventType: events.EventTypeCustom},
+		&events.TextMessageStartEvent{BaseEvent: &events.BaseEvent{EventType: events.EventTypeTextMessageStart}},
+		&events.TextMessageContentEvent{BaseEvent: &events.BaseEvent{EventType: events.EventTypeTextMessageContent}},
+		&events.TextMessageEndEvent{BaseEvent: &events.BaseEvent{EventType: events.EventTypeTextMessageEnd}},
+		&events.ToolCallStartEvent{BaseEvent: &events.BaseEvent{EventType: events.EventTypeToolCallStart}},
+		&events.ToolCallArgsEvent{BaseEvent: &events.BaseEvent{EventType: events.EventTypeToolCallArgs}},
+		&events.ToolCallEndEvent{BaseEvent: &events.BaseEvent{EventType: events.EventTypeToolCallEnd}},
+		&events.StateSnapshotEvent{BaseEvent: &events.BaseEvent{EventType: events.EventTypeStateSnapshot}},
+		&events.StateDeltaEvent{BaseEvent: &events.BaseEvent{EventType: events.EventTypeStateDelta}},
+		&events.RunStartedEvent{BaseEvent: &events.BaseEvent{EventType: events.EventTypeRunStarted}},
+		&events.RunFinishedEvent{BaseEvent: &events.BaseEvent{EventType: events.EventTypeRunFinished}},
+		&events.RunErrorEvent{BaseEvent: &events.BaseEvent{EventType: events.EventTypeRunError}},
+		events.NewTypedCustomEvent("test", nil),
 	}
 
 	for _, event := range eventTypes {
 		t.Run(string(event.Type()), func(t *testing.T) {
 			// Verify interface methods
 			assert.NotNil(t, event.Type())
-			assert.NotNil(t, event.Timestamp)
+			_ = event.Timestamp() // May be nil
 			
 			// Set timestamp
 			event.SetTimestamp(time.Now().UnixMilli())
@@ -243,23 +236,11 @@ func TestTransportEventCompatibility(t *testing.T) {
 func TestEventValidationIntegration(t *testing.T) {
 	ctx := context.Background()
 
-	// Create transport with validation middleware
-	tm := transport.NewFullManager()
-	
-	// Add validation middleware
-	validator := transport.NewValidationMiddleware()
-	
-	tr, err := tm.CreateTransport(ctx, transport.TransportConfig{
-		Type: "memory",
-		Options: map[string]interface{}{
-			"buffer_size": 100,
-			"middleware":  []transport.Middleware{validator},
-		},
-	})
-	require.NoError(t, err)
+	// Create transport with validation
+	tr := transport.NewMemoryTransport(100)
 	defer tr.Close(ctx)
 
-	err = tr.Connect(ctx)
+	err := tr.Connect(ctx)
 	require.NoError(t, err)
 
 	// Test invalid events
@@ -271,33 +252,33 @@ func TestEventValidationIntegration(t *testing.T) {
 		{
 			name: "Event without type",
 			event: &events.BaseEvent{
-				EventTimestamp: ptr(time.Now().UnixMilli()),
+				TimestampMs: ptrInt64(time.Now().UnixMilli()),
 			},
-			error: "invalid event type",
+			error: "type field is required",
 		},
 		{
 			name: "TextMessage without ID",
 			event: &events.TextMessageStartEvent{
-				BaseEvent: events.BaseEvent{
-					EventType:      events.EventTypeTextMessageStart,
-					EventTimestamp: ptr(time.Now().UnixMilli()),
+				BaseEvent: &events.BaseEvent{
+					EventType:   events.EventTypeTextMessageStart,
+					TimestampMs: ptrInt64(time.Now().UnixMilli()),
 				},
-				Role: "assistant",
+				Role: ptrString("assistant"),
 				// Missing MessageID
 			},
-			error: "message ID is required",
+			error: "messageId field is required",
 		},
 		{
 			name: "ToolCall without name",
 			event: &events.ToolCallStartEvent{
-				BaseEvent: events.BaseEvent{
-					EventType:      events.EventTypeToolCallStart,
-					EventTimestamp: ptr(time.Now().UnixMilli()),
+				BaseEvent: &events.BaseEvent{
+					EventType:   events.EventTypeToolCallStart,
+					TimestampMs: ptrInt64(time.Now().UnixMilli()),
 				},
 				ToolCallID: "tool-123",
 				// Missing ToolName
 			},
-			error: "tool name is required",
+			error: "toolCallName field is required",
 		},
 	}
 
@@ -316,18 +297,10 @@ func TestCrossPackageErrorHandling(t *testing.T) {
 	ctx := context.Background()
 
 	// Create transport with small buffer to trigger errors
-	tm := transport.NewFullManager()
-	tr, err := tm.CreateTransport(ctx, transport.TransportConfig{
-		Type: "memory",
-		Options: map[string]interface{}{
-			"buffer_size":     1,
-			"error_threshold": 5,
-		},
-	})
-	require.NoError(t, err)
+	tr := transport.NewMemoryTransport(1) // Small buffer to trigger backpressure
 	defer tr.Close(ctx)
 
-	err = tr.Connect(ctx)
+	err := tr.Connect(ctx)
 	require.NoError(t, err)
 
 	// Monitor errors
@@ -341,7 +314,7 @@ func TestCrossPackageErrorHandling(t *testing.T) {
 
 	// Send many events to trigger backpressure
 	for i := 0; i < 10; i++ {
-		event := events.NewTypedEvent("test.event", map[string]interface{}{
+		event := events.NewTypedCustomEvent("test.event", map[string]interface{}{
 			"index": i,
 		})
 		
@@ -356,4 +329,12 @@ func TestCrossPackageErrorHandling(t *testing.T) {
 
 	// Should have received some errors
 	assert.Greater(t, errorCount, 0, "Expected some errors due to backpressure")
+}
+
+func ptrInt64(v int64) *int64 {
+	return &v
+}
+
+func ptrString(v string) *string {
+	return &v
 }

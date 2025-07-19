@@ -1654,6 +1654,7 @@ func (p *PersistentStateStore) persistenceWorker() {
 		case op := <-p.syncChannel:
 			var err error
 			ctx, cancel := context.WithTimeout(p.ctx, p.config.WriteTimeout)
+			defer cancel()
 
 			switch op.Type {
 			case "state":
@@ -1677,8 +1678,6 @@ func (p *PersistentStateStore) persistenceWorker() {
 					err = fmt.Errorf("invalid version data type")
 				}
 			}
-
-			cancel()
 
 			if err != nil {
 				p.logger.Error("async persistence failed",
@@ -1730,6 +1729,11 @@ func (p *PersistentStateStore) Close() error {
 
 	// Wait for workers to finish
 	p.wg.Wait()
+
+	// Close the underlying state store
+	if p.StateStore != nil {
+		p.StateStore.Close()
+	}
 
 	// Close storage backend
 	if err := p.backend.Close(); err != nil {

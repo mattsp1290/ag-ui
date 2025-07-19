@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -34,16 +35,19 @@ func (c *MockCalculatorExecutor) Execute(ctx context.Context, params map[string]
 		}, nil
 	}
 
-	operand2, ok := params["operand2"].(float64)
-	if !ok {
-		return &tools.ToolExecutionResult{
-			Success: false,
-			Error:   "operand2 must be a number",
-		}, nil
+	// operand2 is not required for sqrt operation
+	var operand2 float64
+	if operation != "sqrt" {
+		operand2, ok = params["operand2"].(float64)
+		if !ok {
+			return &tools.ToolExecutionResult{
+				Success: false,
+				Error:   "operand2 must be a number",
+			}, nil
+		}
 	}
 
 	var result float64
-	var err error
 
 	switch operation {
 	case "add":
@@ -683,7 +687,7 @@ func BenchmarkCalculatorTool_Operations(b *testing.B) {
 }
 
 // Example test showing how to use the calculator tool
-func ExampleCalculatorTool_BasicUsage() {
+func Example_calculatorBasicUsage() {
 	tool := createCalculatorTool()
 	ctx := context.Background()
 
@@ -700,9 +704,9 @@ func ExampleCalculatorTool_BasicUsage() {
 	}
 
 	if result.Success {
-		println("Result:", result.Data.(float64))
+		fmt.Printf("Result: %.0f\n", result.Data.(float64))
 	} else {
-		println("Error:", result.Error)
+		fmt.Println("Error:", result.Error)
 	}
 
 	// Output: Result: 8

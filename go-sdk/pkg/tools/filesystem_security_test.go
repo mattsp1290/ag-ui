@@ -620,17 +620,17 @@ func testCaseSensitivity(t *testing.T) {
 		{
 			name:     "Lowercase",
 			path:     filepath.Join(tempDir, "testfile.txt"),
-			expected: runtime.GOOS == "windows", // Windows is case-insensitive
+			expected: runtime.GOOS == "windows" || runtime.GOOS == "darwin", // Windows and macOS are case-insensitive
 		},
 		{
 			name:     "Uppercase",
 			path:     filepath.Join(tempDir, "TESTFILE.TXT"),
-			expected: runtime.GOOS == "windows",
+			expected: runtime.GOOS == "windows" || runtime.GOOS == "darwin",
 		},
 		{
 			name:     "Mixed case",
 			path:     filepath.Join(tempDir, "tEsTfIlE.TxT"),
-			expected: runtime.GOOS == "windows",
+			expected: runtime.GOOS == "windows" || runtime.GOOS == "darwin",
 		},
 	}
 

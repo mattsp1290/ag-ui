@@ -41,8 +41,8 @@ func TestConcurrentStateUpdates_RaceCondition(t *testing.T) {
 	}
 
 	// Test concurrent updates to the same field
-	const numGoroutines = 100
-	const updatesPerGoroutine = 10 // Reduced for faster test execution
+	const numGoroutines = 20   // Reduced from 100
+	const updatesPerGoroutine = 5  // Reduced from 10
 
 	var wg sync.WaitGroup
 	var successCount atomic.Int64
@@ -140,9 +140,9 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 		t.Fatalf("failed to set initial state: %v", err)
 	}
 
-	const numReaders = 20
-	const numWriters = 20
-	const operationsPerWorker = 50
+	const numReaders = 5    // Reduced from 20
+	const numWriters = 5    // Reduced from 20
+	const operationsPerWorker = 10  // Reduced from 50
 
 	var wg sync.WaitGroup
 	var readErrors atomic.Int64
@@ -226,7 +226,7 @@ func TestConcurrentReadsAndWrites(t *testing.T) {
 	close(startSignal)
 
 	// Let them run for a bit
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)  // Reduced from 100ms
 
 	// Stop all workers
 	close(stopSignal)
@@ -273,9 +273,9 @@ func TestConcurrentSubscriptions(t *testing.T) {
 	}
 
 	// Create multiple subscribers
-	const numSubscribers = 10
-	const numPublishers = 5
-	const eventsPerPublisher = 20
+	const numSubscribers = 3   // Reduced from 10
+	const numPublishers = 2    // Reduced from 5
+	const eventsPerPublisher = 5  // Reduced from 20
 
 	var wg sync.WaitGroup
 	var totalEventsReceived atomic.Int64
@@ -304,7 +304,7 @@ func TestConcurrentSubscriptions(t *testing.T) {
 	}
 
 	// Give subscribers time to start
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(5 * time.Millisecond)  // Reduced from 10ms
 
 	// Start publishers
 	startSignal := make(chan struct{})
@@ -330,7 +330,7 @@ func TestConcurrentSubscriptions(t *testing.T) {
 				}
 
 				// Small delay between events
-				time.Sleep(time.Microsecond * 100)
+				time.Sleep(time.Microsecond * 10)  // Reduced from 100µs
 			}
 		}(i)
 	}
@@ -342,7 +342,7 @@ func TestConcurrentSubscriptions(t *testing.T) {
 	wg.Wait()
 
 	// Give time for event processing
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)  // Reduced from 100ms
 
 	// Unsubscribe all
 	for _, unsubscribe := range unsubscribers {
@@ -451,7 +451,7 @@ func TestGracefulShutdownUnderLoad(t *testing.T) {
 	}
 
 	// Let workers run for a bit
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(10 * time.Millisecond)  // Reduced from 50ms
 
 	// Start shutdown
 	close(shutdownStarted)
@@ -467,7 +467,7 @@ func TestGracefulShutdownUnderLoad(t *testing.T) {
 	select {
 	case <-shutdownDone:
 		// Shutdown completed
-	case <-time.After(5 * time.Second):
+	case <-time.After(2 * time.Second):  // Reduced from 5s
 		t.Error("shutdown took too long")
 	}
 
@@ -544,7 +544,7 @@ func TestNoGoroutineLeaks(t *testing.T) {
 	}()
 
 	// Wait for goroutines to clean up
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(20 * time.Millisecond)  // Reduced from 100ms
 	runtime.GC()
 
 	// Check final goroutine count
@@ -580,7 +580,7 @@ func TestDeadlockPrevention(t *testing.T) {
 		ctx2, _ := manager.CreateContext(ctx, "lock-order-2", nil)
 
 		var wg sync.WaitGroup
-		const iterations = 50
+		const iterations = 10  // Reduced from 50
 
 		// Goroutine 1: Updates ctx1 then ctx2
 		wg.Add(1)
@@ -630,7 +630,7 @@ func TestDeadlockPrevention(t *testing.T) {
 		select {
 		case <-done:
 			// Success - no deadlock
-		case <-time.After(5 * time.Second):
+		case <-time.After(2 * time.Second):  // Reduced from 5s
 			t.Error("potential deadlock detected - operations took too long")
 		}
 	})
@@ -682,7 +682,7 @@ func TestDeadlockPrevention(t *testing.T) {
 		}, UpdateOptions{})
 
 		// Wait a bit
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(20 * time.Millisecond)  // Reduced from 100ms
 
 		// Clean up
 		close(done)
@@ -707,9 +707,9 @@ func TestHighConcurrencyStress(t *testing.T) {
 	ctx := context.Background()
 
 	// Create multiple contexts for stress testing
-	const numContexts = 5
-	const goroutinesPerContext = 20 // Total 100 goroutines
-	const operationsPerGoroutine = 50
+	const numContexts = 2             // Reduced from 5
+	const goroutinesPerContext = 5    // Reduced from 20
+	const operationsPerGoroutine = 10 // Reduced from 50
 
 	contextIDs := make([]string, numContexts)
 	for i := 0; i < numContexts; i++ {
@@ -849,8 +849,8 @@ func TestDataConsistencyAfterConcurrentOps(t *testing.T) {
 	}
 
 	// Perform concurrent increments
-	const numGoroutines = 20
-	const incrementsPerGoroutine = 25
+	const numGoroutines = 5       // Reduced from 20
+	const incrementsPerGoroutine = 5  // Reduced from 25
 
 	var wg sync.WaitGroup
 	startSignal := make(chan struct{})

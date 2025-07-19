@@ -241,7 +241,9 @@ func TestStateManager_ChaosEngineering(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
-	defer manager.Close()
+	t.Cleanup(func() {
+		manager.Close()
+	})
 
 	// Wrap store with chaos (in a real implementation this would use dependency injection)
 	baseStore := manager.store
@@ -384,7 +386,9 @@ func TestStateManager_NetworkPartition(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
-	defer manager.Close()
+	t.Cleanup(func() {
+		manager.Close()
+	})
 
 	// Create partitioned event handler (in a real implementation this would use dependency injection)
 	baseHandler := manager.eventHandler
@@ -586,8 +590,8 @@ func TestStateManager_StorageFailureScenarios(t *testing.T) {
 						}
 
 						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+						defer cancel()
 						_, err := manager.UpdateState(ctx, contextID, "scenario_test", updates, UpdateOptions{})
-						cancel()
 
 						if err != nil {
 							atomic.AddInt32(&errorCount, 1)
@@ -641,7 +645,9 @@ func TestStateManager_MemoryPressure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
-	defer manager.Close()
+	t.Cleanup(func() {
+		manager.Close()
+	})
 
 	ctx := context.Background()
 
@@ -717,7 +723,9 @@ func TestStateManager_ChaoticWorkload(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
-	defer manager.Close()
+	t.Cleanup(func() {
+		manager.Close()
+	})
 
 	// Wrap store with chaos (in a real implementation this would use dependency injection)
 	chaosStore := NewChaosStore(manager.store, storeChaos)
@@ -823,8 +831,8 @@ func TestStateManager_ChaoticWorkload(t *testing.T) {
 					}
 
 					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					defer cancel()
 					_, err := manager.UpdateState(ctx, contextID, stateID, updates, UpdateOptions{})
-					cancel()
 
 					if err != nil {
 						switch {
@@ -842,8 +850,8 @@ func TestStateManager_ChaoticWorkload(t *testing.T) {
 				case 2: // Read
 					stateID := fmt.Sprintf("state_%d", rand.Intn(numStates))
 					ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+					defer cancel()
 					_, err := manager.GetState(ctx, contextID, stateID)
-					cancel()
 
 					if err == nil {
 						atomic.AddInt32(&successfulOps, 1)
@@ -852,8 +860,8 @@ func TestStateManager_ChaoticWorkload(t *testing.T) {
 				case 3: // Checkpoint
 					stateID := fmt.Sprintf("state_%d", rand.Intn(numStates))
 					ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+					defer cancel()
 					_, err := manager.CreateCheckpoint(ctx, stateID, fmt.Sprintf("checkpoint_%d_%d", userID, opCount))
-					cancel()
 
 					if err == nil {
 						atomic.AddInt32(&successfulOps, 1)
@@ -863,8 +871,8 @@ func TestStateManager_ChaoticWorkload(t *testing.T) {
 					if rand.Float64() < 0.1 {
 						stateID := fmt.Sprintf("state_%d", rand.Intn(numStates))
 						ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+						defer cancel()
 						err := manager.Rollback(ctx, stateID, fmt.Sprintf("checkpoint_%d_%d", userID, rand.Intn(opCount+1)))
-						cancel()
 
 						if err == nil {
 							atomic.AddInt32(&successfulOps, 1)

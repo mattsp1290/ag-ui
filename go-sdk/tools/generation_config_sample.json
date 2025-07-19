@@ -1,0 +1,550 @@
+{
+  "typed_structs": [
+    {
+      "name": "TransportConfig",
+      "description": "configuration for transport layer",
+      "fields": [
+        {
+          "name": "ID",
+          "type": "string",
+          "tags": "`json:\"id\" yaml:\"id\"`",
+          "description": "unique transport identifier",
+          "optional": false,
+          "validation": [
+            "if s.ID == \"\" { return fmt.Errorf(\"transport ID is required\") }"
+          ]
+        },
+        {
+          "name": "Type",
+          "type": "string",
+          "tags": "`json:\"type\" yaml:\"type\"`",
+          "description": "transport type (http, grpc, websocket)",
+          "optional": false,
+          "validation": [
+            "if s.Type == \"\" { return fmt.Errorf(\"transport type is required\") }",
+            "validTypes := []string{\"http\", \"grpc\", \"websocket\"}",
+            "valid := false",
+            "for _, t := range validTypes {",
+            "  if s.Type == t { valid = true; break }",
+            "}",
+            "if !valid { return fmt.Errorf(\"invalid transport type: %s\", s.Type) }"
+          ]
+        },
+        {
+          "name": "Endpoint",
+          "type": "string",
+          "tags": "`json:\"endpoint\" yaml:\"endpoint\"`",
+          "description": "transport endpoint URL",
+          "optional": false,
+          "validation": [
+            "if s.Endpoint == \"\" { return fmt.Errorf(\"transport endpoint is required\") }"
+          ]
+        },
+        {
+          "name": "Timeout",
+          "type": "time.Duration",
+          "tags": "`json:\"timeout\" yaml:\"timeout\"`",
+          "description": "request timeout duration",
+          "optional": true,
+          "default_value": "30 * time.Second",
+          "validation": [
+            "if s.Timeout < 0 { return fmt.Errorf(\"timeout cannot be negative\") }"
+          ]
+        },
+        {
+          "name": "MaxRetries",
+          "type": "int",
+          "tags": "`json:\"max_retries\" yaml:\"max_retries\"`",
+          "description": "maximum number of retry attempts",
+          "optional": true,
+          "default_value": "3",
+          "validation": [
+            "if s.MaxRetries < 0 { return fmt.Errorf(\"max_retries cannot be negative\") }"
+          ]
+        },
+        {
+          "name": "Headers",
+          "type": "map[string]string",
+          "tags": "`json:\"headers,omitempty\" yaml:\"headers,omitempty\"`",
+          "description": "additional HTTP headers",
+          "optional": true,
+          "default_value": "nil"
+        },
+        {
+          "name": "TLSConfig",
+          "type": "*TLSConfig",
+          "tags": "`json:\"tls_config,omitempty\" yaml:\"tls_config,omitempty\"`",
+          "description": "TLS configuration",
+          "optional": true,
+          "default_value": "nil"
+        }
+      ],
+      "generate_validation": true,
+      "generate_conversion": true,
+      "legacy_map_type": "map[string]interface{}"
+    },
+    {
+      "name": "EventData",
+      "description": "structured event data",
+      "fields": [
+        {
+          "name": "EventID",
+          "type": "string",
+          "tags": "`json:\"event_id\"`",
+          "description": "unique event identifier",
+          "validation": [
+            "if s.EventID == \"\" { return fmt.Errorf(\"event_id is required\") }"
+          ]
+        },
+        {
+          "name": "EventType",
+          "type": "string",
+          "tags": "`json:\"event_type\"`",
+          "description": "type of event",
+          "validation": [
+            "if s.EventType == \"\" { return fmt.Errorf(\"event_type is required\") }"
+          ]
+        },
+        {
+          "name": "Timestamp",
+          "type": "time.Time",
+          "tags": "`json:\"timestamp\"`",
+          "description": "when the event occurred"
+        },
+        {
+          "name": "UserID",
+          "type": "string",
+          "tags": "`json:\"user_id,omitempty\"`",
+          "description": "user associated with the event",
+          "optional": true
+        },
+        {
+          "name": "SessionID",
+          "type": "string",
+          "tags": "`json:\"session_id,omitempty\"`",
+          "description": "session associated with the event",
+          "optional": true
+        },
+        {
+          "name": "Properties",
+          "type": "map[string]string",
+          "tags": "`json:\"properties,omitempty\"`",
+          "description": "additional event properties",
+          "optional": true,
+          "default_value": "make(map[string]string)"
+        }
+      ],
+      "generate_validation": true,
+      "generate_conversion": true
+    },
+    {
+      "name": "APIResponse",
+      "description": "standardized API response structure",
+      "fields": [
+        {
+          "name": "Success",
+          "type": "bool",
+          "tags": "`json:\"success\"`",
+          "description": "whether the request was successful"
+        },
+        {
+          "name": "Message",
+          "type": "string",
+          "tags": "`json:\"message,omitempty\"`",
+          "description": "human-readable message",
+          "optional": true
+        },
+        {
+          "name": "ErrorCode",
+          "type": "string",
+          "tags": "`json:\"error_code,omitempty\"`",
+          "description": "machine-readable error code",
+          "optional": true
+        },
+        {
+          "name": "Data",
+          "type": "any",
+          "tags": "`json:\"data,omitempty\"`",
+          "description": "response payload data",
+          "optional": true
+        },
+        {
+          "name": "Meta",
+          "type": "map[string]any",
+          "tags": "`json:\"meta,omitempty\"`",
+          "description": "response metadata",
+          "optional": true
+        }
+      ],
+      "generate_validation": true,
+      "generate_conversion": false
+    }
+  ],
+  "typed_wrappers": [
+    {
+      "name": "SafeConfig",
+      "description": "type-safe wrapper for configuration data",
+      "underlying_type": "map[string]interface{}",
+      "methods": [
+        {
+          "name": "GetString",
+          "signature": "GetString(key string) (string, bool)",
+          "body": "val, ok := w.data[key]; if !ok { return \"\", false }; str, ok := val.(string); return str, ok",
+          "description": "safely retrieves a string value"
+        },
+        {
+          "name": "GetInt64",
+          "signature": "GetInt64(key string) (int64, bool)",
+          "body": "val, ok := w.data[key]; if !ok { return 0, false }; switch v := val.(type) { case int64: return v, true; case int: return int64(v), true; case float64: return int64(v), true; default: return 0, false }",
+          "description": "safely retrieves an int64 value with type conversion"
+        },
+        {
+          "name": "GetFloat64",
+          "signature": "GetFloat64(key string) (float64, bool)",
+          "body": "val, ok := w.data[key]; if !ok { return 0, false }; switch v := val.(type) { case float64: return v, true; case int64: return float64(v), true; case int: return float64(v), true; default: return 0, false }",
+          "description": "safely retrieves a float64 value with type conversion"
+        },
+        {
+          "name": "GetBool",
+          "signature": "GetBool(key string) (bool, bool)",
+          "body": "val, ok := w.data[key]; if !ok { return false, false }; b, ok := val.(bool); return b, ok",
+          "description": "safely retrieves a boolean value"
+        },
+        {
+          "name": "GetDuration",
+          "signature": "GetDuration(key string) (time.Duration, bool)",
+          "body": "val, ok := w.data[key]; if !ok { return 0, false }; switch v := val.(type) { case time.Duration: return v, true; case string: d, err := time.ParseDuration(v); return d, err == nil; default: return 0, false }",
+          "description": "safely retrieves a duration value with string parsing"
+        },
+        {
+          "name": "Set",
+          "signature": "Set(key string, value interface{})",
+          "body": "w.data[key] = value",
+          "description": "sets a value in the configuration"
+        },
+        {
+          "name": "Has",
+          "signature": "Has(key string) bool",
+          "body": "_, ok := w.data[key]; return ok",
+          "description": "checks if a key exists"
+        },
+        {
+          "name": "Keys",
+          "signature": "Keys() []string",
+          "body": "keys := make([]string, 0, len(w.data)); for k := range w.data { keys = append(keys, k) }; return keys",
+          "description": "returns all keys in the configuration"
+        }
+      ],
+      "generate_interface": true
+    },
+    {
+      "name": "TypedEventPayload",
+      "description": "type-safe wrapper for event payload data",
+      "underlying_type": "map[string]interface{}",
+      "methods": [
+        {
+          "name": "GetProperty",
+          "signature": "GetProperty(key string) (interface{}, bool)",
+          "body": "val, ok := w.data[key]; return val, ok",
+          "description": "retrieves a property value"
+        },
+        {
+          "name": "GetStringProperty",
+          "signature": "GetStringProperty(key string) (string, bool)",
+          "body": "val, ok := w.data[key]; if !ok { return \"\", false }; str, ok := val.(string); return str, ok",
+          "description": "safely retrieves a string property"
+        },
+        {
+          "name": "SetProperty",
+          "signature": "SetProperty(key string, value interface{})",
+          "body": "w.data[key] = value",
+          "description": "sets a property value"
+        },
+        {
+          "name": "ToMap",
+          "signature": "ToMap() map[string]interface{}",
+          "body": "result := make(map[string]interface{}); for k, v := range w.data { result[k] = v }; return result",
+          "description": "converts to a plain map"
+        }
+      ],
+      "generate_interface": false
+    }
+  ],
+  "conversion_functions": [
+    {
+      "name": "MapToTransportConfig",
+      "description": "converts a map to TransportConfig",
+      "from_type": "map[string]interface{}",
+      "to_type": "TransportConfig",
+      "conversion_logic": "return ToTransportConfig(input)",
+      "generate_reverse": true,
+      "error_handling": "return_error"
+    },
+    {
+      "name": "MapToEventData",
+      "description": "converts a map to EventData",
+      "from_type": "map[string]interface{}",
+      "to_type": "EventData",
+      "conversion_logic": "return ToEventData(input)",
+      "generate_reverse": true,
+      "error_handling": "return_error"
+    },
+    {
+      "name": "JSONToTransportConfig",
+      "description": "converts JSON bytes to TransportConfig",
+      "from_type": "[]byte",
+      "to_type": "TransportConfig",
+      "conversion_logic": "var data map[string]interface{}; if err := json.Unmarshal(input, &data); err != nil { return TransportConfig{}, err }; return ToTransportConfig(data)",
+      "generate_reverse": false,
+      "error_handling": "return_error"
+    }
+  ],
+  "test_data_builders": [
+    {
+      "name": "TransportConfigBuilder",
+      "description": "builds TransportConfig instances for testing",
+      "target_type": "TransportConfig",
+      "default_values": {
+        "ID": "test-transport-123",
+        "Type": "http",
+        "Endpoint": "https://api.example.com",
+        "Timeout": 30000000000,
+        "MaxRetries": 3,
+        "Headers": {}
+      },
+      "builder_methods": [
+        {
+          "name": "WithID",
+          "field_name": "ID",
+          "parameter_type": "string",
+          "description": "sets the transport ID"
+        },
+        {
+          "name": "WithType",
+          "field_name": "Type",
+          "parameter_type": "string",
+          "description": "sets the transport type"
+        },
+        {
+          "name": "WithEndpoint",
+          "field_name": "Endpoint",
+          "parameter_type": "string",
+          "description": "sets the endpoint URL"
+        },
+        {
+          "name": "WithTimeout",
+          "field_name": "Timeout",
+          "parameter_type": "time.Duration",
+          "description": "sets the timeout duration"
+        },
+        {
+          "name": "WithMaxRetries",
+          "field_name": "MaxRetries",
+          "parameter_type": "int",
+          "description": "sets the maximum retry count"
+        },
+        {
+          "name": "WithHeaders",
+          "field_name": "Headers",
+          "parameter_type": "map[string]string",
+          "description": "sets the HTTP headers"
+        }
+      ]
+    },
+    {
+      "name": "EventDataBuilder",
+      "description": "builds EventData instances for testing",
+      "target_type": "EventData",
+      "default_values": {
+        "EventID": "evt-12345",
+        "EventType": "user.action",
+        "Timestamp": "2024-01-01T00:00:00Z",
+        "UserID": "user-123",
+        "SessionID": "sess-456",
+        "Properties": {}
+      },
+      "builder_methods": [
+        {
+          "name": "WithEventID",
+          "field_name": "EventID",
+          "parameter_type": "string",
+          "description": "sets the event ID"
+        },
+        {
+          "name": "WithEventType",
+          "field_name": "EventType",
+          "parameter_type": "string",
+          "description": "sets the event type"
+        },
+        {
+          "name": "WithUserID",
+          "field_name": "UserID",
+          "parameter_type": "string",
+          "description": "sets the user ID"
+        },
+        {
+          "name": "WithSessionID",
+          "field_name": "SessionID",
+          "parameter_type": "string",
+          "description": "sets the session ID"
+        },
+        {
+          "name": "WithProperty",
+          "field_name": "Properties",
+          "parameter_type": "map[string]string",
+          "description": "sets event properties"
+        }
+      ]
+    }
+  ],
+  "event_data_structures": [
+    {
+      "name": "UserActionEvent",
+      "description": "event fired when a user performs an action",
+      "event_type": "user.action",
+      "payload_fields": [
+        {
+          "name": "UserID",
+          "type": "string",
+          "tags": "`json:\"user_id\"`",
+          "description": "ID of the user who performed the action",
+          "validation": [
+            "if p.UserID == \"\" { return fmt.Errorf(\"user_id is required\") }"
+          ]
+        },
+        {
+          "name": "ActionType",
+          "type": "string",
+          "tags": "`json:\"action_type\"`",
+          "description": "type of action performed",
+          "validation": [
+            "if p.ActionType == \"\" { return fmt.Errorf(\"action_type is required\") }"
+          ]
+        },
+        {
+          "name": "ResourceID",
+          "type": "string",
+          "tags": "`json:\"resource_id,omitempty\"`",
+          "description": "ID of the resource affected by the action",
+          "optional": true
+        },
+        {
+          "name": "Metadata",
+          "type": "map[string]string",
+          "tags": "`json:\"metadata,omitempty\"`",
+          "description": "additional action metadata",
+          "optional": true
+        }
+      ],
+      "generate_validation": true,
+      "generate_marshaling": true
+    },
+    {
+      "name": "StateChangeEvent",
+      "description": "event fired when application state changes",
+      "event_type": "state.change",
+      "payload_fields": [
+        {
+          "name": "StatePath",
+          "type": "string",
+          "tags": "`json:\"state_path\"`",
+          "description": "path to the changed state",
+          "validation": [
+            "if p.StatePath == \"\" { return fmt.Errorf(\"state_path is required\") }"
+          ]
+        },
+        {
+          "name": "OldValue",
+          "type": "any",
+          "tags": "`json:\"old_value,omitempty\"`",
+          "description": "previous state value",
+          "optional": true
+        },
+        {
+          "name": "NewValue",
+          "type": "any",
+          "tags": "`json:\"new_value\"`",
+          "description": "new state value"
+        },
+        {
+          "name": "ChangeType",
+          "type": "string",
+          "tags": "`json:\"change_type\"`",
+          "description": "type of change (create, update, delete)",
+          "validation": [
+            "validTypes := []string{\"create\", \"update\", \"delete\"}",
+            "valid := false",
+            "for _, t := range validTypes {",
+            "  if p.ChangeType == t { valid = true; break }",
+            "}",
+            "if !valid { return fmt.Errorf(\"invalid change_type: %s\", p.ChangeType) }"
+          ]
+        }
+      ],
+      "generate_validation": true,
+      "generate_marshaling": true
+    },
+    {
+      "name": "ErrorEvent",
+      "description": "event fired when an error occurs",
+      "event_type": "error",
+      "payload_fields": [
+        {
+          "name": "ErrorCode",
+          "type": "string",
+          "tags": "`json:\"error_code\"`",
+          "description": "machine-readable error code",
+          "validation": [
+            "if p.ErrorCode == \"\" { return fmt.Errorf(\"error_code is required\") }"
+          ]
+        },
+        {
+          "name": "ErrorMessage",
+          "type": "string",
+          "tags": "`json:\"error_message\"`",
+          "description": "human-readable error message",
+          "validation": [
+            "if p.ErrorMessage == \"\" { return fmt.Errorf(\"error_message is required\") }"
+          ]
+        },
+        {
+          "name": "Severity",
+          "type": "string",
+          "tags": "`json:\"severity\"`",
+          "description": "error severity level",
+          "validation": [
+            "validSeverities := []string{\"low\", \"medium\", \"high\", \"critical\"}",
+            "valid := false",
+            "for _, s := range validSeverities {",
+            "  if p.Severity == s { valid = true; break }",
+            "}",
+            "if !valid { return fmt.Errorf(\"invalid severity: %s\", p.Severity) }"
+          ]
+        },
+        {
+          "name": "Component",
+          "type": "string",
+          "tags": "`json:\"component,omitempty\"`",
+          "description": "component where the error occurred",
+          "optional": true
+        },
+        {
+          "name": "StackTrace",
+          "type": "string",
+          "tags": "`json:\"stack_trace,omitempty\"`",
+          "description": "error stack trace",
+          "optional": true
+        },
+        {
+          "name": "Context",
+          "type": "map[string]string",
+          "tags": "`json:\"context,omitempty\"`",
+          "description": "additional error context",
+          "optional": true
+        }
+      ],
+      "generate_validation": true,
+      "generate_marshaling": true
+    }
+  ]
+}

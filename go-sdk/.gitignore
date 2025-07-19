@@ -2,3 +2,7 @@ bin/
 coverage.out
 coverage.html
 gosec-report.json
+# Test binaries and coverage files
+*.test
+*.out
+coverage*.html

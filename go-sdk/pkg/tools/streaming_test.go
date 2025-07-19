@@ -33,12 +33,16 @@ func TestStreamingContext(t *testing.T) {
 		ctx := context.Background()
 		sc := NewStreamingContext(ctx)
 
-		// Test sending various data types
+		// Test sending various data types with type-safe approach
+		type TestData struct {
+			Key string `json:"key"`
+		}
+		
 		testCases := []interface{}{
 			"string data",
 			123,
 			true,
-			map[string]interface{}{"key": "value"},
+			TestData{Key: "value"},
 			[]string{"item1", "item2"},
 		}
 
@@ -77,6 +81,12 @@ func TestStreamingContext(t *testing.T) {
 		ctx := context.Background()
 		sc := NewStreamingContext(ctx)
 
+		// Type-safe metadata structure
+		type ProgressMetadata struct {
+			Progress int    `json:"progress"`
+			Status   string `json:"status"`
+		}
+		
 		metadata := map[string]interface{}{
 			"progress": 50,
 			"status":   "processing",

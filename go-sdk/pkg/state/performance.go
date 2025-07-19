@@ -618,6 +618,11 @@ func (po *PerformanceOptimizerImpl) Stop() {
 		po.connectionPool.Close()
 	}
 
+	// Close lazy cache
+	if po.lazyCache != nil {
+		po.lazyCache.Close()
+	}
+
 	// Shutdown concurrent optimizer
 	if po.concurrentOptimizer != nil {
 		po.concurrentOptimizer.Shutdown()
@@ -648,15 +653,21 @@ type RateLimiter struct {
 	ticker  *time.Ticker
 	stop    chan struct{}
 	stopped atomic.Bool
+	ctx     context.Context
+	cancel  context.CancelFunc
 }
 
 // NewRateLimiter creates a new rate limiter
 func NewRateLimiter(ratePerSecond int) *RateLimiter {
+	ctx, cancel := context.WithCancel(context.Background())
+	
 	rl := &RateLimiter{
 		rate:   ratePerSecond,
 		bucket: make(chan struct{}, ratePerSecond),
 		ticker: time.NewTicker(time.Second / time.Duration(ratePerSecond)),
 		stop:   make(chan struct{}),
+		ctx:    ctx,
+		cancel: cancel,
 	}
 
 	// Fill the bucket initially
@@ -684,6 +695,9 @@ func (rl *RateLimiter) generate() {
 		case <-rl.stop:
 			rl.ticker.Stop()
 			return
+		case <-rl.ctx.Done():
+			rl.ticker.Stop()
+			return
 		}
 	}
 }
@@ -701,6 +715,9 @@ func (rl *RateLimiter) Wait(ctx context.Context) error {
 // Stop stops the rate limiter
 func (rl *RateLimiter) Stop() {
 	if rl.stopped.CompareAndSwap(false, true) {
+		if rl.cancel != nil {
+			rl.cancel()
+		}
 		close(rl.stop)
 	}
 }
@@ -959,6 +976,10 @@ type LazyCache struct {
 	misses  atomic.Int64
 	mu      sync.RWMutex
 	keys    []string // For LRU eviction
+	
+	// Context for cancellation
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // CacheEntry represents a cached entry
@@ -970,10 +991,14 @@ type CacheEntry struct {
 
 // NewLazyCache creates a new lazy cache
 func NewLazyCache(maxSize int, ttl time.Duration) *LazyCache {
+	ctx, cancel := context.WithCancel(context.Background())
+	
 	lc := &LazyCache{
 		maxSize: maxSize,
 		ttl:     ttl,
 		keys:    make([]string, 0, maxSize),
+		ctx:     ctx,
+		cancel:  cancel,
 	}
 
 	// Start cleanup goroutine
@@ -1062,19 +1087,24 @@ func (lc *LazyCache) cleanup() {
 	ticker := time.NewTicker(DefaultCleanupWorkerInterval)
 	defer ticker.Stop()
 
-	for range ticker.C {
-		now := time.Now()
-		lc.cache.Range(func(key, value interface{}) bool {
-			entry := value.(*CacheEntry)
-			if now.After(entry.expires) {
-				lc.cache.Delete(key)
-				lc.mu.Lock()
-				lc.removeKey(key.(string))
-				lc.size--
-				lc.mu.Unlock()
-			}
-			return true
-		})
+	for {
+		select {
+		case <-ticker.C:
+			now := time.Now()
+			lc.cache.Range(func(key, value interface{}) bool {
+				entry := value.(*CacheEntry)
+				if now.After(entry.expires) {
+					lc.cache.Delete(key)
+					lc.mu.Lock()
+					lc.removeKey(key.(string))
+					lc.size--
+					lc.mu.Unlock()
+				}
+				return true
+			})
+		case <-lc.ctx.Done():
+			return
+		}
 	}
 }
 
@@ -1089,6 +1119,13 @@ func (lc *LazyCache) GetStats() (hits, misses int64, hitRate float64) {
 	}
 
 	return h, m, hitRate
+}
+
+// Close shuts down the lazy cache cleanup goroutine
+func (lc *LazyCache) Close() {
+	if lc.cancel != nil {
+		lc.cancel()
+	}
 }
 
 // MemoryOptimizer manages memory usage and garbage collection
@@ -1373,9 +1410,9 @@ func (po *PerformanceOptimizerImpl) CompressData(data []byte) ([]byte, error) {
 	defer po.PutBuffer(buf)
 
 	writer := gzip.NewWriter(buf)
-	defer writer.Close()
-
+	
 	if _, err := writer.Write(data); err != nil {
+		writer.Close()
 		return nil, fmt.Errorf("failed to compress data: %w", err)
 	}
 
@@ -1384,7 +1421,11 @@ func (po *PerformanceOptimizerImpl) CompressData(data []byte) ([]byte, error) {
 	}
 
 	po.bytesWritten.Add(int64(len(data)))
-	return buf.Bytes(), nil
+	
+	// Create a copy of the compressed data before returning the buffer
+	compressed := make([]byte, buf.Len())
+	copy(compressed, buf.Bytes())
+	return compressed, nil
 }
 
 // DecompressData decompresses gzip data

@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -62,14 +63,14 @@ type StateTransaction struct {
 	mu        sync.Mutex
 }
 
-// SubscriptionCallback is the function signature for state change subscriptions
-type SubscriptionCallback func(StateChange)
+// SubscriptionHandler is the function signature for state change subscriptions
+type SubscriptionHandler func(StateChange)
 
 // subscription represents an active subscription
 type subscription struct {
 	id           string
 	path         string
-	callback     SubscriptionCallback
+	callback     SubscriptionHandler
 	lastAccessed time.Time // Track access time for cleanup
 	created      time.Time // Track creation time
 }
@@ -98,6 +99,10 @@ type StateStore struct {
 	// Error handling
 	errorHandler func(error)
 	logger       Logger
+	
+	// Context management for goroutine cleanup
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // stateShard represents a single shard with its own lock
@@ -108,6 +113,8 @@ type stateShard struct {
 
 // NewStateStore creates a new state store instance
 func NewStateStore(options ...StateStoreOption) *StateStore {
+	ctx, cancel := context.WithCancel(context.Background())
+	
 	store := &StateStore{
 		shardCount:      DefaultShardCount, // Default to 16 shards for better concurrency
 		version:         0,
@@ -119,6 +126,8 @@ func NewStateStore(options ...StateStoreOption) *StateStore {
 		lastCleanup:     time.Now(),
 		logger:          DefaultLogger(),
 		errorHandler:    nil, // Will be set after initialization
+		ctx:             ctx,
+		cancel:          cancel,
 	}
 
 	// Apply options
@@ -739,7 +748,7 @@ func (s *StateStore) GetHistory() ([]*StateVersion, error) {
 }
 
 // Subscribe registers a callback for state changes at the specified path
-func (s *StateStore) Subscribe(path string, callback SubscriptionCallback) func() {
+func (s *StateStore) Subscribe(path string, callback SubscriptionHandler) func() {
 	id, _ := generateID()
 	now := time.Now()
 	sub := &subscription{
@@ -1104,7 +1113,8 @@ func (s *StateStore) Clear() {
 	s.history = make([]*StateVersion, 0)
 	s.historyMu.Unlock()
 
-	// Skip version creation for Clear to avoid issues
+	// Create initial version after clearing to maintain consistency
+	s.createVersion(nil, nil)
 }
 
 // Export exports the current state as JSON
@@ -1176,7 +1186,15 @@ func (s *StateStore) maybeCleanupSubscriptions() {
 	}
 
 	s.lastCleanup = now
-	go s.cleanupExpiredSubscriptions()
+	go func() {
+		// Check if context is cancelled before starting cleanup
+		select {
+		case <-s.ctx.Done():
+			return
+		default:
+			s.cleanupExpiredSubscriptions()
+		}
+	}()
 }
 
 // cleanupExpiredSubscriptions removes expired subscriptions
@@ -1224,4 +1242,11 @@ func (s *StateStore) GetReferenceCount() int32 {
 		totalRefs += atomic.LoadInt32(&state.refs)
 	}
 	return totalRefs
+}
+
+// Close cancels the context to stop any ongoing cleanup goroutines
+func (s *StateStore) Close() {
+	if s.cancel != nil {
+		s.cancel()
+	}
 }

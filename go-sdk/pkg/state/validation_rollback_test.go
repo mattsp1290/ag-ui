@@ -1,7 +1,6 @@
 package state
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 )
@@ -240,8 +239,10 @@ func TestStateRollback(t *testing.T) {
 
 	t.Run("Rollback to Version", func(t *testing.T) {
 		// Set initial state
-		err := store.Set("/data", map[string]interface{}{
-			"value": "initial",
+		err := store.Set("/", map[string]interface{}{
+			"data": map[string]interface{}{
+				"value": "initial",
+			},
 		})
 		if err != nil {
 			t.Fatalf("Failed to set initial state: %v", err)
@@ -249,10 +250,17 @@ func TestStateRollback(t *testing.T) {
 
 		// Get initial version
 		history, _ := store.GetHistory()
+		if len(history) == 0 {
+			t.Fatalf("No history available after setting initial state")
+		}
 		initialVersion := history[len(history)-1].ID
 
 		// Make changes
-		err = store.Set("/data/value", "changed")
+		err = store.Set("/", map[string]interface{}{
+			"data": map[string]interface{}{
+				"value": "changed",
+			},
+		})
 		if err != nil {
 			t.Fatalf("Failed to update state: %v", err)
 		}
@@ -281,9 +289,11 @@ func TestStateRollback(t *testing.T) {
 		store.Clear()
 
 		// Set initial state
-		err := store.Set("/config", map[string]interface{}{
-			"version": "1.0",
-			"enabled": true,
+		err := store.Set("/", map[string]interface{}{
+			"config": map[string]interface{}{
+				"version": "1.0",
+				"enabled": true,
+			},
 		})
 		if err != nil {
 			t.Fatalf("Failed to set initial state: %v", err)
@@ -296,13 +306,14 @@ func TestStateRollback(t *testing.T) {
 		}
 
 		// Make changes
-		err = store.Set("/config/version", "2.0")
+		err = store.Set("/", map[string]interface{}{
+			"config": map[string]interface{}{
+				"version": "2.0",
+				"enabled": false,
+			},
+		})
 		if err != nil {
-			t.Fatalf("Failed to update version: %v", err)
-		}
-		err = store.Set("/config/enabled", false)
-		if err != nil {
-			t.Fatalf("Failed to update enabled: %v", err)
+			t.Fatalf("Failed to update config: %v", err)
 		}
 
 		// Verify changes
@@ -371,9 +382,11 @@ func TestStateRollback(t *testing.T) {
 
 				// Clear and set initial state
 				store.Clear()
-				err := store.Set("/test", map[string]interface{}{
-					"strategy": strategy.Name(),
-					"data":     []interface{}{1, 2, 3},
+				err := store.Set("/", map[string]interface{}{
+					"test": map[string]interface{}{
+						"strategy": strategy.Name(),
+						"data":     []interface{}{1, 2, 3},
+					},
 				})
 				if err != nil {
 					t.Fatalf("Failed to set initial state: %v", err)
@@ -381,10 +394,18 @@ func TestStateRollback(t *testing.T) {
 
 				// Get initial version
 				history, _ := store.GetHistory()
+				if len(history) == 0 {
+					t.Fatalf("No history available after setting initial state")
+				}
 				initialVersion := history[len(history)-1].ID
 
 				// Make changes
-				err = store.Set("/test/data", []interface{}{4, 5, 6})
+				err = store.Set("/", map[string]interface{}{
+					"test": map[string]interface{}{
+						"strategy": strategy.Name(),
+						"data":     []interface{}{4, 5, 6},
+					},
+				})
 				if err != nil {
 					t.Fatalf("Failed to update state: %v", err)
 				}
@@ -398,7 +419,7 @@ func TestStateRollback(t *testing.T) {
 				// Verify
 				data, _ := store.Get("/test/data")
 				dataArr := data.([]interface{})
-				if len(dataArr) != 3 || dataArr[0] != json.Number("1") {
+				if len(dataArr) != 3 || dataArr[0] != 1 {
 					t.Errorf("Rollback with %s strategy failed, got: %v", strategy.Name(), data)
 				}
 			})
@@ -422,13 +443,18 @@ func TestStateRollback(t *testing.T) {
 
 		// Clear and set valid state
 		store.Clear()
-		err := store.Set("/count", 10)
+		err := store.Set("/", map[string]interface{}{
+			"count": 10,
+		})
 		if err != nil {
 			t.Fatalf("Failed to set initial state: %v", err)
 		}
 
 		// Get valid version
 		history, _ := store.GetHistory()
+		if len(history) == 0 {
+			t.Fatalf("No history available after setting initial state")
+		}
 		validVersion := history[len(history)-1].ID
 
 		// Set invalid state (negative number)

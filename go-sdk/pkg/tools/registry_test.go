@@ -12,15 +12,68 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Type-safe parameter structures for registry testing
+
+// RegistryTestParams represents typed parameters for registry test tools
+type RegistryTestParams struct {
+	Data   string                      `json:"data"`
+	Config RegistryTestConfigParams   `json:"config,omitempty"`
+}
+
+// RegistryTestConfigParams represents configuration for registry test tools
+type RegistryTestConfigParams struct {
+	Nested1 string `json:"nested1,omitempty"`
+	Nested2 string `json:"nested2,omitempty"`
+	Nested3 string `json:"nested3,omitempty"`
+}
+
+// ToolExampleInput represents typed input for tool examples
+type ToolExampleInput struct {
+	Data   string                      `json:"data"`
+	Config RegistryTestConfigParams   `json:"config,omitempty"`
+}
+
+// Helper functions to convert typed structures to map[string]interface{}
+
+// registryTestParamsToMap converts RegistryTestParams to map for legacy API compatibility
+func registryTestParamsToMap(params RegistryTestParams) map[string]interface{} {
+	result := make(map[string]interface{})
+	result["data"] = params.Data
+	if params.Config.Nested1 != "" || params.Config.Nested2 != "" || params.Config.Nested3 != "" {
+		configMap := make(map[string]interface{})
+		if params.Config.Nested1 != "" {
+			configMap["nested1"] = params.Config.Nested1
+		}
+		if params.Config.Nested2 != "" {
+			configMap["nested2"] = params.Config.Nested2
+		}
+		if params.Config.Nested3 != "" {
+			configMap["nested3"] = params.Config.Nested3
+		}
+		result["config"] = configMap
+	}
+	return result
+}
+
+// toolExampleInputToMap converts ToolExampleInput to map for examples
+func toolExampleInputToMap(input ToolExampleInput) map[string]interface{} {
+	return registryTestParamsToMap(RegistryTestParams{
+		Data:   input.Data,
+		Config: input.Config,
+	})
+}
+
 // mockRegistryExecutor is a test implementation of ToolExecutor for registry tests
 type mockRegistryExecutor struct {
 	name string
 }
 
 func (m *mockRegistryExecutor) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolExecutionResult, error) {
+	// Create type-safe result data
+	resultData := fmt.Sprintf("executed %s", m.name)
 	return &tools.ToolExecutionResult{
 		Success:   true,
-		Data:      fmt.Sprintf("executed %s", m.name),
+		Data:      resultData, // Using typed string result
 		Timestamp: time.Now(),
 	}, nil
 }
@@ -687,14 +740,25 @@ func TestMemoryOptimization_ReadOnlyVsCloning(t *testing.T) {
 			Author:        "Test Author",
 			Documentation: "https://example.com/docs/memory-test-tool",
 			Tags:          []string{"test", "memory", "optimization", "benchmark", "performance"},
+			// Create typed examples
 			Examples: []tools.ToolExample{
 				{
-					Input:       map[string]interface{}{"data": "example1", "config": map[string]interface{}{"nested1": "value1"}},
+					Input: toolExampleInputToMap(ToolExampleInput{
+						Data: "example1",
+						Config: RegistryTestConfigParams{
+							Nested1: "value1",
+						},
+					}),
 					Output:      "Example output 1",
 					Description: "Example 1 for testing memory usage",
 				},
 				{
-					Input:       map[string]interface{}{"data": "example2", "config": map[string]interface{}{"nested2": "value2"}},
+					Input: toolExampleInputToMap(ToolExampleInput{
+						Data: "example2",
+						Config: RegistryTestConfigParams{
+							Nested2: "value2",
+						},
+					}),
 					Output:      "Example output 2",
 					Description: "Example 2 for testing memory usage",
 				},

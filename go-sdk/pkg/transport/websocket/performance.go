@@ -198,26 +198,26 @@ func NewPerformanceManager(config *PerformanceConfig) (*PerformanceManager, erro
 func (pm *PerformanceManager) Start(ctx context.Context) error {
 	pm.config.Logger.Info("Starting performance manager")
 
-	// Start message batcher
+	// Start message batcher with internal context
 	pm.wg.Add(1)
-	go pm.messageBatcher.Start(ctx, &pm.wg)
+	go pm.messageBatcher.Start(pm.ctx, &pm.wg)
 
-	// Start metrics collector
+	// Start metrics collector with internal context
 	if pm.metricsCollector != nil {
 		pm.wg.Add(1)
-		go pm.metricsCollector.Start(ctx, &pm.wg)
+		go pm.metricsCollector.Start(pm.ctx, &pm.wg)
 	}
 
-	// Start profiler
+	// Start profiler with internal context
 	if pm.profiler != nil {
 		pm.wg.Add(1)
-		go pm.profiler.Start(ctx, &pm.wg)
+		go pm.profiler.Start(pm.ctx, &pm.wg)
 	}
 
-	// Start memory manager
+	// Start memory manager with internal context
 	if pm.memoryManager != nil {
 		pm.wg.Add(1)
-		go pm.memoryManager.Start(ctx, &pm.wg)
+		go pm.memoryManager.Start(pm.ctx, &pm.wg)
 	}
 
 	pm.config.Logger.Info("Performance manager started")
@@ -228,14 +228,31 @@ func (pm *PerformanceManager) Start(ctx context.Context) error {
 func (pm *PerformanceManager) Stop() error {
 	pm.config.Logger.Info("Stopping performance manager")
 
-	// Cancel context
+	// Cancel context first
 	pm.cancel()
 
-	// Wait for all goroutines to finish
-	pm.wg.Wait()
+	// Close message batcher to unblock any goroutines waiting on channels
+	if pm.messageBatcher != nil {
+		pm.messageBatcher.Close()
+	}
 
-	pm.config.Logger.Info("Performance manager stopped")
-	return nil
+	// Wait for all goroutines to finish with timeout
+	done := make(chan struct{})
+	go func() {
+		pm.wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// All goroutines finished successfully
+		pm.config.Logger.Info("Performance manager stopped")
+		return nil
+	case <-time.After(2 * time.Second):
+		// Timeout after 2 seconds (reduced from 5 for faster test completion)
+		pm.config.Logger.Warn("Performance manager stop timed out - some goroutines may still be running")
+		return errors.New("performance manager stop timeout")
+	}
 }
 
 // OptimizeMessage optimizes a message for transmission
@@ -309,10 +326,15 @@ type BufferPool struct {
 	pool    sync.Pool
 	maxSize int
 	stats   struct {
+		// Cache line padded to prevent false sharing
 		gets     int64
+		_        [56]byte // Cache line padding
 		puts     int64
+		_        [56]byte // Cache line padding
 		creates  int64
+		_        [56]byte // Cache line padding
 		maxUsage int64
+		_        [56]byte // Cache line padding
 	}
 }
 
@@ -371,11 +393,17 @@ type MessageBatcher struct {
 	messages     chan []byte
 	batches      chan [][]byte
 	stats        struct {
-		messagesIn   int64
-		batchesOut   int64
-		avgBatchSize float64
+		// Cache line padded to prevent false sharing
+		messagesIn     int64
+		_              [56]byte // Cache line padding
+		batchesOut     int64
+		_              [56]byte // Cache line padding
+		avgBatchSize   float64 // Protected by mutex, no padding needed
+		droppedBatches int64
+		_              [56]byte // Cache line padding
 	}
-	mutex sync.RWMutex // Protect avgBatchSize field
+	mutex  sync.RWMutex // Protect avgBatchSize field
+	closed atomic.Bool  // Track if batcher is closed
 }
 
 // NewMessageBatcher creates a new message batcher
@@ -399,25 +427,32 @@ func (mb *MessageBatcher) Start(ctx context.Context, wg *sync.WaitGroup) {
 	for {
 		select {
 		case <-ctx.Done():
-			// Flush remaining messages
+			// Flush remaining messages with context-aware sending
 			if len(batch) > 0 {
-				mb.flushBatch(batch)
+				mb.flushBatchWithContext(ctx, batch)
 			}
 			return
 
-		case msg := <-mb.messages:
+		case msg, ok := <-mb.messages:
+			if !ok {
+				// Channel closed, flush remaining and exit
+				if len(batch) > 0 {
+					mb.flushBatchWithContext(ctx, batch)
+				}
+				return
+			}
 			batch = append(batch, msg)
 			atomic.AddInt64(&mb.stats.messagesIn, 1)
 
 			if len(batch) >= mb.batchSize {
-				mb.flushBatch(batch)
+				mb.flushBatchWithContext(ctx, batch)
 				batch = make([][]byte, 0, mb.batchSize)
 				timer.Reset(mb.batchTimeout)
 			}
 
 		case <-timer.C:
 			if len(batch) > 0 {
-				mb.flushBatch(batch)
+				mb.flushBatchWithContext(ctx, batch)
 				batch = make([][]byte, 0, mb.batchSize)
 			}
 			timer.Reset(mb.batchTimeout)
@@ -427,6 +462,9 @@ func (mb *MessageBatcher) Start(ctx context.Context, wg *sync.WaitGroup) {
 
 // AddMessage adds a message to the batch
 func (mb *MessageBatcher) AddMessage(data []byte) error {
+	if mb.closed.Load() {
+		return errors.New("message batcher is closed")
+	}
 	select {
 	case mb.messages <- data:
 		return nil
@@ -445,14 +483,40 @@ func (mb *MessageBatcher) GetBatch() [][]byte {
 	}
 }
 
+// Close closes the message batcher and its channels
+func (mb *MessageBatcher) Close() {
+	if mb.closed.CompareAndSwap(false, true) {
+		close(mb.messages)
+		close(mb.batches)
+	}
+}
+
 // flushBatch sends a batch of messages
 func (mb *MessageBatcher) flushBatch(batch [][]byte) {
+	mb.flushBatchWithContext(context.Background(), batch)
+}
+
+func (mb *MessageBatcher) flushBatchWithContext(ctx context.Context, batch [][]byte) {
 	if len(batch) == 0 {
+		return
+	}
+
+	// Check if batcher is closed before attempting to send
+	if mb.closed.Load() {
+		atomic.AddInt64(&mb.stats.droppedBatches, 1)
 		return
 	}
 
 	batchCopy := make([][]byte, len(batch))
 	copy(batchCopy, batch)
+
+	// Use defer recover to handle potential panic from sending on closed channel
+	defer func() {
+		if r := recover(); r != nil {
+			// Channel was closed, count as dropped batch
+			atomic.AddInt64(&mb.stats.droppedBatches, 1)
+		}
+	}()
 
 	select {
 	case mb.batches <- batchCopy:
@@ -463,8 +527,17 @@ func (mb *MessageBatcher) flushBatch(batch [][]byte) {
 		newAvg := (currentAvg*float64(mb.stats.batchesOut-1) + float64(len(batch))) / float64(mb.stats.batchesOut)
 		mb.stats.avgBatchSize = newAvg
 		mb.mutex.Unlock()
+	case <-ctx.Done():
+		// Context cancelled, don't block on channel send
+		atomic.AddInt64(&mb.stats.droppedBatches, 1)
+		return
+	case <-time.After(100 * time.Millisecond):
+		// Timeout to prevent indefinite blocking - drop the batch
+		atomic.AddInt64(&mb.stats.droppedBatches, 1)
+		return
 	default:
 		// Batch queue full, drop batch
+		atomic.AddInt64(&mb.stats.droppedBatches, 1)
 	}
 }
 
@@ -488,9 +561,13 @@ type ConnectionPoolManager struct {
 	activeSlots    map[string]*ConnectionSlot
 	mutex          sync.RWMutex
 	stats          struct {
+		// Cache line padded to prevent false sharing
 		slotsAcquired int64
+		_             [56]byte // Cache line padding
 		slotsReleased int64
+		_             [56]byte // Cache line padding
 		maxUsage      int64
+		_             [56]byte // Cache line padding
 	}
 }
 
@@ -630,7 +707,7 @@ type PerfJSONSerializer struct{}
 
 // Serialize serializes an event to JSON
 func (js *PerfJSONSerializer) Serialize(event events.Event) ([]byte, error) {
-	return json.Marshal(event)
+	return event.ToJSON()
 }
 
 // Deserialize deserializes JSON to an event
@@ -654,8 +731,8 @@ func (ojs *PerfOptimizedJSONSerializer) Serialize(event events.Event) ([]byte, e
 	// Reset buffer
 	ojs.buffer = ojs.buffer[:0]
 
-	// Use unsafe string to bytes conversion for zero-copy
-	data, err := json.Marshal(event)
+	// Use the event's ToJSON method for proper serialization
+	data, err := event.ToJSON()
 	if err != nil {
 		return nil, err
 	}
@@ -1052,10 +1129,15 @@ type MemoryManager struct {
 	lastPressure    float64
 	checkNow        chan struct{} // Channel to trigger immediate checks
 	stats           struct {
+		// Cache line padded to prevent false sharing
 		allocations   int64
+		_             [56]byte // Cache line padding
 		deallocations int64
+		_             [56]byte // Cache line padding
 		gcTriggers    int64
+		_             [56]byte // Cache line padding
 		peakUsage     int64
+		_             [56]byte // Cache line padding
 	}
 }
 
@@ -1179,12 +1261,26 @@ func (mm *MemoryManager) AllocateBuffer(size int) []byte {
 	}
 
 	atomic.AddInt64(&mm.stats.allocations, 1)
+	
+	// Update current usage to reflect this allocation
+	mm.currentUsage += int64(size)
+	
 	return make([]byte, size)
 }
 
 // DeallocateBuffer deallocates a buffer
 func (mm *MemoryManager) DeallocateBuffer(buf []byte) {
+	mm.mutex.Lock()
+	defer mm.mutex.Unlock()
+	
 	atomic.AddInt64(&mm.stats.deallocations, 1)
+	
+	// Update current usage to reflect this deallocation
+	mm.currentUsage -= int64(len(buf))
+	if mm.currentUsage < 0 {
+		mm.currentUsage = 0
+	}
+	
 	// Buffer will be garbage collected automatically
 }
 
@@ -1377,6 +1473,11 @@ func (ao *AdaptiveOptimizer) Disable() {
 	ao.mutex.Lock()
 	defer ao.mutex.Unlock()
 	ao.enabled = false
+}
+
+// TriggerAdaptation manually triggers the adaptation process for testing
+func (ao *AdaptiveOptimizer) TriggerAdaptation() {
+	ao.adaptSettings()
 }
 
 // Helper function for max

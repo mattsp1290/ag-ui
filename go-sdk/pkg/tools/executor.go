@@ -558,10 +558,8 @@ func (e *ExecutionEngine) trackExecution(execID, toolID string, cancel context.C
 // untrackExecution removes an execution from tracking (FIXED).
 func (e *ExecutionEngine) untrackExecution(execID string) {
 	e.executions.Delete(execID)
-	atomic.AddInt32(&e.activeCount, -1)
-	
-	// Signal any waiting goroutines that a slot is now available
-	e.cond.Broadcast()
+	// NOTE: activeCount is decremented in decrementActiveCount(), not here
+	// to avoid double decrementing the counter
 }
 
 // updateMetrics updates execution metrics with atomic operations (FIXED).

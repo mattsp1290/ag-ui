@@ -34,15 +34,9 @@ func TestHeartbeatBasicOperations(t *testing.T) {
 
 	heartbeat := conn.heartbeat
 
-	// Test initial state
-	assert.Equal(t, HeartbeatStopped, heartbeat.GetState())
-	assert.True(t, heartbeat.IsHealthy()) // Should start healthy
-
-	// Start heartbeat
-	heartbeat.Start(ctx)
-	time.Sleep(50 * time.Millisecond) // Allow time for start
-
+	// Test initial state after connection - heartbeat should be running
 	assert.Equal(t, HeartbeatRunning, heartbeat.GetState())
+	assert.True(t, heartbeat.IsHealthy()) // Should start healthy
 
 	// Wait for some ping/pong cycles
 	time.Sleep(500 * time.Millisecond)
@@ -103,10 +97,12 @@ func TestHeartbeatHealthMonitoring(t *testing.T) {
 
 	// Test initial health
 	assert.True(t, heartbeat.IsHealthy())
-	assert.Equal(t, float64(1.0), heartbeat.GetConnectionHealth())
+	// Set lastPongAt to now for accurate health calculation
+	heartbeat.lastPongAt = time.Now().UnixNano()
+	assert.InDelta(t, float64(1.0), heartbeat.GetConnectionHealth(), 0.001) // Allow small timing variations
 
 	// Simulate missed pong
-	heartbeat.lastPongAt = time.Now().Add(-200 * time.Millisecond).Unix()
+	heartbeat.lastPongAt = time.Now().Add(-200 * time.Millisecond).UnixNano()
 
 	// Check health after missed pong
 	heartbeat.checkHealth()
@@ -329,7 +325,7 @@ func TestHeartbeatMissedPongHandling(t *testing.T) {
 	heartbeat := conn.heartbeat
 
 	// Set last pong time to long ago
-	heartbeat.lastPongAt = time.Now().Add(-200 * time.Millisecond).Unix()
+	heartbeat.lastPongAt = time.Now().Add(-200 * time.Millisecond).UnixNano()
 
 	// Check health - should detect missed pong
 	heartbeat.checkHealth()

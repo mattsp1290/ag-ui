@@ -216,10 +216,7 @@ func (p *ConnectionPool) Start(ctx context.Context) error {
 func (p *ConnectionPool) Stop() error {
 	p.config.Logger.Info("Stopping connection pool")
 
-	// Cancel context to stop all goroutines
-	p.cancel()
-
-	// Close all connections
+	// Close all connections first to prevent goroutine leaks
 	p.connMutex.Lock()
 	for id, conn := range p.connections {
 		p.config.Logger.Debug("Closing connection", zap.String("id", id))
@@ -231,6 +228,9 @@ func (p *ConnectionPool) Stop() error {
 	}
 	p.connections = make(map[string]*Connection)
 	p.connMutex.Unlock()
+
+	// Cancel context to stop all goroutines after connections are closed
+	p.cancel()
 
 	// Wait for all goroutines to finish
 	p.wg.Wait()
@@ -349,7 +349,7 @@ func (p *ConnectionPool) GetHealthyConnectionCount() int {
 }
 
 // GetStats returns a copy of the pool statistics
-func (p *ConnectionPool) GetStats() PoolStats {
+func (p *ConnectionPool) Stats() PoolStats {
 	p.stats.mutex.Lock()
 	defer p.stats.mutex.Unlock()
 
@@ -396,6 +396,9 @@ func (p *ConnectionPool) SetMessageHandler(handler func(data []byte)) {
 
 // createConnection creates a new connection and adds it to the pool
 func (p *ConnectionPool) createConnection(ctx context.Context) error {
+	// Create a timeout context for connection creation
+	connectCtx, cancel := context.WithTimeout(ctx, p.config.ConnectionTimeout)
+	defer cancel()
 	// Select URL using round-robin
 	urlIndex := int(atomic.AddInt64(&p.roundRobinIndex, 1)-1) % len(p.config.URLs)
 	url := p.config.URLs[urlIndex]
@@ -444,10 +447,7 @@ func (p *ConnectionPool) createConnection(ctx context.Context) error {
 		conn.SetOnMessage(messageHandler)
 	}
 
-	// Connect with timeout
-	connectCtx, cancel := context.WithTimeout(ctx, p.config.ConnectionTimeout)
-	defer cancel()
-
+	// Use the already created timeout context for connection
 	if err := conn.Connect(connectCtx); err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
 	}
@@ -713,7 +713,7 @@ func (p *ConnectionPool) GetDetailedStatus() map[string]interface{} {
 		"active_connections":  p.GetActiveConnectionCount(),
 		"healthy_connections": p.GetHealthyConnectionCount(),
 		"load_balancing":      p.config.LoadBalancingStrategy.String(),
-		"stats":               p.GetStats(),
+		"stats":               p.Stats(),
 		"connections":         connections,
 	}
 }

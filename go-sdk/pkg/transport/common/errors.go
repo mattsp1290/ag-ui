@@ -767,6 +767,14 @@ func (g *ErrorGroup) Error() string {
 	return fmt.Sprintf("multiple errors occurred: %d errors", len(g.Errors))
 }
 
+// Unwrap returns the combined error using errors.Join
+func (g *ErrorGroup) Unwrap() error {
+	if len(g.Errors) == 0 {
+		return nil
+	}
+	return errors.Join(g.Errors...)
+}
+
 // Add adds an error to the group.
 func (g *ErrorGroup) Add(err error) {
 	if err != nil {
@@ -803,19 +811,81 @@ func NewErrorGroup() *ErrorGroup {
 }
 
 // CombineErrors combines multiple errors into a single error.
-func CombineErrors(errors ...error) error {
-	group := NewErrorGroup()
-	for _, err := range errors {
-		group.Add(err)
+// It uses errors.Join for proper error wrapping and unwrapping support.
+func CombineErrors(errs ...error) error {
+	// Filter out nil errors
+	var nonNilErrors []error
+	for _, err := range errs {
+		if err != nil {
+			nonNilErrors = append(nonNilErrors, err)
+		}
 	}
 	
-	if !group.HasErrors() {
+	if len(nonNilErrors) == 0 {
 		return nil
 	}
 	
-	if len(group.Errors) == 1 {
-		return group.Errors[0]
+	// Use errors.Join for proper error chaining
+	return errors.Join(nonNilErrors...)
+}
+
+// BatchError represents errors that occurred during batch operations.
+type BatchError struct {
+	Operation string
+	Errors    map[int]error // Index -> Error mapping
+	Total     int
+	Failed    int
+}
+
+// Error implements the error interface for BatchError.
+func (e *BatchError) Error() string {
+	if e.Failed == 0 {
+		return fmt.Sprintf("%s: all %d operations succeeded", e.Operation, e.Total)
+	}
+	return fmt.Sprintf("%s: %d of %d operations failed", e.Operation, e.Failed, e.Total)
+}
+
+// Unwrap returns the combined error using errors.Join
+func (e *BatchError) Unwrap() error {
+	if len(e.Errors) == 0 {
+		return nil
 	}
 	
-	return group
+	// Convert map values to slice for errors.Join
+	errs := make([]error, 0, len(e.Errors))
+	for _, err := range e.Errors {
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	
+	return errors.Join(errs...)
+}
+
+// NewBatchError creates a new batch error.
+func NewBatchError(operation string, total int) *BatchError {
+	return &BatchError{
+		Operation: operation,
+		Errors:    make(map[int]error),
+		Total:     total,
+		Failed:    0,
+	}
+}
+
+// AddError adds an error for a specific index in the batch.
+func (e *BatchError) AddError(index int, err error) {
+	if err != nil {
+		e.Errors[index] = err
+		e.Failed++
+	}
+}
+
+// HasErrors returns true if any errors occurred.
+func (e *BatchError) HasErrors() bool {
+	return e.Failed > 0
+}
+
+// GetError returns the error for a specific index.
+func (e *BatchError) GetError(index int) error {
+	return e.Errors[index]
 }

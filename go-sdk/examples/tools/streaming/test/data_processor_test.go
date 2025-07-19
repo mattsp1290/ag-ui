@@ -1020,8 +1020,6 @@ func TestStreamingDataProcessor_NonStreamingMode(t *testing.T) {
 func TestStreamingDataProcessor_ParameterValidation(t *testing.T) {
 	tool := createStreamingDataProcessorTool()
 	processor := tool.Executor.(*MockStreamingDataProcessor)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
 
 	testCases := []struct {
 		name   string
@@ -1029,15 +1027,17 @@ func TestStreamingDataProcessor_ParameterValidation(t *testing.T) {
 	}{
 		{
 			name: "Default parameters",
-			params: map[string]interface{}{},
+			params: map[string]interface{}{
+				"duration_seconds": 1, // Override default to fit within test timeout
+			},
 		},
 		{
 			name: "All parameters specified",
 			params: map[string]interface{}{
 				"data_type":         "sensor",
 				"processing_type":   "analytics",
-				"batch_size":        20,
-				"interval_ms":       500,
+				"batch_size":        5,
+				"interval_ms":       100,
 				"duration_seconds":  1,
 				"enable_statistics": false,
 			},
@@ -1054,6 +1054,10 @@ func TestStreamingDataProcessor_ParameterValidation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			// Create fresh context for each test case
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			
 			outputChan := make(chan interface{}, 100)
 			
 			err := processor.StreamingExecute(ctx, tc.params, outputChan)
@@ -1119,7 +1123,7 @@ func TestStreamingDataProcessor_Performance(t *testing.T) {
 
 // TestStreamingDataProcessor_ConcurrentStreaming tests concurrent streaming
 func TestStreamingDataProcessor_ConcurrentStreaming(t *testing.T) {
-	tool := createStreamingDataProcessorTool()
+	_ = createStreamingDataProcessorTool() // tool not used in this test
 	
 	const numStreams = 3
 	var wg sync.WaitGroup
@@ -1206,7 +1210,7 @@ func TestStreamingDataProcessor_Capabilities(t *testing.T) {
 
 // BenchmarkStreamingDataProcessor benchmarks streaming performance
 func BenchmarkStreamingDataProcessor(b *testing.B) {
-	tool := createStreamingDataProcessorTool()
+	_ = createStreamingDataProcessorTool() // tool not used in this benchmark
 	ctx := context.Background()
 
 	b.Run("HighFrequencyStreaming", func(b *testing.B) {
@@ -1260,8 +1264,8 @@ func BenchmarkStreamingDataProcessor(b *testing.B) {
 	})
 }
 
-// Example tests
-func ExampleStreamingDataProcessor_BasicUsage() {
+// Example tests - this is just an example function, not attached to a type
+func Example_streamingDataProcessor_BasicUsage() {
 	tool := createStreamingDataProcessorTool()
 	processor := tool.Executor.(*MockStreamingDataProcessor)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

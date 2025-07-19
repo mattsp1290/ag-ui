@@ -19,6 +19,13 @@ import (
 var globalSchemaCache *SchemaCache
 var globalSchemaCacheOnce sync.Once
 
+// ResetGlobalSchemaCache resets the global schema cache for testing purposes.
+// This function should only be used in test code to ensure proper test isolation.
+func ResetGlobalSchemaCache() {
+	globalSchemaCache = nil
+	globalSchemaCacheOnce = sync.Once{}
+}
+
 
 // SchemaValidator provides JSON Schema validation for tool parameters.
 // It supports the JSON Schema draft-07 specification with additional

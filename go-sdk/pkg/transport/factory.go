@@ -166,35 +166,96 @@ func (r *DefaultTransportRegistry) Clear() {
 	r.factories = make(map[string]TransportFactory)
 }
 
+// TransportManagerConfig holds configuration for the transport manager cleanup mechanism
+type TransportManagerConfig struct {
+	// CleanupEnabled enables the periodic map cleanup mechanism
+	CleanupEnabled bool
+	// CleanupInterval specifies how often to run cleanup (default: 1 hour)
+	CleanupInterval time.Duration
+	// MaxMapSize is the threshold above which cleanup is triggered (default: 1000)
+	MaxMapSize int
+	// ActiveThreshold is the ratio below which cleanup occurs (default: 0.5)
+	// If activeTransports/totalTransports < ActiveThreshold, cleanup runs
+	ActiveThreshold float64
+	// CleanupMetricsEnabled enables detailed cleanup metrics
+	CleanupMetricsEnabled bool
+}
+
+// DefaultTransportManagerConfig returns default configuration for transport manager
+func DefaultTransportManagerConfig() *TransportManagerConfig {
+	return &TransportManagerConfig{
+		CleanupEnabled:        true,
+		CleanupInterval:       1 * time.Hour,
+		MaxMapSize:           1000,
+		ActiveThreshold:      0.5,
+		CleanupMetricsEnabled: true,
+	}
+}
+
 // TransportManager manages multiple transport instances and provides advanced features.
 type DefaultTransportManager struct {
-	mu          sync.RWMutex
-	transports  map[string]Transport
-	registry    TransportRegistry
-	balancer    LoadBalancer
-	middleware  MiddlewareChain
-	eventBus    EventBus
-	healthCheck *HealthCheckManager
-	metrics     *MetricsManager
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	logger      Logger
+	mu                sync.RWMutex
+	transports        map[string]Transport
+	registry          TransportRegistry
+	balancer          LoadBalancer
+	middleware        MiddlewareChain
+	eventBus          EventBus
+	healthCheck       *HealthCheckManager
+	metrics           *MetricsManager
+	ctx               context.Context
+	cancel            context.CancelFunc
+	wg                sync.WaitGroup
+	logger            Logger
+	config            *TransportManagerConfig
+	cleanupTicker     *time.Ticker
+	lastCleanupTime   time.Time
+	mapCleanupMetrics *MapCleanupMetrics
+}
+
+// MapCleanupMetrics tracks transport map cleanup operation statistics
+type MapCleanupMetrics struct {
+	mu                  sync.RWMutex
+	TotalCleanups       uint64
+	TransportsRemoved   uint64
+	TransportsRetained  uint64
+	LastCleanupDuration time.Duration
+	LastCleanupTime     time.Time
+	CleanupErrors       uint64
 }
 
 // NewDefaultTransportManager creates a new default transport manager.
 func NewDefaultTransportManager(registry TransportRegistry) *DefaultTransportManager {
-	ctx, cancel := context.WithCancel(context.Background())
-	return &DefaultTransportManager{
-		transports:  make(map[string]Transport),
-		registry:    registry,
-		middleware:  NewDefaultMiddlewareChain(),
-		healthCheck: NewHealthCheckManager(),
-		metrics:     NewMetricsManager(),
-		ctx:         ctx,
-		cancel:      cancel,
-		logger:      NewLogger(DefaultLoggerConfig()),
+	return NewDefaultTransportManagerWithConfig(registry, DefaultTransportManagerConfig())
+}
+
+// NewDefaultTransportManagerWithConfig creates a new default transport manager with custom configuration.
+func NewDefaultTransportManagerWithConfig(registry TransportRegistry, config *TransportManagerConfig) *DefaultTransportManager {
+	if config == nil {
+		config = DefaultTransportManagerConfig()
 	}
+	
+	ctx, cancel := context.WithCancel(context.Background())
+	
+	manager := &DefaultTransportManager{
+		transports:      make(map[string]Transport),
+		registry:        registry,
+		middleware:      NewDefaultMiddlewareChain(),
+		healthCheck:     NewHealthCheckManager(),
+		metrics:         NewMetricsManager(),
+		ctx:             ctx,
+		cancel:          cancel,
+		logger:          NewLogger(DefaultLoggerConfig()),
+		config:            config,
+		lastCleanupTime:   time.Now(),
+		mapCleanupMetrics: &MapCleanupMetrics{},
+	}
+	
+	// Start cleanup goroutine if enabled
+	if config.CleanupEnabled {
+		manager.startCleanupTicker()
+	}
+	
+	return manager
 }
 
 // AddTransport adds a transport to the manager.
@@ -215,6 +276,9 @@ func (m *DefaultTransportManager) AddTransport(name string, transport Transport)
 	}
 
 	m.transports[name] = transport
+	
+	// Check if cleanup is needed after adding transport
+	m.checkAndTriggerCleanup()
 	
 	// Register with health checker
 	if m.healthCheck != nil {
@@ -503,11 +567,287 @@ func (m *DefaultTransportManager) SetEventBus(eventBus EventBus) {
 	m.eventBus = eventBus
 }
 
+// startCleanupTicker starts the periodic cleanup goroutine
+func (m *DefaultTransportManager) startCleanupTicker() {
+	if m.config == nil || !m.config.CleanupEnabled {
+		return
+	}
+
+	m.cleanupTicker = time.NewTicker(m.config.CleanupInterval)
+	m.wg.Add(1)
+
+	go func() {
+		defer m.wg.Done()
+		defer m.cleanupTicker.Stop()
+
+		for {
+			select {
+			case <-m.cleanupTicker.C:
+				m.runPeriodicCleanup()
+			case <-m.ctx.Done():
+				return
+			}
+		}
+	}()
+
+	m.logger.Info("Transport manager cleanup ticker started",
+		String("interval", m.config.CleanupInterval.String()),
+		Int("max_map_size", m.config.MaxMapSize),
+		Float64("active_threshold", m.config.ActiveThreshold))
+}
+
+// checkAndTriggerCleanup checks if cleanup should be triggered and runs it if necessary
+// This method is called with the manager lock already held
+func (m *DefaultTransportManager) checkAndTriggerCleanup() {
+	if m.config == nil || !m.config.CleanupEnabled {
+		return
+	}
+
+	// Check if context is cancelled
+	select {
+	case <-m.ctx.Done():
+		return
+	default:
+	}
+
+	totalTransports := len(m.transports)
+	if totalTransports <= m.config.MaxMapSize {
+		return
+	}
+
+	// Count active transports
+	activeCount := 0
+	for _, transport := range m.transports {
+		if transport.IsConnected() {
+			activeCount++
+		}
+	}
+
+	// Calculate active ratio
+	activeRatio := float64(activeCount) / float64(totalTransports)
+
+	// Trigger cleanup if we're above size threshold and below active threshold
+	if activeRatio < m.config.ActiveThreshold {
+		m.logger.Info("Triggering immediate cleanup due to size threshold",
+			Int("total_transports", totalTransports),
+			Int("active_transports", activeCount),
+			Float64("active_ratio", activeRatio),
+			Int("max_size", m.config.MaxMapSize),
+			Float64("threshold", m.config.ActiveThreshold))
+
+		// Run cleanup without additional locking since we already hold the lock
+		m.cleanupInactiveTransportsLocked()
+	}
+}
+
+// runPeriodicCleanup is called by the cleanup ticker
+func (m *DefaultTransportManager) runPeriodicCleanup() {
+	if m.config == nil || !m.config.CleanupEnabled {
+		return
+	}
+
+	// Check if context is cancelled before proceeding
+	select {
+	case <-m.ctx.Done():
+		return
+	default:
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Double-check context cancellation after acquiring lock
+	select {
+	case <-m.ctx.Done():
+		return
+	default:
+	}
+
+	totalTransports := len(m.transports)
+	if totalTransports <= m.config.MaxMapSize {
+		return
+	}
+
+	// Count active transports
+	activeCount := 0
+	for _, transport := range m.transports {
+		if transport.IsConnected() {
+			activeCount++
+		}
+	}
+
+	// Calculate active ratio
+	activeRatio := float64(activeCount) / float64(totalTransports)
+
+	// Only run cleanup if we're below the active threshold
+	if activeRatio < m.config.ActiveThreshold {
+		m.logger.Info("Running periodic cleanup",
+			Int("total_transports", totalTransports),
+			Int("active_transports", activeCount),
+			Float64("active_ratio", activeRatio))
+
+		m.cleanupInactiveTransportsLocked()
+	}
+}
+
+// cleanupInactiveTransportsLocked performs the actual cleanup operation
+// This method assumes the manager mutex is already held
+func (m *DefaultTransportManager) cleanupInactiveTransportsLocked() {
+	if m.config == nil || !m.config.CleanupEnabled {
+		return
+	}
+
+	startTime := time.Now()
+	
+	// Create new map to hold only active transports
+	newTransports := make(map[string]Transport)
+	removedCount := 0
+	retainedCount := 0
+	
+	// Track transports that need to be cleaned up
+	var toClose []Transport
+	var closedNames []string
+
+	// Iterate through existing transports
+	for name, transport := range m.transports {
+		if transport.IsConnected() {
+			// Keep active transports
+			newTransports[name] = transport
+			retainedCount++
+		} else {
+			// Mark inactive transports for removal
+			toClose = append(toClose, transport)
+			closedNames = append(closedNames, name)
+			removedCount++
+		}
+	}
+
+	// Replace the map to reclaim memory
+	oldLen := len(m.transports)
+	m.transports = newTransports
+
+	// Update cleanup metrics
+	duration := time.Since(startTime)
+	m.updateCleanupMetrics(removedCount, retainedCount, duration)
+
+	m.logger.Info("Completed transport map cleanup",
+		Int("old_map_size", oldLen),
+		Int("new_map_size", len(m.transports)),
+		Int("transports_removed", removedCount),
+		Int("transports_retained", retainedCount),
+		Duration("cleanup_duration", duration))
+
+	// Close removed transports outside the lock to avoid blocking
+	go m.closeRemovedTransports(toClose, closedNames)
+}
+
+// closeRemovedTransports closes transports that were removed during cleanup
+func (m *DefaultTransportManager) closeRemovedTransports(transports []Transport, names []string) {
+	for i, transport := range transports {
+		name := names[i]
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		
+		if err := transport.Close(closeCtx); err != nil {
+			m.logger.Error("Failed to close removed transport during cleanup",
+				String("transport", name),
+				Error(err))
+			
+			// Update error metrics
+			if m.config.CleanupMetricsEnabled {
+				m.mapCleanupMetrics.mu.Lock()
+				m.mapCleanupMetrics.CleanupErrors++
+				m.mapCleanupMetrics.mu.Unlock()
+			}
+		} else {
+			m.logger.Debug("Successfully closed removed transport",
+				String("transport", name))
+		}
+		
+		cancel()
+		
+		// Remove from health check and metrics managers
+		if m.healthCheck != nil {
+			m.healthCheck.RemoveTransport(name)
+		}
+		if m.metrics != nil {
+			m.metrics.RemoveTransport(name)
+		}
+	}
+}
+
+// updateCleanupMetrics updates the cleanup operation metrics
+func (m *DefaultTransportManager) updateCleanupMetrics(removed, retained int, duration time.Duration) {
+	if !m.config.CleanupMetricsEnabled || m.mapCleanupMetrics == nil {
+		return
+	}
+
+	m.mapCleanupMetrics.mu.Lock()
+	defer m.mapCleanupMetrics.mu.Unlock()
+
+	m.mapCleanupMetrics.TotalCleanups++
+	m.mapCleanupMetrics.TransportsRemoved += uint64(removed)
+	m.mapCleanupMetrics.TransportsRetained += uint64(retained)
+	m.mapCleanupMetrics.LastCleanupDuration = duration
+	m.mapCleanupMetrics.LastCleanupTime = time.Now()
+	m.lastCleanupTime = time.Now()
+}
+
+// GetMapCleanupMetrics returns the current cleanup metrics
+func (m *DefaultTransportManager) GetMapCleanupMetrics() MapCleanupMetrics {
+	if m.mapCleanupMetrics == nil {
+		return MapCleanupMetrics{}
+	}
+
+	m.mapCleanupMetrics.mu.RLock()
+	defer m.mapCleanupMetrics.mu.RUnlock()
+
+	// Return a copy to prevent external modification
+	return *m.mapCleanupMetrics
+}
+
+// TriggerManualCleanup manually triggers a cleanup operation
+func (m *DefaultTransportManager) TriggerManualCleanup() {
+	if m.config == nil || !m.config.CleanupEnabled {
+		m.logger.Warn("Manual cleanup requested but cleanup is disabled")
+		return
+	}
+
+	// Check if context is cancelled before proceeding
+	select {
+	case <-m.ctx.Done():
+		m.logger.Debug("Manual cleanup skipped - context cancelled")
+		return
+	default:
+	}
+
+	m.logger.Info("Manual cleanup triggered")
+	m.runPeriodicCleanup()
+}
+
 // Close closes all managed transports.
 func (m *DefaultTransportManager) Close() error {
-	m.cancel()
+	// First, acquire the lock to safely stop the cleanup ticker and signal shutdown
+	m.mu.Lock()
+	
+	// Stop cleanup ticker first while holding the lock to prevent deadlock
+	if m.cleanupTicker != nil {
+		m.cleanupTicker.Stop()
+		m.cleanupTicker = nil
+	}
+	
+	// Cancel context to signal all goroutines to stop
+	if m.cancel != nil {
+		m.cancel()
+	}
+	
+	// Release the lock before waiting for goroutines to avoid deadlock
+	m.mu.Unlock()
+	
+	// Wait for all goroutines (including cleanup goroutine) to finish
+	// This must be done WITHOUT holding the lock since goroutines may need to acquire it
 	m.wg.Wait()
 
+	// Now safely acquire the lock for final cleanup
 	m.mu.Lock()
 	defer m.mu.Unlock()
 

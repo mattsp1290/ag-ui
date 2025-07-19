@@ -59,40 +59,18 @@ type BenchmarkMockTransport struct {
 }
 
 func NewBenchmarkMockTransport(bufferSize int) *BenchmarkMockTransport {
-	// Use typed capabilities for better type safety
-	compressionFeatures := CompressionFeatures{
-		SupportedAlgorithms: []CompressionType{CompressionNone},
-		DefaultAlgorithm:    CompressionNone,
-		CompressionLevel:    0,
-		MinSizeThreshold:    0,
-		MaxCompressionRatio: 1.0,
-	}
-	
-	_ = SecurityFeatures{
-		SupportedFeatures: []SecurityFeature{SecurityTLS},
-		DefaultFeature:    SecurityTLS,
-		TLSConfig: &TLSConfig{
-			MinVersion:        "1.3",
-			MaxVersion:        "1.3",
-			RequireClientCert: false,
-		},
-	}
-	
-	baseCaps := Capabilities{
-		Streaming:       true,
-		Bidirectional:   true,
-		Compression:     []CompressionType{CompressionNone},
-		Multiplexing:    false,
-		Reconnection:    true,
-		MaxMessageSize:  1024 * 1024,
-		Security:        []SecurityFeature{SecurityTLS},
-		ProtocolVersion: "1.0",
+	// Use simplified capabilities
+	caps := Capabilities{
+		Streaming:        true,
+		Bidirectional:    true,
+		MaxMessageSize:   1024 * 1024,
+		ProtocolVersion:  "1.0",
 	}
 	
 	return &BenchmarkMockTransport{
 		eventChan:    make(chan events.Event, bufferSize),
 		errorChan:    make(chan error, bufferSize),
-		capabilities: ToCapabilities(NewCompressionCapabilities(baseCaps, compressionFeatures)),
+		capabilities: caps,
 		metrics: Metrics{
 			ConnectionUptime: 0,
 			AverageLatency:   10 * time.Millisecond,

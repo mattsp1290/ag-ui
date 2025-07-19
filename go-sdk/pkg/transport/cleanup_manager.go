@@ -39,10 +39,13 @@ type CleanupTask struct {
 	LastCleanup   time.Time
 	CleanupFunc   func() (itemsCleaned int, err error)
 	
-	// Statistics
+	// Statistics - cache line padded to prevent false sharing
 	TotalRuns     atomic.Uint64
+	_             [56]byte // Cache line padding
 	TotalCleaned  atomic.Uint64
+	_             [56]byte // Cache line padding
 	TotalErrors   atomic.Uint64
+	_             [56]byte // Cache line padding
 	LastError     error
 	LastErrorTime time.Time
 	mu            sync.RWMutex

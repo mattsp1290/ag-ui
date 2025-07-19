@@ -20,11 +20,15 @@ type RingBuffer struct {
 	size            int
 	overflowPolicy  OverflowPolicy
 	
-	// Statistics
+	// Statistics - cache line padded to prevent false sharing
 	totalWritten    atomic.Uint64
+	_               [56]byte // Cache line padding
 	totalRead       atomic.Uint64
+	_               [56]byte // Cache line padding
 	totalDropped    atomic.Uint64
+	_               [56]byte // Cache line padding
 	totalOverflows  atomic.Uint64
+	_               [56]byte // Cache line padding
 	
 	// Condition variables for blocking operations
 	notEmpty        *sync.Cond
@@ -171,11 +175,35 @@ func (rb *RingBuffer) PopWithContext(ctx context.Context) (events.Event, error) 
 
 	// Wait for data if buffer is empty
 	for rb.size == 0 {
+		// Check context cancellation before waiting
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
-			rb.notEmpty.Wait()
+		}
+		
+		// Use a channel to coordinate between Wait() and context cancellation
+		waitDone := make(chan struct{})
+		var ctxCancelled bool
+		
+		// Start goroutine to handle context cancellation
+		go func() {
+			select {
+			case <-ctx.Done():
+				ctxCancelled = true
+				rb.notEmpty.Broadcast() // Wake up the Wait()
+			case <-waitDone:
+				// Wait completed normally
+			}
+		}()
+		
+		// Wait on the condition variable
+		rb.notEmpty.Wait()
+		close(waitDone) // Signal that Wait() completed
+		
+		// Check if we should exit due to context cancellation
+		if ctxCancelled {
+			return nil, ctx.Err()
 		}
 	}
 
@@ -317,11 +345,35 @@ func (rb *RingBuffer) handleOverflow(ctx context.Context, event events.Event) er
 	case OverflowBlock:
 		// Wait for space
 		for rb.size == rb.capacity {
+			// Check context cancellation before waiting
 			select {
 			case <-ctx.Done():
 				return ctx.Err()
 			default:
-				rb.notFull.Wait()
+			}
+			
+			// Use a channel to coordinate between Wait() and context cancellation
+			waitDone := make(chan struct{})
+			var ctxCancelled bool
+			
+			// Start goroutine to handle context cancellation
+			go func() {
+				select {
+				case <-ctx.Done():
+					ctxCancelled = true
+					rb.notFull.Broadcast() // Wake up the Wait()
+				case <-waitDone:
+					// Wait completed normally
+				}
+			}()
+			
+			// Wait on the condition variable
+			rb.notFull.Wait()
+			close(waitDone) // Signal that Wait() completed
+			
+			// Check if we should exit due to context cancellation
+			if ctxCancelled {
+				return ctx.Err()
 			}
 		}
 		

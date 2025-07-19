@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 )
@@ -189,8 +190,8 @@ func TestPerformanceComparison(t *testing.T) {
 	// Create tools
 	for i := 0; i < 100; i++ {
 		tool := &Tool{
-			ID:          "tool-" + string(rune('0'+i%10)),
-			Name:        "Test Tool " + string(rune('0'+i%10)),
+			ID:          fmt.Sprintf("tool-%d", i),
+			Name:        fmt.Sprintf("Test Tool %d", i),
 			Description: "Test description",
 			Version:     "1.0.0",
 			Schema: &ToolSchema{
@@ -256,8 +257,8 @@ func TestCachingEffectiveness(t *testing.T) {
 		// Add some tools
 		for i := 0; i < 50; i++ {
 			tool := &Tool{
-				ID:          "tool-" + string(rune('0'+i%10)),
-				Name:        "Test Tool " + string(rune('0'+i%10)),
+				ID:          fmt.Sprintf("tool-cache-%d", i),
+				Name:        fmt.Sprintf("Test Tool Cache %d", i),
 				Description: "Test description",
 				Version:     "1.0.0",
 				Schema: &ToolSchema{

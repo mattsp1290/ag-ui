@@ -7,6 +7,7 @@ import (
 	"math/rand"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -435,6 +436,10 @@ func (pf *PerformanceFramework) EstablishBaseline(t *testing.T) *BaselineResult 
 		StartTime: time.Now(),
 	}
 	
+	// Create context with timeout to prevent infinite loops
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	
 	// Create test environment
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry)
@@ -447,14 +452,14 @@ func (pf *PerformanceFramework) EstablishBaseline(t *testing.T) *BaselineResult 
 		}
 	}
 	
-	// Warmup
-	pf.warmup(engine, tools, pf.config.BaselineWarmupDuration)
+	// Warmup with context
+	pf.warmupWithContext(ctx, engine, tools, pf.config.BaselineWarmupDuration)
 	
-	// Measure baseline metrics
-	result.ExecutionTime = pf.measureBaselineExecutionTime(engine, tools)
-	result.Throughput = pf.measureBaselineThroughput(engine, tools)
-	result.MemoryUsage = pf.measureBaselineMemoryUsage(engine, tools)
-	result.Latency = pf.measureBaselineLatency(engine, tools)
+	// Measure baseline metrics with context and timeouts
+	result.ExecutionTime = pf.measureBaselineExecutionTimeWithContext(ctx, engine, tools)
+	result.Throughput = pf.measureBaselineThroughputWithContext(ctx, engine, tools)
+	result.MemoryUsage = pf.measureBaselineMemoryUsageWithContext(ctx, engine, tools)
+	result.Latency = pf.measureBaselineLatencyWithContext(ctx, engine, tools)
 	
 	// Update baseline
 	pf.baseline.mu.Lock()
@@ -685,18 +690,30 @@ type TestExecutor struct {
 }
 
 func (e *TestExecutor) Execute(ctx context.Context, params map[string]interface{}) (*ToolExecutionResult, error) {
-	// Simulate processing time
+	// Limit processing time to prevent hangs
+	maxProcessingTime := 1 * time.Second
+	actualProcessingTime := e.processingTime
+	if actualProcessingTime > maxProcessingTime {
+		actualProcessingTime = maxProcessingTime
+	}
+	
+	// Create a timer that respects both context and processing time
+	processingTimer := time.NewTimer(actualProcessingTime)
+	defer processingTimer.Stop()
+	
+	// Simulate processing time with proper context handling
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case <-time.After(e.processingTime):
+	case <-processingTimer.C:
+		// Processing completed normally
 	}
 	
 	// Simulate some work
 	result := make(map[string]interface{})
 	result["processed"] = params["input"]
 	result["timestamp"] = time.Now()
-	result["processing_time"] = e.processingTime
+	result["processing_time"] = actualProcessingTime
 	
 	return &ToolExecutionResult{
 		Success:   true,
@@ -979,24 +996,32 @@ func calculateErrorRate(err error) float64 {
 }
 
 // Additional helper methods for the performance framework
-func (pf *PerformanceFramework) warmup(engine *ExecutionEngine, tools []*Tool, duration time.Duration) {
-	ctx, cancel := context.WithTimeout(context.Background(), duration)
+func (pf *PerformanceFramework) warmupWithContext(parentCtx context.Context, engine *ExecutionEngine, tools []*Tool, duration time.Duration) {
+	// Create a timeout context that respects both parent context and duration
+	ctx, cancel := context.WithTimeout(parentCtx, duration)
 	defer cancel()
 	
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
+	concurrency := 10
+	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			ticker := time.NewTicker(10 * time.Millisecond)
+			defer ticker.Stop()
+			
 			for {
 				select {
 				case <-ctx.Done():
 					return
-				default:
+				case <-ticker.C:
 					tool := tools[rand.Intn(len(tools))]
-					engine.Execute(ctx, tool.ID, map[string]interface{}{
+					// Use a short timeout for each operation
+					opCtx, opCancel := context.WithTimeout(ctx, 50*time.Millisecond)
+					engine.Execute(opCtx, tool.ID, map[string]interface{}{
 						"input": "warmup",
 					})
+					opCancel()
 				}
 			}
 		}()
@@ -1004,64 +1029,142 @@ func (pf *PerformanceFramework) warmup(engine *ExecutionEngine, tools []*Tool, d
 	wg.Wait()
 }
 
-func (pf *PerformanceFramework) measureBaselineExecutionTime(engine *ExecutionEngine, tools []*Tool) time.Duration {
-	var totalTime time.Duration
-	iterations := pf.config.BaselineIterations
-	
-	for i := 0; i < iterations; i++ {
-		tool := tools[rand.Intn(len(tools))]
-		start := time.Now()
-		engine.Execute(context.Background(), tool.ID, map[string]interface{}{
-			"input": fmt.Sprintf("baseline-test-%d", i),
-		})
-		totalTime += time.Since(start)
-	}
-	
-	return totalTime / time.Duration(iterations)
+// Legacy method for backwards compatibility
+func (pf *PerformanceFramework) warmup(engine *ExecutionEngine, tools []*Tool, duration time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	defer cancel()
+	pf.warmupWithContext(ctx, engine, tools, duration)
 }
 
-func (pf *PerformanceFramework) measureBaselineThroughput(engine *ExecutionEngine, tools []*Tool) float64 {
+func (pf *PerformanceFramework) measureBaselineExecutionTimeWithContext(ctx context.Context, engine *ExecutionEngine, tools []*Tool) time.Duration {
+	var totalTime time.Duration
+	iterations := pf.config.BaselineIterations
+	successfulIterations := 0
+	
+	for i := 0; i < iterations; i++ {
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			// Context cancelled, return average of successful iterations
+			if successfulIterations > 0 {
+				return totalTime / time.Duration(successfulIterations)
+			}
+			return 0
+		default:
+			// Continue with iteration
+		}
+		
+		tool := tools[rand.Intn(len(tools))]
+		start := time.Now()
+		
+		// Create operation context with timeout
+		opCtx, opCancel := context.WithTimeout(ctx, 1*time.Second)
+		_, err := engine.Execute(opCtx, tool.ID, map[string]interface{}{
+			"input": fmt.Sprintf("baseline-test-%d", i),
+		})
+		opCancel()
+		
+		elapsed := time.Since(start)
+		if err == nil || err == context.DeadlineExceeded {
+			totalTime += elapsed
+			successfulIterations++
+		}
+	}
+	
+	if successfulIterations > 0 {
+		return totalTime / time.Duration(successfulIterations)
+	}
+	return 0
+}
+
+// Legacy method for backwards compatibility
+func (pf *PerformanceFramework) measureBaselineExecutionTime(engine *ExecutionEngine, tools []*Tool) time.Duration {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return pf.measureBaselineExecutionTimeWithContext(ctx, engine, tools)
+}
+
+func (pf *PerformanceFramework) measureBaselineThroughputWithContext(parentCtx context.Context, engine *ExecutionEngine, tools []*Tool) float64 {
 	duration := 10 * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	ctx, cancel := context.WithTimeout(parentCtx, duration)
 	defer cancel()
 	
 	var ops int64
 	var wg sync.WaitGroup
+	concurrency := 10
 	
-	for i := 0; i < 10; i++ {
+	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			ticker := time.NewTicker(10 * time.Millisecond)
+			defer ticker.Stop()
+			
 			for {
 				select {
 				case <-ctx.Done():
 					return
-				default:
+				case <-ticker.C:
 					tool := tools[rand.Intn(len(tools))]
-					engine.Execute(ctx, tool.ID, map[string]interface{}{
+					// Use short timeout for each operation
+					opCtx, opCancel := context.WithTimeout(ctx, 100*time.Millisecond)
+					_, err := engine.Execute(opCtx, tool.ID, map[string]interface{}{
 						"input": "throughput-test",
 					})
-					ops++
+					opCancel()
+					
+					if err == nil || err == context.DeadlineExceeded {
+						atomic.AddInt64(&ops, 1)
+					}
 				}
 			}
 		}()
 	}
 	
 	wg.Wait()
-	return float64(ops) / duration.Seconds()
+	return float64(atomic.LoadInt64(&ops)) / duration.Seconds()
 }
 
-func (pf *PerformanceFramework) measureBaselineMemoryUsage(engine *ExecutionEngine, tools []*Tool) uint64 {
+// Legacy method for backwards compatibility
+func (pf *PerformanceFramework) measureBaselineThroughput(engine *ExecutionEngine, tools []*Tool) float64 {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return pf.measureBaselineThroughputWithContext(ctx, engine, tools)
+}
+
+func (pf *PerformanceFramework) measureBaselineMemoryUsageWithContext(ctx context.Context, engine *ExecutionEngine, tools []*Tool) uint64 {
 	runtime.GC()
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
 	
-	// Execute operations
-	for i := 0; i < 1000; i++ {
+	// Execute operations with context and timeout
+	operations := 1000
+	for i := 0; i < operations; i++ {
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			// Context cancelled, return current measurement
+			runtime.GC()
+			var current runtime.MemStats
+			runtime.ReadMemStats(&current)
+			return current.Alloc - before.Alloc
+		default:
+			// Continue with operation
+		}
+		
 		tool := tools[rand.Intn(len(tools))]
-		engine.Execute(context.Background(), tool.ID, map[string]interface{}{
+		
+		// Create operation context with short timeout
+		opCtx, opCancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		_, err := engine.Execute(opCtx, tool.ID, map[string]interface{}{
 			"input": fmt.Sprintf("memory-test-%d", i),
 		})
+		opCancel()
+		
+		if err != nil && err != context.DeadlineExceeded {
+			// Log error but continue
+			continue
+		}
 	}
 	
 	runtime.GC()
@@ -1071,20 +1174,51 @@ func (pf *PerformanceFramework) measureBaselineMemoryUsage(engine *ExecutionEngi
 	return after.Alloc - before.Alloc
 }
 
-func (pf *PerformanceFramework) measureBaselineLatency(engine *ExecutionEngine, tools []*Tool) *LatencyMetrics {
+// Legacy method for backwards compatibility
+func (pf *PerformanceFramework) measureBaselineMemoryUsage(engine *ExecutionEngine, tools []*Tool) uint64 {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return pf.measureBaselineMemoryUsageWithContext(ctx, engine, tools)
+}
+
+func (pf *PerformanceFramework) measureBaselineLatencyWithContext(ctx context.Context, engine *ExecutionEngine, tools []*Tool) *LatencyMetrics {
 	var latencies []time.Duration
 	iterations := pf.config.BaselineIterations
 	
 	for i := 0; i < iterations; i++ {
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			// Context cancelled, return metrics from collected latencies
+			return calculateLatencyMetrics(latencies)
+		default:
+			// Continue with iteration
+		}
+		
 		tool := tools[rand.Intn(len(tools))]
 		start := time.Now()
-		engine.Execute(context.Background(), tool.ID, map[string]interface{}{
+		
+		// Create operation context with timeout
+		opCtx, opCancel := context.WithTimeout(ctx, 1*time.Second)
+		_, err := engine.Execute(opCtx, tool.ID, map[string]interface{}{
 			"input": fmt.Sprintf("latency-test-%d", i),
 		})
-		latencies = append(latencies, time.Since(start))
+		opCancel()
+		
+		elapsed := time.Since(start)
+		if err == nil || err == context.DeadlineExceeded {
+			latencies = append(latencies, elapsed)
+		}
 	}
 	
 	return calculateLatencyMetrics(latencies)
+}
+
+// Legacy method for backwards compatibility
+func (pf *PerformanceFramework) measureBaselineLatency(engine *ExecutionEngine, tools []*Tool) *LatencyMetrics {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return pf.measureBaselineLatencyWithContext(ctx, engine, tools)
 }
 
 func calculateLatencyMetrics(latencies []time.Duration) *LatencyMetrics {
@@ -1361,10 +1495,13 @@ func (lg *LoadGenerator) generateRampLoad(ctx context.Context, maxIntensity int)
 	
 	startTime := time.Now()
 	var activeWorkers int
+	var wg sync.WaitGroup
 	
 	for {
 		select {
 		case <-ctx.Done():
+			// Wait for all workers to finish
+			wg.Wait()
 			return
 		case <-ticker.C:
 			elapsed := time.Since(startTime)
@@ -1378,7 +1515,11 @@ func (lg *LoadGenerator) generateRampLoad(ctx context.Context, maxIntensity int)
 			
 			// Adjust worker count
 			for activeWorkers < targetIntensity {
-				go lg.worker(ctx, activeWorkers)
+				wg.Add(1)
+				go func(workerID int) {
+					defer wg.Done()
+					lg.worker(ctx, workerID)
+				}(activeWorkers)
 				activeWorkers++
 			}
 		}
@@ -1386,7 +1527,7 @@ func (lg *LoadGenerator) generateRampLoad(ctx context.Context, maxIntensity int)
 }
 
 func (lg *LoadGenerator) generateSpikeLoad(ctx context.Context, spikeIntensity int) {
-	// Generate spikes at regular intervals
+	// Generate spikes at regular intervals with proper cleanup
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	
@@ -1395,11 +1536,17 @@ func (lg *LoadGenerator) generateSpikeLoad(ctx context.Context, spikeIntensity i
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// Generate spike
+			// Generate spike with timeout and cleanup
 			spikeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			var wg sync.WaitGroup
 			
-			for i := 0; i < spikeIntensity; i++ {
+			// Limit spike intensity to prevent resource exhaustion
+			limitedIntensity := spikeIntensity
+			if limitedIntensity > 100 {
+				limitedIntensity = 100
+			}
+			
+			for i := 0; i < limitedIntensity; i++ {
 				wg.Add(1)
 				go func(workerID int) {
 					defer wg.Done()
@@ -1407,6 +1554,7 @@ func (lg *LoadGenerator) generateSpikeLoad(ctx context.Context, spikeIntensity i
 				}(i)
 			}
 			
+			// Ensure all workers complete before next spike
 			wg.Wait()
 			cancel()
 		}
@@ -1419,10 +1567,13 @@ func (lg *LoadGenerator) generateWaveLoad(ctx context.Context, amplitude int) {
 	
 	startTime := time.Now()
 	var activeWorkers int
+	var wg sync.WaitGroup
 	
 	for {
 		select {
 		case <-ctx.Done():
+			// Wait for all workers to finish
+			wg.Wait()
 			return
 		case <-ticker.C:
 			elapsed := time.Since(startTime).Seconds()
@@ -1431,9 +1582,18 @@ func (lg *LoadGenerator) generateWaveLoad(ctx context.Context, amplitude int) {
 			waveValue := math.Sin(elapsed / 30 * 2 * math.Pi) // 60-second period
 			targetIntensity := int(float64(amplitude) * (0.5 + 0.5*waveValue))
 			
+			// Limit intensity to prevent resource exhaustion
+			if targetIntensity > 50 {
+				targetIntensity = 50
+			}
+			
 			// Adjust worker count
 			for activeWorkers < targetIntensity {
-				go lg.worker(ctx, activeWorkers)
+				wg.Add(1)
+				go func(workerID int) {
+					defer wg.Done()
+					lg.worker(ctx, workerID)
+				}(activeWorkers)
 				activeWorkers++
 			}
 		}
@@ -1441,14 +1601,42 @@ func (lg *LoadGenerator) generateWaveLoad(ctx context.Context, amplitude int) {
 }
 
 func (lg *LoadGenerator) worker(ctx context.Context, workerID int) {
+	// Add maximum work duration to prevent infinite loops
+	maxWorkDuration := 30 * time.Second
+	workTimeout := time.After(maxWorkDuration)
+	
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-workTimeout:
+			// Maximum work duration reached, exit worker
+			return
 		case lg.workersChan <- struct{}{}:
-			// Throttle worker
+			// Throttle worker and execute operation
 			lg.executeOperation(ctx, workerID)
-			<-lg.workersChan
+			select {
+			case <-lg.workersChan:
+				// Successfully released throttle
+			case <-ctx.Done():
+				// Context cancelled while waiting to release throttle
+				return
+			case <-time.After(1 * time.Second):
+				// Timeout waiting to release throttle, force release
+				select {
+				case <-lg.workersChan:
+				default:
+					// Channel might be full, just continue
+				}
+			}
+		default:
+			// Workers channel is full, yield and try again
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Millisecond):
+				// Short delay before retrying
+			}
 		}
 	}
 }

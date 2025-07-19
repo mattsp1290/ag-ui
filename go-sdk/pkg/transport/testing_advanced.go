@@ -210,15 +210,21 @@ func (t *AdvancedMockTransport) estimateEventSize(event TransportEvent) int64 {
 type TransportMetrics struct {
 	mu sync.RWMutex
 	
-	// Event metrics
+	// Event metrics - cache line padded to prevent false sharing
 	eventsSent        int64
+	_                 [56]byte // Cache line padding
 	eventsReceived    int64
+	_                 [56]byte // Cache line padding
 	eventsDropped     int64
+	_                 [56]byte // Cache line padding
 	eventsFiltered    int64
+	_                 [56]byte // Cache line padding
 	
-	// Byte metrics
+	// Byte metrics - cache line padded to prevent false sharing
 	bytesSent         int64
+	_                 [56]byte // Cache line padding
 	bytesReceived     int64
+	_                 [56]byte // Cache line padding
 	
 	// Latency metrics
 	latencySamples    []time.Duration

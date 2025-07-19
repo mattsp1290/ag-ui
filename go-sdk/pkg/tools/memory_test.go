@@ -360,6 +360,9 @@ type AdvancedMemoryProfiler struct {
 	mu          sync.RWMutex
 	gcMonitor   *GCMonitor
 	allocMonitor *AllocationMonitor
+	
+	// Lifecycle management
+	profileWG   sync.WaitGroup
 }
 
 // GCMonitor monitors garbage collection events
@@ -400,6 +403,11 @@ type AdvancedLeakDetector struct {
 	samples     []MemorySample
 	algorithms  []LeakDetectionAlgorithm
 	mu          sync.RWMutex
+	
+	// Lifecycle management
+	isRunning   bool
+	stopChan    chan struct{}
+	monitorWG   sync.WaitGroup
 }
 
 // MemorySample represents a memory usage sample
@@ -435,6 +443,7 @@ func NewMemoryTestSuite(config *MemoryTestConfig) *MemoryTestSuite {
 	suite.profiler = &AdvancedMemoryProfiler{
 		config:   config,
 		stopChan: make(chan struct{}),
+		isRunning: false,
 		gcMonitor: &GCMonitor{
 			events: make([]GCEvent, 0),
 		},
@@ -453,6 +462,8 @@ func NewMemoryTestSuite(config *MemoryTestConfig) *MemoryTestSuite {
 			&MemoryStatisticalDetector{},
 			&PatternDetector{},
 		},
+		isRunning: false,
+		stopChan:  make(chan struct{}),
 	}
 	
 	return suite
@@ -1798,6 +1809,8 @@ func (profiler *AdvancedMemoryProfiler) Start() {
 	profiler.isRunning = true
 	profiler.stopChan = make(chan struct{})
 	
+	// Start profiling with proper lifecycle management
+	profiler.profileWG.Add(1)
 	go profiler.profileMemory()
 }
 
@@ -1811,15 +1824,27 @@ func (profiler *AdvancedMemoryProfiler) Stop() {
 	
 	profiler.isRunning = false
 	close(profiler.stopChan)
+	
+	// Wait for profiling goroutine to finish
+	profiler.profileWG.Wait()
 }
 
 func (profiler *AdvancedMemoryProfiler) profileMemory() {
+	defer profiler.profileWG.Done()
+	
 	ticker := time.NewTicker(profiler.config.SamplingInterval)
 	defer ticker.Stop()
+	
+	// Set maximum profiling duration to prevent infinite loops
+	maxDuration := 10 * time.Minute
+	timeout := time.After(maxDuration)
 	
 	for {
 		select {
 		case <-profiler.stopChan:
+			return
+		case <-timeout:
+			// Maximum profiling duration reached, stop profiling
 			return
 		case <-ticker.C:
 			profiler.takeSnapshot()
@@ -1870,20 +1895,53 @@ func (profiler *AdvancedMemoryProfiler) GetSnapshots() []MemorySnapshot {
 
 // Leak detector methods
 func (detector *AdvancedLeakDetector) Start() {
+	detector.mu.Lock()
+	defer detector.mu.Unlock()
+	
+	if detector.isRunning {
+		return
+	}
+	
+	detector.isRunning = true
+	detector.stopChan = make(chan struct{})
+	
 	// Start leak detection monitoring
+	detector.monitorWG.Add(1)
 	go detector.monitor()
 }
 
 func (detector *AdvancedLeakDetector) Stop() {
-	// Stop leak detection monitoring
+	detector.mu.Lock()
+	defer detector.mu.Unlock()
+	
+	if !detector.isRunning {
+		return
+	}
+	
+	detector.isRunning = false
+	close(detector.stopChan)
+	
+	// Wait for monitor goroutine to finish
+	detector.monitorWG.Wait()
 }
 
 func (detector *AdvancedLeakDetector) monitor() {
+	defer detector.monitorWG.Done()
+	
 	ticker := time.NewTicker(detector.config.SamplingInterval)
 	defer ticker.Stop()
 	
+	// Set maximum monitoring duration to prevent infinite loops
+	maxDuration := 5 * time.Minute
+	timeout := time.After(maxDuration)
+	
 	for {
 		select {
+		case <-detector.stopChan:
+			return
+		case <-timeout:
+			// Maximum monitoring duration reached, stop monitoring
+			return
 		case <-ticker.C:
 			detector.takeSample()
 		}

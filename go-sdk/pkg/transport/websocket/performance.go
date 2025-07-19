@@ -326,10 +326,15 @@ type BufferPool struct {
 	pool    sync.Pool
 	maxSize int
 	stats   struct {
+		// Cache line padded to prevent false sharing
 		gets     int64
+		_        [56]byte // Cache line padding
 		puts     int64
+		_        [56]byte // Cache line padding
 		creates  int64
+		_        [56]byte // Cache line padding
 		maxUsage int64
+		_        [56]byte // Cache line padding
 	}
 }
 
@@ -388,10 +393,14 @@ type MessageBatcher struct {
 	messages     chan []byte
 	batches      chan [][]byte
 	stats        struct {
+		// Cache line padded to prevent false sharing
 		messagesIn     int64
+		_              [56]byte // Cache line padding
 		batchesOut     int64
-		avgBatchSize   float64
+		_              [56]byte // Cache line padding
+		avgBatchSize   float64 // Protected by mutex, no padding needed
 		droppedBatches int64
+		_              [56]byte // Cache line padding
 	}
 	mutex  sync.RWMutex // Protect avgBatchSize field
 	closed atomic.Bool  // Track if batcher is closed
@@ -552,9 +561,13 @@ type ConnectionPoolManager struct {
 	activeSlots    map[string]*ConnectionSlot
 	mutex          sync.RWMutex
 	stats          struct {
+		// Cache line padded to prevent false sharing
 		slotsAcquired int64
+		_             [56]byte // Cache line padding
 		slotsReleased int64
+		_             [56]byte // Cache line padding
 		maxUsage      int64
+		_             [56]byte // Cache line padding
 	}
 }
 
@@ -1116,10 +1129,15 @@ type MemoryManager struct {
 	lastPressure    float64
 	checkNow        chan struct{} // Channel to trigger immediate checks
 	stats           struct {
+		// Cache line padded to prevent false sharing
 		allocations   int64
+		_             [56]byte // Cache line padding
 		deallocations int64
+		_             [56]byte // Cache line padding
 		gcTriggers    int64
+		_             [56]byte // Cache line padding
 		peakUsage     int64
+		_             [56]byte // Cache line padding
 	}
 }
 

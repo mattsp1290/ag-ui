@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -95,8 +96,14 @@ func (e *SecureFileExecutor) validatePath(path string) error {
 		return fmt.Errorf("invalid path")
 	}
 
-	// Clean and resolve the path
-	cleanPath, err := filepath.Abs(filepath.Clean(path))
+	// Decode URL-encoded characters to prevent encoded traversal attacks
+	decodedPath, err := decodeURLPath(path)
+	if err != nil {
+		return fmt.Errorf("invalid path encoding: %v", err)
+	}
+
+	// Clean and resolve the decoded path
+	cleanPath, err := filepath.Abs(filepath.Clean(decodedPath))
 	if err != nil {
 		return fmt.Errorf("invalid path")
 	}
@@ -266,8 +273,14 @@ func (e *SecureFileExecutor) validateSymlinkTarget(path string) error {
 		return fmt.Errorf("invalid path")
 	}
 
-	// Clean and resolve the path
-	cleanPath, err := filepath.Abs(filepath.Clean(path))
+	// Decode URL-encoded characters to prevent encoded traversal attacks
+	decodedPath, err := decodeURLPath(path)
+	if err != nil {
+		return fmt.Errorf("invalid path encoding: %v", err)
+	}
+
+	// Clean and resolve the decoded path
+	cleanPath, err := filepath.Abs(filepath.Clean(decodedPath))
 	if err != nil {
 		return fmt.Errorf("invalid path")
 	}
@@ -516,4 +529,60 @@ func (e *SecureFileExecutor) isAllowedSystemSymlink(path string) bool {
 	}
 	
 	return false
+}
+
+// decodeURLPath safely decodes URL-encoded characters in a file path
+// This prevents attackers from bypassing security checks using encoded traversal sequences
+func decodeURLPath(path string) (string, error) {
+	// Start with the original path
+	decoded := path
+	
+	// Perform multiple rounds of decoding to handle double/triple encoding
+	// This prevents attacks like %252e%252e%252f (triple-encoded ../)
+	maxDecodeRounds := 5
+	for i := 0; i < maxDecodeRounds; i++ {
+		newDecoded, err := url.PathUnescape(decoded)
+		if err != nil {
+			break // Invalid encoding, stop here
+		}
+		if newDecoded == decoded {
+			break // No more changes, we're done
+		}
+		decoded = newDecoded
+	}
+	
+	// Normalize various representations of path separators and dangerous characters
+	decoded = normalizePathSeparators(decoded)
+	
+	// Additional security check: reject paths with non-printable characters after decoding
+	for _, r := range decoded {
+		if r < 32 && r != '\t' && r != '\n' && r != '\r' {
+			return "", fmt.Errorf("decoded path contains invalid characters")
+		}
+	}
+	
+	return decoded, nil
+}
+
+// normalizePathSeparators converts various encoded path separator representations
+// to standard forward slashes to prevent bypass attempts
+func normalizePathSeparators(path string) string {
+	// Convert common path separator representations
+	// These can be used to bypass validation in various encoding schemes
+	
+	// Convert backslashes to forward slashes (Windows-style paths)
+	path = strings.ReplaceAll(path, "\\", "/")
+	
+	// Convert UTF-8 encoded separators
+	path = strings.ReplaceAll(path, "\u002f", "/")  // UTF-8 encoded /
+	path = strings.ReplaceAll(path, "\u005c", "/")  // UTF-8 encoded \
+	path = strings.ReplaceAll(path, "\uff0f", "/")  // UTF-8 fullwidth solidus
+	path = strings.ReplaceAll(path, "\uff3c", "/")  // UTF-8 fullwidth reverse solidus
+	
+	// Convert overlong UTF-8 sequences (like %c0%af for /)
+	// These are invalid UTF-8 but can sometimes bypass filters
+	path = strings.ReplaceAll(path, "\xc0\xaf", "/")
+	path = strings.ReplaceAll(path, "\xc1\x9c", "/")
+	
+	return path
 }

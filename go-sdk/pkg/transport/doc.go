@@ -9,7 +9,7 @@
 //   - Type-safe transport interfaces with comprehensive validation
 //   - Support for multiple transport protocols (WebSocket, HTTP, gRPC)
 //   - Streaming and reliable transport capabilities
-//   - Advanced capabilities system with type-safe feature configuration
+//   - Simplified capabilities system for basic transport characteristics
 //   - Comprehensive error handling and circuit breaker patterns
 //   - Middleware and interceptor support for cross-cutting concerns
 //   - Transport manager with load balancing and failover
@@ -27,13 +27,13 @@
 //   5. Config: Type-safe configuration with validation
 //   6. Middleware: Interceptors for cross-cutting concerns
 //
-// Type-Safe Capabilities:
+// Basic Capabilities:
 //
-// The capabilities system provides compile-time type safety for transport features:
-//   - CompressionFeatures: Algorithm selection and configuration
-//   - SecurityFeatures: TLS, JWT, API key, and OAuth2 configuration
-//   - StreamingFeatures: Flow control, buffering, and concurrency limits
-//   - CustomFeatures: Backward compatibility for transport-specific features
+// The simplified capabilities system provides basic transport characteristics:
+//   - Streaming: Whether the transport supports streaming
+//   - Bidirectional: Whether the transport supports bidirectional communication
+//   - MaxMessageSize: Maximum message size supported
+//   - ProtocolVersion: Version of the transport protocol
 //
 // Transport Protocols:
 //   - WebSocket: Full-duplex, real-time communication
@@ -103,34 +103,18 @@
 //		}
 //	}()
 //
-// Type-Safe Capabilities:
+// Basic Capabilities:
 //
-//	// Configure compression features
-//	compressionFeatures := transport.CompressionFeatures{
-//		SupportedAlgorithms: []transport.CompressionType{
-//			transport.CompressionGzip,
-//			transport.CompressionZstd,
-//		},
-//		DefaultAlgorithm:     transport.CompressionGzip,
-//		CompressionLevel:     6,
-//		MinSizeThreshold:     1024,
+//	// Create simple capabilities
+//	capabilities := transport.Capabilities{
+//		Streaming:        true,
+//		Bidirectional:    true,
+//		MaxMessageSize:   1024 * 1024,
+//		ProtocolVersion:  "1.0",
 //	}
 //
-//	// Create typed capabilities
-//	capabilities := transport.NewCompressionCapabilities(
-//		transport.Capabilities{
-//			Streaming:       true,
-//			Bidirectional:   true,
-//			Compression:     compressionFeatures.SupportedAlgorithms,
-//			MaxMessageSize:  1024 * 1024,
-//		},
-//		compressionFeatures,
-//	)
-//
-//	// Validate capabilities
-//	if err := transport.ValidateCapabilities(capabilities); err != nil {
-//		log.Fatalf("Invalid capabilities: %v", err)
-//	}
+//	// Capabilities are used for basic transport characteristics
+//	// and can be extended via the Extensions field for custom features
 //
 // Streaming Transport:
 //

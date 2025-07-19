@@ -2,97 +2,19 @@ package transport
 
 import "time"
 
-// ConnectionCapabilities represents negotiated connection capabilities
+// ConnectionCapabilities represents basic connection information.
+// Simplified from the previous complex capability negotiation system.
 type ConnectionCapabilities struct {
-	// Compression capabilities
-	Compression CompressionCapability `json:"compression,omitempty"`
-	
-	// Streaming capabilities
-	Streaming StreamingCapability `json:"streaming,omitempty"`
-	
-	// Security capabilities
-	Security SecurityCapability `json:"security,omitempty"`
-	
-	// Protocol-specific features
-	ProtocolFeatures ProtocolFeatures `json:"protocol_features,omitempty"`
-	
 	// Maximum message size supported
 	MaxMessageSize int64 `json:"max_message_size,omitempty"`
 	
-	// Heartbeat configuration
-	Heartbeat HeartbeatCapability `json:"heartbeat,omitempty"`
+	// Protocol version
+	ProtocolVersion string `json:"protocol_version,omitempty"`
 	
-	// Authentication methods supported
-	AuthMethods []string `json:"auth_methods,omitempty"`
-	
-	// Custom extension capabilities
+	// Custom extension capabilities for backward compatibility
 	Extensions map[string]string `json:"extensions,omitempty"`
 }
 
-// CompressionCapability represents compression support
-type CompressionCapability struct {
-	Supported   bool     `json:"supported"`
-	Algorithms  []string `json:"algorithms,omitempty"`
-	MinSize     int      `json:"min_size,omitempty"`
-	DefaultAlgo string   `json:"default_algorithm,omitempty"`
-}
-
-// StreamingCapability represents streaming support
-type StreamingCapability struct {
-	Supported         bool  `json:"supported"`
-	MaxConcurrentStreams int32 `json:"max_concurrent_streams,omitempty"`
-	FlowControl       bool  `json:"flow_control,omitempty"`
-	Multiplexing      bool  `json:"multiplexing,omitempty"`
-}
-
-// SecurityCapability represents security features
-type SecurityCapability struct {
-	TLSSupported     bool     `json:"tls_supported"`
-	TLSVersions      []string `json:"tls_versions,omitempty"`
-	CertValidation   bool     `json:"cert_validation"`
-	MutualTLS        bool     `json:"mutual_tls,omitempty"`
-	TokenAuth        bool     `json:"token_auth,omitempty"`
-}
-
-// ProtocolFeatures represents protocol-specific capabilities
-type ProtocolFeatures struct {
-	WebSocket WebSocketFeatures `json:"websocket,omitempty"`
-	HTTP      HTTPFeatures      `json:"http,omitempty"`
-	GRPC      GRPCFeatures      `json:"grpc,omitempty"`
-}
-
-// WebSocketFeatures represents WebSocket-specific features
-type WebSocketFeatures struct {
-	Extensions  []string `json:"extensions,omitempty"`
-	SubProtocols []string `json:"sub_protocols,omitempty"`
-	PingPong    bool     `json:"ping_pong,omitempty"`
-}
-
-// HTTPFeatures represents HTTP-specific features
-type HTTPFeatures struct {
-	Version     string            `json:"version,omitempty"`
-	Methods     []string          `json:"methods,omitempty"`
-	Headers     map[string]string `json:"headers,omitempty"`
-	Chunked     bool              `json:"chunked,omitempty"`
-	KeepAlive   bool              `json:"keep_alive,omitempty"`
-}
-
-// GRPCFeatures represents gRPC-specific features
-type GRPCFeatures struct {
-	Version         string   `json:"version,omitempty"`
-	Reflection      bool     `json:"reflection,omitempty"`
-	HealthCheck     bool     `json:"health_check,omitempty"`
-	Services        []string `json:"services,omitempty"`
-	MaxMessageSize  int64    `json:"max_message_size,omitempty"`
-}
-
-// HeartbeatCapability represents heartbeat configuration
-type HeartbeatCapability struct {
-	Supported bool          `json:"supported"`
-	Interval  time.Duration `json:"interval,omitempty"`
-	Timeout   time.Duration `json:"timeout,omitempty"`
-	Required  bool          `json:"required,omitempty"`
-}
 
 // ErrorDetails represents structured error information
 type ErrorDetails struct {
@@ -153,26 +75,8 @@ func (c ConnectionCapabilities) ToMap() map[string]interface{} {
 		result["max_message_size"] = c.MaxMessageSize
 	}
 	
-	if c.Compression.Supported {
-		result["compression"] = map[string]interface{}{
-			"supported":   c.Compression.Supported,
-			"algorithms":  c.Compression.Algorithms,
-			"min_size":    c.Compression.MinSize,
-			"default":     c.Compression.DefaultAlgo,
-		}
-	}
-	
-	if c.Streaming.Supported {
-		result["streaming"] = map[string]interface{}{
-			"supported":              c.Streaming.Supported,
-			"max_concurrent_streams": c.Streaming.MaxConcurrentStreams,
-			"flow_control":           c.Streaming.FlowControl,
-			"multiplexing":           c.Streaming.Multiplexing,
-		}
-	}
-	
-	if len(c.AuthMethods) > 0 {
-		result["auth_methods"] = c.AuthMethods
+	if c.ProtocolVersion != "" {
+		result["protocol_version"] = c.ProtocolVersion
 	}
 	
 	if len(c.Extensions) > 0 {
@@ -214,11 +118,8 @@ func (e ErrorDetails) ToMap() map[string]interface{} {
 
 // IsEmpty returns true if the ConnectionCapabilities struct has no set values
 func (c ConnectionCapabilities) IsEmpty() bool {
-	return !c.Compression.Supported &&
-		!c.Streaming.Supported &&
-		!c.Security.TLSSupported &&
-		c.MaxMessageSize == 0 &&
-		len(c.AuthMethods) == 0 &&
+	return c.MaxMessageSize == 0 &&
+		c.ProtocolVersion == "" &&
 		len(c.Extensions) == 0
 }
 

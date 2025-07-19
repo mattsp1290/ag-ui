@@ -37,34 +37,16 @@ type DemoTransport struct {
 }
 
 func NewDemoTransport() *DemoTransport {
-	// Use typed capabilities for better type safety
-	_ = CompressionFeatures{
-		SupportedAlgorithms: []CompressionType{CompressionGzip},
-		DefaultAlgorithm:    CompressionGzip,
-		CompressionLevel:    6,
-		MinSizeThreshold:    1024,
-		MaxCompressionRatio: 0.9,
-	}
-	
-	securityFeatures := SecurityFeatures{
-		SupportedFeatures: []SecurityFeature{SecurityTLS},
-		DefaultFeature:    SecurityTLS,
-		TLSConfig: &TLSConfig{
-			MinVersion:        "1.2",
-			MaxVersion:        "1.3",
-			RequireClientCert: false,
-		},
-	}
-	
-	baseCaps := Capabilities{
-		Streaming:     true,
-		Bidirectional: true,
-		Compression:   []CompressionType{CompressionGzip},
-		Security:      []SecurityFeature{SecurityTLS},
+	// Use simplified capabilities
+	caps := Capabilities{
+		Streaming:        true,
+		Bidirectional:    true,
+		MaxMessageSize:   1024 * 1024,
+		ProtocolVersion:  "1.0",
 	}
 	
 	return &DemoTransport{
-		capabilities: ToCapabilities(NewSecurityCapabilities(baseCaps, securityFeatures)),
+		capabilities: caps,
 		eventChan: make(chan events.Event, 10),
 		errorChan: make(chan error, 10),
 	}

@@ -6,35 +6,13 @@ import (
 
 // TestBasicTypes tests basic type definitions
 func TestBasicTypes(t *testing.T) {
-	// Test CompressionType constants
-	if CompressionGzip != "gzip" {
-		t.Errorf("Expected CompressionGzip to be 'gzip', got %s", CompressionGzip)
+	// Test simplified Capabilities struct
+	caps := Capabilities{
+		Streaming:        true,
+		Bidirectional:    true,
+		MaxMessageSize:   1024 * 1024,
+		ProtocolVersion:  "1.0",
 	}
-	
-	// Test SecurityFeature constants
-	if SecurityTLS != "tls" {
-		t.Errorf("Expected SecurityTLS to be 'tls', got %s", SecurityTLS)
-	}
-	
-	// Test Capabilities struct with type-safe capabilities
-	compressionFeatures := CompressionFeatures{
-		SupportedAlgorithms: []CompressionType{CompressionGzip},
-		DefaultAlgorithm:    CompressionGzip,
-		CompressionLevel:    6,
-		MinSizeThreshold:    1024,
-		MaxCompressionRatio: 0.9,
-	}
-	
-	baseCaps := Capabilities{
-		Streaming:     true,
-		Bidirectional: true,
-		Compression:   []CompressionType{CompressionGzip},
-		Security:      []SecurityFeature{SecurityTLS},
-	}
-	
-	// Use typed capabilities
-	typedCaps := NewCompressionCapabilities(baseCaps, compressionFeatures)
-	caps := ToCapabilities(typedCaps)
 	
 	if !caps.Streaming {
 		t.Error("Expected streaming to be true")
@@ -44,11 +22,11 @@ func TestBasicTypes(t *testing.T) {
 		t.Error("Expected bidirectional to be true")
 	}
 	
-	if len(caps.Compression) != 1 || caps.Compression[0] != CompressionGzip {
-		t.Error("Expected compression to contain gzip")
+	if caps.MaxMessageSize != 1024*1024 {
+		t.Error("Expected max message size to be 1MB")
 	}
 	
-	if len(caps.Security) != 1 || caps.Security[0] != SecurityTLS {
-		t.Error("Expected security to contain TLS")
+	if caps.ProtocolVersion != "1.0" {
+		t.Error("Expected protocol version to be 1.0")
 	}
 }

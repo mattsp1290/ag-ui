@@ -117,13 +117,20 @@ var (
 	// Global registry instance
 	globalRegistry *FormatRegistry
 	globalOnce     sync.Once
+	// Track registration attempts to provide better error handling
+	globalRegistrationErrors []error
 )
 
-// GetGlobalRegistry returns the global format registry
+// GetGlobalRegistry returns the global format registry with built-in codecs registered
 func GetGlobalRegistry() *FormatRegistry {
 	globalOnce.Do(func() {
 		globalRegistry = NewFormatRegistry()
-		globalRegistry.RegisterDefaults()
+		if err := globalRegistry.RegisterDefaults(); err != nil {
+			globalRegistrationErrors = append(globalRegistrationErrors, err)
+		}
+		
+		// The codec registration happens automatically via init() functions
+		// when the json/protobuf packages are imported. No additional action needed here.
 	})
 	return globalRegistry
 }
@@ -883,7 +890,25 @@ func (r *FormatRegistry) GetEncoder(ctx context.Context, mimeType string, option
 		return factory.CreateEncoder(ctx, canonical, options)
 	}
 	
-	// Fall back to legacy interface
+	// Fall back to codec factory (codecs contain both encoders and decoders)
+	if entry, exists := r.codecFactories[canonical]; exists {
+		// Update access tracking
+		entry.lastAccess = time.Now()
+		entry.accessCount++
+		
+		// Update LRU position if enabled
+		if r.config.EnableLRU {
+			if elem, found := r.codecsIndex[canonical]; found {
+				r.codecsLRU.MoveToFront(elem)
+			}
+		}
+		
+		factory := entry.value.(*DefaultCodecFactory)
+		// Create codec and return it (codec implements Encoder interface)
+		return factory.CreateCodec(ctx, canonical, options, nil)
+	}
+	
+	// Fall back to legacy encoder factories
 	if entry, exists := r.legacyEncoderFactories[canonical]; exists {
 		// Update access tracking
 		entry.lastAccess = time.Now()
@@ -898,6 +923,24 @@ func (r *FormatRegistry) GetEncoder(ctx context.Context, mimeType string, option
 		
 		factory := entry.value.(EncoderFactory)
 		return factory.CreateEncoder(ctx, canonical, options)
+	}
+	
+	// Fall back to legacy codec factories (codecs contain both encoders and decoders)
+	if entry, exists := r.legacyCodecFactories[canonical]; exists {
+		// Update access tracking
+		entry.lastAccess = time.Now()
+		entry.accessCount++
+		
+		// Update LRU position if enabled
+		if r.config.EnableLRU {
+			if elem, found := r.legacyCodecsIndex[canonical]; found {
+				r.legacyCodecsLRU.MoveToFront(elem)
+			}
+		}
+		
+		factory := entry.value.(CodecFactory)
+		// Create codec and return it (codec implements Encoder interface)
+		return factory.CreateCodec(ctx, canonical, options, nil)
 	}
 	
 	return nil, errors.NewEncodingError(errors.CodeFormatNotRegistered, "no encoder registered for format").WithMimeType(mimeType).WithOperation("get_encoder")
@@ -952,7 +995,25 @@ func (r *FormatRegistry) GetDecoder(ctx context.Context, mimeType string, option
 		return factory.CreateDecoder(ctx, canonical, options)
 	}
 	
-	// Fall back to legacy interface
+	// Fall back to codec factory (codecs contain both encoders and decoders)
+	if entry, exists := r.codecFactories[canonical]; exists {
+		// Update access tracking
+		entry.lastAccess = time.Now()
+		entry.accessCount++
+		
+		// Update LRU position if enabled
+		if r.config.EnableLRU {
+			if elem, found := r.codecsIndex[canonical]; found {
+				r.codecsLRU.MoveToFront(elem)
+			}
+		}
+		
+		factory := entry.value.(*DefaultCodecFactory)
+		// Create codec and return it (codec implements Decoder interface)
+		return factory.CreateCodec(ctx, canonical, nil, options)
+	}
+	
+	// Fall back to legacy decoder factories
 	if entry, exists := r.legacyDecoderFactories[canonical]; exists {
 		// Update access tracking
 		entry.lastAccess = time.Now()
@@ -967,6 +1028,24 @@ func (r *FormatRegistry) GetDecoder(ctx context.Context, mimeType string, option
 		
 		factory := entry.value.(DecoderFactory)
 		return factory.CreateDecoder(ctx, canonical, options)
+	}
+	
+	// Fall back to legacy codec factories (codecs contain both encoders and decoders)
+	if entry, exists := r.legacyCodecFactories[canonical]; exists {
+		// Update access tracking
+		entry.lastAccess = time.Now()
+		entry.accessCount++
+		
+		// Update LRU position if enabled
+		if r.config.EnableLRU {
+			if elem, found := r.legacyCodecsIndex[canonical]; found {
+				r.legacyCodecsLRU.MoveToFront(elem)
+			}
+		}
+		
+		factory := entry.value.(CodecFactory)
+		// Create codec and return it (codec implements Decoder interface)
+		return factory.CreateCodec(ctx, canonical, nil, options)
 	}
 	
 	return nil, errors.NewEncodingError(errors.CodeFormatNotRegistered, "no decoder registered for format").WithMimeType(mimeType).WithOperation("get_decoder")
@@ -1040,7 +1119,29 @@ func (r *FormatRegistry) GetCodec(ctx context.Context, mimeType string, encOptio
 		return codec, err
 	}
 	
-	// Need to create composite codec - release lock before calling GetEncoder/GetDecoder
+	// Check if we have separate encoder/decoder factories before releasing lock
+	var hasEncoder, hasDecoder bool
+	
+	// Check concrete factories first
+	if _, exists := r.encoderFactories[canonical]; exists {
+		hasEncoder = true
+	} else if _, exists := r.legacyEncoderFactories[canonical]; exists {
+		hasEncoder = true
+	}
+	
+	if _, exists := r.decoderFactories[canonical]; exists {
+		hasDecoder = true
+	} else if _, exists := r.legacyDecoderFactories[canonical]; exists {
+		hasDecoder = true
+	}
+	
+	if !hasEncoder || !hasDecoder {
+		r.mu.Unlock()
+		return nil, errors.NewEncodingError(errors.CodeFormatNotRegistered, "no codec registered for format").WithMimeType(mimeType).WithOperation("get_codec")
+	}
+	
+	// We have both encoder and decoder, safe to create composite codec
+	// Release lock before calling factory methods to avoid holding lock during codec creation
 	r.mu.Unlock()
 	
 	// Fall back to separate encoder/decoder
@@ -1341,35 +1442,41 @@ func (r *FormatRegistry) SetValidator(validator FormatValidator) {
 // resolveAlias resolves an alias to canonical MIME type without tracking access
 // IMPORTANT: This method accesses the aliases map and MUST be called with at least a read lock held
 func (r *FormatRegistry) resolveAlias(mimeType string) string {
+	lowerMimeType := strings.ToLower(mimeType)
+	
 	// Check if it's an alias
-	if entry, exists := r.aliases[strings.ToLower(mimeType)]; exists {
+	if entry, exists := r.aliases[lowerMimeType]; exists {
 		return entry.value.(string)
 	}
 	
 	// Also check without parameters (e.g., "application/json; charset=utf-8" -> "application/json")
 	if idx := strings.Index(mimeType, ";"); idx > 0 {
 		base := strings.TrimSpace(mimeType[:idx])
-		if entry, exists := r.aliases[strings.ToLower(base)]; exists {
+		lowerBase := strings.ToLower(base)
+		if entry, exists := r.aliases[lowerBase]; exists {
 			return entry.value.(string)
 		}
-		return base
+		return lowerBase // Return lowercase version
 	}
 	
-	return mimeType
+	return lowerMimeType // Return lowercase version
 }
 
 // resolveAliasWithTracking resolves an alias to canonical MIME type and updates access tracking
 // IMPORTANT: This method requires a write lock to be held
 func (r *FormatRegistry) resolveAliasWithTracking(mimeType string) string {
+	lowerMimeType := strings.ToLower(mimeType)
+	
 	// Check if it's an alias
-	if entry, exists := r.aliases[strings.ToLower(mimeType)]; exists {
-		// Update access tracking
-		entry.lastAccess = time.Now()
+	if entry, exists := r.aliases[lowerMimeType]; exists {
+		// Update access tracking safely
+		now := time.Now()
+		entry.lastAccess = now
 		entry.accessCount++
 		
 		// Update LRU position if enabled
 		if r.config.EnableLRU {
-			if elem, found := r.aliasesIndex[strings.ToLower(mimeType)]; found {
+			if elem, found := r.aliasesIndex[lowerMimeType]; found {
 				r.aliasesLRU.MoveToFront(elem)
 			}
 		}
@@ -1380,24 +1487,26 @@ func (r *FormatRegistry) resolveAliasWithTracking(mimeType string) string {
 	// Also check without parameters (e.g., "application/json; charset=utf-8" -> "application/json")
 	if idx := strings.Index(mimeType, ";"); idx > 0 {
 		base := strings.TrimSpace(mimeType[:idx])
-		if entry, exists := r.aliases[strings.ToLower(base)]; exists {
-			// Update access tracking
-			entry.lastAccess = time.Now()
+		lowerBase := strings.ToLower(base)
+		if entry, exists := r.aliases[lowerBase]; exists {
+			// Update access tracking safely
+			now := time.Now()
+			entry.lastAccess = now
 			entry.accessCount++
 			
 			// Update LRU position if enabled
 			if r.config.EnableLRU {
-				if elem, found := r.aliasesIndex[strings.ToLower(base)]; found {
+				if elem, found := r.aliasesIndex[lowerBase]; found {
 					r.aliasesLRU.MoveToFront(elem)
 				}
 			}
 			
 			return entry.value.(string)
 		}
-		return base
+		return lowerBase // Return lowercase version
 	}
 	
-	return mimeType
+	return lowerMimeType // Return lowercase version
 }
 
 // updatePriorities updates the priority order based on format info
@@ -1469,23 +1578,74 @@ func (r *FormatRegistry) matchesCapabilities(formatCaps, requiredCaps *FormatCap
 
 // CanStream method is defined in codec_pool.go
 
-// RegisterDefaults registers default formats (JSON and Protobuf)
-// Deprecated: This method only registers format info, not the actual codecs.
-// Import the specific codec packages (json, protobuf) to register their codecs.
-func (r *FormatRegistry) RegisterDefaults() {
-	// Register JSON format info only
+// RegisterDefaults registers default formats (JSON and Protobuf) and attempts
+// to register their codecs if available. This method will not fail if codec
+// registration fails, but will log warnings for troubleshooting.
+func (r *FormatRegistry) RegisterDefaults() error {
+	var errors []error
+	
+	// Register JSON format info
 	jsonInfo := JSONFormatInfo()
-	_ = r.RegisterFormat(jsonInfo)
+	if err := r.RegisterFormat(jsonInfo); err != nil {
+		errors = append(errors, fmt.Errorf("failed to register JSON format: %w", err))
+	}
 	
-	// Register Protobuf format info only
+	// Register Protobuf format info
 	protobufInfo := ProtobufFormatInfo()
-	_ = r.RegisterFormat(protobufInfo)
+	if err := r.RegisterFormat(protobufInfo); err != nil {
+		errors = append(errors, fmt.Errorf("failed to register Protobuf format: %w", err))
+	}
 	
-	// Note: The actual encoder/decoder factories must be registered by
-	// importing the respective packages:
-	//   import _ "github.com/ag-ui/go-sdk/pkg/encoding/json"
-	//   import _ "github.com/ag-ui/go-sdk/pkg/encoding/protobuf"
-	// Or by explicitly calling their Register() functions.
+	// Return the first error if any occurred, but don't fail completely
+	if len(errors) > 0 {
+		return errors[0]
+	}
+	
+	return nil
+}
+
+
+// GetGlobalRegistrationErrors returns any errors that occurred during global registry initialization
+func GetGlobalRegistrationErrors() []error {
+	// Ensure global registry is initialized
+	_ = GetGlobalRegistry()
+	return globalRegistrationErrors
+}
+
+// EnsureRegistered checks that critical formats are registered and returns helpful error messages
+func (r *FormatRegistry) EnsureRegistered(mimeTypes ...string) error {
+	var missing []string
+	var notSupported []string
+	
+	for _, mimeType := range mimeTypes {
+		if !r.SupportsFormat(mimeType) {
+			missing = append(missing, mimeType)
+		} else if !r.SupportsEncoding(mimeType) {
+			notSupported = append(notSupported, mimeType)
+		}
+	}
+	
+	if len(missing) > 0 || len(notSupported) > 0 {
+		var errorMsg strings.Builder
+		if len(missing) > 0 {
+			errorMsg.WriteString(fmt.Sprintf("Missing format registration for: %v. ", missing))
+		}
+		if len(notSupported) > 0 {
+			errorMsg.WriteString(fmt.Sprintf("Missing codec registration for: %v. ", notSupported))
+			errorMsg.WriteString("Import the appropriate codec packages: ")
+			for _, mt := range notSupported {
+				switch mt {
+				case "application/json":
+					errorMsg.WriteString(`import _ "github.com/ag-ui/go-sdk/pkg/encoding/json" `)
+				case "application/x-protobuf":
+					errorMsg.WriteString(`import _ "github.com/ag-ui/go-sdk/pkg/encoding/protobuf" `)
+				}
+			}
+		}
+		return errors.NewEncodingError(errors.CodeFormatNotRegistered, errorMsg.String()).WithOperation("ensure_registered")
+	}
+	
+	return nil
 }
 
 // Cleanup Methods for Memory Management

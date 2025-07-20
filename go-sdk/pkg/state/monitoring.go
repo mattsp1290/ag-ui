@@ -171,6 +171,11 @@ func DefaultMonitoringConfig() MonitoringConfig {
 	}
 }
 
+// AuditEventLogger defines the interface for audit event logging
+type AuditEventLogger interface {
+	LogSecurityEvent(ctx context.Context, action AuditAction, contextID, userID, resource string, details map[string]interface{})
+}
+
 // MonitoringSystem provides comprehensive monitoring and observability
 type MonitoringSystem struct {
 	config MonitoringConfig
@@ -195,7 +200,7 @@ type MonitoringSystem struct {
 	wg     sync.WaitGroup
 
 	// Audit integration
-	auditManager *AuditManager
+	auditManager AuditEventLogger
 
 	// Performance tracking
 	operationMetrics *OperationMetrics
@@ -444,7 +449,12 @@ func (ms *MonitoringSystem) RecordEventProcessing(eventType string, duration tim
 func (ms *MonitoringSystem) RecordMemoryUsage(usage uint64, allocations int64, gcPause time.Duration) {
 	// Update Prometheus metrics
 	ms.promMetrics.MemoryUsage.Set(float64(usage))
-	ms.promMetrics.MemoryAllocations.Add(float64(allocations))
+	
+	// Ensure allocations is non-negative to avoid Prometheus counter panic
+	if allocations > 0 {
+		ms.promMetrics.MemoryAllocations.Add(float64(allocations))
+	}
+	
 	ms.promMetrics.GCPauseDuration.Observe(gcPause.Seconds())
 
 	// Update internal resource monitor fields
@@ -459,10 +469,21 @@ func (ms *MonitoringSystem) RecordMemoryUsage(usage uint64, allocations int64, g
 
 // RecordConnectionPoolStats records connection pool statistics
 func (ms *MonitoringSystem) RecordConnectionPoolStats(total, active, waiting int64, errors int64) {
-	ms.promMetrics.ConnectionPoolSize.Set(float64(total))
-	ms.promMetrics.ConnectionPoolActive.Set(float64(active))
-	ms.promMetrics.ConnectionPoolWaiting.Set(float64(waiting))
-	ms.promMetrics.ConnectionPoolErrors.Add(float64(errors))
+	// Ensure values are non-negative for gauges (can be set to any value)
+	if total >= 0 {
+		ms.promMetrics.ConnectionPoolSize.Set(float64(total))
+	}
+	if active >= 0 {
+		ms.promMetrics.ConnectionPoolActive.Set(float64(active))
+	}
+	if waiting >= 0 {
+		ms.promMetrics.ConnectionPoolWaiting.Set(float64(waiting))
+	}
+	
+	// Ensure errors is non-negative to avoid Prometheus counter panic
+	if errors > 0 {
+		ms.promMetrics.ConnectionPoolErrors.Add(float64(errors))
+	}
 
 	// Update internal metrics
 	ms.connectionPoolMetrics.mu.Lock()
@@ -529,7 +550,16 @@ func (ms *MonitoringSystem) GetHealthStatus() map[string]bool {
 	status := make(map[string]bool)
 	for name, check := range ms.healthChecks {
 		ctx, cancel := context.WithTimeout(ms.ctx, ms.config.HealthCheckTimeout)
-		err := check.Check(ctx)
+		
+		var err error
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("health check panicked: %v", r)
+				}
+			}()
+			err = check.Check(ctx)
+		}()
 		cancel()
 
 		status[name] = err == nil
@@ -540,7 +570,7 @@ func (ms *MonitoringSystem) GetHealthStatus() map[string]bool {
 }
 
 // SetAuditManager sets the audit manager for integration
-func (ms *MonitoringSystem) SetAuditManager(auditManager *AuditManager) {
+func (ms *MonitoringSystem) SetAuditManager(auditManager AuditEventLogger) {
 	ms.auditManager = auditManager
 }
 
@@ -555,6 +585,25 @@ func (ms *MonitoringSystem) LogAuditEvent(ctx context.Context, action AuditActio
 		details = make(map[string]interface{})
 	}
 	details["monitoring_timestamp"] = time.Now().Unix()
+
+	// Log to the audit manager
+	contextID := ""
+	userID := ""
+	resource := "monitoring"
+	
+	if details != nil {
+		if ctx, ok := details["context_id"].(string); ok {
+			contextID = ctx
+		}
+		if user, ok := details["user_id"].(string); ok {
+			userID = user
+		}
+		if res, ok := details["resource"].(string); ok {
+			resource = res
+		}
+	}
+	
+	ms.auditManager.LogSecurityEvent(ctx, action, contextID, userID, resource, details)
 
 	// Log based on severity
 	switch ms.config.AuditSeverityLevel {
@@ -581,6 +630,9 @@ func (ms *MonitoringSystem) GetMetrics() MonitoringMetrics {
 
 	ms.connectionPoolMetrics.mu.RLock()
 	defer ms.connectionPoolMetrics.mu.RUnlock()
+
+	ms.resourceMonitor.mu.RLock()
+	defer ms.resourceMonitor.mu.RUnlock()
 
 	return MonitoringMetrics{
 		Timestamp:  time.Now(),
@@ -986,7 +1038,13 @@ func (ms *MonitoringSystem) startResourceMonitoring() {
 	go func() {
 		defer ms.wg.Done()
 
-		ticker := time.NewTicker(ms.config.ResourceSampleInterval)
+		// Validate interval before creating ticker
+		interval := ms.config.ResourceSampleInterval
+		if interval <= 0 {
+			interval = 1 * time.Second // Use a reasonable default
+		}
+
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
 		for {
@@ -1005,7 +1063,13 @@ func (ms *MonitoringSystem) startHealthChecks() {
 	go func() {
 		defer ms.wg.Done()
 
-		ticker := time.NewTicker(ms.config.HealthCheckInterval)
+		// Validate interval before creating ticker
+		interval := ms.config.HealthCheckInterval
+		if interval <= 0 {
+			interval = 5 * time.Second // Use a reasonable default
+		}
+
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
 		for {
@@ -1024,7 +1088,13 @@ func (ms *MonitoringSystem) startMetricsCollection() {
 	go func() {
 		defer ms.wg.Done()
 
-		ticker := time.NewTicker(ms.config.MetricsInterval)
+		// Validate interval before creating ticker
+		interval := ms.config.MetricsInterval
+		if interval <= 0 {
+			interval = DefaultMetricsInterval // Use default interval
+		}
+
+		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
 		for {
@@ -1074,7 +1144,15 @@ func (ms *MonitoringSystem) runHealthChecks() {
 			ctx, cancel := context.WithTimeout(ms.ctx, ms.config.HealthCheckTimeout)
 			defer cancel()
 
-			err := check.Check(ctx)
+			var err error
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						err = fmt.Errorf("health check panicked: %v", r)
+					}
+				}()
+				err = check.Check(ctx)
+			}()
 			duration := time.Since(start)
 
 			// Record metrics

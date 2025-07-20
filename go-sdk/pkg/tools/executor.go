@@ -44,7 +44,6 @@ type ExecutionEngine struct {
 
 	// Execution tracking
 	mu          sync.RWMutex
-	cond        *sync.Cond
 	activeCount int32             // Changed to int32 for atomic operations
 	executions  sync.Map          // Changed to sync.Map for concurrent access
 
@@ -189,9 +188,6 @@ func NewExecutionEngine(registry *Registry, opts ...ExecutionEngineOption) *Exec
 		},
 	}
 
-	// Initialize the condition variable with the mutex
-	e.cond = sync.NewCond(&e.mu)
-
 	// Apply options
 	for _, opt := range opts {
 		opt(e)
@@ -220,6 +216,16 @@ func (e *ExecutionEngine) Execute(ctx context.Context, toolID string, params map
 		return nil, NewToolError(ErrorTypeValidation, "TOOL_NOT_FOUND", "tool not found").
 			WithToolID(toolID).
 			WithCause(err)
+	}
+
+	// Check cache if enabled and tool is cacheable
+	if e.cache != nil && toolView.GetCapabilities() != nil && toolView.GetCapabilities().Cacheable {
+		cacheKey := e.generateCacheKey(toolID, params)
+		if cached, ok := e.getCached(cacheKey); ok {
+			atomic.AddInt64(&e.metrics.cacheHits, 1)
+			return cached, nil
+		}
+		atomic.AddInt64(&e.metrics.cacheMisses, 1)
 	}
 
 	// Check rate limits
@@ -298,6 +304,12 @@ func (e *ExecutionEngine) Execute(ctx context.Context, toolID string, params map
 
 	// Run after-execute hooks
 	e.runAfterHooks(ctx, toolID, params)
+
+	// Cache successful results if caching is enabled and tool is cacheable
+	if e.cache != nil && result.Success && toolView.GetCapabilities() != nil && toolView.GetCapabilities().Cacheable {
+		cacheKey := e.generateCacheKey(toolID, params)
+		e.setCached(cacheKey, result)
+	}
 
 	return result, nil
 }
@@ -455,64 +467,67 @@ func (e *ExecutionEngine) executeWithRecovery(ctx context.Context, tool ReadOnly
 		}
 	}()
 
-	return tool.GetExecutor().Execute(ctx, params)
+	// Check if tool and executor are not nil to prevent panic
+	if tool == nil {
+		return nil, NewToolError(ErrorTypeInternal, "TOOL_NIL", "tool is nil")
+	}
+	
+	executor := tool.GetExecutor()
+	if executor == nil {
+		return nil, NewToolError(ErrorTypeInternal, "EXECUTOR_NIL", "tool executor is nil").
+			WithToolID(tool.GetID())
+	}
+
+	return executor.Execute(ctx, params)
 }
 
 // checkConcurrencyLimit checks if we can execute another tool (FIXED).
 func (e *ExecutionEngine) checkConcurrencyLimit(ctx context.Context) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	maxConcurrent := atomic.LoadInt32(&e.maxConcurrent)
+	// Use a channel-based approach to avoid condition variable deadlocks
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
 	
-	// Wait for a slot to become available if we're at capacity
-	for atomic.LoadInt32(&e.activeCount) >= maxConcurrent {
-		// Check if context is already cancelled before waiting
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		// Use a simple approach without goroutines to avoid leaks
-		// We'll rely on the Signal() call in untrackExecution() to wake us up
-		// and check context cancellation after each Wait()
-		
-		// Set up a timeout channel to prevent indefinite blocking
-		timeoutCh := make(chan struct{})
-		timeout := time.AfterFunc(30*time.Second, func() {
-			close(timeoutCh)
-			e.cond.Broadcast()
-		})
-		
-		// Wait releases the lock and waits for a signal
-		e.cond.Wait()
-		
-		// Cancel the timeout since we woke up
-		if !timeout.Stop() {
-			// Timer already fired, drain the channel
-			select {
-			case <-timeoutCh:
-			default:
-			}
-		}
-
-		// Check if context was cancelled while waiting
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
+	deadline, hasDeadline := ctx.Deadline()
+	timeoutDuration := 30 * time.Second
+	if hasDeadline {
+		until := time.Until(deadline)
+		if until < timeoutDuration {
+			timeoutDuration = until
 		}
 	}
-
-	atomic.AddInt32(&e.activeCount, 1)
-	return nil
+	
+	timeout := time.After(timeoutDuration)
+	
+	for {
+		// Try to acquire a slot
+		e.mu.Lock()
+		maxConcurrent := atomic.LoadInt32(&e.maxConcurrent)
+		currentActive := atomic.LoadInt32(&e.activeCount)
+		
+		if currentActive < maxConcurrent {
+			// We can proceed
+			atomic.AddInt32(&e.activeCount, 1)
+			e.mu.Unlock()
+			return nil
+		}
+		e.mu.Unlock()
+		
+		// Wait and retry
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timeout:
+			return fmt.Errorf("timeout waiting for execution slot (max: %d, active: %d)", maxConcurrent, currentActive)
+		case <-ticker.C:
+			// Retry
+		}
+	}
 }
 
-// decrementActiveCount decrements the active execution count and signals waiters.
+// decrementActiveCount decrements the active execution count.
 func (e *ExecutionEngine) decrementActiveCount() {
 	atomic.AddInt32(&e.activeCount, -1)
-	e.cond.Broadcast()
+	// No need to signal since we're using polling now
 }
 
 // runBeforeHooks runs before-execute hooks with proper locking (FIXED).
@@ -779,6 +794,11 @@ func WithAsyncWorkers(workers int) ExecutionEngineOption {
 		e.asyncWorkers = workers
 		e.asyncJobQueue = make(chan *AsyncJob, workers*2)
 		// e.asyncResults is already initialized as sync.Map
+		
+		// Start async workers
+		for i := 0; i < workers; i++ {
+			go e.asyncWorker()
+		}
 	}
 }
 
@@ -921,6 +941,91 @@ func (e *ExecutionEngine) GetJobQueueMetrics() map[string]interface{} {
 	}
 }
 
+// asyncWorker processes async jobs from the queue
+func (e *ExecutionEngine) asyncWorker() {
+	for job := range e.asyncJobQueue {
+		// Execute the job
+		result, err := e.Execute(job.Context, job.ToolID, job.Params)
+		
+		// Send result back
+		asyncResult := &AsyncResult{
+			JobID:  job.ID,
+			Result: result,
+			Error:  err,
+		}
+		
+		select {
+		case job.Result <- asyncResult:
+			// Result sent successfully
+		case <-job.Context.Done():
+			// Context cancelled, skip sending result
+		}
+		
+		// Clean up result channel from map
+		e.asyncResults.Delete(job.ID)
+	}
+}
+
+// generateCacheKey generates a cache key from tool ID and parameters
+func (e *ExecutionEngine) generateCacheKey(toolID string, params map[string]interface{}) string {
+	// Simple implementation: concatenate tool ID with sorted param key-value pairs
+	// In production, you might use a hash function
+	paramStr := fmt.Sprintf("%v", params)
+	return fmt.Sprintf("%s:%s", toolID, paramStr)
+}
+
+// getCached retrieves a cached result if available and not expired
+func (e *ExecutionEngine) getCached(key string) (*ToolExecutionResult, bool) {
+	e.cache.mu.RLock()
+	defer e.cache.mu.RUnlock()
+	
+	entry, exists := e.cache.cache[key]
+	if !exists {
+		return nil, false
+	}
+	
+	// Check if entry has expired
+	if time.Since(entry.CreatedAt) > e.cache.ttl {
+		// Entry expired, remove it (we'll need write lock for this)
+		go func() {
+			e.cache.mu.Lock()
+			delete(e.cache.cache, key)
+			e.cache.mu.Unlock()
+		}()
+		return nil, false
+	}
+	
+	return entry.Result, true
+}
+
+// setCached stores a result in the cache
+func (e *ExecutionEngine) setCached(key string, result *ToolExecutionResult) {
+	e.cache.mu.Lock()
+	defer e.cache.mu.Unlock()
+	
+	// Check cache size limit
+	if len(e.cache.cache) >= e.cache.maxSize {
+		// Simple eviction: remove the oldest entry
+		// In production, use LRU or other eviction strategy
+		var oldestKey string
+		var oldestTime time.Time
+		for k, v := range e.cache.cache {
+			if oldestKey == "" || v.CreatedAt.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = v.CreatedAt
+			}
+		}
+		if oldestKey != "" {
+			delete(e.cache.cache, oldestKey)
+		}
+	}
+	
+	e.cache.cache[key] = &CacheEntry{
+		Result:    result,
+		CreatedAt: time.Now(),
+	}
+}
+
 // Shutdown gracefully shuts down the execution engine.
 // It stops accepting new executions, waits for active executions
 // to complete (up to the context deadline), and cleans up resources.
@@ -934,9 +1039,26 @@ func (e *ExecutionEngine) GetJobQueueMetrics() map[string]interface{} {
 //		log.Printf("shutdown error: %v", err)
 //	}
 func (e *ExecutionEngine) Shutdown(ctx context.Context) error {
-	// In a real implementation, this would stop async workers and clean up resources
+	// Cancel all active executions first
+	e.CancelAll()
+	
+	// Close async job queue to stop accepting new jobs
 	if e.asyncJobQueue != nil {
 		close(e.asyncJobQueue)
 	}
-	return nil
+	
+	// Wait a bit for executions to finish or until context expires
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if e.GetActiveExecutions() == 0 {
+				return nil
+			}
+		}
+	}
 }

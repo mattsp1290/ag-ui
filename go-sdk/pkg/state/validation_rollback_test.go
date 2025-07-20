@@ -234,7 +234,7 @@ func TestStateValidation(t *testing.T) {
 
 // TestStateRollback tests state rollback functionality.
 func TestStateRollback(t *testing.T) {
-	store := NewStateStore()
+	store := TestStore(t)
 	validator := NewStateValidator(nil) // No schema for these tests
 	rollback := NewStateRollback(store, WithValidator(validator))
 
@@ -531,7 +531,7 @@ func TestIntegration(t *testing.T) {
 		},
 	}
 
-	store := NewStateStore()
+	store := TestStore(t)
 	validator := NewStateValidator(schema)
 	rollback := NewStateRollback(store, WithValidator(validator))
 

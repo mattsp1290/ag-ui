@@ -60,6 +60,10 @@ type ManagerOptions struct {
 	MetricsInterval time.Duration
 	EnableTracing   bool
 
+	// Rate limiting configuration
+	GlobalRateLimit        int                      // Global rate limit (requests per second)
+	ClientRateLimiterConfig *ClientRateLimiterConfig // Client rate limiter configuration
+
 	// Audit configuration
 	EnableAudit bool
 	AuditLogger AuditLogger
@@ -89,6 +93,8 @@ func DefaultManagerOptions() ManagerOptions {
 		EnableMetrics:       true,
 		MetricsInterval:     DefaultMetricsInterval,
 		EnableTracing:       false,
+		GlobalRateLimit:     DefaultGlobalRateLimit,
+		ClientRateLimiterConfig: nil, // Will use default configuration
 		EnableAudit:         true,
 		AuditLogger:         nil, // Will use default JSON logger
 	}
@@ -226,11 +232,17 @@ func NewStateManager(opts ManagerOptions) (*StateManager, error) {
 	// Create security validator with safe defaults
 	securityValidator := NewSecurityValidator(DefaultSecurityConfig())
 
-	// Create rate limiter with default configuration
-	rateLimiter := NewRateLimiter(DefaultGlobalRateLimit) // Global rate limit operations per second
+	// Create rate limiter with configuration from options
+	rateLimiter := NewRateLimiter(opts.GlobalRateLimit)
 
-	// Create client rate limiter with default configuration
-	clientRateLimiter := NewClientRateLimiter(DefaultClientRateLimiterConfig())
+	// Create client rate limiter with configuration from options
+	var clientRateLimiterConfig ClientRateLimiterConfig
+	if opts.ClientRateLimiterConfig != nil {
+		clientRateLimiterConfig = *opts.ClientRateLimiterConfig
+	} else {
+		clientRateLimiterConfig = DefaultClientRateLimiterConfig()
+	}
+	clientRateLimiter := NewClientRateLimiter(clientRateLimiterConfig)
 
 	// Create audit manager if enabled
 	var auditManager *AuditManager
@@ -465,14 +477,14 @@ func (sm *StateManager) GetState(ctx context.Context, contextID, stateID string)
 func (sm *StateManager) UpdateState(ctx context.Context, contextID, stateID string, updates map[string]interface{}, opts UpdateOptions) (JSONPatch, error) {
 	// Apply global rate limiting
 	if sm.rateLimiter != nil {
-		if err := sm.rateLimiter.Wait(ctx); err != nil {
+		if !sm.rateLimiter.Allow() {
 			// Audit rate limit violation
 			if sm.auditManager != nil {
 				sm.auditManager.LogSecurityEvent(ctx, AuditActionRateLimit, contextID, "", "global_rate_limit", map[string]interface{}{
 					"state_id": stateID,
 				})
 			}
-			return nil, fmt.Errorf("rate limit exceeded: %w", err)
+			return nil, ErrRateLimited
 		}
 	}
 
@@ -863,14 +875,35 @@ func (sm *StateManager) processBatch(batch []*updateRequest) {
 
 // processStateUpdates processes updates for a single state
 func (sm *StateManager) processStateUpdates(stateID string, requests []*updateRequest) {
-	// Get current state
-	currentState, err := sm.store.Get(stateID)
-	if err != nil {
-		// Send error to all requests
-		for _, req := range requests {
-			req.result <- updateResult{err: fmt.Errorf("failed to get state: %w", err)}
+	// Get current state with retry logic
+	var currentState interface{}
+	var err error
+	
+	for attempt := 0; attempt <= sm.options.MaxRetries; attempt++ {
+		currentState, err = sm.store.Get(stateID)
+		if err == nil {
+			break // Success
 		}
-		return
+		
+		// If this is the last attempt, fail
+		if attempt == sm.options.MaxRetries {
+			// Send error to all requests
+			for _, req := range requests {
+				req.result <- updateResult{err: fmt.Errorf("failed to get state after %d attempts: %w", attempt+1, err)}
+			}
+			return
+		}
+		
+		// Log retry attempt
+		sm.logger.Debug("store get failed, retrying",
+			Err(err),
+			String("state_id", stateID),
+			Int("attempt", attempt+1),
+			Int("max_retries", sm.options.MaxRetries))
+		
+		// Wait before retrying (with exponential backoff)
+		retryDelay := time.Duration(float64(sm.options.RetryDelay) * float64(attempt+1))
+		time.Sleep(retryDelay)
 	}
 
 	// Process each request sequentially
@@ -955,17 +988,50 @@ func (sm *StateManager) processSingleUpdate(state interface{}, req *updateReques
 		}
 	}
 
-	// Apply the patch to the store
-	if err := sm.store.ApplyPatch(delta); err != nil {
-		// Audit failed store update
-		if sm.auditManager != nil {
-			sm.auditManager.LogError(req.ctx, AuditActionError, err, map[string]interface{}{
-				"context_id": req.contextID,
-				"state_id":   req.stateID,
-				"operation":  "store_update",
-			})
+	// Apply the patch to the store with retry logic
+	for attempt := 0; attempt <= sm.options.MaxRetries; attempt++ {
+		if err := sm.store.ApplyPatch(delta); err != nil {
+			
+			// If this is the last attempt, fail
+			if attempt == sm.options.MaxRetries {
+				// Audit failed store update after all retries
+				if sm.auditManager != nil {
+					sm.auditManager.LogError(req.ctx, AuditActionError, err, map[string]interface{}{
+						"context_id": req.contextID,
+						"state_id":   req.stateID,
+						"operation":  "store_update",
+						"attempts":   attempt + 1,
+					})
+				}
+				return updateResult{err: fmt.Errorf("store update failed after %d attempts: %w", attempt+1, err)}
+			}
+			
+			// Log retry attempt
+			sm.logger.Debug("store update failed, retrying",
+				Err(err),
+				String("context_id", req.contextID),
+				String("state_id", req.stateID),
+				Int("attempt", attempt+1),
+				Int("max_retries", sm.options.MaxRetries))
+			
+			// Wait before retrying (with exponential backoff)
+			retryDelay := time.Duration(float64(sm.options.RetryDelay) * float64(attempt+1))
+			select {
+			case <-req.ctx.Done():
+				return updateResult{err: fmt.Errorf("context cancelled during retry: %w", req.ctx.Err())}
+			case <-time.After(retryDelay):
+				// Continue to next attempt
+			}
+		} else {
+			// Success - log if we had to retry
+			if attempt > 0 {
+				sm.logger.Info("store update succeeded after retry",
+					String("context_id", req.contextID),
+					String("state_id", req.stateID),
+					Int("successful_attempt", attempt+1))
+			}
+			break
 		}
-		return updateResult{err: fmt.Errorf("store update failed: %w", err)}
 	}
 
 	// Create checkpoint if requested
@@ -1091,7 +1157,13 @@ func (sm *StateManager) autoCheckpoint() {
 		}
 	}()
 
-	ticker := time.NewTicker(sm.options.CheckpointInterval)
+	// Validate interval before creating ticker
+	interval := sm.options.CheckpointInterval
+	if interval <= 0 {
+		interval = DefaultCheckpointInterval // Use default interval
+	}
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {
@@ -1149,7 +1221,13 @@ func (sm *StateManager) collectMetrics() {
 		}
 	}()
 
-	ticker := time.NewTicker(sm.options.MetricsInterval)
+	// Validate interval before creating ticker
+	interval := sm.options.MetricsInterval
+	if interval <= 0 {
+		interval = DefaultMetricsInterval // Use default interval
+	}
+
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
 	for {

@@ -147,6 +147,25 @@ func (hc *StoreHealthCheck) Check(ctx context.Context) error {
 		return errors.New("state store is nil")
 	}
 
+	// Check if the store is a StateStore and if it's in a degraded state
+	// Only do this check if store is not nil
+	if stateStore, ok := hc.store.(*StateStore); ok && stateStore != nil {
+		// Check if shards are properly initialized
+		if stateStore.shards == nil || len(stateStore.shards) == 0 {
+			return errors.New("store shards not initialized")
+		}
+		
+		// Check each shard for nil current state
+		for i, shard := range stateStore.shards {
+			if shard == nil {
+				return fmt.Errorf("shard %d is nil", i)
+			}
+			if shard.current.Load() == nil {
+				return fmt.Errorf("shard %d has nil current state", i)
+			}
+		}
+	}
+
 	// Create a test context with timeout
 	testCtx, cancel := context.WithTimeout(ctx, hc.timeout)
 	defer cancel()
@@ -217,15 +236,16 @@ func (hc *EventHandlerHealthCheck) Check(ctx context.Context) error {
 		return errors.New("event handler is nil")
 	}
 
-	// Check if event handler is running
-	if !hc.handler.isRunning() {
-		return errors.New("event handler is not running")
-	}
-
-	// Check event queue depth
+	// Check event queue depth first, as it might indicate degraded state
+	// even if handler appears to be running
 	queueDepth := hc.handler.getQueueDepth()
 	if queueDepth > 10000 { // Arbitrary high threshold
 		return fmt.Errorf("event queue depth (%d) is too high", queueDepth)
+	}
+
+	// Check if event handler is running
+	if !hc.handler.isRunning() {
+		return errors.New("event handler is not running")
 	}
 
 	return nil
@@ -293,20 +313,23 @@ func (hc *AuditHealthCheck) Check(ctx context.Context) error {
 		return errors.New("audit logging is disabled")
 	}
 
+	// Check if logger is properly initialized
+	if hc.auditManager.logger == nil {
+		return errors.New("audit logger is not initialized")
+	}
+
 	// Try to verify recent audit logs
 	endTime := time.Now()
 	startTime := endTime.Add(-1 * time.Minute)
 
-	if hc.auditManager.logger != nil {
-		verification, err := hc.auditManager.logger.Verify(ctx, startTime, endTime)
-		if err != nil {
-			return fmt.Errorf("audit verification failed: %w", err)
-		}
+	verification, err := hc.auditManager.logger.Verify(ctx, startTime, endTime)
+	if err != nil {
+		return fmt.Errorf("audit verification failed: %w", err)
+	}
 
-		if !verification.Valid {
-			return fmt.Errorf("audit logs are invalid: %d tampered logs, %d missing logs",
-				len(verification.TamperedLogs), len(verification.MissingLogs))
-		}
+	if !verification.Valid {
+		return fmt.Errorf("audit logs are invalid: %d tampered logs, %d missing logs",
+			len(verification.TamperedLogs), len(verification.MissingLogs))
 	}
 
 	return nil

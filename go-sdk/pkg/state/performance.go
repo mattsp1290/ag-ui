@@ -739,6 +739,20 @@ func (rl *RateLimiter) Wait(ctx context.Context) error {
 	}
 }
 
+// Allow checks if a token is available without blocking
+func (rl *RateLimiter) Allow() bool {
+	if rl.stopped.Load() {
+		return false
+	}
+	
+	select {
+	case <-rl.bucket:
+		return true
+	default:
+		return false
+	}
+}
+
 // Stop stops the rate limiter
 func (rl *RateLimiter) Stop() {
 	if rl.stopped.CompareAndSwap(false, true) {

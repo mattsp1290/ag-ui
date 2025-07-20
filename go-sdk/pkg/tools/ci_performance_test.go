@@ -851,6 +851,16 @@ func (framework *CIPerformanceTestFramework) runExecutionEngineTest(t *testing.T
 				case <-testCtx.Done():
 					return
 				default:
+					// Add a small delay to prevent tight loops from consuming too much CPU
+					time.Sleep(100 * time.Microsecond)
+					
+					// Check cancellation again after sleep
+					select {
+					case <-testCtx.Done():
+						return
+					default:
+					}
+					
 					tool := tools[localOps%int64(len(tools))]
 					execStart := time.Now()
 					
@@ -867,7 +877,9 @@ func (framework *CIPerformanceTestFramework) runExecutionEngineTest(t *testing.T
 					}
 					
 					responseTimesMutex.Lock()
-					responseTimes = append(responseTimes, execTime)
+					if len(responseTimes) < 10000 { // Limit response times collection to prevent memory issues
+						responseTimes = append(responseTimes, execTime)
+					}
 					responseTimesMutex.Unlock()
 				}
 			}
@@ -1020,6 +1032,16 @@ func (framework *CIPerformanceTestFramework) runConcurrencyScalabilityTest(t *te
 				case <-ctx.Done():
 					return
 				default:
+					// Add small delay to prevent overwhelming
+					time.Sleep(time.Millisecond)
+					
+					// Check cancellation again after sleep
+					select {
+					case <-ctx.Done():
+						return
+					default:
+					}
+					
 					tool := tools[localOps%int64(len(tools))]
 					_, err := engine.Execute(ctx, tool.ID, map[string]interface{}{
 						"input": fmt.Sprintf("scalability-test-%d", workerID),
@@ -1030,9 +1052,6 @@ func (framework *CIPerformanceTestFramework) runConcurrencyScalabilityTest(t *te
 					if err != nil {
 						atomic.AddInt64(&errors, 1)
 					}
-					
-					// Add small delay to prevent overwhelming
-					time.Sleep(time.Millisecond)
 				}
 			}
 		}(i)
@@ -1190,6 +1209,16 @@ func (framework *CIPerformanceTestFramework) runStressTest(t *testing.T) *CITest
 				case <-ctx.Done():
 					return
 				default:
+					// Small delay to prevent overwhelming
+					time.Sleep(time.Millisecond)
+					
+					// Check cancellation again after sleep
+					select {
+					case <-ctx.Done():
+						return
+					default:
+					}
+					
 					// Use local operation count to avoid race in tool selection
 					tool := tools[localOps%int64(len(tools))]
 					_, err := engine.Execute(ctx, tool.ID, map[string]interface{}{
@@ -1214,9 +1243,6 @@ func (framework *CIPerformanceTestFramework) runStressTest(t *testing.T) *CITest
 							break
 						}
 					}
-					
-					// Small delay to prevent overwhelming
-					time.Sleep(time.Millisecond)
 				}
 			}
 		}(i)
@@ -1276,10 +1302,47 @@ func createCITestTool(id string) *Tool {
 type CITestExecutor struct{}
 
 func (e *CITestExecutor) Execute(ctx context.Context, params map[string]interface{}) (*ToolExecutionResult, error) {
+	// Check context cancellation before processing
+	select {
+	case <-ctx.Done():
+		return &ToolExecutionResult{
+			Success:   false,
+			Error:     ctx.Err().Error(),
+			Timestamp: time.Now(),
+		}, ctx.Err()
+	default:
+	}
+	
 	// Simulate processing
 	time.Sleep(1 * time.Millisecond)
 	
-	input := params["input"].(string)
+	// Safe type assertion with nil checks
+	if params == nil {
+		return &ToolExecutionResult{
+			Success:   false,
+			Error:     "parameters cannot be nil",
+			Timestamp: time.Now(),
+		}, fmt.Errorf("parameters cannot be nil")
+	}
+	
+	inputRaw, exists := params["input"]
+	if !exists {
+		return &ToolExecutionResult{
+			Success:   false,
+			Error:     "missing required parameter 'input'",
+			Timestamp: time.Now(),
+		}, fmt.Errorf("missing required parameter 'input'")
+	}
+	
+	input, ok := inputRaw.(string)
+	if !ok {
+		return &ToolExecutionResult{
+			Success:   false,
+			Error:     "parameter 'input' must be a string",
+			Timestamp: time.Now(),
+		}, fmt.Errorf("parameter 'input' must be a string, got %T", inputRaw)
+	}
+	
 	result := fmt.Sprintf("processed: %s", input)
 	
 	return &ToolExecutionResult{

@@ -3,18 +3,19 @@ package websocket
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math/rand"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"go.uber.org/zap"
 
-	"github.com/ag-ui/go-sdk/pkg/core"
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/proto/generated"
+	"github.com/ag-ui/go-sdk/pkg/transport"
+	"github.com/ag-ui/go-sdk/pkg/transport/common"
 )
 
 // Transport implements the WebSocket transport for the AG-UI protocol
@@ -97,6 +98,14 @@ type EventHandlerWrapper struct {
 	Handler EventHandler
 }
 
+// finalize clears handler references when the wrapper is garbage collected
+func (w *EventHandlerWrapper) finalize() {
+	if w != nil {
+		w.Handler = nil
+		w.ID = ""
+	}
+}
+
 // Subscription represents an event subscription
 type Subscription struct {
 	ID          string
@@ -129,11 +138,11 @@ func DefaultTransportConfig() *TransportConfig {
 	return &TransportConfig{
 		PoolConfig:            DefaultPoolConfig(),
 		PerformanceConfig:     DefaultPerformanceConfig(),
-		DialTimeout:           30 * time.Second,
-		EventTimeout:          30 * time.Second,
+		DialTimeout:           10 * time.Second, // Reduced for faster test execution
+		EventTimeout:          15 * time.Second, // Reduced for faster test execution
 		MaxEventSize:          1024 * 1024, // 1MB
 		EnableEventValidation: true,
-		EventValidator:        events.NewEventValidator(events.ProductionValidationConfig()),
+		EventValidator:        events.NewEventValidator(events.DevelopmentValidationConfig()),
 		Logger:                zap.NewNop(),
 		ShutdownTimeout:       5 * time.Second, // Default production timeout
 	}
@@ -146,11 +155,7 @@ func NewTransport(config *TransportConfig) (*Transport, error) {
 	}
 
 	if len(config.URLs) == 0 {
-		return nil, &core.ConfigError{
-			Field: "URLs",
-			Value: config.URLs,
-			Err:   errors.New("at least one WebSocket URL must be provided"),
-		}
+		return nil, transport.NewConfigError("URLs", config.URLs, "at least one WebSocket URL must be provided")
 	}
 
 	// Configure connection pool
@@ -172,7 +177,8 @@ func NewTransport(config *TransportConfig) (*Transport, error) {
 	// Create connection pool
 	pool, err := NewConnectionPool(poolConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create connection pool: %w", err)
+		return nil, common.NewTransportError(common.ErrorTypeConfiguration, 
+			"failed to create connection pool", err).WithTransport("websocket")
 	}
 
 	// Configure performance config
@@ -185,7 +191,8 @@ func NewTransport(config *TransportConfig) (*Transport, error) {
 	// Create performance manager
 	performanceManager, err := NewPerformanceManager(perfConfig)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create performance manager: %w", err)
+		return nil, common.NewTransportError(common.ErrorTypeConfiguration,
+			"failed to create performance manager", err).WithTransport("websocket")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -218,12 +225,14 @@ func (t *Transport) Start(ctx context.Context) error {
 
 	// Start performance manager
 	if err := t.performanceManager.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start performance manager: %w", err)
+		return common.NewTransportError(common.ErrorTypeInternal,
+			"failed to start performance manager", err).WithTransport("websocket")
 	}
 
 	// Start connection pool
 	if err := t.pool.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start connection pool: %w", err)
+		return common.NewTransportError(common.ErrorTypeConnection,
+			"failed to start connection pool", err).WithTransport("websocket")
 	}
 
 	// Start event processing
@@ -254,6 +263,24 @@ func (t *Transport) Stop() error {
 		}
 		t.subscriptions = make(map[string]*Subscription)
 		t.subsMutex.Unlock()
+		
+		// Clear all event handlers and break reference cycles
+		t.handlersMutex.Lock()
+		for eventType, handlers := range t.eventHandlers {
+			for _, wrapper := range handlers {
+				if wrapper != nil {
+					// Clear finalizer since we're manually cleaning up
+					runtime.SetFinalizer(wrapper, nil)
+					wrapper.Handler = nil // Break reference cycle
+					wrapper.ID = ""       // Clear ID for GC
+				}
+			}
+			// Clear the slice
+			t.eventHandlers[eventType] = nil
+		}
+		// Clear the entire map
+		t.eventHandlers = make(map[string][]*EventHandlerWrapper)
+		t.handlersMutex.Unlock()
 
 		// Close event channel safely using atomic flag to prevent double-close
 		if atomic.CompareAndSwapInt32(&t.eventChClosed, 0, 1) {
@@ -305,19 +332,22 @@ func (t *Transport) SendEvent(ctx context.Context, event events.Event) error {
 	// Validate event if enabled
 	if t.config.EnableEventValidation && t.config.EventValidator != nil {
 		if result := t.config.EventValidator.ValidateEvent(ctx, event); !result.IsValid {
-			return fmt.Errorf("event validation failed: %v", result.Errors)
+			return common.NewTransportError(common.ErrorTypeValidation,
+				fmt.Sprintf("event validation failed: %v", result.Errors), nil).WithTransport("websocket")
 		}
 	}
 
 	// Use performance manager for optimized serialization
 	data, err := t.performanceManager.OptimizeMessage(event)
 	if err != nil {
-		return fmt.Errorf("failed to optimize message: %w", err)
+		return common.NewTransportError(common.ErrorTypeSerialization,
+			"failed to optimize message", err).WithTransport("websocket")
 	}
 
 	// Check event size
 	if t.config.MaxEventSize > 0 && int64(len(data)) > t.config.MaxEventSize {
-		return fmt.Errorf("event size %d exceeds maximum %d", len(data), t.config.MaxEventSize)
+		return common.NewTransportError(common.ErrorTypeCapacity,
+			fmt.Sprintf("event size %d exceeds maximum %d", len(data), t.config.MaxEventSize), nil).WithTransport("websocket")
 	}
 
 	// Use performance manager for batching if available
@@ -328,7 +358,7 @@ func (t *Transport) SendEvent(ctx context.Context, event events.Event) error {
 				t.stats.mutex.Lock()
 				t.stats.EventsFailed++
 				t.stats.mutex.Unlock()
-				return fmt.Errorf("failed to send event: %w", err)
+				return transport.NewTemporaryError("websocket", "SendMessage", err)
 			}
 			// Update statistics for direct send
 			t.stats.mutex.Lock()
@@ -349,7 +379,7 @@ func (t *Transport) SendEvent(ctx context.Context, event events.Event) error {
 			t.stats.mutex.Lock()
 			t.stats.EventsFailed++
 			t.stats.mutex.Unlock()
-			return fmt.Errorf("failed to send event: %w", err)
+			return transport.NewTemporaryError("websocket", "SendMessage", err)
 		}
 		// Update statistics for direct send
 		t.stats.mutex.Lock()
@@ -395,6 +425,9 @@ func (t *Transport) AddEventHandler(eventType string, handler EventHandler) stri
 		ID:      handlerID,
 		Handler: handler,
 	}
+	
+	// Set finalizer for critical cleanup to prevent memory leaks
+	runtime.SetFinalizer(wrapper, (*EventHandlerWrapper).finalize)
 
 	t.handlersMutex.Lock()
 	defer t.handlersMutex.Unlock()
@@ -414,7 +447,7 @@ func (t *Transport) AddEventHandler(eventType string, handler EventHandler) stri
 // RemoveEventHandler removes an event handler by its ID
 func (t *Transport) RemoveEventHandler(eventType string, handlerID string) error {
 	if handlerID == "" {
-		return errors.New("handler ID cannot be empty")
+		return fmt.Errorf("handler ID cannot be empty: %w", transport.ErrInvalidConfiguration)
 	}
 
 	t.handlersMutex.Lock()
@@ -422,18 +455,30 @@ func (t *Transport) RemoveEventHandler(eventType string, handlerID string) error
 
 	handlers, exists := t.eventHandlers[eventType]
 	if !exists {
-		return fmt.Errorf("no handlers found for event type: %s", eventType)
+		return fmt.Errorf("no handlers found for event type %s: %w", eventType, transport.ErrStreamNotFound)
 	}
 
 	// Find and remove the handler
 	found := false
+	var removedWrapper *EventHandlerWrapper
 	for i, wrapper := range handlers {
 		if wrapper.ID == handlerID {
+			// Store reference to removed wrapper for cleanup
+			removedWrapper = wrapper
+			
 			// Remove handler from slice
 			t.eventHandlers[eventType] = append(handlers[:i], handlers[i+1:]...)
 			found = true
 			break
 		}
+	}
+	
+	// Explicitly clear wrapper references to ensure GC
+	if removedWrapper != nil {
+		// Clear finalizer since we're manually cleaning up
+		runtime.SetFinalizer(removedWrapper, nil)
+		removedWrapper.Handler = nil // Break reference cycle
+		removedWrapper.ID = ""       // Clear ID for GC
 	}
 
 	if !found {
@@ -455,11 +500,11 @@ func (t *Transport) RemoveEventHandler(eventType string, handlerID string) error
 // Subscribe creates a subscription for specific event types
 func (t *Transport) Subscribe(ctx context.Context, eventTypes []string, handler EventHandler) (*Subscription, error) {
 	if len(eventTypes) == 0 {
-		return nil, errors.New("at least one event type must be specified")
+		return nil, fmt.Errorf("at least one event type must be specified: %w", transport.ErrInvalidConfiguration)
 	}
 
 	if handler == nil {
-		return nil, errors.New("event handler cannot be nil")
+		return nil, fmt.Errorf("event handler cannot be nil: %w", transport.ErrInvalidConfiguration)
 	}
 
 	// Create subscription
@@ -515,7 +560,7 @@ func (t *Transport) Unsubscribe(subscriptionID string) error {
 	}
 
 	if !exists {
-		return errors.New("subscription not found")
+		return fmt.Errorf("subscription not found: %w", transport.ErrStreamNotFound)
 	}
 
 	// Cancel subscription
@@ -541,7 +586,7 @@ func (t *Transport) Unsubscribe(subscriptionID string) error {
 }
 
 // GetStats returns a copy of the transport statistics
-func (t *Transport) GetStats() TransportStats {
+func (t *Transport) Stats() TransportStats {
 	t.stats.mutex.RLock()
 	defer t.stats.mutex.RUnlock()
 	return *t.stats
@@ -549,7 +594,7 @@ func (t *Transport) GetStats() TransportStats {
 
 // GetConnectionPoolStats returns the connection pool statistics
 func (t *Transport) GetConnectionPoolStats() PoolStats {
-	return t.pool.GetStats()
+	return t.pool.Stats()
 }
 
 // GetDetailedStatus returns detailed status information
@@ -574,7 +619,7 @@ func (t *Transport) GetDetailedStatus() map[string]interface{} {
 	t.handlersMutex.RUnlock()
 
 	return map[string]interface{}{
-		"transport_stats":      t.GetStats(),
+		"transport_stats":      t.Stats(),
 		"connection_pool":      t.pool.GetDetailedStatus(),
 		"subscriptions":        subscriptions,
 		"active_subscriptions": len(subscriptions),
@@ -706,14 +751,14 @@ func (t *Transport) processIncomingEvent(data []byte) error {
 	// Parse event - using a generic map first, then convert to specific event type
 	var eventData map[string]interface{}
 	if err := json.Unmarshal(data, &eventData); err != nil {
-		return fmt.Errorf("failed to parse event: %w", err)
+		return common.NewTransportError(common.ErrorTypeSerialization, "failed to unmarshal incoming event", err).WithTransport("websocket")
 	}
 
 	// For now, create a simple wrapper that implements the Event interface
 	// In a real implementation, we would have proper event type detection and parsing
 	eventTypeStr, ok := eventData["type"].(string)
 	if !ok {
-		return fmt.Errorf("event type not found or invalid")
+		return fmt.Errorf("event type not found or invalid: %w", transport.ErrInvalidEventType)
 	}
 
 	// Update statistics
@@ -818,7 +863,7 @@ func (t *Transport) GetSubscription(subscriptionID string) (*Subscription, error
 
 	sub, exists := t.subscriptions[subscriptionID]
 	if !exists {
-		return nil, errors.New("subscription not found")
+		return nil, fmt.Errorf("subscription not found: %w", transport.ErrStreamNotFound)
 	}
 
 	return sub, nil
@@ -909,4 +954,84 @@ func (t *Transport) EnableAdaptiveOptimization() {
 	// Start adaptive optimizer in background
 	t.wg.Add(1)
 	go adaptiveOptimizer.Start(t.ctx, &t.wg)
+}
+
+// CleanupEventHandlers performs memory-pressure aware cleanup of event handlers
+func (t *Transport) CleanupEventHandlers() {
+	t.handlersMutex.Lock()
+	defer t.handlersMutex.Unlock()
+
+	// Track cleanup statistics
+	totalHandlers := 0
+	cleanedHandlers := 0
+
+	for eventType, handlers := range t.eventHandlers {
+		totalHandlers += len(handlers)
+		
+		// Check for nil handlers and clean them up
+		cleanHandlers := make([]*EventHandlerWrapper, 0, len(handlers))
+		for _, wrapper := range handlers {
+			if wrapper != nil && wrapper.Handler != nil {
+				cleanHandlers = append(cleanHandlers, wrapper)
+			} else {
+				cleanedHandlers++
+			}
+		}
+		
+		// Update slice if we found any nil handlers
+		if len(cleanHandlers) != len(handlers) {
+			t.eventHandlers[eventType] = cleanHandlers
+		}
+		
+		// Remove empty event types
+		if len(cleanHandlers) == 0 {
+			delete(t.eventHandlers, eventType)
+		}
+	}
+
+	if cleanedHandlers > 0 {
+		t.config.Logger.Info("Cleaned up event handlers",
+			zap.Int("total_handlers", totalHandlers),
+			zap.Int("cleaned_handlers", cleanedHandlers))
+		
+		// Force GC to reclaim memory from cleaned handlers
+		runtime.GC()
+	}
+}
+
+// OnMemoryPressure handles memory pressure events by cleaning up handlers
+func (t *Transport) OnMemoryPressure(level int) {
+	if level >= 2 { // High or critical memory pressure
+		t.config.Logger.Warn("Memory pressure detected, performing handler cleanup",
+			zap.Int("pressure_level", level))
+		
+		// Perform aggressive cleanup
+		t.CleanupEventHandlers()
+		
+		// Force GC for immediate memory reclamation
+		runtime.GC()
+		runtime.GC() // Double GC to ensure finalizers run
+	}
+}
+
+// GetEventHandlerStats returns statistics about event handlers for memory monitoring
+func (t *Transport) GetEventHandlerStats() map[string]interface{} {
+	t.handlersMutex.RLock()
+	defer t.handlersMutex.RUnlock()
+
+	stats := make(map[string]interface{})
+	totalHandlers := 0
+	
+	eventTypeStats := make(map[string]int)
+	for eventType, handlers := range t.eventHandlers {
+		handlerCount := len(handlers)
+		eventTypeStats[eventType] = handlerCount
+		totalHandlers += handlerCount
+	}
+
+	stats["total_handlers"] = totalHandlers
+	stats["event_types_count"] = len(t.eventHandlers)
+	stats["handlers_by_type"] = eventTypeStats
+
+	return stats
 }

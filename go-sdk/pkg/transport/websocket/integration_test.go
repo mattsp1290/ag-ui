@@ -23,6 +23,18 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 )
 
+// testTransportConfig returns a DefaultTransportConfig with rate limiting disabled for tests
+func testTransportConfig() *TransportConfig {
+	config := DefaultTransportConfig()
+	// Disable rate limiting for tests to avoid rate limit errors
+	config.PoolConfig.ConnectionTemplate.RateLimiter = nil
+	// Optimize heartbeat settings for faster tests (reduce from 30s/35s to 1s/2s)
+	config.PoolConfig.ConnectionTemplate.PingPeriod = 1 * time.Second
+	config.PoolConfig.ConnectionTemplate.PongWait = 2 * time.Second
+	return config
+}
+
+
 // TestWebSocketServer provides a configurable WebSocket test server
 type TestWebSocketServer struct {
 	server         *httptest.Server
@@ -171,6 +183,7 @@ func (s *TestWebSocketServer) CloseAllConnections() {
 }
 
 func TestBasicWebSocketIntegration(t *testing.T) {
+<<<<<<< HEAD
 	server := NewTestWebSocketServer(t)
 	defer server.Close()
 
@@ -185,29 +198,75 @@ func TestBasicWebSocketIntegration(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+=======
+>>>>>>> main
 	t.Run("BasicConnection", func(t *testing.T) {
-		err := transport.Start(ctx)
+		server := NewTestWebSocketServer(t)
+		defer server.Close()
+
+		// Reduced timeout from 15s to 5s (67% reduction)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		
+		config := testTransportConfig()
+		config.URLs = []string{server.URL()}
+		config.Logger = zaptest.NewLogger(t)
+		config.EnableEventValidation = false
+
+		transport, err := NewTransport(config)
 		require.NoError(t, err)
+
+		err = transport.Start(ctx)
+		require.NoError(t, err)
+		
 		defer transport.Stop()
 
-		// Wait for connections to establish
+		// Wait for connections to establish with faster polling (reduced from 3s to 2s)
 		assert.Eventually(t, func() bool {
 			return transport.IsConnected()
+<<<<<<< HEAD
 		}, 2*time.Second, 100*time.Millisecond)
+=======
+		}, 2*time.Second, 50*time.Millisecond)
+>>>>>>> main
 
 		assert.Greater(t, transport.GetActiveConnectionCount(), 0)
 		assert.Greater(t, server.GetConnectionCount(), 0)
 	})
 
 	t.Run("MessageExchange", func(t *testing.T) {
-		err := transport.Start(ctx)
+		server := NewTestWebSocketServer(t)
+		defer server.Close()
+
+		// Reduced timeout from 15s to 5s (67% reduction)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		
+		config := testTransportConfig()
+		config.URLs = []string{server.URL()}
+		config.Logger = zaptest.NewLogger(t)
+		config.EnableEventValidation = false
+
+		transport, err := NewTransport(config)
 		require.NoError(t, err)
+
+		err = transport.Start(ctx)
+		require.NoError(t, err)
+		
 		defer transport.Stop()
 
-		// Wait for connections
+		// Wait for connections (reduced from 10s to 3s)
 		assert.Eventually(t, func() bool {
+<<<<<<< HEAD
 			return transport.IsConnected()
 		}, 2*time.Second, 100*time.Millisecond)
+=======
+			isConnected := transport.IsConnected()
+			activeCount := transport.GetActiveConnectionCount()
+			t.Logf("IsConnected: %v, ActiveConnections: %d", isConnected, activeCount)
+			return isConnected && activeCount > 0
+		}, 3*time.Second, 100*time.Millisecond) // Also reduced polling interval
+>>>>>>> main
 
 		// Send a message
 		event := &MockEvent{
@@ -219,7 +278,7 @@ func TestBasicWebSocketIntegration(t *testing.T) {
 		assert.NoError(t, err)
 
 		// Verify statistics
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Greater(t, stats.EventsSent, int64(0))
 	})
 }
@@ -231,22 +290,42 @@ func TestMultiServerIntegration(t *testing.T) {
 	server2 := NewTestWebSocketServer(t)
 	defer server2.Close()
 
+<<<<<<< HEAD
 	config := FastTransportConfig()
+=======
+	config := testTransportConfig()
+>>>>>>> main
 	config.URLs = []string{server1.URL(), server2.URL()}
 	config.Logger = zaptest.NewLogger(t)
 	config.EnableEventValidation = false
 	config.PoolConfig.MinConnections = 2
 	config.PoolConfig.MaxConnections = 4
+	// Disable rate limiting for tests
+	config.PoolConfig.ConnectionTemplate.RateLimiter = nil
 
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Reduced timeout from 30s to 8s (73% reduction)
+	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 
 	err = transport.Start(ctx)
 	require.NoError(t, err)
-	defer transport.Stop()
+	
+	// Add cleanup timeout to prevent hanging goroutines
+	defer func() {
+		done := make(chan struct{})
+		go func() {
+			transport.Stop()
+			close(done)
+		}()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Error("Transport.Stop() timed out after 2s")
+		}
+	}()
 
 	t.Run("MultipleServerConnections", func(t *testing.T) {
 		// Wait for connections to establish
@@ -277,7 +356,7 @@ func TestMultiServerIntegration(t *testing.T) {
 			assert.NoError(t, err)
 		}
 
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Equal(t, int64(10), stats.EventsSent)
 	})
 }
@@ -287,10 +366,16 @@ func TestTLSIntegration(t *testing.T) {
 	defer server.Close()
 
 	// Create transport with TLS configuration
+<<<<<<< HEAD
 	config := FastTransportConfig()
+=======
+	config := testTransportConfig()
+>>>>>>> main
 	config.URLs = []string{server.TLSURL()}
 	config.Logger = zaptest.NewLogger(t)
 	config.EnableEventValidation = false
+	// Disable rate limiting for tests
+	config.PoolConfig.ConnectionTemplate.RateLimiter = nil
 
 	// Configure connection to accept self-signed certificates
 	config.PoolConfig.ConnectionTemplate.Headers = map[string]string{
@@ -348,12 +433,18 @@ func TestReconnectionIntegration(t *testing.T) {
 	server := NewTestWebSocketServer(t)
 	defer server.Close()
 
+<<<<<<< HEAD
 	config := FastTransportConfig()
+=======
+	config := testTransportConfig()
+>>>>>>> main
 	config.URLs = []string{server.URL()}
 	config.Logger = zaptest.NewLogger(t)
 	config.EnableEventValidation = false
 	config.PoolConfig.ConnectionTemplate.MaxReconnectAttempts = 5
 	config.PoolConfig.ConnectionTemplate.InitialReconnectDelay = 100 * time.Millisecond
+	// Disable rate limiting for tests
+	config.PoolConfig.ConnectionTemplate.RateLimiter = nil
 
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
@@ -402,17 +493,29 @@ func TestHeartbeatIntegration(t *testing.T) {
 	defer server.Close()
 
 	// Configure shorter heartbeat intervals for testing
+<<<<<<< HEAD
 	config := FastTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zaptest.NewLogger(t)
 	config.EnableEventValidation = false
 	config.PoolConfig.ConnectionTemplate.PingPeriod = 500 * time.Millisecond
 	config.PoolConfig.ConnectionTemplate.PongWait = 1 * time.Second
+=======
+	config := testTransportConfig()
+	config.URLs = []string{server.URL()}
+	config.Logger = zaptest.NewLogger(t)
+	// Use even faster heartbeat for this specific test
+	config.PoolConfig.ConnectionTemplate.PingPeriod = 200 * time.Millisecond
+	config.PoolConfig.ConnectionTemplate.PongWait = 500 * time.Millisecond
+	// Disable rate limiting for tests
+	config.PoolConfig.ConnectionTemplate.RateLimiter = nil
+>>>>>>> main
 
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Reduced timeout from 30s to 6s (80% reduction)
+	ctx, cancel := context.WithTimeout(context.Background(), 6*time.Second)
 	defer cancel()
 
 	err = transport.Start(ctx)
@@ -420,6 +523,7 @@ func TestHeartbeatIntegration(t *testing.T) {
 	defer transport.Stop()
 
 	t.Run("HeartbeatFunctionality", func(t *testing.T) {
+<<<<<<< HEAD
 		// Wait for connections to be established
 		assert.Eventually(t, func() bool {
 			return transport.IsConnected()
@@ -430,6 +534,15 @@ func TestHeartbeatIntegration(t *testing.T) {
 		assert.Eventually(t, func() bool {
 			return transport.GetHealthyConnectionCount() > 0
 		}, 3*time.Second, 200*time.Millisecond)
+=======
+		// Wait for connections (reduced from 5s to 2s)
+		assert.Eventually(t, func() bool {
+			return transport.IsConnected()
+		}, 2*time.Second, 50*time.Millisecond) // Faster polling
+
+		// Wait for several heartbeat cycles (reduced from 2s to 800ms)
+		time.Sleep(800 * time.Millisecond)
+>>>>>>> main
 
 		// Verify connections are still healthy
 		assert.True(t, transport.IsConnected())
@@ -462,10 +575,18 @@ func TestSubscriptionIntegration(t *testing.T) {
 		return conn.WriteMessage(websocket.TextMessage, eventData)
 	}
 
+<<<<<<< HEAD
 	config := FastTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zaptest.NewLogger(t)
 	config.EnableEventValidation = false
+=======
+	config := testTransportConfig()
+	config.URLs = []string{server.URL()}
+	config.Logger = zaptest.NewLogger(t)
+	// Disable rate limiting for tests
+	config.PoolConfig.ConnectionTemplate.RateLimiter = nil
+>>>>>>> main
 
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
@@ -533,11 +654,17 @@ func TestCompressionIntegration(t *testing.T) {
 	// Enable compression on the server
 	server.upgrader.EnableCompression = true
 
+<<<<<<< HEAD
 	config := FastTransportConfig()
+=======
+	config := testTransportConfig()
+>>>>>>> main
 	config.URLs = []string{server.URL()}
 	config.Logger = zaptest.NewLogger(t)
 	config.EnableEventValidation = false
 	config.PoolConfig.ConnectionTemplate.EnableCompression = true
+	// Disable rate limiting for tests
+	config.PoolConfig.ConnectionTemplate.RateLimiter = nil
 
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
@@ -565,7 +692,7 @@ func TestCompressionIntegration(t *testing.T) {
 		err := transport.SendEvent(ctx, event)
 		assert.NoError(t, err)
 
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Greater(t, stats.EventsSent, int64(0))
 		assert.Greater(t, stats.BytesTransferred, int64(0))
 	})
@@ -573,11 +700,17 @@ func TestCompressionIntegration(t *testing.T) {
 
 func TestErrorHandlingIntegration(t *testing.T) {
 	t.Run("ServerUnavailable", func(t *testing.T) {
+<<<<<<< HEAD
 		config := FastTransportConfig()
+=======
+		config := testTransportConfig()
+>>>>>>> main
 		config.URLs = []string{"ws://localhost:99999"} // Non-existent server
 		config.Logger = zaptest.NewLogger(t)
 		config.PoolConfig.ConnectionTemplate.MaxReconnectAttempts = 2
 		config.PoolConfig.ConnectionTemplate.InitialReconnectDelay = 100 * time.Millisecond
+		// Disable rate limiting for tests
+		config.PoolConfig.ConnectionTemplate.RateLimiter = nil
 
 		transport, err := NewTransport(config)
 		require.NoError(t, err)
@@ -606,10 +739,18 @@ func TestErrorHandlingIntegration(t *testing.T) {
 			return conn.WriteMessage(websocket.TextMessage, []byte("{invalid json"))
 		}
 
+<<<<<<< HEAD
 		config := FastTransportConfig()
 		config.URLs = []string{server.URL()}
 		config.Logger = zaptest.NewLogger(t)
 		config.EnableEventValidation = false
+=======
+		config := testTransportConfig()
+		config.URLs = []string{server.URL()}
+		config.Logger = zaptest.NewLogger(t)
+		// Disable rate limiting for tests
+		config.PoolConfig.ConnectionTemplate.RateLimiter = nil
+>>>>>>> main
 
 		transport, err := NewTransport(config)
 		require.NoError(t, err)
@@ -649,11 +790,17 @@ func TestHighThroughputIntegration(t *testing.T) {
 	server := NewTestWebSocketServer(t)
 	defer server.Close()
 
+<<<<<<< HEAD
 	config := FastTransportConfig()
+=======
+	config := testTransportConfig()
+>>>>>>> main
 	config.URLs = []string{server.URL()}
 	config.Logger = zaptest.NewLogger(t)
 	config.PoolConfig.MaxConnections = 5
 	config.EnableEventValidation = false
+	// Disable rate limiting for tests
+	config.PoolConfig.ConnectionTemplate.RateLimiter = nil
 
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
@@ -698,7 +845,7 @@ func TestHighThroughputIntegration(t *testing.T) {
 
 		assert.Equal(t, int32(0), errors)
 
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Equal(t, int64(numMessages), stats.EventsSent)
 
 		throughput := float64(numMessages) / duration.Seconds()
@@ -713,12 +860,18 @@ func TestRealWorldScenarios(t *testing.T) {
 	server := NewTestWebSocketServer(t)
 	defer server.Close()
 
+<<<<<<< HEAD
 	config := FastTransportConfig()
+=======
+	config := testTransportConfig()
+>>>>>>> main
 	config.URLs = []string{server.URL()}
 	config.Logger = zaptest.NewLogger(t)
 	config.EnableEventValidation = false
 	config.PoolConfig.MinConnections = 2
 	config.PoolConfig.MaxConnections = 4
+	// Disable rate limiting for tests
+	config.PoolConfig.ConnectionTemplate.RateLimiter = nil
 
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
@@ -772,7 +925,7 @@ func TestRealWorldScenarios(t *testing.T) {
 		wg.Wait()
 
 		expectedMessages := int64(numConversations * messagesPerConversation * len(eventTypes))
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Equal(t, expectedMessages, stats.EventsSent)
 	})
 
@@ -831,13 +984,19 @@ func TestConnectionPoolIntegration(t *testing.T) {
 	server3 := NewTestWebSocketServer(t)
 	defer server3.Close()
 
+<<<<<<< HEAD
 	config := FastTransportConfig()
+=======
+	config := testTransportConfig()
+>>>>>>> main
 	config.URLs = []string{server1.URL(), server2.URL(), server3.URL()}
 	config.Logger = zaptest.NewLogger(t)
 	config.EnableEventValidation = false
 	config.PoolConfig.MinConnections = 3
 	config.PoolConfig.MaxConnections = 6
 	config.PoolConfig.LoadBalancingStrategy = RoundRobin
+	// Disable rate limiting for tests
+	config.PoolConfig.ConnectionTemplate.RateLimiter = nil
 
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
@@ -890,7 +1049,7 @@ func TestConnectionPoolIntegration(t *testing.T) {
 			assert.NoError(t, err)
 		}
 
-		stats := transport.GetStats()
+		stats := transport.Stats()
 		assert.Equal(t, int64(numMessages), stats.EventsSent)
 
 		// All servers should have received some connections
@@ -906,11 +1065,17 @@ func BenchmarkIntegrationMessageThroughput(b *testing.B) {
 	server := NewTestWebSocketServer(b)
 	defer server.Close()
 
+<<<<<<< HEAD
 	config := FastTransportConfig()
+=======
+	config := testTransportConfig()
+>>>>>>> main
 	config.URLs = []string{server.URL()}
 	config.Logger = zap.NewNop()
 	config.EnableEventValidation = false
 	config.PoolConfig.MaxConnections = 10
+	// Disable rate limiting for tests
+	config.PoolConfig.ConnectionTemplate.RateLimiter = nil
 
 	transport, err := NewTransport(config)
 	require.NoError(b, err)
@@ -942,10 +1107,18 @@ func BenchmarkIntegrationSubscriptionThroughput(b *testing.B) {
 	server := NewTestWebSocketServer(b)
 	defer server.Close()
 
+<<<<<<< HEAD
 	config := FastTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zap.NewNop()
 	config.EnableEventValidation = false
+=======
+	config := testTransportConfig()
+	config.URLs = []string{server.URL()}
+	config.Logger = zap.NewNop()
+	// Disable rate limiting for tests
+	config.PoolConfig.ConnectionTemplate.RateLimiter = nil
+>>>>>>> main
 
 	transport, err := NewTransport(config)
 	require.NoError(b, err)

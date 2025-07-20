@@ -215,15 +215,14 @@ func (p *ConnectionPool) Start(ctx context.Context) error {
 // Stop gracefully shuts down the connection pool
 func (p *ConnectionPool) Stop() error {
 	p.config.Logger.Info("Stopping connection pool")
-	
-	// Cancel context to stop all goroutines
+
+	// Cancel context to stop all goroutines first to signal shutdown
 	p.cancel()
 	
-	// Since connections share the pool's context, they should close automatically
-	// Just give them a moment to react to context cancellation - optimized for tests
+	// Give connections a moment to react to context cancellation - optimized for tests
 	time.Sleep(50 * time.Millisecond)
 	
-	// Now explicitly close any remaining connections
+	// Close all connections to prevent goroutine leaks
 	p.connMutex.Lock()
 	remainingConns := len(p.connections)
 	if remainingConns > 0 {
@@ -257,7 +256,7 @@ func (p *ConnectionPool) Stop() error {
 	case <-waitCtx.Done():
 		p.config.Logger.Warn("Timeout waiting for pool goroutines to stop")
 	}
-	
+
 	p.config.Logger.Info("Connection pool stopped")
 	return nil
 }
@@ -372,7 +371,7 @@ func (p *ConnectionPool) GetHealthyConnectionCount() int {
 }
 
 // GetStats returns a copy of the pool statistics
-func (p *ConnectionPool) GetStats() PoolStats {
+func (p *ConnectionPool) Stats() PoolStats {
 	p.stats.mutex.Lock()
 	defer p.stats.mutex.Unlock()
 
@@ -419,6 +418,9 @@ func (p *ConnectionPool) SetMessageHandler(handler func(data []byte)) {
 
 // createConnection creates a new connection and adds it to the pool
 func (p *ConnectionPool) createConnection(ctx context.Context) error {
+	// Create a timeout context for connection creation
+	connectCtx, cancel := context.WithTimeout(ctx, p.config.ConnectionTimeout)
+	defer cancel()
 	// Select URL using round-robin
 	urlIndex := int(atomic.AddInt64(&p.roundRobinIndex, 1)-1) % len(p.config.URLs)
 	url := p.config.URLs[urlIndex]
@@ -467,10 +469,7 @@ func (p *ConnectionPool) createConnection(ctx context.Context) error {
 		conn.SetOnMessage(messageHandler)
 	}
 
-	// Connect with timeout
-	connectCtx, cancel := context.WithTimeout(ctx, p.config.ConnectionTimeout)
-	defer cancel()
-
+	// Use the already created timeout context for connection
 	if err := conn.Connect(connectCtx); err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
 	}
@@ -748,7 +747,7 @@ func (p *ConnectionPool) GetDetailedStatus() map[string]interface{} {
 		"active_connections":  p.GetActiveConnectionCount(),
 		"healthy_connections": p.GetHealthyConnectionCount(),
 		"load_balancing":      p.config.LoadBalancingStrategy.String(),
-		"stats":               p.GetStats(),
+		"stats":               p.Stats(),
 		"connections":         connections,
 	}
 }

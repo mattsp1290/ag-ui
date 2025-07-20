@@ -788,6 +788,11 @@ func (sm *StateManager) Close() error {
 		}
 	}
 
+	// Close state store
+	if sm.store != nil {
+		sm.store.Close()
+	}
+
 	sm.logger.Info("state manager shutdown complete")
 	return nil
 }

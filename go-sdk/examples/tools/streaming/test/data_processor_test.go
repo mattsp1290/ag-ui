@@ -1055,8 +1055,7 @@ func TestStreamingDataProcessor_ParameterValidation(t *testing.T) {
 		{
 			name: "Default parameters",
 			params: map[string]interface{}{
-				// Override duration to ensure outputs within test timeout
-				"duration_seconds": 1,
+				"duration_seconds": 1, // Override default to fit within test timeout
 			},
 		},
 		{
@@ -1064,8 +1063,8 @@ func TestStreamingDataProcessor_ParameterValidation(t *testing.T) {
 			params: map[string]interface{}{
 				"data_type":         "sensor",
 				"processing_type":   "analytics",
-				"batch_size":        20,
-				"interval_ms":       500,
+				"batch_size":        5,
+				"interval_ms":       100,
 				"duration_seconds":  1,
 				"enable_statistics": false,
 			},
@@ -1090,7 +1089,7 @@ func TestStreamingDataProcessor_ParameterValidation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
-			// Create a context with timeout based on expected duration
+			// Create fresh context for each test case
 			timeout := 3 * time.Second // Give extra time for processing
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
@@ -1185,6 +1184,8 @@ func TestStreamingDataProcessor_Performance(t *testing.T) {
 
 // TestStreamingDataProcessor_ConcurrentStreaming tests concurrent streaming
 func TestStreamingDataProcessor_ConcurrentStreaming(t *testing.T) {
+	_ = createStreamingDataProcessorTool() // tool not used in this test
+	
 	const numStreams = 3
 	var wg sync.WaitGroup
 	results := make(chan error, numStreams)
@@ -1270,6 +1271,7 @@ func TestStreamingDataProcessor_Capabilities(t *testing.T) {
 
 // BenchmarkStreamingDataProcessor benchmarks streaming performance
 func BenchmarkStreamingDataProcessor(b *testing.B) {
+	_ = createStreamingDataProcessorTool() // tool not used in this benchmark
 	ctx := context.Background()
 
 	b.Run("HighFrequencyStreaming", func(b *testing.B) {
@@ -1323,4 +1325,40 @@ func BenchmarkStreamingDataProcessor(b *testing.B) {
 	})
 }
 
-// Example usage can be seen in the test functions above
+// Example tests - this is just an example function, not attached to a type
+func Example_streamingDataProcessor_BasicUsage() {
+	tool := createStreamingDataProcessorTool()
+	processor := tool.Executor.(*MockStreamingDataProcessor)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	params := map[string]interface{}{
+		"data_type":        "numeric",
+		"processing_type":  "realtime",
+		"batch_size":       3,
+		"interval_ms":      500,
+		"duration_seconds": 1,
+	}
+
+	outputChan := make(chan interface{}, 50)
+	
+	// Start streaming in background
+	go func() {
+		processor.StreamingExecute(ctx, params, outputChan)
+	}()
+
+	// Process outputs
+	for output := range outputChan {
+		switch data := output.(type) {
+		case StreamOutput:
+			fmt.Printf("Batch %d: %d items processed\n", data.BatchNumber, len(data.Data.([]interface{})))
+		case StreamingSummary:
+			fmt.Printf("Summary: %d total batches, %d total items\n", data.TotalBatches, data.TotalItems)
+		}
+	}
+
+	// Output: 
+	// Batch 1: 3 items processed
+	// Batch 2: 3 items processed
+	// Summary: 2 total batches, 6 total items
+}

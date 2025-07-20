@@ -35,11 +35,11 @@ func (c *MockCalculatorExecutor) Execute(ctx context.Context, params map[string]
 		}, nil
 	}
 
+	// operand2 is not required for sqrt operation
 	var operand2 float64
 	if operation != "sqrt" {
-		if op2, ok := params["operand2"].(float64); ok {
-			operand2 = op2
-		} else {
+		operand2, ok = params["operand2"].(float64)
+		if !ok {
 			return &tools.ToolExecutionResult{
 				Success: false,
 				Error:   "operand2 must be a number",
@@ -687,7 +687,7 @@ func BenchmarkCalculatorTool_Operations(b *testing.B) {
 }
 
 // Example test showing how to use the calculator tool
-func Example_calculatorTool_basicUsage() {
+func Example_calculatorBasicUsage() {
 	tool := createCalculatorTool()
 	ctx := context.Background()
 
@@ -706,7 +706,7 @@ func Example_calculatorTool_basicUsage() {
 	if result.Success {
 		fmt.Printf("Result: %.0f\n", result.Data.(float64))
 	} else {
-		fmt.Printf("Error: %s\n", result.Error)
+		fmt.Println("Error:", result.Error)
 	}
 
 	// Output: Result: 8

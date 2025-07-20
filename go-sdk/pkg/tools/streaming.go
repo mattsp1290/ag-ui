@@ -86,7 +86,13 @@ func (sc *StreamingContext) Complete() error {
 	return sc.sendChunk("complete", nil)
 }
 
+// Chunks returns the read-only channel for consuming chunks.
+func (sc *StreamingContext) Chunks() <-chan *ToolStreamChunk {
+	return sc.chunks
+}
+
 // Channel returns the read-only channel for consuming chunks.
+// Deprecated: Use Chunks() instead for consistent pluralization
 func (sc *StreamingContext) Channel() <-chan *ToolStreamChunk {
 	return sc.chunks
 }
@@ -523,9 +529,15 @@ func (srb *StreamingResultBuilder) Error(err error) error {
 	return srb.streamCtx.Close()
 }
 
+// Chunks returns the streaming channel.
+func (srb *StreamingResultBuilder) Chunks() <-chan *ToolStreamChunk {
+	return srb.streamCtx.Chunks()
+}
+
 // Channel returns the streaming channel.
+// Deprecated: Use Chunks() instead for consistent pluralization
 func (srb *StreamingResultBuilder) Channel() <-chan *ToolStreamChunk {
-	return srb.streamCtx.Channel()
+	return srb.streamCtx.Chunks()
 }
 
 // Close closes the streaming result builder and ensures cleanup

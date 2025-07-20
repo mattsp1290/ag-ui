@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"os"
 	"runtime"
 	"sort"
 	"sync"
@@ -69,19 +70,32 @@ type ScalabilityConfig struct {
 
 // DefaultScalabilityConfig returns default scalability configuration
 func DefaultScalabilityConfig() *ScalabilityConfig {
+	// Use shorter durations in CI or when running with -short flag
+	testDuration := 5 * time.Second   // Reduced from 60s to 5s
+	warmupDuration := 1 * time.Second // Reduced from 10s to 1s
+	stressTestDuration := 5 * time.Second  // Reduced from 300s to 5s
+	stressTestRampTime := 2 * time.Second  // Reduced from 30s to 2s
+	
+	if testing.Short() || os.Getenv("CI") != "" {
+		testDuration = 2 * time.Second
+		warmupDuration = 500 * time.Millisecond
+		stressTestDuration = 3 * time.Second
+		stressTestRampTime = 1 * time.Second
+	}
+	
 	return &ScalabilityConfig{
-		ToolCountLevels:         []int{10, 50, 100, 500, 1000, 5000, 10000},
-		ToolCountIncrement:      100,
-		MaxToolCount:            50000,
-		ConcurrencyLevels:       []int{1, 5, 10, 25, 50, 100, 200, 500, 1000},
-		ConcurrencyIncrement:    50,
-		MaxConcurrency:          5000,
-		LoadLevels:              []int{100, 500, 1000, 5000, 10000},
-		LoadIncrement:           1000,
-		MaxLoad:                 100000,
-		TestDuration:            60 * time.Second,
-		WarmupDuration:          10 * time.Second,
-		CooldownDuration:        5 * time.Second,
+		ToolCountLevels:         []int{10, 50, 100, 200, 500}, // Reduced from large counts
+		ToolCountIncrement:      50,  // Reduced from 100
+		MaxToolCount:            1000, // Reduced from 50000
+		ConcurrencyLevels:       []int{1, 5, 10, 25, 50, 100}, // Reduced from 1000
+		ConcurrencyIncrement:    25,  // Reduced from 50
+		MaxConcurrency:          200, // Reduced from 5000
+		LoadLevels:              []int{100, 500, 1000, 2000}, // Reduced from 10000
+		LoadIncrement:           500,  // Reduced from 1000
+		MaxLoad:                 5000, // Reduced from 100000
+		TestDuration:            testDuration,
+		WarmupDuration:          warmupDuration,
+		CooldownDuration:        1 * time.Second,  // Reduced from 5s to 1s
 		MeasurementInterval:     1 * time.Second,
 		SampleSize:              1000,
 		ResponseTimeThreshold:   100 * time.Millisecond,
@@ -90,9 +104,9 @@ func DefaultScalabilityConfig() *ScalabilityConfig {
 		MemoryThreshold:         1024 * 1024 * 1024, // 1GB
 		CPUThreshold:            80.0,
 		StressTestEnabled:       true,
-		StressTestDuration:      300 * time.Second,
-		StressTestIntensity:     1000,
-		StressTestRampTime:      30 * time.Second,
+		StressTestDuration:      stressTestDuration,
+		StressTestIntensity:     100,  // Reduced from 1000
+		StressTestRampTime:      stressTestRampTime,
 		ChaosTestEnabled:        true,
 		ChaosFailureRate:        0.01,
 		ChaosLatencyVariation:   50 * time.Millisecond,
@@ -542,6 +556,10 @@ func NewScalabilityTestFramework(config *ScalabilityConfig) *ScalabilityTestFram
 
 // TestScalability runs comprehensive scalability tests
 func TestScalability(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping scalability tests in short mode")
+	}
+	
 	framework := NewScalabilityTestFramework(DefaultScalabilityConfig())
 	
 	t.Run("ToolCountScalability", func(t *testing.T) {

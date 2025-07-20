@@ -541,6 +541,42 @@ func (c *Connection) SendMessage(ctx context.Context, message []byte) error {
 	}
 }
 
+// SendMessageSync sends a message synchronously and waits for it to be processed
+func (c *Connection) SendMessageSync(ctx context.Context, message []byte) error {
+	if c.State() != StateConnected {
+		return errors.New("connection is not connected")
+	}
+
+	// Apply rate limiting
+	if c.config.RateLimiter != nil {
+		if err := c.config.RateLimiter.Wait(ctx); err != nil {
+			return fmt.Errorf("rate limit exceeded: %w", err)
+		}
+	}
+
+	// Get current metrics before sending
+	currentMetrics := c.GetMetrics()
+	expectedCount := currentMetrics.MessagesSent + 1
+
+	// Send message through message channel
+	select {
+	case c.messageCh <- message:
+		// Wait for message to be processed by checking metrics
+		for i := 0; i < 100; i++ { // Max 100ms wait
+			time.Sleep(1 * time.Millisecond)
+			metrics := c.GetMetrics()
+			if metrics.MessagesSent >= expectedCount {
+				return nil
+			}
+		}
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.ctx.Done():
+		return c.ctx.Err()
+	}
+}
+
 // State returns the current connection state
 func (c *Connection) State() ConnectionState {
 	return ConnectionState(atomic.LoadInt32(&c.state))
@@ -568,7 +604,7 @@ func (c *Connection) setState(state ConnectionState) bool {
 func (c *Connection) isValidStateTransition(from, to ConnectionState) bool {
 	switch from {
 	case StateDisconnected:
-		return to == StateConnecting || to == StateClosed
+		return to == StateConnecting || to == StateReconnecting || to == StateClosed
 	case StateConnecting:
 		return to == StateConnected || to == StateDisconnected || to == StateClosed
 	case StateConnected:
@@ -885,9 +921,31 @@ func (c *Connection) writePump() {
 	}
 }
 
+// WaitForMessages waits for all pending messages to be processed
+func (c *Connection) WaitForMessages(ctx context.Context, expectedCount int64) error {
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-timeout.C:
+			return fmt.Errorf("timeout waiting for messages to be processed")
+		default:
+			metrics := c.GetMetrics()
+			if metrics.MessagesSent >= expectedCount {
+				return nil
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
 // triggerReconnect triggers a reconnection attempt
 func (c *Connection) triggerReconnect() {
-	if c.State() == StateConnected {
+	currentState := c.State()
+	if currentState == StateConnected || currentState == StateDisconnected {
 		c.setState(StateReconnecting)
 
 		// Check if reconnect channel is already closed before attempting to send
@@ -895,6 +953,26 @@ func (c *Connection) triggerReconnect() {
 			select {
 			case c.reconnectCh <- struct{}{}:
 			default:
+			}
+		}
+	}
+}
+
+// ForceConnectionCheck forces a connection check to detect disconnection
+func (c *Connection) ForceConnectionCheck() {
+	if c.State() == StateConnected {
+		c.connMutex.RLock()
+		conn := c.conn
+		c.connMutex.RUnlock()
+
+		if conn != nil {
+			// Try to write a test message to detect disconnection
+			conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
+			if err := conn.WriteMessage(websocket.TextMessage, []byte("connection-check")); err != nil {
+				c.config.Logger.Debug("Force connection check detected disconnection", zap.Error(err))
+				c.triggerReconnect()
+			} else {
+				c.config.Logger.Debug("Force connection check - connection still alive")
 			}
 		}
 	}

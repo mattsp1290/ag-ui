@@ -103,14 +103,14 @@ type StateTransaction struct {
 	mu        sync.Mutex
 }
 
-// SubscriptionCallback is the function signature for state change subscriptions
-type SubscriptionCallback func(StateChange)
+// SubscriptionHandler is the function signature for state change subscriptions
+type SubscriptionHandler func(StateChange)
 
 // subscription represents an active subscription
 type subscription struct {
 	id           string
 	path         string
-	callback     SubscriptionCallback
+	callback     SubscriptionHandler
 	lastAccessed time.Time // Track access time for cleanup
 	created      time.Time // Track creation time
 }
@@ -143,9 +143,9 @@ type StateStore struct {
 	errorHandler func(error)
 	logger       Logger
 	
-	// Lifecycle management
-	wg        sync.WaitGroup
-	ctx       context.Context
+	// Lifecycle management - combining both approaches for robust control
+	wg        sync.WaitGroup  // WaitGroup for goroutine lifecycle management
+	ctx       context.Context // Context for cancellation signaling
 	cancel    context.CancelFunc
 }
 
@@ -925,7 +925,7 @@ func (s *StateStore) GetHistory() ([]*StateVersion, error) {
 }
 
 // Subscribe registers a callback for state changes at the specified path
-func (s *StateStore) Subscribe(path string, callback SubscriptionCallback) func() {
+func (s *StateStore) Subscribe(path string, callback SubscriptionHandler) func() {
 	id, _ := generateID()
 	now := time.Now()
 	sub := &subscription{
@@ -1350,7 +1350,8 @@ func (s *StateStore) Clear() {
 	s.history = make([]*StateVersion, 0)
 	s.historyMu.Unlock()
 
-	// Skip version creation for Clear to avoid issues
+	// Create initial version after clearing to maintain consistency
+	s.createVersion(nil, nil)
 }
 
 // Export exports the current state as JSON
@@ -1432,7 +1433,15 @@ func (s *StateStore) maybeCleanupSubscriptions() {
 	}
 
 	s.lastCleanup = now
-	go s.cleanupExpiredSubscriptions()
+	go func() {
+		// Check if context is cancelled before starting cleanup
+		select {
+		case <-s.ctx.Done():
+			return
+		default:
+			s.cleanupExpiredSubscriptions()
+		}
+	}()
 }
 
 // cleanupExpiredSubscriptions removes expired subscriptions
@@ -1477,3 +1486,4 @@ func (s *StateStore) GetReferenceCount() int32 {
 	// This matches what tests expect: 1 view = 1 reference
 	return atomic.LoadInt32(&s.viewCount)
 }
+

@@ -408,6 +408,11 @@ func boolPtr(b bool) *bool {
 
 // Test the performance improvements
 func TestPerformanceImprovements(t *testing.T) {
+	// Skip in short mode
+	if testing.Short() {
+		t.Skip("Skipping performance improvements test in short mode")
+	}
+	
 	// Test schema cache hit rate
 	t.Run("SchemaCacheHitRate", func(t *testing.T) {
 		schema := &ToolSchema{

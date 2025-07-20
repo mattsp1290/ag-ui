@@ -2,7 +2,11 @@ package sse
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -115,6 +119,30 @@ type TLSConfig struct {
 
 	// Cipher suites
 	CipherSuites []uint16 `json:"cipher_suites" yaml:"cipher_suites"`
+
+	// Certificate pinning configuration
+	CertificatePinning CertificatePinningConfig `json:"certificate_pinning" yaml:"certificate_pinning"`
+}
+
+// CertificatePinningConfig defines certificate pinning settings
+type CertificatePinningConfig struct {
+	// Enable certificate pinning
+	Enabled bool `json:"enabled" yaml:"enabled"`
+
+	// Pinned certificate hashes (SHA256 in hex or base64)
+	PinnedCertificates []string `json:"pinned_certificates" yaml:"pinned_certificates"`
+
+	// Pinned public key hashes (SPKI SHA256 in hex or base64)
+	PinnedPublicKeys []string `json:"pinned_public_keys" yaml:"pinned_public_keys"`
+
+	// Allow pinning bypass for specific hosts
+	BypassHosts []string `json:"bypass_hosts" yaml:"bypass_hosts"`
+
+	// Enforce pinning in production only
+	EnforceInProduction bool `json:"enforce_in_production" yaml:"enforce_in_production"`
+
+	// Report-only mode (log violations but don't block)
+	ReportOnly bool `json:"report_only" yaml:"report_only"`
 }
 
 // HTTPClientConfig defines HTTP client settings
@@ -1349,10 +1377,12 @@ func DevelopmentConfig() ComprehensiveConfig {
 	config.Monitoring.Logging.Format = "console"
 	config.Monitoring.Tracing.Enabled = true
 	config.Monitoring.Tracing.SamplingRate = 1.0
-	config.Retry.MaxRetries = 1
-	config.Connection.ConnectTimeout = 5 * time.Second
-	config.Connection.ReadTimeout = 10 * time.Second
-	config.Connection.WriteTimeout = 5 * time.Second
+	config.Retry.MaxRetries = 2                          // Increased slightly for stability
+	config.Retry.InitialDelay = 250 * time.Millisecond  // Faster retry for tests
+	config.Connection.ConnectTimeout = 3 * time.Second   // Optimized for test speed
+	config.Connection.ReadTimeout = 8 * time.Second      // Reasonable for test operations
+	config.Connection.WriteTimeout = 3 * time.Second     // Faster writes for tests
+	config.Monitoring.HealthChecks.Timeout = 2 * time.Second  // Faster health checks
 	return config
 }
 
@@ -2173,6 +2203,31 @@ func (c *ComprehensiveConfig) String() string {
 	return string(data)
 }
 
+// getSecureCipherSuites returns a list of secure cipher suites for TLS
+func getSecureCipherSuites() []uint16 {
+	// Return only secure cipher suites
+	// Prioritize AEAD ciphers (AES-GCM, ChaCha20-Poly1305)
+	// Exclude weak ciphers (RC4, 3DES, CBC mode ciphers vulnerable to padding oracle attacks)
+	return []uint16{
+		// TLS 1.3 cipher suites (automatically selected when TLS 1.3 is used)
+		tls.TLS_AES_128_GCM_SHA256,
+		tls.TLS_AES_256_GCM_SHA384,
+		tls.TLS_CHACHA20_POLY1305_SHA256,
+		
+		// TLS 1.2 cipher suites (ECDHE + AEAD)
+		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+		tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+		tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
+		tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
+		
+		// Fallback cipher suites (still secure but less preferred)
+		tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
+		tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
+	}
+}
+
 // GetHTTPClient returns an HTTP client configured according to the configuration
 func (c *ComprehensiveConfig) GetHTTPClient() *http.Client {
 	transport := &http.Transport{
@@ -2185,13 +2240,35 @@ func (c *ComprehensiveConfig) GetHTTPClient() *http.Client {
 
 	// Configure TLS
 	if c.Connection.TLS.Enabled {
-		transport.TLSClientConfig = &tls.Config{
+		tlsConfig := &tls.Config{
 			InsecureSkipVerify: c.Connection.TLS.InsecureSkipVerify,
 			ServerName:         c.Connection.TLS.ServerName,
 			MinVersion:         c.Connection.TLS.MinVersion,
 			MaxVersion:         c.Connection.TLS.MaxVersion,
-			CipherSuites:       c.Connection.TLS.CipherSuites,
 		}
+		
+		// Use secure cipher suites if not explicitly configured
+		if len(c.Connection.TLS.CipherSuites) == 0 {
+			tlsConfig.CipherSuites = getSecureCipherSuites()
+			tlsConfig.PreferServerCipherSuites = true
+		} else {
+			tlsConfig.CipherSuites = c.Connection.TLS.CipherSuites
+		}
+		
+		// Set secure defaults if not configured
+		if tlsConfig.MinVersion == 0 {
+			tlsConfig.MinVersion = tls.VersionTLS12
+		}
+		if tlsConfig.MaxVersion == 0 {
+			tlsConfig.MaxVersion = tls.VersionTLS13
+		}
+		
+		// Configure certificate pinning if enabled
+		if c.Connection.TLS.CertificatePinning.Enabled {
+			tlsConfig.VerifyPeerCertificate = c.createCertificatePinningVerifier()
+		}
+		
+		transport.TLSClientConfig = tlsConfig
 	}
 
 	// Configure proxy
@@ -2230,6 +2307,104 @@ func (c *ComprehensiveConfig) IsDevelopmentEnvironment() bool {
 // IsStagingEnvironment returns true if the environment is staging
 func (c *ComprehensiveConfig) IsStagingEnvironment() bool {
 	return c.Environment == EnvironmentStaging
+}
+
+// createCertificatePinningVerifier creates a certificate verification function for pinning
+func (c *ComprehensiveConfig) createCertificatePinningVerifier() func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+	return func(rawCerts [][]byte, verifiedChains [][]*x509.Certificate) error {
+		// Skip pinning for bypass hosts
+		if len(c.Connection.TLS.CertificatePinning.BypassHosts) > 0 {
+			// Note: In a real implementation, you'd need access to the hostname being connected to
+			// This is a limitation of the VerifyPeerCertificate callback
+		}
+
+		// Check if we should enforce pinning
+		enforceProduction := c.Connection.TLS.CertificatePinning.EnforceInProduction
+		if enforceProduction && !c.IsProductionEnvironment() {
+			// Skip pinning in non-production environments if configured
+			return nil
+		}
+
+		// Verify certificate pinning
+		for _, rawCert := range rawCerts {
+			cert, err := x509.ParseCertificate(rawCert)
+			if err != nil {
+				continue
+			}
+
+			// Check certificate hash
+			if len(c.Connection.TLS.CertificatePinning.PinnedCertificates) > 0 {
+				certHash := sha256.Sum256(cert.Raw)
+				certHashHex := hex.EncodeToString(certHash[:])
+				certHashBase64 := base64.StdEncoding.EncodeToString(certHash[:])
+
+				for _, pinnedCert := range c.Connection.TLS.CertificatePinning.PinnedCertificates {
+					if pinnedCert == certHashHex || pinnedCert == certHashBase64 {
+						return nil // Certificate matches
+					}
+				}
+			}
+
+			// Check public key hash (SPKI)
+			if len(c.Connection.TLS.CertificatePinning.PinnedPublicKeys) > 0 {
+				publicKeyDER, err := x509.MarshalPKIXPublicKey(cert.PublicKey)
+				if err == nil {
+					spkiHash := sha256.Sum256(publicKeyDER)
+					spkiHashHex := hex.EncodeToString(spkiHash[:])
+					spkiHashBase64 := base64.StdEncoding.EncodeToString(spkiHash[:])
+
+					for _, pinnedKey := range c.Connection.TLS.CertificatePinning.PinnedPublicKeys {
+						if pinnedKey == spkiHashHex || pinnedKey == spkiHashBase64 {
+							return nil // Public key matches
+						}
+					}
+				}
+			}
+		}
+
+		// Check verified chains
+		for _, chain := range verifiedChains {
+			for _, cert := range chain {
+				// Check certificate hash
+				if len(c.Connection.TLS.CertificatePinning.PinnedCertificates) > 0 {
+					certHash := sha256.Sum256(cert.Raw)
+					certHashHex := hex.EncodeToString(certHash[:])
+					certHashBase64 := base64.StdEncoding.EncodeToString(certHash[:])
+
+					for _, pinnedCert := range c.Connection.TLS.CertificatePinning.PinnedCertificates {
+						if pinnedCert == certHashHex || pinnedCert == certHashBase64 {
+							return nil // Certificate matches
+						}
+					}
+				}
+
+				// Check public key hash (SPKI)
+				if len(c.Connection.TLS.CertificatePinning.PinnedPublicKeys) > 0 {
+					publicKeyDER, err := x509.MarshalPKIXPublicKey(cert.PublicKey)
+					if err == nil {
+						spkiHash := sha256.Sum256(publicKeyDER)
+						spkiHashHex := hex.EncodeToString(spkiHash[:])
+						spkiHashBase64 := base64.StdEncoding.EncodeToString(spkiHash[:])
+
+						for _, pinnedKey := range c.Connection.TLS.CertificatePinning.PinnedPublicKeys {
+							if pinnedKey == spkiHashHex || pinnedKey == spkiHashBase64 {
+								return nil // Public key matches
+							}
+						}
+					}
+				}
+			}
+		}
+
+		// No match found
+		if c.Connection.TLS.CertificatePinning.ReportOnly {
+			// Log the violation but don't block the connection
+			// In a real implementation, you'd log this properly
+			return nil
+		}
+
+		return errors.New("certificate pinning validation failed: no matching certificate or public key found")
+	}
 }
 
 // ============================================================================

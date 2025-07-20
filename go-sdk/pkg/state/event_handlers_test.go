@@ -120,7 +120,7 @@ func TestStateEventHandler_HandleStateDelta(t *testing.T) {
 				{
 					Op:    "add",
 					Path:  "/users/123/age",
-					Value: 30,
+					Value: float64(30), // Use float64 to match JSON unmarshaling behavior
 				},
 			},
 			wantErr: false,
@@ -287,7 +287,7 @@ func TestStateEventGenerator_GenerateDelta(t *testing.T) {
 			"123": map[string]interface{}{
 				"name":  "John Doe",
 				"email": "john.doe@example.com",
-				"age":   30,
+				"age":   float64(30), // Use float64 to match JSON unmarshaling behavior
 			},
 		},
 	}
@@ -417,8 +417,12 @@ func TestStateEventHandler_Callbacks(t *testing.T) {
 	store := TestStore(t)
 
 	// Track callback invocations
+
 	var snapshotCalled, deltaCalled, stateChangeCalled bool
 	var callbackMu sync.Mutex
+
+	var snapshotCalled, deltaCalled bool
+
 
 	handler := NewStateEventHandler(store,
 		WithSnapshotCallback(func(event *events.StateSnapshotEvent) error {
@@ -429,11 +433,14 @@ func TestStateEventHandler_Callbacks(t *testing.T) {
 			deltaCalled = true
 			return nil
 		}),
+
 		WithStateChangeCallback(func(change StateChange) {
 			callbackMu.Lock()
 			stateChangeCalled = true
 			callbackMu.Unlock()
 		}),
+
+
 		WithBatchSize(1),
 		WithBatchTimeout(10*time.Millisecond),
 	)
@@ -443,6 +450,7 @@ func TestStateEventHandler_Callbacks(t *testing.T) {
 	err := handler.HandleStateSnapshot(snapshotEvent)
 	assert.NoError(t, err)
 	assert.True(t, snapshotCalled)
+
 
 	// Wait for async state change callback
 	AssertEventuallyTrue(t, func() bool {
@@ -457,6 +465,13 @@ func TestStateEventHandler_Callbacks(t *testing.T) {
 	stateChangeCalled = false
 	callbackMu.Unlock()
 
+	// Note: State change callbacks are not triggered for Import operations (snapshots)
+	// as Import replaces the entire state without individual change tracking
+
+	// Reset flags
+	deltaCalled = false
+
+
 	// Test delta callback
 	deltaEvent := events.NewStateDeltaEvent([]events.JSONPatchOperation{
 		{Op: "add", Path: "/new", Value: "value"},
@@ -469,12 +484,17 @@ func TestStateEventHandler_Callbacks(t *testing.T) {
 
 	assert.True(t, deltaCalled)
 
+
 	// Wait for async state change callback
 	AssertEventuallyTrue(t, func() bool {
 		callbackMu.Lock()
 		defer callbackMu.Unlock()
 		return stateChangeCalled
 	}, 200*time.Millisecond, "state change callback should be called after delta")
+
+	// Note: State change callbacks may not be triggered immediately due to batching
+	// and async processing. The delta callback confirms the delta was processed.
+
 }
 
 func TestStateEventHandler_ErrorRecovery(t *testing.T) {
@@ -515,7 +535,7 @@ func TestConcurrentEventHandling(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		snapshot := map[string]interface{}{
-			"counter": 0,
+			"counter": float64(0), // Use float64 to match JSON unmarshaling behavior
 			"base":    "value",
 		}
 		event := events.NewStateSnapshotEvent(snapshot)
@@ -531,7 +551,7 @@ func TestConcurrentEventHandling(t *testing.T) {
 
 		for i := 0; i < 5; i++ {
 			delta := []events.JSONPatchOperation{
-				{Op: "add", Path: "/delta" + string(rune('0'+i)), Value: i},
+				{Op: "add", Path: "/delta" + string(rune('0'+i)), Value: float64(i)},
 			}
 			event := events.NewStateDeltaEvent(delta)
 			err := handler.HandleStateDelta(event)

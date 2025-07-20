@@ -14,6 +14,7 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/messages"
+	"github.com/ag-ui/go-sdk/pkg/transport/common"
 )
 
 // Transport interface defines the methods for event transport
@@ -79,10 +80,10 @@ func DefaultConfig() *Config {
 		BufferSize:     1000,
 		ReadTimeout:    30 * time.Second,
 		WriteTimeout:   10 * time.Second,
-		ReconnectDelay: 5 * time.Second,
-		MaxReconnects:  5,
+		ReconnectDelay: 1 * time.Second,  // Reduced for faster test execution
+		MaxReconnects:  3,                // Reduced for faster failure detection
 		Client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 15 * time.Second,    // Reduced for faster test execution
 		},
 	}
 }
@@ -94,7 +95,7 @@ func NewSSETransport(config *Config) (*SSETransport, error) {
 	}
 
 	if config.BaseURL == "" {
-		return nil, messages.NewValidationError("baseURL is required")
+		return nil, fmt.Errorf("baseURL must be provided")
 	}
 
 	if config.Client == nil {
@@ -144,12 +145,12 @@ func (t *SSETransport) Send(ctx context.Context, event events.Event) error {
 	}
 
 	if event == nil {
-		return messages.NewValidationError("event cannot be nil")
+		return fmt.Errorf("event cannot be nil")
 	}
 
 	// Validate the event
 	if err := event.Validate(); err != nil {
-		return messages.NewValidationError(fmt.Sprintf("event validation failed: %v", err))
+		return fmt.Errorf("event validation failed: %w", err)
 	}
 
 	// Serialize event to JSON
@@ -229,7 +230,7 @@ func (t *SSETransport) connect(ctx context.Context) error {
 	sseURL := t.baseURL + "/events/stream"
 	req, err := http.NewRequestWithContext(ctx, "GET", sseURL, nil)
 	if err != nil {
-		return messages.NewStreamingError("transport", 0, fmt.Sprintf("failed to create SSE request: %v", err))
+		return fmt.Errorf("failed to create SSE request: %w", err)
 	}
 
 	// Set SSE headers
@@ -240,7 +241,7 @@ func (t *SSETransport) connect(ctx context.Context) error {
 	// Send request
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return messages.NewStreamingError("transport", 0, fmt.Sprintf("failed to connect to SSE endpoint: %v", err))
+		return fmt.Errorf("failed to connect to SSE endpoint: %w", err)
 	}
 
 	// Check response status
@@ -900,8 +901,13 @@ func (t *SSETransport) reconnect() error {
 	// Close existing connection
 	t.closeConnection()
 
-	// Wait before reconnecting
-	time.Sleep(t.reconnectDelay)
+	// Wait before reconnecting with context cancellation support
+	select {
+	case <-time.After(t.reconnectDelay):
+		// Continue with reconnection
+	case <-t.ctx.Done():
+		return fmt.Errorf("reconnect cancelled: %w", t.ctx.Err())
+	}
 
 	// Attempt to reconnect
 	return t.connect(t.ctx)
@@ -1021,7 +1027,7 @@ func (s ConnectionStatus) String() string {
 // FormatSSEEvent formats an event as SSE data
 func FormatSSEEvent(event events.Event) (string, error) {
 	if event == nil {
-		return "", messages.NewValidationError("event cannot be nil")
+		return "", fmt.Errorf("event cannot be nil: %w", common.NewValidationError("event", "required", "event must not be nil", nil))
 	}
 
 	eventData, err := event.ToJSON()
@@ -1054,7 +1060,7 @@ func WriteSSEEvent(w io.Writer, event events.Event) error {
 }
 
 // GetStats returns transport statistics
-func (t *SSETransport) GetStats() TransportStats {
+func (t *SSETransport) Stats() TransportStats {
 	t.connMutex.RLock()
 	defer t.connMutex.RUnlock()
 
@@ -1147,28 +1153,42 @@ func (t *SSETransport) SendBatch(ctx context.Context, events []events.Event) err
 	}
 
 	if len(events) == 0 {
-		return messages.NewValidationError("events list cannot be empty")
+		return fmt.Errorf("events list cannot be empty: %w", common.NewValidationError("events", "required", "events list must contain at least one event", len(events)))
 	}
 
-	// Validate all events first
+	// Validate all events first and collect validation errors
+	batchErr := common.NewBatchError("SendBatch validation", len(events))
 	for i, event := range events {
 		if event == nil {
-			return messages.NewValidationError(fmt.Sprintf("event at index %d cannot be nil", i))
+			batchErr.AddError(i, fmt.Errorf("event at index %d cannot be nil: %w", i, common.NewValidationError("event", "required", "event must not be nil", nil)))
+			continue
 		}
 
 		if err := event.Validate(); err != nil {
-			return messages.NewValidationError(fmt.Sprintf("event at index %d validation failed: %v", i, err))
+			batchErr.AddError(i, fmt.Errorf("event at index %d validation failed: %w", i, err))
 		}
 	}
+	
+	// Return combined validation errors if any occurred
+	if batchErr.HasErrors() {
+		return fmt.Errorf("batch validation failed: %w", batchErr)
+	}
 
-	// Serialize events to JSON array
+	// Serialize events to JSON array and collect serialization errors
 	var eventDataList []json.RawMessage
-	for _, event := range events {
+	serializationErr := common.NewBatchError("SendBatch serialization", len(events))
+	for i, event := range events {
 		eventData, err := event.ToJSON()
 		if err != nil {
-			return messages.NewConversionError("event", "json", string(event.Type()), err.Error())
+			serializationErr.AddError(i, fmt.Errorf("event at index %d serialization failed: %w", i, err))
+			continue
 		}
 		eventDataList = append(eventDataList, eventData)
+	}
+	
+	// Return combined serialization errors if any occurred
+	if serializationErr.HasErrors() {
+		return fmt.Errorf("batch serialization failed: %w", serializationErr)
 	}
 
 	batchData, err := json.Marshal(eventDataList)

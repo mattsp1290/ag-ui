@@ -575,6 +575,7 @@ func (e *ExecutionEngine) untrackExecution(execID string) {
 	e.executions.Delete(execID)
 	// NOTE: Do NOT decrement activeCount here - it's already decremented by decrementActiveCount()
 	// that is deferred in Execute/ExecuteStream methods. Removing the double decrement fixes the race.
+	// This avoids double decrementing the counter and potential race conditions.
 }
 
 // updateMetrics updates execution metrics with atomic operations (FIXED).

@@ -1,6 +1,8 @@
 package sse
 
 // This file contains examples of how to use the comprehensive SSE configuration system
+// NOTE: These example functions intentionally panic on validation failures for demonstration purposes.
+// In production code, proper error handling should be used instead of panicking.
 
 import (
 	"fmt"

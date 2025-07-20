@@ -72,7 +72,7 @@ func TestEventProcessingPipeline(t *testing.T) {
 	mu.Unlock()
 
 	// Verify stats
-	stats := transport.GetStats()
+	stats := transport.Stats()
 	assert.Equal(t, int64(1), stats.EventsReceived)
 	assert.Equal(t, int64(1), stats.EventsProcessed)
 	assert.Equal(t, int64(0), stats.EventsFailed)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -80,10 +81,36 @@ func (e *SecureFileExecutor) Execute(ctx context.Context, params map[string]inte
 
 // validatePath checks if the path is allowed based on security options
 func (e *SecureFileExecutor) validatePath(path string) error {
-	// Clean and resolve the path
-	cleanPath, err := filepath.Abs(filepath.Clean(path))
+	// Check for null bytes and control characters first
+	if strings.Contains(path, "\x00") || containsControlChars(path) {
+		return fmt.Errorf("invalid path")
+	}
+
+	// Check for very long paths
+	if len(path) > 1000 {
+		return fmt.Errorf("path too long")
+	}
+
+	// Check for empty path
+	if path == "" {
+		return fmt.Errorf("invalid path")
+	}
+
+	// Decode URL-encoded characters to prevent encoded traversal attacks
+	decodedPath, err := decodeURLPath(path)
 	if err != nil {
-		return fmt.Errorf("invalid path format: %w", err)
+		return fmt.Errorf("invalid path encoding: %v", err)
+	}
+
+	// Clean and resolve the decoded path
+	cleanPath, err := filepath.Abs(filepath.Clean(decodedPath))
+	if err != nil {
+		return fmt.Errorf("invalid path")
+	}
+
+	// Special case: Always deny root directory access
+	if cleanPath == "/" {
+		return fmt.Errorf("access denied")
 	}
 	
 	// Check for symlinks using proper symlink detection
@@ -115,6 +142,12 @@ func (e *SecureFileExecutor) validatePath(path string) error {
 		if err == nil && !isPathOutside(rel) {
 			return fmt.Errorf("access denied: path is in restricted directory")
 		}
+		
+		// Also check against the clean path for backwards compatibility
+		rel2, err2 := filepath.Rel(absDeny, cleanPath)
+		if err2 == nil && !strings.HasPrefix(rel2, "..") {
+			return fmt.Errorf("access denied")
+		}
 	}
 
 	// If no allowed paths are specified, allow all (except denied)
@@ -142,6 +175,12 @@ func (e *SecureFileExecutor) validatePath(path string) error {
 			return nil
 		}
 		
+		// Also check with the standard isPathTraversal function for backwards compatibility
+		rel2, err2 := filepath.Rel(absAllowed, cleanPath)
+		if err2 == nil && !isPathTraversal(rel2) {
+			return nil
+		}
+		
 		// For non-symlink cases where resolution didn't change the path,
 		// also check against non-resolved allowed paths to handle system symlinks
 		if resolvedPath == cleanPath {
@@ -152,7 +191,7 @@ func (e *SecureFileExecutor) validatePath(path string) error {
 		}
 	}
 
-	return fmt.Errorf("access denied: path is not in allowed directories")
+	return fmt.Errorf("access denied")
 }
 
 // checkFileSize verifies the file size is within limits
@@ -190,7 +229,7 @@ func (e *SecureFileExecutor) validateFileDescriptor(file *os.File) error {
 
 	// Check that it's a regular file (not a device, pipe, etc.)
 	if !stat.Mode().IsRegular() {
-		return fmt.Errorf("access denied: not a regular file")
+		return fmt.Errorf("not a regular file")
 	}
 
 	// For additional security, we could check ownership, permissions, etc.
@@ -304,6 +343,7 @@ func expandPath(path string) string {
 	return path
 }
 
+<<<<<<< HEAD
 // isPathOutside checks if a relative path goes outside its base directory
 func isPathOutside(relPath string) bool {
 	// A path is outside if:
@@ -330,6 +370,99 @@ func isPathOutside(relPath string) bool {
 	}
 	
 	return false
+}
+
+// containsControlChars checks if a string contains control characters
+func containsControlChars(s string) bool {
+	for _, r := range s {
+		if r < 32 && r != '\t' && r != '\n' && r != '\r' {
+			return true
+		}
+	}
+	return false
+}
+
+// isPathTraversal checks if a relative path represents path traversal
+// It distinguishes between actual ".." path components and filenames starting with ".."
+func isPathTraversal(rel string) bool {
+	if rel == "" {
+		return false
+	}
+	
+	// Split the path into components
+	components := strings.Split(rel, string(filepath.Separator))
+	
+	// Check if any component is exactly ".."
+	for _, component := range components {
+		if component == ".." {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// validateSymlinkTarget validates a symlink target path (without recursion)
+func (e *SecureFileExecutor) validateSymlinkTarget(path string) error {
+	// Check for null bytes and control characters first
+	if strings.Contains(path, "\x00") || containsControlChars(path) {
+		return fmt.Errorf("invalid path")
+	}
+
+	// Check for very long paths
+	if len(path) > 1000 {
+		return fmt.Errorf("path too long")
+	}
+
+	// Check for empty path
+	if path == "" {
+		return fmt.Errorf("invalid path")
+	}
+
+	// Decode URL-encoded characters to prevent encoded traversal attacks
+	decodedPath, err := decodeURLPath(path)
+	if err != nil {
+		return fmt.Errorf("invalid path encoding: %v", err)
+	}
+
+	// Clean and resolve the decoded path
+	cleanPath, err := filepath.Abs(filepath.Clean(decodedPath))
+	if err != nil {
+		return fmt.Errorf("invalid path")
+	}
+
+	// Expand home directory in deny paths
+	for _, denyPath := range e.options.DenyPaths {
+		expandedDeny := expandPath(denyPath)
+		absDeny, err := filepath.Abs(filepath.Clean(expandedDeny))
+		if err != nil {
+			continue // Skip invalid deny paths
+		}
+		rel, err := filepath.Rel(absDeny, cleanPath)
+		if err == nil && !strings.HasPrefix(rel, "..") {
+			return fmt.Errorf("access denied")
+		}
+	}
+
+	// If no allowed paths are specified, allow all (except denied)
+	if len(e.options.AllowedPaths) == 0 {
+		return nil
+	}
+
+	// Check if path is within allowed paths
+	for _, allowedPath := range e.options.AllowedPaths {
+		expandedAllow := expandPath(allowedPath)
+		absAllowed, err := filepath.Abs(expandedAllow)
+		if err != nil {
+			continue
+		}
+		rel, err := filepath.Rel(absAllowed, cleanPath)
+		if err == nil && !isPathTraversal(rel) {
+			return nil
+		}
+	}
+
+	return fmt.Errorf("access denied")
 }
 
 // NewSecureReadFileTool creates a secure file reading tool
@@ -487,4 +620,113 @@ func (e *SecureFileExecutor) executeAtomicWrite(ctx context.Context, params map[
 			"bytes_written": len(content),
 		},
 	}, nil
+}
+
+// checkSymlinksInPath checks if any component in the path is a symbolic link
+func (e *SecureFileExecutor) checkSymlinksInPath(path string) error {
+	// Check each component of the path from root down
+	current := ""
+	components := strings.Split(path, string(filepath.Separator))
+	
+	for i, component := range components {
+		if component == "" {
+			if i == 0 {
+				current = string(filepath.Separator)
+			}
+			continue
+		}
+		
+		if current == string(filepath.Separator) {
+			current = filepath.Join(current, component)
+		} else {
+			current = filepath.Join(current, component)
+		}
+		
+		// Check if this component is a symbolic link
+		if info, err := os.Lstat(current); err == nil {
+			if info.Mode()&os.ModeSymlink != 0 {
+				// Allow certain system symlinks that are safe (like /var -> private/var on macOS)
+				if e.isAllowedSystemSymlink(current) {
+					continue
+				}
+				return fmt.Errorf("symbolic links are not allowed")
+			}
+		}
+		// If the component doesn't exist, we can't check it, but that's okay for write operations
+	}
+	return nil
+}
+
+// isAllowedSystemSymlink checks if a symlink is a known safe system symlink
+func (e *SecureFileExecutor) isAllowedSystemSymlink(path string) bool {
+	// Allow common macOS system symlinks
+	allowedSystemSymlinks := []string{
+		"/var",        // /var -> private/var
+		"/tmp",        // /tmp -> private/tmp
+		"/etc",        // /etc -> private/etc on some systems
+	}
+	
+	for _, allowed := range allowedSystemSymlinks {
+		if path == allowed {
+			return true
+		}
+	}
+	
+	return false
+}
+
+// decodeURLPath safely decodes URL-encoded characters in a file path
+// This prevents attackers from bypassing security checks using encoded traversal sequences
+func decodeURLPath(path string) (string, error) {
+	// Start with the original path
+	decoded := path
+	
+	// Perform multiple rounds of decoding to handle double/triple encoding
+	// This prevents attacks like %252e%252e%252f (triple-encoded ../)
+	maxDecodeRounds := 5
+	for i := 0; i < maxDecodeRounds; i++ {
+		newDecoded, err := url.PathUnescape(decoded)
+		if err != nil {
+			break // Invalid encoding, stop here
+		}
+		if newDecoded == decoded {
+			break // No more changes, we're done
+		}
+		decoded = newDecoded
+	}
+	
+	// Normalize various representations of path separators and dangerous characters
+	decoded = normalizePathSeparators(decoded)
+	
+	// Additional security check: reject paths with non-printable characters after decoding
+	for _, r := range decoded {
+		if r < 32 && r != '\t' && r != '\n' && r != '\r' {
+			return "", fmt.Errorf("decoded path contains invalid characters")
+		}
+	}
+	
+	return decoded, nil
+}
+
+// normalizePathSeparators converts various encoded path separator representations
+// to standard forward slashes to prevent bypass attempts
+func normalizePathSeparators(path string) string {
+	// Convert common path separator representations
+	// These can be used to bypass validation in various encoding schemes
+	
+	// Convert backslashes to forward slashes (Windows-style paths)
+	path = strings.ReplaceAll(path, "\\", "/")
+	
+	// Convert UTF-8 encoded separators
+	path = strings.ReplaceAll(path, "\u002f", "/")  // UTF-8 encoded /
+	path = strings.ReplaceAll(path, "\u005c", "/")  // UTF-8 encoded \
+	path = strings.ReplaceAll(path, "\uff0f", "/")  // UTF-8 fullwidth solidus
+	path = strings.ReplaceAll(path, "\uff3c", "/")  // UTF-8 fullwidth reverse solidus
+	
+	// Convert overlong UTF-8 sequences (like %c0%af for /)
+	// These are invalid UTF-8 but can sometimes bypass filters
+	path = strings.ReplaceAll(path, "\xc0\xaf", "/")
+	path = strings.ReplaceAll(path, "\xc1\x9c", "/")
+	
+	return path
 }

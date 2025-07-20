@@ -183,6 +183,8 @@ type MonitoringSystem struct {
 
 	// Prometheus metrics
 	promMetrics *PrometheusMetrics
+	// Custom registry for isolated metrics
+	registry *prometheus.Registry
 
 	// Health checks
 	healthChecks map[string]HealthCheck
@@ -330,8 +332,11 @@ func NewMonitoringSystem(config MonitoringConfig) (*MonitoringSystem, error) {
 	// Note: OpenTelemetry integration can be added here when dependencies are available
 	// For now, we focus on Prometheus metrics and structured logging
 
+	// Create custom registry for isolated metrics
+	registry := prometheus.NewRegistry()
+
 	// Initialize Prometheus metrics
-	promMetrics := initializePrometheusMetrics(config)
+	promMetrics := initializePrometheusMetrics(config, registry)
 
 	// Initialize alert manager
 	alertManager := &AlertManager{
@@ -341,14 +346,6 @@ func NewMonitoringSystem(config MonitoringConfig) (*MonitoringSystem, error) {
 		alertHistory: make([]Alert, 0),
 		maxHistory:   DefaultMaxAlertHistory,
 	}
-
-	// Initialize resource monitor
-	resourceMonitor := &ResourceMonitor{
-		cpuGauge:       promMetrics.CPUUsage,       // Use the already registered gauge
-		memoryGauge:    promMetrics.MemoryUsage,    // Use the already registered gauge
-		goroutineGauge: promMetrics.GoroutineCount, // Use the already registered gauge
-	}
-
 	// Initialize operation metrics
 	operationMetrics := &OperationMetrics{
 		operationCounts:  make(map[string]*int64),
@@ -363,14 +360,23 @@ func NewMonitoringSystem(config MonitoringConfig) (*MonitoringSystem, error) {
 		config:                config,
 		logger:                logger,
 		promMetrics:           promMetrics,
+		registry:              registry,
 		healthChecks:          make(map[string]HealthCheck),
 		alertManager:          alertManager,
-		resourceMonitor:       resourceMonitor,
 		ctx:                   ctx,
 		cancel:                cancel,
 		operationMetrics:      operationMetrics,
 		connectionPoolMetrics: connectionPoolMetrics,
 	}
+
+	// Initialize resource monitor
+	resourceMonitor := &ResourceMonitor{
+		cpuGauge:       ms.createCPUGauge(),
+		memoryGauge:    ms.createMemoryGauge(),
+		goroutineGauge: ms.createGoroutineGauge(),
+	}
+
+	ms.resourceMonitor = resourceMonitor
 
 	// Start background monitoring
 	if config.EnableResourceMonitoring {
@@ -391,6 +397,11 @@ func NewMonitoringSystem(config MonitoringConfig) (*MonitoringSystem, error) {
 // Logger returns the structured logger
 func (ms *MonitoringSystem) Logger() *zap.Logger {
 	return ms.logger
+}
+
+// Registry returns the Prometheus registry for this monitoring system instance
+func (ms *MonitoringSystem) Registry() *prometheus.Registry {
+	return ms.registry
 }
 
 // StartTrace starts a new trace span (placeholder for OpenTelemetry integration)
@@ -457,7 +468,7 @@ func (ms *MonitoringSystem) RecordMemoryUsage(usage uint64, allocations int64, g
 	
 	ms.promMetrics.GCPauseDuration.Observe(gcPause.Seconds())
 
-	// Update internal resource monitor fields
+	// Update resource monitor with proper locking and timestamp
 	ms.resourceMonitor.mu.Lock()
 	ms.resourceMonitor.memoryUsage = usage
 	ms.resourceMonitor.lastSample = time.Now()
@@ -550,6 +561,7 @@ func (ms *MonitoringSystem) GetHealthStatus() map[string]bool {
 	status := make(map[string]bool)
 	for name, check := range ms.healthChecks {
 		ctx, cancel := context.WithTimeout(ms.ctx, ms.config.HealthCheckTimeout)
+		defer cancel()
 		
 		var err error
 		func() {
@@ -560,7 +572,6 @@ func (ms *MonitoringSystem) GetHealthStatus() map[string]bool {
 			}()
 			err = check.Check(ctx)
 		}()
-		cancel()
 
 		status[name] = err == nil
 		ms.promMetrics.HealthCheckStatus.WithLabelValues(name).Set(boolToFloat(err == nil))
@@ -751,287 +762,361 @@ func initializeLogger(config MonitoringConfig) (*zap.Logger, error) {
 	return zapConfig.Build()
 }
 
-func initializePrometheusMetrics(config MonitoringConfig) *PrometheusMetrics {
+// safeRegister safely registers a Prometheus collector, handling duplicate registrations
+func safeRegister(registry *prometheus.Registry, collector prometheus.Collector) {
+	err := registry.Register(collector)
+	if err != nil {
+		// Check if it's a duplicate registration error
+		if _, ok := err.(prometheus.AlreadyRegisteredError); ok {
+			// Metric already registered, this is fine in test scenarios
+			return
+		}
+		// For other errors, panic as before
+		panic(err)
+	}
+}
+func initializePrometheusMetrics(config MonitoringConfig, registry *prometheus.Registry) *PrometheusMetrics {
 	namespace := config.PrometheusNamespace
 	subsystem := config.PrometheusSubsystem
 
-	// Create a custom registry for this monitoring system instance
-	registry := prometheus.NewRegistry()
-
-	metrics := &PrometheusMetrics{
-		Registry: registry,
-		StateOperationsTotal: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "state_operations_total",
-				Help:      "Total number of state operations",
-			},
-			[]string{"operation"},
-		),
-		StateOperationDuration: prometheus.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "state_operation_duration_seconds",
-				Help:      "Duration of state operations",
-				Buckets:   prometheus.DefBuckets,
-			},
-			[]string{"operation"},
-		),
-		StateOperationErrors: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "state_operation_errors_total",
-				Help:      "Total number of state operation errors",
-			},
-			[]string{"operation", "error_type"},
-		),
-		MemoryUsage: prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "memory_usage_bytes",
-				Help:      "Current memory usage in bytes",
-			},
-		),
-		MemoryAllocations: prometheus.NewCounter(
-			prometheus.CounterOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "memory_allocations_total",
-				Help:      "Total number of memory allocations",
-			},
-		),
-		GCPauseDuration: prometheus.NewHistogram(
-			prometheus.HistogramOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "gc_pause_duration_seconds",
-				Help:      "Duration of garbage collection pauses",
-				Buckets:   prometheus.DefBuckets,
-			},
-		),
-		ObjectPoolHitRate: prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "object_pool_hit_rate",
-				Help:      "Object pool hit rate percentage",
-			},
-		),
-		CPUUsage: prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "cpu_usage_percent",
-				Help:      "Current CPU usage percentage",
-			},
-		),
-		GoroutineCount: prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "goroutines_count",
-				Help:      "Current number of goroutines",
-			},
-		),
-		EventsProcessed: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "events_processed_total",
-				Help:      "Total number of events processed",
-			},
-			[]string{"event_type"},
-		),
-		EventProcessingLatency: prometheus.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "event_processing_latency_seconds",
-				Help:      "Event processing latency",
-				Buckets:   prometheus.DefBuckets,
-			},
-			[]string{"event_type"},
-		),
-		EventQueueDepth: prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "event_queue_depth",
-				Help:      "Current event queue depth",
-			},
-		),
-		StorageOperations: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "storage_operations_total",
-				Help:      "Total number of storage operations",
-			},
-			[]string{"operation"},
-		),
-		StorageLatency: prometheus.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "storage_latency_seconds",
-				Help:      "Storage operation latency",
-				Buckets:   prometheus.DefBuckets,
-			},
-			[]string{"operation"},
-		),
-		StorageErrors: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "storage_errors_total",
-				Help:      "Total number of storage errors",
-			},
-			[]string{"operation", "error_type"},
-		),
-		ConnectionPoolSize: prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "connection_pool_size",
-				Help:      "Current connection pool size",
-			},
-		),
-		ConnectionPoolActive: prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "connection_pool_active",
-				Help:      "Number of active connections in pool",
-			},
-		),
-		ConnectionPoolWaiting: prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "connection_pool_waiting",
-				Help:      "Number of waiting connections in pool",
-			},
-		),
-		ConnectionPoolErrors: prometheus.NewCounter(
-			prometheus.CounterOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "connection_pool_errors_total",
-				Help:      "Total number of connection pool errors",
-			},
-		),
-		RateLimitRequests: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "rate_limit_requests_total",
-				Help:      "Total number of rate limit requests",
-			},
-			[]string{"status"},
-		),
-		RateLimitRejects: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "rate_limit_rejects_total",
-				Help:      "Total number of rate limit rejects",
-			},
-			[]string{"status"},
-		),
-		RateLimitUtilization: prometheus.NewGauge(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "rate_limit_utilization",
-				Help:      "Rate limit utilization percentage",
-			},
-		),
-		HealthCheckStatus: prometheus.NewGaugeVec(
-			prometheus.GaugeOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "health_check_status",
-				Help:      "Health check status (1 = healthy, 0 = unhealthy)",
-			},
-			[]string{"check_name"},
-		),
-		HealthCheckDuration: prometheus.NewHistogramVec(
-			prometheus.HistogramOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "health_check_duration_seconds",
-				Help:      "Health check duration",
-				Buckets:   prometheus.DefBuckets,
-			},
-			[]string{"check_name"},
-		),
-		AuditLogsWritten: prometheus.NewCounterVec(
-			prometheus.CounterOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "audit_logs_written_total",
-				Help:      "Total number of audit logs written",
-			},
-			[]string{"action"},
-		),
-		AuditLogErrors: prometheus.NewCounter(
-			prometheus.CounterOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "audit_log_errors_total",
-				Help:      "Total number of audit log errors",
-			},
-		),
-		AuditVerificationTime: prometheus.NewHistogram(
-			prometheus.HistogramOpts{
-				Namespace: namespace,
-				Subsystem: subsystem,
-				Name:      "audit_verification_time_seconds",
-				Help:      "Time taken to verify audit logs",
-				Buckets:   prometheus.DefBuckets,
-			},
-		),
-	}
-
-	// Register all metrics with the custom registry
-	registry.MustRegister(
-		metrics.StateOperationsTotal,
-		metrics.StateOperationDuration,
-		metrics.StateOperationErrors,
-		metrics.MemoryUsage,
-		metrics.MemoryAllocations,
-		metrics.GCPauseDuration,
-		metrics.ObjectPoolHitRate,
-		metrics.CPUUsage,
-		metrics.GoroutineCount,
-		metrics.EventsProcessed,
-		metrics.EventProcessingLatency,
-		metrics.EventQueueDepth,
-		metrics.StorageOperations,
-		metrics.StorageLatency,
-		metrics.StorageErrors,
-		metrics.ConnectionPoolSize,
-		metrics.ConnectionPoolActive,
-		metrics.ConnectionPoolWaiting,
-		metrics.ConnectionPoolErrors,
-		metrics.RateLimitRequests,
-		metrics.RateLimitRejects,
-		metrics.RateLimitUtilization,
-		metrics.HealthCheckStatus,
-		metrics.HealthCheckDuration,
-		metrics.AuditLogsWritten,
-		metrics.AuditLogErrors,
-		metrics.AuditVerificationTime,
+	// State operation metrics
+	stateOperationsTotal := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "state_operations_total",
+			Help:      "Total number of state operations",
+		},
+		[]string{"operation"},
 	)
+	safeRegister(registry, stateOperationsTotal)
 
-	return metrics
+	stateOperationDuration := prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "state_operation_duration_seconds",
+			Help:      "Duration of state operations",
+			Buckets:   prometheus.DefBuckets,
+		},
+		[]string{"operation"},
+	)
+	safeRegister(registry, stateOperationDuration)
+
+	stateOperationErrors := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "state_operation_errors_total",
+			Help:      "Total number of state operation errors",
+		},
+		[]string{"operation", "error_type"},
+	)
+	safeRegister(registry, stateOperationErrors)
+
+	// Memory metrics
+	memoryUsage := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "memory_usage_bytes",
+			Help:      "Current memory usage in bytes",
+		},
+	)
+	safeRegister(registry, memoryUsage)
+
+	memoryAllocations := prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "memory_allocations_total",
+			Help:      "Total number of memory allocations",
+		},
+	)
+	safeRegister(registry, memoryAllocations)
+
+	gcPauseDuration := prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "gc_pause_duration_seconds",
+			Help:      "Duration of garbage collection pauses",
+			Buckets:   prometheus.DefBuckets,
+		},
+	)
+	safeRegister(registry, gcPauseDuration)
+
+	objectPoolHitRate := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "object_pool_hit_rate",
+			Help:      "Object pool hit rate percentage",
+		},
+	)
+	safeRegister(registry, objectPoolHitRate)
+
+	// Event processing metrics
+	eventsProcessed := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "events_processed_total",
+			Help:      "Total number of events processed",
+		},
+		[]string{"event_type"},
+	)
+	safeRegister(registry, eventsProcessed)
+
+	eventProcessingLatency := prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "event_processing_latency_seconds",
+			Help:      "Event processing latency",
+			Buckets:   prometheus.DefBuckets,
+		},
+		[]string{"event_type"},
+	)
+	safeRegister(registry, eventProcessingLatency)
+
+	eventQueueDepth := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "event_queue_depth",
+			Help:      "Current event queue depth",
+		},
+	)
+	safeRegister(registry, eventQueueDepth)
+
+	// Storage backend metrics
+	storageOperations := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "storage_operations_total",
+			Help:      "Total number of storage operations",
+		},
+		[]string{"operation"},
+	)
+	safeRegister(registry, storageOperations)
+
+	storageLatency := prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "storage_latency_seconds",
+			Help:      "Storage operation latency",
+			Buckets:   prometheus.DefBuckets,
+		},
+		[]string{"operation"},
+	)
+	safeRegister(registry, storageLatency)
+
+	storageErrors := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "storage_errors_total",
+			Help:      "Total number of storage errors",
+		},
+		[]string{"operation", "error_type"},
+	)
+	safeRegister(registry, storageErrors)
+
+	// Connection pool metrics
+	connectionPoolSize := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "connection_pool_size",
+			Help:      "Current connection pool size",
+		},
+	)
+	safeRegister(registry, connectionPoolSize)
+
+	connectionPoolActive := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "connection_pool_active",
+			Help:      "Number of active connections in pool",
+		},
+	)
+	safeRegister(registry, connectionPoolActive)
+
+	connectionPoolWaiting := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "connection_pool_waiting",
+			Help:      "Number of waiting connections in pool",
+		},
+	)
+	safeRegister(registry, connectionPoolWaiting)
+
+	connectionPoolErrors := prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "connection_pool_errors_total",
+			Help:      "Total number of connection pool errors",
+		},
+	)
+	safeRegister(registry, connectionPoolErrors)
+
+	// Rate limiting metrics
+	rateLimitRequests := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "rate_limit_requests_total",
+			Help:      "Total number of rate limit requests",
+		},
+		[]string{"status"},
+	)
+	safeRegister(registry, rateLimitRequests)
+
+	rateLimitRejects := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "rate_limit_rejects_total",
+			Help:      "Total number of rate limit rejects",
+		},
+		[]string{"status"},
+	)
+	safeRegister(registry, rateLimitRejects)
+
+	rateLimitUtilization := prometheus.NewGauge(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "rate_limit_utilization",
+			Help:      "Rate limit utilization percentage",
+		},
+	)
+	safeRegister(registry, rateLimitUtilization)
+
+	// Health check metrics
+	healthCheckStatus := prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "health_check_status",
+			Help:      "Health check status (1 = healthy, 0 = unhealthy)",
+		},
+		[]string{"check_name"},
+	)
+	safeRegister(registry, healthCheckStatus)
+
+	healthCheckDuration := prometheus.NewHistogramVec(
+		prometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "health_check_duration_seconds",
+			Help:      "Health check duration",
+			Buckets:   prometheus.DefBuckets,
+		},
+		[]string{"check_name"},
+	)
+	safeRegister(registry, healthCheckDuration)
+
+	// Audit metrics
+	auditLogsWritten := prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "audit_logs_written_total",
+			Help:      "Total number of audit logs written",
+		},
+		[]string{"action"},
+	)
+	safeRegister(registry, auditLogsWritten)
+
+	auditLogErrors := prometheus.NewCounter(
+		prometheus.CounterOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "audit_log_errors_total",
+			Help:      "Total number of audit log errors",
+		},
+	)
+	safeRegister(registry, auditLogErrors)
+
+	auditVerificationTime := prometheus.NewHistogram(
+		prometheus.HistogramOpts{
+			Namespace: namespace,
+			Subsystem: subsystem,
+			Name:      "audit_verification_time_seconds",
+			Help:      "Time taken to verify audit logs",
+			Buckets:   prometheus.DefBuckets,
+		},
+	)
+	safeRegister(registry, auditVerificationTime)
+
+	return &PrometheusMetrics{
+		StateOperationsTotal:   stateOperationsTotal,
+		StateOperationDuration: stateOperationDuration,
+		StateOperationErrors:   stateOperationErrors,
+		MemoryUsage:            memoryUsage,
+		MemoryAllocations:      memoryAllocations,
+		GCPauseDuration:        gcPauseDuration,
+		ObjectPoolHitRate:      objectPoolHitRate,
+		EventsProcessed:        eventsProcessed,
+		EventProcessingLatency: eventProcessingLatency,
+		EventQueueDepth:        eventQueueDepth,
+		StorageOperations:      storageOperations,
+		StorageLatency:         storageLatency,
+		StorageErrors:          storageErrors,
+		ConnectionPoolSize:     connectionPoolSize,
+		ConnectionPoolActive:   connectionPoolActive,
+		ConnectionPoolWaiting:  connectionPoolWaiting,
+		ConnectionPoolErrors:   connectionPoolErrors,
+		RateLimitRequests:      rateLimitRequests,
+		RateLimitRejects:       rateLimitRejects,
+		RateLimitUtilization:   rateLimitUtilization,
+		HealthCheckStatus:      healthCheckStatus,
+		HealthCheckDuration:    healthCheckDuration,
+		AuditLogsWritten:       auditLogsWritten,
+		AuditLogErrors:         auditLogErrors,
+		AuditVerificationTime:  auditVerificationTime,
+	}
 }
 
-// These methods are no longer needed as the gauges are created in initializePrometheusMetrics
+func (ms *MonitoringSystem) createCPUGauge() prometheus.Gauge {
+	gauge := prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: ms.config.PrometheusNamespace,
+		Subsystem: ms.config.PrometheusSubsystem,
+		Name:      "cpu_usage_percent",
+		Help:      "Current CPU usage percentage",
+	})
+	safeRegister(ms.registry, gauge)
+	return gauge
+}
+
+func (ms *MonitoringSystem) createMemoryGauge() prometheus.Gauge {
+	gauge := prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: ms.config.PrometheusNamespace,
+		Subsystem: ms.config.PrometheusSubsystem,
+		Name:      "memory_usage_bytes_resource",
+		Help:      "Current memory usage in bytes (resource monitor)",
+	})
+	safeRegister(ms.registry, gauge)
+	return gauge
+}
+
+func (ms *MonitoringSystem) createGoroutineGauge() prometheus.Gauge {
+	gauge := prometheus.NewGauge(prometheus.GaugeOpts{
+		Namespace: ms.config.PrometheusNamespace,
+		Subsystem: ms.config.PrometheusSubsystem,
+		Name:      "goroutines_count",
+		Help:      "Current number of goroutines",
+	})
+	safeRegister(ms.registry, gauge)
+	return gauge
+}
 
 func (ms *MonitoringSystem) startResourceMonitoring() {
 	ms.wg.Add(1)

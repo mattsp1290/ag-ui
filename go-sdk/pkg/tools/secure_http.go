@@ -3,6 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
+	"github.com/ag-ui/go-sdk/pkg/common"
 	"golang.org/x/net/idna"
 	"net"
 	"net/url"
@@ -83,65 +84,42 @@ func (e *SecureHTTPExecutor) Execute(ctx context.Context, params map[string]inte
 
 // validateURL checks if the URL is allowed based on security options
 func (e *SecureHTTPExecutor) validateURL(urlStr string) error {
-	// Check for malformed scheme casing in original URL before parsing
+	// First perform enhanced validation with original URL checks
 	if err := e.validateOriginalURL(urlStr); err != nil {
 		return err
 	}
 
+	// Use the common validation library for comprehensive checks
+	opts := common.URLValidationOptions{
+		RequireHTTPS:           false,
+		AllowedSchemes:         e.options.AllowedSchemes,
+		BlockPrivateNetworks:   !e.options.AllowPrivateNetworks,
+		BlockLocalhost:         !e.options.AllowPrivateNetworks,
+		AllowedHosts:           e.options.AllowedHosts,
+		BlockedHosts:           e.options.DenyHosts,
+		ValidateHostResolution: true,
+	}
+
+	if err := common.ValidateURL(urlStr, opts); err != nil {
+		return err
+	}
+
+	// Additional security checks beyond the common library
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
 		return fmt.Errorf("invalid URL format: %w", err)
 	}
 
-	// Check scheme
-	if !e.isSchemeAllowed(parsedURL.Scheme) {
-		return fmt.Errorf("scheme %q is not allowed", parsedURL.Scheme)
-	}
-
-	// Extract hostname
-	hostname := parsedURL.Hostname()
-	if hostname == "" {
-		return fmt.Errorf("URL must have a valid hostname")
-	}
-
-	// Check deny list first
-	for _, denyHost := range e.options.DenyHosts {
-		if strings.EqualFold(hostname, denyHost) {
-			return fmt.Errorf("host %q is explicitly denied", hostname)
-		}
-	}
-
-	// Check if it's an IP address (including obfuscated forms)
-	if ip := e.parseObfuscatedIP(hostname); ip != nil {
-		if err := e.validateIPAddress(ip); err != nil {
-			return err
-		}
-	} else {
-		// It's a hostname, resolve it to check the IP
-		if err := e.validateHostname(hostname); err != nil {
-			return err
-		}
-	}
-
-	// Check for additional security issues
+	// Enhanced structure validation including obfuscated IP detection
 	if err := e.validateURLStructure(parsedURL); err != nil {
 		return err
 	}
 
-	// Check allowed hosts if specified
-	if len(e.options.AllowedHosts) > 0 {
-		allowed := false
-		normalizedHostname := e.normalizeHostname(hostname)
-		for _, allowedHost := range e.options.AllowedHosts {
-			normalizedAllowed := e.normalizeHostname(allowedHost)
-			if normalizedHostname == normalizedAllowed ||
-				strings.HasSuffix(normalizedHostname, "."+normalizedAllowed) {
-				allowed = true
-				break
-			}
-		}
-		if !allowed {
-			return fmt.Errorf("host %q is not in allowed hosts list", hostname)
+	// Check for obfuscated IP addresses that might bypass common validation
+	hostname := parsedURL.Hostname()
+	if ip := e.parseObfuscatedIP(hostname); ip != nil {
+		if err := e.validateIPAddress(ip); err != nil {
+			return err
 		}
 	}
 
@@ -178,61 +156,12 @@ func (e *SecureHTTPExecutor) isSchemeAllowed(scheme string) bool {
 	return false
 }
 
-// validateIPAddress checks if an IP address is allowed
-func (e *SecureHTTPExecutor) validateIPAddress(ip net.IP) error {
-	if !e.options.AllowPrivateNetworks {
-		if isPrivateIP(ip) {
-			return fmt.Errorf("requests to private IP addresses are not allowed")
-		}
-		if ip.IsLoopback() {
-			return fmt.Errorf("requests to loopback addresses are not allowed")
-		}
-		if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-			return fmt.Errorf("requests to link-local addresses are not allowed")
-		}
-	}
-	return nil
-}
 
-// validateHostname resolves and validates a hostname
-func (e *SecureHTTPExecutor) validateHostname(hostname string) error {
-	// Resolve hostname to IP addresses
-	ips, err := net.LookupIP(hostname)
-	if err != nil {
-		return fmt.Errorf("cannot resolve hostname: %w", err)
-	}
-
-	// Check each resolved IP
-	for _, ip := range ips {
-		if err := e.validateIPAddress(ip); err != nil {
-			return fmt.Errorf("hostname %q resolves to restricted IP: %w", hostname, err)
-		}
-	}
-
-	return nil
-}
 
 // isPrivateIP checks if an IP is in a private range
+// This now delegates to the common implementation
 func isPrivateIP(ip net.IP) bool {
-	privateRanges := []string{
-		"10.0.0.0/8",
-		"172.16.0.0/12",
-		"192.168.0.0/16",
-		"fc00::/7",
-		"fe80::/10",
-	}
-
-	for _, cidr := range privateRanges {
-		_, network, err := net.ParseCIDR(cidr)
-		if err != nil {
-			continue
-		}
-		if network.Contains(ip) {
-			return true
-		}
-	}
-
-	return false
+	return common.IsInternalIP(ip)
 }
 
 // normalizeHostname normalizes a hostname to prevent bypass attacks
@@ -390,6 +319,33 @@ func (e *SecureHTTPExecutor) parseMixedIP(hostname string) net.IP {
 			return net.IPv4(octets[0], octets[1], octets[2], octets[3])
 		}
 	}
+	return nil
+}
+
+// validateIPAddress validates an IP address for security issues
+func (e *SecureHTTPExecutor) validateIPAddress(ip net.IP) error {
+	// Check if private networks are allowed
+	if !e.options.AllowPrivateNetworks && isPrivateIP(ip) {
+		return fmt.Errorf("requests to private IP addresses are not allowed")
+	}
+	return nil
+}
+
+// validateHostname validates a hostname by resolving it and checking the resulting IPs
+func (e *SecureHTTPExecutor) validateHostname(hostname string) error {
+	addrs, err := net.LookupHost(hostname)
+	if err != nil {
+		return fmt.Errorf("failed to resolve hostname %q: %w", hostname, err)
+	}
+
+	for _, addr := range addrs {
+		if ip := net.ParseIP(addr); ip != nil {
+			if err := e.validateIPAddress(ip); err != nil {
+				return fmt.Errorf("hostname %q resolves to disallowed IP %s: %w", hostname, addr, err)
+			}
+		}
+	}
+
 	return nil
 }
 

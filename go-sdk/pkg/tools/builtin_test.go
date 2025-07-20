@@ -17,6 +17,87 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Type-safe parameter structures for builtin tool tests
+type ReadFileParams struct {
+	Path     string `json:"path"`
+	Encoding string `json:"encoding,omitempty"`
+}
+
+type WriteFileParams struct {
+	Path     string `json:"path"`
+	Content  string `json:"content"`
+	Encoding string `json:"encoding,omitempty"`
+	Mode     string `json:"mode,omitempty"`
+}
+
+type HTTPGetParams struct {
+	URL     string                 `json:"url"`
+	Headers map[string]interface{} `json:"headers,omitempty"`
+	Timeout int                    `json:"timeout,omitempty"`
+}
+
+type HTTPPostParams struct {
+	URL         string                 `json:"url"`
+	Body        string                 `json:"body"`
+	ContentType string                 `json:"content_type,omitempty"`
+	Headers     map[string]interface{} `json:"headers,omitempty"`
+}
+
+type JSONParams struct {
+	JSON string `json:"json"`
+}
+
+type JSONFormatParams struct {
+	Data   interface{} `json:"data"`
+	Indent int         `json:"indent,omitempty"`
+}
+
+type Base64Params struct {
+	Data string `json:"data"`
+}
+
+// Helper functions to convert typed params to map[string]interface{}
+func readFileParamsToMap(path, encoding string) map[string]interface{} {
+	params := map[string]interface{}{"path": path}
+	if encoding != "" {
+		params["encoding"] = encoding
+	}
+	return params
+}
+
+func writeFileParamsToMap(path, content, encoding, mode string) map[string]interface{} {
+	params := map[string]interface{}{
+		"path":    path,
+		"content": content,
+	}
+	if encoding != "" {
+		params["encoding"] = encoding
+	}
+	if mode != "" {
+		params["mode"] = mode
+	}
+	return params
+}
+
+func httpGetParamsToMap(url string, headers map[string]interface{}, timeout int) map[string]interface{} {
+	params := map[string]interface{}{"url": url}
+	if headers != nil {
+		params["headers"] = headers
+	}
+	if timeout > 0 {
+		params["timeout"] = timeout
+	}
+	return params
+}
+
+func jsonParamsToMap(jsonStr string) map[string]interface{} {
+	return map[string]interface{}{"json": jsonStr}
+}
+
+func base64ParamsToMap(data string) map[string]interface{} {
+	return map[string]interface{}{"data": data}
+}
+
 func TestRegisterBuiltinTools(t *testing.T) {
 	registry := tools.NewRegistry()
 	err := tools.RegisterBuiltinTools(registry)
@@ -54,9 +135,7 @@ func TestReadFileTool(t *testing.T) {
 	require.NoError(t, err)
 
 	t.Run("read text file", func(t *testing.T) {
-		params := map[string]interface{}{
-			"path": testFile,
-		}
+		params := readFileParamsToMap(testFile, "")
 
 		result, err := tool.Executor.Execute(context.Background(), params)
 		require.NoError(t, err)
@@ -66,10 +145,7 @@ func TestReadFileTool(t *testing.T) {
 	})
 
 	t.Run("read with encoding", func(t *testing.T) {
-		params := map[string]interface{}{
-			"path":     testFile,
-			"encoding": "base64",
-		}
+		params := readFileParamsToMap(testFile, "base64")
 
 		result, err := tool.Executor.Execute(context.Background(), params)
 		require.NoError(t, err)

@@ -7,6 +7,7 @@ import (
 
 // TestPerformanceComparison compares the old O(n²) approach with the new O(n) approach
 func TestPerformanceComparison(t *testing.T) {
+	t.Parallel()
 	sizes := []int{100, 500, 1000, 5000}
 
 	for _, size := range sizes {

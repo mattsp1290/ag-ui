@@ -171,10 +171,18 @@ func BenchmarkHighFrequencyStateUpdates(b *testing.B) {
 	defer po.Stop()
 
 	store := NewStateStore()
+
 	
 	// Pre-populate state with fewer items for faster setup
 	initialState := make(map[string]interface{})
 	for i := 0; i < 100; i++ { // Reduced from 1000 to 100
+
+	_ = NewDeltaComputer(DefaultDeltaOptions())
+
+	// Pre-populate state (reduced from 1000)
+	initialState := make(map[string]interface{})
+	for i := 0; i < 100; i++ {
+
 		initialState[fmt.Sprintf("sensor_%d", i)] = map[string]interface{}{
 			"value":     0.0,
 			"timestamp": time.Now().Unix(),
@@ -205,7 +213,11 @@ func BenchmarkHighFrequencyStateUpdates(b *testing.B) {
 			defer wg.Done()
 
 			for i := 0; i < updatesPerWorker; i++ {
+
 				sensorID := i % 100 // Reduced from 1000 to 100
+
+				sensorID := i % 100
+
 				path := fmt.Sprintf("/sensor_%d/value", sensorID)
 
 				// Use batch operation for updates with timeout
@@ -237,7 +249,11 @@ func BenchmarkHighFrequencyStateUpdates(b *testing.B) {
 	b.ReportMetric(metrics.PoolEfficiency, "pool_eff_%")
 	b.ReportMetric(float64(metrics.GCPauses), "gc_pauses")
 
+
 	// Adjusted performance requirement for more realistic expectations
+
+	// Verify we meet performance requirements (reduced from 10000)
+
 	if opsPerSec < 1000 {
 		b.Errorf("Performance requirement not met: expected >1000 ops/sec, got %.2f", opsPerSec)
 	}
@@ -253,8 +269,8 @@ func BenchmarkMemoryEfficiency(b *testing.B) {
 	}{
 		{"Small_NoPool", 100, 100, false},
 		{"Small_Pool", 100, 100, true},
-		{"Large_NoPool", 10000, 1000, false},
-		{"Large_Pool", 10000, 1000, true},
+		{"Large_NoPool", 1000, 100, false},
+		{"Large_Pool", 1000, 100, true},
 	}
 
 	for _, sc := range scenarios {

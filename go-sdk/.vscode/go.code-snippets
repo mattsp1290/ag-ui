@@ -1,0 +1,258 @@
+{
+  "// AG-UI Go SDK - Type-Safe Code Snippets": "",
+  "// These snippets promote type-safe coding patterns and alternatives to interface{}": "",
+  
+  "Generic Function": {
+    "prefix": "genfunc",
+    "body": [
+      "// ${1:FunctionName} is a generic function that operates on type T",
+      "func ${1:FunctionName}[T ${2:any}](${3:param} T) ${4:T} {",
+      "\t${0:// TODO: Implement function logic}",
+      "\treturn ${3:param}",
+      "}"
+    ],
+    "description": "Create a generic function instead of using interface{}"
+  },
+  
+  "Generic Slice Function": {
+    "prefix": "genslice",
+    "body": [
+      "// ${1:ProcessSlice} processes a slice of type T",
+      "func ${1:ProcessSlice}[T ${2:any}](items []T) []T {",
+      "\tresult := make([]T, 0, len(items))",
+      "\tfor _, item := range items {",
+      "\t\t${0:// TODO: Process item}",
+      "\t\tresult = append(result, item)",
+      "\t}",
+      "\treturn result",
+      "}"
+    ],
+    "description": "Create a generic slice processing function instead of []interface{}"
+  },
+  
+  "Typed Struct for JSON": {
+    "prefix": "typedstruct",
+    "body": [
+      "// ${1:DataStruct} represents ${2:data description}",
+      "type ${1:DataStruct} struct {",
+      "\t${3:Field1} ${4:string} `json:\"${5:field1}\"`",
+      "\t${6:Field2} ${7:int}    `json:\"${8:field2}\"`",
+      "\t${9:Field3} ${10:bool}   `json:\"${11:field3}\"`",
+      "}"
+    ],
+    "description": "Create a typed struct instead of map[string]interface{}"
+  },
+  
+  "Safe Type Assertion": {
+    "prefix": "safeassert",
+    "body": [
+      "${1:value}, ${2:ok} := ${3:variable}.(${4:Type})",
+      "if !${2:ok} {",
+      "\t${0:// TODO: Handle type assertion failure}",
+      "\treturn ${5:nil, fmt.Errorf(\"failed to assert type %T to ${4:Type}\", ${3:variable})}",
+      "}"
+    ],
+    "description": "Safe type assertion with ok check"
+  },
+  
+  "Type Switch": {
+    "prefix": "typeswitch",
+    "body": [
+      "switch ${1:v} := ${2:value}.(type) {",
+      "case ${3:string}:",
+      "\t${0:// Handle string type}",
+      "case ${4:int}:",
+      "\t// Handle int type",
+      "case ${5:CustomType}:",
+      "\t// Handle custom type",
+      "default:",
+      "\t// Handle unknown type",
+      "\treturn fmt.Errorf(\"unsupported type: %T\", ${1:v})",
+      "}"
+    ],
+    "description": "Type switch for handling multiple types safely"
+  },
+  
+  "Typed Logger": {
+    "prefix": "typedlog",
+    "body": [
+      "logger.${1:Info}(\"${2:message}\",",
+      "\t${3:zap.String(\"${4:key}\", ${5:stringValue})},",
+      "\t${6:zap.Int(\"${7:key}\", ${8:intValue})},",
+      "\t${9:zap.Bool(\"${10:key}\", ${11:boolValue})},",
+      ")"
+    ],
+    "description": "Typed logger call instead of .Any()"
+  },
+  
+  "Generic Map Function": {
+    "prefix": "genmap",
+    "body": [
+      "// ${1:MapFunc} transforms a slice of type T to type U",
+      "func ${1:MapFunc}[T, U any](items []T, transform func(T) U) []U {",
+      "\tresult := make([]U, len(items))",
+      "\tfor i, item := range items {",
+      "\t\tresult[i] = transform(item)",
+      "\t}",
+      "\treturn result",
+      "}"
+    ],
+    "description": "Generic map function for type-safe transformations"
+  },
+  
+  "Generic Filter Function": {
+    "prefix": "genfilter",
+    "body": [
+      "// ${1:FilterFunc} filters a slice of type T based on predicate",
+      "func ${1:FilterFunc}[T any](items []T, predicate func(T) bool) []T {",
+      "\tresult := make([]T, 0)",
+      "\tfor _, item := range items {",
+      "\t\tif predicate(item) {",
+      "\t\t\tresult = append(result, item)",
+      "\t\t}",
+      "\t}",
+      "\treturn result",
+      "}"
+    ],
+    "description": "Generic filter function for type-safe filtering"
+  },
+  
+  "Constraint Interface": {
+    "prefix": "constraint",
+    "body": [
+      "// ${1:Constraint} defines a type constraint for generic functions",
+      "type ${1:Constraint} interface {",
+      "\t${2:~string | ~int | ~float64}",
+      "}"
+    ],
+    "description": "Create a type constraint for generics"
+  },
+  
+  "Typed JSON Unmarshal": {
+    "prefix": "typedunmarshal",
+    "body": [
+      "var ${1:data} ${2:DataStruct}",
+      "if err := json.Unmarshal(${3:bytes}, &${1:data}); err != nil {",
+      "\treturn ${4:nil, fmt.Errorf(\"failed to unmarshal JSON: %w\", err)}",
+      "}",
+      "${0:// Use typed data structure}"
+    ],
+    "description": "Typed JSON unmarshaling instead of interface{}"
+  },
+  
+  "Typed Config Pattern": {
+    "prefix": "typedconfig",
+    "body": [
+      "// ${1:Config} represents application configuration",
+      "type ${1:Config} struct {",
+      "\t${2:Host}     string        `json:\"host\" yaml:\"host\"`",
+      "\t${3:Port}     int           `json:\"port\" yaml:\"port\"`", 
+      "\t${4:Timeout}  time.Duration `json:\"timeout\" yaml:\"timeout\"`",
+      "\t${5:Enabled}  bool          `json:\"enabled\" yaml:\"enabled\"`",
+      "}",
+      "",
+      "// ${6:LoadConfig} loads configuration from file",
+      "func ${6:LoadConfig}(filename string) (*${1:Config}, error) {",
+      "\tdata, err := os.ReadFile(filename)",
+      "\tif err != nil {",
+      "\t\treturn nil, fmt.Errorf(\"failed to read config file: %w\", err)",
+      "\t}",
+      "\t",
+      "\tvar config ${1:Config}",
+      "\tif err := json.Unmarshal(data, &config); err != nil {",
+      "\t\treturn nil, fmt.Errorf(\"failed to parse config: %w\", err)",
+      "\t}",
+      "\t",
+      "\treturn &config, nil",
+      "}"
+    ],
+    "description": "Typed configuration pattern instead of map[string]interface{}"
+  },
+  
+  "Error with Context": {
+    "prefix": "errorctx",
+    "body": [
+      "type ${1:ErrorType} struct {",
+      "\tmsg     string",
+      "\tcontext map[string]string",
+      "\tcause   error",
+      "}",
+      "",
+      "func (e *${1:ErrorType}) Error() string {",
+      "\treturn e.msg",
+      "}",
+      "",
+      "func (e *${1:ErrorType}) Unwrap() error {",
+      "\treturn e.cause",
+      "}",
+      "",
+      "func New${1:ErrorType}(msg string, context map[string]string) *${1:ErrorType} {",
+      "\treturn &${1:ErrorType}{",
+      "\t\tmsg:     msg,",
+      "\t\tcontext: context,",
+      "\t}",
+      "}"
+    ],
+    "description": "Typed error with context instead of interface{} error data"
+  },
+  
+  "Builder Pattern": {
+    "prefix": "builder",
+    "body": [
+      "// ${1:Builder} builds ${2:TargetStruct} instances",
+      "type ${1:Builder} struct {",
+      "\t${3:field1} ${4:string}",
+      "\t${5:field2} ${6:int}",
+      "}",
+      "",
+      "// New${1:Builder} creates a new builder",
+      "func New${1:Builder}() *${1:Builder} {",
+      "\treturn &${1:Builder}{}",
+      "}",
+      "",
+      "// With${7:Field1} sets the ${3:field1} value",
+      "func (b *${1:Builder}) With${7:Field1}(${3:field1} ${4:string}) *${1:Builder} {",
+      "\tb.${3:field1} = ${3:field1}",
+      "\treturn b",
+      "}",
+      "",
+      "// With${8:Field2} sets the ${5:field2} value", 
+      "func (b *${1:Builder}) With${8:Field2}(${5:field2} ${6:int}) *${1:Builder} {",
+      "\tb.${5:field2} = ${5:field2}",
+      "\treturn b",
+      "}",
+      "",
+      "// Build creates the final ${2:TargetStruct}",
+      "func (b *${1:Builder}) Build() *${2:TargetStruct} {",
+      "\treturn &${2:TargetStruct}{",
+      "\t\t${7:Field1}: b.${3:field1},",
+      "\t\t${8:Field2}: b.${5:field2},",
+      "\t}",
+      "}"
+    ],
+    "description": "Builder pattern for complex object construction"
+  },
+  
+  "Generic Channel Worker": {
+    "prefix": "genchannel",
+    "body": [
+      "// ${1:Worker} processes items of type T from a channel",
+      "func ${1:Worker}[T any](ctx context.Context, input <-chan T, process func(T) error) error {",
+      "\tfor {",
+      "\t\tselect {",
+      "\t\tcase <-ctx.Done():",
+      "\t\t\treturn ctx.Err()",
+      "\t\tcase item, ok := <-input:",
+      "\t\t\tif !ok {",
+      "\t\t\t\treturn nil // Channel closed",
+      "\t\t\t}",
+      "\t\t\tif err := process(item); err != nil {",
+      "\t\t\t\treturn fmt.Errorf(\"failed to process item: %w\", err)",
+      "\t\t\t}",
+      "\t\t}",
+      "\t}",
+      "}"
+    ],
+    "description": "Generic channel worker for type-safe concurrent processing"
+  }
+}

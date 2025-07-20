@@ -35,7 +35,7 @@ func TestHeartbeatBasicOperations(t *testing.T) {
 
 	heartbeat := conn.heartbeat
 
-	// Test that heartbeat was started automatically
+	// Test initial state after connection - heartbeat should be running and started automatically
 	assert.Equal(t, HeartbeatRunning, heartbeat.GetState())
 	assert.True(t, heartbeat.IsHealthy()) // Should start healthy
 
@@ -98,10 +98,10 @@ func TestHeartbeatHealthMonitoring(t *testing.T) {
 
 	// Test initial health
 	assert.True(t, heartbeat.IsHealthy())
-	// The initial health might not be exactly 1.0 due to time passing since initialization
-	// Add a small grace period to account for Unix timestamp precision
+	// Set lastPongAt to now for accurate health calculation using atomic operations
+	atomic.StoreInt64(&heartbeat.lastPongAt, time.Now().UnixNano())
+	// Allow small grace period for timestamp precision
 	time.Sleep(100 * time.Millisecond)
-	// After grace period, health should be reliable
 	health := heartbeat.GetConnectionHealth()
 	if health <= 0.5 {
 		// If still low, check if it's due to timing - IsHealthy() is more reliable
@@ -110,8 +110,8 @@ func TestHeartbeatHealthMonitoring(t *testing.T) {
 		assert.Greater(t, health, float64(0.5))
 	}
 
-	// Simulate missed pong by setting lastPongAt to an old time
-	atomic.StoreInt64(&heartbeat.lastPongAt, time.Now().Add(-200 * time.Millisecond).Unix())
+	// Simulate missed pong by setting lastPongAt to an old time using atomic for consistency
+	atomic.StoreInt64(&heartbeat.lastPongAt, time.Now().Add(-200 * time.Millisecond).UnixNano())
 
 	// Check health after missed pong
 	heartbeat.checkHealth()
@@ -345,10 +345,10 @@ func TestHeartbeatMissedPongHandling(t *testing.T) {
 
 	heartbeat := conn.heartbeat
 
-	// Start the heartbeat to set it to running state
+	// Start the heartbeat to set it to running state using atomic operations
 	atomic.StoreInt32(&heartbeat.state, int32(HeartbeatRunning))
 
-	// Set last pong time to long ago using UnixNano for proper timing
+	// Set last pong time to long ago using atomic for consistency with other operations
 	atomic.StoreInt64(&heartbeat.lastPongAt, time.Now().Add(-200*time.Millisecond).UnixNano())
 
 	// Check health - should detect missed pong

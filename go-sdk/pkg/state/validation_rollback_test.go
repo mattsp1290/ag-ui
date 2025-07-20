@@ -1,7 +1,6 @@
 package state
 
 import (
-	"encoding/json"
 	"testing"
 	"time"
 )
@@ -239,7 +238,11 @@ func TestStateRollback(t *testing.T) {
 	rollback := NewStateRollback(store, WithValidator(validator))
 
 	t.Run("Rollback to Version", func(t *testing.T) {
+
 		// Set initial state using root path to ensure version creation
+
+		// Set initial state
+
 		err := store.Set("/", map[string]interface{}{
 			"data": map[string]interface{}{
 				"value": "initial",
@@ -257,7 +260,11 @@ func TestStateRollback(t *testing.T) {
 		initialVersion := history[len(history)-1].ID
 
 		// Make changes
-		err = store.Set("/data/value", "changed")
+		err = store.Set("/", map[string]interface{}{
+			"data": map[string]interface{}{
+				"value": "changed",
+			},
+		})
 		if err != nil {
 			t.Fatalf("Failed to update state: %v", err)
 		}
@@ -285,7 +292,11 @@ func TestStateRollback(t *testing.T) {
 		// Clear store
 		store.Clear()
 
+
 		// Set initial state using root path to ensure version creation
+
+		// Set initial state
+
 		err := store.Set("/", map[string]interface{}{
 			"config": map[string]interface{}{
 				"version": "1.0",
@@ -303,13 +314,14 @@ func TestStateRollback(t *testing.T) {
 		}
 
 		// Make changes
-		err = store.Set("/config/version", "2.0")
+		err = store.Set("/", map[string]interface{}{
+			"config": map[string]interface{}{
+				"version": "2.0",
+				"enabled": false,
+			},
+		})
 		if err != nil {
-			t.Fatalf("Failed to update version: %v", err)
-		}
-		err = store.Set("/config/enabled", false)
-		if err != nil {
-			t.Fatalf("Failed to update enabled: %v", err)
+			t.Fatalf("Failed to update config: %v", err)
 		}
 
 		// Verify changes
@@ -378,7 +390,10 @@ func TestStateRollback(t *testing.T) {
 
 				// Clear and set initial state
 				store.Clear()
+
 				// Use root path to ensure version is created
+
+
 				err := store.Set("/", map[string]interface{}{
 					"test": map[string]interface{}{
 						"strategy": strategy.Name(),
@@ -392,12 +407,21 @@ func TestStateRollback(t *testing.T) {
 				// Get initial version
 				history, _ := store.GetHistory()
 				if len(history) == 0 {
+
 					t.Fatalf("No history available after setting initial state for strategy %s", strategy.Name())
+
+					t.Fatalf("No history available after setting initial state")
+
 				}
 				initialVersion := history[len(history)-1].ID
 
 				// Make changes
-				err = store.Set("/test/data", []interface{}{4, 5, 6})
+				err = store.Set("/", map[string]interface{}{
+					"test": map[string]interface{}{
+						"strategy": strategy.Name(),
+						"data":     []interface{}{4, 5, 6},
+					},
+				})
 				if err != nil {
 					t.Fatalf("Failed to update state: %v", err)
 				}
@@ -411,6 +435,7 @@ func TestStateRollback(t *testing.T) {
 				// Verify
 				data, _ := store.Get("/test/data")
 				dataArr := data.([]interface{})
+
 				if len(dataArr) != 3 {
 					t.Errorf("Rollback with %s strategy failed, expected 3 elements, got: %v", strategy.Name(), data)
 				} else {
@@ -430,6 +455,10 @@ func TestStateRollback(t *testing.T) {
 					if firstValue != 1 {
 						t.Errorf("Rollback with %s strategy failed, expected first element to be 1, got: %v (type: %T)", strategy.Name(), firstElem, firstElem)
 					}
+
+				if len(dataArr) != 3 || dataArr[0] != 1 {
+					t.Errorf("Rollback with %s strategy failed, got: %v", strategy.Name(), data)
+
 				}
 			})
 		}
@@ -452,8 +481,14 @@ func TestStateRollback(t *testing.T) {
 
 		// Clear and set valid state
 		store.Clear()
+
 		// Use root path to ensure version is created
 		err := store.Set("/", map[string]interface{}{"count": 10})
+
+		err := store.Set("/", map[string]interface{}{
+			"count": 10,
+		})
+
 		if err != nil {
 			t.Fatalf("Failed to set initial state: %v", err)
 		}
@@ -461,7 +496,11 @@ func TestStateRollback(t *testing.T) {
 		// Get valid version
 		history, _ := store.GetHistory()
 		if len(history) == 0 {
+
 			t.Fatalf("No history available after setting valid state")
+
+			t.Fatalf("No history available after setting initial state")
+
 		}
 		validVersion := history[len(history)-1].ID
 

@@ -332,7 +332,7 @@ func TestGreetingTool_BasicGreetings(t *testing.T) {
 				"name":        "Frank",
 				"personalize": true,
 			},
-			expectedContains: []string{"Hello", "Frank", "Thanks for being"},
+			expectedContains: []string{"Hello", "Frank", "Thanks for being awesome"},
 		},
 	}
 
@@ -831,7 +831,7 @@ func BenchmarkGreetingTool_Languages(b *testing.B) {
 }
 
 // Example test showing how to use the greeting tool
-func Example_greetingTool_basicUsage() {
+func Example_greetingBasicUsage() {
 	tool := createGreetingTool()
 	ctx := context.Background()
 
@@ -846,15 +846,15 @@ func Example_greetingTool_basicUsage() {
 	}
 
 	if result.Success {
-		fmt.Printf("Greeting: %s\n", result.Data.(string))
+		fmt.Println("Greeting:", result.Data.(string))
 	} else {
-		fmt.Printf("Error: %s\n", result.Error)
+		fmt.Println("Error:", result.Error)
 	}
 
 	// Output: Greeting: Hello, Alice.
 }
 
-func Example_greetingTool_multiLanguage() {
+func Example_greetingMultiLanguage() {
 	tool := createGreetingTool()
 	ctx := context.Background()
 
@@ -872,9 +872,9 @@ func Example_greetingTool_multiLanguage() {
 	}
 
 	if result.Success {
-		fmt.Printf("Greeting: %s\n", result.Data.(string))
+		fmt.Println("Greeting:", result.Data.(string))
 	} else {
-		fmt.Printf("Error: %s\n", result.Error)
+		fmt.Println("Error:", result.Error)
 	}
 
 	// Output: Greeting: Hola Carlos 👋!

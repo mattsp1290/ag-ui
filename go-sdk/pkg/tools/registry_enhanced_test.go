@@ -513,6 +513,11 @@ func TestRegistryThreadSafety(t *testing.T) {
 
 // TestRegistryPerformance tests performance of the enhanced registry
 func TestRegistryPerformance(t *testing.T) {
+	// Skip in short mode
+	if testing.Short() {
+		t.Skip("Skipping registry performance test in short mode")
+	}
+	
 	registry := tools.NewRegistry()
 	
 	// Register a large number of tools

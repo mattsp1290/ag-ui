@@ -191,7 +191,7 @@ func Example_connectionManagement() {
 	}
 
 	// Get transport statistics
-	stats := transport.GetStats()
+	stats := transport.Stats()
 	fmt.Printf("Transport stats: %s\n", stats)
 
 	// Reset connection (useful for testing)

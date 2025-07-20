@@ -908,31 +908,5 @@ func (t *Transport) EnableAdaptiveOptimization() {
 
 	// Start adaptive optimizer in background
 	t.wg.Add(1)
-	go func() {
-		defer t.wg.Done()
-		// Create a temporary wait group for the adaptive optimizer
-		var optimizerWg sync.WaitGroup
-		optimizerWg.Add(1)
-		go adaptiveOptimizer.Start(t.ctx, &optimizerWg)
-		
-		// Wait for either context cancellation or optimizer to complete
-		select {
-		case <-t.ctx.Done():
-			// Context cancelled, optimizer will stop itself
-		}
-		
-		// Wait for optimizer to finish with timeout
-		done := make(chan struct{})
-		go func() {
-			optimizerWg.Wait()
-			close(done)
-		}()
-		
-		select {
-		case <-done:
-			// Optimizer finished cleanly
-		case <-time.After(2 * time.Second):
-			t.config.Logger.Warn("Timeout waiting for adaptive optimizer to stop")
-		}
-	}()
+	go adaptiveOptimizer.Start(t.ctx, &t.wg)
 }

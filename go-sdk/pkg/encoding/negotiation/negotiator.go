@@ -5,6 +5,7 @@ package negotiation
 
 import (
 	"fmt"
+	"math"
 	"sort"
 	"strings"
 	"sync"
@@ -101,12 +102,12 @@ func (cn *ContentNegotiator) RegisterType(capabilities *TypeCapabilities) {
 	cn.mu.Lock()
 	defer cn.mu.Unlock()
 
-	// Register the main content type
-	cn.supportedTypes[capabilities.ContentType] = capabilities
+	// Register the main content type (case insensitive)
+	cn.supportedTypes[strings.ToLower(capabilities.ContentType)] = capabilities
 
-	// Register aliases
+	// Register aliases (case insensitive)
 	for _, alias := range capabilities.Aliases {
-		cn.supportedTypes[alias] = capabilities
+		cn.supportedTypes[strings.ToLower(alias)] = capabilities
 	}
 }
 
@@ -119,8 +120,8 @@ func (cn *ContentNegotiator) Negotiate(acceptHeader string) (string, error) {
 		return "", ErrNoSupportedTypes
 	}
 
-	// Handle empty or missing Accept header
-	if acceptHeader == "" || acceptHeader == "*/*" {
+	// Handle empty Accept header only (let "*/*" go through normal negotiation)
+	if acceptHeader == "" {
 		return cn.preferredType, nil
 	}
 
@@ -136,6 +137,11 @@ func (cn *ContentNegotiator) Negotiate(acceptHeader string) (string, error) {
 
 // selectBestType selects the best content type from parsed Accept types
 func (cn *ContentNegotiator) selectBestType(acceptTypes []AcceptType) (string, error) {
+	// Handle pure wildcard case first
+	if len(acceptTypes) == 1 && acceptTypes[0].Type == "*/*" {
+		return cn.preferredType, nil
+	}
+
 	type candidate struct {
 		contentType string
 		score       float64
@@ -153,8 +159,15 @@ func (cn *ContentNegotiator) selectBestType(acceptTypes []AcceptType) (string, e
 
 		for _, acceptType := range acceptTypes {
 			if matched, quality := cn.matchType(contentType, acceptType); matched {
-				// Calculate combined score
-				score := quality * capabilities.Priority
+				// Skip zero quality matches as per RFC 7231
+				if quality == 0 {
+					continue
+				}
+
+				// Calculate combined score: quality is primary, priority is secondary
+				// Use quality as the main factor, with priority as a significant tie-breaker
+				// Increase priority weight to give server preferences more influence
+				score := quality + (capabilities.Priority * 0.4)
 
 				// Get performance score (thread-safe)
 				perfScore := cn.getPerformanceScore(contentType)
@@ -173,46 +186,70 @@ func (cn *ContentNegotiator) selectBestType(acceptTypes []AcceptType) (string, e
 		// Try wildcards as last resort
 		for _, acceptType := range acceptTypes {
 			if acceptType.Type == "*/*" && acceptType.Quality > 0 {
+				// For global wildcard, return the preferred type
 				return cn.preferredType, nil
 			}
 		}
 		return "", ErrNoAcceptableType
 	}
 
-	// Sort candidates by score, then by performance
+	// Sort candidates by score, then by performance, with special preference for the default type
 	sort.Slice(candidates, func(i, j int) bool {
+		// If scores are very close (within 0.03), prefer the default/preferred type
+		scoreDiff := candidates[i].score - candidates[j].score
+		if math.Abs(scoreDiff) < 0.03 {
+			// Check if either is the preferred type
+			isIPreferred := candidates[i].contentType == cn.preferredType
+			isJPreferred := candidates[j].contentType == cn.preferredType
+			if isIPreferred && !isJPreferred {
+				return true
+			}
+			if !isIPreferred && isJPreferred {
+				return false
+			}
+		}
+		
 		if candidates[i].score != candidates[j].score {
 			return candidates[i].score > candidates[j].score
 		}
 		return candidates[i].performance > candidates[j].performance
 	})
 
+	// Check if the best candidate has zero quality (score of 0)
+	if candidates[0].score == 0 {
+		return "", ErrNoAcceptableType
+	}
+
 	return candidates[0].contentType, nil
 }
 
 // matchType checks if a content type matches an accept type
 func (cn *ContentNegotiator) matchType(contentType string, acceptType AcceptType) (bool, float64) {
+	// Make comparison case insensitive
+	lowerContentType := strings.ToLower(contentType)
+	lowerAcceptType := strings.ToLower(acceptType.Type)
+	
 	// Exact match
-	if contentType == acceptType.Type {
+	if lowerContentType == lowerAcceptType {
 		return true, acceptType.Quality
 	}
 
 	// Wildcard match
-	if acceptType.Type == "*/*" {
+	if lowerAcceptType == "*/*" {
 		return true, acceptType.Quality
 	}
 
 	// Subtype wildcard match (e.g., application/*)
-	if strings.HasSuffix(acceptType.Type, "/*") {
-		prefix := strings.TrimSuffix(acceptType.Type, "/*")
-		if strings.HasPrefix(contentType, prefix+"/") {
+	if strings.HasSuffix(lowerAcceptType, "/*") {
+		prefix := strings.TrimSuffix(lowerAcceptType, "/*")
+		if strings.HasPrefix(lowerContentType, prefix+"/") {
 			return true, acceptType.Quality * 0.9 // Slightly lower priority than exact match
 		}
 	}
 
 	// Check if acceptType matches any aliases
-	if capabilities, ok := cn.supportedTypes[acceptType.Type]; ok {
-		if capabilities.ContentType == contentType {
+	if capabilities, ok := cn.supportedTypes[lowerAcceptType]; ok {
+		if strings.ToLower(capabilities.ContentType) == lowerContentType {
 			return true, acceptType.Quality
 		}
 	}
@@ -251,14 +288,14 @@ func (cn *ContentNegotiator) CanHandle(contentType string) bool {
 	cn.mu.RLock()
 	defer cn.mu.RUnlock()
 
-	// Check direct match
-	if _, ok := cn.supportedTypes[contentType]; ok {
+	// Check direct match (case insensitive)
+	if _, ok := cn.supportedTypes[strings.ToLower(contentType)]; ok {
 		return true
 	}
 
-	// Check without parameters
+	// Check without parameters (case insensitive)
 	baseType := strings.Split(contentType, ";")[0]
-	baseType = strings.TrimSpace(baseType)
+	baseType = strings.ToLower(strings.TrimSpace(baseType))
 	_, ok := cn.supportedTypes[baseType]
 	return ok
 }
@@ -268,14 +305,14 @@ func (cn *ContentNegotiator) GetCapabilities(contentType string) (*TypeCapabilit
 	cn.mu.RLock()
 	defer cn.mu.RUnlock()
 
-	// Try direct lookup
-	if cap, ok := cn.supportedTypes[contentType]; ok {
+	// Try direct lookup (case insensitive)
+	if cap, ok := cn.supportedTypes[strings.ToLower(contentType)]; ok {
 		return cap, true
 	}
 
-	// Try without parameters
+	// Try without parameters (case insensitive)
 	baseType := strings.Split(contentType, ";")[0]
-	baseType = strings.TrimSpace(baseType)
+	baseType = strings.ToLower(strings.TrimSpace(baseType))
 	cap, ok := cn.supportedTypes[baseType]
 	return cap, ok
 }
@@ -312,12 +349,12 @@ func (cn *ContentNegotiator) SetPreferredType(contentType string) error {
 
 // canHandleUnlocked is the unlocked version of CanHandle
 func (cn *ContentNegotiator) canHandleUnlocked(contentType string) bool {
-	if _, ok := cn.supportedTypes[contentType]; ok {
+	if _, ok := cn.supportedTypes[strings.ToLower(contentType)]; ok {
 		return true
 	}
 
 	baseType := strings.Split(contentType, ";")[0]
-	baseType = strings.TrimSpace(baseType)
+	baseType = strings.ToLower(strings.TrimSpace(baseType))
 	_, ok := cn.supportedTypes[baseType]
 	return ok
 }

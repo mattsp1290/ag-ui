@@ -1096,7 +1096,9 @@ func TestExecutionEngine_StressTest(t *testing.T) {
 					default:
 						result, err := engine.Execute(ctx, "test-tool", params)
 						if err != nil {
-							if !strings.Contains(err.Error(), "context deadline exceeded") {
+							// Accept both context deadline errors and timeout waiting for slot errors
+							if !strings.Contains(err.Error(), "context deadline exceeded") &&
+								!strings.Contains(err.Error(), "timeout waiting for execution slot") {
 								t.Errorf("Unexpected error: %v", err)
 							}
 							return

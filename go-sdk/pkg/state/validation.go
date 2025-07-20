@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -224,6 +225,9 @@ func (v *stateValidator) Validate(state map[string]interface{}) (*ValidationResu
 		ruleErrors := rule.Validate(state)
 		result.Errors = append(result.Errors, ruleErrors...)
 	}
+
+	// Sort errors for deterministic output
+	sortValidationErrors(result.Errors)
 
 	// Update validity
 	result.Valid = len(result.Errors) == 0
@@ -805,4 +809,15 @@ func checkDepth(value interface{}, path string, currentDepth, maxDepth int, erro
 			checkDepth(val, fmt.Sprintf("%s[%d]", path, i), currentDepth+1, maxDepth, errors)
 		}
 	}
+}
+
+// sortValidationErrors sorts validation errors for deterministic output.
+// Errors are sorted first by path, then by error code.
+func sortValidationErrors(errors []ValidationError) {
+	sort.Slice(errors, func(i, j int) bool {
+		if errors[i].Path != errors[j].Path {
+			return errors[i].Path < errors[j].Path
+		}
+		return errors[i].Code < errors[j].Code
+	})
 }

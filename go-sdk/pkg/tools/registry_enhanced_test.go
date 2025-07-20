@@ -466,7 +466,12 @@ func writeToolsToWriter(tools []*tools.Tool, writer interface {
 
 // TestRegistryThreadSafety tests thread safety of the enhanced registry
 func TestRegistryThreadSafety(t *testing.T) {
-	registry := tools.NewRegistry()
+	config := &tools.RegistryConfig{
+		MaxTools:                   2000, // Allow more tools
+		MaxConcurrentRegistrations: 200, // Allow more concurrent registrations
+		EnableToolLRU:              false, // Disable LRU for this test
+	}
+	registry := tools.NewRegistryWithConfig(config)
 	
 	const numGoroutines = 100
 	const numOperations = 10
@@ -480,7 +485,8 @@ func TestRegistryThreadSafety(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < numOperations; j++ {
 				tool := createTestTool(fmt.Sprintf("tool_%d_%d", id, j), fmt.Sprintf("Tool %d %d", id, j))
-				registry.Register(tool)
+				err := registry.Register(tool)
+				assert.NoError(t, err, "Registration should succeed with proper configuration")
 			}
 		}(i)
 	}
@@ -500,7 +506,9 @@ func TestRegistryThreadSafety(t *testing.T) {
 	wg.Wait()
 	
 	// Verify final state
-	assert.Equal(t, numGoroutines*numOperations, registry.Count())
+	actualCount := registry.Count()
+	expectedCount := numGoroutines * numOperations
+	assert.Equal(t, expectedCount, actualCount, "All tools should be registered with proper configuration")
 }
 
 // TestRegistryPerformance tests performance of the enhanced registry

@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"go.uber.org/zap"
@@ -606,6 +607,7 @@ type ThrottledAlertNotifier struct {
 	notifier         AlertNotifier
 	lastSent         map[string]time.Time
 	throttleDuration time.Duration
+	mu               sync.RWMutex // Protects lastSent map from concurrent access
 }
 
 // NewThrottledAlertNotifier creates a new throttled alert notifier
@@ -621,15 +623,21 @@ func NewThrottledAlertNotifier(notifier AlertNotifier, throttleDuration time.Dur
 func (n *ThrottledAlertNotifier) SendAlert(ctx context.Context, alert Alert) error {
 	alertKey := fmt.Sprintf("%s_%s", alert.Component, alert.Title)
 
-	if lastSent, exists := n.lastSent[alertKey]; exists {
-		if time.Since(lastSent) < n.throttleDuration {
-			return nil // Skip sending, too recent
-		}
+	// Check if alert was sent recently (read operation)
+	n.mu.RLock()
+	lastSent, exists := n.lastSent[alertKey]
+	n.mu.RUnlock()
+
+	if exists && time.Since(lastSent) < n.throttleDuration {
+		return nil // Skip sending, too recent
 	}
 
 	err := n.notifier.SendAlert(ctx, alert)
 	if err == nil {
+		// Update the last sent time (write operation)
+		n.mu.Lock()
 		n.lastSent[alertKey] = time.Now()
+		n.mu.Unlock()
 	}
 
 	return err

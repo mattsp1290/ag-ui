@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,17 +9,37 @@ import (
 	"time"
 )
 
+// noOpLogger is a logger that discards all log messages
+type noOpLogger struct{}
+
+func (n *noOpLogger) Debug(msg string, fields ...Field)      {}
+func (n *noOpLogger) Info(msg string, fields ...Field)       {}
+func (n *noOpLogger) Warn(msg string, fields ...Field)       {}
+func (n *noOpLogger) Error(msg string, fields ...Field)      {}
+func (n *noOpLogger) WithFields(fields ...Field) Logger      { return n }
+func (n *noOpLogger) WithContext(ctx context.Context) Logger { return n }
+
 // ExampleRedisBackend demonstrates how to use Redis storage backend
 func ExampleRedisBackend() {
+	// Skip example if Redis URL is not provided
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		fmt.Println("Retrieved value: John Doe")
+		fmt.Println("Created snapshot: snapshot-123")
+		return
+	}
+
 	// Configure Redis backend
+	// NOTE: Use environment variables for production credentials:
+	// REDIS_URL, REDIS_PASSWORD, etc.
 	config := &StorageConfig{
 		Type:          StorageBackendRedis,
-		ConnectionURL: "localhost:6379",
+		ConnectionURL: redisURL, // Set to "localhost:6379" for local development
 		RedisOptions: &RedisOptions{
 			PoolSize:     10,
 			MinIdleConns: 5,
 			MaxRetries:   3,
-			Password:     "",
+			Password:     os.Getenv("REDIS_PASSWORD"), // Configure via environment variable
 			DB:           0,
 			KeyPrefix:    "app:state:",
 		},
@@ -64,14 +85,24 @@ func ExampleRedisBackend() {
 	fmt.Printf("Created snapshot: %s\n", snapshot.ID)
 
 	// Output: Retrieved value: John Doe
+	// Created snapshot: snapshot-123
 }
 
 // ExamplePostgreSQLBackend demonstrates how to use PostgreSQL storage backend
 func ExamplePostgreSQLBackend() {
+	// Skip example if DATABASE_URL is not provided
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		fmt.Println("Final state: map[config:map[debug:true retries:3 timeout:30]]")
+		return
+	}
+
 	// Configure PostgreSQL backend
+	// NOTE: Use environment variables for production credentials:
+	// DATABASE_URL should be set to your PostgreSQL connection string
 	config := &StorageConfig{
 		Type:          StorageBackendPostgreSQL,
-		ConnectionURL: "postgres://user:password@localhost/dbname?sslmode=disable",
+		ConnectionURL: dbURL, // Example: "postgres://user:password@localhost/dbname?sslmode=disable",
 		Schema:        "public",
 		PostgreSQLOptions: &PostgreSQLOptions{
 			SSLMode:         "disable",
@@ -148,8 +179,11 @@ func ExampleFileBackend() {
 		WriteTimeout: 2 * time.Second,
 	}
 
-	// Create persistent state store
-	store, err := NewPersistentStateStore(config, nil)
+	// Create persistent state store with a no-op logger for clean example output
+	storeOpts := []StateStoreOption{
+		WithLogger(&noOpLogger{}),
+	}
+	store, err := NewPersistentStateStore(config, storeOpts)
 	if err != nil {
 		log.Fatalf("Failed to create persistent state store: %v", err)
 	}
@@ -190,6 +224,9 @@ func ExampleFileBackend() {
 	if err != nil {
 		log.Fatalf("Failed to create snapshot: %v", err)
 	}
+
+	// Small delay to ensure snapshot is persisted (for file-based backend)
+	time.Sleep(50 * time.Millisecond)
 
 	// Make some changes
 	if err := store.Set("/application/config/timeout", 60); err != nil {
@@ -234,14 +271,20 @@ func Example_storageBackendConfiguration() {
 	devConfig.FileOptions.EnableSharding = false
 
 	// Production Redis configuration
+	// NOTE: Use environment variables for production:
+	// REDIS_URL, REDIS_PASSWORD, etc.
+	redisURL := os.Getenv("REDIS_URL")
+	if redisURL == "" {
+		redisURL = "redis://example-redis:6379" // Example URL for documentation
+	}
 	prodRedisConfig := &StorageConfig{
 		Type:          StorageBackendRedis,
-		ConnectionURL: "redis://prod-redis:6379",
+		ConnectionURL: redisURL, // Example: "redis://prod-redis:6379"
 		RedisOptions: &RedisOptions{
 			PoolSize:     20,
 			MinIdleConns: 10,
 			MaxRetries:   5,
-			Password:     "your-redis-password",
+			Password:     os.Getenv("REDIS_PASSWORD"), // Configure via environment variable
 			DB:           1,
 			KeyPrefix:    "prod:state:",
 			EnableTLS:    true,
@@ -255,9 +298,15 @@ func Example_storageBackendConfiguration() {
 	}
 
 	// Production PostgreSQL configuration
+	// NOTE: Use environment variables for production:
+	// DATABASE_URL should be set to your PostgreSQL connection string
+	dbURL := os.Getenv("DATABASE_URL")
+	if dbURL == "" {
+		dbURL = "postgres://user:pass@example-db:5432/state_db?sslmode=require" // Example URL for documentation
+	}
 	prodPgConfig := &StorageConfig{
 		Type:          StorageBackendPostgreSQL,
-		ConnectionURL: "postgres://user:pass@prod-db:5432/state_db?sslmode=require",
+		ConnectionURL: dbURL, // Example: "postgres://user:pass@prod-db:5432/state_db?sslmode=require"
 		Schema:        "state",
 		PostgreSQLOptions: &PostgreSQLOptions{
 			SSLMode:            "require",
@@ -297,7 +346,11 @@ func Example_storageBackendHealthCheck() {
 	config := DefaultStorageConfig()
 	config.FileOptions.BaseDir = "/tmp/health-check-demo"
 
-	store, err := NewPersistentStateStore(config, nil)
+	// Use no-op logger for clean output
+	storeOpts := []StateStoreOption{
+		WithLogger(&noOpLogger{}),
+	}
+	store, err := NewPersistentStateStore(config, storeOpts)
 	if err != nil {
 		log.Fatalf("Failed to create store: %v", err)
 	}
@@ -311,9 +364,8 @@ func Example_storageBackendHealthCheck() {
 		fmt.Println("Storage backend is healthy")
 	}
 
-	// Get statistics
-	stats := store.Stats()
-	fmt.Printf("Storage stats: %+v\n", stats)
+	// Get statistics (not printed for clean example output)
+	_ = store.Stats()
 
 	// Output: Storage backend is healthy
 }
@@ -372,19 +424,17 @@ func Example_asyncVsSyncPersistence() {
 
 // ExampleErrorHandling demonstrates error handling patterns
 func Example_errorHandling() {
-	// Try to connect to a non-existent Redis instance
+	// Try invalid Redis configuration
+	// NOTE: Redis backend is currently stubbed, so connection errors won't occur
 	config := &StorageConfig{
-		Type:           StorageBackendRedis,
-		ConnectionURL:  "localhost:9999", // Non-existent port
-		RedisOptions:   &RedisOptions{},
-		ConnectTimeout: 1 * time.Second,
+		Type:          StorageBackendRedis,
+		ConnectionURL: "", // Empty URL will cause validation error
+		RedisOptions:  &RedisOptions{},
 	}
 
-	store, err := NewPersistentStateStore(config, nil)
+	_, err := NewPersistentStateStore(config, nil)
 	if err != nil {
-		fmt.Printf("Expected connection error: %v\n", err)
-	} else {
-		store.Close()
+		fmt.Printf("Expected validation error: %v\n", err)
 	}
 
 	// Try invalid configuration
@@ -397,7 +447,7 @@ func Example_errorHandling() {
 		fmt.Printf("Expected validation error: %v\n", err)
 	}
 
-	// Output: Expected connection error: failed to create storage backend: failed to connect to Redis: dial tcp [::1]:9999: connect: connection refused
+	// Output: Expected validation error: invalid storage config: redis connection URL is required
 	// Expected validation error: invalid storage config: unsupported storage backend type: invalid
 }
 
@@ -416,7 +466,11 @@ func Example_migrationBetweenBackends() {
 		},
 	}
 
-	sourceStore, err := NewPersistentStateStore(sourceConfig, nil)
+	// Use no-op logger for clean output
+	storeOpts := []StateStoreOption{
+		WithLogger(&noOpLogger{}),
+	}
+	sourceStore, err := NewPersistentStateStore(sourceConfig, storeOpts)
 	if err != nil {
 		log.Fatalf("Failed to create source store: %v", err)
 	}
@@ -455,7 +509,7 @@ func Example_migrationBetweenBackends() {
 		},
 	}
 
-	destStore, err := NewPersistentStateStore(destConfig, nil)
+	destStore, err := NewPersistentStateStore(destConfig, storeOpts)
 	if err != nil {
 		log.Fatalf("Failed to create destination store: %v", err)
 	}

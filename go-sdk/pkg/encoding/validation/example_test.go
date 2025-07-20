@@ -114,7 +114,7 @@ func Example() {
 	// ✓ Compatible with TypeScript SDK
 	// 
 	// === Test Vector Validation ===
-	// ✓ Test vector registry loaded with 42 vectors
+	// ✓ Test vector registry loaded with 31 vectors
 	// 
 	// Validation framework example completed successfully!
 }

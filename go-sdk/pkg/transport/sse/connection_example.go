@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
@@ -30,16 +31,31 @@ func ExampleConnectionUsage() {
 	}
 	defer conn.Close()
 
-	// Set up event handlers
-	go handleConnectionEvents(conn)
-	go handleConnectionErrors(conn)
-	go handleStateChanges(conn)
-
-	// Attempt to connect
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Create context for the example lifecycle
+	exampleCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	if err := conn.Connect(ctx); err != nil {
+	// Set up event handlers with proper shutdown
+	var handlerWg sync.WaitGroup
+	handlerWg.Add(3)
+	go func() {
+		defer handlerWg.Done()
+		handleConnectionEventsWithContext(exampleCtx, conn)
+	}()
+	go func() {
+		defer handlerWg.Done()
+		handleConnectionErrorsWithContext(exampleCtx, conn)
+	}()
+	go func() {
+		defer handlerWg.Done()
+		handleStateChangesWithContext(exampleCtx, conn)
+	}()
+
+	// Attempt to connect
+	connectCtx, connectCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer connectCancel()
+
+	if err := conn.Connect(connectCtx); err != nil {
 		log.Printf("Failed to connect: %v", err)
 		// Connection will attempt to reconnect automatically if enabled
 	}
@@ -49,6 +65,9 @@ func ExampleConnectionUsage() {
 
 	// Print connection metrics
 	printConnectionMetrics(conn)
+
+	// Wait for handlers to shutdown
+	handlerWg.Wait()
 }
 
 // ExampleConnectionPoolUsage demonstrates connection pooling
@@ -75,24 +94,41 @@ func ExampleConnectionPoolUsage() {
 			continue
 		}
 
-		// Use the connection
+		// Use the connection with proper shutdown
 		go func(c *Connection, index int) {
 			defer pool.ReleaseConnection(c)
 
 			log.Printf("Using connection %d: %s", index, c.ID())
 
-			// Set up event handling
-			go handleConnectionEvents(c)
+			// Create context for this worker
+			workerCtx, workerCancel := context.WithTimeout(ctx, 15*time.Second)
+			defer workerCancel()
+
+			// Set up event handling with context
+			var workerWg sync.WaitGroup
+			workerWg.Add(1)
+			go func() {
+				defer workerWg.Done()
+				handleConnectionEventsWithContext(workerCtx, c)
+			}()
 
 			// Simulate work
-			time.Sleep(10 * time.Second)
+			select {
+			case <-time.After(10 * time.Second):
+				log.Printf("Finished using connection %d", index)
+			case <-workerCtx.Done():
+				log.Printf("Worker %d context cancelled", index)
+			}
 
-			log.Printf("Finished using connection %d", index)
+			// Wait for event handlers to complete
+			workerWg.Wait()
 		}(conn, i)
 	}
 
-	// Monitor pool for a while
-	go monitorPool(pool)
+	// Monitor pool for a while with proper shutdown
+	monitorCtx, monitorCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer monitorCancel()
+	go monitorPoolWithContext(monitorCtx, pool)
 	time.Sleep(30 * time.Second)
 
 	// Print pool statistics
@@ -287,6 +323,7 @@ func ExampleAdvancedConfiguration() {
 
 // Helper functions for event handling
 
+// handleConnectionEvents handles events without proper context shutdown (DEPRECATED)
 func handleConnectionEvents(conn *Connection) {
 	for event := range conn.ReadEvents() {
 		log.Printf("Connection %s received event: %s", conn.ID(), event.Type())
@@ -306,6 +343,37 @@ func handleConnectionEvents(conn *Connection) {
 	}
 }
 
+// handleConnectionEventsWithContext handles events with proper context shutdown
+func handleConnectionEventsWithContext(ctx context.Context, conn *Connection) {
+	for {
+		select {
+		case event, ok := <-conn.ReadEvents():
+			if !ok {
+				log.Printf("Connection %s events channel closed", conn.ID())
+				return
+			}
+			log.Printf("Connection %s received event: %s", conn.ID(), event.Type())
+
+			// Update metrics
+			conn.metrics.EventsReceived.Inc()
+
+			// Handle specific event types
+			switch event.Type() {
+			case events.EventTypeTextMessageContent:
+				log.Printf("Received text content event")
+			case events.EventTypeStateSnapshot:
+				log.Printf("Received state snapshot event")
+			default:
+				log.Printf("Received unknown event type: %s", event.Type())
+			}
+		case <-ctx.Done():
+			log.Printf("Event handler for connection %s stopped: %v", conn.ID(), ctx.Err())
+			return
+		}
+	}
+}
+
+// handleConnectionErrors handles errors without proper context shutdown (DEPRECATED)
 func handleConnectionErrors(conn *Connection) {
 	for err := range conn.ReadErrors() {
 		log.Printf("Connection %s error: %v", conn.ID(), err)
@@ -322,6 +390,34 @@ func handleConnectionErrors(conn *Connection) {
 	}
 }
 
+// handleConnectionErrorsWithContext handles errors with proper context shutdown
+func handleConnectionErrorsWithContext(ctx context.Context, conn *Connection) {
+	for {
+		select {
+		case err, ok := <-conn.ReadErrors():
+			if !ok {
+				log.Printf("Connection %s errors channel closed", conn.ID())
+				return
+			}
+			log.Printf("Connection %s error: %v", conn.ID(), err)
+
+			// Update metrics
+			conn.metrics.NetworkErrors.Inc()
+
+			// Handle specific error types
+			if messages.IsConnectionError(err) {
+				log.Printf("Network connection error detected")
+			} else if messages.IsStreamingError(err) {
+				log.Printf("Streaming error detected")
+			}
+		case <-ctx.Done():
+			log.Printf("Error handler for connection %s stopped: %v", conn.ID(), ctx.Err())
+			return
+		}
+	}
+}
+
+// handleStateChanges handles state changes without proper context shutdown (DEPRECATED)
 func handleStateChanges(conn *Connection) {
 	for state := range conn.ReadStateChanges() {
 		log.Printf("Connection %s state changed to: %s", conn.ID(), state.String())
@@ -333,6 +429,33 @@ func handleStateChanges(conn *Connection) {
 			log.Printf("Connection %s encountered an error", conn.ID())
 		case ConnectionStateClosed:
 			log.Printf("Connection %s has been closed", conn.ID())
+			return
+		}
+	}
+}
+
+// handleStateChangesWithContext handles state changes with proper context shutdown
+func handleStateChangesWithContext(ctx context.Context, conn *Connection) {
+	for {
+		select {
+		case state, ok := <-conn.ReadStateChanges():
+			if !ok {
+				log.Printf("Connection %s state changes channel closed", conn.ID())
+				return
+			}
+			log.Printf("Connection %s state changed to: %s", conn.ID(), state.String())
+
+			switch state {
+			case ConnectionStateConnected:
+				log.Printf("Connection %s is now healthy", conn.ID())
+			case ConnectionStateError:
+				log.Printf("Connection %s encountered an error", conn.ID())
+			case ConnectionStateClosed:
+				log.Printf("Connection %s has been closed", conn.ID())
+				return
+			}
+		case <-ctx.Done():
+			log.Printf("State handler for connection %s stopped: %v", conn.ID(), ctx.Err())
 			return
 		}
 	}
@@ -376,6 +499,7 @@ func printPoolStats(pool *ConnectionPool) {
 	fmt.Println("=====================")
 }
 
+// monitorPool monitors the pool without proper context shutdown (DEPRECATED)
 func monitorPool(pool *ConnectionPool) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
@@ -389,6 +513,29 @@ func monitorPool(pool *ConnectionPool) {
 				stats["active_connections"].(int64),
 				stats["pool_utilization"].(float64))
 		case <-pool.ctx.Done():
+			return
+		}
+	}
+}
+
+// monitorPoolWithContext monitors the pool with proper context shutdown
+func monitorPoolWithContext(ctx context.Context, pool *ConnectionPool) {
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ticker.C:
+			stats := pool.GetPoolStats()
+			log.Printf("Pool: %d total, %d active, %.1f%% utilization",
+				stats["total_connections"].(int64),
+				stats["active_connections"].(int64),
+				stats["pool_utilization"].(float64))
+		case <-ctx.Done():
+			log.Printf("Pool monitoring stopped: %v", ctx.Err())
+			return
+		case <-pool.ctx.Done():
+			log.Printf("Pool context cancelled")
 			return
 		}
 	}

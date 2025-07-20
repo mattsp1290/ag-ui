@@ -583,6 +583,14 @@ func NewDOSError(message, location string) *SecurityError {
 		WithRiskLevel("medium")
 }
 
+// NewPathTraversalError creates a path traversal detection error
+func NewPathTraversalError(message, pattern string) *SecurityError {
+	return NewSecurityError("PATH_TRAVERSAL_DETECTED", message).
+		WithViolationType("path_traversal").
+		WithPattern(pattern).
+		WithRiskLevel("high")
+}
+
 // Error discrimination functions
 
 // IsEncodingError checks if an error is an encoding error

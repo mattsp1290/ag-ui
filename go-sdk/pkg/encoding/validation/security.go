@@ -353,6 +353,29 @@ func (v *SecurityValidator) validateInjectionPatterns(ctx context.Context, data 
 		}
 	}
 
+	// Check for path traversal patterns
+	pathTraversalPatterns := []string{
+		`\.\./`,                    // Basic path traversal
+		`\.\.\\`,                   // Windows path traversal
+		`\.\.\x2f`,                 // URL encoded path traversal (../)
+		`\.\.\x5c`,                 // URL encoded Windows path traversal (..\)
+		`(?i)%2e%2e%2f`,           // Double URL encoded path traversal
+		`(?i)%2e%2e%5c`,           // Double URL encoded Windows path traversal
+		`(?i)\.\.%2f`,             // Mixed encoding path traversal (..%2f)
+		`(?i)\.\.%5c`,             // Mixed encoding Windows path traversal (..%5c)
+		`\.\.[\\/]`,               // Combined path separators
+		`(?i)(\.\.[\\/]){2,}`,     // Multiple path traversal sequences
+		`(?i)(etc[\\/]passwd)`,    // Direct access to passwd file
+		`(?i)(windows[\\/]system32)`, // Direct access to system32
+		`(?i)(\.\.[\\/])+.*passwd`, // Path traversal to passwd
+	}
+	for _, pattern := range pathTraversalPatterns {
+		matched, _ := regexp.MatchString(pattern, dataStr)
+		if matched {
+			return agerrors.NewPathTraversalError("path traversal pattern detected", pattern)
+		}
+	}
+
 	return nil
 }
 

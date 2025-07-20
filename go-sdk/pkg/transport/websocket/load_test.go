@@ -91,6 +91,12 @@ func (s *LoadTestServer) handleWebSocket(w http.ResponseWriter, r *http.Request)
 	conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	conn.SetWriteDeadline(time.Now().Add(10 * time.Second))
 
+	// Set up close handler to prevent panic on connection close
+	conn.SetCloseHandler(func(code int, text string) error {
+		// Connection is closing, exit the read loop gracefully
+		return nil
+	})
+
 	for {
 		// Check context for shutdown
 		select {
@@ -110,7 +116,21 @@ func (s *LoadTestServer) handleWebSocket(w http.ResponseWriter, r *http.Request)
 		}
 		conn.SetReadDeadline(readDeadline)
 
-		messageType, message, err := conn.ReadMessage()
+		// Protect against panic from reading closed connection
+		var messageType int
+		var message []byte
+		var err error
+		
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					// Connection was closed, set error to trigger graceful exit
+					err = websocket.ErrCloseSent
+				}
+			}()
+			messageType, message, err = conn.ReadMessage()
+		}()
+		
 		if err != nil {
 			// Check if error is due to context cancellation
 			select {
@@ -121,9 +141,13 @@ func (s *LoadTestServer) handleWebSocket(w http.ResponseWriter, r *http.Request)
 					// Timeout is expected for periodic context checks
 					continue
 				}
-				if !websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNormalClosure) {
-					atomic.AddInt64(&s.errors, 1)
+				// Handle close errors gracefully without incrementing error counter
+				if websocket.IsCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNormalClosure) ||
+					err == websocket.ErrCloseSent {
+					return
 				}
+				// Only count real errors
+				atomic.AddInt64(&s.errors, 1)
 				return
 			}
 		}
@@ -152,26 +176,42 @@ func (s *LoadTestServer) URL() string {
 func (s *LoadTestServer) Close() {
 	s.logger.Debug("Closing load test server")
 	
-	// Cancel context to signal all handlers to stop
+	// First, close the HTTP server to prevent new connections
+	s.server.Close()
+	
+	// Then cancel context to signal all handlers to stop
 	s.cancel()
 	
+	// Give handlers a moment to react to context cancellation
+	time.Sleep(10 * time.Millisecond)
+	
 	// Force close all active connections
+	var closedConns int
 	s.conns.Range(func(key, value interface{}) bool {
 		if conn, ok := value.(*websocket.Conn); ok {
 			// Send close message with short deadline
+			conn.SetWriteDeadline(time.Now().Add(50 * time.Millisecond))
 			conn.WriteControl(websocket.CloseMessage,
 				websocket.FormatCloseMessage(websocket.CloseGoingAway, "server shutdown"),
-				time.Now().Add(100*time.Millisecond))
-			// Force close
+				time.Now().Add(50*time.Millisecond))
+			
+			// Set immediate read/write deadlines to interrupt any blocked operations
+			now := time.Now()
+			conn.SetReadDeadline(now)
+			conn.SetWriteDeadline(now)
+			
+			// Force close the connection
 			conn.Close()
+			closedConns++
 		}
 		return true
 	})
 	
-	// Close HTTP server
-	s.server.Close()
+	if closedConns > 0 {
+		s.logger.Debug("Closed connections", zap.Int("count", closedConns))
+	}
 	
-	// Wait for all handlers to complete with timeout
+	// Wait for all handlers to complete with shorter timeout for tests
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
@@ -180,10 +220,24 @@ func (s *LoadTestServer) Close() {
 	
 	select {
 	case <-done:
-		s.logger.Debug("All handlers completed")
-	case <-time.After(2 * time.Second):
-		s.logger.Warn("Timeout waiting for handlers to complete")
+		s.logger.Debug("All handlers completed gracefully")
+	case <-time.After(500 * time.Millisecond): // Reduced timeout for faster test execution
+		remaining := 0
+		s.conns.Range(func(_, _ interface{}) bool {
+			remaining++
+			return true
+		})
+		if remaining > 0 {
+			s.logger.Warn("Timeout waiting for handlers to complete", 
+				zap.Int("remaining_connections", remaining))
+		}
 	}
+	
+	// Clear the connections map
+	s.conns.Range(func(key, _ interface{}) bool {
+		s.conns.Delete(key)
+		return true
+	})
 }
 
 func (s *LoadTestServer) GetStats() (connections, messages, errors int64) {

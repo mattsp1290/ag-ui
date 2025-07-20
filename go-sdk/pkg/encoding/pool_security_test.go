@@ -11,7 +11,7 @@ import (
 func TestBufferPoolSecurityClearsSensitiveData(t *testing.T) {
 	pool := NewBufferPool(4096)
 	
-	// Simulate sensitive data
+	// Simulate sensitive data (test fixture - not real credentials)
 	sensitiveData := "password=SuperSecret123!&token=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9"
 	
 	// First usage - write sensitive data
@@ -60,7 +60,7 @@ func TestBufferPoolSecurityClearsSensitiveData(t *testing.T) {
 func TestSlicePoolSecurityClearsSensitiveData(t *testing.T) {
 	pool := NewSlicePool(1024, 4096)
 	
-	// Simulate sensitive data
+	// Simulate sensitive data (test fixture - not real credentials)
 	sensitiveData := []byte("api_key=sk-1234567890abcdef&credit_card=4111111111111111")
 	
 	// First usage - write sensitive data
@@ -118,8 +118,8 @@ func TestGlobalBufferPoolSecurity(t *testing.T) {
 		size int
 		data string
 	}{
-		{"small", 1024, "small_secret=abc123"},
-		{"medium", 8192, "medium_token=" + strings.Repeat("X", 8000)},
+		{"small", 1024, "small_secret=abc123"}, // Test fixture data
+		{"medium", 8192, "medium_token=" + strings.Repeat("X", 8000)}, // Test fixture data
 		{"large", 70000, "large_data=" + strings.Repeat("Y", 65000)},
 	}
 	
@@ -160,8 +160,8 @@ func TestGlobalSlicePoolSecurity(t *testing.T) {
 		size int
 		data []byte
 	}{
-		{"small", 1024, []byte("small_password=secret123")},
-		{"medium", 8192, bytes.Repeat([]byte("TOKEN"), 1600)},
+		{"small", 1024, []byte("small_password=secret123")}, // Test fixture data
+		{"medium", 8192, bytes.Repeat([]byte("TOKEN"), 1600)}, // Test fixture data
 		{"large", 70000, bytes.Repeat([]byte("DATA"), 14000)},
 	}
 	

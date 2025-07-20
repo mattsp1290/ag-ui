@@ -244,6 +244,7 @@ func TestRegistryLRUAccessPattern(t *testing.T) {
 		Name:     "tool-4",
 		Description: "New test tool",
 		Version:  "1.0.0",
+		Schema:   createMinimalTestSchema(),
 		Executor: &testExecutor{},
 	}
 	err = registry.Register(newTool)

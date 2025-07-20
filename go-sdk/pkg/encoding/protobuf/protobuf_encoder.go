@@ -57,8 +57,16 @@ func (e *ProtobufEncoder) Encode(ctx context.Context, event events.Event) ([]byt
 
 	// Marshal to binary using buffer pooling with optimized size
 	optimalSize := encoding.GetOptimalBufferSizeForEvent(event)
-	buf := encoding.GetBuffer(optimalSize / 2) // Protobuf is typically more compact than JSON
+	buf := encoding.GetBufferSafe(optimalSize / 2) // Protobuf is typically more compact than JSON
 	defer encoding.PutBuffer(buf)
+	
+	if buf == nil {
+		return nil, &encoding.EncodingError{
+			Format:  "protobuf",
+			Event:   event,
+			Message: "failed to allocate buffer",
+		}
+	}
 	
 	data, err := proto.Marshal(pbEvent)
 	if err != nil {
@@ -82,7 +90,7 @@ func (e *ProtobufEncoder) Encode(ctx context.Context, event events.Event) ([]byt
 	// Validate output if requested
 	if e.options.ValidateOutput {
 		// Use buffer pooling for validation operations
-		validationBuf := encoding.GetBuffer(len(data))
+		validationBuf := encoding.GetBufferSafe(len(data))
 		defer encoding.PutBuffer(validationBuf)
 		
 		var validateEvent generated.Event
@@ -125,8 +133,15 @@ func (e *ProtobufEncoder) EncodeMultiple(ctx context.Context, events []events.Ev
 	
 	// Use buffer pooling for better memory efficiency with optimized sizing
 	estimatedSize := encoding.GetOptimalBufferSizeForMultiple(events) / 2 // Protobuf is more compact
-	workingBuf := encoding.GetBuffer(estimatedSize)
+	workingBuf := encoding.GetBufferSafe(estimatedSize)
 	defer encoding.PutBuffer(workingBuf)
+	
+	if workingBuf == nil {
+		return nil, &encoding.EncodingError{
+			Format:  "protobuf",
+			Message: "failed to allocate working buffer",
+		}
+	}
 	
 	// First pass: encode all events and calculate total size
 	for i, event := range events {
@@ -160,8 +175,16 @@ func (e *ProtobufEncoder) EncodeMultiple(ctx context.Context, events []events.Ev
 	}
 
 	// Second pass: build the final output using buffer pooling
-	outputBuf := encoding.GetBuffer(totalSize)
+	outputBuf := encoding.GetBufferSafe(totalSize)
 	defer encoding.PutBuffer(outputBuf)
+	
+	// Additional safety check
+	if outputBuf == nil {
+		return nil, &encoding.EncodingError{
+			Format:  "protobuf",
+			Message: fmt.Sprintf("failed to allocate buffer for batch size %d", totalSize),
+		}
+	}
 	
 	// Write event count
 	countBytes := make([]byte, 4)

@@ -3,6 +3,7 @@ package state
 import (
 	"fmt"
 	"reflect"
+	"sort"
 	"sync"
 	"time"
 )
@@ -296,6 +297,11 @@ func (r *StateRollback) ListMarkers() ([]RollbackMarker, error) {
 	for _, marker := range r.markers {
 		markers = append(markers, *marker)
 	}
+
+	// Sort markers by creation time for consistent output
+	sort.Slice(markers, func(i, j int) bool {
+		return markers[i].CreatedAt.Before(markers[j].CreatedAt)
+	})
 
 	return markers, nil
 }

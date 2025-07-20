@@ -133,12 +133,12 @@ func (op JSONPatchOperation) Apply(document interface{}) (interface{}, error) {
 func applyAdd(document interface{}, path string, value interface{}) (interface{}, error) {
 	if path == "" || path == "/" {
 		// Replace the entire document
-		return value, nil
+		return normalizeJSONValue(value), nil
 	}
 
 	tokens := parseJSONPointer(path)
 	if len(tokens) == 0 {
-		return value, nil
+		return normalizeJSONValue(value), nil
 	}
 
 	parent, lastToken, err := getParent(document, tokens)
@@ -148,17 +148,17 @@ func applyAdd(document interface{}, path string, value interface{}) (interface{}
 
 	switch p := parent.(type) {
 	case map[string]interface{}:
-		p[lastToken] = value
+		p[lastToken] = normalizeJSONValue(value)
 	case []interface{}:
 		idx, isAppend, err := parseArrayIndex(lastToken, len(p))
 		if err != nil {
 			return nil, err
 		}
 		if isAppend {
-			parent = append(p, value)
+			parent = append(p, normalizeJSONValue(value))
 		} else {
 			// Insert at index
-			parent = append(p[:idx], append([]interface{}{value}, p[idx:]...)...)
+			parent = append(p[:idx], append([]interface{}{normalizeJSONValue(value)}, p[idx:]...)...)
 		}
 		// Update the parent in the document
 		if len(tokens) > 1 {
@@ -220,7 +220,7 @@ func applyRemove(document interface{}, path string) (interface{}, error) {
 // applyReplace applies a replace operation
 func applyReplace(document interface{}, path string, value interface{}) (interface{}, error) {
 	if path == "" || path == "/" {
-		return value, nil
+		return normalizeJSONValue(value), nil
 	}
 
 	// First check if the path exists
@@ -228,7 +228,7 @@ func applyReplace(document interface{}, path string, value interface{}) (interfa
 		return nil, fmt.Errorf("path %s does not exist", path)
 	}
 
-	// Remove then add
+	// Remove then add (applyAdd already normalizes)
 	doc, err := applyRemove(document, path)
 	if err != nil {
 		return nil, err
@@ -477,6 +477,11 @@ func parseArrayIndex(token string, length int) (int, bool, error) {
 		return 0, false, fmt.Errorf("invalid array index: %s", token)
 	}
 
+	// Negative indices are not allowed in JSON Patch
+	if idx < 0 {
+		return 0, false, fmt.Errorf("negative array index not allowed: %s", token)
+	}
+
 	return idx, false, nil
 }
 
@@ -512,6 +517,68 @@ func unescapeJSONPointer(token string) string {
 	token = strings.ReplaceAll(token, "~1", "/")
 	token = strings.ReplaceAll(token, "~0", "~")
 	return token
+}
+
+// normalizeJSONValue normalizes a value to match JSON conventions
+// This ensures integers are converted to float64 as JSON doesn't distinguish between int and float
+// However, we preserve integers when they are small enough to be represented exactly
+func normalizeJSONValue(value interface{}) interface{} {
+	if value == nil {
+		return nil
+	}
+
+	switch v := value.(type) {
+	case map[string]interface{}:
+		normalized := make(map[string]interface{}, len(v))
+		for key, val := range v {
+			normalized[key] = normalizeJSONValue(val)
+		}
+		return normalized
+	case []interface{}:
+		normalized := make([]interface{}, len(v))
+		for i, val := range v {
+			normalized[i] = normalizeJSONValue(val)
+		}
+		return normalized
+	case int:
+		// Preserve integers that can be exactly represented as float64
+		if v >= -9007199254740991 && v <= 9007199254740991 {
+			return v // Keep as int for small values
+		}
+		return float64(v)
+	case int8:
+		return int(v) // Convert to int for consistency
+	case int16:
+		return int(v) // Convert to int for consistency
+	case int32:
+		return int(v) // Convert to int for consistency
+	case int64:
+		// Preserve integers that can be exactly represented as float64
+		if v >= -9007199254740991 && v <= 9007199254740991 {
+			return int(v) // Keep as int for small values
+		}
+		return float64(v)
+	case uint:
+		// Preserve integers that can be exactly represented as float64
+		if v <= 9007199254740991 {
+			return int(v) // Keep as int for small values
+		}
+		return float64(v)
+	case uint8:
+		return int(v) // Convert to int for consistency
+	case uint16:
+		return int(v) // Convert to int for consistency
+	case uint32:
+		return int(v) // Convert to int for consistency
+	case uint64:
+		// Preserve integers that can be exactly represented as float64
+		if v <= 9007199254740991 {
+			return int(v) // Keep as int for small values
+		}
+		return float64(v)
+	default:
+		return v
+	}
 }
 
 // validateJSONPointer validates a JSON Pointer with comprehensive checks

@@ -209,9 +209,9 @@ options.StorageConfig = storageConfig
 ```go
 storageConfig := &state.StorageConfig{
     // Connection settings
-    ConnectionURL:    "redis://localhost:6379",
+    ConnectionURL:    os.Getenv("REDIS_URL"), // Example: "redis://localhost:6379"
     Database:         0,                 // Redis database number
-    Password:         "",                // Redis password
+    Password:         os.Getenv("REDIS_PASSWORD"), // Redis password from environment
     
     // Pool settings
     PoolSize:         10,                // Connection pool size
@@ -249,7 +249,7 @@ options.StorageConfig = storageConfig
 ```go
 storageConfig := &state.StorageConfig{
     // Connection settings
-    ConnectionURL:    "postgres://user:pass@localhost:5432/statedb",
+    ConnectionURL:    os.Getenv("DATABASE_URL"), // Example: "postgres://user:pass@localhost:5432/statedb"
     
     // Pool settings
     MaxOpenConns:     25,                // Max open connections
@@ -287,7 +287,7 @@ options.StorageConfig = storageConfig
 // Optimized for high throughput
 storageConfig := &state.StorageConfig{
     // Use Redis for high performance
-    ConnectionURL:    "redis://localhost:6379",
+    ConnectionURL:    os.Getenv("REDIS_URL"), // Example: "redis://localhost:6379"
     PoolSize:         20,                // Large pool
     MinIdleConns:     10,                // Keep connections warm
     
@@ -312,7 +312,7 @@ options.BatchTimeout = 50 * time.Millisecond
 // Optimized for data durability
 storageConfig := &state.StorageConfig{
     // Use PostgreSQL for ACID guarantees
-    ConnectionURL:    "postgres://user:pass@localhost:5432/statedb",
+    ConnectionURL:    os.Getenv("DATABASE_URL"), // Example: "postgres://user:pass@localhost:5432/statedb"
     MaxOpenConns:     10,
     TxTimeout:        60 * time.Second,
     

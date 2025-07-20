@@ -420,13 +420,16 @@ func TestHeartbeatIntegration(t *testing.T) {
 	defer transport.Stop()
 
 	t.Run("HeartbeatFunctionality", func(t *testing.T) {
-		// Wait for connections
+		// Wait for connections to be established
 		assert.Eventually(t, func() bool {
 			return transport.IsConnected()
 		}, 2*time.Second, 100*time.Millisecond)
 
-		// Wait for several heartbeat cycles - optimized for faster tests
-		time.Sleep(500 * time.Millisecond)
+		// Wait for heartbeat to establish - need at least 2-3 ping cycles
+		// With ping period of 500ms, wait for 2 seconds to allow heartbeat to stabilize
+		assert.Eventually(t, func() bool {
+			return transport.GetHealthyConnectionCount() > 0
+		}, 3*time.Second, 200*time.Millisecond)
 
 		// Verify connections are still healthy
 		assert.True(t, transport.IsConnected())

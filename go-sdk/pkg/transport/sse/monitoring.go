@@ -560,6 +560,15 @@ func (ms *MonitoringSystem) RecordConnectionError(connID string, err error) {
 func (ms *MonitoringSystem) RecordEventReceived(connID, eventType string, size int64) {
 	start := time.Now()
 
+	// Validate size to prevent counter issues
+	if size < 0 {
+		ms.logger.Warn("Invalid negative event size, using 0", 
+			zap.String("connection_id", connID),
+			zap.String("event_type", eventType),
+			zap.Int64("size", size))
+		size = 0
+	}
+
 	// Update Prometheus metrics
 	ms.promMetrics.EventsReceived.WithLabelValues(eventType).Inc()
 	ms.promMetrics.EventSize.WithLabelValues(eventType, "received").Observe(float64(size))
@@ -640,6 +649,26 @@ func (ms *MonitoringSystem) RecordEventProcessed(eventType string, duration time
 
 	ms.promMetrics.EventsProcessed.WithLabelValues(eventType, status).Inc()
 	ms.promMetrics.EventProcessingLatency.WithLabelValues(eventType).Observe(duration.Seconds())
+
+	// Update event stats for error rate calculation
+	ms.eventTracker.mu.Lock()
+	if stats, exists := ms.eventTracker.eventStats[eventType]; exists {
+		atomic.AddInt64(&stats.Count, 1)
+		if err != nil {
+			atomic.AddInt64(&stats.ErrorCount, 1)
+		}
+	} else {
+		errorCount := int64(0)
+		if err != nil {
+			errorCount = 1
+		}
+		ms.eventTracker.eventStats[eventType] = &EventStats{
+			Count:       1,
+			ErrorCount:  errorCount,
+			LastReceived: time.Now(),
+		}
+	}
+	ms.eventTracker.mu.Unlock()
 
 	// Update performance tracking
 	ms.recordLatency("event_processing", duration)
@@ -752,7 +781,15 @@ func (ms *MonitoringSystem) GetHealthStatus() map[string]HealthStatus {
 	for name, check := range ms.healthChecks {
 		ctx, cancel := context.WithTimeout(ms.ctx, 5*time.Second)
 		start := time.Now()
-		err := check.Check(ctx)
+		var err error
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("health check panicked: %v", r)
+				}
+			}()
+			err = check.Check(ctx)
+		}()
 		duration := time.Since(start)
 		cancel()
 

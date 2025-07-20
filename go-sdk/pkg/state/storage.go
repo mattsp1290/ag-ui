@@ -954,6 +954,16 @@ func NewFileBackend(config *StorageConfig, logger Logger) (*FileBackend, error) 
 		if err := os.MkdirAll(path, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create directory %s: %w", path, err)
 		}
+		
+		// Create shard subdirectories if sharding is enabled
+		if config.FileOptions.EnableSharding && config.FileOptions.ShardCount > 0 {
+			for i := 0; i < config.FileOptions.ShardCount; i++ {
+				shardPath := fmt.Sprintf("%s/shard_%d", path, i)
+				if err := os.MkdirAll(shardPath, 0755); err != nil {
+					return nil, fmt.Errorf("failed to create shard directory %s: %w", shardPath, err)
+				}
+			}
+		}
 	}
 
 	backend := &FileBackend{
@@ -1420,17 +1430,20 @@ func NewPersistentStateStore(config *StorageConfig, storeOpts []StateStoreOption
 		return nil, fmt.Errorf("invalid storage config: %w", err)
 	}
 
-	// Create logger
-	logger := DefaultLogger()
+	// Create in-memory state store first to get logger
+	store := NewStateStore(storeOpts...)
+	
+	// Use logger from store (which may have been set via WithLogger option)
+	logger := store.logger
+	if logger == nil {
+		logger = DefaultLogger()
+	}
 
-	// Create storage backend
+	// Create storage backend with the same logger
 	backend, err := NewStorageBackend(config, logger)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create storage backend: %w", err)
 	}
-
-	// Create in-memory state store
-	store := NewStateStore(storeOpts...)
 
 	// Create context for operations
 	ctx, cancel := context.WithCancel(context.Background())

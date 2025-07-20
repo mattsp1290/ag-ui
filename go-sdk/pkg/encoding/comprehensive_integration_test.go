@@ -338,6 +338,9 @@ func TestValidationIntegration(t *testing.T) {
 	// Register formats with validation
 	require.NoError(t, registry.RegisterFormat(encoding.JSONFormatInfo()))
 	
+	// Register JSON codec with the registry
+	require.NoError(t, json.RegisterTo(registry))
+	
 	// Test with valid event
 	validEvent := events.NewTextMessageStartEvent("valid-msg", events.WithRole("user"))
 	
@@ -437,7 +440,7 @@ func TestErrorHandlingIntegration(t *testing.T) {
 			test: func(t *testing.T) {
 				_, err := registry.GetEncoder(ctx, "application/nonexistent", nil)
 				assert.Error(t, err)
-				assert.Contains(t, err.Error(), "not registered")
+				assert.Contains(t, err.Error(), "no encoder registered for format")
 			},
 		},
 		{
@@ -445,7 +448,7 @@ func TestErrorHandlingIntegration(t *testing.T) {
 			test: func(t *testing.T) {
 				_, err := registry.GetDecoder(ctx, "application/nonexistent", nil)
 				assert.Error(t, err)
-				assert.Contains(t, err.Error(), "not registered")
+				assert.Contains(t, err.Error(), "no decoder registered for format")
 			},
 		},
 		{
@@ -515,9 +518,9 @@ func TestStreamingErrorHandling(t *testing.T) {
 		err = encoder.WriteEvent(ctx, events.NewTextMessageStartEvent("test"))
 		assert.Error(t, err)
 		
-		// Try to end stream without starting
+		// Try to end stream without starting - should be a no-op, not an error
 		err = encoder.EndStream(ctx)
-		assert.Error(t, err)
+		assert.NoError(t, err)
 	})
 	
 	// Test stream decoder error handling
@@ -529,9 +532,9 @@ func TestStreamingErrorHandling(t *testing.T) {
 		_, err = decoder.ReadEvent(ctx)
 		assert.Error(t, err)
 		
-		// Try to end stream without starting
+		// Try to end stream without starting - should be a no-op, not an error
 		err = decoder.EndStream(ctx)
-		assert.Error(t, err)
+		assert.NoError(t, err)
 	})
 }
 

@@ -345,8 +345,11 @@ func TestHeartbeatMissedPongHandling(t *testing.T) {
 
 	heartbeat := conn.heartbeat
 
-	// Set last pong time to long ago
-	heartbeat.lastPongAt = time.Now().Add(-200 * time.Millisecond).Unix()
+	// Start the heartbeat to set it to running state
+	atomic.StoreInt32(&heartbeat.state, int32(HeartbeatRunning))
+
+	// Set last pong time to long ago using UnixNano for proper timing
+	atomic.StoreInt64(&heartbeat.lastPongAt, time.Now().Add(-200*time.Millisecond).UnixNano())
 
 	// Check health - should detect missed pong
 	heartbeat.checkHealth()

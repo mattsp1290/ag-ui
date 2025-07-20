@@ -105,6 +105,7 @@ func (sc *StreamingContext) Close() error {
 
 // sendChunk sends a chunk to the stream.
 func (sc *StreamingContext) sendChunk(chunkType string, data interface{}) error {
+	// Create chunk under lock
 	sc.mu.Lock()
 	if sc.closed {
 		sc.mu.Unlock()
@@ -118,7 +119,8 @@ func (sc *StreamingContext) sendChunk(chunkType string, data interface{}) error 
 	}
 	sc.index++
 	sc.mu.Unlock()
-
+	
+	// Send chunk without holding lock to avoid deadlock
 	select {
 	case sc.chunks <- chunk:
 		return nil

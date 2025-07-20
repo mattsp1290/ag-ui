@@ -206,9 +206,63 @@ type PooledCodecFactory struct {
 
 // NewPooledCodecFactory creates a new pooled codec factory
 func NewPooledCodecFactory() *PooledCodecFactory {
+	// Use the global registry to get properly registered codecs
+	globalRegistry := GetGlobalRegistry()
+	factory := NewDefaultCodecFactory()
+	codecPool := NewCodecPool()
+	
+	// Copy codec registrations from global registry to the pooled factory
+	for _, contentType := range []string{"application/json", "application/x-protobuf"} {
+		if globalRegistry.SupportsFormat(contentType) {
+			// Register a codec constructor that delegates to the global registry
+			contentTypeCopy := contentType // capture loop variable
+			factory.RegisterCodec(contentTypeCopy, func(encOptions *EncodingOptions, decOptions *DecodingOptions) (Codec, error) {
+				return globalRegistry.GetCodec(context.Background(), contentTypeCopy, encOptions, decOptions)
+			})
+		}
+	}
+	
+	// Configure the pool constructors
+	codecPool.SetJSONEncoderConstructor(func() interface{} {
+		// Create a new JSON encoder using global registry
+		encoder, err := globalRegistry.GetEncoder(context.Background(), "application/json", nil)
+		if err != nil {
+			return nil
+		}
+		return encoder
+	})
+	
+	codecPool.SetJSONDecoderConstructor(func() interface{} {
+		// Create a new JSON decoder using global registry
+		decoder, err := globalRegistry.GetDecoder(context.Background(), "application/json", nil)
+		if err != nil {
+			return nil
+		}
+		return decoder
+	})
+	
+	// Configure protobuf constructors if supported
+	if globalRegistry.SupportsFormat("application/x-protobuf") {
+		codecPool.SetProtobufEncoderConstructor(func() interface{} {
+			encoder, err := globalRegistry.GetEncoder(context.Background(), "application/x-protobuf", nil)
+			if err != nil {
+				return nil
+			}
+			return encoder
+		})
+		
+		codecPool.SetProtobufDecoderConstructor(func() interface{} {
+			decoder, err := globalRegistry.GetDecoder(context.Background(), "application/x-protobuf", nil)
+			if err != nil {
+				return nil
+			}
+			return decoder
+		})
+	}
+	
 	return &PooledCodecFactory{
-		factory:   NewDefaultCodecFactory(),
-		codecPool: NewCodecPool(),
+		factory:   factory,
+		codecPool: codecPool,
 	}
 }
 
@@ -224,14 +278,57 @@ func (pcf *PooledCodecFactory) CreateCodec(ctx context.Context, contentType stri
 			// Create a composite codec from cached components
 			encoder := encoderInterface.(Encoder)
 			decoder := decoderInterface.(Decoder)
+			
+			// Wrap in pooled instances
+			pooledEncoder := &PooledEncoder{
+				encoder:     encoder,
+				pool:        pcf.codecPool,
+				contentType: contentType,
+				putFunc:     pcf.codecPool.PutJSONEncoder,
+			}
+			
+			pooledDecoder := &PooledDecoder{
+				decoder:     decoder,
+				pool:        pcf.codecPool,
+				contentType: contentType,
+				putFunc:     pcf.codecPool.PutJSONDecoder,
+			}
+			
 			return &compositeCodec{
-				encoder: encoder,
-				decoder: decoder,
+				encoder: pooledEncoder,
+				decoder: pooledDecoder,
 			}, nil
 		}
 		
-		// Fall back to factory
-		return pcf.factory.CreateCodec(ctx, contentType, encOptions, decOptions)
+		// Fall back to factory and create pooled wrappers
+		codec, err := pcf.factory.CreateCodec(ctx, contentType, encOptions, decOptions)
+		if err != nil {
+			return nil, err
+		}
+		
+		// Wrap the codec components in pooled instances
+		if composite, ok := codec.(*compositeCodec); ok {
+			pooledEncoder := &PooledEncoder{
+				encoder:     composite.encoder,
+				pool:        pcf.codecPool,
+				contentType: contentType,
+				putFunc:     pcf.codecPool.PutJSONEncoder,
+			}
+			
+			pooledDecoder := &PooledDecoder{
+				decoder:     composite.decoder,
+				pool:        pcf.codecPool,
+				contentType: contentType,
+				putFunc:     pcf.codecPool.PutJSONDecoder,
+			}
+			
+			return &compositeCodec{
+				encoder: pooledEncoder,
+				decoder: pooledDecoder,
+			}, nil
+		}
+		
+		return codec, nil
 	
 	case "application/x-protobuf":
 		// Try to get cached encoder/decoder components
@@ -304,6 +401,16 @@ func (c *compositeCodec) SupportsStreaming() bool {
 
 func (c *compositeCodec) CanStream() bool {
 	return c.SupportsStreaming()
+}
+
+// Release releases both encoder and decoder if they are releasable
+func (c *compositeCodec) Release() {
+	if releasableEncoder, ok := c.encoder.(ReleasableEncoder); ok {
+		releasableEncoder.Release()
+	}
+	if releasableDecoder, ok := c.decoder.(ReleasableDecoder); ok {
+		releasableDecoder.Release()
+	}
 }
 
 // RegisterCodec registers a codec with the factory

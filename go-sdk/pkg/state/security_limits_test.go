@@ -299,8 +299,18 @@ func TestConcurrentSecurityValidation(t *testing.T) {
 
 // TestRateLimitingIntegration tests rate limiting in the state manager
 func TestRateLimitingIntegration(t *testing.T) {
-	// Create state manager with custom rate limiting
+	// Create state manager with custom rate limiting for testing
 	opts := DefaultManagerOptions()
+	
+	// Configure restrictive rate limiting for testing
+	opts.GlobalRateLimit = 5 // 5 requests per second globally
+	
+	// Client rate limiter: 2 requests per second, burst of 3
+	clientConfig := DefaultClientRateLimiterConfig()
+	clientConfig.RatePerSecond = 2
+	clientConfig.BurstSize = 3
+	opts.ClientRateLimiterConfig = &clientConfig
+	
 	sm, err := NewStateManager(opts)
 	if err != nil {
 		t.Fatalf("Failed to create state manager: %v", err)
@@ -313,33 +323,58 @@ func TestRateLimitingIntegration(t *testing.T) {
 		t.Fatalf("Failed to create context: %v", err)
 	}
 
-	// Default rate limit should allow reasonable burst
-	numRequests := 150
+	// Test client rate limiting first (burst size = 3)
+	// Make 5 rapid requests - should get 3 successes and 2 failures
+	burstRequests := 5
 	errors := 0
-	start := time.Now()
-
-	for i := 0; i < numRequests; i++ {
+	
+	for i := 0; i < burstRequests; i++ {
 		updates := map[string]interface{}{
-			fmt.Sprintf("update_%d", i): i,
+			fmt.Sprintf("burst_%d", i): i,
 		}
 
 		_, err := sm.UpdateState(ctx, contextID, "rate-test", updates, UpdateOptions{})
-		if err != nil && strings.Contains(err.Error(), "rate limit exceeded") {
+		if err != nil && (strings.Contains(err.Error(), "rate limit exceeded") || err == ErrRateLimited) {
 			errors++
 		}
 	}
 
+	// We should have some rate limit errors from client rate limiter
+	if errors == 0 {
+		t.Error("Expected some rate limit errors after exceeding client burst size")
+	} else {
+		t.Logf("Client rate limiting: %d/%d burst requests failed", errors, burstRequests)
+	}
+	
+	// Test sustained rate limiting
+	// Wait for tokens to replenish
+	time.Sleep(2 * time.Second)
+	
+	// Reset error count for sustained rate test
+	errors = 0
+	sustainedRequests := 20
+	
+	// Make rapid requests to trigger global and client rate limiting
+	start := time.Now()
+	for i := 0; i < sustainedRequests; i++ {
+		updates := map[string]interface{}{
+			fmt.Sprintf("sustained_%d", i): i,
+		}
+
+		_, err := sm.UpdateState(ctx, contextID, "rate-test", updates, UpdateOptions{})
+		if err != nil && (strings.Contains(err.Error(), "rate limit exceeded") || err == ErrRateLimited) {
+			errors++
+		}
+		
+		// Make requests rapidly to exceed both rate limits
+		time.Sleep(10 * time.Millisecond)
+	}
 	duration := time.Since(start)
 
-	// Should have some rate limit errors
+	// We should have rate limit errors from sustained requests
 	if errors == 0 {
-		t.Error("Expected some rate limit errors")
+		t.Error("Expected some rate limit errors during sustained requests")
+	} else {
+		t.Logf("Sustained rate limiting: %d/%d requests failed in %v", errors, sustainedRequests, duration)
 	}
-
-	// But not all requests should fail
-	if errors == numRequests {
-		t.Error("All requests were rate limited")
-	}
-
-	t.Logf("Rate limiting: %d/%d requests failed in %v", errors, numRequests, duration)
 }

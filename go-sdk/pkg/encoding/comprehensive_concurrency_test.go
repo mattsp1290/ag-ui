@@ -42,7 +42,7 @@ const (
 func TestConcurrentRegistryOperations(t *testing.T) {
 	const numGoroutines = 100
 	const numOperations = 50
-	const testTimeout = 10 * time.Second
+	const testTimeout = 30 * time.Second
 	
 	// Set a timeout for the entire test
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
@@ -66,17 +66,16 @@ func TestConcurrentRegistryOperations(t *testing.T) {
 	factory := &testJSONCodecFactory{}
 	require.NoError(t, registry.RegisterCodec("application/json", factory))
 	
-	var wg sync.WaitGroup
-	errorChan := make(chan error, numGoroutines*numOperations)
-	
 	// Test concurrent format registration
 	t.Run("ConcurrentRegistration", func(t *testing.T) {
+		var regWg sync.WaitGroup
+		errorChan := make(chan error, numGoroutines*numOperations)
 		done := make(chan struct{})
 		
 		for i := 0; i < numGoroutines; i++ {
-			wg.Add(1)
+			regWg.Add(1)
 			go func(id int) {
-				defer wg.Done()
+				defer regWg.Done()
 				
 				for j := 0; j < numOperations; j++ {
 					select {
@@ -101,7 +100,7 @@ func TestConcurrentRegistryOperations(t *testing.T) {
 		
 		// Wait with timeout
 		go func() {
-			wg.Wait()
+			regWg.Wait()
 			close(done)
 		}()
 		
@@ -120,13 +119,14 @@ func TestConcurrentRegistryOperations(t *testing.T) {
 	
 	// Test concurrent format lookup
 	t.Run("ConcurrentLookup", func(t *testing.T) {
-		errorChan = make(chan error, numGoroutines*numOperations)
+		var lookupWg sync.WaitGroup
+		errorChan := make(chan error, numGoroutines*numOperations)
 		done := make(chan struct{})
 		
 		for i := 0; i < numGoroutines; i++ {
-			wg.Add(1)
+			lookupWg.Add(1)
 			go func(id int) {
-				defer wg.Done()
+				defer lookupWg.Done()
 				
 				for j := 0; j < numOperations; j++ {
 					select {
@@ -181,7 +181,7 @@ func TestConcurrentRegistryOperations(t *testing.T) {
 		
 		// Wait with timeout
 		go func() {
-			wg.Wait()
+			lookupWg.Wait()
 			close(done)
 		}()
 		
@@ -332,22 +332,17 @@ func TestConcurrentStreamingOperations(t *testing.T) {
 					)
 				}
 				
-				// Test streaming
+				// Test streaming with simplified channel lifecycle management
 				var buf bytes.Buffer
 				eventChan := make(chan events.Event, eventsPerStream)
 				
-				// Start encoding
-				go func() {
-					defer close(eventChan)
-					for _, event := range testEvents {
-						select {
-						case eventChan <- event:
-						case <-ctx.Done():
-							return
-						}
-					}
-				}()
+				// Send all events synchronously before encoding
+				for _, event := range testEvents {
+					eventChan <- event
+				}
+				close(eventChan) // Safe to close here - no concurrent access
 				
+				// Encode the stream
 				err = encoder.EncodeStream(ctx, eventChan, &buf)
 				if err != nil {
 					atomic.AddInt64(&errorCount, 1)
@@ -355,38 +350,30 @@ func TestConcurrentStreamingOperations(t *testing.T) {
 					return
 				}
 				
-				// Test decoding
+				// Test decoding with simplified channel management
 				reader := bytes.NewReader(buf.Bytes())
 				decodedChan := make(chan events.Event, eventsPerStream)
 				
-				// Use a goroutine with timeout protection
-				decodeDone := make(chan bool)
+				// Create a coordinator goroutine to manage the decode operation
+				decodeComplete := make(chan error, 1)
 				go func() {
-					defer close(decodedChan)
 					err := decoder.DecodeStream(ctx, reader, decodedChan)
-					if err != nil {
-						atomic.AddInt64(&errorCount, 1)
-						t.Errorf("Stream decoding failed: %v", err)
-					}
-					decodeDone <- true
+					// DO NOT close decodedChan here - DecodeStream closes it internally
+					decodeComplete <- err
 				}()
 				
-				// Count decoded events with timeout
+				// Count decoded events in the main goroutine
 				decodedCount := 0
-				countDone := make(chan bool)
-				go func() {
-					for range decodedChan {
+				for event := range decodedChan {
+					if event != nil {
 						decodedCount++
 					}
-					countDone <- true
-				}()
+				}
 				
-				// Wait for decoding with timeout
-				select {
-				case <-decodeDone:
-					<-countDone // Wait for counting to finish
-				case <-ctx.Done():
+				// Check for decode errors
+				if err := <-decodeComplete; err != nil {
 					atomic.AddInt64(&errorCount, 1)
+					t.Errorf("Stream decoding failed: %v", err)
 					return
 				}
 				
@@ -399,7 +386,7 @@ func TestConcurrentStreamingOperations(t *testing.T) {
 			}(i)
 		}
 		
-		// Wait with timeout
+		// Wait for all goroutines with timeout
 		done := make(chan struct{})
 		go func() {
 			wg.Wait()
@@ -421,6 +408,9 @@ func TestConcurrentStreamingOperations(t *testing.T) {
 func TestConcurrentPoolOperations(t *testing.T) {
 	const numGoroutines = 100
 	const numOperations = 50
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	
 	var wg sync.WaitGroup
 	
@@ -611,6 +601,9 @@ func TestConcurrentFactoryOperations(t *testing.T) {
 func TestConcurrentNegotiation(t *testing.T) {
 	const numGoroutines = 100
 	const numOperations = 50
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	
 	negotiator := negotiation.NewContentNegotiator("application/json")
 	
@@ -1120,6 +1113,8 @@ func (c *testJSONCodec) EncodeStream(ctx context.Context, events <-chan events.E
 }
 
 func (c *testJSONCodec) DecodeStream(ctx context.Context, input io.Reader, events chan<- events.Event) error {
+	// Note: Real implementations (like JSON decoder) close the events channel when done
+	// This mock doesn't close it to avoid interfering with tests
 	return nil
 }
 

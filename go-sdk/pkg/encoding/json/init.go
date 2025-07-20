@@ -61,6 +61,15 @@ func RegisterTo(registry *encoding.FormatRegistry) error {
 		return errors.NewEncodingError("JSON_CODEC_REGISTRATION_FAILED", "failed to register JSON codec").WithOperation("register").WithCause(err)
 	}
 	
+	// Also register as encoder and decoder factories for full compatibility
+	if err := registry.RegisterEncoder("application/json", factory); err != nil {
+		return errors.NewEncodingError("JSON_ENCODER_REGISTRATION_FAILED", "failed to register JSON encoder").WithOperation("register").WithCause(err)
+	}
+	
+	if err := registry.RegisterDecoder("application/json", factory); err != nil {
+		return errors.NewEncodingError("JSON_DECODER_REGISTRATION_FAILED", "failed to register JSON decoder").WithOperation("register").WithCause(err)
+	}
+	
 	return nil
 }
 
@@ -71,6 +80,7 @@ func register() error {
 }
 
 // jsonCodecFactory implements encoding.CodecFactory for JSON
+// It also implements EncoderFactory and DecoderFactory for full compatibility
 type jsonCodecFactory struct{}
 
 // CreateCodec creates a JSON codec

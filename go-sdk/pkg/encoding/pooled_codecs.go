@@ -35,6 +35,11 @@ func (pe *PooledEncoder) CanStream() bool {
 	return pe.encoder.CanStream()
 }
 
+// SupportsStreaming indicates if this encoder supports streaming
+func (pe *PooledEncoder) SupportsStreaming() bool {
+	return pe.encoder.SupportsStreaming()
+}
+
 // Release returns the encoder to the pool
 func (pe *PooledEncoder) Release() {
 	if pe.encoder != nil && pe.putFunc != nil {
@@ -88,6 +93,11 @@ func (pd *PooledDecoder) ContentType() string {
 // CanStream indicates if this decoder supports streaming
 func (pd *PooledDecoder) CanStream() bool {
 	return pd.decoder.CanStream()
+}
+
+// SupportsStreaming indicates if this decoder supports streaming
+func (pd *PooledDecoder) SupportsStreaming() bool {
+	return pd.decoder.SupportsStreaming()
 }
 
 // Release returns the decoder to the pool

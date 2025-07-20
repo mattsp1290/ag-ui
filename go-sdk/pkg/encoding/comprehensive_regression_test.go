@@ -78,8 +78,8 @@ func TestContentNegotiationRegression(t *testing.T) {
 		},
 		{
 			name:          "Quality values with decimals",
-			acceptHeader:  "application/json;q=0.95,application/x-protobuf;q=0.99",
-			expectedType:  "application/x-protobuf",
+			acceptHeader:  "application/json;q=0.8,application/x-protobuf;q=0.99",
+			expectedType:  "application/x-protobuf", // Protobuf wins with higher quality
 			shouldSucceed: true,
 			description:   "Should handle decimal quality values correctly",
 		},

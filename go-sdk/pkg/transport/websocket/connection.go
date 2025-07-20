@@ -307,6 +307,13 @@ func (c *Connection) Connect(ctx context.Context) error {
 	conn.SetPongHandler(func(string) error {
 		conn.SetReadDeadline(time.Now().Add(c.config.PongWait))
 		c.heartbeat.OnPong()
+		
+		// If we're in reconnecting state and received a pong, we can recover
+		if c.State() == StateReconnecting && c.heartbeat.IsHealthy() {
+			c.config.Logger.Info("Connection recovered from reconnecting state")
+			c.setState(StateConnected)
+		}
+		
 		return nil
 	})
 
@@ -431,13 +438,33 @@ func (c *Connection) Close() error {
 		// Close message channel first to unblock writePump
 		if atomic.CompareAndSwapInt32(&c.messageChClosed, 0, 1) {
 			// Drain any pending messages to unblock senders
+			done := make(chan struct{})
 			go func() {
-				for range c.messageCh {
-					// Drain
+				defer close(done)
+				// Create a timer to prevent infinite blocking
+				timer := time.NewTimer(100 * time.Millisecond)
+				defer timer.Stop()
+				
+				for {
+					select {
+					case _, ok := <-c.messageCh:
+						if !ok {
+							return // Channel closed, exit
+						}
+						// Message drained
+					case <-timer.C:
+						return // Timeout, exit to prevent leak
+					}
 				}
 			}()
-			// Give drain goroutine a moment to start
-			time.Sleep(5 * time.Millisecond)
+			
+			// Wait for drain to complete or timeout
+			select {
+			case <-done:
+				// Drain completed
+			case <-time.After(150 * time.Millisecond):
+				// Drain timeout, proceed anyway
+			}
 			close(c.messageCh)
 		}
 
@@ -458,11 +485,19 @@ func (c *Connection) Close() error {
 			close(connDone)
 		}()
 
+		// Use shorter timeout for tests to avoid delays
+		waitTimeout := 500 * time.Millisecond
+		if c.config.ReadTimeout < time.Second {
+			// If read timeout is very short, we're likely in a test environment
+			waitTimeout = 100 * time.Millisecond
+		}
+
 		select {
 		case <-connDone:
 			c.config.Logger.Debug("All connection goroutines stopped successfully")
-		case <-time.After(500 * time.Millisecond): // Increased timeout slightly
-			c.config.Logger.Warn("Timeout waiting for connection goroutines to stop")
+		case <-time.After(waitTimeout):
+			c.config.Logger.Warn("Timeout waiting for connection goroutines to stop",
+				zap.Duration("timeout", waitTimeout))
 			// Force log the number of goroutines still running
 			c.config.Logger.Warn("Goroutines still running", 
 				zap.Int("count", runtime.NumGoroutine()))
@@ -655,8 +690,10 @@ func (c *Connection) readPump() {
 			}
 			
 			// Check if we're still connected before attempting to read
-			if c.State() != StateConnected {
-				c.config.Logger.Debug("Read pump exiting - not connected")
+			// Allow reading in reconnecting state to detect recovery
+			state := c.State()
+			if state != StateConnected && state != StateReconnecting {
+				c.config.Logger.Debug("Read pump exiting - not connected or reconnecting")
 				return
 			}
 

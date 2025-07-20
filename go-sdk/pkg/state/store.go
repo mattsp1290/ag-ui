@@ -40,6 +40,9 @@ func DisableDeterministicIDs() {
 }
 
 // StoreInterface defines the interface that all state stores must implement
+// SubscriptionCallback defines the callback function type for state subscriptions
+type SubscriptionCallback func(StateChange)
+
 type StoreInterface interface {
 	Get(path string) (interface{}, error)
 	Set(path string, value interface{}) error
@@ -51,6 +54,7 @@ type StoreInterface interface {
 	RestoreSnapshot(snapshot *StateSnapshot) error
 	Import(data []byte) error
 	GetState() map[string]interface{}
+	Close() error
 }
 
 // StateChange represents a change to the state
@@ -103,14 +107,12 @@ type StateTransaction struct {
 	mu        sync.Mutex
 }
 
-// SubscriptionHandler is the function signature for state change subscriptions
-type SubscriptionHandler func(StateChange)
 
 // subscription represents an active subscription
 type subscription struct {
 	id           string
 	path         string
-	callback     SubscriptionHandler
+	callback     SubscriptionCallback
 	lastAccessed time.Time // Track access time for cleanup
 	created      time.Time // Track creation time
 }
@@ -925,7 +927,7 @@ func (s *StateStore) GetHistory() ([]*StateVersion, error) {
 }
 
 // Subscribe registers a callback for state changes at the specified path
-func (s *StateStore) Subscribe(path string, callback SubscriptionHandler) func() {
+func (s *StateStore) Subscribe(path string, callback SubscriptionCallback) func() {
 	id, _ := generateID()
 	now := time.Now()
 	sub := &subscription{

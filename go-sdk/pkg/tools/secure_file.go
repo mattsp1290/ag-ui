@@ -343,7 +343,6 @@ func expandPath(path string) string {
 	return path
 }
 
-<<<<<<< HEAD
 // isPathOutside checks if a relative path goes outside its base directory
 func isPathOutside(relPath string) bool {
 	// A path is outside if:

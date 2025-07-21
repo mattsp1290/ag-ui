@@ -1,3 +1,5 @@
+// +build integration
+
 package tools
 
 import (
@@ -617,19 +619,27 @@ func (framework *CIPerformanceTestFramework) setupTestEnvironment(t *testing.T) 
 		return fmt.Errorf("failed to create report output directory: %w", err)
 	}
 	
-	// Use shorter timeouts in CI or short mode (reduced for faster execution)
-	executionTimeout := 10 * time.Second     // Reduced from 5 minutes to 10s
-	registryTimeout := 5 * time.Second       // Reduced from 3 minutes to 5s
-	concurrencyTimeout := 10 * time.Second   // Reduced from 10 minutes to 10s
-	memoryTimeout := 5 * time.Second         // Reduced from 5 minutes to 5s
-	stressTimeout := 10 * time.Second        // Reduced from 15 minutes to 10s
+	// Use optimized timeouts based on environment
+	executionTimeout := 10 * time.Second
+	registryTimeout := 5 * time.Second
+	concurrencyTimeout := 10 * time.Second
+	memoryTimeout := 5 * time.Second
+	stressTimeout := 10 * time.Second
 	
-	if testing.Short() || os.Getenv("CI") != "" {
-		executionTimeout = 5 * time.Second     // Reduced from 20s to 5s
-		registryTimeout = 3 * time.Second      // Reduced from 10s to 3s
-		concurrencyTimeout = 5 * time.Second   // Reduced from 30s to 5s
-		memoryTimeout = 5 * time.Second        // Reduced from 20s to 5s
-		stressTimeout = 5 * time.Second        // Reduced from 30s to 5s
+	if testing.Short() {
+		// Very aggressive timeouts for short mode
+		executionTimeout = 2 * time.Second
+		registryTimeout = 2 * time.Second
+		concurrencyTimeout = 3 * time.Second
+		memoryTimeout = 2 * time.Second
+		stressTimeout = 3 * time.Second
+	} else if isCI() {
+		// Moderate timeouts for CI
+		executionTimeout = 5 * time.Second
+		registryTimeout = 3 * time.Second
+		concurrencyTimeout = 5 * time.Second
+		memoryTimeout = 3 * time.Second
+		stressTimeout = 5 * time.Second
 	}
 	
 	// Initialize test suite
@@ -852,20 +862,27 @@ func (framework *CIPerformanceTestFramework) runExecutionEngineTest(t *testing.T
 	var responseTimesMutex sync.Mutex
 	var responseTimes []time.Duration
 	
-	// Use optimized duration for CI - start with reasonable defaults
-	testDuration := 5 * time.Second  // Reduced from 30s to 5s
-	// Reduce test duration in CI or short mode for faster execution
-	if testing.Short() || os.Getenv("CI") != "" {
-		testDuration = 2 * time.Second
-	} else if !isCI() {
-		// Allow slightly longer duration for non-CI environments
-		testDuration = 10 * time.Second
+	// Use optimized test duration based on environment
+	testDuration := 5 * time.Second
+	if testing.Short() {
+		testDuration = 1 * time.Second // Very short for testing.Short()
+	} else if isCI() {
+		testDuration = 2 * time.Second // Short for CI
+	} else {
+		testDuration = 10 * time.Second // Longer for local development
 	}
 	testCtx, cancel := context.WithTimeout(ctx, testDuration)
 	defer cancel()
 	
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
+	// Scale workers based on environment
+	workers := 10
+	if testing.Short() {
+		workers = 3 // Minimal workers for short tests
+	} else if isCI() {
+		workers = 5 // Moderate workers for CI
+	}
+	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
@@ -964,9 +981,14 @@ func (framework *CIPerformanceTestFramework) runRegistryTest(t *testing.T) *CITe
 	// Create registry
 	registry := NewRegistry()
 	
-	// Test registration performance
-	registrationStart := time.Now()
+	// Test registration performance - scale tool count based on environment
 	toolCount := 1000
+	if testing.Short() {
+		toolCount = 100 // Much fewer tools for short tests
+	} else if isCI() {
+		toolCount = 500 // Moderate tool count for CI
+	}
+	registrationStart := time.Now()
 	
 	for i := 0; i < toolCount; i++ {
 		tool := createCITestTool(fmt.Sprintf("reg-test-%d", i))
@@ -979,9 +1001,14 @@ func (framework *CIPerformanceTestFramework) runRegistryTest(t *testing.T) *CITe
 	
 	registrationTime := time.Since(registrationStart)
 	
-	// Test lookup performance
-	lookupStart := time.Now()
+	// Test lookup performance - scale lookup count based on environment
 	lookupCount := 10000
+	if testing.Short() {
+		lookupCount = 1000 // Much fewer lookups for short tests
+	} else if isCI() {
+		lookupCount = 5000 // Moderate lookup count for CI
+	}
+	lookupStart := time.Now()
 	
 	for i := 0; i < lookupCount; i++ {
 		toolID := fmt.Sprintf("reg-test-%d", i%toolCount)
@@ -1045,9 +1072,15 @@ func (framework *CIPerformanceTestFramework) runConcurrencyScalabilityTest(t *te
 	var errors int64
 	start := time.Now()
 	
-	// Run with limited concurrency to avoid hanging
+	// Scale concurrency based on environment
+	workers := 5
+	if testing.Short() {
+		workers = 2 // Very limited workers for short tests
+	} else if isCI() {
+		workers = 3 // Limited workers for CI
+	}
 	var wg sync.WaitGroup
-	for i := 0; i < 5; i++ { // Limited to 5 workers instead of unlimited
+	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
@@ -1146,8 +1179,14 @@ func (framework *CIPerformanceTestFramework) runMemoryTest(t *testing.T) *CITest
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	
-	// Execute operations to test memory usage
-	for i := 0; i < 100; i++ {
+	// Scale operations based on environment
+	operations := 100
+	if testing.Short() {
+		operations = 20 // Much fewer operations for short tests
+	} else if isCI() {
+		operations = 50 // Moderate operations for CI
+	}
+	for i := 0; i < operations; i++ {
 		select {
 		case <-ctx.Done():
 			break
@@ -1222,9 +1261,15 @@ func (framework *CIPerformanceTestFramework) runStressTest(t *testing.T) *CITest
 	var maxMemory uint64
 	start := time.Now()
 	
-	// Run controlled stress test with limited workers
+	// Scale stress test workers based on environment
+	workers := 10
+	if testing.Short() {
+		workers = 3 // Very limited workers for short tests
+	} else if isCI() {
+		workers = 5 // Limited workers for CI
+	}
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ { // Limited to 10 workers to prevent hanging
+	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()

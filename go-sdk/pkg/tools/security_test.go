@@ -256,7 +256,7 @@ func TestSecureFileOperations(t *testing.T) {
 			
 			if tt.expectError {
 				assert.Error(t, err)
-				if tt.errorType != "" {
+				if tt.errorType != "" && err != nil {
 					assert.Contains(t, err.Error(), tt.errorType)
 				}
 				assert.Nil(t, result)
@@ -378,7 +378,7 @@ func TestSecureHTTPOperations(t *testing.T) {
 			
 			if tt.expectError {
 				assert.Error(t, err)
-				if tt.errorType != "" {
+				if tt.errorType != "" && err != nil {
 					assert.Contains(t, err.Error(), tt.errorType)
 				}
 				assert.Nil(t, result)
@@ -457,7 +457,9 @@ func TestSandboxExecution(t *testing.T) {
 				
 				result, err := tool.Executor.Execute(context.Background(), dangerousArgs)
 				assert.Error(t, err)
-				assert.Contains(t, err.Error(), "SANDBOX_VIOLATION")
+				if err != nil {
+					assert.Contains(t, err.Error(), "SANDBOX_VIOLATION")
+				}
 				assert.Nil(t, result)
 			}
 		})
@@ -533,7 +535,7 @@ func TestInputValidationSecurity(t *testing.T) {
 			
 			if tt.expectError {
 				assert.Error(t, err)
-				if tt.errorType != "" {
+				if tt.errorType != "" && err != nil {
 					assert.Contains(t, err.Error(), tt.errorType)
 				}
 				assert.Nil(t, result)
@@ -553,6 +555,13 @@ func validateFilePath(filePath string, allowedDirs []string) error {
 	if err != nil {
 		return NewSecurityError("SECURITY_VIOLATION", "Invalid file path")
 	}
+	
+	// Resolve symlinks to get the real path (important for symlink attack detection)
+	realPath, err := filepath.EvalSymlinks(resolvedPath)
+	if err != nil {
+		// If we can't resolve symlinks, use the original path but this might be a security issue
+		realPath = resolvedPath
+	}
 
 	// Check if path is within allowed directories
 	for _, allowedDir := range allowedDirs {
@@ -561,8 +570,18 @@ func validateFilePath(filePath string, allowedDirs []string) error {
 			continue
 		}
 		
-		if strings.HasPrefix(resolvedPath, resolvedAllowedDir) {
-			return nil
+		// Also resolve symlinks for the allowed directory to handle cases like /var -> /private/var on macOS
+		realAllowedDir, err := filepath.EvalSymlinks(resolvedAllowedDir)
+		if err != nil {
+			realAllowedDir = resolvedAllowedDir
+		}
+		
+		// Ensure the real path starts with the real allowed directory
+		if strings.HasPrefix(realPath, realAllowedDir) {
+			// Make sure it's actually within the directory, not just a prefix match
+			if len(realPath) == len(realAllowedDir) || realPath[len(realAllowedDir)] == filepath.Separator {
+				return nil
+			}
 		}
 	}
 	

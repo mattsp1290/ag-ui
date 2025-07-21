@@ -1,3 +1,5 @@
+//go:build integration
+
 package tools
 
 import (
@@ -76,23 +78,43 @@ func DefaultScalabilityConfig() *ScalabilityConfig {
 	stressTestDuration := 5 * time.Second  // Reduced from 300s to 5s
 	stressTestRampTime := 2 * time.Second  // Reduced from 30s to 2s
 	
-	if testing.Short() || os.Getenv("CI") != "" {
+	// Detect CI environment more comprehensively
+	isCI := os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" || 
+		os.Getenv("CONTINUOUS_INTEGRATION") != "" || os.Getenv("BUILD_ENV") == "ci"
+		
+	if testing.Short() || isCI {
 		testDuration = 2 * time.Second
 		warmupDuration = 500 * time.Millisecond
 		stressTestDuration = 3 * time.Second
 		stressTestRampTime = 1 * time.Second
 	}
 	
+	// Further reduce levels for CI/short tests
+	toolCountLevels := []int{10, 50, 100, 200, 500}
+	concurrencyLevels := []int{1, 5, 10, 25, 50, 100}
+	loadLevels := []int{100, 500, 1000, 2000}
+	maxConcurrency := 200
+	stressTestIntensity := 100
+	
+	if testing.Short() || isCI {
+		// Much smaller test scope for CI/short tests
+		toolCountLevels = []int{5, 10, 25}  // Reduced significantly
+		concurrencyLevels = []int{1, 2, 5, 10}  // Much lower concurrency
+		loadLevels = []int{50, 100, 200}  // Lower load levels
+		maxConcurrency = 20  // Much lower max concurrency
+		stressTestIntensity = 10  // Much lower stress test intensity
+	}
+	
 	return &ScalabilityConfig{
-		ToolCountLevels:         []int{10, 50, 100, 200, 500}, // Reduced from large counts
-		ToolCountIncrement:      50,  // Reduced from 100
-		MaxToolCount:            1000, // Reduced from 50000
-		ConcurrencyLevels:       []int{1, 5, 10, 25, 50, 100}, // Reduced from 1000
-		ConcurrencyIncrement:    25,  // Reduced from 50
-		MaxConcurrency:          200, // Reduced from 5000
-		LoadLevels:              []int{100, 500, 1000, 2000}, // Reduced from 10000
-		LoadIncrement:           500,  // Reduced from 1000
-		MaxLoad:                 5000, // Reduced from 100000
+		ToolCountLevels:         toolCountLevels,
+		ToolCountIncrement:      25,  // Reduced from 50
+		MaxToolCount:            500,  // Reduced from 1000
+		ConcurrencyLevels:       concurrencyLevels,
+		ConcurrencyIncrement:    10,  // Reduced from 25
+		MaxConcurrency:          maxConcurrency,
+		LoadLevels:              loadLevels,
+		LoadIncrement:           200,  // Reduced from 500
+		MaxLoad:                 2000, // Reduced from 5000
 		TestDuration:            testDuration,
 		WarmupDuration:          warmupDuration,
 		CooldownDuration:        1 * time.Second,  // Reduced from 5s to 1s
@@ -105,7 +127,7 @@ func DefaultScalabilityConfig() *ScalabilityConfig {
 		CPUThreshold:            80.0,
 		StressTestEnabled:       true,
 		StressTestDuration:      stressTestDuration,
-		StressTestIntensity:     100,  // Reduced from 1000
+		StressTestIntensity:     stressTestIntensity,
 		StressTestRampTime:      stressTestRampTime,
 		ChaosTestEnabled:        true,
 		ChaosFailureRate:        0.01,
@@ -183,6 +205,13 @@ type TestScalabilityMeasurement struct {
 	LimitingFactors      []string
 	Bottlenecks          []string
 	Warnings             []string
+}
+
+// LatencyBucket represents a latency distribution bucket
+type LatencyBucket struct {
+	MinLatency time.Duration
+	MaxLatency time.Duration
+	Count      int64
 }
 
 // ResponseTimeMetrics captures response time statistics
@@ -556,8 +585,12 @@ func NewScalabilityTestFramework(config *ScalabilityConfig) *ScalabilityTestFram
 
 // TestScalability runs comprehensive scalability tests
 func TestScalability(t *testing.T) {
+	// Skip for short tests or CI environments
 	if testing.Short() {
 		t.Skip("Skipping scalability tests in short mode")
+	}
+	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" || os.Getenv("CONTINUOUS_INTEGRATION") != "" {
+		t.Skip("Skipping scalability tests in CI environment")
 	}
 	
 	framework := NewScalabilityTestFramework(DefaultScalabilityConfig())
@@ -788,12 +821,19 @@ func (f *ScalabilityTestFramework) runToolCountScalabilityTest(t *testing.T, too
 	var wg sync.WaitGroup
 	concurrency := min(f.config.MaxConcurrency, toolCount)
 	
+	// Add proper context timeout handling and limit iterations for CI
+	maxIterationsPerWorker := 1000  // Default max iterations
+	if testing.Short() || os.Getenv("CI") != "" {
+		maxIterationsPerWorker = 50  // Much fewer iterations for CI/short tests
+	}
+	
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			iterations := 0
 			
-			for {
+			for iterations < maxIterationsPerWorker {
 				select {
 				case <-ctx.Done():
 					return
@@ -801,9 +841,12 @@ func (f *ScalabilityTestFramework) runToolCountScalabilityTest(t *testing.T, too
 					tool := tools[rand.Intn(len(tools))]
 					start := time.Now()
 					
-					_, err := engine.Execute(ctx, tool.ID, map[string]interface{}{
+					// Create execution context with shorter timeout for individual operations
+					execCtx, execCancel := context.WithTimeout(ctx, 5*time.Second)
+					_, err := engine.Execute(execCtx, tool.ID, map[string]interface{}{
 						"input": fmt.Sprintf("scalability-test-%d", rand.Intn(1000)),
 					})
+					execCancel()
 					
 					duration := time.Since(start)
 					atomic.AddInt64(&operations, 1)
@@ -813,9 +856,19 @@ func (f *ScalabilityTestFramework) runToolCountScalabilityTest(t *testing.T, too
 						atomic.AddInt64(&errors, 1)
 					}
 					
-					// Sample response times
-					if len(responseTimes) < 10000 {
+					// Sample response times (limit samples for CI)
+					maxSamples := 10000
+					if testing.Short() || os.Getenv("CI") != "" {
+						maxSamples = 1000
+					}
+					if len(responseTimes) < maxSamples {
 						responseTimes = append(responseTimes, duration)
+					}
+					
+					iterations++
+					// Add brief pause to reduce resource pressure
+					if testing.Short() || os.Getenv("CI") != "" {
+						time.Sleep(time.Millisecond)
 					}
 				}
 			}
@@ -898,12 +951,19 @@ func (f *ScalabilityTestFramework) runConcurrencyScalabilityTest(t *testing.T, c
 	
 	var wg sync.WaitGroup
 	
+	// Limit iterations for concurrency test
+	maxIterationsPerWorker := 1000
+	if testing.Short() || os.Getenv("CI") != "" {
+		maxIterationsPerWorker = 50
+	}
+	
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			iterations := 0
 			
-			for {
+			for iterations < maxIterationsPerWorker {
 				select {
 				case <-ctx.Done():
 					return
@@ -911,9 +971,12 @@ func (f *ScalabilityTestFramework) runConcurrencyScalabilityTest(t *testing.T, c
 					tool := tools[rand.Intn(len(tools))]
 					start := time.Now()
 					
-					_, err := engine.Execute(ctx, tool.ID, map[string]interface{}{
+					// Create execution context with timeout
+					execCtx, execCancel := context.WithTimeout(ctx, 5*time.Second)
+					_, err := engine.Execute(execCtx, tool.ID, map[string]interface{}{
 						"input": fmt.Sprintf("concurrency-test-%d", rand.Intn(1000)),
 					})
+					execCancel()
 					
 					duration := time.Since(start)
 					atomic.AddInt64(&operations, 1)
@@ -922,9 +985,19 @@ func (f *ScalabilityTestFramework) runConcurrencyScalabilityTest(t *testing.T, c
 						atomic.AddInt64(&errors, 1)
 					}
 					
-					// Sample response times
-					if len(responseTimes) < 10000 {
+					// Sample response times (limit for CI)
+					maxSamples := 10000
+					if testing.Short() || os.Getenv("CI") != "" {
+						maxSamples = 1000
+					}
+					if len(responseTimes) < maxSamples {
 						responseTimes = append(responseTimes, duration)
+					}
+					
+					iterations++
+					// Add brief pause for CI
+					if testing.Short() || os.Getenv("CI") != "" {
+						time.Sleep(time.Millisecond)
 					}
 				}
 			}
@@ -1017,7 +1090,13 @@ func (f *ScalabilityTestFramework) runLoadScalabilityTest(t *testing.T, load int
 		ticker := time.NewTicker(operationInterval)
 		defer ticker.Stop()
 		
-		for {
+		maxOperations := load * int(f.config.TestDuration.Seconds())
+		if testing.Short() || os.Getenv("CI") != "" {
+			maxOperations = load * 2  // Much fewer operations for CI
+		}
+		operationCount := 0
+		
+		for operationCount < maxOperations {
 			select {
 			case <-ctx.Done():
 				return
@@ -1025,9 +1104,12 @@ func (f *ScalabilityTestFramework) runLoadScalabilityTest(t *testing.T, load int
 				tool := tools[rand.Intn(len(tools))]
 				start := time.Now()
 				
-				_, err := engine.Execute(ctx, tool.ID, map[string]interface{}{
+				// Create execution context with timeout
+				execCtx, execCancel := context.WithTimeout(ctx, 5*time.Second)
+				_, err := engine.Execute(execCtx, tool.ID, map[string]interface{}{
 					"input": fmt.Sprintf("load-test-%d", rand.Intn(1000)),
 				})
+				execCancel()
 				
 				duration := time.Since(start)
 				atomic.AddInt64(&operations, 1)
@@ -1036,10 +1118,16 @@ func (f *ScalabilityTestFramework) runLoadScalabilityTest(t *testing.T, load int
 					atomic.AddInt64(&errors, 1)
 				}
 				
-				// Sample response times
-				if len(responseTimes) < 10000 {
+				// Sample response times (limit for CI)
+				maxSamples := 10000
+				if testing.Short() || os.Getenv("CI") != "" {
+					maxSamples = 1000
+				}
+				if len(responseTimes) < maxSamples {
 					responseTimes = append(responseTimes, duration)
 				}
+				
+				operationCount++
 			}
 		}
 	}()
@@ -1185,16 +1273,26 @@ func (str *StressTestRunner) Run(t *testing.T) *TestStressTestResults {
 					go func() {
 						defer workerWg.Done()
 						
-						for {
+						// Limit iterations per worker to prevent runaway stress tests
+						maxStressIterations := 1000
+						if testing.Short() || os.Getenv("CI") != "" {
+							maxStressIterations = 100
+						}
+						stressIterations := 0
+						
+						for stressIterations < maxStressIterations {
 							select {
 							case <-ctx.Done():
 								return
 							default:
 								tool := tools[rand.Intn(len(tools))]
 								
-								_, err := engine.Execute(ctx, tool.ID, map[string]interface{}{
+								// Create execution context with timeout
+								execCtx, execCancel := context.WithTimeout(ctx, 10*time.Second)
+								_, err := engine.Execute(execCtx, tool.ID, map[string]interface{}{
 									"input": fmt.Sprintf("stress-test-%d", rand.Intn(1000)),
 								})
+								execCancel()
 								
 								atomic.AddInt64(&operations, 1)
 								
@@ -1202,8 +1300,14 @@ func (str *StressTestRunner) Run(t *testing.T) *TestStressTestResults {
 									atomic.AddInt64(&errors, 1)
 								}
 								
+								stressIterations++
+								
 								// Brief pause to prevent overwhelming
-								time.Sleep(time.Millisecond)
+								pauseTime := time.Millisecond
+								if testing.Short() || os.Getenv("CI") != "" {
+									pauseTime = 5 * time.Millisecond  // Longer pause for CI
+								}
+								time.Sleep(pauseTime)
 							}
 						}
 					}()

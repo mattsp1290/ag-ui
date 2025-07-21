@@ -337,11 +337,10 @@ func (h *HeartbeatManager) healthCheckLoop(ctx context.Context) {
 
 // sendPing sends a ping message to the WebSocket connection
 func (h *HeartbeatManager) sendPing() error {
-	h.connection.connMutex.RLock()
+	h.connection.connMutex.Lock()
 	conn := h.connection.conn
-	h.connection.connMutex.RUnlock()
-
 	if conn == nil {
+		h.connection.connMutex.Unlock()
 		return websocket.ErrCloseSent
 	}
 
@@ -350,8 +349,11 @@ func (h *HeartbeatManager) sendPing() error {
 	// Set write deadline
 	conn.SetWriteDeadline(now.Add(h.connection.config.WriteTimeout))
 
-	// Send ping
-	if err := conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+	// Send ping (must be done while holding the lock to prevent concurrent writes)
+	err := conn.WriteMessage(websocket.PingMessage, nil)
+	h.connection.connMutex.Unlock()
+	
+	if err != nil {
 		return err
 	}
 

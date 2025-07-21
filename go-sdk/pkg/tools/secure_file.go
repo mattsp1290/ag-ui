@@ -93,7 +93,7 @@ func (e *SecureFileExecutor) validatePath(path string) error {
 
 	// Check for empty path
 	if path == "" {
-		return fmt.Errorf("invalid path")
+		return fmt.Errorf("access denied")
 	}
 
 	// Decode URL-encoded characters to prevent encoded traversal attacks
@@ -125,6 +125,16 @@ func (e *SecureFileExecutor) validatePath(path string) error {
 	resolvedPath := cleanPath
 	if realPath, evalErr := filepath.EvalSymlinks(cleanPath); evalErr == nil {
 		resolvedPath = realPath
+		// If symlinks are enabled and this path is actually a symlink (not just system-level path resolution),
+		// we need to validate that the symlink target is within allowed paths
+		if e.options.AllowSymlinks && resolvedPath != cleanPath {
+			// Check if the original file path is actually a symlink
+			if info, err := os.Lstat(cleanPath); err == nil && info.Mode()&os.ModeSymlink != 0 {
+				if err := e.validateSymlinkTarget(resolvedPath); err != nil {
+					return fmt.Errorf("access denied: symlink target not allowed")
+				}
+			}
+		}
 	}
 
 	// Now check deny paths after symlink resolution
@@ -455,8 +465,13 @@ func (e *SecureFileExecutor) validateSymlinkTarget(path string) error {
 		if err != nil {
 			continue
 		}
-		rel, err := filepath.Rel(absAllowed, cleanPath)
-		if err == nil && !isPathTraversal(rel) {
+		// Resolve symlinks in allowed path too for consistent comparison
+		resolvedAllowed := absAllowed
+		if realAllowed, evalErr := filepath.EvalSymlinks(absAllowed); evalErr == nil {
+			resolvedAllowed = realAllowed
+		}
+		rel, err := filepath.Rel(resolvedAllowed, cleanPath)
+		if err == nil && !isPathOutside(rel) {
 			return nil
 		}
 	}

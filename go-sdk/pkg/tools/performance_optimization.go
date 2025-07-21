@@ -50,8 +50,18 @@ func OptimizedPerformanceConfig() *PerformanceConfig {
 		ReportFormat:           "json",
 	}
 	
-	// Further optimizations for CI environment
-	if isCI() {
+	// Optimizations for different environments
+	if testing.Short() {
+		// Very aggressive optimizations for testing.Short()
+		config.BaselineIterations = 5
+		config.MaxConcurrency = min(20, runtime.NumCPU() * 2)
+		config.LoadTestDuration = 1 * time.Second
+		config.StressTestDuration = 1 * time.Second
+		config.SpikeTestDuration = 1 * time.Second
+		config.SoakTestDuration = 2 * time.Second
+		config.BaselineWarmupDuration = 500 * time.Millisecond
+	} else if isCI() {
+		// Standard CI optimizations
 		config.BaselineIterations = 10
 		config.MaxConcurrency = min(100, runtime.NumCPU() * 10)
 		config.LoadTestDuration = 3 * time.Second
@@ -149,6 +159,11 @@ func OptimizedRegressionConfig() *RegressionConfig {
 func getOptimalConcurrency() int {
 	numCPU := runtime.NumCPU()
 	
+	// Most conservative for testing.Short()
+	if testing.Short() {
+		return min(20, numCPU * 2)
+	}
+	
 	// In CI environments, be more conservative
 	if isCI() {
 		return min(100, numCPU * 10)
@@ -169,6 +184,9 @@ func min(a, b int) int {
 
 // OptimizedTestTimeout returns an appropriate test timeout for the current environment
 func OptimizedTestTimeout() time.Duration {
+	if testing.Short() {
+		return 10 * time.Second // Very short for testing.Short()
+	}
 	if isCI() {
 		return 30 * time.Second
 	}
@@ -184,11 +202,18 @@ type OptimizedMeasurements struct {
 
 // GetOptimizedMeasurements returns optimized measurement parameters
 func GetOptimizedMeasurements() *OptimizedMeasurements {
+	if testing.Short() {
+		return &OptimizedMeasurements{
+			ThroughputDuration: 1 * time.Second,  // Very short for testing.Short()
+			LatencyIterations:  10,               // Very few iterations
+			MemoryIterations:   5,                // Minimal iterations
+		}
+	}
 	if isCI() {
 		return &OptimizedMeasurements{
 			ThroughputDuration: 2 * time.Second,  // Reduced from 10s
-			LatencyIterations:  20,                // Reduced from 100
-			MemoryIterations:   10,                // Reduced iterations
+			LatencyIterations:  20,               // Reduced from 100
+			MemoryIterations:   10,               // Reduced iterations
 		}
 	}
 	

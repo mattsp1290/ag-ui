@@ -1113,11 +1113,8 @@ func max(a, b int) int {
 }
 
 func main() {
-<<<<<<<< HEAD:go-sdk/examples/tools/performance/resource-monitor/main.go
-========
 	_ = CreateResourceMonitorTool()
 	
->>>>>>>> main:go-sdk/examples/tools/performance/cmd/resource_monitor/main.go
 	// Example usage
 	params := map[string]interface{}{
 		"duration_seconds":      30,

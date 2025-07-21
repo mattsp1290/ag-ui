@@ -29,14 +29,20 @@ type SecureHTTPOptions struct {
 
 	// MaxRedirects defines the maximum number of redirects to follow
 	MaxRedirects int
+
+	// ValidateHostResolution determines if hostname resolution should be validated
+	// When true, hostnames are resolved via DNS to validate they exist
+	// When false, only hostname format is validated (useful for testing)
+	ValidateHostResolution bool
 }
 
 // DefaultSecureHTTPOptions returns secure default options
 func DefaultSecureHTTPOptions() *SecureHTTPOptions {
 	return &SecureHTTPOptions{
-		AllowPrivateNetworks: false,
-		AllowedSchemes:       []string{"http", "https"},
-		MaxRedirects:         5,
+		AllowPrivateNetworks:   false,
+		AllowedSchemes:         []string{"http", "https"},
+		MaxRedirects:           5,
+		ValidateHostResolution: true, // Default to true for security
 		DenyHosts: []string{
 			"metadata.google.internal",
 			"169.254.169.254", // AWS metadata
@@ -97,7 +103,7 @@ func (e *SecureHTTPExecutor) validateURL(urlStr string) error {
 		BlockLocalhost:         !e.options.AllowPrivateNetworks,
 		AllowedHosts:           e.options.AllowedHosts,
 		BlockedHosts:           e.options.DenyHosts,
-		ValidateHostResolution: true,
+		ValidateHostResolution: e.options.ValidateHostResolution,
 	}
 
 	if err := common.ValidateURL(urlStr, opts); err != nil {

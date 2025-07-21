@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/url"
@@ -112,6 +113,10 @@ type ConnectionConfig struct {
 
 	// Logger is the logger instance
 	Logger *zap.Logger
+
+	// TLSClientConfig is the TLS configuration for secure WebSocket connections
+	// If nil, default TLS settings are used
+	TLSClientConfig *tls.Config
 }
 
 // DefaultConnectionConfig returns a default configuration for WebSocket connections
@@ -280,6 +285,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 		ReadBufferSize:    c.config.ReadBufferSize,
 		WriteBufferSize:   c.config.WriteBufferSize,
 		EnableCompression: c.config.EnableCompression,
+		TLSClientConfig:   c.config.TLSClientConfig,
 	}
 
 	// Create a context with dial timeout

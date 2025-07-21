@@ -1,3 +1,5 @@
+// +build integration
+
 package tools
 
 import (
@@ -303,6 +305,11 @@ func NewPerformanceFramework(config *PerformanceConfig) *PerformanceFramework {
 func (pf *PerformanceFramework) RunComprehensivePerformanceTest(t *testing.T) *PerformanceReport {
 	t.Helper()
 	
+	// Skip long-running tests in short mode
+	if testing.Short() {
+		t.Skip("Skipping comprehensive performance test in short mode")
+	}
+	
 	report := &PerformanceReport{
 		StartTime: time.Now(),
 		Config:    pf.config,
@@ -355,12 +362,21 @@ func (pf *PerformanceFramework) RunComprehensivePerformanceTest(t *testing.T) *P
 func (pf *PerformanceFramework) EstablishBaseline(t *testing.T) *BaselineResult {
 	t.Helper()
 	
+	// Skip in short mode for faster CI tests
+	if testing.Short() {
+		t.Skip("Skipping baseline establishment in short mode")
+	}
+	
 	result := &BaselineResult{
 		StartTime: time.Now(),
 	}
 	
-	// Create context with timeout to prevent infinite loops
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Create context with timeout to prevent infinite loops - use optimized timeout
+	timeout := OptimizedTestTimeout()
+	if testing.Short() {
+		timeout = 5 * time.Second // Much shorter for short mode
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	
 	// Create test environment
@@ -403,6 +419,11 @@ func (pf *PerformanceFramework) EstablishBaseline(t *testing.T) *BaselineResult 
 // RunLoadTests runs various load testing patterns
 func (pf *PerformanceFramework) RunLoadTests(t *testing.T) *LoadTestResult {
 	t.Helper()
+	
+	// Skip heavy load tests in short mode
+	if testing.Short() {
+		t.Skip("Skipping load tests in short mode")
+	}
 	
 	result := &LoadTestResult{
 		StartTime: time.Now(),
@@ -450,6 +471,11 @@ func (pf *PerformanceFramework) RunLoadTests(t *testing.T) *LoadTestResult {
 func (pf *PerformanceFramework) RunMemoryTests(t *testing.T) *MemoryTestResult {
 	t.Helper()
 	
+	// Skip resource-intensive memory tests in short mode
+	if testing.Short() {
+		t.Skip("Skipping memory tests in short mode")
+	}
+	
 	result := &MemoryTestResult{
 		StartTime: time.Now(),
 	}
@@ -488,13 +514,22 @@ func (pf *PerformanceFramework) RunMemoryTests(t *testing.T) *MemoryTestResult {
 func (pf *PerformanceFramework) RunScalabilityTests(t *testing.T) *ScalabilityTestResult {
 	t.Helper()
 	
+	// Skip scalability tests in short mode
+	if testing.Short() {
+		t.Skip("Skipping scalability tests in short mode")
+	}
+	
 	result := &ScalabilityTestResult{
 		StartTime: time.Now(),
 		Results:   make(map[int]*PerfScalabilityMeasurement),
 	}
 	
-	// Test different tool counts (reduced for faster execution)
-	toolCounts := []int{10, 50, 100, 200, 500}
+	// Test different tool counts (optimized for environment)
+	toolCounts := []int{10, 50, 100}
+	if !testing.Short() && !isCI() {
+		// Add more extensive testing for local development
+		toolCounts = append(toolCounts, 200, 500)
+	}
 	
 	for _, toolCount := range toolCounts {
 		t.Run(fmt.Sprintf("Tools_%d", toolCount), func(t *testing.T) {
@@ -512,6 +547,11 @@ func (pf *PerformanceFramework) RunScalabilityTests(t *testing.T) *ScalabilityTe
 // RunStressTests runs high-concurrency stress tests
 func (pf *PerformanceFramework) RunStressTests(t *testing.T) *StressTestResult {
 	t.Helper()
+	
+	// Skip stress tests in short mode
+	if testing.Short() {
+		t.Skip("Skipping stress tests in short mode")
+	}
 	
 	result := &StressTestResult{
 		StartTime: time.Now(),
@@ -811,9 +851,16 @@ func (st *StressTest) Run(t *testing.T) []*StressMeasurement {
 		}
 	}()
 	
-	// Start stress test workers
+	// Start stress test workers with optimized concurrency levels
 	var wg sync.WaitGroup
-	concurrencyLevels := []int{10, 25, 50, 100, st.config.StressMaxConcurrency}
+	concurrencyLevels := []int{5, 10, 25}
+	if !testing.Short() {
+		concurrencyLevels = append(concurrencyLevels, 50, 100)
+		if !isCI() {
+			// Only add heavy concurrency for local development
+			concurrencyLevels = append(concurrencyLevels, st.config.StressMaxConcurrency)
+		}
+	}
 	
 	for _, concurrency := range concurrencyLevels {
 		wg.Add(1)
@@ -925,7 +972,13 @@ func (pf *PerformanceFramework) warmupWithContext(parentCtx context.Context, eng
 	defer cancel()
 	
 	var wg sync.WaitGroup
+	// Scale concurrency based on environment
 	concurrency := 10
+	if testing.Short() {
+		concurrency = 3 // Minimal concurrency for short tests
+	} else if isCI() {
+		concurrency = 5 // Reduced concurrency for CI
+	}
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func() {
@@ -1016,6 +1069,10 @@ func (pf *PerformanceFramework) measureBaselineThroughputWithContext(parentCtx c
 	// Use optimized duration for CI environments
 	measurements := GetOptimizedMeasurements()
 	duration := measurements.ThroughputDuration
+	// Further reduce in short mode
+	if testing.Short() {
+		duration = 1 * time.Second
+	}
 	ctx, cancel := context.WithTimeout(parentCtx, duration)
 	defer cancel()
 	
@@ -1067,8 +1124,13 @@ func (pf *PerformanceFramework) measureBaselineMemoryUsageWithContext(ctx contex
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
 	
-	// Execute operations with context and timeout
+	// Execute operations with context and timeout - scale operations based on environment
 	operations := 1000
+	if testing.Short() {
+		operations = 100 // Much fewer operations in short mode
+	} else if isCI() {
+		operations = 500 // Moderate operations in CI
+	}
 	for i := 0; i < operations; i++ {
 		// Check context cancellation
 		select {
@@ -1253,14 +1315,23 @@ func (pf *PerformanceFramework) runMemoryStressTest(t *testing.T, engine *Execut
 	
 	// Stress test with high memory allocation (reduced duration and concurrency)
 	timeout := OptimizedTestTimeout()
-	if isCI() {
+	if testing.Short() {
+		timeout = 2 * time.Second // Very short for testing.Short()
+	} else if isCI() {
 		timeout = 5 * time.Second // Much shorter for CI
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
+	// Scale workers based on environment
+	workers := 20
+	if testing.Short() {
+		workers = 5 // Minimal workers for short tests
+	} else if isCI() {
+		workers = 10 // Moderate workers for CI
+	}
+	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -1306,9 +1377,19 @@ func (pf *PerformanceFramework) runMemoryLeakTest(t *testing.T, engine *Executio
 	}
 	
 	// Run operations and monitor memory
-	for i := 0; i < 10; i++ {
-		// Execute many operations
-		for j := 0; j < 1000; j++ {
+	// Scale operations based on environment
+	iterations := 10
+	operationsPerIteration := 1000
+	if testing.Short() {
+		iterations = 3
+		operationsPerIteration = 100
+	} else if isCI() {
+		iterations = 5
+		operationsPerIteration = 500
+	}
+	for i := 0; i < iterations; i++ {
+		// Execute operations
+		for j := 0; j < operationsPerIteration; j++ {
 			tool := tools[rand.Intn(len(tools))]
 			engine.Execute(context.Background(), tool.ID, map[string]interface{}{
 				"input": fmt.Sprintf("leak-test-%d-%d", i, j),
@@ -1358,7 +1439,13 @@ func (pf *PerformanceFramework) runMemoryEfficiencyTest(t *testing.T, engine *Ex
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
 	
+	// Scale operations based on environment
 	operations := 1000
+	if testing.Short() {
+		operations = 100
+	} else if isCI() {
+		operations = 500
+	}
 	for i := 0; i < operations; i++ {
 		tool := tools[rand.Intn(len(tools))]
 		engine.Execute(context.Background(), tool.ID, map[string]interface{}{

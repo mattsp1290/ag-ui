@@ -894,11 +894,8 @@ func (e *AsyncExecutor) Close() {
 }
 
 func main() {
-<<<<<<<< HEAD:go-sdk/examples/tools/performance/async-executor/main.go
-========
 	_ = CreateAsyncExecutorTool()
 	
->>>>>>>> main:go-sdk/examples/tools/performance/cmd/async_executor/main.go
 	// Example usage
 	params := map[string]interface{}{
 		"work_type":         "mixed",

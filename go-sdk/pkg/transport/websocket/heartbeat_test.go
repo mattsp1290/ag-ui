@@ -113,6 +113,9 @@ func TestHeartbeatHealthMonitoring(t *testing.T) {
 	// Simulate missed pong by setting lastPongAt to an old time using atomic for consistency
 	atomic.StoreInt64(&heartbeat.lastPongAt, time.Now().Add(-200 * time.Millisecond).UnixNano())
 
+	// Ensure heartbeat is in running state for health check to work
+	atomic.StoreInt32(&heartbeat.state, int32(HeartbeatRunning))
+
 	// Check health after missed pong
 	heartbeat.checkHealth()
 	assert.False(t, heartbeat.IsHealthy())

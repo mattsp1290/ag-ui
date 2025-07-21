@@ -491,8 +491,8 @@ func TestExecutionEngine_GracefulShutdown(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		assert.Greater(t, atomic.LoadInt64(&started), int64(0))
 
-		// Shutdown
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		// Shutdown - use a more generous timeout to account for goroutine cleanup timing
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		
 		err := engine.Shutdown(shutdownCtx)

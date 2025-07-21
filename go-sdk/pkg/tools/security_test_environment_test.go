@@ -84,10 +84,11 @@ func (h *SecurityTestHelpers) CreateSecureFileOptions(allowedPaths []string, max
 // CreateSecureHTTPOptions creates secure HTTP options for testing
 func (h *SecurityTestHelpers) CreateSecureHTTPOptions(allowedHosts []string) *SecureHTTPOptions {
 	return &SecureHTTPOptions{
-		AllowedHosts:         allowedHosts,
-		AllowPrivateNetworks: false,
-		AllowedSchemes:       []string{"https"},
-		MaxRedirects:         5,
+		AllowedHosts:           allowedHosts,
+		AllowPrivateNetworks:   false,
+		AllowedSchemes:         []string{"https"},
+		MaxRedirects:           5,
+		ValidateHostResolution: false, // Disable for testing
 	}
 }
 

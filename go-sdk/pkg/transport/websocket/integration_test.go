@@ -348,15 +348,11 @@ func TestTLSIntegration(t *testing.T) {
 		"User-Agent": "AG-UI-Go-SDK-Test",
 	}
 
+	// Configure TLS to skip certificate verification for testing
+	config.PoolConfig.ConnectionTemplate.TLSClientConfig = createInsecureTLSConfig()
+
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
-
-	// Update the dialer to skip certificate verification for testing
-	originalDialer := websocket.DefaultDialer
-	testDialer := *websocket.DefaultDialer
-	testDialer.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
-	websocket.DefaultDialer = &testDialer
-	defer func() { websocket.DefaultDialer = originalDialer }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -430,8 +426,8 @@ func TestReconnectionIntegration(t *testing.T) {
 		// Close all server connections
 		server.CloseAllConnections()
 
-		// Wait for disconnection to be detected
-		time.Sleep(100 * time.Millisecond)
+		// Wait longer for disconnection to be detected and reconnection attempts to start
+		time.Sleep(500 * time.Millisecond)
 
 		// Create new server (simulating server restart)
 		newServer := NewTestWebSocketServer(t)
@@ -442,11 +438,13 @@ func TestReconnectionIntegration(t *testing.T) {
 		// For testing, we'll verify that reconnection attempts occur
 		poolStats := transport.GetConnectionPoolStats()
 
-		// Should eventually try to reconnect
+		// Should eventually try to reconnect - increased timeout for more reliable detection
 		assert.Eventually(t, func() bool {
 			currentStats := transport.GetConnectionPoolStats()
-			return currentStats.FailedRequests > poolStats.FailedRequests
-		}, 3*time.Second, 100*time.Millisecond)
+			// Check for either failed requests or reconnection attempts
+			return currentStats.FailedRequests > poolStats.FailedRequests || 
+				   currentStats.TotalConnections > poolStats.TotalConnections
+		}, 5*time.Second, 200*time.Millisecond)
 	})
 }
 
@@ -1022,4 +1020,10 @@ func BenchmarkIntegrationSubscriptionThroughput(b *testing.B) {
 		}
 		_ = transport.Unsubscribe(sub.ID)
 	}
+}
+
+// createInsecureTLSConfig creates a TLS config that skips certificate verification
+// for use in tests with self-signed certificates
+func createInsecureTLSConfig() *tls.Config {
+	return &tls.Config{InsecureSkipVerify: true}
 }

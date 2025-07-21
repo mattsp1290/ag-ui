@@ -955,11 +955,13 @@ func (e *ExecutionEngine) asyncWorker() {
 			Error:  err,
 		}
 		
+		// Always try to send the result, even if context is canceled
+		// This ensures the caller receives notification of cancellation
 		select {
 		case job.Result <- asyncResult:
 			// Result sent successfully
-		case <-job.Context.Done():
-			// Context cancelled, skip sending result
+		default:
+			// Result channel might be closed or full, continue anyway
 		}
 		
 		// Clean up result channel from map

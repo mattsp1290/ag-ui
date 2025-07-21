@@ -145,12 +145,12 @@ func (t *SSETransport) Send(ctx context.Context, event events.Event) error {
 	}
 
 	if event == nil {
-		return fmt.Errorf("event cannot be nil")
+		return fmt.Errorf("validation error: event cannot be nil")
 	}
 
 	// Validate the event
 	if err := event.Validate(); err != nil {
-		return fmt.Errorf("event validation failed: %w", err)
+		return fmt.Errorf("validation error: event validation failed: %w", err)
 	}
 
 	// Serialize event to JSON

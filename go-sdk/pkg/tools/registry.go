@@ -408,6 +408,11 @@ func NewRegistryWithConfig(config *RegistryConfig) *Registry {
 		config = DefaultRegistryConfig()
 	}
 	
+	// Ensure cleanup interval is positive if background cleanup is enabled
+	if config.EnableBackgroundToolCleanup && config.ToolCleanupInterval <= 0 {
+		config.ToolCleanupInterval = 15 * time.Minute // Use default value
+	}
+	
 	r := &Registry{
 		tools:             make(map[string]*ToolRegistryEntry),
 		categoryIndex:     make(map[string]map[string]bool),
@@ -2627,7 +2632,13 @@ func (r *Registry) removeFromIndexes(tool *Tool) {
 
 // backgroundToolCleanup runs periodic cleanup of expired tools
 func (r *Registry) backgroundToolCleanup() {
-	ticker := time.NewTicker(r.config.ToolCleanupInterval)
+	// Ensure we have a positive interval, use a minimum of 1 second if invalid
+	interval := r.config.ToolCleanupInterval
+	if interval <= 0 {
+		interval = 1 * time.Second // Fallback to prevent panic
+	}
+	
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	
 	for {
@@ -2810,6 +2821,11 @@ func (r *Registry) GetToolsCleanupStats() map[string]interface{} {
 func (r *Registry) UpdateToolsConfig(config *RegistryConfig) error {
 	if config == nil {
 		return fmt.Errorf("config cannot be nil")
+	}
+	
+	// Ensure cleanup interval is positive if background cleanup is enabled
+	if config.EnableBackgroundToolCleanup && config.ToolCleanupInterval <= 0 {
+		config.ToolCleanupInterval = 15 * time.Minute // Use default value
 	}
 	
 	r.mu.Lock()

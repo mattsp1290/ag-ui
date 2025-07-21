@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -554,8 +555,6 @@ func CreateLogStreamingTool() *tools.Tool {
 	}
 }
 
-<<<<<<<< HEAD:go-sdk/examples/tools/streaming/log-streaming/log_streaming.go
-========
 func main() {
 	// Create registry and register the log streaming tool
 	registry := tools.NewRegistry()
@@ -710,4 +709,3 @@ func consumeStream(streamCh <-chan *tools.ToolStreamChunk, maxChunks int) {
 		count++
 	}
 }
->>>>>>>> main:go-sdk/examples/tools/streaming/cmd/log_streaming/main.go

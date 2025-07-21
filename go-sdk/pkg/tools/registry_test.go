@@ -322,7 +322,13 @@ func TestRegistry_List(t *testing.T) {
 }
 
 func TestRegistry_ConcurrentAccess(t *testing.T) {
-	reg := tools.NewRegistry()
+	// Create registry with higher concurrent registration limit for this test
+	config := &tools.RegistryConfig{
+		MaxConcurrentRegistrations: 200, // Allow enough concurrent registrations for test
+		EnableBackgroundToolCleanup: false, // Disable cleanup for test simplicity
+		ToolCleanupInterval: 15 * time.Minute,
+	}
+	reg := tools.NewRegistryWithConfig(config)
 	numGoroutines := 100
 	toolsPerGoroutine := 10
 

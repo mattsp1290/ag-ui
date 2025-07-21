@@ -1125,6 +1125,11 @@ func (v *SchemaValidator) validateConditionalWithDepth(prop *Property, value int
 		return nil
 	}
 	
+	// Check depth limit before proceeding
+	if depth > v.maxValidationDepth {
+		return newValidationErrorWithCode(path, fmt.Sprintf("validation recursion depth %d exceeds maximum %d", depth, v.maxValidationDepth), "RECURSION_DEPTH_EXCEEDED")
+	}
+	
 	// First, validate the base schema (if it has a type)
 	if prop.Type != "" {
 		switch prop.Type {
@@ -1149,7 +1154,7 @@ func (v *SchemaValidator) validateConditionalWithDepth(prop *Property, value int
 				return err
 			}
 		case "object":
-			if err := v.validateObjectProperty(prop, value, path); err != nil {
+			if err := v.validateObjectPropertyWithDepth(prop, value, path, depth); err != nil {
 				return err
 			}
 		}

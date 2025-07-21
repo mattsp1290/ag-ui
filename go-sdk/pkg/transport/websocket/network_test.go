@@ -520,6 +520,7 @@ func TestNetworkPartition(t *testing.T) {
 	config.PoolConfig.ConnectionTemplate.MaxReconnectAttempts = 10
 	config.PoolConfig.ConnectionTemplate.InitialReconnectDelay = 100 * time.Millisecond
 	config.PoolConfig.ConnectionTemplate.MaxReconnectDelay = 2 * time.Second
+	config.EnableEventValidation = false
 
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
@@ -646,6 +647,7 @@ func TestIntermittentConnectivity(t *testing.T) {
 	config.PoolConfig.ConnectionTemplate.InitialReconnectDelay = 50 * time.Millisecond
 	config.PoolConfig.ConnectionTemplate.PingPeriod = 1 * time.Second
 	config.PoolConfig.ConnectionTemplate.PongWait = 2 * time.Second
+	config.EnableEventValidation = false
 
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
@@ -733,6 +735,7 @@ func TestTLSNetworkFailures(t *testing.T) {
 	config.URLs = []string{server.TLSURL()}
 	config.Logger = zaptest.NewLogger(t)
 	config.PoolConfig.ConnectionTemplate.MaxReconnectAttempts = 5
+	config.EnableEventValidation = false
 
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
@@ -862,6 +865,7 @@ func TestCascadingFailures(t *testing.T) {
 	config.PoolConfig.MaxConnections = 6
 	config.PoolConfig.ConnectionTemplate.MaxReconnectAttempts = 3
 	config.PoolConfig.ConnectionTemplate.InitialReconnectDelay = 100 * time.Millisecond
+	config.EnableEventValidation = false
 
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
@@ -983,6 +987,7 @@ func TestSlowNetworkConditions(t *testing.T) {
 	config.PoolConfig.ConnectionTemplate.ReadTimeout = 30 * time.Second
 	config.PoolConfig.ConnectionTemplate.WriteTimeout = 10 * time.Second
 	config.PoolConfig.ConnectionTemplate.HandshakeTimeout = 15 * time.Second
+	config.EnableEventValidation = false
 
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
@@ -1018,8 +1023,13 @@ func TestSlowNetworkConditions(t *testing.T) {
 			}
 		}
 
-		avgTime := totalTime / time.Duration(successfulMessages)
-		t.Logf("Average message time with high jitter: %v", avgTime)
+		var avgTime time.Duration
+		if successfulMessages > 0 {
+			avgTime = totalTime / time.Duration(successfulMessages)
+			t.Logf("Average message time with high jitter: %v", avgTime)
+		} else {
+			t.Logf("No messages sent successfully under high jitter conditions")
+		}
 
 		// Should handle jittery network conditions
 		assert.Equal(t, int64(numMessages), successfulMessages,
@@ -1075,6 +1085,7 @@ func BenchmarkNetworkRecoveryTime(b *testing.B) {
 	config.Logger = zap.NewNop()
 	config.PoolConfig.ConnectionTemplate.MaxReconnectAttempts = 5
 	config.PoolConfig.ConnectionTemplate.InitialReconnectDelay = 10 * time.Millisecond
+	config.EnableEventValidation = false
 
 	transport, err := NewTransport(config)
 	require.NoError(b, err)

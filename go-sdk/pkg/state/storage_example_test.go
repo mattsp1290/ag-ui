@@ -18,6 +18,11 @@ func (n *noOpLogger) Warn(msg string, fields ...Field)       {}
 func (n *noOpLogger) Error(msg string, fields ...Field)      {}
 func (n *noOpLogger) WithFields(fields ...Field) Logger      { return n }
 func (n *noOpLogger) WithContext(ctx context.Context) Logger { return n }
+func (n *noOpLogger) DebugTyped(msg string, fields ...FieldProvider) {}
+func (n *noOpLogger) InfoTyped(msg string, fields ...FieldProvider)  {}
+func (n *noOpLogger) WarnTyped(msg string, fields ...FieldProvider)  {}
+func (n *noOpLogger) ErrorTyped(msg string, fields ...FieldProvider) {}
+func (n *noOpLogger) WithTypedFields(fields ...FieldProvider) Logger { return n }
 
 // ExampleRedisBackend demonstrates how to use Redis storage backend
 func ExampleRedisBackend() {

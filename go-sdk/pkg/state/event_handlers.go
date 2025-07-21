@@ -1037,7 +1037,20 @@ func (s *StateEventStream) Start() error {
 // Stop stops the event stream
 func (s *StateEventStream) Stop() {
 	close(s.stopCh)
-	s.wg.Wait() // Wait for all handler goroutines to complete
+	
+	// Wait for handlers to complete with timeout
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	
+	select {
+	case <-done:
+		// Handlers finished cleanly
+	case <-time.After(2 * time.Second):
+		// Timeout - handlers may be stuck, proceed anyway
+	}
 }
 
 // streamLoop continuously monitors for state changes

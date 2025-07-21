@@ -89,6 +89,10 @@ func (m *MockNilStateStore) GetState() map[string]interface{} {
 	return nil // This will test our nil handling
 }
 
+func (m *MockNilStateStore) Close() error {
+	return nil
+}
+
 // TestStoreHealthCheckNilStateReturn tests handling of nil return from GetState
 func TestStoreHealthCheckNilStateReturn(t *testing.T) {
 	store := &MockNilStateStore{}

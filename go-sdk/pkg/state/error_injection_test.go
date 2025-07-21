@@ -51,11 +51,7 @@ func (fs *FailingStore) Get(path string) (interface{}, error) {
 		case "storage":
 			return nil, ErrInjectedStorage
 		case "timeout":
-
 			return nil, context.DeadlineExceeded
-
-			time.Sleep(100 * time.Millisecond) // Reduced from 2 seconds
-			return nil, ErrInjectedTimeout
 
 		case "corrupt":
 			// Return corrupted data
@@ -234,6 +230,22 @@ func (fs *FailingStore) Import(data []byte) error {
 // GetState implements StoreInterface - forwards to underlying store
 func (fs *FailingStore) GetState() map[string]interface{} {
 	return fs.store.GetState()
+}
+
+// Close implements StoreInterface - forwards to underlying store
+func (fs *FailingStore) Close() error {
+	if fs.shouldFail("") {
+		atomic.AddInt32(&fs.failCount, 1)
+		switch fs.failureMode {
+		case "storage":
+			return ErrInjectedStorage
+		case "timeout":
+			return context.DeadlineExceeded
+		default:
+			return fmt.Errorf("injected error: %s", fs.failureMode)
+		}
+	}
+	return fs.store.Close()
 }
 
 // FailingValidator implements a validator that can inject failures

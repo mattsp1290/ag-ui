@@ -421,8 +421,6 @@ func TestStateEventHandler_Callbacks(t *testing.T) {
 	var snapshotCalled, deltaCalled, stateChangeCalled bool
 	var callbackMu sync.Mutex
 
-	var snapshotCalled, deltaCalled bool
-
 
 	handler := NewStateEventHandler(store,
 		WithSnapshotCallback(func(event *events.StateSnapshotEvent) error {

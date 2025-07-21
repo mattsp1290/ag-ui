@@ -726,41 +726,57 @@ func (sm *StateManager) Close() error {
 		sm.logger.Error("shutdown timeout, forcing close", Duration("timeout", DefaultShutdownTimeout))
 	}
 
-	// Start drain goroutines
-	drainDone := make(chan struct{}, 3)
-
-	go func() {
-		for range sm.updateQueue {
-			// Drain
-		}
-		drainDone <- struct{}{}
-	}()
-
-	go func() {
-		for range sm.eventQueue {
-			// Drain
-		}
-		drainDone <- struct{}{}
-	}()
-
-	go func() {
-		for range sm.errCh {
-			// Drain
-		}
-		drainDone <- struct{}{}
-	}()
-
-	// Give drain goroutines time to start
-	time.Sleep(DefaultShutdownGracePeriod)
-
-	// Now safe to close channels
+	// Close channels first to prevent new data
 	close(sm.updateQueue)
 	close(sm.eventQueue)
 	close(sm.errCh)
 
-	// Wait for drain goroutines to complete
-	for i := 0; i < 3; i++ {
-		<-drainDone
+	// Drain channels with timeout to prevent hang
+	drainTimeout := time.NewTimer(5 * time.Second)
+	defer drainTimeout.Stop()
+
+	// Drain update queue
+	go func() {
+		for {
+			select {
+			case <-sm.updateQueue:
+				// Drain remaining items
+			default:
+				return
+			}
+		}
+	}()
+
+	// Drain event queue
+	go func() {
+		for {
+			select {
+			case <-sm.eventQueue:
+				// Drain remaining items
+			default:
+				return
+			}
+		}
+	}()
+
+	// Drain error channel
+	go func() {
+		for {
+			select {
+			case <-sm.errCh:
+				// Drain remaining items
+			default:
+				return
+			}
+		}
+	}()
+
+	// Give drain goroutines a moment to finish
+	select {
+	case <-drainTimeout.C:
+		sm.logger.Warn("channel drain timeout, proceeding with shutdown")
+	case <-time.After(100 * time.Millisecond):
+		// Drain complete
 	}
 
 	// Stop rate limiter

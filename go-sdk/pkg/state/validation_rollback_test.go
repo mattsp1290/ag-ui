@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -481,7 +482,7 @@ func TestStateRollback(t *testing.T) {
 		// Use root path to ensure version is created
 		err := store.Set("/", map[string]interface{}{"count": 10})
 
-		err := store.Set("/", map[string]interface{}{
+		err = store.Set("/", map[string]interface{}{
 			"count": 10,
 		})
 

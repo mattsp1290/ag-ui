@@ -455,10 +455,6 @@ func TestStateRollback(t *testing.T) {
 					if firstValue != 1 {
 						t.Errorf("Rollback with %s strategy failed, expected first element to be 1, got: %v (type: %T)", strategy.Name(), firstElem, firstElem)
 					}
-
-				if len(dataArr) != 3 || dataArr[0] != 1 {
-					t.Errorf("Rollback with %s strategy failed, got: %v", strategy.Name(), data)
-
 				}
 			})
 		}

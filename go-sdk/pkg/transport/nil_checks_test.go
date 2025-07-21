@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/ag-ui/go-sdk/pkg/core/events"
 )
 
 // TestNilChecksTransportRegistry tests nil checks in transport registry methods
@@ -117,7 +119,7 @@ func TestNilChecksTransportManager(t *testing.T) {
 
 	t.Run("DefaultTransportManager AddTransport with nil manager", func(t *testing.T) {
 		var manager *DefaultTransportManager
-		err := manager.AddTransport("test", &MockTransport{})
+		err := manager.AddTransport("test", &MockTransportForNilChecks{})
 		if err == nil {
 			t.Error("Expected error when manager is nil")
 		}
@@ -162,7 +164,7 @@ func TestNilChecksTransportManager(t *testing.T) {
 
 	t.Run("DefaultTransportManager SendEvent with nil manager", func(t *testing.T) {
 		var manager *DefaultTransportManager
-		err := manager.SendEvent(context.Background(), "test event")
+		err := manager.SendEvent(context.Background(), &MockTransportEvent{id: "test-1", eventType: "test", data: map[string]interface{}{"test": "event"}})
 		if err == nil {
 			t.Error("Expected error when manager is nil")
 		}
@@ -174,7 +176,7 @@ func TestNilChecksTransportManager(t *testing.T) {
 	t.Run("DefaultTransportManager SendEvent with nil context", func(t *testing.T) {
 		registry := NewDefaultTransportRegistry()
 		manager := NewDefaultTransportManager(registry)
-		err := manager.SendEvent(nil, "test event")
+		err := manager.SendEvent(nil, &MockTransportEvent{id: "test-2", eventType: "test", data: map[string]interface{}{"test": "event"}})
 		if err == nil {
 			t.Error("Expected error when context is nil")
 		}
@@ -196,63 +198,53 @@ func TestNilChecksTransportManager(t *testing.T) {
 	})
 }
 
-// Mock implementations for testing
-type MockTransportFactory struct{}
+// Simple MockTransport for nil checks testing
+type MockTransportForNilChecks struct{}
 
-func (f *MockTransportFactory) Create(config Config) (Transport, error) {
-	return &MockTransport{}, nil
-}
-
-func (f *MockTransportFactory) CreateWithContext(ctx context.Context, config Config) (Transport, error) {
-	return &MockTransport{}, nil
-}
-
-func (f *MockTransportFactory) SupportedTypes() []string {
-	return []string{"mock"}
-}
-
-func (f *MockTransportFactory) Name() string {
-	return "mock"
-}
-
-func (f *MockTransportFactory) Version() string {
-	return "1.0.0"
-}
-
-type MockTransport struct{}
-
-func (t *MockTransport) Connect(ctx context.Context) error {
+func (t *MockTransportForNilChecks) Connect(ctx context.Context) error {
 	return nil
 }
 
-func (t *MockTransport) Disconnect(ctx context.Context) error {
+func (t *MockTransportForNilChecks) Disconnect(ctx context.Context) error {
 	return nil
 }
 
-func (t *MockTransport) IsConnected() bool {
+func (t *MockTransportForNilChecks) IsConnected() bool {
 	return true
 }
 
-func (t *MockTransport) SendEvent(ctx context.Context, event any) error {
+func (t *MockTransportForNilChecks) SendEvent(ctx context.Context, event any) error {
 	return nil
 }
 
-func (t *MockTransport) ReceiveEvents(ctx context.Context) (<-chan any, error) {
+func (t *MockTransportForNilChecks) Send(ctx context.Context, event TransportEvent) error {
+	return nil
+}
+
+func (t *MockTransportForNilChecks) ReceiveEvents(ctx context.Context) (<-chan any, error) {
 	ch := make(chan any)
 	close(ch)
 	return ch, nil
 }
 
-func (t *MockTransport) Close() error {
+func (t *MockTransportForNilChecks) Close(ctx context.Context) error {
 	return nil
 }
 
-func (t *MockTransport) Stats() TransportStats {
+func (t *MockTransportForNilChecks) Stats() TransportStats {
 	return TransportStats{}
 }
 
-func (t *MockTransport) Config() Config {
+func (t *MockTransportForNilChecks) Config() Config {
 	return &MockConfig{}
+}
+
+func (t *MockTransportForNilChecks) Channels() (<-chan events.Event, <-chan error) {
+	eventCh := make(chan events.Event)
+	errCh := make(chan error)
+	close(eventCh)
+	close(errCh)
+	return eventCh, errCh
 }
 
 type MockConfig struct{}
@@ -283,4 +275,57 @@ func (c *MockConfig) GetHeaders() map[string]string {
 
 func (c *MockConfig) IsSecure() bool {
 	return false
+}
+
+// MockTransportFactory implements TransportFactory for testing
+type MockTransportFactory struct{}
+
+func (f *MockTransportFactory) Create(config Config) (Transport, error) {
+	return &MockTransportForNilChecks{}, nil
+}
+
+func (f *MockTransportFactory) CreateWithContext(ctx context.Context, config Config) (Transport, error) {
+	return &MockTransportForNilChecks{}, nil
+}
+
+func (f *MockTransportFactory) SupportedTypes() []string {
+	return []string{"mock"}
+}
+
+func (f *MockTransportFactory) Name() string {
+	return "MockTransportFactory"
+}
+
+func (f *MockTransportFactory) Version() string {
+	return "1.0.0"
+}
+
+// MockTransportEvent implements TransportEvent for testing
+type MockTransportEvent struct {
+	id        string
+	eventType string
+	timestamp time.Time
+	data      map[string]interface{}
+}
+
+func (e *MockTransportEvent) ID() string {
+	return e.id
+}
+
+func (e *MockTransportEvent) Type() string {
+	return e.eventType
+}
+
+func (e *MockTransportEvent) Timestamp() time.Time {
+	if e.timestamp.IsZero() {
+		return time.Now()
+	}
+	return e.timestamp
+}
+
+func (e *MockTransportEvent) Data() map[string]interface{} {
+	if e.data == nil {
+		return make(map[string]interface{})
+	}
+	return e.data
 }

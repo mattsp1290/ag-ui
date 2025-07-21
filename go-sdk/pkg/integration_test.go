@@ -222,7 +222,8 @@ func TestConcurrentEventFlow(t *testing.T) {
 
 	// Create components
 	sm, err := state.NewStateManager(state.ManagerOptions{
-		MaxHistorySize: 100, // Reduced from 1000
+		MaxHistorySize:  100,  // Reduced from 1000
+		GlobalRateLimit: 1000, // Set to avoid divide by zero
 	})
 	require.NoError(t, err)
 	defer sm.Close()

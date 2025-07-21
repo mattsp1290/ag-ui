@@ -468,7 +468,6 @@ func NewMemoryTestSuite(config *MemoryTestConfig) *MemoryTestSuite {
 			&PatternDetector{},
 		},
 		isRunning: false,
-		stopChan:  make(chan struct{}),
 	}
 	
 	return suite
@@ -1751,7 +1750,6 @@ func (suite *MemoryTestSuite) calculateGCStatistics(snapshots []MemorySnapshot) 
 	
 	totalPause := last.PauseTotalNs - first.PauseTotalNs
 	
-<<<<<<< HEAD
 	// Handle division by zero for average pause calculation
 	var avgPause time.Duration
 	if totalGCs > 0 {

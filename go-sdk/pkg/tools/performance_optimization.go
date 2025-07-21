@@ -3,6 +3,7 @@ package tools
 import (
 	"os"
 	"runtime"
+	"testing"
 	"time"
 )
 
@@ -157,28 +158,6 @@ func getOptimalConcurrency() int {
 	return min(1000, numCPU * 50)
 }
 
-// isCI detects if running in a CI environment
-func isCI() bool {
-	// Check common CI environment variables
-	ciVars := []string{
-		"CI",
-		"CONTINUOUS_INTEGRATION",
-		"GITHUB_ACTIONS",
-		"JENKINS_URL",
-		"GITLAB_CI",
-		"CIRCLECI",
-		"TRAVIS",
-		"BUILDKITE",
-	}
-	
-	for _, v := range ciVars {
-		if os.Getenv(v) != "" {
-			return true
-		}
-	}
-	
-	return false
-}
 
 // min returns the minimum of two integers
 func min(a, b int) int {
@@ -218,4 +197,9 @@ func GetOptimizedMeasurements() *OptimizedMeasurements {
 		LatencyIterations:  50,
 		MemoryIterations:   20,
 	}
+}
+
+// isCI checks if running in CI environment
+func isCI() bool {
+	return testing.Short() || os.Getenv("CI") != ""
 }

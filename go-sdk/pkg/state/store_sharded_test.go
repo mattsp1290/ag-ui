@@ -326,23 +326,6 @@ func BenchmarkShardedStateStore_ContentionDemonstration(b *testing.B) {
 					}(g)
 				}
 				wg.Wait()
-
-
-			numGoroutines := 10  // Reduced from 50
-			numOperations := 50  // Reduced from 1000
-			start := time.Now()
-
-			var wg sync.WaitGroup
-			for i := 0; i < numGoroutines; i++ {
-				wg.Add(1)
-				go func(id int) {
-					defer wg.Done()
-					for j := 0; j < numOperations; j++ {
-						path := fmt.Sprintf("/worker%d/item%d", id, j)
-						store.Set(path, map[string]interface{}{"value": j})
-					}
-				}(i)
-
 			}
 			
 			b.ReportMetric(float64(numGoroutines*opsPerGoroutine), "ops/iteration")

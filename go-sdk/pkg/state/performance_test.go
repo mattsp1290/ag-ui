@@ -165,24 +165,16 @@ func BenchmarkRateLimiter(b *testing.B) {
 func BenchmarkHighFrequencyStateUpdates(b *testing.B) {
 	// Create optimized state manager
 	opts := DefaultPerformanceOptions()
-	opts.BatchSize = 50 // Smaller batch size for faster processing
+	opts.BatchSize = 50                      // Smaller batch size for faster processing
 	opts.BatchTimeout = 5 * time.Millisecond // Shorter timeout
 	po := NewPerformanceOptimizer(opts)
 	defer po.Stop()
 
 	store := NewStateStore()
 
-	
 	// Pre-populate state with fewer items for faster setup
 	initialState := make(map[string]interface{})
 	for i := 0; i < 100; i++ { // Reduced from 1000 to 100
-
-	_ = NewDeltaComputer(DefaultDeltaOptions())
-
-	// Pre-populate state (reduced from 1000)
-	initialState := make(map[string]interface{})
-	for i := 0; i < 100; i++ {
-
 		initialState[fmt.Sprintf("sensor_%d", i)] = map[string]interface{}{
 			"value":     0.0,
 			"timestamp": time.Now().Unix(),
@@ -216,8 +208,6 @@ func BenchmarkHighFrequencyStateUpdates(b *testing.B) {
 
 				sensorID := i % 100 // Reduced from 1000 to 100
 
-				sensorID := i % 100
-
 				path := fmt.Sprintf("/sensor_%d/value", sensorID)
 
 				// Use batch operation for updates with timeout
@@ -248,7 +238,6 @@ func BenchmarkHighFrequencyStateUpdates(b *testing.B) {
 	metrics := po.GetMetrics()
 	b.ReportMetric(metrics.PoolEfficiency, "pool_eff_%")
 	b.ReportMetric(float64(metrics.GCPauses), "gc_pauses")
-
 
 	// Adjusted performance requirement for more realistic expectations
 

@@ -222,11 +222,7 @@ func testConcurrentOptimization(t *testing.T) {
 	var wg sync.WaitGroup
 	successCount := 0
 
-
 	for i := 0; i < 5; i++ {
-
-	for i := 0; i < 10; i++ {
-
 		idx := i
 		success := co.Execute(func() {
 			executed[idx] = true
@@ -235,13 +231,7 @@ func testConcurrentOptimization(t *testing.T) {
 
 		if success {
 			wg.Add(1)
-
 			successCount++
-		}
-	}
-
-	// Wait with a timeout to prevent hanging
-
 		} else if idx < maxConcurrency*2 {
 			t.Errorf("Expected task %d to be accepted", idx)
 		}
@@ -459,16 +449,6 @@ func testHighConcurrency(t *testing.T) {
 	maxErrors := (numGoroutines * numOpsPerGoroutine) / 10
 	if errorCount > maxErrors {
 		t.Errorf("Too many concurrent operation failures: %d errors", errorCount)
-
-			if errorCount <= 5 { // Only log first 5 errors
-				t.Logf("Concurrent operation failed: %v", err)
-			}
-		}
-	}
-
-	if errorCount > numGoroutines/5 { // Allow up to 20% errors
-		t.Errorf("Too many errors: %d/%d", errorCount, numGoroutines*numOpsPerGoroutine)
-
 	}
 }
 
@@ -643,10 +623,6 @@ func testHighConcurrencyTarget(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second) // Reduced timeout
 			defer cancel()
 
-			err := po.ProcessLargeStateUpdate(ctx, func() error {
-				// Simulate client work (reduced sleep)
-				time.Sleep(10 * time.Microsecond)
-
 			select {
 			case <-testCtx.Done():
 				errors <- testCtx.Err()
@@ -659,7 +635,6 @@ func testHighConcurrencyTarget(t *testing.T) {
 
 			err := po.ProcessLargeStateUpdate(ctx, func() error {
 				// Minimal work to avoid timeouts
-
 				return nil
 			})
 

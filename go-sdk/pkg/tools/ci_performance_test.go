@@ -1384,10 +1384,6 @@ func generateRunID() string {
 	return fmt.Sprintf("run-%d", time.Now().UnixNano())
 }
 
-// isCI checks if running in CI environment
-func isCI() bool {
-	return testing.Short() || os.Getenv("CI") != ""
-}
 
 func collectSystemInfo() *SystemInfo {
 	return &SystemInfo{

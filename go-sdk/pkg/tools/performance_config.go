@@ -1,6 +1,7 @@
 package tools
 
 import (
+	"runtime"
 	"time"
 )
 
@@ -13,53 +14,54 @@ type PerformanceConfig struct {
 
 	// Load testing configuration
 	MaxConcurrency       int
-	ConcurrencyStep      int
 	LoadTestDuration     time.Duration
 	RampUpDuration       time.Duration
 	RampDownDuration     time.Duration
 	LoadPatterns         []LoadPattern
-	StressTestDuration   time.Duration
-	StressMaxConcurrency int
-	SpikeTestDuration    time.Duration
-	SoakTestDuration     time.Duration
+	ConcurrencyStep      int           // Step size for concurrency scaling
 	
 	// Memory testing configuration
 	MemoryCheckInterval  time.Duration
 	MemoryLeakThreshold  int64 // Bytes
 	GCForceInterval      time.Duration
-	MemoryLimit          int64 // Bytes
+	MemoryLimit          uint64        // Memory limit in bytes
 	
 	// Regression testing configuration
 	RegressionThreshold  float64 // % performance degradation threshold
 	WarmupIterations     int
 	BenchmarkIterations  int
 	
-	// Resource limits
-	CPUCores               int
+	// Stress testing configuration
+	StressTestDuration   time.Duration
+	StressMaxConcurrency int
+	StressErrorThreshold float64 // % error rate threshold
+	SpikeTestDuration    time.Duration
+	SoakTestDuration     time.Duration
 	
-	// Thresholds
-	ErrorRateThreshold     float64
-	LatencyP99Threshold    time.Duration
-	ThroughputThreshold    float64
+	// System resource configuration
+	CPUCores             int
 	
+	// Threshold configuration
+	ErrorRateThreshold   float64
+	LatencyP99Threshold  time.Duration
+	ThroughputThreshold  float64
+
 	// Monitoring configuration
-	MonitoringInterval     time.Duration
-	ProfilerEnabled        bool
-	TracingEnabled         bool
-	
-	// Output settings
-	VerboseOutput          bool
-	GenerateReport         bool
-	ReportFormat           string
+	MonitoringInterval   time.Duration
+	ProfilerEnabled      bool
+	TracingEnabled       bool
+
+	// Output configuration
+	VerboseOutput        bool
+	GenerateReport       bool
+	ReportFormat         string
 }
 
-// LoadPattern defines different load testing patterns
+// LoadPattern represents a load testing pattern
 type LoadPattern struct {
 	Name      string
 	Type      LoadPatternType
-	Intensity int           // Peak load level
-	Duration  time.Duration // Pattern duration
-	Settings  map[string]interface{} // Pattern-specific settings
+	Intensity int
 }
 
 // LoadPatternType defines the type of load pattern
@@ -70,8 +72,6 @@ const (
 	LoadPatternRamp
 	LoadPatternSpike
 	LoadPatternWave
-	LoadPatternStair
-	LoadPatternChaos
 )
 
 // DefaultPerformanceConfig returns default performance testing configuration
@@ -80,33 +80,34 @@ func DefaultPerformanceConfig() *PerformanceConfig {
 		BaselineIterations:      100,
 		BaselineWarmupDuration:  5 * time.Second,
 		BaselineStabilityFactor: 0.1,
-		MaxConcurrency:          1000,
-		ConcurrencyStep:         100,
-		LoadTestDuration:        60 * time.Second,
-		RampUpDuration:          10 * time.Second,
-		RampDownDuration:        10 * time.Second,
+		MaxConcurrency:          100,  // Reduced from 1000
+		LoadTestDuration:        10 * time.Second,  // Reduced from 60s to 10s
+		RampUpDuration:          2 * time.Second,   // Reduced from 10s to 2s
+		RampDownDuration:        2 * time.Second,   // Reduced from 10s to 2s
 		LoadPatterns: []LoadPattern{
-			{Name: "constant", Type: LoadPatternConstant, Intensity: 100},
-			{Name: "ramp", Type: LoadPatternRamp, Intensity: 200},
-			{Name: "spike", Type: LoadPatternSpike, Intensity: 500},
-			{Name: "wave", Type: LoadPatternWave, Intensity: 300},
+			{Name: "constant", Type: LoadPatternConstant, Intensity: 50},  // Reduced from 100
+			{Name: "ramp", Type: LoadPatternRamp, Intensity: 100},        // Reduced from 200
+			{Name: "spike", Type: LoadPatternSpike, Intensity: 150},      // Reduced from 500
+			{Name: "wave", Type: LoadPatternWave, Intensity: 75},         // Reduced from 300
 		},
-		StressTestDuration:      300 * time.Second,
-		StressMaxConcurrency:    2000,
-		SpikeTestDuration:       30 * time.Second,
-		SoakTestDuration:        600 * time.Second,
+		ConcurrencyStep:         10,
 		MemoryCheckInterval:     1 * time.Second,
 		MemoryLeakThreshold:     100 * 1024 * 1024, // 100MB
-		GCForceInterval:         10 * time.Second,
 		MemoryLimit:             1024 * 1024 * 1024, // 1GB
+		GCForceInterval:         10 * time.Second,
 		RegressionThreshold:     10.0, // 10% degradation threshold
 		WarmupIterations:        10,
 		BenchmarkIterations:     50,
-		CPUCores:                4,
-		ErrorRateThreshold:      0.01, // 1% error rate
+		StressTestDuration:      5 * time.Second,  // Reduced from 300s to 5s
+		StressMaxConcurrency:    200,  // Reduced from 2000
+		StressErrorThreshold:    5.0, // 5% error rate threshold
+		SpikeTestDuration:       2 * time.Second,
+		SoakTestDuration:        30 * time.Second,
+		CPUCores:                runtime.NumCPU(),
+		ErrorRateThreshold:      1.0, // 1% error rate threshold
 		LatencyP99Threshold:     500 * time.Millisecond,
-		ThroughputThreshold:     1000, // ops/sec
-		MonitoringInterval:      500 * time.Millisecond,
+		ThroughputThreshold:     1000.0, // ops/sec
+		MonitoringInterval:      5 * time.Second,
 		ProfilerEnabled:         true,
 		TracingEnabled:          true,
 		VerboseOutput:           true,

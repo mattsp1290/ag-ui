@@ -10,6 +10,13 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/encoding"
 )
 
+// Ensure JSONEncoder implements the focused interfaces
+var (
+	_ encoding.Encoder                      = (*JSONEncoder)(nil)
+	_ encoding.ContentTypeProvider          = (*JSONEncoder)(nil)
+	_ encoding.StreamingCapabilityProvider  = (*JSONEncoder)(nil)
+)
+
 // JSONEncoder implements the Encoder interface for JSON format
 // This encoder is stateless and thread-safe for concurrent use.
 type JSONEncoder struct {
@@ -57,19 +64,21 @@ func (e *JSONEncoder) Encode(ctx context.Context, event events.Event) ([]byte, e
 		}
 	}
 
-	// Check concurrency limits
+	// Check concurrency limits atomically to avoid race condition
 	if e.maxConcurrent > 0 {
-		if current := atomic.LoadInt32(&e.activeOperations); current >= e.maxConcurrent {
+		// Atomically increment and check the limit
+		current := atomic.AddInt32(&e.activeOperations, 1)
+		if current > e.maxConcurrent {
+			// Exceeded limit, decrement and return error
+			atomic.AddInt32(&e.activeOperations, -1)
 			return nil, &encoding.EncodingError{
 				Format:  "json",
 				Message: fmt.Sprintf("encoding concurrency limit exceeded: %d", e.maxConcurrent),
 			}
 		}
+		// Operation is within limit, ensure decrement happens on exit
+		defer atomic.AddInt32(&e.activeOperations, -1)
 	}
-
-	// Track active operation
-	atomic.AddInt32(&e.activeOperations, 1)
-	defer atomic.AddInt32(&e.activeOperations, -1)
 
 	if event == nil {
 		return nil, &encoding.EncodingError{
@@ -220,19 +229,21 @@ func (e *JSONEncoder) EncodeMultiple(ctx context.Context, events []events.Event)
 		}
 	}
 
-	// Check concurrency limits
+	// Check concurrency limits atomically to avoid race condition
 	if e.maxConcurrent > 0 {
-		if current := atomic.LoadInt32(&e.activeOperations); current >= e.maxConcurrent {
+		// Atomically increment and check the limit
+		current := atomic.AddInt32(&e.activeOperations, 1)
+		if current > e.maxConcurrent {
+			// Exceeded limit, decrement and return error
+			atomic.AddInt32(&e.activeOperations, -1)
 			return nil, &encoding.EncodingError{
 				Format:  "json",
 				Message: fmt.Sprintf("encoding concurrency limit exceeded: %d", e.maxConcurrent),
 			}
 		}
+		// Operation is within limit, ensure decrement happens on exit
+		defer atomic.AddInt32(&e.activeOperations, -1)
 	}
-
-	// Track active operation
-	atomic.AddInt32(&e.activeOperations, 1)
-	defer atomic.AddInt32(&e.activeOperations, -1)
 
 	if len(events) == 0 {
 		return []byte("[]"), nil

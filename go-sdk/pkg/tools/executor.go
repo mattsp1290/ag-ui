@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	
+	"github.com/ag-ui/go-sdk/pkg/internal/timeconfig"
 )
 
 // ExecutionEngine manages the execution of tools.
@@ -184,7 +186,7 @@ func NewExecutionEngine(registry *Registry, opts ...ExecutionEngineOption) *Exec
 	e := &ExecutionEngine{
 		registry:       registry,
 		maxConcurrent:  100,              // Default max concurrent executions
-		defaultTimeout: 30 * time.Second, // Default timeout
+		defaultTimeout: timeconfig.ToolExecutionTimeout(), // Configurable timeout
 		metrics: &ExecutionMetrics{
 			toolMetrics: make(map[string]*ToolMetrics),
 		},
@@ -419,7 +421,7 @@ func (e *ExecutionEngine) ExecuteStream(ctx context.Context, toolID string, para
 		hasError := false
 
 		// Add a timeout to prevent indefinite blocking
-		streamTimeout := time.NewTimer(timeout + 10*time.Second) // Give extra time beyond execution timeout
+		streamTimeout := time.NewTimer(timeout + timeconfig.GetConfig().DefaultShutdownTimeout) // Give extra time beyond execution timeout
 		defer streamTimeout.Stop()
 
 		// Ensure metrics are updated when the goroutine exits
@@ -499,7 +501,7 @@ func (e *ExecutionEngine) checkConcurrencyLimit(ctx context.Context) error {
 		
 		// Set up a timeout channel to prevent indefinite blocking
 		timeoutCh := make(chan struct{})
-		timeout := time.AfterFunc(30*time.Second, func() {
+		timeout := time.AfterFunc(timeconfig.GetConfig().DefaultShutdownTimeout, func() {
 			close(timeoutCh)
 			e.cond.Broadcast()
 		})
@@ -940,25 +942,87 @@ func (e *ExecutionEngine) generateCacheKey(toolID string, params map[string]inte
 // processAsyncJobs processes jobs from the async queue
 func (e *ExecutionEngine) processAsyncJobs() {
 	for job := range e.asyncJobQueue {
-		// Execute the job
-		result, err := e.Execute(job.Context, job.ToolID, job.Params)
-		
-		// Send result
-		asyncResult := &AsyncResult{
-			JobID:  job.ID,
-			Result: result,
-			Error:  err,
+		// Defensive check for nil job
+		if job == nil {
+			continue
 		}
 		
+		// Check if context is already cancelled before processing
+		select {
+		case <-job.Context.Done():
+			// Context already cancelled, send error immediately
+			e.sendAsyncResult(job, nil, job.Context.Err())
+			continue
+		default:
+		}
+		
+		// Execute the job with timeout protection
+		resultChan := make(chan struct {
+			result *ToolExecutionResult
+			err    error
+		}, 1)
+		
+		// Execute in a separate goroutine to handle blocking Execute calls
+		go func() {
+			result, err := e.Execute(job.Context, job.ToolID, job.Params)
+			select {
+			case resultChan <- struct {
+				result *ToolExecutionResult
+				err    error
+			}{result, err}:
+			case <-job.Context.Done():
+				// Context cancelled, don't block on sending result
+				return
+			}
+		}()
+		
+		// Wait for execution result or context cancellation
+		select {
+		case execResult := <-resultChan:
+			// Execution completed, send result
+			e.sendAsyncResult(job, execResult.result, execResult.err)
+		case <-job.Context.Done():
+			// Context cancelled while executing
+			e.sendAsyncResult(job, nil, job.Context.Err())
+		}
+	}
+}
+
+// sendAsyncResult safely sends an async result without blocking
+func (e *ExecutionEngine) sendAsyncResult(job *AsyncJob, result *ToolExecutionResult, err error) {
+	if job == nil {
+		return
+	}
+	
+	asyncResult := &AsyncResult{
+		JobID:  job.ID,
+		Result: result,
+		Error:  err,
+	}
+	
+	// Clean up result channel from map first
+	if job.ID != "" {
+		e.asyncResults.Delete(job.ID)
+	}
+	
+	// Send result with timeout protection to prevent blocking
+	// Use a longer timeout than the mock executor to ensure result delivery
+	if job.Result != nil {
 		select {
 		case job.Result <- asyncResult:
 			// Result sent successfully
 		case <-job.Context.Done():
-			// Context cancelled, result channel might be closed
+			// Context cancelled, but still try to send the result
+			// because the receiver might still be waiting
+			select {
+			case job.Result <- asyncResult:
+			case <-time.After(50 * time.Millisecond):
+				// Give up after a short timeout if receiver is gone
+			}
+		case <-time.After(1 * time.Second):
+			// Use a longer timeout to handle delayed processing
+			// This prevents goroutine leaks when nobody is reading the channel
 		}
-		
-		// Clean up result channel from map
-		e.asyncResults.Delete(job.ID)
 	}
 }
 

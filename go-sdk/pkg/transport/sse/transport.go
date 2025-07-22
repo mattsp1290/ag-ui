@@ -8,11 +8,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
@@ -397,7 +395,12 @@ func (t *SSETransport) readEvents() {
 
 // readEvent reads a single event from the SSE stream
 func (t *SSETransport) readEvent() (events.Event, error) {
-	if t.reader == nil {
+	// Safely access reader with lock to prevent race conditions
+	t.connMutex.RLock()
+	reader := t.reader
+	t.connMutex.RUnlock()
+	
+	if reader == nil {
 		return nil, messages.NewStreamingError("transport", 0, "no active connection")
 	}
 
@@ -408,7 +411,7 @@ func (t *SSETransport) readEvent() (events.Event, error) {
 		// Note: We can't set read deadline on http.Response.Body directly
 		// This is a limitation of HTTP client implementation
 
-		line, err := t.reader.ReadString('\n')
+		line, err := reader.ReadString('\n')
 		if err != nil {
 			if err == io.EOF {
 				return nil, messages.NewStreamingError("transport", 0, "connection closed")
@@ -927,6 +930,7 @@ func (t *SSETransport) closeConnection() {
 		t.reader = nil
 	}
 }
+
 
 // Close closes the transport and releases resources
 func (t *SSETransport) Close() error {

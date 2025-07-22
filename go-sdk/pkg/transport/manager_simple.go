@@ -2,6 +2,7 @@ package transport
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -64,17 +65,24 @@ func NewSimpleManagerWithBackpressure(backpressureConfig BackpressureConfig) *Si
 
 // SetTransport sets the active transport
 func (m *SimpleManager) SetTransport(transport Transport) {
-	// Pre-connect the new transport if manager is running (outside the lock)
-	var preConnected bool
-	if transport != nil && atomic.LoadInt32(&m.running) == 1 {
-		connectCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		err := transport.Connect(connectCtx)
-		cancel()
-		preConnected = err == nil
-	}
+	// Use a timeout to prevent hanging if another goroutine holds the lock
+	lockCtx, lockCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer lockCancel()
 	
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	// Try to acquire lock with timeout using a goroutine
+	lockAcquired := make(chan struct{})
+	go func() {
+		m.mu.Lock()
+		close(lockAcquired)
+	}()
+	
+	select {
+	case <-lockAcquired:
+		defer m.mu.Unlock()
+	case <-lockCtx.Done():
+		// Lock acquisition timed out - this prevents deadlocks
+		return
+	}
 	
 	// Keep reference to old transport for graceful shutdown
 	oldTransport := m.activeTransport
@@ -88,22 +96,48 @@ func (m *SimpleManager) SetTransport(transport Transport) {
 		m.transportStopChan = make(chan struct{})
 	}
 	
-	// If the manager is running and we have a transport, start receiving
-	if atomic.LoadInt32(&m.running) == 1 && transport != nil {
-		if preConnected {
-			// Already connected, just start receiving
-			m.receiveWg.Add(1)
-			go m.receiveEvents()
-		} else {
-			// Try to connect if not pre-connected
-			connectCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			
-			if err := transport.Connect(connectCtx); err == nil {
-				m.receiveWg.Add(1)
-				go m.receiveEvents()
-			}
+	// Pre-connect the new transport if manager is running (outside the critical section next)
+	var preConnected bool
+	var connectErr error
+	if transport != nil && atomic.LoadInt32(&m.running) == 1 {
+		// Release lock temporarily for connection (to prevent blocking other operations)
+		m.mu.Unlock()
+		
+		connectCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		connectErr = transport.Connect(connectCtx)
+		cancel()
+		preConnected = connectErr == nil
+		
+		// Re-acquire lock - but check if we can get it quickly
+		reacquireCtx, reacquireCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		defer reacquireCancel()
+		
+		lockReacquired := make(chan struct{})
+		go func() {
+			m.mu.Lock()
+			close(lockReacquired)
+		}()
+		
+		select {
+		case <-lockReacquired:
+			// Lock reacquired, continue
+		case <-reacquireCtx.Done():
+			// Could not reacquire lock, clean up old transport in background and return
+			go func() {
+				if oldTransport != nil {
+					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+					oldTransport.Close(ctx)
+					cancel()
+				}
+			}()
+			return
 		}
+	}
+	
+	// If the manager is running and we have a transport, start receiving
+	if atomic.LoadInt32(&m.running) == 1 && transport != nil && preConnected {
+		m.receiveWg.Add(1)
+		go m.receiveEvents()
 	}
 	
 	// Signal that transport is ready (non-blocking send)
@@ -144,11 +178,36 @@ func (m *SimpleManager) Start(ctx context.Context) error {
 		return ErrAlreadyConnected
 	}
 	
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	// Use a timeout to prevent hanging if another goroutine holds the lock
+	lockCtx, lockCancel := context.WithTimeout(ctx, 2*time.Second)
+	defer lockCancel()
+	
+	// Try to acquire lock with timeout using a goroutine
+	lockAcquired := make(chan struct{})
+	go func() {
+		m.mu.Lock()
+		close(lockAcquired)
+	}()
+	
+	select {
+	case <-lockAcquired:
+		defer m.mu.Unlock()
+	case <-lockCtx.Done():
+		// Lock acquisition timed out - reset running state and return error
+		atomic.StoreInt32(&m.running, 0)
+		return fmt.Errorf("start operation timed out acquiring lock: %w", lockCtx.Err())
+	}
 	
 	if m.activeTransport != nil {
-		if err := m.activeTransport.Connect(ctx); err != nil {
+		// Use the provided context for connection, but with a reasonable timeout
+		connectCtx := ctx
+		if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+			var cancel context.CancelFunc
+			connectCtx, cancel = context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+		}
+		
+		if err := m.activeTransport.Connect(connectCtx); err != nil {
 			// Reset the flag on error to maintain consistency
 			atomic.StoreInt32(&m.running, 0)
 			return err
@@ -176,7 +235,30 @@ func (m *SimpleManager) Stop(ctx context.Context) error {
 		return nil
 	}
 	
-	m.mu.Lock()
+	// Use a timeout to prevent hanging if another goroutine holds the lock
+	lockCtx, lockCancel := context.WithTimeout(ctx, 2*time.Second)
+	defer lockCancel()
+	
+	// Try to acquire lock with timeout using a goroutine
+	lockAcquired := make(chan struct{})
+	go func() {
+		m.mu.Lock()
+		close(lockAcquired)
+	}()
+	
+	select {
+	case <-lockAcquired:
+		// Got the lock, continue with cleanup
+	case <-lockCtx.Done():
+		// Lock acquisition timed out - signal stop anyway and proceed with minimal cleanup
+		// Close stop channels without lock (risky but better than hanging)
+		select {
+		case <-m.stopChan:
+		default:
+			close(m.stopChan)
+		}
+		return fmt.Errorf("stop operation timed out acquiring lock: %w", lockCtx.Err())
+	}
 	
 	// Close the stop channel to signal all goroutines to stop
 	select {
@@ -199,44 +281,85 @@ func (m *SimpleManager) Stop(ctx context.Context) error {
 	// Unlock before waiting for goroutines
 	m.mu.Unlock()
 	
-	// Wait for all receiveEvents goroutines to finish
+	// Wait for all receiveEvents goroutines to finish with better timeout handling
 	done := make(chan struct{})
 	go func() {
 		m.receiveWg.Wait()
 		close(done)
 	}()
 	
+	// Use context timeout if available, otherwise use a reasonable default
+	waitTimeout := 5 * time.Second
+	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
+		if timeLeft := time.Until(deadline); timeLeft < waitTimeout {
+			waitTimeout = timeLeft
+		}
+	}
+	
 	select {
 	case <-done:
 		// All goroutines finished
 	case <-ctx.Done():
 		// Context cancelled
-	case <-time.After(5 * time.Second):
-		// Timeout waiting for goroutines
+	case <-time.After(waitTimeout):
+		// Timeout waiting for goroutines - proceed with cleanup anyway
 	}
 	
-	// Lock again for final cleanup
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	// Try to lock again for final cleanup with a short timeout
+	finalLockCtx, finalLockCancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer finalLockCancel()
 	
-	if m.activeTransport != nil {
-		if err := m.activeTransport.Close(ctx); err != nil {
+	finalLockAcquired := make(chan struct{})
+	go func() {
+		m.mu.Lock()
+		close(finalLockAcquired)
+	}()
+	
+	var lockAcquiredForCleanup bool
+	select {
+	case <-finalLockAcquired:
+		lockAcquiredForCleanup = true
+		defer m.mu.Unlock()
+	case <-finalLockCtx.Done():
+		// Could not acquire lock for final cleanup - do minimal cleanup without lock
+		lockAcquiredForCleanup = false
+	}
+	
+	// Final cleanup (with or without lock)
+	var activeTransport Transport
+	var backpressureHandler *BackpressureHandler
+	
+	if lockAcquiredForCleanup {
+		activeTransport = m.activeTransport
+		backpressureHandler = m.backpressureHandler
+	} else {
+		// Without lock, we can't safely access the fields, so skip transport cleanup
+		// This is not ideal but better than hanging
+	}
+	
+	if activeTransport != nil {
+		// Use a short timeout for transport close to prevent hanging
+		closeCtx, closeCancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer closeCancel()
+		
+		if err := activeTransport.Close(closeCtx); err != nil {
 			// Even on error, we keep running=false to ensure shutdown
 			return err
 		}
 	}
 	
 	// Stop backpressure handler
-	if m.backpressureHandler != nil {
-		m.backpressureHandler.Stop()
+	if backpressureHandler != nil {
+		backpressureHandler.Stop()
 	}
 	
-	
-	// Reset the transport ready channel
-	// Drain any pending signals
-	select {
-	case <-m.transportReady:
-	default:
+	// Reset the transport ready channel only if we have the lock
+	if lockAcquiredForCleanup {
+		// Drain any pending signals
+		select {
+		case <-m.transportReady:
+		default:
+		}
 	}
 	
 	// Drain channels before closing to prevent data loss

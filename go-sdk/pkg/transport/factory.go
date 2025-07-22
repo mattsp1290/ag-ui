@@ -670,7 +670,29 @@ func (m *DefaultTransportManager) startCleanupTicker() {
 		for {
 			select {
 			case <-m.cleanupTicker.C:
-				m.runPeriodicCleanup()
+				// Check context cancellation before running cleanup to prevent hanging
+				select {
+				case <-m.ctx.Done():
+					return
+				default:
+					// Run cleanup with timeout protection
+					cleanupDone := make(chan struct{})
+					go func() {
+						m.runPeriodicCleanup()
+						close(cleanupDone)
+					}()
+					
+					select {
+					case <-cleanupDone:
+						// Cleanup finished normally
+					case <-time.After(30 * time.Second):
+						// Cleanup took too long - this indicates a deadlock or hang
+						m.logger.Warn("Periodic cleanup timed out, continuing with next cycle")
+					case <-m.ctx.Done():
+						// Context cancelled during cleanup
+						return
+					}
+				}
 			case <-m.ctx.Done():
 				return
 			}
@@ -932,7 +954,20 @@ func (m *DefaultTransportManager) Close() error {
 	
 	// Wait for all goroutines (including cleanup goroutine) to finish
 	// This must be done WITHOUT holding the lock since goroutines may need to acquire it
-	m.wg.Wait()
+	// Use a timeout to prevent hanging
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+	
+	select {
+	case <-done:
+		// All goroutines finished normally
+	case <-time.After(10 * time.Second):
+		// Timeout waiting for goroutines - proceed with cleanup anyway
+		m.logger.Warn("Timeout waiting for cleanup goroutines to finish, proceeding with shutdown")
+	}
 
 	// Now safely acquire the lock for final cleanup
 	m.mu.Lock()

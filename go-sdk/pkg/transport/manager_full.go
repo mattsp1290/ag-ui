@@ -223,7 +223,29 @@ func (m *Manager) Stop(ctx context.Context) error {
 	m.mu.Unlock()
 
 	// Wait for receiveEvents goroutine to finish before acquiring lock for cleanup
-	m.receiveWg.Wait()
+	// Use a timeout to prevent hanging
+	receiveWgDone := make(chan struct{})
+	go func() {
+		m.receiveWg.Wait()
+		close(receiveWgDone)
+	}()
+	
+	// Use context timeout if available, otherwise use a reasonable default
+	waitTimeout := 5 * time.Second
+	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
+		if timeLeft := time.Until(deadline); timeLeft < waitTimeout && timeLeft > 0 {
+			waitTimeout = timeLeft
+		}
+	}
+	
+	select {
+	case <-receiveWgDone:
+		m.logger.Debug("receiveEvents goroutines finished successfully", 
+			String("operation", "stop"))
+	case <-time.After(waitTimeout):
+		m.logger.Warn("Timeout waiting for receiveEvents goroutines to finish, proceeding with cleanup", 
+			String("operation", "stop"))
+	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()

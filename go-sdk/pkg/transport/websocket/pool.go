@@ -240,8 +240,8 @@ func (p *ConnectionPool) Stop() error {
 	p.connections = make(map[string]*Connection)
 	p.connMutex.Unlock()
 	
-	// Wait for pool goroutines with timeout - optimized for faster shutdown
-	waitCtx, waitCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	// Wait for pool goroutines with timeout - allow more time for proper cleanup
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer waitCancel()
 	
 	waitDone := make(chan struct{})
@@ -255,6 +255,8 @@ func (p *ConnectionPool) Stop() error {
 		p.config.Logger.Debug("All pool goroutines stopped successfully")
 	case <-waitCtx.Done():
 		p.config.Logger.Warn("Timeout waiting for pool goroutines to stop")
+		// Log which goroutines might still be running for debugging
+		p.config.Logger.Debug("Health checker may still be running - investigating cleanup order")
 	}
 
 	p.config.Logger.Info("Connection pool stopped")

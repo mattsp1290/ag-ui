@@ -30,19 +30,26 @@ type BufferPool struct {
 	maxSize    int   // Maximum buffer size to keep in pool
 	maxBuffers int32 // Maximum number of buffers to allocate
 	activeBuffers int32 // Current number of active buffers
+	secureZero bool    // Enable secure zeroing for sensitive data
 	mu         sync.RWMutex
 }
 
-// NewBufferPool creates a new buffer pool
+// NewBufferPool creates a new buffer pool with secure zeroing enabled by default
 func NewBufferPool(maxSize int) *BufferPool {
-	return NewBufferPoolWithCapacity(maxSize, 1000) // Default max 1000 buffers
+	return NewBufferPoolWithOptions(maxSize, 1000, true) // Default max 1000 buffers, secure
 }
 
 // NewBufferPoolWithCapacity creates a new buffer pool with a capacity limit
 func NewBufferPoolWithCapacity(maxSize int, maxBuffers int32) *BufferPool {
+	return NewBufferPoolWithOptions(maxSize, maxBuffers, false)
+}
+
+// NewBufferPoolWithOptions creates a new buffer pool with full configuration
+func NewBufferPoolWithOptions(maxSize int, maxBuffers int32, secureZero bool) *BufferPool {
 	bp := &BufferPool{
 		maxSize:    maxSize,
 		maxBuffers: maxBuffers,
+		secureZero: secureZero,
 	}
 	bp.pool.New = func() interface{} {
 		// Check if we're exceeding the buffer limit
@@ -65,7 +72,7 @@ func (bp *BufferPool) Get() *bytes.Buffer {
 		return nil
 	}
 	buf := bufInterface.(*bytes.Buffer)
-	buf.Reset()
+	// Buffer is already reset in Put(), no need to reset again
 	return buf
 }
 
@@ -86,14 +93,44 @@ func (bp *BufferPool) Put(buf *bytes.Buffer) {
 	
 	atomic.AddInt64(&bp.metrics.Resets, 1)
 	
-	// Zero out the buffer contents before returning to pool
-	// This prevents sensitive data from being exposed to the next consumer
+	// Conditionally zero out sensitive data if secure mode is enabled
+	if bp.secureZero && buf.Len() > 0 {
+		bufBytes := buf.Bytes()
+		for i := range bufBytes {
+			bufBytes[i] = 0
+		}
+	}
+	
+	// Reset buffer length efficiently
+	buf.Reset()
+	bp.pool.Put(buf)
+}
+
+// PutSecure returns a buffer to the pool with secure zeroing regardless of pool setting
+func (bp *BufferPool) PutSecure(buf *bytes.Buffer) {
+	if buf == nil {
+		return
+	}
+	
+	atomic.AddInt64(&bp.metrics.Puts, 1)
+	
+	// Don't keep very large buffers in the pool
+	if bp.maxSize > 0 && buf.Cap() > bp.maxSize {
+		// Decrement active count for oversized buffers that won't be pooled
+		atomic.AddInt32(&bp.activeBuffers, -1)
+		return
+	}
+	
+	atomic.AddInt64(&bp.metrics.Resets, 1)
+	
+	// Always zero out contents for sensitive data
 	if buf.Len() > 0 {
 		bufBytes := buf.Bytes()
 		for i := range bufBytes {
 			bufBytes[i] = 0
 		}
 	}
+	
 	buf.Reset()
 	bp.pool.Put(buf)
 }
@@ -135,18 +172,25 @@ type SlicePool struct {
 	maxSize    int   // Maximum slice size to keep in pool
 	maxSlices  int32 // Maximum number of slices to allocate
 	activeSlices int32 // Current number of active slices
+	secureZero bool    // Enable secure zeroing for sensitive data
 }
 
-// NewSlicePool creates a new slice pool
+// NewSlicePool creates a new slice pool with secure zeroing enabled by default
 func NewSlicePool(initialSize, maxSize int) *SlicePool {
-	return NewSlicePoolWithCapacity(initialSize, maxSize, 1000) // Default max 1000 slices
+	return NewSlicePoolWithOptions(initialSize, maxSize, 1000, true) // Default max 1000 slices, secure
 }
 
 // NewSlicePoolWithCapacity creates a new slice pool with a capacity limit
 func NewSlicePoolWithCapacity(initialSize, maxSize int, maxSlices int32) *SlicePool {
+	return NewSlicePoolWithOptions(initialSize, maxSize, maxSlices, false)
+}
+
+// NewSlicePoolWithOptions creates a new slice pool with full configuration
+func NewSlicePoolWithOptions(initialSize, maxSize int, maxSlices int32, secureZero bool) *SlicePool {
 	sp := &SlicePool{
 		maxSize:   maxSize,
 		maxSlices: maxSlices,
+		secureZero: secureZero,
 	}
 	sp.pool.New = func() interface{} {
 		// Check if we're exceeding the slice limit
@@ -189,11 +233,40 @@ func (sp *SlicePool) Put(slice []byte) {
 	
 	atomic.AddInt64(&sp.metrics.Resets, 1)
 	
-	// Zero out the slice contents before returning to pool
-	// This prevents sensitive data from being exposed to the next consumer
-	for i := range slice {
-		slice[i] = 0
+	// Conditionally zero out sensitive data if secure mode is enabled
+	if sp.secureZero && len(slice) > 0 {
+		for i := range slice {
+			slice[i] = 0
+		}
 	}
+	
+	sp.pool.Put(slice[:0]) // Reset length
+}
+
+// PutSecure returns a slice to the pool with secure zeroing regardless of pool setting
+func (sp *SlicePool) PutSecure(slice []byte) {
+	if slice == nil {
+		return
+	}
+	
+	atomic.AddInt64(&sp.metrics.Puts, 1)
+	
+	// Don't keep very large slices in the pool
+	if sp.maxSize > 0 && cap(slice) > sp.maxSize {
+		// Decrement active count for oversized slices that won't be pooled
+		atomic.AddInt32(&sp.activeSlices, -1)
+		return
+	}
+	
+	atomic.AddInt64(&sp.metrics.Resets, 1)
+	
+	// Always zero out contents for sensitive data
+	if len(slice) > 0 {
+		for i := range slice {
+			slice[i] = 0
+		}
+	}
+	
 	sp.pool.Put(slice[:0]) // Reset length
 }
 
@@ -229,9 +302,14 @@ func (sp *SlicePool) Reset() {
 
 // ErrorPool manages a pool of error objects
 type ErrorPool struct {
-	encodingPool sync.Pool
-	decodingPool sync.Pool
-	metrics      PoolMetrics
+	encodingPool      sync.Pool
+	decodingPool      sync.Pool
+	operationPool     sync.Pool
+	validationPool    sync.Pool
+	configurationPool sync.Pool
+	resourcePool      sync.Pool
+	registryPool      sync.Pool
+	metrics           PoolMetrics
 }
 
 // NewErrorPool creates a new error pool
@@ -244,6 +322,26 @@ func NewErrorPool() *ErrorPool {
 	ep.decodingPool.New = func() interface{} {
 		atomic.AddInt64(&ep.metrics.News, 1)
 		return &DecodingError{}
+	}
+	ep.operationPool.New = func() interface{} {
+		atomic.AddInt64(&ep.metrics.News, 1)
+		return &OperationError{}
+	}
+	ep.validationPool.New = func() interface{} {
+		atomic.AddInt64(&ep.metrics.News, 1)
+		return &ValidationError{}
+	}
+	ep.configurationPool.New = func() interface{} {
+		atomic.AddInt64(&ep.metrics.News, 1)
+		return &ConfigurationError{}
+	}
+	ep.resourcePool.New = func() interface{} {
+		atomic.AddInt64(&ep.metrics.News, 1)
+		return &ResourceError{}
+	}
+	ep.registryPool.New = func() interface{} {
+		atomic.AddInt64(&ep.metrics.News, 1)
+		return &RegistryError{}
 	}
 	return ep
 }
@@ -286,6 +384,101 @@ func (ep *ErrorPool) PutDecodingError(err *DecodingError) {
 	ep.decodingPool.Put(err)
 }
 
+// GetOperationError retrieves an operation error from the pool
+func (ep *ErrorPool) GetOperationError() *OperationError {
+	atomic.AddInt64(&ep.metrics.Gets, 1)
+	err := ep.operationPool.Get().(*OperationError)
+	err.Reset()
+	return err
+}
+
+// PutOperationError returns an operation error to the pool
+func (ep *ErrorPool) PutOperationError(err *OperationError) {
+	if err == nil {
+		return
+	}
+	atomic.AddInt64(&ep.metrics.Puts, 1)
+	atomic.AddInt64(&ep.metrics.Resets, 1)
+	err.Reset()
+	ep.operationPool.Put(err)
+}
+
+// GetValidationError retrieves a validation error from the pool
+func (ep *ErrorPool) GetValidationError() *ValidationError {
+	atomic.AddInt64(&ep.metrics.Gets, 1)
+	err := ep.validationPool.Get().(*ValidationError)
+	err.Reset()
+	return err
+}
+
+// PutValidationError returns a validation error to the pool
+func (ep *ErrorPool) PutValidationError(err *ValidationError) {
+	if err == nil {
+		return
+	}
+	atomic.AddInt64(&ep.metrics.Puts, 1)
+	atomic.AddInt64(&ep.metrics.Resets, 1)
+	err.Reset()
+	ep.validationPool.Put(err)
+}
+
+// GetConfigurationError retrieves a configuration error from the pool
+func (ep *ErrorPool) GetConfigurationError() *ConfigurationError {
+	atomic.AddInt64(&ep.metrics.Gets, 1)
+	err := ep.configurationPool.Get().(*ConfigurationError)
+	err.Reset()
+	return err
+}
+
+// PutConfigurationError returns a configuration error to the pool
+func (ep *ErrorPool) PutConfigurationError(err *ConfigurationError) {
+	if err == nil {
+		return
+	}
+	atomic.AddInt64(&ep.metrics.Puts, 1)
+	atomic.AddInt64(&ep.metrics.Resets, 1)
+	err.Reset()
+	ep.configurationPool.Put(err)
+}
+
+// GetResourceError retrieves a resource error from the pool
+func (ep *ErrorPool) GetResourceError() *ResourceError {
+	atomic.AddInt64(&ep.metrics.Gets, 1)
+	err := ep.resourcePool.Get().(*ResourceError)
+	err.Reset()
+	return err
+}
+
+// PutResourceError returns a resource error to the pool
+func (ep *ErrorPool) PutResourceError(err *ResourceError) {
+	if err == nil {
+		return
+	}
+	atomic.AddInt64(&ep.metrics.Puts, 1)
+	atomic.AddInt64(&ep.metrics.Resets, 1)
+	err.Reset()
+	ep.resourcePool.Put(err)
+}
+
+// GetRegistryError retrieves a registry error from the pool
+func (ep *ErrorPool) GetRegistryError() *RegistryError {
+	atomic.AddInt64(&ep.metrics.Gets, 1)
+	err := ep.registryPool.Get().(*RegistryError)
+	err.Reset()
+	return err
+}
+
+// PutRegistryError returns a registry error to the pool
+func (ep *ErrorPool) PutRegistryError(err *RegistryError) {
+	if err == nil {
+		return
+	}
+	atomic.AddInt64(&ep.metrics.Puts, 1)
+	atomic.AddInt64(&ep.metrics.Resets, 1)
+	err.Reset()
+	ep.registryPool.Put(err)
+}
+
 // Metrics returns pool metrics
 func (ep *ErrorPool) Metrics() PoolMetrics {
 	return PoolMetrics{
@@ -308,6 +501,36 @@ func (ep *ErrorPool) Reset() {
 		New: func() interface{} {
 			atomic.AddInt64(&ep.metrics.News, 1)
 			return &DecodingError{}
+		},
+	}
+	ep.operationPool = sync.Pool{
+		New: func() interface{} {
+			atomic.AddInt64(&ep.metrics.News, 1)
+			return &OperationError{}
+		},
+	}
+	ep.validationPool = sync.Pool{
+		New: func() interface{} {
+			atomic.AddInt64(&ep.metrics.News, 1)
+			return &ValidationError{}
+		},
+	}
+	ep.configurationPool = sync.Pool{
+		New: func() interface{} {
+			atomic.AddInt64(&ep.metrics.News, 1)
+			return &ConfigurationError{}
+		},
+	}
+	ep.resourcePool = sync.Pool{
+		New: func() interface{} {
+			atomic.AddInt64(&ep.metrics.News, 1)
+			return &ResourceError{}
+		},
+	}
+	ep.registryPool = sync.Pool{
+		New: func() interface{} {
+			atomic.AddInt64(&ep.metrics.News, 1)
+			return &RegistryError{}
 		},
 	}
 	atomic.StoreInt64(&ep.metrics.Gets, 0)
@@ -338,15 +561,15 @@ func (e *DecodingError) Reset() {
 
 // Global pools for common objects
 var (
-	// Buffer pools with different size limits and capacity limits
-	smallBufferPool  = NewBufferPoolWithCapacity(4096, 500)     // 4KB max, 500 buffers
-	mediumBufferPool = NewBufferPoolWithCapacity(65536, 200)    // 64KB max, 200 buffers
-	largeBufferPool  = NewBufferPoolWithCapacity(1048576, 50)   // 1MB max, 50 buffers
+	// Buffer pools with different size limits and capacity limits (secure by default)
+	smallBufferPool  = NewBufferPoolWithOptions(4096, 500, true)     // 4KB max, 500 buffers, secure
+	mediumBufferPool = NewBufferPoolWithOptions(65536, 200, true)    // 64KB max, 200 buffers, secure
+	largeBufferPool  = NewBufferPoolWithOptions(1048576, 50, true)   // 1MB max, 50 buffers, secure
 
-	// Slice pools for different sizes with capacity limits
-	smallSlicePool  = NewSlicePoolWithCapacity(1024, 4096, 500)     // 1KB initial, 4KB max, 500 slices
-	mediumSlicePool = NewSlicePoolWithCapacity(4096, 65536, 200)    // 4KB initial, 64KB max, 200 slices
-	largeSlicePool  = NewSlicePoolWithCapacity(16384, 1048576, 50)  // 16KB initial, 1MB max, 50 slices
+	// Slice pools for different sizes with capacity limits (secure by default)
+	smallSlicePool  = NewSlicePoolWithOptions(1024, 4096, 500, true)     // 1KB initial, 4KB max, 500 slices, secure
+	mediumSlicePool = NewSlicePoolWithOptions(4096, 65536, 200, true)    // 4KB initial, 64KB max, 200 slices, secure
+	largeSlicePool  = NewSlicePoolWithOptions(16384, 1048576, 50, true)  // 16KB initial, 1MB max, 50 slices, secure
 
 	// Error pool
 	errorPool = NewErrorPool()
@@ -395,6 +618,22 @@ func PutBuffer(buf *bytes.Buffer) {
 	}
 }
 
+// PutBufferSecure returns a buffer to the appropriate pool with secure zeroing
+func PutBufferSecure(buf *bytes.Buffer) {
+	if buf == nil {
+		return
+	}
+	
+	switch {
+	case buf.Cap() <= 4096:
+		smallBufferPool.PutSecure(buf)
+	case buf.Cap() <= 65536:
+		mediumBufferPool.PutSecure(buf)
+	default:
+		largeBufferPool.PutSecure(buf)
+	}
+}
+
 // GetSlice returns a slice from the appropriate pool based on expected size
 // Returns nil if resource limits are exceeded
 func GetSlice(expectedSize int) []byte {
@@ -438,6 +677,22 @@ func PutSlice(slice []byte) {
 	}
 }
 
+// PutSliceSecure returns a slice to the appropriate pool with secure zeroing
+func PutSliceSecure(slice []byte) {
+	if slice == nil {
+		return
+	}
+	
+	switch {
+	case cap(slice) <= 4096:
+		smallSlicePool.PutSecure(slice)
+	case cap(slice) <= 65536:
+		mediumSlicePool.PutSecure(slice)
+	default:
+		largeSlicePool.PutSecure(slice)
+	}
+}
+
 // GetEncodingError returns an encoding error from the pool
 func GetEncodingError() *EncodingError {
 	return errorPool.GetEncodingError()
@@ -456,6 +711,56 @@ func GetDecodingError() *DecodingError {
 // PutDecodingError returns a decoding error to the pool
 func PutDecodingError(err *DecodingError) {
 	errorPool.PutDecodingError(err)
+}
+
+// GetOperationError returns an operation error from the pool
+func GetOperationError() *OperationError {
+	return errorPool.GetOperationError()
+}
+
+// PutOperationError returns an operation error to the pool
+func PutOperationError(err *OperationError) {
+	errorPool.PutOperationError(err)
+}
+
+// GetValidationError returns a validation error from the pool
+func GetValidationError() *ValidationError {
+	return errorPool.GetValidationError()
+}
+
+// PutValidationError returns a validation error to the pool
+func PutValidationError(err *ValidationError) {
+	errorPool.PutValidationError(err)
+}
+
+// GetConfigurationError returns a configuration error from the pool
+func GetConfigurationError() *ConfigurationError {
+	return errorPool.GetConfigurationError()
+}
+
+// PutConfigurationError returns a configuration error to the pool
+func PutConfigurationError(err *ConfigurationError) {
+	errorPool.PutConfigurationError(err)
+}
+
+// GetResourceError returns a resource error from the pool
+func GetResourceError() *ResourceError {
+	return errorPool.GetResourceError()
+}
+
+// PutResourceError returns a resource error to the pool
+func PutResourceError(err *ResourceError) {
+	errorPool.PutResourceError(err)
+}
+
+// GetRegistryError returns a registry error from the pool
+func GetRegistryError() *RegistryError {
+	return errorPool.GetRegistryError()
+}
+
+// PutRegistryError returns a registry error to the pool
+func PutRegistryError(err *RegistryError) {
+	errorPool.PutRegistryError(err)
 }
 
 // PoolStats returns statistics for all pools

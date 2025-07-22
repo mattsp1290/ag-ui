@@ -133,17 +133,19 @@ func (h *HeartbeatManager) Stop() {
 		h.setState(HeartbeatStopping)
 		close(h.stopCh)
 
-		// Wait for goroutines with timeout
+		// Wait for all heartbeat goroutines to finish cleanly with timeout
+		h.connection.config.Logger.Debug("Waiting for heartbeat goroutines to finish")
 		done := make(chan struct{})
 		go func() {
 			h.wg.Wait()
 			close(done)
 		}()
 
+		// Wait for goroutines with a timeout to prevent hanging
 		select {
 		case <-done:
-			h.connection.config.Logger.Debug("Heartbeat manager stopped")
-		case <-time.After(1 * time.Second):
+			h.connection.config.Logger.Debug("Heartbeat manager stopped successfully")
+		case <-time.After(2 * time.Second):
 			h.connection.config.Logger.Warn("Timeout waiting for heartbeat goroutines to stop")
 		}
 
@@ -249,43 +251,92 @@ func (h *HeartbeatManager) pingLoop(ctx context.Context) {
 
 	h.connection.config.Logger.Debug("Starting ping loop")
 
+	// Create a periodic exit check timer to prevent infinite blocking
+	exitCheckTimer := time.NewTicker(100 * time.Millisecond)
+	defer exitCheckTimer.Stop()
+
 	for {
+		// Use timeout-based select to ensure we can always exit
 		select {
 		case <-ctx.Done():
 			h.connection.config.Logger.Debug("Ping loop stopped due to context cancellation")
 			return
+		case <-h.connection.ctx.Done():
+			h.connection.config.Logger.Debug("Ping loop stopped due to connection context cancellation")
+			return
 		case <-h.stopCh:
 			h.connection.config.Logger.Debug("Ping loop stopped due to stop signal")
 			return
+		case <-exitCheckTimer.C:
+			// Periodic check for exit conditions
+			if h.GetState() == HeartbeatStopping || h.GetState() == HeartbeatStopped {
+				h.connection.config.Logger.Debug("Ping loop exiting during periodic check - heartbeat stopping/stopped")
+				return
+			}
+			// Check connection state as well
+			connState := h.connection.State()
+			if connState == StateClosing || connState == StateClosed {
+				h.connection.config.Logger.Debug("Ping loop exiting during periodic check - connection closing/closed")
+				return
+			}
+			// Continue to main select
 		case <-h.resetCh:
+			// Check exit conditions before reset
+			if h.GetState() != HeartbeatRunning {
+				h.connection.config.Logger.Debug("Ping loop exiting - heartbeat not running")
+				return
+			}
 			ticker.Reset(h.pingPeriod)
 			continue
 		case <-ticker.C:
-			// Check if we should still be running before sending ping
+			// Check all exit conditions before sending ping
 			select {
 			case <-ctx.Done():
-				h.connection.config.Logger.Debug("Context cancelled before sending ping")
+				h.connection.config.Logger.Debug("Ping loop stopped due to context cancellation before sending ping")
+				return
+			case <-h.connection.ctx.Done():
+				h.connection.config.Logger.Debug("Ping loop stopped due to connection context cancellation before sending ping")
 				return
 			case <-h.stopCh:
-				h.connection.config.Logger.Debug("Stop signal received before sending ping")
+				h.connection.config.Logger.Debug("Ping loop stopped due to stop signal before sending ping")
 				return
 			default:
-				// Check if heartbeat is still running
-				if h.GetState() != HeartbeatRunning {
-					h.connection.config.Logger.Debug("Ping loop exiting - heartbeat not running")
+			}
+			
+			// Check heartbeat state
+			if h.GetState() != HeartbeatRunning {
+				h.connection.config.Logger.Debug("Ping loop exiting - heartbeat not running")
+				return
+			}
+			
+			// Check connection state
+			connState := h.connection.State()
+			if connState == StateClosing || connState == StateClosed {
+				h.connection.config.Logger.Debug("Ping loop exiting - connection closing/closed")
+				return
+			}
+			
+			// Send ping with error handling and timeout
+			if err := h.sendPingWithTimeout(); err != nil {
+				// Check if error is due to context cancellation
+				select {
+				case <-ctx.Done():
+					h.connection.config.Logger.Debug("Ping loop stopped during ping send due to context cancellation")
 					return
+				case <-h.connection.ctx.Done():
+					h.connection.config.Logger.Debug("Ping loop stopped during ping send due to connection context cancellation")
+					return
+				default:
 				}
-				if err := h.sendPing(); err != nil {
-					h.connection.config.Logger.Error("Failed to send ping",
-						zap.Error(err))
+				
+				h.connection.config.Logger.Error("Failed to send ping", zap.Error(err))
 
-					// Mark as unhealthy and potentially trigger reconnection
-					atomic.StoreInt32(&h.isHealthy, 0)
-					if h.connection.State() == StateConnected {
-						h.connection.triggerReconnect()
-					}
-					return
+				// Mark as unhealthy and potentially trigger reconnection
+				atomic.StoreInt32(&h.isHealthy, 0)
+				if h.connection.State() == StateConnected {
+					h.connection.triggerReconnect()
 				}
+				return
 			}
 		}
 	}
@@ -306,54 +357,124 @@ func (h *HeartbeatManager) healthCheckLoop(ctx context.Context) {
 
 	h.connection.config.Logger.Debug("Starting health check loop")
 
+	// Create a periodic exit check timer to prevent infinite blocking
+	exitCheckTimer := time.NewTicker(100 * time.Millisecond)
+	defer exitCheckTimer.Stop()
+
 	for {
+		// Use timeout-based select to ensure we can always exit
 		select {
 		case <-ctx.Done():
 			h.connection.config.Logger.Debug("Health check loop stopped due to context cancellation")
 			return
+		case <-h.connection.ctx.Done():
+			h.connection.config.Logger.Debug("Health check loop stopped due to connection context cancellation")
+			return
 		case <-h.stopCh:
 			h.connection.config.Logger.Debug("Health check loop stopped due to stop signal")
 			return
+		case <-exitCheckTimer.C:
+			// Periodic check for exit conditions
+			if h.GetState() == HeartbeatStopping || h.GetState() == HeartbeatStopped {
+				h.connection.config.Logger.Debug("Health check loop exiting during periodic check - heartbeat stopping/stopped")
+				return
+			}
+			// Check connection state as well
+			connState := h.connection.State()
+			if connState == StateClosing || connState == StateClosed {
+				h.connection.config.Logger.Debug("Health check loop exiting during periodic check - connection closing/closed")
+				return
+			}
+			// Continue to main select
 		case <-ticker.C:
-			// Check if we should still be running before checking health
+			// Check all exit conditions before health check
 			select {
 			case <-ctx.Done():
-				h.connection.config.Logger.Debug("Context cancelled before health check")
+				h.connection.config.Logger.Debug("Health check loop stopped due to context cancellation before health check")
+				return
+			case <-h.connection.ctx.Done():
+				h.connection.config.Logger.Debug("Health check loop stopped due to connection context cancellation before health check")
 				return
 			case <-h.stopCh:
-				h.connection.config.Logger.Debug("Stop signal received before health check")
+				h.connection.config.Logger.Debug("Health check loop stopped due to stop signal before health check")
 				return
 			default:
-				// Check if heartbeat is still running
-				if h.GetState() != HeartbeatRunning {
-					h.connection.config.Logger.Debug("Health check loop exiting - heartbeat not running")
-					return
-				}
-				h.checkHealth()
 			}
+			
+			// Check heartbeat state
+			if h.GetState() != HeartbeatRunning {
+				h.connection.config.Logger.Debug("Health check loop exiting - heartbeat not running")
+				return
+			}
+			
+			// Check connection state
+			connState := h.connection.State()
+			if connState == StateClosing || connState == StateClosed {
+				h.connection.config.Logger.Debug("Health check loop exiting - connection closing/closed")
+				return
+			}
+			
+			// Perform health check
+			h.checkHealth()
 		}
 	}
 }
 
 // sendPing sends a ping message to the WebSocket connection
 func (h *HeartbeatManager) sendPing() error {
+	return h.sendPingWithTimeout()
+}
+
+// sendPingWithTimeout sends a ping message with timeout protection
+func (h *HeartbeatManager) sendPingWithTimeout() error {
 	h.connection.connMutex.Lock()
+	defer h.connection.connMutex.Unlock()
+	
 	conn := h.connection.conn
 	if conn == nil {
-		h.connection.connMutex.Unlock()
 		return websocket.ErrCloseSent
 	}
 
 	now := time.Now()
 
-	// Set write deadline
-	conn.SetWriteDeadline(now.Add(h.connection.config.WriteTimeout))
+	// Set write deadline with context check
+	writeTimeout := h.connection.config.WriteTimeout
+	if writeTimeout > 1*time.Second {
+		writeTimeout = 1 * time.Second // Cap ping timeout at 1 second
+	}
+	writeDeadline := now.Add(writeTimeout)
+	
+	// Check if connection context has a sooner deadline
+	if deadline, ok := h.connection.ctx.Deadline(); ok && deadline.Before(writeDeadline) {
+		writeDeadline = deadline
+	}
+	
+	conn.SetWriteDeadline(writeDeadline)
 
-	// Send ping (must be done while holding the lock to prevent concurrent writes)
-	err := conn.WriteMessage(websocket.PingMessage, nil)
-	h.connection.connMutex.Unlock()
+	// Send ping with panic recovery (must be done while holding the lock)
+	var err error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				h.connection.config.Logger.Debug("Recovered from ping send panic", zap.Any("panic", r))
+				err = websocket.ErrCloseSent
+			}
+		}()
+		err = conn.WriteMessage(websocket.PingMessage, nil)
+	}()
 	
 	if err != nil {
+		// Check for timeout errors which might be due to context deadline
+		if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
+			// Check if timeout was due to context cancellation
+			select {
+			case <-h.connection.ctx.Done():
+				h.connection.config.Logger.Debug("Ping timeout due to context cancellation")
+				return h.connection.ctx.Err()
+			default:
+				// Regular timeout
+			}
+		}
 		return err
 	}
 
@@ -365,8 +486,7 @@ func (h *HeartbeatManager) sendPing() error {
 	h.stats.LastPingAt = now
 	h.stats.mutex.Unlock()
 
-	h.connection.config.Logger.Debug("Sent ping",
-		zap.Time("at", now))
+	h.connection.config.Logger.Debug("Sent ping", zap.Time("at", now))
 
 	return nil
 }

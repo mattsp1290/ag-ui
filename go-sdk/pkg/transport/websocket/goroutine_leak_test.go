@@ -367,11 +367,20 @@ func TestConcurrentConnectionClose(t *testing.T) {
 	go func() {
 		defer wg.Done()
 		for i := 0; i < 100; i++ {
+			// Check if connection is closed before sending
+			if conn.State() == StateClosed || conn.State() == StateClosing {
+				return
+			}
 			msg := []byte(fmt.Sprintf("concurrent test %d", i))
 			if err := conn.SendMessage(ctx, msg); err != nil {
 				return
 			}
-			time.Sleep(5 * time.Millisecond)
+			// Short sleep with cancellation check
+			select {
+			case <-time.After(5 * time.Millisecond):
+			case <-ctx.Done():
+				return
+			}
 		}
 	}()
 

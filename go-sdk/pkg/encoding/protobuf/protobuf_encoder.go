@@ -11,6 +11,13 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// Ensure ProtobufEncoder implements the focused interfaces
+var (
+	_ encoding.Encoder                      = (*ProtobufEncoder)(nil)
+	_ encoding.ContentTypeProvider          = (*ProtobufEncoder)(nil)
+	_ encoding.StreamingCapabilityProvider  = (*ProtobufEncoder)(nil)
+)
+
 // ProtobufEncoder implements the Encoder interface for Protocol Buffer encoding
 type ProtobufEncoder struct {
 	options *encoding.EncodingOptions

@@ -13,10 +13,7 @@ func TestMain(m *testing.M) {
 	code := m.Run()
 	
 	// Cleanup global registry to stop background goroutine
-	registry := encoding.GetGlobalRegistry()
-	if registry != nil {
-		registry.Close()
-	}
+	encoding.CloseGlobalRegistry()
 	
 	// Exit with test result
 	os.Exit(code)
@@ -24,10 +21,12 @@ func TestMain(m *testing.M) {
 
 // Add this to enable goleak checking per test instead of at package level
 func TestNoGoroutineLeaks(t *testing.T) {
+	// Close any existing global registry to stop background goroutines
+	encoding.CloseGlobalRegistry()
+	
 	defer goleak.VerifyNone(t,
 		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
 		goleak.IgnoreTopFunction("github.com/golang/glog.(*loggingT).flushDaemon"),
 		goleak.IgnoreTopFunction("internal/poll.runtime_pollWait"),
-		goleak.IgnoreTopFunction("github.com/ag-ui/go-sdk/pkg/encoding.(*FormatRegistry).backgroundCleanup"),
 	)
 }

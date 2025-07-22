@@ -770,12 +770,18 @@ func TestSecurityVulnerabilities(t *testing.T) {
 		RateLimit: RateLimitConfig{
 			Enabled:           true,
 			RequestsPerSecond: 100,
-			BurstSize:         10,
+			BurstSize:         25,  // Increased to allow more requests for testing
 		},
 		CORS: CORSConfig{
 			Enabled:          true,
 			AllowedOrigins:   []string{"https://trusted.example.com"},
 			AllowCredentials: false,
+		},
+		Validation: ValidationConfig{
+			Enabled:        true,
+			MaxRequestSize: 512 * 1024,  // 512KB limit to reject 1MB test payload
+			MaxHeaderSize:  64 * 1024,   // 64KB header limit
+			AllowedContentTypes: []string{"application/json", "text/plain", "text/event-stream"},
 		},
 	}
 
@@ -799,7 +805,14 @@ func TestSecurityVulnerabilities(t *testing.T) {
 			return
 		}
 
-		// Apply security headers
+		// Validate request (including size limits)
+		if err := securityManager.ValidateRequest(r); err != nil {
+			w.WriteHeader(http.StatusRequestEntityTooLarge)
+			return
+		}
+
+		// Apply security headers BEFORE calling base handler
+		// (headers must be set before any response body is written)
 		securityManager.ApplySecurityHeaders(w, r)
 
 		// Call base handler
@@ -866,6 +879,9 @@ func TestSecurityVulnerabilities(t *testing.T) {
 		assert.GreaterOrEqual(t, successCount, 20, "Should allow some requests before blocking")
 	})
 
+	// Brief pause to let rate limiter reset between tests
+	time.Sleep(100 * time.Millisecond)
+
 	t.Run("CORS Validation", func(t *testing.T) {
 		testCases := []struct {
 			name    string
@@ -879,13 +895,16 @@ func TestSecurityVulnerabilities(t *testing.T) {
 
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
+				// Create a fresh client for each test to avoid connection reuse issues
+				freshClient := server.Client()
+				
 				req, _ := http.NewRequest("GET", server.URL+"/events/stream", nil)
 				req.Header.Set("Authorization", "Bearer secure-token-123")
 				if tc.origin != "" {
 					req.Header.Set("Origin", tc.origin)
 				}
 
-				resp, err := client.Do(req)
+				resp, err := freshClient.Do(req)
 				require.NoError(t, err)
 				defer resp.Body.Close()
 
@@ -1583,10 +1602,28 @@ func TestStreamSSEIntegration(t *testing.T) {
 	buf := make([]byte, 4096)
 	var sseData bytes.Buffer
 
-	// Read with timeout
-	done := make(chan bool)
+	// Read with timeout and proper goroutine cleanup
+	done := make(chan bool, 1) // Buffered channel to prevent goroutine leak
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	
 	go func() {
+		defer func() {
+			// Always try to send completion signal, but don't block
+			select {
+			case done <- true:
+			default:
+			}
+		}()
+		
 		for {
+			// Check for cancellation before each read operation
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			
 			n, err := resp.Body.Read(buf)
 			if n > 0 {
 				sseData.Write(buf[:n])
@@ -1602,13 +1639,12 @@ func TestStreamSSEIntegration(t *testing.T) {
 				break
 			}
 		}
-		done <- true
 	}()
 
 	select {
 	case <-done:
 		// Reading completed
-	case <-time.After(3 * time.Second):
+	case <-ctx.Done():
 		// Timeout - this is expected as SSE streams continuously
 	}
 

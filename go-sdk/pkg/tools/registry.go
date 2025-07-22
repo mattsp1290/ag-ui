@@ -2632,8 +2632,12 @@ func (r *Registry) removeFromIndexes(tool *Tool) {
 
 // backgroundToolCleanup runs periodic cleanup of expired tools
 func (r *Registry) backgroundToolCleanup() {
-	// Ensure we have a positive interval, use a minimum of 1 second if invalid
+	// Safely read the config with proper locking
+	r.mu.RLock()
 	interval := r.config.ToolCleanupInterval
+	r.mu.RUnlock()
+	
+	// Ensure we have a positive interval, use a minimum of 1 second if invalid
 	if interval <= 0 {
 		interval = 1 * time.Second // Fallback to prevent panic
 	}

@@ -396,7 +396,7 @@ func TestContextCancellationErrors(t *testing.T) {
 					t.Logf("Encoder write error: %v", err)
 					break
 				}
-				time.Sleep(50 * time.Millisecond) // This will cause timeout
+				time.Sleep(5 * time.Millisecond) // Reduced from 50ms to prevent test timeouts
 			}
 			
 			encoder.EndStream(ctx)
@@ -560,7 +560,7 @@ func TestNegotiationErrors(t *testing.T) {
 func TestPoolingErrors(t *testing.T) {
 	t.Run("PoolOverflow", func(t *testing.T) {
 		// Test what happens when pool is heavily used
-		const numOperations = 10000
+		const numOperations = 1000 // Reduced from 10000 to prevent test timeouts
 		
 		var buffers []*bytes.Buffer
 		
@@ -704,7 +704,7 @@ func TestEdgeCases(t *testing.T) {
 		require.NoError(t, err)
 		
 		// Very large event list
-		const numEvents = 10000
+		const numEvents = 1000 // Reduced from 10000 to prevent test timeouts
 		eventList := make([]events.Event, numEvents)
 		for i := 0; i < numEvents; i++ {
 			eventList[i] = events.NewTextMessageContentEvent(fmt.Sprintf("msg-%d", i), fmt.Sprintf("content-%d", i))

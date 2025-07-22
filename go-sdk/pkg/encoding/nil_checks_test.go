@@ -13,8 +13,8 @@ func TestNilChecksCodecFactory(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error when factory is nil")
 		}
-		if err.Error() != "codec factory is nil" {
-			t.Errorf("Expected 'codec factory is nil', got '%s'", err.Error())
+		if err.Error() != "configuration error in codec_factory for setting 'factory': codec factory cannot be nil (value: <nil>)" {
+			t.Errorf("Expected 'configuration error in codec_factory for setting 'factory': codec factory cannot be nil (value: <nil>)', got '%s'", err.Error())
 		}
 	})
 
@@ -24,8 +24,8 @@ func TestNilChecksCodecFactory(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error when context is nil")
 		}
-		if err.Error() != "context cannot be nil" {
-			t.Errorf("Expected 'context cannot be nil', got '%s'", err.Error())
+		if err.Error() != "configuration error in codec_factory for setting 'context': context cannot be nil (value: <nil>)" {
+			t.Errorf("Expected 'configuration error in codec_factory for setting 'context': context cannot be nil (value: <nil>)', got '%s'", err.Error())
 		}
 	})
 
@@ -35,8 +35,8 @@ func TestNilChecksCodecFactory(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error when content type is empty")
 		}
-		if err.Error() != "content type cannot be empty" {
-			t.Errorf("Expected 'content type cannot be empty', got '%s'", err.Error())
+		if err.Error() != "configuration error in codec_factory for setting 'content_type': content type cannot be empty (value: )" {
+			t.Errorf("Expected 'configuration error in codec_factory for setting 'content_type': content type cannot be empty (value: )', got '%s'", err.Error())
 		}
 	})
 
@@ -46,8 +46,8 @@ func TestNilChecksCodecFactory(t *testing.T) {
 		if err == nil {
 			t.Error("Expected error when factory is nil")
 		}
-		if err.Error() != "codec factory is nil" {
-			t.Errorf("Expected 'codec factory is nil', got '%s'", err.Error())
+		if err.Error() != "configuration error in codec_factory for setting 'factory': codec factory cannot be nil (value: <nil>)" {
+			t.Errorf("Expected 'configuration error in codec_factory for setting 'factory': codec factory cannot be nil (value: <nil>)', got '%s'", err.Error())
 		}
 	})
 

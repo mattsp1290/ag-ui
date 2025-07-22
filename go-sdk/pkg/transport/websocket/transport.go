@@ -139,7 +139,7 @@ func DefaultTransportConfig() *TransportConfig {
 		PoolConfig:            DefaultPoolConfig(),
 		PerformanceConfig:     DefaultPerformanceConfig(),
 		DialTimeout:           10 * time.Second, // Reduced for faster test execution
-		EventTimeout:          15 * time.Second, // Reduced for faster test execution
+		EventTimeout:          30 * time.Second, // Default timeout for event processing
 		MaxEventSize:          1024 * 1024, // 1MB
 		EnableEventValidation: true,
 		EventValidator:        events.NewEventValidator(events.DevelopmentValidationConfig()),

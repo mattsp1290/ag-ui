@@ -722,8 +722,13 @@ func TestMemoryLeakDetection(t *testing.T) {
 	var finalStats runtime.MemStats
 	runtime.ReadMemStats(&finalStats)
 	
-	// Check for significant memory increase
-	memoryIncrease := finalStats.Alloc - initialStats.Alloc
+	// Check for significant memory increase (handle potential underflow)
+	var memoryIncrease uint64
+	if finalStats.Alloc > initialStats.Alloc {
+		memoryIncrease = finalStats.Alloc - initialStats.Alloc
+	} else {
+		memoryIncrease = 0 // Memory decreased or stayed the same
+	}
 	t.Logf("Memory increase: %d bytes", memoryIncrease)
 	
 	// Allow some memory increase, but not too much

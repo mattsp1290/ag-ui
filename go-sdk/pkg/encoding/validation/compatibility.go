@@ -345,16 +345,16 @@ func (s *JSONTestVectorSource) LoadVectors(ctx context.Context) ([]TestVector, e
 // CrossSDKTestSuite provides a comprehensive test suite for cross-SDK compatibility
 type CrossSDKTestSuite struct {
 	validator *CrossSDKValidator
-	encoder   encoding.Encoder
-	decoder   encoding.Decoder
+	encoder   encoding.Codec
+	decoder   encoding.Codec
 }
 
 // NewCrossSDKTestSuite creates a new cross-SDK test suite
-func NewCrossSDKTestSuite(encoder encoding.Encoder, decoder encoding.Decoder) *CrossSDKTestSuite {
+func NewCrossSDKTestSuite(codec encoding.Codec) *CrossSDKTestSuite {
 	return &CrossSDKTestSuite{
 		validator: NewCrossSDKValidator(),
-		encoder:   encoder,
-		decoder:   decoder,
+		encoder:   codec,
+		decoder:   codec,
 	}
 }
 

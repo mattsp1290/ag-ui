@@ -76,6 +76,10 @@ func TestEventProcessingPipeline(t *testing.T) {
 	assert.Equal(t, int64(1), stats.EventsReceived)
 	assert.Equal(t, int64(1), stats.EventsProcessed)
 	assert.Equal(t, int64(0), stats.EventsFailed)
+
+	// Stop the transport to clean up goroutines
+	err = transport.Stop()
+	assert.NoError(t, err)
 }
 
 // TestEventChannelCapacity tests that the event channel can handle multiple events
@@ -86,6 +90,12 @@ func TestEventChannelCapacity(t *testing.T) {
 
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
+
+	// Ensure transport cleanup at the end
+	defer func() {
+		err := transport.Stop()
+		assert.NoError(t, err)
+	}()
 
 	// Send multiple events without processing
 	for i := 0; i < 100; i++ {

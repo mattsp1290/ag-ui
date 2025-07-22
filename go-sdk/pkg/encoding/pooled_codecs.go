@@ -9,7 +9,11 @@ import (
 
 // PooledEncoder wraps an encoder with pooling capabilities
 type PooledEncoder struct {
-	encoder     Encoder
+	encoder interface {
+		Encoder
+		ContentTypeProvider
+		StreamingCapabilityProvider
+	}
 	pool        *CodecPool
 	contentType string
 	putFunc     func(interface{})
@@ -28,11 +32,6 @@ func (pe *PooledEncoder) EncodeMultiple(ctx context.Context, events []events.Eve
 // ContentType returns the MIME type for this encoder
 func (pe *PooledEncoder) ContentType() string {
 	return pe.encoder.ContentType()
-}
-
-// CanStream indicates if this encoder supports streaming
-func (pe *PooledEncoder) CanStream() bool {
-	return pe.encoder.CanStream()
 }
 
 // SupportsStreaming indicates if this encoder supports streaming
@@ -58,7 +57,7 @@ func (pe *PooledEncoder) finalizer() {
 // NewPooledEncoder creates a new pooled encoder with finalizer
 func NewPooledEncoder(encoder Encoder, pool *CodecPool, contentType string, putFunc func(interface{})) *PooledEncoder {
 	pe := &PooledEncoder{
-		encoder:     encoder,
+		encoder:     EnsureFullEncoder(encoder),
 		pool:        pool,
 		contentType: contentType,
 		putFunc:     putFunc,
@@ -69,7 +68,11 @@ func NewPooledEncoder(encoder Encoder, pool *CodecPool, contentType string, putF
 
 // PooledDecoder wraps a decoder with pooling capabilities
 type PooledDecoder struct {
-	decoder     Decoder
+	decoder interface {
+		Decoder
+		ContentTypeProvider
+		StreamingCapabilityProvider
+	}
 	pool        *CodecPool
 	contentType string
 	putFunc     func(interface{})
@@ -88,11 +91,6 @@ func (pd *PooledDecoder) DecodeMultiple(ctx context.Context, data []byte) ([]eve
 // ContentType returns the MIME type this decoder handles
 func (pd *PooledDecoder) ContentType() string {
 	return pd.decoder.ContentType()
-}
-
-// CanStream indicates if this decoder supports streaming
-func (pd *PooledDecoder) CanStream() bool {
-	return pd.decoder.CanStream()
 }
 
 // SupportsStreaming indicates if this decoder supports streaming
@@ -118,7 +116,7 @@ func (pd *PooledDecoder) finalizer() {
 // NewPooledDecoder creates a new pooled decoder with finalizer
 func NewPooledDecoder(decoder Decoder, pool *CodecPool, contentType string, putFunc func(interface{})) *PooledDecoder {
 	pd := &PooledDecoder{
-		decoder:     decoder,
+		decoder:     EnsureFullDecoderWithContentType(decoder),
 		pool:        pool,
 		contentType: contentType,
 		putFunc:     putFunc,

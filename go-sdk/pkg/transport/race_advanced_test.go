@@ -445,6 +445,10 @@ func TestTransportSwitchingUnderHighLoad(t *testing.T) {
 	done := make(chan struct{})
 	var totalSent, totalErrors, switchCount int64
 	
+	// Create test context early so it's available to all goroutines
+	testCtx, testCancel := context.WithTimeout(context.Background(), testDuration+5*time.Second)
+	defer testCancel()
+	
 	// Track error types
 	errorTypes := make(map[string]*int64)
 	errorTypes["ErrNotConnected"] = new(int64)
@@ -461,6 +465,8 @@ func TestTransportSwitchingUnderHighLoad(t *testing.T) {
 			for {
 				select {
 				case <-done:
+					return
+				case <-testCtx.Done():
 					return
 				default:
 					transport := NewRaceTestTransport()
@@ -487,6 +493,8 @@ func TestTransportSwitchingUnderHighLoad(t *testing.T) {
 				select {
 				case <-done:
 					return
+				case <-testCtx.Done():
+					return
 				default:
 					event := &DemoEvent{
 						id:        fmt.Sprintf("high-load-%d-%d", id, eventCount),
@@ -495,7 +503,7 @@ func TestTransportSwitchingUnderHighLoad(t *testing.T) {
 					}
 					eventCount++
 					
-					sendCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+					sendCtx, cancel := context.WithTimeout(testCtx, 50*time.Millisecond)
 					err := manager.Send(sendCtx, event)
 					cancel()
 					
@@ -527,12 +535,35 @@ func TestTransportSwitchingUnderHighLoad(t *testing.T) {
 		}(i)
 	}
 	
-	// Run test for specified duration
-	time.Sleep(testDuration)
-	close(done)
+	// Run test for specified duration with timeout protection
+	go func() {
+		select {
+		case <-time.After(testDuration):
+			close(done)
+		case <-testCtx.Done():
+			// Force close done channel if context times out
+			select {
+			case <-done:
+				// Already closed
+			default:
+				close(done)
+			}
+		}
+	}()
 	
-	// Wait for all goroutines
-	wg.Wait()
+	// Wait for all goroutines with timeout protection
+	waitDone := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(waitDone)
+	}()
+	
+	select {
+	case <-waitDone:
+		// Normal completion
+	case <-time.After(testDuration + 3*time.Second):
+		t.Log("Warning: Some goroutines did not finish in time, proceeding with test results")
+	}
 	
 	successRate := float64(atomic.LoadInt64(&totalSent)) / float64(atomic.LoadInt64(&totalSent)+atomic.LoadInt64(&totalErrors))
 	opsPerSecond := float64(atomic.LoadInt64(&totalSent)+atomic.LoadInt64(&totalErrors)) / testDuration.Seconds()

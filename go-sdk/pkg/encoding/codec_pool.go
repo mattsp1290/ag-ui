@@ -281,14 +281,14 @@ func (pcf *PooledCodecFactory) CreateCodec(ctx context.Context, contentType stri
 			
 			// Wrap in pooled instances
 			pooledEncoder := &PooledEncoder{
-				encoder:     encoder,
+				encoder:     EnsureFullEncoder(encoder),
 				pool:        pcf.codecPool,
 				contentType: contentType,
 				putFunc:     pcf.codecPool.PutJSONEncoder,
 			}
 			
 			pooledDecoder := &PooledDecoder{
-				decoder:     decoder,
+				decoder:     EnsureFullDecoderWithContentType(decoder),
 				pool:        pcf.codecPool,
 				contentType: contentType,
 				putFunc:     pcf.codecPool.PutJSONDecoder,
@@ -316,7 +316,7 @@ func (pcf *PooledCodecFactory) CreateCodec(ctx context.Context, contentType stri
 			}
 			
 			pooledDecoder := &PooledDecoder{
-				decoder:     composite.decoder,
+				decoder:     EnsureFullDecoderWithContentType(composite.decoder),
 				pool:        pcf.codecPool,
 				contentType: contentType,
 				putFunc:     pcf.codecPool.PutJSONDecoder,
@@ -339,9 +339,14 @@ func (pcf *PooledCodecFactory) CreateCodec(ctx context.Context, contentType stri
 			// Create a composite codec from cached components
 			encoder := encoderInterface.(Encoder)
 			decoder := decoderInterface.(Decoder)
+			
+			// Create adapters that implement the required interfaces
+			encoderAdapter := EnsureFullEncoder(encoder)
+			decoderAdapter := EnsureFullDecoder(decoder)
+			
 			return &compositeCodec{
-				encoder: encoder,
-				decoder: decoder,
+				encoder: encoderAdapter,
+				decoder: decoderAdapter,
 			}, nil
 		}
 		
@@ -371,8 +376,61 @@ func (pcf *PooledCodecFactory) SupportsStreaming(contentType string) bool {
 
 // compositeCodec combines cached encoder and decoder components
 type compositeCodec struct {
+	encoder interface {
+		Encoder
+		ContentTypeProvider
+		StreamingCapabilityProvider
+	}
+	decoder interface {
+		Decoder
+		StreamingCapabilityProvider
+	}
+}
+
+// Adapter types for compositeCodec
+type encoderWithInterfaces struct {
 	encoder Encoder
+}
+
+func (e *encoderWithInterfaces) Encode(ctx context.Context, event events.Event) ([]byte, error) {
+	return e.encoder.Encode(ctx, event)
+}
+
+func (e *encoderWithInterfaces) EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error) {
+	return e.encoder.EncodeMultiple(ctx, events)
+}
+
+func (e *encoderWithInterfaces) ContentType() string {
+	// Default content type - should be overridden by specific implementations
+	return "application/octet-stream"
+}
+
+func (e *encoderWithInterfaces) SupportsStreaming() bool {
+	// Check if the underlying encoder supports streaming
+	if streamingEncoder, ok := e.encoder.(StreamingCapabilityProvider); ok {
+		return streamingEncoder.SupportsStreaming()
+	}
+	return false
+}
+
+type decoderWithInterfaces struct {
 	decoder Decoder
+}
+
+func (d *decoderWithInterfaces) Decode(ctx context.Context, data []byte) (events.Event, error) {
+	return d.decoder.Decode(ctx, data)
+}
+
+func (d *decoderWithInterfaces) DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error) {
+	return d.decoder.DecodeMultiple(ctx, data)
+}
+
+func (d *decoderWithInterfaces) SupportsStreaming() bool {
+	// Check if the underlying decoder supports streaming
+	if streamingDecoder, ok := d.decoder.(StreamingCapabilityProvider); ok {
+		return streamingDecoder.SupportsStreaming()
+	}
+	return false
 }
 
 func (c *compositeCodec) Encode(ctx context.Context, event events.Event) ([]byte, error) {
@@ -396,11 +454,7 @@ func (c *compositeCodec) ContentType() string {
 }
 
 func (c *compositeCodec) SupportsStreaming() bool {
-	return c.encoder.CanStream() && c.decoder.CanStream()
-}
-
-func (c *compositeCodec) CanStream() bool {
-	return c.SupportsStreaming()
+	return c.encoder.SupportsStreaming() && c.decoder.SupportsStreaming()
 }
 
 // Release releases both encoder and decoder if they are releasable

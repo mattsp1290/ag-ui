@@ -39,13 +39,12 @@ type ExecutionEngine struct {
 	registry *Registry
 
 	// Configuration
-	maxConcurrent  int32 // Changed to int32 for atomic operations
+	maxConcurrent  int
 	defaultTimeout time.Duration
 
-	// Execution tracking
-	mu          sync.RWMutex
-	activeCount int32             // Changed to int32 for atomic operations
-	executions  sync.Map          // Changed to sync.Map for concurrent access
+	// Concurrency control - channel-based semaphore (RACE CONDITION FIX)
+	concurrencySemaphore chan struct{} // Buffered channel acts as semaphore
+	executions           sync.Map      // Active execution tracking
 
 	// Metrics
 	metrics *ExecutionMetrics
@@ -62,7 +61,7 @@ type ExecutionEngine struct {
 	cache             *ExecutionCache
 	asyncWorkers      int
 	asyncJobQueue     chan *AsyncJob
-	asyncResults      sync.Map // Changed to sync.Map for concurrent access
+	asyncResults      sync.Map
 	resourceMonitor   *ResourceMonitor
 	sandbox           *SandboxConfig
 }
@@ -159,7 +158,9 @@ type ExecutionEngineOption func(*ExecutionEngine)
 // WithMaxConcurrent sets the maximum number of concurrent executions.
 func WithMaxConcurrent(max int) ExecutionEngineOption {
 	return func(e *ExecutionEngine) {
-		e.maxConcurrent = int32(max)
+		e.maxConcurrent = max
+		// Recreate semaphore with new capacity
+		e.concurrencySemaphore = make(chan struct{}, max)
 	}
 }
 
@@ -179,10 +180,12 @@ func WithRateLimiter(limiter RateLimiter) ExecutionEngineOption {
 
 // NewExecutionEngine creates a new execution engine.
 func NewExecutionEngine(registry *Registry, opts ...ExecutionEngineOption) *ExecutionEngine {
+	maxConcurrent := 100 // Default max concurrent executions
 	e := &ExecutionEngine{
-		registry:       registry,
-		maxConcurrent:  100,              // Default max concurrent executions
-		defaultTimeout: 30 * time.Second, // Default timeout
+		registry:             registry,
+		maxConcurrent:        maxConcurrent,
+		defaultTimeout:       30 * time.Second, // Default timeout
+		concurrencySemaphore: make(chan struct{}, maxConcurrent), // Channel-based semaphore
 		metrics: &ExecutionMetrics{
 			toolMetrics: make(map[string]*ToolMetrics),
 		},
@@ -237,11 +240,17 @@ func (e *ExecutionEngine) Execute(ctx context.Context, toolID string, params map
 		}
 	}
 
-	// Check concurrency limits with proper synchronization
-	if concurrencyErr := e.checkConcurrencyLimit(ctx); concurrencyErr != nil {
-		return nil, concurrencyErr
+	// Acquire concurrency slot using channel-based semaphore (RACE CONDITION FIX)
+	// Block until a slot becomes available or context is cancelled
+	select {
+	case e.concurrencySemaphore <- struct{}{}: // Acquire slot
+		// Successfully acquired slot, will be released in defer
+	case <-ctx.Done():
+		return nil, NewToolError(ErrorTypeTimeout, "CONTEXT_CANCELLED", "context cancelled while waiting for execution slot").
+			WithToolID(toolID).
+			WithCause(ctx.Err())
 	}
-	defer e.decrementActiveCount()
+	defer func() { <-e.concurrencySemaphore }() // Release slot
 
 	// Validate parameters
 	validator := NewSchemaValidator(toolView.GetSchema())
@@ -372,11 +381,17 @@ func (e *ExecutionEngine) ExecuteStream(ctx context.Context, toolID string, para
 		}
 	}
 
-	// Check concurrency limits with proper synchronization
-	if concurrencyErr := e.checkConcurrencyLimit(ctx); concurrencyErr != nil {
-		return nil, concurrencyErr
+	// Acquire concurrency slot using channel-based semaphore (RACE CONDITION FIX)
+	// Block until a slot becomes available or context is cancelled
+	select {
+	case e.concurrencySemaphore <- struct{}{}: // Acquire slot
+		// Successfully acquired slot, will be released in defer
+	case <-ctx.Done():
+		return nil, NewToolError(ErrorTypeTimeout, "CONTEXT_CANCELLED", "context cancelled while waiting for execution slot").
+			WithToolID(toolID).
+			WithCause(ctx.Err())
 	}
-	defer e.decrementActiveCount()
+	defer func() { <-e.concurrencySemaphore }() // Release slot
 
 	// Set up execution context with timeout
 	timeout := e.defaultTimeout
@@ -481,54 +496,10 @@ func (e *ExecutionEngine) executeWithRecovery(ctx context.Context, tool ReadOnly
 	return executor.Execute(ctx, params)
 }
 
-// checkConcurrencyLimit checks if we can execute another tool (FIXED).
-func (e *ExecutionEngine) checkConcurrencyLimit(ctx context.Context) error {
-	// Use a channel-based approach to avoid condition variable deadlocks
-	ticker := time.NewTicker(10 * time.Millisecond)
-	defer ticker.Stop()
-	
-	deadline, hasDeadline := ctx.Deadline()
-	timeoutDuration := 30 * time.Second
-	if hasDeadline {
-		until := time.Until(deadline)
-		if until < timeoutDuration {
-			timeoutDuration = until
-		}
-	}
-	
-	timeout := time.After(timeoutDuration)
-	
-	for {
-		// Try to acquire a slot
-		e.mu.Lock()
-		maxConcurrent := atomic.LoadInt32(&e.maxConcurrent)
-		currentActive := atomic.LoadInt32(&e.activeCount)
-		
-		if currentActive < maxConcurrent {
-			// We can proceed
-			atomic.AddInt32(&e.activeCount, 1)
-			e.mu.Unlock()
-			return nil
-		}
-		e.mu.Unlock()
-		
-		// Wait and retry
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-timeout:
-			return fmt.Errorf("timeout waiting for execution slot (max: %d, active: %d)", maxConcurrent, currentActive)
-		case <-ticker.C:
-			// Retry
-		}
-	}
-}
-
-// decrementActiveCount decrements the active execution count.
-func (e *ExecutionEngine) decrementActiveCount() {
-	atomic.AddInt32(&e.activeCount, -1)
-	// No need to signal since we're using polling now
-}
+// Channel-based semaphore approach eliminates the need for these problematic methods.
+// The concurrency control is now handled directly in Execute/ExecuteStream methods
+// using the concurrencySemaphore channel, which provides atomic acquire/release
+// operations without race conditions.
 
 // runBeforeHooks runs before-execute hooks with proper locking (FIXED).
 func (e *ExecutionEngine) runBeforeHooks(ctx context.Context, toolID string, params map[string]interface{}) error {
@@ -679,10 +650,11 @@ func (e *ExecutionEngine) AddAfterExecuteHook(hook ExecutionHook) {
 	e.afterExecute = append(e.afterExecute, hook)
 }
 
-// GetActiveExecutions returns the number of active executions (FIXED).
+// GetActiveExecutions returns the number of active executions (RACE CONDITION FIX).
 // This is useful for monitoring system load and debugging.
 func (e *ExecutionEngine) GetActiveExecutions() int {
-	return int(atomic.LoadInt32(&e.activeCount))
+	// Channel length represents current active executions
+	return len(e.concurrencySemaphore)
 }
 
 // IsExecuting checks if a specific tool is currently executing (FIXED).

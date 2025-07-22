@@ -1039,14 +1039,20 @@ func TestStreamingEdgeCases(t *testing.T) {
 	t.Run("RapidClose", func(t *testing.T) {
 		ctx := context.Background()
 
-		// Create and immediately close multiple contexts
+		// Create and immediately close multiple contexts with proper synchronization
+		var wg sync.WaitGroup
 		for i := 0; i < 100; i++ {
 			sc := NewStreamingContext(ctx)
+			wg.Add(1)
 			go func() {
+				defer wg.Done()
 				_ = sc.Send("data") // Ignore error in race condition test
 			}()
+			// Small delay to let the goroutine start before closing
+			time.Sleep(time.Microsecond)
 			_ = sc.Close() // Ignore error in rapid close test
 		}
+		wg.Wait() // Wait for all goroutines to complete
 	})
 
 	t.Run("ConcurrentClose", func(t *testing.T) {

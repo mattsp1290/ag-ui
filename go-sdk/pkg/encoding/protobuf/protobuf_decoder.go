@@ -13,6 +13,13 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
+// Ensure ProtobufDecoder implements the focused interfaces
+var (
+	_ encoding.Decoder                      = (*ProtobufDecoder)(nil)
+	_ encoding.ContentTypeProvider          = (*ProtobufDecoder)(nil)
+	_ encoding.StreamingCapabilityProvider  = (*ProtobufDecoder)(nil)
+)
+
 // ProtobufDecoder implements the Decoder interface for Protocol Buffer decoding
 type ProtobufDecoder struct {
 	options *encoding.DecodingOptions

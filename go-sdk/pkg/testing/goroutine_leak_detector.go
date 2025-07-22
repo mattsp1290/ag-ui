@@ -31,6 +31,10 @@ func NewGoroutineLeakDetector() *GoroutineLeakDetector {
 			"net/http.(*Server).ListenAndServe":   true,
 			"internal/poll.runtime_pollWait":      true,
 			"go.uber.org/zap/zapcore.(*sampler)":  true,
+			// Transport layer specific ignored patterns
+			"net/http.(*Transport).dialConnFor":   true,
+			"net/http.(*persistConn).readLoop":    true,
+			"net/http.(*persistConn).writeLoop":   true,
 		},
 	}
 }
@@ -84,7 +88,8 @@ func (g *GoroutineLeakDetector) waitForStableGoroutineCount(ctx context.Context,
 	ticker := time.NewTicker(checkInterval)
 	defer ticker.Stop()
 
-	var previousCount int
+	// Initialize with current count to avoid initial mismatch
+	previousCount := runtime.NumGoroutine()
 	stableCount := 0
 	requiredStableChecks := 3
 

@@ -84,13 +84,13 @@ func (f *DefaultCodecFactory) RegisterStreamCodec(contentType string, ctor Strea
 // CreateCodec creates a codec for the specified content type
 func (f *DefaultCodecFactory) CreateCodec(ctx context.Context, contentType string, encOptions *EncodingOptions, decOptions *DecodingOptions) (Codec, error) {
 	if f == nil {
-		return nil, fmt.Errorf("codec factory is nil")
+		return nil, NewConfigurationError("codec_factory", "factory", "codec factory cannot be nil", nil)
 	}
 	if ctx == nil {
-		return nil, fmt.Errorf("context cannot be nil")
+		return nil, NewConfigurationError("codec_factory", "context", "context cannot be nil", nil)
 	}
 	if contentType == "" {
-		return nil, fmt.Errorf("content type cannot be empty")
+		return nil, NewConfigurationError("codec_factory", "content_type", "content type cannot be empty", "")
 	}
 	
 	f.mu.RLock()
@@ -98,10 +98,10 @@ func (f *DefaultCodecFactory) CreateCodec(ctx context.Context, contentType strin
 	
 	ctor, exists := f.codecCtors[contentType]
 	if !exists {
-		return nil, fmt.Errorf("no codec registered for content type: %s", contentType)
+		return nil, NewRegistryError("codec_registry", "lookup", contentType, "no codec registered for content type", nil)
 	}
 	if ctor == nil {
-		return nil, fmt.Errorf("codec constructor is nil for content type: %s", contentType)
+		return nil, NewConfigurationError("codec_factory", "constructor", "codec constructor is nil", contentType)
 	}
 	
 	if encOptions == nil {
@@ -117,13 +117,13 @@ func (f *DefaultCodecFactory) CreateCodec(ctx context.Context, contentType strin
 // CreateStreamCodec creates a streaming codec for the specified content type
 func (f *DefaultCodecFactory) CreateStreamCodec(ctx context.Context, contentType string, encOptions *EncodingOptions, decOptions *DecodingOptions) (StreamCodec, error) {
 	if f == nil {
-		return nil, fmt.Errorf("codec factory is nil")
+		return nil, NewConfigurationError("codec_factory", "factory", "codec factory cannot be nil", nil)
 	}
 	if ctx == nil {
-		return nil, fmt.Errorf("context cannot be nil")
+		return nil, NewConfigurationError("codec_factory", "context", "context cannot be nil", nil)
 	}
 	if contentType == "" {
-		return nil, fmt.Errorf("content type cannot be empty")
+		return nil, NewConfigurationError("codec_factory", "content_type", "content type cannot be empty", "")
 	}
 	
 	f.mu.RLock()
@@ -131,10 +131,10 @@ func (f *DefaultCodecFactory) CreateStreamCodec(ctx context.Context, contentType
 	
 	ctor, exists := f.streamCodecCtors[contentType]
 	if !exists {
-		return nil, fmt.Errorf("no stream codec registered for content type: %s", contentType)
+		return nil, NewRegistryError("stream_codec_registry", "lookup", contentType, "no stream codec registered for content type", nil)
 	}
 	if ctor == nil {
-		return nil, fmt.Errorf("stream codec constructor is nil for content type: %s", contentType)
+		return nil, NewConfigurationError("stream_codec_factory", "constructor", "stream codec constructor is nil", contentType)
 	}
 	
 	if encOptions == nil {
@@ -200,8 +200,10 @@ func (f *DefaultCodecFactory) RegisterEncoder(contentType string, ctor EncoderCo
 		if err != nil {
 			return nil, err
 		}
+		// Create an adapter for the encoder
+		encoderAdapter := &encoderWithAllInterfaces{encoder: encoder}
 		// Create an encoder-only codec that returns errors for decode operations
-		return &encoderOnlyCodec{encoder: encoder}, nil
+		return &encoderOnlyCodec{encoder: encoderAdapter}, nil
 	}
 	
 	f.RegisterCodec(contentType, codecCtor)
@@ -225,8 +227,10 @@ func (f *DefaultCodecFactory) RegisterDecoder(contentType string, ctor DecoderCo
 		if err != nil {
 			return nil, err
 		}
+		// Create an adapter for the decoder
+		decoderAdapter := &decoderWithAllInterfaces{decoder: decoder}
 		// Create a decoder-only codec that returns errors for encode operations
-		return &decoderOnlyCodec{decoder: decoder}, nil
+		return &decoderOnlyCodec{decoder: decoderAdapter}, nil
 	}
 	
 	f.RegisterCodec(contentType, codecCtor)
@@ -245,9 +249,17 @@ func (f *DefaultCodecFactory) RegisterStreamEncoder(contentType string, ctor Str
 		return // Silently ignore nil constructor
 	}
 	
-	// For now, just register it as a regular encoder since full stream codec composition is complex
+	// Create an adapter that extracts Encoder interface from StreamEncoder
 	encoderCtor := func(options *EncodingOptions) (Encoder, error) {
-		return ctor(options)
+		streamEncoder, err := ctor(options)
+		if err != nil {
+			return nil, err
+		}
+		// Extract basic encoder functionality - StreamEncoder should embed Encoder
+		if basicEncoder, ok := streamEncoder.(Encoder); ok {
+			return basicEncoder, nil
+		}
+		return nil, fmt.Errorf("stream encoder does not implement basic Encoder interface")
 	}
 	f.RegisterEncoder(contentType, encoderCtor)
 }
@@ -265,9 +277,17 @@ func (f *DefaultCodecFactory) RegisterStreamDecoder(contentType string, ctor Str
 		return // Silently ignore nil constructor
 	}
 	
-	// For now, just register it as a regular decoder since full stream codec composition is complex
+	// Create an adapter that extracts Decoder interface from StreamDecoder
 	decoderCtor := func(options *DecodingOptions) (Decoder, error) {
-		return ctor(options)
+		streamDecoder, err := ctor(options)
+		if err != nil {
+			return nil, err
+		}
+		// Extract basic decoder functionality - StreamDecoder should embed Decoder
+		if basicDecoder, ok := streamDecoder.(Decoder); ok {
+			return basicDecoder, nil
+		}
+		return nil, fmt.Errorf("stream decoder does not implement basic Decoder interface")
 	}
 	f.RegisterDecoder(contentType, decoderCtor)
 }
@@ -325,12 +345,12 @@ func NewPluginCodecFactory() *PluginCodecFactory {
 // RegisterPlugin registers a codec plugin
 func (f *PluginCodecFactory) RegisterPlugin(plugin CodecPlugin) error {
 	if plugin == nil {
-		return fmt.Errorf("plugin cannot be nil")
+		return NewConfigurationError("plugin_registry", "plugin", "plugin cannot be nil", nil)
 	}
 	
 	name := plugin.Name()
 	if name == "" {
-		return fmt.Errorf("plugin name cannot be empty")
+		return NewConfigurationError("plugin_registry", "name", "plugin name cannot be empty", "")
 	}
 	
 	f.mu.Lock()
@@ -381,10 +401,10 @@ func (f *CachingCodecFactory) CreateCodec(ctx context.Context, contentType strin
 		return nil, fmt.Errorf("underlying codec factory is nil")
 	}
 	if ctx == nil {
-		return nil, fmt.Errorf("context cannot be nil")
+		return nil, NewConfigurationError("codec_factory", "context", "context cannot be nil", nil)
 	}
 	if contentType == "" {
-		return nil, fmt.Errorf("content type cannot be empty")
+		return nil, NewConfigurationError("codec_factory", "content_type", "content type cannot be empty", "")
 	}
 	
 	// Create a cache key from content type and options
@@ -423,13 +443,23 @@ func (f *CachingCodecFactory) CreateStreamCodec(ctx context.Context, contentType
 		return nil, fmt.Errorf("underlying codec factory is nil")
 	}
 	if ctx == nil {
-		return nil, fmt.Errorf("context cannot be nil")
+		return nil, NewConfigurationError("codec_factory", "context", "context cannot be nil", nil)
 	}
 	if contentType == "" {
-		return nil, fmt.Errorf("content type cannot be empty")
+		return nil, NewConfigurationError("codec_factory", "content_type", "content type cannot be empty", "")
 	}
 	
-	return f.factory.CreateStreamCodec(ctx, contentType, encOptions, decOptions)
+	// Try to use as StreamCodecFactory first
+	if streamFactory, ok := f.factory.(StreamCodecFactory); ok {
+		return streamFactory.CreateStreamCodec(ctx, contentType, encOptions, decOptions)
+	}
+	
+	// Fallback: try to use as FullCodecFactory
+	if fullFactory, ok := f.factory.(FullCodecFactory); ok {
+		return fullFactory.CreateStreamCodec(ctx, contentType, encOptions, decOptions)
+	}
+	
+	return nil, fmt.Errorf("underlying factory does not support stream codec creation")
 }
 
 // SupportedTypes returns list of supported content types
@@ -445,7 +475,18 @@ func (f *CachingCodecFactory) SupportsStreaming(contentType string) bool {
 	if f == nil || f.factory == nil || contentType == "" {
 		return false
 	}
-	return f.factory.SupportsStreaming(contentType)
+	
+	// Try to use as StreamCodecFactory first
+	if streamFactory, ok := f.factory.(StreamCodecFactory); ok {
+		return streamFactory.SupportsStreaming(contentType)
+	}
+	
+	// Fallback: try to use as FullCodecFactory
+	if fullFactory, ok := f.factory.(FullCodecFactory); ok {
+		return fullFactory.SupportsStreaming(contentType)
+	}
+	
+	return false
 }
 
 // cacheKey generates a cache key from content type and options
@@ -549,7 +590,9 @@ func (a *decoderAdapter) SupportsStreaming() bool {
 }
 
 type streamEncoderAdapter struct {
-	codec StreamCodec
+	codec    StreamCodec
+	session  StreamSessionManager
+	processor StreamEventProcessor
 }
 
 func (a *streamEncoderAdapter) Encode(ctx context.Context, event events.Event) ([]byte, error) {
@@ -579,19 +622,30 @@ func (a *streamEncoderAdapter) EncodeStream(ctx context.Context, input <-chan ev
 }
 
 func (a *streamEncoderAdapter) StartStream(ctx context.Context, w io.Writer) error {
-	return a.codec.StartEncoding(ctx, w)
+	if a.session != nil {
+		return a.session.StartEncodingSession(ctx, w)
+	}
+	return fmt.Errorf("session management not available")
 }
 
 func (a *streamEncoderAdapter) WriteEvent(ctx context.Context, event events.Event) error {
-	return a.codec.WriteEvent(ctx, event)
+	if a.processor != nil {
+		return a.processor.WriteEvent(ctx, event)
+	}
+	return fmt.Errorf("event processing not available")
 }
 
 func (a *streamEncoderAdapter) EndStream(ctx context.Context) error {
-	return a.codec.EndEncoding(ctx)
+	if a.session != nil {
+		return a.session.EndSession(ctx)
+	}
+	return fmt.Errorf("session management not available")
 }
 
 type streamDecoderAdapter struct {
-	codec StreamCodec
+	codec    StreamCodec
+	session  StreamSessionManager
+	processor StreamEventProcessor
 }
 
 func (a *streamDecoderAdapter) Decode(ctx context.Context, data []byte) (events.Event, error) {
@@ -621,23 +675,38 @@ func (a *streamDecoderAdapter) DecodeStream(ctx context.Context, input io.Reader
 }
 
 func (a *streamDecoderAdapter) StartStream(ctx context.Context, r io.Reader) error {
-	return a.codec.StartDecoding(ctx, r)
+	if a.session != nil {
+		return a.session.StartDecodingSession(ctx, r)
+	}
+	return fmt.Errorf("session management not available")
 }
 
 func (a *streamDecoderAdapter) ReadEvent(ctx context.Context) (events.Event, error) {
-	return a.codec.ReadEvent(ctx)
+	if a.processor != nil {
+		return a.processor.ReadEvent(ctx)
+	}
+	return nil, fmt.Errorf("event processing not available")
 }
 
 func (a *streamDecoderAdapter) EndStream(ctx context.Context) error {
-	return a.codec.EndDecoding(ctx)
+	if a.session != nil {
+		return a.session.EndSession(ctx)
+	}
+	return fmt.Errorf("session management not available")
 }
 
+// ==============================================================================
+// SIMPLIFIED FACTORY TYPES - Removed Duplication
+// ==============================================================================
+
 // DefaultEncoderFactory is deprecated - use DefaultCodecFactory instead
+// Simplified to embed DefaultCodecFactory with minimal wrapper
 type DefaultEncoderFactory struct {
 	*DefaultCodecFactory
 }
 
-// DefaultDecoderFactory is deprecated - use DefaultCodecFactory instead
+// DefaultDecoderFactory is deprecated - use DefaultCodecFactory instead  
+// Simplified to embed DefaultCodecFactory with minimal wrapper
 type DefaultDecoderFactory struct {
 	*DefaultCodecFactory
 }
@@ -667,11 +736,13 @@ func NewDecoderFactory() *DefaultDecoderFactory {
 }
 
 // PluginEncoderFactory is a plugin-based encoder factory for backward compatibility
+// Simplified to embed PluginCodecFactory with minimal wrapper
 type PluginEncoderFactory struct {
 	*PluginCodecFactory
 }
 
 // PluginDecoderFactory is a plugin-based decoder factory for backward compatibility
+// Simplified to embed PluginCodecFactory with minimal wrapper
 type PluginDecoderFactory struct {
 	*PluginCodecFactory
 }
@@ -701,11 +772,13 @@ func (f *PluginDecoderFactory) SupportedDecoders() []string {
 }
 
 // CachingEncoderFactory is a caching encoder factory for backward compatibility
+// Simplified to embed CachingCodecFactory with minimal wrapper
 type CachingEncoderFactory struct {
 	*CachingCodecFactory
 }
 
 // CachingDecoderFactory is a caching decoder factory for backward compatibility
+// Simplified to embed CachingCodecFactory with minimal wrapper
 type CachingDecoderFactory struct {
 	*CachingCodecFactory
 }
@@ -764,7 +837,11 @@ func (f *DefaultEncoderFactory) CreateStreamEncoder(ctx context.Context, content
 	if err != nil {
 		return nil, err
 	}
-	return &streamEncoderAdapter{streamCodec}, nil
+	return &streamEncoderAdapter{
+		codec:     streamCodec,
+		session:   nil, // Will be nil unless streamCodec also implements StreamSessionManager
+		processor: nil, // Will be nil unless streamCodec also implements StreamEventProcessor
+	}, nil
 }
 
 // SupportedEncoders returns supported encoders (backward compatibility)
@@ -787,7 +864,11 @@ func (f *DefaultDecoderFactory) CreateStreamDecoder(ctx context.Context, content
 	if err != nil {
 		return nil, err
 	}
-	return &streamDecoderAdapter{streamCodec}, nil
+	return &streamDecoderAdapter{
+		codec:     streamCodec,
+		session:   nil, // Will be nil unless streamCodec also implements StreamSessionManager
+		processor: nil, // Will be nil unless streamCodec also implements StreamEventProcessor
+	}, nil
 }
 
 // SupportedDecoders returns supported decoders (backward compatibility)
@@ -795,11 +876,71 @@ func (f *DefaultDecoderFactory) SupportedDecoders() []string {
 	return f.SupportedTypes()
 }
 
-// Note: Adapter types are defined earlier in the file to avoid duplication
+// Additional adapter types for backward compatibility
+
+type encoderWithAllInterfaces struct {
+	encoder Encoder
+}
+
+func (e *encoderWithAllInterfaces) Encode(ctx context.Context, event events.Event) ([]byte, error) {
+	return e.encoder.Encode(ctx, event)
+}
+
+func (e *encoderWithAllInterfaces) EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error) {
+	return e.encoder.EncodeMultiple(ctx, events)
+}
+
+func (e *encoderWithAllInterfaces) ContentType() string {
+	// Try to get content type from encoder if it implements the interface
+	if provider, ok := e.encoder.(ContentTypeProvider); ok {
+		return provider.ContentType()
+	}
+	return "application/octet-stream" // Default
+}
+
+func (e *encoderWithAllInterfaces) SupportsStreaming() bool {
+	// Try to get streaming capability from encoder if it implements the interface
+	if provider, ok := e.encoder.(StreamingCapabilityProvider); ok {
+		return provider.SupportsStreaming()
+	}
+	return false // Default
+}
+
+type decoderWithAllInterfaces struct {
+	decoder Decoder
+}
+
+func (d *decoderWithAllInterfaces) Decode(ctx context.Context, data []byte) (events.Event, error) {
+	return d.decoder.Decode(ctx, data)
+}
+
+func (d *decoderWithAllInterfaces) DecodeMultiple(ctx context.Context, data []byte) ([]events.Event, error) {
+	return d.decoder.DecodeMultiple(ctx, data)
+}
+
+func (d *decoderWithAllInterfaces) ContentType() string {
+	// Try to get content type from decoder if it implements the interface
+	if provider, ok := d.decoder.(ContentTypeProvider); ok {
+		return provider.ContentType()
+	}
+	return "application/octet-stream" // Default
+}
+
+func (d *decoderWithAllInterfaces) SupportsStreaming() bool {
+	// Try to get streaming capability from decoder if it implements the interface
+	if provider, ok := d.decoder.(StreamingCapabilityProvider); ok {
+		return provider.SupportsStreaming()
+	}
+	return false // Default
+}
 
 // encoderOnlyCodec implements Codec with only encoding support
 type encoderOnlyCodec struct {
-	encoder Encoder
+	encoder interface {
+		Encoder
+		ContentTypeProvider
+		StreamingCapabilityProvider
+	}
 }
 
 func (c *encoderOnlyCodec) Encode(ctx context.Context, event events.Event) ([]byte, error) {
@@ -838,16 +979,13 @@ func (c *encoderOnlyCodec) SupportsStreaming() bool {
 	return c.encoder.SupportsStreaming()
 }
 
-func (c *encoderOnlyCodec) CanStream() bool {
-	if c.encoder == nil {
-		return false
-	}
-	return c.encoder.CanStream()
-}
-
 // decoderOnlyCodec implements Codec with only decoding support
 type decoderOnlyCodec struct {
-	decoder Decoder
+	decoder interface {
+		Decoder
+		ContentTypeProvider
+		StreamingCapabilityProvider
+	}
 }
 
 func (c *decoderOnlyCodec) Encode(ctx context.Context, event events.Event) ([]byte, error) {
@@ -884,11 +1022,4 @@ func (c *decoderOnlyCodec) SupportsStreaming() bool {
 		return false
 	}
 	return c.decoder.SupportsStreaming()
-}
-
-func (c *decoderOnlyCodec) CanStream() bool {
-	if c.decoder == nil {
-		return false
-	}
-	return c.decoder.CanStream()
 }

@@ -300,6 +300,8 @@ func TestSubscriptionManagement(t *testing.T) {
 
 		subscription, err := transport.Subscribe(ctx, eventTypes, handler)
 		require.NoError(t, err)
+		defer transport.Unsubscribe(subscription.ID) // Clean up after test
+
 		assert.NotNil(t, subscription)
 		assert.NotEmpty(t, subscription.ID)
 		assert.Equal(t, eventTypes, subscription.EventTypes)
@@ -351,6 +353,7 @@ func TestSubscriptionManagement(t *testing.T) {
 
 		subscription, err := transport.Subscribe(ctx, eventTypes, handler)
 		require.NoError(t, err)
+		defer transport.Unsubscribe(subscription.ID) // Clean up after test
 
 		// Get the subscription
 		retrieved, err := transport.GetSubscription(subscription.ID)
@@ -372,9 +375,11 @@ func TestSubscriptionManagement(t *testing.T) {
 
 		sub1, err := transport.Subscribe(ctx, eventTypes1, handler)
 		require.NoError(t, err)
+		defer transport.Unsubscribe(sub1.ID) // Clean up after test
 
 		sub2, err := transport.Subscribe(ctx, eventTypes2, handler)
 		require.NoError(t, err)
+		defer transport.Unsubscribe(sub2.ID) // Clean up after test
 
 		subscriptions := transport.ListSubscriptions()
 		assert.Len(t, subscriptions, 2)

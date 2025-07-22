@@ -7,11 +7,22 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/encoding"
 )
 
-// JSONCodec implements the simplified Codec interface for JSON encoding/decoding
+// JSONCodec implements the new Codec interface for JSON encoding/decoding
+// It properly composes the focused Encoder, Decoder, and ContentTypeProvider interfaces
 type JSONCodec struct {
 	*JSONEncoder
 	*JSONDecoder
 }
+
+// Ensure JSONCodec implements the core interfaces
+var (
+	_ encoding.Encoder               = (*JSONCodec)(nil)
+	_ encoding.Decoder               = (*JSONCodec)(nil)
+	_ encoding.ContentTypeProvider   = (*JSONCodec)(nil)
+	_ encoding.Codec                 = (*JSONCodec)(nil)
+	_ encoding.LegacyEncoder         = (*JSONCodec)(nil)
+	_ encoding.LegacyDecoder         = (*JSONCodec)(nil)
+)
 
 // NewJSONCodec creates a new JSON codec with the given options
 func NewJSONCodec(encOptions *encoding.EncodingOptions, decOptions *encoding.DecodingOptions) *JSONCodec {
@@ -66,6 +77,7 @@ func (c *JSONCodec) SupportsStreaming() bool {
 }
 
 // CanStream indicates that JSON codec supports streaming (backward compatibility)
+// This method is provided for backward compatibility with legacy interfaces
 func (c *JSONCodec) CanStream() bool {
 	return c.SupportsStreaming()
 }

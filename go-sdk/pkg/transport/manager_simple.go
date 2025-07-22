@@ -305,24 +305,10 @@ func (m *SimpleManager) Stop(ctx context.Context) error {
 		// Timeout waiting for goroutines - proceed with cleanup anyway
 	}
 	
-	// Try to lock again for final cleanup with a short timeout
-	finalLockCtx, finalLockCancel := context.WithTimeout(context.Background(), 1*time.Second)
-	defer finalLockCancel()
-	
-	finalLockAcquired := make(chan struct{})
-	go func() {
-		m.mu.Lock()
-		close(finalLockAcquired)
-	}()
-	
-	var lockAcquiredForCleanup bool
-	select {
-	case <-finalLockAcquired:
-		lockAcquiredForCleanup = true
+	// Try to lock again for final cleanup with a short timeout - using tryLock pattern to prevent deadlock
+	lockAcquiredForCleanup := m.tryLockWithTimeout(500 * time.Millisecond)
+	if lockAcquiredForCleanup {
 		defer m.mu.Unlock()
-	case <-finalLockCtx.Done():
-		// Could not acquire lock for final cleanup - do minimal cleanup without lock
-		lockAcquiredForCleanup = false
 	}
 	
 	// Final cleanup (with or without lock)
@@ -406,6 +392,22 @@ func (m *SimpleManager) Stop(ctx context.Context) error {
 	// Return nil even if we timed out, as per test expectations
 	// The timeout is handled gracefully without returning an error
 	return nil
+}
+
+// tryLockWithTimeout attempts to acquire a lock with timeout to prevent deadlock
+func (m *SimpleManager) tryLockWithTimeout(timeout time.Duration) bool {
+	lockAcquired := make(chan struct{})
+	go func() {
+		m.mu.Lock()
+		close(lockAcquired)
+	}()
+	
+	select {
+	case <-lockAcquired:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
 }
 
 // Send sends an event

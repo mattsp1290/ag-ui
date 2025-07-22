@@ -384,27 +384,26 @@ func (hc *CompositeHealthCheck) checkParallel(ctx context.Context) error {
 		err  error
 	}
 
-	results := make(chan result, len(hc.checks))
+	// Pre-allocate slice to avoid append overhead
+	results := make([]result, len(hc.checks))
 	var wg sync.WaitGroup
 
-	for _, check := range hc.checks {
+	// Launch all goroutines and write directly to indexed positions
+	for i, check := range hc.checks {
 		wg.Add(1)
-		go func(check HealthCheck) {
+		go func(i int, check HealthCheck) {
 			defer wg.Done()
 			err := check.Check(ctx)
-			results <- result{name: check.Name(), err: err}
-		}(check)
+			results[i] = result{name: check.Name(), err: err}
+		}(i, check)
 	}
 
 	// Wait for all checks to complete
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
+	wg.Wait()
 
-	// Collect results
+	// Collect failures efficiently
 	var failures []string
-	for result := range results {
+	for _, result := range results {
 		if result.err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", result.name, result.err))
 		}

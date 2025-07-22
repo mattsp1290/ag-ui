@@ -18,6 +18,9 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/transport/common"
 )
 
+// Atomic counter for generating unique subscription IDs
+var subscriptionIDCounter uint64
+
 // Transport implements the WebSocket transport for the AG-UI protocol
 type Transport struct {
 	// Configuration
@@ -510,7 +513,7 @@ func (t *Transport) Subscribe(ctx context.Context, eventTypes []string, handler 
 	// Create subscription
 	subCtx, cancel := context.WithCancel(ctx)
 	sub := &Subscription{
-		ID:         fmt.Sprintf("sub_%d", time.Now().UnixNano()),
+		ID:         fmt.Sprintf("sub_%d", atomic.AddUint64(&subscriptionIDCounter, 1)),
 		EventTypes: eventTypes,
 		Handler:    handler,
 		HandlerIDs: make([]string, 0, len(eventTypes)),

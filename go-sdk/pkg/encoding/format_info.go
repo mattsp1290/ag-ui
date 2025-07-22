@@ -412,3 +412,8 @@ func CBORFormatInfo() *FormatInfo {
 	
 	return info
 }
+
+// GetAliases returns the aliases for this format
+func (f *FormatInfo) GetAliases() []string {
+	return f.Aliases
+}

@@ -6,6 +6,8 @@ import (
 	"net"
 	"net/url"
 	"strings"
+
+	agerrors "github.com/ag-ui/go-sdk/pkg/errors"
 )
 
 // URLValidationOptions defines options for URL validation
@@ -74,7 +76,7 @@ func checkForHeaderInjection(urlStr string) error {
 	
 	for _, pattern := range dangerousPatterns {
 		if strings.Contains(lower, pattern) || strings.Contains(urlStr, pattern) {
-			return errors.New("URL contains potential header injection patterns")
+			return agerrors.NewSecurityError(agerrors.CodeSecurityViolation, "URL contains potential header injection patterns").WithViolationType("header_injection")
 		}
 	}
 	
@@ -84,7 +86,7 @@ func checkForHeaderInjection(urlStr string) error {
 // ValidateURL validates a URL according to the provided options
 func ValidateURL(urlStr string, opts URLValidationOptions) error {
 	if urlStr == "" {
-		return errors.New("URL cannot be empty")
+		return errors.New("URL " + agerrors.MsgCannotBeEmpty)
 	}
 
 	// Check for URL-encoded header injection attempts before parsing
@@ -209,7 +211,7 @@ func validateHostOrIP(host string, opts URLValidationOptions) error {
 	// Check if it's an IP address
 	if ip := net.ParseIP(host); ip != nil {
 		if opts.BlockPrivateNetworks && IsInternalIP(ip) {
-			return fmt.Errorf("URL points to internal IP address: %s", ip.String())
+			return agerrors.NewSecurityError(agerrors.CodeSecurityViolation, fmt.Sprintf("URL points to internal IP address: %s", ip.String())).WithViolationType("internal_network_access")
 		}
 		return nil
 	}
@@ -223,7 +225,7 @@ func validateHostOrIP(host string, opts URLValidationOptions) error {
 
 		for _, ip := range ips {
 			if opts.BlockPrivateNetworks && IsInternalIP(ip) {
-				return fmt.Errorf("hostname resolves to internal IP address: %s", ip.String())
+				return agerrors.NewSecurityError(agerrors.CodeSecurityViolation, fmt.Sprintf("hostname resolves to internal IP address: %s", ip.String())).WithViolationType("internal_network_access")
 			}
 		}
 	}

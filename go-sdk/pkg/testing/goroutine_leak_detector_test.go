@@ -87,12 +87,12 @@ func TestGoroutineLeakDetector_DetectLeaks(t *testing.T) {
 		// Test that detection doesn't hang even with unstable environment
 		start := time.Now()
 		
-		// Create a sub-test that we expect to fail (because of intentional leaks)
-		subPassed := t.Run("expected_leak_detection", func(subT *testing.T) {
-			// This subtest is expected to fail due to intentional leaks
-			// We're only testing that it doesn't hang
-			detector.CheckForLeaksWithTimeout(subT, 500*time.Millisecond)
-		})
+		// Create a test capture to isolate expected failures from parent test
+		testCapture := NewTestCapture(t)
+		
+		// Run leak detection with expected failure (due to intentional leaks)
+		// We're only testing that it doesn't hang
+		detector.CheckForLeaksWithTimeout(testCapture, 500*time.Millisecond)
 		
 		elapsed := time.Since(start)
 		
@@ -101,11 +101,11 @@ func TestGoroutineLeakDetector_DetectLeaks(t *testing.T) {
 			t.Errorf("CheckForLeaksWithTimeout took too long with unstable environment: %v", elapsed)
 		}
 		
-		// We expect the subtest to fail due to intentional leaks
-		if subPassed {
-			t.Logf("Subtest unexpectedly passed - may not have created enough instability")
+		// We expect leak detection to report errors due to intentional leaks
+		if len(testCapture.errors) == 0 {
+			t.Logf("Leak detection unexpectedly passed - may not have created enough instability")
 		} else {
-			t.Logf("Subtest failed as expected due to intentional leaks")
+			t.Logf("Leak detection failed as expected due to intentional leaks: %d errors", len(testCapture.errors))
 		}
 		
 		// The main goal is that it completes within time
@@ -321,4 +321,15 @@ func (tc *TestCapture) Errorf(format string, args ...interface{}) {
 func (tc *TestCapture) Logf(format string, args ...interface{}) {
 	tc.logs = append(tc.logs, fmt.Sprintf(format, args...))
 	tc.T.Logf(format, args...) // Still log to the real test
+}
+
+// Implement the testing.TB interface methods
+func (tc *TestCapture) Error(args ...interface{}) {
+	tc.errors = append(tc.errors, fmt.Sprint(args...))
+	// Don't call the underlying T.Error to avoid failing the test
+}
+
+func (tc *TestCapture) Log(args ...interface{}) {
+	tc.logs = append(tc.logs, fmt.Sprint(args...))
+	tc.T.Log(args...) // Still log to the real test
 }

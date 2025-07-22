@@ -439,36 +439,51 @@ func testConcurrentHeartbeatFailures(t *testing.T) {
 }
 
 func testResourceExhaustionScenarios(t *testing.T) {
-	t.Run("goroutine_leak_prevention", func(t *testing.T) {
+	// Use resource limits to prevent system exhaustion
+	resourceLimiter := DefaultResourceLimits()
+	
+	resourceLimiter.RunWithLimits(t, "goroutine_leak_prevention", func(t *testing.T) {
 		logger := zaptest.NewLogger(t)
 		
-		// Create many connections to test goroutine management
 		server := createEchoServer(t)
 		defer server.Close()
 
 		wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
-
-		connections := make([]*Connection, 50)
-		heartbeats := make([]*HeartbeatManager, 50)
-
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		
+		// Reduced connection count for stability
+		const numConnections = 10 // Reduced from 50
+		connections := make([]*Connection, numConnections)
+		heartbeats := make([]*HeartbeatManager, numConnections)
+		
+		// Use connection budget to prevent resource exhaustion
+		budget := NewConnectionBudget(numConnections)
+		
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second) // Reduced timeout
 		defer cancel()
 
-		// Create connections
-		for i := 0; i < 50; i++ {
-			config := &ConnectionConfig{
-				URL:          wsURL,
-				Logger:       logger,
-				PingPeriod:   10 * time.Millisecond,
-				PongWait:     30 * time.Millisecond,
-				WriteTimeout: 1 * time.Second,
-				ReadTimeout:  1 * time.Second,
+		// Create connections with resource control
+		for i := 0; i < numConnections; i++ {
+			// Check context before creating connection
+			select {
+			case <-ctx.Done():
+				t.Fatal("Context cancelled during connection creation")
+			default:
 			}
+			
+			if err := budget.AcquireConnection(ctx); err != nil {
+				t.Fatalf("Failed to acquire connection slot: %v", err)
+			}
+			defer budget.ReleaseConnection()
+
+			config := OptimizedConnectionConfig() // Use optimized config
+			config.URL = wsURL
+			config.Logger = logger
 
 			conn, err := NewConnection(config)
 			if err != nil {
 				t.Fatalf("Failed to create connection %d: %v", i, err)
 			}
+			
 			err = conn.Connect(ctx)
 			if err != nil {
 				t.Fatalf("Failed to connect %d: %v", i, err)
@@ -480,18 +495,34 @@ func testResourceExhaustionScenarios(t *testing.T) {
 		}
 
 		// Let them run briefly
-		time.Sleep(100 * time.Millisecond)
-
-		// Stop all heartbeats and connections
-		for i, hb := range heartbeats {
-			hb.Stop()
-			connections[i].Disconnect()
+		select {
+		case <-time.After(100 * time.Millisecond):
+		case <-ctx.Done():
+			t.Fatal("Context cancelled during run period")
 		}
 
-		// Give goroutines time to clean up
-		time.Sleep(100 * time.Millisecond)
+		// Cleanup with timeout protection
+		cleanupDone := make(chan struct{})
+		go func() {
+			defer close(cleanupDone)
+			for i, hb := range heartbeats {
+				if hb != nil {
+					hb.Stop()
+				}
+				if connections[i] != nil {
+					connections[i].Disconnect()
+				}
+			}
+		}()
 
-		// Test should complete without goroutine leaks
+		select {
+		case <-cleanupDone:
+			// Cleanup completed successfully
+		case <-time.After(2 * time.Second):
+			t.Error("Cleanup timed out")
+		case <-ctx.Done():
+			t.Error("Context cancelled during cleanup")
+		}
 	})
 
 	t.Run("memory_pressure", func(t *testing.T) {

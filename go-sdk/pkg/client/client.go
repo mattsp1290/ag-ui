@@ -7,6 +7,7 @@ import (
 	"net/url"
 
 	"github.com/ag-ui/go-sdk/pkg/core"
+	agerrors "github.com/ag-ui/go-sdk/pkg/errors"
 )
 
 // Client represents a connection to an AG-UI server.
@@ -31,7 +32,7 @@ func New(config Config) (*Client, error) {
 		return nil, &core.ConfigError{
 			Field: "BaseURL",
 			Value: config.BaseURL,
-			Err:   errors.New("base URL cannot be empty"),
+			Err:   errors.New(agerrors.MsgBaseURLCannotBeEmpty),
 		}
 	}
 
@@ -64,7 +65,7 @@ func (c *Client) SendEvent(ctx context.Context, agentName string, event any) (re
 		return nil, &core.ConfigError{
 			Field: "agentName",
 			Value: agentName,
-			Err:   errors.New("agent name cannot be empty"),
+			Err:   errors.New(agerrors.MsgAgentNameCannotBeEmpty),
 		}
 	}
 
@@ -72,7 +73,7 @@ func (c *Client) SendEvent(ctx context.Context, agentName string, event any) (re
 		return nil, &core.ConfigError{
 			Field: "event",
 			Value: event,
-			Err:   errors.New("event cannot be nil"),
+			Err:   errors.New(agerrors.MsgEventCannotBeNil),
 		}
 	}
 
@@ -100,7 +101,7 @@ func (c *Client) Stream(ctx context.Context, agentName string) (eventChan <-chan
 		return nil, &core.ConfigError{
 			Field: "agentName",
 			Value: agentName,
-			Err:   errors.New("agent name cannot be empty"),
+			Err:   errors.New(agerrors.MsgAgentNameCannotBeEmpty),
 		}
 	}
 
@@ -122,7 +123,7 @@ func validateEventType(event any) error {
 		return &core.ConfigError{
 			Field: "event",
 			Value: event,
-			Err:   errors.New("event cannot be nil"),
+			Err:   errors.New(agerrors.MsgEventCannotBeNil),
 		}
 	}
 	return nil

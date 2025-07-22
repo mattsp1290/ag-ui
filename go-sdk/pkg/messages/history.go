@@ -361,7 +361,11 @@ func (h *History) GetLast(n int) []Message {
 }
 
 // GetByRole returns all messages with the specified role
-func (h *History) GetByRole(role MessageRole) []Message {
+func (h *History) GetByRole(role MessageRole) ([]Message, error) {
+	if err := role.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid role: %w", err)
+	}
+
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -371,11 +375,15 @@ func (h *History) GetByRole(role MessageRole) []Message {
 			result = append(result, h.messages[i])
 		}
 	}
-	return result
+	return result, nil
 }
 
 // GetAfter returns all messages after the specified timestamp
-func (h *History) GetAfter(timestamp time.Time) []Message {
+func (h *History) GetAfter(timestamp time.Time) ([]Message, error) {
+	if timestamp.IsZero() {
+		return nil, fmt.Errorf("timestamp cannot be zero")
+	}
+
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 
@@ -387,7 +395,7 @@ func (h *History) GetAfter(timestamp time.Time) []Message {
 			}
 		}
 	}
-	return result
+	return result, nil
 }
 
 // Size returns the current number of messages
@@ -736,8 +744,37 @@ type SearchOptions struct {
 	MaxResults int         // Maximum results to return
 }
 
-// Search searches for messages matching the given criteria
-func (h *History) Search(options SearchOptions) []Message {
+// SearchByQuery searches for messages containing the specified query string
+func (h *History) Search(query string) ([]Message, error) {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+
+	var results []Message
+	for i := h.head; i < h.tail; i++ {
+		if h.messages[i] == nil {
+			continue
+		}
+
+		msg := h.messages[i]
+		content := msg.GetContent()
+		
+		// If query is empty, return all messages
+		if query == "" {
+			results = append(results, msg)
+			continue
+		}
+
+		// Check content for query
+		if content != nil && containsIgnoreCase(*content, query) {
+			results = append(results, msg)
+		}
+	}
+
+	return results, nil
+}
+
+// SearchWithOptions searches for messages matching the given criteria
+func (h *History) SearchWithOptions(options SearchOptions) []Message {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 

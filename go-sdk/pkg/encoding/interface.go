@@ -2,6 +2,7 @@ package encoding
 
 import (
 	"context"
+	"fmt"
 	"io"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
@@ -204,6 +205,40 @@ type EncodingOptions struct {
 	CrossSDKCompatibility bool
 }
 
+// Validate validates the encoding options
+func (opts *EncodingOptions) Validate() error {
+	if opts == nil {
+		return nil // nil options are acceptable, defaults will be used
+	}
+	
+	// Validate buffer size
+	if opts.BufferSize < 0 {
+		return fmt.Errorf("buffer size cannot be negative, got %d", opts.BufferSize)
+	}
+	
+	// Validate max size
+	if opts.MaxSize < 0 {
+		return fmt.Errorf("max size cannot be negative, got %d", opts.MaxSize)
+	}
+	
+	// Validate compression algorithm
+	if opts.Compression != "" {
+		validCompressions := []string{"gzip", "zstd", "lz4", "deflate"}
+		valid := false
+		for _, comp := range validCompressions {
+			if opts.Compression == comp {
+				valid = true
+				break
+			}
+		}
+		if !valid {
+			return fmt.Errorf("unsupported compression algorithm %q, supported: %v", opts.Compression, validCompressions)
+		}
+	}
+	
+	return nil
+}
+
 // DecodingOptions provides options for decoding operations
 type DecodingOptions struct {
 	// Strict enables strict validation during decoding
@@ -220,6 +255,25 @@ type DecodingOptions struct {
 
 	// ValidateEvents enables event validation after decoding
 	ValidateEvents bool
+}
+
+// Validate validates the decoding options
+func (opts *DecodingOptions) Validate() error {
+	if opts == nil {
+		return nil // nil options are acceptable, defaults will be used
+	}
+	
+	// Validate buffer size
+	if opts.BufferSize < 0 {
+		return fmt.Errorf("buffer size cannot be negative, got %d", opts.BufferSize)
+	}
+	
+	// Validate max size
+	if opts.MaxSize < 0 {
+		return fmt.Errorf("max size cannot be negative, got %d", opts.MaxSize)
+	}
+	
+	return nil
 }
 
 // EncodingError represents an error during encoding

@@ -55,6 +55,20 @@ type AnthropicRequest struct {
 	Messages []AnthropicMessage `json:"messages"`
 }
 
+// AnthropicResponse represents a response from Anthropic
+type AnthropicResponse struct {
+	Content []AnthropicContent `json:"content"`
+	Role    string             `json:"role"`
+	Model   string             `json:"model,omitempty"`
+	Usage   *Usage             `json:"usage,omitempty"`
+}
+
+// Usage represents token usage information
+type Usage struct {
+	InputTokens  int `json:"input_tokens"`
+	OutputTokens int `json:"output_tokens"`
+}
+
 // AnthropicConverter converts messages to/from Anthropic format
 type AnthropicConverter struct {
 	*BaseConverter
@@ -66,7 +80,7 @@ func NewAnthropicConverter() *AnthropicConverter {
 	return &AnthropicConverter{
 		BaseConverter: NewBaseConverter(),
 		validationOptions: ConversionValidationOptions{
-			AllowStandaloneToolMessages: false,
+			AllowStandaloneToolMessages: true,
 		},
 	}
 }
@@ -190,7 +204,7 @@ func (c *AnthropicConverter) convertToAnthropic(msg messages.Message) (Anthropic
 		})
 
 	case *messages.DeveloperMessage:
-		// Convert developer messages to assistant messages with a prefix
+		// Convert developer messages to assistant messages with a prefix  
 		anthropicMsg.Role = "assistant"
 		content := m.GetContent()
 		if content == nil {
@@ -235,6 +249,13 @@ func (c *AnthropicConverter) FromProviderFormat(data interface{}) (messages.Mess
 	switch v := data.(type) {
 	case AnthropicRequest:
 		anthropicRequest = v
+	case AnthropicResponse:
+		// Convert AnthropicResponse to AnthropicMessage and wrap in request
+		anthropicMsg := AnthropicMessage{
+			Role:    v.Role,
+			Content: v.Content,
+		}
+		anthropicRequest.Messages = []AnthropicMessage{anthropicMsg}
 	case []AnthropicMessage:
 		anthropicRequest.Messages = v
 	case []byte:
@@ -247,7 +268,7 @@ func (c *AnthropicConverter) FromProviderFormat(data interface{}) (messages.Mess
 			anthropicRequest.Messages = messages
 		}
 	default:
-		return nil, fmt.Errorf("invalid data format: expected AnthropicRequest, []AnthropicMessage, or JSON bytes")
+		return nil, fmt.Errorf("invalid data format: expected AnthropicRequest, AnthropicResponse, []AnthropicMessage, or JSON bytes")
 	}
 
 	// Convert to AG-UI messages

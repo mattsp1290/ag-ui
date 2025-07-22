@@ -44,10 +44,8 @@ func (cm *ContextManager) Get(id string) (*StateContext, bool) {
 		entry := elem.Value.(*contextEntry)
 		ctx := entry.ctx
 
-		// Update last accessed time
-		ctx.mu.Lock()
-		ctx.LastAccessed = time.Now()
-		ctx.mu.Unlock()
+		// Update last accessed time using atomic operations
+		ctx.UpdateLastAccessed()
 
 		return ctx, true
 	}
@@ -150,9 +148,8 @@ func (cm *ContextManager) GetExpiredContexts(ttl time.Duration) []string {
 	cutoff := time.Now().Add(-ttl)
 
 	for id, ctx := range cm.contexts {
-		ctx.mu.RLock()
-		lastAccessed := ctx.LastAccessed
-		ctx.mu.RUnlock()
+		// Use atomic read operation - no mutex needed
+		lastAccessed := ctx.GetLastAccessed()
 
 		if lastAccessed.Before(cutoff) {
 			expired = append(expired, id)

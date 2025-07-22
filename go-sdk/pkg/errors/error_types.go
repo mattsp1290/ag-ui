@@ -477,7 +477,10 @@ func NewEncodingError(code, message string) *EncodingError {
 
 // Error implements the error interface with encoding-specific details
 func (e *EncodingError) Error() string {
-	base := e.BaseError.Error()
+	// Start with base message without cause
+	base := fmt.Sprintf("[%s] %s: %s", e.Severity, e.Code, e.Message)
+	
+	// Add encoding-specific details first
 	if e.Format != "" {
 		base = fmt.Sprintf("%s (format: %s)", base, e.Format)
 	}
@@ -490,6 +493,12 @@ func (e *EncodingError) Error() string {
 	if e.Position > 0 {
 		base = fmt.Sprintf("%s (position: %d)", base, e.Position)
 	}
+	
+	// Add cause at the end
+	if e.Cause != nil {
+		base = fmt.Sprintf("%s (caused by: %v)", base, e.Cause)
+	}
+	
 	return base
 }
 
@@ -520,6 +529,12 @@ func (e *EncodingError) WithPosition(position int64) *EncodingError {
 // WithData sets the problematic data (use with caution for sensitive data)
 func (e *EncodingError) WithData(data interface{}) *EncodingError {
 	e.Data = data
+	return e
+}
+
+// WithCause adds an underlying cause to the encoding error and returns the EncodingError
+func (e *EncodingError) WithCause(cause error) *EncodingError {
+	e.BaseError.Cause = cause
 	return e
 }
 

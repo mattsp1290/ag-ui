@@ -19,6 +19,9 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/transport"
 )
 
+// Atomic counter for generating unique subscription IDs in improved transport
+var improvedSubscriptionIDCounter uint64
+
 // ImprovedTransport implements the WebSocket transport with enhanced memory management
 type ImprovedTransport struct {
 	// Configuration
@@ -385,7 +388,7 @@ func (t *ImprovedTransport) Subscribe(ctx context.Context, eventTypes []string, 
 	// Create subscription
 	subCtx, cancel := context.WithCancel(ctx)
 	sub := &Subscription{
-		ID:         fmt.Sprintf("sub_%d", time.Now().UnixNano()),
+		ID:         fmt.Sprintf("sub_%d", atomic.AddUint64(&improvedSubscriptionIDCounter, 1)),
 		EventTypes: eventTypes,
 		Handler:    handler,
 		HandlerIDs: make([]string, 0, len(eventTypes)),

@@ -44,41 +44,61 @@ func NewCodecFactory() *DefaultCodecFactory {
 }
 
 // RegisterCodec registers a codec constructor
-func (f *DefaultCodecFactory) RegisterCodec(contentType string, ctor CodecConstructor) {
+func (f *DefaultCodecFactory) RegisterCodec(contentType string, ctor CodecConstructor) error {
 	if f == nil {
-		return // Silently ignore nil factory to prevent panics
+		return NewConfigurationError("codec_factory", "factory", "codec factory cannot be nil", nil)
 	}
 	if contentType == "" {
-		return // Silently ignore empty content type
+		return NewConfigurationError("codec_factory", "content_type", "content type cannot be empty", "")
 	}
 	if ctor == nil {
-		return // Silently ignore nil constructor
+		return NewConfigurationError("codec_factory", "constructor", "codec constructor cannot be nil", contentType)
 	}
 	
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	
+	if f.codecCtors == nil {
+		f.codecCtors = make(map[string]CodecConstructor)
+	}
+	
+	// Check for existing registration
+	if _, exists := f.codecCtors[contentType]; exists {
+		return NewRegistryError("codec_registry", "duplicate", contentType, "codec already registered for content type", nil)
+	}
 	
 	f.codecCtors[contentType] = ctor
 	f.updateSupportedTypes()
+	return nil
 }
 
 // RegisterStreamCodec registers a stream codec constructor
-func (f *DefaultCodecFactory) RegisterStreamCodec(contentType string, ctor StreamCodecConstructor) {
+func (f *DefaultCodecFactory) RegisterStreamCodec(contentType string, ctor StreamCodecConstructor) error {
 	if f == nil {
-		return // Silently ignore nil factory to prevent panics
+		return NewConfigurationError("stream_codec_factory", "factory", "stream codec factory cannot be nil", nil)
 	}
 	if contentType == "" {
-		return // Silently ignore empty content type
+		return NewConfigurationError("stream_codec_factory", "content_type", "content type cannot be empty", "")
 	}
 	if ctor == nil {
-		return // Silently ignore nil constructor
+		return NewConfigurationError("stream_codec_factory", "constructor", "stream codec constructor cannot be nil", contentType)
 	}
 	
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	
+	if f.streamCodecCtors == nil {
+		f.streamCodecCtors = make(map[string]StreamCodecConstructor)
+	}
+	
+	// Check for existing registration
+	if _, exists := f.streamCodecCtors[contentType]; exists {
+		return NewRegistryError("stream_codec_registry", "duplicate", contentType, "stream codec already registered for content type", nil)
+	}
+	
 	f.streamCodecCtors[contentType] = ctor
 	f.updateSupportedTypes()
+	return nil
 }
 
 // CreateCodec creates a codec for the specified content type
@@ -183,15 +203,15 @@ func (f *DefaultCodecFactory) SupportsStreaming(contentType string) bool {
 }
 
 // RegisterEncoder registers an encoder constructor for backward compatibility
-func (f *DefaultCodecFactory) RegisterEncoder(contentType string, ctor EncoderConstructor) {
+func (f *DefaultCodecFactory) RegisterEncoder(contentType string, ctor EncoderConstructor) error {
 	if f == nil {
-		return // Silently ignore nil factory to prevent panics
+		return NewConfigurationError("encoder_factory", "factory", "encoder factory cannot be nil", nil)
 	}
 	if contentType == "" {
-		return // Silently ignore empty content type
+		return NewConfigurationError("encoder_factory", "content_type", "content type cannot be empty", "")
 	}
 	if ctor == nil {
-		return // Silently ignore nil constructor
+		return NewConfigurationError("encoder_factory", "constructor", "encoder constructor cannot be nil", contentType)
 	}
 	
 	// Create a codec constructor that wraps the encoder
@@ -206,19 +226,19 @@ func (f *DefaultCodecFactory) RegisterEncoder(contentType string, ctor EncoderCo
 		return &encoderOnlyCodec{encoder: encoderAdapter}, nil
 	}
 	
-	f.RegisterCodec(contentType, codecCtor)
+	return f.RegisterCodec(contentType, codecCtor)
 }
 
 // RegisterDecoder registers a decoder constructor for backward compatibility
-func (f *DefaultCodecFactory) RegisterDecoder(contentType string, ctor DecoderConstructor) {
+func (f *DefaultCodecFactory) RegisterDecoder(contentType string, ctor DecoderConstructor) error {
 	if f == nil {
-		return // Silently ignore nil factory to prevent panics
+		return NewConfigurationError("decoder_factory", "factory", "decoder factory cannot be nil", nil)
 	}
 	if contentType == "" {
-		return // Silently ignore empty content type
+		return NewConfigurationError("decoder_factory", "content_type", "content type cannot be empty", "")
 	}
 	if ctor == nil {
-		return // Silently ignore nil constructor
+		return NewConfigurationError("decoder_factory", "constructor", "decoder constructor cannot be nil", contentType)
 	}
 	
 	// Create a codec constructor that wraps the decoder
@@ -233,20 +253,20 @@ func (f *DefaultCodecFactory) RegisterDecoder(contentType string, ctor DecoderCo
 		return &decoderOnlyCodec{decoder: decoderAdapter}, nil
 	}
 	
-	f.RegisterCodec(contentType, codecCtor)
+	return f.RegisterCodec(contentType, codecCtor)
 }
 
 // RegisterStreamEncoder registers a stream encoder constructor for backward compatibility
 // Note: This is a simplified implementation that doesn't fully support streaming
-func (f *DefaultCodecFactory) RegisterStreamEncoder(contentType string, ctor StreamEncoderConstructor) {
+func (f *DefaultCodecFactory) RegisterStreamEncoder(contentType string, ctor StreamEncoderConstructor) error {
 	if f == nil {
-		return // Silently ignore nil factory to prevent panics
+		return NewConfigurationError("stream_encoder_factory", "factory", "stream encoder factory cannot be nil", nil)
 	}
 	if contentType == "" {
-		return // Silently ignore empty content type
+		return NewConfigurationError("stream_encoder_factory", "content_type", "content type cannot be empty", "")
 	}
 	if ctor == nil {
-		return // Silently ignore nil constructor
+		return NewConfigurationError("stream_encoder_factory", "constructor", "stream encoder constructor cannot be nil", contentType)
 	}
 	
 	// Create an adapter that extracts Encoder interface from StreamEncoder
@@ -261,20 +281,20 @@ func (f *DefaultCodecFactory) RegisterStreamEncoder(contentType string, ctor Str
 		}
 		return nil, fmt.Errorf("stream encoder does not implement basic Encoder interface")
 	}
-	f.RegisterEncoder(contentType, encoderCtor)
+	return f.RegisterEncoder(contentType, encoderCtor)
 }
 
 // RegisterStreamDecoder registers a stream decoder constructor for backward compatibility
 // Note: This is a simplified implementation that doesn't fully support streaming
-func (f *DefaultCodecFactory) RegisterStreamDecoder(contentType string, ctor StreamDecoderConstructor) {
+func (f *DefaultCodecFactory) RegisterStreamDecoder(contentType string, ctor StreamDecoderConstructor) error {
 	if f == nil {
-		return // Silently ignore nil factory to prevent panics
+		return NewConfigurationError("stream_decoder_factory", "factory", "stream decoder factory cannot be nil", nil)
 	}
 	if contentType == "" {
-		return // Silently ignore empty content type
+		return NewConfigurationError("stream_decoder_factory", "content_type", "content type cannot be empty", "")
 	}
 	if ctor == nil {
-		return // Silently ignore nil constructor
+		return NewConfigurationError("stream_decoder_factory", "constructor", "stream decoder constructor cannot be nil", contentType)
 	}
 	
 	// Create an adapter that extracts Decoder interface from StreamDecoder
@@ -289,7 +309,7 @@ func (f *DefaultCodecFactory) RegisterStreamDecoder(contentType string, ctor Str
 		}
 		return nil, fmt.Errorf("stream decoder does not implement basic Decoder interface")
 	}
-	f.RegisterDecoder(contentType, decoderCtor)
+	return f.RegisterDecoder(contentType, decoderCtor)
 }
 
 // updateSupportedTypes updates the list of supported types

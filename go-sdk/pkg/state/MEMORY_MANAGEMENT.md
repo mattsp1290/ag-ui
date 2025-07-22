@@ -29,8 +29,8 @@ ctx := &StateContext{
     ID: "ctx-123",
     StateID: "state-456",
     Created: time.Now(),
-    LastAccessed: time.Now(),
 }
+ctx.SetLastAccessed(time.Now())
 cm.Put(ctx.ID, ctx)
 
 // Get a context (updates last accessed time)

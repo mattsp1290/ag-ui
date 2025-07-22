@@ -47,12 +47,12 @@ func (g *GoroutineLeakDetector) IgnoreFunction(pattern string) {
 }
 
 // CheckForLeaks checks if there are any goroutine leaks since the detector was created
-func (g *GoroutineLeakDetector) CheckForLeaks(t *testing.T) {
+func (g *GoroutineLeakDetector) CheckForLeaks(t testing.TB) {
 	g.CheckForLeaksWithTimeout(t, 5*time.Second)
 }
 
 // CheckForLeaksWithTimeout checks for leaks with a custom timeout
-func (g *GoroutineLeakDetector) CheckForLeaksWithTimeout(t *testing.T, timeout time.Duration) {
+func (g *GoroutineLeakDetector) CheckForLeaksWithTimeout(t testing.TB, timeout time.Duration) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
@@ -222,7 +222,7 @@ func (h *TestingCleanupHelper) AddCleanup(cleanup func()) {
 }
 
 // Cleanup performs all registered cleanup functions and checks for leaks
-func (h *TestingCleanupHelper) Cleanup(t *testing.T) {
+func (h *TestingCleanupHelper) Cleanup(t testing.TB) {
 	h.mu.Lock()
 	cleanups := make([]func(), len(h.cleanupFuncs))
 	copy(cleanups, h.cleanupFuncs)

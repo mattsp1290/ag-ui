@@ -175,8 +175,9 @@ type Connection struct {
 	stopOnce sync.Once
 
 	// Cleanup coordination
-	cleanupOnce sync.Once
-	channelsClosed int32 // atomic flag to indicate all channels are closed
+	cleanupOnce    sync.Once
+	channelsClosed int32      // atomic flag to indicate all channels are closed
+	channelMutex   sync.Mutex // mutex to synchronize channel operations
 
 	// Metrics
 	metrics *ConnectionMetrics
@@ -445,8 +446,9 @@ func (c *Connection) Close() error {
 
 		// Close all channels in coordinated manner
 		c.cleanupOnce.Do(func() {
-			// Give context cancellation and heartbeat stop time to be processed
-			time.Sleep(100 * time.Millisecond)
+			// Use mutex to synchronize channel closing with any ongoing channel operations
+			c.channelMutex.Lock()
+			defer c.channelMutex.Unlock()
 			
 			// Close channels - order matters for proper cleanup
 			safeCloseChannel(c.reconnectCh, "reconnect")  // Stop reconnect attempts first
@@ -771,11 +773,18 @@ func (c *Connection) readPump() {
 					
 					c.setError(fmt.Errorf("failed to read message: %w", err))
 
-					// Check if we should reconnect
-					if c.State() == StateConnected {
-						c.triggerReconnect()
+					// Check context before attempting reconnect
+					select {
+					case <-c.ctx.Done():
+						c.config.Logger.Debug("Read pump stopped due to context cancellation during error handling")
+						return
+					default:
+						// Check if we should reconnect
+						if c.State() == StateConnected {
+							c.triggerReconnect()
+						}
+						return
 					}
-					return
 				}
 			}
 
@@ -967,7 +976,11 @@ func (c *Connection) triggerReconnect() {
 	if currentState == StateConnected || currentState == StateDisconnected {
 		c.setState(StateReconnecting)
 
-			// Only trigger reconnect if channels are still open
+		// Use mutex to synchronize channel access with Close()
+		c.channelMutex.Lock()
+		defer c.channelMutex.Unlock()
+		
+		// Only trigger reconnect if channels are still open
 		if atomic.LoadInt32(&c.channelsClosed) == 0 {
 			select {
 			case c.reconnectCh <- struct{}{}:

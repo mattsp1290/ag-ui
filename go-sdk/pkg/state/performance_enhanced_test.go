@@ -94,7 +94,7 @@ func testStateSharding(t *testing.T) {
 	opts.EnableSharding = true
 	opts.ShardCount = 4
 
-	po := NewPerformanceOptimizer(opts)
+	po := NewPerformanceOptimizerForTesting(opts)
 	defer po.Stop()
 
 	// Test sharding distribution
@@ -102,10 +102,7 @@ func testStateSharding(t *testing.T) {
 	shardCounts := make(map[int]int)
 
 	for _, key := range keys {
-		var shardIndex int
-		if impl, ok := po.(*PerformanceOptimizerImpl); ok {
-			shardIndex = impl.GetShardForKey(key)
-		}
+		shardIndex := po.GetShardForKey(key)
 		shardCounts[shardIndex]++
 
 		// Test shard operations
@@ -135,7 +132,7 @@ func testLazyLoading(t *testing.T) {
 	opts.LazyCacheSize = 10
 	opts.CacheExpiryTime = 100 * time.Millisecond
 
-	po := NewPerformanceOptimizer(opts)
+	po := NewPerformanceOptimizerForTesting(opts)
 	defer po.Stop()
 
 	loadCount := 0
@@ -269,7 +266,7 @@ func testDataCompression(t *testing.T) {
 	opts := DefaultPerformanceOptions()
 	opts.EnableCompression = true
 
-	po := NewPerformanceOptimizer(opts)
+	po := NewPerformanceOptimizerForTesting(opts)
 	defer po.Stop()
 
 	// Test data compression
@@ -305,7 +302,7 @@ func testLargeStateHandling(t *testing.T) {
 	opts.EnableCompression = true
 	opts.MaxMemoryUsage = 10 * 1024 * 1024 // 10MB
 
-	po := NewPerformanceOptimizer(opts)
+	po := NewPerformanceOptimizerForTesting(opts)
 	defer po.Stop()
 
 	// Simulate large state
@@ -313,20 +310,16 @@ func testLargeStateHandling(t *testing.T) {
 	po.OptimizeForLargeState(largeStateSize)
 
 	// Test that optimizations are enabled
-	if poImpl, ok := po.(*PerformanceOptimizerImpl); ok {
-		if !poImpl.IsCompressionEnabled() {
-			t.Error("Compression should be enabled for large states")
-		}
+	if !po.IsCompressionEnabled() {
+		t.Error("Compression should be enabled for large states")
+	}
 
-		if !poImpl.IsShardingEnabled() {
-			t.Error("Sharding should be enabled for large states")
-		}
+	if !po.IsShardingEnabled() {
+		t.Error("Sharding should be enabled for large states")
+	}
 
-		if !poImpl.IsLazyLoadingEnabled() {
-			t.Error("Lazy loading should be enabled for large states")
-		}
-	} else {
-		t.Error("Expected PerformanceOptimizerImpl")
+	if !po.IsLazyLoadingEnabled() {
+		t.Error("Lazy loading should be enabled for large states")
 	}
 }
 

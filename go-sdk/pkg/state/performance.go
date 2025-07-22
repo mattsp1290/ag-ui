@@ -61,6 +61,12 @@ func NewPerformanceOptimizer(opts PerformanceOptions) PerformanceOptimizer {
 	return NewPerformanceOptimizerImpl(opts)
 }
 
+// NewPerformanceOptimizerForTesting creates a real PerformanceOptimizerImpl for testing purposes
+// This should only be used in tests that specifically need to test the implementation details
+func NewPerformanceOptimizerForTesting(opts PerformanceOptions) *PerformanceOptimizerImpl {
+	return NewPerformanceOptimizerImpl(opts)
+}
+
 // isTestEnvironment detects if we're running in a test environment
 func isTestEnvironment() bool {
 	return strings.Contains(os.Args[0], "test") || strings.Contains(os.Args[0], ".test")

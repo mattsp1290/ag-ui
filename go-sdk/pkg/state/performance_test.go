@@ -325,7 +325,7 @@ func BenchmarkMemoryEfficiency(b *testing.B) {
 // TestPerformanceOptimizer tests the performance optimizer functionality
 func TestPerformanceOptimizer(t *testing.T) {
 	t.Run("ObjectPooling", func(t *testing.T) {
-		po := NewPerformanceOptimizer(PerformanceOptions{
+		po := NewPerformanceOptimizerForTesting(PerformanceOptions{
 			EnablePooling: true,
 		})
 		defer po.Stop()
@@ -344,12 +344,8 @@ func TestPerformanceOptimizer(t *testing.T) {
 		}
 
 		// Verify it's the same object (pooling worked)
-		if poImpl, ok := po.(*PerformanceOptimizerImpl); ok {
-			if poImpl.GetPoolHits() < 1 {
-				t.Error("Pool hit count should be at least 1")
-			}
-		} else {
-			t.Error("Expected PerformanceOptimizerImpl")
+		if po.GetPoolHits() < 1 {
+			t.Error("Pool hit count should be at least 1")
 		}
 	})
 

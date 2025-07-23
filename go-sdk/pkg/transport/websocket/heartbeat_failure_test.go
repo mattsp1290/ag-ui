@@ -127,7 +127,12 @@ func testConnectionDropScenarios(t *testing.T) {
 
 			// Wait for connection drop and heartbeat detection
 			maxWaitTime := scenario.dropAfter + scenario.pongWait + 100*time.Millisecond
-			time.Sleep(maxWaitTime)
+			select {
+			case <-time.After(maxWaitTime):
+				// Normal completion
+			case <-ctx.Done():
+				t.Fatalf("Test context cancelled during connection drop wait: %v", ctx.Err())
+			}
 
 			// Check heartbeat health
 			if scenario.expectedTimeout {
@@ -142,9 +147,20 @@ func testConnectionDropScenarios(t *testing.T) {
 				}
 			}
 
-			// Cleanup
-			hb.Stop()
-			conn.Disconnect()
+			// Cleanup with timeout protection
+			cleanupDone := make(chan struct{})
+			go func() {
+				defer close(cleanupDone)
+				hb.Stop()
+				conn.Disconnect()
+			}()
+
+			select {
+			case <-cleanupDone:
+				// Cleanup completed successfully
+			case <-time.After(2 * time.Second):
+				t.Error("Test cleanup timed out")
+			}
 		})
 	}
 }
@@ -192,7 +208,12 @@ func testNetworkPartitionRecovery(t *testing.T) {
 	server.SetPartitioned(true)
 
 	// Wait for heartbeat to detect partition
-	time.Sleep(200 * time.Millisecond)
+	select {
+	case <-time.After(200 * time.Millisecond):
+		// Normal wait completion
+	case <-ctx.Done():
+		t.Fatalf("Test context cancelled during partition detection: %v", ctx.Err())
+	}
 
 	// Should detect unhealthy state
 	if hb.IsHealthy() {
@@ -209,7 +230,12 @@ func testNetworkPartitionRecovery(t *testing.T) {
 	server.SetPartitioned(false)
 
 	// Give time for potential recovery (though reconnection may be needed)
-	time.Sleep(100 * time.Millisecond)
+	select {
+	case <-time.After(100 * time.Millisecond):
+		// Normal wait completion
+	case <-ctx.Done():
+		t.Fatalf("Test context cancelled during recovery wait: %v", ctx.Err())
+	}
 
 	// Get final stats
 	stats := hb.GetStats()
@@ -217,8 +243,20 @@ func testNetworkPartitionRecovery(t *testing.T) {
 		t.Error("Expected missed pongs to be recorded in stats")
 	}
 
-	hb.Stop()
-	conn.Disconnect()
+	// Cleanup with timeout protection
+	cleanupDone := make(chan struct{})
+	go func() {
+		defer close(cleanupDone)
+		hb.Stop()
+		conn.Disconnect()
+	}()
+
+	select {
+	case <-cleanupDone:
+		// Cleanup completed successfully
+	case <-time.After(2 * time.Second):
+		t.Error("Test cleanup timed out")
+	}
 }
 
 func testHeartbeatTimingFailures(t *testing.T) {
@@ -232,35 +270,35 @@ func testHeartbeatTimingFailures(t *testing.T) {
 	}{
 		{
 			name:         "normal_timing",
-			pingPeriod:   50 * time.Millisecond,
-			pongWait:     100 * time.Millisecond,
-			serverDelay:  10 * time.Millisecond,
+			pingPeriod:   20 * time.Millisecond,
+			pongWait:     40 * time.Millisecond,
+			serverDelay:  5 * time.Millisecond,
 			expectHealth: true,
-			testDuration: 200 * time.Millisecond,
+			testDuration: 80 * time.Millisecond, // Reduced from 200ms
 		},
 		{
 			name:         "slow_pong_response",
-			pingPeriod:   40 * time.Millisecond,
-			pongWait:     80 * time.Millisecond,
-			serverDelay:  50 * time.Millisecond, // Slower but still within pongWait
+			pingPeriod:   20 * time.Millisecond,
+			pongWait:     50 * time.Millisecond,
+			serverDelay:  30 * time.Millisecond, // Slower but still within pongWait
 			expectHealth: true, // Should be healthy since pongs are received within timeout
-			testDuration: 300 * time.Millisecond, // Allow multiple ping cycles
+			testDuration: 120 * time.Millisecond, // Reduced from 300ms
 		},
 		{
 			name:         "very_slow_pong",
-			pingPeriod:   30 * time.Millisecond,
-			pongWait:     50 * time.Millisecond,
-			serverDelay:  120 * time.Millisecond, // Much slower than pongWait - will cause timeouts
+			pingPeriod:   15 * time.Millisecond,
+			pongWait:     30 * time.Millisecond,
+			serverDelay:  60 * time.Millisecond, // Much slower than pongWait - will cause timeouts (reduced from 120ms)
 			expectHealth: false, // Will be unhealthy due to missed pongs from timeout
-			testDuration: 250 * time.Millisecond,
+			testDuration: 100 * time.Millisecond, // Reduced from 250ms
 		},
 		{
 			name:         "intermittent_delay",
-			pingPeriod:   50 * time.Millisecond,
-			pongWait:     100 * time.Millisecond,
-			serverDelay:  70 * time.Millisecond, // Moderate delay but still within pongWait
+			pingPeriod:   25 * time.Millisecond,
+			pongWait:     60 * time.Millisecond,
+			serverDelay:  40 * time.Millisecond, // Moderate delay but still within pongWait
 			expectHealth: true, // Should be healthy since pongs are received within timeout
-			testDuration: 400 * time.Millisecond, // Allow enough time for multiple cycles
+			testDuration: 150 * time.Millisecond, // Reduced from 400ms
 		},
 	}
 
@@ -299,8 +337,13 @@ func testHeartbeatTimingFailures(t *testing.T) {
 			hb := conn.heartbeat
 			hb.Start(ctx)
 
-			// Let heartbeat run for the specified test duration
-			time.Sleep(tt.testDuration)
+			// Let heartbeat run for the specified test duration with context awareness
+			select {
+			case <-time.After(tt.testDuration):
+				// Normal completion
+			case <-ctx.Done():
+				t.Fatalf("Test context cancelled during heartbeat run: %v", ctx.Err())
+			}
 
 			// Check health status with tolerance for timing variations
 			isHealthy := hb.IsHealthy()
@@ -308,8 +351,12 @@ func testHeartbeatTimingFailures(t *testing.T) {
 			// For tests that expect unhealthy state, give more time to detect issues
 			if !tt.expectHealth && isHealthy {
 				// Wait longer to allow health check to detect timeouts
-				time.Sleep(tt.pongWait + 50*time.Millisecond)
-				isHealthy = hb.IsHealthy()
+				select {
+				case <-time.After(tt.pongWait + 20*time.Millisecond): // Reduced from 50ms
+					isHealthy = hb.IsHealthy()
+				case <-ctx.Done():
+					t.Fatalf("Test context cancelled during health check wait: %v", ctx.Err())
+				}
 			}
 			
 			if isHealthy != tt.expectHealth {
@@ -394,7 +441,13 @@ func testConcurrentHeartbeatFailures(t *testing.T) {
 			hb.Start(ctx)
 
 			// Let heartbeat run
-			time.Sleep(200 * time.Millisecond)
+			select {
+			case <-time.After(100 * time.Millisecond): // Reduced from 200ms
+				// Normal run time
+			case <-ctx.Done():
+				errors <- fmt.Errorf("connection %d: context cancelled during heartbeat run: %w", id, ctx.Err())
+				return
+			}
 
 			// Check final health status
 			if hb.IsHealthy() {
@@ -409,8 +462,26 @@ func testConcurrentHeartbeatFailures(t *testing.T) {
 				errors <- fmt.Errorf("connection %d: no health checks recorded", id)
 			}
 
-			hb.Stop()
-			conn.Disconnect()
+			// Cleanup with timeout protection for concurrent test
+			cleanupDone := make(chan struct{})
+			go func() {
+				defer close(cleanupDone)
+				if hb != nil {
+					hb.Stop()
+				}
+				if conn != nil {
+					conn.Disconnect()
+				}
+			}()
+
+			select {
+			case <-cleanupDone:
+				// Cleanup completed successfully
+			case <-time.After(2 * time.Second):
+				errors <- fmt.Errorf("connection %d: cleanup timed out", id)
+			case <-ctx.Done():
+				errors <- fmt.Errorf("connection %d: cleanup cancelled due to context: %w", id, ctx.Err())
+			}
 		}(i)
 	}
 
@@ -475,9 +546,14 @@ func testResourceExhaustionScenarios(t *testing.T) {
 			}
 			defer budget.ReleaseConnection()
 
-			config := OptimizedConnectionConfig() // Use optimized config
-			config.URL = wsURL
-			config.Logger = logger
+			config := &ConnectionConfig{
+				URL:          wsURL,
+				Logger:       logger,
+				PingPeriod:   10 * time.Millisecond, // Optimized for fast tests
+				PongWait:     30 * time.Millisecond,
+				WriteTimeout: 500 * time.Millisecond,
+				ReadTimeout:  500 * time.Millisecond,
+			}
 
 			conn, err := NewConnection(config)
 			if err != nil {
@@ -496,7 +572,8 @@ func testResourceExhaustionScenarios(t *testing.T) {
 
 		// Let them run briefly
 		select {
-		case <-time.After(100 * time.Millisecond):
+		case <-time.After(50 * time.Millisecond): // Reduced from 100ms
+			// Normal run period completion
 		case <-ctx.Done():
 			t.Fatal("Context cancelled during run period")
 		}
@@ -559,7 +636,12 @@ func testResourceExhaustionScenarios(t *testing.T) {
 		hb.Start(ctx)
 
 		// Let it run under memory pressure (very frequent operations)
-		time.Sleep(500 * time.Millisecond)
+		select {
+		case <-time.After(200 * time.Millisecond): // Reduced from 500ms
+			// Normal memory pressure test completion
+		case <-ctx.Done():
+			t.Fatalf("Test context cancelled during memory pressure test: %v", ctx.Err())
+		}
 
 		// Check that stats are reasonable (not overflowing)
 		stats := hb.GetStats()
@@ -614,18 +696,33 @@ func testRecoveryMechanisms(t *testing.T) {
 		hb.Start(ctx)
 
 		// Initially should be healthy
-		time.Sleep(80 * time.Millisecond) // Let initial pings/pongs establish health
+		select {
+		case <-time.After(80 * time.Millisecond): // Let initial pings/pongs establish health
+			// Normal initialization completion
+		case <-ctx.Done():
+			t.Fatalf("Test context cancelled during initial health establishment: %v", ctx.Err())
+		}
 		if !hb.IsHealthy() {
 			t.Error("Expected initial healthy state")
 		}
 
 		// Wait for server outage period (starts at 100ms)
-		time.Sleep(150 * time.Millisecond) // Wait until we're well into outage period
+		select {
+		case <-time.After(150 * time.Millisecond): // Wait until we're well into outage period
+			// Normal outage wait completion
+		case <-ctx.Done():
+			t.Fatalf("Test context cancelled during outage wait: %v", ctx.Err())
+		}
 		
 		// Should be unhealthy during outage
 		if hb.IsHealthy() {
 			// Allow a bit more time for health check to detect the issue
-			time.Sleep(100 * time.Millisecond)
+			select {
+			case <-time.After(100 * time.Millisecond):
+				// Normal health check wait completion
+			case <-ctx.Done():
+				t.Fatalf("Test context cancelled during health check wait: %v", ctx.Err())
+			}
 			if hb.IsHealthy() {
 				t.Error("Expected unhealthy state during non-responsive period")
 			}
@@ -635,7 +732,12 @@ func testRecoveryMechanisms(t *testing.T) {
 		// correctly detects and records the outage. Recovery in this scenario
 		// is complex because the connection may be marked for reconnection.
 		// Instead of expecting full recovery, let's verify the stats.
-		time.Sleep(100 * time.Millisecond) // Let the test run a bit longer
+		select {
+		case <-time.After(100 * time.Millisecond): // Let the test run a bit longer
+			// Normal additional run time completion
+		case <-ctx.Done():
+			t.Fatalf("Test context cancelled during additional run time: %v", ctx.Err())
+		}
 		
 		// Verify that the heartbeat system correctly detected the outage
 		stats := hb.GetStats()
@@ -691,14 +793,24 @@ func testRecoveryMechanisms(t *testing.T) {
 		hb.Start(ctx)
 
 		// Let it run initially
-		time.Sleep(80 * time.Millisecond)
+		select {
+		case <-time.After(80 * time.Millisecond):
+			// Normal initial run completion
+		case <-ctx.Done():
+			t.Fatalf("Test context cancelled during initial run: %v", ctx.Err())
+		}
 		initialStats := hb.GetStats()
 
 		// Reset heartbeat
 		hb.Reset()
 
 		// Continue running
-		time.Sleep(80 * time.Millisecond)
+		select {
+		case <-time.After(80 * time.Millisecond):
+			// Normal continued run completion
+		case <-ctx.Done():
+			t.Fatalf("Test context cancelled during continued run: %v", ctx.Err())
+		}
 		finalStats := hb.GetStats()
 
 		// Should have continued operating after reset
@@ -746,7 +858,12 @@ func testEdgeCaseScenarios(t *testing.T) {
 		hb.Start(ctx)
 
 		// Should not send pings
-		time.Sleep(200 * time.Millisecond)
+		select {
+		case <-time.After(200 * time.Millisecond):
+			// Normal wait completion
+		case <-ctx.Done():
+			t.Fatalf("Test context cancelled during ping check: %v", ctx.Err())
+		}
 		stats := hb.GetStats()
 		
 		if stats.PingsSent > 0 {
@@ -791,7 +908,12 @@ func testEdgeCaseScenarios(t *testing.T) {
 		hb.Start(ctx)
 
 		// Should send pings but not check health
-		time.Sleep(150 * time.Millisecond)
+		select {
+		case <-time.After(150 * time.Millisecond):
+			// Normal wait completion
+		case <-ctx.Done():
+			t.Fatalf("Test context cancelled during ping/health check: %v", ctx.Err())
+		}
 		stats := hb.GetStats()
 		
 		if stats.PingsSent == 0 {
@@ -841,14 +963,29 @@ func testEdgeCaseScenarios(t *testing.T) {
 		// Rapid start/stop cycles
 		for i := 0; i < 5; i++ {
 			hb.Start(ctx)
-			time.Sleep(30 * time.Millisecond)
+			select {
+			case <-time.After(30 * time.Millisecond):
+				// Normal cycle run time
+			case <-ctx.Done():
+				t.Fatalf("Test context cancelled during rapid cycle %d: %v", i, ctx.Err())
+			}
 			hb.Stop()
-			time.Sleep(10 * time.Millisecond)
+			select {
+			case <-time.After(10 * time.Millisecond):
+				// Normal stop wait time
+			case <-ctx.Done():
+				t.Fatalf("Test context cancelled during rapid cycle stop %d: %v", i, ctx.Err())
+			}
 		}
 
 		// Final start
 		hb.Start(ctx)
-		time.Sleep(50 * time.Millisecond)
+		select {
+		case <-time.After(50 * time.Millisecond):
+			// Normal final run time
+		case <-ctx.Done():
+			t.Fatalf("Test context cancelled during final start: %v", ctx.Err())
+		}
 
 		// Should be in running state
 		if hb.GetState() != HeartbeatRunning {
@@ -899,7 +1036,12 @@ func testStressTesting(t *testing.T) {
 		hb.Start(ctx)
 
 		// Run at high frequency
-		time.Sleep(200 * time.Millisecond)
+		select {
+		case <-time.After(200 * time.Millisecond):
+			// Normal high frequency test completion
+		case <-ctx.Done():
+			t.Fatalf("Test context cancelled during high frequency test: %v", ctx.Err())
+		}
 
 		stats := hb.GetStats()
 		t.Logf("High frequency stats - Pings: %d, Pongs: %d, Health checks: %d", 
@@ -948,7 +1090,12 @@ func testStressTesting(t *testing.T) {
 		hb.Start(ctx)
 
 		// Run for extended period
-		time.Sleep(1 * time.Second)
+		select {
+		case <-time.After(1 * time.Second):
+			// Normal extended period completion
+		case <-ctx.Done():
+			t.Fatalf("Test context cancelled during extended period: %v", ctx.Err())
+		}
 
 		// Should maintain stability
 		if !hb.IsHealthy() {
@@ -1247,7 +1394,12 @@ func BenchmarkHeartbeatFailureScenarios(b *testing.B) {
 			if conn.Connect(ctx) == nil {
 				hb := conn.heartbeat
 				hb.Start(ctx)
-				time.Sleep(50 * time.Millisecond)
+				select {
+				case <-time.After(50 * time.Millisecond):
+					// Normal benchmark run time
+				case <-ctx.Done():
+					// Context cancelled, exit early
+				}
 				_ = hb.IsHealthy()
 				hb.Stop()
 				conn.Disconnect()

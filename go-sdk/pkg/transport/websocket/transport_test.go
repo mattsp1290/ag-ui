@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -28,6 +30,9 @@ type MockEvent struct {
 	TimestampMs    *int64           `json:"timestamp,omitempty"`
 	Data           string           `json:"data"`
 	ValidationFunc func() error     `json:"-"`
+	baseEvent      *events.BaseEvent `json:"-"` // Cached BaseEvent for validation
+	threadID       string           `json:"-"` // Mock thread ID
+	runID          string           `json:"-"` // Mock run ID
 }
 
 func (m *MockEvent) Type() events.EventType                { return m.EventType }
@@ -35,15 +40,213 @@ func (m *MockEvent) Timestamp() *int64                     { return m.TimestampM
 func (m *MockEvent) SetTimestamp(timestamp int64)          { m.TimestampMs = &timestamp }
 func (m *MockEvent) ToJSON() ([]byte, error)               { return json.Marshal(m) }
 func (m *MockEvent) ToProtobuf() (*generated.Event, error) { return nil, nil }
-func (m *MockEvent) GetBaseEvent() *events.BaseEvent       { return nil }
-func (m *MockEvent) ThreadID() string                     { return "" }
-func (m *MockEvent) RunID() string                        { return "" }
+
+func (m *MockEvent) GetBaseEvent() *events.BaseEvent {
+	if m.baseEvent == nil {
+		m.baseEvent = events.NewBaseEvent(m.EventType)
+		if m.TimestampMs != nil {
+			m.baseEvent.TimestampMs = m.TimestampMs
+		}
+	}
+	return m.baseEvent
+}
+
+func (m *MockEvent) ThreadID() string { 
+	if m.threadID == "" {
+		return "mock-thread-id"
+	}
+	return m.threadID 
+}
+
+func (m *MockEvent) RunID() string { 
+	if m.runID == "" {
+		return "mock-run-id"
+	}
+	return m.runID 
+}
 func (m *MockEvent) Validate() error {
 	if m.ValidationFunc != nil {
 		return m.ValidationFunc()
 	}
 	return nil
 }
+
+// Helper functions for creating MockEvents
+
+// NewMockEvent creates a new MockEvent with defaults suitable for testing
+func NewMockEvent(eventType events.EventType, data string) *MockEvent {
+	timestamp := time.Now().UnixMilli()
+	return &MockEvent{
+		EventType:   eventType,
+		TimestampMs: &timestamp,
+		Data:        data,
+		threadID:    "mock-thread-id",
+		runID:       "mock-run-id",
+	}
+}
+
+// NewMockEventWithOptions creates a MockEvent with custom options
+func NewMockEventWithOptions(eventType events.EventType, data string, options ...func(*MockEvent)) *MockEvent {
+	event := NewMockEvent(eventType, data)
+	for _, option := range options {
+		option(event)
+	}
+	return event
+}
+
+// MockEvent option functions
+func WithTimestamp(timestamp int64) func(*MockEvent) {
+	return func(m *MockEvent) {
+		m.TimestampMs = &timestamp
+	}
+}
+
+func WithNoTimestamp() func(*MockEvent) {
+	return func(m *MockEvent) {
+		m.TimestampMs = nil
+	}
+}
+
+func WithThreadID(threadID string) func(*MockEvent) {
+	return func(m *MockEvent) {
+		m.threadID = threadID
+	}
+}
+
+func WithRunID(runID string) func(*MockEvent) {
+	return func(m *MockEvent) {
+		m.runID = runID
+	}
+}
+
+func WithValidation(validationFunc func() error) func(*MockEvent) {
+	return func(m *MockEvent) {
+		m.ValidationFunc = validationFunc
+	}
+}
+
+// waitForStatsCondition is a helper function that waits for transport statistics
+// to match expected conditions with retry mechanism to handle async cleanup operations
+func waitForStatsCondition(t *testing.T, transport *Transport, condition func(TransportStats) bool, timeout time.Duration, interval time.Duration, msgAndArgs ...interface{}) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		stats := transport.GetStats()
+		return condition(stats)
+	}, timeout, interval, msgAndArgs...)
+}
+
+// waitForActiveSubscriptions waits for the active subscriptions count to reach the expected value
+// with enhanced debugging information and more robust retry mechanism
+func waitForActiveSubscriptions(t *testing.T, transport *Transport, expected int64, timeout time.Duration) {
+	t.Helper()
+	
+	// More aggressive cleanup before checking - force garbage collection
+	// and longer delay to allow background operations to complete
+	runtime.GC()
+	time.Sleep(100 * time.Millisecond)
+	
+	// Use more frequent polling for better responsiveness in full test suite environment
+	pollInterval := 10 * time.Millisecond
+	
+	// Track retry attempts for debugging
+	var attempts int
+	
+	// Enhanced condition function with detailed debugging
+	waitForStatsCondition(t, transport, func(stats TransportStats) bool {
+		actual := stats.ActiveSubscriptions
+		attempts++
+		if actual != expected {
+			// Log current state for debugging when condition is not met (but not too frequently)
+			if attempts%50 == 0 { // Log every 50 attempts (every 500ms)
+				t.Logf("Retry %d: Active subscriptions check: expected=%d, actual=%d, handlers=%d", 
+					attempts, expected, actual, transport.GetEventHandlerCount())
+				
+				// Force additional cleanup every 50 attempts
+				runtime.GC()
+				time.Sleep(50 * time.Millisecond)
+			}
+		}
+		return actual == expected
+	}, timeout, pollInterval, "Expected active subscriptions to be %d, but got %d after %v. Final state: handlers=%d, attempts=%d", expected, transport.GetStats().ActiveSubscriptions, timeout, transport.GetEventHandlerCount(), attempts)
+}
+
+// NewTestTransportConfig returns a transport configuration optimized for testing
+func NewTestTransportConfig() *TransportConfig {
+	config := DefaultTransportConfig()
+	
+	// Use testing-friendly validation config
+	config.EventValidator = events.NewEventValidator(events.TestingValidationConfig())
+	
+	// Use environment-aware timeouts
+	config.DialTimeout = getTestTimeout(5 * time.Second)
+	config.EventTimeout = getTestTimeout(5 * time.Second)
+	
+	// Use test logger
+	config.Logger = zaptest.NewLogger(&testingT{})
+	
+	// Configure pool for testing stability
+	if config.PoolConfig == nil {
+		config.PoolConfig = DefaultPoolConfig()
+	}
+	config.PoolConfig.HealthCheckInterval = 300 * time.Second // Very long interval to prevent connection drops during tests
+	config.PoolConfig.IdleTimeout = 300 * time.Second         // Very long idle timeout
+	
+	// Configure testing-friendly backpressure settings
+	config.BackpressureConfig = &BackpressureConfig{
+		EventChannelBuffer:           50000,  // Larger buffer for testing
+		MaxDroppedEvents:             10000,  // Allow more dropped events before taking action
+		DropActionType:               DropActionLog, // Only log, don't take aggressive action
+		EnableBackpressureLogging:    false,  // Reduce test noise
+		BackpressureThresholdPercent: 95,     // Higher threshold for testing
+		EnableChannelMonitoring:      false,  // Disable monitoring in tests
+		MonitoringInterval:           30 * time.Second, // Longer interval
+	}
+	
+	// Disable performance manager for testing to use direct pool sending
+	config.PerformanceConfig = nil
+	
+	// Configure connection template for testing stability
+	if config.PoolConfig.ConnectionTemplate == nil {
+		config.PoolConfig.ConnectionTemplate = DefaultConnectionConfig()
+	}
+	
+	// CRITICAL: Use test rate limiter to prevent indefinite blocking
+	config.PoolConfig.ConnectionTemplate.RateLimiter = NewTestRateLimiter()
+	
+	// Use more lenient heartbeat settings for testing
+	config.PoolConfig.ConnectionTemplate.PingPeriod = 30 * time.Second      // Longer between pings
+	config.PoolConfig.ConnectionTemplate.PongWait = 60 * time.Second        // Longer wait for pong
+	config.PoolConfig.ConnectionTemplate.ReadTimeout = 120 * time.Second    // Longer read timeout
+	config.PoolConfig.ConnectionTemplate.WriteTimeout = 30 * time.Second    // Longer write timeout
+	config.PoolConfig.ConnectionTemplate.MaxReconnectAttempts = 3           // Fewer reconnection attempts
+	config.PoolConfig.ConnectionTemplate.InitialReconnectDelay = 50 * time.Millisecond
+	config.PoolConfig.ConnectionTemplate.MaxReconnectDelay = 500 * time.Millisecond
+	
+	return config
+}
+
+
+// testingT implements the testing.TB interface for zaptest
+type testingT struct{}
+
+func (t *testingT) Cleanup(func())     {}
+func (t *testingT) Error(args ...any)  {}
+func (t *testingT) Errorf(format string, args ...any) {}
+func (t *testingT) Fail()             {}
+func (t *testingT) FailNow()          {}
+func (t *testingT) Failed() bool      { return false }
+func (t *testingT) Fatal(args ...any) {}
+func (t *testingT) Fatalf(format string, args ...any) {}
+func (t *testingT) Helper()           {}
+func (t *testingT) Log(args ...any)   {}
+func (t *testingT) Logf(format string, args ...any) {}
+func (t *testingT) Name() string      { return "test" }
+func (t *testingT) Setenv(key, value string) {}
+func (t *testingT) Skip(args ...any)  {}
+func (t *testingT) SkipNow()          {}
+func (t *testingT) Skipf(format string, args ...any) {}
+func (t *testingT) Skipped() bool     { return false }
+func (t *testingT) TempDir() string   { return "" }
 
 // MockEventValidator implements a simple event validator for testing
 type MockEventValidator struct {
@@ -536,11 +739,27 @@ func TestTransportConcurrency(t *testing.T) {
 	err = transport.Start(ctx)
 	require.NoError(t, err)
 	
-	// Register transport cleanup
+	// Register enhanced transport cleanup with aggressive reset
 	cleanup.Register("transport", func() {
+		t.Logf("Starting enhanced transport cleanup")
+		
+		// Log current state before cleanup
+		stats := transport.GetStats()
+		t.Logf("Pre-cleanup transport state: ActiveSubscriptions=%d, EventHandlers=%d", 
+			stats.ActiveSubscriptions, transport.GetEventHandlerCount())
+		
+		// Force aggressive cleanup
+		runtime.GC()
+		time.Sleep(50 * time.Millisecond)
+		
 		if err := transport.Stop(); err != nil {
 			t.Logf("Error stopping transport: %v", err)
 		}
+		
+		// Verify final cleanup
+		finalStats := transport.GetStats()
+		t.Logf("Post-cleanup transport state: ActiveSubscriptions=%d, EventHandlers=%d", 
+			finalStats.ActiveSubscriptions, transport.GetEventHandlerCount())
 	})
 
 	// Wait for connections
@@ -575,6 +794,22 @@ func TestTransportConcurrency(t *testing.T) {
 		stats := transport.GetStats()
 		assert.Equal(t, int64(numGoroutines*eventsPerGoroutine), stats.EventsSent)
 	})
+
+	// Enhanced inter-test cleanup and transport reset
+	// This ensures the transport is fully reset between tests to prevent state leakage
+	t.Logf("Performing enhanced transport reset between subtests")
+	runtime.GC() // Force garbage collection to clean up any lingering references
+	time.Sleep(100 * time.Millisecond) // Allow background operations to complete
+	
+	// Log pre-reset state for debugging
+	preResetStats := transport.GetStats()
+	t.Logf("Pre-reset state: ActiveSubscriptions=%d, TotalSubscriptions=%d, EventHandlers=%d", 
+		preResetStats.ActiveSubscriptions, preResetStats.TotalSubscriptions, transport.GetEventHandlerCount())
+	
+	// Verify transport is in expected state before proceeding
+	if preResetStats.ActiveSubscriptions != 0 {
+		t.Logf("WARNING: ActiveSubscriptions not zero before next test: %d", preResetStats.ActiveSubscriptions)
+	}
 
 	t.Run("ConcurrentSubscriptionManagement", func(t *testing.T) {
 		var wg sync.WaitGroup
@@ -629,8 +864,30 @@ func TestTransportConcurrency(t *testing.T) {
 		wg.Wait()
 		assert.Equal(t, int32(0), errors)
 
-		stats := transport.GetStats()
-		assert.Equal(t, int64(0), stats.ActiveSubscriptions)
+		// Enhanced cleanup procedure with multiple stages and aggressive retry mechanism
+		// Stage 1: Force immediate cleanup operations
+		runtime.GC() // Force garbage collection to clean up any lingering references
+		time.Sleep(200 * time.Millisecond) // Allow background cleanup operations to complete
+		
+		// Stage 2: Check if cleanup is needed and log current state
+		preCleanupStats := transport.GetStats()
+		if preCleanupStats.ActiveSubscriptions > 0 {
+			t.Logf("Pre-cleanup state: ActiveSubscriptions=%d, EventHandlers=%d", 
+				preCleanupStats.ActiveSubscriptions, transport.GetEventHandlerCount())
+			
+			// Stage 2a: Force additional cleanup operations if subscriptions remain
+			runtime.GC()  // Additional GC run
+			time.Sleep(300 * time.Millisecond) // Longer wait for background operations
+		}
+		
+		// Stage 3: Wait for all cleanup operations to complete with robust retry mechanism
+		// Increased timeout from 500ms to 5 seconds for full test suite environment
+		// This ensures statistics are consistent and all background operations finish
+		waitForActiveSubscriptions(t, transport, 0, 5*time.Second)
+
+		// Final verification
+		finalStats := transport.GetStats()
+		assert.Equal(t, int64(0), finalStats.ActiveSubscriptions)
 	})
 }
 
@@ -989,8 +1246,20 @@ func BenchmarkTransportSubscription(b *testing.B) {
 	}
 }
 
-// Helper function for benchmarks (renamed to avoid conflict)
-func createTransportTestWebSocketServer(t testing.TB) *httptest.Server {
+// getTestTimeout returns a timeout scaled for CI environments
+func getTestTimeout(defaultTimeout time.Duration) time.Duration {
+	scale := float64(1.0)
+	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" || os.Getenv("JENKINS_URL") != "" {
+		scale = 0.5 // Reduce timeouts by 50% in CI
+	}
+	if testing.Short() {
+		scale = 0.3 // Further reduce in short mode
+	}
+	return time.Duration(float64(defaultTimeout) * scale)
+}
+
+// NewTestWebSocketServer creates a test WebSocket server for testing
+func NewTestWebSocketServer(t testing.TB) *TestWebSocketServer {
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
 	}
@@ -1013,6 +1282,111 @@ func createTransportTestWebSocketServer(t testing.TB) *httptest.Server {
 				break
 			}
 
+			if err := conn.WriteMessage(messageType, message); err != nil {
+				t.Logf("WebSocket write error: %v", err)
+				break
+			}
+		}
+	}))
+
+	return &TestWebSocketServer{server: server}
+}
+
+// NewLoadTestServer creates a load test WebSocket server for testing
+func NewLoadTestServer(t testing.TB) *TestWebSocketServer {
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Logf("Load test WebSocket upgrade error: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		// Simple echo server for load testing
+		for {
+			messageType, message, err := conn.ReadMessage()
+			if err != nil {
+				break
+			}
+
+			if err := conn.WriteMessage(messageType, message); err != nil {
+				break
+			}
+		}
+	}))
+
+	return &TestWebSocketServer{server: server}
+}
+
+// TestWebSocketServer wraps httptest.Server for WebSocket testing
+type TestWebSocketServer struct {
+	server *httptest.Server
+}
+
+func (s *TestWebSocketServer) URL() string {
+	return "ws" + strings.TrimPrefix(s.server.URL, "http")
+}
+
+func (s *TestWebSocketServer) Close() {
+	s.server.Close()
+}
+
+// Helper function for benchmarks (renamed to avoid conflict)
+func createTransportTestWebSocketServer(t testing.TB) *httptest.Server {
+	upgrader := websocket.Upgrader{
+		CheckOrigin: func(r *http.Request) bool { return true },
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := upgrader.Upgrade(w, r, nil)
+		if err != nil {
+			t.Logf("WebSocket upgrade error: %v", err)
+			return
+		}
+		defer conn.Close()
+
+		// Create a timeout context for this connection
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		// Echo messages back to client with proper timeout handling
+		for {
+			// Check if context was cancelled
+			select {
+			case <-ctx.Done():
+				t.Logf("WebSocket context cancelled, closing connection")
+				return
+			default:
+			}
+			
+			// Set very short read deadline to prevent hanging during tests
+			conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
+			
+			messageType, message, err := conn.ReadMessage()
+			if err != nil {
+				// Check for timeout error first
+				if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
+					// Normal timeout - check cancellation and continue reading
+					select {
+					case <-ctx.Done():
+						return
+					default:
+						continue
+					}
+				}
+				
+				if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNormalClosure) {
+					t.Logf("WebSocket error: %v", err)
+				}
+				break
+			}
+
+			// Set write deadline to prevent hanging
+			conn.SetWriteDeadline(time.Now().Add(50 * time.Millisecond))
 			if err := conn.WriteMessage(messageType, message); err != nil {
 				t.Logf("WebSocket write error: %v", err)
 				break

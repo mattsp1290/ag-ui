@@ -186,7 +186,7 @@ func TestClientRateLimiter_ConcurrentAccess(t *testing.T) {
 	rl := NewClientRateLimiter(config)
 
 	numGoroutines := 50
-	numRequests := 100
+	numRequests := 200
 	var wg sync.WaitGroup
 	var allowed atomic.Int64
 	var denied atomic.Int64

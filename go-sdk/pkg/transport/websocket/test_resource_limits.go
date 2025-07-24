@@ -151,7 +151,7 @@ func (c *ConnectionBudget) GetActiveCount() int {
 type TestConnectionManager struct {
 	connections []*Connection
 	transports  []*Transport
-	servers     []*TestWebSocketServer
+	servers     []*ReliableTestServer
 	mu          sync.Mutex
 }
 
@@ -175,7 +175,7 @@ func (m *TestConnectionManager) AddTransport(transport *Transport) {
 }
 
 // AddServer adds a test server to be managed
-func (m *TestConnectionManager) AddServer(server *TestWebSocketServer) {
+func (m *TestConnectionManager) AddServer(server *ReliableTestServer) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.servers = append(m.servers, server)

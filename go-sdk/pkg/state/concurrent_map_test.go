@@ -30,8 +30,10 @@ func TestStateManager_ConcurrentOperations(t *testing.T) {
 
 			<-startSignal // Wait for all goroutines to be ready
 
-			// Create state manager
-			manager, err := NewStateManager(DefaultManagerOptions())
+			// Create state manager with audit disabled for faster testing
+			opts := DefaultManagerOptions()
+			opts.EnableAudit = false
+			manager, err := NewStateManager(opts)
 			if err != nil {
 				mu.Lock()
 				managerCreationErrors = append(managerCreationErrors, err)

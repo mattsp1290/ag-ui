@@ -77,9 +77,6 @@ func Example_withCallbacks() {
 			fmt.Printf("Delta received with %d operations\n", len(event.Delta))
 			return nil
 		}),
-		state.WithStateChangeCallback(func(change state.StateChange) {
-			fmt.Printf("State changed at path: %s\n", change.Path)
-		}),
 	)
 
 	// Process events

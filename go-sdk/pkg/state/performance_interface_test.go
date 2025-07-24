@@ -442,7 +442,7 @@ func TestInterfaceCompatibility(t *testing.T) {
 
 	// Add real implementation
 	opts := DefaultPerformanceOptions()
-	real := NewPerformanceOptimizer(opts)
+	real := NewPerformanceOptimizerForTesting(opts)
 	implementations = append(implementations, real)
 
 	for i, impl := range implementations {

@@ -520,8 +520,7 @@ func unescapeJSONPointer(token string) string {
 }
 
 // normalizeJSONValue normalizes a value to match JSON conventions
-// This ensures integers are converted to float64 as JSON doesn't distinguish between int and float
-// However, we preserve integers when they are small enough to be represented exactly
+// This ensures all numeric types are converted to float64 as JSON doesn't distinguish between int and float
 func normalizeJSONValue(value interface{}) interface{} {
 	if value == nil {
 		return nil
@@ -541,41 +540,26 @@ func normalizeJSONValue(value interface{}) interface{} {
 		}
 		return normalized
 	case int:
-		// Preserve integers that can be exactly represented as float64
-		if v >= -9007199254740991 && v <= 9007199254740991 {
-			return v // Keep as int for small values
-		}
+		// Convert to float64 for JSON consistency
 		return float64(v)
 	case int8:
-		return int(v) // Convert to int for consistency
+		return float64(v) // Convert to float64 for JSON consistency
 	case int16:
-		return int(v) // Convert to int for consistency
+		return float64(v) // Convert to float64 for JSON consistency
 	case int32:
-		return int(v) // Convert to int for consistency
+		return float64(v) // Convert to float64 for JSON consistency
 	case int64:
-		// Preserve integers that can be exactly represented as float64
-		if v >= -9007199254740991 && v <= 9007199254740991 {
-			return int(v) // Keep as int for small values
-		}
-		return float64(v)
+		return float64(v) // Convert to float64 for JSON consistency
 	case uint:
-		// Preserve integers that can be exactly represented as float64
-		if v <= 9007199254740991 {
-			return int(v) // Keep as int for small values
-		}
-		return float64(v)
+		return float64(v) // Convert to float64 for JSON consistency
 	case uint8:
-		return int(v) // Convert to int for consistency
+		return float64(v) // Convert to float64 for JSON consistency
 	case uint16:
-		return int(v) // Convert to int for consistency
+		return float64(v) // Convert to float64 for JSON consistency
 	case uint32:
-		return int(v) // Convert to int for consistency
+		return float64(v) // Convert to float64 for JSON consistency
 	case uint64:
-		// Preserve integers that can be exactly represented as float64
-		if v <= 9007199254740991 {
-			return int(v) // Keep as int for small values
-		}
-		return float64(v)
+		return float64(v) // Convert to float64 for JSON consistency
 	default:
 		return v
 	}

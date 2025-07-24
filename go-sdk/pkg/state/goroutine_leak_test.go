@@ -2,13 +2,15 @@ package state
 
 import (
 	"context"
-
-	"fmt"
+	"fmt"  
 	"runtime"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 	
 	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/stretchr/testify/require"
 )
 
 // TestNoGoroutineLeaks verifies that all goroutines are properly cleaned up
@@ -322,5 +324,354 @@ func TestStateManagerGoroutineCleanup(t *testing.T) {
 	} else {
 		t.Logf("StateManager cleanup successful. Initial: %d, Final: %d", initialGoroutines, finalGoroutines)
 	}
+}
 
+// StateManagerGoroutineLeakDetector helps detect goroutine leaks in state manager tests
+type StateManagerGoroutineLeakDetector struct {
+	t                testing.TB
+	startGoroutines  int
+	startStack       string
+	tolerance        int
+	excludePatterns  []string
+	maxWaitTime      time.Duration
+	checkInterval    time.Duration
+}
+
+// NewStateManagerGoroutineLeakDetector creates a new leak detector for state manager
+func NewStateManagerGoroutineLeakDetector(t testing.TB) *StateManagerGoroutineLeakDetector {
+	detector := &StateManagerGoroutineLeakDetector{
+		t:               t,
+		tolerance:       10, // Allow more tolerance for state manager due to internal goroutines
+		maxWaitTime:     10 * time.Second, // Longer wait for state manager cleanup
+		checkInterval:   200 * time.Millisecond,
+		excludePatterns: []string{
+			"testing.(*T)",
+			"runtime.goexit",
+			"created by runtime",
+			"created by net/http",
+			"database/sql",
+			"go.uber.org/zap",
+			"context.WithCancel",
+			"time.NewTicker",
+			"sync.(*Pool)",
+			"finalizer goroutine",
+		},
+	}
+	detector.snapshot()
+	return detector
+}
+
+// snapshot captures current goroutine state
+func (d *StateManagerGoroutineLeakDetector) snapshot() {
+	d.startGoroutines = runtime.NumGoroutine()
+	d.startStack = d.getGoroutineStack()
+}
+
+// Check verifies no goroutines leaked with enhanced retry logic
+func (d *StateManagerGoroutineLeakDetector) Check() {
+	// Wait for goroutines to clean up with periodic checks
+	timeout := time.After(d.maxWaitTime)
+	ticker := time.NewTicker(d.checkInterval)
+	defer ticker.Stop()
+	
+	var endGoroutines int
+	var leaked int
+	
+	for {
+		select {
+		case <-timeout:
+			// Timeout reached, perform final check
+			endGoroutines = runtime.NumGoroutine()
+			leaked = endGoroutines - d.startGoroutines
+			if leaked > d.tolerance {
+				d.reportLeak(endGoroutines, leaked)
+			}
+			return
+		case <-ticker.C:
+			// Force garbage collection to help clean up
+			runtime.GC()
+			runtime.GC() // Run GC twice to ensure finalization
+			
+			endGoroutines = runtime.NumGoroutine()
+			leaked = endGoroutines - d.startGoroutines
+			
+			// If we're within tolerance, we're good
+			if leaked <= d.tolerance {
+				d.t.Logf("State manager goroutine cleanup successful: started=%d, ended=%d, leaked=%d (within tolerance %d)",
+					d.startGoroutines, endGoroutines, leaked, d.tolerance)
+				return
+			}
+		}
+	}
+}
+
+// reportLeak reports the goroutine leak with detailed information
+func (d *StateManagerGoroutineLeakDetector) reportLeak(endGoroutines, leaked int) {
+	endStack := d.getGoroutineStack()
+	d.t.Errorf("State manager goroutine leak detected: %d goroutines leaked (started with %d, ended with %d)",
+		leaked, d.startGoroutines, endGoroutines)
+	
+	d.t.Logf("Start stack:\n%s", d.startStack)
+	d.t.Logf("End stack:\n%s", endStack)
+	
+	// Try to identify the leaked goroutines
+	d.identifyLeakedGoroutines(d.startStack, endStack)
+	
+	d.t.FailNow()
+}
+
+// identifyLeakedGoroutines tries to identify which goroutines are leaked
+func (d *StateManagerGoroutineLeakDetector) identifyLeakedGoroutines(startStack, endStack string) {
+	startGoroutines := d.parseGoroutineStacks(startStack)
+	endGoroutines := d.parseGoroutineStacks(endStack)
+	
+	d.t.Log("Potentially leaked goroutines:")
+	for id, stack := range endGoroutines {
+		if _, existed := startGoroutines[id]; !existed {
+			excluded := false
+			for _, pattern := range d.excludePatterns {
+				if strings.Contains(stack, pattern) {
+					excluded = true
+					break
+				}
+			}
+			if !excluded {
+				d.t.Logf("New goroutine %s:\n%s", id, stack)
+			}
+		}
+	}
+}
+
+// getGoroutineStack returns current goroutine stack traces
+func (d *StateManagerGoroutineLeakDetector) getGoroutineStack() string {
+	buf := make([]byte, 1<<20) // 1MB buffer
+	n := runtime.Stack(buf, true)
+	return string(buf[:n])
+}
+
+// parseGoroutineStacks parses stack trace into individual goroutines
+func (d *StateManagerGoroutineLeakDetector) parseGoroutineStacks(stack string) map[string]string {
+	goroutines := make(map[string]string)
+	lines := strings.Split(stack, "\n")
+	
+	var currentID string
+	var currentStack strings.Builder
+	
+	for _, line := range lines {
+		if strings.HasPrefix(line, "goroutine ") {
+			if currentID != "" {
+				goroutines[currentID] = currentStack.String()
+			}
+			currentID = strings.TrimSpace(strings.Split(line, "[")[0])
+			currentStack.Reset()
+			currentStack.WriteString(line + "\n")
+		} else if currentID != "" {
+			currentStack.WriteString(line + "\n")
+		}
+	}
+	
+	if currentID != "" {
+		goroutines[currentID] = currentStack.String()
+	}
+	
+	return goroutines
+}
+
+// TestStateManagerBasicGoroutineCleanup tests basic state manager goroutine cleanup
+func TestStateManagerBasicGoroutineCleanup(t *testing.T) {
+	detector := NewStateManagerGoroutineLeakDetector(t)
+	defer detector.Check()
+
+	opts := DefaultManagerOptions()
+	opts.EnableAudit = false // Disable audit to reduce goroutine complexity
+	opts.EnableMetrics = false
+	opts.AutoCheckpoint = false
+
+	manager, err := NewStateManager(opts)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	
+	// Create a context and perform some operations
+	contextID, err := manager.CreateContext(ctx, "test-state", nil)
+	require.NoError(t, err)
+
+	// Perform some updates
+	for i := 0; i < 5; i++ {
+		updates := map[string]interface{}{
+			"value": i,
+			"timestamp": time.Now().UnixNano(),
+		}
+		_, err = manager.UpdateState(ctx, contextID, "test-state", updates, UpdateOptions{})
+		require.NoError(t, err)
+	}
+
+	// Get state to verify it works
+	_, err = manager.GetState(ctx, contextID, "test-state")
+	require.NoError(t, err)
+
+	// Close the manager and verify cleanup
+	err = manager.Close()
+	require.NoError(t, err)
+}
+
+// TestStateManagerMultipleInstancesCleanup tests cleanup of multiple state manager instances
+func TestStateManagerMultipleInstancesCleanup(t *testing.T) {
+	detector := NewStateManagerGoroutineLeakDetector(t)
+	defer detector.Check()
+
+	const numManagers = 3
+	managers := make([]*StateManager, numManagers)
+
+	// Create multiple managers
+	for i := 0; i < numManagers; i++ {
+		opts := DefaultManagerOptions()
+		opts.EnableAudit = false
+		opts.EnableMetrics = false
+		opts.AutoCheckpoint = false
+		opts.UpdateQueueSize = 10 // Smaller queue for tests
+
+		manager, err := NewStateManager(opts)
+		require.NoError(t, err)
+		managers[i] = manager
+
+		ctx := context.Background()
+		
+		// Create contexts and perform operations on each manager
+		for j := 0; j < 3; j++ {
+			contextID, err := manager.CreateContext(ctx, fmt.Sprintf("test-state-%d-%d", i, j), nil)
+			require.NoError(t, err)
+
+			updates := map[string]interface{}{
+				"manager": i,
+				"context": j,
+				"value":   i*10 + j,
+			}
+			_, err = manager.UpdateState(ctx, contextID, fmt.Sprintf("test-state-%d-%d", i, j), updates, UpdateOptions{})
+			require.NoError(t, err)
+		}
+	}
+
+	// Close all managers
+	for _, manager := range managers {
+		err := manager.Close()
+		require.NoError(t, err)
+	}
+}
+
+// TestStateManagerConcurrentOperationsCleanup tests cleanup with concurrent operations
+func TestStateManagerConcurrentOperationsCleanup(t *testing.T) {
+	detector := NewStateManagerGoroutineLeakDetector(t)
+	defer detector.Check()
+
+	opts := DefaultManagerOptions()
+	opts.EnableAudit = false
+	opts.EnableMetrics = false
+	opts.AutoCheckpoint = false
+
+	manager, err := NewStateManager(opts)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	var wg sync.WaitGroup
+
+	// Start concurrent operations
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			
+			contextID, err := manager.CreateContext(ctx, fmt.Sprintf("worker-state-%d", workerID), nil)
+			if err != nil {
+				return // Manager might be closing
+			}
+
+			// Perform operations
+			for j := 0; j < 10; j++ {
+				updates := map[string]interface{}{
+					"worker": workerID,
+					"iteration": j,
+					"timestamp": time.Now().UnixNano(),
+				}
+				_, err = manager.UpdateState(ctx, contextID, fmt.Sprintf("worker-state-%d", workerID), updates, UpdateOptions{})
+				if err != nil {
+					return // Manager might be closing
+				}
+				
+				time.Sleep(10 * time.Millisecond)
+			}
+		}(i)
+	}
+
+	// Let operations run for a bit
+	time.Sleep(200 * time.Millisecond)
+
+	// Close manager while operations are running
+	err = manager.Close()
+	require.NoError(t, err)
+
+	// Wait for workers to finish
+	done := make(chan struct{})
+	go func() {
+		wg.Wait()
+		close(done)
+	}()
+
+	select {
+	case <-done:
+		// Good, workers finished
+	case <-time.After(5 * time.Second):
+		t.Log("Warning: Some workers did not complete in time")
+	}
+}
+
+// TestStateManagerAuditGoroutineCleanup tests cleanup with audit logging enabled
+func TestStateManagerAuditGoroutineCleanup(t *testing.T) {
+	detector := NewStateManagerGoroutineLeakDetector(t)
+	defer detector.Check()
+
+	opts := DefaultManagerOptions()
+	opts.EnableAudit = true
+	opts.EnableMetrics = false
+	opts.AutoCheckpoint = false
+
+	manager, err := NewStateManager(opts)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	
+	// Create context and perform operations that will generate audit logs
+	contextID, err := manager.CreateContext(ctx, "audit-test-state", map[string]interface{}{
+		"test": "audit",
+	})
+	require.NoError(t, err)
+
+	// Perform multiple updates to generate audit logs
+	for i := 0; i < 10; i++ {
+		updates := map[string]interface{}{
+			"value": i,
+			"audit_test": true,
+		}
+		_, err = manager.UpdateState(ctx, contextID, "audit-test-state", updates, UpdateOptions{})
+		require.NoError(t, err)
+	}
+
+	// Create checkpoint to generate more audit logs
+	_, err = manager.CreateCheckpoint(ctx, "audit-test-state", "test-checkpoint")
+	require.NoError(t, err)
+
+	// Give audit logging goroutines time to process
+	time.Sleep(500 * time.Millisecond)
+
+	// Close manager and verify cleanup
+	err = manager.Close()
+	require.NoError(t, err)
+}
+
+// VerifyStateManagerNoLeaks runs a test function and verifies no goroutines leak
+func VerifyStateManagerNoLeaks(t testing.TB, testFunc func()) {
+	detector := NewStateManagerGoroutineLeakDetector(t)
+	defer detector.Check()
+	
+	testFunc()
 }

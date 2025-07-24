@@ -12,7 +12,7 @@ const (
 
 	// Buffer Sizes
 	DefaultEventBufferSize  = 1000 // Default size for event processing buffer
-	DefaultUpdateQueueSize  = 200  // Update queue size (BatchSize * 2)
+	DefaultUpdateQueueSize  = 2000 // Update queue size for high-concurrency scenarios
 	DefaultErrorChannelSize = 100  // Buffer size for error propagation channel
 	BufferPoolSize          = 1024 // Buffer pool default size in bytes
 

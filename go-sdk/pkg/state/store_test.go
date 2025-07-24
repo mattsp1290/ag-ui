@@ -223,7 +223,7 @@ func TestStateStore_Snapshot(t *testing.T) {
 	// Verify state changed
 	data, _ := store.Get("/data")
 	dataMap := data.(map[string]interface{})
-	if dataMap["value"].(int) != 200 {
+	if dataMap["value"].(float64) != 200 {
 		t.Error("State not modified as expected")
 	}
 
@@ -235,8 +235,8 @@ func TestStateStore_Snapshot(t *testing.T) {
 	// Verify state restored
 	data, _ = store.Get("/data")
 	dataMap = data.(map[string]interface{})
-	// Snapshot preserves original type (int), so check for int
-	if dataMap["value"].(int) != 100 {
+	// Since JSON patch operations normalize to float64, check for float64
+	if dataMap["value"].(float64) != 100 {
 		t.Errorf("Expected value 100 after restore, got %v", dataMap["value"])
 	}
 }
@@ -413,7 +413,7 @@ func TestStateStore_ComplexPaths(t *testing.T) {
 	// Verify update
 	value, _ = store.Get("/deeply/nested/structure/with/data")
 	arr = value.([]interface{})
-	if arr[0].(int) != 4 {
+	if arr[0].(float64) != 4 {
 		t.Error("Failed to update nested array")
 	}
 }

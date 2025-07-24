@@ -14,6 +14,7 @@ import (
 
 // TestSSETransport_NewSSETransport tests the creation of SSE transport
 func TestSSETransport_NewSSETransport(t *testing.T) {
+	t.Parallel()  // Safe to run in parallel
 	tests := []struct {
 		name        string
 		config      *Config
@@ -145,6 +146,7 @@ func TestSSETransport_Send_ValidationError(t *testing.T) {
 
 // TestSSETransport_ParseEvents tests parsing various event types
 func TestSSETransport_ParseEvents(t *testing.T) {
+	t.Parallel()  // Safe to run in parallel
 	transport, err := NewSSETransport(nil)
 	if err != nil {
 		t.Fatalf("Failed to create transport: %v", err)

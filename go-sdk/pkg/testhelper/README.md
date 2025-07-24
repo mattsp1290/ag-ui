@@ -221,6 +221,27 @@ func TestWithTimeout(t *testing.T) {
 }
 ```
 
+For operations that can be cancelled:
+
+```go
+func TestWithCancellableTimeout(t *testing.T) {
+    guard := testhelper.NewTimeoutGuard(t, 2*time.Second)
+    
+    err := guard.RunWithContext("slow-operation", func(ctx context.Context) error {
+        select {
+        case <-time.After(3 * time.Second):
+            return nil
+        case <-ctx.Done():
+            return ctx.Err()
+        }
+    })
+    
+    if err != nil {
+        t.Errorf("Operation failed: %v", err)
+    }
+}
+```
+
 ### Resource Tracking
 
 Track resource allocation and cleanup:

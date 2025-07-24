@@ -506,6 +506,9 @@ func TestSubscriptionManagement(t *testing.T) {
 	defer transport.Stop()
 
 	t.Run("CreateSubscription", func(t *testing.T) {
+		// Get initial stats to track relative changes
+		initialStats := transport.GetStats()
+		
 		eventTypes := []string{string(events.EventTypeTextMessageContent)}
 		var receivedEvents []events.Event
 		var mu sync.Mutex
@@ -525,8 +528,12 @@ func TestSubscriptionManagement(t *testing.T) {
 		assert.NotNil(t, subscription.Handler)
 
 		stats := transport.GetStats()
-		assert.Equal(t, int64(1), stats.ActiveSubscriptions)
-		assert.Equal(t, int64(1), stats.TotalSubscriptions)
+		assert.Equal(t, initialStats.ActiveSubscriptions+1, stats.ActiveSubscriptions)
+		assert.Equal(t, initialStats.TotalSubscriptions+1, stats.TotalSubscriptions)
+		
+		// Clean up this test's subscription
+		err = transport.Unsubscribe(subscription.ID)
+		require.NoError(t, err)
 	})
 
 	t.Run("SubscriptionErrors", func(t *testing.T) {
@@ -542,6 +549,9 @@ func TestSubscriptionManagement(t *testing.T) {
 	})
 
 	t.Run("UnsubscribeExisting", func(t *testing.T) {
+		// Get initial stats to track relative changes
+		initialStats := transport.GetStats()
+		
 		// Create a subscription first
 		eventTypes := []string{string(events.EventTypeTextMessageContent)}
 		handler := func(ctx context.Context, event events.Event) error { return nil }
@@ -549,12 +559,17 @@ func TestSubscriptionManagement(t *testing.T) {
 		subscription, err := transport.Subscribe(ctx, eventTypes, handler)
 		require.NoError(t, err)
 
+		// Verify subscription was created
+		afterCreateStats := transport.GetStats()
+		assert.Equal(t, initialStats.ActiveSubscriptions+1, afterCreateStats.ActiveSubscriptions)
+
 		// Unsubscribe
 		err = transport.Unsubscribe(subscription.ID)
 		assert.NoError(t, err)
 
-		stats := transport.GetStats()
-		assert.Equal(t, int64(0), stats.ActiveSubscriptions)
+		// Verify subscription was removed
+		afterUnsubscribeStats := transport.GetStats()
+		assert.Equal(t, initialStats.ActiveSubscriptions, afterUnsubscribeStats.ActiveSubscriptions)
 	})
 
 	t.Run("UnsubscribeNonExistent", func(t *testing.T) {
@@ -581,9 +596,17 @@ func TestSubscriptionManagement(t *testing.T) {
 		_, err = transport.GetSubscription("non-existent")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "subscription not found")
+		
+		// Clean up this test's subscription
+		err = transport.Unsubscribe(subscription.ID)
+		require.NoError(t, err)
 	})
 
 	t.Run("ListSubscriptions", func(t *testing.T) {
+		// Get initial count of subscriptions from previous tests
+		initialSubscriptions := transport.ListSubscriptions()
+		initialCount := len(initialSubscriptions)
+		
 		// Create multiple subscriptions
 		eventTypes1 := []string{string(events.EventTypeTextMessageContent)}
 		eventTypes2 := []string{string(events.EventTypeToolCallStart)}
@@ -596,7 +619,7 @@ func TestSubscriptionManagement(t *testing.T) {
 		require.NoError(t, err)
 
 		subscriptions := transport.ListSubscriptions()
-		assert.Len(t, subscriptions, 2)
+		assert.Len(t, subscriptions, initialCount+2)
 
 		// Check that both subscriptions are in the list
 		ids := make(map[string]bool)
@@ -605,6 +628,12 @@ func TestSubscriptionManagement(t *testing.T) {
 		}
 		assert.True(t, ids[sub1.ID])
 		assert.True(t, ids[sub2.ID])
+		
+		// Clean up this test's subscriptions
+		err = transport.Unsubscribe(sub1.ID)
+		require.NoError(t, err)
+		err = transport.Unsubscribe(sub2.ID)
+		require.NoError(t, err)
 	})
 }
 

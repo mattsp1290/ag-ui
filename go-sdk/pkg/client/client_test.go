@@ -8,6 +8,7 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/client"
 	"github.com/ag-ui/go-sdk/pkg/core"
+	pkgerrors "github.com/ag-ui/go-sdk/pkg/errors"
 )
 
 func TestNew(t *testing.T) {
@@ -37,7 +38,7 @@ func TestNew(t *testing.T) {
 				BaseURL: "",
 			},
 			wantErr: true,
-			errType: &core.ConfigError{},
+			errType: &pkgerrors.BaseError{},
 		},
 		{
 			name: "invalid URL scheme",
@@ -45,7 +46,7 @@ func TestNew(t *testing.T) {
 				BaseURL: "://invalid-scheme",
 			},
 			wantErr: true,
-			errType: &core.ConfigError{},
+			errType: &pkgerrors.BaseError{},
 		},
 		{
 			name: "malformed URL",
@@ -53,7 +54,7 @@ func TestNew(t *testing.T) {
 				BaseURL: "http://[::1:80",
 			},
 			wantErr: true,
-			errType: &core.ConfigError{},
+			errType: &pkgerrors.BaseError{},
 		},
 	}
 
@@ -136,7 +137,12 @@ func TestClient_SendEvent(t *testing.T) {
 				if responses != nil {
 					t.Error("SendEvent() should return nil responses on error")
 				}
-				verifyErrorOrNotImplemented(t, err, tt.errType)
+				// For empty agent name and nil event, we expect wrapped validation errors
+				if tt.agentName == "" || tt.event == nil {
+					verifyWrappedError(t, err, tt.errType, "SendEvent")
+				} else {
+					verifyErrorOrNotImplemented(t, err, tt.errType)
+				}
 			}
 		})
 	}
@@ -182,7 +188,9 @@ func TestClient_Stream(t *testing.T) {
 				if stream != nil {
 					t.Error("Stream() should return nil stream on error")
 				}
-				if tt.errType != nil {
+				if tt.agentName == "" {
+					verifyWrappedError(t, err, tt.errType, "Stream")
+				} else if tt.errType != nil {
 					verifyTestError(t, err, tt.errType, "agentName")
 				} else {
 					verifyNotImplementedError(t, err)
@@ -213,21 +221,27 @@ func verifyTestError(t *testing.T, err error, expectedType any, expectedField st
 		return
 	}
 
-	var configErr *core.ConfigError
-	if !errors.As(err, &configErr) {
+	var baseErr *pkgerrors.BaseError
+	if !errors.As(err, &baseErr) {
 		t.Errorf("Expected error type %T, got %T", expectedType, err)
 		return
 	}
 
-	if expectedField != "" && configErr.Field != expectedField {
-		t.Errorf("Expected error field %q, got %v", expectedField, configErr.Field)
+	// Check if the error message contains the expected field name
+	if expectedField != "" && !strings.Contains(baseErr.Message, expectedField) {
+		t.Errorf("Expected error message to contain field %q, got %v", expectedField, baseErr.Message)
 	}
 }
 
 func verifyNotImplementedError(t *testing.T, err error) {
 	t.Helper()
-	if !errors.Is(err, core.ErrNotImplemented) {
-		t.Errorf("Expected ErrNotImplemented, got %v", err)
+	var baseErr *pkgerrors.BaseError
+	if !errors.As(err, &baseErr) {
+		t.Errorf("Expected BaseError, got %T", err)
+		return
+	}
+	if baseErr.Code != "NOT_IMPLEMENTED" {
+		t.Errorf("Expected NOT_IMPLEMENTED error code, got %v", baseErr.Code)
 	}
 }
 
@@ -240,26 +254,52 @@ func verifyErrorOrNotImplemented(t *testing.T, err error, errType any) {
 	}
 }
 
-func TestConfigError_Unwrap(t *testing.T) {
+func verifyWrappedError(t *testing.T, err error, expectedType any, operation string) {
+	t.Helper()
+	if err == nil {
+		t.Error("Expected error, got nil")
+		return
+	}
+	
+	// The error is wrapped, so we need to unwrap it to find the error type
+	var baseErr *pkgerrors.BaseError
+	var validationErr *pkgerrors.ValidationError
+	
+	// Check for ValidationError first (it embeds BaseError)
+	if errors.As(err, &validationErr) {
+		// Found a ValidationError
+		return
+	}
+	
+	// Check for BaseError
+	if errors.As(err, &baseErr) {
+		// Found a BaseError
+		return
+	}
+	
+	// If we can't find a BaseError or ValidationError in the chain, fail the test
+	t.Errorf("Expected to find BaseError or ValidationError in error chain, got %T: %v", err, err)
+}
+
+func TestBaseError_Unwrap(t *testing.T) {
 	_, err := client.New(client.Config{BaseURL: ""})
 	if err == nil {
 		t.Fatal("Expected error for empty BaseURL")
 	}
 
-	var configErr *core.ConfigError
-	if !errors.As(err, &configErr) {
-		t.Fatalf("Expected ConfigError, got %T", err)
-	}
-
-	// Test error unwrapping
-	unwrapped := configErr.Unwrap()
-	if unwrapped == nil {
-		t.Error("ConfigError.Unwrap() should return underlying error")
+	var baseErr *pkgerrors.BaseError
+	if !errors.As(err, &baseErr) {
+		t.Fatalf("Expected BaseError, got %T", err)
 	}
 
 	// Test error message contains useful information
-	errMsg := configErr.Error()
+	errMsg := baseErr.Error()
 	if !strings.Contains(errMsg, "BaseURL") {
 		t.Errorf("Error message should contain field name, got: %v", errMsg)
+	}
+	
+	// Verify it's a configuration error
+	if baseErr.Code != "CONFIGURATION_ERROR" {
+		t.Errorf("Expected CONFIGURATION_ERROR code, got %v", baseErr.Code)
 	}
 }

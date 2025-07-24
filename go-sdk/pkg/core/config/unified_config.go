@@ -425,6 +425,7 @@ func DefaultCacheValidationConfig() *CacheValidationConfig {
 func DefaultDistributedValidationConfig() *DistributedValidationConfig {
 	return &DistributedValidationConfig{
 		Enabled:               false, // Disabled by default
+		NodeID:                "default-node-id",
 		NodeRole:              "follower",
 		ConsensusAlgorithm:    "majority",
 		ConsensusTimeout:      5 * time.Second,

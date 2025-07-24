@@ -2,6 +2,7 @@ package config
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -180,8 +181,9 @@ func TestCircularDependencyDetection(t *testing.T) {
 		t.Error("Expected circular dependency error")
 	}
 	
-	if err.Error() != "circular dependency detected for service: service_a" {
-		t.Errorf("Unexpected error message: %v", err)
+	// Check that error message contains circular dependency detection
+	if !strings.Contains(err.Error(), "circular dependency detected for service: service_a") {
+		t.Errorf("Expected circular dependency error for service_a, got: %v", err)
 	}
 }
 

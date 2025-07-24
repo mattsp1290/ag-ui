@@ -167,10 +167,14 @@ func TestContextHelpers(t *testing.T) {
 			t.Errorf("Fast operation failed: %v", err)
 		}
 
-		// Slow operation times out
-		err = guard.Run("slow-op", func() error {
-			time.Sleep(200 * time.Millisecond)
-			return nil
+		// Slow operation times out - use context-aware version
+		err = guard.RunWithContext("slow-op", func(ctx context.Context) error {
+			select {
+			case <-time.After(200 * time.Millisecond):
+				return nil
+			case <-ctx.Done():
+				return ctx.Err()
+			}
 		})
 
 		if err != context.DeadlineExceeded {

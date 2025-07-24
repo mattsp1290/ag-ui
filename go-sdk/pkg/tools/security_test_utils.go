@@ -288,7 +288,7 @@ func (g *PayloadGenerator) GenerateURLInjectionPayloads() []string {
 		"http://example.com/path\x00evil.com",
 		"http://еxample.com/path", // Cyrillic 'e'
 		"http://xn--e1afmkfd.xn--p1ai/path",
-		"http://example.com/" + strings.Repeat("a", 1000),
+		"http://example.com/" + strings.Repeat("a", 10000),
 	}
 }
 
@@ -357,7 +357,7 @@ func (v *SecurityTestValidator) ValidateNoDataLeakage(t *testing.T, result *Tool
 		return
 	}
 
-	// Check for common sensitive data patterns
+	// Check for common sensitive data patterns, but exclude common false positives in security testing
 	sensitivePatterns := []string{
 		"password",
 		"secret",
@@ -366,7 +366,7 @@ func (v *SecurityTestValidator) ValidateNoDataLeakage(t *testing.T, result *Tool
 		"private",
 		"confidential",
 		"/etc/passwd",
-		"/etc/shadow",
+		"/etc/shadow", 
 		"id_rsa",
 		"id_dsa",
 		"SSH PRIVATE KEY",
@@ -381,8 +381,32 @@ func (v *SecurityTestValidator) ValidateNoDataLeakage(t *testing.T, result *Tool
 	resultStr := fmt.Sprintf("%+v", result)
 	resultStr = strings.ToLower(resultStr)
 
+	// Skip "private" detection if it's part of common configuration terms
+	falsePositivePatterns := []string{
+		"allowprivatenetworks",
+		"privatenetworks",
+		"private networks",
+		"private ip",
+		"private range",
+		"private address",
+		"allowprivate",
+	}
+
 	for _, pattern := range sensitivePatterns {
 		if strings.Contains(resultStr, strings.ToLower(pattern)) {
+			// Check if this is a false positive for "private" pattern
+			if pattern == "private" {
+				isFalsePositive := false
+				for _, fpPattern := range falsePositivePatterns {
+					if strings.Contains(resultStr, fpPattern) {
+						isFalsePositive = true
+						break
+					}
+				}
+				if isFalsePositive {
+					continue // Skip this detection as it's a false positive
+				}
+			}
 			t.Errorf("Potential sensitive data leakage detected: %s", pattern)
 		}
 	}

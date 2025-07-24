@@ -483,7 +483,7 @@ func TestCircuitBreaker(t *testing.T) {
 		assert.Equal(t, tools.CircuitState(1), cb.GetState())
 
 		// Wait for reset timeout
-		time.Sleep(150 * time.Millisecond)
+		time.Sleep(101 * time.Millisecond)
 
 		// Should move to half-open
 		err := cb.Call(func() error {
@@ -506,7 +506,7 @@ func TestCircuitBreaker(t *testing.T) {
 		}
 
 		// Wait for reset timeout
-		time.Sleep(150 * time.Millisecond)
+		time.Sleep(101 * time.Millisecond)
 
 		// Fail in half-open state
 		err := cb.Call(func() error {
@@ -514,7 +514,7 @@ func TestCircuitBreaker(t *testing.T) {
 		})
 
 		assert.Error(t, err)
-		assert.Equal(t, tools.CircuitState(2), cb.GetState()) // Still in half-open until threshold
+		assert.Equal(t, tools.CircuitState(1), cb.GetState()) // Should transition back to open on failure
 		// Note: Cannot test internal failure count when using external test package
 	})
 

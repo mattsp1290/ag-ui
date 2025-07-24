@@ -305,19 +305,29 @@ func (m *AuthMiddleware) addUserContext(ctx context.Context, authCtx *auth.AuthC
 	return ctx
 }
 
-// handleCORS handles CORS headers
+// handleCORS handles CORS headers with security-first approach
 func (m *AuthMiddleware) handleCORS(w http.ResponseWriter, r *http.Request) {
 	origin := r.Header.Get("Origin")
 	
-	// Check if origin is allowed
+	// Check if origin is allowed (no wildcard allowed for security)
 	allowed := false
 	if len(m.config.AllowedOrigins) == 0 {
-		allowed = true // Allow all if none specified
+		// Only allow same origin if no origins specified
+		allowed = false
 	} else {
 		for _, allowedOrigin := range m.config.AllowedOrigins {
-			if allowedOrigin == "*" || allowedOrigin == origin {
+			// Remove wildcard support for security
+			if allowedOrigin == origin {
 				allowed = true
 				break
+			}
+			// Support wildcard subdomains only if explicitly configured
+			if strings.HasPrefix(allowedOrigin, "*.") {
+				domain := strings.TrimPrefix(allowedOrigin, "*.")
+				if strings.HasSuffix(origin, domain) {
+					allowed = true
+					break
+				}
 			}
 		}
 	}
@@ -325,8 +335,9 @@ func (m *AuthMiddleware) handleCORS(w http.ResponseWriter, r *http.Request) {
 	if allowed {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-CSRF-Token")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Max-Age", "86400") // 24 hours
 	}
 }
 

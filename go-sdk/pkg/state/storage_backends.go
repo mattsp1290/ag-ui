@@ -66,9 +66,17 @@ func (m *MockRedisBackend) SaveVersion(ctx context.Context, stateID string, vers
 
 func (m *MockRedisBackend) GetVersionHistory(ctx context.Context, stateID string, limit int) ([]*StateVersion, error) {
 	var versions []*StateVersion
+	// Pre-build the key prefix for performance
+	var keyBuilder strings.Builder
+	keyBuilder.Grow(12 + len(stateID)) // "version:" + stateID + ":"
+	keyBuilder.WriteString("version:")
+	keyBuilder.WriteString(stateID)
+	keyBuilder.WriteByte(':')
+	keyPrefix := keyBuilder.String()
+	
 	m.data.Range(func(key, value interface{}) bool {
 		if keyStr, ok := key.(string); ok {
-			if strings.HasPrefix(keyStr, "version:"+stateID+":") {
+			if strings.HasPrefix(keyStr, keyPrefix) {
 				if version, ok := value.(*StateVersion); ok {
 					versions = append(versions, version)
 				}
@@ -80,7 +88,16 @@ func (m *MockRedisBackend) GetVersionHistory(ctx context.Context, stateID string
 }
 
 func (m *MockRedisBackend) GetSnapshot(ctx context.Context, stateID string, snapshotID string) (*StateSnapshot, error) {
-	if val, ok := m.data.Load("snapshot:" + stateID + ":" + snapshotID); ok {
+	// Use strings.Builder for key construction performance
+	var keyBuilder strings.Builder
+	keyBuilder.Grow(12 + len(stateID) + len(snapshotID)) // "snapshot:" + stateID + ":" + snapshotID
+	keyBuilder.WriteString("snapshot:")
+	keyBuilder.WriteString(stateID)
+	keyBuilder.WriteByte(':')
+	keyBuilder.WriteString(snapshotID)
+	key := keyBuilder.String()
+	
+	if val, ok := m.data.Load(key); ok {
 		if snapshot, ok := val.(*StateSnapshot); ok {
 			return snapshot, nil
 		}
@@ -89,15 +106,32 @@ func (m *MockRedisBackend) GetSnapshot(ctx context.Context, stateID string, snap
 }
 
 func (m *MockRedisBackend) SaveSnapshot(ctx context.Context, stateID string, snapshot *StateSnapshot) error {
-	m.data.Store("snapshot:"+stateID+":"+snapshot.ID, snapshot)
+	// Use strings.Builder for key construction performance
+	var keyBuilder strings.Builder
+	keyBuilder.Grow(12 + len(stateID) + len(snapshot.ID)) // "snapshot:" + stateID + ":" + snapshot.ID
+	keyBuilder.WriteString("snapshot:")
+	keyBuilder.WriteString(stateID)
+	keyBuilder.WriteByte(':')
+	keyBuilder.WriteString(snapshot.ID)
+	key := keyBuilder.String()
+	
+	m.data.Store(key, snapshot)
 	return nil
 }
 
 func (m *MockRedisBackend) ListSnapshots(ctx context.Context, stateID string) ([]*StateSnapshot, error) {
 	var snapshots []*StateSnapshot
+	// Pre-build the key prefix for performance
+	var keyBuilder strings.Builder
+	keyBuilder.Grow(12 + len(stateID)) // "snapshot:" + stateID + ":"
+	keyBuilder.WriteString("snapshot:")
+	keyBuilder.WriteString(stateID)
+	keyBuilder.WriteByte(':')
+	keyPrefix := keyBuilder.String()
+	
 	m.data.Range(func(key, value interface{}) bool {
 		if keyStr, ok := key.(string); ok {
-			if strings.HasPrefix(keyStr, "snapshot:"+stateID+":") {
+			if strings.HasPrefix(keyStr, keyPrefix) {
 				if snapshot, ok := value.(*StateSnapshot); ok {
 					snapshots = append(snapshots, snapshot)
 				}
@@ -155,7 +189,14 @@ func NewMockPostgreSQLBackend(config *StorageConfig, logger Logger) (*MockPostgr
 }
 
 func (m *MockPostgreSQLBackend) GetState(ctx context.Context, stateID string) (map[string]interface{}, error) {
-	if val, ok := m.data.Load("state:" + stateID); ok {
+	// Use strings.Builder for key construction performance
+	var keyBuilder strings.Builder
+	keyBuilder.Grow(6 + len(stateID)) // "state:" + stateID
+	keyBuilder.WriteString("state:")
+	keyBuilder.WriteString(stateID)
+	key := keyBuilder.String()
+	
+	if val, ok := m.data.Load(key); ok {
 		if state, ok := val.(map[string]interface{}); ok {
 			return state, nil
 		}
@@ -164,17 +205,40 @@ func (m *MockPostgreSQLBackend) GetState(ctx context.Context, stateID string) (m
 }
 
 func (m *MockPostgreSQLBackend) SetState(ctx context.Context, stateID string, state map[string]interface{}) error {
-	m.data.Store("state:"+stateID, state)
+	// Use strings.Builder for key construction performance
+	var keyBuilder strings.Builder
+	keyBuilder.Grow(6 + len(stateID)) // "state:" + stateID
+	keyBuilder.WriteString("state:")
+	keyBuilder.WriteString(stateID)
+	key := keyBuilder.String()
+	
+	m.data.Store(key, state)
 	return nil
 }
 
 func (m *MockPostgreSQLBackend) DeleteState(ctx context.Context, stateID string) error {
-	m.data.Delete("state:" + stateID)
+	// Use strings.Builder for key construction performance
+	var keyBuilder strings.Builder
+	keyBuilder.Grow(6 + len(stateID)) // "state:" + stateID
+	keyBuilder.WriteString("state:")
+	keyBuilder.WriteString(stateID)
+	key := keyBuilder.String()
+	
+	m.data.Delete(key)
 	return nil
 }
 
 func (m *MockPostgreSQLBackend) GetVersion(ctx context.Context, stateID string, versionID string) (*StateVersion, error) {
-	if val, ok := m.data.Load("version:" + stateID + ":" + versionID); ok {
+	// Use strings.Builder for key construction performance
+	var keyBuilder strings.Builder
+	keyBuilder.Grow(10 + len(stateID) + len(versionID)) // "version:" + stateID + ":" + versionID
+	keyBuilder.WriteString("version:")
+	keyBuilder.WriteString(stateID)
+	keyBuilder.WriteByte(':')
+	keyBuilder.WriteString(versionID)
+	key := keyBuilder.String()
+	
+	if val, ok := m.data.Load(key); ok {
 		if version, ok := val.(*StateVersion); ok {
 			return version, nil
 		}
@@ -183,15 +247,32 @@ func (m *MockPostgreSQLBackend) GetVersion(ctx context.Context, stateID string, 
 }
 
 func (m *MockPostgreSQLBackend) SaveVersion(ctx context.Context, stateID string, version *StateVersion) error {
-	m.data.Store("version:"+stateID+":"+version.ID, version)
+	// Use strings.Builder for key construction performance
+	var keyBuilder strings.Builder
+	keyBuilder.Grow(10 + len(stateID) + len(version.ID)) // "version:" + stateID + ":" + version.ID
+	keyBuilder.WriteString("version:")
+	keyBuilder.WriteString(stateID)
+	keyBuilder.WriteByte(':')
+	keyBuilder.WriteString(version.ID)
+	key := keyBuilder.String()
+	
+	m.data.Store(key, version)
 	return nil
 }
 
 func (m *MockPostgreSQLBackend) GetVersionHistory(ctx context.Context, stateID string, limit int) ([]*StateVersion, error) {
 	var versions []*StateVersion
+	// Pre-build the key prefix for performance
+	var keyBuilder strings.Builder
+	keyBuilder.Grow(9 + len(stateID)) // "version:" + stateID + ":"
+	keyBuilder.WriteString("version:")
+	keyBuilder.WriteString(stateID)
+	keyBuilder.WriteByte(':')
+	keyPrefix := keyBuilder.String()
+	
 	m.data.Range(func(key, value interface{}) bool {
 		if keyStr, ok := key.(string); ok {
-			if strings.HasPrefix(keyStr, "version:"+stateID+":") {
+			if strings.HasPrefix(keyStr, keyPrefix) {
 				if version, ok := value.(*StateVersion); ok {
 					versions = append(versions, version)
 				}
@@ -203,7 +284,16 @@ func (m *MockPostgreSQLBackend) GetVersionHistory(ctx context.Context, stateID s
 }
 
 func (m *MockPostgreSQLBackend) GetSnapshot(ctx context.Context, stateID string, snapshotID string) (*StateSnapshot, error) {
-	if val, ok := m.data.Load("snapshot:" + stateID + ":" + snapshotID); ok {
+	// Use strings.Builder for key construction performance
+	var keyBuilder strings.Builder
+	keyBuilder.Grow(10 + len(stateID) + len(snapshotID)) // "snapshot:" + stateID + ":" + snapshotID
+	keyBuilder.WriteString("snapshot:")
+	keyBuilder.WriteString(stateID)
+	keyBuilder.WriteByte(':')
+	keyBuilder.WriteString(snapshotID)
+	key := keyBuilder.String()
+	
+	if val, ok := m.data.Load(key); ok {
 		if snapshot, ok := val.(*StateSnapshot); ok {
 			return snapshot, nil
 		}
@@ -212,15 +302,32 @@ func (m *MockPostgreSQLBackend) GetSnapshot(ctx context.Context, stateID string,
 }
 
 func (m *MockPostgreSQLBackend) SaveSnapshot(ctx context.Context, stateID string, snapshot *StateSnapshot) error {
-	m.data.Store("snapshot:"+stateID+":"+snapshot.ID, snapshot)
+	// Use strings.Builder for key construction performance
+	var keyBuilder strings.Builder
+	keyBuilder.Grow(10 + len(stateID) + len(snapshot.ID)) // "snapshot:" + stateID + ":" + snapshot.ID
+	keyBuilder.WriteString("snapshot:")
+	keyBuilder.WriteString(stateID)
+	keyBuilder.WriteByte(':')
+	keyBuilder.WriteString(snapshot.ID)
+	key := keyBuilder.String()
+	
+	m.data.Store(key, snapshot)
 	return nil
 }
 
 func (m *MockPostgreSQLBackend) ListSnapshots(ctx context.Context, stateID string) ([]*StateSnapshot, error) {
 	var snapshots []*StateSnapshot
+	// Pre-build the key prefix for performance
+	var keyBuilder strings.Builder
+	keyBuilder.Grow(10 + len(stateID)) // "snapshot:" + stateID + ":"
+	keyBuilder.WriteString("snapshot:")
+	keyBuilder.WriteString(stateID)
+	keyBuilder.WriteByte(':')
+	keyPrefix := keyBuilder.String()
+	
 	m.data.Range(func(key, value interface{}) bool {
 		if keyStr, ok := key.(string); ok {
-			if strings.HasPrefix(keyStr, "snapshot:"+stateID+":") {
+			if strings.HasPrefix(keyStr, keyPrefix) {
 				if snapshot, ok := value.(*StateSnapshot); ok {
 					snapshots = append(snapshots, snapshot)
 				}

@@ -354,9 +354,9 @@ func (v *SchemaValidator) validateValue(prop *Property, value interface{}, path 
 		return nil
 	}
 
-	// If no type is specified, allow any type (this supports advanced composition)
+	// If no type is specified, we still need to validate constraints that can apply to any type
 	if prop.Type == "" {
-		return nil
+		return v.validateConstraintsWithoutType(prop, value, path)
 	}
 
 	switch prop.Type {
@@ -380,6 +380,79 @@ func (v *SchemaValidator) validateValue(prop *Property, value interface{}, path 
 	default:
 		return newValidationError(path, fmt.Sprintf("unknown type %q", prop.Type))
 	}
+}
+
+// validateConstraintsWithoutType validates constraints when no explicit type is specified.
+// This is crucial for allOf, anyOf, oneOf, and conditional validation where individual schemas
+// may only specify constraints without types.
+func (v *SchemaValidator) validateConstraintsWithoutType(prop *Property, value interface{}, path string) error {
+	// Check enum regardless of type
+	if len(prop.Enum) > 0 {
+		found := false
+		for _, allowed := range prop.Enum {
+			if allowed == value {
+				found = true
+				break
+			}
+		}
+		if !found {
+			return newValidationError(path, fmt.Sprintf("value %v is not in enum %v", value, prop.Enum))
+		}
+	}
+
+	// Validate string constraints if the value is a string
+	if str, ok := value.(string); ok {
+		if prop.MinLength != nil && len(str) < *prop.MinLength {
+			return newValidationError(path, fmt.Sprintf("string length %d is less than minimum %d", len(str), *prop.MinLength))
+		}
+		if prop.MaxLength != nil && len(str) > *prop.MaxLength {
+			return newValidationError(path, fmt.Sprintf("string length %d is greater than maximum %d", len(str), *prop.MaxLength))
+		}
+		if prop.Pattern != "" {
+			matched, err := regexp.MatchString(prop.Pattern, str)
+			if err != nil {
+				return newValidationError(path, fmt.Sprintf("invalid pattern: %v", err))
+			}
+			if !matched {
+				return newValidationError(path, fmt.Sprintf("string %q does not match pattern %q", str, prop.Pattern))
+			}
+		}
+		if prop.Format != "" {
+			if err := v.validateFormat(prop.Format, str, path); err != nil {
+				return err
+			}
+		}
+	}
+
+	// Validate numeric constraints if the value is numeric
+	if num, ok := toFloat64(value); ok {
+		if prop.Minimum != nil && num < *prop.Minimum {
+			return newValidationError(path, fmt.Sprintf("value %v is less than minimum %v", num, *prop.Minimum))
+		}
+		if prop.Maximum != nil && num > *prop.Maximum {
+			return newValidationError(path, fmt.Sprintf("value %v is greater than maximum %v", num, *prop.Maximum))
+		}
+	}
+
+	// Validate array constraints if the value is an array
+	if arr, ok := value.([]interface{}); ok {
+		if prop.MinLength != nil && len(arr) < *prop.MinLength {
+			return newValidationError(path, fmt.Sprintf("array length %d is less than minimum %d", len(arr), *prop.MinLength))
+		}
+		if prop.MaxLength != nil && len(arr) > *prop.MaxLength {
+			return newValidationError(path, fmt.Sprintf("array length %d is greater than maximum %d", len(arr), *prop.MaxLength))
+		}
+		if prop.Items != nil {
+			for i, item := range arr {
+				itemPath := fmt.Sprintf("%s[%d]", path, i)
+				if err := v.validateValue(prop.Items, item, itemPath); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	return nil
 }
 
 // validateString validates a string value.
@@ -1078,9 +1151,7 @@ func (v *SchemaValidator) coerceTypes(params map[string]interface{}, schema *Too
 		if value, exists := coerced[name]; exists {
 			coercedValue, err := v.coerceValue(value, prop)
 			if err != nil {
-				return nil, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("failed to coerce property %q", name), "").
-					WithCause(err).
-					WithDetail("property", name)
+				return nil, fmt.Errorf("failed to coerce property %q: %w", name, err)
 			}
 			coerced[name] = coercedValue
 		} else if prop.Default != nil {
@@ -1145,13 +1216,9 @@ func (v *SchemaValidator) coerceToNumber(value interface{}) (float64, error) {
 		if f, err := strconv.ParseFloat(v, 64); err == nil {
 			return f, nil
 		}
-		return 0, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("cannot convert %q to number", v), "").
-			WithDetail("value", v).
-			WithDetail("target_type", "number")
+		return 0, fmt.Errorf("cannot convert %q to number", v)
 	default:
-		return 0, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("cannot convert %T to number", v), "").
-			WithDetail("source_type", fmt.Sprintf("%T", v)).
-			WithDetail("target_type", "number")
+		return 0, fmt.Errorf("cannot convert %T to number", v)
 	}
 }
 
@@ -1166,20 +1233,14 @@ func (v *SchemaValidator) coerceToInteger(value interface{}) (int64, error) {
 		if v == float64(int64(v)) {
 			return int64(v), nil
 		}
-		return 0, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("cannot convert %f to integer", v), "").
-			WithDetail("value", v).
-			WithDetail("target_type", "integer")
+		return 0, fmt.Errorf("cannot convert %f to integer", v)
 	case string:
 		if i, err := strconv.ParseInt(v, 10, 64); err == nil {
 			return i, nil
 		}
-		return 0, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("cannot convert %q to integer", v), "").
-			WithDetail("value", v).
-			WithDetail("target_type", "integer")
+		return 0, fmt.Errorf("cannot convert %q to integer", v)
 	default:
-		return 0, NewValidationError(CodeTypeCoercionFailed, fmt.Sprintf("cannot convert %T to integer", v), "").
-			WithDetail("source_type", fmt.Sprintf("%T", v)).
-			WithDetail("target_type", "integer")
+		return 0, fmt.Errorf("cannot convert %T to integer", v)
 	}
 }
 
@@ -1226,8 +1287,21 @@ func (v *SchemaValidator) coerceToArray(value interface{}) []interface{} {
 // Utility methods
 
 // generateCacheKey generates a cache key for the given parameters.
+// The cache key includes both the parameters and validator settings to ensure
+// that different validation configurations don't interfere with each other.
 func (v *SchemaValidator) generateCacheKey(params map[string]interface{}) string {
-	data, _ := json.Marshal(params)
+	// Include validator settings in the cache key
+	cacheData := struct {
+		Params          map[string]interface{} `json:"params"`
+		CoercionEnabled bool                   `json:"coercionEnabled"`
+		Debug           bool                   `json:"debug"`
+	}{
+		Params:          params,
+		CoercionEnabled: v.coercionEnabled,
+		Debug:           v.debug,
+	}
+	
+	data, _ := json.Marshal(cacheData)
 	hash := fnv.New64a()
 	hash.Write(data)
 	return hex.EncodeToString(hash.Sum(nil))

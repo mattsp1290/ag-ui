@@ -1,6 +1,7 @@
 package state
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"runtime"
@@ -16,7 +17,10 @@ func TestMonitoringSystemBasic(t *testing.T) {
 		t.Skip("Skipping TestMonitoringSystemBasic in short mode to prevent background goroutines")
 	}
 	
-	config := DefaultMonitoringConfig()
+	// Set up test cleanup
+	cleanup := NewTestCleanup(t)
+	
+	config := NewTestSafeMonitoringConfig()
 	config.LogLevel = zapcore.DebugLevel
 	config.MetricsInterval = 1 * time.Second
 	config.HealthCheckInterval = 1 * time.Second
@@ -25,7 +29,7 @@ func TestMonitoringSystemBasic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create monitoring system: %v", err)
 	}
-	defer monitoringSystem.Shutdown(context.Background())
+	cleanup.SetMonitoring(monitoringSystem)
 
 	// Test basic functionality
 	if monitoringSystem.Logger() == nil {
@@ -87,12 +91,29 @@ func TestAlertNotifiers(t *testing.T) {
 	cleanup := NewTestCleanup(t)
 	
 	// Test log notifier
-	// Create a simple zap logger for testing
-	zapLogger, _ := zap.NewDevelopment()
-	cleanup.AddCleanup(func() {
-		// Sync logger during cleanup
-		zapLogger.Sync()
-	})
+	// Create a test-safe logger that writes to a buffer instead of stdout
+	var logBuffer bytes.Buffer
+	core := zapcore.NewCore(
+		zapcore.NewJSONEncoder(zapcore.EncoderConfig{
+			TimeKey:        "timestamp",
+			LevelKey:       "level",
+			NameKey:        "logger",
+			CallerKey:      "caller",
+			MessageKey:     "message",
+			StacktraceKey:  "stacktrace",
+			LineEnding:     zapcore.DefaultLineEnding,
+			EncodeLevel:    zapcore.LowercaseLevelEncoder,
+			EncodeTime:     zapcore.ISO8601TimeEncoder,
+			EncodeDuration: zapcore.SecondsDurationEncoder,
+			EncodeCaller:   zapcore.ShortCallerEncoder,
+		}),
+		zapcore.AddSync(&logBuffer),
+		zapcore.DebugLevel,
+	)
+	zapLogger := zap.New(core)
+	
+	// Register logger for proper cleanup
+	cleanup.AddLogger(zapLogger)
 	logNotifier := NewLogAlertNotifier(zapLogger)
 
 	alert := Alert{
@@ -155,7 +176,7 @@ func TestHealthChecks(t *testing.T) {
 }
 
 func TestConfigurationValidation(t *testing.T) {
-	config := DefaultMonitoringConfig()
+	config := NewTestSafeMonitoringConfig()
 
 	if err := config.Validate(); err != nil {
 		t.Errorf("Default config should be valid: %v", err)
@@ -188,7 +209,7 @@ func TestConfigurationValidation(t *testing.T) {
 
 	for _, tc := range invalidConfigs {
 		t.Run(tc.name, func(t *testing.T) {
-			config := DefaultMonitoringConfig()
+			config := NewTestSafeMonitoringConfig()
 			tc.modifier(&config)
 
 			if err := config.Validate(); err == nil {
@@ -199,15 +220,20 @@ func TestConfigurationValidation(t *testing.T) {
 }
 
 func TestMetricsRecording(t *testing.T) {
-	config := DefaultMonitoringConfig()
+	// Set up test cleanup
+	cleanup := NewTestCleanup(t)
+	
+	config := NewTestSafeMonitoringConfig()
 	config.MetricsInterval = 10 * time.Second
-	config.ResourceSampleInterval = 30 * time.Second
+	config.ResourceSampleInterval = 10 * time.Millisecond // Fast for testing
+	// Enable resource monitoring for this specific test since it tests memory metrics
+	config.EnableResourceMonitoring = true
 
 	monitoringSystem, err := NewMonitoringSystem(config)
 	if err != nil {
 		t.Fatalf("Failed to create monitoring system: %v", err)
 	}
-	defer monitoringSystem.Shutdown(context.Background())
+	cleanup.SetMonitoring(monitoringSystem)
 
 	// Record various operations
 	operations := []struct {
@@ -260,13 +286,14 @@ func TestMetricsRecording(t *testing.T) {
 }
 
 func BenchmarkMetricsRecording(b *testing.B) {
-	config := DefaultMonitoringConfig()
+	config := NewTestSafeMonitoringConfig()
 	config.EnableResourceMonitoring = false // Disable to reduce overhead
 
 	monitoringSystem, err := NewMonitoringSystem(config)
 	if err != nil {
 		b.Fatalf("Failed to create monitoring system: %v", err)
 	}
+	// Note: Can't use TestCleanup in benchmarks, so using defer for benchmark
 	defer monitoringSystem.Shutdown(context.Background())
 
 	b.ResetTimer()
@@ -293,7 +320,7 @@ func TestMonitoringSystemGracefulShutdown(t *testing.T) {
 	// Set up test cleanup
 	cleanup := NewTestCleanup(t)
 	
-	config := DefaultMonitoringConfig()
+	config := NewTestSafeMonitoringConfig()
 	config.ResourceSampleInterval = 30 * time.Second
 	config.HealthCheckInterval = 10 * time.Second
 	config.MetricsInterval = 10 * time.Second
@@ -356,7 +383,7 @@ func TestMonitoringSystemResourceLeak(t *testing.T) {
 
 	// Run multiple iterations to detect leaks
 	for i := 0; i < 3; i++ {
-		config := DefaultMonitoringConfig()
+		config := NewTestSafeMonitoringConfig()
 		config.ResourceSampleInterval = 30 * time.Second
 		config.HealthCheckInterval = 10 * time.Second
 		config.MetricsInterval = 10 * time.Second
@@ -394,7 +421,7 @@ func TestMonitoringSystemResourceLeak(t *testing.T) {
 
 // TestHealthCheckCancellation verifies health checks respect context cancellation
 func TestHealthCheckCancellation(t *testing.T) {
-	config := DefaultMonitoringConfig()
+	config := NewTestSafeMonitoringConfig()
 	config.HealthCheckInterval = 10 * time.Second
 
 	ms, err := NewMonitoringSystem(config)

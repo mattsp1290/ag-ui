@@ -18,7 +18,7 @@ func TestExampleWithProperCleanup(t *testing.T) {
 	cleanup := NewTestCleanup(t)
 	
 	// Create monitoring system
-	monitoringConfig := DefaultMonitoringConfig()
+	monitoringConfig := NewTestSafeMonitoringConfig()
 	monitoringConfig.EnableHealthChecks = true
 	monitoringConfig.HealthCheckInterval = 5 * time.Second
 	

@@ -46,7 +46,6 @@ Multiple notification channels for alerts:
 - **WebhookAlertNotifier**: Sends alerts to HTTP webhooks
 - **SlackAlertNotifier**: Integration with Slack channels
 - **EmailAlertNotifier**: Email notifications (placeholder)
-- **PagerDutyAlertNotifier**: PagerDuty integration
 - **FileAlertNotifier**: Write alerts to files
 - **CompositeAlertNotifier**: Send to multiple notifiers
 - **ConditionalAlertNotifier**: Conditional alert routing

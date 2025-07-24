@@ -2,6 +2,7 @@ package testhelper
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
@@ -281,18 +282,69 @@ func NewTimeoutGuard(t *testing.T, timeout time.Duration) *TimeoutGuard {
 func (tg *TimeoutGuard) Run(name string, fn func() error) error {
 	tg.t.Helper()
 
+	// Create a context with timeout for proper cancellation
+	ctx, cancel := context.WithTimeout(context.Background(), tg.timeout)
+	defer cancel()
+
 	done := make(chan error, 1)
 
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- fmt.Errorf("panic in operation %s: %v", name, r)
+			}
+		}()
 		done <- fn()
 	}()
 
 	select {
 	case err := <-done:
 		return err
-	case <-time.After(tg.timeout):
-		tg.t.Errorf("Operation %s timed out after %v", name, tg.timeout)
-		return context.DeadlineExceeded
+	case <-ctx.Done():
+		// Wait a brief moment to allow goroutine to complete
+		select {
+		case err := <-done:
+			return err
+		case <-time.After(10 * time.Millisecond):
+			// Goroutine didn't complete in time, report timeout
+			tg.t.Errorf("Operation %s timed out after %v", name, tg.timeout)
+			return context.DeadlineExceeded
+		}
+	}
+}
+
+// RunWithContext executes a function with timeout protection and context cancellation
+func (tg *TimeoutGuard) RunWithContext(name string, fn func(ctx context.Context) error) error {
+	tg.t.Helper()
+
+	// Create a context with timeout for proper cancellation
+	ctx, cancel := context.WithTimeout(context.Background(), tg.timeout)
+	defer cancel()
+
+	done := make(chan error, 1)
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- fmt.Errorf("panic in operation %s: %v", name, r)
+			}
+		}()
+		done <- fn(ctx)
+	}()
+
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		// Wait a brief moment to allow goroutine to complete
+		select {
+		case err := <-done:
+			return err
+		case <-time.After(10 * time.Millisecond):
+			// Goroutine didn't complete in time, report timeout
+			tg.t.Errorf("Operation %s timed out after %v", name, tg.timeout)
+			return context.DeadlineExceeded
+		}
 	}
 }
 

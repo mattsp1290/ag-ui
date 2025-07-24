@@ -349,7 +349,7 @@ func testModuleIndependence(t *testing.T) {
 	ctx := context.Background()
 	creds := &auth.BasicCredentials{
 		Username: "testuser",
-		Password: "testpass",
+		Password: "TestPass123!",
 	}
 	
 	// Add a test user
@@ -361,7 +361,7 @@ func testModuleIndependence(t *testing.T) {
 		Active:       true,
 	}
 	authProvider.AddUser(user)
-	authProvider.SetUserPassword("testuser", "testpass")
+	authProvider.SetUserPassword("testuser", "TestPass123!")
 	
 	// Auth should work independently
 	authCtx, err := authProvider.Authenticate(ctx, creds)

@@ -485,7 +485,7 @@ func TestCircuitBreaker_ContextCancellation(t *testing.T) {
 	
 	start := time.Now()
 	err := cb.Execute(ctx, func() error {
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(100 * time.Millisecond) // Longer than context timeout
 		return nil
 	})
 	

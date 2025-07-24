@@ -293,18 +293,28 @@ func LogAuthenticationHook() PreValidationHook {
 
 // RateLimitHook implements rate limiting based on authentication
 func RateLimitHook(limits map[string]int) PreValidationHook {
-	userCounts := make(map[string]int)
-	resetTime := time.Now().Add(time.Minute)
-	mutex := &sync.Mutex{}
+	type rateLimitState struct {
+		userCounts map[string]int
+		resetTime  time.Time
+		mutex      sync.Mutex
+	}
+	
+	state := &rateLimitState{
+		userCounts: make(map[string]int),
+		resetTime:  time.Now().Add(time.Minute),
+	}
 	
 	return func(ctx context.Context, event events.Event, authCtx *AuthContext) error {
-		mutex.Lock()
-		defer mutex.Unlock()
+		state.mutex.Lock()
+		defer state.mutex.Unlock()
 		
 		// Reset counts every minute
-		if time.Now().After(resetTime) {
-			userCounts = make(map[string]int)
-			resetTime = time.Now().Add(time.Minute)
+		if time.Now().After(state.resetTime) {
+			// Clear the map instead of reassigning to prevent race conditions
+			for k := range state.userCounts {
+				delete(state.userCounts, k)
+			}
+			state.resetTime = time.Now().Add(time.Minute)
 		}
 		
 		userID := "anonymous"
@@ -322,8 +332,8 @@ func RateLimitHook(limits map[string]int) PreValidationHook {
 			}
 		}
 		
-		userCounts[userID]++
-		if userCounts[userID] > limit {
+		state.userCounts[userID]++
+		if state.userCounts[userID] > limit {
 			return fmt.Errorf("rate limit exceeded: %d requests per minute", limit)
 		}
 		

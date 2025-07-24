@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/http/httptest"
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
@@ -14,12 +15,19 @@ import (
 
 // Example_basicUsage demonstrates basic SSE transport usage
 func Example_basicUsage() {
-	// Create a new SSE transport with default configuration
-	timeouts := testhelper.GlobalTimeouts
+	// Create a mock server for testing
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, `{"status":"success"}`)
+	}))
+	defer server.Close()
+
+	// Create a new SSE transport with mock server URL
 	config := &Config{
-		BaseURL:     "http://localhost:8080",
-		BufferSize:  100,
-		ReadTimeout: timeouts.Network, // Reduced from 30s
+		BaseURL:      server.URL,
+		BufferSize:   100,
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 10 * time.Second,
 	}
 
 	transport, err := NewSSETransport(config)
@@ -106,7 +114,26 @@ func Example_receiveEvents() {
 
 // Example_customHeaders demonstrates setting custom headers
 func Example_customHeaders() {
-	transport, err := NewSSETransport(nil)
+	// Create a mock server that validates headers
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Check for custom headers
+		if r.Header.Get("Authorization") == "Bearer your-token-here" &&
+			r.Header.Get("X-Client-Version") == "1.0.0" &&
+			r.Header.Get("X-Request-ID") == "req-12345" {
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, `{"status":"success"}`)
+		} else {
+			w.WriteHeader(http.StatusBadRequest)
+		}
+	}))
+	defer server.Close()
+
+	// Create transport with mock server URL
+	config := &Config{
+		BaseURL:      server.URL,
+		WriteTimeout: 10 * time.Second,
+	}
+	transport, err := NewSSETransport(config)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -135,7 +162,23 @@ func Example_customHeaders() {
 
 // Example_batchSending demonstrates sending multiple events at once
 func Example_batchSending() {
-	transport, err := NewSSETransport(nil)
+	// Create a mock server for batch endpoint
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/events/batch" {
+			w.WriteHeader(http.StatusOK)
+			fmt.Fprintf(w, `{"status":"success","processed":7}`)
+		} else {
+			w.WriteHeader(http.StatusNotFound)
+		}
+	}))
+	defer server.Close()
+
+	// Create transport with mock server URL
+	config := &Config{
+		BaseURL:      server.URL,
+		WriteTimeout: 10 * time.Second,
+	}
+	transport, err := NewSSETransport(config)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -180,11 +223,13 @@ func Example_connectionManagement() {
 	// Check initial connection status
 	fmt.Printf("Initial status: %s\n", transport.GetConnectionStatus())
 
-	// Test connectivity
-	ctx := context.Background()
+	// Test connectivity (note: this will fail since no server is running)
+	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer cancel()
 	err = transport.Ping(ctx)
 	if err != nil {
-		log.Printf("Ping failed: %v", err)
+		// Expected to fail in example without real server
+		fmt.Println("Ping failed as expected (no server running)")
 	} else {
 		fmt.Println("Ping successful")
 	}
@@ -203,7 +248,8 @@ func Example_connectionManagement() {
 
 	// Output:
 	// Initial status: disconnected
-	// Transport stats: SSETransport{status=disconnected, reconnects=0, baseURL=http://localhost:8080, bufferSize=1000}
+	// Ping failed as expected (no server running)
+	// Transport stats: SSETransport{status=disconnected, reconnects=0, baseURL=http://localhost:8080, bufferSize=5000}
 	// Transport reset successfully
 }
 
@@ -239,7 +285,7 @@ func Example_errorHandling() {
 	}
 
 	// Output:
-	// Expected validation error: validation error: RunStartedEvent validation failed: threadId field is required
+	// Expected validation error: validation error: event validation failed: RunStartedEvent validation failed: threadId field is required
 	// Expected nil event error: validation error: event cannot be nil
 	// Expected closed transport error: streaming error for event transport at index 0: transport is closed
 }

@@ -13,6 +13,7 @@ type SecurityMetrics struct {
 	xssDetections           map[events.EventType]int64
 	sqlInjectionDetections  map[events.EventType]int64
 	commandInjectionDetections map[events.EventType]int64
+	pathTraversalDetections    map[events.EventType]int64
 	rateLimitExceeded       map[events.EventType]int64
 	anomalyDetections       map[events.EventType]int64
 	encryptionFailures      map[events.EventType]int64
@@ -44,6 +45,7 @@ func NewSecurityMetrics() *SecurityMetrics {
 		xssDetections:             make(map[events.EventType]int64),
 		sqlInjectionDetections:    make(map[events.EventType]int64),
 		commandInjectionDetections: make(map[events.EventType]int64),
+		pathTraversalDetections:    make(map[events.EventType]int64),
 		rateLimitExceeded:         make(map[events.EventType]int64),
 		anomalyDetections:         make(map[events.EventType]int64),
 		encryptionFailures:        make(map[events.EventType]int64),
@@ -79,6 +81,15 @@ func (m *SecurityMetrics) RecordCommandInjectionDetection(eventType events.Event
 	defer m.mutex.Unlock()
 	
 	m.commandInjectionDetections[eventType]++
+	m.recordHourlyDetection()
+}
+
+// RecordPathTraversalDetection records a path traversal detection
+func (m *SecurityMetrics) RecordPathTraversalDetection(eventType events.EventType) {
+	m.mutex.Lock()
+	defer m.mutex.Unlock()
+	
+	m.pathTraversalDetections[eventType]++
 	m.recordHourlyDetection()
 }
 

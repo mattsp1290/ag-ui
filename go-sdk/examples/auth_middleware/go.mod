@@ -7,7 +7,7 @@ replace github.com/ag-ui/go-sdk => ../..
 require github.com/ag-ui/go-sdk v0.0.0-00010101000000-000000000000
 
 require (
-	github.com/go-logr/logr v1.4.2 // indirect
+	github.com/go-logr/logr v1.4.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect

@@ -7,6 +7,9 @@ import (
 
 // TestPerformanceComparison compares the old O(n²) approach with the new O(n) approach
 func TestPerformanceComparison(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping performance comparison test in short mode - use benchmarks instead")
+	}
 	sizes := []int{100, 500, 1000, 5000}
 
 	for _, size := range sizes {

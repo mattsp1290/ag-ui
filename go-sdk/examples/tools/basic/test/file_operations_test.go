@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ type MockFileOperationsExecutor struct {
 	// Mock file system for testing
 	files map[string][]byte
 	directories map[string]bool
+	mu sync.RWMutex // Protects files and directories maps
 }
 
 func NewMockFileOperationsExecutor() *MockFileOperationsExecutor {
@@ -93,7 +95,9 @@ func (f *MockFileOperationsExecutor) validatePath(path string) error {
 }
 
 func (f *MockFileOperationsExecutor) readFile(ctx context.Context, filePath string, params map[string]interface{}) (*tools.ToolExecutionResult, error) {
+	f.mu.RLock()
 	data, exists := f.files[filePath]
+	f.mu.RUnlock()
 	if !exists {
 		return &tools.ToolExecutionResult{
 			Success: false,
@@ -170,11 +174,15 @@ func (f *MockFileOperationsExecutor) writeFile(ctx context.Context, filePath str
 
 	if backup && f.fileExists(filePath) {
 		backupPath := filePath + ".backup"
+		f.mu.Lock()
 		f.files[backupPath] = f.files[filePath]
+		f.mu.Unlock()
 	}
 
 	// Write file
+	f.mu.Lock()
 	f.files[filePath] = []byte(content)
+	f.mu.Unlock()
 
 	result := map[string]interface{}{
 		"bytes_written": len(content),
@@ -272,7 +280,9 @@ func (f *MockFileOperationsExecutor) copyFile(ctx context.Context, sourcePath st
 		}, nil
 	}
 
+	f.mu.RLock()
 	data, exists := f.files[sourcePath]
+	f.mu.RUnlock()
 	if !exists {
 		return &tools.ToolExecutionResult{
 			Success: false,
@@ -294,8 +304,10 @@ func (f *MockFileOperationsExecutor) copyFile(ctx context.Context, sourcePath st
 	}
 
 	// Copy file
+	f.mu.Lock()
 	f.files[destPath] = make([]byte, len(data))
 	copy(f.files[destPath], data)
+	f.mu.Unlock()
 
 	result := map[string]interface{}{
 		"source":      sourcePath,
@@ -331,14 +343,20 @@ func (f *MockFileOperationsExecutor) deleteFile(ctx context.Context, filePath st
 		backup = b
 	}
 
+	f.mu.RLock()
 	size := len(f.files[filePath])
+	f.mu.RUnlock()
 
 	if backup {
 		backupPath := filePath + ".deleted"
+		f.mu.Lock()
 		f.files[backupPath] = f.files[filePath]
+		f.mu.Unlock()
 	}
 
+	f.mu.Lock()
 	delete(f.files, filePath)
+	f.mu.Unlock()
 
 	result := map[string]interface{}{
 		"path":           filePath,
@@ -367,7 +385,9 @@ func (f *MockFileOperationsExecutor) statFile(ctx context.Context, filePath stri
 		}, nil
 	}
 
+	f.mu.RLock()
 	data := f.files[filePath]
+	f.mu.RUnlock()
 	result := map[string]interface{}{
 		"path":     filePath,
 		"size":     len(data),
@@ -393,7 +413,10 @@ func (f *MockFileOperationsExecutor) statFile(ctx context.Context, filePath stri
 }
 
 func (f *MockFileOperationsExecutor) createDirectory(ctx context.Context, dirPath string, params map[string]interface{}) (*tools.ToolExecutionResult, error) {
-	if f.directories[dirPath] {
+	f.mu.RLock()
+	exists := f.directories[dirPath]
+	f.mu.RUnlock()
+	if exists {
 		return &tools.ToolExecutionResult{
 			Success: false,
 			Error:   "directory already exists",
@@ -406,6 +429,7 @@ func (f *MockFileOperationsExecutor) createDirectory(ctx context.Context, dirPat
 		recursive = r
 	}
 
+	f.mu.Lock()
 	if recursive {
 		parent := filepath.Dir(dirPath)
 		if parent != "." && !f.directories[parent] {
@@ -414,6 +438,7 @@ func (f *MockFileOperationsExecutor) createDirectory(ctx context.Context, dirPat
 	}
 
 	f.directories[dirPath] = true
+	f.mu.Unlock()
 
 	result := map[string]interface{}{
 		"path":      dirPath,

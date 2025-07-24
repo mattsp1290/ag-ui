@@ -639,6 +639,15 @@ func (ms *MonitoringSystem) RecordEventProcessed(eventType string, duration time
 	// Update performance tracking
 	ms.recordLatency("event_processing", duration)
 
+	// Update event tracker error count
+	if err != nil {
+		ms.eventTracker.mu.Lock()
+		if stats, exists := ms.eventTracker.eventStats[eventType]; exists {
+			atomic.AddInt64(&stats.ErrorCount, 1)
+		}
+		ms.eventTracker.mu.Unlock()
+	}
+
 	// Log if slow or error
 	if duration > 100*time.Millisecond || err != nil {
 		fields := []zap.Field{
@@ -1287,7 +1296,13 @@ func (ms *MonitoringSystem) sendAlert(alert Alert) {
 			defer cancel()
 			
 			if err := n.SendAlert(ctx, alert); err != nil {
-				ms.logger.Error("Failed to send alert", zap.Error(err))
+				// Only log errors if not shutting down
+				select {
+				case <-ms.ctx.Done():
+					// Ignore errors during shutdown
+				default:
+					ms.logger.Error("Failed to send alert", zap.Error(err))
+				}
 			}
 		}(notifier)
 	}

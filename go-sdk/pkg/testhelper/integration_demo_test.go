@@ -1,6 +1,7 @@
 package testhelper
 
 import (
+	"context"
 	"sync"
 	"testing"
 	"time"
@@ -18,7 +19,7 @@ func TestBasicGoroutineLeakDetection(t *testing.T) {
 	}()
 
 	close(done)
-	time.Sleep(10 * time.Millisecond) // Allow goroutine to exit
+	time.Sleep(1 * time.Millisecond) // Allow goroutine to exit
 }
 
 // TestChannelCleanupDemo demonstrates channel cleanup
@@ -65,7 +66,7 @@ func TestWaitGroupTimeoutDemo(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			time.Sleep(10 * time.Millisecond)
+			time.Sleep(1 * time.Millisecond)
 			t.Logf("Worker %d completed", id)
 		}(i)
 	}
@@ -159,11 +160,11 @@ func TestContextManagerDemo(t *testing.T) {
 func TestTimeoutGuardDemo(t *testing.T) {
 	defer VerifyNoGoroutineLeaks(t)
 
-	guard := NewTimeoutGuard(t, 500*time.Millisecond)
+	guard := NewTimeoutGuard(t, 50*time.Millisecond)
 
 	// Fast operation should succeed
 	err := guard.Run("fast-operation", func() error {
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 		return nil
 	})
 
@@ -171,10 +172,14 @@ func TestTimeoutGuardDemo(t *testing.T) {
 		t.Errorf("Fast operation should succeed: %v", err)
 	}
 
-	// Slow operation should timeout
-	err = guard.Run("slow-operation", func() error {
-		time.Sleep(1 * time.Second)
-		return nil
+	// Slow operation should timeout - use context-aware version
+	err = guard.RunWithContext("slow-operation", func(ctx context.Context) error {
+		select {
+		case <-time.After(200 * time.Millisecond):
+			return nil
+		case <-ctx.Done():
+			return ctx.Err()
+		}
 	})
 
 	if err == nil {
@@ -196,14 +201,12 @@ func TestResourceTrackerDemo(t *testing.T) {
 	rt.Allocated("worker-1")
 
 	// Simulate using resources
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(5 * time.Millisecond)
 
-	// Clean up most resources
+	// Clean up all resources
 	rt.Cleaned("connection-1")
 	rt.Cleaned("buffer-1")
-
-	// worker-1 is intentionally not cleaned to demonstrate leak detection
-	// The report will show this at test end
+	rt.Cleaned("worker-1")
 
 	t.Log("Resource tracking demo completed")
 }
@@ -237,7 +240,7 @@ func TestComprehensiveDemo(t *testing.T) {
 				select {
 				case work := <-workCh:
 					// Simulate work
-					time.Sleep(10 * time.Millisecond)
+					time.Sleep(1 * time.Millisecond)
 					t.Logf("Worker %d processed: %d", id, work)
 				case <-doneCh:
 					t.Logf("Worker %d stopping", id)

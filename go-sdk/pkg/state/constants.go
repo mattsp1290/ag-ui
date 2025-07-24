@@ -1,6 +1,10 @@
 package state
 
-import "time"
+import (
+	"time"
+	
+	"github.com/ag-ui/go-sdk/pkg/internal/timeconfig"
+)
 
 // Default configuration constants for state management
 const (
@@ -20,21 +24,7 @@ const (
 	DefaultBatchSize    = 100  // Default batch size for processing operations
 	DefaultMaxBatchSize = 1000 // Maximum allowed batch size
 
-	// Timeouts and Intervals
-	DefaultRetryDelay              = 100 * time.Millisecond // Default retry delay
-	DefaultEventRetryBackoff       = time.Second            // Event processing retry backoff
-	DefaultBatchTimeout            = 100 * time.Millisecond // Batch processing timeout
-	DefaultPerformanceBatchTimeout = 10 * time.Millisecond  // Performance optimizer batch timeout
-	DefaultMetricsInterval         = 30 * time.Second       // Metrics collection interval
-	DefaultCheckpointInterval      = 5 * time.Minute        // Automatic checkpoint creation interval
-	DefaultContextTTL              = 1 * time.Hour          // Default context time-to-live
-	DefaultCleanupInterval         = 15 * time.Minute       // Context cleanup interval
-	DefaultSubscriptionTTL         = 1 * time.Hour          // Subscription time-to-live
-	DefaultSubscriptionCleanup     = 10 * time.Minute       // Subscription cleanup interval
-	DefaultShutdownTimeout         = 30 * time.Second       // Manager shutdown timeout
-	DefaultUpdateTimeout           = 30 * time.Second       // Default update operation timeout
-	DefaultShutdownGracePeriod     = 10 * time.Millisecond  // Grace period for shutdown
-	DefaultCacheTTL                = 5 * time.Minute        // Default cache time-to-live
+	// Timeouts and Intervals - Now configurable based on test/production mode
 
 	// Worker and Concurrency Settings
 	DefaultProcessingWorkers = 4  // Default number of processing workers
@@ -141,13 +131,11 @@ const (
 	SnapshotKeyPrefix = "snapshot:"
 
 	// Storage Limits
-	DefaultStorageTimeout = 5 * time.Second // Storage operation timeout
-	DefaultStorageRetries = 3               // Storage operation retries
-	DefaultStorageMaxKeys = 1000000         // Maximum storage keys
+	DefaultStorageRetries = 3       // Storage operation retries
+	DefaultStorageMaxKeys = 1000000 // Maximum storage keys
 
 	// Transaction Settings
-	DefaultTransactionTimeout = 30 * time.Second // Transaction timeout
-	DefaultMaxTransactionOps  = 1000             // Maximum operations per transaction
+	DefaultMaxTransactionOps = 1000 // Maximum operations per transaction
 )
 
 // Performance Optimizer Constants
@@ -209,11 +197,227 @@ const (
 // Development and Testing Constants
 const (
 	// Test Settings
-	DefaultTestTimeout = 30 * time.Second      // Test operation timeout
-	DefaultTestRetries = 3                     // Test retry attempts
-	DefaultMockLatency = 10 * time.Millisecond // Mock operation latency
+	DefaultTestRetries = 3 // Test retry attempts
 
 	// Debug Settings
 	DefaultDebugSampleRate = 1.0  // 100% debug sampling in dev mode
 	DefaultVerboseLogging  = true // Enable verbose logging in development
 )
+
+// Configurable timeout functions - use these instead of constants for time-based values
+// These automatically adapt to test/production environments
+
+// GetDefaultRetryDelay returns the configured retry delay
+func GetDefaultRetryDelay() time.Duration {
+	return timeconfig.GetConfig().DefaultRetryDelay
+}
+
+// GetDefaultEventRetryBackoff returns the configured event retry backoff
+func GetDefaultEventRetryBackoff() time.Duration {
+	return timeconfig.GetConfig().DefaultEventRetryBackoff
+}
+
+// GetDefaultBatchTimeout returns the configured batch timeout
+func GetDefaultBatchTimeout() time.Duration {
+	return timeconfig.GetConfig().DefaultBatchTimeout
+}
+
+// GetDefaultPerformanceBatchTimeout returns the configured performance batch timeout
+func GetDefaultPerformanceBatchTimeout() time.Duration {
+	return timeconfig.GetConfig().DefaultPerformanceBatchTimeout
+}
+
+// GetDefaultMetricsInterval returns the configured metrics interval
+func GetDefaultMetricsInterval() time.Duration {
+	return timeconfig.GetConfig().DefaultMetricsInterval
+}
+
+// GetDefaultCheckpointInterval returns the configured checkpoint interval
+func GetDefaultCheckpointInterval() time.Duration {
+	return timeconfig.GetConfig().DefaultCheckpointInterval
+}
+
+// GetDefaultContextTTL returns the configured context TTL
+func GetDefaultContextTTL() time.Duration {
+	return timeconfig.GetConfig().DefaultContextTTL
+}
+
+// GetDefaultCleanupInterval returns the configured cleanup interval
+func GetDefaultCleanupInterval() time.Duration {
+	return timeconfig.GetConfig().DefaultCleanupInterval
+}
+
+// GetDefaultSubscriptionTTL returns the configured subscription TTL
+func GetDefaultSubscriptionTTL() time.Duration {
+	return timeconfig.GetConfig().DefaultSubscriptionTTL
+}
+
+// GetDefaultSubscriptionCleanup returns the configured subscription cleanup interval
+func GetDefaultSubscriptionCleanup() time.Duration {
+	return timeconfig.GetConfig().DefaultSubscriptionCleanup
+}
+
+// GetDefaultShutdownTimeout returns the configured shutdown timeout
+func GetDefaultShutdownTimeout() time.Duration {
+	return timeconfig.GetConfig().DefaultShutdownTimeout
+}
+
+// GetDefaultUpdateTimeout returns the configured update timeout
+func GetDefaultUpdateTimeout() time.Duration {
+	return timeconfig.GetConfig().DefaultUpdateTimeout
+}
+
+// GetDefaultShutdownGracePeriod returns the configured shutdown grace period
+func GetDefaultShutdownGracePeriod() time.Duration {
+	return timeconfig.GetConfig().DefaultShutdownGracePeriod
+}
+
+// GetDefaultCacheTTL returns the configured cache TTL
+func GetDefaultCacheTTL() time.Duration {
+	return timeconfig.GetConfig().DefaultCacheTTL
+}
+
+// GetDefaultStorageTimeout returns the configured storage timeout
+func GetDefaultStorageTimeout() time.Duration {
+	return timeconfig.GetConfig().DefaultStorageTimeout
+}
+
+// GetDefaultTransactionTimeout returns the configured transaction timeout
+func GetDefaultTransactionTimeout() time.Duration {
+	return timeconfig.GetConfig().DefaultUpdateTimeout // Reuse update timeout for transactions
+}
+
+// GetDefaultTestTimeout returns the configured test timeout
+func GetDefaultTestTimeout() time.Duration {
+	return timeconfig.GetConfig().DefaultTestTimeout
+}
+
+// GetDefaultMockLatency returns the configured mock latency
+func GetDefaultMockLatency() time.Duration {
+	return timeconfig.GetConfig().DefaultMockLatency
+}
+
+// GetDefaultHealthCheckInterval returns the configured health check interval
+func GetDefaultHealthCheckInterval() time.Duration {
+	return timeconfig.GetConfig().DefaultHealthCheckInterval
+}
+
+// GetDefaultHealthCheckTimeout returns the configured health check timeout
+func GetDefaultHealthCheckTimeout() time.Duration {
+	return timeconfig.GetConfig().DefaultHealthCheckTimeout
+}
+
+// GetDefaultValidationTimeout returns the configured validation timeout
+func GetDefaultValidationTimeout() time.Duration {
+	return timeconfig.GetConfig().DefaultValidationTimeout
+}
+
+// GetDefaultSecurityCheckTimeout returns the configured security check timeout
+func GetDefaultSecurityCheckTimeout() time.Duration {
+	return timeconfig.GetConfig().DefaultSecurityCheckTimeout
+}
+
+// GetDefaultAuditWriteTimeout returns the configured audit write timeout
+func GetDefaultAuditWriteTimeout() time.Duration {
+	return timeconfig.GetConfig().DefaultAuditWriteTimeout
+}
+
+// GetDefaultCryptoOperationTimeout returns the configured crypto operation timeout
+func GetDefaultCryptoOperationTimeout() time.Duration {
+	return timeconfig.GetConfig().DefaultCryptoOperationTimeout
+}
+
+// GetDefaultIOTimeout returns the configured I/O timeout
+func GetDefaultIOTimeout() time.Duration {
+	return timeconfig.GetConfig().DefaultIOTimeout
+}
+
+// GetDefaultTCPKeepAlive returns the configured TCP keep-alive interval
+func GetDefaultTCPKeepAlive() time.Duration {
+	return timeconfig.GetConfig().DefaultTCPKeepAlive
+}
+
+// GetDefaultIdleConnectionTimeout returns the configured idle connection timeout
+func GetDefaultIdleConnectionTimeout() time.Duration {
+	return timeconfig.GetConfig().DefaultIdleConnectionTimeout
+}
+
+// GetDefaultCleanupWorkerInterval returns the configured cleanup worker interval
+func GetDefaultCleanupWorkerInterval() time.Duration {
+	return timeconfig.GetConfig().DefaultCleanupWorkerInterval
+}
+
+// GetDefaultExpiredCleanupInterval returns the configured expired cleanup interval
+func GetDefaultExpiredCleanupInterval() time.Duration {
+	return timeconfig.GetConfig().DefaultExpiredCleanupInterval
+}
+
+// GetDefaultMaintenanceInterval returns the configured maintenance interval
+func GetDefaultMaintenanceInterval() time.Duration {
+	return timeconfig.GetConfig().DefaultMaintenanceInterval
+}
+
+// GetDefaultErrorCountWindow returns the configured error count window
+func GetDefaultErrorCountWindow() time.Duration {
+	return timeconfig.GetConfig().DefaultErrorCountWindow
+}
+
+// GetDefaultErrorResetInterval returns the configured error reset interval
+func GetDefaultErrorResetInterval() time.Duration {
+	return timeconfig.GetConfig().DefaultErrorResetInterval
+}
+
+// GetDefaultAlertCooldown returns the configured alert cooldown
+func GetDefaultAlertCooldown() time.Duration {
+	return timeconfig.GetConfig().DefaultAlertCooldown
+}
+
+// GetDefaultDuplicateAlertWindow returns the configured duplicate alert window
+func GetDefaultDuplicateAlertWindow() time.Duration {
+	return timeconfig.GetConfig().DefaultDuplicateAlertWindow
+}
+
+// GetDefaultGCMonitoringInterval returns the configured GC monitoring interval
+func GetDefaultGCMonitoringInterval() time.Duration {
+	return timeconfig.GetConfig().DefaultGCMonitoringInterval
+}
+
+// GetDefaultResourceSampleInterval returns the configured resource sample interval
+func GetDefaultResourceSampleInterval() time.Duration {
+	return timeconfig.GetConfig().DefaultResourceSampleInterval
+}
+
+// GetDefaultMemoryMonitoringInterval returns the configured memory monitoring interval
+func GetDefaultMemoryMonitoringInterval() time.Duration {
+	return timeconfig.GetConfig().DefaultMemoryMonitoringInterval
+}
+
+// GetDefaultPerformanceMetricsInterval returns the configured performance metrics interval
+func GetDefaultPerformanceMetricsInterval() time.Duration {
+	return timeconfig.GetConfig().DefaultPerformanceMetricsInterval
+}
+
+// GetDefaultMetricsRetention returns the configured metrics retention
+func GetDefaultMetricsRetention() time.Duration {
+	return timeconfig.GetConfig().DefaultMetricsRetention
+}
+
+// GetDefaultAuditLogRetention returns the configured audit log retention
+func GetDefaultAuditLogRetention() time.Duration {
+	return timeconfig.GetConfig().DefaultAuditLogRetention
+}
+
+// GetDefaultTraceRetention returns the configured trace retention
+func GetDefaultTraceRetention() time.Duration {
+	return timeconfig.GetConfig().DefaultTraceRetention
+}
+
+// GetDefaultCPUProfileInterval returns the configured CPU profile interval
+func GetDefaultCPUProfileInterval() time.Duration {
+	return timeconfig.GetConfig().DefaultCPUProfileInterval
+}
+
+// GetDefaultMemoryProfileInterval returns the configured memory profile interval
+func GetDefaultMemoryProfileInterval() time.Duration {
+	return timeconfig.GetConfig().DefaultMemoryProfileInterval
+}

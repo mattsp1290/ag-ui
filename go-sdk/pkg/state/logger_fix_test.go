@@ -38,7 +38,8 @@ var (
 
 // TestMain runs before all tests and ensures proper cleanup
 func TestMain(m *testing.M) {
-	// Use the new test wrapper that properly filters output
+	// Simple approach: just redirect stdout/stderr to devnull during cleanup phase
+	// Use the test wrapper
 	code := SetupTestMain(m)
 	
 	// Exit with the test result code

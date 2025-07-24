@@ -106,12 +106,12 @@ const (
 // DefaultBackpressureConfig returns default backpressure configuration
 func DefaultBackpressureConfig() *BackpressureConfig {
 	return &BackpressureConfig{
-		ErrorChannelBuffer:           50,
-		EventChannelBuffer:           1000,
-		MaxDroppedEvents:             100,
+		ErrorChannelBuffer:           200,   // Increased error buffer
+		EventChannelBuffer:           5000,  // Much larger event buffer for high throughput
+		MaxDroppedEvents:             1000,  // Higher tolerance for dropped events
 		DropActionType:               DropActionReconnect,
 		EnableBackpressureLogging:    true,
-		BackpressureThresholdPercent: 80,
+		BackpressureThresholdPercent: 90,    // Higher threshold for backpressure activation
 	}
 }
 
@@ -133,15 +133,19 @@ func DefaultConfig() *Config {
 	return &Config{
 		BaseURL:            "http://localhost:8080",
 		Headers:            make(map[string]string),
-		BufferSize:         1000,
-		ReadTimeout:        30 * time.Second,
-		WriteTimeout:       10 * time.Second,
-		ReconnectDelay:     5 * time.Second,
+		BufferSize:         5000,           // Increased buffer size for performance
+		ReadTimeout:        120 * time.Second, // Much longer timeout for SSE streams
+		WriteTimeout:       60 * time.Second,  // Longer write timeout
+		ReconnectDelay:     100 * time.Millisecond, // Faster reconnection
 		MaxReconnects:      5,
 		BackpressureConfig: DefaultBackpressureConfig(),
 		Client: &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 120 * time.Second, // Much longer client timeout for SSE
 			Transport: &http.Transport{
+				MaxIdleConns:        200,        // Higher connection pool
+				MaxIdleConnsPerHost: 100,        // Higher per-host connections
+				IdleConnTimeout:     300 * time.Second, // Longer idle timeout
+				ResponseHeaderTimeout: 60 * time.Second,  // Longer response timeout
 				TLSClientConfig: &tls.Config{
 					MinVersion: tls.VersionTLS12,
 					CipherSuites: []uint16{
@@ -169,8 +173,12 @@ func NewSSETransport(config *Config) (*SSETransport, error) {
 
 	if config.Client == nil {
 		config.Client = &http.Client{
-			Timeout: 30 * time.Second,
+			Timeout: 60 * time.Second,  // Increased fallback timeout
 			Transport: &http.Transport{
+				MaxIdleConns:        100,        // Increased for concurrency
+				MaxIdleConnsPerHost: 50,         // Increased per host
+				IdleConnTimeout:     90 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second,  // Added response timeout
 				TLSClientConfig: &tls.Config{
 					MinVersion: tls.VersionTLS12,
 					CipherSuites: []uint16{

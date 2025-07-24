@@ -456,13 +456,16 @@ func TestWorkerManager_ErrorHandling(t *testing.T) {
 }
 
 func TestWorkerManager_CustomPanicHandler(t *testing.T) {
-	var panicHandled bool
+	var panicHandled int32
 	var panicValue interface{}
+	var panicMu sync.RWMutex
 	
 	customHandler := &testPanicHandler{
 		handleFunc: func(workerID string, panic interface{}, stackTrace []byte) {
-			panicHandled = true
+			panicMu.Lock()
+			atomic.StoreInt32(&panicHandled, 1)
 			panicValue = panic
+			panicMu.Unlock()
 		},
 	}
 
@@ -488,11 +491,15 @@ func TestWorkerManager_CustomPanicHandler(t *testing.T) {
 
 	// Wait for panic to be handled
 	eventuallyWithTimeout(t, 1*time.Second, 50*time.Millisecond, func() bool {
-		return panicHandled
+		return atomic.LoadInt32(&panicHandled) == 1
 	}, "Expected custom panic handler to be called")
 
-	if panicValue != expectedPanic {
-		t.Errorf("Expected panic value %v, got %v", expectedPanic, panicValue)
+	panicMu.RLock()
+	actualPanicValue := panicValue
+	panicMu.RUnlock()
+	
+	if actualPanicValue != expectedPanic {
+		t.Errorf("Expected panic value %v, got %v", expectedPanic, actualPanicValue)
 	}
 }
 

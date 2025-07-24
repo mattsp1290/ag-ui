@@ -140,8 +140,14 @@ func (cb *circuitBreaker) Call(ctx context.Context, operation func() (interface{
 		return nil, err
 	}
 	
-	// Create a context with timeout
-	opCtx, cancel := context.WithTimeout(ctx, cb.config.Timeout)
+	// Create a context with timeout if configured
+	var opCtx context.Context
+	var cancel context.CancelFunc
+	if cb.config.Timeout > 0 {
+		opCtx, cancel = context.WithTimeout(ctx, cb.config.Timeout)
+	} else {
+		opCtx, cancel = context.WithCancel(ctx)
+	}
 	defer cancel()
 	
 	// Execute the operation with panic recovery
@@ -266,10 +272,14 @@ func (cb *circuitBreaker) executeWithRecovery(ctx context.Context, operation fun
 		}()
 		
 		res, err := operation()
-		resultChan <- opResult{res, err}
+		select {
+		case resultChan <- opResult{res, err}:
+		case <-ctx.Done():
+			// Context cancelled while operation was running
+		}
 	}()
 	
-	// Wait for result or timeout
+	// Wait for result or timeout/cancellation
 	select {
 	case res := <-resultChan:
 		return res.result, res.err

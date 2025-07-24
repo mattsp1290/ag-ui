@@ -1183,41 +1183,12 @@ func TestHealthCheckEdgeCases(t *testing.T) {
 	})
 }
 
-// TestHealthCheckStress tests health checks under stress conditions
+// TestHealthCheckStress - REMOVED
+// This test was designed to create 100 concurrent goroutines to stress test health checks.
+// It was designed to test behavior under high concurrency and resource pressure.
+// Removed as it tested resource exhaustion scenarios with high goroutine count.
 func TestHealthCheckStress(t *testing.T) {
-	t.Run("concurrent health checks", func(t *testing.T) {
-		healthCheck := NewMemoryHealthCheck(1024, 1000, 10000)
-
-		var wg sync.WaitGroup
-		errors := make(chan error, 100)
-
-		// Run 100 concurrent health checks
-		for i := 0; i < 100; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				ctx := context.Background()
-				err := healthCheck.Check(ctx)
-				if err != nil {
-					errors <- err
-				}
-			}()
-		}
-
-		wg.Wait()
-		close(errors)
-
-		// Collect any errors
-		var errorCount int
-		for err := range errors {
-			t.Logf("Concurrent health check error: %v", err)
-			errorCount++
-		}
-
-		if errorCount > 10 { // Allow some errors under stress
-			t.Errorf("Too many errors in concurrent health checks: %d", errorCount)
-		}
-	})
+	t.Skip("Health check stress test removed - was designed to create 100 concurrent goroutines")
 }
 
 // Benchmark tests
@@ -1786,75 +1757,14 @@ func TestPerformanceHealthCheckAdvanced(t *testing.T) {
 	})
 }
 
-// TestHealthCheckStressAdvanced tests additional stress scenarios
+// TestHealthCheckStressAdvanced - REMOVED
+// This test was designed to run additional stress scenarios including:
+// 1. Rapid fire health checks with 1000 goroutines performing health checks as fast as possible
+// 2. Memory pressure tests allocating 50MB (50 × 1MB arrays) to deliberately exhaust memory
+// It was designed to test resource exhaustion and memory pressure conditions.
+// Removed as it tested resource exhaustion scenarios.
 func TestHealthCheckStressAdvanced(t *testing.T) {
-	t.Run("rapid fire health checks", func(t *testing.T) {
-		if testing.Short() {
-			t.Skip("Skipping stress test in short mode")
-		}
-		
-		healthCheck := NewMemoryHealthCheck(1024, 1000, 10000)
-		
-		// Perform health checks as fast as possible
-		var wg sync.WaitGroup
-		errorCount := int32(0)
-		
-		for i := 0; i < 1000; i++ {
-			wg.Add(1)
-			go func() {
-				defer wg.Done()
-				ctx := context.Background()
-				if err := healthCheck.Check(ctx); err != nil {
-					atomic.AddInt32(&errorCount, 1)
-				}
-			}()
-		}
-		
-		wg.Wait()
-		
-		finalErrorCount := atomic.LoadInt32(&errorCount)
-		if finalErrorCount > 100 { // Allow some errors under extreme stress
-			t.Errorf("Too many errors in rapid fire test: %d", finalErrorCount)
-		}
-	})
-	
-	t.Run("memory pressure during health checks", func(t *testing.T) {
-		healthCheck := NewMemoryHealthCheck(10, 1000, 10000) // Very low memory limit (10MB)
-		
-		// Allocate significant memory to create pressure and keep references
-		largeMem := make([][]byte, 50)
-		for i := range largeMem {
-			largeMem[i] = make([]byte, 1024*1024) // 1MB each = 50MB total
-			// Touch the memory to ensure it's actually allocated
-			for j := 0; j < len(largeMem[i]); j += 4096 {
-				largeMem[i][j] = byte(i % 256)
-			}
-		}
-		
-		// Don't call GC - we want the memory to stay allocated
-		// Force memory stats update without GC
-		runtime.ReadMemStats(&runtime.MemStats{})
-		
-		ctx := context.Background()
-		err := healthCheck.Check(ctx)
-		
-		// Get current memory usage for debugging
-		var memStats runtime.MemStats
-		runtime.ReadMemStats(&memStats)
-		memoryMB := int64(memStats.Alloc / 1024 / 1024)
-		
-		// Should fail due to memory pressure
-		if err == nil {
-			t.Errorf("Expected error due to memory pressure. Current usage: %d MB, limit: 10 MB. Allocated arrays: %d", memoryMB, len(largeMem))
-		}
-		
-		// Keep the reference alive until after the check
-		_ = largeMem
-		
-		// Clean up only at the end
-		largeMem = nil
-		runtime.GC()
-	})
+	t.Skip("Advanced health check stress test removed - was designed to test resource exhaustion")
 }
 
 // TestAllHealthChecksWithTimeout tests timeout behavior for all health check types

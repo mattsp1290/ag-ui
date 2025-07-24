@@ -154,6 +154,9 @@ type PartitionHandler struct {
 	runningMutex      sync.RWMutex
 	stopChan          chan struct{}
 	stopOnce          sync.Once
+	wg                sync.WaitGroup
+	ctx               context.Context
+	cancel            context.CancelFunc
 }
 
 // NodeHealthInfo tracks health information for a node
@@ -193,14 +196,17 @@ func (ph *PartitionHandler) Start(ctx context.Context) error {
 		return fmt.Errorf("partition handler already running")
 	}
 
+	// Create a cancellable context for all goroutines
+	ph.ctx, ph.cancel = context.WithCancel(ctx)
+
 	// Start detection routines based on method
-	ph.startDetectionRoutines(ctx)
+	ph.startDetectionRoutines(ph.ctx)
 
 	// Start recovery routine if enabled
-	ph.startRecoveryRoutine(ctx)
+	ph.startRecoveryRoutine(ph.ctx)
 
 	// Start cleanup routine
-	ph.startCleanupRoutine(ctx)
+	ph.startCleanupRoutine(ph.ctx)
 
 	ph.running = true
 	return nil
@@ -224,7 +230,9 @@ func (ph *PartitionHandler) startDetectionRoutines(ctx context.Context) {
 
 // startHeartbeatDetection starts heartbeat detection routine
 func (ph *PartitionHandler) startHeartbeatDetection(ctx context.Context) {
+	ph.wg.Add(1)
 	go func() {
+		defer ph.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
 				fmt.Printf("Panic in partition handler heartbeat detection: %v\n", r)
@@ -236,7 +244,9 @@ func (ph *PartitionHandler) startHeartbeatDetection(ctx context.Context) {
 
 // startQuorumDetection starts quorum detection routine
 func (ph *PartitionHandler) startQuorumDetection(ctx context.Context) {
+	ph.wg.Add(1)
 	go func() {
+		defer ph.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
 				fmt.Printf("Panic in partition handler quorum detection: %v\n", r)
@@ -248,7 +258,9 @@ func (ph *PartitionHandler) startQuorumDetection(ctx context.Context) {
 
 // startGossipDetection starts gossip detection routine
 func (ph *PartitionHandler) startGossipDetection(ctx context.Context) {
+	ph.wg.Add(1)
 	go func() {
+		defer ph.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
 				fmt.Printf("Panic in partition handler gossip detection: %v\n", r)
@@ -261,7 +273,9 @@ func (ph *PartitionHandler) startGossipDetection(ctx context.Context) {
 // startRecoveryRoutine starts recovery routine if auto-recovery is enabled
 func (ph *PartitionHandler) startRecoveryRoutine(ctx context.Context) {
 	if ph.config.AutoRecovery {
+		ph.wg.Add(1)
 		go func() {
+			defer ph.wg.Done()
 			defer func() {
 				if r := recover(); r != nil {
 					fmt.Printf("Panic in partition handler recovery routine: %v\n", r)
@@ -274,7 +288,9 @@ func (ph *PartitionHandler) startRecoveryRoutine(ctx context.Context) {
 
 // startCleanupRoutine starts cleanup routine
 func (ph *PartitionHandler) startCleanupRoutine(ctx context.Context) {
+	ph.wg.Add(1)
 	go func() {
+		defer ph.wg.Done()
 		defer func() {
 			if r := recover(); r != nil {
 				fmt.Printf("Panic in partition handler cleanup routine: %v\n", r)
@@ -293,10 +309,34 @@ func (ph *PartitionHandler) Stop() error {
 		return nil
 	}
 
+	// Cancel the context to signal all goroutines to stop
+	if ph.cancel != nil {
+		ph.cancel()
+	}
+
+	// Close the stop channel as well for backward compatibility
 	ph.stopOnce.Do(func() {
 		close(ph.stopChan)
 	})
+	
+	// Wait for all goroutines to finish with timeout
+	done := make(chan struct{})
+	go func() {
+		ph.wg.Wait()
+		close(done)
+	}()
+	
+	select {
+	case <-done:
+		// All goroutines finished
+	case <-time.After(500 * time.Millisecond):
+		// Shorter timeout, more aggressive
+		fmt.Printf("Warning: Partition handler goroutines did not stop within timeout\n")
+	}
+	
 	ph.running = false
+	ph.cancel = nil
+	ph.ctx = nil
 	return nil
 }
 
@@ -421,11 +461,19 @@ func (ph *PartitionHandler) runQuorumDetection(ctx context.Context) {
 // runGossipDetection runs gossip-based partition detection
 func (ph *PartitionHandler) runGossipDetection(ctx context.Context) {
 	// TODO: Implement gossip-based detection
-	select {
-	case <-ctx.Done():
-		return
-	case <-ph.stopChan:
-		return
+	// For now, just wait for cancellation
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ph.stopChan:
+			return
+		case <-ticker.C:
+			// Would implement gossip checks here
+		}
 	}
 }
 

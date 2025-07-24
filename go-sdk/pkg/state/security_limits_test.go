@@ -7,6 +7,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/ag-ui/go-sdk/pkg/testhelper"
 )
 
 // NOTE: This file contains optimized tests for CI/CD environments.
@@ -231,7 +233,7 @@ func TestConcurrentSecurityValidation(t *testing.T) {
 	}
 	
 	// Add timeout protection to prevent indefinite hangs
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testhelper.GetCITimeouts().Long)
 	defer cancel()
 	
 	sm, err := NewStateManager(DefaultManagerOptions())
@@ -255,6 +257,12 @@ func TestConcurrentSecurityValidation(t *testing.T) {
 	var wg sync.WaitGroup
 	numWorkers := 5      // Reduced from 20
 	updatesPerWorker := 20  // Reduced from 100
+	
+	// Further reduce load in testing.Short() mode for CI
+	if testing.Short() {
+		numWorkers = 2
+		updatesPerWorker = 5
+	}
 
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
@@ -325,7 +333,7 @@ func TestRateLimitingIntegration(t *testing.T) {
 	}
 
 	// Add timeout protection to prevent indefinite hangs
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), testhelper.GetCITimeouts().Long)
 	defer cancel()
 
 	// Create state manager with custom rate limiting optimized for testing
@@ -343,6 +351,11 @@ func TestRateLimitingIntegration(t *testing.T) {
 
 	// Reduced load for faster test completion
 	numRequests := 50  // Reduced from 150
+	
+	// Further reduce load in testing.Short() mode for CI
+	if testing.Short() {
+		numRequests = 10
+	}
 	errors := 0
 	start := time.Now()
 

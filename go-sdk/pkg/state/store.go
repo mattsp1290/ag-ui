@@ -114,8 +114,8 @@ func NewStateStore(options ...StateStoreOption) *StateStore {
 		history:         make([]*StateVersion, 0),
 		maxHistory:      DefaultMaxHistorySizeSharding, // Default max history for sharded operations
 		transactions:    make(map[string]*StateTransaction),
-		subscriptionTTL: DefaultSubscriptionTTL,     // Default TTL for subscriptions
-		cleanupInterval: DefaultSubscriptionCleanup, // Default cleanup interval
+		subscriptionTTL: GetDefaultSubscriptionTTL(),     // Default TTL for subscriptions
+		cleanupInterval: GetDefaultSubscriptionCleanup(), // Default cleanup interval
 		lastCleanup:     time.Now(),
 		logger:          DefaultLogger(),
 		errorHandler:    nil, // Will be set after initialization

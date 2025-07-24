@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,6 +21,11 @@ import (
 func main() {
 	fmt.Println("AG-UI Authentication Middleware Example")
 	fmt.Println("======================================")
+
+	// Validate required environment variables for security
+	if err := validateEnvironmentVariables(); err != nil {
+		log.Fatalf("Environment validation failed: %v", err)
+	}
 
 	// 1. Initialize authentication provider
 	provider := setupAuthProvider()
@@ -31,21 +40,85 @@ func main() {
 	startServer(provider, rbacManager)
 }
 
+// validateEnvironmentVariables ensures all required environment variables are set
+// This prevents hardcoded credentials and improves security
+func validateEnvironmentVariables() error {
+	requiredEnvVars := []string{
+		"DEMO_ADMIN_USERNAME",
+		"DEMO_ADMIN_PASSWORD",
+		"DEMO_EDITOR_USERNAME",
+		"DEMO_EDITOR_PASSWORD",
+		"DEMO_VIEWER_USERNAME",
+		"DEMO_VIEWER_PASSWORD",
+		"DEMO_ADMIN_API_KEY",
+	}
+
+	var missingVars []string
+	for _, envVar := range requiredEnvVars {
+		if os.Getenv(envVar) == "" {
+			missingVars = append(missingVars, envVar)
+		}
+	}
+
+	if len(missingVars) > 0 {
+		return fmt.Errorf("missing required environment variables: %s\n\n"+
+			"Please set these environment variables for secure operation:\n"+
+			"export DEMO_ADMIN_USERNAME=alice\n"+
+			"export DEMO_ADMIN_PASSWORD=your-secure-password\n"+
+			"export DEMO_EDITOR_USERNAME=bob\n"+
+			"export DEMO_EDITOR_PASSWORD=your-secure-password\n"+
+			"export DEMO_VIEWER_USERNAME=charlie\n"+
+			"export DEMO_VIEWER_PASSWORD=your-secure-password\n"+
+			"export DEMO_ADMIN_API_KEY=your-secure-api-key",
+			strings.Join(missingVars, ", "))
+	}
+
+	return nil
+}
+
+// generateSecurePassword generates a cryptographically secure password
+// In production, consider using a proper password manager or environment variables
+func generateSecurePassword(length int) (string, error) {
+	if length < 8 {
+		length = 16 // Minimum secure length
+	}
+	
+	// Generate random bytes
+	bytes := make([]byte, length)
+	if _, err := rand.Read(bytes); err != nil {
+		return "", fmt.Errorf("failed to generate secure password: %v", err)
+	}
+	
+	// Encode to base64 and truncate to desired length
+	password := base64.URLEncoding.EncodeToString(bytes)[:length]
+	
+	return password, nil
+}
+
 // setupAuthProvider creates and configures an authentication provider
+// SECURITY: Uses environment variables instead of hardcoded credentials
 func setupAuthProvider() auth.AuthProvider {
 	fmt.Println("\n1. Setting up Authentication Provider")
 	fmt.Println("=====================================")
 
 	// Create basic auth provider
 	config := auth.DefaultAuthConfig()
-	config.TokenExpiration = 1 * time.Hour
+	// Allow configurable token expiration via environment variable
+	if tokenExpStr := os.Getenv("TOKEN_EXPIRATION_HOURS"); tokenExpStr != "" {
+		if hours, err := strconv.Atoi(tokenExpStr); err == nil {
+			config.TokenExpiration = time.Duration(hours) * time.Hour
+		}
+	} else {
+		config.TokenExpiration = 1 * time.Hour // Default fallback
+	}
 	provider := auth.NewBasicAuthProvider(config)
 
-	// Add test users
+	// SECURITY: Load user credentials from environment variables
+	// This prevents hardcoded credentials in source code
 	testUsers := []*auth.User{
 		{
 			ID:       "user-1",
-			Username: "alice",
+			Username: os.Getenv("DEMO_ADMIN_USERNAME"),
 			Roles:    []string{"admin"},
 			Permissions: []string{
 				"events:*",
@@ -55,12 +128,12 @@ func setupAuthProvider() auth.AuthProvider {
 			Active: true,
 			Metadata: map[string]interface{}{
 				"department": "engineering",
-				"api_key":    "alice-api-key-123",
+				"api_key":    os.Getenv("DEMO_ADMIN_API_KEY"),
 			},
 		},
 		{
 			ID:       "user-2",
-			Username: "bob",
+			Username: os.Getenv("DEMO_EDITOR_USERNAME"),
 			Roles:    []string{"editor"},
 			Permissions: []string{
 				"events:read",
@@ -74,7 +147,7 @@ func setupAuthProvider() auth.AuthProvider {
 		},
 		{
 			ID:       "user-3",
-			Username: "charlie",
+			Username: os.Getenv("DEMO_VIEWER_USERNAME"),
 			Roles:    []string{"viewer"},
 			Permissions: []string{
 				"events:read",
@@ -87,19 +160,44 @@ func setupAuthProvider() auth.AuthProvider {
 		},
 	}
 
+	// SECURITY: Set passwords from environment variables
+	passwords := map[string]string{
+		os.Getenv("DEMO_ADMIN_USERNAME"):  os.Getenv("DEMO_ADMIN_PASSWORD"),
+		os.Getenv("DEMO_EDITOR_USERNAME"): os.Getenv("DEMO_EDITOR_PASSWORD"),
+		os.Getenv("DEMO_VIEWER_USERNAME"): os.Getenv("DEMO_VIEWER_PASSWORD"),
+	}
+
 	for _, user := range testUsers {
 		if err := provider.AddUser(user); err != nil {
 			log.Printf("Failed to add user %s: %v", user.Username, err)
 			continue
 		}
 
-		// Set password (in production, use proper password management)
-		if err := provider.SetUserPassword(user.Username, "password123"); err != nil {
-			log.Printf("Failed to set password for %s: %v", user.Username, err)
+		// SECURITY: Use environment variable for password instead of hardcoded value
+		if password, exists := passwords[user.Username]; exists && password != "" {
+			if err := provider.SetUserPassword(user.Username, password); err != nil {
+				log.Printf("Failed to set password for %s: %v", user.Username, err)
+			}
+		} else {
+			log.Printf("Warning: No password set for user %s - check environment variables", user.Username)
 		}
 
 		fmt.Printf("✓ Added user: %s (roles: %v)\n", user.Username, user.Roles)
 	}
+
+	// SECURITY: Display environment variable configuration instead of credentials
+	fmt.Println("\nEnvironment Variable Configuration:")
+	fmt.Println("==================================")
+	fmt.Println("SECURITY: Credentials are loaded from environment variables.")
+	fmt.Println("This prevents hardcoded credentials in source code.")
+	fmt.Println()
+	fmt.Printf("  Admin user: %s\n", os.Getenv("DEMO_ADMIN_USERNAME"))
+	fmt.Printf("  Editor user: %s\n", os.Getenv("DEMO_EDITOR_USERNAME"))
+	fmt.Printf("  Viewer user: %s\n", os.Getenv("DEMO_VIEWER_USERNAME"))
+	fmt.Println()
+	fmt.Println("  Passwords are set from environment variables (not displayed for security)")
+	fmt.Printf("  Admin API key is loaded from DEMO_ADMIN_API_KEY environment variable\n")
+	fmt.Println()
 
 	return provider
 }
@@ -326,10 +424,13 @@ func startServer(provider auth.AuthProvider, rbac *RBACManager) {
 		fmt.Println("  1. Login to get token:")
 		fmt.Println("     curl -X POST http://localhost:8080/login \\")
 		fmt.Println("          -H 'Content-Type: application/json' \\")
-		fmt.Println("          -d '{\"username\":\"alice\",\"password\":\"password123\"}'")
+		fmt.Printf("          -d '{\"username\":\"%s\",\"password\":\"$DEMO_ADMIN_PASSWORD\"}'\n", os.Getenv("DEMO_ADMIN_USERNAME"))
 		fmt.Println()
 		fmt.Println("  2. Use token for authenticated requests:")
 		fmt.Println("     curl -H 'Authorization: Bearer <token>' http://localhost:8080/profile")
+		fmt.Println()
+		fmt.Println("  SECURITY NOTE: Replace $DEMO_ADMIN_PASSWORD with your actual password")
+		fmt.Println("  Never expose credentials in logs or documentation in production!")
 		fmt.Println()
 
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {

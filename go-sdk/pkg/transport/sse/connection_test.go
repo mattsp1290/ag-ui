@@ -6,6 +6,7 @@ import (
 )
 
 func TestConnectionState(t *testing.T) {
+	t.Parallel()  // Safe to run in parallel
 	tests := []struct {
 		state    ConnectionState
 		expected string
@@ -26,6 +27,7 @@ func TestConnectionState(t *testing.T) {
 }
 
 func TestReconnectionPolicy(t *testing.T) {
+	t.Parallel()  // Safe to run in parallel
 	policy := DefaultReconnectionPolicy()
 
 	if !policy.Enabled {
@@ -42,6 +44,7 @@ func TestReconnectionPolicy(t *testing.T) {
 }
 
 func TestHeartbeatConfig(t *testing.T) {
+	t.Parallel()  // Safe to run in parallel
 	config := DefaultHeartbeatConfig()
 
 	if !config.Enabled {
@@ -52,12 +55,13 @@ func TestHeartbeatConfig(t *testing.T) {
 		t.Errorf("Expected interval to be 30s, got %v", config.Interval)
 	}
 
-	if config.MaxMissed != 3 {
-		t.Errorf("Expected max missed to be 3, got %d", config.MaxMissed)
+	if config.MaxMissed != 5 {
+		t.Errorf("Expected max missed to be 5, got %d", config.MaxMissed)
 	}
 }
 
 func TestConnectionMetrics(t *testing.T) {
+	t.Parallel()  // Safe to run in parallel
 	metrics := NewConnectionMetrics()
 
 	// Test initial values

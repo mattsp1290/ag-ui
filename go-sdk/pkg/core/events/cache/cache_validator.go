@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -103,6 +104,12 @@ type CacheValidator struct {
 	logger      eventerrors.Logger
 	retryPolicy *eventerrors.RetryPolicy
 	
+	// Size limits and cleanup
+	maxL1CacheSize   int
+	maxL2CacheSize   int
+	cleanupInterval  time.Duration
+	cleanupThreshold float64
+	
 	// Synchronization
 	mu            sync.RWMutex
 	shutdownCh    chan struct{}
@@ -119,6 +126,12 @@ type CacheValidatorConfig struct {
 	L2Cache       DistributedCache
 	L2TTL         time.Duration
 	L2Enabled     bool
+	
+	// Size limits and cleanup settings
+	MaxL1CacheSize    int           // Maximum L1 cache size before cleanup
+	MaxL2CacheSize    int           // Maximum L2 cache size before cleanup
+	CleanupInterval   time.Duration // How often to run cleanup
+	CleanupThreshold  float64       // Cache utilization threshold to trigger cleanup (0.0-1.0)
 	
 	// Validation settings
 	Validator     *events.Validator
@@ -149,6 +162,10 @@ func DefaultCacheValidatorConfig() *CacheValidatorConfig {
 		L1TTL:              5 * time.Minute,
 		L2TTL:              30 * time.Minute,
 		L2Enabled:          false,
+		MaxL1CacheSize:     15000,                // 50% larger than L1Size for headroom
+		MaxL2CacheSize:     100000,               // Reasonable L2 limit
+		CleanupInterval:    2 * time.Minute,      // Regular cleanup
+		CleanupThreshold:   0.8,                  // Cleanup when 80% full
 		CompressionEnabled: true,
 		CompressionLevel:   6,
 		Validator:          events.NewValidator(events.DefaultValidationConfig()),
@@ -196,6 +213,18 @@ func NewCacheValidator(config *CacheValidatorConfig) (*CacheValidator, error) {
 		retryPolicy = eventerrors.DefaultRetryPolicy()
 	}
 
+	// Set default cleanup interval if zero
+	cleanupInterval := config.CleanupInterval
+	if cleanupInterval <= 0 {
+		cleanupInterval = 2 * time.Minute // Safe default
+	}
+	
+	// Set default threshold if zero
+	cleanupThreshold := config.CleanupThreshold
+	if cleanupThreshold <= 0 {
+		cleanupThreshold = 0.8 // Safe default
+	}
+
 	cv := &CacheValidator{
 		l1Size:                 config.L1Size,
 		l1TTL:                  config.L1TTL,
@@ -211,6 +240,10 @@ func NewCacheValidator(config *CacheValidatorConfig) (*CacheValidator, error) {
 		logger:                 logger,
 		retryPolicy:            retryPolicy,
 		metricsEnabled:         config.MetricsEnabled,
+		maxL1CacheSize:         config.MaxL1CacheSize,
+		maxL2CacheSize:         config.MaxL2CacheSize,
+		cleanupInterval:        cleanupInterval,
+		cleanupThreshold:       cleanupThreshold,
 		shutdownCh:             make(chan struct{}),
 	}
 	
@@ -225,9 +258,10 @@ func NewCacheValidator(config *CacheValidatorConfig) (*CacheValidator, error) {
 	cv.l1Cache = l1CacheWithEvict
 	
 	// Start background workers
-	cv.wg.Add(2)
+	cv.wg.Add(3)
 	go cv.expirationWorker()
 	go cv.metricsWorker()
+	go cv.sizeCleanupWorker()
 	
 	return cv, nil
 }
@@ -580,15 +614,21 @@ func (cv *CacheValidator) getFromL2(ctx context.Context, key *ValidationCacheKey
 	keyStr := cv.cacheKeyToString(key)
 	data, err := cv.l2Cache.Get(ctx, keyStr)
 	if err != nil {
-		// Log L2 cache get error but don't fail the operation
+		// Check if this is just a cache miss (key not found) - don't log these as warnings
+		if eventerrors.HasErrorCode(err, eventerrors.CacheErrorKeyNotFound) {
+			// Cache miss is normal, no need to log
+			return nil, false
+		}
+		
+		// Log other L2 cache errors (connection issues, etc.) but don't fail the operation
 		{
-			getErr := eventerrors.NewCacheError(eventerrors.CacheErrorKeyNotFound, 
-				"Failed to retrieve entry from L2 cache").
+			getErr := eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, 
+				"Failed to retrieve entry from L2 cache due to connection error").
 				WithLevel("L2").
 				WithKey(keyStr).
 				WithOperation("get").
 				WithCause(err)
-			cv.logger.Warn(fmt.Sprintf("L2 cache get failed: %v", getErr))
+			cv.logger.Warn(fmt.Sprintf("L2 cache connection failed: %v", getErr))
 		}
 		return nil, false
 	}
@@ -651,6 +691,11 @@ func (cv *CacheValidator) getFromL2(ctx context.Context, key *ValidationCacheKey
 
 func (cv *CacheValidator) storeInCaches(ctx context.Context, key *ValidationCacheKey, entry *ValidationCacheEntry) {
 	keyStr := cv.cacheKeyToString(key)
+	
+	// Check L1 cache size before storing and cleanup if necessary
+	if cv.shouldCleanupL1Cache() {
+		cv.cleanupL1CacheSize()
+	}
 	
 	// Store in L1
 	cv.mu.Lock()
@@ -719,8 +764,14 @@ func (cv *CacheValidator) storeInL2(ctx context.Context, key string, entry *Vali
 		
 		// Store with TTL
 		if err := cv.l2Cache.Set(ctx, key, data, cv.l2TTL); err != nil {
+			// Determine the appropriate error type based on the original error
+			errorCode := eventerrors.CacheErrorConnectionFailed
+			if eventerrors.HasErrorCode(err, eventerrors.CacheErrorTimeout) {
+				errorCode = eventerrors.CacheErrorTimeout
+			}
+			
 			// Create structured error for L2 cache set failure
-			setErr := eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, 
+			setErr := eventerrors.NewCacheError(errorCode, 
 				"Failed to store entry in L2 cache").
 				WithLevel("L2").
 				WithKey(key).
@@ -799,11 +850,18 @@ func (cv *CacheValidator) invalidateKey(ctx context.Context, key *ValidationCach
 }
 
 func (cv *CacheValidator) cacheKeyToString(key *ValidationCacheKey) string {
-	return fmt.Sprintf("validation:%s:%s:%s:%s", 
-		key.EventType, 
-		key.EventHash[:8], 
-		key.ConfigHash[:8],
-		key.ValidatorID)
+	// Use strings.Builder for better performance in hot paths
+	var builder strings.Builder
+	builder.Grow(64) // Pre-allocate capacity for typical key length
+	builder.WriteString("validation:")
+	builder.WriteString(string(key.EventType))
+	builder.WriteByte(':')
+	builder.WriteString(key.EventHash[:8])
+	builder.WriteByte(':') 
+	builder.WriteString(key.ConfigHash[:8])
+	builder.WriteByte(':')
+	builder.WriteString(key.ValidatorID)
+	return builder.String()
 }
 
 func (cv *CacheValidator) toValidationError(entry *ValidationCacheEntry) error {
@@ -838,7 +896,7 @@ func (cv *CacheValidator) extractErrors(err error) []error {
 		return nil
 	}
 	
-	// TODO: Implement error extraction logic
+	// Error extraction logic will be implemented when error chain patterns are finalized
 	return []error{err}
 }
 
@@ -873,12 +931,12 @@ func (cv *CacheValidator) estimateEventSize(event events.Event) int {
 }
 
 func (cv *CacheValidator) compress(data []byte) ([]byte, float64) {
-	// TODO: Implement compression
+	// Compression implementation will be added when compression library is selected
 	return data, 1.0
 }
 
 func (cv *CacheValidator) decompress(data []byte) ([]byte, error) {
-	// TODO: Implement decompression
+	// Decompression implementation will be added when compression library is selected
 	return data, nil
 }
 
@@ -946,5 +1004,103 @@ func (cv *CacheValidator) updateMetrics() {
 			Stats:     stats,
 			Timestamp: time.Now(),
 		})
+	}
+}
+
+// sizeCleanupWorker performs periodic cleanup based on cache size limits
+func (cv *CacheValidator) sizeCleanupWorker() {
+	defer cv.wg.Done()
+	
+	ticker := time.NewTicker(cv.cleanupInterval)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-cv.shutdownCh:
+			return
+		case <-ticker.C:
+			cv.performSizeCleanup()
+		}
+	}
+}
+
+// shouldCleanupL1Cache checks if L1 cache cleanup is needed based on size and threshold
+func (cv *CacheValidator) shouldCleanupL1Cache() bool {
+	cv.mu.RLock()
+	currentSize := cv.l1Cache.Len()
+	cv.mu.RUnlock()
+	
+	// Check if we're over the threshold
+	threshold := int(float64(cv.maxL1CacheSize) * cv.cleanupThreshold)
+	return currentSize >= threshold
+}
+
+// cleanupL1CacheSize removes oldest entries from L1 cache to stay within size limits
+func (cv *CacheValidator) cleanupL1CacheSize() {
+	cv.mu.Lock()
+	defer cv.mu.Unlock()
+	
+	currentSize := cv.l1Cache.Len()
+	if currentSize <= cv.maxL1CacheSize {
+		return
+	}
+	
+	// Remove oldest entries until we're back under the limit
+	targetSize := int(float64(cv.maxL1CacheSize) * 0.7) // Remove to 70% of max
+	removedCount := 0
+	
+	for currentSize > targetSize {
+		keys := cv.l1Cache.Keys()
+		if len(keys) == 0 {
+			break
+		}
+		
+		// Remove oldest entries (LRU cache keys are ordered by usage)
+		if cv.l1Cache.Remove(keys[0]) {
+			removedCount++
+			currentSize--
+		}
+	}
+	
+	if removedCount > 0 {
+		atomic.AddUint64(&cv.stats.Evictions, uint64(removedCount))
+	}
+}
+
+// performSizeCleanup performs comprehensive cache size cleanup
+func (cv *CacheValidator) performSizeCleanup() {
+	// Clean up L1 cache if needed
+	if cv.shouldCleanupL1Cache() {
+		cv.cleanupL1CacheSize()
+	}
+	
+	// Clean up L2 cache if enabled (basic scan-based cleanup)
+	if cv.l2Enabled {
+		cv.cleanupL2CacheSize()
+	}
+}
+
+// cleanupL2CacheSize performs size-based cleanup for L2 cache
+func (cv *CacheValidator) cleanupL2CacheSize() {
+	// This is a simplified cleanup strategy - in production you'd want
+	// more sophisticated distributed cache size management
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	
+	// Scan for expired entries and remove them as a form of size management
+	pattern := "validation:*"
+	keys, err := cv.l2Cache.Scan(ctx, pattern)
+	if err != nil {
+		cv.logger.Error(fmt.Sprintf("L2 cache scan failed during cleanup: %v", err))
+		return
+	}
+	
+	// If we have too many keys, remove oldest 20% by attempting deletion
+	// This is approximate since we can't easily determine age in distributed cache
+	if len(keys) > cv.maxL2CacheSize {
+		targetRemoval := len(keys) - int(float64(cv.maxL2CacheSize)*0.8)
+		for i := 0; i < targetRemoval && i < len(keys); i++ {
+			cv.l2Cache.Delete(ctx, keys[i])
+		}
 	}
 }

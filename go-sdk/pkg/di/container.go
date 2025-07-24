@@ -217,19 +217,19 @@ func (c *Container) GetByTag(ctx context.Context, tag string) ([]interface{}, er
 
 // getService is the internal method to retrieve a service
 func (c *Container) getService(ctx context.Context, name string, scope *Scope) (interface{}, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	
-	// Check if we're already building this service (circular dependency)
+	// Check building state and get definition with read lock first
+	c.mu.RLock()
 	if c.building[name] {
+		c.mu.RUnlock()
 		return nil, fmt.Errorf("circular dependency detected for service: %s", name)
 	}
 	
-	// Get service definition
 	definition, exists := c.services[name]
 	if !exists {
+		c.mu.RUnlock()
 		return nil, fmt.Errorf("service not found: %s", name)
 	}
+	c.mu.RUnlock()
 	
 	// Handle different lifecycles
 	switch definition.Lifecycle {
@@ -246,18 +246,43 @@ func (c *Container) getService(ctx context.Context, name string, scope *Scope) (
 
 // getSingleton gets or creates a singleton instance
 func (c *Container) getSingleton(ctx context.Context, name string, definition *ServiceDefinition) (interface{}, error) {
-	// Check if singleton already exists
+	// Check if singleton already exists with read lock
+	c.mu.RLock()
 	if instance, exists := c.singletons[name]; exists {
+		c.mu.RUnlock()
+		return instance, nil
+	}
+	c.mu.RUnlock()
+	
+	// Use write lock to ensure only one goroutine creates the singleton
+	c.mu.Lock()
+	// Double-check pattern: check again if singleton was created while waiting for lock
+	if instance, exists := c.singletons[name]; exists {
+		c.mu.Unlock()
 		return instance, nil
 	}
 	
-	// Create new singleton
-	instance, err := c.createInstance(ctx, name, definition, nil)
+	// Mark as building before releasing lock to prevent recursive calls
+	c.building[name] = true
+	c.mu.Unlock()
+	
+	defer func() {
+		c.mu.Lock()
+		delete(c.building, name)
+		c.mu.Unlock()
+	}()
+	
+	// Create new singleton (without lock to prevent deadlock)
+	instance, err := c.createInstanceWithoutBuilding(ctx, name, definition, nil)
 	if err != nil {
 		return nil, err
 	}
 	
+	// Store singleton with write lock
+	c.mu.Lock()
 	c.singletons[name] = instance
+	c.mu.Unlock()
+	
 	return instance, nil
 }
 
@@ -295,11 +320,28 @@ func (c *Container) getScoped(ctx context.Context, name string, definition *Serv
 // createInstance creates a new instance of a service
 func (c *Container) createInstance(ctx context.Context, name string, definition *ServiceDefinition, scope *Scope) (interface{}, error) {
 	// Mark as building to detect circular dependencies
+	c.mu.Lock()
 	c.building[name] = true
-	defer delete(c.building, name)
+	c.mu.Unlock()
 	
+	defer func() {
+		c.mu.Lock()
+		delete(c.building, name)
+		c.mu.Unlock()
+	}()
+	
+	return c.createInstanceWithoutBuilding(ctx, name, definition, scope)
+}
+
+// createInstanceWithoutBuilding creates a new instance without managing building state
+func (c *Container) createInstanceWithoutBuilding(ctx context.Context, name string, definition *ServiceDefinition, scope *Scope) (interface{}, error) {
 	// Call interceptors
-	for _, interceptor := range c.interceptors {
+	c.mu.RLock()
+	interceptors := make([]Interceptor, len(c.interceptors))
+	copy(interceptors, c.interceptors)
+	c.mu.RUnlock()
+	
+	for _, interceptor := range interceptors {
 		if err := interceptor.BeforeCreate(ctx, name); err != nil {
 			return nil, fmt.Errorf("interceptor failed before creating %s: %w", name, err)
 		}
@@ -320,7 +362,7 @@ func (c *Container) createInstance(ctx context.Context, name string, definition 
 	}
 	
 	// Call interceptors
-	for _, interceptor := range c.interceptors {
+	for _, interceptor := range interceptors {
 		if err := interceptor.AfterCreate(ctx, name, instance); err != nil {
 			return nil, fmt.Errorf("interceptor failed after creating %s: %w", name, err)
 		}

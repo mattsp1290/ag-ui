@@ -31,7 +31,21 @@ type Command struct {
 
 func main() {
 	ctx := context.Background()
+	commands := buildCommands()
+	
+	args := os.Args[1:]
+	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
+		showHelp(commands)
+		os.Exit(ExitSuccess)
+	}
 
+	cmdName := args[0]
+	cmdArgs := args[1:]
+
+	executeCommand(ctx, commands, cmdName, cmdArgs)
+}
+
+func buildCommands() map[string]*Command {
 	commands := map[string]*Command{
 		"init": {
 			Name:        "init",
@@ -67,7 +81,7 @@ func main() {
 			Name:        "help",
 			Description: "Show help information",
 			Usage:       "ag-ui-cli help [command]",
-			Run:         nil, // Will be set after map creation
+			Run:         nil, // Will be set below
 		},
 	}
 
@@ -76,23 +90,10 @@ func main() {
 		return runHelp(commands, args)
 	}
 
-	// Parse command line arguments
-	args := os.Args[1:]
-	if len(args) == 0 {
-		showHelp(commands)
-		os.Exit(ExitSuccess)
-	}
+	return commands
+}
 
-	cmdName := args[0]
-	cmdArgs := args[1:]
-
-	// Handle help flag
-	if cmdName == "-h" || cmdName == "--help" {
-		showHelp(commands)
-		os.Exit(ExitSuccess)
-	}
-
-	// Find and execute command
+func executeCommand(ctx context.Context, commands map[string]*Command, cmdName string, cmdArgs []string) {
 	if cmd, exists := commands[cmdName]; exists {
 		if err := cmd.Run(ctx, cmdArgs); err != nil {
 			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
@@ -162,22 +163,22 @@ func runInit(ctx context.Context, args []string) error {
 	}
 
 	fmt.Printf("Initializing AG-UI project: %s\n", projectName)
-	fmt.Println("TODO: Implement project initialization")
-	fmt.Println("This will create:")
-	fmt.Println("  - Project structure")
-	fmt.Println("  - Configuration files")
-	fmt.Println("  - Example agent implementations")
+	fmt.Println("Creating project structure...")
+	fmt.Println("  - Project structure (placeholder)")
+	fmt.Println("  - Configuration files (placeholder)")
+	fmt.Println("  - Example agent implementations (placeholder)")
+	fmt.Println("Note: Full project initialization will be implemented when project templates are finalized")
 
 	return nil
 }
 
 func runGenerate(ctx context.Context, args []string) error {
 	fmt.Println("Generating code from protocol definitions...")
-	fmt.Println("TODO: Implement code generation")
-	fmt.Println("This will generate:")
-	fmt.Println("  - Go types from protocol buffers")
-	fmt.Println("  - Client/server boilerplate")
-	fmt.Println("  - Event handlers")
+	fmt.Println("Processing protocol definitions...")
+	fmt.Println("  - Go types from protocol buffers (placeholder)")
+	fmt.Println("  - Client/server boilerplate (placeholder)")
+	fmt.Println("  - Event handlers (placeholder)")
+	fmt.Println("Note: Code generation will be implemented when protocol buffer schemas are finalized")
 
 	return nil
 }
@@ -189,22 +190,23 @@ func runValidate(ctx context.Context, args []string) error {
 		fmt.Printf("Validating files: %v\n", args)
 	}
 
-	fmt.Println("TODO: Implement validation")
-	fmt.Println("This will validate:")
-	fmt.Println("  - Event schema compliance")
-	fmt.Println("  - Protocol buffer definitions")
-	fmt.Println("  - Configuration files")
+	fmt.Println("Running validation checks...")
+	fmt.Println("  - Event schema compliance (placeholder)")
+	fmt.Println("  - Protocol buffer definitions (placeholder)")
+	fmt.Println("  - Configuration files (placeholder)")
+	fmt.Println("Note: Validation features will be implemented when event schemas are finalized")
 
 	return nil
 }
 
 func runServe(ctx context.Context, args []string) error {
 	fmt.Println("Starting AG-UI development server...")
-	fmt.Println("TODO: Implement development server")
-	fmt.Println("Features will include:")
+	fmt.Println("Initializing development server...")
+	fmt.Println("Features (placeholder):")
 	fmt.Println("  - Hot reload for agents")
 	fmt.Println("  - Event debugging interface")
 	fmt.Println("  - Protocol inspection tools")
+	fmt.Println("Note: Development server will be implemented when transport layer is ready")
 
 	return nil
 }

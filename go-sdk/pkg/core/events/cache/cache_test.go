@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/stretchr/testify/assert"
+	eventerrors "github.com/ag-ui/go-sdk/pkg/core/events/errors"
 	_ "github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 )
@@ -17,6 +17,9 @@ import (
 func TestCacheValidator_BasicOperations(t *testing.T) {
 	config := DefaultCacheValidatorConfig()
 	config.L2Enabled = false // Disable L2 for basic test
+	// Use no-op logger for tests to reduce noise
+	config.Logger = &eventerrors.NoOpLogger{}
+	config.RetryPolicy = &eventerrors.RetryPolicy{MaxAttempts: 1}
 	
 	cv, err := NewCacheValidator(config)
 	if err != nil {
@@ -128,7 +131,7 @@ func NewMockDistributedCache() *MockDistributedCache {
 
 func (m *MockDistributedCache) Get(ctx context.Context, key string) ([]byte, error) {
 	if m.error {
-		return nil, assert.AnError
+		return nil, eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
 	
 	m.mu.RLock()
@@ -136,12 +139,12 @@ func (m *MockDistributedCache) Get(ctx context.Context, key string) ([]byte, err
 	
 	// Check TTL
 	if expires, exists := m.ttls[key]; exists && time.Now().After(expires) {
-		return nil, assert.AnError
+		return nil, eventerrors.NewCacheError(eventerrors.CacheErrorKeyNotFound, "key expired")
 	}
 	
 	data, exists := m.data[key]
 	if !exists {
-		return nil, assert.AnError
+		return nil, eventerrors.NewCacheError(eventerrors.CacheErrorKeyNotFound, "key not found")
 	}
 	
 	return data, nil
@@ -149,7 +152,7 @@ func (m *MockDistributedCache) Get(ctx context.Context, key string) ([]byte, err
 
 func (m *MockDistributedCache) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
 	if m.error {
-		return assert.AnError
+		return eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
 	
 	m.mu.Lock()
@@ -162,7 +165,7 @@ func (m *MockDistributedCache) Set(ctx context.Context, key string, value []byte
 
 func (m *MockDistributedCache) Delete(ctx context.Context, key string) error {
 	if m.error {
-		return assert.AnError
+		return eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
 	
 	m.mu.Lock()
@@ -175,7 +178,7 @@ func (m *MockDistributedCache) Delete(ctx context.Context, key string) error {
 
 func (m *MockDistributedCache) Exists(ctx context.Context, key string) (bool, error) {
 	if m.error {
-		return false, assert.AnError
+		return false, eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
 	
 	m.mu.RLock()
@@ -187,7 +190,7 @@ func (m *MockDistributedCache) Exists(ctx context.Context, key string) (bool, er
 
 func (m *MockDistributedCache) TTL(ctx context.Context, key string) (time.Duration, error) {
 	if m.error {
-		return 0, assert.AnError
+		return 0, eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
 	
 	m.mu.RLock()
@@ -195,7 +198,7 @@ func (m *MockDistributedCache) TTL(ctx context.Context, key string) (time.Durati
 	
 	expires, exists := m.ttls[key]
 	if !exists {
-		return 0, assert.AnError
+		return 0, eventerrors.NewCacheError(eventerrors.CacheErrorKeyNotFound, "key not found")
 	}
 	
 	return time.Until(expires), nil
@@ -203,7 +206,7 @@ func (m *MockDistributedCache) TTL(ctx context.Context, key string) (time.Durati
 
 func (m *MockDistributedCache) Scan(ctx context.Context, pattern string) ([]string, error) {
 	if m.error {
-		return nil, assert.AnError
+		return nil, eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
 	
 	m.mu.RLock()
@@ -254,6 +257,17 @@ func (suite *CacheTestSuite) SetupTest() {
 	config.L1Size = 100
 	config.L1TTL = 1 * time.Minute
 	config.L2TTL = 5 * time.Minute
+	// Use no-op logger for tests to reduce noise
+	config.Logger = &eventerrors.NoOpLogger{}
+	// Use less aggressive retry policy for tests
+	config.RetryPolicy = &eventerrors.RetryPolicy{
+		MaxAttempts:   1, // No retries in tests
+		InitialDelay:  1 * time.Millisecond,
+		MaxDelay:      10 * time.Millisecond,
+		BackoffFactor: 1.0,
+		Jitter:        false,
+		RetryableErrors: []string{eventerrors.CacheErrorConnectionFailed},
+	}
 	
 	var err error
 	suite.cacheValidator, err = NewCacheValidator(config)

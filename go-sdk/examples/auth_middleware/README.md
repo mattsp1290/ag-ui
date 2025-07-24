@@ -43,13 +43,31 @@ This example demonstrates comprehensive authentication and authorization pattern
 
 ## Running the Example
 
-1. **Start the server**:
+1. **Set required environment variables** (SECURITY REQUIREMENT):
+   ```bash
+   export DEMO_ADMIN_USERNAME=alice
+   export DEMO_ADMIN_PASSWORD=your-secure-admin-password
+   export DEMO_EDITOR_USERNAME=bob
+   export DEMO_EDITOR_PASSWORD=your-secure-editor-password
+   export DEMO_VIEWER_USERNAME=charlie
+   export DEMO_VIEWER_PASSWORD=your-secure-viewer-password
+   export DEMO_ADMIN_API_KEY=your-secure-api-key
+   ```
+
+   **SECURITY NOTE**: These environment variables are now REQUIRED to prevent hardcoded credentials in the source code. The application will fail to start if these are not set.
+
+2. **Optional: Configure token expiration**:
+   ```bash
+   export TOKEN_EXPIRATION_HOURS=2  # Default is 1 hour
+   ```
+
+3. **Start the server**:
    ```bash
    cd examples/auth_middleware
    go run .
    ```
 
-2. **The server will start on http://localhost:8080**
+4. **The server will start on http://localhost:8080**
 
 ## API Endpoints
 
@@ -80,8 +98,10 @@ This example demonstrates comprehensive authentication and authorization pattern
 ```bash
 curl -X POST http://localhost:8080/login \
      -H 'Content-Type: application/json' \
-     -d '{"username":"alice","password":"password123"}'
+     -d '{"username":"alice","password":"your-secure-password"}'
 ```
+
+**SECURITY NOTE**: This example now uses environment variables for credentials instead of hardcoded values. You must set the required environment variables before running the server.
 
 **Response**:
 ```json
@@ -150,13 +170,15 @@ curl -X POST http://localhost:8080/rbac/check \
 
 ## Test Users
 
-The example includes three pre-configured test users:
+The example includes three pre-configured test users loaded from environment variables:
 
-| Username | Password    | Roles    | Access Level |
-|----------|-------------|----------|--------------|
-| alice    | password123 | admin    | Full access  |
-| bob      | password123 | editor   | Read/Write   |
-| charlie  | password123 | viewer   | Read-only    |
+| Username | Password | Roles    | Access Level |
+|----------|----------|----------|--------------|
+| Set via DEMO_ADMIN_USERNAME | Set via DEMO_ADMIN_PASSWORD | admin    | Full access  |
+| Set via DEMO_EDITOR_USERNAME | Set via DEMO_EDITOR_PASSWORD | editor   | Read/Write   |
+| Set via DEMO_VIEWER_USERNAME | Set via DEMO_VIEWER_PASSWORD | viewer   | Read-only    |
+
+**SECURITY IMPROVEMENT**: Credentials are now loaded from environment variables instead of being hardcoded in the source code. This prevents accidental exposure of credentials in version control and follows security best practices.
 
 ## Configuration Options
 
@@ -303,22 +325,29 @@ rbac.AddPolicy(businessHoursPolicy)
 
 ## Best Practices
 
-1. **Token Management**
+1. **Password Security**
+   - **Never hardcode passwords** in source code
+   - Use secure password managers or environment variables
+   - Implement proper password hashing (bcrypt, Argon2)
+   - Generate cryptographically secure random passwords
+   - Consider alternative authentication methods (API keys, OAuth, JWT)
+
+2. **Token Management**
    - Use short-lived tokens with refresh capability
    - Implement proper token storage and transmission
    - Regular token rotation and revocation
 
-2. **Role Design**
+3. **Role Design**
    - Follow principle of least privilege
    - Use role inheritance for maintainability
    - Regular role and permission audits
 
-3. **Error Handling**
+4. **Error Handling**
    - Always use secure error mode in production
    - Implement comprehensive logging
    - Monitor for security events
 
-4. **Rate Limiting**
+5. **Rate Limiting**
    - Set appropriate limits based on usage patterns
    - Implement progressive restrictions
    - Monitor for abuse patterns

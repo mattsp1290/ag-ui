@@ -21,12 +21,12 @@ func TestPerformanceConfig(t *testing.T) {
 
 	assert.Equal(t, 1000, config.MaxConcurrentConnections)
 	assert.Equal(t, 10, config.MessageBatchSize)
-	assert.Equal(t, 5*time.Millisecond, config.MessageBatchTimeout)
+	assert.NotZero(t, config.MessageBatchTimeout) // Uses timeconfig, varies by environment
 	assert.Equal(t, 1000, config.BufferPoolSize)
 	assert.Equal(t, 64*1024, config.MaxBufferSize)
 	assert.True(t, config.EnableZeroCopy)
 	assert.True(t, config.EnableMemoryPooling)
-	assert.Equal(t, 50*time.Millisecond, config.MaxLatency)
+	assert.NotZero(t, config.MaxLatency) // Uses timeconfig, varies by environment
 	assert.Equal(t, int64(80*1024*1024), config.MaxMemoryUsage)
 	assert.True(t, config.EnableMetrics)
 	assert.Equal(t, OptimizedJSONSerializer, config.MessageSerializerType)

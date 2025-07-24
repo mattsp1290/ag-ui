@@ -172,7 +172,7 @@ The monitoring system integrates well with common observability tools:
 - **Jaeger/Zipkin**: Distributed tracing for request flows
 - **ELK Stack**: Structured logs for analysis
 - **AlertManager**: Advanced alert routing and grouping
-- **PagerDuty/Slack**: Alert notifications
+- **Slack**: Alert notifications
 
 # Performance Considerations
 

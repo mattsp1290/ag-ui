@@ -1192,11 +1192,11 @@ func DefaultComprehensiveConfig() ComprehensiveConfig {
 			},
 			CORS: CORSConfig{
 				Enabled:          false,
-				AllowedOrigins:   []string{"*"},
+				AllowedOrigins:   []string{"https://localhost:3000", "https://localhost:8080"},
 				AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-				AllowedHeaders:   []string{"*"},
+				AllowedHeaders:   []string{"Content-Type", "Authorization", "X-Requested-With", "X-CSRF-Token"},
 				ExposedHeaders:   []string{},
-				AllowCredentials: false,
+				AllowCredentials: true,
 				MaxAge:           24 * time.Hour,
 			},
 			RateLimit: RateLimitConfig{

@@ -2,6 +2,7 @@ package test
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"testing"
 	"time"
@@ -34,12 +35,17 @@ func (c *MockCalculatorExecutor) Execute(ctx context.Context, params map[string]
 		}, nil
 	}
 
-	operand2, ok := params["operand2"].(float64)
-	if !ok {
-		return &tools.ToolExecutionResult{
-			Success: false,
-			Error:   "operand2 must be a number",
-		}, nil
+	// Only check operand2 for operations that need it
+	var operand2 float64
+	if operation != "sqrt" {
+		if op2, ok := params["operand2"].(float64); ok {
+			operand2 = op2
+		} else {
+			return &tools.ToolExecutionResult{
+				Success: false,
+				Error:   "operand2 must be a number",
+			}, nil
+		}
 	}
 
 	var result float64
@@ -89,11 +95,16 @@ func (c *MockCalculatorExecutor) Execute(ctx context.Context, params map[string]
 		Data:      result,
 		Timestamp: time.Now(),
 		Duration:  time.Microsecond * 100, // Simulated processing time
-		Metadata: map[string]interface{}{
-			"operation": operation,
-			"operand1":  operand1,
-			"operand2":  operand2,
-		},
+		Metadata: func() map[string]interface{} {
+			metadata := map[string]interface{}{
+				"operation": operation,
+				"operand1":  operand1,
+			}
+			if operation != "sqrt" {
+				metadata["operand2"] = operand2
+			}
+			return metadata
+		}(),
 	}, nil
 }
 
@@ -569,6 +580,7 @@ func TestCalculatorTool_Context(t *testing.T) {
 
 // TestCalculatorTool_Schema tests schema validation (if implemented)
 func TestCalculatorTool_Schema(t *testing.T) {
+	t.Parallel()
 	tool := createCalculatorTool()
 
 	// Test schema structure
@@ -591,6 +603,7 @@ func TestCalculatorTool_Schema(t *testing.T) {
 
 // TestCalculatorTool_Metadata tests tool metadata
 func TestCalculatorTool_Metadata(t *testing.T) {
+	t.Parallel()
 	tool := createCalculatorTool()
 
 	assert.Equal(t, "calculator", tool.ID)
@@ -615,6 +628,7 @@ func TestCalculatorTool_Metadata(t *testing.T) {
 
 // TestCalculatorTool_Capabilities tests tool capabilities
 func TestCalculatorTool_Capabilities(t *testing.T) {
+	t.Parallel()
 	tool := createCalculatorTool()
 
 	assert.NotNil(t, tool.Capabilities)
@@ -699,9 +713,9 @@ func Example_calculatorToolBasicUsage() {
 	}
 
 	if result.Success {
-		println("Result:", result.Data.(float64))
+		fmt.Println("Result:", result.Data.(float64))
 	} else {
-		println("Error:", result.Error)
+		fmt.Println("Error:", result.Error)
 	}
 
 	// Output: Result: 8

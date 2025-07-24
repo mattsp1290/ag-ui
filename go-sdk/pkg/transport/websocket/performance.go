@@ -16,6 +16,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/ag-ui/go-sdk/pkg/internal/timeconfig"
 )
 
 // PerformanceConfig contains configuration for performance optimizations
@@ -93,21 +94,46 @@ func (s SerializerType) String() string {
 }
 
 // DefaultPerformanceConfig returns a default performance configuration
+// Uses configurable timeouts that adapt to test/production environments
 func DefaultPerformanceConfig() *PerformanceConfig {
+	config := timeconfig.GetConfig()
 	return &PerformanceConfig{
 		MaxConcurrentConnections: 1000,
 		MessageBatchSize:         10,
-		MessageBatchTimeout:      5 * time.Millisecond,
+		MessageBatchTimeout:      config.DefaultMessageBatchTimeout,
 		BufferPoolSize:           1000,
 		MaxBufferSize:            64 * 1024, // 64KB
 		EnableZeroCopy:           true,
 		EnableMemoryPooling:      true,
 		EnableProfiling:          false,
-		ProfilingInterval:        60 * time.Second,
-		MaxLatency:               50 * time.Millisecond,
+		ProfilingInterval:        config.DefaultProfilingInterval,
+		MaxLatency:               config.DefaultMaxLatency,
 		MaxMemoryUsage:           80 * 1024 * 1024, // 80MB
 		EnableMetrics:            true,
-		MetricsInterval:          10 * time.Second,
+		MetricsInterval:          config.DefaultMetricsInterval,
+		MessageSerializerType:    OptimizedJSONSerializer,
+		Logger:                   zap.NewNop(),
+	}
+}
+
+// HighConcurrencyPerformanceConfig returns a performance configuration optimized for high concurrency testing
+// Uses configurable timeouts that adapt to test/production environments
+func HighConcurrencyPerformanceConfig() *PerformanceConfig {
+	config := timeconfig.GetConfig()
+	return &PerformanceConfig{
+		MaxConcurrentConnections: 50000,     // Much higher concurrency limit
+		MessageBatchSize:         100,       // Larger batches for better throughput  
+		MessageBatchTimeout:      config.DefaultMessageBatchTimeout, // Use configurable timeout
+		BufferPoolSize:           10000,     // More buffers for high concurrency
+		MaxBufferSize:            64 * 1024, // 64KB
+		EnableZeroCopy:           true,
+		EnableMemoryPooling:      true,
+		EnableProfiling:          false,
+		ProfilingInterval:        config.DefaultProfilingInterval,
+		MaxLatency:               config.DefaultMaxLatency, // Use configurable latency
+		MaxMemoryUsage:           500 * 1024 * 1024, // 500MB for high concurrency
+		EnableMetrics:            false,     // Disable metrics to reduce overhead
+		MetricsInterval:          config.DefaultMetricsInterval,
 		MessageSerializerType:    OptimizedJSONSerializer,
 		Logger:                   zap.NewNop(),
 	}

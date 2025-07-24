@@ -6,13 +6,22 @@ import (
 	"time"
 )
 
-// Transport represents the core transport interface for bidirectional communication
-// with agents and front-end applications in the AG-UI system.
-type Transport interface {
+// TransportConnection handles connection operations
+type TransportConnection interface {
 	// Connect establishes a connection to the remote endpoint.
 	// Returns an error if the connection cannot be established.
 	Connect(ctx context.Context) error
 
+	// Close closes the transport and releases any associated resources.
+	// This method should be idempotent and safe to call multiple times.
+	Close() error
+
+	// IsConnected returns true if the transport is currently connected.
+	IsConnected() bool
+}
+
+// TransportEventHandler handles event sending and receiving
+type TransportEventHandler interface {
 	// SendEvent sends an event to the remote endpoint.
 	// The event parameter is type-erased to support multiple event types.
 	SendEvent(ctx context.Context, event any) error
@@ -21,19 +30,28 @@ type Transport interface {
 	// The channel is closed when the transport is closed or an error occurs.
 	// Events are type-erased to support multiple event types.
 	ReceiveEvents(ctx context.Context) (<-chan any, error)
+}
 
-	// Close closes the transport and releases any associated resources.
-	// This method should be idempotent and safe to call multiple times.
-	Close() error
-
-	// IsConnected returns true if the transport is currently connected.
-	IsConnected() bool
-
+// TransportConfiguration provides configuration access
+type TransportConfiguration interface {
 	// Config returns the transport's configuration.
 	Config() Config
+}
 
+// TransportStatistics provides statistics and metrics
+type TransportStatistics interface {
 	// Stats returns transport statistics and metrics.
 	Stats() TransportStats
+}
+
+// Transport represents the core transport interface for bidirectional communication
+// with agents and front-end applications in the AG-UI system.
+// Composed of focused interfaces following Interface Segregation Principle
+type Transport interface {
+	TransportConnection
+	TransportEventHandler
+	TransportConfiguration
+	TransportStatistics
 }
 
 // StreamingTransport extends Transport with streaming-specific capabilities
@@ -128,28 +146,46 @@ type ReliabilityStats struct {
 	RedeliveryRate         float64       `json:"redelivery_rate"`
 }
 
-// Config represents the interface for transport configuration.
-type Config interface {
+// ConfigValidation handles configuration validation
+type ConfigValidation interface {
 	// Validate validates the configuration.
 	Validate() error
 
 	// Clone creates a deep copy of the configuration.
 	Clone() Config
+}
 
+// ConfigMetadata provides configuration metadata
+type ConfigMetadata interface {
 	// GetType returns the transport type (e.g., "websocket", "http", "grpc").
 	GetType() string
 
 	// GetEndpoint returns the endpoint URL or address.
 	GetEndpoint() string
 
-	// GetTimeout returns the connection timeout.
-	GetTimeout() time.Duration
-
-	// GetHeaders returns custom headers for the transport.
-	GetHeaders() map[string]string
-
 	// IsSecure returns true if the transport uses secure connections.
 	IsSecure() bool
+}
+
+// ConfigTimeouts provides timeout configuration
+type ConfigTimeouts interface {
+	// GetTimeout returns the connection timeout.
+	GetTimeout() time.Duration
+}
+
+// ConfigHeaders provides header configuration
+type ConfigHeaders interface {
+	// GetHeaders returns custom headers for the transport.
+	GetHeaders() map[string]string
+}
+
+// Config represents the interface for transport configuration.
+// Composed of focused interfaces following Interface Segregation Principle
+type Config interface {
+	ConfigValidation
+	ConfigMetadata
+	ConfigTimeouts
+	ConfigHeaders
 }
 
 // ConnectionState represents the current state of a transport connection.
@@ -236,9 +272,8 @@ type EventFilter interface {
 	Name() string
 }
 
-// TransportManager manages multiple transport instances and provides
-// load balancing, failover, and connection pooling capabilities.
-type TransportManager interface {
+// TransportRegistryInterface manages transport registration and retrieval
+type TransportRegistryInterface interface {
 	// AddTransport adds a transport to the manager.
 	AddTransport(name string, transport Transport) error
 
@@ -250,24 +285,51 @@ type TransportManager interface {
 
 	// GetActiveTransports returns all active transports.
 	GetActiveTransports() map[string]Transport
+}
 
+// TransportEventSender handles event sending across transports
+type TransportEventSender interface {
 	// SendEvent sends an event using the best available transport.
 	SendEvent(ctx context.Context, event any) error
 
 	// SendEventToTransport sends an event to a specific transport.
 	SendEventToTransport(ctx context.Context, transportName string, event any) error
+}
 
+// TransportEventReceiver handles event receiving from transports
+type TransportEventReceiver interface {
 	// ReceiveEvents returns a channel that receives events from all transports.
 	ReceiveEvents(ctx context.Context) (<-chan any, error)
+}
 
+// TransportLoadBalancerManager manages load balancing configuration
+type TransportLoadBalancerManager interface {
 	// SetLoadBalancer sets the load balancing strategy.
 	SetLoadBalancer(balancer LoadBalancer)
+}
 
-	// Close closes all managed transports.
-	Close() error
-
+// TransportStatsProvider provides aggregated transport statistics
+type TransportStatsProvider interface {
 	// GetStats returns aggregated statistics from all transports.
 	GetStats() map[string]TransportStats
+}
+
+// TransportLifecycle manages transport lifecycle
+type TransportLifecycle interface {
+	// Close closes all managed transports.
+	Close() error
+}
+
+// TransportManager manages multiple transport instances and provides
+// load balancing, failover, and connection pooling capabilities.
+// Composed of focused interfaces following Interface Segregation Principle
+type TransportManager interface {
+	TransportRegistryInterface
+	TransportEventSender
+	TransportEventReceiver
+	TransportLoadBalancerManager
+	TransportStatsProvider
+	TransportLifecycle
 }
 
 // LoadBalancer represents a load balancing strategy for multiple transports.

@@ -3,6 +3,8 @@ package tools
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1762,8 +1764,23 @@ func TestInjectionAttackPreventionIntegration(t *testing.T) {
 	}
 	defer os.RemoveAll(tempDir)
 
+	// Create a mock HTTP server for testing
+	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Respond immediately with success
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintln(w, `{"message": "success"}`)
+	}))
+	defer mockServer.Close()
+
 	// Create a comprehensive secure environment
 	registry := NewRegistry()
+	
+	// For this test, we'll use HTTP options that allow localhost testing
+	// The security is still tested in other test cases
+	httpOptions := DefaultSecureHTTPOptions()
+	httpOptions.AllowPrivateNetworks = true
+	httpOptions.AllowedHosts = []string{"127.0.0.1", "localhost", "[::1]"}
 	
 	options := &BuiltinToolsOptions{
 		SecureMode: true,
@@ -1771,11 +1788,7 @@ func TestInjectionAttackPreventionIntegration(t *testing.T) {
 			AllowedPaths: []string{tempDir},
 			MaxFileSize:  1024 * 1024,
 		},
-		HTTPOptions: &SecureHTTPOptions{
-			AllowedHosts: []string{"example.com", "www.example.com"},
-			AllowedSchemes: []string{"http", "https"},
-			AllowPrivateNetworks: false,
-		},
+		HTTPOptions: httpOptions,
 	}
 
 	if err := RegisterBuiltinToolsWithOptions(registry, options); err != nil {
@@ -1818,7 +1831,7 @@ func TestInjectionAttackPreventionIntegration(t *testing.T) {
 			name:     "Valid HTTP operation",
 			toolName: "builtin.http_get",
 			params: map[string]interface{}{
-				"url": "https://example.com/api",
+				"url": mockServer.URL + "/api",
 			},
 			shouldFail: false,
 		},

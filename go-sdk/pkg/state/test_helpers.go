@@ -1,12 +1,16 @@
 package state
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"os"
 	"sync"
 	"testing"
 	"time"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // testOutputRedirector helps suppress write errors in tests
@@ -146,6 +150,7 @@ type TestCleanup struct {
 	t              *testing.T
 	manager        *StateManager
 	monitoring     *MonitoringSystem
+	loggers        []*zap.Logger
 	cleanupFuncs   []func()
 	mu             sync.Mutex
 	cleanupStarted bool
@@ -155,6 +160,7 @@ type TestCleanup struct {
 func NewTestCleanup(t *testing.T) *TestCleanup {
 	tc := &TestCleanup{
 		t:            t,
+		loggers:      make([]*zap.Logger, 0),
 		cleanupFuncs: make([]func(), 0),
 	}
 	
@@ -176,6 +182,13 @@ func (tc *TestCleanup) SetMonitoring(monitoring *MonitoringSystem) {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
 	tc.monitoring = monitoring
+}
+
+// AddLogger registers a zap logger for cleanup
+func (tc *TestCleanup) AddLogger(logger *zap.Logger) {
+	tc.mu.Lock()
+	defer tc.mu.Unlock()
+	tc.loggers = append(tc.loggers, logger)
 }
 
 // AddCleanup adds a cleanup function to run during test cleanup
@@ -213,6 +226,18 @@ func (tc *TestCleanup) Cleanup() {
 		}
 	}
 	
+	// Sync all registered loggers before running cleanup functions
+	for _, logger := range tc.loggers {
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					tc.t.Logf("Warning: logger sync panicked: %v", r)
+				}
+			}()
+			logger.Sync()
+		}()
+	}
+	
 	// Run any additional cleanup functions
 	for i := len(tc.cleanupFuncs) - 1; i >= 0; i-- {
 		func() {
@@ -228,13 +253,48 @@ func (tc *TestCleanup) Cleanup() {
 	// Give a brief moment for any remaining goroutines to finish
 	time.Sleep(50 * time.Millisecond)
 	
-	// Redirect stdout/stderr to devnull to suppress any late write errors
-	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
-	if err == nil {
-		os.Stdout = devNull
-		os.Stderr = devNull
-		tc.AddCleanup(func() {
-			devNull.Close()
-		})
-	}
+	// Note: Don't redirect stdout/stderr to /dev/null as it causes sync errors on some systems
+}
+
+// NewTestSafeLoggerWithBuffer creates a test-safe zap logger that writes to a buffer
+func NewTestSafeLoggerWithBuffer() (*zap.Logger, *bytes.Buffer) {
+	buf := &bytes.Buffer{}
+	config := zap.NewProductionConfig()
+	config.Level = zap.NewAtomicLevelAt(zapcore.DebugLevel)
+	
+	core := zapcore.NewCore(
+		zapcore.NewJSONEncoder(config.EncoderConfig),
+		zapcore.AddSync(buf),
+		config.Level,
+	)
+	
+	return zap.New(core), buf
+}
+
+// NewTestSafeZapLogger creates a test-safe zap logger that writes to a buffer
+func NewTestSafeZapLogger(t *testing.T) *zap.Logger {
+	logger, _ := NewTestSafeLoggerWithBuffer()
+	return logger
+}
+
+// NewTestSafeMonitoringConfig creates a monitoring config that doesn't write to stdout
+func NewTestSafeMonitoringConfig() MonitoringConfig {
+	config := DefaultMonitoringConfig()
+	// Use a buffer instead of stdout to prevent write-after-close errors
+	config.LogOutput = &bytes.Buffer{}
+	// Also disable resource monitoring in tests to reduce background goroutines
+	config.EnableResourceMonitoring = false
+	config.MetricsInterval = 10 * time.Second    // Reasonable interval for tests
+	config.HealthCheckInterval = 10 * time.Second
+	config.HealthCheckTimeout = 500 * time.Millisecond  // Very short timeout for tests to prevent blocking shutdown
+	config.ResourceSampleInterval = 10 * time.Second    // Longer interval to reduce activity
+	return config
+}
+
+// NewTestSafeMonitoringConfigWithBuffer creates a monitoring config with a buffer for testing
+func NewTestSafeMonitoringConfigWithBuffer() (MonitoringConfig, *bytes.Buffer) {
+	config := DefaultMonitoringConfig()
+	buf := &bytes.Buffer{}
+	config.LogOutput = buf
+	return config, buf
 }

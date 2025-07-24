@@ -30,35 +30,30 @@ The test suite provides comprehensive coverage for all notifier implementations 
 - **SendAlert()**: Slack webhook payload structure, attachment formatting
 - **Integration**: Mock server testing for complete request/response cycle
 
-### 6. PagerDuty Alert Notifier Tests
-- **NewPagerDutyAlertNotifier()**: Integration key setup
-- **getSeverityForLevel()**: Severity mapping for alert levels
-- **SendAlert()**: PagerDuty API payload structure, event actions (trigger/resolve)
-- **Event Action Logic**: Info alerts resolve, others trigger
 
-### 7. File Alert Notifier Tests
+### 6. File Alert Notifier Tests
 - **NewFileAlertNotifier()**: File creation, permissions, error handling
 - **SendAlert()**: JSON serialization, file writing, data persistence
 - **Close()**: Resource cleanup
 - **Error Scenarios**: Invalid paths, permission denied, file system errors
 
-### 8. Composite Alert Notifier Tests
+### 7. Composite Alert Notifier Tests
 - **NewCompositeAlertNotifier()**: Multiple notifier configuration
 - **SendAlert()**: All notifiers called, partial failure handling, error aggregation
 - **Error Handling**: Continues processing when individual notifiers fail
 
-### 9. Conditional Alert Notifier Tests
+### 8. Conditional Alert Notifier Tests
 - **NewConditionalAlertNotifier()**: Condition function setup
 - **SendAlert()**: Conditional filtering based on alert properties
 - **Various Conditions**: Level-based filtering, component-based filtering
 
-### 10. Throttled Alert Notifier Tests
+### 9. Throttled Alert Notifier Tests
 - **NewThrottledAlertNotifier()**: Throttle duration configuration
 - **SendAlert()**: Throttling behavior, time-based deduplication
 - **Edge Cases**: Error handling doesn't update throttle state, different alert keys tracked separately
 - **Throttle Logic**: Same alerts throttled, different alerts not affected
 
-### 11. Helper Functions Tests
+### 10. Helper Functions Tests
 - **alertLevelToString()**: All alert levels mapped correctly, unknown level handling
 - **auditSeverityToString()**: All severity levels mapped correctly, unknown severity handling
 
@@ -127,7 +122,6 @@ The test suite provides comprehensive coverage for all notifier implementations 
 
 ### Real Protocols
 - Slack webhook format compliance
-- PagerDuty API v2 compliance
 - Standard HTTP client behavior
 
 ## Test Quality Features

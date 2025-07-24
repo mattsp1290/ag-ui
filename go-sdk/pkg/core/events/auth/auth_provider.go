@@ -3,7 +3,10 @@ package auth
 import (
 	"context"
 	"errors"
+	"regexp"
+	"strings"
 	"time"
+	"unicode"
 )
 
 // Common authentication errors
@@ -57,7 +60,7 @@ func (c *BasicCredentials) GetType() string {
 	return "basic"
 }
 
-// Validate validates the basic credentials
+// Validate validates the basic credentials with security checks
 func (c *BasicCredentials) Validate() error {
 	if c.Username == "" {
 		return errors.New("username is required")
@@ -65,6 +68,32 @@ func (c *BasicCredentials) Validate() error {
 	if c.Password == "" {
 		return errors.New("password is required")
 	}
+	
+	// Validate username length and characters
+	if len(c.Username) < 3 || len(c.Username) > 64 {
+		return errors.New("username must be between 3 and 64 characters")
+	}
+	
+	// Check for valid username characters (alphanumeric, underscore, hyphen, dot)
+	if !isValidUsername(c.Username) {
+		return errors.New("username contains invalid characters")
+	}
+	
+	// Validate password strength
+	if len(c.Password) < 8 || len(c.Password) > 128 {
+		return errors.New("password must be between 8 and 128 characters")
+	}
+	
+	// Check for null bytes and control characters
+	if strings.ContainsRune(c.Username, '\x00') || strings.ContainsRune(c.Password, '\x00') {
+		return errors.New("credentials cannot contain null bytes")
+	}
+	
+	// Check for basic password complexity
+	if !isPasswordComplex(c.Password) {
+		return errors.New("password must contain at least one uppercase letter, one lowercase letter, one digit, and one special character")
+	}
+	
 	return nil
 }
 
@@ -79,7 +108,7 @@ func (c *TokenCredentials) GetType() string {
 	return "token"
 }
 
-// Validate validates the token credentials
+// Validate validates the token credentials with security checks
 func (c *TokenCredentials) Validate() error {
 	if c.Token == "" {
 		return errors.New("token is required")
@@ -87,6 +116,22 @@ func (c *TokenCredentials) Validate() error {
 	if c.TokenType == "" {
 		c.TokenType = "Bearer" // Default to Bearer
 	}
+	
+	// Validate token length
+	if len(c.Token) < 32 || len(c.Token) > 2048 {
+		return errors.New("token must be between 32 and 2048 characters")
+	}
+	
+	// Check for null bytes and control characters
+	if strings.ContainsRune(c.Token, '\x00') {
+		return errors.New("token cannot contain null bytes")
+	}
+	
+	// Check for valid token format (base64-like or hex)
+	if !isValidToken(c.Token) {
+		return errors.New("token contains invalid characters")
+	}
+	
 	return nil
 }
 
@@ -101,11 +146,38 @@ func (c *APIKeyCredentials) GetType() string {
 	return "api_key"
 }
 
-// Validate validates the API key credentials
+// Validate validates the API key credentials with security checks
 func (c *APIKeyCredentials) Validate() error {
 	if c.APIKey == "" {
 		return errors.New("API key is required")
 	}
+	
+	// Validate API key length
+	if len(c.APIKey) < 32 || len(c.APIKey) > 256 {
+		return errors.New("API key must be between 32 and 256 characters")
+	}
+	
+	// Check for null bytes and control characters
+	if strings.ContainsRune(c.APIKey, '\x00') {
+		return errors.New("API key cannot contain null bytes")
+	}
+	
+	// Check for valid API key format
+	if !isValidAPIKey(c.APIKey) {
+		return errors.New("API key contains invalid characters")
+	}
+	
+	// Validate secret if present
+	if c.Secret != "" {
+		if len(c.Secret) < 16 || len(c.Secret) > 128 {
+			return errors.New("API key secret must be between 16 and 128 characters")
+		}
+		
+		if strings.ContainsRune(c.Secret, '\x00') {
+			return errors.New("API key secret cannot contain null bytes")
+		}
+	}
+	
 	return nil
 }
 
@@ -293,4 +365,47 @@ func DefaultAuthConfig() *AuthConfig {
 		AuditLogRetention:     30 * 24 * time.Hour, // 30 days
 		ProviderConfig:        make(map[string]interface{}),
 	}
+}
+
+// Input validation helper functions
+
+// isValidUsername checks if a username contains only allowed characters
+func isValidUsername(username string) bool {
+	// Allow alphanumeric, underscore, hyphen, and dot
+	validUsernameRegex := regexp.MustCompile(`^[a-zA-Z0-9._-]+$`)
+	return validUsernameRegex.MatchString(username)
+}
+
+// isPasswordComplex checks if a password meets complexity requirements
+func isPasswordComplex(password string) bool {
+	var hasUpper, hasLower, hasDigit, hasSpecial bool
+	
+	for _, char := range password {
+		switch {
+		case unicode.IsUpper(char):
+			hasUpper = true
+		case unicode.IsLower(char):
+			hasLower = true
+		case unicode.IsDigit(char):
+			hasDigit = true
+		case unicode.IsPunct(char) || unicode.IsSymbol(char):
+			hasSpecial = true
+		}
+	}
+	
+	return hasUpper && hasLower && hasDigit && hasSpecial
+}
+
+// isValidToken checks if a token contains only valid characters
+func isValidToken(token string) bool {
+	// Allow base64-like characters and hex characters
+	validTokenRegex := regexp.MustCompile(`^[A-Za-z0-9+/=._-]+$`)
+	return validTokenRegex.MatchString(token)
+}
+
+// isValidAPIKey checks if an API key contains only valid characters
+func isValidAPIKey(apiKey string) bool {
+	// Allow alphanumeric and common API key characters
+	validAPIKeyRegex := regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+	return validAPIKeyRegex.MatchString(apiKey)
 }

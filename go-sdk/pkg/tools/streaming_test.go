@@ -19,6 +19,7 @@ import (
 // TestStreamingContext tests the StreamingContext functionality
 func TestStreamingContext(t *testing.T) {
 	t.Run("NewStreamingContext", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		sc := NewStreamingContext(ctx)
 
@@ -30,6 +31,7 @@ func TestStreamingContext(t *testing.T) {
 	})
 
 	t.Run("Send", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		sc := NewStreamingContext(ctx)
 
@@ -50,13 +52,14 @@ func TestStreamingContext(t *testing.T) {
 			case chunk := <-sc.Channel():
 				assert.Equal(t, "data", chunk.Type)
 				assert.Equal(t, data, chunk.Data)
-			case <-time.After(time.Second):
+			case <-time.After(100 * time.Millisecond):
 				t.Fatal("timeout waiting for chunk")
 			}
 		}
 	})
 
 	t.Run("SendError", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		sc := NewStreamingContext(ctx)
 
@@ -68,12 +71,13 @@ func TestStreamingContext(t *testing.T) {
 		case chunk := <-sc.Channel():
 			assert.Equal(t, "error", chunk.Type)
 			assert.Equal(t, "test error", chunk.Data)
-		case <-time.After(time.Second):
+		case <-time.After(100 * time.Millisecond):
 			t.Fatal("timeout waiting for chunk")
 		}
 	})
 
 	t.Run("SendMetadata", func(t *testing.T) {
+		t.Parallel()
 		ctx := context.Background()
 		sc := NewStreamingContext(ctx)
 
@@ -89,7 +93,7 @@ func TestStreamingContext(t *testing.T) {
 		case chunk := <-sc.Channel():
 			assert.Equal(t, "metadata", chunk.Type)
 			assert.Equal(t, metadata, chunk.Data)
-		case <-time.After(time.Second):
+		case <-time.After(100 * time.Millisecond):
 			t.Fatal("timeout waiting for chunk")
 		}
 	})
@@ -105,7 +109,7 @@ func TestStreamingContext(t *testing.T) {
 		case chunk := <-sc.Channel():
 			assert.Equal(t, "complete", chunk.Type)
 			assert.Nil(t, chunk.Data)
-		case <-time.After(time.Second):
+		case <-time.After(100 * time.Millisecond):
 			t.Fatal("timeout waiting for chunk")
 		}
 	})
@@ -164,7 +168,7 @@ func TestStreamingContext(t *testing.T) {
 			select {
 			case chunk := <-sc.Channel():
 				assert.Equal(t, i, chunk.Index)
-			case <-time.After(time.Second):
+			case <-time.After(100 * time.Millisecond):
 				t.Fatal("timeout waiting for chunk")
 			}
 		}
@@ -661,7 +665,7 @@ func TestStreamingResultBuilder(t *testing.T) {
 			assert.Equal(t, 50, progress["current"])
 			assert.Equal(t, 100, progress["total"])
 			assert.Equal(t, "Processing...", progress["message"])
-		case <-time.After(time.Second):
+		case <-time.After(100 * time.Millisecond):
 			t.Fatal("timeout waiting for chunk")
 		}
 	})
@@ -678,7 +682,7 @@ func TestStreamingResultBuilder(t *testing.T) {
 		case chunk := <-builder.Channel():
 			assert.Equal(t, "data", chunk.Type)
 			assert.Equal(t, data, chunk.Data)
-		case <-time.After(time.Second):
+		case <-time.After(100 * time.Millisecond):
 			t.Fatal("timeout waiting for chunk")
 		}
 	})
@@ -695,7 +699,7 @@ func TestStreamingResultBuilder(t *testing.T) {
 		// Should receive data chunk then complete chunk
 		var gotData, gotComplete bool
 
-		timeout := time.After(time.Second)
+		timeout := time.After(50 * time.Millisecond)
 		for i := 0; i < 2; i++ {
 			select {
 			case chunk := <-builder.Channel():
@@ -724,7 +728,7 @@ func TestStreamingResultBuilder(t *testing.T) {
 		select {
 		case chunk := <-builder.Channel():
 			assert.Equal(t, "complete", chunk.Type)
-		case <-time.After(time.Second):
+		case <-time.After(100 * time.Millisecond):
 			t.Fatal("timeout waiting for chunk")
 		}
 	})
@@ -742,7 +746,7 @@ func TestStreamingResultBuilder(t *testing.T) {
 		case chunk := <-builder.Channel():
 			assert.Equal(t, "error", chunk.Type)
 			assert.Equal(t, "something went wrong", chunk.Data)
-		case <-time.After(time.Second):
+		case <-time.After(100 * time.Millisecond):
 			t.Fatal("timeout waiting for chunk")
 		}
 
@@ -790,7 +794,7 @@ func TestStreamingResultBuilder(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			timeout := time.After(2 * time.Second)
+			timeout := time.After(100 * time.Millisecond)
 			for {
 				select {
 				case _, ok := <-builder.Channel():
@@ -838,7 +842,7 @@ func TestIntegration(t *testing.T) {
 					if err != nil {
 						return
 					}
-					time.Sleep(10 * time.Millisecond)
+					time.Sleep(1 * time.Millisecond)
 				}
 
 				// Send partial results as JSON strings
@@ -1018,7 +1022,7 @@ func TestStreamingEdgeCases(t *testing.T) {
 		select {
 		case chunk := <-sc.Channel():
 			assert.Equal(t, largeData, chunk.Data)
-		case <-time.After(time.Second):
+		case <-time.After(5 * time.Second):
 			t.Fatal("timeout waiting for large chunk")
 		}
 
@@ -1115,7 +1119,7 @@ func TestStreamingEdgeCases(t *testing.T) {
 		select {
 		case <-done:
 			// Expected
-		case <-time.After(time.Second):
+		case <-time.After(5 * time.Second):
 			t.Fatal("Send should have completed after buffer space available")
 		}
 
@@ -1309,7 +1313,7 @@ func TestStreamingMiscellaneous(t *testing.T) {
 			case chunk := <-sc.Channel():
 				assert.Equal(t, "complete", chunk.Type)
 				assert.Equal(t, i, chunk.Index)
-			case <-time.After(time.Second):
+			case <-time.After(5 * time.Second):
 				t.Fatal("timeout waiting for complete chunk")
 			}
 		}

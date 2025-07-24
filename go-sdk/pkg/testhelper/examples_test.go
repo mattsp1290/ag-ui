@@ -70,7 +70,9 @@ func TestComprehensiveExample(t *testing.T) {
 
 	// Register worker cleanup
 	cleanup.Register("workers", func() {
-		close(doneCh)
+		// Use safe channel closure to prevent panic
+		CloseChannel(t, doneCh, "done-channel")
+		channelCleanup.MarkChannelClosed("done-channel")
 		if !WaitGroupTimeout(t, &wg, 2*time.Second) {
 			t.Log("Workers did not shut down gracefully")
 		}

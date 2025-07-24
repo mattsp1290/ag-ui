@@ -201,6 +201,11 @@ func testPerformanceOptimizerMethods(t *testing.T, optimizer PerformanceOptimize
 			t.Error("Invalid enhanced pool hits metric")
 		}
 	})
+
+	// Test cleanup
+	t.Run("Cleanup", func(t *testing.T) {
+		optimizer.Stop()
+	})
 }
 
 // TestPerformanceOptimizerTypeAssertion tests that the factory returns the expected concrete type

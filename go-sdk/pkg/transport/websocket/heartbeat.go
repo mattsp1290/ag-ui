@@ -8,6 +8,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
+	"github.com/ag-ui/go-sdk/pkg/internal/timeconfig"
 )
 
 // HeartbeatState represents the state of the heartbeat mechanism
@@ -126,10 +127,22 @@ func (h *HeartbeatManager) Stop() {
 
 		h.setState(HeartbeatStopping)
 		close(h.stopCh)
-		h.wg.Wait()
+		
+		// Wait for goroutines to finish with timeout
+		done := make(chan struct{})
+		go func() {
+			h.wg.Wait()
+			close(done)
+		}()
+		
+		select {
+		case <-done:
+			h.connection.config.Logger.Debug("Heartbeat manager stopped cleanly")
+		case <-time.After(timeconfig.HeartbeatTimeout()):
+			h.connection.config.Logger.Warn("Heartbeat manager stop timeout - some goroutines may still be running")
+		}
+		
 		h.setState(HeartbeatStopped)
-
-		h.connection.config.Logger.Debug("Heartbeat manager stopped")
 	})
 }
 

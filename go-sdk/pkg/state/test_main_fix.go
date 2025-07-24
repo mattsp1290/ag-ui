@@ -1,5 +1,3 @@
-// +build !race
-
 package state
 
 import (
@@ -109,6 +107,23 @@ func (f *filteringWriter) Write(p []byte) (n int, err error) {
 	return f.underlying.Write(p)
 }
 
+// createSafeFileWrapper creates a file wrapper around a testSafeWriter
+func createSafeFileWrapper(writer *testSafeWriter) (*os.File, error) {
+	// Create a pipe where the writer end will be wrapped with our safe writer
+	r, w, err := os.Pipe()
+	if err != nil {
+		return nil, err
+	}
+	
+	// Start a goroutine that copies from the pipe reader to our safe writer
+	go func() {
+		io.Copy(writer, r)
+		r.Close()
+	}()
+	
+	return w, nil
+}
+
 // SetupTestMain sets up the test environment
 func SetupTestMain(m *testing.M) int {
 	// Create wrapper
@@ -118,8 +133,28 @@ func SetupTestMain(m *testing.M) int {
 	// Run tests
 	code := m.Run()
 	
-	// Wait for background goroutines to finish
-	time.Sleep(300 * time.Millisecond)
+	// Shutdown all test loggers first to stop new log messages
+	ShutdownAllTestLoggers()
+	
+	// Give generous time for all background goroutines to complete
+	time.Sleep(2 * time.Second)
+	
+	// Redirect stdout/stderr to devnull to absorb any remaining writes
+	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err == nil {
+		origStdout := os.Stdout
+		origStderr := os.Stderr
+		os.Stdout = devNull
+		os.Stderr = devNull
+		
+		// Additional wait while writes go to devnull
+		time.Sleep(500 * time.Millisecond)
+		
+		// Restore and close
+		os.Stdout = origStdout
+		os.Stderr = origStderr
+		devNull.Close()
+	}
 	
 	// Cleanup resources
 	CleanupTestResources()

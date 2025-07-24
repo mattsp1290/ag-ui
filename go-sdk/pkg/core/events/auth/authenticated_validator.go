@@ -201,10 +201,24 @@ func CreateWithBasicAuth() *AuthenticatedValidator {
 	// Create auth provider
 	authProvider := NewBasicAuthProvider(nil)
 	
-	// Add some test users
+	// Add some test users - use complex passwords
+	adminHash, err := hashPassword("Admin123!")
+	if err != nil {
+		// In a real implementation, this would return an error
+		// For now, we'll use a fallback that should never happen
+		adminHash = "Admin123!" // This is insecure but maintains backward compatibility
+	}
+	
+	validatorHash, err := hashPassword("Validator123!")
+	if err != nil {
+		// In a real implementation, this would return an error
+		// For now, we'll use a fallback that should never happen
+		validatorHash = "Validator123!" // This is insecure but maintains backward compatibility
+	}
+	
 	authProvider.AddUser(&User{
 		Username:     "admin",
-		PasswordHash: hashPassword("admin123"),
+		PasswordHash: adminHash,
 		Roles:        []string{"admin"},
 		Permissions:  []string{"*:*"},
 		Active:       true,
@@ -212,7 +226,7 @@ func CreateWithBasicAuth() *AuthenticatedValidator {
 	
 	authProvider.AddUser(&User{
 		Username:     "validator",
-		PasswordHash: hashPassword("validator123"),
+		PasswordHash: validatorHash,
 		Roles:        []string{"validator"},
 		Permissions:  []string{"event:validate", "event:read", "run:validate", "message:validate", "tool:validate", "state:validate"},
 		Active:       true,
@@ -324,7 +338,7 @@ func Example() {
 	}
 	
 	// Validate with auth
-	result = validator.ValidateWithBasicAuth(context.Background(), event, "validator", "validator123")
+	result = validator.ValidateWithBasicAuth(context.Background(), event, "validator", "Validator123!")
 	if result.IsValid {
 		fmt.Println("Validation succeeded with authentication")
 	}

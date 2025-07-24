@@ -82,7 +82,7 @@ func demonstrateAutoGeneration() {
 		events.WithRole("assistant"))
 
 	fmt.Printf("Auto-generated run event: threadId=%s, runId=%s\n",
-		runEvent.ThreadID, runEvent.RunID)
+		runEvent.ThreadIDValue, runEvent.RunIDValue)
 	fmt.Printf("Auto-generated message event: messageId=%s\n",
 		msgEvent.MessageID)
 }
@@ -151,9 +151,9 @@ func demonstrateValidationLevels() {
 	}
 
 	runEvent := &events.RunStartedEvent{
-		BaseEvent: baseEvent,
-		ThreadID:  "thread-123",
-		RunID:     "", // Empty run ID
+		BaseEvent:     baseEvent,
+		ThreadIDValue: "thread-123",
+		RunIDValue:    "", // Empty run ID
 	}
 
 	ctx := context.Background()

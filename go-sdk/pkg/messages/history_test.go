@@ -177,9 +177,9 @@ func TestHistory(t *testing.T) {
 		}
 
 		// Wait a bit
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(1 * time.Millisecond)
 		cutoff := time.Now()
-		time.Sleep(10 * time.Millisecond)
+		time.Sleep(1 * time.Millisecond)
 
 		// Add newer messages
 		msg2 := NewUserMessage("New message 1")
@@ -241,8 +241,8 @@ func TestHistory(t *testing.T) {
 			t.Fatalf("Failed to add message: %v", err)
 		}
 
-		// Wait for message to age
-		time.Sleep(150 * time.Millisecond)
+		// Wait for message to age beyond MaxAge
+		time.Sleep(110 * time.Millisecond)
 
 		// Add new messages to trigger compaction
 		for i := 0; i < 3; i++ {

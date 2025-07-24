@@ -625,10 +625,11 @@ func TestIntegrationWithRealMetrics(t *testing.T) {
 	testCtx, testCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer testCancel()
 	
-	// Create a metrics config with all features enabled
+	// Create a metrics config with all features enabled and full sampling for test reliability
 	metricsConfig := events.ProductionMetricsConfig()
 	metricsConfig.PrometheusEnabled = true
 	metricsConfig.OTLPEnabled = false // Disable to avoid connection errors
+	metricsConfig.SamplingRate = 1.0  // Use 100% sampling for test reliability
 	
 	// Create monitoring integration
 	config := &Config{
@@ -750,13 +751,27 @@ func TestIntegrationWithRealMetrics(t *testing.T) {
 		<-done // Wait for generators to stop
 	}
 	
-	// Allow time for metrics to be processed
-	time.Sleep(100 * time.Millisecond)
-	
-	// Verify dashboard data
-	dashboard := monitor.GetEnhancedDashboardData()
-	require.NotNil(t, dashboard)
-	require.NotNil(t, dashboard.DashboardData)
+	// Wait for metrics to be processed with retry mechanism for reliability
+	var dashboard *EnhancedDashboardData
+	maxRetries := 10
+	for i := 0; i < maxRetries; i++ {
+		time.Sleep(50 * time.Millisecond)
+		
+		dashboard = monitor.GetEnhancedDashboardData()
+		require.NotNil(t, dashboard)
+		require.NotNil(t, dashboard.DashboardData)
+		
+		// Check if we have processed enough events (at least 100 out of 1000)
+		if dashboard.TotalEvents >= 100 {
+			break
+		}
+		
+		if i == maxRetries-1 {
+			// Log final counts for debugging if we still don't have enough events
+			t.Logf("Final attempt: Events generated: %d, Rules executed: %d", atomic.LoadInt64(&eventCount), atomic.LoadInt64(&ruleCount))
+			t.Logf("Dashboard shows: TotalEvents=%d, ErrorRate=%.2f%%", dashboard.TotalEvents, dashboard.ErrorRate)
+		}
+	}
 	
 	// Log actual counts for debugging
 	t.Logf("Events generated: %d, Rules executed: %d", atomic.LoadInt64(&eventCount), atomic.LoadInt64(&ruleCount))

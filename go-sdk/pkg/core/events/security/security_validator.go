@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"html"
+	"net/url"
 	"regexp"
 	"strings"
 	"sync"
@@ -23,9 +24,10 @@ type SecurityValidationRule struct {
 	encryptionValidator *EncryptionValidator
 	
 	// Patterns for detection
-	xssPatterns      []*regexp.Regexp
-	sqlPatterns      []*regexp.Regexp
-	commandPatterns  []*regexp.Regexp
+	xssPatterns          []*regexp.Regexp
+	sqlPatterns          []*regexp.Regexp
+	commandPatterns      []*regexp.Regexp
+	pathTraversalPatterns []*regexp.Regexp
 	
 	// Metrics
 	detectionMetrics *SecurityMetrics
@@ -43,6 +45,7 @@ type SecurityConfig struct {
 	EnableXSSDetection        bool
 	EnableSQLInjectionDetection bool
 	EnableCommandInjection    bool
+	EnablePathTraversalDetection bool
 	
 	// Rate limiting
 	EnableRateLimiting     bool
@@ -69,6 +72,7 @@ func DefaultSecurityConfig() *SecurityConfig {
 		EnableXSSDetection:         true,
 		EnableSQLInjectionDetection: true,
 		EnableCommandInjection:     true,
+		EnablePathTraversalDetection: true,
 		EnableRateLimiting:         true,
 		RateLimitPerMinute:        1000,
 		RateLimitPerEventType:     make(map[events.EventType]int),
@@ -125,12 +129,24 @@ func (r *SecurityValidationRule) initializePatterns() {
 	// SQL injection patterns
 	r.sqlPatterns = []*regexp.Regexp{
 		regexp.MustCompile(`(?i)(\b(union|select|insert|update|delete|drop|create|alter|exec|execute)\b.*\b(from|into|where|table|database)\b)`),
-		regexp.MustCompile(`(?i)('|")\s*(or|and)\s*('|")\s*('|")?\s*=\s*('|")`),
+		// Updated pattern to catch ' OR '1'='1 style injections and numeric comparisons
+		regexp.MustCompile(`(?i)'[^']*\s+(or|and)\s+[^']*'[^']*=|(?i)'\s+(or|and)\s+'[^']*'='`),
+		// Pattern for numeric OR/AND conditions like ' OR 1=1
+		regexp.MustCompile(`(?i)'\s+(or|and)\s+\d+\s*=\s*\d+`),
+		// Pattern for parentheses-based injections like ') OR ('1'='1
+		regexp.MustCompile(`(?i)'\)\s*(or|and)\s*\('[^']*'='`),
+		// Pattern for HAVING clauses
+		regexp.MustCompile(`(?i)'\s+having\s+\d+\s*=\s*\d+`),
 		regexp.MustCompile(`(?i);.*?(drop|delete|truncate|update)\s+(table|database)`),
 		regexp.MustCompile(`(?i)\b(waitfor\s+delay|benchmark|sleep)\b`),
 		regexp.MustCompile(`(?i)(\b(sys|information_schema)\.\w+)`),
 		regexp.MustCompile(`(?i)(xp_cmdshell|sp_executesql)`),
 		regexp.MustCompile(`(?i)(\bunion\b.*\bselect\b|\bselect\b.*\bunion\b)`),
+		// Comment-based SQL injection patterns
+		regexp.MustCompile(`(?i)('|")\s*--`),
+		regexp.MustCompile(`(?i)('|")\s*/\*`),
+		regexp.MustCompile(`(?i)('|")\s*#`),
+		regexp.MustCompile(`(?i)\badmin\s*'?\s*(--|#|/\*)`),
 	}
 	
 	// Command injection patterns
@@ -140,6 +156,19 @@ func (r *SecurityValidationRule) initializePatterns() {
 		regexp.MustCompile(`(?i)(\$\(|` + "`" + `)`),
 		regexp.MustCompile(`(?i)(nc\s+-|\btelnet\b|\bssh\b)`),
 		regexp.MustCompile(`(?i)(/etc/passwd|/etc/shadow|C:\\\\Windows\\\\System32)`),
+	}
+	
+	// Path traversal patterns
+	r.pathTraversalPatterns = []*regexp.Regexp{
+		regexp.MustCompile(`(?i)(\.\.\/|\.\.\\)`),                    // ../ or ..\
+		regexp.MustCompile(`(?i)(\.\.%2[fF]|\.\.%5[cC])`),           // URL encoded ../ or ..\
+		regexp.MustCompile(`(?i)(\.\.%252[fF]|\.\.%255[cC])`),       // Double URL encoded
+		regexp.MustCompile(`(?i)(\.{2,}[\/\\])`),                    // Multiple dots with slash
+		regexp.MustCompile(`(?i)(\.\.[\/\\]){2,}`),                  // Multiple traversals
+		regexp.MustCompile(`(?i)(\.\.%c0%af|\.\.%c1%9c)`),          // Unicode encoding attempts
+		regexp.MustCompile(`(?i)(\.\.%c0%ae)`),                      // Overlong UTF-8 encoding for ../
+		regexp.MustCompile(`(?i)(%c0%ae)`),                          // Overlong UTF-8 encoding for /
+		regexp.MustCompile(`(?i)(/\.\./|/\.\.\\|\\\.\.\\|\\\.\./)`), // Variations with leading slash
 	}
 }
 
@@ -227,6 +256,20 @@ func (r *SecurityValidationRule) Validate(event events.Event, context *events.Va
 		}
 	}
 	
+	// Path traversal detection
+	if r.config.EnablePathTraversalDetection {
+		if violations := r.detectPathTraversal(content); len(violations) > 0 {
+			result.AddError(r.CreateError(event,
+				"Potential path traversal detected",
+				map[string]interface{}{
+					"violations": violations,
+					"content":    r.sanitizeForLogging(content),
+				},
+				[]string{"Validate and sanitize file paths", "Use safe path resolution APIs"}))
+			r.detectionMetrics.RecordPathTraversalDetection(event.Type())
+		}
+	}
+	
 	// Anomaly detection
 	if r.config.EnableAnomalyDetection {
 		if anomaly := r.anomalyDetector.DetectAnomaly(event, context); anomaly != nil {
@@ -283,6 +326,7 @@ func (r *SecurityValidationRule) extractEventContent(event events.Event) string 
 func (r *SecurityValidationRule) detectXSS(content string) []string {
 	var violations []string
 	
+	// First, check the original content
 	for _, pattern := range r.xssPatterns {
 		if matches := pattern.FindAllString(content, -1); len(matches) > 0 {
 			for _, match := range matches {
@@ -291,13 +335,37 @@ func (r *SecurityValidationRule) detectXSS(content string) []string {
 		}
 	}
 	
-	// Check for encoded XSS attempts
-	decodedContent := html.UnescapeString(content)
-	if decodedContent != content {
+	// Check for URL-encoded XSS attempts
+	urlDecodedContent, err := url.QueryUnescape(content)
+	if err == nil && urlDecodedContent != content {
 		for _, pattern := range r.xssPatterns {
-			if matches := pattern.FindAllString(decodedContent, -1); len(matches) > 0 {
-				violations = append(violations, "Encoded XSS pattern detected")
+			if matches := pattern.FindAllString(urlDecodedContent, -1); len(matches) > 0 {
+				violations = append(violations, "URL-encoded XSS pattern detected")
 				break
+			}
+		}
+	}
+	
+	// Check for HTML-encoded XSS attempts
+	htmlDecodedContent := html.UnescapeString(content)
+	if htmlDecodedContent != content {
+		for _, pattern := range r.xssPatterns {
+			if matches := pattern.FindAllString(htmlDecodedContent, -1); len(matches) > 0 {
+				violations = append(violations, "HTML-encoded XSS pattern detected")
+				break
+			}
+		}
+	}
+	
+	// Check for double-encoded attempts (URL then HTML or vice versa)
+	if err == nil && urlDecodedContent != content {
+		doubleDecoded := html.UnescapeString(urlDecodedContent)
+		if doubleDecoded != urlDecodedContent {
+			for _, pattern := range r.xssPatterns {
+				if matches := pattern.FindAllString(doubleDecoded, -1); len(matches) > 0 {
+					violations = append(violations, "Double-encoded XSS pattern detected")
+					break
+				}
 			}
 		}
 	}
@@ -339,6 +407,46 @@ func (r *SecurityValidationRule) detectCommandInjection(content string) []string
 		if matches := pattern.FindAllString(content, -1); len(matches) > 0 {
 			for _, match := range matches {
 				violations = append(violations, fmt.Sprintf("Command injection pattern detected: %s", r.sanitizeForLogging(match)))
+			}
+		}
+	}
+	
+	return violations
+}
+
+// detectPathTraversal detects potential path traversal attacks
+func (r *SecurityValidationRule) detectPathTraversal(content string) []string {
+	var violations []string
+	
+	// Check the original content
+	for _, pattern := range r.pathTraversalPatterns {
+		if matches := pattern.FindAllString(content, -1); len(matches) > 0 {
+			for _, match := range matches {
+				violations = append(violations, fmt.Sprintf("Path traversal pattern detected: %s", r.sanitizeForLogging(match)))
+			}
+		}
+	}
+	
+	// Check for URL-encoded path traversal attempts
+	urlDecodedContent, err := url.QueryUnescape(content)
+	if err == nil && urlDecodedContent != content {
+		for _, pattern := range r.pathTraversalPatterns {
+			if matches := pattern.FindAllString(urlDecodedContent, -1); len(matches) > 0 {
+				violations = append(violations, "URL-encoded path traversal pattern detected")
+				break
+			}
+		}
+	}
+	
+	// Check for double-encoded attempts
+	if err == nil && urlDecodedContent != content {
+		doubleDecoded, err2 := url.QueryUnescape(urlDecodedContent)
+		if err2 == nil && doubleDecoded != urlDecodedContent {
+			for _, pattern := range r.pathTraversalPatterns {
+				if matches := pattern.FindAllString(doubleDecoded, -1); len(matches) > 0 {
+					violations = append(violations, "Double-encoded path traversal pattern detected")
+					break
+				}
 			}
 		}
 	}

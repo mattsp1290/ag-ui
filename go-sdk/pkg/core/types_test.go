@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/testhelper"
 )
@@ -142,7 +141,7 @@ func TestAgentInterface(t *testing.T) {
 
 func TestStreamConfig(t *testing.T) {
 	timeouts := testhelper.GlobalTimeouts
-	
+
 	config := StreamConfig{
 		BufferSize:        100,
 		Timeout:           timeouts.Medium, // Reduced from 30s to configurable timeout

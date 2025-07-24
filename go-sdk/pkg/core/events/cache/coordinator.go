@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -36,6 +37,12 @@ type CacheCoordinator struct {
 	mu            sync.RWMutex
 	shutdownCh    chan struct{}
 	wg            sync.WaitGroup
+	
+	// Performance optimization: atomic cached data
+	cachedActiveNodes    atomic.Value // []string
+	cachedShardMapping   atomic.Value // map[int][]string
+	cacheUpdateCounter   int64        // atomic counter for cache updates
+	lockContentionMetrics *LockContentionMetrics
 }
 
 // CoordinatorConfig contains coordinator configuration
@@ -152,6 +159,16 @@ type ConsensusResponse struct {
 	Timestamp time.Time
 }
 
+// LockContentionMetrics tracks lock contention performance
+type LockContentionMetrics struct {
+	MainLockContentions    int64 // atomic counter
+	ClusterLockContentions int64 // atomic counter
+	CacheHits              int64 // atomic counter for cache hits
+	CacheMisses            int64 // atomic counter for cache misses
+	LastResetTime          time.Time
+	mu                     sync.RWMutex
+}
+
 // NewCacheCoordinator creates a new cache coordinator
 func NewCacheCoordinator(nodeID string, transport Transport, config *CoordinatorConfig) *CacheCoordinator {
 	if config == nil {
@@ -171,6 +188,9 @@ func NewCacheCoordinator(nodeID string, transport Transport, config *Coordinator
 		},
 		cacheValidators: make(map[string]CacheValidatorInterface),
 		shutdownCh:     make(chan struct{}),
+		lockContentionMetrics: &LockContentionMetrics{
+			LastResetTime: time.Now(),
+		},
 	}
 	
 	// Add self to nodes
@@ -179,6 +199,10 @@ func NewCacheCoordinator(nodeID string, transport Transport, config *Coordinator
 		State:         NodeStateActive,
 		LastHeartbeat: time.Now(),
 	}
+	
+	// Initialize atomic cached values
+	cc.cachedActiveNodes.Store([]string{nodeID})
+	cc.cachedShardMapping.Store(make(map[int][]string))
 	
 	return cc
 }
@@ -245,36 +269,50 @@ func (cc *CacheCoordinator) BroadcastInvalidation(ctx context.Context, msg Inval
 func (cc *CacheCoordinator) NotifyCacheUpdate(ctx context.Context, msg CacheUpdateMessage) error {
 	// For sharded caches, only notify relevant nodes
 	if cc.config.EnableSharding {
-		shard := cc.getShardForKey(msg.Key)
-		nodes := cc.getNodesForShard(shard)
-		
-		message := Message{
-			Type:      "cache_update",
-			Source:    cc.nodeID,
-			Timestamp: time.Now(),
-		}
-		
-		payload, err := json.Marshal(msg)
-		if err != nil {
-			return fmt.Errorf("failed to marshal update: %w", err)
-		}
-		message.Payload = payload
-		
-		// Send to relevant nodes only
-		for _, nodeID := range nodes {
-			if nodeID != cc.nodeID && cc.transport != nil {
-				if err := cc.transport.Send(ctx, nodeID, message); err != nil {
-					// Log error but continue
-					continue
-				}
-			}
-		}
-		
-		return nil
+		return cc.notifyShardedUpdate(ctx, msg)
 	}
 	
 	// Broadcast to all nodes
 	return cc.broadcastUpdate(ctx, msg)
+}
+
+// notifyShardedUpdate handles sharded cache updates with optimized locking
+func (cc *CacheCoordinator) notifyShardedUpdate(ctx context.Context, msg CacheUpdateMessage) error {
+	shard := cc.getShardForKey(msg.Key)
+	nodes := cc.getNodesForShard(shard)
+	
+	if len(nodes) == 0 {
+		return nil // No nodes to notify
+	}
+	
+	message := Message{
+		Type:      "cache_update",
+		Source:    cc.nodeID,
+		Timestamp: time.Now(),
+	}
+	
+	payload, err := json.Marshal(msg)
+	if err != nil {
+		return fmt.Errorf("failed to marshal update: %w", err)
+	}
+	message.Payload = payload
+	
+	// Batch send to relevant nodes with error tracking
+	var sendErrors []error
+	for _, nodeID := range nodes {
+		if nodeID != cc.nodeID && cc.transport != nil {
+			if err := cc.transport.Send(ctx, nodeID, message); err != nil {
+				sendErrors = append(sendErrors, fmt.Errorf("failed to send to node %s: %w", nodeID, err))
+			}
+		}
+	}
+	
+	// Return aggregated error if any sends failed
+	if len(sendErrors) > 0 {
+		return fmt.Errorf("failed to send updates to %d nodes: %v", len(sendErrors), sendErrors)
+	}
+	
+	return nil
 }
 
 // ReportMetrics reports node metrics
@@ -342,7 +380,7 @@ func (cc *CacheCoordinator) RequestConsensus(ctx context.Context, request Consen
 	}
 }
 
-// GetClusterInfo returns cluster information
+// GetClusterInfo returns cluster information including performance metrics
 func (cc *CacheCoordinator) GetClusterInfo() map[string]interface{} {
 	cc.mu.RLock()
 	defer cc.mu.RUnlock()
@@ -357,6 +395,9 @@ func (cc *CacheCoordinator) GetClusterInfo() map[string]interface{} {
 		}
 	}
 	
+	// Get performance metrics
+	perfMetrics := cc.GetPerformanceMetrics()
+	
 	return map[string]interface{}{
 		"node_id":      cc.nodeID,
 		"total_nodes":  len(cc.nodes),
@@ -366,6 +407,7 @@ func (cc *CacheCoordinator) GetClusterInfo() map[string]interface{} {
 		"total_shards": totalShards,
 		"consensus_enabled": cc.config.EnableConsensus,
 		"sharding_enabled":  cc.config.EnableSharding,
+		"performance_metrics": perfMetrics,
 	}
 }
 
@@ -459,6 +501,9 @@ func (cc *CacheCoordinator) handleHeartbeat(msg Message) {
 	
 	node.LastHeartbeat = time.Now()
 	node.State = NodeStateActive
+	
+	// Update cached active nodes when new node joins or reactivates
+	cc.updateCachedActiveNodes()
 }
 
 func (cc *CacheCoordinator) handleConsensusRequest(msg Message) {
@@ -596,32 +641,48 @@ func (cc *CacheCoordinator) checkNodeHealth() {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
 	
+	cacheInvalidationNeeded := false
 	now := time.Now()
+	
 	for nodeID, node := range cc.nodes {
 		if nodeID == cc.nodeID {
 			continue
 		}
 		
 		timeSinceHeartbeat := now.Sub(node.LastHeartbeat)
+		oldState := node.State
 		
 		switch node.State {
 		case NodeStateActive:
 			if timeSinceHeartbeat > cc.config.NodeTimeout {
 				node.State = NodeStateSuspect
+				cacheInvalidationNeeded = true
 			}
 		case NodeStateSuspect:
 			if timeSinceHeartbeat > cc.config.NodeTimeout*2 {
 				node.State = NodeStateFailed
 				cc.handleNodeFailure(nodeID)
+				cacheInvalidationNeeded = true
 			} else if timeSinceHeartbeat < cc.config.HeartbeatInterval*2 {
 				node.State = NodeStateActive
+				cacheInvalidationNeeded = true
 			}
 		case NodeStateFailed:
 			if timeSinceHeartbeat < cc.config.HeartbeatInterval*2 {
 				node.State = NodeStateActive
 				cc.handleNodeRecovery(nodeID)
+				cacheInvalidationNeeded = true
 			}
 		}
+		
+		if oldState != node.State {
+			cacheInvalidationNeeded = true
+		}
+	}
+	
+	// Update cached active nodes if any state changed
+	if cacheInvalidationNeeded {
+		cc.updateCachedActiveNodes()
 	}
 }
 
@@ -684,6 +745,9 @@ func (cc *CacheCoordinator) rebalanceShards() {
 	
 	cc.clusterState.Version++
 	cc.clusterState.LastUpdated = time.Now()
+	
+	// Update cached shard mapping
+	cc.updateCachedShardMapping()
 }
 
 func (cc *CacheCoordinator) getShardForKey(key string) int {
@@ -701,6 +765,20 @@ func (cc *CacheCoordinator) getShardForKey(key string) int {
 }
 
 func (cc *CacheCoordinator) getNodesForShard(shard int) []string {
+	// First try atomic cached value (lock-free hot path)
+	if cached := cc.cachedShardMapping.Load(); cached != nil {
+		if shardMap, ok := cached.(map[int][]string); ok {
+			if nodes, exists := shardMap[shard]; exists {
+				atomic.AddInt64(&cc.lockContentionMetrics.CacheHits, 1)
+				return nodes
+			}
+		}
+	}
+	
+	// Fall back to locked access (cache miss)
+	atomic.AddInt64(&cc.lockContentionMetrics.CacheMisses, 1)
+	atomic.AddInt64(&cc.lockContentionMetrics.ClusterLockContentions, 1)
+	
 	cc.clusterState.mu.RLock()
 	defer cc.clusterState.mu.RUnlock()
 	
@@ -708,6 +786,21 @@ func (cc *CacheCoordinator) getNodesForShard(shard int) []string {
 }
 
 func (cc *CacheCoordinator) getActiveNodes() []string {
+	// First try atomic cached value (lock-free hot path)
+	if cached := cc.cachedActiveNodes.Load(); cached != nil {
+		if nodes, ok := cached.([]string); ok && len(nodes) > 0 {
+			atomic.AddInt64(&cc.lockContentionMetrics.CacheHits, 1)
+			// Return a copy to prevent race conditions
+			result := make([]string, len(nodes))
+			copy(result, nodes)
+			return result
+		}
+	}
+	
+	// Fall back to locked access (cache miss)
+	atomic.AddInt64(&cc.lockContentionMetrics.CacheMisses, 1)
+	atomic.AddInt64(&cc.lockContentionMetrics.MainLockContentions, 1)
+	
 	cc.mu.RLock()
 	defer cc.mu.RUnlock()
 	
@@ -795,4 +888,62 @@ func (cc *CacheCoordinator) handleNodeRecovery(nodeID string) {
 	// TODO: Implement node recovery handling
 	// - Rebalance shards
 	// - Sync state
+}
+
+// updateCachedActiveNodes updates the atomic cached active nodes (must be called with lock held)
+func (cc *CacheCoordinator) updateCachedActiveNodes() {
+	activeNodes := cc.getActiveNodesLocked()
+	cc.cachedActiveNodes.Store(activeNodes)
+	atomic.AddInt64(&cc.cacheUpdateCounter, 1)
+}
+
+// updateCachedShardMapping updates the atomic cached shard mapping (must be called with cluster lock held)
+func (cc *CacheCoordinator) updateCachedShardMapping() {
+	// Create a copy of the shard map to avoid race conditions
+	shardMapCopy := make(map[int][]string)
+	for shard, nodes := range cc.clusterState.ShardMap {
+		nodesCopy := make([]string, len(nodes))
+		copy(nodesCopy, nodes)
+		shardMapCopy[shard] = nodesCopy
+	}
+	cc.cachedShardMapping.Store(shardMapCopy)
+	atomic.AddInt64(&cc.cacheUpdateCounter, 1)
+}
+
+// GetPerformanceMetrics returns current performance metrics
+func (cc *CacheCoordinator) GetPerformanceMetrics() map[string]interface{} {
+	return map[string]interface{}{
+		"main_lock_contentions":    atomic.LoadInt64(&cc.lockContentionMetrics.MainLockContentions),
+		"cluster_lock_contentions": atomic.LoadInt64(&cc.lockContentionMetrics.ClusterLockContentions),
+		"cache_hits":               atomic.LoadInt64(&cc.lockContentionMetrics.CacheHits),
+		"cache_misses":             atomic.LoadInt64(&cc.lockContentionMetrics.CacheMisses),
+		"cache_updates":            atomic.LoadInt64(&cc.cacheUpdateCounter),
+		"last_reset_time":          cc.lockContentionMetrics.LastResetTime,
+	}
+}
+
+// ResetPerformanceMetrics resets performance counters
+func (cc *CacheCoordinator) ResetPerformanceMetrics() {
+	atomic.StoreInt64(&cc.lockContentionMetrics.MainLockContentions, 0)
+	atomic.StoreInt64(&cc.lockContentionMetrics.ClusterLockContentions, 0)
+	atomic.StoreInt64(&cc.lockContentionMetrics.CacheHits, 0)
+	atomic.StoreInt64(&cc.lockContentionMetrics.CacheMisses, 0)
+	atomic.StoreInt64(&cc.cacheUpdateCounter, 0)
+	
+	cc.lockContentionMetrics.mu.Lock()
+	cc.lockContentionMetrics.LastResetTime = time.Now()
+	cc.lockContentionMetrics.mu.Unlock()
+}
+
+// GetCacheHitRatio returns the cache hit ratio as a percentage
+func (cc *CacheCoordinator) GetCacheHitRatio() float64 {
+	hits := atomic.LoadInt64(&cc.lockContentionMetrics.CacheHits)
+	misses := atomic.LoadInt64(&cc.lockContentionMetrics.CacheMisses)
+	total := hits + misses
+	
+	if total == 0 {
+		return 0.0
+	}
+	
+	return (float64(hits) / float64(total)) * 100.0
 }

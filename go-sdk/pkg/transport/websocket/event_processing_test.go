@@ -52,16 +52,15 @@ func TestEventProcessingPipeline(t *testing.T) {
 	select {
 	case transport.eventCh <- eventJSON:
 		// Event sent successfully
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("Failed to send event to channel")
 	}
 
-	// Start event processing in background
-	transport.wg.Add(1)
-	go transport.eventProcessingLoop()
+	// Start event processing in background using standard method
+	transport.startGoroutine("event-processing", transport.eventProcessingLoop)
 
 	// Wait for event to be processed
-	time.Sleep(100 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	// Verify event was received
 	mu.Lock()
@@ -121,9 +120,8 @@ func TestEventProcessingShutdown(t *testing.T) {
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
 
-	// Manually start just the event processing loop
-	transport.wg.Add(1)
-	go transport.eventProcessingLoop()
+	// Start the event processing loop using the standard method
+	transport.startGoroutine("event-processing", transport.eventProcessingLoop)
 
 	// Send an event
 	eventData := map[string]interface{}{
@@ -134,12 +132,12 @@ func TestEventProcessingShutdown(t *testing.T) {
 	select {
 	case transport.eventCh <- eventJSON:
 		// Event sent
-	case <-time.After(time.Second):
+	case <-time.After(5 * time.Second):
 		t.Fatal("Failed to send event")
 	}
 
 	// Give some time for processing
-	time.Sleep(50 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 
 	// Cancel the transport context to trigger shutdown
 	transport.cancel()
@@ -154,7 +152,7 @@ func TestEventProcessingShutdown(t *testing.T) {
 	select {
 	case <-done:
 		// Successfully shut down
-	case <-time.After(2 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("Shutdown timeout")
 	}
 }

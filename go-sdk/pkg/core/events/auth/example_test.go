@@ -16,15 +16,15 @@ func Example_basicAuthentication() {
 	// Create an auth provider
 	provider := auth.NewBasicAuthProvider(nil)
 	
-	// Add a user
+	// Add a user - use complex password: Secret123!
 	provider.AddUser(&auth.User{
 		Username:     "alice",
-		PasswordHash: hashPassword("secret123"),
+		PasswordHash: hashPassword("Secret123!"),
 		Roles:        []string{"validator"},
 		Permissions:  []string{"event:validate", "event:read", "run:validate", "message:validate", "tool:validate", "state:validate"},
 		Active:       true,
 	})
-	provider.SetUserPassword("alice", "secret123")
+	provider.SetUserPassword("alice", "Secret123!")
 	
 	// Create an authenticated validator
 	validator := auth.NewAuthenticatedValidator(
@@ -45,7 +45,7 @@ func Example_basicAuthentication() {
 	
 	// Validate with authentication
 	ctx := context.Background()
-	result := validator.ValidateWithBasicAuth(ctx, event, "alice", "secret123")
+	result := validator.ValidateWithBasicAuth(ctx, event, "alice", "Secret123!")
 	
 	if result.IsValid {
 		fmt.Println("Validation successful")
@@ -56,22 +56,22 @@ func Example_basicAuthentication() {
 
 // Example_tokenAuthentication demonstrates token-based authentication
 func Example_tokenAuthentication() {
-	// Create provider and user
+	// Create provider and user - use complex password: Password123!
 	provider := auth.NewBasicAuthProvider(nil)
 	provider.AddUser(&auth.User{
 		Username:     "bob",
-		PasswordHash: hashPassword("password"),
+		PasswordHash: hashPassword("Password123!"),
 		Roles:        []string{"admin"},
 		Permissions:  []string{"*:*"},
 		Active:       true,
 	})
-	provider.SetUserPassword("bob", "password")
+	provider.SetUserPassword("bob", "Password123!")
 	
 	// Authenticate to get a token
 	ctx := context.Background()
 	authCtx, err := provider.Authenticate(ctx, &auth.BasicCredentials{
 		Username: "bob",
-		Password: "password",
+		Password: "Password123!",
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -132,7 +132,7 @@ func Example_requiredAuthentication() {
 	}
 	
 	// Validate with authentication (will succeed)
-	result = validator.ValidateWithBasicAuth(ctx, event, "validator", "validator123")
+	result = validator.ValidateWithBasicAuth(ctx, event, "validator", "Validator123!")
 	if result.IsValid {
 		fmt.Println("Authenticated validation successful")
 	}
@@ -147,25 +147,25 @@ func Example_authorizationRoles() {
 	// Create provider with users having different roles
 	provider := auth.NewBasicAuthProvider(nil)
 	
-	// Admin user
+	// Admin user - use complex password: Admin123!
 	provider.AddUser(&auth.User{
 		Username:     "admin",
-		PasswordHash: hashPassword("admin123"),
+		PasswordHash: hashPassword("Admin123!"),
 		Roles:        []string{"admin"},
 		Permissions:  []string{"*:*"},
 		Active:       true,
 	})
-	provider.SetUserPassword("admin", "admin123")
+	provider.SetUserPassword("admin", "Admin123!")
 	
-	// Read-only user
+	// Read-only user - use complex password: Reader123!
 	provider.AddUser(&auth.User{
 		Username:     "reader",
-		PasswordHash: hashPassword("reader123"),
+		PasswordHash: hashPassword("Reader123!"),
 		Roles:        []string{"reader"},
 		Permissions:  []string{"event:read", "validation:read"},
 		Active:       true,
 	})
-	provider.SetUserPassword("reader", "reader123")
+	provider.SetUserPassword("reader", "Reader123!")
 	
 	// Create validator
 	authConfig := auth.DefaultAuthConfig()
@@ -189,11 +189,11 @@ func Example_authorizationRoles() {
 	ctx := context.Background()
 	
 	// Admin can validate
-	result := validator.ValidateWithBasicAuth(ctx, event, "admin", "admin123")
+	result := validator.ValidateWithBasicAuth(ctx, event, "admin", "Admin123!")
 	fmt.Printf("Admin validation: %v\n", result.IsValid)
 	
 	// Reader cannot validate (no validate permission)
-	result = validator.ValidateWithBasicAuth(ctx, event, "reader", "reader123")
+	result = validator.ValidateWithBasicAuth(ctx, event, "reader", "Reader123!")
 	if !result.IsValid {
 		fmt.Printf("Reader validation failed: %s\n", result.Errors[0].Message)
 	}
@@ -236,7 +236,7 @@ func Example_customHooks() {
 	}
 	
 	ctx := context.Background()
-	result := validator.ValidateWithBasicAuth(ctx, event, "admin", "admin123")
+	result := validator.ValidateWithBasicAuth(ctx, event, "admin", "Admin123!")
 	
 	if result.IsValid {
 		fmt.Println("Validation completed")

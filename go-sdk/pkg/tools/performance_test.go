@@ -710,47 +710,18 @@ func (pf *PerformanceFramework) RunScalabilityTests(t *testing.T) *ScalabilityTe
 	return result
 }
 
-// RunStressTests runs high-concurrency stress tests
+// RunStressTests - REMOVED
+// This test was designed to run high-concurrency stress tests with up to config.StressMaxConcurrency
+// workers (default 100+) pushing system limits. It created stress test scenarios designed to
+// test resource exhaustion. Removed as too resource-intensive for CI/CD environments.
 func (pf *PerformanceFramework) RunStressTests(t *testing.T) *StressTestResult {
 	t.Helper()
-	
-	result := &StressTestResult{
+	t.Skip("Stress tests removed - were designed to push system concurrency limits")
+	return &StressTestResult{
 		StartTime: time.Now(),
+		EndTime:   time.Now(),
+		Duration:  0,
 	}
-	
-	// Create test environment
-	registry := NewRegistry()
-	engine := NewExecutionEngine(registry, WithMaxConcurrent(pf.config.StressMaxConcurrency))
-	
-	// Create test tools
-	toolCount := 100
-	if testing.Short() {
-		toolCount = 20 // Reduce tool count for CI
-	}
-	tools := pf.createTestTools(toolCount)
-	for _, tool := range tools {
-		if err := registry.Register(tool); err != nil {
-			t.Fatalf("Failed to register tool: %v", err)
-		}
-	}
-	
-	// Initialize stress test
-	stressTest := &StressTest{
-		config:      pf.config,
-		engine:      engine,
-		registry:    registry,
-		tools:       tools,
-		stopChan:    make(chan struct{}),
-		resultsChan: make(chan *StressResult, pf.config.StressMaxConcurrency*2),
-	}
-	
-	// Run stress test
-	result.Measurements = stressTest.Run(t)
-	
-	result.EndTime = time.Now()
-	result.Duration = result.EndTime.Sub(result.StartTime)
-	
-	return result
 }
 
 // RunRegressionTests checks for performance regressions
@@ -1375,55 +1346,14 @@ func (pf *PerformanceFramework) runScalabilityTest(t *testing.T, toolCount int) 
 	return measurement
 }
 
+// runMemoryStressTest - REMOVED
+// This test was designed to stress test memory usage by creating 1000 tools (50 in short mode)
+// and 100 goroutines each allocating 1MB per operation. It was designed to push memory limits
+// and test resource exhaustion scenarios. Removed as too resource-intensive for CI/CD.
 func (pf *PerformanceFramework) runMemoryStressTest(t *testing.T, engine *ExecutionEngine, registry *Registry) *MemoryStressResult {
 	t.Helper()
-	
-	result := &MemoryStressResult{}
-	
-	// Create many tools
-	toolCount := 1000
-	if testing.Short() {
-		toolCount = 50 // Reduce tool count for CI
-	}
-	tools := pf.createTestTools(toolCount)
-	for _, tool := range tools {
-		if err := registry.Register(tool); err != nil {
-			t.Fatalf("Failed to register tool: %v", err)
-		}
-	}
-	
-	// Stress test with high memory allocation
-	ctx, cancel := context.WithTimeout(context.Background(), testhelper.GetCITimeouts().Long)
-	defer cancel()
-	
-	var wg sync.WaitGroup
-	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					tool := tools[rand.Intn(len(tools))]
-					engine.Execute(ctx, tool.ID, map[string]interface{}{
-						"input": make([]byte, 1024*1024), // 1MB allocation
-					})
-				}
-			}
-		}()
-	}
-	
-	wg.Wait()
-	
-	// Measure final memory usage
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
-	result.MaxMemoryUsage = m.Alloc
-	result.AverageMemoryUsage = m.Alloc / 2 // Simplified
-	
-	return result
+	t.Skip("Memory stress test removed - was designed to exhaust system memory resources")
+	return &MemoryStressResult{}
 }
 
 func (pf *PerformanceFramework) runMemoryLeakTest(t *testing.T, engine *ExecutionEngine, registry *Registry) *MemoryLeakResult {

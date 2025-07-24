@@ -55,24 +55,34 @@ func (ch *CleanupHelper) RunCleanup() {
 }
 
 // CloseChannel safely closes a channel with panic recovery
+// This function is now idempotent and thread-safe
 func CloseChannel[T any](t *testing.T, ch chan T, name string) {
 	t.Helper()
 
+	if ch == nil {
+		return
+	}
+
 	defer func() {
 		if r := recover(); r != nil {
-			t.Logf("Panic closing channel %s: %v", name, r)
+			// This indicates the channel was already closed
+			t.Logf("Channel %s was already closed", name)
 		}
 	}()
 
-	if ch != nil {
-		close(ch)
-		t.Logf("Closed channel: %s", name)
-	}
+	// Attempt to close the channel
+	// If it panics with "close of closed channel", we recover above
+	close(ch)
+	t.Logf("Closed channel: %s", name)
 }
 
 // DrainChannel drains all values from a channel before closing
 func DrainChannel[T any](t *testing.T, ch chan T, name string, timeout time.Duration) {
 	t.Helper()
+
+	if ch == nil {
+		return
+	}
 
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
@@ -273,6 +283,7 @@ type ChannelCleanup struct {
 	t        *testing.T
 	mu       sync.Mutex
 	channels []channelInfo
+	closed   map[string]bool // Track which channels have been closed
 }
 
 type channelInfo struct {
@@ -282,7 +293,10 @@ type channelInfo struct {
 
 // NewChannelCleanup creates a channel cleanup helper
 func NewChannelCleanup(t *testing.T) *ChannelCleanup {
-	cc := &ChannelCleanup{t: t}
+	cc := &ChannelCleanup{
+		t:      t,
+		closed: make(map[string]bool),
+	}
 
 	t.Cleanup(func() {
 		cc.CleanupAll()
@@ -305,18 +319,59 @@ func (cc *ChannelCleanup) Add(name string, cleanup func()) {
 // AddChan registers a typed channel for cleanup
 func AddChan[T any](cc *ChannelCleanup, name string, ch chan T) {
 	cc.Add(name, func() {
-		CloseChannel(cc.t, ch, name)
+		cc.safeCloseChannel(name, func() {
+			if ch != nil {
+				close(ch)
+			}
+		})
 	})
+}
+
+// safeCloseChannel closes a channel only if it hasn't been closed already
+func (cc *ChannelCleanup) safeCloseChannel(name string, closeFn func()) {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+
+	// Check if already closed
+	if cc.closed[name] {
+		cc.t.Logf("Channel %s already closed, skipping", name)
+		return
+	}
+
+	// Mark as closed before attempting to close
+	cc.closed[name] = true
+
+	// Close with panic recovery
+	defer func() {
+		if r := recover(); r != nil {
+			cc.t.Logf("Channel %s was already closed by another routine", name)
+		}
+	}()
+
+	closeFn()
+	cc.t.Logf("Closed channel: %s", name)
+}
+
+// MarkChannelClosed allows manual marking of a channel as closed
+// This prevents double-closure when channels are closed manually
+func (cc *ChannelCleanup) MarkChannelClosed(name string) {
+	cc.mu.Lock()
+	defer cc.mu.Unlock()
+	cc.closed[name] = true
+	cc.t.Logf("Marked channel %s as manually closed", name)
 }
 
 // CleanupAll closes all registered channels
 func (cc *ChannelCleanup) CleanupAll() {
+	// Get a copy of channels to avoid holding lock during cleanup
 	cc.mu.Lock()
-	defer cc.mu.Unlock()
+	channels := make([]channelInfo, len(cc.channels))
+	copy(channels, cc.channels)
+	cc.t.Logf("Cleaning up %d channels", len(channels))
+	cc.mu.Unlock()
 
-	cc.t.Logf("Cleaning up %d channels", len(cc.channels))
-
-	for _, ch := range cc.channels {
+	// Clean up channels without holding the main lock
+	for _, ch := range channels {
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
@@ -327,7 +382,11 @@ func (cc *ChannelCleanup) CleanupAll() {
 		}()
 	}
 
+	// Clear the state
+	cc.mu.Lock()
 	cc.channels = nil
+	cc.closed = make(map[string]bool) // Reset closed tracking
+	cc.mu.Unlock()
 }
 
 // ResourceTracker tracks resource allocation and cleanup
@@ -402,4 +461,49 @@ func EnsureCleanup(t *testing.T, name string, fn func(), cleanup func()) {
 	}()
 
 	fn()
+}
+
+// SafeCloseChannelConcurrently demonstrates safe concurrent channel closure
+func SafeCloseChannelConcurrently[T any](t *testing.T, ch chan T, name string, goroutineCount int) {
+	t.Helper()
+
+	if ch == nil {
+		return
+	}
+
+	var wg sync.WaitGroup
+	closed := make(chan bool, goroutineCount)
+
+	// Start multiple goroutines trying to close the same channel
+	for i := 0; i < goroutineCount; i++ {
+		wg.Add(1)
+		go func(id int) {
+			defer wg.Done()
+			
+			defer func() {
+				if r := recover(); r != nil {
+					t.Logf("Goroutine %d: Channel %s was already closed", id, name)
+					closed <- false
+				} else {
+					t.Logf("Goroutine %d: Successfully closed channel %s", id, name)
+					closed <- true
+				}
+			}()
+
+			close(ch)
+		}(i)
+	}
+
+	wg.Wait()
+	close(closed)
+
+	// Count successful closures
+	successCount := 0
+	for success := range closed {
+		if success {
+			successCount++
+		}
+	}
+
+	t.Logf("Channel %s: %d/%d goroutines successfully closed (expected: 1)", name, successCount, goroutineCount)
 }

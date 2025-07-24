@@ -10,6 +10,102 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/core/events/cache"
 )
 
+// Event type constants
+const (
+	EventTypeAuthSuccess    = "auth.success"
+	EventTypeAuthExpiration = "auth.expiration"
+	EventTypeCacheHit       = "cache.hit"
+	EventTypeCacheMiss      = "cache.miss"
+	EventTypeNodeJoin       = "node.join"
+	EventTypeNodeLeave      = "node.leave"
+)
+
+// AuthEventData represents authentication event data
+type AuthEventData struct {
+	Username  string `json:"username"`
+	UserID    string `json:"user_id,omitempty"`
+	Provider  string `json:"provider,omitempty"`
+	TokenType string `json:"token_type,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// NewAuthEvent creates a new authentication event
+func NewAuthEvent(eventType, source, userID string, data AuthEventData) events.BusEvent {
+	return events.BusEvent{
+		ID:        fmt.Sprintf("auth-%d", time.Now().UnixNano()),
+		Type:      eventType,
+		Source:    source,
+		Data:      data,
+		Timestamp: time.Now(),
+		Priority:  1,
+	}
+}
+
+// CacheEventData represents cache event data
+type CacheEventData struct {
+	Key   string      `json:"key"`
+	Value interface{} `json:"value,omitempty"`
+	TTL   int64       `json:"ttl,omitempty"`
+	Hit   bool        `json:"hit"`
+}
+
+// NewCacheEvent creates a new cache event
+func NewCacheEvent(eventType, source, key string, data interface{}) events.BusEvent {
+	return events.BusEvent{
+		ID:        fmt.Sprintf("cache-%d", time.Now().UnixNano()),
+		Type:      eventType,
+		Source:    source,
+		Data: CacheEventData{
+			Key:   key,
+			Value: data,
+			Hit:   eventType == EventTypeCacheHit,
+		},
+		Timestamp: time.Now(),
+		Priority:  0,
+	}
+}
+
+// NodeEventData represents node event data
+type NodeEventData struct {
+	NodeID      string `json:"node_id"`
+	NodeAddress string `json:"node_address,omitempty"`
+	State       string `json:"state,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+}
+
+// NewNodeEvent creates a new node event
+func NewNodeEvent(eventType, source, nodeID string, data NodeEventData) events.BusEvent {
+	return events.BusEvent{
+		ID:        fmt.Sprintf("node-%d", time.Now().UnixNano()),
+		Type:      eventType,
+		Source:    source,
+		Data:      data,
+		Timestamp: time.Now(),
+		Priority:  2,
+	}
+}
+
+// DistributedEventData represents distributed system event data
+type DistributedEventData struct {
+	NodeID      string                 `json:"node_id"`
+	NodeAddress string                 `json:"node_address,omitempty"`
+	ClusterSize int                    `json:"cluster_size,omitempty"`
+	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+}
+
+// NewDistributedEvent creates a new distributed system event
+func NewDistributedEvent(eventType, source, nodeID string, data DistributedEventData) events.BusEvent {
+	data.NodeID = nodeID
+	return events.BusEvent{
+		ID:        fmt.Sprintf("dist-%d", time.Now().UnixNano()),
+		Type:      eventType,
+		Source:    source,
+		Data:      data,
+		Timestamp: time.Now(),
+		Priority:  2,
+	}
+}
+
 // DecoupledSystemExample demonstrates event-driven architecture
 // This shows how auth, cache, and distributed modules communicate
 // through events instead of direct coupling
@@ -32,23 +128,23 @@ type AuthManager struct {
 
 // CacheManager handles caching using event-driven approach
 type CacheManager struct {
-	eventBus      EventBus
+	eventBus      events.EventBus
 	coordinator   *cache.EventDrivenCoordinator
 	cacheValidator *cache.CacheValidator
 	nodeID        string
 	
 	// Subscriptions
-	subscriptions map[string]SubscriptionID
+	subscriptions map[string]events.SubscriptionID
 }
 
 // DistributedManager handles distributed operations using event-driven approach
 type DistributedManager struct {
-	eventBus     EventBus
+	eventBus     events.EventBus
 	nodeID       string
 	clusterNodes map[string]*NodeStatus
 	
 	// Subscriptions
-	subscriptions map[string]SubscriptionID
+	subscriptions map[string]events.SubscriptionID
 }
 
 // NodeStatus tracks the status of nodes in the cluster
@@ -63,27 +159,27 @@ type NodeStatus struct {
 // NewDecoupledSystemExample creates a new decoupled system example
 func NewDecoupledSystemExample(nodeID string) *DecoupledSystemExample {
 	// Create event bus
-	eventBus := NewEventBus(DefaultEventBusConfig())
+	eventBus := events.NewEventBus(events.DefaultEventBusConfig())
 	
 	// Create managers
 	authManager := &AuthManager{
 		eventBus:      eventBus,
 		nodeID:        nodeID,
 		userStore:     make(map[string]bool),
-		subscriptions: make(map[string]SubscriptionID),
+		subscriptions: make(map[string]events.SubscriptionID),
 	}
 	
 	cacheManager := &CacheManager{
 		eventBus:      eventBus,
 		nodeID:        nodeID,
-		subscriptions: make(map[string]SubscriptionID),
+		subscriptions: make(map[string]events.SubscriptionID),
 	}
 	
 	distributedManager := &DistributedManager{
 		eventBus:      eventBus,
 		nodeID:        nodeID,
 		clusterNodes:  make(map[string]*NodeStatus),
-		subscriptions: make(map[string]SubscriptionID),
+		subscriptions: make(map[string]events.SubscriptionID),
 	}
 	
 	return &DecoupledSystemExample{
@@ -229,7 +325,7 @@ func (am *AuthManager) ExpireAuth(ctx context.Context, userID string) {
 }
 
 // handleAuthExpiration handles auth expiration events
-func (am *AuthManager) handleAuthExpiration(ctx context.Context, event BusEvent) error {
+func (am *AuthManager) handleAuthExpiration(ctx context.Context, event events.BusEvent) error {
 	if data, ok := event.Data.(AuthEventData); ok {
 		log.Printf("Handling auth expiration for user %s", data.UserID)
 		// Additional cleanup logic could go here
@@ -292,7 +388,7 @@ func (cm *CacheManager) CacheGet(ctx context.Context, key string) ([]byte, error
 }
 
 // handleCacheHit handles cache hit events
-func (cm *CacheManager) handleCacheHit(ctx context.Context, event BusEvent) error {
+func (cm *CacheManager) handleCacheHit(ctx context.Context, event events.BusEvent) error {
 	if data, ok := event.Data.(CacheEventData); ok {
 		log.Printf("Recorded cache hit for key %s", data.Key)
 		// Update metrics, etc.
@@ -361,7 +457,7 @@ func (dm *DistributedManager) Stop(ctx context.Context) error {
 }
 
 // handleNodeJoin handles node join events
-func (dm *DistributedManager) handleNodeJoin(ctx context.Context, event BusEvent) error {
+func (dm *DistributedManager) handleNodeJoin(ctx context.Context, event events.BusEvent) error {
 	if data, ok := event.Data.(DistributedEventData); ok {
 		if data.NodeID != dm.nodeID { // Don't track ourselves
 			dm.clusterNodes[data.NodeID] = &NodeStatus{
@@ -378,7 +474,7 @@ func (dm *DistributedManager) handleNodeJoin(ctx context.Context, event BusEvent
 }
 
 // handleNodeLeave handles node leave events
-func (dm *DistributedManager) handleNodeLeave(ctx context.Context, event BusEvent) error {
+func (dm *DistributedManager) handleNodeLeave(ctx context.Context, event events.BusEvent) error {
 	if data, ok := event.Data.(DistributedEventData); ok {
 		if data.NodeID != dm.nodeID {
 			delete(dm.clusterNodes, data.NodeID)
@@ -410,4 +506,46 @@ func (dse *DecoupledSystemExample) simulateDistributedOperations(ctx context.Con
 func (dse *DecoupledSystemExample) simulateAuthExpiration(ctx context.Context, userID string) {
 	log.Printf("Simulating auth expiration for user: %s", userID)
 	dse.authManager.ExpireAuth(ctx, userID)
+}
+
+// main demonstrates the decoupled event-driven architecture
+func main() {
+	fmt.Println("AG-UI Decoupled Architecture Example")
+	fmt.Println("====================================")
+
+	ctx := context.Background()
+	
+	// Create the system
+	system := NewDecoupledSystemExample("node-1")
+	
+	// Start all components
+	if err := system.Start(ctx); err != nil {
+		log.Fatalf("Failed to start system: %v", err)
+	}
+	
+	// Run simulations
+	time.Sleep(500 * time.Millisecond)
+	
+	// Simulate authentication
+	system.simulateAuthentication(ctx, "user123", "password")
+	time.Sleep(100 * time.Millisecond)
+	
+	// Simulate cache operations
+	system.simulateCacheOperations(ctx)
+	time.Sleep(100 * time.Millisecond)
+	
+	// Simulate distributed operations
+	system.simulateDistributedOperations(ctx)
+	time.Sleep(100 * time.Millisecond)
+	
+	// Simulate auth expiration
+	system.simulateAuthExpiration(ctx, "user123")
+	time.Sleep(500 * time.Millisecond)
+	
+	// Stop the system
+	if err := system.Stop(ctx); err != nil {
+		log.Printf("Error stopping system: %v", err)
+	}
+	
+	fmt.Println("\nExample completed!")
 }

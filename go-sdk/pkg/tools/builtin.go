@@ -13,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	
+	"github.com/ag-ui/go-sdk/pkg/internal/timeconfig"
 )
 
 // BuiltinToolsOptions configures how built-in tools are registered.
@@ -135,7 +137,7 @@ func NewReadFileTool() *Tool {
 		},
 		Executor: &readFileExecutor{},
 		Capabilities: &ToolCapabilities{
-			Timeout: 5 * time.Second,
+			Timeout: timeconfig.GetConfig().DefaultIOTimeout,
 		},
 	}
 }
@@ -215,7 +217,7 @@ func NewWriteFileTool() *Tool {
 		},
 		Executor: &writeFileExecutor{},
 		Capabilities: &ToolCapabilities{
-			Timeout: 5 * time.Second,
+			Timeout: timeconfig.GetConfig().DefaultIOTimeout,
 		},
 	}
 }
@@ -326,7 +328,7 @@ func NewHTTPGetTool() *Tool {
 		},
 		Executor: &httpGetExecutor{},
 		Capabilities: &ToolCapabilities{
-			Timeout:   60 * time.Second,
+			Timeout:   timeconfig.HTTPTimeout(),
 			Retryable: true,
 			Cacheable: true,
 		},
@@ -466,7 +468,7 @@ func NewHTTPPostTool() *Tool {
 		},
 		Executor: &httpPostExecutor{},
 		Capabilities: &ToolCapabilities{
-			Timeout:   60 * time.Second,
+			Timeout:   timeconfig.HTTPTimeout(),
 			Retryable: true,
 		},
 	}
@@ -592,7 +594,7 @@ func NewJSONParseTool() *Tool {
 		},
 		Executor: &jsonParseExecutor{},
 		Capabilities: &ToolCapabilities{
-			Timeout:   1 * time.Second,
+			Timeout:   timeconfig.GetConfig().DefaultValidationTimeout,
 			Cacheable: true,
 		},
 	}
@@ -646,7 +648,7 @@ func NewJSONFormatTool() *Tool {
 		},
 		Executor: &jsonFormatExecutor{},
 		Capabilities: &ToolCapabilities{
-			Timeout: 1 * time.Second,
+			Timeout: timeconfig.GetConfig().DefaultValidationTimeout,
 		},
 	}
 }
@@ -701,7 +703,7 @@ func NewBase64EncodeTool() *Tool {
 		},
 		Executor: &base64EncodeExecutor{},
 		Capabilities: &ToolCapabilities{
-			Timeout: 1 * time.Second,
+			Timeout: timeconfig.GetConfig().DefaultValidationTimeout,
 		},
 	}
 }
@@ -741,7 +743,7 @@ func NewBase64DecodeTool() *Tool {
 		},
 		Executor: &base64DecodeExecutor{},
 		Capabilities: &ToolCapabilities{
-			Timeout: 1 * time.Second,
+			Timeout: timeconfig.GetConfig().DefaultValidationTimeout,
 		},
 	}
 }

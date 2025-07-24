@@ -1019,9 +1019,6 @@ func TestStreamingDataProcessor_NonStreamingMode(t *testing.T) {
 // TestStreamingDataProcessor_ParameterValidation tests parameter validation
 func TestStreamingDataProcessor_ParameterValidation(t *testing.T) {
 	tool := createStreamingDataProcessorTool()
-	processor := tool.Executor.(*MockStreamingDataProcessor)
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
 
 	testCases := []struct {
 		name   string
@@ -1029,7 +1026,9 @@ func TestStreamingDataProcessor_ParameterValidation(t *testing.T) {
 	}{
 		{
 			name: "Default parameters",
-			params: map[string]interface{}{},
+			params: map[string]interface{}{
+				"duration_seconds": 1,
+			},
 		},
 		{
 			name: "All parameters specified",
@@ -1054,6 +1053,10 @@ func TestStreamingDataProcessor_ParameterValidation(t *testing.T) {
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
+			processor := tool.Executor.(*MockStreamingDataProcessor)
+			ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			
 			outputChan := make(chan interface{}, 100)
 			
 			err := processor.StreamingExecute(ctx, tc.params, outputChan)

@@ -3,11 +3,11 @@ package cache
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 )
 
@@ -40,7 +40,7 @@ func (m *MockTransport) Send(ctx context.Context, nodeID string, message Message
 	defer m.mu.Unlock()
 	
 	if m.closed {
-		return assert.AnError
+		return fmt.Errorf("transport closed")
 	}
 	
 	message.Target = nodeID
@@ -65,7 +65,7 @@ func (m *MockTransport) Broadcast(ctx context.Context, message Message) error {
 	defer m.mu.Unlock()
 	
 	if m.closed {
-		return assert.AnError
+		return fmt.Errorf("transport closed")
 	}
 	
 	m.messages = append(m.messages, message)

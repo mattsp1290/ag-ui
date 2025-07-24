@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"log"
 	"math"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -131,18 +133,40 @@ func (gm *GoroutineManager) Start(parentCtx context.Context, fn func(context.Con
 	go gm.runWithRestart(fn)
 }
 
-// Stop stops the managed goroutine
+// Stop stops the managed goroutine with timeout
 func (gm *GoroutineManager) Stop() {
+	gm.StopWithTimeout(10 * time.Second)
+}
+
+// StopWithTimeout stops the managed goroutine with a specified timeout
+func (gm *GoroutineManager) StopWithTimeout(timeout time.Duration) {
+	// First, signal that we shouldn't restart and cancel context
 	gm.mu.Lock()
-	defer gm.mu.Unlock()
-	
 	gm.shouldRestart = false
 	if gm.cancel != nil {
 		gm.cancel()
 	}
+	gm.mu.Unlock()
 	
-	gm.wg.Wait()
+	// Wait for goroutine to finish without holding the lock, with timeout
+	done := make(chan struct{})
+	go func() {
+		gm.wg.Wait()
+		close(done)
+	}()
+	
+	select {
+	case <-done:
+		// Goroutine stopped gracefully
+	case <-time.After(timeout):
+		// Timeout occurred
+		log.Printf("Warning: Goroutine %s did not stop within timeout %v", gm.name, timeout)
+	}
+	
+	// Now safely update the running state
+	gm.mu.Lock()
 	gm.isRunning = false
+	gm.mu.Unlock()
 }
 
 // runWithRestart runs the function with restart capability
@@ -169,7 +193,13 @@ func (gm *GoroutineManager) runWithRestart(fn func(context.Context)) {
 			defer func() {
 				if r := recover(); r != nil {
 					log.Printf("Panic in goroutine %s: %v", gm.name, r)
-					gm.handleRestart()
+					// Only restart if we're still supposed to
+					gm.mu.RLock()
+					stillRestarting := gm.shouldRestart
+					gm.mu.RUnlock()
+					if stillRestarting {
+						gm.handleRestart()
+					}
 				}
 			}()
 			
@@ -223,11 +253,18 @@ func (gm *GoroutineManager) handleRestart() {
 	log.Printf("Restarting goroutine %s in %v (attempt %d/%d)", 
 		gm.name, backoffDuration, restarts, gm.restartPolicy.MaxRestarts)
 	
-	// Wait for backoff period
+	// Wait for backoff period with context cancellation check
 	select {
 	case <-gm.ctx.Done():
 		return
 	case <-time.After(backoffDuration):
+		// Check if we should still restart before continuing
+		gm.mu.RLock()
+		shouldRestart := gm.shouldRestart
+		gm.mu.RUnlock()
+		if !shouldRestart {
+			return
+		}
 		// Continue with restart
 	}
 }
@@ -270,6 +307,9 @@ type DistributedValidatorConfig struct {
 	// HeartbeatInterval is the interval between heartbeats
 	HeartbeatInterval time.Duration
 
+	// NodeCleanupInterval is the interval for cleaning up stale nodes
+	NodeCleanupInterval time.Duration
+
 	// EnableMetrics enables distributed metrics collection
 	EnableMetrics bool
 	
@@ -293,6 +333,7 @@ func DefaultDistributedValidatorConfig(nodeID NodeID) *DistributedValidatorConfi
 		MaxNodeFailures:        2,
 		ValidationTimeout:      5 * time.Second,
 		HeartbeatInterval:      1 * time.Second,
+		NodeCleanupInterval:    5 * time.Minute,
 		EnableMetrics:          true,
 		ConsensusCircuitBreakerConfig:   errors.DefaultCircuitBreakerConfig("consensus"),
 		StateSyncCircuitBreakerConfig:   errors.DefaultCircuitBreakerConfig("state-sync"),
@@ -313,6 +354,10 @@ type DistributedValidator struct {
 	// Node management
 	nodes            map[NodeID]*NodeInfo
 	nodesMutex       sync.RWMutex
+	
+	// Pre-computed active nodes list for performance optimization
+	activeNodes      []NodeID
+	activeNodesMutex sync.RWMutex
 	
 	// Validation state
 	pendingValidations map[string]*PendingValidation
@@ -369,6 +414,7 @@ func NewDistributedValidator(config *DistributedValidatorConfig, localValidator 
 		config:             config,
 		localValidator:     localValidator,
 		nodes:              make(map[NodeID]*NodeInfo),
+		activeNodes:        make([]NodeID, 0),
 		pendingValidations: make(map[string]*PendingValidation),
 		metrics:            NewDistributedMetrics(),
 		stopChan:           make(chan struct{}),
@@ -458,18 +504,19 @@ func (dv *DistributedValidator) Stop() error {
 		close(dv.stopChan)
 	})
 
-	// Stop managed goroutines
+	// Stop managed goroutines with timeout
+	stopTimeout := 2 * time.Second
 	if dv.heartbeatManager != nil {
-		dv.heartbeatManager.Stop()
+		dv.heartbeatManager.StopWithTimeout(stopTimeout)
 	}
 	if dv.cleanupManager != nil {
-		dv.cleanupManager.Stop()
+		dv.cleanupManager.StopWithTimeout(stopTimeout)
 	}
 	if dv.metricsManager != nil {
-		dv.metricsManager.Stop()
+		dv.metricsManager.StopWithTimeout(stopTimeout)
 	}
 	if dv.consensusManager != nil {
-		dv.consensusManager.Stop()
+		dv.consensusManager.StopWithTimeout(stopTimeout)
 	}
 
 	// Stop components
@@ -838,15 +885,22 @@ func (dv *DistributedValidator) convertValidationErrors(eventsErrors []*events.V
 
 // RegisterNode registers a new validation node
 func (dv *DistributedValidator) RegisterNode(nodeInfo *NodeInfo) error {
-	dv.nodesMutex.Lock()
-	defer dv.nodesMutex.Unlock()
-
 	if nodeInfo == nil {
 		return fmt.Errorf("nodeInfo cannot be nil")
 	}
 
+	dv.nodesMutex.Lock()
+	dv.activeNodesMutex.Lock()
+	defer dv.activeNodesMutex.Unlock()
+	defer dv.nodesMutex.Unlock()
+
 	dv.nodes[nodeInfo.ID] = nodeInfo
 	dv.loadBalancer.UpdateNodeMetrics(nodeInfo.ID, nodeInfo.Load, nodeInfo.ResponseTimeMs)
+	
+	// Update active nodes cache if this is an active node
+	if nodeInfo.State == NodeStateActive {
+		dv.updateActiveNodesList()
+	}
 
 	return nil
 }
@@ -854,10 +908,23 @@ func (dv *DistributedValidator) RegisterNode(nodeInfo *NodeInfo) error {
 // UnregisterNode removes a validation node
 func (dv *DistributedValidator) UnregisterNode(nodeID NodeID) error {
 	dv.nodesMutex.Lock()
+	dv.activeNodesMutex.Lock()
+	defer dv.activeNodesMutex.Unlock()
 	defer dv.nodesMutex.Unlock()
+
+	// Check if this was an active node before removing
+	wasActive := false
+	if info, exists := dv.nodes[nodeID]; exists && info.State == NodeStateActive {
+		wasActive = true
+	}
 
 	delete(dv.nodes, nodeID)
 	dv.loadBalancer.RemoveNode(nodeID)
+	
+	// Update active nodes cache if we removed an active node
+	if wasActive {
+		dv.updateActiveNodesList()
+	}
 
 	return nil
 }
@@ -884,6 +951,52 @@ func (dv *DistributedValidator) GetAllNodes() map[NodeID]*NodeInfo {
 	}
 
 	return nodesCopy
+}
+
+// updateActiveNodesList rebuilds the cached active nodes list
+// Must be called with both nodesMutex and activeNodesMutex write locks
+func (dv *DistributedValidator) updateActiveNodesList() {
+	activeNodes := make([]NodeID, 0, len(dv.nodes))
+	for nodeID, info := range dv.nodes {
+		if info.State == NodeStateActive {
+			activeNodes = append(activeNodes, nodeID)
+		}
+	}
+	dv.activeNodes = activeNodes
+}
+
+// updateNodeState updates a node's state and maintains the active nodes cache
+func (dv *DistributedValidator) updateNodeState(nodeID NodeID, newState NodeState) {
+	dv.nodesMutex.Lock()
+	dv.activeNodesMutex.Lock()
+	defer dv.activeNodesMutex.Unlock()
+	defer dv.nodesMutex.Unlock()
+
+	if info, exists := dv.nodes[nodeID]; exists {
+		oldState := info.State
+		info.State = newState
+		
+		// Only update cache if state changed between active/inactive
+		if (oldState == NodeStateActive && newState != NodeStateActive) ||
+		   (oldState != NodeStateActive && newState == NodeStateActive) {
+			dv.updateActiveNodesList()
+		}
+	}
+}
+
+// getActiveNodesCopy returns a copy of the active nodes list for thread-safe access
+func (dv *DistributedValidator) getActiveNodesCopy() []NodeID {
+	dv.activeNodesMutex.RLock()
+	defer dv.activeNodesMutex.RUnlock()
+	
+	if len(dv.activeNodes) == 0 {
+		return nil
+	}
+	
+	// Return a copy to prevent external modification
+	activeNodesCopy := make([]NodeID, len(dv.activeNodes))
+	copy(activeNodesCopy, dv.activeNodes)
+	return activeNodesCopy
 }
 
 // GetMetrics returns distributed validation metrics
@@ -945,48 +1058,230 @@ type GoroutineStatus struct {
 }
 
 // selectValidationNodes selects nodes for validation based on load balancing
+// Uses pre-computed active nodes list for optimal performance
 func (dv *DistributedValidator) selectValidationNodes(event events.Event) []NodeID {
-	dv.nodesMutex.RLock()
-	defer dv.nodesMutex.RUnlock()
+	// Get cached active nodes list (thread-safe copy)
+	activeNodes := dv.getActiveNodesCopy()
+	
+	// If no active nodes cached, fall back to slow path
+	if len(activeNodes) == 0 {
+		return dv.selectValidationNodesSlow(event)
+	}
 
-	activeNodes := make([]NodeID, 0)
+	// Use load balancer to select nodes from pre-computed list
+	requiredNodes := dv.consensus.GetRequiredNodes()
+	return dv.loadBalancer.SelectNodes(activeNodes, requiredNodes)
+}
+
+// selectValidationNodesSlow is the fallback method when active nodes cache is empty
+// This method filters nodes on-demand and rebuilds the cache
+func (dv *DistributedValidator) selectValidationNodesSlow(event events.Event) []NodeID {
+	dv.nodesMutex.RLock()
+	dv.activeNodesMutex.Lock()
+	
+	// Rebuild active nodes cache while we have the locks
+	activeNodes := make([]NodeID, 0, len(dv.nodes))
 	for nodeID, info := range dv.nodes {
 		if info.State == NodeStateActive {
 			activeNodes = append(activeNodes, nodeID)
 		}
 	}
+	
+	// Update cache
+	dv.activeNodes = make([]NodeID, len(activeNodes))
+	copy(dv.activeNodes, activeNodes)
+	
+	dv.activeNodesMutex.Unlock()
+	dv.nodesMutex.RUnlock()
 
 	// Use load balancer to select nodes
 	requiredNodes := dv.consensus.GetRequiredNodes()
 	return dv.loadBalancer.SelectNodes(activeNodes, requiredNodes)
 }
 
-// broadcastValidationRequest broadcasts a validation request to selected nodes
+// broadcastValidationRequest broadcasts a validation request to selected nodes with async processing
 func (dv *DistributedValidator) broadcastValidationRequest(ctx context.Context, eventID string, event events.Event, nodes []NodeID) {
+	// Filter out self node
+	targetNodes := make([]NodeID, 0, len(nodes))
 	for _, nodeID := range nodes {
-		if nodeID == dv.config.NodeID {
-			continue // Skip self
+		if nodeID != dv.config.NodeID {
+			targetNodes = append(targetNodes, nodeID)
 		}
+	}
 
-		go func(nID NodeID) {
-			defer func() {
-				if r := recover(); r != nil {
-					// Log panic but continue
-					fmt.Printf("Panic in distributed validator broadcast: %v\n", r)
-				}
-			}()
-			
-			// Check if context is already cancelled
+	if len(targetNodes) == 0 {
+		return
+	}
+
+	// Create buffered channel for batch processing
+	batchSize := 5 // Process in batches of 5
+	if len(targetNodes) < batchSize {
+		batchSize = len(targetNodes)
+	}
+
+	// Create worker pool for async processing
+	workerChan := make(chan broadcastTask, len(targetNodes))
+	resultChan := make(chan broadcastResult, len(targetNodes))
+
+	// Start worker goroutines
+	for i := 0; i < batchSize; i++ {
+		go dv.broadcastWorker(ctx, eventID, event, workerChan, resultChan)
+	}
+
+	// Send tasks to workers
+	for _, nodeID := range targetNodes {
+		task := broadcastTask{
+			nodeID:  nodeID,
+			eventID: eventID,
+			event:   event,
+		}
+		
+		select {
+		case workerChan <- task:
+		case <-ctx.Done():
+			close(workerChan)
+			return
+		}
+	}
+
+	close(workerChan)
+
+	// Collect results asynchronously (don't block on results)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Panic in broadcast result collection: %v\n", r)
+			}
+		}()
+
+		successCount := 0
+		failureCount := 0
+		
+		for i := 0; i < len(targetNodes); i++ {
 			select {
+			case result := <-resultChan:
+				if result.err != nil {
+					failureCount++
+					dv.metrics.RecordBroadcastFailure(result.nodeID)
+				} else {
+					successCount++
+					dv.metrics.RecordBroadcastSuccess(result.nodeID)
+				}
 			case <-ctx.Done():
 				return
-			default:
+			case <-time.After(5 * time.Second): // Timeout for result collection
+				return
 			}
-			
-			// TODO: Implement actual network communication
-			// For now, this is a placeholder
-			_ = nID
-		}(nodeID)
+		}
+
+		// Update metrics
+		dv.metrics.RecordBroadcastCompletion(successCount, failureCount)
+	}()
+}
+
+// broadcastTask represents a broadcast task for a worker
+type broadcastTask struct {
+	nodeID  NodeID
+	eventID string
+	event   events.Event
+}
+
+// broadcastResult represents the result of a broadcast operation
+type broadcastResult struct {
+	nodeID NodeID
+	err    error
+}
+
+// broadcastWorker processes broadcast tasks asynchronously
+func (dv *DistributedValidator) broadcastWorker(ctx context.Context, eventID string, event events.Event, tasks <-chan broadcastTask, results chan<- broadcastResult) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("Panic in broadcast worker: %v\n", r)
+		}
+	}()
+
+	for task := range tasks {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		// Create timeout context for individual broadcast
+		broadcastCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+		
+		err := dv.sendValidationRequestAsync(broadcastCtx, task.nodeID, task.eventID, task.event)
+		cancel()
+
+		select {
+		case results <- broadcastResult{nodeID: task.nodeID, err: err}:
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// sendValidationRequestAsync sends a validation request to a specific node asynchronously
+func (dv *DistributedValidator) sendValidationRequestAsync(ctx context.Context, nodeID NodeID, eventID string, event events.Event) error {
+	// Use circuit breaker to prevent cascade failures
+	return dv.consensusCircuitBreaker.Execute(ctx, func() error {
+		return dv.performNetworkCall(ctx, nodeID, eventID, event)
+	})
+}
+
+// performNetworkCall performs the actual network call with retry logic
+func (dv *DistributedValidator) performNetworkCall(ctx context.Context, nodeID NodeID, eventID string, event events.Event) error {
+	maxRetries := 3
+	var lastErr error
+
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		err := dv.executeNetworkCall(ctx, nodeID, eventID, event)
+		if err == nil {
+			return nil
+		}
+
+		lastErr = err
+
+		// Don't retry on the last attempt
+		if attempt == maxRetries-1 {
+			break
+		}
+
+		// Exponential backoff with jitter
+		backoffDuration := time.Duration(100*(1<<attempt)) * time.Millisecond
+		jitter := time.Duration(time.Now().UnixNano() % int64(backoffDuration/2))
+		backoffDuration += jitter
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoffDuration):
+			// Continue to next attempt
+		}
+	}
+
+	return fmt.Errorf("max retries exceeded for node %s: %w", nodeID, lastErr)
+}
+
+// executeNetworkCall executes the actual network call
+func (dv *DistributedValidator) executeNetworkCall(ctx context.Context, nodeID NodeID, eventID string, event events.Event) error {
+	// TODO: Implement actual network communication
+	// For now, simulate async network call
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(50 * time.Millisecond): // Simulate network delay
+		// Simulate occasional failures for testing
+		if time.Now().UnixNano()%10 == 0 {
+			return fmt.Errorf("simulated network failure for node %s", nodeID)
+		}
+		return nil
 	}
 }
 
@@ -1013,9 +1308,16 @@ func (dv *DistributedValidator) generateEventID(event events.Event) string {
 		}
 	}
 
-	// Generate based on event type and timestamp
+	// Generate based on event type and timestamp using strings.Builder for performance
 	timestamp := time.Now().UnixNano()
-	return fmt.Sprintf("%s-%s-%d", dv.config.NodeID, event.Type(), timestamp)
+	var builder strings.Builder
+	builder.Grow(len(string(dv.config.NodeID)) + len(string(event.Type())) + 30) // Node + Type + timestamp + separators
+	builder.WriteString(string(dv.config.NodeID))
+	builder.WriteByte('-')
+	builder.WriteString(string(event.Type()))
+	builder.WriteByte('-')
+	builder.WriteString(strconv.FormatInt(timestamp, 10))
+	return builder.String()
 }
 
 // getNextSequence returns the next sequence number for validation decisions
@@ -1040,10 +1342,26 @@ func (dv *DistributedValidator) heartbeatRoutine(ctx context.Context) {
 	}
 }
 
-// sendHeartbeat sends a heartbeat to other nodes
+// sendHeartbeat sends a heartbeat to other nodes asynchronously
 func (dv *DistributedValidator) sendHeartbeat() {
 	// Update local node info
+	dv.updateLocalNodeInfo()
+
+	// Get active nodes to send heartbeat to
+	targetNodes := dv.getActiveTargetNodes()
+	if len(targetNodes) == 0 {
+		return
+	}
+
+	// Send heartbeats asynchronously with buffering
+	go dv.broadcastHeartbeatAsync(targetNodes)
+}
+
+// updateLocalNodeInfo updates the local node information
+func (dv *DistributedValidator) updateLocalNodeInfo() {
 	dv.nodesMutex.Lock()
+	defer dv.nodesMutex.Unlock()
+	
 	if info, exists := dv.nodes[dv.config.NodeID]; exists {
 		info.LastHeartbeat = time.Now()
 		info.ValidationCount = dv.metrics.GetValidationCount()
@@ -1051,9 +1369,180 @@ func (dv *DistributedValidator) sendHeartbeat() {
 		info.ResponseTimeMs = dv.metrics.GetAverageResponseTime()
 		info.Load = dv.metrics.GetCurrentLoad()
 	}
-	dv.nodesMutex.Unlock()
+}
 
-	// TODO: Broadcast heartbeat to other nodes
+// getActiveTargetNodes returns a list of active nodes to send heartbeats to
+func (dv *DistributedValidator) getActiveTargetNodes() []NodeID {
+	dv.nodesMutex.RLock()
+	defer dv.nodesMutex.RUnlock()
+	
+	targetNodes := make([]NodeID, 0)
+	for nodeID, info := range dv.nodes {
+		if nodeID != dv.config.NodeID && info.State == NodeStateActive {
+			targetNodes = append(targetNodes, nodeID)
+		}
+	}
+	
+	return targetNodes
+}
+
+// broadcastHeartbeatAsync broadcasts heartbeat to nodes asynchronously
+func (dv *DistributedValidator) broadcastHeartbeatAsync(nodes []NodeID) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("Panic in heartbeat broadcast: %v\n", r)
+		}
+	}()
+
+	// Create buffered channel for heartbeat tasks
+	heartbeatTasks := make(chan heartbeatTask, len(nodes))
+	results := make(chan heartbeatResult, len(nodes))
+	
+	// Start worker pool for heartbeat processing
+	workerCount := 3 // Limited workers for heartbeat
+	if len(nodes) < workerCount {
+		workerCount = len(nodes)
+	}
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	
+	// Start workers
+	for i := 0; i < workerCount; i++ {
+		go dv.heartbeatWorker(ctx, heartbeatTasks, results)
+	}
+	
+	// Send tasks to workers
+	for _, nodeID := range nodes {
+		task := heartbeatTask{
+			nodeID:    nodeID,
+			timestamp: time.Now(),
+		}
+		
+		select {
+		case heartbeatTasks <- task:
+		case <-ctx.Done():
+			close(heartbeatTasks)
+			return
+		}
+	}
+	
+	close(heartbeatTasks)
+	
+	// Collect results without blocking
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				fmt.Printf("Panic in heartbeat result collection: %v\n", r)
+			}
+		}()
+		
+		successCount := 0
+		failureCount := 0
+		
+		for i := 0; i < len(nodes); i++ {
+			select {
+			case result := <-results:
+				if result.err != nil {
+					failureCount++
+					dv.handleHeartbeatFailure(result.nodeID, result.err)
+				} else {
+					successCount++
+					dv.handleHeartbeatSuccess(result.nodeID)
+				}
+			case <-ctx.Done():
+				return
+			}
+		}
+		
+		dv.metrics.RecordHeartbeatCompletion(successCount, failureCount)
+	}()
+}
+
+// heartbeatTask represents a heartbeat task
+type heartbeatTask struct {
+	nodeID    NodeID
+	timestamp time.Time
+}
+
+// heartbeatResult represents the result of a heartbeat operation
+type heartbeatResult struct {
+	nodeID NodeID
+	err    error
+}
+
+// heartbeatWorker processes heartbeat tasks
+func (dv *DistributedValidator) heartbeatWorker(ctx context.Context, tasks <-chan heartbeatTask, results chan<- heartbeatResult) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("Panic in heartbeat worker: %v\n", r)
+		}
+	}()
+
+	for task := range tasks {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
+		// Send heartbeat with timeout
+		heartbeatCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+		err := dv.sendHeartbeatToNode(heartbeatCtx, task.nodeID)
+		cancel()
+
+		select {
+		case results <- heartbeatResult{nodeID: task.nodeID, err: err}:
+		case <-ctx.Done():
+			return
+		}
+	}
+}
+
+// sendHeartbeatToNode sends a heartbeat to a specific node
+func (dv *DistributedValidator) sendHeartbeatToNode(ctx context.Context, nodeID NodeID) error {
+	// Use circuit breaker to prevent cascade failures
+	return dv.heartbeatCircuitBreaker.Execute(ctx, func() error {
+		return dv.executeHeartbeatCall(ctx, nodeID)
+	})
+}
+
+// executeHeartbeatCall executes the actual heartbeat network call
+func (dv *DistributedValidator) executeHeartbeatCall(ctx context.Context, nodeID NodeID) error {
+	// TODO: Implement actual heartbeat network communication
+	// For now, simulate async heartbeat call
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(50 * time.Millisecond): // Simulate network delay
+		// Simulate occasional failures for testing
+		if time.Now().UnixNano()%15 == 0 {
+			return fmt.Errorf("heartbeat network failure for node %s", nodeID)
+		}
+		return nil
+	}
+}
+
+// handleHeartbeatSuccess handles successful heartbeat
+func (dv *DistributedValidator) handleHeartbeatSuccess(nodeID NodeID) {
+	// Update node state if needed using optimized method
+	dv.nodesMutex.RLock()
+	needsUpdate := false
+	if info, exists := dv.nodes[nodeID]; exists && info.State == NodeStateFailed {
+		needsUpdate = true
+	}
+	dv.nodesMutex.RUnlock()
+	
+	if needsUpdate {
+		dv.updateNodeState(nodeID, NodeStateActive)
+	}
+}
+
+// handleHeartbeatFailure handles failed heartbeat
+func (dv *DistributedValidator) handleHeartbeatFailure(nodeID NodeID, err error) {
+	// Update node state using optimized method and handle potential failure
+	dv.updateNodeState(nodeID, NodeStateFailed)
+	dv.partitionHandler.HandleNodeFailure(nodeID)
 }
 
 // cleanupRoutine performs periodic cleanup tasks
@@ -1075,27 +1564,95 @@ func (dv *DistributedValidator) cleanupRoutine(ctx context.Context) {
 
 // cleanup performs cleanup tasks
 func (dv *DistributedValidator) cleanup() {
-	// Clean up stale nodes
-	dv.nodesMutex.Lock()
+	dv.cleanupNodes()
+	dv.cleanupPendingValidations()
+}
+
+// cleanupNodes removes nodes not seen for > 5 minutes (heartbeat-based eviction)
+func (dv *DistributedValidator) cleanupNodes() {
 	now := time.Now()
-	staleTimeout := 5 * dv.config.HeartbeatInterval
-
+	cutoff := now.Add(-dv.config.NodeCleanupInterval)
+	removedCount := 0
+	failedNodes := make([]NodeID, 0)
+	
+	// First pass: collect nodes that need state changes
+	dv.nodesMutex.RLock()
 	for nodeID, info := range dv.nodes {
-		if nodeID != dv.config.NodeID && now.Sub(info.LastHeartbeat) > staleTimeout {
-			info.State = NodeStateFailed
+		// Don't process self node
+		if nodeID == dv.config.NodeID {
+			continue
+		}
+		
+		// Check if node should be marked as failed
+		if !info.LastHeartbeat.Before(cutoff) && 
+		   now.Sub(info.LastHeartbeat) > 5*dv.config.HeartbeatInterval &&
+		   info.State != NodeStateFailed {
+			failedNodes = append(failedNodes, nodeID)
+		}
+	}
+	dv.nodesMutex.RUnlock()
+	
+	// Update failed nodes using optimized method
+	for _, nodeID := range failedNodes {
+		dv.updateNodeState(nodeID, NodeStateFailed)
+		dv.partitionHandler.HandleNodeFailure(nodeID)
+	}
+	
+	// Second pass: remove completely stale nodes
+	dv.nodesMutex.Lock()
+	dv.activeNodesMutex.Lock()
+	needsCacheUpdate := false
+	
+	for nodeID, info := range dv.nodes {
+		// Don't remove self node
+		if nodeID == dv.config.NodeID {
+			continue
+		}
+		
+		// Remove nodes not seen for > NodeCleanupInterval
+		if info.LastHeartbeat.Before(cutoff) {
+			wasActive := info.State == NodeStateActive
+			delete(dv.nodes, nodeID)
 			dv.partitionHandler.HandleNodeFailure(nodeID)
+			removedCount++
+			if wasActive {
+				needsCacheUpdate = true
+			}
 		}
 	}
+	
+	// Update cache if we removed active nodes
+	if needsCacheUpdate {
+		dv.updateActiveNodesList()
+	}
+	
+	dv.activeNodesMutex.Unlock()
 	dv.nodesMutex.Unlock()
+	
+	if removedCount > 0 {
+		dv.metrics.RecordNodesRemoved(removedCount)
+	}
+}
 
-	// Clean up old pending validations
+// cleanupPendingValidations removes old pending validations
+func (dv *DistributedValidator) cleanupPendingValidations() {
 	dv.validationMutex.Lock()
+	defer dv.validationMutex.Unlock()
+	
+	now := time.Now()
+	timeoutThreshold := dv.config.ValidationTimeout * 2
+	removedCount := 0
+	
 	for eventID, pending := range dv.pendingValidations {
-		if now.Sub(pending.StartTime) > dv.config.ValidationTimeout*2 {
+		if now.Sub(pending.StartTime) > timeoutThreshold {
 			delete(dv.pendingValidations, eventID)
+			removedCount++
 		}
 	}
-	dv.validationMutex.Unlock()
+	
+	if removedCount > 0 {
+		dv.metrics.RecordValidationsCleanup(removedCount)
+	}
 }
 
 // metricsRoutine collects and reports metrics
@@ -1186,12 +1743,19 @@ func (dv *DistributedValidator) checkPendingConsensus() {
 }
 
 // DistributedMetrics tracks metrics for distributed validation
+// Fields are padded to prevent false sharing between atomic operations
 type DistributedMetrics struct {
 	validationCount     uint64
+	_padding1          [7]uint64  // Prevent false sharing
 	errorCount          uint64
+	_padding2          [7]uint64  // Prevent false sharing
 	timeoutCount        uint64
-	totalDuration       time.Duration
+	_padding3          [7]uint64  // Prevent false sharing
 	sequenceCounter     uint64
+	_padding4          [7]uint64  // Prevent false sharing
+	
+	// Non-atomic fields (protected by mutex)
+	totalDuration       time.Duration
 	activeNodes         int
 	averageLoad         float64
 	mutex               sync.RWMutex
@@ -1204,63 +1768,56 @@ func NewDistributedMetrics() *DistributedMetrics {
 
 // RecordValidation records a validation operation
 func (m *DistributedMetrics) RecordValidation(duration time.Duration, success bool) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-
-	m.validationCount++
-	m.totalDuration += duration
+	// Use atomic operations for counters to avoid false sharing
+	atomic.AddUint64(&m.validationCount, 1)
 	if !success {
-		m.errorCount++
+		atomic.AddUint64(&m.errorCount, 1)
 	}
+	
+	// Use mutex only for non-atomic fields
+	m.mutex.Lock()
+	m.totalDuration += duration
+	m.mutex.Unlock()
 }
 
 // RecordTimeout records a validation timeout
 func (m *DistributedMetrics) RecordTimeout() {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-	
-	m.timeoutCount++
+	atomic.AddUint64(&m.timeoutCount, 1)
 }
 
 // GetNextSequence returns the next sequence number
 func (m *DistributedMetrics) GetNextSequence() uint64 {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-	
-	m.sequenceCounter++
-	return m.sequenceCounter
+	return atomic.AddUint64(&m.sequenceCounter, 1)
 }
 
 // GetValidationCount returns the total validation count
 func (m *DistributedMetrics) GetValidationCount() uint64 {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	
-	return m.validationCount
+	return atomic.LoadUint64(&m.validationCount)
 }
 
 // GetErrorRate returns the error rate
 func (m *DistributedMetrics) GetErrorRate() float64 {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	
-	if m.validationCount == 0 {
+	validationCount := atomic.LoadUint64(&m.validationCount)
+	if validationCount == 0 {
 		return 0
 	}
 	
-	return float64(m.errorCount) / float64(m.validationCount)
+	errorCount := atomic.LoadUint64(&m.errorCount)
+	return float64(errorCount) / float64(validationCount)
 }
 
 // GetAverageResponseTime returns the average response time in milliseconds
 func (m *DistributedMetrics) GetAverageResponseTime() float64 {
-	m.mutex.RLock()
-	defer m.mutex.RUnlock()
-	
-	if m.validationCount == 0 {
+	validationCount := atomic.LoadUint64(&m.validationCount)
+	if validationCount == 0 {
 		return 0
 	}
 	
-	avgDuration := m.totalDuration / time.Duration(m.validationCount)
+	m.mutex.RLock()
+	totalDuration := m.totalDuration
+	m.mutex.RUnlock()
+	
+	avgDuration := totalDuration / time.Duration(validationCount)
 	return float64(avgDuration.Milliseconds())
 }
 
@@ -1277,4 +1834,40 @@ func (m *DistributedMetrics) UpdateClusterMetrics(activeNodes int, averageLoad f
 	
 	m.activeNodes = activeNodes
 	m.averageLoad = averageLoad
+}
+
+// RecordBroadcastSuccess records a successful broadcast operation
+func (m *DistributedMetrics) RecordBroadcastSuccess(nodeID NodeID) {
+	// TODO: Implement broadcast success metrics
+	// For now, this is a placeholder
+}
+
+// RecordBroadcastFailure records a failed broadcast operation
+func (m *DistributedMetrics) RecordBroadcastFailure(nodeID NodeID) {
+	// TODO: Implement broadcast failure metrics
+	// For now, this is a placeholder
+}
+
+// RecordBroadcastCompletion records the completion of a broadcast round
+func (m *DistributedMetrics) RecordBroadcastCompletion(successCount, failureCount int) {
+	// TODO: Implement broadcast completion metrics
+	// For now, this is a placeholder
+}
+
+// RecordHeartbeatCompletion records the completion of a heartbeat round
+func (m *DistributedMetrics) RecordHeartbeatCompletion(successCount, failureCount int) {
+	// TODO: Implement heartbeat completion metrics
+	// For now, this is a placeholder
+}
+
+// RecordNodesRemoved records the number of nodes removed during cleanup
+func (m *DistributedMetrics) RecordNodesRemoved(count int) {
+	// TODO: Implement nodes removed metrics tracking
+	// For now, this is a placeholder
+}
+
+// RecordValidationsCleanup records the number of validations cleaned up
+func (m *DistributedMetrics) RecordValidationsCleanup(count int) {
+	// TODO: Implement validations cleanup metrics tracking
+	// For now, this is a placeholder
 }

@@ -227,6 +227,11 @@ func (r *EventOrderingRule) Validate(event Event, context *ValidationContext) *V
 		return result
 	}
 
+	// Skip validation if sequence validation is disabled
+	if context.Config != nil && context.Config.SkipSequenceValidation {
+		return result
+	}
+
 	// Check if first event is RUN_STARTED
 	if context.EventIndex == 0 && event.Type() != EventTypeRunStarted {
 		result.AddError(r.CreateError(event,
@@ -366,6 +371,13 @@ func (r *MessageLifecycleRule) Validate(event Event, context *ValidationContext)
 	if !r.IsEnabled() {
 		span.SetStatus(codes.Ok, "Rule disabled")
 		span.AddEvent("validation.rule.disabled")
+		return result
+	}
+
+	// Skip validation if sequence validation is disabled
+	if context.Config != nil && context.Config.SkipSequenceValidation {
+		span.SetStatus(codes.Ok, "Sequence validation skipped")
+		span.AddEvent("validation.sequence.skipped")
 		return result
 	}
 

@@ -451,11 +451,18 @@ func (am *AuditManager) LogStateUpdate(ctx context.Context, contextID, stateID, 
 	// Extract additional context from context
 	am.enrichFromContext(ctx, log)
 
-	// Log asynchronously to avoid blocking
+	// Log asynchronously to avoid blocking, but with proper timeout
 	go func() {
-		if err := am.logger.Log(context.Background(), log); err != nil {
-			// In production, this would go to a fallback logger
-			fmt.Fprintf(os.Stderr, "Failed to write audit log: %v\n", err)
+		// Use a timeout context that respects test/production environment
+		auditCtx, cancel := context.WithTimeout(ctx, GetDefaultAuditWriteTimeout())
+		defer cancel()
+		
+		if err := am.logger.Log(auditCtx, log); err != nil {
+			// Only log if not due to context cancellation
+			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				// In production, this would go to a fallback logger
+				fmt.Fprintf(os.Stderr, "Failed to write audit log: %v\n", err)
+			}
 		}
 	}()
 }
@@ -506,11 +513,11 @@ func (am *AuditManager) LogError(ctx context.Context, action AuditAction, err er
 
 	// Error logs are written asynchronously with context checking
 	go func() {
-		// Use a short timeout context to avoid hanging on shutdown
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Use a timeout context that respects test/production environment
+		auditCtx, cancel := context.WithTimeout(ctx, GetDefaultAuditWriteTimeout())
 		defer cancel()
 		
-		if err := am.logger.Log(ctx, log); err != nil {
+		if err := am.logger.Log(auditCtx, log); err != nil {
 			// Only write to stderr if it's not a context cancellation
 			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
 				// Use a mutex to protect stderr writes during shutdown

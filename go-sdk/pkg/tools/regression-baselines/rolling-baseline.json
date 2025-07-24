@@ -1,0 +1,19 @@
+{
+  "ExecutionTimeBaseline": 18938919,
+  "ThroughputBaseline": 514.5,
+  "ConcurrencyBaseline": 0,
+  "ErrorRateBaseline": 0,
+  "MemoryUsageBaseline": 18446744073709551615,
+  "GCFrequencyBaseline": 0,
+  "AllocRateBaseline": 0,
+  "LatencyP50Baseline": 0,
+  "LatencyP95Baseline": 0,
+  "LatencyP99Baseline": 0,
+  "CPUUsageBaseline": 0,
+  "GoroutineCountBaseline": 0,
+  "CreatedAt": "2025-07-20T11:07:23.488846-05:00",
+  "Environment": "regression-test",
+  "GoVersion": "go1.24.4",
+  "Platform": "darwin/arm64",
+  "CommitHash": ""
+}

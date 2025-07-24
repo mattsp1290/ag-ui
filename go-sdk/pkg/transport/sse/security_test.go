@@ -18,6 +18,7 @@ import (
 )
 
 func TestSecurityManager(t *testing.T) {
+	t.Parallel()  // Safe to run in parallel
 	logger := zap.NewNop()
 
 	t.Run("minimal security", func(t *testing.T) {

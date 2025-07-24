@@ -677,7 +677,8 @@ func (cb *CircuitBreaker) recordResult(err error) {
 	cb.failures++
 	cb.lastFailure = time.Now()
 
-	if cb.failures >= cb.failureThreshold {
+	// If we're in half-open state, any failure should immediately trip to open
+	if cb.state == CircuitHalfOpen || cb.failures >= cb.failureThreshold {
 		cb.state = CircuitOpen
 	}
 }

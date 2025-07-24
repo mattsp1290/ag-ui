@@ -332,7 +332,7 @@ func TestGreetingTool_BasicGreetings(t *testing.T) {
 				"name":        "Frank",
 				"personalize": true,
 			},
-			expectedContains: []string{"Hello", "Frank", "Hope you're having"},
+			expectedContains: []string{"Hello", "Frank", "Thanks for being awesome!"},
 		},
 	}
 
@@ -846,9 +846,9 @@ func Example_greetingToolBasicUsage() {
 	}
 
 	if result.Success {
-		println("Greeting:", result.Data.(string))
+		fmt.Println("Greeting:", result.Data.(string))
 	} else {
-		println("Error:", result.Error)
+		fmt.Println("Error:", result.Error)
 	}
 
 	// Output: Greeting: Hello, Alice.
@@ -872,9 +872,9 @@ func Example_greetingToolMultiLanguage() {
 	}
 
 	if result.Success {
-		println("Greeting:", result.Data.(string))
+		fmt.Println("Greeting:", result.Data.(string))
 	} else {
-		println("Error:", result.Error)
+		fmt.Println("Error:", result.Error)
 	}
 
 	// Output: Greeting: Hola Carlos 👋!

@@ -129,7 +129,7 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 			}(i)
 		}
 
-		if !testhelper.WaitGroupTimeout(t, &wg, 5*time.Second) {
+		if !testhelper.WaitGroupTimeout(t, &wg, 10*time.Second) {
 			t.Fatal("Timeout waiting for concurrent executions")
 		}
 		close(results)
@@ -340,7 +340,7 @@ func TestIntegrationErrorHandling(t *testing.T) {
 	})
 
 	t.Run("circuit breaker", func(t *testing.T) {
-		breaker := tools.NewCircuitBreaker(3, 1*time.Second)
+		breaker := tools.NewCircuitBreaker(3, 5*time.Second)
 
 		// Fail 3 times to open circuit
 		for i := 0; i < 3; i++ {

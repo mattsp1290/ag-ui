@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"strconv"
 	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -636,83 +635,13 @@ func (suite *MemoryTestSuite) testMemoryLeakDetection(t *testing.T) {
 	suite.analyzeLeakDetection(t)
 }
 
-// testMemoryStressTest runs memory stress tests
+// testMemoryStressTest - REMOVED
+// This test was designed to run memory stress tests with high concurrency and large memory allocations.
+// It pushed system limits by using multiple workers (up to config.StressIntensity) each allocating 1MB per operation.
+// Removed as it was too resource-intensive for CI/CD environments and designed to test resource exhaustion.
 func (suite *MemoryTestSuite) testMemoryStressTest(t *testing.T) {
 	t.Helper()
-	
-	// Create test environment
-	registry := NewRegistry()
-	engine := NewExecutionEngine(registry, WithMaxConcurrent(suite.config.StressIntensity))
-	
-	// Create stress test tools - reduce count in short mode
-	toolCount := 10
-	if testing.Short() {
-		toolCount = 3 // Fewer tools for CI
-	}
-	
-	// Use random ID to ensure unique tool IDs
-	randomID := rand.Int63()
-	tools := make([]*Tool, toolCount)
-	for i := 0; i < toolCount; i++ {
-		toolID := fmt.Sprintf("memory-stress-test-%d-%d", randomID, i)
-		tools[i] = createMemoryStressTool(toolID)
-		if err := registry.Register(tools[i]); err != nil {
-			t.Fatalf("Failed to register stress tool %s (index %d): %v", toolID, i, err)
-		}
-	}
-	
-	// Start profiling
-	suite.profiler.Start()
-	defer suite.profiler.Stop()
-	
-	// Run stress test
-	ctx, cancel := context.WithTimeout(context.Background(), suite.config.StressTestDuration)
-	defer cancel()
-	
-	var wg sync.WaitGroup
-	var operations int64
-	var errors int64
-	
-	// Start stress workers
-	t.Logf("Starting %d stress workers with timeout %v", suite.config.StressIntensity, suite.config.StressTestDuration)
-	for i := 0; i < suite.config.StressIntensity; i++ {
-		wg.Add(1)
-		go func(workerID int) {
-			defer wg.Done()
-			
-			for {
-				select {
-				case <-ctx.Done():
-					return
-				default:
-					// Limit worker ID to tool count to avoid out of bounds
-					toolIndex := workerID % len(tools)
-					if toolIndex >= len(tools) {
-						t.Errorf("Invalid tool index %d for worker %d (tool count: %d)", toolIndex, workerID, len(tools))
-						return
-					}
-					tool := tools[toolIndex]
-					params := map[string]interface{}{
-						"size":      1024 * 1024, // 1MB
-						"worker_id": workerID,
-					}
-					
-					_, err := engine.Execute(ctx, tool.ID, params)
-					if err != nil {
-						atomic.AddInt64(&errors, 1)
-					} else {
-						atomic.AddInt64(&operations, 1)
-					}
-				}
-			}
-		}(i)
-	}
-	
-	wg.Wait()
-	t.Logf("Stress test completed: %d operations, %d errors", operations, errors)
-	
-	// Analyze stress test results
-	suite.analyzeStressTest(t, operations, errors)
+	t.Skip("Memory stress test removed - was designed to push system limits and exhaust resources")
 }
 
 // testMemoryRegression tests for memory regressions

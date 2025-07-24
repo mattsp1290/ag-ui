@@ -46,8 +46,16 @@ type MetricsCollector struct {
 	compressionStats *CompressionStats
 	memoryStats      *MemoryStats
 	
+	// Bounded percentile maps for memory management
+	hitPercentiles  *BoundedPercentileMap
+	missPercentiles *BoundedPercentileMap
+	
 	// Configuration
 	config        *MetricsConfig
+	
+	// Memory monitoring
+	memoryUsage   int64
+	memoryLimit   int64
 	
 	// Synchronization
 	mu            sync.RWMutex
@@ -65,6 +73,13 @@ type MetricsConfig struct {
 	HistogramBuckets        int
 	ReportingInterval       time.Duration
 	PercentilesToTrack      []float64
+	// Memory management configuration
+	MaxPercentileEntries    int           // Maximum entries in percentile maps
+	PercentileCleanupTTL    time.Duration // TTL for percentile entries
+	MaxLatencySamples       int           // Maximum latency samples per tracker
+	MaxTimeSeriesPoints     int           // Maximum time series points
+	MemoryLimitMB           int64         // Memory usage limit in MB
+	CleanupInterval         time.Duration // Interval for cleanup operations
 }
 
 // DefaultMetricsConfig returns default metrics configuration
@@ -78,6 +93,13 @@ func DefaultMetricsConfig() *MetricsConfig {
 		HistogramBuckets:        20,
 		ReportingInterval:       1 * time.Minute,
 		PercentilesToTrack:      []float64{0.5, 0.75, 0.9, 0.95, 0.99},
+		// Memory management defaults
+		MaxPercentileEntries:    100,
+		PercentileCleanupTTL:    5 * time.Minute,
+		MaxLatencySamples:       1000,
+		MaxTimeSeriesPoints:     3600, // 1 hour at 1 second resolution
+		MemoryLimitMB:           50,
+		CleanupInterval:         30 * time.Second,
 	}
 }
 
@@ -89,6 +111,7 @@ type LatencyTracker struct {
 	count         uint64
 	min           time.Duration
 	max           time.Duration
+	lastCleanup   time.Time
 	mu            sync.Mutex
 }
 
@@ -97,6 +120,7 @@ type TimeSeriesData struct {
 	points        []*MetricPoint
 	window        time.Duration
 	resolution    time.Duration
+	maxPoints     int
 	mu            sync.RWMutex
 }
 
@@ -163,6 +187,128 @@ type BasicMetrics struct {
 	L2HitRate     float64 `json:"l2_hit_rate"`
 }
 
+// PercentileEntry represents a percentile entry with TTL
+type PercentileEntry struct {
+	Value     time.Duration
+	Timestamp time.Time
+}
+
+// BoundedPercentileMap manages percentile data with memory bounds
+type BoundedPercentileMap struct {
+	entries     map[string]*PercentileEntry
+	maxEntries  int
+	ttl         time.Duration
+	mu          sync.RWMutex
+	lastCleanup time.Time
+}
+
+// NewBoundedPercentileMap creates a new bounded percentile map
+func NewBoundedPercentileMap(maxEntries int, ttl time.Duration) *BoundedPercentileMap {
+	return &BoundedPercentileMap{
+		entries:     make(map[string]*PercentileEntry),
+		maxEntries:  maxEntries,
+		ttl:         ttl,
+		lastCleanup: time.Now(),
+	}
+}
+
+// Set adds or updates a percentile entry
+func (bpm *BoundedPercentileMap) Set(key string, value time.Duration) {
+	bpm.mu.Lock()
+	defer bpm.mu.Unlock()
+	
+	// Cleanup expired entries periodically
+	if time.Since(bpm.lastCleanup) > bpm.ttl/2 {
+		bpm.cleanupExpiredLocked()
+	}
+	
+	// If at capacity, remove oldest entry
+	if len(bpm.entries) >= bpm.maxEntries {
+		bpm.evictOldestLocked()
+	}
+	
+	bpm.entries[key] = &PercentileEntry{
+		Value:     value,
+		Timestamp: time.Now(),
+	}
+}
+
+// Get retrieves a percentile value
+func (bpm *BoundedPercentileMap) Get(key string) (time.Duration, bool) {
+	bpm.mu.RLock()
+	defer bpm.mu.RUnlock()
+	
+	entry, exists := bpm.entries[key]
+	if !exists {
+		return 0, false
+	}
+	
+	// Check if entry is expired
+	if time.Since(entry.Timestamp) > bpm.ttl {
+		return 0, false
+	}
+	
+	return entry.Value, true
+}
+
+// GetAll returns all non-expired entries
+func (bpm *BoundedPercentileMap) GetAll() map[string]time.Duration {
+	bpm.mu.RLock()
+	defer bpm.mu.RUnlock()
+	
+	result := make(map[string]time.Duration)
+	now := time.Now()
+	
+	for key, entry := range bpm.entries {
+		if now.Sub(entry.Timestamp) <= bpm.ttl {
+			result[key] = entry.Value
+		}
+	}
+	
+	return result
+}
+
+// cleanupExpiredLocked removes expired entries (must be called with lock held)
+func (bpm *BoundedPercentileMap) cleanupExpiredLocked() {
+	now := time.Now()
+	for key, entry := range bpm.entries {
+		if now.Sub(entry.Timestamp) > bpm.ttl {
+			delete(bpm.entries, key)
+		}
+	}
+	bpm.lastCleanup = now
+}
+
+// evictOldestLocked removes the oldest entry (must be called with lock held)
+func (bpm *BoundedPercentileMap) evictOldestLocked() {
+	if len(bpm.entries) == 0 {
+		return
+	}
+	
+	oldestKey := ""
+	oldestTime := time.Now()
+	
+	for key, entry := range bpm.entries {
+		if entry.Timestamp.Before(oldestTime) {
+			oldestTime = entry.Timestamp
+			oldestKey = key
+		}
+	}
+	
+	if oldestKey != "" {
+		delete(bpm.entries, oldestKey)
+	}
+}
+
+// MemoryUsage returns approximate memory usage in bytes
+func (bpm *BoundedPercentileMap) MemoryUsage() int64 {
+	bpm.mu.RLock()
+	defer bpm.mu.RUnlock()
+	
+	// Approximate: key string + entry struct + pointer overhead
+	return int64(len(bpm.entries)) * (32 + 24 + 8) // rough estimate
+}
+
 // LatencyMetrics contains latency-related metrics
 type LatencyMetrics struct {
 	AvgHitLatency    time.Duration            `json:"avg_hit_latency"`
@@ -209,16 +355,19 @@ func NewMetricsCollector(config *MetricsConfig) *MetricsCollector {
 	
 	mc := &MetricsCollector{
 		config:           config,
-		hitLatencies:     NewLatencyTracker(10000),
-		missLatencies:    NewLatencyTracker(10000),
-		setLatencies:     NewLatencyTracker(10000),
+		hitLatencies:     NewLatencyTracker(config.MaxLatencySamples),
+		missLatencies:    NewLatencyTracker(config.MaxLatencySamples),
+		setLatencies:     NewLatencyTracker(config.MaxLatencySamples),
 		compressionStats: &CompressionStats{},
 		memoryStats:      &MemoryStats{},
+		hitPercentiles:   NewBoundedPercentileMap(config.MaxPercentileEntries, config.PercentileCleanupTTL),
+		missPercentiles:  NewBoundedPercentileMap(config.MaxPercentileEntries, config.PercentileCleanupTTL),
+		memoryLimit:      config.MemoryLimitMB * 1024 * 1024, // Convert MB to bytes
 		shutdownCh:       make(chan struct{}),
 	}
 	
 	if config.EnableTimeSeries {
-		mc.timeSeries = NewTimeSeriesData(config.TimeSeriesWindow, 1*time.Minute)
+		mc.timeSeries = NewTimeSeriesData(config.TimeSeriesWindow, 1*time.Minute, config.MaxTimeSeriesPoints)
 	}
 	
 	if config.EnableHistograms {
@@ -234,6 +383,10 @@ func NewMetricsCollector(config *MetricsConfig) *MetricsCollector {
 		mc.wg.Add(1)
 		go mc.memoryProfilingWorker()
 	}
+	
+	// Start memory cleanup worker
+	mc.wg.Add(1)
+	go mc.memoryCleanupWorker()
 	
 	return mc
 }
@@ -397,12 +550,29 @@ func (mc *MetricsCollector) getLatencyMetrics() *LatencyMetrics {
 		metrics.AvgMissLatency = mc.missLatencies.Average()
 		metrics.AvgSetLatency = mc.setLatencies.Average()
 		
-		// Calculate percentiles
+		// Calculate and cache percentiles using bounded maps
 		if mc.config.PercentilesToTrack != nil {
 			for _, p := range mc.config.PercentilesToTrack {
 				pStr := fmt.Sprintf("p%.0f", p*100)
-				metrics.HitPercentiles[pStr] = mc.hitLatencies.Percentile(p)
-				metrics.MissPercentiles[pStr] = mc.missLatencies.Percentile(p)
+				
+				// Try to get cached value first
+				if hitVal, exists := mc.hitPercentiles.Get(pStr); exists {
+					metrics.HitPercentiles[pStr] = hitVal
+				} else {
+					// Calculate and cache
+					val := mc.hitLatencies.Percentile(p)
+					mc.hitPercentiles.Set(pStr, val)
+					metrics.HitPercentiles[pStr] = val
+				}
+				
+				if missVal, exists := mc.missPercentiles.Get(pStr); exists {
+					metrics.MissPercentiles[pStr] = missVal
+				} else {
+					// Calculate and cache
+					val := mc.missLatencies.Percentile(p)
+					mc.missPercentiles.Set(pStr, val)
+					metrics.MissPercentiles[pStr] = val
+				}
 			}
 		}
 	}
@@ -605,14 +775,136 @@ func (mc *MetricsCollector) updateMemoryStats() {
 	// TODO: Implement memory profiling
 }
 
+// memoryCleanupWorker performs periodic memory cleanup
+func (mc *MetricsCollector) memoryCleanupWorker() {
+	defer mc.wg.Done()
+	
+	ticker := time.NewTicker(mc.config.CleanupInterval)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-mc.shutdownCh:
+			return
+		case <-ticker.C:
+			mc.performMemoryCleanup()
+		}
+	}
+}
+
+// performMemoryCleanup performs comprehensive memory cleanup
+func (mc *MetricsCollector) performMemoryCleanup() {
+	mc.mu.Lock()
+	defer mc.mu.Unlock()
+	
+	// Calculate current memory usage
+	currentMemory := mc.calculateMemoryUsage()
+	atomic.StoreInt64(&mc.memoryUsage, currentMemory)
+	
+	// If we're approaching the memory limit, perform aggressive cleanup
+	if currentMemory > mc.memoryLimit*8/10 { // 80% threshold
+		mc.performAggressiveCleanup()
+	}
+}
+
+// calculateMemoryUsage estimates current memory usage
+func (mc *MetricsCollector) calculateMemoryUsage() int64 {
+	var total int64
+	
+	// Estimate latency tracker memory
+	if mc.hitLatencies != nil {
+		total += int64(len(mc.hitLatencies.samples)) * 8 // 8 bytes per time.Duration
+	}
+	if mc.missLatencies != nil {
+		total += int64(len(mc.missLatencies.samples)) * 8
+	}
+	if mc.setLatencies != nil {
+		total += int64(len(mc.setLatencies.samples)) * 8
+	}
+	
+	// Estimate percentile map memory
+	if mc.hitPercentiles != nil {
+		total += mc.hitPercentiles.MemoryUsage()
+	}
+	if mc.missPercentiles != nil {
+		total += mc.missPercentiles.MemoryUsage()
+	}
+	
+	// Estimate time series memory
+	if mc.timeSeries != nil {
+		total += int64(len(mc.timeSeries.points)) * 64 // Estimate per MetricPoint
+	}
+	
+	return total
+}
+
+// performAggressiveCleanup performs aggressive memory cleanup
+func (mc *MetricsCollector) performAggressiveCleanup() {
+	// Force cleanup of expired percentile entries
+	if mc.hitPercentiles != nil {
+		mc.hitPercentiles.mu.Lock()
+		mc.hitPercentiles.cleanupExpiredLocked()
+		mc.hitPercentiles.mu.Unlock()
+	}
+	
+	if mc.missPercentiles != nil {
+		mc.missPercentiles.mu.Lock()
+		mc.missPercentiles.cleanupExpiredLocked()
+		mc.missPercentiles.mu.Unlock()
+	}
+	
+	// Reduce time series points if necessary
+	if mc.timeSeries != nil {
+		mc.timeSeries.mu.Lock()
+		if len(mc.timeSeries.points) > mc.timeSeries.maxPoints*3/4 { // 75% of max
+			// Keep only the most recent 50% of points
+			keepCount := mc.timeSeries.maxPoints / 2
+			if keepCount > 0 && len(mc.timeSeries.points) > keepCount {
+				mc.timeSeries.points = mc.timeSeries.points[len(mc.timeSeries.points)-keepCount:]
+			}
+		}
+		mc.timeSeries.mu.Unlock()
+	}
+	
+	// Force cleanup of latency trackers
+	if mc.hitLatencies != nil {
+		mc.hitLatencies.mu.Lock()
+		mc.hitLatencies.cleanupIfNeeded()
+		mc.hitLatencies.mu.Unlock()
+	}
+	
+	if mc.missLatencies != nil {
+		mc.missLatencies.mu.Lock()
+		mc.missLatencies.cleanupIfNeeded()
+		mc.missLatencies.mu.Unlock()
+	}
+	
+	if mc.setLatencies != nil {
+		mc.setLatencies.mu.Lock()
+		mc.setLatencies.cleanupIfNeeded()
+		mc.setLatencies.mu.Unlock()
+	}
+}
+
+// GetMemoryUsage returns current memory usage in bytes
+func (mc *MetricsCollector) GetMemoryUsage() int64 {
+	return atomic.LoadInt64(&mc.memoryUsage)
+}
+
+// GetMemoryLimit returns the configured memory limit in bytes
+func (mc *MetricsCollector) GetMemoryLimit() int64 {
+	return mc.memoryLimit
+}
+
 // LatencyTracker implementation
 
 // NewLatencyTracker creates a new latency tracker
 func NewLatencyTracker(maxSamples int) *LatencyTracker {
 	return &LatencyTracker{
-		samples:    make([]time.Duration, 0, maxSamples),
-		maxSamples: maxSamples,
-		min:        time.Duration(math.MaxInt64),
+		samples:     make([]time.Duration, 0, maxSamples),
+		maxSamples:  maxSamples,
+		min:         time.Duration(math.MaxInt64),
+		lastCleanup: time.Now(),
 	}
 }
 
@@ -621,19 +913,46 @@ func (lt *LatencyTracker) Record(latency time.Duration) {
 	lt.mu.Lock()
 	defer lt.mu.Unlock()
 	
-	lt.samples = append(lt.samples, latency)
-	if len(lt.samples) > lt.maxSamples {
+	// Maintain bounded sample size
+	if len(lt.samples) >= lt.maxSamples {
+		// Remove oldest sample and adjust sum
+		oldSample := lt.samples[0]
+		lt.sum -= oldSample
 		lt.samples = lt.samples[1:]
 	}
 	
+	lt.samples = append(lt.samples, latency)
 	lt.sum += latency
 	lt.count++
 	
-	if latency < lt.min {
+	if lt.count == 1 || latency < lt.min {
 		lt.min = latency
 	}
 	if latency > lt.max {
 		lt.max = latency
+	}
+	
+	// Periodic cleanup to prevent memory drift
+	if time.Since(lt.lastCleanup) > 5*time.Minute {
+		lt.cleanupIfNeeded()
+		lt.lastCleanup = time.Now()
+	}
+}
+
+// cleanupIfNeeded performs internal cleanup if needed
+func (lt *LatencyTracker) cleanupIfNeeded() {
+	// Recalculate min/max from current samples
+	if len(lt.samples) > 0 {
+		lt.min = lt.samples[0]
+		lt.max = lt.samples[0]
+		for _, sample := range lt.samples {
+			if sample < lt.min {
+				lt.min = sample
+			}
+			if sample > lt.max {
+				lt.max = sample
+			}
+		}
 	}
 }
 
@@ -672,11 +991,12 @@ func (lt *LatencyTracker) Percentile(p float64) time.Duration {
 // TimeSeriesData implementation
 
 // NewTimeSeriesData creates new time series data
-func NewTimeSeriesData(window, resolution time.Duration) *TimeSeriesData {
+func NewTimeSeriesData(window, resolution time.Duration, maxPoints int) *TimeSeriesData {
 	return &TimeSeriesData{
 		points:     make([]*MetricPoint, 0),
 		window:     window,
 		resolution: resolution,
+		maxPoints:  maxPoints,
 	}
 }
 
@@ -687,9 +1007,16 @@ func (ts *TimeSeriesData) AddPoint(point *MetricPoint) {
 	
 	ts.points = append(ts.points, point)
 	
-	// Remove old points
+	// Enforce maximum points limit
+	if len(ts.points) > ts.maxPoints {
+		// Remove oldest points to maintain limit
+		excessPoints := len(ts.points) - ts.maxPoints
+		ts.points = ts.points[excessPoints:]
+	}
+	
+	// Remove old points based on time window
 	cutoff := time.Now().Add(-ts.window)
-	newPoints := make([]*MetricPoint, 0)
+	newPoints := make([]*MetricPoint, 0, len(ts.points))
 	for _, p := range ts.points {
 		if p.Timestamp.After(cutoff) {
 			newPoints = append(newPoints, p)

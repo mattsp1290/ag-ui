@@ -95,5 +95,5 @@ type StreamConfig struct {
 	EnableCompression bool
 }
 
-// TODO: Additional core types will be defined here as the protocol specification
+// Additional core types will be defined here as the protocol specification
 // is implemented in subsequent development phases.

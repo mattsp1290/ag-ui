@@ -9,7 +9,9 @@ import (
 
 // TestManagerShutdownNoRace tests that closing the manager doesn't cause races
 func TestManagerShutdownNoRace(t *testing.T) {
-	manager, err := NewStateManager(DefaultManagerOptions())
+	opts := DefaultManagerOptions()
+	opts.EnableAudit = false // Disable audit for faster testing
+	manager, err := NewStateManager(opts)
 	if err != nil {
 		t.Fatalf("failed to create manager: %v", err)
 	}

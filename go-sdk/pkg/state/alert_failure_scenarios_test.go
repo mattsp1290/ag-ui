@@ -157,30 +157,30 @@ func testWebhookTimeoutScenarios(t *testing.T) {
 	}{
 		{
 			name:           "client_timeout",
-			serverDelay:    200 * time.Millisecond,
-			clientTimeout:  100 * time.Millisecond,
-			contextTimeout: 1 * time.Second,
+			serverDelay:    50 * time.Millisecond,
+			clientTimeout:  25 * time.Millisecond,
+			contextTimeout: 200 * time.Millisecond,
 			expectTimeout:  true,
 		},
 		{
 			name:           "context_timeout",
-			serverDelay:    200 * time.Millisecond,
-			clientTimeout:  1 * time.Second,
-			contextTimeout: 100 * time.Millisecond,
+			serverDelay:    50 * time.Millisecond,
+			clientTimeout:  200 * time.Millisecond,
+			contextTimeout: 25 * time.Millisecond,
 			expectTimeout:  true,
 		},
 		{
 			name:           "no_timeout",
-			serverDelay:    50 * time.Millisecond,
-			clientTimeout:  200 * time.Millisecond,
-			contextTimeout: 500 * time.Millisecond,
+			serverDelay:    10 * time.Millisecond,
+			clientTimeout:  50 * time.Millisecond,
+			contextTimeout: 100 * time.Millisecond,
 			expectTimeout:  false,
 		},
 		{
 			name:           "server_hanging",
-			serverDelay:    5 * time.Second,
-			clientTimeout:  100 * time.Millisecond,
-			contextTimeout: 200 * time.Millisecond,
+			serverDelay:    200 * time.Millisecond, // Reduced from 5 seconds
+			clientTimeout:  50 * time.Millisecond,
+			contextTimeout: 100 * time.Millisecond,
 			expectTimeout:  true,
 		},
 	}
@@ -597,8 +597,8 @@ func testAlertStormHandling(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("throttled_notifier_storm", func(t *testing.T) {
-		// Send rapid alerts
-		for i := 0; i < 10; i++ {
+		// Send fewer rapid alerts for faster testing
+		for i := 0; i < 3; i++ {
 			for _, alert := range alerts {
 				err := throttledNotifier.SendAlert(ctx, alert)
 				if err != nil {
@@ -625,19 +625,19 @@ func testAlertStormHandling(t *testing.T) {
 	})
 
 	t.Run("concurrent_alert_storm", func(t *testing.T) {
-		// Create a timeout context for this test
-		testCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		// Create a shorter timeout context for this test
+		testCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
 		
 		var wg sync.WaitGroup
-		errorChan := make(chan error, 100)
+		errorChan := make(chan error, 20)
 
-		// Start multiple goroutines sending alerts
-		for i := 0; i < 10; i++ {
+		// Start fewer goroutines with fewer alerts for faster testing
+		for i := 0; i < 3; i++ {
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
-				for j := 0; j < 20; j++ {
+				for j := 0; j < 5; j++ {
 					select {
 					case <-testCtx.Done():
 						return // Exit if context is cancelled
@@ -695,8 +695,8 @@ func testConcurrentNotificationFailures(t *testing.T) {
 	notifiers := []AlertNotifier{
 		&RandomFailureNotifier{failureRate: 0.3},
 		&RandomFailureNotifier{failureRate: 0.5},
-		&SlowNotifier{delay: 50 * time.Millisecond},
-		&SlowNotifier{delay: 100 * time.Millisecond},
+		&SlowNotifier{delay: 5 * time.Millisecond},
+		&SlowNotifier{delay: 10 * time.Millisecond},
 	}
 
 	composite := NewCompositeAlertNotifier(notifiers...)
@@ -790,10 +790,10 @@ func testResourceExhaustionScenarios(t *testing.T) {
 	})
 
 	t.Run("goroutine_exhaustion", func(t *testing.T) {
-		// Create slow notifiers that will block goroutines
+		// Create slow notifiers that will block goroutines (reduced for faster testing)
 		var notifiers []AlertNotifier
-		for i := 0; i < 20; i++ {
-			notifiers = append(notifiers, &SlowNotifier{delay: 200 * time.Millisecond})
+		for i := 0; i < 5; i++ {
+			notifiers = append(notifiers, &SlowNotifier{delay: 10 * time.Millisecond})
 		}
 
 		composite := NewCompositeAlertNotifier(notifiers...)

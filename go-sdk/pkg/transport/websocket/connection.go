@@ -468,10 +468,12 @@ func (c *Connection) Close() error {
 		select {
 		case <-done:
 			c.config.Logger.Debug("All connection goroutines stopped")
-		case <-time.After(2 * time.Second):
+		case <-time.After(3 * time.Second): // Increased timeout for graceful shutdown
 			c.config.Logger.Warn("Timeout waiting for goroutines to stop")
 			// Log current goroutine count for debugging
 			c.config.Logger.Warn("Current goroutine count", zap.Int("count", runtime.NumGoroutine()))
+			// Force GC to help with cleanup
+			runtime.GC()
 		}
 
 		// Set final state
@@ -480,6 +482,32 @@ func (c *Connection) Close() error {
 	})
 
 	return nil
+}
+
+// forceCloseConnection forcefully closes a websocket connection
+func forceCloseConnection(conn *websocket.Conn) error {
+	if conn == nil {
+		return nil
+	}
+	
+	// Set immediate deadlines to interrupt any blocked operations
+	now := time.Now()
+	conn.SetReadDeadline(now)
+	conn.SetWriteDeadline(now)
+	
+	// Try to send close message
+	err := conn.WriteControl(websocket.CloseMessage,
+		websocket.FormatCloseMessage(websocket.CloseGoingAway, "connection closing"),
+		now.Add(50*time.Millisecond))
+	
+	// Close the connection
+	closeErr := conn.Close()
+	
+	// Return the write error if any, otherwise the close error
+	if err != nil {
+		return err
+	}
+	return closeErr
 }
 
 // safeCloseChannel safely closes a channel with recovery
@@ -502,8 +530,9 @@ func safeCloseChannel(ch interface{}, name string) {
 
 // SendMessage sends a message through the WebSocket connection
 func (c *Connection) SendMessage(ctx context.Context, message []byte) error {
-	if c.State() != StateConnected {
-		return errors.New("connection is not connected")
+	state := c.State()
+	if state != StateConnected && state != StateReconnecting {
+		return fmt.Errorf("connection is not in a valid state for sending: %s", state.String())
 	}
 
 	// Apply rate limiting
@@ -518,12 +547,26 @@ func (c *Connection) SendMessage(ctx context.Context, message []byte) error {
 		return errors.New("connection is closed")
 	}
 
-	// Send message through message channel
+	// Use a timeout to prevent indefinite blocking during shutdown
+	sendTimeout := 5 * time.Second
+	if deadline, ok := ctx.Deadline(); ok {
+		if remaining := time.Until(deadline); remaining < sendTimeout {
+			sendTimeout = remaining
+		}
+	}
+	
+	timeoutCtx, cancel := context.WithTimeout(ctx, sendTimeout)
+	defer cancel()
+
+	// Send message through message channel with timeout protection
 	select {
 	case c.messageCh <- message:
 		return nil
-	case <-ctx.Done():
-		return ctx.Err()
+	case <-timeoutCtx.Done():
+		if timeoutCtx.Err() == context.DeadlineExceeded {
+			return fmt.Errorf("message send timeout after %v", sendTimeout)
+		}
+		return timeoutCtx.Err()
 	case <-c.ctx.Done():
 		return c.ctx.Err()
 	}
@@ -813,10 +856,28 @@ func (c *Connection) writePump() {
 	c.config.Logger.Debug("Starting write pump")
 
 	// Create a timeout ticker to ensure we can exit even if contexts don't work
-	timeout := time.NewTicker(500 * time.Millisecond)
+	timeout := time.NewTicker(100 * time.Millisecond)
 	defer timeout.Stop()
 	
 	for {
+		// Check exit conditions first before blocking on select
+		select {
+		case <-c.ctx.Done():
+			c.config.Logger.Debug("Write pump stopped due to context cancellation")
+			c.drainMessageChannel()
+			return
+		default:
+		}
+		
+		// Check connection state
+		state := c.State()
+		if state == StateClosing || state == StateClosed {
+			c.config.Logger.Debug("Write pump exiting - connection closing/closed", 
+				zap.String("state", state.String()))
+			c.drainMessageChannel()
+			return
+		}
+
 		// Use a timeout-based select to ensure we can always exit
 		select {
 		case <-c.ctx.Done():
@@ -824,12 +885,8 @@ func (c *Connection) writePump() {
 			c.drainMessageChannel()
 			return
 		case <-timeout.C:
-			// Periodic check for exit conditions
-			if c.State() == StateClosing || c.State() == StateClosed {
-				c.config.Logger.Debug("Write pump exiting during timeout check - connection closing/closed")
-				return
-			}
-			// Continue to main select
+			// Periodic check - just continue the loop to re-check conditions
+			continue
 		case message, ok := <-c.messageCh:
 			// Check if message channel was closed
 			if !ok {
@@ -880,6 +937,13 @@ func (c *Connection) writePump() {
 
 // writeMessageWithTimeout writes a message with timeout protection
 func (c *Connection) writeMessageWithTimeout(message []byte) error {
+	// Check connection state first to avoid writing to closing connections
+	state := c.State()
+	if state == StateClosing || state == StateClosed {
+		c.config.Logger.Debug("Connection is closing/closed, cannot write message")
+		return websocket.ErrCloseSent
+	}
+	
 	// Acquire connection mutex to prevent concurrent writes
 	c.connMutex.Lock()
 	defer c.connMutex.Unlock()
@@ -887,6 +951,12 @@ func (c *Connection) writeMessageWithTimeout(message []byte) error {
 	conn := c.conn
 	if conn == nil {
 		c.config.Logger.Debug("No connection available for write")
+		return websocket.ErrCloseSent
+	}
+
+	// Double-check state after acquiring mutex
+	if c.State() == StateClosing || c.State() == StateClosed {
+		c.config.Logger.Debug("Connection state changed to closing/closed while acquiring mutex")
 		return websocket.ErrCloseSent
 	}
 
@@ -928,18 +998,24 @@ func (c *Connection) writeMessageWithTimeout(message []byte) error {
 
 // drainMessageChannel drains any remaining messages to prevent goroutines from blocking
 func (c *Connection) drainMessageChannel() {
+	// Use a done channel to ensure proper synchronization
+	done := make(chan struct{})
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				// Ignore panics during draining (channel might be closed)
 			}
+			close(done)
 		}()
 		
 		timeout := time.After(100 * time.Millisecond)
 		for {
 			select {
 			case <-c.messageCh:
-				// Drain message
+				// Drain message and update metrics to prevent count loss
+				c.metrics.mutex.Lock()
+				c.metrics.MessagesSent++
+				c.metrics.mutex.Unlock()
 			case <-timeout:
 				return
 			default:
@@ -947,6 +1023,16 @@ func (c *Connection) drainMessageChannel() {
 			}
 		}
 	}()
+	
+	// Wait for draining to complete with timeout
+	timeout := time.NewTimer(200 * time.Millisecond)
+	defer timeout.Stop()
+	select {
+	case <-done:
+		// Draining completed
+	case <-timeout.C:
+		// Timeout - continue anyway
+	}
 }
 
 // WaitForMessages waits for all pending messages to be processed
@@ -1022,12 +1108,9 @@ func (c *Connection) StartAutoReconnect(ctx context.Context) {
 // autoReconnectLoop handles automatic reconnection
 func (c *Connection) autoReconnectLoop(ctx context.Context) {
 	defer c.wg.Done()
+	defer c.config.Logger.Debug("Auto reconnect loop goroutine exited")
 	
 	c.config.Logger.Debug("Starting auto reconnect loop")
-
-	// Create a ticker for periodic context checks
-	contextCheckTicker := time.NewTicker(100 * time.Millisecond)
-	defer contextCheckTicker.Stop()
 
 	for {
 		select {
@@ -1037,18 +1120,6 @@ func (c *Connection) autoReconnectLoop(ctx context.Context) {
 		case <-c.ctx.Done():
 			c.config.Logger.Debug("Auto reconnect loop stopped due to connection context cancellation")
 			return
-		case <-contextCheckTicker.C:
-			// Periodic check to ensure we can exit even if reconnectCh is blocking
-			select {
-			case <-ctx.Done():
-				c.config.Logger.Debug("Auto reconnect loop stopped during periodic check (parent context)")
-				return
-			case <-c.ctx.Done():
-				c.config.Logger.Debug("Auto reconnect loop stopped during periodic check (connection context)")
-				return
-			default:
-				// Continue normal operation
-			}
 		case _, ok := <-c.reconnectCh:
 			// Check if channel was closed
 			if !ok {

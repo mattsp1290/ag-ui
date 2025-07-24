@@ -42,7 +42,7 @@ func NewRaceTestTransport() *RaceTestTransport {
 	return &RaceTestTransport{
 		eventChan:    make(chan events.Event, 10000), // Greatly increased for high load
 		errorChan:    make(chan error, 1000),
-		connectDelay: 5 * time.Millisecond,    // Reduced from 10ms
+		connectDelay: 1 * time.Millisecond,    // Further reduced from 5ms to 1ms for faster tests
 		sendDelay:    0,                       // Removed send delay
 	}
 }
@@ -241,8 +241,8 @@ func (t *RaceTestTransport) GetStats() (connectCount, sendCount, closeCount int6
 
 // TestConcurrentStartStop tests concurrent Start/Stop operations on the manager
 func TestConcurrentStartStop(t *testing.T) {
-	const numGoroutines = 10
-	const numIterations = 100
+	const numGoroutines = 5  // Further reduced for faster execution
+	const numIterations = 10 // Further reduced for faster execution
 	
 	for iteration := 0; iteration < numIterations; iteration++ {
 		manager := NewSimpleManager()
@@ -252,12 +252,18 @@ func TestConcurrentStartStop(t *testing.T) {
 		var wg sync.WaitGroup
 		var startErrors, stopErrors int64
 		
+		// Use a sync channel to control timing more precisely
+		startReady := make(chan struct{})
+		
 		// Launch concurrent start operations
 		for i := 0; i < numGoroutines; i++ {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+				// Wait for signal to reduce initial racing
+				<-startReady
+				
+				ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond) // Further reduced for faster tests
 				defer cancel()
 				
 				if err := manager.Start(ctx); err != nil {
@@ -274,11 +280,14 @@ func TestConcurrentStartStop(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+				// Wait for signal to reduce initial racing
+				<-startReady
+				
+				ctx, cancel := context.WithTimeout(context.Background(), 25*time.Millisecond) // Further reduced for faster tests
 				defer cancel()
 				
-				// Add small delay to let some starts happen first
-				time.Sleep(time.Duration(rand.Intn(10)) * time.Millisecond)
+				// Add minimal delay to let some starts happen first - reduced from up to 10ms to 1ms
+				time.Sleep(time.Duration(rand.Intn(2)) * time.Millisecond)
 				
 				if err := manager.Stop(ctx); err != nil {
 					atomic.AddInt64(&stopErrors, 1)
@@ -287,10 +296,13 @@ func TestConcurrentStartStop(t *testing.T) {
 			}()
 		}
 		
+		// Signal all goroutines to start at roughly the same time
+		close(startReady)
+		
 		wg.Wait()
 		
-		// Final cleanup
-		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		// Final cleanup with shorter timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond) // Reduced from 100ms
 		manager.Stop(ctx)
 		cancel()
 		

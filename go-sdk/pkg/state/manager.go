@@ -54,6 +54,7 @@ type ManagerOptions struct {
 	EnableBatching    bool
 	BatchSize         int
 	BatchTimeout      time.Duration
+	UpdateQueueSize   int // Size of the update queue for concurrent operations
 	
 	// Performance optimizer configuration
 	PerformanceOptimizer PerformanceOptimizer
@@ -131,6 +132,20 @@ func (opts *ManagerOptions) Validate() error {
 		return fmt.Errorf("batch timeout cannot be negative, got %v", opts.BatchTimeout)
 	}
 	
+	if opts.UpdateQueueSize <= 0 {
+		// Set a sensible default based on the existing pattern but with higher capacity
+		// Use max of BatchSize*10 or DefaultUpdateQueueSize to handle high-concurrency scenarios
+		if opts.BatchSize > 0 {
+			queueSize := opts.BatchSize * 10
+			if queueSize < DefaultUpdateQueueSize {
+				queueSize = DefaultUpdateQueueSize
+			}
+			opts.UpdateQueueSize = queueSize
+		} else {
+			opts.UpdateQueueSize = DefaultUpdateQueueSize
+		}
+	}
+	
 	// Validate metrics configuration
 	if opts.MetricsInterval < 0 {
 		return fmt.Errorf("metrics interval cannot be negative, got %v", opts.MetricsInterval)
@@ -165,6 +180,7 @@ func DefaultManagerOptions() ManagerOptions {
 		EnableBatching:      true,
 		BatchSize:           DefaultBatchSize,
 		BatchTimeout:        DefaultBatchTimeout,
+		UpdateQueueSize:     DefaultUpdateQueueSize,
 		EnableMetrics:       true,
 		MetricsInterval:     DefaultMetricsInterval,
 		EnableTracing:       false,
@@ -380,7 +396,7 @@ func NewStateManager(opts ManagerOptions) (*StateManager, error) {
 		auditManager:      auditManager,
 		options:           opts,
 		activeContexts:    NewContextManager(maxContexts),
-		updateQueue:       make(chan *updateRequest, opts.BatchSize*2),
+		updateQueue:       make(chan *updateRequest, opts.UpdateQueueSize),
 		eventQueue:        make(chan *stateEvent, opts.EventBufferSize),
 		errCh:             make(chan error, DefaultErrorChannelSize), // Buffer for error propagation
 		contextTTL:        DefaultContextTTL,                         // Default context TTL
@@ -569,28 +585,7 @@ func (sm *StateManager) GetState(ctx context.Context, contextID, stateID string)
 			Resource:  "state",
 		}
 		sm.auditManager.enrichFromContext(ctx, log)
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					sm.reportError(fmt.Errorf("panic in audit logging goroutine: %v", r))
-				}
-			}()
-			
-			// Use timeout context for audit logging to prevent hanging
-			auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			
-			if err := sm.auditManager.logger.Log(auditCtx, log); err != nil {
-				sm.logger.Error("failed to write audit log", Err(err))
-				// Report the error through the error channel if available
-				if sm.errCh != nil {
-					select {
-					case sm.errCh <- fmt.Errorf("audit logging failed: %w", err):
-					default: // Don't block if error channel is full
-					}
-				}
-			}
-		}()
+		sm.logAuditAsync(log, "state_access")
 	}
 
 	return state, nil
@@ -598,6 +593,17 @@ func (sm *StateManager) GetState(ctx context.Context, contextID, stateID string)
 
 // UpdateState updates the state with conflict resolution and validation
 func (sm *StateManager) UpdateState(ctx context.Context, contextID, stateID string, updates map[string]interface{}, opts UpdateOptions) (JSONPatch, error) {
+	// Check if manager is shutting down first, before rate limiting
+	if atomic.LoadInt32(&sm.closing) == 1 {
+		return nil, ErrManagerClosing
+	}
+	
+	select {
+	case <-sm.ctx.Done():
+		return nil, ErrManagerClosed
+	default:
+	}
+
 	// Apply global rate limiting
 	if sm.rateLimiter != nil {
 		if !sm.rateLimiter.Allow() {
@@ -719,28 +725,7 @@ func (sm *StateManager) CreateCheckpoint(ctx context.Context, stateID, name stri
 			},
 		}
 		sm.auditManager.enrichFromContext(ctx, log)
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					sm.reportError(fmt.Errorf("panic in checkpoint audit logging goroutine: %v", r))
-				}
-			}()
-			
-			// Use timeout context for audit logging to prevent hanging
-			auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			
-			if err := sm.auditManager.logger.Log(auditCtx, log); err != nil {
-				sm.logger.Error("failed to write checkpoint audit log", Err(err))
-				// Report the error through the error channel if available
-				if sm.errCh != nil {
-					select {
-					case sm.errCh <- fmt.Errorf("checkpoint audit logging failed: %w", err):
-					default: // Don't block if error channel is full
-					}
-				}
-			}
-		}()
+		sm.logAuditAsync(log, "checkpoint_creation")
 	}
 
 	return checkpointID, nil
@@ -797,28 +782,7 @@ func (sm *StateManager) Rollback(ctx context.Context, stateID, checkpointID stri
 			},
 		}
 		sm.auditManager.enrichFromContext(ctx, log)
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					sm.reportError(fmt.Errorf("panic in rollback audit logging goroutine: %v", r))
-				}
-			}()
-			
-			// Use timeout context for audit logging to prevent hanging
-			auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			
-			if err := sm.auditManager.logger.Log(auditCtx, log); err != nil {
-				sm.logger.Error("failed to write rollback audit log", Err(err))
-				// Report the error through the error channel if available
-				if sm.errCh != nil {
-					select {
-					case sm.errCh <- fmt.Errorf("rollback audit logging failed: %w", err):
-					default: // Don't block if error channel is full
-					}
-				}
-			}
-		}()
+		sm.logAuditAsync(log, "state_rollback")
 	}
 
 	return nil
@@ -1247,28 +1211,7 @@ func (sm *StateManager) processSingleUpdate(state interface{}, req *updateReques
 		}
 
 		sm.auditManager.enrichFromContext(req.ctx, log)
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					sm.reportError(fmt.Errorf("panic in update audit logging goroutine: %v", r))
-				}
-			}()
-			
-			// Use timeout context for audit logging to prevent hanging
-			auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			
-			if err := sm.auditManager.logger.Log(auditCtx, log); err != nil {
-				sm.logger.Error("failed to write update audit log", Err(err))
-				// Report the error through the error channel if available
-				if sm.errCh != nil {
-					select {
-					case sm.errCh <- fmt.Errorf("update audit logging failed: %w", err):
-					default: // Don't block if error channel is full
-					}
-				}
-			}
-		}()
+		sm.logAuditAsync(log, "state_update")
 	}
 
 	return updateResult{
@@ -1481,10 +1424,24 @@ func (sm *StateManager) reportError(err error) {
 
 // logAuditAsync performs asynchronous audit logging with enhanced error handling
 func (sm *StateManager) logAuditAsync(log *AuditLog, operation string) {
-	if sm.auditManager == nil {
+	if sm.auditManager == nil || log == nil {
 		return
 	}
 	
+	// Check if manager is closing to avoid spawning new goroutines during shutdown
+	if atomic.LoadInt32(&sm.closing) == 1 {
+		// For shutdown operations, log synchronously to ensure they're captured
+		if operation == "shutdown" {
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			defer cancel()
+			if err := sm.auditManager.logger.Log(ctx, log); err != nil {
+				sm.logger.Error("failed to write shutdown audit log", Err(err))
+			}
+		}
+		return
+	}
+	
+	// Use bounded goroutine pool to prevent excessive goroutine creation
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -1492,17 +1449,26 @@ func (sm *StateManager) logAuditAsync(log *AuditLog, operation string) {
 			}
 		}()
 		
-		// Use timeout context for audit logging to prevent hanging
-		auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Create context that respects both timeout and manager shutdown
+		auditCtx, cancel := context.WithTimeout(sm.ctx, 5*time.Second)
 		defer cancel()
 		
 		if err := sm.auditManager.logger.Log(auditCtx, log); err != nil {
-			sm.logger.Error(fmt.Sprintf("failed to write %s audit log", operation), Err(err))
-			// Report the error through the error channel if available
-			if sm.errCh != nil {
-				select {
-				case sm.errCh <- fmt.Errorf("%s audit logging failed: %w", operation, err):
-				default: // Don't block if error channel is full
+			// Check if error is due to context cancellation (manager shutting down)
+			select {
+			case <-sm.ctx.Done():
+				sm.logger.Debug(fmt.Sprintf("%s audit logging cancelled due to shutdown", operation))
+				return
+			default:
+				sm.logger.Error(fmt.Sprintf("failed to write %s audit log", operation), Err(err))
+				// Report the error through the error channel if available
+				if sm.errCh != nil {
+					select {
+					case sm.errCh <- fmt.Errorf("%s audit logging failed: %w", operation, err):
+					case <-sm.ctx.Done():
+						// Manager shutting down, don't block
+					default: // Don't block if error channel is full
+					}
 				}
 			}
 		}
@@ -1797,28 +1763,7 @@ func (sm *StateManager) cleanupExpiredContexts() {
 						"last_accessed": ctx.GetLastAccessed(),
 					},
 				}
-				go func(logEntry *AuditLog) {
-					defer func() {
-						if r := recover(); r != nil {
-							sm.reportError(fmt.Errorf("panic in context expiration audit logging goroutine: %v", r))
-						}
-					}()
-					
-					// Use timeout context for audit logging to prevent hanging
-					auditCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					defer cancel()
-					
-					if err := sm.auditManager.logger.Log(auditCtx, logEntry); err != nil {
-						sm.logger.Error("failed to write context expiration audit log", Err(err))
-						// Report the error through the error channel if available
-						if sm.errCh != nil {
-							select {
-							case sm.errCh <- fmt.Errorf("context expiration audit logging failed: %w", err):
-							default: // Don't block if error channel is full
-							}
-						}
-					}
-				}(log)
+				sm.logAuditAsync(log, "context_expiration")
 			}
 		}
 	}

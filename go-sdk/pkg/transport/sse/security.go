@@ -376,6 +376,26 @@ func (sm *SecurityManager) IsTokenRevoked(tokenID string) bool {
 	return sm.revocationStore.IsRevoked(tokenID)
 }
 
+// Close gracefully shuts down the security manager
+func (sm *SecurityManager) Close() error {
+	sm.mutex.Lock()
+	defer sm.mutex.Unlock()
+	
+	// Stop the rate limiter if it exists
+	if sm.rateLimiter != nil {
+		sm.rateLimiter.Stop()
+	}
+	
+	// Stop the token revocation store cleanup routine
+	if revocationStore, ok := sm.revocationStore.(*InMemoryRevocationStore); ok {
+		revocationStore.Stop()
+	}
+	
+	// Close audit logger if it has resources to clean up
+	// (currently it doesn't, but good practice for future extensions)
+	
+	return nil
+}
 // ============================================================================
 // Authentication Interfaces and Implementations
 // ============================================================================

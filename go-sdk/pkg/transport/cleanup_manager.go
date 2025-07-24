@@ -137,7 +137,23 @@ func (cm *CleanupManager) Stop() error {
 	}
 
 	cm.cancel()
-	cm.wg.Wait()
+	
+	// Wait for cleanup goroutines to finish with timeout protection
+	done := make(chan struct{})
+	go func() {
+		cm.wg.Wait()
+		close(done)
+	}()
+	
+	select {
+	case <-done:
+		// All cleanup goroutines finished
+	case <-time.After(5 * time.Second):
+		// Timeout waiting for cleanup goroutines
+		if cm.logger != nil {
+			cm.logger.Warn("Timeout waiting for cleanup manager goroutines to finish")
+		}
+	}
 
 	if cm.logger != nil {
 		cm.logger.Info("Cleanup manager stopped")

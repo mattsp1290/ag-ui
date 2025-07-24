@@ -2,7 +2,122 @@ bin/
 coverage.out
 coverage.html
 gosec-report.json
-# Test binaries and coverage files
+
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
 *.test
+
+# Output of the go coverage tool
 *.out
 coverage*.html
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Dependency directories
+vendor/
+
+# Binary output directories
+dist/
+
+# Build artifacts
+go-sdk
+streaming.test
+
+# Example binaries (no extension)
+examples/events/events
+examples/messages/messages
+examples/state/basic_state_sync/basic_state_sync
+examples/state/collaborative_editing/collaborative_editing
+examples/state/distributed_state/distributed_state
+examples/state/realtime_dashboard/realtime_dashboard
+examples/tools/calculator/calculator
+examples/tools/external/rest-client/rest-client
+examples/tools/external/rest_client_example
+examples/tools/external/weather-api/weather-api
+examples/tools/external/weather_api_example
+examples/tools/file-operations/file-operations
+examples/tools/greeting/greeting
+examples/tools/performance/async-executor/async-executor
+examples/tools/performance/batch-processor/batch-processor
+examples/tools/performance/cache-demo/cache-demo
+examples/tools/performance/resource-monitor/resource-monitor
+examples/tools/streaming/data-processor/data-processor
+examples/tools/streaming/data_processor_example
+examples/tools/streaming/log-streaming/log-streaming
+examples/tools/streaming/log_streaming_example
+examples/tools/validation/api-validator/api-validator
+examples/tools/validation/data-transformer/data-transformer
+
+# IDE specific files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Test artifacts
+*.log
+test_results.log
+*_test_output.log
+full_test_output.log
+
+# Performance profiling
+*.prof
+*.pprof
+cpu.prof
+mem.prof
+pkg/tools/performance-reports/
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*_BACKUP_*
+*_BASE_*
+*_LOCAL_*
+*_REMOTE_*
+*.orig
+*.rej
+
+# Documentation temporaries
+*_FIX.md
+*_FIX_SUMMARY.md
+*_SUMMARY.md
+*_fix_final.md
+ENCODING_TEST_VECTORS_FIX.md
+PARAMETER_VALIDATION_FIX_SUMMARY.md
+ULTRAPLAN_EXECUTION_SUMMARY.md
+pkg/state/FILE_HANDLE_FIX_SUMMARY.md
+pkg/transport/websocket/GOROUTINE_LEAK_FIXES_SUMMARY.md
+pkg/transport/websocket/GOROUTINE_LEAK_FIX_SUMMARY.md
+pkg/transport/websocket/goroutine_leak_fix_final.md
+
+# Scripts and temporary utilities
+test_runner.go
+*_fix.go
+verify_*.sh
+test_*.sh
+comprehensive_*.sh
+scripts/run_optimized_tests.sh
+
+# Commit related files
+COMMIT_MESSAGE.txt
+commit_*.sh
+simple_commit.sh

@@ -113,14 +113,18 @@ func (t *CrashingTransport) Send(ctx context.Context, event TransportEvent) erro
 func (t *CrashingTransport) Receive() <-chan events.Event {
 	if t.crashOnReceive {
 		t.mu.Lock()
-		t.crashed = true
-		t.connected = false
-		t.mu.Unlock()
-		
-		// Send crash error
-		select {
-		case t.errorChan <- errors.New("transport crashed on receive"):
-		default:
+		if !t.crashed { // Only crash once
+			t.crashed = true
+			t.connected = false
+			t.mu.Unlock()
+			
+			// Send crash error
+			select {
+			case t.errorChan <- errors.New("transport crashed on receive"):
+			default:
+			}
+		} else {
+			t.mu.Unlock()
 		}
 	}
 	
@@ -132,6 +136,24 @@ func (t *CrashingTransport) Errors() <-chan error {
 }
 
 func (t *CrashingTransport) Channels() (<-chan events.Event, <-chan error) {
+	// Trigger crash logic if configured (same as Receive method)
+	if t.crashOnReceive {
+		t.mu.Lock()
+		if !t.crashed { // Only crash once
+			t.crashed = true
+			t.connected = false
+			t.mu.Unlock()
+			
+			// Send crash error
+			select {
+			case t.errorChan <- errors.New("transport crashed on receive"):
+			default:
+			}
+		} else {
+			t.mu.Unlock()
+		}
+	}
+	
 	return t.eventChan, t.errorChan
 }
 

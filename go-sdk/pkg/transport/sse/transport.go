@@ -145,12 +145,12 @@ func (t *SSETransport) Send(ctx context.Context, event events.Event) error {
 	}
 
 	if event == nil {
-		return fmt.Errorf("event cannot be nil")
+		return fmt.Errorf("validation error: event cannot be nil")
 	}
 
 	// Validate the event
 	if err := event.Validate(); err != nil {
-		return fmt.Errorf("event validation failed: %w", err)
+		return fmt.Errorf("validation error: event validation failed: %w", err)
 	}
 
 	// Serialize event to JSON
@@ -174,8 +174,12 @@ func (t *SSETransport) Send(ctx context.Context, event events.Event) error {
 		}
 	}
 
-	// Apply timeout
-	timeoutCtx, cancel := context.WithTimeout(ctx, t.writeTimeout)
+	// Apply timeout (default to 10 seconds if not set)
+	writeTimeout := t.writeTimeout
+	if writeTimeout == 0 {
+		writeTimeout = 10 * time.Second
+	}
+	timeoutCtx, cancel := context.WithTimeout(ctx, writeTimeout)
 	defer cancel()
 	req = req.WithContext(timeoutCtx)
 
@@ -270,14 +274,51 @@ func (t *SSETransport) readEvents() {
 		case <-t.ctx.Done():
 			return
 		default:
+		}
+
+		// Create a timeout context for each read operation
+		readCtx, cancel := context.WithTimeout(t.ctx, 30*time.Second)
+		
+		// Use a channel to signal completion of read operation
+		type readResult struct {
+			event events.Event
+			err   error
+		}
+		
+		resultChan := make(chan readResult, 1)
+		
+		// Perform read in a separate goroutine
+		go func() {
+			defer cancel()
 			event, err := t.readEvent()
-			if err != nil {
+			select {
+			case resultChan <- readResult{event: event, err: err}:
+			case <-readCtx.Done():
+				// Read was cancelled, don't send result
+			}
+		}()
+
+		// Wait for either the read to complete or context cancellation
+		select {
+		case result := <-resultChan:
+			cancel() // Clean up the read context
+			
+			if result.err != nil {
 				if !t.isClosed() {
-					t.errorChan <- err
+					select {
+					case t.errorChan <- result.err:
+					case <-t.ctx.Done():
+						return
+					}
+					
 					// Try to reconnect
-					if t.shouldReconnect(err) {
+					if t.shouldReconnect(result.err) {
 						if reconnectErr := t.reconnect(); reconnectErr != nil {
-							t.errorChan <- reconnectErr
+							select {
+							case t.errorChan <- reconnectErr:
+							case <-t.ctx.Done():
+								return
+							}
 							return
 						}
 						continue
@@ -286,13 +327,26 @@ func (t *SSETransport) readEvents() {
 				return
 			}
 
-			if event != nil {
+			if result.event != nil {
 				select {
-				case t.eventChan <- event:
+				case t.eventChan <- result.event:
 				case <-t.ctx.Done():
 					return
 				}
 			}
+			
+		case <-readCtx.Done():
+			cancel() // Clean up the read context
+			// Check if it's the parent context or timeout
+			if t.ctx.Err() != nil {
+				return // Parent context was cancelled
+			}
+			// Otherwise, it was a read timeout - continue to try again
+			continue
+			
+		case <-t.ctx.Done():
+			cancel() // Clean up the read context
+			return
 		}
 	}
 }
@@ -307,13 +361,21 @@ func (t *SSETransport) readEvent() (events.Event, error) {
 	var retry int
 
 	for {
-		// Note: We can't set read deadline on http.Response.Body directly
-		// This is a limitation of HTTP client implementation
+		// Check for cancellation before each read
+		select {
+		case <-t.ctx.Done():
+			return nil, t.ctx.Err()
+		default:
+		}
 
-		line, err := t.reader.ReadString('\n')
+		// Read line with timeout awareness
+		line, err := t.readLineWithTimeout()
 		if err != nil {
 			if err == io.EOF {
 				return nil, messages.NewStreamingError("transport", 0, "connection closed")
+			}
+			if err == context.Canceled || err == context.DeadlineExceeded {
+				return nil, err
 			}
 			return nil, messages.NewStreamingError("transport", 0, fmt.Sprintf("failed to read line: %v", err))
 		}
@@ -345,6 +407,34 @@ func (t *SSETransport) readEvent() (events.Event, error) {
 			}
 		}
 		// Ignore comment lines (starting with :)
+	}
+}
+
+// readLineWithTimeout reads a line from the reader with timeout handling
+func (t *SSETransport) readLineWithTimeout() (string, error) {
+	type readResult struct {
+		line string
+		err  error
+	}
+	
+	resultChan := make(chan readResult, 1)
+	
+	// Perform the blocking read in a separate goroutine
+	go func() {
+		line, err := t.reader.ReadString('\n')
+		select {
+		case resultChan <- readResult{line: line, err: err}:
+		case <-t.ctx.Done():
+			// Read was cancelled, don't send result
+		}
+	}()
+	
+	// Wait for either the read to complete or context cancellation
+	select {
+	case result := <-resultChan:
+		return result.line, result.err
+	case <-t.ctx.Done():
+		return "", t.ctx.Err()
 	}
 }
 
@@ -852,9 +942,20 @@ func (t *SSETransport) Close() error {
 	// Close connection
 	t.closeConnection()
 
-	// Close channels
-	close(t.eventChan)
-	close(t.errorChan)
+	// Give goroutines time to finish and then close channels
+	// The readEvents goroutine will exit when context is cancelled
+	go func() {
+		// Brief delay to allow goroutines to finish
+		time.Sleep(100 * time.Millisecond)
+		
+		// Close channels safely
+		defer func() {
+			recover() // Handle any panic from closing already-closed channels
+		}()
+		
+		close(t.eventChan)
+		close(t.errorChan)
+	}()
 
 	return nil
 }

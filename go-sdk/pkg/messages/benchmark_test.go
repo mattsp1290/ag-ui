@@ -329,10 +329,7 @@ func BenchmarkHistory(b *testing.B) {
 			b.Run(fmt.Sprintf("History_%d", histSize), func(b *testing.B) {
 				b.ReportAllocs()
 				for i := 0; i < b.N; i++ {
-					_ = history.Search(SearchOptions{
-						Query:      "searchable",
-						MaxResults: 10,
-					})
+					_, _ = history.Search("searchable")
 				}
 			})
 		}
@@ -345,7 +342,7 @@ func BenchmarkHistory(b *testing.B) {
 
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
-			_ = history.GetByRole(RoleUser)
+			_, _ = history.GetByRole(RoleUser)
 		}
 	})
 
@@ -518,7 +515,7 @@ func BenchmarkConcurrent(b *testing.B) {
 				for pb.Next() {
 					_ = history.GetLast(10)
 					_ = history.Size()
-					_ = history.GetByRole(RoleUser)
+					_, _ = history.GetByRole(RoleUser)
 				}
 			})
 		})
@@ -545,7 +542,7 @@ func BenchmarkConcurrent(b *testing.B) {
 					defer wg.Done()
 					for j := 0; j < b.N/4; j++ {
 						_ = history.GetLast(10)
-						_ = history.Search(SearchOptions{Query: "content"})
+						_, _ = history.Search("content")
 					}
 				}()
 			}

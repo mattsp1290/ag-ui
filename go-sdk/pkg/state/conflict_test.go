@@ -208,7 +208,7 @@ func TestCustomStrategy(t *testing.T) {
 
 	// Register custom resolver
 	customCalled := false
-	resolver.RegisterCustomResolver("default", func(conflict *StateConflict) (*ConflictResolution, error) {
+	err := resolver.RegisterCustomResolver("default", func(conflict *StateConflict) (*ConflictResolution, error) {
 		customCalled = true
 		return &ConflictResolution{
 			ID:            generateResolutionID(),
@@ -226,6 +226,9 @@ func TestCustomStrategy(t *testing.T) {
 			UserIntervention: false,
 		}, nil
 	})
+	if err != nil {
+		t.Fatalf("Failed to register custom resolver: %v", err)
+	}
 
 	conflict := &StateConflict{
 		ID:        "test-conflict-4",

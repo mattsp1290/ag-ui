@@ -1,6 +1,7 @@
 package state
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -233,12 +234,16 @@ func TestStateValidation(t *testing.T) {
 
 // TestStateRollback tests state rollback functionality.
 func TestStateRollback(t *testing.T) {
-	store := NewStateStore()
+	store := TestStore(t)
 	validator := NewStateValidator(nil) // No schema for these tests
 	rollback := NewStateRollback(store, WithValidator(validator))
 
 	t.Run("Rollback to Version", func(t *testing.T) {
+
+		// Set initial state using root path to ensure version creation
+
 		// Set initial state
+
 		err := store.Set("/", map[string]interface{}{
 			"data": map[string]interface{}{
 				"value": "initial",
@@ -288,7 +293,11 @@ func TestStateRollback(t *testing.T) {
 		// Clear store
 		store.Clear()
 
+
+		// Set initial state using root path to ensure version creation
+
 		// Set initial state
+
 		err := store.Set("/", map[string]interface{}{
 			"config": map[string]interface{}{
 				"version": "1.0",
@@ -382,6 +391,10 @@ func TestStateRollback(t *testing.T) {
 
 				// Clear and set initial state
 				store.Clear()
+
+				// Use root path to ensure version is created
+
+
 				err := store.Set("/", map[string]interface{}{
 					"test": map[string]interface{}{
 						"strategy": strategy.Name(),
@@ -395,7 +408,11 @@ func TestStateRollback(t *testing.T) {
 				// Get initial version
 				history, _ := store.GetHistory()
 				if len(history) == 0 {
+
+					t.Fatalf("No history available after setting initial state for strategy %s", strategy.Name())
+
 					t.Fatalf("No history available after setting initial state")
+
 				}
 				initialVersion := history[len(history)-1].ID
 
@@ -419,8 +436,26 @@ func TestStateRollback(t *testing.T) {
 				// Verify
 				data, _ := store.Get("/test/data")
 				dataArr := data.([]interface{})
-				if len(dataArr) != 3 || dataArr[0] != 1 {
-					t.Errorf("Rollback with %s strategy failed, got: %v", strategy.Name(), data)
+
+				if len(dataArr) != 3 {
+					t.Errorf("Rollback with %s strategy failed, expected 3 elements, got: %v", strategy.Name(), data)
+				} else {
+					// Check first element - handle both int and json.Number types
+					firstElem := dataArr[0]
+					var firstValue int
+					switch v := firstElem.(type) {
+					case int:
+						firstValue = v
+					case json.Number:
+						if intVal, err := v.Int64(); err == nil {
+							firstValue = int(intVal)
+						}
+					case float64:
+						firstValue = int(v)
+					}
+					if firstValue != 1 {
+						t.Errorf("Rollback with %s strategy failed, expected first element to be 1, got: %v (type: %T)", strategy.Name(), firstElem, firstElem)
+					}
 				}
 			})
 		}
@@ -443,9 +478,14 @@ func TestStateRollback(t *testing.T) {
 
 		// Clear and set valid state
 		store.Clear()
-		err := store.Set("/", map[string]interface{}{
+
+		// Use root path to ensure version is created
+		err := store.Set("/", map[string]interface{}{"count": 10})
+
+		err = store.Set("/", map[string]interface{}{
 			"count": 10,
 		})
+
 		if err != nil {
 			t.Fatalf("Failed to set initial state: %v", err)
 		}
@@ -453,7 +493,11 @@ func TestStateRollback(t *testing.T) {
 		// Get valid version
 		history, _ := store.GetHistory()
 		if len(history) == 0 {
+
+			t.Fatalf("No history available after setting valid state")
+
 			t.Fatalf("No history available after setting initial state")
+
 		}
 		validVersion := history[len(history)-1].ID
 
@@ -487,25 +531,25 @@ func TestIntegration(t *testing.T) {
 		Properties: map[string]*SchemaProperty{
 			"users": {
 				Type: "object",
-				// PatternProperties: map[string]*SchemaProperty{
-				// 	"^user-[0-9]+$": {
-				// 		Type: "object",
-				// 		Properties: map[string]*SchemaProperty{
-				// 			"name": {
-				// 				Type:      "string",
-				// 				MinLength: intPtr(1),
-				// 			},
-				// 			"role": {
-				// 				Type: "string",
-				// 				Enum: []interface{}{"admin", "user", "guest"},
-				// 			},
-				// 			"active": {
-				// 				Type: "boolean",
-				// 			},
-				// 		},
-				// 		Required: []string{"name", "role"},
-				// 	},
-				// },
+				PatternProperties: map[string]*SchemaProperty{
+					"^user-[0-9]+$": {
+						Type: "object",
+						Properties: map[string]*SchemaProperty{
+							"name": {
+								Type:      "string",
+								MinLength: intPtr(1),
+							},
+							"role": {
+								Type: "string",
+								Enum: []interface{}{"admin", "user", "guest"},
+							},
+							"active": {
+								Type: "boolean",
+							},
+						},
+						Required: []string{"name", "role"},
+					},
+				},
 			},
 			"metadata": {
 				Type: "object",
@@ -523,7 +567,7 @@ func TestIntegration(t *testing.T) {
 		},
 	}
 
-	store := NewStateStore()
+	store := TestStore(t)
 	validator := NewStateValidator(schema)
 	rollback := NewStateRollback(store, WithValidator(validator))
 

@@ -111,9 +111,11 @@ func (sc *StreamingContext) Close() error {
 
 // sendChunk sends a chunk to the stream.
 func (sc *StreamingContext) sendChunk(chunkType string, data interface{}) error {
+	// Create chunk under lock and keep lock during send to prevent race with Close()
 	sc.mu.Lock()
+	defer sc.mu.Unlock()
+	
 	if sc.closed {
-		sc.mu.Unlock()
 		return fmt.Errorf("streaming context is closed")
 	}
 
@@ -123,8 +125,16 @@ func (sc *StreamingContext) sendChunk(chunkType string, data interface{}) error 
 		Index: sc.index,
 	}
 	sc.index++
-	sc.mu.Unlock()
-
+	
+	// Send chunk while holding lock to prevent race with Close()
+	// We need to handle the case where the channel might be closed during send
+	// Use a defer to recover from panic if channel is closed
+	defer func() {
+		if r := recover(); r != nil {
+			// Channel was closed during send, this is expected during rapid close scenarios
+		}
+	}()
+	
 	select {
 	case sc.chunks <- chunk:
 		return nil

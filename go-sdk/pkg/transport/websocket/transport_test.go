@@ -50,6 +50,21 @@ type MockEventValidator struct {
 	Errors     []string
 }
 
+// FastTransportConfig returns a transport config optimized for tests
+func FastTransportConfig() *TransportConfig {
+	config := DefaultTransportConfig()
+	config.ShutdownTimeout = 200 * time.Millisecond // Very fast shutdown for tests
+	config.DialTimeout = 5 * time.Second // Reasonable dial timeout
+	config.EventTimeout = 5 * time.Second // Reasonable event timeout
+	
+	// Optimize pool config for tests
+	if config.PoolConfig.ConnectionTemplate != nil {
+		config.PoolConfig.ConnectionTemplate.PingPeriod = 100 * time.Millisecond
+		config.PoolConfig.ConnectionTemplate.PongWait = 200 * time.Millisecond
+	}
+	return config
+}
+
 func (v *MockEventValidator) ValidateEvent(ctx context.Context, event events.Event) *events.ValidationResult {
 	result := &events.ValidationResult{
 		IsValid:   !v.ShouldFail,
@@ -285,6 +300,8 @@ func TestSubscriptionManagement(t *testing.T) {
 
 		subscription, err := transport.Subscribe(ctx, eventTypes, handler)
 		require.NoError(t, err)
+		defer transport.Unsubscribe(subscription.ID) // Clean up after test
+
 		assert.NotNil(t, subscription)
 		assert.NotEmpty(t, subscription.ID)
 		assert.Equal(t, eventTypes, subscription.EventTypes)
@@ -336,6 +353,7 @@ func TestSubscriptionManagement(t *testing.T) {
 
 		subscription, err := transport.Subscribe(ctx, eventTypes, handler)
 		require.NoError(t, err)
+		defer transport.Unsubscribe(subscription.ID) // Clean up after test
 
 		// Get the subscription
 		retrieved, err := transport.GetSubscription(subscription.ID)
@@ -357,9 +375,11 @@ func TestSubscriptionManagement(t *testing.T) {
 
 		sub1, err := transport.Subscribe(ctx, eventTypes1, handler)
 		require.NoError(t, err)
+		defer transport.Unsubscribe(sub1.ID) // Clean up after test
 
 		sub2, err := transport.Subscribe(ctx, eventTypes2, handler)
 		require.NoError(t, err)
+		defer transport.Unsubscribe(sub2.ID) // Clean up after test
 
 		subscriptions := transport.ListSubscriptions()
 		assert.Len(t, subscriptions, 2)

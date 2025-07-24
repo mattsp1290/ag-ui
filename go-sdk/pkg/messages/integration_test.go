@@ -308,12 +308,14 @@ func TestMessageHistory(t *testing.T) {
 		assert.Equal(t, int64(4), history.TotalMessages())
 
 		// Test getting messages by role
-		userMessages := history.GetByRole(messages.RoleUser)
+		userMessages, err := history.GetByRole(messages.RoleUser)
+		assert.NoError(t, err)
 		assert.Len(t, userMessages, 2)
 		assert.Equal(t, "Hello", *userMessages[0].GetContent())
 		assert.Equal(t, "How are you?", *userMessages[1].GetContent())
 
-		assistantMessages := history.GetByRole(messages.RoleAssistant)
+		assistantMessages, err := history.GetByRole(messages.RoleAssistant)
+		assert.NoError(t, err)
 		assert.Len(t, assistantMessages, 2)
 		assert.Equal(t, "Hi there!", *assistantMessages[0].GetContent())
 		assert.Equal(t, "I'm doing well, thanks!", *assistantMessages[1].GetContent())

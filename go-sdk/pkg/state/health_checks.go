@@ -117,13 +117,18 @@ func (hc *MemoryHealthCheck) Check(ctx context.Context) error {
 
 // StoreHealthCheck checks the health of the state store
 type StoreHealthCheck struct {
-	store   *StateStore
+	store   StoreInterface
 	name    string
 	timeout time.Duration
 }
 
 // NewStoreHealthCheck creates a new store health check
-func NewStoreHealthCheck(store *StateStore, timeout time.Duration) *StoreHealthCheck {
+func NewStoreHealthCheck(store StoreInterface, timeout time.Duration) *StoreHealthCheck {
+	// Validate timeout
+	if timeout <= 0 {
+		timeout = 5 * time.Second // Default timeout
+	}
+	
 	return &StoreHealthCheck{
 		store:   store,
 		name:    "store",
@@ -142,20 +147,66 @@ func (hc *StoreHealthCheck) Check(ctx context.Context) error {
 		return errors.New("state store is nil")
 	}
 
+	// Check if the store is a StateStore and if it's in a degraded state
+	// Only do this check if store is not nil
+	if stateStore, ok := hc.store.(*StateStore); ok && stateStore != nil {
+		// Check if shards are properly initialized
+		if stateStore.shards == nil || len(stateStore.shards) == 0 {
+			return errors.New("store shards not initialized")
+		}
+		
+		// Check each shard for nil current state
+		for i, shard := range stateStore.shards {
+			if shard == nil {
+				return fmt.Errorf("shard %d is nil", i)
+			}
+			if shard.current.Load() == nil {
+				return fmt.Errorf("shard %d has nil current state", i)
+			}
+		}
+	}
+
 	// Create a test context with timeout
 	testCtx, cancel := context.WithTimeout(ctx, hc.timeout)
 	defer cancel()
 
-	// Try to get a non-existent state (should not error, just return nil)
-	testStateID := fmt.Sprintf("health_check_%d", time.Now().UnixNano())
-	state := hc.store.GetState()
-	_, exists := state[testStateID]
-	_ = exists  // Variable to check if state exists
-	_ = testCtx // Use the test context
+	// Safely attempt to get state with panic recovery
+	var state map[string]interface{}
 	var err error
-	if err != nil && !errors.Is(err, ErrStateNotFound) {
-		return fmt.Errorf("store health check failed: %w", err)
+	
+	// Use a channel to handle timeout
+	done := make(chan bool, 1)
+	
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				err = fmt.Errorf("panic in store.GetState(): %v", r)
+				done <- true
+			}
+		}()
+		
+		// Try to get the state
+		state = hc.store.GetState()
+		done <- true
+	}()
+	
+	// Wait for either completion or timeout
+	select {
+	case <-done:
+		if err != nil {
+			return fmt.Errorf("store health check failed: %w", err)
+		}
+		if state == nil {
+			return errors.New("store returned nil state")
+		}
+	case <-testCtx.Done():
+		return fmt.Errorf("store health check timed out: %w", testCtx.Err())
 	}
+
+	// Verify we can check for a non-existent key (basic operation test)
+	testStateID := fmt.Sprintf("health_check_%d", time.Now().UnixNano())
+	_, exists := state[testStateID]
+	_ = exists  // This is expected to be false for a non-existent key
 
 	return nil
 }
@@ -185,15 +236,16 @@ func (hc *EventHandlerHealthCheck) Check(ctx context.Context) error {
 		return errors.New("event handler is nil")
 	}
 
-	// Check if event handler is running
-	if !hc.handler.isRunning() {
-		return errors.New("event handler is not running")
-	}
-
-	// Check event queue depth
+	// Check event queue depth first, as it might indicate degraded state
+	// even if handler appears to be running
 	queueDepth := hc.handler.getQueueDepth()
 	if queueDepth > 10000 { // Arbitrary high threshold
 		return fmt.Errorf("event queue depth (%d) is too high", queueDepth)
+	}
+
+	// Check if event handler is running
+	if !hc.handler.isRunning() {
+		return errors.New("event handler is not running")
 	}
 
 	return nil
@@ -261,20 +313,23 @@ func (hc *AuditHealthCheck) Check(ctx context.Context) error {
 		return errors.New("audit logging is disabled")
 	}
 
+	// Check if logger is properly initialized
+	if hc.auditManager.logger == nil {
+		return errors.New("audit logger is not initialized")
+	}
+
 	// Try to verify recent audit logs
 	endTime := time.Now()
 	startTime := endTime.Add(-1 * time.Minute)
 
-	if hc.auditManager.logger != nil {
-		verification, err := hc.auditManager.logger.Verify(ctx, startTime, endTime)
-		if err != nil {
-			return fmt.Errorf("audit verification failed: %w", err)
-		}
+	verification, err := hc.auditManager.logger.Verify(ctx, startTime, endTime)
+	if err != nil {
+		return fmt.Errorf("audit verification failed: %w", err)
+	}
 
-		if !verification.Valid {
-			return fmt.Errorf("audit logs are invalid: %d tampered logs, %d missing logs",
-				len(verification.TamperedLogs), len(verification.MissingLogs))
-		}
+	if !verification.Valid {
+		return fmt.Errorf("audit logs are invalid: %d tampered logs, %d missing logs",
+			len(verification.TamperedLogs), len(verification.MissingLogs))
 	}
 
 	return nil
@@ -329,27 +384,26 @@ func (hc *CompositeHealthCheck) checkParallel(ctx context.Context) error {
 		err  error
 	}
 
-	results := make(chan result, len(hc.checks))
+	// Pre-allocate slice to avoid append overhead
+	results := make([]result, len(hc.checks))
 	var wg sync.WaitGroup
 
-	for _, check := range hc.checks {
+	// Launch all goroutines and write directly to indexed positions
+	for i, check := range hc.checks {
 		wg.Add(1)
-		go func(check HealthCheck) {
+		go func(i int, check HealthCheck) {
 			defer wg.Done()
 			err := check.Check(ctx)
-			results <- result{name: check.Name(), err: err}
-		}(check)
+			results[i] = result{name: check.Name(), err: err}
+		}(i, check)
 	}
 
 	// Wait for all checks to complete
-	go func() {
-		wg.Wait()
-		close(results)
-	}()
+	wg.Wait()
 
-	// Collect results
+	// Collect failures efficiently
 	var failures []string
-	for result := range results {
+	for _, result := range results {
 		if result.err != nil {
 			failures = append(failures, fmt.Sprintf("%s: %v", result.name, result.err))
 		}

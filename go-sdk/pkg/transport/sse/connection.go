@@ -285,6 +285,7 @@ type Connection struct {
 	// Lifecycle management
 	ctx    context.Context
 	cancel context.CancelFunc
+	wg     sync.WaitGroup // Track goroutines for proper cleanup
 
 	// Channels
 	eventChan chan events.Event
@@ -298,8 +299,9 @@ type Connection struct {
 	// Metrics
 	metrics *ConnectionMetrics
 
-	// Cleanup
-	cleanupOnce sync.Once
+	// Cleanup coordination
+	cleanupOnce    sync.Once
+	channelsClosed int32 // atomic flag to indicate all channels are closed
 
 	// Pool reference (if part of pool)
 	pool *ConnectionPool
@@ -505,13 +507,19 @@ func (c *Connection) Close() error {
 	c.cleanupOnce.Do(func() {
 		c.setState(ConnectionStateClosed)
 
-		// Cancel context to stop all operations
+		// Cancel context to stop all goroutines immediately
 		c.cancel()
 
-		// Disconnect
+		// Disconnect cleanly
 		c.Disconnect()
 
-		// Close channels
+		// Mark channels as closed to prevent new operations
+		atomic.StoreInt32(&c.channelsClosed, 1)
+
+		// Wait for all goroutines to finish
+		c.wg.Wait()
+
+		// Close channels after goroutines have stopped
 		close(c.eventChan)
 		close(c.errorChan)
 		close(c.stateChan)
@@ -599,6 +607,8 @@ func (c *Connection) startHeartbeat() {
 	c.heartbeatTicker = time.NewTicker(c.heartbeatConfig.Interval)
 	atomic.StoreInt32(&c.missedHeartbeats, 0)
 
+	// Use WaitGroup to track heartbeat goroutine
+	c.wg.Add(1)
 	go c.heartbeatLoop()
 }
 
@@ -612,6 +622,8 @@ func (c *Connection) stopHeartbeat() {
 
 // heartbeatLoop performs periodic heartbeat checks
 func (c *Connection) heartbeatLoop() {
+	defer c.wg.Done() // Properly signal goroutine completion
+	
 	for {
 		select {
 		case <-c.ctx.Done():
@@ -628,7 +640,11 @@ func (c *Connection) heartbeatLoop() {
 				if int(missed) >= c.heartbeatConfig.MaxMissed {
 					// Connection is considered dead
 					c.setState(ConnectionStateError)
-					c.errorChan <- messages.NewConnectionError("heartbeat failed: connection appears to be dead", err)
+					// Non-blocking error notification
+					select {
+					case c.errorChan <- messages.NewConnectionError("heartbeat failed: connection appears to be dead", err):
+					default:
+					}
 					return
 				}
 			} else {
@@ -931,6 +947,8 @@ func (p *ConnectionPool) removeConnection(conn *Connection) {
 func (p *ConnectionPool) startHealthMonitoring() {
 	p.healthTicker = time.NewTicker(p.healthCheckInterval)
 
+	// Note: This goroutine will be cleaned up when context is cancelled
+	// and healthTicker is stopped in Close()
 	go func() {
 		for {
 			select {

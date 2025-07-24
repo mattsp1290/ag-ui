@@ -15,6 +15,15 @@ import (
 	"encoding/hex"
 )
 
+// Schema validation recursion depth limits to prevent stack overflow attacks
+const (
+	// DefaultMaxSchemaValidationDepth is the default maximum depth for schema validation operations
+	DefaultMaxSchemaValidationDepth = 100
+	
+	// StrictMaxSchemaValidationDepth is the strict maximum depth for security-critical schema validation
+	StrictMaxSchemaValidationDepth = 50
+)
+
 // Global schema cache for compiled validators
 var globalSchemaCache *SchemaCache
 var globalSchemaCacheOnce sync.Once
@@ -70,6 +79,9 @@ type SchemaValidator struct {
 	
 	// globalCache is the global schema cache
 	globalCache *SchemaCache
+	
+	// maxValidationDepth is the maximum recursion depth for validation operations
+	maxValidationDepth int
 }
 
 // NewSchemaValidator creates a new schema validator for the given tool schema.
@@ -89,13 +101,14 @@ func NewSchemaValidator(schema *ToolSchema) *SchemaValidator {
 	}
 
 	validator := &SchemaValidator{
-		schema:          schema,
-		cache:           NewValidationCache(),
-		customFormats:   make(map[string]FormatValidator),
-		coercionEnabled: true,
-		debug:           false,
-		schemaHash:      schemaHash,
-		globalCache:     globalSchemaCache,
+		schema:             schema,
+		cache:              NewValidationCache(),
+		customFormats:      make(map[string]FormatValidator),
+		coercionEnabled:    true,
+		debug:              false,
+		schemaHash:         schemaHash,
+		globalCache:        globalSchemaCache,
+		maxValidationDepth: DefaultMaxSchemaValidationDepth,
 	}
 
 	// Cache the validator
@@ -120,11 +133,12 @@ func NewSchemaValidator(schema *ToolSchema) *SchemaValidator {
 //	validator := NewAdvancedSchemaValidator(schema, opts)
 func NewAdvancedSchemaValidator(schema *ToolSchema, opts *ValidatorOptions) *SchemaValidator {
 	v := &SchemaValidator{
-		schema:          schema,
-		cache:           NewValidationCache(),
-		customFormats:   make(map[string]FormatValidator),
-		coercionEnabled: true, // default value
-		debug:           false, // default value
+		schema:             schema,
+		cache:              NewValidationCache(),
+		customFormats:      make(map[string]FormatValidator),
+		coercionEnabled:    true,                               // default value
+		debug:              false,                              // default value
+		maxValidationDepth: DefaultMaxSchemaValidationDepth,    // default value
 	}
 
 	if opts != nil {
@@ -132,6 +146,9 @@ func NewAdvancedSchemaValidator(schema *ToolSchema, opts *ValidatorOptions) *Sch
 		v.debug = opts.Debug
 		if opts.CacheSize > 0 {
 			v.cache = NewValidationCacheWithSize(opts.CacheSize)
+		}
+		if opts.MaxValidationDepth > 0 {
+			v.maxValidationDepth = opts.MaxValidationDepth
 		}
 		for name, validator := range opts.CustomFormats {
 			v.mu.Lock()
@@ -283,6 +300,11 @@ func (v *SchemaValidator) ClearCache() {
 
 // validateObject validates an object against a schema.
 func (v *SchemaValidator) validateObject(schema *ToolSchema, value map[string]interface{}, path string) error {
+	return v.validateObjectWithDepth(schema, value, path, 0)
+}
+
+// validateObjectWithDepth validates an object against a schema with depth tracking.
+func (v *SchemaValidator) validateObjectWithDepth(schema *ToolSchema, value map[string]interface{}, path string, depth int) error {
 	// Check for additional properties
 	if schema.AdditionalProperties != nil && !*schema.AdditionalProperties {
 		for key := range value {
@@ -315,7 +337,7 @@ func (v *SchemaValidator) validateObject(schema *ToolSchema, value map[string]in
 			continue
 		}
 
-		if err := v.validateValue(prop, propValue, propPath); err != nil {
+		if err := v.validateValueWithDepth(prop, propValue, propPath, depth+1); err != nil {
 			return err
 		}
 	}
@@ -325,6 +347,15 @@ func (v *SchemaValidator) validateObject(schema *ToolSchema, value map[string]in
 
 // validateValue validates a single value against a property schema.
 func (v *SchemaValidator) validateValue(prop *Property, value interface{}, path string) error {
+	return v.validateValueWithDepth(prop, value, path, 0)
+}
+
+// validateValueWithDepth validates a single value against a property schema with depth tracking.
+func (v *SchemaValidator) validateValueWithDepth(prop *Property, value interface{}, path string, depth int) error {
+	// Check recursion depth limit to prevent stack overflow attacks
+	if depth > v.maxValidationDepth {
+		return newValidationErrorWithCode(path, fmt.Sprintf("validation recursion depth %d exceeds maximum %d", depth, v.maxValidationDepth), "RECURSION_DEPTH_EXCEEDED")
+	}
 	// Handle schema reference
 	if prop.Ref != "" {
 		// For now, we'll skip schema references - they would require a schema registry
@@ -334,24 +365,24 @@ func (v *SchemaValidator) validateValue(prop *Property, value interface{}, path 
 	
 	// Handle composition schemas first
 	if len(prop.OneOf) > 0 {
-		return v.validateOneOf(prop.OneOf, value, path)
+		return v.validateOneOfWithDepth(prop.OneOf, value, path, depth)
 	}
 	
 	if len(prop.AnyOf) > 0 {
-		return v.validateAnyOf(prop.AnyOf, value, path)
+		return v.validateAnyOfWithDepth(prop.AnyOf, value, path, depth)
 	}
 	
 	if len(prop.AllOf) > 0 {
-		return v.validateAllOf(prop.AllOf, value, path)
+		return v.validateAllOfWithDepth(prop.AllOf, value, path, depth)
 	}
 	
 	if prop.Not != nil {
-		return v.validateNot(prop.Not, value, path)
+		return v.validateNotWithDepth(prop.Not, value, path, depth)
 	}
 	
 	// Handle conditional schemas
 	if prop.If != nil {
-		return v.validateConditional(prop, value, path)
+		return v.validateConditionalWithDepth(prop, value, path, depth)
 	}
 	
 	// Handle null values
@@ -398,9 +429,9 @@ func (v *SchemaValidator) validateValue(prop *Property, value interface{}, path 
 	case "boolean":
 		return v.validateBoolean(prop, value, path)
 	case "array":
-		return v.validateArray(prop, value, path)
+		return v.validateArrayWithDepth(prop, value, path, depth)
 	case "object":
-		return v.validateObjectProperty(prop, value, path)
+		return v.validateObjectPropertyWithDepth(prop, value, path, depth)
 	case "null":
 		if value != nil {
 			return newValidationError(path, "value must be null")
@@ -588,6 +619,11 @@ func (v *SchemaValidator) validateBoolean(prop *Property, value interface{}, pat
 
 // validateArray validates an array value.
 func (v *SchemaValidator) validateArray(prop *Property, value interface{}, path string) error {
+	return v.validateArrayWithDepth(prop, value, path, 0)
+}
+
+// validateArrayWithDepth validates an array value with depth tracking.
+func (v *SchemaValidator) validateArrayWithDepth(prop *Property, value interface{}, path string, depth int) error {
 	arr, ok := value.([]interface{})
 	if !ok {
 		return newValidationError(path, fmt.Sprintf("expected array, got %T", value))
@@ -605,7 +641,7 @@ func (v *SchemaValidator) validateArray(prop *Property, value interface{}, path 
 	if prop.Items != nil {
 		for i, item := range arr {
 			itemPath := fmt.Sprintf("%s[%d]", path, i)
-			if err := v.validateValue(prop.Items, item, itemPath); err != nil {
+			if err := v.validateValueWithDepth(prop.Items, item, itemPath, depth+1); err != nil {
 				return err
 			}
 		}
@@ -616,6 +652,11 @@ func (v *SchemaValidator) validateArray(prop *Property, value interface{}, path 
 
 // validateObjectProperty validates an object property value.
 func (v *SchemaValidator) validateObjectProperty(prop *Property, value interface{}, path string) error {
+	return v.validateObjectPropertyWithDepth(prop, value, path, 0)
+}
+
+// validateObjectPropertyWithDepth validates an object property value with depth tracking.
+func (v *SchemaValidator) validateObjectPropertyWithDepth(prop *Property, value interface{}, path string, depth int) error {
 	obj, ok := value.(map[string]interface{})
 	if !ok {
 		return newValidationError(path, fmt.Sprintf("expected object, got %T", value))
@@ -628,7 +669,7 @@ func (v *SchemaValidator) validateObjectProperty(prop *Property, value interface
 		Required:   prop.Required,
 	}
 
-	return v.validateObject(tempSchema, obj, path)
+	return v.validateObjectWithDepth(tempSchema, obj, path, depth)
 }
 
 
@@ -700,6 +741,9 @@ type ValidatorOptions struct {
 	
 	// StrictMode enables strict validation (no coercion)
 	StrictMode bool
+	
+	// MaxValidationDepth sets the maximum recursion depth for validation operations
+	MaxValidationDepth int
 }
 
 // FormatValidator defines a custom format validation function.
@@ -1000,10 +1044,15 @@ func isValidUUID(uuid string) bool {
 
 // validateOneOf validates that the value matches exactly one of the provided schemas.
 func (v *SchemaValidator) validateOneOf(schemas []*Property, value interface{}, path string) error {
+	return v.validateOneOfWithDepth(schemas, value, path, 0)
+}
+
+// validateOneOfWithDepth validates that the value matches exactly one of the provided schemas with depth tracking.
+func (v *SchemaValidator) validateOneOfWithDepth(schemas []*Property, value interface{}, path string, depth int) error {
 	matchCount := 0
 	
 	for _, schema := range schemas {
-		if err := v.validateValue(schema, value, path); err == nil {
+		if err := v.validateValueWithDepth(schema, value, path, depth+1); err == nil {
 			matchCount++
 		}
 	}
@@ -1021,8 +1070,13 @@ func (v *SchemaValidator) validateOneOf(schemas []*Property, value interface{}, 
 
 // validateAnyOf validates that the value matches at least one of the provided schemas.
 func (v *SchemaValidator) validateAnyOf(schemas []*Property, value interface{}, path string) error {
+	return v.validateAnyOfWithDepth(schemas, value, path, 0)
+}
+
+// validateAnyOfWithDepth validates that the value matches at least one of the provided schemas with depth tracking.
+func (v *SchemaValidator) validateAnyOfWithDepth(schemas []*Property, value interface{}, path string, depth int) error {
 	for _, schema := range schemas {
-		if err := v.validateValue(schema, value, path); err == nil {
+		if err := v.validateValueWithDepth(schema, value, path, depth+1); err == nil {
 			return nil
 		}
 	}
@@ -1032,8 +1086,13 @@ func (v *SchemaValidator) validateAnyOf(schemas []*Property, value interface{}, 
 
 // validateAllOf validates that the value matches all of the provided schemas.
 func (v *SchemaValidator) validateAllOf(schemas []*Property, value interface{}, path string) error {
+	return v.validateAllOfWithDepth(schemas, value, path, 0)
+}
+
+// validateAllOfWithDepth validates that the value matches all of the provided schemas with depth tracking.
+func (v *SchemaValidator) validateAllOfWithDepth(schemas []*Property, value interface{}, path string, depth int) error {
 	for i, schema := range schemas {
-		if err := v.validateValue(schema, value, path); err != nil {
+		if err := v.validateValueWithDepth(schema, value, path, depth+1); err != nil {
 			return newValidationErrorWithCode(path, fmt.Sprintf("value fails allOf schema at index %d: %v", i, err), "ALLOF_FAILED")
 		}
 	}
@@ -1043,7 +1102,12 @@ func (v *SchemaValidator) validateAllOf(schemas []*Property, value interface{}, 
 
 // validateNot validates that the value does not match the provided schema.
 func (v *SchemaValidator) validateNot(schema *Property, value interface{}, path string) error {
-	if err := v.validateValue(schema, value, path); err == nil {
+	return v.validateNotWithDepth(schema, value, path, 0)
+}
+
+// validateNotWithDepth validates that the value does not match the provided schema with depth tracking.
+func (v *SchemaValidator) validateNotWithDepth(schema *Property, value interface{}, path string, depth int) error {
+	if err := v.validateValueWithDepth(schema, value, path, depth+1); err == nil {
 		return newValidationErrorWithCode(path, "value matches the not schema, but it should not", "NOT_MATCHED")
 	}
 	
@@ -1052,8 +1116,18 @@ func (v *SchemaValidator) validateNot(schema *Property, value interface{}, path 
 
 // validateConditional validates conditional schemas (if/then/else).
 func (v *SchemaValidator) validateConditional(prop *Property, value interface{}, path string) error {
+	return v.validateConditionalWithDepth(prop, value, path, 0)
+}
+
+// validateConditionalWithDepth validates conditional schemas (if/then/else) with depth tracking.
+func (v *SchemaValidator) validateConditionalWithDepth(prop *Property, value interface{}, path string, depth int) error {
 	if prop.If == nil {
 		return nil
+	}
+	
+	// Check depth limit before proceeding
+	if depth > v.maxValidationDepth {
+		return newValidationErrorWithCode(path, fmt.Sprintf("validation recursion depth %d exceeds maximum %d", depth, v.maxValidationDepth), "RECURSION_DEPTH_EXCEEDED")
 	}
 	
 	// First, validate the base schema (if it has a type)
@@ -1080,23 +1154,23 @@ func (v *SchemaValidator) validateConditional(prop *Property, value interface{},
 				return err
 			}
 		case "object":
-			if err := v.validateObjectProperty(prop, value, path); err != nil {
+			if err := v.validateObjectPropertyWithDepth(prop, value, path, depth); err != nil {
 				return err
 			}
 		}
 	}
 	
 	// Test the condition
-	conditionMatches := v.validateValue(prop.If, value, path) == nil
+	conditionMatches := v.validateValueWithDepth(prop.If, value, path, depth+1) == nil
 	
 	if conditionMatches && prop.Then != nil {
 		// Apply the "then" schema
-		return v.validateValue(prop.Then, value, path)
+		return v.validateValueWithDepth(prop.Then, value, path, depth+1)
 	}
 	
 	if !conditionMatches && prop.Else != nil {
 		// Apply the "else" schema
-		return v.validateValue(prop.Else, value, path)
+		return v.validateValueWithDepth(prop.Else, value, path, depth+1)
 	}
 	
 	return nil

@@ -77,7 +77,7 @@ func (t *AdvancedMockTransport) Send(ctx context.Context, event TransportEvent) 
 	// Simulate packet loss
 	if t.shouldDropPacket() {
 		t.metrics.RecordDroppedEvent()
-		return nil // Silently drop
+		return errors.New("packet dropped due to network simulation")
 	}
 	
 	// Apply middleware
@@ -112,6 +112,20 @@ func (t *AdvancedMockTransport) Send(ctx context.Context, event TransportEvent) 
 	}
 	
 	return t.MockTransport.Send(ctx, processedEvent)
+}
+
+// Close with state machine support
+func (t *AdvancedMockTransport) Close(ctx context.Context) error {
+	t.setState(StateClosing)
+	
+	err := t.MockTransport.Close(ctx)
+	if err != nil {
+		t.setState(StateError)
+		return err
+	}
+	
+	t.setState(StateClosed)
+	return nil
 }
 
 // GetState returns the current connection state
@@ -173,8 +187,26 @@ func (t *AdvancedMockTransport) shouldDropPacket() bool {
 	if t.packetLoss <= 0 {
 		return false
 	}
-	// Simple random packet loss simulation
-	return time.Now().UnixNano()%100 < int64(t.packetLoss*100)
+	
+	// Use a simple counter-based approach for consistent packet loss
+	// Every Nth packet is dropped where N = 1/packetLoss
+	if t.packetLoss >= 1.0 {
+		return true // Drop all packets if loss is 100% or more
+	}
+	
+	// Initialize metrics if needed (no lock required for atomic operations)
+	if t.metrics == nil {
+		t.mu.Lock()
+		if t.metrics == nil {
+			t.metrics = NewTransportMetrics()
+		}
+		t.mu.Unlock()
+	}
+	
+	// Use atomic counter for thread safety (no lock required)
+	packetCount := atomic.AddInt64(&t.metrics.eventsSent, 1)
+	dropInterval := int64(1.0 / t.packetLoss)
+	return (packetCount % dropInterval) == 0
 }
 
 func (t *AdvancedMockTransport) getJitter() time.Duration {
@@ -501,6 +533,10 @@ type ChaosTransport struct {
 	errorRate      float64
 	delayRange     [2]time.Duration
 	possibleErrors []error
+	
+	// Counters for deterministic error simulation
+	connectCount int64
+	sendCount    int64
 }
 
 // NewChaosTransport creates a new chaos transport
@@ -517,11 +553,19 @@ func NewChaosTransport(errorRate float64) *ChaosTransport {
 		},
 	}
 	
-	// Override send behavior with chaos
-	ct.SetSendBehavior(ct.chaosSend)
-	ct.SetConnectBehavior(ct.chaosConnect)
+	// Don't set send/connect behavior to avoid recursion - override the methods instead
 	
 	return ct
+}
+
+// Connect with chaos behavior
+func (ct *ChaosTransport) Connect(ctx context.Context) error {
+	return ct.chaosConnect(ctx)
+}
+
+// Send with chaos behavior
+func (ct *ChaosTransport) Send(ctx context.Context, event TransportEvent) error {
+	return ct.chaosSend(ctx, event)
 }
 
 func (ct *ChaosTransport) chaosSend(ctx context.Context, event TransportEvent) error {
@@ -536,11 +580,12 @@ func (ct *ChaosTransport) chaosSend(ctx context.Context, event TransportEvent) e
 	}
 	
 	// Random error
-	if ct.shouldError() {
+	if ct.shouldSendError() {
 		return ct.randomError()
 	}
 	
-	return nil
+	// If no error, call the base mock transport send method (avoid AdvancedMockTransport to prevent loops)
+	return ct.MockTransport.Send(ctx, event)
 }
 
 func (ct *ChaosTransport) chaosConnect(ctx context.Context) error {
@@ -555,15 +600,40 @@ func (ct *ChaosTransport) chaosConnect(ctx context.Context) error {
 	}
 	
 	// Random error
-	if ct.shouldError() {
+	if ct.shouldConnectError() {
 		return ErrConnectionFailed
 	}
 	
-	return nil
+	// If no error, call the base mock transport connect method (avoid AdvancedMockTransport to prevent loops)
+	return ct.MockTransport.Connect(ctx)
 }
 
-func (ct *ChaosTransport) shouldError() bool {
-	return time.Now().UnixNano()%100 < int64(ct.errorRate*100)
+func (ct *ChaosTransport) shouldConnectError() bool {
+	if ct.errorRate <= 0 {
+		return false
+	}
+	if ct.errorRate >= 1.0 {
+		return true
+	}
+	
+	// Use deterministic counter-based error simulation for consistent results
+	count := atomic.AddInt64(&ct.connectCount, 1)
+	errorInterval := int64(1.0 / ct.errorRate)
+	return (count % errorInterval) == 0
+}
+
+func (ct *ChaosTransport) shouldSendError() bool {
+	if ct.errorRate <= 0 {
+		return false
+	}
+	if ct.errorRate >= 1.0 {
+		return true
+	}
+	
+	// Use deterministic counter-based error simulation for consistent results
+	count := atomic.AddInt64(&ct.sendCount, 1)
+	errorInterval := int64(1.0 / ct.errorRate)
+	return (count % errorInterval) == 0
 }
 
 func (ct *ChaosTransport) randomDelay() time.Duration {
@@ -625,6 +695,14 @@ func (rt *RecordingTransport) Send(ctx context.Context, event TransportEvent) er
 	start := time.Now()
 	err := rt.Transport.Send(ctx, event)
 	rt.recordOperation("Send", start, []interface{}{ctx, event}, nil, err)
+	return err
+}
+
+// Close records the close operation
+func (rt *RecordingTransport) Close(ctx context.Context) error {
+	start := time.Now()
+	err := rt.Transport.Close(ctx)
+	rt.recordOperation("Close", start, []interface{}{ctx}, nil, err)
 	return err
 }
 

@@ -26,6 +26,7 @@ func TestEventStreamCreation(t *testing.T) {
 }
 
 func TestEventStreamStartStop(t *testing.T) {
+	// Re-enabled after fixing Close() timeout issues
 	config := DefaultStreamConfig()
 	config.WorkerCount = 1 // Reduce workers for test
 	config.MetricsInterval = 100 * time.Millisecond
@@ -61,6 +62,7 @@ func TestEventStreamStartStop(t *testing.T) {
 }
 
 func TestEventStreamProcessing(t *testing.T) {
+	// Re-enabled after fixing timeout issues
 	config := DefaultStreamConfig()
 	config.WorkerCount = 1
 	config.BatchEnabled = false       // Disable batching for simpler test
@@ -322,6 +324,7 @@ func TestChunkBuffer(t *testing.T) {
 }
 
 func TestStreamMetrics(t *testing.T) {
+	// Re-enabled after fixing timeout issues
 	metrics := NewStreamMetrics()
 	if metrics == nil {
 		t.Fatal("Failed to create stream metrics")

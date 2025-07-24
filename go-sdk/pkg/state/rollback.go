@@ -3,6 +3,7 @@ package state
 import (
 	"fmt"
 	"reflect"
+	"sort"
 	"sync"
 	"time"
 )
@@ -85,10 +86,10 @@ type RollbackOperation struct {
 // RollbackStrategy defines how rollback operations are performed.
 type RollbackStrategy interface {
 	// Execute performs the rollback operation
-	Execute(store *StateStore, targetVersion *StateVersion) error
+	Execute(store StoreInterface, targetVersion *StateVersion) error
 
 	// Validate checks if the rollback can be performed safely
-	Validate(store *StateStore, targetVersion *StateVersion) error
+	Validate(store StoreInterface, targetVersion *StateVersion) error
 
 	// Name returns the strategy name
 	Name() string
@@ -96,7 +97,7 @@ type RollbackStrategy interface {
 
 // StateRollback implements RollbackManager with various rollback strategies.
 type StateRollback struct {
-	store      *StateStore
+	store      StoreInterface
 	validator  StateValidator
 	strategy   RollbackStrategy
 	markers    map[string]*RollbackMarker
@@ -106,7 +107,7 @@ type StateRollback struct {
 }
 
 // NewStateRollback creates a new rollback manager.
-func NewStateRollback(store *StateStore, options ...RollbackOption) *StateRollback {
+func NewStateRollback(store StoreInterface, options ...RollbackOption) *StateRollback {
 	rollback := &StateRollback{
 		store:      store,
 		strategy:   NewSafeRollbackStrategy(),
@@ -297,6 +298,11 @@ func (r *StateRollback) ListMarkers() ([]RollbackMarker, error) {
 		markers = append(markers, *marker)
 	}
 
+	// Sort markers by creation time for consistent output
+	sort.Slice(markers, func(i, j int) bool {
+		return markers[i].CreatedAt.Before(markers[j].CreatedAt)
+	})
+
 	return markers, nil
 }
 
@@ -448,7 +454,7 @@ func (s *SafeRollbackStrategy) Name() string {
 }
 
 // Validate checks if the rollback can be performed safely.
-func (s *SafeRollbackStrategy) Validate(store *StateStore, targetVersion *StateVersion) error {
+func (s *SafeRollbackStrategy) Validate(store StoreInterface, targetVersion *StateVersion) error {
 	if store == nil {
 		return fmt.Errorf("store cannot be nil")
 	}
@@ -465,7 +471,7 @@ func (s *SafeRollbackStrategy) Validate(store *StateStore, targetVersion *StateV
 }
 
 // Execute performs the rollback operation.
-func (s *SafeRollbackStrategy) Execute(store *StateStore, targetVersion *StateVersion) error {
+func (s *SafeRollbackStrategy) Execute(store StoreInterface, targetVersion *StateVersion) error {
 	// Create a snapshot before rollback if enabled
 	if s.createSnapshot {
 		_, err := store.CreateSnapshot()
@@ -500,7 +506,7 @@ func (f *FastRollbackStrategy) Name() string {
 }
 
 // Validate performs minimal validation.
-func (f *FastRollbackStrategy) Validate(store *StateStore, targetVersion *StateVersion) error {
+func (f *FastRollbackStrategy) Validate(store StoreInterface, targetVersion *StateVersion) error {
 	if store == nil || targetVersion == nil {
 		return fmt.Errorf("invalid parameters")
 	}
@@ -508,7 +514,7 @@ func (f *FastRollbackStrategy) Validate(store *StateStore, targetVersion *StateV
 }
 
 // Execute performs direct state replacement.
-func (f *FastRollbackStrategy) Execute(store *StateStore, targetVersion *StateVersion) error {
+func (f *FastRollbackStrategy) Execute(store StoreInterface, targetVersion *StateVersion) error {
 	// Direct state replacement using a single patch
 	patch := JSONPatch{
 		JSONPatchOperation{
@@ -539,7 +545,7 @@ func (i *IncrementalRollbackStrategy) Name() string {
 }
 
 // Validate checks if incremental rollback is possible.
-func (i *IncrementalRollbackStrategy) Validate(store *StateStore, targetVersion *StateVersion) error {
+func (i *IncrementalRollbackStrategy) Validate(store StoreInterface, targetVersion *StateVersion) error {
 	if store == nil || targetVersion == nil {
 		return fmt.Errorf("invalid parameters")
 	}
@@ -550,7 +556,7 @@ func (i *IncrementalRollbackStrategy) Validate(store *StateStore, targetVersion 
 }
 
 // Execute performs incremental rollback.
-func (i *IncrementalRollbackStrategy) Execute(store *StateStore, targetVersion *StateVersion) error {
+func (i *IncrementalRollbackStrategy) Execute(store StoreInterface, targetVersion *StateVersion) error {
 	currentState := store.GetState()
 	patches := createDetailedTransformPatches(currentState, targetVersion.State)
 

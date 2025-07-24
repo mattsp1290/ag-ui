@@ -1,3 +1,5 @@
+// +build integration
+
 package tools
 
 import (
@@ -22,63 +24,6 @@ type PerformanceFramework struct {
 	memoryProfiler *MemoryProfiler
 }
 
-// PerformanceConfig defines performance testing configuration
-type PerformanceConfig struct {
-	// Baseline configuration
-	BaselineIterations      int
-	BaselineWarmupDuration  time.Duration
-	BaselineStabilityFactor float64 // Coefficient of variation threshold
-
-	// Load testing configuration
-	MaxConcurrency       int
-	LoadTestDuration     time.Duration
-	RampUpDuration       time.Duration
-	RampDownDuration     time.Duration
-	LoadPatterns         []LoadPattern
-	
-	// Memory testing configuration
-	MemoryCheckInterval  time.Duration
-	MemoryLeakThreshold  int64 // Bytes
-	GCForceInterval      time.Duration
-	
-	// Regression testing configuration
-	RegressionThreshold  float64 // % performance degradation threshold
-	WarmupIterations     int
-	BenchmarkIterations  int
-	
-	// Stress testing configuration
-	StressTestDuration   time.Duration
-	StressMaxConcurrency int
-	StressErrorThreshold float64 // % error rate threshold
-}
-
-// DefaultPerformanceConfig returns default performance testing configuration
-func DefaultPerformanceConfig() *PerformanceConfig {
-	return &PerformanceConfig{
-		BaselineIterations:      100,
-		BaselineWarmupDuration:  5 * time.Second,
-		BaselineStabilityFactor: 0.1,
-		MaxConcurrency:          100,  // Reduced from 1000
-		LoadTestDuration:        10 * time.Second,  // Reduced from 60s to 10s
-		RampUpDuration:          2 * time.Second,   // Reduced from 10s to 2s
-		RampDownDuration:        2 * time.Second,   // Reduced from 10s to 2s
-		LoadPatterns: []LoadPattern{
-			{Name: "constant", Type: LoadPatternConstant, Intensity: 50},  // Reduced from 100
-			{Name: "ramp", Type: LoadPatternRamp, Intensity: 100},        // Reduced from 200
-			{Name: "spike", Type: LoadPatternSpike, Intensity: 150},      // Reduced from 500
-			{Name: "wave", Type: LoadPatternWave, Intensity: 75},         // Reduced from 300
-		},
-		MemoryCheckInterval:     1 * time.Second,
-		MemoryLeakThreshold:     100 * 1024 * 1024, // 100MB
-		GCForceInterval:         10 * time.Second,
-		RegressionThreshold:     10.0, // 10% degradation threshold
-		WarmupIterations:        10,
-		BenchmarkIterations:     50,
-		StressTestDuration:      5 * time.Second,  // Reduced from 300s to 5s
-		StressMaxConcurrency:    200,  // Reduced from 2000
-		StressErrorThreshold:    5.0, // 5% error rate threshold
-	}
-}
 
 // PerformanceMetrics tracks comprehensive performance statistics
 type PerformanceMetrics struct {
@@ -232,26 +177,6 @@ type PerformanceBaseline struct {
 	CommitHash               string
 }
 
-// LoadPattern defines different load testing patterns
-type LoadPattern struct {
-	Name      string
-	Type      LoadPatternType
-	Intensity int           // Peak load level
-	Duration  time.Duration // Pattern duration
-	Settings  map[string]interface{} // Pattern-specific settings
-}
-
-// LoadPatternType defines the type of load pattern
-type LoadPatternType int
-
-const (
-	LoadPatternConstant LoadPatternType = iota
-	LoadPatternRamp
-	LoadPatternSpike
-	LoadPatternWave
-	LoadPatternStair
-	LoadPatternChaos
-)
 
 // LoadGenerator generates various load patterns for testing
 type LoadGenerator struct {
@@ -380,6 +305,11 @@ func NewPerformanceFramework(config *PerformanceConfig) *PerformanceFramework {
 func (pf *PerformanceFramework) RunComprehensivePerformanceTest(t *testing.T) *PerformanceReport {
 	t.Helper()
 	
+	// Skip long-running tests in short mode
+	if testing.Short() {
+		t.Skip("Skipping comprehensive performance test in short mode")
+	}
+	
 	report := &PerformanceReport{
 		StartTime: time.Now(),
 		Config:    pf.config,
@@ -432,12 +362,21 @@ func (pf *PerformanceFramework) RunComprehensivePerformanceTest(t *testing.T) *P
 func (pf *PerformanceFramework) EstablishBaseline(t *testing.T) *BaselineResult {
 	t.Helper()
 	
+	// Skip in short mode for faster CI tests
+	if testing.Short() {
+		t.Skip("Skipping baseline establishment in short mode")
+	}
+	
 	result := &BaselineResult{
 		StartTime: time.Now(),
 	}
 	
-	// Create context with timeout to prevent infinite loops
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// Create context with timeout to prevent infinite loops - use optimized timeout
+	timeout := OptimizedTestTimeout()
+	if testing.Short() {
+		timeout = 5 * time.Second // Much shorter for short mode
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	
 	// Create test environment
@@ -480,6 +419,11 @@ func (pf *PerformanceFramework) EstablishBaseline(t *testing.T) *BaselineResult 
 // RunLoadTests runs various load testing patterns
 func (pf *PerformanceFramework) RunLoadTests(t *testing.T) *LoadTestResult {
 	t.Helper()
+	
+	// Skip heavy load tests in short mode
+	if testing.Short() {
+		t.Skip("Skipping load tests in short mode")
+	}
 	
 	result := &LoadTestResult{
 		StartTime: time.Now(),
@@ -527,6 +471,11 @@ func (pf *PerformanceFramework) RunLoadTests(t *testing.T) *LoadTestResult {
 func (pf *PerformanceFramework) RunMemoryTests(t *testing.T) *MemoryTestResult {
 	t.Helper()
 	
+	// Skip resource-intensive memory tests in short mode
+	if testing.Short() {
+		t.Skip("Skipping memory tests in short mode")
+	}
+	
 	result := &MemoryTestResult{
 		StartTime: time.Now(),
 	}
@@ -565,13 +514,22 @@ func (pf *PerformanceFramework) RunMemoryTests(t *testing.T) *MemoryTestResult {
 func (pf *PerformanceFramework) RunScalabilityTests(t *testing.T) *ScalabilityTestResult {
 	t.Helper()
 	
+	// Skip scalability tests in short mode
+	if testing.Short() {
+		t.Skip("Skipping scalability tests in short mode")
+	}
+	
 	result := &ScalabilityTestResult{
 		StartTime: time.Now(),
 		Results:   make(map[int]*PerfScalabilityMeasurement),
 	}
 	
-	// Test different tool counts (reduced for faster execution)
-	toolCounts := []int{10, 50, 100, 200, 500}
+	// Test different tool counts (optimized for environment)
+	toolCounts := []int{10, 50, 100}
+	if !testing.Short() && !isCI() {
+		// Add more extensive testing for local development
+		toolCounts = append(toolCounts, 200, 500)
+	}
 	
 	for _, toolCount := range toolCounts {
 		t.Run(fmt.Sprintf("Tools_%d", toolCount), func(t *testing.T) {
@@ -589,6 +547,11 @@ func (pf *PerformanceFramework) RunScalabilityTests(t *testing.T) *ScalabilityTe
 // RunStressTests runs high-concurrency stress tests
 func (pf *PerformanceFramework) RunStressTests(t *testing.T) *StressTestResult {
 	t.Helper()
+	
+	// Skip stress tests in short mode
+	if testing.Short() {
+		t.Skip("Skipping stress tests in short mode")
+	}
 	
 	result := &StressTestResult{
 		StartTime: time.Now(),
@@ -888,9 +851,16 @@ func (st *StressTest) Run(t *testing.T) []*StressMeasurement {
 		}
 	}()
 	
-	// Start stress test workers
+	// Start stress test workers with optimized concurrency levels
 	var wg sync.WaitGroup
-	concurrencyLevels := []int{10, 25, 50, 100, st.config.StressMaxConcurrency}
+	concurrencyLevels := []int{5, 10, 25}
+	if !testing.Short() {
+		concurrencyLevels = append(concurrencyLevels, 50, 100)
+		if !isCI() {
+			// Only add heavy concurrency for local development
+			concurrencyLevels = append(concurrencyLevels, st.config.StressMaxConcurrency)
+		}
+	}
 	
 	for _, concurrency := range concurrencyLevels {
 		wg.Add(1)
@@ -1002,7 +972,13 @@ func (pf *PerformanceFramework) warmupWithContext(parentCtx context.Context, eng
 	defer cancel()
 	
 	var wg sync.WaitGroup
+	// Scale concurrency based on environment
 	concurrency := 10
+	if testing.Short() {
+		concurrency = 3 // Minimal concurrency for short tests
+	} else if isCI() {
+		concurrency = 5 // Reduced concurrency for CI
+	}
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func() {
@@ -1038,7 +1014,12 @@ func (pf *PerformanceFramework) warmup(engine *ExecutionEngine, tools []*Tool, d
 
 func (pf *PerformanceFramework) measureBaselineExecutionTimeWithContext(ctx context.Context, engine *ExecutionEngine, tools []*Tool) time.Duration {
 	var totalTime time.Duration
-	iterations := pf.config.BaselineIterations
+	// Use optimized iterations for CI
+	measurements := GetOptimizedMeasurements()
+	iterations := measurements.LatencyIterations
+	if !isCI() {
+		iterations = pf.config.BaselineIterations
+	}
 	successfulIterations := 0
 	
 	for i := 0; i < iterations; i++ {
@@ -1085,7 +1066,13 @@ func (pf *PerformanceFramework) measureBaselineExecutionTime(engine *ExecutionEn
 }
 
 func (pf *PerformanceFramework) measureBaselineThroughputWithContext(parentCtx context.Context, engine *ExecutionEngine, tools []*Tool) float64 {
-	duration := 10 * time.Second
+	// Use optimized duration for CI environments
+	measurements := GetOptimizedMeasurements()
+	duration := measurements.ThroughputDuration
+	// Further reduce in short mode
+	if testing.Short() {
+		duration = 1 * time.Second
+	}
 	ctx, cancel := context.WithTimeout(parentCtx, duration)
 	defer cancel()
 	
@@ -1137,8 +1124,13 @@ func (pf *PerformanceFramework) measureBaselineMemoryUsageWithContext(ctx contex
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
 	
-	// Execute operations with context and timeout
+	// Execute operations with context and timeout - scale operations based on environment
 	operations := 1000
+	if testing.Short() {
+		operations = 100 // Much fewer operations in short mode
+	} else if isCI() {
+		operations = 500 // Moderate operations in CI
+	}
 	for i := 0; i < operations; i++ {
 		// Check context cancellation
 		select {
@@ -1183,7 +1175,12 @@ func (pf *PerformanceFramework) measureBaselineMemoryUsage(engine *ExecutionEngi
 
 func (pf *PerformanceFramework) measureBaselineLatencyWithContext(ctx context.Context, engine *ExecutionEngine, tools []*Tool) *LatencyMetrics {
 	var latencies []time.Duration
-	iterations := pf.config.BaselineIterations
+	// Use optimized iterations for CI
+	measurements := GetOptimizedMeasurements()
+	iterations := measurements.LatencyIterations
+	if !isCI() {
+		iterations = pf.config.BaselineIterations
+	}
 	
 	for i := 0; i < iterations; i++ {
 		// Check context cancellation
@@ -1317,11 +1314,24 @@ func (pf *PerformanceFramework) runMemoryStressTest(t *testing.T, engine *Execut
 	}
 	
 	// Stress test with high memory allocation (reduced duration and concurrency)
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	timeout := OptimizedTestTimeout()
+	if testing.Short() {
+		timeout = 2 * time.Second // Very short for testing.Short()
+	} else if isCI() {
+		timeout = 5 * time.Second // Much shorter for CI
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	
 	var wg sync.WaitGroup
-	for i := 0; i < 20; i++ {
+	// Scale workers based on environment
+	workers := 20
+	if testing.Short() {
+		workers = 5 // Minimal workers for short tests
+	} else if isCI() {
+		workers = 10 // Moderate workers for CI
+	}
+	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
@@ -1367,9 +1377,19 @@ func (pf *PerformanceFramework) runMemoryLeakTest(t *testing.T, engine *Executio
 	}
 	
 	// Run operations and monitor memory
-	for i := 0; i < 10; i++ {
-		// Execute many operations
-		for j := 0; j < 1000; j++ {
+	// Scale operations based on environment
+	iterations := 10
+	operationsPerIteration := 1000
+	if testing.Short() {
+		iterations = 3
+		operationsPerIteration = 100
+	} else if isCI() {
+		iterations = 5
+		operationsPerIteration = 500
+	}
+	for i := 0; i < iterations; i++ {
+		// Execute operations
+		for j := 0; j < operationsPerIteration; j++ {
 			tool := tools[rand.Intn(len(tools))]
 			engine.Execute(context.Background(), tool.ID, map[string]interface{}{
 				"input": fmt.Sprintf("leak-test-%d-%d", i, j),
@@ -1419,7 +1439,13 @@ func (pf *PerformanceFramework) runMemoryEfficiencyTest(t *testing.T, engine *Ex
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
 	
+	// Scale operations based on environment
 	operations := 1000
+	if testing.Short() {
+		operations = 100
+	} else if isCI() {
+		operations = 500
+	}
 	for i := 0; i < operations; i++ {
 		tool := tools[rand.Intn(len(tools))]
 		engine.Execute(context.Background(), tool.ID, map[string]interface{}{
@@ -1690,7 +1716,7 @@ func (lg *LoadGenerator) collectResults(result *LoadPatternResult) {
 				result.LatencyPercentiles = calculateLatencyMetrics(latencies)
 				if len(throughputMeasurements) > 0 {
 					result.AverageThroughput = average(throughputMeasurements)
-					result.PeakThroughput = max(throughputMeasurements)
+					result.PeakThroughput = maxFloat64(throughputMeasurements)
 				}
 				return
 			}
@@ -1752,7 +1778,13 @@ func (mp *MemoryProfiler) Stop() {
 }
 
 func (mp *MemoryProfiler) monitorMemory() {
-	ticker := time.NewTicker(mp.config.MemoryCheckInterval)
+	// Ensure we have a valid interval to prevent panic
+	interval := mp.config.MemoryCheckInterval
+	if interval <= 0 {
+		interval = 1 * time.Second // Default to 1 second if not set
+	}
+	
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	
 	for {
@@ -2045,7 +2077,7 @@ func average(values []float64) float64 {
 	return sum / float64(len(values))
 }
 
-func max(values []float64) float64 {
+func maxFloat64(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}

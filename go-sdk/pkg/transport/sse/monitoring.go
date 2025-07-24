@@ -2,6 +2,7 @@ package sse
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,6 +21,13 @@ import (
 	"go.opentelemetry.io/otel/trace"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+)
+
+var (
+	// sseMetricsOnce ensures Prometheus metrics are only registered once
+	sseMetricsOnce sync.Once
+	// ssePromMetrics holds the singleton instance of Prometheus metrics
+	ssePromMetrics *SSEPrometheusMetrics
 )
 
 // MonitoringSystem provides comprehensive monitoring and observability for SSE transport
@@ -552,6 +560,15 @@ func (ms *MonitoringSystem) RecordConnectionError(connID string, err error) {
 func (ms *MonitoringSystem) RecordEventReceived(connID, eventType string, size int64) {
 	start := time.Now()
 
+	// Validate size to prevent counter issues
+	if size < 0 {
+		ms.logger.Warn("Invalid negative event size, using 0", 
+			zap.String("connection_id", connID),
+			zap.String("event_type", eventType),
+			zap.Int64("size", size))
+		size = 0
+	}
+
 	// Update Prometheus metrics
 	ms.promMetrics.EventsReceived.WithLabelValues(eventType).Inc()
 	ms.promMetrics.EventSize.WithLabelValues(eventType, "received").Observe(float64(size))
@@ -632,6 +649,26 @@ func (ms *MonitoringSystem) RecordEventProcessed(eventType string, duration time
 
 	ms.promMetrics.EventsProcessed.WithLabelValues(eventType, status).Inc()
 	ms.promMetrics.EventProcessingLatency.WithLabelValues(eventType).Observe(duration.Seconds())
+
+	// Update event stats for error rate calculation
+	ms.eventTracker.mu.Lock()
+	if stats, exists := ms.eventTracker.eventStats[eventType]; exists {
+		atomic.AddInt64(&stats.Count, 1)
+		if err != nil {
+			atomic.AddInt64(&stats.ErrorCount, 1)
+		}
+	} else {
+		errorCount := int64(0)
+		if err != nil {
+			errorCount = 1
+		}
+		ms.eventTracker.eventStats[eventType] = &EventStats{
+			Count:       1,
+			ErrorCount:  errorCount,
+			LastReceived: time.Now(),
+		}
+	}
+	ms.eventTracker.mu.Unlock()
 
 	// Update performance tracking
 	ms.recordLatency("event_processing", duration)
@@ -744,7 +781,15 @@ func (ms *MonitoringSystem) GetHealthStatus() map[string]HealthStatus {
 	for name, check := range ms.healthChecks {
 		ctx, cancel := context.WithTimeout(ms.ctx, 5*time.Second)
 		start := time.Now()
-		err := check.Check(ctx)
+		var err error
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					err = fmt.Errorf("health check panicked: %v", r)
+				}
+			}()
+			err = check.Check(ctx)
+		}()
 		duration := time.Since(start)
 		cancel()
 
@@ -1275,9 +1320,18 @@ func (ms *MonitoringSystem) sendAlert(alert Alert) {
 
 	// Send to notifiers
 	for _, notifier := range ms.alertManager.notifiers {
+		ms.wg.Add(1)
 		go func(n AlertNotifier) {
-			if err := n.SendAlert(context.Background(), alert); err != nil {
-				ms.logger.Error("Failed to send alert", zap.Error(err))
+			defer ms.wg.Done()
+			// Use the monitoring system's context to allow for cancellation during shutdown
+			ctx, cancel := context.WithTimeout(ms.ctx, 5*time.Second)
+			defer cancel()
+			
+			if err := n.SendAlert(ctx, alert); err != nil {
+				// Only log error if not due to context cancellation
+				if !errors.Is(err, context.Canceled) {
+					ms.logger.Error("Failed to send alert", zap.Error(err))
+				}
 			}
 		}(notifier)
 	}
@@ -1447,10 +1501,11 @@ func initializeSSELogger(config MonitoringConfig) (*zap.Logger, error) {
 }
 
 func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetrics {
-	namespace := config.Metrics.Prometheus.Namespace
-	subsystem := config.Metrics.Prometheus.Subsystem
+	sseMetricsOnce.Do(func() {
+		namespace := config.Metrics.Prometheus.Namespace
+		subsystem := config.Metrics.Prometheus.Subsystem
 
-	return &SSEPrometheusMetrics{
+		ssePromMetrics = &SSEPrometheusMetrics{
 		// Connection metrics
 		ConnectionsTotal: promauto.NewCounterVec(
 			prometheus.CounterOpts{
@@ -1865,7 +1920,9 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"stream"},
 		),
-	}
+		}
+	})
+	return ssePromMetrics
 }
 
 func categorizeSSEError(err error) string {

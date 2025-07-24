@@ -151,17 +151,26 @@ func TestHistory(t *testing.T) {
 			}
 		}
 
-		userMessages := h.GetByRole(RoleUser)
+		userMessages, err := h.GetByRole(RoleUser)
+		if err != nil {
+			t.Errorf("Failed to get user messages: %v", err)
+		}
 		if len(userMessages) != 2 {
 			t.Errorf("Expected 2 user messages, got %d", len(userMessages))
 		}
 
-		assistantMessages := h.GetByRole(RoleAssistant)
+		assistantMessages, err := h.GetByRole(RoleAssistant)
+		if err != nil {
+			t.Errorf("Failed to get assistant messages: %v", err)
+		}
 		if len(assistantMessages) != 2 {
 			t.Errorf("Expected 2 assistant messages, got %d", len(assistantMessages))
 		}
 
-		systemMessages := h.GetByRole(RoleSystem)
+		systemMessages, err := h.GetByRole(RoleSystem)
+		if err != nil {
+			t.Errorf("Failed to get system messages: %v", err)
+		}
 		if len(systemMessages) != 1 {
 			t.Errorf("Expected 1 system message, got %d", len(systemMessages))
 		}
@@ -192,7 +201,10 @@ func TestHistory(t *testing.T) {
 		}
 
 		// Get messages after cutoff
-		recent := h.GetAfter(cutoff)
+		recent, err := h.GetAfter(cutoff)
+		if err != nil {
+			t.Errorf("Failed to get messages after cutoff: %v", err)
+		}
 		if len(recent) != 2 {
 			t.Errorf("Expected 2 recent messages, got %d", len(recent))
 		}
@@ -344,25 +356,27 @@ func TestHistory(t *testing.T) {
 		}
 
 		// Search for "weather"
-		results := h.Search(SearchOptions{
-			Query: "weather",
-		})
+		results, err := h.Search("weather")
+		if err != nil {
+			t.Errorf("Failed to search for 'weather': %v", err)
+		}
 
 		if len(results) != 4 {
 			t.Errorf("Expected 4 messages containing 'weather', got %d", len(results))
 		}
 
 		// Search by role
-		userResults := h.Search(SearchOptions{
-			Role: RoleUser,
-		})
+		userResults, err := h.GetByRole(RoleUser)
+		if err != nil {
+			t.Errorf("Failed to get user messages: %v", err)
+		}
 
 		if len(userResults) != 2 {
 			t.Errorf("Expected 2 user messages, got %d", len(userResults))
 		}
 
 		// Search with query and role
-		weatherUserResults := h.Search(SearchOptions{
+		weatherUserResults := h.SearchWithOptions(SearchOptions{
 			Query: "weather",
 			Role:  RoleUser,
 		})
@@ -372,7 +386,7 @@ func TestHistory(t *testing.T) {
 		}
 
 		// Search with max results
-		limitedResults := h.Search(SearchOptions{
+		limitedResults := h.SearchWithOptions(SearchOptions{
 			Query:      "weather",
 			MaxResults: 2,
 		})

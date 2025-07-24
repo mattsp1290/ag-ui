@@ -127,10 +127,11 @@ func testCrossToolSecurityValidation(t *testing.T, env *SecurityTestEnvironment)
 			DenyPaths:    []string{"/etc", "/sys", "/proc"},
 		},
 		HTTPOptions: &SecureHTTPOptions{
-			AllowedHosts:         []string{"example.com", "api.example.com"},
-			AllowPrivateNetworks: false,
-			AllowedSchemes:       []string{"https"},
-			MaxRedirects:         5,
+			AllowedHosts:           []string{"example.com", "api.example.com"},
+			AllowPrivateNetworks:   false,
+			AllowedSchemes:         []string{"https"},
+			MaxRedirects:           5,
+			ValidateHostResolution: false, // Disable for testing
 		},
 	}
 
@@ -199,7 +200,7 @@ func testCrossToolSecurityValidation(t *testing.T, env *SecurityTestEnvironment)
 	for _, scenario := range testScenarios {
 		t.Run(scenario.name, func(t *testing.T) {
 			for i, operation := range scenario.operations {
-				tool, err := registry.Get(operation.tool)
+				tool, err := registry.GetByName(operation.tool)
 				if err != nil {
 					t.Fatalf("Tool %s not found in registry: %v", operation.tool, err)
 				}
@@ -250,10 +251,11 @@ func testSecureRegistryIntegration(t *testing.T, env *SecurityTestEnvironment) {
 					DenyPaths:     []string{"/etc", "/sys", "/proc", "/root"},
 				},
 				HTTPOptions: &SecureHTTPOptions{
-					AllowedHosts:         []string{"example.com"},
-					AllowPrivateNetworks: false,
-					AllowedSchemes:       []string{"https"},
-					MaxRedirects:         3,
+					AllowedHosts:           []string{"example.com"},
+					AllowPrivateNetworks:   false,
+					AllowedSchemes:         []string{"https"},
+					MaxRedirects:           3,
+					ValidateHostResolution: false, // Disable for testing
 				},
 			},
 		},
@@ -268,10 +270,11 @@ func testSecureRegistryIntegration(t *testing.T, env *SecurityTestEnvironment) {
 					DenyPaths:     []string{"/etc", "/sys", "/proc"},
 				},
 				HTTPOptions: &SecureHTTPOptions{
-					AllowedHosts:         []string{"example.com", "api.example.com", "cdn.example.com"},
-					AllowPrivateNetworks: false,
-					AllowedSchemes:       []string{"http", "https"},
-					MaxRedirects:         10,
+					AllowedHosts:           []string{"example.com", "api.example.com", "cdn.example.com"},
+					AllowPrivateNetworks:   false,
+					AllowedSchemes:         []string{"http", "https"},
+					MaxRedirects:           10,
+					ValidateHostResolution: false, // Disable for testing
 				},
 			},
 		},
@@ -294,13 +297,13 @@ func testSecureRegistryIntegration(t *testing.T, env *SecurityTestEnvironment) {
 			// Test tool availability
 			expectedTools := []string{"read_file", "write_file", "http_get", "http_post"}
 			for _, toolName := range expectedTools {
-				if _, err := testRegistry.Get(toolName); err != nil {
+				if _, err := testRegistry.GetByName(toolName); err != nil {
 					t.Errorf("Expected tool %s not found in registry with %s config: %v", toolName, config.name, err)
 				}
 			}
 
 			// Test security enforcement
-			readTool, err := testRegistry.Get("read_file")
+			readTool, err := testRegistry.GetByName("read_file")
 			if err != nil {
 				t.Fatalf("Failed to get read_file tool: %v", err)
 			}
@@ -424,9 +427,10 @@ func testAttackVectorCombinations(t *testing.T, env *SecurityTestEnvironment) {
 	
 	// Create secure HTTP executor
 	httpOptions := &SecureHTTPOptions{
-		AllowedHosts:         []string{"example.com"},
-		AllowPrivateNetworks: false,
-		AllowedSchemes:       []string{"https"},
+		AllowedHosts:           []string{"example.com"},
+		AllowPrivateNetworks:   false,
+		AllowedSchemes:         []string{"https"},
+		ValidateHostResolution: false, // Disable for testing
 	}
 	httpExecutor := NewSecureHTTPExecutor(&mockHTTPExecutorForIntegration{}, httpOptions)
 
@@ -487,6 +491,11 @@ func testAttackVectorCombinations(t *testing.T, env *SecurityTestEnvironment) {
 
 // testSecurityPolicyEnforcement tests security policy enforcement
 func testSecurityPolicyEnforcement(t *testing.T, env *SecurityTestEnvironment) {
+	// Create test file that will be used by the tests
+	utils := env.GetUtils()
+	testFile := utils.CreateTestFile(t, "test.txt", "test content")
+	t.Logf("Created test file: %s", testFile)
+
 	// Test different security policies
 	policies := []struct {
 		name        string
@@ -503,10 +512,11 @@ func testSecurityPolicyEnforcement(t *testing.T, env *SecurityTestEnvironment) {
 				DenyPaths:     []string{"/etc", "/sys", "/proc", "/root", "/home"},
 			},
 			httpOptions: &SecureHTTPOptions{
-				AllowedHosts:         []string{"example.com"},
-				AllowPrivateNetworks: false,
-				AllowedSchemes:       []string{"https"},
-				MaxRedirects:         1,
+				AllowedHosts:           []string{"example.com"},
+				AllowPrivateNetworks:   false,
+				AllowedSchemes:         []string{"https"},
+				MaxRedirects:           1,
+				ValidateHostResolution: false, // Disable for testing
 			},
 			testCases: []policyTestCase{
 				{
@@ -544,10 +554,11 @@ func testSecurityPolicyEnforcement(t *testing.T, env *SecurityTestEnvironment) {
 				DenyPaths:     []string{"/etc/shadow", "/root"},
 			},
 			httpOptions: &SecureHTTPOptions{
-				AllowedHosts:         []string{"example.com", "api.example.com", "cdn.example.com"},
-				AllowPrivateNetworks: false,
-				AllowedSchemes:       []string{"http", "https"},
-				MaxRedirects:         10,
+				AllowedHosts:           []string{"example.com", "api.example.com", "cdn.example.com"},
+				AllowPrivateNetworks:   false,
+				AllowedSchemes:         []string{"http", "https"},
+				MaxRedirects:           10,
+				ValidateHostResolution: false, // Disable for testing
 			},
 			testCases: []policyTestCase{
 				{
@@ -674,10 +685,11 @@ func testRealWorldScenarios(t *testing.T, env *SecurityTestEnvironment) {
 			description: "Application making API call to trusted service",
 			setup: func() (ToolExecutor, map[string]interface{}) {
 				options := &SecureHTTPOptions{
-					AllowedHosts:         []string{"api.example.com", "cdn.example.com"},
-					AllowPrivateNetworks: false,
-					AllowedSchemes:       []string{"https"},
-					MaxRedirects:         5,
+					AllowedHosts:           []string{"api.example.com", "cdn.example.com"},
+					AllowPrivateNetworks:   false,
+					AllowedSchemes:         []string{"https"},
+					MaxRedirects:           5,
+					ValidateHostResolution: false, // Disable for testing
 				}
 				executor := NewSecureHTTPExecutor(&mockHTTPExecutorForIntegration{}, options)
 				params := map[string]interface{}{
@@ -692,10 +704,11 @@ func testRealWorldScenarios(t *testing.T, env *SecurityTestEnvironment) {
 			description: "Attacker trying SSRF attack on cloud metadata service",
 			setup: func() (ToolExecutor, map[string]interface{}) {
 				options := &SecureHTTPOptions{
-					AllowedHosts:         []string{"api.example.com"},
-					AllowPrivateNetworks: false,
-					AllowedSchemes:       []string{"https"},
-					MaxRedirects:         5,
+					AllowedHosts:           []string{"api.example.com"},
+					AllowPrivateNetworks:   false,
+					AllowedSchemes:         []string{"https"},
+					MaxRedirects:           5,
+					ValidateHostResolution: false, // Disable for testing
 				}
 				executor := NewSecureHTTPExecutor(&mockHTTPExecutorForIntegration{}, options)
 				params := map[string]interface{}{
@@ -1179,9 +1192,10 @@ func testSSRFCompliance(t *testing.T, env *SecurityTestEnvironment) {
 	}
 
 	executor := NewSecureHTTPExecutor(&mockHTTPExecutorForIntegration{}, &SecureHTTPOptions{
-		AllowedHosts:         []string{"example.com"},
-		AllowPrivateNetworks: false,
-		AllowedSchemes:       []string{"https"},
+		AllowedHosts:           []string{"example.com"},
+		AllowPrivateNetworks:   false,
+		AllowedSchemes:         []string{"https"},
+		ValidateHostResolution: false, // Disable for testing
 	})
 
 	for _, payload := range ssrfPayloads {

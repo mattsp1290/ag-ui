@@ -146,7 +146,20 @@ func (mm *MemoryManager) Start() {
 // Stop stops memory monitoring
 func (mm *MemoryManager) Stop() {
 	mm.cancel()
-	mm.wg.Wait()
+	
+	// Wait for monitoring goroutines to finish with timeout protection
+	done := make(chan struct{})
+	go func() {
+		mm.wg.Wait()
+		close(done)
+	}()
+	
+	select {
+	case <-done:
+		// All monitoring goroutines finished
+	case <-time.After(3 * time.Second):
+		// Timeout waiting for monitoring goroutines - proceed anyway
+	}
 }
 
 // OnMemoryPressure registers a callback for memory pressure events

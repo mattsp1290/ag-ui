@@ -1,3 +1,6 @@
+//go:build examples
+// +build examples
+
 package main
 
 import (
@@ -1343,8 +1346,11 @@ func max(a, b float64) float64 {
 }
 
 func main() {
+<<<<<<<< HEAD:go-sdk/examples/tools/performance/batch-processor/main.go
+========
 	_ = CreateBatchProcessorTool()
 	
+>>>>>>>> main:go-sdk/examples/tools/performance/cmd/batch_processor/main.go
 	// Example usage
 	params := map[string]interface{}{
 		"data_size":         10000,

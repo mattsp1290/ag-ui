@@ -307,12 +307,17 @@ func (l *JSONAuditLogger) Close() error {
 
 	// Flush any buffered data
 	if flusher, ok := l.writer.(interface{ Flush() error }); ok {
-		return flusher.Flush()
+		if err := flusher.Flush(); err != nil {
+			return err
+		}
 	}
 
-	// Close writer if it's closeable
+	// Close writer if it's closeable, but not if it's stdout or stderr
 	if closer, ok := l.writer.(io.Closer); ok {
-		return closer.Close()
+		// Don't close stdout or stderr
+		if l.writer != os.Stdout && l.writer != os.Stderr && l.writer != os.Stdin {
+			return closer.Close()
+		}
 	}
 
 	return nil
@@ -397,15 +402,24 @@ type AuditManager struct {
 	// Configuration
 	logStateValues bool // Whether to log old/new state values
 	maxValueSize   int  // Maximum size of values to log
+	
+	// Lifecycle management
+	wg        sync.WaitGroup
+	ctx       context.Context
+	cancel    context.CancelFunc
 }
 
 // NewAuditManager creates a new audit manager
 func NewAuditManager(logger AuditLogger) *AuditManager {
+	ctx, cancel := context.WithCancel(context.Background())
+	
 	return &AuditManager{
 		logger:         logger,
 		enabled:        true,
 		logStateValues: true,
 		maxValueSize:   1024, // 1KB default
+		ctx:            ctx,
+		cancel:         cancel,
 	}
 }
 
@@ -443,8 +457,22 @@ func (am *AuditManager) LogStateUpdate(ctx context.Context, contextID, stateID, 
 	am.enrichFromContext(ctx, log)
 
 	// Log asynchronously to avoid blocking
+	am.wg.Add(1)
 	go func() {
-		if err := am.logger.Log(context.Background(), log); err != nil {
+		defer am.wg.Done()
+		
+		// Check if context is cancelled
+		select {
+		case <-am.ctx.Done():
+			return
+		default:
+		}
+		
+		// Use a timeout context for the log operation
+		logCtx, cancel := context.WithTimeout(am.ctx, 5*time.Second)
+		defer cancel()
+		
+		if err := am.logger.Log(logCtx, log); err != nil {
 			// In production, this would go to a fallback logger
 			fmt.Fprintf(os.Stderr, "Failed to write audit log: %v\n", err)
 		}
@@ -496,8 +524,22 @@ func (am *AuditManager) LogError(ctx context.Context, action AuditAction, err er
 	am.enrichFromContext(ctx, log)
 
 	// Error logs are written asynchronously
+	am.wg.Add(1)
 	go func() {
-		if err := am.logger.Log(context.Background(), log); err != nil {
+		defer am.wg.Done()
+		
+		// Check if context is cancelled
+		select {
+		case <-am.ctx.Done():
+			return
+		default:
+		}
+		
+		// Use a timeout context for the log operation
+		logCtx, cancel := context.WithTimeout(am.ctx, 5*time.Second)
+		defer cancel()
+		
+		if err := am.logger.Log(logCtx, log); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to write error audit log: %v\n", err)
 		}
 	}()
@@ -563,6 +605,17 @@ func (am *AuditManager) enrichFromContext(ctx context.Context, log *AuditLog) {
 	if authMethod, ok := ctx.Value("auth_method").(string); ok {
 		log.AuthMethod = authMethod
 	}
+}
+
+// Close gracefully shuts down the AuditManager
+func (am *AuditManager) Close() error {
+	// Cancel context to signal all goroutines to stop
+	am.cancel()
+	
+	// Wait for all goroutines to complete
+	am.wg.Wait()
+	
+	return nil
 }
 
 // generateAuditID generates a unique ID for an audit log entry

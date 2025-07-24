@@ -291,7 +291,6 @@ func TestWebhookAlertNotifier(t *testing.T) {
 
 	// Use the test helper to create a notifier that bypasses URL validation
 	notifier := createTestWebhookNotifier(server.URL, 10*time.Second)
-
 	// Set custom headers
 	notifier.SetHeader("X-Custom-Header", "test-value")
 	notifier.SetHeader("Authorization", "Bearer token123")
@@ -356,16 +355,19 @@ func TestWebhookAlertNotifierErrors(t *testing.T) {
 		}))
 		defer server.Close()
 
+		notifier, err := NewWebhookAlertNotifierForTesting(server.URL, 10*time.Second)
+		if err != nil {
+			t.Fatalf("Failed to create webhook notifier: %v", err)
+		}
 		// Use the test helper to create a notifier that bypasses URL validation
-		notifier := createTestWebhookNotifier(server.URL, 10*time.Second)
-
+		notifier = createTestWebhookNotifier(server.URL, 10*time.Second)
 		alert := Alert{
 			Level:     AlertLevelError,
 			Title:     "Test Alert",
 			Timestamp: time.Now(),
 		}
 
-		err := notifier.SendAlert(context.Background(), alert)
+		err = notifier.SendAlert(context.Background(), alert)
 		if err == nil {
 			t.Error("Expected error for server error response")
 		}
@@ -381,16 +383,19 @@ func TestWebhookAlertNotifierErrors(t *testing.T) {
 		}))
 		defer server.Close()
 
+		notifier, err := NewWebhookAlertNotifierForTesting(server.URL, 10*time.Millisecond)
+		if err != nil {
+			t.Fatalf("Failed to create webhook notifier: %v", err)
+		}
 		// Use the test helper to create a notifier that bypasses URL validation
-		notifier := createTestWebhookNotifier(server.URL, 10*time.Millisecond)
-
+		notifier = createTestWebhookNotifier(server.URL, 10*time.Millisecond)
 		alert := Alert{
 			Level:     AlertLevelError,
 			Title:     "Test Alert",
 			Timestamp: time.Now(),
 		}
 
-		err := notifier.SendAlert(context.Background(), alert)
+		err = notifier.SendAlert(context.Background(), alert)
 		if err == nil {
 			t.Error("Expected timeout error")
 		}
@@ -403,9 +408,12 @@ func TestWebhookAlertNotifierErrors(t *testing.T) {
 		}))
 		defer server.Close()
 
+		notifier, err := NewWebhookAlertNotifierForTesting(server.URL, 10*time.Second)
+		if err != nil {
+			t.Fatalf("Failed to create webhook notifier: %v", err)
+		}
 		// Use the test helper to create a notifier that bypasses URL validation
-		notifier := createTestWebhookNotifier(server.URL, 10*time.Second)
-
+		notifier = createTestWebhookNotifier(server.URL, 10*time.Second)
 		alert := Alert{
 			Level:     AlertLevelError,
 			Title:     "Test Alert",
@@ -415,7 +423,7 @@ func TestWebhookAlertNotifierErrors(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 
-		err := notifier.SendAlert(ctx, alert)
+		err = notifier.SendAlert(ctx, alert)
 		if err == nil {
 			t.Error("Expected context cancellation error")
 		}
@@ -436,7 +444,6 @@ func TestWebhookTLSConfiguration(t *testing.T) {
 
 	// Use the test helper to create a notifier that bypasses URL validation
 	notifier := createTestWebhookNotifier(server.URL, 10*time.Second)
-
 	// Verify TLS configuration
 	transport := notifier.client.Transport.(*http.Transport)
 	if transport.TLSClientConfig.MinVersion != tls.VersionTLS12 {

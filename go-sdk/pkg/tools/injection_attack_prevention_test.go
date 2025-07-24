@@ -1730,11 +1730,13 @@ func TestInjectionAttackPreventionIntegration(t *testing.T) {
 	options := &BuiltinToolsOptions{
 		SecureMode: true,
 		FileOptions: &SecureFileOptions{
-			AllowedPaths: []string{tempDir},
-			MaxFileSize:  1024 * 1024,
+			AllowedPaths:  []string{tempDir},
+			MaxFileSize:   1024 * 1024,
+			AllowSymlinks: true, // Allow symlinks for testing since temp dirs may contain them
 		},
 		HTTPOptions: &SecureHTTPOptions{
-			AllowedHosts: []string{"example.com"},
+			AllowedHosts:   []string{"example.com"},
+			AllowedSchemes: []string{"http", "https"},
 		},
 	}
 

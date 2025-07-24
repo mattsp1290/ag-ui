@@ -223,77 +223,48 @@ func (m *Manager) Stop(ctx context.Context) error {
 	m.mu.Unlock()
 
 	// Wait for receiveEvents goroutine to finish before acquiring lock for cleanup
-	m.receiveWg.Wait()
+	// Use a timeout to prevent hanging
+	receiveWgDone := make(chan struct{})
+	go func() {
+		m.receiveWg.Wait()
+		close(receiveWgDone)
+	}()
+	
+	// Use context timeout if available, otherwise use a reasonable default
+	waitTimeout := 5 * time.Second
+	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
+		if timeLeft := time.Until(deadline); timeLeft < waitTimeout && timeLeft > 0 {
+			waitTimeout = timeLeft
+		}
+	}
+	
+	select {
+	case <-receiveWgDone:
+		m.logger.Debug("receiveEvents goroutines finished successfully", 
+			String("operation", "stop"))
+	case <-time.After(waitTimeout):
+		m.logger.Warn("Timeout waiting for receiveEvents goroutines to finish, proceeding with cleanup", 
+			String("operation", "stop"))
+	}
 
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	// Drain event channels with timeout
-	drainCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	// Drain event channels with timeout - use shorter timeout and non-blocking approach
+	drainCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
 	
 	m.logger.Debug("Draining event channels", 
 		String("operation", "stop"),
-		Duration("timeout", 2*time.Second))
+		Duration("timeout", 1*time.Second))
 
-	// Create a wait group to track draining completion
-	var wg sync.WaitGroup
-	
-	// Drain eventChan
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		eventCount := 0
-		for {
-			select {
-			case <-m.eventChan:
-				eventCount++
-				// Discard event but continue draining
-			case <-drainCtx.Done():
-				if eventCount > 0 {
-					m.logger.Debug("Drained events from event channel", 
-						String("operation", "stop"),
-						Int("events_drained", eventCount))
-				}
-				return
-			}
-		}
-	}()
-	
-	// Drain errorChan
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		errorCount := 0
-		for {
-			select {
-			case <-m.errorChan:
-				errorCount++
-				// Discard error but continue draining
-			case <-drainCtx.Done():
-				if errorCount > 0 {
-					m.logger.Debug("Drained errors from error channel", 
-						String("operation", "stop"),
-						Int("errors_drained", errorCount))
-				}
-				return
-			}
-		}
-	}()
-	
-	// Wait for draining to complete or timeout
-	doneChan := make(chan struct{})
-	go func() {
-		wg.Wait()
-		close(doneChan)
-	}()
-	
-	select {
-	case <-doneChan:
+	// Use a simpler non-blocking drain approach to prevent deadlocks
+	drained := m.drainChannelsNonBlocking(drainCtx)
+	if drained {
 		m.logger.Debug("Event channels drained successfully", 
 			String("operation", "stop"))
-	case <-drainCtx.Done():
-		m.logger.Warn("Event channel draining timed out", 
+	} else {
+		m.logger.Warn("Event channel draining timed out, proceeding with cleanup", 
 			String("operation", "stop"))
 	}
 
@@ -328,6 +299,47 @@ func (m *Manager) Stop(ctx context.Context) error {
 		String("operation", "stop"))
 	
 	return nil
+}
+
+// drainChannelsNonBlocking drains channels without risking deadlock
+func (m *Manager) drainChannelsNonBlocking(ctx context.Context) bool {
+	eventCount := 0
+	errorCount := 0
+	
+	// Use a ticker to periodically check for context cancellation
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	
+	drainLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			break drainLoop
+		case <-ticker.C:
+			// Check if context is done
+			if ctx.Err() != nil {
+				break drainLoop
+			}
+		case <-m.eventChan:
+			eventCount++
+			// Non-blocking continue
+		case <-m.errorChan:
+			errorCount++
+			// Non-blocking continue
+		default:
+			// No more items to drain, we're done
+			break drainLoop
+		}
+	}
+	
+	if eventCount > 0 || errorCount > 0 {
+		m.logger.Debug("Channel drain completed",
+			String("operation", "stop"),
+			Int("events_drained", eventCount),
+			Int("errors_drained", errorCount))
+	}
+	
+	return ctx.Err() == nil
 }
 
 // Send sends an event through the active transport

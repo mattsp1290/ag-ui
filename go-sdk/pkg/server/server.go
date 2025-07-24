@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/ag-ui/go-sdk/pkg/core"
@@ -26,19 +27,62 @@ type Config struct {
 	// TODO: Add TLS configuration, CORS settings, middleware options, etc.
 }
 
+// Validate validates the server configuration
+func (c *Config) Validate() error {
+	if c == nil {
+		return fmt.Errorf("server config cannot be nil")
+	}
+	
+	if c.Address == "" {
+		return fmt.Errorf("server address cannot be empty")
+	}
+	
+	// Validate address format - should be in the format ":port" or "host:port"
+	if !strings.HasPrefix(c.Address, ":") && !strings.Contains(c.Address, ":") {
+		return fmt.Errorf("server address must be in format ':port' or 'host:port', got %q", c.Address)
+	}
+	
+	return nil
+}
+
 // New creates a new AG-UI server with the specified configuration.
-func New(config Config) *Server {
+func New(config Config) (*Server, error) {
+	if err := config.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid server configuration: %w", err)
+	}
+	
 	return &Server{
 		config: &config,
 		agents: make(map[string]core.Agent),
-	}
+	}, nil
 }
 
 // RegisterAgent registers an agent with the server under the specified name.
-func (s *Server) RegisterAgent(name string, agent core.Agent) {
+func (s *Server) RegisterAgent(name string, agent core.Agent) error {
+	if s == nil {
+		return fmt.Errorf("server cannot be nil")
+	}
+	if name == "" {
+		return fmt.Errorf("agent name cannot be empty")
+	}
+	if agent == nil {
+		return fmt.Errorf("agent cannot be nil")
+	}
+	
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	
+	if s.agents == nil {
+		s.agents = make(map[string]core.Agent)
+	}
+	
+	// Check for duplicate registration
+	if _, exists := s.agents[name]; exists {
+		return fmt.Errorf("agent with name %q is already registered", name)
+	}
+	
 	s.agents[name] = agent
+	return nil
 }
 
 // UnregisterAgent removes an agent from the server.

@@ -528,7 +528,7 @@ func TestStorageConnection(config *state.StorageConfig) error {
 
 // Fix connection issues
 config := &state.StorageConfig{
-    ConnectionURL: "redis://localhost:6379",
+    ConnectionURL: os.Getenv("REDIS_URL"), // Example: "redis://localhost:6379"
     MaxRetries:    5,
     RetryBackoff:  time.Second,
 }

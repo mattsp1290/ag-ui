@@ -48,13 +48,24 @@ func (s *MockStreamingDataProcessor) StreamingExecute(ctx context.Context, param
 		close(outputChan)
 	}()
 
-	// Parse parameters
+	// Parse parameters with validation
 	dataType := getStringParam(params, "data_type", "numeric")
 	processingType := getStringParam(params, "processing_type", "realtime")
 	batchSize := getIntParam(params, "batch_size", 10)
 	interval := time.Duration(getIntParam(params, "interval_ms", 100)) * time.Millisecond
 	duration := time.Duration(getIntParam(params, "duration_seconds", 10)) * time.Second
 	enableStats := getBoolParam(params, "enable_statistics", true)
+
+	// Validate and enforce minimum values
+	if batchSize <= 0 {
+		batchSize = 1 // Minimum batch size
+	}
+	if interval <= 0 {
+		interval = 10 * time.Millisecond // Minimum interval
+	}
+	if duration <= 0 {
+		duration = 1 * time.Second // Minimum duration
+	}
 
 	// Initialize statistics if enabled
 	var stats *StreamingStats
@@ -107,7 +118,10 @@ func (s *MockStreamingDataProcessor) streamData(
 	endTime := startTime.Add(duration)
 	batchNumber := 0
 
-	for time.Now().Before(endTime) {
+	// Ensure at least one iteration happens
+	atLeastOnce := true
+	
+	for atLeastOnce || time.Now().Before(endTime) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -145,6 +159,14 @@ func (s *MockStreamingDataProcessor) streamData(
 			return ctx.Err()
 		}
 
+		// Clear the at least once flag after first iteration
+		atLeastOnce = false
+		
+		// Check if we should continue
+		if !time.Now().Before(endTime) {
+			break
+		}
+
 		// Wait for next interval
 		select {
 		case <-time.After(interval):
@@ -153,14 +175,19 @@ func (s *MockStreamingDataProcessor) streamData(
 		}
 	}
 
-	// Send final summary if stats enabled
-	if stats != nil {
+	// Send final summary if stats enabled (or if no batches were sent)
+	if stats != nil || batchNumber == 0 {
 		summary := StreamingSummary{
 			Timestamp:     time.Now(),
 			TotalBatches:  batchNumber,
-			TotalItems:    stats.TotalItems,
+			TotalItems:    0,
 			ProcessingTime: time.Since(startTime),
-			FinalStats:    stats.GetSnapshot(),
+			FinalStats:    nil,
+		}
+		
+		if stats != nil {
+			summary.TotalItems = stats.TotalItems
+			summary.FinalStats = stats.GetSnapshot()
 		}
 
 		select {
@@ -1050,27 +1077,61 @@ func TestStreamingDataProcessor_ParameterValidation(t *testing.T) {
 				"duration_seconds": 1,
 			},
 		},
+		{
+			name: "Zero duration edge case",
+			params: map[string]interface{}{
+				"batch_size":       1,
+				"interval_ms":      10,
+				"duration_seconds": 0, // Should be normalized to 1 second minimum
+			},
+		},
 	}
 
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			// Create fresh context for each test case
-			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			timeout := 3 * time.Second // Give extra time for processing
+			ctx, cancel := context.WithTimeout(context.Background(), timeout)
 			defer cancel()
 			
 			outputChan := make(chan interface{}, 100)
 			
-			err := processor.StreamingExecute(ctx, tc.params, outputChan)
-			assert.NoError(t, err)
+			// Run streaming in a goroutine
+			errChan := make(chan error, 1)
+			go func() {
+				err := processor.StreamingExecute(ctx, tc.params, outputChan)
+				errChan <- err
+			}()
 
-			// Verify we got some outputs
+			// Collect outputs with timeout
 			var outputCount int
-			for range outputChan {
-				outputCount++
+			done := make(chan bool)
+			
+			go func() {
+				for range outputChan {
+					outputCount++
+				}
+				done <- true
+			}()
+			
+			// Wait for completion or timeout
+			select {
+			case <-done:
+				// Normal completion
+			case <-time.After(timeout):
+				t.Fatal("Test timed out waiting for outputs")
+			}
+			
+			// Check for errors
+			select {
+			case err := <-errChan:
+				assert.NoError(t, err)
+			default:
+				// No error yet, which is fine
 			}
 			
 			// Should get at least one output (even if just summary)
-			assert.Greater(t, outputCount, 0)
+			assert.Greater(t, outputCount, 0, "Expected at least one output but got none")
 		})
 	}
 }

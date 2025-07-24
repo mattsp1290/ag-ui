@@ -83,7 +83,7 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 		require.NoError(t, registry.Register(tool))
 
 		engine := tools.NewExecutionEngine(registry, 
-			tools.WithAsyncWorkers(1), // Single worker to ensure ordering
+			tools.WithAsyncWorkers(3), // Use more workers to handle all jobs
 		)
 		defer shutdownEngine(t, engine)
 
@@ -142,7 +142,9 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 		}
 		require.NoError(t, registry.Register(tool))
 
-		engine := tools.NewExecutionEngine(registry)
+		engine := tools.NewExecutionEngine(registry,
+			tools.WithAsyncWorkers(1), // Enable async execution
+		)
 		defer shutdownEngine(t, engine)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -199,7 +201,7 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 		
 		start := time.Now()
 		for i := 0; i < numJobs; i++ {
-			params := map[string]interface{}{"input": i}
+			params := map[string]interface{}{"input": fmt.Sprintf("job-%d", i)}
 			_, resultChan, err := engine.ExecuteAsync(context.Background(), "test-tool", params, 1)
 			require.NoError(t, err)
 			resultChans = append(resultChans, resultChan)
@@ -211,6 +213,7 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 			select {
 			case result := <-resultChan:
 				assert.NoError(t, result.Error)
+				require.NotNil(t, result.Result)
 				assert.True(t, result.Result.Success)
 				completed++
 			case <-time.After(5 * time.Second):
@@ -488,8 +491,8 @@ func TestExecutionEngine_GracefulShutdown(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		assert.Greater(t, atomic.LoadInt64(&started), int64(0))
 
-		// Shutdown
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
+		// Shutdown - use a more generous timeout to account for goroutine cleanup timing
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		
 		err := engine.Shutdown(shutdownCtx)

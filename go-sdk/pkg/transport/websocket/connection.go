@@ -2,9 +2,11 @@ package websocket
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"net/url"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,6 +18,7 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/core"
 )
+
 
 // ConnectionState represents the current state of a WebSocket connection
 type ConnectionState int32
@@ -111,6 +114,10 @@ type ConnectionConfig struct {
 
 	// Logger is the logger instance
 	Logger *zap.Logger
+
+	// TLSClientConfig is the TLS configuration for secure WebSocket connections
+	// If nil, default TLS settings are used
+	TLSClientConfig *tls.Config
 }
 
 // DefaultConnectionConfig returns a default configuration for WebSocket connections
@@ -167,6 +174,11 @@ type Connection struct {
 	cancel   context.CancelFunc
 	stopOnce sync.Once
 
+	// Cleanup coordination
+	cleanupOnce    sync.Once
+	channelsClosed int32      // atomic flag to indicate all channels are closed
+	channelMutex   sync.Mutex // mutex to synchronize channel operations
+
 	// Metrics
 	metrics *ConnectionMetrics
 
@@ -196,6 +208,11 @@ type ConnectionMetrics struct {
 
 // NewConnection creates a new managed WebSocket connection
 func NewConnection(config *ConnectionConfig) (*Connection, error) {
+	return NewConnectionWithContext(context.Background(), config)
+}
+
+// NewConnectionWithContext creates a new managed WebSocket connection with a parent context
+func NewConnectionWithContext(parentCtx context.Context, config *ConnectionConfig) (*Connection, error) {
 	if config == nil {
 		config = DefaultConnectionConfig()
 	}
@@ -231,7 +248,7 @@ func NewConnection(config *ConnectionConfig) (*Connection, error) {
 		return nil, fmt.Errorf("failed to create write backlog cache: %w", err)
 	}
 
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(parentCtx)
 
 	conn := &Connection{
 		config:       config,
@@ -240,7 +257,7 @@ func NewConnection(config *ConnectionConfig) (*Connection, error) {
 		reconnectCh:  make(chan struct{}, 1),
 		closeCh:      make(chan struct{}),
 		errorCh:      make(chan error, 10),
-		messageCh:    make(chan []byte, 100),
+		messageCh:    make(chan []byte, 1000), // Increased buffer for high throughput
 		writeBacklog: writeBacklog,
 		ctx:          ctx,
 		cancel:       cancel,
@@ -269,6 +286,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 		ReadBufferSize:    c.config.ReadBufferSize,
 		WriteBufferSize:   c.config.WriteBufferSize,
 		EnableCompression: c.config.EnableCompression,
+		TLSClientConfig:   c.config.TLSClientConfig,
 	}
 
 	// Create a context with dial timeout
@@ -296,6 +314,13 @@ func (c *Connection) Connect(ctx context.Context) error {
 	conn.SetPongHandler(func(string) error {
 		conn.SetReadDeadline(time.Now().Add(c.config.PongWait))
 		c.heartbeat.OnPong()
+		
+		// If we're in reconnecting state and received a pong, we can recover
+		if c.State() == StateReconnecting && c.heartbeat.IsHealthy() {
+			c.config.Logger.Info("Connection recovered from reconnecting state")
+			c.setState(StateConnected)
+		}
+		
 		return nil
 	})
 
@@ -363,7 +388,8 @@ func (c *Connection) disconnect(err error) error {
 	// Close the WebSocket connection
 	c.connMutex.Lock()
 	if c.conn != nil {
-		if err := c.conn.Close(); err != nil {
+		// Force close to interrupt any blocked I/O operations
+		if err := forceCloseConnection(c.conn); err != nil {
 			c.config.Logger.Warn("Error closing WebSocket connection", zap.Error(err))
 		}
 		c.conn = nil
@@ -394,26 +420,84 @@ func (c *Connection) Close() error {
 	c.stopOnce.Do(func() {
 		c.config.Logger.Info("Closing WebSocket connection permanently")
 
-		// Stop heartbeat first
-		c.heartbeat.Stop()
+		// Set state to closing first to signal shutdown
+		c.setState(StateClosing)
 
-		c.disconnect(nil)
-		c.setState(StateClosed)
+		// Mark channels as closed to prevent new operations early
+		atomic.StoreInt32(&c.channelsClosed, 1)
 
-		// Cancel context to stop all goroutines
+		// Cancel context to signal all goroutines to stop immediately
+		c.config.Logger.Debug("Cancelling connection context")
 		c.cancel()
 
-		// Close channels
-		close(c.closeCh)
-		close(c.reconnectCh)
+		// Close WebSocket connection to interrupt any blocked I/O operations
+		c.connMutex.Lock()
+		if c.conn != nil {
+			if err := forceCloseConnection(c.conn); err != nil {
+				c.config.Logger.Debug("Error closing connection", zap.Error(err))
+			}
+			c.conn = nil
+		}
+		c.connMutex.Unlock()
 
-		// Wait for goroutines to finish
-		c.wg.Wait()
+		// Stop heartbeat manager AFTER context cancellation to ensure clean shutdown
+		c.config.Logger.Debug("Stopping heartbeat manager")
+		c.heartbeat.Stop()
 
+		// Close all channels in coordinated manner
+		c.cleanupOnce.Do(func() {
+			// Use mutex to synchronize channel closing with any ongoing channel operations
+			c.channelMutex.Lock()
+			defer c.channelMutex.Unlock()
+			
+			// Close channels - order matters for proper cleanup
+			safeCloseChannel(c.reconnectCh, "reconnect")  // Stop reconnect attempts first
+			safeCloseChannel(c.messageCh, "message")      // Stop message sending
+			safeCloseChannel(c.closeCh, "close")          // Signal final closure
+		})
+
+		// Wait for all goroutines to finish with timeout
+		c.config.Logger.Debug("Waiting for goroutines to finish")
+		done := make(chan struct{})
+		go func() {
+			c.wg.Wait()
+			close(done)
+		}()
+
+		// Wait with timeout to prevent hanging
+		select {
+		case <-done:
+			c.config.Logger.Debug("All connection goroutines stopped")
+		case <-time.After(2 * time.Second):
+			c.config.Logger.Warn("Timeout waiting for goroutines to stop")
+			// Log current goroutine count for debugging
+			c.config.Logger.Warn("Current goroutine count", zap.Int("count", runtime.NumGoroutine()))
+		}
+
+		// Set final state
+		c.setState(StateClosed)
 		c.config.Logger.Info("WebSocket connection closed")
 	})
 
 	return nil
+}
+
+// safeCloseChannel safely closes a channel with recovery
+func safeCloseChannel(ch interface{}, name string) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Channel was already closed, which is fine
+		}
+	}()
+	
+	switch c := ch.(type) {
+	case chan struct{}:
+		close(c)
+	case chan []byte:
+		close(c)
+	case chan error:
+		close(c)
+	}
 }
 
 // SendMessage sends a message through the WebSocket connection
@@ -427,6 +511,11 @@ func (c *Connection) SendMessage(ctx context.Context, message []byte) error {
 		if err := c.config.RateLimiter.Wait(ctx); err != nil {
 			return fmt.Errorf("rate limit exceeded: %w", err)
 		}
+	}
+
+	// Check if channels are closed before attempting to send
+	if atomic.LoadInt32(&c.channelsClosed) != 0 {
+		return errors.New("connection is closed")
 	}
 
 	// Send message through message channel
@@ -593,39 +682,110 @@ func (c *Connection) getHeaders() map[string][]string {
 // readPump handles reading messages from the WebSocket connection
 func (c *Connection) readPump() {
 	defer c.wg.Done()
+	
+	c.config.Logger.Debug("Starting read pump")
 
 	for {
+		// First check context before any blocking operations
 		select {
 		case <-c.ctx.Done():
+			c.config.Logger.Debug("Read pump stopped due to context cancellation")
 			return
 		default:
+			// Check state before proceeding
+			if c.State() == StateClosing || c.State() == StateClosed {
+				c.config.Logger.Debug("Read pump exiting - connection closing/closed")
+				return
+			}
+
 			c.connMutex.RLock()
 			conn := c.conn
 			c.connMutex.RUnlock()
 
 			if conn == nil {
-				// Use context-aware sleep to respect cancellation
+				// Check context before sleeping to be responsive to cancellation
 				select {
-				case <-time.After(100 * time.Millisecond):
 				case <-c.ctx.Done():
+					c.config.Logger.Debug("Read pump stopped while waiting for connection")
 					return
+				case <-time.After(50 * time.Millisecond): // Reduced sleep time for faster shutdown
+					continue
 				}
-				continue
+			}
+			
+			// Check if we're still connected before attempting to read
+			// Allow reading in reconnecting state to detect recovery
+			state := c.State()
+			if state != StateConnected && state != StateReconnecting {
+				c.config.Logger.Debug("Read pump exiting - not connected or reconnecting")
+				return
 			}
 
-			// Set read deadline
-			conn.SetReadDeadline(time.Now().Add(c.config.ReadTimeout))
+			// Set a short read deadline to periodically check context
+			// This ensures the goroutine can exit promptly when context is cancelled
+			readTimeout := 500 * time.Millisecond // Reduced for faster shutdown response
+			if c.config.ReadTimeout < readTimeout {
+				readTimeout = c.config.ReadTimeout
+			}
+			
+			// Also respect context deadline if it's sooner
+			readDeadline := time.Now().Add(readTimeout)
+			if deadline, ok := c.ctx.Deadline(); ok && deadline.Before(readDeadline) {
+				readDeadline = deadline
+			}
+			conn.SetReadDeadline(readDeadline)
 
-			// Read message
-			_, message, err := conn.ReadMessage()
+			// Read message with panic recovery
+			var message []byte
+			var err error
+			
+			// Protect against panic from reading closed connection
+			func() {
+				defer func() {
+					if r := recover(); r != nil {
+						c.config.Logger.Debug("Recovered from read panic", zap.Any("panic", r))
+						err = websocket.ErrCloseSent
+					}
+				}()
+				_, message, err = conn.ReadMessage()
+			}()
 			if err != nil {
-				c.setError(fmt.Errorf("failed to read message: %w", err))
+				// Check if error is due to context cancellation
+				select {
+				case <-c.ctx.Done():
+					c.config.Logger.Debug("Read pump stopped during message read due to context cancellation")
+					return
+				default:
+					// Check if it's a timeout error (expected for periodic context checks)
+					if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
+						// Timeout is expected, but check if we should still continue
+						if c.State() == StateConnected {
+							continue
+						}
+						return
+					}
+					
+					// Check for normal close
+					if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+						c.config.Logger.Debug("Connection closed normally")
+						return
+					}
+					
+					c.setError(fmt.Errorf("failed to read message: %w", err))
 
-				// Check if we should reconnect
-				if c.State() == StateConnected {
-					c.triggerReconnect()
+					// Check context before attempting reconnect
+					select {
+					case <-c.ctx.Done():
+						c.config.Logger.Debug("Read pump stopped due to context cancellation during error handling")
+						return
+					default:
+						// Check if we should reconnect
+						if c.State() == StateConnected {
+							c.triggerReconnect()
+						}
+						return
+					}
 				}
-				return
 			}
 
 			// Update metrics
@@ -649,32 +809,64 @@ func (c *Connection) readPump() {
 // writePump handles writing messages to the WebSocket connection
 func (c *Connection) writePump() {
 	defer c.wg.Done()
+	
+	c.config.Logger.Debug("Starting write pump")
 
+	// Create a timeout ticker to ensure we can exit even if contexts don't work
+	timeout := time.NewTicker(500 * time.Millisecond)
+	defer timeout.Stop()
+	
 	for {
+		// Use a timeout-based select to ensure we can always exit
 		select {
 		case <-c.ctx.Done():
+			c.config.Logger.Debug("Write pump stopped due to context cancellation")
+			c.drainMessageChannel()
 			return
-		case message := <-c.messageCh:
-			c.connMutex.RLock()
-			conn := c.conn
-			c.connMutex.RUnlock()
-
-			if conn == nil {
-				continue
+		case <-timeout.C:
+			// Periodic check for exit conditions
+			if c.State() == StateClosing || c.State() == StateClosed {
+				c.config.Logger.Debug("Write pump exiting during timeout check - connection closing/closed")
+				return
+			}
+			// Continue to main select
+		case message, ok := <-c.messageCh:
+			// Check if message channel was closed
+			if !ok {
+				c.config.Logger.Debug("Message channel closed, stopping write pump")
+				return
 			}
 
-			// Set write deadline
-			conn.SetWriteDeadline(time.Now().Add(c.config.WriteTimeout))
-
-			// Write message
-			if err := conn.WriteMessage(websocket.TextMessage, message); err != nil {
-				c.setError(fmt.Errorf("failed to write message: %w", err))
-
-				// Check if we should reconnect
-				if c.State() == StateConnected {
-					c.triggerReconnect()
-				}
+			// Check context before processing message
+			select {
+			case <-c.ctx.Done():
+				c.config.Logger.Debug("Context cancelled while processing message in write pump")
 				return
+			default:
+			}
+
+			// Check if we're still in a valid state to write
+			if c.State() == StateClosing || c.State() == StateClosed {
+				c.config.Logger.Debug("Write pump exiting - connection closing/closed")
+				return
+			}
+
+			// Process the message with timeout protection
+			if err := c.writeMessageWithTimeout(message); err != nil {
+				// Check if error is due to context cancellation
+				select {
+				case <-c.ctx.Done():
+					c.config.Logger.Debug("Write pump stopped during message write due to context cancellation")
+					return
+				default:
+					c.setError(fmt.Errorf("failed to write message: %w", err))
+					
+					// Check if we should reconnect
+					if c.State() == StateConnected {
+						c.triggerReconnect()
+					}
+					return
+				}
 			}
 
 			// Update metrics
@@ -684,6 +876,77 @@ func (c *Connection) writePump() {
 			c.metrics.mutex.Unlock()
 		}
 	}
+}
+
+// writeMessageWithTimeout writes a message with timeout protection
+func (c *Connection) writeMessageWithTimeout(message []byte) error {
+	// Acquire connection mutex to prevent concurrent writes
+	c.connMutex.Lock()
+	defer c.connMutex.Unlock()
+	
+	conn := c.conn
+	if conn == nil {
+		c.config.Logger.Debug("No connection available for write")
+		return websocket.ErrCloseSent
+	}
+
+	// Set write deadline with context check
+	writeDeadline := time.Now().Add(c.config.WriteTimeout)
+	if deadline, ok := c.ctx.Deadline(); ok && deadline.Before(writeDeadline) {
+		writeDeadline = deadline
+	}
+	conn.SetWriteDeadline(writeDeadline)
+
+	// Write message with panic recovery
+	var writeErr error
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				c.config.Logger.Debug("Recovered from write panic", zap.Any("panic", r))
+				writeErr = websocket.ErrCloseSent
+			}
+		}()
+		writeErr = conn.WriteMessage(websocket.TextMessage, message)
+	}()
+	
+	// Check for timeout errors which might be due to context deadline
+	if writeErr != nil {
+		if netErr, ok := writeErr.(interface{ Timeout() bool }); ok && netErr.Timeout() {
+			// Check if timeout was due to context cancellation
+			select {
+			case <-c.ctx.Done():
+				c.config.Logger.Debug("Write timeout due to context cancellation")
+				return c.ctx.Err()
+			default:
+				// Regular timeout
+			}
+		}
+	}
+	
+	return writeErr
+}
+
+// drainMessageChannel drains any remaining messages to prevent goroutines from blocking
+func (c *Connection) drainMessageChannel() {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Ignore panics during draining (channel might be closed)
+			}
+		}()
+		
+		timeout := time.After(100 * time.Millisecond)
+		for {
+			select {
+			case <-c.messageCh:
+				// Drain message
+			case <-timeout:
+				return
+			default:
+				return
+			}
+		}
+	}()
 }
 
 // WaitForMessages waits for all pending messages to be processed
@@ -713,9 +976,16 @@ func (c *Connection) triggerReconnect() {
 	if currentState == StateConnected || currentState == StateDisconnected {
 		c.setState(StateReconnecting)
 
-		select {
-		case c.reconnectCh <- struct{}{}:
-		default:
+		// Use mutex to synchronize channel access with Close()
+		c.channelMutex.Lock()
+		defer c.channelMutex.Unlock()
+		
+		// Only trigger reconnect if channels are still open
+		if atomic.LoadInt32(&c.channelsClosed) == 0 {
+			select {
+			case c.reconnectCh <- struct{}{}:
+			default: // Channel full, skip this reconnect attempt
+			}
 		}
 	}
 }
@@ -723,19 +993,22 @@ func (c *Connection) triggerReconnect() {
 // ForceConnectionCheck forces a connection check to detect disconnection
 func (c *Connection) ForceConnectionCheck() {
 	if c.State() == StateConnected {
-		c.connMutex.RLock()
+		c.connMutex.Lock()
 		conn := c.conn
-		c.connMutex.RUnlock()
-
 		if conn != nil {
-			// Try to write a test message to detect disconnection
+			// Try to write a test message to detect disconnection (must be done while holding the lock)
 			conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
-			if err := conn.WriteMessage(websocket.TextMessage, []byte("connection-check")); err != nil {
+			err := conn.WriteMessage(websocket.TextMessage, []byte("connection-check"))
+			c.connMutex.Unlock()
+			
+			if err != nil {
 				c.config.Logger.Debug("Force connection check detected disconnection", zap.Error(err))
 				c.triggerReconnect()
 			} else {
 				c.config.Logger.Debug("Force connection check - connection still alive")
 			}
+		} else {
+			c.connMutex.Unlock()
 		}
 	}
 }
@@ -749,15 +1022,57 @@ func (c *Connection) StartAutoReconnect(ctx context.Context) {
 // autoReconnectLoop handles automatic reconnection
 func (c *Connection) autoReconnectLoop(ctx context.Context) {
 	defer c.wg.Done()
+	
+	c.config.Logger.Debug("Starting auto reconnect loop")
+
+	// Create a ticker for periodic context checks
+	contextCheckTicker := time.NewTicker(100 * time.Millisecond)
+	defer contextCheckTicker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
+			c.config.Logger.Debug("Auto reconnect loop stopped due to parent context cancellation")
 			return
 		case <-c.ctx.Done():
+			c.config.Logger.Debug("Auto reconnect loop stopped due to connection context cancellation")
 			return
-		case <-c.reconnectCh:
-			c.performReconnect(ctx)
+		case <-contextCheckTicker.C:
+			// Periodic check to ensure we can exit even if reconnectCh is blocking
+			select {
+			case <-ctx.Done():
+				c.config.Logger.Debug("Auto reconnect loop stopped during periodic check (parent context)")
+				return
+			case <-c.ctx.Done():
+				c.config.Logger.Debug("Auto reconnect loop stopped during periodic check (connection context)")
+				return
+			default:
+				// Continue normal operation
+			}
+		case _, ok := <-c.reconnectCh:
+			// Check if channel was closed
+			if !ok {
+				c.config.Logger.Debug("Reconnect channel closed, stopping auto reconnect loop")
+				return
+			}
+			
+			// Check state before attempting reconnect
+			if c.State() == StateClosing || c.State() == StateClosed {
+				c.config.Logger.Debug("Auto reconnect loop exiting - connection closing/closed")
+				return
+			}
+			
+			// Check context again before starting reconnect
+			select {
+			case <-ctx.Done():
+				c.config.Logger.Debug("Context cancelled before reconnect attempt")
+				return
+			case <-c.ctx.Done():
+				c.config.Logger.Debug("Connection context cancelled before reconnect attempt")
+				return
+			default:
+				c.performReconnect(ctx)
+			}
 		}
 	}
 }
@@ -867,3 +1182,5 @@ func (c *Connection) GetReconnectAttempts() int32 {
 func (c *Connection) GetHeartbeat() *HeartbeatManager {
 	return c.heartbeat
 }
+
+

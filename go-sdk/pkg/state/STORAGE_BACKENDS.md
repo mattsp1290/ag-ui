@@ -210,7 +210,7 @@ go get github.com/lib/pq
 ```go
 config := &StorageConfig{
     Type:          StorageBackendPostgreSQL,
-    ConnectionURL: "postgres://user:password@localhost/dbname?sslmode=disable",
+    ConnectionURL: os.Getenv("DATABASE_URL"), // Example: "postgres://user:password@localhost/dbname?sslmode=disable"
     Schema:        "public",
     PostgreSQLOptions: &PostgreSQLOptions{
         SSLMode:         "disable",

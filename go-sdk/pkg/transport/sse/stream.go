@@ -440,7 +440,10 @@ func (s *EventStream) Close() error {
 	// Cancel context to signal shutdown to all workers
 	s.cancel()
 
-	// Close input channels immediately to unblock workers
+	// Give workers a short time to detect context cancellation before closing channels
+	time.Sleep(10 * time.Millisecond)
+
+	// Close input channels to unblock workers
 	s.mu.Lock()
 	s.closeChannelSafely(s.eventChan)
 	if s.batchChan != nil {
@@ -448,7 +451,7 @@ func (s *EventStream) Close() error {
 	}
 	s.mu.Unlock()
 
-	// Wait for all workers to finish with timeout
+	// Wait for all workers to finish with timeout protection
 	done := make(chan struct{})
 	go func() {
 		defer func() {
@@ -460,14 +463,26 @@ func (s *EventStream) Close() error {
 		close(done)
 	}()
 
+	// Use a reasonable timeout for worker shutdown
+	drainTimeout := s.config.DrainTimeout
+	if drainTimeout <= 0 {
+		drainTimeout = 5 * time.Second // Fallback timeout
+	}
+
 	select {
 	case <-done:
 		// Clean shutdown - workers finished gracefully
-	case <-time.After(s.config.DrainTimeout):
+	case <-time.After(drainTimeout):
 		// Force shutdown after timeout - this is expected for stuck workers
+		// Workers may still be running but we proceed with cleanup
 	}
 
-	// Now safe to close output channels after workers have stopped
+	// Drain the flow controller to prevent any lingering state
+	if s.flowController != nil {
+		s.flowController.Drain()
+	}
+
+	// Now safe to close output channels after workers have stopped or timed out
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -553,13 +568,20 @@ func (s *EventStream) eventProcessor(workerID int) {
 			}
 
 		case <-s.ctx.Done():
-			// Context cancelled, drain any remaining events in the channel
+			// Context cancelled, drain any remaining events in the channel with timeout
+			drainCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			
 			for {
 				select {
 				case <-s.eventChan:
 					// Release flow control for drained events
 					s.flowController.Release()
+				case <-drainCtx.Done():
+					// Timeout reached during drain, exit to prevent hanging
+					return
 				default:
+					// No more events to drain
 					return
 				}
 			}
@@ -707,7 +729,10 @@ func (s *EventStream) batchProcessor() {
 				// Try to process final batch but don't block on errors
 				s.processBatch(currentBatch)
 			}
-			// Drain remaining batches
+			// Drain remaining batches with timeout to prevent hanging
+			drainCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			
 			for {
 				select {
 				case batch, ok := <-s.batchChan:
@@ -718,6 +743,9 @@ func (s *EventStream) batchProcessor() {
 					if batch != nil {
 						s.processBatch(batch)
 					}
+				case <-drainCtx.Done():
+					// Timeout reached during drain, exit to prevent hanging
+					return
 				default:
 					return
 				}
@@ -1084,12 +1112,36 @@ func validateStreamConfig(config *StreamConfig) error {
 
 // NewFlowController creates a new flow controller
 func NewFlowController(maxConcurrent int, timeout, drainTimeout time.Duration) *FlowController {
-	return &FlowController{
+	fc := &FlowController{
 		maxConcurrent:  int32(maxConcurrent),
 		backpressureCh: make(chan struct{}, maxConcurrent),
 		timeout:        timeout,
 		drainTimeout:   drainTimeout,
 		metrics:        &FlowMetrics{},
+	}
+	return fc
+}
+
+// Drain safely drains the flow controller during shutdown
+func (fc *FlowController) Drain() {
+	// Drain the backpressure channel with timeout to prevent hanging
+	drainCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	
+	for {
+		select {
+		case <-fc.backpressureCh:
+			// Drain slot from channel
+			atomic.AddInt32(&fc.current, -1)
+		case <-drainCtx.Done():
+			// Timeout reached, force reset the counter
+			atomic.StoreInt32(&fc.current, 0)
+			atomic.StoreInt32(&fc.metrics.CurrentConcurrent, 0)
+			return
+		default:
+			// No more slots to drain
+			return
+		}
 	}
 }
 
@@ -1128,13 +1180,24 @@ func (fc *FlowController) Acquire(ctx context.Context) error {
 
 // Release releases a flow control slot
 func (fc *FlowController) Release() {
+	// Use atomic operations to ensure we only release if we actually have something to release
+	current := atomic.LoadInt32(&fc.current)
+	if current <= 0 {
+		return // Nothing to release
+	}
+	
 	select {
 	case <-fc.backpressureCh:
-		current := atomic.AddInt32(&fc.current, -1)
-		atomic.StoreInt32(&fc.metrics.CurrentConcurrent, current)
+		newCurrent := atomic.AddInt32(&fc.current, -1)
+		atomic.StoreInt32(&fc.metrics.CurrentConcurrent, newCurrent)
 		atomic.AddUint64(&fc.metrics.EventsProcessed, 1)
 	default:
-		// Can happen during shutdown, ignore silently
+		// Channel is empty or closed, but we still need to decrement the counter
+		// This can happen during shutdown when the channel is drained
+		if atomic.CompareAndSwapInt32(&fc.current, current, current-1) {
+			atomic.StoreInt32(&fc.metrics.CurrentConcurrent, current-1)
+			atomic.AddUint64(&fc.metrics.EventsProcessed, 1)
+		}
 	}
 }
 

@@ -4,10 +4,13 @@ The `errors` package provides comprehensive error handling utilities for the ag-
 
 ## Features
 
-- **Custom Error Types**: Specialized error types for different scenarios (StateError, ValidationError, ConflictError)
+- **Custom Error Types**: Specialized error types for different scenarios (StateError, ValidationError, ConflictError, EncodingError, SecurityError)
 - **Severity-Based Handling**: Route and handle errors based on their severity level
 - **Error Context**: Rich contextual information including operation tracking, user/request IDs, and distributed tracing
 - **Retry Logic**: Sophisticated retry mechanisms with exponential backoff and jitter
+- **Encoding-Specific Errors**: Specialized error types for encoding/decoding operations
+- **Security Error Handling**: Dedicated error types for security violations and threats
+- **Error Discrimination**: Type-safe error checking and matching utilities
 - **Error Collection**: Collect and manage multiple errors from batch operations
 - **Pattern Matching**: Match errors based on various criteria
 - **Handler Chains**: Compose multiple error handlers for comprehensive error processing
@@ -249,6 +252,96 @@ chainedErr := errors.Chain(err1, err2, err3)
 5. **Use error collectors** for batch operations
 6. **Implement proper error handlers** based on your application needs
 7. **Leverage error context** for operation tracking
+
+## Encoding-Specific Error Handling
+
+### EncodingError
+
+For encoding and decoding operations:
+
+```go
+// Create an encoding error
+err := errors.NewEncodingError("ENCODING_FAILED", "failed to encode data").
+    WithFormat("json").
+    WithOperation("encode").
+    WithMimeType("application/json")
+
+// Create a decoding error
+err := errors.NewDecodingError("DECODING_FAILED", "failed to decode protobuf data").
+    WithFormat("protobuf").
+    WithPosition(1024)
+
+// Streaming error
+err := errors.NewStreamingError("STREAM_FAILED", "streaming operation failed")
+```
+
+### SecurityError
+
+For security violations:
+
+```go
+// XSS detection
+err := errors.NewXSSError("XSS pattern detected in user input", "<script>")
+
+// SQL injection detection
+err := errors.NewSQLInjectionError("SQL injection pattern detected", "DROP TABLE")
+
+// General security violation
+err := errors.NewSecurityError("SIZE_EXCEEDED", "Input too large").
+    WithViolationType("size_limit").
+    WithRiskLevel("high")
+```
+
+### Error Discrimination
+
+Type-safe error checking:
+
+```go
+// Check if error is of specific type
+if errors.IsEncodingError(err) {
+    // Handle encoding error
+}
+
+if errors.IsSecurityError(err) {
+    // Handle security error
+}
+
+if errors.IsSecurityViolation(err) {
+    // Handle any security violation
+}
+
+// Check for specific conditions
+if errors.IsTimeoutError(err) {
+    // Handle timeout
+}
+```
+
+### Common Error Codes
+
+The package defines standard error codes for consistent error handling:
+
+- **Registry Errors**: `FORMAT_NOT_REGISTERED`, `INVALID_MIME_TYPE`, `NIL_FACTORY`
+- **Encoding Errors**: `ENCODING_FAILED`, `DECODING_FAILED`, `SERIALIZATION_FAILED`
+- **Security Errors**: `XSS_DETECTED`, `SQL_INJECTION_DETECTED`, `SIZE_EXCEEDED`
+- **Validation Errors**: `VALIDATION_FAILED`, `MISSING_EVENT`, `ID_TOO_LONG`
+- **Negotiation Errors**: `NEGOTIATION_FAILED`, `NO_SUITABLE_FORMAT`
+
+### Migration Guide
+
+**Before (using fmt.Errorf):**
+```go
+if mimeType == "" {
+    return fmt.Errorf("MIME type cannot be empty")
+}
+```
+
+**After (using structured errors):**
+```go
+if mimeType == "" {
+    return errors.NewEncodingError(errors.CodeEmptyMimeType, "MIME type cannot be empty").
+        WithOperation("register_format")
+}
+```
 
 ## Examples
 

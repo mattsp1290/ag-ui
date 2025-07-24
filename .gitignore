@@ -1,1 +1,6 @@
 proompts/
+
+# Temporary commit files
+COMMIT_MESSAGE.txt
+commit_*.sh
+simple_commit.sh

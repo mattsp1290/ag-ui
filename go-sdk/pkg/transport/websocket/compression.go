@@ -103,6 +103,7 @@ type CompressionManager struct {
 	// Monitoring
 	statsTimer *time.Timer
 	shutdownCh chan struct{}
+	wg         sync.WaitGroup // Track goroutines
 }
 
 // CompressedMessage represents a compressed WebSocket message
@@ -502,7 +503,11 @@ func (cm *CompressionManager) ResetStats() {
 func (cm *CompressionManager) startStatsCollection() {
 	cm.statsTimer = time.NewTimer(cm.config.StatisticsInterval)
 
+	cm.wg.Add(1)
 	go func() {
+		defer cm.wg.Done()
+		defer cm.statsTimer.Stop() // Ensure timer is stopped
+		
 		for {
 			select {
 			case <-cm.statsTimer.C:
@@ -524,6 +529,9 @@ func (cm *CompressionManager) collectStats() {
 // Shutdown gracefully shuts down the compression manager
 func (cm *CompressionManager) Shutdown() {
 	close(cm.shutdownCh)
+
+	// Wait for all goroutines to finish
+	cm.wg.Wait()
 
 	if cm.statsTimer != nil {
 		cm.statsTimer.Stop()

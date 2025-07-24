@@ -1,9 +1,15 @@
+//go:build examples
+// +build examples
+
 package main
 
 import (
 	"context"
 	"fmt"
+<<<<<<<< HEAD:go-sdk/examples/tools/external/weather-api/weather_api.go
+========
 	"log"
+>>>>>>>> main:go-sdk/examples/tools/external/cmd/weather_api/main.go
 	"net/http"
 	"strings"
 	"time"
@@ -30,7 +36,7 @@ type WeatherResponse struct {
 	Alerts       []WeatherAlert   `json:"alerts,omitempty"`
 	DataSources  []string         `json:"data_sources"`
 	LastUpdated  string           `json:"last_updated"`
-	RequestInfo  RequestInfo      `json:"request_info"`
+	RequestInfo  WeatherRequestInfo      `json:"request_info"`
 }
 
 // LocationInfo contains location details
@@ -107,8 +113,8 @@ type WeatherAlert struct {
 	Instruction string `json:"instruction,omitempty"`
 }
 
-// RequestInfo contains information about the API request
-type RequestInfo struct {
+// WeatherRequestInfo contains information about the API request
+type WeatherRequestInfo struct {
 	Provider      string        `json:"provider"`
 	QueryType     string        `json:"query_type"`
 	Units         string        `json:"units"`
@@ -263,7 +269,7 @@ func (w *WeatherAPIExecutor) Execute(ctx context.Context, params map[string]inte
 
 	// Update request info
 	if result != nil {
-		result.RequestInfo = RequestInfo{
+		result.RequestInfo = WeatherRequestInfo{
 			Provider:     "WeatherAPI",
 			QueryType:    operation,
 			Units:        options.Units,
@@ -890,6 +896,8 @@ func CreateWeatherAPITool() *tools.Tool {
 	}
 }
 
+<<<<<<<< HEAD:go-sdk/examples/tools/external/weather-api/weather_api.go
+========
 func main() {
 	// Create registry and register the weather API tool
 	registry := tools.NewRegistry()
@@ -1069,3 +1077,4 @@ func printWeatherResult(result *tools.ToolExecutionResult, err error, title stri
 	fmt.Printf("  Duration: %v\n", result.Duration)
 	fmt.Println()
 }
+>>>>>>>> main:go-sdk/examples/tools/external/cmd/weather_api/main.go

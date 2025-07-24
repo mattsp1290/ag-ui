@@ -235,8 +235,30 @@ func (h *BackpressureHandler) Stop() {
 	}
 	h.mu.Unlock()
 	
-	// Give monitor goroutine time to exit
-	time.Sleep(10 * time.Millisecond)
+	// Wait for monitor goroutine to exit with timeout protection
+	// This is more reliable than just sleeping
+	if h.config.Strategy != BackpressureNone {
+		stopTimeout := 100 * time.Millisecond
+		// Create a simple way to detect if monitor goroutine has stopped
+		// by checking if context cancellation is respected
+		done := make(chan struct{})
+		go func() {
+			// This goroutine will exit when context is cancelled
+			// giving us a signal that monitor should have stopped
+			select {
+			case <-h.ctx.Done():
+				// Context cancelled, monitor should have stopped
+			}
+			close(done)
+		}()
+		
+		select {
+		case <-done:
+			// Monitor goroutine should have stopped
+		case <-time.After(stopTimeout):
+			// Timeout - monitor goroutine may still be running but we can't wait forever
+		}
+	}
 }
 
 // sendEventNone sends event with no backpressure handling (original behavior)

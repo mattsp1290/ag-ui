@@ -54,17 +54,30 @@ func TestShardedStateStore_ConcurrentAccess(t *testing.T) {
 
 				// Verify value
 				if retrievedMap, ok := retrieved.(map[string]interface{}); ok {
-					// Convert values to int for comparison since they might be normalized
-					retrievedRoutine, routineOk := retrievedMap["routine"].(int)
-					retrievedItem, itemOk := retrievedMap["item"].(int)
+					// JSON unmarshaling converts numbers to float64, so we need to handle both int and float64
+					var retrievedRoutine, retrievedItem int
+					var routineOk, itemOk bool
+					
+					// Handle routine field (can be int or float64)
+					if r, ok := retrievedMap["routine"].(int); ok {
+						retrievedRoutine = r
+						routineOk = true
+					} else if r, ok := retrievedMap["routine"].(float64); ok {
+						retrievedRoutine = int(r)
+						routineOk = true
+					}
+					
+					// Handle item field (can be int or float64)
+					if i, ok := retrievedMap["item"].(int); ok {
+						retrievedItem = i
+						itemOk = true
+					} else if i, ok := retrievedMap["item"].(float64); ok {
+						retrievedItem = int(i)
+						itemOk = true
+					}
+					
 					if routineOk && itemOk && retrievedRoutine == routineID && retrievedItem == j {
 						atomic.AddInt64(&successCount, 1)
-					} else {
-						// Debug: log what we got vs expected
-						if routineOk && itemOk {
-							// Values are correct type but wrong values - this is race condition
-							atomic.AddInt64(&successCount, 1) // Count as success since it's still valid data
-						}
 					}
 				}
 			}

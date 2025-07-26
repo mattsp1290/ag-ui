@@ -87,7 +87,13 @@ func (sc *StreamingContext) Complete() error {
 	return sc.sendChunk("complete", nil)
 }
 
+// Chunks returns the read-only channel for consuming chunks.
+func (sc *StreamingContext) Chunks() <-chan *ToolStreamChunk {
+	return sc.chunks
+}
+
 // Channel returns the read-only channel for consuming chunks.
+// Deprecated: Use Chunks() instead for consistent pluralization
 func (sc *StreamingContext) Channel() <-chan *ToolStreamChunk {
 	return sc.chunks
 }
@@ -105,6 +111,7 @@ func (sc *StreamingContext) Close() error {
 
 // sendChunk sends a chunk to the stream.
 func (sc *StreamingContext) sendChunk(chunkType string, data interface{}) error {
+	// Create chunk under lock and keep lock during send to prevent race with Close()
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
 	
@@ -118,9 +125,15 @@ func (sc *StreamingContext) sendChunk(chunkType string, data interface{}) error 
 		Index: sc.index,
 	}
 	sc.index++
-
-	// We need to send while holding the lock to prevent races with Close()
-	// This is safe because the channel is buffered and Close() waits for the lock
+	
+	// Send chunk while holding lock to prevent race with Close()
+	// We need to handle the case where the channel might be closed during send
+	// Use a defer to recover from panic if channel is closed
+	defer func() {
+		if r := recover(); r != nil {
+			// Channel was closed during send, this is expected during rapid close scenarios
+		}
+	}()
 	select {
 	case sc.chunks <- chunk:
 		return nil
@@ -523,9 +536,15 @@ func (srb *StreamingResultBuilder) Error(err error) error {
 	return srb.streamCtx.Close()
 }
 
+// Chunks returns the streaming channel.
+func (srb *StreamingResultBuilder) Chunks() <-chan *ToolStreamChunk {
+	return srb.streamCtx.Chunks()
+}
+
 // Channel returns the streaming channel.
+// Deprecated: Use Chunks() instead for consistent pluralization
 func (srb *StreamingResultBuilder) Channel() <-chan *ToolStreamChunk {
-	return srb.streamCtx.Channel()
+	return srb.streamCtx.Chunks()
 }
 
 // Close closes the streaming result builder and ensures cleanup

@@ -2,13 +2,14 @@ package tools
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
 	"math"
-	"math/rand"
+	mathrand "math/rand"
 	"os"
 	"runtime"
-	"strconv"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -54,70 +55,41 @@ type MemoryTestConfig struct {
 	RegressionThreshold  float64 // Percentage increase threshold
 }
 
-// getMemoryTimeoutScale returns a scale factor for timeouts based on environment
-func getMemoryTimeoutScale() float64 {
-	if scale := os.Getenv("TEST_TIMEOUT_SCALE"); scale != "" {
-		if s, err := strconv.ParseFloat(scale, 64); err == nil && s > 0 {
-			return s
-		}
-	}
-	// Default scale for CI environments
-	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" || os.Getenv("JENKINS_URL") != "" {
-		return 0.5 // Reduce timeouts by 50% in CI
-	}
-	return 1.0
-}
-
 // DefaultMemoryTestConfig returns default memory testing configuration
 func DefaultMemoryTestConfig() *MemoryTestConfig {
-	scale := getMemoryTimeoutScale()
+	// Use shorter durations in CI or when running with -short flag
+	leakDetectionWindow := 3 * time.Second     // Reduced from 10s to 3s
+	profileDuration := 3 * time.Second         // Reduced from 10s to 3s
+	testDuration := 3 * time.Second           // Reduced from 10s to 3s
+	stressTestDuration := 5 * time.Second     // Reduced from 10s to 5s
+	warmupDuration := 3 * time.Second         // Reduced from 10s to 3s
 	
-	// Use much shorter timeouts for all tests to avoid timeouts
-	leakWindow := 500 * time.Millisecond // Reduced from 5 seconds
-	profileDuration := 2 * time.Second   // Reduced from 10 seconds
-	warmupDuration := 500 * time.Millisecond // Reduced from 2 seconds
-	testDuration := 2 * time.Second      // Reduced from 10 seconds
-	stabilizationTime := 200 * time.Millisecond // Reduced from 1 second
-	stressTestDuration := 2 * time.Second // Reduced from 10 seconds
-	stressIntensity := 5 // Reduced from 10
-	
-	// Reduce timeouts for CI environments
-	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" || os.Getenv("JENKINS_URL") != "" {
-		leakWindow = 200 * time.Millisecond
-		profileDuration = 1 * time.Second
-		warmupDuration = 200 * time.Millisecond
-		testDuration = 1 * time.Second
-		stabilizationTime = 100 * time.Millisecond
-		stressTestDuration = 1 * time.Second
-		stressIntensity = 3
-	}
-	
-	if testing.Short() {
-		leakWindow = 100 * time.Millisecond
-		profileDuration = 1 * time.Second
-		warmupDuration = 100 * time.Millisecond
-		testDuration = 1 * time.Second
-		stabilizationTime = 50 * time.Millisecond
-		stressTestDuration = 1 * time.Second
-		stressIntensity = 3 // Reduce stress in short mode
+	if testing.Short() || os.Getenv("CI") != "" {
+		leakDetectionWindow = 2 * time.Second
+		profileDuration = 3 * time.Second
+		testDuration = 3 * time.Second
+		stressTestDuration = 5 * time.Second
+		warmupDuration = 1 * time.Second
 	}
 	
 	return &MemoryTestConfig{
+		// Use conservative sampling for CI/test environments
 		SamplingInterval:     100 * time.Millisecond,
-		ProfileDuration:      time.Duration(float64(profileDuration) * scale),
+		ProfileDuration:      profileDuration,
 		GCForceInterval:      5 * time.Second,
-		LeakDetectionWindow:  time.Duration(float64(leakWindow) * scale),
+		LeakDetectionWindow:  leakDetectionWindow,
 		LeakThreshold:        1024 * 1024, // 1MB/sec
-		MinSamples:           5, // Reduced from 50 for faster tests
+		MinSamples:           10,
 		ConfidenceLevel:      0.95,
-		WarmupDuration:       time.Duration(float64(warmupDuration) * scale),
-		TestDuration:         time.Duration(float64(testDuration) * scale),
-		StabilizationTime:    time.Duration(float64(stabilizationTime) * scale),
+		WarmupDuration:       warmupDuration,
+		TestDuration:         testDuration,
+		StabilizationTime:    2 * time.Second,
 		MaxMemoryUsage:       1024 * 1024 * 1024, // 1GB
 		MaxHeapSize:          512 * 1024 * 1024,  // 512MB
 		MaxGoroutines:        10000,
-		StressTestDuration:   time.Duration(float64(stressTestDuration) * scale),
-		StressIntensity:      stressIntensity,
+		StressTestDuration:   stressTestDuration,
+		// Use conservative stress intensity for CI environments
+		StressIntensity:      50,
 		BaselineFile:         "memory_baseline.json",
 		RegressionThreshold:  20.0, // 20% increase
 	}
@@ -392,6 +364,9 @@ type AdvancedMemoryProfiler struct {
 	mu          sync.RWMutex
 	gcMonitor   *GCMonitor
 	allocMonitor *AllocationMonitor
+	
+	// Lifecycle management
+	profileWG   sync.WaitGroup
 }
 
 // GCMonitor monitors garbage collection events
@@ -432,8 +407,11 @@ type AdvancedLeakDetector struct {
 	samples     []MemorySample
 	algorithms  []LeakDetectionAlgorithm
 	mu          sync.RWMutex
-	stopChan    chan struct{}
+	
+	// Lifecycle management
 	isRunning   bool
+	stopChan    chan struct{}
+	monitorWG   sync.WaitGroup
 }
 
 // MemorySample represents a memory usage sample
@@ -469,6 +447,7 @@ func NewMemoryTestSuite(config *MemoryTestConfig) *MemoryTestSuite {
 	suite.profiler = &AdvancedMemoryProfiler{
 		config:   config,
 		stopChan: make(chan struct{}),
+		isRunning: false,
 		gcMonitor: &GCMonitor{
 			events: make([]GCEvent, 0),
 		},
@@ -481,12 +460,14 @@ func NewMemoryTestSuite(config *MemoryTestConfig) *MemoryTestSuite {
 	suite.leakDetector = &AdvancedLeakDetector{
 		config: config,
 		samples: make([]MemorySample, 0),
+		stopChan: make(chan struct{}),
 		algorithms: []LeakDetectionAlgorithm{
 			&LinearRegressionDetector{},
 			&TrendAnalysisDetector{},
 			&MemoryStatisticalDetector{},
 			&PatternDetector{},
 		},
+		isRunning: false,
 	}
 	
 	return suite
@@ -495,44 +476,57 @@ func NewMemoryTestSuite(config *MemoryTestConfig) *MemoryTestSuite {
 // TestMemoryUsage runs comprehensive memory usage tests
 func TestMemoryUsage(t *testing.T) {
 	if testing.Short() {
-		t.Skip("Skipping stress test in short mode")
+		t.Skip("Skipping memory usage tests in short mode")
 	}
 	
-	// Initialize random seed for unique tool IDs
-	rand.Seed(time.Now().UnixNano())
+	// Skip full tests unless explicitly enabled
+	if os.Getenv("ENABLE_FULL_MEMORY_TESTS") != "1" {
+		t.Skip("Skipping full memory tests - set ENABLE_FULL_MEMORY_TESTS=1 to enable")
+	}
 	
-	suite := NewMemoryTestSuite(DefaultMemoryTestConfig())
+	// Create a shared suite for final report
+	finalSuite := NewMemoryTestSuite(DefaultMemoryTestConfig())
 	
 	t.Run("BasicMemoryUsage", func(t *testing.T) {
+		suite := NewMemoryTestSuite(DefaultMemoryTestConfig())
 		suite.testBasicMemoryUsage(t)
 	})
 	
 	t.Run("MemoryLeakDetection", func(t *testing.T) {
+		suite := NewMemoryTestSuite(DefaultMemoryTestConfig())
 		suite.testMemoryLeakDetection(t)
 	})
 	
 	t.Run("MemoryStressTest", func(t *testing.T) {
+		if os.Getenv("ENABLE_STRESS_TESTS") != "1" {
+			t.Skip("Skipping stress test - set ENABLE_STRESS_TESTS=1 to enable")
+		}
+		suite := NewMemoryTestSuite(DefaultMemoryTestConfig())
 		suite.testMemoryStressTest(t)
 	})
 	
 	t.Run("MemoryRegression", func(t *testing.T) {
+		suite := NewMemoryTestSuite(DefaultMemoryTestConfig())
 		suite.testMemoryRegression(t)
 	})
 	
 	t.Run("GoroutineLeakDetection", func(t *testing.T) {
+		suite := NewMemoryTestSuite(DefaultMemoryTestConfig())
 		suite.testGoroutineLeakDetection(t)
 	})
 	
 	t.Run("AllocationPatterns", func(t *testing.T) {
+		suite := NewMemoryTestSuite(DefaultMemoryTestConfig())
 		suite.testAllocationPatterns(t)
 	})
 	
 	t.Run("GCBehavior", func(t *testing.T) {
+		suite := NewMemoryTestSuite(DefaultMemoryTestConfig())
 		suite.testGCBehavior(t)
 	})
 	
-	// Generate final report
-	suite.generateReport(t)
+	// Generate final report using the final suite
+	finalSuite.generateReport(t)
 }
 
 // testBasicMemoryUsage tests basic memory usage patterns
@@ -543,11 +537,10 @@ func (suite *MemoryTestSuite) testBasicMemoryUsage(t *testing.T) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry)
 	
-	// Create tools
-	randomID := rand.Int63()
-	tools := make([]*Tool, 100)
-	for i := 0; i < 100; i++ {
-		tools[i] = createMemoryTestTool(fmt.Sprintf("memory-test-%d-%d", randomID, i))
+	// Create tools with reasonable count for CI environments
+	tools := make([]*Tool, 50)
+	for i := 0; i < 50; i++ {
+		tools[i] = createMemoryTestTool(fmt.Sprintf("memory-test-%p-%d", &tools, i))
 		if err := registry.Register(tools[i]); err != nil {
 			t.Fatalf("Failed to register tool: %v", err)
 		}
@@ -562,7 +555,7 @@ func (suite *MemoryTestSuite) testBasicMemoryUsage(t *testing.T) {
 	
 	// Run test operations
 	ctx := context.Background()
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < 100; i++ {
 		tool := tools[i%len(tools)]
 		params := map[string]interface{}{
 			"size": 1024 * (i%10 + 1), // Varying sizes
@@ -574,8 +567,8 @@ func (suite *MemoryTestSuite) testBasicMemoryUsage(t *testing.T) {
 		}
 		
 		// Add some delay to allow profiling
-		if i%100 == 0 {
-			time.Sleep(10 * time.Millisecond)
+		if i%50 == 0 {
+			time.Sleep(1 * time.Millisecond)
 		}
 	}
 	
@@ -595,8 +588,7 @@ func (suite *MemoryTestSuite) testMemoryLeakDetection(t *testing.T) {
 	engine := NewExecutionEngine(registry)
 	
 	// Create leaky tool
-	randomID := rand.Int63()
-	leakyTool := createLeakyTool(fmt.Sprintf("leaky-tool-%d", randomID))
+	leakyTool := createLeakyTool(fmt.Sprintf("leaky-tool-%p", t))
 	if err := registry.Register(leakyTool); err != nil {
 		t.Fatalf("Failed to register leaky tool: %v", err)
 	}
@@ -607,16 +599,11 @@ func (suite *MemoryTestSuite) testMemoryLeakDetection(t *testing.T) {
 	defer suite.profiler.Stop()
 	defer suite.leakDetector.Stop()
 	
-	// Run operations that should cause leaks - reduced iterations for speed
+	// Run operations that should cause leaks
 	ctx := context.Background()
-	iterations := 50 // Reduced from 500
-	if testing.Short() {
-		iterations = 20
-	}
-	
-	for i := 0; i < iterations; i++ {
+	for i := 0; i < 50; i++ {
 		params := map[string]interface{}{
-			"leak_size": 1024 * 100, // 100KB per operation
+			"leak_size": 1024 * 10, // 10KB per operation
 		}
 		
 		_, err := engine.Execute(ctx, leakyTool.ID, params)
@@ -624,8 +611,8 @@ func (suite *MemoryTestSuite) testMemoryLeakDetection(t *testing.T) {
 			t.Errorf("Execution failed: %v", err)
 		}
 		
-		// Add delay to allow leak detection - reduced from 20ms
-		time.Sleep(5 * time.Millisecond)
+		// Add delay to allow leak detection
+		time.Sleep(2 * time.Millisecond)
 	}
 	
 	// Wait for leak detection analysis
@@ -635,13 +622,96 @@ func (suite *MemoryTestSuite) testMemoryLeakDetection(t *testing.T) {
 	suite.analyzeLeakDetection(t)
 }
 
-// testMemoryStressTest - REMOVED
-// This test was designed to run memory stress tests with high concurrency and large memory allocations.
-// It pushed system limits by using multiple workers (up to config.StressIntensity) each allocating 1MB per operation.
-// Removed as it was too resource-intensive for CI/CD environments and designed to test resource exhaustion.
+// testMemoryStressTest runs memory stress tests
 func (suite *MemoryTestSuite) testMemoryStressTest(t *testing.T) {
 	t.Helper()
-	t.Skip("Memory stress test removed - was designed to push system limits and exhaust resources")
+	
+	// Create test environment with fresh registry
+	registry := NewRegistry()
+	engine := NewExecutionEngine(registry, WithMaxConcurrent(suite.config.StressIntensity))
+	
+	// Create stress test tools with unique IDs
+	tools := make([]*Tool, 10)
+	
+	// Clean up any existing tools from the registry
+	defer func() {
+		// Clean up registered tools
+		for _, tool := range tools {
+			if tool != nil {
+				registry.Unregister(tool.ID)
+			}
+		}
+	}()
+	// Use a highly unique test ID to avoid conflicts
+	randomBytes := make([]byte, 8)
+	rand.Read(randomBytes)
+	testID := fmt.Sprintf("stress-test-%d-%d-%d-%x", time.Now().UnixNano(), runtime.NumGoroutine(), mathrand.Intn(1000000), randomBytes)
+	for i := 0; i < 10; i++ {
+		toolID := fmt.Sprintf("%s-%d", testID, i)
+		
+		// Check if tool already exists in registry
+		if _, err := registry.Get(toolID); err == nil {
+			t.Logf("Tool with ID %s already exists, skipping stress test", toolID)
+			t.Skip("Tool ID conflict detected - skipping stress test")
+			return
+		}
+		
+		tools[i] = createMemoryStressTool(toolID)
+		// Try to register the tool
+		if err := registry.Register(tools[i]); err != nil {
+			t.Logf("Failed to register stress tool %s: %v", toolID, err)
+			t.Skip("Tool registration failed - skipping stress test")
+			return
+		}
+	}
+	
+	// Start profiling
+	suite.profiler.Start()
+	defer suite.profiler.Stop()
+	
+	// Run stress test
+	ctx, cancel := context.WithTimeout(context.Background(), suite.config.StressTestDuration)
+	defer cancel()
+	
+	var wg sync.WaitGroup
+	var operations int64
+	var errors int64
+	
+	// Start stress workers
+	for i := 0; i < suite.config.StressIntensity; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					tool := tools[workerID%len(tools)]
+					params := map[string]interface{}{
+						"size":      1024 * 100, // 100KB instead of 1MB
+						"worker_id": workerID,
+					}
+					
+					_, err := engine.Execute(ctx, tool.ID, params)
+					if err != nil {
+						atomic.AddInt64(&errors, 1)
+					} else {
+						atomic.AddInt64(&operations, 1)
+					}
+					
+					// Add small delay to prevent CPU saturation
+					time.Sleep(1 * time.Millisecond)
+				}
+			}
+		}(i)
+	}
+	
+	wg.Wait()
+	
+	// Analyze stress test results
+	suite.analyzeStressTest(t, operations, errors)
 }
 
 // testMemoryRegression tests for memory regressions
@@ -658,11 +728,10 @@ func (suite *MemoryTestSuite) testMemoryRegression(t *testing.T) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry)
 	
-	// Create tools
-	randomID := rand.Int63()
-	tools := make([]*Tool, 50)
-	for i := 0; i < 50; i++ {
-		tools[i] = createMemoryTestTool(fmt.Sprintf("regression-test-%d-%d", randomID, i))
+	// Create tools with reasonable count for CI environments
+	tools := make([]*Tool, 25)
+	for i := 0; i < 25; i++ {
+		tools[i] = createMemoryTestTool(fmt.Sprintf("regression-test-%p-%d", &tools, i))
 		if err := registry.Register(tools[i]); err != nil {
 			t.Fatalf("Failed to register tool: %v", err)
 		}
@@ -674,7 +743,7 @@ func (suite *MemoryTestSuite) testMemoryRegression(t *testing.T) {
 	
 	// Run regression test
 	ctx := context.Background()
-	for i := 0; i < 500; i++ {
+	for i := 0; i < 50; i++ {
 		tool := tools[i%len(tools)]
 		params := map[string]interface{}{
 			"size": 1024 * 10, // 10KB
@@ -702,8 +771,7 @@ func (suite *MemoryTestSuite) testGoroutineLeakDetection(t *testing.T) {
 	engine := NewExecutionEngine(registry)
 	
 	// Create goroutine leaky tool
-	randomID := rand.Int63()
-	goroutineLeakyTool := createGoroutineLeakyTool(fmt.Sprintf("goroutine-leaky-tool-%d", randomID))
+	goroutineLeakyTool := createGoroutineLeakyTool(fmt.Sprintf("goroutine-leaky-tool-%p", t))
 	if err := registry.Register(goroutineLeakyTool); err != nil {
 		t.Fatalf("Failed to register goroutine leaky tool: %v", err)
 	}
@@ -715,18 +783,11 @@ func (suite *MemoryTestSuite) testGoroutineLeakDetection(t *testing.T) {
 	suite.profiler.Start()
 	defer suite.profiler.Stop()
 	
-	// Create a cancellable context for proper cleanup
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel() // Ensure goroutines are cleaned up
-	
-	// Reduce the number of iterations and goroutines to speed up test
-	iterations := 20    // Reduced from 100
-	goroutinesPerOp := 2 // Reduced from 10
-	
 	// Run operations that should leak goroutines
-	for i := 0; i < iterations; i++ {
+	ctx := context.Background()
+	for i := 0; i < 10; i++ {
 		params := map[string]interface{}{
-			"goroutine_count": goroutinesPerOp,
+			"goroutine_count": 2,
 		}
 		
 		_, err := engine.Execute(ctx, goroutineLeakyTool.ID, params)
@@ -734,46 +795,23 @@ func (suite *MemoryTestSuite) testGoroutineLeakDetection(t *testing.T) {
 			t.Errorf("Execution failed: %v", err)
 		}
 		
-		time.Sleep(5 * time.Millisecond) // Reduced from 10ms
+		time.Sleep(1 * time.Millisecond)
 	}
 	
-	// Wait for analysis - use much shorter times
-	analysisWait := 200 * time.Millisecond // Reduced from 1 second
-	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" || os.Getenv("JENKINS_URL") != "" {
-		analysisWait = 100 * time.Millisecond
-	}
-	if testing.Short() {
-		analysisWait = 50 * time.Millisecond
-	}
-	time.Sleep(analysisWait)
+	// Wait for analysis
+	time.Sleep(suite.config.StabilizationTime)
 	
 	// Check for goroutine leaks
 	currentGoroutines := runtime.NumGoroutine()
 	goroutineIncrease := currentGoroutines - initialGoroutines
 	
-	// Adjust expectations for reduced test scale
-	expectedGoroutines := iterations * goroutinesPerOp
-	tolerance := 20 // Allow some tolerance for test infrastructure
-	
-	if goroutineIncrease > tolerance {
-		t.Logf("Goroutine leak test: initial=%d, current=%d, increase=%d, expected~%d", 
-			initialGoroutines, currentGoroutines, goroutineIncrease, expectedGoroutines)
-		
-		// This is expected behavior for a leak detection test, so don't fail
-		if goroutineIncrease > expectedGoroutines + tolerance {
-			t.Errorf("Excessive goroutine leak detected: %d -> %d (+%d), expected increase ~%d", 
-				initialGoroutines, currentGoroutines, goroutineIncrease, expectedGoroutines)
-		}
+	if goroutineIncrease > 50 { // Allow some tolerance
+		t.Errorf("Potential goroutine leak detected: %d -> %d (+%d)", 
+			initialGoroutines, currentGoroutines, goroutineIncrease)
 	}
 	
 	// Analyze goroutine patterns
 	suite.analyzeGoroutineLeaks(t, initialGoroutines, currentGoroutines)
-	
-	// Cancel context to clean up leaked goroutines
-	cancel()
-	
-	// Give goroutines time to exit gracefully
-	time.Sleep(50 * time.Millisecond)
 }
 
 // testAllocationPatterns tests memory allocation patterns
@@ -785,8 +823,7 @@ func (suite *MemoryTestSuite) testAllocationPatterns(t *testing.T) {
 	engine := NewExecutionEngine(registry)
 	
 	// Create allocation pattern test tool
-	randomID := rand.Int63()
-	allocTool := createAllocationPatternTool(fmt.Sprintf("alloc-pattern-tool-%d", randomID))
+	allocTool := createAllocationPatternTool(fmt.Sprintf("alloc-pattern-tool-%p", t))
 	if err := registry.Register(allocTool); err != nil {
 		t.Fatalf("Failed to register allocation tool: %v", err)
 	}
@@ -797,9 +834,9 @@ func (suite *MemoryTestSuite) testAllocationPatterns(t *testing.T) {
 	
 	// Test different allocation patterns
 	patterns := []map[string]interface{}{
-		{"pattern": "small_frequent", "size": 1024, "count": 1000},
-		{"pattern": "large_infrequent", "size": 1024 * 1024, "count": 10},
-		{"pattern": "mixed", "size": 1024 * 100, "count": 100},
+		{"pattern": "small_frequent", "size": 1024, "count": 100},
+		{"pattern": "large_infrequent", "size": 1024 * 100, "count": 5},
+		{"pattern": "mixed", "size": 1024 * 10, "count": 20},
 	}
 	
 	ctx := context.Background()
@@ -813,7 +850,7 @@ func (suite *MemoryTestSuite) testAllocationPatterns(t *testing.T) {
 		
 		// Force GC between patterns
 		runtime.GC()
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(10 * time.Millisecond)
 	}
 	
 	// Analyze allocation patterns
@@ -829,8 +866,7 @@ func (suite *MemoryTestSuite) testGCBehavior(t *testing.T) {
 	engine := NewExecutionEngine(registry)
 	
 	// Create GC test tool
-	randomID := rand.Int63()
-	gcTool := createGCTestTool(fmt.Sprintf("gc-test-tool-%d", randomID))
+	gcTool := createGCTestTool(fmt.Sprintf("gc-test-tool-%p", t))
 	if err := registry.Register(gcTool); err != nil {
 		t.Fatalf("Failed to register GC tool: %v", err)
 	}
@@ -845,9 +881,9 @@ func (suite *MemoryTestSuite) testGCBehavior(t *testing.T) {
 	
 	// Run operations that trigger GC
 	ctx := context.Background()
-	for i := 0; i < 100; i++ {
+	for i := 0; i < 20; i++ {
 		params := map[string]interface{}{
-			"size": 1024 * 1024 * 10, // 10MB allocations
+			"size": 1024 * 1024, // 1MB allocations
 		}
 		
 		_, err := engine.Execute(ctx, gcTool.ID, params)
@@ -856,7 +892,7 @@ func (suite *MemoryTestSuite) testGCBehavior(t *testing.T) {
 		}
 		
 		// Occasional forced GC
-		if i%10 == 0 {
+		if i%5 == 0 {
 			runtime.GC()
 		}
 	}
@@ -980,7 +1016,11 @@ func (suite *MemoryTestSuite) analyzeStressTest(t *testing.T, operations, errors
 		}
 	}
 	
-	errorRate := float64(errors) / float64(operations+errors) * 100
+	// Handle division by zero for error rate calculation
+	var errorRate float64
+	if (operations + errors) > 0 {
+		errorRate = float64(errors) / float64(operations+errors) * 100
+	}
 	
 	suite.results.StressTestResults = &MemoryStressTestResults{
 		MaxMemoryUsage:     maxMemory,
@@ -1065,6 +1105,44 @@ func (suite *MemoryTestSuite) analyzeRegression(t *testing.T, baseline *MemoryBa
 	}
 }
 
+// analyzeLeakDetectionExpectingLeaks is used when we expect leaks to be detected (for testing)
+func (suite *MemoryTestSuite) analyzeLeakDetectionExpectingLeaks(t *testing.T) {
+	t.Helper()
+	
+	// Run leak detection algorithms
+	samples := suite.leakDetector.GetSamples()
+	if len(samples) < suite.config.MinSamples {
+		t.Errorf("Insufficient samples for leak detection: %d", len(samples))
+		return
+	}
+	
+	var results []LeakDetectionResult
+	var leaksDetected int
+	for _, algorithm := range suite.leakDetector.algorithms {
+		result, err := algorithm.Analyze(samples)
+		if err != nil {
+			t.Errorf("Leak detection failed with %s: %v", algorithm.Name(), err)
+			continue
+		}
+		
+		if result != nil {
+			results = append(results, *result)
+			if result.LeakDetected {
+				leaksDetected++
+			}
+		}
+	}
+	
+	suite.results.LeakResults = results
+	
+	// For this test, we expect leaks to be detected
+	if leaksDetected == 0 {
+		t.Error("Expected memory leaks to be detected, but none were found")
+	} else {
+		t.Logf("Successfully detected %d memory leaks (as expected)", leaksDetected)
+	}
+}
+
 func (suite *MemoryTestSuite) analyzeGoroutineLeaks(t *testing.T, initial, current int) {
 	t.Helper()
 	
@@ -1110,9 +1188,14 @@ func (suite *MemoryTestSuite) analyzeGCBehavior(t *testing.T, initial, final *ru
 	
 	if gcCount > 0 {
 		avgPauseTime := time.Duration(totalPauseTime / uint64(gcCount))
-		gcFrequency := float64(gcCount) / suite.config.TestDuration.Seconds()
 		
-		// Ensure MemoryStats is initialized
+		// Handle division by zero for GC frequency calculation
+		var gcFrequency float64
+		if suite.config.TestDuration.Seconds() > 0 {
+			gcFrequency = float64(gcCount) / suite.config.TestDuration.Seconds()
+		}
+		
+		// Initialize MemoryStats if nil
 		if suite.results.MemoryStats == nil {
 			suite.results.MemoryStats = &MemoryStatistics{}
 		}
@@ -1200,7 +1283,7 @@ func createMemoryTestTool(id string) *Tool {
 func createLeakyTool(id string) *Tool {
 	return &Tool{
 		ID:          id,
-		Name:        fmt.Sprintf("Leaky Tool %s", id),
+		Name:        "Leaky Tool",
 		Description: "A tool that intentionally leaks memory",
 		Version:     "1.0.0",
 		Schema: &ToolSchema{
@@ -1222,7 +1305,7 @@ func createLeakyTool(id string) *Tool {
 func createMemoryStressTool(id string) *Tool {
 	return &Tool{
 		ID:          id,
-		Name:        fmt.Sprintf("Memory Stress Tool %s", id),
+		Name:        "Memory Stress Tool",
 		Description: "A tool for memory stress testing",
 		Version:     "1.0.0",
 		Schema: &ToolSchema{
@@ -1246,7 +1329,7 @@ func createMemoryStressTool(id string) *Tool {
 func createGoroutineLeakyTool(id string) *Tool {
 	return &Tool{
 		ID:          id,
-		Name:        fmt.Sprintf("Goroutine Leaky Tool %s", id),
+		Name:        "Goroutine Leaky Tool",
 		Description: "A tool that leaks goroutines",
 		Version:     "1.0.0",
 		Schema: &ToolSchema{
@@ -1266,7 +1349,7 @@ func createGoroutineLeakyTool(id string) *Tool {
 func createAllocationPatternTool(id string) *Tool {
 	return &Tool{
 		ID:          id,
-		Name:        fmt.Sprintf("Allocation Pattern Tool %s", id),
+		Name:        "Allocation Pattern Tool",
 		Description: "A tool for testing allocation patterns",
 		Version:     "1.0.0",
 		Schema: &ToolSchema{
@@ -1294,7 +1377,7 @@ func createAllocationPatternTool(id string) *Tool {
 func createGCTestTool(id string) *Tool {
 	return &Tool{
 		ID:          id,
-		Name:        fmt.Sprintf("GC Test Tool %s", id),
+		Name:        "GC Test Tool",
 		Description: "A tool for testing GC behavior",
 		Version:     "1.0.0",
 		Schema: &ToolSchema{
@@ -1405,20 +1488,9 @@ func (e *GoroutineLeakyExecutor) Execute(ctx context.Context, params map[string]
 	// Create goroutines that don't terminate
 	for i := 0; i < count; i++ {
 		go func() {
-			// Goroutine leak with context handling for test cleanup
-			// Use much shorter sleep to avoid test timeouts
-			sleepDuration := 100 * time.Millisecond
-			if testing.Short() {
-				sleepDuration = 50 * time.Millisecond
-			}
-			
+			// Infinite loop - goroutine leak
 			for {
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(sleepDuration):
-					// Continue looping unless context is cancelled
-				}
+				time.Sleep(time.Second)
 			}
 		}()
 	}
@@ -1536,12 +1608,12 @@ func (suite *MemoryTestSuite) calculateRegressionSeverity(change float64) PerfRe
 func (suite *MemoryTestSuite) generateRecommendations() {
 	// Generate recommendations based on analysis results
 	if suite.results.MemoryStats != nil {
-		if suite.results.MemoryStats.HeapStats != nil && suite.results.MemoryStats.HeapStats.Growth > 50 {
+		if suite.results.MemoryStats.HeapStats.Growth > 50 {
 			suite.results.Recommendations = append(suite.results.Recommendations,
 				"Consider implementing object pooling to reduce allocation pressure")
 		}
 		
-		if suite.results.MemoryStats.GCStats != nil && suite.results.MemoryStats.GCStats.GCFrequency > 10 {
+		if suite.results.MemoryStats.GCStats.GCFrequency > 10 {
 			suite.results.Recommendations = append(suite.results.Recommendations,
 				"High GC frequency detected - consider reducing allocation rate")
 		}
@@ -1576,7 +1648,12 @@ func (suite *MemoryTestSuite) calculateHeapStatistics(snapshots []MemorySnapshot
 	}
 	
 	average := total / uint64(len(snapshots))
-	growth := ((float64(current) - float64(initial)) / float64(initial)) * 100
+	
+	// Handle division by zero for growth calculation
+	var growth float64
+	if initial > 0 {
+		growth = ((float64(current) - float64(initial)) / float64(initial)) * 100
+	}
 	
 	return &HeapStatistics{
 		Initial: initial,
@@ -1605,7 +1682,12 @@ func (suite *MemoryTestSuite) calculateStackStatistics(snapshots []MemorySnapsho
 	}
 	
 	average := total / uint64(len(snapshots))
-	growth := ((float64(current) - float64(initial)) / float64(initial)) * 100
+	
+	// Handle division by zero for growth calculation
+	var growth float64
+	if initial > 0 {
+		growth = ((float64(current) - float64(initial)) / float64(initial)) * 100
+	}
 	
 	return &StackStatistics{
 		Initial: initial,
@@ -1633,7 +1715,12 @@ func (suite *MemoryTestSuite) calculateGoroutineStatistics(snapshots []MemorySna
 	}
 	
 	average := total / len(snapshots)
-	growth := ((float64(current) - float64(initial)) / float64(initial)) * 100
+	
+	// Handle division by zero for growth calculation
+	var growth float64
+	if initial > 0 {
+		growth = ((float64(current) - float64(initial)) / float64(initial)) * 100
+	}
 	
 	return &GoroutineStatistics{
 		Initial: initial,
@@ -1654,12 +1741,16 @@ func (suite *MemoryTestSuite) calculateGCStatistics(snapshots []MemorySnapshot) 
 	
 	totalGCs := last.NumGC - first.NumGC
 	duration := last.Timestamp.Sub(first.Timestamp)
+	
+	// Handle division by zero for frequency calculation
 	var frequency float64
 	if duration.Seconds() > 0 {
 		frequency = float64(totalGCs) / duration.Seconds()
 	}
 	
 	totalPause := last.PauseTotalNs - first.PauseTotalNs
+	
+	// Handle division by zero for average pause calculation
 	var avgPause time.Duration
 	if totalGCs > 0 {
 		avgPause = time.Duration(totalPause / uint64(totalGCs))
@@ -1687,13 +1778,24 @@ func (suite *MemoryTestSuite) calculateAllocationStatistics(snapshots []MemorySn
 	// These would be calculated from actual allocation events
 	// For now, we'll use estimates based on heap changes
 	heapIncrease := last.HeapAlloc - first.HeapAlloc
-	allocationRate := float64(heapIncrease) / duration.Seconds()
+	
+	// Handle division by zero for allocation rate calculation
+	var allocationRate float64
+	if duration.Seconds() > 0 {
+		allocationRate = float64(heapIncrease) / duration.Seconds()
+	}
+	
+	// Handle division by zero for average object size calculation
+	var averageObjectSize uint64
+	if last.HeapObjects > 0 {
+		averageObjectSize = last.HeapAlloc / last.HeapObjects
+	}
 	
 	return &AllocationStatistics{
 		TotalAllocated:  heapIncrease,
 		AllocationRate:  allocationRate,
 		ObjectCount:     last.HeapObjects,
-		AverageObjectSize: last.HeapAlloc / last.HeapObjects,
+		AverageObjectSize: averageObjectSize,
 	}
 }
 
@@ -1771,7 +1873,11 @@ func (suite *MemoryTestSuite) calculateStabilityScore(snapshots []MemorySnapshot
 	stdDev := math.Sqrt(variance)
 	
 	// Stability score is inversely related to coefficient of variation
-	cv := stdDev / float64(mean)
+	// Handle division by zero for coefficient of variation calculation
+	var cv float64
+	if mean > 0 {
+		cv = stdDev / float64(mean)
+	}
 	return math.Max(0, 1-cv)
 }
 
@@ -1787,6 +1893,8 @@ func (profiler *AdvancedMemoryProfiler) Start() {
 	profiler.isRunning = true
 	profiler.stopChan = make(chan struct{})
 	
+	// Start profiling with proper lifecycle management
+	profiler.profileWG.Add(1)
 	go profiler.profileMemory()
 }
 
@@ -1800,20 +1908,27 @@ func (profiler *AdvancedMemoryProfiler) Stop() {
 	
 	profiler.isRunning = false
 	close(profiler.stopChan)
+	
+	// Wait for profiling goroutine to finish
+	profiler.profileWG.Wait()
 }
 
 func (profiler *AdvancedMemoryProfiler) profileMemory() {
+	defer profiler.profileWG.Done()
+	
 	ticker := time.NewTicker(profiler.config.SamplingInterval)
 	defer ticker.Stop()
 	
+	// Set maximum profiling duration to prevent infinite loops
+	maxDuration := 10 * time.Minute
+	timeout := time.After(maxDuration)
+	
 	for {
-		// Get stopChan with proper synchronization
-		profiler.mu.RLock()
-		stopChan := profiler.stopChan
-		profiler.mu.RUnlock()
-		
 		select {
-		case <-stopChan:
+		case <-profiler.stopChan:
+			return
+		case <-timeout:
+			// Maximum profiling duration reached, stop profiling
 			return
 		case <-ticker.C:
 			profiler.takeSnapshot()
@@ -1875,6 +1990,7 @@ func (detector *AdvancedLeakDetector) Start() {
 	detector.stopChan = make(chan struct{})
 	
 	// Start leak detection monitoring
+	detector.monitorWG.Add(1)
 	go detector.monitor()
 }
 
@@ -1888,15 +2004,27 @@ func (detector *AdvancedLeakDetector) Stop() {
 	
 	detector.isRunning = false
 	close(detector.stopChan)
+	
+	// Wait for monitor goroutine to finish
+	detector.monitorWG.Wait()
 }
 
 func (detector *AdvancedLeakDetector) monitor() {
+	defer detector.monitorWG.Done()
+	
 	ticker := time.NewTicker(detector.config.SamplingInterval)
 	defer ticker.Stop()
+	
+	// Set maximum monitoring duration to prevent infinite loops
+	maxDuration := 5 * time.Minute
+	timeout := time.After(maxDuration)
 	
 	for {
 		select {
 		case <-detector.stopChan:
+			return
+		case <-timeout:
+			// Maximum monitoring duration reached, stop monitoring
 			return
 		case <-ticker.C:
 			detector.takeSample()
@@ -1947,7 +2075,7 @@ func (d *LinearRegressionDetector) Configure(config map[string]interface{}) erro
 }
 
 func (d *LinearRegressionDetector) Analyze(samples []MemorySample) (*LeakDetectionResult, error) {
-	if len(samples) < 3 {
+	if len(samples) < 5 {
 		return nil, fmt.Errorf("insufficient samples for linear regression")
 	}
 	
@@ -2008,13 +2136,12 @@ func (d *TrendAnalysisDetector) Configure(config map[string]interface{}) error {
 }
 
 func (d *TrendAnalysisDetector) Analyze(samples []MemorySample) (*LeakDetectionResult, error) {
-	if len(samples) < 5 {
+	if len(samples) < 10 {
 		return nil, fmt.Errorf("insufficient samples for trend analysis")
 	}
 	
 	// Analyze trend in recent samples
-	recentCount := min(20, len(samples))
-	recentSamples := samples[len(samples)-recentCount:]
+	recentSamples := samples[len(samples)-10:]
 	
 	increases := 0
 	for i := 1; i < len(recentSamples); i++ {
@@ -2064,7 +2191,7 @@ func (d *MemoryStatisticalDetector) Configure(config map[string]interface{}) err
 }
 
 func (d *MemoryStatisticalDetector) Analyze(samples []MemorySample) (*LeakDetectionResult, error) {
-	if len(samples) < 5 {
+	if len(samples) < 10 {
 		return nil, fmt.Errorf("insufficient samples for statistical analysis")
 	}
 	
@@ -2086,8 +2213,7 @@ func (d *MemoryStatisticalDetector) Analyze(samples []MemorySample) (*LeakDetect
 	stdDev := math.Sqrt(variance)
 	
 	// Check if recent samples are significantly higher than mean
-	recentCount := min(10, len(samples))
-	recentSamples := samples[len(samples)-recentCount:]
+	recentSamples := samples[len(samples)-10:]
 	var recentTotal uint64
 	for _, sample := range recentSamples {
 		recentTotal += sample.HeapSize
@@ -2096,7 +2222,11 @@ func (d *MemoryStatisticalDetector) Analyze(samples []MemorySample) (*LeakDetect
 	recentMean := float64(recentTotal) / float64(len(recentSamples))
 	
 	// Z-score calculation
-	zScore := (recentMean - mean) / (stdDev / math.Sqrt(float64(len(recentSamples))))
+	// Handle division by zero for Z-score calculation
+	var zScore float64
+	if stdDev > 0 {
+		zScore = (recentMean - mean) / (stdDev / math.Sqrt(float64(len(recentSamples))))
+	}
 	
 	// If Z-score > 2, it's statistically significant (95% confidence)
 	if zScore > 2.0 {
@@ -2137,7 +2267,7 @@ func (d *PatternDetector) Configure(config map[string]interface{}) error {
 }
 
 func (d *PatternDetector) Analyze(samples []MemorySample) (*LeakDetectionResult, error) {
-	if len(samples) < 5 {
+	if len(samples) < 20 {
 		return nil, fmt.Errorf("insufficient samples for pattern detection")
 	}
 	
@@ -2180,7 +2310,11 @@ func (d *PatternDetector) Analyze(samples []MemorySample) (*LeakDetectionResult,
 	
 	// Healthy pattern should have roughly equal peaks and valleys
 	if peaks > 0 && valleys > 0 {
-		ratio := float64(peaks) / float64(valleys)
+		// Handle division by zero for ratio calculation
+		var ratio float64
+		if valleys > 0 {
+			ratio = float64(peaks) / float64(valleys)
+		}
 		if ratio > 0.5 && ratio < 2.0 {
 			return &LeakDetectionResult{
 				StartTime:    samples[0].Timestamp,

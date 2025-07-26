@@ -48,3 +48,8 @@ test_runner.sh
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Temporary commit files
+COMMIT_MESSAGE.txt
+commit_*.sh
+simple_commit.sh

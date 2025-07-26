@@ -1,7 +1,13 @@
 package main
 
-import "github.com/ag-ui/go-sdk/examples/tools/performance/src"
+import (
+	"log"
+
+	cachedemo "github.com/ag-ui/go-sdk/examples/tools/performance/cache-demo"
+)
 
 func main() {
-	performance.RunCacheDemoExample()
+	if err := cachedemo.RunCacheDemoExample(); err != nil {
+		log.Fatalf("Cache demo example failed: %v", err)
+	}
 }

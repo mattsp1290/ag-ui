@@ -10,6 +10,7 @@ import (
 func ExampleStateStore() {
 	// Create a new state store
 	store := state.NewStateStore()
+	defer store.Close()
 
 	// Set some values
 	store.Set("/users/123", map[string]interface{}{
@@ -69,6 +70,7 @@ func ExampleStateStore() {
 
 func ExampleStateStore_transaction() {
 	store := state.NewStateStore()
+	defer store.Close()
 
 	// Initialize with some data
 	store.Set("/inventory", map[string]interface{}{
@@ -106,6 +108,7 @@ func ExampleStateStore_transaction() {
 
 func ExampleStateStore_subscriptions() {
 	store := state.NewStateStore()
+	defer store.Close()
 
 	// Subscribe to specific paths
 	store.Subscribe("/config/features/*", func(change state.StateChange) {

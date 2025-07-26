@@ -15,6 +15,7 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/messages"
+	"github.com/ag-ui/go-sdk/pkg/transport/common"
 )
 
 // Transport interface defines the methods for event transport
@@ -168,7 +169,7 @@ func NewSSETransport(config *Config) (*SSETransport, error) {
 	}
 
 	if config.BaseURL == "" {
-		return nil, messages.NewValidationError("baseURL is required")
+		return nil, fmt.Errorf("baseURL must be provided")
 	}
 
 	if config.Client == nil {
@@ -248,12 +249,12 @@ func (t *SSETransport) Send(ctx context.Context, event events.Event) error {
 	}
 
 	if event == nil {
-		return messages.NewValidationError("event cannot be nil")
+		return fmt.Errorf("validation error: event cannot be nil")
 	}
 
 	// Validate the event
 	if err := event.Validate(); err != nil {
-		return messages.NewValidationError(fmt.Sprintf("event validation failed: %v", err))
+		return fmt.Errorf("validation error: event validation failed: %w", err)
 	}
 
 	// Serialize event to JSON
@@ -277,8 +278,12 @@ func (t *SSETransport) Send(ctx context.Context, event events.Event) error {
 		}
 	}
 
-	// Apply timeout
-	timeoutCtx, cancel := context.WithTimeout(ctx, t.writeTimeout)
+	// Apply timeout (default to 10 seconds if not set)
+	writeTimeout := t.writeTimeout
+	if writeTimeout == 0 {
+		writeTimeout = 10 * time.Second
+	}
+	timeoutCtx, cancel := context.WithTimeout(ctx, writeTimeout)
 	defer cancel()
 	req = req.WithContext(timeoutCtx)
 
@@ -329,7 +334,7 @@ func (t *SSETransport) connect(ctx context.Context) error {
 	sseURL := t.baseURL + "/events/stream"
 	req, err := http.NewRequestWithContext(ctx, "GET", sseURL, nil)
 	if err != nil {
-		return messages.NewStreamingError("transport", 0, fmt.Sprintf("failed to create SSE request: %v", err))
+		return fmt.Errorf("failed to create SSE request: %w", err)
 	}
 
 	// Set SSE headers
@@ -340,7 +345,7 @@ func (t *SSETransport) connect(ctx context.Context) error {
 	// Send request
 	resp, err := t.client.Do(req)
 	if err != nil {
-		return messages.NewStreamingError("transport", 0, fmt.Sprintf("failed to connect to SSE endpoint: %v", err))
+		return fmt.Errorf("failed to connect to SSE endpoint: %w", err)
 	}
 
 	// Check response status
@@ -373,14 +378,42 @@ func (t *SSETransport) readEvents() {
 		case <-t.ctx.Done():
 			return
 		default:
+		}
+
+		// Create a timeout context for each read operation
+		readCtx, cancel := context.WithTimeout(t.ctx, 30*time.Second)
+		
+		// Use a channel to signal completion of read operation
+		type readResult struct {
+			event events.Event
+			err   error
+		}
+		
+		resultChan := make(chan readResult, 1)
+		
+		// Perform read in a separate goroutine
+		go func() {
+			defer cancel()
 			event, err := t.readEvent()
-			if err != nil {
+			select {
+			case resultChan <- readResult{event: event, err: err}:
+			case <-readCtx.Done():
+				// Read was cancelled, don't send result
+			}
+		}()
+
+		// Wait for either the read to complete or context cancellation
+		select {
+		case result := <-resultChan:
+			cancel() // Clean up the read context
+			
+			if result.err != nil {
 				if !t.isClosed() {
 					// Handle error with backpressure control
-					t.handleErrorWithBackpressure(err)
+					t.handleErrorWithBackpressure(result.err)
 					
 					// Try to reconnect
-					if t.shouldReconnect(err) {
+					if t.shouldReconnect(result.err) {
 						if reconnectErr := t.reconnect(); reconnectErr != nil {
 							// Handle reconnection error with backpressure control
 							if !t.isClosed() {
@@ -394,9 +427,22 @@ func (t *SSETransport) readEvents() {
 				return
 			}
 
-			if event != nil && !t.isClosed() {
-				t.handleEventWithBackpressure(event)
+			if result.event != nil && !t.isClosed() {
+				t.handleEventWithBackpressure(result.event)
 			}
+			
+		case <-readCtx.Done():
+			cancel() // Clean up the read context
+			// Check if it's the parent context or timeout
+			if t.ctx.Err() != nil {
+				return // Parent context was cancelled
+			}
+			// Otherwise, it was a read timeout - continue to try again
+			continue
+			
+		case <-t.ctx.Done():
+			cancel() // Clean up the read context
+			return
 		}
 	}
 }
@@ -416,13 +462,21 @@ func (t *SSETransport) readEvent() (events.Event, error) {
 	var retry int
 
 	for {
-		// Note: We can't set read deadline on http.Response.Body directly
-		// This is a limitation of HTTP client implementation
+		// Check for cancellation before each read
+		select {
+		case <-t.ctx.Done():
+			return nil, t.ctx.Err()
+		default:
+		}
 
-		line, err := reader.ReadString('\n')
+		// Read line with timeout awareness
+		line, err := t.readLineWithTimeout()
 		if err != nil {
 			if err == io.EOF {
 				return nil, messages.NewStreamingError("transport", 0, "connection closed")
+			}
+			if err == context.Canceled || err == context.DeadlineExceeded {
+				return nil, err
 			}
 			return nil, messages.NewStreamingError("transport", 0, fmt.Sprintf("failed to read line: %v", err))
 		}
@@ -454,6 +508,34 @@ func (t *SSETransport) readEvent() (events.Event, error) {
 			}
 		}
 		// Ignore comment lines (starting with :)
+	}
+}
+
+// readLineWithTimeout reads a line from the reader with timeout handling
+func (t *SSETransport) readLineWithTimeout() (string, error) {
+	type readResult struct {
+		line string
+		err  error
+	}
+	
+	resultChan := make(chan readResult, 1)
+	
+	// Perform the blocking read in a separate goroutine
+	go func() {
+		line, err := t.reader.ReadString('\n')
+		select {
+		case resultChan <- readResult{line: line, err: err}:
+		case <-t.ctx.Done():
+			// Read was cancelled, don't send result
+		}
+	}()
+	
+	// Wait for either the read to complete or context cancellation
+	select {
+	case result := <-resultChan:
+		return result.line, result.err
+	case <-t.ctx.Done():
+		return "", t.ctx.Err()
 	}
 }
 
@@ -920,8 +1002,13 @@ func (t *SSETransport) reconnect() error {
 	// Close existing connection
 	t.closeConnection()
 
-	// Wait before reconnecting
-	time.Sleep(t.reconnectDelay)
+	// Wait before reconnecting with context cancellation support
+	select {
+	case <-time.After(t.reconnectDelay):
+		// Continue with reconnection
+	case <-t.ctx.Done():
+		return fmt.Errorf("reconnect cancelled: %w", t.ctx.Err())
+	}
 
 	// Attempt to reconnect
 	return t.connect(t.ctx)
@@ -957,9 +1044,20 @@ func (t *SSETransport) Close() error {
 	// Close connection
 	t.closeConnection()
 
-	// Close channels
-	close(t.eventChan)
-	close(t.errorChan)
+	// Give goroutines time to finish and then close channels
+	// The readEvents goroutine will exit when context is cancelled
+	go func() {
+		// Brief delay to allow goroutines to finish
+		time.Sleep(100 * time.Millisecond)
+		
+		// Close channels safely
+		defer func() {
+			recover() // Handle any panic from closing already-closed channels
+		}()
+		
+		close(t.eventChan)
+		close(t.errorChan)
+	}()
 
 	return nil
 }
@@ -1031,7 +1129,7 @@ func (s ConnectionStatus) String() string {
 // FormatSSEEvent formats an event as SSE data
 func FormatSSEEvent(event events.Event) (string, error) {
 	if event == nil {
-		return "", messages.NewValidationError("event cannot be nil")
+		return "", fmt.Errorf("event cannot be nil: %w", common.NewValidationError("event", "required", "event must not be nil", nil))
 	}
 
 	eventData, err := event.ToJSON()
@@ -1064,7 +1162,7 @@ func WriteSSEEvent(w io.Writer, event events.Event) error {
 }
 
 // GetStats returns transport statistics
-func (t *SSETransport) GetStats() TransportStats {
+func (t *SSETransport) Stats() TransportStats {
 	t.connMutex.RLock()
 	defer t.connMutex.RUnlock()
 
@@ -1157,28 +1255,42 @@ func (t *SSETransport) SendBatch(ctx context.Context, events []events.Event) err
 	}
 
 	if len(events) == 0 {
-		return messages.NewValidationError("events list cannot be empty")
+		return fmt.Errorf("events list cannot be empty: %w", common.NewValidationError("events", "required", "events list must contain at least one event", len(events)))
 	}
 
-	// Validate all events first
+	// Validate all events first and collect validation errors
+	batchErr := common.NewBatchError("SendBatch validation", len(events))
 	for i, event := range events {
 		if event == nil {
-			return messages.NewValidationError(fmt.Sprintf("event at index %d cannot be nil", i))
+			batchErr.AddError(i, fmt.Errorf("event at index %d cannot be nil: %w", i, common.NewValidationError("event", "required", "event must not be nil", nil)))
+			continue
 		}
 
 		if err := event.Validate(); err != nil {
-			return messages.NewValidationError(fmt.Sprintf("event at index %d validation failed: %v", i, err))
+			batchErr.AddError(i, fmt.Errorf("event at index %d validation failed: %w", i, err))
 		}
 	}
+	
+	// Return combined validation errors if any occurred
+	if batchErr.HasErrors() {
+		return fmt.Errorf("batch validation failed: %w", batchErr)
+	}
 
-	// Serialize events to JSON array
+	// Serialize events to JSON array and collect serialization errors
 	var eventDataList []json.RawMessage
-	for _, event := range events {
+	serializationErr := common.NewBatchError("SendBatch serialization", len(events))
+	for i, event := range events {
 		eventData, err := event.ToJSON()
 		if err != nil {
-			return messages.NewConversionError("event", "json", string(event.Type()), err.Error())
+			serializationErr.AddError(i, fmt.Errorf("event at index %d serialization failed: %w", i, err))
+			continue
 		}
 		eventDataList = append(eventDataList, eventData)
+	}
+	
+	// Return combined serialization errors if any occurred
+	if serializationErr.HasErrors() {
+		return fmt.Errorf("batch serialization failed: %w", serializationErr)
 	}
 
 	batchData, err := json.Marshal(eventDataList)

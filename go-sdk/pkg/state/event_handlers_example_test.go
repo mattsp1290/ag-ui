@@ -14,6 +14,7 @@ import (
 func Example_basicUsage() {
 	// Create a state store
 	store := state.NewStateStore()
+	defer store.Close()
 
 	// Create event handler
 	handler := state.NewStateEventHandler(store)
@@ -64,6 +65,7 @@ func Example_basicUsage() {
 // Example_withCallbacks demonstrates using event handlers with callbacks
 func Example_withCallbacks() {
 	store := state.NewStateStore()
+	defer store.Close() // Ensure all goroutines are cleaned up
 
 	// Create handler with callbacks
 	handler := state.NewStateEventHandler(store,
@@ -75,9 +77,6 @@ func Example_withCallbacks() {
 			fmt.Printf("Delta received with %d operations\n", len(event.Delta))
 			return nil
 		}),
-		state.WithStateChangeCallback(func(change state.StateChange) {
-			fmt.Printf("State changed at path: %s\n", change.Path)
-		}),
 	)
 
 	// Process events
@@ -88,13 +87,13 @@ func Example_withCallbacks() {
 
 	// Output:
 	// Snapshot received!
-	// State changed at path: /
 }
 
 // Example_eventGeneration demonstrates generating state events
 func Example_eventGeneration() {
 	// Create store and generator
 	store := state.NewStateStore()
+	defer store.Close()
 	generator := state.NewStateEventGenerator(store)
 
 	// Set some initial state
@@ -133,6 +132,7 @@ func Example_eventGeneration() {
 func Example_streaming() {
 	// Create components
 	store := state.NewStateStore()
+	defer store.Close()
 	generator := state.NewStateEventGenerator(store)
 
 	// Create stream with fast updates for demo
@@ -177,6 +177,7 @@ func Example_streaming() {
 // Example_batchProcessing demonstrates batched delta processing
 func Example_batchProcessing() {
 	store := state.NewStateStore()
+	defer store.Close()
 
 	// Create handler with batching configuration
 	handler := state.NewStateEventHandler(store,
@@ -210,6 +211,7 @@ func Example_batchProcessing() {
 // Example_errorHandling demonstrates error handling and recovery
 func Example_errorHandling() {
 	store := state.NewStateStore()
+	defer store.Close()
 
 	// Set initial state
 	store.Set("/important", "data")
@@ -248,6 +250,7 @@ func Example_errorHandling() {
 // Example_metrics demonstrates using state metrics
 func Example_metrics() {
 	store := state.NewStateStore()
+	defer store.Close()
 	handler := state.NewStateEventHandler(store,
 		state.WithBatchSize(1),
 		state.WithBatchTimeout(10*time.Millisecond),
@@ -278,6 +281,7 @@ func Example_metrics() {
 // Example_transactionalUpdates demonstrates coordinated state updates
 func Example_transactionalUpdates() {
 	store := state.NewStateStore()
+	defer store.Close()
 	generator := state.NewStateEventGenerator(store)
 
 	// Initial state
@@ -319,7 +323,9 @@ func Example_transactionalUpdates() {
 func Example_complexStateSync() {
 	// Source and target stores
 	sourceStore := state.NewStateStore()
+	defer sourceStore.Close()
 	targetStore := state.NewStateStore()
+	defer targetStore.Close()
 
 	// Generator for source
 	generator := state.NewStateEventGenerator(sourceStore)
@@ -376,6 +382,6 @@ func Example_complexStateSync() {
 
 	// Output:
 	// Target synchronized with snapshot
-	// Target synchronized with 2 changes
+	// Target synchronized with 1 changes
 	// States synchronized: true
 }

@@ -79,6 +79,44 @@ type Function struct {
 	Arguments string `json:"arguments"`
 }
 
+// FunctionCall is an alias for Function for backward compatibility
+type FunctionCall = Function
+
+// NewMessage creates a new message with the specified role and content
+func NewMessage(role MessageRole, content string) Message {
+	switch role {
+	case RoleUser:
+		return NewUserMessage(content)
+	case RoleAssistant:
+		return NewAssistantMessage(content)
+	case RoleSystem:
+		return NewSystemMessage(content)
+	case RoleDeveloper:
+		return NewDeveloperMessage(content)
+	case RoleTool:
+		// Tool messages require a tool call ID, so we can't create one with just content
+		// Return a basic message for now
+		return &BaseMessage{
+			ID:      uuid.New().String(),
+			Role:    role,
+			Content: &content,
+			Metadata: &MessageMetadata{
+				Timestamp: time.Now(),
+			},
+		}
+	default:
+		// Generic message for unknown roles
+		return &BaseMessage{
+			ID:      uuid.New().String(),
+			Role:    role,
+			Content: &content,
+			Metadata: &MessageMetadata{
+				Timestamp: time.Now(),
+			},
+		}
+	}
+}
+
 // Message is the interface that all message types must implement
 type Message interface {
 	GetID() string
@@ -86,6 +124,9 @@ type Message interface {
 	GetContent() *string
 	GetName() *string
 	GetMetadata() *MessageMetadata
+	GetTimestamp() time.Time
+	SetTimestamp(time.Time)
+	SetMetadata(map[string]interface{})
 	Validate() error
 	ToJSON() ([]byte, error)
 }
@@ -122,6 +163,44 @@ func (m *BaseMessage) GetName() *string {
 // GetMetadata returns the message metadata
 func (m *BaseMessage) GetMetadata() *MessageMetadata {
 	return m.Metadata
+}
+
+// SetMetadata sets the message metadata
+func (m *BaseMessage) SetMetadata(metadata map[string]interface{}) {
+	if m.Metadata == nil {
+		m.Metadata = &MessageMetadata{}
+	}
+	if m.Metadata.CustomFields == nil {
+		m.Metadata.CustomFields = make(map[string]interface{})
+	}
+	for k, v := range metadata {
+		m.Metadata.CustomFields[k] = v
+	}
+}
+
+// SetTimestamp sets the message timestamp
+func (m *BaseMessage) SetTimestamp(timestamp time.Time) {
+	if m.Metadata == nil {
+		m.Metadata = &MessageMetadata{}
+	}
+	m.Metadata.Timestamp = timestamp
+}
+
+// GetTimestamp returns the message timestamp
+func (m *BaseMessage) GetTimestamp() time.Time {
+	if m.Metadata == nil {
+		return time.Time{}
+	}
+	return m.Metadata.Timestamp
+}
+
+// Validate validates the base message
+func (m *BaseMessage) Validate() error {
+	if err := m.Role.Validate(); err != nil {
+		return err
+	}
+	// Basic validation - content is optional for base messages
+	return nil
 }
 
 // ToJSON serializes the message to JSON
@@ -249,6 +328,16 @@ func (m *AssistantMessage) Validate() error {
 // ToJSON serializes the assistant message to JSON
 func (m *AssistantMessage) ToJSON() ([]byte, error) {
 	return json.Marshal(m)
+}
+
+// SetToolCalls sets the tool calls for the assistant message
+func (m *AssistantMessage) SetToolCalls(toolCalls []ToolCall) {
+	m.ToolCalls = toolCalls
+}
+
+// GetToolCalls returns the tool calls for the assistant message
+func (m *AssistantMessage) GetToolCalls() []ToolCall {
+	return m.ToolCalls
 }
 
 // SystemMessage represents a system-level message

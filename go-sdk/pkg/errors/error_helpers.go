@@ -180,8 +180,8 @@ func NewUnsupportedOperationError(operation, component, reason string) *BaseErro
 	}
 }
 
-// NewSerializationError creates a serialization error
-func NewSerializationError(format, operation string, cause error) *BaseError {
+// NewFormatSerializationError creates a format-specific serialization error
+func NewFormatSerializationError(format, operation string, cause error) *BaseError {
 	return &BaseError{
 		Code:      "SERIALIZATION_ERROR",
 		Message:   fmt.Sprintf("%s serialization failed for format %s", operation, format),

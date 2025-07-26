@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 )
@@ -139,6 +140,9 @@ type SchemaProperty struct {
 	MaxProperties *int                       `json:"maxProperties,omitempty"`
 	Properties    map[string]*SchemaProperty `json:"properties,omitempty"`
 	Required      []string                   `json:"required,omitempty"`
+	
+	// PatternProperties defines schemas for properties matching patterns
+	PatternProperties map[string]*SchemaProperty `json:"patternProperties,omitempty"`
 
 	// Conditional schema
 	If   *SchemaProperty `json:"if,omitempty"`
@@ -221,6 +225,9 @@ func (v *stateValidator) Validate(state map[string]interface{}) (*ValidationResu
 		ruleErrors := rule.Validate(state)
 		result.Errors = append(result.Errors, ruleErrors...)
 	}
+
+	// Sort errors for deterministic output
+	sortValidationErrors(result.Errors)
 
 	// Update validity
 	result.Valid = len(result.Errors) == 0
@@ -413,9 +420,10 @@ func (v *stateValidator) validateValue(value interface{}, prop *SchemaProperty, 
 	case "object":
 		if obj, ok := value.(map[string]interface{}); ok {
 			objSchema := &StateSchema{
-				Type:       "object",
-				Properties: prop.Properties,
-				Required:   prop.Required,
+				Type:              "object",
+				Properties:        prop.Properties,
+				Required:          prop.Required,
+				PatternProperties: prop.PatternProperties,
 			}
 			errors = append(errors, v.validateAgainstSchema(obj, objSchema, path)...)
 		}
@@ -801,4 +809,15 @@ func checkDepth(value interface{}, path string, currentDepth, maxDepth int, erro
 			checkDepth(val, fmt.Sprintf("%s[%d]", path, i), currentDepth+1, maxDepth, errors)
 		}
 	}
+}
+
+// sortValidationErrors sorts validation errors for deterministic output.
+// Errors are sorted first by path, then by error code.
+func sortValidationErrors(errors []ValidationError) {
+	sort.Slice(errors, func(i, j int) bool {
+		if errors[i].Path != errors[j].Path {
+			return errors[i].Path < errors[j].Path
+		}
+		return errors[i].Code < errors[j].Code
+	})
 }

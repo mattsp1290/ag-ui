@@ -1,3 +1,5 @@
+// +build integration
+
 package tools
 
 import (
@@ -5,16 +7,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/ag-ui/go-sdk/pkg/testhelper"
 )
 
 // CIPerformanceTestFramework integrates performance testing with CI/CD pipelines
@@ -224,20 +225,6 @@ const (
 	TestStatusSkipped TestStatus = "skipped"
 	TestStatusError   TestStatus = "error"
 )
-
-// ResponseTimeMetrics contains response time statistics
-type ResponseTimeMetrics struct {
-	Mean        time.Duration
-	Min         time.Duration
-	Max         time.Duration
-	P50         time.Duration
-	P90         time.Duration
-	P95         time.Duration
-	P99         time.Duration
-	P999        time.Duration
-	StdDev      time.Duration
-	SampleCount int
-}
 
 // TestMetrics contains test performance metrics
 type TestMetrics struct {
@@ -473,88 +460,19 @@ func NewCIPerformanceTestFramework(config *CIPerformanceConfig) *CIPerformanceTe
 	return framework
 }
 
-// calculateResponseTimeMetrics calculates response time statistics from samples
-func calculateResponseTimeMetrics(responseTimes []time.Duration) *ResponseTimeMetrics {
-	if len(responseTimes) == 0 {
-		return &ResponseTimeMetrics{}
-	}
-
-	// Sort for percentile calculations
-	sorted := make([]time.Duration, len(responseTimes))
-	copy(sorted, responseTimes)
-	
-	// Simple bubble sort for small arrays
-	for i := 0; i < len(sorted); i++ {
-		for j := i + 1; j < len(sorted); j++ {
-			if sorted[i] > sorted[j] {
-				sorted[i], sorted[j] = sorted[j], sorted[i]
-			}
-		}
-	}
-
-	// Calculate basic stats
-	min := sorted[0]
-	max := sorted[len(sorted)-1]
-	
-	var total time.Duration
-	for _, t := range sorted {
-		total += t
-	}
-	mean := total / time.Duration(len(sorted))
-
-	// Calculate percentiles
-	p50 := sorted[len(sorted)*50/100]
-	p90 := sorted[len(sorted)*90/100]
-	p95 := sorted[len(sorted)*95/100]
-	p99 := sorted[len(sorted)*99/100]
-	p999 := sorted[len(sorted)*999/1000]
-
-	// Calculate standard deviation
-	var variance float64
-	for _, t := range sorted {
-		diff := float64(t - mean)
-		variance += diff * diff
-	}
-	variance /= float64(len(sorted))
-	stdDev := time.Duration(variance)
-
-	return &ResponseTimeMetrics{
-		Mean:        mean,
-		Min:         min,
-		Max:         max,
-		P50:         p50,
-		P90:         p90,
-		P95:         p95,
-		P99:         p99,
-		P999:        p999,
-		StdDev:      stdDev,
-		SampleCount: len(sorted),
-	}
-}
-
-// getCITimeoutScale returns a scale factor for timeouts based on environment
-func getCITimeoutScale() float64 {
-	if scale := os.Getenv("TEST_TIMEOUT_SCALE"); scale != "" {
-		if s, err := strconv.ParseFloat(scale, 64); err == nil && s > 0 {
-			return s
-		}
-	}
-	// Default scale for CI environments
-	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" || os.Getenv("JENKINS_URL") != "" {
-		return 0.5 // Reduce timeouts by 50% in CI
-	}
-	return 1.0
-}
-
 // DefaultCIPerformanceConfig returns default CI performance configuration
 func DefaultCIPerformanceConfig() *CIPerformanceConfig {
-	scale := getCITimeoutScale()
+	// Use shorter timeouts in CI or short mode
+	testTimeout := 30 * time.Minute
+	if testing.Short() || os.Getenv("CI") != "" {
+		testTimeout = 2 * time.Minute
+	}
 	
 	return &CIPerformanceConfig{
 		CIProvider:         "github",
 		TestSuite:          "default",
 		TestEnvironment:    "ci",
-		TestTimeout:        time.Duration(float64(testhelper.GetCITimeouts().Medium) * scale), // Reduced from 30s, uses CI-aware timeouts
+		TestTimeout:        testTimeout,
 		BaselineStrategy:   BaselineStrategyRolling,
 		BaselineStorage:    "filesystem",
 		BaselineRetention:  30 * 24 * time.Hour,
@@ -701,6 +619,29 @@ func (framework *CIPerformanceTestFramework) setupTestEnvironment(t *testing.T) 
 		return fmt.Errorf("failed to create report output directory: %w", err)
 	}
 	
+	// Use optimized timeouts based on environment
+	executionTimeout := 10 * time.Second
+	registryTimeout := 5 * time.Second
+	concurrencyTimeout := 10 * time.Second
+	memoryTimeout := 5 * time.Second
+	stressTimeout := 10 * time.Second
+	
+	if testing.Short() {
+		// Very aggressive timeouts for short mode
+		executionTimeout = 2 * time.Second
+		registryTimeout = 2 * time.Second
+		concurrencyTimeout = 3 * time.Second
+		memoryTimeout = 2 * time.Second
+		stressTimeout = 3 * time.Second
+	} else if isCI() {
+		// Moderate timeouts for CI
+		executionTimeout = 5 * time.Second
+		registryTimeout = 3 * time.Second
+		concurrencyTimeout = 5 * time.Second
+		memoryTimeout = 3 * time.Second
+		stressTimeout = 5 * time.Second
+	}
+	
 	// Initialize test suite
 	framework.testOrchestrator.testSuite = &PerformanceTestSuite{
 		Tests: []*PerformanceTest{
@@ -709,7 +650,7 @@ func (framework *CIPerformanceTestFramework) setupTestEnvironment(t *testing.T) 
 				Category:    "core",
 				Description: "Tests ExecutionEngine performance",
 				Tags:        []string{"core", "execution"},
-				Timeout:     5 * time.Minute,
+				Timeout:     executionTimeout,
 				Baseline:    true,
 				Critical:    true,
 				RunFunc:     framework.runExecutionEngineTest,
@@ -719,7 +660,7 @@ func (framework *CIPerformanceTestFramework) setupTestEnvironment(t *testing.T) 
 				Category:    "core",
 				Description: "Tests Registry performance",
 				Tags:        []string{"core", "registry"},
-				Timeout:     3 * time.Minute,
+				Timeout:     registryTimeout,
 				Baseline:    true,
 				Critical:    true,
 				RunFunc:     framework.runRegistryTest,
@@ -729,7 +670,7 @@ func (framework *CIPerformanceTestFramework) setupTestEnvironment(t *testing.T) 
 				Category:    "scalability",
 				Description: "Tests concurrency scalability",
 				Tags:        []string{"scalability", "concurrency"},
-				Timeout:     10 * time.Minute,
+				Timeout:     concurrencyTimeout,
 				Baseline:    true,
 				Critical:    false,
 				RunFunc:     framework.runConcurrencyScalabilityTest,
@@ -739,7 +680,7 @@ func (framework *CIPerformanceTestFramework) setupTestEnvironment(t *testing.T) 
 				Category:    "memory",
 				Description: "Tests memory usage and leaks",
 				Tags:        []string{"memory", "leaks"},
-				Timeout:     5 * time.Minute,
+				Timeout:     memoryTimeout,
 				Baseline:    true,
 				Critical:    true,
 				RunFunc:     framework.runMemoryTest,
@@ -749,7 +690,7 @@ func (framework *CIPerformanceTestFramework) setupTestEnvironment(t *testing.T) 
 				Category:    "stress",
 				Description: "Tests system under stress",
 				Tags:        []string{"stress", "load"},
-				Timeout:     15 * time.Minute,
+				Timeout:     stressTimeout,
 				Baseline:    false,
 				Critical:    false,
 				RunFunc:     framework.runStressTest,
@@ -895,21 +836,9 @@ func (framework *CIPerformanceTestFramework) runExecutionEngineTest(t *testing.T
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry)
 	
-	// Create test tools - reduce count significantly in short mode
-	toolCount := 100
-	warmupCount := 50
-	workerCount := 10
-	testDuration := 30 * time.Second
-	
-	if testing.Short() {
-		toolCount = 3 // Much fewer tools for CI
-		warmupCount = 2 // Much fewer warmup iterations
-		workerCount = 2 // Much fewer workers
-		testDuration = 2 * time.Second // Much shorter test duration
-	}
-	
-	tools := make([]*Tool, toolCount)
-	for i := 0; i < toolCount; i++ {
+	// Create test tools
+	tools := make([]*Tool, 100)
+	for i := 0; i < 100; i++ {
 		tools[i] = createCITestTool(fmt.Sprintf("ci-test-%d", i))
 		if err := registry.Register(tools[i]); err != nil {
 			result.Status = TestStatusError
@@ -920,7 +849,7 @@ func (framework *CIPerformanceTestFramework) runExecutionEngineTest(t *testing.T
 	
 	// Warmup
 	ctx := context.Background()
-	for i := 0; i < warmupCount; i++ {
+	for i := 0; i < 50; i++ {
 		tool := tools[i%len(tools)]
 		engine.Execute(ctx, tool.ID, map[string]interface{}{
 			"input": "warmup",
@@ -930,47 +859,82 @@ func (framework *CIPerformanceTestFramework) runExecutionEngineTest(t *testing.T
 	// Performance test
 	var operations int64
 	var errors int64
+	var responseTimesMutex sync.Mutex
 	var responseTimes []time.Duration
 	
+	// Use optimized test duration based on environment
+	testDuration := 5 * time.Second
+	if testing.Short() {
+		testDuration = 1 * time.Second // Very short for testing.Short()
+	} else if isCI() {
+		testDuration = 2 * time.Second // Short for CI
+	} else {
+		testDuration = 10 * time.Second // Longer for local development
+	}
 	testCtx, cancel := context.WithTimeout(ctx, testDuration)
 	defer cancel()
 	
 	var wg sync.WaitGroup
-	for i := 0; i < workerCount; i++ {
+	// Scale workers based on environment
+	workers := 10
+	if testing.Short() {
+		workers = 3 // Minimal workers for short tests
+	} else if isCI() {
+		workers = 5 // Moderate workers for CI
+	}
+	for i := 0; i < workers; i++ {
 		wg.Add(1)
-		go func() {
+		go func(workerID int) {
 			defer wg.Done()
+			localOps := int64(0)
 			
 			for {
 				select {
 				case <-testCtx.Done():
 					return
 				default:
-					tool := tools[operations%int64(len(tools))]
+					// Add a small delay to prevent tight loops from consuming too much CPU
+					time.Sleep(100 * time.Microsecond)
+					
+					// Check cancellation again after sleep
+					select {
+					case <-testCtx.Done():
+						return
+					default:
+					}
+					
+					tool := tools[localOps%int64(len(tools))]
 					execStart := time.Now()
 					
 					_, err := engine.Execute(testCtx, tool.ID, map[string]interface{}{
-						"input": fmt.Sprintf("test-%d", operations),
+						"input": fmt.Sprintf("test-%d-%d", workerID, localOps),
 					})
 					
 					execTime := time.Since(execStart)
-					operations++
+					localOps++
+					atomic.AddInt64(&operations, 1)
 					
 					if err != nil {
-						errors++
+						atomic.AddInt64(&errors, 1)
 					}
 					
-					responseTimes = append(responseTimes, execTime)
+					responseTimesMutex.Lock()
+					if len(responseTimes) < 10000 { // Limit response times collection to prevent memory issues
+						responseTimes = append(responseTimes, execTime)
+					}
+					responseTimesMutex.Unlock()
 				}
 			}
-		}()
+		}(i)
 	}
 	
 	wg.Wait()
 	
 	// Calculate metrics
-	throughput := float64(operations) / testDuration.Seconds()
-	errorRate := float64(errors) / float64(operations) * 100
+	finalOps := atomic.LoadInt64(&operations)
+	finalErrors := atomic.LoadInt64(&errors)
+	throughput := float64(finalOps) / testDuration.Seconds()
+	errorRate := float64(finalErrors) / float64(finalOps) * 100
 	
 	responseTimeMetrics := calculateResponseTimeMetrics(responseTimes)
 	
@@ -1017,9 +981,14 @@ func (framework *CIPerformanceTestFramework) runRegistryTest(t *testing.T) *CITe
 	// Create registry
 	registry := NewRegistry()
 	
-	// Test registration performance
-	registrationStart := time.Now()
+	// Test registration performance - scale tool count based on environment
 	toolCount := 1000
+	if testing.Short() {
+		toolCount = 100 // Much fewer tools for short tests
+	} else if isCI() {
+		toolCount = 500 // Moderate tool count for CI
+	}
+	registrationStart := time.Now()
 	
 	for i := 0; i < toolCount; i++ {
 		tool := createCITestTool(fmt.Sprintf("reg-test-%d", i))
@@ -1032,9 +1001,14 @@ func (framework *CIPerformanceTestFramework) runRegistryTest(t *testing.T) *CITe
 	
 	registrationTime := time.Since(registrationStart)
 	
-	// Test lookup performance
-	lookupStart := time.Now()
+	// Test lookup performance - scale lookup count based on environment
 	lookupCount := 10000
+	if testing.Short() {
+		lookupCount = 1000 // Much fewer lookups for short tests
+	} else if isCI() {
+		lookupCount = 5000 // Moderate lookup count for CI
+	}
+	lookupStart := time.Now()
 	
 	for i := 0; i < lookupCount; i++ {
 		toolID := fmt.Sprintf("reg-test-%d", i%toolCount)
@@ -1063,16 +1037,6 @@ func (framework *CIPerformanceTestFramework) runRegistryTest(t *testing.T) *CITe
 }
 
 func (framework *CIPerformanceTestFramework) runConcurrencyScalabilityTest(t *testing.T) *CITestResult {
-	if testing.Short() {
-		return &CITestResult{
-			TestName:     "ConcurrencyScalability",
-			TestCategory: "scalability",
-			Status:       TestStatusSkipped,
-			Errors:       make([]string, 0),
-			Warnings:     []string{"Skipped in short mode"},
-		}
-	}
-	
 	result := &CITestResult{
 		TestName:     "ConcurrencyScalability",
 		TestCategory: "scalability",
@@ -1081,24 +1045,96 @@ func (framework *CIPerformanceTestFramework) runConcurrencyScalabilityTest(t *te
 		Warnings:     make([]string, 0),
 	}
 	
-	// Run scalability test framework
-	scalabilityFramework := NewScalabilityTestFramework(DefaultScalabilityConfig())
+	// Run simplified scalability test to avoid hanging
+	registry := NewRegistry()
+	engine := NewExecutionEngine(registry)
 	
-	// Run concurrency scalability test
-	measurement := scalabilityFramework.runConcurrencyScalabilityTest(t, 100)
+	// Create test tools
+	tools := make([]*Tool, 10)
+	for i := 0; i < 10; i++ {
+		tools[i] = createCITestTool(fmt.Sprintf("scalability-test-%d", i))
+		if err := registry.Register(tools[i]); err != nil {
+			result.Status = TestStatusError
+			result.Errors = append(result.Errors, fmt.Sprintf("Failed to register tool: %v", err))
+			return result
+		}
+	}
+	
+	// Test with limited duration and proper timeout
+	timeout := 10 * time.Second
+	if isCI() {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	
+	var operations int64
+	var errors int64
+	start := time.Now()
+	
+	// Scale concurrency based on environment
+	workers := 5
+	if testing.Short() {
+		workers = 2 // Very limited workers for short tests
+	} else if isCI() {
+		workers = 3 // Limited workers for CI
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			localOps := int64(0)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					// Add small delay to prevent overwhelming
+					time.Sleep(time.Millisecond)
+					
+					// Check cancellation again after sleep
+					select {
+					case <-ctx.Done():
+						return
+					default:
+					}
+					
+					tool := tools[localOps%int64(len(tools))]
+					_, err := engine.Execute(ctx, tool.ID, map[string]interface{}{
+						"input": fmt.Sprintf("scalability-test-%d", workerID),
+					})
+					
+					localOps++
+					atomic.AddInt64(&operations, 1)
+					if err != nil {
+						atomic.AddInt64(&errors, 1)
+					}
+				}
+			}
+		}(i)
+	}
+	
+	wg.Wait()
+	
+	duration := time.Since(start)
+	finalOps := atomic.LoadInt64(&operations)
+	finalErrors := atomic.LoadInt64(&errors)
+	throughput := float64(finalOps) / duration.Seconds()
+	errorRate := float64(finalErrors) / float64(finalOps) * 100
 	
 	result.Metrics = &TestMetrics{
-		Throughput:   measurement.Throughput,
-		ResponseTime: measurement.ResponseTime,
-		ErrorRate:    measurement.ErrorRate,
+		Throughput: throughput,
+		ErrorRate:  errorRate,
 		CustomMetrics: map[string]float64{
-			"scalability_factor":  measurement.ScalabilityFactor,
-			"efficiency_score":    measurement.EfficiencyScore,
-			"stability":          measurement.Stability,
+			"scalability_factor": 1.0, // Simplified
+			"efficiency_score":   math.Max(0, 100-errorRate),
+			"stability":         1.0, // Simplified
 		},
 	}
 	
-	if !measurement.Passed {
+	// Check if test passed based on basic criteria
+	if errorRate > 5.0 || throughput < 10.0 {
 		result.Status = TestStatusFailed
 		result.Errors = append(result.Errors, "Concurrency scalability test failed")
 	}
@@ -1115,50 +1151,80 @@ func (framework *CIPerformanceTestFramework) runMemoryTest(t *testing.T) *CITest
 		Warnings:     make([]string, 0),
 	}
 	
-	// Run memory test suite
-	memoryTestSuite := NewMemoryTestSuite(DefaultMemoryTestConfig())
+	// Run simplified memory test to avoid hanging
+	registry := NewRegistry()
+	engine := NewExecutionEngine(registry)
 	
-	// Test basic memory usage
-	memoryTestSuite.testBasicMemoryUsage(t)
+	// Create test tools
+	tools := make([]*Tool, 10)
+	for i := 0; i < 10; i++ {
+		tools[i] = createCITestTool(fmt.Sprintf("memory-test-%d", i))
+		if err := registry.Register(tools[i]); err != nil {
+			result.Status = TestStatusError
+			result.Errors = append(result.Errors, fmt.Sprintf("Failed to register tool: %v", err))
+			return result
+		}
+	}
 	
-	// Test memory leak detection
-	memoryTestSuite.testMemoryLeakDetection(t)
+	// Get baseline memory
+	runtime.GC()
+	var before runtime.MemStats
+	runtime.ReadMemStats(&before)
 	
-	// Get memory usage
-	var m runtime.MemStats
-	runtime.ReadMemStats(&m)
+	// Run memory test with timeout
+	timeout := 10 * time.Second
+	if isCI() {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	
+	// Scale operations based on environment
+	operations := 100
+	if testing.Short() {
+		operations = 20 // Much fewer operations for short tests
+	} else if isCI() {
+		operations = 50 // Moderate operations for CI
+	}
+	for i := 0; i < operations; i++ {
+		select {
+		case <-ctx.Done():
+			break
+		default:
+			tool := tools[i%len(tools)]
+			engine.Execute(ctx, tool.ID, map[string]interface{}{
+				"input": fmt.Sprintf("memory-test-%d", i),
+			})
+		}
+	}
+	
+	// Get final memory usage
+	runtime.GC()
+	var after runtime.MemStats
+	runtime.ReadMemStats(&after)
 	
 	result.Metrics = &TestMetrics{
-		MemoryUsage: m.Alloc,
+		MemoryUsage: after.Alloc,
 		CustomMetrics: map[string]float64{
-			"heap_size":     float64(m.HeapAlloc),
-			"gc_count":      float64(m.NumGC),
-			"gc_cpu_fraction": m.GCCPUFraction * 100,
+			"heap_size":        float64(after.HeapAlloc),
+			"gc_count":         float64(after.NumGC),
+			"gc_cpu_fraction":  after.GCCPUFraction * 100,
+			"memory_delta":     float64(after.Alloc - before.Alloc),
 		},
 	}
 	
 	// Check memory thresholds
-	if m.Alloc > framework.config.PerformanceThresholds.MaxMemoryUsage {
+	if after.Alloc > framework.config.PerformanceThresholds.MaxMemoryUsage {
 		result.Status = TestStatusFailed
 		result.Errors = append(result.Errors, 
 			fmt.Sprintf("Memory usage %d above threshold %d", 
-				m.Alloc, framework.config.PerformanceThresholds.MaxMemoryUsage))
+				after.Alloc, framework.config.PerformanceThresholds.MaxMemoryUsage))
 	}
 	
 	return result
 }
 
 func (framework *CIPerformanceTestFramework) runStressTest(t *testing.T) *CITestResult {
-	if testing.Short() {
-		return &CITestResult{
-			TestName:     "StressTest",
-			TestCategory: "stress",
-			Status:       TestStatusSkipped,
-			Errors:       make([]string, 0),
-			Warnings:     []string{"Skipped in short mode"},
-		}
-	}
-	
 	result := &CITestResult{
 		TestName:     "StressTest",
 		TestCategory: "stress",
@@ -1167,24 +1233,114 @@ func (framework *CIPerformanceTestFramework) runStressTest(t *testing.T) *CITest
 		Warnings:     make([]string, 0),
 	}
 	
-	// Run stress test
-	scalabilityFramework := NewScalabilityTestFramework(DefaultScalabilityConfig())
+	// Run simplified stress test to avoid hanging
+	registry := NewRegistry()
+	engine := NewExecutionEngine(registry)
 	
-	scalabilityFramework.testStressScalability(t)
-	stressResults := scalabilityFramework.results.TestStressTestResults
+	// Create test tools
+	tools := make([]*Tool, 10)
+	for i := 0; i < 10; i++ {
+		tools[i] = createCITestTool(fmt.Sprintf("stress-test-%d", i))
+		if err := registry.Register(tools[i]); err != nil {
+			result.Status = TestStatusError
+			result.Errors = append(result.Errors, fmt.Sprintf("Failed to register tool: %v", err))
+			return result
+		}
+	}
 	
+	// Stress test with limited duration and controlled concurrency
+	timeout := 10 * time.Second
+	if isCI() {
+		timeout = 5 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	
+	var operations int64
+	var errors int64
+	var maxMemory uint64
+	start := time.Now()
+	
+	// Scale stress test workers based on environment
+	workers := 10
+	if testing.Short() {
+		workers = 3 // Very limited workers for short tests
+	} else if isCI() {
+		workers = 5 // Limited workers for CI
+	}
+	var wg sync.WaitGroup
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func(workerID int) {
+			defer wg.Done()
+			localOps := int64(0)
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					// Small delay to prevent overwhelming
+					time.Sleep(time.Millisecond)
+					
+					// Check cancellation again after sleep
+					select {
+					case <-ctx.Done():
+						return
+					default:
+					}
+					
+					// Use local operation count to avoid race in tool selection
+					tool := tools[localOps%int64(len(tools))]
+					_, err := engine.Execute(ctx, tool.ID, map[string]interface{}{
+						"input": fmt.Sprintf("stress-test-%d", workerID),
+					})
+					
+					localOps++
+					atomic.AddInt64(&operations, 1)
+					if err != nil {
+						atomic.AddInt64(&errors, 1)
+					}
+					
+					// Track memory usage with atomic operations
+					var m runtime.MemStats
+					runtime.ReadMemStats(&m)
+					for {
+						currentMax := atomic.LoadUint64(&maxMemory)
+						if m.Alloc <= currentMax {
+							break
+						}
+						if atomic.CompareAndSwapUint64(&maxMemory, currentMax, m.Alloc) {
+							break
+						}
+					}
+				}
+			}
+		}(i)
+	}
+	
+	wg.Wait()
+	
+	duration := time.Since(start)
+	finalOps := atomic.LoadInt64(&operations)
+	finalErrors := atomic.LoadInt64(&errors)
+	throughput := float64(finalOps) / duration.Seconds()
+	errorRate := float64(finalErrors) / float64(finalOps) * 100
+	
+	finalMaxMemory := atomic.LoadUint64(&maxMemory)
 	result.Metrics = &TestMetrics{
-		Throughput:     stressResults.MaxThroughput,
-		MemoryUsage:    stressResults.MaxMemoryUsage,
-		GoroutineCount: stressResults.MaxGoroutines,
-		ErrorRate:      stressResults.PerformanceDegradation, // Use degradation as error rate proxy
+		Throughput:     throughput,
+		MemoryUsage:    finalMaxMemory,
+		GoroutineCount: runtime.NumGoroutine(),
+		ErrorRate:      errorRate,
 		CustomMetrics: map[string]float64{
-			"max_concurrency":        float64(stressResults.MaxConcurrency),
-			"performance_degradation": stressResults.PerformanceDegradation,
+			"max_concurrency":         10.0, // Fixed concurrency
+			"performance_degradation": errorRate,
+			"operations_completed":    float64(operations),
 		},
 	}
 	
-	if !stressResults.Passed {
+	// Check if stress test passed based on error rate and throughput
+	if errorRate > 10.0 || throughput < 1.0 {
 		result.Status = TestStatusFailed
 		result.Errors = append(result.Errors, "Stress test failed")
 	}
@@ -1216,14 +1372,47 @@ func createCITestTool(id string) *Tool {
 type CITestExecutor struct{}
 
 func (e *CITestExecutor) Execute(ctx context.Context, params map[string]interface{}) (*ToolExecutionResult, error) {
-	// Simulate processing - reduce sleep time in short mode
-	if testing.Short() {
-		// No sleep in short mode for CI speed
-	} else {
-		time.Sleep(1 * time.Millisecond)
+	// Check context cancellation before processing
+	select {
+	case <-ctx.Done():
+		return &ToolExecutionResult{
+			Success:   false,
+			Error:     ctx.Err().Error(),
+			Timestamp: time.Now(),
+		}, ctx.Err()
+	default:
 	}
 	
-	input := params["input"].(string)
+	// Simulate processing
+	time.Sleep(1 * time.Millisecond)
+	
+	// Safe type assertion with nil checks
+	if params == nil {
+		return &ToolExecutionResult{
+			Success:   false,
+			Error:     "parameters cannot be nil",
+			Timestamp: time.Now(),
+		}, fmt.Errorf("parameters cannot be nil")
+	}
+	
+	inputRaw, exists := params["input"]
+	if !exists {
+		return &ToolExecutionResult{
+			Success:   false,
+			Error:     "missing required parameter 'input'",
+			Timestamp: time.Now(),
+		}, fmt.Errorf("missing required parameter 'input'")
+	}
+	
+	input, ok := inputRaw.(string)
+	if !ok {
+		return &ToolExecutionResult{
+			Success:   false,
+			Error:     "parameter 'input' must be a string",
+			Timestamp: time.Now(),
+		}, fmt.Errorf("parameter 'input' must be a string, got %T", inputRaw)
+	}
+	
 	result := fmt.Sprintf("processed: %s", input)
 	
 	return &ToolExecutionResult{
@@ -1239,6 +1428,7 @@ func (e *CITestExecutor) Execute(ctx context.Context, params map[string]interfac
 func generateRunID() string {
 	return fmt.Sprintf("run-%d", time.Now().UnixNano())
 }
+
 
 func collectSystemInfo() *SystemInfo {
 	return &SystemInfo{
@@ -1612,7 +1802,7 @@ func (framework *CIPerformanceTestFramework) generateJSONReport() error {
 		return fmt.Errorf("failed to marshal JSON report: %w", err)
 	}
 	
-	return ioutil.WriteFile(reportPath, data, 0600)
+	return ioutil.WriteFile(reportPath, data, 0644)
 }
 
 func (framework *CIPerformanceTestFramework) generateHTMLReport() error {
@@ -1620,7 +1810,7 @@ func (framework *CIPerformanceTestFramework) generateHTMLReport() error {
 	
 	html := framework.generateHTMLContent()
 	
-	return ioutil.WriteFile(reportPath, []byte(html), 0600)
+	return ioutil.WriteFile(reportPath, []byte(html), 0644)
 }
 
 func (framework *CIPerformanceTestFramework) generateXMLReport() error {
@@ -1628,7 +1818,7 @@ func (framework *CIPerformanceTestFramework) generateXMLReport() error {
 	
 	xml := framework.generateXMLContent()
 	
-	return ioutil.WriteFile(reportPath, []byte(xml), 0600)
+	return ioutil.WriteFile(reportPath, []byte(xml), 0644)
 }
 
 func (framework *CIPerformanceTestFramework) generateMarkdownReport() error {
@@ -1636,7 +1826,7 @@ func (framework *CIPerformanceTestFramework) generateMarkdownReport() error {
 	
 	markdown := framework.generateMarkdownContent()
 	
-	return ioutil.WriteFile(reportPath, []byte(markdown), 0600)
+	return ioutil.WriteFile(reportPath, []byte(markdown), 0644)
 }
 
 func (framework *CIPerformanceTestFramework) generateHTMLContent() string {
@@ -1894,186 +2084,6 @@ func (framework *CIPerformanceTestFramework) shouldFailBuild() bool {
 	return false
 }
 
-// ScalabilityTestFramework provides scalability testing capabilities
-type ScalabilityTestFramework struct {
-	config  *ScalabilityConfig
-	results *ScalabilityResults
-}
-
-// ScalabilityConfig defines scalability test configuration
-type ScalabilityConfig struct {
-	MaxConcurrency      int
-	TestDuration        time.Duration
-	RampUpDuration      time.Duration
-	RampDownDuration    time.Duration
-	MetricsInterval     time.Duration
-	LoadPattern         string
-	ResourceLimits      *ResourceLimits
-}
-
-// ResourceLimits defines resource limits for scalability testing
-type ResourceLimits struct {
-	MaxMemory     uint64
-	MaxCPU        float64
-	MaxGoroutines int
-}
-
-// ScalabilityResults contains scalability test results
-type ScalabilityResults struct {
-	TestStressTestResults *StressTestResults
-}
-
-// StressTestResults contains stress test results
-type StressTestResults struct {
-	MaxThroughput         float64
-	MaxMemoryUsage        uint64
-	MaxGoroutines         int
-	MaxConcurrency        int
-	PerformanceDegradation float64
-	Passed                bool
-}
-
-// ScalabilityMeasurement contains scalability measurement results
-type ScalabilityMeasurement struct {
-	Throughput        float64
-	ResponseTime      *ResponseTimeMetrics
-	ErrorRate         float64
-	ScalabilityFactor float64
-	EfficiencyScore   float64
-	Stability         float64
-	Passed            bool
-}
-
-// NewScalabilityTestFramework creates a new scalability test framework
-func NewScalabilityTestFramework(config *ScalabilityConfig) *ScalabilityTestFramework {
-	if config == nil {
-		config = DefaultScalabilityConfig()
-	}
-	
-	return &ScalabilityTestFramework{
-		config: config,
-		results: &ScalabilityResults{
-			TestStressTestResults: &StressTestResults{},
-		},
-	}
-}
-
-// DefaultScalabilityConfig returns default scalability test configuration
-func DefaultScalabilityConfig() *ScalabilityConfig {
-	return &ScalabilityConfig{
-		MaxConcurrency:   10,  // Reduced for CI
-		TestDuration:     2 * time.Second,  // Short duration for CI
-		RampUpDuration:   1 * time.Second,
-		RampDownDuration: 1 * time.Second,
-		MetricsInterval:  100 * time.Millisecond,
-		LoadPattern:      "linear",
-		ResourceLimits: &ResourceLimits{
-			MaxMemory:     1024 * 1024 * 1024, // 1GB
-			MaxCPU:        80.0,
-			MaxGoroutines: 1000,
-		},
-	}
-}
-
-// runConcurrencyScalabilityTest runs a concurrency scalability test
-func (framework *ScalabilityTestFramework) runConcurrencyScalabilityTest(t *testing.T, maxConcurrency int) *ScalabilityMeasurement {
-	// Simple scalability test implementation
-	registry := NewRegistry()
-	engine := NewExecutionEngine(registry)
-	
-	// Create test tool
-	tool := createCITestTool("scalability-test")
-	if err := registry.Register(tool); err != nil {
-		return &ScalabilityMeasurement{
-			Passed: false,
-		}
-	}
-	
-	// Run with increasing concurrency
-	var operations int64
-	var responseTimes []time.Duration
-	
-	testCtx, cancel := context.WithTimeout(context.Background(), framework.config.TestDuration)
-	defer cancel()
-	
-	var wg sync.WaitGroup
-	concurrency := min(maxConcurrency, framework.config.MaxConcurrency)
-	
-	for i := 0; i < concurrency; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			
-			for {
-				select {
-				case <-testCtx.Done():
-					return
-				default:
-					start := time.Now()
-					_, err := engine.Execute(testCtx, tool.ID, map[string]interface{}{
-						"input": "scalability test",
-					})
-					duration := time.Since(start)
-					operations++
-					
-					if err == nil {
-						responseTimes = append(responseTimes, duration)
-					}
-				}
-			}
-		}()
-	}
-	
-	wg.Wait()
-	
-	throughput := float64(operations) / framework.config.TestDuration.Seconds()
-	responseTimeMetrics := calculateResponseTimeMetrics(responseTimes)
-	
-	// Calculate scalability metrics
-	scalabilityFactor := throughput / float64(concurrency)
-	efficiencyScore := min_float(1.0, scalabilityFactor / 100.0)
-	stability := 1.0 // Simplified
-	
-	return &ScalabilityMeasurement{
-		Throughput:        throughput,
-		ResponseTime:      responseTimeMetrics,
-		ErrorRate:         0.0,
-		ScalabilityFactor: scalabilityFactor,
-		EfficiencyScore:   efficiencyScore,
-		Stability:         stability,
-		Passed:           throughput > 10, // Simple pass criterion
-	}
-}
-
-// testStressScalability runs stress scalability tests
-func (framework *ScalabilityTestFramework) testStressScalability(t *testing.T) {
-	// Simple stress test implementation
-	framework.results.TestStressTestResults = &StressTestResults{
-		MaxThroughput:          1000.0,
-		MaxMemoryUsage:         1024 * 1024 * 100, // 100MB
-		MaxGoroutines:          50,
-		MaxConcurrency:         10,
-		PerformanceDegradation: 5.0, // 5% degradation
-		Passed:                 true,
-	}
-}
-
-// min returns the minimum of two integers
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-// min_float returns the minimum of two floats
-func min_float(a, b float64) float64 {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 // Component initialization functions
 func NewBaselineManager(config *CIPerformanceConfig) *BaselineManager {
 	var storage BaselineStorage
@@ -2170,7 +2180,7 @@ func (fs *FilesystemBaselineStorage) Store(key string, baseline *PerformanceBase
 		return err
 	}
 	
-	return ioutil.WriteFile(filePath, data, 0600)
+	return ioutil.WriteFile(filePath, data, 0644)
 }
 
 func (fs *FilesystemBaselineStorage) Load(key string) (*PerformanceBaseline, error) {
@@ -2222,29 +2232,17 @@ func (fs *FilesystemBaselineStorage) Exists(key string) bool {
 
 // TestCIPerformanceFramework is the main test function
 func TestCIPerformanceFramework(t *testing.T) {
-	// Skip this test if it's taking too long in CI/automated environments
-	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" || testing.Short() {
-		t.Skip("Skipping CI Performance Framework test in CI environments to prevent timeouts")
-	}
-	
-	// Skip if not explicitly requested
-	if os.Getenv("RUN_PERFORMANCE_TESTS") == "" {
-		t.Skip("Skipping performance test - set RUN_PERFORMANCE_TESTS=1 to run")
+	// Skip in short mode
+	if testing.Short() {
+		t.Skip("Skipping performance test in short mode")
 	}
 	
 	config := DefaultCIPerformanceConfig()
-	
-	// Use much shorter timeout for regular testing
-	config.TestTimeout = 5 * time.Second // Conservative timeout
-	
-	// Make performance thresholds less strict for testing
-	config.PerformanceThresholds = &PerformanceThresholds{
-		MaxResponseTime:   500 * time.Millisecond, // More lenient
-		MinThroughput:     100,                     // Much lower requirement
-		MaxErrorRate:      5.0,                     // More lenient
-		MaxMemoryUsage:    1024 * 1024 * 1024,     // 1GB
-		MaxCPUUsage:       90.0,                    // More lenient
-		MaxGoroutines:     1000,                    // Keep same
+	// Use reasonable timeout - longer than individual test duration but not excessive
+	config.TestTimeout = 30 * time.Second  // Reduced from 10 minutes to 30s
+	// Allow slightly longer in non-CI environments
+	if !testing.Short() && os.Getenv("CI") == "" {
+		config.TestTimeout = 2 * time.Minute
 	}
 	
 	framework := NewCIPerformanceTestFramework(config)

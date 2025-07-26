@@ -12,6 +12,105 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Type-safe parameter structures for tool testing
+
+// ToolTestParams represents typed parameters for tool testing
+type ToolTestParams struct {
+	Param1 string `json:"param1"`
+	Key    string `json:"key,omitempty"`
+}
+
+// ToolTestResult represents typed result data for tool testing
+type ToolTestResult struct {
+	Result  string `json:"result"`
+	Content string `json:"content,omitempty"`
+}
+
+// ToolTestMetadata represents typed metadata for tool testing
+type ToolTestMetadata struct {
+	Source    string `json:"source"`
+	Timestamp string `json:"timestamp"`
+	Custom    string `json:"custom,omitempty"`
+}
+
+// ToolTestCustomData represents custom data for tool testing
+type ToolTestCustomData struct {
+	Key1   string `json:"key1,omitempty"`
+	Custom string `json:"custom,omitempty"`
+}
+
+// ToolExampleData represents example input/output data
+type ToolExampleData struct {
+	Key     string `json:"key,omitempty"`
+	Message string `json:"message,omitempty"`
+	Status  string `json:"status,omitempty"`
+}
+
+// Helper functions to convert typed structures to map[string]interface{}
+
+// toolTestParamsToMap converts ToolTestParams to map
+func toolTestParamsToMap(params ToolTestParams) map[string]interface{} {
+	result := make(map[string]interface{})
+	if params.Param1 != "" {
+		result["param1"] = params.Param1
+	}
+	if params.Key != "" {
+		result["key"] = params.Key
+	}
+	return result
+}
+
+// toolTestResultToMap converts ToolTestResult to map
+func toolTestResultToMap(result ToolTestResult) map[string]interface{} {
+	resultMap := make(map[string]interface{})
+	if result.Result != "" {
+		resultMap["result"] = result.Result
+	}
+	if result.Content != "" {
+		resultMap["content"] = result.Content
+	}
+	return resultMap
+}
+
+// toolTestMetadataToMap converts ToolTestMetadata to map
+func toolTestMetadataToMap(metadata ToolTestMetadata) map[string]interface{} {
+	result := make(map[string]interface{})
+	if metadata.Source != "" {
+		result["source"] = metadata.Source
+	}
+	if metadata.Timestamp != "" {
+		result["timestamp"] = metadata.Timestamp
+	}
+	return result
+}
+
+// toolTestCustomDataToMap converts ToolTestCustomData to map
+func toolTestCustomDataToMap(custom ToolTestCustomData) map[string]interface{} {
+	result := make(map[string]interface{})
+	if custom.Key1 != "" {
+		result["key1"] = custom.Key1
+	}
+	if custom.Custom != "" {
+		result["custom"] = custom.Custom
+	}
+	return result
+}
+
+// toolExampleDataToMap converts ToolExampleData to map
+func toolExampleDataToMap(data ToolExampleData) map[string]interface{} {
+	result := make(map[string]interface{})
+	if data.Key != "" {
+		result["key"] = data.Key
+	}
+	if data.Message != "" {
+		result["message"] = data.Message
+	}
+	if data.Status != "" {
+		result["status"] = data.Status
+	}
+	return result
+}
+
 // Mock executor for testing
 type mockExecutor struct {
 	result *tools.ToolExecutionResult
@@ -310,6 +409,7 @@ func TestProperty_Validate(t *testing.T) {
 			name: "string with enum",
 			property: &tools.Property{
 				Type: "string",
+				// Use typed enum values - keeping as []interface{} for schema compatibility
 				Enum: []interface{}{"small", "medium", "large"},
 			},
 			wantErr: "",

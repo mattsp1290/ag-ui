@@ -16,6 +16,7 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/messages"
+	"github.com/ag-ui/go-sdk/pkg/transport/common"
 )
 
 // EventStream manages efficient event streaming for HTTP SSE transport
@@ -361,12 +362,12 @@ func (s *EventStream) SendEvent(event events.Event) error {
 	}
 
 	if event == nil {
-		return messages.NewValidationError("event cannot be nil")
+		return fmt.Errorf("event cannot be nil: %w", common.NewValidationError("event", "required", "event must not be nil", nil))
 	}
 
 	// Validate event
 	if err := event.Validate(); err != nil {
-		return messages.NewValidationError(fmt.Sprintf("event validation failed: %v", err))
+		return fmt.Errorf("event validation failed: %w", err)
 	}
 
 	// Apply flow control
@@ -436,39 +437,98 @@ func (s *EventStream) Close() error {
 		return nil // Already closed
 	}
 
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	// Cancel context to signal shutdown
+	// Cancel context to signal shutdown to all workers
 	s.cancel()
 
-	// Close input channel
-	close(s.eventChan)
+	// Give workers a short time to detect context cancellation before closing channels
+	time.Sleep(10 * time.Millisecond)
 
-	// Wait for all workers to finish with timeout
+	// Close input channels to unblock workers
+	s.mu.Lock()
+	s.closeChannelSafely(s.eventChan)
+	if s.batchChan != nil {
+		s.closeChannelSafely(s.batchChan)
+	}
+	s.mu.Unlock()
+
+	// Wait for all workers to finish with timeout protection
 	done := make(chan struct{})
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Ignore panics during shutdown
+			}
+		}()
 		s.wg.Wait()
 		close(done)
 	}()
 
-	select {
-	case <-done:
-		// Clean shutdown
-	case <-time.After(s.config.DrainTimeout):
-		// Force shutdown after timeout
+	// Use a reasonable timeout for worker shutdown
+	drainTimeout := s.config.DrainTimeout
+	if drainTimeout <= 0 {
+		drainTimeout = 5 * time.Second // Fallback timeout
 	}
 
-	// Close output channels
-	close(s.outputChan)
-	close(s.errorChan)
+	select {
+	case <-done:
+		// Clean shutdown - workers finished gracefully
+	case <-time.After(drainTimeout):
+		// Force shutdown after timeout - this is expected for stuck workers
+		// Workers may still be running but we proceed with cleanup
+	}
+
+	// Drain the flow controller to prevent any lingering state
+	if s.flowController != nil {
+		s.flowController.Drain()
+	}
+
+	// Now safe to close output channels after workers have stopped or timed out
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Close output channels safely
+	s.closeChannelSafely(s.outputChan)
+	s.closeChannelSafely(s.errorChan)
 
 	return nil
+}
+
+// Stop is an alias for Close for compatibility
+func (s *EventStream) Stop() error {
+	return s.Close()
+}
+
+// closeChannelSafely closes a channel safely using reflection-free approach
+func (s *EventStream) closeChannelSafely(ch interface{}) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Channel was already closed, ignore panic
+		}
+	}()
+	
+	switch c := ch.(type) {
+	case chan events.Event:
+		close(c)
+	case chan *StreamChunk:
+		close(c)
+	case chan error:
+		close(c)
+	case chan *EventBatch:
+		close(c)
+	}
 }
 
 // eventProcessor processes individual events
 func (s *EventStream) eventProcessor(workerID int) {
 	defer s.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			// Log panic but don't crash
+			if !s.isClosed() {
+				s.handleError(fmt.Errorf("worker %d panicked: %v", workerID, r))
+			}
+		}
+	}()
 
 	for {
 		select {
@@ -480,9 +540,11 @@ func (s *EventStream) eventProcessor(workerID int) {
 			startTime := time.Now()
 
 			if err := s.processEvent(event, workerID); err != nil {
-				s.handleError(fmt.Errorf("worker %d: event processing failed: %w", workerID, err))
-				if s.metrics != nil {
-					atomic.AddUint64(&s.metrics.ProcessingErrors, 1)
+				if !s.isClosed() {
+					s.handleError(fmt.Errorf("worker %d: event processing failed: %w", workerID, err))
+					if s.metrics != nil {
+						atomic.AddUint64(&s.metrics.ProcessingErrors, 1)
+					}
 				}
 			}
 
@@ -506,7 +568,29 @@ func (s *EventStream) eventProcessor(workerID int) {
 			}
 
 		case <-s.ctx.Done():
-			return
+			// Context cancelled, drain any remaining events in the channel with timeout
+			drainCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			
+			for {
+				select {
+				case <-s.eventChan:
+					// Release flow control for drained events
+					s.flowController.Release()
+				case <-drainCtx.Done():
+					// Timeout reached during drain, exit to prevent hanging
+					return
+				default:
+					// No more events to drain
+					return
+				}
+			}
+		
+		case <-time.After(100 * time.Millisecond):
+			// Periodic check for context cancellation and to prevent blocking
+			if s.isClosed() {
+				return
+			}
 		}
 	}
 }
@@ -578,13 +662,27 @@ func (s *EventStream) addToBatch(event events.Event) error {
 	case <-s.ctx.Done():
 		return fmt.Errorf("context cancelled")
 	case <-time.After(s.config.BatchTimeout):
-		return fmt.Errorf("batch timeout exceeded")
+		// Check if context is done before timing out
+		select {
+		case <-s.ctx.Done():
+			return fmt.Errorf("context cancelled")
+		default:
+			return fmt.Errorf("batch timeout exceeded")
+		}
 	}
 }
 
 // batchProcessor processes event batches
 func (s *EventStream) batchProcessor() {
 	defer s.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			// Log panic but don't crash
+			if !s.isClosed() {
+				s.handleError(fmt.Errorf("batch processor panicked: %v", r))
+			}
+		}
+	}()
 
 	ticker := time.NewTicker(s.config.BatchTimeout)
 	defer ticker.Stop()
@@ -611,21 +709,47 @@ func (s *EventStream) batchProcessor() {
 
 			// Process batch if it reaches max size
 			if currentBatch.Size >= s.config.BatchSize {
-				s.processBatch(currentBatch)
+				if err := s.processBatch(currentBatch); err != nil && !s.isClosed() {
+					s.handleError(fmt.Errorf("batch processing failed: %w", err))
+				}
 				currentBatch = nil
 			}
 
 		case <-ticker.C:
 			if currentBatch != nil && currentBatch.Size > 0 {
-				s.processBatch(currentBatch)
+				if err := s.processBatch(currentBatch); err != nil && !s.isClosed() {
+					s.handleError(fmt.Errorf("batch processing failed: %w", err))
+				}
 				currentBatch = nil
 			}
 
 		case <-s.ctx.Done():
+			ticker.Stop()
 			if currentBatch != nil {
+				// Try to process final batch but don't block on errors
 				s.processBatch(currentBatch)
 			}
-			return
+			// Drain remaining batches with timeout to prevent hanging
+			drainCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+			defer cancel()
+			
+			for {
+				select {
+				case batch, ok := <-s.batchChan:
+					if !ok {
+						return
+					}
+					// Process remaining batches quickly
+					if batch != nil {
+						s.processBatch(batch)
+					}
+				case <-drainCtx.Done():
+					// Timeout reached during drain, exit to prevent hanging
+					return
+				default:
+					return
+				}
+			}
 		}
 	}
 }
@@ -672,23 +796,30 @@ func (s *EventStream) processBatch(batch *EventBatch) error {
 		chunk.SequenceNum = s.sequencer.GetNextSequence()
 	}
 
-	// Send chunk to output
-	select {
-	case s.outputChan <- chunk:
-		if s.metrics != nil {
-			atomic.AddUint64(&s.metrics.TotalBatches, 1)
-			processingTime := time.Since(startTime).Nanoseconds()
-			atomic.StoreInt64(&s.metrics.BatchProcessingTime, processingTime)
-		}
-		return nil
-	case <-s.ctx.Done():
-		return fmt.Errorf("context cancelled")
+	// Send chunk to output with safety checks
+	if err := s.sendChunkSafely(chunk); err != nil {
+		return err
 	}
+
+	if s.metrics != nil {
+		atomic.AddUint64(&s.metrics.TotalBatches, 1)
+		processingTime := time.Since(startTime).Nanoseconds()
+		atomic.StoreInt64(&s.metrics.BatchProcessingTime, processingTime)
+	}
+	return nil
 }
 
 // chunkProcessor handles chunk creation and management
 func (s *EventStream) chunkProcessor() {
 	defer s.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			// Log panic but don't crash
+			if !s.isClosed() {
+				s.handleError(fmt.Errorf("chunk processor panicked: %v", r))
+			}
+		}
+	}()
 
 	ticker := time.NewTicker(s.config.FlushInterval)
 	defer ticker.Stop()
@@ -697,11 +828,12 @@ func (s *EventStream) chunkProcessor() {
 		select {
 		case <-ticker.C:
 			// Flush any pending chunks
-			s.chunkBuffer.Flush(s.outputChan)
+			s.chunkBuffer.FlushSafely(s.outputChan, s.ctx)
 
 		case <-s.ctx.Done():
-			// Final flush
-			s.chunkBuffer.Flush(s.outputChan)
+			ticker.Stop()
+			// Final flush with context that may be cancelled
+			s.chunkBuffer.FlushSafely(s.outputChan, context.Background())
 			return
 		}
 	}
@@ -728,12 +860,7 @@ func (s *EventStream) createChunks(data []byte, event events.Event, seqEvent *Se
 			chunk.SequenceNum = seqEvent.SequenceNum
 		}
 
-		select {
-		case s.outputChan <- chunk:
-			return nil
-		case <-s.ctx.Done():
-			return fmt.Errorf("context cancelled")
-		}
+		return s.sendChunkSafely(chunk)
 	}
 
 	// Multiple chunks needed
@@ -764,14 +891,28 @@ func (s *EventStream) createChunks(data []byte, event events.Event, seqEvent *Se
 			chunk.SequenceNum = seqEvent.SequenceNum
 		}
 
-		select {
-		case s.outputChan <- chunk:
-		case <-s.ctx.Done():
-			return fmt.Errorf("context cancelled")
+		if err := s.sendChunkSafely(chunk); err != nil {
+			return err
 		}
 	}
 
 	return nil
+}
+
+// sendChunkSafely sends a chunk with proper error handling
+func (s *EventStream) sendChunkSafely(chunk *StreamChunk) error {
+	select {
+	case s.outputChan <- chunk:
+		return nil
+	case <-s.ctx.Done():
+		return fmt.Errorf("context cancelled")
+	case <-time.After(5 * time.Second):
+		// Prevent deadlock with timeout
+		if s.isClosed() {
+			return fmt.Errorf("stream closed")
+		}
+		return fmt.Errorf("timeout sending chunk")
+	}
 }
 
 // compressData compresses data using the configured compression algorithm
@@ -829,6 +970,14 @@ func (s *EventStream) compressData(data []byte) ([]byte, error) {
 // metricsCollector periodically collects and updates metrics
 func (s *EventStream) metricsCollector() {
 	defer s.wg.Done()
+	defer func() {
+		if r := recover(); r != nil {
+			// Log panic but don't crash
+			if !s.isClosed() {
+				s.handleError(fmt.Errorf("metrics collector panicked: %v", r))
+			}
+		}
+	}()
 
 	ticker := time.NewTicker(s.config.MetricsInterval)
 	defer ticker.Stop()
@@ -839,7 +988,7 @@ func (s *EventStream) metricsCollector() {
 	for {
 		select {
 		case <-ticker.C:
-			if s.metrics != nil {
+			if s.metrics != nil && !s.isClosed() {
 				s.metrics.mu.Lock()
 
 				// Calculate events per second
@@ -874,17 +1023,22 @@ func (s *EventStream) metricsCollector() {
 			}
 
 		case <-s.ctx.Done():
+			ticker.Stop()
 			return
 		}
 	}
 }
 
-// handleError handles stream errors
+// handleError handles stream errors safely
 func (s *EventStream) handleError(err error) {
+	if s.isClosed() {
+		return // Don't send errors after close
+	}
+
 	select {
 	case s.errorChan <- err:
 	default:
-		// Error channel full, drop error
+		// Error channel full, drop error to prevent blocking
 	}
 }
 
@@ -958,12 +1112,36 @@ func validateStreamConfig(config *StreamConfig) error {
 
 // NewFlowController creates a new flow controller
 func NewFlowController(maxConcurrent int, timeout, drainTimeout time.Duration) *FlowController {
-	return &FlowController{
+	fc := &FlowController{
 		maxConcurrent:  int32(maxConcurrent),
 		backpressureCh: make(chan struct{}, maxConcurrent),
 		timeout:        timeout,
 		drainTimeout:   drainTimeout,
 		metrics:        &FlowMetrics{},
+	}
+	return fc
+}
+
+// Drain safely drains the flow controller during shutdown
+func (fc *FlowController) Drain() {
+	// Drain the backpressure channel with timeout to prevent hanging
+	drainCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	
+	for {
+		select {
+		case <-fc.backpressureCh:
+			// Drain slot from channel
+			atomic.AddInt32(&fc.current, -1)
+		case <-drainCtx.Done():
+			// Timeout reached, force reset the counter
+			atomic.StoreInt32(&fc.current, 0)
+			atomic.StoreInt32(&fc.metrics.CurrentConcurrent, 0)
+			return
+		default:
+			// No more slots to drain
+			return
+		}
 	}
 }
 
@@ -988,26 +1166,51 @@ func (fc *FlowController) Acquire(ctx context.Context) error {
 		atomic.AddUint64(&fc.metrics.EventsDropped, 1)
 		return ctx.Err()
 	case <-time.After(fc.timeout):
-		atomic.AddUint64(&fc.metrics.BackpressureEvents, 1)
-		return fmt.Errorf("flow control timeout")
+		// Check if context is done before timing out
+		select {
+		case <-ctx.Done():
+			atomic.AddUint64(&fc.metrics.EventsDropped, 1)
+			return ctx.Err()
+		default:
+			atomic.AddUint64(&fc.metrics.BackpressureEvents, 1)
+			return fmt.Errorf("flow control timeout")
+		}
 	}
 }
 
 // Release releases a flow control slot
 func (fc *FlowController) Release() {
+	// Use atomic operations to ensure we only release if we actually have something to release
+	current := atomic.LoadInt32(&fc.current)
+	if current <= 0 {
+		return // Nothing to release
+	}
+	
 	select {
 	case <-fc.backpressureCh:
-		current := atomic.AddInt32(&fc.current, -1)
-		atomic.StoreInt32(&fc.metrics.CurrentConcurrent, current)
+		newCurrent := atomic.AddInt32(&fc.current, -1)
+		atomic.StoreInt32(&fc.metrics.CurrentConcurrent, newCurrent)
 		atomic.AddUint64(&fc.metrics.EventsProcessed, 1)
 	default:
-		// Should not happen in normal operation
+		// Channel is empty or closed, but we still need to decrement the counter
+		// This can happen during shutdown when the channel is drained
+		if atomic.CompareAndSwapInt32(&fc.current, current, current-1) {
+			atomic.StoreInt32(&fc.metrics.CurrentConcurrent, current-1)
+			atomic.AddUint64(&fc.metrics.EventsProcessed, 1)
+		}
 	}
 }
 
 // Run runs the flow controller
 func (fc *FlowController) Run(ctx context.Context) {
-	<-ctx.Done()
+	// FlowController doesn't need a background goroutine,
+	// it's just used for synchronization
+	// This method exists for interface compatibility
+	// Just wait for context cancellation and return
+	select {
+	case <-ctx.Done():
+		return
+	}
 }
 
 // NewEventSequencer creates a new event sequencer
@@ -1070,8 +1273,18 @@ func (es *EventSequencer) GetMetrics() *SequenceMetrics {
 
 // Run runs the event sequencer
 func (es *EventSequencer) Run(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			// Log panic but don't crash
+		}
+	}()
+
 	if !es.orderingRequired {
-		return
+		// If ordering is not required, just wait for context cancellation
+		select {
+		case <-ctx.Done():
+			return
+		}
 	}
 
 	ticker := time.NewTicker(es.timeout)
@@ -1092,6 +1305,12 @@ func (es *EventSequencer) Run(ctx context.Context) {
 					select {
 					case es.outputChan <- seqEvent:
 						expectedSeq++
+					case <-ctx.Done():
+						// Context cancelled, put back and exit
+						es.sequenceBuffer[expectedSeq] = seqEvent
+						es.mu.Unlock()
+						ticker.Stop()
+						return
 					default:
 						// Output channel full, put back and try later
 						es.sequenceBuffer[expectedSeq] = seqEvent
@@ -1113,6 +1332,13 @@ func (es *EventSequencer) Run(ctx context.Context) {
 			es.mu.Unlock()
 
 		case <-ctx.Done():
+			ticker.Stop()
+			// Clean up on shutdown
+			es.mu.Lock()
+			for seq := range es.sequenceBuffer {
+				delete(es.sequenceBuffer, seq)
+			}
+			es.mu.Unlock()
 			return
 		}
 	}
@@ -1160,14 +1386,23 @@ func (cb *ChunkBuffer) AddChunk(chunk *StreamChunk) {
 
 // Flush flushes pending chunks to the output channel
 func (cb *ChunkBuffer) Flush(outputChan chan<- *StreamChunk) {
+	cb.FlushSafely(outputChan, context.Background())
+}
+
+// FlushSafely flushes pending chunks with context cancellation support
+func (cb *ChunkBuffer) FlushSafely(outputChan chan<- *StreamChunk, ctx context.Context) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
 
 	for _, chunk := range cb.chunks {
 		select {
 		case outputChan <- chunk:
+			// Successfully sent
+		case <-ctx.Done():
+			// Context cancelled, stop flushing
+			return
 		default:
-			// Output channel full, skip
+			// Output channel full, skip this chunk
 		}
 	}
 

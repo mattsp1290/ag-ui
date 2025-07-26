@@ -27,6 +27,40 @@ var (
 
 	// ErrOperationNotPermitted indicates the operation is not allowed
 	ErrOperationNotPermitted = errors.New("operation not permitted")
+
+	// Encoding-specific sentinel errors
+	// ErrEncodingNotSupported indicates the encoding format is not supported
+	ErrEncodingNotSupported = errors.New("encoding format not supported")
+
+	// ErrDecodingFailed indicates decoding of data failed
+	ErrDecodingFailed = errors.New("decoding failed")
+
+	// ErrEncodingFailed indicates encoding of data failed
+	ErrEncodingFailed = errors.New("encoding failed")
+
+	// ErrFormatNotRegistered indicates the format is not registered
+	ErrFormatNotRegistered = errors.New("format not registered")
+
+	// ErrInvalidMimeType indicates an invalid MIME type
+	ErrInvalidMimeType = errors.New("invalid MIME type")
+
+	// ErrStreamingNotSupported indicates streaming is not supported
+	ErrStreamingNotSupported = errors.New("streaming not supported")
+
+	// ErrChunkingFailed indicates chunking of data failed
+	ErrChunkingFailed = errors.New("chunking failed")
+
+	// ErrCompressionFailed indicates compression of data failed
+	ErrCompressionFailed = errors.New("compression failed")
+
+	// ErrSecurityViolation indicates a security policy violation
+	ErrSecurityViolation = errors.New("security violation")
+
+	// ErrCompatibilityCheck indicates a compatibility check failure
+	ErrCompatibilityCheck = errors.New("compatibility check failed")
+
+	// ErrNegotiationFailed indicates content negotiation failed
+	ErrNegotiationFailed = errors.New("negotiation failed")
 )
 
 // Severity levels for errors
@@ -361,6 +395,10 @@ func GetSeverity(err error) Severity {
 		return e.BaseError.Severity
 	case *ConflictError:
 		return e.BaseError.Severity
+	case *EncodingError:
+		return e.BaseError.Severity
+	case *SecurityError:
+		return e.BaseError.Severity
 	}
 
 	// Check wrapped errors
@@ -389,6 +427,10 @@ func GetRetryAfter(err error) *time.Duration {
 		return e.BaseError.RetryAfter
 	case *ConflictError:
 		return e.BaseError.RetryAfter
+	case *EncodingError:
+		return e.BaseError.RetryAfter
+	case *SecurityError:
+		return e.BaseError.RetryAfter
 	}
 
 	// Check wrapped errors
@@ -398,4 +440,187 @@ func GetRetryAfter(err error) *time.Duration {
 	}
 
 	return nil
+}
+
+// EncodingError represents encoding/decoding-related errors
+type EncodingError struct {
+	*BaseError
+
+	// Format identifies the encoding format
+	Format string
+
+	// Operation describes the operation that failed (encode/decode/validate)
+	Operation string
+
+	// Data contains the problematic data (if safe to include)
+	Data interface{}
+
+	// Position indicates the position where the error occurred
+	Position int64
+
+	// MimeType is the MIME type being processed
+	MimeType string
+}
+
+// NewEncodingError creates a new encoding error
+func NewEncodingError(code, message string) *EncodingError {
+	return &EncodingError{
+		BaseError: &BaseError{
+			Code:      code,
+			Message:   message,
+			Severity:  SeverityError,
+			Timestamp: time.Now(),
+			Details:   make(map[string]interface{}),
+		},
+	}
+}
+
+// Error implements the error interface with encoding-specific details
+func (e *EncodingError) Error() string {
+	// Start with base message without cause
+	base := fmt.Sprintf("[%s] %s: %s", e.Severity, e.Code, e.Message)
+	
+	// Add encoding-specific details first
+	if e.Format != "" {
+		base = fmt.Sprintf("%s (format: %s)", base, e.Format)
+	}
+	if e.Operation != "" {
+		base = fmt.Sprintf("%s (operation: %s)", base, e.Operation)
+	}
+	if e.MimeType != "" {
+		base = fmt.Sprintf("%s (mime: %s)", base, e.MimeType)
+	}
+	if e.Position > 0 {
+		base = fmt.Sprintf("%s (position: %d)", base, e.Position)
+	}
+	
+	// Add cause at the end
+	if e.Cause != nil {
+		base = fmt.Sprintf("%s (caused by: %v)", base, e.Cause)
+	}
+	
+	return base
+}
+
+// WithFormat sets the encoding format
+func (e *EncodingError) WithFormat(format string) *EncodingError {
+	e.Format = format
+	return e
+}
+
+// WithOperation sets the operation that failed
+func (e *EncodingError) WithOperation(operation string) *EncodingError {
+	e.Operation = operation
+	return e
+}
+
+// WithMimeType sets the MIME type
+func (e *EncodingError) WithMimeType(mimeType string) *EncodingError {
+	e.MimeType = mimeType
+	return e
+}
+
+// WithPosition sets the position where the error occurred
+func (e *EncodingError) WithPosition(position int64) *EncodingError {
+	e.Position = position
+	return e
+}
+
+// WithData sets the problematic data (use with caution for sensitive data)
+func (e *EncodingError) WithData(data interface{}) *EncodingError {
+	e.Data = data
+	return e
+}
+
+// WithCause adds an underlying cause to the encoding error and returns the EncodingError
+func (e *EncodingError) WithCause(cause error) *EncodingError {
+	e.BaseError.Cause = cause
+	return e
+}
+
+// SecurityError represents security-related errors
+type SecurityError struct {
+	*BaseError
+
+	// ViolationType describes the type of security violation
+	ViolationType string
+
+	// Pattern contains the detected pattern (if applicable)
+	Pattern string
+
+	// Location describes where the violation was detected
+	Location string
+
+	// RiskLevel indicates the risk level of the violation
+	RiskLevel string
+}
+
+// NewSecurityError creates a new security error
+func NewSecurityError(code, message string) *SecurityError {
+	return &SecurityError{
+		BaseError: &BaseError{
+			Code:      code,
+			Message:   message,
+			Severity:  SeverityCritical,
+			Timestamp: time.Now(),
+			Details:   make(map[string]interface{}),
+		},
+	}
+}
+
+// Error implements the error interface with security-specific details
+func (e *SecurityError) Error() string {
+	base := e.BaseError.Error()
+	if e.ViolationType != "" {
+		base = fmt.Sprintf("%s (violation: %s)", base, e.ViolationType)
+	}
+	if e.Pattern != "" {
+		base = fmt.Sprintf("%s (pattern: %s)", base, e.Pattern)
+	}
+	if e.Location != "" {
+		base = fmt.Sprintf("%s (location: %s)", base, e.Location)
+	}
+	if e.RiskLevel != "" {
+		base = fmt.Sprintf("%s (risk: %s)", base, e.RiskLevel)
+	}
+	return base
+}
+
+// WithViolationType sets the type of security violation
+func (e *SecurityError) WithViolationType(violationType string) *SecurityError {
+	e.ViolationType = violationType
+	return e
+}
+
+// WithPattern sets the detected pattern
+func (e *SecurityError) WithPattern(pattern string) *SecurityError {
+	e.Pattern = pattern
+	return e
+}
+
+// WithLocation sets the location where the violation was detected
+func (e *SecurityError) WithLocation(location string) *SecurityError {
+	e.Location = location
+	return e
+}
+
+// WithRiskLevel sets the risk level of the violation
+func (e *SecurityError) WithRiskLevel(riskLevel string) *SecurityError {
+	e.RiskLevel = riskLevel
+	return e
+}
+
+// WithDetail adds a detail to the security error and returns the SecurityError
+func (e *SecurityError) WithDetail(key string, value interface{}) *SecurityError {
+	if e.BaseError.Details == nil {
+		e.BaseError.Details = make(map[string]interface{})
+	}
+	e.BaseError.Details[key] = value
+	return e
+}
+
+// WithCause adds an underlying cause to the security error and returns the SecurityError
+func (e *SecurityError) WithCause(cause error) *SecurityError {
+	e.BaseError.Cause = cause
+	return e
 }

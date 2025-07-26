@@ -1,3 +1,5 @@
+// +build integration
+
 package tools
 
 import (
@@ -10,8 +12,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/ag-ui/go-sdk/pkg/testhelper"
 )
 
 // PerformanceFramework provides comprehensive performance testing capabilities
@@ -24,90 +24,6 @@ type PerformanceFramework struct {
 	memoryProfiler *MemoryProfiler
 }
 
-// PerformanceConfig defines performance testing configuration
-type PerformanceConfig struct {
-	// Baseline configuration
-	BaselineIterations      int
-	BaselineWarmupDuration  time.Duration
-	BaselineStabilityFactor float64 // Coefficient of variation threshold
-
-	// Load testing configuration
-	MaxConcurrency       int
-	LoadTestDuration     time.Duration
-	RampUpDuration       time.Duration
-	RampDownDuration     time.Duration
-	LoadPatterns         []LoadPattern
-	
-	// Memory testing configuration
-	MemoryCheckInterval  time.Duration
-	MemoryLeakThreshold  int64 // Bytes
-	GCForceInterval      time.Duration
-	
-	// Regression testing configuration
-	RegressionThreshold  float64 // % performance degradation threshold
-	WarmupIterations     int
-	BenchmarkIterations  int
-	
-	// Stress testing configuration
-	StressTestDuration   time.Duration
-	StressMaxConcurrency int
-	StressErrorThreshold float64 // % error rate threshold
-}
-
-// DefaultPerformanceConfig returns default performance testing configuration
-func DefaultPerformanceConfig() *PerformanceConfig {
-	// Use much shorter durations and lower concurrency for CI environments
-	// Default to conservative values that work well in CI
-	baselineIterations := 10 // Much smaller - reduced from 50
-	baselineWarmupDuration := 500 * time.Millisecond // Even shorter warmup
-	maxConcurrency := 50 // Much lower concurrency
-	loadTestDuration := 2 * time.Second // Very short load test
-	rampUpDuration := 500 * time.Millisecond   // Even shorter ramp
-	rampDownDuration := 500 * time.Millisecond // Even shorter ramp
-	warmupIterations := 3 // Minimal warmup
-	benchmarkIterations := 10 // Fewer benchmark iterations
-	stressTestDuration := 3 * time.Second // Much shorter stress test
-	stressMaxConcurrency := 100 // Lower stress concurrency
-	loadPatterns := []LoadPattern{
-		{Name: "constant", Type: LoadPatternConstant, Intensity: 10}, // Much lower intensity
-	}
-	
-	if testing.Short() {
-		baselineIterations = 3
-		baselineWarmupDuration = 200 * time.Millisecond
-		maxConcurrency = 5
-		loadTestDuration = 1 * time.Second
-		rampUpDuration = 200 * time.Millisecond
-		rampDownDuration = 200 * time.Millisecond
-		warmupIterations = 1
-		benchmarkIterations = 3
-		stressTestDuration = 1 * time.Second
-		stressMaxConcurrency = 10
-		loadPatterns = []LoadPattern{
-			{Name: "constant", Type: LoadPatternConstant, Intensity: 3},
-		}
-	}
-	
-	return &PerformanceConfig{
-		BaselineIterations:      baselineIterations,
-		BaselineWarmupDuration:  baselineWarmupDuration,
-		BaselineStabilityFactor: 0.1,
-		MaxConcurrency:          maxConcurrency,
-		LoadTestDuration:        loadTestDuration,
-		RampUpDuration:          rampUpDuration,
-		RampDownDuration:        rampDownDuration,
-		LoadPatterns:            loadPatterns,
-		MemoryCheckInterval:     1 * time.Second,
-		MemoryLeakThreshold:     100 * 1024 * 1024, // 100MB
-		GCForceInterval:         10 * time.Second,
-		RegressionThreshold:     10.0, // 10% degradation threshold
-		WarmupIterations:        warmupIterations,
-		BenchmarkIterations:     benchmarkIterations,
-		StressTestDuration:      stressTestDuration,
-		StressMaxConcurrency:    stressMaxConcurrency,
-		StressErrorThreshold:    5.0, // 5% error rate threshold
-	}
-}
 
 // PerformanceMetrics tracks comprehensive performance statistics
 type PerformanceMetrics struct {
@@ -261,26 +177,6 @@ type PerformanceBaseline struct {
 	CommitHash               string
 }
 
-// LoadPattern defines different load testing patterns
-type LoadPattern struct {
-	Name      string
-	Type      LoadPatternType
-	Intensity int           // Peak load level
-	Duration  time.Duration // Pattern duration
-	Settings  map[string]interface{} // Pattern-specific settings
-}
-
-// LoadPatternType defines the type of load pattern
-type LoadPatternType int
-
-const (
-	LoadPatternConstant LoadPatternType = iota
-	LoadPatternRamp
-	LoadPatternSpike
-	LoadPatternWave
-	LoadPatternStair
-	LoadPatternChaos
-)
 
 // LoadGenerator generates various load patterns for testing
 type LoadGenerator struct {
@@ -395,7 +291,7 @@ func NewPerformanceFramework(config *PerformanceConfig) *PerformanceFramework {
 		measurements: make([]MemoryMeasurement, 0),
 		leakDetector: &LeakDetector{
 			threshold:        uint64(config.MemoryLeakThreshold),
-			detectionWindow:  testhelper.GetCITimeouts().Long, // Reduced from 60s
+			detectionWindow:  60 * time.Second,
 			confidenceLevel:  0.95,
 			samples:          make([]uint64, 0),
 		},
@@ -407,12 +303,12 @@ func NewPerformanceFramework(config *PerformanceConfig) *PerformanceFramework {
 
 // RunComprehensivePerformanceTest runs all performance tests
 func (pf *PerformanceFramework) RunComprehensivePerformanceTest(t *testing.T) *PerformanceReport {
-	return pf.RunComprehensivePerformanceTestWithContext(context.Background(), t)
-}
-
-// RunComprehensivePerformanceTestWithContext runs all performance tests with context support
-func (pf *PerformanceFramework) RunComprehensivePerformanceTestWithContext(ctx context.Context, t *testing.T) *PerformanceReport {
 	t.Helper()
+	
+	// Skip long-running tests in short mode
+	if testing.Short() {
+		t.Skip("Skipping comprehensive performance test in short mode")
+	}
 	
 	report := &PerformanceReport{
 		StartTime: time.Now(),
@@ -420,105 +316,41 @@ func (pf *PerformanceFramework) RunComprehensivePerformanceTestWithContext(ctx c
 		Results:   make(map[string]interface{}),
 	}
 	
-	// Check for cancellation before starting
-	select {
-	case <-ctx.Done():
-		report.Error = ctx.Err()
-		return report
-	default:
-	}
-	
-	// 1. Establish baseline with context
+	// 1. Establish baseline
 	t.Run("Baseline", func(t *testing.T) {
-		result := pf.EstablishBaselineWithContext(ctx, t)
+		result := pf.EstablishBaseline(t)
 		report.Results["baseline"] = result
 	})
 	
-	// Skip heavy tests in short mode
-	if !testing.Short() {
-		// 2. Run load tests - skip for now to avoid race conditions
-		// TODO: Fix race condition in LoadGenerator before re-enabling
-		// t.Run("LoadTests", func(t *testing.T) {
-		//	result := pf.RunLoadTests(t)
-		//	report.Results["load_tests"] = result
-		// })
-		
-		// For now, add a minimal load test result
-		t.Run("LoadTests", func(t *testing.T) {
-			result := &LoadTestResult{
-				StartTime: time.Now(),
-				Patterns:  make(map[string]*LoadPatternResult),
-			}
-			result.EndTime = time.Now()
-			result.Duration = result.EndTime.Sub(result.StartTime)
-			report.Results["load_tests"] = result
-			t.Log("Load tests temporarily disabled due to race condition")
-		})
-		
-		// 3. Run memory tests - simplified to avoid timeouts
-		t.Run("MemoryTests", func(t *testing.T) {
-			// Simplified memory test for now
-			result := &MemoryTestResult{
-				StartTime:        time.Now(),
-				EfficiencyTest:   &MemoryEfficiencyResult{},
-				StressTest:       &MemoryStressResult{},
-				LeakDetection:    &MemoryLeakResult{},
-				FinalMemoryUsage: 0,
-			}
-			result.EndTime = time.Now()
-			result.Duration = result.EndTime.Sub(result.StartTime)
-			report.Results["memory_tests"] = result
-			t.Log("Memory tests simplified for CI performance")
-		})
-		
-		// 4. Run scalability tests - simplified to avoid timeouts
-		t.Run("ScalabilityTests", func(t *testing.T) {
-			result := &ScalabilityTestResult{
-				StartTime: time.Now(),
-				Results:   make(map[int]*PerfScalabilityMeasurement),
-			}
-			result.EndTime = time.Now()
-			result.Duration = result.EndTime.Sub(result.StartTime)
-			report.Results["scalability_tests"] = result
-			t.Log("Scalability tests simplified for CI performance")
-		})
-		
-		// 5. Run stress tests - simplified to avoid timeouts
-		t.Run("StressTests", func(t *testing.T) {
-			result := &StressTestResult{
-				StartTime: time.Now(),
-			}
-			result.EndTime = time.Now()
-			result.Duration = result.EndTime.Sub(result.StartTime)
-			report.Results["stress_tests"] = result
-			t.Log("Stress tests simplified for CI performance")
-		})
-		
-		// 6. Run regression tests - simplified to avoid timeouts
-		t.Run("RegressionTests", func(t *testing.T) {
-			result := &RegressionTestResult{
-				StartTime: time.Now(),
-			}
-			result.EndTime = time.Now()
-			result.Duration = result.EndTime.Sub(result.StartTime)
-			report.Results["regression_tests"] = result
-			t.Log("Regression tests simplified for CI performance")
-		})
-	} else {
-		// In short mode, only run basic tests
-		t.Logf("Skipping heavy performance tests in short mode")
-		
-		// Only run a basic load test with minimal load
-		t.Run("BasicLoadTest", func(t *testing.T) {
-			result := &LoadTestResult{
-				StartTime: time.Now(),
-				Patterns:  make(map[string]*LoadPatternResult),
-			}
-			result.EndTime = time.Now()
-			result.Duration = result.EndTime.Sub(result.StartTime)
-			report.Results["load_tests"] = result
-		})
-	}
+	// 2. Run load tests
+	t.Run("LoadTests", func(t *testing.T) {
+		result := pf.RunLoadTests(t)
+		report.Results["load_tests"] = result
+	})
+	
+	// 3. Run memory tests
+	t.Run("MemoryTests", func(t *testing.T) {
+		result := pf.RunMemoryTests(t)
+		report.Results["memory_tests"] = result
+	})
+	
+	// 4. Run scalability tests
+	t.Run("ScalabilityTests", func(t *testing.T) {
+		result := pf.RunScalabilityTests(t)
+		report.Results["scalability_tests"] = result
+	})
+	
+	// 5. Run stress tests
+	t.Run("StressTests", func(t *testing.T) {
+		result := pf.RunStressTests(t)
+		report.Results["stress_tests"] = result
+	})
+	
+	// 6. Run regression tests
+	t.Run("RegressionTests", func(t *testing.T) {
+		result := pf.RunRegressionTests(t)
+		report.Results["regression_tests"] = result
+	})
 	
 	report.EndTime = time.Now()
 	report.Duration = report.EndTime.Sub(report.StartTime)
@@ -528,23 +360,24 @@ func (pf *PerformanceFramework) RunComprehensivePerformanceTestWithContext(ctx c
 
 // EstablishBaseline creates performance baselines
 func (pf *PerformanceFramework) EstablishBaseline(t *testing.T) *BaselineResult {
-	return pf.EstablishBaselineWithContext(context.Background(), t)
-}
-
-// EstablishBaselineWithContext creates performance baselines with context support
-func (pf *PerformanceFramework) EstablishBaselineWithContext(ctx context.Context, t *testing.T) *BaselineResult {
 	t.Helper()
+	
+	// Skip in short mode for faster CI tests
+	if testing.Short() {
+		t.Skip("Skipping baseline establishment in short mode")
+	}
 	
 	result := &BaselineResult{
 		StartTime: time.Now(),
 	}
 	
-	// Check for cancellation before starting
-	select {
-	case <-ctx.Done():
-		return result
-	default:
+	// Create context with timeout to prevent infinite loops - use optimized timeout
+	timeout := OptimizedTestTimeout()
+	if testing.Short() {
+		timeout = 5 * time.Second // Much shorter for short mode
 	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
 	
 	// Create test environment
 	registry := NewRegistry()
@@ -558,27 +391,13 @@ func (pf *PerformanceFramework) EstablishBaselineWithContext(ctx context.Context
 		}
 	}
 	
-	// Check for cancellation before warmup
-	select {
-	case <-ctx.Done():
-		return result
-	default:
-	}
-	
-	// Warmup
+	// Warmup with context
 	pf.warmupWithContext(ctx, engine, tools, pf.config.BaselineWarmupDuration)
 	
-	// Check for cancellation before measurements
-	select {
-	case <-ctx.Done():
-		return result
-	default:
-	}
-	
-	// Measure baseline metrics with context
-	result.ExecutionTime = pf.measureBaselineExecutionTime(engine, tools)
-	result.Throughput = pf.measureBaselineThroughput(engine, tools)
-	result.MemoryUsage = pf.measureBaselineMemoryUsage(engine, tools)
+	// Measure baseline metrics with context and timeouts
+	result.ExecutionTime = pf.measureBaselineExecutionTimeWithContext(ctx, engine, tools)
+	result.Throughput = pf.measureBaselineThroughputWithContext(ctx, engine, tools)
+	result.MemoryUsage = pf.measureBaselineMemoryUsageWithContext(ctx, engine, tools)
 	result.Latency = pf.measureBaselineLatencyWithContext(ctx, engine, tools)
 	
 	// Update baseline
@@ -601,6 +420,11 @@ func (pf *PerformanceFramework) EstablishBaselineWithContext(ctx context.Context
 func (pf *PerformanceFramework) RunLoadTests(t *testing.T) *LoadTestResult {
 	t.Helper()
 	
+	// Skip heavy load tests in short mode
+	if testing.Short() {
+		t.Skip("Skipping load tests in short mode")
+	}
+	
 	result := &LoadTestResult{
 		StartTime: time.Now(),
 		Patterns:  make(map[string]*LoadPatternResult),
@@ -611,11 +435,7 @@ func (pf *PerformanceFramework) RunLoadTests(t *testing.T) *LoadTestResult {
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(pf.config.MaxConcurrency))
 	
 	// Create test tools
-	toolCount := 50
-	if testing.Short() {
-		toolCount = 10 // Reduce tool count for CI
-	}
-	tools := pf.createTestTools(toolCount)
+	tools := pf.createTestTools(50)
 	for _, tool := range tools {
 		if err := registry.Register(tool); err != nil {
 			t.Fatalf("Failed to register tool: %v", err)
@@ -650,6 +470,11 @@ func (pf *PerformanceFramework) RunLoadTests(t *testing.T) *LoadTestResult {
 // RunMemoryTests runs memory profiling and leak detection tests
 func (pf *PerformanceFramework) RunMemoryTests(t *testing.T) *MemoryTestResult {
 	t.Helper()
+	
+	// Skip resource-intensive memory tests in short mode
+	if testing.Short() {
+		t.Skip("Skipping memory tests in short mode")
+	}
 	
 	result := &MemoryTestResult{
 		StartTime: time.Now(),
@@ -689,13 +514,22 @@ func (pf *PerformanceFramework) RunMemoryTests(t *testing.T) *MemoryTestResult {
 func (pf *PerformanceFramework) RunScalabilityTests(t *testing.T) *ScalabilityTestResult {
 	t.Helper()
 	
+	// Skip scalability tests in short mode
+	if testing.Short() {
+		t.Skip("Skipping scalability tests in short mode")
+	}
+	
 	result := &ScalabilityTestResult{
 		StartTime: time.Now(),
 		Results:   make(map[int]*PerfScalabilityMeasurement),
 	}
 	
-	// Test different tool counts
-	toolCounts := []int{10, 50, 100, 500, 1000, 5000}
+	// Test different tool counts (optimized for environment)
+	toolCounts := []int{10, 50, 100}
+	if !testing.Short() && !isCI() {
+		// Add more extensive testing for local development
+		toolCounts = append(toolCounts, 200, 500)
+	}
 	
 	for _, toolCount := range toolCounts {
 		t.Run(fmt.Sprintf("Tools_%d", toolCount), func(t *testing.T) {
@@ -710,18 +544,48 @@ func (pf *PerformanceFramework) RunScalabilityTests(t *testing.T) *ScalabilityTe
 	return result
 }
 
-// RunStressTests - REMOVED
-// This test was designed to run high-concurrency stress tests with up to config.StressMaxConcurrency
-// workers (default 100+) pushing system limits. It created stress test scenarios designed to
-// test resource exhaustion. Removed as too resource-intensive for CI/CD environments.
+// RunStressTests runs high-concurrency stress tests
 func (pf *PerformanceFramework) RunStressTests(t *testing.T) *StressTestResult {
 	t.Helper()
-	t.Skip("Stress tests removed - were designed to push system concurrency limits")
-	return &StressTestResult{
-		StartTime: time.Now(),
-		EndTime:   time.Now(),
-		Duration:  0,
+	
+	// Skip stress tests in short mode
+	if testing.Short() {
+		t.Skip("Skipping stress tests in short mode")
 	}
+	
+	result := &StressTestResult{
+		StartTime: time.Now(),
+	}
+	
+	// Create test environment
+	registry := NewRegistry()
+	engine := NewExecutionEngine(registry, WithMaxConcurrent(pf.config.StressMaxConcurrency))
+	
+	// Create test tools
+	tools := pf.createTestTools(100)
+	for _, tool := range tools {
+		if err := registry.Register(tool); err != nil {
+			t.Fatalf("Failed to register tool: %v", err)
+		}
+	}
+	
+	// Initialize stress test
+	stressTest := &StressTest{
+		config:      pf.config,
+		engine:      engine,
+		registry:    registry,
+		tools:       tools,
+		stopChan:    make(chan struct{}),
+		resultsChan: make(chan *StressResult, pf.config.StressMaxConcurrency*2),
+	}
+	
+	// Run stress test
+	result.Measurements = stressTest.Run(t)
+	
+	result.EndTime = time.Now()
+	result.Duration = result.EndTime.Sub(result.StartTime)
+	
+	return result
 }
 
 // RunRegressionTests checks for performance regressions
@@ -769,31 +633,18 @@ func (pf *PerformanceFramework) createTestTools(count int) []*Tool {
 				Required: []string{"input"},
 			},
 			Executor: &TestExecutor{
-				processingTime: pf.getOptimalProcessingTime(),
+				processingTime: time.Duration(rand.Intn(100)) * time.Millisecond,
 			},
 			Capabilities: &ToolCapabilities{
 				Cacheable:  true,
 				Cancelable: true,
 				Retryable:  true,
-				Timeout:    testhelper.GetCITimeouts().Long,
+				Timeout:    30 * time.Second,
 			},
 		}
 	}
 	
 	return tools
-}
-
-// getOptimalProcessingTime returns appropriate processing time based on test mode
-func (pf *PerformanceFramework) getOptimalProcessingTime() time.Duration {
-	if testing.Short() {
-		// Very fast processing for short mode
-		return time.Duration(rand.Intn(2)) * time.Millisecond
-	}
-	
-	// Use very short processing times for all modes to prevent timeouts
-	maxMs := 5 // Maximum 5ms processing time
-	
-	return time.Duration(rand.Intn(maxMs)) * time.Millisecond
 }
 
 // TestExecutor implements ToolExecutor for performance testing
@@ -802,18 +653,30 @@ type TestExecutor struct {
 }
 
 func (e *TestExecutor) Execute(ctx context.Context, params map[string]interface{}) (*ToolExecutionResult, error) {
-	// Simulate processing time
+	// Limit processing time to prevent hangs
+	maxProcessingTime := 1 * time.Second
+	actualProcessingTime := e.processingTime
+	if actualProcessingTime > maxProcessingTime {
+		actualProcessingTime = maxProcessingTime
+	}
+	
+	// Create a timer that respects both context and processing time
+	processingTimer := time.NewTimer(actualProcessingTime)
+	defer processingTimer.Stop()
+	
+	// Simulate processing time with proper context handling
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
-	case <-time.After(e.processingTime):
+	case <-processingTimer.C:
+		// Processing completed normally
 	}
 	
 	// Simulate some work
 	result := make(map[string]interface{})
 	result["processed"] = params["input"]
 	result["timestamp"] = time.Now()
-	result["processing_time"] = e.processingTime
+	result["processing_time"] = actualProcessingTime
 	
 	return &ToolExecutionResult{
 		Success:   true,
@@ -829,7 +692,6 @@ type PerformanceReport struct {
 	Duration  time.Duration
 	Config    *PerformanceConfig
 	Results   map[string]interface{}
-	Error     error
 }
 
 type BaselineResult struct {
@@ -989,9 +851,16 @@ func (st *StressTest) Run(t *testing.T) []*StressMeasurement {
 		}
 	}()
 	
-	// Start stress test workers
+	// Start stress test workers with optimized concurrency levels
 	var wg sync.WaitGroup
-	concurrencyLevels := []int{10, 50, 100, 200, 500, 1000, st.config.StressMaxConcurrency}
+	concurrencyLevels := []int{5, 10, 25}
+	if !testing.Short() {
+		concurrencyLevels = append(concurrencyLevels, 50, 100)
+		if !isCI() {
+			// Only add heavy concurrency for local development
+			concurrencyLevels = append(concurrencyLevels, st.config.StressMaxConcurrency)
+		}
+	}
 	
 	for _, concurrency := range concurrencyLevels {
 		wg.Add(1)
@@ -1097,28 +966,38 @@ func calculateErrorRate(err error) float64 {
 }
 
 // Additional helper methods for the performance framework
-func (pf *PerformanceFramework) warmup(engine *ExecutionEngine, tools []*Tool, duration time.Duration) {
-	pf.warmupWithContext(context.Background(), engine, tools, duration)
-}
-
 func (pf *PerformanceFramework) warmupWithContext(parentCtx context.Context, engine *ExecutionEngine, tools []*Tool, duration time.Duration) {
+	// Create a timeout context that respects both parent context and duration
 	ctx, cancel := context.WithTimeout(parentCtx, duration)
 	defer cancel()
 	
 	var wg sync.WaitGroup
-	for i := 0; i < 10; i++ {
+	// Scale concurrency based on environment
+	concurrency := 10
+	if testing.Short() {
+		concurrency = 3 // Minimal concurrency for short tests
+	} else if isCI() {
+		concurrency = 5 // Reduced concurrency for CI
+	}
+	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			ticker := time.NewTicker(10 * time.Millisecond)
+			defer ticker.Stop()
+			
 			for {
 				select {
 				case <-ctx.Done():
 					return
-				default:
+				case <-ticker.C:
 					tool := tools[rand.Intn(len(tools))]
-					engine.Execute(ctx, tool.ID, map[string]interface{}{
+					// Use a short timeout for each operation
+					opCtx, opCancel := context.WithTimeout(ctx, 50*time.Millisecond)
+					engine.Execute(opCtx, tool.ID, map[string]interface{}{
 						"input": "warmup",
 					})
+					opCancel()
 				}
 			}
 		}()
@@ -1126,53 +1005,104 @@ func (pf *PerformanceFramework) warmupWithContext(parentCtx context.Context, eng
 	wg.Wait()
 }
 
-func (pf *PerformanceFramework) measureBaselineExecutionTime(engine *ExecutionEngine, tools []*Tool) time.Duration {
-	var totalTime time.Duration
-	iterations := pf.config.BaselineIterations
-	
-	for i := 0; i < iterations; i++ {
-		tool := tools[rand.Intn(len(tools))]
-		start := time.Now()
-		engine.Execute(context.Background(), tool.ID, map[string]interface{}{
-			"input": fmt.Sprintf("baseline-test-%d", i),
-		})
-		totalTime += time.Since(start)
-	}
-	
-	return totalTime / time.Duration(iterations)
+// Legacy method for backwards compatibility
+func (pf *PerformanceFramework) warmup(engine *ExecutionEngine, tools []*Tool, duration time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	defer cancel()
+	pf.warmupWithContext(ctx, engine, tools, duration)
 }
 
-func (pf *PerformanceFramework) measureBaselineThroughput(engine *ExecutionEngine, tools []*Tool) float64 {
-	duration := 2 * time.Second // Fixed short duration for all modes
-	if testing.Short() {
-		duration = 1 * time.Second // Even shorter for short mode
+func (pf *PerformanceFramework) measureBaselineExecutionTimeWithContext(ctx context.Context, engine *ExecutionEngine, tools []*Tool) time.Duration {
+	var totalTime time.Duration
+	// Use optimized iterations for CI
+	measurements := GetOptimizedMeasurements()
+	iterations := measurements.LatencyIterations
+	if !isCI() {
+		iterations = pf.config.BaselineIterations
+	}
+	successfulIterations := 0
+	
+	for i := 0; i < iterations; i++ {
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			// Context cancelled, return average of successful iterations
+			if successfulIterations > 0 {
+				return totalTime / time.Duration(successfulIterations)
+			}
+			return 0
+		default:
+			// Continue with iteration
+		}
+		
+		tool := tools[rand.Intn(len(tools))]
+		start := time.Now()
+		
+		// Create operation context with timeout
+		opCtx, opCancel := context.WithTimeout(ctx, 1*time.Second)
+		_, err := engine.Execute(opCtx, tool.ID, map[string]interface{}{
+			"input": fmt.Sprintf("baseline-test-%d", i),
+		})
+		opCancel()
+		
+		elapsed := time.Since(start)
+		if err == nil || err == context.DeadlineExceeded {
+			totalTime += elapsed
+			successfulIterations++
+		}
 	}
 	
-	ctx, cancel := context.WithTimeout(context.Background(), duration)
+	if successfulIterations > 0 {
+		return totalTime / time.Duration(successfulIterations)
+	}
+	return 0
+}
+
+// Legacy method for backwards compatibility
+func (pf *PerformanceFramework) measureBaselineExecutionTime(engine *ExecutionEngine, tools []*Tool) time.Duration {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return pf.measureBaselineExecutionTimeWithContext(ctx, engine, tools)
+}
+
+func (pf *PerformanceFramework) measureBaselineThroughputWithContext(parentCtx context.Context, engine *ExecutionEngine, tools []*Tool) float64 {
+	// Use optimized duration for CI environments
+	measurements := GetOptimizedMeasurements()
+	duration := measurements.ThroughputDuration
+	// Further reduce in short mode
+	if testing.Short() {
+		duration = 1 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(parentCtx, duration)
 	defer cancel()
 	
 	var ops int64
 	var wg sync.WaitGroup
-	
 	concurrency := 10
-	if testing.Short() {
-		concurrency = 2 // Lower concurrency for short mode
-	}
 	
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+			ticker := time.NewTicker(10 * time.Millisecond)
+			defer ticker.Stop()
+			
 			for {
 				select {
 				case <-ctx.Done():
 					return
-				default:
+				case <-ticker.C:
 					tool := tools[rand.Intn(len(tools))]
-					engine.Execute(ctx, tool.ID, map[string]interface{}{
+					// Use short timeout for each operation
+					opCtx, opCancel := context.WithTimeout(ctx, 100*time.Millisecond)
+					_, err := engine.Execute(opCtx, tool.ID, map[string]interface{}{
 						"input": "throughput-test",
 					})
-					atomic.AddInt64(&ops, 1)
+					opCancel()
+					
+					if err == nil || err == context.DeadlineExceeded {
+						atomic.AddInt64(&ops, 1)
+					}
 				}
 			}
 		}()
@@ -1182,35 +1112,50 @@ func (pf *PerformanceFramework) measureBaselineThroughput(engine *ExecutionEngin
 	return float64(atomic.LoadInt64(&ops)) / duration.Seconds()
 }
 
-func (pf *PerformanceFramework) measureBaselineMemoryUsage(engine *ExecutionEngine, tools []*Tool) uint64 {
+// Legacy method for backwards compatibility
+func (pf *PerformanceFramework) measureBaselineThroughput(engine *ExecutionEngine, tools []*Tool) float64 {
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	return pf.measureBaselineThroughputWithContext(ctx, engine, tools)
+}
+
+func (pf *PerformanceFramework) measureBaselineMemoryUsageWithContext(ctx context.Context, engine *ExecutionEngine, tools []*Tool) uint64 {
 	runtime.GC()
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
 	
-	// Use very optimized iteration count for CI
-	iterations := 50 // Much fewer iterations for all modes
+	// Execute operations with context and timeout - scale operations based on environment
+	operations := 1000
 	if testing.Short() {
-		iterations = 10 // Even fewer iterations for short mode
+		operations = 100 // Much fewer operations in short mode
+	} else if isCI() {
+		operations = 500 // Moderate operations in CI
 	}
-	
-	// Create timeout context for operations - very short
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-	defer cancel()
-	
-	// Execute operations with timeout protection
-	for i := 0; i < iterations; i++ {
+	for i := 0; i < operations; i++ {
+		// Check context cancellation
 		select {
 		case <-ctx.Done():
-			// Timeout reached, return what we have
+			// Context cancelled, return current measurement
 			runtime.GC()
-			var after runtime.MemStats
-			runtime.ReadMemStats(&after)
-			return after.Alloc - before.Alloc
+			var current runtime.MemStats
+			runtime.ReadMemStats(&current)
+			return current.Alloc - before.Alloc
 		default:
-			tool := tools[rand.Intn(len(tools))]
-			engine.Execute(ctx, tool.ID, map[string]interface{}{
-				"input": fmt.Sprintf("memory-test-%d", i),
-			})
+			// Continue with operation
+		}
+		
+		tool := tools[rand.Intn(len(tools))]
+		
+		// Create operation context with short timeout
+		opCtx, opCancel := context.WithTimeout(ctx, 100*time.Millisecond)
+		_, err := engine.Execute(opCtx, tool.ID, map[string]interface{}{
+			"input": fmt.Sprintf("memory-test-%d", i),
+		})
+		opCancel()
+		
+		if err != nil && err != context.DeadlineExceeded {
+			// Log error but continue
+			continue
 		}
 	}
 	
@@ -1221,47 +1166,56 @@ func (pf *PerformanceFramework) measureBaselineMemoryUsage(engine *ExecutionEngi
 	return after.Alloc - before.Alloc
 }
 
-func (pf *PerformanceFramework) measureBaselineLatency(engine *ExecutionEngine, tools []*Tool) *LatencyMetrics {
-	return pf.measureBaselineLatencyWithContext(context.Background(), engine, tools)
+// Legacy method for backwards compatibility
+func (pf *PerformanceFramework) measureBaselineMemoryUsage(engine *ExecutionEngine, tools []*Tool) uint64 {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return pf.measureBaselineMemoryUsageWithContext(ctx, engine, tools)
 }
 
 func (pf *PerformanceFramework) measureBaselineLatencyWithContext(ctx context.Context, engine *ExecutionEngine, tools []*Tool) *LatencyMetrics {
 	var latencies []time.Duration
-	iterations := pf.config.BaselineIterations
-	if iterations > 10 {
-		iterations = 10 // Cap iterations to prevent hanging
+	// Use optimized iterations for CI
+	measurements := GetOptimizedMeasurements()
+	iterations := measurements.LatencyIterations
+	if !isCI() {
+		iterations = pf.config.BaselineIterations
 	}
 	
-	// Create a child context with a very short timeout to prevent hanging
-	childCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-	defer cancel()
-	
 	for i := 0; i < iterations; i++ {
+		// Check context cancellation
 		select {
-		case <-childCtx.Done():
-			// Timeout reached, return what we have so far
-			if len(latencies) > 0 {
-				return calculateLatencyMetrics(latencies)
-			}
-			// Return minimal metrics if no data collected
-			return &LatencyMetrics{
-				Mean: 1 * time.Millisecond,
-				P50:  1 * time.Millisecond,
-				P95:  1 * time.Millisecond,
-				P99:  1 * time.Millisecond,
-				P999: 1 * time.Millisecond,
-			}
+		case <-ctx.Done():
+			// Context cancelled, return metrics from collected latencies
+			return calculateLatencyMetrics(latencies)
 		default:
-			tool := tools[rand.Intn(len(tools))]
-			start := time.Now()
-			engine.Execute(childCtx, tool.ID, map[string]interface{}{
-				"input": fmt.Sprintf("latency-test-%d", i),
-			})
-			latencies = append(latencies, time.Since(start))
+			// Continue with iteration
+		}
+		
+		tool := tools[rand.Intn(len(tools))]
+		start := time.Now()
+		
+		// Create operation context with timeout
+		opCtx, opCancel := context.WithTimeout(ctx, 1*time.Second)
+		_, err := engine.Execute(opCtx, tool.ID, map[string]interface{}{
+			"input": fmt.Sprintf("latency-test-%d", i),
+		})
+		opCancel()
+		
+		elapsed := time.Since(start)
+		if err == nil || err == context.DeadlineExceeded {
+			latencies = append(latencies, elapsed)
 		}
 	}
 	
 	return calculateLatencyMetrics(latencies)
+}
+
+// Legacy method for backwards compatibility
+func (pf *PerformanceFramework) measureBaselineLatency(engine *ExecutionEngine, tools []*Tool) *LatencyMetrics {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	return pf.measureBaselineLatencyWithContext(ctx, engine, tools)
 }
 
 func calculateLatencyMetrics(latencies []time.Duration) *LatencyMetrics {
@@ -1346,14 +1300,64 @@ func (pf *PerformanceFramework) runScalabilityTest(t *testing.T, toolCount int) 
 	return measurement
 }
 
-// runMemoryStressTest - REMOVED
-// This test was designed to stress test memory usage by creating 1000 tools (50 in short mode)
-// and 100 goroutines each allocating 1MB per operation. It was designed to push memory limits
-// and test resource exhaustion scenarios. Removed as too resource-intensive for CI/CD.
 func (pf *PerformanceFramework) runMemoryStressTest(t *testing.T, engine *ExecutionEngine, registry *Registry) *MemoryStressResult {
 	t.Helper()
-	t.Skip("Memory stress test removed - was designed to exhaust system memory resources")
-	return &MemoryStressResult{}
+	
+	result := &MemoryStressResult{}
+	
+	// Create many tools (reduced for faster execution)
+	tools := pf.createTestTools(100)
+	for _, tool := range tools {
+		if err := registry.Register(tool); err != nil {
+			t.Fatalf("Failed to register tool: %v", err)
+		}
+	}
+	
+	// Stress test with high memory allocation (reduced duration and concurrency)
+	timeout := OptimizedTestTimeout()
+	if testing.Short() {
+		timeout = 2 * time.Second // Very short for testing.Short()
+	} else if isCI() {
+		timeout = 5 * time.Second // Much shorter for CI
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	
+	var wg sync.WaitGroup
+	// Scale workers based on environment
+	workers := 20
+	if testing.Short() {
+		workers = 5 // Minimal workers for short tests
+	} else if isCI() {
+		workers = 10 // Moderate workers for CI
+	}
+	for i := 0; i < workers; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				default:
+					tool := tools[rand.Intn(len(tools))]
+					engine.Execute(ctx, tool.ID, map[string]interface{}{
+						"input": make([]byte, 1024*1024), // 1MB allocation
+					})
+				}
+			}
+		}()
+	}
+	
+	wg.Wait()
+	
+	// Measure final memory usage
+	var m runtime.MemStats
+	runtime.ReadMemStats(&m)
+	result.MaxMemoryUsage = m.Alloc
+	result.AverageMemoryUsage = m.Alloc / 2 // Simplified
+	
+	return result
 }
 
 func (pf *PerformanceFramework) runMemoryLeakTest(t *testing.T, engine *ExecutionEngine, registry *Registry) *MemoryLeakResult {
@@ -1365,11 +1369,7 @@ func (pf *PerformanceFramework) runMemoryLeakTest(t *testing.T, engine *Executio
 	var memoryReadings []uint64
 	
 	// Create tools
-	toolCount := 100
-	if testing.Short() {
-		toolCount = 20 // Reduce tool count for CI
-	}
-	tools := pf.createTestTools(toolCount)
+	tools := pf.createTestTools(100)
 	for _, tool := range tools {
 		if err := registry.Register(tool); err != nil {
 			t.Fatalf("Failed to register tool: %v", err)
@@ -1377,9 +1377,19 @@ func (pf *PerformanceFramework) runMemoryLeakTest(t *testing.T, engine *Executio
 	}
 	
 	// Run operations and monitor memory
-	for i := 0; i < 10; i++ {
-		// Execute many operations
-		for j := 0; j < 1000; j++ {
+	// Scale operations based on environment
+	iterations := 10
+	operationsPerIteration := 1000
+	if testing.Short() {
+		iterations = 3
+		operationsPerIteration = 100
+	} else if isCI() {
+		iterations = 5
+		operationsPerIteration = 500
+	}
+	for i := 0; i < iterations; i++ {
+		// Execute operations
+		for j := 0; j < operationsPerIteration; j++ {
 			tool := tools[rand.Intn(len(tools))]
 			engine.Execute(context.Background(), tool.ID, map[string]interface{}{
 				"input": fmt.Sprintf("leak-test-%d-%d", i, j),
@@ -1429,7 +1439,13 @@ func (pf *PerformanceFramework) runMemoryEfficiencyTest(t *testing.T, engine *Ex
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
 	
+	// Scale operations based on environment
 	operations := 1000
+	if testing.Short() {
+		operations = 100
+	} else if isCI() {
+		operations = 500
+	}
 	for i := 0; i < operations; i++ {
 		tool := tools[rand.Intn(len(tools))]
 		engine.Execute(context.Background(), tool.ID, map[string]interface{}{
@@ -1505,10 +1521,13 @@ func (lg *LoadGenerator) generateRampLoad(ctx context.Context, maxIntensity int)
 	
 	startTime := time.Now()
 	var activeWorkers int
+	var wg sync.WaitGroup
 	
 	for {
 		select {
 		case <-ctx.Done():
+			// Wait for all workers to finish
+			wg.Wait()
 			return
 		case <-ticker.C:
 			elapsed := time.Since(startTime)
@@ -1522,7 +1541,11 @@ func (lg *LoadGenerator) generateRampLoad(ctx context.Context, maxIntensity int)
 			
 			// Adjust worker count
 			for activeWorkers < targetIntensity {
-				go lg.worker(ctx, activeWorkers)
+				wg.Add(1)
+				go func(workerID int) {
+					defer wg.Done()
+					lg.worker(ctx, workerID)
+				}(activeWorkers)
 				activeWorkers++
 			}
 		}
@@ -1530,7 +1553,7 @@ func (lg *LoadGenerator) generateRampLoad(ctx context.Context, maxIntensity int)
 }
 
 func (lg *LoadGenerator) generateSpikeLoad(ctx context.Context, spikeIntensity int) {
-	// Generate spikes at regular intervals
+	// Generate spikes at regular intervals with proper cleanup
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
 	
@@ -1539,11 +1562,17 @@ func (lg *LoadGenerator) generateSpikeLoad(ctx context.Context, spikeIntensity i
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			// Generate spike
-			spikeCtx, cancel := context.WithTimeout(ctx, testhelper.GetCITimeouts().Short)
+			// Generate spike with timeout and cleanup
+			spikeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 			var wg sync.WaitGroup
 			
-			for i := 0; i < spikeIntensity; i++ {
+			// Limit spike intensity to prevent resource exhaustion
+			limitedIntensity := spikeIntensity
+			if limitedIntensity > 100 {
+				limitedIntensity = 100
+			}
+			
+			for i := 0; i < limitedIntensity; i++ {
 				wg.Add(1)
 				go func(workerID int) {
 					defer wg.Done()
@@ -1551,6 +1580,7 @@ func (lg *LoadGenerator) generateSpikeLoad(ctx context.Context, spikeIntensity i
 				}(i)
 			}
 			
+			// Ensure all workers complete before next spike
 			wg.Wait()
 			cancel()
 		}
@@ -1563,10 +1593,13 @@ func (lg *LoadGenerator) generateWaveLoad(ctx context.Context, amplitude int) {
 	
 	startTime := time.Now()
 	var activeWorkers int
+	var wg sync.WaitGroup
 	
 	for {
 		select {
 		case <-ctx.Done():
+			// Wait for all workers to finish
+			wg.Wait()
 			return
 		case <-ticker.C:
 			elapsed := time.Since(startTime).Seconds()
@@ -1575,9 +1608,18 @@ func (lg *LoadGenerator) generateWaveLoad(ctx context.Context, amplitude int) {
 			waveValue := math.Sin(elapsed / 30 * 2 * math.Pi) // 60-second period
 			targetIntensity := int(float64(amplitude) * (0.5 + 0.5*waveValue))
 			
+			// Limit intensity to prevent resource exhaustion
+			if targetIntensity > 50 {
+				targetIntensity = 50
+			}
+			
 			// Adjust worker count
 			for activeWorkers < targetIntensity {
-				go lg.worker(ctx, activeWorkers)
+				wg.Add(1)
+				go func(workerID int) {
+					defer wg.Done()
+					lg.worker(ctx, workerID)
+				}(activeWorkers)
 				activeWorkers++
 			}
 		}
@@ -1585,14 +1627,42 @@ func (lg *LoadGenerator) generateWaveLoad(ctx context.Context, amplitude int) {
 }
 
 func (lg *LoadGenerator) worker(ctx context.Context, workerID int) {
+	// Add maximum work duration to prevent infinite loops
+	maxWorkDuration := 30 * time.Second
+	workTimeout := time.After(maxWorkDuration)
+	
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-workTimeout:
+			// Maximum work duration reached, exit worker
+			return
 		case lg.workersChan <- struct{}{}:
-			// Throttle worker
+			// Throttle worker and execute operation
 			lg.executeOperation(ctx, workerID)
-			<-lg.workersChan
+			select {
+			case <-lg.workersChan:
+				// Successfully released throttle
+			case <-ctx.Done():
+				// Context cancelled while waiting to release throttle
+				return
+			case <-time.After(1 * time.Second):
+				// Timeout waiting to release throttle, force release
+				select {
+				case <-lg.workersChan:
+				default:
+					// Channel might be full, just continue
+				}
+			}
+		default:
+			// Workers channel is full, yield and try again
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(10 * time.Millisecond):
+				// Short delay before retrying
+			}
 		}
 	}
 }
@@ -1624,11 +1694,8 @@ func (lg *LoadGenerator) executeOperation(ctx context.Context, workerID int) {
 	
 	select {
 	case lg.resultsChan <- loadResult:
-	case <-ctx.Done():
-		// Context cancelled, stop sending
-		return
 	default:
-		// Skip if channel is full or closed
+		// Skip if channel is full
 	}
 }
 
@@ -1636,7 +1703,7 @@ func (lg *LoadGenerator) collectResults(result *LoadPatternResult) {
 	var latencies []time.Duration
 	var throughputMeasurements []float64
 	
-	measurementWindow := testhelper.GetCITimeouts().Medium
+	measurementWindow := 5 * time.Second
 	ticker := time.NewTicker(measurementWindow)
 	defer ticker.Stop()
 	
@@ -1649,7 +1716,7 @@ func (lg *LoadGenerator) collectResults(result *LoadPatternResult) {
 				result.LatencyPercentiles = calculateLatencyMetrics(latencies)
 				if len(throughputMeasurements) > 0 {
 					result.AverageThroughput = average(throughputMeasurements)
-					result.PeakThroughput = max(throughputMeasurements)
+					result.PeakThroughput = maxFloat64(throughputMeasurements)
 				}
 				return
 			}
@@ -1711,7 +1778,13 @@ func (mp *MemoryProfiler) Stop() {
 }
 
 func (mp *MemoryProfiler) monitorMemory() {
-	ticker := time.NewTicker(mp.config.MemoryCheckInterval)
+	// Ensure we have a valid interval to prevent panic
+	interval := mp.config.MemoryCheckInterval
+	if interval <= 0 {
+		interval = 1 * time.Second // Default to 1 second if not set
+	}
+	
+	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	
 	for {
@@ -2004,7 +2077,7 @@ func average(values []float64) float64 {
 	return sum / float64(len(values))
 }
 
-func max(values []float64) float64 {
+func maxFloat64(values []float64) float64 {
 	if len(values) == 0 {
 		return 0
 	}

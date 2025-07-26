@@ -1,7 +1,13 @@
 package main
 
-import "github.com/ag-ui/go-sdk/examples/tools/validation/src"
+import (
+	"log"
+
+	apivalidator "github.com/ag-ui/go-sdk/examples/tools/validation/api-validator"
+)
 
 func main() {
-	validation.RunApiValidatorExample()
+	if err := apivalidator.RunApiValidatorExample(); err != nil {
+		log.Fatalf("API validator example failed: %v", err)
+	}
 }

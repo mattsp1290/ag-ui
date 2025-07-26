@@ -141,6 +141,7 @@ type SecurityManager struct {
 	mu              sync.RWMutex // still needed for some operations
 	shutdownCh      chan struct{}
 	cleanupTicker   *time.Ticker
+	wg              sync.WaitGroup // Track audit logging goroutines
 }
 
 // SecureConnection represents a secured WebSocket connection
@@ -522,8 +523,30 @@ func (sm *SecurityManager) logSecurityEvent(ctx context.Context, event *Security
 		return
 	}
 
+	// Check if we're already shutting down
+	select {
+	case <-sm.shutdownCh:
+		return
+	default:
+	}
+
+	sm.wg.Add(1)
 	go func() {
-		if err := sm.config.AuditLogger.LogSecurityEvent(ctx, event); err != nil {
+		defer sm.wg.Done()
+		
+		// Create context with timeout for audit logging to prevent hanging
+		auditCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+		
+		// Check again in case shutdown happened after we added to wait group
+		select {
+		case <-sm.shutdownCh:
+			// Security manager is shutting down, skip logging
+			return
+		default:
+		}
+
+		if err := sm.config.AuditLogger.LogSecurityEvent(auditCtx, event); err != nil {
 			// Log error to stderr if audit logging fails
 			fmt.Printf("Failed to log security event: %v\n", err)
 		}
@@ -533,6 +556,14 @@ func (sm *SecurityManager) logSecurityEvent(ctx context.Context, event *Security
 // Shutdown gracefully shuts down the security manager
 func (sm *SecurityManager) Shutdown() {
 	close(sm.shutdownCh)
+
+	// Stop cleanup ticker if running
+	if sm.cleanupTicker != nil {
+		sm.cleanupTicker.Stop()
+	}
+
+	// Wait for all audit logging goroutines to finish
+	sm.wg.Wait()
 
 	// Close all connections
 	sm.connections.Range(func(key, value interface{}) bool {

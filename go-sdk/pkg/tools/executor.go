@@ -42,14 +42,12 @@ type ExecutionEngine struct {
 	registry *Registry
 
 	// Configuration
-	maxConcurrent  int32 // Changed to int32 for atomic operations
+	maxConcurrent  int
 	defaultTimeout time.Duration
 
-	// Execution tracking
-	mu          sync.RWMutex
-	cond        *sync.Cond
-	activeCount int32             // Changed to int32 for atomic operations
-	executions  sync.Map          // Changed to sync.Map for concurrent access
+	// Concurrency control - channel-based semaphore (RACE CONDITION FIX)
+	concurrencySemaphore chan struct{} // Buffered channel acts as semaphore
+	executions           sync.Map      // Active execution tracking
 
 	// Metrics
 	metrics *ExecutionMetrics
@@ -66,7 +64,7 @@ type ExecutionEngine struct {
 	cache             *ExecutionCache
 	asyncWorkers      int
 	asyncJobQueue     chan *AsyncJob
-	asyncResults      sync.Map // Changed to sync.Map for concurrent access
+	asyncResults      sync.Map
 	resourceMonitor   *ResourceMonitor
 	sandbox           *SandboxConfig
 }
@@ -163,7 +161,9 @@ type ExecutionEngineOption func(*ExecutionEngine)
 // WithMaxConcurrent sets the maximum number of concurrent executions.
 func WithMaxConcurrent(max int) ExecutionEngineOption {
 	return func(e *ExecutionEngine) {
-		e.maxConcurrent = int32(max)
+		e.maxConcurrent = max
+		// Recreate semaphore with new capacity
+		e.concurrencySemaphore = make(chan struct{}, max)
 	}
 }
 
@@ -183,17 +183,16 @@ func WithRateLimiter(limiter RateLimiter) ExecutionEngineOption {
 
 // NewExecutionEngine creates a new execution engine.
 func NewExecutionEngine(registry *Registry, opts ...ExecutionEngineOption) *ExecutionEngine {
+	maxConcurrent := 100 // Default max concurrent executions
 	e := &ExecutionEngine{
-		registry:       registry,
-		maxConcurrent:  100,              // Default max concurrent executions
-		defaultTimeout: timeconfig.ToolExecutionTimeout(), // Configurable timeout
+		registry:             registry,
+		maxConcurrent:        maxConcurrent,
+		defaultTimeout:       30 * time.Second, // Default timeout
+		concurrencySemaphore: make(chan struct{}, maxConcurrent), // Channel-based semaphore
 		metrics: &ExecutionMetrics{
 			toolMetrics: make(map[string]*ToolMetrics),
 		},
 	}
-
-	// Initialize the condition variable with the mutex
-	e.cond = sync.NewCond(&e.mu)
 
 	// Apply options
 	for _, opt := range opts {
@@ -225,6 +224,16 @@ func (e *ExecutionEngine) Execute(ctx context.Context, toolID string, params map
 			WithCause(err)
 	}
 
+	// Check cache if enabled and tool is cacheable
+	if e.cache != nil && toolView.GetCapabilities() != nil && toolView.GetCapabilities().Cacheable {
+		cacheKey := e.generateCacheKey(toolID, params)
+		if cached, ok := e.getCached(cacheKey); ok {
+			atomic.AddInt64(&e.metrics.cacheHits, 1)
+			return cached, nil
+		}
+		atomic.AddInt64(&e.metrics.cacheMisses, 1)
+	}
+
 	// Check rate limits
 	if e.rateLimiter != nil {
 		if rateLimitErr := e.rateLimiter.Wait(ctx, toolID); rateLimitErr != nil {
@@ -234,11 +243,17 @@ func (e *ExecutionEngine) Execute(ctx context.Context, toolID string, params map
 		}
 	}
 
-	// Check concurrency limits with proper synchronization
-	if concurrencyErr := e.checkConcurrencyLimit(ctx); concurrencyErr != nil {
-		return nil, concurrencyErr
+	// Acquire concurrency slot using channel-based semaphore (RACE CONDITION FIX)
+	// Block until a slot becomes available or context is cancelled
+	select {
+	case e.concurrencySemaphore <- struct{}{}: // Acquire slot
+		// Successfully acquired slot, will be released in defer
+	case <-ctx.Done():
+		return nil, NewToolError(ErrorTypeTimeout, "CONTEXT_CANCELLED", "context cancelled while waiting for execution slot").
+			WithToolID(toolID).
+			WithCause(ctx.Err())
 	}
-	defer e.decrementActiveCount()
+	defer func() { <-e.concurrencySemaphore }() // Release slot
 
 	// Validate parameters
 	validator := NewSchemaValidator(toolView.GetSchema())
@@ -320,6 +335,12 @@ func (e *ExecutionEngine) Execute(ctx context.Context, toolID string, params map
 	// Run after-execute hooks
 	e.runAfterHooks(ctx, toolID, params)
 
+	// Cache successful results if caching is enabled and tool is cacheable
+	if e.cache != nil && result.Success && toolView.GetCapabilities() != nil && toolView.GetCapabilities().Cacheable {
+		cacheKey := e.generateCacheKey(toolID, params)
+		e.setCached(cacheKey, result)
+	}
+
 	return result, nil
 }
 
@@ -381,11 +402,17 @@ func (e *ExecutionEngine) ExecuteStream(ctx context.Context, toolID string, para
 		}
 	}
 
-	// Check concurrency limits with proper synchronization
-	if concurrencyErr := e.checkConcurrencyLimit(ctx); concurrencyErr != nil {
-		return nil, concurrencyErr
+	// Acquire concurrency slot using channel-based semaphore (RACE CONDITION FIX)
+	// Block until a slot becomes available or context is cancelled
+	select {
+	case e.concurrencySemaphore <- struct{}{}: // Acquire slot
+		// Successfully acquired slot, will be released in defer
+	case <-ctx.Done():
+		return nil, NewToolError(ErrorTypeTimeout, "CONTEXT_CANCELLED", "context cancelled while waiting for execution slot").
+			WithToolID(toolID).
+			WithCause(ctx.Err())
 	}
-	defer e.decrementActiveCount()
+	defer func() { <-e.concurrencySemaphore }() // Release slot
 
 	// Set up execution context with timeout
 	timeout := e.defaultTimeout
@@ -476,65 +503,24 @@ func (e *ExecutionEngine) executeWithRecovery(ctx context.Context, tool ReadOnly
 		}
 	}()
 
-	return tool.GetExecutor().Execute(ctx, params)
-}
-
-// checkConcurrencyLimit checks if we can execute another tool (FIXED).
-func (e *ExecutionEngine) checkConcurrencyLimit(ctx context.Context) error {
-	e.mu.Lock()
-	defer e.mu.Unlock()
-
-	maxConcurrent := atomic.LoadInt32(&e.maxConcurrent)
+	// Check if tool and executor are not nil to prevent panic
+	if tool == nil {
+		return nil, NewToolError(ErrorTypeInternal, "TOOL_NIL", "tool is nil")
+	}
 	
-	// Wait for a slot to become available if we're at capacity
-	for atomic.LoadInt32(&e.activeCount) >= maxConcurrent {
-		// Check if context is already cancelled before waiting
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
-
-		// Use a simple approach without goroutines to avoid leaks
-		// We'll rely on the Signal() call in untrackExecution() to wake us up
-		// and check context cancellation after each Wait()
-		
-		// Set up a timeout channel to prevent indefinite blocking
-		timeoutCh := make(chan struct{})
-		timeout := time.AfterFunc(timeconfig.GetConfig().DefaultShutdownTimeout, func() {
-			close(timeoutCh)
-			e.cond.Broadcast()
-		})
-		
-		// Wait releases the lock and waits for a signal
-		e.cond.Wait()
-		
-		// Cancel the timeout since we woke up
-		if !timeout.Stop() {
-			// Timer already fired, drain the channel
-			select {
-			case <-timeoutCh:
-			default:
-			}
-		}
-
-		// Check if context was cancelled while waiting
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-		}
+	executor := tool.GetExecutor()
+	if executor == nil {
+		return nil, NewToolError(ErrorTypeInternal, "EXECUTOR_NIL", "tool executor is nil").
+			WithToolID(tool.GetID())
 	}
 
-	atomic.AddInt32(&e.activeCount, 1)
-	return nil
+	return executor.Execute(ctx, params)
 }
 
-// decrementActiveCount decrements the active execution count and signals waiters.
-func (e *ExecutionEngine) decrementActiveCount() {
-	atomic.AddInt32(&e.activeCount, -1)
-	e.cond.Broadcast()
-}
+// Channel-based semaphore approach eliminates the need for these problematic methods.
+// The concurrency control is now handled directly in Execute/ExecuteStream methods
+// using the concurrencySemaphore channel, which provides atomic acquire/release
+// operations without race conditions.
 
 // runBeforeHooks runs before-execute hooks with proper locking (FIXED).
 func (e *ExecutionEngine) runBeforeHooks(ctx context.Context, toolID string, params map[string]interface{}) error {
@@ -579,8 +565,9 @@ func (e *ExecutionEngine) trackExecution(execID, toolID string, cancel context.C
 // untrackExecution removes an execution from tracking (FIXED).
 func (e *ExecutionEngine) untrackExecution(execID string) {
 	e.executions.Delete(execID)
-	// Don't decrement activeCount here - it's handled by decrementActiveCount()
-	// to avoid double decrement
+	// NOTE: Do NOT decrement activeCount here - it's already decremented by decrementActiveCount()
+	// that is deferred in Execute/ExecuteStream methods. Removing the double decrement fixes the race.
+	// This avoids double decrementing the counter and potential race conditions.
 }
 
 // updateMetrics updates execution metrics with atomic operations (FIXED).
@@ -684,10 +671,11 @@ func (e *ExecutionEngine) AddAfterExecuteHook(hook ExecutionHook) {
 	e.afterExecute = append(e.afterExecute, hook)
 }
 
-// GetActiveExecutions returns the number of active executions (FIXED).
+// GetActiveExecutions returns the number of active executions (RACE CONDITION FIX).
 // This is useful for monitoring system load and debugging.
 func (e *ExecutionEngine) GetActiveExecutions() int {
-	return int(atomic.LoadInt32(&e.activeCount))
+	// Channel length represents current active executions
+	return len(e.concurrencySemaphore)
 }
 
 // IsExecuting checks if a specific tool is currently executing (FIXED).
@@ -848,7 +836,7 @@ func WithAsyncWorkers(workers int) ExecutionEngineOption {
 		
 		// Start async workers
 		for i := 0; i < workers; i++ {
-			go e.processAsyncJobs()
+			go e.asyncWorker()
 		}
 	}
 }
@@ -1086,6 +1074,86 @@ func (e *ExecutionEngine) GetJobQueueMetrics() map[string]interface{} {
 	}
 }
 
+// asyncWorker processes async jobs from the queue
+func (e *ExecutionEngine) asyncWorker() {
+	for job := range e.asyncJobQueue {
+		// Execute the job
+		result, err := e.Execute(job.Context, job.ToolID, job.Params)
+		
+		// Send result back
+		asyncResult := &AsyncResult{
+			JobID:  job.ID,
+			Result: result,
+			Error:  err,
+		}
+		
+		// Always try to send the result, even if context is canceled
+		// This ensures the caller receives notification of cancellation
+		select {
+		case job.Result <- asyncResult:
+			// Result sent successfully
+		default:
+			// Result channel might be closed or full, continue anyway
+		}
+		
+		// Clean up result channel from map
+		e.asyncResults.Delete(job.ID)
+	}
+}
+
+
+// getCached retrieves a cached result if available and not expired
+func (e *ExecutionEngine) getCached(key string) (*ToolExecutionResult, bool) {
+	e.cache.mu.RLock()
+	defer e.cache.mu.RUnlock()
+	
+	entry, exists := e.cache.cache[key]
+	if !exists {
+		return nil, false
+	}
+	
+	// Check if entry has expired
+	if time.Since(entry.CreatedAt) > e.cache.ttl {
+		// Entry expired, remove it (we'll need write lock for this)
+		go func() {
+			e.cache.mu.Lock()
+			delete(e.cache.cache, key)
+			e.cache.mu.Unlock()
+		}()
+		return nil, false
+	}
+	
+	return entry.Result, true
+}
+
+// setCached stores a result in the cache
+func (e *ExecutionEngine) setCached(key string, result *ToolExecutionResult) {
+	e.cache.mu.Lock()
+	defer e.cache.mu.Unlock()
+	
+	// Check cache size limit
+	if len(e.cache.cache) >= e.cache.maxSize {
+		// Simple eviction: remove the oldest entry
+		// In production, use LRU or other eviction strategy
+		var oldestKey string
+		var oldestTime time.Time
+		for k, v := range e.cache.cache {
+			if oldestKey == "" || v.CreatedAt.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = v.CreatedAt
+			}
+		}
+		if oldestKey != "" {
+			delete(e.cache.cache, oldestKey)
+		}
+	}
+	
+	e.cache.cache[key] = &CacheEntry{
+		Result:    result,
+		CreatedAt: time.Now(),
+	}
+}
+
 // Shutdown gracefully shuts down the execution engine.
 // It stops accepting new executions, waits for active executions
 // to complete (up to the context deadline), and cleans up resources.
@@ -1099,30 +1167,26 @@ func (e *ExecutionEngine) GetJobQueueMetrics() map[string]interface{} {
 //		log.Printf("shutdown error: %v", err)
 //	}
 func (e *ExecutionEngine) Shutdown(ctx context.Context) error {
-	// Cancel all active executions
+	// Cancel all active executions first
 	e.CancelAll()
 	
-	// Close async job queue if it exists
+	// Close async job queue to stop accepting new jobs
 	if e.asyncJobQueue != nil {
 		close(e.asyncJobQueue)
 	}
 	
-	// Wait for active executions to complete or timeout
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		// Wait until all active executions are done
-		for atomic.LoadInt32(&e.activeCount) > 0 {
-			time.Sleep(10 * time.Millisecond)
-		}
-	}()
+	// Wait a bit for executions to finish or until context expires
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
 	
-	// Wait for completion or context timeout
-	select {
-	case <-done:
-		return nil
-	case <-ctx.Done():
-		// Force shutdown if context times out
-		return ctx.Err()
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if e.GetActiveExecutions() == 0 {
+				return nil
+			}
+		}
 	}
 }

@@ -133,12 +133,12 @@ func (op JSONPatchOperation) Apply(document interface{}) (interface{}, error) {
 func applyAdd(document interface{}, path string, value interface{}) (interface{}, error) {
 	if path == "" || path == "/" {
 		// Replace the entire document
-		return value, nil
+		return normalizeJSONValue(value), nil
 	}
 
 	tokens := parseJSONPointer(path)
 	if len(tokens) == 0 {
-		return value, nil
+		return normalizeJSONValue(value), nil
 	}
 
 	parent, lastToken, err := getParent(document, tokens)
@@ -148,17 +148,17 @@ func applyAdd(document interface{}, path string, value interface{}) (interface{}
 
 	switch p := parent.(type) {
 	case map[string]interface{}:
-		p[lastToken] = value
+		p[lastToken] = normalizeJSONValue(value)
 	case []interface{}:
 		idx, isAppend, err := parseArrayIndex(lastToken, len(p))
 		if err != nil {
 			return nil, err
 		}
 		if isAppend {
-			parent = append(p, value)
+			parent = append(p, normalizeJSONValue(value))
 		} else {
 			// Insert at index
-			parent = append(p[:idx], append([]interface{}{value}, p[idx:]...)...)
+			parent = append(p[:idx], append([]interface{}{normalizeJSONValue(value)}, p[idx:]...)...)
 		}
 		// Update the parent in the document
 		if len(tokens) > 1 {
@@ -220,7 +220,7 @@ func applyRemove(document interface{}, path string) (interface{}, error) {
 // applyReplace applies a replace operation
 func applyReplace(document interface{}, path string, value interface{}) (interface{}, error) {
 	if path == "" || path == "/" {
-		return value, nil
+		return normalizeJSONValue(value), nil
 	}
 
 	// First check if the path exists
@@ -228,7 +228,7 @@ func applyReplace(document interface{}, path string, value interface{}) (interfa
 		return nil, fmt.Errorf("path %s does not exist", path)
 	}
 
-	// Remove then add
+	// Remove then add (applyAdd already normalizes)
 	doc, err := applyRemove(document, path)
 	if err != nil {
 		return nil, err
@@ -477,7 +477,7 @@ func parseArrayIndex(token string, length int) (int, bool, error) {
 		return 0, false, fmt.Errorf("invalid array index: %s", token)
 	}
 
-	// Check for negative index
+	// Negative indices are not allowed in JSON Patch
 	if idx < 0 {
 		return 0, false, fmt.Errorf("negative array index not allowed: %s", token)
 	}
@@ -517,6 +517,52 @@ func unescapeJSONPointer(token string) string {
 	token = strings.ReplaceAll(token, "~1", "/")
 	token = strings.ReplaceAll(token, "~0", "~")
 	return token
+}
+
+// normalizeJSONValue normalizes a value to match JSON conventions
+// This ensures all numeric types are converted to float64 as JSON doesn't distinguish between int and float
+func normalizeJSONValue(value interface{}) interface{} {
+	if value == nil {
+		return nil
+	}
+
+	switch v := value.(type) {
+	case map[string]interface{}:
+		normalized := make(map[string]interface{}, len(v))
+		for key, val := range v {
+			normalized[key] = normalizeJSONValue(val)
+		}
+		return normalized
+	case []interface{}:
+		normalized := make([]interface{}, len(v))
+		for i, val := range v {
+			normalized[i] = normalizeJSONValue(val)
+		}
+		return normalized
+	case int:
+		// Convert to float64 for JSON consistency
+		return float64(v)
+	case int8:
+		return float64(v) // Convert to float64 for JSON consistency
+	case int16:
+		return float64(v) // Convert to float64 for JSON consistency
+	case int32:
+		return float64(v) // Convert to float64 for JSON consistency
+	case int64:
+		return float64(v) // Convert to float64 for JSON consistency
+	case uint:
+		return float64(v) // Convert to float64 for JSON consistency
+	case uint8:
+		return float64(v) // Convert to float64 for JSON consistency
+	case uint16:
+		return float64(v) // Convert to float64 for JSON consistency
+	case uint32:
+		return float64(v) // Convert to float64 for JSON consistency
+	case uint64:
+		return float64(v) // Convert to float64 for JSON consistency
+	default:
+		return v
+	}
 }
 
 // validateJSONPointer validates a JSON Pointer with comprehensive checks

@@ -470,7 +470,7 @@ options.StorageConfig = &state.StorageConfig{
 // Redis backend
 options.StorageBackend = "redis"
 options.StorageConfig = &state.StorageConfig{
-    ConnectionURL: "redis://localhost:6379",
+    ConnectionURL: os.Getenv("REDIS_URL"), // Example: "redis://localhost:6379"
     Database:      0,
     MaxRetries:    3,
     PoolSize:      10,
@@ -479,7 +479,7 @@ options.StorageConfig = &state.StorageConfig{
 // PostgreSQL backend
 options.StorageBackend = "postgres"
 options.StorageConfig = &state.StorageConfig{
-    ConnectionURL: "postgres://user:pass@localhost/statedb",
+    ConnectionURL: os.Getenv("DATABASE_URL"), // Example: "postgres://user:pass@localhost/statedb"
     MaxOpenConns:  25,
     MaxIdleConns:  5,
     ConnMaxLifetime: 5 * time.Minute,

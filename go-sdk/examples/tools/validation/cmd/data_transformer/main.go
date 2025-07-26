@@ -1,7 +1,13 @@
 package main
 
-import "github.com/ag-ui/go-sdk/examples/tools/validation/src"
+import (
+	"log"
+
+	datatransformer "github.com/ag-ui/go-sdk/examples/tools/validation/data-transformer"
+)
 
 func main() {
-	validation.RunDataTransformerExample()
+	if err := datatransformer.RunDataTransformerExample(); err != nil {
+		log.Fatalf("Data transformer example failed: %v", err)
+	}
 }

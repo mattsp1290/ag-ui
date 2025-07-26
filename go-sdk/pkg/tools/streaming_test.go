@@ -35,12 +35,16 @@ func TestStreamingContext(t *testing.T) {
 		ctx := context.Background()
 		sc := NewStreamingContext(ctx)
 
-		// Test sending various data types
+		// Test sending various data types with type-safe approach
+		type TestData struct {
+			Key string `json:"key"`
+		}
+		
 		testCases := []interface{}{
 			"string data",
 			123,
 			true,
-			map[string]interface{}{"key": "value"},
+			TestData{Key: "value"},
 			[]string{"item1", "item2"},
 		}
 
@@ -81,6 +85,12 @@ func TestStreamingContext(t *testing.T) {
 		ctx := context.Background()
 		sc := NewStreamingContext(ctx)
 
+		// Type-safe metadata structure
+		type ProgressMetadata struct {
+			Progress int    `json:"progress"`
+			Status   string `json:"status"`
+		}
+		
 		metadata := map[string]interface{}{
 			"progress": 50,
 			"status":   "processing",
@@ -1033,14 +1043,20 @@ func TestStreamingEdgeCases(t *testing.T) {
 	t.Run("RapidClose", func(t *testing.T) {
 		ctx := context.Background()
 
-		// Create and immediately close multiple contexts
+		// Create and immediately close multiple contexts with proper synchronization
+		var wg sync.WaitGroup
 		for i := 0; i < 100; i++ {
 			sc := NewStreamingContext(ctx)
+			wg.Add(1)
 			go func() {
+				defer wg.Done()
 				_ = sc.Send("data") // Ignore error in race condition test
 			}()
+			// Small delay to let the goroutine start before closing
+			time.Sleep(time.Microsecond)
 			_ = sc.Close() // Ignore error in rapid close test
 		}
+		wg.Wait() // Wait for all goroutines to complete
 	})
 
 	t.Run("ConcurrentClose", func(t *testing.T) {

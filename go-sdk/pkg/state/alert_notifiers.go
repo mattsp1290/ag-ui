@@ -11,12 +11,12 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/ag-ui/go-sdk/pkg/common"
 	"go.uber.org/zap"
 )
 
@@ -36,6 +36,8 @@ func isTestMode() bool {
 }
 
 // validateWebhookURL validates a webhook URL to prevent SSRF attacks
+// This function now uses the consolidated URL validator from common package
+// but retains backward compatibility and enhanced validation
 func validateWebhookURL(urlStr string) error {
 	return validateWebhookURLWithOptions(urlStr, false)
 }
@@ -98,49 +100,15 @@ func validateWebhookURLWithOptions(urlStr string, allowLocalhost bool) error {
 		}
 	}
 
-	return nil
+	// Use the consolidated URL validator with webhook-specific options
+	opts := common.DefaultWebhookValidationOptions()
+	return common.ValidateURL(urlStr, opts)
 }
 
 // isInternalIP checks if an IP address is in internal/private ranges
+// This now delegates to the common implementation to ensure consistency
 func isInternalIP(ip net.IP) bool {
-	// Check for loopback
-	if ip.IsLoopback() {
-		return true
-	}
-
-	// Check for link-local
-	if ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return true
-	}
-
-	// Check for private IPv4 ranges
-	// Convert to IPv4 representation if possible
-	ipv4 := ip.To4()
-	if ipv4 != nil {
-		// 10.0.0.0/8
-		if ipv4[0] == 10 {
-			return true
-		}
-		// 172.16.0.0/12
-		if ipv4[0] == 172 && ipv4[1] >= 16 && ipv4[1] <= 31 {
-			return true
-		}
-		// 192.168.0.0/16
-		if ipv4[0] == 192 && ipv4[1] == 168 {
-			return true
-		}
-		// 169.254.0.0/16 (link-local)
-		if ipv4[0] == 169 && ipv4[1] == 254 {
-			return true
-		}
-	}
-
-	// Check for IPv6 unique local addresses (fc00::/7)
-	if len(ip) == 16 && (ip[0]&0xfe) == 0xfc {
-		return true
-	}
-
-	return false
+	return common.IsInternalIP(ip)
 }
 
 // LogAlertNotifier sends alerts to a logger
@@ -280,6 +248,35 @@ func NewWebhookAlertNotifierWithOptions(url string, timeout time.Duration, allow
 	
 	transport := &http.Transport{
 		TLSClientConfig: tlsConfig,
+		// Prevent connection reuse that could bypass URL validation
+		DisableKeepAlives: true,
+	}
+
+	return &WebhookAlertNotifier{
+		url:     url,
+		method:  "POST",
+		headers: make(map[string]string),
+		timeout: timeout,
+		client: &http.Client{
+			Timeout:   timeout,
+			Transport: transport,
+		},
+	}, nil
+}
+
+// NewWebhookAlertNotifierForTesting creates a webhook notifier without URL validation (for testing only)
+func NewWebhookAlertNotifierForTesting(url string, timeout time.Duration) (*WebhookAlertNotifier, error) {
+	// Create HTTP client with secure TLS configuration
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			MinVersion: tls.VersionTLS12,
+			CipherSuites: []uint16{
+				tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+				tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+				tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			},
+			InsecureSkipVerify: true, // For testing with self-signed certs
+		},
 		// Prevent connection reuse that could bypass URL validation
 		DisableKeepAlives: true,
 	}
@@ -600,7 +597,7 @@ type ThrottledAlertNotifier struct {
 	notifier         AlertNotifier
 	lastSent         map[string]time.Time
 	throttleDuration time.Duration
-	mu               sync.RWMutex
+	mu               sync.RWMutex // Protects lastSent map from concurrent access
 }
 
 // NewThrottledAlertNotifier creates a new throttled alert notifier
@@ -635,16 +632,19 @@ func (n *ThrottledAlertNotifier) SendAlert(ctx context.Context, alert Alert) err
 	// Send the alert
 	err := n.notifier.SendAlert(ctx, alert)
 	
-	// If the send failed, revert the timestamp to the previous value
-	if err != nil {
-		n.mu.Lock()
+	// Update the last sent time on success, or revert on failure
+	n.mu.Lock()
+	if err == nil {
+		n.lastSent[alertKey] = time.Now()
+	} else {
+		// If the send failed, revert the timestamp to the previous value
 		if exists {
 			n.lastSent[alertKey] = lastSent // Restore previous timestamp
 		} else {
 			delete(n.lastSent, alertKey) // Remove if there was no previous timestamp
 		}
-		n.mu.Unlock()
 	}
+	n.mu.Unlock()
 	
 	return err
 }

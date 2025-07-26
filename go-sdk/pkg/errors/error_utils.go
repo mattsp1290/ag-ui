@@ -508,3 +508,209 @@ func WithPanic(fn func() error) func() error {
 		return fn()
 	}
 }
+
+// Encoding-specific error creation functions
+
+// NewEncodingErrorWithFormat creates an encoding error with format details
+func NewEncodingErrorWithFormat(code, message, format string) *EncodingError {
+	return NewEncodingError(code, message).WithFormat(format)
+}
+
+// NewDecodingError creates a decoding error
+func NewDecodingError(code, message string) *EncodingError {
+	return NewEncodingError(code, message).WithOperation("decode")
+}
+
+// NewEncodingErrorWithMime creates an encoding error with MIME type
+func NewEncodingErrorWithMime(code, message, mimeType string) *EncodingError {
+	return NewEncodingError(code, message).WithMimeType(mimeType)
+}
+
+// NewSerializationError creates a serialization error
+func NewSerializationError(code, message string) *EncodingError {
+	return NewEncodingError(code, message).WithOperation("serialize")
+}
+
+// NewDeserializationError creates a deserialization error
+func NewDeserializationError(code, message string) *EncodingError {
+	return NewEncodingError(code, message).WithOperation("deserialize")
+}
+
+// NewStreamingError creates a streaming error
+func NewStreamingError(code, message string) *EncodingError {
+	return NewEncodingError(code, message).WithOperation("stream")
+}
+
+// NewCompressionError creates a compression error
+func NewCompressionError(code, message string) *EncodingError {
+	return NewEncodingError(code, message).WithOperation("compress")
+}
+
+// NewSecurityViolationError creates a security violation error
+func NewSecurityViolationError(code, message, violationType string) *SecurityError {
+	return NewSecurityError(code, message).WithViolationType(violationType)
+}
+
+// NewXSSError creates an XSS detection error
+func NewXSSError(message, pattern string) *SecurityError {
+	return NewSecurityError("XSS_DETECTED", message).
+		WithViolationType("cross_site_scripting").
+		WithPattern(pattern).
+		WithRiskLevel("high")
+}
+
+// NewSQLInjectionError creates a SQL injection detection error
+func NewSQLInjectionError(message, pattern string) *SecurityError {
+	return NewSecurityError("SQL_INJECTION_DETECTED", message).
+		WithViolationType("sql_injection").
+		WithPattern(pattern).
+		WithRiskLevel("critical")
+}
+
+// NewScriptInjectionError creates a script injection detection error
+func NewScriptInjectionError(message, pattern string) *SecurityError {
+	return NewSecurityError("SCRIPT_INJECTION_DETECTED", message).
+		WithViolationType("script_injection").
+		WithPattern(pattern).
+		WithRiskLevel("high")
+}
+
+// NewDOSError creates a denial of service detection error
+func NewDOSError(message, location string) *SecurityError {
+	return NewSecurityError("DOS_ATTACK_DETECTED", message).
+		WithViolationType("denial_of_service").
+		WithLocation(location).
+		WithRiskLevel("medium")
+}
+
+// NewPathTraversalError creates a path traversal detection error
+func NewPathTraversalError(message, pattern string) *SecurityError {
+	return NewSecurityError("PATH_TRAVERSAL_DETECTED", message).
+		WithViolationType("path_traversal").
+		WithPattern(pattern).
+		WithRiskLevel("high")
+}
+
+// Error discrimination functions
+
+// IsEncodingError checks if an error is an encoding error
+func IsEncodingError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var encodingErr *EncodingError
+	return errors.As(err, &encodingErr)
+}
+
+// IsSecurityError checks if an error is a security error
+func IsSecurityError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var securityErr *SecurityError
+	return errors.As(err, &securityErr)
+}
+
+// IsValidationError checks if an error is a validation error
+func IsValidationErrorType(err error) bool {
+	if err == nil {
+		return false
+	}
+	var validationErr *ValidationError
+	return errors.As(err, &validationErr)
+}
+
+// IsTimeoutError checks if an error is a timeout error
+func IsTimeoutError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, context.DeadlineExceeded)
+}
+
+// IsCancelError checks if an error is a cancellation error
+func IsCancelError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, context.Canceled)
+}
+
+// IsConflictError checks if an error is a conflict error
+func IsConflictErrorType(err error) bool {
+	if err == nil {
+		return false
+	}
+	var conflictErr *ConflictError
+	return errors.As(err, &conflictErr)
+}
+
+// IsStateError checks if an error is a state error
+func IsStateErrorType(err error) bool {
+	if err == nil {
+		return false
+	}
+	var stateErr *StateError
+	return errors.As(err, &stateErr)
+}
+
+// IsFormatError checks if an error is related to format registration
+func IsFormatError(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, ErrFormatNotRegistered) || errors.Is(err, ErrEncodingNotSupported)
+}
+
+// IsSecurityViolation checks if an error is a security violation
+func IsSecurityViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	return errors.Is(err, ErrSecurityViolation) || IsSecurityError(err)
+}
+
+// Common error codes for encoding system
+const (
+	// Registry error codes
+	CodeFormatNotRegistered = "FORMAT_NOT_REGISTERED"
+	CodeInvalidMimeType     = "INVALID_MIME_TYPE"
+	CodeNilFactory          = "NIL_FACTORY"
+	CodeEmptyMimeType       = "EMPTY_MIME_TYPE"
+	
+	// Encoding/Decoding error codes
+	CodeEncodingFailed      = "ENCODING_FAILED"
+	CodeDecodingFailed      = "DECODING_FAILED"
+	CodeSerializationFailed = "SERIALIZATION_FAILED"
+	CodeCompressionFailed   = "COMPRESSION_FAILED"
+	CodeStreamingFailed     = "STREAMING_FAILED"
+	CodeChunkingFailed      = "CHUNKING_FAILED"
+	
+	// Security error codes
+	CodeSecurityViolation   = "SECURITY_VIOLATION"
+	CodeXSSDetected         = "XSS_DETECTED"
+	CodeSQLInjectionDetected = "SQL_INJECTION_DETECTED"
+	CodeScriptInjectionDetected = "SCRIPT_INJECTION_DETECTED"
+	CodeDOSDetected         = "DOS_ATTACK_DETECTED"
+	CodeInvalidData         = "INVALID_DATA"
+	CodeSizeExceeded        = "SIZE_EXCEEDED"
+	CodeDepthExceeded       = "DEPTH_EXCEEDED"
+	CodeNullByteDetected    = "NULL_BYTE_DETECTED"
+	CodeInvalidUTF8         = "INVALID_UTF8"
+	CodeHTMLNotAllowed      = "HTML_NOT_ALLOWED"
+	CodeEntityExpansion     = "ENTITY_EXPANSION"
+	CodeZipBomb             = "ZIP_BOMB"
+	CodeExcessiveRepetition = "EXCESSIVE_REPETITION"
+	
+	// Validation error codes
+	CodeValidationFailed    = "VALIDATION_FAILED"
+	CodeMissingEvent        = "MISSING_EVENT"
+	CodeMissingEventType    = "MISSING_EVENT_TYPE"
+	CodeNegativeTimestamp   = "NEGATIVE_TIMESTAMP"
+	CodeIDTooLong          = "ID_TOO_LONG"
+	
+	// Negotiation error codes
+	CodeNegotiationFailed   = "NEGOTIATION_FAILED"
+	CodeNoSuitableFormat    = "NO_SUITABLE_FORMAT"
+	CodeUnsupportedFormat   = "UNSUPPORTED_FORMAT"
+)

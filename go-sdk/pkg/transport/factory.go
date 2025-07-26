@@ -2,9 +2,13 @@ package transport
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"reflect"
 	"sync"
 	"time"
+	
+	"github.com/ag-ui/go-sdk/pkg/core/events"
 )
 
 // TransportFactory creates transport instances based on configuration.
@@ -67,6 +71,9 @@ func NewDefaultTransportRegistry() *DefaultTransportRegistry {
 
 // Register registers a transport factory for a specific type.
 func (r *DefaultTransportRegistry) Register(transportType string, factory TransportFactory) error {
+	if r == nil {
+		return fmt.Errorf("transport registry is nil")
+	}
 	if transportType == "" {
 		return fmt.Errorf("transport type cannot be empty")
 	}
@@ -77,6 +84,10 @@ func (r *DefaultTransportRegistry) Register(transportType string, factory Transp
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+
+	if r.factories == nil {
+		r.factories = make(map[string]TransportFactory)
+	}
 
 	if _, exists := r.factories[transportType]; exists {
 		return fmt.Errorf("transport type %s is already registered", transportType)
@@ -106,14 +117,28 @@ func (r *DefaultTransportRegistry) Create(config Config) (Transport, error) {
 
 // CreateWithContext creates a transport instance with context.
 func (r *DefaultTransportRegistry) CreateWithContext(ctx context.Context, config Config) (Transport, error) {
+	if r == nil {
+		return nil, fmt.Errorf("transport registry is nil")
+	}
+	if ctx == nil {
+		return nil, fmt.Errorf("context cannot be nil")
+	}
 	if config == nil {
 		return nil, fmt.Errorf("config cannot be nil")
 	}
 
 	transportType := config.GetType()
+	if transportType == "" {
+		return nil, fmt.Errorf("transport type cannot be empty")
+	}
+
 	factory, err := r.GetFactory(transportType)
 	if err != nil {
 		return nil, err
+	}
+
+	if factory == nil {
+		return nil, fmt.Errorf("factory is nil for transport type: %s", transportType)
 	}
 
 	return factory.CreateWithContext(ctx, config)
@@ -121,8 +146,19 @@ func (r *DefaultTransportRegistry) CreateWithContext(ctx context.Context, config
 
 // GetFactory returns the factory for a specific transport type.
 func (r *DefaultTransportRegistry) GetFactory(transportType string) (TransportFactory, error) {
+	if r == nil {
+		return nil, fmt.Errorf("transport registry is nil")
+	}
+	if transportType == "" {
+		return nil, fmt.Errorf("transport type cannot be empty")
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	if r.factories == nil {
+		return nil, fmt.Errorf("factories map is nil")
+	}
 
 	factory, exists := r.factories[transportType]
 	if !exists {
@@ -134,8 +170,16 @@ func (r *DefaultTransportRegistry) GetFactory(transportType string) (TransportFa
 
 // GetRegisteredTypes returns all registered transport types.
 func (r *DefaultTransportRegistry) GetRegisteredTypes() []string {
+	if r == nil {
+		return []string{}
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	if r.factories == nil {
+		return []string{}
+	}
 
 	types := make([]string, 0, len(r.factories))
 	for transportType := range r.factories {
@@ -147,8 +191,16 @@ func (r *DefaultTransportRegistry) GetRegisteredTypes() []string {
 
 // IsRegistered checks if a transport type is registered.
 func (r *DefaultTransportRegistry) IsRegistered(transportType string) bool {
+	if r == nil || transportType == "" {
+		return false
+	}
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
+
+	if r.factories == nil {
+		return false
+	}
 
 	_, exists := r.factories[transportType]
 	return exists
@@ -162,37 +214,107 @@ func (r *DefaultTransportRegistry) Clear() {
 	r.factories = make(map[string]TransportFactory)
 }
 
+// TransportManagerConfig holds configuration for the transport manager cleanup mechanism
+type TransportManagerConfig struct {
+	// CleanupEnabled enables the periodic map cleanup mechanism
+	CleanupEnabled bool
+	// CleanupInterval specifies how often to run cleanup (default: 1 hour)
+	CleanupInterval time.Duration
+	// MaxMapSize is the threshold above which cleanup is triggered (default: 1000)
+	MaxMapSize int
+	// ActiveThreshold is the ratio below which cleanup occurs (default: 0.5)
+	// If activeTransports/totalTransports < ActiveThreshold, cleanup runs
+	ActiveThreshold float64
+	// CleanupMetricsEnabled enables detailed cleanup metrics
+	CleanupMetricsEnabled bool
+}
+
+// DefaultTransportManagerConfig returns default configuration for transport manager
+func DefaultTransportManagerConfig() *TransportManagerConfig {
+	return &TransportManagerConfig{
+		CleanupEnabled:        true,
+		CleanupInterval:       1 * time.Hour,
+		MaxMapSize:           1000,
+		ActiveThreshold:      0.5,
+		CleanupMetricsEnabled: true,
+	}
+}
+
 // TransportManager manages multiple transport instances and provides advanced features.
 type DefaultTransportManager struct {
-	mu          sync.RWMutex
-	transports  map[string]Transport
-	registry    TransportRegistry
-	balancer    LoadBalancer
-	middleware  MiddlewareChain
-	eventBus    EventBus
-	healthCheck *HealthCheckManager
-	metrics     *MetricsManager
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
+	mu                sync.RWMutex
+	transports        map[string]Transport
+	registry          TransportRegistry
+	balancer          LoadBalancer
+	middleware        MiddlewareChain
+	eventBus          EventBus
+	healthCheck       *HealthCheckManager
+	metrics           *MetricsManager
+	ctx               context.Context
+	cancel            context.CancelFunc
+	wg                sync.WaitGroup
+	logger            Logger
+	config            *TransportManagerConfig
+	cleanupTicker     *time.Ticker
+	lastCleanupTime   time.Time
+	mapCleanupMetrics *MapCleanupMetrics
+}
+
+// MapCleanupMetrics tracks transport map cleanup operation statistics
+type MapCleanupMetrics struct {
+	mu                  sync.RWMutex
+	TotalCleanups       uint64
+	TransportsRemoved   uint64
+	TransportsRetained  uint64
+	LastCleanupDuration time.Duration
+	LastCleanupTime     time.Time
+	CleanupErrors       uint64
 }
 
 // NewDefaultTransportManager creates a new default transport manager.
 func NewDefaultTransportManager(registry TransportRegistry) *DefaultTransportManager {
-	ctx, cancel := context.WithCancel(context.Background())
-	return &DefaultTransportManager{
-		transports:  make(map[string]Transport),
-		registry:    registry,
-		middleware:  NewDefaultMiddlewareChain(),
-		healthCheck: NewHealthCheckManager(),
-		metrics:     NewMetricsManager(),
-		ctx:         ctx,
-		cancel:      cancel,
+	return NewDefaultTransportManagerWithConfig(registry, DefaultTransportManagerConfig())
+}
+
+// NewDefaultTransportManagerWithConfig creates a new default transport manager with custom configuration.
+func NewDefaultTransportManagerWithConfig(registry TransportRegistry, config *TransportManagerConfig) *DefaultTransportManager {
+	if registry == nil {
+		return nil
 	}
+	
+	if config == nil {
+		config = DefaultTransportManagerConfig()
+	}
+	
+	ctx, cancel := context.WithCancel(context.Background())
+	
+	manager := &DefaultTransportManager{
+		transports:        make(map[string]Transport),
+		registry:          registry,
+		middleware:        NewDefaultMiddlewareChain(),
+		healthCheck:       NewHealthCheckManager(),
+		metrics:           NewMetricsManager(),
+		ctx:               ctx,
+		cancel:            cancel,
+		logger:            NewLogger(DefaultLoggerConfig()),
+		config:            config,
+		lastCleanupTime:   time.Now(),
+		mapCleanupMetrics: &MapCleanupMetrics{},
+	}
+	
+	// Start cleanup goroutine if enabled
+	if config.CleanupEnabled {
+		manager.startCleanupTicker()
+	}
+	
+	return manager
 }
 
 // AddTransport adds a transport to the manager.
 func (m *DefaultTransportManager) AddTransport(name string, transport Transport) error {
+	if m == nil {
+		return fmt.Errorf("transport manager is nil")
+	}
 	if name == "" {
 		return fmt.Errorf("transport name cannot be empty")
 	}
@@ -204,11 +326,18 @@ func (m *DefaultTransportManager) AddTransport(name string, transport Transport)
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	if m.transports == nil {
+		m.transports = make(map[string]Transport)
+	}
+
 	if _, exists := m.transports[name]; exists {
 		return fmt.Errorf("transport %s already exists", name)
 	}
 
 	m.transports[name] = transport
+	
+	// Check if cleanup is needed after adding transport
+	m.checkAndTriggerCleanup()
 	
 	// Register with health checker
 	if m.healthCheck != nil {
@@ -222,8 +351,12 @@ func (m *DefaultTransportManager) AddTransport(name string, transport Transport)
 
 	// Emit event
 	if m.eventBus != nil {
-		event := NewTransportEvent(EventTypeConnected, name, nil)
-		m.eventBus.Publish(m.ctx, "transport.added", event)
+		// Create a compatible event for the event bus
+		// For now, we'll skip event publishing since it requires complex event creation
+		// This can be implemented later with proper event construction
+		// event := NewSimpleEvent("transport-added-"+name, string(EventTypeConnected), 
+		//	map[string]interface{}{"transport": name})
+		// m.eventBus.Publish(m.ctx, "transport.added", event)
 	}
 
 	return nil
@@ -240,9 +373,13 @@ func (m *DefaultTransportManager) RemoveTransport(name string) error {
 	}
 
 	// Close the transport
-	if err := transport.Close(); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := transport.Close(ctx); err != nil {
 		// Log error but don't fail the removal
-		// TODO: Add logging
+		m.logger.Error("failed to close transport during removal",
+			String("transport", name),
+			Error(err))
 	}
 
 	delete(m.transports, name)
@@ -259,8 +396,10 @@ func (m *DefaultTransportManager) RemoveTransport(name string) error {
 
 	// Emit event
 	if m.eventBus != nil {
-		event := NewTransportEvent(EventTypeDisconnected, name, nil)
-		m.eventBus.Publish(m.ctx, "transport.removed", event)
+		// Skip event publishing for now - requires proper events.Event implementation
+		// event := NewSimpleEvent("transport-removed-"+name, string(EventTypeDisconnected), 
+		//	map[string]interface{}{"transport": name})
+		// m.eventBus.Publish(m.ctx, "transport.removed", event)
 	}
 
 	return nil
@@ -268,8 +407,19 @@ func (m *DefaultTransportManager) RemoveTransport(name string) error {
 
 // GetTransport retrieves a transport by name.
 func (m *DefaultTransportManager) GetTransport(name string) (Transport, error) {
+	if m == nil {
+		return nil, fmt.Errorf("transport manager is nil")
+	}
+	if name == "" {
+		return nil, fmt.Errorf("transport name cannot be empty")
+	}
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+
+	if m.transports == nil {
+		return nil, fmt.Errorf("transports map is nil")
+	}
 
 	transport, exists := m.transports[name]
 	if !exists {
@@ -281,12 +431,20 @@ func (m *DefaultTransportManager) GetTransport(name string) (Transport, error) {
 
 // GetActiveTransports returns all active transports.
 func (m *DefaultTransportManager) GetActiveTransports() map[string]Transport {
+	if m == nil {
+		return make(map[string]Transport)
+	}
+
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	if m.transports == nil {
+		return make(map[string]Transport)
+	}
+
 	result := make(map[string]Transport, len(m.transports))
 	for name, transport := range m.transports {
-		if transport.IsConnected() {
+		if transport != nil && transport.IsConnected() {
 			result[name] = transport
 		}
 	}
@@ -295,7 +453,16 @@ func (m *DefaultTransportManager) GetActiveTransports() map[string]Transport {
 }
 
 // SendEvent sends an event using the best available transport.
-func (m *DefaultTransportManager) SendEvent(ctx context.Context, event any) error {
+func (m *DefaultTransportManager) SendEvent(ctx context.Context, event TransportEvent) error {
+	if m == nil {
+		return fmt.Errorf("transport manager is nil")
+	}
+	if ctx == nil {
+		return fmt.Errorf("context cannot be nil")
+	}
+	if event == nil {
+		return fmt.Errorf("event cannot be nil")
+	}
 	activeTransports := m.GetActiveTransports()
 	if len(activeTransports) == 0 {
 		return fmt.Errorf("no active transports available")
@@ -320,7 +487,7 @@ func (m *DefaultTransportManager) SendEvent(ctx context.Context, event any) erro
 }
 
 // SendEventToTransport sends an event to a specific transport.
-func (m *DefaultTransportManager) SendEventToTransport(ctx context.Context, transportName string, event any) error {
+func (m *DefaultTransportManager) SendEventToTransport(ctx context.Context, transportName string, event TransportEvent) error {
 	transport, err := m.GetTransport(transportName)
 	if err != nil {
 		return err
@@ -340,7 +507,7 @@ func (m *DefaultTransportManager) SendEventToTransport(ctx context.Context, tran
 	}
 
 	// Send the event
-	if err := transport.SendEvent(ctx, event); err != nil {
+	if err := transport.Send(ctx, event); err != nil {
 		// Update metrics
 		if m.metrics != nil {
 			m.metrics.RecordError(transportName, err)
@@ -348,8 +515,10 @@ func (m *DefaultTransportManager) SendEventToTransport(ctx context.Context, tran
 
 		// Emit error event
 		if m.eventBus != nil {
-			errorEvent := NewTransportErrorEvent(transportName, err)
-			m.eventBus.Publish(ctx, "transport.error", errorEvent)
+			// Skip event publishing for now - requires proper events.Event implementation
+			// errorEvent := NewSimpleEvent("transport-error-"+transportName, string(EventTypeError), 
+			//	map[string]interface{}{"transport": transportName, "error": err.Error()})
+			// m.eventBus.Publish(ctx, "transport.error", errorEvent)
 		}
 
 		return fmt.Errorf("failed to send event via transport %s: %w", transportName, err)
@@ -362,16 +531,18 @@ func (m *DefaultTransportManager) SendEventToTransport(ctx context.Context, tran
 
 	// Emit event
 	if m.eventBus != nil {
-		sentEvent := NewTransportEvent(EventTypeEventSent, transportName, event)
-		m.eventBus.Publish(ctx, "transport.event_sent", sentEvent)
+		// Skip event publishing for now - requires proper events.Event implementation
+		// sentEvent := NewSimpleEvent("transport-event-sent-"+transportName, string(EventTypeEventSent), 
+		//	map[string]interface{}{"transport": transportName, "event": event})
+		// m.eventBus.Publish(ctx, "transport.event_sent", sentEvent)
 	}
 
 	return nil
 }
 
 // ReceiveEvents returns a channel that receives events from all transports.
-func (m *DefaultTransportManager) ReceiveEvents(ctx context.Context) (<-chan any, error) {
-	resultChan := make(chan any, 100)
+func (m *DefaultTransportManager) ReceiveEvents(ctx context.Context) (<-chan events.Event, error) {
+	resultChan := make(chan events.Event, 100)
 	
 	m.mu.RLock()
 	transportList := make([]Transport, 0, len(m.transports))
@@ -391,11 +562,7 @@ func (m *DefaultTransportManager) ReceiveEvents(ctx context.Context) (<-chan any
 		go func(name string, t Transport) {
 			defer m.wg.Done()
 			
-			eventChan, err := t.ReceiveEvents(ctx)
-			if err != nil {
-				// TODO: Add logging
-				return
-			}
+			eventChan, errorChan := t.Channels()
 
 			for {
 				select {
@@ -408,7 +575,10 @@ func (m *DefaultTransportManager) ReceiveEvents(ctx context.Context) (<-chan any
 					if m.middleware != nil {
 						processedEvent, err := m.middleware.ProcessIncoming(ctx, event)
 						if err != nil {
-							// TODO: Add logging
+							m.logger.Error("middleware processing failed",
+								String("transport", name),
+								String("event_type", string(event.Type())),
+								Error(err))
 							continue
 						}
 						event = processedEvent
@@ -421,8 +591,10 @@ func (m *DefaultTransportManager) ReceiveEvents(ctx context.Context) (<-chan any
 
 					// Emit event
 					if m.eventBus != nil {
-						receivedEvent := NewTransportEvent(EventTypeEventReceived, name, event)
-						m.eventBus.Publish(ctx, "transport.event_received", receivedEvent)
+						// Skip event publishing for now - requires proper events.Event implementation
+						// receivedEvent := NewSimpleEvent("transport-event-received-"+name, string(EventTypeEventReceived), 
+						//	map[string]interface{}{"transport": name, "event": event})
+						// m.eventBus.Publish(ctx, "transport.event_received", receivedEvent)
 					}
 
 					// Send to result channel
@@ -430,6 +602,19 @@ func (m *DefaultTransportManager) ReceiveEvents(ctx context.Context) (<-chan any
 					case resultChan <- event:
 					case <-ctx.Done():
 						return
+					}
+
+				case err := <-errorChan:
+					// Handle errors from transport
+					if err != nil {
+						m.logger.Error("transport error received",
+							String("transport", name),
+							Error(err))
+						// Forward the error to result error channel if available
+						if m.eventBus != nil {
+							// Emit transport error event
+						}
+						continue
 					}
 
 				case <-ctx.Done():
@@ -469,19 +654,332 @@ func (m *DefaultTransportManager) SetEventBus(eventBus EventBus) {
 	m.eventBus = eventBus
 }
 
+// startCleanupTicker starts the periodic cleanup goroutine
+func (m *DefaultTransportManager) startCleanupTicker() {
+	if m.config == nil || !m.config.CleanupEnabled {
+		return
+	}
+
+	m.cleanupTicker = time.NewTicker(m.config.CleanupInterval)
+	m.wg.Add(1)
+
+	go func() {
+		defer m.wg.Done()
+		defer m.cleanupTicker.Stop()
+
+		for {
+			select {
+			case <-m.cleanupTicker.C:
+				// Check context cancellation before running cleanup to prevent hanging
+				select {
+				case <-m.ctx.Done():
+					return
+				default:
+					// Run cleanup with timeout protection
+					cleanupDone := make(chan struct{})
+					go func() {
+						m.runPeriodicCleanup()
+						close(cleanupDone)
+					}()
+					
+					select {
+					case <-cleanupDone:
+						// Cleanup finished normally
+					case <-time.After(30 * time.Second):
+						// Cleanup took too long - this indicates a deadlock or hang
+						m.logger.Warn("Periodic cleanup timed out, continuing with next cycle")
+					case <-m.ctx.Done():
+						// Context cancelled during cleanup
+						return
+					}
+				}
+			case <-m.ctx.Done():
+				return
+			}
+		}
+	}()
+
+	m.logger.Info("Transport manager cleanup ticker started",
+		String("interval", m.config.CleanupInterval.String()),
+		Int("max_map_size", m.config.MaxMapSize),
+		Float64("active_threshold", m.config.ActiveThreshold))
+}
+
+// checkAndTriggerCleanup checks if cleanup should be triggered and runs it if necessary
+// This method is called with the manager lock already held
+func (m *DefaultTransportManager) checkAndTriggerCleanup() {
+	if m.config == nil || !m.config.CleanupEnabled {
+		return
+	}
+
+	// Check if context is cancelled
+	select {
+	case <-m.ctx.Done():
+		return
+	default:
+	}
+
+	totalTransports := len(m.transports)
+	if totalTransports <= m.config.MaxMapSize {
+		return
+	}
+
+	// Count active transports
+	activeCount := 0
+	for _, transport := range m.transports {
+		if transport.IsConnected() {
+			activeCount++
+		}
+	}
+
+	// Calculate active ratio
+	activeRatio := float64(activeCount) / float64(totalTransports)
+
+	// Trigger cleanup if we're above size threshold and below active threshold
+	if activeRatio < m.config.ActiveThreshold {
+		m.logger.Info("Triggering immediate cleanup due to size threshold",
+			Int("total_transports", totalTransports),
+			Int("active_transports", activeCount),
+			Float64("active_ratio", activeRatio),
+			Int("max_size", m.config.MaxMapSize),
+			Float64("threshold", m.config.ActiveThreshold))
+
+		// Run cleanup without additional locking since we already hold the lock
+		m.cleanupInactiveTransportsLocked()
+	}
+}
+
+// runPeriodicCleanup is called by the cleanup ticker
+func (m *DefaultTransportManager) runPeriodicCleanup() {
+	if m.config == nil || !m.config.CleanupEnabled {
+		return
+	}
+
+	// Check if context is cancelled before proceeding
+	select {
+	case <-m.ctx.Done():
+		return
+	default:
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Double-check context cancellation after acquiring lock
+	select {
+	case <-m.ctx.Done():
+		return
+	default:
+	}
+
+	totalTransports := len(m.transports)
+	if totalTransports <= m.config.MaxMapSize {
+		return
+	}
+
+	// Count active transports
+	activeCount := 0
+	for _, transport := range m.transports {
+		if transport.IsConnected() {
+			activeCount++
+		}
+	}
+
+	// Calculate active ratio
+	activeRatio := float64(activeCount) / float64(totalTransports)
+
+	// Only run cleanup if we're below the active threshold
+	if activeRatio < m.config.ActiveThreshold {
+		m.logger.Info("Running periodic cleanup",
+			Int("total_transports", totalTransports),
+			Int("active_transports", activeCount),
+			Float64("active_ratio", activeRatio))
+
+		m.cleanupInactiveTransportsLocked()
+	}
+}
+
+// cleanupInactiveTransportsLocked performs the actual cleanup operation
+// This method assumes the manager mutex is already held
+func (m *DefaultTransportManager) cleanupInactiveTransportsLocked() {
+	if m.config == nil || !m.config.CleanupEnabled {
+		return
+	}
+
+	startTime := time.Now()
+	
+	// Create new map to hold only active transports
+	newTransports := make(map[string]Transport)
+	removedCount := 0
+	retainedCount := 0
+	
+	// Track transports that need to be cleaned up
+	var toClose []Transport
+	var closedNames []string
+
+	// Iterate through existing transports
+	for name, transport := range m.transports {
+		if transport.IsConnected() {
+			// Keep active transports
+			newTransports[name] = transport
+			retainedCount++
+		} else {
+			// Mark inactive transports for removal
+			toClose = append(toClose, transport)
+			closedNames = append(closedNames, name)
+			removedCount++
+		}
+	}
+
+	// Replace the map to reclaim memory
+	oldLen := len(m.transports)
+	m.transports = newTransports
+
+	// Update cleanup metrics
+	duration := time.Since(startTime)
+	m.updateCleanupMetrics(removedCount, retainedCount, duration)
+
+	m.logger.Info("Completed transport map cleanup",
+		Int("old_map_size", oldLen),
+		Int("new_map_size", len(m.transports)),
+		Int("transports_removed", removedCount),
+		Int("transports_retained", retainedCount),
+		Duration("cleanup_duration", duration))
+
+	// Close removed transports outside the lock to avoid blocking
+	go m.closeRemovedTransports(toClose, closedNames)
+}
+
+// closeRemovedTransports closes transports that were removed during cleanup
+func (m *DefaultTransportManager) closeRemovedTransports(transports []Transport, names []string) {
+	for i, transport := range transports {
+		name := names[i]
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		
+		if err := transport.Close(closeCtx); err != nil {
+			m.logger.Error("Failed to close removed transport during cleanup",
+				String("transport", name),
+				Error(err))
+			
+			// Update error metrics
+			if m.config.CleanupMetricsEnabled {
+				m.mapCleanupMetrics.mu.Lock()
+				m.mapCleanupMetrics.CleanupErrors++
+				m.mapCleanupMetrics.mu.Unlock()
+			}
+		} else {
+			m.logger.Debug("Successfully closed removed transport",
+				String("transport", name))
+		}
+		
+		cancel()
+		
+		// Remove from health check and metrics managers
+		if m.healthCheck != nil {
+			m.healthCheck.RemoveTransport(name)
+		}
+		if m.metrics != nil {
+			m.metrics.RemoveTransport(name)
+		}
+	}
+}
+
+// updateCleanupMetrics updates the cleanup operation metrics
+func (m *DefaultTransportManager) updateCleanupMetrics(removed, retained int, duration time.Duration) {
+	if !m.config.CleanupMetricsEnabled || m.mapCleanupMetrics == nil {
+		return
+	}
+
+	m.mapCleanupMetrics.mu.Lock()
+	defer m.mapCleanupMetrics.mu.Unlock()
+
+	m.mapCleanupMetrics.TotalCleanups++
+	m.mapCleanupMetrics.TransportsRemoved += uint64(removed)
+	m.mapCleanupMetrics.TransportsRetained += uint64(retained)
+	m.mapCleanupMetrics.LastCleanupDuration = duration
+	m.mapCleanupMetrics.LastCleanupTime = time.Now()
+	m.lastCleanupTime = time.Now()
+}
+
+// GetMapCleanupMetrics returns the current cleanup metrics
+func (m *DefaultTransportManager) GetMapCleanupMetrics() MapCleanupMetrics {
+	if m.mapCleanupMetrics == nil {
+		return MapCleanupMetrics{}
+	}
+
+	m.mapCleanupMetrics.mu.RLock()
+	defer m.mapCleanupMetrics.mu.RUnlock()
+
+	// Return a copy to prevent external modification
+	return *m.mapCleanupMetrics
+}
+
+// TriggerManualCleanup manually triggers a cleanup operation
+func (m *DefaultTransportManager) TriggerManualCleanup() {
+	if m.config == nil || !m.config.CleanupEnabled {
+		m.logger.Warn("Manual cleanup requested but cleanup is disabled")
+		return
+	}
+
+	// Check if context is cancelled before proceeding
+	select {
+	case <-m.ctx.Done():
+		m.logger.Debug("Manual cleanup skipped - context cancelled")
+		return
+	default:
+	}
+
+	m.logger.Info("Manual cleanup triggered")
+	m.runPeriodicCleanup()
+}
+
 // Close closes all managed transports.
 func (m *DefaultTransportManager) Close() error {
-	m.cancel()
-	m.wg.Wait()
+	// First, acquire the lock to safely stop the cleanup ticker and signal shutdown
+	m.mu.Lock()
+	
+	// Stop cleanup ticker first while holding the lock to prevent deadlock
+	if m.cleanupTicker != nil {
+		m.cleanupTicker.Stop()
+		m.cleanupTicker = nil
+	}
+	
+	// Cancel context to signal all goroutines to stop
+	if m.cancel != nil {
+		m.cancel()
+	}
+	
+	// Release the lock before waiting for goroutines to avoid deadlock
+	m.mu.Unlock()
+	
+	// Wait for all goroutines (including cleanup goroutine) to finish
+	// This must be done WITHOUT holding the lock since goroutines may need to acquire it
+	// Use a timeout to prevent hanging
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
+	}()
+	
+	select {
+	case <-done:
+		// All goroutines finished normally
+	case <-time.After(10 * time.Second):
+		// Timeout waiting for goroutines - proceed with cleanup anyway
+		m.logger.Warn("Timeout waiting for cleanup goroutines to finish, proceeding with shutdown")
+	}
 
+	// Now safely acquire the lock for final cleanup
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	var errors []error
 	for name, transport := range m.transports {
-		if err := transport.Close(); err != nil {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := transport.Close(closeCtx); err != nil {
 			errors = append(errors, fmt.Errorf("failed to close transport %s: %w", name, err))
 		}
+		cancel()
 	}
 
 	// Close managers
@@ -510,8 +1008,8 @@ func (m *DefaultTransportManager) Close() error {
 	return nil
 }
 
-// GetStats returns aggregated statistics from all transports.
-func (m *DefaultTransportManager) GetStats() map[string]TransportStats {
+// Stats returns aggregated statistics from all transports.
+func (m *DefaultTransportManager) Stats() map[string]TransportStats {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -544,7 +1042,7 @@ func (c *DefaultMiddlewareChain) Add(middleware Middleware) {
 }
 
 // ProcessOutgoing processes an outgoing event through the middleware chain.
-func (c *DefaultMiddlewareChain) ProcessOutgoing(ctx context.Context, event any) (any, error) {
+func (c *DefaultMiddlewareChain) ProcessOutgoing(ctx context.Context, event TransportEvent) (TransportEvent, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -560,7 +1058,7 @@ func (c *DefaultMiddlewareChain) ProcessOutgoing(ctx context.Context, event any)
 }
 
 // ProcessIncoming processes an incoming event through the middleware chain.
-func (c *DefaultMiddlewareChain) ProcessIncoming(ctx context.Context, event any) (any, error) {
+func (c *DefaultMiddlewareChain) ProcessIncoming(ctx context.Context, event events.Event) (events.Event, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 
@@ -596,7 +1094,7 @@ func NewRoundRobinLoadBalancer() *RoundRobinLoadBalancer {
 }
 
 // SelectTransport selects a transport using round-robin algorithm.
-func (lb *RoundRobinLoadBalancer) SelectTransport(transports map[string]Transport, event any) (string, error) {
+func (lb *RoundRobinLoadBalancer) SelectTransport(transports map[string]Transport, event TransportEvent) (string, error) {
 	if len(transports) == 0 {
 		return "", fmt.Errorf("no transports available")
 	}
@@ -643,7 +1141,7 @@ func NewWeightedLoadBalancer() *WeightedLoadBalancer {
 }
 
 // SelectTransport selects a transport using weighted algorithm.
-func (lb *WeightedLoadBalancer) SelectTransport(transports map[string]Transport, event any) (string, error) {
+func (lb *WeightedLoadBalancer) SelectTransport(transports map[string]Transport, event TransportEvent) (string, error) {
 	if len(transports) == 0 {
 		return "", fmt.Errorf("no transports available")
 	}
@@ -725,6 +1223,8 @@ type HealthCheckManager struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	wg         sync.WaitGroup
+	logger     Logger
+	onUnhealthy func(name string, err error)
 }
 
 // NewHealthCheckManager creates a new health check manager.
@@ -736,6 +1236,7 @@ func NewHealthCheckManager() *HealthCheckManager {
 		interval:   30 * time.Second,
 		ctx:        ctx,
 		cancel:     cancel,
+		logger:     NewLogger(DefaultLoggerConfig()),
 	}
 }
 
@@ -775,8 +1276,13 @@ func (m *HealthCheckManager) startHealthCheck(name string, checker HealthChecker
 			select {
 			case <-ticker.C:
 				if err := checker.CheckHealth(m.ctx); err != nil {
-					// TODO: Add logging
-					// TODO: Notify transport manager about unhealthy transport
+					m.logger.Error("health check failed",
+						String("transport", name),
+						Error(err))
+					// Notify transport manager about unhealthy transport
+					if m.onUnhealthy != nil {
+						m.onUnhealthy(name, err)
+					}
 				}
 			case <-m.ctx.Done():
 				return
@@ -841,9 +1347,151 @@ func (m *MetricsManager) RecordEvent(transportName string, event any) {
 	defer m.mu.RUnlock()
 
 	if collector, exists := m.collectors[transportName]; exists {
-		// TODO: Calculate event size and latency
-		collector.RecordEvent("event", 0, 0)
+		// Calculate event size
+		eventSize := m.calculateEventSize(event)
+		
+		// Calculate latency based on event timestamp
+		latency := m.calculateEventLatency(event)
+		
+		// Record the event with calculated metrics
+		collector.RecordEvent("event", eventSize, latency)
 	}
+}
+
+// calculateEventSize calculates the size of an event in bytes.
+func (m *MetricsManager) calculateEventSize(event any) int64 {
+	if event == nil {
+		return 0
+	}
+
+	// Handle TransportEvent interface specifically
+	if transportEvent, ok := event.(TransportEvent); ok {
+		// Create a serializable representation of the transport event
+		eventMap := map[string]interface{}{
+			"id":        transportEvent.ID(),
+			"type":      transportEvent.Type(),
+			"timestamp": transportEvent.Timestamp(),
+			"data":      transportEvent.Data(),
+		}
+		
+		// Marshal to JSON to calculate size
+		if jsonData, err := json.Marshal(eventMap); err == nil {
+			return int64(len(jsonData))
+		}
+	}
+
+	// Fallback: try to marshal the event directly
+	if jsonData, err := json.Marshal(event); err == nil {
+		return int64(len(jsonData))
+	}
+
+	// If JSON marshaling fails, estimate size using reflection
+	return m.estimateEventSize(event)
+}
+
+// calculateEventLatency calculates the latency for an event based on its timestamp.
+func (m *MetricsManager) calculateEventLatency(event any) time.Duration {
+	if event == nil {
+		return 0
+	}
+
+	// Handle TransportEvent interface
+	if transportEvent, ok := event.(TransportEvent); ok {
+		eventTimestamp := transportEvent.Timestamp()
+		if !eventTimestamp.IsZero() {
+			return time.Since(eventTimestamp)
+		}
+	}
+
+	// Handle events.Event interface
+	if coreEvent, ok := event.(events.Event); ok {
+		eventTimestamp := coreEvent.Timestamp()
+		if eventTimestamp != nil && *eventTimestamp > 0 {
+			// Convert Unix milliseconds to time.Time
+			timestamp := time.Unix(0, *eventTimestamp*int64(time.Millisecond))
+			return time.Since(timestamp)
+		}
+	}
+
+	// Try to extract timestamp using reflection
+	v := reflect.ValueOf(event)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+
+	if v.Kind() == reflect.Struct {
+		// Look for common timestamp field names
+		timestampFields := []string{"Timestamp", "CreatedAt", "EventTimestamp", "Time"}
+		for _, fieldName := range timestampFields {
+			if field := v.FieldByName(fieldName); field.IsValid() && field.Type() == reflect.TypeOf(time.Time{}) {
+				if timestamp, ok := field.Interface().(time.Time); ok && !timestamp.IsZero() {
+					return time.Since(timestamp)
+				}
+			}
+		}
+	}
+
+	// If no timestamp found, return 0 (no latency calculated)
+	return 0
+}
+
+// estimateEventSize estimates the size of an event using reflection when JSON marshaling fails.
+func (m *MetricsManager) estimateEventSize(event any) int64 {
+	if event == nil {
+		return 0
+	}
+
+	v := reflect.ValueOf(event)
+	return m.estimateValueSize(v)
+}
+
+// estimateValueSize recursively estimates the memory size of a value.
+func (m *MetricsManager) estimateValueSize(v reflect.Value) int64 {
+	if !v.IsValid() {
+		return 0
+	}
+
+	var size int64
+
+	switch v.Kind() {
+	case reflect.String:
+		size = int64(len(v.String()))
+	case reflect.Slice, reflect.Array:
+		size = int64(v.Len()) * 8 // Estimate 8 bytes per element
+		for i := 0; i < v.Len(); i++ {
+			size += m.estimateValueSize(v.Index(i))
+		}
+	case reflect.Map:
+		size = int64(v.Len()) * 16 // Estimate 16 bytes per map entry
+		for _, key := range v.MapKeys() {
+			size += m.estimateValueSize(key)
+			size += m.estimateValueSize(v.MapIndex(key))
+		}
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			size += m.estimateValueSize(v.Field(i))
+		}
+	case reflect.Ptr:
+		if !v.IsNil() {
+			size = 8 + m.estimateValueSize(v.Elem()) // 8 bytes for pointer + content
+		}
+	case reflect.Interface:
+		if !v.IsNil() {
+			size = 8 + m.estimateValueSize(v.Elem()) // 8 bytes for interface + content
+		}
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		size = 8
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		size = 8
+	case reflect.Float32, reflect.Float64:
+		size = 8
+	case reflect.Bool:
+		size = 1
+	default:
+		size = 8 // Default size for unknown types
+	}
+
+	return size
 }
 
 // RecordError records an error metric.

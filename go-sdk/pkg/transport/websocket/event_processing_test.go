@@ -17,7 +17,7 @@ import (
 // TestEventProcessingPipeline tests the event processing pipeline
 func TestEventProcessingPipeline(t *testing.T) {
 	// Create transport
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.Logger = zap.NewNop()
 	config.URLs = []string{"ws://localhost:8080"} // Dummy URL
 
@@ -71,20 +71,30 @@ func TestEventProcessingPipeline(t *testing.T) {
 	mu.Unlock()
 
 	// Verify stats
-	stats := transport.GetStats()
+	stats := transport.Stats()
 	assert.Equal(t, int64(1), stats.EventsReceived)
 	assert.Equal(t, int64(1), stats.EventsProcessed)
 	assert.Equal(t, int64(0), stats.EventsFailed)
+
+	// Stop the transport to clean up goroutines
+	err = transport.Stop()
+	assert.NoError(t, err)
 }
 
 // TestEventChannelCapacity tests that the event channel can handle multiple events
 func TestEventChannelCapacity(t *testing.T) {
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.Logger = zap.NewNop()
 	config.URLs = []string{"ws://localhost:8080"}
 
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
+
+	// Ensure transport cleanup at the end
+	defer func() {
+		err := transport.Stop()
+		assert.NoError(t, err)
+	}()
 
 	// Send multiple events without processing
 	for i := 0; i < 100; i++ {
@@ -109,7 +119,7 @@ func TestEventChannelCapacity(t *testing.T) {
 
 // TestEventProcessingShutdown tests graceful shutdown of event processing
 func TestEventProcessingShutdown(t *testing.T) {
-	config := DefaultTransportConfig()
+	config := FastTransportConfig()
 	config.Logger = zap.NewNop()
 	config.URLs = []string{"ws://localhost:8080"}
 

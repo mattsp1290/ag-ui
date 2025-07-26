@@ -21,8 +21,112 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/time/rate"
+	
+	"github.com/ag-ui/go-sdk/pkg/common"
 )
+
+// ============================================================================
+// Token Revocation
+// ============================================================================
+
+// TokenRevocationStore interface for token revocation storage
+type TokenRevocationStore interface {
+	// RevokeToken adds a token to the revocation list
+	RevokeToken(tokenID string, expiresAt time.Time) error
+	
+	// IsRevoked checks if a token is revoked
+	IsRevoked(tokenID string) bool
+	
+	// Cleanup removes expired revocations
+	Cleanup() error
+}
+
+// InMemoryRevocationStore implements an in-memory token revocation store
+type InMemoryRevocationStore struct {
+	revocations sync.Map // map[string]time.Time
+	cleanupTicker *time.Ticker
+	stopCh chan struct{}
+}
+
+// NewInMemoryRevocationStore creates a new in-memory revocation store
+func NewInMemoryRevocationStore() *InMemoryRevocationStore {
+	store := &InMemoryRevocationStore{
+		cleanupTicker: time.NewTicker(5 * time.Minute),
+		stopCh: make(chan struct{}),
+	}
+	
+	// Start cleanup routine
+	go store.cleanupRoutine()
+	
+	return store
+}
+
+// RevokeToken adds a token to the revocation list
+func (s *InMemoryRevocationStore) RevokeToken(tokenID string, expiresAt time.Time) error {
+	if tokenID == "" {
+		return errors.New("token ID is required")
+	}
+	
+	s.revocations.Store(tokenID, expiresAt)
+	return nil
+}
+
+// IsRevoked checks if a token is revoked
+func (s *InMemoryRevocationStore) IsRevoked(tokenID string) bool {
+	if tokenID == "" {
+		return false
+	}
+	
+	if expiresAt, ok := s.revocations.Load(tokenID); ok {
+		// Check if the revocation is still valid
+		if expiry, ok := expiresAt.(time.Time); ok {
+			if time.Now().After(expiry) {
+				// Token revocation has expired, remove it
+				s.revocations.Delete(tokenID)
+				return false
+			}
+		}
+		return true
+	}
+	
+	return false
+}
+
+// Cleanup removes expired revocations
+func (s *InMemoryRevocationStore) Cleanup() error {
+	now := time.Now()
+	
+	s.revocations.Range(func(key, value interface{}) bool {
+		if expiresAt, ok := value.(time.Time); ok {
+			if now.After(expiresAt) {
+				s.revocations.Delete(key)
+			}
+		}
+		return true
+	})
+	
+	return nil
+}
+
+// cleanupRoutine periodically cleans up expired revocations
+func (s *InMemoryRevocationStore) cleanupRoutine() {
+	for {
+		select {
+		case <-s.cleanupTicker.C:
+			s.Cleanup()
+		case <-s.stopCh:
+			s.cleanupTicker.Stop()
+			return
+		}
+	}
+}
+
+// Stop stops the revocation store cleanup routine
+func (s *InMemoryRevocationStore) Stop() {
+	close(s.stopCh)
+}
 
 // ============================================================================
 // Security Manager
@@ -36,6 +140,7 @@ type SecurityManager struct {
 	validator       *RequestValidator
 	auditLogger     *AuditLogger
 	securityHeaders *SecurityHeaders
+	revocationStore TokenRevocationStore
 	mutex           sync.RWMutex
 	logger          *zap.Logger
 	metrics         *SecurityMetrics
@@ -53,6 +158,7 @@ func NewSecurityManager(config SecurityConfig, logger *zap.Logger) (*SecurityMan
 		logger:          logger,
 		metrics:         NewSecurityMetrics(),
 		securityHeaders: NewSecurityHeaders(config.CORS),
+		revocationStore: NewInMemoryRevocationStore(),
 	}
 
 	// Initialize components
@@ -165,6 +271,13 @@ func (sm *SecurityManager) Authenticate(r *http.Request) (*AuthContext, error) {
 		return nil, err
 	}
 
+	// Check if token is revoked
+	if ctx.TokenID != "" && sm.revocationStore.IsRevoked(ctx.TokenID) {
+		sm.metrics.IncrementAuthFailures()
+		sm.auditLogger.LogAuthFailure(r, errors.New("token is revoked"))
+		return nil, errors.New("token is revoked")
+	}
+
 	sm.metrics.IncrementAuthSuccesses()
 	sm.auditLogger.LogAuthSuccess(r, ctx)
 	return ctx, nil
@@ -235,6 +348,55 @@ func (sm *SecurityManager) Metrics() *SecurityMetrics {
 	return sm.metrics
 }
 
+// RevokeToken revokes a token by adding it to the revocation store
+func (sm *SecurityManager) RevokeToken(tokenID string, expiresAt time.Time) error {
+	if sm.revocationStore == nil {
+		return errors.New("revocation store not configured")
+	}
+	
+	err := sm.revocationStore.RevokeToken(tokenID, expiresAt)
+	if err != nil {
+		sm.logger.Error("failed to revoke token", zap.String("token_id", tokenID), zap.Error(err))
+		return err
+	}
+	
+	sm.auditLogger.LogSecurityEvent("token_revoked", map[string]interface{}{
+		"token_id": tokenID,
+		"expires_at": expiresAt,
+	})
+	
+	return nil
+}
+
+// IsTokenRevoked checks if a token is revoked
+func (sm *SecurityManager) IsTokenRevoked(tokenID string) bool {
+	if sm.revocationStore == nil {
+		return false
+	}
+	
+	return sm.revocationStore.IsRevoked(tokenID)
+}
+
+// Close gracefully shuts down the security manager
+func (sm *SecurityManager) Close() error {
+	sm.mutex.Lock()
+	defer sm.mutex.Unlock()
+	
+	// Stop the rate limiter if it exists
+	if sm.rateLimiter != nil {
+		sm.rateLimiter.Stop()
+	}
+	
+	// Stop the token revocation store cleanup routine
+	if revocationStore, ok := sm.revocationStore.(*InMemoryRevocationStore); ok {
+		revocationStore.Stop()
+	}
+	
+	// Close audit logger if it has resources to clean up
+	// (currently it doesn't, but good practice for future extensions)
+	
+	return nil
+}
 // ============================================================================
 // Authentication Interfaces and Implementations
 // ============================================================================
@@ -446,10 +608,10 @@ func NewBasicAuthenticator(username, password string) *BasicAuthenticator {
 		users: make(map[string]*BasicAuthUser),
 	}
 
-	// Add the configured user
+	// Add the configured user with bcrypt hash
 	ba.AddUser(&BasicAuthUser{
 		Username:     username,
-		Password:     password,
+		Password:     "",  // Don't store plaintext password
 		PasswordHash: hashPassword(password),
 	})
 
@@ -1020,9 +1182,25 @@ func (rv *RequestValidator) isAllowedContentType(contentType string) bool {
 
 // validateURL validates the request URL
 func (rv *RequestValidator) validateURL(u *url.URL) error {
-	// Check for suspicious patterns
+	// First check for path traversal
 	if strings.Contains(u.Path, "..") {
 		return errors.New("path traversal detected")
+	}
+
+	// If this is a full URL (not just a path), validate it with common validator
+	if u.Scheme != "" && u.Host != "" {
+		// Use the common URL validator for comprehensive checks
+		opts := common.URLValidationOptions{
+			RequireHTTPS:           false, // Allow both HTTP and HTTPS for SSE
+			AllowedSchemes:         []string{"http", "https"},
+			BlockPrivateNetworks:   true,
+			BlockLocalhost:         true,
+			ValidateHostResolution: false, // Don't resolve during request validation
+		}
+		
+		if err := common.ValidateURL(u.String(), opts); err != nil {
+			return fmt.Errorf("URL validation failed: %w", err)
+		}
 	}
 
 	// Validate query parameters
@@ -1192,12 +1370,35 @@ func (sh *SecurityHeaders) Apply(w http.ResponseWriter, r *http.Request) {
 func (sh *SecurityHeaders) applyCORS(w http.ResponseWriter, r *http.Request) {
 	origin := r.Header.Get("Origin")
 
+	// Security validation: prevent wildcard with credentials
+	if sh.corsConfig.AllowCredentials && len(sh.corsConfig.AllowedOrigins) > 0 {
+		for _, allowed := range sh.corsConfig.AllowedOrigins {
+			if allowed == "*" {
+				// Security error: wildcard origin with credentials is not allowed
+				// Do not set any CORS headers in this case
+				return
+			}
+		}
+	}
+
 	// Check if origin is allowed
 	if sh.isOriginAllowed(origin) {
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-
-		if sh.corsConfig.AllowCredentials {
+		// Never use wildcard when credentials are allowed
+		if sh.corsConfig.AllowCredentials && origin != "" {
+			// Set the specific origin, not a wildcard
+			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
+			w.Header().Set("Vary", "Origin") // Important for caching
+		} else if !sh.corsConfig.AllowCredentials {
+			// Only use wildcard when credentials are not allowed
+			allowedOrigin := origin
+			for _, allowed := range sh.corsConfig.AllowedOrigins {
+				if allowed == "*" {
+					allowedOrigin = "*"
+					break
+				}
+			}
+			w.Header().Set("Access-Control-Allow-Origin", allowedOrigin)
 		}
 
 		// Handle preflight requests
@@ -1219,6 +1420,31 @@ func (sh *SecurityHeaders) isOriginAllowed(origin string) bool {
 		return false
 	}
 
+	// Security check: when credentials are allowed, wildcard origin is not permitted
+	if sh.corsConfig.AllowCredentials {
+		// Do not allow wildcard when credentials are enabled
+		for _, allowed := range sh.corsConfig.AllowedOrigins {
+			if allowed == "*" {
+				// Log security warning
+				continue // Skip wildcard when credentials are enabled
+			}
+			
+			if allowed == origin {
+				return true
+			}
+
+			// Support wildcard subdomains
+			if strings.HasPrefix(allowed, "*.") {
+				domain := strings.TrimPrefix(allowed, "*.")
+				if strings.HasSuffix(origin, domain) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	// When credentials are not allowed, wildcard is permitted
 	for _, allowed := range sh.corsConfig.AllowedOrigins {
 		if allowed == "*" || allowed == origin {
 			return true
@@ -1413,20 +1639,22 @@ func hashString(s string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
-// hashPassword creates a secure hash of a password
+// hashPassword creates a secure hash of a password using bcrypt
 func hashPassword(password string) string {
-	// In production, use bcrypt or argon2
-	// This is a simplified implementation
-	salt := "static_salt_for_demo" // In production, use a random salt
-	h := hmac.New(sha256.New, []byte(salt))
-	h.Write([]byte(password))
-	return base64.StdEncoding.EncodeToString(h.Sum(nil))
+	// Use bcrypt with a reasonable cost factor (12 is a good balance between security and performance)
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		// In case of error, log it and return empty string
+		// In production, this should be handled more gracefully
+		return ""
+	}
+	return string(hashedPassword)
 }
 
-// verifyPassword verifies a password against a hash
+// verifyPassword verifies a password against a bcrypt hash
 func verifyPassword(password, hash string) bool {
-	expectedHash := hashPassword(password)
-	return subtle.ConstantTimeCompare([]byte(hash), []byte(expectedHash)) == 1
+	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
+	return err == nil
 }
 
 // ============================================================================

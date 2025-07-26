@@ -40,7 +40,7 @@ type ConflictResolver interface {
 	SetStrategy(strategy ConflictResolutionStrategy)
 
 	// RegisterCustomResolver registers a custom resolution function
-	RegisterCustomResolver(name string, resolver CustomResolverFunc)
+	RegisterCustomResolver(name string, resolver CustomResolverFunc) error
 }
 
 // CustomResolverFunc is a function that implements custom conflict resolution
@@ -261,15 +261,28 @@ func (cr *ConflictResolverImpl) SetStrategy(strategy ConflictResolutionStrategy)
 }
 
 // RegisterCustomResolver registers a custom resolution function
-func (cr *ConflictResolverImpl) RegisterCustomResolver(name string, resolver CustomResolverFunc) {
+func (cr *ConflictResolverImpl) RegisterCustomResolver(name string, resolver CustomResolverFunc) error {
+	if cr == nil {
+		return fmt.Errorf("conflict resolver cannot be nil")
+	}
+	if name == "" {
+		return fmt.Errorf("resolver name cannot be empty")
+	}
+	if resolver == nil {
+		return fmt.Errorf("resolver function cannot be nil")
+	}
+
 	if err := cr.customResolvers.Register(name, resolver); err != nil {
-		// Log error but don't fail - maintaining backward compatibility
+		// Log error and return it instead of silently failing
 		if cr.logger != nil {
 			cr.logger.Error("failed to register custom resolver",
 				String("resolver_name", name),
 				Err(err))
 		}
+		return fmt.Errorf("failed to register custom resolver %q: %w", name, err)
 	}
+
+	return nil
 }
 
 // SetUserResolver sets the user resolver for user-choice strategy

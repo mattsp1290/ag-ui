@@ -17,6 +17,22 @@ linters-settings:
     rewrite-rules:
       - pattern: 'interface{}'
         replacement: 'any'
+  
+  # Type safety and interface{} detection
+  interfacecheck:
+    enabled: true
+    patterns:
+      - "interface\\{\\}"
+      - "\\[\\]interface\\{\\}"
+      - "map\\[string\\]interface\\{\\}"
+      - "map\\[.*\\]interface\\{\\}"
+    exclude-patterns:
+      - "json\\.(Marshal|Unmarshal)"
+      - "context\\.WithValue"
+      - "reflect\\."
+      - "fmt\\.(Sprintf|Printf)"
+    severity: error
+    message: "Avoid interface{} usage - use specific types or generics instead"
 
   # Import management
   goimports:
@@ -123,6 +139,25 @@ linters-settings:
       - name: context-keys-type
         severity: warning
         disabled: false
+  
+  # Custom linting for deprecated patterns
+  forbidigo:
+    forbid:
+      - p: '\\.Any\('
+        msg: 'Deprecated Any() logger method - use typed methods like .String(), .Int(), .Bool() instead'
+      - p: 'logrus\.Any\('
+        msg: 'Deprecated logrus.Any() - use typed logging methods'
+      - p: 'log\.Any\('
+        msg: 'Deprecated log.Any() - use typed logging methods'
+      - p: 'map\[string\]interface\{\}'
+        msg: 'Avoid map[string]interface{} - use typed structs or specific map types'
+      - p: '\[\]interface\{\}'
+        msg: 'Avoid []interface{} - use typed slices or generics'
+      - p: 'interface\{\}'
+        msg: 'Avoid interface{} - use specific types, interfaces with methods, or generics'
+        pkg: '^(?!.*test).*$'  # Exclude test files
+    exclude_godoc_examples: true
+    analyze_types: true
 
 # Enabled linters
 linters:
@@ -166,6 +201,9 @@ linters:
     - unconvert     # Unnecessary type conversions
     - wastedassign  # Wasted assignments
     - whitespace    # Whitespace issues
+    
+    # Type safety and migration enforcement
+    - forbidigo     # Forbid specific patterns and deprecated usage
 
   disable:
     # Disabled linters (with reasons)
@@ -251,6 +289,32 @@ issues:
     - linters:
         - lll
       source: "^\\s*return.*errors\\.(New|Wrap)"
+    
+    # Allow interface{} in specific contexts for backward compatibility
+    - path: pkg/messages/types\.go
+      text: "interface\\{\\}"
+      linters:
+        - forbidigo
+    
+    - path: pkg/state/store\.go
+      text: "interface\\{\\}"
+      linters:
+        - forbidigo
+    
+    # Allow interface{} with JSON operations
+    - text: "json\\.(Marshal|Unmarshal).*interface\\{\\}"
+      linters:
+        - forbidigo
+    
+    # Allow interface{} with context.WithValue
+    - text: "context\\.WithValue.*interface\\{\\}"
+      linters:
+        - forbidigo
+    
+    # Allow interface{} in reflection and fmt operations
+    - text: "(reflect\\.|fmt\\.(Sprintf|Printf)).*interface\\{\\}"
+      linters:
+        - forbidigo
 
 # Output configuration
 output:

@@ -13,6 +13,42 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Type-safe test parameter structures for integration tests
+type CalculatorParams struct {
+	Operation string  `json:"operation"`
+	A         float64 `json:"a"`
+	B         float64 `json:"b"`
+}
+
+type EncodeParams struct {
+	Data string `json:"data"`
+}
+
+type DecodeParams struct {
+	Data string `json:"data"`
+}
+
+type StreamingParams struct {
+	Count int `json:"count"`
+}
+
+// Helper functions to convert typed params to map[string]interface{}
+func calcParamsToMap(op string, a, b float64) map[string]interface{} {
+	return map[string]interface{}{
+		"operation": op,
+		"a":         a,
+		"b":         b,
+	}
+}
+
+func encodeParamsToMap(data string) map[string]interface{} {
+	return map[string]interface{}{"data": data}
+}
+
+func streamingParamsToMap(count int) map[string]interface{} {
+	return map[string]interface{}{"count": float64(count)}
+}
+
 // Mock executor for integration testing is defined in tool_test.go
 
 // TestIntegrationFullWorkflow tests a complete tool workflow
@@ -68,11 +104,7 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 
 	// Test 1: Execute calculation
 	t.Run("execute calculation", func(t *testing.T) {
-		params := map[string]interface{}{
-			"operation": "add",
-			"a":         10.5,
-			"b":         20.5,
-		}
+		params := calcParamsToMap("add", 10.5, 20.5)
 
 		result, err := engine.Execute(context.Background(), "custom.calculator", params)
 		require.NoError(t, err)
@@ -83,17 +115,13 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	// Test 2: Chain multiple tools
 	t.Run("chain tools", func(t *testing.T) {
 		// First, encode some data
-		encodeParams := map[string]interface{}{
-			"data": "Secret message",
-		}
+		encodeParams := encodeParamsToMap("Secret message")
 		encodeResult, err := engine.Execute(context.Background(), "builtin.base64_encode", encodeParams)
 		require.NoError(t, err)
 		assert.True(t, encodeResult.Success)
 
 		// Then decode it back
-		decodeParams := map[string]interface{}{
-			"data": encodeResult.Data,
-		}
+		decodeParams := encodeParamsToMap(encodeResult.Data.(string))
 		decodeResult, err := engine.Execute(context.Background(), "builtin.base64_decode", decodeParams)
 		require.NoError(t, err)
 		assert.True(t, decodeResult.Success)
@@ -116,11 +144,7 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 			go func(index int) {
 				defer wg.Done()
 
-				params := map[string]interface{}{
-					"operation": "multiply",
-					"a":         float64(index),
-					"b":         2.0,
-				}
+				params := calcParamsToMap("multiply", float64(index), 2.0)
 
 				result, err := engine.Execute(context.Background(), "custom.calculator", params)
 				if err == nil {

@@ -136,16 +136,19 @@ func TestClientRateLimiter_Cleanup(t *testing.T) {
 		t.Errorf("Expected 20 clients, got %d", initialCount)
 	}
 
-	// Wait for cleanup to run
-	time.Sleep(config.ClientTTL + config.CleanupInterval + 50*time.Millisecond)
+	// Wait for TTL to expire AND for cleanup intervals to pass
+	time.Sleep(config.ClientTTL + 2*config.CleanupInterval + 50*time.Millisecond)
 
-	// Trigger cleanup by adding a new client
+	// Trigger cleanup by adding a new client (forces cleanup check)
 	rl.Allow("trigger-cleanup")
 
-	// Old clients should be cleaned up
+	// Wait a bit more to ensure cleanup completes
+	time.Sleep(25 * time.Millisecond)
+
+	// Old clients should be cleaned up due to TTL expiry - only the trigger client should remain
 	finalCount := rl.GetClientCount()
-	if finalCount > 5 {
-		t.Errorf("Expected most clients to be cleaned up, but got %d", finalCount)
+	if finalCount > 2 {
+		t.Errorf("Expected most clients to be cleaned up due to TTL, but got %d", finalCount)
 	}
 }
 
@@ -183,7 +186,7 @@ func TestClientRateLimiter_ConcurrentAccess(t *testing.T) {
 	rl := NewClientRateLimiter(config)
 
 	numGoroutines := 50
-	numRequests := 100
+	numRequests := 200
 	var wg sync.WaitGroup
 	var allowed atomic.Int64
 	var denied atomic.Int64
@@ -202,7 +205,7 @@ func TestClientRateLimiter_ConcurrentAccess(t *testing.T) {
 				}
 
 				// Small random delay
-				time.Sleep(time.Microsecond * time.Duration(j%10))
+				time.Sleep(time.Microsecond * time.Duration(j%5))
 			}
 		}(i)
 	}

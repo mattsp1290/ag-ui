@@ -1,7 +1,13 @@
 package main
 
-import "github.com/ag-ui/go-sdk/examples/tools/basic/src"
+import (
+	"log"
+
+	calculator "github.com/ag-ui/go-sdk/examples/tools/calculator"
+)
 
 func main() {
-	basic.RunCalculatorExample()
+	if err := calculator.RunCalculatorExample(); err != nil {
+		log.Fatalf("Calculator example failed: %v", err)
+	}
 }

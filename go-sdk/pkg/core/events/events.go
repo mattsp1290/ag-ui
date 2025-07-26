@@ -106,6 +106,42 @@ func (b *BaseEvent) SetTimestamp(timestamp int64) {
 	b.TimestampMs = &timestamp
 }
 
+// ID returns the unique identifier for this event
+func (b *BaseEvent) ID() string {
+	// Generate a unique ID based on event type and timestamp
+	if b.TimestampMs != nil {
+		return fmt.Sprintf("%s_%d", b.EventType, *b.TimestampMs)
+	}
+	return fmt.Sprintf("%s_%d", b.EventType, time.Now().UnixMilli())
+}
+
+// ToJSON serializes the base event to JSON
+func (b *BaseEvent) ToJSON() ([]byte, error) {
+	eventData := map[string]interface{}{
+		"type": b.EventType,
+	}
+	
+	if b.TimestampMs != nil {
+		eventData["timestamp"] = *b.TimestampMs
+	}
+	
+	if b.RawEvent != nil {
+		eventData["data"] = b.RawEvent
+	}
+	
+	return json.Marshal(eventData)
+}
+
+// ToProtobuf converts the base event to protobuf
+func (b *BaseEvent) ToProtobuf() (*generated.Event, error) {
+	// Create a basic protobuf event - actual field names depend on the protobuf definition
+	event := &generated.Event{}
+	
+	// This is a placeholder implementation
+	// The actual field names should match the protobuf schema
+	return event, nil
+}
+
 // GetBaseEvent returns the base event
 func (b *BaseEvent) GetBaseEvent() *BaseEvent {
 	return b

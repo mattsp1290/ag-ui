@@ -1,7 +1,13 @@
 package main
 
-import "github.com/ag-ui/go-sdk/examples/tools/basic/src"
+import (
+	"log"
+
+	fileops "github.com/ag-ui/go-sdk/examples/tools/file-operations"
+)
 
 func main() {
-	basic.RunFileOperationsExample()
+	if err := fileops.RunFileOperationsExample(); err != nil {
+		log.Fatalf("File operations example failed: %v", err)
+	}
 }

@@ -20,12 +20,12 @@ func TestContextManagerBoundedSize(t *testing.T) {
 	// Add more contexts than the max size
 	for i := 0; i < maxSize*2; i++ {
 		ctx := &StateContext{
-			ID:           fmt.Sprintf("context-%d", i),
-			StateID:      fmt.Sprintf("state-%d", i),
-			Created:      time.Now(),
-			LastAccessed: time.Now(),
-			Metadata:     map[string]interface{}{"index": i},
+			ID:       fmt.Sprintf("context-%d", i),
+			StateID:  fmt.Sprintf("state-%d", i),
+			Created:  time.Now(),
+			Metadata: map[string]interface{}{"index": i},
 		}
+		ctx.SetLastAccessed(time.Now())
 		cm.Put(ctx.ID, ctx)
 	}
 
@@ -59,11 +59,11 @@ func TestContextManagerConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < numOperations; j++ {
 				ctx := &StateContext{
-					ID:           fmt.Sprintf("ctx-%d-%d", id, j),
-					StateID:      "state",
-					Created:      time.Now(),
-					LastAccessed: time.Now(),
+					ID:      fmt.Sprintf("ctx-%d-%d", id, j),
+					StateID: "state",
+					Created: time.Now(),
 				}
+				ctx.SetLastAccessed(time.Now())
 				cm.Put(ctx.ID, ctx)
 			}
 		}(i)
@@ -109,11 +109,11 @@ func TestContextManagerExpiredCleanup(t *testing.T) {
 	now := time.Now()
 	for i := 0; i < 10; i++ {
 		ctx := &StateContext{
-			ID:           fmt.Sprintf("ctx-%d", i),
-			StateID:      "state",
-			Created:      now.Add(-time.Hour),
-			LastAccessed: now.Add(-time.Duration(i) * time.Minute),
+			ID:      fmt.Sprintf("ctx-%d", i),
+			StateID: "state",
+			Created: now.Add(-time.Hour),
 		}
+		ctx.SetLastAccessed(now.Add(-time.Duration(i) * time.Minute))
 		cm.Put(ctx.ID, ctx)
 	}
 
@@ -213,6 +213,7 @@ func TestStateManagerMemoryLeakPrevention(t *testing.T) {
 
 	opts := DefaultManagerOptions()
 	opts.CacheSize = 100 // Small cache to test eviction
+	opts.EnableMetrics = false // Disable metrics to reduce noise
 
 	sm, err := NewStateManager(opts)
 	require.NoError(t, err)
@@ -283,7 +284,8 @@ func TestConflictResolverMemoryLeakPrevention(t *testing.T) {
 				Strategy: CustomStrategy,
 			}, nil
 		}
-		cr.RegisterCustomResolver(name, resolver)
+		err := cr.RegisterCustomResolver(name, resolver)
+		assert.NoError(t, err, "Failed to register custom resolver %s", name)
 	}
 
 	// Verify resolver count is bounded
@@ -293,9 +295,10 @@ func TestConflictResolverMemoryLeakPrevention(t *testing.T) {
 		resolverCount)
 
 	// Verify we can still register new resolvers (old ones evicted)
-	cr.RegisterCustomResolver("final-resolver", func(conflict *StateConflict) (*ConflictResolution, error) {
+	err := cr.RegisterCustomResolver("final-resolver", func(conflict *StateConflict) (*ConflictResolution, error) {
 		return nil, nil
 	})
+	assert.NoError(t, err, "Failed to register final resolver")
 
 	_, exists := cr.customResolvers.Get("final-resolver")
 	assert.True(t, exists, "Should be able to register new resolver after eviction")
@@ -308,22 +311,22 @@ func BenchmarkContextManagerOperations(b *testing.B) {
 	// Pre-populate with some contexts
 	for i := 0; i < 500; i++ {
 		ctx := &StateContext{
-			ID:           fmt.Sprintf("ctx-%d", i),
-			StateID:      "state",
-			Created:      time.Now(),
-			LastAccessed: time.Now(),
+			ID:      fmt.Sprintf("ctx-%d", i),
+			StateID: "state",
+			Created: time.Now(),
 		}
+		ctx.SetLastAccessed(time.Now())
 		cm.Put(ctx.ID, ctx)
 	}
 
 	b.Run("Put", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			ctx := &StateContext{
-				ID:           fmt.Sprintf("bench-ctx-%d", i),
-				StateID:      "state",
-				Created:      time.Now(),
-				LastAccessed: time.Now(),
+				ID:      fmt.Sprintf("bench-ctx-%d", i),
+				StateID: "state",
+				Created: time.Now(),
 			}
+			ctx.SetLastAccessed(time.Now())
 			cm.Put(ctx.ID, ctx)
 		}
 	})

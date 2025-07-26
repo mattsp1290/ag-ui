@@ -285,6 +285,47 @@ func (p *ConnectionPool) Stop() error {
 		p.config.Logger.Debug("Connection pool stopped cleanly")
 	case <-time.After(200 * time.Millisecond): // Very short timeout for tests
 		p.config.Logger.Debug("Connection pool stop timeout - contexts cancelled so proceeding")
+	// Cancel context to stop all goroutines first to signal shutdown
+	p.cancel()
+	
+	// Give connections a moment to react to context cancellation - optimized for tests
+	time.Sleep(50 * time.Millisecond)
+	
+	// Close all connections to prevent goroutine leaks
+	p.connMutex.Lock()
+	remainingConns := len(p.connections)
+	if remainingConns > 0 {
+		p.config.Logger.Debug("Closing remaining connections", zap.Int("count", remainingConns))
+		for id, conn := range p.connections {
+			p.config.Logger.Debug("Closing connection", zap.String("id", id))
+			// Close synchronously to avoid creating more goroutines
+			if err := conn.Close(); err != nil {
+				p.config.Logger.Error("Error closing connection",
+					zap.String("id", id),
+					zap.Error(err))
+			}
+		}
+	}
+	p.connections = make(map[string]*Connection)
+	p.connMutex.Unlock()
+	
+	// Wait for pool goroutines with timeout - allow more time for proper cleanup
+	waitCtx, waitCancel := context.WithTimeout(context.Background(), 1*time.Second)
+	defer waitCancel()
+	
+	waitDone := make(chan struct{})
+	go func() {
+		defer close(waitDone)
+		p.wg.Wait()
+	}()
+	
+	select {
+	case <-waitDone:
+		p.config.Logger.Debug("All pool goroutines stopped successfully")
+	case <-waitCtx.Done():
+		p.config.Logger.Warn("Timeout waiting for pool goroutines to stop")
+		// Log which goroutines might still be running for debugging
+		p.config.Logger.Debug("Health checker may still be running - investigating cleanup order")
 	}
 
 	return nil
@@ -417,7 +458,7 @@ func (p *ConnectionPool) GetHealthyConnectionCount() int {
 }
 
 // GetStats returns a copy of the pool statistics
-func (p *ConnectionPool) GetStats() PoolStats {
+func (p *ConnectionPool) Stats() PoolStats {
 	p.stats.mutex.Lock()
 	defer p.stats.mutex.Unlock()
 
@@ -474,6 +515,9 @@ func (p *ConnectionPool) SetMessageHandler(handler func(data []byte)) {
 
 // createConnection creates a new connection and adds it to the pool
 func (p *ConnectionPool) createConnection(ctx context.Context) error {
+	// Create a timeout context for connection creation
+	connectCtx, cancel := context.WithTimeout(ctx, p.config.ConnectionTimeout)
+	defer cancel()
 	// Select URL using round-robin
 	urlIndex := int(atomic.AddInt64(&p.roundRobinIndex, 1)-1) % len(p.config.URLs)
 	url := p.config.URLs[urlIndex]
@@ -483,8 +527,8 @@ func (p *ConnectionPool) createConnection(ctx context.Context) error {
 	connConfig.URL = url
 	connConfig.Logger = p.config.Logger
 
-	// Create connection
-	conn, err := NewConnection(&connConfig)
+	// Create connection with pool's context
+	conn, err := NewConnectionWithContext(ctx, &connConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create connection: %w", err)
 	}
@@ -522,10 +566,7 @@ func (p *ConnectionPool) createConnection(ctx context.Context) error {
 		conn.SetOnMessage(messageHandler)
 	}
 
-	// Connect with timeout
-	connectCtx, cancel := context.WithTimeout(ctx, p.config.ConnectionTimeout)
-	defer cancel()
-
+	// Use the already created timeout context for connection
 	if err := conn.Connect(connectCtx); err != nil {
 		return fmt.Errorf("failed to connect: %w", err)
 	}
@@ -673,6 +714,7 @@ type HealthChecker struct {
 	pool     *ConnectionPool
 	interval time.Duration
 	cache    *lru.Cache[string, bool]
+	ctx      context.Context
 }
 
 // NewHealthChecker creates a new health checker
@@ -691,6 +733,10 @@ func (h *HealthChecker) Start(ctx context.Context, wg *sync.WaitGroup) {
 		h.pool.config.Logger.Debug("HealthChecker: Goroutine fully exited")
 		wg.Done()
 	}()
+	defer wg.Done()
+	
+	h.ctx = ctx
+	h.pool.config.Logger.Debug("Starting health checker")
 
 	h.pool.config.Logger.Debug("HealthChecker: Starting health checker goroutine")
 
@@ -725,6 +771,17 @@ func (h *HealthChecker) Start(ctx context.Context, wg *sync.WaitGroup) {
 		case <-time.After(1 * time.Millisecond):
 			// Short timeout to ensure responsive context checking
 			continue
+			h.pool.config.Logger.Debug("Health checker stopped due to context cancellation")
+			return
+		case <-ticker.C:
+			// Check context again before performing health check
+			select {
+			case <-ctx.Done():
+				h.pool.config.Logger.Debug("Context cancelled before health check")
+				return
+			default:
+				h.checkHealth()
+			}
 		}
 	}
 }
@@ -787,6 +844,7 @@ func (h *HealthChecker) checkHealth() {
 				break
 			}
 			if err := h.pool.createConnection(h.pool.ctx); err != nil {
+			if err := h.pool.createConnection(h.ctx); err != nil {
 				h.pool.config.Logger.Error("Failed to create replacement connection",
 					zap.Error(err))
 			}
@@ -818,7 +876,7 @@ func (p *ConnectionPool) GetDetailedStatus() map[string]interface{} {
 		"active_connections":  p.GetActiveConnectionCount(),
 		"healthy_connections": p.GetHealthyConnectionCount(),
 		"load_balancing":      p.config.LoadBalancingStrategy.String(),
-		"stats":               p.GetStats(),
+		"stats":               p.Stats(),
 		"connections":         connections,
 	}
 }

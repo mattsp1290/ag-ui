@@ -1,0 +1,247 @@
+{
+  "// AG-UI Go SDK - VS Code Settings for Type Safety": "",
+  "// This configuration enforces type-safe coding practices and warns about interface{} usage": "",
+  
+  "// Go Language Settings": "",
+  "go.lintTool": "golangci-lint",
+  "go.lintFlags": [
+    "--config=.golangci.yml",
+    "--timeout=5m"
+  ],
+  "go.lintOnSave": "workspace",
+  "go.vetOnSave": "workspace",
+  "go.buildOnSave": "workspace",
+  "go.formatTool": "goimports",
+  "go.useLanguageServer": true,
+  "go.goplsOptions": {
+    "staticcheck": true,
+    "usePlaceholders": true,
+    "completeUnimported": true,
+    "deepCompletion": true,
+    "matcher": "fuzzy",
+    "experimentalWorkspaceModule": true,
+    "semanticTokens": true,
+    "codelenses": {
+      "gc_details": true,
+      "generate": true,
+      "regenerate_cgo": true,
+      "test": true,
+      "tidy": true,
+      "upgrade_dependency": true,
+      "vendor": true
+    },
+    "analyses": {
+      "fillstruct": true,
+      "nonewvars": true,
+      "noresultvalues": true,
+      "undeclaredname": true,
+      "unreachable": true,
+      "unusedparams": true,
+      "unusedwrite": true
+    },
+    "hints": {
+      "assignVariableTypes": true,
+      "compositeLiteralFields": true,
+      "compositeLiteralTypes": true,
+      "constantValues": true,
+      "functionTypeParameters": true,
+      "parameterNames": true,
+      "rangeVariableTypes": true
+    }
+  },
+  
+  "// File Associations and Exclusions": "",
+  "files.exclude": {
+    "**/*.pb.go": true,
+    "**/vendor": true,
+    "**/.git": true,
+    "**/node_modules": true
+  },
+  "files.watcherExclude": {
+    "**/*.pb.go": true,
+    "**/vendor/**": true,
+    "**/.git/objects/**": true,
+    "**/node_modules/**": true
+  },
+  
+  "// Editor Settings for Go": "",
+  "editor.formatOnSave": true,
+  "editor.codeActionsOnSave": {
+    "source.organizeImports": true,
+    "source.fixAll": true
+  },
+  "editor.rulers": [100, 120],
+  "editor.tabSize": 4,
+  "editor.insertSpaces": false,
+  "editor.trimAutoWhitespace": true,
+  "editor.detectIndentation": false,
+  
+  "// Type Safety Warnings and Highlights": "",
+  "editor.tokenColorCustomizations": {
+    "textMateRules": [
+      {
+        "name": "Interface{} Usage Warning",
+        "scope": "keyword.interface.go",
+        "settings": {
+          "foreground": "#FF6B6B",
+          "fontStyle": "bold underline"
+        }
+      },
+      {
+        "name": "Any Type Warning", 
+        "scope": "support.type.builtin.go",
+        "settings": {
+          "foreground": "#FFA726"
+        }
+      }
+    ]
+  },
+  
+  "// Problem Matchers for Type Safety": "",
+  "problemMatchers": [
+    {
+      "name": "interface-usage",
+      "owner": "go",
+      "fileLocation": "relative",
+      "pattern": {
+        "regexp": "^(.*):(\\d+):(\\d+):\\s+(warning|error):\\s+(.*)interface\\{\\}(.*)$",
+        "file": 1,
+        "line": 2,
+        "column": 3,
+        "severity": 4,
+        "message": 5
+      }
+    }
+  ],
+  
+  "// Extensions Settings": "",
+  "extensions.recommendations": [
+    "golang.go",
+    "ms-vscode.vscode-json",
+    "redhat.vscode-yaml",
+    "ms-vscode.makefile-tools"
+  ],
+  
+  "// Search and Replace Patterns for Migration": "",
+  "search.exclude": {
+    "**/vendor": true,
+    "**/*.pb.go": true,
+    "**/node_modules": true,
+    "**/.git": true
+  },
+  
+  "// Task Definitions for Type Safety Checks": "",
+  "tasks.version": "2.0.0",
+  "tasks.tasks": [
+    {
+      "label": "Type Safety Check",
+      "type": "shell",
+      "command": "golangci-lint",
+      "args": ["run", "--config=.golangci.yml"],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "problemMatcher": "$go"
+    },
+    {
+      "label": "Interface{} Migration Check",
+      "type": "shell", 
+      "command": "./scripts/pre-commit-hooks/check-typesafety.sh",
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Suggest Type-Safe Alternatives",
+      "type": "shell",
+      "command": "./scripts/pre-commit-hooks/suggest-alternatives.sh",
+      "args": ["${file}"],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always", 
+        "focus": false,
+        "panel": "shared"
+      }
+    },
+    {
+      "label": "Format Migrated Code",
+      "type": "shell",
+      "command": "./scripts/pre-commit-hooks/format-migration.sh",
+      "args": ["${file}"],
+      "group": "build",
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      }
+    }
+  ],
+  
+  "// Snippets for Type-Safe Patterns": "",
+  "go.generateTestsFlags": [
+    "-all",
+    "-exported"
+  ],
+  
+  "// Custom Snippets Path": "",
+  "// See .vscode/go.code-snippets for type-safe code snippets": "",
+  
+  "// Terminal Settings": "",
+  "terminal.integrated.env.osx": {
+    "GOFLAGS": "-tags=integration"
+  },
+  "terminal.integrated.env.linux": {
+    "GOFLAGS": "-tags=integration"
+  },
+  "terminal.integrated.env.windows": {
+    "GOFLAGS": "-tags=integration"
+  },
+  
+  "// Debug Configuration": "",
+  "go.delveConfig": {
+    "dlvLoadConfig": {
+      "followPointers": true,
+      "maxVariableRecurse": 3,
+      "maxStringLen": 400,
+      "maxArrayValues": 400,
+      "maxStructFields": -1
+    }
+  },
+  
+  "// Git Integration": "",
+  "git.ignoreLimitWarning": true,
+  "git.autofetch": true,
+  
+  "// Workspace Specific Settings": "",
+  "files.associations": {
+    "*.go": "go",
+    ".golangci.yml": "yaml",
+    "*.proto": "proto3"
+  },
+  
+  "// Auto-completion for Type Safety": "",
+  "editor.suggest.showWords": false,
+  "editor.suggest.showSnippets": true,
+  "editor.acceptSuggestionOnCommitCharacter": false,
+  "editor.acceptSuggestionOnEnter": "on",
+  
+  "// Error Lens Settings (if extension is installed)": "",
+  "errorLens.enabledDiagnosticLevels": [
+    "error",
+    "warning",
+    "info"
+  ],
+  "errorLens.excludeBySource": [
+    "cSpell"
+  ]
+}

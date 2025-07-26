@@ -1,7 +1,13 @@
 package main
 
-import "github.com/ag-ui/go-sdk/examples/tools/external/src"
+import (
+	"log"
+
+	restclient "github.com/ag-ui/go-sdk/examples/tools/external/rest-client"
+)
 
 func main() {
-	external.RunRestClientExample()
+	if err := restclient.RunRestClientExample(); err != nil {
+		log.Fatalf("REST client example failed: %v", err)
+	}
 }

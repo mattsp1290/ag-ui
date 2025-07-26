@@ -18,7 +18,7 @@ import (
 
 // StateEventHandler handles state-related events from the AG-UI protocol
 type StateEventHandler struct {
-	store         *StateStore
+	store         StoreInterface
 	deltaComputer *DeltaComputer
 	metrics       *StateMetrics
 	mu            sync.RWMutex
@@ -164,7 +164,7 @@ func WithConflictResolver(resolver ConflictResolver) StateEventHandlerOption {
 }
 
 // NewStateEventHandler creates a new state event handler
-func NewStateEventHandler(store *StateStore, options ...StateEventHandlerOption) *StateEventHandler {
+func NewStateEventHandler(store StoreInterface, options ...StateEventHandlerOption) *StateEventHandler {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	handler := &StateEventHandler{
@@ -966,6 +966,7 @@ type StateEventStream struct {
 	stopCh    chan struct{}
 	interval  time.Duration
 	deltaOnly bool
+	wg        sync.WaitGroup
 }
 
 // StateEventStreamOption is a configuration option for StateEventStream
@@ -1040,6 +1041,20 @@ func (s *StateEventStream) Start() error {
 // Stop stops the event stream
 func (s *StateEventStream) Stop() {
 	close(s.stopCh)
+	
+	// Wait for handlers to complete with timeout
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	
+	select {
+	case <-done:
+		// Handlers finished cleanly
+	case <-time.After(2 * time.Second):
+		// Timeout - handlers may be stuck, proceed anyway
+	}
 }
 
 // streamLoop continuously monitors for state changes
@@ -1086,7 +1101,17 @@ func (s *StateEventStream) emit(event events.Event) {
 
 	for _, handler := range handlers {
 		// Call handlers in separate goroutines to prevent blocking
+		s.wg.Add(1)
 		go func(h func(events.Event) error) {
+			defer s.wg.Done()
+			
+			// Check if we're stopping
+			select {
+			case <-s.stopCh:
+				return
+			default:
+			}
+			
 			if err := h(event); err != nil {
 				// Log error but continue with other handlers
 			}
@@ -1368,6 +1393,13 @@ func (h *StateEventHandler) isRunning() bool {
 	if h == nil {
 		return false
 	}
+	
+	// Check if the handler has essential components initialized
+	// A handler is not running if it lacks critical components
+	if h.store == nil || h.deltaComputer == nil || h.metrics == nil {
+		return false
+	}
+	
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.running
@@ -1375,7 +1407,11 @@ func (h *StateEventHandler) isRunning() bool {
 
 // getQueueDepth returns the current queue depth
 func (h *StateEventHandler) getQueueDepth() int {
+	if h == nil {
+		return 0
+	}
 	// For testing purposes, if store is nil, return high value
+	// This simulates a degraded state with high queue depth
 	if h.store == nil {
 		return 15000
 	}

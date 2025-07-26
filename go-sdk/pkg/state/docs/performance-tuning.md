@@ -180,7 +180,7 @@ options.CacheConfig = state.CacheConfig{
         Type:     "redis",
         MaxSize:  10000,                   // Larger L2 cache
         TTL:      10 * time.Minute,
-        ConnectionURL: "redis://localhost:6379",
+        ConnectionURL: os.Getenv("REDIS_URL"), // Example: "redis://localhost:6379"
     },
     L3Cache: state.CacheLevel{
         Type:     "file",
@@ -235,7 +235,7 @@ func OptimizedFileStorage() *state.StorageConfig {
 func OptimizedRedisStorage() *state.StorageConfig {
     return &state.StorageConfig{
         // Connection settings
-        ConnectionURL: "redis://localhost:6379",
+        ConnectionURL: os.Getenv("REDIS_URL"), // Example: "redis://localhost:6379"
         
         // Pool optimization
         PoolSize:         50,                  // Large pool
@@ -278,7 +278,7 @@ func OptimizedRedisStorage() *state.StorageConfig {
 func OptimizedPostgreSQLStorage() *state.StorageConfig {
     return &state.StorageConfig{
         // Connection settings
-        ConnectionURL: "postgres://user:pass@localhost:5432/statedb?sslmode=disable",
+        ConnectionURL: os.Getenv("DATABASE_URL"), // Example: "postgres://user:pass@localhost:5432/statedb?sslmode=disable"
         
         // Pool optimization
         MaxOpenConns:     50,                  // Large pool

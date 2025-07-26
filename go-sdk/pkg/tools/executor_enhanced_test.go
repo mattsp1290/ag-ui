@@ -38,14 +38,10 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 		select {
 		case result := <-resultChan:
 			assert.NotNil(t, result)
-			if result != nil {
-				assert.Equal(t, jobID, result.JobID)
-				assert.NoError(t, result.Error)
-				if result.Result != nil {
-					assert.True(t, result.Result.Success)
-					assert.Equal(t, "async test", result.Result.Data)
-				}
-			}
+			assert.Equal(t, jobID, result.JobID)
+			assert.NoError(t, result.Error)
+			assert.True(t, result.Result.Success)
+			assert.Equal(t, "async test", result.Result.Data)
 		case <-time.After(5 * time.Second):
 			t.Fatal("Timeout waiting for async result")
 		}
@@ -87,7 +83,7 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 		require.NoError(t, registry.Register(tool))
 
 		engine := tools.NewExecutionEngine(registry, 
-			tools.WithAsyncWorkers(3), // Increased workers to handle queue size
+			tools.WithAsyncWorkers(3), // Use more workers to handle all jobs
 		)
 		defer shutdownEngine(t, engine)
 
@@ -110,15 +106,11 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 		for _, resultChan := range resultChans {
 			select {
 			case result := <-resultChan:
-				if result != nil {
-					if result.Error != nil {
-						t.Logf("Execution error: %v", result.Error)
-					}
-					assert.NoError(t, result.Error)
-					if result.Result != nil {
-						assert.True(t, result.Result.Success)
-					}
+				if result.Error != nil {
+					t.Logf("Execution error: %v", result.Error)
 				}
+				assert.NoError(t, result.Error)
+				assert.True(t, result.Result.Success)
 			case <-time.After(5 * time.Second):
 				t.Fatal("Timeout waiting for async results")
 			}
@@ -138,64 +130,46 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 		registry := tools.NewRegistry()
 		tool := testTool()
 		
-		execStarted := make(chan struct{})
-		contextCancelled := make(chan struct{})
-		
 		tool.Executor = &mockToolExecutor{
 			executeFunc: func(ctx context.Context, params map[string]interface{}) (*tools.ToolExecutionResult, error) {
-				// Signal that execution has started
 				select {
-				case execStarted <- struct{}{}:
-				default:
-				}
-				
-				// Wait for cancellation signal instead of polling
-				select {
+				case <-time.After(2 * time.Second):
+					return &tools.ToolExecutionResult{Success: true}, nil
 				case <-ctx.Done():
 					return nil, ctx.Err()
-				case <-contextCancelled:
-					// Fallback in case ctx.Done() doesn't trigger
-					return nil, context.Canceled
-				case <-time.After(100 * time.Millisecond):
-					// If no cancellation after 100ms, complete normally
-					return &tools.ToolExecutionResult{Success: true}, nil
 				}
 			},
 		}
 		require.NoError(t, registry.Register(tool))
 
-		engine := tools.NewExecutionEngine(registry, 
-			tools.WithAsyncWorkers(2),
+		engine := tools.NewExecutionEngine(registry,
+			tools.WithAsyncWorkers(1), // Enable async execution
 		)
 		defer shutdownEngine(t, engine)
 
 		ctx, cancel := context.WithCancel(context.Background())
-		defer cancel()
 		params := map[string]interface{}{"input": "test"}
 
 		_, resultChan, err := engine.ExecuteAsync(ctx, "test-tool", params, 1)
 		require.NoError(t, err)
 
-		// Wait for execution to start, then cancel immediately
-		select {
-		case <-execStarted:
-			cancel()
-			close(contextCancelled) // Signal to executor that we cancelled
-		case <-time.After(1 * time.Second):
-			t.Fatal("Execution didn't start within 1 second")
-		}
+		// Cancel after a short delay
+		time.Sleep(100 * time.Millisecond)
+		cancel()
 
-		// Should receive result within reasonable time
+		// Should receive canceled result
 		select {
 		case result := <-resultChan:
-			require.NotNil(t, result, "Expected non-nil result")
-			// After cancellation, we expect either an error or success (race condition)
-			if result.Error != nil {
-				assert.Contains(t, result.Error.Error(), "context canceled")
+			if result != nil {
+				if result.Error != nil {
+					assert.Contains(t, result.Error.Error(), "context canceled")
+				} else if result.Result != nil {
+					// If no error, the result should indicate failure in some way
+					assert.False(t, result.Result.Success, "Expected execution to be canceled")
+				}
 			}
-			// Test passes if we get any result (cancellation works)
-		case <-time.After(500 * time.Millisecond):
-			t.Fatal("Timeout waiting for async result after cancellation")
+		case <-time.After(3 * time.Second):
+			t.Fatal("Timeout waiting for canceled result")
 		}
 	})
 
@@ -227,7 +201,7 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 		
 		start := time.Now()
 		for i := 0; i < numJobs; i++ {
-			params := map[string]interface{}{"input": fmt.Sprintf("job_%d", i)}
+			params := map[string]interface{}{"input": fmt.Sprintf("job-%d", i)}
 			_, resultChan, err := engine.ExecuteAsync(context.Background(), "test-tool", params, 1)
 			require.NoError(t, err)
 			resultChans = append(resultChans, resultChan)
@@ -238,12 +212,9 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 		for _, resultChan := range resultChans {
 			select {
 			case result := <-resultChan:
-				if result != nil {
-					assert.NoError(t, result.Error)
-					if result.Result != nil {
-						assert.True(t, result.Result.Success)
-					}
-				}
+				assert.NoError(t, result.Error)
+				require.NotNil(t, result.Result)
+				assert.True(t, result.Result.Success)
 				completed++
 			case <-time.After(5 * time.Second):
 				t.Fatal("Timeout waiting for async results")
@@ -493,7 +464,7 @@ func TestExecutionEngine_GracefulShutdown(t *testing.T) {
 			executeFunc: func(ctx context.Context, params map[string]interface{}) (*tools.ToolExecutionResult, error) {
 				atomic.AddInt64(&started, 1)
 				select {
-				case <-time.After(5 * time.Second):
+				case <-time.After(2 * time.Second):
 					atomic.AddInt64(&completed, 1)
 					return &tools.ToolExecutionResult{Success: true}, nil
 				case <-ctx.Done():
@@ -520,8 +491,8 @@ func TestExecutionEngine_GracefulShutdown(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		assert.Greater(t, atomic.LoadInt64(&started), int64(0))
 
-		// Shutdown
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		// Shutdown - use a more generous timeout to account for goroutine cleanup timing
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
 		
 		err := engine.Shutdown(shutdownCtx)

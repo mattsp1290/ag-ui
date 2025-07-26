@@ -1,7 +1,13 @@
 package main
 
-import "github.com/ag-ui/go-sdk/examples/tools/performance/src"
+import (
+	"log"
+
+	resourcemonitor "github.com/ag-ui/go-sdk/examples/tools/performance/resource-monitor"
+)
 
 func main() {
-	performance.RunResourceMonitorExample()
+	if err := resourcemonitor.RunResourceMonitorExample(); err != nil {
+		log.Fatalf("Resource monitor example failed: %v", err)
+	}
 }

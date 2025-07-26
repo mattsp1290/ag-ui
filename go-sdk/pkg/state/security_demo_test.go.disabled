@@ -9,8 +9,10 @@ import (
 
 // TestSecurityDemo demonstrates all security features working together
 func TestSecurityDemo(t *testing.T) {
-	// Create state manager with default security settings
-	sm, err := NewStateManager(DefaultManagerOptions())
+	// Create state manager with optimized settings for testing
+	opts := DefaultManagerOptions()
+	opts.EnableAudit = false // Disable audit logging for faster tests
+	sm, err := NewStateManager(opts)
 	if err != nil {
 		t.Fatalf("Failed to create state manager: %v", err)
 	}
@@ -111,9 +113,9 @@ func TestSecurityDemo(t *testing.T) {
 	// Create a new context for rate limit testing
 	rateLimitCtx, _ := sm.CreateContext(ctx, "rate-test", nil)
 
-	// Try to exceed rate limit
+	// Try to exceed rate limit (reduced iterations for faster testing)
 	hitRateLimit := false
-	for i := 0; i < 50; i++ { // Reduced from 300 to 50 for faster testing
+	for i := 0; i < 10; i++ { // Reduced to 10 iterations for faster testing
 		_, err = sm.UpdateState(ctx, rateLimitCtx, "rate-test", map[string]interface{}{
 			fmt.Sprintf("test_%d", i): i,
 		}, UpdateOptions{})

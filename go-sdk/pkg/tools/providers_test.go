@@ -11,6 +11,136 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+// Type-safe parameter structures for provider testing
+
+// TestToolParams represents typed parameters for test tool execution
+type TestToolParams struct {
+	Message string                 `json:"message"`
+	Count   int                    `json:"count,omitempty"`
+	Options []string              `json:"options,omitempty"`
+	Config  TestToolConfigParams  `json:"config,omitempty"`
+}
+
+// TestToolConfigParams represents configuration for test tools
+type TestToolConfigParams struct {
+	Enabled bool `json:"enabled"`
+}
+
+// OpenAIToolCallParams represents typed parameters for OpenAI tool calls
+type OpenAIToolCallParams struct {
+	Message string `json:"message"`
+	Count   int    `json:"count"`
+}
+
+// AnthropicToolUseParams represents typed parameters for Anthropic tool use
+type AnthropicToolUseParams struct {
+	Message string `json:"message"`
+	Count   int    `json:"count"`
+}
+
+// ToolExecutionResultData represents typed result data
+type ToolExecutionResultData struct {
+	Output string `json:"output"`
+	Count  int    `json:"count"`
+}
+
+// ComplexResultData represents complex nested result data
+type ComplexResultData struct {
+	Nested ComplexNestedData `json:"nested"`
+}
+
+// ComplexNestedData represents nested data structure
+type ComplexNestedData struct {
+	Value string        `json:"value"`
+	Array []int         `json:"array"`
+}
+
+// StreamingChunkData represents data in OpenAI streaming chunks
+type StreamingChunkData struct {
+	ToolCalls []StreamingToolCall `json:"tool_calls"`
+}
+
+// StreamingToolCall represents a tool call in streaming data
+type StreamingToolCall struct {
+	ID       string                  `json:"id,omitempty"`
+	Function StreamingFunctionCall  `json:"function"`
+}
+
+// StreamingFunctionCall represents function call data in streaming
+type StreamingFunctionCall struct {
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+}
+
+// Helper functions to convert typed structures to map[string]interface{}
+
+// testToolParamsToMap converts TestToolParams to map for legacy API compatibility
+func testToolParamsToMap(params TestToolParams) map[string]interface{} {
+	result := make(map[string]interface{})
+	result["message"] = params.Message
+	if params.Count > 0 {
+		result["count"] = params.Count
+	}
+	if len(params.Options) > 0 {
+		result["options"] = params.Options
+	}
+	if params.Config.Enabled {
+		result["config"] = map[string]interface{}{
+			"enabled": params.Config.Enabled,
+		}
+	}
+	return result
+}
+
+// toolExecutionResultDataToMap converts typed result data to map
+func toolExecutionResultDataToMap(data ToolExecutionResultData) map[string]interface{} {
+	return map[string]interface{}{
+		"output": data.Output,
+		"count":  data.Count,
+	}
+}
+
+// complexResultDataToMap converts complex result data to map
+func complexResultDataToMap(data ComplexResultData) map[string]interface{} {
+	return map[string]interface{}{
+		"nested": map[string]interface{}{
+			"value": data.Nested.Value,
+			"array": data.Nested.Array,
+		},
+	}
+}
+
+// anthropicToolUseParamsToMap converts Anthropic tool use params to map
+func anthropicToolUseParamsToMap(params AnthropicToolUseParams) map[string]interface{} {
+	return map[string]interface{}{
+		"message": params.Message,
+		"count":   params.Count,
+	}
+}
+
+// streamingChunkToMap converts streaming chunk data to map
+func streamingChunkToMap(chunk StreamingChunkData) map[string]interface{} {
+	toolCalls := make([]interface{}, len(chunk.ToolCalls))
+	for i, tc := range chunk.ToolCalls {
+		toolCall := make(map[string]interface{})
+		if tc.ID != "" {
+			toolCall["id"] = tc.ID
+		}
+		function := make(map[string]interface{})
+		if tc.Function.Name != "" {
+			function["name"] = tc.Function.Name
+		}
+		if tc.Function.Arguments != "" {
+			function["arguments"] = tc.Function.Arguments
+		}
+		toolCall["function"] = function
+		toolCalls[i] = toolCall
+	}
+	return map[string]interface{}{
+		"tool_calls": toolCalls,
+	}
+}
+
 // mockProviderExecutor is a test implementation of ToolExecutor for provider tests
 type mockProviderExecutor struct {
 	result *tools.ToolExecutionResult
@@ -22,6 +152,16 @@ func (m *mockProviderExecutor) Execute(ctx context.Context, params map[string]in
 		return nil, m.err
 	}
 	return m.result, nil
+}
+
+// createTypedProviderExecutor creates a mock executor with typed result data
+func createTypedProviderExecutor(resultData ToolExecutionResultData) *mockProviderExecutor {
+	return &mockProviderExecutor{
+		result: &tools.ToolExecutionResult{
+			Success: true,
+			Data:    toolExecutionResultDataToMap(resultData),
+		},
+	}
 }
 
 // Helper function to create a test tool for provider tests
@@ -89,12 +229,10 @@ func createProviderTestTool() *tools.Tool {
 			RateLimit:  60,
 			Timeout:    30 * time.Second,
 		},
-		Executor: &mockProviderExecutor{
-			result: &tools.ToolExecutionResult{
-				Success: true,
-				Data:    map[string]interface{}{"result": "success"},
-			},
-		},
+		Executor: createTypedProviderExecutor(ToolExecutionResultData{
+			Output: "success",
+			Count:  1,
+		}),
 	}
 }
 
@@ -223,10 +361,19 @@ func TestProviderConverter_ConvertOpenAIToolCall(t *testing.T) {
 
 		name, args, err := pc.ConvertOpenAIToolCall(call)
 
+		// Verify type-safe parameter extraction
 		require.NoError(t, err)
 		assert.Equal(t, "TestTool", name)
 		assert.Equal(t, "hello", args["message"])
 		assert.Equal(t, float64(5), args["count"])
+		
+		// Verify parameters can be safely converted to typed structure
+		var params OpenAIToolCallParams
+		paramBytes, _ := json.Marshal(args)
+		err = json.Unmarshal(paramBytes, &params)
+		require.NoError(t, err)
+		assert.Equal(t, "hello", params.Message)
+		assert.Equal(t, 5, params.Count)
 	})
 
 	t.Run("Error with nil call", func(t *testing.T) {
@@ -272,21 +419,32 @@ func TestProviderConverter_ConvertAnthropicToolUse(t *testing.T) {
 	pc := tools.NewProviderConverter()
 
 	t.Run("Success", func(t *testing.T) {
+		// Create typed parameters and convert to map
+		typedParams := AnthropicToolUseParams{
+			Message: "hello",
+			Count:   5,
+		}
 		use := &tools.AnthropicToolUse{
-			ID:   "use_123",
-			Name: "TestTool",
-			Input: map[string]interface{}{
-				"message": "hello",
-				"count":   5,
-			},
+			ID:    "use_123",
+			Name:  "TestTool",
+			Input: anthropicToolUseParamsToMap(typedParams),
 		}
 
 		name, args, err := pc.ConvertAnthropicToolUse(use)
 
+		// Verify type-safe parameter extraction
 		require.NoError(t, err)
 		assert.Equal(t, "TestTool", name)
 		assert.Equal(t, "hello", args["message"])
 		assert.Equal(t, 5, args["count"])
+		
+		// Verify parameters can be safely converted to typed structure
+		var params AnthropicToolUseParams
+		paramBytes, _ := json.Marshal(args)
+		err = json.Unmarshal(paramBytes, &params)
+		require.NoError(t, err)
+		assert.Equal(t, "hello", params.Message)
+		assert.Equal(t, 5, params.Count)
 	})
 
 	t.Run("Error with nil use", func(t *testing.T) {
@@ -314,12 +472,14 @@ func TestProviderConverter_ConvertResultToOpenAI(t *testing.T) {
 	pc := tools.NewProviderConverter()
 
 	t.Run("Success result", func(t *testing.T) {
+		// Create typed result data
+		typedData := ToolExecutionResultData{
+			Output: "processed",
+			Count:  42,
+		}
 		result := &tools.ToolExecutionResult{
-			Success: true,
-			Data: map[string]interface{}{
-				"output": "processed",
-				"count":  42,
-			},
+			Success:   true,
+			Data:      toolExecutionResultDataToMap(typedData),
 			Timestamp: time.Now(),
 		}
 
@@ -330,12 +490,12 @@ func TestProviderConverter_ConvertResultToOpenAI(t *testing.T) {
 		assert.Equal(t, "tool", msg.Role)
 		assert.Equal(t, "call_123", msg.ToolCallID)
 
-		// Verify the content is valid JSON
-		var data map[string]interface{}
+		// Verify the content is valid JSON and can be converted to typed structure
+		var data ToolExecutionResultData
 		err = json.Unmarshal([]byte(msg.Content), &data)
 		require.NoError(t, err)
-		assert.Equal(t, "processed", data["output"])
-		assert.Equal(t, float64(42), data["count"])
+		assert.Equal(t, "processed", data.Output)
+		assert.Equal(t, 42, data.Count)
 	})
 
 	t.Run("Error result", func(t *testing.T) {
@@ -361,14 +521,16 @@ func TestProviderConverter_ConvertResultToOpenAI(t *testing.T) {
 	})
 
 	t.Run("Success with complex data", func(t *testing.T) {
+		// Create complex typed result data
+		typedData := ComplexResultData{
+			Nested: ComplexNestedData{
+				Value: "test",
+				Array: []int{1, 2, 3},
+			},
+		}
 		result := &tools.ToolExecutionResult{
 			Success: true,
-			Data: map[string]interface{}{
-				"nested": map[string]interface{}{
-					"value": "test",
-					"array": []interface{}{1, 2, 3},
-				},
-			},
+			Data:    complexResultDataToMap(typedData),
 		}
 
 		msg, err := pc.ConvertResultToOpenAI(result, "call_123")
@@ -387,11 +549,14 @@ func TestProviderConverter_ConvertResultToAnthropic(t *testing.T) {
 	pc := tools.NewProviderConverter()
 
 	t.Run("Success result", func(t *testing.T) {
+		// Create typed result data for Anthropic conversion
+		typedData := ToolExecutionResultData{
+			Output: "processed",
+			Count:  0, // Default value
+		}
 		result := &tools.ToolExecutionResult{
-			Success: true,
-			Data: map[string]interface{}{
-				"output": "processed",
-			},
+			Success:   true,
+			Data:      toolExecutionResultDataToMap(typedData),
 			Timestamp: time.Now(),
 		}
 
@@ -437,18 +602,19 @@ func TestStreamingToolCallConverter(t *testing.T) {
 	t.Run("AddOpenAIChunk with complete tool call", func(t *testing.T) {
 		stc := tools.NewStreamingToolCallConverter()
 
-		// Add chunk with tool call info
-		chunk := map[string]interface{}{
-			"tool_calls": []interface{}{
-				map[string]interface{}{
-					"id": "call_123",
-					"function": map[string]interface{}{
-						"name":      "TestTool",
-						"arguments": `{"message": "hello"}`,
+		// Create typed streaming chunk data
+		typedChunk := StreamingChunkData{
+			ToolCalls: []StreamingToolCall{
+				{
+					ID: "call_123",
+					Function: StreamingFunctionCall{
+						Name:      "TestTool",
+						Arguments: `{"message": "hello"}`,
 					},
 				},
 			},
 		}
+		chunk := streamingChunkToMap(typedChunk)
 
 		err := stc.AddOpenAIChunk(chunk)
 		require.NoError(t, err)
@@ -464,44 +630,47 @@ func TestStreamingToolCallConverter(t *testing.T) {
 	t.Run("AddOpenAIChunk with streaming arguments", func(t *testing.T) {
 		stc := tools.NewStreamingToolCallConverter()
 
-		// First chunk - tool info
-		chunk1 := map[string]interface{}{
-			"tool_calls": []interface{}{
-				map[string]interface{}{
-					"id": "call_123",
-					"function": map[string]interface{}{
-						"name":      "TestTool",
-						"arguments": `{"mes`,
+		// First chunk - tool info with typed data
+		typedChunk1 := StreamingChunkData{
+			ToolCalls: []StreamingToolCall{
+				{
+					ID: "call_123",
+					Function: StreamingFunctionCall{
+						Name:      "TestTool",
+						Arguments: `{"mes`,
 					},
 				},
 			},
 		}
+		chunk1 := streamingChunkToMap(typedChunk1)
 		err := stc.AddOpenAIChunk(chunk1)
 		require.NoError(t, err)
 
-		// Second chunk - more arguments
-		chunk2 := map[string]interface{}{
-			"tool_calls": []interface{}{
-				map[string]interface{}{
-					"function": map[string]interface{}{
-						"arguments": `sage": "hel`,
+		// Second chunk - more arguments with typed data
+		typedChunk2 := StreamingChunkData{
+			ToolCalls: []StreamingToolCall{
+				{
+					Function: StreamingFunctionCall{
+						Arguments: `sage": "hel`,
 					},
 				},
 			},
 		}
+		chunk2 := streamingChunkToMap(typedChunk2)
 		err = stc.AddOpenAIChunk(chunk2)
 		require.NoError(t, err)
 
-		// Third chunk - complete arguments
-		chunk3 := map[string]interface{}{
-			"tool_calls": []interface{}{
-				map[string]interface{}{
-					"function": map[string]interface{}{
-						"arguments": `lo"}`,
+		// Third chunk - complete arguments with typed data
+		typedChunk3 := StreamingChunkData{
+			ToolCalls: []StreamingToolCall{
+				{
+					Function: StreamingFunctionCall{
+						Arguments: `lo"}`,
 					},
 				},
 			},
 		}
+		chunk3 := streamingChunkToMap(typedChunk3)
 		err = stc.AddOpenAIChunk(chunk3)
 		require.NoError(t, err)
 
@@ -516,17 +685,19 @@ func TestStreamingToolCallConverter(t *testing.T) {
 	t.Run("GetToolCall with incomplete arguments", func(t *testing.T) {
 		stc := tools.NewStreamingToolCallConverter()
 
-		chunk := map[string]interface{}{
-			"tool_calls": []interface{}{
-				map[string]interface{}{
-					"id": "call_123",
-					"function": map[string]interface{}{
-						"name":      "TestTool",
-						"arguments": `{"message": "incomplete`,
+		// Create typed chunk with incomplete arguments
+		typedChunk := StreamingChunkData{
+			ToolCalls: []StreamingToolCall{
+				{
+					ID: "call_123",
+					Function: StreamingFunctionCall{
+						Name:      "TestTool",
+						Arguments: `{"message": "incomplete`,
 					},
 				},
 			},
 		}
+		chunk := streamingChunkToMap(typedChunk)
 
 		err := stc.AddOpenAIChunk(chunk)
 		require.NoError(t, err)
@@ -554,6 +725,7 @@ func TestStreamingToolCallConverter(t *testing.T) {
 	t.Run("AddOpenAIChunk with malformed tool_calls", func(t *testing.T) {
 		stc := tools.NewStreamingToolCallConverter()
 
+		// Create malformed chunk (not using typed conversion for this error case)
 		chunk := map[string]interface{}{
 			"tool_calls": "not an array",
 		}

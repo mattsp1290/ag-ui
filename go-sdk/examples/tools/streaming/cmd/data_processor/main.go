@@ -1,7 +1,13 @@
 package main
 
-import "github.com/ag-ui/go-sdk/examples/tools/streaming/src"
+import (
+	"log"
+
+	dataprocessor "github.com/ag-ui/go-sdk/examples/tools/streaming/data-processor"
+)
 
 func main() {
-	streaming.RunDataProcessorExample()
+	if err := dataprocessor.RunDataProcessorExample(); err != nil {
+		log.Fatalf("Data processor example failed: %v", err)
+	}
 }

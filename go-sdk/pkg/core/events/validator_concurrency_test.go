@@ -229,7 +229,7 @@ func TestIDTracker_ConcurrentAccess(t *testing.T) {
 			defer wg.Done()
 			errors := tracker.ValidateIDConsistency()
 			if errors == nil {
-				t.Error("ValidateIDConsistency should return a slice")
+				t.Error("ValidateIDConsistency should not return nil")
 			}
 		}()
 	}

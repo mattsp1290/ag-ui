@@ -56,6 +56,7 @@ func TestSecurityValidator(t *testing.T) {
 
 func TestStateManagerSecurity(t *testing.T) {
 	opts := DefaultManagerOptions()
+	opts.EnableAudit = false // Disable audit for faster testing
 	manager, err := NewStateManager(opts)
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)

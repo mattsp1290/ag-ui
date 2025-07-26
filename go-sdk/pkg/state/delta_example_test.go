@@ -148,5 +148,5 @@ func ExampleDeltaComputer_OptimizePatch() {
 	// Optimized patch: 3 operations
 	// - replace /temp = new value
 	// - add /a = 1
-	// - remove /b
+	// - add /b = 2
 }

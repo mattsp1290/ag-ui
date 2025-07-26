@@ -1,7 +1,13 @@
 package main
 
-import "github.com/ag-ui/go-sdk/examples/tools/basic/src"
+import (
+	"log"
+
+	greeting "github.com/ag-ui/go-sdk/examples/tools/greeting"
+)
 
 func main() {
-	basic.RunGreetingExample()
+	if err := greeting.RunGreetingExample(); err != nil {
+		log.Fatalf("Greeting example failed: %v", err)
+	}
 }

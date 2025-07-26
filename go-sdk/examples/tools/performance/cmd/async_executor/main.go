@@ -1,7 +1,13 @@
 package main
 
-import "github.com/ag-ui/go-sdk/examples/tools/performance/src"
+import (
+	"log"
+
+	asyncexecutor "github.com/ag-ui/go-sdk/examples/tools/performance/async-executor"
+)
 
 func main() {
-	performance.RunAsyncExecutorExample()
+	if err := asyncexecutor.RunAsyncExecutorExample(); err != nil {
+		log.Fatalf("Async executor example failed: %v", err)
+	}
 }

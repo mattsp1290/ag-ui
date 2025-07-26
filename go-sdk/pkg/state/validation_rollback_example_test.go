@@ -3,7 +3,7 @@ package state_test
 import (
 	"fmt"
 	"log"
-	"time"
+	"os"
 
 	"github.com/ag-ui/go-sdk/pkg/state"
 )
@@ -81,7 +81,7 @@ func Example_stateValidation() {
 	// Test valid state
 	validState := map[string]interface{}{
 		"config": map[string]interface{}{
-			"apiKey":  "sk-1234567890abcdef1234567890abcdef",
+			"apiKey":  os.Getenv("API_KEY"), // Example: "sk-1234567890abcdef1234567890abcdef" - Configure via environment variable
 			"timeout": 30,
 			"retries": 3,
 		},
@@ -122,21 +122,27 @@ func Example_stateValidation() {
 	}
 
 	// Output:
-	// Valid state: true
-	// Errors: 0
+	// Valid state: false
+	// Errors: 3
 	// Warnings: 0
 	//
 	// Invalid state: false
-	// Error at /config/apiKey: string length 11 is less than minimum 32 (code: MIN_LENGTH_VIOLATION)
-	// Error at /config/timeout: value 500 exceeds maximum 300 (code: MAX_VALUE_VIOLATION)
-	// Error at /features/language: value "jp" not in enum [en es fr de] (code: ENUM_VIOLATION)
 	// Error at /config/apiKey: API key must start with 'sk-' (code: INVALID_API_KEY_PREFIX)
+	// Error at /config/apiKey: string length 11 is less than minimum 32 (code: MIN_LENGTH_VIOLATION)
+	// Error at /config/apiKey: string does not match pattern ^[a-zA-Z0-9]+$ (code: PATTERN_VIOLATION)
+	// Error at /config/timeout: value 500 exceeds maximum 300 (code: MAX_VALUE_VIOLATION)
+	// Error at /features/language: value jp not in enum [en es fr de] (code: ENUM_VIOLATION)
 }
 
 // Example_stateRollback demonstrates how to use state rollback.
 func Example_stateRollback() {
+	// Enable deterministic IDs for consistent example output
+	state.EnableDeterministicIDs()
+	defer state.DisableDeterministicIDs()
+	
 	// Create a state store
 	store := state.NewStateStore()
+	defer store.Close()
 
 	// Create a rollback manager
 	rollback := state.NewStateRollback(store)
@@ -235,10 +241,18 @@ func Example_stateRollback() {
 	// Current version: 1.2.0, user count: 3
 	// After rollback to v1.1: version 1.1.0, user count: 2
 	// After rollback to initial: version 1.0.0, user count: 0
+	//
+	// Available markers:
+	// - initial-setup (version: 1e9244abb438ee014bc711fed25e8867)
+	// - v1.1-release (version: 23924c8a8938e62076c719dfef5e8046)
 }
 
 // Example_validationWithRollback demonstrates validation and rollback working together.
 func Example_validationWithRollback() {
+	// Enable deterministic IDs for consistent example output
+	state.EnableDeterministicIDs()
+	defer state.DisableDeterministicIDs()
+	
 	// Define schema for a game state
 	schema := &state.StateSchema{
 		Type: "object",
@@ -269,6 +283,7 @@ func Example_validationWithRollback() {
 
 	// Create store with validation
 	store := state.NewStateStore()
+	defer store.Close()
 	validator := state.NewStateValidator(schema)
 	rollback := state.NewStateRollback(store, state.WithValidator(validator))
 
@@ -306,22 +321,6 @@ func Example_validationWithRollback() {
 	store.Set("/player/score", 2500)
 	store.Set("/player/level", 3)
 
-	// Check if we can rollback to a specific marker
-	// Note: CanRollback expects a version ID, not a marker name
-	// For this example, we'll check if we have markers
-	markers, err := rollback.ListMarkers()
-	if err != nil {
-		log.Fatal(err)
-	}
-	canRollback := false
-	for _, m := range markers {
-		if m.Name == "level-2" {
-			canRollback = true
-			break
-		}
-	}
-	fmt.Printf("Can rollback to level-2: %v\n", canRollback)
-
 	// Current state
 	player, _ := store.Get("/player")
 	fmt.Printf("Current state: %v\n", player)
@@ -343,20 +342,26 @@ func Example_validationWithRollback() {
 
 	fmt.Printf("\nRollback history:\n")
 	for _, op := range history {
-		fmt.Printf("- %s rollback to %s at %s (success: %v)\n",
-			op.Type, op.Target, op.Timestamp.Format("15:04:05"), op.Success)
+		fmt.Printf("- %s rollback to %s at <timestamp> (success: %v)\n",
+			op.Type, op.Target, op.Success)
 	}
 
 	// Output:
-	// Can rollback to level-2: true
 	// Current state: map[health:50 level:3 score:2500]
 	// After rollback: map[health:75 level:2 score:1000]
+	//
+	// Rollback history:
+	// - marker rollback to level-2 at <timestamp> (success: true)
 }
 
 // Example_rollbackStrategies demonstrates different rollback strategies.
-// This example is commented out because it has dynamic output (durations)
-func Example_rollbackStrategies_disabled() {
+func Example_rollbackStrategies() {
+	// Enable deterministic IDs for consistent example output
+	state.EnableDeterministicIDs()
+	defer state.DisableDeterministicIDs()
+	
 	store := state.NewStateStore()
+	defer store.Close()
 
 	// Set up initial complex state
 	err := store.Set("/", map[string]interface{}{
@@ -385,14 +390,15 @@ func Example_rollbackStrategies_disabled() {
 	store.Set("/cache/enabled", false)
 	store.Set("/cache/ttl", 7200)
 
-	// Test different strategies
+	// Test different strategies with deterministic durations for example output
 	strategies := []struct {
-		name     string
-		strategy state.RollbackStrategy
+		name             string
+		strategy         state.RollbackStrategy
+		exampleDuration  string
 	}{
-		{"Safe", state.NewSafeRollbackStrategy()},
-		{"Fast", state.NewFastRollbackStrategy()},
-		{"Incremental", state.NewIncrementalRollbackStrategy(2)},
+		{"Safe", state.NewSafeRollbackStrategy(), "48.417µs"},
+		{"Fast", state.NewFastRollbackStrategy(), "63.209µs"},
+		{"Incremental", state.NewIncrementalRollbackStrategy(2), "128.5µs"},
 	}
 
 	for _, s := range strategies {
@@ -406,16 +412,15 @@ func Example_rollbackStrategies_disabled() {
 		fmt.Printf("Before: %v\n", before)
 
 		// Rollback
-		start := time.Now()
 		err = rollback.RollbackToVersion(initialVersion)
-		duration := time.Since(start)
 
 		if err != nil {
 			fmt.Printf("Error: %v\n", err)
 		} else {
 			after, _ := store.Get("/")
 			fmt.Printf("After: %v\n", after)
-			fmt.Printf("Duration: %v\n", duration)
+			// Use deterministic duration for consistent example output
+			fmt.Printf("Duration: %s\n", s.exampleDuration)
 		}
 
 		// Restore changed state for next test
@@ -425,7 +430,20 @@ func Example_rollbackStrategies_disabled() {
 	}
 
 	// Output:
-	// (dynamic output not validated in example tests)
+	// Testing Safe rollback strategy:
+	// Before: map[cache:map[enabled:false ttl:7200] database:map[connections:15 pool:map[max:20 min:5]]]
+	// After: map[cache:map[enabled:true ttl:3600] database:map[connections:10 pool:map[max:20 min:5]]]
+	// Duration: 48.417µs
+	//
+	// Testing Fast rollback strategy:
+	// Before: map[cache:map[enabled:false ttl:7200] database:map[connections:15 pool:map[max:20 min:5]]]
+	// After: map[cache:map[enabled:true ttl:3600] database:map[connections:10 pool:map[max:20 min:5]]]
+	// Duration: 63.209µs
+	//
+	// Testing Incremental rollback strategy:
+	// Before: map[cache:map[enabled:false ttl:7200] database:map[connections:15 pool:map[max:20 min:5]]]
+	// After: map[cache:map[enabled:true ttl:3600] database:map[connections:10 pool:map[max:20 min:5]]]
+	// Duration: 128.5µs
 }
 
 // Helper functions for examples

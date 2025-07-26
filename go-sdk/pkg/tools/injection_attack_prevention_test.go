@@ -1805,7 +1805,7 @@ func TestInjectionAttackPreventionIntegration(t *testing.T) {
 	}{
 		{
 			name:     "File path injection prevention",
-			toolName: "builtin.read_file",
+			toolName: "read_file",
 			params: map[string]interface{}{
 				"path": "../../../etc/passwd",
 			},
@@ -1813,7 +1813,7 @@ func TestInjectionAttackPreventionIntegration(t *testing.T) {
 		},
 		{
 			name:     "HTTP URL injection prevention",
-			toolName: "builtin.http_get",
+			toolName: "http_get",
 			params: map[string]interface{}{
 				"url": "javascript:alert('XSS')",
 			},
@@ -1821,7 +1821,7 @@ func TestInjectionAttackPreventionIntegration(t *testing.T) {
 		},
 		{
 			name:     "Valid file operation",
-			toolName: "builtin.write_file",
+			toolName: "write_file",
 			params: map[string]interface{}{
 				"path":    filepath.Join(tempDir, "safe.txt"),
 				"content": "safe content",
@@ -1830,7 +1830,7 @@ func TestInjectionAttackPreventionIntegration(t *testing.T) {
 		},
 		{
 			name:     "Valid HTTP operation",
-			toolName: "builtin.http_get",
+			toolName: "http_get",
 			params: map[string]interface{}{
 				"url": mockServer.URL + "/api",
 			},

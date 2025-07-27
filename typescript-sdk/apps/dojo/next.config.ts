@@ -16,6 +16,7 @@ const withMDX = createMDX({
 
 const nextConfig: NextConfig = {
   /* config options here */
+  output: "standalone",
   // Configure pageExtensions to include md and mdx
   pageExtensions: ["ts", "tsx", "js", "jsx", "md", "mdx"],
   webpack: (config, { isServer }) => {
@@ -27,6 +28,7 @@ const nextConfig: NextConfig = {
 
     return config;
   },
+  serverExternalPackages: ["@mastra/libsql"],
 };
 
 // Merge MDX config with Next.js config

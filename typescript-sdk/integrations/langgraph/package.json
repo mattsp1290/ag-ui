@@ -1,6 +1,6 @@
 {
   "name": "@ag-ui/langgraph",
-  "version": "0.0.4",
+  "version": "0.0.7",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -10,12 +10,13 @@
     "access": "public"
   },
   "files": [
-    "dist/**"
+    "dist/**",
+    "README.md"
   ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist .turbo node_modules",
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "link:global": "pnpm link --global",

@@ -1,7 +1,7 @@
 {
   "name": "@ag-ui/client",
   "author": "Markus Ecker <markus.ecker@gmail.com>",
-  "version": "0.0.30",
+  "version": "0.0.35",
   "private": false,
   "publishConfig": {
     "access": "public"
@@ -11,12 +11,13 @@
   "types": "./dist/index.d.ts",
   "sideEffects": false,
   "files": [
-    "dist/**"
+    "dist/**",
+    "README.md"
   ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "clean": "rm -rf dist",
+    "clean": "rm -rf dist .turbo node_modules",
     "typecheck": "tsc --noEmit",
     "test": "jest",
     "link:global": "pnpm link --global",

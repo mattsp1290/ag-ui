@@ -1,4 +1,4 @@
-module github.com/ag-ui/go-sdk
+module github.com/mattsp1290/ag-ui/go-sdk
 
 go 1.23.0
 

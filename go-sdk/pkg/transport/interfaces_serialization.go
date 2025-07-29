@@ -1,7 +1,7 @@
 package transport
 
 import (
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // Serializer handles serialization and deserialization of events for transport.

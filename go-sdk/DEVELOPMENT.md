@@ -6,7 +6,7 @@ Welcome to the AG-UI Go SDK development environment! This guide serves as your c
 
 ```bash
 # Clone and setup
-git clone https://github.com/ag-ui/go-sdk.git
+git clone https://github.com/mattsp1290/ag-ui/go-sdk.git
 cd go-sdk
 
 # Install all development tools
@@ -251,7 +251,7 @@ golangci-lint linters
 
 ### Getting Help
 1. Check this guide and linked documentation
-2. Search existing [GitHub Issues](https://github.com/ag-ui/go-sdk/issues)
+2. Search existing [GitHub Issues](https://github.com/mattsp1290/ag-ui/go-sdk/issues)
 3. Create a new issue with:
    - Go version (`go version`)
    - Operating system

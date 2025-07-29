@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"net/url"
 
-	"github.com/ag-ui/go-sdk/pkg/core"
-	agerrors "github.com/ag-ui/go-sdk/pkg/errors"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
+	agerrors "github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 // Client represents a connection to an AG-UI server.

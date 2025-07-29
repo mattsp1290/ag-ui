@@ -241,7 +241,7 @@ const file_types_proto_rawDesc = "" +
 	"\n" +
 	"\b_contentB\a\n" +
 	"\x05_nameB\x0f\n" +
-	"\r_tool_call_idB-Z+github.com/ag-ui/go-sdk/pkg/proto/generatedb\x06proto3"
+	"\r_tool_call_idB-Z+github.com/mattsp1290/ag-ui/go-sdk/pkg/proto/generatedb\x06proto3"
 
 var (
 	file_types_proto_rawDescOnce sync.Once

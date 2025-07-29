@@ -6,9 +6,9 @@ import (
 	"io"
 	"sync"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/ag-ui/go-sdk/pkg/encoding"
-	"github.com/ag-ui/go-sdk/pkg/errors"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 // UnifiedStreamCodec provides a format-agnostic streaming wrapper

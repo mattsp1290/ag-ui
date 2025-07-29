@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // Example_basicUsage demonstrates basic SSE transport usage

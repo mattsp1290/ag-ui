@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core"
-	"github.com/ag-ui/go-sdk/pkg/proto/generated"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/proto/generated"
 )
 
 // TypedEvent interface for core events with type safety

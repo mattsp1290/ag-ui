@@ -16,7 +16,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 
-	"github.com/ag-ui/go-sdk/pkg/core"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
 )
 
 

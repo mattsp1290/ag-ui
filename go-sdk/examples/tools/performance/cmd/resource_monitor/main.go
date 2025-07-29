@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/tools"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools"
 )
 
 // ResourceMonitorTool demonstrates advanced resource monitoring and optimization techniques.

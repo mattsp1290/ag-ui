@@ -9,7 +9,7 @@ import (
 
 	"go.uber.org/zap"
 
-	sdktesting "github.com/ag-ui/go-sdk/pkg/testing"
+	sdktesting "github.com/mattsp1290/ag-ui/go-sdk/pkg/testing"
 )
 
 // TestWebSocketGoroutineCleanup verifies that all goroutines are properly cleaned up

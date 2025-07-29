@@ -7,7 +7,7 @@
 //
 // Example usage:
 //
-//	import "github.com/ag-ui/go-sdk/pkg/state"
+//	import "github.com/mattsp1290/ag-ui/go-sdk/pkg/state"
 //
 //	// Create a state manager
 //	sm := state.NewManager()

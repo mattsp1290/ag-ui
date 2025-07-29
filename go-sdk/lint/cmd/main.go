@@ -7,7 +7,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/ag-ui/go-sdk/lint"
+	"github.com/mattsp1290/ag-ui/go-sdk/lint"
 	"golang.org/x/tools/go/analysis/singlechecker"
 )
 

@@ -16,8 +16,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/ag-ui/go-sdk/pkg/transport"
-	"github.com/ag-ui/go-sdk/pkg/transport/common"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport/common"
 )
 
 // EventValidator defines the interface for event validation

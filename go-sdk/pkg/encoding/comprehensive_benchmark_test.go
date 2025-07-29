@@ -9,10 +9,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/ag-ui/go-sdk/pkg/encoding"
-	"github.com/ag-ui/go-sdk/pkg/encoding/json"
-	"github.com/ag-ui/go-sdk/pkg/encoding/negotiation"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/json"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/negotiation"
 )
 
 // BenchmarkEncodingThroughput benchmarks encoding throughput for different formats

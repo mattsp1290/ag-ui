@@ -11,7 +11,7 @@ import (
 	"github.com/hashicorp/golang-lru/v2"
 	"go.uber.org/zap"
 
-	"github.com/ag-ui/go-sdk/pkg/core"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
 )
 
 // ConnectionPool manages a pool of WebSocket connections with load balancing

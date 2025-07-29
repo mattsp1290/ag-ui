@@ -3,7 +3,7 @@ package tools
 import (
 	"context"
 	"fmt"
-	"github.com/ag-ui/go-sdk/pkg/common"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/common"
 	"golang.org/x/net/idna"
 	"net"
 	"net/url"

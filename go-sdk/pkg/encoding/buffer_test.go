@@ -3,7 +3,7 @@ package encoding
 import (
 	"testing"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // TestOptimalBufferSizing tests the optimal buffer sizing function

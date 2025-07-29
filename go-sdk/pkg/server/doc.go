@@ -10,7 +10,7 @@
 //
 // Example usage:
 //
-//	import "github.com/ag-ui/go-sdk/pkg/server"
+//	import "github.com/mattsp1290/ag-ui/go-sdk/pkg/server"
 //
 //	// Create a new server
 //	s := server.New(server.Config{

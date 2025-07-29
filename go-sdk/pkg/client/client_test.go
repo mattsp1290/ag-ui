@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ag-ui/go-sdk/pkg/client"
-	"github.com/ag-ui/go-sdk/pkg/core"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/client"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
 )
 
 func TestNew(t *testing.T) {

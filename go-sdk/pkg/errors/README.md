@@ -18,7 +18,7 @@ The `errors` package provides comprehensive error handling utilities for the ag-
 ## Quick Start
 
 ```go
-import "github.com/ag-ui/go-sdk/pkg/errors"
+import "github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 
 // Create a validation error
 err := errors.NewValidationError("INVALID_EMAIL", "Email validation failed").

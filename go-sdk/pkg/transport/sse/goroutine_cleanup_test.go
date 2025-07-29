@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	sdktesting "github.com/ag-ui/go-sdk/pkg/testing"
+	sdktesting "github.com/mattsp1290/ag-ui/go-sdk/pkg/testing"
 )
 
 // TestSSEGoroutineCleanup verifies that all goroutines are properly cleaned up

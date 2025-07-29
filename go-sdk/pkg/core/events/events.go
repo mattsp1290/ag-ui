@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/proto/generated"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/proto/generated"
 )
 
 // EventType represents the type of AG-UI event

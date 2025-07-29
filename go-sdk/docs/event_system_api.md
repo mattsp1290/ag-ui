@@ -415,7 +415,7 @@ import (
     "fmt"
     "log"
     
-    "github.com/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 func main() {
@@ -455,7 +455,7 @@ import (
     "log"
     "time"
     
-    "github.com/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 func main() {
@@ -498,7 +498,7 @@ import (
     "fmt"
     "log"
     
-    "github.com/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 func main() {
@@ -536,7 +536,7 @@ import (
     "fmt"
     "log"
     
-    "github.com/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 func main() {
@@ -604,7 +604,7 @@ import (
     "fmt"
     "log"
     
-    "github.com/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 func main() {
@@ -660,7 +660,7 @@ import (
     "log"
     "time"
     
-    "github.com/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 func main() {

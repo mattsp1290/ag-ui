@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	agerrors "github.com/ag-ui/go-sdk/pkg/errors"
+	agerrors "github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 // TestValidateNestingDepthLimit verifies that validateNestingDepth prevents stack overflow attacks

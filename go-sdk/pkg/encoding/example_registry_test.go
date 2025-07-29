@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/ag-ui/go-sdk/pkg/encoding"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding"
 )
 
 func ExampleFormatRegistry() {

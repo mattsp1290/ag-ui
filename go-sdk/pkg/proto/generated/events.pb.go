@@ -1725,7 +1725,7 @@ const file_events_proto_rawDesc = "" +
 	"\fRUN_FINISHED\x10\f\x12\r\n" +
 	"\tRUN_ERROR\x10\r\x12\x10\n" +
 	"\fSTEP_STARTED\x10\x0e\x12\x11\n" +
-	"\rSTEP_FINISHED\x10\x0fB-Z+github.com/ag-ui/go-sdk/pkg/proto/generatedb\x06proto3"
+	"\rSTEP_FINISHED\x10\x0fB-Z+github.com/mattsp1290/ag-ui/go-sdk/pkg/proto/generatedb\x06proto3"
 
 var (
 	file_events_proto_rawDescOnce sync.Once

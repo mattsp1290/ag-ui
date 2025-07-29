@@ -1,7 +1,7 @@
 package json
 
 import (
-	"github.com/ag-ui/go-sdk/pkg/encoding"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding"
 )
 
 // Default codec instances for convenience

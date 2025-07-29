@@ -13,10 +13,10 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/ag-ui/go-sdk/pkg/core"
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/ag-ui/go-sdk/pkg/proto/generated"
-	"github.com/ag-ui/go-sdk/pkg/transport"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/proto/generated"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport"
 )
 
 // Atomic counter for generating unique subscription IDs in improved transport

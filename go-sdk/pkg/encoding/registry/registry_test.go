@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/encoding/registry"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/registry"
 )
 
 func TestCoreRegistryBasicOperations(t *testing.T) {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ag-ui/go-sdk/pkg/core"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
 )
 
 // Server represents an AG-UI server that can host multiple agents.

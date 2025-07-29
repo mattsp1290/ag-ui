@@ -28,7 +28,7 @@
 //
 // # Basic Usage
 //
-//	import "github.com/ag-ui/go-sdk/pkg/encoding"
+//	import "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding"
 //
 //	// Using the global registry
 //	registry := encoding.GetGlobalRegistry()

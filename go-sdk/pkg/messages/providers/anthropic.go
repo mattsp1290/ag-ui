@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ag-ui/go-sdk/pkg/messages"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/messages"
 )
 
 // streamingStatePool provides a pool of reusable streaming states

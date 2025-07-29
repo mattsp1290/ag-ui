@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/ag-ui/go-sdk/pkg/proto/generated"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/proto/generated"
 )
 
 // RunStartedEvent indicates that an agent run has started

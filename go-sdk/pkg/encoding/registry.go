@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/ag-ui/go-sdk/pkg/encoding/registry"
-	"github.com/ag-ui/go-sdk/pkg/errors"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/registry"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 // Legacy type aliases for backward compatibility
@@ -781,9 +781,9 @@ func (r *FormatRegistry) EnsureRegistered(mimeTypes ...string) error {
 			for _, mt := range notSupported {
 				switch mt {
 				case "application/json":
-					errorMsg.WriteString(`import _ "github.com/ag-ui/go-sdk/pkg/encoding/json" `)
+					errorMsg.WriteString(`import _ "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/json" `)
 				case "application/x-protobuf":
-					errorMsg.WriteString(`import _ "github.com/ag-ui/go-sdk/pkg/encoding/protobuf" `)
+					errorMsg.WriteString(`import _ "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/protobuf" `)
 				}
 			}
 		}

@@ -5,8 +5,8 @@ import (
 	"context"
 	"testing"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/ag-ui/go-sdk/pkg/encoding/json"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/json"
 )
 
 func TestJSONIntegration(t *testing.T) {

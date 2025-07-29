@@ -6,7 +6,7 @@ import (
 	"math/rand"
 	"testing"
 
-	"github.com/ag-ui/go-sdk/pkg/messages"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/messages"
 )
 
 const (

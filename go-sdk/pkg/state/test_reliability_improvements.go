@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	testutils "github.com/ag-ui/go-sdk/pkg/testing"
+	testutils "github.com/mattsp1290/ag-ui/go-sdk/pkg/testing"
 )
 
 // ReliableStateManagerTester provides utilities for testing state managers reliably

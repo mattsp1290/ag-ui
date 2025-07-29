@@ -167,7 +167,7 @@ const file_patch_proto_rawDesc = "" +
 	"\aREPLACE\x10\x02\x12\b\n" +
 	"\x04MOVE\x10\x03\x12\b\n" +
 	"\x04COPY\x10\x04\x12\b\n" +
-	"\x04TEST\x10\x05B-Z+github.com/ag-ui/go-sdk/pkg/proto/generatedb\x06proto3"
+	"\x04TEST\x10\x05B-Z+github.com/mattsp1290/ag-ui/go-sdk/pkg/proto/generatedb\x06proto3"
 
 var (
 	file_patch_proto_rawDescOnce sync.Once

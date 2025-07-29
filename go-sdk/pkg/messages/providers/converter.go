@@ -3,7 +3,7 @@ package providers
 import (
 	"fmt"
 
-	"github.com/ag-ui/go-sdk/pkg/messages"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/messages"
 )
 
 // Converter defines the interface for converting messages to/from provider formats

@@ -12,8 +12,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	agerrors "github.com/ag-ui/go-sdk/pkg/errors"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	agerrors "github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 // Recursion depth limits to prevent stack overflow attacks

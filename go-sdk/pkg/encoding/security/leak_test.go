@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 	
-	"github.com/ag-ui/go-sdk/pkg/encoding"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding"
 	"go.uber.org/goleak"
 )
 

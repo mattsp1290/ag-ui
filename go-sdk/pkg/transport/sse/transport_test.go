@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/ag-ui/go-sdk/pkg/transport/common"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport/common"
 )
 
 // TestSSETransport_NewSSETransport tests the creation of SSE transport

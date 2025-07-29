@@ -4,7 +4,7 @@ import (
 	"context"
 	"io"
 	
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // ReadWriter combines io.Reader and io.Writer for raw data transport.

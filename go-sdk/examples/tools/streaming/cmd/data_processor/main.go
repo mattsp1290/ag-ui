@@ -9,7 +9,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/tools"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools"
 )
 
 // DataProcessorExecutor implements real-time data processing with streaming output.

@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	testutils "github.com/ag-ui/go-sdk/pkg/testing"
+	testutils "github.com/mattsp1290/ag-ui/go-sdk/pkg/testing"
 )
 
 // TestConcurrentStateUpdates_RaceCondition tests for race conditions during concurrent state updates

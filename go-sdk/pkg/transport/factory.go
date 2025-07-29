@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 	
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // TransportFactory creates transport instances based on configuration.

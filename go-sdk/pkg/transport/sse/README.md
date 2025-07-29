@@ -24,8 +24,8 @@ import (
     "context"
     "log"
     
-    "github.com/ag-ui/go-sdk/pkg/transport/sse"
-    "github.com/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/transport/sse"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 func main() {
@@ -200,6 +200,6 @@ The transport is optimized for high-throughput scenarios:
 
 ## Dependencies
 
-- `github.com/ag-ui/go-sdk/pkg/core/events` - Event types and validation
-- `github.com/ag-ui/go-sdk/pkg/messages` - Error types
+- `github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events` - Event types and validation
+- `github.com/mattsp1290/ag-ui/go-sdk/pkg/messages` - Error types
 - Standard library packages: `net/http`, `context`, `encoding/json`, etc.

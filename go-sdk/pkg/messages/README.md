@@ -14,7 +14,7 @@ The messages package provides a comprehensive, vendor-neutral message type syste
 ## Installation
 
 ```go
-import "github.com/ag-ui/go-sdk/pkg/messages"
+import "github.com/mattsp1290/ag-ui/go-sdk/pkg/messages"
 ```
 
 ## Quick Start

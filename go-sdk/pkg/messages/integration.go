@@ -3,7 +3,7 @@ package messages
 import (
 	"fmt"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // ToEventMessage converts a Message to the events.Message format

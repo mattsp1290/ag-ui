@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zaptest"
 
-	testutils "github.com/ag-ui/go-sdk/pkg/testing"
+	testutils "github.com/mattsp1290/ag-ui/go-sdk/pkg/testing"
 )
 
 // createSimpleEchoServer creates a simple echo server for testing

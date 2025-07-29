@@ -26,7 +26,7 @@ AG-UI is a lightweight, event-based protocol that standardizes how AI agents con
 
 ```bash
 # Install the SDK
-go get github.com/ag-ui/go-sdk
+go get github.com/mattsp1290/ag-ui/go-sdk
 
 # Install development tools (for contributors)
 make tools-install
@@ -44,7 +44,7 @@ make tools-install
 
 ```bash
 # Clone the repository
-git clone https://github.com/ag-ui/go-sdk.git
+git clone https://github.com/mattsp1290/ag-ui/go-sdk.git
 cd go-sdk
 
 # Install all dependencies and development tools
@@ -69,8 +69,8 @@ import (
     "context"
     "log"
 
-    "github.com/ag-ui/go-sdk/pkg/core"
-    "github.com/ag-ui/go-sdk/pkg/server"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/server"
 )
 
 type EchoAgent struct{}
@@ -109,7 +109,7 @@ import (
     "context"
     "log"
 
-    "github.com/ag-ui/go-sdk/pkg/client"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/client"
 )
 
 func main() {

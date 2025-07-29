@@ -3,8 +3,8 @@ package encoding_test
 import (
 	"testing"
 	
-	"github.com/ag-ui/go-sdk/pkg/encoding/json"
-	"github.com/ag-ui/go-sdk/pkg/encoding/protobuf"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/json"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/protobuf"
 )
 
 // TestJSONRegistration tests the new registration functions for JSON

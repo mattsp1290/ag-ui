@@ -1,7 +1,7 @@
 package encoding
 
 import (
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // Buffer size constants optimized for different event types

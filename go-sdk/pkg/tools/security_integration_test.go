@@ -688,7 +688,7 @@ func testRealWorldScenarios(t *testing.T, env *SecurityTestEnvironment) {
 			description: "Application making API call to trusted service",
 			setup: func() (ToolExecutor, map[string]interface{}) {
 				options := &SecureHTTPOptions{
-					AllowedHosts:           []string{"api.example.com", "cdn.example.com"},
+					AllowedHosts:           []string{"api.example.com", "cdn.example.com", "example.com"},
 					AllowPrivateNetworks:   false,
 					AllowedSchemes:         []string{"https"},
 					MaxRedirects:           5,

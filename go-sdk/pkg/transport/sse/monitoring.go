@@ -1534,18 +1534,19 @@ var (
 )
 
 func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetrics {
+	namespace := config.Metrics.Prometheus.Namespace
+	subsystem := config.Metrics.Prometheus.Subsystem
+	
 	sseMetricsOnce.Do(func() {
-		namespace := config.Metrics.Prometheus.Namespace
-		subsystem := config.Metrics.Prometheus.Subsystem
+		// Create global metrics using default registerer
+		ssePromMetrics = createSSEPrometheusMetrics(namespace, subsystem, prometheus.DefaultRegisterer)
+	})
 
 	// Determine which registry to use
 	registry := config.Metrics.Prometheus.Registry
 	if registry == nil {
-		// Use sync.Once for default registry to prevent duplicate registration
-		metricsOnce.Do(func() {
-			globalMetrics = createSSEPrometheusMetrics(namespace, subsystem, prometheus.DefaultRegisterer)
-		})
-		return globalMetrics
+		// Use global metrics for default registry
+		return ssePromMetrics
 	}
 
 	// For custom registry, always create new metrics

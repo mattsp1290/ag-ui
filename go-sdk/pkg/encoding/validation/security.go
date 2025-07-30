@@ -579,10 +579,10 @@ func (v *SecurityValidator) validateEventContent(event events.Event) error {
 		}
 
 	case *events.RunStartedEvent:
-		if err := v.validateID(typed.RunID, "run"); err != nil {
+		if err := v.validateID(typed.RunID(), "run"); err != nil {
 			return err
 		}
-		if err := v.validateID(typed.ThreadID, "thread"); err != nil {
+		if err := v.validateID(typed.ThreadID(), "thread"); err != nil {
 			return err
 		}
 

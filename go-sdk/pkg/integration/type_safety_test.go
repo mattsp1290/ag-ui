@@ -40,7 +40,7 @@ func TestTypeSafetyAcrossPackages(t *testing.T) {
 						"y": 200,
 					},
 				})
-				return event
+				return event.ToLegacyEvent()
 			},
 			validateFn: func(t *testing.T, original, received events.Event) {
 				assert.Equal(t, events.EventTypeCustom, received.Type())
@@ -62,7 +62,7 @@ func TestTypeSafetyAcrossPackages(t *testing.T) {
 			validateFn: func(t *testing.T, original, received events.Event) {
 				origMsg, ok := original.(*events.TextMessageContentEvent)
 				require.True(t, ok)
-				
+
 				assert.Equal(t, origMsg.Type(), received.Type())
 				assert.Equal(t, origMsg.Delta, "Hello, this is a test message")
 			},
@@ -82,7 +82,7 @@ func TestTypeSafetyAcrossPackages(t *testing.T) {
 			validateFn: func(t *testing.T, original, received events.Event) {
 				origTool, ok := original.(*events.ToolCallArgsEvent)
 				require.True(t, ok)
-				
+
 				assert.Equal(t, origTool.Type(), received.Type())
 				assert.NotEmpty(t, origTool.Delta)
 			},
@@ -114,10 +114,10 @@ func TestTypeSafetyAcrossPackages(t *testing.T) {
 			validateFn: func(t *testing.T, original, received events.Event) {
 				origState, ok := original.(*events.StateSnapshotEvent)
 				require.True(t, ok)
-				
+
 				assert.Equal(t, origState.Type(), received.Type())
 				assert.NotNil(t, origState.Snapshot)
-				
+
 				// Verify nested structure
 				stateData, ok := origState.Snapshot.(map[string]interface{})
 				require.True(t, ok)
@@ -173,7 +173,7 @@ func TestEventInterfaceCompatibility(t *testing.T) {
 		&events.RunStartedEvent{BaseEvent: &events.BaseEvent{EventType: events.EventTypeRunStarted}},
 		&events.RunFinishedEvent{BaseEvent: &events.BaseEvent{EventType: events.EventTypeRunFinished}},
 		&events.RunErrorEvent{BaseEvent: &events.BaseEvent{EventType: events.EventTypeRunError}},
-		events.NewTypedCustomEvent("test", nil),
+		events.NewTypedCustomEvent("test", nil).ToLegacyEvent(),
 	}
 
 	for _, event := range eventTypes {
@@ -181,11 +181,11 @@ func TestEventInterfaceCompatibility(t *testing.T) {
 			// Verify interface methods
 			assert.NotNil(t, event.Type())
 			_ = event.Timestamp() // May be nil
-			
+
 			// Set timestamp
 			event.SetTimestamp(time.Now().UnixMilli())
 			assert.NotNil(t, event.Timestamp())
-			
+
 			// Validate
 			err := event.Validate()
 			// Some events may have validation errors without required fields
@@ -316,8 +316,8 @@ func TestCrossPackageErrorHandling(t *testing.T) {
 	for i := 0; i < 10; i++ {
 		event := events.NewTypedCustomEvent("test.event", map[string]interface{}{
 			"index": i,
-		})
-		
+		}).ToLegacyEvent()
+
 		transportEvent := eventToTransportEvent(event)
 		err := tr.Send(ctx, transportEvent)
 		// Some sends may fail due to backpressure

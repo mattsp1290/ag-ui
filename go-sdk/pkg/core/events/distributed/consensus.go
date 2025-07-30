@@ -192,9 +192,15 @@ func (cm *ConsensusManager) Stop() error {
 		return nil
 	}
 
+	// Signal stop to all background goroutines
 	cm.stopOnce.Do(func() {
 		close(cm.stopChan)
 	})
+	
+	// Give background goroutines time to finish
+	// The runRaft and runPBFT methods check stopChan and should exit cleanly
+	time.Sleep(50 * time.Millisecond)
+	
 	cm.running = false
 	return nil
 }
@@ -663,67 +669,45 @@ func (cm *ConsensusManager) waitForLockRelease(ctx context.Context, lockID strin
 
 // replicateLockAsync replicates a lock to other nodes asynchronously
 func (cm *ConsensusManager) replicateLockAsync(ctx context.Context, lock *DistributedLock) error {
-	// Use buffered channel for async replication
-	replicationChan := make(chan error, 1)
+	// Create timeout context for replication to prevent indefinite blocking
+	replicationCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond) // Shorter timeout for simulation
+	defer cancel()
 	
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				select {
-				case replicationChan <- fmt.Errorf("panic in lock replication: %v", r):
-				default:
-				}
-			}
-		}()
-		
-		// TODO: Implement actual network replication
-		// For now, simulate async replication
-		select {
-		case <-ctx.Done():
-			replicationChan <- ctx.Err()
-		case <-time.After(50 * time.Millisecond): // Simulate network delay
-			replicationChan <- nil
-		}
-	}()
-	
+	// TODO: Implement actual network replication
+	// For now, simulate synchronous replication with proper cancellation
 	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case err := <-replicationChan:
-		return err
+	case <-replicationCtx.Done():
+		return fmt.Errorf("lock replication timeout: %w", replicationCtx.Err())
+	case <-time.After(10 * time.Millisecond): // Simulate network delay
+		// Check context one more time
+		select {
+		case <-replicationCtx.Done():
+			return replicationCtx.Err()
+		default:
+			return nil // Success
+		}
 	}
 }
 
 // replicateLockReleaseAsync replicates a lock release to other nodes asynchronously
 func (cm *ConsensusManager) replicateLockReleaseAsync(ctx context.Context, lockID string) error {
-	// Use buffered channel for async replication
-	replicationChan := make(chan error, 1)
+	// Create timeout context for replication to prevent indefinite blocking
+	releaseCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond) // Shorter timeout for simulation
+	defer cancel()
 	
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				select {
-				case replicationChan <- fmt.Errorf("panic in lock release replication: %v", r):
-				default:
-				}
-			}
-		}()
-		
-		// TODO: Implement actual network replication
-		// For now, simulate async replication
-		select {
-		case <-ctx.Done():
-			replicationChan <- ctx.Err()
-		case <-time.After(50 * time.Millisecond): // Simulate network delay
-			replicationChan <- nil
-		}
-	}()
-	
+	// TODO: Implement actual network replication
+	// For now, simulate synchronous replication with proper cancellation
 	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case err := <-replicationChan:
-		return err
+	case <-releaseCtx.Done():
+		return fmt.Errorf("lock release replication timeout: %w", releaseCtx.Err())
+	case <-time.After(10 * time.Millisecond): // Simulate network delay
+		// Check context one more time
+		select {
+		case <-releaseCtx.Done():
+			return releaseCtx.Err()
+		default:
+			return nil // Success
+		}
 	}
 }
 
@@ -731,8 +715,18 @@ func (cm *ConsensusManager) replicateLockReleaseAsync(ctx context.Context, lockI
 func (cm *ConsensusManager) runRaft(ctx context.Context) {
 	electionTimer := time.NewTimer(cm.randomElectionTimeout())
 	heartbeatTimer := time.NewTicker(cm.config.HeartbeatInterval)
-	defer electionTimer.Stop()
-	defer heartbeatTimer.Stop()
+	
+	// Ensure timers are properly stopped to prevent goroutine leaks
+	defer func() {
+		if !electionTimer.Stop() {
+			// Drain the timer channel if it wasn't stopped
+			select {
+			case <-electionTimer.C:
+			default:
+			}
+		}
+		heartbeatTimer.Stop()
+	}()
 
 	for {
 		select {
@@ -742,15 +736,42 @@ func (cm *ConsensusManager) runRaft(ctx context.Context) {
 			return
 
 		case <-electionTimer.C:
+			// Check if we should still be running before acquiring lock
+			select {
+			case <-ctx.Done():
+				return
+			case <-cm.stopChan:
+				return
+			default:
+			}
+			
 			cm.mutex.Lock()
 			if cm.state != ConsensusStateLeader {
 				// Start election
 				cm.startElection()
 			}
 			cm.mutex.Unlock()
-			electionTimer.Reset(cm.randomElectionTimeout())
+			
+			// Reset timer only if still running
+			select {
+			case <-ctx.Done():
+				return
+			case <-cm.stopChan:
+				return
+			default:
+				electionTimer.Reset(cm.randomElectionTimeout())
+			}
 
 		case <-heartbeatTimer.C:
+			// Check if we should still be running before processing heartbeat
+			select {
+			case <-ctx.Done():
+				return
+			case <-cm.stopChan:
+				return
+			default:
+			}
+			
 			cm.mutex.RLock()
 			isLeader := cm.state == ConsensusStateLeader
 			cm.mutex.RUnlock()
@@ -765,12 +786,22 @@ func (cm *ConsensusManager) runRaft(ctx context.Context) {
 // runPBFT implements the PBFT consensus protocol
 func (cm *ConsensusManager) runPBFT(ctx context.Context) {
 	// TODO: Implement PBFT protocol
-	// For now, this is a placeholder
-	select {
-	case <-ctx.Done():
-		return
-	case <-cm.stopChan:
-		return
+	// For now, this is a placeholder that properly handles cancellation
+	
+	// Create a ticker for PBFT operations to prevent goroutine hanging
+	ticker := time.NewTicker(1 * time.Second)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-cm.stopChan:
+			return
+		case <-ticker.C:
+			// TODO: Implement PBFT consensus operations
+			// For now, just continue the loop to allow proper shutdown
+		}
 	}
 }
 

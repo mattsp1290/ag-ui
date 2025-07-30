@@ -24,6 +24,8 @@ func (m *mockEvent) Validate() error                        { return nil }
 func (m *mockEvent) ToJSON() ([]byte, error)                { return nil, nil }
 func (m *mockEvent) ToProtobuf() (*generated.Event, error)  { return nil, nil }
 func (m *mockEvent) GetBaseEvent() *events.BaseEvent        { return nil }
+func (m *mockEvent) ThreadID() string                       { return "test-thread" }
+func (m *mockEvent) RunID() string                          { return "test-run" }
 
 func TestMemoryManager(t *testing.T) {
 	// Create memory manager with test configuration

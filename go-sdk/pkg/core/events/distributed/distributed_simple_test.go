@@ -12,7 +12,7 @@ import (
 
 // TestSimpleDistributedValidatorCreation tests basic distributed validator creation
 func TestSimpleDistributedValidatorCreation(t *testing.T) {
-	config := DefaultDistributedValidatorConfig("node-1")
+	config := TestingDistributedValidatorConfig("node-1")
 	localValidator := events.NewEventValidator(nil)
 
 	dv, err := NewDistributedValidator(config, localValidator)
@@ -182,7 +182,7 @@ func TestSimplePartitionDetection(t *testing.T) {
 
 // TestSimpleNodeRegistration tests basic node registration
 func TestSimpleNodeRegistration(t *testing.T) {
-	config := DefaultDistributedValidatorConfig("node-1")
+	config := TestingDistributedValidatorConfig("node-1")
 	localValidator := events.NewEventValidator(nil)
 
 	dv, err := NewDistributedValidator(config, localValidator)
@@ -225,7 +225,7 @@ func TestSimpleNodeRegistration(t *testing.T) {
 
 // TestSimpleLocalValidationFallback tests fallback to local validation
 func TestSimpleLocalValidationFallback(t *testing.T) {
-	config := DefaultDistributedValidatorConfig("node-1")
+	config := TestingDistributedValidatorConfig("node-1")
 	config.PartitionHandler.AllowLocalValidation = true
 	config.ValidationTimeout = 1 * time.Second // Set a short timeout
 	config.PartitionHandler.MinNodesForOperation = 1 // Allow operation with 1 node
@@ -317,7 +317,7 @@ func TestSimpleStateSynchronization(t *testing.T) {
 
 // TestSimpleMetricsCollection tests basic metrics collection
 func TestSimpleMetricsCollection(t *testing.T) {
-	config := DefaultDistributedValidatorConfig("node-1")
+	config := TestingDistributedValidatorConfig("node-1")
 	config.EnableMetrics = true
 	localValidator := events.NewEventValidator(nil)
 

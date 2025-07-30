@@ -10,6 +10,16 @@ import (
 	"strings"
 	"sync"
 	"time"
+	
+	"go.uber.org/zap/zapcore"
+)
+
+// LogLevel constants for backwards compatibility
+const (
+	LogLevelDebug = slog.LevelDebug
+	LogLevelInfo  = slog.LevelInfo
+	LogLevelWarn  = slog.LevelWarn
+	LogLevelError = slog.LevelError
 )
 
 // LogValue defines the interface for type-safe log values
@@ -229,6 +239,33 @@ func DefaultLogger() Logger {
 	return NewLogger(nil)
 }
 
+// NewStructuredLogger creates a new structured logger with a monitoring config
+func NewStructuredLogger(config *MonitoringConfig) Logger {
+	if config == nil {
+		return DefaultLogger()
+	}
+
+	// Use the configured output or default to stdout
+	output := config.LogOutput
+	if output == nil {
+		output = os.Stdout
+	}
+
+	// Create handler based on log format
+	var handler slog.Handler
+	opts := &slog.HandlerOptions{
+		Level: convertZapLevelToSlog(config.LogLevel),
+	}
+
+	if config.LogFormat == "json" || config.StructuredLogging {
+		handler = slog.NewJSONHandler(output, opts)
+	} else {
+		handler = slog.NewTextHandler(output, opts)
+	}
+
+	return NewLogger(handler)
+}
+
 // isTestEnvironment checks if we're currently running in a test
 func isTestEnvironment() bool {
 	// Check for common test environment indicators
@@ -255,6 +292,24 @@ func isTestEnvironment() bool {
 	return strings.Contains(os.Args[0], ".test") || 
 		   strings.Contains(os.Args[0], "_test") ||
 		   len(os.Args) > 1 && strings.HasPrefix(os.Args[1], "-test.")
+}
+
+// convertZapLevelToSlog converts a zapcore.Level to slog.Level
+func convertZapLevelToSlog(zapLevel zapcore.Level) slog.Level {
+	switch zapLevel {
+	case zapcore.DebugLevel:
+		return slog.LevelDebug
+	case zapcore.InfoLevel:
+		return slog.LevelInfo
+	case zapcore.WarnLevel:
+		return slog.LevelWarn
+	case zapcore.ErrorLevel:
+		return slog.LevelError
+	case zapcore.DPanicLevel, zapcore.PanicLevel, zapcore.FatalLevel:
+		return slog.LevelError // Map fatal levels to error in slog
+	default:
+		return slog.LevelInfo // Default to info level
+	}
 }
 
 func (l *structuredLogger) Debug(msg string, fields ...Field) {

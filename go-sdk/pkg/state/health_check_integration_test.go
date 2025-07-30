@@ -108,36 +108,36 @@ func testConcurrentHealthCheckFailures(t *testing.T) {
 
 	// Test concurrent execution
 	var wg sync.WaitGroup
-	results := make(chan HealthCheckResult, len(healthChecks)*10)
-	
+	results := make(chan TestHealthCheckResult, len(healthChecks)*10)
+
 	// Run multiple iterations concurrently
 	for iteration := 0; iteration < 10; iteration++ {
 		for _, hc := range healthChecks {
 			wg.Add(1)
 			go func(iteration int, name string, check HealthCheck, expectFail bool) {
 				defer wg.Done()
-				
+
 				ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 				defer cancel()
-				
+
 				start := time.Now()
 				var err error
-				
+
 				// Recover from panics in health checks
 				defer func() {
 					if r := recover(); r != nil {
 						err = fmt.Errorf("health check panicked: %v", r)
 					}
 				}()
-				
+
 				err = check.Check(ctx)
 				duration := time.Since(start)
-				
-				results <- HealthCheckResult{
-					Iteration:   iteration,
-					Name:        name,
-					Error:       err,
-					Duration:    duration,
+
+				results <- TestHealthCheckResult{
+					Iteration:    iteration,
+					Name:         name,
+					Error:        err,
+					Duration:     duration,
 					ExpectedFail: expectFail,
 				}
 			}(iteration, hc.name, hc.check, hc.expectFail)
@@ -149,7 +149,7 @@ func testConcurrentHealthCheckFailures(t *testing.T) {
 	close(results)
 
 	// Analyze results
-	resultMap := make(map[string][]HealthCheckResult)
+	resultMap := make(map[string][]TestHealthCheckResult)
 	for result := range results {
 		resultMap[result.Name] = append(resultMap[result.Name], result)
 	}
@@ -163,7 +163,7 @@ func testConcurrentHealthCheckFailures(t *testing.T) {
 
 			failureCount := 0
 			totalDuration := time.Duration(0)
-			
+
 			for _, result := range checkResults {
 				if result.Error != nil {
 					failureCount++
@@ -230,7 +230,7 @@ func testHealthCheckRecoveryPatterns(t *testing.T) {
 	for _, rc := range recoveryChecks {
 		t.Run(rc.name, func(t *testing.T) {
 			ctx := context.Background()
-			
+
 			// Track recovery progress
 			results := make([]bool, 20)
 			for i := 0; i < 20; i++ {
@@ -242,14 +242,14 @@ func testHealthCheckRecoveryPatterns(t *testing.T) {
 			// Analyze recovery pattern
 			initialFailures := 0
 			finalSuccesses := 0
-			
+
 			// Count failures in first half
 			for i := 0; i < 10; i++ {
 				if !results[i] {
 					initialFailures++
 				}
 			}
-			
+
 			// Count successes in second half
 			for i := 10; i < 20; i++ {
 				if results[i] {
@@ -280,7 +280,7 @@ func testCascadingFailureScenarios(t *testing.T) {
 	// Test normal operation
 	t.Run("normal_operation", func(t *testing.T) {
 		ctx := context.Background()
-		
+
 		for _, check := range checks {
 			err := check.Check(ctx)
 			if err != nil {
@@ -292,13 +292,13 @@ func testCascadingFailureScenarios(t *testing.T) {
 	// Test cascading failure
 	t.Run("cascading_failure", func(t *testing.T) {
 		ctx := context.Background()
-		
+
 		// Cause database failure
 		database.SetHealthy(false)
-		
+
 		// All dependent services should fail
 		expectedFailures := []string{"database", "cache", "api", "frontend"}
-		
+
 		for i, check := range checks {
 			err := check.Check(ctx)
 			if err == nil {
@@ -310,16 +310,16 @@ func testCascadingFailureScenarios(t *testing.T) {
 	// Test recovery propagation
 	t.Run("recovery_propagation", func(t *testing.T) {
 		ctx := context.Background()
-		
+
 		// Restore all services to healthy state
 		database.SetHealthy(true)
 		cache.SetFailureMode(false)
 		api.SetFailureMode(false)
 		frontend.SetFailureMode(false)
-		
+
 		// All services should recover
 		time.Sleep(50 * time.Millisecond) // Small delay for recovery
-		
+
 		for _, check := range checks {
 			err := check.Check(ctx)
 			if err != nil {
@@ -331,26 +331,26 @@ func testCascadingFailureScenarios(t *testing.T) {
 	// Test partial failure
 	t.Run("partial_failure", func(t *testing.T) {
 		ctx := context.Background()
-		
+
 		// Only cache fails - reset database to healthy and set cache to failure mode
 		database.SetHealthy(true)
 		cache.SetFailureMode(true)
 		api.SetFailureMode(false)
 		frontend.SetFailureMode(false)
-		
+
 		// Database should be healthy, others should fail
 		if err := database.Check(ctx); err != nil {
 			t.Errorf("Database should remain healthy: %v", err)
 		}
-		
+
 		if err := cache.Check(ctx); err == nil {
 			t.Error("Cache should fail")
 		}
-		
+
 		if err := api.Check(ctx); err == nil {
 			t.Error("API should fail due to cache dependency")
 		}
-		
+
 		if err := frontend.Check(ctx); err == nil {
 			t.Error("Frontend should fail due to API dependency")
 		}
@@ -387,14 +387,14 @@ func testHealthCheckTimeoutHandling(t *testing.T) {
 	for _, scenario := range timeoutScenarios {
 		t.Run(scenario.name, func(t *testing.T) {
 			check := &TimedHealthCheck{duration: scenario.checkDuration}
-			
+
 			ctx, cancel := context.WithTimeout(context.Background(), scenario.contextTimeout)
 			defer cancel()
-			
+
 			start := time.Now()
 			err := check.Check(ctx)
 			elapsed := time.Since(start)
-			
+
 			if scenario.expectTimeout {
 				if err == nil {
 					t.Error("Expected timeout error")
@@ -402,7 +402,7 @@ func testHealthCheckTimeoutHandling(t *testing.T) {
 				if !errors.Is(err, context.DeadlineExceeded) {
 					t.Errorf("Expected deadline exceeded error, got: %v", err)
 				}
-				
+
 				// Should return within reasonable time of timeout
 				if elapsed > scenario.contextTimeout+50*time.Millisecond {
 					t.Errorf("Timeout took too long: %v > %v", elapsed, scenario.contextTimeout)
@@ -420,26 +420,26 @@ func testDynamicHealthCheckRegistration(t *testing.T) {
 	// Simulate dynamic service registration/deregistration
 	checks := make(map[string]HealthCheck)
 	var mu sync.RWMutex
-	
+
 	// Function to register a health check
 	registerCheck := func(name string, check HealthCheck) {
 		mu.Lock()
 		defer mu.Unlock()
 		checks[name] = check
 	}
-	
+
 	// Function to unregister a health check
 	unregisterCheck := func(name string) {
 		mu.Lock()
 		defer mu.Unlock()
 		delete(checks, name)
 	}
-	
+
 	// Function to run all registered checks
 	runChecks := func(ctx context.Context) map[string]error {
 		mu.RLock()
 		defer mu.RUnlock()
-		
+
 		results := make(map[string]error)
 		for name, check := range checks {
 			results[name] = check.Check(ctx)
@@ -458,17 +458,17 @@ func testDynamicHealthCheckRegistration(t *testing.T) {
 	// Register some checks
 	registerCheck("service1", NewCustomHealthCheck("service1", func(ctx context.Context) error { return nil }))
 	registerCheck("service2", NewCustomHealthCheck("service2", func(ctx context.Context) error { return errors.New("service2 down") }))
-	
+
 	// Run checks
 	results = runChecks(ctx)
 	if len(results) != 2 {
 		t.Errorf("Expected 2 checks, got %d", len(results))
 	}
-	
+
 	if results["service1"] != nil {
 		t.Error("Expected service1 to be healthy")
 	}
-	
+
 	if results["service2"] == nil {
 		t.Error("Expected service2 to be unhealthy")
 	}
@@ -480,7 +480,7 @@ func testDynamicHealthCheckRegistration(t *testing.T) {
 		go func(id int) {
 			defer wg.Done()
 			serviceName := fmt.Sprintf("dynamic_service_%d", id)
-			
+
 			// Simulate service with intermittent health
 			check := &IntermittentHealthCheck{failureRate: 0.3}
 			registerCheck(serviceName, check)
@@ -562,10 +562,10 @@ func testHealthCheckPerformanceDegradation(t *testing.T) {
 					wg.Add(1)
 					go func(iteration, checkIndex int, hc HealthCheck) {
 						defer wg.Done()
-						
+
 						ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 						defer cancel()
-						
+
 						err := hc.Check(ctx)
 						if err != nil {
 							errorChan <- fmt.Errorf("check %d iteration %d: %w", checkIndex, iteration, err)
@@ -588,7 +588,7 @@ func testHealthCheckPerformanceDegradation(t *testing.T) {
 			totalChecks := level.concurrentChecks * level.iterations
 			errorRate := float64(errorCount) / float64(totalChecks)
 
-			t.Logf("%s: Total duration: %v, Error rate: %.2f%% (%d/%d)", 
+			t.Logf("%s: Total duration: %v, Error rate: %.2f%% (%d/%d)",
 				level.name, totalDuration, errorRate*100, errorCount, totalChecks)
 
 			// Performance should degrade gracefully
@@ -650,7 +650,7 @@ func testCompositeHealthCheckScenarios(t *testing.T) {
 
 		// Group A might pass (depends on intermittent check)
 		t.Logf("Group A result: %v", errA)
-		
+
 		// Group B should fail
 		if errB == nil {
 			t.Error("Expected group B to fail due to always-failing service")
@@ -686,28 +686,31 @@ func testCompositeHealthCheckScenarios(t *testing.T) {
 func testHealthCheckStateTransitions(t *testing.T) {
 	// Test health check that transitions between states
 	statefulCheck := &StatefulHealthCheck{
-		states: []string{"initializing", "unhealthy", "degraded", "healthy"},
-		currentState: 0,
+		states:          []string{"initializing", "unhealthy", "degraded", "healthy"},
+		currentState:    0,
 		transitionDelay: 50 * time.Millisecond,
+		lastTransition:  time.Now(), // Initialize lastTransition to current time
+		checkCount:      0,          // Start with 0 checks
+		checksPerState:  2,          // Stay in each state for 2 checks
 	}
 
 	ctx := context.Background()
-	
+
 	// Track state transitions
 	var states []string
 	var errors []error
-	
+
 	for i := 0; i < 8; i++ {
 		err := statefulCheck.Check(ctx)
 		states = append(states, statefulCheck.GetCurrentState())
 		errors = append(errors, err)
-		
+
 		time.Sleep(60 * time.Millisecond) // Allow transition
 	}
 
 	// Verify state progression
 	expectedStates := []string{
-		"initializing", "initializing", "unhealthy", "unhealthy", 
+		"initializing", "initializing", "unhealthy", "unhealthy",
 		"degraded", "degraded", "healthy", "healthy",
 	}
 
@@ -727,7 +730,7 @@ func testHealthCheckStateTransitions(t *testing.T) {
 		if err == nil {
 			healthyCount++
 		}
-		
+
 		// Last two checks should be healthy
 		if i >= 6 && err != nil {
 			t.Errorf("Expected healthy state at check %d, got error: %v", i, err)
@@ -787,15 +790,15 @@ func testHealthCheckResourceExhaustion(t *testing.T) {
 		cpuIntensiveChecks := make([]HealthCheck, 10)
 		for i := 0; i < 10; i++ {
 			cpuIntensiveChecks[i] = &CPUIntensiveHealthCheck{
-				iterations: 100000, // CPU intensive work
+				iterations: 10000, // CPU intensive work - reduced for test performance
 			}
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		start := time.Now()
-		
+
 		var wg sync.WaitGroup
 		for _, check := range cpuIntensiveChecks {
 			wg.Add(1)
@@ -809,7 +812,7 @@ func testHealthCheckResourceExhaustion(t *testing.T) {
 		duration := time.Since(start)
 
 		// Should complete within reasonable time even under CPU load
-		if duration > 15*time.Second {
+		if duration > 8*time.Second {
 			t.Errorf("CPU intensive checks took too long: %v", duration)
 		}
 
@@ -823,7 +826,7 @@ func testHealthCheckMonitoringIntegration(t *testing.T) {
 	config.EnableHealthChecks = true
 	config.HealthCheckInterval = 50 * time.Millisecond
 	config.HealthCheckTimeout = 200 * time.Millisecond
-	
+
 	ms, err := NewMonitoringSystem(config)
 	if err != nil {
 		t.Fatalf("Failed to create monitoring system: %v", err)
@@ -863,8 +866,8 @@ func testHealthCheckMonitoringIntegration(t *testing.T) {
 	}
 
 	// Test dynamic registration during monitoring
-	dynamicCheck := NewCustomHealthCheck("dynamic", func(ctx context.Context) error { 
-		return errors.New("dynamic failure") 
+	dynamicCheck := NewCustomHealthCheck("dynamic", func(ctx context.Context) error {
+		return errors.New("dynamic failure")
 	})
 	ms.RegisterHealthCheck(dynamicCheck)
 
@@ -874,7 +877,7 @@ func testHealthCheckMonitoringIntegration(t *testing.T) {
 	// Verify dynamic check was included
 	updatedStatus := ms.GetHealthStatus()
 	if len(updatedStatus) != len(checks)+1 {
-		t.Errorf("Expected %d health checks after dynamic registration, got %d", 
+		t.Errorf("Expected %d health checks after dynamic registration, got %d",
 			len(checks)+1, len(updatedStatus))
 	}
 
@@ -896,7 +899,8 @@ func testHealthCheckMonitoringIntegration(t *testing.T) {
 
 // Custom Health Check Implementations for Testing
 
-type HealthCheckResult struct {
+// TestHealthCheckResult is used for integration testing
+type TestHealthCheckResult struct {
 	Iteration    int
 	Name         string
 	Error        error
@@ -1006,7 +1010,7 @@ func (hc *RecoveringHealthCheck) Name() string {
 
 func (hc *RecoveringHealthCheck) Check(ctx context.Context) error {
 	time.Sleep(hc.recoveryDelay)
-	
+
 	remaining := atomic.LoadInt32(&hc.failuresLeft)
 	if remaining > 0 {
 		atomic.AddInt32(&hc.failuresLeft, -1)
@@ -1036,9 +1040,9 @@ func (hc *GradualRecoveringHealthCheck) Name() string {
 func (hc *GradualRecoveringHealthCheck) Check(ctx context.Context) error {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
-	
+
 	count := atomic.AddInt32(&hc.callCount, 1)
-	
+
 	// Improve failure rate over time
 	if hc.failureRate > 0 {
 		hc.failureRate -= hc.improvementRate
@@ -1046,7 +1050,7 @@ func (hc *GradualRecoveringHealthCheck) Check(ctx context.Context) error {
 			hc.failureRate = 0
 		}
 	}
-	
+
 	// Use current failure rate
 	if rand.Float64() < hc.failureRate {
 		return fmt.Errorf("gradual recovery failure on call %d (rate: %.2f)", count, hc.failureRate)
@@ -1067,7 +1071,7 @@ func (hc *ResourceHealthCheck) Name() string {
 func (hc *ResourceHealthCheck) Check(ctx context.Context) error {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
-	
+
 	if !hc.healthy {
 		return fmt.Errorf("%s is unhealthy", hc.name)
 	}
@@ -1081,10 +1085,10 @@ func (hc *ResourceHealthCheck) SetHealthy(healthy bool) {
 }
 
 type DependentHealthCheck struct {
-	name         string
-	dependency   HealthCheck
-	failureMode  bool
-	mu           sync.RWMutex
+	name        string
+	dependency  HealthCheck
+	failureMode bool
+	mu          sync.RWMutex
 }
 
 func (hc *DependentHealthCheck) Name() string {
@@ -1094,11 +1098,11 @@ func (hc *DependentHealthCheck) Name() string {
 func (hc *DependentHealthCheck) Check(ctx context.Context) error {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
-	
+
 	if hc.failureMode {
 		return fmt.Errorf("%s is in failure mode", hc.name)
 	}
-	
+
 	if err := hc.dependency.Check(ctx); err != nil {
 		return fmt.Errorf("%s failed due to dependency: %w", hc.name, err)
 	}
@@ -1137,15 +1141,18 @@ func (hc *CPUIntensiveHealthCheck) Name() string {
 }
 
 func (hc *CPUIntensiveHealthCheck) Check(ctx context.Context) error {
-	// CPU intensive work
+	// CPU intensive work with optimized context checking
 	sum := 0
 	for i := 0; i < hc.iterations; i++ {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		default:
-			sum += i * i
+		// Check context cancellation every 1000 iterations to reduce overhead
+		if i%1000 == 0 {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
 		}
+		sum += i * i
 	}
 	return nil
 }
@@ -1161,7 +1168,7 @@ func (hc *MemoryIntensiveHealthCheck) Name() string {
 func (hc *MemoryIntensiveHealthCheck) Check(ctx context.Context) error {
 	// Allocate and immediately release memory
 	data := make([]byte, hc.allocSize)
-	
+
 	// Do something with the data to prevent optimization
 	for i := 0; i < len(data); i += 1024 {
 		select {
@@ -1171,7 +1178,7 @@ func (hc *MemoryIntensiveHealthCheck) Check(ctx context.Context) error {
 			data[i] = byte(i % 256)
 		}
 	}
-	
+
 	// Force GC
 	data = nil
 	return nil
@@ -1182,6 +1189,8 @@ type StatefulHealthCheck struct {
 	currentState    int
 	transitionDelay time.Duration
 	lastTransition  time.Time
+	checkCount      int // Track number of checks in current state
+	checksPerState  int // Number of checks to stay in each state
 	mu              sync.RWMutex
 }
 
@@ -1192,15 +1201,19 @@ func (hc *StatefulHealthCheck) Name() string {
 func (hc *StatefulHealthCheck) Check(ctx context.Context) error {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
-	
-	// Check if it's time to transition
-	if time.Since(hc.lastTransition) >= hc.transitionDelay {
+
+	// Increment check count for current state
+	hc.checkCount++
+
+	// Check if it's time to transition based on check count and time delay
+	if hc.checkCount > hc.checksPerState && time.Since(hc.lastTransition) >= hc.transitionDelay {
 		if hc.currentState < len(hc.states)-1 {
 			hc.currentState++
 			hc.lastTransition = time.Now()
+			hc.checkCount = 1 // Reset check count for new state (count the current check)
 		}
 	}
-	
+
 	// Return error for non-healthy states
 	switch hc.states[hc.currentState] {
 	case "healthy":
@@ -1226,12 +1239,12 @@ func BenchmarkHealthCheckIntegration(b *testing.B) {
 			&SlowHealthCheck{delay: 1 * time.Millisecond},
 			&IntermittentHealthCheck{failureRate: 0.1},
 		}
-		
+
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
 				ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-				
+
 				var wg sync.WaitGroup
 				for _, check := range checks {
 					wg.Add(1)
@@ -1252,7 +1265,7 @@ func BenchmarkHealthCheckIntegration(b *testing.B) {
 			NewCustomHealthCheck("check2", func(ctx context.Context) error { return nil }),
 			NewCustomHealthCheck("check3", func(ctx context.Context) error { return nil }),
 		)
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)

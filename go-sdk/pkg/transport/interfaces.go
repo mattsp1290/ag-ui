@@ -24,6 +24,8 @@ import (
 	"context"
 	"io"
 	"time"
+
+	"github.com/ag-ui/go-sdk/pkg/core/events"
 )
 
 // TransportConnection handles connection operations
@@ -34,7 +36,7 @@ type TransportConnection interface {
 
 	// Close closes the transport and releases any associated resources.
 	// This method should be idempotent and safe to call multiple times.
-	Close() error
+	Close(ctx context.Context) error
 
 	// IsConnected returns true if the transport is currently connected.
 	IsConnected() bool
@@ -64,51 +66,113 @@ type TransportStatistics interface {
 	Stats() TransportStats
 }
 
+// Connector handles connection lifecycle
+type Connector interface {
+	// Connect establishes a connection to the remote endpoint.
+	Connect(ctx context.Context) error
+	
+	// Close closes the connection and releases resources.
+	Close(ctx context.Context) error
+	
+	// IsConnected returns true if currently connected.
+	IsConnected() bool
+}
+
+// Sender handles sending events
+type Sender interface {
+	// Send sends an event to the remote endpoint.
+	Send(ctx context.Context, event TransportEvent) error
+}
+
+// Receiver handles receiving events
+type Receiver interface {
+	// Channels returns event and error channels.
+	Channels() (<-chan events.Event, <-chan error)
+}
+
+// ConfigProvider provides configuration access
+type ConfigProvider interface {
+	// Config returns the transport's configuration.
+	Config() Config
+}
+
+// StatsProvider provides statistics access
+type StatsProvider interface {
+	// Stats returns transport statistics and metrics.
+	Stats() TransportStats
+}
+
+// BatchSender handles batch operations
+type BatchSender interface {
+	// SendBatch sends multiple events in a single batch operation.
+	SendBatch(ctx context.Context, events []TransportEvent) error
+}
+
+// EventHandlerProvider allows setting event handlers
+type EventHandlerProvider interface {
+	// SetEventHandler sets a callback function to handle received events.
+	SetEventHandler(handler EventHandler)
+}
+
+// StreamController controls streaming operations
+type StreamController interface {
+	// StartStreaming begins streaming events in both directions.
+	StartStreaming(ctx context.Context) (send chan<- TransportEvent, receive <-chan events.Event, errors <-chan error, err error)
+}
+
+// StreamingStatsProvider provides streaming-specific statistics
+type StreamingStatsProvider interface {
+	// GetStreamingStats returns streaming-specific statistics.
+	GetStreamingStats() StreamingStats
+}
+
+// ReliableSender handles reliable event delivery
+type ReliableSender interface {
+	// SendEventWithAck sends an event and waits for acknowledgment.
+	SendEventWithAck(ctx context.Context, event TransportEvent, timeout time.Duration) error
+}
+
+// AckHandlerProvider allows setting acknowledgment handlers
+type AckHandlerProvider interface {
+	// SetAckHandler sets a callback for handling acknowledgments.
+	SetAckHandler(handler AckHandler)
+}
+
+// ReliabilityStatsProvider provides reliability statistics
+type ReliabilityStatsProvider interface {
+	// GetReliabilityStats returns reliability-specific statistics.
+	GetReliabilityStats() ReliabilityStats
+}
+
 // Transport represents the core transport interface for bidirectional communication
 // with agents and front-end applications in the AG-UI system.
 // Composed of focused interfaces following Interface Segregation Principle
 type Transport interface {
-	TransportConnection
-	TransportEventHandler
-	TransportConfiguration
-	TransportStatistics
+	// Core transport functionality
+	Connector
+	Sender 
+	Receiver
+	ConfigProvider
+	StatsProvider
 }
 
 // StreamingTransport extends Transport with streaming-specific capabilities
 // for real-time bidirectional communication.
 type StreamingTransport interface {
 	Transport
-
-	// StartStreaming begins streaming events in both directions.
-	// Returns channels for sending and receiving events, along with an error channel.
-	StartStreaming(ctx context.Context) (send chan<- any, receive <-chan any, errors <-chan error, err error)
-
-	// SendBatch sends multiple events in a single batch operation.
-	// This can be more efficient than sending events individually.
-	SendBatch(ctx context.Context, events []any) error
-
-	// SetEventHandler sets a callback function to handle received events.
-	// This provides an alternative to using the receive channel from StartStreaming.
-	SetEventHandler(handler EventHandler)
-
-	// GetStreamingStats returns streaming-specific statistics.
-	GetStreamingStats() StreamingStats
+	BatchSender
+	EventHandlerProvider
+	StreamController
+	StreamingStatsProvider
 }
 
 // ReliableTransport extends Transport with reliability features like
 // acknowledgments, retries, and ordered delivery.
 type ReliableTransport interface {
 	Transport
-
-	// SendEventWithAck sends an event and waits for acknowledgment.
-	// Returns an error if the event is not acknowledged within the timeout.
-	SendEventWithAck(ctx context.Context, event any, timeout time.Duration) error
-
-	// SetAckHandler sets a callback for handling acknowledgments.
-	SetAckHandler(handler AckHandler)
-
-	// GetReliabilityStats returns reliability-specific statistics.
-	GetReliabilityStats() ReliabilityStats
+	ReliableSender
+	AckHandlerProvider
+	ReliabilityStatsProvider
 }
 
 // EventHandler is a callback function for handling received events.
@@ -253,16 +317,22 @@ func (s ConnectionState) String() string {
 // ConnectionCallback is called when the connection state changes.
 type ConnectionCallback func(state ConnectionState, err error)
 
+// ConnectionHandler is called when the connection state changes.
+type ConnectionHandler func(state ConnectionState, err error)
+
 // Middleware represents transport middleware for intercepting and modifying events.
 type Middleware interface {
 	// ProcessOutgoing processes outgoing events before they are sent.
-	ProcessOutgoing(ctx context.Context, event any) (any, error)
+	ProcessOutgoing(ctx context.Context, event TransportEvent) (TransportEvent, error)
 
 	// ProcessIncoming processes incoming events before they are delivered.
-	ProcessIncoming(ctx context.Context, event any) (any, error)
+	ProcessIncoming(ctx context.Context, event events.Event) (events.Event, error)
 
 	// Name returns the middleware name for logging and debugging.
 	Name() string
+	
+	// Wrap wraps a transport with this middleware.
+	Wrap(transport Transport) Transport
 }
 
 // MiddlewareChain represents a chain of middleware processors.
@@ -271,10 +341,10 @@ type MiddlewareChain interface {
 	Add(middleware Middleware)
 
 	// ProcessOutgoing processes an outgoing event through the middleware chain.
-	ProcessOutgoing(ctx context.Context, event any) (any, error)
+	ProcessOutgoing(ctx context.Context, event TransportEvent) (TransportEvent, error)
 
 	// ProcessIncoming processes an incoming event through the middleware chain.
-	ProcessIncoming(ctx context.Context, event any) (any, error)
+	ProcessIncoming(ctx context.Context, event events.Event) (events.Event, error)
 
 	// Clear removes all middleware from the chain.
 	Clear()
@@ -337,7 +407,7 @@ type TransportStatsProvider interface {
 // TransportLifecycle manages transport lifecycle
 type TransportLifecycle interface {
 	// Close closes all managed transports.
-	Close() error
+	Close(ctx context.Context) error
 }
 
 // TransportManager manages multiple transport instances and provides
@@ -546,8 +616,24 @@ const (
 	EventTypeStatsUpdated TransportEventType = "stats_updated"
 )
 
-// TransportEvent represents a transport-related event.
-type TransportEvent struct {
+// TransportEvent represents a transport event interface.
+// This interface is implemented by various event types for compatibility.
+type TransportEvent interface {
+	// ID returns the unique identifier for this event
+	ID() string
+	
+	// Type returns the event type
+	Type() string
+	
+	// Timestamp returns when the event was created
+	Timestamp() time.Time
+	
+	// Data returns the event data as a map for backward compatibility
+	Data() map[string]interface{}
+}
+
+// TransportEventStruct represents a transport-related event implementation.
+type TransportEventStruct struct {
 	Type      TransportEventType `json:"type"`
 	Timestamp time.Time          `json:"timestamp"`
 	Transport string             `json:"transport"`
@@ -556,8 +642,8 @@ type TransportEvent struct {
 }
 
 // NewTransportEvent creates a new transport event.
-func NewTransportEvent(eventType TransportEventType, transport string, data any) *TransportEvent {
-	return &TransportEvent{
+func NewTransportEvent(eventType TransportEventType, transport string, data any) *TransportEventStruct {
+	return &TransportEventStruct{
 		Type:      eventType,
 		Timestamp: time.Now(),
 		Transport: transport,
@@ -566,13 +652,81 @@ func NewTransportEvent(eventType TransportEventType, transport string, data any)
 }
 
 // NewTransportErrorEvent creates a new transport error event.
-func NewTransportErrorEvent(transport string, err error) *TransportEvent {
-	return &TransportEvent{
+func NewTransportErrorEvent(transport string, err error) *TransportEventStruct {
+	return &TransportEventStruct{
 		Type:      EventTypeError,
 		Timestamp: time.Now(),
 		Transport: transport,
 		Error:     err,
 	}
+}
+
+// TransportEventImpl represents a transport-related event implementation.
+type TransportEventImpl struct {
+	Type      TransportEventType `json:"type"`
+	Timestamp time.Time          `json:"timestamp"`
+	Transport string             `json:"transport"`
+	Data      any                `json:"data,omitempty"`
+	Error     error              `json:"error,omitempty"`
+}
+
+// NewTransportEventImpl creates a new transport event implementation.
+func NewTransportEventImpl(eventType TransportEventType, transport string, data any) *TransportEventImpl {
+	return &TransportEventImpl{
+		Type:      eventType,
+		Timestamp: time.Now(),
+		Transport: transport,
+		Data:      data,
+	}
+}
+
+// NewTransportErrorEventImpl creates a new transport error event implementation.
+func NewTransportErrorEventImpl(transport string, err error) *TransportEventImpl {
+	return &TransportEventImpl{
+		Type:      EventTypeError,
+		Timestamp: time.Now(),
+		Transport: transport,
+		Error:     err,
+	}
+}
+
+// EventRouter routes events to appropriate transports
+type EventRouter interface {
+	// SendEvent sends an event using the best available transport.
+	SendEvent(ctx context.Context, event any) error
+
+	// SendEventToTransport sends an event to a specific transport.
+	SendEventToTransport(ctx context.Context, transportName string, event any) error
+}
+
+// EventAggregator aggregates events from multiple sources
+type EventAggregator interface {
+	// ReceiveEvents returns a channel that receives events from all transports.
+	ReceiveEvents(ctx context.Context) (<-chan any, error)
+}
+
+// LoadBalancerSetter allows setting load balancing strategy
+type LoadBalancerSetter interface {
+	// SetLoadBalancer sets the load balancing strategy.
+	SetLoadBalancer(balancer LoadBalancer)
+}
+
+// ManagerStatsProvider provides aggregated statistics
+type ManagerStatsProvider interface {
+	// GetStats returns aggregated statistics from all transports.
+	GetStats() map[string]TransportStats
+}
+
+// TransportMultiManager manages multiple transport instances
+type TransportMultiManager interface {
+	TransportRegistryInterface
+	EventRouter
+	EventAggregator
+	LoadBalancerSetter
+	ManagerStatsProvider
+	
+	// Close closes all managed transports.
+	Close(ctx context.Context) error
 }
 
 // Backward Compatibility Notes:

@@ -3,7 +3,6 @@ package tools_test
 import (
 	"context"
 	"fmt"
-	"log"
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/tools"
@@ -82,7 +81,8 @@ func Example() {
 
 	// Register the tool
 	if err := registry.Register(weatherTool); err != nil {
-		log.Fatal(err)
+		fmt.Printf("Error registering tool: %v\n", err)
+		return
 	}
 
 	// Create execution engine
@@ -96,7 +96,8 @@ func Example() {
 
 	result, err := engine.Execute(context.Background(), "example.weather", paramsToMap(weatherParams))
 	if err != nil {
-		log.Fatal(err)
+		fmt.Printf("Error executing tool: %v\n", err)
+		return
 	}
 
 	if result.Success {
@@ -139,7 +140,8 @@ func ExampleTool_streaming() {
 	}
 
 	if err := registry.Register(streamingTool); err != nil {
-		log.Fatal(err)
+		fmt.Printf("Error registering streaming tool: %v\n", err)
+		return
 	}
 
 	// Create execution engine
@@ -152,7 +154,8 @@ func ExampleTool_streaming() {
 
 	stream, err := engine.ExecuteStream(context.Background(), "example.counter", paramsToMap(counterParams))
 	if err != nil {
-		log.Fatal(err)
+		fmt.Printf("Error executing streaming tool: %v\n", err)
+		return
 	}
 
 	// Process stream
@@ -209,7 +212,8 @@ func ExampleProviderConverter() {
 	converter := tools.NewProviderConverter()
 	openAITool, err := converter.ConvertToOpenAITool(tool)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Printf("Error converting to OpenAI tool: %v\n", err)
+		return
 	}
 
 	fmt.Printf("OpenAI Tool Name: %s\n", openAITool.Function.Name)
@@ -218,7 +222,8 @@ func ExampleProviderConverter() {
 	// Convert to Anthropic format
 	anthropicTool, err := converter.ConvertToAnthropicTool(tool)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Printf("Error converting to Anthropic tool: %v\n", err)
+		return
 	}
 
 	fmt.Printf("Anthropic Tool Name: %s\n", anthropicTool.Name)
@@ -235,13 +240,15 @@ func ExampleRegistry() {
 
 	// Register built-in tools
 	if err := tools.RegisterBuiltinTools(registry); err != nil {
-		log.Fatal(err)
+		fmt.Printf("Error registering builtin tools: %v\n", err)
+		return
 	}
 
 	// List all tools
 	allTools, err := registry.ListAll()
 	if err != nil {
-		log.Fatal(err)
+		fmt.Printf("Error listing all tools: %v\n", err)
+		return
 	}
 
 	fmt.Printf("Total tools: %d\n", len(allTools))
@@ -255,7 +262,8 @@ func ExampleRegistry() {
 
 	cacheableTools, err := registry.List(filter)
 	if err != nil {
-		log.Fatal(err)
+		fmt.Printf("Error listing cacheable tools: %v\n", err)
+		return
 	}
 
 	fmt.Printf("Cacheable tools: %d\n", len(cacheableTools))
@@ -263,7 +271,8 @@ func ExampleRegistry() {
 	// Get specific tool
 	jsonTool, err := registry.GetByName("json_parse")
 	if err != nil {
-		log.Fatal(err)
+		fmt.Printf("Error getting json_parse tool: %v\n", err)
+		return
 	}
 
 	fmt.Printf("Found tool: %s\n", jsonTool.Description)

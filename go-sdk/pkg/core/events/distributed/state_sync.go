@@ -163,6 +163,9 @@ type StateSynchronizer struct {
 	stopChan     chan struct{}
 	stopOnce     sync.Once
 	
+	// Direct goroutine tracking for fallback workers
+	directGoroutines sync.WaitGroup
+	
 	// Worker management
 	workerManager *worker.WorkerManager
 	logger        *zap.Logger
@@ -180,10 +183,11 @@ func NewStateSynchronizer(config *StateSyncConfig, nodeID NodeID) (*StateSynchro
 		return nil, fmt.Errorf("failed to create logger: %w", err)
 	}
 
-	// Create worker manager
+	// Create worker manager with sufficient worker count for concurrent operations
+	// Use unique configuration per instance to avoid interference
 	workerConfig := &worker.WorkerConfig{
-		MaxWorkers:      10,
-		ShutdownTimeout: 30 * time.Second,
+		MaxWorkers:      20, // Sufficient workers for multiple concurrent components
+		ShutdownTimeout: 2 * time.Second, // Shorter timeout for faster test completion
 		Logger:          logger,
 		PanicHandler:    worker.NewDefaultPanicHandler(logger),
 	}
@@ -236,18 +240,24 @@ func (ss *StateSynchronizer) Start(ctx context.Context) error {
 		return fmt.Errorf("state synchronizer already running")
 	}
 
+	ss.logger.Info("Starting StateSynchronizer", 
+		zap.String("node_id", string(ss.nodeID)),
+		zap.String("protocol", string(ss.config.Protocol)))
+
 	// Start sync routine based on protocol
 	if err := ss.startSyncProtocol(ctx); err != nil {
+		ss.logger.Error("Failed to start sync protocol", zap.Error(err))
 		return err
 	}
 
 	// Start common background routines
 	ss.startBackgroundRoutines(ctx)
 
-	// Start distributed cache
+	// Start distributed cache with context
 	ss.distributedCache.Start(ctx)
 
 	ss.running = true
+	ss.logger.Info("StateSynchronizer started successfully")
 	return nil
 }
 
@@ -270,64 +280,136 @@ func (ss *StateSynchronizer) startSyncProtocol(ctx context.Context) error {
 
 // startGossipSync starts gossip sync routine
 func (ss *StateSynchronizer) startGossipSync(ctx context.Context) {
-	_, err := ss.workerManager.StartBackgroundWorker("gossip-sync", func(ctx context.Context) error {
+	// Use StartOneOffWorker instead of BackgroundWorker to reduce worker pool pressure
+	_, err := ss.workerManager.StartOneOffWorker("gossip-sync", func(ctx context.Context) error {
 		ss.runGossipSync(ctx)
 		return nil
 	})
 	if err != nil {
-		ss.logger.Error("Failed to start gossip sync worker", zap.Error(err))
+		ss.logger.Warn("Failed to start gossip sync worker, will try direct execution", zap.Error(err))
+		// Fall back to direct execution if worker pool is exhausted
+		ss.directGoroutines.Add(1)
+		go func() {
+			defer func() {
+				ss.directGoroutines.Done()
+				if r := recover(); r != nil {
+					ss.logger.Error("Panic in direct gossip sync", zap.Any("panic", r))
+				}
+			}()
+			ss.runGossipSync(ctx)
+		}()
 	}
 }
 
 // startMerkleSync starts merkle sync routine
 func (ss *StateSynchronizer) startMerkleSync(ctx context.Context) {
-	_, err := ss.workerManager.StartBackgroundWorker("merkle-sync", func(ctx context.Context) error {
+	// Use StartOneOffWorker instead of BackgroundWorker to reduce worker pool pressure
+	_, err := ss.workerManager.StartOneOffWorker("merkle-sync", func(ctx context.Context) error {
 		ss.runMerkleSync(ctx)
 		return nil
 	})
 	if err != nil {
-		ss.logger.Error("Failed to start merkle sync worker", zap.Error(err))
+		ss.logger.Warn("Failed to start merkle sync worker, will try direct execution", zap.Error(err))
+		// Fall back to direct execution if worker pool is exhausted
+		ss.directGoroutines.Add(1)
+		go func() {
+			defer func() {
+				ss.directGoroutines.Done()
+				if r := recover(); r != nil {
+					ss.logger.Error("Panic in direct merkle sync", zap.Any("panic", r))
+				}
+			}()
+			ss.runMerkleSync(ctx)
+		}()
 	}
 }
 
 // startCRDTSync starts CRDT sync routine
 func (ss *StateSynchronizer) startCRDTSync(ctx context.Context) {
-	_, err := ss.workerManager.StartBackgroundWorker("crdt-sync", func(ctx context.Context) error {
+	// Use StartOneOffWorker instead of BackgroundWorker to reduce worker pool pressure
+	_, err := ss.workerManager.StartOneOffWorker("crdt-sync", func(ctx context.Context) error {
 		ss.runCRDTSync(ctx)
 		return nil
 	})
 	if err != nil {
-		ss.logger.Error("Failed to start CRDT sync worker", zap.Error(err))
+		ss.logger.Warn("Failed to start CRDT sync worker, will try direct execution", zap.Error(err))
+		// Fall back to direct execution if worker pool is exhausted
+		ss.directGoroutines.Add(1)
+		go func() {
+			defer func() {
+				ss.directGoroutines.Done()
+				if r := recover(); r != nil {
+					ss.logger.Error("Panic in direct CRDT sync", zap.Any("panic", r))
+				}
+			}()
+			ss.runCRDTSync(ctx)
+		}()
 	}
 }
 
 // startSnapshotSync starts snapshot sync routine
 func (ss *StateSynchronizer) startSnapshotSync(ctx context.Context) {
-	_, err := ss.workerManager.StartBackgroundWorker("snapshot-sync", func(ctx context.Context) error {
+	// Use StartOneOffWorker instead of BackgroundWorker to reduce worker pool pressure
+	_, err := ss.workerManager.StartOneOffWorker("snapshot-sync", func(ctx context.Context) error {
 		ss.runSnapshotSync(ctx)
 		return nil
 	})
 	if err != nil {
-		ss.logger.Error("Failed to start snapshot sync worker", zap.Error(err))
+		ss.logger.Warn("Failed to start snapshot sync worker, will try direct execution", zap.Error(err))
+		// Fall back to direct execution if worker pool is exhausted
+		ss.directGoroutines.Add(1)
+		go func() {
+			defer func() {
+				ss.directGoroutines.Done()
+				if r := recover(); r != nil {
+					ss.logger.Error("Panic in direct snapshot sync", zap.Any("panic", r))
+				}
+			}()
+			ss.runSnapshotSync(ctx)
+		}()
 	}
 }
 
 // startBackgroundRoutines starts common background routines
 func (ss *StateSynchronizer) startBackgroundRoutines(ctx context.Context) {
-	_, err := ss.workerManager.StartBackgroundWorker("queue-processor", func(ctx context.Context) error {
+	// Use StartOneOffWorker instead of BackgroundWorker to reduce worker pool pressure
+	_, err := ss.workerManager.StartOneOffWorker("queue-processor", func(ctx context.Context) error {
 		ss.processSyncQueue(ctx)
 		return nil
 	})
 	if err != nil {
-		ss.logger.Error("Failed to start queue processor worker", zap.Error(err))
+		ss.logger.Warn("Failed to start queue processor worker, will try direct execution", zap.Error(err))
+		// Fall back to direct execution if worker pool is exhausted
+		ss.directGoroutines.Add(1)
+		go func() {
+			defer func() {
+				ss.directGoroutines.Done()
+				if r := recover(); r != nil {
+					ss.logger.Error("Panic in direct queue processor", zap.Any("panic", r))
+				}
+			}()
+			ss.processSyncQueue(ctx)
+		}()
 	}
 	
-	_, err = ss.workerManager.StartBackgroundWorker("cleanup-routine", func(ctx context.Context) error {
+	// Use StartOneOffWorker instead of BackgroundWorker to reduce worker pool pressure
+	_, err = ss.workerManager.StartOneOffWorker("cleanup-routine", func(ctx context.Context) error {
 		ss.cleanupRoutine(ctx)
 		return nil
 	})
 	if err != nil {
-		ss.logger.Error("Failed to start cleanup routine worker", zap.Error(err))
+		ss.logger.Warn("Failed to start cleanup routine worker, will try direct execution", zap.Error(err))
+		// Fall back to direct execution if worker pool is exhausted
+		ss.directGoroutines.Add(1)
+		go func() {
+			defer func() {
+				ss.directGoroutines.Done()
+				if r := recover(); r != nil {
+					ss.logger.Error("Panic in direct cleanup routine", zap.Any("panic", r))
+				}
+			}()
+			ss.cleanupRoutine(ctx)
+		}()
 	}
 }
 
@@ -340,20 +422,85 @@ func (ss *StateSynchronizer) Stop() error {
 		return nil
 	}
 
+	ss.logger.Info("Stopping StateSynchronizer", 
+		zap.String("node_id", string(ss.nodeID)))
+
+	// Signal stop to all goroutines first to prevent new operations
 	ss.stopOnce.Do(func() {
 		close(ss.stopChan)
 	})
 	
-	// Stop worker manager
-	if err := ss.workerManager.Stop(); err != nil {
-		ss.logger.Error("Failed to stop worker manager", zap.Error(err))
+	// Stop distributed cache first to prevent new writes
+	if ss.distributedCache != nil {
+		ss.logger.Debug("Stopping distributed cache")
+		ss.distributedCache.Stop()
 	}
 	
-	// Stop distributed cache
-	ss.distributedCache.Stop()
+	// Stop worker manager with timeout and ensure proper cleanup
+	ss.logger.Debug("Stopping worker manager")
+	workerStopErr := ss.workerManager.Stop()
+	
+	// Wait for worker manager to be fully stopped with a more aggressive approach
+	workerStopDeadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(workerStopDeadline) {
+		if !ss.workerManager.IsRunning() {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	
+	// Force check worker metrics and ensure all are stopped
+	metrics := ss.workerManager.GetMetrics()
+	if metrics.WorkersActive > 0 {
+		ss.logger.Warn("Force-stopping remaining active workers", 
+			zap.Int64("active_workers", metrics.WorkersActive))
+		// Give additional time for force cleanup
+		time.Sleep(100 * time.Millisecond)
+		// Check metrics again
+		metrics = ss.workerManager.GetMetrics()
+	}
+	
+	// Wait for direct goroutines to finish with timeout and proper cleanup
+	ss.logger.Debug("Waiting for direct goroutines to finish")
+	directGoroutineDone := make(chan struct{})
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				ss.logger.Error("Panic while waiting for direct goroutines", zap.Any("panic", r))
+			}
+			close(directGoroutineDone)
+		}()
+		ss.directGoroutines.Wait()
+	}()
+	
+	select {
+	case <-directGoroutineDone:
+		ss.logger.Debug("All direct goroutines finished")
+	case <-time.After(2 * time.Second):
+		ss.logger.Warn("Some direct goroutines may still be running after timeout")
+	}
+	
+	// Final verification and cleanup
+	finalMetrics := ss.workerManager.GetMetrics()
+	if finalMetrics.WorkersActive > 0 {
+		ss.logger.Error("Workers still active after shutdown - this indicates a goroutine leak", 
+			zap.Int64("active_workers", finalMetrics.WorkersActive))
+	} else {
+		ss.logger.Debug("All workers stopped successfully")
+	}
+	
+	// Shorter final grace period
+	time.Sleep(25 * time.Millisecond)
 	
 	ss.running = false
-	return nil
+	ss.logger.Info("StateSynchronizer stopped", 
+		zap.Int64("workers_created", finalMetrics.WorkersCreated),
+		zap.Int64("workers_completed", finalMetrics.WorkersCompleted),
+		zap.Int64("workers_failed", finalMetrics.WorkersFailed),
+		zap.Int64("final_active_workers", finalMetrics.WorkersActive))
+		
+	// Return worker stop error if there was one
+	return workerStopErr
 }
 
 // SyncState synchronizes state with other nodes asynchronously
@@ -370,23 +517,60 @@ func (ss *StateSynchronizer) SyncState(ctx context.Context) error {
 
 	// Create buffered channel for sync results
 	results := make(chan syncResult, len(nodes))
+	var syncWG sync.WaitGroup
 	
-	// Launch async sync operations for each node
+	// Launch async sync operations for each node with wait group tracking
 	for _, nodeID := range nodes {
+		syncWG.Add(1)
 		go func(nID NodeID) {
 			defer func() {
+				syncWG.Done()
 				if r := recover(); r != nil {
 					ss.logger.Error("Panic in async sync operation", 
 						zap.String("node_id", string(nID)), 
 						zap.Any("panic", r))
-					results <- syncResult{nodeID: nID, err: fmt.Errorf("sync panic: %v", r)}
+					// Send panic result to prevent deadlock
+					select {
+					case results <- syncResult{nodeID: nID, err: fmt.Errorf("sync panic: %v", r)}:
+					case <-syncCtx.Done():
+						// Context cancelled, don't block
+					}
 				}
 			}()
 			
 			err := ss.syncWithNode(syncCtx, nID)
-			results <- syncResult{nodeID: nID, err: err}
+			
+			// Send result with timeout protection
+			select {
+			case results <- syncResult{nodeID: nID, err: err}:
+			case <-syncCtx.Done():
+				// Context cancelled, stop
+				return
+			case <-time.After(2 * time.Second):
+				// Timeout sending result, log and continue
+				ss.logger.Warn("Timeout sending sync result", zap.String("node_id", string(nID)))
+				return
+			}
 		}(nodeID)
 	}
+
+	// Ensure goroutines are cleaned up properly
+	defer func() {
+		// Wait for all sync operations to complete or timeout
+		done := make(chan struct{})
+		go func() {
+			syncWG.Wait()
+			close(done)
+		}()
+		
+		select {
+		case <-done:
+			// All goroutines finished
+		case <-time.After(5 * time.Second):
+			// Timeout waiting for goroutines, they will be abandoned
+			ss.logger.Warn("Timeout waiting for sync goroutines to finish")
+		}
+	}()
 
 	// Collect results with timeout
 	var syncErrors []error
@@ -396,7 +580,10 @@ func (ss *StateSynchronizer) SyncState(ctx context.Context) error {
 		select {
 		case <-syncCtx.Done():
 			return fmt.Errorf("state sync timeout after %d/%d nodes completed", completedCount, len(nodes))
-		case result := <-results:
+		case result, ok := <-results:
+			if !ok {
+				return fmt.Errorf("results channel closed unexpectedly")
+			}
 			completedCount++
 			if result.err != nil {
 				syncErrors = append(syncErrors, fmt.Errorf("node %s: %w", result.nodeID, result.err))
@@ -471,14 +658,15 @@ func (ss *StateSynchronizer) SetState(key string, value interface{}) error {
 
 	// Trigger sync if using gossip protocol
 	if ss.config.Protocol == SyncProtocolGossip {
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					fmt.Printf("Panic in state sync gossip update: %v\n", r)
-				}
-			}()
+		// Use worker manager to handle gossip updates to prevent goroutine leaks
+		_, err := ss.workerManager.StartOneOffWorker("gossip-update", func(ctx context.Context) error {
 			ss.gossipUpdate(stateVersion)
-		}()
+			return nil
+		})
+		if err != nil {
+			ss.logger.Warn("Failed to start gossip update worker, will skip gossip", zap.Error(err))
+			// Don't fall back to direct execution for gossip updates to avoid overwhelming the system
+		}
 	}
 
 	return nil
@@ -558,7 +746,18 @@ func (ss *StateSynchronizer) runGossipSync(ctx context.Context) {
 		case <-ss.stopChan:
 			return
 		case <-ticker.C:
-			ss.performGossipRound()
+			// Check context again before performing gossip round
+			select {
+			case <-ctx.Done():
+				return
+			case <-ss.stopChan:
+				return
+			default:
+				// Use a timeout to prevent blocking on shutdown
+				gossipCtx, cancel := context.WithTimeout(ctx, ss.config.SyncInterval/2)
+				ss.performGossipRoundWithContext(gossipCtx)
+				cancel()
+			}
 		}
 	}
 }
@@ -622,14 +821,26 @@ func (ss *StateSynchronizer) runSnapshotSync(ctx context.Context) {
 
 // performGossipRound performs one round of gossip with async cache operations
 func (ss *StateSynchronizer) performGossipRound() {
+	ss.performGossipRoundWithContext(context.Background())
+}
+
+// performGossipRoundWithContext performs one round of gossip with context support
+func (ss *StateSynchronizer) performGossipRoundWithContext(ctx context.Context) {
+	// Check context before starting
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+	
 	// Select random nodes to gossip with
 	nodes := ss.selectGossipNodes()
 	
 	// Get recent updates with batching
 	updates := ss.getRecentUpdatesWithBatching()
 	
-	// Send updates to selected nodes asynchronously with buffering
-	ss.sendGossipUpdatesAsync(nodes, updates)
+	// Send updates to selected nodes asynchronously with buffering and context
+	ss.sendGossipUpdatesAsyncWithContext(ctx, nodes, updates)
 }
 
 // getRecentUpdatesWithBatching gets recent updates with intelligent batching
@@ -656,26 +867,43 @@ func (ss *StateSynchronizer) getRecentUpdatesWithBatching() []*StateVersion {
 
 // sendGossipUpdatesAsync sends gossip updates asynchronously with buffering
 func (ss *StateSynchronizer) sendGossipUpdatesAsync(nodes []NodeID, updates []*StateVersion) {
+	ss.sendGossipUpdatesAsyncWithContext(context.Background(), nodes, updates)
+}
+
+// sendGossipUpdatesAsyncWithContext sends gossip updates asynchronously with buffering and context
+func (ss *StateSynchronizer) sendGossipUpdatesAsyncWithContext(parentCtx context.Context, nodes []NodeID, updates []*StateVersion) {
 	if len(nodes) == 0 || len(updates) == 0 {
 		return
+	}
+
+	// Check parent context before starting
+	select {
+	case <-parentCtx.Done():
+		return
+	default:
 	}
 
 	// Create buffered channel for async operations
 	taskChan := make(chan gossipTask, len(nodes))
 	resultChan := make(chan gossipResult, len(nodes))
 	
-	// Create context with timeout
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// Create context with timeout derived from parent context
+	ctx, cancel := context.WithTimeout(parentCtx, 10*time.Second)
 	defer cancel()
 	
-	// Start worker pool
+	// Start worker pool with wait group for proper cleanup
 	workerCount := 3
 	if len(nodes) < workerCount {
 		workerCount = len(nodes)
 	}
 	
+	var workerWG sync.WaitGroup
 	for i := 0; i < workerCount; i++ {
-		go ss.gossipWorker(ctx, taskChan, resultChan)
+		workerWG.Add(1)
+		go func() {
+			defer workerWG.Done()
+			ss.gossipWorker(ctx, taskChan, resultChan)
+		}()
 	}
 	
 	// Send tasks to workers
@@ -689,23 +917,45 @@ func (ss *StateSynchronizer) sendGossipUpdatesAsync(nodes []NodeID, updates []*S
 		case taskChan <- task:
 		case <-ctx.Done():
 			close(taskChan)
+			// Wait for workers to finish
+			workerWG.Wait()
 			return
 		}
 	}
 	
 	close(taskChan)
 	
-	// Collect results asynchronously
+	// Collect results asynchronously with proper cleanup
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				ss.logger.Error("Panic in gossip result collection", zap.Any("panic", r))
 			}
+			// Ensure workers are cleaned up
+			workerWG.Wait()
+			// Drain any remaining results with timeout to prevent deadlock
+			drainTimeout := time.After(100 * time.Millisecond)
+			for {
+				select {
+				case <-resultChan:
+					// Drain remaining results
+				case <-drainTimeout:
+					return
+				default:
+					return
+				}
+			}
 		}()
 		
-		for i := 0; i < len(nodes); i++ {
+		collectedResults := 0
+		for collectedResults < len(nodes) {
 			select {
-			case result := <-resultChan:
+			case result, ok := <-resultChan:
+				if !ok {
+					ss.logger.Debug("Gossip result channel closed")
+					return // Channel closed
+				}
+				collectedResults++
 				if result.err != nil {
 					ss.logger.Error("Gossip operation failed", 
 						zap.String("node_id", string(result.nodeID)),
@@ -715,6 +965,14 @@ func (ss *StateSynchronizer) sendGossipUpdatesAsync(nodes []NodeID, updates []*S
 						zap.String("node_id", string(result.nodeID)))
 				}
 			case <-ctx.Done():
+				// Context cancelled, wait for workers and return
+				ss.logger.Debug("Gossip result collection cancelled by context")
+				workerWG.Wait()
+				return
+			case <-time.After(8 * time.Second):
+				// Timeout, wait for workers and return
+				ss.logger.Warn("Gossip result collection timed out")
+				workerWG.Wait()
 				return
 			}
 		}
@@ -738,25 +996,45 @@ func (ss *StateSynchronizer) gossipWorker(ctx context.Context, tasks <-chan goss
 	defer func() {
 		if r := recover(); r != nil {
 			ss.logger.Error("Panic in gossip worker", zap.Any("panic", r))
+			// Send panic result to prevent deadlock
+			select {
+			case results <- gossipResult{nodeID: "unknown", err: fmt.Errorf("gossip worker panic: %v", r)}:
+			default:
+				// Results channel might be full or closed
+			}
 		}
 	}()
 
-	for task := range tasks {
+	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
-		}
+		case task, ok := <-tasks:
+			if !ok {
+				return // Channel closed
+			}
+			
+			// Check context again before processing
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 
-		// Create timeout context for individual gossip operation
-		gossipCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		err := ss.sendGossipUpdateWithCache(gossipCtx, task.nodeID, task.updates)
-		cancel()
+			// Create timeout context for individual gossip operation
+			gossipCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			err := ss.sendGossipUpdateWithCache(gossipCtx, task.nodeID, task.updates)
+			cancel()
 
-		select {
-		case results <- gossipResult{nodeID: task.nodeID, err: err}:
-		case <-ctx.Done():
-			return
+			// Send result with timeout protection
+			select {
+			case results <- gossipResult{nodeID: task.nodeID, err: err}:
+			case <-ctx.Done():
+				return
+			case <-time.After(1 * time.Second):
+				// Timeout sending result, continue to prevent deadlock
+				continue
+			}
 		}
 	}
 }
@@ -851,13 +1129,25 @@ func (ss *StateSynchronizer) processSyncQueue(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			ss.logger.Debug("Sync queue processor cancelled by context")
 			return
 		case <-ss.stopChan:
+			ss.logger.Debug("Sync queue processor stopped by stop signal")
 			return
 		case <-ticker.C:
-			request := ss.dequeueSyncRequest()
-			if request != nil {
-				ss.processSyncRequest(request)
+			// Check context before processing
+			select {
+			case <-ctx.Done():
+				ss.logger.Debug("Sync queue processor cancelled during tick")
+				return
+			case <-ss.stopChan:
+				ss.logger.Debug("Sync queue processor stopped during tick")
+				return
+			default:
+				request := ss.dequeueSyncRequest()
+				if request != nil {
+					ss.processSyncRequest(request)
+				}
 			}
 		}
 	}
@@ -954,11 +1244,23 @@ func (ss *StateSynchronizer) cleanupRoutine(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			ss.logger.Debug("Cleanup routine cancelled by context")
 			return
 		case <-ss.stopChan:
+			ss.logger.Debug("Cleanup routine stopped by stop signal")
 			return
 		case <-ticker.C:
-			ss.cleanupPendingSync()
+			// Check context before performing cleanup
+			select {
+			case <-ctx.Done():
+				ss.logger.Debug("Cleanup routine cancelled during tick")
+				return
+			case <-ss.stopChan:
+				ss.logger.Debug("Cleanup routine stopped during tick")
+				return
+			default:
+				ss.cleanupPendingSync()
+			}
 		}
 	}
 }
@@ -1006,16 +1308,13 @@ func (ss *StateSynchronizer) getRecentUpdates() []*StateVersion {
 
 func (ss *StateSynchronizer) gossipUpdate(update *StateVersion) {
 	nodes := ss.selectGossipNodes()
-	for _, nodeID := range nodes {
-		go func(nID NodeID) {
-			defer func() {
-				if r := recover(); r != nil {
-					fmt.Printf("Panic in state sync send single gossip update: %v\n", r)
-				}
-			}()
-			ss.sendGossipUpdate(nID, []*StateVersion{update})
-		}(nodeID)
+	if len(nodes) == 0 {
+		return
 	}
+	
+	// Send updates asynchronously with proper context and worker management
+	// Use the existing async mechanism with proper cleanup
+	ss.sendGossipUpdatesAsync(nodes, []*StateVersion{update})
 }
 
 func (ss *StateSynchronizer) sendGossipUpdate(nodeID NodeID, updates []*StateVersion) {
@@ -1197,22 +1496,31 @@ func (dc *DistributedCache) Start(ctx context.Context) {
 // Stop stops the distributed cache
 func (dc *DistributedCache) Stop() {
 	dc.stopOnce.Do(func() {
-		close(dc.stopChan)
+		fmt.Printf("DistributedCache stopping...\n")
 		dc.running = false
+		// Signal stop first
+		close(dc.stopChan)
+		
+		// Give a brief moment for processors to see the stop signal
+		time.Sleep(10 * time.Millisecond)
+		
+		// Then close write queue channel to signal processors to finish
+		close(dc.writeQueue)
 	})
 	
-	// Wait for all goroutines to finish with timeout
+	// Wait for all goroutines to finish with longer timeout
 	done := make(chan struct{})
 	go func() {
+		defer close(done)
 		dc.wg.Wait()
-		close(done)
 	}()
 	
 	select {
 	case <-done:
 		// All goroutines finished
-	case <-time.After(1 * time.Second):
-		// Timeout waiting for goroutines
+		fmt.Printf("DistributedCache stopped successfully\n")
+	case <-time.After(2 * time.Second):
+		// Increased timeout to allow proper cleanup
 		fmt.Printf("Warning: DistributedCache goroutines did not stop within timeout\n")
 	}
 }
@@ -1275,17 +1583,39 @@ func (dc *DistributedCache) SetAsync(ctx context.Context, key string, value inte
 
 // flushRoutine periodically flushes the write buffer
 func (dc *DistributedCache) flushRoutine(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("Panic in distributed cache flush routine: %v\n", r)
+		}
+		// Perform final flush on exit to prevent data loss
+		dc.flushBuffer()
+	}()
+	
 	ticker := time.NewTicker(dc.config.FlushInterval)
 	defer ticker.Stop()
 	
 	for {
 		select {
 		case <-ctx.Done():
+			// Context cancelled, perform final flush and exit
+			fmt.Printf("DistributedCache flushRoutine: context cancelled\n")
 			return
 		case <-dc.stopChan:
+			// Stop requested, perform final flush and exit
+			fmt.Printf("DistributedCache flushRoutine: stop signal received\n")
 			return
 		case <-ticker.C:
-			dc.flushBuffer()
+			// Check context and stop signal again before flushing
+			select {
+			case <-ctx.Done():
+				fmt.Printf("DistributedCache flushRoutine: context cancelled during tick\n")
+				return
+			case <-dc.stopChan:
+				fmt.Printf("DistributedCache flushRoutine: stop signal during tick\n")
+				return
+			default:
+				dc.flushBuffer()
+			}
 		}
 	}
 }
@@ -1308,7 +1638,14 @@ func (dc *DistributedCache) flushBuffer() {
 	dc.writeBuffer = make(map[string]*CacheItem)
 	dc.bufferMutex.Unlock()
 	
-	// Process batch asynchronously
+	// Check if still running before creating goroutine
+	if !dc.running {
+		// If not running, process batch synchronously to avoid goroutine leak
+		dc.processBatch(batch)
+		return
+	}
+	
+	// Process batch asynchronously only if still running
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -1322,15 +1659,73 @@ func (dc *DistributedCache) flushBuffer() {
 
 // writeQueueProcessor processes the write queue
 func (dc *DistributedCache) writeQueueProcessor(ctx context.Context) {
+	defer func() {
+		if r := recover(); r != nil {
+			fmt.Printf("Panic in distributed cache write queue processor: %v\n", r)
+		}
+		// Ensure write queue is drained on any exit
+		dc.drainWriteQueue()
+	}()
+	
 	for {
 		select {
 		case <-ctx.Done():
+			// Context cancelled, drain remaining items and exit
+			fmt.Printf("DistributedCache writeQueueProcessor: context cancelled\n")
 			return
 		case <-dc.stopChan:
+			// Stop requested, drain remaining items and exit
+			fmt.Printf("DistributedCache writeQueueProcessor: stop signal received\n")
 			return
-		case item := <-dc.writeQueue:
-			// Process individual write
-			go dc.processWrite(item)
+		case item, ok := <-dc.writeQueue:
+			if !ok {
+				// Channel closed, stop processing
+				fmt.Printf("DistributedCache writeQueueProcessor: write queue channel closed\n")
+				return
+			}
+			
+			// Check context and stop signal before processing
+			select {
+			case <-ctx.Done():
+				// Context cancelled while receiving item
+				fmt.Printf("DistributedCache writeQueueProcessor: context cancelled during item processing\n")
+				return
+			case <-dc.stopChan:
+				// Stop requested while receiving item
+				fmt.Printf("DistributedCache writeQueueProcessor: stop signal during item processing\n")
+				return
+			default:
+				// Process individual write with context checking
+				func(ctx context.Context, item *CacheItem) {
+					defer func() {
+						if r := recover(); r != nil {
+							fmt.Printf("Panic in cache write processing: %v\n", r)
+						}
+					}()
+					
+					// Check context before processing
+					select {
+					case <-ctx.Done():
+						return
+					case <-dc.stopChan:
+						return
+					default:
+						dc.processWrite(item)
+					}
+				}(ctx, item)
+			}
+		}
+	}
+}
+
+// drainWriteQueue drains any remaining items in the write queue
+func (dc *DistributedCache) drainWriteQueue() {
+	for {
+		select {
+		case <-dc.writeQueue:
+			// Drain remaining items
+		default:
+			return
 		}
 	}
 }

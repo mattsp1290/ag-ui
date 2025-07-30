@@ -11,6 +11,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/common"
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 // isTestMode detects if we're running in test mode
@@ -649,6 +651,96 @@ func (n *ThrottledAlertNotifier) SendAlert(ctx context.Context, alert Alert) err
 	return err
 }
 
+// PagerDutyAlertNotifier sends alerts to PagerDuty
+type PagerDutyAlertNotifier struct {
+	integrationKey string
+	client         *http.Client
+}
+
+// NewPagerDutyAlertNotifier creates a new PagerDuty alert notifier
+func NewPagerDutyAlertNotifier(integrationKey string) *PagerDutyAlertNotifier {
+	return &PagerDutyAlertNotifier{
+		integrationKey: integrationKey,
+		client: &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					MinVersion: tls.VersionTLS12,
+					CipherSuites: []uint16{
+						tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+						tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+						tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+					},
+				},
+			},
+		},
+	}
+}
+
+// SendAlert sends an alert to PagerDuty
+func (n *PagerDutyAlertNotifier) SendAlert(ctx context.Context, alert Alert) error {
+	payload := map[string]interface{}{
+		"routing_key":  n.integrationKey,
+		"event_action": "trigger",
+		"payload": map[string]interface{}{
+			"summary":        alert.Title,
+			"source":         alert.Component,
+			"severity":       n.getSeverityForLevel(alert.Level),
+			"component":      alert.Component,
+			"group":          "state-manager",
+			"class":          "monitoring",
+			"custom_details": map[string]interface{}{
+				"description": alert.Description,
+				"value":       alert.Value,
+				"threshold":   alert.Threshold,
+				"timestamp":   alert.Timestamp.Format(time.RFC3339),
+				"labels":      alert.Labels,
+			},
+		},
+	}
+
+	jsonData, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal PagerDuty payload: %w", err)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, "POST", "https://events.pagerduty.com/v2/enqueue", bytes.NewBuffer(jsonData))
+	if err != nil {
+		return fmt.Errorf("failed to create PagerDuty request: %w", err)
+	}
+
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := n.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send PagerDuty request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusAccepted {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("PagerDuty request failed with status %d: %s", resp.StatusCode, string(body))
+	}
+
+	return nil
+}
+
+// getSeverityForLevel maps alert levels to PagerDuty severity levels
+func (n *PagerDutyAlertNotifier) getSeverityForLevel(level AlertLevel) string {
+	switch level {
+	case AlertLevelInfo:
+		return "info"
+	case AlertLevelWarning:
+		return "warning"
+	case AlertLevelError:
+		return "error"
+	case AlertLevelCritical:
+		return "critical"
+	default:
+		return "info"
+	}
+}
+
 // Helper functions
 
 func alertLevelToString(level AlertLevel) string {
@@ -681,4 +773,65 @@ func auditSeverityToString(severity AuditSeverityLevel) string {
 	default:
 		return "unknown"
 	}
+}
+
+// NewConsoleNotifier creates a console-based alert notifier
+func NewConsoleNotifier() AlertNotifier {
+	// Create a basic zap logger for console output
+	zapLogger, err := initializeBasicZapLogger()
+	if err != nil {
+		// Fallback to a basic console notifier implementation
+		return &ConsoleNotifier{}
+	}
+	return NewLogAlertNotifier(zapLogger)
+}
+
+// NewWebhookNotifier creates a webhook alert notifier with default settings
+func NewWebhookNotifier(url string) (AlertNotifier, error) {
+	return NewWebhookAlertNotifier(url, 10*time.Second)
+}
+
+// NewEmailNotifier creates an email alert notifier with default SMTP settings
+func NewEmailNotifier(smtpServer string, smtpPort int, username, password, from string, to []string) AlertNotifier {
+	return NewEmailAlertNotifier(smtpServer, smtpPort, username, password, from, to)
+}
+
+// ConsoleNotifier is a simple fallback notifier that writes to console
+type ConsoleNotifier struct{}
+
+// SendAlert implements AlertNotifier for console output
+func (c *ConsoleNotifier) SendAlert(ctx context.Context, alert Alert) error {
+	level := alertLevelToString(alert.Level)
+	fmt.Printf("[%s] %s: %s (Component: %s, Value: %.2f, Threshold: %.2f)\n",
+		strings.ToUpper(level),
+		alert.Title,
+		alert.Description,
+		alert.Component,
+		alert.Value,
+		alert.Threshold)
+	return nil
+}
+
+// initializeBasicZapLogger creates a basic zap logger for console output
+func initializeBasicZapLogger() (*zap.Logger, error) {
+	config := zap.Config{
+		Level:    zap.NewAtomicLevelAt(zap.InfoLevel),
+		Encoding: "console",
+		EncoderConfig: zapcore.EncoderConfig{
+			TimeKey:        "timestamp",
+			LevelKey:       "level",
+			NameKey:        "logger",
+			CallerKey:      "caller",
+			MessageKey:     "message",
+			StacktraceKey:  "stacktrace",
+			LineEnding:     zapcore.DefaultLineEnding,
+			EncodeLevel:    zapcore.CapitalLevelEncoder,
+			EncodeTime:     zapcore.ISO8601TimeEncoder,
+			EncodeDuration: zapcore.SecondsDurationEncoder,
+			EncodeCaller:   zapcore.ShortCallerEncoder,
+		},
+		OutputPaths:      []string{"stdout"},
+		ErrorOutputPaths: []string{"stderr"},
+	}
+	return config.Build()
 }

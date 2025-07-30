@@ -51,7 +51,7 @@ build:
 ## test: Run tests with coverage
 test:
 	@echo "Running tests..."
-	$(GOTEST) -v -race -coverprofile=coverage.out ./...
+	$(GOTEST) -v -race -timeout=10m -coverprofile=coverage.out ./...
 	@echo "Coverage report:"
 	$(GOCMD) tool cover -func=coverage.out
 

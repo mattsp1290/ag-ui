@@ -29,7 +29,7 @@ func TestEventFlowIntegration(t *testing.T) {
 
 	// Test event builder
 	builder := events.NewEventBuilder()
-	
+
 	// Build various events
 	testEvents := []struct {
 		name     string
@@ -279,7 +279,7 @@ func TestConcurrentIntegration(t *testing.T) {
 	// Create multiple transports
 	numTransports := 3
 	transports := make([]transport.Transport, numTransports)
-	
+
 	for i := 0; i < numTransports; i++ {
 		tr := transport.NewMemoryTransport(100)
 		err := tr.Connect(ctx)
@@ -308,7 +308,7 @@ func TestConcurrentIntegration(t *testing.T) {
 					mu.Lock()
 					receivedCount++
 					mu.Unlock()
-					
+
 					// Validate event
 					assert.NotNil(t, event)
 					assert.NoError(t, event.Validate())
@@ -324,12 +324,12 @@ func TestConcurrentIntegration(t *testing.T) {
 	// Concurrent senders
 	numSenders := 5
 	eventsPerSender := 20
-	
+
 	for i := 0; i < numSenders; i++ {
 		wg.Add(1)
 		go func(senderID int) {
 			defer wg.Done()
-			
+
 			for j := 0; j < eventsPerSender; j++ {
 				// Create different event types
 				var event events.Event
@@ -358,8 +358,8 @@ func TestConcurrentIntegration(t *testing.T) {
 							EventType:   events.EventTypeRunStarted,
 							TimestampMs: ptr(time.Now().UnixMilli()),
 						},
-						ThreadID: fmt.Sprintf("thread-%d", senderID),
-						RunID:    fmt.Sprintf("run-%d-%d", senderID, j),
+						ThreadIDValue: fmt.Sprintf("thread-%d", senderID),
+						RunIDValue:    fmt.Sprintf("run-%d-%d", senderID, j),
 					}
 				case 3:
 					// State update that triggers events
@@ -376,7 +376,7 @@ func TestConcurrentIntegration(t *testing.T) {
 				// Send to random transport
 				transportEvent := eventToTransportEvent(event)
 				tr := transports[j%numTransports]
-				
+
 				err := tr.Send(ctx, transportEvent)
 				if err == nil {
 					mu.Lock()
@@ -406,7 +406,7 @@ func ptr(v int64) *int64 {
 func eventToTransportEvent(event events.Event) transport.TransportEvent {
 	// Convert events.Event to transport.TransportEvent
 	var data map[string]interface{}
-	
+
 	// Type-specific data extraction
 	switch e := event.(type) {
 	case *events.StateSnapshotEvent:
@@ -444,7 +444,7 @@ func eventToTransportEvent(event events.Event) transport.TransportEvent {
 
 func calculateDelta(oldState, newState map[string]interface{}) []events.JSONPatchOperation {
 	var delta []events.JSONPatchOperation
-	
+
 	// Added or modified keys
 	for key, newValue := range newState {
 		if oldValue, exists := oldState[key]; !exists {
@@ -461,7 +461,7 @@ func calculateDelta(oldState, newState map[string]interface{}) []events.JSONPatc
 			})
 		}
 	}
-	
+
 	// Removed keys
 	for key := range oldState {
 		if _, exists := newState[key]; !exists {
@@ -471,6 +471,6 @@ func calculateDelta(oldState, newState map[string]interface{}) []events.JSONPatc
 			})
 		}
 	}
-	
+
 	return delta
 }

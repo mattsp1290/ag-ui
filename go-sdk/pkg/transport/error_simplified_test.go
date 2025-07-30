@@ -268,7 +268,9 @@ func TestNetworkConditionsSimplified(t *testing.T) {
 	
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
-			ctx := context.Background()
+			// Add timeout to prevent hanging on unreliable network conditions
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
 			
 			// Test connection with network conditions
 			start := time.Now()

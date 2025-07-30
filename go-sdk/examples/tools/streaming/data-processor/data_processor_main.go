@@ -15,7 +15,7 @@ func RunDataProcessorExample() error {
 	dataProcessorTool := CreateDataProcessorTool()
 
 	if err := registry.Register(dataProcessorTool); err != nil {
-		log.Fatalf("Failed to register data processor tool: %v", err)
+		return fmt.Errorf("failed to register data processor tool: %w", err)
 	}
 
 	// Create execution engine
@@ -159,4 +159,86 @@ func consumeDataStream(streamCh <-chan *tools.ToolStreamChunk, maxChunks int) {
 
 		count++
 	}
+}
+
+// CreateDataProcessorTool creates a streaming data processor tool
+func CreateDataProcessorTool() *tools.Tool {
+	return &tools.Tool{
+		ID:          "data_processor", 
+		Name:        "Data Processor",
+		Description: "A streaming data processor for real-time analytics and transformations",
+		Version:     "1.0.0",
+		Schema: &tools.ToolSchema{
+			Type: "object",
+			Properties: map[string]*tools.Property{
+				"type": {
+					Type:        "string",
+					Description: "Type of data processing",
+					Enum:        []interface{}{"generate", "aggregate", "transform", "analyze"},
+				},
+				"count": {
+					Type:        "number",
+					Description: "Number of data points to process",
+					Default:     10,
+				},
+				"pattern": {
+					Type:        "string", 
+					Description: "Data generation pattern",
+					Enum:        []interface{}{"sine", "random", "linear"},
+					Default:     "random",
+				},
+				"window_size": {
+					Type:        "number",
+					Description: "Window size for aggregation",
+					Default:     5,
+				},
+				"aggregate_type": {
+					Type:        "string",
+					Description: "Type of aggregation",
+					Enum:        []interface{}{"mean", "sum", "max", "min"},
+					Default:     "mean",
+				},
+				"transformation": {
+					Type:        "string",
+					Description: "Transformation to apply",
+					Enum:        []interface{}{"sqrt", "square", "log", "abs"},
+					Default:     "sqrt",
+				},
+				"data": {
+					Type:        "array",
+					Description: "Data points to analyze",
+				},
+				"interval": {
+					Type:        "number",
+					Description: "Interval between data points in ms",
+					Default:     100,
+				},
+			},
+			Required: []string{"type"},
+		},
+		Capabilities: &tools.ToolCapabilities{
+			Streaming:  true,
+			Async:      true,
+			Cancelable: true,
+			Timeout:    30 * time.Second,
+		},
+		Metadata: &tools.ToolMetadata{
+			Author:   "Streaming Team",
+			License:  "MIT",
+			Tags:     []string{"streaming", "data", "analytics", "real-time"},
+		},
+		// Note: In a real implementation, you would provide a proper StreamExecutor
+		// For now, this is a placeholder to allow the example to compile
+		Executor: &MockDataProcessorExecutor{},
+	}
+}
+
+// MockDataProcessorExecutor is a placeholder for the actual streaming executor
+type MockDataProcessorExecutor struct{}
+
+func (e *MockDataProcessorExecutor) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolExecutionResult, error) {
+	return &tools.ToolExecutionResult{
+		Success: true,
+		Data:    "Data processor executed successfully",
+	}, nil
 }

@@ -24,7 +24,9 @@ type SimpleManager struct {
 	backpressureConfig  BackpressureConfig
 	validator           Validator
 	validationConfig    *ValidationConfig
-	receiveWg           sync.WaitGroup // Track receiveEvents goroutines
+	receiveWg           *sync.WaitGroup // Track receiveEvents goroutines
+	receiveWgMu         sync.Mutex      // Protects receiveWg lifecycle
+	generation          int64           // Generation counter to prevent stale goroutines
 }
 
 // NewSimpleManager creates a new simple transport manager
@@ -53,6 +55,7 @@ func NewSimpleManagerWithBackpressure(backpressureConfig BackpressureConfig) *Si
 		transportStopChan:  make(chan struct{}),
 		transportReady:     make(chan struct{}, 1),
 		backpressureConfig: backpressureConfig,
+		receiveWg:          &sync.WaitGroup{},
 	}
 	
 	// Initialize backpressure handler
@@ -136,8 +139,9 @@ func (m *SimpleManager) SetTransport(transport Transport) {
 	
 	// If the manager is running and we have a transport, start receiving
 	if atomic.LoadInt32(&m.running) == 1 && transport != nil && preConnected {
-		m.receiveWg.Add(1)
-		go m.receiveEvents()
+		if added, gen, wg := m.safeAddReceiver(); added {
+			go m.receiveEvents(gen, wg)
+		}
 	}
 	
 	// Signal that transport is ready (non-blocking send)
@@ -178,6 +182,12 @@ func (m *SimpleManager) Start(ctx context.Context) error {
 		return ErrAlreadyConnected
 	}
 	
+	// Create fresh WaitGroup for new generation
+	m.receiveWgMu.Lock()
+	m.receiveWg = &sync.WaitGroup{}
+	m.generation++ // New generation
+	m.receiveWgMu.Unlock()
+	
 	// Use a timeout to prevent hanging if another goroutine holds the lock
 	lockCtx, lockCancel := context.WithTimeout(ctx, 2*time.Second)
 	defer lockCancel()
@@ -214,8 +224,9 @@ func (m *SimpleManager) Start(ctx context.Context) error {
 		}
 		
 		// Start receiving events
-		m.receiveWg.Add(1)
-		go m.receiveEvents()
+		if added, gen, wg := m.safeAddReceiver(); added {
+			go m.receiveEvents(gen, wg)
+		}
 		
 		// Signal that transport is ready (non-blocking send)
 		select {
@@ -281,29 +292,8 @@ func (m *SimpleManager) Stop(ctx context.Context) error {
 	// Unlock before waiting for goroutines
 	m.mu.Unlock()
 	
-	// Wait for all receiveEvents goroutines to finish with better timeout handling
-	done := make(chan struct{})
-	go func() {
-		m.receiveWg.Wait()
-		close(done)
-	}()
-	
-	// Use context timeout if available, otherwise use a reasonable default
-	waitTimeout := 5 * time.Second
-	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
-		if timeLeft := time.Until(deadline); timeLeft < waitTimeout {
-			waitTimeout = timeLeft
-		}
-	}
-	
-	select {
-	case <-done:
-		// All goroutines finished
-	case <-ctx.Done():
-		// Context cancelled
-	case <-time.After(waitTimeout):
-		// Timeout waiting for goroutines - proceed with cleanup anyway
-	}
+	// Wait for all receiveEvents goroutines to finish using safe method
+	m.safeWaitReceiver(ctx)
 	
 	// Try to lock again for final cleanup with a short timeout - using tryLock pattern to prevent deadlock
 	lockAcquiredForCleanup := m.tryLockWithTimeout(500 * time.Millisecond)
@@ -404,6 +394,79 @@ func (m *SimpleManager) tryLockWithTimeout(timeout time.Duration) bool {
 	
 	select {
 	case <-lockAcquired:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+// safeAddReceiver safely adds a receiver to the WaitGroup
+func (m *SimpleManager) safeAddReceiver() (bool, int64, *sync.WaitGroup) {
+	m.receiveWgMu.Lock()
+	defer m.receiveWgMu.Unlock()
+	if m.receiveWg != nil && atomic.LoadInt32(&m.running) == 1 {
+		m.receiveWg.Add(1)
+		return true, m.generation, m.receiveWg
+	}
+	return false, 0, nil
+}
+
+// safeWaitReceiver safely waits for receivers and prepares for shutdown
+func (m *SimpleManager) safeWaitReceiver(ctx context.Context) {
+	m.receiveWgMu.Lock()
+	currentWg := m.receiveWg
+	m.generation++ // Increment generation to invalidate old goroutines
+	m.receiveWg = nil // Clear to prevent new additions
+	m.receiveWgMu.Unlock()
+	
+	if currentWg == nil {
+		return
+	}
+	
+	// Wait for current WaitGroup to finish
+	done := make(chan struct{})
+	go func() {
+		currentWg.Wait()
+		close(done)
+	}()
+	
+	// Use context timeout if available, otherwise use a reasonable default
+	waitTimeout := 5 * time.Second
+	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
+		if timeLeft := time.Until(deadline); timeLeft < waitTimeout {
+			waitTimeout = timeLeft
+		}
+	}
+	
+	select {
+	case <-done:
+		// All goroutines finished
+	case <-ctx.Done():
+		// Context cancelled
+	case <-time.After(waitTimeout):
+		// Timeout waiting for goroutines - proceed with cleanup anyway
+	}
+}
+
+// waitForReceiveGoroutines is a test helper that waits for all receive goroutines to finish
+// This method is intended for testing purposes only
+func (m *SimpleManager) waitForReceiveGoroutines(timeout time.Duration) bool {
+	m.receiveWgMu.Lock()
+	currentWg := m.receiveWg
+	m.receiveWgMu.Unlock()
+	
+	if currentWg == nil {
+		return true
+	}
+	
+	done := make(chan struct{})
+	go func() {
+		currentWg.Wait()
+		close(done)
+	}()
+	
+	select {
+	case <-done:
 		return true
 	case <-time.After(timeout):
 		return false
@@ -540,8 +603,20 @@ func (m *SimpleManager) GetValidationState() (*ValidationConfig, bool) {
 }
 
 // receiveEvents receives events from the active transport
-func (m *SimpleManager) receiveEvents() {
-	defer m.receiveWg.Done()
+func (m *SimpleManager) receiveEvents(generation int64, wg *sync.WaitGroup) {
+	defer func() {
+		if wg != nil {
+			wg.Done()
+		}
+	}()
+	
+	// Check if we're still valid generation - if not, exit early
+	m.receiveWgMu.Lock()
+	currentGen := m.generation
+	m.receiveWgMu.Unlock()
+	if generation != currentGen {
+		return
+	}
 	
 	// Get a copy of the transport stop channel to avoid races
 	m.mu.RLock()
@@ -549,6 +624,14 @@ func (m *SimpleManager) receiveEvents() {
 	m.mu.RUnlock()
 	
 	for {
+		// Periodically check if we're still the current generation
+		m.receiveWgMu.Lock()
+		currentGen := m.generation
+		m.receiveWgMu.Unlock()
+		if generation != currentGen {
+			return
+		}
+		
 		select {
 		case <-m.stopChan:
 			return

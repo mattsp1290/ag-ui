@@ -1,7 +1,6 @@
 package state
 
 import (
-	"encoding/json"
 	"fmt"
 	"reflect"
 	"strings"
@@ -88,18 +87,13 @@ func (p JSONPatch) Apply(document interface{}) (interface{}, error) {
 		return nil, err
 	}
 
-	// Convert document to a modifiable structure
-	var doc interface{}
-	jsonBytes, err := json.Marshal(document)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal document: %w", err)
-	}
-	if err := json.Unmarshal(jsonBytes, &doc); err != nil {
-		return nil, fmt.Errorf("failed to unmarshal document: %w", err)
-	}
+	// Create a deep copy of the document to avoid modifying the original
+	// and ensure thread safety for concurrent operations
+	doc := deepCopy(document)
 
 	// Apply each operation
 	for i, op := range p {
+		var err error
 		doc, err = op.Apply(doc)
 		if err != nil {
 			return nil, fmt.Errorf("failed to apply operation at index %d: %w", i, err)

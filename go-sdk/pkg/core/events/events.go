@@ -179,16 +179,6 @@ func (b *BaseEvent) Validate() error {
 	return nil
 }
 
-// ToJSON serializes the event to JSON
-func (b *BaseEvent) ToJSON() ([]byte, error) {
-	return json.Marshal(b)
-}
-
-// ToProtobuf converts the event to its protobuf representation
-func (b *BaseEvent) ToProtobuf() (*generated.Event, error) {
-	// BaseEvent cannot be converted to Event directly as it's abstract
-	return nil, fmt.Errorf("BaseEvent cannot be converted to protobuf Event directly")
-}
 
 // ToProtobufBase converts the base event to its protobuf representation
 func (b *BaseEvent) ToProtobufBase() *generated.BaseEvent {

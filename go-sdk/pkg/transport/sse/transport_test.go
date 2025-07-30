@@ -95,10 +95,6 @@ func TestSSETransport_Send(t *testing.T) {
 	}))
 	defer server.Close()
 
-	config := &Config{
-		BaseURL:      server.URL,
-		WriteTimeout: 5 * time.Second,
-	}
 	config := DefaultConfig()
 	config.BaseURL = server.URL
 
@@ -111,8 +107,6 @@ func TestSSETransport_Send(t *testing.T) {
 	// Create a test event
 	event := events.NewRunStartedEvent("thread-123", "run-123")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
 	// Use a more generous timeout for this integration test
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()

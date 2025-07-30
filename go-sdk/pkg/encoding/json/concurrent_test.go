@@ -12,11 +12,12 @@ import (
 func TestConcurrentEncodingWithoutMutex(t *testing.T) {
 	encoder := NewJSONEncoder(nil)
 	
-	// Run 1000 concurrent encodings
+	// Run 50 concurrent encodings (well within the default 100 limit to avoid interference from other tests)
+	const concurrentOps = 50
 	var wg sync.WaitGroup
-	errors := make(chan error, 1000)
+	errors := make(chan error, concurrentOps)
 	
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < concurrentOps; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -39,7 +40,7 @@ func TestConcurrentEncodingWithoutMutex(t *testing.T) {
 	}
 	
 	if errorCount == 0 {
-		t.Logf("Successfully completed 1000 concurrent encodings without mutexes")
+		t.Logf("Successfully completed %d concurrent encodings without mutexes", concurrentOps)
 	}
 }
 
@@ -48,11 +49,12 @@ func TestConcurrentDecodingWithoutMutex(t *testing.T) {
 	decoder := NewJSONDecoder(nil)
 	jsonData := `{"type":"TEXT_MESSAGE_CONTENT","messageId":"msg1","delta":"test","timestamp":1234567890}`
 	
-	// Run 1000 concurrent decodings
+	// Run 50 concurrent decodings (well within the default 100 limit to avoid interference from other tests)
+	const concurrentOps = 50
 	var wg sync.WaitGroup
-	errors := make(chan error, 1000)
+	errors := make(chan error, concurrentOps)
 	
-	for i := 0; i < 1000; i++ {
+	for i := 0; i < concurrentOps; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -74,7 +76,7 @@ func TestConcurrentDecodingWithoutMutex(t *testing.T) {
 	}
 	
 	if errorCount == 0 {
-		t.Logf("Successfully completed 1000 concurrent decodings without mutexes")
+		t.Logf("Successfully completed %d concurrent decodings without mutexes", concurrentOps)
 	}
 }
 

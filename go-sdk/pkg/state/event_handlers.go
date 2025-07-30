@@ -156,6 +156,13 @@ func WithSyncManager(syncManager *SyncManager) StateEventHandlerOption {
 	}
 }
 
+// WithConnectionHealth sets the connection health tracker for the event handler
+func WithConnectionHealth(connectionHealth *ConnectionHealth) StateEventHandlerOption {
+	return func(h *StateEventHandler) {
+		h.connectionHealth = connectionHealth
+	}
+}
+
 // WithConflictResolver sets the strategy for resolving conflicts
 func WithConflictResolver(resolver ConflictResolver) StateEventHandlerOption {
 	return func(h *StateEventHandler) {

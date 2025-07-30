@@ -359,11 +359,11 @@ func compareEvents(original, decoded events.Event) error {
 
 // Type-specific comparison functions
 func compareRunStartedEvents(a, b *events.RunStartedEvent) error {
-	if a.RunID != b.RunID {
-		return fmt.Errorf("RunID mismatch: %s vs %s", a.RunID, b.RunID)
+	if a.RunID() != b.RunID() {
+		return fmt.Errorf("RunID mismatch: %s vs %s", a.RunID(), b.RunID())
 	}
-	if a.ThreadID != b.ThreadID {
-		return fmt.Errorf("ThreadID mismatch: %s vs %s", a.ThreadID, b.ThreadID)
+	if a.ThreadID() != b.ThreadID() {
+		return fmt.Errorf("ThreadID mismatch: %s vs %s", a.ThreadID(), b.ThreadID())
 	}
 	return nil
 }

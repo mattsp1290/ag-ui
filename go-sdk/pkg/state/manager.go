@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -849,8 +848,8 @@ func (sm *StateManager) Close() error {
 	select {
 	case <-done:
 		// Workers finished cleanly
-	case <-time.After(DefaultShutdownTimeout):
-		sm.logger.Error("shutdown timeout, forcing close", Duration("timeout", DefaultShutdownTimeout))
+	case <-time.After(GetDefaultShutdownTimeout()):
+		sm.logger.Error("shutdown timeout, forcing close", Duration("timeout", GetDefaultShutdownTimeout()))
 	}
 
 	// Close channels to prevent new data - use panic recovery to handle already-closed channels
@@ -1333,7 +1332,7 @@ func (sm *StateManager) autoCheckpoint() {
 	// Validate interval before creating ticker
 	interval := sm.options.CheckpointInterval
 	if interval <= 0 {
-		interval = DefaultCheckpointInterval // Use default interval
+		interval = GetDefaultCheckpointInterval() // Use default interval
 	}
 
 	ticker := time.NewTicker(interval)
@@ -1414,7 +1413,7 @@ func (sm *StateManager) collectMetrics() {
 	// Validate interval before creating ticker
 	interval := sm.options.MetricsInterval
 	if interval <= 0 {
-		interval = DefaultMetricsInterval // Use default interval
+		interval = GetDefaultMetricsInterval() // Use default interval
 	}
 
 	ticker := time.NewTicker(interval)

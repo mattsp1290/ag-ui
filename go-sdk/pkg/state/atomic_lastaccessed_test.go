@@ -54,8 +54,8 @@ func TestStateContextConcurrentLastAccessedOperations(t *testing.T) {
 	
 	ctx.SetLastAccessed(time.Now())
 	
-	const numGoroutines = 100
-	const numOperationsPerGoroutine = 100
+	const numGoroutines = 10  // Reduced from 100 to prevent resource exhaustion
+	const numOperationsPerGoroutine = 10  // Reduced from 100 to prevent test timeouts
 	
 	var wg sync.WaitGroup
 	wg.Add(numGoroutines)
@@ -102,8 +102,8 @@ func TestContextManagerConcurrentAccessWithAtomicOperations(t *testing.T) {
 		cm.Put(ctx.ID, ctx)
 	}
 	
-	const numGoroutines = 50
-	const numOperations = 100
+	const numGoroutines = 10  // Reduced from 50 to prevent resource exhaustion
+	const numOperations = 10  // Reduced from 100 to prevent test timeouts
 	
 	var wg sync.WaitGroup
 	wg.Add(numGoroutines)

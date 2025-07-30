@@ -364,17 +364,17 @@ func protobufToCustom(pb *generated.CustomEvent) (*events.CustomEvent, error) {
 
 func protobufToRunStarted(pb *generated.RunStartedEvent) (*events.RunStartedEvent, error) {
 	return &events.RunStartedEvent{
-		BaseEvent: protobufToBaseEvent(pb.BaseEvent),
-		ThreadID:  pb.ThreadId,
-		RunID:     pb.RunId,
+		BaseEvent:     protobufToBaseEvent(pb.BaseEvent),
+		ThreadIDValue: pb.ThreadId,
+		RunIDValue:    pb.RunId,
 	}, nil
 }
 
 func protobufToRunFinished(pb *generated.RunFinishedEvent) (*events.RunFinishedEvent, error) {
 	return &events.RunFinishedEvent{
-		BaseEvent: protobufToBaseEvent(pb.BaseEvent),
-		ThreadID:  pb.ThreadId,
-		RunID:     pb.RunId,
+		BaseEvent:     protobufToBaseEvent(pb.BaseEvent),
+		ThreadIDValue: pb.ThreadId,
+		RunIDValue:    pb.RunId,
 	}, nil
 }
 

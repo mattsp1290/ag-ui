@@ -6,7 +6,7 @@ import (
 	"net/url"
 	"time"
 
-	pkgerrors "github.com/ag-ui/go-sdk/pkg/errors"
+	pkgerrors "github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 // Common client errors

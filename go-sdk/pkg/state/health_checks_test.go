@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -353,6 +354,26 @@ func (m *MockPerformanceOptimizer) ProcessLargeStateUpdate(ctx context.Context, 
 func (m *MockPerformanceOptimizer) GetEnhancedMetrics() PerformanceMetrics {
 	// Mock implementation - return the same metrics
 	return m.GetMetrics()
+}
+
+func (m *MockPerformanceOptimizer) GetStats() PerformanceStats {
+	// Mock implementation - return basic stats
+	return PerformanceStats{
+		OpsPerSecond:   100.0,
+		AvgLatency:     10.0,
+		P95Latency:     25.0,
+		P99Latency:     50.0,
+		MemoryUsage:    1024 * 1024, // 1MB
+		PeakMemory:     2048 * 1024, // 2MB
+		PoolHits:       1000,
+		PoolMisses:     50,
+		PoolEfficiency: 95.0,
+		Allocations:    500,
+		GCPauses:       10,
+		AvgGCPause:     1000000, // 1ms in nanoseconds
+		CacheHitRate:   0.95,
+		QueueDepth:     5,
+	}
 }
 
 func (m *MockPerformanceOptimizer) Stop() {
@@ -1155,7 +1176,7 @@ func TestHealthCheckTimeout(t *testing.T) {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
-		case <-time.After(50 * time.Millisecond):
+		case <-time.After(100 * time.Millisecond):
 			return nil
 		}
 	})
@@ -2142,5 +2163,5 @@ func createTestAuditManager(failing bool) *AuditManager {
 func createTestPerformanceOptimizer() PerformanceOptimizer {
 	opts := DefaultPerformanceOptions()
 	opts.EnablePooling = true
-	return NewPerformanceOptimizer(opts)
+	return NewPerformanceOptimizerForTesting(opts)
 }

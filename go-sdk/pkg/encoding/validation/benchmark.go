@@ -622,8 +622,8 @@ func (b *BenchmarkSuite) generateTestEvents() []events.Event {
 				EventType: events.EventTypeRunStarted,
 				TimestampMs: int64Ptr(time.Now().Unix()),
 			},
-			RunID:    "run-benchmark-123",
-			ThreadID: "thread-benchmark-456",
+			RunIDValue:    "run-benchmark-123",
+			ThreadIDValue: "thread-benchmark-456",
 		},
 		&events.TextMessageContentEvent{
 			BaseEvent: &events.BaseEvent{

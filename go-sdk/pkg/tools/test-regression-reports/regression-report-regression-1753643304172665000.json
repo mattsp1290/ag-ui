@@ -1,0 +1,490 @@
+{
+  "TestRun": {
+    "RunID": "regression-1753643304172665000",
+    "Timestamp": "0001-01-01T00:00:00Z",
+    "Duration": 0,
+    "Environment": "test",
+    "Configuration": {
+      "BaselineStrategy": "rolling",
+      "BaselineStorage": "filesystem",
+      "BaselineRetentionDays": 30,
+      "BaselineWindow": 604800000000000,
+      "DetectionAlgorithms": [
+        "threshold",
+        "statistical",
+        "trend"
+      ],
+      "DetectionThresholds": {
+        "PerformanceDegradation": 10,
+        "ThroughputDecrease": 5,
+        "ResponseTimeIncrease": 15,
+        "ErrorRateIncrease": 2,
+        "MemoryUsageIncrease": 20,
+        "StatisticalSignificance": 0.05,
+        "ConfidenceLevel": 0.95,
+        "MinimumEffectSize": 0.2,
+        "TrendSignificance": 0.01,
+        "TrendDuration": 86400000000000,
+        "TrendConsistency": 0.8,
+        "AnomalyScore": 0.7,
+        "AnomalyDeviation": 2,
+        "AnomalyFrequency": 0.1
+      },
+      "StatisticalConfidence": 0.95,
+      "MinimumSampleSize": 10,
+      "AnalysisDepth": "standard",
+      "TrendAnalysisWindow": 86400000000000,
+      "SeasonalityDetection": true,
+      "OutlierDetection": true,
+      "ReportDetailLevel": "standard",
+      "ReportFormats": [
+        "json",
+        "html"
+      ],
+      "ReportOutputDir": "./test-regression-reports",
+      "AlertThresholds": {
+        "CriticalRegression": 25,
+        "MajorRegression": 15,
+        "MinorRegression": 10,
+        "WarningRegression": 5,
+        "CriticalAnomaly": 0.9,
+        "MajorAnomaly": 0.7,
+        "MinorAnomaly": 0.5,
+        "TrendDegradation": 0.8,
+        "ConsistentDegradation": 0.6
+      },
+      "AlertChannels": null,
+      "AlertsEnabled": true,
+      "TestEnvironment": "test",
+      "TestLabels": {},
+      "MetricsToTrack": [
+        "throughput",
+        "response_time",
+        "error_rate",
+        "memory_usage",
+        "cpu_usage"
+      ],
+      "CustomMetrics": null,
+      "QualityGates": [
+        {
+          "Name": "Performance Degradation",
+          "Metric": "performance_degradation",
+          "Threshold": 10,
+          "Operator": "lt",
+          "Severity": "major",
+          "Enabled": true
+        },
+        {
+          "Name": "Error Rate Increase",
+          "Metric": "error_rate_increase",
+          "Threshold": 2,
+          "Operator": "lt",
+          "Severity": "critical",
+          "Enabled": true
+        }
+      ],
+      "FailOnRegression": true,
+      "FailOnDegradation": true,
+      "AnomalyDetection": true,
+      "PredictiveAnalysis": false,
+      "ModelUpdateInterval": 86400000000000,
+      "HistoricalDataLimit": 1000
+    },
+    "Metadata": {}
+  },
+  "BaselineData": {
+    "BaselineID": "rolling-baseline",
+    "CreatedAt": "0001-01-01T00:00:00Z",
+    "DataPoints": [],
+    "Statistics": {
+      "Mean": {
+        "execution_time": 10000000,
+        "memory_usage": 1048576,
+        "throughput": 1000
+      },
+      "Median": {},
+      "StandardDev": {},
+      "Min": {},
+      "Max": {},
+      "Percentiles": {},
+      "Confidence": {},
+      "SampleSize": 1,
+      "Variance": {},
+      "Skewness": {},
+      "Kurtosis": {}
+    },
+    "Metadata": {},
+    "Source": "loaded",
+    "Confidence": 1
+  },
+  "CurrentData": {
+    "DataPoints": [
+      {
+        "Timestamp": "0001-01-01T00:00:00Z",
+        "Metrics": {
+          "execution_time": 10000000,
+          "memory_usage": 1048576,
+          "throughput": 1000
+        },
+        "TestName": "baseline_test",
+        "TestType": "baseline",
+        "Environment": "test",
+        "Metadata": {}
+      }
+    ],
+    "Statistics": {
+      "Mean": {
+        "execution_time": 10000000,
+        "memory_usage": 1048576,
+        "throughput": 1000
+      },
+      "Median": {
+        "execution_time": 10000000,
+        "memory_usage": 1048576,
+        "throughput": 1000
+      },
+      "StandardDev": {
+        "execution_time": 0,
+        "memory_usage": 0,
+        "throughput": 0
+      },
+      "Min": {
+        "execution_time": 10000000,
+        "memory_usage": 1048576,
+        "throughput": 1000
+      },
+      "Max": {
+        "execution_time": 10000000,
+        "memory_usage": 1048576,
+        "throughput": 1000
+      },
+      "Percentiles": {
+        "execution_time": {
+          "p25": 10000000,
+          "p50": 10000000,
+          "p75": 10000000,
+          "p90": 10000000,
+          "p95": 10000000,
+          "p99": 10000000
+        },
+        "memory_usage": {
+          "p25": 1048576,
+          "p50": 1048576,
+          "p75": 1048576,
+          "p90": 1048576,
+          "p95": 1048576,
+          "p99": 1048576
+        },
+        "throughput": {
+          "p25": 1000,
+          "p50": 1000,
+          "p75": 1000,
+          "p90": 1000,
+          "p95": 1000,
+          "p99": 1000
+        }
+      },
+      "Confidence": {
+        "execution_time": 0.95,
+        "memory_usage": 0.95,
+        "throughput": 0.95
+      },
+      "SampleSize": 1,
+      "Variance": {
+        "execution_time": 0,
+        "memory_usage": 0,
+        "throughput": 0
+      },
+      "Skewness": {
+        "execution_time": 0,
+        "memory_usage": 0,
+        "throughput": 0
+      },
+      "Kurtosis": {
+        "execution_time": 0,
+        "memory_usage": 0,
+        "throughput": 0
+      }
+    },
+    "Timestamp": "0001-01-01T00:00:00Z",
+    "TestInfo": {}
+  },
+  "DetectionResults": [
+    {
+      "Algorithm": "threshold",
+      "Metric": "overall",
+      "RegressionFound": false,
+      "Confidence": 0.8,
+      "Severity": "info",
+      "ChangePercent": 0,
+      "ChangeAbsolute": 0,
+      "StatisticalTest": null,
+      "TrendAnalysis": null,
+      "AnomalyAnalysis": null,
+      "Evidence": [
+        "No threshold violations detected"
+      ],
+      "Recommendations": null
+    },
+    {
+      "Algorithm": "statistical",
+      "Metric": "overall",
+      "RegressionFound": false,
+      "Confidence": 0.95,
+      "Severity": "info",
+      "ChangePercent": 0,
+      "ChangeAbsolute": 0,
+      "StatisticalTest": null,
+      "TrendAnalysis": null,
+      "AnomalyAnalysis": null,
+      "Evidence": [
+        "No statistical significance detected"
+      ],
+      "Recommendations": null
+    },
+    {
+      "Algorithm": "trend",
+      "Metric": "overall",
+      "RegressionFound": false,
+      "Confidence": 0.7,
+      "Severity": "info",
+      "ChangePercent": 0,
+      "ChangeAbsolute": 0,
+      "StatisticalTest": null,
+      "TrendAnalysis": null,
+      "AnomalyAnalysis": null,
+      "Evidence": [
+        "Trend analysis not implemented"
+      ],
+      "Recommendations": null
+    }
+  ],
+  "AnalysisResults": {
+    "OverallAssessment": {
+      "RegressionScore": 0,
+      "PerformanceHealth": "excellent",
+      "RiskLevel": "low",
+      "Stability": 0.8,
+      "Reliability": 0.9,
+      "Trends": [
+        "stable"
+      ],
+      "Patterns": [
+        "normal"
+      ],
+      "Anomalies": []
+    },
+    "MetricAnalysis": {
+      "execution_time": {
+        "Metric": "execution_time",
+        "CurrentValue": 10000000,
+        "BaselineValue": 10000000,
+        "Change": 0,
+        "ChangePercent": 0,
+        "Significance": 0.8,
+        "Trend": {
+          "Direction": "stable",
+          "Strength": 0,
+          "Consistency": 0.8,
+          "Acceleration": 0,
+          "Deceleration": 0,
+          "Cycles": null,
+          "Breakpoints": null
+        },
+        "Distribution": {
+          "Type": "normal",
+          "Parameters": {},
+          "GoodnessOfFit": 0.8,
+          "Normality": null,
+          "Comparison": null
+        },
+        "Stability": {
+          "StabilityScore": 0.8,
+          "VariabilityScore": 0.2,
+          "ConsistencyScore": 0.9,
+          "ReliabilityScore": 0.85,
+          "Patterns": null,
+          "Anomalies": null
+        },
+        "Outliers": [],
+        "Forecast": null
+      },
+      "memory_usage": {
+        "Metric": "memory_usage",
+        "CurrentValue": 1048576,
+        "BaselineValue": 1048576,
+        "Change": 0,
+        "ChangePercent": 0,
+        "Significance": 0.8,
+        "Trend": {
+          "Direction": "stable",
+          "Strength": 0,
+          "Consistency": 0.8,
+          "Acceleration": 0,
+          "Deceleration": 0,
+          "Cycles": null,
+          "Breakpoints": null
+        },
+        "Distribution": {
+          "Type": "normal",
+          "Parameters": {},
+          "GoodnessOfFit": 0.8,
+          "Normality": null,
+          "Comparison": null
+        },
+        "Stability": {
+          "StabilityScore": 0.8,
+          "VariabilityScore": 0.2,
+          "ConsistencyScore": 0.9,
+          "ReliabilityScore": 0.85,
+          "Patterns": null,
+          "Anomalies": null
+        },
+        "Outliers": [],
+        "Forecast": null
+      },
+      "throughput": {
+        "Metric": "throughput",
+        "CurrentValue": 1000,
+        "BaselineValue": 1000,
+        "Change": 0,
+        "ChangePercent": 0,
+        "Significance": 0.8,
+        "Trend": {
+          "Direction": "stable",
+          "Strength": 0,
+          "Consistency": 0.8,
+          "Acceleration": 0,
+          "Deceleration": 0,
+          "Cycles": null,
+          "Breakpoints": null
+        },
+        "Distribution": {
+          "Type": "normal",
+          "Parameters": {},
+          "GoodnessOfFit": 0.8,
+          "Normality": null,
+          "Comparison": null
+        },
+        "Stability": {
+          "StabilityScore": 0.8,
+          "VariabilityScore": 0.2,
+          "ConsistencyScore": 0.9,
+          "ReliabilityScore": 0.85,
+          "Patterns": null,
+          "Anomalies": null
+        },
+        "Outliers": [],
+        "Forecast": null
+      }
+    },
+    "CorrelationAnalysis": {
+      "Correlations": {
+        "execution_time": {
+          "memory_usage": 0.5,
+          "throughput": 0.5
+        },
+        "memory_usage": {
+          "execution_time": 0.5,
+          "throughput": 0.5
+        },
+        "throughput": {
+          "execution_time": 0.5,
+          "memory_usage": 0.5
+        }
+      },
+      "StrongCorrelations": [],
+      "WeakCorrelations": [
+        {
+          "Metric1": "throughput",
+          "Metric2": "memory_usage",
+          "Correlation": 0.5,
+          "Significance": 0.8,
+          "Type": "pearson"
+        },
+        {
+          "Metric1": "throughput",
+          "Metric2": "execution_time",
+          "Correlation": 0.5,
+          "Significance": 0.8,
+          "Type": "pearson"
+        },
+        {
+          "Metric1": "memory_usage",
+          "Metric2": "throughput",
+          "Correlation": 0.5,
+          "Significance": 0.8,
+          "Type": "pearson"
+        },
+        {
+          "Metric1": "memory_usage",
+          "Metric2": "execution_time",
+          "Correlation": 0.5,
+          "Significance": 0.8,
+          "Type": "pearson"
+        },
+        {
+          "Metric1": "execution_time",
+          "Metric2": "throughput",
+          "Correlation": 0.5,
+          "Significance": 0.8,
+          "Type": "pearson"
+        },
+        {
+          "Metric1": "execution_time",
+          "Metric2": "memory_usage",
+          "Correlation": 0.5,
+          "Significance": 0.8,
+          "Type": "pearson"
+        }
+      ],
+      "NetworkAnalysis": null
+    },
+    "CausalAnalysis": null,
+    "ImpactAnalysis": null,
+    "RootCauseAnalysis": null,
+    "RecommendationEngine": {
+      "ImmediateActions": [],
+      "ShortTermActions": [],
+      "LongTermActions": [],
+      "PreventiveActions": null,
+      "MonitoringActions": null,
+      "PrioritizedActions": null
+    }
+  },
+  "QualityGateResults": [
+    {
+      "Gate": {
+        "Name": "Performance Degradation",
+        "Metric": "performance_degradation",
+        "Threshold": 10,
+        "Operator": "lt",
+        "Severity": "major",
+        "Enabled": true
+      },
+      "Passed": true,
+      "ActualValue": 0,
+      "Threshold": 10,
+      "Deviation": -10,
+      "Message": "No regression detected - quality gate passed"
+    },
+    {
+      "Gate": {
+        "Name": "Error Rate Increase",
+        "Metric": "error_rate_increase",
+        "Threshold": 2,
+        "Operator": "lt",
+        "Severity": "critical",
+        "Enabled": true
+      },
+      "Passed": true,
+      "ActualValue": 0,
+      "Threshold": 2,
+      "Deviation": -2,
+      "Message": "No regression detected - quality gate passed"
+    }
+  ],
+  "Alerts": [],
+  "Summary": null,
+  "Recommendations": []
+}

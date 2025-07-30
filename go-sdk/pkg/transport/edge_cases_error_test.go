@@ -31,6 +31,7 @@ func TestEdgeCaseErrors(t *testing.T) {
 	})
 
 	t.Run("context_already_cancelled", func(t *testing.T) {
+		// Test Start with cancelled context
 		manager := NewSimpleManager()
 		transport := NewErrorTransport()
 		transport.connectDelay = 10 * time.Millisecond // Add delay to trigger context check
@@ -47,13 +48,23 @@ func TestEdgeCaseErrors(t *testing.T) {
 			t.Errorf("Expected context.Canceled, got %v", err)
 		}
 
-		// Start normally
-		manager.Start(context.Background())
-		defer manager.Stop(context.Background())
+		// Use a fresh manager for normal operations to avoid deadlock
+		manager2 := NewSimpleManager()
+		transport2 := NewErrorTransport()
+		transport2.connectDelay = 10 * time.Millisecond
+		transport2.sendDelay = 10 * time.Millisecond
+		manager2.SetTransport(transport2)
+
+		// Start normally with fresh manager
+		err = manager2.Start(context.Background())
+		if err != nil {
+			t.Fatalf("Failed to start manager: %v", err)
+		}
+		defer manager2.Stop(context.Background())
 
 		// Send with cancelled context
 		event := &DemoEvent{id: "test", eventType: "demo"}
-		err = manager.Send(ctx, event)
+		err = manager2.Send(ctx, event)
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("Expected context.Canceled on send, got %v", err)
 		}

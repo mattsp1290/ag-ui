@@ -149,6 +149,12 @@ type StateStore struct {
 	wg        sync.WaitGroup  // WaitGroup for goroutine lifecycle management
 	ctx       context.Context // Context for cancellation signaling
 	cancel    context.CancelFunc
+	
+	// Storage and optimization
+	storageBackend       StorageBackend
+	performanceOptimizer PerformanceOptimizer
+	metricsEnabled       bool
+	auditLogEnabled      bool
 }
 
 // stateShard represents a single shard with its own lock
@@ -248,6 +254,34 @@ func WithShardCount(count uint32) StateStoreOption {
 func WithLogger(logger Logger) StateStoreOption {
 	return func(s *StateStore) {
 		s.logger = logger
+	}
+}
+
+// WithStorageBackend sets the storage backend for the store
+func WithStorageBackend(backend StorageBackend) StateStoreOption {
+	return func(s *StateStore) {
+		s.storageBackend = backend
+	}
+}
+
+// WithPerformanceOptimizer sets the performance optimizer for the store
+func WithPerformanceOptimizer(optimizer PerformanceOptimizer) StateStoreOption {
+	return func(s *StateStore) {
+		s.performanceOptimizer = optimizer
+	}
+}
+
+// WithMetrics enables or disables metrics collection for the store
+func WithMetrics(enabled bool) StateStoreOption {
+	return func(s *StateStore) {
+		s.metricsEnabled = enabled
+	}
+}
+
+// WithAuditLog enables or disables audit logging for the store
+func WithAuditLog(enabled bool) StateStoreOption {
+	return func(s *StateStore) {
+		s.auditLogEnabled = enabled
 	}
 }
 

@@ -119,6 +119,22 @@ func (e *TypedBaseEvent[T]) GetBaseEvent() *BaseEvent {
 	return e.BaseEvent
 }
 
+// ThreadID returns the thread ID (delegate to base event's default implementation)
+func (e *TypedBaseEvent[T]) ThreadID() string {
+	if e.BaseEvent != nil {
+		return e.BaseEvent.ThreadID()
+	}
+	return ""
+}
+
+// RunID returns the run ID (delegate to base event's default implementation)
+func (e *TypedBaseEvent[T]) RunID() string {
+	if e.BaseEvent != nil {
+		return e.BaseEvent.RunID()
+	}
+	return ""
+}
+
 // ToLegacyEvent converts to the legacy Event interface
 func (e *TypedBaseEvent[T]) ToLegacyEvent() Event {
 	// This requires mapping to the appropriate legacy event type
@@ -174,26 +190,26 @@ func (e *TypedBaseEvent[T]) ToLegacyEvent() Event {
 	case EventTypeRunStarted:
 		if runData, ok := any(e.typedData).(RunEventData); ok {
 			return &RunStartedEvent{
-				BaseEvent: e.BaseEvent,
-				ThreadID:  runData.ThreadID,
-				RunID:     runData.RunID,
+				BaseEvent:     e.BaseEvent,
+				ThreadIDValue: runData.ThreadID,
+				RunIDValue:    runData.RunID,
 			}
 		}
 	case EventTypeRunFinished:
 		if runData, ok := any(e.typedData).(RunEventData); ok {
 			return &RunFinishedEvent{
-				BaseEvent: e.BaseEvent,
-				ThreadID:  runData.ThreadID,
-				RunID:     runData.RunID,
+				BaseEvent:     e.BaseEvent,
+				ThreadIDValue: runData.ThreadID,
+				RunIDValue:    runData.RunID,
 			}
 		}
 	case EventTypeRunError:
 		if runData, ok := any(e.typedData).(RunEventData); ok {
 			return &RunErrorEvent{
-				BaseEvent: e.BaseEvent,
-				Message:   runData.Message,
-				Code:      runData.Code,
-				RunID:     runData.RunID,
+				BaseEvent:  e.BaseEvent,
+				Message:    runData.Message,
+				Code:       runData.Code,
+				RunIDValue: runData.RunID,
 			}
 		}
 	case EventTypeStepStarted:
@@ -507,8 +523,8 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 		
 	case *RunStartedEvent:
 		data := RunEventData{
-			RunID:    e.RunID,
-			ThreadID: e.ThreadID,
+			RunID:    e.RunID(),
+			ThreadID: e.ThreadID(),
 		}
 		return &TypedBaseEvent[RunEventData]{
 			BaseEvent: e.BaseEvent,
@@ -517,8 +533,8 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 		
 	case *RunFinishedEvent:
 		data := RunEventData{
-			RunID:    e.RunID,
-			ThreadID: e.ThreadID,
+			RunID:    e.RunID(),
+			ThreadID: e.ThreadID(),
 		}
 		return &TypedBaseEvent[RunEventData]{
 			BaseEvent: e.BaseEvent,
@@ -527,7 +543,7 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 		
 	case *RunErrorEvent:
 		data := RunEventData{
-			RunID:   e.RunID,
+			RunID:   e.RunID(),
 			Message: e.Message,
 			Code:    e.Code,
 		}

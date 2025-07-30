@@ -135,8 +135,8 @@ func (v *CrossSDKValidator) loadDefaultTestVectors() {
 					EventType:   events.EventTypeRunStarted,
 					TimestampMs: int64Ptr(1234567890),
 				},
-				RunID:    "run-123",
-				ThreadID: "thread-456",
+				RunIDValue:    "run-123",
+				ThreadIDValue: "thread-456",
 			},
 		},
 		{
@@ -393,8 +393,8 @@ func (s *CrossSDKTestSuite) generateTestEvents() []events.Event {
 				EventType: events.EventTypeRunStarted,
 				TimestampMs: int64Ptr(1234567890),
 			},
-			RunID:    "run-test-123",
-			ThreadID: "thread-test-456",
+			RunIDValue:    "run-test-123",
+			ThreadIDValue: "thread-test-456",
 		},
 		&events.TextMessageContentEvent{
 			BaseEvent: &events.BaseEvent{

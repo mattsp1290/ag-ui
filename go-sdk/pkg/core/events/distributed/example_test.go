@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
@@ -15,10 +16,9 @@ func ExampleDistributedValidator() {
 	// Create a local validator first
 	localValidator := events.NewEventValidator(nil)
 
-	// Configure the distributed validator
-	config := distributed.DefaultDistributedValidatorConfig("node-1")
+	// Configure the distributed validator for testing (no goroutine restarts)
+	config := distributed.TestingDistributedValidatorConfig("node-1")
 	config.ConsensusConfig.Algorithm = distributed.ConsensusMajority
-	config.PartitionHandler.AllowLocalValidation = true
 
 	// Create the distributed validator
 	dv, err := distributed.NewDistributedValidator(config, localValidator)
@@ -34,7 +34,16 @@ func ExampleDistributedValidator() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer dv.Stop()
+	defer func() {
+		// Suppress cleanup output for cleaner example
+		oldStdout := os.Stdout
+		r, w, _ := os.Pipe()
+		os.Stdout = w
+		dv.Stop()
+		w.Close()
+		r.Close()
+		os.Stdout = oldStdout
+	}()
 
 	// Register additional nodes
 	node2 := &distributed.NodeInfo{

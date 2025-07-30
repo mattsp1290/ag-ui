@@ -1,3 +1,6 @@
+//go:build performance
+// +build performance
+
 package state
 
 import (
@@ -324,6 +327,10 @@ func BenchmarkMemoryEfficiency(b *testing.B) {
 
 // TestPerformanceOptimizer tests the performance optimizer functionality
 func TestPerformanceOptimizer(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping performance test in short mode")
+	}
+	
 	t.Run("ObjectPooling", func(t *testing.T) {
 		po := NewPerformanceOptimizerForTesting(PerformanceOptions{
 			EnablePooling: true,

@@ -89,6 +89,18 @@ func DefaultGoroutineRestartPolicy() *GoroutineRestartPolicy {
 	}
 }
 
+// TestingGoroutineRestartPolicy returns a restart policy suitable for testing
+// This policy disables restarts to prevent goroutine leak issues in tests
+func TestingGoroutineRestartPolicy() *GoroutineRestartPolicy {
+	return &GoroutineRestartPolicy{
+		MaxRestarts:       0, // No restarts during testing
+		RestartWindow:     1 * time.Second,
+		BaseBackoff:       10 * time.Millisecond,
+		MaxBackoff:        100 * time.Millisecond,
+		BackoffMultiplier: 1.0,
+	}
+}
+
 // GoroutineManager manages goroutine lifecycle with restart capabilities
 type GoroutineManager struct {
 	name               string
@@ -146,27 +158,41 @@ func (gm *GoroutineManager) StopWithTimeout(timeout time.Duration) {
 	if gm.cancel != nil {
 		gm.cancel()
 	}
+	// Set not running immediately after cancelling context
+	// This helps other goroutines see the state change quickly
+	wasRunning := gm.isRunning
+	gm.isRunning = false
 	gm.mu.Unlock()
+	
+	// Only wait if we were actually running
+	if !wasRunning {
+		return
+	}
 	
 	// Wait for goroutine to finish without holding the lock, with timeout
 	done := make(chan struct{})
 	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Panic while waiting for goroutine %s to stop: %v", gm.name, r)
+			}
+			close(done)
+		}()
 		gm.wg.Wait()
-		close(done)
 	}()
 	
 	select {
 	case <-done:
 		// Goroutine stopped gracefully
+		log.Printf("Goroutine %s stopped gracefully", gm.name)
 	case <-time.After(timeout):
 		// Timeout occurred
 		log.Printf("Warning: Goroutine %s did not stop within timeout %v", gm.name, timeout)
+		// Force mark as not running even on timeout to prevent further waits
+		gm.mu.Lock()
+		gm.isRunning = false
+		gm.mu.Unlock()
 	}
-	
-	// Now safely update the running state
-	gm.mu.Lock()
-	gm.isRunning = false
-	gm.mu.Unlock()
 }
 
 // runWithRestart runs the function with restart capability
@@ -174,6 +200,7 @@ func (gm *GoroutineManager) runWithRestart(fn func(context.Context)) {
 	defer gm.wg.Done()
 	
 	for {
+		// Check context cancellation first
 		select {
 		case <-gm.ctx.Done():
 			return
@@ -188,25 +215,34 @@ func (gm *GoroutineManager) runWithRestart(fn func(context.Context)) {
 			return
 		}
 		
-		// Run the function with panic recovery
+		// Run the function with panic recovery in the same goroutine
+		// to avoid creating nested goroutines that are hard to track
 		func() {
 			defer func() {
 				if r := recover(); r != nil {
 					log.Printf("Panic in goroutine %s: %v", gm.name, r)
-					// Only restart if we're still supposed to
-					gm.mu.RLock()
-					stillRestarting := gm.shouldRestart
-					gm.mu.RUnlock()
-					if stillRestarting {
-						gm.handleRestart()
-					}
 				}
 			}()
 			
 			fn(gm.ctx)
 		}()
 		
-		// If we reach here, the function exited normally
+		// Immediately check if context was cancelled after function completion
+		// This prevents race conditions between context cancellation and shouldRestart checks
+		if gm.ctx.Err() != nil {
+			return
+		}
+		
+		// Check if context was cancelled during function execution
+		select {
+		case <-gm.ctx.Done():
+			// Context cancelled, stop restarting
+			return
+		default:
+			// Function completed, check if we should restart
+		}
+		
+		// Check if we should restart after function exit
 		gm.mu.RLock()
 		shouldRestart = gm.shouldRestart
 		gm.mu.RUnlock()
@@ -215,13 +251,35 @@ func (gm *GoroutineManager) runWithRestart(fn func(context.Context)) {
 			return
 		}
 		
-		// Function exited, attempt restart
+		// Check context again before attempting restart
+		select {
+		case <-gm.ctx.Done():
+			return
+		default:
+		}
+		
+		// Function completed, but check if we're being stopped before restart
+		gm.mu.RLock()
+		if !gm.shouldRestart {
+			gm.mu.RUnlock()
+			return
+		}
+		gm.mu.RUnlock()
+		
+		// Function completed, handle restart with delay
 		gm.handleRestart()
 	}
 }
 
 // handleRestart handles the restart logic with exponential backoff
 func (gm *GoroutineManager) handleRestart() {
+	// Check context first
+	select {
+	case <-gm.ctx.Done():
+		return
+	default:
+	}
+	
 	now := time.Now()
 	
 	// Check if we're within the restart window
@@ -242,6 +300,15 @@ func (gm *GoroutineManager) handleRestart() {
 		return
 	}
 	
+	// Check if we should still restart
+	gm.mu.RLock()
+	shouldRestart := gm.shouldRestart
+	gm.mu.RUnlock()
+	
+	if !shouldRestart {
+		return
+	}
+	
 	// Calculate backoff duration
 	backoffDuration := time.Duration(float64(gm.restartPolicy.BaseBackoff) * 
 		math.Pow(gm.restartPolicy.BackoffMultiplier, float64(restarts-1)))
@@ -253,12 +320,30 @@ func (gm *GoroutineManager) handleRestart() {
 	log.Printf("Restarting goroutine %s in %v (attempt %d/%d)", 
 		gm.name, backoffDuration, restarts, gm.restartPolicy.MaxRestarts)
 	
-	// Wait for backoff period with context cancellation check
+	// Wait for backoff period with context cancellation check using timer to prevent goroutine leak
+	timer := time.NewTimer(backoffDuration)
+	defer func() {
+		if !timer.Stop() {
+			// Drain the timer channel if it wasn't stopped
+			select {
+			case <-timer.C:
+			default:
+			}
+		}
+	}()
+	
 	select {
 	case <-gm.ctx.Done():
+		// Context cancelled, stop restarting
 		return
-	case <-time.After(backoffDuration):
-		// Check if we should still restart before continuing
+	case <-timer.C:
+		// Check if we should still restart after backoff
+		select {
+		case <-gm.ctx.Done():
+			return
+		default:
+		}
+		
 		gm.mu.RLock()
 		shouldRestart := gm.shouldRestart
 		gm.mu.RUnlock()
@@ -342,6 +427,35 @@ func DefaultDistributedValidatorConfig(nodeID NodeID) *DistributedValidatorConfi
 	}
 }
 
+// TestingDistributedValidatorConfig returns configuration optimized for testing
+// This prevents goroutine leaks by disabling restart policies and using shorter timeouts
+func TestingDistributedValidatorConfig(nodeID NodeID) *DistributedValidatorConfig {
+	testingStateSync := DefaultStateSyncConfig()
+	testingStateSync.SyncInterval = 50 * time.Millisecond // Faster for tests
+	
+	testingPartitionHandler := DefaultPartitionHandlerConfig()
+	testingPartitionHandler.HeartbeatTimeout = 100 * time.Millisecond
+	testingPartitionHandler.AllowLocalValidation = true
+	testingPartitionHandler.MinNodesForOperation = 1
+	
+	return &DistributedValidatorConfig{
+		NodeID:                 nodeID,
+		ConsensusConfig:        DefaultConsensusConfig(),
+		StateSync:              testingStateSync,
+		LoadBalancer:           DefaultLoadBalancerConfig(),
+		PartitionHandler:       testingPartitionHandler,
+		MaxNodeFailures:        2,
+		ValidationTimeout:      2 * time.Second,
+		HeartbeatInterval:      100 * time.Millisecond,
+		NodeCleanupInterval:    1 * time.Second, // Faster cleanup for tests
+		EnableMetrics:          true,
+		ConsensusCircuitBreakerConfig:   errors.DefaultCircuitBreakerConfig("consensus"),
+		StateSyncCircuitBreakerConfig:   errors.DefaultCircuitBreakerConfig("state-sync"),
+		HeartbeatCircuitBreakerConfig:   errors.DefaultCircuitBreakerConfig("heartbeat"),
+		GoroutineRestartPolicy: TestingGoroutineRestartPolicy(), // No restarts for tests
+	}
+}
+
 // DistributedValidator implements distributed validation across multiple nodes
 type DistributedValidator struct {
 	config           *DistributedValidatorConfig
@@ -374,7 +488,6 @@ type DistributedValidator struct {
 	// Lifecycle
 	running          bool
 	runningMutex     sync.RWMutex
-	stopChan         chan struct{}
 	stopOnce         sync.Once
 	
 	// Goroutine managers for background routines
@@ -417,7 +530,6 @@ func NewDistributedValidator(config *DistributedValidatorConfig, localValidator 
 		activeNodes:        make([]NodeID, 0),
 		pendingValidations: make(map[string]*PendingValidation),
 		metrics:            NewDistributedMetrics(),
-		stopChan:           make(chan struct{}),
 		resourceCleanup:    make([]func() error, 0),
 		tracer:             otel.Tracer("ag-ui/distributed-validation"),
 		consensusCircuitBreaker: errors.GetCircuitBreaker("consensus", config.ConsensusCircuitBreakerConfig),
@@ -464,6 +576,9 @@ func (dv *DistributedValidator) Start(ctx context.Context) error {
 		return fmt.Errorf("distributed validator already running")
 	}
 
+	// Reset stopOnce for restart capability
+	dv.stopOnce = sync.Once{}
+
 	// Start components
 	if err := dv.consensus.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start consensus: %w", err)
@@ -499,51 +614,97 @@ func (dv *DistributedValidator) Stop() error {
 		return nil
 	}
 
-	// Signal stop to background routines
-	dv.stopOnce.Do(func() {
-		close(dv.stopChan)
-	})
-
-	// Stop managed goroutines with timeout
-	stopTimeout := 2 * time.Second
-	if dv.heartbeatManager != nil {
-		dv.heartbeatManager.StopWithTimeout(stopTimeout)
-	}
-	if dv.cleanupManager != nil {
-		dv.cleanupManager.StopWithTimeout(stopTimeout)
-	}
-	if dv.metricsManager != nil {
-		dv.metricsManager.StopWithTimeout(stopTimeout)
-	}
-	if dv.consensusManager != nil {
-		dv.consensusManager.StopWithTimeout(stopTimeout)
-	}
-
-	// Stop components
 	var errs []error
 	
-	if err := dv.partitionHandler.Stop(); err != nil {
-		errs = append(errs, fmt.Errorf("failed to stop partition handler: %w", err))
-	}
-
-	if err := dv.stateSync.Stop(); err != nil {
-		errs = append(errs, fmt.Errorf("failed to stop state sync: %w", err))
-	}
-
-	if err := dv.consensus.Stop(); err != nil {
-		errs = append(errs, fmt.Errorf("failed to stop consensus: %w", err))
-	}
-	
-	// Execute resource cleanup functions
-	dv.cleanupMutex.Lock()
-	for _, cleanup := range dv.resourceCleanup {
-		if err := cleanup(); err != nil {
-			errs = append(errs, fmt.Errorf("resource cleanup error: %w", err))
+	// Use a single execution pattern to ensure Stop is called only once
+	dv.stopOnce.Do(func() {
+		// Stop managed goroutines with timeout - these should stop cleanly
+		// The goroutine managers handle context cancellation internally
+		stopTimeout := 2 * time.Second // Reasonable timeout for tests and production
+		
+		// Create a waitgroup for parallel shutdown of goroutines
+		var goroutineWG sync.WaitGroup
+		
+		// Stop all goroutines in parallel for faster shutdown
+		managers := []*GoroutineManager{
+			dv.heartbeatManager, 
+			dv.cleanupManager, 
+			dv.metricsManager, 
+			dv.consensusManager,
 		}
-	}
-	dv.cleanupMutex.Unlock()
+		
+		for i, manager := range managers {
+			if manager != nil {
+				goroutineWG.Add(1)
+				go func(mgr *GoroutineManager, index int) {
+					defer func() {
+						// Ensure WaitGroup is always decremented even if panic occurs
+						if r := recover(); r != nil {
+							fmt.Printf("Panic stopping manager %d: %v\n", index, r)
+						}
+						goroutineWG.Done()
+					}()
+					mgr.StopWithTimeout(stopTimeout)
+				}(manager, i)
+			}
+		}
+		
+		// Wait for all goroutines to stop or timeout with proper cleanup
+		goroutineStopDone := make(chan struct{})
+		go func() {
+			defer func() {
+				if r := recover(); r != nil {
+					fmt.Printf("Panic in goroutine stop waiter: %v\n", r)
+				}
+				close(goroutineStopDone)
+			}()
+			goroutineWG.Wait()
+		}()
+		
+		select {
+		case <-goroutineStopDone:
+			// All goroutines stopped successfully
+		case <-time.After(stopTimeout + 500*time.Millisecond):
+			// Overall timeout - some goroutines may not have stopped
+			errs = append(errs, fmt.Errorf("timeout waiting for goroutines to stop"))
+		}
 
-	dv.running = false
+		// Stop components in reverse dependency order
+		// Stop partition handler first as it might have dependencies on others
+		if dv.partitionHandler != nil {
+			if err := dv.partitionHandler.Stop(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to stop partition handler: %w", err))
+			}
+		}
+
+		// Stop state sync (has worker manager)
+		if dv.stateSync != nil {
+			if err := dv.stateSync.Stop(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to stop state sync: %w", err))
+			}
+		}
+
+		// Stop consensus last
+		if dv.consensus != nil {
+			if err := dv.consensus.Stop(); err != nil {
+				errs = append(errs, fmt.Errorf("failed to stop consensus: %w", err))
+			}
+		}
+		
+		// Execute resource cleanup functions
+		dv.cleanupMutex.Lock()
+		for i, cleanup := range dv.resourceCleanup {
+			if cleanup != nil {
+				if err := cleanup(); err != nil {
+					errs = append(errs, fmt.Errorf("resource cleanup error %d: %w", i, err))
+				}
+			}
+		}
+		dv.cleanupMutex.Unlock()
+
+		// Mark as stopped
+		dv.running = false
+	})
 
 	if len(errs) > 0 {
 		return fmt.Errorf("errors stopping distributed validator: %v", errs)
@@ -1050,6 +1211,61 @@ func (dv *DistributedValidator) GetGoroutineStatus() map[string]GoroutineStatus 
 	return status
 }
 
+// WaitForGoroutineTermination waits for all managed goroutines to terminate
+// This is useful for testing scenarios to ensure clean shutdown
+func (dv *DistributedValidator) WaitForGoroutineTermination(timeout time.Duration) error {
+	start := time.Now()
+	deadline := start.Add(timeout)
+	
+	// Check every 10ms for goroutine termination
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-ticker.C:
+			if dv.AreAllGoroutinesTerminated() {
+				return nil
+			}
+			
+			// Check timeout
+			if time.Now().After(deadline) {
+				return fmt.Errorf("timeout waiting for goroutines to terminate after %v", timeout)
+			}
+			
+		case <-time.After(timeout):
+			return fmt.Errorf("timeout waiting for goroutines to terminate")
+		}
+	}
+}
+
+// AreAllGoroutinesTerminated checks if all managed goroutines have terminated
+func (dv *DistributedValidator) AreAllGoroutinesTerminated() bool {
+	status := dv.GetGoroutineStatus()
+	
+	for _, goroutineStatus := range status {
+		if goroutineStatus.IsRunning {
+			return false
+		}
+	}
+	
+	return true
+}
+
+// GetRunningGoroutines returns a list of goroutines that are still running
+func (dv *DistributedValidator) GetRunningGoroutines() []string {
+	status := dv.GetGoroutineStatus()
+	running := make([]string, 0)
+	
+	for name, goroutineStatus := range status {
+		if goroutineStatus.IsRunning {
+			running = append(running, name)
+		}
+	}
+	
+	return running
+}
+
 // GoroutineStatus represents the status of a managed goroutine
 type GoroutineStatus struct {
 	Name         string `json:"name"`
@@ -1113,19 +1329,28 @@ func (dv *DistributedValidator) broadcastValidationRequest(ctx context.Context, 
 		return
 	}
 
+	// Create timeout context for broadcast operations to prevent indefinite hanging
+	broadcastCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+
 	// Create buffered channel for batch processing
 	batchSize := 5 // Process in batches of 5
 	if len(targetNodes) < batchSize {
 		batchSize = len(targetNodes)
 	}
 
-	// Create worker pool for async processing
+	// Create worker pool for async processing with proper cleanup
 	workerChan := make(chan broadcastTask, len(targetNodes))
 	resultChan := make(chan broadcastResult, len(targetNodes))
+	var workerWG sync.WaitGroup
 
-	// Start worker goroutines
+	// Start worker goroutines with wait group for proper cleanup
 	for i := 0; i < batchSize; i++ {
-		go dv.broadcastWorker(ctx, eventID, event, workerChan, resultChan)
+		workerWG.Add(1)
+		go func() {
+			defer workerWG.Done()
+			dv.broadcastWorker(broadcastCtx, eventID, event, workerChan, resultChan)
+		}()
 	}
 
 	// Send tasks to workers
@@ -1138,28 +1363,46 @@ func (dv *DistributedValidator) broadcastValidationRequest(ctx context.Context, 
 		
 		select {
 		case workerChan <- task:
-		case <-ctx.Done():
+		case <-broadcastCtx.Done():
 			close(workerChan)
+			// Wait for workers to finish
+			workerWG.Wait()
 			return
 		}
 	}
 
 	close(workerChan)
 
-	// Collect results asynchronously (don't block on results)
+	// Collect results asynchronously with proper cleanup
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				fmt.Printf("Panic in broadcast result collection: %v\n", r)
 			}
+			// Ensure workers are properly cleaned up
+			workerWG.Wait()
+			// Drain any remaining results to prevent goroutine leaks
+			for {
+				select {
+				case <-resultChan:
+					// Drain remaining results
+				default:
+					return
+				}
+			}
 		}()
 
 		successCount := 0
 		failureCount := 0
+		collectedResults := 0
 		
-		for i := 0; i < len(targetNodes); i++ {
+		for collectedResults < len(targetNodes) {
 			select {
-			case result := <-resultChan:
+			case result, ok := <-resultChan:
+				if !ok {
+					return // Channel closed
+				}
+				collectedResults++
 				if result.err != nil {
 					failureCount++
 					dv.metrics.RecordBroadcastFailure(result.nodeID)
@@ -1167,9 +1410,13 @@ func (dv *DistributedValidator) broadcastValidationRequest(ctx context.Context, 
 					successCount++
 					dv.metrics.RecordBroadcastSuccess(result.nodeID)
 				}
-			case <-ctx.Done():
+			case <-broadcastCtx.Done():
+				// Context cancelled, wait for workers to finish and return
+				workerWG.Wait()
 				return
-			case <-time.After(5 * time.Second): // Timeout for result collection
+			case <-time.After(8 * time.Second): // Timeout for result collection
+				// Timeout occurred, wait for workers to finish and return
+				workerWG.Wait()
 				return
 			}
 		}
@@ -1197,26 +1444,46 @@ func (dv *DistributedValidator) broadcastWorker(ctx context.Context, eventID str
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("Panic in broadcast worker: %v\n", r)
+			// Send panic result to prevent deadlock
+			select {
+			case results <- broadcastResult{nodeID: "unknown", err: fmt.Errorf("worker panic: %v", r)}:
+			default:
+				// Results channel might be full or closed
+			}
 		}
 	}()
 
-	for task := range tasks {
+	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
-		}
+		case task, ok := <-tasks:
+			if !ok {
+				return // Channel closed
+			}
+			
+			// Check context again before processing
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 
-		// Create timeout context for individual broadcast
-		broadcastCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		
-		err := dv.sendValidationRequestAsync(broadcastCtx, task.nodeID, task.eventID, task.event)
-		cancel()
+			// Create timeout context for individual broadcast
+			broadcastCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			
+			err := dv.sendValidationRequestAsync(broadcastCtx, task.nodeID, task.eventID, task.event)
+			cancel()
 
-		select {
-		case results <- broadcastResult{nodeID: task.nodeID, err: err}:
-		case <-ctx.Done():
-			return
+			// Send result with timeout protection
+			select {
+			case results <- broadcastResult{nodeID: task.nodeID, err: err}:
+			case <-ctx.Done():
+				return
+			case <-time.After(1 * time.Second):
+				// Timeout sending result, continue to prevent deadlock
+				continue
+			}
 		}
 	}
 }
@@ -1333,17 +1600,38 @@ func (dv *DistributedValidator) heartbeatRoutine(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			return
-		case <-dv.stopChan:
+			// Context cancelled, terminate immediately
 			return
 		case <-ticker.C:
-			dv.sendHeartbeat()
+			// Check context before processing to ensure quick termination
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				// Send heartbeat with context cancellation support
+				// Use a shorter timeout context to prevent blocking on shutdown
+				heartbeatCtx, cancel := context.WithTimeout(ctx, dv.config.HeartbeatInterval/2)
+				dv.sendHeartbeatWithContext(heartbeatCtx)
+				cancel()
+			}
 		}
 	}
 }
 
 // sendHeartbeat sends a heartbeat to other nodes asynchronously
 func (dv *DistributedValidator) sendHeartbeat() {
+	dv.sendHeartbeatWithContext(context.Background())
+}
+
+// sendHeartbeatWithContext sends a heartbeat to other nodes asynchronously with context support
+func (dv *DistributedValidator) sendHeartbeatWithContext(ctx context.Context) {
+	// Check context before starting any work
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
 	// Update local node info
 	dv.updateLocalNodeInfo()
 
@@ -1353,8 +1641,15 @@ func (dv *DistributedValidator) sendHeartbeat() {
 		return
 	}
 
-	// Send heartbeats asynchronously with buffering
-	go dv.broadcastHeartbeatAsync(targetNodes)
+	// Check context again before async operation
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
+	// Send heartbeats asynchronously with context support
+	go dv.broadcastHeartbeatAsyncWithContext(ctx, targetNodes)
 }
 
 // updateLocalNodeInfo updates the local node information
@@ -1388,28 +1683,47 @@ func (dv *DistributedValidator) getActiveTargetNodes() []NodeID {
 
 // broadcastHeartbeatAsync broadcasts heartbeat to nodes asynchronously
 func (dv *DistributedValidator) broadcastHeartbeatAsync(nodes []NodeID) {
+	dv.broadcastHeartbeatAsyncWithContext(context.Background(), nodes)
+}
+
+// broadcastHeartbeatAsyncWithContext broadcasts heartbeat to nodes asynchronously with context support
+func (dv *DistributedValidator) broadcastHeartbeatAsyncWithContext(parentCtx context.Context, nodes []NodeID) {
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("Panic in heartbeat broadcast: %v\n", r)
 		}
 	}()
 
+	// Check parent context before starting
+	select {
+	case <-parentCtx.Done():
+		return
+	default:
+	}
+
+	// Create timeout context derived from parent context for heartbeat operations
+	ctx, cancel := context.WithTimeout(parentCtx, 8*time.Second)
+	defer cancel()
+
 	// Create buffered channel for heartbeat tasks
 	heartbeatTasks := make(chan heartbeatTask, len(nodes))
 	results := make(chan heartbeatResult, len(nodes))
 	
-	// Start worker pool for heartbeat processing
+	// Start worker pool for heartbeat processing with wait group
 	workerCount := 3 // Limited workers for heartbeat
 	if len(nodes) < workerCount {
 		workerCount = len(nodes)
 	}
 	
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+	var workerWG sync.WaitGroup
 	
-	// Start workers
+	// Start workers with wait group tracking
 	for i := 0; i < workerCount; i++ {
-		go dv.heartbeatWorker(ctx, heartbeatTasks, results)
+		workerWG.Add(1)
+		go func() {
+			defer workerWG.Done()
+			dv.heartbeatWorker(ctx, heartbeatTasks, results)
+		}()
 	}
 	
 	// Send tasks to workers
@@ -1423,26 +1737,44 @@ func (dv *DistributedValidator) broadcastHeartbeatAsync(nodes []NodeID) {
 		case heartbeatTasks <- task:
 		case <-ctx.Done():
 			close(heartbeatTasks)
+			// Wait for workers to finish
+			workerWG.Wait()
 			return
 		}
 	}
 	
 	close(heartbeatTasks)
 	
-	// Collect results without blocking
+	// Collect results without blocking but with proper cleanup
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				fmt.Printf("Panic in heartbeat result collection: %v\n", r)
 			}
+			// Ensure workers are cleaned up
+			workerWG.Wait()
+			// Drain any remaining results
+			for {
+				select {
+				case <-results:
+					// Drain remaining results
+				default:
+					return
+				}
+			}
 		}()
 		
 		successCount := 0
 		failureCount := 0
+		collectedResults := 0
 		
-		for i := 0; i < len(nodes); i++ {
+		for collectedResults < len(nodes) {
 			select {
-			case result := <-results:
+			case result, ok := <-results:
+				if !ok {
+					return // Channel closed
+				}
+				collectedResults++
 				if result.err != nil {
 					failureCount++
 					dv.handleHeartbeatFailure(result.nodeID, result.err)
@@ -1451,6 +1783,12 @@ func (dv *DistributedValidator) broadcastHeartbeatAsync(nodes []NodeID) {
 					dv.handleHeartbeatSuccess(result.nodeID)
 				}
 			case <-ctx.Done():
+				// Context cancelled, wait for workers and return
+				workerWG.Wait()
+				return
+			case <-time.After(5 * time.Second):
+				// Timeout, wait for workers and return
+				workerWG.Wait()
 				return
 			}
 		}
@@ -1476,25 +1814,45 @@ func (dv *DistributedValidator) heartbeatWorker(ctx context.Context, tasks <-cha
 	defer func() {
 		if r := recover(); r != nil {
 			fmt.Printf("Panic in heartbeat worker: %v\n", r)
+			// Send panic result to prevent deadlock
+			select {
+			case results <- heartbeatResult{nodeID: "unknown", err: fmt.Errorf("heartbeat worker panic: %v", r)}:
+			default:
+				// Results channel might be full or closed
+			}
 		}
 	}()
 
-	for task := range tasks {
+	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
-		}
+		case task, ok := <-tasks:
+			if !ok {
+				return // Channel closed
+			}
+			
+			// Check context again before processing
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
 
-		// Send heartbeat with timeout
-		heartbeatCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
-		err := dv.sendHeartbeatToNode(heartbeatCtx, task.nodeID)
-		cancel()
+			// Send heartbeat with timeout
+			heartbeatCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
+			err := dv.sendHeartbeatToNode(heartbeatCtx, task.nodeID)
+			cancel()
 
-		select {
-		case results <- heartbeatResult{nodeID: task.nodeID, err: err}:
-		case <-ctx.Done():
-			return
+			// Send result with timeout protection
+			select {
+			case results <- heartbeatResult{nodeID: task.nodeID, err: err}:
+			case <-ctx.Done():
+				return
+			case <-time.After(500 * time.Millisecond):
+				// Timeout sending result, continue to prevent deadlock
+				continue
+			}
 		}
 	}
 }
@@ -1553,23 +1911,65 @@ func (dv *DistributedValidator) cleanupRoutine(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			return
-		case <-dv.stopChan:
+			// Context cancelled, terminate immediately
 			return
 		case <-ticker.C:
-			dv.cleanup()
+			// Check context before processing to ensure quick termination
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				// Perform cleanup with context awareness and timeout
+				// Use a timeout to prevent blocking on shutdown
+				cleanupCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				dv.cleanupWithContext(cleanupCtx)
+				cancel()
+			}
 		}
 	}
 }
 
 // cleanup performs cleanup tasks
 func (dv *DistributedValidator) cleanup() {
-	dv.cleanupNodes()
-	dv.cleanupPendingValidations()
+	dv.cleanupWithContext(context.Background())
+}
+
+// cleanupWithContext performs cleanup tasks with context support
+func (dv *DistributedValidator) cleanupWithContext(ctx context.Context) {
+	// Check context before starting cleanup
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
+	// Clean up nodes first
+	dv.cleanupNodesWithContext(ctx)
+	
+	// Check context before proceeding to next cleanup task
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+	
+	// Clean up pending validations
+	dv.cleanupPendingValidationsWithContext(ctx)
 }
 
 // cleanupNodes removes nodes not seen for > 5 minutes (heartbeat-based eviction)
 func (dv *DistributedValidator) cleanupNodes() {
+	dv.cleanupNodesWithContext(context.Background())
+}
+
+// cleanupNodesWithContext removes nodes not seen for > 5 minutes (heartbeat-based eviction) with context support
+func (dv *DistributedValidator) cleanupNodesWithContext(ctx context.Context) {
+	// Check context before starting work
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
 	now := time.Now()
 	cutoff := now.Add(-dv.config.NodeCleanupInterval)
 	removedCount := 0
@@ -1578,6 +1978,14 @@ func (dv *DistributedValidator) cleanupNodes() {
 	// First pass: collect nodes that need state changes
 	dv.nodesMutex.RLock()
 	for nodeID, info := range dv.nodes {
+		// Check context periodically during iteration
+		select {
+		case <-ctx.Done():
+			dv.nodesMutex.RUnlock()
+			return
+		default:
+		}
+		
 		// Don't process self node
 		if nodeID == dv.config.NodeID {
 			continue
@@ -1594,8 +2002,22 @@ func (dv *DistributedValidator) cleanupNodes() {
 	
 	// Update failed nodes using optimized method
 	for _, nodeID := range failedNodes {
+		// Check context before each update
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+		
 		dv.updateNodeState(nodeID, NodeStateFailed)
 		dv.partitionHandler.HandleNodeFailure(nodeID)
+	}
+	
+	// Check context before second pass
+	select {
+	case <-ctx.Done():
+		return
+	default:
 	}
 	
 	// Second pass: remove completely stale nodes
@@ -1604,6 +2026,15 @@ func (dv *DistributedValidator) cleanupNodes() {
 	needsCacheUpdate := false
 	
 	for nodeID, info := range dv.nodes {
+		// Check context periodically during iteration
+		select {
+		case <-ctx.Done():
+			dv.activeNodesMutex.Unlock()
+			dv.nodesMutex.Unlock()
+			return
+		default:
+		}
+		
 		// Don't remove self node
 		if nodeID == dv.config.NodeID {
 			continue
@@ -1629,6 +2060,13 @@ func (dv *DistributedValidator) cleanupNodes() {
 	dv.activeNodesMutex.Unlock()
 	dv.nodesMutex.Unlock()
 	
+	// Final context check before recording metrics
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+	
 	if removedCount > 0 {
 		dv.metrics.RecordNodesRemoved(removedCount)
 	}
@@ -1636,18 +2074,53 @@ func (dv *DistributedValidator) cleanupNodes() {
 
 // cleanupPendingValidations removes old pending validations
 func (dv *DistributedValidator) cleanupPendingValidations() {
+	dv.cleanupPendingValidationsWithContext(context.Background())
+}
+
+// cleanupPendingValidationsWithContext removes old pending validations with context support
+func (dv *DistributedValidator) cleanupPendingValidationsWithContext(ctx context.Context) {
+	// Check context before starting work
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
 	dv.validationMutex.Lock()
-	defer dv.validationMutex.Unlock()
-	
+	// Check context again after acquiring lock
+	select {
+	case <-ctx.Done():
+		dv.validationMutex.Unlock()
+		return
+	default:
+	}
+
 	now := time.Now()
 	timeoutThreshold := dv.config.ValidationTimeout * 2
 	removedCount := 0
 	
 	for eventID, pending := range dv.pendingValidations {
+		// Check context periodically during iteration
+		select {
+		case <-ctx.Done():
+			dv.validationMutex.Unlock()
+			return
+		default:
+		}
+		
 		if now.Sub(pending.StartTime) > timeoutThreshold {
 			delete(dv.pendingValidations, eventID)
 			removedCount++
 		}
+	}
+	
+	dv.validationMutex.Unlock()
+	
+	// Final context check before recording metrics
+	select {
+	case <-ctx.Done():
+		return
+	default:
 	}
 	
 	if removedCount > 0 {
@@ -1667,28 +2140,72 @@ func (dv *DistributedValidator) metricsRoutine(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			return
-		case <-dv.stopChan:
+			// Context cancelled, terminate immediately
 			return
 		case <-ticker.C:
-			dv.collectMetrics()
+			// Check context before processing to ensure quick termination
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				// Collect metrics with context awareness and timeout
+				// Use a short timeout to prevent blocking on shutdown
+				metricsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+				dv.collectMetricsWithContext(metricsCtx)
+				cancel()
+			}
 		}
 	}
 }
 
 // collectMetrics collects current metrics
 func (dv *DistributedValidator) collectMetrics() {
+	dv.collectMetricsWithContext(context.Background())
+}
+
+// collectMetricsWithContext collects current metrics with context support
+func (dv *DistributedValidator) collectMetricsWithContext(ctx context.Context) {
+	// Check context before starting work
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
 	dv.nodesMutex.RLock()
+	// Check context again after acquiring lock
+	select {
+	case <-ctx.Done():
+		dv.nodesMutex.RUnlock()
+		return
+	default:
+	}
+
 	activeNodes := 0
 	totalLoad := 0.0
 
 	for _, info := range dv.nodes {
+		// Check context periodically during iteration for responsive cancellation
+		select {
+		case <-ctx.Done():
+			dv.nodesMutex.RUnlock()
+			return
+		default:
+		}
+
 		if info.State == NodeStateActive {
 			activeNodes++
 			totalLoad += info.Load
 		}
 	}
 	dv.nodesMutex.RUnlock()
+
+	// Final context check before updating metrics
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
 
 	dv.metrics.UpdateClusterMetrics(activeNodes, totalLoad)
 }
@@ -1701,28 +2218,78 @@ func (dv *DistributedValidator) consensusRoutine(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			return
-		case <-dv.stopChan:
+			// Context cancelled, terminate immediately
 			return
 		case <-ticker.C:
-			dv.checkPendingConsensus()
+			// Check context before processing to ensure quick termination
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				// Check pending consensus with context awareness and timeout
+				// Use a short timeout to prevent blocking on shutdown
+				consensusCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
+				dv.checkPendingConsensusWithContext(consensusCtx)
+				cancel()
+			}
 		}
 	}
 }
 
 // checkPendingConsensus checks all pending validations for consensus opportunities
 func (dv *DistributedValidator) checkPendingConsensus() {
+	dv.checkPendingConsensusWithContext(context.Background())
+}
+
+// checkPendingConsensusWithContext checks all pending validations for consensus opportunities with context support
+func (dv *DistributedValidator) checkPendingConsensusWithContext(ctx context.Context) {
+	// Check context before starting work
+	select {
+	case <-ctx.Done():
+		return
+	default:
+	}
+
 	dv.validationMutex.RLock()
+	// Check context again after acquiring lock
+	select {
+	case <-ctx.Done():
+		dv.validationMutex.RUnlock()
+		return
+	default:
+	}
+
 	pendingCopy := make(map[string]*PendingValidation)
 	for k, v := range dv.pendingValidations {
+		// Check context periodically during iteration
+		select {
+		case <-ctx.Done():
+			dv.validationMutex.RUnlock()
+			return
+		default:
+		}
 		pendingCopy[k] = v
 	}
 	dv.validationMutex.RUnlock()
 
 	for _, pending := range pendingCopy {
+		// Check context before processing each pending validation
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
+
 		pending.DecisionsMutex.RLock()
 		decisionCount := len(pending.Decisions)
 		pending.DecisionsMutex.RUnlock()
+
+		// Check context again before consensus logic
+		select {
+		case <-ctx.Done():
+			return
+		default:
+		}
 
 		// Check if timeout is approaching
 		timeRemaining := dv.config.ValidationTimeout - time.Since(pending.StartTime)
@@ -1732,6 +2299,9 @@ func (dv *DistributedValidator) checkPendingConsensus() {
 			select {
 			case pending.CompleteChan <- result:
 				// Successfully sent result
+			case <-ctx.Done():
+				// Context cancelled while trying to send result
+				return
 			default:
 				// Channel might already be closed or have a result
 			}

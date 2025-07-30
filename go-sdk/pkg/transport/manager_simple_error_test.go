@@ -406,9 +406,6 @@ func TestSimpleManagerResourceCleanup(t *testing.T) {
 		manager.SetTransport(transport1)
 		manager.Start(context.Background())
 		
-		// Get initial goroutine count
-		initialWg := &manager.receiveWg
-		
 		// Change transport multiple times
 		for i := 0; i < 5; i++ {
 			transport := NewErrorTransport()
@@ -423,16 +420,7 @@ func TestSimpleManagerResourceCleanup(t *testing.T) {
 		manager.Stop(ctx)
 		
 		// All goroutines should be cleaned up
-		done := make(chan struct{})
-		go func() {
-			initialWg.Wait()
-			close(done)
-		}()
-		
-		select {
-		case <-done:
-			// Good, all goroutines finished
-		case <-time.After(500 * time.Millisecond):
+		if !manager.waitForReceiveGoroutines(500 * time.Millisecond) {
 			t.Error("Goroutines not cleaned up properly")
 		}
 	})

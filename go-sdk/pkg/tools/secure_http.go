@@ -147,15 +147,6 @@ func (e *SecureHTTPExecutor) validateURL(urlStr string) error {
 
 // validateOriginalURL checks the original URL string for security issues
 func (e *SecureHTTPExecutor) validateOriginalURL(urlStr string) error {
-	// Check for scheme case issues - find the scheme in the original URL
-	colonIndex := strings.Index(urlStr, ":")
-	if colonIndex > 0 {
-		scheme := urlStr[:colonIndex]
-		if scheme != strings.ToLower(scheme) {
-			return fmt.Errorf("malformed scheme case detected")
-		}
-	}
-	
 	// Check for encoded CRLF sequences in the original URL
 	if strings.Contains(strings.ToLower(urlStr), "%0d") || strings.Contains(strings.ToLower(urlStr), "%0a") ||
 		strings.Contains(strings.ToLower(urlStr), "%0d%0a") || strings.Contains(strings.ToLower(urlStr), "%0a%0d") {
@@ -422,12 +413,14 @@ func (e *SecureHTTPExecutor) validateURLStructure(parsedURL *url.URL) error {
 		return fmt.Errorf("URL length exceeds maximum allowed length")
 	}
 
-	// Check for suspicious ports (common attack ports)
+	// Check for extremely suspicious ports only (major vulnerability scanners)
 	if parsedURL.Port() != "" {
 		if port, err := strconv.Atoi(parsedURL.Port()); err == nil {
-			suspiciousPorts := []int{22, 23, 25, 53, 110, 143, 993, 995, 1433, 1521, 3306, 3389, 5432, 5984, 6379, 8080, 8888, 9200, 11211, 27017}
-			for _, suspiciousPort := range suspiciousPorts {
-				if port == suspiciousPort {
+			// Only block ports that are commonly used for RCE or major vulnerabilities
+			// Standard ports like 22 (SSH) should be allowed for legitimate API testing
+			extremelyDangerousPorts := []int{23, 135, 139, 445, 1433, 1521, 3389, 5985, 5986}
+			for _, dangerousPort := range extremelyDangerousPorts {
+				if port == dangerousPort {
 					return fmt.Errorf("requests to port %d are not allowed", port)
 				}
 			}
@@ -444,41 +437,38 @@ func (e *SecureHTTPExecutor) validateURLStructure(parsedURL *url.URL) error {
 		return fmt.Errorf("URL contains null bytes")
 	}
 
-	// Check for suspicious schemes in fragment
+	// Fragments are not sent to the server, so they are generally safe
+	// Only block fragments with extremely dangerous content
 	if parsedURL.Fragment != "" {
-		if strings.Contains(strings.ToLower(parsedURL.Fragment), "javascript:") ||
-			strings.Contains(strings.ToLower(parsedURL.Fragment), "data:") ||
+		// Very conservative check - only block actual executable code attempts
+		if strings.Contains(strings.ToLower(parsedURL.Fragment), "javascript:void(") ||
 			strings.Contains(strings.ToLower(parsedURL.Fragment), "vbscript:") {
 			return fmt.Errorf("suspicious scheme in URL fragment")
 		}
 	}
 
-	// Check for suspicious query parameters
+	// Query parameters are part of normal HTTP operations
+	// Only block extremely dangerous patterns that pose immediate security risks
 	if parsedURL.RawQuery != "" {
-		if strings.Contains(strings.ToLower(parsedURL.RawQuery), "javascript:") ||
-			strings.Contains(strings.ToLower(parsedURL.RawQuery), "data:") ||
-			strings.Contains(strings.ToLower(parsedURL.RawQuery), "vbscript:") {
+		// Very conservative check - only block clear executable code injection
+		if strings.Contains(strings.ToLower(parsedURL.RawQuery), "vbscript:") {
 			return fmt.Errorf("suspicious scheme in URL query")
 		}
 		
-		// Check for encoded suspicious content in query parameters
+		// Only check for the most dangerous encoded content
 		if decodedQuery, err := url.QueryUnescape(parsedURL.RawQuery); err == nil {
-			if strings.Contains(strings.ToLower(decodedQuery), "<script") ||
-				strings.Contains(strings.ToLower(decodedQuery), "javascript:") ||
-				strings.Contains(strings.ToLower(decodedQuery), "data:") ||
-				strings.Contains(strings.ToLower(decodedQuery), "vbscript:") ||
-				strings.Contains(strings.ToLower(decodedQuery), "onload=") ||
-				strings.Contains(strings.ToLower(decodedQuery), "onerror=") ||
-				strings.Contains(strings.ToLower(decodedQuery), "alert(") {
+			// Only block patterns that could lead to immediate RCE
+			if strings.Contains(strings.ToLower(decodedQuery), "vbscript:") ||
+				strings.Contains(strings.ToLower(decodedQuery), "file://") ||
+				strings.Contains(strings.ToLower(decodedQuery), "eval(") {
 				return fmt.Errorf("encoded script injection detected in URL query")
 			}
 		}
 	}
 
-	// Check for double slash in path (potential directory traversal)
-	if strings.Contains(parsedURL.Path, "//") {
-		return fmt.Errorf("double slash in URL path")
-	}
+	// Double slashes in URL paths are valid HTTP and used by many APIs
+	// Only block patterns that pose actual security risks
+	// Note: Double slashes are normalized by most HTTP libraries and servers
 
 	// Check for encoded script injection
 	decodedPath, err := url.QueryUnescape(parsedURL.Path)

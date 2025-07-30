@@ -80,8 +80,8 @@ var StandardTestVectors = map[string]TestVectorSet{
 						EventType:   events.EventTypeRunStarted,
 						TimestampMs: int64Ptr(1640995200),
 					},
-					RunID:    "run-12345",
-					ThreadID: "thread-67890",
+					RunIDValue:    "run-12345",
+					ThreadIDValue: "thread-67890",
 				},
 			},
 			{
@@ -96,8 +96,8 @@ var StandardTestVectors = map[string]TestVectorSet{
 						EventType:   events.EventTypeRunStarted,
 						TimestampMs: int64Ptr(1640995200),
 					},
-					RunID:    "run-12345",
-					ThreadID: "thread-67890",
+					RunIDValue:    "run-12345",
+					ThreadIDValue: "thread-67890",
 				},
 			},
 			{
@@ -112,8 +112,8 @@ var StandardTestVectors = map[string]TestVectorSet{
 						EventType: events.EventTypeRunFinished,
 						TimestampMs: int64Ptr(1640995300),
 					},
-					RunID: "run-12345",
-					ThreadID: "thread-67890",
+					RunIDValue: "run-12345",
+					ThreadIDValue: "thread-67890",
 				},
 			},
 		},
@@ -351,8 +351,8 @@ var EdgeCaseTestVectors = TestVectorSet{
 					EventType: events.EventTypeRunStarted,
 					TimestampMs: int64Ptr(9223372036854775807), // max int64
 				},
-				RunID:    "run-max",
-				ThreadID: "thread-max",
+				RunIDValue:    "run-max",
+				ThreadIDValue: "thread-max",
 			},
 		},
 		{
@@ -367,8 +367,8 @@ var EdgeCaseTestVectors = TestVectorSet{
 					EventType: events.EventTypeRunStarted,
 					TimestampMs: int64Ptr(0),
 				},
-				RunID:    "run-zero",
-				ThreadID: "thread-zero",
+				RunIDValue:    "run-zero",
+				ThreadIDValue: "thread-zero",
 			},
 		},
 		{
@@ -382,8 +382,8 @@ var EdgeCaseTestVectors = TestVectorSet{
 				BaseEvent: &events.BaseEvent{
 					EventType: events.EventTypeRunStarted,
 				},
-				RunID:    "run-minimal",
-				ThreadID: "thread-minimal",
+				RunIDValue:    "run-minimal",
+				ThreadIDValue: "thread-minimal",
 			},
 		},
 		{
@@ -398,8 +398,8 @@ var EdgeCaseTestVectors = TestVectorSet{
 					EventType: events.EventTypeRunStarted,
 					TimestampMs: int64Ptr(1640995200),
 				},
-				RunID:    "run-測試-🚀",
-				ThreadID: "thread-тест-🔧",
+				RunIDValue:    "run-測試-🚀",
+				ThreadIDValue: "thread-тест-🔧",
 			},
 		},
 		{
@@ -503,8 +503,8 @@ var MalformedTestVectors = TestVectorSet{
 					EventType:   events.EventTypeRunStarted,
 					TimestampMs: int64Ptr(-1),
 				},
-				RunID:    "run-123",
-				ThreadID: "thread-456",
+				RunIDValue:    "run-123",
+				ThreadIDValue: "thread-456",
 			},
 		},
 		{

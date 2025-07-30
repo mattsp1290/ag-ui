@@ -104,6 +104,8 @@ func RunWeatherApiExample() error {
 		},
 	})
 	printWeatherResult(result, err, "Cached weather")
+	
+	return nil
 }
 
 func printWeatherResult(result *tools.ToolExecutionResult, err error, title string) {
@@ -187,4 +189,162 @@ func printWeatherResult(result *tools.ToolExecutionResult, err error, title stri
 
 	fmt.Printf("  Duration: %v\n", result.Duration)
 	fmt.Println()
+}
+
+// WeatherAPIExecutor provides a simple weather API implementation
+type WeatherAPIExecutor struct{}
+
+// Execute simulates weather API calls for demonstration purposes
+func (w *WeatherAPIExecutor) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolExecutionResult, error) {
+	operation, ok := params["operation"].(string)
+	if !ok {
+		return &tools.ToolExecutionResult{
+			Success: false,
+			Error:   "operation parameter is required",
+		}, nil
+	}
+
+	location, ok := params["location"].(string)
+	if !ok {
+		return &tools.ToolExecutionResult{
+			Success: false,
+			Error:   "location parameter is required",
+		}, nil
+	}
+
+	// Simulate different operations
+	switch operation {
+	case "current":
+		return &tools.ToolExecutionResult{
+			Success: true,
+			Data: map[string]interface{}{
+				"weather_data": map[string]interface{}{
+					"temperature": 22.5,
+					"humidity":    65,
+					"pressure":    1013.25,
+				},
+				"summary": map[string]interface{}{
+					"location":     location,
+					"country":      "United Kingdom",
+					"temperature":  "22.5°C",
+					"condition":    "Partly cloudy",
+					"last_updated": "2024-01-15 14:30:00",
+				},
+				"active_alerts": 0,
+			},
+			Metadata: map[string]interface{}{
+				"response_time_ms":     120,
+				"rate_limit_remaining": 950,
+				"cached":               false,
+			},
+		}, nil
+	case "forecast":
+		return &tools.ToolExecutionResult{
+			Success: true,
+			Data: map[string]interface{}{
+				"weather_data": map[string]interface{}{
+					"forecast": []interface{}{
+						map[string]interface{}{"day": 1, "temp_high": 24, "temp_low": 18},
+						map[string]interface{}{"day": 2, "temp_high": 26, "temp_low": 20},
+					},
+				},
+				"summary": map[string]interface{}{
+					"location":    location,
+					"country":     "United States",
+					"temperature": "23°F",
+					"condition":   "Sunny",
+				},
+				"forecast_days": 5,
+			},
+			Metadata: map[string]interface{}{
+				"response_time_ms":     95,
+				"rate_limit_remaining": 949,
+			},
+		}, nil
+	case "search":
+		return &tools.ToolExecutionResult{
+			Success: true,
+			Data: map[string]interface{}{
+				"locations": []interface{}{
+					map[string]interface{}{
+						"name":      "Tokyo",
+						"country":   "Japan",
+						"latitude":  35.6762,
+						"longitude": 139.6503,
+					},
+					map[string]interface{}{
+						"name":      "Tokyo Bay",
+						"country":   "Japan",
+						"latitude":  35.6586,
+						"longitude": 139.7454,
+					},
+				},
+				"count": 2,
+			},
+			Metadata: map[string]interface{}{
+				"response_time_ms": 45,
+			},
+		}, nil
+	default:
+		return &tools.ToolExecutionResult{
+			Success: false,
+			Error:   fmt.Sprintf("unsupported operation: %s", operation),
+		}, nil
+	}
+}
+
+// CreateWeatherAPITool creates and configures the weather API tool
+func CreateWeatherAPITool() *tools.Tool {
+	return &tools.Tool{
+		ID:          "weather_api",
+		Name:        "Weather API Integration",
+		Description: "Demonstrates external API integration with weather services",
+		Version:     "1.0.0",
+		Schema: &tools.ToolSchema{
+			Type: "object",
+			Properties: map[string]*tools.Property{
+				"operation": {
+					Type:        "string",
+					Description: "Weather operation to perform",
+					Enum: []interface{}{
+						"current", "forecast", "search", "alerts", "history",
+					},
+				},
+				"location": {
+					Type:        "string",
+					Description: "Location for weather data",
+					MinLength:   &[]int{1}[0],
+					MaxLength:   &[]int{100}[0],
+				},
+				"options": {
+					Type:        "object",
+					Description: "Additional options",
+					Properties: map[string]*tools.Property{
+						"units": {
+							Type: "string",
+							Enum: []interface{}{"metric", "imperial"},
+						},
+						"days": {
+							Type:    "number",
+							Minimum: &[]float64{1}[0],
+							Maximum: &[]float64{10}[0],
+						},
+					},
+				},
+			},
+			Required: []string{"operation", "location"},
+		},
+		Metadata: &tools.ToolMetadata{
+			Author:  "AG-UI SDK Examples",
+			License: "MIT",
+			Tags:    []string{"weather", "api", "external"},
+		},
+		Capabilities: &tools.ToolCapabilities{
+			Streaming:  false,
+			Async:      true,
+			Cancelable: true,
+			Timeout:    30 * time.Second,
+		},
+		Executor: &WeatherAPIExecutor{},
+	}
 }

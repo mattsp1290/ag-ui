@@ -696,7 +696,7 @@ func BenchmarkCalculatorTool_Operations(b *testing.B) {
 
 // Example test showing how to use the calculator tool
 func Example_calculatorBasicUsage() {
->	tool := createCalculatorTool()
+	tool := createCalculatorTool()
 	ctx := context.Background()
 
 	// Perform addition
@@ -713,7 +713,7 @@ func Example_calculatorBasicUsage() {
 
 	if result.Success {
 		fmt.Printf("Result: %.0f\n", result.Data.(float64))
->	} else {
+	} else {
 		fmt.Println("Error:", result.Error)
 	}
 

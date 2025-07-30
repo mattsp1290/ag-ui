@@ -1,4 +1,4 @@
-package main
+package logstreaming
 
 import (
 	"context"
@@ -10,13 +10,13 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/tools"
 )
 
-func main() {
+func RunLogStreamingExample() error {
 	// Create registry and register the log streaming tool
 	registry := tools.NewRegistry()
 	logStreamTool := CreateLogStreamingTool()
 
 	if err := registry.Register(logStreamTool); err != nil {
-		log.Fatalf("Failed to register log streaming tool: %v", err)
+		return fmt.Errorf("failed to register log streaming tool: %w", err)
 	}
 
 	// Create execution engine
@@ -31,7 +31,7 @@ func main() {
 
 	// Ensure temp directory and create test log file
 	if err := os.MkdirAll("./temp", 0755); err != nil {
-		log.Fatalf("Failed to create temp directory: %v", err)
+		return fmt.Errorf("failed to create temp directory: %w", err)
 	}
 
 	// Create a test log file
@@ -48,7 +48,7 @@ func main() {
 2024-01-01T10:00:09 INFO Application running normally`
 
 	if err := os.WriteFile(testLogPath, []byte(testContent), 0644); err != nil {
-		log.Fatalf("Failed to create test log file: %v", err)
+		return fmt.Errorf("failed to create test log file: %w", err)
 	}
 
 	ctx := context.Background()
@@ -140,6 +140,8 @@ func main() {
 	} else {
 		fmt.Println("  Test file removed successfully")
 	}
+	
+	return nil
 }
 
 // consumeLogStream consumes chunks from a stream channel for demonstration
@@ -168,4 +170,68 @@ func consumeLogStream(streamCh <-chan *tools.ToolStreamChunk, maxChunks int) {
 
 		count++
 	}
+}
+
+// CreateLogStreamingTool creates a streaming log reader tool
+func CreateLogStreamingTool() *tools.Tool {
+	return &tools.Tool{
+		ID:          "log_streaming",
+		Name:        "Log Streaming",
+		Description: "A streaming log reader with filtering and following capabilities", 
+		Version:     "1.0.0",
+		Schema: &tools.ToolSchema{
+			Type: "object",
+			Properties: map[string]*tools.Property{
+				"path": {
+					Type:        "string",
+					Description: "Path to the log file",
+				},
+				"mode": {
+					Type:        "string",
+					Description: "Reading mode",
+					Enum:        []interface{}{"head", "tail", "full"},
+					Default:     "tail",
+				},
+				"lines": {
+					Type:        "number",
+					Description: "Number of lines to read",
+					Default:     10,
+				},
+				"filter": {
+					Type:        "string",
+					Description: "Filter pattern for log lines",
+				},
+				"follow": {
+					Type:        "boolean",
+					Description: "Continue to watch for new lines",
+					Default:     false,
+				},
+			},
+			Required: []string{"path"},
+		},
+		Capabilities: &tools.ToolCapabilities{
+			Streaming:  true,
+			Async:      true,
+			Cancelable: true,
+			Timeout:    60 * time.Second,
+		},
+		Metadata: &tools.ToolMetadata{
+			Author:   "Streaming Team",
+			License:  "MIT",
+			Tags:     []string{"streaming", "logs", "files", "monitoring"},
+		},
+		// Note: In a real implementation, you would provide a proper StreamExecutor
+		// For now, this is a placeholder to allow the example to compile
+		Executor: &MockLogStreamingExecutor{},
+	}
+}
+
+// MockLogStreamingExecutor is a placeholder for the actual streaming executor
+type MockLogStreamingExecutor struct{}
+
+func (e *MockLogStreamingExecutor) Execute(ctx context.Context, params map[string]interface{}) (*tools.ToolExecutionResult, error) {
+	return &tools.ToolExecutionResult{
+		Success: true,
+		Data:    "Log streaming executed successfully",
+	}, nil
 }

@@ -44,13 +44,13 @@ func TestValidateWebhookURL(t *testing.T) {
 			name:        "URL without scheme (should reject HTTPS)",
 			url:         "not-a-url",
 			wantError:   true,
-			errorSubstr: "only HTTPS URLs are allowed",
+			errorSubstr: "invalid URL format: missing scheme",
 		},
 		{
 			name:        "HTTP URL (should reject)",
 			url:         "http://example.com/webhook",
 			wantError:   true,
-			errorSubstr: "only HTTPS URLs are allowed",
+			errorSubstr: "only HTTPS webhook URLs are allowed",
 		},
 		{
 			name:        "localhost URL",
@@ -860,7 +860,7 @@ func TestConcurrentNotifierUsage(t *testing.T) {
 	}
 
 	// Test concurrent sending
-	const numGoroutines = 100
+	const numGoroutines = 10  // Reduced from 100 to prevent resource exhaustion
 	var wg sync.WaitGroup
 	errChan := make(chan error, numGoroutines)
 

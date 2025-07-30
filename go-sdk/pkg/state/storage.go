@@ -57,20 +57,31 @@ const (
 	StorageBackendRedis      StorageBackendType = "redis"
 	StorageBackendPostgreSQL StorageBackendType = "postgresql"
 	StorageBackendFile       StorageBackendType = "file"
+	StorageTypeRedis         StorageBackendType = "redis" // Alias for backwards compatibility
 )
+
+// CompressionConfig configures compression settings
+type CompressionConfig struct {
+	Enabled      bool   `json:"enabled" yaml:"enabled"`
+	Algorithm    string `json:"algorithm" yaml:"algorithm"`
+	Level        int    `json:"level" yaml:"level"`
+	MinSizeBytes int    `json:"min_size_bytes" yaml:"min_size_bytes"`
+}
 
 // StorageConfig holds configuration for storage backends
 type StorageConfig struct {
-	Type           StorageBackendType `json:"type" yaml:"type"`
-	ConnectionURL  string             `json:"connection_url" yaml:"connection_url"`
-	Database       string             `json:"database" yaml:"database"`
-	Schema         string             `json:"schema" yaml:"schema"`
-	MaxConnections int                `json:"max_connections" yaml:"max_connections"`
-	ConnectTimeout time.Duration      `json:"connect_timeout" yaml:"connect_timeout"`
-	ReadTimeout    time.Duration      `json:"read_timeout" yaml:"read_timeout"`
-	WriteTimeout   time.Duration      `json:"write_timeout" yaml:"write_timeout"`
-	IdleTimeout    time.Duration      `json:"idle_timeout" yaml:"idle_timeout"`
-	MaxRetries     int                `json:"max_retries" yaml:"max_retries"`
+	Type              StorageBackendType `json:"type" yaml:"type"`
+	ConnectionURL     string             `json:"connection_url" yaml:"connection_url"`
+	Database          string             `json:"database" yaml:"database"`
+	Schema            string             `json:"schema" yaml:"schema"`
+	MaxConnections    int                `json:"max_connections" yaml:"max_connections"`
+	ConnectTimeout    time.Duration      `json:"connect_timeout" yaml:"connect_timeout"`
+	ConnectionTimeout time.Duration      `json:"connection_timeout" yaml:"connection_timeout"` // Alias for backwards compatibility
+	ReadTimeout       time.Duration      `json:"read_timeout" yaml:"read_timeout"`
+	WriteTimeout      time.Duration      `json:"write_timeout" yaml:"write_timeout"`
+	IdleTimeout       time.Duration      `json:"idle_timeout" yaml:"idle_timeout"`
+	MaxRetries        int                `json:"max_retries" yaml:"max_retries"`
+	Compression       CompressionConfig  `json:"compression" yaml:"compression"`
 
 	// Redis specific
 	RedisOptions *RedisOptions `json:"redis_options,omitempty" yaml:"redis_options,omitempty"`

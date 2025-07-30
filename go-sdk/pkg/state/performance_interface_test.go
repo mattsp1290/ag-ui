@@ -1,3 +1,6 @@
+//go:build performance
+// +build performance
+
 package state
 
 import (
@@ -395,6 +398,25 @@ func (m *MockPerformanceOptimizerInterface) GetEnhancedMetrics() PerformanceMetr
 
 func (m *MockPerformanceOptimizerInterface) Stop() {
 	m.stopCalls++
+}
+
+func (m *MockPerformanceOptimizerInterface) GetStats() PerformanceStats {
+	return PerformanceStats{
+		OpsPerSecond:   100.0,
+		AvgLatency:     10.0,
+		P95Latency:     15.0,
+		P99Latency:     20.0,
+		MemoryUsage:    1024*1024,
+		PeakMemory:     2*1024*1024,
+		PoolHits:       100,
+		PoolMisses:     10,
+		PoolEfficiency: 0.91,
+		Allocations:    1000,
+		GCPauses:       5,
+		AvgGCPause:     1000,
+		CacheHitRate:   0.91,
+		QueueDepth:     0,
+	}
 }
 
 // TestMockPerformanceOptimizer tests that the mock implements the interface correctly

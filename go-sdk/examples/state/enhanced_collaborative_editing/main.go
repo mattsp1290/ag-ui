@@ -2,9 +2,10 @@
 // including storage backends, monitoring, resilient event handling, and performance optimization.
 //
 // Environment Variables:
-//   REDIS_CONN_STRING - Redis connection string for storage backend
-//                      Example: "redis://user:password@redis-host:6379/0"
-//                      Default: "redis://localhost:6379/0" (no authentication)
+//
+//	REDIS_CONN_STRING - Redis connection string for storage backend
+//	                   Example: "redis://user:password@redis-host:6379/0"
+//	                   Default: "redis://localhost:6379/0" (no authentication)
 package main
 
 import (
@@ -17,7 +18,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
 	"github.com/ag-ui/go-sdk/pkg/state"
 )
 
@@ -78,7 +78,7 @@ type EnhancedUser struct {
 	Color        string
 	Store        *state.StateStore
 	EventHandler *state.StateEventHandler
-	Monitor      *state.UserMonitor
+	Monitor      *UserMonitor
 	NetworkSim   *NetworkSimulator
 }
 
@@ -90,7 +90,7 @@ type EnhancedCollaborationSession struct {
 	mainStore        *state.StateStore
 	storageBackend   state.StorageBackend
 	monitor          *state.StateMonitor
-	optimizer        *state.PerformanceOptimizer
+	optimizer        state.PerformanceOptimizer
 	syncManager      *state.SyncManager
 	alertManager     *AlertManager
 	metricsCollector *MetricsCollector
@@ -114,21 +114,35 @@ type UserMonitor struct {
 	conflictCount  int64
 	lastActivity   time.Time
 	avgLatency     time.Duration
-	connectionInfo ConnectionInfo
+	connectionInfo state.ConnectionInfo
 }
 
-// ConnectionInfo tracks connection quality
-type ConnectionInfo struct {
-	Quality    string  // "excellent", "good", "fair", "poor"
-	Latency    float64 // ms
-	PacketLoss float64 // percentage
-	Bandwidth  int     // bytes/sec
+// RecordEdit increments the edit count and updates last activity
+func (um *UserMonitor) RecordEdit() {
+	um.editCount++
+	um.lastActivity = time.Now()
+}
+
+// RecordConflict increments the conflict count
+func (um *UserMonitor) RecordConflict() {
+	um.conflictCount++
+}
+
+// GetStats returns user statistics
+func (um *UserMonitor) GetStats() map[string]interface{} {
+	return map[string]interface{}{
+		"edit_count":      um.editCount,
+		"conflict_count":  um.conflictCount,
+		"last_activity":   um.lastActivity,
+		"avg_latency":     um.avgLatency,
+		"connection_info": um.connectionInfo,
+	}
 }
 
 func main() {
 	ctx := context.Background()
 
-	fmt.Println("=== Enhanced Collaborative Editing Demo ===\n")
+	fmt.Println("=== Enhanced Collaborative Editing Demo ===")
 
 	// Create enhanced collaboration session with production features
 	session := createEnhancedSession(ctx)
@@ -182,7 +196,7 @@ func createEnhancedSession(ctx context.Context) *EnhancedCollaborationSession {
 	}
 
 	// Create storage backend
-	logger := state.NewLogger(state.LogLevelInfo)
+	logger := state.DefaultLogger()
 	storage, err := state.NewMockRedisBackend(storageConfig, logger)
 	if err != nil {
 		log.Fatalf("Failed to create storage backend: %v", err)
@@ -232,7 +246,7 @@ func createEnhancedSession(ctx context.Context) *EnhancedCollaborationSession {
 	monitor := state.NewStateMonitor(mainStore, monitoringConfig)
 
 	// Create sync manager
-	syncManager := state.NewSyncManager()
+	syncManager := state.NewSyncManager(nil) // Using nil for resolver as placeholder
 
 	// Create alert manager
 	alertManager := &AlertManager{
@@ -309,7 +323,7 @@ func createEnhancedUsers() []*EnhancedUser {
 				connected:  true,
 			},
 			Monitor: &UserMonitor{
-				connectionInfo: ConnectionInfo{
+				connectionInfo: state.ConnectionInfo{
 					Quality: "excellent",
 				},
 			},
@@ -326,7 +340,7 @@ func createEnhancedUsers() []*EnhancedUser {
 				connected:  true,
 			},
 			Monitor: &UserMonitor{
-				connectionInfo: ConnectionInfo{
+				connectionInfo: state.ConnectionInfo{
 					Quality: "good",
 				},
 			},
@@ -343,7 +357,7 @@ func createEnhancedUsers() []*EnhancedUser {
 				connected:  true,
 			},
 			Monitor: &UserMonitor{
-				connectionInfo: ConnectionInfo{
+				connectionInfo: state.ConnectionInfo{
 					Quality: "fair",
 				},
 			},
@@ -360,7 +374,7 @@ func createEnhancedUsers() []*EnhancedUser {
 				connected:  true,
 			},
 			Monitor: &UserMonitor{
-				connectionInfo: ConnectionInfo{
+				connectionInfo: state.ConnectionInfo{
 					Quality: "poor",
 				},
 			},
@@ -476,8 +490,7 @@ func runHighFrequencyEditing(session *EnhancedCollaborationSession, users []*Enh
 				}
 
 				// Update user metrics
-				u.Monitor.editCount++
-				u.Monitor.lastActivity = time.Now()
+				u.Monitor.RecordEdit()
 			}
 
 			fmt.Printf("    %s completed %d edits\n", u.Name, editCount)
@@ -611,7 +624,7 @@ func runConflictResolutionTest(session *EnhancedCollaborationSession, users []*E
 			err := session.UpdateField(u.ID, conflictPath, value)
 			if err != nil {
 				fmt.Printf("    %s encountered conflict: %v\n", u.Name, err)
-				u.Monitor.conflictCount++
+				u.Monitor.RecordConflict()
 			} else {
 				fmt.Printf("    %s updated successfully\n", u.Name)
 			}
@@ -688,9 +701,11 @@ func showSessionAnalytics(session *EnhancedCollaborationSession) {
 
 	fmt.Printf("\n  User Connection Quality:\n")
 	for _, user := range session.users {
+		stats := user.Monitor.GetStats()
+		connectionInfo := stats["connection_info"].(state.ConnectionInfo)
 		fmt.Printf("    %s: %s (latency: %.0fms, loss: %.1f%%)\n",
 			user.Name,
-			user.Monitor.connectionInfo.Quality,
+			connectionInfo.Quality,
 			user.NetworkSim.latency.Seconds()*1000,
 			user.NetworkSim.packetLoss*100)
 	}
@@ -964,7 +979,9 @@ func describeNetwork(net *NetworkSimulator) string {
 
 func shouldSync(user *EnhancedUser) bool {
 	// Sync more frequently for users with poor connections
-	switch user.Monitor.connectionInfo.Quality {
+	stats := user.Monitor.GetStats()
+	connectionInfo := stats["connection_info"].(state.ConnectionInfo)
+	switch connectionInfo.Quality {
 	case "excellent":
 		return rand.Float64() < 0.1
 	case "good":

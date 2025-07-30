@@ -490,5 +490,190 @@ func (hc *CustomHealthCheck) Check(ctx context.Context) error {
 	return hc.checkFn(ctx)
 }
 
+// HealthStatus represents the overall health status
+type HealthStatus int
+
+const (
+	HealthStatusHealthy HealthStatus = iota
+	HealthStatusDegraded
+	HealthStatusUnhealthy
+)
+
+func (hs HealthStatus) String() string {
+	switch hs {
+	case HealthStatusHealthy:
+		return "healthy"
+	case HealthStatusDegraded:
+		return "degraded"
+	case HealthStatusUnhealthy:
+		return "unhealthy"
+	default:
+		return "unknown"
+	}
+}
+
+// HealthCheckResult represents the result of a single health check
+type HealthCheckResult struct {
+	Status       HealthStatus
+	Message      string
+	ResponseTime time.Duration
+}
+
+// HealthReport represents a comprehensive health report
+type HealthReport struct {
+	Status    HealthStatus
+	Timestamp time.Time
+	Checks    map[string]HealthCheckResult
+	Metrics   HealthMetrics
+}
+
+// HealthMetrics contains health-related metrics
+type HealthMetrics struct {
+	CPUUsage        float64
+	MemoryUsage     float64
+	MemoryAllocated uint64
+	GoroutineCount  int
+	GCPauseAvg      float64
+}
+
+// HealthChecker provides a unified interface for running health checks
+type HealthChecker struct {
+	checks []HealthCheck
+	mu     sync.RWMutex
+}
+
+// NewHealthChecker creates a new health checker with default checks for a StateManager
+func NewHealthChecker(manager *StateManager) *HealthChecker {
+	hc := &HealthChecker{
+		checks: make([]HealthCheck, 0),
+	}
+	
+	// Add default health checks
+	if manager != nil {
+		hc.AddHealthCheck(NewStateManagerHealthCheck(manager))
+		
+		if manager.store != nil {
+			hc.AddHealthCheck(NewStoreHealthCheck(manager.store, 5*time.Second))
+		}
+		
+		if manager.eventHandler != nil {
+			hc.AddHealthCheck(NewEventHandlerHealthCheck(manager.eventHandler))
+		}
+		
+		if manager.rateLimiter != nil || manager.clientRateLimiter != nil {
+			hc.AddHealthCheck(NewRateLimiterHealthCheck(manager.rateLimiter, manager.clientRateLimiter))
+		}
+		
+		if manager.auditManager != nil {
+			hc.AddHealthCheck(NewAuditHealthCheck(manager.auditManager))
+		}
+		
+		// Add memory health check with reasonable defaults
+		hc.AddHealthCheck(NewMemoryHealthCheck(500, 100, 1000)) // 500MB, 100ms GC pause, 1000 goroutines
+	}
+	
+	return hc
+}
+
+// AddHealthCheck adds a health check to the checker
+func (hc *HealthChecker) AddHealthCheck(check HealthCheck) {
+	hc.mu.Lock()
+	defer hc.mu.Unlock()
+	hc.checks = append(hc.checks, check)
+}
+
+// RemoveHealthCheck removes a health check by name
+func (hc *HealthChecker) RemoveHealthCheck(name string) {
+	hc.mu.Lock()
+	defer hc.mu.Unlock()
+	
+	for i, check := range hc.checks {
+		if check.Name() == name {
+			hc.checks = append(hc.checks[:i], hc.checks[i+1:]...)
+			break
+		}
+	}
+}
+
+// CheckHealth runs all health checks and returns the overall health status
+func (hc *HealthChecker) CheckHealth(ctx context.Context) HealthReport {
+	hc.mu.RLock()
+	defer hc.mu.RUnlock()
+	
+	report := HealthReport{
+		Timestamp: time.Now(),
+		Checks:    make(map[string]HealthCheckResult),
+	}
+	
+	overallStatus := HealthStatusHealthy
+	
+	for _, check := range hc.checks {
+		start := time.Now()
+		err := check.Check(ctx)
+		responseTime := time.Since(start)
+		
+		result := HealthCheckResult{
+			ResponseTime: responseTime,
+		}
+		
+		if err != nil {
+			result.Status = HealthStatusUnhealthy
+			result.Message = err.Error()
+			overallStatus = HealthStatusUnhealthy
+		} else {
+			result.Status = HealthStatusHealthy
+			result.Message = "OK"
+		}
+		
+		report.Checks[check.Name()] = result
+	}
+	
+	report.Status = overallStatus
+	
+	// Collect health metrics
+	var memStats runtime.MemStats
+	runtime.ReadMemStats(&memStats)
+	
+	report.Metrics = HealthMetrics{
+		CPUUsage:        0.0, // Would need actual CPU monitoring
+		MemoryUsage:     float64(memStats.Alloc) / float64(memStats.Sys) * 100,
+		MemoryAllocated: memStats.Alloc,
+		GoroutineCount:  runtime.NumGoroutine(),
+		GCPauseAvg:      float64(memStats.PauseNs[(memStats.NumGC+255)%256]) / 1e6, // Convert to ms
+	}
+	
+	return report
+}
+
+// CheckHealthLegacy runs all health checks and returns the legacy format
+func (hc *HealthChecker) CheckHealthLegacy(ctx context.Context) map[string]error {
+	hc.mu.RLock()
+	defer hc.mu.RUnlock()
+	
+	results := make(map[string]error)
+	
+	for _, check := range hc.checks {
+		results[check.Name()] = check.Check(ctx)
+	}
+	
+	return results
+}
+
+// IsHealthy returns true if all health checks pass
+func (hc *HealthChecker) IsHealthy(ctx context.Context) bool {
+	report := hc.CheckHealth(ctx)
+	return report.Status == HealthStatusHealthy
+}
+
+// GetHealthChecks returns a copy of all registered health checks
+func (hc *HealthChecker) GetHealthChecks() []HealthCheck {
+	hc.mu.RLock()
+	defer hc.mu.RUnlock()
+	
+	checks := make([]HealthCheck, len(hc.checks))
+	copy(checks, hc.checks)
+	return checks
+}
+
 // Helper methods for StateManager and StateEventHandler
 // These would need to be added to the respective structs

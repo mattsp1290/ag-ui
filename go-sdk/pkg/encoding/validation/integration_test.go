@@ -79,8 +79,8 @@ func testBasicPipeline(ctx context.Context, t *testing.T, encoder encoding.Encod
 				EventType: events.EventTypeRunStarted,
 				TimestampMs: int64Ptr(time.Now().Unix()),
 			},
-			RunID:    "test-run-123",
-			ThreadID: "test-thread-456",
+			RunIDValue:    "test-run-123",
+			ThreadIDValue: "test-thread-456",
 		},
 		&events.TextMessageContentEvent{
 			BaseEvent: &events.BaseEvent{
@@ -134,8 +134,8 @@ func testValidationPipeline(ctx context.Context, t *testing.T, encoder encoding.
 			EventType: events.EventTypeRunStarted,
 			TimestampMs: int64Ptr(time.Now().Unix()),
 		},
-		RunID:    "validation-test-123",
-		ThreadID: "validation-test-456",
+		RunIDValue:    "validation-test-123",
+		ThreadIDValue: "validation-test-456",
 	}
 
 	// Validate the event
@@ -214,8 +214,8 @@ func testRoundTripValidation(ctx context.Context, t *testing.T, encoder encoding
 				EventType: events.EventTypeRunStarted,
 				TimestampMs: int64Ptr(time.Now().Unix()),
 			},
-			RunID:    "roundtrip-test-123",
-			ThreadID: "roundtrip-test-456",
+			RunIDValue:    "roundtrip-test-123",
+			ThreadIDValue: "roundtrip-test-456",
 		},
 		&events.StateSnapshotEvent{
 			BaseEvent: &events.BaseEvent{
@@ -410,8 +410,8 @@ func TestValidationIntegration(t *testing.T) {
 			EventType: events.EventTypeRunStarted,
 			TimestampMs: int64Ptr(time.Now().Unix()),
 		},
-		RunID:    "integration-test-123",
-		ThreadID: "integration-test-456",
+		RunIDValue:    "integration-test-123",
+		ThreadIDValue: "integration-test-456",
 	}
 
 	// Validate with events validator
@@ -430,8 +430,8 @@ func TestValidationIntegration(t *testing.T) {
 			EventType: events.EventTypeRunStarted,
 			TimestampMs: int64Ptr(-1), // Invalid negative timestamp
 		},
-		RunID:    "", // Empty required field
-		ThreadID: "integration-test-456",
+		RunIDValue:    "", // Empty required field
+		ThreadIDValue: "integration-test-456",
 	}
 
 	// This should fail events validation
@@ -506,8 +506,8 @@ func BenchmarkJSONEncoding(b *testing.B) {
 			EventType: events.EventTypeRunStarted,
 			TimestampMs: int64Ptr(time.Now().Unix()),
 		},
-		RunID:    "benchmark-run-123",
-		ThreadID: "benchmark-thread-456",
+		RunIDValue:    "benchmark-run-123",
+		ThreadIDValue: "benchmark-thread-456",
 	}
 
 	b.ResetTimer()
@@ -527,8 +527,8 @@ func BenchmarkJSONDecoding(b *testing.B) {
 			EventType: events.EventTypeRunStarted,
 			TimestampMs: int64Ptr(time.Now().Unix()),
 		},
-		RunID:    "benchmark-run-123",
-		ThreadID: "benchmark-thread-456",
+		RunIDValue:    "benchmark-run-123",
+		ThreadIDValue: "benchmark-thread-456",
 	}
 
 	encoded, err := encoder.Encode(context.Background(), event)
@@ -556,8 +556,8 @@ func BenchmarkRoundTrip(b *testing.B) {
 			EventType: events.EventTypeRunStarted,
 			TimestampMs: int64Ptr(time.Now().Unix()),
 		},
-		RunID:    "benchmark-run-123",
-		ThreadID: "benchmark-thread-456",
+		RunIDValue:    "benchmark-run-123",
+		ThreadIDValue: "benchmark-thread-456",
 	}
 
 	b.ResetTimer()

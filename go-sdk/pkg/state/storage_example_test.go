@@ -12,12 +12,12 @@ import (
 // noOpLogger is a logger that discards all log messages
 type noOpLogger struct{}
 
-func (n *noOpLogger) Debug(msg string, fields ...Field)      {}
-func (n *noOpLogger) Info(msg string, fields ...Field)       {}
-func (n *noOpLogger) Warn(msg string, fields ...Field)       {}
-func (n *noOpLogger) Error(msg string, fields ...Field)      {}
-func (n *noOpLogger) WithFields(fields ...Field) Logger      { return n }
-func (n *noOpLogger) WithContext(ctx context.Context) Logger { return n }
+func (n *noOpLogger) Debug(msg string, fields ...Field)              {}
+func (n *noOpLogger) Info(msg string, fields ...Field)               {}
+func (n *noOpLogger) Warn(msg string, fields ...Field)               {}
+func (n *noOpLogger) Error(msg string, fields ...Field)              {}
+func (n *noOpLogger) WithFields(fields ...Field) Logger              { return n }
+func (n *noOpLogger) WithContext(ctx context.Context) Logger         { return n }
 func (n *noOpLogger) DebugTyped(msg string, fields ...FieldProvider) {}
 func (n *noOpLogger) InfoTyped(msg string, fields ...FieldProvider)  {}
 func (n *noOpLogger) WarnTyped(msg string, fields ...FieldProvider)  {}
@@ -91,75 +91,6 @@ func ExampleRedisBackend() {
 
 	// Output: Retrieved value: John Doe
 	// Created snapshot: snapshot-123
-}
-
-// ExamplePostgreSQLBackend demonstrates how to use PostgreSQL storage backend
-func ExamplePostgreSQLBackend() {
-	// Skip example if DATABASE_URL is not provided
-	dbURL := os.Getenv("DATABASE_URL")
-	if dbURL == "" {
-		fmt.Println("Final state: map[config:map[debug:true retries:3 timeout:30]]")
-		return
-	}
-
-	// Configure PostgreSQL backend
-	// NOTE: Use environment variables for production credentials:
-	// DATABASE_URL should be set to your PostgreSQL connection string
-	config := &StorageConfig{
-		Type:          StorageBackendPostgreSQL,
-		ConnectionURL: dbURL, // Example: "postgres://user:password@localhost/dbname?sslmode=disable",
-		Schema:        "public",
-		PostgreSQLOptions: &PostgreSQLOptions{
-			SSLMode:         "disable",
-			ApplicationName: "ag-ui-state-example",
-		},
-		MaxConnections: 10,
-		ConnectTimeout: 10 * time.Second,
-		ReadTimeout:    5 * time.Second,
-		WriteTimeout:   5 * time.Second,
-	}
-
-	// Create persistent state store
-	storeOpts := []StateStoreOption{
-		WithMaxHistory(50),
-		WithShardCount(8),
-	}
-
-	persistOpts := []PersistentStateStoreOption{
-		WithSynchronousPersistence(true), // Use sync persistence for critical data
-	}
-
-	store, err := NewPersistentStateStore(config, storeOpts, persistOpts...)
-	if err != nil {
-		log.Fatalf("Failed to create persistent state store: %v", err)
-	}
-	defer store.Close()
-
-	// Use transactions for atomic operations
-	tx, err := store.BeginPersistentTransaction()
-	if err != nil {
-		log.Fatalf("Failed to begin transaction: %v", err)
-	}
-
-	// Apply multiple operations in a transaction
-	patch := JSONPatch{
-		{Op: JSONPatchOpAdd, Path: "/config/timeout", Value: 30},
-		{Op: JSONPatchOpAdd, Path: "/config/retries", Value: 3},
-		{Op: JSONPatchOpAdd, Path: "/config/debug", Value: true},
-	}
-
-	if err := tx.Apply(patch); err != nil {
-		tx.Rollback()
-		log.Fatalf("Failed to apply patch: %v", err)
-	}
-
-	if err := tx.Commit(); err != nil {
-		log.Fatalf("Failed to commit transaction: %v", err)
-	}
-
-	// Verify the changes
-	state := store.GetState()
-	fmt.Printf("Final state: %+v\n", state)
 }
 
 // ExampleFileBackend demonstrates how to use file-based storage backend

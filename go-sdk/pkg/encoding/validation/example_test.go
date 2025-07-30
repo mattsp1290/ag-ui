@@ -25,8 +25,8 @@ func Example() {
 			EventType:   events.EventTypeRunStarted,
 			TimestampMs: int64Ptr(1640995200),
 		},
-		RunID:    "run-example-123",
-		ThreadID: "thread-example-456",
+		RunIDValue:    "run-example-123",
+		ThreadIDValue: "thread-example-456",
 	}
 
 	// 1. Format Validation

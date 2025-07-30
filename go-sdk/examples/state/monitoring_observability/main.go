@@ -16,13 +16,14 @@ import (
 
 	"github.com/ag-ui/go-sdk/pkg/state"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"go.uber.org/zap/zapcore"
 )
 
 // DemoApplication represents a monitored application
 type DemoApplication struct {
 	store          *state.StateStore
 	monitor        *state.StateMonitor
-	performanceOpt *state.PerformanceOptimizer
+	performanceOpt state.PerformanceOptimizer
 	alertManager   *AlertManager
 	healthChecker  *state.HealthChecker
 	ctx            context.Context
@@ -50,7 +51,7 @@ func main() {
 	go startMetricsServer()
 	go startHealthCheckServer(app.healthChecker)
 
-	fmt.Println("=== State Management Monitoring & Observability Demo ===\n")
+	fmt.Println("=== State Management Monitoring & Observability Demo ===")
 
 	// Run demonstrations
 	demonstrateMetricsCollection(app)
@@ -74,7 +75,7 @@ func createMonitoringConfig() *state.MonitoringConfig {
 		MetricsInterval:     5 * time.Second,
 
 		// Logging configuration
-		LogLevel:          state.LogLevelInfo,
+		LogLevel:          zapcore.InfoLevel,
 		LogOutput:         os.Stdout,
 		LogFormat:         "json",
 		StructuredLogging: true,
@@ -159,27 +160,64 @@ func initializeDemoApplication(config *state.MonitoringConfig) *DemoApplication 
 	if webhookURL == "" {
 		webhookURL = "http://localhost:8080/alerts" // Default for local development
 	}
-	
+
 	emailAddress := os.Getenv("ALERT_EMAIL_ADDRESS")
 	if emailAddress == "" {
 		emailAddress = "alerts@example.com" // Default for local development
 	}
-	
+
 	alertManager := &AlertManager{
 		alerts:      make(chan state.Alert, 100),
 		alertCounts: make(map[string]int),
 		notifiers: []state.AlertNotifier{
 			state.NewConsoleNotifier(),
-			state.NewWebhookNotifier(webhookURL),
-			state.NewEmailNotifier(emailAddress),
 		},
+	}
+
+	// Add webhook notifier with error handling
+	if webhookNotifier, err := state.NewWebhookNotifier(webhookURL); err == nil {
+		alertManager.notifiers = append(alertManager.notifiers, webhookNotifier)
+	} else {
+		log.Printf("Warning: Failed to create webhook notifier: %v", err)
+	}
+
+	// Add email notifier with SMTP settings
+	// For demo purposes, using dummy SMTP settings - replace with real values in production
+	smtpServer := os.Getenv("SMTP_SERVER")
+	if smtpServer == "" {
+		smtpServer = "smtp.gmail.com" // Default for demo
+	}
+
+	smtpPort := 587 // Default SMTP port
+	username := os.Getenv("SMTP_USERNAME")
+	password := os.Getenv("SMTP_PASSWORD")
+	fromEmail := os.Getenv("SMTP_FROM")
+	if fromEmail == "" {
+		fromEmail = emailAddress // Use the alert email as from address for demo
+	}
+
+	// Only add email notifier if we have required SMTP credentials
+	if username != "" && password != "" {
+		emailNotifier := state.NewEmailNotifier(smtpServer, smtpPort, username, password, fromEmail, []string{emailAddress})
+		alertManager.notifiers = append(alertManager.notifiers, emailNotifier)
+	} else {
+		log.Println("Warning: SMTP credentials not provided, skipping email notifier")
 	}
 
 	// Set alert notifiers
 	config.AlertNotifiers = alertManager.notifiers
 
-	// Create health checker
-	healthChecker := state.NewHealthChecker(store, config)
+	// Create health checker with a StateManager
+	managerOpts := state.ManagerOptions{
+		CustomStore:    store,
+		MaxHistorySize: 100,
+		EnableCaching:  true,
+	}
+	manager, err := state.NewStateManager(managerOpts)
+	if err != nil {
+		log.Fatalf("Failed to create state manager: %v", err)
+	}
+	healthChecker := state.NewHealthChecker(manager)
 
 	// Initialize demo data
 	initializeDemoData(store)
@@ -329,7 +367,7 @@ func demonstrateLoggingAndTracing(app *DemoApplication) {
 			childSpan.SetError(err)
 			app.monitor.Logger().Error("Step failed",
 				state.String("step", step),
-				state.Error(err),
+				state.Err(err),
 			)
 		}
 
@@ -553,8 +591,8 @@ func demonstratePerformanceMonitoring(app *DemoApplication) {
 		// Get operation-specific metrics
 		metrics := app.monitor.GetOperationMetrics(op.name)
 		if metrics != nil {
-			fmt.Printf("    P95 latency: %.2fms\n", metrics.P95)
-			fmt.Printf("    P99 latency: %.2fms\n", metrics.P99)
+			fmt.Printf("    P95 latency: %.2fms\n", metrics.P95Latency.Seconds()*1000)
+			fmt.Printf("    P99 latency: %.2fms\n", metrics.P99Latency.Seconds()*1000)
 		}
 	}
 
@@ -715,17 +753,17 @@ func showMonitoringSummary(app *DemoApplication) {
 	if metricsPort == "" {
 		metricsPort = "9090"
 	}
-	
+
 	healthPort := os.Getenv("HEALTH_PORT")
 	if healthPort == "" {
 		healthPort = "8080"
 	}
-	
+
 	jaegerPort := os.Getenv("JAEGER_UI_PORT")
 	if jaegerPort == "" {
 		jaegerPort = "16686"
 	}
-	
+
 	fmt.Println("\nMonitoring Endpoints:")
 	fmt.Printf("  Metrics: http://localhost:%s/metrics (Prometheus)\n", metricsPort)
 	fmt.Printf("  Health:  http://localhost:%s/health\n", healthPort)
@@ -763,7 +801,7 @@ func startMetricsServer() {
 	if metricsPort == "" {
 		metricsPort = "9090"
 	}
-	
+
 	http.Handle("/metrics", promhttp.Handler())
 	log.Printf("Metrics server listening on :%s", metricsPort)
 	if err := http.ListenAndServe(":"+metricsPort, nil); err != nil {
@@ -776,7 +814,7 @@ func startHealthCheckServer(checker *state.HealthChecker) {
 	if healthPort == "" {
 		healthPort = "8080"
 	}
-	
+
 	http.HandleFunc("/health", func(w http.ResponseWriter, r *http.Request) {
 		report := checker.CheckHealth(r.Context())
 

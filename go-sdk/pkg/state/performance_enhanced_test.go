@@ -1,3 +1,6 @@
+//go:build performance
+// +build performance
+
 package state
 
 import (
@@ -340,7 +343,7 @@ func testHighConcurrency(t *testing.T) {
 	opts.MaxConcurrency = 5
 	opts.MaxOpsPerSecond = 100
 
-	po := NewPerformanceOptimizer(opts)
+	po := NewPerformanceOptimizerForTesting(opts)
 	defer po.Stop()
 
 	// Use very small numbers for testing
@@ -446,7 +449,7 @@ func benchmarkStateSharding(b *testing.B) {
 	opts.EnableSharding = true
 	opts.ShardCount = 16
 
-	po := NewPerformanceOptimizer(opts)
+	po := NewPerformanceOptimizerForTesting(opts)
 	defer po.Stop()
 
 	b.ResetTimer()
@@ -466,7 +469,7 @@ func benchmarkLazyLoading(b *testing.B) {
 	opts.EnableLazyLoading = true
 	opts.LazyCacheSize = 1000
 
-	po := NewPerformanceOptimizer(opts)
+	po := NewPerformanceOptimizerForTesting(opts)
 	defer po.Stop()
 
 	b.ResetTimer()
@@ -486,7 +489,7 @@ func benchmarkDataCompression(b *testing.B) {
 	opts := DefaultPerformanceOptions()
 	opts.EnableCompression = true
 
-	po := NewPerformanceOptimizer(opts)
+	po := NewPerformanceOptimizerForTesting(opts)
 	defer po.Stop()
 
 	data := make([]byte, 1024) // 1KB of data
@@ -513,7 +516,7 @@ func benchmarkConcurrentAccess(b *testing.B) {
 	opts := DefaultPerformanceOptions()
 	opts.MaxConcurrency = runtime.NumCPU()
 
-	po := NewPerformanceOptimizer(opts)
+	po := NewPerformanceOptimizerForTesting(opts)
 	defer po.Stop()
 
 	b.ResetTimer()
@@ -552,7 +555,7 @@ func testHighConcurrencyTarget(t *testing.T) {
 	opts.MaxConcurrency = 5
 	opts.MaxOpsPerSecond = 50
 
-	po := NewPerformanceOptimizer(opts)
+	po := NewPerformanceOptimizerForTesting(opts)
 	defer po.Stop()
 
 	numClients := 10
@@ -635,7 +638,7 @@ func testLargeStateSizeTarget(t *testing.T) {
 	opts.EnableCompression = true
 	opts.MaxMemoryUsage = 200 * 1024 * 1024 // 200MB
 
-	po := NewPerformanceOptimizer(opts)
+	po := NewPerformanceOptimizerForTesting(opts)
 	defer po.Stop()
 
 	// Simulate 150MB state
@@ -661,7 +664,7 @@ func testLowLatencyTarget(t *testing.T) {
 	opts.BatchSize = 10
 	opts.BatchTimeout = 1 * time.Millisecond
 
-	po := NewPerformanceOptimizer(opts)
+	po := NewPerformanceOptimizerForTesting(opts)
 	defer po.Stop()
 
 	numOperations := 100
@@ -708,7 +711,7 @@ func testMemoryEfficiencyTarget(t *testing.T) {
 	opts.EnablePooling = true
 	opts.MaxMemoryUsage = 50 * 1024 * 1024 // 50MB
 
-	po := NewPerformanceOptimizer(opts)
+	po := NewPerformanceOptimizerForTesting(opts)
 	defer po.Stop()
 
 	// Measure memory usage before operations

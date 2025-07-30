@@ -18,6 +18,8 @@ type mockEvent struct {
 func (m *mockEvent) Type() events.EventType                 { return "mock" }
 func (m *mockEvent) Timestamp() *int64                      { return nil }
 func (m *mockEvent) SetTimestamp(int64)                     {}
+func (m *mockEvent) ThreadID() string                       { return "" }
+func (m *mockEvent) RunID() string                          { return "" }
 func (m *mockEvent) Validate() error                        { return nil }
 func (m *mockEvent) ToJSON() ([]byte, error)                { return nil, nil }
 func (m *mockEvent) ToProtobuf() (*generated.Event, error)  { return nil, nil }

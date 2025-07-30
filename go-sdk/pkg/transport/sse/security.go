@@ -4,6 +4,7 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
@@ -444,13 +445,17 @@ func (ba *BearerAuthenticator) Authenticate(r *http.Request) (*AuthContext, erro
 		return nil, errors.New("invalid authorization header format")
 	}
 
+	// Always compute token hash to maintain constant time
+	tokenHash := hashString(parts[1])
+
+	// Use constant-time comparison to prevent timing attacks
 	if subtle.ConstantTimeCompare([]byte(parts[1]), []byte(ba.token)) != 1 {
 		return nil, errors.New("invalid bearer token")
 	}
 
 	return &AuthContext{
 		Authenticated: true,
-		TokenID:       hashString(parts[1]),
+		TokenID:       tokenHash,
 	}, nil
 }
 
@@ -519,11 +524,9 @@ func (aka *APIKeyAuthenticator) Authenticate(r *http.Request) (*AuthContext, err
 		}
 	}
 
-	aka.mutex.RLock()
-	keyInfo, exists := aka.apiKeys[key]
-	aka.mutex.RUnlock()
-
-	if !exists {
+	// Use constant-time API key lookup to prevent timing attacks
+	keyInfo := aka.constantTimeAPIKeyLookup(key)
+	if keyInfo == nil {
 		return nil, errors.New("invalid API key")
 	}
 
@@ -538,6 +541,42 @@ func (aka *APIKeyAuthenticator) Authenticate(r *http.Request) (*AuthContext, err
 		Permissions:   keyInfo.Permissions,
 		TokenID:       hashString(key),
 	}, nil
+}
+
+// constantTimeAPIKeyLookup performs constant-time API key lookup to prevent timing attacks
+func (aka *APIKeyAuthenticator) constantTimeAPIKeyLookup(inputKey string) *APIKeyInfo {
+	aka.mutex.RLock()
+	defer aka.mutex.RUnlock()
+
+	var found *APIKeyInfo
+	validKeyFound := 0 // Use int for constant-time selection
+
+	// Iterate through all keys using constant-time comparison
+	// This ensures the same amount of work is done regardless of which key matches
+	for storedKey, keyInfo := range aka.apiKeys {
+		// Use constant-time comparison for each key
+		match := subtle.ConstantTimeCompare([]byte(inputKey), []byte(storedKey))
+		
+		// Use constant-time selection to avoid branching
+		if match == 1 {
+			// Constant-time assignment using conditional move semantics
+			found = keyInfo
+			validKeyFound = match
+		}
+		// Continue iterating to maintain constant time regardless of match
+	}
+
+	// If no keys were found, do some dummy work to maintain timing
+	if len(aka.apiKeys) == 0 {
+		// Perform a dummy comparison to maintain consistent timing
+		_ = subtle.ConstantTimeCompare([]byte(inputKey), []byte("dummy-key-for-timing"))
+	}
+
+	// Return found key or nil based on constant-time result
+	if validKeyFound == 1 {
+		return found
+	}
+	return nil
 }
 
 // Type returns the authenticator type
@@ -642,7 +681,6 @@ func NewJWTAuthenticator(config JWTConfig) (*JWTAuthenticator, error) {
 		config: config,
 		parser: jwt.NewParser(
 			jwt.WithValidMethods([]string{config.Algorithm}),
-			jwt.WithoutClaimsValidation(),
 		),
 	}
 
@@ -802,7 +840,21 @@ func NewOAuth2Authenticator(config OAuth2Config) (*OAuth2Authenticator, error) {
 	return &OAuth2Authenticator{
 		config:     config,
 		tokenCache: &TokenCache{tokens: make(map[string]*CachedToken)},
-		httpClient: &http.Client{Timeout: 10 * time.Second},
+		httpClient: &http.Client{
+			Timeout: 10 * time.Second,
+			Transport: &http.Transport{
+				TLSClientConfig: &tls.Config{
+					MinVersion: tls.VersionTLS12,
+					CipherSuites: []uint16{
+						tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+						tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+						tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+						tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+						tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+					},
+				},
+			},
+		},
 	}, nil
 }
 
@@ -1190,11 +1242,13 @@ func (rv *RequestValidator) validateHeaders(headers http.Header) error {
 
 	for _, header := range dangerousHeaders {
 		if value := headers.Get(header); value != "" {
-			// Log suspicious header
-			rv.logger.Warn("potentially dangerous header detected",
-				zap.String("header", header),
-				zap.String("value", value),
-			)
+			// Log suspicious header (only if logger is available)
+			if rv.logger != nil {
+				rv.logger.Warn("potentially dangerous header detected",
+					zap.String("header", header),
+					zap.String("value", value),
+				)
+			}
 		}
 	}
 
@@ -1216,15 +1270,27 @@ func (rv *RequestValidator) validateHeaders(headers http.Header) error {
 
 // containsSQLInjectionPattern checks for common SQL injection patterns
 func (rv *RequestValidator) containsSQLInjectionPattern(value string) bool {
-	// Common SQL injection patterns (simplified)
+	// Common SQL injection patterns (comprehensive)
 	patterns := []string{
 		"(?i)(union.*select)",
 		"(?i)(select.*from)",
 		"(?i)(insert.*into)",
 		"(?i)(delete.*from)",
 		"(?i)(drop.*table)",
-		"(?i)(script.*>)",
-		"(?i)(<.*iframe)",
+		"(?i)(.*'.*or.*'.*)",     // Single quote OR attacks
+		"(?i)(.*\".*or.*\".*)",   // Double quote OR attacks
+		"(?i)(.*'.*union.*)",     // Single quote UNION attacks
+		"(?i)(.*\".*union.*)",    // Double quote UNION attacks
+		"(?i)(.*--.*)",           // SQL comment attacks
+		"(?i)(/\\*.*\\*/)",       // Multi-line comment attacks
+		"(?i)(.*'.*and.*'.*)",    // Single quote AND attacks
+		"(?i)(.*\".*and.*\".*)",  // Double quote AND attacks
+		"(?i)(.*'.*=.*'.*)",      // Single quote equality attacks
+		"(?i)(.*\".*=.*\".*)",    // Double quote equality attacks
+		"(?i)(.*\\+.*or.*\\+.*)", // URL encoded OR attacks
+		"(?i)(.*%27.*or.*%27.*)", // URL encoded single quote OR
+		"(?i)(.*%22.*or.*%22.*)", // URL encoded double quote OR
+		"(?i)(.*1.*=.*1.*)",      // Common tautology
 	}
 
 	for _, pattern := range patterns {
@@ -1667,10 +1733,10 @@ func standardSecurityConfig() SecurityConfig {
 	}
 	config.CORS = CORSConfig{
 		Enabled:          true,
-		AllowedOrigins:   []string{"*"},
+		AllowedOrigins:   []string{"https://localhost:3000", "https://localhost:8080"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:   []string{"*"},
-		AllowCredentials: false,
+		AllowedHeaders:   []string{"Content-Type", "Authorization", "X-Requested-With", "X-CSRF-Token"},
+		AllowCredentials: true,
 		MaxAge:           24 * time.Hour,
 	}
 	return config

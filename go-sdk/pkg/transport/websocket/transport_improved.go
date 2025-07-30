@@ -750,4 +750,6 @@ func (r *rawEvent) Validate() error                 { return nil }
 func (r *rawEvent) ToJSON() ([]byte, error)         { return r.data, nil }
 func (r *rawEvent) ToProtobuf() (*generated.Event, error) { return nil, nil }
 func (r *rawEvent) GetBaseEvent() *events.BaseEvent { return nil }
+func (r *rawEvent) ThreadID() string                { return "" }
+func (r *rawEvent) RunID() string                   { return "" }
 

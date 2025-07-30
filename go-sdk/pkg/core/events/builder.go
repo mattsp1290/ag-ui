@@ -464,8 +464,8 @@ func (b *EventBuilder) buildRunStartedEvent() (*RunStartedEvent, error) {
 			EventType:   b.eventType,
 			TimestampMs: b.timestamp,
 		},
-		ThreadID: b.threadID,
-		RunID:    b.runID,
+		ThreadIDValue: b.threadID,
+		RunIDValue:    b.runID,
 	}
 	// Error return is kept for future extensibility (e.g., field validation)
 	return event, nil
@@ -478,8 +478,8 @@ func (b *EventBuilder) buildRunFinishedEvent() (*RunFinishedEvent, error) {
 			EventType:   b.eventType,
 			TimestampMs: b.timestamp,
 		},
-		ThreadID: b.threadID,
-		RunID:    b.runID,
+		ThreadIDValue: b.threadID,
+		RunIDValue:    b.runID,
 	}
 	// Error return is kept for future extensibility (e.g., field validation)
 	return event, nil
@@ -494,7 +494,7 @@ func (b *EventBuilder) buildRunErrorEvent() (*RunErrorEvent, error) {
 		},
 		Message: b.errorMessage,
 		Code:    b.errorCode,
-		RunID:   b.runID,
+		RunIDValue: b.runID,
 	}
 	// Error return is kept for future extensibility (e.g., field validation)
 	return event, nil

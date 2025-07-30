@@ -16,6 +16,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 	"golang.org/x/time/rate"
+	"github.com/ag-ui/go-sdk/pkg/internal/timeconfig"
 )
 
 // Common JWT validation errors
@@ -73,10 +74,12 @@ type SecurityConfig struct {
 }
 
 // DefaultSecurityConfig returns secure default configuration
+// Uses configurable timeouts that adapt to test/production environments
 func DefaultSecurityConfig() *SecurityConfig {
+	config := timeconfig.GetConfig()
 	return &SecurityConfig{
 		RequireAuth:       true,
-		AuthTimeout:       30 * time.Second,
+		AuthTimeout:       config.DefaultAuthTimeout,
 		StrictOriginCheck: true,
 		GlobalRateLimit:   1000.0,
 		ClientRateLimit:   100.0,
@@ -86,10 +89,10 @@ func DefaultSecurityConfig() *SecurityConfig {
 		MinTLSVersion:     tls.VersionTLS12,
 		MaxMessageSize:    1024 * 1024, // 1MB
 		MaxFrameSize:      64 * 1024,   // 64KB
-		ReadDeadline:      60 * time.Second,
-		WriteDeadline:     10 * time.Second,
-		PingInterval:      30 * time.Second,
-		PongTimeout:       10 * time.Second,
+		ReadDeadline:      config.DefaultReadTimeout,
+		WriteDeadline:     config.DefaultWriteTimeout,
+		PingInterval:      config.DefaultPingPeriod,
+		PongTimeout:       config.DefaultPongTimeout,
 		LogConnections:    true,
 		LogMessages:       false,
 		LogSecurityEvents: true,
@@ -168,7 +171,7 @@ func NewSecurityManager(config *SecurityConfig) *SecurityManager {
 	}
 
 	// Start cleanup routine
-	sm.cleanupTicker = time.NewTicker(5 * time.Minute)
+	sm.cleanupTicker = time.NewTicker(timeconfig.GetConfig().DefaultCleanupInterval)
 	go sm.cleanupRoutine()
 
 	return sm

@@ -1,4 +1,4 @@
-package main
+package restclient
 
 import (
 	"context"
@@ -9,13 +9,13 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/tools"
 )
 
-func main() {
+func RunRestClientExample() error {
 	// Create registry and register the REST client tool
 	registry := tools.NewRegistry()
 	restClientTool := CreateRESTClientTool()
 
 	if err := registry.Register(restClientTool); err != nil {
-		log.Fatalf("Failed to register REST client tool: %v", err)
+		return fmt.Errorf("failed to register REST client tool: %w", err)
 	}
 
 	// Create execution engine
@@ -141,6 +141,8 @@ func main() {
 		"url":    "https://httpbin.org/status/404",
 	})
 	printRESTResult(result, err, "Error handling (404)")
+	
+	return nil
 }
 
 func printRESTResult(result *tools.ToolExecutionResult, err error, title string) {
@@ -215,3 +217,4 @@ func printRESTResult(result *tools.ToolExecutionResult, err error, title string)
 	fmt.Printf("  Duration: %v\n", result.Duration)
 	fmt.Println()
 }
+

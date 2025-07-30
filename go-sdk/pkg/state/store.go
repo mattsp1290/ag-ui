@@ -167,8 +167,8 @@ func NewStateStore(options ...StateStoreOption) *StateStore {
 		history:         make([]*StateVersion, 0),
 		maxHistory:      DefaultMaxHistorySizeSharding, // Default max history for sharded operations
 		transactions:    make(map[string]*StateTransaction),
-		subscriptionTTL: DefaultSubscriptionTTL,     // Default TTL for subscriptions
-		cleanupInterval: DefaultSubscriptionCleanup, // Default cleanup interval
+		subscriptionTTL: GetDefaultSubscriptionTTL(),     // Default TTL for subscriptions
+		cleanupInterval: GetDefaultSubscriptionCleanup(), // Default cleanup interval
 		lastCleanup:     time.Now(),
 		logger:          DefaultLogger(),
 		errorHandler:    nil, // Will be set after initialization
@@ -1292,6 +1292,12 @@ func (s *StateStore) GetStateView() *StateView {
 	// Use a shallow merge to avoid deep copying
 	merged := s.getAllShardsDataShallow()
 
+	// Increment reference count for all shards
+	for _, shard := range s.shards {
+		state := shard.current.Load().(*ImmutableState)
+		atomic.AddInt32(&state.refs, 1)
+	}
+
 	return &StateView{
 		data: merged,
 		cleanup: func() {
@@ -1420,6 +1426,7 @@ func (s *StateStore) Import(data []byte) error {
 			Operation: "replace",
 			NewValue:  newStateData,
 			OldValue:  nil,
+			Timestamp: time.Now(),
 		},
 	}
 	s.notifySubscribers(changes)

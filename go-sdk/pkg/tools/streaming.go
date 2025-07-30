@@ -38,11 +38,12 @@ const (
 //	
 //	return stream.Channel(), nil
 type StreamingContext struct {
-	ctx    context.Context
-	chunks chan *ToolStreamChunk
-	index  int
-	mu     sync.Mutex
-	closed bool
+	ctx       context.Context
+	chunks    chan *ToolStreamChunk
+	index     int
+	mu        sync.Mutex
+	closed    bool
+	closeOnce sync.Once
 }
 
 // NewStreamingContext creates a new streaming context.
@@ -99,13 +100,12 @@ func (sc *StreamingContext) Channel() <-chan *ToolStreamChunk {
 
 // Close closes the streaming context and its channel.
 func (sc *StreamingContext) Close() error {
-	sc.mu.Lock()
-	defer sc.mu.Unlock()
-
-	if !sc.closed {
-		close(sc.chunks)
+	sc.closeOnce.Do(func() {
+		sc.mu.Lock()
 		sc.closed = true
-	}
+		close(sc.chunks)
+		sc.mu.Unlock()
+	})
 	return nil
 }
 
@@ -134,7 +134,6 @@ func (sc *StreamingContext) sendChunk(chunkType string, data interface{}) error 
 			// Channel was closed during send, this is expected during rapid close scenarios
 		}
 	}()
-	
 	select {
 	case sc.chunks <- chunk:
 		return nil

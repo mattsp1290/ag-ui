@@ -269,6 +269,10 @@ func TestStateManagerMemoryLeakPrevention(t *testing.T) {
 
 // TestConflictResolverMemoryLeakPrevention tests resolver registry bounds
 func TestConflictResolverMemoryLeakPrevention(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping memory leak test in short mode")
+	}
+	
 	cr := NewConflictResolver(LastWriteWins)
 
 	// Register many custom resolvers

@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/ag-ui/go-sdk/pkg/core"
+	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap/zapcore"
 )
 
@@ -632,6 +633,9 @@ type PrometheusConfig struct {
 
 	// Labels to add to all metrics
 	Labels map[string]string `json:"labels" yaml:"labels"`
+
+	// Custom registry for metrics (optional, uses default if nil)
+	Registry *prometheus.Registry `json:"-" yaml:"-"`
 }
 
 // LoggingConfig defines logging settings
@@ -1216,11 +1220,11 @@ func DefaultComprehensiveConfig() ComprehensiveConfig {
 			},
 			CORS: CORSConfig{
 				Enabled:          false,
-				AllowedOrigins:   []string{"*"},
+				AllowedOrigins:   []string{"https://localhost:3000", "https://localhost:8080"},
 				AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-				AllowedHeaders:   []string{"*"},
+				AllowedHeaders:   []string{"Content-Type", "Authorization", "X-Requested-With", "X-CSRF-Token"},
 				ExposedHeaders:   []string{},
-				AllowCredentials: false,
+				AllowCredentials: true,
 				MaxAge:           24 * time.Hour,
 			},
 			RateLimit: RateLimitConfig{
@@ -2238,13 +2242,34 @@ func (c *ComprehensiveConfig) GetHTTPClient() *http.Client {
 		DisableKeepAlives:   !c.Connection.KeepAlive.Enabled,
 	}
 
-	// Configure TLS
+	// Configure TLS with secure defaults
+	tlsConfig := &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		CipherSuites: []uint16{
+			tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+		},
+	}
+	
 	if c.Connection.TLS.Enabled {
-		tlsConfig := &tls.Config{
-			InsecureSkipVerify: c.Connection.TLS.InsecureSkipVerify,
-			ServerName:         c.Connection.TLS.ServerName,
-			MinVersion:         c.Connection.TLS.MinVersion,
-			MaxVersion:         c.Connection.TLS.MaxVersion,
+		// Override defaults with configuration values
+		if c.Connection.TLS.InsecureSkipVerify {
+			tlsConfig.InsecureSkipVerify = true
+		}
+		if c.Connection.TLS.ServerName != "" {
+			tlsConfig.ServerName = c.Connection.TLS.ServerName
+		}
+		if c.Connection.TLS.MinVersion != 0 {
+			tlsConfig.MinVersion = c.Connection.TLS.MinVersion
+		}
+		if c.Connection.TLS.MaxVersion != 0 {
+			tlsConfig.MaxVersion = c.Connection.TLS.MaxVersion
+		}
+		if len(c.Connection.TLS.CipherSuites) > 0 {
+			tlsConfig.CipherSuites = c.Connection.TLS.CipherSuites
 		}
 		
 		// Use secure cipher suites if not explicitly configured
@@ -2270,6 +2295,8 @@ func (c *ComprehensiveConfig) GetHTTPClient() *http.Client {
 		
 		transport.TLSClientConfig = tlsConfig
 	}
+	
+	transport.TLSClientConfig = tlsConfig
 
 	// Configure proxy
 	if c.Connection.HTTPClient.ProxyURL != "" {

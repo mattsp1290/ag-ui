@@ -20,8 +20,8 @@ func TestValidatorPermissiveMode(t *testing.T) {
 			name: "RunStartedEvent with empty IDs",
 			event: &RunStartedEvent{
 				BaseEvent: NewBaseEvent(EventTypeRunStarted),
-				ThreadID:  "",
-				RunID:     "",
+				ThreadIDValue:  "",
+				RunIDValue:     "",
 			},
 			wantError: false, // AllowEmptyIDs is true in permissive mode
 		},
@@ -29,8 +29,8 @@ func TestValidatorPermissiveMode(t *testing.T) {
 			name: "RunFinishedEvent with empty IDs",
 			event: &RunFinishedEvent{
 				BaseEvent: NewBaseEvent(EventTypeRunFinished),
-				ThreadID:  "",
-				RunID:     "",
+				ThreadIDValue:  "",
+				RunIDValue:     "",
 			},
 			wantError: false,
 		},
@@ -185,8 +185,8 @@ func TestValidatorStrictMode(t *testing.T) {
 			name: "RunStartedEvent with empty IDs in strict mode",
 			event: &RunStartedEvent{
 				BaseEvent: NewBaseEvent(EventTypeRunStarted),
-				ThreadID:  "",
-				RunID:     "",
+				ThreadIDValue:  "",
+				RunIDValue:     "",
 			},
 			wantError: true, // Strict mode should fail
 		},
@@ -194,8 +194,8 @@ func TestValidatorStrictMode(t *testing.T) {
 			name: "Valid RunStartedEvent in strict mode",
 			event: &RunStartedEvent{
 				BaseEvent: NewBaseEvent(EventTypeRunStarted),
-				ThreadID:  "thread-123",
-				RunID:     "run-456",
+				ThreadIDValue:  "thread-123",
+				RunIDValue:     "run-456",
 			},
 			wantError: false,
 		},

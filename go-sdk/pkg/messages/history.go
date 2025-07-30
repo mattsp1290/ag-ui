@@ -139,7 +139,7 @@ func (h *History) Add(msg Message) error {
 		h.performLazyCompaction()
 
 		// Check again after compaction
-		if h.options.MaxMemoryBytes > 0 && h.currentMemoryBytes+msgSize > h.options.MaxMemoryBytes {
+		if h.options.MaxMemoryBytes > 0 && h.currentMemoryBytes+msgSize >= h.options.MaxMemoryBytes {
 			return fmt.Errorf("adding message would exceed memory limit: current=%d, message=%d, limit=%d",
 				h.currentMemoryBytes, msgSize, h.options.MaxMemoryBytes)
 		}
@@ -228,7 +228,7 @@ func (h *History) AddBatch(messages []Message) error {
 		h.performLazyCompaction()
 
 		// Check again after compaction
-		if h.options.MaxMemoryBytes > 0 && h.currentMemoryBytes+totalSize > h.options.MaxMemoryBytes {
+		if h.options.MaxMemoryBytes > 0 && h.currentMemoryBytes+totalSize >= h.options.MaxMemoryBytes {
 			return fmt.Errorf("adding messages would exceed memory limit: current=%d, batch=%d, limit=%d",
 				h.currentMemoryBytes, totalSize, h.options.MaxMemoryBytes)
 		}
@@ -469,7 +469,7 @@ func (h *History) calculateMessageSize(msg Message) (int64, error) {
 // Uses multiple heuristics to avoid unnecessary compaction while maintaining performance
 func (h *History) shouldCompact(incomingSize int64) bool {
 	// Check memory pressure first (most critical)
-	if h.options.MaxMemoryBytes > 0 && h.currentMemoryBytes+incomingSize > h.options.MaxMemoryBytes {
+	if h.options.MaxMemoryBytes > 0 && h.currentMemoryBytes+incomingSize >= h.options.MaxMemoryBytes {
 		return true
 	}
 
@@ -587,7 +587,7 @@ func (h *History) adjustForMemoryLimit(startIdx int) int {
 
 	// Remove more messages if still over limit
 	currentIdx := startIdx
-	for currentIdx < h.tail && memoryAfterRemoval > h.options.MaxMemoryBytes {
+	for currentIdx < h.tail && memoryAfterRemoval >= h.options.MaxMemoryBytes {
 		if currentIdx < len(h.messageSizes) {
 			memoryAfterRemoval -= h.messageSizes[currentIdx]
 		}

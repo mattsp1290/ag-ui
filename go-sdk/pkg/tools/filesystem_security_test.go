@@ -319,6 +319,28 @@ func testDirectoryTraversal(t *testing.T) {
 
 // testSymlinkHandling tests comprehensive symlink handling
 func testSymlinkHandling(t *testing.T) {
+	// Skip this test on platforms that don't support symlinks
+	if runtime.GOOS == "windows" || runtime.GOOS == "plan9" {
+		t.Skip("Skipping symlink test on platform that may not support symlinks")
+	}
+
+	// Check if we can create symlinks
+	tempTestDir, err := os.MkdirTemp("", "symlink_capability_test")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempTestDir)
+
+	testFile := filepath.Join(tempTestDir, "test.txt")
+	testLink := filepath.Join(tempTestDir, "test.link")
+	if err := os.WriteFile(testFile, []byte("test"), 0644); err != nil {
+		t.Fatalf("Failed to create test file: %v", err)
+	}
+	if err := os.Symlink(testFile, testLink); err != nil {
+		t.Skip("Cannot create symlinks on this system, skipping test")
+	}
+	os.Remove(testLink)
+
 	tempDir, err := os.MkdirTemp("", "fs_symlink_test")
 	if err != nil {
 		t.Fatalf("Failed to create temp dir: %v", err)

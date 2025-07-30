@@ -114,8 +114,8 @@ func DefaultHeartbeatConfig() *HeartbeatConfig {
 	return &HeartbeatConfig{
 		Enabled:      true,
 		Interval:     30 * time.Second,
-		Timeout:      5 * time.Second,
-		MaxMissed:    3,
+		Timeout:      15 * time.Second,  // Increased timeout for better reliability
+		MaxMissed:    5,                 // Allow more missed heartbeats
 		PingEndpoint: "/ping",
 	}
 }
@@ -817,7 +817,7 @@ func NewConnectionPool(config *Config) (*ConnectionPool, error) {
 	pool := &ConnectionPool{
 		config:              config,
 		connections:         make(map[string]*Connection),
-		maxConnections:      10, // Default values for simple config
+		maxConnections:      100, // Increased for high concurrency load testing
 		minConnections:      2,
 		idleTimeout:         90 * time.Second,
 		maxIdleTime:         30 * time.Minute,

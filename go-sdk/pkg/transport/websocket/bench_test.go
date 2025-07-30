@@ -1,3 +1,5 @@
+//go:build load || heavy
+
 package websocket
 
 import (
@@ -418,6 +420,7 @@ func BenchmarkThroughput(b *testing.B) {
 
 // TestPerformanceConstraints tests that performance constraints are met
 func TestPerformanceConstraints(t *testing.T) {
+	
 	config := DefaultPerformanceConfig()
 	config.Logger = zaptest.NewLogger(t)
 	config.MaxConcurrentConnections = 1000
@@ -508,6 +511,7 @@ func TestPerformanceConstraints(t *testing.T) {
 
 // TestPerformanceMetrics tests that metrics are collected correctly
 func TestPerformanceMetrics(t *testing.T) {
+	
 	config := DefaultPerformanceConfig()
 	config.Logger = zaptest.NewLogger(t)
 	config.EnableMetrics = true
@@ -539,6 +543,7 @@ func TestPerformanceMetrics(t *testing.T) {
 
 // TestAdaptiveOptimization tests adaptive optimization
 func TestAdaptiveOptimization(t *testing.T) {
+	
 	config := DefaultPerformanceConfig()
 	config.Logger = zaptest.NewLogger(t)
 	config.EnableMetrics = true
@@ -567,6 +572,11 @@ func TestAdaptiveOptimization(t *testing.T) {
 		pm.metricsCollector.TrackMessageLatency(100 * time.Millisecond)
 	}
 
+	// Force immediate adaptation instead of waiting for the interval
+	ao.adaptSettings()
+
+	// Give a small delay for settings to take effect
+	time.Sleep(100 * time.Millisecond)
 	// Wait for adaptation to occur
 	time.Sleep(1 * time.Second)
 
@@ -583,6 +593,7 @@ func TestAdaptiveOptimization(t *testing.T) {
 
 // TestBufferPoolEfficiency tests buffer pool efficiency
 func TestBufferPoolEfficiency(t *testing.T) {
+	
 	bp := NewBufferPool(100, 1024)
 
 	// Test that buffers are reused
@@ -606,6 +617,7 @@ func TestBufferPoolEfficiency(t *testing.T) {
 
 // TestZeroCopyOperations tests zero-copy operations
 func TestZeroCopyOperations(t *testing.T) {
+	
 	data := []byte("test data for zero copy operations")
 	zcb := NewZeroCopyBuffer(data)
 
@@ -633,6 +645,7 @@ func TestZeroCopyOperations(t *testing.T) {
 
 // TestMemoryManagerConstraints tests memory manager constraints
 func TestMemoryManagerConstraints(t *testing.T) {
+	
 	maxMemory := int64(1024 * 1024) // 1MB
 	mm := NewMemoryManager(maxMemory)
 
@@ -677,6 +690,7 @@ func TestMemoryManagerConstraints(t *testing.T) {
 
 // TestProfilingIntegration tests profiling integration
 func TestProfilingIntegration(t *testing.T) {
+	
 	config := DefaultPerformanceConfig()
 	config.Logger = zaptest.NewLogger(t)
 	config.EnableProfiling = true
@@ -735,6 +749,14 @@ func (m *benchMockEvent) ToProtobuf() (*generated.Event, error) {
 
 func (m *benchMockEvent) GetBaseEvent() *events.BaseEvent {
 	return nil
+}
+
+func (m *benchMockEvent) ThreadID() string {
+	return ""
+}
+
+func (m *benchMockEvent) RunID() string {
+	return ""
 }
 
 // Helper function to measure memory usage

@@ -22,8 +22,8 @@ func TestIntegration_CompleteUserAssistantConversation(t *testing.T) {
 				EventType:   EventTypeRunStarted,
 				TimestampMs: timePtr(time.Now().UnixMilli()),
 			},
-			RunID:    "run-conv-001",
-			ThreadID: "thread-conv-001",
+			RunIDValue:    "run-conv-001",
+			ThreadIDValue: "thread-conv-001",
 		},
 
 		// 2. User message
@@ -141,7 +141,7 @@ func TestIntegration_CompleteUserAssistantConversation(t *testing.T) {
 				EventType:   EventTypeRunFinished,
 				TimestampMs: timePtr(time.Now().UnixMilli() + 1400),
 			},
-			RunID: "run-conv-001",
+			RunIDValue: "run-conv-001",
 		},
 	}
 
@@ -171,8 +171,8 @@ func TestIntegration_StreamingToolCallWithMultipleArgs(t *testing.T) {
 	events := []Event{
 		&RunStartedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-			RunID:     "run-stream-001",
-			ThreadID:  "thread-stream-001",
+			RunIDValue:     "run-stream-001",
+			ThreadIDValue:  "thread-stream-001",
 		},
 
 		// Assistant message with tool call
@@ -218,7 +218,7 @@ func TestIntegration_StreamingToolCallWithMultipleArgs(t *testing.T) {
 
 		&RunFinishedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli() + 800)},
-			RunID:     "run-stream-001",
+			RunIDValue:     "run-stream-001",
 		},
 	}
 
@@ -241,8 +241,8 @@ func TestIntegration_ErrorRecoveryScenario(t *testing.T) {
 	events := []Event{
 		&RunStartedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-			RunID:     "run-error-001",
-			ThreadID:  "thread-error-001",
+			RunIDValue:     "run-error-001",
+			ThreadIDValue:  "thread-error-001",
 		},
 
 		&TextMessageStartEvent{
@@ -263,7 +263,7 @@ func TestIntegration_ErrorRecoveryScenario(t *testing.T) {
 		// Run encounters an error
 		&RunErrorEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunError, TimestampMs: timePtr(time.Now().UnixMilli() + 400)},
-			RunID:     "run-error-001",
+			RunIDValue:     "run-error-001",
 			Message:   "Invalid request: missing required parameters",
 		},
 	}
@@ -297,8 +297,8 @@ func TestIntegration_StateManagementFlow(t *testing.T) {
 	events := []Event{
 		&RunStartedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-			RunID:     "run-state-001",
-			ThreadID:  "thread-state-001",
+			RunIDValue:     "run-state-001",
+			ThreadIDValue:  "thread-state-001",
 		},
 
 		// Initial state snapshot
@@ -345,7 +345,7 @@ func TestIntegration_StateManagementFlow(t *testing.T) {
 
 		&RunFinishedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli() + 500)},
-			RunID:     "run-state-001",
+			RunIDValue:     "run-state-001",
 		},
 	}
 
@@ -368,8 +368,8 @@ func TestIntegration_ConcurrentMessagesAndTools(t *testing.T) {
 	events := []Event{
 		&RunStartedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-			RunID:     "run-concurrent-001",
-			ThreadID:  "thread-concurrent-001",
+			RunIDValue:     "run-concurrent-001",
+			ThreadIDValue:  "thread-concurrent-001",
 		},
 
 		// Start multiple messages
@@ -440,7 +440,7 @@ func TestIntegration_ConcurrentMessagesAndTools(t *testing.T) {
 
 		&RunFinishedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli() + 1100)},
-			RunID:     "run-concurrent-001",
+			RunIDValue:     "run-concurrent-001",
 		},
 	}
 
@@ -476,8 +476,8 @@ func TestIntegration_LongRunningApplicationSimulation(t *testing.T) {
 		events := []Event{
 			&RunStartedEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-				RunID:     runID,
-				ThreadID:  threadID,
+				RunIDValue:     runID,
+				ThreadIDValue:  threadID,
 			},
 			&TextMessageStartEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeTextMessageStart, TimestampMs: timePtr(time.Now().UnixMilli() + 10)},
@@ -495,7 +495,7 @@ func TestIntegration_LongRunningApplicationSimulation(t *testing.T) {
 			},
 			&RunFinishedEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli() + 40)},
-				RunID:     runID,
+				RunIDValue:     runID,
 			},
 		}
 
@@ -546,12 +546,12 @@ func TestIntegration_InvalidSequences(t *testing.T) {
 			events: []Event{
 				&RunStartedEvent{
 					BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-					RunID:     "run-1",
-					ThreadID:  "thread-1",
+					RunIDValue:     "run-1",
+					ThreadIDValue:  "thread-1",
 				},
 				&RunFinishedEvent{
 					BaseEvent: &BaseEvent{EventType: EventTypeRunFinished},
-					RunID:     "run-1",
+					RunIDValue:     "run-1",
 				},
 				&TextMessageStartEvent{
 					BaseEvent: &BaseEvent{EventType: EventTypeTextMessageStart},
@@ -566,8 +566,8 @@ func TestIntegration_InvalidSequences(t *testing.T) {
 			events: []Event{
 				&RunStartedEvent{
 					BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-					RunID:     "run-1",
-					ThreadID:  "thread-1",
+					RunIDValue:     "run-1",
+					ThreadIDValue:  "thread-1",
 				},
 				&TextMessageContentEvent{
 					BaseEvent: &BaseEvent{EventType: EventTypeTextMessageContent},
@@ -582,8 +582,8 @@ func TestIntegration_InvalidSequences(t *testing.T) {
 			events: []Event{
 				&RunStartedEvent{
 					BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-					RunID:     "run-1",
-					ThreadID:  "thread-1",
+					RunIDValue:     "run-1",
+					ThreadIDValue:  "thread-1",
 				},
 				&ToolCallArgsEvent{
 					BaseEvent:  &BaseEvent{EventType: EventTypeToolCallArgs},
@@ -592,7 +592,7 @@ func TestIntegration_InvalidSequences(t *testing.T) {
 				},
 				&RunFinishedEvent{
 					BaseEvent: &BaseEvent{EventType: EventTypeRunFinished},
-					RunID:     "run-1",
+					RunIDValue:     "run-1",
 				},
 			},
 			errors: []string{"TOOL_CALL_LIFECYCLE"},
@@ -650,8 +650,8 @@ func TestIntegration_CustomEventsFlow(t *testing.T) {
 	events := []Event{
 		&RunStartedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-			RunID:     "run-custom-001",
-			ThreadID:  "thread-custom-001",
+			RunIDValue:     "run-custom-001",
+			ThreadIDValue:  "thread-custom-001",
 		},
 
 		// Custom event for model switching
@@ -690,7 +690,7 @@ func TestIntegration_CustomEventsFlow(t *testing.T) {
 
 		&RunFinishedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli() + 600)},
-			RunID:     "run-custom-001",
+			RunIDValue:     "run-custom-001",
 		},
 	}
 
@@ -713,8 +713,8 @@ func TestIntegration_JSONSerializationRoundTrip(t *testing.T) {
 	originalEvents := []Event{
 		&RunStartedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-			RunID:     "run-json-001",
-			ThreadID:  "thread-json-001",
+			RunIDValue:     "run-json-001",
+			ThreadIDValue:  "thread-json-001",
 		},
 		&StateSnapshotEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeStateSnapshot, TimestampMs: timePtr(time.Now().UnixMilli() + 100)},
@@ -728,7 +728,7 @@ func TestIntegration_JSONSerializationRoundTrip(t *testing.T) {
 		},
 		&RunFinishedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli() + 200)},
-			RunID:     "run-json-001",
+			RunIDValue:     "run-json-001",
 		},
 	}
 
@@ -772,8 +772,8 @@ func BenchmarkIntegration_CompleteConversationFlow(b *testing.B) {
 	events := []Event{
 		&RunStartedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-			RunID:     "run-bench-001",
-			ThreadID:  "thread-bench-001",
+			RunIDValue:     "run-bench-001",
+			ThreadIDValue:  "thread-bench-001",
 		},
 		&TextMessageStartEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeTextMessageStart, TimestampMs: timePtr(time.Now().UnixMilli() + 100)},
@@ -805,7 +805,7 @@ func BenchmarkIntegration_CompleteConversationFlow(b *testing.B) {
 		},
 		&RunFinishedEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli() + 700)},
-			RunID:     "run-bench-001",
+			RunIDValue:     "run-bench-001",
 		},
 	}
 

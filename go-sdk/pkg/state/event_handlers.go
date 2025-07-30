@@ -61,6 +61,9 @@ type StateEventHandler struct {
 	// Context for cancellation
 	ctx    context.Context
 	cancel context.CancelFunc
+	
+	// Running state
+	running bool
 }
 
 // StateEventHandlerOption is a configuration option for StateEventHandler
@@ -185,6 +188,7 @@ func NewStateEventHandler(store StoreInterface, options ...StateEventHandlerOpti
 		clientID:             generateClientID(),
 		ctx:                  ctx,
 		cancel:               cancel,
+		running:              true, // Start in running state
 	}
 
 	// Apply options
@@ -1396,7 +1400,9 @@ func (h *StateEventHandler) isRunning() bool {
 		return false
 	}
 	
-	return true
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.running
 }
 
 // getQueueDepth returns the current queue depth

@@ -18,7 +18,7 @@ var (
 	// Matches opening and closing tags more efficiently
 	htmlPattern = regexp.MustCompile(`</?[a-zA-Z][^>]*>`)
 
-	// TODO: Consider using a proper HTML sanitization library like bluemonday
+	// Note: Consider using a proper HTML sanitization library like bluemonday
 	// instead of regex-based sanitization for better security and performance.
 	// Regex-based HTML sanitization is inherently limited and can miss edge cases.
 )

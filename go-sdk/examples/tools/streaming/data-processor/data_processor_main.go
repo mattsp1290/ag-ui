@@ -1,4 +1,4 @@
-package main
+package dataprocessor
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/tools"
 )
 
-func main() {
+func RunDataProcessorExample() error {
 	// Create registry and register the data processor tool
 	registry := tools.NewRegistry()
 	dataProcessorTool := CreateDataProcessorTool()
@@ -101,6 +101,8 @@ func main() {
 		consumeDataStream(streamCh, 15)
 	}
 	fmt.Println()
+	
+	return nil
 }
 
 // consumeDataStream consumes chunks from a data processing stream

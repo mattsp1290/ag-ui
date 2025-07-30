@@ -231,25 +231,25 @@ type StreamMetrics struct {
 // DefaultStreamConfig returns a default stream configuration
 func DefaultStreamConfig() *StreamConfig {
 	return &StreamConfig{
-		EventBufferSize:     1000,
-		ChunkBufferSize:     100,
-		MaxChunkSize:        64 * 1024, // 64KB
-		FlushInterval:       100 * time.Millisecond,
+		EventBufferSize:     5000,        // Increased buffer size for higher throughput
+		ChunkBufferSize:     500,         // Increased chunk buffer
+		MaxChunkSize:        64 * 1024,   // 64KB
+		FlushInterval:       10 * time.Millisecond, // Reduced flush interval for faster processing
 		BatchEnabled:        true,
-		BatchSize:           50,
-		BatchTimeout:        50 * time.Millisecond,
-		MaxBatchSize:        500,
+		BatchSize:           100,         // Increased batch size for better throughput
+		BatchTimeout:        10 * time.Millisecond, // Much faster batching for low latency
+		MaxBatchSize:        1000,        // Increased max batch size
 		CompressionEnabled:  true,
 		CompressionType:     CompressionGzip,
-		CompressionLevel:    6,
-		MinCompressionSize:  1024,
-		MaxConcurrentEvents: 100,
+		CompressionLevel:    1,           // Fastest compression level for performance
+		MinCompressionSize:  512,         // Lower threshold for compression
+		MaxConcurrentEvents: 500,         // Higher concurrency for better throughput
 		BackpressureTimeout: 5 * time.Second,
 		DrainTimeout:        30 * time.Second,
-		SequenceEnabled:     true,
+		SequenceEnabled:     false,       // Disable sequencing for performance gain
 		OrderingRequired:    false,
 		OutOfOrderBuffer:    1000,
-		WorkerCount:         4,
+		WorkerCount:         8,           // More workers for higher throughput
 		EnableMetrics:       true,
 		MetricsInterval:     30 * time.Second,
 	}

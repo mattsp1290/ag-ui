@@ -75,16 +75,16 @@ func (r *IDFormatRule) Validate(event Event, context *ValidationContext) *Valida
 	switch event.Type() {
 	case EventTypeRunStarted:
 		if runEvent, ok := event.(*RunStartedEvent); ok {
-			if !r.runIDPattern.MatchString(runEvent.RunID) {
+			if !r.runIDPattern.MatchString(runEvent.RunID()) {
 				result.AddWarning(r.CreateError(event,
-					fmt.Sprintf("Run ID '%s' does not match recommended format", runEvent.RunID),
-					map[string]interface{}{"run_id": runEvent.RunID},
+					fmt.Sprintf("Run ID '%s' does not match recommended format", runEvent.RunID()),
+					map[string]interface{}{"run_id": runEvent.RunID()},
 					[]string{"Use alphanumeric characters, hyphens, and underscores only"}))
 			}
-			if !r.threadIDPattern.MatchString(runEvent.ThreadID) {
+			if !r.threadIDPattern.MatchString(runEvent.ThreadID()) {
 				result.AddWarning(r.CreateError(event,
-					fmt.Sprintf("Thread ID '%s' does not match recommended format", runEvent.ThreadID),
-					map[string]interface{}{"thread_id": runEvent.ThreadID},
+					fmt.Sprintf("Thread ID '%s' does not match recommended format", runEvent.ThreadID()),
+					map[string]interface{}{"thread_id": runEvent.ThreadID()},
 					[]string{"Use alphanumeric characters, hyphens, and underscores only"}))
 			}
 		}
@@ -143,10 +143,10 @@ func (r *IDUniquenessRule) Validate(event Event, context *ValidationContext) *Va
 	case EventTypeRunStarted:
 		if runEvent, ok := event.(*RunStartedEvent); ok {
 			// Check if run ID is already used
-			if _, exists := context.State.ActiveRuns[runEvent.RunID]; exists {
+			if _, exists := context.State.ActiveRuns[runEvent.RunID()]; exists {
 				result.AddError(r.CreateError(event,
-					fmt.Sprintf("Run ID '%s' is already in use", runEvent.RunID),
-					map[string]interface{}{"run_id": runEvent.RunID},
+					fmt.Sprintf("Run ID '%s' is already in use", runEvent.RunID()),
+					map[string]interface{}{"run_id": runEvent.RunID()},
 					[]string{"Use a unique run ID"}))
 			}
 		}

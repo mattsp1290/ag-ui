@@ -19,8 +19,8 @@ func createTestRunStartedEvent() *RunStartedEvent {
 			EventType:   EventTypeRunStarted,
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 }
 
@@ -34,8 +34,8 @@ func generateTestSequence(size int) []Event {
 			EventType:   EventTypeRunStarted,
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-bench",
-		ThreadID: "thread-bench",
+		RunIDValue:    "run-bench",
+		ThreadIDValue: "thread-bench",
 	})
 
 	// Add message sequences
@@ -83,7 +83,7 @@ func generateTestSequence(size int) []Event {
 			EventType:   EventTypeRunFinished,
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID: "run-bench",
+		RunIDValue: "run-bench",
 	})
 
 	return events

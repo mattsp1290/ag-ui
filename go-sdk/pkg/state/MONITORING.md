@@ -46,7 +46,6 @@ Multiple notification channels for alerts:
 - **WebhookAlertNotifier**: Sends alerts to HTTP webhooks
 - **SlackAlertNotifier**: Integration with Slack channels
 - **EmailAlertNotifier**: Email notifications (placeholder)
-- **PagerDutyAlertNotifier**: PagerDuty integration
 - **FileAlertNotifier**: Write alerts to files
 - **CompositeAlertNotifier**: Send to multiple notifiers
 - **ConditionalAlertNotifier**: Conditional alert routing
@@ -180,7 +179,10 @@ config := NewMonitoringConfigBuilder().
     Build()
 
 // Add alert notifiers
-slackNotifier := NewSlackAlertNotifier(webhookURL, "#alerts", "StateManager")
+slackNotifier, err := NewSlackAlertNotifier(webhookURL, "#alerts", "StateManager")
+if err != nil {
+    log.Fatalf("Failed to create Slack notifier: %v", err)
+}
 logNotifier := NewLogAlertNotifier(logger)
 throttledSlack := NewThrottledAlertNotifier(slackNotifier, 5*time.Minute)
 

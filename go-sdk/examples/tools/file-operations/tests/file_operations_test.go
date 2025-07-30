@@ -21,7 +21,7 @@ type MockFileOperationsExecutor struct {
 	directories map[string]bool
 	// Mutex for thread-safe map operations
 	mu sync.RWMutex
-}
+>}
 
 func NewMockFileOperationsExecutor() *MockFileOperationsExecutor {
 	return &MockFileOperationsExecutor{
@@ -347,13 +347,17 @@ func (f *MockFileOperationsExecutor) deleteFile(ctx context.Context, filePath st
 	}
 
 	f.mu.Lock()
-	size := len(f.files[filePath])
+>	size := len(f.files[filePath])
+	f.mu.RUnlock()
 
 	if backup {
 		backupPath := filePath + ".deleted"
+		f.mu.Lock()
 		f.files[backupPath] = f.files[filePath]
+		f.mu.Unlock()
 	}
 
+	f.mu.Lock()
 	delete(f.files, filePath)
 	f.mu.Unlock()
 
@@ -396,7 +400,7 @@ func (f *MockFileOperationsExecutor) statFile(ctx context.Context, filePath stri
 		"writable": true,
 		"modified": time.Now().Add(-time.Hour).Format(time.RFC3339),
 		"created":  time.Now().Add(-24 * time.Hour).Format(time.RFC3339),
-	}
+>	}
 
 	return &tools.ToolExecutionResult{
 		Success:   true,
@@ -416,7 +420,7 @@ func (f *MockFileOperationsExecutor) createDirectory(ctx context.Context, dirPat
 	alreadyExists := f.directories[dirPath]
 	f.mu.RUnlock()
 	if alreadyExists {
-		return &tools.ToolExecutionResult{
+>		return &tools.ToolExecutionResult{
 			Success: false,
 			Error:   "directory already exists",
 		}, nil
@@ -1396,7 +1400,7 @@ func BenchmarkFileOperationsTool_Operations(b *testing.B) {
 
 // Example test showing how to use the file operations tool
 func Example_fileOperationsBasicUsage() {
-	tool := createFileOperationsTool()
+>	tool := createFileOperationsTool()
 	executor := tool.Executor.(*MockFileOperationsExecutor)
 	executor.files["/example/test.txt"] = []byte("Hello, World!")
 	ctx := context.Background()

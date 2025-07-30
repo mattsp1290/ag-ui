@@ -333,7 +333,7 @@ func TestGreetingTool_BasicGreetings(t *testing.T) {
 				"personalize": true,
 			},
 			expectedContains: []string{"Hello", "Frank", "Thanks for being awesome"},
-		},
+>		},
 	}
 
 	for _, tc := range testCases {
@@ -832,7 +832,7 @@ func BenchmarkGreetingTool_Languages(b *testing.B) {
 
 // Example test showing how to use the greeting tool
 func Example_greetingBasicUsage() {
-	tool := createGreetingTool()
+>	tool := createGreetingTool()
 	ctx := context.Background()
 
 	// Simple greeting
@@ -855,7 +855,7 @@ func Example_greetingBasicUsage() {
 }
 
 func Example_greetingMultiLanguage() {
-	tool := createGreetingTool()
+>	tool := createGreetingTool()
 	ctx := context.Background()
 
 	// Spanish casual greeting with emoji

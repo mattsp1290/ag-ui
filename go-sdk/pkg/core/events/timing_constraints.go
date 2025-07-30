@@ -617,7 +617,7 @@ func (r *EventTimingRule) updateTimingState(event Event, eventTime time.Time) {
 	switch event.Type() {
 	case EventTypeRunStarted:
 		if runEvent, ok := event.(*RunStartedEvent); ok {
-			r.timingState.startTimes["run:"+runEvent.RunID] = eventTime
+			r.timingState.startTimes["run:"+runEvent.RunID()] = eventTime
 		}
 	case EventTypeTextMessageStart:
 		if msgEvent, ok := event.(*TextMessageStartEvent); ok {
@@ -633,10 +633,10 @@ func (r *EventTimingRule) updateTimingState(event Event, eventTime time.Time) {
 		}
 	case EventTypeRunFinished, EventTypeRunError:
 		if runEvent, ok := event.(*RunFinishedEvent); ok {
-			delete(r.timingState.startTimes, "run:"+runEvent.RunID)
+			delete(r.timingState.startTimes, "run:"+runEvent.RunID())
 		}
 		if runEvent, ok := event.(*RunErrorEvent); ok {
-			delete(r.timingState.startTimes, "run:"+runEvent.RunID)
+			delete(r.timingState.startTimes, "run:"+runEvent.RunID())
 		}
 	case EventTypeTextMessageEnd:
 		if msgEvent, ok := event.(*TextMessageEndEvent); ok {

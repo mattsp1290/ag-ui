@@ -9,13 +9,16 @@ import (
 )
 
 func TestIntegrationDemo(t *testing.T) {
+	// Set up test cleanup
+	cleanup := NewTestCleanup(t)
+	
 	// Create state manager with default options
 	opts := DefaultManagerOptions()
 	manager, err := NewStateManager(opts)
 	if err != nil {
 		t.Fatalf("Failed to create state manager: %v", err)
 	}
-	defer manager.Close()
+	cleanup.SetManager(manager)
 
 	// Test context creation with security validation
 	ctx := context.Background()

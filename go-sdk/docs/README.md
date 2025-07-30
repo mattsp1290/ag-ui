@@ -1,10 +1,67 @@
 # AG-UI Go SDK Documentation
 
-## Overview
+Comprehensive documentation for the AG-UI Go SDK, providing everything needed for development, deployment, and production operations. This latest release introduces type-safe transport abstractions and enhanced event systems for building AI agent applications with real-time communication capabilities.
 
-The AG-UI Go SDK provides a comprehensive, type-safe framework for building AI agent applications with real-time communication capabilities. This documentation covers the major components introduced and enhanced in the latest release.
+## Documentation Overview
 
-## 🚀 New Features
+This documentation suite provides complete coverage of the AG-UI Go SDK from basic usage to enterprise production deployment, including the latest type-safe transport layer and event system enhancements.
+
+### Quick Navigation
+
+| Document | Description | Audience |
+|----------|-------------|----------|
+| [API Reference](api-reference.md) | Complete API documentation with examples | Developers |
+| [Client APIs Guide](client-apis.md) | Client connection and communication patterns | Developers |
+| [Event Validation Guide](event-validation.md) | Advanced event validation system | Developers |
+| [Production Deployment](production-deployment.md) | Enterprise deployment with security hardening | DevOps/SRE |
+| [OpenTelemetry Monitoring](opentelemetry-monitoring.md) | Comprehensive observability setup | DevOps/SRE |
+
+## Documentation Structure
+
+### 📚 API Documentation
+
+Comprehensive reference for all public APIs in the AG-UI Go SDK:
+
+- **[API Reference](api-reference.md)** - Complete API documentation covering:
+  - Client APIs for server communication
+  - Event system APIs and interfaces
+  - State management with transactions
+  - Tools framework and execution
+  - Transport layer protocols
+  - Monitoring and observability
+  - Error handling patterns
+  - Type definitions and utilities
+
+- **[Transport Abstraction API](transport_abstraction_api.md)** - Complete API reference for the new transport layer:
+  - Type-safe transport interfaces and configurations
+  - Protocol implementations (WebSocket, HTTP, gRPC)
+  - Capabilities system and feature management
+  - Connection management and health checking
+  - Error handling and retry strategies
+
+- **[Type-Safe Event System API](event_system_api.md)** - Comprehensive guide to the enhanced event system:
+  - AG-UI protocol event types and builders
+  - Validation rules and automatic ID generation
+  - JSON and Protocol Buffer serialization
+  - Streaming message support with chunking
+
+- **[Client APIs Guide](client-apis.md)** - Detailed client usage patterns:
+  - Basic client setup and configuration
+  - Authentication methods (Bearer, JWT, API Key)
+  - Transport protocols (HTTP, WebSocket, SSE)
+  - Connection management and health checks
+  - Error handling and retry strategies
+  - Complete working examples
+
+- **[Event Validation Guide](event-validation.md)** - Advanced validation system:
+  - Multi-level validation (structural, protocol, business)
+  - Parallel validation for high throughput
+  - Custom validation rules engine
+  - Performance optimization techniques
+  - Monitoring and metrics integration
+  - Best practices and patterns
+
+## 🚀 New Features & Enhancements
 
 ### Transport Abstraction Layer
 
@@ -28,6 +85,415 @@ A comprehensive event system that ensures compile-time type safety and automatic
 - Automatic ID generation and validation
 - JSON and Protocol Buffer serialization
 - Streaming message support with content chunking
+
+### 🚀 Production Deployment
+
+Enterprise-grade deployment documentation:
+
+- **[Production Deployment Guide](production-deployment.md)** - Complete production setup:
+  - Infrastructure requirements and architecture
+  - Security hardening (TLS, authentication, RBAC)
+  - Container and Kubernetes deployment
+  - High availability configuration
+  - Configuration management and secrets
+  - Security checklist and verification
+  - Performance optimization
+
+- **[OpenTelemetry Monitoring](opentelemetry-monitoring.md)** - Comprehensive observability:
+  - OpenTelemetry configuration and setup
+  - Distributed tracing implementation
+  - Metrics collection and custom instrumentation
+  - Backend integration (Jaeger, Prometheus, Grafana)
+  - Performance optimization and sampling
+  - Troubleshooting and debugging
+
+## Getting Started
+
+### For Developers
+
+1. **Start with the [API Reference](api-reference.md)** to understand the core concepts
+2. **Explore the new [Transport Abstraction API](transport_abstraction_api.md)** for modern transport usage
+3. **Learn the [Type-Safe Event System API](event_system_api.md)** for structured event handling
+4. **Follow the [Client APIs Guide](client-apis.md)** for practical implementation
+5. **Implement validation using the [Event Validation Guide](event-validation.md)**
+6. **Use the [Migration Guide](migration_guide.md)** when updating from legacy implementations
+
+### For DevOps/SRE Teams
+
+1. **Review the [Production Deployment Guide](production-deployment.md)** for infrastructure setup
+2. **Implement monitoring with the [OpenTelemetry Guide](opentelemetry-monitoring.md)**
+3. **Use the security checklists** for hardening verification
+
+### Examples and Quick Start
+
+- **[Transport Basic Usage](../examples/transport/basic_usage/)** - Basic transport operations and configuration
+- **[Type-Safe Events Usage](../examples/events/type_safe_usage/)** - Event creation, validation, and serialization
+- **[Collaborative Editing](../examples/state/collaborative_editing/)** - Real-time state synchronization example
+
+## Key Features Documented
+
+### 🔐 Security & Authentication
+- Comprehensive authentication patterns (JWT, API Key, Bearer Token)
+- RBAC implementation with hierarchical roles
+- Security hardening checklists and best practices
+- TLS configuration and certificate management
+- Input validation and sanitization
+
+### 📊 Monitoring & Observability
+- OpenTelemetry integration with full telemetry pipeline
+- Custom metrics and business intelligence
+- Distributed tracing across microservices
+- Alert configuration and SLA monitoring
+- Performance optimization and troubleshooting
+
+### ⚡ Performance & Scalability
+- High-performance event processing
+- Parallel validation systems
+- Connection pooling and management
+- Caching strategies and optimization
+- Load balancing and auto-scaling
+
+### 🔧 Developer Experience
+- Type-safe transport and event APIs with compile-time validation
+- Comprehensive API examples and patterns
+- Fluent builder patterns for complex object construction
+- Error handling best practices with typed error categories
+- Testing utilities and helpers with mock implementations
+- Development workflow guidance
+- Integration patterns and migration tools
+
+## Architecture Overview
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    AG-UI Go SDK                         │
+├─────────────────────────────────────────────────────────┤
+│  Type-Safe Events   │  Transport Mgr   │  State Mgmt    │
+│  ┌─────────────┐   │  ┌─────────────┐ │  ┌─────────────┐│
+│  │ Builder API │   │  │Load Balancer│ │  │ Store       ││
+│  │ Validation  │   │  │Health Check │ │  │ Transactions││
+│  │ Serializers │   │  │Circuit Break│ │  │ History     ││
+│  └─────────────┘   │  └─────────────┘ │  └─────────────┘│
+├─────────────────────────────────────────────────────────┤
+│  Transport Layer    │  Tools Framework │  Monitoring     │
+│  ┌─────────────┐   │  ┌─────────────┐ │  ┌─────────────┐│
+│  │ WebSocket   │   │  │ Execution   │ │  │ OpenTel     ││
+│  │ HTTP/gRPC   │   │  │ Registry    │ │  │ Prometheus  ││
+│  │ Type-Safe   │   │  │ Validation  │ │  │ Jaeger      ││
+│  └─────────────┘   │  └─────────────┘ │  └─────────────┘│
+└─────────────────────────────────────────────────────────┘
+```
+
+## Production Deployment Architecture
+
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Load Balancer │    │   Web Gateway   │    │   Monitoring    │
+│     (HAProxy)   │    │     (Nginx)     │    │  (Prometheus)   │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 │
+    ┌────────────────────────────┼────────────────────────────┐
+    │                            │                            │
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   AG-UI App 1   │    │   AG-UI App 2   │    │   AG-UI App N   │
+│  (Primary Pod)  │    │ (Secondary Pod) │    │   (Scale Pod)   │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+         │                       │                       │
+         └───────────────────────┼───────────────────────┘
+                                 │
+         ┌───────────────────────┼───────────────────────┐
+         │                       │                       │
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   PostgreSQL    │    │      Redis      │    │ OpenTelemetry   │
+│   (Primary)     │    │     (Cache)     │    │   Collector     │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
+## Type-Safe Architecture Details
+
+### Transport Layer Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Transport Manager                        │
+├─────────────────────────────────────────────────────────────┤
+│  Load Balancer  │  Health Checker  │  Circuit Breaker      │
+├─────────────────────────────────────────────────────────────┤
+│              Middleware Chain                               │
+│  ┌─────────────┬─────────────┬─────────────┬─────────────┐  │
+│  │   Logging   │  Metrics    │    Auth     │ Compression │  │
+│  └─────────────┴─────────────┴─────────────┴─────────────┘  │
+├─────────────────────────────────────────────────────────────┤
+│                 Transport Interface                         │
+│  ┌─────────────┬─────────────┬─────────────┬─────────────┐  │
+│  │  WebSocket  │    HTTP     │    gRPC     │    Mock     │  │
+│  └─────────────┴─────────────┴─────────────┴─────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### Event System Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    Event Builder                           │
+├─────────────────────────────────────────────────────────────┤
+│               Type-Safe Event Types                        │
+│  ┌─────────────┬─────────────┬─────────────┬─────────────┐  │
+│  │     Run     │   Message   │    Tool     │    State    │  │
+│  │   Events    │   Events    │   Events    │   Events    │  │
+│  └─────────────┴─────────────┴─────────────┴─────────────┘  │
+├─────────────────────────────────────────────────────────────┤
+│              Validation & Serialization                    │
+│  ┌─────────────┬─────────────┬─────────────┬─────────────┐  │
+│  │ Validation  │    JSON     │  Protobuf   │ ID Utils    │  │
+│  │   Rules     │ Serializer  │ Serializer  │             │  │
+│  └─────────────┴─────────────┴─────────────┴─────────────┘  │
+└─────────────────────────────────────────────────────────────┘
+```
+
+## Configuration Examples
+
+### Environment Variables
+
+```bash
+# Server Configuration
+SERVER_ADDRESS=":8080"
+SERVER_READ_TIMEOUT="30s"
+SERVER_WRITE_TIMEOUT="30s"
+
+# Database Configuration
+DATABASE_URL="postgres://user:pass@localhost/agui"
+DATABASE_MAX_OPEN_CONNS="25"
+DATABASE_MAX_IDLE_CONNS="5"
+
+# Redis Configuration
+REDIS_URL="redis://localhost:6379"
+REDIS_PASSWORD="secure-password"
+
+# Security Configuration
+JWT_SECRET="your-jwt-secret-key"
+ENCRYPTION_KEY="your-encryption-key"
+SECURITY_REQUIRE_TLS="true"
+
+# Monitoring Configuration
+OTEL_SERVICE_NAME="ag-ui-server"
+OTEL_EXPORTER_OTLP_ENDPOINT="http://jaeger:4317"
+MONITORING_ENABLED="true"
+MONITORING_PROMETHEUS_PORT="9090"
+
+# Logging Configuration
+LOG_LEVEL="info"
+LOG_FORMAT="json"
+```
+
+### Kubernetes Resources
+
+```yaml
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ag-ui-production
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ag-ui-server
+  namespace: ag-ui-production
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: ag-ui-server
+  template:
+    metadata:
+      labels:
+        app: ag-ui-server
+    spec:
+      containers:
+      - name: ag-ui-server
+        image: your-registry/ag-ui-server:latest
+        ports:
+        - containerPort: 8080
+        - containerPort: 9090
+        env:
+        - name: ENVIRONMENT
+          value: "production"
+        envFrom:
+        - secretRef:
+            name: ag-ui-secrets
+```
+
+## Security Checklist
+
+### Pre-deployment Checklist
+- [ ] TLS 1.2+ enabled with strong cipher suites
+- [ ] JWT secrets securely stored and rotated
+- [ ] RBAC policies defined and tested
+- [ ] Network policies configured
+- [ ] Container security contexts applied
+- [ ] Input validation implemented
+- [ ] Security headers configured
+- [ ] Rate limiting enabled
+
+### Monitoring Checklist
+- [ ] OpenTelemetry configured and exporting
+- [ ] Prometheus metrics collection active
+- [ ] Grafana dashboards deployed
+- [ ] Alert rules configured
+- [ ] Log aggregation working
+- [ ] Trace sampling optimized
+- [ ] SLA targets defined
+
+## Performance Benchmarks
+
+### Expected Performance Metrics
+
+| Metric | Target | Monitoring |
+|--------|--------|------------|
+| Response Time (P95) | < 100ms | Prometheus |
+| Throughput | > 1000 req/s | Grafana |
+| Error Rate | < 1% | Alertmanager |
+| Memory Usage | < 512MB | Kubernetes |
+| CPU Usage | < 500m | cAdvisor |
+
+### Optimization Recommendations
+
+1. **Enable Connection Pooling**: Configure appropriate pool sizes
+2. **Use Caching**: Implement Redis for frequently accessed data
+3. **Optimize Batch Sizes**: Tune OpenTelemetry batch configurations
+4. **Monitor Resource Usage**: Set appropriate resource limits
+5. **Use Horizontal Scaling**: Configure HPA for automatic scaling
+
+## 🚦 Quick Start Examples
+
+### Basic Transport Usage
+
+```go
+import (
+    "context"
+    "github.com/ag-ui/go-sdk/pkg/transport"
+    "github.com/ag-ui/go-sdk/pkg/core/events"
+)
+
+// Create and configure transport
+config := &transport.BasicConfig{
+    Type:     "websocket",
+    Endpoint: "ws://localhost:8080/ws",
+    Timeout:  30 * time.Second,
+}
+
+transport := transport.NewWebSocketTransport(config)
+
+// Connect and send events
+ctx := context.Background()
+if err := transport.Connect(ctx); err != nil {
+    log.Fatal(err)
+}
+defer transport.Close(ctx)
+
+event := events.NewRunStartedEvent("thread-123", "run-456")
+transport.Send(ctx, event)
+```
+
+### Type-Safe Event Creation
+
+```go
+import "github.com/ag-ui/go-sdk/pkg/core/events"
+
+// Using constructors
+event := events.NewTextMessageContentEvent("msg-123", "Hello, world!")
+
+// Using builder pattern
+event, err := events.NewEventBuilder().
+    TextMessageContent().
+    WithMessageID("msg-456").
+    WithDelta("Built with fluent interface").
+    Build()
+
+// Auto-generation
+event, err := events.NewEventBuilder().
+    RunStarted().
+    WithAutoGenerateIDs().
+    Build()
+```
+
+### Migration from Legacy Code
+
+```go
+// Before (legacy)
+transport := &OldTransport{
+    URL: "ws://localhost:8080",
+    Features: map[string]interface{}{
+        "compression": true,
+    },
+}
+
+// After (type-safe)
+config := &transport.BasicConfig{
+    Type:     "websocket",
+    Endpoint: "ws://localhost:8080",
+    Timeout:  30 * time.Second,
+}
+
+compressionFeatures := transport.CompressionFeatures{
+    SupportedAlgorithms: []transport.CompressionType{
+        transport.CompressionGzip,
+    },
+    DefaultAlgorithm: transport.CompressionGzip,
+}
+
+capabilities := transport.NewCompressionCapabilities(
+    transport.Capabilities{Streaming: true},
+    compressionFeatures,
+)
+
+newTransport := transport.NewTransportWithCapabilities(config, capabilities)
+```
+
+## Support and Troubleshooting
+
+### Common Issues
+
+1. **High Memory Usage**: Check [OpenTelemetry Guide](opentelemetry-monitoring.md#troubleshooting)
+2. **Authentication Failures**: Review [Security Configuration](production-deployment.md#authentication-and-authorization)
+3. **Performance Issues**: See [Performance Optimization](production-deployment.md#performance-optimization)
+4. **Monitoring Problems**: Follow [Troubleshooting Guide](opentelemetry-monitoring.md#troubleshooting)
+
+### Getting Help
+
+- Review the appropriate documentation section
+- Check the security and deployment checklists
+- Verify configuration against provided examples
+- Monitor metrics and logs for diagnostic information
+
+## Contributing to Documentation
+
+### Documentation Standards
+
+- Use clear, concise language
+- Provide working code examples
+- Include security considerations
+- Add monitoring and observability guidance
+- Test all code examples
+- Update configuration examples
+
+### Maintenance
+
+This documentation is maintained alongside the AG-UI Go SDK codebase. Updates should be made when:
+
+- New APIs are added
+- Security practices change
+- Deployment patterns evolve
+- Monitoring capabilities expand
+- Performance optimizations are discovered
+
+---
+
+**Last Updated**: July 2025  
+**Version**: 1.0.0  
+**Maintained by**: AG-UI Development Team
 
 ## 📚 Documentation
 
@@ -448,3 +914,4 @@ This project is licensed under the MIT License - see the main project documentat
 ---
 
 For more detailed information, see the specific API documentation files and examples provided in this repository.
+>

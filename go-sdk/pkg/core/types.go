@@ -449,3 +449,6 @@ func ToLegacyEvent[T EventData](
 		event.Data(),
 	)
 }
+
+// Additional core types will be defined here as the protocol specification
+// is implemented in subsequent development phases.

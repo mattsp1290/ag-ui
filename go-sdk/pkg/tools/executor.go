@@ -2,10 +2,13 @@ package tools
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
+	
+	"github.com/ag-ui/go-sdk/pkg/internal/timeconfig"
 )
 
 // ExecutionEngine manages the execution of tools.
@@ -261,6 +264,18 @@ func (e *ExecutionEngine) Execute(ctx context.Context, toolID string, params map
 			WithDetail("parameters", params)
 	}
 
+	// Check cache if tool is cacheable
+	if e.cache != nil && toolView.GetCapabilities() != nil && toolView.GetCapabilities().Cacheable {
+		cacheKey := e.generateCacheKey(toolID, params)
+		if cachedResult := e.cache.Get(cacheKey); cachedResult != nil {
+			// Update cache hit metrics
+			atomic.AddInt64(&e.metrics.cacheHits, 1)
+			return cachedResult, nil
+		}
+		// Update cache miss metrics
+		atomic.AddInt64(&e.metrics.cacheMisses, 1)
+	}
+
 	// Run before-execute hooks with proper locking
 	if err := e.runBeforeHooks(ctx, toolID, params); err != nil {
 		return nil, err
@@ -310,6 +325,12 @@ func (e *ExecutionEngine) Execute(ctx context.Context, toolID string, params map
 
 	// Update metrics based on final result
 	e.updateMetrics(toolID, result.Success, duration)
+
+	// Store successful results in cache if tool is cacheable
+	if e.cache != nil && result.Success && toolView.GetCapabilities() != nil && toolView.GetCapabilities().Cacheable {
+		cacheKey := e.generateCacheKey(toolID, params)
+		e.cache.Set(cacheKey, result)
+	}
 
 	// Run after-execute hooks
 	e.runAfterHooks(ctx, toolID, params)
@@ -427,7 +448,7 @@ func (e *ExecutionEngine) ExecuteStream(ctx context.Context, toolID string, para
 		hasError := false
 
 		// Add a timeout to prevent indefinite blocking
-		streamTimeout := time.NewTimer(timeout + 10*time.Second) // Give extra time beyond execution timeout
+		streamTimeout := time.NewTimer(timeout + timeconfig.GetConfig().DefaultShutdownTimeout) // Give extra time beyond execution timeout
 		defer streamTimeout.Stop()
 
 		// Ensure metrics are updated when the goroutine exits
@@ -692,6 +713,51 @@ type CacheEntry struct {
 	CreatedAt time.Time
 }
 
+// Get retrieves a cached result if it exists and is not expired
+func (c *ExecutionCache) Get(key string) *ToolExecutionResult {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	
+	entry, exists := c.cache[key]
+	if !exists {
+		return nil
+	}
+	
+	// Check if entry has expired
+	if time.Since(entry.CreatedAt) > c.ttl {
+		// Don't delete here to avoid write lock, let Set handle cleanup
+		return nil
+	}
+	
+	return entry.Result
+}
+
+// Set stores a result in the cache
+func (c *ExecutionCache) Set(key string, result *ToolExecutionResult) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	
+	// Simple LRU: if cache is full, remove oldest entry
+	if len(c.cache) >= c.maxSize {
+		var oldestKey string
+		var oldestTime time.Time
+		for k, v := range c.cache {
+			if oldestKey == "" || v.CreatedAt.Before(oldestTime) {
+				oldestKey = k
+				oldestTime = v.CreatedAt
+			}
+		}
+		if oldestKey != "" {
+			delete(c.cache, oldestKey)
+		}
+	}
+	
+	c.cache[key] = &CacheEntry{
+		Result:    result,
+		CreatedAt: time.Now(),
+	}
+}
+
 // AsyncJob represents an asynchronous execution job.
 // Jobs can be prioritized and queued for background execution
 // by worker goroutines.
@@ -854,6 +920,100 @@ func (e *ExecutionEngine) ExecuteAsync(ctx context.Context, toolID string, param
 	}
 }
 
+// generateCacheKey generates a cache key from tool ID and parameters
+func (e *ExecutionEngine) generateCacheKey(toolID string, params map[string]interface{}) string {
+	// Create a deterministic string representation of params
+	paramBytes, _ := json.Marshal(params)
+	return fmt.Sprintf("%s:%s", toolID, string(paramBytes))
+}
+
+// processAsyncJobs processes jobs from the async queue
+func (e *ExecutionEngine) processAsyncJobs() {
+	for job := range e.asyncJobQueue {
+		// Defensive check for nil job
+		if job == nil {
+			continue
+		}
+		
+		// Check if context is already cancelled before processing
+		select {
+		case <-job.Context.Done():
+			// Context already cancelled, send error immediately
+			e.sendAsyncResult(job, nil, job.Context.Err())
+			continue
+		default:
+		}
+		
+		// Execute the job with timeout protection
+		resultChan := make(chan struct {
+			result *ToolExecutionResult
+			err    error
+		}, 1)
+		
+		// Execute in a separate goroutine to handle blocking Execute calls
+		go func() {
+			result, err := e.Execute(job.Context, job.ToolID, job.Params)
+			select {
+			case resultChan <- struct {
+				result *ToolExecutionResult
+				err    error
+			}{result, err}:
+			case <-job.Context.Done():
+				// Context cancelled, don't block on sending result
+				return
+			}
+		}()
+		
+		// Wait for execution result or context cancellation
+		select {
+		case execResult := <-resultChan:
+			// Execution completed, send result
+			e.sendAsyncResult(job, execResult.result, execResult.err)
+		case <-job.Context.Done():
+			// Context cancelled while executing
+			e.sendAsyncResult(job, nil, job.Context.Err())
+		}
+	}
+}
+
+// sendAsyncResult safely sends an async result without blocking
+func (e *ExecutionEngine) sendAsyncResult(job *AsyncJob, result *ToolExecutionResult, err error) {
+	if job == nil {
+		return
+	}
+	
+	asyncResult := &AsyncResult{
+		JobID:  job.ID,
+		Result: result,
+		Error:  err,
+	}
+	
+	// Clean up result channel from map first
+	if job.ID != "" {
+		e.asyncResults.Delete(job.ID)
+	}
+	
+	// Send result with timeout protection to prevent blocking
+	// Use a longer timeout than the mock executor to ensure result delivery
+	if job.Result != nil {
+		select {
+		case job.Result <- asyncResult:
+			// Result sent successfully
+		case <-job.Context.Done():
+			// Context cancelled, but still try to send the result
+			// because the receiver might still be waiting
+			select {
+			case job.Result <- asyncResult:
+			case <-time.After(50 * time.Millisecond):
+				// Give up after a short timeout if receiver is gone
+			}
+		case <-time.After(1 * time.Second):
+			// Use a longer timeout to handle delayed processing
+			// This prevents goroutine leaks when nobody is reading the channel
+		}
+	}
+}
+
 // GetCacheMetrics returns cache performance metrics (FIXED).
 // Metrics include cache size, hit ratio, and hit/miss counts.
 // Returns nil if caching is not enabled.
@@ -941,13 +1101,6 @@ func (e *ExecutionEngine) asyncWorker() {
 	}
 }
 
-// generateCacheKey generates a cache key from tool ID and parameters
-func (e *ExecutionEngine) generateCacheKey(toolID string, params map[string]interface{}) string {
-	// Simple implementation: concatenate tool ID with sorted param key-value pairs
-	// In production, you might use a hash function
-	paramStr := fmt.Sprintf("%v", params)
-	return fmt.Sprintf("%s:%s", toolID, paramStr)
-}
 
 // getCached retrieves a cached result if available and not expired
 func (e *ExecutionEngine) getCached(key string) (*ToolExecutionResult, bool) {

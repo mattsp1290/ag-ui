@@ -16,8 +16,8 @@ func TestOptimizationIntegration(t *testing.T) {
 		// Add some tools
 		for i := 0; i < 20; i++ {
 			tool := &Tool{
-				ID:          "tool-" + string(rune('0'+i)),
-				Name:        "Test Tool " + string(rune('0'+i)),
+				ID:          fmt.Sprintf("tool-%d", i),
+				Name:        fmt.Sprintf("Test Tool %d", i),
 				Description: "Test description",
 				Version:     "1.0.0",
 				Schema: &ToolSchema{

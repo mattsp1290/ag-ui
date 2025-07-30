@@ -93,6 +93,10 @@ func (hc *MemoryHealthCheck) Check(ctx context.Context) error {
 
 	// Check memory usage
 	memoryMB := int64(memStats.Alloc / 1024 / 1024)
+	// Special case: if maxMemoryMB is 0 and we have any memory allocation, it's an error
+	if hc.maxMemoryMB == 0 && memStats.Alloc > 0 {
+		return fmt.Errorf("memory usage (%d bytes) exceeds threshold (0 MB)", memStats.Alloc)
+	}
 	if memoryMB > hc.maxMemoryMB {
 		return fmt.Errorf("memory usage (%d MB) exceeds threshold (%d MB)", memoryMB, hc.maxMemoryMB)
 	}
@@ -453,7 +457,7 @@ func (hc *PerformanceHealthCheck) Check(ctx context.Context) error {
 			metrics.PoolEfficiency, 100.0-hc.maxPoolMissRate)
 	}
 
-	// TODO: Add error rate check once ErrorRate is added to PerformanceMetrics
+	// Error rate check will be added when ErrorRate field is added to PerformanceMetrics
 	// The maxErrorRate parameter is currently not being validated
 
 	return nil

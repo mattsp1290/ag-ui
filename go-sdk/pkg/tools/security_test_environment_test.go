@@ -4,126 +4,56 @@ import (
 	"testing"
 )
 
-// SecurityTestEnvironment provides a testing environment for security tests
-type SecurityTestEnvironment struct {
-	utils            *SecurityTestUtils
-	helpers          *SecurityTestHelpers
-	executor         *SecurityTestExecutor
-	payloadGenerator *PayloadGenerator
-	t                *testing.T
-}
+// This file contains additional tests for the SecurityTestEnvironment
+// All type definitions are in security_test_utils.go
 
-// NewSecurityTestEnvironment creates a new security test environment
-func NewSecurityTestEnvironment(t *testing.T) *SecurityTestEnvironment {
-	env := &SecurityTestEnvironment{
-		t:                t,
-		utils:            NewSecurityTestUtils(t),
-		helpers:          NewSecurityTestHelpers(),
-		executor:         NewSecurityTestExecutor(),
-		payloadGenerator: NewPayloadGenerator(),
+// TestSecurityTestEnvironmentIntegration tests the security test environment integration
+func TestSecurityTestEnvironmentIntegration(t *testing.T) {
+	env := NewSecurityTestEnvironment(t)
+	defer env.Cleanup()
+
+	// Test that all components are properly initialized
+	if env.GetUtils() == nil {
+		t.Error("SecurityTestUtils should be initialized")
 	}
-
-	return env
-}
-
-// Cleanup cleans up the test environment
-func (e *SecurityTestEnvironment) Cleanup() {
-	if e.utils != nil {
-		e.utils.Cleanup()
+	
+	if env.GetHelpers() == nil {
+		t.Error("SecurityTestHelpers should be initialized")
 	}
+	
+	if env.GetExecutor() == nil {
+		t.Error("SecurityTestExecutor should be initialized")
+	}
+	
+	if env.GetPayloadGenerator() == nil {
+		t.Error("PayloadGenerator should be initialized")
+	}
+	
+	// Test temp directory functionality
+	tempDir := env.GetTempDir()
+	if tempDir == "" {
+		t.Error("Temp directory should not be empty")
+	}
+	
+	// Test final report generation
+	env.GenerateFinalReport(t)
 }
 
-// GetTempDir returns the temporary directory path
-func (e *SecurityTestEnvironment) GetTempDir() string {
-	return e.utils.GetTempDir()
-}
-
-// GetUtils returns the security test utilities
-func (e *SecurityTestEnvironment) GetUtils() *SecurityTestUtils {
-	return e.utils
-}
-
-// GetHelpers returns the security test helpers
-func (e *SecurityTestEnvironment) GetHelpers() *SecurityTestHelpers {
-	return e.helpers
-}
-
-// GetExecutor returns the security test executor
-func (e *SecurityTestEnvironment) GetExecutor() *SecurityTestExecutor {
-	return e.executor
-}
-
-// GetPayloadGenerator returns the security payload generator
-func (e *SecurityTestEnvironment) GetPayloadGenerator() *PayloadGenerator {
-	return e.payloadGenerator
-}
-
-// GenerateFinalReport generates a final security test report
-func (e *SecurityTestEnvironment) GenerateFinalReport(t *testing.T) {
-	t.Log("Security integration test completed successfully")
-}
-
-// SecurityTestHelpers provides helper functions for security testing
-type SecurityTestHelpers struct{}
-
-// NewSecurityTestHelpers creates new security test helpers
-func NewSecurityTestHelpers() *SecurityTestHelpers {
-	return &SecurityTestHelpers{}
-}
-
-// CreateSecureFileOptions creates secure file options for testing
-func (h *SecurityTestHelpers) CreateSecureFileOptions(allowedPaths []string, maxFileSize int64) *SecureFileOptions {
-	return &SecureFileOptions{
-		AllowedPaths:  allowedPaths,
-		MaxFileSize:   maxFileSize,
-		AllowSymlinks: false,
-		DenyPaths:     []string{"/etc", "/sys", "/proc", "/root"},
+// TestSecurityTestEnvironmentCleanup tests the cleanup functionality
+func TestSecurityTestEnvironmentCleanup(t *testing.T) {
+	env := NewSecurityTestEnvironment(t)
+	
+	// Verify environment is set up
+	if env.GetUtils() == nil {
+		t.Error("SecurityTestUtils should be initialized before cleanup")
+	}
+	
+	// Test cleanup
+	env.Cleanup()
+	
+	// After cleanup, the environment should still be accessible
+	// (cleanup doesn't nil out the references, just cleans up resources)
+	if env.GetUtils() == nil {
+		t.Error("SecurityTestUtils should still be accessible after cleanup")
 	}
 }
-
-// CreateSecureHTTPOptions creates secure HTTP options for testing
-func (h *SecurityTestHelpers) CreateSecureHTTPOptions(allowedHosts []string) *SecureHTTPOptions {
-	return &SecureHTTPOptions{
-		AllowedHosts:           allowedHosts,
-		AllowPrivateNetworks:   false,
-		AllowedSchemes:         []string{"https"},
-		MaxRedirects:           5,
-		ValidateHostResolution: false, // Disable for testing
-	}
-}
-
-// SecurityTestExecutor executes security tests
-type SecurityTestExecutor struct{}
-
-// NewSecurityTestExecutor creates a new security test executor
-func NewSecurityTestExecutor() *SecurityTestExecutor {
-	return &SecurityTestExecutor{}
-}
-
-// ExecuteSecurityTest executes a security test
-func (e *SecurityTestExecutor) ExecuteSecurityTest(t *testing.T, testName, description string, executor ToolExecutor, params map[string]interface{}, expectError bool, expectedErrorMsg string) {
-	t.Run(testName, func(t *testing.T) {
-		result, err := executor.Execute(nil, params)
-		
-		if expectError {
-			if err == nil && (result == nil || result.Success) {
-				t.Errorf("Expected security test to fail: %s", description)
-			} else {
-				t.Logf("Security test correctly failed: %s", description)
-				if expectedErrorMsg != "" && err != nil {
-					// You could add more sophisticated error message checking here
-					t.Logf("Error message: %v", err)
-				}
-			}
-		} else {
-			if err != nil {
-				t.Errorf("Security test unexpectedly failed: %s - Error: %v", description, err)
-			}
-			if result == nil || !result.Success {
-				t.Errorf("Security test should have succeeded: %s", description)
-			}
-		}
-	})
-}
-
-

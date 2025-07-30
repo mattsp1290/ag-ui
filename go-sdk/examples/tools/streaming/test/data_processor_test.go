@@ -1047,7 +1047,7 @@ func TestStreamingDataProcessor_NonStreamingMode(t *testing.T) {
 func TestStreamingDataProcessor_ParameterValidation(t *testing.T) {
 	tool := createStreamingDataProcessorTool()
 	processor := tool.Executor.(*MockStreamingDataProcessor)
-
+>
 	testCases := []struct {
 		name   string
 		params map[string]interface{}
@@ -1056,7 +1056,7 @@ func TestStreamingDataProcessor_ParameterValidation(t *testing.T) {
 			name: "Default parameters",
 			params: map[string]interface{}{
 				"duration_seconds": 1, // Override default to fit within test timeout
-			},
+>			},
 		},
 		{
 			name: "All parameters specified",
@@ -1092,7 +1092,7 @@ func TestStreamingDataProcessor_ParameterValidation(t *testing.T) {
 			// Create fresh context for each test case
 			timeout := 3 * time.Second // Give extra time for processing
 			ctx, cancel := context.WithTimeout(context.Background(), timeout)
-			defer cancel()
+>			defer cancel()
 			
 			outputChan := make(chan interface{}, 100)
 			
@@ -1186,7 +1186,7 @@ func TestStreamingDataProcessor_Performance(t *testing.T) {
 func TestStreamingDataProcessor_ConcurrentStreaming(t *testing.T) {
 	_ = createStreamingDataProcessorTool() // tool not used in this test
 	
-	const numStreams = 3
+>	const numStreams = 3
 	var wg sync.WaitGroup
 	results := make(chan error, numStreams)
 
@@ -1272,7 +1272,7 @@ func TestStreamingDataProcessor_Capabilities(t *testing.T) {
 // BenchmarkStreamingDataProcessor benchmarks streaming performance
 func BenchmarkStreamingDataProcessor(b *testing.B) {
 	_ = createStreamingDataProcessorTool() // tool not used in this benchmark
-	ctx := context.Background()
+>	ctx := context.Background()
 
 	b.Run("HighFrequencyStreaming", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
@@ -1327,7 +1327,7 @@ func BenchmarkStreamingDataProcessor(b *testing.B) {
 
 // Example tests - this is just an example function, not attached to a type
 func Example_streamingDataProcessor_BasicUsage() {
-	tool := createStreamingDataProcessorTool()
+>	tool := createStreamingDataProcessorTool()
 	processor := tool.Executor.(*MockStreamingDataProcessor)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()

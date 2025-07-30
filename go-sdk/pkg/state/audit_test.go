@@ -80,8 +80,8 @@ func TestAuditLogging(t *testing.T) {
 		t.Fatalf("Failed to create context: %v", err)
 	}
 
-	// Wait for audit logging to complete
-	time.Sleep(200 * time.Millisecond)
+	// Wait briefly for audit logging to complete
+	time.Sleep(10 * time.Millisecond)
 
 	// Test state update audit
 	updates := map[string]interface{}{
@@ -94,8 +94,8 @@ func TestAuditLogging(t *testing.T) {
 		t.Fatalf("Failed to update state: %v", err)
 	}
 
-	// Wait for audit logging to complete
-	time.Sleep(200 * time.Millisecond)
+	// Wait briefly for audit logging to complete
+	time.Sleep(10 * time.Millisecond)
 
 	// Test state access audit
 	_, err = sm.GetState(ctx, contextID, "test_state")
@@ -103,8 +103,8 @@ func TestAuditLogging(t *testing.T) {
 		t.Fatalf("Failed to get state: %v", err)
 	}
 
-	// Wait for audit logging to complete
-	time.Sleep(200 * time.Millisecond)
+	// Wait briefly for audit logging to complete
+	time.Sleep(10 * time.Millisecond)
 
 	// Parse and verify audit logs
 	auditContent := auditBuffer.String()
@@ -205,8 +205,8 @@ func TestAuditSecurityEvents(t *testing.T) {
 		t.Fatalf("Failed to create context: %v", err)
 	}
 
-	// Wait for any async logs
-	time.Sleep(200 * time.Millisecond)
+	// Wait briefly for any async logs
+	time.Sleep(10 * time.Millisecond)
 
 	// Clear the buffer to focus on security events
 	auditBuffer.Reset()
@@ -227,8 +227,8 @@ func TestAuditSecurityEvents(t *testing.T) {
 	// Wait for all goroutines to complete
 	wg.Wait()
 
-	// Wait for rate limiting to trigger and logging to complete
-	time.Sleep(500 * time.Millisecond)
+	// Wait briefly for rate limiting to trigger and logging to complete
+	time.Sleep(20 * time.Millisecond)
 
 	// Parse audit logs to find security events
 	auditContent := auditBuffer.String()
@@ -310,8 +310,8 @@ func TestAuditLogIntegrity(t *testing.T) {
 		}
 	}
 
-	// Wait for any async operations to complete
-	time.Sleep(100 * time.Millisecond)
+	// Wait briefly for any async operations to complete
+	time.Sleep(10 * time.Millisecond)
 
 	// Verify audit log integrity
 	startTime := time.Now().Add(-1 * time.Hour)
@@ -421,8 +421,8 @@ func TestAuditLogQuery(t *testing.T) {
 		}
 	}
 
-	// Wait for any async operations to complete
-	time.Sleep(100 * time.Millisecond)
+	// Wait briefly for any async operations to complete
+	time.Sleep(10 * time.Millisecond)
 
 	// Test query by user ID
 	criteria := AuditCriteria{UserID: "user1"}

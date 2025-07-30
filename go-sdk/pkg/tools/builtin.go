@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -12,6 +13,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	
+	"github.com/ag-ui/go-sdk/pkg/internal/timeconfig"
 )
 
 // BuiltinToolsOptions configures how built-in tools are registered.
@@ -134,7 +137,7 @@ func NewReadFileTool() *Tool {
 		},
 		Executor: &readFileExecutor{},
 		Capabilities: &ToolCapabilities{
-			Timeout: 5 * time.Second,
+			Timeout: timeconfig.GetConfig().DefaultIOTimeout,
 		},
 	}
 }
@@ -214,7 +217,7 @@ func NewWriteFileTool() *Tool {
 		},
 		Executor: &writeFileExecutor{},
 		Capabilities: &ToolCapabilities{
-			Timeout: 5 * time.Second,
+			Timeout: timeconfig.GetConfig().DefaultIOTimeout,
 		},
 	}
 }
@@ -265,7 +268,7 @@ func (e *writeFileExecutor) Execute(ctx context.Context, params map[string]inter
 	var err error
 	if mode == "append" {
 		var file *os.File
-		file, err = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		file, err = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open file: %w", err)
 		}
@@ -274,7 +277,7 @@ func (e *writeFileExecutor) Execute(ctx context.Context, params map[string]inter
 		}()
 		_, err = file.Write(data)
 	} else {
-		err = os.WriteFile(path, data, 0644)
+		err = os.WriteFile(path, data, 0600)
 	}
 
 	if err != nil {
@@ -325,7 +328,7 @@ func NewHTTPGetTool() *Tool {
 		},
 		Executor: &httpGetExecutor{},
 		Capabilities: &ToolCapabilities{
-			Timeout:   60 * time.Second,
+			Timeout:   timeconfig.HTTPTimeout(),
 			Retryable: true,
 			Cacheable: true,
 		},
@@ -349,8 +352,21 @@ func (e *httpGetExecutor) Execute(ctx context.Context, params map[string]interfa
 	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	// Create HTTP client with no timeout - rely entirely on context
-	client := &http.Client{}
+	// Create HTTP client with secure TLS configuration and no timeout - rely entirely on context
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				CipherSuites: []uint16{
+					tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+					tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+					tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+				},
+			},
+		},
+	}
 
 	// Create request
 	req, err := http.NewRequestWithContext(requestCtx, "GET", url, nil)
@@ -452,7 +468,7 @@ func NewHTTPPostTool() *Tool {
 		},
 		Executor: &httpPostExecutor{},
 		Capabilities: &ToolCapabilities{
-			Timeout:   60 * time.Second,
+			Timeout:   timeconfig.HTTPTimeout(),
 			Retryable: true,
 		},
 	}
@@ -481,8 +497,21 @@ func (e *httpPostExecutor) Execute(ctx context.Context, params map[string]interf
 	requestCtx, cancel := context.WithTimeout(ctx, time.Duration(timeout)*time.Second)
 	defer cancel()
 
-	// Create HTTP client with no timeout - rely entirely on context
-	client := &http.Client{}
+	// Create HTTP client with secure TLS configuration and no timeout - rely entirely on context
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				CipherSuites: []uint16{
+					tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+					tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+					tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+				},
+			},
+		},
+	}
 
 	// Create request
 	req, err := http.NewRequestWithContext(requestCtx, "POST", url, strings.NewReader(body))
@@ -565,7 +594,7 @@ func NewJSONParseTool() *Tool {
 		},
 		Executor: &jsonParseExecutor{},
 		Capabilities: &ToolCapabilities{
-			Timeout:   1 * time.Second,
+			Timeout:   timeconfig.GetConfig().DefaultValidationTimeout,
 			Cacheable: true,
 		},
 	}
@@ -619,7 +648,7 @@ func NewJSONFormatTool() *Tool {
 		},
 		Executor: &jsonFormatExecutor{},
 		Capabilities: &ToolCapabilities{
-			Timeout: 1 * time.Second,
+			Timeout: timeconfig.GetConfig().DefaultValidationTimeout,
 		},
 	}
 }
@@ -674,7 +703,7 @@ func NewBase64EncodeTool() *Tool {
 		},
 		Executor: &base64EncodeExecutor{},
 		Capabilities: &ToolCapabilities{
-			Timeout: 1 * time.Second,
+			Timeout: timeconfig.GetConfig().DefaultValidationTimeout,
 		},
 	}
 }
@@ -714,7 +743,7 @@ func NewBase64DecodeTool() *Tool {
 		},
 		Executor: &base64DecodeExecutor{},
 		Capabilities: &ToolCapabilities{
-			Timeout: 1 * time.Second,
+			Timeout: timeconfig.GetConfig().DefaultValidationTimeout,
 		},
 	}
 }

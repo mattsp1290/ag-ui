@@ -94,6 +94,41 @@ func TestHistoryMemoryLimits(t *testing.T) {
 		assert.Equal(t, int64(0), history.CurrentMemoryBytes())
 		assert.Equal(t, 0, history.Size())
 	})
+
+	t.Run("Memory limit boundary condition fix", func(t *testing.T) {
+		// This test specifically verifies that memory usage stays strictly below the limit
+		// and never equals the limit, fixing the boundary condition bug
+		options := DefaultHistoryOptions()
+		options.MaxMemoryBytes = 2000 // Small limit to make boundary obvious
+		options.MaxMessages = 100
+		history := NewHistory(options)
+
+		// Add messages until we can't add more
+		messageCount := 0
+		for i := 0; i < 20; i++ {
+			msg := NewUserMessage("Test message content for boundary testing")
+			err := history.Add(msg)
+			if err != nil {
+				break // Stop when we hit the limit
+			}
+			messageCount++
+			
+			// After each successful addition, verify memory stays below limit
+			currentMem := history.CurrentMemoryBytes()
+			assert.Less(t, currentMem, options.MaxMemoryBytes, 
+				"Memory usage (%d) should be strictly less than limit (%d) after adding message %d", 
+				currentMem, options.MaxMemoryBytes, messageCount)
+		}
+
+		// Ensure we added at least one message
+		assert.Greater(t, messageCount, 0, "Should have been able to add at least one message")
+		
+		// Final check - memory should definitely be less than limit
+		finalMem := history.CurrentMemoryBytes()
+		assert.Less(t, finalMem, options.MaxMemoryBytes, 
+			"Final memory usage (%d) must be strictly less than limit (%d)", 
+			finalMem, options.MaxMemoryBytes)
+	})
 }
 
 func TestValidationByteSize(t *testing.T) {

@@ -218,16 +218,19 @@ func testConcurrentOptimization(t *testing.T) {
 
 	for i := 0; i < 5; i++ {
 		idx := i
+		wg.Add(1)
 		success := co.Execute(func() {
 			executed[idx] = true
 			wg.Done()
 		})
 
 		if success {
-			wg.Add(1)
 			successCount++
-		} else if idx < maxConcurrency*2 {
-			t.Errorf("Expected task %d to be accepted", idx)
+		} else {
+			wg.Done() // Task won't run, so decrement counter
+			if idx < maxConcurrency*2 {
+				t.Errorf("Expected task %d to be accepted", idx)
+			}
 		}
 	}
 

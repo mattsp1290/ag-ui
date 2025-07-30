@@ -93,7 +93,8 @@ type PerformanceOptimizerImpl struct {
 	cacheHits    atomic.Int64
 	cacheMisses  atomic.Int64
 
-	// Configuration
+	// Configuration - protected by configMu
+	configMu          sync.RWMutex
 	enablePooling     bool
 	enableBatching    bool
 	enableCompression bool
@@ -166,7 +167,7 @@ func DefaultPerformanceOptions() PerformanceOptions {
 		EnableLazyLoading:  true,
 		EnableSharding:     true,
 		BatchSize:          DefaultBatchSize,
-		BatchTimeout:       DefaultPerformanceBatchTimeout,
+		BatchTimeout:       GetDefaultPerformanceBatchTimeout(),
 		CompressionLevel:   DefaultCompressionLevel,
 		MaxConcurrency:     runtime.NumCPU() * 2,
 		MaxOpsPerSecond:    DefaultMaxOpsPerSecond,
@@ -327,7 +328,11 @@ func NewPerformanceOptimizerImpl(opts PerformanceOptions) *PerformanceOptimizerI
 
 // GetPatchOperation gets a patch operation from the pool
 func (po *PerformanceOptimizerImpl) GetPatchOperation() *JSONPatchOperation {
-	if !po.enablePooling {
+	po.configMu.RLock()
+	enablePooling := po.enablePooling
+	po.configMu.RUnlock()
+	
+	if !enablePooling {
 		return &JSONPatchOperation{}
 	}
 
@@ -344,7 +349,11 @@ func (po *PerformanceOptimizerImpl) GetPatchOperation() *JSONPatchOperation {
 
 // PutPatchOperation returns a patch operation to the pool
 func (po *PerformanceOptimizerImpl) PutPatchOperation(op *JSONPatchOperation) {
-	if !po.enablePooling {
+	po.configMu.RLock()
+	enablePooling := po.enablePooling
+	po.configMu.RUnlock()
+	
+	if !enablePooling {
 		return
 	}
 
@@ -359,7 +368,11 @@ func (po *PerformanceOptimizerImpl) PutPatchOperation(op *JSONPatchOperation) {
 
 // GetStateChange gets a state change from the pool
 func (po *PerformanceOptimizerImpl) GetStateChange() *StateChange {
-	if !po.enablePooling {
+	po.configMu.RLock()
+	enablePooling := po.enablePooling
+	po.configMu.RUnlock()
+	
+	if !enablePooling {
 		return &StateChange{}
 	}
 
@@ -376,7 +389,11 @@ func (po *PerformanceOptimizerImpl) GetStateChange() *StateChange {
 
 // PutStateChange returns a state change to the pool
 func (po *PerformanceOptimizerImpl) PutStateChange(sc *StateChange) {
-	if !po.enablePooling {
+	po.configMu.RLock()
+	enablePooling := po.enablePooling
+	po.configMu.RUnlock()
+	
+	if !enablePooling {
 		return
 	}
 
@@ -400,7 +417,11 @@ type StateEvent struct {
 
 // GetStateEvent gets a state event from the pool
 func (po *PerformanceOptimizerImpl) GetStateEvent() *StateEvent {
-	if !po.enablePooling {
+	po.configMu.RLock()
+	enablePooling := po.enablePooling
+	po.configMu.RUnlock()
+	
+	if !enablePooling {
 		return &StateEvent{}
 	}
 
@@ -417,7 +438,11 @@ func (po *PerformanceOptimizerImpl) GetStateEvent() *StateEvent {
 
 // PutStateEvent returns a state event to the pool
 func (po *PerformanceOptimizerImpl) PutStateEvent(se *StateEvent) {
-	if !po.enablePooling {
+	po.configMu.RLock()
+	enablePooling := po.enablePooling
+	po.configMu.RUnlock()
+	
+	if !enablePooling {
 		return
 	}
 
@@ -448,8 +473,14 @@ func (po *PerformanceOptimizerImpl) startBatchWorkers() {
 func (po *PerformanceOptimizerImpl) batchWorker() {
 	defer po.batchWorkers.Done()
 
-	batch := make([]batchItem, 0, po.batchSize)
-	timer := time.NewTimer(po.batchTimeout)
+	// Read configuration values once at startup with proper synchronization
+	po.configMu.RLock()
+	batchSize := po.batchSize
+	batchTimeout := po.batchTimeout
+	po.configMu.RUnlock()
+
+	batch := make([]batchItem, 0, batchSize)
+	timer := time.NewTimer(batchTimeout)
 	timer.Stop()
 	timerActive := false
 
@@ -460,11 +491,11 @@ func (po *PerformanceOptimizerImpl) batchWorker() {
 
 			// Start timer only if not already active
 			if len(batch) == 1 && !timerActive {
-				timer.Reset(po.batchTimeout)
+				timer.Reset(batchTimeout)
 				timerActive = true
 			}
 
-			if len(batch) >= po.batchSize {
+			if len(batch) >= batchSize {
 				po.processBatch(batch)
 				batch = batch[:0]
 				if timerActive {
@@ -534,7 +565,11 @@ func (po *PerformanceOptimizerImpl) processBatch(batch []batchItem) {
 
 // BatchOperation submits an operation for batch processing
 func (po *PerformanceOptimizerImpl) BatchOperation(ctx context.Context, operation func() error) error {
-	if !po.enableBatching {
+	po.configMu.RLock()
+	enableBatching := po.enableBatching
+	po.configMu.RUnlock()
+	
+	if !enableBatching {
 		return operation()
 	}
 
@@ -1071,7 +1106,11 @@ func (ss *StateShard) estimateSize(value interface{}) int64 {
 
 // GetShardForKey returns the shard index for a given key
 func (po *PerformanceOptimizerImpl) GetShardForKey(key string) int {
-	if !po.enableSharding || len(po.stateShards) == 0 {
+	po.configMu.RLock()
+	enableSharding := po.enableSharding
+	po.configMu.RUnlock()
+	
+	if !enableSharding || len(po.stateShards) == 0 {
 		return 0
 	}
 
@@ -1229,6 +1268,7 @@ func (lc *LazyCache) cleanup() {
 		}
 	}
 }
+
 
 // GetStats returns cache statistics
 func (lc *LazyCache) GetStats() (hits, misses int64, hitRate float64) {
@@ -1421,7 +1461,11 @@ func (co *ConcurrentOptimizer) Shutdown() {
 
 // GetBuffer gets a buffer from the pool
 func (po *PerformanceOptimizerImpl) GetBuffer() *bytes.Buffer {
-	if !po.enablePooling {
+	po.configMu.RLock()
+	enablePooling := po.enablePooling
+	po.configMu.RUnlock()
+	
+	if !enablePooling {
 		return bytes.NewBuffer(make([]byte, 0, BufferPoolSize))
 	}
 
@@ -1431,7 +1475,11 @@ func (po *PerformanceOptimizerImpl) GetBuffer() *bytes.Buffer {
 
 // PutBuffer returns a buffer to the pool
 func (po *PerformanceOptimizerImpl) PutBuffer(buf *bytes.Buffer) {
-	if !po.enablePooling {
+	po.configMu.RLock()
+	enablePooling := po.enablePooling
+	po.configMu.RUnlock()
+	
+	if !enablePooling {
 		return
 	}
 
@@ -1442,13 +1490,15 @@ func (po *PerformanceOptimizerImpl) PutBuffer(buf *bytes.Buffer) {
 // OptimizeForLargeState optimizes performance for large state sizes
 func (po *PerformanceOptimizerImpl) OptimizeForLargeState(stateSize int64) {
 	if stateSize > DefaultMaxMemoryUsage { // 100MB
-		// Enable all optimizations for large states
+		// Enable all optimizations for large states with proper synchronization
+		po.configMu.Lock()
 		po.enableCompression = true
 		po.enableSharding = true
 		po.enableLazyLoading = true
 
 		// Adjust batch size for large states
 		po.batchSize = int(math.Min(float64(po.batchSize*2), float64(DefaultMaxBatchSize)))
+		po.configMu.Unlock()
 
 		// Trigger memory optimization
 		if po.memoryOptimizer != nil {
@@ -1560,7 +1610,11 @@ func (po *PerformanceOptimizerImpl) ProcessLargeStateUpdate(ctx context.Context,
 
 // LazyLoadState loads state data lazily for better performance
 func (po *PerformanceOptimizerImpl) LazyLoadState(key string, loader func() (interface{}, error)) (interface{}, error) {
-	if !po.enableLazyLoading || po.lazyCache == nil {
+	po.configMu.RLock()
+	enableLazyLoading := po.enableLazyLoading
+	po.configMu.RUnlock()
+	
+	if !enableLazyLoading || po.lazyCache == nil {
 		return loader()
 	}
 
@@ -1582,7 +1636,11 @@ func (po *PerformanceOptimizerImpl) LazyLoadState(key string, loader func() (int
 
 // ShardedGet retrieves data from the appropriate shard
 func (po *PerformanceOptimizerImpl) ShardedGet(key string) (interface{}, bool) {
-	if !po.enableSharding || len(po.stateShards) == 0 {
+	po.configMu.RLock()
+	enableSharding := po.enableSharding
+	po.configMu.RUnlock()
+	
+	if !enableSharding || len(po.stateShards) == 0 {
 		return nil, false
 	}
 
@@ -1592,7 +1650,11 @@ func (po *PerformanceOptimizerImpl) ShardedGet(key string) (interface{}, bool) {
 
 // ShardedSet stores data in the appropriate shard
 func (po *PerformanceOptimizerImpl) ShardedSet(key string, value interface{}) {
-	if !po.enableSharding || len(po.stateShards) == 0 {
+	po.configMu.RLock()
+	enableSharding := po.enableSharding
+	po.configMu.RUnlock()
+	
+	if !enableSharding || len(po.stateShards) == 0 {
 		return
 	}
 
@@ -1602,7 +1664,11 @@ func (po *PerformanceOptimizerImpl) ShardedSet(key string, value interface{}) {
 
 // CompressData compresses data using gzip
 func (po *PerformanceOptimizerImpl) CompressData(data []byte) ([]byte, error) {
-	if !po.enableCompression {
+	po.configMu.RLock()
+	enableCompression := po.enableCompression
+	po.configMu.RUnlock()
+	
+	if !enableCompression {
 		return data, nil
 	}
 
@@ -1630,7 +1696,11 @@ func (po *PerformanceOptimizerImpl) CompressData(data []byte) ([]byte, error) {
 
 // DecompressData decompresses gzip data
 func (po *PerformanceOptimizerImpl) DecompressData(data []byte) ([]byte, error) {
-	if !po.enableCompression {
+	po.configMu.RLock()
+	enableCompression := po.enableCompression
+	po.configMu.RUnlock()
+	
+	if !enableCompression {
 		return data, nil
 	}
 
@@ -1648,6 +1718,7 @@ func (po *PerformanceOptimizerImpl) DecompressData(data []byte) ([]byte, error) 
 	}
 
 	po.bytesRead.Add(int64(len(data)))
+	
 	// Make a copy of the buffer bytes since we're returning the buffer to the pool
 	result := make([]byte, buf.Len())
 	copy(result, buf.Bytes())
@@ -1656,16 +1727,22 @@ func (po *PerformanceOptimizerImpl) DecompressData(data []byte) ([]byte, error) 
 
 // IsCompressionEnabled returns whether compression is enabled
 func (po *PerformanceOptimizerImpl) IsCompressionEnabled() bool {
+	po.configMu.RLock()
+	defer po.configMu.RUnlock()
 	return po.enableCompression
 }
 
 // IsShardingEnabled returns whether sharding is enabled
 func (po *PerformanceOptimizerImpl) IsShardingEnabled() bool {
+	po.configMu.RLock()
+	defer po.configMu.RUnlock()
 	return po.enableSharding
 }
 
 // IsLazyLoadingEnabled returns whether lazy loading is enabled
 func (po *PerformanceOptimizerImpl) IsLazyLoadingEnabled() bool {
+	po.configMu.RLock()
+	defer po.configMu.RUnlock()
 	return po.enableLazyLoading
 }
 

@@ -94,11 +94,16 @@ func (c *MockCalculatorExecutor) Execute(ctx context.Context, params map[string]
 		Data:      result,
 		Timestamp: time.Now(),
 		Duration:  time.Microsecond * 100, // Simulated processing time
-		Metadata: map[string]interface{}{
-			"operation": operation,
-			"operand1":  operand1,
-			"operand2":  operand2,
-		},
+		Metadata: func() map[string]interface{} {
+			metadata := map[string]interface{}{
+				"operation": operation,
+				"operand1":  operand1,
+			}
+			if operation != "sqrt" {
+				metadata["operand2"] = operand2
+			}
+			return metadata
+		}(),
 	}, nil
 }
 
@@ -574,6 +579,7 @@ func TestCalculatorTool_Context(t *testing.T) {
 
 // TestCalculatorTool_Schema tests schema validation (if implemented)
 func TestCalculatorTool_Schema(t *testing.T) {
+	t.Parallel()
 	tool := createCalculatorTool()
 
 	// Test schema structure
@@ -596,6 +602,7 @@ func TestCalculatorTool_Schema(t *testing.T) {
 
 // TestCalculatorTool_Metadata tests tool metadata
 func TestCalculatorTool_Metadata(t *testing.T) {
+	t.Parallel()
 	tool := createCalculatorTool()
 
 	assert.Equal(t, "calculator", tool.ID)
@@ -620,6 +627,7 @@ func TestCalculatorTool_Metadata(t *testing.T) {
 
 // TestCalculatorTool_Capabilities tests tool capabilities
 func TestCalculatorTool_Capabilities(t *testing.T) {
+	t.Parallel()
 	tool := createCalculatorTool()
 
 	assert.NotNil(t, tool.Capabilities)
@@ -688,7 +696,7 @@ func BenchmarkCalculatorTool_Operations(b *testing.B) {
 
 // Example test showing how to use the calculator tool
 func Example_calculatorBasicUsage() {
-	tool := createCalculatorTool()
+>	tool := createCalculatorTool()
 	ctx := context.Background()
 
 	// Perform addition
@@ -705,7 +713,7 @@ func Example_calculatorBasicUsage() {
 
 	if result.Success {
 		fmt.Printf("Result: %.0f\n", result.Data.(float64))
-	} else {
+>	} else {
 		fmt.Println("Error:", result.Error)
 	}
 

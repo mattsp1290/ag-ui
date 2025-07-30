@@ -10,6 +10,9 @@ import (
 
 // TestPerformanceOptimizerInterface tests that PerformanceOptimizerImpl implements PerformanceOptimizer
 func TestPerformanceOptimizerInterface(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping TestPerformanceOptimizerInterface in short mode to prevent background goroutines")
+	}
 	opts := DefaultPerformanceOptions()
 	opts.EnablePooling = true
 	opts.EnableBatching = true
@@ -198,13 +201,22 @@ func testPerformanceOptimizerMethods(t *testing.T, optimizer PerformanceOptimize
 			t.Error("Invalid enhanced pool hits metric")
 		}
 	})
+
+	// Test cleanup
+	t.Run("Cleanup", func(t *testing.T) {
+		optimizer.Stop()
+	})
 }
 
 // TestPerformanceOptimizerTypeAssertion tests that the factory returns the expected type
 func TestPerformanceOptimizerTypeAssertion(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping TestPerformanceOptimizerTypeAssertion in short mode to prevent background goroutines")
+	}
 	opts := DefaultPerformanceOptions()
 
 	optimizer := NewPerformanceOptimizer(opts)
+	defer optimizer.Stop()
 
 	// In test environment, we expect NoOpPerformanceOptimizer
 	if isTestEnvironment() {
@@ -435,6 +447,9 @@ func TestMockPerformanceOptimizer(t *testing.T) {
 
 // TestInterfaceCompatibility tests interface compatibility
 func TestInterfaceCompatibility(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping TestInterfaceCompatibility in short mode to prevent background goroutines")
+	}
 	// Test that both real and mock implementations work with the same interface
 	implementations := []PerformanceOptimizer{
 		NewMockPerformanceOptimizerInterface(),
@@ -486,6 +501,9 @@ func TestInterfaceCompatibility(t *testing.T) {
 
 // BenchmarkPerformanceOptimizerPooling benchmarks object pooling performance
 func BenchmarkPerformanceOptimizerPooling(b *testing.B) {
+	if testing.Short() {
+		b.Skip("Skipping BenchmarkPerformanceOptimizerPooling in short mode to prevent background goroutines")
+	}
 	opts := DefaultPerformanceOptions()
 	opts.EnablePooling = true
 	optimizer := NewPerformanceOptimizer(opts)
@@ -518,6 +536,9 @@ func BenchmarkPerformanceOptimizerPooling(b *testing.B) {
 
 // BenchmarkPerformanceOptimizerBatching benchmarks batch operation performance
 func BenchmarkPerformanceOptimizerBatching(b *testing.B) {
+	if testing.Short() {
+		b.Skip("Skipping BenchmarkPerformanceOptimizerBatching in short mode to prevent background goroutines")
+	}
 	opts := DefaultPerformanceOptions()
 	opts.EnableBatching = true
 	optimizer := NewPerformanceOptimizer(opts)

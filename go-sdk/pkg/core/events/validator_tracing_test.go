@@ -39,8 +39,8 @@ func TestEventValidator_TracingIntegration(t *testing.T) {
 					EventType:   EventTypeRunStarted,
 					TimestampMs: timePtr(time.Now().UnixMilli()),
 				},
-				RunID:    "run-123",
-				ThreadID: "thread-456",
+				RunIDValue:    "run-123",
+				ThreadIDValue: "thread-456",
 			},
 			expectedSpans: 1, // Should create at least one span for event validation
 		},
@@ -57,7 +57,7 @@ func TestEventValidator_TracingIntegration(t *testing.T) {
 					TimestampMs: timePtr(time.Now().UnixMilli()),
 				},
 				// Missing RunID - should trigger validation error
-				ThreadID: "thread-456",
+				ThreadIDValue: "thread-456",
 			},
 			expectedSpans: 1,
 		},
@@ -93,8 +93,8 @@ func TestEventValidator_SequenceTracingIntegration(t *testing.T) {
 				EventType:   EventTypeRunStarted,
 				TimestampMs: timePtr(time.Now().UnixMilli()),
 			},
-			RunID:    "run-1",
-			ThreadID: "thread-1",
+			RunIDValue:    "run-1",
+			ThreadIDValue: "thread-1",
 		},
 		&TextMessageStartEvent{
 			BaseEvent: &BaseEvent{
@@ -123,7 +123,7 @@ func TestEventValidator_SequenceTracingIntegration(t *testing.T) {
 				EventType:   EventTypeRunFinished,
 				TimestampMs: timePtr(time.Now().UnixMilli()),
 			},
-			RunID: "run-1",
+			RunIDValue: "run-1",
 		},
 	}
 
@@ -152,8 +152,8 @@ func TestEventValidator_TracingWithContext(t *testing.T) {
 			EventType:   EventTypeRunStarted,
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 
 	// Test with cancelled context
@@ -197,8 +197,8 @@ func TestEventValidator_TracingNoOp(t *testing.T) {
 			EventType:   EventTypeRunStarted,
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 
 	ctx := context.Background()
@@ -225,8 +225,8 @@ func TestEventValidator_TracingAttributes(t *testing.T) {
 			EventType:   EventTypeRunStarted,
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 
 	ctx := context.Background()
@@ -292,8 +292,8 @@ func BenchmarkEventValidator_WithTracing(b *testing.B) {
 			EventType:   EventTypeRunStarted,
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 
 	ctx := context.Background()
@@ -321,8 +321,8 @@ func BenchmarkEventValidator_WithoutTracing(b *testing.B) {
 			EventType:   EventTypeRunStarted,
 			TimestampMs: timePtr(time.Now().UnixMilli()),
 		},
-		RunID:    "run-123",
-		ThreadID: "thread-456",
+		RunIDValue:    "run-123",
+		ThreadIDValue: "thread-456",
 	}
 
 	ctx := context.Background()

@@ -2,6 +2,7 @@ package sse
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"io"
@@ -14,7 +15,6 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/metric"
@@ -65,6 +65,9 @@ type MonitoringSystem struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	// Prometheus registry (for testing)
+	registry *prometheus.Registry
 }
 
 // SSEPrometheusMetrics contains all Prometheus metrics for SSE transport
@@ -672,6 +675,15 @@ func (ms *MonitoringSystem) RecordEventProcessed(eventType string, duration time
 
 	// Update performance tracking
 	ms.recordLatency("event_processing", duration)
+
+	// Update event tracker error count
+	if err != nil {
+		ms.eventTracker.mu.Lock()
+		if stats, exists := ms.eventTracker.eventStats[eventType]; exists {
+			atomic.AddInt64(&stats.ErrorCount, 1)
+		}
+		ms.eventTracker.mu.Unlock()
+	}
 
 	// Log if slow or error
 	if duration > 100*time.Millisecond || err != nil {
@@ -1323,6 +1335,7 @@ func (ms *MonitoringSystem) sendAlert(alert Alert) {
 		ms.wg.Add(1)
 		go func(n AlertNotifier) {
 			defer ms.wg.Done()
+			
 			// Use the monitoring system's context to allow for cancellation during shutdown
 			ctx, cancel := context.WithTimeout(ms.ctx, 5*time.Second)
 			defer cancel()
@@ -1448,7 +1461,21 @@ func (hc *SSEHealthCheck) Check(ctx context.Context) error {
 		return fmt.Errorf("failed to create health check request: %w", err)
 	}
 
-	client := &http.Client{Timeout: 5 * time.Second}
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+				CipherSuites: []uint16{
+					tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305,
+					tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
+					tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
+					tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
+				},
+			},
+		},
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return fmt.Errorf("health check request failed: %w", err)
@@ -1500,14 +1527,35 @@ func initializeSSELogger(config MonitoringConfig) (*zap.Logger, error) {
 	return logger.With(zap.String("component", "sse_transport")), nil
 }
 
+// Global variable to track metrics initialization with sync.Once
+var (
+	metricsOnce sync.Once
+	globalMetrics *SSEPrometheusMetrics
+)
+
 func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetrics {
 	sseMetricsOnce.Do(func() {
 		namespace := config.Metrics.Prometheus.Namespace
 		subsystem := config.Metrics.Prometheus.Subsystem
 
-		ssePromMetrics = &SSEPrometheusMetrics{
+	// Determine which registry to use
+	registry := config.Metrics.Prometheus.Registry
+	if registry == nil {
+		// Use sync.Once for default registry to prevent duplicate registration
+		metricsOnce.Do(func() {
+			globalMetrics = createSSEPrometheusMetrics(namespace, subsystem, prometheus.DefaultRegisterer)
+		})
+		return globalMetrics
+	}
+
+	// For custom registry, always create new metrics
+	return createSSEPrometheusMetricsWithRegistry(namespace, subsystem, registry)
+}
+
+func createSSEPrometheusMetrics(namespace, subsystem string, registerer prometheus.Registerer) *SSEPrometheusMetrics {
+	metrics := &SSEPrometheusMetrics{
 		// Connection metrics
-		ConnectionsTotal: promauto.NewCounterVec(
+		ConnectionsTotal: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1516,7 +1564,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"status"},
 		),
-		ConnectionsActive: promauto.NewGauge(
+		ConnectionsActive: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1524,7 +1572,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 				Help:      "Number of active SSE connections",
 			},
 		),
-		ConnectionDuration: promauto.NewHistogramVec(
+		ConnectionDuration: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1534,7 +1582,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"status"},
 		),
-		ConnectionErrors: promauto.NewCounterVec(
+		ConnectionErrors: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1543,7 +1591,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"error_type"},
 		),
-		ConnectionRetries: promauto.NewCounterVec(
+		ConnectionRetries: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1552,7 +1600,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"connection_id"},
 		),
-		ReconnectionAttempts: promauto.NewCounterVec(
+		ReconnectionAttempts: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1563,7 +1611,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 		),
 
 		// Event metrics
-		EventsReceived: promauto.NewCounterVec(
+		EventsReceived: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1572,7 +1620,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"event_type"},
 		),
-		EventsSent: promauto.NewCounterVec(
+		EventsSent: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1581,7 +1629,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"event_type"},
 		),
-		EventsProcessed: promauto.NewCounterVec(
+		EventsProcessed: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1590,7 +1638,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"event_type", "status"},
 		),
-		EventProcessingLatency: promauto.NewHistogramVec(
+		EventProcessingLatency: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1600,7 +1648,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"event_type"},
 		),
-		EventSize: promauto.NewHistogramVec(
+		EventSize: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1610,7 +1658,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"event_type", "direction"},
 		),
-		EventErrors: promauto.NewCounterVec(
+		EventErrors: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1619,7 +1667,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"event_type", "error_type"},
 		),
-		EventQueueDepth: promauto.NewGauge(
+		EventQueueDepth: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1627,7 +1675,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 				Help:      "Current event queue depth",
 			},
 		),
-		EventDropped: promauto.NewCounterVec(
+		EventDropped: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1638,7 +1686,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 		),
 
 		// Throughput metrics
-		BytesReceived: promauto.NewCounterVec(
+		BytesReceived: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1647,7 +1695,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"connection_id"},
 		),
-		BytesSent: promauto.NewCounterVec(
+		BytesSent: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1656,7 +1704,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"connection_id"},
 		),
-		MessagesPerSecond: promauto.NewGauge(
+		MessagesPerSecond: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1664,7 +1712,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 				Help:      "Current message throughput per second",
 			},
 		),
-		BytesPerSecond: promauto.NewGauge(
+		BytesPerSecond: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1674,7 +1722,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 		),
 
 		// Performance metrics
-		RequestLatency: promauto.NewHistogramVec(
+		RequestLatency: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1684,7 +1732,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"method", "endpoint"},
 		),
-		StreamLatency: promauto.NewHistogramVec(
+		StreamLatency: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1694,7 +1742,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"stream_type"},
 		),
-		ParseLatency: promauto.NewHistogramVec(
+		ParseLatency: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1704,7 +1752,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"format"},
 		),
-		SerializationLatency: promauto.NewHistogramVec(
+		SerializationLatency: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1716,7 +1764,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 		),
 
 		// Resource metrics
-		MemoryUsage: promauto.NewGauge(
+		MemoryUsage: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1724,7 +1772,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 				Help:      "Current memory usage in bytes",
 			},
 		),
-		GoroutineCount: promauto.NewGauge(
+		GoroutineCount: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1732,7 +1780,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 				Help:      "Current number of goroutines",
 			},
 		),
-		CPUUsage: promauto.NewGauge(
+		CPUUsage: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1740,7 +1788,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 				Help:      "Current CPU usage percentage",
 			},
 		),
-		BufferUtilization: promauto.NewGauge(
+		BufferUtilization: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1750,7 +1798,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 		),
 
 		// Health metrics
-		HealthCheckStatus: promauto.NewGaugeVec(
+		HealthCheckStatus: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1759,7 +1807,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"check_name"},
 		),
-		HealthCheckDuration: promauto.NewHistogramVec(
+		HealthCheckDuration: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1769,7 +1817,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"check_name"},
 		),
-		HealthCheckFailures: promauto.NewCounterVec(
+		HealthCheckFailures: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1780,7 +1828,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 		),
 
 		// Error metrics
-		ErrorRate: promauto.NewGaugeVec(
+		ErrorRate: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1789,7 +1837,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"component"},
 		),
-		ErrorsByType: promauto.NewCounterVec(
+		ErrorsByType: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1798,7 +1846,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"error_type"},
 		),
-		ErrorsByEndpoint: promauto.NewCounterVec(
+		ErrorsByEndpoint: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1807,7 +1855,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"endpoint", "error_type"},
 		),
-		CircuitBreakerStatus: promauto.NewGaugeVec(
+		CircuitBreakerStatus: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1818,7 +1866,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 		),
 
 		// Rate limiting metrics
-		RateLimitHits: promauto.NewCounterVec(
+		RateLimitHits: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1827,7 +1875,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"endpoint"},
 		),
-		RateLimitExceeded: promauto.NewCounterVec(
+		RateLimitExceeded: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1836,7 +1884,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"endpoint"},
 		),
-		RateLimitUtilization: promauto.NewGauge(
+		RateLimitUtilization: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1846,7 +1894,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 		),
 
 		// Authentication metrics
-		AuthAttempts: promauto.NewCounterVec(
+		AuthAttempts: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1855,7 +1903,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"method", "status"},
 		),
-		AuthFailures: promauto.NewCounterVec(
+		AuthFailures: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1864,7 +1912,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"method"},
 		),
-		AuthLatency: promauto.NewHistogramVec(
+		AuthLatency: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1876,7 +1924,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 		),
 
 		// SSE-specific metrics
-		KeepAlivesSent: promauto.NewCounterVec(
+		KeepAlivesSent: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1885,7 +1933,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"connection_id"},
 		),
-		KeepAlivesReceived: promauto.NewCounterVec(
+		KeepAlivesReceived: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1894,7 +1942,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"connection_id"},
 		),
-		StreamRestarts: promauto.NewCounterVec(
+		StreamRestarts: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1903,7 +1951,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"reason"},
 		),
-		CompressionRatio: promauto.NewGauge(
+		CompressionRatio: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1911,7 +1959,7 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 				Help:      "Current compression ratio",
 			},
 		),
-		LastEventID: promauto.NewGaugeVec(
+		LastEventID: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: namespace,
 				Subsystem: subsystem,
@@ -1920,9 +1968,113 @@ func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetri
 			},
 			[]string{"stream"},
 		),
-		}
-	})
-	return ssePromMetrics
+	}
+	
+	// Register metrics with the default registry if registerer is provided
+	if registerer != nil {
+		registerer.MustRegister(
+			metrics.ConnectionsTotal,
+			metrics.ConnectionsActive,
+			metrics.ConnectionDuration,
+			metrics.ConnectionErrors,
+			metrics.ConnectionRetries,
+			metrics.ReconnectionAttempts,
+			metrics.EventsReceived,
+			metrics.EventsSent,
+			metrics.EventsProcessed,
+			metrics.EventProcessingLatency,
+			metrics.EventSize,
+			metrics.EventErrors,
+			metrics.EventQueueDepth,
+			metrics.EventDropped,
+			metrics.BytesReceived,
+			metrics.BytesSent,
+			metrics.MessagesPerSecond,
+			metrics.BytesPerSecond,
+			metrics.RequestLatency,
+			metrics.StreamLatency,
+			metrics.ParseLatency,
+			metrics.SerializationLatency,
+			metrics.MemoryUsage,
+			metrics.GoroutineCount,
+			metrics.CPUUsage,
+			metrics.BufferUtilization,
+			metrics.HealthCheckStatus,
+			metrics.HealthCheckDuration,
+			metrics.HealthCheckFailures,
+			metrics.ErrorRate,
+			metrics.ErrorsByType,
+			metrics.ErrorsByEndpoint,
+			metrics.CircuitBreakerStatus,
+			metrics.RateLimitHits,
+			metrics.RateLimitExceeded,
+			metrics.RateLimitUtilization,
+			metrics.AuthAttempts,
+			metrics.AuthFailures,
+			metrics.AuthLatency,
+			metrics.KeepAlivesSent,
+			metrics.KeepAlivesReceived,
+			metrics.StreamRestarts,
+			metrics.CompressionRatio,
+			metrics.LastEventID,
+		)
+	}
+	
+	return metrics
+}
+
+func createSSEPrometheusMetricsWithRegistry(namespace, subsystem string, registry *prometheus.Registry) *SSEPrometheusMetrics {
+	metrics := createSSEPrometheusMetrics(namespace, subsystem, nil)
+	
+	// Register all metrics with the custom registry
+	registry.MustRegister(
+		metrics.ConnectionsTotal,
+		metrics.ConnectionsActive,
+		metrics.ConnectionDuration,
+		metrics.ConnectionErrors,
+		metrics.ConnectionRetries,
+		metrics.ReconnectionAttempts,
+		metrics.EventsReceived,
+		metrics.EventsSent,
+		metrics.EventsProcessed,
+		metrics.EventProcessingLatency,
+		metrics.EventSize,
+		metrics.EventErrors,
+		metrics.EventQueueDepth,
+		metrics.EventDropped,
+		metrics.BytesReceived,
+		metrics.BytesSent,
+		metrics.MessagesPerSecond,
+		metrics.BytesPerSecond,
+		metrics.RequestLatency,
+		metrics.StreamLatency,
+		metrics.ParseLatency,
+		metrics.SerializationLatency,
+		metrics.MemoryUsage,
+		metrics.GoroutineCount,
+		metrics.CPUUsage,
+		metrics.BufferUtilization,
+		metrics.HealthCheckStatus,
+		metrics.HealthCheckDuration,
+		metrics.HealthCheckFailures,
+		metrics.ErrorRate,
+		metrics.ErrorsByType,
+		metrics.ErrorsByEndpoint,
+		metrics.CircuitBreakerStatus,
+		metrics.RateLimitHits,
+		metrics.RateLimitExceeded,
+		metrics.RateLimitUtilization,
+		metrics.AuthAttempts,
+		metrics.AuthFailures,
+		metrics.AuthLatency,
+		metrics.KeepAlivesSent,
+		metrics.KeepAlivesReceived,
+		metrics.StreamRestarts,
+		metrics.CompressionRatio,
+		metrics.LastEventID,
+	)
+	
+		return metrics
 }
 
 func categorizeSSEError(err error) string {

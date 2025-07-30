@@ -1,4 +1,4 @@
-package main
+package weatherapi
 
 import (
 	"context"
@@ -9,7 +9,7 @@ import (
 	"github.com/ag-ui/go-sdk/pkg/tools"
 )
 
-func main() {
+func RunWeatherApiExample() error {
 	// Create registry and register the weather API tool
 	registry := tools.NewRegistry()
 	weatherTool := CreateWeatherAPITool()

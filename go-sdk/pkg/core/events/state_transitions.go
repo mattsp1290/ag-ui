@@ -620,25 +620,25 @@ func (r *StateTransitionRule) checkCondition(condition string, event Event, cont
 func (r *StateTransitionRule) checkRunIDValid(event Event) bool {
 	switch e := event.(type) {
 	case *RunStartedEvent:
-		return e.RunID != ""
+		return e.RunID() != ""
 	case *RunFinishedEvent:
-		return e.RunID != ""
+		return e.RunID() != ""
 	case *RunErrorEvent:
-		return e.RunID != ""
+		return e.RunID() != ""
 	}
 	return true
 }
 
 func (r *StateTransitionRule) checkThreadIDValid(event Event) bool {
 	if runEvent, ok := event.(*RunStartedEvent); ok {
-		return runEvent.ThreadID != ""
+		return runEvent.ThreadID() != ""
 	}
 	return true
 }
 
 func (r *StateTransitionRule) checkNoActiveRunWithSameID(event Event, context *ValidationContext) bool {
 	if runEvent, ok := event.(*RunStartedEvent); ok {
-		_, exists := context.State.ActiveRuns[runEvent.RunID]
+		_, exists := context.State.ActiveRuns[runEvent.RunID()]
 		return !exists
 	}
 	return true
@@ -648,9 +648,9 @@ func (r *StateTransitionRule) checkRunIDMatches(event Event, context *Validation
 	var runID string
 	switch e := event.(type) {
 	case *RunFinishedEvent:
-		runID = e.RunID
+		runID = e.RunID()
 	case *RunErrorEvent:
-		runID = e.RunID
+		runID = e.RunID()
 	default:
 		return true
 	}
@@ -848,15 +848,15 @@ func (r *StateTransitionRule) validateRunStartTransition(event Event, context *V
 		return
 	}
 
-	if runEvent.RunID == "" {
+	if runEvent.RunID() == "" {
 		result.AddError(r.CreateError(event, "Run ID is required for run start transition", nil,
 			[]string{"Provide a valid run ID"}))
 	}
 
-	if _, exists := context.State.ActiveRuns[runEvent.RunID]; exists {
+	if _, exists := context.State.ActiveRuns[runEvent.RunID()]; exists {
 		result.AddError(r.CreateError(event,
-			fmt.Sprintf("Run %s is already active", runEvent.RunID),
-			map[string]interface{}{"run_id": runEvent.RunID},
+			fmt.Sprintf("Run %s is already active", runEvent.RunID()),
+			map[string]interface{}{"run_id": runEvent.RunID()},
 			[]string{"Use a different run ID or finish the current run"}))
 	}
 }
@@ -865,9 +865,9 @@ func (r *StateTransitionRule) validateRunEndTransition(event Event, context *Val
 	var runID string
 	switch e := event.(type) {
 	case *RunFinishedEvent:
-		runID = e.RunID
+		runID = e.RunID()
 	case *RunErrorEvent:
-		runID = e.RunID
+		runID = e.RunID()
 	default:
 		return
 	}

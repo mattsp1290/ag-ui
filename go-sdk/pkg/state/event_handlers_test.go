@@ -449,7 +449,6 @@ func TestStateEventHandler_Callbacks(t *testing.T) {
 	assert.NoError(t, err)
 	assert.True(t, snapshotCalled)
 
-
 	// Wait for async state change callback
 	AssertEventuallyTrue(t, func() bool {
 		callbackMu.Lock()

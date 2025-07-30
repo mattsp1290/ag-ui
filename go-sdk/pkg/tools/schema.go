@@ -1332,6 +1332,8 @@ func (v *SchemaValidator) coerceToArray(value interface{}) []interface{} {
 // Utility methods
 
 // generateCacheKey generates a cache key for the given parameters.
+// The cache key includes both the parameters and validator settings to ensure
+// that different validation configurations don't interfere with each other.
 func (v *SchemaValidator) generateCacheKey(params map[string]interface{}) string {
 	// Include validation settings in cache key to ensure correct caching
 	cacheData := struct {

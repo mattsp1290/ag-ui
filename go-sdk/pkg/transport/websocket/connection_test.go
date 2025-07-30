@@ -18,6 +18,7 @@ import (
 )
 
 func TestConnectionBasicOperations(t *testing.T) {
+	
 	// Setup test WebSocket server
 	server := createTestWebSocketServer(t)
 	defer server.Close()
@@ -61,6 +62,7 @@ func TestConnectionBasicOperations(t *testing.T) {
 }
 
 func TestConnectionStateTransitions(t *testing.T) {
+	
 	config := DefaultConnectionConfig()
 	config.URL = "ws://localhost:8080"
 	config.Logger = zaptest.NewLogger(t)
@@ -155,6 +157,7 @@ func TestConnectionReconnection(t *testing.T) {
 }
 
 func TestConnectionMetrics(t *testing.T) {
+	
 	server := createTestWebSocketServer(t)
 	defer server.Close()
 
@@ -309,6 +312,7 @@ func TestConnectionEventHandlers(t *testing.T) {
 }
 
 func TestConnectionConfiguration(t *testing.T) {
+	
 	// Test default configuration
 	config := DefaultConnectionConfig()
 	assert.Equal(t, 10, config.MaxReconnectAttempts)
@@ -387,55 +391,62 @@ func TestConnectionErrors(t *testing.T) {
 }
 
 func TestConnectionConcurrency(t *testing.T) {
-	server := createTestWebSocketServer(t)
-	defer server.Close()
+	WithResourceControl(t, "TestConnectionConcurrency", func() {
+		server := createTestWebSocketServer(t)
+		defer server.Close()
 
-	config := DefaultConnectionConfig()
-	config.URL = "ws" + strings.TrimPrefix(server.URL, "http")
-	config.Logger = zaptest.NewLogger(t)
+		config := DefaultConnectionConfig()
+		config.URL = "ws" + strings.TrimPrefix(server.URL, "http")
+		config.Logger = zaptest.NewLogger(t)
 
-	conn, err := NewConnection(config)
-	require.NoError(t, err)
+		conn, err := NewConnection(config)
+		require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
 
-	err = conn.Connect(ctx)
-	require.NoError(t, err)
+		err = conn.Connect(ctx)
+		require.NoError(t, err)
 
-	// Send messages concurrently
-	var wg sync.WaitGroup
-	numGoroutines := 10
-	messagesPerGoroutine := 10
+		// Send messages concurrently with environment-aware scaling
+		var wg sync.WaitGroup
+		concurrencyConfig := getConcurrencyConfig("TestConnectionConcurrency")
+		numGoroutines := concurrencyConfig.NumGoroutines
+		messagesPerGoroutine := concurrencyConfig.OperationsPerRoutine
+		
+		t.Logf("TestConnectionConcurrency: Using %d goroutines × %d operations = %d total operations (full_suite=%v)", 
+			numGoroutines, messagesPerGoroutine, numGoroutines*messagesPerGoroutine, isFullTestSuite())
 
-	for i := 0; i < numGoroutines; i++ {
-		wg.Add(1)
-		go func(id int) {
-			defer wg.Done()
-			for j := 0; j < messagesPerGoroutine; j++ {
-				message := fmt.Sprintf("message from goroutine %d, iteration %d", id, j)
-				err := conn.SendMessage(ctx, []byte(message))
-				assert.NoError(t, err)
-			}
-		}(i)
-	}
+		for i := 0; i < numGoroutines; i++ {
+			wg.Add(1)
+			go func(id int) {
+				defer wg.Done()
+				for j := 0; j < messagesPerGoroutine; j++ {
+					message := fmt.Sprintf("message from goroutine %d, iteration %d", id, j)
+					err := conn.SendMessage(ctx, []byte(message))
+					assert.NoError(t, err)
+				}
+			}(i)
+		}
 
-	wg.Wait()
+		wg.Wait()
 
-	// Wait for all messages to be processed by the write pump
-	time.Sleep(200 * time.Millisecond)
+		// Wait for all messages to be processed by the write pump
+		time.Sleep(200 * time.Millisecond)
 
-	// Check metrics - allow for race conditions in concurrent sending
-	metrics := conn.GetMetrics()
-	expectedMessages := int64(numGoroutines * messagesPerGoroutine)
-	assert.GreaterOrEqual(t, metrics.MessagesSent, expectedMessages-5, "Messages sent should be at least %d (allowing for race conditions)", expectedMessages-5)
-	assert.LessOrEqual(t, metrics.MessagesSent, expectedMessages, "Messages sent should not exceed %d", expectedMessages)
+		// Check metrics - allow for race conditions in concurrent sending
+		metrics := conn.GetMetrics()
+		expectedMessages := int64(numGoroutines * messagesPerGoroutine)
+		assert.GreaterOrEqual(t, metrics.MessagesSent, expectedMessages-5, "Messages sent should be at least %d (allowing for race conditions)", expectedMessages-5)
+		assert.LessOrEqual(t, metrics.MessagesSent, expectedMessages, "Messages sent should not exceed %d", expectedMessages)
 
-	err = conn.Close()
-	require.NoError(t, err)
+		err = conn.Close()
+		require.NoError(t, err)
+	}) // Close WithResourceControl
 }
 
 func TestConnectionBackoffCalculation(t *testing.T) {
+	
 	config := DefaultConnectionConfig()
 	config.URL = "ws://localhost:8080"
 	config.InitialReconnectDelay = 1 * time.Second
@@ -457,6 +468,7 @@ func TestConnectionBackoffCalculation(t *testing.T) {
 }
 
 func TestConnectionDialTimeout(t *testing.T) {
+	
 	t.Run("DialTimeoutConfiguration", func(t *testing.T) {
 		config := DefaultConnectionConfig()
 		config.URL = "ws://localhost:8080" // Invalid URL to test timeout
@@ -510,7 +522,7 @@ func createTestWebSocketServer(t *testing.T) *httptest.Server {
 		}()
 
 		// Create a timeout context for this connection
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)  // Reduced from 30s
 		defer cancel()
 
 		// Track connection state to prevent "repeated read on failed websocket connection" panic

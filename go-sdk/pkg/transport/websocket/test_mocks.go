@@ -11,9 +11,11 @@ import (
 
 // MockEvent implements events.Event for websocket testing
 type MockEvent struct {
-	EventType     events.EventType
-	Data          interface{}
-	timestampMs   *int64
+	EventType      events.EventType
+	Data           interface{}
+	TimestampMs    *int64  // Exported field for test initialization
+	timestampMs    *int64  // Internal field for compatibility
+	ValidationFunc func() error // Optional validation function for testing
 }
 
 func (e *MockEvent) ID() string {
@@ -25,10 +27,14 @@ func (e *MockEvent) Type() events.EventType {
 }
 
 func (e *MockEvent) Timestamp() *int64 {
-	if e.timestampMs == nil {
-		timestamp := time.Now().UnixMilli()
-		e.timestampMs = &timestamp
+	// Prioritize the exported field if set
+	if e.TimestampMs != nil {
+		e.timestampMs = e.TimestampMs
+		return e.TimestampMs
 	}
+	
+	// Return nil if no timestamp was explicitly set
+	// This allows testing of validation logic that requires timestamps
 	return e.timestampMs
 }
 
@@ -37,6 +43,9 @@ func (e *MockEvent) SetTimestamp(timestamp int64) {
 }
 
 func (e *MockEvent) Validate() error {
+	if e.ValidationFunc != nil {
+		return e.ValidationFunc()
+	}
 	return nil
 }
 
@@ -54,12 +63,18 @@ func (e *MockEvent) ToProtobuf() (*generated.Event, error) {
 }
 
 func (e *MockEvent) GetBaseEvent() *events.BaseEvent {
-	if e.timestampMs == nil {
-		timestamp := time.Now().UnixMilli()
-		e.timestampMs = &timestamp
-	}
+	// Use the Timestamp() method which handles both fields correctly
+	timestamp := e.Timestamp()
 	return &events.BaseEvent{
 		EventType:   e.EventType,
-		TimestampMs: e.timestampMs,
+		TimestampMs: timestamp,
 	}
+}
+
+func (e *MockEvent) ThreadID() string {
+	return "mock-thread-id"
+}
+
+func (e *MockEvent) RunID() string {
+	return "mock-run-id"
 }

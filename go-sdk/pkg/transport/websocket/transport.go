@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -13,6 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/ag-ui/go-sdk/pkg/internal/timeconfig"
 	"github.com/ag-ui/go-sdk/pkg/proto/generated"
 	"github.com/ag-ui/go-sdk/pkg/transport"
 	"github.com/ag-ui/go-sdk/pkg/transport/common"
@@ -37,8 +39,7 @@ type Transport struct {
 	handlersMutex sync.RWMutex
 
 	// Event channel for incoming messages
-	eventCh chan []byte
-	eventChClosed bool
+	eventCh      chan []byte
 	eventChMutex sync.RWMutex
 
 	// Subscriptions
@@ -56,19 +57,19 @@ type Transport struct {
 
 	// Statistics
 	stats *TransportStats
-	
+
 	// Backpressure management
-	droppedEvents     int64
+	droppedEvents      int64
 	backpressureActive bool
-	lastDropTime      time.Time
-	backpressureMutex sync.RWMutex
-	
+	lastDropTime       time.Time
+	backpressureMutex  sync.RWMutex
+
 	// Resource management
-	activeGoroutines  map[string]*GoroutineInfo
-	goroutinesMutex   sync.RWMutex
-	resourceCleanup   []func() error
-	cleanupMutex      sync.Mutex
-	
+	activeGoroutines map[string]*GoroutineInfo
+	goroutinesMutex  sync.RWMutex
+	resourceCleanup  []func() error
+	cleanupMutex     sync.Mutex
+
 	// Monitoring
 	monitoringCtx    context.Context
 	monitoringCancel context.CancelFunc
@@ -78,22 +79,22 @@ type Transport struct {
 type BackpressureConfig struct {
 	// EventChannelBuffer is the buffer size for event channel
 	EventChannelBuffer int
-	
+
 	// MaxDroppedEvents is the maximum number of events that can be dropped before taking action
 	MaxDroppedEvents int64
-	
+
 	// DropActionType defines what to do when max dropped events is reached
 	DropActionType DropActionType
-	
+
 	// EnableBackpressureLogging enables detailed logging of backpressure events
 	EnableBackpressureLogging bool
-	
+
 	// BackpressureThresholdPercent is the percentage at which to start applying backpressure (0-100)
 	BackpressureThresholdPercent int
-	
+
 	// EnableChannelMonitoring enables monitoring of channel usage
 	EnableChannelMonitoring bool
-	
+
 	// MonitoringInterval is the interval for channel monitoring
 	MonitoringInterval time.Duration
 }
@@ -104,13 +105,13 @@ type DropActionType int
 const (
 	// DropActionLog logs dropped events but continues
 	DropActionLog DropActionType = iota
-	
+
 	// DropActionReconnect attempts to reconnect
 	DropActionReconnect
-	
+
 	// DropActionStop stops the transport
 	DropActionStop
-	
+
 	// DropActionSlowDown applies flow control
 	DropActionSlowDown
 )
@@ -132,13 +133,13 @@ func DefaultBackpressureConfig() *BackpressureConfig {
 type ResourceCleanupConfig struct {
 	// EnableGoroutineTracking enables tracking of goroutines
 	EnableGoroutineTracking bool
-	
+
 	// CleanupInterval is the interval for resource cleanup
 	CleanupInterval time.Duration
-	
+
 	// MaxGoroutineIdleTime is the maximum time a goroutine can be idle before cleanup
 	MaxGoroutineIdleTime time.Duration
-	
+
 	// EnableResourceMonitoring enables monitoring of resource usage
 	EnableResourceMonitoring bool
 }
@@ -184,10 +185,10 @@ type TransportConfig struct {
 
 	// Logger is the logger instance
 	Logger *zap.Logger
-	
+
 	// BackpressureConfig configures backpressure behavior
 	BackpressureConfig *BackpressureConfig
-	
+
 	// ResourceCleanupConfig configures resource cleanup
 	ResourceCleanupConfig *ResourceCleanupConfig
 
@@ -260,7 +261,7 @@ func DefaultTransportConfig() *TransportConfig {
 		PerformanceConfig:     DefaultPerformanceConfig(),
 		DialTimeout:           10 * time.Second, // Reduced for faster test execution
 		EventTimeout:          30 * time.Second, // Default timeout for event processing
-		MaxEventSize:          1024 * 1024, // 1MB
+		MaxEventSize:          1024 * 1024,      // 1MB
 		EnableEventValidation: true,
 		EventValidator:        events.NewEventValidator(events.DevelopmentValidationConfig()),
 		Logger:                zap.NewNop(),
@@ -271,32 +272,95 @@ func DefaultTransportConfig() *TransportConfig {
 
 // HighConcurrencyTransportConfig returns a transport configuration optimized for high concurrency testing
 func HighConcurrencyTransportConfig() *TransportConfig {
+	// Detect CI environment for even more conservative settings
+	isCI := IsRunningInCI()
+	
 	// Create high concurrency pool config
 	poolConfig := DefaultPoolConfig()
-	poolConfig.MinConnections = 50
-	poolConfig.MaxConnections = 500
+	if timeconfig.IsTestMode() {
+		if isCI {
+			// Very conservative settings for CI
+			poolConfig.MinConnections = 1
+			poolConfig.MaxConnections = 5
+		} else {
+			// Moderate settings for local testing
+			poolConfig.MinConnections = 2
+			poolConfig.MaxConnections = 20
+		}
+	} else {
+		// Production settings
+		poolConfig.MinConnections = 50
+		poolConfig.MaxConnections = 500
+	}
 	poolConfig.ConnectionTemplate = DefaultConnectionConfig()
-	poolConfig.ConnectionTemplate.RateLimiter = NewTestRateLimiter() // Use test rate limiter
-	
-	// Create high concurrency backpressure config  
+	if timeconfig.IsTestMode() {
+		poolConfig.ConnectionTemplate.RateLimiter = NewTestRateLimiter() // Use test rate limiter
+	}
+
+	// Create high concurrency backpressure config
 	backpressureConfig := DefaultBackpressureConfig()
-	backpressureConfig.EventChannelBuffer = 50000 // Larger buffer for high concurrency
-	backpressureConfig.MaxDroppedEvents = 10000   // Allow more dropped events
-	backpressureConfig.BackpressureThresholdPercent = 95 // Higher threshold
-	
+	if timeconfig.IsTestMode() {
+		if isCI {
+			// Minimal buffer for CI
+			backpressureConfig.EventChannelBuffer = 100
+			backpressureConfig.MaxDroppedEvents = 10
+		} else {
+			// Moderate buffer for local tests
+			backpressureConfig.EventChannelBuffer = 1000
+			backpressureConfig.MaxDroppedEvents = 100
+		}
+		backpressureConfig.BackpressureThresholdPercent = 90 // Higher threshold for tests
+	} else {
+		// Production settings
+		backpressureConfig.EventChannelBuffer = 50000        // Larger buffer for high concurrency
+		backpressureConfig.MaxDroppedEvents = 10000          // Allow more dropped events
+		backpressureConfig.BackpressureThresholdPercent = 95 // Higher threshold
+	}
+
+	config := timeconfig.GetConfig()
+	shutdownTimeout := config.DefaultShutdownTimeout
+	if isCI {
+		shutdownTimeout = 500 * time.Millisecond // Very fast for CI
+	}
+
 	return &TransportConfig{
 		PoolConfig:            poolConfig,
 		PerformanceConfig:     HighConcurrencyPerformanceConfig(),
-		DialTimeout:           10 * time.Second, // Faster for tests
-		EventTimeout:          10 * time.Second, // Faster for tests 
+		DialTimeout:           config.DefaultDialTimeout,
+		EventTimeout:          config.DefaultTestTimeout,
 		MaxEventSize:          1024 * 1024, // 1MB
-		EnableEventValidation: false, // Disable validation for speed
+		EnableEventValidation: !timeconfig.IsTestMode(), // Disable validation for speed in tests
 		EventValidator:        nil,
 		Logger:                zap.NewNop(),
 		BackpressureConfig:    backpressureConfig,
 		ResourceCleanupConfig: DefaultResourceCleanupConfig(),
-		ShutdownTimeout:       5 * time.Second, // Default production timeout
+		ShutdownTimeout:       shutdownTimeout,
 	}
+}
+
+// IsRunningInCI detects if we're running in a CI environment
+func IsRunningInCI() bool {
+	// Check common CI environment variables
+	ciVars := []string{
+		"CI",
+		"CONTINUOUS_INTEGRATION", 
+		"BUILD_NUMBER",
+		"GITHUB_ACTIONS",
+		"GITLAB_CI",
+		"TRAVIS",
+		"CIRCLECI",
+		"JENKINS_URL",
+		"BAMBOO_BUILD_NUMBER",
+		"AG_SDK_CI",
+	}
+	
+	for _, env := range ciVars {
+		if os.Getenv(env) != "" {
+			return true
+		}
+	}
+	
+	return false
 }
 
 // NewTransport creates a new WebSocket transport
@@ -331,21 +395,21 @@ func NewTransport(config *TransportConfig) (*Transport, error) {
 	// Create connection pool
 	pool, err := NewConnectionPool(poolConfig)
 	if err != nil {
-		return nil, common.NewTransportError(common.ErrorTypeConfiguration, 
+		return nil, common.NewTransportError(common.ErrorTypeConfiguration,
 			"failed to create connection pool", err).WithTransport("websocket")
 	}
 
 	// Configure performance config
 	perfConfig := config.PerformanceConfig
 	var performanceManager *PerformanceManager
-	
+
 	// Create performance manager only if config is provided (not nil)
 	if config.PerformanceConfig != nil {
 		if perfConfig == nil {
 			perfConfig = DefaultPerformanceConfig()
 		}
 		perfConfig.Logger = config.Logger
-		
+
 		var err error
 		performanceManager, err = NewPerformanceManager(perfConfig)
 		if err != nil {
@@ -359,11 +423,6 @@ func NewTransport(config *TransportConfig) (*Transport, error) {
 	}
 	if config.ResourceCleanupConfig == nil {
 		config.ResourceCleanupConfig = DefaultResourceCleanupConfig()
-	// Create performance manager
-	performanceManager, err := NewPerformanceManager(perfConfig)
-	if err != nil {
-		return nil, common.NewTransportError(common.ErrorTypeConfiguration,
-			"failed to create performance manager", err).WithTransport("websocket")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -407,21 +466,18 @@ func (t *Transport) Start(ctx context.Context) error {
 
 	// Recreate event channel if it was closed
 	t.eventChMutex.Lock()
-	if t.eventChClosed {
+	if atomic.LoadInt32(&t.eventChClosed) != 0 {
 		t.eventCh = make(chan []byte, 1000)
-		t.eventChClosed = false
+		atomic.StoreInt32(&t.eventChClosed, 0)
 	}
 	t.eventChMutex.Unlock()
 
 	// Start performance manager if available
 	if t.performanceManager != nil {
 		if err := t.performanceManager.Start(ctx); err != nil {
-			return fmt.Errorf("failed to start performance manager: %w", err)
+			return common.NewTransportError(common.ErrorTypeInternal,
+				"failed to start performance manager", err).WithTransport("websocket")
 		}
-	// Start performance manager
-	if err := t.performanceManager.Start(ctx); err != nil {
-		return common.NewTransportError(common.ErrorTypeInternal,
-			"failed to start performance manager", err).WithTransport("websocket")
 	}
 
 	// Start connection pool
@@ -441,7 +497,7 @@ func (t *Transport) Start(ctx context.Context) error {
 	if t.config.BackpressureConfig.EnableChannelMonitoring {
 		t.startGoroutine("channel-monitor", t.channelMonitoringLoop)
 	}
-	
+
 	// Start resource cleanup if enabled
 	if t.config.ResourceCleanupConfig.EnableResourceMonitoring {
 		t.startGoroutine("resource-cleanup", t.resourceCleanupLoop)
@@ -457,35 +513,18 @@ func (t *Transport) Start(ctx context.Context) error {
 
 // Stop gracefully shuts down the WebSocket transport
 func (t *Transport) Stop() error {
-	t.config.Logger.Debug("Stopping WebSocket transport with aggressive cleanup")
-
-	// Cancel contexts immediately to signal all goroutines
-	t.monitoringCancel()
-	t.cancel()
-
-	// Close event channel immediately to unblock goroutines
-	t.eventChMutex.Lock()
-	if !t.eventChClosed {
-		close(t.eventCh)
-		t.eventChClosed = true
-	}
-	t.eventChMutex.Unlock()
-
-	// Stop connection pool first (this closes all WebSocket connections)
-	if err := t.pool.Stop(); err != nil {
-		t.config.Logger.Debug("Error stopping connection pool (expected)", zap.Error(err))
-	}
-
-	// Stop performance manager if available
-	if t.performanceManager != nil {
-		if err := t.performanceManager.Stop(); err != nil {
-			t.config.Logger.Debug("Error stopping performance manager (expected)", zap.Error(err))
-		}
-	}
 	// Use stopOnce to ensure Stop() is only executed once
 	t.stopOnce.Do(func() {
-		// Cancel context FIRST to signal shutdown to all goroutines
+		t.config.Logger.Debug("Stopping WebSocket transport with aggressive cleanup")
+
+		// Cancel contexts FIRST to signal shutdown to all goroutines
+		t.monitoringCancel()
 		t.cancel()
+
+		// Close event channel immediately to unblock goroutines
+		if atomic.CompareAndSwapInt32(&t.eventChClosed, 0, 1) {
+			close(t.eventCh)
+		}
 
 		// Cancel all subscriptions before stopping other components
 		t.subsMutex.Lock()
@@ -494,7 +533,29 @@ func (t *Transport) Stop() error {
 		}
 		t.subscriptions = make(map[string]*Subscription)
 		t.subsMutex.Unlock()
-		
+
+		// Cancel all active goroutines
+		t.goroutinesMutex.Lock()
+		for _, goroutineInfo := range t.activeGoroutines {
+			if goroutineInfo.Cancel != nil {
+				goroutineInfo.Cancel()
+			}
+		}
+		t.activeGoroutines = make(map[string]*GoroutineInfo)
+		t.goroutinesMutex.Unlock()
+
+		// Stop connection pool first (this closes all WebSocket connections)
+		if err := t.pool.Stop(); err != nil {
+			t.config.Logger.Debug("Error stopping connection pool (expected)", zap.Error(err))
+		}
+
+		// Stop performance manager if available
+		if t.performanceManager != nil {
+			if err := t.performanceManager.Stop(); err != nil {
+				t.config.Logger.Debug("Error stopping performance manager (expected)", zap.Error(err))
+			}
+		}
+
 		// Clear all event handlers and break reference cycles
 		t.handlersMutex.Lock()
 		for eventType, handlers := range t.eventHandlers {
@@ -513,84 +574,92 @@ func (t *Transport) Stop() error {
 		t.eventHandlers = make(map[string][]*EventHandlerWrapper)
 		t.handlersMutex.Unlock()
 
-		// Close event channel safely using atomic flag to prevent double-close
-		if atomic.CompareAndSwapInt32(&t.eventChClosed, 0, 1) {
-			close(t.eventCh)
+		// Execute resource cleanup functions quickly
+		t.cleanupMutex.Lock()
+		for _, cleanup := range t.resourceCleanup {
+			if err := cleanup(); err != nil {
+				t.config.Logger.Debug("Resource cleanup error (expected)", zap.Error(err))
+			}
 		}
+		t.stats.mutex.Lock()
+		t.stats.ResourceCleanups += int64(len(t.resourceCleanup))
+		t.stats.mutex.Unlock()
+		t.cleanupMutex.Unlock()
 
-		// Wait for transport goroutines with simple timeout
-		transportDone := make(chan struct{})
-		go func() {
-			t.wg.Wait()
-			close(transportDone)
-		}()
-		
-		// Use configurable shutdown timeout, default to 5s if not set
+		// Wait for transport goroutines with aggressive timeout for tests
 		shutdownTimeout := t.config.ShutdownTimeout
 		if shutdownTimeout == 0 {
-			shutdownTimeout = 5 * time.Second
+			shutdownTimeout = 200 * time.Millisecond // Very short timeout for tests
 		}
+
+		done := make(chan struct{})
+		go func() {
+			t.wg.Wait()
+			close(done)
+		}()
+
 		timer := time.NewTimer(shutdownTimeout)
 		defer timer.Stop()
 
-	// Cancel all active goroutines
-	t.goroutinesMutex.Lock()
-	for _, goroutineInfo := range t.activeGoroutines {
-		if goroutineInfo.Cancel != nil {
-			goroutineInfo.Cancel()
-		}
-	}
-	t.activeGoroutines = make(map[string]*GoroutineInfo)
-	t.goroutinesMutex.Unlock()
-
-	// Execute resource cleanup functions quickly
-	t.cleanupMutex.Lock()
-	for _, cleanup := range t.resourceCleanup {
-		if err := cleanup(); err != nil {
-			t.config.Logger.Debug("Resource cleanup error (expected)", zap.Error(err))
-		}
-	}
-	t.stats.mutex.Lock()
-	t.stats.ResourceCleanups += int64(len(t.resourceCleanup))
-	t.stats.mutex.Unlock()
-	t.cleanupMutex.Unlock()
-
-	// Wait for goroutines to finish with very short timeout
-	done := make(chan struct{})
-	go func() {
-		t.wg.Wait()
-		close(done)
-	}()
-	
-	select {
-	case <-done:
-		t.config.Logger.Debug("WebSocket transport stopped cleanly")
-	case <-time.After(200 * time.Millisecond): // Very short timeout for tests
-		t.config.Logger.Debug("WebSocket transport stop timeout - connections force closed so proceeding")
-	}
-
-	t.config.Logger.Debug("WebSocket transport stop completed")
 		select {
-		case <-transportDone:
+		case <-done:
 			t.config.Logger.Debug("All transport goroutines stopped successfully")
 		case <-timer.C:
-			t.config.Logger.Warn("Timeout waiting for transport goroutines to stop")
-		}
-
-		// Stop connection pool (which will handle its own goroutines)
-		if err := t.pool.Stop(); err != nil {
-			t.config.Logger.Error("Error stopping connection pool", zap.Error(err))
-		}
-
-		// Stop performance manager last
-		if err := t.performanceManager.Stop(); err != nil {
-			t.config.Logger.Error("Error stopping performance manager", zap.Error(err))
+			t.config.Logger.Debug("Timeout waiting for transport goroutines to stop - proceeding with forced cleanup")
+			// Don't wait indefinitely - tests need to complete
 		}
 
 		t.config.Logger.Info("WebSocket transport stopped")
 	})
 
 	return nil
+}
+
+// FastStop provides immediate shutdown for test scenarios
+func (t *Transport) FastStop() error {
+	if timeconfig.IsTestMode() {
+		t.config.Logger.Debug("Fast stopping WebSocket transport")
+
+		// Cancel contexts immediately
+		t.monitoringCancel()
+		t.cancel()
+
+		// Close event channel immediately
+		if atomic.CompareAndSwapInt32(&t.eventChClosed, 0, 1) {
+			close(t.eventCh)
+		}
+
+		// Cancel all subscriptions immediately
+		t.subsMutex.Lock()
+		for _, sub := range t.subscriptions {
+			sub.Cancel()
+		}
+		t.subscriptions = make(map[string]*Subscription)
+		t.subsMutex.Unlock()
+
+		// Fast stop connection pool
+		if err := t.pool.FastStop(); err != nil {
+			t.config.Logger.Debug("Error fast stopping connection pool", zap.Error(err))
+		}
+
+		// Fast stop performance manager
+		if t.performanceManager != nil {
+			if err := t.performanceManager.FastStop(); err != nil {
+				t.config.Logger.Debug("Error fast stopping performance manager", zap.Error(err))
+			}
+		}
+
+		// Clear event handlers immediately
+		t.handlersMutex.Lock()
+		t.eventHandlers = make(map[string][]*EventHandlerWrapper)
+		t.handlersMutex.Unlock()
+
+		t.config.Logger.Debug("WebSocket transport fast stopped")
+		return nil
+	}
+
+	// Fall back to normal stop for non-test environments  
+	return t.Stop()
 }
 
 // SendEvent sends an event through the WebSocket transport
@@ -611,7 +680,8 @@ func (t *Transport) SendEvent(ctx context.Context, event events.Event) error {
 	if t.performanceManager != nil {
 		data, err = t.performanceManager.OptimizeMessage(event)
 		if err != nil {
-			return fmt.Errorf("failed to optimize message: %w", err)
+			return common.NewTransportError(common.ErrorTypeSerialization,
+				"failed to optimize message", err).WithTransport("websocket")
 		}
 	} else {
 		// Fall back to JSON serialization
@@ -619,11 +689,6 @@ func (t *Transport) SendEvent(ctx context.Context, event events.Event) error {
 		if err != nil {
 			return fmt.Errorf("failed to serialize event: %w", err)
 		}
-	// Use performance manager for optimized serialization
-	data, err := t.performanceManager.OptimizeMessage(event)
-	if err != nil {
-		return common.NewTransportError(common.ErrorTypeSerialization,
-			"failed to optimize message", err).WithTransport("websocket")
 	}
 
 	// Check event size
@@ -707,7 +772,7 @@ func (t *Transport) AddEventHandler(eventType string, handler EventHandler) stri
 		ID:      handlerID,
 		Handler: handler,
 	}
-	
+
 	// Set finalizer for critical cleanup to prevent memory leaks
 	runtime.SetFinalizer(wrapper, (*EventHandlerWrapper).finalize)
 
@@ -747,14 +812,14 @@ func (t *Transport) RemoveEventHandler(eventType string, handlerID string) error
 		if wrapper.ID == handlerID {
 			// Store reference to removed wrapper for cleanup
 			removedWrapper = wrapper
-			
+
 			// Remove handler from slice
 			t.eventHandlers[eventType] = append(handlers[:i], handlers[i+1:]...)
 			found = true
 			break
 		}
 	}
-	
+
 	// Explicitly clear wrapper references to ensure GC
 	if removedWrapper != nil {
 		// Clear finalizer since we're manually cleaning up
@@ -807,7 +872,7 @@ func (t *Transport) Subscribe(ctx context.Context, eventTypes []string, handler 
 		eventType string
 		handlerID string
 	}
-	
+
 	for _, eventType := range eventTypes {
 		handlerID := t.AddEventHandler(eventType, handler)
 		if handlerID == "" {
@@ -850,7 +915,6 @@ func (t *Transport) Unsubscribe(subscriptionID string) error {
 	sub, exists := t.subscriptions[subscriptionID]
 	if !exists {
 		t.subsMutex.Unlock()
-		return errors.New("subscription not found")
 		return fmt.Errorf("subscription not found: %w", transport.ErrStreamNotFound)
 	}
 	// Don't remove from map yet - do it after cleanup
@@ -880,14 +944,14 @@ func (t *Transport) Unsubscribe(subscriptionID string) error {
 	// Check again in case subscription was removed by another goroutine
 	if _, stillExists := t.subscriptions[subscriptionID]; stillExists {
 		delete(t.subscriptions, subscriptionID)
-		
+
 		// Update statistics with proper mutex AFTER cleanup and removal
 		t.stats.mutex.Lock()
 		t.stats.ActiveSubscriptions--
 		t.stats.mutex.Unlock()
-		
+
 		t.subsMutex.Unlock()
-		
+
 		// If there were handler removal errors, log them but don't fail the unsubscribe
 		if len(handlerErrors) > 0 {
 			t.config.Logger.Warn("Some event handlers could not be removed during unsubscribe",
@@ -952,19 +1016,13 @@ func (t *Transport) GetDetailedStatus() map[string]interface{} {
 // setupMessageHandlers sets up message handlers for all connections
 func (t *Transport) setupMessageHandlers() {
 	t.config.Logger.Debug("Setting up message handlers for transport")
-	
+
 	// Set up a message handler that forwards messages to the event channel
 	messageHandler := func(data []byte) {
-		t.config.Logger.Debug("Message handler received data", 
-			zap.Int("size", len(data)), 
+		t.config.Logger.Debug("Message handler received data",
+			zap.Int("size", len(data)),
 			zap.String("data", string(data)))
-		
-		// Check if channel is closed before attempting to send
-		t.eventChMutex.RLock()
-		if t.eventChClosed {
-			t.config.Logger.Debug("Event channel is closed, dropping message")
-			t.eventChMutex.RUnlock()
-			return
+
 		// Check if event channel is already closed before attempting to send
 		if atomic.LoadInt32(&t.eventChClosed) != 0 {
 			// Channel is closed, discard the message
@@ -985,7 +1043,6 @@ func (t *Transport) setupMessageHandlers() {
 			t.stats.EventsFailed++
 			t.stats.mutex.Unlock()
 		}
-		t.eventChMutex.RUnlock()
 
 		// Handle message with backpressure control
 		t.handleEventWithBackpressure(data)
@@ -993,7 +1050,7 @@ func (t *Transport) setupMessageHandlers() {
 
 	// This will be called by the pool when setting up connections
 	t.pool.SetMessageHandler(messageHandler)
-	
+
 	t.config.Logger.Debug("Message handlers setup completed")
 }
 
@@ -1017,8 +1074,12 @@ func (t *Transport) eventProcessingLoop() {
 	t.config.Logger.Debug("Starting event processing loop")
 	defer t.config.Logger.Debug("Event processing loop fully exited")
 
+	// Use a ticker to periodically check for exit conditions
+	timeoutTicker := time.NewTicker(5 * time.Millisecond)
+	defer timeoutTicker.Stop()
+
 	for {
-		// Check for shutdown first with immediate exit
+		// Priority check for shutdown with immediate exit
 		select {
 		case <-t.ctx.Done():
 			t.config.Logger.Debug("Event processing: Main context cancelled, exiting immediately")
@@ -1028,37 +1089,20 @@ func (t *Transport) eventProcessingLoop() {
 			t.config.Logger.Debug("Event processing: Monitoring context cancelled, exiting immediately")
 			t.drainEventChannel()
 			return
-		default:
-			// Continue to event processing
-		}
-
-		// Try to get an event with immediate timeout
-		select {
-		case <-t.ctx.Done():
-			t.config.Logger.Debug("Event processing: Context cancelled during event wait, exiting")
-			t.drainEventChannel()
-			return
-		case <-t.monitoringCtx.Done():
-			t.config.Logger.Debug("Event processing: Monitoring context cancelled during event wait, exiting")
-			t.drainEventChannel()
-			return
-		case data, ok := <-t.eventCh:
-			if !ok {
-				t.config.Logger.Debug("Event channel closed, exiting event processing loop")
-				return
-			t.config.Logger.Info("Stopping event processing loop due to context cancellation")
-			return
 		case data, ok := <-t.eventCh:
 			// Check if channel was closed
 			if !ok {
-				t.config.Logger.Info("Event channel closed, stopping event processing loop")
+				t.config.Logger.Debug("Event channel closed, exiting event processing loop")
 				return
 			}
-			
+
 			// Check context again before processing to be responsive to cancellation
 			select {
 			case <-t.ctx.Done():
 				t.config.Logger.Info("Context cancelled while processing event, stopping event processing loop")
+				return
+			case <-t.monitoringCtx.Done():
+				t.config.Logger.Info("Monitoring context cancelled while processing event, stopping event processing loop")
 				return
 			default:
 				// Process the incoming event
@@ -1068,6 +1112,9 @@ func (t *Transport) eventProcessingLoop() {
 						zap.Int("data_size", len(data)))
 				}
 			}
+		case <-timeoutTicker.C:
+			// Periodic timeout to ensure responsiveness
+			continue
 		}
 	}
 }
@@ -1108,26 +1155,7 @@ func (t *Transport) batchProcessingLoop() {
 					}
 				}
 			}
-			
-			// Check for cancellation before processing
-			select {
-			case <-t.ctx.Done():
-				t.config.Logger.Debug("Context cancelled before event processing, exiting")
-				return
-			case <-t.monitoringCtx.Done():
-				t.config.Logger.Debug("Monitoring context cancelled before event processing, exiting")
-				return
-			default:
-				// Process the incoming event quickly
-				if err := t.processIncomingEvent(data); err != nil {
-					t.config.Logger.Debug("Failed to process incoming event",
-						zap.Error(err),
-						zap.Int("data_size", len(data)))
-				}
-			}
-		case <-time.After(1 * time.Millisecond): // Very short timeout to check for shutdown
-			// Just loop back to check for shutdown
-			continue
+
 		}
 	}
 }
@@ -1226,8 +1254,8 @@ func (m *mockEvent) ToJSON() ([]byte, error) {
 }
 func (m *mockEvent) ToProtobuf() (*generated.Event, error) { return nil, nil }
 func (m *mockEvent) GetBaseEvent() *events.BaseEvent       { return nil }
-func (m *mockEvent) ThreadID() string                     { return "" }
-func (m *mockEvent) RunID() string                        { return "" }
+func (m *mockEvent) ThreadID() string                      { return "" }
+func (m *mockEvent) RunID() string                         { return "" }
 
 // IsConnected returns true if the transport has healthy connections
 func (t *Transport) IsConnected() bool {
@@ -1379,7 +1407,7 @@ func (t *Transport) CleanupEventHandlers() {
 
 	for eventType, handlers := range t.eventHandlers {
 		totalHandlers += len(handlers)
-		
+
 		// Check for nil handlers and clean them up
 		cleanHandlers := make([]*EventHandlerWrapper, 0, len(handlers))
 		for _, wrapper := range handlers {
@@ -1389,12 +1417,12 @@ func (t *Transport) CleanupEventHandlers() {
 				cleanedHandlers++
 			}
 		}
-		
+
 		// Update slice if we found any nil handlers
 		if len(cleanHandlers) != len(handlers) {
 			t.eventHandlers[eventType] = cleanHandlers
 		}
-		
+
 		// Remove empty event types
 		if len(cleanHandlers) == 0 {
 			delete(t.eventHandlers, eventType)
@@ -1405,7 +1433,7 @@ func (t *Transport) CleanupEventHandlers() {
 		t.config.Logger.Info("Cleaned up event handlers",
 			zap.Int("total_handlers", totalHandlers),
 			zap.Int("cleaned_handlers", cleanedHandlers))
-		
+
 		// Force GC to reclaim memory from cleaned handlers
 		runtime.GC()
 	}
@@ -1416,10 +1444,10 @@ func (t *Transport) OnMemoryPressure(level int) {
 	if level >= 2 { // High or critical memory pressure
 		t.config.Logger.Warn("Memory pressure detected, performing handler cleanup",
 			zap.Int("pressure_level", level))
-		
+
 		// Perform aggressive cleanup
 		t.CleanupEventHandlers()
-		
+
 		// Force GC for immediate memory reclamation
 		runtime.GC()
 		runtime.GC() // Double GC to ensure finalizers run
@@ -1433,7 +1461,7 @@ func (t *Transport) GetEventHandlerStats() map[string]interface{} {
 
 	stats := make(map[string]interface{})
 	totalHandlers := 0
-	
+
 	eventTypeStats := make(map[string]int)
 	for eventType, handlers := range t.eventHandlers {
 		handlerCount := len(handlers)
@@ -1447,3 +1475,81 @@ func (t *Transport) GetEventHandlerStats() map[string]interface{} {
 
 	return stats
 }
+
+// ResetForTesting provides test isolation by clearing internal state
+func (t *Transport) ResetForTesting() error {
+	if !timeconfig.IsTestMode() {
+		return fmt.Errorf("ResetForTesting can only be called in test mode")
+	}
+
+	t.config.Logger.Debug("Resetting transport for testing")
+
+	// Clear and cancel all subscriptions
+	t.subsMutex.Lock()
+	for _, sub := range t.subscriptions {
+		sub.Cancel()
+	}
+	t.subscriptions = make(map[string]*Subscription)
+	t.subsMutex.Unlock()
+
+	// Clear all event handlers
+	t.handlersMutex.Lock()
+	for eventType, handlers := range t.eventHandlers {
+		for _, wrapper := range handlers {
+			if wrapper != nil {
+				runtime.SetFinalizer(wrapper, nil)
+				wrapper.Handler = nil
+				wrapper.ID = ""
+			}
+		}
+		t.eventHandlers[eventType] = nil
+	}
+	t.eventHandlers = make(map[string][]*EventHandlerWrapper)
+	t.handlersMutex.Unlock()
+
+	// Reset statistics
+	t.stats.mutex.Lock()
+	t.stats.EventsSent = 0
+	t.stats.EventsReceived = 0
+	t.stats.EventsProcessed = 0
+	t.stats.EventsFailed = 0
+	t.stats.EventsDropped = 0
+	t.stats.ActiveSubscriptions = 0
+	t.stats.TotalSubscriptions = 0
+	t.stats.BytesTransferred = 0
+	t.stats.AverageLatency = 0
+	t.stats.ActiveGoroutines = 0
+	t.stats.BackpressureEvents = 0
+	t.stats.ResourceCleanups = 0
+	t.stats.mutex.Unlock()
+
+	// Reset performance manager buffers if available
+	if t.performanceManager != nil && t.performanceManager.bufferPool != nil {
+		t.performanceManager.bufferPool.Reset()
+	}
+
+	// Clear resource cleanup functions
+	t.cleanupMutex.Lock()
+	t.resourceCleanup = make([]func() error, 0)
+	t.cleanupMutex.Unlock()
+
+	// Clear active goroutines tracking
+	t.goroutinesMutex.Lock()
+	t.activeGoroutines = make(map[string]*GoroutineInfo)
+	t.goroutinesMutex.Unlock()
+
+	// Reset backpressure state
+	t.backpressureMutex.Lock()
+	atomic.StoreInt64(&t.droppedEvents, 0)
+	t.backpressureActive = false
+	t.lastDropTime = time.Time{}
+	t.backpressureMutex.Unlock()
+
+	// Force garbage collection to clean up any remaining references
+	runtime.GC()
+	runtime.GC() // Double GC to ensure finalizers run
+
+	t.config.Logger.Debug("Transport reset for testing completed")
+	return nil
+}
+

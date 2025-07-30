@@ -12,6 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/ag-ui/go-sdk/pkg/core"
+	"github.com/ag-ui/go-sdk/pkg/internal/timeconfig"
 )
 
 // ConnectionPool manages a pool of WebSocket connections with load balancing
@@ -126,6 +127,20 @@ type PoolStats struct {
 
 // DefaultPoolConfig returns a default configuration for the connection pool
 func DefaultPoolConfig() *PoolConfig {
+	config := timeconfig.GetConfig()
+	if timeconfig.IsTestMode() {
+		return &PoolConfig{
+			MinConnections:        1,  // Minimal connections for tests
+			MaxConnections:        3,  // Low limit for tests
+			ConnectionTimeout:     config.DefaultDialTimeout,
+			HealthCheckInterval:   config.DefaultHealthCheckInterval,
+			IdleTimeout:           config.DefaultIdleConnectionTimeout,
+			MaxIdleConnections:    1,  // Minimal idle connections
+			LoadBalancingStrategy: RoundRobin,
+			ConnectionTemplate:    DefaultConnectionConfig(),
+			Logger:                zap.NewNop(),
+		}
+	}
 	return &PoolConfig{
 		MinConnections:        2,
 		MaxConnections:        10,
@@ -211,6 +226,35 @@ func (p *ConnectionPool) Start(ctx context.Context) error {
 	return nil
 }
 
+// FastStop provides immediate shutdown for test scenarios
+func (p *ConnectionPool) FastStop() error {
+	if timeconfig.IsTestMode() {
+		p.config.Logger.Debug("Fast stopping connection pool")
+
+		// Cancel context immediately
+		if p.cancel != nil {
+			p.cancel()
+		}
+
+		// Close all connections immediately without waiting
+		p.connMutex.Lock()
+		for id, conn := range p.connections {
+			p.config.Logger.Debug("Fast closing connection", zap.String("id", id))
+			go func(c *Connection) {
+				c.Close() // Close in goroutine to avoid blocking
+			}(conn)
+		}
+		p.connections = make(map[string]*Connection)
+		p.connMutex.Unlock()
+
+		p.config.Logger.Debug("Connection pool fast stopped")
+		return nil
+	}
+	
+	// Fall back to normal stop for non-test environments
+	return p.Stop()
+}
+
 // Stop gracefully shuts down the connection pool
 func (p *ConnectionPool) Stop() error {
 	p.config.Logger.Debug("Stopping connection pool with aggressive cleanup")
@@ -269,11 +313,11 @@ func (p *ConnectionPool) Stop() error {
 	select {
 	case <-closeDone:
 		p.config.Logger.Debug("All connections closed")
-	case <-time.After(500 * time.Millisecond): // Much shorter timeout
-		p.config.Logger.Debug("Connection close timeout - connections force closed anyway")
+	case <-time.After(50 * time.Millisecond): // Very short timeout for tests
+		p.config.Logger.Debug("Connection close timeout - forcing immediate cleanup")
 	}
 
-	// Wait for all goroutines to finish with very short timeout
+	// Wait for all goroutines to finish with extremely short timeout
 	done := make(chan struct{})
 	go func() {
 		p.wg.Wait()
@@ -283,10 +327,14 @@ func (p *ConnectionPool) Stop() error {
 	select {
 	case <-done:
 		p.config.Logger.Debug("Connection pool stopped cleanly")
-	case <-time.After(200 * time.Millisecond): // Very short timeout for tests
-		p.config.Logger.Debug("Connection pool stop timeout - contexts cancelled so proceeding")
+	case <-time.After(50 * time.Millisecond): // Extremely short timeout for tests
+		p.config.Logger.Debug("Connection pool stop timeout - proceeding with force cleanup")
+	}
+	
 	// Cancel context to stop all goroutines first to signal shutdown
-	p.cancel()
+	if p.cancel != nil {
+		p.cancel()
+	}
 	
 	// Give connections a moment to react to context cancellation - optimized for tests
 	time.Sleep(50 * time.Millisecond)
@@ -733,7 +781,6 @@ func (h *HealthChecker) Start(ctx context.Context, wg *sync.WaitGroup) {
 		h.pool.config.Logger.Debug("HealthChecker: Goroutine fully exited")
 		wg.Done()
 	}()
-	defer wg.Done()
 	
 	h.ctx = ctx
 	h.pool.config.Logger.Debug("Starting health checker")
@@ -771,17 +818,6 @@ func (h *HealthChecker) Start(ctx context.Context, wg *sync.WaitGroup) {
 		case <-time.After(1 * time.Millisecond):
 			// Short timeout to ensure responsive context checking
 			continue
-			h.pool.config.Logger.Debug("Health checker stopped due to context cancellation")
-			return
-		case <-ticker.C:
-			// Check context again before performing health check
-			select {
-			case <-ctx.Done():
-				h.pool.config.Logger.Debug("Context cancelled before health check")
-				return
-			default:
-				h.checkHealth()
-			}
 		}
 	}
 }
@@ -843,7 +879,6 @@ func (h *HealthChecker) checkHealth() {
 			if currentConnCount >= h.pool.config.MaxConnections {
 				break
 			}
-			if err := h.pool.createConnection(h.pool.ctx); err != nil {
 			if err := h.pool.createConnection(h.ctx); err != nil {
 				h.pool.config.Logger.Error("Failed to create replacement connection",
 					zap.Error(err))

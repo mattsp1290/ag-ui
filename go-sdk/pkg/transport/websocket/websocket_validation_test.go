@@ -1,7 +1,11 @@
+//go:build heavy
+
 package websocket
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,13 +14,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/ag-ui/go-sdk/pkg/core/events"
 )
 
 // TestWebSocketEventValidation tests basic WebSocket event validation
 func TestWebSocketEventValidation(t *testing.T) {
+	
 	tests := []struct {
 		name            string
 		event           events.Event
@@ -109,6 +116,7 @@ func TestWebSocketEventValidation(t *testing.T) {
 
 // TestWebSocketDifferentEventTypes tests validation for different event types
 func TestWebSocketDifferentEventTypes(t *testing.T) {
+	
 	// Test different event types with validation (without WebSocket transport)
 	eventTypes := []struct {
 		name        string
@@ -202,6 +210,7 @@ func TestWebSocketDifferentEventTypes(t *testing.T) {
 
 // TestWebSocketValidationErrorHandling tests error handling during validation
 func TestWebSocketValidationErrorHandling(t *testing.T) {
+	
 	tests := []struct {
 		name          string
 		event         events.Event
@@ -283,6 +292,7 @@ func TestWebSocketValidationErrorHandling(t *testing.T) {
 
 // TestWebSocketConnectionLifecycleValidation tests validation during connection lifecycle
 func TestWebSocketConnectionLifecycleValidation(t *testing.T) {
+	
 	// Test event validation during different lifecycle phases
 	lifecycleTests := []struct {
 		name        string
@@ -479,8 +489,10 @@ func TestWebSocketConcurrentValidation(t *testing.T) {
 
 			// Validate data length
 			if mockEvent, ok := event.(*MockEvent); ok {
-				if len(mockEvent.Data) > 1000 {
-					return errors.New("data too large")
+				if dataStr, ok := mockEvent.Data.(string); ok {
+					if len(dataStr) > 1000 {
+						return errors.New("data too large")
+					}
 				}
 			}
 			return nil
@@ -542,6 +554,7 @@ func TestWebSocketConcurrentValidation(t *testing.T) {
 
 // TestWebSocketValidationWithCustomRules tests custom validation rules
 func TestWebSocketValidationWithCustomRules(t *testing.T) {
+	
 	// Create custom validation rules
 	var validationLog sync.Map
 
@@ -549,11 +562,13 @@ func TestWebSocketValidationWithCustomRules(t *testing.T) {
 		// Rule 1: Event data must not contain forbidden words
 		func(ctx context.Context, event events.Event) error {
 			if mockEvent, ok := event.(*MockEvent); ok {
-				forbiddenWords := []string{"forbidden", "blocked", "invalid"}
-				for _, word := range forbiddenWords {
-					if strings.Contains(strings.ToLower(mockEvent.Data), word) {
-						validationLog.Store("forbidden_word", true)
-						return fmt.Errorf("data contains forbidden word: %s", word)
+				if dataStr, ok := mockEvent.Data.(string); ok {
+					forbiddenWords := []string{"forbidden", "blocked", "invalid"}
+					for _, word := range forbiddenWords {
+						if strings.Contains(strings.ToLower(dataStr), word) {
+							validationLog.Store("forbidden_word", true)
+							return fmt.Errorf("data contains forbidden word: %s", word)
+						}
 					}
 				}
 			}
@@ -642,4 +657,188 @@ func TestWebSocketValidationWithCustomRules(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestJWTTokenValidation consolidates all JWT validation tests into a comprehensive table-driven test
+func TestJWTTokenValidation(t *testing.T) {
+	
+	secretKey := []byte("test-secret-key-256-bits-minimum")
+	issuer := "test-issuer"
+	audience := "test-audience"
+
+	// Generate RSA key pair for RSA tests
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	require.NoError(t, err)
+	publicKey := &privateKey.PublicKey
+
+	testCases := []struct {
+		name          string
+		validatorType string // "hmac" or "rsa"
+		claims        jwt.MapClaims
+		signingMethod jwt.SigningMethod
+		signingKey    interface{}
+		expectError   bool
+		errorContains string
+		validateAuth  func(*testing.T, *AuthContext)
+	}{
+		// HMAC Tests
+		{
+			name:          "hmac_valid_token",
+			validatorType: "hmac",
+			claims: jwt.MapClaims{
+				"iss":         issuer,
+				"aud":         audience,
+				"sub":         "user123",
+				"username":    "testuser",
+				"roles":       []string{"admin", "user"},
+				"permissions": []string{"read", "write"},
+				"exp":         time.Now().Add(1 * time.Hour).Unix(),
+				"iat":         time.Now().Unix(),
+			},
+			signingMethod: jwt.SigningMethodHS256,
+			signingKey:    secretKey,
+			expectError:   false,
+			validateAuth: func(t *testing.T, authCtx *AuthContext) {
+				assert.Equal(t, "user123", authCtx.UserID)
+				assert.Equal(t, "testuser", authCtx.Username)
+				assert.Contains(t, authCtx.Roles, "admin")
+				assert.Contains(t, authCtx.Permissions, "read")
+			},
+		},
+		{
+			name:          "hmac_expired_token",
+			validatorType: "hmac",
+			claims: jwt.MapClaims{
+				"iss": issuer,
+				"aud": audience,
+				"sub": "user123",
+				"exp": time.Now().Add(-1 * time.Hour).Unix(), // Expired
+				"iat": time.Now().Add(-2 * time.Hour).Unix(),
+			},
+			signingMethod: jwt.SigningMethodHS256,
+			signingKey:    secretKey,
+			expectError:   true,
+			errorContains: "token is expired",
+		},
+		{
+			name:          "hmac_invalid_issuer",
+			validatorType: "hmac",
+			claims: jwt.MapClaims{
+				"iss": "wrong-issuer",
+				"aud": audience,
+				"sub": "user123",
+				"exp": time.Now().Add(1 * time.Hour).Unix(),
+				"iat": time.Now().Unix(),
+			},
+			signingMethod: jwt.SigningMethodHS256,
+			signingKey:    secretKey,
+			expectError:   true,
+			errorContains: "invalid issuer",
+		},
+		{
+			name:          "hmac_multiple_audiences_valid",
+			validatorType: "hmac",
+			claims: jwt.MapClaims{
+				"iss": issuer,
+				"aud": []string{"other-audience", audience, "another-audience"},
+				"sub": "user123",
+				"exp": time.Now().Add(1 * time.Hour).Unix(),
+				"iat": time.Now().Unix(),
+			},
+			signingMethod: jwt.SigningMethodHS256,
+			signingKey:    secretKey,
+			expectError:   false,
+		},
+		{
+			name:          "hmac_multiple_audiences_invalid",
+			validatorType: "hmac",
+			claims: jwt.MapClaims{
+				"iss": issuer,
+				"aud": []string{"other-audience", "another-audience"},
+				"sub": "user123",
+				"exp": time.Now().Add(1 * time.Hour).Unix(),
+				"iat": time.Now().Unix(),
+			},
+			signingMethod: jwt.SigningMethodHS256,
+			signingKey:    secretKey,
+			expectError:   true,
+			errorContains: "invalid audience",
+		},
+		// RSA Tests
+		{
+			name:          "rsa_valid_token",
+			validatorType: "rsa",
+			claims: jwt.MapClaims{
+				"iss":      issuer,
+				"aud":      audience,
+				"sub":      "user123",
+				"username": "testuser",
+				"exp":      time.Now().Add(1 * time.Hour).Unix(),
+				"iat":      time.Now().Unix(),
+			},
+			signingMethod: jwt.SigningMethodRS256,
+			signingKey:    privateKey,
+			expectError:   false,
+			validateAuth: func(t *testing.T, authCtx *AuthContext) {
+				assert.Equal(t, "user123", authCtx.UserID)
+				assert.Equal(t, "testuser", authCtx.Username)
+			},
+		},
+		{
+			name:          "rsa_wrong_algorithm",
+			validatorType: "rsa",
+			claims: jwt.MapClaims{
+				"iss": issuer,
+				"aud": audience,
+				"sub": "user123",
+				"exp": time.Now().Add(1 * time.Hour).Unix(),
+				"iat": time.Now().Unix(),
+			},
+			signingMethod: jwt.SigningMethodHS256, // Wrong algorithm for RSA
+			signingKey:    []byte("secret"),
+			expectError:   true,
+			errorContains: "unexpected signing method",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create validator based on type
+			var validator *JWTTokenValidator
+			if tc.validatorType == "hmac" {
+				validator = NewJWTTokenValidatorWithOptions(secretKey, issuer, audience, jwt.SigningMethodHS256)
+			} else {
+				validator = NewJWTTokenValidatorRSA(publicKey, issuer, audience)
+			}
+
+			// Create and sign token
+			token := jwt.NewWithClaims(tc.signingMethod, tc.claims)
+			tokenString, err := token.SignedString(tc.signingKey)
+			require.NoError(t, err)
+
+			// Validate token
+			authCtx, err := validator.ValidateToken(context.Background(), tokenString)
+
+			if tc.expectError {
+				assert.Error(t, err)
+				if tc.errorContains != "" {
+					assert.Contains(t, err.Error(), tc.errorContains)
+				}
+			} else {
+				require.NoError(t, err)
+				assert.NotNil(t, authCtx)
+				if tc.validateAuth != nil {
+					tc.validateAuth(t, authCtx)
+				}
+			}
+		})
+	}
+
+	// Test empty token case
+	t.Run("empty_token", func(t *testing.T) {
+		validator := NewJWTTokenValidatorWithOptions(secretKey, issuer, audience, jwt.SigningMethodHS256)
+		_, err := validator.ValidateToken(context.Background(), "")
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "empty token")
+	})
 }

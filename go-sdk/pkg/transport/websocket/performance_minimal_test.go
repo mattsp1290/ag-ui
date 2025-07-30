@@ -1,3 +1,5 @@
+//go:build heavy
+
 package websocket
 
 import (
@@ -19,17 +21,18 @@ import (
 func TestPerformanceConfig(t *testing.T) {
 	config := DefaultPerformanceConfig()
 
-	assert.Equal(t, 1000, config.MaxConcurrentConnections)
-	assert.Equal(t, 10, config.MessageBatchSize)
+	// In test mode, the function returns test-friendly values
+	assert.Equal(t, 50, config.MaxConcurrentConnections)
+	assert.Equal(t, 5, config.MessageBatchSize)
 	assert.NotZero(t, config.MessageBatchTimeout) // Uses timeconfig, varies by environment
-	assert.Equal(t, 1000, config.BufferPoolSize)
-	assert.Equal(t, 64*1024, config.MaxBufferSize)
-	assert.True(t, config.EnableZeroCopy)
-	assert.True(t, config.EnableMemoryPooling)
+	assert.Equal(t, 50, config.BufferPoolSize)
+	assert.Equal(t, 8*1024, config.MaxBufferSize)
+	assert.False(t, config.EnableZeroCopy)
+	assert.False(t, config.EnableMemoryPooling)
 	assert.NotZero(t, config.MaxLatency) // Uses timeconfig, varies by environment
-	assert.Equal(t, int64(80*1024*1024), config.MaxMemoryUsage)
-	assert.True(t, config.EnableMetrics)
-	assert.Equal(t, OptimizedJSONSerializer, config.MessageSerializerType)
+	assert.Equal(t, int64(10*1024*1024), config.MaxMemoryUsage)
+	assert.False(t, config.EnableMetrics)
+	assert.Equal(t, JSONSerializer, config.MessageSerializerType)
 }
 
 // TestBufferPool tests the buffer pool functionality

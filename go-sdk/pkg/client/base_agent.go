@@ -777,7 +777,7 @@ func (a *BaseAgent) ExecuteTool(ctx context.Context, name string, params interfa
 	framework := a.getToolExecutionFramework()
 	if framework == nil {
 		return nil, errors.NewAgentError(
-			errors.ErrorTypeConfiguration,
+			errors.ErrorTypeNotFound,
 			"tool execution framework not initialized",
 			a.name,
 		)
@@ -823,7 +823,7 @@ func (a *BaseAgent) ExecuteTool(ctx context.Context, name string, params interfa
 	if err != nil {
 		a.incrementErrorCount()
 		return nil, errors.NewAgentError(
-			errors.ErrorTypeExecution,
+			errors.ErrorTypeValidation,
 			fmt.Sprintf("tool execution failed: %v", err),
 			a.name,
 		)
@@ -838,7 +838,7 @@ func (a *BaseAgent) ExecuteTool(ctx context.Context, name string, params interfa
 	if result != nil && result.Error != "" {
 		a.incrementErrorCount()
 		return nil, errors.NewAgentError(
-			errors.ErrorTypeExecution,
+			errors.ErrorTypeValidation,
 			fmt.Sprintf("tool execution error: %s", result.Error),
 			a.name,
 		)
@@ -847,7 +847,7 @@ func (a *BaseAgent) ExecuteTool(ctx context.Context, name string, params interfa
 	// Unknown error
 	a.incrementErrorCount()
 	return nil, errors.NewAgentError(
-		errors.ErrorTypeExecution,
+		errors.ErrorTypeValidation,
 		"tool execution failed with unknown error",
 		a.name,
 	)
@@ -866,10 +866,14 @@ func (a *BaseAgent) ListTools() []ToolDefinition {
 	}
 	
 	// Get all tools from registry
-	allTools := registry.ListAll()
+	allTools, err := registry.ListAll()
+	if err != nil {
+		return []ToolDefinition{}
+	}
 	toolDefs := make([]ToolDefinition, 0, len(allTools))
 	
-	for _, toolView := range allTools {
+	for _, tool := range allTools {
+		toolView := tools.NewReadOnlyTool(tool)
 		toolDef := ToolDefinition{
 			Name:        toolView.GetName(),
 			Description: toolView.GetDescription(),
@@ -1173,7 +1177,17 @@ func (f *ToolExecutionFramework) GetTool(toolID string) (tools.ReadOnlyTool, err
 
 // ListTools lists all available tools.
 func (f *ToolExecutionFramework) ListTools() []tools.ReadOnlyTool {
-	return f.registry.ListAll()
+	allTools, err := f.registry.ListAll()
+	if err != nil {
+		return []tools.ReadOnlyTool{}
+	}
+	
+	// Convert to ReadOnlyTool views
+	readOnlyTools := make([]tools.ReadOnlyTool, 0, len(allTools))
+	for _, tool := range allTools {
+		readOnlyTools = append(readOnlyTools, tools.NewReadOnlyTool(tool))
+	}
+	return readOnlyTools
 }
 
 // GetRegistry returns the tool registry.
@@ -1236,7 +1250,7 @@ func (a *BaseAgent) RegisterCustomTool(tool *tools.Tool) error {
 	framework := a.getToolExecutionFramework()
 	if framework == nil {
 		return errors.NewAgentError(
-			errors.ErrorTypeConfiguration,
+			errors.ErrorTypeNotFound,
 			"tool execution framework not initialized",
 			a.name,
 		)
@@ -1250,7 +1264,7 @@ func (a *BaseAgent) UnregisterCustomTool(toolID string) error {
 	framework := a.getToolExecutionFramework()
 	if framework == nil {
 		return errors.NewAgentError(
-			errors.ErrorTypeConfiguration,
+			errors.ErrorTypeNotFound,
 			"tool execution framework not initialized",
 			a.name,
 		)
@@ -1284,7 +1298,7 @@ func (a *BaseAgent) ExecuteToolAsync(ctx context.Context, name string, params in
 	framework := a.getToolExecutionFramework()
 	if framework == nil {
 		return "", nil, errors.NewAgentError(
-			errors.ErrorTypeConfiguration,
+			errors.ErrorTypeNotFound,
 			"tool execution framework not initialized",
 			a.name,
 		)
@@ -1335,7 +1349,7 @@ func (a *BaseAgent) ExecuteToolStream(ctx context.Context, name string, params i
 	framework := a.getToolExecutionFramework()
 	if framework == nil {
 		return nil, errors.NewAgentError(
-			errors.ErrorTypeConfiguration,
+			errors.ErrorTypeNotFound,
 			"tool execution framework not initialized",
 			a.name,
 		)

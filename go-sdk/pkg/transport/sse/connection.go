@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/ag-ui/go-sdk/pkg/messages"
-	"github.com/ag-ui/go-sdk/pkg/transport/common"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/messages"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport/common"
 )
 
 // ConnectionState represents the current state of a connection
@@ -294,6 +294,7 @@ type Connection struct {
 
 	// Heartbeat management
 	heartbeatTicker  *time.Ticker
+	heartbeatMutex   sync.RWMutex // Protects heartbeatTicker access
 	missedHeartbeats int32 // atomic
 
 	// Metrics
@@ -600,6 +601,9 @@ func (c *Connection) calculateReconnectDelay(attempt int) time.Duration {
 
 // startHeartbeat starts the heartbeat monitoring
 func (c *Connection) startHeartbeat() {
+	c.heartbeatMutex.Lock()
+	defer c.heartbeatMutex.Unlock()
+	
 	if c.heartbeatTicker != nil {
 		c.heartbeatTicker.Stop()
 	}
@@ -614,6 +618,9 @@ func (c *Connection) startHeartbeat() {
 
 // stopHeartbeat stops the heartbeat monitoring
 func (c *Connection) stopHeartbeat() {
+	c.heartbeatMutex.Lock()
+	defer c.heartbeatMutex.Unlock()
+	
 	if c.heartbeatTicker != nil {
 		c.heartbeatTicker.Stop()
 		c.heartbeatTicker = nil
@@ -625,10 +632,20 @@ func (c *Connection) heartbeatLoop() {
 	defer c.wg.Done() // Properly signal goroutine completion
 	
 	for {
+		// Get ticker channel safely
+		c.heartbeatMutex.RLock()
+		tickerC := c.heartbeatTicker.C
+		c.heartbeatMutex.RUnlock()
+		
+		if tickerC == nil {
+			// Ticker was stopped, exit
+			return
+		}
+		
 		select {
 		case <-c.ctx.Done():
 			return
-		case <-c.heartbeatTicker.C:
+		case <-tickerC:
 			if c.State() != ConnectionStateConnected {
 				return
 			}

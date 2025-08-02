@@ -16,7 +16,7 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 	"golang.org/x/time/rate"
-	"github.com/ag-ui/go-sdk/pkg/internal/timeconfig"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/internal/timeconfig"
 )
 
 // Common JWT validation errors

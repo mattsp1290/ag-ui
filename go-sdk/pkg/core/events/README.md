@@ -62,7 +62,7 @@ The AG-UI Event Validation System provides comprehensive validation capabilities
 ### Basic Configuration
 
 ```go
-import "github.com/ag-ui/go-sdk/pkg/core/events"
+import "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 
 // Create validator with default configuration
 validator := events.NewEventValidator()

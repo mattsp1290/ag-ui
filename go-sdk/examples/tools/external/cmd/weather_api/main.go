@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	weatherapi "github.com/ag-ui/go-sdk/examples/tools/external/weather-api"
+	weatherapi "github.com/mattsp1290/ag-ui/go-sdk/examples/tools/external/weather-api"
 )
 
 func main() {

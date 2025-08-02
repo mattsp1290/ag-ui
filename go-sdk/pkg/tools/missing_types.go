@@ -21,7 +21,7 @@ const (
 	PerfRegressionSeverityCritical
 )
 
-// BaselineStorage defines interface for baseline storage
+// BaselineStorage defines interface for baseline storage (shared between CI and regression tests)
 type BaselineStorage interface {
 	Store(key string, baseline *PerformanceBaseline) error
 	Load(key string) (*PerformanceBaseline, error)
@@ -30,12 +30,12 @@ type BaselineStorage interface {
 	Exists(key string) bool
 }
 
-// FilesystemBaselineStorage implements filesystem-based baseline storage
+// FilesystemBaselineStorage implements filesystem-based baseline storage (shared)
 type FilesystemBaselineStorage struct {
 	basePath string
 }
 
-// AlertChannel defines alert notification channels
+// AlertChannel defines alert notification channels (shared)
 type AlertChannel struct {
 	Type     string            // "slack", "email", "teams", "webhook"
 	Config   map[string]string // Channel-specific configuration
@@ -51,6 +51,7 @@ type PerformanceBaseline struct {
 	MemoryUsageBaseline     uint64    `json:"memory_usage_baseline"`
 	ExecutionTimeBaseline   time.Duration `json:"execution_time_baseline"`
 	ErrorRateBaseline       float64   `json:"error_rate_baseline"`
+	LatencyP95Baseline      time.Duration `json:"latency_p95_baseline"`
 	Environment             string    `json:"environment"`
 	GoVersion               string    `json:"go_version"`
 	Platform                string    `json:"platform"`

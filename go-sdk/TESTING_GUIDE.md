@@ -716,7 +716,7 @@ package testhelper
 
 import (
     "time"
-    "github.com/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 func CreateTestEvent(eventType events.EventType) events.Event {
@@ -787,7 +787,7 @@ package testhelper
 import (
     "testing"
     "github.com/stretchr/testify/assert"
-    "github.com/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 func AssertValidationResult(t *testing.T, result *events.ValidationResult, expectedValid bool) {

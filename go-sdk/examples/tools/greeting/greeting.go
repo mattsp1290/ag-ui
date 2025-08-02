@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/tools"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools"
 )
 
 // GreetingExecutor provides a personalized greeting generator with multi-language support.

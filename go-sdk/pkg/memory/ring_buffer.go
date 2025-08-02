@@ -7,7 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // RingBuffer is a thread-safe circular buffer with configurable overflow policies
@@ -265,14 +265,21 @@ func (rb *RingBuffer) GetMetrics() RingBufferMetrics {
 	rb.metrics.mu.RLock()
 	defer rb.metrics.mu.RUnlock()
 	
-	metrics := *rb.metrics
-	metrics.CurrentSize = rb.Size()
-	metrics.TotalWrites = rb.totalWritten.Load()
-	metrics.TotalReads = rb.totalRead.Load()
-	metrics.TotalDrops = rb.totalDropped.Load()
-	metrics.TotalOverflows = rb.totalOverflows.Load()
-	
-	return metrics
+	return RingBufferMetrics{
+		CurrentSize:       rb.Size(),
+		Capacity:          rb.metrics.Capacity,
+		TotalWrites:       rb.totalWritten.Load(),
+		TotalReads:        rb.totalRead.Load(),
+		TotalDrops:        rb.totalDropped.Load(),
+		TotalOverflows:    rb.totalOverflows.Load(),
+		ResizeCount:       rb.metrics.ResizeCount,
+		LastWriteTime:     rb.metrics.LastWriteTime,
+		LastReadTime:      rb.metrics.LastReadTime,
+		LastDropTime:      rb.metrics.LastDropTime,
+		LastResizeTime:    rb.metrics.LastResizeTime,
+		AverageWriteTime:  rb.metrics.AverageWriteTime,
+		AverageReadTime:   rb.metrics.AverageReadTime,
+	}
 }
 
 // Close closes the ring buffer

@@ -72,7 +72,7 @@ func AnalyzePackageDependencies(rootPath string) (*DependencyGraph, error) {
 				importPath := strings.Trim(imp.Path.Value, `"`)
 				
 				// Only track internal imports
-				if strings.HasPrefix(importPath, "github.com/ag-ui/go-sdk/") {
+				if strings.HasPrefix(importPath, "github.com/mattsp1290/ag-ui/go-sdk/") {
 					// Skip self-imports in test files (which is normal for _test packages)
 					if strings.HasSuffix(path, "_test.go") && importPath == pkgPath {
 						continue
@@ -157,12 +157,12 @@ func (g *DependencyGraph) PrintDependencyReport() string {
 	
 	// Find core packages
 	corePackages := []string{
-		"github.com/ag-ui/go-sdk/pkg/core",
-		"github.com/ag-ui/go-sdk/pkg/core/events",
-		"github.com/ag-ui/go-sdk/pkg/transport",
-		"github.com/ag-ui/go-sdk/pkg/state",
-		"github.com/ag-ui/go-sdk/pkg/messages",
-		"github.com/ag-ui/go-sdk/pkg/tools",
+		"github.com/mattsp1290/ag-ui/go-sdk/pkg/core",
+		"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events",
+		"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport",
+		"github.com/mattsp1290/ag-ui/go-sdk/pkg/state",
+		"github.com/mattsp1290/ag-ui/go-sdk/pkg/messages",
+		"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools",
 	}
 	
 	report.WriteString("Core Package Dependencies:\n")
@@ -200,7 +200,7 @@ func (g *DependencyGraph) PrintDependencyReport() string {
 	report.WriteString("---------------------------\n")
 	
 	// Transport -> Events
-	if deps := g.getDependencies("github.com/ag-ui/go-sdk/pkg/transport", "github.com/ag-ui/go-sdk/pkg/core/events"); len(deps) > 0 {
+	if deps := g.getDependencies("github.com/mattsp1290/ag-ui/go-sdk/pkg/transport", "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"); len(deps) > 0 {
 		report.WriteString("\nTransport -> Events:\n")
 		for _, dep := range deps {
 			report.WriteString(fmt.Sprintf("  - %s\n", dep))
@@ -208,7 +208,7 @@ func (g *DependencyGraph) PrintDependencyReport() string {
 	}
 	
 	// State -> Events
-	if deps := g.getDependencies("github.com/ag-ui/go-sdk/pkg/state", "github.com/ag-ui/go-sdk/pkg/core/events"); len(deps) > 0 {
+	if deps := g.getDependencies("github.com/mattsp1290/ag-ui/go-sdk/pkg/state", "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"); len(deps) > 0 {
 		report.WriteString("\nState -> Events:\n")
 		for _, dep := range deps {
 			report.WriteString(fmt.Sprintf("  - %s\n", dep))
@@ -216,7 +216,7 @@ func (g *DependencyGraph) PrintDependencyReport() string {
 	}
 	
 	// State -> Transport
-	if deps := g.getDependencies("github.com/ag-ui/go-sdk/pkg/state", "github.com/ag-ui/go-sdk/pkg/transport"); len(deps) > 0 {
+	if deps := g.getDependencies("github.com/mattsp1290/ag-ui/go-sdk/pkg/state", "github.com/mattsp1290/ag-ui/go-sdk/pkg/transport"); len(deps) > 0 {
 		report.WriteString("\nState -> Transport:\n")
 		for _, dep := range deps {
 			report.WriteString(fmt.Sprintf("  - %s\n", dep))
@@ -242,7 +242,7 @@ func getPackagePath(rootPath, filePath string) string {
 	// Extract package path from file path
 	rel, _ := filepath.Rel(rootPath, filePath)
 	dir := filepath.Dir(rel)
-	return "github.com/ag-ui/go-sdk/" + strings.ReplaceAll(dir, string(filepath.Separator), "/")
+	return "github.com/mattsp1290/ag-ui/go-sdk/" + strings.ReplaceAll(dir, string(filepath.Separator), "/")
 }
 
 func contains(slice []string, item string) bool {

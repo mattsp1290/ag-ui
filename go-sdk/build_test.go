@@ -4,7 +4,7 @@ import (
 	"os/exec"
 	"testing"
 	
-	_ "github.com/ag-ui/go-sdk/pkg/core/events"
+	_ "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // TestImport verifies that the events package can be imported

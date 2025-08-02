@@ -207,7 +207,24 @@ func (mm *MemoryManager) GetMemoryPressureLevel() MemoryPressureLevel {
 func (mm *MemoryManager) GetMetrics() MemoryMetrics {
 	mm.metrics.mu.RLock()
 	defer mm.metrics.mu.RUnlock()
-	return *mm.metrics
+	
+	// Copy pressure events map
+	pressureEvents := make(map[MemoryPressureLevel]uint64)
+	for k, v := range mm.metrics.PressureEvents {
+		pressureEvents[k] = v
+	}
+	
+	return MemoryMetrics{
+		TotalAllocated:         mm.metrics.TotalAllocated,
+		HeapInUse:              mm.metrics.HeapInUse,
+		StackInUse:             mm.metrics.StackInUse,
+		NumGC:                  mm.metrics.NumGC,
+		LastGCTime:             mm.metrics.LastGCTime,
+		PressureEvents:         pressureEvents,
+		BufferResizeEvents:     mm.metrics.BufferResizeEvents,
+		LastPressureChangeTime: mm.metrics.LastPressureChangeTime,
+		GCPauseTotal:           mm.metrics.GCPauseTotal,
+	}
 }
 
 // ForceGC forces a garbage collection if memory pressure is high

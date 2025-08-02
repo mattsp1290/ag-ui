@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	cachedemo "github.com/ag-ui/go-sdk/examples/tools/performance/cache-demo"
+	cachedemo "github.com/mattsp1290/ag-ui/go-sdk/examples/tools/performance/cache-demo"
 )
 
 func main() {

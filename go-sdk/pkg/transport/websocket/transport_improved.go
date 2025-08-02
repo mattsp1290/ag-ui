@@ -13,10 +13,10 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/ag-ui/go-sdk/pkg/core"
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/ag-ui/go-sdk/pkg/proto/generated"
-	"github.com/ag-ui/go-sdk/pkg/transport"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/proto/generated"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport"
 )
 
 // Atomic counter for generating unique subscription IDs in improved transport
@@ -453,7 +453,22 @@ func (t *ImprovedTransport) Unsubscribe(subscriptionID string) error {
 // GetStats returns a copy of the transport statistics
 func (t *ImprovedTransport) GetStats() TransportStats {
 	stats := t.stats.Load().(*TransportStats)
-	return *stats
+	// Create a copy without the mutex to avoid copying lock value
+	return TransportStats{
+		EventsSent:          stats.EventsSent,
+		EventsReceived:      stats.EventsReceived,
+		EventsProcessed:     stats.EventsProcessed,
+		EventsFailed:        stats.EventsFailed,
+		EventsDropped:       stats.EventsDropped,
+		ActiveSubscriptions: stats.ActiveSubscriptions,
+		TotalSubscriptions:  stats.TotalSubscriptions,
+		BytesTransferred:    stats.BytesTransferred,
+		AverageLatency:      stats.AverageLatency,
+		ActiveGoroutines:    stats.ActiveGoroutines,
+		BackpressureEvents:  stats.BackpressureEvents,
+		ResourceCleanups:    stats.ResourceCleanups,
+		// Note: mutex field is intentionally omitted
+	}
 }
 
 // setupMessageHandlers sets up message handlers for all connections
@@ -602,10 +617,29 @@ func (t *ImprovedTransport) onMemoryPressure(level transport.MemoryPressureLevel
 
 // Helper methods for stats management
 
+// copyStatsWithoutMutex creates a copy of TransportStats without the mutex field
+func copyStatsWithoutMutex(src *TransportStats) TransportStats {
+	return TransportStats{
+		EventsSent:          src.EventsSent,
+		EventsReceived:      src.EventsReceived,
+		EventsProcessed:     src.EventsProcessed,
+		EventsFailed:        src.EventsFailed,
+		EventsDropped:       src.EventsDropped,
+		ActiveSubscriptions: src.ActiveSubscriptions,
+		TotalSubscriptions:  src.TotalSubscriptions,
+		BytesTransferred:    src.BytesTransferred,
+		AverageLatency:      src.AverageLatency,
+		ActiveGoroutines:    src.ActiveGoroutines,
+		BackpressureEvents:  src.BackpressureEvents,
+		ResourceCleanups:    src.ResourceCleanups,
+		// Note: mutex field is intentionally omitted
+	}
+}
+
 func (t *ImprovedTransport) incrementEventsFailed() {
 	for {
 		oldStats := t.stats.Load().(*TransportStats)
-		newStats := *oldStats
+		newStats := copyStatsWithoutMutex(oldStats)
 		newStats.EventsFailed++
 		if t.stats.CompareAndSwap(oldStats, &newStats) {
 			break
@@ -616,7 +650,7 @@ func (t *ImprovedTransport) incrementEventsFailed() {
 func (t *ImprovedTransport) incrementSubscriptions() {
 	for {
 		oldStats := t.stats.Load().(*TransportStats)
-		newStats := *oldStats
+		newStats := copyStatsWithoutMutex(oldStats)
 		newStats.TotalSubscriptions++
 		newStats.ActiveSubscriptions++
 		if t.stats.CompareAndSwap(oldStats, &newStats) {
@@ -628,7 +662,7 @@ func (t *ImprovedTransport) incrementSubscriptions() {
 func (t *ImprovedTransport) decrementSubscriptions() {
 	for {
 		oldStats := t.stats.Load().(*TransportStats)
-		newStats := *oldStats
+		newStats := copyStatsWithoutMutex(oldStats)
 		newStats.ActiveSubscriptions--
 		if t.stats.CompareAndSwap(oldStats, &newStats) {
 			break
@@ -639,7 +673,7 @@ func (t *ImprovedTransport) decrementSubscriptions() {
 func (t *ImprovedTransport) updateSendStats(size int, latency time.Duration) {
 	for {
 		oldStats := t.stats.Load().(*TransportStats)
-		newStats := *oldStats
+		newStats := copyStatsWithoutMutex(oldStats)
 		newStats.EventsSent++
 		newStats.BytesTransferred += int64(size)
 		if newStats.AverageLatency == 0 {
@@ -685,7 +719,7 @@ func (t *ImprovedTransport) processIncomingEvent(data []byte) error {
 	// Update statistics
 	for {
 		oldStats := t.stats.Load().(*TransportStats)
-		newStats := *oldStats
+		newStats := copyStatsWithoutMutex(oldStats)
 		newStats.EventsReceived++
 		newStats.BytesTransferred += int64(len(data))
 		if t.stats.CompareAndSwap(oldStats, &newStats) {
@@ -728,7 +762,7 @@ func (t *ImprovedTransport) processIncomingEvent(data []byte) error {
 	// Update processed count
 	for {
 		oldStats := t.stats.Load().(*TransportStats)
-		newStats := *oldStats
+		newStats := copyStatsWithoutMutex(oldStats)
 		newStats.EventsProcessed++
 		if t.stats.CompareAndSwap(oldStats, &newStats) {
 			break

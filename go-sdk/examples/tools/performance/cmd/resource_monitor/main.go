@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	resourcemonitor "github.com/ag-ui/go-sdk/examples/tools/performance/resource-monitor"
+	resourcemonitor "github.com/mattsp1290/ag-ui/go-sdk/examples/tools/performance/resource-monitor"
 )
 
 func main() {

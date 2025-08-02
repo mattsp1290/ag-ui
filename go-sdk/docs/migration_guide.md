@@ -58,8 +58,8 @@ transport.Send(event)
 
 ```go
 import (
-    "github.com/ag-ui/go-sdk/pkg/transport"
-    "github.com/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/transport"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // New type-safe configuration

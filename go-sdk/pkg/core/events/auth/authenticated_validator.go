@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // AuthenticatedValidator wraps the EventValidator to add authentication support

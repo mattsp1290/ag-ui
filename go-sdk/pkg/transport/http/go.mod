@@ -1,4 +1,4 @@
-module github.com/ag-ui/go-sdk/pkg/transport/http
+module github.com/mattsp1290/ag-ui/go-sdk/pkg/transport/http
 
 go 1.19
 

@@ -230,7 +230,7 @@ logger.Info("Processing request",
 
 #### After
 ```go
-import "github.com/ag-ui/go-sdk/pkg/transport"
+import "github.com/mattsp1290/ag-ui/go-sdk/pkg/transport"
 
 logger := transport.NewLogger()
 

@@ -237,20 +237,10 @@ func (cm *CleanupManager) GetMetrics() CleanupMetrics {
 	cm.metrics.mu.RLock()
 	defer cm.metrics.mu.RUnlock()
 	
-	// Deep copy metrics
-	metrics := CleanupMetrics{
-		TotalTasks:             cm.metrics.TotalTasks,
-		ActiveTasks:            cm.metrics.ActiveTasks,
-		TotalRuns:              cm.metrics.TotalRuns,
-		TotalItemsCleaned:      cm.metrics.TotalItemsCleaned,
-		TotalErrors:            cm.metrics.TotalErrors,
-		LastCleanupTime:        cm.metrics.LastCleanupTime,
-		AverageCleanupDuration: cm.metrics.AverageCleanupDuration,
-		TaskMetrics:            make(map[string]*TaskMetrics),
-	}
-
+	// Create new metrics struct without copying the mutex
+	taskMetrics := make(map[string]*TaskMetrics)
 	for name, tm := range cm.metrics.TaskMetrics {
-		metrics.TaskMetrics[name] = &TaskMetrics{
+		taskMetrics[name] = &TaskMetrics{
 			Runs:            tm.Runs,
 			ItemsCleaned:    tm.ItemsCleaned,
 			Errors:          tm.Errors,
@@ -259,8 +249,17 @@ func (cm *CleanupManager) GetMetrics() CleanupMetrics {
 			AverageDuration: tm.AverageDuration,
 		}
 	}
-
-	return metrics
+	
+	return CleanupMetrics{
+		TotalTasks:             cm.metrics.TotalTasks,
+		ActiveTasks:            cm.metrics.ActiveTasks,
+		TotalRuns:              cm.metrics.TotalRuns,
+		TotalItemsCleaned:      cm.metrics.TotalItemsCleaned,
+		TotalErrors:            cm.metrics.TotalErrors,
+		LastCleanupTime:        cm.metrics.LastCleanupTime,
+		AverageCleanupDuration: cm.metrics.AverageCleanupDuration,
+		TaskMetrics:            taskMetrics,
+	}
 }
 
 // cleanupLoop runs the periodic cleanup

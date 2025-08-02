@@ -373,8 +373,8 @@ spec:
 ```go
 import (
     "context"
-    "github.com/ag-ui/go-sdk/pkg/transport"
-    "github.com/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/transport"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // Create and configure transport
@@ -400,7 +400,7 @@ transport.Send(ctx, event)
 ### Type-Safe Event Creation
 
 ```go
-import "github.com/ag-ui/go-sdk/pkg/core/events"
+import "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 
 // Using constructors
 event := events.NewTextMessageContentEvent("msg-123", "Hello, world!")
@@ -561,8 +561,8 @@ This documentation is maintained alongside the AG-UI Go SDK codebase. Updates sh
 ```go
 import (
     "context"
-    "github.com/ag-ui/go-sdk/pkg/transport"
-    "github.com/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/transport"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // Create and configure transport
@@ -588,7 +588,7 @@ transport.Send(ctx, event)
 ### Type-Safe Event Creation
 
 ```go
-import "github.com/ag-ui/go-sdk/pkg/core/events"
+import "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 
 // Using constructors
 event := events.NewTextMessageContentEvent("msg-123", "Hello, world!")

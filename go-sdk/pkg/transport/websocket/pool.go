@@ -11,8 +11,8 @@ import (
 	"github.com/hashicorp/golang-lru/v2"
 	"go.uber.org/zap"
 
-	"github.com/ag-ui/go-sdk/pkg/core"
-	"github.com/ag-ui/go-sdk/pkg/internal/timeconfig"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/internal/timeconfig"
 )
 
 // ConnectionPool manages a pool of WebSocket connections with load balancing
@@ -515,12 +515,21 @@ func (p *ConnectionPool) Stats() PoolStats {
 	totalConnections := int64(len(p.connections))
 	p.connMutex.RUnlock()
 
-	p.stats.TotalConnections = totalConnections
-	p.stats.ActiveConnections = int64(p.GetActiveConnectionCount())
-	p.stats.HealthyConnections = int64(p.GetHealthyConnectionCount())
-	p.stats.UnhealthyConnections = p.stats.TotalConnections - p.stats.HealthyConnections
-
-	return *p.stats
+	activeConnections := int64(p.GetActiveConnectionCount())
+	healthyConnections := int64(p.GetHealthyConnectionCount())
+	
+	return PoolStats{
+		TotalConnections:     totalConnections,
+		ActiveConnections:    activeConnections,
+		IdleConnections:      p.stats.IdleConnections,
+		HealthyConnections:   healthyConnections,
+		UnhealthyConnections: totalConnections - healthyConnections,
+		TotalRequests:        p.stats.TotalRequests,
+		FailedRequests:       p.stats.FailedRequests,
+		TotalBytesReceived:   p.stats.TotalBytesReceived,
+		TotalBytesSent:       p.stats.TotalBytesSent,
+		AverageResponseTime:  p.stats.AverageResponseTime,
+	}
 }
 
 // SetOnConnectionStateChange sets the connection state change handler

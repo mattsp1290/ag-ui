@@ -18,10 +18,10 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap/zaptest"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/ag-ui/go-sdk/pkg/proto/generated"
-	"github.com/ag-ui/go-sdk/pkg/testhelper"
-	"github.com/ag-ui/go-sdk/pkg/transport/common"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/proto/generated"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/testhelper"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport/common"
 )
 
 

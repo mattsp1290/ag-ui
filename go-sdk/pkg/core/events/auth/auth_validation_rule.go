@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // AuthValidationRule implements authentication and authorization validation for events

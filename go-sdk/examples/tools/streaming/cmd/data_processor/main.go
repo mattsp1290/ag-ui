@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	dataprocessor "github.com/ag-ui/go-sdk/examples/tools/streaming/data-processor"
+	dataprocessor "github.com/mattsp1290/ag-ui/go-sdk/examples/tools/streaming/data-processor"
 )
 
 func main() {

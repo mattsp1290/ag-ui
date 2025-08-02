@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ag-ui/go-sdk/pkg/encoding"
-	_ "github.com/ag-ui/go-sdk/pkg/encoding/json"      // Register JSON codec
-	_ "github.com/ag-ui/go-sdk/pkg/encoding/protobuf" // Register Protobuf codec
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding"
+	_ "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/json"      // Register JSON codec
+	_ "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/protobuf" // Register Protobuf codec
 )
 
 func TestEnsureRegistered(t *testing.T) {

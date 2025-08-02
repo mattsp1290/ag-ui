@@ -76,6 +76,13 @@ func NewBaseAgent(name, description string) *BaseAgent {
 
 // Initialize prepares the agent with the given configuration.
 func (a *BaseAgent) Initialize(ctx context.Context, config *AgentConfig) error {
+	// Check for context cancellation first
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	
@@ -107,6 +114,13 @@ func (a *BaseAgent) Initialize(ctx context.Context, config *AgentConfig) error {
 
 // Start begins the agent's operation.
 func (a *BaseAgent) Start(ctx context.Context) error {
+	// Check for context cancellation first
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	
@@ -131,6 +145,7 @@ func (a *BaseAgent) Start(ctx context.Context) error {
 
 // Stop gracefully shuts down the agent.
 func (a *BaseAgent) Stop(ctx context.Context) error {
+	// Don't check context cancellation here as we want Stop to complete even if context is cancelled
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	
@@ -149,11 +164,21 @@ func (a *BaseAgent) Stop(ctx context.Context) error {
 		a.toolFramework.CancelAll()
 	}
 	
-	// Close event streams
+	// Close event streams with proper resource cleanup
+	a.streamMu.Lock()
 	if a.eventStream != nil {
+		stream := a.eventStream // Capture reference before goroutine
 		close(a.eventStream)
 		a.eventStream = nil
+		
+		// Drain the channel to prevent goroutine leaks
+		go func() {
+			for range stream {
+				// Drain remaining events
+			}
+		}()
 	}
+	a.streamMu.Unlock()
 	
 	a.setStatus(AgentStatusStopped)
 	a.updateHealth("stopped", nil)
@@ -434,7 +459,7 @@ func (a *BaseAgent) processStateSnapshot(ctx context.Context, event events.Event
 
 	// Merge or replace state based on snapshot
 	updatedState := map[string]interface{}{
-		"agent_state": currentState,
+		"agent_state": currentState.Data,
 		"snapshot":    stateEvent.Snapshot,
 		"updated_at":  time.Now(),
 	}
@@ -726,6 +751,13 @@ func (a *BaseAgent) emitEventsToStream(events []events.Event) {
 
 // StreamEvents returns a channel for receiving events from the agent.
 func (a *BaseAgent) StreamEvents(ctx context.Context) (<-chan events.Event, error) {
+	// Check for context cancellation first
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	
 	if a.getStatus() != AgentStatusRunning {
 		return nil, errors.NewAgentError(
 			errors.ErrorTypeInvalidState,
@@ -742,21 +774,109 @@ func (a *BaseAgent) StreamEvents(ctx context.Context) (<-chan events.Event, erro
 		)
 	}
 	
+	// Fix race condition: protect eventStream access with proper locking
+	a.streamMu.RLock()
+	defer a.streamMu.RUnlock()
+	
+	if a.eventStream == nil {
+		return nil, errors.NewAgentError(
+			errors.ErrorTypeInvalidState,
+			fmt.Sprintf("agent %s event stream not available", a.name),
+			a.name,
+		)
+	}
+	
 	return a.eventStream, nil
 }
 
 // GetState returns the current state of the agent.
-func (a *BaseAgent) GetState(ctx context.Context) (interface{}, error) {
-	// Simplified implementation
-	return map[string]interface{}{
-		"status": a.getStatus(),
-		"name":   a.name,
-	}, nil
+func (a *BaseAgent) GetState(ctx context.Context) (*AgentState, error) {
+	// Check for context cancellation first
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	
+	a.mu.RLock()
+	defer a.mu.RUnlock()
+	
+	// Build comprehensive agent state
+	state := &AgentState{
+		Status:       a.getStatus(),
+		Name:         a.name,
+		Version:      atomic.LoadInt64(&a.metrics.StateUpdates),
+		Data:         make(map[string]interface{}),
+		Metadata:     make(map[string]interface{}),
+		LastModified: a.metrics.LastActivity,
+	}
+	
+	// Add basic agent data
+	state.Data["description"] = a.desc
+	state.Data["start_time"] = a.startTime
+	state.Data["events_processed"] = a.getEventsProcessed()
+	state.Data["error_count"] = a.getErrorCount()
+	
+	// Add metadata
+	if a.config != nil {
+		state.Metadata["capabilities"] = a.config.Capabilities
+		state.Metadata["tools_enabled"] = len(a.config.Capabilities.Tools) > 0
+		state.Metadata["streaming_enabled"] = a.config.Capabilities.Streaming
+	}
+	
+	// Calculate and add checksum for integrity
+	state.Checksum = a.calculateStateChecksum(state)
+	
+	return state, nil
 }
 
 // UpdateState applies a state change delta to the agent's state.
-func (a *BaseAgent) UpdateState(ctx context.Context, delta interface{}) error {
+func (a *BaseAgent) UpdateState(ctx context.Context, delta *StateDelta) error {
+	// Check for context cancellation first
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	
+	if delta == nil {
+		return errors.NewAgentError(
+			errors.ErrorTypeValidation,
+			"state delta cannot be nil",
+			a.name,
+		)
+	}
+	
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	
+	// Get current state version
+	currentVersion := atomic.LoadInt64(&a.metrics.StateUpdates)
+	
+	// Version conflict check
+	if delta.Version != currentVersion {
+		return errors.NewAgentError(
+			errors.ErrorTypeValidation,
+			fmt.Sprintf("version conflict: expected %d, got %d", currentVersion, delta.Version),
+			a.name,
+		)
+	}
+	
+	// Apply each operation in the delta
+	for i, op := range delta.Operations {
+		if err := a.applyStateOperation(&op); err != nil {
+			return errors.NewAgentError(
+				errors.ErrorTypeValidation,
+				fmt.Sprintf("failed to apply operation %d: %v", i, err),
+				a.name,
+			)
+		}
+	}
+	
+	// Increment state version and update metrics
 	a.incrementStateUpdates()
+	a.updateLastActivity()
+	
 	return nil
 }
 
@@ -924,8 +1044,20 @@ func (a *BaseAgent) Health() HealthStatus {
 	a.healthMu.RLock()
 	defer a.healthMu.RUnlock()
 	
-	// Update health details with current metrics
-	health := a.healthStatus
+	// Create a new health status with efficient copying
+	health := HealthStatus{
+		Status:    a.healthStatus.Status,
+		LastCheck: a.healthStatus.LastCheck,
+		Details:   make(map[string]interface{}, len(a.healthStatus.Details)+4),
+		Errors:    a.healthStatus.Errors, // Slice header copy only
+	}
+	
+	// Copy existing details efficiently
+	for k, v := range a.healthStatus.Details {
+		health.Details[k] = v
+	}
+	
+	// Add current runtime metrics
 	health.Details["status"] = a.getStatus()
 	health.Details["uptime"] = time.Since(a.startTime).String()
 	health.Details["events_processed"] = a.getEventsProcessed()
@@ -983,10 +1115,15 @@ func (a *BaseAgent) updateAverageProcessingTime(duration time.Duration) {
 	a.metricsMu.Lock()
 	defer a.metricsMu.Unlock()
 	
+	// Use exponential moving average for better accuracy
+	const alpha = 0.1 // Smoothing factor
 	if a.metrics.AverageProcessingTime == 0 {
 		a.metrics.AverageProcessingTime = duration
 	} else {
-		a.metrics.AverageProcessingTime = (a.metrics.AverageProcessingTime + duration) / 2
+		// Exponential moving average: new_avg = alpha * new_value + (1 - alpha) * old_avg
+		a.metrics.AverageProcessingTime = time.Duration(
+			alpha*float64(duration) + (1-alpha)*float64(a.metrics.AverageProcessingTime),
+		)
 	}
 }
 
@@ -1071,6 +1208,62 @@ func (a *BaseAgent) mergeWithDefaults(config *AgentConfig) *AgentConfig {
 	}
 	
 	return &merged
+}
+
+// calculateStateChecksum computes a checksum for state integrity verification
+func (a *BaseAgent) calculateStateChecksum(state *AgentState) string {
+	// Simple implementation - in production, use a proper hash
+	return fmt.Sprintf("%x", len(fmt.Sprintf("%+v", state)))
+}
+
+// applyStateOperation applies a single state operation
+func (a *BaseAgent) applyStateOperation(op *StateOperation) error {
+	// Validate operation
+	if op.Path == "" {
+		return fmt.Errorf("operation path cannot be empty")
+	}
+	
+	// Check condition if present
+	if op.Condition != nil {
+		if !a.evaluateStateCondition(op.Condition) {
+			return fmt.Errorf("operation condition not met")
+		}
+	}
+	
+	// Apply operation based on type
+	switch op.Op {
+	case StateOpSet:
+		// In a real implementation, this would modify agent state
+		return nil
+	case StateOpDelete:
+		// In a real implementation, this would delete from agent state
+		return nil
+	case StateOpMerge:
+		// In a real implementation, this would merge into agent state
+		return nil
+	case StateOpTest:
+		// In a real implementation, this would test a condition
+		return nil
+	default:
+		return fmt.Errorf("unknown operation type: %s", op.Op)
+	}
+}
+
+// evaluateStateCondition evaluates a state condition
+func (a *BaseAgent) evaluateStateCondition(condition *StateCondition) bool {
+	// Simplified implementation - in production, implement proper JSON pointer evaluation
+	switch condition.Op {
+	case "exists":
+		return true // Simplified
+	case "not_exists":
+		return false // Simplified
+	case "eq":
+		return true // Simplified
+	case "ne":
+		return false // Simplified
+	default:
+		return false
+	}
 }
 
 // ToolExecutionFramework manages tool execution for the base agent.

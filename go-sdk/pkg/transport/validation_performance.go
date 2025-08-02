@@ -158,7 +158,17 @@ func (cv *CachedValidator) updateStats(hit bool) {
 func (cv *CachedValidator) GetCacheStats() CacheStats {
 	cv.cacheStats.mu.RLock()
 	defer cv.cacheStats.mu.RUnlock()
-	return *cv.cacheStats
+	return CacheStats{
+		Hits:         cv.cacheStats.Hits,
+		Misses:       cv.cacheStats.Misses,
+		Size:         cv.cacheStats.Size,
+		MaxSize:      cv.cacheStats.MaxSize,
+		Evictions:    cv.cacheStats.Evictions,
+		TotalOps:     cv.cacheStats.TotalOps,
+		HitRate:      cv.cacheStats.HitRate,
+		LastHitTime:  cv.cacheStats.LastHitTime,
+		LastMissTime: cv.cacheStats.LastMissTime,
+	}
 }
 
 // ClearCache clears the validation cache

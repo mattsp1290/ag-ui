@@ -6,9 +6,9 @@ import (
 	"log"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/state"
-	"github.com/ag-ui/go-sdk/pkg/tools"
-	"github.com/ag-ui/go-sdk/pkg/transport/websocket"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/state"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport/websocket"
 )
 
 func main() {

@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 	
-	"github.com/ag-ui/go-sdk/pkg/core/events/auth"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/auth"
 )
 
 // RBACManager provides advanced role-based access control

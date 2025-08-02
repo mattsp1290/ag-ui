@@ -92,15 +92,15 @@ perfConfig := &events.PerformanceConfig{
 
 ```go
 // Old
-import "github.com/ag-ui/go-sdk/pkg/core/events"
+import "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 
 // New - Additional imports for enhanced features
 import (
-    "github.com/ag-ui/go-sdk/pkg/core/events"
-    "github.com/ag-ui/go-sdk/pkg/core/events/distributed"
-    "github.com/ag-ui/go-sdk/pkg/core/events/monitoring"
-    "github.com/ag-ui/go-sdk/pkg/core/events/cache"
-    "github.com/ag-ui/go-sdk/pkg/core/events/security"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/distributed"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/monitoring"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/cache"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/security"
 )
 ```
 
@@ -130,7 +130,7 @@ type ValidationRule interface {
 
 ```bash
 # Update to the latest version
-go get -u github.com/ag-ui/go-sdk@enhanced-event-validation
+go get -u github.com/mattsp1290/ag-ui/go-sdk@enhanced-event-validation
 
 # Update dependencies
 go mod tidy
@@ -366,7 +366,7 @@ func (w *ValidatorWrapper) ValidateEvent(ctx context.Context, event events.Event
 
 ```bash
 # Pin to previous version
-go get github.com/ag-ui/go-sdk@v1.2.3
+go get github.com/mattsp1290/ag-ui/go-sdk@v1.2.3
 
 # Update dependencies
 go mod tidy

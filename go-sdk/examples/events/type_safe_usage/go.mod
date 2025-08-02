@@ -1,12 +1,12 @@
-module github.com/ag-ui/go-sdk/examples/events/type_safe_usage
+module github.com/mattsp1290/ag-ui/go-sdk/examples/events/type_safe_usage
 
 go 1.23.0
 
 toolchain go1.24.4
 
-replace github.com/ag-ui/go-sdk => ../../..
+replace github.com/mattsp1290/ag-ui/go-sdk => ../../..
 
-require github.com/ag-ui/go-sdk v0.0.0-00010101000000-000000000000
+require github.com/mattsp1290/ag-ui/go-sdk v0.0.0-00010101000000-000000000000
 
 require (
 	github.com/go-logr/logr v1.4.2 // indirect

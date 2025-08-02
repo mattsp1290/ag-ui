@@ -30,7 +30,7 @@ func main() {
 	fmt.Println("Attempting to build pkg/core/events package...")
 	
 	// First, let's check if the package can be imported
-	pkg, err := build.Import("github.com/ag-ui/go-sdk/pkg/core/events", ".", build.FindOnly)
+	pkg, err := build.Import("github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events", ".", build.FindOnly)
 	if err != nil {
 		fmt.Printf("Error finding package: %v\n", err)
 	} else {

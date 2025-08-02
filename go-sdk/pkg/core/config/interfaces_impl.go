@@ -3,7 +3,7 @@ package config
 import (
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/di"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/di"
 )
 
 // Implement the DI interfaces to avoid circular imports

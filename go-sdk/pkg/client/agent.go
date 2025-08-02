@@ -23,8 +23,8 @@ type Agent interface {
 	StreamEvents(ctx context.Context) (<-chan events.Event, error)
 	
 	// State management
-	GetState(ctx context.Context) (interface{}, error)
-	UpdateState(ctx context.Context, delta interface{}) error
+	GetState(ctx context.Context) (*AgentState, error)
+	UpdateState(ctx context.Context, delta *StateDelta) error
 	
 	// Tool integration
 	ExecuteTool(ctx context.Context, name string, params interface{}) (interface{}, error)
@@ -67,12 +67,29 @@ type EventProcessingConfig struct {
 	EnableMetrics    bool          `json:"enable_metrics" yaml:"enable_metrics"`
 }
 
+// ConflictResolutionStrategy defines how state conflicts are resolved
+type ConflictResolutionStrategy string
+
+const (
+	// ConflictResolutionLastWriterWins resolves conflicts by keeping the last write
+	ConflictResolutionLastWriterWins ConflictResolutionStrategy = "last-writer-wins"
+	
+	// ConflictResolutionFirstWriterWins resolves conflicts by keeping the first write
+	ConflictResolutionFirstWriterWins ConflictResolutionStrategy = "first-writer-wins"
+	
+	// ConflictResolutionMerge attempts to merge conflicting changes
+	ConflictResolutionMerge ConflictResolutionStrategy = "merge"
+	
+	// ConflictResolutionReject rejects conflicting changes and returns an error
+	ConflictResolutionReject ConflictResolutionStrategy = "reject"
+)
+
 // StateConfig contains configuration for state management.
 type StateConfig struct {
-	SyncInterval       time.Duration `json:"sync_interval" yaml:"sync_interval"`
-	CacheSize          string        `json:"cache_size" yaml:"cache_size"`
-	EnablePersistence  bool          `json:"enable_persistence" yaml:"enable_persistence"`
-	ConflictResolution string        `json:"conflict_resolution" yaml:"conflict_resolution"`
+	SyncInterval       time.Duration               `json:"sync_interval" yaml:"sync_interval"`
+	CacheSize          string                      `json:"cache_size" yaml:"cache_size"`
+	EnablePersistence  bool                        `json:"enable_persistence" yaml:"enable_persistence"`
+	ConflictResolution ConflictResolutionStrategy  `json:"conflict_resolution" yaml:"conflict_resolution"`
 }
 
 // ToolsConfig contains configuration for tool execution.
@@ -142,7 +159,7 @@ func DefaultAgentConfig() *AgentConfig {
 			SyncInterval:       5 * time.Second,
 			CacheSize:          "100MB",
 			EnablePersistence:  true,
-			ConflictResolution: "last-writer-wins",
+			ConflictResolution: ConflictResolutionLastWriterWins,
 		},
 		Tools: ToolsConfig{
 			Timeout:          30 * time.Second,
@@ -158,4 +175,80 @@ func DefaultAgentConfig() *AgentConfig {
 		},
 		Custom: make(map[string]interface{}),
 	}
+}
+
+// AgentState represents the complete state of an agent
+type AgentState struct {
+	// Status is the current lifecycle status
+	Status AgentStatus `json:"status"`
+	
+	// Name is the agent identifier
+	Name string `json:"name"`
+	
+	// Version is the state version for conflict resolution
+	Version int64 `json:"version"`
+	
+	// Data contains the agent's custom state data
+	Data map[string]interface{} `json:"data"`
+	
+	// Metadata contains additional state information
+	Metadata map[string]interface{} `json:"metadata"`
+	
+	// LastModified is when the state was last updated
+	LastModified time.Time `json:"last_modified"`
+	
+	// Checksum for state integrity verification
+	Checksum string `json:"checksum,omitempty"`
+}
+
+// StateDelta represents an incremental state change
+type StateDelta struct {
+	// Version is the expected current version
+	Version int64 `json:"version"`
+	
+	// Operations are the changes to apply
+	Operations []StateOperation `json:"operations"`
+	
+	// Metadata for the change
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	
+	// Timestamp when the delta was created
+	Timestamp time.Time `json:"timestamp"`
+}
+
+// StateOperation represents a single state change operation
+type StateOperation struct {
+	// Operation type (set, delete, merge)
+	Op StateOperationType `json:"op"`
+	
+	// Path to the field to modify (JSON pointer style)
+	Path string `json:"path"`
+	
+	// Value for set/merge operations
+	Value interface{} `json:"value,omitempty"`
+	
+	// Condition for conditional operations
+	Condition *StateCondition `json:"condition,omitempty"`
+}
+
+// StateOperationType defines the type of state operation
+type StateOperationType string
+
+const (
+	StateOpSet    StateOperationType = "set"
+	StateOpDelete StateOperationType = "delete"
+	StateOpMerge  StateOperationType = "merge"
+	StateOpTest   StateOperationType = "test"
+)
+
+// StateCondition represents a condition for state operations
+type StateCondition struct {
+	// Field path to test
+	Path string `json:"path"`
+	
+	// Expected value
+	Expected interface{} `json:"expected"`
+	
+	// Comparison operation
+	Op string `json:"op"` // "eq", "ne", "exists", "not_exists"
 }

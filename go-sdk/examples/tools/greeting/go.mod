@@ -1,13 +1,13 @@
-module github.com/ag-ui/go-sdk/examples/tools/greeting
+module github.com/mattsp1290/ag-ui/go-sdk/examples/tools/greeting
 
 go 1.23.0
 
 toolchain go1.24.4
 
-replace github.com/ag-ui/go-sdk => ../../../
+replace github.com/mattsp1290/ag-ui/go-sdk => ../../../
 
 require (
-	github.com/ag-ui/go-sdk v0.0.0-00010101000000-000000000000
+	github.com/mattsp1290/ag-ui/go-sdk v0.0.0-00010101000000-000000000000
 	github.com/stretchr/testify v1.10.0
 )
 

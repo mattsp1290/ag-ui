@@ -14,9 +14,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/ag-ui/go-sdk/pkg/messages"
-	"github.com/ag-ui/go-sdk/pkg/transport/common"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/messages"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport/common"
 )
 
 // EventStream manages efficient event streaming for HTTP SSE transport
@@ -417,8 +417,30 @@ func (s *EventStream) GetMetrics() *StreamMetrics {
 	s.metrics.mu.RLock()
 	defer s.metrics.mu.RUnlock()
 
-	// Create a copy to avoid data races
-	metrics := *s.metrics
+	// Create a copy to avoid data races, excluding the mutex
+	metrics := StreamMetrics{
+		TotalEvents:         s.metrics.TotalEvents,
+		EventsPerSecond:     s.metrics.EventsPerSecond,
+		EventsProcessed:     s.metrics.EventsProcessed,
+		EventsDropped:       s.metrics.EventsDropped,
+		EventsCompressed:    s.metrics.EventsCompressed,
+		TotalBatches:        s.metrics.TotalBatches,
+		AverageBatchSize:    s.metrics.AverageBatchSize,
+		BatchProcessingTime: s.metrics.BatchProcessingTime,
+		CompressionRatio:    s.metrics.CompressionRatio,
+		CompressionTime:     s.metrics.CompressionTime,
+		BytesSaved:          s.metrics.BytesSaved,
+		AverageLatency:      s.metrics.AverageLatency,
+		MaxLatency:          s.metrics.MaxLatency,
+		ThroughputBps:       s.metrics.ThroughputBps,
+		MemoryUsage:         s.metrics.MemoryUsage,
+		ProcessingErrors:    s.metrics.ProcessingErrors,
+		CompressionErrors:   s.metrics.CompressionErrors,
+		SequencingErrors:    s.metrics.SequencingErrors,
+		StartTime:           s.metrics.StartTime,
+		LastEventTime:       s.metrics.LastEventTime,
+	}
+	
 	if s.metrics.FlowControl != nil {
 		flowMetrics := *s.metrics.FlowControl
 		metrics.FlowControl = &flowMetrics

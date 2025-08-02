@@ -18,7 +18,7 @@ The WebSocket transport now includes proper JWT (JSON Web Token) validation to s
 
 ```go
 import (
-    "github.com/ag-ui/go-sdk/pkg/transport/websocket"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/transport/websocket"
 )
 
 // Create JWT validator with HMAC

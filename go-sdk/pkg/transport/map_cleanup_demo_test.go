@@ -65,7 +65,9 @@ func TestMapCleanupMechanism(t *testing.T) {
 		t.Error("Expected some transports to be retained")
 	}
 	
-	t.Logf("Cleanup metrics: %+v", finalMetrics)
+	t.Logf("Cleanup metrics: TotalCleanups=%d, TransportsRemoved=%d, TransportsRetained=%d, LastCleanupDuration=%v, CleanupErrors=%d", 
+		finalMetrics.TotalCleanups, finalMetrics.TransportsRemoved, finalMetrics.TransportsRetained, 
+		finalMetrics.LastCleanupDuration, finalMetrics.CleanupErrors)
 	
 	// Verify that active transports are retained
 	activeTransports := manager.GetActiveTransports()

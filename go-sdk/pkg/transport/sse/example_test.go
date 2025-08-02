@@ -9,8 +9,8 @@ import (
 	"net/http/httptest"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/ag-ui/go-sdk/pkg/testhelper"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/testhelper"
 )
 
 // Example_basicUsage demonstrates basic SSE transport usage

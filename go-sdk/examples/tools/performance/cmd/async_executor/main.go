@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	asyncexecutor "github.com/ag-ui/go-sdk/examples/tools/performance/async-executor"
+	asyncexecutor "github.com/mattsp1290/ag-ui/go-sdk/examples/tools/performance/async-executor"
 )
 
 func main() {

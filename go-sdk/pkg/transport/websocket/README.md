@@ -27,8 +27,8 @@ import (
     "context"
     "log"
 
-    "github.com/ag-ui/go-sdk/pkg/transport/websocket"
-    "github.com/ag-ui/go-sdk/pkg/messages"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/transport/websocket"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/messages"
 )
 
 func main() {

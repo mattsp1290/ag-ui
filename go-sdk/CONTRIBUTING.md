@@ -174,8 +174,8 @@ import (
     "github.com/gorilla/websocket"
 
     // Local imports
-    "github.com/ag-ui/go-sdk/pkg/core"
-    "github.com/ag-ui/go-sdk/internal/protocol"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
+    "github.com/mattsp1290/ag-ui/go-sdk/internal/protocol"
 )
 ```
 

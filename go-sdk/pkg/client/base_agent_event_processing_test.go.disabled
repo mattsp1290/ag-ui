@@ -1,0 +1,380 @@
+package client
+
+import (
+	"context"
+	"sync/atomic"
+	"testing"
+	"time"
+
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/proto/generated"
+)
+
+func TestProcessEvent_TextMessageStart(t *testing.T) {
+	agent := NewBaseAgent("test-agent", "Test agent for event processing")
+	
+	config := DefaultAgentConfig()
+	config.Name = "test-agent"
+	
+	ctx := context.Background()
+	err := agent.Initialize(ctx, config)
+	if err != nil {
+		t.Fatalf("Failed to initialize agent: %v", err)
+	}
+	
+	err = agent.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start agent: %v", err)
+	}
+	
+	// Create a text message start event
+	msgEvent := events.NewTextMessageStartEvent("msg-123")
+	
+	// Process the event
+	responseEvents, err := agent.ProcessEvent(ctx, msgEvent)
+	if err != nil {
+		t.Fatalf("Failed to process event: %v", err)
+	}
+	
+	// Verify response
+	if len(responseEvents) != 1 {
+		t.Fatalf("Expected 1 response event, got %d", len(responseEvents))
+	}
+	
+	if responseEvents[0].Type() != events.EventTypeTextMessageContent {
+		t.Errorf("Expected TEXT_MESSAGE_CONTENT response, got %s", responseEvents[0].Type())
+	}
+	
+	// Verify metrics were updated
+	if agent.getEventsProcessed() != 1 {
+		t.Errorf("Expected 1 event processed, got %d", agent.getEventsProcessed())
+	}
+}
+
+func TestProcessEvent_ToolCallStart(t *testing.T) {
+	agent := NewBaseAgent("test-agent", "Test agent for event processing")
+	
+	config := DefaultAgentConfig()
+	config.Name = "test-agent"
+	
+	ctx := context.Background()
+	err := agent.Initialize(ctx, config)
+	if err != nil {
+		t.Fatalf("Failed to initialize agent: %v", err)
+	}
+	
+	err = agent.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start agent: %v", err)
+	}
+	
+	// Create a tool call start event for unknown tool
+	toolEvent := events.NewToolCallStartEvent("tool-123", "unknown-tool")
+	
+	// Process the event
+	responseEvents, err := agent.ProcessEvent(ctx, toolEvent)
+	if err != nil {
+		t.Fatalf("Failed to process event: %v", err)
+	}
+	
+	// Verify response - should get error event for unknown tool
+	if len(responseEvents) != 1 {
+		t.Fatalf("Expected 1 response event, got %d", len(responseEvents))
+	}
+	
+	if responseEvents[0].Type() != events.EventTypeRunError {
+		t.Errorf("Expected RUN_ERROR response for unknown tool, got %s", responseEvents[0].Type())
+	}
+	
+	// Verify metrics were updated
+	if agent.getEventsProcessed() != 1 {
+		t.Errorf("Expected 1 event processed, got %d", agent.getEventsProcessed())
+	}
+	
+	// Tool execution count should be incremented even for unknown tools
+	if atomic.LoadInt64(&agent.metrics.ToolsExecuted) != 1 {
+		t.Errorf("Expected 1 tool executed, got %d", atomic.LoadInt64(&agent.metrics.ToolsExecuted))
+	}
+}
+
+func TestProcessEvent_StateSnapshot(t *testing.T) {
+	agent := NewBaseAgent("test-agent", "Test agent for event processing")
+	
+	config := DefaultAgentConfig()
+	config.Name = "test-agent"
+	
+	ctx := context.Background()
+	err := agent.Initialize(ctx, config)
+	if err != nil {
+		t.Fatalf("Failed to initialize agent: %v", err)
+	}
+	
+	err = agent.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start agent: %v", err)
+	}
+	
+	// Create a state snapshot event
+	snapshot := map[string]interface{}{
+		"key1": "value1",
+		"key2": 42,
+	}
+	stateEvent := events.NewStateSnapshotEvent(snapshot)
+	
+	// Process the event
+	responseEvents, err := agent.ProcessEvent(ctx, stateEvent)
+	if err != nil {
+		t.Fatalf("Failed to process event: %v", err)
+	}
+	
+	// Verify response
+	if len(responseEvents) != 1 {
+		t.Fatalf("Expected 1 response event, got %d", len(responseEvents))
+	}
+	
+	if responseEvents[0].Type() != events.EventTypeStateDelta {
+		t.Errorf("Expected STATE_DELTA response, got %s", responseEvents[0].Type())
+	}
+	
+	// Verify state updates metric was incremented
+	if atomic.LoadInt64(&agent.metrics.StateUpdates) != 1 {
+		t.Errorf("Expected 1 state update, got %d", atomic.LoadInt64(&agent.metrics.StateUpdates))
+	}
+}
+
+func TestProcessEvent_CustomHealthCheck(t *testing.T) {
+	agent := NewBaseAgent("test-agent", "Test agent for event processing")
+	
+	config := DefaultAgentConfig()
+	config.Name = "test-agent"
+	
+	ctx := context.Background()
+	err := agent.Initialize(ctx, config)
+	if err != nil {
+		t.Fatalf("Failed to initialize agent: %v", err)
+	}
+	
+	err = agent.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start agent: %v", err)
+	}
+	
+	// Create a custom health check event
+	customEvent := events.NewCustomEvent("health_check")
+	
+	// Process the event
+	responseEvents, err := agent.ProcessEvent(ctx, customEvent)
+	if err != nil {
+		t.Fatalf("Failed to process event: %v", err)
+	}
+	
+	// Verify response
+	if len(responseEvents) != 1 {
+		t.Fatalf("Expected 1 response event, got %d", len(responseEvents))
+	}
+	
+	if responseEvents[0].Type() != events.EventTypeCustom {
+		t.Errorf("Expected CUSTOM response, got %s", responseEvents[0].Type())
+	}
+	
+	// Cast to custom event and verify the response name
+	customResponse, ok := responseEvents[0].(*events.CustomEvent)
+	if !ok {
+		t.Fatalf("Failed to cast response to CustomEvent")
+	}
+	
+	if customResponse.Name != "health_response" {
+		t.Errorf("Expected 'health_response', got '%s'", customResponse.Name)
+	}
+}
+
+func TestProcessEvent_ContextCancellation(t *testing.T) {
+	agent := NewBaseAgent("test-agent", "Test agent for event processing")
+	
+	config := DefaultAgentConfig()
+	config.Name = "test-agent"
+	
+	baseCtx := context.Background()
+	err := agent.Initialize(baseCtx, config)
+	if err != nil {
+		t.Fatalf("Failed to initialize agent: %v", err)
+	}
+	
+	err = agent.Start(baseCtx)
+	if err != nil {
+		t.Fatalf("Failed to start agent: %v", err)
+	}
+	
+	// Create a cancelled context
+	cancelledCtx, cancel := context.WithCancel(baseCtx)
+	cancel() // Cancel immediately
+	
+	// Create any event
+	msgEvent := events.NewTextMessageStartEvent("msg-123")
+	
+	// Process the event with cancelled context
+	_, err = agent.ProcessEvent(cancelledCtx, msgEvent)
+	if err == nil {
+		t.Error("Expected error due to cancelled context, got nil")
+	}
+	
+	if err != context.Canceled {
+		t.Errorf("Expected context.Canceled error, got %v", err)
+	}
+}
+
+func TestProcessEvent_InvalidEvent(t *testing.T) {
+	agent := NewBaseAgent("test-agent", "Test agent for event processing")
+	
+	config := DefaultAgentConfig()
+	config.Name = "test-agent"
+	
+	ctx := context.Background()
+	err := agent.Initialize(ctx, config)
+	if err != nil {
+		t.Fatalf("Failed to initialize agent: %v", err)
+	}
+	
+	err = agent.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start agent: %v", err)
+	}
+	
+	// Create an invalid event (empty message ID)
+	msgEvent := events.NewTextMessageStartEvent("")
+	
+	// Process the event
+	_, err = agent.ProcessEvent(ctx, msgEvent)
+	if err == nil {
+		t.Error("Expected validation error for invalid event, got nil")
+	}
+	
+	// Should be a validation error
+	agentErr, ok := err.(*errors.AgentError)
+	if !ok {
+		t.Errorf("Expected AgentError, got %T", err)
+	} else if agentErr.Type != errors.ErrorTypeValidation {
+		t.Errorf("Expected validation error, got %s", agentErr.Type)
+	}
+	
+	// Error count should be incremented
+	if agent.getErrorCount() != 1 {
+		t.Errorf("Expected 1 error counted, got %d", agent.getErrorCount())
+	}
+}
+
+func TestProcessEvent_NotRunning(t *testing.T) {
+	agent := NewBaseAgent("test-agent", "Test agent for event processing")
+	
+	config := DefaultAgentConfig()
+	config.Name = "test-agent"
+	
+	ctx := context.Background()
+	err := agent.Initialize(ctx, config)
+	if err != nil {
+		t.Fatalf("Failed to initialize agent: %v", err)
+	}
+	
+	// Don't start the agent - it should be in initialized state
+	
+	// Create any event
+	msgEvent := events.NewTextMessageStartEvent("msg-123")
+	
+	// Process the event while not running
+	_, err = agent.ProcessEvent(ctx, msgEvent)
+	if err == nil {
+		t.Error("Expected error for processing while not running, got nil")
+	}
+	
+	// Should be an invalid state error
+	agentErr, ok := err.(*errors.AgentError)
+	if !ok {
+		t.Errorf("Expected AgentError, got %T", err)
+	} else if agentErr.Type != errors.ErrorTypeInvalidState {
+		t.Errorf("Expected invalid state error, got %s", agentErr.Type)
+	}
+}
+
+func TestProcessEvent_UnsupportedEventType(t *testing.T) {
+	agent := NewBaseAgent("test-agent", "Test agent for event processing")
+	
+	config := DefaultAgentConfig()
+	config.Name = "test-agent"
+	
+	ctx := context.Background()
+	err := agent.Initialize(ctx, config)
+	if err != nil {
+		t.Fatalf("Failed to initialize agent: %v", err)
+	}
+	
+	err = agent.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start agent: %v", err)
+	}
+	
+	// Create a mock event with unknown type
+	mockEvent := &mockEvent{
+		eventType: events.EventType("UNKNOWN_TYPE"),
+	}
+	
+	// Process the event
+	_, err = agent.ProcessEvent(ctx, mockEvent)
+	if err == nil {
+		t.Error("Expected error for unsupported event type, got nil")
+	}
+	
+	// Should be an unsupported error
+	agentErr, ok := err.(*errors.AgentError)
+	if !ok {
+		t.Errorf("Expected AgentError, got %T", err)
+	} else if agentErr.Type != errors.ErrorTypeUnsupported {
+		t.Errorf("Expected unsupported error, got %s", agentErr.Type)
+	}
+}
+
+// mockEvent is a simple mock event for testing
+type mockEvent struct {
+	eventType   events.EventType
+	timestampMs *int64
+}
+
+func (m *mockEvent) Type() events.EventType {
+	return m.eventType
+}
+
+func (m *mockEvent) Timestamp() *int64 {
+	return m.timestampMs
+}
+
+func (m *mockEvent) SetTimestamp(timestamp int64) {
+	m.timestampMs = &timestamp
+}
+
+func (m *mockEvent) ThreadID() string {
+	return ""
+}
+
+func (m *mockEvent) RunID() string {
+	return ""
+}
+
+func (m *mockEvent) Validate() error {
+	return nil // Always valid for testing
+}
+
+func (m *mockEvent) ToJSON() ([]byte, error) {
+	return []byte("{}"), nil
+}
+
+func (m *mockEvent) ToProtobuf() (*generated.Event, error) {
+	return nil, nil
+}
+
+func (m *mockEvent) GetBaseEvent() *events.BaseEvent {
+	now := time.Now().UnixMilli()
+	return &events.BaseEvent{
+		EventType:   m.eventType,
+		TimestampMs: &now,
+	}
+}

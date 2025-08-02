@@ -232,9 +232,9 @@ type ValidationCacheKey struct {
 ```go
 // DistributedValidator imports and uses all other packages
 import (
-    "github.com/ag-ui/go-sdk/pkg/core/events/auth"
-    "github.com/ag-ui/go-sdk/pkg/core/events/cache"
-    "github.com/ag-ui/go-sdk/pkg/core/events/analytics"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/auth"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/cache"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/analytics"
 )
 ```
 

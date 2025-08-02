@@ -53,8 +53,8 @@
 //	import (
 //		"context"
 //		"time"
-//		"github.com/ag-ui/go-sdk/pkg/transport"
-//		"github.com/ag-ui/go-sdk/pkg/core/events"
+//		"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport"
+//		"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 //	)
 //
 //	// Create type-safe configuration

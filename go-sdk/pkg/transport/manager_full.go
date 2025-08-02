@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 	
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // ManagerConfig represents simplified transport configuration
@@ -471,14 +471,25 @@ func (m *Manager) GetMetrics() ManagerMetrics {
 	m.metrics.mu.RLock()
 	defer m.metrics.mu.RUnlock()
 	
-	// Deep copy metrics
-	metrics := *m.metrics
-	metrics.TransportHealthScores = make(map[string]float64)
+	// Deep copy metrics without copying the mutex
+	transportHealthScores := make(map[string]float64)
 	for k, v := range m.metrics.TransportHealthScores {
-		metrics.TransportHealthScores[k] = v
+		transportHealthScores[k] = v
 	}
 	
-	return metrics
+	return ManagerMetrics{
+		TransportSwitches:      m.metrics.TransportSwitches,
+		TotalConnections:       m.metrics.TotalConnections,
+		ActiveConnections:      m.metrics.ActiveConnections,
+		FailedConnections:      m.metrics.FailedConnections,
+		TotalMessagesSent:      m.metrics.TotalMessagesSent,
+		TotalMessagesReceived:  m.metrics.TotalMessagesReceived,
+		TotalBytesSent:         m.metrics.TotalBytesSent,
+		TotalBytesReceived:     m.metrics.TotalBytesReceived,
+		AverageLatency:         m.metrics.AverageLatency,
+		LastTransportSwitch:    m.metrics.LastTransportSwitch,
+		TransportHealthScores:  transportHealthScores,
+	}
 }
 
 // SetTransport sets the active transport

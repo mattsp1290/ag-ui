@@ -2,12 +2,11 @@ package transport
 
 import (
 	"context"
-	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 	
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // SimpleManager provides basic transport management without import cycles
@@ -68,24 +67,9 @@ func NewSimpleManagerWithBackpressure(backpressureConfig BackpressureConfig) *Si
 
 // SetTransport sets the active transport
 func (m *SimpleManager) SetTransport(transport Transport) {
-	// Use a timeout to prevent hanging if another goroutine holds the lock
-	lockCtx, lockCancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer lockCancel()
-	
-	// Try to acquire lock with timeout using a goroutine
-	lockAcquired := make(chan struct{})
-	go func() {
-		m.mu.Lock()
-		close(lockAcquired)
-	}()
-	
-	select {
-	case <-lockAcquired:
-		defer m.mu.Unlock()
-	case <-lockCtx.Done():
-		// Lock acquisition timed out - this prevents deadlocks
-		return
-	}
+	// Simple direct lock acquisition without goroutines to avoid deadlocks
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	
 	// Keep reference to old transport for graceful shutdown
 	oldTransport := m.activeTransport
@@ -99,42 +83,13 @@ func (m *SimpleManager) SetTransport(transport Transport) {
 		m.transportStopChan = make(chan struct{})
 	}
 	
-	// Pre-connect the new transport if manager is running (outside the critical section next)
+	// Pre-connect the new transport if manager is running
 	var preConnected bool
-	var connectErr error
 	if transport != nil && atomic.LoadInt32(&m.running) == 1 {
-		// Release lock temporarily for connection (to prevent blocking other operations)
-		m.mu.Unlock()
-		
 		connectCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		connectErr = transport.Connect(connectCtx)
+		connectErr := transport.Connect(connectCtx)
 		cancel()
 		preConnected = connectErr == nil
-		
-		// Re-acquire lock - but check if we can get it quickly
-		reacquireCtx, reacquireCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-		defer reacquireCancel()
-		
-		lockReacquired := make(chan struct{})
-		go func() {
-			m.mu.Lock()
-			close(lockReacquired)
-		}()
-		
-		select {
-		case <-lockReacquired:
-			// Lock reacquired, continue
-		case <-reacquireCtx.Done():
-			// Could not reacquire lock, clean up old transport in background and return
-			go func() {
-				if oldTransport != nil {
-					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-					oldTransport.Close(ctx)
-					cancel()
-				}
-			}()
-			return
-		}
 	}
 	
 	// If the manager is running and we have a transport, start receiving
@@ -188,25 +143,15 @@ func (m *SimpleManager) Start(ctx context.Context) error {
 	m.generation++ // New generation
 	m.receiveWgMu.Unlock()
 	
-	// Use a timeout to prevent hanging if another goroutine holds the lock
-	lockCtx, lockCancel := context.WithTimeout(ctx, 2*time.Second)
-	defer lockCancel()
-	
-	// Try to acquire lock with timeout using a goroutine
-	lockAcquired := make(chan struct{})
-	go func() {
-		m.mu.Lock()
-		close(lockAcquired)
-	}()
-	
-	select {
-	case <-lockAcquired:
-		defer m.mu.Unlock()
-	case <-lockCtx.Done():
-		// Lock acquisition timed out - reset running state and return error
+	// Simple direct lock acquisition without goroutines to avoid deadlocks
+	// Check context first
+	if err := ctx.Err(); err != nil {
 		atomic.StoreInt32(&m.running, 0)
-		return fmt.Errorf("start operation timed out acquiring lock: %w", lockCtx.Err())
+		return err
 	}
+	
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	
 	if m.activeTransport != nil {
 		// Use the provided context for connection, but with a reasonable timeout
@@ -246,30 +191,8 @@ func (m *SimpleManager) Stop(ctx context.Context) error {
 		return nil
 	}
 	
-	// Use a timeout to prevent hanging if another goroutine holds the lock
-	lockCtx, lockCancel := context.WithTimeout(ctx, 2*time.Second)
-	defer lockCancel()
-	
-	// Try to acquire lock with timeout using a goroutine
-	lockAcquired := make(chan struct{})
-	go func() {
-		m.mu.Lock()
-		close(lockAcquired)
-	}()
-	
-	select {
-	case <-lockAcquired:
-		// Got the lock, continue with cleanup
-	case <-lockCtx.Done():
-		// Lock acquisition timed out - signal stop anyway and proceed with minimal cleanup
-		// Close stop channels without lock (risky but better than hanging)
-		select {
-		case <-m.stopChan:
-		default:
-			close(m.stopChan)
-		}
-		return fmt.Errorf("stop operation timed out acquiring lock: %w", lockCtx.Err())
-	}
+	// Simple direct lock acquisition without goroutines to avoid deadlocks
+	m.mu.Lock()
 	
 	// Close the stop channel to signal all goroutines to stop
 	select {
@@ -295,23 +218,13 @@ func (m *SimpleManager) Stop(ctx context.Context) error {
 	// Wait for all receiveEvents goroutines to finish using safe method
 	m.safeWaitReceiver(ctx)
 	
-	// Try to lock again for final cleanup with a short timeout - using tryLock pattern to prevent deadlock
-	lockAcquiredForCleanup := m.tryLockWithTimeout(500 * time.Millisecond)
-	if lockAcquiredForCleanup {
-		defer m.mu.Unlock()
-	}
+	// Re-acquire lock for final cleanup
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	
-	// Final cleanup (with or without lock)
-	var activeTransport Transport
-	var backpressureHandler *BackpressureHandler
-	
-	if lockAcquiredForCleanup {
-		activeTransport = m.activeTransport
-		backpressureHandler = m.backpressureHandler
-	} else {
-		// Without lock, we can't safely access the fields, so skip transport cleanup
-		// This is not ideal but better than hanging
-	}
+	// Final cleanup
+	activeTransport := m.activeTransport
+	backpressureHandler := m.backpressureHandler
 	
 	if activeTransport != nil {
 		// Use a short timeout for transport close to prevent hanging
@@ -329,13 +242,11 @@ func (m *SimpleManager) Stop(ctx context.Context) error {
 		backpressureHandler.Stop()
 	}
 	
-	// Reset the transport ready channel only if we have the lock
-	if lockAcquiredForCleanup {
-		// Drain any pending signals
-		select {
-		case <-m.transportReady:
-		default:
-		}
+	// Reset the transport ready channel
+	// Drain any pending signals
+	select {
+	case <-m.transportReady:
+	default:
 	}
 	
 	// Drain channels before closing to prevent data loss
@@ -384,21 +295,6 @@ func (m *SimpleManager) Stop(ctx context.Context) error {
 	return nil
 }
 
-// tryLockWithTimeout attempts to acquire a lock with timeout to prevent deadlock
-func (m *SimpleManager) tryLockWithTimeout(timeout time.Duration) bool {
-	lockAcquired := make(chan struct{})
-	go func() {
-		m.mu.Lock()
-		close(lockAcquired)
-	}()
-	
-	select {
-	case <-lockAcquired:
-		return true
-	case <-time.After(timeout):
-		return false
-	}
-}
 
 // safeAddReceiver safely adds a receiver to the WaitGroup
 func (m *SimpleManager) safeAddReceiver() (bool, int64, *sync.WaitGroup) {

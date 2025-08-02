@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/encoding/negotiation"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/negotiation"
 )
 
 func TestContentNegotiator(t *testing.T) {

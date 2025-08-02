@@ -48,17 +48,65 @@ build:
 	@mkdir -p $(BUILD_DIR)
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME) $(CMD_DIR)
 
-## test: Run tests with coverage
+## test: Run tests with coverage (safe, isolated execution)
 test:
-	@echo "Running tests..."
-	$(GOTEST) -v -race -timeout=10m -coverprofile=coverage.out ./...
+	@echo "Running tests with isolated execution to prevent interference..."
+	@echo "Running core package tests..."
+	$(GOTEST) -v -race -timeout=2m -coverprofile=coverage.out ./pkg/client ./pkg/core ./pkg/errors ./pkg/messages ./pkg/state
+	@echo "Running event package tests..."
+	$(GOTEST) -v -race -timeout=2m -coverprofile=coverage_events.out ./pkg/core/events/...
+	@echo "Running encoding package tests..."
+	$(GOTEST) -v -race -timeout=2m -coverprofile=coverage_encoding.out ./pkg/encoding/...
+	@echo "Running transport package tests..."
+	$(GOTEST) -v -race -timeout=2m -coverprofile=coverage_transport.out ./pkg/transport/...
+	@echo "Running remaining package tests..."
+	$(GOTEST) -v -race -timeout=2m -coverprofile=coverage_other.out ./pkg/tools ./pkg/testhelper ./pkg/integration
+	@echo "Merging coverage reports..."
+	@echo "mode: atomic" > coverage_combined.out
+	@tail -n +2 coverage.out coverage_events.out coverage_encoding.out coverage_transport.out coverage_other.out 2>/dev/null | grep -v "^mode:" >> coverage_combined.out || true
+	@mv coverage_combined.out coverage.out
 	@echo "Coverage report:"
 	$(GOCMD) tool cover -func=coverage.out
 
-## test-short: Run tests without coverage
+## test-short: Run tests without coverage (fast mode)
 test-short:
 	@echo "Running tests (short mode)..."
 	$(GOTEST) -v -short ./...
+
+## test-parallel: Run tests with parallel execution by package
+test-parallel:
+	@echo "Running tests in parallel by package..."
+	@echo "Starting parallel execution..."
+	$(GOTEST) -v -race -timeout=2m ./pkg/client &
+	$(GOTEST) -v -race -timeout=2m ./pkg/core &
+	$(GOTEST) -v -race -timeout=2m ./pkg/errors &
+	$(GOTEST) -v -race -timeout=2m ./pkg/messages &
+	wait
+	@echo "Phase 1 complete. Starting phase 2..."
+	$(GOTEST) -v -race -timeout=3m ./pkg/state &
+	$(GOTEST) -v -race -timeout=2m ./pkg/encoding/... &
+	$(GOTEST) -v -race -timeout=2m ./pkg/tools &
+	wait
+	@echo "Phase 2 complete. Starting phase 3..."
+	$(GOTEST) -v -race -timeout=4m ./pkg/transport/... &
+	$(GOTEST) -v -race -timeout=2m ./pkg/testhelper &
+	$(GOTEST) -v -race -timeout=2m ./pkg/integration &
+	wait
+	@echo "All parallel tests completed."
+
+## test-performance: Run performance tests (requires performance build tag)
+test-performance:
+	@echo "Running performance tests..."
+	$(GOTEST) -v -race -tags="performance" -timeout=15m ./pkg/transport/sse
+
+## test-integration: Run integration tests
+test-integration:
+	@echo "Running integration tests..."
+	$(GOTEST) -v -race -tags="integration" -timeout=10m ./pkg/state ./pkg/tools
+
+## test-all-categories: Run all test categories
+test-all-categories: test test-performance test-integration
+	@echo "All test categories completed."
 
 ## test-chaos: Run chaos engineering tests
 test-chaos:
@@ -74,6 +122,13 @@ test-error-injection:
 test-resilience:
 	@echo "Running resilience tests..."
 	$(GOTEST) -v -tags="chaos integration" -run="TestStateManager_(WithErrors|ChaosEngineering)" ./pkg/state/
+
+## test-unsafe: Run tests the old way (all together - may cause interference)
+test-unsafe:
+	@echo "WARNING: Running tests all together - may cause interference..."
+	$(GOTEST) -v -race -timeout=10m -coverprofile=coverage.out ./...
+	@echo "Coverage report:"
+	$(GOCMD) tool cover -func=coverage.out
 
 ## lint: Run linter (requires golangci-lint)
 lint:

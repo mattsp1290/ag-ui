@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 
-	"github.com/ag-ui/go-sdk/pkg/state"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/state"
 )
 
 // Example_stateValidation demonstrates how to use state validation.

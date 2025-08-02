@@ -3,7 +3,7 @@ package state
 import (
 	"time"
 	
-	"github.com/ag-ui/go-sdk/pkg/internal/timeconfig"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/internal/timeconfig"
 )
 
 // Default configuration constants for state management

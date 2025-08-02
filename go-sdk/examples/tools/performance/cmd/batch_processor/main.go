@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	batchprocessor "github.com/ag-ui/go-sdk/examples/tools/performance/batch-processor"
+	batchprocessor "github.com/mattsp1290/ag-ui/go-sdk/examples/tools/performance/batch-processor"
 )
 
 func main() {

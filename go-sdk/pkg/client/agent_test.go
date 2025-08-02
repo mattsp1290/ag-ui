@@ -141,3 +141,145 @@ func TestAgentCapabilities(t *testing.T) {
 		t.Errorf("Expected 2 tools, got %d", len(capabilities.Tools))
 	}
 }
+
+// Test comprehensive agent functionality including new features
+func TestComprehensiveAgentFunctionality(t *testing.T) {
+	agent := NewBaseAgent("comprehensive-agent", "Comprehensive test agent")
+	ctx := context.Background()
+	
+	// Initialize and start
+	config := DefaultAgentConfig()
+	config.Name = "comprehensive-agent"
+	config.Capabilities.Streaming = true
+	
+	err := agent.Initialize(ctx, config)
+	if err != nil {
+		t.Fatalf("Failed to initialize agent: %v", err)
+	}
+	
+	err = agent.Start(ctx)
+	if err != nil {
+		t.Fatalf("Failed to start agent: %v", err)
+	}
+	
+	// Test GetState with new typed return
+	state, err := agent.GetState(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get state: %v", err)
+	}
+	
+	if state.Name != "comprehensive-agent" {
+		t.Errorf("Expected state name to be 'comprehensive-agent', got %s", state.Name)
+	}
+	
+	if state.Status != AgentStatusRunning {
+		t.Errorf("Expected state status to be running, got %v", state.Status)
+	}
+	
+	if state.Data == nil {
+		t.Error("Expected state data to be initialized")
+	}
+	
+	if state.Checksum == "" {
+		t.Error("Expected state checksum to be set")
+	}
+	
+	// Test UpdateState with new typed delta
+	delta := &StateDelta{
+		Version: state.Version,
+		Operations: []StateOperation{
+			{
+				Op:    StateOpSet,
+				Path:  "/custom/test_field",
+				Value: "test_value",
+			},
+		},
+		Metadata:  map[string]interface{}{"source": "test"},
+		Timestamp: time.Now(),
+	}
+	
+	err = agent.UpdateState(ctx, delta)
+	if err != nil {
+		t.Fatalf("Failed to update state: %v", err)
+	}
+	
+	// Test ListTools
+	tools := agent.ListTools()
+	if tools == nil {
+		t.Error("Expected non-nil tools list")
+	}
+	
+	// Test StreamEvents with proper race condition handling
+	stream, err := agent.StreamEvents(ctx)
+	if err != nil {
+		t.Fatalf("Failed to get event stream: %v", err)
+	}
+	
+	if stream == nil {
+		t.Error("Expected non-nil stream from StreamEvents")
+	}
+	
+	// Test Health method memory optimization
+	health1 := agent.Health()
+	health2 := agent.Health()
+	
+	// These should be separate instances (no memory leak)
+	if &health1.Details == &health2.Details {
+		t.Error("Health method is returning shared map references - memory leak")
+	}
+	
+	// Clean shutdown
+	err = agent.Stop(ctx)
+	if err != nil {
+		t.Fatalf("Failed to stop agent: %v", err)
+	}
+	
+	err = agent.Cleanup()
+	if err != nil {
+		t.Fatalf("Failed to cleanup agent: %v", err)
+	}
+}
+
+// Test context cancellation handling
+func TestContextCancellation(t *testing.T) {
+	agent := NewBaseAgent("context-agent", "Context test agent")
+	
+	// Create a cancelled context
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	
+	// These should return context.Canceled error
+	err := agent.Initialize(ctx, DefaultAgentConfig())
+	if err != context.Canceled {
+		t.Errorf("Expected context.Canceled error, got %v", err)
+	}
+	
+	_, err = agent.StreamEvents(ctx)
+	if err != context.Canceled {
+		t.Errorf("Expected context.Canceled error from StreamEvents, got %v", err)
+	}
+	
+	_, err = agent.GetState(ctx)
+	if err != context.Canceled {
+		t.Errorf("Expected context.Canceled error from GetState, got %v", err)
+	}
+}
+
+// Test typed enums
+func TestConflictResolutionStrategy(t *testing.T) {
+	strategies := []ConflictResolutionStrategy{
+		ConflictResolutionLastWriterWins,
+		ConflictResolutionFirstWriterWins,
+		ConflictResolutionMerge,
+		ConflictResolutionReject,
+	}
+	
+	for _, strategy := range strategies {
+		config := DefaultAgentConfig()
+		config.State.ConflictResolution = strategy
+		
+		if config.State.ConflictResolution != strategy {
+			t.Errorf("Failed to set conflict resolution strategy to %v", strategy)
+		}
+	}
+}

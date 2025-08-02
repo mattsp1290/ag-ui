@@ -4,8 +4,8 @@ import (
 	"context"
 	"sync"
 	
-	"github.com/ag-ui/go-sdk/pkg/encoding"
-	"github.com/ag-ui/go-sdk/pkg/errors"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 var (

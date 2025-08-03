@@ -34,7 +34,7 @@ type Agent interface {
 	Name() string
 	Description() string
 	Capabilities() AgentCapabilities
-	Health() HealthStatus
+	Health() AgentHealthStatus
 }
 
 // AgentConfig contains configuration options for agent initialization.
@@ -67,22 +67,7 @@ type EventProcessingConfig struct {
 	EnableMetrics    bool          `json:"enable_metrics" yaml:"enable_metrics"`
 }
 
-// ConflictResolutionStrategy defines how state conflicts are resolved
-type ConflictResolutionStrategy string
-
-const (
-	// ConflictResolutionLastWriterWins resolves conflicts by keeping the last write
-	ConflictResolutionLastWriterWins ConflictResolutionStrategy = "last-writer-wins"
-	
-	// ConflictResolutionFirstWriterWins resolves conflicts by keeping the first write
-	ConflictResolutionFirstWriterWins ConflictResolutionStrategy = "first-writer-wins"
-	
-	// ConflictResolutionMerge attempts to merge conflicting changes
-	ConflictResolutionMerge ConflictResolutionStrategy = "merge"
-	
-	// ConflictResolutionReject rejects conflicting changes and returns an error
-	ConflictResolutionReject ConflictResolutionStrategy = "reject"
-)
+// Note: ConflictResolutionStrategy is defined in agent_state.go with more comprehensive constants
 
 // StateConfig contains configuration for state management.
 type StateConfig struct {
@@ -117,7 +102,7 @@ type ToolDefinition struct {
 }
 
 // HealthStatus represents the current health of an agent.
-type HealthStatus struct {
+type AgentHealthStatus struct {
 	Status    string                 `json:"status"`
 	LastCheck time.Time              `json:"last_check"`
 	Details   map[string]interface{} `json:"details,omitempty"`

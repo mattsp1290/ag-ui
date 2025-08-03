@@ -84,6 +84,9 @@ const (
 	
 	// ErrorTypePermission indicates insufficient permissions
 	ErrorTypePermission ErrorType = "permission"
+	
+	// ErrorTypeExternal indicates an external service error
+	ErrorTypeExternal ErrorType = "external"
 )
 
 // Severity levels for errors

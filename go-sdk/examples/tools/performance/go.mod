@@ -20,7 +20,7 @@ require (
 )
 
 require (
-	github.com/mattsp1290/ag-ui/go-sdk v0.0.0-00010101000000-000000000000 // indirect
+	github.com/mattsp1290/ag-ui/go-sdk v0.1.0 // indirect
 	golang.org/x/net v0.38.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
 )

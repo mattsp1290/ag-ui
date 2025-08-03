@@ -202,8 +202,10 @@ func (pe *PipelineExecutor) executeSingleAttempt(ctx context.Context, pipelineCt
 // executeValidatorsParallel executes validators in parallel
 func (pe *PipelineExecutor) executeValidatorsParallel(ctx context.Context, pipelineCtx *PipelineContext, stage *ValidationStage, result *StageResult) error {
 	var wg sync.WaitGroup
-	resultsChan := make(chan *OrchestrationValidationResult, len(stage.Validators))
-	errorsChan := make(chan error, len(stage.Validators))
+	var resultMutex sync.Mutex
+	
+	// Track if any validation errors occurred
+	hasErrors := false
 
 	// Execute validators concurrently
 	for _, validator := range stage.Validators {
@@ -212,34 +214,26 @@ func (pe *PipelineExecutor) executeValidatorsParallel(ctx context.Context, pipel
 			defer wg.Done()
 
 			valResult, err := pe.executeValidator(ctx, v, pipelineCtx)
+			
+			// Safely append results and errors with mutex protection
+			resultMutex.Lock()
+			defer resultMutex.Unlock()
+			
 			if err != nil {
-				errorsChan <- err
+				result.Errors = append(result.Errors, err)
+				hasErrors = true
 				return
 			}
 
-			resultsChan <- valResult
+			result.Results = append(result.Results, valResult)
+			if !valResult.IsValid {
+				hasErrors = true
+			}
 		}(validator)
 	}
 
 	// Wait for completion
 	wg.Wait()
-	close(resultsChan)
-	close(errorsChan)
-
-	// Collect results
-	hasErrors := false
-	for valResult := range resultsChan {
-		result.Results = append(result.Results, valResult)
-		if !valResult.IsValid {
-			hasErrors = true
-		}
-	}
-
-	// Collect errors
-	for err := range errorsChan {
-		result.Errors = append(result.Errors, err)
-		hasErrors = true
-	}
 
 	if hasErrors && stage.OnFailure == StopPipeline {
 		return fmt.Errorf("validation failed in stage: %s", stage.ID)

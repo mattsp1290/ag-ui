@@ -33,7 +33,7 @@ type BaseAgent struct {
 	// Metrics and monitoring
 	metrics      AgentMetrics
 	metricsMu    sync.RWMutex
-	healthStatus HealthStatus
+	healthStatus AgentHealthStatus
 	healthMu     sync.RWMutex
 	
 	// Tool execution framework
@@ -62,7 +62,7 @@ func NewBaseAgent(name, description string) *BaseAgent {
 		metrics: AgentMetrics{
 			StartTime: time.Now(),
 		},
-		healthStatus: HealthStatus{
+		healthStatus: AgentHealthStatus{
 			Status:    "uninitialized",
 			LastCheck: time.Now(),
 			Details:   make(map[string]interface{}),
@@ -1040,12 +1040,12 @@ func (a *BaseAgent) Capabilities() AgentCapabilities {
 }
 
 // Health returns the current health status of the agent.
-func (a *BaseAgent) Health() HealthStatus {
+func (a *BaseAgent) Health() AgentHealthStatus {
 	a.healthMu.RLock()
 	defer a.healthMu.RUnlock()
 	
 	// Create a new health status with efficient copying
-	health := HealthStatus{
+	health := AgentHealthStatus{
 		Status:    a.healthStatus.Status,
 		LastCheck: a.healthStatus.LastCheck,
 		Details:   make(map[string]interface{}, len(a.healthStatus.Details)+4),

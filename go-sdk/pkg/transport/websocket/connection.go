@@ -17,8 +17,8 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 
-	"github.com/ag-ui/go-sdk/pkg/core"
-	"github.com/ag-ui/go-sdk/pkg/internal/timeconfig"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/internal/timeconfig"
 )
 
 
@@ -1032,7 +1032,19 @@ func (c *Connection) LastError() error {
 func (c *Connection) GetMetrics() ConnectionMetrics {
 	c.metrics.mutex.RLock()
 	defer c.metrics.mutex.RUnlock()
-	return *c.metrics
+	return ConnectionMetrics{
+		ConnectAttempts:    c.metrics.ConnectAttempts,
+		SuccessfulConnects: c.metrics.SuccessfulConnects,
+		Disconnects:        c.metrics.Disconnects,
+		ReconnectAttempts:  c.metrics.ReconnectAttempts,
+		MessagesReceived:   c.metrics.MessagesReceived,
+		MessagesSent:       c.metrics.MessagesSent,
+		BytesReceived:      c.metrics.BytesReceived,
+		BytesSent:          c.metrics.BytesSent,
+		Errors:             c.metrics.Errors,
+		LastConnected:      c.metrics.LastConnected,
+		LastDisconnected:   c.metrics.LastDisconnected,
+	}
 }
 
 // SetOnConnect sets the connect handler

@@ -1,17 +1,17 @@
-module github.com/ag-ui/go-sdk/examples/tools/streaming
+module github.com/mattsp1290/ag-ui/go-sdk/examples/tools/streaming
 
 go 1.24.4
 
-replace github.com/ag-ui/go-sdk => ../../../
+replace github.com/mattsp1290/ag-ui/go-sdk => ../../../
 
-replace github.com/ag-ui/go-sdk/examples/tools/streaming/data-processor => ./data-processor
+replace github.com/mattsp1290/ag-ui/go-sdk/examples/tools/streaming/data-processor => ./data-processor
 
-replace github.com/ag-ui/go-sdk/examples/tools/streaming/log-streaming => ./log-streaming
+replace github.com/mattsp1290/ag-ui/go-sdk/examples/tools/streaming/log-streaming => ./log-streaming
 
 require (
-	github.com/ag-ui/go-sdk v0.1.0
-	github.com/ag-ui/go-sdk/examples/tools/streaming/data-processor v0.0.0-00010101000000-000000000000
-	github.com/ag-ui/go-sdk/examples/tools/streaming/log-streaming v0.0.0-00010101000000-000000000000
+	github.com/mattsp1290/ag-ui/go-sdk v0.1.0
+	github.com/mattsp1290/ag-ui/go-sdk/examples/tools/streaming/data-processor v0.0.0-00010101000000-000000000000
+	github.com/mattsp1290/ag-ui/go-sdk/examples/tools/streaming/log-streaming v0.0.0-00010101000000-000000000000
 	github.com/stretchr/testify v1.10.0
 )
 

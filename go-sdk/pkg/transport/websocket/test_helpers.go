@@ -19,7 +19,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 
-	testutils "github.com/ag-ui/go-sdk/pkg/testing"
+	testutils "github.com/mattsp1290/ag-ui/go-sdk/pkg/testing"
 )
 
 // ReliableTestServer provides a WebSocket server designed for reliable testing

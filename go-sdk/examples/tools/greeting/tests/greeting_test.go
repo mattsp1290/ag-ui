@@ -9,7 +9,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/ag-ui/go-sdk/pkg/tools"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools"
 )
 
 // MockGreetingExecutor provides a testable version of the greeting tool

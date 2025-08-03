@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 	
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // TransportFactory creates transport instances based on configuration.
@@ -911,7 +911,14 @@ func (m *DefaultTransportManager) GetMapCleanupMetrics() MapCleanupMetrics {
 	defer m.mapCleanupMetrics.mu.RUnlock()
 
 	// Return a copy to prevent external modification
-	return *m.mapCleanupMetrics
+	return MapCleanupMetrics{
+		TotalCleanups:       m.mapCleanupMetrics.TotalCleanups,
+		TransportsRemoved:   m.mapCleanupMetrics.TransportsRemoved,
+		TransportsRetained:  m.mapCleanupMetrics.TransportsRetained,
+		LastCleanupDuration: m.mapCleanupMetrics.LastCleanupDuration,
+		LastCleanupTime:     m.mapCleanupMetrics.LastCleanupTime,
+		CleanupErrors:       m.mapCleanupMetrics.CleanupErrors,
+	}
 }
 
 // TriggerManualCleanup manually triggers a cleanup operation

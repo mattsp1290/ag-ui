@@ -3,11 +3,11 @@ package encoding_test
 import (
 	"testing"
 
-	"github.com/ag-ui/go-sdk/pkg/encoding"
-	"github.com/ag-ui/go-sdk/pkg/encoding/json"
-	_ "github.com/ag-ui/go-sdk/pkg/encoding/json" // Register JSON codec
-	"github.com/ag-ui/go-sdk/pkg/encoding/protobuf"
-	_ "github.com/ag-ui/go-sdk/pkg/encoding/protobuf" // Register Protobuf codec
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/json"
+	_ "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/json" // Register JSON codec
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/protobuf"
+	_ "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/protobuf" // Register Protobuf codec
 )
 
 // TestRegistryInitializationPatterns demonstrates proper patterns for registry initialization

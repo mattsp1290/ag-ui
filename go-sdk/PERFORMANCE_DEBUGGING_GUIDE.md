@@ -160,7 +160,7 @@ import (
     "runtime/pprof"
     "time"
     
-    "github.com/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 func enableCPUProfiling() {
@@ -219,7 +219,7 @@ import (
     "runtime"
     "time"
     
-    "github.com/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 func analyzeCPUHotspots() {
@@ -420,7 +420,7 @@ import (
     "runtime"
     "time"
     
-    "github.com/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 type MemoryAnalyzer struct {
@@ -777,7 +777,7 @@ import (
     "sync/atomic"
     "time"
     
-    "github.com/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 type ConcurrencyTester struct {
@@ -1136,7 +1136,7 @@ import (
     "fmt"
     "time"
     
-    "github.com/ag-ui/go-sdk/pkg/core/events/cache"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/cache"
 )
 
 type CachePerformanceAnalyzer struct {
@@ -1397,7 +1397,7 @@ import (
     "testing"
     "time"
     
-    "github.com/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 type BenchmarkSuite struct {

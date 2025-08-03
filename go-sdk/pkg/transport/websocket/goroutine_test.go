@@ -15,8 +15,8 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	sdktesting "github.com/ag-ui/go-sdk/pkg/testing"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	sdktesting "github.com/mattsp1290/ag-ui/go-sdk/pkg/testing"
 )
 
 // TestGoroutineManagement consolidates all goroutine leak tests into comprehensive scenarios

@@ -13,11 +13,11 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/ag-ui/go-sdk/pkg/internal/timeconfig"
-	"github.com/ag-ui/go-sdk/pkg/proto/generated"
-	"github.com/ag-ui/go-sdk/pkg/transport"
-	"github.com/ag-ui/go-sdk/pkg/transport/common"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/internal/timeconfig"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/proto/generated"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport/common"
 )
 
 // Atomic counter for generating unique subscription IDs
@@ -975,7 +975,22 @@ func (t *Transport) Unsubscribe(subscriptionID string) error {
 func (t *Transport) Stats() TransportStats {
 	t.stats.mutex.RLock()
 	defer t.stats.mutex.RUnlock()
-	return *t.stats
+	// Create a copy without the mutex to avoid copying lock value
+	return TransportStats{
+		EventsSent:          t.stats.EventsSent,
+		EventsReceived:      t.stats.EventsReceived,
+		EventsProcessed:     t.stats.EventsProcessed,
+		EventsFailed:        t.stats.EventsFailed,
+		EventsDropped:       t.stats.EventsDropped,
+		ActiveSubscriptions: t.stats.ActiveSubscriptions,
+		TotalSubscriptions:  t.stats.TotalSubscriptions,
+		BytesTransferred:    t.stats.BytesTransferred,
+		AverageLatency:      t.stats.AverageLatency,
+		ActiveGoroutines:    t.stats.ActiveGoroutines,
+		BackpressureEvents:  t.stats.BackpressureEvents,
+		ResourceCleanups:    t.stats.ResourceCleanups,
+		// Note: mutex field is intentionally omitted
+	}
 }
 
 // GetConnectionPoolStats returns the connection pool statistics

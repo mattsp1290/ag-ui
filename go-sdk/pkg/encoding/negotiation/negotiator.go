@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/ag-ui/go-sdk/pkg/errors"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 var (

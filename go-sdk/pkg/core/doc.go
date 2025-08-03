@@ -20,7 +20,7 @@
 //		"log"
 //		"time"
 //
-//		"github.com/ag-ui/go-sdk/pkg/core"
+//		"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
 //	)
 //
 //	// MyAgent implements the core.Agent interface

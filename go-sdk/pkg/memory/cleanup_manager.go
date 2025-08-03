@@ -213,13 +213,25 @@ func (cm *CleanupManager) RunTaskNow(name string) error {
 	return err
 }
 
+// CleanupMetricsData represents a read-only snapshot of cleanup metrics without mutex
+type CleanupMetricsData struct {
+	TotalTasks             int
+	ActiveTasks            int
+	TotalRuns              uint64
+	TotalItemsCleaned      uint64
+	TotalErrors            uint64
+	LastCleanupTime        time.Time
+	AverageCleanupDuration time.Duration
+	TaskMetrics            map[string]*TaskMetrics
+}
+
 // GetMetrics returns current cleanup metrics
-func (cm *CleanupManager) GetMetrics() CleanupMetrics {
+func (cm *CleanupManager) GetMetrics() CleanupMetricsData {
 	cm.metrics.mu.RLock()
 	defer cm.metrics.mu.RUnlock()
 	
 	// Deep copy metrics
-	metrics := CleanupMetrics{
+	metrics := CleanupMetricsData{
 		TotalTasks:             cm.metrics.TotalTasks,
 		ActiveTasks:            cm.metrics.ActiveTasks,
 		TotalRuns:              cm.metrics.TotalRuns,

@@ -7,8 +7,8 @@ import (
 	"os"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/ag-ui/go-sdk/pkg/core/events/distributed"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/distributed"
 )
 
 // ExampleDistributedValidator demonstrates basic usage of the distributed validator

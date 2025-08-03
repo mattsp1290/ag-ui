@@ -18,7 +18,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
 	"github.com/prometheus/client_golang/prometheus"
 	"go.uber.org/zap/zapcore"
 )

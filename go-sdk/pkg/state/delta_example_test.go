@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/ag-ui/go-sdk/pkg/state"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/state"
 )
 
 func ExampleDeltaComputer_ComputeDelta() {

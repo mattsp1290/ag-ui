@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/ag-ui/go-sdk/pkg/encoding"
-	_ "github.com/ag-ui/go-sdk/pkg/encoding/json" // Register JSON codec
-	"github.com/ag-ui/go-sdk/pkg/encoding/negotiation"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding"
+	_ "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/json" // Register JSON codec
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/negotiation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

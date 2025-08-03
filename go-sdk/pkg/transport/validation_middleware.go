@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 	
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // ValidationMiddleware implements middleware for transport validation
@@ -124,20 +124,34 @@ func (m *ValidationMiddleware) GetMetrics() ValidationMetrics {
 	m.metrics.mu.RLock()
 	defer m.metrics.mu.RUnlock()
 	
-	// Deep copy metrics
-	metrics := *m.metrics
-	metrics.ValidationsByType = make(map[string]uint64)
-	metrics.ValidationsByRule = make(map[string]uint64)
+	// Deep copy metrics without copying the mutex
+	validationsByType := make(map[string]uint64)
+	validationsByRule := make(map[string]uint64)
 	
 	for k, v := range m.metrics.ValidationsByType {
-		metrics.ValidationsByType[k] = v
+		validationsByType[k] = v
 	}
 	
 	for k, v := range m.metrics.ValidationsByRule {
-		metrics.ValidationsByRule[k] = v
+		validationsByRule[k] = v
 	}
 	
-	return metrics
+	return ValidationMetrics{
+		TotalValidations:        m.metrics.TotalValidations,
+		SuccessfulValidations:   m.metrics.SuccessfulValidations,
+		FailedValidations:       m.metrics.FailedValidations,
+		ValidationErrors:        m.metrics.ValidationErrors,
+		IncomingValidations:     m.metrics.IncomingValidations,
+		OutgoingValidations:     m.metrics.OutgoingValidations,
+		AverageValidationTime:   m.metrics.AverageValidationTime,
+		MaxValidationTime:       m.metrics.MaxValidationTime,
+		ValidationTimeTotal:     m.metrics.ValidationTimeTotal,
+		ValidationsByType:       validationsByType,
+		ValidationsByRule:       validationsByRule,
+		LastValidationTime:      m.metrics.LastValidationTime,
+		LastValidationError:     m.metrics.LastValidationError,
+		LastValidationErrorTime: m.metrics.LastValidationErrorTime,
+	}
 }
 
 // ResetMetrics resets all validation metrics
@@ -441,20 +455,34 @@ func (vt *ValidationTransport) GetValidationMetrics() ValidationMetrics {
 	vt.metrics.mu.RLock()
 	defer vt.metrics.mu.RUnlock()
 	
-	// Deep copy metrics
-	metrics := *vt.metrics
-	metrics.ValidationsByType = make(map[string]uint64)
-	metrics.ValidationsByRule = make(map[string]uint64)
+	// Deep copy metrics without copying the mutex
+	validationsByType := make(map[string]uint64)
+	validationsByRule := make(map[string]uint64)
 	
 	for k, v := range vt.metrics.ValidationsByType {
-		metrics.ValidationsByType[k] = v
+		validationsByType[k] = v
 	}
 	
 	for k, v := range vt.metrics.ValidationsByRule {
-		metrics.ValidationsByRule[k] = v
+		validationsByRule[k] = v
 	}
 	
-	return metrics
+	return ValidationMetrics{
+		TotalValidations:        vt.metrics.TotalValidations,
+		SuccessfulValidations:   vt.metrics.SuccessfulValidations,
+		FailedValidations:       vt.metrics.FailedValidations,
+		ValidationErrors:        vt.metrics.ValidationErrors,
+		IncomingValidations:     vt.metrics.IncomingValidations,
+		OutgoingValidations:     vt.metrics.OutgoingValidations,
+		AverageValidationTime:   vt.metrics.AverageValidationTime,
+		MaxValidationTime:       vt.metrics.MaxValidationTime,
+		ValidationTimeTotal:     vt.metrics.ValidationTimeTotal,
+		ValidationsByType:       validationsByType,
+		ValidationsByRule:       validationsByRule,
+		LastValidationTime:      vt.metrics.LastValidationTime,
+		LastValidationError:     vt.metrics.LastValidationError,
+		LastValidationErrorTime: vt.metrics.LastValidationErrorTime,
+	}
 }
 
 // UpdateValidationConfig updates the validation configuration

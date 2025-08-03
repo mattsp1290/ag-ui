@@ -72,7 +72,7 @@ This package provides a comprehensive cache-optimized validation system for the 
 ### Basic Setup
 
 ```go
-import "github.com/ag-ui/go-sdk/pkg/core/events/cache"
+import "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/cache"
 
 // Create cache validator
 config := cache.DefaultCacheValidatorConfig()

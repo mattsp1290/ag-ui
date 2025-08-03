@@ -11,8 +11,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	eventerrors "github.com/ag-ui/go-sdk/pkg/core/events/errors"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	eventerrors "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/errors"
 	"github.com/hashicorp/golang-lru/v2"
 )
 

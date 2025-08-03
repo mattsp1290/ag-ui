@@ -7,7 +7,7 @@
 //
 // Example usage:
 //
-//	import "github.com/ag-ui/go-sdk/pkg/middleware"
+//	import "github.com/mattsp1290/ag-ui/go-sdk/pkg/middleware"
 //
 //	// Create logging middleware
 //	logger := middleware.NewLogging()

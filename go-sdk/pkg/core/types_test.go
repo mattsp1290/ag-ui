@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ag-ui/go-sdk/pkg/testhelper"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/testhelper"
 )
 
 func TestEventInterface(t *testing.T) {

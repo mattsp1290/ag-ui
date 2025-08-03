@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	restclient "github.com/ag-ui/go-sdk/examples/tools/external/rest-client"
+	restclient "github.com/mattsp1290/ag-ui/go-sdk/examples/tools/external/rest-client"
 )
 
 func main() {

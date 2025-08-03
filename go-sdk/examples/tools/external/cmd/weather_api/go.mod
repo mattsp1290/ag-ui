@@ -1,7 +1,7 @@
-module github.com/ag-ui/go-sdk/examples/tools/external/cmd/weather_api
+module github.com/mattsp1290/ag-ui/go-sdk/examples/tools/external/cmd/weather_api
 
 go 1.24.4
 
-require github.com/ag-ui/go-sdk/examples/tools/external/weather-api v0.1.0
+require github.com/mattsp1290/ag-ui/go-sdk/examples/tools/external/weather-api v0.1.0
 
-replace github.com/ag-ui/go-sdk/examples/tools/external/weather-api => ../../weather-api
+replace github.com/mattsp1290/ag-ui/go-sdk/examples/tools/external/weather-api => ../../weather-api

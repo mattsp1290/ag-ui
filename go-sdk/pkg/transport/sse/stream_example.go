@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // ExampleEventStreaming demonstrates how to use the EventStream for efficient SSE event streaming

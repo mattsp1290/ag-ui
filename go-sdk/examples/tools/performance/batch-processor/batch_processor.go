@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/tools"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools"
 )
 
 // BatchProcessorTool demonstrates batch processing with performance optimization

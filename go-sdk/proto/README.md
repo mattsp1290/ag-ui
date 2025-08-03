@@ -112,7 +112,7 @@ go run scripts/verify-proto-compatibility.go
 package main
 
 import (
-    "github.com/ag-ui/go-sdk/pkg/proto/generated"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/proto/generated"
     "google.golang.org/protobuf/proto"
     "google.golang.org/protobuf/encoding/protojson"
 )

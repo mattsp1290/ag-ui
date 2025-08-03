@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	calculator "github.com/ag-ui/go-sdk/examples/tools/calculator"
+	calculator "github.com/mattsp1290/ag-ui/go-sdk/examples/tools/calculator"
 )
 
 func main() {

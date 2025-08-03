@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 	
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // BackpressureStrategy defines how backpressure should be handled
@@ -186,7 +186,18 @@ func (h *BackpressureHandler) Channels() (<-chan events.Event, <-chan error) {
 func (h *BackpressureHandler) GetMetrics() BackpressureMetrics {
 	h.metrics.mu.RLock()
 	defer h.metrics.mu.RUnlock()
-	return *h.metrics
+	return BackpressureMetrics{
+		EventsDropped:         h.metrics.EventsDropped,
+		EventsBlocked:         h.metrics.EventsBlocked,
+		BlockedDuration:       h.metrics.BlockedDuration,
+		CurrentBufferSize:     h.metrics.CurrentBufferSize,
+		MaxBufferSize:         h.metrics.MaxBufferSize,
+		HighWaterMarkHits:     h.metrics.HighWaterMarkHits,
+		LowWaterMarkHits:      h.metrics.LowWaterMarkHits,
+		LastDropTime:          h.metrics.LastDropTime,
+		LastBlockTime:         h.metrics.LastBlockTime,
+		BackpressureActive:    h.metrics.BackpressureActive,
+	}
 }
 
 // Stop stops the backpressure handler

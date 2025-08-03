@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core"
-	pkgerrors "github.com/ag-ui/go-sdk/pkg/errors"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
+	pkgerrors "github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 // Server represents an AG-UI server that can host multiple agents.

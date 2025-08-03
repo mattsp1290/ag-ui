@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -119,13 +120,7 @@ type RegressionThresholds struct {
 	LatencyRegression      float64 // Percentage
 }
 
-// AlertChannel defines alert notification channels
-type AlertChannel struct {
-	Type     string            // "slack", "email", "teams", "webhook"
-	Config   map[string]string // Channel-specific configuration
-	Enabled  bool
-	Severity []string          // Alert severities to send
-}
+// AlertChannel is defined in missing_types.go
 
 // AlertThresholds defines when alerts should be triggered
 type AlertThresholds struct {
@@ -349,19 +344,7 @@ type BaselineManager struct {
 	cachedBaselines map[string]*PerformanceBaseline
 }
 
-// BaselineStorage defines interface for baseline storage
-type BaselineStorage interface {
-	Store(key string, baseline *PerformanceBaseline) error
-	Load(key string) (*PerformanceBaseline, error)
-	List(prefix string) ([]string, error)
-	Delete(key string) error
-	Exists(key string) bool
-}
-
-// FilesystemBaselineStorage implements filesystem-based baseline storage
-type FilesystemBaselineStorage struct {
-	basePath string
-}
+// BaselineStorage and FilesystemBaselineStorage are defined in missing_types.go
 
 // CIReportGenerator generates CI/CD performance reports
 type CIReportGenerator struct {
@@ -894,13 +877,18 @@ func (framework *CIPerformanceTestFramework) runExecutionEngineTest(t *testing.T
 					return
 				default:
 					// Add a small delay to prevent tight loops from consuming too much CPU
-					time.Sleep(100 * time.Microsecond)
+					time.Sleep(time.Millisecond)
 					
 					// Check cancellation again after sleep
 					select {
 					case <-testCtx.Done():
 						return
 					default:
+					}
+					
+					// Limit operations per worker to prevent runaway loops
+					if localOps >= 1000 {
+						return
 					}
 					
 					tool := tools[localOps%int64(len(tools))]
@@ -1100,6 +1088,11 @@ func (framework *CIPerformanceTestFramework) runConcurrencyScalabilityTest(t *te
 					default:
 					}
 					
+					// Limit operations per worker to prevent runaway loops
+					if localOps >= 500 {
+						return
+					}
+					
 					tool := tools[localOps%int64(len(tools))]
 					_, err := engine.Execute(ctx, tool.ID, map[string]interface{}{
 						"input": fmt.Sprintf("scalability-test-%d", workerID),
@@ -1289,6 +1282,11 @@ func (framework *CIPerformanceTestFramework) runStressTest(t *testing.T) *CITest
 					default:
 					}
 					
+					// Limit operations per worker to prevent runaway loops
+					if localOps >= 300 {
+						return
+					}
+					
 					// Use local operation count to avoid race in tool selection
 					tool := tools[localOps%int64(len(tools))]
 					_, err := engine.Execute(ctx, tool.ID, map[string]interface{}{
@@ -1437,6 +1435,58 @@ func collectSystemInfo() *SystemInfo {
 		CPUCount:     runtime.NumCPU(),
 		GoVersion:    runtime.Version(),
 		Environment:  make(map[string]string),
+	}
+}
+
+// ResponseTimeMetrics contains response time statistics
+type ResponseTimeMetrics struct {
+	Mean   time.Duration
+	P50    time.Duration
+	P95    time.Duration
+	P99    time.Duration
+	P999   time.Duration
+	Min    time.Duration
+	Max    time.Duration
+}
+
+// calculateResponseTimeMetrics calculates response time metrics from a slice of durations
+func calculateResponseTimeMetrics(responseTimes []time.Duration) *ResponseTimeMetrics {
+	if len(responseTimes) == 0 {
+		return &ResponseTimeMetrics{}
+	}
+	
+	// Sort response times for percentile calculations
+	sorted := make([]time.Duration, len(responseTimes))
+	copy(sorted, responseTimes)
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i] < sorted[j]
+	})
+	
+	// Calculate mean
+	var total time.Duration
+	for _, rt := range responseTimes {
+		total += rt
+	}
+	mean := total / time.Duration(len(responseTimes))
+	
+	// Calculate percentiles
+	n := len(sorted)
+	p50 := sorted[n/2]
+	p95 := sorted[int(float64(n)*0.95)]
+	p99 := sorted[int(float64(n)*0.99)]
+	p999 := sorted[int(float64(n)*0.999)]
+	if int(float64(n)*0.999) >= n {
+		p999 = sorted[n-1]
+	}
+	
+	return &ResponseTimeMetrics{
+		Mean: mean,
+		P50:  p50,
+		P95:  p95,
+		P99:  p99,
+		P999: p999,
+		Min:  sorted[0],
+		Max:  sorted[n-1],
 	}
 }
 

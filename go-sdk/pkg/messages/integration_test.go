@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/ag-ui/go-sdk/pkg/messages"
-	"github.com/ag-ui/go-sdk/pkg/messages/providers"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/messages"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/messages/providers"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

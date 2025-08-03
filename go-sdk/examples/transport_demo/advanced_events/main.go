@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/transport"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport"
 )
 
 func main() {

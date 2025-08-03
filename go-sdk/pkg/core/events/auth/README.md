@@ -19,8 +19,8 @@ The authentication system provides:
 
 ```go
 import (
-    "github.com/ag-ui/go-sdk/pkg/core/events"
-    "github.com/ag-ui/go-sdk/pkg/core/events/auth"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/auth"
 )
 
 // Create an authenticated validator

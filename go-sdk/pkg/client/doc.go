@@ -9,7 +9,7 @@
 //
 // Example usage:
 //
-//	import "github.com/ag-ui/go-sdk/pkg/client"
+//	import "github.com/mattsp1290/ag-ui/go-sdk/pkg/client"
 //
 //	// Create a new client
 //	c, err := client.New("http://localhost:8080/ag-ui")

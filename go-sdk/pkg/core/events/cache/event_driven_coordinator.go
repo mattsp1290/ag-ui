@@ -6,7 +6,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // EventDrivenCoordinator coordinates cache operations using event-driven architecture

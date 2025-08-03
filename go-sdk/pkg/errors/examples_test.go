@@ -6,7 +6,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/errors"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 // Example_basicErrorTypes demonstrates the use of custom error types

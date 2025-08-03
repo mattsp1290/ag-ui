@@ -1,8 +1,8 @@
-module github.com/ag-ui/go-sdk/examples/state/basic_state_sync
+module github.com/mattsp1290/ag-ui/go-sdk/examples/state/basic_state_sync
 
 go 1.24.4
 
-require github.com/ag-ui/go-sdk v0.0.0
+require github.com/mattsp1290/ag-ui/go-sdk v0.0.0
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -29,4 +29,4 @@ require (
 	google.golang.org/protobuf v1.36.6 // indirect
 )
 
-replace github.com/ag-ui/go-sdk => ../../../
+replace github.com/mattsp1290/ag-ui/go-sdk => ../../../

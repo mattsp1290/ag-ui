@@ -229,7 +229,7 @@ The system is designed to be easily extensible:
 
 Verify test mode detection:
 ```go
-import "github.com/ag-ui/go-sdk/pkg/internal/timeconfig"
+import "github.com/mattsp1290/ag-ui/go-sdk/pkg/internal/timeconfig"
 fmt.Printf("Test mode: %v\n", timeconfig.IsTestMode())
 ```
 

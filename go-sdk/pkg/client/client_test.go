@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ag-ui/go-sdk/pkg/client"
-	"github.com/ag-ui/go-sdk/pkg/core"
-	pkgerrors "github.com/ag-ui/go-sdk/pkg/errors"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/client"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
+	pkgerrors "github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 func TestNew(t *testing.T) {

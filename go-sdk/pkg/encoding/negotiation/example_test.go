@@ -5,7 +5,7 @@ import (
 	"log"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/encoding/negotiation"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/negotiation"
 )
 
 func ExampleContentNegotiator_basic() {

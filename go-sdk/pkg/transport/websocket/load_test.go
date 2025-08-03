@@ -21,8 +21,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	testutils "github.com/ag-ui/go-sdk/pkg/testing"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	testutils "github.com/mattsp1290/ag-ui/go-sdk/pkg/testing"
 )
 
 // Load testing functionality has been made very conservative for CI/CD environments.

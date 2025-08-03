@@ -33,7 +33,7 @@ The AG-UI Go SDK client APIs provide a robust foundation for communicating with 
 package main
 
 import (
-    "github.com/ag-ui/go-sdk/pkg/client"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/client"
 )
 
 func main() {
@@ -526,7 +526,7 @@ import (
     "os"
     "time"
     
-    "github.com/ag-ui/go-sdk/pkg/client"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/client"
 )
 
 func main() {

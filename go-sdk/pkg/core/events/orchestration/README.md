@@ -74,7 +74,7 @@ import (
     "context"
     "time"
 
-    "github.com/ag-ui/go-sdk/pkg/core/events/orchestration"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/orchestration"
 )
 
 func main() {

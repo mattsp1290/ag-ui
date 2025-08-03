@@ -9,7 +9,7 @@ import (
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 	
-	"github.com/ag-ui/go-sdk/pkg/internal/timeconfig"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/internal/timeconfig"
 )
 
 // HeartbeatState represents the state of the heartbeat mechanism
@@ -237,7 +237,18 @@ func (h *HeartbeatManager) GetState() HeartbeatState {
 func (h *HeartbeatManager) GetStats() HeartbeatStats {
 	h.stats.mutex.RLock()
 	defer h.stats.mutex.RUnlock()
-	return *h.stats
+	return HeartbeatStats{
+		PingsSent:        h.stats.PingsSent,
+		PongsReceived:    h.stats.PongsReceived,
+		MissedPongs:      h.stats.MissedPongs,
+		HealthChecks:     h.stats.HealthChecks,
+		UnhealthyPeriods: h.stats.UnhealthyPeriods,
+		LastPingAt:       h.stats.LastPingAt,
+		LastPongAt:       h.stats.LastPongAt,
+		AverageRTT:       h.stats.AverageRTT,
+		MinRTT:           h.stats.MinRTT,
+		MaxRTT:           h.stats.MaxRTT,
+	}
 }
 
 // Reset resets the heartbeat state

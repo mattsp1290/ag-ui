@@ -37,7 +37,7 @@
 //
 // # Basic Usage
 //
-//	import "github.com/ag-ui/go-sdk/pkg/core/events"
+//	import "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 //
 //	// Create type-safe events
 //	runEvent := events.NewRunStartedEvent("thread-123", "run-456")

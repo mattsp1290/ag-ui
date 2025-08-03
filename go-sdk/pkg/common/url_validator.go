@@ -7,7 +7,7 @@ import (
 	"net/url"
 	"strings"
 
-	agerrors "github.com/ag-ui/go-sdk/pkg/errors"
+	agerrors "github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 // URLValidationOptions defines options for URL validation

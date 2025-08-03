@@ -15,7 +15,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events/auth"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/auth"
 )
 
 func main() {

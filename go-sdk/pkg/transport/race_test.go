@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // RaceTestTransport is a transport implementation specifically designed for race condition testing
@@ -241,17 +241,22 @@ func (t *RaceTestTransport) GetStats() (connectCount, sendCount, closeCount int6
 
 // TestConcurrentStartStop tests concurrent Start/Stop operations on the manager
 func TestConcurrentStartStop(t *testing.T) {
-	t.Skip("Skipping stress test that causes hanging - focus on core logic tests")
-	const numGoroutines = 5  // Further reduced for faster execution
-	const numIterations = 10 // Further reduced for faster execution
+	// Re-enabled after fixing RWMutex deadlock issues - let's test with reduced load
+	const numGoroutines = 3  // Very conservative for initial testing
+	const numIterations = 5 // Very conservative for initial testing
 	
 	for iteration := 0; iteration < numIterations; iteration++ {
-		manager := NewSimpleManager()
-		transport := NewRaceTestTransport()
-		manager.SetTransport(transport)
-		
-		var wg sync.WaitGroup
-		var startErrors, stopErrors int64
+		t.Run(fmt.Sprintf("iteration_%d", iteration), func(t *testing.T) {
+			// Use test helper for proper isolation and cleanup
+			helper := NewTestManagerHelper(t)
+			defer helper.Cleanup()
+			
+			manager := helper.CreateManager()
+			transport := helper.CreateTransport()
+			manager.SetTransport(transport)
+			
+			var wg sync.WaitGroup
+			var startErrors, stopErrors int64
 		
 		// Use a sync channel to control timing more precisely
 		startReady := make(chan struct{})
@@ -297,22 +302,19 @@ func TestConcurrentStartStop(t *testing.T) {
 			}()
 		}
 		
-		// Signal all goroutines to start at roughly the same time
-		close(startReady)
-		
-		wg.Wait()
-		
-		// Final cleanup with shorter timeout
-		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond) // Reduced from 100ms
-		manager.Stop(ctx)
-		cancel()
-		
-		if startErrors > 0 {
-			t.Errorf("Iteration %d: %d start errors", iteration, startErrors)
-		}
-		if stopErrors > 0 {
-			t.Errorf("Iteration %d: %d stop errors", iteration, stopErrors)
-		}
+			// Signal all goroutines to start at roughly the same time
+			close(startReady)
+			
+			wg.Wait()
+			
+			// Check for errors
+			if startErrors > 0 {
+				t.Errorf("Iteration %d: %d start errors", iteration, startErrors)
+			}
+			if stopErrors > 0 {
+				t.Errorf("Iteration %d: %d stop errors", iteration, stopErrors)
+			}
+		}) // Close subtest
 	}
 }
 

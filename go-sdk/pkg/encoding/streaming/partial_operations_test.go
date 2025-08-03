@@ -8,10 +8,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	agencoding "github.com/ag-ui/go-sdk/pkg/encoding"
-	agjson "github.com/ag-ui/go-sdk/pkg/encoding/json"
-	"github.com/ag-ui/go-sdk/pkg/encoding/validation"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	agencoding "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding"
+	agjson "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/json"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/validation"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )

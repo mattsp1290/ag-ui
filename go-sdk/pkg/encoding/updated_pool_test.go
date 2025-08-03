@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	"github.com/ag-ui/go-sdk/pkg/encoding"
-	_ "github.com/ag-ui/go-sdk/pkg/encoding/json" // Register JSON codec
-	_ "github.com/ag-ui/go-sdk/pkg/encoding/protobuf" // Register Protobuf codec
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding"
+	_ "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/json" // Register JSON codec
+	_ "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/protobuf" // Register Protobuf codec
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -389,70 +389,6 @@ func TestPoolManagerUpdated(t *testing.T) {
 // TestPooledFactoryUpdated tests the updated pooled factory with new interfaces
 func TestPooledFactoryUpdated(t *testing.T) {
 	t.Skip("Skipping test that requires access to unexported fields - needs redesign")
-	return
-	ctx := context.Background()
-	factory := encoding.NewPooledCodecFactory()
-	
-	t.Run("JSONEncoders", func(t *testing.T) {
-		// Set up mock constructors
-		// factory.codecPool.SetJSONEncoderConstructor(func() interface{} {
-		//	return &mockUpdatedPoolEncoder{}
-		// })
-		
-		// Test JSON codec creation
-		codec, err := factory.CreateCodec(ctx, "application/json", &encoding.EncodingOptions{}, &encoding.DecodingOptions{})
-		require.NoError(t, err)
-		require.NotNil(t, codec)
-		
-		// Test interface compliance
-		assert.Equal(t, "application/json", codec.ContentType())
-		
-		// Test encoding
-		event := events.NewTextMessageContentEvent("msg", "content")
-		_, err = codec.Encode(ctx, event)
-		require.NoError(t, err)
-		
-		// Test release
-		if releasable, ok := codec.(interface{ Release() }); ok {
-			releasable.Release()
-		}
-	})
-	
-	t.Run("JSONDecoders", func(t *testing.T) {
-		// TODO: This test needs to be redesigned as codecPool is now unexported
-		// factory.codecPool.SetJSONDecoderConstructor(func() interface{} {
-		//	return &mockUpdatedPoolDecoder{}
-		// })
-		
-		// Test JSON codec creation (for decoding)
-		codec, err := factory.CreateCodec(ctx, "application/json", &encoding.EncodingOptions{}, &encoding.DecodingOptions{})
-		require.NoError(t, err)
-		require.NotNil(t, codec)
-		
-		// Test interface compliance
-		assert.Equal(t, "application/json", codec.ContentType())
-		
-		// Test release
-		if releasable, ok := codec.(interface{ Release() }); ok {
-			releasable.Release()
-		}
-	})
-	
-	t.Run("PoolMetrics", func(t *testing.T) {
-		// Test metrics
-		pool := factory.GetCodecPool()
-		metrics := pool.Metrics()
-		
-		// Should have some activity from previous tests
-		assert.GreaterOrEqual(t, metrics.Gets, int64(0))
-		assert.GreaterOrEqual(t, metrics.Puts, int64(0))
-	})
-	
-	t.Run("UnsupportedFormats", func(t *testing.T) {
-		// Test unsupported format
-		_, err := factory.CreateCodec(ctx, "application/xml", nil, nil)
-		assert.Error(t, err, "Should fail for unsupported format")
-	})
 }
 
 // TestPoolIntegrationUpdated tests pool integration with the encoding system

@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/common"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/common"
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
 )

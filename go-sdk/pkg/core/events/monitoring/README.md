@@ -40,7 +40,7 @@ This package provides enterprise-grade monitoring capabilities for the AG-UI eve
 ### Basic Setup
 
 ```go
-import "github.com/ag-ui/go-sdk/pkg/core/events/monitoring"
+import "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/monitoring"
 
 // Create monitoring integration with default config
 monitor, err := monitoring.NewMonitoringIntegration(nil)

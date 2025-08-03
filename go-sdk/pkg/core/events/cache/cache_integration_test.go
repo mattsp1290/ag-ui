@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
-	eventerrors "github.com/ag-ui/go-sdk/pkg/core/events/errors"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	eventerrors "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/errors"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"

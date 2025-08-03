@@ -63,6 +63,29 @@ var (
 	ErrNegotiationFailed = errors.New("negotiation failed")
 )
 
+// ErrorType represents different categories of errors for agents
+type ErrorType string
+
+const (
+	// ErrorTypeInvalidState indicates an invalid agent state transition
+	ErrorTypeInvalidState ErrorType = "invalid_state"
+	
+	// ErrorTypeUnsupported indicates an unsupported operation
+	ErrorTypeUnsupported ErrorType = "unsupported"
+	
+	// ErrorTypeTimeout indicates a timeout occurred
+	ErrorTypeTimeout ErrorType = "timeout"
+	
+	// ErrorTypeValidation indicates validation failed
+	ErrorTypeValidation ErrorType = "validation"
+	
+	// ErrorTypeNotFound indicates a resource was not found
+	ErrorTypeNotFound ErrorType = "not_found"
+	
+	// ErrorTypePermission indicates insufficient permissions
+	ErrorTypePermission ErrorType = "permission"
+)
+
 // Severity levels for errors
 type Severity int
 
@@ -622,5 +645,58 @@ func (e *SecurityError) WithDetail(key string, value interface{}) *SecurityError
 // WithCause adds an underlying cause to the security error and returns the SecurityError
 func (e *SecurityError) WithCause(cause error) *SecurityError {
 	e.BaseError.Cause = cause
+	return e
+}
+
+// AgentError represents errors specific to agent operations
+type AgentError struct {
+	*BaseError
+	
+	// Type categorizes the error
+	Type ErrorType
+	
+	// Agent identifies which agent encountered the error
+	Agent string
+	
+	// EventID identifies the event being processed when error occurred (if applicable)
+	EventID string
+}
+
+// NewAgentError creates a new agent error
+func NewAgentError(errorType ErrorType, message, agent string) *AgentError {
+	return &AgentError{
+		BaseError: &BaseError{
+			Code:      string(errorType),
+			Message:   message,
+			Severity:  SeverityError,
+			Timestamp: time.Now(),
+			Details:   make(map[string]interface{}),
+		},
+		Type:  errorType,
+		Agent: agent,
+	}
+}
+
+// Error implements the error interface with agent-specific details
+func (e *AgentError) Error() string {
+	base := e.BaseError.Error()
+	if e.Agent != "" {
+		base = fmt.Sprintf("%s (agent: %s)", base, e.Agent)
+	}
+	if e.EventID != "" {
+		base = fmt.Sprintf("%s (event: %s)", base, e.EventID)
+	}
+	return base
+}
+
+// WithAgent sets the agent name
+func (e *AgentError) WithAgent(agent string) *AgentError {
+	e.Agent = agent
+	return e
+}
+
+// WithEventID sets the event ID
+func (e *AgentError) WithEventID(eventID string) *AgentError {
+	e.EventID = eventID
 	return e
 }

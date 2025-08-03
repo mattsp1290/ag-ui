@@ -14,7 +14,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/state"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/state"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.uber.org/zap/zapcore"
 )

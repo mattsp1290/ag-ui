@@ -372,8 +372,16 @@ func (dd *DeadlockDetector) handleDeadlock(cycle []string) {
 	// Collect resource information
 	for _, resourceID := range cycle {
 		if resource, exists := dd.resources[resourceID]; exists {
-			resourceCopy := *resource
-			deadlockInfo.Resources[resourceID] = &resourceCopy
+			resourceCopy := &DeadlockResource{
+				ID:         resource.ID,
+				Type:       resource.Type,
+				Owner:      resource.Owner,
+				Waiters:    append([]string(nil), resource.Waiters...),
+				AcquiredAt: resource.AcquiredAt,
+				StackTrace: resource.StackTrace,
+				acquired:   resource.acquired,
+			}
+			deadlockInfo.Resources[resourceID] = resourceCopy
 			
 			if resource.StackTrace != "" {
 				deadlockInfo.StackTraces[resourceID] = resource.StackTrace
@@ -435,8 +443,16 @@ func (dd *DeadlockDetector) GetResourceInfo(resourceID string) (*DeadlockResourc
 	}
 	
 	// Return a copy
-	resourceCopy := *resource
-	return &resourceCopy, true
+	resourceCopy := &DeadlockResource{
+		ID:         resource.ID,
+		Type:       resource.Type,
+		Owner:      resource.Owner,
+		Waiters:    append([]string(nil), resource.Waiters...),
+		AcquiredAt: resource.AcquiredAt,
+		StackTrace: resource.StackTrace,
+		acquired:   resource.acquired,
+	}
+	return resourceCopy, true
 }
 
 // GetAllResources returns information about all tracked resources
@@ -446,8 +462,16 @@ func (dd *DeadlockDetector) GetAllResources() map[string]*DeadlockResource {
 	
 	resources := make(map[string]*DeadlockResource)
 	for k, v := range dd.resources {
-		resourceCopy := *v
-		resources[k] = &resourceCopy
+		resourceCopy := &DeadlockResource{
+			ID:         v.ID,
+			Type:       v.Type,
+			Owner:      v.Owner,
+			Waiters:    append([]string(nil), v.Waiters...),
+			AcquiredAt: v.AcquiredAt,
+			StackTrace: v.StackTrace,
+			acquired:   v.acquired,
+		}
+		resources[k] = resourceCopy
 	}
 	
 	return resources

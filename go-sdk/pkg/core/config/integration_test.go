@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/di"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/di"
 )
 
 func TestUnifiedConfigurationBasic(t *testing.T) {

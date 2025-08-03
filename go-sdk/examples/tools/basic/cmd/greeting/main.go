@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	greeting "github.com/ag-ui/go-sdk/examples/tools/greeting"
+	greeting "github.com/mattsp1290/ag-ui/go-sdk/examples/tools/greeting"
 )
 
 func main() {

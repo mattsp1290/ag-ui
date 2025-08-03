@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // TestEdgeCaseErrors tests various edge case error scenarios
@@ -190,16 +190,26 @@ func TestEdgeCaseErrors(t *testing.T) {
 			t.Errorf("Expected deadline exceeded, got %v", err)
 		}
 		
+		// Create a new manager for normal operations to avoid state issues
+		manager2 := NewSimpleManager()
+		transport2 := NewErrorTransport()
+		transport2.connectDelay = 0 // No delay for successful connection
+		transport2.sendDelay = 10 * time.Millisecond
+		manager2.SetTransport(transport2)
+		
 		// Start normally
-		manager.Start(context.Background())
-		defer manager.Stop(context.Background())
+		err = manager2.Start(context.Background())
+		if err != nil {
+			t.Fatalf("Failed to start manager: %v", err)
+		}
+		defer manager2.Stop(context.Background())
 		
 		// Send with zero timeout
 		ctx2, cancel2 := context.WithTimeout(context.Background(), 0)
 		defer cancel2()
 		
 		event := &DemoEvent{id: "test", eventType: "demo"}
-		err = manager.Send(ctx2, event)
+		err = manager2.Send(ctx2, event)
 		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Errorf("Expected deadline exceeded on send, got %v", err)
 		}

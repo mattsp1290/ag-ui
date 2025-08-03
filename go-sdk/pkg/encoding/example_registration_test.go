@@ -4,16 +4,16 @@ import (
 	"fmt"
 	"log"
 	
-	"github.com/ag-ui/go-sdk/pkg/encoding"
-	"github.com/ag-ui/go-sdk/pkg/encoding/json"
-	"github.com/ag-ui/go-sdk/pkg/encoding/protobuf"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/json"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/protobuf"
 )
 
 // Example demonstrating the new registration API
 func Example_registration() {
 	// Method 1: Import with side effects (backward compatible)
 	// The init() functions will attempt registration automatically
-	// import _ "github.com/ag-ui/go-sdk/pkg/encoding/json"
+	// import _ "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/json"
 	
 	// Method 2: Explicit registration with error handling
 	if err := json.EnsureRegistered(); err != nil {

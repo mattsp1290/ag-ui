@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/ag-ui/go-sdk/pkg/di"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/di"
 )
 
 // ValidatorFactory provides a high-level API for creating validators with unified configuration

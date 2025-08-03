@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ag-ui/go-sdk/pkg/encoding/negotiation"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/negotiation"
 )
 
 // Example of how to integrate content negotiation with an HTTP handler

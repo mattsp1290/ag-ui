@@ -37,8 +37,8 @@ If you're simply importing the encoding packages, **no changes are required**:
 
 ```go
 import (
-    _ "github.com/ag-ui/go-sdk/pkg/encoding/json"
-    _ "github.com/ag-ui/go-sdk/pkg/encoding/protobuf"
+    _ "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/json"
+    _ "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/protobuf"
 )
 ```
 
@@ -51,8 +51,8 @@ If your application needs to ensure codecs are properly registered:
 ```go
 import (
     "log"
-    "github.com/ag-ui/go-sdk/pkg/encoding/json"
-    "github.com/ag-ui/go-sdk/pkg/encoding/protobuf"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/json"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/protobuf"
 )
 
 func main() {
@@ -97,7 +97,7 @@ package mylib
 
 import (
     "sync"
-    "github.com/ag-ui/go-sdk/pkg/encoding/json"
+    "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/json"
 )
 
 var initOnce sync.Once

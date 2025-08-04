@@ -48,6 +48,7 @@ type ExecutionEngine struct {
 	// Concurrency control - channel-based semaphore (RACE CONDITION FIX)
 	concurrencySemaphore chan struct{} // Buffered channel acts as semaphore
 	executions           sync.Map      // Active execution tracking
+	activeExecutions     atomic.Int64  // Thread-safe active execution counter
 
 	// Metrics
 	metrics *ExecutionMetrics
@@ -253,7 +254,13 @@ func (e *ExecutionEngine) Execute(ctx context.Context, toolID string, params map
 			WithToolID(toolID).
 			WithCause(ctx.Err())
 	}
-	defer func() { <-e.concurrencySemaphore }() // Release slot
+	
+	// Increment active execution counter atomically
+	e.activeExecutions.Add(1)
+	defer func() { 
+		<-e.concurrencySemaphore // Release slot
+		e.activeExecutions.Add(-1) // Decrement counter
+	}()
 
 	// Validate parameters
 	validator := NewSchemaValidator(toolView.GetSchema())
@@ -412,7 +419,13 @@ func (e *ExecutionEngine) ExecuteStream(ctx context.Context, toolID string, para
 			WithToolID(toolID).
 			WithCause(ctx.Err())
 	}
-	defer func() { <-e.concurrencySemaphore }() // Release slot
+	
+	// Increment active execution counter atomically
+	e.activeExecutions.Add(1)
+	defer func() { 
+		<-e.concurrencySemaphore // Release slot
+		e.activeExecutions.Add(-1) // Decrement counter
+	}()
 
 	// Set up execution context with timeout
 	timeout := e.defaultTimeout
@@ -674,8 +687,8 @@ func (e *ExecutionEngine) AddAfterExecuteHook(hook ExecutionHook) {
 // GetActiveExecutions returns the number of active executions (RACE CONDITION FIX).
 // This is useful for monitoring system load and debugging.
 func (e *ExecutionEngine) GetActiveExecutions() int {
-	// Channel length represents current active executions
-	return len(e.concurrencySemaphore)
+	// Use atomic counter for thread-safe access
+	return int(e.activeExecutions.Load())
 }
 
 // IsExecuting checks if a specific tool is currently executing (FIXED).

@@ -45,10 +45,11 @@ type HTTPConnectionPool struct {
 	isShutdown   int32
 	
 	// Background goroutines
-	cleanupTicker  *time.Ticker
-	metricsTicker  *time.Ticker
-	healthTicker   *time.Ticker
-	workerGroup    sync.WaitGroup
+	cleanupTicker    *time.Ticker
+	metricsTicker    *time.Ticker
+	healthTicker     *time.Ticker
+	monitoringTicker *time.Ticker
+	workerGroup      sync.WaitGroup
 	
 	// Connection semaphore for global limiting
 	connSemaphore *semaphore.Weighted
@@ -82,8 +83,9 @@ type HTTPPoolConfig struct {
 	LoadBalanceStrategy LoadBalanceStrategy `json:"load_balance_strategy" default:"round_robin"`
 	
 	// Cleanup and monitoring
-	CleanupInterval time.Duration `json:"cleanup_interval" default:"1m"`
-	MetricsInterval time.Duration `json:"metrics_interval" default:"10s"`
+	CleanupInterval   time.Duration `json:"cleanup_interval" default:"1m"`
+	MetricsInterval   time.Duration `json:"metrics_interval" default:"10s"`
+	MonitoringInterval time.Duration `json:"monitoring_interval" default:"30s"`
 	
 	// TLS configuration
 	TLSConfig *tls.Config `json:"-"`
@@ -653,6 +655,9 @@ func (p *HTTPConnectionPool) Shutdown(ctx context.Context) error {
 	if p.healthTicker != nil {
 		p.healthTicker.Stop()
 	}
+	if p.monitoringTicker != nil {
+		p.monitoringTicker.Stop()
+	}
 	
 	// Wait for background workers to finish
 	done := make(chan struct{})
@@ -1063,6 +1068,9 @@ func (p *HTTPConnectionPool) startBackgroundWorkers() {
 			}
 		}
 	}()
+	
+	// Start monitoring worker
+	p.startMonitoring()
 }
 
 func (p *HTTPConnectionPool) performCleanup() {
@@ -1342,6 +1350,7 @@ func DefaultHTTPPoolConfig() *HTTPPoolConfig {
 		LoadBalanceStrategy:     RoundRobin,
 		CleanupInterval:         1 * time.Minute,
 		MetricsInterval:         10 * time.Second,
+		MonitoringInterval:      30 * time.Second,
 		DisableKeepAlives:       false,
 		DisableCompression:      false,
 		MaxResponseHeaderSize:   1048576, // 1MB
@@ -1451,6 +1460,9 @@ func mergeWithDefaults(config *HTTPPoolConfig) *HTTPPoolConfig {
 	if config.MetricsInterval == 0 {
 		config.MetricsInterval = defaults.MetricsInterval
 	}
+	if config.MonitoringInterval == 0 {
+		config.MonitoringInterval = defaults.MonitoringInterval
+	}
 	if config.MaxResponseHeaderSize == 0 {
 		config.MaxResponseHeaderSize = defaults.MaxResponseHeaderSize
 	}
@@ -1462,4 +1474,207 @@ func mergeWithDefaults(config *HTTPPoolConfig) *HTTPPoolConfig {
 	}
 	
 	return config
+}
+
+// Monitoring and alerting methods
+
+// startMonitoring starts the comprehensive monitoring goroutine
+func (p *HTTPConnectionPool) startMonitoring() {
+	logrus.WithFields(logrus.Fields{
+		"monitoring_interval": p.config.MonitoringInterval,
+		"component":          "ConnectionPool",
+	}).Debug("Starting connection pool monitoring")
+
+	p.monitoringTicker = time.NewTicker(p.config.MonitoringInterval)
+	p.workerGroup.Add(1)
+	go func() {
+		defer p.workerGroup.Done()
+		defer logrus.WithFields(logrus.Fields{
+			"component": "ConnectionPool",
+		}).Debug("Connection pool monitoring stopped")
+
+		for {
+			select {
+			case <-p.shutdown:
+				return
+			case <-p.monitoringTicker.C:
+				p.logPoolMetrics()
+				p.checkPoolHealth()
+			}
+		}
+	}()
+}
+
+// logPoolMetrics logs comprehensive pool metrics with structured fields
+func (p *HTTPConnectionPool) logPoolMetrics() {
+	poolCount := p.pools.Len()
+	totalConnections := p.getTotalConnectionCount()
+	utilizationPercentage := float64(0)
+	
+	if p.config.MaxTotalConnections > 0 {
+		utilizationPercentage = (float64(totalConnections) / float64(p.config.MaxTotalConnections)) * 100
+	}
+
+	// Get server statistics
+	p.serversMu.RLock()
+	healthyServers := 0
+	unhealthyServers := 0
+	for _, server := range p.servers {
+		server.mu.RLock()
+		if server.IsHealthy {
+			healthyServers++
+		} else {
+			unhealthyServers++
+		}
+		server.mu.RUnlock()
+	}
+	p.serversMu.RUnlock()
+
+	// Log general pool metrics
+	logrus.WithFields(logrus.Fields{
+		"component":             "ConnectionPool",
+		"pool_count":            poolCount,
+		"total_connections":     totalConnections,
+		"max_connections":       p.config.MaxTotalConnections,
+		"utilization_percent":   utilizationPercentage,
+		"healthy_servers":       healthyServers,
+		"unhealthy_servers":     unhealthyServers,
+		"total_requests":        atomic.LoadInt64(&p.metrics.TotalRequests),
+		"successful_requests":   atomic.LoadInt64(&p.metrics.SuccessfulRequests),
+		"failed_requests":       atomic.LoadInt64(&p.metrics.FailedRequests),
+		"connections_created":   atomic.LoadInt64(&p.metrics.ConnectionsCreated),
+		"connections_destroyed": atomic.LoadInt64(&p.metrics.ConnectionsDestroyed),
+		"connections_reused":    atomic.LoadInt64(&p.metrics.ConnectionsReused),
+	}).Info("Connection pool metrics")
+
+	// Check for high utilization alert
+	if utilizationPercentage >= 80.0 {
+		logrus.WithFields(logrus.Fields{
+			"component":           "ConnectionPool",
+			"utilization_percent": utilizationPercentage,
+			"total_connections":   totalConnections,
+			"max_connections":     p.config.MaxTotalConnections,
+			"alert":              "HIGH_UTILIZATION",
+		}).Warn("Connection pool utilization exceeds 80% threshold")
+	}
+}
+
+// checkPoolHealth identifies and removes unhealthy pools
+func (p *HTTPConnectionPool) checkPoolHealth() {
+	p.poolsMu.RLock()
+	poolKeys := p.pools.Keys()
+	p.poolsMu.RUnlock()
+
+	unhealthyPools := make([]string, 0)
+
+	for _, keyInterface := range poolKeys {
+		key, ok := keyInterface.(string)
+		if !ok {
+			continue
+		}
+
+		p.poolsMu.RLock()
+		poolInterface, exists := p.pools.Get(key)
+		p.poolsMu.RUnlock()
+
+		if !exists {
+			continue
+		}
+
+		pool, ok := poolInterface.(*serverPool)
+		if !ok {
+			continue
+		}
+
+		// Check if pool is unhealthy (e.g., old, unused, or has errors)
+		isUnhealthy := false
+		
+		// Check if pool is too old and unused
+		if time.Since(pool.created) > p.config.BoundedPool.ServerPoolTTL {
+			activeConns := atomic.LoadInt64(&pool.activeConns)
+			if activeConns == 0 {
+				isUnhealthy = true
+				logrus.WithFields(logrus.Fields{
+					"component": "ConnectionPool",
+					"server_url": key,
+					"reason": "pool_expired_and_unused",
+					"age": time.Since(pool.created),
+					"active_connections": activeConns,
+				}).Debug("Identified unhealthy pool for cleanup")
+			}
+		}
+
+		// Check if corresponding server is unhealthy
+		p.serversMu.RLock()
+		for _, server := range p.servers {
+			if server.URL.String() == key && !server.IsHealthy {
+				server.mu.RLock()
+				failureCount := server.FailureCount
+				lastHealthCheck := server.LastHealthCheck
+				server.mu.RUnlock()
+				
+				// If server has been unhealthy for too long, mark pool as unhealthy
+				if failureCount >= p.config.UnhealthyThreshold && 
+				   time.Since(lastHealthCheck) > p.config.HealthCheckInterval*5 {
+					isUnhealthy = true
+					logrus.WithFields(logrus.Fields{
+						"component": "ConnectionPool",
+						"server_url": key,
+						"reason": "server_unhealthy_too_long",
+						"failure_count": failureCount,
+						"last_health_check": lastHealthCheck,
+					}).Debug("Identified unhealthy pool due to server health")
+				}
+				break
+			}
+		}
+		p.serversMu.RUnlock()
+
+		if isUnhealthy {
+			unhealthyPools = append(unhealthyPools, key)
+		}
+	}
+
+	// Clean up unhealthy pools
+	for _, poolKey := range unhealthyPools {
+		p.poolsMu.Lock()
+		if poolInterface, exists := p.pools.Get(poolKey); exists {
+			if pool, ok := poolInterface.(*serverPool); ok {
+				p.closeServerPool(pool)
+				p.pools.Delete(poolKey)
+				
+				logrus.WithFields(logrus.Fields{
+					"component": "ConnectionPool",
+					"server_url": poolKey,
+				}).Info("Cleaned up unhealthy pool")
+			}
+		}
+		p.poolsMu.Unlock()
+	}
+}
+
+// getTotalConnectionCount returns the total number of active connections across all pools
+func (p *HTTPConnectionPool) getTotalConnectionCount() int64 {
+	var totalConnections int64
+
+	p.poolsMu.RLock()
+	poolKeys := p.pools.Keys()
+	p.poolsMu.RUnlock()
+
+	for _, keyInterface := range poolKeys {
+		p.poolsMu.RLock()
+		poolInterface, exists := p.pools.Get(keyInterface)
+		p.poolsMu.RUnlock()
+
+		if !exists {
+			continue
+		}
+
+		if pool, ok := poolInterface.(*serverPool); ok {
+			activeConns := atomic.LoadInt64(&pool.activeConns)
+			totalConnections += activeConns
+		}
+	}
+
+	return totalConnections
 }

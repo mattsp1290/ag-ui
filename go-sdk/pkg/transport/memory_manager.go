@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/mattsp1290/ag-ui/go-sdk/internal"
 	"go.uber.org/zap"
 )
 
@@ -37,6 +38,7 @@ type MemoryManager struct {
 	// Callbacks for memory pressure events
 	onMemoryPressure []func(level MemoryPressureLevel)
 	callbacksMutex   sync.RWMutex
+	callbackPool     *internal.CallbackPool
 	
 	// Metrics
 	metrics *MemoryMetrics
@@ -129,6 +131,7 @@ func NewMemoryManager(config *MemoryManagerConfig) *MemoryManager {
 			PressureEvents: make(map[MemoryPressureLevel]uint64),
 		},
 		onMemoryPressure: make([]func(MemoryPressureLevel), 0),
+		callbackPool:     internal.NewCallbackPool(0), // Use default worker count
 	}
 
 	// Initialize current memory usage
@@ -159,6 +162,11 @@ func (mm *MemoryManager) Stop() {
 		// All monitoring goroutines finished
 	case <-time.After(3 * time.Second):
 		// Timeout waiting for monitoring goroutines - proceed anyway
+	}
+	
+	// Stop callback pool
+	if mm.callbackPool != nil {
+		mm.callbackPool.Stop()
 	}
 }
 
@@ -336,7 +344,10 @@ func (mm *MemoryManager) notifyPressureChange(level MemoryPressureLevel) {
 	mm.callbacksMutex.RUnlock()
 
 	for _, callback := range callbacks {
-		go callback(level)
+		cb := callback // Capture for closure
+		mm.callbackPool.Submit(func() {
+			cb(level)
+		})
 	}
 }
 

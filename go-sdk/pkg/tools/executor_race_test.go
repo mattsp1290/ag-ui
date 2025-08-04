@@ -493,3 +493,273 @@ func (c *concurrencyTrackingExecutor) Execute(ctx context.Context, params map[st
 		Data:    map[string]interface{}{"result": "success"},
 	}, nil
 }
+
+// Test the race condition fix with atomic counters under extreme concurrent load
+func TestExecutorAtomicCounterRaceFix(t *testing.T) {
+	registry := NewRegistry()
+	tool := &Tool{
+		ID:          "atomic-test-tool",
+		Name:        "Atomic Counter Test Tool",
+		Description: "A tool for testing atomic counter race fix",
+		Version:     "1.0.0",
+		Executor:    &mockExecutor{},
+		Schema: &ToolSchema{
+			Type: "object",
+			Properties: map[string]*Property{
+				"input": {
+					Type:        "string",
+					Description: "Input parameter",
+				},
+			},
+		},
+	}
+	
+	err := registry.Register(tool)
+	if err != nil {
+		t.Fatalf("Failed to register tool: %v", err)
+	}
+	
+	// Create execution engine with moderate concurrency limit
+	maxConcurrent := 50
+	engine := NewExecutionEngine(registry, WithMaxConcurrent(maxConcurrent))
+	
+	// Run many concurrent executions to stress test the atomic counter
+	var wg sync.WaitGroup
+	numGoroutines := 200 // More than max concurrent to ensure queuing
+	results := make([]*ToolExecutionResult, numGoroutines)
+	errors := make([]error, numGoroutines)
+	
+	// Track GetActiveExecutions() calls during concurrent execution
+	var activeCountChecks []int
+	var activeCountMu sync.Mutex
+	
+	// Start a goroutine to continuously check active executions
+	checkDone := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(1 * time.Millisecond)
+		defer ticker.Stop()
+		
+		for {
+			select {
+			case <-checkDone:
+				return
+			case <-ticker.C:
+				activeCount := engine.GetActiveExecutions()
+				activeCountMu.Lock()
+				activeCountChecks = append(activeCountChecks, activeCount)
+				activeCountMu.Unlock()
+			}
+		}
+	}()
+	
+	startTime := time.Now()
+	
+	// Launch all goroutines
+	for i := 0; i < numGoroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			ctx := context.Background()
+			results[idx], errors[idx] = engine.Execute(ctx, "atomic-test-tool", map[string]interface{}{
+				"iteration": idx,
+			})
+		}(i)
+	}
+	
+	wg.Wait()
+	close(checkDone)
+	duration := time.Since(startTime)
+	
+	// Verify all executions completed successfully
+	successCount := 0
+	for i, result := range results {
+		if errors[i] == nil && result != nil && result.Success {
+			successCount++
+		} else if errors[i] != nil {
+			t.Errorf("Execution %d failed with error: %v", i, errors[i])
+		}
+	}
+	
+	// Verify final state
+	finalActiveCount := engine.GetActiveExecutions()
+	
+	// Get count checks safely
+	activeCountMu.Lock()
+	checkCount := len(activeCountChecks)
+	activeCountMu.Unlock()
+	
+	t.Logf("Atomic counter race test completed in %v", duration)
+	t.Logf("Successful executions: %d/%d", successCount, numGoroutines)
+	t.Logf("Final active count: %d", finalActiveCount)
+	t.Logf("Active count checks performed: %d", checkCount)
+	
+	// All executions should complete successfully
+	if successCount != numGoroutines {
+		t.Errorf("Expected %d successful executions, got %d", numGoroutines, successCount)
+	}
+	
+	// Final active count should be 0 (this is the main test for the race condition fix)
+	if finalActiveCount != 0 {
+		t.Errorf("RACE CONDITION NOT FIXED: Expected 0 active executions after completion, got %d", finalActiveCount)
+	}
+	
+	// Verify active count never exceeded the maximum concurrent limit
+	activeCountMu.Lock()
+	maxObservedActive := 0
+	for _, count := range activeCountChecks {
+		if count > maxObservedActive {
+			maxObservedActive = count
+		}
+		if count > maxConcurrent {
+			t.Errorf("Active execution count %d exceeded max concurrent limit %d", count, maxConcurrent)
+		}
+	}
+	activeCountMu.Unlock()
+	
+	t.Logf("Maximum observed active executions: %d (limit: %d)", maxObservedActive, maxConcurrent)
+	
+	// Ensure we actually had some concurrent executions
+	if maxObservedActive == 0 {
+		t.Error("Test may be invalid: no concurrent executions were observed")
+	}
+}
+
+// Test atomic counter consistency across Execute and ExecuteStream methods
+func TestExecutorAtomicCounterConsistency(t *testing.T) {
+	registry := NewRegistry()
+	
+	// Create both regular and streaming executors
+	streamingTool := &Tool{
+		ID:          "streaming-atomic-tool",
+		Name:        "Streaming Atomic Test Tool",
+		Description: "A streaming tool for testing atomic counter consistency",
+		Version:     "1.0.0",
+		Executor:    &streamingMockExecutor{},
+		Schema: &ToolSchema{
+			Type: "object",
+			Properties: map[string]*Property{
+				"input": {
+					Type:        "string",
+					Description: "Input parameter",
+				},
+			},
+		},
+	}
+	
+	regularTool := &Tool{
+		ID:          "regular-atomic-tool",
+		Name:        "Regular Atomic Test Tool",
+		Description: "A regular tool for testing atomic counter consistency",
+		Version:     "1.0.0",
+		Executor:    &mockExecutor{},
+		Schema: &ToolSchema{
+			Type: "object",
+			Properties: map[string]*Property{
+				"input": {
+					Type:        "string",
+					Description: "Input parameter",
+				},
+			},
+		},
+	}
+	
+	err := registry.Register(streamingTool)
+	if err != nil {
+		t.Fatalf("Failed to register streaming tool: %v", err)
+	}
+	
+	err = registry.Register(regularTool)
+	if err != nil {
+		t.Fatalf("Failed to register regular tool: %v", err)
+	}
+	
+	engine := NewExecutionEngine(registry, WithMaxConcurrent(25))
+	
+	var wg sync.WaitGroup
+	numExecutions := 100
+	
+	// Mix of Execute and ExecuteStream calls
+	for i := 0; i < numExecutions; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			ctx := context.Background()
+			
+			if idx%2 == 0 {
+				// Regular execution
+				_, err := engine.Execute(ctx, "regular-atomic-tool", map[string]interface{}{
+					"iteration": idx,
+				})
+				if err != nil {
+					t.Errorf("Regular execution %d failed: %v", idx, err)
+				}
+			} else {
+				// Streaming execution
+				stream, err := engine.ExecuteStream(ctx, "streaming-atomic-tool", map[string]interface{}{
+					"iteration": idx,
+				})
+				if err != nil {
+					t.Errorf("Streaming execution %d failed: %v", idx, err)
+					return
+				}
+				
+				// Consume the stream
+				for range stream {
+					// Just consume chunks
+				}
+			}
+		}(i)
+	}
+	
+	wg.Wait()
+	
+	// Verify final active count is 0
+	finalActiveCount := engine.GetActiveExecutions()
+	if finalActiveCount != 0 {
+		t.Errorf("RACE CONDITION: Mixed Execute/ExecuteStream left %d active executions", finalActiveCount)
+	}
+}
+
+// Mock streaming executor for atomic counter testing
+type streamingMockExecutor struct{}
+
+func (s *streamingMockExecutor) Execute(ctx context.Context, params map[string]interface{}) (*ToolExecutionResult, error) {
+	time.Sleep(5 * time.Millisecond)
+	return &ToolExecutionResult{
+		Success: true,
+		Data:    map[string]interface{}{"result": "success"},
+	}, nil
+}
+
+func (s *streamingMockExecutor) ExecuteStream(ctx context.Context, params map[string]interface{}) (<-chan *ToolStreamChunk, error) {
+	ch := make(chan *ToolStreamChunk, 3)
+	
+	go func() {
+		defer close(ch)
+		
+		// Send a few chunks with small delays
+		for i := 0; i < 3; i++ {
+			select {
+			case <-ctx.Done():
+				return
+			case ch <- &ToolStreamChunk{
+				Type:  "data",
+				Data:  map[string]interface{}{"chunk": i},
+				Index: i,
+			}:
+				time.Sleep(2 * time.Millisecond)
+			}
+		}
+		
+		// Send completion chunk
+		select {
+		case <-ctx.Done():
+		case ch <- &ToolStreamChunk{
+			Type:  "complete",
+			Index: 3,
+		}:
+		}
+	}()
+	
+	return ch, nil
+}

@@ -555,6 +555,10 @@ func (sc *SSEClientConfig) Validate() error {
 		errors = append(errors, "health check interval cannot be negative")
 	}
 	
+	if sc.MaxStreamLifetime < 0 {
+		errors = append(errors, "max stream lifetime cannot be negative")
+	}
+	
 	if len(errors) > 0 {
 		return fmt.Errorf("SSE client config validation failed: %s", strings.Join(errors, "; "))
 	}

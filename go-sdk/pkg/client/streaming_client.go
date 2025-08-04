@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mattsp1290/ag-ui/go-sdk/internal"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 	pkgerrors "github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
@@ -91,6 +92,10 @@ type SSEClientConfig struct {
 	// HealthCheckInterval is the interval for connection health checks (default: 30s)
 	HealthCheckInterval time.Duration
 
+	// MaxStreamLifetime is the maximum lifetime for a streaming connection (default: 30m)
+	// After this duration, the stream will be automatically terminated to prevent goroutine leaks
+	MaxStreamLifetime time.Duration
+
 	// LastEventID is the last event ID for resuming connections
 	LastEventID string
 
@@ -167,6 +172,9 @@ type SSEClient struct {
 	healthTicker      *time.Ticker
 	healthMutex       sync.RWMutex
 	
+	// Callback pool for efficient callback execution
+	callbackPool      *internal.CallbackPool
+	
 	// Context and cancellation
 	ctx        context.Context
 	cancel     context.CancelFunc
@@ -208,6 +216,9 @@ func NewSSEClient(config SSEClientConfig) (*SSEClient, error) {
 	if config.HealthCheckInterval == 0 {
 		config.HealthCheckInterval = 30 * time.Second
 	}
+	if config.MaxStreamLifetime == 0 {
+		config.MaxStreamLifetime = 30 * time.Minute
+	}
 	if config.UserAgent == "" {
 		config.UserAgent = "ag-ui-go-sdk-sse/1.0.0"
 	}
@@ -243,6 +254,7 @@ func NewSSEClient(config SSEClientConfig) (*SSEClient, error) {
 		eventChan:      make(chan *SSEEvent, config.EventBufferSize),
 		eventBuffer:    make([]*SSEEvent, 0),
 		currentBackoff: config.InitialBackoff,
+		callbackPool:   internal.NewCallbackPool(0), // Use default worker count (runtime.NumCPU())
 		ctx:            ctx,
 		cancel:         cancel,
 	}
@@ -323,11 +335,12 @@ func (c *SSEClient) Connect(ctx context.Context) error {
 	c.updateActivity()
 	c.resetReconnectState()
 
-	// Start background goroutines
-	c.wg.Add(3)
+	// Start background goroutines including stream lifetime monitor
+	c.wg.Add(4)
 	go c.readLoop()
 	go c.healthCheck()
 	go c.processEvents()
+	go c.streamLifetimeMonitor()
 
 	c.callOnConnect()
 	return nil
@@ -373,6 +386,11 @@ func (c *SSEClient) Close() error {
 
 	// Wait for goroutines
 	c.wg.Wait()
+
+	// Stop callback pool
+	if c.callbackPool != nil {
+		c.callbackPool.Stop()
+	}
 
 	// Close event channel
 	close(c.eventChan)
@@ -523,6 +541,27 @@ func (c *SSEClient) readLoop() {
 			c.callOnError(err)
 			continue
 		}
+	}
+}
+
+// streamLifetimeMonitor monitors the stream lifetime and terminates the connection
+// when the maximum lifetime is exceeded to prevent goroutine leaks
+func (c *SSEClient) streamLifetimeMonitor() {
+	defer c.wg.Done()
+
+	// Set up stream lifetime timer
+	streamLifetimeTimer := time.NewTimer(c.config.MaxStreamLifetime)
+	defer streamLifetimeTimer.Stop()
+
+	select {
+	case <-c.ctx.Done():
+		// Connection was closed normally
+		return
+	case <-streamLifetimeTimer.C:
+		// Stream lifetime exceeded, terminate to prevent goroutine leaks
+		c.callOnError(fmt.Errorf("stream lifetime exceeded (%v), terminating connection to prevent goroutine leaks", c.config.MaxStreamLifetime))
+		c.handleConnectionError(fmt.Errorf("stream lifetime exceeded"))
+		return
 	}
 }
 
@@ -918,25 +957,31 @@ func (c *SSEClient) updateActivity() {
 // Callback helpers
 func (c *SSEClient) callOnConnect() {
 	if c.config.OnConnect != nil {
-		go c.config.OnConnect()
+		c.callbackPool.Submit(c.config.OnConnect)
 	}
 }
 
 func (c *SSEClient) callOnDisconnect(err error) {
 	if c.config.OnDisconnect != nil {
-		go c.config.OnDisconnect(err)
+		c.callbackPool.Submit(func() {
+			c.config.OnDisconnect(err)
+		})
 	}
 }
 
 func (c *SSEClient) callOnReconnect(attempt int) {
 	if c.config.OnReconnect != nil {
-		go c.config.OnReconnect(attempt)
+		c.callbackPool.Submit(func() {
+			c.config.OnReconnect(attempt)
+		})
 	}
 }
 
 func (c *SSEClient) callOnError(err error) {
 	if c.config.OnError != nil {
-		go c.config.OnError(err)
+		c.callbackPool.Submit(func() {
+			c.config.OnError(err)
+		})
 	}
 }
 

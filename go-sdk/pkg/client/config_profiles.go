@@ -156,6 +156,7 @@ func NewDevelopmentConfig() *ConfigBuilder {
 		ReadTimeout:          0, // No timeout for development
 		WriteTimeout:         10 * time.Second,
 		HealthCheckInterval:  30 * time.Second,
+		MaxStreamLifetime:    10 * time.Minute, // 10 minutes for development
 		Headers:              make(map[string]string),
 	}
 	
@@ -344,6 +345,7 @@ func NewProductionConfig() *ConfigBuilder {
 		ReadTimeout:          5 * time.Minute,
 		WriteTimeout:         30 * time.Second,
 		HealthCheckInterval:  30 * time.Second,
+		MaxStreamLifetime:    60 * time.Minute, // 60 minutes for production
 		Headers:              make(map[string]string),
 	}
 	
@@ -479,6 +481,7 @@ func NewMinimalConfig() *ConfigBuilder {
 		ReadTimeout:          30 * time.Second,
 		WriteTimeout:         10 * time.Second,
 		HealthCheckInterval:  0, // Disabled
+		MaxStreamLifetime:    5 * time.Minute, // 5 minutes for minimal
 		Headers:              make(map[string]string),
 	}
 	

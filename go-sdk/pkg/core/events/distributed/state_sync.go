@@ -1710,8 +1710,10 @@ func (dc *DistributedCache) flushBuffer() {
 	}
 	
 	// Process batch asynchronously only if still running
+	dc.wg.Add(1)
 	go func() {
 		defer func() {
+			dc.wg.Done()
 			if r := recover(); r != nil {
 				fmt.Printf("Panic in cache flush: %v\n", r)
 			}
@@ -1814,8 +1816,16 @@ func (dc *DistributedCache) drainWriteQueue() {
 // processBatch processes a batch of cache items
 func (dc *DistributedCache) processBatch(batch []*CacheItem) {
 	// TODO: Implement actual distributed batch write
-	// For now, simulate batch processing
-	time.Sleep(50 * time.Millisecond)
+	// For now, simulate batch processing with shutdown-aware sleep
+	if dc.running {
+		select {
+		case <-dc.stopChan:
+			// Stop requested, exit immediately
+			return
+		case <-time.After(50 * time.Millisecond):
+			// Completed processing simulation
+		}
+	}
 }
 
 // processWrite processes a single cache write

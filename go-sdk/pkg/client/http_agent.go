@@ -14,6 +14,18 @@ import (
 	"golang.org/x/net/http2"
 )
 
+// Common error conditions for HttpAgent
+const (
+	// HTTP configuration errors
+	ErrHTTPConfigNil               = "config_nil"
+	ErrMaxIdleConnsInvalid         = "max_idle_conns_invalid"
+	ErrMaxIdleConnsPerHostInvalid  = "max_idle_conns_per_host_invalid"
+	ErrMaxConnsPerHostInvalid      = "max_conns_per_host_invalid"
+	ErrDialTimeoutInvalid          = "dial_timeout_invalid"
+	ErrRequestTimeoutInvalid       = "request_timeout_invalid"
+	ErrMaxResponseBodySizeInvalid  = "max_response_body_size_invalid"
+)
+
 // HttpAgent provides HTTP-specific functionality by embedding BaseAgent.
 // It implements the Agent interface through BaseAgent and adds HTTP client
 // management, connection pooling, and protocol support for HTTP/1.1 and HTTP/2.
@@ -117,7 +129,11 @@ func NewHttpAgent(name, description string, httpConfig *HttpConfig) (*HttpAgent,
 	
 	// Validate HTTP configuration
 	if err := validateHttpConfig(httpConfig); err != nil {
-		return nil, fmt.Errorf("invalid HTTP configuration: %w", err)
+		return nil, errors.NewAgentError(
+			errors.ErrorTypeValidation,
+			"invalid HTTP configuration",
+			"HttpAgent",
+		).WithCause(err).WithDetail("operation", "NewHttpAgent")
 	}
 	
 	// Create base agent
@@ -146,7 +162,11 @@ func NewHttpAgent(name, description string, httpConfig *HttpConfig) (*HttpAgent,
 func (h *HttpAgent) Initialize(ctx context.Context, config *AgentConfig) error {
 	// Initialize base agent first
 	if err := h.BaseAgent.Initialize(ctx, config); err != nil {
-		return fmt.Errorf("base agent initialization failed: %w", err)
+		return errors.NewAgentError(
+			errors.ErrorTypeInvalidState,
+			"base agent initialization failed",
+			h.Name(),
+		).WithCause(err).WithDetail("operation", "Initialize")
 	}
 	
 	h.httpMu.Lock()
@@ -154,17 +174,29 @@ func (h *HttpAgent) Initialize(ctx context.Context, config *AgentConfig) error {
 	
 	// Setup HTTP transport
 	if err := h.setupHttpTransport(); err != nil {
-		return fmt.Errorf("HTTP transport setup failed: %w", err)
+		return errors.NewAgentError(
+			errors.ErrorTypeInvalidState,
+			"HTTP transport setup failed",
+			h.Name(),
+		).WithCause(err).WithDetail("operation", "Initialize")
 	}
 	
 	// Setup HTTP client
 	if err := h.setupHttpClient(); err != nil {
-		return fmt.Errorf("HTTP client setup failed: %w", err)
+		return errors.NewAgentError(
+			errors.ErrorTypeInvalidState,
+			"HTTP client setup failed",
+			h.Name(),
+		).WithCause(err).WithDetail("operation", "Initialize")
 	}
 	
 	// Setup TLS configuration if needed
 	if err := h.setupTLSConfig(); err != nil {
-		return fmt.Errorf("TLS configuration setup failed: %w", err)
+		return errors.NewAgentError(
+			errors.ErrorTypeInvalidState,
+			"TLS configuration setup failed",
+			h.Name(),
+		).WithCause(err).WithDetail("operation", "Initialize")
 	}
 	
 	return nil
@@ -174,7 +206,11 @@ func (h *HttpAgent) Initialize(ctx context.Context, config *AgentConfig) error {
 func (h *HttpAgent) Start(ctx context.Context) error {
 	// Start base agent first
 	if err := h.BaseAgent.Start(ctx); err != nil {
-		return fmt.Errorf("base agent start failed: %w", err)
+		return errors.NewAgentError(
+			errors.ErrorTypeInvalidState,
+			"base agent start failed",
+			h.Name(),
+		).WithCause(err).WithDetail("operation", "Start")
 	}
 	
 	h.httpMu.Lock()
@@ -214,7 +250,11 @@ func (h *HttpAgent) Stop(ctx context.Context) error {
 	
 	// Stop base agent
 	if err := h.BaseAgent.Stop(ctx); err != nil {
-		return fmt.Errorf("base agent stop failed: %w", err)
+		return errors.NewAgentError(
+			errors.ErrorTypeInvalidState,
+			"base agent stop failed",
+			h.Name(),
+		).WithCause(err).WithDetail("operation", "Stop")
 	}
 	
 	return nil
@@ -347,7 +387,11 @@ func (h *HttpAgent) setupHttpTransport() error {
 		} else {
 			// Enable HTTP/2 upgrade
 			if err := http2.ConfigureTransport(h.transport); err != nil {
-				return fmt.Errorf("failed to configure HTTP/2 transport: %w", err)
+				return errors.NewAgentError(
+					errors.ErrorTypeInvalidState,
+					"failed to configure HTTP/2 transport",
+					h.Name(),
+				).WithCause(err).WithDetail("operation", "setupHttpTransport")
 			}
 		}
 	}
@@ -454,31 +498,31 @@ func DefaultHttpConfig() *HttpConfig {
 // validateHttpConfig validates the HTTP configuration.
 func validateHttpConfig(config *HttpConfig) error {
 	if config == nil {
-		return fmt.Errorf("HTTP configuration cannot be nil")
+		return errors.NewValidationError(ErrHTTPConfigNil, "HTTP configuration cannot be nil")
 	}
 	
 	if config.MaxIdleConns <= 0 {
-		return fmt.Errorf("max idle connections must be positive")
+		return errors.NewValidationError(ErrMaxIdleConnsInvalid, "max idle connections must be positive").WithField("MaxIdleConns", config.MaxIdleConns)
 	}
 	
 	if config.MaxIdleConnsPerHost <= 0 {
-		return fmt.Errorf("max idle connections per host must be positive")
+		return errors.NewValidationError(ErrMaxIdleConnsPerHostInvalid, "max idle connections per host must be positive").WithField("MaxIdleConnsPerHost", config.MaxIdleConnsPerHost)
 	}
 	
 	if config.MaxConnsPerHost <= 0 {
-		return fmt.Errorf("max connections per host must be positive")
+		return errors.NewValidationError(ErrMaxConnsPerHostInvalid, "max connections per host must be positive").WithField("MaxConnsPerHost", config.MaxConnsPerHost)
 	}
 	
 	if config.DialTimeout <= 0 {
-		return fmt.Errorf("dial timeout must be positive")
+		return errors.NewValidationError(ErrDialTimeoutInvalid, "dial timeout must be positive").WithField("DialTimeout", config.DialTimeout.String())
 	}
 	
 	if config.RequestTimeout <= 0 {
-		return fmt.Errorf("request timeout must be positive")
+		return errors.NewValidationError(ErrRequestTimeoutInvalid, "request timeout must be positive").WithField("RequestTimeout", config.RequestTimeout.String())
 	}
 	
 	if config.MaxResponseBodySize <= 0 {
-		return fmt.Errorf("max response body size must be positive")
+		return errors.NewValidationError(ErrMaxResponseBodySizeInvalid, "max response body size must be positive").WithField("MaxResponseBodySize", config.MaxResponseBodySize)
 	}
 	
 	return nil

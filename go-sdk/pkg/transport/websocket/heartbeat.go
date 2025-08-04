@@ -9,7 +9,7 @@ import (
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
 	
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/internal/timeconfig"
+	"github.com/mattsp1290/ag-ui/go-sdk/internal/timeconfig"
 )
 
 // HeartbeatState represents the state of the heartbeat mechanism

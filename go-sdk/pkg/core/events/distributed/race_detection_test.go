@@ -99,8 +99,7 @@ func testConsensusManagerLeaks(t *testing.T, ctx context.Context, cleanup *testh
 }
 
 func testStateSynchronizerLeaks(t *testing.T, ctx context.Context, cleanup *testhelper.CleanupManager) {
-	config := DefaultStateSyncConfig()
-	config.SyncInterval = 50 * time.Millisecond // Fast for testing
+	config := TestingStateSyncConfig() // Use optimized testing configuration
 	
 	ss, err := NewStateSynchronizer(config, "test-node")
 	require.NoError(t, err)
@@ -329,7 +328,7 @@ func TestWorkerManagerGoroutineCleanup(t *testing.T) {
 	ctx := testhelper.NewTestContextWithTimeout(t, 10*time.Second)
 
 	// Create worker manager
-	config := DefaultStateSyncConfig()
+	config := TestingStateSyncConfig()
 	ss, err := NewStateSynchronizer(config, "worker-test-node")
 	require.NoError(t, err)
 

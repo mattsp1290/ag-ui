@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 	"golang.org/x/net/http2"
 )
 
@@ -358,7 +359,11 @@ func NewHTTPTransport(config *HTTPTransportConfig) (*HTTPTransport, error) {
 	}
 	
 	if err := validateConfig(config); err != nil {
-		return nil, fmt.Errorf("invalid configuration: %w", err)
+		return nil, errors.NewAgentError(
+			errors.ErrorTypeValidation,
+			"invalid configuration",
+			"HTTPTransport",
+		).WithCause(err).WithDetail("operation", "NewHTTPTransport")
 	}
 	
 	ctx, cancel := context.WithCancel(context.Background())
@@ -372,7 +377,11 @@ func NewHTTPTransport(config *HTTPTransportConfig) (*HTTPTransport, error) {
 	
 	if err := transport.initialize(); err != nil {
 		cancel()
-		return nil, fmt.Errorf("failed to initialize transport: %w", err)
+		return nil, errors.NewAgentError(
+			errors.ErrorTypeInvalidState,
+			"failed to initialize transport",
+			"HTTPTransport",
+		).WithCause(err).WithDetail("operation", "NewHTTPTransport")
 	}
 	
 	return transport, nil
@@ -426,7 +435,11 @@ func (h *HTTPTransport) initialize() error {
 	
 	// Create HTTP transport
 	if err := h.createHTTPTransport(); err != nil {
-		return fmt.Errorf("failed to create HTTP transport: %w", err)
+		return errors.NewAgentError(
+			errors.ErrorTypeInvalidState,
+			"failed to create HTTP transport",
+			"HTTPTransport",
+		).WithCause(err).WithDetail("operation", "initialize")
 	}
 	
 	// Create HTTP client
@@ -478,7 +491,11 @@ func (h *HTTPTransport) createHTTPTransport() error {
 	// Configure HTTP/2 if enabled
 	if h.config.EnableHTTP2 && !h.config.ForceHTTP1 {
 		if err := http2.ConfigureTransport(transport); err != nil {
-			return fmt.Errorf("failed to configure HTTP/2: %w", err)
+			return errors.NewAgentError(
+				errors.ErrorTypeInvalidState,
+				"failed to configure HTTP/2",
+				"HTTPTransport",
+			).WithCause(err).WithDetail("operation", "createHTTPTransport")
 		}
 	}
 	
@@ -580,18 +597,27 @@ func (h *HTTPTransport) Stop(ctx context.Context) error {
 // SendRequest sends an HTTP request with full feature support
 func (h *HTTPTransport) SendRequest(ctx context.Context, method, path string, body []byte) (*http.Response, error) {
 	if !h.started {
-		return nil, fmt.Errorf("transport not started")
+		return nil, errors.NewAgentError(
+			errors.ErrorTypeInvalidState,
+			"transport not started",
+			"HTTPTransport",
+		).WithDetail("operation", "SendRequest")
 	}
 	
 	// Check circuit breaker
 	if h.circuitBreaker != nil && !h.circuitBreaker.Allow() {
-		return nil, fmt.Errorf("circuit breaker open")
+		return nil, errors.NewAgentError(
+			errors.ErrorTypeRateLimit,
+			"circuit breaker open",
+			"HTTPTransport",
+		).WithDetail("operation", "SendRequest")
 	}
 	
 	// Build URL
 	targetURL, err := h.buildURL(path)
 	if err != nil {
-		return nil, fmt.Errorf("invalid URL: %w", err)
+		return nil, errors.NewValidationError("invalid_url", "invalid URL").
+			WithField("path", path).WithCause(err).WithDetail("operation", "SendRequest")
 	}
 	
 	// Create request with retry logic
@@ -670,7 +696,11 @@ func (h *HTTPTransport) sendSingleRequest(ctx context.Context, method, url strin
 	// Create request
 	req, err := http.NewRequestWithContext(ctx, method, url, bodyReader)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return nil, errors.NewAgentError(
+			errors.ErrorTypeValidation,
+			"failed to create request",
+			"HTTPTransport",
+		).WithCause(err).WithDetail("operation", "sendSingleRequest").WithDetail("method", method)
 	}
 	
 	// Set headers
@@ -680,7 +710,11 @@ func (h *HTTPTransport) sendSingleRequest(ctx context.Context, method, url strin
 	response, err := h.client.Do(req)
 	if err != nil {
 		h.recordError(err)
-		return nil, fmt.Errorf("request failed: %w", err)
+		return nil, errors.NewAgentError(
+			errors.ErrorTypeExternal,
+			"request failed",
+			"HTTPTransport",
+		).WithCause(err).WithDetail("operation", "sendSingleRequest").WithDetail("method", method)
 	}
 	
 	// Record performance metrics
@@ -1087,31 +1121,39 @@ func (h *HTTPTransport) GetProtocolVersion() string {
 // Configuration validation
 func validateConfig(config *HTTPTransportConfig) error {
 	if config.BaseURL == "" {
-		return fmt.Errorf("base URL is required")
+		return errors.NewValidationError("base_url_required", "base URL is required").
+			WithField("BaseURL", config.BaseURL)
 	}
 	
 	if _, err := url.Parse(config.BaseURL); err != nil {
-		return fmt.Errorf("invalid base URL: %w", err)
+		return errors.NewValidationError("invalid_base_url", "invalid base URL").
+			WithField("BaseURL", config.BaseURL).WithCause(err)
 	}
 	
 	if config.MaxRetries < 0 {
-		return fmt.Errorf("max retries cannot be negative")
+		return errors.NewValidationError("max_retries_invalid", "max retries cannot be negative").
+			WithField("MaxRetries", config.MaxRetries)
 	}
 	
 	if config.BaseRetryDelay <= 0 {
-		return fmt.Errorf("base retry delay must be positive")
+		return errors.NewValidationError("base_retry_delay_invalid", "base retry delay must be positive").
+			WithField("BaseRetryDelay", config.BaseRetryDelay.String())
 	}
 	
 	if config.MaxRetryDelay < config.BaseRetryDelay {
-		return fmt.Errorf("max retry delay must be >= base retry delay")
+		return errors.NewValidationError("max_retry_delay_invalid", "max retry delay must be >= base retry delay").
+			WithField("MaxRetryDelay", config.MaxRetryDelay.String()).
+			WithField("BaseRetryDelay", config.BaseRetryDelay.String())
 	}
 	
 	if config.ConnectTimeout <= 0 {
-		return fmt.Errorf("connect timeout must be positive")
+		return errors.NewValidationError("connect_timeout_invalid", "connect timeout must be positive").
+			WithField("ConnectTimeout", config.ConnectTimeout.String())
 	}
 	
 	if config.RequestTimeout <= 0 {
-		return fmt.Errorf("request timeout must be positive")
+		return errors.NewValidationError("request_timeout_invalid", "request timeout must be positive").
+			WithField("RequestTimeout", config.RequestTimeout.String())
 	}
 	
 	return nil

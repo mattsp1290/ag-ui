@@ -16,7 +16,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/internal/timeconfig"
+	"github.com/mattsp1290/ag-ui/go-sdk/internal/timeconfig"
 )
 
 // PerformanceConfig contains configuration for performance optimizations

@@ -4,6 +4,7 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"log"
 	"net/http"
@@ -71,13 +72,17 @@ func createDemoSSEServer() *httptest.Server {
 func demonstrateSSEClient(serverURL string) {
 	fmt.Println("🔌 Connecting to SSE stream...")
 
+	// Create context with timeout for cancellation support
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
 	// Create HTTP client for SSE
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 	}
 
-	// Create request
-	req, err := http.NewRequest("GET", serverURL, nil)
+	// Create request with context
+	req, err := http.NewRequestWithContext(ctx, "GET", serverURL, nil)
 	if err != nil {
 		log.Fatalf("Failed to create request: %v", err)
 	}
@@ -101,17 +106,25 @@ func demonstrateSSEClient(serverURL string) {
 	fmt.Println("📨 Processing events:")
 
 	// Parse SSE events manually to demonstrate the protocol
-	parseSSEEvents(resp)
+	parseSSEEvents(ctx, resp)
 }
 
 // parseSSEEvents manually parses SSE events to demonstrate the protocol
-func parseSSEEvents(resp *http.Response) {
+func parseSSEEvents(ctx context.Context, resp *http.Response) {
 	scanner := bufio.NewScanner(resp.Body)
 	
 	var currentEvent SSEEvent
 	eventCount := 0
 
 	for scanner.Scan() {
+		// Check context cancellation during long-running loop
+		select {
+		case <-ctx.Done():
+			fmt.Printf("⏰ Context cancelled, stopping event processing: %v\n", ctx.Err())
+			return
+		default:
+		}
+
 		line := scanner.Text()
 
 		// Empty line indicates end of event

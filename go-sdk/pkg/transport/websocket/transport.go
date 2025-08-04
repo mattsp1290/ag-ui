@@ -14,7 +14,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/internal/timeconfig"
+	"github.com/mattsp1290/ag-ui/go-sdk/internal/timeconfig"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/proto/generated"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport/common"

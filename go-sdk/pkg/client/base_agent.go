@@ -13,6 +13,28 @@ import (
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools"
 )
 
+// Common error conditions for BaseAgent
+const (
+	// Validation errors
+	ErrConfigNil           = "config_nil"
+	ErrNameRequired        = "name_required"
+	ErrBufferSizeInvalid   = "buffer_size_invalid"
+	ErrBatchSizeInvalid    = "batch_size_invalid"
+	ErrMaxConcurrentInvalid = "max_concurrent_invalid"
+	ErrMaxMessagesInvalid  = "max_messages_invalid"
+	
+	// Operation errors
+	ErrEmptyPath           = "empty_path"
+	ErrConditionNotMet     = "condition_not_met"
+	ErrUnknownOperation    = "unknown_operation"
+	
+	// Tool execution errors
+	ErrToolSerializeFailed   = "tool_serialize_failed"
+	ErrToolDeserializeFailed = "tool_deserialize_failed"
+	ErrToolExecutionFailed   = "tool_execution_failed"
+	ErrToolExecutionError    = "tool_execution_error"
+)
+
 // BaseAgent provides a common implementation of the Agent interface that can be
 // embedded by specific agent implementations.
 type BaseAgent struct {
@@ -42,14 +64,20 @@ type BaseAgent struct {
 }
 
 // AgentMetrics contains performance and operational metrics for an agent.
+// Fields are padded to prevent false sharing between frequently accessed atomic counters.
 type AgentMetrics struct {
 	EventsProcessed       int64         `json:"events_processed"`
+	_                     [7]int64      // padding to prevent false sharing
 	EventsPerSecond       float64       `json:"events_per_second"`
 	AverageProcessingTime time.Duration `json:"average_processing_time"`
 	ToolsExecuted         int64         `json:"tools_executed"`
+	_                     [7]int64      // padding to prevent false sharing
 	StateUpdates          int64         `json:"state_updates"`
+	_                     [7]int64      // padding to prevent false sharing
 	ErrorCount            int64         `json:"error_count"`
+	_                     [7]int64      // padding to prevent false sharing
 	MemoryUsage           int64         `json:"memory_usage"`
+	_                     [7]int64      // padding to prevent false sharing
 	StartTime             time.Time     `json:"start_time"`
 	LastActivity          time.Time     `json:"last_activity"`
 }
@@ -96,7 +124,11 @@ func (a *BaseAgent) Initialize(ctx context.Context, config *AgentConfig) error {
 	
 	// Validate configuration
 	if err := a.validateConfig(config); err != nil {
-		return fmt.Errorf("configuration validation failed: %w", err)
+		return errors.NewAgentError(
+			errors.ErrorTypeValidation,
+			"configuration validation failed",
+			a.name,
+		).WithCause(err)
 	}
 	
 	// Set configuration with defaults
@@ -171,10 +203,18 @@ func (a *BaseAgent) Stop(ctx context.Context) error {
 		close(a.eventStream)
 		a.eventStream = nil
 		
-		// Drain the channel to prevent goroutine leaks
+		// Drain the channel to prevent goroutine leaks with proper context cancellation
+		drainCtx, drainCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		go func() {
-			for range stream {
-				// Drain remaining events
+			defer drainCancel()
+			for {
+				select {
+				case <-stream:
+					// Drain remaining events
+				case <-drainCtx.Done():
+					// Timeout reached, stop draining to prevent goroutine leak
+					return
+				}
 			}
 		}()
 	}
@@ -916,16 +956,16 @@ func (a *BaseAgent) ExecuteTool(ctx context.Context, name string, params interfa
 		if err != nil {
 			return nil, errors.NewAgentError(
 				errors.ErrorTypeValidation,
-				fmt.Sprintf("failed to serialize parameters: %v", err),
+				"failed to serialize parameters",
 				a.name,
-			)
+			).WithCause(err).WithDetail("operation", "ExecuteTool")
 		}
 		if err := json.Unmarshal(data, &paramsMap); err != nil {
 			return nil, errors.NewAgentError(
 				errors.ErrorTypeValidation,
-				fmt.Sprintf("failed to deserialize parameters: %v", err),
+				"failed to deserialize parameters",
 				a.name,
-			)
+			).WithCause(err).WithDetail("operation", "ExecuteTool")
 		}
 	}
 	
@@ -943,10 +983,10 @@ func (a *BaseAgent) ExecuteTool(ctx context.Context, name string, params interfa
 	if err != nil {
 		a.incrementErrorCount()
 		return nil, errors.NewAgentError(
-			errors.ErrorTypeValidation,
-			fmt.Sprintf("tool execution failed: %v", err),
+			errors.ErrorTypeExternal,
+			"tool execution failed",
 			a.name,
-		)
+		).WithCause(err).WithDetail("tool_name", name).WithDetail("operation", "ExecuteTool")
 	}
 	
 	// Return the result data
@@ -958,19 +998,19 @@ func (a *BaseAgent) ExecuteTool(ctx context.Context, name string, params interfa
 	if result != nil && result.Error != "" {
 		a.incrementErrorCount()
 		return nil, errors.NewAgentError(
-			errors.ErrorTypeValidation,
-			fmt.Sprintf("tool execution error: %s", result.Error),
+			errors.ErrorTypeExternal,
+			"tool execution error",
 			a.name,
-		)
+		).WithDetail("tool_name", name).WithDetail("error_message", result.Error)
 	}
 	
 	// Unknown error
 	a.incrementErrorCount()
 	return nil, errors.NewAgentError(
-		errors.ErrorTypeValidation,
+		errors.ErrorTypeExternal,
 		"tool execution failed with unknown error",
 		a.name,
-	)
+	).WithDetail("tool_name", name)
 }
 
 // ListTools returns a list of tools available to this agent.
@@ -1135,27 +1175,27 @@ func (a *BaseAgent) updateLastActivity() {
 
 func (a *BaseAgent) validateConfig(config *AgentConfig) error {
 	if config == nil {
-		return fmt.Errorf("configuration cannot be nil")
+		return errors.NewValidationError(ErrConfigNil, "configuration cannot be nil")
 	}
 	
 	if config.Name == "" {
-		return fmt.Errorf("agent name is required")
+		return errors.NewValidationError(ErrNameRequired, "agent name is required").WithField("Name", config.Name)
 	}
 	
 	if config.EventProcessing.BufferSize <= 0 {
-		return fmt.Errorf("event processing buffer size must be positive")
+		return errors.NewValidationError(ErrBufferSizeInvalid, "event processing buffer size must be positive").WithField("EventProcessing.BufferSize", config.EventProcessing.BufferSize)
 	}
 	
 	if config.EventProcessing.BatchSize <= 0 {
-		return fmt.Errorf("event processing batch size must be positive")
+		return errors.NewValidationError(ErrBatchSizeInvalid, "event processing batch size must be positive").WithField("EventProcessing.BatchSize", config.EventProcessing.BatchSize)
 	}
 	
 	if config.Tools.MaxConcurrent <= 0 {
-		return fmt.Errorf("tool max concurrent must be positive")
+		return errors.NewValidationError(ErrMaxConcurrentInvalid, "tool max concurrent must be positive").WithField("Tools.MaxConcurrent", config.Tools.MaxConcurrent)
 	}
 	
 	if config.History.MaxMessages <= 0 {
-		return fmt.Errorf("history max messages must be positive")
+		return errors.NewValidationError(ErrMaxMessagesInvalid, "history max messages must be positive").WithField("History.MaxMessages", config.History.MaxMessages)
 	}
 	
 	return nil
@@ -1220,13 +1260,13 @@ func (a *BaseAgent) calculateStateChecksum(state *AgentState) string {
 func (a *BaseAgent) applyStateOperation(op *StateOperation) error {
 	// Validate operation
 	if op.Path == "" {
-		return fmt.Errorf("operation path cannot be empty")
+		return errors.NewValidationError(ErrEmptyPath, "operation path cannot be empty").WithField("Path", op.Path)
 	}
 	
 	// Check condition if present
 	if op.Condition != nil {
 		if !a.evaluateStateCondition(op.Condition) {
-			return fmt.Errorf("operation condition not met")
+			return errors.NewValidationError(ErrConditionNotMet, "operation condition not met").WithDetail("condition", op.Condition)
 		}
 	}
 	
@@ -1245,7 +1285,7 @@ func (a *BaseAgent) applyStateOperation(op *StateOperation) error {
 		// In a real implementation, this would test a condition
 		return nil
 	default:
-		return fmt.Errorf("unknown operation type: %s", op.Op)
+		return errors.NewValidationError(ErrUnknownOperation, "unknown operation type").WithField("Operation", string(op.Op))
 	}
 }
 
@@ -1510,16 +1550,16 @@ func (a *BaseAgent) ExecuteToolAsync(ctx context.Context, name string, params in
 		if err != nil {
 			return "", nil, errors.NewAgentError(
 				errors.ErrorTypeValidation,
-				fmt.Sprintf("failed to serialize parameters: %v", err),
+				"failed to serialize parameters",
 				a.name,
-			)
+			).WithCause(err).WithDetail("operation", "ExecuteToolAsync")
 		}
 		if err := json.Unmarshal(data, &paramsMap); err != nil {
 			return "", nil, errors.NewAgentError(
 				errors.ErrorTypeValidation,
-				fmt.Sprintf("failed to deserialize parameters: %v", err),
+				"failed to deserialize parameters",
 				a.name,
-			)
+			).WithCause(err).WithDetail("operation", "ExecuteToolAsync")
 		}
 	}
 	
@@ -1561,16 +1601,16 @@ func (a *BaseAgent) ExecuteToolStream(ctx context.Context, name string, params i
 		if err != nil {
 			return nil, errors.NewAgentError(
 				errors.ErrorTypeValidation,
-				fmt.Sprintf("failed to serialize parameters: %v", err),
+				"failed to serialize parameters",
 				a.name,
-			)
+			).WithCause(err).WithDetail("operation", "ExecuteToolStream")
 		}
 		if err := json.Unmarshal(data, &paramsMap); err != nil {
 			return nil, errors.NewAgentError(
 				errors.ErrorTypeValidation,
-				fmt.Sprintf("failed to deserialize parameters: %v", err),
+				"failed to deserialize parameters",
 				a.name,
-			)
+			).WithCause(err).WithDetail("operation", "ExecuteToolStream")
 		}
 	}
 	

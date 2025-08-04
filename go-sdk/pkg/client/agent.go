@@ -8,33 +8,100 @@ import (
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools"
 )
 
-// Agent defines the fundamental interface that all AG-UI agents must implement.
-// This interface provides lifecycle management, event processing, state management,
-// tool integration, and context-aware operations with cancellation support.
-type Agent interface {
-	// Core lifecycle management
+// LifecycleManager handles agent lifecycle operations including initialization,
+// startup, shutdown, and cleanup. This interface follows the single responsibility
+// principle by focusing only on the agent's lifecycle state transitions.
+type LifecycleManager interface {
+	// Initialize prepares the agent with the given configuration.
+	// The agent must be in an uninitialized state for this to succeed.
 	Initialize(ctx context.Context, config *AgentConfig) error
+	
+	// Start begins the agent's operation.
+	// The agent must be initialized or stopped for this to succeed.
 	Start(ctx context.Context) error
+	
+	// Stop gracefully shuts down the agent.
+	// The agent must be running for this to succeed.
 	Stop(ctx context.Context) error
+	
+	// Cleanup releases all resources held by the agent.
+	// This can be called from any state and should be idempotent.
 	Cleanup() error
-	
-	// Event processing
+}
+
+// AgentEventProcessor handles event processing and streaming operations.
+// This interface is responsible for all event-related functionality
+// including single event processing and continuous event streaming.
+type AgentEventProcessor interface {
+	// ProcessEvent handles a single incoming event and returns response events.
+	// The agent must be running for this to succeed.
 	ProcessEvent(ctx context.Context, event events.Event) ([]events.Event, error)
+	
+	// StreamEvents returns a channel for receiving events from the agent.
+	// The agent must be running and support streaming for this to succeed.
 	StreamEvents(ctx context.Context) (<-chan events.Event, error)
-	
-	// State management
+}
+
+// StateManager handles agent state operations including retrieval and updates.
+// This interface manages the agent's internal state with support for
+// atomic updates and conflict resolution.
+type StateManager interface {
+	// GetState returns the current state of the agent.
+	// This can be called from any state where the agent is initialized.
 	GetState(ctx context.Context) (*AgentState, error)
+	
+	// UpdateState applies a state change delta to the agent's state.
+	// This uses optimistic concurrency control with version numbers.
 	UpdateState(ctx context.Context, delta *StateDelta) error
-	
-	// Tool integration
+}
+
+// ToolRunner handles tool execution and discovery operations.
+// This interface provides the agent's ability to execute tools and
+// expose available tool definitions to clients.
+type ToolRunner interface {
+	// ExecuteTool executes a tool with the given name and parameters.
+	// The agent must be running for this to succeed.
 	ExecuteTool(ctx context.Context, name string, params interface{}) (interface{}, error)
-	ListTools() []ToolDefinition
 	
-	// Metadata and capabilities
+	// ListTools returns a list of tools available to this agent.
+	// This can be called from any state where the agent is initialized.
+	ListTools() []ToolDefinition
+}
+
+// AgentMetadata provides access to agent metadata and status information.
+// This interface handles read-only agent properties and health status.
+type AgentMetadata interface {
+	// Name returns the unique identifier for this agent instance.
 	Name() string
+	
+	// Description returns a human-readable description of the agent's purpose.
 	Description() string
+	
+	// Capabilities returns information about what this agent can do.
 	Capabilities() AgentCapabilities
+	
+	// Health returns the current health status of the agent.
 	Health() AgentHealthStatus
+}
+
+// Agent defines the complete interface that all AG-UI agents must implement.
+// This interface composes smaller, focused interfaces following the Interface
+// Segregation Principle. Each component interface has a single responsibility:
+//
+//   - LifecycleManager: handles agent lifecycle (init, start, stop, cleanup)
+//   - AgentEventProcessor: handles event processing and streaming
+//   - StateManager: handles agent state operations
+//   - ToolRunner: handles tool execution and discovery
+//   - AgentMetadata: provides agent metadata and health status
+//
+// This design allows for better testing, easier mocking, and more flexible
+// implementations while maintaining backward compatibility.
+type Agent interface {
+	LifecycleManager
+	AgentEventProcessor
+	StateManager
+	ToolRunner
+	AgentMetadata
 }
 
 // AgentConfig contains configuration options for agent initialization.

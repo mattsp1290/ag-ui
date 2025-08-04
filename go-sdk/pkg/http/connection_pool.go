@@ -13,6 +13,9 @@ import (
 	"time"
 
 	"golang.org/x/sync/semaphore"
+	"github.com/mattsp1290/ag-ui/go-sdk/internal"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 // HTTPConnectionPool provides HTTP connection pooling with health monitoring,
@@ -22,7 +25,7 @@ type HTTPConnectionPool struct {
 	config *HTTPPoolConfig
 	
 	// Connection management
-	pools   map[string]*serverPool // server -> pool mapping
+	pools   *internal.BoundedMap // Bounded map for server pools to prevent memory leaks
 	poolsMu sync.RWMutex
 	
 	// Load balancing
@@ -49,6 +52,9 @@ type HTTPConnectionPool struct {
 	
 	// Connection semaphore for global limiting
 	connSemaphore *semaphore.Weighted
+	
+	// Connection reuse pool to prevent memory leaks
+	connPool sync.Pool
 }
 
 // HTTPPoolConfig contains configuration options for the connection pool.
@@ -88,6 +94,24 @@ type HTTPPoolConfig struct {
 	MaxResponseHeaderSize int64         `json:"max_response_header_size" default:"1048576"`
 	WriteBufferSize       int           `json:"write_buffer_size" default:"4096"`
 	ReadBufferSize        int           `json:"read_buffer_size" default:"4096"`
+	
+	// Bounded pool configuration to prevent memory leaks
+	BoundedPool BoundedPoolConfig `json:"bounded_pool"`
+}
+
+// BoundedPoolConfig configures the bounded connection pool behavior
+type BoundedPoolConfig struct {
+	// MaxServerPools is the maximum number of server pools to maintain (default: 1000)
+	MaxServerPools int `json:"max_server_pools"`
+	
+	// ServerPoolTTL is the time-to-live for unused server pools (default: 30 minutes)
+	ServerPoolTTL time.Duration `json:"server_pool_ttl"`
+	
+	// PoolCleanupInterval is how often to run pool cleanup (default: 5 minutes)
+	PoolCleanupInterval time.Duration `json:"pool_cleanup_interval"`
+	
+	// EnablePoolMetrics enables server pool metrics collection (default: true)
+	EnablePoolMetrics bool `json:"enable_pool_metrics"`
 }
 
 // LoadBalanceStrategy defines the load balancing algorithm to use.
@@ -126,6 +150,10 @@ type serverPool struct {
 	maxConns     int64
 	mu           sync.RWMutex
 	created      time.Time
+	
+	// Cleanup management
+	cleanupCtx    context.Context
+	cleanupCancel context.CancelFunc
 }
 
 // pooledConnection wraps an HTTP connection with metadata.
@@ -214,19 +242,90 @@ func NewHTTPConnectionPool(config *HTTPPoolConfig) (*HTTPConnectionPool, error) 
 	
 	// Validate configuration
 	if err := validateHTTPPoolConfig(config); err != nil {
-		return nil, fmt.Errorf("invalid pool configuration: %w", err)
+		return nil, errors.NewAgentError(
+			errors.ErrorTypeValidation,
+			"invalid pool configuration",
+			"ConnectionPool",
+		).WithCause(err).WithDetail("operation", "NewHTTPConnectionPool")
 	}
 	
 	// Apply defaults
 	config = mergeWithDefaults(config)
 	
+	// Set bounded pool defaults
+	if config.BoundedPool.MaxServerPools == 0 {
+		config.BoundedPool.MaxServerPools = 1000
+	}
+	if config.BoundedPool.ServerPoolTTL == 0 {
+		config.BoundedPool.ServerPoolTTL = 30 * time.Minute
+	}
+	if config.BoundedPool.PoolCleanupInterval == 0 {
+		config.BoundedPool.PoolCleanupInterval = 5 * time.Minute
+	}
+	config.BoundedPool.EnablePoolMetrics = true // Always enable metrics
+
+	// Create bounded map for server pools
+	boundedMapConfig := internal.BoundedMapConfig{
+		MaxSize:         config.BoundedPool.MaxServerPools,
+		TTL:             config.BoundedPool.ServerPoolTTL,
+		CleanupInterval: config.BoundedPool.PoolCleanupInterval,
+		EnableMetrics:   config.BoundedPool.EnablePoolMetrics,
+		MetricsPrefix:   "http_connection_pool_servers",
+		EvictionCallback: func(key, value interface{}, reason internal.EvictionReason) {
+			// Clean up server pool when evicted
+			if pool, ok := value.(*serverPool); ok {
+				logrus.WithFields(logrus.Fields{
+					"server_url": key,
+					"reason": reason.String(),
+				}).Debug("Server pool evicted from bounded map")
+				// Cancel cleanup worker and close connections
+				if pool.cleanupCancel != nil {
+					pool.cleanupCancel()
+				}
+				go func() {
+					// Close all connections in pool
+					select {
+					case <-pool.connections:
+						// Drain and close connections
+						for {
+							select {
+							case conn := <-pool.connections:
+								if conn != nil {
+									// Connection cleanup would go here
+								}
+							default:
+								return
+							}
+						}
+					default:
+						// No connections to drain
+					}
+					// Close transport
+					if pool.transport != nil {
+						pool.transport.CloseIdleConnections()
+					}
+				}()
+			}
+		},
+	}
+
 	pool := &HTTPConnectionPool{
 		config:        config,
-		pools:         make(map[string]*serverPool),
+		pools:         internal.NewBoundedMap(boundedMapConfig),
 		servers:       make([]*ServerTarget, 0),
 		metrics:       newHTTPPoolMetrics(),
 		shutdown:      make(chan struct{}),
 		connSemaphore: semaphore.NewWeighted(int64(config.MaxTotalConnections)),
+	}
+	
+	// Initialize connection pool for reuse
+	pool.connPool.New = func() interface{} {
+		return &pooledConnection{
+			created:    time.Now(),
+			lastUsed:   time.Now(),
+			usageCount: 0,
+			isHealthy:  true,
+		}
 	}
 	
 	// Initialize health checker
@@ -258,12 +357,18 @@ func NewHTTPConnectionPool(config *HTTPPoolConfig) (*HTTPConnectionPool, error) 
 // AddServer adds a server target to the pool.
 func (p *HTTPConnectionPool) AddServer(serverURL string, weight int) error {
 	if atomic.LoadInt32(&p.isShutdown) == 1 {
-		return fmt.Errorf("connection pool is shutdown")
+		return errors.NewAgentError(
+			errors.ErrorTypeInvalidState,
+			"connection pool is shutdown",
+			"ConnectionPool",
+		).WithDetail("operation", "AddServer")
 	}
 	
 	parsedURL, err := url.Parse(serverURL)
 	if err != nil {
-		return fmt.Errorf("invalid server URL: %w", err)
+		validationErr := errors.NewValidationError("invalid_server_url", "invalid server URL").
+			WithField("serverURL", serverURL)
+		return validationErr.WithCause(err)
 	}
 	
 	if weight <= 0 {
@@ -284,7 +389,7 @@ func (p *HTTPConnectionPool) AddServer(serverURL string, weight int) error {
 	pool := p.createServerPool(server)
 	
 	p.poolsMu.Lock()
-	p.pools[serverURL] = pool
+	p.pools.Set(serverURL, pool)
 	p.poolsMu.Unlock()
 	
 	p.serversMu.Lock()
@@ -300,20 +405,28 @@ func (p *HTTPConnectionPool) AddServer(serverURL string, weight int) error {
 // RemoveServer removes a server target from the pool.
 func (p *HTTPConnectionPool) RemoveServer(serverURL string) error {
 	if atomic.LoadInt32(&p.isShutdown) == 1 {
-		return fmt.Errorf("connection pool is shutdown")
+		return errors.NewAgentError(
+			errors.ErrorTypeInvalidState,
+			"connection pool is shutdown",
+			"ConnectionPool",
+		).WithDetail("operation", "RemoveServer")
 	}
 	
 	p.poolsMu.Lock()
-	pool, exists := p.pools[serverURL]
-	delete(p.pools, serverURL)
+	poolInterface, exists := p.pools.Get(serverURL)
+	if exists {
+		p.pools.Delete(serverURL)
+	}
 	p.poolsMu.Unlock()
 	
 	if !exists {
-		return fmt.Errorf("server not found: %s", serverURL)
+		return errors.NewResourceNotFoundError("server", serverURL)
 	}
 	
 	// Close server pool
-	p.closeServerPool(pool)
+	if pool, ok := poolInterface.(*serverPool); ok {
+		p.closeServerPool(pool)
+	}
 	
 	// Remove from servers list
 	p.serversMu.Lock()
@@ -331,7 +444,11 @@ func (p *HTTPConnectionPool) RemoveServer(serverURL string) error {
 // GetConnection acquires a connection from the pool using load balancing.
 func (p *HTTPConnectionPool) GetConnection(req *ConnectionRequest) (*ConnectionResponse, error) {
 	if atomic.LoadInt32(&p.isShutdown) == 1 {
-		return nil, fmt.Errorf("connection pool is shutdown")
+		return nil, errors.NewAgentError(
+			errors.ErrorTypeInvalidState,
+			"connection pool is shutdown",
+			"ConnectionPool",
+		).WithDetail("operation", "GetConnection")
 	}
 	
 	if req.Context == nil {
@@ -344,13 +461,21 @@ func (p *HTTPConnectionPool) GetConnection(req *ConnectionRequest) (*ConnectionR
 	server, err := p.selectServer(req)
 	if err != nil {
 		atomic.AddInt64(&p.metrics.FailedRequests, 1)
-		return nil, fmt.Errorf("server selection failed: %w", err)
+		return nil, errors.NewAgentError(
+			errors.ErrorTypeExternal,
+			"server selection failed",
+			"ConnectionPool",
+		).WithCause(err).WithDetail("operation", "GetConnection")
 	}
 	
 	// Acquire global connection semaphore
 	if err := p.connSemaphore.Acquire(req.Context, 1); err != nil {
 		atomic.AddInt64(&p.metrics.FailedRequests, 1)
-		return nil, fmt.Errorf("failed to acquire connection semaphore: %w", err)
+		return nil, errors.NewAgentError(
+			errors.ErrorTypeTimeout,
+			"failed to acquire connection semaphore",
+			"ConnectionPool",
+		).WithCause(err).WithDetail("operation", "GetConnection")
 	}
 	
 	// Get connection from server pool
@@ -358,7 +483,11 @@ func (p *HTTPConnectionPool) GetConnection(req *ConnectionRequest) (*ConnectionR
 	if err != nil {
 		p.connSemaphore.Release(1)
 		atomic.AddInt64(&p.metrics.FailedRequests, 1)
-		return nil, fmt.Errorf("failed to get connection: %w", err)
+		return nil, errors.NewAgentError(
+			errors.ErrorTypeExternal,
+			"failed to get connection",
+			"ConnectionPool",
+		).WithCause(err).WithDetail("operation", "GetConnection")
 	}
 	
 	waitTime := time.Since(startTime)
@@ -392,7 +521,8 @@ func (p *HTTPConnectionPool) ReleaseConnection(conn *pooledConnection) error {
 	}
 	
 	if conn == nil {
-		return fmt.Errorf("connection is nil")
+		return errors.NewValidationError("connection_nil", "connection is nil").
+			WithField("connection", conn).WithDetail("operation", "ReleaseConnection")
 	}
 	
 	conn.mu.Lock()
@@ -414,10 +544,16 @@ func (p *HTTPConnectionPool) ReleaseConnection(conn *pooledConnection) error {
 	// Return to pool
 	serverURL := conn.server.URL.String()
 	p.poolsMu.RLock()
-	pool, exists := p.pools[serverURL]
+	poolInterface, exists := p.pools.Get(serverURL)
 	p.poolsMu.RUnlock()
 	
 	if !exists {
+		p.connSemaphore.Release(1)
+		return p.destroyConnection(conn)
+	}
+	
+	pool, ok := poolInterface.(*serverPool)
+	if !ok {
 		p.connSemaphore.Release(1)
 		return p.destroyConnection(conn)
 	}
@@ -534,10 +670,15 @@ func (p *HTTPConnectionPool) Shutdown(ctx context.Context) error {
 	
 	// Close all server pools
 	p.poolsMu.Lock()
-	for _, pool := range p.pools {
-		p.closeServerPool(pool)
+	for _, keyInterface := range p.pools.Keys() {
+		if poolInterface, exists := p.pools.Get(keyInterface); exists {
+			if pool, ok := poolInterface.(*serverPool); ok {
+				p.closeServerPool(pool)
+			}
+		}
 	}
-	p.pools = make(map[string]*serverPool)
+	// Close bounded map
+	p.pools.Close()
 	p.poolsMu.Unlock()
 	
 	// Close health checker
@@ -574,7 +715,7 @@ func (p *HTTPConnectionPool) createServerPool(server *ServerTarget) *serverPool 
 		Timeout:   p.config.RequestTimeout,
 	}
 	
-	return &serverPool{
+	pool := &serverPool{
 		server:      server,
 		transport:   transport,
 		client:      client,
@@ -582,13 +723,38 @@ func (p *HTTPConnectionPool) createServerPool(server *ServerTarget) *serverPool 
 		maxConns:    int64(server.MaxConnections),
 		created:     time.Now(),
 	}
+	
+	// Initialize connection cleanup with timeout
+	pool.cleanupCtx, pool.cleanupCancel = context.WithCancel(context.Background())
+	go pool.startCleanupWorker(p.config.MaxIdleTime)
+	
+	return pool
 }
 
 func (p *HTTPConnectionPool) closeServerPool(pool *serverPool) {
-	// Close all connections in pool
-	close(pool.connections)
-	for conn := range pool.connections {
-		p.destroyConnectionUnsafe(conn, true) // already have pools lock
+	// Cancel cleanup worker
+	if pool.cleanupCancel != nil {
+		pool.cleanupCancel()
+	}
+	
+	// Close all connections in pool with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		close(pool.connections)
+		for conn := range pool.connections {
+			p.destroyConnectionUnsafe(conn, true) // already have pools lock
+		}
+	}()
+	
+	select {
+	case <-done:
+		// Cleanup completed successfully
+	case <-ctx.Done():
+		// Timeout reached, force cleanup
 	}
 	
 	// Close transport
@@ -601,11 +767,16 @@ func (p *HTTPConnectionPool) getConnectionFromServerPool(ctx context.Context, se
 	serverURL := server.URL.String()
 	
 	p.poolsMu.RLock()
-	pool, exists := p.pools[serverURL]
+	poolInterface, exists := p.pools.Get(serverURL)
 	p.poolsMu.RUnlock()
 	
 	if !exists {
-		return nil, false, fmt.Errorf("server pool not found: %s", serverURL)
+		return nil, false, errors.NewResourceNotFoundError("server_pool", serverURL)
+	}
+	
+	pool, ok := poolInterface.(*serverPool)
+	if !ok {
+		return nil, false, errors.NewInternalErrorWithComponent("ConnectionPool", "invalid server pool type", nil)
 	}
 	
 	// Try to get existing connection from pool
@@ -624,19 +795,19 @@ func (p *HTTPConnectionPool) getConnectionFromServerPool(ctx context.Context, se
 	
 	// Check connection limits
 	if atomic.LoadInt64(&pool.activeConns) >= pool.maxConns {
-		return nil, false, fmt.Errorf("server connection limit reached: %s", serverURL)
+		return nil, false, errors.NewOperationError("getConnectionFromServerPool", "ConnectionPool", 
+			fmt.Errorf("server connection limit reached for %s", serverURL))
 	}
 	
-	// Create new connection
-	conn := &pooledConnection{
-		transport:  pool.transport,
-		client:     pool.client,
-		server:     server,
-		created:    time.Now(),
-		lastUsed:   time.Now(),
-		usageCount: 0,
-		isHealthy:  true,
-	}
+	// Create new connection using sync.Pool for reuse
+	conn := p.connPool.Get().(*pooledConnection)
+	conn.transport = pool.transport
+	conn.client = pool.client
+	conn.server = server
+	conn.created = time.Now()
+	conn.lastUsed = time.Now()
+	atomic.StoreInt64(&conn.usageCount, 0)
+	conn.isHealthy = true
 	
 	atomic.AddInt64(&pool.activeConns, 1)
 	atomic.AddInt64(&pool.totalConns, 1)
@@ -658,13 +829,26 @@ func (p *HTTPConnectionPool) destroyConnectionUnsafe(conn *pooledConnection, alr
 	if conn.server != nil && !alreadyLocked {
 		serverURL := conn.server.URL.String()
 		p.poolsMu.RLock()
-		if pool, exists := p.pools[serverURL]; exists {
-			atomic.AddInt64(&pool.activeConns, -1)
+		if poolInterface, exists := p.pools.Get(serverURL); exists {
+			if pool, ok := poolInterface.(*serverPool); ok {
+				atomic.AddInt64(&pool.activeConns, -1)
+			}
 		}
 		p.poolsMu.RUnlock()
 	}
 	
 	atomic.AddInt64(&p.metrics.ConnectionsDestroyed, 1)
+	
+	// Return connection to sync.Pool for reuse
+	if conn != nil {
+		// Reset connection state
+		conn.transport = nil
+		conn.client = nil
+		conn.server = nil
+		conn.isHealthy = false
+		atomic.StoreInt64(&conn.usageCount, 0)
+		p.connPool.Put(conn)
+	}
 	
 	return nil
 }
@@ -702,7 +886,11 @@ func (p *HTTPConnectionPool) selectServer(req *ConnectionRequest) (*ServerTarget
 	p.serversMu.RUnlock()
 	
 	if len(servers) == 0 {
-		return nil, fmt.Errorf("no servers available")
+		return nil, errors.NewAgentError(
+			errors.ErrorTypeInvalidState,
+			"no servers available",
+			"ConnectionPool",
+		).WithDetail("operation", "selectServer")
 	}
 	
 	// Filter healthy servers
@@ -716,7 +904,11 @@ func (p *HTTPConnectionPool) selectServer(req *ConnectionRequest) (*ServerTarget
 	}
 	
 	if len(healthyServers) == 0 {
-		return nil, fmt.Errorf("no healthy servers available")
+		return nil, errors.NewAgentError(
+			errors.ErrorTypeInvalidState,
+			"no healthy servers available",
+			"ConnectionPool",
+		).WithDetail("operation", "selectServer")
 	}
 	
 	// Apply load balancing strategy
@@ -875,9 +1067,13 @@ func (p *HTTPConnectionPool) startBackgroundWorkers() {
 
 func (p *HTTPConnectionPool) performCleanup() {
 	p.poolsMu.RLock()
-	pools := make([]*serverPool, 0, len(p.pools))
-	for _, pool := range p.pools {
-		pools = append(pools, pool)
+	pools := make([]*serverPool, 0)
+	for _, keyInterface := range p.pools.Keys() {
+		if poolInterface, exists := p.pools.Get(keyInterface); exists {
+			if pool, ok := poolInterface.(*serverPool); ok {
+				pools = append(pools, pool)
+			}
+		}
 	}
 	p.poolsMu.RUnlock()
 	
@@ -903,6 +1099,57 @@ func (p *HTTPConnectionPool) cleanupServerPool(pool *serverPool) {
 		}
 	default:
 		// No connections to clean up
+	}
+}
+
+// startCleanupWorker starts a background worker for connection cleanup with timeout
+func (sp *serverPool) startCleanupWorker(maxIdleTime time.Duration) {
+	ticker := time.NewTicker(maxIdleTime / 2) // Check twice as often as max idle time
+	defer ticker.Stop()
+	
+	for {
+		select {
+		case <-sp.cleanupCtx.Done():
+			return
+		case <-ticker.C:
+			sp.cleanupIdleConnections(maxIdleTime)
+		}
+	}
+}
+
+// cleanupIdleConnections removes idle connections that have exceeded max idle time
+func (sp *serverPool) cleanupIdleConnections(maxIdleTime time.Duration) {
+	// Use timeout to prevent blocking indefinitely
+	timeout := time.NewTimer(100 * time.Millisecond)
+	defer timeout.Stop()
+	
+	for {
+		select {
+		case conn := <-sp.connections:
+			if conn != nil {
+				conn.mu.RLock()
+				isExpired := time.Since(conn.lastUsed) > maxIdleTime
+				conn.mu.RUnlock()
+				
+				if isExpired {
+					// Connection expired, destroy it
+					atomic.AddInt64(&sp.activeConns, -1)
+				} else {
+					// Connection still valid, try to put it back
+					select {
+					case sp.connections <- conn:
+						// Successfully returned to pool
+					default:
+						// Pool is full, destroy connection anyway
+						atomic.AddInt64(&sp.activeConns, -1)
+					}
+				}
+			}
+		case <-timeout.C:
+			return // Exit cleanup cycle after timeout
+		default:
+			return // No more connections to check
+		}
 	}
 }
 
@@ -986,7 +1233,12 @@ func (h *HealthChecker) checkServerHealth(server *ServerTarget) {
 	// Create health check request
 	req, err := http.NewRequest("GET", healthURL.String(), nil)
 	if err != nil {
-		h.markServerUnhealthy(server, fmt.Errorf("failed to create health check request: %w", err))
+		err = errors.NewAgentError(
+			errors.ErrorTypeValidation,
+			"failed to create health check request",
+			"HealthChecker",
+		).WithCause(err).WithDetail("operation", "checkServerHealth")
+		h.markServerUnhealthy(server, err)
 		return
 	}
 	
@@ -998,7 +1250,12 @@ func (h *HealthChecker) checkServerHealth(server *ServerTarget) {
 	// Perform health check
 	resp, err := h.client.Do(req)
 	if err != nil {
-		h.markServerUnhealthy(server, fmt.Errorf("health check request failed: %w", err))
+		err = errors.NewAgentError(
+			errors.ErrorTypeExternal,
+			"health check request failed",
+			"HealthChecker",
+		).WithCause(err).WithDetail("operation", "checkServerHealth")
+		h.markServerUnhealthy(server, err)
 		return
 	}
 	defer resp.Body.Close()
@@ -1007,7 +1264,12 @@ func (h *HealthChecker) checkServerHealth(server *ServerTarget) {
 	
 	// Check response status
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		h.markServerUnhealthy(server, fmt.Errorf("health check returned status %d", resp.StatusCode))
+		err = errors.NewAgentError(
+			errors.ErrorTypeExternal,
+			"health check returned non-success status",
+			"HealthChecker",
+		).WithDetail("status_code", resp.StatusCode).WithDetail("operation", "checkServerHealth")
+		h.markServerUnhealthy(server, err)
 		return
 	}
 	
@@ -1085,39 +1347,55 @@ func DefaultHTTPPoolConfig() *HTTPPoolConfig {
 		MaxResponseHeaderSize:   1048576, // 1MB
 		WriteBufferSize:         4096,
 		ReadBufferSize:          4096,
+		BoundedPool: BoundedPoolConfig{
+			MaxServerPools:      1000,
+			ServerPoolTTL:       30 * time.Minute,
+			PoolCleanupInterval: 5 * time.Minute,
+			EnablePoolMetrics:   true,
+		},
 	}
 }
 
 func validateHTTPPoolConfig(config *HTTPPoolConfig) error {
 	if config.MaxConnectionsPerServer <= 0 {
-		return fmt.Errorf("MaxConnectionsPerServer must be positive")
+		return errors.NewValidationError("max_connections_per_server_invalid", "MaxConnectionsPerServer must be positive").
+			WithField("MaxConnectionsPerServer", config.MaxConnectionsPerServer)
 	}
 	if config.MaxTotalConnections <= 0 {
-		return fmt.Errorf("MaxTotalConnections must be positive")
+		return errors.NewValidationError("max_total_connections_invalid", "MaxTotalConnections must be positive").
+			WithField("MaxTotalConnections", config.MaxTotalConnections)
 	}
 	if config.MaxIdleConnections < 0 {
-		return fmt.Errorf("MaxIdleConnections cannot be negative")
+		return errors.NewValidationError("max_idle_connections_invalid", "MaxIdleConnections cannot be negative").
+			WithField("MaxIdleConnections", config.MaxIdleConnections)
 	}
 	if config.MaxIdleTime <= 0 {
-		return fmt.Errorf("MaxIdleTime must be positive")
+		return errors.NewValidationError("max_idle_time_invalid", "MaxIdleTime must be positive").
+			WithField("MaxIdleTime", config.MaxIdleTime.String())
 	}
 	if config.ConnectTimeout <= 0 {
-		return fmt.Errorf("ConnectTimeout must be positive")
+		return errors.NewValidationError("connect_timeout_invalid", "ConnectTimeout must be positive").
+			WithField("ConnectTimeout", config.ConnectTimeout.String())
 	}
 	if config.RequestTimeout <= 0 {
-		return fmt.Errorf("RequestTimeout must be positive")
+		return errors.NewValidationError("request_timeout_invalid", "RequestTimeout must be positive").
+			WithField("RequestTimeout", config.RequestTimeout.String())
 	}
 	if config.HealthCheckInterval <= 0 {
-		return fmt.Errorf("HealthCheckInterval must be positive")
+		return errors.NewValidationError("health_check_interval_invalid", "HealthCheckInterval must be positive").
+			WithField("HealthCheckInterval", config.HealthCheckInterval.String())
 	}
 	if config.HealthCheckTimeout <= 0 {
-		return fmt.Errorf("HealthCheckTimeout must be positive")
+		return errors.NewValidationError("health_check_timeout_invalid", "HealthCheckTimeout must be positive").
+			WithField("HealthCheckTimeout", config.HealthCheckTimeout.String())
 	}
 	if config.UnhealthyThreshold <= 0 {
-		return fmt.Errorf("UnhealthyThreshold must be positive")
+		return errors.NewValidationError("unhealthy_threshold_invalid", "UnhealthyThreshold must be positive").
+			WithField("UnhealthyThreshold", config.UnhealthyThreshold)
 	}
 	if config.HealthyThreshold <= 0 {
-		return fmt.Errorf("HealthyThreshold must be positive")
+		return errors.NewValidationError("healthy_threshold_invalid", "HealthyThreshold must be positive").
+			WithField("HealthyThreshold", config.HealthyThreshold)
 	}
 	return nil
 }

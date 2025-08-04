@@ -747,3 +747,20 @@ func (r *limitedResponseBody) Read(p []byte) (n int, err error) {
 
 	return n, err
 }
+
+// GetCorrelationMapStats returns statistics about the correlation map
+func (rm *RequestManager) GetCorrelationMapStats() map[string]interface{} {
+	stats := map[string]interface{}{
+		"type": "sync.Map",
+	}
+	
+	// Count entries by iterating over the map
+	count := 0
+	rm.correlationMap.Range(func(key, value interface{}) bool {
+		count++
+		return true
+	})
+	
+	stats["count"] = count
+	return stats
+}

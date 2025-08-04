@@ -741,7 +741,7 @@ func (mhm *MessageHistoryManager) messageMatchesQuery(messageID string, query Me
 		if (*storedMessage.Message).GetContent() != nil {
 			content = *(*storedMessage.Message).GetContent()
 		}
-		if !contains(content, query.Content) {
+		if !containsString(content, query.Content) {
 			return false
 		}
 	}
@@ -1013,7 +1013,7 @@ func (mhm *MessageHistoryManager) removeFromStringSlice(slice []string, item str
 	return slice
 }
 
-func contains(haystack, needle string) bool {
+func containsString(haystack, needle string) bool {
 	// Simple case-insensitive substring search
 	return len(needle) > 0 && len(haystack) >= len(needle) && 
 		   haystack != needle && 

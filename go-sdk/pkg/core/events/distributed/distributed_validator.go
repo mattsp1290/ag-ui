@@ -430,24 +430,31 @@ func DefaultDistributedValidatorConfig(nodeID NodeID) *DistributedValidatorConfi
 // TestingDistributedValidatorConfig returns configuration optimized for testing
 // This prevents goroutine leaks by disabling restart policies and using shorter timeouts
 func TestingDistributedValidatorConfig(nodeID NodeID) *DistributedValidatorConfig {
-	testingStateSync := DefaultStateSyncConfig()
-	testingStateSync.SyncInterval = 50 * time.Millisecond // Faster for tests
+	testingStateSync := TestingStateSyncConfig() // Use dedicated testing configuration
 	
 	testingPartitionHandler := DefaultPartitionHandlerConfig()
-	testingPartitionHandler.HeartbeatTimeout = 100 * time.Millisecond
+	testingPartitionHandler.HeartbeatTimeout = 50 * time.Millisecond    // Very fast heartbeat timeout
 	testingPartitionHandler.AllowLocalValidation = true
 	testingPartitionHandler.MinNodesForOperation = 1
+	testingPartitionHandler.AutoRecovery = false                        // Disable auto-recovery for predictable tests
+	
+	testingConsensus := DefaultConsensusConfig()
+	testingConsensus.MinNodes = 1         // Allow single-node consensus for tests
+	testingConsensus.QuorumSize = 1       // Minimal quorum for tests
+	
+	testingLoadBalancer := DefaultLoadBalancerConfig()
+	testingLoadBalancer.EnableCircuitBreaker = false  // Disable circuit breaker for simpler tests
 	
 	return &DistributedValidatorConfig{
 		NodeID:                 nodeID,
-		ConsensusConfig:        DefaultConsensusConfig(),
+		ConsensusConfig:        testingConsensus,
 		StateSync:              testingStateSync,
-		LoadBalancer:           DefaultLoadBalancerConfig(),
+		LoadBalancer:           testingLoadBalancer,
 		PartitionHandler:       testingPartitionHandler,
-		MaxNodeFailures:        2,
-		ValidationTimeout:      2 * time.Second,
-		HeartbeatInterval:      100 * time.Millisecond,
-		NodeCleanupInterval:    1 * time.Second, // Faster cleanup for tests
+		MaxNodeFailures:        1,                        // Reduced for faster tests
+		ValidationTimeout:      1 * time.Second,         // Shorter timeout
+		HeartbeatInterval:      25 * time.Millisecond,   // Much faster heartbeat
+		NodeCleanupInterval:    250 * time.Millisecond,  // Very fast cleanup for tests
 		EnableMetrics:          true,
 		ConsensusCircuitBreakerConfig:   errors.DefaultCircuitBreakerConfig("consensus"),
 		StateSyncCircuitBreakerConfig:   errors.DefaultCircuitBreakerConfig("state-sync"),

@@ -8,7 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 	
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/internal/timeconfig"
+	"github.com/mattsp1290/ag-ui/go-sdk/internal/timeconfig"
 )
 
 // ExecutionEngine manages the execution of tools.

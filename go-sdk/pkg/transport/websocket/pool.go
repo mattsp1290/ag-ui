@@ -12,7 +12,7 @@ import (
 	"go.uber.org/zap"
 
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/internal/timeconfig"
+	"github.com/mattsp1290/ag-ui/go-sdk/internal/timeconfig"
 )
 
 // ConnectionPool manages a pool of WebSocket connections with load balancing

@@ -243,6 +243,17 @@ func (d *StreamingJSONDecoder) ReadEvent(ctx context.Context) (events.Event, err
 	if len(line) == 0 {
 		// Try next line in a loop to avoid stack overflow from recursion
 		for {
+			// Check context cancellation during loop iteration
+			select {
+			case <-ctx.Done():
+				return nil, &encoding.DecodingError{
+					Format:  "json",
+					Message: "context cancelled during stream reading",
+					Cause:   ctx.Err(),
+				}
+			default:
+			}
+			
 			if !d.scanner.Scan() {
 				if err := d.scanner.Err(); err != nil {
 					return nil, &encoding.DecodingError{

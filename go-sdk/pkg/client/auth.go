@@ -206,6 +206,8 @@ type AuditLoggingConfig struct {
 	RotateCount             int                  `json:"rotate_count" yaml:"rotate_count"`
 	LogSensitiveData        bool                 `json:"log_sensitive_data" yaml:"log_sensitive_data"`
 	EventTypes              []string             `json:"event_types" yaml:"event_types"`
+	IncludeRequestBody      bool                 `json:"include_request_body" yaml:"include_request_body"`
+	IncludeResponseBody     bool                 `json:"include_response_body" yaml:"include_response_body"`
 }
 
 // Supporting configuration types

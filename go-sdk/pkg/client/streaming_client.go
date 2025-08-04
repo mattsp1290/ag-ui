@@ -12,7 +12,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
@@ -132,6 +131,17 @@ type SSEClientConfig struct {
 	FlowControlThreshold float64
 }
 
+// SSEClientState holds all client state that needs to be read atomically
+type SSEClientState struct {
+	state          SSEConnectionState
+	closed         bool
+	sequence       uint64
+	lastEventID    string
+	reconnectCount int
+	backpressure   bool
+	lastActivity   time.Time
+}
+
 // SSEClient is a robust Server-Sent Events streaming client
 type SSEClient struct {
 	config   SSEClientConfig
@@ -139,32 +149,23 @@ type SSEClient struct {
 	conn     *http.Response
 	scanner  *bufio.Scanner
 	
-	// State management
-	state         SSEConnectionState
+	// Unified state management (protected by single mutex)
+	clientState   SSEClientState
 	stateMutex    sync.RWMutex
-	closed        int32
 	
 	// Event handling
 	eventChan     chan *SSEEvent
 	eventBuffer   []*SSEEvent
 	bufferMutex   sync.RWMutex
-	sequence      uint64
-	lastEventID   string
 	
-	// Reconnection
-	reconnectCount     int
+	// Reconnection (separated from main state for independent access)
 	currentBackoff     time.Duration
 	reconnectTimer     *time.Timer
 	reconnectMutex     sync.RWMutex
 	
 	// Health monitoring
-	lastActivity      time.Time
-	activityMutex     sync.RWMutex
 	healthTicker      *time.Ticker
-	
-	// Flow control
-	backpressure      bool
-	backpressureMutex sync.RWMutex
+	healthMutex       sync.RWMutex
 	
 	// Context and cancellation
 	ctx        context.Context
@@ -239,26 +240,32 @@ func NewSSEClient(config SSEClientConfig) (*SSEClient, error) {
 	client := &SSEClient{
 		config:         config,
 		client:         httpClient,
-		state:          SSEStateDisconnected,
 		eventChan:      make(chan *SSEEvent, config.EventBufferSize),
 		eventBuffer:    make([]*SSEEvent, 0),
 		currentBackoff: config.InitialBackoff,
-		lastActivity:   time.Now(),
 		ctx:            ctx,
 		cancel:         cancel,
 	}
-
-	// Set last event ID if provided
-	if config.LastEventID != "" {
-		client.lastEventID = config.LastEventID
+	
+	// Initialize client state atomically
+	client.clientState = SSEClientState{
+		state:          SSEStateDisconnected,
+		closed:         false,
+		sequence:       0,
+		lastEventID:    config.LastEventID,
+		reconnectCount: 0,
+		backpressure:   false,
+		lastActivity:   time.Now(),
 	}
+
+	// Last event ID is already set in clientState initialization
 
 	return client, nil
 }
 
 // Connect establishes the SSE connection
 func (c *SSEClient) Connect(ctx context.Context) error {
-	if atomic.LoadInt32(&c.closed) == 1 {
+	if c.isClosed() {
 		return pkgerrors.NewOperationError("Connect", "SSEClient", fmt.Errorf("client is closed"))
 	}
 
@@ -267,14 +274,22 @@ func (c *SSEClient) Connect(ctx context.Context) error {
 	req, err := c.createRequest(ctx)
 	if err != nil {
 		c.setState(SSEStateDisconnected)
-		return pkgerrors.WrapWithContext(err, "Connect", "create_request")
+		return pkgerrors.NewAgentError(
+			pkgerrors.ErrorTypeValidation,
+			"failed to create HTTP request",
+			"SSEClient",
+		).WithCause(err).WithDetail("operation", "Connect")
 	}
 
 	resp, err := c.client.Do(req)
 	if err != nil {
 		c.setState(SSEStateDisconnected)
 		c.callOnError(err)
-		return pkgerrors.WrapWithContext(err, "Connect", "http_request")
+		return pkgerrors.NewAgentError(
+			pkgerrors.ErrorTypeExternal,
+			"HTTP request failed",
+			"SSEClient",
+		).WithCause(err).WithDetail("operation", "Connect")
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -282,7 +297,11 @@ func (c *SSEClient) Connect(ctx context.Context) error {
 		c.setState(SSEStateDisconnected)
 		err := fmt.Errorf("unexpected status code: %d", resp.StatusCode)
 		c.callOnError(err)
-		return pkgerrors.NewOperationError("Connect", "http_status", err)
+		return pkgerrors.NewAgentError(
+			pkgerrors.ErrorTypeExternal,
+			"unexpected HTTP status code",
+			"SSEClient",
+		).WithCause(err).WithDetail("operation", "Connect").WithDetail("status_code", resp.StatusCode)
 	}
 
 	// Verify content type
@@ -292,7 +311,8 @@ func (c *SSEClient) Connect(ctx context.Context) error {
 		c.setState(SSEStateDisconnected)
 		err := fmt.Errorf("unexpected content type: %s", contentType)
 		c.callOnError(err)
-		return pkgerrors.NewValidationErrorWithField("Content-Type", "format", "expected text/event-stream", contentType)
+		return pkgerrors.NewValidationError("invalid_content_type", "expected text/event-stream content type").
+			WithField("Content-Type", contentType).WithDetail("operation", "Connect")
 	}
 
 	c.stateMutex.Lock()
@@ -320,8 +340,12 @@ func (c *SSEClient) Events() <-chan *SSEEvent {
 
 // Close closes the SSE client and releases resources
 func (c *SSEClient) Close() error {
-	if !atomic.CompareAndSwapInt32(&c.closed, 0, 1) {
-		return pkgerrors.NewOperationError("Close", "SSEClient", fmt.Errorf("client already closed"))
+	if !c.setClosed() {
+		return pkgerrors.NewAgentError(
+			pkgerrors.ErrorTypeInvalidState,
+			"client already closed",
+			"SSEClient",
+		).WithDetail("operation", "Close")
 	}
 
 	c.setState(SSEStateClosed)
@@ -336,18 +360,16 @@ func (c *SSEClient) Close() error {
 	c.stateMutex.Unlock()
 
 	// Stop timers
-	c.activityMutex.Lock()
+	c.healthMutex.Lock()
 	if c.reconnectTimer != nil {
 		c.reconnectTimer.Stop()
 		c.reconnectTimer = nil
 	}
-	c.activityMutex.Unlock()
-	c.activityMutex.Lock()
 	if c.healthTicker != nil {
 		c.healthTicker.Stop()
 		c.healthTicker = nil
 	}
-	c.activityMutex.Unlock()
+	c.healthMutex.Unlock()
 
 	// Wait for goroutines
 	c.wg.Wait()
@@ -362,21 +384,21 @@ func (c *SSEClient) Close() error {
 func (c *SSEClient) State() SSEConnectionState {
 	c.stateMutex.RLock()
 	defer c.stateMutex.RUnlock()
-	return c.state
+	return c.clientState.state
 }
 
 // LastEventID returns the last received event ID
 func (c *SSEClient) LastEventID() string {
-	c.bufferMutex.RLock()
-	defer c.bufferMutex.RUnlock()
-	return c.lastEventID
+	c.stateMutex.RLock()
+	defer c.stateMutex.RUnlock()
+	return c.clientState.lastEventID
 }
 
 // ReconnectCount returns the number of reconnection attempts
 func (c *SSEClient) ReconnectCount() int {
-	c.reconnectMutex.RLock()
-	defer c.reconnectMutex.RUnlock()
-	return c.reconnectCount
+	c.stateMutex.RLock()
+	defer c.stateMutex.RUnlock()
+	return c.clientState.reconnectCount
 }
 
 // BufferLength returns the current buffer length
@@ -388,9 +410,9 @@ func (c *SSEClient) BufferLength() int {
 
 // IsBackpressureActive returns true if backpressure is currently active
 func (c *SSEClient) IsBackpressureActive() bool {
-	c.backpressureMutex.RLock()
-	defer c.backpressureMutex.RUnlock()
-	return c.backpressure
+	c.stateMutex.RLock()
+	defer c.stateMutex.RUnlock()
+	return c.clientState.backpressure
 }
 
 // createRequest creates an HTTP request for the SSE connection
@@ -410,8 +432,8 @@ func (c *SSEClient) createRequest(ctx context.Context) (*http.Request, error) {
 	}
 
 	// Set last event ID for resuming
-	if c.lastEventID != "" {
-		req.Header.Set("Last-Event-ID", c.lastEventID)
+	if lastEventID := c.LastEventID(); lastEventID != "" {
+		req.Header.Set("Last-Event-ID", lastEventID)
 	}
 
 	// Set custom headers
@@ -467,6 +489,12 @@ func (c *SSEClient) readLoop() {
 		if line == "" {
 			// Empty line indicates end of event
 			if event != nil && len(eventLines) > 0 {
+				// Check context before processing event
+				select {
+				case <-c.ctx.Done():
+					return
+				default:
+				}
 				c.finalizeEvent(event, eventLines)
 				eventLines = eventLines[:0]
 				event = nil
@@ -475,9 +503,15 @@ func (c *SSEClient) readLoop() {
 		}
 
 		if event == nil {
+			// Check context before creating new event
+			select {
+			case <-c.ctx.Done():
+				return
+			default:
+			}
 			event = &SSEEvent{
 				Timestamp: time.Now(),
-				Sequence:  atomic.AddUint64(&c.sequence, 1),
+				Sequence:  c.getNextSequence(),
 				Headers:   make(map[string]string),
 			}
 		}
@@ -553,9 +587,7 @@ func (c *SSEClient) finalizeEvent(event *SSEEvent, eventLines []string) {
 
 	// Update last event ID
 	if event.ID != "" {
-		c.bufferMutex.Lock()
-		c.lastEventID = event.ID
-		c.bufferMutex.Unlock()
+		c.setLastEventID(event.ID)
 	}
 
 	// Apply event filter if configured
@@ -668,17 +700,17 @@ func (c *SSEClient) flushBuffer() {
 func (c *SSEClient) healthCheck() {
 	defer c.wg.Done()
 
-	c.activityMutex.Lock()
+	c.healthMutex.Lock()
 	c.healthTicker = time.NewTicker(c.config.HealthCheckInterval)
 	ticker := c.healthTicker
-	c.activityMutex.Unlock()
+	c.healthMutex.Unlock()
 	defer func() {
-		c.activityMutex.Lock()
+		c.healthMutex.Lock()
 		if c.healthTicker != nil {
 			c.healthTicker.Stop()
 			c.healthTicker = nil
 		}
-		c.activityMutex.Unlock()
+		c.healthMutex.Unlock()
 	}()
 
 	for {
@@ -693,9 +725,7 @@ func (c *SSEClient) healthCheck() {
 
 // checkConnectionHealth verifies the connection is still active
 func (c *SSEClient) checkConnectionHealth() {
-	c.activityMutex.RLock()
-	lastActivity := c.lastActivity
-	c.activityMutex.RUnlock()
+	lastActivity := c.getLastActivity()
 
 	// Check if we've received data recently
 	if time.Since(lastActivity) > c.config.HealthCheckInterval*2 {
@@ -707,7 +737,7 @@ func (c *SSEClient) checkConnectionHealth() {
 
 // handleConnectionError handles connection errors and triggers reconnection
 func (c *SSEClient) handleConnectionError(err error) {
-	if atomic.LoadInt32(&c.closed) == 1 {
+	if c.isClosed() {
 		return
 	}
 
@@ -730,13 +760,11 @@ func (c *SSEClient) handleConnectionError(err error) {
 
 // shouldReconnect determines if reconnection should be attempted
 func (c *SSEClient) shouldReconnect() bool {
-	if atomic.LoadInt32(&c.closed) == 1 {
+	if c.isClosed() {
 		return false
 	}
 
-	c.reconnectMutex.RLock()
-	reconnectCount := c.reconnectCount
-	c.reconnectMutex.RUnlock()
+	reconnectCount := c.ReconnectCount()
 
 	if c.config.MaxReconnectAttempts > 0 && reconnectCount >= c.config.MaxReconnectAttempts {
 		return false
@@ -749,19 +777,16 @@ func (c *SSEClient) shouldReconnect() bool {
 func (c *SSEClient) scheduleReconnect() {
 	c.setState(SSEStateReconnecting)
 	
-	c.reconnectMutex.Lock()
-	c.reconnectCount++
-	reconnectCount := c.reconnectCount
-	c.reconnectMutex.Unlock()
+	reconnectCount := c.incrementReconnectCount()
 	
 	c.callOnReconnect(reconnectCount)
 
 	// Calculate backoff duration
 	backoff := c.calculateBackoff()
 	
-	c.activityMutex.Lock()
+	c.healthMutex.Lock()
 	c.reconnectTimer = time.AfterFunc(backoff, func() {
-		if atomic.LoadInt32(&c.closed) == 1 {
+		if c.isClosed() {
 			return
 		}
 
@@ -772,7 +797,7 @@ func (c *SSEClient) scheduleReconnect() {
 			}
 		}
 	})
-	c.activityMutex.Unlock()
+	c.healthMutex.Unlock()
 }
 
 // calculateBackoff calculates the next backoff duration
@@ -800,38 +825,94 @@ func (c *SSEClient) calculateBackoff() time.Duration {
 
 // resetReconnectState resets reconnection state after successful connection
 func (c *SSEClient) resetReconnectState() {
+	c.resetReconnectCount()
+	
 	c.reconnectMutex.Lock()
-	c.reconnectCount = 0
 	c.currentBackoff = c.config.InitialBackoff
 	c.reconnectMutex.Unlock()
 	
-	c.activityMutex.Lock()
+	c.healthMutex.Lock()
 	if c.reconnectTimer != nil {
 		c.reconnectTimer.Stop()
 		c.reconnectTimer = nil
 	}
-	c.activityMutex.Unlock()
+	c.healthMutex.Unlock()
 }
 
 // setState safely updates the connection state
 func (c *SSEClient) setState(state SSEConnectionState) {
 	c.stateMutex.Lock()
 	defer c.stateMutex.Unlock()
-	c.state = state
+	c.clientState.state = state
+}
+
+// isClosed safely checks if the client is closed
+func (c *SSEClient) isClosed() bool {
+	c.stateMutex.RLock()
+	defer c.stateMutex.RUnlock()
+	return c.clientState.closed
+}
+
+// setClosed safely sets the client as closed and returns true if it was not already closed
+func (c *SSEClient) setClosed() bool {
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
+	if c.clientState.closed {
+		return false
+	}
+	c.clientState.closed = true
+	return true
+}
+
+// getNextSequence safely increments and returns the next sequence number
+func (c *SSEClient) getNextSequence() uint64 {
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
+	c.clientState.sequence++
+	return c.clientState.sequence
+}
+
+// setLastEventID safely updates the last event ID
+func (c *SSEClient) setLastEventID(eventID string) {
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
+	c.clientState.lastEventID = eventID
+}
+
+// getLastActivity safely gets the last activity time
+func (c *SSEClient) getLastActivity() time.Time {
+	c.stateMutex.RLock()
+	defer c.stateMutex.RUnlock()
+	return c.clientState.lastActivity
+}
+
+// incrementReconnectCount safely increments and returns the reconnect count
+func (c *SSEClient) incrementReconnectCount() int {
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
+	c.clientState.reconnectCount++
+	return c.clientState.reconnectCount
+}
+
+// resetReconnectCount safely resets the reconnect count
+func (c *SSEClient) resetReconnectCount() {
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
+	c.clientState.reconnectCount = 0
 }
 
 // setBackpressure safely updates the backpressure state
 func (c *SSEClient) setBackpressure(active bool) {
-	c.backpressureMutex.Lock()
-	defer c.backpressureMutex.Unlock()
-	c.backpressure = active
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
+	c.clientState.backpressure = active
 }
 
 // updateActivity updates the last activity timestamp
 func (c *SSEClient) updateActivity() {
-	c.activityMutex.Lock()
-	defer c.activityMutex.Unlock()
-	c.lastActivity = time.Now()
+	c.stateMutex.Lock()
+	defer c.stateMutex.Unlock()
+	c.clientState.lastActivity = time.Now()
 }
 
 // Callback helpers
@@ -914,7 +995,8 @@ func ConvertEventToSSE(event events.Event) (*SSEEvent, error) {
 	// Convert event to JSON data
 	jsonData, err := event.ToJSON()
 	if err != nil {
-		return nil, pkgerrors.WrapWithContext(err, "ConvertEventToSSE", "json_marshal")
+		return nil, pkgerrors.NewEncodingError("json_marshal_failed", "failed to marshal event to JSON").
+			WithCause(err).WithOperation("json_marshal").WithDetail("event_type", string(event.Type()))
 	}
 	sseEvent.Data = string(jsonData)
 

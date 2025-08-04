@@ -84,6 +84,12 @@ const (
 	
 	// ErrorTypePermission indicates insufficient permissions
 	ErrorTypePermission ErrorType = "permission"
+	
+	// ErrorTypeExternal indicates an external service error
+	ErrorTypeExternal ErrorType = "external"
+	
+	// ErrorTypeRateLimit indicates rate limiting errors
+	ErrorTypeRateLimit ErrorType = "rate_limit"
 )
 
 // Severity levels for errors
@@ -312,6 +318,21 @@ func (e *ValidationError) AddFieldError(field, message string) *ValidationError 
 // HasFieldErrors returns true if there are field-specific errors
 func (e *ValidationError) HasFieldErrors() bool {
 	return len(e.FieldErrors) > 0
+}
+
+// WithCause adds an underlying cause to the validation error and returns the ValidationError
+func (e *ValidationError) WithCause(cause error) *ValidationError {
+	e.BaseError.Cause = cause
+	return e
+}
+
+// WithDetail adds a detail to the validation error and returns the ValidationError
+func (e *ValidationError) WithDetail(key string, value interface{}) *ValidationError {
+	if e.BaseError.Details == nil {
+		e.BaseError.Details = make(map[string]interface{})
+	}
+	e.BaseError.Details[key] = value
+	return e
 }
 
 // ConflictError represents conflict-related errors

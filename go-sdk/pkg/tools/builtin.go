@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 	
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/internal/timeconfig"
+	"github.com/mattsp1290/ag-ui/go-sdk/internal/timeconfig"
 )
 
 // BuiltinToolsOptions configures how built-in tools are registered.

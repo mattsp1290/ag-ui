@@ -6,21 +6,25 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/mattsp1290/ag-ui/go-sdk/internal"
 )
 
 // UnifiedConfigProvider implements ConfigProvider with unified configuration access
 type UnifiedConfigProvider struct {
-	config    *ValidatorConfig
-	watchers  map[string][]func(key string, value interface{})
-	mutex     sync.RWMutex
-	keyPrefix string
+	config       *ValidatorConfig
+	watchers     map[string][]func(key string, value interface{})
+	mutex        sync.RWMutex
+	keyPrefix    string
+	callbackPool *internal.CallbackPool
 }
 
 // NewUnifiedConfigProvider creates a new unified configuration provider
 func NewUnifiedConfigProvider(config *ValidatorConfig) *UnifiedConfigProvider {
 	return &UnifiedConfigProvider{
-		config:   config,
-		watchers: make(map[string][]func(key string, value interface{})),
+		config:       config,
+		watchers:     make(map[string][]func(key string, value interface{})),
+		callbackPool: internal.NewCallbackPool(0), // Use default worker count
 	}
 }
 
@@ -419,13 +423,19 @@ func (p *UnifiedConfigProvider) keyFromFieldName(fieldName string) string {
 func (p *UnifiedConfigProvider) notifyWatchers(key string, value interface{}) {
 	// Notify global watchers
 	for _, callback := range p.watchers["*"] {
-		go callback(key, value)
+		cb := callback // Capture for closure
+		p.callbackPool.Submit(func() {
+			cb(key, value)
+		})
 	}
 	
 	// Notify key-specific watchers
 	if watchers, exists := p.watchers[key]; exists {
 		for _, callback := range watchers {
-			go callback(key, value)
+			cb := callback // Capture for closure
+			p.callbackPool.Submit(func() {
+				cb(key, value)
+			})
 		}
 	}
 }

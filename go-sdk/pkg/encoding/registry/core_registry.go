@@ -112,7 +112,7 @@ func (r *CoreRegistry) GetEntry(entryType RegistryEntryType, mimeType string) (*
 	if value, ok := r.entries.Load(key); ok {
 		entry := value.(*RegistryEntry)
 		// Update access tracking atomically
-		entry.LastAccess = time.Now()
+		entry.SetLastAccess(time.Now())
 		atomic.AddInt64(&entry.AccessCount, 1)
 
 		// Update LRU position if enabled
@@ -145,12 +145,13 @@ func (r *CoreRegistry) SetEntry(entryType RegistryEntryType, mimeType string, va
 	}
 
 	// Create new entry with metadata
+	now := time.Now()
 	entry := &RegistryEntry{
 		Value:       value,
-		CreatedAt:   time.Now(),
-		LastAccess:  time.Now(),
+		CreatedAt:   now,
 		AccessCount: 1,
 	}
+	entry.SetLastAccess(now)
 
 	// Store in sync.Map
 	r.entries.Store(key, entry)
@@ -315,7 +316,7 @@ func (r *CoreRegistry) CleanupByAccessTime(maxAge time.Duration) (int, error) {
 		k := key.(RegistryKey)
 		entry := value.(*RegistryEntry)
 
-		if entry.LastAccess.Before(cutoff) {
+		if entry.GetLastAccess().Before(cutoff) {
 			keysToDelete = append(keysToDelete, k)
 		}
 		return true

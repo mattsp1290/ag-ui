@@ -147,6 +147,13 @@ func NewNetworkSimulator(handler http.Handler) *NetworkSimulator {
 				// Read and write in chunks for SSE
 				scanner := bufio.NewScanner(resp.Body)
 				for scanner.Scan() {
+					// Check context cancellation during SSE proxying
+					select {
+					case <-ctx.Done():
+						return
+					default:
+					}
+					
 					line := scanner.Text()
 					if _, err := limitedWriter.Write([]byte(line + "\n")); err != nil {
 						return

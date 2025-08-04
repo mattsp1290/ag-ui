@@ -2,15 +2,27 @@ package registry
 
 import (
 	"fmt"
+	"sync/atomic"
 	"time"
 )
 
 // RegistryEntry wraps registry data with metadata for cleanup
 type RegistryEntry struct {
-	Value       interface{}
-	CreatedAt   time.Time
-	LastAccess  time.Time
-	AccessCount int64
+	Value        interface{}
+	CreatedAt    time.Time
+	lastAccess   int64 // atomic: Unix nano timestamp
+	AccessCount  int64 // atomic
+}
+
+// GetLastAccess atomically gets the last access time
+func (e *RegistryEntry) GetLastAccess() time.Time {
+	nanos := atomic.LoadInt64(&e.lastAccess)
+	return time.Unix(0, nanos)
+}
+
+// SetLastAccess atomically sets the last access time
+func (e *RegistryEntry) SetLastAccess(t time.Time) {
+	atomic.StoreInt64(&e.lastAccess, t.UnixNano())
 }
 
 // RegistryConfig holds configuration for registry cleanup behavior

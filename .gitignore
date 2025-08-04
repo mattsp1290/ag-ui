@@ -7,6 +7,34 @@ proompts/
 go-sdk/examples/*/auth_middleware
 go-sdk/examples/*/*/auth_middleware
 
+# Binary executables and demo files
+*.exe
+**/sse_standalone_demo
+**/*_demo
+**/*_example
+go-sdk/sse_standalone_demo
+
+# Common binary file extensions
+*.bin
+*.dll
+*.so
+*.dylib
+*.app
+*.deb
+*.rpm
+*.msi
+*.dmg
+*.pkg
+
+# Platform-specific executables
+# macOS executables (Mach-O files)
+# Windows executables
+# Linux executables
+**/bin/
+**/build/
+**/dist/
+**/target/
+
 # Profiling data
 *.prof
 *.pprof

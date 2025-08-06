@@ -278,12 +278,12 @@ func testErrorHandlingAndRecovery(t *testing.T) {
 		manager := NewGoroutineLifecycleManager("error-test")
 		defer manager.MustShutdown()
 		
-		var panicRecovered bool
+		var panicRecovered int32 // Use int32 for atomic operations
 		err := manager.GoWithRecovery("panic-worker", func(ctx context.Context) {
 			panic("test panic")
 		}, func(r interface{}) {
 			if r == "test panic" {
-				panicRecovered = true
+				atomic.StoreInt32(&panicRecovered, 1)
 			}
 		})
 		
@@ -294,7 +294,7 @@ func testErrorHandlingAndRecovery(t *testing.T) {
 		// Wait for panic and recovery
 		time.Sleep(100 * time.Millisecond)
 		
-		if !panicRecovered {
+		if atomic.LoadInt32(&panicRecovered) == 0 {
 			t.Error("Panic was not properly recovered")
 		}
 		
@@ -544,8 +544,13 @@ func (s *TestService) GetMetrics() ServiceMetrics {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	
-	metrics := s.metrics
-	metrics.ActiveWorkers = s.manager.GetActiveCount()
+	// Create metrics struct without copying ProcessedItems to avoid race
+	metrics := ServiceMetrics{
+		ProcessedItems: atomic.LoadInt64(&s.metrics.ProcessedItems), // Use atomic load
+		ActiveWorkers:  s.manager.GetActiveCount(),
+		Uptime:        s.metrics.Uptime,
+		StartTime:     s.metrics.StartTime,
+	}
 	return metrics
 }
 

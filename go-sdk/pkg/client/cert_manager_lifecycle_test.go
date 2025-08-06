@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -97,9 +98,9 @@ func TestEnhancedCertificateManagerLifecycle(t *testing.T) {
 			manager.SetWatchInterval(100 * time.Millisecond)
 			
 			// Track reload events
-			reloadCount := 0
+			var reloadCount int64
 			manager.AddReloadCallback(func(*tls.Config) {
-				reloadCount++
+				atomic.AddInt64(&reloadCount, 1)
 			})
 			
 			if err := manager.Start(); err != nil {
@@ -124,11 +125,11 @@ func TestEnhancedCertificateManagerLifecycle(t *testing.T) {
 			
 			// Wait for reload to be detected
 			maxWait := time.Now().Add(2 * time.Second)
-			for reloadCount == 0 && time.Now().Before(maxWait) {
+			for atomic.LoadInt64(&reloadCount) == 0 && time.Now().Before(maxWait) {
 				time.Sleep(50 * time.Millisecond)
 			}
 			
-			if reloadCount == 0 {
+			if atomic.LoadInt64(&reloadCount) == 0 {
 				t.Error("Certificate reload was not detected")
 			}
 		})

@@ -13,6 +13,32 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// Performance optimization pools for rate limiting objects
+var (
+	// Token bucket limiter pool
+	tokenBucketLimiterPool = sync.Pool{
+		New: func() interface{} {
+			return &TokenBucketLimiter{}
+		},
+	}
+	
+	// Sliding window limiter pool
+	slidingWindowLimiterPool = sync.Pool{
+		New: func() interface{} {
+			return &SlidingWindowLimiter{
+				requests: make([]time.Time, 0, 100), // Pre-allocate capacity
+			}
+		},
+	}
+	
+	// Rate limit response map pool
+	rateResponsePool = sync.Pool{
+		New: func() interface{} {
+			return make(map[string]interface{}, 4)
+		},
+	}
+)
+
 // RateLimitAlgorithm represents different rate limiting algorithms
 type RateLimitAlgorithm string
 
@@ -166,10 +192,18 @@ type TokenBucketLimiter struct {
 	mu      sync.Mutex
 }
 
-// NewTokenBucketLimiter creates a new token bucket rate limiter
+// NewTokenBucketLimiter creates a new token bucket rate limiter using object pool
 func NewTokenBucketLimiter(requestsPerSecond float64, burstSize int) *TokenBucketLimiter {
-	return &TokenBucketLimiter{
-		limiter: rate.NewLimiter(rate.Limit(requestsPerSecond), burstSize),
+	tbl := tokenBucketLimiterPool.Get().(*TokenBucketLimiter)
+	tbl.limiter = rate.NewLimiter(rate.Limit(requestsPerSecond), burstSize)
+	return tbl
+}
+
+// Release returns a TokenBucketLimiter to the pool
+func (tbl *TokenBucketLimiter) Release() {
+	if tbl != nil {
+		tbl.limiter = nil
+		tokenBucketLimiterPool.Put(tbl)
 	}
 }
 
@@ -255,12 +289,22 @@ type SlidingWindowLimiter struct {
 	mu         sync.Mutex
 }
 
-// NewSlidingWindowLimiter creates a new sliding window rate limiter
+// NewSlidingWindowLimiter creates a new sliding window rate limiter using object pool
 func NewSlidingWindowLimiter(limit int, windowSize time.Duration) *SlidingWindowLimiter {
-	return &SlidingWindowLimiter{
-		limit:      limit,
-		windowSize: windowSize,
-		requests:   make([]time.Time, 0),
+	swl := slidingWindowLimiterPool.Get().(*SlidingWindowLimiter)
+	swl.limit = limit
+	swl.windowSize = windowSize
+	swl.requests = swl.requests[:0] // Reset slice but keep capacity
+	return swl
+}
+
+// Release returns a SlidingWindowLimiter to the pool
+func (swl *SlidingWindowLimiter) Release() {
+	if swl != nil {
+		swl.requests = swl.requests[:0] // Clear slice
+		swl.limit = 0
+		swl.windowSize = 0
+		slidingWindowLimiterPool.Put(swl)
 	}
 }
 
@@ -765,11 +809,19 @@ func (rlm *RateLimitMiddleware) handleRateLimitExceeded(w http.ResponseWriter, r
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
 	
-	response := map[string]interface{}{
-		"error":     message,
-		"timestamp": time.Now().Unix(),
-		"retry_after": 60,
-	}
+	// Use pooled response map for better performance
+	response := rateResponsePool.Get().(map[string]interface{})
+	defer func() {
+		// Clear and return to pool
+		for k := range response {
+			delete(response, k)
+		}
+		rateResponsePool.Put(response)
+	}()
+	
+	response["error"] = message
+	response["timestamp"] = time.Now().Unix()
+	response["retry_after"] = 60
 	
 	json.NewEncoder(w).Encode(response)
 }

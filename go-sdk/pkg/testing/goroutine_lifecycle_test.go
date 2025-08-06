@@ -3,6 +3,7 @@ package testing
 import (
 	"context"
 	"runtime"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -266,12 +267,12 @@ func TestGoroutineLifecycleManager(t *testing.T) {
 			manager := NewGoroutineLifecycleManager("test-panic")
 			defer manager.MustShutdown()
 			
-			var panicRecovered bool
+			var panicRecovered int32 // Use int32 for atomic operations
 			err := manager.GoWithRecovery("panic-test", func(ctx context.Context) {
 				panic("test panic")
 			}, func(r interface{}) {
 				if r == "test panic" {
-					panicRecovered = true
+					atomic.StoreInt32(&panicRecovered, 1)
 				}
 			})
 			
@@ -282,7 +283,7 @@ func TestGoroutineLifecycleManager(t *testing.T) {
 			// Wait for panic and recovery
 			time.Sleep(50 * time.Millisecond)
 			
-			if !panicRecovered {
+			if atomic.LoadInt32(&panicRecovered) == 0 {
 				t.Error("Panic was not properly recovered")
 			}
 			
@@ -329,15 +330,18 @@ func TestSafeGoroutineManager(t *testing.T) {
 	
 	t.Run("PanicHandler", func(t *testing.T) {
 		VerifyNoGoroutineLeaks(t, func() {
+			var mu sync.Mutex
 			var handlerCalled bool
 			var handlerID string
 			var handlerPanic interface{}
 			
 			manager := NewSafeGoroutineManager("test-panic-handler", 10).
 				WithPanicHandler(func(id string, panic interface{}) {
+					mu.Lock()
 					handlerCalled = true
 					handlerID = id
 					handlerPanic = panic
+					mu.Unlock()
 				})
 			defer manager.MustShutdown()
 			
@@ -352,14 +356,21 @@ func TestSafeGoroutineManager(t *testing.T) {
 			// Wait for panic and handling
 			time.Sleep(50 * time.Millisecond)
 			
-			if !handlerCalled {
+			// Read values safely with mutex protection
+			mu.Lock()
+			called := handlerCalled
+			id := handlerID
+			panicValue := handlerPanic
+			mu.Unlock()
+			
+			if !called {
 				t.Error("Panic handler was not called")
 			}
-			if handlerID != "panic-worker" {
-				t.Errorf("Expected panic handler ID 'panic-worker', got '%s'", handlerID)
+			if id != "panic-worker" {
+				t.Errorf("Expected panic handler ID 'panic-worker', got '%s'", id)
 			}
-			if handlerPanic != "custom panic" {
-				t.Errorf("Expected panic 'custom panic', got %v", handlerPanic)
+			if panicValue != "custom panic" {
+				t.Errorf("Expected panic 'custom panic', got %v", panicValue)
 			}
 		})
 	})

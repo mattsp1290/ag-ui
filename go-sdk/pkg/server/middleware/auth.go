@@ -21,6 +21,34 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// Performance optimization pools for frequently allocated objects
+var (
+	// AuthUserPool for reusing user objects - exported for benchmark access
+	AuthUserPool = sync.Pool{
+		New: func() interface{} {
+			return &AuthUser{
+				Roles:       make([]string, 0, 4),
+				Permissions: make([]string, 0, 4),
+				Metadata:    make(map[string]interface{}),
+			}
+		},
+	}
+	
+	// Claims map pool for JWT processing
+	claimsMapPool = sync.Pool{
+		New: func() interface{} {
+			return make(map[string]interface{}, 8)
+		},
+	}
+	
+	// String slice pool for roles/permissions
+	stringSlicePool = sync.Pool{
+		New: func() interface{} {
+			return make([]string, 0, 4)
+		},
+	}
+)
+
 // AuthMethod represents the type of authentication method
 type AuthMethod string
 
@@ -717,10 +745,9 @@ func (am *AuthMiddleware) authenticateJWT(r *http.Request) (*AuthUser, error) {
 		}
 	}
 	
-	// Create user from claims
-	user := &AuthUser{
-		Metadata: make(map[string]interface{}),
-	}
+	// Create user from claims using object pool
+	user := AuthUserPool.Get().(*AuthUser)
+	ResetAuthUser(user) // Clear previous data
 	
 	if sub, ok := claims["sub"].(string); ok {
 		user.ID = sub
@@ -758,6 +785,38 @@ func (am *AuthMiddleware) authenticateJWT(r *http.Request) (*AuthUser, error) {
 	return user, nil
 }
 
+// ResetAuthUser clears an AuthUser object for reuse - exported for benchmark access
+func ResetAuthUser(user *AuthUser) {
+	user.ID = ""
+	user.Username = ""
+	user.Email = ""
+	user.Roles = user.Roles[:0]        // Keep capacity, reset length
+	user.Permissions = user.Permissions[:0] // Keep capacity, reset length
+	// Clear map efficiently
+	for k := range user.Metadata {
+		delete(user.Metadata, k)
+	}
+}
+
+// ReleaseAuthUser returns an AuthUser to the pool - exported for benchmark access
+func ReleaseAuthUser(user *AuthUser) {
+	if user != nil {
+		ResetAuthUser(user)
+		AuthUserPool.Put(user)
+	}
+}
+
+// Private compatibility functions for internal use
+func resetAuthUser(user *AuthUser) {
+	ResetAuthUser(user)
+}
+
+func releaseAuthUser(user *AuthUser) {
+	ReleaseAuthUser(user)
+}
+
+var authUserPool = &AuthUserPool
+
 // authenticateAPIKey performs API key authentication
 func (am *AuthMiddleware) authenticateAPIKey(r *http.Request) (*AuthUser, error) {
 	// Extract API key
@@ -788,13 +847,15 @@ func (am *AuthMiddleware) authenticateAPIKey(r *http.Request) (*AuthUser, error)
 	now := time.Now()
 	keyInfo.LastUsedAt = &now
 	
-	// Create user from key info
-	user := &AuthUser{
-		ID:          keyInfo.UserID,
-		Username:    keyInfo.Username,
-		Roles:       keyInfo.Roles,
-		Permissions: keyInfo.Permissions,
-		Metadata:    keyInfo.Metadata,
+	// Create user from key info using object pool
+	user := AuthUserPool.Get().(*AuthUser)
+	ResetAuthUser(user)
+	user.ID = keyInfo.UserID
+	user.Username = keyInfo.Username
+	user.Roles = append(user.Roles[:0], keyInfo.Roles...)
+	user.Permissions = append(user.Permissions[:0], keyInfo.Permissions...)
+	for k, v := range keyInfo.Metadata {
+		user.Metadata[k] = v
 	}
 	
 	return user, nil
@@ -819,13 +880,15 @@ func (am *AuthMiddleware) authenticateBasic(r *http.Request) (*AuthUser, error) 
 		return nil, fmt.Errorf("invalid credentials")
 	}
 	
-	// Create user from info
-	user := &AuthUser{
-		ID:          userInfo.UserID,
-		Username:    username,
-		Roles:       userInfo.Roles,
-		Permissions: userInfo.Permissions,
-		Metadata:    userInfo.Metadata,
+	// Create user from info using object pool
+	user := AuthUserPool.Get().(*AuthUser)
+	ResetAuthUser(user)
+	user.ID = userInfo.UserID
+	user.Username = username
+	user.Roles = append(user.Roles[:0], userInfo.Roles...)
+	user.Permissions = append(user.Permissions[:0], userInfo.Permissions...)
+	for k, v := range userInfo.Metadata {
+		user.Metadata[k] = v
 	}
 	
 	return user, nil
@@ -890,21 +953,24 @@ func (am *AuthMiddleware) authenticateHMAC(r *http.Request) (*AuthUser, error) {
 	// or have a separate header for user identification
 	userID := r.Header.Get("X-User-ID")
 	if userInfo, exists := am.config.HMAC.Users[userID]; exists {
-		user := &AuthUser{
-			ID:          userInfo.UserID,
-			Username:    userInfo.Username,
-			Roles:       userInfo.Roles,
-			Permissions: userInfo.Permissions,
-			Metadata:    userInfo.Metadata,
+		user := AuthUserPool.Get().(*AuthUser)
+		ResetAuthUser(user)
+		user.ID = userInfo.UserID
+		user.Username = userInfo.Username
+		user.Roles = append(user.Roles[:0], userInfo.Roles...)
+		user.Permissions = append(user.Permissions[:0], userInfo.Permissions...)
+		for k, v := range userInfo.Metadata {
+			user.Metadata[k] = v
 		}
 		return user, nil
 	}
 	
-	// Default user for valid HMAC signature
-	return &AuthUser{
-		ID:       "hmac-user",
-		Username: "hmac-user",
-	}, nil
+	// Default user for valid HMAC signature using object pool
+	user := AuthUserPool.Get().(*AuthUser)
+	ResetAuthUser(user)
+	user.ID = "hmac-user"
+	user.Username = "hmac-user"
+	return user, nil
 }
 
 // authenticateBearer performs Bearer token authentication
@@ -926,13 +992,15 @@ func (am *AuthMiddleware) authenticateBearer(r *http.Request) (*AuthUser, error)
 		return nil, fmt.Errorf("Bearer token expired")
 	}
 	
-	// Create user from token info
-	user := &AuthUser{
-		ID:          tokenInfo.UserID,
-		Username:    tokenInfo.Username,
-		Roles:       tokenInfo.Roles,
-		Permissions: tokenInfo.Permissions,
-		Metadata:    tokenInfo.Metadata,
+	// Create user from token info using object pool
+	user := AuthUserPool.Get().(*AuthUser)
+	ResetAuthUser(user)
+	user.ID = tokenInfo.UserID
+	user.Username = tokenInfo.Username
+	user.Roles = append(user.Roles[:0], tokenInfo.Roles...)
+	user.Permissions = append(user.Permissions[:0], tokenInfo.Permissions...)
+	for k, v := range tokenInfo.Metadata {
+		user.Metadata[k] = v
 	}
 	
 	return user, nil

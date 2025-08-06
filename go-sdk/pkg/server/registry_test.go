@@ -556,25 +556,26 @@ func TestAgentDiscovery(t *testing.T) {
 	defer testhelper.VerifyNoGoroutineLeaks(t)
 	cleanup := testhelper.NewCleanupHelper(t)
 
-	config := DefaultRegistryConfig()
-	config.HealthCheckInterval = time.Hour // Disable for testing
-	config.EnableChangeNotifications = true
-	
-	registry := NewAgentRegistry(config)
-	require.NotNil(t, registry)
-	
-	cleanup.Add(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		registry.Stop(ctx)
-	})
-
-	ctx := context.Background()
-	err := registry.Start(ctx)
-	require.NoError(t, err)
-	defer registry.Stop(ctx)
-
 	t.Run("Discover Agents", func(t *testing.T) {
+		// Create a separate registry instance for this test case
+		config := DefaultRegistryConfig()
+		config.HealthCheckInterval = time.Hour // Disable for testing
+		config.EnableChangeNotifications = true
+		
+		registry := NewAgentRegistry(config)
+		require.NotNil(t, registry)
+		
+		cleanup.Add(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			registry.Stop(ctx)
+		})
+
+		ctx := context.Background()
+		err := registry.Start(ctx)
+		require.NoError(t, err)
+		defer registry.Stop(ctx)
+
 		// Register agents
 		agent1 := &mockClientAgent{
 			name: "discovery-agent-1",
@@ -598,7 +599,7 @@ func TestAgentDiscovery(t *testing.T) {
 			Tags:        []string{"text"},
 		}
 		
-		err := registry.RegisterAgent(ctx, agent1, metadata1)
+		err = registry.RegisterAgent(ctx, agent1, metadata1)
 		require.NoError(t, err)
 		err = registry.RegisterAgent(ctx, agent2, metadata2)
 		require.NoError(t, err)
@@ -638,8 +639,27 @@ func TestAgentDiscovery(t *testing.T) {
 	})
 
 	t.Run("Watch Agent Changes", func(t *testing.T) {
+		// Create a separate registry instance for this test case to ensure complete isolation
+		config := DefaultRegistryConfig()
+		config.HealthCheckInterval = time.Hour // Disable for testing
+		config.EnableChangeNotifications = true
+		
+		watchRegistry := NewAgentRegistry(config)
+		require.NotNil(t, watchRegistry)
+		
+		cleanup.Add(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			watchRegistry.Stop(ctx)
+		})
+
+		ctx := context.Background()
+		err := watchRegistry.Start(ctx)
+		require.NoError(t, err)
+		defer watchRegistry.Stop(ctx)
+
 		// Start watching for changes
-		changesChan, err := registry.WatchAgentChanges(ctx)
+		changesChan, err := watchRegistry.WatchAgentChanges(ctx)
 		require.NoError(t, err)
 		require.NotNil(t, changesChan)
 		
@@ -650,7 +670,7 @@ func TestAgentDiscovery(t *testing.T) {
 		
 		go func() {
 			time.Sleep(100 * time.Millisecond)
-			registry.RegisterAgent(ctx, agent, nil)
+			watchRegistry.RegisterAgent(ctx, agent, nil)
 		}()
 		
 		// Wait for change event

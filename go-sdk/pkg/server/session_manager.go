@@ -293,7 +293,7 @@ func (sm *SessionManager) GetSession(ctx context.Context, sessionID string) (*Se
 	}
 
 	if session == nil {
-		return nil, nil // Session not found
+		return nil, fmt.Errorf("session not found")
 	}
 
 	// Check if session is expired
@@ -305,7 +305,7 @@ func (sm *SessionManager) GetSession(ctx context.Context, sessionID string) (*Se
 				zap.Error(err))
 		}
 		atomic.AddInt64(&sm.metrics.ExpiredSessions, 1)
-		return nil, nil
+		return nil, fmt.Errorf("session not found")
 	}
 
 	// Update last accessed time
@@ -321,6 +321,16 @@ func (sm *SessionManager) GetSession(ctx context.Context, sessionID string) (*Se
 
 // ValidateSession validates a session and optionally validates IP and User Agent
 func (sm *SessionManager) ValidateSession(ctx context.Context, sessionID string, req *http.Request) (*Session, error) {
+	// Timing attack protection - ensure minimum validation time
+	startTime := time.Now()
+	defer func() {
+		elapsed := time.Since(startTime)
+		minValidationTime := 50 * time.Millisecond
+		if elapsed < minValidationTime {
+			time.Sleep(minValidationTime - elapsed)
+		}
+	}()
+
 	session, err := sm.GetSession(ctx, sessionID)
 	if err != nil {
 		return nil, err
@@ -339,7 +349,7 @@ func (sm *SessionManager) ValidateSession(ctx context.Context, sessionID string,
 				zap.String("expected_ip", session.IPAddress),
 				zap.String("actual_ip", currentIP))
 			atomic.AddInt64(&sm.metrics.ValidationErrors, 1)
-			return nil, fmt.Errorf("session IP validation failed")
+			return nil, fmt.Errorf("IP address mismatch")
 		}
 	}
 
@@ -352,7 +362,7 @@ func (sm *SessionManager) ValidateSession(ctx context.Context, sessionID string,
 				zap.String("expected_ua", session.UserAgent),
 				zap.String("actual_ua", currentUA))
 			atomic.AddInt64(&sm.metrics.ValidationErrors, 1)
-			return nil, fmt.Errorf("session User-Agent validation failed")
+			return nil, fmt.Errorf("user agent mismatch")
 		}
 	}
 
@@ -510,7 +520,7 @@ func (sm *SessionManager) validateCreateSessionRequest(req *http.Request) error 
 // enforceSessionLimits checks and enforces session limits
 func (sm *SessionManager) enforceSessionLimits(ctx context.Context, userID string) error {
 	// Check global session limit
-	if sm.activeSessions >= int64(sm.config.MaxConcurrentSessions) {
+	if atomic.LoadInt64(&sm.activeSessions) >= int64(sm.config.MaxConcurrentSessions) {
 		return fmt.Errorf("maximum concurrent sessions reached (%d)", sm.config.MaxConcurrentSessions)
 	}
 

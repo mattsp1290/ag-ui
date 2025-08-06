@@ -3,6 +3,7 @@ package server
 import (
 	"container/list"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -66,7 +67,7 @@ func (bm *BoundedMap[K, V]) Get(key K) (V, bool) {
 	bm.mu.RUnlock()
 
 	if !exists {
-		bm.misses++
+		atomic.AddInt64(&bm.misses, 1)
 		var zero V
 		return zero, false
 	}
@@ -80,7 +81,7 @@ func (bm *BoundedMap[K, V]) Get(key K) (V, bool) {
 			bm.removeElement(element)
 			bm.mu.Unlock()
 			
-			bm.timeouts++
+			atomic.AddInt64(&bm.timeouts, 1)
 			var zero V
 			return zero, false
 		}
@@ -92,7 +93,7 @@ func (bm *BoundedMap[K, V]) Get(key K) (V, bool) {
 	bm.mu.Unlock()
 
 	entry := element.Value.(*entry[K, V])
-	bm.hits++
+	atomic.AddInt64(&bm.hits, 1)
 	return entry.value, true
 }
 
@@ -126,7 +127,7 @@ func (bm *BoundedMap[K, V]) Set(key K, value V) {
 		oldest := bm.lruList.Back()
 		if oldest != nil {
 			bm.removeElement(oldest)
-			bm.evictions++
+			atomic.AddInt64(&bm.evictions, 1)
 		}
 	}
 }
@@ -203,7 +204,7 @@ func (bm *BoundedMap[K, V]) Cleanup() int {
 	// Remove expired entries
 	for _, element := range toRemove {
 		bm.removeElement(element)
-		bm.timeouts++
+		atomic.AddInt64(&bm.timeouts, 1)
 	}
 
 	bm.lastCleanup = now
@@ -240,14 +241,19 @@ func (bm *BoundedMap[K, V]) Stats() BoundedMapStats {
 	bm.mu.RLock()
 	defer bm.mu.RUnlock()
 
+	hits := atomic.LoadInt64(&bm.hits)
+	misses := atomic.LoadInt64(&bm.misses)
+	evictions := atomic.LoadInt64(&bm.evictions)
+	timeouts := atomic.LoadInt64(&bm.timeouts)
+	
 	return BoundedMapStats{
 		Size:       len(bm.data),
 		MaxSize:    bm.maxSize,
-		Hits:       bm.hits,
-		Misses:     bm.misses,
-		Evictions:  bm.evictions,
-		Timeouts:   bm.timeouts,
-		HitRate:    float64(bm.hits) / float64(bm.hits+bm.misses+1), // +1 to avoid division by zero
+		Hits:       hits,
+		Misses:     misses,
+		Evictions:  evictions,
+		Timeouts:   timeouts,
+		HitRate:    float64(hits) / float64(hits+misses+1), // +1 to avoid division by zero
 	}
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -347,7 +348,7 @@ func TestWorkerManagerGoroutineCleanup(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Verify the worker manager is properly cleaned up
-	assert.False(t, ss.running)
+	assert.False(t, atomic.LoadInt32(&ss.running) == 1)
 }
 
 // TestAsyncOperationCleanup tests cleanup of async operations

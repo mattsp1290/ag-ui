@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -150,7 +151,7 @@ type PartitionHandler struct {
 	failedRecoveries  uint64
 	
 	// Lifecycle
-	running           bool
+	running           int32 // Use atomic operations for thread-safe access
 	runningMutex      sync.RWMutex
 	stopChan          chan struct{}
 	stopOnce          sync.Once
@@ -192,7 +193,7 @@ func (ph *PartitionHandler) Start(ctx context.Context) error {
 	ph.runningMutex.Lock()
 	defer ph.runningMutex.Unlock()
 
-	if ph.running {
+	if atomic.LoadInt32(&ph.running) == 1 {
 		return fmt.Errorf("partition handler already running")
 	}
 
@@ -208,7 +209,7 @@ func (ph *PartitionHandler) Start(ctx context.Context) error {
 	// Start cleanup routine
 	ph.startCleanupRoutine(ph.ctx)
 
-	ph.running = true
+	atomic.StoreInt32(&ph.running, 1)
 	return nil
 }
 
@@ -305,7 +306,7 @@ func (ph *PartitionHandler) Stop() error {
 	ph.runningMutex.Lock()
 	defer ph.runningMutex.Unlock()
 
-	if !ph.running {
+	if atomic.LoadInt32(&ph.running) == 0 {
 		return nil
 	}
 
@@ -334,7 +335,7 @@ func (ph *PartitionHandler) Stop() error {
 		fmt.Printf("Warning: Partition handler goroutines did not stop within timeout\n")
 	}
 	
-	ph.running = false
+	atomic.StoreInt32(&ph.running, 0)
 	ph.cancel = nil
 	ph.ctx = nil
 	return nil

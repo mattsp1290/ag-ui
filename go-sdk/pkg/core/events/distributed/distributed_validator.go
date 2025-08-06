@@ -493,7 +493,7 @@ type DistributedValidator struct {
 	metrics          *DistributedMetrics
 	
 	// Lifecycle
-	running          bool
+	running          int32 // Use atomic operations for thread-safe access
 	runningMutex     sync.RWMutex
 	stopOnce         sync.Once
 	
@@ -579,7 +579,7 @@ func (dv *DistributedValidator) Start(ctx context.Context) error {
 	dv.runningMutex.Lock()
 	defer dv.runningMutex.Unlock()
 
-	if dv.running {
+	if atomic.LoadInt32(&dv.running) == 1 {
 		return fmt.Errorf("distributed validator already running")
 	}
 
@@ -608,7 +608,7 @@ func (dv *DistributedValidator) Start(ctx context.Context) error {
 	dv.metricsManager.Start(ctx, dv.metricsRoutine)
 	dv.consensusManager.Start(ctx, dv.consensusRoutine)
 
-	dv.running = true
+	atomic.StoreInt32(&dv.running, 1)
 	return nil
 }
 
@@ -617,7 +617,7 @@ func (dv *DistributedValidator) Stop() error {
 	dv.runningMutex.Lock()
 	defer dv.runningMutex.Unlock()
 
-	if !dv.running {
+	if atomic.LoadInt32(&dv.running) == 0 {
 		return nil
 	}
 
@@ -710,7 +710,7 @@ func (dv *DistributedValidator) Stop() error {
 		dv.cleanupMutex.Unlock()
 
 		// Mark as stopped
-		dv.running = false
+		atomic.StoreInt32(&dv.running, 0)
 	})
 
 	if len(errs) > 0 {

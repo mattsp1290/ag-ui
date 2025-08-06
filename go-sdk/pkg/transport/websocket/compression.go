@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	pkgerrors "github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 // CompressionConfig defines compression settings
@@ -252,7 +253,7 @@ func (cm *CompressionManager) CompressMessage(data []byte, messageType int) (*Co
 			}, nil
 		}
 
-		return nil, fmt.Errorf("compression failed: %w", err)
+		return nil, pkgerrors.WithOperation("compress", "message_data", err)
 	}
 
 	originalSize := int64(len(data))
@@ -316,7 +317,7 @@ func (cm *CompressionManager) DecompressMessage(data []byte, compressed bool) ([
 		cm.stats.DecompressionErrors++
 		cm.stats.mu.Unlock()
 
-		return nil, fmt.Errorf("decompression failed: %w", err)
+		return nil, pkgerrors.WithOperation("decompress", "message_data", err)
 	}
 
 	return decompressed, nil
@@ -346,11 +347,11 @@ func (cm *CompressionManager) compressWithPool(data []byte) ([]byte, error) {
 	compressor.Reset(writer)
 
 	if _, err := compressor.Write(data); err != nil {
-		return nil, fmt.Errorf("failed to write to compressor: %w", err)
+		return nil, pkgerrors.WithOperation("write", "compressor", err)
 	}
 
 	if err := compressor.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close compressor: %w", err)
+		return nil, pkgerrors.WithOperation("close", "compressor", err)
 	}
 
 	return buf, nil
@@ -363,16 +364,16 @@ func (cm *CompressionManager) compressWithoutPool(data []byte) ([]byte, error) {
 
 	compressor, err := flate.NewWriter(writer, cm.config.CompressionLevel)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create compressor: %w", err)
+		return nil, pkgerrors.WithOperation("create", "compressor", err)
 	}
 
 	if _, err := compressor.Write(data); err != nil {
 		compressor.Close()
-		return nil, fmt.Errorf("failed to write to compressor: %w", err)
+		return nil, pkgerrors.WithOperation("write", "compressor", err)
 	}
 
 	if err := compressor.Close(); err != nil {
-		return nil, fmt.Errorf("failed to close compressor: %w", err)
+		return nil, pkgerrors.WithOperation("close", "compressor", err)
 	}
 
 	return buf, nil
@@ -400,7 +401,7 @@ func (cm *CompressionManager) decompressWithPool(data []byte) ([]byte, error) {
 	// Reset the decompressor with new data
 	if resetter, ok := decompressor.(flate.Resetter); ok {
 		if err := resetter.Reset(reader, nil); err != nil {
-			return nil, fmt.Errorf("failed to reset decompressor: %w", err)
+			return nil, pkgerrors.WithOperation("reset", "decompressor", err)
 		}
 	} else {
 		decompressor.Close()
@@ -411,7 +412,7 @@ func (cm *CompressionManager) decompressWithPool(data []byte) ([]byte, error) {
 	writer := &bytesWriter{buf: &buf}
 
 	if _, err := io.Copy(writer, decompressor); err != nil {
-		return nil, fmt.Errorf("failed to decompress data: %w", err)
+		return nil, pkgerrors.WithOperation("decompress", "data_stream", err)
 	}
 
 	return buf, nil
@@ -427,7 +428,7 @@ func (cm *CompressionManager) decompressWithoutPool(data []byte) ([]byte, error)
 	writer := &bytesWriter{buf: &buf}
 
 	if _, err := io.Copy(writer, decompressor); err != nil {
-		return nil, fmt.Errorf("failed to decompress data: %w", err)
+		return nil, pkgerrors.WithOperation("decompress", "data_stream", err)
 	}
 
 	return buf, nil
@@ -654,7 +655,7 @@ func NewCompressionMiddleware(conn *websocket.Conn, manager *CompressionManager)
 func (cm *CompressionMiddleware) WriteMessage(messageType int, data []byte) error {
 	compressedMsg, err := cm.manager.CompressMessage(data, messageType)
 	if err != nil {
-		return fmt.Errorf("failed to compress message: %w", err)
+		return pkgerrors.WithOperation("compress", "message", err)
 	}
 
 	return cm.conn.WriteMessage(messageType, compressedMsg.Data)
@@ -674,7 +675,7 @@ func (cm *CompressionMiddleware) ReadMessage() (messageType int, p []byte, err e
 	if compressed {
 		p, err = cm.manager.DecompressMessage(p, true)
 		if err != nil {
-			return messageType, p, fmt.Errorf("failed to decompress message: %w", err)
+			return messageType, p, pkgerrors.WithOperation("decompress", "message", err)
 		}
 	}
 

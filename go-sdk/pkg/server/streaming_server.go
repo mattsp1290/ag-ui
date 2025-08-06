@@ -73,13 +73,16 @@ type CORSConfig struct {
 
 // SecurityConfig configures security settings
 type SecurityConfig struct {
-	EnableRateLimit   bool          `yaml:"enable_rate_limit" json:"enable_rate_limit"`
-	RateLimit         int           `yaml:"rate_limit" json:"rate_limit"`
-	RateLimitWindow   time.Duration `yaml:"rate_limit_window" json:"rate_limit_window"`
-	RequireAuth       bool          `yaml:"require_auth" json:"require_auth"`
-	AuthHeaderName    string        `yaml:"auth_header_name" json:"auth_header_name"`
-	MaxRequestSize    int64         `yaml:"max_request_size" json:"max_request_size"`
-	TrustedProxies    []string      `yaml:"trusted_proxies" json:"trusted_proxies"`
+	EnableRateLimit     bool          `yaml:"enable_rate_limit" json:"enable_rate_limit"`
+	RateLimit           int           `yaml:"rate_limit" json:"rate_limit"`
+	RateLimitWindow     time.Duration `yaml:"rate_limit_window" json:"rate_limit_window"`
+	// Memory protection for rate limiters
+	MaxRateLimiters     int           `yaml:"max_rate_limiters" json:"max_rate_limiters"`
+	RateLimiterTTL      time.Duration `yaml:"rate_limiter_ttl" json:"rate_limiter_ttl"`
+	RequireAuth         bool          `yaml:"require_auth" json:"require_auth"`
+	AuthHeaderName      string        `yaml:"auth_header_name" json:"auth_header_name"`
+	MaxRequestSize      int64         `yaml:"max_request_size" json:"max_request_size"`
+	TrustedProxies      []string      `yaml:"trusted_proxies" json:"trusted_proxies"`
 }
 
 // StreamingServer implements server-side event streaming with SSE and WebSocket support
@@ -218,8 +221,7 @@ type ConnectionManager struct {
 	config          *StreamingServerConfig
 	activeSSE       int32 // atomic
 	activeWebSocket int32 // atomic
-	rateLimiters    map[string]*RateLimiter
-	rateMutex       sync.RWMutex
+	rateLimiters    *BoundedMap[string, *RateLimiter]
 	metrics         *StreamingMetrics
 }
 
@@ -320,6 +322,8 @@ func DefaultStreamingServerConfig() *StreamingServerConfig {
 			EnableRateLimit:  true,
 			RateLimit:        100,
 			RateLimitWindow:  time.Minute,
+			MaxRateLimiters:  10000,
+			RateLimiterTTL:   10 * time.Minute,
 			RequireAuth:      false,
 			AuthHeaderName:   "Authorization",
 			MaxRequestSize:   1024 * 1024, // 1MB
@@ -1394,9 +1398,24 @@ func (eb *EventBroadcaster) processBroadcastEvent(broadcastEvent *BroadcastEvent
 
 // NewConnectionManager creates a new connection manager
 func NewConnectionManager(config *StreamingServerConfig) *ConnectionManager {
+	// Configure bounded map for rate limiters to prevent memory exhaustion attacks
+	mapConfig := BoundedMapConfig{
+		MaxSize:        config.Security.MaxRateLimiters,
+		EnableTimeouts: true,
+		TTL:            config.Security.RateLimiterTTL,
+	}
+	
+	// Use defaults if not configured
+	if mapConfig.MaxSize <= 0 {
+		mapConfig.MaxSize = 10000
+	}
+	if mapConfig.TTL <= 0 {
+		mapConfig.TTL = 10 * time.Minute
+	}
+	
 	return &ConnectionManager{
 		config:       config,
-		rateLimiters: make(map[string]*RateLimiter),
+		rateLimiters: NewBoundedMap[string, *RateLimiter](mapConfig),
 		metrics:      NewStreamingMetrics(),
 	}
 }
@@ -1439,20 +1458,26 @@ func (cm *ConnectionManager) AllowRequest(ip string) bool {
 		return true
 	}
 	
-	cm.rateMutex.Lock()
-	defer cm.rateMutex.Unlock()
-	
-	limiter, ok := cm.rateLimiters[ip]
-	if !ok {
-		limiter = NewRateLimiter(
+	// Get or create rate limiter for this IP using bounded map
+	limiter := cm.rateLimiters.GetOrSet(ip, func() *RateLimiter {
+		return NewRateLimiter(
 			float64(cm.config.Security.RateLimit),
 			float64(cm.config.Security.RateLimit),
 			float64(cm.config.Security.RateLimit)/cm.config.Security.RateLimitWindow.Seconds(),
 		)
-		cm.rateLimiters[ip] = limiter
-	}
+	})
 	
 	return limiter.Allow()
+}
+
+// CleanupRateLimiters removes expired rate limiters to free memory
+func (cm *ConnectionManager) CleanupRateLimiters() int {
+	return cm.rateLimiters.Cleanup()
+}
+
+// GetRateLimiterStats returns statistics about the rate limiter map
+func (cm *ConnectionManager) GetRateLimiterStats() BoundedMapStats {
+	return cm.rateLimiters.Stats()
 }
 
 // NewRateLimiter creates a new rate limiter

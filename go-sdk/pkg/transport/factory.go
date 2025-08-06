@@ -1003,9 +1003,11 @@ func (m *DefaultTransportManager) Close() error {
 	}
 
 	if m.eventBus != nil {
-		if err := m.eventBus.Close(); err != nil {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := m.eventBus.Close(closeCtx); err != nil {
 			errors = append(errors, fmt.Errorf("failed to close event bus: %w", err))
 		}
+		cancel()
 	}
 
 	if len(errors) > 0 {

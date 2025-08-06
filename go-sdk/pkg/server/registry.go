@@ -21,10 +21,11 @@ import (
 // CORE REGISTRY INTERFACES
 // ==============================================================================
 
-// AgentRegistry defines the primary interface for agent registration and discovery.
+// ExtendedAgentRegistry defines the extended interface for agent registration and discovery.
 // It provides comprehensive agent management capabilities including registration,
 // health monitoring, capability discovery, and load balancing.
-type AgentRegistry interface {
+// This extends the base AgentRegistry interface from the framework package.
+type ExtendedAgentRegistry interface {
 	// Agent lifecycle management
 	RegisterAgent(ctx context.Context, agent client.Agent, metadata *AgentRegistrationMetadata) error
 	UnregisterAgent(ctx context.Context, agentID string) error
@@ -346,7 +347,7 @@ const (
 // IMPLEMENTATION
 // ==============================================================================
 
-// DefaultAgentRegistry provides the default implementation of the AgentRegistry interface.
+// DefaultAgentRegistry provides the default implementation of the ExtendedAgentRegistry interface.
 type DefaultAgentRegistry struct {
 	// Configuration
 	config *RegistryConfig
@@ -391,7 +392,7 @@ type DefaultAgentRegistry struct {
 }
 
 // NewAgentRegistry creates a new agent registry with the given configuration.
-func NewAgentRegistry(config *RegistryConfig) AgentRegistry {
+func NewAgentRegistry(config *RegistryConfig) ExtendedAgentRegistry {
 	if config == nil {
 		config = DefaultRegistryConfig()
 	}

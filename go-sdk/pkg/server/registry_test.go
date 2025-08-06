@@ -82,7 +82,7 @@ func TestAgentRegistration(t *testing.T) {
 	defer registry.Stop(ctx)
 
 	t.Run("Register Agent", func(t *testing.T) {
-		agent := &mockAgent{
+		agent := &mockClientAgent{
 			name:        "test-agent-1",
 			description: "Test agent for registration",
 			capabilities: client.AgentCapabilities{
@@ -113,7 +113,7 @@ func TestAgentRegistration(t *testing.T) {
 	})
 
 	t.Run("Register Duplicate Agent", func(t *testing.T) {
-		agent := &mockAgent{
+		agent := &mockClientAgent{
 			name:        "duplicate-agent",
 			description: "Test duplicate registration",
 		}
@@ -129,7 +129,7 @@ func TestAgentRegistration(t *testing.T) {
 	})
 
 	t.Run("Unregister Agent", func(t *testing.T) {
-		agent := &mockAgent{
+		agent := &mockClientAgent{
 			name:        "unregister-agent",
 			description: "Test agent unregistration",
 		}
@@ -177,7 +177,7 @@ func TestAgentListing(t *testing.T) {
 	defer registry.Stop(ctx)
 
 	// Register multiple agents
-	agents := []*mockAgent{
+	agents := []*mockClientAgent{
 		{
 			name: "list-agent-1",
 			capabilities: client.AgentCapabilities{
@@ -287,7 +287,7 @@ func TestAgentCapabilities(t *testing.T) {
 	defer registry.Stop(ctx)
 
 	// Register agent
-	agent := &mockAgent{
+	agent := &mockClientAgent{
 		name: "capability-agent",
 		capabilities: client.AgentCapabilities{
 			Tools: []string{"calculator", "text-processor"},
@@ -378,7 +378,7 @@ func TestAgentHealth(t *testing.T) {
 	defer registry.Stop(ctx)
 
 	// Register agent
-	agent := &mockAgent{
+	agent := &mockClientAgent{
 		name:   "health-agent",
 		health: client.AgentHealthStatus{Status: "healthy"},
 	}
@@ -414,7 +414,7 @@ func TestAgentHealth(t *testing.T) {
 
 	t.Run("Get Healthy Agents", func(t *testing.T) {
 		// Register another agent
-		healthyAgent := &mockAgent{
+		healthyAgent := &mockClientAgent{
 			name: "healthy-agent",
 			capabilities: client.AgentCapabilities{
 				Tools: []string{"calculator"},
@@ -470,7 +470,7 @@ func TestAgentSelection(t *testing.T) {
 	defer registry.Stop(ctx)
 
 	// Register multiple agents with different capabilities
-	agents := []*mockAgent{
+	agents := []*mockClientAgent{
 		{
 			name: "select-agent-1",
 			capabilities: client.AgentCapabilities{
@@ -576,7 +576,7 @@ func TestAgentDiscovery(t *testing.T) {
 
 	t.Run("Discover Agents", func(t *testing.T) {
 		// Register agents
-		agent1 := &mockAgent{
+		agent1 := &mockClientAgent{
 			name: "discovery-agent-1",
 			capabilities: client.AgentCapabilities{
 				Tools: []string{"calculator"},
@@ -587,7 +587,7 @@ func TestAgentDiscovery(t *testing.T) {
 			Tags:        []string{"math"},
 		}
 		
-		agent2 := &mockAgent{
+		agent2 := &mockClientAgent{
 			name: "discovery-agent-2",
 			capabilities: client.AgentCapabilities{
 				Tools: []string{"text-processor"},
@@ -644,7 +644,7 @@ func TestAgentDiscovery(t *testing.T) {
 		require.NotNil(t, changesChan)
 		
 		// Register a new agent
-		agent := &mockAgent{
+		agent := &mockClientAgent{
 			name: "watch-agent",
 		}
 		
@@ -692,8 +692,8 @@ func TestRegistryStats(t *testing.T) {
 		assert.NotNil(t, initialStats)
 		
 		// Register agents
-		agent1 := &mockAgent{name: "stats-agent-1"}
-		agent2 := &mockAgent{name: "stats-agent-2"}
+		agent1 := &mockClientAgent{name: "stats-agent-1"}
+		agent2 := &mockClientAgent{name: "stats-agent-2"}
 		
 		err = registry.RegisterAgent(ctx, agent1, nil)
 		require.NoError(t, err)
@@ -746,7 +746,7 @@ func TestRegistryConcurrency(t *testing.T) {
 			go func(id int) {
 				defer wg.Done()
 				
-				agent := &mockAgent{
+				agent := &mockClientAgent{
 					name: fmt.Sprintf("concurrent-agent-%d", id),
 				}
 				
@@ -775,7 +775,7 @@ func TestRegistryConcurrency(t *testing.T) {
 
 	t.Run("Concurrent Operations", func(t *testing.T) {
 		// Register an agent for concurrent operations
-		agent := &mockAgent{
+		agent := &mockClientAgent{
 			name: "concurrent-ops-agent",
 		}
 		err := registry.RegisterAgent(ctx, agent, nil)
@@ -843,70 +843,70 @@ func TestDefaultRegistryConfig(t *testing.T) {
 	})
 }
 
-// Mock agent implementation for testing
-type mockAgent struct {
+// Mock client agent implementation for testing
+type mockClientAgent struct {
 	name         string
 	description  string
 	capabilities client.AgentCapabilities
 	health       client.AgentHealthStatus
 }
 
-func (m *mockAgent) Name() string {
+func (m *mockClientAgent) Name() string {
 	return m.name
 }
 
-func (m *mockAgent) Description() string {
+func (m *mockClientAgent) Description() string {
 	return m.description
 }
 
-func (m *mockAgent) Capabilities() client.AgentCapabilities {
+func (m *mockClientAgent) Capabilities() client.AgentCapabilities {
 	return m.capabilities
 }
 
-func (m *mockAgent) Health() client.AgentHealthStatus {
+func (m *mockClientAgent) Health() client.AgentHealthStatus {
 	return m.health
 }
 
-func (m *mockAgent) Start(ctx context.Context) error {
+func (m *mockClientAgent) Start(ctx context.Context) error {
 	return nil
 }
 
-func (m *mockAgent) Stop(ctx context.Context) error {
+func (m *mockClientAgent) Stop(ctx context.Context) error {
 	return nil
 }
 
 // LifecycleManager interface methods
-func (m *mockAgent) Initialize(ctx context.Context, config *client.AgentConfig) error {
+func (m *mockClientAgent) Initialize(ctx context.Context, config *client.AgentConfig) error {
 	return nil
 }
 
-func (m *mockAgent) Cleanup() error {
+func (m *mockClientAgent) Cleanup() error {
 	return nil
 }
 
 // AgentEventProcessor interface methods
-func (m *mockAgent) ProcessEvent(ctx context.Context, event events.Event) ([]events.Event, error) {
+func (m *mockClientAgent) ProcessEvent(ctx context.Context, event events.Event) ([]events.Event, error) {
 	return nil, nil
 }
 
-func (m *mockAgent) StreamEvents(ctx context.Context) (<-chan events.Event, error) {
+func (m *mockClientAgent) StreamEvents(ctx context.Context) (<-chan events.Event, error) {
 	return nil, nil
 }
 
 // StateManager interface methods
-func (m *mockAgent) GetState(ctx context.Context) (*client.AgentState, error) {
+func (m *mockClientAgent) GetState(ctx context.Context) (*client.AgentState, error) {
 	return nil, nil
 }
 
-func (m *mockAgent) UpdateState(ctx context.Context, delta *client.StateDelta) error {
+func (m *mockClientAgent) UpdateState(ctx context.Context, delta *client.StateDelta) error {
 	return nil
 }
 
 // ToolRunner interface methods
-func (m *mockAgent) ExecuteTool(ctx context.Context, name string, params interface{}) (interface{}, error) {
+func (m *mockClientAgent) ExecuteTool(ctx context.Context, name string, params interface{}) (interface{}, error) {
 	return nil, nil
 }
 
-func (m *mockAgent) ListTools() []client.ToolDefinition {
+func (m *mockClientAgent) ListTools() []client.ToolDefinition {
 	return nil
 }

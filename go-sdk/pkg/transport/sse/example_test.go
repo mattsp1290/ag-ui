@@ -37,7 +37,7 @@ func Example_basicUsage() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	// Send an event
 	// ctx := context.Background()
@@ -64,7 +64,7 @@ func Example_receiveEvents() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	timeouts := testhelper.GlobalTimeouts
 	ctx, cancel := context.WithTimeout(context.Background(), timeouts.Context) // Reduced from 30s
@@ -141,7 +141,7 @@ func Example_customHeaders() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	// Set authentication header
 	transport.SetHeader("Authorization", "Bearer your-token-here")
@@ -187,7 +187,7 @@ func Example_batchSending() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	// Create multiple events
 	events := []events.Event{
@@ -224,7 +224,7 @@ func Example_connectionManagement() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	// Check initial connection status
 	fmt.Printf("Initial status: %s\n", transport.GetConnectionStatus())
@@ -265,7 +265,7 @@ func Example_errorHandling() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	ctx := context.Background()
 
@@ -283,7 +283,7 @@ func Example_errorHandling() {
 	}
 
 	// Try to use closed transport
-	transport.Close()
+	transport.Close(context.Background())
 	validEvent := events.NewRunStartedEvent("thread-123", "run-456")
 	err = transport.Send(ctx, validEvent)
 	if err != nil {
@@ -356,7 +356,7 @@ func Example_advancedConfiguration() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	fmt.Printf("Advanced transport configured with buffer size: %d\n", config.BufferSize)
 	// Output: Advanced transport configured with buffer size: 500
@@ -368,7 +368,7 @@ func Example_eventTypeHandling() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	// Example event data received from server
 	testData := map[string]interface{}{

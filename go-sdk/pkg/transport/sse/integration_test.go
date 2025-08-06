@@ -862,7 +862,7 @@ func BenchmarkSSETransport(b *testing.B) {
 	transportConfig.BaseURL = server.URL
 	transport, err := NewSSETransport(transportConfig)
 	require.NoError(b, err)
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	// Test event
 	event := events.NewTextMessageContentEvent("bench", "benchmark test content")
@@ -1344,7 +1344,7 @@ func runLoadTestWithProfiling(t *testing.T, duration time.Duration, connections 
 			if err != nil {
 				return
 			}
-			defer transport.Close()
+			defer transport.Close(context.Background())
 
 			eventChan, err := transport.Receive(ctx)
 			if err != nil {

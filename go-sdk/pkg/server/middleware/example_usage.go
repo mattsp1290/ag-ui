@@ -119,7 +119,7 @@ func (es *ExampleServer) setupMiddleware() error {
 		Method: AuthMethodJWT,
 		JWT: JWTConfig{
 			SigningMethod: "HS256",
-			SecretKey:     "your-secret-key-change-in-production",
+			SecretKeyEnv:  "JWT_SECRET_KEY", // Use environment variable instead
 			TokenHeader:   "Authorization",
 			TokenPrefix:   "Bearer ",
 			Issuer:        "ag-ui-server",
@@ -445,7 +445,7 @@ func ExampleConditionalMiddleware() http.Handler {
 		Method:     AuthMethodJWT,
 		JWT: JWTConfig{
 			SigningMethod: "HS256",
-			SecretKey:     "secret",
+			SecretKeyEnv:  "JWT_SECRET_KEY", // Use environment variable instead
 		},
 	}
 	authMiddleware, _ := NewAuthMiddleware(authConfig, logger)

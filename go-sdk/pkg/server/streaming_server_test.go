@@ -14,11 +14,18 @@ import (
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/testhelper"
 )
 
+// getTestStreamingServerConfig returns a config suitable for tests with dynamic port allocation
+func getTestStreamingServerConfig() *StreamingServerConfig {
+	config := DefaultStreamingServerConfig()
+	config.Address = ":0" // Use dynamic port allocation for tests
+	return config
+}
+
 func TestStreamingServer(t *testing.T) {
 	defer testhelper.VerifyNoGoroutineLeaks(t)
 	cleanup := testhelper.NewCleanupHelper(t)
 
-	config := DefaultStreamingServerConfig()
+	config := getTestStreamingServerConfig()
 	
 	// Create streaming server
 	server, err := NewStreamingServer(config)
@@ -89,7 +96,7 @@ func TestStreamingServerConfig(t *testing.T) {
 			{
 				name: "zero buffer size",
 				config: &StreamingServerConfig{
-					Address: ":8080",
+					Address: ":0",
 					SSE: SSEConfig{
 						BufferSize: 0,
 					},
@@ -104,7 +111,7 @@ func TestStreamingServerConfig(t *testing.T) {
 			{
 				name: "negative max connections",
 				config: &StreamingServerConfig{
-					Address: ":8080",
+					Address: ":0",
 					SSE: SSEConfig{
 						BufferSize: 1000,
 					},
@@ -119,7 +126,7 @@ func TestStreamingServerConfig(t *testing.T) {
 			{
 				name: "valid config",
 				config: &StreamingServerConfig{
-					Address: ":8080",
+					Address: ":0",
 					SSE: SSEConfig{
 						BufferSize:        1000,
 						HeartbeatInterval: 30 * time.Second,
@@ -152,7 +159,7 @@ func TestStreamingServerEventStreaming(t *testing.T) {
 	defer testhelper.VerifyNoGoroutineLeaks(t)
 	cleanup := testhelper.NewCleanupHelper(t)
 
-	config := DefaultStreamingServerConfig()
+	config := getTestStreamingServerConfig()
 	config.SSE.BufferSize = 10 // Small buffer for testing
 	
 	server, err := NewStreamingServer(config)
@@ -224,7 +231,7 @@ func TestStreamingServerMetrics(t *testing.T) {
 	defer testhelper.VerifyNoGoroutineLeaks(t)
 	cleanup := testhelper.NewCleanupHelper(t)
 
-	config := DefaultStreamingServerConfig()
+	config := getTestStreamingServerConfig()
 	
 	server, err := NewStreamingServer(config)
 	require.NoError(t, err)
@@ -290,7 +297,7 @@ func TestStreamingServerConcurrency(t *testing.T) {
 	defer testhelper.VerifyNoGoroutineLeaks(t)
 	cleanup := testhelper.NewCleanupHelper(t)
 
-	config := DefaultStreamingServerConfig()
+	config := getTestStreamingServerConfig()
 	config.SSE.BufferSize = 1000 // Larger buffer for concurrency tests
 	
 	server, err := NewStreamingServer(config)
@@ -383,7 +390,7 @@ func TestStreamingServerAdvancedMetrics(t *testing.T) {
 	defer testhelper.VerifyNoGoroutineLeaks(t)
 	cleanup := testhelper.NewCleanupHelper(t)
 
-	config := DefaultStreamingServerConfig()
+	config := getTestStreamingServerConfig()
 	
 	server, err := NewStreamingServer(config)
 	require.NoError(t, err)
@@ -419,7 +426,7 @@ func TestStreamingServerAdvancedMetrics(t *testing.T) {
 		ctx := context.Background()
 		
 		// Use a separate server for this test to avoid defer cleanup issues
-		testConfig := DefaultStreamingServerConfig()
+		testConfig := getTestStreamingServerConfig()
 		testServer, err := NewStreamingServer(testConfig)
 		require.NoError(t, err)
 		
@@ -457,7 +464,7 @@ func TestStreamingServerErrorHandling(t *testing.T) {
 	t.Run("Invalid Configuration", func(t *testing.T) {
 		// Invalid buffer size
 		config := &StreamingServerConfig{
-			Address: ":8080",
+			Address: ":0", // Use dynamic port allocation
 			SSE: SSEConfig{
 				BufferSize: 0, // Invalid
 			},
@@ -474,7 +481,7 @@ func TestStreamingServerErrorHandling(t *testing.T) {
 	})
 
 	t.Run("Broadcast to Stopped Server", func(t *testing.T) {
-		config := DefaultStreamingServerConfig()
+		config := getTestStreamingServerConfig()
 		
 		server, err := NewStreamingServer(config)
 		require.NoError(t, err)
@@ -493,7 +500,7 @@ func TestStreamingServerErrorHandling(t *testing.T) {
 	})
 
 	t.Run("Multicast to Stopped Server", func(t *testing.T) {
-		config := DefaultStreamingServerConfig()
+		config := getTestStreamingServerConfig()
 		
 		server, err := NewStreamingServer(config)
 		require.NoError(t, err)

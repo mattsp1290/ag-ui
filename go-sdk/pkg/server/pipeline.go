@@ -36,8 +36,9 @@ import (
 // PipelineHandler represents a function that handles HTTP requests in the pipeline.
 type PipelineHandler func(ctx context.Context, req *http.Request) (*http.Response, error)
 
-// RequestProcessor defines the interface for processing incoming requests.
-type RequestProcessor interface {
+// PipelineRequestProcessor defines the interface for processing incoming requests through the pipeline.
+// This extends the base RequestProcessor interface from the framework package with pipeline-specific functionality.
+type PipelineRequestProcessor interface {
 	// Process processes a raw HTTP request through the pipeline
 	Process(ctx context.Context, req *http.Request) (*PipelineResponse, error)
 	
@@ -284,7 +285,7 @@ type PipelineMetrics struct {
 // PIPELINE IMPLEMENTATION
 // ==============================================================================
 
-// RequestProcessingPipeline implements the RequestProcessor interface.
+// RequestProcessingPipeline implements the PipelineRequestProcessor interface.
 type RequestProcessingPipeline struct {
 	// Configuration
 	config *PipelineConfig

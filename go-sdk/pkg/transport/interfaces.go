@@ -55,28 +55,16 @@ type TransportEventHandler interface {
 }
 
 // TransportConfiguration provides configuration access
-type TransportConfiguration interface {
-	// Config returns the transport's configuration.
-	Config() Config
-}
+// Deprecated: Use ConfigProvider instead for consistency
+type TransportConfiguration = ConfigProvider
 
 // TransportStatistics provides statistics and metrics
-type TransportStatistics interface {
-	// Stats returns transport statistics and metrics.
-	Stats() TransportStats
-}
+// Deprecated: Use StatsProvider instead for consistency
+type TransportStatistics = StatsProvider
 
 // Connector handles connection lifecycle
-type Connector interface {
-	// Connect establishes a connection to the remote endpoint.
-	Connect(ctx context.Context) error
-	
-	// Close closes the connection and releases resources.
-	Close(ctx context.Context) error
-	
-	// IsConnected returns true if currently connected.
-	IsConnected() bool
-}
+// Deprecated: Use TransportConnection instead for consistency
+type Connector = TransportConnection
 
 // Sender handles sending events
 type Sender interface {
@@ -149,7 +137,7 @@ type ReliabilityStatsProvider interface {
 // Composed of focused interfaces following Interface Segregation Principle
 type Transport interface {
 	// Core transport functionality
-	Connector
+	TransportConnection
 	Sender 
 	Receiver
 	ConfigProvider
@@ -398,16 +386,16 @@ type TransportLoadBalancerManager interface {
 	SetLoadBalancer(balancer LoadBalancer)
 }
 
-// TransportStatsProvider provides aggregated transport statistics
-type TransportStatsProvider interface {
-	// GetStats returns aggregated statistics from all transports.
-	GetStats() map[string]TransportStats
-}
-
 // TransportLifecycle manages transport lifecycle
 type TransportLifecycle interface {
 	// Close closes all managed transports.
 	Close(ctx context.Context) error
+}
+
+// TransportAggregatedStatsProvider provides aggregated transport statistics
+type TransportAggregatedStatsProvider interface {
+	// GetStats returns aggregated statistics from all transports.
+	GetStats() map[string]TransportStats
 }
 
 // TransportManager manages multiple transport instances and provides
@@ -418,7 +406,7 @@ type TransportManager interface {
 	TransportEventSender
 	TransportEventReceiver
 	TransportLoadBalancerManager
-	TransportStatsProvider
+	TransportAggregatedStatsProvider
 	TransportLifecycle
 }
 
@@ -584,16 +572,16 @@ type ReadWriter interface {
 // EventBus provides event bus capabilities for decoupled communication.
 type EventBus interface {
 	// Subscribe subscribes to events of a specific type.
-	Subscribe(eventType string, handler EventHandler) error
+	Subscribe(ctx context.Context, eventType string, handler EventHandler) error
 
 	// Unsubscribe removes a subscription.
-	Unsubscribe(eventType string, handler EventHandler) error
+	Unsubscribe(ctx context.Context, eventType string, handler EventHandler) error
 
 	// Publish publishes an event to all subscribers.
 	Publish(ctx context.Context, eventType string, event any) error
 
 	// Close closes the event bus.
-	Close() error
+	Close(ctx context.Context) error
 }
 
 // TransportEventType represents different types of transport events.
@@ -711,19 +699,14 @@ type LoadBalancerSetter interface {
 	SetLoadBalancer(balancer LoadBalancer)
 }
 
-// ManagerStatsProvider provides aggregated statistics
-type ManagerStatsProvider interface {
-	// GetStats returns aggregated statistics from all transports.
-	GetStats() map[string]TransportStats
-}
-
 // TransportMultiManager manages multiple transport instances
+// This is an alternative composition that uses different interface names
 type TransportMultiManager interface {
 	TransportRegistryInterface
 	EventRouter
 	EventAggregator
 	LoadBalancerSetter
-	ManagerStatsProvider
+	TransportAggregatedStatsProvider
 	
 	// Close closes all managed transports.
 	Close(ctx context.Context) error

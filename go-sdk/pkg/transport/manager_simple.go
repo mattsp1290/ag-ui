@@ -644,3 +644,9 @@ func (m *SimpleManager) receiveEvents(generation int64, wg *sync.WaitGroup) {
 		}
 	}
 }
+
+// IsRunning returns true if the manager is currently running
+// This method uses atomic operations for thread-safe access
+func (m *SimpleManager) IsRunning() bool {
+	return atomic.LoadInt32(&m.running) == 1
+}

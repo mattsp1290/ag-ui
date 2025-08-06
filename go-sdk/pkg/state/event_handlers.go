@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 // StateEventHandler handles state-related events from the AG-UI protocol
@@ -235,14 +236,14 @@ func (h *StateEventHandler) HandleStateSnapshot(event *events.StateSnapshotEvent
 	// Validate event
 	if err := h.validateSnapshotEvent(event); err != nil {
 		h.metrics.IncrementErrors("snapshot_validation")
-		return fmt.Errorf("invalid snapshot event: %w", err)
+		return errors.WithOperation("validate", "snapshot_event", err)
 	}
 
 	// Handle decompression if needed
 	decompressedEvent, err := h.handleDecompression(event)
 	if err != nil {
 		h.metrics.IncrementErrors("snapshot_decompression")
-		return fmt.Errorf("failed to decompress snapshot event: %w", err)
+		return errors.WithOperation("decompress", "snapshot_event", err)
 	}
 
 	// Cancel any pending batch processing
@@ -261,7 +262,7 @@ func (h *StateEventHandler) HandleStateSnapshot(event *events.StateSnapshotEvent
 	currentSnapshot, err := h.store.CreateSnapshot()
 	if err != nil {
 		h.metrics.IncrementErrors("snapshot_backup")
-		return fmt.Errorf("failed to create backup snapshot: %w", err)
+		return errors.WithOperation("create", "backup_snapshot", err)
 	}
 
 	// Apply the snapshot with retry logic
@@ -269,10 +270,11 @@ func (h *StateEventHandler) HandleStateSnapshot(event *events.StateSnapshotEvent
 		// Restore from backup on failure
 		if restoreErr := h.store.RestoreSnapshot(currentSnapshot); restoreErr != nil {
 			h.metrics.IncrementErrors("snapshot_restore")
-			return fmt.Errorf("failed to apply snapshot and restore failed: apply=%w, restore=%w", err, restoreErr)
+			return errors.WithOperation("apply", "snapshot_with_restore_failure", 
+				fmt.Errorf("apply failed: %w, restore failed: %w", err, restoreErr))
 		}
 		h.metrics.IncrementErrors("snapshot_apply")
-		return fmt.Errorf("failed to apply snapshot: %w", err)
+		return errors.WithOperation("apply", "snapshot", err)
 	}
 
 	// Update connection health on successful snapshot

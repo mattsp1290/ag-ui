@@ -243,7 +243,7 @@ func Example_errorHandling() {
 	fmt.Printf("State preserved: %v\n", value)
 
 	// Output:
-	// Error handled: invalid snapshot event: StateSnapshotEvent validation failed: snapshot field is required
+	// Error handled: operation validate on snapshot_event failed: StateSnapshotEvent validation failed: snapshot field is required
 	// State preserved: data
 }
 

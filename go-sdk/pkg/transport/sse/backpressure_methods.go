@@ -1,6 +1,7 @@
 package sse
 
 import (
+	"context"
 	"log"
 	"sync/atomic"
 	"time"
@@ -135,9 +136,11 @@ func (t *SSETransport) handleBackpressureAction(itemType string) {
 		
 	case DropActionStop:
 		log.Printf("SSE Transport: Maximum dropped %s reached (%d), stopping transport", itemType, t.backpressureConfig.MaxDroppedEvents)
-		if err := t.Close(); err != nil {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := t.Close(closeCtx); err != nil {
 			log.Printf("SSE Transport: Error during shutdown: %v", err)
 		}
+		cancel()
 	}
 }
 

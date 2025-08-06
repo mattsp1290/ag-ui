@@ -9,6 +9,7 @@ import (
 	"time"
 	
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 // ManagerConfig represents simplified transport configuration
@@ -280,7 +281,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 				m.logger.Error("Failed to close active transport", 
 					String("operation", "stop"),
 					Err(err))
-				return fmt.Errorf("failed to close active transport: %w", err)
+				return errors.WithOperation("stop", "active_transport", err)
 			}
 		} else {
 			m.logger.Debug("Active transport closed successfully", 

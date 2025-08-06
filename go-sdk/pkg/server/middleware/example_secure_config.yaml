@@ -1,0 +1,83 @@
+# Example secure configuration for AG-UI Go SDK
+# This demonstrates secure credential handling patterns
+
+auth:
+  enabled: true
+  priority: 100
+  name: "secure-auth"
+  debug: false
+  
+  # JWT Authentication with secure credential handling
+  method: "jwt"
+  jwt:
+    signing_method: "HS256"
+    # SECURE: Use environment variables instead of plaintext secrets
+    secret_key_env: "JWT_SECRET_KEY"        # Set this environment variable
+    public_key_env: "JWT_PUBLIC_KEY"        # For RSA/ECDSA methods
+    private_key_env: "JWT_PRIVATE_KEY"      # For RSA/ECDSA signing
+    
+    issuer: "ag-ui-server"
+    audience: ["api", "web"]
+    leeway_time: "30s"
+    
+    token_header: "Authorization"
+    token_prefix: "Bearer "
+    query_param: "token"
+    cookie_name: "jwt_token"
+
+  # HMAC Authentication with secure credential handling  
+  hmac:
+    # SECURE: Use environment variables instead of plaintext secrets
+    secret_key_env: "HMAC_SECRET_KEY"       # Set this environment variable
+    algorithm: "sha256"
+    signature_header: "X-Signature"
+    timestamp_header: "X-Timestamp"
+    nonce_header: "X-Nonce"
+    max_clock_skew: "5m"
+    require_nonce: true
+
+session:
+  backend: "database"  # or "redis" or "memory"
+  ttl: "24h"
+  cleanup_interval: "1h"
+  
+  # Secure Redis session configuration
+  redis:
+    address: "localhost:6379"
+    # SECURE: Use environment variables instead of plaintext passwords
+    password_env: "REDIS_PASSWORD"          # Set this environment variable
+    db: 0
+    key_prefix: "session:"
+    pool_size: 10
+    max_retries: 3
+    enable_tls: true
+  
+  # Secure Database session configuration
+  database:
+    driver: "postgres"
+    # SECURE: Use environment variables instead of plaintext connection strings
+    connection_string_env: "DATABASE_URL"  # Set this environment variable
+    table_name: "sessions"
+    max_connections: 10
+    enable_ssl: true
+
+# Environment variables that need to be set:
+#
+# Security-critical credentials (must be set):
+# export JWT_SECRET_KEY="your-super-secure-jwt-secret-key-at-least-32-chars"
+# export HMAC_SECRET_KEY="your-super-secure-hmac-secret-key-at-least-32-chars"  
+# export REDIS_PASSWORD="your-redis-password"
+# export DATABASE_URL="postgres://user:password@localhost/dbname?sslmode=require"
+#
+# For RSA/ECDSA JWT methods (optional):
+# export JWT_PUBLIC_KEY="-----BEGIN PUBLIC KEY-----..."
+# export JWT_PRIVATE_KEY="-----BEGIN PRIVATE KEY-----..."
+
+# Security Best Practices:
+# 1. Never commit credentials to version control
+# 2. Use a secrets management system in production
+# 3. Rotate credentials regularly
+# 4. Use strong, randomly generated secrets
+# 5. Enable TLS/SSL for all database and Redis connections
+# 6. Set appropriate file permissions on configuration files
+# 7. Use environment variable validation in your application startup

@@ -308,37 +308,56 @@ type MessageEvent = Event[MessageData]
 type StateEvent = Event[StateData]
 type ToolEvent = Event[ToolData]
 
-// Agent represents an AI agent that can process events and generate responses.
-// Agents are the core abstraction in the AG-UI protocol.
-type Agent interface {
-	// HandleEvent processes an incoming event and optionally returns response events
-	// Note: Returns generic events - agents must handle type assertions as needed
-	HandleEvent(ctx context.Context, event any) ([]any, error)
+// ==============================================================================
+// DECOMPOSED AGENT INTERFACES
+// ==============================================================================
 
+// AgentIdentity provides basic agent identification.
+type AgentIdentity interface {
 	// Name returns the agent's identifier
 	Name() string
-
+	
 	// Description returns a human-readable description of the agent's capabilities
 	Description() string
 }
 
-// TypedAgent represents a type-safe AI agent that can process typed events.
-// T represents the input event data type, R represents the response event data type.
-type TypedAgent[T EventData, R EventData] interface {
+// AgentEventHandler processes events and generates responses.
+type AgentEventHandler interface {
+	// HandleEvent processes an incoming event and optionally returns response events
+	// Note: Returns generic events - agents must handle type assertions as needed
+	HandleEvent(ctx context.Context, event any) ([]any, error)
+}
+
+// Agent represents an AI agent that can process events and generate responses.
+// Agents are the core abstraction in the AG-UI protocol.
+// Composed of focused interfaces following the Interface Segregation Principle.
+type Agent interface {
+	AgentIdentity
+	AgentEventHandler
+}
+
+// TypedAgentEventHandler processes typed events with type safety.
+type TypedAgentEventHandler[T EventData, R EventData] interface {
 	// HandleTypedEvent processes a typed event and returns typed response events
 	HandleTypedEvent(ctx context.Context, event TypedEvent[T]) ([]TypedEvent[R], error)
+}
 
-	// Name returns the agent's identifier
-	Name() string
-
-	// Description returns a human-readable description of the agent's capabilities
-	Description() string
-	
+// AgentTypeRegistry provides information about supported event types.
+type AgentTypeRegistry interface {
 	// SupportedInputTypes returns the event data types this agent can handle
 	SupportedInputTypes() []string
 	
 	// SupportedOutputTypes returns the event data types this agent can produce
 	SupportedOutputTypes() []string
+}
+
+// TypedAgent represents a type-safe AI agent that can process typed events.
+// T represents the input event data type, R represents the response event data type.
+// Composed of focused interfaces following the Interface Segregation Principle.
+type TypedAgent[T EventData, R EventData] interface {
+	AgentIdentity
+	TypedAgentEventHandler[T, R]
+	AgentTypeRegistry
 }
 
 // TypedEventHandler is a function type for handling specific typed event types.

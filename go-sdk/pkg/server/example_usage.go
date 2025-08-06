@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"log"
 	"time"
+
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 // ExampleAgent demonstrates a simple agent implementation.
@@ -80,29 +82,29 @@ func ExampleUsage() error {
 	// Initialize the framework
 	ctx := context.Background()
 	if err := framework.Initialize(ctx, config); err != nil {
-		return fmt.Errorf("failed to initialize framework: %w", err)
+		return errors.WithOperation("initialize", "framework", err)
 	}
 
 	// Create and register agents
 	echoAgent := NewExampleAgent("echo-agent", "A simple echo agent")
 	if err := framework.RegisterAgent(echoAgent); err != nil {
-		return fmt.Errorf("failed to register echo agent: %w", err)
+		return errors.WithOperation("register", "echo_agent", err)
 	}
 
 	processingAgent := NewExampleAgent("processing-agent", "A data processing agent")
 	if err := framework.RegisterAgent(processingAgent); err != nil {
-		return fmt.Errorf("failed to register processing agent: %w", err)
+		return errors.WithOperation("register", "processing_agent", err)
 	}
 
 	// Register custom handlers
 	customHandler := &ExampleCustomHandler{message: "Hello from custom handler!"}
 	if err := framework.RegisterHandler("/api/custom", customHandler); err != nil {
-		return fmt.Errorf("failed to register custom handler: %w", err)
+		return errors.WithOperation("register", "custom_handler", err)
 	}
 
 	// Start the framework
 	if err := framework.Start(ctx); err != nil {
-		return fmt.Errorf("failed to start framework: %w", err)
+		return errors.WithOperation("start", "framework", err)
 	}
 
 	log.Printf("Server started successfully!")
@@ -125,11 +127,11 @@ func ExampleUsage() error {
 	defer cancel()
 
 	if err := framework.Stop(shutdownCtx); err != nil {
-		return fmt.Errorf("failed to stop framework: %w", err)
+		return errors.WithOperation("stop", "framework", err)
 	}
 
 	if err := framework.Shutdown(shutdownCtx); err != nil {
-		return fmt.Errorf("failed to shutdown framework: %w", err)
+		return errors.WithOperation("shutdown", "framework", err)
 	}
 
 	log.Printf("Server shutdown completed successfully!")

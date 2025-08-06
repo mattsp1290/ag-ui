@@ -1351,7 +1351,13 @@ func (t *Transport) drainEventChannel() {
 }
 
 // Close closes the transport and releases all resources
-func (t *Transport) Close() error {
+func (t *Transport) Close(ctx context.Context) error {
+	// For backward compatibility, if no context deadline, use a reasonable timeout
+	if _, hasDeadline := ctx.Deadline(); !hasDeadline {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+		defer cancel()
+	}
 	return t.Stop()
 }
 

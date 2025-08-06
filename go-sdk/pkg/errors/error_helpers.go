@@ -22,8 +22,8 @@ func WrapWithContextf(err error, format string, args ...interface{}) error {
 	return fmt.Errorf("%s: %w", fmt.Sprintf(format, args...), err)
 }
 
-// NewOperationError creates a standardized error for failed operations
-func NewOperationError(operation, component string, cause error) *BaseError {
+// NewOperationErrorFromBase creates a standardized error for failed operations using BaseError
+func NewOperationErrorFromBase(operation, component string, cause error) *BaseError {
 	return &BaseError{
 		Code:      "OPERATION_FAILED",
 		Message:   fmt.Sprintf("%s failed for %s", operation, component),

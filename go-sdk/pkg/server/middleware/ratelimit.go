@@ -87,6 +87,9 @@ type RateLimitConfig struct {
 	// Storage settings
 	CleanupInterval    time.Duration `json:"cleanup_interval" yaml:"cleanup_interval"`
 	LimiterTTL         time.Duration `json:"limiter_ttl" yaml:"limiter_ttl"`
+	// Memory protection settings
+	MaxLimiters        int           `json:"max_limiters" yaml:"max_limiters"`
+	EnableMemoryBounds bool          `json:"enable_memory_bounds" yaml:"enable_memory_bounds"`
 	
 	// Error handling
 	RetryAfterHeader   bool          `json:"retry_after_header" yaml:"retry_after_header"`
@@ -382,10 +385,11 @@ type RateLimitMiddleware struct {
 	config *RateLimitConfig
 	logger *zap.Logger
 	
-	// Limiter storage
-	limiters    map[string]RateLimiter
-	limitersMu  sync.RWMutex
-	lastCleanup time.Time
+	// Limiter storage - either bounded or unbounded based on configuration
+	limiters         map[string]RateLimiter
+	boundedLimiters  *BoundedMap[string, RateLimiter]
+	limitersMu       sync.RWMutex
+	lastCleanup      time.Time
 	
 	// Precomputed maps for performance
 	whitelistedIPMap map[string]bool
@@ -441,17 +445,32 @@ func NewRateLimitMiddleware(config *RateLimitConfig, logger *zap.Logger) (*RateL
 	if config.LimiterTTL == 0 {
 		config.LimiterTTL = 1 * time.Hour
 	}
+	// Set defaults for memory bounds
+	if config.EnableMemoryBounds && config.MaxLimiters <= 0 {
+		config.MaxLimiters = 50000
+	}
 	
 	middleware := &RateLimitMiddleware{
 		config:           config,
 		logger:           logger,
-		limiters:         make(map[string]RateLimiter),
 		lastCleanup:      time.Now(),
 		whitelistedIPMap: make(map[string]bool),
 		blacklistedIPMap: make(map[string]bool),
 		skipPathMap:      make(map[string]bool),
 		skipMethodMap:    make(map[string]bool),
 		skipUserAgentMap: make(map[string]bool),
+	}
+	
+	// Initialize limiter storage based on memory bounds configuration
+	if config.EnableMemoryBounds {
+		boundedConfig := BoundedMapConfig{
+			MaxSize:        config.MaxLimiters,
+			EnableTimeouts: true,
+			TTL:            config.LimiterTTL,
+		}
+		middleware.boundedLimiters = NewBoundedMap[string, RateLimiter](boundedConfig)
+	} else {
+		middleware.limiters = make(map[string]RateLimiter)
 	}
 	
 	// Build maps for performance
@@ -537,11 +556,15 @@ func (rlm *RateLimitMiddleware) Config() interface{} {
 
 // Cleanup performs cleanup
 func (rlm *RateLimitMiddleware) Cleanup() error {
-	rlm.limitersMu.Lock()
-	defer rlm.limitersMu.Unlock()
-	
-	// Clear all limiters
-	rlm.limiters = make(map[string]RateLimiter)
+	if rlm.config.EnableMemoryBounds && rlm.boundedLimiters != nil {
+		// Clear bounded map
+		rlm.boundedLimiters.Clear()
+	} else {
+		// Clear unbounded map
+		rlm.limitersMu.Lock()
+		rlm.limiters = make(map[string]RateLimiter)
+		rlm.limitersMu.Unlock()
+	}
 	
 	return nil
 }
@@ -589,6 +612,12 @@ func (rlm *RateLimitMiddleware) getLimiter(r *http.Request) (RateLimiter, string
 		return nil, ""
 	}
 	
+	// Use bounded map if memory bounds are enabled
+	if rlm.config.EnableMemoryBounds && rlm.boundedLimiters != nil {
+		return rlm.getBoundedLimiter(r, key)
+	}
+	
+	// Use unbounded map (legacy behavior)
 	rlm.limitersMu.RLock()
 	limiter, exists := rlm.limiters[key]
 	rlm.limitersMu.RUnlock()
@@ -606,10 +635,29 @@ func (rlm *RateLimitMiddleware) getLimiter(r *http.Request) (RateLimiter, string
 		return limiter, key
 	}
 	
+	limiter = rlm.createLimiter(r, key)
+	if limiter != nil {
+		rlm.limiters[key] = limiter
+	}
+	
+	return limiter, key
+}
+
+// getBoundedLimiter gets or creates a rate limiter using the bounded map
+func (rlm *RateLimitMiddleware) getBoundedLimiter(r *http.Request, key string) (RateLimiter, string) {
+	limiter := rlm.boundedLimiters.GetOrSet(key, func() RateLimiter {
+		return rlm.createLimiter(r, key)
+	})
+	return limiter, key
+}
+
+// createLimiter creates a new rate limiter based on the configuration
+func (rlm *RateLimitMiddleware) createLimiter(r *http.Request, key string) RateLimiter {
 	// Determine rate limit settings for this key
 	rps, rpm, burst, windowSize := rlm.getRateLimitSettings(r, key)
 	
 	// Create limiter based on algorithm
+	var limiter RateLimiter
 	switch rlm.config.Algorithm {
 	case TokenBucket:
 		if rps > 0 {
@@ -632,11 +680,7 @@ func (rlm *RateLimitMiddleware) getLimiter(r *http.Request) (RateLimiter, string
 		}
 	}
 	
-	if limiter != nil {
-		rlm.limiters[key] = limiter
-	}
-	
-	return limiter, key
+	return limiter
 }
 
 // extractKey extracts the rate limiting key from the request
@@ -737,23 +781,62 @@ func (rlm *RateLimitMiddleware) periodicCleanup() {
 		return
 	}
 	
-	rlm.limitersMu.Lock()
-	defer rlm.limitersMu.Unlock()
-	
-	// Simple cleanup - in practice, you'd track last access time
-	// For now, just limit the number of stored limiters
-	if len(rlm.limiters) > 10000 {
-		// Clear half the limiters randomly
-		count := 0
-		for key := range rlm.limiters {
-			if count%2 == 0 {
-				delete(rlm.limiters, key)
+	if rlm.config.EnableMemoryBounds && rlm.boundedLimiters != nil {
+		// Bounded map handles cleanup automatically
+		cleanedCount := rlm.boundedLimiters.Cleanup()
+		if cleanedCount > 0 {
+			rlm.logger.Debug("Rate limiter cleanup completed",
+				zap.Int("cleaned_count", cleanedCount),
+				zap.Time("timestamp", now))
+		}
+	} else {
+		// Manual cleanup for unbounded map
+		rlm.limitersMu.Lock()
+		defer rlm.limitersMu.Unlock()
+		
+		// Simple cleanup - limit the number of stored limiters
+		if len(rlm.limiters) > 10000 {
+			// Clear half the limiters randomly
+			count := 0
+			for key := range rlm.limiters {
+				if count%2 == 0 {
+					delete(rlm.limiters, key)
+				}
+				count++
 			}
-			count++
+			rlm.logger.Warn("Rate limiter map cleanup performed due to size limit",
+				zap.Int("remaining_count", len(rlm.limiters)),
+				zap.Time("timestamp", now))
 		}
 	}
 	
 	rlm.lastCleanup = now
+}
+
+// GetLimiterStats returns statistics about the rate limiter storage
+func (rlm *RateLimitMiddleware) GetLimiterStats() interface{} {
+	if rlm.config.EnableMemoryBounds && rlm.boundedLimiters != nil {
+		return rlm.boundedLimiters.Stats()
+	}
+	
+	rlm.limitersMu.RLock()
+	defer rlm.limitersMu.RUnlock()
+	
+	return map[string]interface{}{
+		"type":         "unbounded",
+		"size":         len(rlm.limiters),
+		"last_cleanup": rlm.lastCleanup,
+	}
+}
+
+// CleanupExpiredLimiters manually triggers cleanup of expired limiters
+func (rlm *RateLimitMiddleware) CleanupExpiredLimiters() int {
+	if rlm.config.EnableMemoryBounds && rlm.boundedLimiters != nil {
+		return rlm.boundedLimiters.Cleanup()
+	}
+	
+	// For unbounded maps, we don't have TTL tracking, so return 0
+	return 0
 }
 
 // buildMaps precomputes maps for performance
@@ -784,30 +867,6 @@ func (rlm *RateLimitMiddleware) buildMaps() {
 	}
 }
 
-// GetLimiterStats returns statistics about stored limiters
-func (rlm *RateLimitMiddleware) GetLimiterStats() map[string]interface{} {
-	rlm.limitersMu.RLock()
-	defer rlm.limitersMu.RUnlock()
-	
-	stats := map[string]interface{}{
-		"total_limiters": len(rlm.limiters),
-		"algorithm":      rlm.config.Algorithm,
-		"scope":          rlm.config.Scope,
-	}
-	
-	// Add per-key statistics
-	keyStats := make(map[string]interface{})
-	for key, limiter := range rlm.limiters {
-		keyStats[key] = map[string]interface{}{
-			"limit":      float64(limiter.Limit()),
-			"burst":      limiter.Burst(),
-			"tokens":     limiter.Tokens(),
-		}
-	}
-	stats["limiters"] = keyStats
-	
-	return stats
-}
 
 // Default configurations
 
@@ -824,13 +883,15 @@ func DefaultRateLimitConfig() *RateLimitConfig {
 		RequestsPerMinute: 1000,
 		BurstSize:         100,
 		WindowSize:        time.Minute,
-		IncludeHeaders:    true,
-		CleanupInterval:   5 * time.Minute,
-		LimiterTTL:        1 * time.Hour,
-		RetryAfterHeader:  true,
-		SkipPaths:         []string{"/health", "/metrics"},
-		EndpointLimits:    make(map[string]*EndpointRateLimit),
-		UserLimits:        make(map[string]*UserRateLimit),
+		IncludeHeaders:      true,
+		CleanupInterval:     5 * time.Minute,
+		LimiterTTL:         1 * time.Hour,
+		EnableMemoryBounds: true,      // Enable memory bounds by default
+		MaxLimiters:        50000,     // Allow up to 50K rate limiters
+		RetryAfterHeader:   true,
+		SkipPaths:          []string{"/health", "/metrics"},
+		EndpointLimits:     make(map[string]*EndpointRateLimit),
+		UserLimits:         make(map[string]*UserRateLimit),
 	}
 }
 

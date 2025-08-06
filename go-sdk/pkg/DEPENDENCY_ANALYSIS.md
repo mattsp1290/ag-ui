@@ -14,12 +14,14 @@ github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events imports:
 github.com/mattsp1290/ag-ui/go-sdk/pkg/transport imports:
   - github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events
   - github.com/mattsp1290/ag-ui/go-sdk/pkg/common
+  - github.com/mattsp1290/ag-ui/go-sdk/pkg/errors
   - github.com/mattsp1290/ag-ui/go-sdk/internal
 
 github.com/mattsp1290/ag-ui/go-sdk/pkg/state imports:
   - github.com/mattsp1290/ag-ui/go-sdk/pkg/common
   - github.com/mattsp1290/ag-ui/go-sdk/internal/timeconfig
   - github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events
+  - github.com/mattsp1290/ag-ui/go-sdk/pkg/errors
   - github.com/mattsp1290/ag-ui/go-sdk/pkg/testing
 
 github.com/mattsp1290/ag-ui/go-sdk/pkg/messages imports:

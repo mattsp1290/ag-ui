@@ -8,6 +8,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/testhelper"
 )
 
@@ -404,6 +405,111 @@ func TestServerFrameworkEdgeCases(t *testing.T) {
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer shutdownCancel()
 		framework.Stop(shutdownCtx)
+	})
+}
+
+// ==============================================================================
+// INTERFACE SEGREGATION TESTS
+// ==============================================================================
+
+func TestInterfaceSegregation(t *testing.T) {
+	defer testhelper.VerifyNoGoroutineLeaks(t)
+	cleanup := testhelper.NewCleanupHelper(t)
+
+	config := DefaultFrameworkConfig()
+	framework := NewFramework()
+	err := framework.Initialize(context.Background(), config)
+	require.NoError(t, err)
+	
+	cleanup.Add(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		framework.Stop(ctx)
+	})
+
+	t.Run("Framework satisfies all composed interfaces", func(t *testing.T) {
+		// Test that BaseFramework satisfies all the decomposed interfaces
+		var lifecycle FrameworkLifecycle = framework
+		var agentRegistry AgentRegistry = framework
+		var routeRegistry RouteRegistry = framework
+		var statusProvider FrameworkStatusProvider = framework
+		
+		assert.NotNil(t, lifecycle)
+		assert.NotNil(t, agentRegistry)
+		assert.NotNil(t, routeRegistry)
+		assert.NotNil(t, statusProvider)
+	})
+
+	t.Run("Framework satisfies composed interfaces", func(t *testing.T) {
+		// Test that BaseFramework satisfies the composed interfaces
+		var minimalFramework MinimalFramework = framework
+		var agentFramework AgentFramework = framework
+		var routingFramework RoutingFramework = framework
+		var serverFramework ServerFramework = framework
+		
+		assert.NotNil(t, minimalFramework)
+		assert.NotNil(t, agentFramework)
+		assert.NotNil(t, routingFramework)
+		assert.NotNil(t, serverFramework)
+	})
+
+	t.Run("Can use interfaces independently", func(t *testing.T) {
+		// Test that we can use individual interfaces without full framework
+		useOnlyRunning := func(sp FrameworkStatusProvider) bool {
+			return sp.IsRunning()
+		}
+		
+		useOnlyAgentRegistry := func(ar AgentRegistry) int {
+			return len(ar.ListAgents())
+		}
+		
+		useOnlyStatusProvider := func(sp FrameworkStatusProvider) FrameworkStatus {
+			return sp.GetStatus()
+		}
+		
+		// These should work with the framework
+		assert.False(t, useOnlyRunning(framework))
+		assert.Equal(t, 0, useOnlyAgentRegistry(framework))
+		assert.NotEmpty(t, useOnlyStatusProvider(framework).State.String())
+	})
+}
+
+// Mock agent for testing
+type mockAgent struct {
+	name        string
+	description string
+}
+
+func (m *mockAgent) Name() string {
+	return m.name
+}
+
+func (m *mockAgent) Description() string {
+	return m.description
+}
+
+func (m *mockAgent) HandleEvent(ctx context.Context, event any) ([]any, error) {
+	return nil, nil
+}
+
+func TestDecomposedAgentInterface(t *testing.T) {
+	t.Run("Agent satisfies decomposed interfaces", func(t *testing.T) {
+		agent := &mockAgent{
+			name:        "test-agent",
+			description: "A test agent",
+		}
+		
+		// Test that our agent satisfies the decomposed interfaces
+		var identity core.AgentIdentity = agent
+		var handler core.AgentEventHandler = agent
+		var fullAgent core.Agent = agent
+		
+		assert.NotNil(t, identity)
+		assert.NotNil(t, handler)
+		assert.NotNil(t, fullAgent)
+		
+		assert.Equal(t, "test-agent", identity.Name())
+		assert.Equal(t, "A test agent", identity.Description())
 	})
 }
 

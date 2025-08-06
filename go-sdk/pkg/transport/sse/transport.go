@@ -478,7 +478,8 @@ func (t *SSETransport) readEvent() (events.Event, error) {
 		return nil, messages.NewStreamingError("transport", 0, "no active connection")
 	}
 
-	var eventType, data, id string
+	var eventType, id string
+	var dataBuilder strings.Builder
 	var retry int
 
 	for {
@@ -505,6 +506,7 @@ func (t *SSETransport) readEvent() (events.Event, error) {
 
 		// Empty line indicates end of event
 		if line == "" {
+			data := dataBuilder.String()
 			if data != "" {
 				return t.parseSSEEvent(eventType, data, id, retry)
 			}
@@ -513,10 +515,14 @@ func (t *SSETransport) readEvent() (events.Event, error) {
 
 		// Parse SSE fields
 		if strings.HasPrefix(line, "data:") {
-			data += strings.TrimPrefix(line, "data:")
-			if strings.HasPrefix(data, " ") {
-				data = data[1:]
+			dataLine := strings.TrimPrefix(line, "data:")
+			if strings.HasPrefix(dataLine, " ") {
+				dataLine = dataLine[1:]
 			}
+			if dataBuilder.Len() > 0 {
+				dataBuilder.WriteString("\n")
+			}
+			dataBuilder.WriteString(dataLine)
 		} else if strings.HasPrefix(line, "event:") {
 			eventType = strings.TrimSpace(strings.TrimPrefix(line, "event:"))
 		} else if strings.HasPrefix(line, "id:") {
@@ -1061,7 +1067,7 @@ func (t *SSETransport) closeConnection() {
 
 
 // Close closes the transport and releases resources
-func (t *SSETransport) Close() error {
+func (t *SSETransport) Close(ctx context.Context) error {
 	t.closeMutex.Lock()
 	defer t.closeMutex.Unlock()
 
@@ -1080,8 +1086,15 @@ func (t *SSETransport) Close() error {
 	// Give goroutines time to finish and then close channels
 	// The readEvents goroutine will exit when context is cancelled
 	go func() {
-		// Brief delay to allow goroutines to finish
-		time.Sleep(100 * time.Millisecond)
+		// Respect the context timeout if provided, otherwise use default
+		shutdownTimeout := 100 * time.Millisecond
+		if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
+			if timeLeft := time.Until(deadline); timeLeft < shutdownTimeout && timeLeft > 0 {
+				shutdownTimeout = timeLeft
+			}
+		}
+		
+		time.Sleep(shutdownTimeout)
 		
 		// Close channels safely
 		defer func() {

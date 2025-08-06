@@ -25,36 +25,110 @@ import (
 // CORE FRAMEWORK INTERFACES
 // ==============================================================================
 
-// ServerFramework defines the core interface for the AG-UI server framework.
-// It provides lifecycle management, agent registration, and request routing capabilities.
-type ServerFramework interface {
-	// Lifecycle management
+// ==============================================================================
+// DECOMPOSED FRAMEWORK INTERFACES
+// ==============================================================================
+
+// FrameworkLifecycle manages the core lifecycle of the server framework.
+type FrameworkLifecycle interface {
+	// Initialize prepares the framework with the given configuration.
 	Initialize(ctx context.Context, config *FrameworkConfig) error
+	
+	// Start begins the framework operation.
 	Start(ctx context.Context) error
+	
+	// Stop gracefully stops the framework.
 	Stop(ctx context.Context) error
+	
+	// Shutdown performs a complete shutdown and cleanup.
 	Shutdown(ctx context.Context) error
+}
 
-	// Agent management
+// AgentRegistry manages agent registration and retrieval.
+type AgentRegistry interface {
+	// RegisterAgent registers an agent with the framework.
 	RegisterAgent(agent core.Agent) error
+	
+	// UnregisterAgent removes an agent from the framework.
 	UnregisterAgent(name string) error
+	
+	// GetAgent retrieves a registered agent by name.
 	GetAgent(name string) (core.Agent, bool)
+	
+	// ListAgents returns information about all registered agents.
 	ListAgents() []AgentInfo
+}
 
-	// Route management
+// RouteRegistry manages request routing and middleware.
+type RouteRegistry interface {
+	// RegisterHandler registers a request handler for a specific pattern.
 	RegisterHandler(pattern string, handler RequestHandler) error
+	
+	// RegisterMiddleware registers middleware with the framework.
 	RegisterMiddleware(middleware Middleware) error
+}
 
-	// Status and health
+// FrameworkStatusProvider provides status and health information.
+type FrameworkStatusProvider interface {
+	// IsRunning returns true if the framework is currently running.
 	IsRunning() bool
+	
+	// GetStatus returns the current framework status.
 	GetStatus() FrameworkStatus
+	
+	// HealthCheck performs a comprehensive health check.
 	HealthCheck(ctx context.Context) HealthCheckResult
 }
 
-// RequestHandler defines the interface for handling incoming requests.
-type RequestHandler interface {
+// ==============================================================================
+// COMPOSED INTERFACES FOR SPECIFIC USE CASES
+// ==============================================================================
+
+// MinimalFramework provides only lifecycle and status operations.
+// Useful for basic server implementations that don't need agents or routing.
+type MinimalFramework interface {
+	FrameworkLifecycle
+	FrameworkStatusProvider
+}
+
+// AgentFramework provides lifecycle, agent management, and status.
+// Useful for agent-only servers without HTTP routing.
+type AgentFramework interface {
+	FrameworkLifecycle
+	AgentRegistry
+	FrameworkStatusProvider
+}
+
+// RoutingFramework provides lifecycle, routing, and status.
+// Useful for HTTP-only servers without agent management.
+type RoutingFramework interface {
+	FrameworkLifecycle
+	RouteRegistry
+	FrameworkStatusProvider
+}
+
+// ServerFramework defines the complete interface for the AG-UI server framework.
+// It composes all focused interfaces following the Interface Segregation Principle.
+// Use this for full-featured server implementations.
+type ServerFramework interface {
+	FrameworkLifecycle
+	AgentRegistry
+	RouteRegistry
+	FrameworkStatusProvider
+}
+
+// ==============================================================================
+// DECOMPOSED REQUEST HANDLING INTERFACES
+// ==============================================================================
+
+// RequestProcessor handles the core request processing logic.
+type RequestProcessor interface {
 	// Handle processes an incoming request and returns a response
 	Handle(ctx context.Context, req *Request, resp ResponseWriter) error
-	
+}
+
+// RouteDescriptor provides routing information for handlers.
+type RouteDescriptor interface {
 	// Pattern returns the URL pattern this handler matches
 	Pattern() string
 	
@@ -62,11 +136,21 @@ type RequestHandler interface {
 	Methods() []string
 }
 
-// Middleware defines the interface for request/response middleware.
-type Middleware interface {
+// RequestHandler defines the interface for handling incoming requests.
+// Composed of focused interfaces following the Interface Segregation Principle.
+type RequestHandler interface {
+	RequestProcessor
+	RouteDescriptor
+}
+
+// MiddlewareProcessor handles the core middleware processing logic.
+type MiddlewareProcessor interface {
 	// Process intercepts and optionally modifies requests/responses
 	Process(ctx context.Context, req *Request, resp ResponseWriter, next NextHandler) error
-	
+}
+
+// MiddlewareDescriptor provides metadata about middleware.
+type MiddlewareDescriptor interface {
 	// Name returns the middleware name for identification
 	Name() string
 	
@@ -74,11 +158,18 @@ type Middleware interface {
 	Priority() int
 }
 
+// Middleware defines the interface for request/response middleware.
+// Composed of focused interfaces following the Interface Segregation Principle.
+type Middleware interface {
+	MiddlewareProcessor
+	MiddlewareDescriptor
+}
+
 // NextHandler represents the next handler in the middleware chain.
 type NextHandler func(ctx context.Context, req *Request, resp ResponseWriter) error
 
-// ResponseWriter defines the interface for writing HTTP responses.
-type ResponseWriter interface {
+// BasicResponseWriter provides core HTTP response writing functionality.
+type BasicResponseWriter interface {
 	// Header returns the response headers
 	Header() http.Header
 	
@@ -87,12 +178,26 @@ type ResponseWriter interface {
 	
 	// Write writes response data
 	Write(data []byte) (int, error)
-	
+}
+
+// JSONResponseWriter provides JSON response writing capabilities.
+type JSONResponseWriter interface {
 	// WriteJSON writes a JSON response
 	WriteJSON(data interface{}) error
-	
+}
+
+// EventResponseWriter provides AG-UI event response writing capabilities.
+type EventResponseWriter interface {
 	// WriteEvent writes an AG-UI event response
 	WriteEvent(event events.Event) error
+}
+
+// ResponseWriter defines the interface for writing HTTP responses.
+// Composed of focused interfaces following the Interface Segregation Principle.
+type ResponseWriter interface {
+	BasicResponseWriter
+	JSONResponseWriter
+	EventResponseWriter
 }
 
 // ==============================================================================

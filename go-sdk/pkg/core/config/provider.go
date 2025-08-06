@@ -340,12 +340,14 @@ func (p *UnifiedConfigProvider) fieldNameFromKey(key string) string {
 	
 	// Convert snake_case to PascalCase
 	parts := strings.Split(key, "_")
-	result := ""
+	var builder strings.Builder
 	for _, part := range parts {
 		if len(part) > 0 {
-			result += strings.ToUpper(part[:1]) + strings.ToLower(part[1:])
+			builder.WriteString(strings.ToUpper(part[:1]))
+			builder.WriteString(strings.ToLower(part[1:]))
 		}
 	}
+	result := builder.String()
 	
 	// Handle special cases
 	if result == "NodeId" {
@@ -409,14 +411,14 @@ func (p *UnifiedConfigProvider) flattenStruct(v reflect.Value, prefix string, re
 
 // keyFromFieldName converts a field name to a key (e.g., "NodeID" -> "node_id")
 func (p *UnifiedConfigProvider) keyFromFieldName(fieldName string) string {
-	result := ""
+	var builder strings.Builder
 	for i, r := range fieldName {
 		if i > 0 && r >= 'A' && r <= 'Z' {
-			result += "_"
+			builder.WriteString("_")
 		}
-		result += strings.ToLower(string(r))
+		builder.WriteString(strings.ToLower(string(r)))
 	}
-	return result
+	return builder.String()
 }
 
 // notifyWatchers notifies all watchers about a configuration change

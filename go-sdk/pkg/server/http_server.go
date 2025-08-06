@@ -97,8 +97,12 @@ type HTTPServerConfig struct {
 	EnableRateLimit bool     `json:"enable_rate_limit" yaml:"enable_rate_limit"`
 	
 	// Rate limiting
-	RateLimitRequests int           `json:"rate_limit_requests" yaml:"rate_limit_requests"`
-	RateLimitWindow   time.Duration `json:"rate_limit_window" yaml:"rate_limit_window"`
+	RateLimitRequests   int           `json:"rate_limit_requests" yaml:"rate_limit_requests"`
+	RateLimitWindow     time.Duration `json:"rate_limit_window" yaml:"rate_limit_window"`
+	// Rate limiter memory protection
+	MaxRateLimiters     int           `json:"max_rate_limiters" yaml:"max_rate_limiters"`
+	RateLimiterTTL      time.Duration `json:"rate_limiter_ttl" yaml:"rate_limiter_ttl"`
+	EnableMemoryBounds  bool          `json:"enable_memory_bounds" yaml:"enable_memory_bounds"`
 	
 	// Custom settings
 	CustomHeaders map[string]string `json:"custom_headers" yaml:"custom_headers"`
@@ -229,28 +233,28 @@ func (s *HTTPServer) initializeFrameworks() error {
 	// Initialize Gin if enabled
 	if s.config.EnableGin {
 		if err = s.initializeGin(); err != nil {
-			return fmt.Errorf("failed to initialize Gin: %w", err)
+			return errors.WithOperation("initialize", "gin_framework", err)
 		}
 	}
 	
 	// Initialize Fiber if enabled
 	if s.config.EnableFiber {
 		if err = s.initializeFiber(); err != nil {
-			return fmt.Errorf("failed to initialize Fiber: %w", err)
+			return errors.WithOperation("initialize", "fiber_framework", err)
 		}
 	}
 	
 	// Initialize stdlib if enabled
 	if s.config.EnableStdlib {
 		if err = s.initializeStdlib(); err != nil {
-			return fmt.Errorf("failed to initialize stdlib: %w", err)
+			return errors.WithOperation("initialize", "stdlib_framework", err)
 		}
 	}
 	
 	// Initialize custom router if enabled
 	if s.config.EnableCustomRouter {
 		if err = s.initializeCustomRouter(); err != nil {
-			return fmt.Errorf("failed to initialize custom router: %w", err)
+			return errors.WithOperation("initialize", "custom_router", err)
 		}
 	}
 	
@@ -931,6 +935,9 @@ func DefaultHTTPServerConfig() *HTTPServerConfig {
 		EnableRateLimit:        false,
 		RateLimitRequests:      1000,
 		RateLimitWindow:        time.Minute,
+		MaxRateLimiters:        50000,
+		RateLimiterTTL:         10 * time.Minute,
+		EnableMemoryBounds:     true,
 		CustomHeaders:          make(map[string]string),
 		EnableHealthCheck:      true,
 		EnableAgentEndpoints:   true,
@@ -1002,6 +1009,12 @@ func mergeWithDefaults(config *HTTPServerConfig) *HTTPServerConfig {
 	}
 	if config.RateLimitWindow == 0 {
 		config.RateLimitWindow = defaults.RateLimitWindow
+	}
+	if config.MaxRateLimiters == 0 {
+		config.MaxRateLimiters = defaults.MaxRateLimiters
+	}
+	if config.RateLimiterTTL == 0 {
+		config.RateLimiterTTL = defaults.RateLimiterTTL
 	}
 	if config.CustomHeaders == nil {
 		config.CustomHeaders = make(map[string]string)

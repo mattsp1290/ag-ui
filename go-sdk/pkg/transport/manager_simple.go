@@ -250,44 +250,32 @@ func (m *SimpleManager) Stop(ctx context.Context) error {
 	}
 	
 	// Drain channels before closing to prevent data loss
-	if m.backpressureHandler == nil {
-		// Only drain if we're managing channels directly
-		// Use a reasonable timeout for draining
-		drainTimeout := 100 * time.Millisecond
-		
-		drained := make(chan struct{})
-		go func() {
-			defer close(drained)
-			
-			// Drain events
-			go func() {
-				for range m.eventChan {
-					// Drain events
-				}
-			}()
-			
-			// Drain errors
-			go func() {
-				for range m.errorChan {
-					// Drain errors
-				}
-			}()
-			
-			// Give draining goroutines a moment to start
-			time.Sleep(10 * time.Millisecond)
-			
-			// Close channels
-			close(m.eventChan)
-			close(m.errorChan)
-		}()
-		
-		// Wait for draining with timeout
-		select {
-		case <-drained:
-			// Successfully drained
-		case <-time.After(drainTimeout):
-			// Timeout during draining, but we don't fail
+	// Use a reasonable timeout for draining operations
+	drainTimeout := 5 * time.Second
+	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
+		if timeLeft := time.Until(deadline); timeLeft < drainTimeout {
+			drainTimeout = timeLeft
 		}
+	}
+	
+	drainCtx, drainCancel := context.WithTimeout(context.Background(), drainTimeout)
+	defer drainCancel()
+	
+	// Drain channels using non-blocking approach to prevent deadlock
+	drained := m.drainChannelsNonBlocking(drainCtx)
+	if !drained {
+		// Timeout during draining, but we proceed gracefully
+		// This is not considered a fatal error
+	}
+	
+	// Close channels after draining
+	if m.backpressureHandler != nil {
+		// Backpressure handler manages its own channels
+		// Let it handle the cleanup
+	} else {
+		// We manage channels directly, close them now
+		close(m.eventChan)
+		close(m.errorChan)
 	}
 	
 	// Return nil even if we timed out, as per test expectations
@@ -295,6 +283,40 @@ func (m *SimpleManager) Stop(ctx context.Context) error {
 	return nil
 }
 
+// drainChannelsNonBlocking drains channels without risking deadlock
+func (m *SimpleManager) drainChannelsNonBlocking(ctx context.Context) bool {
+	eventCount := 0
+	errorCount := 0
+	
+	// Use a ticker to periodically check for context cancellation
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	
+	drainLoop:
+	for {
+		select {
+		case <-ctx.Done():
+			break drainLoop
+		case <-ticker.C:
+			// Check if context is done
+			if ctx.Err() != nil {
+				break drainLoop
+			}
+		case <-m.eventChan:
+			eventCount++
+			// Non-blocking continue - keep draining
+		case <-m.errorChan:
+			errorCount++
+			// Non-blocking continue - keep draining
+		default:
+			// No more items to drain, we're done
+			break drainLoop
+		}
+	}
+	
+	// Return true if we completed draining without timeout
+	return ctx.Err() == nil
+}
 
 // safeAddReceiver safely adds a receiver to the WaitGroup
 func (m *SimpleManager) safeAddReceiver() (bool, int64, *sync.WaitGroup) {
@@ -608,9 +630,9 @@ func (m *SimpleManager) receiveEvents(generation int64, wg *sync.WaitGroup) {
 					// Transport is ready, continue to process events
 					waitCancel()
 				case <-waitCtx.Done():
-					// Timeout waiting for transport, continue to retry
+					// Timeout waiting for transport, continue to next iteration
+					// No sleep needed - the next iteration will block on transportReady again
 					waitCancel()
-					time.Sleep(100 * time.Millisecond)
 				case <-m.stopChan:
 					waitCancel()
 					return

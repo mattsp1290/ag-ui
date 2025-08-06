@@ -490,7 +490,7 @@ func NewRateLimitMiddleware(config *RateLimitConfig, logger *zap.Logger) (*RateL
 		config.LimiterTTL = 1 * time.Hour
 	}
 	// Set defaults for memory bounds
-	if config.EnableMemoryBounds && config.MaxLimiters <= 0 {
+	if config.MaxLimiters <= 0 {
 		config.MaxLimiters = 50000
 	}
 	

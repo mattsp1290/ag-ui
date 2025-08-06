@@ -3,6 +3,7 @@ package middleware
 import (
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"strconv"
 	"strings"
@@ -384,8 +385,8 @@ func (mm *MetricsMiddleware) Handler(next http.Handler) http.Handler {
 		
 		// Sample requests if configured
 		if mm.config.SampleRate < 1.0 {
-			// Simple sampling - in practice, use proper random sampling
-			if time.Now().UnixNano()%100 >= int64(mm.config.SampleRate*100) {
+			// Use math/rand for unbiased random sampling
+			if rand.Float64() >= mm.config.SampleRate {
 				next.ServeHTTP(w, r)
 				return
 			}

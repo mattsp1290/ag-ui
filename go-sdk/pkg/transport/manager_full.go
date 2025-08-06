@@ -547,6 +547,12 @@ func (m *Manager) receiveEvents(transport Transport) {
 
 	eventCh, errorCh := transport.Channels()
 	for {
+		// Get current context and stopChan under lock to avoid race conditions
+		m.mu.RLock()
+		stopChan := m.stopChan
+		ctx := m.ctx
+		m.mu.RUnlock()
+		
 		select {
 		case event := <-eventCh:
 			m.logger.Debug("Received event from transport", 
@@ -613,11 +619,11 @@ func (m *Manager) receiveEvents(transport Transport) {
 				m.logger.Debug("Error forwarded to error channel", 
 					String("operation", "receive_events"))
 			}
-		case <-m.stopChan:
+		case <-stopChan:
 			m.logger.Debug("Stop signal received", 
 				String("operation", "receive_events"))
 			return
-		case <-m.ctx.Done():
+		case <-ctx.Done():
 			m.logger.Debug("Manager context cancelled", 
 				String("operation", "receive_events"))
 			return

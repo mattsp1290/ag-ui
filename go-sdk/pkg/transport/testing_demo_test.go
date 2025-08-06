@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -480,23 +481,24 @@ func TestTimeoutHelpers(t *testing.T) {
 	})
 	
 	t.Run("wait_for_condition", func(t *testing.T) {
-		counter := 0
+		var counter int64
 		
 		// Increment counter in background
 		go func() {
 			for i := 0; i < 5; i++ {
 				time.Sleep(20 * time.Millisecond)
-				counter++
+				atomic.AddInt64(&counter, 1)
 			}
 		}()
 		
 		// Wait for counter to reach 3
 		WaitForCondition(t, 200*time.Millisecond, func() bool {
-			return counter >= 3
+			return atomic.LoadInt64(&counter) >= 3
 		})
 		
-		if counter < 3 {
-			t.Errorf("Counter should be at least 3, got %d", counter)
+		finalCounter := atomic.LoadInt64(&counter)
+		if finalCounter < 3 {
+			t.Errorf("Counter should be at least 3, got %d", finalCounter)
 		}
 	})
 }

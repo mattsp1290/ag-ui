@@ -314,3 +314,39 @@ func (h *ErrorHelpers) CreateResourceNotFoundMessage(resourceType, resourceID st
 func (h *ErrorHelpers) CreateUnsupportedOperationMessage(operation, component, reason string) string {
 	return fmt.Sprintf("operation %s is not supported by %s: %s", operation, component, reason)
 }
+
+// NewResourceLimitError creates a resource limit error
+func NewResourceLimitError(message string, cause error) *BaseError {
+	return &BaseError{
+		Code:      "RESOURCE_LIMIT_EXCEEDED",
+		Message:   message,
+		Severity:  SeverityError,
+		Timestamp: time.Now(),
+		Cause:     cause,
+		Details:   make(map[string]interface{}),
+	}
+}
+
+// NewNotFoundError creates a not found error
+func NewNotFoundError(message string, cause error) *BaseError {
+	return &BaseError{
+		Code:      "NOT_FOUND",
+		Message:   message,
+		Severity:  SeverityWarning,
+		Timestamp: time.Now(),
+		Cause:     cause,
+		Details:   make(map[string]interface{}),
+	}
+}
+
+// NewConfigurationError creates a configuration error
+func NewConfigurationError(message string, cause error) *BaseError {
+	return &BaseError{
+		Code:      "CONFIGURATION_ERROR",
+		Message:   message,
+		Severity:  SeverityError,
+		Timestamp: time.Now(),
+		Cause:     cause,
+		Details:   make(map[string]interface{}),
+	}
+}

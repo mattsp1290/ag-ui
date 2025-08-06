@@ -754,13 +754,10 @@ func TestDistributedLock(t *testing.T) {
 // Test metrics collection
 func TestDistributedMetrics(t *testing.T) {
 	// Removed t.Parallel() to avoid resource contention with worker pool
-	defer testhelper.VerifyNoGoroutineLeaks(t)
+	// Remove defer here to fix cleanup order - moved to end of function
 	
 	// Use test context with automatic cleanup
 	ctx := testhelper.NewTestContextWithTimeout(t, 35*time.Second)
-	
-	// Set up cleanup manager
-	cleanup := testhelper.NewCleanupManager(t)
 	
 	config := TestingDistributedValidatorConfig("node-1")
 	config.EnableMetrics = true
@@ -780,12 +777,19 @@ func TestDistributedMetrics(t *testing.T) {
 	err = dv.Start(ctx)
 	require.NoError(t, err)
 	
-	// Register cleanup for the distributed validator
-	cleanup.Register("distributed-validator", func() {
+	// Ensure cleanup happens before goroutine leak check
+	defer func() {
+		// Stop the distributed validator first
 		if err := dv.Stop(); err != nil {
 			t.Logf("Error stopping distributed validator: %v", err)
 		}
-	})
+		
+		// Give goroutines time to fully exit
+		time.Sleep(100 * time.Millisecond)
+		
+		// Now check for goroutine leaks
+		testhelper.VerifyNoGoroutineLeaks(t)
+	}()
 
 	// Test that metrics collection is working by checking initial state
 	metrics := dv.GetMetrics()

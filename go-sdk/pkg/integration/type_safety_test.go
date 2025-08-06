@@ -3,6 +3,7 @@ package integration
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -303,12 +304,12 @@ func TestCrossPackageErrorHandling(t *testing.T) {
 	err := tr.Connect(ctx)
 	require.NoError(t, err)
 
-	// Monitor errors
-	errorCount := 0
+	// Monitor errors (using atomic for thread safety)
+	var errorCount int64
 	go func() {
 		for err := range tr.Errors() {
 			assert.NotNil(t, err)
-			errorCount++
+			atomic.AddInt64(&errorCount, 1)
 		}
 	}()
 
@@ -328,7 +329,7 @@ func TestCrossPackageErrorHandling(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Should have received some errors
-	assert.Greater(t, errorCount, 0, "Expected some errors due to backpressure")
+	assert.Greater(t, atomic.LoadInt64(&errorCount), int64(0), "Expected some errors due to backpressure")
 }
 
 func ptrInt64(v int64) *int64 {

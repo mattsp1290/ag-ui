@@ -3,6 +3,7 @@ package transport
 import (
 	"errors"
 	"fmt"
+	"sync"
 )
 
 // Common transport errors
@@ -88,6 +89,9 @@ var (
 
 // TransportError represents a transport-specific error with additional context
 type TransportError struct {
+	// mu protects the mutable fields
+	mu sync.RWMutex
+
 	// Transport is the name of the transport that generated the error
 	Transport string
 
@@ -119,12 +123,30 @@ func (e *TransportError) Unwrap() error {
 
 // IsTemporary returns whether the error is temporary
 func (e *TransportError) IsTemporary() bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	return e.Temporary
 }
 
 // IsRetryable returns whether the operation can be retried
 func (e *TransportError) IsRetryable() bool {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
 	return e.Retryable
+}
+
+// SetTemporary sets whether the error is temporary (thread-safe)
+func (e *TransportError) SetTemporary(temporary bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.Temporary = temporary
+}
+
+// SetRetryable sets whether the operation can be retried (thread-safe)
+func (e *TransportError) SetRetryable(retryable bool) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.Retryable = retryable
 }
 
 // NewTransportError creates a new TransportError

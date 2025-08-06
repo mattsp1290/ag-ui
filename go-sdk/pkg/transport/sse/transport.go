@@ -43,6 +43,9 @@ type SSETransport struct {
 	reader    *bufio.Reader
 	connMutex sync.RWMutex
 
+	// Headers synchronization
+	headersMutex sync.RWMutex
+
 	// Event channels
 	eventChan chan events.Event
 	errorChan chan error
@@ -272,7 +275,17 @@ func (t *SSETransport) Send(ctx context.Context, event events.Event) error {
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
+	
+	// Copy headers safely under read lock
+	t.headersMutex.RLock()
+	headersCopy := make(map[string]string, len(t.headers))
 	for key, value := range t.headers {
+		headersCopy[key] = value
+	}
+	t.headersMutex.RUnlock()
+	
+	// Use copied headers for request
+	for key, value := range headersCopy {
 		if key != "Accept" && key != "Cache-Control" && key != "Connection" {
 			req.Header.Set(key, value)
 		}
@@ -337,8 +350,15 @@ func (t *SSETransport) connect(ctx context.Context) error {
 		return fmt.Errorf("failed to create SSE request: %w", err)
 	}
 
-	// Set SSE headers
+	// Set SSE headers safely under read lock
+	t.headersMutex.RLock()
+	headersCopy := make(map[string]string, len(t.headers))
 	for key, value := range t.headers {
+		headersCopy[key] = value
+	}
+	t.headersMutex.RUnlock()
+	
+	for key, value := range headersCopy {
 		req.Header.Set(key, value)
 	}
 
@@ -522,7 +542,20 @@ func (t *SSETransport) readLineWithTimeout() (string, error) {
 	
 	// Perform the blocking read in a separate goroutine
 	go func() {
-		line, err := t.reader.ReadString('\n')
+		// Acquire read lock to safely access t.reader
+		t.connMutex.RLock()
+		reader := t.reader
+		t.connMutex.RUnlock()
+		
+		if reader == nil {
+			select {
+			case resultChan <- readResult{line: "", err: fmt.Errorf("reader is nil")}:
+			case <-t.ctx.Done():
+			}
+			return
+		}
+		
+		line, err := reader.ReadString('\n')
 		select {
 		case resultChan <- readResult{line: line, err: err}:
 		case <-t.ctx.Done():
@@ -1071,8 +1104,8 @@ func (t *SSETransport) isClosed() bool {
 
 // SetHeader sets a custom header for requests
 func (t *SSETransport) SetHeader(key, value string) {
-	t.connMutex.Lock()
-	defer t.connMutex.Unlock()
+	t.headersMutex.Lock()
+	defer t.headersMutex.Unlock()
 
 	if t.headers == nil {
 		t.headers = make(map[string]string)
@@ -1222,8 +1255,15 @@ func (t *SSETransport) Ping(ctx context.Context) error {
 		return messages.NewStreamingError("transport", 0, fmt.Sprintf("failed to create ping request: %v", err))
 	}
 
-	// Set headers (excluding SSE-specific ones)
+	// Set headers (excluding SSE-specific ones) safely under read lock
+	t.headersMutex.RLock()
+	headersCopy := make(map[string]string, len(t.headers))
 	for key, value := range t.headers {
+		headersCopy[key] = value
+	}
+	t.headersMutex.RUnlock()
+	
+	for key, value := range headersCopy {
 		if key != "Accept" && key != "Cache-Control" && key != "Connection" {
 			req.Header.Set(key, value)
 		}
@@ -1307,7 +1347,17 @@ func (t *SSETransport) SendBatch(ctx context.Context, events []events.Event) err
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
+	
+	// Copy headers safely under read lock
+	t.headersMutex.RLock()
+	headersCopy := make(map[string]string, len(t.headers))
 	for key, value := range t.headers {
+		headersCopy[key] = value
+	}
+	t.headersMutex.RUnlock()
+	
+	// Use copied headers for request
+	for key, value := range headersCopy {
 		if key != "Accept" && key != "Cache-Control" && key != "Connection" {
 			req.Header.Set(key, value)
 		}

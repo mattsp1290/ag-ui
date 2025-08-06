@@ -157,25 +157,36 @@ func TestContextCancellationStreamManager(t *testing.T) {
 	defer streamManager.Stop()
 
 	t.Run("WriteStream", func(t *testing.T) {
-		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
-		defer cancel()
-
-		input := make(chan events.Event, 100)
+		ctx, cancel := context.WithCancel(context.Background())
+		
+		input := make(chan events.Event)
 		output := &mockWriter{}
 
-		// Send many events
+		// Start WriteStream in a goroutine
+		errCh := make(chan error, 1)
 		go func() {
-			for i := 0; i < 100; i++ {
-				input <- events.NewTextMessageStartEvent("msg-1")
-			}
-			close(input)
+			errCh <- streamManager.WriteStream(ctx, input, output)
 		}()
 
-		time.Sleep(2 * time.Millisecond) // Ensure context times out
+		// Send one event to ensure WriteStream is active
+		input <- events.NewTextMessageStartEvent("msg-1")
+		
+		// Give it a moment to process
+		time.Sleep(10 * time.Millisecond)
+		
+		// Cancel the context
+		cancel()
 
-		err := streamManager.WriteStream(ctx, input, output)
-		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "context")
+		// Wait for the error
+		select {
+		case err := <-errCh:
+			assert.Error(t, err)
+			assert.Contains(t, err.Error(), "context")
+		case <-time.After(100 * time.Millisecond):
+			t.Fatal("WriteStream did not return within expected time after context cancellation")
+		}
+		
+		close(input)
 	})
 }
 

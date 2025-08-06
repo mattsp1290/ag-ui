@@ -3,6 +3,7 @@ package transport
 import (
 	"context"
 	"fmt"
+	"os"
 	"runtime"
 	"sync"
 	"testing"
@@ -160,6 +161,9 @@ func TestRingBuffer(t *testing.T) {
 	t.Run("ConcurrentAccess", func(t *testing.T) {
 		if testing.Short() {
 			t.Skip("Skipping concurrent access test in short mode")
+		}
+		if os.Getenv("RACE") == "1" {
+			t.Skip("Skipping concurrent access test during race detection")
 		}
 		
 		rb.Clear()

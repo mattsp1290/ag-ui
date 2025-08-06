@@ -184,13 +184,16 @@ func (rb *RingBuffer) PopWithContext(ctx context.Context) (events.Event, error) 
 		
 		// Use a channel to coordinate between Wait() and context cancellation
 		waitDone := make(chan struct{})
-		var ctxCancelled bool
+		ctxCancelled := make(chan struct{}, 1) // Buffered channel for safe communication
 		
 		// Start goroutine to handle context cancellation
 		go func() {
 			select {
 			case <-ctx.Done():
-				ctxCancelled = true
+				select {
+				case ctxCancelled <- struct{}{}:
+				default:
+				}
 				rb.notEmpty.Broadcast() // Wake up the Wait()
 			case <-waitDone:
 				// Wait completed normally
@@ -202,8 +205,10 @@ func (rb *RingBuffer) PopWithContext(ctx context.Context) (events.Event, error) 
 		close(waitDone) // Signal that Wait() completed
 		
 		// Check if we should exit due to context cancellation
-		if ctxCancelled {
+		select {
+		case <-ctxCancelled:
 			return nil, ctx.Err()
+		default:
 		}
 	}
 
@@ -361,13 +366,16 @@ func (rb *RingBuffer) handleOverflow(ctx context.Context, event events.Event) er
 			
 			// Use a channel to coordinate between Wait() and context cancellation
 			waitDone := make(chan struct{})
-			var ctxCancelled bool
+			ctxCancelled := make(chan struct{}, 1) // Buffered channel for safe communication
 			
 			// Start goroutine to handle context cancellation
 			go func() {
 				select {
 				case <-ctx.Done():
-					ctxCancelled = true
+					select {
+					case ctxCancelled <- struct{}{}:
+					default:
+					}
 					rb.notFull.Broadcast() // Wake up the Wait()
 				case <-waitDone:
 					// Wait completed normally
@@ -379,8 +387,10 @@ func (rb *RingBuffer) handleOverflow(ctx context.Context, event events.Event) er
 			close(waitDone) // Signal that Wait() completed
 			
 			// Check if we should exit due to context cancellation
-			if ctxCancelled {
+			select {
+			case <-ctxCancelled:
 				return ctx.Err()
+			default:
 			}
 		}
 		

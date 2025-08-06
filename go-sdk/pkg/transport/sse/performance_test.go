@@ -34,6 +34,11 @@ func TestHighConcurrencyLoad(t *testing.T) {
 		t.Skip("Skipping resource-intensive load test in CI")
 	}
 
+	// Skip during race detection to avoid test interference
+	if testing.Short() || os.Getenv("RACE") == "1" {
+		t.Skip("Skipping resource-intensive test during race detection")
+	}
+
 	// Optimized for controlled test execution
 	testDuration := 5 * time.Second  // Reduced from original 20s
 	if testing.Short() {

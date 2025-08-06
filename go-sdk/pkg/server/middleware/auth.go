@@ -1,0 +1,947 @@
+package middleware
+
+import (
+	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/base64"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"hash"
+	"net/http"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	"go.uber.org/zap"
+	"golang.org/x/crypto/bcrypt"
+)
+
+// AuthMethod represents the type of authentication method
+type AuthMethod string
+
+const (
+	// AuthMethodJWT uses JSON Web Tokens for authentication
+	AuthMethodJWT AuthMethod = "jwt"
+	
+	// AuthMethodAPIKey uses API key-based authentication
+	AuthMethodAPIKey AuthMethod = "api_key"
+	
+	// AuthMethodBasic uses HTTP Basic authentication
+	AuthMethodBasic AuthMethod = "basic"
+	
+	// AuthMethodHMAC uses HMAC signature-based authentication
+	AuthMethodHMAC AuthMethod = "hmac"
+	
+	// AuthMethodBearer uses Bearer token authentication
+	AuthMethodBearer AuthMethod = "bearer"
+)
+
+// AuthUser represents an authenticated user
+type AuthUser struct {
+	ID          string                 `json:"id"`
+	Username    string                 `json:"username"`
+	Email       string                 `json:"email"`
+	Roles       []string               `json:"roles"`
+	Permissions []string               `json:"permissions"`
+	Metadata    map[string]interface{} `json:"metadata"`
+}
+
+// HasRole checks if the user has a specific role
+func (u *AuthUser) HasRole(role string) bool {
+	for _, r := range u.Roles {
+		if r == role {
+			return true
+		}
+	}
+	return false
+}
+
+// HasAnyRole checks if the user has any of the specified roles
+func (u *AuthUser) HasAnyRole(roles ...string) bool {
+	for _, role := range roles {
+		if u.HasRole(role) {
+			return true
+		}
+	}
+	return false
+}
+
+// HasPermission checks if the user has a specific permission
+func (u *AuthUser) HasPermission(permission string) bool {
+	for _, p := range u.Permissions {
+		if p == permission || p == "*" {
+			return true
+		}
+	}
+	return false
+}
+
+// AuthConfig contains authentication middleware configuration
+type AuthConfig struct {
+	BaseConfig `json:",inline" yaml:",inline"`
+	
+	// Method specifies the authentication method to use
+	Method AuthMethod `json:"method" yaml:"method"`
+	
+	// JWT configuration
+	JWT JWTConfig `json:"jwt" yaml:"jwt"`
+	
+	// API Key configuration
+	APIKey APIKeyConfig `json:"api_key" yaml:"api_key"`
+	
+	// Basic Auth configuration
+	BasicAuth BasicAuthConfig `json:"basic_auth" yaml:"basic_auth"`
+	
+	// HMAC configuration
+	HMAC HMACConfig `json:"hmac" yaml:"hmac"`
+	
+	// Bearer token configuration
+	Bearer BearerConfig `json:"bearer" yaml:"bearer"`
+	
+	// Authorization configuration
+	RequiredRoles       []string `json:"required_roles" yaml:"required_roles"`
+	RequiredPermissions []string `json:"required_permissions" yaml:"required_permissions"`
+	
+	// Error handling
+	SecureErrorMode bool `json:"secure_error_mode" yaml:"secure_error_mode"`
+	
+	// Optional paths that don't require authentication
+	OptionalPaths []string `json:"optional_paths" yaml:"optional_paths"`
+	
+	// Excluded paths that bypass authentication entirely
+	ExcludedPaths []string `json:"excluded_paths" yaml:"excluded_paths"`
+}
+
+// JWTConfig contains JWT-specific configuration
+type JWTConfig struct {
+	// Signing configuration
+	SigningMethod string `json:"signing_method" yaml:"signing_method"`
+	SecretKey     string `json:"secret_key" yaml:"secret_key"`
+	PublicKey     string `json:"public_key" yaml:"public_key"`
+	PrivateKey    string `json:"private_key" yaml:"private_key"`
+	
+	// Token validation
+	Issuer       string        `json:"issuer" yaml:"issuer"`
+	Audience     []string      `json:"audience" yaml:"audience"`
+	LeewayTime   time.Duration `json:"leeway_time" yaml:"leeway_time"`
+	
+	// Token extraction
+	TokenHeader string `json:"token_header" yaml:"token_header"`
+	TokenPrefix string `json:"token_prefix" yaml:"token_prefix"`
+	QueryParam  string `json:"query_param" yaml:"query_param"`
+	CookieName  string `json:"cookie_name" yaml:"cookie_name"`
+}
+
+// APIKeyConfig contains API key authentication configuration
+type APIKeyConfig struct {
+	// Header configuration
+	HeaderName string `json:"header_name" yaml:"header_name"`
+	Prefix     string `json:"prefix" yaml:"prefix"`
+	
+	// Query parameter configuration
+	QueryParam string `json:"query_param" yaml:"query_param"`
+	
+	// Validation
+	Keys           map[string]*APIKeyInfo `json:"keys" yaml:"keys"`
+	ValidateLength bool                   `json:"validate_length" yaml:"validate_length"`
+	MinLength      int                    `json:"min_length" yaml:"min_length"`
+	MaxLength      int                    `json:"max_length" yaml:"max_length"`
+}
+
+// APIKeyInfo contains information about an API key
+type APIKeyInfo struct {
+	UserID      string                 `json:"user_id"`
+	Username    string                 `json:"username"`
+	Roles       []string               `json:"roles"`
+	Permissions []string               `json:"permissions"`
+	Metadata    map[string]interface{} `json:"metadata"`
+	ExpiresAt   *time.Time             `json:"expires_at,omitempty"`
+	CreatedAt   time.Time              `json:"created_at"`
+	LastUsedAt  *time.Time             `json:"last_used_at,omitempty"`
+}
+
+// IsExpired checks if the API key is expired
+func (info *APIKeyInfo) IsExpired() bool {
+	return info.ExpiresAt != nil && time.Now().After(*info.ExpiresAt)
+}
+
+// BasicAuthConfig contains Basic authentication configuration
+type BasicAuthConfig struct {
+	// Realm for Basic auth challenge
+	Realm string `json:"realm" yaml:"realm"`
+	
+	// User credentials (username -> hashed password)
+	Users map[string]*BasicAuthUser `json:"users" yaml:"users"`
+}
+
+// BasicAuthUser contains Basic auth user information
+type BasicAuthUser struct {
+	PasswordHash string                 `json:"password_hash"`
+	UserID       string                 `json:"user_id"`
+	Roles        []string               `json:"roles"`
+	Permissions  []string               `json:"permissions"`
+	Metadata     map[string]interface{} `json:"metadata"`
+}
+
+// HMACConfig contains HMAC signature authentication configuration
+type HMACConfig struct {
+	// Signature configuration
+	SecretKey  string `json:"secret_key" yaml:"secret_key"`
+	Algorithm  string `json:"algorithm" yaml:"algorithm"`
+	
+	// Header configuration
+	SignatureHeader string   `json:"signature_header" yaml:"signature_header"`
+	TimestampHeader string   `json:"timestamp_header" yaml:"timestamp_header"`
+	NonceHeader     string   `json:"nonce_header" yaml:"nonce_header"`
+	IncludeHeaders  []string `json:"include_headers" yaml:"include_headers"`
+	
+	// Validation
+	MaxClockSkew time.Duration `json:"max_clock_skew" yaml:"max_clock_skew"`
+	RequireNonce bool          `json:"require_nonce" yaml:"require_nonce"`
+	
+	// User mapping (signature -> user info)
+	Users map[string]*HMACUser `json:"users" yaml:"users"`
+}
+
+// HMACUser contains HMAC user information
+type HMACUser struct {
+	UserID      string                 `json:"user_id"`
+	Username    string                 `json:"username"`
+	Roles       []string               `json:"roles"`
+	Permissions []string               `json:"permissions"`
+	Metadata    map[string]interface{} `json:"metadata"`
+}
+
+// BearerConfig contains Bearer token configuration
+type BearerConfig struct {
+	// Token validation
+	Tokens map[string]*BearerTokenInfo `json:"tokens" yaml:"tokens"`
+	
+	// Header configuration
+	HeaderName string `json:"header_name" yaml:"header_name"`
+	Prefix     string `json:"prefix" yaml:"prefix"`
+}
+
+// BearerTokenInfo contains Bearer token information
+type BearerTokenInfo struct {
+	UserID      string                 `json:"user_id"`
+	Username    string                 `json:"username"`
+	Roles       []string               `json:"roles"`
+	Permissions []string               `json:"permissions"`
+	Metadata    map[string]interface{} `json:"metadata"`
+	ExpiresAt   *time.Time             `json:"expires_at,omitempty"`
+	CreatedAt   time.Time              `json:"created_at"`
+}
+
+// IsExpired checks if the bearer token is expired
+func (info *BearerTokenInfo) IsExpired() bool {
+	return info.ExpiresAt != nil && time.Now().After(*info.ExpiresAt)
+}
+
+// AuthMiddleware implements authentication middleware
+type AuthMiddleware struct {
+	config    *AuthConfig
+	logger    *zap.Logger
+	mu        sync.RWMutex
+	
+	// JWT parser and validator
+	jwtParser *jwt.Parser
+	
+	// Used nonces for HMAC replay protection
+	usedNonces map[string]time.Time
+}
+
+// NewAuthMiddleware creates a new authentication middleware
+func NewAuthMiddleware(config *AuthConfig, logger *zap.Logger) (*AuthMiddleware, error) {
+	if config == nil {
+		return nil, fmt.Errorf("auth config cannot be nil")
+	}
+	
+	if err := ValidateBaseConfig(&config.BaseConfig); err != nil {
+		return nil, fmt.Errorf("invalid base config: %w", err)
+	}
+	
+	if logger == nil {
+		logger = zap.NewNop()
+	}
+	
+	// Set defaults
+	if config.Name == "" {
+		config.Name = "auth"
+	}
+	if config.Priority == 0 {
+		config.Priority = 100 // High priority for auth
+	}
+	if config.JWT.TokenHeader == "" {
+		config.JWT.TokenHeader = "Authorization"
+	}
+	if config.JWT.TokenPrefix == "" {
+		config.JWT.TokenPrefix = "Bearer "
+	}
+	if config.JWT.SigningMethod == "" {
+		config.JWT.SigningMethod = "HS256"
+	}
+	if config.APIKey.HeaderName == "" {
+		config.APIKey.HeaderName = "X-API-Key"
+	}
+	if config.BasicAuth.Realm == "" {
+		config.BasicAuth.Realm = "AG-UI API"
+	}
+	if config.HMAC.Algorithm == "" {
+		config.HMAC.Algorithm = "sha256"
+	}
+	if config.HMAC.SignatureHeader == "" {
+		config.HMAC.SignatureHeader = "X-Signature"
+	}
+	if config.HMAC.TimestampHeader == "" {
+		config.HMAC.TimestampHeader = "X-Timestamp"
+	}
+	if config.HMAC.MaxClockSkew == 0 {
+		config.HMAC.MaxClockSkew = 5 * time.Minute
+	}
+	if config.Bearer.HeaderName == "" {
+		config.Bearer.HeaderName = "Authorization"
+	}
+	if config.Bearer.Prefix == "" {
+		config.Bearer.Prefix = "Bearer "
+	}
+	
+	middleware := &AuthMiddleware{
+		config:     config,
+		logger:     logger,
+		usedNonces: make(map[string]time.Time),
+	}
+	
+	// Initialize JWT parser
+	if config.Method == AuthMethodJWT {
+		middleware.jwtParser = jwt.NewParser(
+			jwt.WithValidMethods([]string{config.JWT.SigningMethod}),
+		)
+		if config.JWT.LeewayTime > 0 {
+			middleware.jwtParser = jwt.NewParser(
+				jwt.WithValidMethods([]string{config.JWT.SigningMethod}),
+				jwt.WithLeeway(config.JWT.LeewayTime),
+			)
+		}
+	}
+	
+	return middleware, nil
+}
+
+// Handler implements the Middleware interface
+func (am *AuthMiddleware) Handler(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !am.config.Enabled {
+			next.ServeHTTP(w, r)
+			return
+		}
+		
+		// Check if path is excluded
+		if am.isExcludedPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		
+		// Perform authentication
+		user, err := am.authenticate(r)
+		if err != nil {
+			am.handleAuthError(w, r, err)
+			return
+		}
+		
+		// Check if authentication is optional for this path
+		if user == nil && am.isOptionalPath(r.URL.Path) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		
+		// Require authentication for non-optional paths
+		if user == nil {
+			am.handleAuthError(w, r, fmt.Errorf("authentication required"))
+			return
+		}
+		
+		// Perform authorization
+		if err := am.authorize(user); err != nil {
+			am.handleAuthError(w, r, err)
+			return
+		}
+		
+		// Add user to context
+		ctx := context.WithValue(r.Context(), AuthContextKey, user)
+		ctx = SetUserID(ctx, user.ID)
+		
+		// Continue with authenticated request
+		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// Name returns the middleware name
+func (am *AuthMiddleware) Name() string {
+	return am.config.Name
+}
+
+// Priority returns the middleware priority
+func (am *AuthMiddleware) Priority() int {
+	return am.config.Priority
+}
+
+// Config returns the middleware configuration
+func (am *AuthMiddleware) Config() interface{} {
+	return am.config
+}
+
+// Cleanup performs cleanup
+func (am *AuthMiddleware) Cleanup() error {
+	am.mu.Lock()
+	defer am.mu.Unlock()
+	
+	// Clear used nonces
+	am.usedNonces = make(map[string]time.Time)
+	
+	return nil
+}
+
+// authenticate performs authentication based on the configured method
+func (am *AuthMiddleware) authenticate(r *http.Request) (*AuthUser, error) {
+	switch am.config.Method {
+	case AuthMethodJWT:
+		return am.authenticateJWT(r)
+	case AuthMethodAPIKey:
+		return am.authenticateAPIKey(r)
+	case AuthMethodBasic:
+		return am.authenticateBasic(r)
+	case AuthMethodHMAC:
+		return am.authenticateHMAC(r)
+	case AuthMethodBearer:
+		return am.authenticateBearer(r)
+	default:
+		return nil, fmt.Errorf("unsupported authentication method: %s", am.config.Method)
+	}
+}
+
+// authenticateJWT performs JWT authentication
+func (am *AuthMiddleware) authenticateJWT(r *http.Request) (*AuthUser, error) {
+	// Extract token
+	tokenString := am.extractJWTToken(r)
+	if tokenString == "" {
+		return nil, fmt.Errorf("no JWT token found")
+	}
+	
+	// Parse and validate token
+	token, err := am.jwtParser.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		// Validate signing method
+		if token.Method.Alg() != am.config.JWT.SigningMethod {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		
+		// Return appropriate key based on signing method
+		switch am.config.JWT.SigningMethod {
+		case "HS256", "HS384", "HS512":
+			return []byte(am.config.JWT.SecretKey), nil
+		case "RS256", "RS384", "RS512":
+			// For RS* methods, you'd parse the public key here
+			// This is a simplified version
+			return []byte(am.config.JWT.PublicKey), nil
+		default:
+			return nil, fmt.Errorf("unsupported signing method: %s", am.config.JWT.SigningMethod)
+		}
+	})
+	
+	if err != nil {
+		return nil, fmt.Errorf("JWT validation failed: %w", err)
+	}
+	
+	if !token.Valid {
+		return nil, fmt.Errorf("invalid JWT token")
+	}
+	
+	// Extract claims
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		return nil, fmt.Errorf("invalid JWT claims")
+	}
+	
+	// Validate issuer if configured
+	if am.config.JWT.Issuer != "" {
+		if iss, ok := claims["iss"].(string); !ok || iss != am.config.JWT.Issuer {
+			return nil, fmt.Errorf("invalid issuer")
+		}
+	}
+	
+	// Validate audience if configured
+	if len(am.config.JWT.Audience) > 0 {
+		if aud, ok := claims["aud"].([]interface{}); ok {
+			validAudience := false
+			for _, configAud := range am.config.JWT.Audience {
+				for _, tokenAud := range aud {
+					if audStr, ok := tokenAud.(string); ok && audStr == configAud {
+						validAudience = true
+						break
+					}
+				}
+				if validAudience {
+					break
+				}
+			}
+			if !validAudience {
+				return nil, fmt.Errorf("invalid audience")
+			}
+		}
+	}
+	
+	// Create user from claims
+	user := &AuthUser{
+		Metadata: make(map[string]interface{}),
+	}
+	
+	if sub, ok := claims["sub"].(string); ok {
+		user.ID = sub
+	}
+	if username, ok := claims["username"].(string); ok {
+		user.Username = username
+	}
+	if email, ok := claims["email"].(string); ok {
+		user.Email = email
+	}
+	if roles, ok := claims["roles"].([]interface{}); ok {
+		user.Roles = make([]string, len(roles))
+		for i, role := range roles {
+			if roleStr, ok := role.(string); ok {
+				user.Roles[i] = roleStr
+			}
+		}
+	}
+	if permissions, ok := claims["permissions"].([]interface{}); ok {
+		user.Permissions = make([]string, len(permissions))
+		for i, perm := range permissions {
+			if permStr, ok := perm.(string); ok {
+				user.Permissions[i] = permStr
+			}
+		}
+	}
+	
+	// Copy other claims to metadata
+	for key, value := range claims {
+		if key != "sub" && key != "username" && key != "email" && key != "roles" && key != "permissions" {
+			user.Metadata[key] = value
+		}
+	}
+	
+	return user, nil
+}
+
+// authenticateAPIKey performs API key authentication
+func (am *AuthMiddleware) authenticateAPIKey(r *http.Request) (*AuthUser, error) {
+	// Extract API key
+	apiKey := am.extractAPIKey(r)
+	if apiKey == "" {
+		return nil, fmt.Errorf("no API key found")
+	}
+	
+	// Validate key length if configured
+	if am.config.APIKey.ValidateLength {
+		if len(apiKey) < am.config.APIKey.MinLength || len(apiKey) > am.config.APIKey.MaxLength {
+			return nil, fmt.Errorf("invalid API key length")
+		}
+	}
+	
+	// Look up key info
+	keyInfo, exists := am.config.APIKey.Keys[apiKey]
+	if !exists {
+		return nil, fmt.Errorf("invalid API key")
+	}
+	
+	// Check expiration
+	if keyInfo.IsExpired() {
+		return nil, fmt.Errorf("API key expired")
+	}
+	
+	// Update last used time
+	now := time.Now()
+	keyInfo.LastUsedAt = &now
+	
+	// Create user from key info
+	user := &AuthUser{
+		ID:          keyInfo.UserID,
+		Username:    keyInfo.Username,
+		Roles:       keyInfo.Roles,
+		Permissions: keyInfo.Permissions,
+		Metadata:    keyInfo.Metadata,
+	}
+	
+	return user, nil
+}
+
+// authenticateBasic performs Basic authentication
+func (am *AuthMiddleware) authenticateBasic(r *http.Request) (*AuthUser, error) {
+	// Extract credentials
+	username, password, ok := r.BasicAuth()
+	if !ok {
+		return nil, fmt.Errorf("no Basic auth credentials found")
+	}
+	
+	// Look up user
+	userInfo, exists := am.config.BasicAuth.Users[username]
+	if !exists {
+		return nil, fmt.Errorf("invalid credentials")
+	}
+	
+	// Verify password
+	if err := bcrypt.CompareHashAndPassword([]byte(userInfo.PasswordHash), []byte(password)); err != nil {
+		return nil, fmt.Errorf("invalid credentials")
+	}
+	
+	// Create user from info
+	user := &AuthUser{
+		ID:          userInfo.UserID,
+		Username:    username,
+		Roles:       userInfo.Roles,
+		Permissions: userInfo.Permissions,
+		Metadata:    userInfo.Metadata,
+	}
+	
+	return user, nil
+}
+
+// authenticateHMAC performs HMAC signature authentication
+func (am *AuthMiddleware) authenticateHMAC(r *http.Request) (*AuthUser, error) {
+	// Extract signature
+	signature := r.Header.Get(am.config.HMAC.SignatureHeader)
+	if signature == "" {
+		return nil, fmt.Errorf("no HMAC signature found")
+	}
+	
+	// Extract timestamp
+	timestampStr := r.Header.Get(am.config.HMAC.TimestampHeader)
+	if timestampStr == "" {
+		return nil, fmt.Errorf("no timestamp found")
+	}
+	
+	timestamp, err := strconv.ParseInt(timestampStr, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("invalid timestamp format")
+	}
+	
+	// Check clock skew
+	now := time.Now().Unix()
+	if abs(now-timestamp) > int64(am.config.HMAC.MaxClockSkew.Seconds()) {
+		return nil, fmt.Errorf("timestamp outside allowed clock skew")
+	}
+	
+	// Extract nonce if required
+	var nonce string
+	if am.config.HMAC.RequireNonce {
+		nonce = r.Header.Get(am.config.HMAC.NonceHeader)
+		if nonce == "" {
+			return nil, fmt.Errorf("no nonce found")
+		}
+		
+		// Check for replay attack
+		am.mu.Lock()
+		if _, used := am.usedNonces[nonce]; used {
+			am.mu.Unlock()
+			return nil, fmt.Errorf("nonce already used")
+		}
+		am.usedNonces[nonce] = time.Now()
+		am.mu.Unlock()
+	}
+	
+	// Build signature string
+	sigString := am.buildSignatureString(r, timestampStr, nonce)
+	
+	// Calculate expected signature
+	expectedSig := am.calculateHMAC(sigString)
+	
+	// Compare signatures
+	if !am.constantTimeCompare(signature, expectedSig) {
+		return nil, fmt.Errorf("invalid HMAC signature")
+	}
+	
+	// For HMAC, we need a way to identify the user
+	// This is a simplified approach - in practice, you might include user ID in the signature
+	// or have a separate header for user identification
+	userID := r.Header.Get("X-User-ID")
+	if userInfo, exists := am.config.HMAC.Users[userID]; exists {
+		user := &AuthUser{
+			ID:          userInfo.UserID,
+			Username:    userInfo.Username,
+			Roles:       userInfo.Roles,
+			Permissions: userInfo.Permissions,
+			Metadata:    userInfo.Metadata,
+		}
+		return user, nil
+	}
+	
+	// Default user for valid HMAC signature
+	return &AuthUser{
+		ID:       "hmac-user",
+		Username: "hmac-user",
+	}, nil
+}
+
+// authenticateBearer performs Bearer token authentication
+func (am *AuthMiddleware) authenticateBearer(r *http.Request) (*AuthUser, error) {
+	// Extract token
+	token := am.extractBearerToken(r)
+	if token == "" {
+		return nil, fmt.Errorf("no Bearer token found")
+	}
+	
+	// Look up token info
+	tokenInfo, exists := am.config.Bearer.Tokens[token]
+	if !exists {
+		return nil, fmt.Errorf("invalid Bearer token")
+	}
+	
+	// Check expiration
+	if tokenInfo.IsExpired() {
+		return nil, fmt.Errorf("Bearer token expired")
+	}
+	
+	// Create user from token info
+	user := &AuthUser{
+		ID:          tokenInfo.UserID,
+		Username:    tokenInfo.Username,
+		Roles:       tokenInfo.Roles,
+		Permissions: tokenInfo.Permissions,
+		Metadata:    tokenInfo.Metadata,
+	}
+	
+	return user, nil
+}
+
+// authorize performs authorization checks
+func (am *AuthMiddleware) authorize(user *AuthUser) error {
+	// Check required roles
+	if len(am.config.RequiredRoles) > 0 {
+		if !user.HasAnyRole(am.config.RequiredRoles...) {
+			return fmt.Errorf("insufficient roles")
+		}
+	}
+	
+	// Check required permissions
+	for _, perm := range am.config.RequiredPermissions {
+		if !user.HasPermission(perm) {
+			return fmt.Errorf("insufficient permissions")
+		}
+	}
+	
+	return nil
+}
+
+// Token extraction methods
+
+func (am *AuthMiddleware) extractJWTToken(r *http.Request) string {
+	// Try Authorization header
+	authHeader := r.Header.Get(am.config.JWT.TokenHeader)
+	if strings.HasPrefix(authHeader, am.config.JWT.TokenPrefix) {
+		return strings.TrimPrefix(authHeader, am.config.JWT.TokenPrefix)
+	}
+	
+	// Try query parameter
+	if am.config.JWT.QueryParam != "" {
+		if token := r.URL.Query().Get(am.config.JWT.QueryParam); token != "" {
+			return token
+		}
+	}
+	
+	// Try cookie
+	if am.config.JWT.CookieName != "" {
+		if cookie, err := r.Cookie(am.config.JWT.CookieName); err == nil {
+			return cookie.Value
+		}
+	}
+	
+	return ""
+}
+
+func (am *AuthMiddleware) extractAPIKey(r *http.Request) string {
+	// Try configured header
+	if key := r.Header.Get(am.config.APIKey.HeaderName); key != "" {
+		// Remove prefix if configured
+		if am.config.APIKey.Prefix != "" {
+			return strings.TrimPrefix(key, am.config.APIKey.Prefix)
+		}
+		return key
+	}
+	
+	// Try query parameter
+	if am.config.APIKey.QueryParam != "" {
+		if key := r.URL.Query().Get(am.config.APIKey.QueryParam); key != "" {
+			return key
+		}
+	}
+	
+	return ""
+}
+
+func (am *AuthMiddleware) extractBearerToken(r *http.Request) string {
+	authHeader := r.Header.Get(am.config.Bearer.HeaderName)
+	if strings.HasPrefix(authHeader, am.config.Bearer.Prefix) {
+		return strings.TrimPrefix(authHeader, am.config.Bearer.Prefix)
+	}
+	return ""
+}
+
+// HMAC utility methods
+
+func (am *AuthMiddleware) buildSignatureString(r *http.Request, timestamp, nonce string) string {
+	var parts []string
+	
+	// Add method and path
+	parts = append(parts, r.Method, r.URL.Path)
+	
+	// Add timestamp
+	parts = append(parts, timestamp)
+	
+	// Add nonce if present
+	if nonce != "" {
+		parts = append(parts, nonce)
+	}
+	
+	// Add included headers
+	for _, headerName := range am.config.HMAC.IncludeHeaders {
+		if value := r.Header.Get(headerName); value != "" {
+			parts = append(parts, headerName+":"+value)
+		}
+	}
+	
+	// Add body hash for POST/PUT requests
+	if r.Method == "POST" || r.Method == "PUT" || r.Method == "PATCH" {
+		// In a real implementation, you'd read and hash the body
+		// This is simplified for demonstration
+		parts = append(parts, "body-hash:placeholder")
+	}
+	
+	return strings.Join(parts, "\n")
+}
+
+func (am *AuthMiddleware) calculateHMAC(data string) string {
+	var mac hash.Hash
+	
+	switch am.config.HMAC.Algorithm {
+	case "sha256":
+		mac = hmac.New(sha256.New, []byte(am.config.HMAC.SecretKey))
+	default:
+		mac = hmac.New(sha256.New, []byte(am.config.HMAC.SecretKey))
+	}
+	
+	mac.Write([]byte(data))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func (am *AuthMiddleware) constantTimeCompare(a, b string) bool {
+	return subtle.ConstantTimeCompare([]byte(a), []byte(b)) == 1
+}
+
+// Path checking methods
+
+func (am *AuthMiddleware) isExcludedPath(path string) bool {
+	for _, excludedPath := range am.config.ExcludedPaths {
+		if path == excludedPath || strings.HasPrefix(path, excludedPath) {
+			return true
+		}
+	}
+	return false
+}
+
+func (am *AuthMiddleware) isOptionalPath(path string) bool {
+	for _, optionalPath := range am.config.OptionalPaths {
+		if path == optionalPath || strings.HasPrefix(path, optionalPath) {
+			return true
+		}
+	}
+	return false
+}
+
+// Error handling
+
+func (am *AuthMiddleware) handleAuthError(w http.ResponseWriter, r *http.Request, err error) {
+	statusCode := http.StatusUnauthorized
+	message := "Authentication required"
+	
+	if !am.config.SecureErrorMode {
+		message = err.Error()
+	}
+	
+	// Set appropriate authentication challenge header
+	switch am.config.Method {
+	case AuthMethodBasic:
+		w.Header().Set("WWW-Authenticate", fmt.Sprintf("Basic realm=\"%s\"", am.config.BasicAuth.Realm))
+	case AuthMethodBearer, AuthMethodJWT:
+		w.Header().Set("WWW-Authenticate", "Bearer")
+	}
+	
+	am.logger.Debug("Authentication failed",
+		zap.String("path", r.URL.Path),
+		zap.String("method", r.Method),
+		zap.String("remote_addr", r.RemoteAddr),
+		zap.Error(err),
+	)
+	
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(statusCode)
+	
+	response := map[string]interface{}{
+		"error":     message,
+		"timestamp": time.Now().Unix(),
+	}
+	
+	json.NewEncoder(w).Encode(response)
+}
+
+// Utility functions
+
+func abs(x int64) int64 {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
+
+// GetAuthUser extracts the authenticated user from the request context
+func GetAuthUser(ctx context.Context) (*AuthUser, bool) {
+	user, ok := ctx.Value(AuthContextKey).(*AuthUser)
+	return user, ok
+}
+
+// RequireAuth is a helper function to create auth middleware with default config
+func RequireAuth(method AuthMethod, logger *zap.Logger) (*AuthMiddleware, error) {
+	config := &AuthConfig{
+		BaseConfig: BaseConfig{
+			Enabled:  true,
+			Priority: 100,
+			Name:     "auth",
+		},
+		Method:          method,
+		SecureErrorMode: true,
+	}
+	
+	return NewAuthMiddleware(config, logger)
+}
+
+// CreateAPIKeyHash creates a bcrypt hash for API key storage
+func CreateAPIKeyHash(key string) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(key), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hash), nil
+}
+
+// GenerateAPIKey generates a random API key
+func GenerateAPIKey() string {
+	// Generate 32 random bytes and encode as base64
+	bytes := make([]byte, 32)
+	// In a real implementation, use crypto/rand
+	for i := range bytes {
+		bytes[i] = byte(time.Now().UnixNano() % 256)
+	}
+	return base64.URLEncoding.EncodeToString(bytes)
+}

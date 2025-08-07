@@ -664,12 +664,13 @@ func (m *DefaultTransportManager) startCleanupTicker() {
 	m.wg.Add(1)
 
 	go func() {
+		ticker := m.cleanupTicker // Store locally to avoid race condition
 		defer m.wg.Done()
-		defer m.cleanupTicker.Stop()
+		defer ticker.Stop()
 
 		for {
 			select {
-			case <-m.cleanupTicker.C:
+			case <-ticker.C:
 				// Check context cancellation before running cleanup to prevent hanging
 				select {
 				case <-m.ctx.Done():

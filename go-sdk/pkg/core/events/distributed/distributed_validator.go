@@ -186,12 +186,19 @@ func (gm *GoroutineManager) StopWithTimeout(timeout time.Duration) {
 		// Goroutine stopped gracefully
 		log.Printf("Goroutine %s stopped gracefully", gm.name)
 	case <-time.After(timeout):
-		// Timeout occurred
-		log.Printf("Warning: Goroutine %s did not stop within timeout %v", gm.name, timeout)
-		// Force mark as not running even on timeout to prevent further waits
+		// Timeout occurred - we need to force stop and wait
+		log.Printf("Warning: Goroutine %s did not stop within timeout %v, forcing stop", gm.name, timeout)
+		
+		// Force mark as not running to prevent further waits
 		gm.mu.Lock()
 		gm.isRunning = false
 		gm.mu.Unlock()
+		
+		// Still wait for the goroutine to actually finish to prevent leaks
+		// This ensures the WaitGroup is properly decremented
+		log.Printf("Forcing wait for goroutine %s to complete", gm.name)
+		<-done
+		log.Printf("Goroutine %s finally stopped after forced wait", gm.name)
 	}
 }
 

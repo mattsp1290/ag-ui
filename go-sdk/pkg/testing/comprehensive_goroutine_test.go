@@ -479,7 +479,7 @@ func (s *TestService) Start() error {
 	}
 	
 	// Start metrics collector
-	if err := s.manager.GoTicker("metrics", 100*time.Millisecond, s.collectMetrics); err != nil {
+	if err := s.manager.GoTicker(fmt.Sprintf("metrics-%p", s), 100*time.Millisecond, s.collectMetrics); err != nil {
 		return fmt.Errorf("failed to start metrics collector: %w", err)
 	}
 	

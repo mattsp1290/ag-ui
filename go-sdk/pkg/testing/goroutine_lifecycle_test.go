@@ -2,6 +2,7 @@ package testing
 
 import (
 	"context"
+	"fmt"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -403,7 +404,7 @@ func TestGoroutineLifecycleIntegration(t *testing.T) {
 			}
 			
 			// Metrics ticker
-			manager.GoTicker("metrics", 20*time.Millisecond, func(ctx context.Context) {
+			manager.GoTicker(fmt.Sprintf("metrics-%s", t.Name()), 20*time.Millisecond, func(ctx context.Context) {
 				atomic.AddInt64(&metrics.ticks, 1)
 			})
 			

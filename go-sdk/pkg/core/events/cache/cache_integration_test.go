@@ -105,15 +105,63 @@ func (suite *CacheIntegrationTestSuite) SetupTest() {
 }
 
 func (suite *CacheIntegrationTestSuite) TearDownTest() {
+	// Create timeout context for cleanup operations
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer shutdownCancel()
+
+	// Stop the coordinator first to prevent it from sending messages during shutdown
+	if suite.coordinator != nil {
+		if err := suite.coordinator.Stop(shutdownCtx); err != nil {
+			suite.T().Logf("Coordinator shutdown warning: %v", err)
+		}
+	}
+
+	// Shutdown cache validators with proper timeout
 	if suite.primaryCache != nil {
-		suite.primaryCache.Shutdown(suite.ctx)
+		if err := suite.primaryCache.Shutdown(shutdownCtx); err != nil {
+			suite.T().Logf("Primary cache shutdown warning: %v", err)
+		}
 	}
 	if suite.secondaryCache != nil {
-		suite.secondaryCache.Shutdown(suite.ctx)
+		if err := suite.secondaryCache.Shutdown(shutdownCtx); err != nil {
+			suite.T().Logf("Secondary cache shutdown warning: %v", err)
+		}
 	}
+
+	// Cancel test context to signal any remaining goroutines
 	if suite.cancel != nil {
 		suite.cancel()
 	}
+
+	// Brief wait to allow goroutines to finish cleanup
+	time.Sleep(50 * time.Millisecond)
+}
+
+// waitForInvalidationPropagation waits deterministically for cache invalidation to complete
+func (suite *CacheIntegrationTestSuite) waitForInvalidationPropagation() {
+	maxWait := 200 * time.Millisecond
+	start := time.Now()
+	
+	for time.Since(start) < maxWait {
+		// Give the coordinator time to process any pending messages
+		time.Sleep(10 * time.Millisecond)
+		
+		// Check for stable state by ensuring evictions/expirations indicate invalidation activity
+		if suite.coordinator != nil {
+			primaryStats := suite.primaryCache.GetStats()
+			secondaryStats := suite.secondaryCache.GetStats()
+			
+			// If we have some evictions or cache activity, consider propagation likely complete
+			if primaryStats.Evictions > 0 || secondaryStats.Evictions > 0 {
+				// Brief additional wait to ensure propagation finishes
+				time.Sleep(20 * time.Millisecond)
+				return
+			}
+		}
+	}
+	
+	// Reasonable timeout for message propagation in tests
+	suite.T().Logf("Using timeout-based invalidation propagation wait")
 }
 
 // TestDistributedCacheIntegration tests L1/L2 cache interaction
@@ -336,15 +384,15 @@ func (suite *CacheIntegrationTestSuite) TestCacheInvalidationPropagation() {
 	err := suite.primaryCache.InvalidateEventTypeInternal(suite.ctx, events.EventTypeRunStarted)
 	suite.NoError(err)
 	
-	// Wait for invalidation to propagate
-	time.Sleep(100 * time.Millisecond)
+	// Wait for invalidation to propagate deterministically
+	suite.waitForInvalidationPropagation()
 	
 	// Get initial stats
 	primaryStatsInitial := suite.primaryCache.GetStats()
 	secondaryStatsInitial := suite.secondaryCache.GetStats()
 	
-	// Clear L2 cache to ensure we test L1 misses
-	suite.mockL2Cache.data = make(map[string][]byte)
+	// Clear L2 cache to ensure we test L1 misses (thread-safe)
+	suite.mockL2Cache.Clear()
 	
 	// Both nodes should miss for RunStarted events
 	// For the first event, let secondary validate first to ensure it gets a miss

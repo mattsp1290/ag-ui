@@ -1,6 +1,9 @@
 package errors
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 // Common error message constants to ensure consistency across the codebase.
 // These constants prevent duplicate error messages and provide a centralized
@@ -365,9 +368,9 @@ func FormatLimitError(limitType string, current, maximum int64) string {
 	b.Grow(len(limitType) + 41 + 40) // 41 for fixed text, 40 for two 20-char numbers
 	b.WriteString(limitType)
 	b.WriteString(" limit exceeded: current=")
-	b.WriteString(string(rune(current)))
+	b.WriteString(strconv.FormatInt(current, 10))
 	b.WriteString(", maximum=")
-	b.WriteString(string(rune(maximum)))
+	b.WriteString(strconv.FormatInt(maximum, 10))
 	return b.String()
 }
 

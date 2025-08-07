@@ -117,7 +117,7 @@ func TestStringBuilderCompatibility(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			optimized, original := tc.testFunc()
 			if optimized != original {
-				t.Errorf("String builder optimization changed output:\nOptimized: %q\nOriginal:  %q", 
+				t.Errorf("String builder optimization changed output:\nOptimized: %q\nOriginal:  %q",
 					optimized, original)
 			}
 		})
@@ -138,7 +138,7 @@ func BenchmarkStringBuilderPerformance(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			// Simulate original string concatenation
 			component := "authentication"
-			operation := "login" 
+			operation := "login"
 			message := "invalid credentials provided"
 			_ = component + " " + operation + ": " + message
 		}

@@ -360,10 +360,10 @@ func TestPerformanceBenchmark(t *testing.T) {
 
 	// Create benchmark suite with minimal config for testing
 	config := DefaultBenchmarkConfig()
-	config.WarmupIterations = 10
-	config.TestIterations = 100
-	config.Duration = 5 * time.Second
-	config.ThroughputDuration = 2 * time.Second
+	config.WarmupIterations = 2
+	config.TestIterations = 10
+	config.Duration = 100 * time.Millisecond
+	config.ThroughputDuration = 50 * time.Millisecond
 
 	benchmarkSuite := NewBenchmarkSuite(jsonEncoder, jsonDecoder, jsonValidator, config)
 

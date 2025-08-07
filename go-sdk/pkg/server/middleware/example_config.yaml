@@ -1,0 +1,372 @@
+# Example comprehensive middleware configuration for AG-UI Go SDK
+# This file demonstrates how to configure all middleware components
+
+middleware:
+  # CORS middleware configuration
+  cors:
+    enabled: true
+    priority: 90
+    name: "cors"
+    allowed_origins:
+      - "https://app.example.com"
+      - "https://admin.example.com"
+      - "*.dev.example.com"
+    allowed_methods:
+      - "GET"
+      - "POST"
+      - "PUT"
+      - "DELETE"
+      - "OPTIONS"
+      - "HEAD"
+    allowed_headers:
+      - "Accept"
+      - "Accept-Language"
+      - "Content-Language"
+      - "Content-Type"
+      - "Authorization"
+      - "X-Requested-With"
+      - "X-API-Key"
+      - "X-CSRF-Token"
+    exposed_headers:
+      - "X-Request-ID"
+      - "X-Response-Time"
+      - "X-RateLimit-Limit"
+      - "X-RateLimit-Remaining"
+    allow_credentials: true
+    max_age: 86400  # 24 hours
+    allow_private_network: false
+    vary_headers:
+      - "Accept-Language"
+    debug: false
+    strict: true
+
+  # Authentication middleware configuration
+  auth:
+    enabled: true
+    priority: 100
+    name: "auth"
+    method: "jwt"  # jwt, api_key, basic, hmac, bearer
+    
+    # JWT configuration
+    jwt:
+      signing_method: "HS256"
+      secret_key: "${JWT_SECRET}"
+      token_header: "Authorization"
+      token_prefix: "Bearer "
+      query_param: "access_token"
+      cookie_name: "jwt_token"
+      issuer: "ag-ui-server"
+      audience: ["ag-ui-api"]
+      leeway_time: "1m"
+    
+    # API Key configuration
+    api_key:
+      header_name: "X-API-Key"
+      prefix: "Bearer"
+      query_param: "api_key"
+      keys:
+        "ak_live_1234567890abcdef":
+          user_id: "user_123"
+          username: "api_user"
+          roles: ["user", "api"]
+          permissions: ["read", "write"]
+          expires_at: "2025-12-31T23:59:59Z"
+      validate_length: true
+      min_length: 32
+      max_length: 64
+    
+    # Basic Auth configuration
+    basic_auth:
+      realm: "AG-UI API"
+      users:
+        "admin":
+          password_hash: "$2a$10$example_bcrypt_hash"
+          user_id: "admin_123"
+          roles: ["admin"]
+          permissions: ["*"]
+    
+    # HMAC configuration
+    hmac:
+      secret_key: "${HMAC_SECRET}"
+      algorithm: "sha256"
+      signature_header: "X-Signature"
+      timestamp_header: "X-Timestamp"
+      nonce_header: "X-Nonce"
+      max_clock_skew: "5m"
+      require_nonce: true
+      include_headers:
+        - "Content-Type"
+        - "X-Custom-Header"
+    
+    # Authorization requirements
+    required_roles: []
+    required_permissions: []
+    
+    # Path configuration
+    optional_paths:
+      - "/public"
+      - "/docs"
+    excluded_paths:
+      - "/health"
+      - "/metrics"
+      - "/favicon.ico"
+    
+    secure_error_mode: true
+
+  # Rate limiting middleware configuration
+  rate_limit:
+    enabled: true
+    priority: 80
+    name: "ratelimit"
+    algorithm: "token_bucket"  # token_bucket, sliding_window, fixed_window
+    scope: "ip"  # global, ip, user, api_key, endpoint, custom
+    
+    # Rate limits
+    requests_per_second: 0
+    requests_per_minute: 1000
+    requests_per_hour: 0
+    burst_size: 100
+    window_size: "1m"
+    
+    # Custom key extraction
+    custom_key_extractor: ""
+    custom_key_header: "X-Client-ID"
+    
+    # Per-endpoint limits
+    endpoint_limits:
+      "/api/auth/login":
+        path: "/api/auth/login"
+        method: "POST"
+        requests_per_minute: 5
+        burst_size: 2
+        window_size: "1m"
+      "/api/uploads":
+        path: "/api/uploads"
+        method: "POST"
+        requests_per_minute: 10
+        burst_size: 3
+        window_size: "1m"
+    
+    # Per-user limits
+    user_limits:
+      "premium_user_123":
+        user_id: "premium_user_123"
+        requests_per_minute: 5000
+        burst_size: 500
+        window_size: "1m"
+    
+    # IP filtering
+    whitelisted_ips:
+      - "127.0.0.1"
+      - "10.0.0.0/8"
+      - "192.168.0.0/16"
+    blacklisted_ips:
+      - "192.0.2.0/24"  # TEST-NET-1
+    
+    # Headers and error handling
+    include_headers: true
+    retry_after_header: true
+    custom_error_message: "Rate limit exceeded. Please try again later."
+    
+    # Skip conditions
+    skip_successful_auth: false
+    skip_paths:
+      - "/health"
+      - "/metrics"
+    skip_methods:
+      - "OPTIONS"
+    skip_user_agents:
+      - "HealthChecker/1.0"
+    
+    # Storage settings
+    cleanup_interval: "5m"
+    limiter_ttl: "1h"
+
+  # Logging middleware configuration
+  logging:
+    enabled: true
+    priority: 10
+    name: "logging"
+    level: "info"  # debug, info, warn, error
+    format: "json"  # json, text
+    
+    # Request/Response body logging
+    include_request_body: false
+    request_body_methods:
+      - "POST"
+      - "PUT"
+      - "PATCH"
+    max_request_body_size: 65536  # 64KB
+    
+    include_response_body: false
+    response_body_methods:
+      - "GET"
+      - "POST"
+    max_response_body_size: 65536  # 64KB
+    
+    # Headers to log
+    include_request_headers:
+      - "Content-Type"
+      - "Accept"
+      - "User-Agent"
+      - "X-Forwarded-For"
+    include_response_headers:
+      - "Content-Type"
+      - "Content-Length"
+    exclude_headers:
+      - "Cookie"
+      - "Set-Cookie"
+    
+    # Sensitive data handling
+    sanitize_headers:
+      - "authorization"
+      - "cookie"
+      - "set-cookie"
+      - "x-api-key"
+      - "x-auth-token"
+    sanitize_queries:
+      - "token"
+      - "key"
+      - "secret"
+      - "password"
+    sanitize_form_fields:
+      - "password"
+      - "secret"
+      - "token"
+    
+    # Request filtering
+    exclude_paths:
+      - "/health"
+      - "/metrics"
+      - "/favicon.ico"
+    exclude_user_agents:
+      - "HealthChecker/1.0"
+    exclude_status_codes:
+      - 200
+      - 204
+      - 304
+    
+    # Performance settings
+    log_slow_requests: true
+    slow_request_threshold: "1s"
+    
+    # Additional fields
+    include_client_ip: true
+    include_user_agent: true
+    include_referer: false
+    include_user_id: true
+    include_request_id: true
+    include_trace_id: true
+    
+    # Custom fields from headers
+    custom_fields:
+      tenant_id: "X-Tenant-ID"
+      api_version: "X-API-Version"
+
+  # Metrics middleware configuration
+  metrics:
+    enabled: true
+    priority: 20
+    name: "metrics"
+    
+    # Request metrics
+    enable_request_metrics: true
+    request_metric_name: "http_requests_total"
+    
+    # Response metrics
+    enable_response_metrics: true
+    response_size_metric_name: "http_response_size_bytes"
+    
+    # Duration metrics
+    enable_duration_metrics: true
+    duration_metric_name: "http_request_duration_seconds"
+    
+    # Active requests gauge
+    enable_active_requests: true
+    active_requests_metric_name: "http_requests_active"
+    
+    # Custom metrics
+    custom_counters:
+      - name: "http_errors_total"
+        help: "Total HTTP errors"
+        labels: ["method", "status"]
+        value_from: "constant"
+        condition: "error"
+      - name: "auth_failures_total"
+        help: "Total authentication failures"
+        labels: ["method", "path"]
+        value_from: "constant"
+        condition: "client_error"
+    
+    custom_histograms:
+      - name: "response_size_by_endpoint"
+        help: "Response size distribution by endpoint"
+        labels: ["method", "path"]
+        value_from: "response_size"
+        condition: ""
+    
+    custom_gauges:
+      - name: "last_request_timestamp"
+        help: "Timestamp of last request"
+        labels: ["endpoint"]
+        value_from: "constant"
+        condition: ""
+    
+    # Label configuration
+    include_method: true
+    include_status: true
+    include_path: true
+    include_user_agent: false
+    include_user_id: true
+    custom_labels:
+      - "X-API-Version"
+      - "X-Client-Version"
+    
+    # Path normalization
+    normalize_paths: true
+    path_replacements:
+      "/api/v1": "/api/{version}"
+      "/api/v2": "/api/{version}"
+    
+    # Filtering
+    exclude_paths:
+      - "/health"
+      - "/metrics"
+      - "/favicon.ico"
+    exclude_status_codes: []
+    exclude_user_agents:
+      - "HealthChecker/1.0"
+    
+    # Performance
+    sample_rate: 1.0  # 100% sampling
+
+# Environment-specific overrides
+development:
+  middleware:
+    cors:
+      allowed_origins: ["*"]
+      debug: true
+      strict: false
+    auth:
+      secure_error_mode: false
+    logging:
+      level: "debug"
+      include_request_body: true
+      include_response_body: true
+      exclude_status_codes: []
+
+production:
+  middleware:
+    cors:
+      debug: false
+      strict: true
+    auth:
+      secure_error_mode: true
+    rate_limit:
+      requests_per_minute: 500  # More restrictive in production
+    logging:
+      level: "info"
+      include_request_body: false
+      include_response_body: false
+    metrics:
+      sample_rate: 0.1  # 10% sampling in production

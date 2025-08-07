@@ -29,7 +29,7 @@ func TestPingEndpoint(t *testing.T) {
 	transportConfig.BaseURL = server.URL
 	transport, err := NewSSETransport(transportConfig)
 	require.NoError(t, err)
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	// Test ping functionality
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -46,7 +46,7 @@ func TestPingTimeout(t *testing.T) {
 	transportConfig.WriteTimeout = 1 * time.Second
 	transport, err := NewSSETransport(transportConfig)
 	require.NoError(t, err)
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	// Test ping with short timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)

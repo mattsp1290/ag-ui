@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+	pkgerrors "github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 // ConnectionPoolConfig contains configuration for connection pooling
@@ -270,7 +271,7 @@ func NewConnectionPool(config *ConnectionPoolConfig, factory ConnectionFactory) 
 	// Pre-create initial connections
 	if err := pool.initialize(); err != nil {
 		pool.Close()
-		return nil, fmt.Errorf("failed to initialize pool: %w", err)
+		return nil, pkgerrors.WithOperation("initialize", "connection_pool", err)
 	}
 	
 	// Start background workers
@@ -285,7 +286,7 @@ func NewConnectionPool(config *ConnectionPoolConfig, factory ConnectionFactory) 
 func (p *ConnectionPool) initialize() error {
 	for i := 0; i < p.config.InitialSize; i++ {
 		if err := p.createConnection(); err != nil {
-			return fmt.Errorf("failed to create initial connection %d: %w", i, err)
+			return pkgerrors.WithOperation("create_initial_connection", fmt.Sprintf("connection_%d", i), err)
 		}
 	}
 	return nil
@@ -353,7 +354,7 @@ func (p *ConnectionPool) Acquire(ctx context.Context) (*PooledConnection, error)
 		p.stats.mutex.Lock()
 		p.stats.AcquireTimeouts++
 		p.stats.mutex.Unlock()
-		return nil, fmt.Errorf("timeout acquiring connection: %w", acquireCtx.Err())
+		return nil, pkgerrors.WithOperation("acquire", "connection", acquireCtx.Err()).(*pkgerrors.OperationError).WithCode("ACQUIRE_TIMEOUT")
 	}
 }
 

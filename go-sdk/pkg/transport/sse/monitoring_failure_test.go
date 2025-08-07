@@ -10,6 +10,7 @@ import (
 	"time"
 )
 
+
 // TestSSEMonitoringFailureScenarios tests comprehensive failure scenarios for SSE monitoring
 func TestSSEMonitoringFailureScenarios(t *testing.T) {
 	t.Run("connection_failure_scenarios", func(t *testing.T) {
@@ -479,7 +480,7 @@ func testConcurrentConnectionFailures(t *testing.T) {
 
 	var wg sync.WaitGroup
 	errorChan := make(chan error, 100)
-	connectionCount := 50
+	connectionCount := getTestConcurrency(50)
 
 	// Simulate many concurrent connections with various failure modes
 	for i := 0; i < connectionCount; i++ {

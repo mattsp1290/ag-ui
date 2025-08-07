@@ -274,8 +274,11 @@ func (pe *PipelineExecutor) executeValidatorsSequential(ctx context.Context, pip
 
 // executeValidator executes a single validator
 func (pe *PipelineExecutor) executeValidator(ctx context.Context, validator Validator, pipelineCtx *PipelineContext) (*OrchestrationValidationResult, error) {
-	// Create validation context
+	// Create validation context with thread-safe access to shared maps
 	eventData := make(map[string]interface{})
+	
+	// Use pipeline context mutex to safely access shared properties
+	pipelineCtx.mu.RLock()
 	if pipelineCtx.ValidationCtx.Properties != nil {
 		for k, v := range pipelineCtx.ValidationCtx.Properties {
 			eventData[k] = v
@@ -285,6 +288,7 @@ func (pe *PipelineExecutor) executeValidator(ctx context.Context, validator Vali
 	if pipelineCtx.ValidationCtx.EventType != "" {
 		eventData["event_type"] = pipelineCtx.ValidationCtx.EventType
 	}
+	pipelineCtx.mu.RUnlock()
 	
 	valCtx := &OrchestrationValidationContext{
 		EventData:   eventData,

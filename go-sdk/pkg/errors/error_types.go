@@ -721,3 +721,69 @@ func (e *AgentError) WithEventID(eventID string) *AgentError {
 	e.EventID = eventID
 	return e
 }
+
+// OperationError represents errors that occur during specific operations with context preservation
+type OperationError struct {
+	Op       string    // Operation that failed
+	Target   string    // What was being operated on
+	Err      error     // Underlying error
+	Code     string    // Error code for programmatic handling
+	Time     time.Time // When the error occurred
+	Details  map[string]interface{} // Additional context
+}
+
+// NewOperationError creates a new OperationError
+func NewOperationError(op, target string, err error) *OperationError {
+	return &OperationError{
+		Op:      op,
+		Target:  target,
+		Err:     err,
+		Time:    time.Now(),
+		Details: make(map[string]interface{}),
+	}
+}
+
+// Error implements the error interface
+func (e *OperationError) Error() string {
+	return fmt.Sprintf("operation %s on %s failed: %v", e.Op, e.Target, e.Err)
+}
+
+// Unwrap returns the underlying error
+func (e *OperationError) Unwrap() error {
+	return e.Err
+}
+
+// WithCode sets the error code for programmatic handling
+func (e *OperationError) WithCode(code string) *OperationError {
+	e.Code = code
+	return e
+}
+
+// WithDetail adds additional context to the error
+func (e *OperationError) WithDetail(key string, value interface{}) *OperationError {
+	if e.Details == nil {
+		e.Details = make(map[string]interface{})
+	}
+	e.Details[key] = value
+	return e
+}
+
+// WithCause sets the underlying cause of the error
+func (e *OperationError) WithCause(cause error) *OperationError {
+	e.Err = cause
+	return e
+}
+
+// String returns a string representation of the error for debugging
+func (e *OperationError) String() string {
+	details := ""
+	if len(e.Details) > 0 {
+		details = fmt.Sprintf(" (details: %v)", e.Details)
+	}
+	codeStr := ""
+	if e.Code != "" {
+		codeStr = fmt.Sprintf(" [%s]", e.Code)
+	}
+	return fmt.Sprintf("OperationError{Op:%s, Target:%s, Code:%s, Time:%s}%s%s: %v", 
+		e.Op, e.Target, e.Code, e.Time.Format(time.RFC3339), codeStr, details, e.Err)
+}

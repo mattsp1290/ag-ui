@@ -22,8 +22,8 @@ func WrapWithContextf(err error, format string, args ...interface{}) error {
 	return fmt.Errorf("%s: %w", fmt.Sprintf(format, args...), err)
 }
 
-// NewOperationError creates a standardized error for failed operations
-func NewOperationError(operation, component string, cause error) *BaseError {
+// NewOperationErrorFromBase creates a standardized error for failed operations using BaseError
+func NewOperationErrorFromBase(operation, component string, cause error) *BaseError {
 	return &BaseError{
 		Code:      "OPERATION_FAILED",
 		Message:   fmt.Sprintf("%s failed for %s", operation, component),
@@ -313,4 +313,40 @@ func (h *ErrorHelpers) CreateResourceNotFoundMessage(resourceType, resourceID st
 // CreateUnsupportedOperationMessage creates a standardized unsupported operation message
 func (h *ErrorHelpers) CreateUnsupportedOperationMessage(operation, component, reason string) string {
 	return fmt.Sprintf("operation %s is not supported by %s: %s", operation, component, reason)
+}
+
+// NewResourceLimitError creates a resource limit error
+func NewResourceLimitError(message string, cause error) *BaseError {
+	return &BaseError{
+		Code:      "RESOURCE_LIMIT_EXCEEDED",
+		Message:   message,
+		Severity:  SeverityError,
+		Timestamp: time.Now(),
+		Cause:     cause,
+		Details:   make(map[string]interface{}),
+	}
+}
+
+// NewNotFoundError creates a not found error
+func NewNotFoundError(message string, cause error) *BaseError {
+	return &BaseError{
+		Code:      "NOT_FOUND",
+		Message:   message,
+		Severity:  SeverityWarning,
+		Timestamp: time.Now(),
+		Cause:     cause,
+		Details:   make(map[string]interface{}),
+	}
+}
+
+// NewConfigurationError creates a configuration error
+func NewConfigurationError(message string, cause error) *BaseError {
+	return &BaseError{
+		Code:      "CONFIGURATION_ERROR",
+		Message:   message,
+		Severity:  SeverityError,
+		Timestamp: time.Now(),
+		Cause:     cause,
+		Details:   make(map[string]interface{}),
+	}
 }

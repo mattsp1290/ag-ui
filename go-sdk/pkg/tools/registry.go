@@ -699,19 +699,21 @@ func (r *Registry) Get(toolID string) (*Tool, error) {
 	}
 
 	r.mu.RLock()
-	defer r.mu.RUnlock()
 
 	if r.tools == nil {
+		r.mu.RUnlock()
 		return nil, NewToolError(ErrorTypeInternal, "TOOLS_MAP_NIL", "tools map is nil")
 	}
 
 	entry, exists := r.tools[toolID]
 	if !exists {
+		r.mu.RUnlock()
 		return nil, NewToolError(ErrorTypeValidation, "TOOL_NOT_FOUND", "tool not found").
 			WithToolID(toolID)
 	}
 
 	if entry == nil || entry.tool == nil {
+		r.mu.RUnlock()
 		return nil, NewToolError(ErrorTypeInternal, "TOOL_NIL", "stored tool is nil").
 			WithToolID(toolID)
 	}
@@ -719,16 +721,25 @@ func (r *Registry) Get(toolID string) (*Tool, error) {
 	// Update access tracking
 	entry.lastAccess = time.Now()
 	atomic.AddInt64(&entry.accessCount, 1)
-
-	// Update LRU position if enabled
+	
+	// Clone the tool while holding read lock
+	clonedTool := entry.tool.Clone()
+	
+	// Update LRU position if enabled - requires write lock
 	if r.config.EnableToolLRU {
+		// Upgrade to write lock for LRU modification
+		r.mu.RUnlock()
+		r.mu.Lock()
 		if elem, found := r.toolsIndex[toolID]; found {
 			r.toolsLRU.MoveToFront(elem)
 		}
+		r.mu.Unlock()
+	} else {
+		r.mu.RUnlock()
 	}
 
-	// Return a clone to prevent external modifications
-	return entry.tool.Clone(), nil
+	// Return the cloned tool
+	return clonedTool, nil
 }
 
 // GetReadOnly retrieves a read-only view of a tool by its ID.

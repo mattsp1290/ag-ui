@@ -1,6 +1,7 @@
 package registry_test
 
 import (
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -116,10 +117,10 @@ func TestLifecycleManager(t *testing.T) {
 		t.Fatal("Lifecycle manager should not be closed initially")
 	}
 
-	// Test background cleanup
-	cleanupCalled := false
+	// Test background cleanup (using atomic for thread safety)
+	var cleanupCalled int64
 	cleanupCallback := func() {
-		cleanupCalled = true
+		atomic.StoreInt64(&cleanupCalled, 1)
 	}
 
 	lm.StartBackgroundCleanup(cleanupCallback)
@@ -127,7 +128,7 @@ func TestLifecycleManager(t *testing.T) {
 	// Wait for cleanup to be called
 	time.Sleep(100 * time.Millisecond)
 
-	if !cleanupCalled {
+	if atomic.LoadInt64(&cleanupCalled) == 0 {
 		t.Fatal("Cleanup callback should have been called")
 	}
 

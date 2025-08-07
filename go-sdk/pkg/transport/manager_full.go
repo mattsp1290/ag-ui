@@ -9,6 +9,7 @@ import (
 	"time"
 	
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
 // ManagerConfig represents simplified transport configuration
@@ -280,7 +281,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 				m.logger.Error("Failed to close active transport", 
 					String("operation", "stop"),
 					Err(err))
-				return fmt.Errorf("failed to close active transport: %w", err)
+				return errors.WithOperation("stop", "active_transport", err)
 			}
 		} else {
 			m.logger.Debug("Active transport closed successfully", 
@@ -546,6 +547,12 @@ func (m *Manager) receiveEvents(transport Transport) {
 
 	eventCh, errorCh := transport.Channels()
 	for {
+		// Get current context and stopChan under lock to avoid race conditions
+		m.mu.RLock()
+		stopChan := m.stopChan
+		ctx := m.ctx
+		m.mu.RUnlock()
+		
 		select {
 		case event := <-eventCh:
 			m.logger.Debug("Received event from transport", 
@@ -612,11 +619,11 @@ func (m *Manager) receiveEvents(transport Transport) {
 				m.logger.Debug("Error forwarded to error channel", 
 					String("operation", "receive_events"))
 			}
-		case <-m.stopChan:
+		case <-stopChan:
 			m.logger.Debug("Stop signal received", 
 				String("operation", "receive_events"))
 			return
-		case <-m.ctx.Done():
+		case <-ctx.Done():
 			m.logger.Debug("Manager context cancelled", 
 				String("operation", "receive_events"))
 			return

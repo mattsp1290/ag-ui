@@ -130,12 +130,12 @@ func NewMockDistributedCache() *MockDistributedCache {
 }
 
 func (m *MockDistributedCache) Get(ctx context.Context, key string) ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	
 	if m.error {
 		return nil, eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
-	
-	m.mu.RLock()
-	defer m.mu.RUnlock()
 	
 	// Check TTL
 	if expires, exists := m.ttls[key]; exists && time.Now().After(expires) {
@@ -151,12 +151,12 @@ func (m *MockDistributedCache) Get(ctx context.Context, key string) ([]byte, err
 }
 
 func (m *MockDistributedCache) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
 	if m.error {
 		return eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
-	
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	
 	m.data[key] = value
 	m.ttls[key] = time.Now().Add(ttl)
@@ -164,12 +164,12 @@ func (m *MockDistributedCache) Set(ctx context.Context, key string, value []byte
 }
 
 func (m *MockDistributedCache) Delete(ctx context.Context, key string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	
 	if m.error {
 		return eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
-	
-	m.mu.Lock()
-	defer m.mu.Unlock()
 	
 	delete(m.data, key)
 	delete(m.ttls, key)
@@ -177,24 +177,24 @@ func (m *MockDistributedCache) Delete(ctx context.Context, key string) error {
 }
 
 func (m *MockDistributedCache) Exists(ctx context.Context, key string) (bool, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	
 	if m.error {
 		return false, eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
-	
-	m.mu.RLock()
-	defer m.mu.RUnlock()
 	
 	_, exists := m.data[key]
 	return exists, nil
 }
 
 func (m *MockDistributedCache) TTL(ctx context.Context, key string) (time.Duration, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	
 	if m.error {
 		return 0, eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
-	
-	m.mu.RLock()
-	defer m.mu.RUnlock()
 	
 	expires, exists := m.ttls[key]
 	if !exists {
@@ -205,12 +205,12 @@ func (m *MockDistributedCache) TTL(ctx context.Context, key string) (time.Durati
 }
 
 func (m *MockDistributedCache) Scan(ctx context.Context, pattern string) ([]string, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	
 	if m.error {
 		return nil, eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
-	
-	m.mu.RLock()
-	defer m.mu.RUnlock()
 	
 	keys := make([]string, 0)
 	for key := range m.data {

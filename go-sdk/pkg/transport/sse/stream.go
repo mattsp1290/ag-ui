@@ -383,7 +383,11 @@ func (s *EventStream) SendEvent(event events.Event) error {
 	case s.eventChan <- event:
 		if s.metrics != nil {
 			atomic.AddUint64(&s.metrics.TotalEvents, 1)
+			
+			// Update time fields under mutex
+			s.metrics.mu.Lock()
 			s.metrics.LastEventTime = time.Now()
+			s.metrics.mu.Unlock()
 		}
 		return nil
 	case <-s.ctx.Done():
@@ -417,26 +421,26 @@ func (s *EventStream) GetMetrics() *StreamMetrics {
 	s.metrics.mu.RLock()
 	defer s.metrics.mu.RUnlock()
 
-	// Create a copy to avoid data races, excluding the mutex
+	// Create a copy to avoid data races, using atomic operations for atomically updated fields
 	metrics := StreamMetrics{
-		TotalEvents:         s.metrics.TotalEvents,
+		TotalEvents:         atomic.LoadUint64(&s.metrics.TotalEvents),
 		EventsPerSecond:     s.metrics.EventsPerSecond,
-		EventsProcessed:     s.metrics.EventsProcessed,
-		EventsDropped:       s.metrics.EventsDropped,
-		EventsCompressed:    s.metrics.EventsCompressed,
-		TotalBatches:        s.metrics.TotalBatches,
+		EventsProcessed:     atomic.LoadUint64(&s.metrics.EventsProcessed),
+		EventsDropped:       atomic.LoadUint64(&s.metrics.EventsDropped),
+		EventsCompressed:    atomic.LoadUint64(&s.metrics.EventsCompressed),
+		TotalBatches:        atomic.LoadUint64(&s.metrics.TotalBatches),
 		AverageBatchSize:    s.metrics.AverageBatchSize,
-		BatchProcessingTime: s.metrics.BatchProcessingTime,
+		BatchProcessingTime: atomic.LoadInt64(&s.metrics.BatchProcessingTime),
 		CompressionRatio:    s.metrics.CompressionRatio,
-		CompressionTime:     s.metrics.CompressionTime,
-		BytesSaved:          s.metrics.BytesSaved,
-		AverageLatency:      s.metrics.AverageLatency,
-		MaxLatency:          s.metrics.MaxLatency,
-		ThroughputBps:       s.metrics.ThroughputBps,
-		MemoryUsage:         s.metrics.MemoryUsage,
-		ProcessingErrors:    s.metrics.ProcessingErrors,
-		CompressionErrors:   s.metrics.CompressionErrors,
-		SequencingErrors:    s.metrics.SequencingErrors,
+		CompressionTime:     atomic.LoadInt64(&s.metrics.CompressionTime),
+		BytesSaved:          atomic.LoadUint64(&s.metrics.BytesSaved),
+		AverageLatency:      atomic.LoadInt64(&s.metrics.AverageLatency),
+		MaxLatency:          atomic.LoadInt64(&s.metrics.MaxLatency),
+		ThroughputBps:       atomic.LoadUint64(&s.metrics.ThroughputBps),
+		MemoryUsage:         atomic.LoadUint64(&s.metrics.MemoryUsage),
+		ProcessingErrors:    atomic.LoadUint64(&s.metrics.ProcessingErrors),
+		CompressionErrors:   atomic.LoadUint64(&s.metrics.CompressionErrors),
+		SequencingErrors:    atomic.LoadUint64(&s.metrics.SequencingErrors),
 		StartTime:           s.metrics.StartTime,
 		LastEventTime:       s.metrics.LastEventTime,
 	}
@@ -669,6 +673,11 @@ func (s *EventStream) processEventDirect(event events.Event, seqEvent *Sequenced
 
 // addToBatch adds an event to the current batch
 func (s *EventStream) addToBatch(event events.Event) error {
+	// Check if stream is closed
+	if s.isClosed() {
+		return fmt.Errorf("stream is closed")
+	}
+
 	// This would typically involve accumulating events in a batch
 	// For now, create a single-event batch
 	batch := &EventBatch{
@@ -676,6 +685,15 @@ func (s *EventStream) addToBatch(event events.Event) error {
 		Timestamp: time.Now(),
 		BatchID:   fmt.Sprintf("batch-%d", time.Now().UnixNano()),
 		Size:      1,
+	}
+
+	// Acquire read lock to safely access batchChan during the entire operation
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	
+	// Check again if closed after acquiring lock
+	if s.isClosed() || s.batchChan == nil {
+		return fmt.Errorf("stream is closed")
 	}
 
 	select {

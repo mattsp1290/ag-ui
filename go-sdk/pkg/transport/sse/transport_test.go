@@ -102,7 +102,7 @@ func TestSSETransport_Send(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create transport: %v", err)
 	}
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	// Create a test event
 	event := events.NewRunStartedEvent("thread-123", "run-123")
@@ -127,7 +127,7 @@ func TestSSETransport_Send_ValidationError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create transport: %v", err)
 	}
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	// Create test helper for consistent timeout handling
 	helper := common.NewTestHelper(t)
@@ -155,7 +155,7 @@ func TestSSETransport_ParseEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create transport: %v", err)
 	}
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	tests := []struct {
 		name      string
@@ -323,7 +323,7 @@ func TestSSETransport_Receive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create transport: %v", err)
 	}
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	// Create test helper for consistent timeout handling
 	helper := common.NewTestHelper(t)
@@ -388,7 +388,7 @@ func TestSSETransport_ConnectionManagement(t *testing.T) {
 	}
 
 	// Test closing
-	err = transport.Close()
+	err = transport.Close(context.Background())
 	if err != nil {
 		t.Errorf("Failed to close transport: %v", err)
 	}
@@ -418,7 +418,7 @@ func TestSSETransport_SetHeader(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create transport: %v", err)
 	}
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	// Set custom headers
 	transport.SetHeader("Authorization", "Bearer token123")
@@ -445,7 +445,7 @@ func BenchmarkSSETransport_CreateEventFromData(b *testing.B) {
 	if err != nil {
 		b.Fatalf("Failed to create transport: %v", err)
 	}
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	data := map[string]interface{}{
 		"threadId":  "thread-123",
@@ -482,7 +482,7 @@ func TestSSETransport_ErrorHandling(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create transport: %v", err)
 	}
-	defer transport.Close()
+	defer transport.Close(context.Background())
 
 	// Create test helper for consistent timeout handling
 	helper := common.NewTestHelper(t)

@@ -186,12 +186,19 @@ func (gm *GoroutineManager) StopWithTimeout(timeout time.Duration) {
 		// Goroutine stopped gracefully
 		log.Printf("Goroutine %s stopped gracefully", gm.name)
 	case <-time.After(timeout):
-		// Timeout occurred
-		log.Printf("Warning: Goroutine %s did not stop within timeout %v", gm.name, timeout)
-		// Force mark as not running even on timeout to prevent further waits
+		// Timeout occurred - we need to force stop and wait
+		log.Printf("Warning: Goroutine %s did not stop within timeout %v, forcing stop", gm.name, timeout)
+		
+		// Force mark as not running to prevent further waits
 		gm.mu.Lock()
 		gm.isRunning = false
 		gm.mu.Unlock()
+		
+		// Still wait for the goroutine to actually finish to prevent leaks
+		// This ensures the WaitGroup is properly decremented
+		log.Printf("Forcing wait for goroutine %s to complete", gm.name)
+		<-done
+		log.Printf("Goroutine %s finally stopped after forced wait", gm.name)
 	}
 }
 
@@ -493,7 +500,7 @@ type DistributedValidator struct {
 	metrics          *DistributedMetrics
 	
 	// Lifecycle
-	running          bool
+	running          int32 // Use atomic operations for thread-safe access
 	runningMutex     sync.RWMutex
 	stopOnce         sync.Once
 	
@@ -579,7 +586,7 @@ func (dv *DistributedValidator) Start(ctx context.Context) error {
 	dv.runningMutex.Lock()
 	defer dv.runningMutex.Unlock()
 
-	if dv.running {
+	if atomic.LoadInt32(&dv.running) == 1 {
 		return fmt.Errorf("distributed validator already running")
 	}
 
@@ -608,7 +615,7 @@ func (dv *DistributedValidator) Start(ctx context.Context) error {
 	dv.metricsManager.Start(ctx, dv.metricsRoutine)
 	dv.consensusManager.Start(ctx, dv.consensusRoutine)
 
-	dv.running = true
+	atomic.StoreInt32(&dv.running, 1)
 	return nil
 }
 
@@ -617,7 +624,7 @@ func (dv *DistributedValidator) Stop() error {
 	dv.runningMutex.Lock()
 	defer dv.runningMutex.Unlock()
 
-	if !dv.running {
+	if atomic.LoadInt32(&dv.running) == 0 {
 		return nil
 	}
 
@@ -710,7 +717,7 @@ func (dv *DistributedValidator) Stop() error {
 		dv.cleanupMutex.Unlock()
 
 		// Mark as stopped
-		dv.running = false
+		atomic.StoreInt32(&dv.running, 0)
 	})
 
 	if len(errs) > 0 {

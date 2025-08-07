@@ -336,6 +336,14 @@ func (t *HTTPTransport) Start(ctx context.Context) error {
 
 // Stop stops the HTTP transport
 func (t *HTTPTransport) Stop() error {
+	// Use a default timeout context for backward compatibility
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	return t.StopWithContext(ctx)
+}
+
+// StopWithContext stops the HTTP transport with context support
+func (t *HTTPTransport) StopWithContext(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
@@ -343,9 +351,18 @@ func (t *HTTPTransport) Stop() error {
 		return nil
 	}
 
-	// Wait for active requests to complete
+	// Wait for active requests to complete with timeout
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	
 	for atomic.LoadInt64(&t.activeRequests) > 0 {
-		time.Sleep(10 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			t.connected = false // Force disconnection even if requests are active
+			return ctx.Err()
+		case <-ticker.C:
+			// Continue waiting
+		}
 	}
 
 	t.connected = false

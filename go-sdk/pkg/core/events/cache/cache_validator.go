@@ -525,7 +525,7 @@ func (cv *CacheValidator) GetStats() CacheStats {
 	
 	stats := cv.stats
 	stats.TotalHits = stats.L1Hits + stats.L2Hits
-	stats.TotalMisses = cv.stats.L1Misses
+	stats.TotalMisses = stats.L1Misses + stats.L2Misses
 	
 	if stats.TotalHits > 0 {
 		hitRate := float64(stats.TotalHits) / float64(stats.TotalHits + stats.TotalMisses)
@@ -557,10 +557,16 @@ func (cv *CacheValidator) Shutdown(ctx context.Context) error {
 // Private methods
 
 func (cv *CacheValidator) generateCacheKey(event events.Event) (*ValidationCacheKey, error) {
-	// Serialize event for hashing
-	data, err := json.Marshal(event)
+	// Create a normalized version of the event without timestamp fields for caching
+	normalizedEvent, err := cv.normalizeEventForCache(event)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal event: %w", err)
+		return nil, fmt.Errorf("failed to normalize event for cache: %w", err)
+	}
+	
+	// Serialize normalized event for hashing
+	data, err := json.Marshal(normalizedEvent)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal normalized event: %w", err)
 	}
 	
 	// Generate hash
@@ -583,16 +589,43 @@ func (cv *CacheValidator) generateCacheKey(event events.Event) (*ValidationCache
 
 func (cv *CacheValidator) getFromL1(key *ValidationCacheKey) (*ValidationCacheEntry, bool) {
 	cv.mu.RLock()
-	defer cv.mu.RUnlock()
 	
 	keyStr := cv.cacheKeyToString(key)
 	entry, ok := cv.l1Cache.Get(keyStr)
 	if !ok {
+		cv.mu.RUnlock()
 		return nil, false
 	}
 	
 	// Check expiration
-	if time.Now().After(entry.ExpiresAt) {
+	now := time.Now()
+	if now.After(entry.ExpiresAt) {
+		// Need to upgrade to write lock for cache removal
+		cv.mu.RUnlock()
+		cv.mu.Lock()
+		// Double-check after acquiring write lock
+		entry, ok := cv.l1Cache.Get(keyStr)
+		if ok && now.After(entry.ExpiresAt) {
+			cv.l1Cache.Remove(keyStr)
+			atomic.AddUint64(&cv.stats.Expirations, 1)
+		}
+		cv.mu.Unlock()
+		return nil, false
+	}
+	
+	// Upgrade to write lock to safely update time fields
+	cv.mu.RUnlock()
+	cv.mu.Lock()
+	defer cv.mu.Unlock()
+	
+	// Double-check entry still exists after lock upgrade
+	entry, ok = cv.l1Cache.Get(keyStr)
+	if !ok {
+		return nil, false
+	}
+	
+	// Check expiration again after re-acquiring the entry
+	if now.After(entry.ExpiresAt) {
 		cv.l1Cache.Remove(keyStr)
 		atomic.AddUint64(&cv.stats.Expirations, 1)
 		return nil, false
@@ -600,8 +633,8 @@ func (cv *CacheValidator) getFromL1(key *ValidationCacheKey) (*ValidationCacheEn
 	
 	// Update access stats and refresh TTL
 	atomic.AddUint64(&entry.AccessCount, 1)
-	entry.LastAccessedAt = time.Now()
-	entry.ExpiresAt = time.Now().Add(cv.l1TTL) // Refresh TTL on access
+	entry.LastAccessedAt = now
+	entry.ExpiresAt = now.Add(cv.l1TTL) // Refresh TTL on access
 	
 	return entry, true
 }
@@ -1078,6 +1111,31 @@ func (cv *CacheValidator) performSizeCleanup() {
 	if cv.l2Enabled {
 		cv.cleanupL2CacheSize()
 	}
+}
+
+// normalizeEventForCache creates a normalized version of an event for cache key generation
+// by removing timestamp fields and other non-semantic data that shouldn't affect caching
+func (cv *CacheValidator) normalizeEventForCache(event events.Event) (interface{}, error) {
+	// Marshal the event to JSON first
+	originalData, err := json.Marshal(event)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal original event: %w", err)
+	}
+	
+	// Unmarshal to a generic map
+	var eventMap map[string]interface{}
+	if err := json.Unmarshal(originalData, &eventMap); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal event to map: %w", err)
+	}
+	
+	// Remove timestamp field that makes events unique
+	delete(eventMap, "timestamp")
+	
+	// Remove other non-semantic fields that shouldn't affect validation caching
+	// These are fields that don't impact the validation logic but make events unique
+	delete(eventMap, "rawEvent") // rawEvent can contain timing/system specific data
+	
+	return eventMap, nil
 }
 
 // cleanupL2CacheSize performs size-based cleanup for L2 cache

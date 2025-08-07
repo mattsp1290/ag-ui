@@ -1,6 +1,7 @@
 package sse
 
 import (
+	"context"
 	"log"
 	"sync/atomic"
 	"time"
@@ -10,6 +11,11 @@ import (
 
 // handleErrorWithBackpressure handles errors with proper backpressure control
 func (t *SSETransport) handleErrorWithBackpressure(err error) {
+	// Check if transport is closed
+	if t.isClosed() {
+		return
+	}
+
 	select {
 	case t.errorChan <- err:
 		// Successfully sent error
@@ -24,6 +30,11 @@ func (t *SSETransport) handleErrorWithBackpressure(err error) {
 
 // handleEventWithBackpressure handles events with proper backpressure control
 func (t *SSETransport) handleEventWithBackpressure(event events.Event) {
+	// Check if transport is closed
+	if t.isClosed() {
+		return
+	}
+
 	// Check if backpressure threshold is reached
 	currentUsage := float64(len(t.eventChan)) / float64(cap(t.eventChan)) * 100
 	
@@ -46,7 +57,11 @@ func (t *SSETransport) handleEventWithBackpressure(event events.Event) {
 // handleDroppedError handles dropped errors due to channel backpressure
 func (t *SSETransport) handleDroppedError(err error) {
 	droppedCount := atomic.AddInt64(&t.droppedErrors, 1)
+	
+	// Protect time field with mutex
+	t.backpressureMutex.Lock()
 	t.lastDropTime = time.Now()
+	t.backpressureMutex.Unlock()
 	
 	if t.backpressureConfig.EnableBackpressureLogging {
 		log.Printf("SSE Transport: Dropped error due to backpressure (total dropped errors: %d): %v", droppedCount, err)
@@ -61,7 +76,11 @@ func (t *SSETransport) handleDroppedError(err error) {
 // handleDroppedEvent handles dropped events due to channel backpressure
 func (t *SSETransport) handleDroppedEvent(event events.Event) {
 	droppedCount := atomic.AddInt64(&t.droppedEvents, 1)
+	
+	// Protect time field with mutex
+	t.backpressureMutex.Lock()
 	t.lastDropTime = time.Now()
+	t.backpressureMutex.Unlock()
 	
 	if t.backpressureConfig.EnableBackpressureLogging {
 		log.Printf("SSE Transport: Dropped event due to backpressure (total dropped events: %d): %s", droppedCount, event.Type())
@@ -117,9 +136,11 @@ func (t *SSETransport) handleBackpressureAction(itemType string) {
 		
 	case DropActionStop:
 		log.Printf("SSE Transport: Maximum dropped %s reached (%d), stopping transport", itemType, t.backpressureConfig.MaxDroppedEvents)
-		if err := t.Close(); err != nil {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := t.Close(closeCtx); err != nil {
 			log.Printf("SSE Transport: Error during shutdown: %v", err)
 		}
+		cancel()
 	}
 }
 

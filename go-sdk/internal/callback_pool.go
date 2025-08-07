@@ -4,6 +4,7 @@ import (
 	"context"
 	"runtime"
 	"sync"
+	"sync/atomic"
 )
 
 // CallbackJob represents a job to be executed by the callback pool
@@ -19,7 +20,7 @@ type CallbackPool struct {
 	ctx        context.Context
 	cancel     context.CancelFunc
 	wg         sync.WaitGroup
-	started    bool
+	started    int32  // use atomic operations for thread-safe access
 	startOnce  sync.Once
 	stopOnce   sync.Once
 }
@@ -44,7 +45,7 @@ func NewCallbackPool(workers int) *CallbackPool {
 // Start initializes and starts the worker goroutines
 func (cp *CallbackPool) Start() {
 	cp.startOnce.Do(func() {
-		cp.started = true
+		atomic.StoreInt32(&cp.started, 1)
 		for i := 0; i < cp.workers; i++ {
 			cp.wg.Add(1)
 			go cp.worker()
@@ -90,7 +91,7 @@ func (cp *CallbackPool) Submit(fn func()) {
 	}
 
 	// Auto-start the pool if not already started
-	if !cp.started {
+	if atomic.LoadInt32(&cp.started) == 0 {
 		cp.Start()
 	}
 
@@ -140,5 +141,5 @@ func (cp *CallbackPool) QueueLength() int {
 
 // IsStarted returns true if the pool has been started
 func (cp *CallbackPool) IsStarted() bool {
-	return cp.started
+	return atomic.LoadInt32(&cp.started) == 1
 }

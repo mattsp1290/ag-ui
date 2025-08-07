@@ -191,7 +191,7 @@ func TestManagerStopErrors(t *testing.T) {
 		ctx := context.Background()
 		err := manager.Stop(ctx)
 		
-		if err == nil || err.Error() != "failed to close active transport: transport close failed" {
+		if err == nil || err.Error() != "operation stop on active_transport failed: transport close failed" {
 			t.Errorf("Expected transport close error, got %v", err)
 		}
 

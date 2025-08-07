@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -101,7 +102,7 @@ type ConsensusManager struct {
 	locksMutex  sync.RWMutex
 	
 	// Lifecycle
-	running     bool
+	running     int32 // Use atomic operations for thread-safe access
 	mutex       sync.RWMutex
 	stopChan    chan struct{}
 	stopOnce    sync.Once
@@ -163,7 +164,7 @@ func (cm *ConsensusManager) Start(ctx context.Context) error {
 	cm.mutex.Lock()
 	defer cm.mutex.Unlock()
 
-	if cm.running {
+	if atomic.LoadInt32(&cm.running) == 1 {
 		return fmt.Errorf("consensus manager already running")
 	}
 
@@ -179,7 +180,7 @@ func (cm *ConsensusManager) Start(ctx context.Context) error {
 		return fmt.Errorf("unknown consensus algorithm: %s", cm.config.Algorithm)
 	}
 
-	cm.running = true
+	atomic.StoreInt32(&cm.running, 1)
 	return nil
 }
 
@@ -188,7 +189,7 @@ func (cm *ConsensusManager) Stop() error {
 	cm.mutex.Lock()
 	defer cm.mutex.Unlock()
 
-	if !cm.running {
+	if atomic.LoadInt32(&cm.running) == 0 {
 		return nil
 	}
 
@@ -201,7 +202,7 @@ func (cm *ConsensusManager) Stop() error {
 	// The runRaft and runPBFT methods check stopChan and should exit cleanly
 	time.Sleep(50 * time.Millisecond)
 	
-	cm.running = false
+	atomic.StoreInt32(&cm.running, 0)
 	return nil
 }
 

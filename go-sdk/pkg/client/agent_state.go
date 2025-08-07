@@ -164,7 +164,7 @@ func NewAgentStateManager(config StateConfig) (*AgentStateManager, error) {
 	// Parse cache size
 	cacheSize, err := parseCacheSize(config.CacheSize)
 	if err != nil {
-		return nil, fmt.Errorf("invalid cache size: %w", err)
+		return nil, errors.WithOperation("parse", "cache_size", err)
 	}
 	
 	// Create state store
@@ -181,7 +181,7 @@ func NewAgentStateManager(config StateConfig) (*AgentStateManager, error) {
 	// Create conflict resolver
 	resolver, err := newConflictResolver(config.ConflictResolution)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create conflict resolver: %w", err)
+		return nil, errors.WithOperation("create", "conflict_resolver", err)
 	}
 	
 	manager := &AgentStateManager{
@@ -312,14 +312,14 @@ func (sm *AgentStateManager) UpdateState(ctx context.Context, delta interface{})
 	patch, err := sm.convertDeltaToPatch(delta)
 	if err != nil {
 		atomic.AddInt64(&sm.metrics.ErrorCount, 1)
-		return fmt.Errorf("failed to convert delta to patch: %w", err)
+		return errors.WithOperation("convert", "delta_to_patch", err)
 	}
 	
 	// Get current state for conflict detection
 	currentState, err := sm.GetState(ctx)
 	if err != nil {
 		atomic.AddInt64(&sm.metrics.ErrorCount, 1)
-		return fmt.Errorf("failed to get current state: %w", err)
+		return errors.WithOperation("get", "current_state", err)
 	}
 	
 	// Apply patch
@@ -331,7 +331,7 @@ func (sm *AgentStateManager) UpdateState(ctx context.Context, delta interface{})
 			return sm.handleConflict(ctx, currentState, delta, patch)
 		}
 		atomic.AddInt64(&sm.metrics.ErrorCount, 1)
-		return fmt.Errorf("failed to apply patch: %w", err)
+		return errors.WithOperation("apply", "state_patch", err)
 	}
 	
 	// Update cache
@@ -422,13 +422,13 @@ func (sm *AgentStateManager) RollbackToVersion(ctx context.Context, versionID st
 	// Create rollback patch
 	patch, err := sm.createRollbackPatch(version.Data)
 	if err != nil {
-		return fmt.Errorf("failed to create rollback patch: %w", err)
+		return errors.WithOperation("create", "rollback_patch", err)
 	}
 	
 	// Apply rollback
 	err = sm.store.ApplyPatch(patch)
 	if err != nil {
-		return fmt.Errorf("failed to apply rollback: %w", err)
+		return errors.WithOperation("apply", "rollback_patch", err)
 	}
 	
 	// Clear cache
@@ -527,7 +527,7 @@ func (sm *AgentStateManager) convertDeltaToPatch(delta interface{}) (state.JSONP
 	// This is a simplified implementation
 	deltaBytes, err := json.Marshal(delta)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal delta: %w", err)
+		return nil, errors.WithOperation("marshal", "delta_data", err)
 	}
 	
 	// Create a simple patch operation
@@ -546,13 +546,13 @@ func (sm *AgentStateManager) handleConflict(ctx context.Context, currentState, d
 	// Use conflict resolver to resolve the conflict
 	resolved, err := sm.resolver.ResolveConflict(currentState, delta, "/")
 	if err != nil {
-		return fmt.Errorf("conflict resolution failed: %w", err)
+		return errors.WithOperation("resolve", "state_conflict", err)
 	}
 	
 	// Apply resolved state
 	resolvedPatch, err := sm.convertDeltaToPatch(resolved)
 	if err != nil {
-		return fmt.Errorf("failed to create resolved patch: %w", err)
+		return errors.WithOperation("create", "resolved_patch", err)
 	}
 	
 	return sm.store.ApplyPatch(resolvedPatch)

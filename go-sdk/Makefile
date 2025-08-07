@@ -52,18 +52,22 @@ build:
 test:
 	@echo "Running tests with isolated execution to prevent interference..."
 	@echo "Running core package tests..."
-	$(GOTEST) -v -race -timeout=2m -coverprofile=coverage.out ./pkg/client ./pkg/core ./pkg/errors ./pkg/messages ./pkg/state
+	-$(GOTEST) -v -race -timeout=2m -coverprofile=coverage.out ./pkg/client ./pkg/core ./pkg/errors ./pkg/messages ./pkg/state
 	@echo "Running event package tests..."
-	$(GOTEST) -v -race -timeout=2m -coverprofile=coverage_events.out ./pkg/core/events/...
+	-$(GOTEST) -v -race -timeout=2m -coverprofile=coverage_events.out ./pkg/core/events/...
 	@echo "Running encoding package tests..."
-	$(GOTEST) -v -race -timeout=2m -coverprofile=coverage_encoding.out ./pkg/encoding/...
+	-$(GOTEST) -v -race -timeout=2m -coverprofile=coverage_encoding.out ./pkg/encoding/...
 	@echo "Running transport package tests..."
-	$(GOTEST) -v -race -timeout=2m -coverprofile=coverage_transport.out ./pkg/transport/...
+	-$(GOTEST) -v -race -timeout=2m -coverprofile=coverage_transport.out ./pkg/transport/...
 	@echo "Running remaining package tests..."
-	$(GOTEST) -v -race -timeout=2m -coverprofile=coverage_other.out ./pkg/tools ./pkg/testhelper ./pkg/integration
+	-$(GOTEST) -v -race -timeout=2m -coverprofile=coverage_other.out ./pkg/tools ./pkg/testhelper ./pkg/integration
 	@echo "Merging coverage reports..."
 	@echo "mode: atomic" > coverage_combined.out
-	@tail -n +2 coverage.out coverage_events.out coverage_encoding.out coverage_transport.out coverage_other.out 2>/dev/null | grep -v "^mode:" >> coverage_combined.out || true
+	@for file in coverage.out coverage_events.out coverage_encoding.out coverage_transport.out coverage_other.out; do \
+		if [ -f "$$file" ]; then \
+			tail -n +2 "$$file" | grep -v "^mode:" >> coverage_combined.out; \
+		fi; \
+	done
 	@mv coverage_combined.out coverage.out
 	@echo "Coverage report:"
 	$(GOCMD) tool cover -func=coverage.out

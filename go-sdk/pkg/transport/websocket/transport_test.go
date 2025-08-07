@@ -1357,7 +1357,7 @@ func TestTransportEdgeCases(t *testing.T) {
 		require.NoError(t, err)
 
 		// Close should be equivalent to Stop
-		err = transport.Close()
+		err = transport.Close(context.Background())
 		require.NoError(t, err)
 	})
 

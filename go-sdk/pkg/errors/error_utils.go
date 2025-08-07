@@ -670,8 +670,84 @@ func IsSecurityViolation(err error) bool {
 	return errors.Is(err, ErrSecurityViolation) || IsSecurityError(err)
 }
 
-// Common error codes for encoding system
+// WithOperation adds operation context to errors
+func WithOperation(op, target string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return NewOperationError(op, target, err)
+}
+
+// WithCode adds error code for programmatic handling
+func WithCode(code string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if opErr, ok := err.(*OperationError); ok {
+		return opErr.WithCode(code)
+	}
+	// Create a new OperationError if the existing error is not an OperationError
+	return NewOperationError("unknown", "unknown", err).WithCode(code)
+}
+
+// IsOperationError checks if an error is an OperationError
+func IsOperationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	var opErr *OperationError
+	return errors.As(err, &opErr)
+}
+
+// GetOperationContext extracts operation context from an OperationError
+func GetOperationContext(err error) (op, target string, ok bool) {
+	if err == nil {
+		return "", "", false
+	}
+	var opErr *OperationError
+	if errors.As(err, &opErr) {
+		return opErr.Op, opErr.Target, true
+	}
+	return "", "", false
+}
+
+// GetErrorCode extracts error code from an OperationError
+func GetErrorCode(err error) (code string, ok bool) {
+	if err == nil {
+		return "", false
+	}
+	var opErr *OperationError
+	if errors.As(err, &opErr) {
+		return opErr.Code, opErr.Code != ""
+	}
+	return "", false
+}
+
+// Common error codes for the system
 const (
+	// Connection error codes
+	CodeConnectionFailed    = "CONNECTION_FAILED"
+	CodeConnectionTimeout   = "CONNECTION_TIMEOUT"
+	CodeConnectionLost      = "CONNECTION_LOST"
+	
+	// Validation error codes
+	CodeValidationFailed    = "VALIDATION_FAILED"
+	CodeInvalidTimeout      = "INVALID_TIMEOUT"
+	CodeMissingEvent        = "MISSING_EVENT"
+	CodeMissingEventType    = "MISSING_EVENT_TYPE"
+	CodeNegativeTimestamp   = "NEGATIVE_TIMESTAMP"
+	CodeIDTooLong          = "ID_TOO_LONG"
+	
+	// Resource error codes
+	CodeResourceNotFound    = "RESOURCE_NOT_FOUND"
+	CodeResourceLimitExceeded = "RESOURCE_LIMIT_EXCEEDED"
+	CodeResourceAllocationFailed = "RESOURCE_ALLOCATION_FAILED"
+	
+	// Operation error codes
+	CodeOperationFailed     = "OPERATION_FAILED"
+	CodeOperationTimeout    = "OPERATION_TIMEOUT"
+	CodeOperationCancelled  = "OPERATION_CANCELLED"
+	
 	// Registry error codes
 	CodeFormatNotRegistered = "FORMAT_NOT_REGISTERED"
 	CodeInvalidMimeType     = "INVALID_MIME_TYPE"
@@ -701,13 +777,6 @@ const (
 	CodeEntityExpansion     = "ENTITY_EXPANSION"
 	CodeZipBomb             = "ZIP_BOMB"
 	CodeExcessiveRepetition = "EXCESSIVE_REPETITION"
-	
-	// Validation error codes
-	CodeValidationFailed    = "VALIDATION_FAILED"
-	CodeMissingEvent        = "MISSING_EVENT"
-	CodeMissingEventType    = "MISSING_EVENT_TYPE"
-	CodeNegativeTimestamp   = "NEGATIVE_TIMESTAMP"
-	CodeIDTooLong          = "ID_TOO_LONG"
 	
 	// Negotiation error codes
 	CodeNegotiationFailed   = "NEGOTIATION_FAILED"

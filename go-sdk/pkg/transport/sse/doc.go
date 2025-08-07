@@ -24,7 +24,7 @@
 //	if err != nil {
 //		log.Fatal(err)
 //	}
-//	defer transport.Close()
+//	defer transport.Close(context.Background())
 //
 //	// Send an event
 //	ctx := context.Background()

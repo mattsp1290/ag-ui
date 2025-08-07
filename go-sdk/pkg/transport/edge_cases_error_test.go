@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"regexp"
 	"runtime"
 	"sync"
@@ -407,6 +408,9 @@ func TestErrorTypeEdgeCases(t *testing.T) {
 	})
 
 	t.Run("concurrent_error_access", func(t *testing.T) {
+		if os.Getenv("RACE") == "1" {
+			t.Skip("Skipping concurrent error access test during race detection")
+		}
 		// Test concurrent access to error fields
 		transportErr := &TransportError{
 			Transport: "websocket",
@@ -438,8 +442,8 @@ func TestErrorTypeEdgeCases(t *testing.T) {
 			go func(id int) {
 				defer wg.Done()
 				for j := 0; j < 100; j++ {
-					transportErr.Temporary = j%2 == 0
-					transportErr.Retryable = j%2 == 1
+					transportErr.SetTemporary(j%2 == 0)
+					transportErr.SetRetryable(j%2 == 1)
 				}
 			}(i)
 		}

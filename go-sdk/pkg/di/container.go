@@ -74,7 +74,7 @@ func NewContainer() *Container {
 func (c *Container) Register(name string, factory Factory, lifecycle Lifecycle) *ServiceDefinition {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	definition := &ServiceDefinition{
 		Name:         name,
 		Factory:      factory,
@@ -84,7 +84,7 @@ func (c *Container) Register(name string, factory Factory, lifecycle Lifecycle) 
 		Tags:         make([]string, 0),
 		Lazy:         false,
 	}
-	
+
 	c.services[name] = definition
 	return definition
 }
@@ -108,7 +108,7 @@ func (c *Container) RegisterScoped(name string, factory Factory) *ServiceDefinit
 func (c *Container) RegisterInstance(name string, instance interface{}) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	c.singletons[name] = instance
 	c.services[name] = &ServiceDefinition{
 		Name:      name,
@@ -154,19 +154,19 @@ func (c *Container) GetTyped(ctx context.Context, name string, target interface{
 	if err != nil {
 		return err
 	}
-	
+
 	// Use reflection to set the target
 	targetValue := reflect.ValueOf(target)
 	if targetValue.Kind() != reflect.Ptr {
 		return fmt.Errorf("target must be a pointer")
 	}
-	
+
 	serviceValue := reflect.ValueOf(service)
 	if !serviceValue.Type().AssignableTo(targetValue.Elem().Type()) {
-		return fmt.Errorf("service %s of type %s is not assignable to %s", 
+		return fmt.Errorf("service %s of type %s is not assignable to %s",
 			name, serviceValue.Type(), targetValue.Elem().Type())
 	}
-	
+
 	targetValue.Elem().Set(serviceValue)
 	return nil
 }
@@ -175,7 +175,7 @@ func (c *Container) GetTyped(ctx context.Context, name string, target interface{
 func (c *Container) GetByInterface(ctx context.Context, interfaceType reflect.Type) ([]interface{}, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	var services []interface{}
 	for name, definition := range c.services {
 		for _, implementedInterface := range definition.Interfaces {
@@ -189,7 +189,7 @@ func (c *Container) GetByInterface(ctx context.Context, interfaceType reflect.Ty
 			}
 		}
 	}
-	
+
 	return services, nil
 }
 
@@ -197,7 +197,7 @@ func (c *Container) GetByInterface(ctx context.Context, interfaceType reflect.Ty
 func (c *Container) GetByTag(ctx context.Context, tag string) ([]interface{}, error) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	var services []interface{}
 	for name, definition := range c.services {
 		for _, serviceTag := range definition.Tags {
@@ -211,7 +211,7 @@ func (c *Container) GetByTag(ctx context.Context, tag string) ([]interface{}, er
 			}
 		}
 	}
-	
+
 	return services, nil
 }
 
@@ -223,14 +223,14 @@ func (c *Container) getService(ctx context.Context, name string, scope *Scope) (
 		c.mu.RUnlock()
 		return nil, fmt.Errorf("circular dependency detected for service: %s", name)
 	}
-	
+
 	definition, exists := c.services[name]
 	if !exists {
 		c.mu.RUnlock()
 		return nil, fmt.Errorf("service not found: %s", name)
 	}
 	c.mu.RUnlock()
-	
+
 	// Handle different lifecycles
 	switch definition.Lifecycle {
 	case LifecycleSingleton:
@@ -253,7 +253,7 @@ func (c *Container) getSingleton(ctx context.Context, name string, definition *S
 		return instance, nil
 	}
 	c.mu.RUnlock()
-	
+
 	// Use write lock to ensure only one goroutine creates the singleton
 	c.mu.Lock()
 	// Double-check pattern: check again if singleton was created while waiting for lock
@@ -261,28 +261,28 @@ func (c *Container) getSingleton(ctx context.Context, name string, definition *S
 		c.mu.Unlock()
 		return instance, nil
 	}
-	
+
 	// Mark as building before releasing lock to prevent recursive calls
 	c.building[name] = true
 	c.mu.Unlock()
-	
+
 	defer func() {
 		c.mu.Lock()
 		delete(c.building, name)
 		c.mu.Unlock()
 	}()
-	
+
 	// Create new singleton (without lock to prevent deadlock)
 	instance, err := c.createInstanceWithoutBuilding(ctx, name, definition, nil)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Store singleton with write lock
 	c.mu.Lock()
 	c.singletons[name] = instance
 	c.mu.Unlock()
-	
+
 	return instance, nil
 }
 
@@ -296,24 +296,24 @@ func (c *Container) getScoped(ctx context.Context, name string, definition *Serv
 	if scope == nil {
 		return nil, fmt.Errorf("scope is required for scoped service: %s", name)
 	}
-	
+
 	scope.mu.RLock()
 	if instance, exists := scope.instances[name]; exists {
 		scope.mu.RUnlock()
 		return instance, nil
 	}
 	scope.mu.RUnlock()
-	
+
 	// Create new scoped instance
 	instance, err := c.createInstance(ctx, name, definition, scope)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	scope.mu.Lock()
 	scope.instances[name] = instance
 	scope.mu.Unlock()
-	
+
 	return instance, nil
 }
 
@@ -323,13 +323,13 @@ func (c *Container) createInstance(ctx context.Context, name string, definition 
 	c.mu.Lock()
 	c.building[name] = true
 	c.mu.Unlock()
-	
+
 	defer func() {
 		c.mu.Lock()
 		delete(c.building, name)
 		c.mu.Unlock()
 	}()
-	
+
 	return c.createInstanceWithoutBuilding(ctx, name, definition, scope)
 }
 
@@ -340,13 +340,13 @@ func (c *Container) createInstanceWithoutBuilding(ctx context.Context, name stri
 	interceptors := make([]Interceptor, len(c.interceptors))
 	copy(interceptors, c.interceptors)
 	c.mu.RUnlock()
-	
+
 	for _, interceptor := range interceptors {
 		if err := interceptor.BeforeCreate(ctx, name); err != nil {
 			return nil, fmt.Errorf("interceptor failed before creating %s: %w", name, err)
 		}
 	}
-	
+
 	// Create dependencies first
 	for _, depName := range definition.Dependencies {
 		_, err := c.getService(ctx, depName, scope)
@@ -354,20 +354,20 @@ func (c *Container) createInstanceWithoutBuilding(ctx context.Context, name stri
 			return nil, fmt.Errorf("failed to create dependency %s for service %s: %w", depName, name, err)
 		}
 	}
-	
+
 	// Create the service instance
 	instance, err := definition.Factory(ctx, c)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create service %s: %w", name, err)
 	}
-	
+
 	// Call interceptors
 	for _, interceptor := range interceptors {
 		if err := interceptor.AfterCreate(ctx, name, instance); err != nil {
 			return nil, fmt.Errorf("interceptor failed after creating %s: %w", name, err)
 		}
 	}
-	
+
 	return instance, nil
 }
 
@@ -395,14 +395,14 @@ func (s *Scope) Get(ctx context.Context, name string) (interface{}, error) {
 func (s *Scope) Dispose() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Call Dispose on any instances that implement it
 	for _, instance := range s.instances {
 		if disposable, ok := instance.(Disposable); ok {
 			disposable.Dispose()
 		}
 	}
-	
+
 	s.instances = make(map[string]interface{})
 }
 
@@ -415,14 +415,14 @@ type Disposable interface {
 func (c *Container) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	// Call Dispose on singletons that implement it
 	for _, instance := range c.singletons {
 		if disposable, ok := instance.(Disposable); ok {
 			disposable.Dispose()
 		}
 	}
-	
+
 	c.instances = make(map[string]interface{})
 	c.singletons = make(map[string]interface{})
 	c.building = make(map[string]bool)
@@ -432,7 +432,7 @@ func (c *Container) Clear() {
 func (c *Container) Validate() error {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	// Check for missing dependencies
 	for name, definition := range c.services {
 		for _, depName := range definition.Dependencies {
@@ -441,7 +441,7 @@ func (c *Container) Validate() error {
 			}
 		}
 	}
-	
+
 	// Check for circular dependencies (simplified check)
 	return c.checkCircularDependencies()
 }
@@ -450,7 +450,7 @@ func (c *Container) Validate() error {
 func (c *Container) checkCircularDependencies() error {
 	visited := make(map[string]bool)
 	stack := make(map[string]bool)
-	
+
 	var visit func(string) error
 	visit = func(name string) error {
 		if stack[name] {
@@ -459,10 +459,10 @@ func (c *Container) checkCircularDependencies() error {
 		if visited[name] {
 			return nil
 		}
-		
+
 		visited[name] = true
 		stack[name] = true
-		
+
 		if definition, exists := c.services[name]; exists {
 			for _, depName := range definition.Dependencies {
 				if err := visit(depName); err != nil {
@@ -470,17 +470,17 @@ func (c *Container) checkCircularDependencies() error {
 				}
 			}
 		}
-		
+
 		stack[name] = false
 		return nil
 	}
-	
+
 	for name := range c.services {
 		if err := visit(name); err != nil {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
@@ -488,7 +488,7 @@ func (c *Container) checkCircularDependencies() error {
 func (c *Container) GetServiceNames() []string {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	names := make([]string, 0, len(c.services))
 	for name := range c.services {
 		names = append(names, name)

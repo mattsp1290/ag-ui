@@ -38,19 +38,19 @@ func (e *mockSecureFileExecutor) Execute(ctx context.Context, params map[string]
 	if !ok {
 		return nil, fmt.Errorf("file_path parameter is required")
 	}
-	
+
 	// Security validation
 	if e.mode == SecurityModeRestricted {
 		if err := validateFilePath(filePath, e.allowedDirs); err != nil {
 			return nil, err
 		}
 	}
-	
+
 	content, err := ioutil.ReadFile(filePath)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &ToolExecutionResult{
 		Success: true,
 		Data:    map[string]interface{}{"content": string(content)},
@@ -70,14 +70,14 @@ func (e *mockSecureHTTPExecutor) Execute(ctx context.Context, params map[string]
 	if !ok {
 		return nil, fmt.Errorf("url parameter is required")
 	}
-	
+
 	// Security validation
 	if e.mode == SecurityModeRestricted {
 		if err := validateHTTPURL(url, e.allowedDomains); err != nil {
 			return nil, err
 		}
 	}
-	
+
 	// Create HTTP client with secure TLS configuration and timeout
 	client := &http.Client{
 		Timeout: e.timeout,
@@ -94,13 +94,13 @@ func (e *mockSecureHTTPExecutor) Execute(ctx context.Context, params map[string]
 			},
 		},
 	}
-	
+
 	resp, err := client.Get(url)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
-	
+
 	// Read response with size limit
 	body, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
@@ -109,7 +109,7 @@ func (e *mockSecureHTTPExecutor) Execute(ctx context.Context, params map[string]
 	if int64(len(body)) > e.maxSize {
 		return nil, fmt.Errorf("response exceeds maximum size limit")
 	}
-	
+
 	return &ToolExecutionResult{
 		Success: true,
 		Data: map[string]interface{}{
@@ -129,7 +129,7 @@ func (e *mockSandboxExecutor) Execute(ctx context.Context, params map[string]int
 	if !ok {
 		return nil, fmt.Errorf("input parameter is required")
 	}
-	
+
 	// Simulate sandbox validation
 	if e.sandboxed {
 		// In a real implementation, this would enforce sandbox restrictions
@@ -137,7 +137,7 @@ func (e *mockSandboxExecutor) Execute(ctx context.Context, params map[string]int
 			return nil, NewSecurityError("SANDBOX_VIOLATION", "Dangerous operation not allowed in sandbox")
 		}
 	}
-	
+
 	return &ToolExecutionResult{
 		Success: true,
 		Data:    map[string]interface{}{"result": fmt.Sprintf("processed: %s", input)},
@@ -152,12 +152,12 @@ func (e *mockInputValidationExecutor) Execute(ctx context.Context, params map[st
 	if !ok {
 		return nil, fmt.Errorf("input parameter is required")
 	}
-	
+
 	// Security validation
 	if err := validateSecureInput(input); err != nil {
 		return nil, err
 	}
-	
+
 	return &ToolExecutionResult{
 		Success: true,
 		Data:    map[string]interface{}{"result": fmt.Sprintf("processed: %s", input)},
@@ -170,14 +170,14 @@ func TestSecureFileOperations(t *testing.T) {
 	testDir := t.TempDir()
 	allowedDir := filepath.Join(testDir, "allowed")
 	restrictedDir := filepath.Join(testDir, "restricted")
-	
+
 	require.NoError(t, os.MkdirAll(allowedDir, 0755))
 	require.NoError(t, os.MkdirAll(restrictedDir, 0755))
-	
+
 	// Create test files
 	allowedFile := filepath.Join(allowedDir, "test.txt")
 	restrictedFile := filepath.Join(restrictedDir, "secret.txt")
-	
+
 	require.NoError(t, ioutil.WriteFile(allowedFile, []byte("allowed content"), 0644))
 	require.NoError(t, ioutil.WriteFile(restrictedFile, []byte("restricted content"), 0644))
 
@@ -244,7 +244,7 @@ func TestSecureFileOperations(t *testing.T) {
 				mode:        tt.mode,
 				allowedDirs: tt.allowedDirs,
 			}
-			
+
 			tool := &Tool{
 				ID:   "secure_file_reader",
 				Name: "Secure File Reader",
@@ -264,9 +264,9 @@ func TestSecureFileOperations(t *testing.T) {
 			params := map[string]interface{}{
 				"file_path": tt.filepath,
 			}
-			
+
 			result, err := tool.Executor.Execute(context.Background(), params)
-			
+
 			if tt.expectError {
 				assert.Error(t, err)
 				if tt.errorType != "" && err != nil {
@@ -365,7 +365,7 @@ func TestSecureHTTPOperations(t *testing.T) {
 				timeout:        5 * time.Second,
 				maxSize:        1024 * 1024, // 1MB
 			}
-			
+
 			// Create secure HTTP client tool
 			tool := &Tool{
 				ID:   "secure_http_client",
@@ -386,9 +386,9 @@ func TestSecureHTTPOperations(t *testing.T) {
 			params := map[string]interface{}{
 				"url": tt.url,
 			}
-			
+
 			result, err := tool.Executor.Execute(context.Background(), params)
-			
+
 			if tt.expectError {
 				assert.Error(t, err)
 				if tt.errorType != "" && err != nil {
@@ -433,7 +433,7 @@ func TestSandboxExecution(t *testing.T) {
 			executor := &mockSandboxExecutor{
 				sandboxed: tt.sandboxed,
 			}
-			
+
 			tool := &Tool{
 				ID:   tt.toolID,
 				Name: "Test Tool",
@@ -453,7 +453,7 @@ func TestSandboxExecution(t *testing.T) {
 			params := map[string]interface{}{
 				"input": "safe_input",
 			}
-			
+
 			result, err := tool.Executor.Execute(context.Background(), params)
 			assert.NoError(t, err)
 			assert.NotNil(t, result)
@@ -467,7 +467,7 @@ func TestSandboxExecution(t *testing.T) {
 				dangerousArgs := map[string]interface{}{
 					"input": "dangerous_operation",
 				}
-				
+
 				result, err := tool.Executor.Execute(context.Background(), dangerousArgs)
 				assert.Error(t, err)
 				if err != nil {
@@ -522,7 +522,7 @@ func TestInputValidationSecurity(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Create a mock input validation executor
 			executor := &mockInputValidationExecutor{}
-			
+
 			// Create tool with security validation
 			tool := &Tool{
 				ID:   "secure_input_tool",
@@ -543,9 +543,9 @@ func TestInputValidationSecurity(t *testing.T) {
 			params := map[string]interface{}{
 				"input": tt.input,
 			}
-			
+
 			result, err := tool.Executor.Execute(context.Background(), params)
-			
+
 			if tt.expectError {
 				assert.Error(t, err)
 				if tt.errorType != "" && err != nil {
@@ -568,7 +568,7 @@ func validateFilePath(filePath string, allowedDirs []string) error {
 	if err != nil {
 		return NewSecurityError("SECURITY_VIOLATION", "Invalid file path")
 	}
-	
+
 	// Resolve symlinks to get the real path (important for symlink attack detection)
 	realPath, err := filepath.EvalSymlinks(resolvedPath)
 	if err != nil {
@@ -589,13 +589,13 @@ func validateFilePath(filePath string, allowedDirs []string) error {
 		if err != nil {
 			continue
 		}
-		
+
 		// Also resolve symlinks for the allowed directory to handle cases like /var -> /private/var on macOS
 		realAllowedDir, err := filepath.EvalSymlinks(resolvedAllowedDir)
 		if err != nil {
 			realAllowedDir = resolvedAllowedDir
 		}
-		
+
 		// Ensure the real path starts with the real allowed directory
 		if strings.HasPrefix(realPath, realAllowedDir) {
 			// Make sure it's actually within the directory, not just a prefix match
@@ -604,7 +604,7 @@ func validateFilePath(filePath string, allowedDirs []string) error {
 			}
 		}
 	}
-	
+
 	return NewSecurityError("SECURITY_VIOLATION", "File path not in allowed directories")
 }
 
@@ -615,7 +615,7 @@ func validateHTTPURL(url string, allowedDomains []string) error {
 			return nil
 		}
 	}
-	
+
 	return NewSecurityError("SECURITY_VIOLATION", "Domain not in allowed list")
 }
 
@@ -629,13 +629,13 @@ func validateSecureInput(input string) error {
 		"../",
 		"..\\",
 	}
-	
+
 	for _, pattern := range dangerousPatterns {
 		if strings.Contains(strings.ToLower(input), strings.ToLower(pattern)) {
 			return NewValidationError("VALIDATION_ERROR", "Potentially dangerous input detected", "secure_input_tool")
 		}
 	}
-	
+
 	return nil
 }
 

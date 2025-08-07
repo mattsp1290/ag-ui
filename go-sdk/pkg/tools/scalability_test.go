@@ -18,193 +18,193 @@ import (
 
 // ScalabilityTestFramework provides comprehensive scalability testing
 type ScalabilityTestFramework struct {
-	config     *ScalabilityConfig
-	results    *ScalabilityResults
-	profiler   *ScalabilityProfiler
-	analyzer   *ScalabilityAnalyzer
+	config   *ScalabilityConfig
+	results  *ScalabilityResults
+	profiler *ScalabilityProfiler
+	analyzer *ScalabilityAnalyzer
 }
 
 // ScalabilityConfig defines scalability testing parameters
 type ScalabilityConfig struct {
 	// Tool count scaling
-	ToolCountLevels      []int
-	ToolCountIncrement   int
-	MaxToolCount         int
-	
+	ToolCountLevels    []int
+	ToolCountIncrement int
+	MaxToolCount       int
+
 	// Concurrency scaling
 	ConcurrencyLevels    []int
 	ConcurrencyIncrement int
 	MaxConcurrency       int
-	
+
 	// Load scaling
-	LoadLevels           []int
-	LoadIncrement        int
-	MaxLoad              int
-	
+	LoadLevels    []int
+	LoadIncrement int
+	MaxLoad       int
+
 	// Test duration
-	TestDuration         time.Duration
-	WarmupDuration       time.Duration
-	CooldownDuration     time.Duration
-	
+	TestDuration     time.Duration
+	WarmupDuration   time.Duration
+	CooldownDuration time.Duration
+
 	// Measurement
-	MeasurementInterval  time.Duration
-	SampleSize           int
-	
+	MeasurementInterval time.Duration
+	SampleSize          int
+
 	// Thresholds
-	ResponseTimeThreshold   time.Duration
-	ThroughputThreshold     float64
-	ErrorRateThreshold      float64
-	MemoryThreshold         uint64
-	CPUThreshold            float64
-	
+	ResponseTimeThreshold time.Duration
+	ThroughputThreshold   float64
+	ErrorRateThreshold    float64
+	MemoryThreshold       uint64
+	CPUThreshold          float64
+
 	// Stress testing
-	StressTestEnabled       bool
-	StressTestDuration      time.Duration
-	StressTestIntensity     int
-	StressTestRampTime      time.Duration
-	
+	StressTestEnabled   bool
+	StressTestDuration  time.Duration
+	StressTestIntensity int
+	StressTestRampTime  time.Duration
+
 	// Chaos testing
-	ChaosTestEnabled        bool
-	ChaosFailureRate        float64
-	ChaosLatencyVariation   time.Duration
-	ChaosMemoryPressure     bool
+	ChaosTestEnabled      bool
+	ChaosFailureRate      float64
+	ChaosLatencyVariation time.Duration
+	ChaosMemoryPressure   bool
 }
 
 // DefaultScalabilityConfig returns default scalability configuration
 func DefaultScalabilityConfig() *ScalabilityConfig {
 	// Use shorter durations in CI or when running with -short flag
-	testDuration := 5 * time.Second   // Reduced from 60s to 5s
-	warmupDuration := 1 * time.Second // Reduced from 10s to 1s
-	stressTestDuration := 5 * time.Second  // Reduced from 300s to 5s
-	stressTestRampTime := 2 * time.Second  // Reduced from 30s to 2s
-	
+	testDuration := 5 * time.Second       // Reduced from 60s to 5s
+	warmupDuration := 1 * time.Second     // Reduced from 10s to 1s
+	stressTestDuration := 5 * time.Second // Reduced from 300s to 5s
+	stressTestRampTime := 2 * time.Second // Reduced from 30s to 2s
+
 	// Detect CI environment more comprehensively
-	isCI := os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" || 
+	isCI := os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" ||
 		os.Getenv("CONTINUOUS_INTEGRATION") != "" || os.Getenv("BUILD_ENV") == "ci"
-		
+
 	if testing.Short() || isCI {
 		testDuration = 2 * time.Second
 		warmupDuration = 500 * time.Millisecond
 		stressTestDuration = 3 * time.Second
 		stressTestRampTime = 1 * time.Second
 	}
-	
+
 	// Further reduce levels for CI/short tests
 	toolCountLevels := []int{10, 50, 100, 200, 500}
 	concurrencyLevels := []int{1, 5, 10, 25, 50, 100}
 	loadLevels := []int{100, 500, 1000, 2000}
 	maxConcurrency := 200
 	stressTestIntensity := 100
-	
+
 	if testing.Short() || isCI {
 		// Much smaller test scope for CI/short tests
-		toolCountLevels = []int{5, 10, 25}  // Reduced significantly
-		concurrencyLevels = []int{1, 2, 5, 10}  // Much lower concurrency
-		loadLevels = []int{50, 100, 200}  // Lower load levels
-		maxConcurrency = 20  // Much lower max concurrency
-		stressTestIntensity = 10  // Much lower stress test intensity
+		toolCountLevels = []int{5, 10, 25}     // Reduced significantly
+		concurrencyLevels = []int{1, 2, 5, 10} // Much lower concurrency
+		loadLevels = []int{50, 100, 200}       // Lower load levels
+		maxConcurrency = 20                    // Much lower max concurrency
+		stressTestIntensity = 10               // Much lower stress test intensity
 	}
-	
+
 	return &ScalabilityConfig{
-		ToolCountLevels:         toolCountLevels,
-		ToolCountIncrement:      25,  // Reduced from 50
-		MaxToolCount:            500,  // Reduced from 1000
-		ConcurrencyLevels:       concurrencyLevels,
-		ConcurrencyIncrement:    10,  // Reduced from 25
-		MaxConcurrency:          maxConcurrency,
-		LoadLevels:              loadLevels,
-		LoadIncrement:           200,  // Reduced from 500
-		MaxLoad:                 2000, // Reduced from 5000
-		TestDuration:            testDuration,
-		WarmupDuration:          warmupDuration,
-		CooldownDuration:        1 * time.Second,  // Reduced from 5s to 1s
-		MeasurementInterval:     1 * time.Second,
-		SampleSize:              1000,
-		ResponseTimeThreshold:   100 * time.Millisecond,
-		ThroughputThreshold:     1000,
-		ErrorRateThreshold:      1.0,
-		MemoryThreshold:         1024 * 1024 * 1024, // 1GB
-		CPUThreshold:            80.0,
-		StressTestEnabled:       true,
-		StressTestDuration:      stressTestDuration,
-		StressTestIntensity:     stressTestIntensity,
-		StressTestRampTime:      stressTestRampTime,
-		ChaosTestEnabled:        true,
-		ChaosFailureRate:        0.01,
-		ChaosLatencyVariation:   50 * time.Millisecond,
-		ChaosMemoryPressure:     true,
+		ToolCountLevels:       toolCountLevels,
+		ToolCountIncrement:    25,  // Reduced from 50
+		MaxToolCount:          500, // Reduced from 1000
+		ConcurrencyLevels:     concurrencyLevels,
+		ConcurrencyIncrement:  10, // Reduced from 25
+		MaxConcurrency:        maxConcurrency,
+		LoadLevels:            loadLevels,
+		LoadIncrement:         200,  // Reduced from 500
+		MaxLoad:               2000, // Reduced from 5000
+		TestDuration:          testDuration,
+		WarmupDuration:        warmupDuration,
+		CooldownDuration:      1 * time.Second, // Reduced from 5s to 1s
+		MeasurementInterval:   1 * time.Second,
+		SampleSize:            1000,
+		ResponseTimeThreshold: 100 * time.Millisecond,
+		ThroughputThreshold:   1000,
+		ErrorRateThreshold:    1.0,
+		MemoryThreshold:       1024 * 1024 * 1024, // 1GB
+		CPUThreshold:          80.0,
+		StressTestEnabled:     true,
+		StressTestDuration:    stressTestDuration,
+		StressTestIntensity:   stressTestIntensity,
+		StressTestRampTime:    stressTestRampTime,
+		ChaosTestEnabled:      true,
+		ChaosFailureRate:      0.01,
+		ChaosLatencyVariation: 50 * time.Millisecond,
+		ChaosMemoryPressure:   true,
 	}
 }
 
 // ScalabilityResults stores comprehensive scalability test results
 type ScalabilityResults struct {
-	TestStart       time.Time
-	TestDuration    time.Duration
-	
+	TestStart    time.Time
+	TestDuration time.Duration
+
 	// Scalability measurements
-	ToolCountResults      map[int]*TestScalabilityMeasurement
-	ConcurrencyResults    map[int]*TestScalabilityMeasurement
-	LoadResults           map[int]*TestScalabilityMeasurement
-	
+	ToolCountResults   map[int]*TestScalabilityMeasurement
+	ConcurrencyResults map[int]*TestScalabilityMeasurement
+	LoadResults        map[int]*TestScalabilityMeasurement
+
 	// Stress test results
-	TestStressTestResults     *TestStressTestResults
-	
+	TestStressTestResults *TestStressTestResults
+
 	// Chaos test results
-	ChaosTestResults      *ChaosTestResults
-	
+	ChaosTestResults *ChaosTestResults
+
 	// Analysis results
-	ScalabilityAnalysis   *ScalabilityAnalysis
-	PerformanceBreakdown  *PerformanceBreakdown
-	ResourceUtilization   *ResourceUtilization
-	
+	ScalabilityAnalysis  *ScalabilityAnalysis
+	PerformanceBreakdown *PerformanceBreakdown
+	ResourceUtilization  *ResourceUtilization
+
 	// Limits and thresholds
-	ScalabilityLimits     *ScalabilityLimits
-	RecommendedLimits     *RecommendedLimits
-	
+	ScalabilityLimits *ScalabilityLimits
+	RecommendedLimits *RecommendedLimits
+
 	// Summary
-	OverallScore          float64
-	PassedTests           int
-	FailedTests           int
-	Recommendations       []string
-	Issues                []string
+	OverallScore    float64
+	PassedTests     int
+	FailedTests     int
+	Recommendations []string
+	Issues          []string
 }
 
 // TestScalabilityMeasurement represents a single scalability measurement
 type TestScalabilityMeasurement struct {
-	TestLevel            int
-	StartTime            time.Time
-	Duration             time.Duration
-	
+	TestLevel int
+	StartTime time.Time
+	Duration  time.Duration
+
 	// Performance metrics
-	Throughput           float64
-	ResponseTime         *ResponseTimeMetrics
-	ErrorRate            float64
-	SuccessRate          float64
-	
+	Throughput   float64
+	ResponseTime *ResponseTimeMetrics
+	ErrorRate    float64
+	SuccessRate  float64
+
 	// Resource utilization
-	Memory               *MemoryMetrics
-	CPU                  *CPUMetrics
-	Goroutines           *GoroutineMetrics
-	
+	Memory     *MemoryMetrics
+	CPU        *CPUMetrics
+	Goroutines *GoroutineMetrics
+
 	// Scalability metrics
-	ScalabilityFactor    float64
-	EfficiencyScore      float64
-	ThroughputPerUnit    float64
-	
+	ScalabilityFactor float64
+	EfficiencyScore   float64
+	ThroughputPerUnit float64
+
 	// Quality metrics
-	Stability            float64
-	Reliability          float64
-	Consistency          float64
-	
+	Stability   float64
+	Reliability float64
+	Consistency float64
+
 	// Breakdown
-	OperationBreakdown   map[string]*OperationMetrics
-	ComponentBreakdown   map[string]*ComponentMetrics
-	
+	OperationBreakdown map[string]*OperationMetrics
+	ComponentBreakdown map[string]*ComponentMetrics
+
 	// Status
-	Passed               bool
-	LimitingFactors      []string
-	Bottlenecks          []string
-	Warnings             []string
+	Passed          bool
+	LimitingFactors []string
+	Bottlenecks     []string
+	Warnings        []string
 }
 
 // LatencyBucket represents a latency distribution bucket
@@ -216,14 +216,14 @@ type LatencyBucket struct {
 
 // ResponseTimeMetrics captures response time statistics
 type ResponseTimeMetrics struct {
-	Mean       time.Duration
-	Median     time.Duration
-	P95        time.Duration
-	P99        time.Duration
-	P999       time.Duration
-	Min        time.Duration
-	Max        time.Duration
-	StdDev     time.Duration
+	Mean         time.Duration
+	Median       time.Duration
+	P95          time.Duration
+	P99          time.Duration
+	P999         time.Duration
+	Min          time.Duration
+	Max          time.Duration
+	StdDev       time.Duration
 	Distribution []LatencyBucket
 }
 
@@ -239,10 +239,10 @@ type MemoryMetrics struct {
 
 // CPUMetrics captures CPU usage statistics
 type CPUMetrics struct {
-	Current    float64
-	Peak       float64
-	Average    float64
-	Efficiency float64
+	Current     float64
+	Peak        float64
+	Average     float64
+	Efficiency  float64
 	Utilization float64
 }
 
@@ -257,11 +257,11 @@ type GoroutineMetrics struct {
 
 // OperationMetrics captures metrics for specific operations
 type OperationMetrics struct {
-	Count        int64
-	Duration     time.Duration
-	Throughput   float64
-	ErrorRate    float64
-	Efficiency   float64
+	Count      int64
+	Duration   time.Duration
+	Throughput float64
+	ErrorRate  float64
+	Efficiency float64
 }
 
 // ComponentMetrics captures metrics for system components
@@ -274,58 +274,58 @@ type ComponentMetrics struct {
 
 // TestStressTestResults captures stress test results
 type TestStressTestResults struct {
-	MaxConcurrency       int
-	MaxThroughput        float64
-	MaxMemoryUsage       uint64
-	MaxCPUUsage          float64
-	MaxGoroutines        int
-	
-	BreakingPoint        *BreakingPoint
-	RecoveryTime         time.Duration
-	ErrorPatterns        []ErrorPattern
+	MaxConcurrency int
+	MaxThroughput  float64
+	MaxMemoryUsage uint64
+	MaxCPUUsage    float64
+	MaxGoroutines  int
+
+	BreakingPoint          *BreakingPoint
+	RecoveryTime           time.Duration
+	ErrorPatterns          []ErrorPattern
 	PerformanceDegradation float64
-	
-	ConcurrencyLimits    *ConcurrencyLimits
-	ResourceExhaustion   *ResourceExhaustion
-	
-	Passed               bool
-	Issues               []string
+
+	ConcurrencyLimits  *ConcurrencyLimits
+	ResourceExhaustion *ResourceExhaustion
+
+	Passed bool
+	Issues []string
 }
 
 // BreakingPoint represents the point where system performance degrades
 type BreakingPoint struct {
-	ConcurrencyLevel     int
-	LoadLevel            int
-	ThroughputDrop       float64
-	ErrorRateSpike       float64
-	ResponseTimeSpike    time.Duration
-	TriggerFactor        string
+	ConcurrencyLevel  int
+	LoadLevel         int
+	ThroughputDrop    float64
+	ErrorRateSpike    float64
+	ResponseTimeSpike time.Duration
+	TriggerFactor     string
 }
 
 // ErrorPattern represents patterns in error occurrences
 type ErrorPattern struct {
-	ErrorType            string
-	Frequency            float64
+	ErrorType              string
+	Frequency              float64
 	ConcurrencyCorrelation float64
-	LoadCorrelation      float64
-	TimingPattern        string
+	LoadCorrelation        float64
+	TimingPattern          string
 }
 
 // ConcurrencyLimits defines concurrency limits
 type ConcurrencyLimits struct {
-	SoftLimit            int
-	HardLimit            int
-	RecommendedLimit     int
-	OptimalRange         [2]int
+	SoftLimit        int
+	HardLimit        int
+	RecommendedLimit int
+	OptimalRange     [2]int
 }
 
 // ResourceExhaustion tracks resource exhaustion points
 type ResourceExhaustion struct {
-	MemoryExhaustion     bool
-	CPUExhaustion        bool
-	GoroutineExhaustion  bool
+	MemoryExhaustion         bool
+	CPUExhaustion            bool
+	GoroutineExhaustion      bool
 	FileDescriptorExhaustion bool
-	NetworkExhaustion    bool
+	NetworkExhaustion        bool
 }
 
 // ChaosTestResults captures chaos engineering test results
@@ -334,43 +334,43 @@ type ChaosTestResults struct {
 	ResilienceScore       float64
 	RecoveryMetrics       *RecoveryMetrics
 	FailurePatterns       []FailurePattern
-	
-	Passed                bool
-	Issues                []string
+
+	Passed bool
+	Issues []string
 }
 
 // FaultInjectionResult captures the result of fault injection
 type FaultInjectionResult struct {
-	FaultType             string
-	InjectionDuration     time.Duration
-	ImpactSeverity        float64
-	RecoveryTime          time.Duration
-	ErrorsInduced         int64
-	ThroughputImpact      float64
-	ResponseTimeImpact    float64
+	FaultType          string
+	InjectionDuration  time.Duration
+	ImpactSeverity     float64
+	RecoveryTime       time.Duration
+	ErrorsInduced      int64
+	ThroughputImpact   float64
+	ResponseTimeImpact float64
 }
 
 // RecoveryMetrics captures system recovery characteristics
 type RecoveryMetrics struct {
-	MeanRecoveryTime     time.Duration
-	MaxRecoveryTime      time.Duration
-	RecoveryConsistency  float64
+	MeanRecoveryTime      time.Duration
+	MaxRecoveryTime       time.Duration
+	RecoveryConsistency   float64
 	AutoHealingCapability bool
 }
 
 // FailurePattern represents patterns in failure behavior
 type FailurePattern struct {
-	Pattern              string
-	Frequency            float64
-	Impact               float64
-	RecoveryTime         time.Duration
+	Pattern      string
+	Frequency    float64
+	Impact       float64
+	RecoveryTime time.Duration
 }
 
 // ScalabilityAnalysis provides analysis of scalability characteristics
 type ScalabilityAnalysis struct {
-	LinearScalability    *LinearScalabilityAnalysis
-	ScalabilityLaw       *ScalabilityLawAnalysis
-	BottleneckAnalysis   *BottleneckAnalysis
+	LinearScalability     *LinearScalabilityAnalysis
+	ScalabilityLaw        *ScalabilityLawAnalysis
+	BottleneckAnalysis    *BottleneckAnalysis
 	OptimalOperatingPoint *OptimalOperatingPoint
 	ScalabilityPrediction *ScalabilityPrediction
 }
@@ -385,45 +385,45 @@ type LinearScalabilityAnalysis struct {
 
 // ScalabilityLawAnalysis applies scalability laws (Amdahl's, Gustafson's)
 type ScalabilityLawAnalysis struct {
-	AmdahlsLaw             *AmdahlsLawResult
-	GustafsonsLaw          *GustafsonsLawResult
-	TheoreticalSpeedup     float64
-	ActualSpeedup          float64
-	ParallelEfficiency     float64
+	AmdahlsLaw         *AmdahlsLawResult
+	GustafsonsLaw      *GustafsonsLawResult
+	TheoreticalSpeedup float64
+	ActualSpeedup      float64
+	ParallelEfficiency float64
 }
 
 // AmdahlsLawResult captures Amdahl's Law analysis
 type AmdahlsLawResult struct {
-	SerialFraction         float64
-	ParallelFraction       float64
-	TheoreticalSpeedup     float64
-	SpeedupLimitation      float64
+	SerialFraction     float64
+	ParallelFraction   float64
+	TheoreticalSpeedup float64
+	SpeedupLimitation  float64
 }
 
 // GustafsonsLawResult captures Gustafson's Law analysis
 type GustafsonsLawResult struct {
-	ScaledSpeedup          float64
-	WorkloadScaling        float64
-	EfficiencyMaintenance  float64
+	ScaledSpeedup         float64
+	WorkloadScaling       float64
+	EfficiencyMaintenance float64
 }
 
 // BottleneckAnalysis identifies system bottlenecks
 type BottleneckAnalysis struct {
-	PrimaryBottleneck      string
-	SecondaryBottlenecks   []string
-	BottleneckSeverity     float64
-	BottleneckImpact       float64
-	ResolutionComplexity   string
+	PrimaryBottleneck    string
+	SecondaryBottlenecks []string
+	BottleneckSeverity   float64
+	BottleneckImpact     float64
+	ResolutionComplexity string
 }
 
 // OptimalOperatingPoint identifies optimal operating conditions
 type OptimalOperatingPoint struct {
-	OptimalConcurrency     int
-	OptimalLoad           int
-	OptimalThroughput     float64
-	OptimalEfficiency     float64
-	OperatingRange        [2]int
-	MarginOfSafety        float64
+	OptimalConcurrency int
+	OptimalLoad        int
+	OptimalThroughput  float64
+	OptimalEfficiency  float64
+	OperatingRange     [2]int
+	MarginOfSafety     float64
 }
 
 // ScalabilityPrediction provides scalability predictions
@@ -437,19 +437,19 @@ type ScalabilityPrediction struct {
 
 // PerformanceBreakdown provides detailed performance breakdown
 type PerformanceBreakdown struct {
-	ExecutionBreakdown     map[string]time.Duration
-	ComponentBreakdown     map[string]*ComponentPerformance
-	OperationBreakdown     map[string]*OperationPerformance
-	ResourceBreakdown      map[string]*ResourcePerformance
+	ExecutionBreakdown map[string]time.Duration
+	ComponentBreakdown map[string]*ComponentPerformance
+	OperationBreakdown map[string]*OperationPerformance
+	ResourceBreakdown  map[string]*ResourcePerformance
 }
 
 // ComponentPerformance captures component-specific performance
 type ComponentPerformance struct {
-	ResponseTime           time.Duration
-	Throughput             float64
-	Utilization            float64
-	Efficiency             float64
-	BottleneckPotential    float64
+	ResponseTime        time.Duration
+	Throughput          float64
+	Utilization         float64
+	Efficiency          float64
+	BottleneckPotential float64
 }
 
 // OperationPerformance captures operation-specific performance
@@ -462,40 +462,40 @@ type OperationPerformance struct {
 
 // ResourcePerformance captures resource-specific performance
 type ResourcePerformance struct {
-	Utilization            float64
-	Efficiency             float64
-	Contention             float64
-	BottleneckSeverity     float64
+	Utilization        float64
+	Efficiency         float64
+	Contention         float64
+	BottleneckSeverity float64
 }
 
 // ResourceUtilization tracks overall resource utilization
 type ResourceUtilization struct {
-	MemoryUtilization      *UtilizationMetrics
-	CPUUtilization         *UtilizationMetrics
-	GoroutineUtilization   *UtilizationMetrics
-	NetworkUtilization     *UtilizationMetrics
-	DiskUtilization        *UtilizationMetrics
+	MemoryUtilization    *UtilizationMetrics
+	CPUUtilization       *UtilizationMetrics
+	GoroutineUtilization *UtilizationMetrics
+	NetworkUtilization   *UtilizationMetrics
+	DiskUtilization      *UtilizationMetrics
 }
 
 // UtilizationMetrics captures utilization statistics
 type UtilizationMetrics struct {
-	Current                float64
-	Peak                   float64
-	Average                float64
-	Efficiency             float64
-	Saturation             float64
-	ContentionLevel        float64
+	Current         float64
+	Peak            float64
+	Average         float64
+	Efficiency      float64
+	Saturation      float64
+	ContentionLevel float64
 }
 
 // ScalabilityLimits defines various scalability limits
 type ScalabilityLimits struct {
-	MaxConcurrency         int
-	MaxThroughput          float64
-	MaxMemoryUsage         uint64
-	MaxCPUUsage            float64
-	MaxGoroutines          int
-	MaxConnections         int
-	MaxFileDescriptors     int
+	MaxConcurrency     int
+	MaxThroughput      float64
+	MaxMemoryUsage     uint64
+	MaxCPUUsage        float64
+	MaxGoroutines      int
+	MaxConnections     int
+	MaxFileDescriptors int
 }
 
 // RecommendedLimits provides recommended operating limits
@@ -509,32 +509,32 @@ type RecommendedLimits struct {
 
 // ScalabilityProfiler profiles scalability characteristics
 type ScalabilityProfiler struct {
-	config               *ScalabilityConfig
-	measurements         []TestScalabilityMeasurement
-	resourceMonitor      *TestResourceMonitor
-	performanceMonitor   *PerformanceMonitor
-	mu                   sync.RWMutex
-	isRunning            bool
-	stopChan             chan struct{}
+	config             *ScalabilityConfig
+	measurements       []TestScalabilityMeasurement
+	resourceMonitor    *TestResourceMonitor
+	performanceMonitor *PerformanceMonitor
+	mu                 sync.RWMutex
+	isRunning          bool
+	stopChan           chan struct{}
 }
 
 // TestResourceMonitor monitors resource usage
 type TestResourceMonitor struct {
-	memoryUsage          []uint64
-	cpuUsage             []float64
-	goroutineCount       []int
-	fdCount              []int
-	networkConnections   []int
-	mu                   sync.RWMutex
+	memoryUsage        []uint64
+	cpuUsage           []float64
+	goroutineCount     []int
+	fdCount            []int
+	networkConnections []int
+	mu                 sync.RWMutex
 }
 
 // PerformanceMonitor monitors performance metrics
 type PerformanceMonitor struct {
-	throughputSamples    []float64
-	responseTimeSamples  []time.Duration
-	errorRateSamples     []float64
-	operationCounts      map[string]int64
-	mu                   sync.RWMutex
+	throughputSamples   []float64
+	responseTimeSamples []time.Duration
+	errorRateSamples    []float64
+	operationCounts     map[string]int64
+	mu                  sync.RWMutex
 }
 
 // ScalabilityAnalyzer analyzes scalability test results
@@ -548,7 +548,7 @@ func NewScalabilityTestFramework(config *ScalabilityConfig) *ScalabilityTestFram
 	if config == nil {
 		config = DefaultScalabilityConfig()
 	}
-	
+
 	framework := &ScalabilityTestFramework{
 		config: config,
 		results: &ScalabilityResults{
@@ -558,7 +558,7 @@ func NewScalabilityTestFramework(config *ScalabilityConfig) *ScalabilityTestFram
 			LoadResults:        make(map[int]*TestScalabilityMeasurement),
 		},
 	}
-	
+
 	framework.profiler = &ScalabilityProfiler{
 		config:   config,
 		stopChan: make(chan struct{}),
@@ -574,12 +574,12 @@ func NewScalabilityTestFramework(config *ScalabilityConfig) *ScalabilityTestFram
 			operationCounts:     make(map[string]int64),
 		},
 	}
-	
+
 	framework.analyzer = &ScalabilityAnalyzer{
 		config:  config,
 		results: framework.results,
 	}
-	
+
 	return framework
 }
 
@@ -592,44 +592,44 @@ func TestScalability(t *testing.T) {
 	if os.Getenv("CI") != "" || os.Getenv("GITHUB_ACTIONS") != "" || os.Getenv("CONTINUOUS_INTEGRATION") != "" {
 		t.Skip("Skipping scalability tests in CI environment")
 	}
-	
+
 	framework := NewScalabilityTestFramework(DefaultScalabilityConfig())
-	
+
 	t.Run("ToolCountScalability", func(t *testing.T) {
 		framework.testToolCountScalability(t)
 	})
-	
+
 	t.Run("ConcurrencyScalability", func(t *testing.T) {
 		framework.testConcurrencyScalability(t)
 	})
-	
+
 	t.Run("LoadScalability", func(t *testing.T) {
 		framework.testLoadScalability(t)
 	})
-	
+
 	if framework.config.StressTestEnabled {
 		t.Run("StressTest", func(t *testing.T) {
 			framework.testStressScalability(t)
 		})
 	}
-	
+
 	if framework.config.ChaosTestEnabled {
 		t.Run("ChaosTest", func(t *testing.T) {
 			framework.testChaosScalability(t)
 		})
 	}
-	
+
 	t.Run("Analysis", func(t *testing.T) {
 		framework.analyzeResults(t)
 	})
-	
+
 	framework.generateReport(t)
 }
 
 // testToolCountScalability tests scalability with varying tool counts
 func (f *ScalabilityTestFramework) testToolCountScalability(t *testing.T) {
 	t.Helper()
-	
+
 	for _, toolCount := range f.config.ToolCountLevels {
 		t.Run(fmt.Sprintf("ToolCount_%d", toolCount), func(t *testing.T) {
 			measurement := f.runToolCountScalabilityTest(t, toolCount)
@@ -641,7 +641,7 @@ func (f *ScalabilityTestFramework) testToolCountScalability(t *testing.T) {
 // testConcurrencyScalability tests scalability with varying concurrency levels
 func (f *ScalabilityTestFramework) testConcurrencyScalability(t *testing.T) {
 	t.Helper()
-	
+
 	for _, concurrency := range f.config.ConcurrencyLevels {
 		t.Run(fmt.Sprintf("Concurrency_%d", concurrency), func(t *testing.T) {
 			measurement := f.runConcurrencyScalabilityTest(t, concurrency)
@@ -653,7 +653,7 @@ func (f *ScalabilityTestFramework) testConcurrencyScalability(t *testing.T) {
 // testLoadScalability tests scalability with varying load levels
 func (f *ScalabilityTestFramework) testLoadScalability(t *testing.T) {
 	t.Helper()
-	
+
 	for _, load := range f.config.LoadLevels {
 		t.Run(fmt.Sprintf("Load_%d", load), func(t *testing.T) {
 			measurement := f.runLoadScalabilityTest(t, load)
@@ -665,48 +665,48 @@ func (f *ScalabilityTestFramework) testLoadScalability(t *testing.T) {
 // testStressScalability runs stress tests
 func (f *ScalabilityTestFramework) testStressScalability(t *testing.T) {
 	t.Helper()
-	
+
 	stressTest := &StressTestRunner{
-		config:    f.config,
-		profiler:  f.profiler,
-		analyzer:  f.analyzer,
+		config:   f.config,
+		profiler: f.profiler,
+		analyzer: f.analyzer,
 	}
-	
+
 	f.results.TestStressTestResults = stressTest.Run(t)
 }
 
 // testChaosScalability runs chaos engineering tests
 func (f *ScalabilityTestFramework) testChaosScalability(t *testing.T) {
 	t.Helper()
-	
+
 	chaosTest := &ChaosTestRunner{
-		config:    f.config,
-		profiler:  f.profiler,
-		analyzer:  f.analyzer,
+		config:   f.config,
+		profiler: f.profiler,
+		analyzer: f.analyzer,
 	}
-	
+
 	f.results.ChaosTestResults = chaosTest.Run(t)
 }
 
 // analyzeResults analyzes all test results
 func (f *ScalabilityTestFramework) analyzeResults(t *testing.T) {
 	t.Helper()
-	
+
 	// Analyze scalability characteristics
 	f.results.ScalabilityAnalysis = f.analyzer.AnalyzeScalability()
-	
+
 	// Analyze performance breakdown
 	f.results.PerformanceBreakdown = f.analyzer.AnalyzePerformanceBreakdown()
-	
+
 	// Analyze resource utilization
 	f.results.ResourceUtilization = f.analyzer.AnalyzeResourceUtilization()
-	
+
 	// Determine scalability limits
 	f.results.ScalabilityLimits = f.analyzer.DetermineScalabilityLimits()
-	
+
 	// Generate recommendations
 	f.results.RecommendedLimits = f.analyzer.GenerateRecommendations()
-	
+
 	// Calculate overall score
 	f.results.OverallScore = f.analyzer.CalculateOverallScore()
 }
@@ -714,9 +714,9 @@ func (f *ScalabilityTestFramework) analyzeResults(t *testing.T) {
 // generateReport generates a comprehensive scalability report
 func (f *ScalabilityTestFramework) generateReport(t *testing.T) {
 	t.Helper()
-	
+
 	f.results.TestDuration = time.Since(f.results.TestStart)
-	
+
 	// Count passed/failed tests
 	for _, measurement := range f.results.ToolCountResults {
 		if measurement.Passed {
@@ -725,7 +725,7 @@ func (f *ScalabilityTestFramework) generateReport(t *testing.T) {
 			f.results.FailedTests++
 		}
 	}
-	
+
 	for _, measurement := range f.results.ConcurrencyResults {
 		if measurement.Passed {
 			f.results.PassedTests++
@@ -733,7 +733,7 @@ func (f *ScalabilityTestFramework) generateReport(t *testing.T) {
 			f.results.FailedTests++
 		}
 	}
-	
+
 	for _, measurement := range f.results.LoadResults {
 		if measurement.Passed {
 			f.results.PassedTests++
@@ -741,35 +741,35 @@ func (f *ScalabilityTestFramework) generateReport(t *testing.T) {
 			f.results.FailedTests++
 		}
 	}
-	
+
 	// Generate summary report
 	t.Logf("Scalability Test Report:")
 	t.Logf("  Duration: %v", f.results.TestDuration)
 	t.Logf("  Overall Score: %.2f/100", f.results.OverallScore)
 	t.Logf("  Passed Tests: %d", f.results.PassedTests)
 	t.Logf("  Failed Tests: %d", f.results.FailedTests)
-	
+
 	if f.results.ScalabilityLimits != nil {
 		t.Logf("  Scalability Limits:")
 		t.Logf("    Max Concurrency: %d", f.results.ScalabilityLimits.MaxConcurrency)
 		t.Logf("    Max Throughput: %.2f ops/sec", f.results.ScalabilityLimits.MaxThroughput)
 		t.Logf("    Max Memory: %d MB", f.results.ScalabilityLimits.MaxMemoryUsage/(1024*1024))
 	}
-	
+
 	if f.results.RecommendedLimits != nil {
 		t.Logf("  Recommended Limits:")
 		t.Logf("    Recommended Concurrency: %d", f.results.RecommendedLimits.RecommendedConcurrency)
 		t.Logf("    Recommended Throughput: %.2f ops/sec", f.results.RecommendedLimits.RecommendedThroughput)
 		t.Logf("    Safety Margin: %.2f%%", f.results.RecommendedLimits.SafetyMargin*100)
 	}
-	
+
 	if len(f.results.Issues) > 0 {
 		t.Logf("  Issues Found:")
 		for _, issue := range f.results.Issues {
 			t.Logf("    - %s", issue)
 		}
 	}
-	
+
 	if len(f.results.Recommendations) > 0 {
 		t.Logf("  Recommendations:")
 		for _, rec := range f.results.Recommendations {
@@ -781,18 +781,18 @@ func (f *ScalabilityTestFramework) generateReport(t *testing.T) {
 // runToolCountScalabilityTest runs a scalability test with a specific tool count
 func (f *ScalabilityTestFramework) runToolCountScalabilityTest(t *testing.T, toolCount int) *TestScalabilityMeasurement {
 	t.Helper()
-	
+
 	measurement := &TestScalabilityMeasurement{
 		TestLevel:          toolCount,
 		StartTime:          time.Now(),
 		OperationBreakdown: make(map[string]*OperationMetrics),
 		ComponentBreakdown: make(map[string]*ComponentMetrics),
 	}
-	
+
 	// Create registry and engine
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(f.config.MaxConcurrency))
-	
+
 	// Create tools
 	tools := make([]*Tool, toolCount)
 	for i := 0; i < toolCount; i++ {
@@ -801,38 +801,38 @@ func (f *ScalabilityTestFramework) runToolCountScalabilityTest(t *testing.T, too
 			t.Fatalf("Failed to register tool: %v", err)
 		}
 	}
-	
+
 	// Start profiling
 	f.profiler.Start()
 	defer f.profiler.Stop()
-	
+
 	// Warmup
 	f.warmup(engine, tools, f.config.WarmupDuration)
-	
+
 	// Run test
 	ctx, cancel := context.WithTimeout(context.Background(), f.config.TestDuration)
 	defer cancel()
-	
+
 	var operations int64
 	var errors int64
 	var totalResponseTime time.Duration
 	var responseTimes []time.Duration
-	
+
 	var wg sync.WaitGroup
 	concurrency := min(f.config.MaxConcurrency, toolCount)
-	
+
 	// Add proper context timeout handling and limit iterations for CI
-	maxIterationsPerWorker := 1000  // Default max iterations
+	maxIterationsPerWorker := 1000 // Default max iterations
 	if testing.Short() || os.Getenv("CI") != "" {
-		maxIterationsPerWorker = 50  // Much fewer iterations for CI/short tests
+		maxIterationsPerWorker = 50 // Much fewer iterations for CI/short tests
 	}
-	
+
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			iterations := 0
-			
+
 			for iterations < maxIterationsPerWorker {
 				select {
 				case <-ctx.Done():
@@ -840,22 +840,22 @@ func (f *ScalabilityTestFramework) runToolCountScalabilityTest(t *testing.T, too
 				default:
 					tool := tools[rand.Intn(len(tools))]
 					start := time.Now()
-					
+
 					// Create execution context with shorter timeout for individual operations
 					execCtx, execCancel := context.WithTimeout(ctx, 5*time.Second)
 					_, err := engine.Execute(execCtx, tool.ID, map[string]interface{}{
 						"input": fmt.Sprintf("scalability-test-%d", rand.Intn(1000)),
 					})
 					execCancel()
-					
+
 					duration := time.Since(start)
 					atomic.AddInt64(&operations, 1)
 					atomic.AddInt64((*int64)(&totalResponseTime), int64(duration))
-					
+
 					if err != nil {
 						atomic.AddInt64(&errors, 1)
 					}
-					
+
 					// Sample response times (limit samples for CI)
 					maxSamples := 10000
 					if testing.Short() || os.Getenv("CI") != "" {
@@ -864,7 +864,7 @@ func (f *ScalabilityTestFramework) runToolCountScalabilityTest(t *testing.T, too
 					if len(responseTimes) < maxSamples {
 						responseTimes = append(responseTimes, duration)
 					}
-					
+
 					iterations++
 					// Add brief pause to reduce resource pressure
 					if testing.Short() || os.Getenv("CI") != "" {
@@ -874,56 +874,56 @@ func (f *ScalabilityTestFramework) runToolCountScalabilityTest(t *testing.T, too
 			}
 		}()
 	}
-	
+
 	wg.Wait()
-	
+
 	// Calculate metrics
 	measurement.Duration = time.Since(measurement.StartTime)
 	measurement.Throughput = float64(operations) / measurement.Duration.Seconds()
 	measurement.ErrorRate = float64(errors) / float64(operations) * 100
 	measurement.SuccessRate = 100 - measurement.ErrorRate
-	
+
 	// Calculate response time metrics
 	if len(responseTimes) > 0 {
 		measurement.ResponseTime = calculateResponseTimeMetrics(responseTimes)
 	}
-	
+
 	// Calculate scalability metrics
 	measurement.ScalabilityFactor = measurement.Throughput / float64(toolCount)
 	measurement.ThroughputPerUnit = measurement.Throughput / float64(toolCount)
 	measurement.EfficiencyScore = calculateEfficiencyScore(measurement.Throughput, toolCount)
-	
+
 	// Resource metrics
 	measurement.Memory = f.profiler.GetMemoryMetrics()
 	measurement.CPU = f.profiler.GetCPUMetrics()
 	measurement.Goroutines = f.profiler.GetGoroutineMetrics()
-	
+
 	// Quality metrics
 	measurement.Stability = calculateStability(responseTimes)
 	measurement.Reliability = measurement.SuccessRate / 100
 	measurement.Consistency = calculateConsistency(responseTimes)
-	
+
 	// Check if test passed
 	measurement.Passed = f.evaluateTestResult(measurement)
-	
+
 	return measurement
 }
 
 // runConcurrencyScalabilityTest runs a scalability test with a specific concurrency level
 func (f *ScalabilityTestFramework) runConcurrencyScalabilityTest(t *testing.T, concurrency int) *TestScalabilityMeasurement {
 	t.Helper()
-	
+
 	measurement := &TestScalabilityMeasurement{
 		TestLevel:          concurrency,
 		StartTime:          time.Now(),
 		OperationBreakdown: make(map[string]*OperationMetrics),
 		ComponentBreakdown: make(map[string]*ComponentMetrics),
 	}
-	
+
 	// Create registry and engine
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(concurrency))
-	
+
 	// Create tools
 	toolCount := 100
 	tools := make([]*Tool, toolCount)
@@ -933,36 +933,36 @@ func (f *ScalabilityTestFramework) runConcurrencyScalabilityTest(t *testing.T, c
 			t.Fatalf("Failed to register tool: %v", err)
 		}
 	}
-	
+
 	// Start profiling
 	f.profiler.Start()
 	defer f.profiler.Stop()
-	
+
 	// Warmup
 	f.warmup(engine, tools, f.config.WarmupDuration)
-	
+
 	// Run test
 	ctx, cancel := context.WithTimeout(context.Background(), f.config.TestDuration)
 	defer cancel()
-	
+
 	var operations int64
 	var errors int64
 	var responseTimes []time.Duration
-	
+
 	var wg sync.WaitGroup
-	
+
 	// Limit iterations for concurrency test
 	maxIterationsPerWorker := 1000
 	if testing.Short() || os.Getenv("CI") != "" {
 		maxIterationsPerWorker = 50
 	}
-	
+
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			iterations := 0
-			
+
 			for iterations < maxIterationsPerWorker {
 				select {
 				case <-ctx.Done():
@@ -970,21 +970,21 @@ func (f *ScalabilityTestFramework) runConcurrencyScalabilityTest(t *testing.T, c
 				default:
 					tool := tools[rand.Intn(len(tools))]
 					start := time.Now()
-					
+
 					// Create execution context with timeout
 					execCtx, execCancel := context.WithTimeout(ctx, 5*time.Second)
 					_, err := engine.Execute(execCtx, tool.ID, map[string]interface{}{
 						"input": fmt.Sprintf("concurrency-test-%d", rand.Intn(1000)),
 					})
 					execCancel()
-					
+
 					duration := time.Since(start)
 					atomic.AddInt64(&operations, 1)
-					
+
 					if err != nil {
 						atomic.AddInt64(&errors, 1)
 					}
-					
+
 					// Sample response times (limit for CI)
 					maxSamples := 10000
 					if testing.Short() || os.Getenv("CI") != "" {
@@ -993,7 +993,7 @@ func (f *ScalabilityTestFramework) runConcurrencyScalabilityTest(t *testing.T, c
 					if len(responseTimes) < maxSamples {
 						responseTimes = append(responseTimes, duration)
 					}
-					
+
 					iterations++
 					// Add brief pause for CI
 					if testing.Short() || os.Getenv("CI") != "" {
@@ -1003,56 +1003,56 @@ func (f *ScalabilityTestFramework) runConcurrencyScalabilityTest(t *testing.T, c
 			}
 		}()
 	}
-	
+
 	wg.Wait()
-	
+
 	// Calculate metrics
 	measurement.Duration = time.Since(measurement.StartTime)
 	measurement.Throughput = float64(operations) / measurement.Duration.Seconds()
 	measurement.ErrorRate = float64(errors) / float64(operations) * 100
 	measurement.SuccessRate = 100 - measurement.ErrorRate
-	
+
 	// Calculate response time metrics
 	if len(responseTimes) > 0 {
 		measurement.ResponseTime = calculateResponseTimeMetrics(responseTimes)
 	}
-	
+
 	// Calculate scalability metrics
 	measurement.ScalabilityFactor = measurement.Throughput / float64(concurrency)
 	measurement.ThroughputPerUnit = measurement.Throughput / float64(concurrency)
 	measurement.EfficiencyScore = calculateEfficiencyScore(measurement.Throughput, concurrency)
-	
+
 	// Resource metrics
 	measurement.Memory = f.profiler.GetMemoryMetrics()
 	measurement.CPU = f.profiler.GetCPUMetrics()
 	measurement.Goroutines = f.profiler.GetGoroutineMetrics()
-	
+
 	// Quality metrics
 	measurement.Stability = calculateStability(responseTimes)
 	measurement.Reliability = measurement.SuccessRate / 100
 	measurement.Consistency = calculateConsistency(responseTimes)
-	
+
 	// Check if test passed
 	measurement.Passed = f.evaluateTestResult(measurement)
-	
+
 	return measurement
 }
 
 // runLoadScalabilityTest runs a scalability test with a specific load level
 func (f *ScalabilityTestFramework) runLoadScalabilityTest(t *testing.T, load int) *TestScalabilityMeasurement {
 	t.Helper()
-	
+
 	measurement := &TestScalabilityMeasurement{
 		TestLevel:          load,
 		StartTime:          time.Now(),
 		OperationBreakdown: make(map[string]*OperationMetrics),
 		ComponentBreakdown: make(map[string]*ComponentMetrics),
 	}
-	
+
 	// Create registry and engine
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(f.config.MaxConcurrency))
-	
+
 	// Create tools
 	toolCount := 100
 	tools := make([]*Tool, toolCount)
@@ -1062,40 +1062,40 @@ func (f *ScalabilityTestFramework) runLoadScalabilityTest(t *testing.T, load int
 			t.Fatalf("Failed to register tool: %v", err)
 		}
 	}
-	
+
 	// Start profiling
 	f.profiler.Start()
 	defer f.profiler.Stop()
-	
+
 	// Warmup
 	f.warmup(engine, tools, f.config.WarmupDuration)
-	
+
 	// Run test with controlled load
 	ctx, cancel := context.WithTimeout(context.Background(), f.config.TestDuration)
 	defer cancel()
-	
+
 	var operations int64
 	var errors int64
 	var responseTimes []time.Duration
-	
+
 	// Calculate operation interval to achieve target load
 	operationInterval := time.Second / time.Duration(load)
-	
+
 	var wg sync.WaitGroup
-	
+
 	// Load generator
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		ticker := time.NewTicker(operationInterval)
 		defer ticker.Stop()
-		
+
 		maxOperations := load * int(f.config.TestDuration.Seconds())
 		if testing.Short() || os.Getenv("CI") != "" {
-			maxOperations = load * 2  // Much fewer operations for CI
+			maxOperations = load * 2 // Much fewer operations for CI
 		}
 		operationCount := 0
-		
+
 		for operationCount < maxOperations {
 			select {
 			case <-ctx.Done():
@@ -1103,21 +1103,21 @@ func (f *ScalabilityTestFramework) runLoadScalabilityTest(t *testing.T, load int
 			case <-ticker.C:
 				tool := tools[rand.Intn(len(tools))]
 				start := time.Now()
-				
+
 				// Create execution context with timeout
 				execCtx, execCancel := context.WithTimeout(ctx, 5*time.Second)
 				_, err := engine.Execute(execCtx, tool.ID, map[string]interface{}{
 					"input": fmt.Sprintf("load-test-%d", rand.Intn(1000)),
 				})
 				execCancel()
-				
+
 				duration := time.Since(start)
 				atomic.AddInt64(&operations, 1)
-				
+
 				if err != nil {
 					atomic.AddInt64(&errors, 1)
 				}
-				
+
 				// Sample response times (limit for CI)
 				maxSamples := 10000
 				if testing.Short() || os.Getenv("CI") != "" {
@@ -1126,43 +1126,43 @@ func (f *ScalabilityTestFramework) runLoadScalabilityTest(t *testing.T, load int
 				if len(responseTimes) < maxSamples {
 					responseTimes = append(responseTimes, duration)
 				}
-				
+
 				operationCount++
 			}
 		}
 	}()
-	
+
 	wg.Wait()
-	
+
 	// Calculate metrics
 	measurement.Duration = time.Since(measurement.StartTime)
 	measurement.Throughput = float64(operations) / measurement.Duration.Seconds()
 	measurement.ErrorRate = float64(errors) / float64(operations) * 100
 	measurement.SuccessRate = 100 - measurement.ErrorRate
-	
+
 	// Calculate response time metrics
 	if len(responseTimes) > 0 {
 		measurement.ResponseTime = calculateResponseTimeMetrics(responseTimes)
 	}
-	
+
 	// Calculate scalability metrics
 	measurement.ScalabilityFactor = measurement.Throughput / float64(load)
 	measurement.ThroughputPerUnit = measurement.Throughput / float64(load)
 	measurement.EfficiencyScore = calculateEfficiencyScore(measurement.Throughput, load)
-	
+
 	// Resource metrics
 	measurement.Memory = f.profiler.GetMemoryMetrics()
 	measurement.CPU = f.profiler.GetCPUMetrics()
 	measurement.Goroutines = f.profiler.GetGoroutineMetrics()
-	
+
 	// Quality metrics
 	measurement.Stability = calculateStability(responseTimes)
 	measurement.Reliability = measurement.SuccessRate / 100
 	measurement.Consistency = calculateConsistency(responseTimes)
-	
+
 	// Check if test passed
 	measurement.Passed = f.evaluateTestResult(measurement)
-	
+
 	return measurement
 }
 
@@ -1176,18 +1176,18 @@ type StressTestRunner struct {
 // Run executes the stress test
 func (str *StressTestRunner) Run(t *testing.T) *TestStressTestResults {
 	t.Helper()
-	
+
 	results := &TestStressTestResults{
-		ErrorPatterns: make([]ErrorPattern, 0),
-		ConcurrencyLimits: &ConcurrencyLimits{},
+		ErrorPatterns:      make([]ErrorPattern, 0),
+		ConcurrencyLimits:  &ConcurrencyLimits{},
 		ResourceExhaustion: &ResourceExhaustion{},
-		Issues: make([]string, 0),
+		Issues:             make([]string, 0),
 	}
-	
+
 	// Create test environment
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(str.config.StressTestIntensity))
-	
+
 	// Create tools
 	toolCount := 100
 	tools := make([]*Tool, toolCount)
@@ -1197,35 +1197,35 @@ func (str *StressTestRunner) Run(t *testing.T) *TestStressTestResults {
 			t.Fatalf("Failed to register tool: %v", err)
 		}
 	}
-	
+
 	// Start profiling
 	str.profiler.Start()
 	defer str.profiler.Stop()
-	
+
 	// Run stress test
 	ctx, cancel := context.WithTimeout(context.Background(), str.config.StressTestDuration)
 	defer cancel()
-	
+
 	var operations int64
 	var errors int64
 	var maxMemory uint64
 	var maxCPU float64
 	var maxGoroutines int
-	
+
 	// Ramp up stress
 	rampTicker := time.NewTicker(str.config.StressTestRampTime / time.Duration(str.config.StressTestIntensity))
 	defer rampTicker.Stop()
-	
+
 	var wg sync.WaitGroup
 	activeWorkers := 0
-	
+
 	// Monitoring goroutine
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		ticker := time.NewTicker(time.Second)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -1234,35 +1234,35 @@ func (str *StressTestRunner) Run(t *testing.T) *TestStressTestResults {
 				// Monitor resources
 				var m runtime.MemStats
 				runtime.ReadMemStats(&m)
-				
+
 				if m.Alloc > maxMemory {
 					maxMemory = m.Alloc
 				}
-				
+
 				goroutines := runtime.NumGoroutine()
 				if goroutines > maxGoroutines {
 					maxGoroutines = goroutines
 				}
-				
+
 				// Check for resource exhaustion
 				if m.Alloc > str.config.MemoryThreshold {
 					results.ResourceExhaustion.MemoryExhaustion = true
 				}
-				
+
 				if goroutines > str.config.MaxConcurrency*10 {
 					results.ResourceExhaustion.GoroutineExhaustion = true
 				}
 			}
 		}
 	}()
-	
+
 	// Stress worker spawner - use separate WaitGroup to avoid deadlock
 	var workerWg sync.WaitGroup
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		defer workerWg.Wait() // Wait for all spawned workers to finish
-		
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -1272,40 +1272,40 @@ func (str *StressTestRunner) Run(t *testing.T) *TestStressTestResults {
 					workerWg.Add(1)
 					go func() {
 						defer workerWg.Done()
-						
+
 						// Limit iterations per worker to prevent runaway stress tests
 						maxStressIterations := 1000
 						if testing.Short() || os.Getenv("CI") != "" {
 							maxStressIterations = 100
 						}
 						stressIterations := 0
-						
+
 						for stressIterations < maxStressIterations {
 							select {
 							case <-ctx.Done():
 								return
 							default:
 								tool := tools[rand.Intn(len(tools))]
-								
+
 								// Create execution context with timeout
 								execCtx, execCancel := context.WithTimeout(ctx, 10*time.Second)
 								_, err := engine.Execute(execCtx, tool.ID, map[string]interface{}{
 									"input": fmt.Sprintf("stress-test-%d", rand.Intn(1000)),
 								})
 								execCancel()
-								
+
 								atomic.AddInt64(&operations, 1)
-								
+
 								if err != nil {
 									atomic.AddInt64(&errors, 1)
 								}
-								
+
 								stressIterations++
-								
+
 								// Brief pause to prevent overwhelming
 								pauseTime := time.Millisecond
 								if testing.Short() || os.Getenv("CI") != "" {
-									pauseTime = 5 * time.Millisecond  // Longer pause for CI
+									pauseTime = 5 * time.Millisecond // Longer pause for CI
 								}
 								time.Sleep(pauseTime)
 							}
@@ -1316,38 +1316,38 @@ func (str *StressTestRunner) Run(t *testing.T) *TestStressTestResults {
 			}
 		}
 	}()
-	
+
 	wg.Wait()
-	
+
 	// Calculate results
 	results.MaxMemoryUsage = maxMemory
 	results.MaxCPUUsage = maxCPU
 	results.MaxGoroutines = maxGoroutines
 	results.MaxConcurrency = activeWorkers
 	results.MaxThroughput = float64(operations) / str.config.StressTestDuration.Seconds()
-	
+
 	errorRate := float64(errors) / float64(operations) * 100
 	results.PerformanceDegradation = errorRate
-	
+
 	// Determine breaking point
 	if errorRate > str.config.ErrorRateThreshold {
 		results.BreakingPoint = &BreakingPoint{
-			ConcurrencyLevel:  activeWorkers,
-			ErrorRateSpike:    errorRate,
-			TriggerFactor:     "Error rate exceeded threshold",
+			ConcurrencyLevel: activeWorkers,
+			ErrorRateSpike:   errorRate,
+			TriggerFactor:    "Error rate exceeded threshold",
 		}
 	}
-	
+
 	// Set concurrency limits
 	results.ConcurrencyLimits.HardLimit = str.config.StressTestIntensity
 	results.ConcurrencyLimits.SoftLimit = int(float64(str.config.StressTestIntensity) * 0.8)
 	results.ConcurrencyLimits.RecommendedLimit = int(float64(str.config.StressTestIntensity) * 0.6)
-	
+
 	// Evaluate test result
 	results.Passed = errorRate < str.config.ErrorRateThreshold &&
 		!results.ResourceExhaustion.MemoryExhaustion &&
 		!results.ResourceExhaustion.GoroutineExhaustion
-	
+
 	return results
 }
 
@@ -1361,17 +1361,17 @@ type ChaosTestRunner struct {
 // Run executes the chaos test
 func (ctr *ChaosTestRunner) Run(t *testing.T) *ChaosTestResults {
 	t.Helper()
-	
+
 	results := &ChaosTestResults{
 		FaultInjectionResults: make(map[string]*FaultInjectionResult),
 		FailurePatterns:       make([]FailurePattern, 0),
 		Issues:                make([]string, 0),
 	}
-	
+
 	// Create test environment
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(100))
-	
+
 	// Create tools
 	toolCount := 50
 	tools := make([]*Tool, toolCount)
@@ -1381,21 +1381,21 @@ func (ctr *ChaosTestRunner) Run(t *testing.T) *ChaosTestResults {
 			t.Fatalf("Failed to register tool: %v", err)
 		}
 	}
-	
+
 	// Start profiling
 	ctr.profiler.Start()
 	defer ctr.profiler.Stop()
-	
+
 	// Test different fault types
 	faultTypes := []string{"latency", "error", "memory_pressure", "cpu_spike"}
-	
+
 	for _, faultType := range faultTypes {
 		t.Run(fmt.Sprintf("Fault_%s", faultType), func(t *testing.T) {
 			result := ctr.runFaultInjectionTest(t, faultType, engine, tools)
 			results.FaultInjectionResults[faultType] = result
 		})
 	}
-	
+
 	// Calculate overall resilience score
 	totalScore := 0.0
 	for _, result := range results.FaultInjectionResults {
@@ -1406,33 +1406,33 @@ func (ctr *ChaosTestRunner) Run(t *testing.T) *ChaosTestResults {
 		}
 		totalScore += score
 	}
-	
+
 	results.ResilienceScore = totalScore / float64(len(results.FaultInjectionResults))
-	
+
 	// Evaluate test result
 	results.Passed = results.ResilienceScore > 70.0
-	
+
 	return results
 }
 
 // runFaultInjectionTest runs a specific fault injection test
 func (ctr *ChaosTestRunner) runFaultInjectionTest(t *testing.T, faultType string, engine *ExecutionEngine, tools []*Tool) *FaultInjectionResult {
 	t.Helper()
-	
+
 	result := &FaultInjectionResult{
-		FaultType: faultType,
+		FaultType:         faultType,
 		InjectionDuration: 30 * time.Second,
 	}
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	
+
 	var preInjectionThroughput float64
-	
+
 	// Measure baseline performance
 	baselineCtx, baselineCancel := context.WithTimeout(ctx, 10*time.Second)
 	var baselineOps int64
-	
+
 	var wg sync.WaitGroup
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
@@ -1457,9 +1457,9 @@ func (ctr *ChaosTestRunner) runFaultInjectionTest(t *testing.T, faultType string
 	}
 	wg.Wait()
 	baselineCancel()
-	
+
 	preInjectionThroughput = float64(baselineOps) / 10.0
-	
+
 	// Inject fault
 	switch faultType {
 	case "latency":
@@ -1471,12 +1471,12 @@ func (ctr *ChaosTestRunner) runFaultInjectionTest(t *testing.T, faultType string
 	case "cpu_spike":
 		ctr.injectCPUSpikeFault(ctx)
 	}
-	
+
 	// Measure during fault injection
 	faultCtx, faultCancel := context.WithTimeout(ctx, result.InjectionDuration)
 	var faultOps int64
 	var faultErrors int64
-	
+
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
@@ -1500,14 +1500,14 @@ func (ctr *ChaosTestRunner) runFaultInjectionTest(t *testing.T, faultType string
 	}
 	wg.Wait()
 	faultCancel()
-	
+
 	result.ErrorsInduced = faultErrors
-	
+
 	// Wait for recovery
 	recoveryStart := time.Now()
 	recoveryCtx, recoveryCancel := context.WithTimeout(ctx, 20*time.Second)
 	var recoveryOps int64
-	
+
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
 		go func() {
@@ -1531,15 +1531,15 @@ func (ctr *ChaosTestRunner) runFaultInjectionTest(t *testing.T, faultType string
 	}
 	wg.Wait()
 	recoveryCancel()
-	
+
 	_ = float64(recoveryOps) / 20.0 // postInjectionThroughput - might be used for recovery analysis
 	result.RecoveryTime = time.Since(recoveryStart)
-	
+
 	// Calculate impact
 	faultThroughput := float64(faultOps) / result.InjectionDuration.Seconds()
 	result.ThroughputImpact = ((preInjectionThroughput - faultThroughput) / preInjectionThroughput) * 100
 	result.ImpactSeverity = result.ThroughputImpact / 100.0
-	
+
 	return result
 }
 
@@ -1656,15 +1656,15 @@ func (e *ScalabilityTestExecutor) Execute(ctx context.Context, params map[string
 		return nil, ctx.Err()
 	case <-time.After(e.processingTime):
 	}
-	
+
 	// Simulate work
 	input := params["input"].(string)
 	result := fmt.Sprintf("processed: %s", input)
-	
+
 	return &ToolExecutionResult{
 		Success: true,
 		Data: map[string]interface{}{
-			"result": result,
+			"result":          result,
 			"processing_time": e.processingTime,
 		},
 		Timestamp: time.Now(),
@@ -1682,20 +1682,20 @@ func (e *ChaosTestExecutor) Execute(ctx context.Context, params map[string]inter
 		return nil, ctx.Err()
 	case <-time.After(e.processingTime):
 	}
-	
+
 	// Random chaos - sometimes fail
 	if rand.Float64() < 0.05 { // 5% failure rate
 		return nil, fmt.Errorf("chaos-induced failure")
 	}
-	
+
 	// Simulate work
 	input := params["input"].(string)
 	result := fmt.Sprintf("chaos-processed: %s", input)
-	
+
 	return &ToolExecutionResult{
 		Success: true,
 		Data: map[string]interface{}{
-			"result": result,
+			"result":          result,
 			"processing_time": e.processingTime,
 		},
 		Timestamp: time.Now(),
@@ -1706,7 +1706,7 @@ func (e *ChaosTestExecutor) Execute(ctx context.Context, params map[string]inter
 func (f *ScalabilityTestFramework) warmup(engine *ExecutionEngine, tools []*Tool, duration time.Duration) {
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
-	
+
 	var wg sync.WaitGroup
 	for i := 0; i < 5; i++ {
 		wg.Add(1)
@@ -1734,22 +1734,22 @@ func (f *ScalabilityTestFramework) evaluateTestResult(measurement *TestScalabili
 		measurement.LimitingFactors = append(measurement.LimitingFactors, "Response time threshold exceeded")
 		return false
 	}
-	
+
 	if measurement.Throughput < f.config.ThroughputThreshold {
 		measurement.LimitingFactors = append(measurement.LimitingFactors, "Throughput threshold not met")
 		return false
 	}
-	
+
 	if measurement.ErrorRate > f.config.ErrorRateThreshold {
 		measurement.LimitingFactors = append(measurement.LimitingFactors, "Error rate threshold exceeded")
 		return false
 	}
-	
+
 	if measurement.Memory != nil && measurement.Memory.Peak > f.config.MemoryThreshold {
 		measurement.LimitingFactors = append(measurement.LimitingFactors, "Memory threshold exceeded")
 		return false
 	}
-	
+
 	return true
 }
 
@@ -1757,12 +1757,12 @@ func calculateResponseTimeMetrics(times []time.Duration) *ResponseTimeMetrics {
 	if len(times) == 0 {
 		return &ResponseTimeMetrics{}
 	}
-	
+
 	// Sort times efficiently using built-in sort
 	sort.Slice(times, func(i, j int) bool {
 		return times[i] < times[j]
 	})
-	
+
 	metrics := &ResponseTimeMetrics{
 		Min:    times[0],
 		Max:    times[len(times)-1],
@@ -1771,14 +1771,14 @@ func calculateResponseTimeMetrics(times []time.Duration) *ResponseTimeMetrics {
 		P99:    times[len(times)*99/100],
 		P999:   times[len(times)*999/1000],
 	}
-	
+
 	// Calculate mean
 	var total time.Duration
 	for _, t := range times {
 		total += t
 	}
 	metrics.Mean = total / time.Duration(len(times))
-	
+
 	// Calculate standard deviation
 	var variance float64
 	for _, t := range times {
@@ -1787,20 +1787,20 @@ func calculateResponseTimeMetrics(times []time.Duration) *ResponseTimeMetrics {
 	}
 	variance /= float64(len(times))
 	metrics.StdDev = time.Duration(math.Sqrt(variance))
-	
+
 	return metrics
 }
 
 func calculateEfficiencyScore(throughput float64, units int) float64 {
 	// Efficiency score based on throughput per unit
 	throughputPerUnit := throughput / float64(units)
-	
+
 	// Normalize to 0-100 scale (assuming 1 op/sec per unit is good)
 	score := throughputPerUnit * 100
 	if score > 100 {
 		score = 100
 	}
-	
+
 	return score
 }
 
@@ -1808,14 +1808,14 @@ func calculateStability(responseTimes []time.Duration) float64 {
 	if len(responseTimes) < 2 {
 		return 0
 	}
-	
+
 	// Calculate coefficient of variation
 	var total time.Duration
 	for _, t := range responseTimes {
 		total += t
 	}
 	mean := total / time.Duration(len(responseTimes))
-	
+
 	var variance float64
 	for _, t := range responseTimes {
 		diff := float64(t - mean)
@@ -1823,9 +1823,9 @@ func calculateStability(responseTimes []time.Duration) float64 {
 	}
 	variance /= float64(len(responseTimes))
 	stdDev := math.Sqrt(variance)
-	
+
 	cv := stdDev / float64(mean)
-	
+
 	// Stability score is inversely related to coefficient of variation
 	return math.Max(0, 1-cv)
 }
@@ -1834,12 +1834,12 @@ func calculateConsistency(responseTimes []time.Duration) float64 {
 	if len(responseTimes) < 2 {
 		return 0
 	}
-	
+
 	// Calculate consistency based on interquartile range
 	// Sort times
 	sorted := make([]time.Duration, len(responseTimes))
 	copy(sorted, responseTimes)
-	
+
 	for i := 0; i < len(sorted); i++ {
 		for j := i + 1; j < len(sorted); j++ {
 			if sorted[i] > sorted[j] {
@@ -1847,17 +1847,17 @@ func calculateConsistency(responseTimes []time.Duration) float64 {
 			}
 		}
 	}
-	
+
 	q1 := sorted[len(sorted)/4]
 	q3 := sorted[len(sorted)*3/4]
 	iqr := q3 - q1
 	median := sorted[len(sorted)/2]
-	
+
 	// Consistency score based on IQR relative to median
 	if median == 0 {
 		return 0
 	}
-	
+
 	consistency := 1 - (float64(iqr) / float64(median))
 	return math.Max(0, consistency)
 }
@@ -1868,25 +1868,25 @@ func calculateConsistency(responseTimes []time.Duration) float64 {
 func (p *ScalabilityProfiler) Start() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	if p.isRunning {
 		return
 	}
-	
+
 	p.isRunning = true
 	p.stopChan = make(chan struct{})
-	
+
 	go p.monitor()
 }
 
 func (p *ScalabilityProfiler) Stop() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	if !p.isRunning {
 		return
 	}
-	
+
 	p.isRunning = false
 	close(p.stopChan)
 }
@@ -1894,7 +1894,7 @@ func (p *ScalabilityProfiler) Stop() {
 func (p *ScalabilityProfiler) monitor() {
 	ticker := time.NewTicker(p.config.MeasurementInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-p.stopChan:
@@ -1909,12 +1909,12 @@ func (p *ScalabilityProfiler) takeMeasurement() {
 	// Memory measurement
 	var m runtime.MemStats
 	runtime.ReadMemStats(&m)
-	
+
 	p.resourceMonitor.mu.Lock()
 	p.resourceMonitor.memoryUsage = append(p.resourceMonitor.memoryUsage, m.Alloc)
 	p.resourceMonitor.goroutineCount = append(p.resourceMonitor.goroutineCount, runtime.NumGoroutine())
 	p.resourceMonitor.mu.Unlock()
-	
+
 	// Keep recent measurements only
 	p.resourceMonitor.mu.Lock()
 	if len(p.resourceMonitor.memoryUsage) > 1000 {
@@ -1927,31 +1927,31 @@ func (p *ScalabilityProfiler) takeMeasurement() {
 func (p *ScalabilityProfiler) GetMemoryMetrics() *MemoryMetrics {
 	p.resourceMonitor.mu.RLock()
 	defer p.resourceMonitor.mu.RUnlock()
-	
+
 	if len(p.resourceMonitor.memoryUsage) == 0 {
 		return &MemoryMetrics{}
 	}
-	
+
 	var total uint64
 	var peak uint64
 	initial := p.resourceMonitor.memoryUsage[0]
 	current := p.resourceMonitor.memoryUsage[len(p.resourceMonitor.memoryUsage)-1]
-	
+
 	for _, usage := range p.resourceMonitor.memoryUsage {
 		total += usage
 		if usage > peak {
 			peak = usage
 		}
 	}
-	
+
 	average := total / uint64(len(p.resourceMonitor.memoryUsage))
 	growth := ((float64(current) - float64(initial)) / float64(initial)) * 100
-	
+
 	return &MemoryMetrics{
-		Current:   current,
-		Peak:      peak,
-		Average:   average,
-		Growth:    growth,
+		Current:    current,
+		Peak:       peak,
+		Average:    average,
+		Growth:     growth,
 		Efficiency: calculateMemoryEfficiency(current, peak),
 	}
 }
@@ -1959,10 +1959,10 @@ func (p *ScalabilityProfiler) GetMemoryMetrics() *MemoryMetrics {
 func (p *ScalabilityProfiler) GetCPUMetrics() *CPUMetrics {
 	// Simplified CPU metrics
 	return &CPUMetrics{
-		Current:    50.0, // Placeholder
-		Peak:       80.0,
-		Average:    60.0,
-		Efficiency: 0.8,
+		Current:     50.0, // Placeholder
+		Peak:        80.0,
+		Average:     60.0,
+		Efficiency:  0.8,
 		Utilization: 0.6,
 	}
 }
@@ -1970,31 +1970,31 @@ func (p *ScalabilityProfiler) GetCPUMetrics() *CPUMetrics {
 func (p *ScalabilityProfiler) GetGoroutineMetrics() *GoroutineMetrics {
 	p.resourceMonitor.mu.RLock()
 	defer p.resourceMonitor.mu.RUnlock()
-	
+
 	if len(p.resourceMonitor.goroutineCount) == 0 {
 		return &GoroutineMetrics{}
 	}
-	
+
 	var total int
 	var peak int
 	initial := p.resourceMonitor.goroutineCount[0]
 	current := p.resourceMonitor.goroutineCount[len(p.resourceMonitor.goroutineCount)-1]
-	
+
 	for _, count := range p.resourceMonitor.goroutineCount {
 		total += count
 		if count > peak {
 			peak = count
 		}
 	}
-	
+
 	average := total / len(p.resourceMonitor.goroutineCount)
 	growth := ((float64(current) - float64(initial)) / float64(initial)) * 100
-	
+
 	return &GoroutineMetrics{
-		Current:   current,
-		Peak:      peak,
-		Average:   average,
-		Growth:    growth,
+		Current:    current,
+		Peak:       peak,
+		Average:    average,
+		Growth:     growth,
 		Efficiency: calculateGoroutineEfficiency(current, peak),
 	}
 }
@@ -2016,13 +2016,13 @@ func calculateGoroutineEfficiency(current, peak int) float64 {
 // Analyzer methods
 func (a *ScalabilityAnalyzer) AnalyzeScalability() *ScalabilityAnalysis {
 	analysis := &ScalabilityAnalysis{
-		LinearScalability: a.analyzeLinearScalability(),
-		ScalabilityLaw:    a.analyzeScalabilityLaws(),
-		BottleneckAnalysis: a.analyzeBottlenecks(),
+		LinearScalability:     a.analyzeLinearScalability(),
+		ScalabilityLaw:        a.analyzeScalabilityLaws(),
+		BottleneckAnalysis:    a.analyzeBottlenecks(),
 		OptimalOperatingPoint: a.findOptimalOperatingPoint(),
 		ScalabilityPrediction: a.predictScalability(),
 	}
-	
+
 	return analysis
 }
 
@@ -2071,11 +2071,11 @@ func (a *ScalabilityAnalyzer) findOptimalOperatingPoint() *OptimalOperatingPoint
 	// Find optimal operating point
 	return &OptimalOperatingPoint{
 		OptimalConcurrency: 200,
-		OptimalLoad:       5000,
-		OptimalThroughput: 4500,
-		OptimalEfficiency: 0.85,
-		OperatingRange:    [2]int{150, 250},
-		MarginOfSafety:    0.2,
+		OptimalLoad:        5000,
+		OptimalThroughput:  4500,
+		OptimalEfficiency:  0.85,
+		OperatingRange:     [2]int{150, 250},
+		MarginOfSafety:     0.2,
 	}
 }
 
@@ -2094,23 +2094,23 @@ func (a *ScalabilityAnalyzer) AnalyzePerformanceBreakdown() *PerformanceBreakdow
 	// Analyze performance breakdown
 	return &PerformanceBreakdown{
 		ExecutionBreakdown: map[string]time.Duration{
-			"validation":  5 * time.Millisecond,
-			"execution":   20 * time.Millisecond,
-			"cleanup":     2 * time.Millisecond,
+			"validation": 5 * time.Millisecond,
+			"execution":  20 * time.Millisecond,
+			"cleanup":    2 * time.Millisecond,
 		},
 		ComponentBreakdown: map[string]*ComponentPerformance{
 			"registry": {
 				ResponseTime:        2 * time.Millisecond,
-				Throughput:         1000,
-				Utilization:        0.3,
-				Efficiency:         0.9,
+				Throughput:          1000,
+				Utilization:         0.3,
+				Efficiency:          0.9,
 				BottleneckPotential: 0.1,
 			},
 			"executor": {
 				ResponseTime:        20 * time.Millisecond,
-				Throughput:         800,
-				Utilization:        0.8,
-				Efficiency:         0.7,
+				Throughput:          800,
+				Utilization:         0.8,
+				Efficiency:          0.7,
 				BottleneckPotential: 0.6,
 			},
 		},
@@ -2121,19 +2121,19 @@ func (a *ScalabilityAnalyzer) AnalyzeResourceUtilization() *ResourceUtilization 
 	// Analyze resource utilization
 	return &ResourceUtilization{
 		MemoryUtilization: &UtilizationMetrics{
-			Current:        0.6,
-			Peak:           0.8,
-			Average:        0.65,
-			Efficiency:     0.75,
-			Saturation:     0.2,
+			Current:         0.6,
+			Peak:            0.8,
+			Average:         0.65,
+			Efficiency:      0.75,
+			Saturation:      0.2,
 			ContentionLevel: 0.1,
 		},
 		CPUUtilization: &UtilizationMetrics{
-			Current:        0.5,
-			Peak:           0.7,
-			Average:        0.55,
-			Efficiency:     0.8,
-			Saturation:     0.1,
+			Current:         0.5,
+			Peak:            0.7,
+			Average:         0.55,
+			Efficiency:      0.8,
+			Saturation:      0.1,
 			ContentionLevel: 0.05,
 		},
 	}
@@ -2170,10 +2170,10 @@ func (a *ScalabilityAnalyzer) GenerateRecommendations() *RecommendedLimits {
 func (a *ScalabilityAnalyzer) CalculateOverallScore() float64 {
 	// Calculate overall scalability score
 	var score float64
-	
+
 	// Factor in different aspects
 	score += 20 // Base score
-	
+
 	// Add points for good scalability
 	if a.results.ScalabilityAnalysis != nil {
 		if a.results.ScalabilityAnalysis.LinearScalability != nil {
@@ -2183,16 +2183,16 @@ func (a *ScalabilityAnalyzer) CalculateOverallScore() float64 {
 			score += a.results.ScalabilityAnalysis.OptimalOperatingPoint.OptimalEfficiency * 25
 		}
 	}
-	
+
 	// Subtract points for issues
 	if a.results.TestStressTestResults != nil && !a.results.TestStressTestResults.Passed {
 		score -= 20
 	}
-	
+
 	if a.results.ChaosTestResults != nil && !a.results.ChaosTestResults.Passed {
 		score -= 15
 	}
-	
+
 	// Ensure score is within bounds
 	if score < 0 {
 		score = 0
@@ -2200,7 +2200,6 @@ func (a *ScalabilityAnalyzer) CalculateOverallScore() float64 {
 	if score > 100 {
 		score = 100
 	}
-	
+
 	return score
 }
-

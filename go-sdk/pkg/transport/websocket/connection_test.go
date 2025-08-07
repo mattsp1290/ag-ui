@@ -18,7 +18,7 @@ import (
 )
 
 func TestConnectionBasicOperations(t *testing.T) {
-	
+
 	// Setup test WebSocket server
 	server := createTestWebSocketServer(t)
 	defer server.Close()
@@ -62,7 +62,7 @@ func TestConnectionBasicOperations(t *testing.T) {
 }
 
 func TestConnectionStateTransitions(t *testing.T) {
-	
+
 	config := DefaultConnectionConfig()
 	config.URL = "ws://localhost:8080"
 	config.Logger = zaptest.NewLogger(t)
@@ -129,7 +129,7 @@ func TestConnectionReconnection(t *testing.T) {
 	conn.setState(StateConnected) // Ensure we're in connected state
 	conn.triggerReconnect()       // Manually trigger reconnection
 
-	// Wait for reconnection attempts  
+	// Wait for reconnection attempts
 	time.Sleep(500 * time.Millisecond)
 	// Give the server time to close
 	time.Sleep(100 * time.Millisecond)
@@ -157,7 +157,7 @@ func TestConnectionReconnection(t *testing.T) {
 }
 
 func TestConnectionMetrics(t *testing.T) {
-	
+
 	server := createTestWebSocketServer(t)
 	defer server.Close()
 
@@ -254,19 +254,19 @@ func TestConnectionEventHandlers(t *testing.T) {
 	// Connect
 	err = conn.Connect(ctx)
 	require.NoError(t, err)
-	
+
 	// Send a test message to trigger message handler
 	messageWg.Add(1)
 	err = conn.SendMessage(ctx, []byte("test message"))
 	require.NoError(t, err)
-	
+
 	// Wait for message handler with timeout
 	done := make(chan struct{})
 	go func() {
 		messageWg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// Message received
@@ -289,7 +289,7 @@ func TestConnectionEventHandlers(t *testing.T) {
 		wg.Wait()
 		close(handlerDone)
 	}()
-	
+
 	select {
 	case <-handlerDone:
 		// Handlers completed
@@ -312,7 +312,7 @@ func TestConnectionEventHandlers(t *testing.T) {
 }
 
 func TestConnectionConfiguration(t *testing.T) {
-	
+
 	// Test default configuration
 	config := DefaultConnectionConfig()
 	assert.Equal(t, 10, config.MaxReconnectAttempts)
@@ -324,7 +324,7 @@ func TestConnectionConfiguration(t *testing.T) {
 	assert.Greater(t, config.ReadTimeout, time.Duration(0))
 	assert.Greater(t, config.WriteTimeout, time.Duration(0))
 	assert.Greater(t, config.PingPeriod, time.Duration(0))
-	assert.Greater(t, config.PongWait, config.PingPeriod)  // PongWait should be > PingPeriod
+	assert.Greater(t, config.PongWait, config.PingPeriod) // PongWait should be > PingPeriod
 	assert.Equal(t, int64(1024*1024), config.MaxMessageSize)
 	assert.Equal(t, 4096, config.WriteBufferSize)
 	assert.Equal(t, 4096, config.ReadBufferSize)
@@ -413,8 +413,8 @@ func TestConnectionConcurrency(t *testing.T) {
 		concurrencyConfig := getConcurrencyConfig("TestConnectionConcurrency")
 		numGoroutines := concurrencyConfig.NumGoroutines
 		messagesPerGoroutine := concurrencyConfig.OperationsPerRoutine
-		
-		t.Logf("TestConnectionConcurrency: Using %d goroutines × %d operations = %d total operations (full_suite=%v)", 
+
+		t.Logf("TestConnectionConcurrency: Using %d goroutines × %d operations = %d total operations (full_suite=%v)",
 			numGoroutines, messagesPerGoroutine, numGoroutines*messagesPerGoroutine, isFullTestSuite())
 
 		for i := 0; i < numGoroutines; i++ {
@@ -446,7 +446,7 @@ func TestConnectionConcurrency(t *testing.T) {
 }
 
 func TestConnectionBackoffCalculation(t *testing.T) {
-	
+
 	config := DefaultConnectionConfig()
 	config.URL = "ws://localhost:8080"
 	config.InitialReconnectDelay = 1 * time.Second
@@ -468,7 +468,7 @@ func TestConnectionBackoffCalculation(t *testing.T) {
 }
 
 func TestConnectionDialTimeout(t *testing.T) {
-	
+
 	t.Run("DialTimeoutConfiguration", func(t *testing.T) {
 		config := DefaultConnectionConfig()
 		config.URL = "ws://localhost:8080" // Invalid URL to test timeout
@@ -522,7 +522,7 @@ func createTestWebSocketServer(t *testing.T) *httptest.Server {
 		}()
 
 		// Create a timeout context for this connection
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)  // Reduced from 30s
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // Reduced from 30s
 		defer cancel()
 
 		// Track connection state to prevent "repeated read on failed websocket connection" panic
@@ -547,7 +547,7 @@ func createTestWebSocketServer(t *testing.T) *httptest.Server {
 				return
 			default:
 			}
-			
+
 			// Check if connection is already closed to prevent panic
 			closeMutex.Lock()
 			if connectionClosed {
@@ -556,10 +556,10 @@ func createTestWebSocketServer(t *testing.T) *httptest.Server {
 				return
 			}
 			closeMutex.Unlock()
-			
+
 			// Set very short read deadline to prevent hanging during tests
 			conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
-			
+
 			// Use panic recovery to prevent "repeated read on failed websocket connection" panic
 			func() {
 				defer func() {
@@ -570,7 +570,7 @@ func createTestWebSocketServer(t *testing.T) *httptest.Server {
 						closeMutex.Unlock()
 					}
 				}()
-				
+
 				messageType, message, err := conn.ReadMessage()
 				if err != nil {
 					// Check for timeout error first
@@ -583,11 +583,11 @@ func createTestWebSocketServer(t *testing.T) *httptest.Server {
 							return // Just return from the anonymous function, continue outer loop
 						}
 					}
-					
+
 					if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure, websocket.CloseNormalClosure) {
 						t.Logf("WebSocket error: %v", err)
 					}
-					
+
 					// Mark connection as closed on any read error
 					closeMutex.Lock()
 					connectionClosed = true
@@ -614,7 +614,7 @@ func createTestWebSocketServer(t *testing.T) *httptest.Server {
 					return
 				}
 			}()
-			
+
 			// Check if we should exit the main loop
 			closeMutex.Lock()
 			if connectionClosed {

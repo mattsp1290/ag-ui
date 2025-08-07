@@ -15,28 +15,28 @@ import (
 // ErrorTransport is a transport implementation that simulates various error conditions
 type ErrorTransport struct {
 	mu sync.RWMutex
-	
+
 	// Control error behavior
-	connectError       error
-	sendError          error
-	closeError         error
-	
+	connectError error
+	sendError    error
+	closeError   error
+
 	// Control connection state
-	connected          bool
-	forceDisconnect    bool
-	
+	connected       bool
+	forceDisconnect bool
+
 	// Channels
-	eventChan          chan events.Event
-	errorChan          chan error
-	
+	eventChan chan events.Event
+	errorChan chan error
+
 	// Simulate delays
-	connectDelay       time.Duration
-	sendDelay          time.Duration
-	
+	connectDelay time.Duration
+	sendDelay    time.Duration
+
 	// Track operations for testing
-	connectAttempts    int
-	sendAttempts       int
-	closeAttempts      int
+	connectAttempts int
+	sendAttempts    int
+	closeAttempts   int
 }
 
 func NewErrorTransport() *ErrorTransport {
@@ -49,9 +49,9 @@ func NewErrorTransport() *ErrorTransport {
 func (t *ErrorTransport) Connect(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	
+
 	t.connectAttempts++
-	
+
 	// Simulate connection delay
 	if t.connectDelay > 0 {
 		select {
@@ -60,15 +60,15 @@ func (t *ErrorTransport) Connect(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
-	
+
 	if t.connectError != nil {
 		return t.connectError
 	}
-	
+
 	if t.connected {
 		return ErrAlreadyConnected
 	}
-	
+
 	t.connected = true
 	return nil
 }
@@ -76,19 +76,19 @@ func (t *ErrorTransport) Connect(ctx context.Context) error {
 func (t *ErrorTransport) Close(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	
+
 	t.closeAttempts++
-	
+
 	if t.closeError != nil {
 		return t.closeError
 	}
-	
+
 	if !t.connected {
 		return nil
 	}
-	
+
 	t.connected = false
-	
+
 	// Close channels safely
 	select {
 	case <-t.eventChan:
@@ -96,33 +96,33 @@ func (t *ErrorTransport) Close(ctx context.Context) error {
 	default:
 		close(t.eventChan)
 	}
-	
+
 	select {
 	case <-t.errorChan:
 		// Already closed
 	default:
 		close(t.errorChan)
 	}
-	
+
 	return nil
 }
 
 func (t *ErrorTransport) Send(ctx context.Context, event TransportEvent) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	
+
 	t.sendAttempts++
-	
+
 	// Check if forced disconnect
 	if t.forceDisconnect {
 		t.connected = false
 		return ErrConnectionClosed
 	}
-	
+
 	if !t.connected {
 		return ErrNotConnected
 	}
-	
+
 	// Simulate send delay
 	if t.sendDelay > 0 {
 		select {
@@ -131,21 +131,21 @@ func (t *ErrorTransport) Send(ctx context.Context, event TransportEvent) error {
 			return ctx.Err()
 		}
 	}
-	
+
 	if t.sendError != nil {
 		return t.sendError
 	}
-	
+
 	// Check for nil event
 	if event == nil {
 		return errors.New("cannot send nil event")
 	}
-	
+
 	// Simulate message size limit
 	if len(event.ID()) > 1000 {
 		return ErrMessageTooLarge
 	}
-	
+
 	return nil
 }
 
@@ -179,7 +179,7 @@ func (t *ErrorTransport) Config() Config {
 func (t *ErrorTransport) Stats() TransportStats {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	
+
 	return TransportStats{
 		EventsSent:     int64(t.sendAttempts),
 		ErrorCount:     int64(t.connectAttempts - 1),
@@ -267,17 +267,17 @@ func TestConnectionFailures(t *testing.T) {
 			expectedError: ErrConnectionFailed,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			transport := NewErrorTransport()
 			tt.setupFunc(transport)
-			
+
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
-			
+
 			err := transport.Connect(ctx)
-			
+
 			if tt.expectedError != nil {
 				if !errors.Is(err, tt.expectedError) {
 					t.Errorf("Expected error %v, got %v", tt.expectedError, err)
@@ -305,7 +305,7 @@ func TestSendFailures(t *testing.T) {
 			setupFunc: func(et *ErrorTransport) {
 				// Transport not connected
 			},
-			event: &DemoEvent{id: "test-1", eventType: "demo"},
+			event:         &DemoEvent{id: "test-1", eventType: "demo"},
 			expectedError: ErrNotConnected,
 		},
 		{
@@ -313,7 +313,7 @@ func TestSendFailures(t *testing.T) {
 			setupFunc: func(et *ErrorTransport) {
 				et.connected = true
 			},
-			event: nil,
+			event:         nil,
 			expectedError: errors.New("cannot send nil event"),
 		},
 		{
@@ -322,7 +322,7 @@ func TestSendFailures(t *testing.T) {
 				et.connected = true
 			},
 			event: &DemoEvent{
-				id: string(make([]byte, 1001)), // ID larger than limit
+				id:        string(make([]byte, 1001)), // ID larger than limit
 				eventType: "demo",
 			},
 			expectedError: ErrMessageTooLarge,
@@ -333,7 +333,7 @@ func TestSendFailures(t *testing.T) {
 				et.connected = true
 				et.sendDelay = 2 * time.Second
 			},
-			event: &DemoEvent{id: "test-1", eventType: "demo"},
+			event:         &DemoEvent{id: "test-1", eventType: "demo"},
 			expectedError: context.DeadlineExceeded,
 		},
 		{
@@ -342,7 +342,7 @@ func TestSendFailures(t *testing.T) {
 				et.connected = true
 				et.ForceDisconnect()
 			},
-			event: &DemoEvent{id: "test-1", eventType: "demo"},
+			event:         &DemoEvent{id: "test-1", eventType: "demo"},
 			expectedError: ErrConnectionClosed,
 		},
 		{
@@ -351,21 +351,21 @@ func TestSendFailures(t *testing.T) {
 				et.connected = true
 				et.SetSendError(errors.New("network error"))
 			},
-			event: &DemoEvent{id: "test-1", eventType: "demo"},
+			event:         &DemoEvent{id: "test-1", eventType: "demo"},
 			expectedError: errors.New("network error"),
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			transport := NewErrorTransport()
 			tt.setupFunc(transport)
-			
+
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
-			
+
 			err := transport.Send(ctx, tt.event)
-			
+
 			if tt.expectedError != nil {
 				if tt.expectedError.Error() != err.Error() && !errors.Is(err, tt.expectedError) {
 					t.Errorf("Expected error %v, got %v", tt.expectedError, err)
@@ -381,13 +381,13 @@ func TestSendFailures(t *testing.T) {
 func TestReceiveFailures(t *testing.T) {
 	t.Run("error_channel_behavior", func(t *testing.T) {
 		transport := NewErrorTransport()
-		
+
 		// Connect first
 		ctx := context.Background()
 		if err := transport.Connect(ctx); err != nil {
 			t.Fatalf("Failed to connect: %v", err)
 		}
-		
+
 		// Simulate various errors
 		testErrors := []error{
 			ErrConnectionClosed,
@@ -395,12 +395,12 @@ func TestReceiveFailures(t *testing.T) {
 			errors.New("network error"),
 			NewTransportError("test", "receive", errors.New("io error")),
 		}
-		
+
 		// Send errors
 		for _, err := range testErrors {
 			transport.SimulateError(err)
 		}
-		
+
 		// Receive and verify errors
 		for i, expectedErr := range testErrors {
 			select {
@@ -413,20 +413,20 @@ func TestReceiveFailures(t *testing.T) {
 			}
 		}
 	})
-	
+
 	t.Run("closed_channel_behavior", func(t *testing.T) {
 		transport := NewErrorTransport()
-		
+
 		// Connect and close
 		ctx := context.Background()
 		if err := transport.Connect(ctx); err != nil {
 			t.Fatalf("Failed to connect: %v", err)
 		}
-		
+
 		if err := transport.Close(ctx); err != nil {
 			t.Fatalf("Failed to close: %v", err)
 		}
-		
+
 		// Try to receive from closed channels
 		select {
 		case _, ok := <-transport.Receive():
@@ -443,14 +443,14 @@ func TestReceiveFailures(t *testing.T) {
 func TestNilTransportHandling(t *testing.T) {
 	t.Run("manager_with_nil_transport", func(t *testing.T) {
 		manager := NewSimpleManager()
-		
+
 		// Start without setting transport
 		ctx := context.Background()
 		if err := manager.Start(ctx); err != nil {
 			t.Fatalf("Failed to start manager: %v", err)
 		}
 		defer manager.Stop(ctx)
-		
+
 		// Try to send with nil transport
 		event := &DemoEvent{id: "test-1", eventType: "demo"}
 		err := manager.Send(ctx, event)
@@ -458,17 +458,17 @@ func TestNilTransportHandling(t *testing.T) {
 			t.Errorf("Expected ErrNotConnected, got %v", err)
 		}
 	})
-	
+
 	t.Run("set_nil_transport", func(t *testing.T) {
 		manager := NewSimpleManager()
-		
+
 		// Set a valid transport first
 		transport := NewErrorTransport()
 		manager.SetTransport(transport)
-		
+
 		// Now set nil
 		manager.SetTransport(nil)
-		
+
 		ctx := context.Background()
 		event := &DemoEvent{id: "test-1", eventType: "demo"}
 		err := manager.Send(ctx, event)
@@ -483,53 +483,53 @@ func TestContextCancellation(t *testing.T) {
 	t.Run("connect_with_cancelled_context", func(t *testing.T) {
 		transport := NewErrorTransport()
 		transport.connectDelay = 100 * time.Millisecond
-		
+
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
-		
+
 		err := transport.Connect(ctx)
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("Expected context.Canceled, got %v", err)
 		}
 	})
-	
+
 	t.Run("send_with_cancelled_context", func(t *testing.T) {
 		transport := NewErrorTransport()
 		transport.sendDelay = 100 * time.Millisecond
-		
+
 		// Connect first
 		ctx := context.Background()
 		if err := transport.Connect(ctx); err != nil {
 			t.Fatalf("Failed to connect: %v", err)
 		}
-		
+
 		// Send with cancelled context
 		sendCtx, cancel := context.WithCancel(context.Background())
 		cancel()
-		
+
 		event := &DemoEvent{id: "test-1", eventType: "demo"}
 		err := transport.Send(sendCtx, event)
 		if !errors.Is(err, context.Canceled) {
 			t.Errorf("Expected context.Canceled, got %v", err)
 		}
 	})
-	
+
 	t.Run("manager_stop_with_timeout", func(t *testing.T) {
 		manager := NewSimpleManager()
 		transport := NewErrorTransport()
 		transport.SetCloseError(errors.New("close timeout"))
-		
+
 		manager.SetTransport(transport)
-		
+
 		ctx := context.Background()
 		if err := manager.Start(ctx); err != nil {
 			t.Fatalf("Failed to start: %v", err)
 		}
-		
+
 		// Stop with short timeout
 		stopCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
-		
+
 		err := manager.Stop(stopCtx)
 		if err == nil || err.Error() != "close timeout" {
 			t.Errorf("Expected close timeout error, got %v", err)
@@ -541,16 +541,16 @@ func TestContextCancellation(t *testing.T) {
 func TestConcurrentOperations(t *testing.T) {
 	t.Run("concurrent_sends", func(t *testing.T) {
 		transport := NewErrorTransport()
-		
+
 		ctx := context.Background()
 		if err := transport.Connect(ctx); err != nil {
 			t.Fatalf("Failed to connect: %v", err)
 		}
-		
+
 		// Launch multiple concurrent sends
 		var wg sync.WaitGroup
 		errors := make(chan error, 10)
-		
+
 		for i := 0; i < 10; i++ {
 			wg.Add(1)
 			go func(id int) {
@@ -564,44 +564,44 @@ func TestConcurrentOperations(t *testing.T) {
 				}
 			}(i)
 		}
-		
+
 		wg.Wait()
 		close(errors)
-		
+
 		// Check for errors
 		for err := range errors {
 			t.Errorf("Concurrent send error: %v", err)
 		}
-		
+
 		// Verify send attempts
 		if transport.sendAttempts != 10 {
 			t.Errorf("Expected 10 send attempts, got %d", transport.sendAttempts)
 		}
 	})
-	
+
 	t.Run("concurrent_connect_close", func(t *testing.T) {
 		transport := NewErrorTransport()
-		
+
 		// Rapidly connect and close
 		var wg sync.WaitGroup
 		for i := 0; i < 5; i++ {
 			wg.Add(2)
-			
+
 			go func() {
 				defer wg.Done()
 				ctx := context.Background()
 				transport.Connect(ctx)
 			}()
-			
+
 			go func() {
 				defer wg.Done()
 				ctx := context.Background()
 				transport.Close(ctx)
 			}()
 		}
-		
+
 		wg.Wait()
-		
+
 		// Transport should handle this gracefully
 		// Just verify no panic occurred
 	})
@@ -611,61 +611,61 @@ func TestConcurrentOperations(t *testing.T) {
 func TestErrorTypes(t *testing.T) {
 	t.Run("transport_error", func(t *testing.T) {
 		err := NewTransportError("websocket", "send", errors.New("connection reset"))
-		
+
 		if !IsTransportError(err) {
 			t.Error("Expected IsTransportError to return true")
 		}
-		
+
 		expectedMsg := "websocket send: connection reset"
 		if err.Error() != expectedMsg {
 			t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
 		}
-		
+
 		if err.IsTemporary() {
 			t.Error("Expected IsTemporary to return false")
 		}
-		
+
 		if err.IsRetryable() {
 			t.Error("Expected IsRetryable to return false")
 		}
 	})
-	
+
 	t.Run("temporary_error", func(t *testing.T) {
 		err := NewTemporaryError("http", "receive", errors.New("timeout"))
-		
+
 		if !err.IsTemporary() {
 			t.Error("Expected IsTemporary to return true")
 		}
-		
+
 		if !err.IsRetryable() {
 			t.Error("Expected IsRetryable to return true")
 		}
 	})
-	
+
 	t.Run("connection_error", func(t *testing.T) {
 		cause := errors.New("dial tcp: connection refused")
 		err := &ConnectionError{
 			Endpoint: "localhost:8080",
 			Cause:    cause,
 		}
-		
+
 		expectedMsg := "connection error to localhost:8080: dial tcp: connection refused"
 		if err.Error() != expectedMsg {
 			t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
 		}
-		
+
 		if !errors.Is(err, cause) {
 			t.Error("Expected error to wrap the cause")
 		}
 	})
-	
+
 	t.Run("configuration_error", func(t *testing.T) {
 		err := &LegacyConfigurationError{
 			Field:   "timeout",
 			Value:   -1,
 			Message: "timeout must be positive",
 		}
-		
+
 		expectedMsg := "configuration error for field timeout (value: -1): timeout must be positive"
 		if err.Error() != expectedMsg {
 			t.Errorf("Expected error message %q, got %q", expectedMsg, err.Error())
@@ -681,66 +681,66 @@ func TestManagerErrorScenarios(t *testing.T) {
 		manager := NewSimpleManager()
 		transport := NewDemoTransport()
 		manager.SetTransport(transport)
-		
+
 		ctx := context.Background()
-		
+
 		// Start manager
 		if err := manager.Start(ctx); err != nil {
 			t.Fatalf("Failed to start: %v", err)
 		}
 		defer manager.Stop(ctx)
-		
+
 		// Try to start again
 		err := manager.Start(ctx)
 		if !errors.Is(err, ErrAlreadyConnected) {
 			t.Errorf("Expected ErrAlreadyConnected, got %v", err)
 		}
 	})
-	
+
 	t.Run("transport_connect_failure", func(t *testing.T) {
 		manager := NewSimpleManager()
 		transport := NewErrorTransport()
 		transport.SetConnectError(ErrConnectionFailed)
-		
+
 		manager.SetTransport(transport)
-		
+
 		ctx := context.Background()
 		err := manager.Start(ctx)
 		if !errors.Is(err, ErrConnectionFailed) {
 			t.Errorf("Expected ErrConnectionFailed, got %v", err)
 		}
-		
+
 		// Manager should not be running after failed start
 		if atomic.LoadInt32(&manager.running) != 0 {
 			t.Error("Manager should not be running after failed start")
 		}
 	})
-	
+
 	t.Run("event_channel_overflow", func(t *testing.T) {
 		manager := NewSimpleManager()
 		transport := NewDemoTransport()
 		manager.SetTransport(transport)
-		
+
 		ctx := context.Background()
 		if err := manager.Start(ctx); err != nil {
 			t.Fatalf("Failed to start: %v", err)
 		}
 		defer manager.Stop(ctx)
-		
+
 		// Fill up the event channel
 		for i := 0; i < 110; i++ { // Channel buffer is 100
 			event := &DemoEvent{
 				id:        fmt.Sprintf("overflow-%d", i),
 				eventType: "demo",
 			}
-			
+
 			// Send through transport (which echoes back)
 			transport.Send(ctx, event)
 		}
-		
+
 		// Give some time for events to propagate
 		time.Sleep(100 * time.Millisecond)
-		
+
 		// Channel should be full but not cause panic
 		// This tests graceful handling of channel overflow
 	})
@@ -751,50 +751,50 @@ func TestEdgeCases(t *testing.T) {
 	t.Run("zero_timeout", func(t *testing.T) {
 		transport := NewErrorTransport()
 		transport.connectDelay = 10 * time.Millisecond // Add small delay to trigger timeout
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 0)
 		defer cancel()
-		
+
 		err := transport.Connect(ctx)
 		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Errorf("Expected context.DeadlineExceeded, got %v", err)
 		}
 	})
-	
+
 	t.Run("metrics_after_errors", func(t *testing.T) {
 		transport := NewErrorTransport()
-		
+
 		// Cause some errors
 		transport.SetConnectError(errors.New("test error"))
-		
+
 		ctx := context.Background()
 		for i := 0; i < 3; i++ {
 			transport.Connect(ctx)
 		}
-		
+
 		stats := transport.Stats()
 		if stats.ErrorCount != 2 { // 3 attempts - 1 success = 2 errors
 			t.Errorf("Expected error count 2, got %d", stats.ErrorCount)
 		}
 	})
-	
+
 	t.Run("capabilities_edge_cases", func(t *testing.T) {
 		caps := Capabilities{
 			MaxMessageSize: 0, // 0 means unlimited
 			Features:       nil,
 		}
-		
+
 		// Should handle nil features map
 		if caps.Features != nil {
 			t.Error("Expected nil features map")
 		}
-		
+
 		// 0 MaxMessageSize should mean unlimited
 		if caps.MaxMessageSize != 0 {
 			t.Error("Expected MaxMessageSize to be 0 (unlimited)")
 		}
 	})
-	
+
 	// event_metadata_edge_cases test removed - EventMetadata type no longer exists
 }
 
@@ -803,12 +803,12 @@ func TestSimpleManagerChannelDraining(t *testing.T) {
 	manager := NewSimpleManager()
 	transport := NewDemoTransport()
 	manager.SetTransport(transport)
-	
+
 	ctx := context.Background()
 	if err := manager.Start(ctx); err != nil {
 		t.Fatalf("Failed to start: %v", err)
 	}
-	
+
 	// Fill the channels with events and errors
 	for i := 0; i < 50; i++ {
 		event := &DemoEvent{
@@ -818,11 +818,11 @@ func TestSimpleManagerChannelDraining(t *testing.T) {
 		}
 		transport.Send(ctx, event)
 	}
-	
+
 	// Stop should drain channels
 	stopCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	
+
 	if err := manager.Stop(stopCtx); err != nil {
 		t.Errorf("Failed to stop: %v", err)
 	}
@@ -833,12 +833,12 @@ func TestChannelDrainingTimeout(t *testing.T) {
 	manager := NewSimpleManager()
 	transport := NewDemoTransport()
 	manager.SetTransport(transport)
-	
+
 	ctx := context.Background()
 	if err := manager.Start(ctx); err != nil {
 		t.Fatalf("Failed to start: %v", err)
 	}
-	
+
 	// Fill channels to capacity
 	for i := 0; i < 200; i++ {
 		event := &DemoEvent{
@@ -851,7 +851,7 @@ func TestChannelDrainingTimeout(t *testing.T) {
 			EventType: events.EventType(event.Type()),
 		}
 		baseEvent.SetTimestamp(event.Timestamp().UnixMilli())
-		
+
 		// Send directly to simulate overflow
 		select {
 		case manager.eventChan <- baseEvent:
@@ -859,11 +859,11 @@ func TestChannelDrainingTimeout(t *testing.T) {
 			// Channel full
 		}
 	}
-	
+
 	// Stop with very short timeout to trigger timeout path
 	stopCtx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 	defer cancel()
-	
+
 	// Should not fail even with timeout
 	if err := manager.Stop(stopCtx); err != nil {
 		t.Errorf("Stop should not fail even with timeout: %v", err)
@@ -876,21 +876,21 @@ func BenchmarkErrorHandling(b *testing.B) {
 		transport := NewErrorTransport()
 		event := &DemoEvent{id: "bench-1", eventType: "demo"}
 		ctx := context.Background()
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			transport.Send(ctx, event)
 		}
 	})
-	
+
 	b.Run("concurrent_error_handling", func(b *testing.B) {
 		transport := NewErrorTransport()
 		transport.connected = true
 		transport.SetSendError(errors.New("bench error"))
-		
+
 		ctx := context.Background()
 		event := &DemoEvent{id: "bench-1", eventType: "demo"}
-		
+
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {

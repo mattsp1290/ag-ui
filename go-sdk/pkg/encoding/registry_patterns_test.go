@@ -16,22 +16,22 @@ func TestRegistryInitializationPatterns(t *testing.T) {
 	if err := json.EnsureRegistered(); err != nil {
 		t.Fatalf("Failed to ensure JSON codec is registered: %v", err)
 	}
-	
+
 	if err := protobuf.EnsureRegistered(); err != nil {
 		t.Fatalf("Failed to ensure Protobuf codec is registered: %v", err)
 	}
-	
+
 	// Pattern 2: Use registry's EnsureRegistered for multiple formats at once
 	registry := encoding.GetGlobalRegistry()
 	if err := registry.EnsureRegistered("application/json", "application/x-protobuf"); err != nil {
 		t.Fatalf("Required codecs not available: %v", err)
 	}
-	
+
 	// Verify registration worked
 	if !registry.SupportsEncoding("application/json") {
 		t.Error("JSON encoding should be supported")
 	}
-	
+
 	if !registry.SupportsEncoding("application/x-protobuf") {
 		t.Error("Protobuf encoding should be supported")
 	}
@@ -41,22 +41,22 @@ func TestRegistryInitializationPatterns(t *testing.T) {
 func TestCustomRegistryPattern(t *testing.T) {
 	// Create a custom registry for isolated testing
 	registry := encoding.NewFormatRegistry()
-	
+
 	// Register only what we need for this test
 	if err := json.RegisterTo(registry); err != nil {
 		t.Fatalf("Failed to register JSON to custom registry: %v", err)
 	}
-	
+
 	// Verify registration worked
 	if err := registry.EnsureRegistered("application/json"); err != nil {
 		t.Fatalf("JSON not properly registered: %v", err)
 	}
-	
+
 	// Should not support Protobuf
 	if registry.SupportsEncoding("application/x-protobuf") {
 		t.Error("Should not support Protobuf without registration")
 	}
-	
+
 	// Should support JSON
 	if !registry.SupportsEncoding("application/json") {
 		t.Error("Should support JSON after registration")
@@ -68,16 +68,16 @@ func TestErrorHandlingPattern(t *testing.T) {
 	// Create registry with only format info, no codecs
 	registry := encoding.NewFormatRegistry()
 	registry.RegisterDefaults()
-	
+
 	// This should fail with helpful error message
 	err := registry.EnsureRegistered("application/json")
 	if err == nil {
 		t.Error("Expected error for missing codec")
 		return
 	}
-	
+
 	t.Logf("Got expected error: %v", err)
-	
+
 	// Error should suggest import
 	errorMsg := err.Error()
 	if !containsAny(errorMsg, "import", "codec") {
@@ -88,9 +88,9 @@ func TestErrorHandlingPattern(t *testing.T) {
 // TestConcurrentRegistration verifies thread-safe registration
 func TestConcurrentRegistration(t *testing.T) {
 	const numGoroutines = 10
-	
+
 	done := make(chan error, numGoroutines)
-	
+
 	// Multiple goroutines trying to register simultaneously
 	for i := 0; i < numGoroutines; i++ {
 		go func() {
@@ -99,14 +99,14 @@ func TestConcurrentRegistration(t *testing.T) {
 			done <- err
 		}()
 	}
-	
+
 	// Collect results
 	for i := 0; i < numGoroutines; i++ {
 		if err := <-done; err != nil {
 			t.Errorf("Concurrent registration failed: %v", err)
 		}
 	}
-	
+
 	// Verify final state
 	registry := encoding.GetGlobalRegistry()
 	if !registry.SupportsEncoding("application/json") {
@@ -118,17 +118,17 @@ func TestConcurrentRegistration(t *testing.T) {
 func TestGlobalRegistryInitialization(t *testing.T) {
 	// Get the global registry (triggers initialization)
 	registry := encoding.GetGlobalRegistry()
-	
+
 	// Should have format info registered
 	formats := registry.ListFormats()
 	if len(formats) < 2 {
 		t.Errorf("Expected at least 2 formats, got %d", len(formats))
 	}
-	
+
 	// Check for expected formats
 	hasJSON := false
 	hasProtobuf := false
-	
+
 	for _, format := range formats {
 		switch format.MIMEType {
 		case "application/json":
@@ -137,14 +137,14 @@ func TestGlobalRegistryInitialization(t *testing.T) {
 			hasProtobuf = true
 		}
 	}
-	
+
 	if !hasJSON {
 		t.Error("Expected JSON format to be registered")
 	}
 	if !hasProtobuf {
 		t.Error("Expected Protobuf format to be registered")
 	}
-	
+
 	// Check for any initialization errors
 	errors := encoding.GetGlobalRegistrationErrors()
 	if len(errors) > 0 {

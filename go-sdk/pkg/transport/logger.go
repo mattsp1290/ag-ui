@@ -12,9 +12,9 @@ import (
 // This constraint ensures only safe, serializable types can be logged
 type LogValue interface {
 	~string | ~int | ~int8 | ~int16 | ~int32 | ~int64 |
-	~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
-	~float32 | ~float64 | ~bool |
-	time.Time
+		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
+		~float32 | ~float64 | ~bool |
+		time.Time
 }
 
 // TypedField represents a type-safe structured logging field
@@ -110,7 +110,7 @@ type Logger interface {
 	Error(message string, fields ...Field)
 	WithFields(fields ...Field) Logger
 	WithContext(ctx context.Context) Logger
-	
+
 	// Type-safe logging methods
 	LogTyped(level LogLevel, message string, fields ...FieldProvider)
 	DebugTyped(message string, fields ...FieldProvider)
@@ -244,19 +244,19 @@ func TypedValue[T LogValue](key string, value T) TypedField[T] {
 type LoggerConfig struct {
 	// Level is the minimum log level to output
 	Level LogLevel
-	
+
 	// Format is the output format ("json" or "text")
 	Format string
-	
+
 	// Output is the output destination (os.Stdout, os.Stderr, or file)
 	Output *os.File
-	
+
 	// TimestampFormat is the format for timestamps
 	TimestampFormat string
-	
+
 	// EnableCaller enables caller information in logs
 	EnableCaller bool
-	
+
 	// EnableStacktrace enables stacktrace for error logs
 	EnableStacktrace bool
 }
@@ -264,11 +264,11 @@ type LoggerConfig struct {
 // DefaultLoggerConfig returns a default logger configuration
 func DefaultLoggerConfig() *LoggerConfig {
 	return &LoggerConfig{
-		Level:           LogLevelInfo,
-		Format:          "text",
-		Output:          os.Stdout,
-		TimestampFormat: time.RFC3339,
-		EnableCaller:    false,
+		Level:            LogLevelInfo,
+		Format:           "text",
+		Output:           os.Stdout,
+		TimestampFormat:  time.RFC3339,
+		EnableCaller:     false,
 		EnableStacktrace: false,
 	}
 }
@@ -285,7 +285,7 @@ func NewLogger(config *LoggerConfig) Logger {
 	if config == nil {
 		config = DefaultLoggerConfig()
 	}
-	
+
 	return &defaultLogger{
 		config: config,
 		logger: log.New(config.Output, "", 0),
@@ -298,19 +298,19 @@ func (l *defaultLogger) Log(level LogLevel, message string, fields ...Field) {
 	if level < l.config.Level {
 		return
 	}
-	
+
 	entry := LogEntry{
 		Level:     level,
 		Timestamp: time.Now(),
 		Message:   message,
 		Fields:    make(map[string]interface{}),
 	}
-	
+
 	// Add pre-populated fields
 	for _, field := range l.fields {
 		entry.Fields[field.Key] = field.Value
 	}
-	
+
 	// Add new fields
 	for _, field := range fields {
 		entry.Fields[field.Key] = field.Value
@@ -320,7 +320,7 @@ func (l *defaultLogger) Log(level LogLevel, message string, fields ...Field) {
 			}
 		}
 	}
-	
+
 	l.write(entry)
 }
 
@@ -329,19 +329,19 @@ func (l *defaultLogger) LogTyped(level LogLevel, message string, fields ...Field
 	if level < l.config.Level {
 		return
 	}
-	
+
 	entry := LogEntry{
 		Level:     level,
 		Timestamp: time.Now(),
 		Message:   message,
 		Fields:    make(map[string]interface{}),
 	}
-	
+
 	// Add pre-populated fields
 	for _, field := range l.fields {
 		entry.Fields[field.Key] = field.Value
 	}
-	
+
 	// Add new type-safe fields
 	for _, fieldProvider := range fields {
 		field := fieldProvider.ToField()
@@ -352,7 +352,7 @@ func (l *defaultLogger) LogTyped(level LogLevel, message string, fields ...Field
 			}
 		}
 	}
-	
+
 	l.write(entry)
 }
 
@@ -398,7 +398,7 @@ func (l *defaultLogger) WithFields(fields ...Field) Logger {
 	newFields := make([]Field, 0, len(l.fields)+len(fields))
 	newFields = append(newFields, l.fields...)
 	newFields = append(newFields, fields...)
-	
+
 	return &defaultLogger{
 		config: l.config,
 		logger: l.logger,
@@ -413,7 +413,7 @@ func (l *defaultLogger) WithTypedFields(fields ...FieldProvider) Logger {
 	for _, fieldProvider := range fields {
 		newFields = append(newFields, fieldProvider.ToField())
 	}
-	
+
 	return &defaultLogger{
 		config: l.config,
 		logger: l.logger,
@@ -431,23 +431,23 @@ func (l *defaultLogger) WithContext(ctx context.Context) Logger {
 // write writes a log entry to the output
 func (l *defaultLogger) write(entry LogEntry) {
 	var output string
-	
+
 	switch l.config.Format {
 	case "json":
 		output = l.formatJSON(entry)
 	default:
 		output = l.formatText(entry)
 	}
-	
+
 	l.logger.Print(output)
 }
 
 // formatText formats a log entry as text
 func (l *defaultLogger) formatText(entry LogEntry) string {
 	timestamp := entry.Timestamp.Format(l.config.TimestampFormat)
-	
+
 	output := fmt.Sprintf("[%s] %s %s", timestamp, entry.Level.String(), entry.Message)
-	
+
 	// Add fields
 	for key, value := range entry.Fields {
 		if key == "error" {
@@ -455,12 +455,12 @@ func (l *defaultLogger) formatText(entry LogEntry) string {
 		}
 		output += fmt.Sprintf(" %s=%v", key, value)
 	}
-	
+
 	// Add error if present
 	if entry.Error != nil {
 		output += fmt.Sprintf(" error=%v", entry.Error)
 	}
-	
+
 	return output
 }
 
@@ -471,7 +471,7 @@ func (l *defaultLogger) formatJSON(entry LogEntry) string {
 		entry.Timestamp.Format(l.config.TimestampFormat),
 		entry.Level.String(),
 		entry.Message)
-	
+
 	// Add fields
 	for key, value := range entry.Fields {
 		if key == "error" {
@@ -479,12 +479,12 @@ func (l *defaultLogger) formatJSON(entry LogEntry) string {
 		}
 		output += fmt.Sprintf(`,"%s":"%v"`, key, value)
 	}
-	
+
 	// Add error if present
 	if entry.Error != nil {
 		output += fmt.Sprintf(`,"error":"%v"`, entry.Error)
 	}
-	
+
 	output += "}"
 	return output
 }
@@ -524,8 +524,8 @@ func (n *NoopLogger) WithContext(ctx context.Context) Logger {
 
 // Type-safe NoOp methods
 func (n *NoopLogger) LogTyped(level LogLevel, message string, fields ...FieldProvider) {}
-func (n *NoopLogger) DebugTyped(message string, fields ...FieldProvider) {}
-func (n *NoopLogger) InfoTyped(message string, fields ...FieldProvider) {}
-func (n *NoopLogger) WarnTyped(message string, fields ...FieldProvider) {}
-func (n *NoopLogger) ErrorTyped(message string, fields ...FieldProvider) {}
-func (n *NoopLogger) WithTypedFields(fields ...FieldProvider) Logger { return n }
+func (n *NoopLogger) DebugTyped(message string, fields ...FieldProvider)               {}
+func (n *NoopLogger) InfoTyped(message string, fields ...FieldProvider)                {}
+func (n *NoopLogger) WarnTyped(message string, fields ...FieldProvider)                {}
+func (n *NoopLogger) ErrorTyped(message string, fields ...FieldProvider)               {}
+func (n *NoopLogger) WithTypedFields(fields ...FieldProvider) Logger                   { return n }

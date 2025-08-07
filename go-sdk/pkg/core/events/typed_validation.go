@@ -25,13 +25,13 @@ func (e *TypedValidationError[T]) Error() string {
 
 // TypedValidationResult represents the result of typed event validation
 type TypedValidationResult[T EventDataType] struct {
-	IsValid     bool                         `json:"is_valid"`
-	Errors      []*TypedValidationError[T]   `json:"errors,omitempty"`
-	Warnings    []*TypedValidationError[T]   `json:"warnings,omitempty"`
-	Information []*TypedValidationError[T]   `json:"information,omitempty"`
-	EventCount  int                          `json:"event_count"`
-	Duration    time.Duration                `json:"duration"`
-	Timestamp   time.Time                    `json:"timestamp"`
+	IsValid     bool                       `json:"is_valid"`
+	Errors      []*TypedValidationError[T] `json:"errors,omitempty"`
+	Warnings    []*TypedValidationError[T] `json:"warnings,omitempty"`
+	Information []*TypedValidationError[T] `json:"information,omitempty"`
+	EventCount  int                        `json:"event_count"`
+	Duration    time.Duration              `json:"duration"`
+	Timestamp   time.Time                  `json:"timestamp"`
 }
 
 // HasErrors returns true if there are any validation errors
@@ -68,7 +68,7 @@ func (r *TypedValidationResult[T]) ToLegacyResult() *ValidationResult {
 		Duration:   r.Duration,
 		Timestamp:  r.Timestamp,
 	}
-	
+
 	// Convert errors
 	for _, err := range r.Errors {
 		legacyErr := &ValidationError{
@@ -83,7 +83,7 @@ func (r *TypedValidationResult[T]) ToLegacyResult() *ValidationResult {
 		}
 		result.Errors = append(result.Errors, legacyErr)
 	}
-	
+
 	// Convert warnings
 	for _, warning := range r.Warnings {
 		legacyWarning := &ValidationError{
@@ -98,7 +98,7 @@ func (r *TypedValidationResult[T]) ToLegacyResult() *ValidationResult {
 		}
 		result.Warnings = append(result.Warnings, legacyWarning)
 	}
-	
+
 	// Convert information
 	for _, info := range r.Information {
 		legacyInfo := &ValidationError{
@@ -113,7 +113,7 @@ func (r *TypedValidationResult[T]) ToLegacyResult() *ValidationResult {
 		}
 		result.Information = append(result.Information, legacyInfo)
 	}
-	
+
 	return result
 }
 
@@ -121,25 +121,25 @@ func (r *TypedValidationResult[T]) ToLegacyResult() *ValidationResult {
 type TypedValidationRule[T EventDataType] interface {
 	// ID returns the unique identifier for this rule
 	ID() string
-	
+
 	// Description returns a human-readable description of the rule
 	Description() string
-	
+
 	// Validate validates a typed event against this rule
 	Validate(event TypedEvent[T], context *TypedValidationContext[T]) *TypedValidationResult[T]
-	
+
 	// IsEnabled returns whether this rule is enabled
 	IsEnabled() bool
-	
+
 	// SetEnabled enables or disables this rule
 	SetEnabled(enabled bool)
-	
+
 	// GetSeverity returns the severity level for violations of this rule
 	GetSeverity() ValidationSeverity
-	
+
 	// SetSeverity sets the severity level for violations of this rule
 	SetSeverity(severity ValidationSeverity)
-	
+
 	// SupportedEventTypes returns the event types this rule can validate
 	SupportedEventTypes() []EventType
 }
@@ -152,7 +152,7 @@ type TypedBaseValidationRule[T EventDataType] struct {
 
 // NewTypedBaseValidationRule creates a new typed base validation rule
 func NewTypedBaseValidationRule[T EventDataType](
-	id, description string, 
+	id, description string,
 	severity ValidationSeverity,
 	supportedTypes []EventType,
 ) *TypedBaseValidationRule[T] {
@@ -169,9 +169,9 @@ func (r *TypedBaseValidationRule[T]) SupportedEventTypes() []EventType {
 
 // CreateTypedError creates a typed validation error for this rule
 func (r *TypedBaseValidationRule[T]) CreateTypedError(
-	event TypedEvent[T], 
-	message string, 
-	context map[string]interface{}, 
+	event TypedEvent[T],
+	message string,
+	context map[string]interface{},
 	suggestions []string,
 ) *TypedValidationError[T] {
 	eventID := ""
@@ -195,12 +195,12 @@ func (r *TypedBaseValidationRule[T]) CreateTypedError(
 
 // TypedValidationContext provides context for typed validation operations
 type TypedValidationContext[T EventDataType] struct {
-	State         *ValidationState              `json:"state"`
-	EventSequence []TypedEvent[T]               `json:"event_sequence,omitempty"`
-	CurrentEvent  TypedEvent[T]                 `json:"current_event,omitempty"`
-	EventIndex    int                           `json:"event_index"`
-	Config        *ValidationConfig             `json:"config,omitempty"`
-	Metadata      map[string]interface{}        `json:"metadata,omitempty"`
+	State         *ValidationState       `json:"state"`
+	EventSequence []TypedEvent[T]        `json:"event_sequence,omitempty"`
+	CurrentEvent  TypedEvent[T]          `json:"current_event,omitempty"`
+	EventIndex    int                    `json:"event_index"`
+	Config        *ValidationConfig      `json:"config,omitempty"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // ToLegacyContext converts to legacy ValidationContext
@@ -211,12 +211,12 @@ func (c *TypedValidationContext[T]) ToLegacyContext() *ValidationContext {
 		Config:     c.Config,
 		Metadata:   c.Metadata,
 	}
-	
+
 	// Convert current event if present
 	if c.CurrentEvent != nil {
 		legacyContext.CurrentEvent = c.CurrentEvent.ToLegacyEvent()
 	}
-	
+
 	// Convert event sequence
 	if len(c.EventSequence) > 0 {
 		legacyContext.EventSequence = make([]Event, len(c.EventSequence))
@@ -224,7 +224,7 @@ func (c *TypedValidationContext[T]) ToLegacyContext() *ValidationContext {
 			legacyContext.EventSequence[i] = typedEvent.ToLegacyEvent()
 		}
 	}
-	
+
 	return legacyContext
 }
 
@@ -242,7 +242,7 @@ func NewTypedEventValidator[T EventDataType](config *ValidationConfig) *TypedEve
 	if config == nil {
 		config = DefaultValidationConfig()
 	}
-	
+
 	return &TypedEventValidator[T]{
 		rules:   make([]TypedValidationRule[T], 0),
 		state:   NewValidationState(),
@@ -280,7 +280,7 @@ func (v *TypedEventValidator[T]) GetRule(ruleID string) TypedValidationRule[T] {
 
 // ValidateTypedEvent validates a single typed event
 func (v *TypedEventValidator[T]) ValidateTypedEvent(
-	ctx context.Context, 
+	ctx context.Context,
 	event TypedEvent[T],
 ) *TypedValidationResult[T] {
 	start := time.Now()
@@ -290,11 +290,11 @@ func (v *TypedEventValidator[T]) ValidateTypedEvent(
 	}()
 
 	result := &TypedValidationResult[T]{
-		IsValid:   true,
-		Errors:    make([]*TypedValidationError[T], 0),
-		Warnings:  make([]*TypedValidationError[T], 0),
+		IsValid:    true,
+		Errors:     make([]*TypedValidationError[T], 0),
+		Warnings:   make([]*TypedValidationError[T], 0),
 		EventCount: 1,
-		Timestamp: time.Now(),
+		Timestamp:  time.Now(),
 	}
 
 	// Check context before starting
@@ -336,7 +336,7 @@ func (v *TypedEventValidator[T]) ValidateTypedEvent(
 		if !rule.IsEnabled() {
 			continue
 		}
-		
+
 		// Check if rule supports this event type
 		supportedTypes := rule.SupportedEventTypes()
 		if len(supportedTypes) > 0 {
@@ -355,7 +355,7 @@ func (v *TypedEventValidator[T]) ValidateTypedEvent(
 		ruleStart := time.Now()
 		ruleResult := rule.Validate(event, validationContext)
 		ruleDuration := time.Since(ruleStart)
-		
+
 		v.metrics.RecordRuleExecution(rule.ID(), ruleDuration)
 
 		if ruleResult != nil {
@@ -364,13 +364,13 @@ func (v *TypedEventValidator[T]) ValidateTypedEvent(
 				result.AddError(err)
 				v.metrics.RecordError()
 			}
-			
+
 			// Add warnings
 			for _, warning := range ruleResult.Warnings {
 				result.AddWarning(warning)
 				v.metrics.RecordWarning()
 			}
-			
+
 			// Add information
 			for _, info := range ruleResult.Information {
 				result.AddInfo(info)
@@ -391,11 +391,11 @@ func (v *TypedEventValidator[T]) ValidateTypedEvent(
 
 // ValidateTypedSequence validates a sequence of typed events
 func (v *TypedEventValidator[T]) ValidateTypedSequence(
-	ctx context.Context, 
+	ctx context.Context,
 	events []TypedEvent[T],
 ) *TypedValidationResult[T] {
 	start := time.Now()
-	
+
 	result := &TypedValidationResult[T]{
 		IsValid:    true,
 		Errors:     make([]*TypedValidationError[T], 0),
@@ -438,10 +438,10 @@ func (v *TypedEventValidator[T]) ValidateTypedSequence(
 
 		validationContext.CurrentEvent = event
 		validationContext.EventIndex = i
-		
+
 		// Validate the event
 		eventResult := v.validateTypedEventWithContext(ctx, event, validationContext)
-		
+
 		// Merge results
 		for _, err := range eventResult.Errors {
 			result.AddError(err)
@@ -460,8 +460,8 @@ func (v *TypedEventValidator[T]) ValidateTypedSequence(
 
 // validateTypedEventWithContext validates a typed event with a specific validation context
 func (v *TypedEventValidator[T]) validateTypedEventWithContext(
-	ctx context.Context, 
-	event TypedEvent[T], 
+	ctx context.Context,
+	event TypedEvent[T],
 	validationContext *TypedValidationContext[T],
 ) *TypedValidationResult[T] {
 	start := time.Now()
@@ -471,11 +471,11 @@ func (v *TypedEventValidator[T]) validateTypedEventWithContext(
 	}()
 
 	result := &TypedValidationResult[T]{
-		IsValid:   true,
-		Errors:    make([]*TypedValidationError[T], 0),
-		Warnings:  make([]*TypedValidationError[T], 0),
+		IsValid:    true,
+		Errors:     make([]*TypedValidationError[T], 0),
+		Warnings:   make([]*TypedValidationError[T], 0),
 		EventCount: 1,
-		Timestamp: time.Now(),
+		Timestamp:  time.Now(),
 	}
 
 	if event == nil {
@@ -493,7 +493,7 @@ func (v *TypedEventValidator[T]) validateTypedEventWithContext(
 		if !rule.IsEnabled() {
 			continue
 		}
-		
+
 		// Check if rule supports this event type
 		supportedTypes := rule.SupportedEventTypes()
 		if len(supportedTypes) > 0 {
@@ -512,7 +512,7 @@ func (v *TypedEventValidator[T]) validateTypedEventWithContext(
 		ruleStart := time.Now()
 		ruleResult := rule.Validate(event, validationContext)
 		ruleDuration := time.Since(ruleStart)
-		
+
 		v.metrics.RecordRuleExecution(rule.ID(), ruleDuration)
 
 		if ruleResult != nil {
@@ -521,13 +521,13 @@ func (v *TypedEventValidator[T]) validateTypedEventWithContext(
 				result.AddError(err)
 				v.metrics.RecordError()
 			}
-			
+
 			// Add warnings
 			for _, warning := range ruleResult.Warnings {
 				result.AddWarning(warning)
 				v.metrics.RecordWarning()
 			}
-			
+
 			// Add information
 			for _, info := range ruleResult.Information {
 				result.AddInfo(info)
@@ -551,10 +551,10 @@ func (v *TypedEventValidator[T]) updateTypedState(legacyEvent Event) {
 	// This maintains compatibility with existing state management
 	v.state.mutex.Lock()
 	defer v.state.mutex.Unlock()
-	
+
 	v.state.EventCount++
 	v.state.LastEventTime = time.Now()
-	
+
 	// Use the same logic as the legacy validator's updateState method
 	// This ensures consistency between typed and legacy validation
 	switch legacyEvent.Type() {
@@ -568,7 +568,7 @@ func (v *TypedEventValidator[T]) updateTypedState(legacyEvent Event) {
 				Phase:     PhaseRunning,
 			}
 		}
-		
+
 	case EventTypeRunFinished:
 		if runEvent, ok := legacyEvent.(*RunFinishedEvent); ok {
 			v.state.CurrentPhase = PhaseFinished
@@ -578,7 +578,7 @@ func (v *TypedEventValidator[T]) updateTypedState(legacyEvent Event) {
 				delete(v.state.ActiveRuns, runEvent.RunID())
 			}
 		}
-		
+
 	case EventTypeRunError:
 		if runEvent, ok := legacyEvent.(*RunErrorEvent); ok {
 			v.state.CurrentPhase = PhaseError
@@ -588,7 +588,7 @@ func (v *TypedEventValidator[T]) updateTypedState(legacyEvent Event) {
 				delete(v.state.ActiveRuns, runEvent.RunID())
 			}
 		}
-		
+
 		// Add other event types as needed...
 		// This follows the same pattern as the legacy updateState method
 	}
@@ -602,7 +602,7 @@ func (v *TypedEventValidator[T]) ToLegacyValidator() *EventValidator {
 		metrics: v.metrics,
 		config:  v.config,
 	}
-	
+
 	// Convert typed rules to legacy rules (this would require a wrapper)
 	// For now, we'll just return the validator with shared state
 	return legacyValidator
@@ -610,7 +610,7 @@ func (v *TypedEventValidator[T]) ToLegacyValidator() *EventValidator {
 
 // ValidateLegacyEvent validates a legacy event using typed validation when possible
 func (v *TypedEventValidator[T]) ValidateLegacyEvent(
-	ctx context.Context, 
+	ctx context.Context,
 	legacyEvent Event,
 ) *ValidationResult {
 	// Try to convert to typed event
@@ -618,8 +618,8 @@ func (v *TypedEventValidator[T]) ValidateLegacyEvent(
 	if err != nil {
 		// Fall back to basic validation
 		result := &ValidationResult{
-			IsValid:   false,
-			Errors:    []*ValidationError{{
+			IsValid: false,
+			Errors: []*ValidationError{{
 				RuleID:    "CONVERSION_ERROR",
 				Message:   fmt.Sprintf("Failed to convert to typed event: %v", err),
 				Severity:  ValidationSeverityError,
@@ -630,17 +630,17 @@ func (v *TypedEventValidator[T]) ValidateLegacyEvent(
 		}
 		return result
 	}
-	
+
 	// Check if it's the correct type
 	if typedEvent, ok := typedEventInterface.(TypedEvent[T]); ok {
 		typedResult := v.ValidateTypedEvent(ctx, typedEvent)
 		return typedResult.ToLegacyResult()
 	}
-	
+
 	// If types don't match, return a basic validation
 	result := &ValidationResult{
-		IsValid:   false,
-		Errors:    []*ValidationError{{
+		IsValid: false,
+		Errors: []*ValidationError{{
 			RuleID:    "TYPE_MISMATCH",
 			Message:   "Event type does not match validator type parameter",
 			Severity:  ValidationSeverityError,

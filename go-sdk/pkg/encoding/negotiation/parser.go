@@ -53,7 +53,7 @@ func parseAcceptType(s string) (AcceptType, error) {
 
 	// Split by semicolon to separate media type from parameters
 	parts := strings.Split(s, ";")
-	
+
 	// First part is the media type - make case insensitive
 	acceptType.Type = strings.ToLower(strings.TrimSpace(parts[0]))
 	if acceptType.Type == "" {

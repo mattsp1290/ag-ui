@@ -235,7 +235,7 @@ type PrometheusMetrics struct {
 	MemoryAllocations prometheus.Counter
 	GCPauseDuration   prometheus.Histogram
 	ObjectPoolHitRate prometheus.Gauge
-	
+
 	// System resource metrics
 	CPUUsage       prometheus.Gauge
 	GoroutineCount prometheus.Gauge
@@ -361,7 +361,7 @@ func NewUserMonitor(userID string) *UserMonitor {
 func (um *UserMonitor) RecordEdit() {
 	um.mu.Lock()
 	defer um.mu.Unlock()
-	
+
 	um.editCount++
 	um.lastActivity = time.Now()
 }
@@ -370,7 +370,7 @@ func (um *UserMonitor) RecordEdit() {
 func (um *UserMonitor) RecordConflict() {
 	um.mu.Lock()
 	defer um.mu.Unlock()
-	
+
 	um.conflictCount++
 }
 
@@ -378,7 +378,7 @@ func (um *UserMonitor) RecordConflict() {
 func (um *UserMonitor) GetStats() map[string]interface{} {
 	um.mu.RLock()
 	defer um.mu.RUnlock()
-	
+
 	return map[string]interface{}{
 		"user_id":         um.userID,
 		"edit_count":      um.editCount,
@@ -391,16 +391,16 @@ func (um *UserMonitor) GetStats() map[string]interface{} {
 
 // StateMonitor provides state-specific monitoring capabilities
 type StateMonitor struct {
-	store           *StateStore
-	config          *MonitoringConfig
+	store            *StateStore
+	config           *MonitoringConfig
 	monitoringSystem *MonitoringSystem
-	
+
 	// Metrics
-	operationCount    int64
-	errorCount        int64
-	totalLatency      int64
-	operationMetrics  map[string]*OperationMetrics
-	
+	operationCount   int64
+	errorCount       int64
+	totalLatency     int64
+	operationMetrics map[string]*OperationMetrics
+
 	// State
 	running bool
 	mu      sync.RWMutex
@@ -412,7 +412,7 @@ type StateMonitor struct {
 // NewStateMonitor creates a new state monitor
 func NewStateMonitor(store *StateStore, config *MonitoringConfig) *StateMonitor {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	sm := &StateMonitor{
 		store:            store,
 		config:           config,
@@ -420,7 +420,7 @@ func NewStateMonitor(store *StateStore, config *MonitoringConfig) *StateMonitor 
 		ctx:              ctx,
 		cancel:           cancel,
 	}
-	
+
 	// Create monitoring system
 	if config != nil {
 		monitoringSystem, err := NewMonitoringSystem(*config)
@@ -428,7 +428,7 @@ func NewStateMonitor(store *StateStore, config *MonitoringConfig) *StateMonitor 
 			sm.monitoringSystem = monitoringSystem
 		}
 	}
-	
+
 	return sm
 }
 
@@ -436,13 +436,13 @@ func NewStateMonitor(store *StateStore, config *MonitoringConfig) *StateMonitor 
 func (sm *StateMonitor) Start() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	
+
 	if sm.running {
 		return
 	}
-	
+
 	sm.running = true
-	
+
 	if sm.monitoringSystem != nil {
 		// Start background monitoring
 		sm.wg.Add(1)
@@ -454,15 +454,15 @@ func (sm *StateMonitor) Start() {
 func (sm *StateMonitor) Stop() {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	
+
 	if !sm.running {
 		return
 	}
-	
+
 	sm.running = false
 	sm.cancel()
 	sm.wg.Wait()
-	
+
 	if sm.monitoringSystem != nil {
 		sm.monitoringSystem.Shutdown(context.Background())
 	}
@@ -472,22 +472,22 @@ func (sm *StateMonitor) Stop() {
 func (sm *StateMonitor) GetMetrics() MonitoringMetrics {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	
+
 	if sm.monitoringSystem != nil {
 		return sm.monitoringSystem.GetMetrics()
 	}
-	
+
 	// Return basic metrics if no monitoring system
 	errorRate := float64(0)
 	if sm.operationCount > 0 {
 		errorRate = float64(sm.errorCount) / float64(sm.operationCount)
 	}
-	
+
 	avgLatency := float64(0)
 	if sm.operationCount > 0 {
 		avgLatency = float64(sm.totalLatency) / float64(sm.operationCount) / 1e6 // Convert to ms
 	}
-	
+
 	return MonitoringMetrics{
 		Timestamp:         time.Now(),
 		TotalOperations:   sm.operationCount,
@@ -503,14 +503,14 @@ func (sm *StateMonitor) GetMetrics() MonitoringMetrics {
 func (sm *StateMonitor) RecordOperation(operation string, duration time.Duration, err error) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	
+
 	sm.operationCount++
 	sm.totalLatency += duration.Nanoseconds()
-	
+
 	if err != nil {
 		sm.errorCount++
 	}
-	
+
 	if sm.monitoringSystem != nil {
 		sm.monitoringSystem.RecordStateOperation(operation, duration, err)
 	}
@@ -519,10 +519,10 @@ func (sm *StateMonitor) RecordOperation(operation string, duration time.Duration
 // monitorOperations runs background monitoring
 func (sm *StateMonitor) monitorOperations() {
 	defer sm.wg.Done()
-	
+
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -549,7 +549,7 @@ func (sm *StateMonitor) collectMetrics() {
 func (sm *StateMonitor) EnableDetailedMetrics(enabled bool) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	
+
 	if sm.config != nil {
 		sm.config.EnableProfiling = enabled
 		sm.config.EnableResourceMonitoring = enabled
@@ -561,7 +561,7 @@ func (sm *StateMonitor) EnableDetailedMetrics(enabled bool) {
 func (sm *StateMonitor) StartSpan(name string, attributes map[string]string) Span {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	
+
 	if sm.monitoringSystem != nil {
 		ctx, span := sm.monitoringSystem.StartTrace(context.Background(), name)
 		return &SpanImpl{
@@ -572,7 +572,7 @@ func (sm *StateMonitor) StartSpan(name string, attributes map[string]string) Spa
 			span:       span,
 		}
 	}
-	
+
 	// Return a basic span implementation if no monitoring system
 	return &SpanImpl{
 		name:       name,
@@ -586,11 +586,11 @@ func (sm *StateMonitor) StartSpan(name string, attributes map[string]string) Spa
 func (sm *StateMonitor) Logger() Logger {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	
+
 	if sm.monitoringSystem != nil {
 		return &ZapLoggerWrapper{logger: sm.monitoringSystem.Logger()}
 	}
-	
+
 	// Return a no-op logger if no monitoring system
 	return &NoOpLogger{}
 }
@@ -604,7 +604,7 @@ func (sm *StateMonitor) RecordLatency(operation string, duration time.Duration) 
 func (sm *StateMonitor) EnableProfiling(enabled bool) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
-	
+
 	if sm.config != nil {
 		sm.config.EnableProfiling = enabled
 	}
@@ -614,7 +614,7 @@ func (sm *StateMonitor) EnableProfiling(enabled bool) {
 func (sm *StateMonitor) GetOperationMetrics(operation string) *OperationMetric {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	
+
 	if _, exists := sm.operationMetrics[operation]; exists {
 		return &OperationMetric{
 			Count:      1, // Simplified for demo
@@ -624,7 +624,7 @@ func (sm *StateMonitor) GetOperationMetrics(operation string) *OperationMetric {
 			ErrorRate:  0.0,
 		}
 	}
-	
+
 	return nil
 }
 
@@ -969,12 +969,12 @@ func (ms *MonitoringSystem) RecordEventProcessing(eventType string, duration tim
 func (ms *MonitoringSystem) RecordMemoryUsage(usage uint64, allocations int64, gcPause time.Duration) {
 	// Update Prometheus metrics
 	ms.promMetrics.MemoryUsage.Set(float64(usage))
-	
+
 	// Ensure allocations is non-negative to avoid Prometheus counter panic
 	if allocations > 0 {
 		ms.promMetrics.MemoryAllocations.Add(float64(allocations))
 	}
-	
+
 	ms.promMetrics.GCPauseDuration.Observe(gcPause.Seconds())
 
 	// Update resource monitor with proper locking and timestamp
@@ -999,7 +999,7 @@ func (ms *MonitoringSystem) RecordConnectionPoolStats(total, active, waiting int
 	if waiting >= 0 {
 		ms.promMetrics.ConnectionPoolWaiting.Set(float64(waiting))
 	}
-	
+
 	// Ensure errors is non-negative to avoid Prometheus counter panic
 	if errors > 0 {
 		ms.promMetrics.ConnectionPoolErrors.Add(float64(errors))
@@ -1071,7 +1071,7 @@ func (ms *MonitoringSystem) GetHealthStatus() map[string]bool {
 	for name, check := range ms.healthChecks {
 		ctx, cancel := context.WithTimeout(ms.ctx, ms.config.HealthCheckTimeout)
 		defer cancel()
-		
+
 		var err error
 		func() {
 			defer func() {
@@ -1110,7 +1110,7 @@ func (ms *MonitoringSystem) LogAuditEvent(ctx context.Context, action AuditActio
 	contextID := ""
 	userID := ""
 	resource := "monitoring"
-	
+
 	if details != nil {
 		if ctx, ok := details["context_id"].(string); ok {
 			contextID = ctx
@@ -1122,7 +1122,7 @@ func (ms *MonitoringSystem) LogAuditEvent(ctx context.Context, action AuditActio
 			resource = res
 		}
 	}
-	
+
 	ms.auditManager.LogSecurityEvent(ctx, action, contextID, userID, resource, details)
 
 	// Log based on severity
@@ -1171,7 +1171,6 @@ func (ms *MonitoringSystem) GetMetrics() MonitoringMetrics {
 	}
 }
 
-
 // ConnectionPoolSnapshot is a snapshot of connection pool metrics without mutex
 type ConnectionPoolSnapshot struct {
 	TotalConnections   int64
@@ -1207,7 +1206,7 @@ func (ms *MonitoringSystem) Shutdown(ctx context.Context) error {
 	if testing := os.Getenv("GO_ENV"); testing == "test" || strings.Contains(os.Args[0], "test") {
 		gracePeriod = 5 * time.Millisecond
 	}
-	
+
 	// Give a brief moment for goroutines to notice the cancellation and exit cleanly
 	// But respect the provided context timeout
 	select {
@@ -1275,20 +1274,20 @@ func initializeLogger(config MonitoringConfig) (*zap.Logger, error) {
 			EncodeDuration: zapcore.SecondsDurationEncoder,
 			EncodeCaller:   zapcore.ShortCallerEncoder,
 		}
-		
+
 		var encoder zapcore.Encoder
 		if config.LogFormat == "json" {
 			encoder = zapcore.NewJSONEncoder(encoderConfig)
 		} else {
 			encoder = zapcore.NewConsoleEncoder(encoderConfig)
 		}
-		
+
 		core := zapcore.NewCore(
 			encoder,
 			zapcore.AddSync(config.LogOutput),
 			config.LogLevel,
 		)
-		
+
 		return zap.New(core), nil
 	}
 
@@ -1297,7 +1296,7 @@ func initializeLogger(config MonitoringConfig) (*zap.Logger, error) {
 	if encoding == "" {
 		encoding = "console" // Default to console encoding if not specified
 	}
-	
+
 	zapConfig := zap.Config{
 		Level:    zap.NewAtomicLevelAt(config.LogLevel),
 		Encoding: encoding,
@@ -1954,22 +1953,22 @@ func (ms *MonitoringSystem) sendAlert(alert Alert) {
 			return
 		default:
 		}
-		
+
 		ms.wg.Add(1)
 		go func(notifier AlertNotifier) {
 			defer ms.wg.Done()
-			
+
 			// Use monitoring system context instead of background context
 			ctx, cancel := context.WithTimeout(ms.ctx, 5*time.Second)
 			defer cancel()
-			
+
 			// Check again if system is shutting down
 			select {
 			case <-ms.ctx.Done():
 				return
 			default:
 			}
-			
+
 			if err := notifier.SendAlert(ctx, alert); err != nil {
 				ms.logger.Error("Failed to send alert", zap.Error(err))
 			}
@@ -2140,7 +2139,7 @@ func (ms *MonitoringSystem) runHealthChecksWithContext(ctx context.Context) {
 			return
 		default:
 		}
-		
+
 		start := time.Now()
 		err := check.Check(ctx)
 		duration := time.Since(start)

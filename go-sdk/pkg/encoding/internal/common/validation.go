@@ -10,13 +10,13 @@ func ValidateNonNil(value interface{}, fieldName string) error {
 	if value == nil {
 		return WrapError(ErrNilInput, "field %s cannot be nil", fieldName)
 	}
-	
+
 	// Check for nil pointers, slices, maps, etc.
 	v := reflect.ValueOf(value)
 	if v.Kind() == reflect.Ptr && v.IsNil() {
 		return WrapError(ErrNilInput, "field %s cannot be nil", fieldName)
 	}
-	
+
 	return nil
 }
 
@@ -25,16 +25,16 @@ func ValidateSliceNotEmpty(slice interface{}, fieldName string) error {
 	if slice == nil {
 		return WrapError(ErrNilInput, "slice %s cannot be nil", fieldName)
 	}
-	
+
 	v := reflect.ValueOf(slice)
 	if v.Kind() != reflect.Slice {
 		return WrapError(ErrUnsupportedType, "field %s is not a slice", fieldName)
 	}
-	
+
 	if v.Len() == 0 {
 		return WrapError(ErrInvalidSize, "slice %s cannot be empty", fieldName)
 	}
-	
+
 	return nil
 }
 
@@ -43,13 +43,13 @@ func ValidateBufferSize(size int, fieldName string) error {
 	if size < 0 {
 		return WrapError(ErrInvalidSize, "buffer size %s cannot be negative: %d", fieldName, size)
 	}
-	
+
 	// Check for reasonable maximum size (1GB)
 	const maxBufferSize = 1 << 30
 	if size > maxBufferSize {
 		return WrapError(ErrInvalidSize, "buffer size %s too large: %d", fieldName, size)
 	}
-	
+
 	return nil
 }
 
@@ -89,16 +89,16 @@ func ValidateMapNotEmpty(m interface{}, fieldName string) error {
 	if m == nil {
 		return WrapError(ErrNilInput, "map %s cannot be nil", fieldName)
 	}
-	
+
 	v := reflect.ValueOf(m)
 	if v.Kind() != reflect.Map {
 		return WrapError(ErrUnsupportedType, "field %s is not a map", fieldName)
 	}
-	
+
 	if v.Len() == 0 {
 		return WrapError(ErrInvalidSize, "map %s cannot be empty", fieldName)
 	}
-	
+
 	return nil
 }
 
@@ -107,7 +107,7 @@ func ValidateStructNotZero(s interface{}, fieldName string) error {
 	if s == nil {
 		return WrapError(ErrNilInput, "struct %s cannot be nil", fieldName)
 	}
-	
+
 	v := reflect.ValueOf(s)
 	if v.Kind() == reflect.Ptr {
 		if v.IsNil() {
@@ -115,15 +115,15 @@ func ValidateStructNotZero(s interface{}, fieldName string) error {
 		}
 		v = v.Elem()
 	}
-	
+
 	if v.Kind() != reflect.Struct {
 		return WrapError(ErrUnsupportedType, "field %s is not a struct", fieldName)
 	}
-	
+
 	if v.IsZero() {
 		return WrapError(ErrInvalidFormat, "struct %s cannot be zero-valued", fieldName)
 	}
-	
+
 	return nil
 }
 
@@ -134,7 +134,7 @@ func ValidateEnum(value interface{}, validValues []interface{}, fieldName string
 			return nil
 		}
 	}
-	
+
 	return WrapError(ErrInvalidFormat, "field %s has invalid value: %v", fieldName, value)
 }
 
@@ -164,10 +164,10 @@ func ValidateAny(rules ...ValidationRule) error {
 			lastError = err
 		}
 	}
-	
+
 	if lastError != nil {
 		return WrapError(lastError, "all validation rules failed")
 	}
-	
+
 	return nil
 }

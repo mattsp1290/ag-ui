@@ -17,44 +17,44 @@ type CacheValidatorInterface interface {
 
 // CacheCoordinator coordinates distributed cache operations
 type CacheCoordinator struct {
-	nodeID        string
-	nodes         map[string]*NodeInfo
-	transport     Transport
-	config        *CoordinatorConfig
-	
+	nodeID    string
+	nodes     map[string]*NodeInfo
+	transport Transport
+	config    *CoordinatorConfig
+
 	// Message channels
 	invalidationCh chan InvalidationMessage
 	updateCh       chan CacheUpdateMessage
 	metricsCh      chan MetricsReport
-	
+
 	// State
-	clusterState  *ClusterState
-	
+	clusterState *ClusterState
+
 	// Cache validators for coordination (simple approach for testing)
 	cacheValidators map[string]CacheValidatorInterface
-	
+
 	// Synchronization
-	mu            sync.RWMutex
-	shutdownCh    chan struct{}
-	wg            sync.WaitGroup
-	
+	mu         sync.RWMutex
+	shutdownCh chan struct{}
+	wg         sync.WaitGroup
+
 	// Performance optimization: atomic cached data
-	cachedActiveNodes    atomic.Value // []string
-	cachedShardMapping   atomic.Value // map[int][]string
-	cacheUpdateCounter   int64        // atomic counter for cache updates
+	cachedActiveNodes     atomic.Value // []string
+	cachedShardMapping    atomic.Value // map[int][]string
+	cacheUpdateCounter    int64        // atomic counter for cache updates
 	lockContentionMetrics *LockContentionMetrics
 }
 
 // CoordinatorConfig contains coordinator configuration
 type CoordinatorConfig struct {
-	HeartbeatInterval   time.Duration
-	NodeTimeout         time.Duration
-	MaxRetries          int
-	RetryInterval       time.Duration
-	EnableConsensus     bool
-	ConsensusQuorum     float64
-	EnableSharding      bool
-	ShardCount          int
+	HeartbeatInterval time.Duration
+	NodeTimeout       time.Duration
+	MaxRetries        int
+	RetryInterval     time.Duration
+	EnableConsensus   bool
+	ConsensusQuorum   float64
+	EnableSharding    bool
+	ShardCount        int
 }
 
 // DefaultCoordinatorConfig returns default configuration
@@ -93,12 +93,12 @@ const (
 
 // ClusterState maintains cluster-wide state
 type ClusterState struct {
-	Version       uint64
-	Leader        string
-	ActiveNodes   []string
-	ShardMap      map[int][]string // shard -> nodes
-	LastUpdated   time.Time
-	mu            sync.RWMutex
+	Version     uint64
+	Leader      string
+	ActiveNodes []string
+	ShardMap    map[int][]string // shard -> nodes
+	LastUpdated time.Time
+	mu          sync.RWMutex
 }
 
 // Transport interface for node communication
@@ -174,7 +174,7 @@ func NewCacheCoordinator(nodeID string, transport Transport, config *Coordinator
 	if config == nil {
 		config = DefaultCoordinatorConfig()
 	}
-	
+
 	cc := &CacheCoordinator{
 		nodeID:         nodeID,
 		nodes:          make(map[string]*NodeInfo),
@@ -183,27 +183,27 @@ func NewCacheCoordinator(nodeID string, transport Transport, config *Coordinator
 		invalidationCh: make(chan InvalidationMessage, 100),
 		updateCh:       make(chan CacheUpdateMessage, 100),
 		metricsCh:      make(chan MetricsReport, 100),
-		clusterState:   &ClusterState{
+		clusterState: &ClusterState{
 			ShardMap: make(map[int][]string),
 		},
 		cacheValidators: make(map[string]CacheValidatorInterface),
-		shutdownCh:     make(chan struct{}),
+		shutdownCh:      make(chan struct{}),
 		lockContentionMetrics: &LockContentionMetrics{
 			LastResetTime: time.Now(),
 		},
 	}
-	
+
 	// Add self to nodes
 	cc.nodes[nodeID] = &NodeInfo{
 		ID:            nodeID,
 		State:         NodeStateActive,
 		LastHeartbeat: time.Now(),
 	}
-	
+
 	// Initialize atomic cached values
 	cc.cachedActiveNodes.Store([]string{nodeID})
 	cc.cachedShardMapping.Store(make(map[int][]string))
-	
+
 	return cc
 }
 
@@ -211,28 +211,28 @@ func NewCacheCoordinator(nodeID string, transport Transport, config *Coordinator
 func (cc *CacheCoordinator) Start(ctx context.Context) error {
 	// Subscribe to messages
 	cc.subscribeToMessages()
-	
+
 	// Start workers
 	cc.wg.Add(4)
 	go cc.heartbeatWorker(ctx)
 	go cc.messageProcessor(ctx)
 	go cc.healthChecker(ctx)
 	go cc.shardManager(ctx)
-	
+
 	return nil
 }
 
 // Stop stops the coordinator
 func (cc *CacheCoordinator) Stop(ctx context.Context) error {
 	close(cc.shutdownCh)
-	
+
 	// Wait for workers
 	done := make(chan struct{})
 	go func() {
 		cc.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		if cc.transport != nil {
@@ -249,19 +249,19 @@ func (cc *CacheCoordinator) BroadcastInvalidation(ctx context.Context, msg Inval
 	if cc.transport == nil {
 		return fmt.Errorf("transport not initialized")
 	}
-	
+
 	message := Message{
 		Type:      "invalidation",
 		Source:    cc.nodeID,
 		Timestamp: time.Now(),
 	}
-	
+
 	payload, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal invalidation: %w", err)
 	}
 	message.Payload = payload
-	
+
 	return cc.transport.Broadcast(ctx, message)
 }
 
@@ -271,7 +271,7 @@ func (cc *CacheCoordinator) NotifyCacheUpdate(ctx context.Context, msg CacheUpda
 	if cc.config.EnableSharding {
 		return cc.notifyShardedUpdate(ctx, msg)
 	}
-	
+
 	// Broadcast to all nodes
 	return cc.broadcastUpdate(ctx, msg)
 }
@@ -280,23 +280,23 @@ func (cc *CacheCoordinator) NotifyCacheUpdate(ctx context.Context, msg CacheUpda
 func (cc *CacheCoordinator) notifyShardedUpdate(ctx context.Context, msg CacheUpdateMessage) error {
 	shard := cc.getShardForKey(msg.Key)
 	nodes := cc.getNodesForShard(shard)
-	
+
 	if len(nodes) == 0 {
 		return nil // No nodes to notify
 	}
-	
+
 	message := Message{
 		Type:      "cache_update",
 		Source:    cc.nodeID,
 		Timestamp: time.Now(),
 	}
-	
+
 	payload, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal update: %w", err)
 	}
 	message.Payload = payload
-	
+
 	// Batch send to relevant nodes with error tracking
 	var sendErrors []error
 	for _, nodeID := range nodes {
@@ -306,12 +306,12 @@ func (cc *CacheCoordinator) notifyShardedUpdate(ctx context.Context, msg CacheUp
 			}
 		}
 	}
-	
+
 	// Return aggregated error if any sends failed
 	if len(sendErrors) > 0 {
 		return fmt.Errorf("failed to send updates to %d nodes: %v", len(sendErrors), sendErrors)
 	}
-	
+
 	return nil
 }
 
@@ -330,39 +330,39 @@ func (cc *CacheCoordinator) RequestConsensus(ctx context.Context, request Consen
 	if !cc.config.EnableConsensus {
 		return true, nil
 	}
-	
+
 	if cc.transport == nil {
 		return false, fmt.Errorf("transport not initialized")
 	}
-	
+
 	// Get active nodes
 	activeNodes := cc.getActiveNodes()
 	requiredVotes := int(float64(len(activeNodes)) * cc.config.ConsensusQuorum)
-	
+
 	// Create consensus message
 	message := Message{
 		Type:      "consensus_request",
 		Source:    cc.nodeID,
 		Timestamp: time.Now(),
 	}
-	
+
 	payload, err := json.Marshal(request)
 	if err != nil {
 		return false, fmt.Errorf("failed to marshal consensus request: %w", err)
 	}
 	message.Payload = payload
-	
+
 	// Broadcast request
 	if err := cc.transport.Broadcast(ctx, message); err != nil {
 		return false, fmt.Errorf("failed to broadcast consensus request: %w", err)
 	}
-	
+
 	// Collect votes
 	votes := 1 // Self vote
 	voteCh := make(chan bool, len(activeNodes))
 	timeout := time.NewTimer(5 * time.Second)
 	defer timeout.Stop()
-	
+
 	for {
 		select {
 		case vote := <-voteCh:
@@ -384,29 +384,29 @@ func (cc *CacheCoordinator) RequestConsensus(ctx context.Context, request Consen
 func (cc *CacheCoordinator) GetClusterInfo() map[string]interface{} {
 	cc.mu.RLock()
 	defer cc.mu.RUnlock()
-	
+
 	activeNodes := 0
 	totalShards := 0
-	
+
 	for _, node := range cc.nodes {
 		if node.State == NodeStateActive {
 			activeNodes++
 			totalShards += len(node.Shards)
 		}
 	}
-	
+
 	// Get performance metrics
 	perfMetrics := cc.GetPerformanceMetrics()
-	
+
 	return map[string]interface{}{
-		"node_id":      cc.nodeID,
-		"total_nodes":  len(cc.nodes),
-		"active_nodes": activeNodes,
-		"leader":       cc.clusterState.Leader,
-		"shard_count":  cc.config.ShardCount,
-		"total_shards": totalShards,
-		"consensus_enabled": cc.config.EnableConsensus,
-		"sharding_enabled":  cc.config.EnableSharding,
+		"node_id":             cc.nodeID,
+		"total_nodes":         len(cc.nodes),
+		"active_nodes":        activeNodes,
+		"leader":              cc.clusterState.Leader,
+		"shard_count":         cc.config.ShardCount,
+		"total_shards":        totalShards,
+		"consensus_enabled":   cc.config.EnableConsensus,
+		"sharding_enabled":    cc.config.EnableSharding,
 		"performance_metrics": perfMetrics,
 	}
 }
@@ -431,7 +431,7 @@ func (cc *CacheCoordinator) subscribeToMessages() {
 	if cc.transport == nil {
 		return
 	}
-	
+
 	// Subscribe to various message types
 	go cc.handleMessages("invalidation", cc.handleInvalidation)
 	go cc.handleMessages("cache_update", cc.handleCacheUpdate)
@@ -445,7 +445,7 @@ func (cc *CacheCoordinator) handleMessages(messageType string, handler func(Mess
 	if cc.transport == nil {
 		return
 	}
-	
+
 	ch := cc.transport.Subscribe(messageType)
 	for {
 		select {
@@ -465,7 +465,7 @@ func (cc *CacheCoordinator) handleInvalidation(msg Message) {
 	if err := json.Unmarshal(msg.Payload, &inv); err != nil {
 		return
 	}
-	
+
 	select {
 	case cc.invalidationCh <- inv:
 	default:
@@ -478,7 +478,7 @@ func (cc *CacheCoordinator) handleCacheUpdate(msg Message) {
 	if err := json.Unmarshal(msg.Payload, &update); err != nil {
 		return
 	}
-	
+
 	select {
 	case cc.updateCh <- update:
 	default:
@@ -489,7 +489,7 @@ func (cc *CacheCoordinator) handleCacheUpdate(msg Message) {
 func (cc *CacheCoordinator) handleHeartbeat(msg Message) {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
-	
+
 	node, exists := cc.nodes[msg.Source]
 	if !exists {
 		node = &NodeInfo{
@@ -498,10 +498,10 @@ func (cc *CacheCoordinator) handleHeartbeat(msg Message) {
 		}
 		cc.nodes[msg.Source] = node
 	}
-	
+
 	node.LastHeartbeat = time.Now()
 	node.State = NodeStateActive
-	
+
 	// Update cached active nodes when new node joins or reactivates
 	cc.updateCachedActiveNodes()
 }
@@ -511,24 +511,24 @@ func (cc *CacheCoordinator) handleConsensusRequest(msg Message) {
 	if err := json.Unmarshal(msg.Payload, &request); err != nil {
 		return
 	}
-	
+
 	// Process consensus request and send response
 	vote := cc.processConsensusRequest(request)
-	
+
 	response := ConsensusResponse{
 		RequestID: request.ID,
 		NodeID:    cc.nodeID,
 		Vote:      vote,
 		Timestamp: time.Now(),
 	}
-	
+
 	responseMsg := Message{
 		Type:      "consensus_response",
 		Source:    cc.nodeID,
 		Target:    msg.Source,
 		Timestamp: time.Now(),
 	}
-	
+
 	if payload, err := json.Marshal(response); err == nil {
 		responseMsg.Payload = payload
 		if cc.transport != nil {
@@ -546,10 +546,10 @@ func (cc *CacheCoordinator) handleMetrics(msg Message) {
 	if err := json.Unmarshal(msg.Payload, &report); err != nil {
 		return
 	}
-	
+
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
-	
+
 	if node, exists := cc.nodes[report.NodeID]; exists {
 		node.Metrics = report.Stats
 	}
@@ -557,10 +557,10 @@ func (cc *CacheCoordinator) handleMetrics(msg Message) {
 
 func (cc *CacheCoordinator) heartbeatWorker(ctx context.Context) {
 	defer cc.wg.Done()
-	
+
 	ticker := time.NewTicker(cc.config.HeartbeatInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -577,20 +577,20 @@ func (cc *CacheCoordinator) sendHeartbeat(ctx context.Context) {
 	if cc.transport == nil {
 		return
 	}
-	
+
 	message := Message{
 		Type:      "heartbeat",
 		Source:    cc.nodeID,
 		Timestamp: time.Now(),
 	}
-	
+
 	// Include node info in heartbeat
 	nodeInfo := map[string]interface{}{
 		"id":     cc.nodeID,
 		"state":  NodeStateActive,
 		"shards": cc.getNodeShards(),
 	}
-	
+
 	if payload, err := json.Marshal(nodeInfo); err == nil {
 		message.Payload = payload
 		cc.transport.Broadcast(ctx, message)
@@ -599,7 +599,7 @@ func (cc *CacheCoordinator) sendHeartbeat(ctx context.Context) {
 
 func (cc *CacheCoordinator) messageProcessor(ctx context.Context) {
 	defer cc.wg.Done()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -621,10 +621,10 @@ func (cc *CacheCoordinator) messageProcessor(ctx context.Context) {
 
 func (cc *CacheCoordinator) healthChecker(ctx context.Context) {
 	defer cc.wg.Done()
-	
+
 	ticker := time.NewTicker(cc.config.NodeTimeout / 3)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -640,18 +640,18 @@ func (cc *CacheCoordinator) healthChecker(ctx context.Context) {
 func (cc *CacheCoordinator) checkNodeHealth() {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
-	
+
 	cacheInvalidationNeeded := false
 	now := time.Now()
-	
+
 	for nodeID, node := range cc.nodes {
 		if nodeID == cc.nodeID {
 			continue
 		}
-		
+
 		timeSinceHeartbeat := now.Sub(node.LastHeartbeat)
 		oldState := node.State
-		
+
 		switch node.State {
 		case NodeStateActive:
 			if timeSinceHeartbeat > cc.config.NodeTimeout {
@@ -674,12 +674,12 @@ func (cc *CacheCoordinator) checkNodeHealth() {
 				cacheInvalidationNeeded = true
 			}
 		}
-		
+
 		if oldState != node.State {
 			cacheInvalidationNeeded = true
 		}
 	}
-	
+
 	// Update cached active nodes if any state changed
 	if cacheInvalidationNeeded {
 		cc.updateCachedActiveNodes()
@@ -688,14 +688,14 @@ func (cc *CacheCoordinator) checkNodeHealth() {
 
 func (cc *CacheCoordinator) shardManager(ctx context.Context) {
 	defer cc.wg.Done()
-	
+
 	if !cc.config.EnableSharding {
 		return
 	}
-	
+
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -711,41 +711,41 @@ func (cc *CacheCoordinator) shardManager(ctx context.Context) {
 func (cc *CacheCoordinator) rebalanceShards() {
 	cc.mu.Lock()
 	defer cc.mu.Unlock()
-	
+
 	activeNodes := cc.getActiveNodesLocked()
 	if len(activeNodes) == 0 {
 		return
 	}
-	
+
 	// Simple round-robin shard assignment
 	shardsPerNode := cc.config.ShardCount / len(activeNodes)
 	remainder := cc.config.ShardCount % len(activeNodes)
-	
+
 	cc.clusterState.mu.Lock()
 	defer cc.clusterState.mu.Unlock()
-	
+
 	cc.clusterState.ShardMap = make(map[int][]string)
 	shardIndex := 0
-	
+
 	for i, nodeID := range activeNodes {
 		shards := shardsPerNode
 		if i < remainder {
 			shards++
 		}
-		
+
 		node := cc.nodes[nodeID]
 		node.Shards = make([]int, 0, shards)
-		
+
 		for j := 0; j < shards; j++ {
 			node.Shards = append(node.Shards, shardIndex)
 			cc.clusterState.ShardMap[shardIndex] = append(cc.clusterState.ShardMap[shardIndex], nodeID)
 			shardIndex++
 		}
 	}
-	
+
 	cc.clusterState.Version++
 	cc.clusterState.LastUpdated = time.Now()
-	
+
 	// Update cached shard mapping
 	cc.updateCachedShardMapping()
 }
@@ -754,13 +754,13 @@ func (cc *CacheCoordinator) getShardForKey(key string) int {
 	if !cc.config.EnableSharding {
 		return 0
 	}
-	
+
 	// Simple hash-based sharding
 	hash := 0
 	for _, b := range []byte(key) {
 		hash = hash*31 + int(b)
 	}
-	
+
 	return hash % cc.config.ShardCount
 }
 
@@ -774,14 +774,14 @@ func (cc *CacheCoordinator) getNodesForShard(shard int) []string {
 			}
 		}
 	}
-	
+
 	// Fall back to locked access (cache miss)
 	atomic.AddInt64(&cc.lockContentionMetrics.CacheMisses, 1)
 	atomic.AddInt64(&cc.lockContentionMetrics.ClusterLockContentions, 1)
-	
+
 	cc.clusterState.mu.RLock()
 	defer cc.clusterState.mu.RUnlock()
-	
+
 	return cc.clusterState.ShardMap[shard]
 }
 
@@ -796,14 +796,14 @@ func (cc *CacheCoordinator) getActiveNodes() []string {
 			return result
 		}
 	}
-	
+
 	// Fall back to locked access (cache miss)
 	atomic.AddInt64(&cc.lockContentionMetrics.CacheMisses, 1)
 	atomic.AddInt64(&cc.lockContentionMetrics.MainLockContentions, 1)
-	
+
 	cc.mu.RLock()
 	defer cc.mu.RUnlock()
-	
+
 	return cc.getActiveNodesLocked()
 }
 
@@ -820,7 +820,7 @@ func (cc *CacheCoordinator) getActiveNodesLocked() []string {
 func (cc *CacheCoordinator) getNodeShards() []int {
 	cc.mu.RLock()
 	defer cc.mu.RUnlock()
-	
+
 	if node, exists := cc.nodes[cc.nodeID]; exists {
 		return node.Shards
 	}
@@ -831,19 +831,19 @@ func (cc *CacheCoordinator) broadcastUpdate(ctx context.Context, msg CacheUpdate
 	if cc.transport == nil {
 		return fmt.Errorf("transport not initialized")
 	}
-	
+
 	message := Message{
 		Type:      "cache_update",
 		Source:    cc.nodeID,
 		Timestamp: time.Now(),
 	}
-	
+
 	payload, err := json.Marshal(msg)
 	if err != nil {
 		return fmt.Errorf("failed to marshal update: %w", err)
 	}
 	message.Payload = payload
-	
+
 	return cc.transport.Broadcast(ctx, message)
 }
 
@@ -856,7 +856,7 @@ func (cc *CacheCoordinator) processInvalidation(inv InvalidationMessage) {
 	// Invalidate caches on all registered validators except the originating node
 	cc.mu.RLock()
 	defer cc.mu.RUnlock()
-	
+
 	for nodeID, validator := range cc.cacheValidators {
 		if nodeID != inv.NodeID { // Don't invalidate on the originating node
 			// If EventType is specified, invalidate by event type
@@ -929,7 +929,7 @@ func (cc *CacheCoordinator) ResetPerformanceMetrics() {
 	atomic.StoreInt64(&cc.lockContentionMetrics.CacheHits, 0)
 	atomic.StoreInt64(&cc.lockContentionMetrics.CacheMisses, 0)
 	atomic.StoreInt64(&cc.cacheUpdateCounter, 0)
-	
+
 	cc.lockContentionMetrics.mu.Lock()
 	cc.lockContentionMetrics.LastResetTime = time.Now()
 	cc.lockContentionMetrics.mu.Unlock()
@@ -940,10 +940,10 @@ func (cc *CacheCoordinator) GetCacheHitRatio() float64 {
 	hits := atomic.LoadInt64(&cc.lockContentionMetrics.CacheHits)
 	misses := atomic.LoadInt64(&cc.lockContentionMetrics.CacheMisses)
 	total := hits + misses
-	
+
 	if total == 0 {
 		return 0.0
 	}
-	
+
 	return (float64(hits) / float64(total)) * 100.0
 }

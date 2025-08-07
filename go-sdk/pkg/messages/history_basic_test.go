@@ -83,8 +83,8 @@ func TestHistoryBatchOperations(t *testing.T) {
 	for i, msg := range all {
 		content1 := msg.GetContent()
 		content2 := messages[i].GetContent()
-		if (content1 == nil && content2 != nil) || (content1 != nil && content2 == nil) || 
-		   (content1 != nil && content2 != nil && *content1 != *content2) {
+		if (content1 == nil && content2 != nil) || (content1 != nil && content2 == nil) ||
+			(content1 != nil && content2 != nil && *content1 != *content2) {
 			t.Errorf("Message %d content mismatch", i)
 		}
 	}

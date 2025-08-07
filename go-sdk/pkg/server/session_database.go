@@ -752,18 +752,18 @@ func (d *SecureDatabaseSessionStorage) CountSessions(ctx context.Context) (int64
 
 func (d *SecureDatabaseSessionStorage) Close() error {
 	d.logger.Info("Closing secure database session storage")
-	
+
 	// Close database connection
 	var err error
 	if d.db != nil {
 		err = d.db.Close()
 	}
-	
+
 	// Cleanup credentials
 	if d.config != nil {
 		d.config.Cleanup()
 	}
-	
+
 	return err
 }
 
@@ -776,9 +776,9 @@ func (d *SecureDatabaseSessionStorage) Ping(ctx context.Context) error {
 
 func (d *SecureDatabaseSessionStorage) Stats() map[string]interface{} {
 	stats := map[string]interface{}{
-		"type":             "secure_database",
-		"driver":           d.config.Driver,
-		"table_name":       d.config.TableName,
+		"type":               "secure_database",
+		"driver":             d.config.Driver,
+		"table_name":         d.config.TableName,
 		"credentials_loaded": d.config.GetConnectionString() != nil,
 	}
 

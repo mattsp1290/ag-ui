@@ -24,16 +24,16 @@ func NewExampleServer(logger *zap.Logger) (*ExampleServer, error) {
 			return nil, fmt.Errorf("failed to create logger: %w", err)
 		}
 	}
-	
+
 	server := &ExampleServer{
 		logger: logger,
 		chain:  NewChain(logger),
 	}
-	
+
 	if err := server.setupMiddleware(); err != nil {
 		return nil, fmt.Errorf("failed to setup middleware: %w", err)
 	}
-	
+
 	return server, nil
 }
 
@@ -46,7 +46,7 @@ func (es *ExampleServer) setupMiddleware() error {
 		name:     "request-id",
 		priority: 200,
 	})
-	
+
 	// 2. CORS middleware (before auth to handle preflight)
 	corsConfig := &CORSConfig{
 		BaseConfig: BaseConfig{
@@ -64,16 +64,16 @@ func (es *ExampleServer) setupMiddleware() error {
 			"Content-Type", "Authorization", "X-API-Key", "X-Requested-With",
 		},
 		AllowCredentials: true,
-		MaxAge:          86400,
-		Strict:          true,
+		MaxAge:           86400,
+		Strict:           true,
 	}
-	
+
 	corsMiddleware, err := NewCORSMiddleware(corsConfig, es.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create CORS middleware: %w", err)
 	}
 	es.chain.Use(corsMiddleware)
-	
+
 	// 3. Rate limiting middleware (before auth to prevent abuse)
 	rateLimitConfig := &RateLimitConfig{
 		BaseConfig: BaseConfig{
@@ -82,33 +82,33 @@ func (es *ExampleServer) setupMiddleware() error {
 			Name:     "ratelimit",
 		},
 		Algorithm:         TokenBucket,
-		Scope:            ScopeIP,
+		Scope:             ScopeIP,
 		RequestsPerMinute: 1000,
-		BurstSize:        100,
-		WindowSize:       time.Minute,
-		
+		BurstSize:         100,
+		WindowSize:        time.Minute,
+
 		// Endpoint-specific limits
 		EndpointLimits: map[string]*EndpointRateLimit{
 			"/api/auth/login": {
 				Path:              "/api/auth/login",
 				Method:            "POST",
 				RequestsPerMinute: 5,
-				BurstSize:        2,
-				WindowSize:       time.Minute,
+				BurstSize:         2,
+				WindowSize:        time.Minute,
 			},
 		},
-		
+
 		IncludeHeaders:   true,
 		RetryAfterHeader: true,
 		SkipPaths:        []string{"/health", "/metrics"},
 	}
-	
+
 	rateLimitMiddleware, err := NewRateLimitMiddleware(rateLimitConfig, es.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create rate limit middleware: %w", err)
 	}
 	es.chain.Use(rateLimitMiddleware)
-	
+
 	// 4. Authentication middleware
 	authConfig := &AuthConfig{
 		BaseConfig: BaseConfig{
@@ -126,17 +126,17 @@ func (es *ExampleServer) setupMiddleware() error {
 			Audience:      []string{"ag-ui-api"},
 			LeewayTime:    time.Minute,
 		},
-		OptionalPaths: []string{"/public", "/health", "/metrics"},
-		ExcludedPaths: []string{"/favicon.ico"},
+		OptionalPaths:   []string{"/public", "/health", "/metrics"},
+		ExcludedPaths:   []string{"/favicon.ico"},
 		SecureErrorMode: true,
 	}
-	
+
 	authMiddleware, err := NewAuthMiddleware(authConfig, es.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create auth middleware: %w", err)
 	}
 	es.chain.Use(authMiddleware)
-	
+
 	// 5. Metrics middleware
 	metricsCollector := NewInMemoryMetricsCollector()
 	metricsConfig := &MetricsConfig{
@@ -145,16 +145,16 @@ func (es *ExampleServer) setupMiddleware() error {
 			Priority: 20,
 			Name:     "metrics",
 		},
-		Collector:                metricsCollector,
-		EnableRequestMetrics:     true,
-		EnableResponseMetrics:    true,
-		EnableDurationMetrics:    true,
-		EnableActiveRequests:     true,
-		IncludeMethod:           true,
-		IncludeStatus:           true,
-		IncludePath:             true,
-		IncludeUserID:           true,
-		NormalizePaths:          true,
+		Collector:             metricsCollector,
+		EnableRequestMetrics:  true,
+		EnableResponseMetrics: true,
+		EnableDurationMetrics: true,
+		EnableActiveRequests:  true,
+		IncludeMethod:         true,
+		IncludeStatus:         true,
+		IncludePath:           true,
+		IncludeUserID:         true,
+		NormalizePaths:        true,
 		PathReplacements: map[string]string{
 			"/api/v1": "/api/{version}",
 			"/api/v2": "/api/{version}",
@@ -170,13 +170,13 @@ func (es *ExampleServer) setupMiddleware() error {
 			},
 		},
 	}
-	
+
 	metricsMiddleware, err := NewMetricsMiddleware(metricsConfig, es.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create metrics middleware: %w", err)
 	}
 	es.chain.Use(metricsMiddleware)
-	
+
 	// 6. Logging middleware (lowest priority to catch everything)
 	loggingConfig := &LoggingConfig{
 		BaseConfig: BaseConfig{
@@ -184,46 +184,46 @@ func (es *ExampleServer) setupMiddleware() error {
 			Priority: 10,
 			Name:     "logging",
 		},
-		Level:               LogLevelInfo,
-		Format:              LogFormatJSON,
-		IncludeClientIP:     true,
-		IncludeUserAgent:    true,
-		IncludeUserID:       true,
-		IncludeRequestID:    true,
-		IncludeTraceID:      true,
-		LogSlowRequests:     true,
+		Level:                LogLevelInfo,
+		Format:               LogFormatJSON,
+		IncludeClientIP:      true,
+		IncludeUserAgent:     true,
+		IncludeUserID:        true,
+		IncludeRequestID:     true,
+		IncludeTraceID:       true,
+		LogSlowRequests:      true,
 		SlowRequestThreshold: time.Second,
 		SanitizeHeaders: []string{
 			"authorization", "cookie", "set-cookie", "x-api-key",
 		},
 		ExcludePaths: []string{"/health", "/metrics"},
 	}
-	
+
 	loggingMiddleware, err := NewLoggingMiddleware(loggingConfig, es.logger)
 	if err != nil {
 		return fmt.Errorf("failed to create logging middleware: %w", err)
 	}
 	es.chain.Use(loggingMiddleware)
-	
+
 	return nil
 }
 
 // GetHandler returns the configured middleware chain handler
 func (es *ExampleServer) GetHandler() http.Handler {
 	mux := http.NewServeMux()
-	
+
 	// API routes
 	mux.HandleFunc("/api/users", es.handleUsers)
 	mux.HandleFunc("/api/auth/login", es.handleLogin)
 	mux.HandleFunc("/api/protected", es.handleProtected)
-	
+
 	// Public routes
 	mux.HandleFunc("/public/info", es.handlePublicInfo)
-	
+
 	// Health and metrics
 	mux.HandleFunc("/health", es.handleHealth)
 	mux.HandleFunc("/metrics", es.handleMetrics)
-	
+
 	// Apply middleware chain
 	return es.chain.Handler(mux)
 }
@@ -237,16 +237,16 @@ func (es *ExampleServer) handleUsers(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Authentication required", http.StatusUnauthorized)
 		return
 	}
-	
+
 	response := map[string]interface{}{
 		"users": []map[string]string{
 			{"id": "1", "name": "John Doe"},
 			{"id": "2", "name": "Jane Smith"},
 		},
 		"authenticated_user": user.ID,
-		"request_id":        GetRequestID(r.Context()),
+		"request_id":         GetRequestID(r.Context()),
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
@@ -256,7 +256,7 @@ func (es *ExampleServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	// This is a simplified login - in practice, validate credentials
 	response := map[string]interface{}{
 		"token":      "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...", // Example JWT
@@ -264,7 +264,7 @@ func (es *ExampleServer) handleLogin(w http.ResponseWriter, r *http.Request) {
 		"expires_in": 3600,
 		"request_id": GetRequestID(r.Context()),
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
@@ -275,14 +275,14 @@ func (es *ExampleServer) handleProtected(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "Authentication required", http.StatusUnauthorized)
 		return
 	}
-	
+
 	response := map[string]interface{}{
 		"message":    "This is a protected endpoint",
 		"user_id":    user.ID,
 		"user_roles": user.Roles,
 		"request_id": GetRequestID(r.Context()),
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
@@ -294,7 +294,7 @@ func (es *ExampleServer) handlePublicInfo(w http.ResponseWriter, r *http.Request
 		"timestamp":  time.Now().Unix(),
 		"request_id": GetRequestID(r.Context()),
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(response)
 }
@@ -305,7 +305,7 @@ func (es *ExampleServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"timestamp": time.Now().Unix(),
 		"version":   "1.0.0",
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(health)
 }
@@ -314,13 +314,13 @@ func (es *ExampleServer) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	// Get metrics from the metrics middleware
 	// This is a simplified version - in practice, you'd get the collector
 	// from the middleware and expose metrics in Prometheus format
-	
+
 	metrics := map[string]interface{}{
 		"http_requests_total":       100,
 		"http_request_duration_avg": 0.125,
-		"active_requests":          5,
+		"active_requests":           5,
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(metrics)
 }
@@ -355,32 +355,32 @@ func (ma *middlewareAdapter) Cleanup() error {
 // ExampleWithCustomMiddleware demonstrates how to add custom middleware
 func ExampleWithCustomMiddleware() http.Handler {
 	logger, _ := zap.NewProduction()
-	
+
 	// Create chain
 	chain := NewChain(logger)
-	
+
 	// Add custom middleware
 	customMiddleware := &CustomSecurityMiddleware{
 		config: &CustomSecurityConfig{
 			EnableCSP:           true,
-			CSPPolicy:          "default-src 'self'",
+			CSPPolicy:           "default-src 'self'",
 			EnableXFrameOptions: true,
-			XFrameOptions:      "DENY",
+			XFrameOptions:       "DENY",
 		},
 		logger: logger,
 	}
 	chain.Use(customMiddleware)
-	
+
 	// Add standard middleware
 	corsMiddleware, _ := NewCORSMiddleware(DefaultCORSConfig(), logger)
 	chain.Use(corsMiddleware)
-	
+
 	// Create handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("Hello with custom middleware!"))
 	})
-	
+
 	return chain.Handler(handler)
 }
 
@@ -393,9 +393,9 @@ type CustomSecurityMiddleware struct {
 type CustomSecurityConfig struct {
 	BaseConfig          `json:",inline" yaml:",inline"`
 	EnableCSP           bool   `json:"enable_csp" yaml:"enable_csp"`
-	CSPPolicy          string `json:"csp_policy" yaml:"csp_policy"`
+	CSPPolicy           string `json:"csp_policy" yaml:"csp_policy"`
 	EnableXFrameOptions bool   `json:"enable_x_frame_options" yaml:"enable_x_frame_options"`
-	XFrameOptions      string `json:"x_frame_options" yaml:"x_frame_options"`
+	XFrameOptions       string `json:"x_frame_options" yaml:"x_frame_options"`
 }
 
 func (csm *CustomSecurityMiddleware) Handler(next http.Handler) http.Handler {
@@ -404,16 +404,16 @@ func (csm *CustomSecurityMiddleware) Handler(next http.Handler) http.Handler {
 		if csm.config.EnableCSP {
 			w.Header().Set("Content-Security-Policy", csm.config.CSPPolicy)
 		}
-		
+
 		if csm.config.EnableXFrameOptions {
 			w.Header().Set("X-Frame-Options", csm.config.XFrameOptions)
 		}
-		
+
 		// Add other security headers
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
-		
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -438,7 +438,7 @@ func (csm *CustomSecurityMiddleware) Cleanup() error {
 func ExampleConditionalMiddleware() http.Handler {
 	logger, _ := zap.NewProduction()
 	chain := NewChain(logger)
-	
+
 	// Create auth middleware
 	authConfig := &AuthConfig{
 		BaseConfig: BaseConfig{Enabled: true, Name: "auth"},
@@ -449,15 +449,15 @@ func ExampleConditionalMiddleware() http.Handler {
 		},
 	}
 	authMiddleware, _ := NewAuthMiddleware(authConfig, logger)
-	
+
 	// Only apply auth to API routes
 	condition := func(r *http.Request) bool {
 		return r.URL.Path != "/health" && r.URL.Path != "/public"
 	}
-	
+
 	conditionalAuth := NewConditionalMiddleware(authMiddleware, condition, logger)
 	chain.Use(conditionalAuth)
-	
+
 	// Handler
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if user, ok := GetAuthUser(r.Context()); ok {
@@ -466,7 +466,7 @@ func ExampleConditionalMiddleware() http.Handler {
 			fmt.Fprintf(w, "Public access")
 		}
 	})
-	
+
 	return chain.Handler(handler)
 }
 
@@ -474,33 +474,33 @@ func ExampleConditionalMiddleware() http.Handler {
 func ExampleWithManager() map[string]http.Handler {
 	logger, _ := zap.NewProduction()
 	manager := NewManager(logger)
-	
+
 	// Create API chain with full middleware
 	apiChain := manager.CreateChain("api")
-	
+
 	// API middleware
 	corsMiddleware, _ := NewCORSMiddleware(DefaultCORSConfig(), logger)
 	authMiddleware, _ := RequireAuth(AuthMethodJWT, logger)
 	rateLimitMiddleware, _ := NewRateLimitMiddleware(DefaultRateLimitConfig(), logger)
-	
+
 	apiChain.Use(corsMiddleware, authMiddleware, rateLimitMiddleware)
-	
+
 	// Create public chain with minimal middleware
 	publicChain := manager.CreateChain("public")
-	
+
 	// Public middleware (no auth)
 	publicChain.Use(corsMiddleware)
-	
+
 	// Create handlers
 	apiHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, _ := GetAuthUser(r.Context())
 		fmt.Fprintf(w, "API response for user: %s", user.ID)
 	})
-	
+
 	publicHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "Public content")
 	})
-	
+
 	return map[string]http.Handler{
 		"api":    apiChain.Handler(apiHandler),
 		"public": publicChain.Handler(publicHandler),
@@ -510,7 +510,7 @@ func ExampleWithManager() map[string]http.Handler {
 // ExampleErrorHandling demonstrates error handling in middleware
 func ExampleErrorHandling() http.Handler {
 	logger, _ := zap.NewProduction()
-	
+
 	// Error recovery middleware
 	recovery := MiddlewareFunc(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -520,22 +520,22 @@ func ExampleErrorHandling() http.Handler {
 						zap.Any("error", err),
 						zap.String("path", r.URL.Path),
 					)
-					
+
 					http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 				}
 			}()
-			
+
 			next.ServeHTTP(w, r)
 		})
 	})
-	
+
 	chain := NewChain(logger)
 	chain.Use(&middlewareAdapter{
 		fn:       recovery,
 		name:     "recovery",
 		priority: 1000, // Highest priority
 	})
-	
+
 	// Handler that might panic
 	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/panic" {
@@ -544,7 +544,7 @@ func ExampleErrorHandling() http.Handler {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("OK"))
 	})
-	
+
 	return chain.Handler(handler)
 }
 
@@ -555,16 +555,16 @@ func ExampleHTTPServer() error {
 		return err
 	}
 	defer logger.Sync()
-	
+
 	// Create example server
 	server, err := NewExampleServer(logger)
 	if err != nil {
 		return err
 	}
-	
+
 	// Get configured handler
 	handler := server.GetHandler()
-	
+
 	// Start HTTP server
 	logger.Info("Starting server on :8080")
 	return http.ListenAndServe(":8080", handler)

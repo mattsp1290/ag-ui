@@ -23,16 +23,16 @@ var MigrationRulesAnalyzer = &analysis.Analyzer{
 
 // MigrationIssue represents a migration-specific issue.
 type MigrationIssue struct {
-	Type        string    // incomplete, mixed-usage, inconsistent
-	Pos         token.Pos
-	Message     string
-	Suggestion  string
-	Priority    string    // high, medium, low
-	FilePath    string
-	LineNumber  int
-	Category    string
-	OldPattern  string
-	NewPattern  string
+	Type       string // incomplete, mixed-usage, inconsistent
+	Pos        token.Pos
+	Message    string
+	Suggestion string
+	Priority   string // high, medium, low
+	FilePath   string
+	LineNumber int
+	Category   string
+	OldPattern string
+	NewPattern string
 }
 
 // MigrationContext tracks the state of migration across files.
@@ -50,7 +50,7 @@ type MigrationContext struct {
 // Priority package paths for migration (high priority first)
 var priorityPaths = []string{
 	"pkg/messages/",
-	"pkg/state/", 
+	"pkg/state/",
 	"pkg/transport/",
 	"pkg/events/",
 	"pkg/client/",
@@ -59,7 +59,7 @@ var priorityPaths = []string{
 
 // Legacy patterns that should be migrated
 var legacyPatterns = map[string]string{
-	`interface\{\}`:                    "specific types or generics",
+	`interface\{\}`:                   "specific types or generics",
 	`\[\]interface\{\}`:               "typed slices",
 	`map\[string\]interface\{\}`:      "typed structs",
 	`\.Any\(`:                         "typed logger methods",
@@ -83,12 +83,12 @@ var modernPatterns = []string{
 // runMigrationAnalysis performs migration-specific analysis.
 func runMigrationAnalysis(pass *analysis.Pass) (interface{}, error) {
 	inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
-	
+
 	ctx := &MigrationContext{
 		PartiallyMigrated: make(map[string]bool),
-		LegacyFiles:      make(map[string][]string),
-		ModernFiles:      make(map[string][]string),
-		MixedUsage:       make(map[string][]MigrationIssue),
+		LegacyFiles:       make(map[string][]string),
+		ModernFiles:       make(map[string][]string),
+		MixedUsage:        make(map[string][]MigrationIssue),
 	}
 
 	// Compile patterns
@@ -129,7 +129,7 @@ func runMigrationAnalysis(pass *analysis.Pass) (interface{}, error) {
 
 	// Report all migration issues
 	for _, issue := range issues {
-		pass.Reportf(issue.Pos, "[%s] %s: %s. Suggestion: %s", 
+		pass.Reportf(issue.Pos, "[%s] %s: %s. Suggestion: %s",
 			issue.Priority, issue.Category, issue.Message, issue.Suggestion)
 	}
 
@@ -137,16 +137,16 @@ func runMigrationAnalysis(pass *analysis.Pass) (interface{}, error) {
 }
 
 // analyzeFileForMigration analyzes a single file for migration patterns.
-func analyzeFileForMigration(pass *analysis.Pass, file *ast.File, ctx *MigrationContext, 
+func analyzeFileForMigration(pass *analysis.Pass, file *ast.File, ctx *MigrationContext,
 	legacyRegexes map[*regexp.Regexp]string, modernRegexes []*regexp.Regexp, issues *[]MigrationIssue) {
-	
+
 	fset := pass.Fset
 	filename := fset.Position(file.Pos()).Filename
-	
+
 	// Get file content as string for pattern matching
 	// Read file content (simplified - in practice you'd want to use the token.FileSet properly)
 	fileContent := getFileContent(pass, file)
-	
+
 	// Track patterns found in this file
 	legacyCount := 0
 	modernCount := 0
@@ -159,7 +159,7 @@ func analyzeFileForMigration(pass *analysis.Pass, file *ast.File, ctx *Migration
 		if len(matches) > 0 {
 			legacyCount += len(matches)
 			legacyMatches = append(legacyMatches, matches...)
-			
+
 			// Create issue for each match
 			for _, match := range matches {
 				pos := file.Pos() // Simplified position
@@ -201,9 +201,9 @@ func analyzeFileForMigration(pass *analysis.Pass, file *ast.File, ctx *Migration
 			FilePath:   filename,
 			Category:   "mixed-usage",
 		}}
-		
+
 		*issues = append(*issues, ctx.MixedUsage[filename]...)
-		
+
 	} else if legacyCount > 0 {
 		// Legacy file
 		ctx.LegacyFiles[filename] = legacyMatches
@@ -263,14 +263,14 @@ func checkIncompletePatterns(pass *analysis.Pass, file *ast.File, issues *[]Migr
 // analyzeProjectMigrationStatus provides project-wide migration insights.
 func analyzeProjectMigrationStatus(pass *analysis.Pass, ctx *MigrationContext, issues *[]MigrationIssue) {
 	totalFiles := len(ctx.LegacyFiles) + len(ctx.ModernFiles) + len(ctx.PartiallyMigrated)
-	
+
 	if totalFiles == 0 {
 		return
 	}
 
 	modernFiles := len(ctx.ModernFiles)
 	mixedFiles := len(ctx.PartiallyMigrated)
-	
+
 	migrationProgress := float64(modernFiles) / float64(totalFiles) * 100
 
 	// Report overall project status
@@ -307,7 +307,7 @@ func analyzeProjectMigrationStatus(pass *analysis.Pass, ctx *MigrationContext, i
 				pathLegacyCount++
 			}
 		}
-		
+
 		if pathLegacyCount > 0 {
 			issue := MigrationIssue{
 				Type:       "migration-order",
@@ -331,11 +331,11 @@ func getMigrationPriority(filename string) string {
 			return "high"
 		}
 	}
-	
+
 	if strings.Contains(filename, "_test.go") {
 		return "low"
 	}
-	
+
 	return "medium"
 }
 
@@ -345,7 +345,7 @@ func isStringInterfaceMap(mapType *ast.MapType) bool {
 	if ident, ok := mapType.Key.(*ast.Ident); !ok || ident.Name != "string" {
 		return false
 	}
-	
+
 	// Check value type is interface{}
 	return isEmptyInterface(mapType.Value)
 }
@@ -369,7 +369,7 @@ func hasInterfaceParams(funcDecl *ast.FuncDecl) bool {
 	if funcDecl.Type.Params == nil {
 		return false
 	}
-	
+
 	for _, field := range funcDecl.Type.Params.List {
 		if isEmptyInterface(field.Type) {
 			return true
@@ -384,16 +384,16 @@ func couldUseGenerics(funcDecl *ast.FuncDecl) bool {
 	if funcDecl.Name == nil {
 		return false
 	}
-	
+
 	name := strings.ToLower(funcDecl.Name.Name)
 	genericIndicators := []string{"process", "handle", "convert", "transform", "map", "filter", "reduce"}
-	
+
 	for _, indicator := range genericIndicators {
 		if strings.Contains(name, indicator) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -407,24 +407,24 @@ func getFileContent(pass *analysis.Pass, file *ast.File) string {
 // GenerateMigrationPlan creates a migration plan based on analysis results.
 func GenerateMigrationPlan(ctx *MigrationContext) string {
 	var plan strings.Builder
-	
+
 	plan.WriteString("# Interface{} Migration Plan\n\n")
-	
+
 	plan.WriteString("## Current Status\n")
 	plan.WriteString(fmt.Sprintf("- Legacy files: %d\n", len(ctx.LegacyFiles)))
 	plan.WriteString(fmt.Sprintf("- Modern files: %d\n", len(ctx.ModernFiles)))
 	plan.WriteString(fmt.Sprintf("- Mixed usage files: %d\n", len(ctx.PartiallyMigrated)))
-	
+
 	plan.WriteString("\n## Priority Actions\n")
 	plan.WriteString("1. Complete migration in mixed-usage files\n")
-	plan.WriteString("2. Migrate high-priority packages (messages, state, transport)\n") 
+	plan.WriteString("2. Migrate high-priority packages (messages, state, transport)\n")
 	plan.WriteString("3. Migrate remaining legacy files\n")
-	
+
 	plan.WriteString("\n## Mixed Usage Files (High Priority)\n")
 	for filename := range ctx.MixedUsage {
 		plan.WriteString(fmt.Sprintf("- %s\n", filename))
 	}
-	
+
 	plan.WriteString("\n## Legacy Files by Priority\n")
 	for _, priorityPath := range priorityPaths {
 		plan.WriteString(fmt.Sprintf("\n### %s\n", priorityPath))
@@ -434,6 +434,6 @@ func GenerateMigrationPlan(ctx *MigrationContext) string {
 			}
 		}
 	}
-	
+
 	return plan.String()
 }

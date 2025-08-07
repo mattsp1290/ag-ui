@@ -14,40 +14,40 @@ type ConfigProfile string
 const (
 	// ProfileDevelopment provides settings optimized for development and testing
 	ProfileDevelopment ConfigProfile = "development"
-	
+
 	// ProfileProduction provides settings optimized for production deployment
 	ProfileProduction ConfigProfile = "production"
-	
+
 	// ProfileMinimal provides basic functionality with minimal configuration
 	ProfileMinimal ConfigProfile = "minimal"
 )
 
 // ConfigBuilder provides a fluent interface for building complex configurations
 type ConfigBuilder struct {
-	agentConfig    *AgentConfig
-	httpConfig     *HttpConfig
-	securityConfig *SecurityConfig
-	sseConfig      *SSEClientConfig
+	agentConfig      *AgentConfig
+	httpConfig       *HttpConfig
+	securityConfig   *SecurityConfig
+	sseConfig        *SSEClientConfig
 	resilienceConfig *ResilienceConfig
-	errors         []error
+	errors           []error
 }
 
 // NewConfigBuilder creates a new configuration builder
 func NewConfigBuilder() *ConfigBuilder {
 	return &ConfigBuilder{
-		agentConfig:    &AgentConfig{},
-		httpConfig:     &HttpConfig{},
-		securityConfig: &SecurityConfig{},
-		sseConfig:      &SSEClientConfig{},
+		agentConfig:      &AgentConfig{},
+		httpConfig:       &HttpConfig{},
+		securityConfig:   &SecurityConfig{},
+		sseConfig:        &SSEClientConfig{},
 		resilienceConfig: &ResilienceConfig{},
-		errors:         make([]error, 0),
+		errors:           make([]error, 0),
 	}
 }
 
 // NewDevelopmentConfig creates a configuration optimized for development and testing
 func NewDevelopmentConfig() *ConfigBuilder {
 	builder := NewConfigBuilder()
-	
+
 	// Agent configuration
 	builder.agentConfig = &AgentConfig{
 		Name:        "dev-agent",
@@ -84,46 +84,46 @@ func NewDevelopmentConfig() *ConfigBuilder {
 		},
 		Custom: make(map[string]interface{}),
 	}
-	
+
 	// HTTP configuration - relaxed settings for development
 	builder.httpConfig = &HttpConfig{
-		ProtocolVersion:    "HTTP/1.1",
-		EnableHTTP2:        false,
-		ForceHTTP2:         false,
-		MaxIdleConns:       10,
-		MaxIdleConnsPerHost: 2,
-		MaxConnsPerHost:     5,
-		IdleConnTimeout:     30 * time.Second,
-		KeepAlive:           30 * time.Second,
-		DialTimeout:         10 * time.Second,
-		RequestTimeout:      30 * time.Second,
-		ResponseTimeout:     30 * time.Second,
-		TLSHandshakeTimeout: 10 * time.Second,
-		InsecureSkipVerify:  true, // Relaxed for development
-		DisableCompression:  false,
-		DisableKeepAlives:   false,
-		UserAgent:           "ag-ui-sdk-dev/1.0",
-		MaxResponseBodySize: 50 * 1024 * 1024, // 50MB
-		EnableCircuitBreaker: false, // Disabled for development
+		ProtocolVersion:      "HTTP/1.1",
+		EnableHTTP2:          false,
+		ForceHTTP2:           false,
+		MaxIdleConns:         10,
+		MaxIdleConnsPerHost:  2,
+		MaxConnsPerHost:      5,
+		IdleConnTimeout:      30 * time.Second,
+		KeepAlive:            30 * time.Second,
+		DialTimeout:          10 * time.Second,
+		RequestTimeout:       30 * time.Second,
+		ResponseTimeout:      30 * time.Second,
+		TLSHandshakeTimeout:  10 * time.Second,
+		InsecureSkipVerify:   true, // Relaxed for development
+		DisableCompression:   false,
+		DisableKeepAlives:    false,
+		UserAgent:            "ag-ui-sdk-dev/1.0",
+		MaxResponseBodySize:  50 * 1024 * 1024, // 50MB
+		EnableCircuitBreaker: false,            // Disabled for development
 	}
-	
+
 	// Security configuration - minimal security for development
 	builder.securityConfig = &SecurityConfig{
 		AuthMethod:       AuthMethodAPIKey,
 		EnableMultiAuth:  false,
 		SupportedMethods: []AuthMethod{AuthMethodAPIKey},
 		APIKey: APIKeyConfig{
-			HeaderName:              "X-API-Key",
-			QueryParam:              "api_key",
-			Prefix:                  "",
-			HashingAlgorithm:        "sha256",
-			EnableKeyRotation:       false,
-			KeyRotationInterval:     0,
+			HeaderName:          "X-API-Key",
+			QueryParam:          "api_key",
+			Prefix:              "",
+			HashingAlgorithm:    "sha256",
+			EnableKeyRotation:   false,
+			KeyRotationInterval: 0,
 		},
 		TLS: TLSConfig{
-			Enabled:               false,
-			InsecureSkipVerify:    true,
-			EnableSNI:             false,
+			Enabled:            false,
+			InsecureSkipVerify: true,
+			EnableSNI:          false,
 		},
 		SecurityHeaders: SecurityHeadersConfig{
 			EnableCSP:           false,
@@ -131,12 +131,12 @@ func NewDevelopmentConfig() *ConfigBuilder {
 			EnableXFrameOptions: false,
 			EnableXContentType:  false,
 			CORSConfig: CORSConfig{
-				Enabled:         true,
-				AllowedOrigins:  []string{"*"},
-				AllowedMethods:  []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-				AllowedHeaders:  []string{"*"},
+				Enabled:          true,
+				AllowedOrigins:   []string{"*"},
+				AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+				AllowedHeaders:   []string{"*"},
 				AllowCredentials: false,
-				MaxAge:          3600,
+				MaxAge:           3600,
 			},
 		},
 		RateLimit: RateLimitConfig{
@@ -145,7 +145,7 @@ func NewDevelopmentConfig() *ConfigBuilder {
 			BurstSize:         100,
 		},
 	}
-	
+
 	// SSE configuration - basic settings
 	builder.sseConfig = &SSEClientConfig{
 		InitialBackoff:       1 * time.Second,
@@ -159,7 +159,7 @@ func NewDevelopmentConfig() *ConfigBuilder {
 		MaxStreamLifetime:    10 * time.Minute, // 10 minutes for development
 		Headers:              make(map[string]string),
 	}
-	
+
 	// Resilience configuration - minimal resilience for development
 	builder.resilienceConfig = &ResilienceConfig{
 		Retry: RetryConfig{
@@ -186,14 +186,14 @@ func NewDevelopmentConfig() *ConfigBuilder {
 			BurstSize:         20,
 		},
 	}
-	
+
 	return builder
 }
 
 // NewProductionConfig creates a configuration optimized for production deployment
 func NewProductionConfig() *ConfigBuilder {
 	builder := NewConfigBuilder()
-	
+
 	// Agent configuration
 	builder.agentConfig = &AgentConfig{
 		Name:        "prod-agent",
@@ -230,26 +230,26 @@ func NewProductionConfig() *ConfigBuilder {
 		},
 		Custom: make(map[string]interface{}),
 	}
-	
+
 	// HTTP configuration - optimized for production
 	builder.httpConfig = &HttpConfig{
-		ProtocolVersion:    "HTTP/2",
-		EnableHTTP2:        true,
-		ForceHTTP2:         false,
-		MaxIdleConns:       100,
-		MaxIdleConnsPerHost: 10,
-		MaxConnsPerHost:     50,
-		IdleConnTimeout:     90 * time.Second,
-		KeepAlive:           30 * time.Second,
-		DialTimeout:         30 * time.Second,
-		RequestTimeout:      120 * time.Second,
-		ResponseTimeout:     120 * time.Second,
-		TLSHandshakeTimeout: 30 * time.Second,
-		InsecureSkipVerify:  false,
-		DisableCompression:  false,
-		DisableKeepAlives:   false,
-		UserAgent:           "ag-ui-sdk-prod/1.0",
-		MaxResponseBodySize: 100 * 1024 * 1024, // 100MB
+		ProtocolVersion:      "HTTP/2",
+		EnableHTTP2:          true,
+		ForceHTTP2:           false,
+		MaxIdleConns:         100,
+		MaxIdleConnsPerHost:  10,
+		MaxConnsPerHost:      50,
+		IdleConnTimeout:      90 * time.Second,
+		KeepAlive:            30 * time.Second,
+		DialTimeout:          30 * time.Second,
+		RequestTimeout:       120 * time.Second,
+		ResponseTimeout:      120 * time.Second,
+		TLSHandshakeTimeout:  30 * time.Second,
+		InsecureSkipVerify:   false,
+		DisableCompression:   false,
+		DisableKeepAlives:    false,
+		UserAgent:            "ag-ui-sdk-prod/1.0",
+		MaxResponseBodySize:  100 * 1024 * 1024, // 100MB
 		EnableCircuitBreaker: true,
 		CircuitBreakerConfig: &CircuitBreakerConfig{
 			Enabled:                 true,
@@ -261,57 +261,57 @@ func NewProductionConfig() *ConfigBuilder {
 			MinimumRequestThreshold: 20,
 		},
 	}
-	
+
 	// Security configuration - comprehensive security for production
 	builder.securityConfig = &SecurityConfig{
 		AuthMethod:       AuthMethodJWT,
 		EnableMultiAuth:  true,
 		SupportedMethods: []AuthMethod{AuthMethodJWT, AuthMethodAPIKey, AuthMethodMTLS},
 		JWT: JWTConfig{
-			SigningMethod:        "RS256",
-			AccessTokenTTL:       15 * time.Minute,
-			RefreshTokenTTL:      24 * time.Hour,
-			AutoRefresh:          true,
-			RefreshThreshold:     2 * time.Minute,
-			LeewayTime:           30 * time.Second,
-			CustomClaims:         make(map[string]interface{}),
+			SigningMethod:    "RS256",
+			AccessTokenTTL:   15 * time.Minute,
+			RefreshTokenTTL:  24 * time.Hour,
+			AutoRefresh:      true,
+			RefreshThreshold: 2 * time.Minute,
+			LeewayTime:       30 * time.Second,
+			CustomClaims:     make(map[string]interface{}),
 		},
 		APIKey: APIKeyConfig{
-			HeaderName:              "X-API-Key",
-			Prefix:                  "Bearer ",
-			HashingAlgorithm:        "sha256",
-			EnableKeyRotation:       true,
-			KeyRotationInterval:     24 * time.Hour,
+			HeaderName:          "X-API-Key",
+			Prefix:              "Bearer ",
+			HashingAlgorithm:    "sha256",
+			EnableKeyRotation:   true,
+			KeyRotationInterval: 24 * time.Hour,
 		},
 		TLS: TLSConfig{
-			Enabled:               true,
-			ClientAuth:            tls.RequireAndVerifyClientCert,
-			MinVersion:            tls.VersionTLS12,
-			MaxVersion:            tls.VersionTLS13,
-			InsecureSkipVerify:    false,
-			EnableSNI:             true,
+			Enabled:            true,
+			ClientAuth:         tls.RequireAndVerifyClientCert,
+			MinVersion:         tls.VersionTLS12,
+			MaxVersion:         tls.VersionTLS13,
+			InsecureSkipVerify: false,
+			EnableSNI:          true,
 		},
 		SecurityHeaders: SecurityHeadersConfig{
-			EnableCSP:           true,
-			CSPPolicy:           "default-src 'self'; script-src 'self' 'unsafe-inline'",
-			EnableHSTS:          true,
-			HSTSMaxAge:          31536000, // 1 year
-			EnableXFrameOptions: true,
-			XFrameOptions:       "DENY",
-			EnableXContentType:  true,
+			EnableCSP:            true,
+			CSPPolicy:            "default-src 'self'; script-src 'self' 'unsafe-inline'",
+			EnableHSTS:           true,
+			HSTSMaxAge:           31536000, // 1 year
+			EnableXFrameOptions:  true,
+			XFrameOptions:        "DENY",
+			EnableXContentType:   true,
 			EnableReferrerPolicy: true,
-			ReferrerPolicy:      "strict-origin-when-cross-origin",
-			CustomHeaders:       map[string]string{
+			ReferrerPolicy:       "strict-origin-when-cross-origin",
+			CustomHeaders: map[string]string{
 				"X-Content-Type-Options": "nosniff",
 				"X-XSS-Protection":       "1; mode=block",
 			},
 			CORSConfig: CORSConfig{
-				Enabled:         true,
-				AllowedOrigins:  []string{}, // Must be explicitly configured
-				AllowedMethods:  []string{"GET", "POST", "PUT", "DELETE"},
-				AllowedHeaders:  []string{"Authorization", "Content-Type", "X-API-Key"},
+				Enabled:          true,
+				AllowedOrigins:   []string{}, // Must be explicitly configured
+				AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE"},
+				AllowedHeaders:   []string{"Authorization", "Content-Type", "X-API-Key"},
 				AllowCredentials: true,
-				MaxAge:          86400, // 24 hours
+				MaxAge:           86400, // 24 hours
 			},
 		},
 		TokenStorage: TokenStorageConfig{
@@ -322,9 +322,9 @@ func NewProductionConfig() *ConfigBuilder {
 			},
 		},
 		AuditLogging: AuditLoggingConfig{
-			Enabled:    true,
-			LogLevel:   "INFO",
-			LogFormat:  "json",
+			Enabled:             true,
+			LogLevel:            "INFO",
+			LogFormat:           "json",
 			IncludeRequestBody:  false,
 			IncludeResponseBody: false,
 		},
@@ -334,7 +334,7 @@ func NewProductionConfig() *ConfigBuilder {
 			BurstSize:         20,
 		},
 	}
-	
+
 	// SSE configuration - robust settings for production
 	builder.sseConfig = &SSEClientConfig{
 		InitialBackoff:       2 * time.Second,
@@ -348,7 +348,7 @@ func NewProductionConfig() *ConfigBuilder {
 		MaxStreamLifetime:    60 * time.Minute, // 60 minutes for production
 		Headers:              make(map[string]string),
 	}
-	
+
 	// Resilience configuration - comprehensive resilience for production
 	builder.resilienceConfig = &ResilienceConfig{
 		Retry: RetryConfig{
@@ -375,14 +375,14 @@ func NewProductionConfig() *ConfigBuilder {
 			BurstSize:         20,
 		},
 	}
-	
+
 	return builder
 }
 
 // NewMinimalConfig creates a configuration with basic functionality only
 func NewMinimalConfig() *ConfigBuilder {
 	builder := NewConfigBuilder()
-	
+
 	// Agent configuration - minimal setup
 	builder.agentConfig = &AgentConfig{
 		Name:        "minimal-agent",
@@ -419,43 +419,43 @@ func NewMinimalConfig() *ConfigBuilder {
 		},
 		Custom: make(map[string]interface{}),
 	}
-	
+
 	// HTTP configuration - basic settings
 	builder.httpConfig = &HttpConfig{
-		ProtocolVersion:    "HTTP/1.1",
-		EnableHTTP2:        false,
-		ForceHTTP2:         false,
-		MaxIdleConns:       2,
-		MaxIdleConnsPerHost: 1,
-		MaxConnsPerHost:     2,
-		IdleConnTimeout:     30 * time.Second,
-		KeepAlive:           0, // Disabled
-		DialTimeout:         10 * time.Second,
-		RequestTimeout:      30 * time.Second,
-		ResponseTimeout:     30 * time.Second,
-		TLSHandshakeTimeout: 10 * time.Second,
-		InsecureSkipVerify:  false,
-		DisableCompression:  true,
-		DisableKeepAlives:   true,
-		UserAgent:           "ag-ui-sdk-minimal/1.0",
-		MaxResponseBodySize: 10 * 1024 * 1024, // 10MB
+		ProtocolVersion:      "HTTP/1.1",
+		EnableHTTP2:          false,
+		ForceHTTP2:           false,
+		MaxIdleConns:         2,
+		MaxIdleConnsPerHost:  1,
+		MaxConnsPerHost:      2,
+		IdleConnTimeout:      30 * time.Second,
+		KeepAlive:            0, // Disabled
+		DialTimeout:          10 * time.Second,
+		RequestTimeout:       30 * time.Second,
+		ResponseTimeout:      30 * time.Second,
+		TLSHandshakeTimeout:  10 * time.Second,
+		InsecureSkipVerify:   false,
+		DisableCompression:   true,
+		DisableKeepAlives:    true,
+		UserAgent:            "ag-ui-sdk-minimal/1.0",
+		MaxResponseBodySize:  10 * 1024 * 1024, // 10MB
 		EnableCircuitBreaker: false,
 	}
-	
+
 	// Security configuration - basic security
 	builder.securityConfig = &SecurityConfig{
 		AuthMethod:       AuthMethodBasic,
 		EnableMultiAuth:  false,
 		SupportedMethods: []AuthMethod{AuthMethodBasic},
 		BasicAuth: BasicAuthConfig{
-			Realm:                   "Minimal Auth",
-			HashingAlgorithm:        "bcrypt",
-			EnablePasswordPolicy:    false,
+			Realm:                "Minimal Auth",
+			HashingAlgorithm:     "bcrypt",
+			EnablePasswordPolicy: false,
 		},
 		TLS: TLSConfig{
-			Enabled:               false,
-			InsecureSkipVerify:    false,
-			EnableSNI:             false,
+			Enabled:            false,
+			InsecureSkipVerify: false,
+			EnableSNI:          false,
 		},
 		SecurityHeaders: SecurityHeadersConfig{
 			EnableCSP:           false,
@@ -463,14 +463,14 @@ func NewMinimalConfig() *ConfigBuilder {
 			EnableXFrameOptions: false,
 			EnableXContentType:  false,
 			CORSConfig: CORSConfig{
-				Enabled:         false,
+				Enabled: false,
 			},
 		},
 		RateLimit: RateLimitConfig{
-			Enabled:           false,
+			Enabled: false,
 		},
 	}
-	
+
 	// SSE configuration - disabled
 	builder.sseConfig = &SSEClientConfig{
 		InitialBackoff:       1 * time.Second,
@@ -480,11 +480,11 @@ func NewMinimalConfig() *ConfigBuilder {
 		EventBufferSize:      10,
 		ReadTimeout:          30 * time.Second,
 		WriteTimeout:         10 * time.Second,
-		HealthCheckInterval:  0, // Disabled
+		HealthCheckInterval:  0,               // Disabled
 		MaxStreamLifetime:    5 * time.Minute, // 5 minutes for minimal
 		Headers:              make(map[string]string),
 	}
-	
+
 	// Resilience configuration - minimal resilience
 	builder.resilienceConfig = &ResilienceConfig{
 		Retry: RetryConfig{
@@ -503,7 +503,7 @@ func NewMinimalConfig() *ConfigBuilder {
 			Enabled: false,
 		},
 	}
-	
+
 	return builder
 }
 
@@ -606,14 +606,14 @@ func (cb *ConfigBuilder) WithJWTAuth(signingMethod, secretKey string, accessTTL,
 	}
 	cb.securityConfig.AuthMethod = AuthMethodJWT
 	cb.securityConfig.JWT = JWTConfig{
-		SigningMethod:   signingMethod,
-		SecretKey:       secretKey,
-		AccessTokenTTL:  accessTTL,
-		RefreshTokenTTL: refreshTTL,
-		AutoRefresh:     true,
+		SigningMethod:    signingMethod,
+		SecretKey:        secretKey,
+		AccessTokenTTL:   accessTTL,
+		RefreshTokenTTL:  refreshTTL,
+		AutoRefresh:      true,
 		RefreshThreshold: accessTTL / 4, // Refresh when 25% of TTL remains
-		LeewayTime:      30 * time.Second,
-		CustomClaims:    make(map[string]interface{}),
+		LeewayTime:       30 * time.Second,
+		CustomClaims:     make(map[string]interface{}),
 	}
 	return cb
 }
@@ -625,11 +625,11 @@ func (cb *ConfigBuilder) WithAPIKeyAuth(headerName, prefix string) *ConfigBuilde
 	}
 	cb.securityConfig.AuthMethod = AuthMethodAPIKey
 	cb.securityConfig.APIKey = APIKeyConfig{
-		HeaderName:              headerName,
-		Prefix:                  prefix,
-		HashingAlgorithm:        "sha256",
-		EnableKeyRotation:       false,
-		KeyRotationInterval:     0,
+		HeaderName:          headerName,
+		Prefix:              prefix,
+		HashingAlgorithm:    "sha256",
+		EnableKeyRotation:   false,
+		KeyRotationInterval: 0,
 	}
 	return cb
 }
@@ -640,14 +640,14 @@ func (cb *ConfigBuilder) WithTLS(enabled bool, certFile, keyFile, caFile string)
 		cb.securityConfig = &SecurityConfig{}
 	}
 	cb.securityConfig.TLS = TLSConfig{
-		Enabled:               enabled,
-		CertFile:              certFile,
-		KeyFile:               keyFile,
-		CAFile:                caFile,
-		MinVersion:            tls.VersionTLS12,
-		MaxVersion:            tls.VersionTLS13,
-		InsecureSkipVerify:    false,
-		EnableSNI:             true,
+		Enabled:            enabled,
+		CertFile:           certFile,
+		KeyFile:            keyFile,
+		CAFile:             caFile,
+		MinVersion:         tls.VersionTLS12,
+		MaxVersion:         tls.VersionTLS13,
+		InsecureSkipVerify: false,
+		EnableSNI:          true,
 	}
 	return cb
 }
@@ -671,12 +671,12 @@ func (cb *ConfigBuilder) WithCORS(allowedOrigins, allowedMethods, allowedHeaders
 		cb.securityConfig = &SecurityConfig{}
 	}
 	cb.securityConfig.SecurityHeaders.CORSConfig = CORSConfig{
-		Enabled:         true,
-		AllowedOrigins:  allowedOrigins,
-		AllowedMethods:  allowedMethods,
-		AllowedHeaders:  allowedHeaders,
+		Enabled:          true,
+		AllowedOrigins:   allowedOrigins,
+		AllowedMethods:   allowedMethods,
+		AllowedHeaders:   allowedHeaders,
 		AllowCredentials: len(allowedOrigins) > 0 && allowedOrigins[0] != "*",
-		MaxAge:          86400, // 24 hours
+		MaxAge:           86400, // 24 hours
 	}
 	return cb
 }
@@ -764,7 +764,7 @@ func (cb *ConfigBuilder) ForDevelopment() *ConfigBuilder {
 	// Relax security settings
 	cb.WithInsecureTLS()
 	cb.WithCORS([]string{"*"}, []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}, []string{"*"})
-	
+
 	// Disable advanced features that might complicate development
 	if cb.httpConfig != nil {
 		cb.httpConfig.EnableCircuitBreaker = false
@@ -776,7 +776,7 @@ func (cb *ConfigBuilder) ForDevelopment() *ConfigBuilder {
 	if cb.securityConfig != nil {
 		cb.securityConfig.RateLimit.Enabled = false
 	}
-	
+
 	return cb
 }
 
@@ -791,7 +791,7 @@ func (cb *ConfigBuilder) ForProduction() *ConfigBuilder {
 		cb.securityConfig.AuditLogging.Enabled = true
 		cb.securityConfig.RateLimit.Enabled = true
 	}
-	
+
 	// Enable resilience features
 	if cb.httpConfig != nil {
 		cb.httpConfig.EnableCircuitBreaker = true
@@ -800,10 +800,10 @@ func (cb *ConfigBuilder) ForProduction() *ConfigBuilder {
 		cb.resilienceConfig.CircuitBreaker.Enabled = true
 		cb.resilienceConfig.RateLimit.Enabled = true
 	}
-	
+
 	// Enable HTTP/2 for better performance
 	cb.WithHTTP2(true, false)
-	
+
 	return cb
 }
 
@@ -813,7 +813,7 @@ func (cb *ConfigBuilder) ForHighPerformance() *ConfigBuilder {
 	cb.WithHTTP2(true, false)
 	cb.WithHTTPConnectionLimits(100, 20, 100)
 	cb.WithHTTPTimeouts(10*time.Second, 60*time.Second, 60*time.Second)
-	
+
 	// Optimize agent settings
 	if cb.agentConfig != nil {
 		cb.agentConfig.EventProcessing.BufferSize = 1000
@@ -821,7 +821,7 @@ func (cb *ConfigBuilder) ForHighPerformance() *ConfigBuilder {
 		cb.agentConfig.Tools.MaxConcurrent = 50
 		cb.agentConfig.State.CacheSize = "1GB"
 	}
-	
+
 	return cb
 }
 
@@ -834,11 +834,11 @@ func (cb *ConfigBuilder) ForSecure() *ConfigBuilder {
 		cb.securityConfig.SecurityHeaders.EnableXFrameOptions = true
 		cb.securityConfig.SecurityHeaders.EnableXContentType = true
 		cb.securityConfig.SecurityHeaders.EnableReferrerPolicy = true
-		
+
 		// Enable audit logging
 		cb.securityConfig.AuditLogging.Enabled = true
 		cb.securityConfig.AuditLogging.LogLevel = "DEBUG"
-		
+
 		// Enable rate limiting
 		cb.securityConfig.RateLimit.Enabled = true
 		if cb.securityConfig.RateLimit.RequestsPerSecond == 0 {
@@ -846,13 +846,13 @@ func (cb *ConfigBuilder) ForSecure() *ConfigBuilder {
 			cb.securityConfig.RateLimit.BurstSize = 20
 		}
 	}
-	
+
 	// Ensure TLS is properly configured
 	if cb.securityConfig.TLS.Enabled {
 		cb.securityConfig.TLS.MinVersion = tls.VersionTLS12
 		cb.securityConfig.TLS.InsecureSkipVerify = false
 	}
-	
+
 	return cb
 }
 
@@ -866,7 +866,7 @@ func (cb *ConfigBuilder) Build() (*AgentConfig, *HttpConfig, *SecurityConfig, *S
 	if err := cb.Validate(); err != nil {
 		return nil, nil, nil, nil, nil, err
 	}
-	
+
 	return cb.agentConfig, cb.httpConfig, cb.securityConfig, cb.sseConfig, cb.resilienceConfig, nil
 }
 
@@ -897,40 +897,40 @@ func (cb *ConfigBuilder) BuildSecurityConfig() (*SecurityConfig, error) {
 // Validate validates all configurations in the builder
 func (cb *ConfigBuilder) Validate() error {
 	var allErrors []error
-	
+
 	if cb.agentConfig != nil {
 		if err := cb.agentConfig.Validate(); err != nil {
 			allErrors = append(allErrors, fmt.Errorf("agent config validation failed: %w", err))
 		}
 	}
-	
+
 	if cb.httpConfig != nil {
 		if err := cb.httpConfig.Validate(); err != nil {
 			allErrors = append(allErrors, fmt.Errorf("http config validation failed: %w", err))
 		}
 	}
-	
+
 	if cb.securityConfig != nil {
 		if err := cb.securityConfig.Validate(); err != nil {
 			allErrors = append(allErrors, fmt.Errorf("security config validation failed: %w", err))
 		}
 	}
-	
+
 	if cb.sseConfig != nil {
 		if err := cb.sseConfig.Validate(); err != nil {
 			allErrors = append(allErrors, fmt.Errorf("sse config validation failed: %w", err))
 		}
 	}
-	
+
 	if cb.resilienceConfig != nil {
 		if err := cb.resilienceConfig.Validate(); err != nil {
 			allErrors = append(allErrors, fmt.Errorf("resilience config validation failed: %w", err))
 		}
 	}
-	
+
 	if len(allErrors) > 0 {
 		return fmt.Errorf("configuration validation errors: %v", allErrors)
 	}
-	
+
 	return nil
 }

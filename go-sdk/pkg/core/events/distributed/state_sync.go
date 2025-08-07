@@ -86,14 +86,14 @@ func DefaultStateSyncConfig() *StateSyncConfig {
 // This uses faster intervals and timeouts to prevent test interference
 func TestingStateSyncConfig() *StateSyncConfig {
 	return &StateSyncConfig{
-		Protocol:           SyncProtocolSnapshot, // Use simpler protocol for tests
+		Protocol:           SyncProtocolSnapshot,  // Use simpler protocol for tests
 		SyncInterval:       10 * time.Millisecond, // Very fast for tests
 		BatchSize:          5,                     // Small batches for faster processing
 		MaxRetries:         1,                     // Minimal retries for faster tests
 		ConflictResolution: ConflictResolutionLastWrite,
-		EnableCompression:  false,                 // Disable compression for simpler tests
-		GossipFanout:       1,                     // Minimal fanout for tests
-		SnapshotThreshold:  10,                    // Low threshold for tests
+		EnableCompression:  false, // Disable compression for simpler tests
+		GossipFanout:       1,     // Minimal fanout for tests
+		SnapshotThreshold:  10,    // Low threshold for tests
 	}
 }
 
@@ -109,22 +109,22 @@ type StateVersion struct {
 
 // StateSnapshot represents a complete state snapshot
 type StateSnapshot struct {
-	NodeID         NodeID                   `json:"node_id"`
-	Timestamp      time.Time                `json:"timestamp"`
-	Version        uint64                   `json:"version"`
-	ValidationState *events.ValidationState `json:"validation_state"`
-	StateItems     map[string]*StateVersion `json:"state_items"`
-	Checksum       string                   `json:"checksum"`
+	NodeID          NodeID                   `json:"node_id"`
+	Timestamp       time.Time                `json:"timestamp"`
+	Version         uint64                   `json:"version"`
+	ValidationState *events.ValidationState  `json:"validation_state"`
+	StateItems      map[string]*StateVersion `json:"state_items"`
+	Checksum        string                   `json:"checksum"`
 }
 
 // SyncRequest represents a state sync request
 type SyncRequest struct {
-	RequestID  string    `json:"request_id"`
-	FromNode   NodeID    `json:"from_node"`
-	ToNode     NodeID    `json:"to_node"`
-	Since      time.Time `json:"since"`
-	Keys       []string  `json:"keys,omitempty"`
-	MaxItems   int       `json:"max_items"`
+	RequestID string    `json:"request_id"`
+	FromNode  NodeID    `json:"from_node"`
+	ToNode    NodeID    `json:"to_node"`
+	Since     time.Time `json:"since"`
+	Keys      []string  `json:"keys,omitempty"`
+	MaxItems  int       `json:"max_items"`
 }
 
 // SyncResponse represents a state sync response
@@ -139,49 +139,49 @@ type SyncResponse struct {
 
 // StateSynchronizer manages distributed state synchronization
 type StateSynchronizer struct {
-	config       *StateSyncConfig
-	nodeID       NodeID
-	
+	config *StateSyncConfig
+	nodeID NodeID
+
 	// Local state storage
-	state        map[string]*StateVersion
-	stateMutex   sync.RWMutex
-	
+	state      map[string]*StateVersion
+	stateMutex sync.RWMutex
+
 	// Version tracking
 	localVersion uint64
 	nodeVersions map[NodeID]uint64
 	versionMutex sync.RWMutex
-	
+
 	// Sync tracking
-	syncQueue    []*SyncRequest
-	syncMutex    sync.Mutex
-	pendingSync  map[string]time.Time
-	
+	syncQueue   []*SyncRequest
+	syncMutex   sync.Mutex
+	pendingSync map[string]time.Time
+
 	// Merkle tree for efficient sync (if using Merkle protocol)
-	merkleTree   *MerkleTree
-	
+	merkleTree *MerkleTree
+
 	// CRDT state (if using CRDT protocol)
-	crdtState    *CRDTState
-	
+	crdtState *CRDTState
+
 	// Distributed cache layer
 	distributedCache *DistributedCache
-	
+
 	// Circuit breakers for network operations
-	syncCircuitBreaker    *NetworkCircuitBreaker
-	gossipCircuitBreaker  *NetworkCircuitBreaker
-	
+	syncCircuitBreaker   *NetworkCircuitBreaker
+	gossipCircuitBreaker *NetworkCircuitBreaker
+
 	// Metrics
-	syncCount    uint64
+	syncCount     uint64
 	conflictCount uint64
-	
+
 	// Lifecycle
 	running      int32 // Use atomic operations for thread-safe access
 	runningMutex sync.RWMutex
 	stopChan     chan struct{}
 	stopOnce     sync.Once
-	
+
 	// Direct goroutine tracking for fallback workers
 	directGoroutines sync.WaitGroup
-	
+
 	// Worker management
 	workerManager *worker.WorkerManager
 	logger        *zap.Logger
@@ -202,7 +202,7 @@ func NewStateSynchronizer(config *StateSyncConfig, nodeID NodeID) (*StateSynchro
 	// Create worker manager with sufficient worker count for concurrent operations
 	// Use unique configuration per instance to avoid interference
 	workerConfig := &worker.WorkerConfig{
-		MaxWorkers:      20, // Sufficient workers for multiple concurrent components
+		MaxWorkers:      20,              // Sufficient workers for multiple concurrent components
 		ShutdownTimeout: 2 * time.Second, // Shorter timeout for faster test completion
 		Logger:          logger,
 		PanicHandler:    worker.NewDefaultPanicHandler(logger),
@@ -272,7 +272,7 @@ func (ss *StateSynchronizer) Start(ctx context.Context) error {
 		return fmt.Errorf("state synchronizer already running")
 	}
 
-	ss.logger.Info("Starting StateSynchronizer", 
+	ss.logger.Info("Starting StateSynchronizer",
 		zap.String("node_id", string(ss.nodeID)),
 		zap.String("protocol", string(ss.config.Protocol)))
 
@@ -423,7 +423,7 @@ func (ss *StateSynchronizer) startBackgroundRoutines(ctx context.Context) {
 			ss.processSyncQueue(ctx)
 		}()
 	}
-	
+
 	// Use StartOneOffWorker instead of BackgroundWorker to reduce worker pool pressure
 	_, err = ss.workerManager.StartOneOffWorker("cleanup-routine", func(ctx context.Context) error {
 		ss.cleanupRoutine(ctx)
@@ -454,7 +454,7 @@ func (ss *StateSynchronizer) Stop() error {
 		return nil
 	}
 
-	ss.logger.Info("Stopping StateSynchronizer", 
+	ss.logger.Info("Stopping StateSynchronizer",
 		zap.String("node_id", string(ss.nodeID)))
 
 	// Mark not running immediately to prevent new operations
@@ -464,11 +464,11 @@ func (ss *StateSynchronizer) Stop() error {
 	ss.stopOnce.Do(func() {
 		close(ss.stopChan)
 	})
-	
+
 	// Give a brief moment for all goroutines to see the stop signal
 	// This is critical for allowing goroutines to exit gracefully
 	time.Sleep(20 * time.Millisecond)
-	
+
 	// Stop distributed cache first to prevent new writes - with timeout
 	if ss.distributedCache != nil {
 		ss.logger.Debug("Stopping distributed cache")
@@ -478,7 +478,7 @@ func (ss *StateSynchronizer) Stop() error {
 			defer close(cacheDone)
 			ss.distributedCache.Stop()
 		}()
-		
+
 		select {
 		case <-cacheDone:
 			ss.logger.Debug("Distributed cache stopped successfully")
@@ -486,14 +486,14 @@ func (ss *StateSynchronizer) Stop() error {
 			ss.logger.Warn("Distributed cache stop timed out, continuing shutdown")
 		}
 	}
-	
+
 	// Stop worker manager with timeout
 	ss.logger.Debug("Stopping worker manager")
 	workerDone := make(chan error, 1)
 	go func() {
 		workerDone <- ss.workerManager.Stop()
 	}()
-	
+
 	var workerStopErr error
 	select {
 	case workerStopErr = <-workerDone:
@@ -502,7 +502,7 @@ func (ss *StateSynchronizer) Stop() error {
 		ss.logger.Warn("Worker manager stop timed out")
 		workerStopErr = fmt.Errorf("worker manager stop timeout")
 	}
-	
+
 	// Wait for direct goroutines to finish with shorter timeout
 	ss.logger.Debug("Waiting for direct goroutines to finish")
 	directGoroutineDone := make(chan struct{})
@@ -515,29 +515,29 @@ func (ss *StateSynchronizer) Stop() error {
 		}()
 		ss.directGoroutines.Wait()
 	}()
-	
+
 	select {
 	case <-directGoroutineDone:
 		ss.logger.Debug("All direct goroutines finished")
 	case <-time.After(1 * time.Second): // Increased timeout for resource contention scenarios
 		ss.logger.Warn("Some direct goroutines may still be running after timeout")
 	}
-	
+
 	// Final verification
 	finalMetrics := ss.workerManager.GetMetrics()
 	if finalMetrics.WorkersActive > 0 {
-		ss.logger.Warn("Workers still active after shutdown", 
+		ss.logger.Warn("Workers still active after shutdown",
 			zap.Int64("active_workers", finalMetrics.WorkersActive))
 	} else {
 		ss.logger.Debug("All workers stopped successfully")
 	}
-	
-	ss.logger.Info("StateSynchronizer stopped", 
+
+	ss.logger.Info("StateSynchronizer stopped",
 		zap.Int64("workers_created", finalMetrics.WorkersCreated),
 		zap.Int64("workers_completed", finalMetrics.WorkersCompleted),
 		zap.Int64("workers_failed", finalMetrics.WorkersFailed),
 		zap.Int64("final_active_workers", finalMetrics.WorkersActive))
-		
+
 	// Return worker stop error if there was one
 	return workerStopErr
 }
@@ -557,7 +557,7 @@ func (ss *StateSynchronizer) SyncState(ctx context.Context) error {
 	// Create buffered channel for sync results
 	results := make(chan syncResult, len(nodes))
 	var syncWG sync.WaitGroup
-	
+
 	// Launch async sync operations for each node with wait group tracking
 	for _, nodeID := range nodes {
 		syncWG.Add(1)
@@ -565,8 +565,8 @@ func (ss *StateSynchronizer) SyncState(ctx context.Context) error {
 			defer func() {
 				syncWG.Done()
 				if r := recover(); r != nil {
-					ss.logger.Error("Panic in async sync operation", 
-						zap.String("node_id", string(nID)), 
+					ss.logger.Error("Panic in async sync operation",
+						zap.String("node_id", string(nID)),
 						zap.Any("panic", r))
 					// Send panic result to prevent deadlock
 					select {
@@ -576,9 +576,9 @@ func (ss *StateSynchronizer) SyncState(ctx context.Context) error {
 					}
 				}
 			}()
-			
+
 			err := ss.syncWithNode(syncCtx, nID)
-			
+
 			// Send result with timeout protection
 			select {
 			case results <- syncResult{nodeID: nID, err: err}:
@@ -601,7 +601,7 @@ func (ss *StateSynchronizer) SyncState(ctx context.Context) error {
 			syncWG.Wait()
 			close(done)
 		}()
-		
+
 		select {
 		case <-done:
 			// All goroutines finished
@@ -614,7 +614,7 @@ func (ss *StateSynchronizer) SyncState(ctx context.Context) error {
 	// Collect results with timeout
 	var syncErrors []error
 	completedCount := 0
-	
+
 	for completedCount < len(nodes) {
 		select {
 		case <-syncCtx.Done():
@@ -675,7 +675,7 @@ func (ss *StateSynchronizer) SetState(key string, value interface{}) error {
 	defer ss.stateMutex.Unlock()
 
 	ss.localVersion++
-	
+
 	stateVersion := &StateVersion{
 		Key:       key,
 		Value:     value,
@@ -752,7 +752,7 @@ func (ss *StateSynchronizer) ApplySnapshot(snapshot *StateSnapshot) error {
 	// Apply snapshot based on conflict resolution strategy
 	for key, remoteState := range snapshot.StateItems {
 		localState, exists := ss.state[key]
-		
+
 		if !exists {
 			// New state item
 			ss.state[key] = remoteState
@@ -871,13 +871,13 @@ func (ss *StateSynchronizer) performGossipRoundWithContext(ctx context.Context) 
 		return
 	default:
 	}
-	
+
 	// Select random nodes to gossip with
 	nodes := ss.selectGossipNodes()
-	
+
 	// Get recent updates with batching
 	updates := ss.getRecentUpdatesWithBatching()
-	
+
 	// Send updates to selected nodes asynchronously with buffering and context
 	ss.sendGossipUpdatesAsyncWithContext(ctx, nodes, updates)
 }
@@ -893,7 +893,7 @@ func (ss *StateSynchronizer) getRecentUpdatesWithBatching() []*StateVersion {
 	// Collect updates with batching limit
 	count := 0
 	maxBatchSize := ss.config.BatchSize
-	
+
 	for _, state := range ss.state {
 		if state.Timestamp.After(cutoff) && count < maxBatchSize {
 			updates = append(updates, state)
@@ -925,17 +925,17 @@ func (ss *StateSynchronizer) sendGossipUpdatesAsyncWithContext(parentCtx context
 	// Create buffered channel for async operations
 	taskChan := make(chan gossipTask, len(nodes))
 	resultChan := make(chan gossipResult, len(nodes))
-	
+
 	// Create context with timeout derived from parent context
 	ctx, cancel := context.WithTimeout(parentCtx, 10*time.Second)
 	defer cancel()
-	
+
 	// Start worker pool with wait group for proper cleanup
 	workerCount := 3
 	if len(nodes) < workerCount {
 		workerCount = len(nodes)
 	}
-	
+
 	var workerWG sync.WaitGroup
 	for i := 0; i < workerCount; i++ {
 		workerWG.Add(1)
@@ -944,14 +944,14 @@ func (ss *StateSynchronizer) sendGossipUpdatesAsyncWithContext(parentCtx context
 			ss.gossipWorker(ctx, taskChan, resultChan)
 		}()
 	}
-	
+
 	// Send tasks to workers
 	for _, nodeID := range nodes {
 		task := gossipTask{
 			nodeID:  nodeID,
 			updates: updates,
 		}
-		
+
 		select {
 		case taskChan <- task:
 		case <-ctx.Done():
@@ -961,9 +961,9 @@ func (ss *StateSynchronizer) sendGossipUpdatesAsyncWithContext(parentCtx context
 			return
 		}
 	}
-	
+
 	close(taskChan)
-	
+
 	// Collect results asynchronously with proper cleanup
 	go func() {
 		defer func() {
@@ -985,7 +985,7 @@ func (ss *StateSynchronizer) sendGossipUpdatesAsyncWithContext(parentCtx context
 				}
 			}
 		}()
-		
+
 		collectedResults := 0
 		for collectedResults < len(nodes) {
 			select {
@@ -996,11 +996,11 @@ func (ss *StateSynchronizer) sendGossipUpdatesAsyncWithContext(parentCtx context
 				}
 				collectedResults++
 				if result.err != nil {
-					ss.logger.Error("Gossip operation failed", 
+					ss.logger.Error("Gossip operation failed",
 						zap.String("node_id", string(result.nodeID)),
 						zap.Error(result.err))
 				} else {
-					ss.logger.Debug("Gossip operation successful", 
+					ss.logger.Debug("Gossip operation successful",
 						zap.String("node_id", string(result.nodeID)))
 				}
 			case <-ctx.Done():
@@ -1052,7 +1052,7 @@ func (ss *StateSynchronizer) gossipWorker(ctx context.Context, tasks <-chan goss
 			if !ok {
 				return // Channel closed
 			}
-			
+
 			// Check context again before processing
 			select {
 			case <-ctx.Done():
@@ -1082,7 +1082,7 @@ func (ss *StateSynchronizer) gossipWorker(ctx context.Context, tasks <-chan goss
 func (ss *StateSynchronizer) sendGossipUpdateWithCache(ctx context.Context, nodeID NodeID, updates []*StateVersion) error {
 	// Implement distributed cache batching
 	batchedUpdates := ss.batchUpdatesForNode(nodeID, updates)
-	
+
 	// Execute with circuit breaker protection
 	return ss.gossipCircuitBreaker.Execute(func() error {
 		return ss.executeWithRetry(ctx, func() error {
@@ -1097,7 +1097,7 @@ func (ss *StateSynchronizer) batchUpdatesForNode(nodeID NodeID, updates []*State
 	ss.versionMutex.RLock()
 	lastVersion := ss.nodeVersions[nodeID]
 	ss.versionMutex.RUnlock()
-	
+
 	// Filter updates that are newer than node's last version
 	filteredUpdates := make([]*StateVersion, 0)
 	for _, update := range updates {
@@ -1105,7 +1105,7 @@ func (ss *StateSynchronizer) batchUpdatesForNode(nodeID NodeID, updates []*State
 			filteredUpdates = append(filteredUpdates, update)
 		}
 	}
-	
+
 	return filteredUpdates
 }
 
@@ -1121,7 +1121,7 @@ func (ss *StateSynchronizer) sendGossipUpdateBatch(ctx context.Context, nodeID N
 		if time.Now().UnixNano()%12 == 0 {
 			return fmt.Errorf("batch gossip network failure for node %s", nodeID)
 		}
-		
+
 		// Update node version on successful batch
 		if len(updates) > 0 {
 			maxVersion := uint64(0)
@@ -1130,14 +1130,14 @@ func (ss *StateSynchronizer) sendGossipUpdateBatch(ctx context.Context, nodeID N
 					maxVersion = update.Version
 				}
 			}
-			
+
 			ss.versionMutex.Lock()
 			if maxVersion > ss.nodeVersions[nodeID] {
 				ss.nodeVersions[nodeID] = maxVersion
 			}
 			ss.versionMutex.Unlock()
 		}
-		
+
 		return nil
 	}
 }
@@ -1155,7 +1155,7 @@ func (ss *StateSynchronizer) performCRDTSync() {
 // createAndDistributeSnapshot creates and distributes a state snapshot
 func (ss *StateSynchronizer) createAndDistributeSnapshot() {
 	snapshot := ss.GetSnapshot()
-	
+
 	// TODO: Distribute snapshot to other nodes
 	_ = snapshot
 }
@@ -1164,7 +1164,7 @@ func (ss *StateSynchronizer) createAndDistributeSnapshot() {
 func (ss *StateSynchronizer) processSyncQueue(ctx context.Context) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -1225,31 +1225,31 @@ func (ss *StateSynchronizer) processSyncRequestAsync(ctx context.Context, reques
 // executeWithRetry executes a function with retry logic and exponential backoff
 func (ss *StateSynchronizer) executeWithRetry(ctx context.Context, fn func() error) error {
 	var lastErr error
-	
+
 	for attempt := 0; attempt < ss.config.MaxRetries; attempt++ {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		default:
 		}
-		
+
 		err := fn()
 		if err == nil {
 			return nil
 		}
-		
+
 		lastErr = err
-		
+
 		// Don't retry on the last attempt
 		if attempt == ss.config.MaxRetries-1 {
 			break
 		}
-		
+
 		// Exponential backoff with jitter
 		backoffDuration := time.Duration(100*(1<<attempt)) * time.Millisecond
-		jitter := time.Duration(time.Now().UnixNano()%int64(backoffDuration/2))
+		jitter := time.Duration(time.Now().UnixNano() % int64(backoffDuration/2))
 		backoffDuration += jitter
-		
+
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -1257,7 +1257,7 @@ func (ss *StateSynchronizer) executeWithRetry(ctx context.Context, fn func() err
 			// Continue to next attempt
 		}
 	}
-	
+
 	return fmt.Errorf("max retries exceeded: %w", lastErr)
 }
 
@@ -1350,7 +1350,7 @@ func (ss *StateSynchronizer) gossipUpdate(update *StateVersion) {
 	if len(nodes) == 0 {
 		return
 	}
-	
+
 	// Send updates asynchronously with proper context and worker management
 	// Use the existing async mechanism with proper cleanup
 	ss.sendGossipUpdatesAsync(nodes, []*StateVersion{update})
@@ -1389,18 +1389,18 @@ func (ss *StateSynchronizer) calculateSnapshotChecksum(snapshot *StateSnapshot) 
 func (ss *StateSynchronizer) enqueueSyncRequest(request *SyncRequest) {
 	ss.syncMutex.Lock()
 	defer ss.syncMutex.Unlock()
-	
+
 	ss.syncQueue = append(ss.syncQueue, request)
 }
 
 func (ss *StateSynchronizer) dequeueSyncRequest() *SyncRequest {
 	ss.syncMutex.Lock()
 	defer ss.syncMutex.Unlock()
-	
+
 	if len(ss.syncQueue) == 0 {
 		return nil
 	}
-	
+
 	request := ss.syncQueue[0]
 	ss.syncQueue = ss.syncQueue[1:]
 	return request
@@ -1408,7 +1408,7 @@ func (ss *StateSynchronizer) dequeueSyncRequest() *SyncRequest {
 
 func (ss *StateSynchronizer) waitForSyncCompletion() <-chan struct{} {
 	done := make(chan struct{})
-	
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -1427,7 +1427,7 @@ func (ss *StateSynchronizer) waitForSyncCompletion() <-chan struct{} {
 		time.Sleep(1 * time.Second)
 		close(done)
 	}()
-	
+
 	return done
 }
 
@@ -1467,30 +1467,30 @@ func (cs *CRDTState) Update(key string, value interface{}) {
 // DistributedCache implements asynchronous distributed caching with buffering and batching
 type DistributedCache struct {
 	config *DistributedCacheConfig
-	
+
 	// Write buffer for batching
 	writeBuffer map[string]*CacheItem
 	bufferMutex sync.RWMutex
-	
+
 	// Async write queue
 	writeQueue chan *CacheItem
-	
+
 	// Read cache for performance
-	readCache map[string]*CacheItem
+	readCache  map[string]*CacheItem
 	cacheMutex sync.RWMutex
-	
+
 	// Lifecycle
-	running int32 // Use atomic operations for thread-safe access
+	running  int32 // Use atomic operations for thread-safe access
 	stopChan chan struct{}
 	stopOnce sync.Once
-	wg sync.WaitGroup
+	wg       sync.WaitGroup
 }
 
 // DistributedCacheConfig contains configuration for distributed cache
 type DistributedCacheConfig struct {
-	BatchSize     int
-	FlushInterval time.Duration
-	MaxRetries    int
+	BatchSize       int
+	FlushInterval   time.Duration
+	MaxRetries      int
 	ShutdownTimeout time.Duration // Timeout for graceful shutdown
 }
 
@@ -1509,7 +1509,7 @@ func NewDistributedCache(config *DistributedCacheConfig) *DistributedCache {
 	if config.ShutdownTimeout == 0 {
 		config.ShutdownTimeout = 2 * time.Second // More reasonable default for production
 	}
-	
+
 	return &DistributedCache{
 		config:      config,
 		writeBuffer: make(map[string]*CacheItem),
@@ -1523,12 +1523,12 @@ func NewDistributedCache(config *DistributedCacheConfig) *DistributedCache {
 // This uses very fast flush intervals and small buffers to prevent test interference
 func NewTestingDistributedCache() *DistributedCache {
 	config := &DistributedCacheConfig{
-		BatchSize:       2,                      // Very small batches for fast processing
-		FlushInterval:   5 * time.Millisecond,  // Very fast flush for tests
-		MaxRetries:      1,                      // Minimal retries
-		ShutdownTimeout: 3 * time.Second,       // Longer timeout for concurrent testing scenarios
+		BatchSize:       2,                    // Very small batches for fast processing
+		FlushInterval:   5 * time.Millisecond, // Very fast flush for tests
+		MaxRetries:      1,                    // Minimal retries
+		ShutdownTimeout: 3 * time.Second,      // Longer timeout for concurrent testing scenarios
 	}
-	
+
 	return &DistributedCache{
 		config:      config,
 		writeBuffer: make(map[string]*CacheItem),
@@ -1541,14 +1541,14 @@ func NewTestingDistributedCache() *DistributedCache {
 // Start starts the distributed cache background routines
 func (dc *DistributedCache) Start(ctx context.Context) {
 	atomic.StoreInt32(&dc.running, 1)
-	
+
 	// Start batch flush routine
 	dc.wg.Add(1)
 	go func() {
 		defer dc.wg.Done()
 		dc.flushRoutine(ctx)
 	}()
-	
+
 	// Start write queue processor
 	dc.wg.Add(1)
 	go func() {
@@ -1564,11 +1564,11 @@ func (dc *DistributedCache) Stop() {
 		atomic.StoreInt32(&dc.running, 0)
 		// Signal stop first - this will be seen immediately by goroutines
 		close(dc.stopChan)
-		
+
 		// Give processors adequate time to see the stop signal and drain queues
 		// This prevents goroutine leaks by ensuring processors can exit cleanly
 		time.Sleep(100 * time.Millisecond)
-		
+
 		// Then close write queue channel to signal processors to finish
 		// Use a safer approach to close the channel to avoid double-close panics
 		defer func() {
@@ -1579,7 +1579,7 @@ func (dc *DistributedCache) Stop() {
 		}()
 		close(dc.writeQueue)
 	})
-	
+
 	// Wait for all goroutines to finish with more aggressive timeout and monitoring
 	done := make(chan struct{})
 	go func() {
@@ -1591,7 +1591,7 @@ func (dc *DistributedCache) Stop() {
 		}()
 		dc.wg.Wait()
 	}()
-	
+
 	// Wait for shutdown with configurable timeout and better monitoring
 	timeoutDuration := dc.config.ShutdownTimeout
 	select {
@@ -1617,7 +1617,7 @@ func (dc *DistributedCache) GetAsync(ctx context.Context, key string) (*CacheIte
 		return item, nil
 	}
 	dc.cacheMutex.RUnlock()
-	
+
 	// Check write buffer
 	dc.bufferMutex.RLock()
 	if item, exists := dc.writeBuffer[key]; exists {
@@ -1625,7 +1625,7 @@ func (dc *DistributedCache) GetAsync(ctx context.Context, key string) (*CacheIte
 		return item, nil
 	}
 	dc.bufferMutex.RUnlock()
-	
+
 	// TODO: Implement async network fetch from other nodes
 	// For now, return not found
 	return nil, fmt.Errorf("key %s not found in distributed cache", key)
@@ -1640,17 +1640,17 @@ func (dc *DistributedCache) SetAsync(ctx context.Context, key string, value inte
 		Timestamp: time.Now(),
 		NodeID:    nodeID,
 	}
-	
+
 	// Add to write buffer
 	dc.bufferMutex.Lock()
 	dc.writeBuffer[key] = item
 	dc.bufferMutex.Unlock()
-	
+
 	// Add to read cache for immediate reads
 	dc.cacheMutex.Lock()
 	dc.readCache[key] = item
 	dc.cacheMutex.Unlock()
-	
+
 	// Queue for async write
 	select {
 	case dc.writeQueue <- item:
@@ -1676,10 +1676,10 @@ func (dc *DistributedCache) flushRoutine(ctx context.Context) {
 		}
 		fmt.Printf("DistributedCache flushRoutine: exiting\n")
 	}()
-	
+
 	ticker := time.NewTicker(dc.config.FlushInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -1720,24 +1720,24 @@ func (dc *DistributedCache) flushBuffer() {
 		dc.bufferMutex.Unlock()
 		return
 	}
-	
+
 	// Create batch from buffer
 	batch := make([]*CacheItem, 0, len(dc.writeBuffer))
 	for _, item := range dc.writeBuffer {
 		batch = append(batch, item)
 	}
-	
+
 	// Clear buffer
 	dc.writeBuffer = make(map[string]*CacheItem)
 	dc.bufferMutex.Unlock()
-	
+
 	// Check if still running before creating goroutine
 	if atomic.LoadInt32(&dc.running) == 0 {
 		// If not running, process batch synchronously to avoid goroutine leak
 		dc.processBatch(batch)
 		return
 	}
-	
+
 	// Process batch asynchronously only if still running
 	dc.wg.Add(1)
 	go func() {
@@ -1747,7 +1747,7 @@ func (dc *DistributedCache) flushBuffer() {
 				fmt.Printf("Panic in cache flush: %v\n", r)
 			}
 		}()
-		
+
 		dc.processBatch(batch)
 	}()
 }
@@ -1762,14 +1762,14 @@ func (dc *DistributedCache) writeQueueProcessor(ctx context.Context) {
 		dc.drainWriteQueue()
 		fmt.Printf("DistributedCache writeQueueProcessor: exiting\n")
 	}()
-	
+
 	for {
 		// Check stop conditions first
 		if atomic.LoadInt32(&dc.running) == 0 {
 			fmt.Printf("DistributedCache writeQueueProcessor: cache not running, exiting\n")
 			return
 		}
-		
+
 		select {
 		case <-ctx.Done():
 			// Context cancelled, drain remaining items and exit
@@ -1785,17 +1785,17 @@ func (dc *DistributedCache) writeQueueProcessor(ctx context.Context) {
 				fmt.Printf("DistributedCache writeQueueProcessor: write queue channel closed\n")
 				return
 			}
-			
+
 			// Double-check we're still running before processing
 			if atomic.LoadInt32(&dc.running) == 0 {
 				return
 			}
-			
+
 			// Always check shutdown conditions first before any processing
 			if atomic.LoadInt32(&dc.running) == 0 {
 				return
 			}
-			
+
 			// Check context and stop signal before processing with non-blocking select
 			select {
 			case <-ctx.Done():
@@ -1866,24 +1866,24 @@ func (dc *DistributedCache) InvalidateAsync(ctx context.Context, key string) err
 	dc.cacheMutex.Lock()
 	delete(dc.readCache, key)
 	dc.cacheMutex.Unlock()
-	
+
 	// Remove from write buffer
 	dc.bufferMutex.Lock()
 	delete(dc.writeBuffer, key)
 	dc.bufferMutex.Unlock()
-	
+
 	// TODO: Implement distributed invalidation
 	return nil
 }
 
 // NetworkCircuitBreaker implements a circuit breaker specifically for network operations
 type NetworkCircuitBreaker struct {
-	config       *NetworkCircuitBreakerConfig
-	state        CircuitBreakerState
-	failures     int
-	lastFailure  time.Time
-	lastSuccess  time.Time
-	mutex        sync.RWMutex
+	config      *NetworkCircuitBreakerConfig
+	state       CircuitBreakerState
+	failures    int
+	lastFailure time.Time
+	lastSuccess time.Time
+	mutex       sync.RWMutex
 }
 
 // NetworkCircuitBreakerConfig contains configuration for network circuit breaker
@@ -1892,7 +1892,6 @@ type NetworkCircuitBreakerConfig struct {
 	ResetTimeout time.Duration
 	RetryTimeout time.Duration
 }
-
 
 // NewNetworkCircuitBreaker creates a new network circuit breaker
 func NewNetworkCircuitBreaker(config *NetworkCircuitBreakerConfig) *NetworkCircuitBreaker {
@@ -1908,21 +1907,21 @@ func NewNetworkCircuitBreaker(config *NetworkCircuitBreakerConfig) *NetworkCircu
 func (cb *NetworkCircuitBreaker) Execute(fn func() error) error {
 	cb.mutex.Lock()
 	defer cb.mutex.Unlock()
-	
+
 	// Check if circuit breaker allows execution
 	if !cb.canExecute() {
 		return fmt.Errorf("circuit breaker is open")
 	}
-	
+
 	// Execute the function
 	err := fn()
-	
+
 	// Update circuit breaker state based on result
 	if err != nil {
 		cb.onFailure()
 		return err
 	}
-	
+
 	cb.onSuccess()
 	return nil
 }
@@ -1956,7 +1955,7 @@ func (cb *NetworkCircuitBreaker) onSuccess() {
 func (cb *NetworkCircuitBreaker) onFailure() {
 	cb.failures++
 	cb.lastFailure = time.Now()
-	
+
 	if cb.failures >= cb.config.MaxFailures {
 		cb.state = CircuitBreakerStateOpen
 	}
@@ -1980,7 +1979,7 @@ func (cb *NetworkCircuitBreaker) GetFailures() int {
 func (cb *NetworkCircuitBreaker) Reset() {
 	cb.mutex.Lock()
 	defer cb.mutex.Unlock()
-	
+
 	cb.state = CircuitBreakerStateClosed
 	cb.failures = 0
 	cb.lastSuccess = time.Now()

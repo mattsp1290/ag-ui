@@ -7,7 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	
+
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
@@ -35,9 +35,9 @@ type Manager struct {
 	stopChan            chan struct{}
 	ctx                 context.Context    // Manager lifecycle context
 	cancel              context.CancelFunc // Cancel function for lifecycle context
-	running             int32 // Use atomic int32 for thread-safe access
-	receiverActive      int32 // Use atomic int32 to track active receiveEvents goroutine
-	startStopMu         sync.Mutex // Serialize Start/Stop operations
+	running             int32              // Use atomic int32 for thread-safe access
+	receiverActive      int32              // Use atomic int32 to track active receiveEvents goroutine
+	startStopMu         sync.Mutex         // Serialize Start/Stop operations
 	metrics             *ManagerMetrics
 	logger              Logger
 	backpressureHandler *BackpressureHandler
@@ -47,28 +47,28 @@ type Manager struct {
 
 // ManagerMetrics contains metrics for the transport manager
 type ManagerMetrics struct {
-	mu                     sync.RWMutex
-	TransportSwitches      uint64
-	TotalConnections       uint64
-	ActiveConnections      uint64
-	FailedConnections      uint64
-	TotalMessagesSent      uint64
-	TotalMessagesReceived  uint64
-	TotalBytesSent         uint64
-	TotalBytesReceived     uint64
-	AverageLatency         time.Duration
-	LastTransportSwitch    time.Time
-	TransportHealthScores  map[string]float64
+	mu                    sync.RWMutex
+	TransportSwitches     uint64
+	TotalConnections      uint64
+	ActiveConnections     uint64
+	FailedConnections     uint64
+	TotalMessagesSent     uint64
+	TotalMessagesReceived uint64
+	TotalBytesSent        uint64
+	TotalBytesReceived    uint64
+	AverageLatency        time.Duration
+	LastTransportSwitch   time.Time
+	TransportHealthScores map[string]float64
 }
 
 // NewManager creates a new transport manager
 func NewManager(cfg *ManagerConfig) *Manager {
 	if cfg == nil {
 		cfg = &ManagerConfig{
-			Primary:     "websocket",
-			Fallback:    []string{"sse", "http"},
-			BufferSize:  1024,
-			LogLevel:    "info",
+			Primary:       "websocket",
+			Fallback:      []string{"sse", "http"},
+			BufferSize:    1024,
+			LogLevel:      "info",
 			EnableMetrics: true,
 			Backpressure: BackpressureConfig{
 				Strategy:      BackpressureNone,
@@ -81,7 +81,7 @@ func NewManager(cfg *ManagerConfig) *Manager {
 			Validation: DefaultValidationConfig(),
 		}
 	}
-	
+
 	// Validate and sanitize configuration
 	if cfg.BufferSize < 0 {
 		cfg.BufferSize = 1024 // Default to reasonable buffer size
@@ -89,7 +89,7 @@ func NewManager(cfg *ManagerConfig) *Manager {
 	if cfg.BufferSize == 0 {
 		cfg.BufferSize = 1 // Minimum buffer size
 	}
-	
+
 	// Validate backpressure configuration
 	if cfg.Backpressure.BufferSize <= 0 {
 		cfg.Backpressure.BufferSize = cfg.BufferSize
@@ -106,23 +106,23 @@ func NewManager(cfg *ManagerConfig) *Manager {
 	if cfg.Backpressure.BlockTimeout < 0 {
 		cfg.Backpressure.BlockTimeout = 5 * time.Second
 	}
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	manager := &Manager{
-		config:        cfg,
-		middleware:    []Middleware{},
-		eventChan:     make(chan events.Event, cfg.BufferSize),
-		errorChan:     make(chan error, cfg.BufferSize),
-		stopChan:      make(chan struct{}),
-		ctx:           ctx,
-		cancel:        cancel,
-		metrics:       &ManagerMetrics{
+		config:     cfg,
+		middleware: []Middleware{},
+		eventChan:  make(chan events.Event, cfg.BufferSize),
+		errorChan:  make(chan error, cfg.BufferSize),
+		stopChan:   make(chan struct{}),
+		ctx:        ctx,
+		cancel:     cancel,
+		metrics: &ManagerMetrics{
 			TransportHealthScores: make(map[string]float64),
 		},
-		logger:        NewNoopLogger(),
+		logger: NewNoopLogger(),
 	}
-	
+
 	// Initialize backpressure handler
 	manager.backpressureHandler = NewBackpressureHandler(cfg.Backpressure)
 
@@ -156,41 +156,41 @@ func (m *Manager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	m.logger.Info("Starting transport manager", 
+	m.logger.Info("Starting transport manager",
 		String("operation", "start"))
 
 	if !atomic.CompareAndSwapInt32(&m.running, 0, 1) {
-		m.logger.Debug("Manager already running", 
+		m.logger.Debug("Manager already running",
 			String("operation", "start"))
 		return fmt.Errorf("transport manager already running")
 	}
-	
+
 	// Cancel any existing context and wait for goroutines to finish
 	if m.cancel != nil {
 		m.cancel()
 	}
-	
+
 	// Wait for any existing receiveEvents goroutines to finish
 	m.mu.Unlock() // Release lock while waiting
 	m.receiveWg.Wait()
 	m.mu.Lock() // Re-acquire lock
-	
+
 	// Create fresh context and stop channel for this start cycle
 	m.ctx, m.cancel = context.WithCancel(context.Background())
 	m.stopChan = make(chan struct{})
-	
+
 	// Start receiveEvents goroutine if we have an active transport but no receiver is running
 	if m.activeTransport != nil && atomic.CompareAndSwapInt32(&m.receiverActive, 0, 1) {
-		m.logger.Debug("Starting receiveEvents goroutine for existing transport", 
+		m.logger.Debug("Starting receiveEvents goroutine for existing transport",
 			String("operation", "start"))
-		
+
 		m.receiveWg.Add(1)
 		go m.receiveEvents(m.activeTransport)
 	}
-	
-	m.logger.Info("Transport manager started successfully", 
+
+	m.logger.Info("Transport manager started successfully",
 		String("operation", "start"))
-	
+
 	return nil
 }
 
@@ -200,11 +200,11 @@ func (m *Manager) Stop(ctx context.Context) error {
 	m.startStopMu.Lock()
 	defer m.startStopMu.Unlock()
 
-	m.logger.Info("Stopping transport manager", 
+	m.logger.Info("Stopping transport manager",
 		String("operation", "stop"))
 
 	if !atomic.CompareAndSwapInt32(&m.running, 1, 0) {
-		m.logger.Debug("Manager already stopped", 
+		m.logger.Debug("Manager already stopped",
 			String("operation", "stop"))
 		return nil
 	}
@@ -230,7 +230,7 @@ func (m *Manager) Stop(ctx context.Context) error {
 		m.receiveWg.Wait()
 		close(receiveWgDone)
 	}()
-	
+
 	// Use context timeout if available, otherwise use a reasonable default
 	waitTimeout := 5 * time.Second
 	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
@@ -238,13 +238,13 @@ func (m *Manager) Stop(ctx context.Context) error {
 			waitTimeout = timeLeft
 		}
 	}
-	
+
 	select {
 	case <-receiveWgDone:
-		m.logger.Debug("receiveEvents goroutines finished successfully", 
+		m.logger.Debug("receiveEvents goroutines finished successfully",
 			String("operation", "stop"))
 	case <-time.After(waitTimeout):
-		m.logger.Warn("Timeout waiting for receiveEvents goroutines to finish, proceeding with cleanup", 
+		m.logger.Warn("Timeout waiting for receiveEvents goroutines to finish, proceeding with cleanup",
 			String("operation", "stop"))
 	}
 
@@ -254,18 +254,18 @@ func (m *Manager) Stop(ctx context.Context) error {
 	// Drain event channels with timeout - use shorter timeout and non-blocking approach
 	drainCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
-	
-	m.logger.Debug("Draining event channels", 
+
+	m.logger.Debug("Draining event channels",
 		String("operation", "stop"),
 		Duration("timeout", 1*time.Second))
 
 	// Use a simpler non-blocking drain approach to prevent deadlocks
 	drained := m.drainChannelsNonBlocking(drainCtx)
 	if drained {
-		m.logger.Debug("Event channels drained successfully", 
+		m.logger.Debug("Event channels drained successfully",
 			String("operation", "stop"))
 	} else {
-		m.logger.Warn("Event channel draining timed out, proceeding with cleanup", 
+		m.logger.Warn("Event channel draining timed out, proceeding with cleanup",
 			String("operation", "stop"))
 	}
 
@@ -274,17 +274,17 @@ func (m *Manager) Stop(ctx context.Context) error {
 		if err := m.activeTransport.Close(ctx); err != nil {
 			// Check if this is a timeout error - if so, log but don't return error
 			if ctx.Err() == context.DeadlineExceeded {
-				m.logger.Warn("Transport close timed out, but continuing cleanup", 
+				m.logger.Warn("Transport close timed out, but continuing cleanup",
 					String("operation", "stop"),
 					Err(err))
 			} else {
-				m.logger.Error("Failed to close active transport", 
+				m.logger.Error("Failed to close active transport",
 					String("operation", "stop"),
 					Err(err))
 				return errors.WithOperation("stop", "active_transport", err)
 			}
 		} else {
-			m.logger.Debug("Active transport closed successfully", 
+			m.logger.Debug("Active transport closed successfully",
 				String("operation", "stop"))
 		}
 	}
@@ -292,13 +292,13 @@ func (m *Manager) Stop(ctx context.Context) error {
 	// Stop backpressure handler
 	if m.backpressureHandler != nil {
 		m.backpressureHandler.Stop()
-		m.logger.Debug("Backpressure handler stopped", 
+		m.logger.Debug("Backpressure handler stopped",
 			String("operation", "stop"))
 	}
 
-	m.logger.Info("Transport manager stopped successfully", 
+	m.logger.Info("Transport manager stopped successfully",
 		String("operation", "stop"))
-	
+
 	return nil
 }
 
@@ -306,12 +306,12 @@ func (m *Manager) Stop(ctx context.Context) error {
 func (m *Manager) drainChannelsNonBlocking(ctx context.Context) bool {
 	eventCount := 0
 	errorCount := 0
-	
+
 	// Use a ticker to periodically check for context cancellation
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
-	
-	drainLoop:
+
+drainLoop:
 	for {
 		select {
 		case <-ctx.Done():
@@ -332,14 +332,14 @@ func (m *Manager) drainChannelsNonBlocking(ctx context.Context) bool {
 			break drainLoop
 		}
 	}
-	
+
 	if eventCount > 0 || errorCount > 0 {
 		m.logger.Debug("Channel drain completed",
 			String("operation", "stop"),
 			Int("events_drained", eventCount),
 			Int("errors_drained", errorCount))
 	}
-	
+
 	return ctx.Err() == nil
 }
 
@@ -354,12 +354,12 @@ func (m *Manager) Send(ctx context.Context, event TransportEvent) error {
 	// Validate outgoing event if validation is enabled (do this before transport check)
 	if validationEnabled && validator != nil {
 		if err := validator.ValidateOutgoing(ctx, event); err != nil {
-			m.logger.Error("Event validation failed", 
+			m.logger.Error("Event validation failed",
 				String("operation", "send"),
 				String("event_id", event.ID()),
 				String("event_type", event.Type()),
 				Err(err))
-			
+
 			// Map validation errors to transport errors
 			if IsValidationError(err) {
 				errMsg := err.Error()
@@ -384,20 +384,20 @@ func (m *Manager) Send(ctx context.Context, event TransportEvent) error {
 				// Default validation error
 				return ErrValidationFailed
 			}
-			
+
 			return err
 		}
 	}
 
 	if transport == nil {
-		m.logger.Error("Cannot send event: no active transport", 
+		m.logger.Error("Cannot send event: no active transport",
 			String("operation", "send"),
 			String("event_id", event.ID()),
 			String("event_type", event.Type()))
 		return ErrNotConnected
 	}
 
-	m.logger.Debug("Sending event through active transport", 
+	m.logger.Debug("Sending event through active transport",
 		String("operation", "send"),
 		String("event_id", event.ID()),
 		String("event_type", event.Type()))
@@ -411,14 +411,14 @@ func (m *Manager) Send(ctx context.Context, event TransportEvent) error {
 	// Send event
 	err := finalTransport.Send(ctx, event)
 	if err != nil {
-		m.logger.Error("Failed to send event", 
+		m.logger.Error("Failed to send event",
 			String("operation", "send"),
 			String("event_id", event.ID()),
 			Err(err))
 		return err
 	}
 
-	m.logger.Debug("Event sent successfully", 
+	m.logger.Debug("Event sent successfully",
 		String("operation", "send"),
 		String("event_id", event.ID()))
 
@@ -471,25 +471,25 @@ func (m *Manager) GetBackpressureMetrics() BackpressureMetrics {
 func (m *Manager) GetMetrics() ManagerMetrics {
 	m.metrics.mu.RLock()
 	defer m.metrics.mu.RUnlock()
-	
+
 	// Deep copy metrics without copying the mutex
 	transportHealthScores := make(map[string]float64)
 	for k, v := range m.metrics.TransportHealthScores {
 		transportHealthScores[k] = v
 	}
-	
+
 	return ManagerMetrics{
-		TransportSwitches:      m.metrics.TransportSwitches,
-		TotalConnections:       m.metrics.TotalConnections,
-		ActiveConnections:      m.metrics.ActiveConnections,
-		FailedConnections:      m.metrics.FailedConnections,
-		TotalMessagesSent:      m.metrics.TotalMessagesSent,
-		TotalMessagesReceived:  m.metrics.TotalMessagesReceived,
-		TotalBytesSent:         m.metrics.TotalBytesSent,
-		TotalBytesReceived:     m.metrics.TotalBytesReceived,
-		AverageLatency:         m.metrics.AverageLatency,
-		LastTransportSwitch:    m.metrics.LastTransportSwitch,
-		TransportHealthScores:  transportHealthScores,
+		TransportSwitches:     m.metrics.TransportSwitches,
+		TotalConnections:      m.metrics.TotalConnections,
+		ActiveConnections:     m.metrics.ActiveConnections,
+		FailedConnections:     m.metrics.FailedConnections,
+		TotalMessagesSent:     m.metrics.TotalMessagesSent,
+		TotalMessagesReceived: m.metrics.TotalMessagesReceived,
+		TotalBytesSent:        m.metrics.TotalBytesSent,
+		TotalBytesReceived:    m.metrics.TotalBytesReceived,
+		AverageLatency:        m.metrics.AverageLatency,
+		LastTransportSwitch:   m.metrics.LastTransportSwitch,
+		TransportHealthScores: transportHealthScores,
 	}
 }
 
@@ -497,21 +497,21 @@ func (m *Manager) GetMetrics() ManagerMetrics {
 func (m *Manager) SetTransport(transport Transport) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
-	m.logger.Debug("Setting active transport", 
+
+	m.logger.Debug("Setting active transport",
 		String("operation", "set_transport"))
-	
+
 	if m.activeTransport != nil {
 		// Use a default timeout context for closing the old transport
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		m.activeTransport.Close(ctx)
-		m.logger.Debug("Previous transport closed", 
+		m.logger.Debug("Previous transport closed",
 			String("operation", "set_transport"))
 	}
-	
+
 	m.activeTransport = transport
-	
+
 	// Only start receiveEvents goroutine if:
 	// 1. We have a valid transport
 	// 2. Manager is running
@@ -519,17 +519,17 @@ func (m *Manager) SetTransport(transport Transport) {
 	if transport != nil && atomic.LoadInt32(&m.running) == 1 {
 		// Use atomic CAS to ensure only one receiveEvents goroutine is started
 		if atomic.CompareAndSwapInt32(&m.receiverActive, 0, 1) {
-			m.logger.Debug("Starting new receiveEvents goroutine", 
+			m.logger.Debug("Starting new receiveEvents goroutine",
 				String("operation", "set_transport"))
-			
+
 			m.receiveWg.Add(1)
 			go m.receiveEvents(transport)
 		} else {
-			m.logger.Debug("receiveEvents goroutine already active, skipping start", 
+			m.logger.Debug("receiveEvents goroutine already active, skipping start",
 				String("operation", "set_transport"))
 		}
 	} else if transport != nil {
-		m.logger.Debug("Manager not running, will start receiveEvents on Start()", 
+		m.logger.Debug("Manager not running, will start receiveEvents on Start()",
 			String("operation", "set_transport"))
 	}
 }
@@ -538,11 +538,11 @@ func (m *Manager) SetTransport(transport Transport) {
 func (m *Manager) receiveEvents(transport Transport) {
 	defer m.receiveWg.Done()
 	defer atomic.StoreInt32(&m.receiverActive, 0) // Reset receiver active flag
-	
-	m.logger.Debug("Starting event receiver for transport", 
+
+	m.logger.Debug("Starting event receiver for transport",
 		String("operation", "receive_events"))
-	
-	defer m.logger.Debug("Event receiver stopped for transport", 
+
+	defer m.logger.Debug("Event receiver stopped for transport",
 		String("operation", "receive_events"))
 
 	eventCh, errorCh := transport.Channels()
@@ -552,24 +552,24 @@ func (m *Manager) receiveEvents(transport Transport) {
 		stopChan := m.stopChan
 		ctx := m.ctx
 		m.mu.RUnlock()
-		
+
 		select {
 		case event := <-eventCh:
-			m.logger.Debug("Received event from transport", 
+			m.logger.Debug("Received event from transport",
 				String("operation", "receive_events"),
 				String("event_type", string(event.Type())))
-			
+
 			// Validate incoming event if validation is enabled
 			m.mu.RLock()
 			validationEnabled := m.config.Validation != nil && m.config.Validation.Enabled
 			validator := m.validator
 			m.mu.RUnlock()
-			
+
 			// Validate incoming event if validation is enabled
 			if validationEnabled && validator != nil {
 				// First, use the event's built-in validation
 				if err := event.Validate(); err != nil {
-					m.logger.Warn("Event validation failed with built-in validator", 
+					m.logger.Warn("Event validation failed with built-in validator",
 						String("operation", "receive_events"),
 						String("event_type", string(event.Type())),
 						Err(err))
@@ -579,52 +579,52 @@ func (m *Manager) receiveEvents(transport Transport) {
 					// Additionally, use the events package validator for comprehensive validation
 					ctx := context.Background()
 					if err := events.ValidateEventWithContext(ctx, event); err != nil {
-						m.logger.Warn("Event validation failed with events package validator", 
+						m.logger.Warn("Event validation failed with events package validator",
 							String("operation", "receive_events"),
 							String("event_type", string(event.Type())),
 							Err(err))
 						// Continue processing - log error but don't block pipeline
 						// In production, you might want to increment validation error metrics here
 					} else {
-						m.logger.Debug("Event validation passed", 
+						m.logger.Debug("Event validation passed",
 							String("operation", "receive_events"),
 							String("event_type", string(event.Type())))
 					}
 				}
 			}
-			
+
 			// Use backpressure handler to send event
 			if err := m.backpressureHandler.SendEvent(event); err != nil {
-				m.logger.Warn("Failed to send event due to backpressure", 
+				m.logger.Warn("Failed to send event due to backpressure",
 					String("operation", "receive_events"),
 					String("event_type", string(event.Type())),
 					Err(err))
 			} else {
-				m.logger.Debug("Event forwarded to event channel", 
+				m.logger.Debug("Event forwarded to event channel",
 					String("operation", "receive_events"),
 					String("event_type", string(event.Type())))
 			}
 		case err := <-errorCh:
-			m.logger.Error("Received error from transport", 
+			m.logger.Error("Received error from transport",
 				String("operation", "receive_events"),
 				Err(err))
-			
+
 			// Use backpressure handler to send error
 			if sendErr := m.backpressureHandler.SendError(err); sendErr != nil {
-				m.logger.Warn("Failed to send error due to backpressure", 
+				m.logger.Warn("Failed to send error due to backpressure",
 					String("operation", "receive_events"),
 					Err(err),
 					Any("send_error", sendErr))
 			} else {
-				m.logger.Debug("Error forwarded to error channel", 
+				m.logger.Debug("Error forwarded to error channel",
 					String("operation", "receive_events"))
 			}
 		case <-stopChan:
-			m.logger.Debug("Stop signal received", 
+			m.logger.Debug("Stop signal received",
 				String("operation", "receive_events"))
 			return
 		case <-ctx.Done():
-			m.logger.Debug("Manager context cancelled", 
+			m.logger.Debug("Manager context cancelled",
 				String("operation", "receive_events"))
 			return
 		}
@@ -650,29 +650,29 @@ func (m *Manager) updateSendMetrics() {
 // SetValidationConfig sets the validation configuration
 func (m *Manager) SetValidationConfig(config *ValidationConfig) {
 	var validator Validator
-	
+
 	if config != nil {
 		// Create validator outside the lock to minimize critical section
 		validator = NewValidator(config)
 	}
-	
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if config == nil {
 		m.validator = nil
 		m.config.Validation = nil
-		m.logger.Debug("Validation configuration cleared", 
+		m.logger.Debug("Validation configuration cleared",
 			String("operation", "set_validation_config"),
 			Bool("enabled", false))
 		return
 	}
-	
+
 	// Update fields atomically to ensure consistency
 	m.config.Validation = config
 	m.validator = validator
-	
-	m.logger.Debug("Validation configuration updated", 
+
+	m.logger.Debug("Validation configuration updated",
 		String("operation", "set_validation_config"),
 		Bool("enabled", config.Enabled))
 }
@@ -684,7 +684,7 @@ func (m *Manager) GetValidationConfig() *ValidationConfig {
 	if m.config.Validation == nil {
 		return nil
 	}
-	
+
 	// Return a copy to prevent external modification
 	configCopy := *m.config.Validation
 	return &configCopy
@@ -694,7 +694,7 @@ func (m *Manager) GetValidationConfig() *ValidationConfig {
 func (m *Manager) SetValidationEnabled(enabled bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	// Update the config's enabled flag if config exists
 	if m.config.Validation != nil {
 		// Create a copy of the config to avoid modifying the original
@@ -702,8 +702,8 @@ func (m *Manager) SetValidationEnabled(enabled bool) {
 		configCopy.Enabled = enabled
 		m.config.Validation = &configCopy
 	}
-	
-	m.logger.Debug("Validation enabled/disabled", 
+
+	m.logger.Debug("Validation enabled/disabled",
 		String("operation", "set_validation_enabled"),
 		Bool("enabled", enabled))
 }

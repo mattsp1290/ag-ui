@@ -4,71 +4,71 @@
 // This package includes:
 //
 // 1. Format Validation:
-//    - FormatValidator interface for format-specific validation
-//    - JSONValidator for JSON format validation
-//    - ProtobufValidator for Protobuf format validation
-//    - Schema validation support
+//   - FormatValidator interface for format-specific validation
+//   - JSONValidator for JSON format validation
+//   - ProtobufValidator for Protobuf format validation
+//   - Schema validation support
 //
 // 2. Round-trip Validation:
-//    - RoundTripValidator for encode->decode->compare validation
-//    - Ensures data integrity through the encoding/decoding pipeline
+//   - RoundTripValidator for encode->decode->compare validation
+//   - Ensures data integrity through the encoding/decoding pipeline
 //
 // 3. Cross-SDK Compatibility:
-//    - CrossSDKValidator for testing compatibility with TypeScript/Python SDKs
-//    - Test vectors from other SDKs
-//    - Format compatibility checks
-//    - Version compatibility validation
+//   - CrossSDKValidator for testing compatibility with TypeScript/Python SDKs
+//   - Test vectors from other SDKs
+//   - Format compatibility checks
+//   - Version compatibility validation
 //
 // 4. Security Validation:
-//    - SecurityValidator for input sanitization and attack prevention
-//    - Injection attack prevention (XSS, SQL injection, etc.)
-//    - Size limit enforcement
-//    - Malformed data detection
-//    - Resource exhaustion prevention
+//   - SecurityValidator for input sanitization and attack prevention
+//   - Injection attack prevention (XSS, SQL injection, etc.)
+//   - Size limit enforcement
+//   - Malformed data detection
+//   - Resource exhaustion prevention
 //
 // 5. Performance Benchmarking:
-//    - BenchmarkSuite for performance regression detection
-//    - Throughput measurement
-//    - Memory usage profiling
-//    - Latency analysis
+//   - BenchmarkSuite for performance regression detection
+//   - Throughput measurement
+//   - Memory usage profiling
+//   - Latency analysis
 //
 // 6. Test Vectors:
-//    - Comprehensive test vectors for all event types
-//    - Edge cases and corner cases
-//    - Cross-SDK test data
-//    - Malformed input examples
-//    - Security test vectors
+//   - Comprehensive test vectors for all event types
+//   - Edge cases and corner cases
+//   - Cross-SDK test data
+//   - Malformed input examples
+//   - Security test vectors
 //
 // Usage Examples:
 //
-//   // Format validation
-//   validator := NewJSONValidator(true) // strict mode
-//   err := validator.ValidateFormat(data)
-//   err = validator.ValidateEvent(event)
+//	// Format validation
+//	validator := NewJSONValidator(true) // strict mode
+//	err := validator.ValidateFormat(data)
+//	err = validator.ValidateEvent(event)
 //
-//   // Round-trip validation
-//   rtValidator := NewRoundTripValidator(encoder, decoder)
-//   err := rtValidator.ValidateRoundTrip(ctx, event)
+//	// Round-trip validation
+//	rtValidator := NewRoundTripValidator(encoder, decoder)
+//	err := rtValidator.ValidateRoundTrip(ctx, event)
 //
-//   // Cross-SDK compatibility
-//   crossValidator := NewCrossSDKValidator()
-//   err := crossValidator.ValidateCompatibility(ctx, "typescript", decoder)
+//	// Cross-SDK compatibility
+//	crossValidator := NewCrossSDKValidator()
+//	err := crossValidator.ValidateCompatibility(ctx, "typescript", decoder)
 //
-//   // Security validation
-//   secValidator := NewSecurityValidator(DefaultSecurityConfig())
-//   err := secValidator.ValidateInput(ctx, data)
-//   err = secValidator.ValidateEvent(ctx, event)
+//	// Security validation
+//	secValidator := NewSecurityValidator(DefaultSecurityConfig())
+//	err := secValidator.ValidateInput(ctx, data)
+//	err = secValidator.ValidateEvent(ctx, event)
 //
-//   // Performance benchmarking
-//   config := DefaultBenchmarkConfig()
-//   benchSuite := NewBenchmarkSuite(encoder, decoder, validator, config)
-//   err := benchSuite.RunAllBenchmarks(ctx)
-//   results := benchSuite.GetResults()
+//	// Performance benchmarking
+//	config := DefaultBenchmarkConfig()
+//	benchSuite := NewBenchmarkSuite(encoder, decoder, validator, config)
+//	err := benchSuite.RunAllBenchmarks(ctx)
+//	results := benchSuite.GetResults()
 //
-//   // Test vectors
-//   registry := NewTestVectorRegistry()
-//   vectors := registry.GetVectorsBySDK("typescript")
-//   malformedVectors := registry.GetFailureVectors()
+//	// Test vectors
+//	registry := NewTestVectorRegistry()
+//	vectors := registry.GetVectorsBySDK("typescript")
+//	malformedVectors := registry.GetFailureVectors()
 //
 // Integration with Events Package:
 //

@@ -8,7 +8,7 @@ import (
 
 	"github.com/gorilla/websocket"
 	"go.uber.org/zap"
-	
+
 	"github.com/mattsp1290/ag-ui/go-sdk/internal/timeconfig"
 )
 
@@ -92,7 +92,7 @@ type HeartbeatStats struct {
 func NewHeartbeatManager(connection *Connection, pingPeriod, pongWait time.Duration) *HeartbeatManager {
 	now := time.Now()
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &HeartbeatManager{
 		pingPeriod: pingPeriod,
 		pongWait:   pongWait,
@@ -106,7 +106,7 @@ func NewHeartbeatManager(connection *Connection, pingPeriod, pongWait time.Durat
 		ctx:        ctx,
 		cancel:     cancel,
 		shutdownCh: make(chan struct{}),
-		stats:      &HeartbeatStats{
+		stats: &HeartbeatStats{
 			LastPongAt: now, // Initialize stats too
 		},
 	}
@@ -133,7 +133,7 @@ func (h *HeartbeatManager) Start(ctx context.Context) {
 
 	// Use heartbeat's own context for controlling goroutines
 	h.wg.Add(2)
-	go h.pingLoop(h.ctx)      // Use heartbeat context instead of external context
+	go h.pingLoop(h.ctx)        // Use heartbeat context instead of external context
 	go h.healthCheckLoop(h.ctx) // Use heartbeat context instead of external context
 }
 
@@ -143,11 +143,11 @@ func (h *HeartbeatManager) Stop() {
 		h.connection.config.Logger.Debug("Stopping heartbeat manager with enhanced aggressive shutdown")
 
 		h.setState(HeartbeatStopping)
-		
+
 		// Phase 1: Cancel context first to signal all goroutines to stop immediately
 		h.connection.config.Logger.Debug("Cancelling heartbeat context")
 		h.cancel()
-		
+
 		// Phase 2: Close stop channel as backup signal (only once)
 		func() {
 			defer func() { recover() }() // Ignore panic if already closed
@@ -156,13 +156,13 @@ func (h *HeartbeatManager) Stop() {
 
 		// Phase 3: Wait for all heartbeat goroutines to finish with aggressive timeout and retry
 		h.connection.config.Logger.Debug("Waiting for heartbeat goroutines to finish")
-		
+
 		// Simplified shutdown with single short timeout for tests
 		timeout := 50 * time.Millisecond
 		if !timeconfig.IsTestMode() {
 			timeout = 200 * time.Millisecond
 		}
-		
+
 		done := make(chan struct{})
 		go func() {
 			h.wg.Wait()
@@ -174,27 +174,27 @@ func (h *HeartbeatManager) Stop() {
 		case <-done:
 			h.connection.config.Logger.Debug("Heartbeat manager stopped successfully")
 			h.setState(HeartbeatStopped)
-			
+
 			// Signal shutdown completion
 			func() {
 				defer func() { recover() }() // Ignore panic if already closed
 				close(h.shutdownCh)
 			}()
 			return // Success - exit immediately
-			
+
 		case <-time.After(timeout):
 			h.connection.config.Logger.Debug("Heartbeat shutdown timeout - forcing completion")
 		}
 
 		// Final state update regardless of goroutine completion status
 		h.setState(HeartbeatStopped)
-		
+
 		// Signal shutdown completion
 		func() {
 			defer func() { recover() }() // Ignore panic if already closed
 			close(h.shutdownCh)
 		}()
-		
+
 		h.connection.config.Logger.Debug("Heartbeat manager shutdown completed")
 	})
 }
@@ -342,20 +342,20 @@ func (h *HeartbeatManager) pingLoop(ctx context.Context) {
 				return
 			default:
 			}
-			
+
 			// Check heartbeat state
 			if h.GetState() != HeartbeatRunning {
 				h.connection.config.Logger.Debug("Ping loop exiting - heartbeat not running")
 				return
 			}
-			
+
 			// Check connection state
 			connState := h.connection.State()
 			if connState == StateClosing || connState == StateClosed {
 				h.connection.config.Logger.Debug("Ping loop exiting - connection closing/closed")
 				return
 			}
-			
+
 			// Send ping with error handling and timeout
 			if err := h.sendPingWithTimeout(); err != nil {
 				// Check if error is due to context cancellation
@@ -368,7 +368,7 @@ func (h *HeartbeatManager) pingLoop(ctx context.Context) {
 					return
 				default:
 				}
-				
+
 				h.connection.config.Logger.Error("Failed to send ping", zap.Error(err))
 
 				// Mark as unhealthy and potentially trigger reconnection
@@ -423,20 +423,20 @@ func (h *HeartbeatManager) healthCheckLoop(ctx context.Context) {
 				return
 			default:
 			}
-			
+
 			// Check heartbeat state
 			if h.GetState() != HeartbeatRunning {
 				h.connection.config.Logger.Debug("Health check loop exiting - heartbeat not running")
 				return
 			}
-			
+
 			// Check connection state
 			connState := h.connection.State()
 			if connState == StateClosing || connState == StateClosed {
 				h.connection.config.Logger.Debug("Health check loop exiting - connection closing/closed")
 				return
 			}
-			
+
 			// Perform health check
 			h.checkHealth()
 		}
@@ -452,7 +452,7 @@ func (h *HeartbeatManager) sendPing() error {
 func (h *HeartbeatManager) sendPingWithTimeout() error {
 	h.connection.connMutex.Lock()
 	defer h.connection.connMutex.Unlock()
-	
+
 	conn := h.connection.conn
 	if conn == nil {
 		return websocket.ErrCloseSent
@@ -466,12 +466,12 @@ func (h *HeartbeatManager) sendPingWithTimeout() error {
 		writeTimeout = 1 * time.Second // Cap ping timeout at 1 second
 	}
 	writeDeadline := now.Add(writeTimeout)
-	
+
 	// Check if connection context has a sooner deadline
 	if deadline, ok := h.connection.ctx.Deadline(); ok && deadline.Before(writeDeadline) {
 		writeDeadline = deadline
 	}
-	
+
 	conn.SetWriteDeadline(writeDeadline)
 
 	// Send ping with panic recovery (must be done while holding the lock)
@@ -485,7 +485,7 @@ func (h *HeartbeatManager) sendPingWithTimeout() error {
 		}()
 		err = conn.WriteMessage(websocket.PingMessage, nil)
 	}()
-	
+
 	if err != nil {
 		// Check for timeout errors which might be due to context deadline
 		if netErr, ok := err.(interface{ Timeout() bool }); ok && netErr.Timeout() {
@@ -523,7 +523,7 @@ func (h *HeartbeatManager) checkHealth() {
 
 	now := time.Now()
 	lastPongAtNano := atomic.LoadInt64(&h.lastPongAt)
-	
+
 	// If lastPongAt is 0, we haven't received any pongs yet
 	// Use the start time for initial health check
 	if lastPongAtNano == 0 {
@@ -533,7 +533,7 @@ func (h *HeartbeatManager) checkHealth() {
 			lastPongAtNano = now.UnixNano()
 		}
 	}
-	
+
 	lastPongAt := time.Unix(0, lastPongAtNano)
 
 	h.stats.mutex.Lock()

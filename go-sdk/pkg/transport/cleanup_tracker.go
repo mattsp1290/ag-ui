@@ -55,13 +55,13 @@ func (p CleanupPhase) String() string {
 type ResourceType string
 
 const (
-	ResourceTypeGoroutine   ResourceType = "goroutine"
-	ResourceTypeConnection  ResourceType = "connection"
-	ResourceTypeChannel     ResourceType = "channel"
-	ResourceTypeTimer       ResourceType = "timer"
-	ResourceTypeFile        ResourceType = "file"
-	ResourceTypeMemory      ResourceType = "memory"
-	ResourceTypeHandler     ResourceType = "handler"
+	ResourceTypeGoroutine    ResourceType = "goroutine"
+	ResourceTypeConnection   ResourceType = "connection"
+	ResourceTypeChannel      ResourceType = "channel"
+	ResourceTypeTimer        ResourceType = "timer"
+	ResourceTypeFile         ResourceType = "file"
+	ResourceTypeMemory       ResourceType = "memory"
+	ResourceTypeHandler      ResourceType = "handler"
 	ResourceTypeSubscription ResourceType = "subscription"
 )
 
@@ -83,21 +83,21 @@ type CleanupTracker struct {
 	mu        sync.RWMutex
 	resources map[string]*TrackedResource
 	phase     int32 // atomic access to CleanupPhase
-	
+
 	// Cleanup statistics
 	stats struct {
-		totalTracked      int64
-		totalCleaned      int64
-		cleanupErrors     int64
-		cleanupStartTime  time.Time
-		cleanupEndTime    time.Time
-		phaseStartTimes   map[CleanupPhase]time.Time
-		phaseDurations    map[CleanupPhase]time.Duration
+		totalTracked     int64
+		totalCleaned     int64
+		cleanupErrors    int64
+		cleanupStartTime time.Time
+		cleanupEndTime   time.Time
+		phaseStartTimes  map[CleanupPhase]time.Time
+		phaseDurations   map[CleanupPhase]time.Duration
 	}
-	
+
 	// Cleanup configuration
 	config CleanupConfig
-	
+
 	// Cleanup coordination
 	cleanupOnce sync.Once
 	cleanupDone chan struct{}
@@ -108,13 +108,13 @@ type CleanupTracker struct {
 type CleanupConfig struct {
 	// MaxCleanupDuration is the maximum time allowed for cleanup
 	MaxCleanupDuration time.Duration
-	
+
 	// PhaseTimeout is the timeout for each cleanup phase
 	PhaseTimeout time.Duration
-	
+
 	// EnableStackTrace enables stack trace capture for debugging
 	EnableStackTrace bool
-	
+
 	// Logger for cleanup events
 	Logger Logger
 }
@@ -125,7 +125,7 @@ func DefaultCleanupConfig() CleanupConfig {
 		MaxCleanupDuration: 30 * time.Second,
 		PhaseTimeout:       5 * time.Second,
 		EnableStackTrace:   false,
-		Logger:            nil,
+		Logger:             nil,
 	}
 }
 
@@ -136,10 +136,10 @@ func NewCleanupTracker(config CleanupConfig) *CleanupTracker {
 		config:      config,
 		cleanupDone: make(chan struct{}),
 	}
-	
+
 	ct.stats.phaseStartTimes = make(map[CleanupPhase]time.Time)
 	ct.stats.phaseDurations = make(map[CleanupPhase]time.Duration)
-	
+
 	return ct
 }
 
@@ -147,7 +147,7 @@ func NewCleanupTracker(config CleanupConfig) *CleanupTracker {
 func (ct *CleanupTracker) Track(id string, resourceType ResourceType, description string, cleanupFunc func() error, dependencies ...string) {
 	ct.mu.Lock()
 	defer ct.mu.Unlock()
-	
+
 	resource := &TrackedResource{
 		ID:           id,
 		Type:         resourceType,
@@ -156,17 +156,17 @@ func (ct *CleanupTracker) Track(id string, resourceType ResourceType, descriptio
 		CleanupFunc:  cleanupFunc,
 		Dependencies: dependencies,
 	}
-	
+
 	// Capture stack trace if enabled
 	if ct.config.EnableStackTrace {
 		buf := make([]byte, 4096)
 		n := runtime.Stack(buf, false)
 		resource.StackTrace = string(buf[:n])
 	}
-	
+
 	ct.resources[id] = resource
 	atomic.AddInt64(&ct.stats.totalTracked, 1)
-	
+
 	if ct.config.Logger != nil {
 		ct.config.Logger.Debug("Resource tracked",
 			String("id", id),
@@ -180,13 +180,13 @@ func (ct *CleanupTracker) Track(id string, resourceType ResourceType, descriptio
 func (ct *CleanupTracker) Untrack(id string) {
 	ct.mu.Lock()
 	defer ct.mu.Unlock()
-	
+
 	if resource, exists := ct.resources[id]; exists {
 		resource.Cleaned = true
 		resource.CleanedAt = time.Now()
 		delete(ct.resources, id)
 		atomic.AddInt64(&ct.stats.totalCleaned, 1)
-		
+
 		if ct.config.Logger != nil {
 			ct.config.Logger.Debug("Resource untracked",
 				String("id", id),
@@ -204,7 +204,7 @@ func (ct *CleanupTracker) GetPhase() CleanupPhase {
 // setPhase sets the current cleanup phase
 func (ct *CleanupTracker) setPhase(phase CleanupPhase) {
 	oldPhase := CleanupPhase(atomic.SwapInt32(&ct.phase, int32(phase)))
-	
+
 	// Record phase timing
 	now := time.Now()
 	ct.stats.phaseStartTimes[phase] = now
@@ -213,7 +213,7 @@ func (ct *CleanupTracker) setPhase(phase CleanupPhase) {
 			ct.stats.phaseDurations[oldPhase] = now.Sub(startTime)
 		}
 	}
-	
+
 	if ct.config.Logger != nil {
 		ct.config.Logger.Info("Cleanup phase changed",
 			String("from", oldPhase.String()),
@@ -224,22 +224,22 @@ func (ct *CleanupTracker) setPhase(phase CleanupPhase) {
 // Cleanup performs ordered cleanup of all tracked resources
 func (ct *CleanupTracker) Cleanup(ctx context.Context) error {
 	var cleanupErr error
-	
+
 	ct.cleanupOnce.Do(func() {
 		ct.stats.cleanupStartTime = time.Now()
 		ct.setPhase(CleanupPhaseInitiated)
-		
+
 		// Create cleanup context with timeout
 		cleanupCtx, cancel := context.WithTimeout(ctx, ct.config.MaxCleanupDuration)
 		defer cancel()
-		
+
 		// Perform cleanup in phases
 		cleanupErr = ct.performPhaseCleanup(cleanupCtx)
-		
+
 		ct.stats.cleanupEndTime = time.Now()
 		ct.setPhase(CleanupPhaseComplete)
 		close(ct.cleanupDone)
-		
+
 		if ct.config.Logger != nil {
 			ct.config.Logger.Info("Cleanup completed",
 				Duration("duration", ct.stats.cleanupEndTime.Sub(ct.stats.cleanupStartTime)),
@@ -248,7 +248,7 @@ func (ct *CleanupTracker) Cleanup(ctx context.Context) error {
 				Err(cleanupErr))
 		}
 	})
-	
+
 	ct.cleanupErr = cleanupErr
 	return cleanupErr
 }
@@ -272,62 +272,62 @@ func (ct *CleanupTracker) performPhaseCleanup(ctx context.Context) error {
 			types: []ResourceType{ResourceTypeChannel, ResourceTypeHandler, ResourceTypeFile, ResourceTypeMemory},
 		},
 	}
-	
+
 	var firstErr error
-	
+
 	for _, p := range phases {
 		select {
 		case <-ctx.Done():
 			return fmt.Errorf("cleanup cancelled during phase %s: %w", p.phase, ctx.Err())
 		default:
 		}
-		
+
 		ct.setPhase(p.phase)
-		
+
 		// Create phase context with timeout
 		phaseCtx, cancel := context.WithTimeout(ctx, ct.config.PhaseTimeout)
-		
+
 		// Clean resources of specified types
 		if err := ct.cleanResourcesByType(phaseCtx, p.types...); err != nil && firstErr == nil {
 			firstErr = err
 		}
-		
+
 		cancel()
 	}
-	
+
 	// Final cleanup phase
 	ct.setPhase(CleanupPhaseFinalizing)
-	
+
 	// Clean any remaining resources
 	if err := ct.cleanRemainingResources(ctx); err != nil && firstErr == nil {
 		firstErr = err
 	}
-	
+
 	return firstErr
 }
 
 // cleanResourcesByType cleans resources of specified types
 func (ct *CleanupTracker) cleanResourcesByType(ctx context.Context, types ...ResourceType) error {
 	ct.mu.Lock()
-	
+
 	// Build list of resources to clean
 	var toClean []*TrackedResource
 	typeSet := make(map[ResourceType]bool)
 	for _, t := range types {
 		typeSet[t] = true
 	}
-	
+
 	for _, resource := range ct.resources {
 		if typeSet[resource.Type] && !resource.Cleaned {
 			toClean = append(toClean, resource)
 		}
 	}
-	
+
 	ct.mu.Unlock()
-	
+
 	// Sort by dependencies
 	toClean = ct.sortByDependencies(toClean)
-	
+
 	// Clean resources
 	var firstErr error
 	for _, resource := range toClean {
@@ -336,7 +336,7 @@ func (ct *CleanupTracker) cleanResourcesByType(ctx context.Context, types ...Res
 			return fmt.Errorf("cleanup cancelled while cleaning %s: %w", resource.ID, ctx.Err())
 		default:
 		}
-		
+
 		if err := ct.cleanResource(resource); err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -344,35 +344,35 @@ func (ct *CleanupTracker) cleanResourcesByType(ctx context.Context, types ...Res
 			atomic.AddInt64(&ct.stats.cleanupErrors, 1)
 		}
 	}
-	
+
 	return firstErr
 }
 
 // cleanRemainingResources cleans any remaining tracked resources
 func (ct *CleanupTracker) cleanRemainingResources(ctx context.Context) error {
 	ct.mu.Lock()
-	
+
 	var remaining []*TrackedResource
 	for _, resource := range ct.resources {
 		if !resource.Cleaned {
 			remaining = append(remaining, resource)
 		}
 	}
-	
+
 	ct.mu.Unlock()
-	
+
 	if len(remaining) == 0 {
 		return nil
 	}
-	
+
 	if ct.config.Logger != nil {
 		ct.config.Logger.Warn("Cleaning remaining resources",
 			Int("count", len(remaining)))
 	}
-	
+
 	// Sort by dependencies
 	remaining = ct.sortByDependencies(remaining)
-	
+
 	var firstErr error
 	for _, resource := range remaining {
 		select {
@@ -380,7 +380,7 @@ func (ct *CleanupTracker) cleanRemainingResources(ctx context.Context) error {
 			return fmt.Errorf("cleanup cancelled while cleaning remaining resource %s: %w", resource.ID, ctx.Err())
 		default:
 		}
-		
+
 		if err := ct.cleanResource(resource); err != nil {
 			if firstErr == nil {
 				firstErr = err
@@ -388,7 +388,7 @@ func (ct *CleanupTracker) cleanRemainingResources(ctx context.Context) error {
 			atomic.AddInt64(&ct.stats.cleanupErrors, 1)
 		}
 	}
-	
+
 	return firstErr
 }
 
@@ -397,14 +397,14 @@ func (ct *CleanupTracker) cleanResource(resource *TrackedResource) error {
 	if resource.Cleaned {
 		return nil
 	}
-	
+
 	if ct.config.Logger != nil {
 		ct.config.Logger.Debug("Cleaning resource",
 			String("id", resource.ID),
 			String("type", string(resource.Type)),
 			String("description", resource.Description))
 	}
-	
+
 	var err error
 	if resource.CleanupFunc != nil {
 		// Add timeout protection for cleanup function
@@ -412,22 +412,22 @@ func (ct *CleanupTracker) cleanResource(resource *TrackedResource) error {
 		go func() {
 			done <- resource.CleanupFunc()
 		}()
-		
+
 		select {
 		case err = <-done:
 		case <-time.After(5 * time.Second):
 			err = fmt.Errorf("cleanup timeout for resource %s", resource.ID)
 		}
 	}
-	
+
 	ct.mu.Lock()
 	resource.Cleaned = true
 	resource.CleanedAt = time.Now()
 	delete(ct.resources, resource.ID)
 	ct.mu.Unlock()
-	
+
 	atomic.AddInt64(&ct.stats.totalCleaned, 1)
-	
+
 	if err != nil {
 		if ct.config.Logger != nil {
 			ct.config.Logger.Error("Resource cleanup failed",
@@ -437,7 +437,7 @@ func (ct *CleanupTracker) cleanResource(resource *TrackedResource) error {
 		}
 		return fmt.Errorf("failed to clean %s resource %s: %w", resource.Type, resource.ID, err)
 	}
-	
+
 	return nil
 }
 
@@ -446,7 +446,7 @@ func (ct *CleanupTracker) sortByDependencies(resources []*TrackedResource) []*Tr
 	// Simple topological sort - resources with no dependencies first
 	var sorted []*TrackedResource
 	processed := make(map[string]bool)
-	
+
 	// First pass - resources with no dependencies
 	for _, resource := range resources {
 		if len(resource.Dependencies) == 0 {
@@ -454,7 +454,7 @@ func (ct *CleanupTracker) sortByDependencies(resources []*TrackedResource) []*Tr
 			processed[resource.ID] = true
 		}
 	}
-	
+
 	// Subsequent passes - resources whose dependencies are processed
 	changed := true
 	for changed {
@@ -463,7 +463,7 @@ func (ct *CleanupTracker) sortByDependencies(resources []*TrackedResource) []*Tr
 			if processed[resource.ID] {
 				continue
 			}
-			
+
 			allDepsProcessed := true
 			for _, dep := range resource.Dependencies {
 				if !processed[dep] {
@@ -471,7 +471,7 @@ func (ct *CleanupTracker) sortByDependencies(resources []*TrackedResource) []*Tr
 					break
 				}
 			}
-			
+
 			if allDepsProcessed {
 				sorted = append(sorted, resource)
 				processed[resource.ID] = true
@@ -479,14 +479,14 @@ func (ct *CleanupTracker) sortByDependencies(resources []*TrackedResource) []*Tr
 			}
 		}
 	}
-	
+
 	// Add any remaining resources (circular dependencies)
 	for _, resource := range resources {
 		if !processed[resource.ID] {
 			sorted = append(sorted, resource)
 		}
 	}
-	
+
 	return sorted
 }
 
@@ -499,13 +499,13 @@ func (ct *CleanupTracker) Wait() error {
 // GetStats returns cleanup statistics
 func (ct *CleanupTracker) GetStats() CleanupStats {
 	return CleanupStats{
-		TotalTracked:     atomic.LoadInt64(&ct.stats.totalTracked),
-		TotalCleaned:     atomic.LoadInt64(&ct.stats.totalCleaned),
-		CleanupErrors:    atomic.LoadInt64(&ct.stats.cleanupErrors),
-		CleanupDuration:  ct.stats.cleanupEndTime.Sub(ct.stats.cleanupStartTime),
-		PhaseDurations:   ct.stats.phaseDurations,
-		CurrentPhase:     ct.GetPhase(),
-		ResourcesLeaked:  ct.getLeakedResources(),
+		TotalTracked:    atomic.LoadInt64(&ct.stats.totalTracked),
+		TotalCleaned:    atomic.LoadInt64(&ct.stats.totalCleaned),
+		CleanupErrors:   atomic.LoadInt64(&ct.stats.cleanupErrors),
+		CleanupDuration: ct.stats.cleanupEndTime.Sub(ct.stats.cleanupStartTime),
+		PhaseDurations:  ct.stats.phaseDurations,
+		CurrentPhase:    ct.GetPhase(),
+		ResourcesLeaked: ct.getLeakedResources(),
 	}
 }
 
@@ -513,7 +513,7 @@ func (ct *CleanupTracker) GetStats() CleanupStats {
 func (ct *CleanupTracker) getLeakedResources() []LeakedResource {
 	ct.mu.RLock()
 	defer ct.mu.RUnlock()
-	
+
 	var leaked []LeakedResource
 	for _, resource := range ct.resources {
 		if !resource.Cleaned {
@@ -526,7 +526,7 @@ func (ct *CleanupTracker) getLeakedResources() []LeakedResource {
 			})
 		}
 	}
-	
+
 	return leaked
 }
 

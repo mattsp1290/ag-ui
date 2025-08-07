@@ -320,7 +320,7 @@ func (sm *SessionManager) refreshSessionTTL(ctx context.Context, session *Sessio
 	timeToExpiry := time.Until(session.ExpiresAt)
 	if timeToExpiry < sm.config.TTL/2 {
 		session.ExpiresAt = time.Now().Add(sm.config.TTL)
-		
+
 		// Update session asynchronously to avoid blocking the request
 		go func() {
 			updateCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -345,7 +345,7 @@ func (sm *SessionManager) createLoginRedirectResponse(w http.ResponseWriter, req
 
 	// Add redirect parameter to preserve original URL
 	redirectURL := fmt.Sprintf("%s?redirect=%s", loginURL, req.URL.String())
-	
+
 	w.Header().Set("Location", redirectURL)
 	w.WriteHeader(http.StatusFound)
 	w.Write([]byte(`Redirecting to login...`))

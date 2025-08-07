@@ -408,11 +408,11 @@ func NewMonitoringSystem(config MonitoringConfig) (*MonitoringSystem, error) {
 	}
 
 	performanceTracker := &PerformanceTracker{
-		latencyBuckets:  make(map[string]*LatencyBucket),
+		latencyBuckets: make(map[string]*LatencyBucket),
 		throughputStats: &ThroughputStats{
 			lastUpdate: time.Now(), // Initialize with current time to avoid zero time issues
 		},
-		benchmarks:      make(map[string]*Benchmark),
+		benchmarks: make(map[string]*Benchmark),
 	}
 
 	connectionTracker := &ConnectionTracker{
@@ -565,7 +565,7 @@ func (ms *MonitoringSystem) RecordEventReceived(connID, eventType string, size i
 
 	// Validate size to prevent counter issues
 	if size < 0 {
-		ms.logger.Warn("Invalid negative event size, using 0", 
+		ms.logger.Warn("Invalid negative event size, using 0",
 			zap.String("connection_id", connID),
 			zap.String("event_type", eventType),
 			zap.Int64("size", size))
@@ -666,8 +666,8 @@ func (ms *MonitoringSystem) RecordEventProcessed(eventType string, duration time
 			errorCount = 1
 		}
 		ms.eventTracker.eventStats[eventType] = &EventStats{
-			Count:       1,
-			ErrorCount:  errorCount,
+			Count:        1,
+			ErrorCount:   errorCount,
 			LastReceived: time.Now(),
 		}
 	}
@@ -1155,13 +1155,13 @@ func (ms *MonitoringSystem) checkAlertThresholds() {
 	// Read current memory stats to get Sys value
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
-	
+
 	// Calculate memory percentage - avoid divide by zero
 	var memoryPercent float64
 	if memStats.Sys > 0 {
 		memoryPercent = float64(memoryUsage) / float64(memStats.Sys) * 100
 	}
-	
+
 	if memoryPercent > ms.config.Alerting.Thresholds.MemoryUsage {
 		ms.sendAlert(Alert{
 			Level:       AlertLevelWarning,
@@ -1335,11 +1335,11 @@ func (ms *MonitoringSystem) sendAlert(alert Alert) {
 		ms.wg.Add(1)
 		go func(n AlertNotifier) {
 			defer ms.wg.Done()
-			
+
 			// Use the monitoring system's context to allow for cancellation during shutdown
 			ctx, cancel := context.WithTimeout(ms.ctx, 5*time.Second)
 			defer cancel()
-			
+
 			if err := n.SendAlert(ctx, alert); err != nil {
 				// Only log error if not due to context cancellation
 				if !errors.Is(err, context.Canceled) {
@@ -1529,14 +1529,14 @@ func initializeSSELogger(config MonitoringConfig) (*zap.Logger, error) {
 
 // Global variable to track metrics initialization with sync.Once
 var (
-	metricsOnce sync.Once
+	metricsOnce   sync.Once
 	globalMetrics *SSEPrometheusMetrics
 )
 
 func initializeSSEPrometheusMetrics(config MonitoringConfig) *SSEPrometheusMetrics {
 	namespace := config.Metrics.Prometheus.Namespace
 	subsystem := config.Metrics.Prometheus.Subsystem
-	
+
 	sseMetricsOnce.Do(func() {
 		// Create global metrics using default registerer
 		ssePromMetrics = createSSEPrometheusMetrics(namespace, subsystem, prometheus.DefaultRegisterer)
@@ -1970,7 +1970,7 @@ func createSSEPrometheusMetrics(namespace, subsystem string, registerer promethe
 			[]string{"stream"},
 		),
 	}
-	
+
 	// Register metrics with the default registry if registerer is provided
 	if registerer != nil {
 		registerer.MustRegister(
@@ -2020,13 +2020,13 @@ func createSSEPrometheusMetrics(namespace, subsystem string, registerer promethe
 			metrics.LastEventID,
 		)
 	}
-	
+
 	return metrics
 }
 
 func createSSEPrometheusMetricsWithRegistry(namespace, subsystem string, registry *prometheus.Registry) *SSEPrometheusMetrics {
 	metrics := createSSEPrometheusMetrics(namespace, subsystem, nil)
-	
+
 	// Register all metrics with the custom registry
 	registry.MustRegister(
 		metrics.ConnectionsTotal,
@@ -2074,8 +2074,8 @@ func createSSEPrometheusMetricsWithRegistry(namespace, subsystem string, registr
 		metrics.CompressionRatio,
 		metrics.LastEventID,
 	)
-	
-		return metrics
+
+	return metrics
 }
 
 func categorizeSSEError(err error) string {

@@ -27,35 +27,35 @@ import (
 type AgentStateManager struct {
 	// Configuration
 	config StateConfig
-	
+
 	// State storage
-	store       state.StoreInterface
-	localCache  *StateCache
-	
+	store      state.StoreInterface
+	localCache *StateCache
+
 	// Synchronization
-	syncTicker  *time.Ticker
-	syncMu      sync.RWMutex
-	lastSync    time.Time
-	syncErrors  int64
-	
+	syncTicker *time.Ticker
+	syncMu     sync.RWMutex
+	lastSync   time.Time
+	syncErrors int64
+
 	// Conflict resolution
-	resolver    ConflictResolver
-	
+	resolver ConflictResolver
+
 	// State versioning
-	versions    map[string]*StateVersion
-	versionsMu  sync.RWMutex
-	
+	versions   map[string]*StateVersion
+	versionsMu sync.RWMutex
+
 	// Lifecycle
-	running     atomic.Bool
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	isHealthy   atomic.Bool
-	
+	running   atomic.Bool
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	isHealthy atomic.Bool
+
 	// Metrics
-	metrics     StateManagerMetrics
-	metricsMu   sync.RWMutex
-	
+	metrics   StateManagerMetrics
+	metricsMu sync.RWMutex
+
 	// Subscriptions
 	subscriptions map[string][]StateSubscription
 	subsMu        sync.RWMutex
@@ -63,12 +63,12 @@ type AgentStateManager struct {
 
 // StateCache provides efficient local caching of state data.
 type StateCache struct {
-	data       map[string]interface{}
-	mu         sync.RWMutex
-	maxSize    int64
-	currentSize atomic.Int64
+	data           map[string]interface{}
+	mu             sync.RWMutex
+	maxSize        int64
+	currentSize    atomic.Int64
 	evictionPolicy EvictionPolicy
-	accessTimes map[string]time.Time
+	accessTimes    map[string]time.Time
 }
 
 // ConflictResolver handles state conflicts using various strategies.
@@ -99,7 +99,7 @@ type StateChangeEvent struct {
 	Path      string                 `json:"path"`
 	OldValue  interface{}            `json:"old_value"`
 	NewValue  interface{}            `json:"new_value"`
-	Operation string                 `json:"operation"`  // Use string for simple operation types
+	Operation string                 `json:"operation"` // Use string for simple operation types
 	Timestamp time.Time              `json:"timestamp"`
 	Version   string                 `json:"version"`
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`
@@ -122,15 +122,15 @@ const (
 
 // StateManagerMetrics contains metrics for the state manager.
 type StateManagerMetrics struct {
-	StateReads        int64         `json:"state_reads"`
-	StateWrites       int64         `json:"state_writes"`
-	CacheHits         int64         `json:"cache_hits"`
-	CacheMisses       int64         `json:"cache_misses"`
-	SyncOperations    int64         `json:"sync_operations"`
-	ConflictResolutions int64       `json:"conflict_resolutions"`
-	AverageLatency    time.Duration `json:"average_latency"`
-	ErrorCount        int64         `json:"error_count"`
-	LastSyncTime      time.Time     `json:"last_sync_time"`
+	StateReads          int64         `json:"state_reads"`
+	StateWrites         int64         `json:"state_writes"`
+	CacheHits           int64         `json:"cache_hits"`
+	CacheMisses         int64         `json:"cache_misses"`
+	SyncOperations      int64         `json:"sync_operations"`
+	ConflictResolutions int64         `json:"conflict_resolutions"`
+	AverageLatency      time.Duration `json:"average_latency"`
+	ErrorCount          int64         `json:"error_count"`
+	LastSyncTime        time.Time     `json:"last_sync_time"`
 }
 
 // ConflictResolutionStrategy defines available conflict resolution strategies.
@@ -139,14 +139,14 @@ type ConflictResolutionStrategy string
 const (
 	StrategyLastWriterWins  ConflictResolutionStrategy = "last-writer-wins"
 	StrategyFirstWriterWins ConflictResolutionStrategy = "first-writer-wins"
-	StrategyMerge          ConflictResolutionStrategy = "merge"
-	StrategyCustom         ConflictResolutionStrategy = "custom"
-	
+	StrategyMerge           ConflictResolutionStrategy = "merge"
+	StrategyCustom          ConflictResolutionStrategy = "custom"
+
 	// Compatibility aliases for constants used in other files
-	ConflictResolutionLastWriterWins ConflictResolutionStrategy = "last-writer-wins"
+	ConflictResolutionLastWriterWins  ConflictResolutionStrategy = "last-writer-wins"
 	ConflictResolutionFirstWriterWins ConflictResolutionStrategy = "first-writer-wins"
-	ConflictResolutionMerge ConflictResolutionStrategy = "merge"
-	ConflictResolutionReject ConflictResolutionStrategy = "reject"
+	ConflictResolutionMerge           ConflictResolutionStrategy = "merge"
+	ConflictResolutionReject          ConflictResolutionStrategy = "reject"
 )
 
 // NewAgentStateManager creates a new agent state manager with the given configuration.
@@ -160,16 +160,16 @@ func NewAgentStateManager(config StateConfig) (*AgentStateManager, error) {
 	if config.ConflictResolution == "" {
 		config.ConflictResolution = StrategyLastWriterWins
 	}
-	
+
 	// Parse cache size
 	cacheSize, err := parseCacheSize(config.CacheSize)
 	if err != nil {
 		return nil, errors.WithOperation("parse", "cache_size", err)
 	}
-	
+
 	// Create state store
 	store := state.NewStateStore()
-	
+
 	// Create cache
 	cache := &StateCache{
 		data:           make(map[string]interface{}),
@@ -177,13 +177,13 @@ func NewAgentStateManager(config StateConfig) (*AgentStateManager, error) {
 		evictionPolicy: EvictionPolicyLRU,
 		accessTimes:    make(map[string]time.Time),
 	}
-	
+
 	// Create conflict resolver
 	resolver, err := newConflictResolver(config.ConflictResolution)
 	if err != nil {
 		return nil, errors.WithOperation("create", "conflict_resolver", err)
 	}
-	
+
 	manager := &AgentStateManager{
 		config:        config,
 		store:         store,
@@ -195,9 +195,9 @@ func NewAgentStateManager(config StateConfig) (*AgentStateManager, error) {
 			LastSyncTime: time.Now(),
 		},
 	}
-	
+
 	manager.isHealthy.Store(true)
-	
+
 	return manager, nil
 }
 
@@ -206,25 +206,25 @@ func (sm *AgentStateManager) Start(ctx context.Context) error {
 	if sm.running.Load() {
 		return errors.NewStateError(string(errors.ErrorTypeInvalidState), "state manager is already running")
 	}
-	
+
 	sm.ctx, sm.cancel = context.WithCancel(ctx)
 	sm.running.Store(true)
-	
+
 	// Start synchronization if enabled
 	if sm.config.SyncInterval > 0 {
 		sm.syncTicker = time.NewTicker(sm.config.SyncInterval)
 		sm.wg.Add(1)
 		go sm.syncLoop()
 	}
-	
+
 	// Start cache eviction
 	sm.wg.Add(1)
 	go sm.cacheEvictionLoop()
-	
+
 	// Start metrics collection
 	sm.wg.Add(1)
 	go sm.metricsLoop()
-	
+
 	return nil
 }
 
@@ -233,28 +233,28 @@ func (sm *AgentStateManager) Stop(ctx context.Context) error {
 	if !sm.running.Load() {
 		return nil
 	}
-	
+
 	sm.running.Store(false)
 	sm.cancel()
-	
+
 	if sm.syncTicker != nil {
 		sm.syncTicker.Stop()
 	}
-	
+
 	// Wait for goroutines to finish
 	done := make(chan struct{})
 	go func() {
 		sm.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// All goroutines finished
 	case <-ctx.Done():
 		return fmt.Errorf("timeout waiting for state manager to stop")
 	}
-	
+
 	return nil
 }
 
@@ -271,27 +271,27 @@ func (sm *AgentStateManager) GetState(ctx context.Context) (interface{}, error) 
 	if !sm.running.Load() {
 		return nil, errors.NewStateError(string(errors.ErrorTypeInvalidState), "state manager is not running")
 	}
-	
+
 	startTime := time.Now()
 	defer func() {
 		latency := time.Since(startTime)
 		sm.updateLatencyMetrics(latency)
 		atomic.AddInt64(&sm.metrics.StateReads, 1)
 	}()
-	
+
 	// Try cache first
 	if data := sm.localCache.get("root"); data != nil {
 		atomic.AddInt64(&sm.metrics.CacheHits, 1)
 		return data, nil
 	}
-	
+
 	// Cache miss, get from store
 	atomic.AddInt64(&sm.metrics.CacheMisses, 1)
 	data := sm.store.GetState()
-	
+
 	// Cache the result
 	sm.localCache.set("root", data)
-	
+
 	return data, nil
 }
 
@@ -300,28 +300,28 @@ func (sm *AgentStateManager) UpdateState(ctx context.Context, delta interface{})
 	if !sm.running.Load() {
 		return errors.NewStateError(string(errors.ErrorTypeInvalidState), "state manager is not running")
 	}
-	
+
 	startTime := time.Now()
 	defer func() {
 		latency := time.Since(startTime)
 		sm.updateLatencyMetrics(latency)
 		atomic.AddInt64(&sm.metrics.StateWrites, 1)
 	}()
-	
+
 	// Convert delta to JSON patch
 	patch, err := sm.convertDeltaToPatch(delta)
 	if err != nil {
 		atomic.AddInt64(&sm.metrics.ErrorCount, 1)
 		return errors.WithOperation("convert", "delta_to_patch", err)
 	}
-	
+
 	// Get current state for conflict detection
 	currentState, err := sm.GetState(ctx)
 	if err != nil {
 		atomic.AddInt64(&sm.metrics.ErrorCount, 1)
 		return errors.WithOperation("get", "current_state", err)
 	}
-	
+
 	// Apply patch
 	err = sm.store.ApplyPatch(patch)
 	if err != nil {
@@ -333,10 +333,10 @@ func (sm *AgentStateManager) UpdateState(ctx context.Context, delta interface{})
 		atomic.AddInt64(&sm.metrics.ErrorCount, 1)
 		return errors.WithOperation("apply", "state_patch", err)
 	}
-	
+
 	// Update cache
 	sm.localCache.invalidate("root")
-	
+
 	// Create state version
 	version, err := sm.createStateVersion(delta)
 	if err != nil {
@@ -345,7 +345,7 @@ func (sm *AgentStateManager) UpdateState(ctx context.Context, delta interface{})
 	} else {
 		sm.addVersion(version)
 	}
-	
+
 	// Notify subscribers
 	sm.notifySubscribers(StateChangeEvent{
 		Path:      "root",
@@ -354,7 +354,7 @@ func (sm *AgentStateManager) UpdateState(ctx context.Context, delta interface{})
 		Timestamp: time.Now(),
 		Version:   version.ID,
 	})
-	
+
 	return nil
 }
 
@@ -362,7 +362,7 @@ func (sm *AgentStateManager) UpdateState(ctx context.Context, delta interface{})
 func (sm *AgentStateManager) Subscribe(path string, callback func(StateChangeEvent), filter StateFilter) string {
 	sm.subsMu.Lock()
 	defer sm.subsMu.Unlock()
-	
+
 	subscriptionID := fmt.Sprintf("sub_%d", time.Now().UnixNano())
 	subscription := StateSubscription{
 		ID:       subscriptionID,
@@ -370,13 +370,13 @@ func (sm *AgentStateManager) Subscribe(path string, callback func(StateChangeEve
 		Callback: callback,
 		Filter:   filter,
 	}
-	
+
 	if sm.subscriptions[path] == nil {
 		sm.subscriptions[path] = make([]StateSubscription, 0)
 	}
-	
+
 	sm.subscriptions[path] = append(sm.subscriptions[path], subscription)
-	
+
 	return subscriptionID
 }
 
@@ -384,7 +384,7 @@ func (sm *AgentStateManager) Subscribe(path string, callback func(StateChangeEve
 func (sm *AgentStateManager) Unsubscribe(subscriptionID string) {
 	sm.subsMu.Lock()
 	defer sm.subsMu.Unlock()
-	
+
 	for path, subs := range sm.subscriptions {
 		for i, sub := range subs {
 			if sub.ID == subscriptionID {
@@ -403,12 +403,12 @@ func (sm *AgentStateManager) Unsubscribe(subscriptionID string) {
 func (sm *AgentStateManager) GetVersion(versionID string) (*StateVersion, error) {
 	sm.versionsMu.RLock()
 	defer sm.versionsMu.RUnlock()
-	
+
 	version, exists := sm.versions[versionID]
 	if !exists {
 		return nil, errors.NewStateError(string(errors.ErrorTypeNotFound), fmt.Sprintf("version %s not found", versionID))
 	}
-	
+
 	return version, nil
 }
 
@@ -418,22 +418,22 @@ func (sm *AgentStateManager) RollbackToVersion(ctx context.Context, versionID st
 	if err != nil {
 		return err
 	}
-	
+
 	// Create rollback patch
 	patch, err := sm.createRollbackPatch(version.Data)
 	if err != nil {
 		return errors.WithOperation("create", "rollback_patch", err)
 	}
-	
+
 	// Apply rollback
 	err = sm.store.ApplyPatch(patch)
 	if err != nil {
 		return errors.WithOperation("apply", "rollback_patch", err)
 	}
-	
+
 	// Clear cache
 	sm.localCache.clear()
-	
+
 	return nil
 }
 
@@ -453,7 +453,7 @@ func (sm *AgentStateManager) IsHealthy() bool {
 
 func (sm *AgentStateManager) syncLoop() {
 	defer sm.wg.Done()
-	
+
 	for {
 		select {
 		case <-sm.ctx.Done():
@@ -467,12 +467,12 @@ func (sm *AgentStateManager) syncLoop() {
 func (sm *AgentStateManager) performSync() {
 	sm.syncMu.Lock()
 	defer sm.syncMu.Unlock()
-	
+
 	// Simplified sync operation
 	// In a real implementation, this would sync with remote systems
 	atomic.AddInt64(&sm.metrics.SyncOperations, 1)
 	sm.lastSync = time.Now()
-	
+
 	sm.metricsMu.Lock()
 	sm.metrics.LastSyncTime = time.Now()
 	sm.metricsMu.Unlock()
@@ -480,10 +480,10 @@ func (sm *AgentStateManager) performSync() {
 
 func (sm *AgentStateManager) cacheEvictionLoop() {
 	defer sm.wg.Done()
-	
+
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-sm.ctx.Done():
@@ -496,10 +496,10 @@ func (sm *AgentStateManager) cacheEvictionLoop() {
 
 func (sm *AgentStateManager) metricsLoop() {
 	defer sm.wg.Done()
-	
+
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-sm.ctx.Done():
@@ -514,7 +514,7 @@ func (sm *AgentStateManager) updateHealthStatus() {
 	// Check if sync errors are too high
 	errorCount := atomic.LoadInt64(&sm.metrics.ErrorCount)
 	syncErrors := atomic.LoadInt64(&sm.syncErrors)
-	
+
 	if errorCount > 100 || syncErrors > 10 {
 		sm.isHealthy.Store(false)
 	} else {
@@ -529,7 +529,7 @@ func (sm *AgentStateManager) convertDeltaToPatch(delta interface{}) (state.JSONP
 	if err != nil {
 		return nil, errors.WithOperation("marshal", "delta_data", err)
 	}
-	
+
 	// Create a simple patch operation
 	patch := state.JSONPatch{
 		{
@@ -538,7 +538,7 @@ func (sm *AgentStateManager) convertDeltaToPatch(delta interface{}) (state.JSONP
 			Value: json.RawMessage(deltaBytes),
 		},
 	}
-	
+
 	return patch, nil
 }
 
@@ -548,45 +548,45 @@ func (sm *AgentStateManager) handleConflict(ctx context.Context, currentState, d
 	if err != nil {
 		return errors.WithOperation("resolve", "state_conflict", err)
 	}
-	
+
 	// Apply resolved state
 	resolvedPatch, err := sm.convertDeltaToPatch(resolved)
 	if err != nil {
 		return errors.WithOperation("create", "resolved_patch", err)
 	}
-	
+
 	return sm.store.ApplyPatch(resolvedPatch)
 }
 
 func (sm *AgentStateManager) createStateVersion(delta interface{}) (*StateVersion, error) {
 	versionID := fmt.Sprintf("v_%d", time.Now().UnixNano())
-	
+
 	// Get current state for version
 	currentState := sm.store.GetState()
-	
+
 	version := &StateVersion{
 		ID:        versionID,
 		Data:      currentState,
 		Timestamp: time.Now(),
 		Metadata:  make(map[string]interface{}),
 	}
-	
+
 	// Calculate checksum
 	checksum, err := sm.calculateChecksum(currentState)
 	if err != nil {
 		return nil, err
 	}
 	version.Checksum = checksum
-	
+
 	return version, nil
 }
 
 func (sm *AgentStateManager) addVersion(version *StateVersion) {
 	sm.versionsMu.Lock()
 	defer sm.versionsMu.Unlock()
-	
+
 	sm.versions[version.ID] = version
-	
+
 	// Limit version history
 	if len(sm.versions) > 100 {
 		sm.cleanupOldVersions()
@@ -599,7 +599,7 @@ func (sm *AgentStateManager) cleanupOldVersions() {
 	if len(sm.versions) <= 50 {
 		return
 	}
-	
+
 	// In a real implementation, this would sort by timestamp and remove oldest
 	for id := range sm.versions {
 		delete(sm.versions, id)
@@ -620,7 +620,7 @@ func (sm *AgentStateManager) calculateChecksum(data interface{}) (string, error)
 	if err != nil {
 		return "", err
 	}
-	
+
 	// In a real implementation, this would use a proper hash function
 	return fmt.Sprintf("checksum_%d", len(dataBytes)), nil
 }
@@ -628,7 +628,7 @@ func (sm *AgentStateManager) calculateChecksum(data interface{}) (string, error)
 func (sm *AgentStateManager) notifySubscribers(event StateChangeEvent) {
 	sm.subsMu.RLock()
 	defer sm.subsMu.RUnlock()
-	
+
 	for path, subs := range sm.subscriptions {
 		if sm.pathMatches(path, event.Path) {
 			for _, sub := range subs {
@@ -648,7 +648,7 @@ func (sm *AgentStateManager) pathMatches(subscriptionPath, eventPath string) boo
 func (sm *AgentStateManager) updateLatencyMetrics(latency time.Duration) {
 	sm.metricsMu.Lock()
 	defer sm.metricsMu.Unlock()
-	
+
 	if sm.metrics.AverageLatency == 0 {
 		sm.metrics.AverageLatency = latency
 	} else {
@@ -661,7 +661,7 @@ func (sm *AgentStateManager) updateLatencyMetrics(latency time.Duration) {
 func (sc *StateCache) get(key string) interface{} {
 	sc.mu.RLock()
 	defer sc.mu.RUnlock()
-	
+
 	data, exists := sc.data[key]
 	if exists {
 		sc.accessTimes[key] = time.Now()
@@ -673,10 +673,10 @@ func (sc *StateCache) get(key string) interface{} {
 func (sc *StateCache) set(key string, value interface{}) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
-	
+
 	sc.data[key] = value
 	sc.accessTimes[key] = time.Now()
-	
+
 	// Check if eviction is needed
 	if sc.needsEviction() {
 		sc.evictOne()
@@ -686,7 +686,7 @@ func (sc *StateCache) set(key string, value interface{}) {
 func (sc *StateCache) invalidate(key string) {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
-	
+
 	delete(sc.data, key)
 	delete(sc.accessTimes, key)
 }
@@ -694,7 +694,7 @@ func (sc *StateCache) invalidate(key string) {
 func (sc *StateCache) clear() {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
-	
+
 	sc.data = make(map[string]interface{})
 	sc.accessTimes = make(map[string]time.Time)
 	sc.currentSize.Store(0)
@@ -707,7 +707,7 @@ func (sc *StateCache) needsEviction() bool {
 func (sc *StateCache) evict() {
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
-	
+
 	// Evict entries based on policy
 	cutoff := time.Now().Add(-10 * time.Minute)
 	for key, accessTime := range sc.accessTimes {
@@ -722,14 +722,14 @@ func (sc *StateCache) evictOne() {
 	// Find LRU entry
 	var oldestKey string
 	var oldestTime time.Time
-	
+
 	for key, accessTime := range sc.accessTimes {
 		if oldestTime.IsZero() || accessTime.Before(oldestTime) {
 			oldestKey = key
 			oldestTime = accessTime
 		}
 	}
-	
+
 	if oldestKey != "" {
 		delete(sc.data, oldestKey)
 		delete(sc.accessTimes, oldestKey)

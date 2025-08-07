@@ -42,19 +42,19 @@ func NewTestSecuritySuite(t *testing.T) *TestSecuritySuite {
 // TestTimingAttacks tests for timing attack vulnerabilities
 func TestTimingAttacks(t *testing.T) {
 	suite := NewTestSecuritySuite(t)
-	
+
 	t.Run("Authentication Timing Attacks", func(t *testing.T) {
 		suite.testAuthenticationTimingAttacks()
 	})
-	
+
 	t.Run("Token Validation Timing Attacks", func(t *testing.T) {
 		suite.testTokenValidationTimingAttacks()
 	})
-	
+
 	t.Run("Password Comparison Timing Attacks", func(t *testing.T) {
 		suite.testPasswordComparisonTimingAttacks()
 	})
-	
+
 	t.Run("API Key Timing Attacks", func(t *testing.T) {
 		suite.testAPIKeyTimingAttacks()
 	})
@@ -64,10 +64,10 @@ func TestTimingAttacks(t *testing.T) {
 func (s *TestSecuritySuite) testAuthenticationTimingAttacks() {
 	// Create test authenticator
 	authenticator := sse.NewBearerAuthenticator("valid_token_123")
-	
+
 	// Valid token
 	validToken := "valid_token_123"
-	
+
 	// Generate invalid tokens of different lengths
 	invalidTokens := []string{
 		"a",
@@ -76,54 +76,54 @@ func (s *TestSecuritySuite) testAuthenticationTimingAttacks() {
 		"invalid_token_very_long_string_to_test_timing_resistance",
 		strings.Repeat("x", 1000), // Very long token
 	}
-	
+
 	// Measure timing for valid token
 	validTimes := make([]time.Duration, 100)
 	for i := 0; i < 100; i++ {
 		req := httptest.NewRequest("GET", "/", nil)
 		req.Header.Set("Authorization", "Bearer "+validToken)
-		
+
 		start := time.Now()
 		_, err := authenticator.Authenticate(req)
 		elapsed := time.Since(start)
-		
+
 		validTimes[i] = elapsed
 		require.NoError(s.t, err)
 	}
-	
+
 	// Measure timing for invalid tokens
 	for _, invalidToken := range invalidTokens {
 		invalidTimes := make([]time.Duration, 100)
 		for i := 0; i < 100; i++ {
 			req := httptest.NewRequest("GET", "/", nil)
 			req.Header.Set("Authorization", "Bearer "+invalidToken)
-			
+
 			start := time.Now()
 			_, err := authenticator.Authenticate(req)
 			elapsed := time.Since(start)
-			
+
 			invalidTimes[i] = elapsed
 			require.Error(s.t, err)
 		}
-		
+
 		// Calculate average times
 		validAvg := s.calculateAverage(validTimes)
 		invalidAvg := s.calculateAverage(invalidTimes)
-		
+
 		// Timing should be similar (within reasonable variance)
 		timeDiff := validAvg - invalidAvg
 		if timeDiff < 0 {
 			timeDiff = -timeDiff
 		}
-		
+
 		// Use microsecond threshold to prevent timing attacks while being realistic for Go
 		maxAllowedDiff := 50 * time.Microsecond
-		
+
 		// Adjust threshold for CI environments to account for system noise
 		if os.Getenv("CI") == "true" {
 			maxAllowedDiff *= 10
 		}
-		
+
 		assert.True(s.t, timeDiff <= maxAllowedDiff,
 			"Timing attack vulnerability detected: valid=%v, invalid=%v, diff=%v, max_allowed=%v",
 			validAvg, invalidAvg, timeDiff, maxAllowedDiff)
@@ -134,19 +134,19 @@ func (s *TestSecuritySuite) testAuthenticationTimingAttacks() {
 func (s *TestSecuritySuite) testTokenValidationTimingAttacks() {
 	config := auth.DefaultAuthConfig()
 	provider := auth.NewBasicAuthProvider(config)
-	
+
 	// Create mock auth manager since NewAuthManager doesn't exist
 	authManager := &MockAuthManager{
 		config:   config,
 		provider: provider,
 	}
-	
+
 	// Valid credentials
 	validCreds := &auth.BasicCredentials{
 		Username: "test_user",
 		Password: "test_password",
 	}
-	
+
 	// Invalid credentials with different characteristics
 	invalidCredsList := []*auth.BasicCredentials{
 		{Username: "a", Password: "b"},
@@ -154,18 +154,18 @@ func (s *TestSecuritySuite) testTokenValidationTimingAttacks() {
 		{Username: "wrong_user", Password: "test_password"},
 		{Username: strings.Repeat("x", 100), Password: strings.Repeat("y", 100)},
 	}
-	
+
 	// Measure timing for valid credentials
 	validTimes := make([]time.Duration, 50)
 	for i := 0; i < 50; i++ {
 		start := time.Now()
 		_, err := authManager.Authenticate(validCreds)
 		elapsed := time.Since(start)
-		
+
 		validTimes[i] = elapsed
 		require.NoError(s.t, err)
 	}
-	
+
 	// Measure timing for invalid credentials
 	for _, invalidCreds := range invalidCredsList {
 		invalidTimes := make([]time.Duration, 50)
@@ -173,33 +173,33 @@ func (s *TestSecuritySuite) testTokenValidationTimingAttacks() {
 			start := time.Now()
 			_, err := authManager.Authenticate(invalidCreds)
 			elapsed := time.Since(start)
-			
+
 			invalidTimes[i] = elapsed
 			require.Error(s.t, err)
 		}
-		
+
 		// Ensure similar timing characteristics
 		validAvg := s.calculateAverage(validTimes)
 		invalidAvg := s.calculateAverage(invalidTimes)
-		
+
 		timeDiff := validAvg - invalidAvg
 		if timeDiff < 0 {
 			timeDiff = -timeDiff
 		}
-		
+
 		// Use microsecond threshold for token validation timing
 		maxAllowedDiff := 100 * time.Microsecond
-		
+
 		// Adjust threshold for CI environments and high-load systems to account for system noise
 		if os.Getenv("CI") == "true" || runtime.GOMAXPROCS(0) > 4 {
 			maxAllowedDiff *= 10
 		}
-		
+
 		// Additional tolerance for test environment variability
 		if os.Getenv("GITHUB_ACTIONS") == "true" || os.Getenv("JENKINS_URL") != "" {
 			maxAllowedDiff *= 2
 		}
-		
+
 		assert.True(s.t, timeDiff <= maxAllowedDiff,
 			"Token validation timing attack vulnerability: valid=%v, invalid=%v, diff=%v",
 			validAvg, invalidAvg, timeDiff)
@@ -209,48 +209,48 @@ func (s *TestSecuritySuite) testTokenValidationTimingAttacks() {
 // testPasswordComparisonTimingAttacks tests password comparison timing attacks
 func (s *TestSecuritySuite) testPasswordComparisonTimingAttacks() {
 	correctPassword := "correct_password_123"
-	
+
 	// Test passwords with different characteristics
 	testPasswords := []string{
-		"c", // Very short, first char correct
-		"co", // Short, first two chars correct
-		"cor", // Progressive match
+		"c",                   // Very short, first char correct
+		"co",                  // Short, first two chars correct
+		"cor",                 // Progressive match
 		"correct_password_12", // Almost correct
-		"wrong_password_123", // Same length, different content
+		"wrong_password_123",  // Same length, different content
 		strings.Repeat("x", len(correctPassword)), // Same length, all wrong
 	}
-	
+
 	for _, testPassword := range testPasswords {
 		times := make([]time.Duration, 100)
-		
+
 		for i := 0; i < 100; i++ {
 			start := time.Now()
-			
+
 			// Use constant time comparison
 			result := subtle.ConstantTimeCompare([]byte(testPassword), []byte(correctPassword))
-			
+
 			elapsed := time.Since(start)
 			times[i] = elapsed
-			
+
 			if testPassword == correctPassword {
 				assert.Equal(s.t, 1, result)
 			} else {
 				assert.Equal(s.t, 0, result)
 			}
 		}
-		
+
 		// All timings should be similar regardless of password similarity
 		avg := s.calculateAverage(times)
 		stdDev := s.calculateStandardDeviation(times, avg)
-		
+
 		// Standard deviation should be small in microseconds to prevent timing attacks
 		maxStdDev := 5 * time.Microsecond
-		
+
 		// Adjust threshold for CI environments to account for system noise
 		if os.Getenv("CI") == "true" {
 			maxStdDev *= 10
 		}
-		
+
 		assert.True(s.t, stdDev < maxStdDev,
 			"Password comparison timing variance too high: avg=%v, stddev=%v, password=%s",
 			avg, stdDev, testPassword)
@@ -260,55 +260,55 @@ func (s *TestSecuritySuite) testPasswordComparisonTimingAttacks() {
 // testAPIKeyTimingAttacks tests API key timing attacks
 func (s *TestSecuritySuite) testAPIKeyTimingAttacks() {
 	validAPIKey := "sk-1234567890abcdef1234567890abcdef"
-	
+
 	authenticator := sse.NewAPIKeyAuthenticator(validAPIKey, "X-API-Key")
-	
+
 	// Test API keys with different characteristics
 	testKeys := []string{
-		"s", // Very short, first char correct
-		"sk-", // Prefix correct
-		"sk-1234567890abcdef1234567890abcde", // Almost correct
+		"s",                                   // Very short, first char correct
+		"sk-",                                 // Prefix correct
+		"sk-1234567890abcdef1234567890abcde",  // Almost correct
 		"ak-1234567890abcdef1234567890abcdef", // Different prefix
 		strings.Repeat("x", len(validAPIKey)), // Same length, all wrong
 	}
-	
+
 	for _, testKey := range testKeys {
 		times := make([]time.Duration, 100)
-		
+
 		for i := 0; i < 100; i++ {
 			req := httptest.NewRequest("GET", "/", nil)
 			req.Header.Set("X-API-Key", testKey)
-			
+
 			start := time.Now()
 			_, err := authenticator.Authenticate(req)
 			elapsed := time.Since(start)
-			
+
 			times[i] = elapsed
-			
+
 			if testKey == validAPIKey {
 				assert.NoError(s.t, err)
 			} else {
 				assert.Error(s.t, err)
 			}
 		}
-		
+
 		// Ensure consistent timing
 		avg := s.calculateAverage(times)
 		stdDev := s.calculateStandardDeviation(times, avg)
-		
+
 		// API key timing variance should be controlled in microseconds
 		maxStdDev := 20 * time.Microsecond
-		
+
 		// Adjust threshold for CI environments and high-load systems to account for system noise
 		if os.Getenv("CI") == "true" || runtime.GOMAXPROCS(0) > 4 {
 			maxStdDev *= 10
 		}
-		
+
 		// Additional tolerance for test environment variability
 		if os.Getenv("GITHUB_ACTIONS") == "true" || os.Getenv("JENKINS_URL") != "" {
 			maxStdDev *= 2
 		}
-		
+
 		assert.True(s.t, stdDev < maxStdDev,
 			"API key timing variance too high: avg=%v, stddev=%v, key=%s",
 			avg, stdDev, testKey)
@@ -318,27 +318,27 @@ func (s *TestSecuritySuite) testAPIKeyTimingAttacks() {
 // TestInputValidation tests comprehensive input validation
 func TestInputValidation(t *testing.T) {
 	suite := NewTestSecuritySuite(t)
-	
+
 	t.Run("XSS Prevention", func(t *testing.T) {
 		suite.testXSSPrevention()
 	})
-	
+
 	t.Run("SQL Injection Prevention", func(t *testing.T) {
 		suite.testSQLInjectionPrevention()
 	})
-	
+
 	t.Run("Command Injection Prevention", func(t *testing.T) {
 		suite.testCommandInjectionPrevention()
 	})
-	
+
 	t.Run("Path Traversal Prevention", func(t *testing.T) {
 		suite.testPathTraversalPrevention()
 	})
-	
+
 	t.Run("Content Length Validation", func(t *testing.T) {
 		suite.testContentLengthValidation()
 	})
-	
+
 	t.Run("Header Validation", func(t *testing.T) {
 		suite.testHeaderValidation()
 	})
@@ -348,7 +348,7 @@ func TestInputValidation(t *testing.T) {
 func (s *TestSecuritySuite) testXSSPrevention() {
 	config := security.DefaultSecurityConfig()
 	validator := security.NewSecurityValidationRule(config)
-	
+
 	xssPayloads := []string{
 		"<script>alert('XSS')</script>",
 		"<img src=x onerror=alert('XSS')>",
@@ -370,7 +370,7 @@ func (s *TestSecuritySuite) testXSSPrevention() {
 		"%3Cscript%3Ealert('XSS')%3C/script%3E",
 		"<SCrIpT>alert('XSS')</SCrIpT>", // Case variation
 	}
-	
+
 	for _, payload := range xssPayloads {
 		timestampMs := time.Now().UnixMilli()
 		event := &events.CustomEvent{
@@ -381,10 +381,10 @@ func (s *TestSecuritySuite) testXSSPrevention() {
 			Name:  "test_event",
 			Value: payload,
 		}
-		
+
 		context := &events.ValidationContext{}
 		result := validator.Validate(event, context)
-		
+
 		assert.False(s.t, result.IsValid,
 			"XSS payload should be detected and blocked: %s", payload)
 		assert.True(s.t, len(result.Errors) > 0,
@@ -396,7 +396,7 @@ func (s *TestSecuritySuite) testXSSPrevention() {
 func (s *TestSecuritySuite) testSQLInjectionPrevention() {
 	config := security.DefaultSecurityConfig()
 	validator := security.NewSecurityValidationRule(config)
-	
+
 	sqlPayloads := []string{
 		"'; DROP TABLE users; --",
 		"' OR '1'='1",
@@ -421,7 +421,7 @@ func (s *TestSecuritySuite) testSQLInjectionPrevention() {
 		// Base64 encoded
 		"JzsgRFJPUCBUQUJMRSB1c2VyczsgLS0=", // '; DROP TABLE users; --
 	}
-	
+
 	for _, payload := range sqlPayloads {
 		timestampMs := time.Now().UnixMilli()
 		event := &events.CustomEvent{
@@ -432,10 +432,10 @@ func (s *TestSecuritySuite) testSQLInjectionPrevention() {
 			Name:  "test_event",
 			Value: payload,
 		}
-		
+
 		context := &events.ValidationContext{}
 		result := validator.Validate(event, context)
-		
+
 		assert.False(s.t, result.IsValid,
 			"SQL injection payload should be detected and blocked: %s", payload)
 		assert.True(s.t, len(result.Errors) > 0,
@@ -447,7 +447,7 @@ func (s *TestSecuritySuite) testSQLInjectionPrevention() {
 func (s *TestSecuritySuite) testCommandInjectionPrevention() {
 	config := security.DefaultSecurityConfig()
 	validator := security.NewSecurityValidationRule(config)
-	
+
 	commandPayloads := []string{
 		"; rm -rf /",
 		"| cat /etc/passwd",
@@ -470,7 +470,7 @@ func (s *TestSecuritySuite) testCommandInjectionPrevention() {
 		"$(uname -a)",
 		"`cat /etc/shadow`",
 	}
-	
+
 	for _, payload := range commandPayloads {
 		timestampMs := time.Now().UnixMilli()
 		event := &events.CustomEvent{
@@ -481,10 +481,10 @@ func (s *TestSecuritySuite) testCommandInjectionPrevention() {
 			Name:  "test_event",
 			Value: payload,
 		}
-		
+
 		context := &events.ValidationContext{}
 		result := validator.Validate(event, context)
-		
+
 		assert.False(s.t, result.IsValid,
 			"Command injection payload should be detected and blocked: %s", payload)
 		assert.True(s.t, len(result.Errors) > 0,
@@ -497,7 +497,7 @@ func (s *TestSecuritySuite) testPathTraversalPrevention() {
 	config := security.DefaultSecurityConfig()
 	config.EnablePathTraversalDetection = true
 	validator := security.NewSecurityValidationRule(config)
-	
+
 	pathTraversalPayloads := []string{
 		"../../../etc/passwd",
 		"..\\..\\..\\windows\\system32\\config\\sam",
@@ -514,7 +514,7 @@ func (s *TestSecuritySuite) testPathTraversalPrevention() {
 		"..%2f..%2f..%2f..%2f..%2f..%2fetc%2fpasswd%00",
 		"..%5c..%5c..%5c..%5c..%5c..%5cwindows%5csystem32%5cconfig%5csam%00",
 	}
-	
+
 	for _, payload := range pathTraversalPayloads {
 		timestampMs := time.Now().UnixMilli()
 		event := &events.CustomEvent{
@@ -525,10 +525,10 @@ func (s *TestSecuritySuite) testPathTraversalPrevention() {
 			Name:  "file_path",
 			Value: payload,
 		}
-		
+
 		context := &events.ValidationContext{}
 		result := validator.Validate(event, context)
-		
+
 		assert.False(s.t, result.IsValid,
 			"Path traversal payload should be detected and blocked: %s", payload)
 		assert.True(s.t, len(result.Errors) > 0,
@@ -540,9 +540,9 @@ func (s *TestSecuritySuite) testPathTraversalPrevention() {
 func (s *TestSecuritySuite) testContentLengthValidation() {
 	config := security.DefaultSecurityConfig()
 	config.MaxContentLength = 1024 // 1KB limit
-	
+
 	validator := security.NewSecurityValidationRule(config)
-	
+
 	// Test content within limit
 	smallContent := strings.Repeat("a", 500)
 	timestampMs := time.Now().UnixMilli()
@@ -554,13 +554,13 @@ func (s *TestSecuritySuite) testContentLengthValidation() {
 		Name:  "test_event",
 		Value: smallContent,
 	}
-	
+
 	context := &events.ValidationContext{}
 	result := validator.Validate(smallEvent, context)
-	
+
 	assert.True(s.t, result.IsValid,
 		"Content within limit should be valid")
-	
+
 	// Test content exceeding limit
 	largeContent := strings.Repeat("a", 2000)
 	timestampMs2 := time.Now().UnixMilli()
@@ -572,9 +572,9 @@ func (s *TestSecuritySuite) testContentLengthValidation() {
 		Name:  "test_event",
 		Value: largeContent,
 	}
-	
+
 	result = validator.Validate(largeEvent, context)
-	
+
 	assert.False(s.t, result.IsValid,
 		"Content exceeding limit should be invalid")
 	assert.True(s.t, len(result.Errors) > 0,
@@ -589,36 +589,36 @@ func (s *TestSecuritySuite) testHeaderValidation() {
 		MaxHeaderSize:       1024,
 		AllowedContentTypes: []string{"application/json"},
 	}
-	
+
 	// Create a no-op logger for testing
 	logger := zap.NewNop()
 	validator := sse.NewRequestValidator(config, logger)
-	
+
 	// Test header injection
 	req := httptest.NewRequest("GET", "/", nil)
 	req.Header.Set("X-Test", "value\r\nX-Injected: injected")
-	
+
 	err := validator.Validate(req)
-	
+
 	assert.Error(s.t, err,
 		"Header injection should be detected")
 	assert.Contains(s.t, err.Error(), "header injection",
 		"Error should mention header injection")
-	
+
 	// Test dangerous headers
 	dangerousHeaders := map[string]string{
-		"X-Forwarded-Host":  "attacker.com",
-		"X-Original-URL":    "/admin",
-		"X-Rewrite-URL":     "/sensitive",
+		"X-Forwarded-Host": "attacker.com",
+		"X-Original-URL":   "/admin",
+		"X-Rewrite-URL":    "/sensitive",
 	}
-	
+
 	for header, value := range dangerousHeaders {
 		req := httptest.NewRequest("GET", "/", nil)
 		req.Header.Set(header, value)
-		
+
 		// Should not fail but should be logged
 		err := validator.Validate(req)
-		
+
 		// These are suspicious but not necessarily invalid
 		// They should be logged for monitoring
 		assert.NoError(s.t, err,
@@ -629,19 +629,19 @@ func (s *TestSecuritySuite) testHeaderValidation() {
 // TestCSRFProtection tests CSRF protection mechanisms
 func TestCSRFProtection(t *testing.T) {
 	suite := NewTestSecuritySuite(t)
-	
+
 	t.Run("CSRF Token Validation", func(t *testing.T) {
 		suite.testCSRFTokenValidation()
 	})
-	
+
 	t.Run("Double Submit Cookie", func(t *testing.T) {
 		suite.testDoubleSubmitCookie()
 	})
-	
+
 	t.Run("SameSite Cookie Protection", func(t *testing.T) {
 		suite.testSameSiteCookieProtection()
 	})
-	
+
 	t.Run("Origin Header Validation", func(t *testing.T) {
 		suite.testOriginHeaderValidation()
 	})
@@ -653,36 +653,36 @@ func (s *TestSecuritySuite) testCSRFTokenValidation() {
 	tokenBytes := make([]byte, 32)
 	rand.Read(tokenBytes)
 	validToken := base64.StdEncoding.EncodeToString(tokenBytes)
-	
+
 	// Mock CSRF validator
 	validator := &CSRFValidator{
 		validTokens: map[string]time.Time{
 			validToken: time.Now().Add(time.Hour),
 		},
 	}
-	
+
 	// Test valid token
 	req := httptest.NewRequest("POST", "/api/data", nil)
 	req.Header.Set("X-CSRF-Token", validToken)
-	
+
 	err := validator.ValidateCSRF(req)
 	assert.NoError(s.t, err, "Valid CSRF token should pass validation")
-	
+
 	// Test missing token
 	req = httptest.NewRequest("POST", "/api/data", nil)
 	err = validator.ValidateCSRF(req)
 	assert.Error(s.t, err, "Missing CSRF token should fail validation")
-	
+
 	// Test invalid token
 	req = httptest.NewRequest("POST", "/api/data", nil)
 	req.Header.Set("X-CSRF-Token", "invalid_token")
 	err = validator.ValidateCSRF(req)
 	assert.Error(s.t, err, "Invalid CSRF token should fail validation")
-	
+
 	// Test expired token
 	expiredToken := "expired_token"
 	validator.validTokens[expiredToken] = time.Now().Add(-time.Hour)
-	
+
 	req = httptest.NewRequest("POST", "/api/data", nil)
 	req.Header.Set("X-CSRF-Token", expiredToken)
 	err = validator.ValidateCSRF(req)
@@ -695,9 +695,9 @@ func (s *TestSecuritySuite) testDoubleSubmitCookie() {
 	tokenBytes := make([]byte, 32)
 	rand.Read(tokenBytes)
 	token := base64.StdEncoding.EncodeToString(tokenBytes)
-	
+
 	validator := &CSRFValidator{}
-	
+
 	// Test matching cookie and header
 	req := httptest.NewRequest("POST", "/api/data", nil)
 	req.Header.Set("X-CSRF-Token", token)
@@ -705,17 +705,17 @@ func (s *TestSecuritySuite) testDoubleSubmitCookie() {
 		Name:  "csrf_token",
 		Value: token,
 	})
-	
+
 	err := validator.ValidateDoubleSubmitCookie(req)
 	assert.NoError(s.t, err, "Matching cookie and header should pass validation")
-	
+
 	// Test missing cookie
 	req = httptest.NewRequest("POST", "/api/data", nil)
 	req.Header.Set("X-CSRF-Token", token)
-	
+
 	err = validator.ValidateDoubleSubmitCookie(req)
 	assert.Error(s.t, err, "Missing cookie should fail validation")
-	
+
 	// Test mismatched cookie and header
 	req = httptest.NewRequest("POST", "/api/data", nil)
 	req.Header.Set("X-CSRF-Token", token)
@@ -723,7 +723,7 @@ func (s *TestSecuritySuite) testDoubleSubmitCookie() {
 		Name:  "csrf_token",
 		Value: "different_token",
 	})
-	
+
 	err = validator.ValidateDoubleSubmitCookie(req)
 	assert.Error(s.t, err, "Mismatched cookie and header should fail validation")
 }
@@ -739,9 +739,9 @@ func (s *TestSecuritySuite) testSameSiteCookieProtection() {
 		Secure:   true,
 		HttpOnly: true,
 	}
-	
+
 	http.SetCookie(w, cookie)
-	
+
 	setCookieHeader := w.Header().Get("Set-Cookie")
 	assert.Contains(s.t, setCookieHeader, "SameSite=Strict",
 		"Cookie should have SameSite=Strict")
@@ -749,13 +749,13 @@ func (s *TestSecuritySuite) testSameSiteCookieProtection() {
 		"Cookie should have Secure flag")
 	assert.Contains(s.t, setCookieHeader, "HttpOnly",
 		"Cookie should have HttpOnly flag")
-	
+
 	// Test SameSite=Lax
 	w = httptest.NewRecorder()
 	cookie.SameSite = http.SameSiteLaxMode
-	
+
 	http.SetCookie(w, cookie)
-	
+
 	setCookieHeader = w.Header().Get("Set-Cookie")
 	assert.Contains(s.t, setCookieHeader, "SameSite=Lax",
 		"Cookie should have SameSite=Lax")
@@ -768,21 +768,21 @@ func (s *TestSecuritySuite) testOriginHeaderValidation() {
 		"https://app.example.com",
 		"https://subdomain.example.com",
 	}
-	
+
 	validator := &CSRFValidator{
 		allowedOrigins: allowedOrigins,
 	}
-	
+
 	// Test valid origins
 	for _, origin := range allowedOrigins {
 		req := httptest.NewRequest("POST", "/api/data", nil)
 		req.Header.Set("Origin", origin)
-		
+
 		err := validator.ValidateOrigin(req)
 		assert.NoError(s.t, err,
 			"Valid origin should pass validation: %s", origin)
 	}
-	
+
 	// Test invalid origins
 	invalidOrigins := []string{
 		"https://attacker.com",
@@ -792,11 +792,11 @@ func (s *TestSecuritySuite) testOriginHeaderValidation() {
 		"javascript:alert('XSS')",
 		"data:text/html,<script>alert('XSS')</script>",
 	}
-	
+
 	for _, origin := range invalidOrigins {
 		req := httptest.NewRequest("POST", "/api/data", nil)
 		req.Header.Set("Origin", origin)
-		
+
 		err := validator.ValidateOrigin(req)
 		assert.Error(s.t, err,
 			"Invalid origin should fail validation: %s", origin)
@@ -806,19 +806,19 @@ func (s *TestSecuritySuite) testOriginHeaderValidation() {
 // TestRateLimiting tests rate limiting functionality
 func TestRateLimiting(t *testing.T) {
 	suite := NewTestSecuritySuite(t)
-	
+
 	t.Run("Basic Rate Limiting", func(t *testing.T) {
 		suite.testBasicRateLimiting()
 	})
-	
+
 	t.Run("Per-Client Rate Limiting", func(t *testing.T) {
 		suite.testPerClientRateLimiting()
 	})
-	
+
 	t.Run("Rate Limiting Burst", func(t *testing.T) {
 		suite.testRateLimitingBurst()
 	})
-	
+
 	t.Run("Distributed Rate Limiting", func(t *testing.T) {
 		suite.testDistributedRateLimiting()
 	})
@@ -831,25 +831,25 @@ func (s *TestSecuritySuite) testBasicRateLimiting() {
 		RequestsPerSecond: 5,
 		BurstSize:         10,
 	}
-	
+
 	rateLimiter := sse.NewRateLimiter(config, nil)
 	defer rateLimiter.Stop()
-	
+
 	// Test burst allowance
 	for i := 0; i < 10; i++ {
 		allowed := rateLimiter.Allow("test_client", "/api/test")
 		assert.True(s.t, allowed,
 			"Request %d should be allowed within burst", i+1)
 	}
-	
+
 	// Test rate limit exceeded
 	allowed := rateLimiter.Allow("test_client", "/api/test")
 	assert.False(s.t, allowed,
 		"Request should be blocked after burst limit")
-	
+
 	// Wait for rate limit to reset
 	time.Sleep(200 * time.Millisecond)
-	
+
 	// Should be allowed again
 	allowed = rateLimiter.Allow("test_client", "/api/test")
 	assert.True(s.t, allowed,
@@ -869,10 +869,10 @@ func (s *TestSecuritySuite) testPerClientRateLimiting() {
 			IdentificationMethod: "ip",
 		},
 	}
-	
+
 	rateLimiter := sse.NewRateLimiter(config, nil)
 	defer rateLimiter.Stop()
-	
+
 	// Test client 1
 	client1 := "192.168.1.1"
 	for i := 0; i < 5; i++ {
@@ -880,12 +880,12 @@ func (s *TestSecuritySuite) testPerClientRateLimiting() {
 		assert.True(s.t, allowed,
 			"Client1 request %d should be allowed", i+1)
 	}
-	
+
 	// Client 1 should be blocked
 	allowed := rateLimiter.Allow(client1, "/api/test")
 	assert.False(s.t, allowed,
 		"Client1 should be blocked after per-client limit")
-	
+
 	// Test client 2 (should still be allowed)
 	client2 := "192.168.1.2"
 	for i := 0; i < 5; i++ {
@@ -893,7 +893,7 @@ func (s *TestSecuritySuite) testPerClientRateLimiting() {
 		assert.True(s.t, allowed,
 			"Client2 request %d should be allowed", i+1)
 	}
-	
+
 	// Client 2 should now be blocked
 	allowed = rateLimiter.Allow(client2, "/api/test")
 	assert.False(s.t, allowed,
@@ -907,25 +907,25 @@ func (s *TestSecuritySuite) testRateLimitingBurst() {
 		RequestsPerSecond: 1,
 		BurstSize:         5,
 	}
-	
+
 	rateLimiter := sse.NewRateLimiter(config, nil)
 	defer rateLimiter.Stop()
-	
+
 	// Should allow burst requests
 	for i := 0; i < 5; i++ {
 		allowed := rateLimiter.Allow("test_client", "/api/test")
 		assert.True(s.t, allowed,
 			"Burst request %d should be allowed", i+1)
 	}
-	
+
 	// Should block after burst
 	allowed := rateLimiter.Allow("test_client", "/api/test")
 	assert.False(s.t, allowed,
 		"Request should be blocked after burst")
-	
+
 	// Wait for one token to be replenished
 	time.Sleep(1100 * time.Millisecond)
-	
+
 	// Should allow one more request
 	allowed = rateLimiter.Allow("test_client", "/api/test")
 	assert.True(s.t, allowed,
@@ -936,30 +936,30 @@ func (s *TestSecuritySuite) testRateLimitingBurst() {
 func (s *TestSecuritySuite) testDistributedRateLimiting() {
 	// This would test rate limiting across multiple instances
 	// For now, we'll test the coordination mechanism
-	
+
 	config := sse.RateLimitConfig{
 		Enabled:           true,
 		RequestsPerSecond: 10,
 		BurstSize:         20,
 	}
-	
+
 	// Create multiple rate limiters (simulating distributed instances)
 	rateLimiter1 := sse.NewRateLimiter(config, nil)
 	rateLimiter2 := sse.NewRateLimiter(config, nil)
-	
+
 	defer rateLimiter1.Stop()
 	defer rateLimiter2.Stop()
-	
+
 	// Each limiter should enforce its own limits
 	// In a real distributed system, they would share state
-	
+
 	client := "test_client"
-	
+
 	// Test that each limiter enforces limits independently
 	for i := 0; i < 20; i++ {
 		allowed1 := rateLimiter1.Allow(client, "/api/test")
 		allowed2 := rateLimiter2.Allow(client, "/api/test")
-		
+
 		// Both should allow initially
 		if i < 20 {
 			assert.True(s.t, allowed1,
@@ -968,11 +968,11 @@ func (s *TestSecuritySuite) testDistributedRateLimiting() {
 				"RateLimiter2 should allow request %d", i+1)
 		}
 	}
-	
+
 	// Both should block after limit
 	allowed1 := rateLimiter1.Allow(client, "/api/test")
 	allowed2 := rateLimiter2.Allow(client, "/api/test")
-	
+
 	assert.False(s.t, allowed1,
 		"RateLimiter1 should block after limit")
 	assert.False(s.t, allowed2,
@@ -986,12 +986,12 @@ func (s *TestSecuritySuite) calculateAverage(durations []time.Duration) time.Dur
 	if len(durations) == 0 {
 		return 0
 	}
-	
+
 	var total time.Duration
 	for _, d := range durations {
 		total += d
 	}
-	
+
 	return total / time.Duration(len(durations))
 }
 
@@ -1000,13 +1000,13 @@ func (s *TestSecuritySuite) calculateStandardDeviation(durations []time.Duration
 	if len(durations) == 0 {
 		return 0
 	}
-	
+
 	var sum float64
 	for _, d := range durations {
 		diff := float64(d - avg)
 		sum += diff * diff
 	}
-	
+
 	variance := sum / float64(len(durations))
 	// Return the square root of variance for proper standard deviation
 	stdDev := math.Sqrt(variance)
@@ -1026,19 +1026,19 @@ func (v *CSRFValidator) ValidateCSRF(r *http.Request) error {
 	if token == "" {
 		return fmt.Errorf("missing CSRF token")
 	}
-	
+
 	v.mutex.RLock()
 	expiry, exists := v.validTokens[token]
 	v.mutex.RUnlock()
-	
+
 	if !exists {
 		return fmt.Errorf("invalid CSRF token")
 	}
-	
+
 	if time.Now().After(expiry) {
 		return fmt.Errorf("expired CSRF token")
 	}
-	
+
 	return nil
 }
 
@@ -1048,16 +1048,16 @@ func (v *CSRFValidator) ValidateDoubleSubmitCookie(r *http.Request) error {
 	if token == "" {
 		return fmt.Errorf("missing CSRF token in header")
 	}
-	
+
 	cookie, err := r.Cookie("csrf_token")
 	if err != nil {
 		return fmt.Errorf("missing CSRF token in cookie")
 	}
-	
+
 	if subtle.ConstantTimeCompare([]byte(token), []byte(cookie.Value)) != 1 {
 		return fmt.Errorf("CSRF token mismatch")
 	}
-	
+
 	return nil
 }
 
@@ -1067,13 +1067,13 @@ func (v *CSRFValidator) ValidateOrigin(r *http.Request) error {
 	if origin == "" {
 		return fmt.Errorf("missing Origin header")
 	}
-	
+
 	for _, allowed := range v.allowedOrigins {
 		if origin == allowed {
 			return nil
 		}
 	}
-	
+
 	return fmt.Errorf("invalid origin: %s", origin)
 }
 
@@ -1086,26 +1086,26 @@ type MockAuthManager struct {
 func (m *MockAuthManager) ValidateCredentials(creds auth.Credentials) error {
 	// Mock validation - just simulate processing time
 	time.Sleep(time.Microsecond)
-	
+
 	// Simple validation logic for testing
 	if basicCreds, ok := creds.(*auth.BasicCredentials); ok {
 		if basicCreds.Username == "test_user" && basicCreds.Password == "test_password" {
 			return nil
 		}
 	}
-	
+
 	return fmt.Errorf("invalid credentials")
 }
 
 func (m *MockAuthManager) Authenticate(creds auth.Credentials) (*auth.AuthContext, error) {
 	// Mock authentication - simulate processing time
 	time.Sleep(time.Microsecond)
-	
+
 	err := m.ValidateCredentials(creds)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Return a mock auth context
 	expiresAt := time.Now().Add(time.Hour)
 	return &auth.AuthContext{

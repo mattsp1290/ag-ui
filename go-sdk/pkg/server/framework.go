@@ -33,13 +33,13 @@ import (
 type FrameworkLifecycle interface {
 	// Initialize prepares the framework with the given configuration.
 	Initialize(ctx context.Context, config *FrameworkConfig) error
-	
+
 	// Start begins the framework operation.
 	Start(ctx context.Context) error
-	
+
 	// Stop gracefully stops the framework.
 	Stop(ctx context.Context) error
-	
+
 	// Shutdown performs a complete shutdown and cleanup.
 	Shutdown(ctx context.Context) error
 }
@@ -48,13 +48,13 @@ type FrameworkLifecycle interface {
 type AgentRegistry interface {
 	// RegisterAgent registers an agent with the framework.
 	RegisterAgent(agent core.Agent) error
-	
+
 	// UnregisterAgent removes an agent from the framework.
 	UnregisterAgent(name string) error
-	
+
 	// GetAgent retrieves a registered agent by name.
 	GetAgent(name string) (core.Agent, bool)
-	
+
 	// ListAgents returns information about all registered agents.
 	ListAgents() []AgentInfo
 }
@@ -63,7 +63,7 @@ type AgentRegistry interface {
 type RouteRegistry interface {
 	// RegisterHandler registers a request handler for a specific pattern.
 	RegisterHandler(pattern string, handler RequestHandler) error
-	
+
 	// RegisterMiddleware registers middleware with the framework.
 	RegisterMiddleware(middleware Middleware) error
 }
@@ -72,10 +72,10 @@ type RouteRegistry interface {
 type FrameworkStatusProvider interface {
 	// IsRunning returns true if the framework is currently running.
 	IsRunning() bool
-	
+
 	// GetStatus returns the current framework status.
 	GetStatus() FrameworkStatus
-	
+
 	// HealthCheck performs a comprehensive health check.
 	HealthCheck(ctx context.Context) HealthCheckResult
 }
@@ -131,7 +131,7 @@ type RequestProcessor interface {
 type RouteDescriptor interface {
 	// Pattern returns the URL pattern this handler matches
 	Pattern() string
-	
+
 	// Methods returns the HTTP methods this handler supports
 	Methods() []string
 }
@@ -153,7 +153,7 @@ type MiddlewareProcessor interface {
 type MiddlewareDescriptor interface {
 	// Name returns the middleware name for identification
 	Name() string
-	
+
 	// Priority returns the middleware priority (higher values execute first)
 	Priority() int
 }
@@ -172,10 +172,10 @@ type NextHandler func(ctx context.Context, req *Request, resp ResponseWriter) er
 type BasicResponseWriter interface {
 	// Header returns the response headers
 	Header() http.Header
-	
+
 	// WriteHeader writes the HTTP status code
 	WriteHeader(statusCode int)
-	
+
 	// Write writes response data
 	Write(data []byte) (int, error)
 }
@@ -246,10 +246,10 @@ type HTTPConfig struct {
 	ReadTimeout  time.Duration `json:"read_timeout" yaml:"read_timeout"`
 	WriteTimeout time.Duration `json:"write_timeout" yaml:"write_timeout"`
 	IdleTimeout  time.Duration `json:"idle_timeout" yaml:"idle_timeout"`
-	
+
 	// TLS configuration
 	TLS TLSConfig `json:"tls" yaml:"tls"`
-	
+
 	// CORS configuration
 	CORS FrameworkCORSConfig `json:"cors" yaml:"cors"`
 }
@@ -301,19 +301,19 @@ type EncodingConfig struct {
 
 // HealthCheckConfig contains health check configuration.
 type HealthCheckConfig struct {
-	Enabled         bool          `json:"enabled" yaml:"enabled"`
-	Interval        time.Duration `json:"interval" yaml:"interval"`
-	Timeout         time.Duration `json:"timeout" yaml:"timeout"`
-	FailureThreshold int          `json:"failure_threshold" yaml:"failure_threshold"`
+	Enabled          bool          `json:"enabled" yaml:"enabled"`
+	Interval         time.Duration `json:"interval" yaml:"interval"`
+	Timeout          time.Duration `json:"timeout" yaml:"timeout"`
+	FailureThreshold int           `json:"failure_threshold" yaml:"failure_threshold"`
 }
 
 // FrameworkSecurityConfig contains security configuration for the framework.
 type FrameworkSecurityConfig struct {
-	EnableHTTPS      bool     `json:"enable_https" yaml:"enable_https"`
-	AllowedOrigins   []string `json:"allowed_origins" yaml:"allowed_origins"`
-	RequiredHeaders  []string `json:"required_headers" yaml:"required_headers"`
-	RateLimitPerMin  int      `json:"rate_limit_per_min" yaml:"rate_limit_per_min"`
-	MaxRequestSize   int64    `json:"max_request_size" yaml:"max_request_size"`
+	EnableHTTPS     bool     `json:"enable_https" yaml:"enable_https"`
+	AllowedOrigins  []string `json:"allowed_origins" yaml:"allowed_origins"`
+	RequiredHeaders []string `json:"required_headers" yaml:"required_headers"`
+	RateLimitPerMin int      `json:"rate_limit_per_min" yaml:"rate_limit_per_min"`
+	MaxRequestSize  int64    `json:"max_request_size" yaml:"max_request_size"`
 }
 
 // LoggingConfig contains logging configuration.
@@ -334,11 +334,11 @@ type PerformanceConfig struct {
 // Request represents an incoming HTTP request with AG-UI extensions.
 type Request struct {
 	*http.Request
-	
+
 	// AG-UI specific fields
-	AgentName string      `json:"agent_name,omitempty"`
-	Event     events.Event `json:"event,omitempty"`
-	SessionID string      `json:"session_id,omitempty"`
+	AgentName string                 `json:"agent_name,omitempty"`
+	Event     events.Event           `json:"event,omitempty"`
+	SessionID string                 `json:"session_id,omitempty"`
 	Metadata  map[string]interface{} `json:"metadata,omitempty"`
 }
 
@@ -403,12 +403,12 @@ func (s FrameworkState) String() string {
 
 // HealthCheckResult represents the result of a health check.
 type HealthCheckResult struct {
-	Healthy     bool                   `json:"healthy"`
-	Status      string                 `json:"status"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Duration    time.Duration          `json:"duration"`
-	Checks      map[string]CheckResult `json:"checks"`
-	Errors      []string               `json:"errors,omitempty"`
+	Healthy   bool                   `json:"healthy"`
+	Status    string                 `json:"status"`
+	Timestamp time.Time              `json:"timestamp"`
+	Duration  time.Duration          `json:"duration"`
+	Checks    map[string]CheckResult `json:"checks"`
+	Errors    []string               `json:"errors,omitempty"`
 }
 
 // CheckResult represents the result of an individual health check.
@@ -430,18 +430,18 @@ type BaseFramework struct {
 	config *FrameworkConfig
 
 	// State management
-	state      int32 // atomic access
-	startTime  time.Time
-	mu         sync.RWMutex
+	state     int32 // atomic access
+	startTime time.Time
+	mu        sync.RWMutex
 
 	// Agent management
-	agents    map[string]core.Agent
-	agentsMu  sync.RWMutex
+	agents   map[string]core.Agent
+	agentsMu sync.RWMutex
 
 	// Request handling
-	handlers     map[string]RequestHandler
-	middlewares  []Middleware
-	handlersMu   sync.RWMutex
+	handlers    map[string]RequestHandler
+	middlewares []Middleware
+	handlersMu  sync.RWMutex
 
 	// HTTP server
 	httpServer *http.Server
@@ -517,8 +517,8 @@ func (f *BaseFramework) Initialize(ctx context.Context, config *FrameworkConfig)
 
 // Start begins the framework operation.
 func (f *BaseFramework) Start(ctx context.Context) error {
-	if !f.compareAndSwapState(StateInitialized, StateStarting) && 
-	   !f.compareAndSwapState(StateStopped, StateStarting) {
+	if !f.compareAndSwapState(StateInitialized, StateStarting) &&
+		!f.compareAndSwapState(StateStopped, StateStarting) {
 		return pkgerrors.NewStateError("invalid_state", "framework not in a startable state").
 			WithTransition("initialized|stopped -> starting")
 	}
@@ -596,7 +596,7 @@ func (f *BaseFramework) Stop(ctx context.Context) error {
 // Shutdown performs a complete shutdown and cleanup.
 func (f *BaseFramework) Shutdown(ctx context.Context) error {
 	currentState := FrameworkState(atomic.LoadInt32(&f.state))
-	
+
 	// If running, stop first
 	if currentState == StateRunning {
 		if err := f.Stop(ctx); err != nil {
@@ -604,8 +604,8 @@ func (f *BaseFramework) Shutdown(ctx context.Context) error {
 		}
 	}
 
-	if !f.compareAndSwapState(StateStopped, StateShutdown) && 
-	   !f.compareAndSwapState(StateError, StateShutdown) {
+	if !f.compareAndSwapState(StateStopped, StateShutdown) &&
+		!f.compareAndSwapState(StateError, StateShutdown) {
 		return pkgerrors.NewStateError("invalid_state", "framework not in a shutdownable state").
 			WithTransition("stopped|error -> shutdown")
 	}
@@ -688,7 +688,7 @@ func (f *BaseFramework) UnregisterAgent(name string) error {
 func (f *BaseFramework) GetAgent(name string) (core.Agent, bool) {
 	f.agentsMu.RLock()
 	defer f.agentsMu.RUnlock()
-	
+
 	agent, exists := f.agents[name]
 	return agent, exists
 }
@@ -697,7 +697,7 @@ func (f *BaseFramework) GetAgent(name string) (core.Agent, bool) {
 func (f *BaseFramework) ListAgents() []AgentInfo {
 	f.agentsMu.RLock()
 	defer f.agentsMu.RUnlock()
-	
+
 	agents := make([]AgentInfo, 0, len(f.agents))
 	for name, agent := range f.agents {
 		info := AgentInfo{
@@ -708,7 +708,7 @@ func (f *BaseFramework) ListAgents() []AgentInfo {
 		}
 		agents = append(agents, info)
 	}
-	
+
 	return agents
 }
 
@@ -730,10 +730,10 @@ func (f *BaseFramework) RegisterHandler(pattern string, handler RequestHandler) 
 	}
 
 	f.handlers[pattern] = handler
-	
+
 	// Register with HTTP mux
 	f.serverMux.HandleFunc(pattern, f.createHTTPHandler(handler))
-	
+
 	return nil
 }
 
@@ -747,7 +747,7 @@ func (f *BaseFramework) RegisterMiddleware(middleware Middleware) error {
 	defer f.handlersMu.Unlock()
 
 	f.middlewares = append(f.middlewares, middleware)
-	
+
 	// Sort middlewares by priority (higher priority first)
 	sort.Slice(f.middlewares, func(i, j int) bool {
 		return f.middlewares[i].Priority() > f.middlewares[j].Priority()
@@ -833,8 +833,14 @@ func (f *BaseFramework) HealthCheck(ctx context.Context) HealthCheckResult {
 	}
 
 	return HealthCheckResult{
-		Healthy:   healthy,
-		Status:    func() string { if healthy { return "healthy" } else { return "unhealthy" } }(),
+		Healthy: healthy,
+		Status: func() string {
+			if healthy {
+				return "healthy"
+			} else {
+				return "unhealthy"
+			}
+		}(),
 		Timestamp: time.Now(),
 		Duration:  time.Since(start),
 		Checks:    checks,
@@ -857,8 +863,8 @@ func (f *BaseFramework) validateConfig(config *FrameworkConfig) error {
 		return fmt.Errorf("framework name cannot be empty")
 	}
 
-	if config.HTTP.Port <= 0 || config.HTTP.Port > 65535 {
-		return fmt.Errorf("invalid HTTP port: %d", config.HTTP.Port)
+	if config.HTTP.Port < 0 || config.HTTP.Port > 65535 {
+		return fmt.Errorf("invalid HTTP port: %d (must be 0-65535, 0 means auto-assign)", config.HTTP.Port)
 	}
 
 	if config.HTTP.ReadTimeout < 0 {
@@ -946,7 +952,7 @@ func (f *BaseFramework) createHTTPServer() error {
 	f.mu.RUnlock()
 
 	address := fmt.Sprintf("%s:%d", config.HTTP.Host, config.HTTP.Port)
-	
+
 	f.httpServer = &http.Server{
 		Addr:         address,
 		Handler:      f.serverMux,
@@ -984,7 +990,7 @@ func (f *BaseFramework) createHTTPHandler(handler RequestHandler) http.HandlerFu
 
 		// Create AG-UI request wrapper
 		req := &Request{Request: r}
-		
+
 		// Create response writer wrapper
 		respWriter := &HTTPResponseWriter{ResponseWriter: w}
 
@@ -1109,26 +1115,26 @@ type LoggingMiddleware struct{}
 // Process logs request details and calls the next handler.
 func (m *LoggingMiddleware) Process(ctx context.Context, req *Request, resp ResponseWriter, next NextHandler) error {
 	start := time.Now()
-	
+
 	// Log request
 	fmt.Printf("[%s] %s %s - Started\n", start.Format("2006-01-02 15:04:05"), req.Method, req.URL.Path)
-	
+
 	err := next(ctx, req, resp)
-	
+
 	// Log response
 	duration := time.Since(start)
 	status := "SUCCESS"
 	if err != nil {
 		status = "ERROR"
 	}
-	
-	fmt.Printf("[%s] %s %s - %s (%v)\n", 
-		time.Now().Format("2006-01-02 15:04:05"), 
-		req.Method, 
-		req.URL.Path, 
-		status, 
+
+	fmt.Printf("[%s] %s %s - %s (%v)\n",
+		time.Now().Format("2006-01-02 15:04:05"),
+		req.Method,
+		req.URL.Path,
+		status,
 		duration)
-	
+
 	return err
 }
 
@@ -1150,18 +1156,18 @@ type MetricsMiddleware struct {
 // Process collects metrics and calls the next handler.
 func (m *MetricsMiddleware) Process(ctx context.Context, req *Request, resp ResponseWriter, next NextHandler) error {
 	start := time.Now()
-	
+
 	err := next(ctx, req, resp)
-	
+
 	// Update metrics
 	atomic.AddInt64(&m.framework.requestCount, 1)
 	if err != nil {
 		atomic.AddInt64(&m.framework.errorCount, 1)
 	}
-	
+
 	// TODO: Add more detailed metrics collection (response time, status codes, etc.)
 	_ = start // Placeholder until we implement detailed metrics
-	
+
 	return err
 }
 
@@ -1184,7 +1190,7 @@ type CORSMiddleware struct {
 func (m *CORSMiddleware) Process(ctx context.Context, req *Request, resp ResponseWriter, next NextHandler) error {
 	// Add CORS headers
 	headers := resp.Header()
-	
+
 	if len(m.config.AllowOrigins) > 0 {
 		origin := req.Header.Get("Origin")
 		for _, allowedOrigin := range m.config.AllowOrigins {
@@ -1194,7 +1200,7 @@ func (m *CORSMiddleware) Process(ctx context.Context, req *Request, resp Respons
 			}
 		}
 	}
-	
+
 	if len(m.config.AllowMethods) > 0 {
 		methods := ""
 		for i, method := range m.config.AllowMethods {
@@ -1205,7 +1211,7 @@ func (m *CORSMiddleware) Process(ctx context.Context, req *Request, resp Respons
 		}
 		headers.Set("Access-Control-Allow-Methods", methods)
 	}
-	
+
 	if len(m.config.AllowHeaders) > 0 {
 		headersStr := ""
 		for i, header := range m.config.AllowHeaders {
@@ -1216,13 +1222,13 @@ func (m *CORSMiddleware) Process(ctx context.Context, req *Request, resp Respons
 		}
 		headers.Set("Access-Control-Allow-Headers", headersStr)
 	}
-	
+
 	// Handle preflight requests
 	if req.Method == "OPTIONS" {
 		resp.WriteHeader(http.StatusOK)
 		return nil
 	}
-	
+
 	return next(ctx, req, resp)
 }
 
@@ -1255,17 +1261,17 @@ func (w *HTTPResponseWriter) WriteHeader(statusCode int) {
 // WriteJSON writes a JSON response.
 func (w *HTTPResponseWriter) WriteJSON(data interface{}) error {
 	w.Header().Set("Content-Type", "application/json")
-	
+
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ") // Pretty print JSON
-	
+
 	if err := encoder.Encode(data); err != nil {
 		return pkgerrors.NewEncodingError("json_encode_failed", "failed to encode JSON response").
 			WithCause(err).
 			WithOperation("encode").
 			WithFormat("json")
 	}
-	
+
 	return nil
 }
 
@@ -1274,22 +1280,22 @@ func (w *HTTPResponseWriter) WriteEvent(event events.Event) error {
 	if event == nil {
 		return pkgerrors.NewValidationError("event_required", "event cannot be nil")
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("X-AG-UI-Event-Type", string(event.Type()))
-	
+
 	// Get timestamp
 	timestamp := int64(0)
 	if ts := event.Timestamp(); ts != nil {
 		timestamp = *ts
 	}
-	
+
 	// Convert event to JSON using the event's ToJSON method
 	if jsonData, err := event.ToJSON(); err == nil {
 		w.Write(jsonData)
 		return nil
 	}
-	
+
 	// Fallback: create basic event structure
 	eventData := map[string]interface{}{
 		"type":      event.Type(),
@@ -1297,17 +1303,17 @@ func (w *HTTPResponseWriter) WriteEvent(event events.Event) error {
 		"thread_id": event.ThreadID(),
 		"run_id":    event.RunID(),
 	}
-	
+
 	encoder := json.NewEncoder(w)
 	encoder.SetIndent("", "  ")
-	
+
 	if err := encoder.Encode(eventData); err != nil {
 		return pkgerrors.NewEncodingError("event_encode_failed", "failed to encode event response").
 			WithCause(err).
 			WithOperation("encode").
 			WithFormat("json")
 	}
-	
+
 	return nil
 }
 
@@ -1318,11 +1324,11 @@ func (w *HTTPResponseWriter) WriteEvent(event events.Event) error {
 // NewFrameworkFromConfig creates a new framework instance with the given configuration.
 func NewFrameworkFromConfig(config *FrameworkConfig) (*BaseFramework, error) {
 	framework := NewFramework()
-	
+
 	if err := framework.Initialize(context.Background(), config); err != nil {
 		return nil, err
 	}
-	
+
 	return framework, nil
 }
 
@@ -1372,7 +1378,7 @@ func DefaultFrameworkConfig() *FrameworkConfig {
 		},
 		Encoding: EncodingConfig{
 			DefaultFormat: "application/json",
-			Formats:      make(map[string]interface{}),
+			Formats:       make(map[string]interface{}),
 		},
 		HealthCheck: HealthCheckConfig{
 			Enabled:          true,

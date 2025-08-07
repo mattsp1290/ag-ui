@@ -50,15 +50,15 @@ func DefaultSerializationConfig() *SerializationConfig {
 
 // SerializationStats tracks serialization performance metrics
 type SerializationStats struct {
-	SerializationCount   int64
-	DeserializationCount int64
-	TotalBytesIn         int64
-	TotalBytesOut        int64
-	AvgSerializationTime time.Duration
+	SerializationCount     int64
+	DeserializationCount   int64
+	TotalBytesIn           int64
+	TotalBytesOut          int64
+	AvgSerializationTime   time.Duration
 	AvgDeserializationTime time.Duration
-	CompressionRatio     float64
-	ErrorCount           int64
-	mutex                sync.RWMutex
+	CompressionRatio       float64
+	ErrorCount             int64
+	mutex                  sync.RWMutex
 }
 
 // OptimizedSerializer provides high-performance serialization with multiple formats
@@ -66,7 +66,7 @@ type OptimizedSerializer struct {
 	config     *SerializationConfig
 	bufferPool *sync.Pool
 	stats      *SerializationStats
-	
+
 	// Compression helpers
 	compressor   Compressor
 	decompressor Decompressor
@@ -77,7 +77,7 @@ func NewOptimizedSerializer(config *SerializationConfig) *OptimizedSerializer {
 	if config == nil {
 		config = DefaultSerializationConfig()
 	}
-	
+
 	serializer := &OptimizedSerializer{
 		config: config,
 		stats:  &SerializationStats{},
@@ -87,13 +87,13 @@ func NewOptimizedSerializer(config *SerializationConfig) *OptimizedSerializer {
 			},
 		},
 	}
-	
+
 	// Initialize compression if enabled
 	if config.CompressionEnabled {
 		serializer.compressor = NewGzipCompressor()
 		serializer.decompressor = NewGzipDecompressor()
 	}
-	
+
 	return serializer
 }
 
@@ -113,18 +113,18 @@ func (s *OptimizedSerializer) Serialize(obj interface{}) (*SerializedData, error
 	defer func() {
 		s.updateSerializationStats(time.Since(start))
 	}()
-	
+
 	// Get buffer from pool
 	buffer := s.bufferPool.Get().(*bytes.Buffer)
 	defer func() {
 		buffer.Reset()
 		s.bufferPool.Put(buffer)
 	}()
-	
+
 	// Serialize based on method
 	var data []byte
 	var err error
-	
+
 	switch s.config.Method {
 	case SerializationJSON:
 		data, err = json.Marshal(obj)
@@ -147,21 +147,21 @@ func (s *OptimizedSerializer) Serialize(obj interface{}) (*SerializedData, error
 	default:
 		return nil, fmt.Errorf("unsupported serialization method: %d", s.config.Method)
 	}
-	
+
 	if err != nil {
 		s.stats.mutex.Lock()
 		s.stats.ErrorCount++
 		s.stats.mutex.Unlock()
 		return nil, fmt.Errorf("serialization failed: %w", err)
 	}
-	
+
 	result := &SerializedData{
 		Data:      data,
 		Method:    s.config.Method,
 		Timestamp: time.Now(),
 		Size:      len(data),
 	}
-	
+
 	// Apply compression if enabled and size exceeds threshold
 	if s.config.CompressionEnabled && len(data) > s.config.CompressionThreshold {
 		compressedData, err := s.compressor.Compress(data)
@@ -170,19 +170,19 @@ func (s *OptimizedSerializer) Serialize(obj interface{}) (*SerializedData, error
 			result.Compressed = true
 		}
 	}
-	
+
 	// Calculate checksum if enabled
 	if s.config.EnableChecksums {
 		result.Checksum = crc32.ChecksumIEEE(result.Data)
 	}
-	
+
 	// Update stats
 	s.stats.mutex.Lock()
 	s.stats.SerializationCount++
 	s.stats.TotalBytesIn += int64(len(data))
 	s.stats.TotalBytesOut += int64(len(result.Data))
 	s.stats.mutex.Unlock()
-	
+
 	return result, nil
 }
 
@@ -192,7 +192,7 @@ func (s *OptimizedSerializer) Deserialize(data *SerializedData, obj interface{})
 	defer func() {
 		s.updateDeserializationStats(time.Since(start))
 	}()
-	
+
 	// Verify checksum if enabled
 	if s.config.EnableChecksums && data.Checksum != 0 {
 		if crc32.ChecksumIEEE(data.Data) != data.Checksum {
@@ -202,7 +202,7 @@ func (s *OptimizedSerializer) Deserialize(data *SerializedData, obj interface{})
 			return fmt.Errorf("checksum verification failed")
 		}
 	}
-	
+
 	// Decompress if needed
 	payload := data.Data
 	if data.Compressed {
@@ -215,7 +215,7 @@ func (s *OptimizedSerializer) Deserialize(data *SerializedData, obj interface{})
 		}
 		payload = decompressed
 	}
-	
+
 	// Deserialize based on method
 	var err error
 	switch data.Method {
@@ -238,26 +238,26 @@ func (s *OptimizedSerializer) Deserialize(data *SerializedData, obj interface{})
 	default:
 		return fmt.Errorf("unsupported serialization method: %d", data.Method)
 	}
-	
+
 	if err != nil {
 		s.stats.mutex.Lock()
 		s.stats.ErrorCount++
 		s.stats.mutex.Unlock()
 		return fmt.Errorf("deserialization failed: %w", err)
 	}
-	
+
 	// Update stats
 	s.stats.mutex.Lock()
 	s.stats.DeserializationCount++
 	s.stats.mutex.Unlock()
-	
+
 	return nil
 }
 
 // binarySerialize provides fast binary serialization for simple types
 func (s *OptimizedSerializer) binarySerialize(obj interface{}) ([]byte, error) {
 	buffer := bytes.NewBuffer(make([]byte, 0, 256))
-	
+
 	switch v := obj.(type) {
 	case string:
 		// String format: [length:4bytes][data:length bytes]
@@ -296,7 +296,7 @@ func (s *OptimizedSerializer) binarySerialize(obj interface{}) ([]byte, error) {
 			if _, err := buffer.WriteString(key); err != nil {
 				return nil, err
 			}
-			
+
 			// Write value with type info
 			valueData, err := s.binarySerialize(value)
 			if err != nil {
@@ -313,14 +313,14 @@ func (s *OptimizedSerializer) binarySerialize(obj interface{}) ([]byte, error) {
 			return nil, err
 		}
 	}
-	
+
 	return buffer.Bytes(), nil
 }
 
 // binaryDeserialize provides fast binary deserialization for simple types
 func (s *OptimizedSerializer) binaryDeserialize(data []byte, obj interface{}) error {
 	buffer := bytes.NewBuffer(data)
-	
+
 	switch v := obj.(type) {
 	case *string:
 		var length uint32
@@ -366,7 +366,7 @@ func (s *OptimizedSerializer) binaryDeserialize(data []byte, obj interface{}) er
 				return err
 			}
 			key := string(keyData)
-			
+
 			// Read value (simplified - would need type info in real implementation)
 			var value interface{}
 			decoder := gob.NewDecoder(buffer)
@@ -382,7 +382,7 @@ func (s *OptimizedSerializer) binaryDeserialize(data []byte, obj interface{}) er
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
@@ -390,21 +390,21 @@ func (s *OptimizedSerializer) binaryDeserialize(data []byte, obj interface{}) er
 func (s *OptimizedSerializer) GetStats() *SerializationStats {
 	s.stats.mutex.RLock()
 	defer s.stats.mutex.RUnlock()
-	
+
 	// Calculate compression ratio
 	if s.stats.TotalBytesIn > 0 {
 		s.stats.CompressionRatio = float64(s.stats.TotalBytesOut) / float64(s.stats.TotalBytesIn)
 	}
-	
+
 	return &SerializationStats{
 		SerializationCount:     s.stats.SerializationCount,
 		DeserializationCount:   s.stats.DeserializationCount,
-		TotalBytesIn:          s.stats.TotalBytesIn,
-		TotalBytesOut:         s.stats.TotalBytesOut,
-		AvgSerializationTime:  s.stats.AvgSerializationTime,
+		TotalBytesIn:           s.stats.TotalBytesIn,
+		TotalBytesOut:          s.stats.TotalBytesOut,
+		AvgSerializationTime:   s.stats.AvgSerializationTime,
 		AvgDeserializationTime: s.stats.AvgDeserializationTime,
-		CompressionRatio:      s.stats.CompressionRatio,
-		ErrorCount:            s.stats.ErrorCount,
+		CompressionRatio:       s.stats.CompressionRatio,
+		ErrorCount:             s.stats.ErrorCount,
 	}
 }
 
@@ -412,7 +412,7 @@ func (s *OptimizedSerializer) GetStats() *SerializationStats {
 func (s *OptimizedSerializer) ResetStats() {
 	s.stats.mutex.Lock()
 	defer s.stats.mutex.Unlock()
-	
+
 	s.stats.SerializationCount = 0
 	s.stats.DeserializationCount = 0
 	s.stats.TotalBytesIn = 0
@@ -427,12 +427,12 @@ func (s *OptimizedSerializer) ResetStats() {
 func (s *OptimizedSerializer) updateSerializationStats(duration time.Duration) {
 	s.stats.mutex.Lock()
 	defer s.stats.mutex.Unlock()
-	
+
 	if s.stats.SerializationCount > 0 {
 		// Calculate running average
 		s.stats.AvgSerializationTime = time.Duration(
-			(int64(s.stats.AvgSerializationTime)*s.stats.SerializationCount + int64(duration)) / 
-			(s.stats.SerializationCount + 1),
+			(int64(s.stats.AvgSerializationTime)*s.stats.SerializationCount + int64(duration)) /
+				(s.stats.SerializationCount + 1),
 		)
 	} else {
 		s.stats.AvgSerializationTime = duration
@@ -443,12 +443,12 @@ func (s *OptimizedSerializer) updateSerializationStats(duration time.Duration) {
 func (s *OptimizedSerializer) updateDeserializationStats(duration time.Duration) {
 	s.stats.mutex.Lock()
 	defer s.stats.mutex.Unlock()
-	
+
 	if s.stats.DeserializationCount > 0 {
 		// Calculate running average
 		s.stats.AvgDeserializationTime = time.Duration(
-			(int64(s.stats.AvgDeserializationTime)*s.stats.DeserializationCount + int64(duration)) / 
-			(s.stats.DeserializationCount + 1),
+			(int64(s.stats.AvgDeserializationTime)*s.stats.DeserializationCount + int64(duration)) /
+				(s.stats.DeserializationCount + 1),
 		)
 	} else {
 		s.stats.AvgDeserializationTime = duration
@@ -520,13 +520,13 @@ type CacheKeySerializer struct {
 // NewCacheKeySerializer creates a new cache key serializer
 func NewCacheKeySerializer() *CacheKeySerializer {
 	config := &SerializationConfig{
-		Method:               SerializationBinary,
-		CompressionEnabled:   false, // Cache keys are usually small
-		EnableChecksums:      false, // Not needed for cache keys
-		BufferPoolSize:       50,
-		MaxBufferSize:        1024,
+		Method:             SerializationBinary,
+		CompressionEnabled: false, // Cache keys are usually small
+		EnableChecksums:    false, // Not needed for cache keys
+		BufferPoolSize:     50,
+		MaxBufferSize:      1024,
 	}
-	
+
 	return &CacheKeySerializer{
 		serializer: NewOptimizedSerializer(config),
 		keyPool: &sync.Pool{
@@ -544,7 +544,7 @@ func (s *CacheKeySerializer) SerializeCacheKey(eventType string, keys []string) 
 		keyData = keyData[:0]
 		s.keyPool.Put(keyData)
 	}()
-	
+
 	// Create a simple key structure
 	keyStruct := struct {
 		EventType string
@@ -553,16 +553,16 @@ func (s *CacheKeySerializer) SerializeCacheKey(eventType string, keys []string) 
 		EventType: eventType,
 		Keys:      keys,
 	}
-	
+
 	serialized, err := s.serializer.Serialize(keyStruct)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Return a copy of the data
 	result := make([]byte, len(serialized.Data))
 	copy(result, serialized.Data)
-	
+
 	return result, nil
 }
 
@@ -572,16 +572,16 @@ func (s *CacheKeySerializer) DeserializeCacheKey(data []byte) (string, []string,
 		Data:   data,
 		Method: SerializationBinary,
 	}
-	
+
 	var keyStruct struct {
 		EventType string
 		Keys      []string
 	}
-	
+
 	if err := s.serializer.Deserialize(serializedData, &keyStruct); err != nil {
 		return "", nil, err
 	}
-	
+
 	return keyStruct.EventType, keyStruct.Keys, nil
 }
 

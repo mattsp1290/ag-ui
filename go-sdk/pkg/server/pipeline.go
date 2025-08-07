@@ -41,16 +41,16 @@ type PipelineHandler func(ctx context.Context, req *http.Request) (*http.Respons
 type PipelineRequestProcessor interface {
 	// Process processes a raw HTTP request through the pipeline
 	Process(ctx context.Context, req *http.Request) (*PipelineResponse, error)
-	
+
 	// ProcessWithStages processes a request through specific stages
 	ProcessWithStages(ctx context.Context, req *http.Request, stages []ProcessingStage) (*PipelineResponse, error)
-	
+
 	// AddStage adds a processing stage to the pipeline
 	AddStage(stage ProcessingStage)
-	
+
 	// RemoveStage removes a processing stage from the pipeline
 	RemoveStage(name string) error
-	
+
 	// GetStages returns all configured processing stages
 	GetStages() []ProcessingStage
 }
@@ -59,16 +59,16 @@ type PipelineRequestProcessor interface {
 type ProcessingStage interface {
 	// Name returns the stage name for identification
 	Name() string
-	
+
 	// Priority returns the stage priority (higher executes first)
 	Priority() int
-	
+
 	// Process processes the request context
 	Process(ctx context.Context, pipelineCtx *PipelineContext) error
-	
+
 	// ShouldProcess returns true if this stage should process the current context
 	ShouldProcess(ctx context.Context, pipelineCtx *PipelineContext) bool
-	
+
 	// OnError handles errors that occur during processing
 	OnError(ctx context.Context, pipelineCtx *PipelineContext, err error) error
 }
@@ -77,13 +77,13 @@ type ProcessingStage interface {
 type ResponseProcessor interface {
 	// ProcessResponse processes the response through the pipeline
 	ProcessResponse(ctx context.Context, resp *PipelineResponse) error
-	
+
 	// SerializeResponse serializes the response to the appropriate format
 	SerializeResponse(ctx context.Context, resp *PipelineResponse, writer io.Writer) error
-	
+
 	// AddTransformer adds a response transformer
 	AddTransformer(transformer ResponseTransformer)
-	
+
 	// RemoveTransformer removes a response transformer
 	RemoveTransformer(name string) error
 }
@@ -92,13 +92,13 @@ type ResponseProcessor interface {
 type ResponseTransformer interface {
 	// Name returns the transformer name
 	Name() string
-	
+
 	// Priority returns the transformer priority
 	Priority() int
-	
+
 	// Transform transforms the response
 	Transform(ctx context.Context, resp *PipelineResponse) error
-	
+
 	// ShouldTransform returns true if this transformer should process the response
 	ShouldTransform(ctx context.Context, resp *PipelineResponse) bool
 }
@@ -107,7 +107,7 @@ type ResponseTransformer interface {
 type PipelineValidator interface {
 	// ValidateRequest validates an incoming request
 	ValidateRequest(ctx context.Context, req *PipelineRequest) error
-	
+
 	// ValidateResponse validates an outgoing response
 	ValidateResponse(ctx context.Context, resp *PipelineResponse) error
 }
@@ -120,31 +120,31 @@ type PipelineValidator interface {
 type PipelineRequest struct {
 	// Original HTTP request
 	HTTPRequest *http.Request
-	
+
 	// Request metadata
-	ID          string                 `json:"id"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Method      string                 `json:"method"`
-	Path        string                 `json:"path"`
-	Headers     map[string]string      `json:"headers"`
-	QueryParams map[string]string      `json:"query_params"`
-	
+	ID          string            `json:"id"`
+	Timestamp   time.Time         `json:"timestamp"`
+	Method      string            `json:"method"`
+	Path        string            `json:"path"`
+	Headers     map[string]string `json:"headers"`
+	QueryParams map[string]string `json:"query_params"`
+
 	// Request body and content
-	Body        []byte                 `json:"body,omitempty"`
-	ContentType string                 `json:"content_type"`
-	ContentLength int64                `json:"content_length"`
-	
+	Body          []byte `json:"body,omitempty"`
+	ContentType   string `json:"content_type"`
+	ContentLength int64  `json:"content_length"`
+
 	// AG-UI specific fields
-	AgentName   string                 `json:"agent_name,omitempty"`
-	SessionID   string                 `json:"session_id,omitempty"`
-	Event       events.Event           `json:"event,omitempty"`
-	Message     messages.Message       `json:"message,omitempty"`
-	
+	AgentName string           `json:"agent_name,omitempty"`
+	SessionID string           `json:"session_id,omitempty"`
+	Event     events.Event     `json:"event,omitempty"`
+	Message   messages.Message `json:"message,omitempty"`
+
 	// Processing metadata
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-	TraceID     string                 `json:"trace_id,omitempty"`
-	SpanID      string                 `json:"span_id,omitempty"`
-	
+	Metadata map[string]interface{} `json:"metadata,omitempty"`
+	TraceID  string                 `json:"trace_id,omitempty"`
+	SpanID   string                 `json:"span_id,omitempty"`
+
 	// Security context
 	UserID      string                 `json:"user_id,omitempty"`
 	Permissions []string               `json:"permissions,omitempty"`
@@ -154,65 +154,65 @@ type PipelineRequest struct {
 // PipelineResponse represents a response being processed through the pipeline.
 type PipelineResponse struct {
 	// Response metadata
-	ID          string                 `json:"id"`
-	RequestID   string                 `json:"request_id"`
-	Timestamp   time.Time              `json:"timestamp"`
-	StatusCode  int                    `json:"status_code"`
-	Headers     map[string]string      `json:"headers"`
-	
+	ID         string            `json:"id"`
+	RequestID  string            `json:"request_id"`
+	Timestamp  time.Time         `json:"timestamp"`
+	StatusCode int               `json:"status_code"`
+	Headers    map[string]string `json:"headers"`
+
 	// Response data
-	Body        []byte                 `json:"body,omitempty"`
-	ContentType string                 `json:"content_type"`
-	ContentLength int64                `json:"content_length"`
-	
+	Body          []byte `json:"body,omitempty"`
+	ContentType   string `json:"content_type"`
+	ContentLength int64  `json:"content_length"`
+
 	// AG-UI specific fields
-	Event       events.Event           `json:"event,omitempty"`
-	Message     messages.Message       `json:"message,omitempty"`
-	Data        interface{}            `json:"data,omitempty"`
-	
+	Event   events.Event     `json:"event,omitempty"`
+	Message messages.Message `json:"message,omitempty"`
+	Data    interface{}      `json:"data,omitempty"`
+
 	// Processing metadata
-	ProcessingTime time.Duration         `json:"processing_time"`
+	ProcessingTime time.Duration          `json:"processing_time"`
 	Metadata       map[string]interface{} `json:"metadata,omitempty"`
-	
+
 	// Error information
-	Error       error                  `json:"error,omitempty"`
-	ErrorCode   string                 `json:"error_code,omitempty"`
-	ErrorMessage string                `json:"error_message,omitempty"`
+	Error        error  `json:"error,omitempty"`
+	ErrorCode    string `json:"error_code,omitempty"`
+	ErrorMessage string `json:"error_message,omitempty"`
 }
 
 // PipelineContext holds the context for request processing.
 type PipelineContext struct {
 	// Core context
-	Context     context.Context
-	
+	Context context.Context
+
 	// Request and response
-	Request     *PipelineRequest
-	Response    *PipelineResponse
-	
+	Request  *PipelineRequest
+	Response *PipelineResponse
+
 	// Processing state
-	Stage       string
-	StageIndex  int
-	Completed   bool
-	Failed      bool
-	
+	Stage      string
+	StageIndex int
+	Completed  bool
+	Failed     bool
+
 	// Performance tracking
-	StartTime   time.Time
+	StartTime    time.Time
 	StageTimings map[string]time.Duration
-	
+
 	// Processing data
 	ProcessingData map[string]interface{}
-	
+
 	// Error handling
-	Errors      []error
-	
+	Errors []error
+
 	// Security context
 	Authenticated bool
 	Authorized    bool
-	
+
 	// Transport and encoding
-	Transport   transport.Transport
-	Encoder     encoding.Codec
-	Decoder     encoding.Codec
+	Transport transport.Transport
+	Encoder   encoding.Codec
+	Decoder   encoding.Codec
 }
 
 // PipelineConfig contains configuration for the request processing pipeline.
@@ -222,63 +222,63 @@ type PipelineConfig struct {
 	RequestTimeout        time.Duration `json:"request_timeout" yaml:"request_timeout"`
 	MaxRequestSize        int64         `json:"max_request_size" yaml:"max_request_size"`
 	MaxResponseSize       int64         `json:"max_response_size" yaml:"max_response_size"`
-	
+
 	// Pipeline behavior
-	EnableAsyncProcessing bool          `json:"enable_async_processing" yaml:"enable_async_processing"`
-	EnableStageParallel   bool          `json:"enable_stage_parallel" yaml:"enable_stage_parallel"`
-	FailFast              bool          `json:"fail_fast" yaml:"fail_fast"`
-	
+	EnableAsyncProcessing bool `json:"enable_async_processing" yaml:"enable_async_processing"`
+	EnableStageParallel   bool `json:"enable_stage_parallel" yaml:"enable_stage_parallel"`
+	FailFast              bool `json:"fail_fast" yaml:"fail_fast"`
+
 	// Error handling
-	EnableRecovery        bool          `json:"enable_recovery" yaml:"enable_recovery"`
-	EnableErrorDetails    bool          `json:"enable_error_details" yaml:"enable_error_details"`
-	MaxRetries            int           `json:"max_retries" yaml:"max_retries"`
-	RetryDelay            time.Duration `json:"retry_delay" yaml:"retry_delay"`
-	
+	EnableRecovery     bool          `json:"enable_recovery" yaml:"enable_recovery"`
+	EnableErrorDetails bool          `json:"enable_error_details" yaml:"enable_error_details"`
+	MaxRetries         int           `json:"max_retries" yaml:"max_retries"`
+	RetryDelay         time.Duration `json:"retry_delay" yaml:"retry_delay"`
+
 	// Validation
-	EnableRequestValidation  bool       `json:"enable_request_validation" yaml:"enable_request_validation"`
-	EnableResponseValidation bool       `json:"enable_response_validation" yaml:"enable_response_validation"`
-	StrictValidation         bool       `json:"strict_validation" yaml:"strict_validation"`
-	
+	EnableRequestValidation  bool `json:"enable_request_validation" yaml:"enable_request_validation"`
+	EnableResponseValidation bool `json:"enable_response_validation" yaml:"enable_response_validation"`
+	StrictValidation         bool `json:"strict_validation" yaml:"strict_validation"`
+
 	// Monitoring
-	EnableMetrics         bool          `json:"enable_metrics" yaml:"enable_metrics"`
-	EnableTracing         bool          `json:"enable_tracing" yaml:"enable_tracing"`
-	EnableDetailedLogs    bool          `json:"enable_detailed_logs" yaml:"enable_detailed_logs"`
-	
+	EnableMetrics      bool `json:"enable_metrics" yaml:"enable_metrics"`
+	EnableTracing      bool `json:"enable_tracing" yaml:"enable_tracing"`
+	EnableDetailedLogs bool `json:"enable_detailed_logs" yaml:"enable_detailed_logs"`
+
 	// Encoding
-	DefaultContentType    string        `json:"default_content_type" yaml:"default_content_type"`
-	SupportedContentTypes []string      `json:"supported_content_types" yaml:"supported_content_types"`
-	EnableCompression     bool          `json:"enable_compression" yaml:"enable_compression"`
-	
+	DefaultContentType    string   `json:"default_content_type" yaml:"default_content_type"`
+	SupportedContentTypes []string `json:"supported_content_types" yaml:"supported_content_types"`
+	EnableCompression     bool     `json:"enable_compression" yaml:"enable_compression"`
+
 	// Security
-	EnableAuthentication  bool          `json:"enable_authentication" yaml:"enable_authentication"`
-	EnableAuthorization   bool          `json:"enable_authorization" yaml:"enable_authorization"`
-	EnableRateLimit       bool          `json:"enable_rate_limit" yaml:"enable_rate_limit"`
-	RateLimitPerSecond    int           `json:"rate_limit_per_second" yaml:"rate_limit_per_second"`
+	EnableAuthentication bool `json:"enable_authentication" yaml:"enable_authentication"`
+	EnableAuthorization  bool `json:"enable_authorization" yaml:"enable_authorization"`
+	EnableRateLimit      bool `json:"enable_rate_limit" yaml:"enable_rate_limit"`
+	RateLimitPerSecond   int  `json:"rate_limit_per_second" yaml:"rate_limit_per_second"`
 }
 
 // PipelineMetrics contains metrics for the processing pipeline.
 type PipelineMetrics struct {
 	// Request metrics
-	RequestCounter       metric.Int64Counter
-	RequestDuration      metric.Float64Histogram
-	RequestSize          metric.Int64Histogram
-	ResponseSize         metric.Int64Histogram
-	ActiveRequests       metric.Int64UpDownCounter
-	
+	RequestCounter  metric.Int64Counter
+	RequestDuration metric.Float64Histogram
+	RequestSize     metric.Int64Histogram
+	ResponseSize    metric.Int64Histogram
+	ActiveRequests  metric.Int64UpDownCounter
+
 	// Stage metrics
-	StageCounter         metric.Int64Counter
-	StageDuration        metric.Float64Histogram
-	StageErrors          metric.Int64Counter
-	
+	StageCounter  metric.Int64Counter
+	StageDuration metric.Float64Histogram
+	StageErrors   metric.Int64Counter
+
 	// Error metrics
-	ErrorCounter         metric.Int64Counter
-	ValidationErrors     metric.Int64Counter
-	TimeoutErrors        metric.Int64Counter
-	
+	ErrorCounter     metric.Int64Counter
+	ValidationErrors metric.Int64Counter
+	TimeoutErrors    metric.Int64Counter
+
 	// Performance metrics
-	ThroughputCounter    metric.Float64Counter
-	LatencyPercentiles   metric.Float64Histogram
-	ConcurrencyGauge     metric.Int64Gauge
+	ThroughputCounter  metric.Float64Counter
+	LatencyPercentiles metric.Float64Histogram
+	ConcurrencyGauge   metric.Int64Gauge
 }
 
 // ==============================================================================
@@ -289,28 +289,28 @@ type PipelineMetrics struct {
 type RequestProcessingPipeline struct {
 	// Configuration
 	config *PipelineConfig
-	
+
 	// Processing stages
-	stages    []ProcessingStage
-	stagesMu  sync.RWMutex
-	
+	stages   []ProcessingStage
+	stagesMu sync.RWMutex
+
 	// Response processing
 	responseProcessor *ResponseProcessingPipeline
-	
+
 	// Components
 	validator    PipelineValidator
 	codecFactory encoding.CodecFactory
-	
+
 	// Metrics and monitoring
 	metrics *PipelineMetrics
 	tracer  trace.Tracer
 	logger  *logrus.Logger
-	
+
 	// Performance tracking
 	activeRequests int64
 	totalRequests  int64
 	totalErrors    int64
-	
+
 	// Synchronization
 	mu sync.RWMutex
 }
@@ -320,11 +320,11 @@ func NewRequestProcessingPipeline(config *PipelineConfig) (*RequestProcessingPip
 	if config == nil {
 		config = DefaultPipelineConfig()
 	}
-	
+
 	if err := validatePipelineConfig(config); err != nil {
 		return nil, pkgerrors.NewValidationError("invalid_config", "invalid pipeline configuration").WithCause(err)
 	}
-	
+
 	// Create logger
 	logger := logrus.New()
 	if config.EnableDetailedLogs {
@@ -332,21 +332,21 @@ func NewRequestProcessingPipeline(config *PipelineConfig) (*RequestProcessingPip
 	} else {
 		logger.SetLevel(logrus.InfoLevel)
 	}
-	
+
 	// Create tracer
 	var tracer trace.Tracer
 	if config.EnableTracing {
 		tracer = otel.Tracer("ag-ui-pipeline")
 	}
-	
+
 	// Create codec factory
 	codecFactory := encoding.NewDefaultCodecFactory()
-	
+
 	// Register default codecs
 	if err := registerDefaultCodecs(codecFactory); err != nil {
 		return nil, pkgerrors.NewStateError("codec_registration_failed", "failed to register default codecs").WithCause(err)
 	}
-	
+
 	pipeline := &RequestProcessingPipeline{
 		config:            config,
 		stages:            make([]ProcessingStage, 0),
@@ -356,7 +356,7 @@ func NewRequestProcessingPipeline(config *PipelineConfig) (*RequestProcessingPip
 		logger:            logger,
 		tracer:            tracer,
 	}
-	
+
 	// Initialize metrics
 	if config.EnableMetrics {
 		metrics, err := initializePipelineMetrics()
@@ -365,12 +365,12 @@ func NewRequestProcessingPipeline(config *PipelineConfig) (*RequestProcessingPip
 		}
 		pipeline.metrics = metrics
 	}
-	
+
 	// Register default stages
 	if err := pipeline.registerDefaultStages(); err != nil {
 		return nil, pkgerrors.NewStateError("stage_registration_failed", "failed to register default stages").WithCause(err)
 	}
-	
+
 	return pipeline, nil
 }
 
@@ -381,7 +381,7 @@ func (p *RequestProcessingPipeline) Process(ctx context.Context, req *http.Reque
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Start tracing
 	if p.tracer != nil {
 		var span trace.Span
@@ -395,7 +395,7 @@ func (p *RequestProcessingPipeline) Process(ctx context.Context, req *http.Reque
 		defer span.End()
 		pipelineCtx.Context = ctx
 	}
-	
+
 	// Update metrics
 	if p.metrics != nil {
 		atomic.AddInt64(&p.activeRequests, 1)
@@ -404,7 +404,7 @@ func (p *RequestProcessingPipeline) Process(ctx context.Context, req *http.Reque
 			atomic.AddInt64(&p.activeRequests, -1)
 			p.metrics.ActiveRequests.Add(ctx, -1)
 		}()
-		
+
 		atomic.AddInt64(&p.totalRequests, 1)
 		p.metrics.RequestCounter.Add(ctx, 1,
 			metric.WithAttributes(
@@ -413,14 +413,14 @@ func (p *RequestProcessingPipeline) Process(ctx context.Context, req *http.Reque
 			),
 		)
 	}
-	
+
 	// Check rate limits
 	if p.config.EnableRateLimit {
 		if err := p.checkRateLimit(ctx, pipelineCtx); err != nil {
 			return p.createErrorResponse(pipelineCtx, err, http.StatusTooManyRequests), nil
 		}
 	}
-	
+
 	// Check concurrent request limits
 	if p.config.MaxConcurrentRequests > 0 && atomic.LoadInt64(&p.activeRequests) > int64(p.config.MaxConcurrentRequests) {
 		err := pkgerrors.NewStateError("too_many_requests", "maximum concurrent requests exceeded").
@@ -428,14 +428,14 @@ func (p *RequestProcessingPipeline) Process(ctx context.Context, req *http.Reque
 			WithDetail("current_active", atomic.LoadInt64(&p.activeRequests))
 		return p.createErrorResponse(pipelineCtx, err, http.StatusTooManyRequests), nil
 	}
-	
+
 	// Validate request
 	if p.config.EnableRequestValidation {
 		if err := p.validator.ValidateRequest(ctx, pipelineCtx.Request); err != nil {
 			return p.createErrorResponse(pipelineCtx, err, http.StatusBadRequest), nil
 		}
 	}
-	
+
 	// Process through stages
 	if err := p.processStages(ctx, pipelineCtx); err != nil {
 		if p.config.EnableRecovery {
@@ -449,33 +449,46 @@ func (p *RequestProcessingPipeline) Process(ctx context.Context, req *http.Reque
 			return p.createErrorResponse(pipelineCtx, err, http.StatusInternalServerError), nil
 		}
 	}
-	
+
 	// Validate response
 	if p.config.EnableResponseValidation {
 		if err := p.validator.ValidateResponse(ctx, pipelineCtx.Response); err != nil {
 			return p.createErrorResponse(pipelineCtx, err, http.StatusInternalServerError), nil
 		}
 	}
-	
+
 	// Process response
 	if err := p.responseProcessor.ProcessResponse(ctx, pipelineCtx.Response); err != nil {
 		return p.createErrorResponse(pipelineCtx, err, http.StatusInternalServerError), nil
 	}
-	
-	// Update final metrics
+
+	// Update final metrics with context cancellation check
 	if p.metrics != nil {
-		duration := time.Since(pipelineCtx.StartTime)
-		p.metrics.RequestDuration.Record(ctx, duration.Seconds())
-		
-		if pipelineCtx.Request.ContentLength > 0 {
-			p.metrics.RequestSize.Record(ctx, pipelineCtx.Request.ContentLength)
-		}
-		
-		if pipelineCtx.Response.ContentLength > 0 {
-			p.metrics.ResponseSize.Record(ctx, pipelineCtx.Response.ContentLength)
+		// Check if context was cancelled before recording metrics
+		select {
+		case <-ctx.Done():
+			// Record cancellation metrics
+			p.metrics.TimeoutErrors.Add(ctx, 1,
+				metric.WithAttributes(
+					attribute.String("reason", "context_cancelled"),
+					attribute.String("stage", pipelineCtx.Stage),
+				),
+			)
+		default:
+			// Normal completion metrics
+			duration := time.Since(pipelineCtx.StartTime)
+			p.metrics.RequestDuration.Record(ctx, duration.Seconds())
+
+			if pipelineCtx.Request.ContentLength > 0 {
+				p.metrics.RequestSize.Record(ctx, pipelineCtx.Request.ContentLength)
+			}
+
+			if pipelineCtx.Response.ContentLength > 0 {
+				p.metrics.ResponseSize.Record(ctx, pipelineCtx.Response.ContentLength)
+			}
 		}
 	}
-	
+
 	// Log completion
 	if p.config.EnableDetailedLogs {
 		p.logger.WithFields(logrus.Fields{
@@ -487,7 +500,7 @@ func (p *RequestProcessingPipeline) Process(ctx context.Context, req *http.Reque
 			"stages":          len(p.stages),
 		}).Info("Request processing completed")
 	}
-	
+
 	return pipelineCtx.Response, nil
 }
 
@@ -498,32 +511,32 @@ func (p *RequestProcessingPipeline) ProcessWithStages(ctx context.Context, req *
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Process through specified stages
 	for i, stage := range stages {
 		pipelineCtx.Stage = stage.Name()
 		pipelineCtx.StageIndex = i
-		
+
 		if !stage.ShouldProcess(ctx, pipelineCtx) {
 			continue
 		}
-		
+
 		stageStart := time.Now()
-		
+
 		if err := stage.Process(ctx, pipelineCtx); err != nil {
 			if stageErr := stage.OnError(ctx, pipelineCtx, err); stageErr != nil {
 				return p.createErrorResponse(pipelineCtx, stageErr, http.StatusInternalServerError), nil
 			}
 			return p.createErrorResponse(pipelineCtx, err, http.StatusInternalServerError), nil
 		}
-		
+
 		// Record stage timing
 		stageDuration := time.Since(stageStart)
 		if pipelineCtx.StageTimings == nil {
 			pipelineCtx.StageTimings = make(map[string]time.Duration)
 		}
 		pipelineCtx.StageTimings[stage.Name()] = stageDuration
-		
+
 		// Update stage metrics
 		if p.metrics != nil {
 			p.metrics.StageDuration.Record(ctx, stageDuration.Seconds(),
@@ -531,7 +544,7 @@ func (p *RequestProcessingPipeline) ProcessWithStages(ctx context.Context, req *
 			)
 		}
 	}
-	
+
 	return pipelineCtx.Response, nil
 }
 
@@ -539,9 +552,9 @@ func (p *RequestProcessingPipeline) ProcessWithStages(ctx context.Context, req *
 func (p *RequestProcessingPipeline) AddStage(stage ProcessingStage) {
 	p.stagesMu.Lock()
 	defer p.stagesMu.Unlock()
-	
+
 	p.stages = append(p.stages, stage)
-	
+
 	// Sort stages by priority (higher priority first)
 	p.sortStages()
 }
@@ -550,14 +563,14 @@ func (p *RequestProcessingPipeline) AddStage(stage ProcessingStage) {
 func (p *RequestProcessingPipeline) RemoveStage(name string) error {
 	p.stagesMu.Lock()
 	defer p.stagesMu.Unlock()
-	
+
 	for i, stage := range p.stages {
 		if stage.Name() == name {
 			p.stages = append(p.stages[:i], p.stages[i+1:]...)
 			return nil
 		}
 	}
-	
+
 	return pkgerrors.NewStateError("stage_not_found", "processing stage not found").
 		WithDetail("stage_name", name)
 }
@@ -566,7 +579,7 @@ func (p *RequestProcessingPipeline) RemoveStage(name string) error {
 func (p *RequestProcessingPipeline) GetStages() []ProcessingStage {
 	p.stagesMu.RLock()
 	defer p.stagesMu.RUnlock()
-	
+
 	stages := make([]ProcessingStage, len(p.stages))
 	copy(stages, p.stages)
 	return stages
@@ -597,8 +610,15 @@ func (rp *ResponseProcessingPipeline) ProcessResponse(ctx context.Context, resp 
 	transformers := make([]ResponseTransformer, len(rp.transformers))
 	copy(transformers, rp.transformers)
 	rp.mu.RUnlock()
-	
+
 	for _, transformer := range transformers {
+		// Check context cancellation before each transformer
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		
 		if transformer.ShouldTransform(ctx, resp) {
 			if err := transformer.Transform(ctx, resp); err != nil {
 				return pkgerrors.NewStateError("response_transform_failed", "response transformation failed").
@@ -607,7 +627,7 @@ func (rp *ResponseProcessingPipeline) ProcessResponse(ctx context.Context, resp 
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -621,13 +641,13 @@ func (rp *ResponseProcessingPipeline) SerializeResponse(ctx context.Context, res
 			contentType = "application/json"
 		}
 	}
-	
+
 	// If body already exists, write it directly
 	if len(resp.Body) > 0 {
 		_, err := writer.Write(resp.Body)
 		return err
 	}
-	
+
 	// Otherwise, serialize the data
 	if resp.Data != nil {
 		if contentType == "application/json" {
@@ -635,7 +655,7 @@ func (rp *ResponseProcessingPipeline) SerializeResponse(ctx context.Context, res
 		}
 		// Add other content type serialization as needed
 	}
-	
+
 	return nil
 }
 
@@ -643,9 +663,9 @@ func (rp *ResponseProcessingPipeline) SerializeResponse(ctx context.Context, res
 func (rp *ResponseProcessingPipeline) AddTransformer(transformer ResponseTransformer) {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
-	
+
 	rp.transformers = append(rp.transformers, transformer)
-	
+
 	// Sort transformers by priority
 	rp.sortTransformers()
 }
@@ -654,14 +674,14 @@ func (rp *ResponseProcessingPipeline) AddTransformer(transformer ResponseTransfo
 func (rp *ResponseProcessingPipeline) RemoveTransformer(name string) error {
 	rp.mu.Lock()
 	defer rp.mu.Unlock()
-	
+
 	for i, transformer := range rp.transformers {
 		if transformer.Name() == name {
 			rp.transformers = append(rp.transformers[:i], rp.transformers[i+1:]...)
 			return nil
 		}
 	}
-	
+
 	return pkgerrors.NewStateError("transformer_not_found", "response transformer not found").
 		WithDetail("transformer_name", name)
 }
@@ -706,15 +726,15 @@ func (s *AuthenticationStage) Process(ctx context.Context, pipelineCtx *Pipeline
 		}
 		return nil
 	}
-	
+
 	// TODO: Implement actual authentication logic
 	// For now, mark as authenticated if header is present
 	pipelineCtx.Authenticated = true
-	
+
 	// Extract user information from token/auth header
 	// This is a placeholder - implement actual token validation
 	pipelineCtx.Request.UserID = "authenticated_user"
-	
+
 	return nil
 }
 
@@ -803,12 +823,12 @@ func (s *DecodingStage) Process(ctx context.Context, pipelineCtx *PipelineContex
 	if len(pipelineCtx.Request.Body) == 0 {
 		return nil // No body to decode
 	}
-	
+
 	contentType := pipelineCtx.Request.ContentType
 	if contentType == "" {
 		return nil // No content type specified
 	}
-	
+
 	// Get appropriate decoder
 	decoder, err := s.codecFactory.CreateCodec(ctx, contentType, nil, &encoding.DecodingOptions{
 		Strict: true,
@@ -818,7 +838,7 @@ func (s *DecodingStage) Process(ctx context.Context, pipelineCtx *PipelineContex
 			WithCause(err).
 			WithMimeType(contentType)
 	}
-	
+
 	// Decode based on content type
 	if contentType == "application/json" {
 		// Try to decode as AG-UI event first
@@ -826,14 +846,14 @@ func (s *DecodingStage) Process(ctx context.Context, pipelineCtx *PipelineContex
 			pipelineCtx.Request.Event = event
 			return nil
 		}
-		
+
 		// Try to decode as message
 		if message, err := s.decodeAsMessage(pipelineCtx.Request.Body); err == nil {
 			pipelineCtx.Request.Message = message
 			return nil
 		}
 	}
-	
+
 	return nil
 }
 
@@ -875,7 +895,7 @@ func (s *RouteResolutionStage) Priority() int {
 func (s *RouteResolutionStage) Process(ctx context.Context, pipelineCtx *PipelineContext) error {
 	// Extract agent name from path, query params, or headers
 	path := pipelineCtx.Request.Path
-	
+
 	// Try to extract from path (e.g., /agents/{agent_name}/...)
 	if len(path) > 8 && path[:8] == "/agents/" {
 		parts := strings.Split(path[8:], "/")
@@ -883,17 +903,17 @@ func (s *RouteResolutionStage) Process(ctx context.Context, pipelineCtx *Pipelin
 			pipelineCtx.Request.AgentName = parts[0]
 		}
 	}
-	
+
 	// Try to extract from query parameters
 	if agentName := pipelineCtx.Request.QueryParams["agent"]; agentName != "" {
 		pipelineCtx.Request.AgentName = agentName
 	}
-	
+
 	// Try to extract from headers
 	if agentName := pipelineCtx.Request.Headers["X-Agent-Name"]; agentName != "" {
 		pipelineCtx.Request.AgentName = agentName
 	}
-	
+
 	return nil
 }
 
@@ -942,14 +962,14 @@ func (t *CompressionTransformer) Transform(ctx context.Context, resp *PipelineRe
 	if !t.config.EnableCompression || len(resp.Body) == 0 {
 		return nil
 	}
-	
+
 	// TODO: Implement actual compression logic
 	// For now, just add the header
 	if resp.Headers == nil {
 		resp.Headers = make(map[string]string)
 	}
 	resp.Headers["Content-Encoding"] = "gzip"
-	
+
 	return nil
 }
 
@@ -982,7 +1002,7 @@ func (v *DefaultPipelineValidator) ValidateRequest(ctx context.Context, req *Pip
 			WithDetail("max_size", v.config.MaxRequestSize).
 			WithDetail("actual_size", req.ContentLength)
 	}
-	
+
 	// Validate content type
 	if len(v.config.SupportedContentTypes) > 0 && req.ContentType != "" {
 		supported := false
@@ -998,7 +1018,7 @@ func (v *DefaultPipelineValidator) ValidateRequest(ctx context.Context, req *Pip
 				WithDetail("supported_types", v.config.SupportedContentTypes)
 		}
 	}
-	
+
 	// Validate required headers
 	requiredHeaders := []string{"Content-Type", "User-Agent"}
 	for _, header := range requiredHeaders {
@@ -1007,7 +1027,7 @@ func (v *DefaultPipelineValidator) ValidateRequest(ctx context.Context, req *Pip
 				WithDetail("header", header)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -1019,13 +1039,13 @@ func (v *DefaultPipelineValidator) ValidateResponse(ctx context.Context, resp *P
 			WithDetail("max_size", v.config.MaxResponseSize).
 			WithDetail("actual_size", resp.ContentLength)
 	}
-	
+
 	// Validate status code
 	if resp.StatusCode < 100 || resp.StatusCode > 599 {
 		return pkgerrors.NewValidationError("invalid_status_code", "invalid HTTP status code").
 			WithDetail("status_code", resp.StatusCode)
 	}
-	
+
 	return nil
 }
 
@@ -1040,7 +1060,7 @@ func (p *RequestProcessingPipeline) createPipelineContext(ctx context.Context, r
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Create pipeline response
 	pipelineResp := &PipelineResponse{
 		ID:         uuid.New().String(),
@@ -1049,7 +1069,7 @@ func (p *RequestProcessingPipeline) createPipelineContext(ctx context.Context, r
 		StatusCode: http.StatusOK,
 		Headers:    make(map[string]string),
 	}
-	
+
 	// Create pipeline context
 	pipelineCtx := &PipelineContext{
 		Context:        ctx,
@@ -1060,7 +1080,7 @@ func (p *RequestProcessingPipeline) createPipelineContext(ctx context.Context, r
 		ProcessingData: make(map[string]interface{}),
 		Errors:         make([]error, 0),
 	}
-	
+
 	return pipelineCtx, nil
 }
 
@@ -1076,7 +1096,7 @@ func (p *RequestProcessingPipeline) createPipelineRequest(req *http.Request) (*P
 		}
 		req.Body.Close()
 	}
-	
+
 	// Extract headers
 	headers := make(map[string]string)
 	for key, values := range req.Header {
@@ -1084,7 +1104,7 @@ func (p *RequestProcessingPipeline) createPipelineRequest(req *http.Request) (*P
 			headers[key] = values[0] // Take first value
 		}
 	}
-	
+
 	// Extract query parameters
 	queryParams := make(map[string]string)
 	for key, values := range req.URL.Query() {
@@ -1092,7 +1112,7 @@ func (p *RequestProcessingPipeline) createPipelineRequest(req *http.Request) (*P
 			queryParams[key] = values[0] // Take first value
 		}
 	}
-	
+
 	// Create pipeline request
 	pipelineReq := &PipelineRequest{
 		HTTPRequest:   req,
@@ -1107,12 +1127,12 @@ func (p *RequestProcessingPipeline) createPipelineRequest(req *http.Request) (*P
 		ContentLength: int64(len(body)),
 		Metadata:      make(map[string]interface{}),
 	}
-	
+
 	// Extract session ID from headers or cookies
 	if sessionID := req.Header.Get("X-Session-ID"); sessionID != "" {
 		pipelineReq.SessionID = sessionID
 	}
-	
+
 	return pipelineReq, nil
 }
 
@@ -1122,36 +1142,81 @@ func (p *RequestProcessingPipeline) processStages(ctx context.Context, pipelineC
 	stages := make([]ProcessingStage, len(p.stages))
 	copy(stages, p.stages)
 	p.stagesMu.RUnlock()
-	
+
 	for i, stage := range stages {
-		if pipelineCtx.Failed && p.config.FailFast {
-			break
+		// Check context cancellation before each stage
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
 		}
 		
+		if pipelineCtx.Failed && p.config.FailFast {
+			// Ensure graceful cleanup on fail-fast
+			if p.config.EnableDetailedLogs {
+				p.logger.WithFields(logrus.Fields{
+					"request_id": pipelineCtx.Request.ID,
+					"stage": pipelineCtx.Stage,
+					"stage_index": pipelineCtx.StageIndex,
+				}).Info("Pipeline processing stopped due to fail-fast")
+			}
+			break
+		}
+
 		pipelineCtx.Stage = stage.Name()
 		pipelineCtx.StageIndex = i
-		
+
 		if !stage.ShouldProcess(ctx, pipelineCtx) {
 			continue
 		}
-		
+
 		stageStart := time.Now()
-		
+
 		// Add timeout for stage processing
 		stageCtx := ctx
+		var cancel context.CancelFunc
 		if p.config.RequestTimeout > 0 {
-			var cancel context.CancelFunc
 			stageCtx, cancel = context.WithTimeout(ctx, p.config.RequestTimeout)
-			defer cancel()
+		} else {
+			// Always create a cancellable context for graceful shutdown
+			stageCtx, cancel = context.WithCancel(ctx)
 		}
+		defer func() {
+			if cancel != nil {
+				cancel()
+			}
+		}()
+
+		// Process stage with recovery and cancellation handling
+		// Use a channel to handle both completion and cancellation
+		errChan := make(chan error, 1)
 		
-		// Process stage with recovery
-		err := p.processStageWithRecovery(stageCtx, stage, pipelineCtx)
+		go func() {
+			errChan <- p.processStageWithRecovery(stageCtx, stage, pipelineCtx)
+		}()
 		
+		var err error
+		select {
+		case err = <-errChan:
+			// Stage completed normally
+		case <-stageCtx.Done():
+			// Context was cancelled or timed out
+			err = stageCtx.Err()
+			// Mark pipeline context as failed for proper cleanup
+			pipelineCtx.Failed = true
+			if p.config.EnableDetailedLogs {
+				p.logger.WithFields(logrus.Fields{
+					"stage": stage.Name(),
+					"request_id": pipelineCtx.Request.ID,
+					"error": err,
+				}).Warn("Stage processing cancelled")
+			}
+		}
+
 		// Record stage timing
 		stageDuration := time.Since(stageStart)
 		pipelineCtx.StageTimings[stage.Name()] = stageDuration
-		
+
 		// Update stage metrics
 		if p.metrics != nil {
 			p.metrics.StageCounter.Add(ctx, 1,
@@ -1160,29 +1225,29 @@ func (p *RequestProcessingPipeline) processStages(ctx context.Context, pipelineC
 			p.metrics.StageDuration.Record(ctx, stageDuration.Seconds(),
 				metric.WithAttributes(attribute.String("stage", stage.Name())),
 			)
-			
+
 			if err != nil {
 				p.metrics.StageErrors.Add(ctx, 1,
 					metric.WithAttributes(attribute.String("stage", stage.Name())),
 				)
 			}
 		}
-		
+
 		if err != nil {
 			pipelineCtx.Failed = true
 			pipelineCtx.Errors = append(pipelineCtx.Errors, err)
-			
+
 			// Try stage-specific error handling
 			if stageErr := stage.OnError(ctx, pipelineCtx, err); stageErr != nil {
 				return stageErr
 			}
-			
+
 			if p.config.FailFast {
 				return err
 			}
 		}
 	}
-	
+
 	pipelineCtx.Completed = true
 	return nil
 }
@@ -1198,14 +1263,14 @@ func (p *RequestProcessingPipeline) processStageWithRecovery(ctx context.Context
 					"panic":      r,
 					"stack":      string(debug.Stack()),
 				}).Error("Stage processing panic recovered")
-				
+
 				err = pkgerrors.NewStateError("stage_panic", "stage processing panic").
 					WithDetail("stage", stage.Name()).
 					WithDetail("panic", fmt.Sprintf("%v", r))
 			}
 		}()
 	}
-	
+
 	return stage.Process(ctx, pipelineCtx)
 }
 
@@ -1221,7 +1286,7 @@ func (p *RequestProcessingPipeline) createErrorResponse(pipelineCtx *PipelineCon
 			),
 		)
 	}
-	
+
 	// Create error response
 	resp := &PipelineResponse{
 		ID:           uuid.New().String(),
@@ -1232,12 +1297,12 @@ func (p *RequestProcessingPipeline) createErrorResponse(pipelineCtx *PipelineCon
 		Error:        err,
 		ErrorMessage: err.Error(),
 	}
-	
+
 	// Set error code if available
 	if baseErr, ok := err.(*pkgerrors.BaseError); ok {
 		resp.ErrorCode = baseErr.Code
 	}
-	
+
 	// Create error response body
 	errorData := map[string]interface{}{
 		"error":      true,
@@ -1245,14 +1310,14 @@ func (p *RequestProcessingPipeline) createErrorResponse(pipelineCtx *PipelineCon
 		"request_id": pipelineCtx.Request.ID,
 		"timestamp":  resp.Timestamp.Unix(),
 	}
-	
+
 	if p.config.EnableErrorDetails {
 		errorData["details"] = map[string]interface{}{
 			"stage":           pipelineCtx.Stage,
 			"stage_index":     pipelineCtx.StageIndex,
 			"processing_time": time.Since(pipelineCtx.StartTime).String(),
 		}
-		
+
 		if len(pipelineCtx.Errors) > 0 {
 			errors := make([]string, len(pipelineCtx.Errors))
 			for i, e := range pipelineCtx.Errors {
@@ -1261,52 +1326,67 @@ func (p *RequestProcessingPipeline) createErrorResponse(pipelineCtx *PipelineCon
 			errorData["all_errors"] = errors
 		}
 	}
-	
+
 	// Serialize error response
 	if bodyBytes, err := json.Marshal(errorData); err == nil {
 		resp.Body = bodyBytes
 		resp.ContentType = "application/json"
 		resp.ContentLength = int64(len(bodyBytes))
 	}
-	
+
 	resp.Headers["Content-Type"] = "application/json"
-	
+
 	return resp
 }
 
 // checkRateLimit checks if the request is within rate limits.
 func (p *RequestProcessingPipeline) checkRateLimit(ctx context.Context, pipelineCtx *PipelineContext) error {
+	// Check context cancellation before rate limit check
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	
 	// TODO: Implement actual rate limiting logic
 	// This is a placeholder implementation
-	
+
 	if p.config.RateLimitPerSecond <= 0 {
 		return nil
 	}
-	
+
 	// Simple check based on current active requests
 	if atomic.LoadInt64(&p.activeRequests) > int64(p.config.RateLimitPerSecond) {
 		return pkgerrors.NewStateError("rate_limit_exceeded", "rate limit exceeded").
 			WithDetail("limit", p.config.RateLimitPerSecond).
 			WithDetail("current", atomic.LoadInt64(&p.activeRequests))
 	}
-	
+
 	return nil
 }
 
 // recoverFromError attempts to recover from processing errors.
 func (p *RequestProcessingPipeline) recoverFromError(ctx context.Context, pipelineCtx *PipelineContext, err error) error {
+	// Check context cancellation before recovery attempt
+	select {
+	case <-ctx.Done():
+		// Don't attempt recovery if context is cancelled
+		return ctx.Err()
+	default:
+	}
+	
 	// TODO: Implement actual recovery logic
 	// This could include retry logic, fallback processing, etc.
-	
+
 	p.logger.WithFields(logrus.Fields{
 		"request_id": pipelineCtx.Request.ID,
 		"error":      err.Error(),
 		"stage":      pipelineCtx.Stage,
 	}).Warn("Attempting error recovery")
-	
+
 	// Simple recovery: reset failed state and continue
 	pipelineCtx.Failed = false
-	
+
 	return nil
 }
 
@@ -1317,25 +1397,25 @@ func (p *RequestProcessingPipeline) registerDefaultStages() error {
 		authStage := NewAuthenticationStage(p.config)
 		p.AddStage(authStage)
 	}
-	
+
 	// Validation stage
 	validationStage := NewValidationStage(p.config, p.validator)
 	p.AddStage(validationStage)
-	
+
 	// Decoding stage
 	decodingStage := NewDecodingStage(p.codecFactory)
 	p.AddStage(decodingStage)
-	
+
 	// Route resolution stage
 	routeStage := NewRouteResolutionStage()
 	p.AddStage(routeStage)
-	
+
 	// Register default response transformers
 	if p.config.EnableCompression {
 		compressionTransformer := NewCompressionTransformer(p.config)
 		p.responseProcessor.AddTransformer(compressionTransformer)
 	}
-	
+
 	return nil
 }
 
@@ -1389,18 +1469,18 @@ func registerDefaultCodecs(factory *encoding.DefaultCodecFactory) error {
 		// This would return an actual JSON codec implementation
 		return nil, fmt.Errorf("JSON codec not implemented")
 	}
-	
+
 	if err := factory.RegisterCodec("application/json", jsonCtor); err != nil {
 		return err
 	}
-	
+
 	return nil
 }
 
 // initializePipelineMetrics initializes OpenTelemetry metrics.
 func initializePipelineMetrics() (*PipelineMetrics, error) {
 	meter := otel.Meter("ag-ui-pipeline")
-	
+
 	requestCounter, err := meter.Int64Counter(
 		"pipeline_requests_total",
 		metric.WithDescription("Total number of pipeline requests"),
@@ -1408,7 +1488,7 @@ func initializePipelineMetrics() (*PipelineMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	requestDuration, err := meter.Float64Histogram(
 		"pipeline_request_duration_seconds",
 		metric.WithDescription("Pipeline request duration in seconds"),
@@ -1416,7 +1496,7 @@ func initializePipelineMetrics() (*PipelineMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	requestSize, err := meter.Int64Histogram(
 		"pipeline_request_size_bytes",
 		metric.WithDescription("Pipeline request size in bytes"),
@@ -1424,7 +1504,7 @@ func initializePipelineMetrics() (*PipelineMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	responseSize, err := meter.Int64Histogram(
 		"pipeline_response_size_bytes",
 		metric.WithDescription("Pipeline response size in bytes"),
@@ -1432,7 +1512,7 @@ func initializePipelineMetrics() (*PipelineMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	activeRequests, err := meter.Int64UpDownCounter(
 		"pipeline_active_requests",
 		metric.WithDescription("Number of active pipeline requests"),
@@ -1440,7 +1520,7 @@ func initializePipelineMetrics() (*PipelineMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	stageCounter, err := meter.Int64Counter(
 		"pipeline_stages_total",
 		metric.WithDescription("Total number of stage executions"),
@@ -1448,7 +1528,7 @@ func initializePipelineMetrics() (*PipelineMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	stageDuration, err := meter.Float64Histogram(
 		"pipeline_stage_duration_seconds",
 		metric.WithDescription("Pipeline stage duration in seconds"),
@@ -1456,7 +1536,7 @@ func initializePipelineMetrics() (*PipelineMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	stageErrors, err := meter.Int64Counter(
 		"pipeline_stage_errors_total",
 		metric.WithDescription("Total number of stage errors"),
@@ -1464,7 +1544,7 @@ func initializePipelineMetrics() (*PipelineMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	errorCounter, err := meter.Int64Counter(
 		"pipeline_errors_total",
 		metric.WithDescription("Total number of pipeline errors"),
@@ -1472,7 +1552,7 @@ func initializePipelineMetrics() (*PipelineMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	validationErrors, err := meter.Int64Counter(
 		"pipeline_validation_errors_total",
 		metric.WithDescription("Total number of validation errors"),
@@ -1480,7 +1560,7 @@ func initializePipelineMetrics() (*PipelineMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	timeoutErrors, err := meter.Int64Counter(
 		"pipeline_timeout_errors_total",
 		metric.WithDescription("Total number of timeout errors"),
@@ -1488,7 +1568,7 @@ func initializePipelineMetrics() (*PipelineMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	throughputCounter, err := meter.Float64Counter(
 		"pipeline_throughput_requests_per_second",
 		metric.WithDescription("Pipeline throughput in requests per second"),
@@ -1496,7 +1576,7 @@ func initializePipelineMetrics() (*PipelineMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	latencyPercentiles, err := meter.Float64Histogram(
 		"pipeline_latency_percentiles_seconds",
 		metric.WithDescription("Pipeline latency percentiles in seconds"),
@@ -1504,7 +1584,7 @@ func initializePipelineMetrics() (*PipelineMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	concurrencyGauge, err := meter.Int64Gauge(
 		"pipeline_concurrency_current",
 		metric.WithDescription("Current pipeline concurrency level"),
@@ -1512,22 +1592,22 @@ func initializePipelineMetrics() (*PipelineMetrics, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &PipelineMetrics{
-		RequestCounter:       requestCounter,
-		RequestDuration:      requestDuration,
-		RequestSize:          requestSize,
-		ResponseSize:         responseSize,
-		ActiveRequests:       activeRequests,
-		StageCounter:         stageCounter,
-		StageDuration:        stageDuration,
-		StageErrors:          stageErrors,
-		ErrorCounter:         errorCounter,
-		ValidationErrors:     validationErrors,
-		TimeoutErrors:        timeoutErrors,
-		ThroughputCounter:    throughputCounter,
-		LatencyPercentiles:   latencyPercentiles,
-		ConcurrencyGauge:     concurrencyGauge,
+		RequestCounter:     requestCounter,
+		RequestDuration:    requestDuration,
+		RequestSize:        requestSize,
+		ResponseSize:       responseSize,
+		ActiveRequests:     activeRequests,
+		StageCounter:       stageCounter,
+		StageDuration:      stageDuration,
+		StageErrors:        stageErrors,
+		ErrorCounter:       errorCounter,
+		ValidationErrors:   validationErrors,
+		TimeoutErrors:      timeoutErrors,
+		ThroughputCounter:  throughputCounter,
+		LatencyPercentiles: latencyPercentiles,
+		ConcurrencyGauge:   concurrencyGauge,
 	}, nil
 }
 
@@ -1536,23 +1616,23 @@ func validatePipelineConfig(config *PipelineConfig) error {
 	if config.MaxConcurrentRequests < 0 {
 		return fmt.Errorf("max concurrent requests cannot be negative")
 	}
-	
+
 	if config.RequestTimeout < 0 {
 		return fmt.Errorf("request timeout cannot be negative")
 	}
-	
+
 	if config.MaxRequestSize < 0 {
 		return fmt.Errorf("max request size cannot be negative")
 	}
-	
+
 	if config.MaxResponseSize < 0 {
 		return fmt.Errorf("max response size cannot be negative")
 	}
-	
+
 	if config.RateLimitPerSecond < 0 {
 		return fmt.Errorf("rate limit per second cannot be negative")
 	}
-	
+
 	return nil
 }
 

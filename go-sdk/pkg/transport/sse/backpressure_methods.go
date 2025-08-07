@@ -37,11 +37,11 @@ func (t *SSETransport) handleEventWithBackpressure(event events.Event) {
 
 	// Check if backpressure threshold is reached
 	currentUsage := float64(len(t.eventChan)) / float64(cap(t.eventChan)) * 100
-	
+
 	if int(currentUsage) >= t.backpressureConfig.BackpressureThresholdPercent {
 		t.activateBackpressure()
 	}
-	
+
 	select {
 	case t.eventChan <- event:
 		// Successfully sent event
@@ -57,16 +57,16 @@ func (t *SSETransport) handleEventWithBackpressure(event events.Event) {
 // handleDroppedError handles dropped errors due to channel backpressure
 func (t *SSETransport) handleDroppedError(err error) {
 	droppedCount := atomic.AddInt64(&t.droppedErrors, 1)
-	
+
 	// Protect time field with mutex
 	t.backpressureMutex.Lock()
 	t.lastDropTime = time.Now()
 	t.backpressureMutex.Unlock()
-	
+
 	if t.backpressureConfig.EnableBackpressureLogging {
 		log.Printf("SSE Transport: Dropped error due to backpressure (total dropped errors: %d): %v", droppedCount, err)
 	}
-	
+
 	// Check if we need to take action
 	if droppedCount >= int64(t.backpressureConfig.MaxDroppedEvents) {
 		t.handleBackpressureAction("errors")
@@ -76,16 +76,16 @@ func (t *SSETransport) handleDroppedError(err error) {
 // handleDroppedEvent handles dropped events due to channel backpressure
 func (t *SSETransport) handleDroppedEvent(event events.Event) {
 	droppedCount := atomic.AddInt64(&t.droppedEvents, 1)
-	
+
 	// Protect time field with mutex
 	t.backpressureMutex.Lock()
 	t.lastDropTime = time.Now()
 	t.backpressureMutex.Unlock()
-	
+
 	if t.backpressureConfig.EnableBackpressureLogging {
 		log.Printf("SSE Transport: Dropped event due to backpressure (total dropped events: %d): %s", droppedCount, event.Type())
 	}
-	
+
 	// Check if we need to take action
 	if droppedCount >= int64(t.backpressureConfig.MaxDroppedEvents) {
 		t.handleBackpressureAction("events")
@@ -96,7 +96,7 @@ func (t *SSETransport) handleDroppedEvent(event events.Event) {
 func (t *SSETransport) activateBackpressure() {
 	t.backpressureMutex.Lock()
 	defer t.backpressureMutex.Unlock()
-	
+
 	if !t.backpressureActive {
 		t.backpressureActive = true
 		if t.backpressureConfig.EnableBackpressureLogging {
@@ -109,7 +109,7 @@ func (t *SSETransport) activateBackpressure() {
 func (t *SSETransport) deactivateBackpressure() {
 	t.backpressureMutex.Lock()
 	defer t.backpressureMutex.Unlock()
-	
+
 	if t.backpressureActive {
 		t.backpressureActive = false
 		if t.backpressureConfig.EnableBackpressureLogging {
@@ -123,7 +123,7 @@ func (t *SSETransport) handleBackpressureAction(itemType string) {
 	switch t.backpressureConfig.DropActionType {
 	case DropActionLog:
 		log.Printf("SSE Transport: Maximum dropped %s reached (%d), continuing with logging only", itemType, t.backpressureConfig.MaxDroppedEvents)
-		
+
 	case DropActionReconnect:
 		log.Printf("SSE Transport: Maximum dropped %s reached (%d), attempting reconnection", itemType, t.backpressureConfig.MaxDroppedEvents)
 		if err := t.reconnect(); err != nil {
@@ -133,7 +133,7 @@ func (t *SSETransport) handleBackpressureAction(itemType string) {
 			atomic.StoreInt64(&t.droppedEvents, 0)
 			atomic.StoreInt64(&t.droppedErrors, 0)
 		}
-		
+
 	case DropActionStop:
 		log.Printf("SSE Transport: Maximum dropped %s reached (%d), stopping transport", itemType, t.backpressureConfig.MaxDroppedEvents)
 		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -148,10 +148,10 @@ func (t *SSETransport) handleBackpressureAction(itemType string) {
 func (t *SSETransport) GetBackpressureStats() BackpressureStats {
 	t.backpressureMutex.RLock()
 	defer t.backpressureMutex.RUnlock()
-	
+
 	eventChannelUsage := float64(len(t.eventChan)) / float64(cap(t.eventChan)) * 100
 	errorChannelUsage := float64(len(t.errorChan)) / float64(cap(t.errorChan)) * 100
-	
+
 	return BackpressureStats{
 		DroppedEvents:        atomic.LoadInt64(&t.droppedEvents),
 		DroppedErrors:        atomic.LoadInt64(&t.droppedErrors),

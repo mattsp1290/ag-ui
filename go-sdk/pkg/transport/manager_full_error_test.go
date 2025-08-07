@@ -56,7 +56,7 @@ func TestManagerConnectionErrors(t *testing.T) {
 					BufferSize: 100,
 				})
 			}
-			
+
 			transport := NewErrorTransport()
 			tt.setupFunc(manager, transport)
 
@@ -131,13 +131,13 @@ func TestManagerSendErrors(t *testing.T) {
 			// Create manager with custom logger to capture logs
 			var logBuffer sync.Map
 			logger := &testLogger{logs: &logBuffer}
-			
+
 			manager := NewManagerWithLogger(&ManagerConfig{
 				Primary:       "websocket",
 				BufferSize:    100,
 				EnableMetrics: true,
 			}, logger)
-			
+
 			transport := NewErrorTransport()
 			tt.setupFunc(manager, transport)
 
@@ -160,7 +160,7 @@ func TestManagerSendErrors(t *testing.T) {
 					}
 					return true
 				})
-				
+
 				if !hasErrorLog {
 					t.Error("Expected error to be logged")
 				}
@@ -181,16 +181,16 @@ func TestManagerStopErrors(t *testing.T) {
 			Primary:    "websocket",
 			BufferSize: 100,
 		})
-		
+
 		transport := NewErrorTransport()
 		transport.SetCloseError(errors.New("transport close failed"))
-		
+
 		manager.SetTransport(transport)
 		manager.Start(context.Background())
 
 		ctx := context.Background()
 		err := manager.Stop(ctx)
-		
+
 		if err == nil || err.Error() != "operation stop on active_transport failed: transport close failed" {
 			t.Errorf("Expected transport close error, got %v", err)
 		}
@@ -206,7 +206,7 @@ func TestManagerStopErrors(t *testing.T) {
 			Primary:    "websocket",
 			BufferSize: 100,
 		})
-		
+
 		transport := NewDemoTransport()
 		manager.SetTransport(transport)
 		manager.Start(context.Background())
@@ -219,7 +219,7 @@ func TestManagerStopErrors(t *testing.T) {
 				EventType: events.EventType(demoEvent.Type()),
 			}
 			baseEvent.SetTimestamp(demoEvent.Timestamp().UnixMilli())
-			
+
 			select {
 			case manager.eventChan <- baseEvent:
 			case manager.errorChan <- fmt.Errorf("error-%d", i):
@@ -230,7 +230,7 @@ func TestManagerStopErrors(t *testing.T) {
 		// Stop should handle drain timeout gracefully - reduced for faster execution
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		
+
 		err := manager.Stop(ctx)
 		if err != nil {
 			t.Errorf("Stop should succeed even with drain timeout: %v", err)
@@ -242,7 +242,7 @@ func TestManagerStopErrors(t *testing.T) {
 			Primary:    "websocket",
 			BufferSize: 100,
 		})
-		
+
 		// Stop without starting
 		err := manager.Stop(context.Background())
 		if err != nil {
@@ -257,7 +257,7 @@ func TestManagerReceiveErrors(t *testing.T) {
 		// Use a custom logger to capture debug info
 		var logBuffer sync.Map
 		logger := &testLogger{logs: &logBuffer}
-		
+
 		manager := NewManagerWithLogger(&ManagerConfig{
 			Primary:    "websocket",
 			BufferSize: 100,
@@ -269,14 +269,14 @@ func TestManagerReceiveErrors(t *testing.T) {
 				CollectAllErrors:  true,
 			},
 		}, logger)
-		
+
 		transport := NewDemoTransport()
 		// Connect the transport first
 		err := transport.Connect(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to connect transport: %v", err)
 		}
-		
+
 		// Set transport and start manager
 		manager.SetTransport(transport)
 		err = manager.Start(context.Background())
@@ -292,7 +292,7 @@ func TestManagerReceiveErrors(t *testing.T) {
 			timestamp: time.Now(),
 			data:      make(map[string]interface{}), // Initialize data map
 		}
-		
+
 		// Send event through transport - this should echo back through receiveEvents
 		err = transport.Send(context.Background(), invalidEvent)
 		if err != nil {
@@ -328,12 +328,12 @@ func TestManagerReceiveErrors(t *testing.T) {
 			BufferSize: 2, // Very small buffer
 			Backpressure: BackpressureConfig{
 				Strategy:      BackpressureDropNewest,
-				BufferSize:    2, // Very small buffer to trigger backpressure quickly  
+				BufferSize:    2, // Very small buffer to trigger backpressure quickly
 				HighWaterMark: 0.8,
 				EnableMetrics: true,
 			},
 		}
-		
+
 		manager := NewManager(config)
 		transport := NewDemoTransport()
 		err := transport.Connect(context.Background())
@@ -375,7 +375,7 @@ func TestManagerConcurrentErrors(t *testing.T) {
 		// Create a context with 15-second timeout for the entire test
 		testCtx, testCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer testCancel()
-		
+
 		manager := NewManager(&ManagerConfig{
 			Primary:    "websocket",
 			BufferSize: 100,
@@ -389,11 +389,11 @@ func TestManagerConcurrentErrors(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				
+
 				// Create timeout context for start operation
 				startCtx, startCancel := context.WithTimeout(testCtx, 2*time.Second)
 				defer startCancel()
-				
+
 				if err := manager.Start(startCtx); err != nil {
 					atomic.AddInt32(&errorCount, 1)
 				}
@@ -405,7 +405,7 @@ func TestManagerConcurrentErrors(t *testing.T) {
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
-				
+
 				// Add timeout protection
 				select {
 				case <-testCtx.Done():
@@ -422,11 +422,11 @@ func TestManagerConcurrentErrors(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				
+
 				// Create timeout context for stop operation
 				stopCtx, stopCancel := context.WithTimeout(testCtx, 2*time.Second)
 				defer stopCancel()
-				
+
 				manager.Stop(stopCtx)
 			}()
 		}
@@ -437,7 +437,7 @@ func TestManagerConcurrentErrors(t *testing.T) {
 			wg.Wait()
 			close(done)
 		}()
-		
+
 		select {
 		case <-done:
 			// All goroutines completed
@@ -459,16 +459,16 @@ func TestManagerConcurrentErrors(t *testing.T) {
 		// Create a context with 15-second timeout for the entire test
 		testCtx, testCancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer testCancel()
-		
+
 		manager := NewManager(&ManagerConfig{
 			Primary:    "websocket",
 			BufferSize: 100,
 		})
-		
+
 		transport := NewErrorTransport()
 		manager.SetTransport(transport)
 		manager.Start(testCtx)
-		
+
 		// Ensure proper cleanup with timeout handling
 		defer func() {
 			stopCtx, stopCancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -477,24 +477,24 @@ func TestManagerConcurrentErrors(t *testing.T) {
 		}()
 
 		var wg sync.WaitGroup
-		
+
 		// Reduced concurrent sends for faster execution - was 10, now 5
 		for i := 0; i < 5; i++ {
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
-				
+
 				// Create a timeout context for each send operation
 				sendCtx, sendCancel := context.WithTimeout(testCtx, 2*time.Second)
 				defer sendCancel()
-				
+
 				// Every third operation fails
 				if id%3 == 0 {
 					transport.SetSendError(errors.New("send error"))
 				} else {
 					transport.SetSendError(nil)
 				}
-				
+
 				event := &DemoEvent{id: fmt.Sprintf("test-%d", id), eventType: "demo"}
 				manager.Send(sendCtx, event)
 			}(i)
@@ -505,7 +505,7 @@ func TestManagerConcurrentErrors(t *testing.T) {
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
-				
+
 				// Add timeout protection for error simulation
 				select {
 				case <-testCtx.Done():
@@ -522,7 +522,7 @@ func TestManagerConcurrentErrors(t *testing.T) {
 			wg.Wait()
 			close(done)
 		}()
-		
+
 		select {
 		case <-done:
 			// All goroutines completed
@@ -530,11 +530,11 @@ func TestManagerConcurrentErrors(t *testing.T) {
 			t.Error("Test timed out waiting for concurrent operations to complete")
 			return
 		}
-		
+
 		// Consume some errors with timeout protection and context cancellation
 		errorCount := 0
 		timeout := time.After(200 * time.Millisecond) // Slightly increased for reliability
-		
+
 		for {
 			select {
 			case <-manager.Errors():
@@ -561,13 +561,13 @@ func TestManagerMetricsErrors(t *testing.T) {
 	// Create a context with timeout for the entire test
 	testCtx, testCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer testCancel()
-	
+
 	manager := NewManager(&ManagerConfig{
 		Primary:       "websocket",
 		BufferSize:    100,
 		EnableMetrics: true,
 	})
-	
+
 	transport := NewErrorTransport()
 	// Connect the transport so it can accept Send() calls
 	if err := transport.Connect(testCtx); err != nil {
@@ -575,7 +575,7 @@ func TestManagerMetricsErrors(t *testing.T) {
 	}
 	manager.SetTransport(transport)
 	manager.Start(testCtx)
-	
+
 	// Ensure proper cleanup with timeout handling
 	defer func() {
 		stopCtx, stopCancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -590,9 +590,9 @@ func TestManagerMetricsErrors(t *testing.T) {
 		} else {
 			transport.SetSendError(nil)
 		}
-		
+
 		event := &DemoEvent{id: fmt.Sprintf("metric-%d", i), eventType: "demo"}
-		
+
 		// Create timeout context for each send operation
 		sendCtx, sendCancel := context.WithTimeout(testCtx, 1*time.Second)
 		manager.Send(sendCtx, event)
@@ -600,12 +600,12 @@ func TestManagerMetricsErrors(t *testing.T) {
 	}
 
 	metrics := manager.GetMetrics()
-	
+
 	// Should track successful sends
 	if metrics.TotalMessagesSent == 0 {
 		t.Error("Expected some messages to be sent")
 	}
-	
+
 	// Verify metrics are properly copied
 	metrics2 := manager.GetMetrics()
 	if &metrics.TransportHealthScores == &metrics2.TransportHealthScores {
@@ -620,7 +620,7 @@ func TestManagerErrorPropagation(t *testing.T) {
 			Primary:    "websocket",
 			BufferSize: 100,
 		})
-		
+
 		transport := NewErrorTransport()
 		manager.SetTransport(transport)
 		manager.Start(context.Background())
@@ -662,21 +662,21 @@ func TestManagerErrorPropagation(t *testing.T) {
 				EnableMetrics: true,
 			},
 		}
-		
+
 		// Create manager with test logger
 		var logBuffer sync.Map
 		logger := &testLogger{logs: &logBuffer}
 		manager := NewManagerWithLogger(config, logger)
-		
+
 		transport := NewDemoTransport()
-		
+
 		// Connect transport first
 		ctx := context.Background()
 		err := transport.Connect(ctx)
 		if err != nil {
 			t.Fatalf("Failed to connect transport: %v", err)
 		}
-		
+
 		manager.SetTransport(transport)
 		manager.Start(ctx)
 		defer manager.Stop(ctx)
@@ -735,7 +735,7 @@ func TestManagerInvalidConfiguration(t *testing.T) {
 				Backpressure: BackpressureConfig{
 					Strategy:      "invalid",
 					BufferSize:    -1,
-					HighWaterMark: 1.5, // > 1.0
+					HighWaterMark: 1.5,  // > 1.0
 					LowWaterMark:  -0.1, // < 0
 				},
 			},
@@ -746,13 +746,13 @@ func TestManagerInvalidConfiguration(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Manager should handle invalid config gracefully
 			manager := NewManager(tt.config)
-			
+
 			// Should still be able to start/stop
 			err := manager.Start(context.Background())
 			if err != nil {
 				t.Logf("Start with invalid config returned: %v", err)
 			}
-			
+
 			manager.Stop(context.Background())
 		})
 	}
@@ -848,7 +848,7 @@ func (l *testLogger) logInternal(level, msg string, fields ...Field) {
 
 // contains checks if a string contains a substring
 func contains(s, substr string) bool {
-	return len(s) > 0 && len(substr) > 0 && s != "" && substr != "" && 
+	return len(s) > 0 && len(substr) > 0 && s != "" && substr != "" &&
 		(s == substr || (len(s) > len(substr) && findSubstring(s, substr)))
 }
 
@@ -872,15 +872,15 @@ func BenchmarkManagerErrorHandling(b *testing.B) {
 				AllowedEventTypes: []string{"allowed"},
 			},
 		})
-		
+
 		transport := NewErrorTransport()
 		manager.SetTransport(transport)
 		manager.Start(context.Background())
 		defer manager.Stop(context.Background())
-		
+
 		event := &DemoEvent{id: "bench", eventType: "forbidden"}
 		ctx := context.Background()
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			manager.Send(ctx, event)
@@ -892,16 +892,16 @@ func BenchmarkManagerErrorHandling(b *testing.B) {
 			Primary:    "websocket",
 			BufferSize: 1000,
 		})
-		
+
 		transport := NewErrorTransport()
 		transport.SetSendError(errors.New("bench error"))
 		manager.SetTransport(transport)
 		manager.Start(context.Background())
 		defer manager.Stop(context.Background())
-		
+
 		ctx := context.Background()
 		event := &DemoEvent{id: "bench", eventType: "test"}
-		
+
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {

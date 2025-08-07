@@ -86,7 +86,7 @@ func TestGlobalBufferLimits(t *testing.T) {
 
 	// Test safe buffer allocation
 	var buffers []*bytes.Buffer
-	
+
 	// Try to allocate many buffers - should eventually return nil when exhausted
 	for i := 0; i < 1000; i++ {
 		buf := encoding.GetBufferSafe(1024)
@@ -137,13 +137,13 @@ func TestJSONEncoderConcurrencyLimits(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			
+
 			// Wait for all goroutines to be ready
 			startBarrier.Wait()
-			
+
 			// Add small staggered delay to increase contention
 			time.Sleep(time.Microsecond * time.Duration(idx%3))
-			
+
 			_, err := encoder.Encode(ctx, event)
 			if err != nil {
 				if isResourceLimitError(err) {
@@ -206,13 +206,13 @@ func TestJSONDecoderConcurrencyLimits(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			
+
 			// Wait for all goroutines to be ready
 			startBarrier.Wait()
-			
+
 			// Add small staggered delay to increase contention
 			time.Sleep(time.Microsecond * time.Duration(idx%3))
-			
+
 			_, err := decoder.Decode(ctx, jsonData)
 			if err != nil {
 				if isResourceLimitError(err) {
@@ -243,7 +243,7 @@ func TestJSONDecoderConcurrencyLimits(t *testing.T) {
 		t.Error("Expected at least some operations to succeed")
 	}
 
-	// With a limit of 2 and 20 concurrent operations with larger data, 
+	// With a limit of 2 and 20 concurrent operations with larger data,
 	// we should expect some failures, but make it non-strict for reliability
 	if failureCount == 0 {
 		t.Logf("Note: No operations failed due to concurrency limits. This may occur on systems with very fast processing.")
@@ -264,19 +264,19 @@ func TestJSONDecoderConcurrencyLimitsDeterministic(t *testing.T) {
 	var wg sync.WaitGroup
 	var successCount int32
 	var failureCount int32
-	
+
 	// Use a channel to serialize the start of operations and create contention
 	startCh := make(chan struct{})
-	
+
 	numGoroutines := 5
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			
+
 			// Wait for signal to start
 			<-startCh
-			
+
 			_, err := decoder.Decode(ctx, jsonData)
 			if err != nil {
 				if isResourceLimitError(err) {
@@ -308,14 +308,14 @@ func TestJSONDecoderConcurrencyLimitsDeterministic(t *testing.T) {
 	}
 
 	// With such a strict limit (1) and simultaneous start, we expect some failures
-	t.Logf("Concurrency enforcement: %d successes, %d limit rejections out of %d total", 
+	t.Logf("Concurrency enforcement: %d successes, %d limit rejections out of %d total",
 		successCount, failureCount, total)
 }
 
 // TestSecurityValidatorResourceLimits tests security validator resource monitoring
 func TestSecurityValidatorResourceLimits(t *testing.T) {
 	config := validation.SecurityConfig{
-		MaxInputSize:          10 * 1024 * 1024, // 10MB input limit  
+		MaxInputSize:          10 * 1024 * 1024, // 10MB input limit
 		MaxMemoryUsage:        50 * 1024 * 1024, // 50MB memory limit (higher to account for system memory)
 		EnableResourceMonitor: true,
 	}
@@ -357,7 +357,7 @@ func TestSecurityValidatorResourceLimits(t *testing.T) {
 			// Create data that will likely exceed memory limits when processed concurrently
 			lines := make([]string, 8) // 8 lines of 8KB each = 64KB total
 			for j := range lines {
-					lines[j] = string(bytes.Repeat([]byte{'C'}, 8*1024))
+				lines[j] = string(bytes.Repeat([]byte{'C'}, 8*1024))
 			}
 			mediumData := []byte(strings.Join(lines, "\n"))
 			err := restrictiveValidator.ValidateInput(ctx, mediumData)
@@ -386,8 +386,8 @@ func TestSecurityValidatorResourceLimits(t *testing.T) {
 // TestSecurityValidatorWithEvents tests validator resource limits with events
 func TestSecurityValidatorWithEvents(t *testing.T) {
 	config := validation.SecurityConfig{
-		MaxInputSize:          10 * 1024 * 1024, // 10MB input limit
-		MaxStringLength:       2 * 1024 * 1024,  // 2MB string limit
+		MaxInputSize:          10 * 1024 * 1024,  // 10MB input limit
+		MaxStringLength:       2 * 1024 * 1024,   // 2MB string limit
 		MaxMemoryUsage:        100 * 1024 * 1024, // 100MB limit (higher to account for system memory)
 		EnableResourceMonitor: true,
 	}
@@ -443,7 +443,7 @@ func TestResourceStatsRetrieval(t *testing.T) {
 	// Check required fields
 	requiredFields := []string{
 		"system_memory_alloc",
-		"tracked_memory", 
+		"tracked_memory",
 		"active_operations",
 		"max_memory_limit",
 		"resource_monitor_enabled",
@@ -469,7 +469,7 @@ func TestResourceStatsRetrieval(t *testing.T) {
 // TestMemoryUsageTracking tests that memory usage is tracked correctly
 func TestMemoryUsageTracking(t *testing.T) {
 	config := validation.SecurityConfig{
-		MaxInputSize:          10 * 1024 * 1024, // 10MB input limit
+		MaxInputSize:          10 * 1024 * 1024,  // 10MB input limit
 		MaxMemoryUsage:        100 * 1024 * 1024, // 100MB limit (higher to account for system memory)
 		EnableResourceMonitor: true,
 	}
@@ -585,7 +585,7 @@ func TestConcurrentResourceAccess(t *testing.T) {
 		wg.Wait()
 
 		t.Logf("Successful gets: %d, Nil returns: %d", successCount, nilCount)
-		
+
 		// Should have some nil returns due to pool exhaustion
 		if nilCount == 0 {
 			t.Error("Expected some nil returns due to pool limits")
@@ -614,7 +614,7 @@ func TestConcurrentResourceAccess(t *testing.T) {
 				defer wg.Done()
 				// Add a small delay to increase concurrency
 				time.Sleep(time.Millisecond * time.Duration(idx%10))
-				
+
 				_, err := encoder.Encode(ctx, event)
 				if err != nil {
 					if isResourceLimitError(err) {
@@ -631,7 +631,7 @@ func TestConcurrentResourceAccess(t *testing.T) {
 		wg.Wait()
 
 		t.Logf("Successful encodings: %d, Limit rejections: %d", successCount, limitCount)
-		
+
 		// Should have some limit rejections under normal conditions
 		if limitCount == 0 {
 			t.Logf("Note: No operations were rejected due to concurrency limits. This may occur when running in parallel with other tests.")

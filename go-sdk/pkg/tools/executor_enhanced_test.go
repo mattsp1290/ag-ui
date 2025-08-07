@@ -22,7 +22,7 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 		tool := testTool()
 		require.NoError(t, registry.Register(tool))
 
-		engine := tools.NewExecutionEngine(registry, 
+		engine := tools.NewExecutionEngine(registry,
 			tools.WithAsyncWorkers(5),
 		)
 		defer shutdownEngine(t, engine)
@@ -50,11 +50,11 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 	t.Run("async execution with priority", func(t *testing.T) {
 		registry := tools.NewRegistry()
 		tool := testTool()
-		
+
 		var executionOrder []int
 		var mu sync.Mutex
 		var started sync.WaitGroup
-		
+
 		tool.Executor = &mockToolExecutor{
 			executeFunc: func(ctx context.Context, params map[string]interface{}) (*tools.ToolExecutionResult, error) {
 				input := params["input"].(string)
@@ -67,12 +67,12 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 				if err != nil {
 					return nil, err
 				}
-				
+
 				mu.Lock()
 				executionOrder = append(executionOrder, priority)
 				mu.Unlock()
-				
-				started.Done() // Signal that execution started
+
+				started.Done()                    // Signal that execution started
 				time.Sleep(10 * time.Millisecond) // Shorter sleep
 				return &tools.ToolExecutionResult{
 					Success: true,
@@ -82,7 +82,7 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 		}
 		require.NoError(t, registry.Register(tool))
 
-		engine := tools.NewExecutionEngine(registry, 
+		engine := tools.NewExecutionEngine(registry,
 			tools.WithAsyncWorkers(3), // Use more workers to handle all jobs
 		)
 		defer shutdownEngine(t, engine)
@@ -91,7 +91,7 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 		priorities := []int{1, 5, 3, 4, 2}
 		var resultChans []<-chan *tools.AsyncResult
 		started.Add(len(priorities))
-		
+
 		for _, priority := range priorities {
 			params := map[string]interface{}{"input": fmt.Sprintf("priority-%d", priority)}
 			_, resultChan, err := engine.ExecuteAsync(context.Background(), "test-tool", params, priority)
@@ -129,7 +129,7 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 	t.Run("async execution with context cancellation", func(t *testing.T) {
 		registry := tools.NewRegistry()
 		tool := testTool()
-		
+
 		tool.Executor = &mockToolExecutor{
 			executeFunc: func(ctx context.Context, params map[string]interface{}) (*tools.ToolExecutionResult, error) {
 				select {
@@ -176,7 +176,7 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 	t.Run("async execution with multiple workers", func(t *testing.T) {
 		registry := tools.NewRegistry()
 		tool := testTool()
-		
+
 		var executionCount int64
 		tool.Executor = &mockToolExecutor{
 			executeFunc: func(ctx context.Context, params map[string]interface{}) (*tools.ToolExecutionResult, error) {
@@ -190,7 +190,7 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 		}
 		require.NoError(t, registry.Register(tool))
 
-		engine := tools.NewExecutionEngine(registry, 
+		engine := tools.NewExecutionEngine(registry,
 			tools.WithAsyncWorkers(5),
 		)
 		defer shutdownEngine(t, engine)
@@ -198,7 +198,7 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 		// Submit 10 jobs
 		numJobs := 10
 		var resultChans []<-chan *tools.AsyncResult
-		
+
 		start := time.Now()
 		for i := 0; i < numJobs; i++ {
 			params := map[string]interface{}{"input": fmt.Sprintf("job-%d", i)}
@@ -224,7 +224,7 @@ func TestExecutionEngine_AsyncExecution(t *testing.T) {
 
 		assert.Equal(t, numJobs, completed)
 		assert.Equal(t, int64(numJobs), atomic.LoadInt64(&executionCount))
-		
+
 		// With 5 workers and 100ms per job, should complete much faster than sequential
 		assert.Less(t, duration, 500*time.Millisecond, "Parallel execution should be faster")
 	})
@@ -236,7 +236,7 @@ func TestExecutionEngine_Caching(t *testing.T) {
 		registry := tools.NewRegistry()
 		tool := testTool()
 		tool.Capabilities = &tools.ToolCapabilities{Cacheable: true}
-		
+
 		var executeCount int64
 		tool.Executor = &mockToolExecutor{
 			executeFunc: func(ctx context.Context, params map[string]interface{}) (*tools.ToolExecutionResult, error) {
@@ -249,7 +249,7 @@ func TestExecutionEngine_Caching(t *testing.T) {
 		}
 		require.NoError(t, registry.Register(tool))
 
-		engine := tools.NewExecutionEngine(registry, 
+		engine := tools.NewExecutionEngine(registry,
 			tools.WithCaching(100, 5*time.Minute),
 		)
 		defer shutdownEngine(t, engine)
@@ -267,7 +267,7 @@ func TestExecutionEngine_Caching(t *testing.T) {
 		result2, err := engine.Execute(context.Background(), "test-tool", params)
 		require.NoError(t, err)
 		assert.True(t, result2.Success)
-		assert.Equal(t, int64(1), result2.Data) // Same result from cache
+		assert.Equal(t, int64(1), result2.Data)                    // Same result from cache
 		assert.Equal(t, int64(1), atomic.LoadInt64(&executeCount)) // No additional execution
 	})
 
@@ -275,7 +275,7 @@ func TestExecutionEngine_Caching(t *testing.T) {
 		registry := tools.NewRegistry()
 		tool := testTool()
 		tool.Capabilities = &tools.ToolCapabilities{Cacheable: true}
-		
+
 		var executeCount int64
 		tool.Executor = &mockToolExecutor{
 			executeFunc: func(ctx context.Context, params map[string]interface{}) (*tools.ToolExecutionResult, error) {
@@ -288,7 +288,7 @@ func TestExecutionEngine_Caching(t *testing.T) {
 		}
 		require.NoError(t, registry.Register(tool))
 
-		engine := tools.NewExecutionEngine(registry, 
+		engine := tools.NewExecutionEngine(registry,
 			tools.WithCaching(100, 200*time.Millisecond), // Short TTL
 		)
 		defer shutdownEngine(t, engine)
@@ -314,7 +314,7 @@ func TestExecutionEngine_Caching(t *testing.T) {
 		registry := tools.NewRegistry()
 		tool := testTool()
 		tool.Capabilities = &tools.ToolCapabilities{Cacheable: true}
-		
+
 		var executeCount int64
 		tool.Executor = &mockToolExecutor{
 			executeFunc: func(ctx context.Context, params map[string]interface{}) (*tools.ToolExecutionResult, error) {
@@ -327,18 +327,18 @@ func TestExecutionEngine_Caching(t *testing.T) {
 		}
 		require.NoError(t, registry.Register(tool))
 
-		engine := tools.NewExecutionEngine(registry, 
+		engine := tools.NewExecutionEngine(registry,
 			tools.WithCaching(100, 5*time.Minute),
 		)
 		defer shutdownEngine(t, engine)
 
 		// Execute with different parameters
-		result1, err := engine.Execute(context.Background(), "test-tool", 
+		result1, err := engine.Execute(context.Background(), "test-tool",
 			map[string]interface{}{"input": "test1"})
 		require.NoError(t, err)
 		assert.Equal(t, "test1", result1.Data)
 
-		result2, err := engine.Execute(context.Background(), "test-tool", 
+		result2, err := engine.Execute(context.Background(), "test-tool",
 			map[string]interface{}{"input": "test2"})
 		require.NoError(t, err)
 		assert.Equal(t, "test2", result2.Data)
@@ -347,7 +347,7 @@ func TestExecutionEngine_Caching(t *testing.T) {
 		assert.Equal(t, int64(2), atomic.LoadInt64(&executeCount))
 
 		// Execute again with first parameters (should hit cache)
-		result3, err := engine.Execute(context.Background(), "test-tool", 
+		result3, err := engine.Execute(context.Background(), "test-tool",
 			map[string]interface{}{"input": "test1"})
 		require.NoError(t, err)
 		assert.Equal(t, "test1", result3.Data)
@@ -358,7 +358,7 @@ func TestExecutionEngine_Caching(t *testing.T) {
 		registry := tools.NewRegistry()
 		tool := testTool()
 		tool.Capabilities = &tools.ToolCapabilities{Cacheable: true}
-		
+
 		var executeCount int64
 		tool.Executor = &mockToolExecutor{
 			executeFunc: func(ctx context.Context, params map[string]interface{}) (*tools.ToolExecutionResult, error) {
@@ -371,29 +371,29 @@ func TestExecutionEngine_Caching(t *testing.T) {
 		}
 		require.NoError(t, registry.Register(tool))
 
-		engine := tools.NewExecutionEngine(registry, 
+		engine := tools.NewExecutionEngine(registry,
 			tools.WithCaching(2, 5*time.Minute), // Small cache
 		)
 		defer shutdownEngine(t, engine)
 
 		// Fill cache
-		_, err := engine.Execute(context.Background(), "test-tool", 
+		_, err := engine.Execute(context.Background(), "test-tool",
 			map[string]interface{}{"input": "test1"})
 		require.NoError(t, err)
 
-		_, err = engine.Execute(context.Background(), "test-tool", 
+		_, err = engine.Execute(context.Background(), "test-tool",
 			map[string]interface{}{"input": "test2"})
 		require.NoError(t, err)
 
 		// Add third item (should evict oldest)
-		_, err = engine.Execute(context.Background(), "test-tool", 
+		_, err = engine.Execute(context.Background(), "test-tool",
 			map[string]interface{}{"input": "test3"})
 		require.NoError(t, err)
 
 		assert.Equal(t, int64(3), atomic.LoadInt64(&executeCount))
 
 		// test1 should have been evicted, so this should execute again
-		_, err = engine.Execute(context.Background(), "test-tool", 
+		_, err = engine.Execute(context.Background(), "test-tool",
 			map[string]interface{}{"input": "test1"})
 		require.NoError(t, err)
 
@@ -408,7 +408,7 @@ func TestExecutionEngine_ResourceMonitoring(t *testing.T) {
 		tool := testTool()
 		require.NoError(t, registry.Register(tool))
 
-		engine := tools.NewExecutionEngine(registry, 
+		engine := tools.NewExecutionEngine(registry,
 			tools.WithResourceMonitoring(100*1024*1024, 80.0, 1024*1024, 1024*1024),
 		)
 		defer shutdownEngine(t, engine)
@@ -429,18 +429,18 @@ func TestExecutionEngine_Sandboxing(t *testing.T) {
 		require.NoError(t, registry.Register(tool))
 
 		sandboxConfig := &tools.SandboxConfig{
-			Enabled:         true,
-			MaxProcesses:    10,
-			MaxFileHandles:  100,
-			MaxMemory:       100 * 1024 * 1024,
-			NetworkAccess:   false,
+			Enabled:          true,
+			MaxProcesses:     10,
+			MaxFileHandles:   100,
+			MaxMemory:        100 * 1024 * 1024,
+			NetworkAccess:    false,
 			FileSystemAccess: true,
-			AllowedPaths:    []string{"/tmp"},
-			BlockedPaths:    []string{"/etc"},
-			Timeout:         30 * time.Second,
+			AllowedPaths:     []string{"/tmp"},
+			BlockedPaths:     []string{"/etc"},
+			Timeout:          30 * time.Second,
 		}
 
-		engine := tools.NewExecutionEngine(registry, 
+		engine := tools.NewExecutionEngine(registry,
 			tools.WithSandboxing(sandboxConfig),
 		)
 		defer shutdownEngine(t, engine)
@@ -458,7 +458,7 @@ func TestExecutionEngine_GracefulShutdown(t *testing.T) {
 	t.Run("shutdown with active executions", func(t *testing.T) {
 		registry := tools.NewRegistry()
 		tool := testTool()
-		
+
 		var started, completed int64
 		tool.Executor = &mockToolExecutor{
 			executeFunc: func(ctx context.Context, params map[string]interface{}) (*tools.ToolExecutionResult, error) {
@@ -494,7 +494,7 @@ func TestExecutionEngine_GracefulShutdown(t *testing.T) {
 		// Shutdown - use a more generous timeout to account for goroutine cleanup timing
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		
+
 		err := engine.Shutdown(shutdownCtx)
 		assert.NoError(t, err)
 
@@ -514,7 +514,7 @@ func TestExecutionEngine_EnhancedMetrics(t *testing.T) {
 		tool.Capabilities = &tools.ToolCapabilities{Cacheable: true}
 		require.NoError(t, registry.Register(tool))
 
-		engine := tools.NewExecutionEngine(registry, 
+		engine := tools.NewExecutionEngine(registry,
 			tools.WithCaching(100, 5*time.Minute),
 			tools.WithAsyncWorkers(2),
 		)
@@ -531,7 +531,7 @@ func TestExecutionEngine_EnhancedMetrics(t *testing.T) {
 		require.NoError(t, err)
 
 		// Async execution
-		_, resultChan, err := engine.ExecuteAsync(context.Background(), "test-tool", 
+		_, resultChan, err := engine.ExecuteAsync(context.Background(), "test-tool",
 			map[string]interface{}{"input": "async"}, 1)
 		require.NoError(t, err)
 		<-resultChan
@@ -547,7 +547,7 @@ func TestExecutionEngine_EnhancedMetrics(t *testing.T) {
 func shutdownEngine(t *testing.T, engine *tools.ExecutionEngine) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	if err := engine.Shutdown(ctx); err != nil {
 		t.Logf("Engine shutdown error: %v", err)
 	}

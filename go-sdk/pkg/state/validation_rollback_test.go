@@ -293,7 +293,6 @@ func TestStateRollback(t *testing.T) {
 		// Clear store
 		store.Clear()
 
-
 		// Set initial state using root path to ensure version creation
 
 		// Set initial state
@@ -393,7 +392,6 @@ func TestStateRollback(t *testing.T) {
 				store.Clear()
 
 				// Use root path to ensure version is created
-
 
 				err := store.Set("/", map[string]interface{}{
 					"test": map[string]interface{}{

@@ -16,45 +16,45 @@ import (
 // DecoupledDistributedValidator implements DistributedValidatorProvider with proper dependency injection
 type DecoupledDistributedValidator struct {
 	// Core dependencies injected through constructor
-	configProvider        ConfigProvider
-	validationProvider    ValidationProvider
-	consensusProvider     ConsensusProvider
-	stateSyncProvider     StateSyncProvider
-	loadBalancerProvider  LoadBalancerProvider
-	partitionHandler      PartitionHandlerProvider
-	metricsProvider       MetricsProvider
-	networkProvider       NetworkProvider
-	serviceRegistry       ServiceRegistry
-	healthChecker         HealthChecker
-	
+	configProvider       ConfigProvider
+	validationProvider   ValidationProvider
+	consensusProvider    ConsensusProvider
+	stateSyncProvider    StateSyncProvider
+	loadBalancerProvider LoadBalancerProvider
+	partitionHandler     PartitionHandlerProvider
+	metricsProvider      MetricsProvider
+	networkProvider      NetworkProvider
+	serviceRegistry      ServiceRegistry
+	healthChecker        HealthChecker
+
 	// Internal state
-	nodeID              NodeID
-	nodes               map[NodeID]*NodeInfo
-	pendingValidations  map[string]*PendingValidation
-	
+	nodeID             NodeID
+	nodes              map[NodeID]*NodeInfo
+	pendingValidations map[string]*PendingValidation
+
 	// Goroutine managers
-	goroutineManagers   map[string]GoroutineManagerProvider
-	
+	goroutineManagers map[string]GoroutineManagerProvider
+
 	// Lifecycle management
-	state              ComponentState
-	running            bool
-	stopChan           chan struct{}
-	stopOnce           sync.Once
-	
+	state    ComponentState
+	running  bool
+	stopChan chan struct{}
+	stopOnce sync.Once
+
 	// Synchronization
-	nodesMutex         sync.RWMutex
-	validationMutex    sync.RWMutex
-	stateMutex         sync.RWMutex
-	
+	nodesMutex      sync.RWMutex
+	validationMutex sync.RWMutex
+	stateMutex      sync.RWMutex
+
 	// Tracing
-	tracer             trace.Tracer
-	
+	tracer trace.Tracer
+
 	// Configuration
-	config             interface{}
-	
+	config interface{}
+
 	// Cleanup functions
-	cleanupFuncs       []func() error
-	cleanupMutex       sync.Mutex
+	cleanupFuncs []func() error
+	cleanupMutex sync.Mutex
 }
 
 // NewDecoupledDistributedValidator creates a new decoupled distributed validator
@@ -68,24 +68,24 @@ func NewDecoupledDistributedValidator(options ...ValidatorOption) (*DecoupledDis
 		tracer:             otel.Tracer("ag-ui/distributed-validation-decoupled"),
 		state:              ComponentStateInitialized,
 	}
-	
+
 	// Apply options
 	for _, option := range options {
 		if err := option.Apply(validator); err != nil {
 			return nil, fmt.Errorf("failed to apply validator option: %w", err)
 		}
 	}
-	
+
 	// Validate dependencies
 	if err := validator.validateDependencies(); err != nil {
 		return nil, fmt.Errorf("dependency validation failed: %w", err)
 	}
-	
+
 	// Initialize from configuration
 	if err := validator.initializeFromConfig(); err != nil {
 		return nil, fmt.Errorf("failed to initialize from config: %w", err)
 	}
-	
+
 	return validator, nil
 }
 
@@ -244,7 +244,7 @@ func (v *DecoupledDistributedValidator) ValidateEvent(ctx context.Context, event
 	defer span.End()
 
 	start := time.Now()
-	
+
 	// Check if validator is running
 	if !v.isRunning() {
 		span.SetStatus(codes.Error, "validator not running")
@@ -261,23 +261,23 @@ func (v *DecoupledDistributedValidator) ValidateEvent(ctx context.Context, event
 			Timestamp:  time.Now(),
 		}, nil
 	}
-	
+
 	// Setup tracing
 	span.SetAttributes(
 		attribute.String("validator.type", "decoupled_distributed"),
 		attribute.String("node.id", string(v.nodeID)),
 	)
-	
+
 	// Check for partition
 	if v.partitionHandler != nil && v.partitionHandler.IsPartitioned() {
 		span.SetAttributes(attribute.Bool("node.partitioned", true))
-		
+
 		// Check if local validation is allowed during partition
 		if allowLocal, err := v.configProvider.GetBool("partition.allow_local_validation"); err == nil && allowLocal {
 			span.AddEvent("validating_locally_due_to_partition")
 			return v.validationProvider.ValidateEvent(ctx, event)
 		}
-		
+
 		result := &ValidationResult{
 			IsValid: false,
 			Errors: []*ValidationError{{
@@ -290,11 +290,11 @@ func (v *DecoupledDistributedValidator) ValidateEvent(ctx context.Context, event
 			Duration:   time.Since(start),
 			Timestamp:  time.Now(),
 		}
-		
+
 		span.SetStatus(codes.Error, "node partitioned")
 		return result, nil
 	}
-	
+
 	// Perform distributed validation
 	result, err := v.performDistributedValidation(ctx, event)
 	if err != nil {
@@ -302,24 +302,24 @@ func (v *DecoupledDistributedValidator) ValidateEvent(ctx context.Context, event
 		span.SetStatus(codes.Error, "distributed validation failed")
 		return nil, err
 	}
-	
+
 	// Record metrics
 	if v.metricsProvider != nil {
 		v.metricsProvider.RecordValidation(result.Duration, result.IsValid)
 	}
-	
+
 	span.SetAttributes(
 		attribute.Bool("validation.valid", result.IsValid),
 		attribute.Int("validation.errors", len(result.Errors)),
 		attribute.Int64("validation.duration_ms", result.Duration.Milliseconds()),
 	)
-	
+
 	if result.IsValid {
 		span.SetStatus(codes.Ok, "validation completed")
 	} else {
 		span.SetStatus(codes.Error, "validation failed")
 	}
-	
+
 	return result, nil
 }
 
@@ -329,13 +329,13 @@ func (v *DecoupledDistributedValidator) ValidateSequence(ctx context.Context, ev
 		trace.WithSpanKind(trace.SpanKindInternal),
 	)
 	defer span.End()
-	
+
 	span.SetAttributes(
 		attribute.Int("sequence.length", len(events)),
 		attribute.String("validator.type", "decoupled_distributed"),
 		attribute.String("node.id", string(v.nodeID)),
 	)
-	
+
 	// Check if validator is running
 	if !v.isRunning() {
 		span.SetStatus(codes.Error, "validator not running")
@@ -351,7 +351,7 @@ func (v *DecoupledDistributedValidator) ValidateSequence(ctx context.Context, ev
 			Timestamp:  time.Now(),
 		}, nil
 	}
-	
+
 	// For sequence validation, we need distributed coordination
 	if v.consensusProvider != nil {
 		// Acquire distributed lock for sequence validation
@@ -360,7 +360,7 @@ func (v *DecoupledDistributedValidator) ValidateSequence(ctx context.Context, ev
 		if timeout <= 0 {
 			timeout = 30 * time.Second
 		}
-		
+
 		if err := v.consensusProvider.AcquireLock(ctx, lockID, timeout); err != nil {
 			span.RecordError(err)
 			span.SetStatus(codes.Error, "failed to acquire distributed lock")
@@ -378,7 +378,7 @@ func (v *DecoupledDistributedValidator) ValidateSequence(ctx context.Context, ev
 		}
 		defer v.consensusProvider.ReleaseLock(ctx, lockID)
 	}
-	
+
 	// Synchronize state before sequence validation
 	if v.stateSyncProvider != nil {
 		if err := v.stateSyncProvider.SyncState(ctx); err != nil {
@@ -387,7 +387,7 @@ func (v *DecoupledDistributedValidator) ValidateSequence(ctx context.Context, ev
 			// Continue with validation but note the sync failure
 		}
 	}
-	
+
 	// Validate sequence using the injected validation provider
 	result, err := v.validationProvider.ValidateSequence(ctx, events)
 	if err != nil {
@@ -395,24 +395,24 @@ func (v *DecoupledDistributedValidator) ValidateSequence(ctx context.Context, ev
 		span.SetStatus(codes.Error, "sequence validation failed")
 		return nil, err
 	}
-	
+
 	// Record metrics
 	if v.metricsProvider != nil {
 		v.metricsProvider.RecordValidation(result.Duration, result.IsValid)
 	}
-	
+
 	span.SetAttributes(
 		attribute.Bool("validation.valid", result.IsValid),
 		attribute.Int("validation.errors", len(result.Errors)),
 		attribute.Int64("validation.duration_ms", result.Duration.Milliseconds()),
 	)
-	
+
 	if result.IsValid {
 		span.SetStatus(codes.Ok, "sequence validation completed")
 	} else {
 		span.SetStatus(codes.Error, "sequence validation failed")
 	}
-	
+
 	return result, nil
 }
 
@@ -420,25 +420,25 @@ func (v *DecoupledDistributedValidator) ValidateSequence(ctx context.Context, ev
 func (v *DecoupledDistributedValidator) Start(ctx context.Context) error {
 	v.stateMutex.Lock()
 	defer v.stateMutex.Unlock()
-	
+
 	if v.running {
 		return fmt.Errorf("validator is already running")
 	}
-	
+
 	// Start all providers
 	if err := v.startProviders(ctx); err != nil {
 		return fmt.Errorf("failed to start providers: %w", err)
 	}
-	
+
 	// Start managed goroutines
 	if err := v.startGoroutines(ctx); err != nil {
 		v.stopProviders()
 		return fmt.Errorf("failed to start goroutines: %w", err)
 	}
-	
+
 	v.running = true
 	v.state = ComponentStateStarted
-	
+
 	return nil
 }
 
@@ -446,28 +446,28 @@ func (v *DecoupledDistributedValidator) Start(ctx context.Context) error {
 func (v *DecoupledDistributedValidator) Stop() error {
 	v.stateMutex.Lock()
 	defer v.stateMutex.Unlock()
-	
+
 	if !v.running {
 		return nil
 	}
-	
+
 	// Signal stop to all components
 	v.stopOnce.Do(func() {
 		close(v.stopChan)
 	})
-	
+
 	// Stop managed goroutines
 	v.stopGoroutines()
-	
+
 	// Stop providers
 	v.stopProviders()
-	
+
 	// Execute cleanup functions
 	v.executeCleanupFunctions()
-	
+
 	v.running = false
 	v.state = ComponentStateStopped
-	
+
 	return nil
 }
 
@@ -486,7 +486,7 @@ func (v *DecoupledDistributedValidator) IsHealthy() bool {
 	if v.healthChecker != nil {
 		return v.healthChecker.CheckHealth() == HealthStatusHealthy
 	}
-	
+
 	// Basic health check
 	return v.isRunning() && v.validateDependencies() == nil
 }
@@ -503,18 +503,18 @@ func (v *DecoupledDistributedValidator) GetMetrics() interface{} {
 func (v *DecoupledDistributedValidator) RegisterNode(nodeInfo *NodeInfo) error {
 	v.nodesMutex.Lock()
 	defer v.nodesMutex.Unlock()
-	
+
 	if nodeInfo == nil {
 		return fmt.Errorf("nodeInfo cannot be nil")
 	}
-	
+
 	v.nodes[nodeInfo.ID] = nodeInfo
-	
+
 	// Update load balancer
 	if v.loadBalancerProvider != nil {
 		v.loadBalancerProvider.UpdateNodeMetrics(nodeInfo.ID, nodeInfo.Load, nodeInfo.ResponseTimeMs)
 	}
-	
+
 	return nil
 }
 
@@ -522,14 +522,14 @@ func (v *DecoupledDistributedValidator) RegisterNode(nodeInfo *NodeInfo) error {
 func (v *DecoupledDistributedValidator) UnregisterNode(nodeID NodeID) error {
 	v.nodesMutex.Lock()
 	defer v.nodesMutex.Unlock()
-	
+
 	delete(v.nodes, nodeID)
-	
+
 	// Remove from load balancer
 	if v.loadBalancerProvider != nil {
 		v.loadBalancerProvider.RemoveNode(nodeID)
 	}
-	
+
 	return nil
 }
 
@@ -537,7 +537,7 @@ func (v *DecoupledDistributedValidator) UnregisterNode(nodeID NodeID) error {
 func (v *DecoupledDistributedValidator) GetNodeInfo(nodeID NodeID) (*NodeInfo, bool) {
 	v.nodesMutex.RLock()
 	defer v.nodesMutex.RUnlock()
-	
+
 	info, exists := v.nodes[nodeID]
 	return info, exists
 }
@@ -546,13 +546,13 @@ func (v *DecoupledDistributedValidator) GetNodeInfo(nodeID NodeID) (*NodeInfo, b
 func (v *DecoupledDistributedValidator) GetAllNodes() map[NodeID]*NodeInfo {
 	v.nodesMutex.RLock()
 	defer v.nodesMutex.RUnlock()
-	
+
 	nodesCopy := make(map[NodeID]*NodeInfo)
 	for k, v := range v.nodes {
 		nodeCopy := *v
 		nodesCopy[k] = &nodeCopy
 	}
-	
+
 	return nodesCopy
 }
 
@@ -564,7 +564,7 @@ func (v *DecoupledDistributedValidator) GetDistributedMetrics() *DistributedMetr
 			return metrics
 		}
 	}
-	
+
 	// Return empty metrics if provider is not available
 	return &DistributedMetrics{}
 }
@@ -572,11 +572,11 @@ func (v *DecoupledDistributedValidator) GetDistributedMetrics() *DistributedMetr
 // GetGoroutineStatus returns the status of managed goroutines
 func (v *DecoupledDistributedValidator) GetGoroutineStatus() map[string]GoroutineStatus {
 	status := make(map[string]GoroutineStatus)
-	
+
 	for name, manager := range v.goroutineManagers {
 		status[name] = manager.GetStatus()
 	}
-	
+
 	return status
 }
 
@@ -584,7 +584,7 @@ func (v *DecoupledDistributedValidator) GetGoroutineStatus() map[string]Goroutin
 func (v *DecoupledDistributedValidator) RegisterCleanupFunc(cleanup func() error) {
 	v.cleanupMutex.Lock()
 	defer v.cleanupMutex.Unlock()
-	
+
 	v.cleanupFuncs = append(v.cleanupFuncs, cleanup)
 }
 
@@ -597,9 +597,9 @@ func (v *DecoupledDistributedValidator) GetConfiguration() interface{} {
 func (v *DecoupledDistributedValidator) UpdateConfiguration(config interface{}) error {
 	v.stateMutex.Lock()
 	defer v.stateMutex.Unlock()
-	
+
 	v.config = config
-	
+
 	// Re-initialize from new configuration
 	return v.initializeFromConfig()
 }
@@ -616,11 +616,11 @@ func (v *DecoupledDistributedValidator) validateDependencies() error {
 	if v.configProvider == nil {
 		return fmt.Errorf("config provider is required")
 	}
-	
+
 	if v.validationProvider == nil {
 		return fmt.Errorf("validation provider is required")
 	}
-	
+
 	// Other providers are optional and can be nil
 	return nil
 }
@@ -630,15 +630,15 @@ func (v *DecoupledDistributedValidator) initializeFromConfig() error {
 	if v.configProvider == nil {
 		return fmt.Errorf("config provider not available")
 	}
-	
+
 	// Get node ID from configuration
 	nodeID, err := v.configProvider.GetString("node.id")
 	if err != nil {
 		return fmt.Errorf("failed to get node ID: %w", err)
 	}
-	
+
 	v.nodeID = NodeID(nodeID)
-	
+
 	return nil
 }
 
@@ -650,21 +650,21 @@ func (v *DecoupledDistributedValidator) startProviders(ctx context.Context) erro
 			return fmt.Errorf("failed to start consensus provider: %w", err)
 		}
 	}
-	
+
 	// Start state sync provider
 	if v.stateSyncProvider != nil {
 		if err := v.stateSyncProvider.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start state sync provider: %w", err)
 		}
 	}
-	
+
 	// Start partition handler
 	if v.partitionHandler != nil {
 		if err := v.partitionHandler.Start(ctx); err != nil {
 			return fmt.Errorf("failed to start partition handler: %w", err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -674,12 +674,12 @@ func (v *DecoupledDistributedValidator) stopProviders() {
 	if v.partitionHandler != nil {
 		v.partitionHandler.Stop()
 	}
-	
+
 	// Stop state sync provider
 	if v.stateSyncProvider != nil {
 		v.stateSyncProvider.Stop()
 	}
-	
+
 	// Stop consensus provider
 	if v.consensusProvider != nil {
 		v.consensusProvider.Stop()
@@ -692,17 +692,17 @@ func (v *DecoupledDistributedValidator) startGoroutines(ctx context.Context) err
 	if heartbeatManager, exists := v.goroutineManagers["heartbeat"]; exists {
 		heartbeatManager.Start(ctx, v.heartbeatRoutine)
 	}
-	
+
 	// Start cleanup goroutine
 	if cleanupManager, exists := v.goroutineManagers["cleanup"]; exists {
 		cleanupManager.Start(ctx, v.cleanupRoutine)
 	}
-	
+
 	// Start metrics goroutine
 	if metricsManager, exists := v.goroutineManagers["metrics"]; exists {
 		metricsManager.Start(ctx, v.metricsRoutine)
 	}
-	
+
 	return nil
 }
 
@@ -717,7 +717,7 @@ func (v *DecoupledDistributedValidator) stopGoroutines() {
 func (v *DecoupledDistributedValidator) executeCleanupFunctions() {
 	v.cleanupMutex.Lock()
 	defer v.cleanupMutex.Unlock()
-	
+
 	for _, cleanup := range v.cleanupFuncs {
 		if err := cleanup(); err != nil {
 			// Log error but continue with other cleanup functions
@@ -746,36 +746,36 @@ func (v *DecoupledDistributedValidator) performDistributedValidation(ctx context
 			}
 		}
 		v.nodesMutex.RUnlock()
-		
+
 		requiredNodes := 1
 		if v.consensusProvider != nil {
 			requiredNodes = v.consensusProvider.GetRequiredNodes()
 		}
-		
+
 		selectedNodes = v.loadBalancerProvider.SelectNodes(activeNodes, requiredNodes)
 	}
-	
+
 	// Perform local validation
 	result, err := v.validationProvider.ValidateEvent(ctx, event)
 	if err != nil {
 		return nil, fmt.Errorf("local validation failed: %w", err)
 	}
-	
+
 	// If no other nodes are selected, return local result
 	if len(selectedNodes) <= 1 {
 		return result, nil
 	}
-	
+
 	// Broadcast validation request to other nodes
 	if v.networkProvider != nil {
 		eventID := fmt.Sprintf("event-%d", time.Now().UnixNano())
-		
+
 		// Type assert event to events.Event interface
 		eventTyped, ok := event.(events.Event)
 		if !ok {
 			return nil, fmt.Errorf("event does not implement events.Event interface")
 		}
-		
+
 		// Create pending validation
 		pending := &PendingValidation{
 			Event:        eventTyped,
@@ -783,11 +783,11 @@ func (v *DecoupledDistributedValidator) performDistributedValidation(ctx context
 			StartTime:    time.Now(),
 			CompleteChan: make(chan *ValidationResult, 1),
 		}
-		
+
 		v.validationMutex.Lock()
 		v.pendingValidations[eventID] = pending
 		v.validationMutex.Unlock()
-		
+
 		// Broadcast to selected nodes
 		otherNodes := make([]NodeID, 0, len(selectedNodes)-1)
 		for _, nodeID := range selectedNodes {
@@ -795,7 +795,7 @@ func (v *DecoupledDistributedValidator) performDistributedValidation(ctx context
 				otherNodes = append(otherNodes, nodeID)
 			}
 		}
-		
+
 		if len(otherNodes) > 0 {
 			go func() {
 				if err := v.networkProvider.BroadcastMessage(ctx, event, otherNodes); err != nil {
@@ -804,34 +804,34 @@ func (v *DecoupledDistributedValidator) performDistributedValidation(ctx context
 				}
 			}()
 		}
-		
+
 		// Wait for consensus or timeout
 		timeout, _ := v.configProvider.GetDuration("validation.timeout")
 		if timeout <= 0 {
 			timeout = 30 * time.Second
 		}
-		
+
 		select {
 		case consensusResult := <-pending.CompleteChan:
 			v.validationMutex.Lock()
 			delete(v.pendingValidations, eventID)
 			v.validationMutex.Unlock()
 			return consensusResult, nil
-			
+
 		case <-time.After(timeout):
 			v.validationMutex.Lock()
 			delete(v.pendingValidations, eventID)
 			v.validationMutex.Unlock()
-			
+
 			if v.metricsProvider != nil {
 				v.metricsProvider.RecordTimeout()
 			}
-			
+
 			// Return local result on timeout
 			return result, nil
 		}
 	}
-	
+
 	return result, nil
 }
 
@@ -842,15 +842,15 @@ func (v *DecoupledDistributedValidator) heartbeatRoutine(ctx context.Context) {
 	if v.networkProvider == nil {
 		return
 	}
-	
+
 	interval, _ := v.configProvider.GetDuration("heartbeat.interval")
 	if interval <= 0 {
 		interval = 30 * time.Second
 	}
-	
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -867,7 +867,7 @@ func (v *DecoupledDistributedValidator) heartbeatRoutine(ctx context.Context) {
 func (v *DecoupledDistributedValidator) cleanupRoutine(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -885,10 +885,10 @@ func (v *DecoupledDistributedValidator) metricsRoutine(ctx context.Context) {
 	if v.metricsProvider == nil {
 		return
 	}
-	
+
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -911,7 +911,7 @@ func (v *DecoupledDistributedValidator) sendHeartbeats(ctx context.Context) {
 		}
 	}
 	v.nodesMutex.RUnlock()
-	
+
 	for _, nodeID := range nodes {
 		go func(id NodeID) {
 			if err := v.networkProvider.SendHeartbeat(ctx, id); err != nil {
@@ -936,14 +936,14 @@ func (v *DecoupledDistributedValidator) performCleanup() {
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	
+
 	for eventID, pending := range v.pendingValidations {
 		if now.Sub(pending.StartTime) > timeout*2 {
 			delete(v.pendingValidations, eventID)
 		}
 	}
 	v.validationMutex.Unlock()
-	
+
 	// Clean up stale nodes
 	v.nodesMutex.Lock()
 	heartbeatInterval, _ := v.configProvider.GetDuration("heartbeat.interval")
@@ -951,7 +951,7 @@ func (v *DecoupledDistributedValidator) performCleanup() {
 		heartbeatInterval = 30 * time.Second
 	}
 	staleTimeout := 5 * heartbeatInterval
-	
+
 	for nodeID, info := range v.nodes {
 		if nodeID != v.nodeID && now.Sub(info.LastHeartbeat) > staleTimeout {
 			info.State = NodeStateFailed

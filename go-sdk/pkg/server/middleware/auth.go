@@ -33,14 +33,14 @@ var (
 			}
 		},
 	}
-	
+
 	// Claims map pool for JWT processing
 	claimsMapPool = sync.Pool{
 		New: func() interface{} {
 			return make(map[string]interface{}, 8)
 		},
 	}
-	
+
 	// String slice pool for roles/permissions
 	stringSlicePool = sync.Pool{
 		New: func() interface{} {
@@ -55,16 +55,16 @@ type AuthMethod string
 const (
 	// AuthMethodJWT uses JSON Web Tokens for authentication
 	AuthMethodJWT AuthMethod = "jwt"
-	
+
 	// AuthMethodAPIKey uses API key-based authentication
 	AuthMethodAPIKey AuthMethod = "api_key"
-	
+
 	// AuthMethodBasic uses HTTP Basic authentication
 	AuthMethodBasic AuthMethod = "basic"
-	
+
 	// AuthMethodHMAC uses HMAC signature-based authentication
 	AuthMethodHMAC AuthMethod = "hmac"
-	
+
 	// AuthMethodBearer uses Bearer token authentication
 	AuthMethodBearer AuthMethod = "bearer"
 )
@@ -74,11 +74,11 @@ const (
 	// BCryptMinCost is the minimum secure cost (2^12 = 4096 iterations)
 	// Industry standard for security as of 2024
 	BCryptMinCost = 12
-	
-	// BCryptMaxCost is the maximum cost to prevent DoS attacks (2^15 = 32768 iterations)  
+
+	// BCryptMaxCost is the maximum cost to prevent DoS attacks (2^15 = 32768 iterations)
 	// Higher costs can cause excessive computation time and potential DoS
 	BCryptMaxCost = 15
-	
+
 	// BCryptDefaultCost is the secure default cost when none specified
 	// Uses minimum secure cost as default
 	BCryptDefaultCost = BCryptMinCost
@@ -150,51 +150,51 @@ func GetSecureBCryptCost(cost int) (int, error) {
 	if cost == 0 {
 		return BCryptDefaultCost, nil
 	}
-	
+
 	if err := ValidateBCryptCost(cost); err != nil {
 		return 0, fmt.Errorf("invalid bcrypt cost: %w", err)
 	}
-	
+
 	return cost, nil
 }
 
 // AuthConfig contains authentication middleware configuration
 type AuthConfig struct {
 	BaseConfig `json:",inline" yaml:",inline"`
-	
+
 	// Method specifies the authentication method to use
 	Method AuthMethod `json:"method" yaml:"method"`
-	
+
 	// Global BCrypt cost for password/API key hashing (12-15, default 12)
 	// Controls computational cost - higher values are more secure but slower
 	// This can be overridden by method-specific configurations
 	BCryptCost int `json:"bcrypt_cost" yaml:"bcrypt_cost"`
-	
+
 	// JWT configuration
 	JWT JWTConfig `json:"jwt" yaml:"jwt"`
-	
+
 	// API Key configuration
 	APIKey APIKeyConfig `json:"api_key" yaml:"api_key"`
-	
+
 	// Basic Auth configuration
 	BasicAuth BasicAuthConfig `json:"basic_auth" yaml:"basic_auth"`
-	
+
 	// HMAC configuration
 	HMAC HMACConfig `json:"hmac" yaml:"hmac"`
-	
+
 	// Bearer token configuration
 	Bearer BearerConfig `json:"bearer" yaml:"bearer"`
-	
+
 	// Authorization configuration
 	RequiredRoles       []string `json:"required_roles" yaml:"required_roles"`
 	RequiredPermissions []string `json:"required_permissions" yaml:"required_permissions"`
-	
+
 	// Error handling
 	SecureErrorMode bool `json:"secure_error_mode" yaml:"secure_error_mode"`
-	
+
 	// Optional paths that don't require authentication
 	OptionalPaths []string `json:"optional_paths" yaml:"optional_paths"`
-	
+
 	// Excluded paths that bypass authentication entirely
 	ExcludedPaths []string `json:"excluded_paths" yaml:"excluded_paths"`
 }
@@ -206,12 +206,12 @@ type JWTConfig struct {
 	SecretKeyEnv  string `json:"secret_key_env" yaml:"secret_key_env"`   // Environment variable name for HMAC secret
 	PublicKeyEnv  string `json:"public_key_env" yaml:"public_key_env"`   // Environment variable name for RSA/ECDSA public key
 	PrivateKeyEnv string `json:"private_key_env" yaml:"private_key_env"` // Environment variable name for RSA/ECDSA private key
-	
+
 	// Token validation
-	Issuer       string        `json:"issuer" yaml:"issuer"`
-	Audience     []string      `json:"audience" yaml:"audience"`
-	LeewayTime   time.Duration `json:"leeway_time" yaml:"leeway_time"`
-	
+	Issuer     string        `json:"issuer" yaml:"issuer"`
+	Audience   []string      `json:"audience" yaml:"audience"`
+	LeewayTime time.Duration `json:"leeway_time" yaml:"leeway_time"`
+
 	// Token extraction
 	TokenHeader string `json:"token_header" yaml:"token_header"`
 	TokenPrefix string `json:"token_prefix" yaml:"token_prefix"`
@@ -229,10 +229,10 @@ type APIKeyConfig struct {
 	// Header configuration
 	HeaderName string `json:"header_name" yaml:"header_name"`
 	Prefix     string `json:"prefix" yaml:"prefix"`
-	
+
 	// Query parameter configuration
 	QueryParam string `json:"query_param" yaml:"query_param"`
-	
+
 	// Validation
 	Keys           map[string]*APIKeyInfo `json:"keys" yaml:"keys"`
 	ValidateLength bool                   `json:"validate_length" yaml:"validate_length"`
@@ -261,11 +261,11 @@ func (info *APIKeyInfo) IsExpired() bool {
 type BasicAuthConfig struct {
 	// Realm for Basic auth challenge
 	Realm string `json:"realm" yaml:"realm"`
-	
+
 	// BCrypt cost for password hashing (12-15, default 12)
 	// Controls computational cost - higher values are more secure but slower
 	BCryptCost int `json:"bcrypt_cost" yaml:"bcrypt_cost"`
-	
+
 	// User credentials (username -> hashed password)
 	Users map[string]*BasicAuthUser `json:"users" yaml:"users"`
 }
@@ -284,17 +284,17 @@ type HMACConfig struct {
 	// Signature configuration - SECURE: Uses environment variables instead of plaintext
 	SecretKeyEnv string `json:"secret_key_env" yaml:"secret_key_env"` // Environment variable name for HMAC secret
 	Algorithm    string `json:"algorithm" yaml:"algorithm"`
-	
+
 	// Header configuration
 	SignatureHeader string   `json:"signature_header" yaml:"signature_header"`
 	TimestampHeader string   `json:"timestamp_header" yaml:"timestamp_header"`
 	NonceHeader     string   `json:"nonce_header" yaml:"nonce_header"`
 	IncludeHeaders  []string `json:"include_headers" yaml:"include_headers"`
-	
+
 	// Validation
 	MaxClockSkew time.Duration `json:"max_clock_skew" yaml:"max_clock_skew"`
 	RequireNonce bool          `json:"require_nonce" yaml:"require_nonce"`
-	
+
 	// User mapping (signature -> user info)
 	Users map[string]*HMACUser `json:"users" yaml:"users"`
 
@@ -315,7 +315,7 @@ type HMACUser struct {
 type BearerConfig struct {
 	// Token validation
 	Tokens map[string]*BearerTokenInfo `json:"tokens" yaml:"tokens"`
-	
+
 	// Header configuration
 	HeaderName string `json:"header_name" yaml:"header_name"`
 	Prefix     string `json:"prefix" yaml:"prefix"`
@@ -339,19 +339,19 @@ func (info *BearerTokenInfo) IsExpired() bool {
 
 // AuthMiddleware implements authentication middleware with secure credential management
 type AuthMiddleware struct {
-	config    *AuthConfig
-	logger    *zap.Logger
-	mu        sync.RWMutex
-	
+	config *AuthConfig
+	logger *zap.Logger
+	mu     sync.RWMutex
+
 	// JWT parser and validator
 	jwtParser *jwt.Parser
-	
+
 	// Used nonces for HMAC replay protection
 	usedNonces map[string]time.Time
 
 	// Secure credential management
 	credentialManager *CredentialManager
-	auditor          *CredentialAuditor
+	auditor           *CredentialAuditor
 }
 
 // NewAuthMiddleware creates a new authentication middleware
@@ -359,15 +359,15 @@ func NewAuthMiddleware(config *AuthConfig, logger *zap.Logger) (*AuthMiddleware,
 	if config == nil {
 		return nil, fmt.Errorf("auth config cannot be nil")
 	}
-	
+
 	if err := ValidateBaseConfig(&config.BaseConfig); err != nil {
 		return nil, fmt.Errorf("invalid base config: %w", err)
 	}
-	
+
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	
+
 	// Set defaults
 	if config.Name == "" {
 		config.Name = "auth"
@@ -375,7 +375,7 @@ func NewAuthMiddleware(config *AuthConfig, logger *zap.Logger) (*AuthMiddleware,
 	if config.Priority == 0 {
 		config.Priority = 100 // High priority for auth
 	}
-	
+
 	// Validate and set BCrypt cost defaults
 	if config.BCryptCost == 0 {
 		config.BCryptCost = BCryptDefaultCost
@@ -384,7 +384,7 @@ func NewAuthMiddleware(config *AuthConfig, logger *zap.Logger) (*AuthMiddleware,
 			return nil, fmt.Errorf("invalid global bcrypt cost: %w", err)
 		}
 	}
-	
+
 	// Validate Basic Auth BCrypt cost and existing password hashes
 	if config.Method == AuthMethodBasic {
 		if config.BasicAuth.BCryptCost == 0 {
@@ -394,7 +394,7 @@ func NewAuthMiddleware(config *AuthConfig, logger *zap.Logger) (*AuthMiddleware,
 				return nil, fmt.Errorf("invalid basic auth bcrypt cost: %w", err)
 			}
 		}
-		
+
 		// Validate existing user password hashes meet security requirements
 		for username, user := range config.BasicAuth.Users {
 			if user.PasswordHash != "" {
@@ -408,7 +408,7 @@ func NewAuthMiddleware(config *AuthConfig, logger *zap.Logger) (*AuthMiddleware,
 			}
 		}
 	}
-	
+
 	if config.JWT.TokenHeader == "" {
 		config.JWT.TokenHeader = "Authorization"
 	}
@@ -442,20 +442,20 @@ func NewAuthMiddleware(config *AuthConfig, logger *zap.Logger) (*AuthMiddleware,
 	if config.Bearer.Prefix == "" {
 		config.Bearer.Prefix = "Bearer "
 	}
-	
+
 	middleware := &AuthMiddleware{
 		config:            config,
 		logger:            logger,
 		usedNonces:        make(map[string]time.Time),
 		credentialManager: NewCredentialManager(logger),
-		auditor:          NewCredentialAuditor(logger),
+		auditor:           NewCredentialAuditor(logger),
 	}
 
 	// Load secure credentials from environment variables
 	if err := middleware.loadSecureCredentials(); err != nil {
 		return nil, fmt.Errorf("failed to load secure credentials: %w", err)
 	}
-	
+
 	// Initialize JWT parser
 	if config.Method == AuthMethodJWT {
 		middleware.jwtParser = jwt.NewParser(
@@ -468,7 +468,7 @@ func NewAuthMiddleware(config *AuthConfig, logger *zap.Logger) (*AuthMiddleware,
 			)
 		}
 	}
-	
+
 	return middleware, nil
 }
 
@@ -500,11 +500,11 @@ func (am *AuthMiddleware) loadJWTCredentials() error {
 		if am.config.JWT.SecretKeyEnv == "" {
 			return fmt.Errorf("JWT secret key environment variable not specified for HMAC method")
 		}
-		
+
 		if err := am.credentialManager.LoadCredential("jwt_secret", am.config.JWT.SecretKeyEnv, DefaultJWTValidator()); err != nil {
 			return fmt.Errorf("failed to load JWT secret key: %w", err)
 		}
-		
+
 		cred, _ := am.credentialManager.GetCredential("jwt_secret")
 		am.config.JWT.secretKey = cred
 		am.auditor.AuditCredentialValidation("jwt_secret", true, nil)
@@ -515,7 +515,7 @@ func (am *AuthMiddleware) loadJWTCredentials() error {
 			if err := am.credentialManager.LoadCredential("jwt_public", am.config.JWT.PublicKeyEnv, &CredentialValidator{MinLength: 100}); err != nil {
 				return fmt.Errorf("failed to load JWT public key: %w", err)
 			}
-			
+
 			cred, _ := am.credentialManager.GetCredential("jwt_public")
 			am.config.JWT.publicKey = cred
 			am.auditor.AuditCredentialValidation("jwt_public", true, nil)
@@ -525,7 +525,7 @@ func (am *AuthMiddleware) loadJWTCredentials() error {
 			if err := am.credentialManager.LoadCredential("jwt_private", am.config.JWT.PrivateKeyEnv, &CredentialValidator{MinLength: 100}); err != nil {
 				return fmt.Errorf("failed to load JWT private key: %w", err)
 			}
-			
+
 			cred, _ := am.credentialManager.GetCredential("jwt_private")
 			am.config.JWT.privateKey = cred
 			am.auditor.AuditCredentialValidation("jwt_private", true, nil)
@@ -547,7 +547,7 @@ func (am *AuthMiddleware) loadHMACCredentials() error {
 	if err := am.credentialManager.LoadCredential("hmac_secret", am.config.HMAC.SecretKeyEnv, DefaultHMACValidator()); err != nil {
 		return fmt.Errorf("failed to load HMAC secret key: %w", err)
 	}
-	
+
 	cred, _ := am.credentialManager.GetCredential("hmac_secret")
 	am.config.HMAC.secretKey = cred
 	am.auditor.AuditCredentialValidation("hmac_secret", true, nil)
@@ -562,42 +562,42 @@ func (am *AuthMiddleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		
+
 		// Check if path is excluded
 		if am.isExcludedPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
-		
+
 		// Perform authentication
 		user, err := am.authenticate(r)
 		if err != nil {
 			am.handleAuthError(w, r, err)
 			return
 		}
-		
+
 		// Check if authentication is optional for this path
 		if user == nil && am.isOptionalPath(r.URL.Path) {
 			next.ServeHTTP(w, r)
 			return
 		}
-		
+
 		// Require authentication for non-optional paths
 		if user == nil {
 			am.handleAuthError(w, r, fmt.Errorf("authentication required"))
 			return
 		}
-		
+
 		// Perform authorization
 		if err := am.authorize(user); err != nil {
 			am.handleAuthError(w, r, err)
 			return
 		}
-		
+
 		// Add user to context
 		ctx := context.WithValue(r.Context(), AuthContextKey, user)
 		ctx = SetUserID(ctx, user.ID)
-		
+
 		// Continue with authenticated request
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
@@ -622,15 +622,15 @@ func (am *AuthMiddleware) Config() interface{} {
 func (am *AuthMiddleware) Cleanup() error {
 	am.mu.Lock()
 	defer am.mu.Unlock()
-	
+
 	// Clear used nonces
 	am.usedNonces = make(map[string]time.Time)
-	
+
 	// Securely cleanup credentials
 	if am.credentialManager != nil {
 		am.credentialManager.Cleanup()
 	}
-	
+
 	// Clear credential references in configs
 	if am.config.JWT.secretKey != nil {
 		am.config.JWT.secretKey = nil
@@ -644,9 +644,9 @@ func (am *AuthMiddleware) Cleanup() error {
 	if am.config.HMAC.secretKey != nil {
 		am.config.HMAC.secretKey = nil
 	}
-	
+
 	am.logger.Info("AuthMiddleware cleanup completed with secure credential clearing")
-	
+
 	return nil
 }
 
@@ -675,14 +675,14 @@ func (am *AuthMiddleware) authenticateJWT(r *http.Request) (*AuthUser, error) {
 	if tokenString == "" {
 		return nil, fmt.Errorf("no JWT token found")
 	}
-	
+
 	// Parse and validate token
 	token, err := am.jwtParser.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		// Validate signing method
 		if token.Method.Alg() != am.config.JWT.SigningMethod {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
-		
+
 		// Return appropriate key based on signing method - SECURE VERSION
 		switch am.config.JWT.SigningMethod {
 		case "HS256", "HS384", "HS512":
@@ -702,28 +702,28 @@ func (am *AuthMiddleware) authenticateJWT(r *http.Request) (*AuthUser, error) {
 			return nil, fmt.Errorf("unsupported signing method: %s", am.config.JWT.SigningMethod)
 		}
 	})
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("JWT validation failed: %w", err)
 	}
-	
+
 	if !token.Valid {
 		return nil, fmt.Errorf("invalid JWT token")
 	}
-	
+
 	// Extract claims
 	claims, ok := token.Claims.(jwt.MapClaims)
 	if !ok {
 		return nil, fmt.Errorf("invalid JWT claims")
 	}
-	
+
 	// Validate issuer if configured
 	if am.config.JWT.Issuer != "" {
 		if iss, ok := claims["iss"].(string); !ok || iss != am.config.JWT.Issuer {
 			return nil, fmt.Errorf("invalid issuer")
 		}
 	}
-	
+
 	// Validate audience if configured
 	if len(am.config.JWT.Audience) > 0 {
 		if aud, ok := claims["aud"].([]interface{}); ok {
@@ -744,11 +744,11 @@ func (am *AuthMiddleware) authenticateJWT(r *http.Request) (*AuthUser, error) {
 			}
 		}
 	}
-	
+
 	// Create user from claims using object pool
 	user := AuthUserPool.Get().(*AuthUser)
 	ResetAuthUser(user) // Clear previous data
-	
+
 	if sub, ok := claims["sub"].(string); ok {
 		user.ID = sub
 	}
@@ -774,14 +774,14 @@ func (am *AuthMiddleware) authenticateJWT(r *http.Request) (*AuthUser, error) {
 			}
 		}
 	}
-	
+
 	// Copy other claims to metadata
 	for key, value := range claims {
 		if key != "sub" && key != "username" && key != "email" && key != "roles" && key != "permissions" {
 			user.Metadata[key] = value
 		}
 	}
-	
+
 	return user, nil
 }
 
@@ -790,7 +790,7 @@ func ResetAuthUser(user *AuthUser) {
 	user.ID = ""
 	user.Username = ""
 	user.Email = ""
-	user.Roles = user.Roles[:0]        // Keep capacity, reset length
+	user.Roles = user.Roles[:0]             // Keep capacity, reset length
 	user.Permissions = user.Permissions[:0] // Keep capacity, reset length
 	// Clear map efficiently
 	for k := range user.Metadata {
@@ -824,29 +824,29 @@ func (am *AuthMiddleware) authenticateAPIKey(r *http.Request) (*AuthUser, error)
 	if apiKey == "" {
 		return nil, fmt.Errorf("no API key found")
 	}
-	
+
 	// Validate key length if configured
 	if am.config.APIKey.ValidateLength {
 		if len(apiKey) < am.config.APIKey.MinLength || len(apiKey) > am.config.APIKey.MaxLength {
 			return nil, fmt.Errorf("invalid API key length")
 		}
 	}
-	
+
 	// Look up key info
 	keyInfo, exists := am.config.APIKey.Keys[apiKey]
 	if !exists {
 		return nil, fmt.Errorf("invalid API key")
 	}
-	
+
 	// Check expiration
 	if keyInfo.IsExpired() {
 		return nil, fmt.Errorf("API key expired")
 	}
-	
+
 	// Update last used time
 	now := time.Now()
 	keyInfo.LastUsedAt = &now
-	
+
 	// Create user from key info using object pool
 	user := AuthUserPool.Get().(*AuthUser)
 	ResetAuthUser(user)
@@ -857,7 +857,7 @@ func (am *AuthMiddleware) authenticateAPIKey(r *http.Request) (*AuthUser, error)
 	for k, v := range keyInfo.Metadata {
 		user.Metadata[k] = v
 	}
-	
+
 	return user, nil
 }
 
@@ -868,18 +868,18 @@ func (am *AuthMiddleware) authenticateBasic(r *http.Request) (*AuthUser, error) 
 	if !ok {
 		return nil, fmt.Errorf("no Basic auth credentials found")
 	}
-	
+
 	// Look up user
 	userInfo, exists := am.config.BasicAuth.Users[username]
 	if !exists {
 		return nil, fmt.Errorf("invalid credentials")
 	}
-	
+
 	// Verify password
 	if err := bcrypt.CompareHashAndPassword([]byte(userInfo.PasswordHash), []byte(password)); err != nil {
 		return nil, fmt.Errorf("invalid credentials")
 	}
-	
+
 	// Create user from info using object pool
 	user := AuthUserPool.Get().(*AuthUser)
 	ResetAuthUser(user)
@@ -890,7 +890,7 @@ func (am *AuthMiddleware) authenticateBasic(r *http.Request) (*AuthUser, error) 
 	for k, v := range userInfo.Metadata {
 		user.Metadata[k] = v
 	}
-	
+
 	return user, nil
 }
 
@@ -901,24 +901,24 @@ func (am *AuthMiddleware) authenticateHMAC(r *http.Request) (*AuthUser, error) {
 	if signature == "" {
 		return nil, fmt.Errorf("no HMAC signature found")
 	}
-	
+
 	// Extract timestamp
 	timestampStr := r.Header.Get(am.config.HMAC.TimestampHeader)
 	if timestampStr == "" {
 		return nil, fmt.Errorf("no timestamp found")
 	}
-	
+
 	timestamp, err := strconv.ParseInt(timestampStr, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid timestamp format")
 	}
-	
+
 	// Check clock skew
 	now := time.Now().Unix()
 	if abs(now-timestamp) > int64(am.config.HMAC.MaxClockSkew.Seconds()) {
 		return nil, fmt.Errorf("timestamp outside allowed clock skew")
 	}
-	
+
 	// Extract nonce if required
 	var nonce string
 	if am.config.HMAC.RequireNonce {
@@ -926,7 +926,7 @@ func (am *AuthMiddleware) authenticateHMAC(r *http.Request) (*AuthUser, error) {
 		if nonce == "" {
 			return nil, fmt.Errorf("no nonce found")
 		}
-		
+
 		// Check for replay attack
 		am.mu.Lock()
 		if _, used := am.usedNonces[nonce]; used {
@@ -936,18 +936,18 @@ func (am *AuthMiddleware) authenticateHMAC(r *http.Request) (*AuthUser, error) {
 		am.usedNonces[nonce] = time.Now()
 		am.mu.Unlock()
 	}
-	
+
 	// Build signature string
 	sigString := am.buildSignatureString(r, timestampStr, nonce)
-	
+
 	// Calculate expected signature
 	expectedSig := am.calculateHMAC(sigString)
-	
+
 	// Compare signatures
 	if !am.constantTimeCompare(signature, expectedSig) {
 		return nil, fmt.Errorf("invalid HMAC signature")
 	}
-	
+
 	// For HMAC, we need a way to identify the user
 	// This is a simplified approach - in practice, you might include user ID in the signature
 	// or have a separate header for user identification
@@ -964,7 +964,7 @@ func (am *AuthMiddleware) authenticateHMAC(r *http.Request) (*AuthUser, error) {
 		}
 		return user, nil
 	}
-	
+
 	// Default user for valid HMAC signature using object pool
 	user := AuthUserPool.Get().(*AuthUser)
 	ResetAuthUser(user)
@@ -980,18 +980,18 @@ func (am *AuthMiddleware) authenticateBearer(r *http.Request) (*AuthUser, error)
 	if token == "" {
 		return nil, fmt.Errorf("no Bearer token found")
 	}
-	
+
 	// Look up token info
 	tokenInfo, exists := am.config.Bearer.Tokens[token]
 	if !exists {
 		return nil, fmt.Errorf("invalid Bearer token")
 	}
-	
+
 	// Check expiration
 	if tokenInfo.IsExpired() {
 		return nil, fmt.Errorf("Bearer token expired")
 	}
-	
+
 	// Create user from token info using object pool
 	user := AuthUserPool.Get().(*AuthUser)
 	ResetAuthUser(user)
@@ -1002,7 +1002,7 @@ func (am *AuthMiddleware) authenticateBearer(r *http.Request) (*AuthUser, error)
 	for k, v := range tokenInfo.Metadata {
 		user.Metadata[k] = v
 	}
-	
+
 	return user, nil
 }
 
@@ -1014,14 +1014,14 @@ func (am *AuthMiddleware) authorize(user *AuthUser) error {
 			return fmt.Errorf("insufficient roles")
 		}
 	}
-	
+
 	// Check required permissions
 	for _, perm := range am.config.RequiredPermissions {
 		if !user.HasPermission(perm) {
 			return fmt.Errorf("insufficient permissions")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -1033,21 +1033,21 @@ func (am *AuthMiddleware) extractJWTToken(r *http.Request) string {
 	if strings.HasPrefix(authHeader, am.config.JWT.TokenPrefix) {
 		return strings.TrimPrefix(authHeader, am.config.JWT.TokenPrefix)
 	}
-	
+
 	// Try query parameter
 	if am.config.JWT.QueryParam != "" {
 		if token := r.URL.Query().Get(am.config.JWT.QueryParam); token != "" {
 			return token
 		}
 	}
-	
+
 	// Try cookie
 	if am.config.JWT.CookieName != "" {
 		if cookie, err := r.Cookie(am.config.JWT.CookieName); err == nil {
 			return cookie.Value
 		}
 	}
-	
+
 	return ""
 }
 
@@ -1060,14 +1060,14 @@ func (am *AuthMiddleware) extractAPIKey(r *http.Request) string {
 		}
 		return key
 	}
-	
+
 	// Try query parameter
 	if am.config.APIKey.QueryParam != "" {
 		if key := r.URL.Query().Get(am.config.APIKey.QueryParam); key != "" {
 			return key
 		}
 	}
-	
+
 	return ""
 }
 
@@ -1083,32 +1083,32 @@ func (am *AuthMiddleware) extractBearerToken(r *http.Request) string {
 
 func (am *AuthMiddleware) buildSignatureString(r *http.Request, timestamp, nonce string) string {
 	var parts []string
-	
+
 	// Add method and path
 	parts = append(parts, r.Method, r.URL.Path)
-	
+
 	// Add timestamp
 	parts = append(parts, timestamp)
-	
+
 	// Add nonce if present
 	if nonce != "" {
 		parts = append(parts, nonce)
 	}
-	
+
 	// Add included headers
 	for _, headerName := range am.config.HMAC.IncludeHeaders {
 		if value := r.Header.Get(headerName); value != "" {
 			parts = append(parts, headerName+":"+value)
 		}
 	}
-	
+
 	// Add body hash for POST/PUT requests
 	if r.Method == "POST" || r.Method == "PUT" || r.Method == "PATCH" {
 		// In a real implementation, you'd read and hash the body
 		// This is simplified for demonstration
 		parts = append(parts, "body-hash:placeholder")
 	}
-	
+
 	return strings.Join(parts, "\n")
 }
 
@@ -1119,14 +1119,14 @@ func (am *AuthMiddleware) calculateHMAC(data string) string {
 	}
 
 	var mac hash.Hash
-	
+
 	switch am.config.HMAC.Algorithm {
 	case "sha256":
 		mac = hmac.New(sha256.New, am.config.HMAC.secretKey.Bytes())
 	default:
 		mac = hmac.New(sha256.New, am.config.HMAC.secretKey.Bytes())
 	}
-	
+
 	am.auditor.AuditCredentialAccess("hmac_secret", "signing", true)
 	mac.Write([]byte(data))
 	return hex.EncodeToString(mac.Sum(nil))
@@ -1161,11 +1161,11 @@ func (am *AuthMiddleware) isOptionalPath(path string) bool {
 func (am *AuthMiddleware) handleAuthError(w http.ResponseWriter, r *http.Request, err error) {
 	statusCode := http.StatusUnauthorized
 	message := "Authentication required"
-	
+
 	if !am.config.SecureErrorMode {
 		message = err.Error()
 	}
-	
+
 	// Set appropriate authentication challenge header
 	switch am.config.Method {
 	case AuthMethodBasic:
@@ -1173,22 +1173,22 @@ func (am *AuthMiddleware) handleAuthError(w http.ResponseWriter, r *http.Request
 	case AuthMethodBearer, AuthMethodJWT:
 		w.Header().Set("WWW-Authenticate", "Bearer")
 	}
-	
+
 	am.logger.Debug("Authentication failed",
 		zap.String("path", r.URL.Path),
 		zap.String("method", r.Method),
 		zap.String("remote_addr", r.RemoteAddr),
 		zap.Error(err),
 	)
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	
+
 	response := map[string]interface{}{
 		"error":     message,
 		"timestamp": time.Now().Unix(),
 	}
-	
+
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -1218,7 +1218,7 @@ func RequireAuth(method AuthMethod, logger *zap.Logger) (*AuthMiddleware, error)
 		Method:          method,
 		SecureErrorMode: true,
 	}
-	
+
 	return NewAuthMiddleware(config, logger)
 }
 
@@ -1232,12 +1232,12 @@ func CreateAPIKeyHashWithCost(key string, cost int) (string, error) {
 	if key == "" {
 		return "", fmt.Errorf("API key cannot be empty")
 	}
-	
+
 	// Validate cost parameter
 	if err := ValidateBCryptCost(cost); err != nil {
 		return "", fmt.Errorf("invalid bcrypt cost for API key hashing: %w", err)
 	}
-	
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(key), cost)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate bcrypt hash: %w", err)
@@ -1268,12 +1268,12 @@ func HashPasswordWithCost(password string, cost int) (string, error) {
 	if password == "" {
 		return "", fmt.Errorf("password cannot be empty")
 	}
-	
+
 	// Validate cost parameter
 	if err := ValidateBCryptCost(cost); err != nil {
 		return "", fmt.Errorf("invalid bcrypt cost for password hashing: %w", err)
 	}
-	
+
 	hash, err := bcrypt.GenerateFromPassword([]byte(password), cost)
 	if err != nil {
 		return "", fmt.Errorf("failed to generate bcrypt hash: %w", err)
@@ -1289,7 +1289,7 @@ func VerifyPassword(password, hash string) error {
 	if hash == "" {
 		return fmt.Errorf("hash cannot be empty")
 	}
-	
+
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	if err != nil {
 		return fmt.Errorf("password verification failed: %w", err)
@@ -1302,14 +1302,14 @@ func GetBCryptCostFromHash(hash string) (int, error) {
 	if hash == "" {
 		return 0, fmt.Errorf("hash cannot be empty")
 	}
-	
+
 	// BCrypt hash format: $2a$cost$salt+hash
 	// Extract cost from hash
 	cost, err := bcrypt.Cost([]byte(hash))
 	if err != nil {
 		return 0, fmt.Errorf("failed to extract cost from bcrypt hash: %w", err)
 	}
-	
+
 	return cost, nil
 }
 
@@ -1318,18 +1318,18 @@ func ValidatePasswordHash(hash string) error {
 	if hash == "" {
 		return fmt.Errorf("password hash cannot be empty")
 	}
-	
+
 	// Extract and validate cost
 	cost, err := GetBCryptCostFromHash(hash)
 	if err != nil {
 		return fmt.Errorf("invalid bcrypt hash format: %w", err)
 	}
-	
+
 	// Validate cost meets security requirements
 	if err := ValidateBCryptCost(cost); err != nil {
 		return fmt.Errorf("password hash uses insecure bcrypt cost: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -1338,14 +1338,14 @@ func ValidateAuthConfig(config *AuthConfig) error {
 	if config == nil {
 		return fmt.Errorf("auth config cannot be nil")
 	}
-	
+
 	// Validate global BCrypt cost
 	if config.BCryptCost != 0 {
 		if err := ValidateBCryptCost(config.BCryptCost); err != nil {
 			return fmt.Errorf("invalid global bcrypt cost: %w", err)
 		}
 	}
-	
+
 	// Method-specific validation
 	switch config.Method {
 	case AuthMethodBasic:
@@ -1355,7 +1355,7 @@ func ValidateAuthConfig(config *AuthConfig) error {
 				return fmt.Errorf("invalid basic auth bcrypt cost: %w", err)
 			}
 		}
-		
+
 		// Count users with weak password hashes
 		weakHashCount := 0
 		for username, user := range config.BasicAuth.Users {
@@ -1367,13 +1367,13 @@ func ValidateAuthConfig(config *AuthConfig) error {
 				}
 			}
 		}
-		
+
 		// If all users have weak hashes and there are users, that's a critical security issue
 		if weakHashCount > 0 && weakHashCount == len(config.BasicAuth.Users) && len(config.BasicAuth.Users) > 0 {
 			return fmt.Errorf("all %d basic auth users have insecure password hashes below minimum cost %d", weakHashCount, BCryptMinCost)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -1385,10 +1385,10 @@ func GetEffectiveBCryptCost(config *AuthConfig, method AuthMethod) int {
 			return config.BasicAuth.BCryptCost
 		}
 	}
-	
+
 	if config.BCryptCost > 0 {
 		return config.BCryptCost
 	}
-	
+
 	return BCryptDefaultCost
 }

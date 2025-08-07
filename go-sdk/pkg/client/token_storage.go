@@ -26,22 +26,22 @@ type TokenStorage interface {
 
 // MemoryTokenStorage stores tokens in memory
 type MemoryTokenStorage struct {
-	config    *TokenStorageConfig
-	logger    *zap.Logger
-	tokens    map[string]*TokenInfo
+	config     *TokenStorageConfig
+	logger     *zap.Logger
+	tokens     map[string]*TokenInfo
 	userTokens map[string][]string // userID -> []tokenID
-	mu        sync.RWMutex
-	gcTicker  *time.Ticker
-	stopGC    chan bool
+	mu         sync.RWMutex
+	gcTicker   *time.Ticker
+	stopGC     chan bool
 }
 
 // FileTokenStorage stores tokens in encrypted files
 type FileTokenStorage struct {
-	config     *TokenStorageConfig
-	logger     *zap.Logger
-	encryptor  *TokenEncryptor
-	filePath   string
-	mu         sync.RWMutex
+	config    *TokenStorageConfig
+	logger    *zap.Logger
+	encryptor *TokenEncryptor
+	filePath  string
+	mu        sync.RWMutex
 }
 
 // TokenEncryptor handles token encryption/decryption
@@ -70,11 +70,11 @@ func NewTokenStorage(config *TokenStorageConfig, logger *zap.Logger) (TokenStora
 	if config == nil {
 		return nil, fmt.Errorf("token storage config cannot be nil")
 	}
-	
+
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	
+
 	switch config.StorageType {
 	case "memory":
 		return NewMemoryTokenStorage(config, logger)
@@ -94,10 +94,10 @@ func NewMemoryTokenStorage(config *TokenStorageConfig, logger *zap.Logger) (*Mem
 		userTokens: make(map[string][]string),
 		stopGC:     make(chan bool),
 	}
-	
+
 	// Start garbage collection for expired tokens
 	mts.startGarbageCollection()
-	
+
 	return mts, nil
 }
 
@@ -106,13 +106,13 @@ func (mts *MemoryTokenStorage) StoreToken(token string, info *TokenInfo) error {
 	if token == "" || info == nil {
 		return fmt.Errorf("token and info cannot be empty/nil")
 	}
-	
+
 	mts.mu.Lock()
 	defer mts.mu.Unlock()
-	
+
 	// Store token
 	mts.tokens[token] = info
-	
+
 	// Update user token mapping
 	if info.Subject != "" {
 		if mts.userTokens[info.Subject] == nil {
@@ -120,12 +120,12 @@ func (mts *MemoryTokenStorage) StoreToken(token string, info *TokenInfo) error {
 		}
 		mts.userTokens[info.Subject] = append(mts.userTokens[info.Subject], token)
 	}
-	
+
 	mts.logger.Debug("Stored token in memory",
 		zap.String("token_type", string(info.TokenType)),
 		zap.String("subject", info.Subject),
 		zap.Time("expires_at", info.ExpiresAt))
-	
+
 	return nil
 }
 
@@ -134,20 +134,20 @@ func (mts *MemoryTokenStorage) GetToken(token string) (*TokenInfo, error) {
 	if token == "" {
 		return nil, fmt.Errorf("token cannot be empty")
 	}
-	
+
 	mts.mu.RLock()
 	defer mts.mu.RUnlock()
-	
+
 	info, exists := mts.tokens[token]
 	if !exists {
 		return nil, fmt.Errorf("token not found")
 	}
-	
+
 	// Check if token is expired
 	if time.Now().After(info.ExpiresAt) {
 		return nil, fmt.Errorf("token has expired")
 	}
-	
+
 	return info, nil
 }
 
@@ -156,18 +156,18 @@ func (mts *MemoryTokenStorage) RevokeToken(token string) error {
 	if token == "" {
 		return fmt.Errorf("token cannot be empty")
 	}
-	
+
 	mts.mu.Lock()
 	defer mts.mu.Unlock()
-	
+
 	info, exists := mts.tokens[token]
 	if !exists {
 		return fmt.Errorf("token not found")
 	}
-	
+
 	// Remove from tokens map
 	delete(mts.tokens, token)
-	
+
 	// Remove from user tokens mapping
 	if info.Subject != "" {
 		userTokens := mts.userTokens[info.Subject]
@@ -177,17 +177,17 @@ func (mts *MemoryTokenStorage) RevokeToken(token string) error {
 				break
 			}
 		}
-		
+
 		// Clean up empty user token lists
 		if len(mts.userTokens[info.Subject]) == 0 {
 			delete(mts.userTokens, info.Subject)
 		}
 	}
-	
+
 	mts.logger.Debug("Revoked token from memory",
 		zap.String("subject", info.Subject),
 		zap.String("token_type", string(info.TokenType)))
-	
+
 	return nil
 }
 
@@ -196,16 +196,16 @@ func (mts *MemoryTokenStorage) ListTokens(userID string) ([]*TokenInfo, error) {
 	if userID == "" {
 		return nil, fmt.Errorf("userID cannot be empty")
 	}
-	
+
 	mts.mu.RLock()
 	defer mts.mu.RUnlock()
-	
+
 	var tokens []*TokenInfo
 	userTokenList, exists := mts.userTokens[userID]
 	if !exists {
 		return tokens, nil // Return empty list if no tokens found
 	}
-	
+
 	for _, token := range userTokenList {
 		if info, exists := mts.tokens[token]; exists {
 			// Only return non-expired tokens
@@ -214,7 +214,7 @@ func (mts *MemoryTokenStorage) ListTokens(userID string) ([]*TokenInfo, error) {
 			}
 		}
 	}
-	
+
 	return tokens, nil
 }
 
@@ -222,22 +222,22 @@ func (mts *MemoryTokenStorage) ListTokens(userID string) ([]*TokenInfo, error) {
 func (mts *MemoryTokenStorage) CleanupExpiredTokens() error {
 	mts.mu.Lock()
 	defer mts.mu.Unlock()
-	
+
 	now := time.Now()
 	var expiredTokens []string
-	
+
 	// Find expired tokens
 	for token, info := range mts.tokens {
 		if now.After(info.ExpiresAt) {
 			expiredTokens = append(expiredTokens, token)
 		}
 	}
-	
+
 	// Remove expired tokens
 	for _, token := range expiredTokens {
 		info := mts.tokens[token]
 		delete(mts.tokens, token)
-		
+
 		// Remove from user tokens mapping
 		if info.Subject != "" {
 			userTokens := mts.userTokens[info.Subject]
@@ -247,26 +247,26 @@ func (mts *MemoryTokenStorage) CleanupExpiredTokens() error {
 					break
 				}
 			}
-			
+
 			// Clean up empty user token lists
 			if len(mts.userTokens[info.Subject]) == 0 {
 				delete(mts.userTokens, info.Subject)
 			}
 		}
 	}
-	
+
 	if len(expiredTokens) > 0 {
 		mts.logger.Info("Cleaned up expired tokens",
 			zap.Int("count", len(expiredTokens)))
 	}
-	
+
 	return nil
 }
 
 // startGarbageCollection starts periodic cleanup of expired tokens
 func (mts *MemoryTokenStorage) startGarbageCollection() {
 	mts.gcTicker = time.NewTicker(time.Hour) // Run every hour
-	
+
 	go func() {
 		for {
 			select {
@@ -289,13 +289,13 @@ func (mts *MemoryTokenStorage) Cleanup() error {
 	if mts.gcTicker != nil {
 		mts.gcTicker.Stop()
 	}
-	
+
 	// Clear all tokens
 	mts.mu.Lock()
 	mts.tokens = make(map[string]*TokenInfo)
 	mts.userTokens = make(map[string][]string)
 	mts.mu.Unlock()
-	
+
 	mts.logger.Info("Memory token storage cleanup completed")
 	return nil
 }
@@ -305,7 +305,7 @@ func NewFileTokenStorage(config *TokenStorageConfig, logger *zap.Logger) (*FileT
 	if config.FilePath == "" {
 		return nil, fmt.Errorf("file path must be specified for file storage")
 	}
-	
+
 	var encryptor *TokenEncryptor
 	if config.Encryption.Enabled {
 		var err error
@@ -314,14 +314,14 @@ func NewFileTokenStorage(config *TokenStorageConfig, logger *zap.Logger) (*FileT
 			return nil, fmt.Errorf("failed to create token encryptor: %w", err)
 		}
 	}
-	
+
 	fts := &FileTokenStorage{
 		config:    config,
 		logger:    logger,
 		encryptor: encryptor,
 		filePath:  config.FilePath,
 	}
-	
+
 	return fts, nil
 }
 
@@ -330,16 +330,16 @@ func (fts *FileTokenStorage) StoreToken(token string, info *TokenInfo) error {
 	if token == "" || info == nil {
 		return fmt.Errorf("token and info cannot be empty/nil")
 	}
-	
+
 	fts.mu.Lock()
 	defer fts.mu.Unlock()
-	
+
 	// Load existing store
 	store, err := fts.loadStore()
 	if err != nil {
 		return fmt.Errorf("failed to load token store: %w", err)
 	}
-	
+
 	// Encrypt token info if encryption is enabled
 	var tokenData *EncryptedTokenData
 	if fts.encryptor != nil {
@@ -354,10 +354,10 @@ func (fts *FileTokenStorage) StoreToken(token string, info *TokenInfo) error {
 			Ciphertext: infoBytes,
 		}
 	}
-	
+
 	// Store token
 	store.Tokens[token] = tokenData
-	
+
 	// Update user token mapping
 	if info.Subject != "" {
 		if store.UserTokens[info.Subject] == nil {
@@ -365,19 +365,19 @@ func (fts *FileTokenStorage) StoreToken(token string, info *TokenInfo) error {
 		}
 		store.UserTokens[info.Subject] = append(store.UserTokens[info.Subject], token)
 	}
-	
+
 	store.LastUpdated = time.Now()
-	
+
 	// Save store
 	if err := fts.saveStore(store); err != nil {
 		return fmt.Errorf("failed to save token store: %w", err)
 	}
-	
+
 	fts.logger.Debug("Stored token in file",
 		zap.String("token_type", string(info.TokenType)),
 		zap.String("subject", info.Subject),
 		zap.String("file", fts.filePath))
-	
+
 	return nil
 }
 
@@ -386,22 +386,22 @@ func (fts *FileTokenStorage) GetToken(token string) (*TokenInfo, error) {
 	if token == "" {
 		return nil, fmt.Errorf("token cannot be empty")
 	}
-	
+
 	fts.mu.RLock()
 	defer fts.mu.RUnlock()
-	
+
 	// Load store
 	store, err := fts.loadStore()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load token store: %w", err)
 	}
-	
+
 	// Get encrypted token data
 	tokenData, exists := store.Tokens[token]
 	if !exists {
 		return nil, fmt.Errorf("token not found")
 	}
-	
+
 	// Decrypt token info
 	var info *TokenInfo
 	if fts.encryptor != nil {
@@ -416,12 +416,12 @@ func (fts *FileTokenStorage) GetToken(token string) (*TokenInfo, error) {
 			return nil, fmt.Errorf("failed to unmarshal token info: %w", err)
 		}
 	}
-	
+
 	// Check if token is expired
 	if time.Now().After(info.ExpiresAt) {
 		return nil, fmt.Errorf("token has expired")
 	}
-	
+
 	return info, nil
 }
 
@@ -430,22 +430,22 @@ func (fts *FileTokenStorage) RevokeToken(token string) error {
 	if token == "" {
 		return fmt.Errorf("token cannot be empty")
 	}
-	
+
 	fts.mu.Lock()
 	defer fts.mu.Unlock()
-	
+
 	// Load store
 	store, err := fts.loadStore()
 	if err != nil {
 		return fmt.Errorf("failed to load token store: %w", err)
 	}
-	
+
 	// Get token info for user mapping cleanup
 	tokenData, exists := store.Tokens[token]
 	if !exists {
 		return fmt.Errorf("token not found")
 	}
-	
+
 	var info *TokenInfo
 	if fts.encryptor != nil {
 		info, err = fts.encryptor.Decrypt(tokenData)
@@ -458,10 +458,10 @@ func (fts *FileTokenStorage) RevokeToken(token string) error {
 			return fmt.Errorf("failed to unmarshal token info: %w", err)
 		}
 	}
-	
+
 	// Remove token
 	delete(store.Tokens, token)
-	
+
 	// Remove from user tokens mapping
 	if info.Subject != "" {
 		userTokens := store.UserTokens[info.Subject]
@@ -471,24 +471,24 @@ func (fts *FileTokenStorage) RevokeToken(token string) error {
 				break
 			}
 		}
-		
+
 		// Clean up empty user token lists
 		if len(store.UserTokens[info.Subject]) == 0 {
 			delete(store.UserTokens, info.Subject)
 		}
 	}
-	
+
 	store.LastUpdated = time.Now()
-	
+
 	// Save store
 	if err := fts.saveStore(store); err != nil {
 		return fmt.Errorf("failed to save token store: %w", err)
 	}
-	
+
 	fts.logger.Debug("Revoked token from file",
 		zap.String("subject", info.Subject),
 		zap.String("file", fts.filePath))
-	
+
 	return nil
 }
 
@@ -497,22 +497,22 @@ func (fts *FileTokenStorage) ListTokens(userID string) ([]*TokenInfo, error) {
 	if userID == "" {
 		return nil, fmt.Errorf("userID cannot be empty")
 	}
-	
+
 	fts.mu.RLock()
 	defer fts.mu.RUnlock()
-	
+
 	// Load store
 	store, err := fts.loadStore()
 	if err != nil {
 		return nil, fmt.Errorf("failed to load token store: %w", err)
 	}
-	
+
 	var tokens []*TokenInfo
 	userTokenList, exists := store.UserTokens[userID]
 	if !exists {
 		return tokens, nil // Return empty list if no tokens found
 	}
-	
+
 	for _, token := range userTokenList {
 		if tokenData, exists := store.Tokens[token]; exists {
 			var info *TokenInfo
@@ -529,14 +529,14 @@ func (fts *FileTokenStorage) ListTokens(userID string) ([]*TokenInfo, error) {
 					continue
 				}
 			}
-			
+
 			// Only return non-expired tokens
 			if time.Now().Before(info.ExpiresAt) {
 				tokens = append(tokens, info)
 			}
 		}
 	}
-	
+
 	return tokens, nil
 }
 
@@ -544,16 +544,16 @@ func (fts *FileTokenStorage) ListTokens(userID string) ([]*TokenInfo, error) {
 func (fts *FileTokenStorage) CleanupExpiredTokens() error {
 	fts.mu.Lock()
 	defer fts.mu.Unlock()
-	
+
 	// Load store
 	store, err := fts.loadStore()
 	if err != nil {
 		return fmt.Errorf("failed to load token store: %w", err)
 	}
-	
+
 	now := time.Now()
 	var expiredTokens []string
-	
+
 	// Find expired tokens
 	for token, tokenData := range store.Tokens {
 		var info *TokenInfo
@@ -570,17 +570,17 @@ func (fts *FileTokenStorage) CleanupExpiredTokens() error {
 				continue
 			}
 		}
-		
+
 		if now.After(info.ExpiresAt) {
 			expiredTokens = append(expiredTokens, token)
 		}
 	}
-	
+
 	// Remove expired tokens
 	for _, token := range expiredTokens {
 		tokenData := store.Tokens[token]
 		delete(store.Tokens, token)
-		
+
 		// Get user ID for mapping cleanup
 		var info *TokenInfo
 		if fts.encryptor != nil {
@@ -589,7 +589,7 @@ func (fts *FileTokenStorage) CleanupExpiredTokens() error {
 			info = &TokenInfo{}
 			json.Unmarshal(tokenData.Ciphertext, info)
 		}
-		
+
 		// Remove from user tokens mapping
 		if info != nil && info.Subject != "" {
 			userTokens := store.UserTokens[info.Subject]
@@ -599,24 +599,24 @@ func (fts *FileTokenStorage) CleanupExpiredTokens() error {
 					break
 				}
 			}
-			
+
 			// Clean up empty user token lists
 			if len(store.UserTokens[info.Subject]) == 0 {
 				delete(store.UserTokens, info.Subject)
 			}
 		}
 	}
-	
+
 	if len(expiredTokens) > 0 {
 		store.LastUpdated = time.Now()
 		if err := fts.saveStore(store); err != nil {
 			return fmt.Errorf("failed to save store after cleanup: %w", err)
 		}
-		
+
 		fts.logger.Info("Cleaned up expired tokens",
 			zap.Int("count", len(expiredTokens)))
 	}
-	
+
 	return nil
 }
 
@@ -632,19 +632,19 @@ func (fts *FileTokenStorage) loadStore() (*TokenStore, error) {
 			Version:     "1.0",
 		}, nil
 	}
-	
+
 	// Read file
 	data, err := os.ReadFile(fts.filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read file: %w", err)
 	}
-	
+
 	// Parse JSON
 	var store TokenStore
 	if err := json.Unmarshal(data, &store); err != nil {
 		return nil, fmt.Errorf("failed to parse file: %w", err)
 	}
-	
+
 	// Initialize maps if nil
 	if store.Tokens == nil {
 		store.Tokens = make(map[string]*EncryptedTokenData)
@@ -652,7 +652,7 @@ func (fts *FileTokenStorage) loadStore() (*TokenStore, error) {
 	if store.UserTokens == nil {
 		store.UserTokens = make(map[string][]string)
 	}
-	
+
 	return &store, nil
 }
 
@@ -663,12 +663,12 @@ func (fts *FileTokenStorage) saveStore(store *TokenStore) error {
 	if err != nil {
 		return fmt.Errorf("failed to marshal store: %w", err)
 	}
-	
+
 	// Write to file with secure permissions
 	if err := os.WriteFile(fts.filePath, data, 0600); err != nil {
 		return fmt.Errorf("failed to write file: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -678,7 +678,7 @@ func (fts *FileTokenStorage) Cleanup() error {
 	if err := fts.CleanupExpiredTokens(); err != nil {
 		fts.logger.Error("Failed to cleanup expired tokens", zap.Error(err))
 	}
-	
+
 	fts.logger.Info("File token storage cleanup completed")
 	return nil
 }
@@ -688,11 +688,11 @@ func NewTokenEncryptor(config *EncryptionConfig, logger *zap.Logger) (*TokenEncr
 	if !config.Enabled {
 		return nil, fmt.Errorf("encryption is not enabled")
 	}
-	
+
 	// Load encryption key
 	var key []byte
 	var err error
-	
+
 	if config.KeyFile != "" {
 		key, err = os.ReadFile(config.KeyFile)
 		if err != nil {
@@ -706,19 +706,19 @@ func NewTokenEncryptor(config *EncryptionConfig, logger *zap.Logger) (*TokenEncr
 		}
 		logger.Warn("Using randomly generated encryption key - tokens will not persist across restarts")
 	}
-	
+
 	// Create AES cipher
 	block, err := aes.NewCipher(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create AES cipher: %w", err)
 	}
-	
+
 	// Create GCM mode
 	gcm, err := cipher.NewGCM(block)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create GCM mode: %w", err)
 	}
-	
+
 	return &TokenEncryptor{
 		key:    key,
 		gcm:    gcm,
@@ -733,16 +733,16 @@ func (te *TokenEncryptor) Encrypt(info *TokenInfo) (*EncryptedTokenData, error) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal token info: %w", err)
 	}
-	
+
 	// Generate nonce
 	nonce := make([]byte, te.gcm.NonceSize())
 	if _, err := io.ReadFull(rand.Reader, nonce); err != nil {
 		return nil, fmt.Errorf("failed to generate nonce: %w", err)
 	}
-	
+
 	// Encrypt
 	ciphertext := te.gcm.Seal(nil, nonce, plaintext, nil)
-	
+
 	return &EncryptedTokenData{
 		Nonce:      nonce,
 		Ciphertext: ciphertext,
@@ -756,12 +756,12 @@ func (te *TokenEncryptor) Decrypt(data *EncryptedTokenData) (*TokenInfo, error) 
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt: %w", err)
 	}
-	
+
 	// Unmarshal token info
 	var info TokenInfo
 	if err := json.Unmarshal(plaintext, &info); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal token info: %w", err)
 	}
-	
+
 	return &info, nil
 }

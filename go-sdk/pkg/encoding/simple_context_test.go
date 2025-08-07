@@ -14,7 +14,7 @@ import (
 func TestSimpleContextCancellation(t *testing.T) {
 	t.Run("JSONEncoderContextCancellation", func(t *testing.T) {
 		encoder := json.NewJSONEncoder(nil)
-		
+
 		// Test immediate cancellation
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
@@ -27,7 +27,7 @@ func TestSimpleContextCancellation(t *testing.T) {
 
 	t.Run("JSONEncoderTimeoutCancellation", func(t *testing.T) {
 		encoder := json.NewJSONEncoder(nil)
-		
+
 		// Test timeout cancellation
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 		defer cancel()

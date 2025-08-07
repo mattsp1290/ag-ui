@@ -68,8 +68,8 @@ func TestFormatRegistryTTLCleanup(t *testing.T) {
 // TestFormatRegistryLRUEviction tests LRU eviction when MaxEntries is reached
 func TestFormatRegistryLRUEviction(t *testing.T) {
 	config := &RegistryConfig{
-		MaxEntries:              3,  // Small limit to test eviction
-		TTL:                     0,  // Disable TTL
+		MaxEntries:              3, // Small limit to test eviction
+		TTL:                     0, // Disable TTL
 		EnableLRU:               true,
 		EnableBackgroundCleanup: false,
 	}
@@ -118,8 +118,8 @@ func TestFormatRegistryLRUEviction(t *testing.T) {
 // TestFormatRegistryAliasesCleanup tests cleanup of aliases
 func TestFormatRegistryAliasesCleanup(t *testing.T) {
 	config := &RegistryConfig{
-		MaxEntries:              2,  // Small limit
-		TTL:                     0,  // Disable TTL
+		MaxEntries:              2, // Small limit
+		TTL:                     0, // Disable TTL
 		EnableLRU:               true,
 		EnableBackgroundCleanup: false,
 	}
@@ -264,8 +264,8 @@ func TestFormatRegistryBackgroundCleanup(t *testing.T) {
 // TestFormatRegistryLRUAccessPattern tests that LRU correctly tracks access patterns
 func TestFormatRegistryLRUAccessPattern(t *testing.T) {
 	config := &RegistryConfig{
-		MaxEntries:              2,  // Small limit
-		TTL:                     0,  // Disable TTL
+		MaxEntries:              2, // Small limit
+		TTL:                     0, // Disable TTL
 		EnableLRU:               true,
 		EnableBackgroundCleanup: false,
 	}
@@ -419,9 +419,9 @@ func TestFormatRegistryStats(t *testing.T) {
 	// Verify expected stats
 	assert.Equal(t, 3, stats["formats_count"])
 	assert.Equal(t, 6, stats["aliases_count"]) // 2 aliases per format
-	assert.Equal(t, 9, stats["total_entries"])  // 3 formats + 6 aliases
+	assert.Equal(t, 9, stats["total_entries"]) // 3 formats + 6 aliases
 	assert.Equal(t, config.MaxEntries, stats["max_entries_per_map"])
-	assert.Equal(t, 3600.0, stats["ttl_seconds"]) // 1 hour in seconds
+	assert.Equal(t, 3600.0, stats["ttl_seconds"])              // 1 hour in seconds
 	assert.Equal(t, 1800.0, stats["cleanup_interval_seconds"]) // 30 minutes
 	assert.True(t, stats["lru_enabled"].(bool))
 	assert.False(t, stats["background_cleanup_enabled"].(bool))
@@ -460,7 +460,7 @@ func TestFormatRegistryConfigUpdate(t *testing.T) {
 
 	// Update configuration
 	newConfig := &RegistryConfig{
-		MaxEntries:              5,   // Smaller limit
+		MaxEntries:              5,                // Smaller limit
 		TTL:                     10 * time.Minute, // Shorter TTL
 		CleanupInterval:         5 * time.Minute,  // More frequent cleanup
 		EnableLRU:               true,
@@ -473,7 +473,7 @@ func TestFormatRegistryConfigUpdate(t *testing.T) {
 	// Verify configuration was updated
 	stats := registry.GetRegistryStats()
 	assert.Equal(t, 5, stats["max_entries_per_map"])
-	assert.Equal(t, 600.0, stats["ttl_seconds"])   // 10 minutes
+	assert.Equal(t, 600.0, stats["ttl_seconds"])              // 10 minutes
 	assert.Equal(t, 300.0, stats["cleanup_interval_seconds"]) // 5 minutes
 	assert.True(t, stats["background_cleanup_enabled"].(bool))
 
@@ -486,8 +486,8 @@ func TestFormatRegistryConfigUpdate(t *testing.T) {
 // TestFormatRegistryAliasResolution tests alias resolution with cleanup
 func TestFormatRegistryAliasResolution(t *testing.T) {
 	config := &RegistryConfig{
-		MaxEntries:              2,  // Small limit to test alias cleanup
-		TTL:                     0,  // Disable TTL
+		MaxEntries:              2, // Small limit to test alias cleanup
+		TTL:                     0, // Disable TTL
 		EnableLRU:               true,
 		EnableBackgroundCleanup: false,
 	}

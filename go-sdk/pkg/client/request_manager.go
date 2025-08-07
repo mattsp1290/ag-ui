@@ -27,30 +27,30 @@ import (
 
 var (
 	// Request manager errors
-	ErrRequestCancelled     = fmt.Errorf("request cancelled")
-	ErrRequestTimeout       = fmt.Errorf("request timeout")
-	ErrInvalidURL          = fmt.Errorf("invalid URL")
-	ErrInvalidMethod       = fmt.Errorf("invalid HTTP method")
-	ErrSecurityViolation   = fmt.Errorf("security validation failed")
-	ErrRateLimitExceeded   = fmt.Errorf("rate limit exceeded")
-	ErrCircuitBreakerOpen  = fmt.Errorf("circuit breaker open")
+	ErrRequestCancelled   = fmt.Errorf("request cancelled")
+	ErrRequestTimeout     = fmt.Errorf("request timeout")
+	ErrInvalidURL         = fmt.Errorf("invalid URL")
+	ErrInvalidMethod      = fmt.Errorf("invalid HTTP method")
+	ErrSecurityViolation  = fmt.Errorf("security validation failed")
+	ErrRateLimitExceeded  = fmt.Errorf("rate limit exceeded")
+	ErrCircuitBreakerOpen = fmt.Errorf("circuit breaker open")
 )
 
 // RequestManager handles HTTP request construction, validation, and response processing
 // with comprehensive error handling, metrics, and middleware support.
 type RequestManager struct {
-	httpClient       *http.Client
-	config           RequestManagerConfig
-	middleware       []Middleware
-	metrics          *RequestMetrics
-	tracer           trace.Tracer
-	logger           *logrus.Logger
-	circuitBreaker   *CircuitBreaker
-	rateLimiter      *rate.Limiter
-	securityHeaders  map[string]string
-	correlationMap   sync.Map // map[string]*RequestCorrelation
-	requestCounter   int64
-	mu               sync.RWMutex
+	httpClient      *http.Client
+	config          RequestManagerConfig
+	middleware      []Middleware
+	metrics         *RequestMetrics
+	tracer          trace.Tracer
+	logger          *logrus.Logger
+	circuitBreaker  *CircuitBreaker
+	rateLimiter     *rate.Limiter
+	securityHeaders map[string]string
+	correlationMap  sync.Map // map[string]*RequestCorrelation
+	requestCounter  int64
+	mu              sync.RWMutex
 }
 
 // RequestManagerConfig contains configuration options for the RequestManager.
@@ -114,30 +114,30 @@ type RequestManagerConfig struct {
 
 // RequestCorrelation tracks request metadata and timing.
 type RequestCorrelation struct {
-	ID           string
-	Method       string
-	URL          string
-	StartTime    time.Time
-	Headers      http.Header
-	UserAgent    string
-	RemoteAddr   string
-	TraceSpan    trace.Span
-	Context      context.Context
-	Retries      int
-	Metadata     map[string]interface{}
+	ID         string
+	Method     string
+	URL        string
+	StartTime  time.Time
+	Headers    http.Header
+	UserAgent  string
+	RemoteAddr string
+	TraceSpan  trace.Span
+	Context    context.Context
+	Retries    int
+	Metadata   map[string]interface{}
 }
 
 // RequestMetrics tracks request/response metrics.
 type RequestMetrics struct {
-	requestCounter       metric.Int64Counter
-	responseCounter      metric.Int64Counter
-	requestDuration      metric.Float64Histogram
-	requestSize          metric.Int64Histogram
-	responseSize         metric.Int64Histogram
-	activeRequests       metric.Int64UpDownCounter
-	circuitBreakerState  metric.Int64Gauge
-	rateLimitHits        metric.Int64Counter
-	securityViolations   metric.Int64Counter
+	requestCounter      metric.Int64Counter
+	responseCounter     metric.Int64Counter
+	requestDuration     metric.Float64Histogram
+	requestSize         metric.Int64Histogram
+	responseSize        metric.Int64Histogram
+	activeRequests      metric.Int64UpDownCounter
+	circuitBreakerState metric.Int64Gauge
+	rateLimitHits       metric.Int64Counter
+	securityViolations  metric.Int64Counter
 }
 
 // Middleware defines the interface for request/response middleware.
@@ -245,9 +245,9 @@ func NewRequestManager(config RequestManagerConfig) (*RequestManager, error) {
 
 	// Initialize security headers
 	securityHeaders := map[string]string{
-		"X-Content-Type-Options": "nosniff",
-		"X-Frame-Options":        "DENY",
-		"X-XSS-Protection":       "1; mode=block",
+		"X-Content-Type-Options":    "nosniff",
+		"X-Frame-Options":           "DENY",
+		"X-XSS-Protection":          "1; mode=block",
 		"Strict-Transport-Security": "max-age=31536000; includeSubDomains",
 	}
 
@@ -351,15 +351,15 @@ func (rm *RequestManager) initializeMetrics() (*RequestMetrics, error) {
 	}
 
 	return &RequestMetrics{
-		requestCounter:       requestCounter,
-		responseCounter:      responseCounter,
-		requestDuration:      requestDuration,
-		requestSize:          requestSize,
-		responseSize:         responseSize,
-		activeRequests:       activeRequests,
-		circuitBreakerState:  circuitBreakerState,
-		rateLimitHits:        rateLimitHits,
-		securityViolations:   securityViolations,
+		requestCounter:      requestCounter,
+		responseCounter:     responseCounter,
+		requestDuration:     requestDuration,
+		requestSize:         requestSize,
+		responseSize:        responseSize,
+		activeRequests:      activeRequests,
+		circuitBreakerState: circuitBreakerState,
+		rateLimitHits:       rateLimitHits,
+		securityViolations:  securityViolations,
 	}, nil
 }
 
@@ -640,8 +640,8 @@ func (rm *RequestManager) validateResponse(ctx context.Context, resp *http.Respo
 
 	// Validate content length
 	if resp.ContentLength > rm.config.MaxResponseSize {
-		return pkgerrors.NewValidationErrorWithField("content-length", "too_large", 
-			fmt.Sprintf("response size %d exceeds maximum %d", resp.ContentLength, rm.config.MaxResponseSize), 
+		return pkgerrors.NewValidationErrorWithField("content-length", "too_large",
+			fmt.Sprintf("response size %d exceeds maximum %d", resp.ContentLength, rm.config.MaxResponseSize),
 			resp.ContentLength)
 	}
 
@@ -753,14 +753,14 @@ func (rm *RequestManager) GetCorrelationMapStats() map[string]interface{} {
 	stats := map[string]interface{}{
 		"type": "sync.Map",
 	}
-	
+
 	// Count entries by iterating over the map
 	count := 0
 	rm.correlationMap.Range(func(key, value interface{}) bool {
 		count++
 		return true
 	})
-	
+
 	stats["count"] = count
 	return stats
 }

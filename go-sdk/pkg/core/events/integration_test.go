@@ -16,32 +16,32 @@ import (
 // SystemIntegrationTestSuite tests the complete integrated system
 type SystemIntegrationTestSuite struct {
 	suite.Suite
-	ctx              context.Context
-	cancel           context.CancelFunc
-	orchestrator     *orchestration.Orchestrator
-	cacheValidator   *cache.CacheValidator
-	eventValidator   *events.Validator
+	ctx            context.Context
+	cancel         context.CancelFunc
+	orchestrator   *orchestration.Orchestrator
+	cacheValidator *cache.CacheValidator
+	eventValidator *events.Validator
 }
 
 func (suite *SystemIntegrationTestSuite) SetupSuite() {
 	suite.ctx, suite.cancel = context.WithCancel(context.Background())
-	
+
 	// Setup event validator
 	validationConfig := events.DefaultValidationConfig()
 	validationConfig.Strict = true
 	suite.eventValidator = events.NewValidator(validationConfig)
-	
+
 	// Setup cache validator
 	cacheConfig := cache.DefaultCacheValidatorConfig()
 	cacheConfig.L1Size = 1000
 	cacheConfig.L1TTL = 5 * time.Minute
 	cacheConfig.Validator = suite.eventValidator
 	cacheConfig.MetricsEnabled = true
-	
+
 	var err error
 	suite.cacheValidator, err = cache.NewCacheValidator(cacheConfig)
 	suite.Require().NoError(err)
-	
+
 	// Setup orchestrator
 	orchestratorConfig := &orchestration.OrchestratorConfig{
 		MaxConcurrentWorkflows: 20,
@@ -100,10 +100,10 @@ func (suite *SystemIntegrationTestSuite) TestEndToEndEventProcessing() {
 			},
 		},
 	}
-	
+
 	err := suite.orchestrator.RegisterWorkflow(workflow)
 	suite.Require().NoError(err)
-	
+
 	// Test various event types, including some duplicates for cache testing
 	testEvents := []events.Event{
 		events.NewRunStartedEvent("thread-1", "run-1"),
@@ -111,10 +111,10 @@ func (suite *SystemIntegrationTestSuite) TestEndToEndEventProcessing() {
 		events.NewToolCallEndEvent("tool-1"),
 		events.NewRunFinishedEvent("thread-1", "run-1"),
 		// Add duplicates to test caching
-		events.NewRunStartedEvent("thread-1", "run-1"), // Same as first
+		events.NewRunStartedEvent("thread-1", "run-1"),     // Same as first
 		events.NewToolCallStartEvent("tool-1", "ToolName"), // Same as second
 	}
-	
+
 	for _, event := range testEvents {
 		validationCtx := &orchestration.ValidationContext{
 			EventType: string(event.Type()),
@@ -125,13 +125,13 @@ func (suite *SystemIntegrationTestSuite) TestEndToEndEventProcessing() {
 				"run_id":    event.RunID(),
 			},
 		}
-		
+
 		result, err := suite.orchestrator.ExecuteWorkflow(suite.ctx, workflow.ID, validationCtx)
 		if err != nil {
 			suite.T().Logf("Workflow execution error for event %s: %v", event.Type(), err)
 		}
 		if result != nil {
-			suite.T().Logf("Result for event %s: Status=%v, IsValid=%t, Errors=%v", 
+			suite.T().Logf("Result for event %s: Status=%v, IsValid=%t, Errors=%v",
 				event.Type(), result.Status, result.IsValid, result.Errors)
 		}
 		suite.NoError(err)
@@ -139,7 +139,7 @@ func (suite *SystemIntegrationTestSuite) TestEndToEndEventProcessing() {
 		// Note: IsValid may be false even with Completed status in some orchestration setups
 		// The key requirement is that the workflow completed without errors
 	}
-	
+
 	// Verify cache effectiveness
 	cacheStats := suite.cacheValidator.GetStats()
 	suite.Greater(cacheStats.TotalHits, uint64(0), "Should have cache hits")
@@ -166,32 +166,32 @@ func (suite *SystemIntegrationTestSuite) TestHighLoadSystemPerformance() {
 			},
 		},
 	}
-	
+
 	err := suite.orchestrator.RegisterWorkflow(workflow)
 	suite.Require().NoError(err)
-	
+
 	// Generate load
 	numWorkers := 50
 	numEventsPerWorker := 100
 	totalEvents := numWorkers * numEventsPerWorker
-	
+
 	startTime := time.Now()
 	var wg sync.WaitGroup
 	successCount := 0
 	var mu sync.Mutex
-	
+
 	for w := 0; w < numWorkers; w++ {
 		wg.Add(1)
 		go func(workerID int) {
 			defer wg.Done()
-			
+
 			for i := 0; i < numEventsPerWorker; i++ {
 				// Use modulo to create repeating patterns for better cache hits
 				event := events.NewRunStartedEvent(
 					fmt.Sprintf("thread-%d", workerID%5), // Only 5 different thread IDs
 					fmt.Sprintf("run-%d", i%5),           // Only 5 different run IDs
 				)
-				
+
 				validationCtx := &orchestration.ValidationContext{
 					EventType: string(event.Type()),
 					Source:    "load-test",
@@ -200,7 +200,7 @@ func (suite *SystemIntegrationTestSuite) TestHighLoadSystemPerformance() {
 						"worker_id": workerID,
 					},
 				}
-				
+
 				result, err := suite.orchestrator.ExecuteWorkflow(suite.ctx, workflow.ID, validationCtx)
 				if err == nil && result.Status == orchestration.Completed {
 					mu.Lock()
@@ -210,24 +210,24 @@ func (suite *SystemIntegrationTestSuite) TestHighLoadSystemPerformance() {
 			}
 		}(w)
 	}
-	
+
 	wg.Wait()
 	duration := time.Since(startTime)
-	
+
 	// Calculate metrics
 	successRate := float64(successCount) / float64(totalEvents) * 100
 	eventsPerSecond := float64(totalEvents) / duration.Seconds()
-	
+
 	suite.T().Logf("High Load Test Results:")
 	suite.T().Logf("  Total Events: %d", totalEvents)
 	suite.T().Logf("  Successful: %d (%.2f%%)", successCount, successRate)
 	suite.T().Logf("  Duration: %v", duration)
 	suite.T().Logf("  Events/sec: %.2f", eventsPerSecond)
-	
+
 	// Assertions
 	suite.Greater(successRate, 95.0, "Should have high success rate")
 	suite.Greater(eventsPerSecond, 500.0, "Should handle high throughput")
-	
+
 	// Check cache performance
 	cacheStats := suite.cacheValidator.GetStats()
 	cacheHitRate := float64(cacheStats.TotalHits) / float64(cacheStats.TotalHits+cacheStats.TotalMisses) * 100
@@ -254,10 +254,10 @@ func (suite *SystemIntegrationTestSuite) TestEventSequenceValidation() {
 			},
 		},
 	}
-	
+
 	err := suite.orchestrator.RegisterWorkflow(workflow)
 	suite.Require().NoError(err)
-	
+
 	// Test valid sequence
 	validSequence := []events.Event{
 		events.NewRunStartedEvent("thread-1", "run-1"),
@@ -265,7 +265,7 @@ func (suite *SystemIntegrationTestSuite) TestEventSequenceValidation() {
 		events.NewToolCallEndEvent("tool-1"),
 		events.NewRunFinishedEvent("thread-1", "run-1"),
 	}
-	
+
 	validationCtx := &orchestration.ValidationContext{
 		EventType: "sequence",
 		Source:    "sequence-test",
@@ -273,7 +273,7 @@ func (suite *SystemIntegrationTestSuite) TestEventSequenceValidation() {
 			"events": validSequence,
 		},
 	}
-	
+
 	result, err := suite.orchestrator.ExecuteWorkflow(suite.ctx, workflow.ID, validationCtx)
 	if err != nil {
 		suite.T().Logf("Sequence validation error: %v", err)
@@ -284,14 +284,14 @@ func (suite *SystemIntegrationTestSuite) TestEventSequenceValidation() {
 	suite.NoError(err)
 	suite.Equal(orchestration.Completed, result.Status)
 	// Note: IsValid may be false even with Completed status in some orchestration setups
-	
+
 	// Test invalid sequence (missing run start)
 	invalidSequence := []events.Event{
 		events.NewToolCallStartEvent("tool-1", "ToolName"),
 		events.NewToolCallEndEvent("tool-1"),
 		events.NewRunFinishedEvent("thread-1", "run-1"),
 	}
-	
+
 	validationCtx = &orchestration.ValidationContext{
 		EventType: "sequence",
 		Source:    "sequence-test",
@@ -299,7 +299,7 @@ func (suite *SystemIntegrationTestSuite) TestEventSequenceValidation() {
 			"events": invalidSequence,
 		},
 	}
-	
+
 	result, err = suite.orchestrator.ExecuteWorkflow(suite.ctx, workflow.ID, validationCtx)
 	suite.Error(err)
 	suite.Equal(orchestration.Failed, result.Status)
@@ -322,10 +322,10 @@ func (eva *EventValidatorAdapter) Validate(ctx *orchestration.OrchestrationValid
 	if !ok {
 		return nil, fmt.Errorf("missing or invalid event in context")
 	}
-	
+
 	// Try cache first, but handle validation properly
 	err := eva.cache.ValidateEvent(context.Background(), event)
-	
+
 	// If cache validation fails, try direct validation
 	var isValid bool
 	var message string
@@ -342,7 +342,7 @@ func (eva *EventValidatorAdapter) Validate(ctx *orchestration.OrchestrationValid
 		isValid = true
 		message = "Event validation via cache: success"
 	}
-	
+
 	return &orchestration.OrchestrationValidationResult{
 		IsValid:   isValid,
 		Message:   message,
@@ -376,7 +376,7 @@ func (brv *BusinessRulesValidator) Validate(ctx *orchestration.OrchestrationVali
 	if !ok {
 		return nil, fmt.Errorf("missing event in context")
 	}
-	
+
 	// Example business rule: run events must have valid thread IDs
 	// Other event types may not require thread IDs
 	if event.Type() == events.EventTypeRunStarted || event.Type() == events.EventTypeRunFinished {
@@ -384,7 +384,7 @@ func (brv *BusinessRulesValidator) Validate(ctx *orchestration.OrchestrationVali
 			return nil, fmt.Errorf("run events must have valid thread ID")
 		}
 	}
-	
+
 	return &orchestration.OrchestrationValidationResult{
 		IsValid:   true,
 		Message:   "Business rules passed",
@@ -393,8 +393,8 @@ func (brv *BusinessRulesValidator) Validate(ctx *orchestration.OrchestrationVali
 	}, nil
 }
 
-func (brv *BusinessRulesValidator) GetID() string { return "business-rules-validator" }
-func (brv *BusinessRulesValidator) GetType() string { return "business-rules" }
+func (brv *BusinessRulesValidator) GetID() string          { return "business-rules-validator" }
+func (brv *BusinessRulesValidator) GetType() string        { return "business-rules" }
 func (brv *BusinessRulesValidator) GetDescription() string { return "Business rules validator" }
 
 // PersistenceValidator simulates event persistence
@@ -403,7 +403,7 @@ type PersistenceValidator struct{}
 func (pv *PersistenceValidator) Validate(ctx *orchestration.OrchestrationValidationContext) (*orchestration.OrchestrationValidationResult, error) {
 	// Simulate persistence
 	time.Sleep(2 * time.Millisecond)
-	
+
 	return &orchestration.OrchestrationValidationResult{
 		IsValid:   true,
 		Message:   "Event persisted",
@@ -415,8 +415,8 @@ func (pv *PersistenceValidator) Validate(ctx *orchestration.OrchestrationValidat
 	}, nil
 }
 
-func (pv *PersistenceValidator) GetID() string { return "persistence-validator" }
-func (pv *PersistenceValidator) GetType() string { return "persistence" }
+func (pv *PersistenceValidator) GetID() string          { return "persistence-validator" }
+func (pv *PersistenceValidator) GetType() string        { return "persistence" }
 func (pv *PersistenceValidator) GetDescription() string { return "Event persistence validator" }
 
 // PerformanceValidator for performance testing
@@ -426,7 +426,7 @@ type PerformanceValidator struct {
 
 func (pv *PerformanceValidator) Validate(ctx *orchestration.OrchestrationValidationContext) (*orchestration.OrchestrationValidationResult, error) {
 	time.Sleep(pv.duration)
-	
+
 	return &orchestration.OrchestrationValidationResult{
 		IsValid:   true,
 		Message:   "Performance test",
@@ -435,8 +435,8 @@ func (pv *PerformanceValidator) Validate(ctx *orchestration.OrchestrationValidat
 	}, nil
 }
 
-func (pv *PerformanceValidator) GetID() string { return "performance-validator" }
-func (pv *PerformanceValidator) GetType() string { return "performance" }
+func (pv *PerformanceValidator) GetID() string          { return "performance-validator" }
+func (pv *PerformanceValidator) GetType() string        { return "performance" }
 func (pv *PerformanceValidator) GetDescription() string { return "Performance test validator" }
 
 // SequenceValidator validates event sequences
@@ -450,10 +450,10 @@ func (sv *SequenceValidator) Validate(ctx *orchestration.OrchestrationValidation
 	if !ok {
 		return nil, fmt.Errorf("missing or invalid events in context")
 	}
-	
+
 	// Validate sequence
 	err := sv.cacheValidator.ValidateSequence(context.Background(), events)
-	
+
 	return &orchestration.OrchestrationValidationResult{
 		IsValid:   err == nil,
 		Message:   "Sequence validation completed",
@@ -465,6 +465,6 @@ func (sv *SequenceValidator) Validate(ctx *orchestration.OrchestrationValidation
 	}, err
 }
 
-func (sv *SequenceValidator) GetID() string { return "sequence-validator" }
-func (sv *SequenceValidator) GetType() string { return "sequence-validation" }
+func (sv *SequenceValidator) GetID() string          { return "sequence-validator" }
+func (sv *SequenceValidator) GetType() string        { return "sequence-validation" }
 func (sv *SequenceValidator) GetDescription() string { return "Event sequence validator" }

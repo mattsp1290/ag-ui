@@ -11,12 +11,12 @@ import (
 
 // OperationError represents errors that occur during encoding/decoding operations
 type OperationError struct {
-	Operation string      // The operation that failed (e.g., "encode", "decode", "validate")
-	Component string      // The component where the error occurred (e.g., "json", "protobuf")
-	Message   string      // Human-readable error message
-	Cause     error       // The underlying error that caused this error
+	Operation string                 // The operation that failed (e.g., "encode", "decode", "validate")
+	Component string                 // The component where the error occurred (e.g., "json", "protobuf")
+	Message   string                 // Human-readable error message
+	Cause     error                  // The underlying error that caused this error
 	Context   map[string]interface{} // Additional context information
-	Stack     []uintptr   // Stack trace for debugging
+	Stack     []uintptr              // Stack trace for debugging
 }
 
 func (e *OperationError) Error() string {
@@ -52,7 +52,7 @@ type ValidationError struct {
 
 func (e *ValidationError) Error() string {
 	if e.Field != "" {
-		return fmt.Sprintf("validation failed in %s for field '%s': %s (rule: %s, value: %v)", 
+		return fmt.Sprintf("validation failed in %s for field '%s': %s (rule: %s, value: %v)",
 			e.Component, e.Field, e.Message, e.Rule, e.Value)
 	}
 	return fmt.Sprintf("validation failed in %s: %s (rule: %s)", e.Component, e.Message, e.Rule)
@@ -79,7 +79,7 @@ type ConfigurationError struct {
 
 func (e *ConfigurationError) Error() string {
 	if e.Setting != "" {
-		return fmt.Sprintf("configuration error in %s for setting '%s': %s (value: %v)", 
+		return fmt.Sprintf("configuration error in %s for setting '%s': %s (value: %v)",
 			e.Component, e.Setting, e.Message, e.Value)
 	}
 	return fmt.Sprintf("configuration error in %s: %s", e.Component, e.Message)
@@ -107,7 +107,7 @@ type ResourceError struct {
 
 func (e *ResourceError) Error() string {
 	if e.Limit != nil && e.Current != nil {
-		return fmt.Sprintf("resource error in %s for %s: %s (current: %v, limit: %v)", 
+		return fmt.Sprintf("resource error in %s for %s: %s (current: %v, limit: %v)",
 			e.Component, e.Resource, e.Message, e.Current, e.Limit)
 	}
 	return fmt.Sprintf("resource error in %s for %s: %s", e.Component, e.Resource, e.Message)
@@ -136,14 +136,14 @@ type RegistryError struct {
 func (e *RegistryError) Error() string {
 	if e.Key != "" {
 		if e.Cause != nil {
-			return fmt.Sprintf("registry error in %s during %s for key '%s': %s: %v", 
+			return fmt.Sprintf("registry error in %s during %s for key '%s': %s: %v",
 				e.Registry, e.Operation, e.Key, e.Message, e.Cause)
 		}
-		return fmt.Sprintf("registry error in %s during %s for key '%s': %s", 
+		return fmt.Sprintf("registry error in %s during %s for key '%s': %s",
 			e.Registry, e.Operation, e.Key, e.Message)
 	}
 	if e.Cause != nil {
-		return fmt.Sprintf("registry error in %s during %s: %s: %v", 
+		return fmt.Sprintf("registry error in %s during %s: %s: %v",
 			e.Registry, e.Operation, e.Message, e.Cause)
 	}
 	return fmt.Sprintf("registry error in %s during %s: %s", e.Registry, e.Operation, e.Message)
@@ -170,7 +170,7 @@ func (e *RegistryError) WithContext(key string, value interface{}) *RegistryErro
 func NewOperationError(operation, component, message string, cause error) *OperationError {
 	stack := make([]uintptr, 10)
 	n := runtime.Callers(2, stack)
-	
+
 	return &OperationError{
 		Operation: operation,
 		Component: component,
@@ -184,7 +184,7 @@ func NewOperationError(operation, component, message string, cause error) *Opera
 func NewValidationError(component, field, rule, message string, value interface{}) *ValidationError {
 	stack := make([]uintptr, 10)
 	n := runtime.Callers(2, stack)
-	
+
 	return &ValidationError{
 		Component: component,
 		Field:     field,
@@ -199,7 +199,7 @@ func NewValidationError(component, field, rule, message string, value interface{
 func NewConfigurationError(component, setting, message string, value interface{}) *ConfigurationError {
 	stack := make([]uintptr, 10)
 	n := runtime.Callers(2, stack)
-	
+
 	return &ConfigurationError{
 		Component: component,
 		Setting:   setting,
@@ -213,7 +213,7 @@ func NewConfigurationError(component, setting, message string, value interface{}
 func NewResourceError(component, resource, message string, current, limit interface{}) *ResourceError {
 	stack := make([]uintptr, 10)
 	n := runtime.Callers(2, stack)
-	
+
 	return &ResourceError{
 		Component: component,
 		Resource:  resource,
@@ -228,7 +228,7 @@ func NewResourceError(component, resource, message string, current, limit interf
 func NewRegistryError(registry, operation, key, message string, cause error) *RegistryError {
 	stack := make([]uintptr, 10)
 	n := runtime.Callers(2, stack)
-	
+
 	return &RegistryError{
 		Registry:  registry,
 		Operation: operation,

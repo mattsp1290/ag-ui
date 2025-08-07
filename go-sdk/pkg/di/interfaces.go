@@ -7,7 +7,7 @@ import "time"
 // ValidatorConfigInterface defines the interface for validator configuration
 type ValidatorConfigInterface interface {
 	GetCore() CoreConfigInterface
-	GetAuth() AuthConfigInterface  
+	GetAuth() AuthConfigInterface
 	GetCache() CacheConfigInterface
 	GetDistributed() DistributedConfigInterface
 	GetAnalytics() AnalyticsConfigInterface
@@ -55,7 +55,7 @@ type DistributedConfigInterface interface {
 	GetListenAddress() string
 }
 
-// AnalyticsConfigInterface defines the interface for analytics configuration  
+// AnalyticsConfigInterface defines the interface for analytics configuration
 type AnalyticsConfigInterface interface {
 	IsEnabled() bool
 	IsMetricsEnabled() bool

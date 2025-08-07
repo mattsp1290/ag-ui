@@ -3,7 +3,7 @@ package security
 import (
 	"os"
 	"testing"
-	
+
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding"
 	"go.uber.org/goleak"
 )
@@ -11,10 +11,10 @@ import (
 func TestMain(m *testing.M) {
 	// Run tests
 	code := m.Run()
-	
+
 	// Cleanup global registry to stop background goroutine
 	encoding.CloseGlobalRegistry()
-	
+
 	// Exit with test result
 	os.Exit(code)
 }
@@ -23,7 +23,7 @@ func TestMain(m *testing.M) {
 func TestNoGoroutineLeaks(t *testing.T) {
 	// Close any existing global registry to stop background goroutines
 	encoding.CloseGlobalRegistry()
-	
+
 	defer goleak.VerifyNone(t,
 		goleak.IgnoreTopFunction("go.opencensus.io/stats/view.(*worker).start"),
 		goleak.IgnoreTopFunction("github.com/golang/glog.(*loggingT).flushDaemon"),

@@ -68,7 +68,7 @@ func TestCustomRegistry(t *testing.T) {
 			t.Error("JSON format not registered in custom registry")
 		}
 
-		// Create an encoder from the custom registry  
+		// Create an encoder from the custom registry
 		encoder, err := customRegistry.GetEncoder(context.Background(), "application/json", nil)
 		if err != nil {
 			t.Fatalf("Failed to get JSON encoder from custom registry: %v", err)
@@ -76,7 +76,7 @@ func TestCustomRegistry(t *testing.T) {
 		if encoder == nil {
 			t.Error("Got nil encoder from custom registry")
 		}
-		
+
 		// Create a decoder from the custom registry
 		decoder, err := customRegistry.GetDecoder(context.Background(), "application/json", nil)
 		if err != nil {
@@ -109,7 +109,7 @@ func TestCustomRegistry(t *testing.T) {
 		if encoder == nil {
 			t.Error("Got nil encoder from custom registry")
 		}
-		
+
 		// Create a decoder from the custom registry
 		decoder, err := customRegistry.GetDecoder(context.Background(), "application/x-protobuf", nil)
 		if err != nil {

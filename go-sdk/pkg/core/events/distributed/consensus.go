@@ -53,13 +53,13 @@ type ConsensusConfig struct {
 // DefaultConsensusConfig returns default consensus configuration
 func DefaultConsensusConfig() *ConsensusConfig {
 	return &ConsensusConfig{
-		Algorithm:         ConsensusMajority,
-		MinNodes:          1, // Allow single-node scenarios for testing
-		QuorumSize:        1, // Single node is sufficient for quorum in testing
-		RequireUnanimous:  false,
-		ElectionTimeout:   5 * time.Second,
-		HeartbeatInterval: 1 * time.Second,
-		MaxLogEntries:     10000,
+		Algorithm:               ConsensusMajority,
+		MinNodes:                1, // Allow single-node scenarios for testing
+		QuorumSize:              1, // Single node is sufficient for quorum in testing
+		RequireUnanimous:        false,
+		ElectionTimeout:         5 * time.Second,
+		HeartbeatInterval:       1 * time.Second,
+		MaxLogEntries:           10000,
 		ByzantineFaultTolerance: 1,
 	}
 }
@@ -84,37 +84,37 @@ type ConsensusManager struct {
 	currentTerm uint64
 	votedFor    NodeID
 	leader      NodeID
-	
+
 	// Log entries for Raft
 	log         []LogEntry
 	commitIndex uint64
 	lastApplied uint64
-	
+
 	// State for each node (Raft)
-	nextIndex   map[NodeID]uint64
-	matchIndex  map[NodeID]uint64
-	
+	nextIndex  map[NodeID]uint64
+	matchIndex map[NodeID]uint64
+
 	// Voting state
-	votes       map[NodeID]bool
-	
+	votes map[NodeID]bool
+
 	// Distributed locks
-	locks       map[string]*DistributedLock
-	locksMutex  sync.RWMutex
-	
+	locks      map[string]*DistributedLock
+	locksMutex sync.RWMutex
+
 	// Lifecycle
-	running     int32 // Use atomic operations for thread-safe access
-	mutex       sync.RWMutex
-	stopChan    chan struct{}
-	stopOnce    sync.Once
+	running  int32 // Use atomic operations for thread-safe access
+	mutex    sync.RWMutex
+	stopChan chan struct{}
+	stopOnce sync.Once
 }
 
 // LogEntry represents an entry in the consensus log
 type LogEntry struct {
-	Term      uint64                 `json:"term"`
-	Index     uint64                 `json:"index"`
-	Type      LogEntryType           `json:"type"`
-	Data      interface{}            `json:"data"`
-	Timestamp time.Time              `json:"timestamp"`
+	Term      uint64       `json:"term"`
+	Index     uint64       `json:"index"`
+	Type      LogEntryType `json:"type"`
+	Data      interface{}  `json:"data"`
+	Timestamp time.Time    `json:"timestamp"`
 }
 
 // LogEntryType represents the type of log entry
@@ -197,11 +197,11 @@ func (cm *ConsensusManager) Stop() error {
 	cm.stopOnce.Do(func() {
 		close(cm.stopChan)
 	})
-	
+
 	// Give background goroutines time to finish
 	// The runRaft and runPBFT methods check stopChan and should exit cleanly
 	time.Sleep(50 * time.Millisecond)
-	
+
 	atomic.StoreInt32(&cm.running, 0)
 	return nil
 }
@@ -457,13 +457,13 @@ func (cm *ConsensusManager) AcquireLock(ctx context.Context, lockID string, dura
 			lockTimeout = remaining - 500*time.Millisecond
 		}
 	}
-	
+
 	lockCtx, cancel := context.WithTimeout(ctx, lockTimeout)
 	defer cancel()
 
 	// Use a channel to signal lock acquisition result
 	resultChan := make(chan error, 1)
-	
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -473,7 +473,7 @@ func (cm *ConsensusManager) AcquireLock(ctx context.Context, lockID string, dura
 				}
 			}
 		}()
-		
+
 		err := cm.acquireLockInternal(lockCtx, lockID, duration)
 		select {
 		case resultChan <- err:
@@ -495,7 +495,7 @@ func (cm *ConsensusManager) acquireLockInternal(ctx context.Context, lockID stri
 	cm.locksMutex.RLock()
 	lock, exists := cm.locks[lockID]
 	cm.locksMutex.RUnlock()
-	
+
 	if exists {
 		// Check if we already own this lock
 		if lock.Owner == cm.nodeID && time.Now().Before(lock.ExpiresAt) {
@@ -510,7 +510,7 @@ func (cm *ConsensusManager) acquireLockInternal(ctx context.Context, lockID stri
 			cm.locksMutex.Unlock()
 			// Lock state changed, fall through to recheck
 		}
-		
+
 		// Check if lock is still held by another node
 		if time.Now().Before(lock.ExpiresAt) {
 			// Lock is held by another node, wait for it to expire or be released
@@ -533,7 +533,7 @@ func (cm *ConsensusManager) acquireLockInternal(ctx context.Context, lockID stri
 	// Try to acquire the lock atomically
 	cm.locksMutex.Lock()
 	defer cm.locksMutex.Unlock()
-	
+
 	// Double-check lock state under write lock
 	if existingLock, exists := cm.locks[lockID]; exists {
 		if existingLock.Owner == cm.nodeID && time.Now().Before(existingLock.ExpiresAt) {
@@ -572,7 +572,7 @@ func (cm *ConsensusManager) ReleaseLock(ctx context.Context, lockID string) erro
 
 	// Use a channel to signal lock release result
 	resultChan := make(chan error, 1)
-	
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -582,7 +582,7 @@ func (cm *ConsensusManager) ReleaseLock(ctx context.Context, lockID string) erro
 				}
 			}
 		}()
-		
+
 		err := cm.releaseLockInternal(releaseCtx, lockID)
 		select {
 		case resultChan <- err:
@@ -604,7 +604,7 @@ func (cm *ConsensusManager) releaseLockInternal(ctx context.Context, lockID stri
 	cm.locksMutex.RLock()
 	lock, exists := cm.locks[lockID]
 	cm.locksMutex.RUnlock()
-	
+
 	if !exists {
 		return nil // Lock doesn't exist, nothing to release
 	}
@@ -616,7 +616,7 @@ func (cm *ConsensusManager) releaseLockInternal(ctx context.Context, lockID stri
 	// Acquire write lock to perform the release
 	cm.locksMutex.Lock()
 	defer cm.locksMutex.Unlock()
-	
+
 	// Double-check under write lock
 	lock, exists = cm.locks[lockID]
 	if !exists {
@@ -646,7 +646,7 @@ func (cm *ConsensusManager) waitForLockRelease(ctx context.Context, lockID strin
 	if ctxDeadline, ok := ctx.Deadline(); ok && ctxDeadline.Before(deadline) {
 		deadline = ctxDeadline
 	}
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -655,12 +655,12 @@ func (cm *ConsensusManager) waitForLockRelease(ctx context.Context, lockID strin
 			cm.locksMutex.RLock()
 			lock, exists := cm.locks[lockID]
 			cm.locksMutex.RUnlock()
-			
+
 			if !exists || time.Now().After(lock.ExpiresAt) {
 				// Lock is now available, try to acquire it
 				return nil
 			}
-			
+
 			if time.Now().After(deadline) {
 				return fmt.Errorf("lock wait timeout for %s", lockID)
 			}
@@ -673,7 +673,7 @@ func (cm *ConsensusManager) replicateLockAsync(ctx context.Context, lock *Distri
 	// Create timeout context for replication to prevent indefinite blocking
 	replicationCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond) // Shorter timeout for simulation
 	defer cancel()
-	
+
 	// TODO: Implement actual network replication
 	// For now, simulate synchronous replication with proper cancellation
 	select {
@@ -695,7 +695,7 @@ func (cm *ConsensusManager) replicateLockReleaseAsync(ctx context.Context, lockI
 	// Create timeout context for replication to prevent indefinite blocking
 	releaseCtx, cancel := context.WithTimeout(ctx, 50*time.Millisecond) // Shorter timeout for simulation
 	defer cancel()
-	
+
 	// TODO: Implement actual network replication
 	// For now, simulate synchronous replication with proper cancellation
 	select {
@@ -716,7 +716,7 @@ func (cm *ConsensusManager) replicateLockReleaseAsync(ctx context.Context, lockI
 func (cm *ConsensusManager) runRaft(ctx context.Context) {
 	electionTimer := time.NewTimer(cm.randomElectionTimeout())
 	heartbeatTimer := time.NewTicker(cm.config.HeartbeatInterval)
-	
+
 	// Ensure timers are properly stopped to prevent goroutine leaks
 	defer func() {
 		if !electionTimer.Stop() {
@@ -745,14 +745,14 @@ func (cm *ConsensusManager) runRaft(ctx context.Context) {
 				return
 			default:
 			}
-			
+
 			cm.mutex.Lock()
 			if cm.state != ConsensusStateLeader {
 				// Start election
 				cm.startElection()
 			}
 			cm.mutex.Unlock()
-			
+
 			// Reset timer only if still running
 			select {
 			case <-ctx.Done():
@@ -772,7 +772,7 @@ func (cm *ConsensusManager) runRaft(ctx context.Context) {
 				return
 			default:
 			}
-			
+
 			cm.mutex.RLock()
 			isLeader := cm.state == ConsensusStateLeader
 			cm.mutex.RUnlock()
@@ -788,11 +788,11 @@ func (cm *ConsensusManager) runRaft(ctx context.Context) {
 func (cm *ConsensusManager) runPBFT(ctx context.Context) {
 	// TODO: Implement PBFT protocol
 	// For now, this is a placeholder that properly handles cancellation
-	
+
 	// Create a ticker for PBFT operations to prevent goroutine hanging
 	ticker := time.NewTicker(1 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -827,7 +827,7 @@ func (cm *ConsensusManager) sendHeartbeats() {
 func (cm *ConsensusManager) randomElectionTimeout() time.Duration {
 	// Add some randomness to prevent split votes
 	base := cm.config.ElectionTimeout
-	jitter := time.Duration(time.Now().UnixNano()%int64(base/2))
+	jitter := time.Duration(time.Now().UnixNano() % int64(base/2))
 	return base + jitter
 }
 

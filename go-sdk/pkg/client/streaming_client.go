@@ -21,14 +21,14 @@ import (
 
 // SSEEvent represents a parsed Server-Sent Event
 type SSEEvent struct {
-	ID    string            `json:"id,omitempty"`
-	Event string            `json:"event,omitempty"`
-	Data  string            `json:"data"`
-	Retry *time.Duration    `json:"retry,omitempty"`
-	Raw   string            `json:"raw"`
-	Headers map[string]string `json:"headers,omitempty"`
-	Timestamp time.Time       `json:"timestamp"`
-	Sequence  uint64          `json:"sequence"`
+	ID        string            `json:"id,omitempty"`
+	Event     string            `json:"event,omitempty"`
+	Data      string            `json:"data"`
+	Retry     *time.Duration    `json:"retry,omitempty"`
+	Raw       string            `json:"raw"`
+	Headers   map[string]string `json:"headers,omitempty"`
+	Timestamp time.Time         `json:"timestamp"`
+	Sequence  uint64            `json:"sequence"`
 }
 
 // SSEConnectionState represents the state of the SSE connection
@@ -149,36 +149,36 @@ type SSEClientState struct {
 
 // SSEClient is a robust Server-Sent Events streaming client
 type SSEClient struct {
-	config   SSEClientConfig
-	client   *http.Client
-	conn     *http.Response
-	scanner  *bufio.Scanner
-	
+	config  SSEClientConfig
+	client  *http.Client
+	conn    *http.Response
+	scanner *bufio.Scanner
+
 	// Unified state management (protected by single mutex)
-	clientState   SSEClientState
-	stateMutex    sync.RWMutex
-	
+	clientState SSEClientState
+	stateMutex  sync.RWMutex
+
 	// Event handling
-	eventChan     chan *SSEEvent
-	eventBuffer   []*SSEEvent
-	bufferMutex   sync.RWMutex
-	
+	eventChan   chan *SSEEvent
+	eventBuffer []*SSEEvent
+	bufferMutex sync.RWMutex
+
 	// Reconnection (separated from main state for independent access)
-	currentBackoff     time.Duration
-	reconnectTimer     *time.Timer
-	reconnectMutex     sync.RWMutex
-	
+	currentBackoff time.Duration
+	reconnectTimer *time.Timer
+	reconnectMutex sync.RWMutex
+
 	// Health monitoring
-	healthTicker      *time.Ticker
-	healthMutex       sync.RWMutex
-	
+	healthTicker *time.Ticker
+	healthMutex  sync.RWMutex
+
 	// Callback pool for efficient callback execution
-	callbackPool      *internal.CallbackPool
-	
+	callbackPool *internal.CallbackPool
+
 	// Context and cancellation
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
 }
 
 // NewSSEClient creates a new SSE client with the given configuration
@@ -233,7 +233,7 @@ func NewSSEClient(config SSEClientConfig) (*SSEClient, error) {
 	transport := &http.Transport{
 		TLSClientConfig: config.TLSConfig,
 	}
-	
+
 	if config.SkipTLSVerify {
 		if transport.TLSClientConfig == nil {
 			transport.TLSClientConfig = &tls.Config{}
@@ -258,7 +258,7 @@ func NewSSEClient(config SSEClientConfig) (*SSEClient, error) {
 		ctx:            ctx,
 		cancel:         cancel,
 	}
-	
+
 	// Initialize client state atomically
 	client.clientState = SSEClientState{
 		state:          SSEStateDisconnected,
@@ -582,7 +582,7 @@ func (c *SSEClient) parseEventLine(event *SSEEvent, line string) error {
 
 	field := line[:colonIndex]
 	value := line[colonIndex+1:]
-	
+
 	// Remove leading space from value
 	if len(value) > 0 && value[0] == ' ' {
 		value = value[1:]
@@ -652,7 +652,7 @@ func (c *SSEClient) handleFlowControl(event *SSEEvent) {
 
 	if bufferLen >= threshold {
 		c.setBackpressure(true)
-		
+
 		// Buffer management strategy: keep recent events, drop oldest
 		if bufferLen >= c.config.EventBufferSize {
 			// Remove oldest 10% of events
@@ -815,14 +815,14 @@ func (c *SSEClient) shouldReconnect() bool {
 // scheduleReconnect schedules a reconnection attempt
 func (c *SSEClient) scheduleReconnect() {
 	c.setState(SSEStateReconnecting)
-	
+
 	reconnectCount := c.incrementReconnectCount()
-	
+
 	c.callOnReconnect(reconnectCount)
 
 	// Calculate backoff duration
 	backoff := c.calculateBackoff()
-	
+
 	c.healthMutex.Lock()
 	c.reconnectTimer = time.AfterFunc(backoff, func() {
 		if c.isClosed() {
@@ -852,7 +852,7 @@ func (c *SSEClient) calculateBackoff() time.Duration {
 	// Exponential backoff with jitter
 	backoff := c.currentBackoff
 	c.currentBackoff = time.Duration(float64(c.currentBackoff) * c.config.BackoffMultiplier)
-	
+
 	if c.currentBackoff > c.config.MaxBackoff {
 		c.currentBackoff = c.config.MaxBackoff
 	}
@@ -865,11 +865,11 @@ func (c *SSEClient) calculateBackoff() time.Duration {
 // resetReconnectState resets reconnection state after successful connection
 func (c *SSEClient) resetReconnectState() {
 	c.resetReconnectCount()
-	
+
 	c.reconnectMutex.Lock()
 	c.currentBackoff = c.config.InitialBackoff
 	c.reconnectMutex.Unlock()
-	
+
 	c.healthMutex.Lock()
 	if c.reconnectTimer != nil {
 		c.reconnectTimer.Stop()
@@ -985,7 +985,6 @@ func (c *SSEClient) callOnError(err error) {
 	}
 }
 
-
 // ConvertSSEToEvent converts an SSE event to an AG-UI event
 func ConvertSSEToEvent(sseEvent *SSEEvent) (events.Event, error) {
 	if sseEvent == nil {
@@ -1002,7 +1001,7 @@ func ConvertSSEToEvent(sseEvent *SSEEvent) (events.Event, error) {
 
 	// Create base event
 	baseEvent := events.NewBaseEvent(eventType)
-	
+
 	// Set timestamp if available
 	if !sseEvent.Timestamp.IsZero() {
 		baseEvent.SetTimestamp(sseEvent.Timestamp.UnixMilli())

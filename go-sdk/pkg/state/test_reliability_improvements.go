@@ -23,31 +23,31 @@ type ReliableStateManagerTester struct {
 // NewReliableStateManagerTester creates a new reliable state manager tester
 func NewReliableStateManagerTester(t *testing.T) *ReliableStateManagerTester {
 	opts := DefaultManagerOptions()
-	opts.EnableAudit = false // Disable for faster tests
+	opts.EnableAudit = false   // Disable for faster tests
 	opts.EnableMetrics = false // Disable for cleaner tests
-	
+
 	// Use optimized performance settings for tests
 	perfOpts := DefaultPerformanceOptions()
 	perfOpts.EnableBatching = false // Disable batching to prevent hangs
 	perfOpts.MaxConcurrency = 4     // Reasonable limit for tests
 	perfOpts.MaxPoolSize = 50       // Smaller pool size
 	opts.PerformanceOptimizer = NewPerformanceOptimizer(perfOpts)
-	
+
 	manager, err := NewStateManager(opts)
 	if err != nil {
 		t.Fatalf("Failed to create state manager: %v", err)
 	}
-	
+
 	tester := &ReliableStateManagerTester{
 		t:       t,
 		manager: manager,
 	}
-	
+
 	// Set up cleanup
 	t.Cleanup(func() {
 		tester.Cleanup()
 	})
-	
+
 	return tester
 }
 
@@ -69,11 +69,11 @@ func (rst *ReliableStateManagerTester) CreateContext(ctx context.Context, name s
 	if err != nil {
 		rst.t.Fatalf("Failed to create context %s: %v", name, err)
 	}
-	
+
 	rst.mu.Lock()
 	rst.contextIDs = append(rst.contextIDs, contextID)
 	rst.mu.Unlock()
-	
+
 	return contextID
 }
 
@@ -85,14 +85,14 @@ func (rst *ReliableStateManagerTester) UpdateState(ctx context.Context, contextI
 		// Retry on temporary errors but not permanent ones
 		return err != nil && err != ErrManagerClosed && err != ErrManagerClosing
 	}
-	
+
 	var result JSONPatch
 	err := testutils.RetryUntilSuccess(ctx, retryConfig, func() error {
 		var err error
 		result, err = rst.manager.UpdateState(ctx, contextID, stateName, updates, opts)
 		return err
 	})
-	
+
 	return result, err
 }
 
@@ -100,14 +100,14 @@ func (rst *ReliableStateManagerTester) UpdateState(ctx context.Context, contextI
 func (rst *ReliableStateManagerTester) GetState(ctx context.Context, contextID, stateName string) (interface{}, error) {
 	retryConfig := testutils.DefaultRetryConfig()
 	retryConfig.MaxAttempts = 3
-	
+
 	var result interface{}
 	err := testutils.RetryUntilSuccess(ctx, retryConfig, func() error {
 		var err error
 		result, err = rst.manager.GetState(ctx, contextID, stateName)
 		return err
 	})
-	
+
 	return result, err
 }
 
@@ -115,7 +115,7 @@ func (rst *ReliableStateManagerTester) GetState(ctx context.Context, contextID, 
 func (rst *ReliableStateManagerTester) TestConcurrentOperations(numGoroutines, operationsPerGoroutine int, operation func(int, int) error) {
 	tester := testutils.NewConcurrentTester(rst.t, numGoroutines*operationsPerGoroutine)
 	barrier := testutils.NewTestBarrier(numGoroutines)
-	
+
 	for i := 0; i < numGoroutines; i++ {
 		goroutineID := i
 		tester.Go(func() error {
@@ -123,7 +123,7 @@ func (rst *ReliableStateManagerTester) TestConcurrentOperations(numGoroutines, o
 			if err := barrier.WaitWithTimeout(5 * time.Second); err != nil {
 				return err
 			}
-			
+
 			// Execute operations
 			for j := 0; j < operationsPerGoroutine; j++ {
 				if err := operation(goroutineID, j); err != nil {
@@ -133,7 +133,7 @@ func (rst *ReliableStateManagerTester) TestConcurrentOperations(numGoroutines, o
 			return nil
 		})
 	}
-	
+
 	tester.Wait()
 }
 
@@ -147,7 +147,7 @@ func (rst *ReliableStateManagerTester) Cleanup() {
 	if rst.cleanupFunc != nil {
 		rst.cleanupFunc()
 	}
-	
+
 	if rst.manager != nil {
 		// Close with timeout to prevent hanging
 		done := make(chan struct{})
@@ -155,7 +155,7 @@ func (rst *ReliableStateManagerTester) Cleanup() {
 			rst.manager.Close()
 			close(done)
 		}()
-		
+
 		select {
 		case <-done:
 			// Clean shutdown
@@ -182,7 +182,7 @@ type ReliableConcurrencyTester struct {
 // NewReliableConcurrencyTester creates a new concurrency tester
 func NewReliableConcurrencyTester(t *testing.T) *ReliableConcurrencyTester {
 	tester := NewReliableStateManagerTester(t)
-	
+
 	return &ReliableConcurrencyTester{
 		t:               t,
 		manager:         tester.Manager(),
@@ -202,17 +202,17 @@ func (rct *ReliableConcurrencyTester) TestRaceCondition(numGoroutines, updatesPe
 	if err != nil {
 		rct.t.Fatalf("Failed to create context: %v", err)
 	}
-	
+
 	// Start resource monitoring
 	rct.resourceMonitor.Start(100 * time.Millisecond)
 	defer func() {
 		stats := rct.resourceMonitor.Stop()
 		rct.t.Logf("Resource usage: %s", stats.String())
 	}()
-	
+
 	barrier := testutils.NewTestBarrier(numGoroutines)
 	tester := testutils.NewConcurrentTester(rct.t, numGoroutines*2)
-	
+
 	for i := 0; i < numGoroutines; i++ {
 		goroutineID := i
 		tester.Go(func() error {
@@ -220,19 +220,19 @@ func (rct *ReliableConcurrencyTester) TestRaceCondition(numGoroutines, updatesPe
 			if err := barrier.WaitWithTimeout(5 * time.Second); err != nil {
 				return err
 			}
-			
+
 			for j := 0; j < updatesPerGoroutine; j++ {
 				updates := map[string]interface{}{
 					"counter": goroutineID*1000 + j,
 					"values":  []int{goroutineID, j},
 				}
-				
+
 				ctxWithTimeout, cancel := context.WithTimeout(ctx, time.Second)
 				_, err := rct.manager.UpdateState(ctxWithTimeout, contextID, "race-test", updates, UpdateOptions{
 					ConflictStrategy: LastWriteWins,
 				})
 				cancel()
-				
+
 				if err != nil {
 					rct.errorCount.Increment()
 					return err
@@ -243,15 +243,15 @@ func (rct *ReliableConcurrencyTester) TestRaceCondition(numGoroutines, updatesPe
 			return nil
 		})
 	}
-	
+
 	tester.Wait()
-	
+
 	// Verify final state consistency
 	finalState, err := rct.manager.GetState(ctx, contextID, "race-test")
 	if err != nil {
 		rct.t.Fatalf("Failed to get final state: %v", err)
 	}
-	
+
 	if stateMap, ok := finalState.(map[string]interface{}); ok {
 		if stateMap["counter"] == nil || stateMap["values"] == nil {
 			rct.t.Error("Final state is missing expected fields")
@@ -259,8 +259,8 @@ func (rct *ReliableConcurrencyTester) TestRaceCondition(numGoroutines, updatesPe
 	} else {
 		rct.t.Error("Final state is not a map")
 	}
-	
-	rct.t.Logf("Race condition test completed - Successes: %d, Errors: %d", 
+
+	rct.t.Logf("Race condition test completed - Successes: %d, Errors: %d",
 		rct.successCount.Get(), rct.errorCount.Get())
 }
 
@@ -268,18 +268,18 @@ func (rct *ReliableConcurrencyTester) TestRaceCondition(numGoroutines, updatesPe
 func (rct *ReliableConcurrencyTester) TestReadWriteConcurrency(numReaders, numWriters, operationsPerWorker int) {
 	ctx := context.Background()
 	contextID, err := rct.manager.CreateContext(ctx, "rw-test", map[string]interface{}{
-		"data": "initial",
+		"data":    "initial",
 		"counter": 0,
 	})
 	if err != nil {
 		rct.t.Fatalf("Failed to create context: %v", err)
 	}
-	
+
 	tester := testutils.NewConcurrentTester(rct.t, numReaders+numWriters)
 	barrier := testutils.NewTestBarrier(numReaders + numWriters)
-	
+
 	var readCount, writeCount atomic.Int64
-	
+
 	// Start readers
 	for i := 0; i < numReaders; i++ {
 		_ = i // Use the loop variable to avoid unused variable warning
@@ -287,12 +287,12 @@ func (rct *ReliableConcurrencyTester) TestReadWriteConcurrency(numReaders, numWr
 			if err := barrier.WaitWithTimeout(5 * time.Second); err != nil {
 				return err
 			}
-			
+
 			for j := 0; j < operationsPerWorker; j++ {
 				ctxWithTimeout, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 				_, err := rct.manager.GetState(ctxWithTimeout, contextID, "rw-test")
 				cancel()
-				
+
 				if err != nil {
 					rct.errorCount.Increment()
 					return err
@@ -302,7 +302,7 @@ func (rct *ReliableConcurrencyTester) TestReadWriteConcurrency(numReaders, numWr
 			return nil
 		})
 	}
-	
+
 	// Start writers
 	for i := 0; i < numWriters; i++ {
 		writerID := i
@@ -310,17 +310,17 @@ func (rct *ReliableConcurrencyTester) TestReadWriteConcurrency(numReaders, numWr
 			if err := barrier.WaitWithTimeout(5 * time.Second); err != nil {
 				return err
 			}
-			
+
 			for j := 0; j < operationsPerWorker; j++ {
 				updates := map[string]interface{}{
-					"data": fmt.Sprintf("writer%d-update%d", writerID, j),
+					"data":    fmt.Sprintf("writer%d-update%d", writerID, j),
 					"counter": writerID*1000 + j,
 				}
-				
+
 				ctxWithTimeout, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
 				_, err := rct.manager.UpdateState(ctxWithTimeout, contextID, "rw-test", updates, UpdateOptions{})
 				cancel()
-				
+
 				if err != nil {
 					rct.errorCount.Increment()
 					return err
@@ -330,10 +330,10 @@ func (rct *ReliableConcurrencyTester) TestReadWriteConcurrency(numReaders, numWr
 			return nil
 		})
 	}
-	
+
 	tester.Wait()
-	
-	rct.t.Logf("Read/Write test completed - Reads: %d, Writes: %d, Errors: %d", 
+
+	rct.t.Logf("Read/Write test completed - Reads: %d, Writes: %d, Errors: %d",
 		readCount.Load(), writeCount.Load(), rct.errorCount.Get())
 }
 
@@ -355,7 +355,7 @@ func NewGracefulShutdownTester(t *testing.T) *GracefulShutdownTester {
 // TestShutdownUnderLoad tests shutdown while operations are active
 func (gst *GracefulShutdownTester) TestShutdownUnderLoad(numWorkers, operationsPerWorker int) {
 	ctx := context.Background()
-	
+
 	// Create test contexts
 	contextIDs := make([]string, 3)
 	for i := 0; i < 3; i++ {
@@ -365,12 +365,12 @@ func (gst *GracefulShutdownTester) TestShutdownUnderLoad(numWorkers, operationsP
 		}
 		contextIDs[i] = contextID
 	}
-	
+
 	// Start workers
 	tester := testutils.NewConcurrentTester(gst.t, numWorkers)
 	stopWorkers := make(chan struct{})
 	shutdownStarted := make(chan struct{})
-	
+
 	for i := 0; i < numWorkers; i++ {
 		workerID := i
 		tester.Go(func() error {
@@ -380,9 +380,9 @@ func (gst *GracefulShutdownTester) TestShutdownUnderLoad(numWorkers, operationsP
 					return nil
 				default:
 				}
-				
+
 				contextID := contextIDs[j%len(contextIDs)]
-				
+
 				// Perform various operations
 				switch j % 3 {
 				case 0: // Write
@@ -390,11 +390,11 @@ func (gst *GracefulShutdownTester) TestShutdownUnderLoad(numWorkers, operationsP
 						"worker": workerID,
 						"time":   time.Now().UnixNano(),
 					}
-					
+
 					opCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 					_, err := gst.manager.UpdateState(opCtx, contextID, fmt.Sprintf("state-%d", workerID%3), updates, UpdateOptions{})
 					cancel()
-					
+
 					if err != nil {
 						select {
 						case <-shutdownStarted:
@@ -406,12 +406,12 @@ func (gst *GracefulShutdownTester) TestShutdownUnderLoad(numWorkers, operationsP
 							return fmt.Errorf("unexpected error before shutdown: %w", err)
 						}
 					}
-					
+
 				case 1: // Read
 					opCtx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
 					_, err := gst.manager.GetState(opCtx, contextID, fmt.Sprintf("state-%d", workerID%3))
 					cancel()
-					
+
 					if err != nil {
 						select {
 						case <-shutdownStarted:
@@ -420,7 +420,7 @@ func (gst *GracefulShutdownTester) TestShutdownUnderLoad(numWorkers, operationsP
 							return fmt.Errorf("read error before shutdown: %w", err)
 						}
 					}
-					
+
 				case 2: // History
 					_, err := gst.manager.GetHistory(ctx, fmt.Sprintf("state-%d", workerID%3), 5)
 					if err != nil {
@@ -432,27 +432,27 @@ func (gst *GracefulShutdownTester) TestShutdownUnderLoad(numWorkers, operationsP
 						}
 					}
 				}
-				
+
 				// Small delay
 				time.Sleep(time.Microsecond * 100)
 			}
 			return nil
 		})
 	}
-	
+
 	// Let workers run briefly
 	time.Sleep(50 * time.Millisecond)
-	
+
 	// Signal shutdown started
 	close(shutdownStarted)
-	
+
 	// Begin graceful shutdown with timeout
 	shutdownDone := make(chan struct{})
 	go func() {
 		gst.manager.Close()
 		close(shutdownDone)
 	}()
-	
+
 	// Wait for shutdown with timeout
 	select {
 	case <-shutdownDone:
@@ -460,11 +460,11 @@ func (gst *GracefulShutdownTester) TestShutdownUnderLoad(numWorkers, operationsP
 	case <-time.After(3 * time.Second):
 		gst.t.Error("Shutdown took too long")
 	}
-	
+
 	// Stop all workers
 	close(stopWorkers)
 	tester.Wait()
-	
+
 	// Verify manager is closed
 	_, err := gst.manager.GetState(ctx, contextIDs[0], "state-0")
 	if err != ErrManagerClosed {

@@ -68,16 +68,16 @@ func (c *Config) Validate() error {
 	if c == nil {
 		return fmt.Errorf("server config cannot be nil")
 	}
-	
+
 	if c.Address == "" {
 		return fmt.Errorf("server address cannot be empty")
 	}
-	
+
 	// Validate address format - should be in the format ":port" or "host:port"
 	if !strings.HasPrefix(c.Address, ":") && !strings.Contains(c.Address, ":") {
 		return fmt.Errorf("server address must be in format ':port' or 'host:port', got %q", c.Address)
 	}
-	
+
 	return nil
 }
 
@@ -86,7 +86,7 @@ func New(config Config) (*Server, error) {
 	if err := config.Validate(); err != nil {
 		return nil, fmt.Errorf("invalid server configuration: %w", err)
 	}
-	
+
 	// Set default values
 	if config.ReadTimeout == 0 {
 		config.ReadTimeout = 10 * time.Second
@@ -127,20 +127,20 @@ func (s *Server) RegisterAgent(name string, agent core.Agent) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if s.closed {
 		return pkgerrors.NewOperationError("RegisterAgent", "server", errors.New("server is closed"))
 	}
-	
+
 	if s.agents == nil {
 		s.agents = make(map[string]core.Agent)
 	}
-	
+
 	// Check for duplicate registration
 	if _, exists := s.agents[name]; exists {
 		return pkgerrors.NewResourceConflictError("agent", name, "agent already registered")
 	}
-	
+
 	s.agents[name] = agent
 	return nil
 }
@@ -153,15 +153,15 @@ func (s *Server) UnregisterAgent(name string) error {
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if s.closed {
 		return pkgerrors.NewOperationError("UnregisterAgent", "server", errors.New("server is closed"))
 	}
-	
+
 	if _, exists := s.agents[name]; !exists {
 		return pkgerrors.NewResourceNotFoundError("agent", name)
 	}
-	
+
 	delete(s.agents, name)
 	return nil
 }
@@ -178,7 +178,7 @@ func (s *Server) GetAgent(name string) (core.Agent, bool) {
 func (s *Server) ListAgents() []string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	agents := make([]string, 0, len(s.agents))
 	for name := range s.agents {
 		agents = append(agents, name)
@@ -191,7 +191,7 @@ func (s *Server) ListenAndServe() error {
 	if s.config.Address == "" {
 		return pkgerrors.NewConfigurationErrorWithField("Address", "server address cannot be empty", s.config.Address)
 	}
-	
+
 	s.mu.Lock()
 	if s.running {
 		s.mu.Unlock()
@@ -220,7 +220,7 @@ func (s *Server) ListenAndServe() error {
 	}
 
 	fmt.Printf("Starting AG-UI server on %s\n", s.config.Address)
-	
+
 	// Start server with or without TLS
 	if s.config.TLSCertFile != "" && s.config.TLSKeyFile != "" {
 		return s.httpServer.ListenAndServeTLS(s.config.TLSCertFile, s.config.TLSKeyFile)
@@ -243,20 +243,20 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	s.mu.RLock()
 	agentCount := len(s.agents)
 	running := s.running
 	closed := s.closed
 	s.mu.RUnlock()
-	
+
 	status := "healthy"
 	if closed {
 		status = "closed"
 	} else if !running {
 		status = "not_running"
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	response := fmt.Sprintf(`{"status": "%s", "agents": %d, "running": %t}`, status, agentCount, running)
@@ -269,9 +269,9 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	agents := s.ListAgents()
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	response := fmt.Sprintf(`{"agents": %q}`, agents)
@@ -282,24 +282,24 @@ func (s *Server) handleAgents(w http.ResponseWriter, r *http.Request) {
 func (s *Server) Shutdown(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if s.closed {
 		return fmt.Errorf("server is already closed")
 	}
-	
+
 	s.closed = true
 	s.running = false
-	
+
 	// Shutdown HTTP server if it exists
 	if s.httpServer != nil {
 		if err := s.httpServer.Shutdown(ctx); err != nil {
 			return pkgerrors.WrapWithContext(err, "Shutdown", "httpServer")
 		}
 	}
-	
+
 	// Clear agents
 	s.agents = make(map[string]core.Agent)
-	
+
 	return nil
 }
 

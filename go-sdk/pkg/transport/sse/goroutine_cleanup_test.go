@@ -75,7 +75,7 @@ func TestSSEGoroutineCleanup(t *testing.T) {
 
 			// Allow for some variance but detect major leaks
 			if finalCount > initialCount+3 {
-				t.Errorf("Potential goroutine leak detected: initial=%d, final=%d", 
+				t.Errorf("Potential goroutine leak detected: initial=%d, final=%d",
 					initialCount, finalCount)
 			}
 		})
@@ -99,13 +99,13 @@ func testSSEHeartbeatCleanup(t *testing.T, conn *Connection, helper *sdktesting.
 
 	// Start heartbeat
 	conn.startHeartbeat()
-	
+
 	// Let it run briefly
 	time.Sleep(25 * time.Millisecond)
 
 	// Stop heartbeat - should clean up goroutine
 	conn.stopHeartbeat()
-	
+
 	// Verify cleanup
 	time.Sleep(10 * time.Millisecond)
 }
@@ -125,7 +125,7 @@ func testSSEContextCancellation(t *testing.T, conn *Connection, helper *sdktesti
 
 	// Cancel context - should trigger cleanup
 	cancel()
-	
+
 	// Allow cleanup to complete
 	time.Sleep(20 * time.Millisecond)
 }
@@ -179,7 +179,7 @@ func testSSEConcurrentOperations(t *testing.T, conn *Connection, helper *sdktest
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			// Simulate state changes
 			conn.setState(ConnectionStateConnecting)
 			time.Sleep(5 * time.Millisecond)
@@ -190,7 +190,7 @@ func testSSEConcurrentOperations(t *testing.T, conn *Connection, helper *sdktest
 
 	// Wait for operations to complete
 	wg.Wait()
-	
+
 	// Close should cleanup everything
 	time.Sleep(10 * time.Millisecond)
 }
@@ -309,7 +309,7 @@ func TestSSEReconnectionCleanup(t *testing.T) {
 	conn.reconnectPolicy.Enabled = true
 	conn.reconnectPolicy.MaxAttempts = 3
 	conn.reconnectPolicy.InitialDelay = 10 * time.Millisecond
-	
+
 	// Attempt reconnection (will fail since no server)
 	_ = conn.Reconnect(ctx)
 
@@ -321,9 +321,9 @@ func TestSSEReconnectionCleanup(t *testing.T) {
 // createTestSSEConfig creates a test configuration for SSE
 func createTestSSEConfig() *Config {
 	return &Config{
-		BaseURL:       "http://test.example.com",
-		BufferSize:    100,
-		MaxReconnects: 3,
+		BaseURL:        "http://test.example.com",
+		BufferSize:     100,
+		MaxReconnects:  3,
 		ReconnectDelay: 10 * time.Millisecond,
 		Client: &http.Client{
 			Timeout: 50 * time.Millisecond,

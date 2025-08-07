@@ -16,6 +16,15 @@ const (
 	DefaultShardCount  = 16
 )
 
+// MemoryStats tracks memory usage statistics for leak prevention
+type MemoryStats struct {
+	mu                     sync.RWMutex
+	totalDeletions         int64     // Total deletions since startup
+	globalDeletionCount    int64     // Global deletions since last recreation
+	lastGlobalRecreation   time.Time // Last recreation of global maps
+	recreationCount        int64     // Total number of recreations
+}
+
 // MemorySessionStorage implements in-memory session storage
 type MemorySessionStorage struct {
 	config       *MemorySessionConfig
@@ -24,12 +33,18 @@ type MemorySessionStorage struct {
 	userSessions map[string][]string
 	shards       []*SessionShard
 	mu           sync.RWMutex
+	
+	// Memory management tracking
+	memoryStats   *MemoryStats
+	lastRecreation time.Time
 }
 
 // SessionShard represents a shard for memory storage to improve concurrent access
 type SessionShard struct {
-	sessions map[string]*Session
-	mu       sync.RWMutex
+	sessions       map[string]*Session
+	mu             sync.RWMutex
+	deletionCount  int64     // Track number of deletions since last recreation
+	lastRecreation time.Time // Track when the map was last recreated
 }
 
 // NewMemorySessionStorage creates a new memory session storage
@@ -52,10 +67,12 @@ func NewMemorySessionStorage(config *MemorySessionConfig, logger *zap.Logger) (*
 	}
 
 	storage := &MemorySessionStorage{
-		config:       config,
-		logger:       logger,
-		sessions:     make(map[string]*Session),
-		userSessions: make(map[string][]string),
+		config:         config,
+		logger:         logger,
+		sessions:       make(map[string]*Session),
+		userSessions:   make(map[string][]string),
+		memoryStats:    &MemoryStats{lastGlobalRecreation: time.Now()},
+		lastRecreation: time.Now(),
 	}
 
 	// Initialize shards if sharding is enabled
@@ -63,7 +80,8 @@ func NewMemorySessionStorage(config *MemorySessionConfig, logger *zap.Logger) (*
 		storage.shards = make([]*SessionShard, config.ShardCount)
 		for i := 0; i < config.ShardCount; i++ {
 			storage.shards[i] = &SessionShard{
-				sessions: make(map[string]*Session),
+				sessions:       make(map[string]*Session),
+				lastRecreation: time.Now(),
 			}
 		}
 	}
@@ -71,7 +89,11 @@ func NewMemorySessionStorage(config *MemorySessionConfig, logger *zap.Logger) (*
 	logger.Info("Memory session storage initialized",
 		zap.Int("max_sessions", config.MaxSessions),
 		zap.Bool("sharding_enabled", config.EnableSharding),
-		zap.Int("shard_count", config.ShardCount))
+		zap.Int("shard_count", config.ShardCount),
+		zap.Bool("map_recreation_enabled", config.EnableMapRecreation),
+		zap.Int("recreation_deletion_threshold", config.RecreationDeletionThreshold),
+		zap.Duration("recreation_time_threshold", config.RecreationTimeThreshold),
+		zap.Float64("max_map_capacity_ratio", config.MaxMapCapacityRatio))
 
 	return storage, nil
 }
@@ -288,17 +310,30 @@ func (m *MemorySessionStorage) DeleteSession(ctx context.Context, sessionID stri
 // deleteSessionFromShard deletes a session from a specific shard
 func (m *MemorySessionStorage) deleteSessionFromShard(shard *SessionShard, sessionID string) error {
 	shard.mu.Lock()
-	defer shard.mu.Unlock()
-
+	
+	// Check if session exists before deletion
+	_, existed := shard.sessions[sessionID]
 	delete(shard.sessions, sessionID)
+	
+	// Track deletion for memory management
+	if existed {
+		shard.deletionCount++
+		m.trackDeletion()
+		
+		// Check if we need to recreate the map while holding the lock
+		shouldRecreate := m.shouldRecreateShardMap(shard)
+		if shouldRecreate {
+			m.recreateShardMap(shard)
+		}
+	}
+	
+	shard.mu.Unlock()
 	return nil
 }
 
 // deleteSessionGlobal deletes a session from global storage
 func (m *MemorySessionStorage) deleteSessionGlobal(sessionID string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
-
 	session, exists := m.sessions[sessionID]
 	if exists {
 		delete(m.sessions, sessionID)
@@ -317,6 +352,27 @@ func (m *MemorySessionStorage) deleteSessionGlobal(sessionID string) error {
 				delete(m.userSessions, session.UserID)
 			}
 		}
+
+		// Track deletion for memory management
+		m.memoryStats.mu.Lock()
+		m.memoryStats.totalDeletions++
+		m.memoryStats.globalDeletionCount++
+		m.memoryStats.mu.Unlock()
+	}
+	
+	// Check if we need to recreate global maps (release lock first)
+	shouldRecreate := false
+	if exists {
+		m.mu.Unlock() // Release the main lock before checking recreation
+		shouldRecreate = m.shouldRecreateGlobalMaps()
+		if shouldRecreate {
+			m.mu.Lock() // Acquire lock again for recreation
+			m.recreateGlobalMaps()
+			m.mu.Unlock()
+			return nil
+		}
+	} else {
+		m.mu.Unlock()
 	}
 
 	return nil
@@ -389,6 +445,8 @@ func (m *MemorySessionStorage) DeleteUserSessions(ctx context.Context, userID st
 
 // deleteUserSessionsFromShards deletes user sessions from all shards
 func (m *MemorySessionStorage) deleteUserSessionsFromShards(userID string) error {
+	var totalDeleted int64
+	
 	for _, shard := range m.shards {
 		shard.mu.Lock()
 		var toDelete []string
@@ -397,10 +455,32 @@ func (m *MemorySessionStorage) deleteUserSessionsFromShards(userID string) error
 				toDelete = append(toDelete, sessionID)
 			}
 		}
+		
+		deletedCount := len(toDelete)
 		for _, sessionID := range toDelete {
 			delete(shard.sessions, sessionID)
 		}
+		
+		// Track deletions for memory management
+		if deletedCount > 0 {
+			shard.deletionCount += int64(deletedCount)
+			totalDeleted += int64(deletedCount)
+			
+			// Check if we need to recreate the shard map
+			shouldRecreate := m.shouldRecreateShardMap(shard)
+			if shouldRecreate {
+				m.recreateShardMap(shard)
+			}
+		}
+		
 		shard.mu.Unlock()
+	}
+
+	// Update global deletion stats
+	if totalDeleted > 0 {
+		m.memoryStats.mu.Lock()
+		m.memoryStats.totalDeletions += totalDeleted
+		m.memoryStats.mu.Unlock()
 	}
 
 	return nil
@@ -409,18 +489,41 @@ func (m *MemorySessionStorage) deleteUserSessionsFromShards(userID string) error
 // deleteUserSessionsGlobal deletes user sessions from global storage
 func (m *MemorySessionStorage) deleteUserSessionsGlobal(userID string) error {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	sessionIDs, exists := m.userSessions[userID]
 	if !exists {
+		m.mu.Unlock()
 		return nil
 	}
 
+	deletedCount := len(sessionIDs)
 	for _, sessionID := range sessionIDs {
 		delete(m.sessions, sessionID)
 	}
 
 	delete(m.userSessions, userID)
+
+	// Track deletions for memory management
+	if deletedCount > 0 {
+		m.memoryStats.mu.Lock()
+		m.memoryStats.totalDeletions += int64(deletedCount)
+		m.memoryStats.globalDeletionCount += int64(deletedCount)
+		m.memoryStats.mu.Unlock()
+	}
+
+	// Release the main lock before checking recreation
+	m.mu.Unlock()
+	
+	// Check if we need to recreate global maps
+	if deletedCount > 0 {
+		shouldRecreate := m.shouldRecreateGlobalMaps()
+		if shouldRecreate {
+			m.mu.Lock()
+			m.recreateGlobalMaps()
+			m.mu.Unlock()
+		}
+	}
+
 	return nil
 }
 
@@ -456,11 +559,34 @@ func (m *MemorySessionStorage) cleanupExpiredSessionsFromShards(now time.Time) i
 			}
 		}
 
+		deletedCount := len(toDelete)
 		for _, sessionID := range toDelete {
 			delete(shard.sessions, sessionID)
-			cleaned++
 		}
+		
+		// Track deletions for memory management
+		if deletedCount > 0 {
+			shard.deletionCount += int64(deletedCount)
+			cleaned += int64(deletedCount)
+			
+			// Check if we need to recreate the shard map
+			shouldRecreate := m.shouldRecreateShardMap(shard)
+			if shouldRecreate {
+				reclaimedEntries := m.recreateShardMap(shard)
+				m.logger.Debug("Map recreation during cleanup",
+					zap.Int("shard_deleted_sessions", deletedCount),
+					zap.Int64("reclaimed_entries", reclaimedEntries))
+			}
+		}
+		
 		shard.mu.Unlock()
+	}
+
+	// Update global deletion stats
+	if cleaned > 0 {
+		m.memoryStats.mu.Lock()
+		m.memoryStats.totalDeletions += cleaned
+		m.memoryStats.mu.Unlock()
 	}
 
 	return cleaned
@@ -469,7 +595,6 @@ func (m *MemorySessionStorage) cleanupExpiredSessionsFromShards(now time.Time) i
 // cleanupExpiredSessionsGlobal removes expired sessions from global storage
 func (m *MemorySessionStorage) cleanupExpiredSessionsGlobal(now time.Time) int64 {
 	m.mu.Lock()
-	defer m.mu.Unlock()
 
 	var toDelete []string
 	for sessionID, session := range m.sessions {
@@ -499,6 +624,31 @@ func (m *MemorySessionStorage) cleanupExpiredSessionsGlobal(now time.Time) int64
 					delete(m.userSessions, session.UserID)
 				}
 			}
+		}
+	}
+
+	// Track deletions for memory management
+	if cleaned > 0 {
+		m.memoryStats.mu.Lock()
+		m.memoryStats.totalDeletions += cleaned
+		m.memoryStats.globalDeletionCount += cleaned
+		m.memoryStats.mu.Unlock()
+	}
+
+	// Release the main lock before checking recreation
+	m.mu.Unlock()
+	
+	// Check if we need to recreate global maps
+	if cleaned > 0 {
+		shouldRecreate := m.shouldRecreateGlobalMaps()
+		if shouldRecreate {
+			m.mu.Lock()
+			reclaimedEntries := m.recreateGlobalMaps()
+			m.mu.Unlock()
+			
+			m.logger.Debug("Map recreation during global cleanup",
+				zap.Int64("deleted_sessions", cleaned),
+				zap.Int64("reclaimed_entries", reclaimedEntries))
 		}
 	}
 
@@ -603,6 +753,8 @@ func (m *MemorySessionStorage) Close() error {
 		for _, shard := range m.shards {
 			shard.mu.Lock()
 			shard.sessions = make(map[string]*Session)
+			shard.deletionCount = 0
+			shard.lastRecreation = time.Now()
 			shard.mu.Unlock()
 		}
 	} else {
@@ -611,6 +763,14 @@ func (m *MemorySessionStorage) Close() error {
 		m.userSessions = make(map[string][]string)
 		m.mu.Unlock()
 	}
+
+	// Reset memory stats
+	m.memoryStats.mu.Lock()
+	m.memoryStats.totalDeletions = 0
+	m.memoryStats.globalDeletionCount = 0
+	m.memoryStats.lastGlobalRecreation = time.Now()
+	m.memoryStats.recreationCount = 0
+	m.memoryStats.mu.Unlock()
 
 	return nil
 }
@@ -623,6 +783,7 @@ func (m *MemorySessionStorage) Ping(ctx context.Context) error {
 // Stats returns statistics about the memory storage
 func (m *MemorySessionStorage) Stats() map[string]interface{} {
 	count, _ := m.CountSessions(context.Background())
+	memoryStats := m.getMemoryStats()
 
 	stats := map[string]interface{}{
 		"type":             "memory",
@@ -630,19 +791,190 @@ func (m *MemorySessionStorage) Stats() map[string]interface{} {
 		"max_sessions":     m.config.MaxSessions,
 		"sharding_enabled": m.config.EnableSharding,
 		"shard_count":      m.config.ShardCount,
+		"memory_management": memoryStats,
 	}
 
 	if m.config.EnableSharding {
 		shardCounts := make([]int, len(m.shards))
+		shardDeletions := make([]int64, len(m.shards))
+		shardLastRecreations := make([]string, len(m.shards))
+		
 		for i, shard := range m.shards {
 			shard.mu.RLock()
 			shardCounts[i] = len(shard.sessions)
+			shardDeletions[i] = shard.deletionCount
+			shardLastRecreations[i] = shard.lastRecreation.Format(time.RFC3339)
 			shard.mu.RUnlock()
 		}
+		
 		stats["shard_counts"] = shardCounts
+		stats["shard_deletions"] = shardDeletions
+		stats["shard_last_recreations"] = shardLastRecreations
 	}
 
 	return stats
+}
+
+// getMemoryStats returns current memory management statistics
+func (m *MemorySessionStorage) getMemoryStats() map[string]interface{} {
+	m.memoryStats.mu.RLock()
+	defer m.memoryStats.mu.RUnlock()
+
+	stats := map[string]interface{}{
+		"enabled":                    m.config.EnableMapRecreation,
+		"total_deletions":           m.memoryStats.totalDeletions,
+		"global_deletion_count":     m.memoryStats.globalDeletionCount,
+		"recreation_count":          m.memoryStats.recreationCount,
+		"last_global_recreation":    m.memoryStats.lastGlobalRecreation.Format(time.RFC3339),
+		"deletion_threshold":        m.config.RecreationDeletionThreshold,
+		"time_threshold_minutes":    int(m.config.RecreationTimeThreshold.Minutes()),
+		"max_capacity_ratio":        m.config.MaxMapCapacityRatio,
+	}
+
+	if m.config.EnableSharding {
+		var totalShardDeletions int64
+		for _, shard := range m.shards {
+			shard.mu.RLock()
+			totalShardDeletions += shard.deletionCount
+			shard.mu.RUnlock()
+		}
+		stats["total_shard_deletions"] = totalShardDeletions
+	}
+
+	return stats
+}
+
+// Map recreation methods for memory leak prevention
+
+// shouldRecreateShardMap checks if a shard map should be recreated to prevent memory leaks
+func (m *MemorySessionStorage) shouldRecreateShardMap(shard *SessionShard) bool {
+	if !m.config.EnableMapRecreation {
+		return false
+	}
+
+	// Check deletion threshold
+	if shard.deletionCount >= int64(m.config.RecreationDeletionThreshold) {
+		return true
+	}
+
+	// Check time threshold
+	if time.Since(shard.lastRecreation) >= m.config.RecreationTimeThreshold {
+		return true
+	}
+
+	// Check capacity ratio threshold
+	currentCapacity := len(shard.sessions)
+	if currentCapacity > 0 {
+		estimatedWastedSpace := float64(shard.deletionCount) / float64(currentCapacity+int(shard.deletionCount))
+		if estimatedWastedSpace >= (m.config.MaxMapCapacityRatio - 1.0) / m.config.MaxMapCapacityRatio {
+			return true
+		}
+	}
+
+	return false
+}
+
+// recreateShardMap creates a new map for the shard and copies active sessions
+func (m *MemorySessionStorage) recreateShardMap(shard *SessionShard) int64 {
+	now := time.Now()
+	newMap := make(map[string]*Session)
+	var copiedSessions int64
+
+	// Copy only active, non-expired sessions to the new map
+	for sessionID, session := range shard.sessions {
+		if session.IsActive && now.Before(session.ExpiresAt) {
+			newMap[sessionID] = session
+			copiedSessions++
+		}
+	}
+
+	// Replace the old map
+	oldSessionCount := len(shard.sessions)
+	shard.sessions = newMap
+	shard.deletionCount = 0
+	shard.lastRecreation = now
+
+	m.logger.Info("Recreated shard map to prevent memory leak",
+		zap.Int("old_sessions", oldSessionCount),
+		zap.Int64("copied_sessions", copiedSessions),
+		zap.Int64("reclaimed_entries", int64(oldSessionCount)-copiedSessions))
+
+	return int64(oldSessionCount) - copiedSessions
+}
+
+// shouldRecreateGlobalMaps checks if global maps should be recreated
+func (m *MemorySessionStorage) shouldRecreateGlobalMaps() bool {
+	if !m.config.EnableMapRecreation {
+		return false
+	}
+
+	m.memoryStats.mu.RLock()
+	defer m.memoryStats.mu.RUnlock()
+
+	// Check deletion threshold
+	if m.memoryStats.globalDeletionCount >= int64(m.config.RecreationDeletionThreshold) {
+		return true
+	}
+
+	// Check time threshold
+	if time.Since(m.memoryStats.lastGlobalRecreation) >= m.config.RecreationTimeThreshold {
+		return true
+	}
+
+	// Check capacity ratio threshold
+	currentCapacity := len(m.sessions)
+	if currentCapacity > 0 {
+		estimatedWastedSpace := float64(m.memoryStats.globalDeletionCount) / float64(currentCapacity+int(m.memoryStats.globalDeletionCount))
+		if estimatedWastedSpace >= (m.config.MaxMapCapacityRatio - 1.0) / m.config.MaxMapCapacityRatio {
+			return true
+		}
+	}
+
+	return false
+}
+
+// recreateGlobalMaps creates new global maps and copies active sessions
+func (m *MemorySessionStorage) recreateGlobalMaps() int64 {
+	now := time.Now()
+	newSessionMap := make(map[string]*Session)
+	newUserSessionMap := make(map[string][]string)
+	var copiedSessions int64
+
+	// Copy only active, non-expired sessions to the new maps
+	for sessionID, session := range m.sessions {
+		if session.IsActive && now.Before(session.ExpiresAt) {
+			newSessionMap[sessionID] = session
+			newUserSessionMap[session.UserID] = append(newUserSessionMap[session.UserID], sessionID)
+			copiedSessions++
+		}
+	}
+
+	// Replace the old maps
+	oldSessionCount := len(m.sessions)
+	m.sessions = newSessionMap
+	m.userSessions = newUserSessionMap
+
+	// Update memory stats
+	m.memoryStats.mu.Lock()
+	m.memoryStats.globalDeletionCount = 0
+	m.memoryStats.lastGlobalRecreation = now
+	m.memoryStats.recreationCount++
+	m.memoryStats.mu.Unlock()
+
+	m.logger.Info("Recreated global maps to prevent memory leak",
+		zap.Int("old_sessions", oldSessionCount),
+		zap.Int64("copied_sessions", copiedSessions),
+		zap.Int64("reclaimed_entries", int64(oldSessionCount)-copiedSessions),
+		zap.Int64("total_recreations", m.memoryStats.recreationCount))
+
+	return int64(oldSessionCount) - copiedSessions
+}
+
+// trackDeletion increments deletion counters for memory management
+func (m *MemorySessionStorage) trackDeletion() {
+	m.memoryStats.mu.Lock()
+	m.memoryStats.totalDeletions++
+	m.memoryStats.mu.Unlock()
 }
 
 // Helper methods

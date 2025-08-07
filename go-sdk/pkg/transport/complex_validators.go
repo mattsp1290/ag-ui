@@ -75,11 +75,11 @@ func (v *StructValidator[T]) Validate(ctx context.Context, value T) ValidationRe
 	}
 
 	result := NewValidationResult(true)
-	
+
 	// Use reflection to validate struct fields
 	val := reflect.ValueOf(value)
 	typ := reflect.TypeOf(value)
-	
+
 	// Dereference pointer if necessary
 	if val.Kind() == reflect.Ptr {
 		if val.IsNil() {
@@ -92,7 +92,7 @@ func (v *StructValidator[T]) Validate(ctx context.Context, value T) ValidationRe
 		val = val.Elem()
 		typ = typ.Elem()
 	}
-	
+
 	if val.Kind() != reflect.Struct {
 		result.AddError(NewValidationError("value must be a struct", nil))
 		return result
@@ -138,13 +138,13 @@ func (v *StructValidator[T]) Priority() int {
 
 // SliceValidator provides type-safe validation for slices with element rules
 type SliceValidator[T any] struct {
-	name           string
+	name             string
 	elementValidator TypedValidator[T]
-	minLength      *int
-	maxLength      *int
-	condition      func([]T) bool
-	enabled        bool
-	priority       int
+	minLength        *int
+	maxLength        *int
+	condition        func([]T) bool
+	enabled          bool
+	priority         int
 }
 
 // NewSliceValidator creates a new slice validator
@@ -336,7 +336,7 @@ func (v *MapValidator[K, V]) Validate(ctx context.Context, value map[K]V) Valida
 	// Validate keys and values
 	for key, val := range value {
 		keyStr := fmt.Sprintf("%v", key)
-		
+
 		if v.keyValidator != nil {
 			keyResult := v.keyValidator.Validate(ctx, key)
 			if !keyResult.IsValid() {
@@ -439,7 +439,7 @@ func (v *UnionValidator[T]) Validate(ctx context.Context, value T) ValidationRes
 		if result.IsValid() {
 			return result // Success with one of the validators
 		}
-		
+
 		// Collect errors for reporting
 		for _, err := range result.Errors() {
 			wrappedErr := NewValidationError(fmt.Sprintf("union option %d: %s", i+1, err.Error()), nil)
@@ -451,7 +451,7 @@ func (v *UnionValidator[T]) Validate(ctx context.Context, value T) ValidationRes
 	finalResult := NewValidationResult(false)
 	unionErr := NewValidationError("value does not match any of the union types", allErrors)
 	finalResult.AddError(unionErr)
-	
+
 	return finalResult
 }
 
@@ -575,13 +575,13 @@ func (v *RecursiveValidator[T]) Priority() int {
 type TypedValidator[T any] interface {
 	// Name returns the validator name
 	Name() string
-	
+
 	// Validate validates a value and returns a validation result
 	Validate(ctx context.Context, value T) ValidationResult
-	
+
 	// IsEnabled returns whether the validator is enabled
 	IsEnabled() bool
-	
+
 	// Priority returns the validator priority
 	Priority() int
 }
@@ -618,7 +618,7 @@ func (v *AllOfValidator[T]) Validate(ctx context.Context, value T) ValidationRes
 	}
 
 	result := NewValidationResult(true)
-	
+
 	for _, validator := range v.validators {
 		subResult := validator.Validate(ctx, value)
 		if !subResult.IsValid() {
@@ -687,7 +687,7 @@ func (v *AnyOfValidator[T]) Validate(ctx context.Context, value T) ValidationRes
 		if subResult.IsValid() {
 			return subResult // At least one passed
 		}
-		
+
 		// Collect errors for reporting
 		for _, err := range subResult.Errors() {
 			allErrors = append(allErrors, err)
@@ -698,7 +698,7 @@ func (v *AnyOfValidator[T]) Validate(ctx context.Context, value T) ValidationRes
 	result := NewValidationResult(false)
 	anyOfErr := NewValidationError("none of the validators passed", allErrors)
 	result.AddError(anyOfErr)
-	
+
 	return result
 }
 
@@ -760,7 +760,7 @@ func WithValidationPath(ctx context.Context, path string) context.Context {
 	if currentPath == "" {
 		return context.WithValue(ctx, ValidationPathKey, path)
 	}
-	
+
 	// Build hierarchical path
 	var fullPath string
 	if strings.HasPrefix(path, "[") {
@@ -768,7 +768,7 @@ func WithValidationPath(ctx context.Context, path string) context.Context {
 	} else {
 		fullPath = currentPath + "." + path
 	}
-	
+
 	return context.WithValue(ctx, ValidationPathKey, fullPath)
 }
 

@@ -11,12 +11,12 @@ import (
 // TestConcurrentEncodingWithoutMutex verifies that concurrent encoding works without mutexes
 func TestConcurrentEncodingWithoutMutex(t *testing.T) {
 	encoder := NewJSONEncoder(nil)
-	
+
 	// Run 50 concurrent encodings (well within the default 100 limit to avoid interference from other tests)
 	const concurrentOps = 50
 	var wg sync.WaitGroup
 	errors := make(chan error, concurrentOps)
-	
+
 	for i := 0; i < concurrentOps; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -28,17 +28,17 @@ func TestConcurrentEncodingWithoutMutex(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
 	close(errors)
-	
+
 	// Check for any errors
 	errorCount := 0
 	for err := range errors {
 		t.Errorf("concurrent encoding error: %v", err)
 		errorCount++
 	}
-	
+
 	if errorCount == 0 {
 		t.Logf("Successfully completed %d concurrent encodings without mutexes", concurrentOps)
 	}
@@ -48,12 +48,12 @@ func TestConcurrentEncodingWithoutMutex(t *testing.T) {
 func TestConcurrentDecodingWithoutMutex(t *testing.T) {
 	decoder := NewJSONDecoder(nil)
 	jsonData := `{"type":"TEXT_MESSAGE_CONTENT","messageId":"msg1","delta":"test","timestamp":1234567890}`
-	
+
 	// Run 50 concurrent decodings (well within the default 100 limit to avoid interference from other tests)
 	const concurrentOps = 50
 	var wg sync.WaitGroup
 	errors := make(chan error, concurrentOps)
-	
+
 	for i := 0; i < concurrentOps; i++ {
 		wg.Add(1)
 		go func(id int) {
@@ -64,17 +64,17 @@ func TestConcurrentDecodingWithoutMutex(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
 	close(errors)
-	
+
 	// Check for any errors
 	errorCount := 0
 	for err := range errors {
 		t.Errorf("concurrent decoding error: %v", err)
 		errorCount++
 	}
-	
+
 	if errorCount == 0 {
 		t.Logf("Successfully completed %d concurrent decodings without mutexes", concurrentOps)
 	}
@@ -84,7 +84,7 @@ func TestConcurrentDecodingWithoutMutex(t *testing.T) {
 func BenchmarkConcurrentEncoding(b *testing.B) {
 	encoder := NewJSONEncoder(nil)
 	event := events.NewTextMessageContentEvent("msg1", "content")
-	
+
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -100,7 +100,7 @@ func BenchmarkConcurrentEncoding(b *testing.B) {
 func BenchmarkConcurrentDecoding(b *testing.B) {
 	decoder := NewJSONDecoder(nil)
 	jsonData := []byte(`{"type":"TEXT_MESSAGE_CONTENT","messageId":"msg1","delta":"test","timestamp":1234567890}`)
-	
+
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {

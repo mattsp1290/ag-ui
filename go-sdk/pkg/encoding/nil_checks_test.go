@@ -138,11 +138,11 @@ func TestNilChecksCachingCodecFactory(t *testing.T) {
 func TestNilChecksFactoryMethods(t *testing.T) {
 	t.Run("Factory methods with nil constructors", func(t *testing.T) {
 		factory := NewDefaultCodecFactory()
-		
+
 		// Should not panic with nil constructors
 		factory.RegisterCodec("test", nil)
 		factory.RegisterStreamCodec("test", nil)
-		
+
 		// Should handle nil constructor gracefully
 		_, err := factory.CreateCodec(context.Background(), "test", nil, nil)
 		if err == nil {
@@ -152,7 +152,7 @@ func TestNilChecksFactoryMethods(t *testing.T) {
 
 	t.Run("Factory methods with empty content types", func(t *testing.T) {
 		factory := NewDefaultCodecFactory()
-		
+
 		// Should not panic with empty content types
 		factory.RegisterCodec("", func(*EncodingOptions, *DecodingOptions) (Codec, error) {
 			return nil, nil

@@ -123,10 +123,10 @@ func ContextAwareSleep(ctx context.Context, duration time.Duration) error {
 // WaitWithTimeout waits for a channel with a timeout
 func WaitWithTimeout[T any](ctx context.Context, ch <-chan T, timeout time.Duration) (T, bool, error) {
 	var zero T
-	
+
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	
+
 	select {
 	case val, ok := <-ch:
 		return val, ok, nil
@@ -141,13 +141,13 @@ func WaitWithTimeout[T any](ctx context.Context, ch <-chan T, timeout time.Durat
 // RetryWithContext performs an operation with retries and context support
 func RetryWithContext(ctx context.Context, maxRetries int, backoff time.Duration, operation func(context.Context) error) error {
 	var lastErr error
-	
+
 	for attempt := 0; attempt <= maxRetries; attempt++ {
 		// Check context before each attempt
 		if err := ctx.Err(); err != nil {
 			return fmt.Errorf("context cancelled: %w", err)
 		}
-		
+
 		// Add exponential backoff for retries
 		if attempt > 0 {
 			sleepDuration := backoff * time.Duration(1<<(attempt-1))
@@ -155,7 +155,7 @@ func RetryWithContext(ctx context.Context, maxRetries int, backoff time.Duration
 				return fmt.Errorf("retry cancelled during backoff: %w", err)
 			}
 		}
-		
+
 		// Execute the operation
 		if err := operation(ctx); err == nil {
 			return nil
@@ -163,7 +163,7 @@ func RetryWithContext(ctx context.Context, maxRetries int, backoff time.Duration
 			lastErr = err
 		}
 	}
-	
+
 	return fmt.Errorf("operation failed after %d retries: %w", maxRetries, lastErr)
 }
 
@@ -171,17 +171,17 @@ func RetryWithContext(ctx context.Context, maxRetries int, backoff time.Duration
 func PropagateDeadline(parent, child context.Context) (context.Context, context.CancelFunc) {
 	parentDeadline, hasParentDeadline := parent.Deadline()
 	childDeadline, hasChildDeadline := child.Deadline()
-	
+
 	// If parent has no deadline, return child as-is
 	if !hasParentDeadline {
 		return context.WithCancel(child)
 	}
-	
+
 	// If child has no deadline or parent deadline is earlier, use parent deadline
 	if !hasChildDeadline || parentDeadline.Before(childDeadline) {
 		return context.WithDeadline(child, parentDeadline)
 	}
-	
+
 	// Child deadline is earlier, keep it
 	return context.WithCancel(child)
 }
@@ -189,12 +189,12 @@ func PropagateDeadline(parent, child context.Context) (context.Context, context.
 // EnsureTimeout ensures that a context has a timeout, adding one if necessary
 func EnsureTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
 	deadline, hasDeadline := ctx.Deadline()
-	
+
 	// If context already has a deadline that's sooner than our timeout, keep it
 	if hasDeadline && time.Until(deadline) < timeout {
 		return context.WithCancel(ctx)
 	}
-	
+
 	// Otherwise, add our timeout
 	return context.WithTimeout(ctx, timeout)
 }
@@ -213,17 +213,17 @@ func (ContextBestPractices) Example() {
 			return ctx.Err()
 		}
 	}
-	
+
 	// Example 2: Propagate timeouts properly through operations
 	_ = func(ctx context.Context) error {
 		sendCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		
+
 		// Use sendCtx for the operation
 		_ = sendCtx
 		return nil
 	}
-	
+
 	// Example 3: Use context-aware helpers for common patterns
 	_ = func(ctx context.Context) error {
 		// Instead of time.Sleep(5 * time.Second)

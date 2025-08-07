@@ -26,10 +26,10 @@ func TestPartialOperationCleanup(t *testing.T) {
 		chunkedEncoder := NewChunkedEncoder(baseEncoder, config)
 
 		ctx, cancel := context.WithCancel(context.Background())
-		
+
 		input := make(chan events.Event, 1000)
 		output := make(chan *Chunk, 100)
-		
+
 		// Track goroutine count
 		var goroutineCounter int64
 
@@ -37,7 +37,7 @@ func TestPartialOperationCleanup(t *testing.T) {
 		go func() {
 			atomic.AddInt64(&goroutineCounter, 1)
 			defer atomic.AddInt64(&goroutineCounter, -1)
-			
+
 			for i := 0; i < 1000; i++ {
 				select {
 				case input <- events.NewTextMessageStartEvent("msg-1"):
@@ -61,7 +61,7 @@ func TestPartialOperationCleanup(t *testing.T) {
 		go func() {
 			atomic.AddInt64(&goroutineCounter, 1)
 			defer atomic.AddInt64(&goroutineCounter, -1)
-			
+
 			encodeErr <- chunkedEncoder.EncodeChunked(ctx, input, output)
 		}()
 
@@ -90,7 +90,7 @@ func TestPartialOperationCleanup(t *testing.T) {
 		// Create streaming versions
 		streamEncoder := agjson.NewStreamingJSONEncoder(nil)
 		streamDecoder := agjson.NewStreamingJSONDecoder(nil)
-		
+
 		config := DefaultStreamConfig()
 		streamManager := NewStreamManager(streamEncoder, streamDecoder, config)
 
@@ -99,17 +99,17 @@ func TestPartialOperationCleanup(t *testing.T) {
 		defer streamManager.Stop()
 
 		ctx, cancel := context.WithCancel(context.Background())
-		
+
 		input := make(chan events.Event, 100)
 		output := &testWriter{data: make([][]byte, 0)}
-		
+
 		var writeCounter int64
 
 		// Start sending events
 		go func() {
 			atomic.AddInt64(&writeCounter, 1)
 			defer atomic.AddInt64(&writeCounter, -1)
-			
+
 			for i := 0; i < 100; i++ {
 				select {
 				case input <- events.NewTextMessageStartEvent("msg-1"):
@@ -126,7 +126,7 @@ func TestPartialOperationCleanup(t *testing.T) {
 		go func() {
 			atomic.AddInt64(&writeCounter, 1)
 			defer atomic.AddInt64(&writeCounter, -1)
-			
+
 			writeErr <- streamManager.WriteStream(ctx, input, output)
 		}()
 
@@ -157,7 +157,7 @@ func TestPartialOperationCleanup(t *testing.T) {
 		validator := validation.NewSecurityValidator(config)
 
 		ctx, cancel := context.WithCancel(context.Background())
-		
+
 		// Create deeply nested structure that will take time to validate
 		largeData := createDeeplyNestedJSON(t, 500)
 
@@ -168,7 +168,7 @@ func TestPartialOperationCleanup(t *testing.T) {
 		go func() {
 			atomic.AddInt64(&validationCounter, 1)
 			defer atomic.AddInt64(&validationCounter, -1)
-			
+
 			validateErr <- validator.ValidateInput(ctx, largeData)
 		}()
 
@@ -212,12 +212,12 @@ func TestPartialStateRecovery(t *testing.T) {
 		// Try encoding with timeout
 		_, err := encoder.EncodeMultiple(ctx, eventSlice)
 		_ = err // Mark as used for testing timeout behavior
-		
+
 		// Even if it fails due to context cancellation, the encoder should still work
 		ctx2 := context.Background()
 		singleEvent := events.NewTextMessageStartEvent("msg-1")
 		data, err2 := encoder.Encode(ctx2, singleEvent)
-		
+
 		assert.NoError(t, err2, "Encoder should work after context cancellation")
 		assert.NotEmpty(t, data, "Should get valid encoded data")
 	})
@@ -235,14 +235,14 @@ func TestPartialStateRecovery(t *testing.T) {
 
 		// Try validation with timeout
 		err := validator.ValidateInput(ctx, largeData)
-		
+
 		// Even if it fails, validator should still work for new operations
 		ctx2 := context.Background()
 		smallData := []byte(`{"test": "data"}`)
 		err2 := validator.ValidateInput(ctx2, smallData)
-		
+
 		assert.NoError(t, err2, "Validator should work after context cancellation")
-		
+
 		// Original operation should have failed due to context
 		if err != nil {
 			assert.Contains(t, err.Error(), "validation cancelled")
@@ -254,10 +254,10 @@ func TestPartialStateRecovery(t *testing.T) {
 func TestConcurrentCancellation(t *testing.T) {
 	t.Run("MultipleEncodersWithCancellation", func(t *testing.T) {
 		const numEncoders = 10
-		
+
 		var wg sync.WaitGroup
 		results := make([]error, numEncoders)
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 		defer cancel()
 
@@ -265,13 +265,13 @@ func TestConcurrentCancellation(t *testing.T) {
 			wg.Add(1)
 			go func(index int) {
 				defer wg.Done()
-				
+
 				encoder := agjson.NewJSONEncoder(nil)
 				eventSlice := make([]events.Event, 100)
 				for j := 0; j < 100; j++ {
 					eventSlice[j] = events.NewTextMessageStartEvent("msg-1")
 				}
-				
+
 				_, err := encoder.EncodeMultiple(ctx, eventSlice)
 				results[index] = err
 			}(i)
@@ -302,7 +302,7 @@ type testWriter struct {
 func (w *testWriter) Write(p []byte) (n int, err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	
+
 	// Copy data to avoid slice reference issues
 	data := make([]byte, len(p))
 	copy(data, p)
@@ -313,7 +313,7 @@ func (w *testWriter) Write(p []byte) (n int, err error) {
 func (w *testWriter) GetData() [][]byte {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	
+
 	result := make([][]byte, len(w.data))
 	copy(result, w.data)
 	return result
@@ -323,18 +323,18 @@ func (w *testWriter) GetData() [][]byte {
 func createDeeplyNestedJSON(t *testing.T, depth int) []byte {
 	data := make(map[string]interface{})
 	current := data
-	
+
 	for i := 0; i < depth; i++ {
 		next := make(map[string]interface{})
 		current["nested"] = next
 		current["value"] = "test data with some content to make validation slower"
 		current["array"] = []interface{}{
-			"item1", "item2", "item3", 
+			"item1", "item2", "item3",
 			map[string]interface{}{"subkey": "subvalue"},
 		}
 		current = next
 	}
-	
+
 	result, err := json.Marshal(data)
 	require.NoError(t, err)
 	return result

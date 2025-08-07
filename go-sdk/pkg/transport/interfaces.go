@@ -4,7 +4,7 @@
 // The interfaces have been refactored into smaller, more focused files:
 // - interfaces_core.go: Core transport interfaces
 // - interfaces_stats.go: Statistics and metrics
-// - interfaces_config.go: Configuration interfaces  
+// - interfaces_config.go: Configuration interfaces
 // - interfaces_state.go: Connection state management
 // - interfaces_middleware.go: Middleware and filtering
 // - interfaces_manager.go: Transport management
@@ -138,7 +138,7 @@ type ReliabilityStatsProvider interface {
 type Transport interface {
 	// Core transport functionality
 	TransportConnection
-	Sender 
+	Sender
 	Receiver
 	ConfigProvider
 	StatsProvider
@@ -178,14 +178,14 @@ type TransportStats struct {
 	Uptime         time.Duration `json:"uptime"`
 
 	// Event statistics
-	EventsSent       int64         `json:"events_sent"`
-	EventsReceived   int64         `json:"events_received"`
-	BytesSent        int64         `json:"bytes_sent"`
-	BytesReceived    int64         `json:"bytes_received"`
-	AverageLatency   time.Duration `json:"average_latency"`
-	ErrorCount       int64         `json:"error_count"`
-	LastEventSentAt  time.Time     `json:"last_event_sent_at"`
-	LastEventRecvAt  time.Time     `json:"last_event_recv_at"`
+	EventsSent      int64         `json:"events_sent"`
+	EventsReceived  int64         `json:"events_received"`
+	BytesSent       int64         `json:"bytes_sent"`
+	BytesReceived   int64         `json:"bytes_received"`
+	AverageLatency  time.Duration `json:"average_latency"`
+	ErrorCount      int64         `json:"error_count"`
+	LastEventSentAt time.Time     `json:"last_event_sent_at"`
+	LastEventRecvAt time.Time     `json:"last_event_recv_at"`
 }
 
 // StreamingStats contains streaming-specific statistics.
@@ -193,14 +193,14 @@ type StreamingStats struct {
 	TransportStats
 
 	// Streaming-specific metrics
-	StreamsActive        int           `json:"streams_active"`
-	StreamsTotal         int           `json:"streams_total"`
-	BufferUtilization    float64       `json:"buffer_utilization"`
-	BackpressureEvents   int64         `json:"backpressure_events"`
-	DroppedEvents        int64         `json:"dropped_events"`
-	AverageEventSize     int64         `json:"average_event_size"`
-	ThroughputEventsPerSec float64     `json:"throughput_events_per_sec"`
-	ThroughputBytesPerSec  float64     `json:"throughput_bytes_per_sec"`
+	StreamsActive          int     `json:"streams_active"`
+	StreamsTotal           int     `json:"streams_total"`
+	BufferUtilization      float64 `json:"buffer_utilization"`
+	BackpressureEvents     int64   `json:"backpressure_events"`
+	DroppedEvents          int64   `json:"dropped_events"`
+	AverageEventSize       int64   `json:"average_event_size"`
+	ThroughputEventsPerSec float64 `json:"throughput_events_per_sec"`
+	ThroughputBytesPerSec  float64 `json:"throughput_bytes_per_sec"`
 }
 
 // ReliabilityStats contains reliability-specific statistics.
@@ -208,14 +208,14 @@ type ReliabilityStats struct {
 	TransportStats
 
 	// Reliability-specific metrics
-	EventsAcknowledged     int64         `json:"events_acknowledged"`
-	EventsUnacknowledged   int64         `json:"events_unacknowledged"`
-	EventsRetried          int64         `json:"events_retried"`
-	EventsTimedOut         int64         `json:"events_timed_out"`
-	AverageAckTime         time.Duration `json:"average_ack_time"`
-	DuplicateEvents        int64         `json:"duplicate_events"`
-	OutOfOrderEvents       int64         `json:"out_of_order_events"`
-	RedeliveryRate         float64       `json:"redelivery_rate"`
+	EventsAcknowledged   int64         `json:"events_acknowledged"`
+	EventsUnacknowledged int64         `json:"events_unacknowledged"`
+	EventsRetried        int64         `json:"events_retried"`
+	EventsTimedOut       int64         `json:"events_timed_out"`
+	AverageAckTime       time.Duration `json:"average_ack_time"`
+	DuplicateEvents      int64         `json:"duplicate_events"`
+	OutOfOrderEvents     int64         `json:"out_of_order_events"`
+	RedeliveryRate       float64       `json:"redelivery_rate"`
 }
 
 // ConfigValidation handles configuration validation
@@ -318,7 +318,7 @@ type Middleware interface {
 
 	// Name returns the middleware name for logging and debugging.
 	Name() string
-	
+
 	// Wrap wraps a transport with this middleware.
 	Wrap(transport Transport) Transport
 }
@@ -466,11 +466,11 @@ type HealthChecker interface {
 
 // HealthStatus represents the health status of a transport.
 type HealthStatus struct {
-	Healthy    bool          `json:"healthy"`
-	Timestamp  time.Time     `json:"timestamp"`
-	Latency    time.Duration `json:"latency"`
-	Error      string        `json:"error,omitempty"`
-	Metadata   map[string]any `json:"metadata,omitempty"`
+	Healthy   bool           `json:"healthy"`
+	Timestamp time.Time      `json:"timestamp"`
+	Latency   time.Duration  `json:"latency"`
+	Error     string         `json:"error,omitempty"`
+	Metadata  map[string]any `json:"metadata,omitempty"`
 }
 
 // MetricsCollector collects and reports transport metrics.
@@ -609,13 +609,13 @@ const (
 type TransportEvent interface {
 	// ID returns the unique identifier for this event
 	ID() string
-	
+
 	// Type returns the event type
 	Type() string
-	
+
 	// Timestamp returns when the event was created
 	Timestamp() time.Time
-	
+
 	// Data returns the event data as a map for backward compatibility
 	Data() map[string]interface{}
 }
@@ -707,7 +707,7 @@ type TransportMultiManager interface {
 	EventAggregator
 	LoadBalancerSetter
 	TransportAggregatedStatsProvider
-	
+
 	// Close closes all managed transports.
 	Close(ctx context.Context) error
 }

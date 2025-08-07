@@ -13,9 +13,9 @@ import (
 
 // Ensure ProtobufEncoder implements the focused interfaces
 var (
-	_ encoding.Encoder                      = (*ProtobufEncoder)(nil)
-	_ encoding.ContentTypeProvider          = (*ProtobufEncoder)(nil)
-	_ encoding.StreamingCapabilityProvider  = (*ProtobufEncoder)(nil)
+	_ encoding.Encoder                     = (*ProtobufEncoder)(nil)
+	_ encoding.ContentTypeProvider         = (*ProtobufEncoder)(nil)
+	_ encoding.StreamingCapabilityProvider = (*ProtobufEncoder)(nil)
 )
 
 // ProtobufEncoder implements the Encoder interface for Protocol Buffer encoding
@@ -66,7 +66,7 @@ func (e *ProtobufEncoder) Encode(ctx context.Context, event events.Event) ([]byt
 	optimalSize := encoding.GetOptimalBufferSizeForEvent(event)
 	buf := encoding.GetBufferSafe(optimalSize / 2) // Protobuf is typically more compact than JSON
 	defer encoding.PutBuffer(buf)
-	
+
 	if buf == nil {
 		return nil, &encoding.EncodingError{
 			Format:  "protobuf",
@@ -74,7 +74,7 @@ func (e *ProtobufEncoder) Encode(ctx context.Context, event events.Event) ([]byt
 			Message: "failed to allocate buffer",
 		}
 	}
-	
+
 	data, err := proto.Marshal(pbEvent)
 	if err != nil {
 		return nil, &encoding.EncodingError{
@@ -99,7 +99,7 @@ func (e *ProtobufEncoder) Encode(ctx context.Context, event events.Event) ([]byt
 		// Use buffer pooling for validation operations
 		validationBuf := encoding.GetBufferSafe(len(data))
 		defer encoding.PutBuffer(validationBuf)
-		
+
 		var validateEvent generated.Event
 		if err := proto.Unmarshal(data, &validateEvent); err != nil {
 			return nil, &encoding.EncodingError{
@@ -134,22 +134,22 @@ func (e *ProtobufEncoder) EncodeMultiple(ctx context.Context, events []events.Ev
 
 	// Use a simple length-prefixed format for multiple events
 	// Format: [4-byte count][4-byte length][event1][4-byte length][event2]...
-	
+
 	totalSize := 4 // 4 bytes for count
 	encodedEvents := make([][]byte, 0, len(events))
-	
+
 	// Use buffer pooling for better memory efficiency with optimized sizing
 	estimatedSize := encoding.GetOptimalBufferSizeForMultiple(events) / 2 // Protobuf is more compact
 	workingBuf := encoding.GetBufferSafe(estimatedSize)
 	defer encoding.PutBuffer(workingBuf)
-	
+
 	if workingBuf == nil {
 		return nil, &encoding.EncodingError{
 			Format:  "protobuf",
 			Message: "failed to allocate working buffer",
 		}
 	}
-	
+
 	// First pass: encode all events and calculate total size
 	for i, event := range events {
 		if event == nil {
@@ -184,7 +184,7 @@ func (e *ProtobufEncoder) EncodeMultiple(ctx context.Context, events []events.Ev
 	// Second pass: build the final output using buffer pooling
 	outputBuf := encoding.GetBufferSafe(totalSize)
 	defer encoding.PutBuffer(outputBuf)
-	
+
 	// Additional safety check
 	if outputBuf == nil {
 		return nil, &encoding.EncodingError{
@@ -192,12 +192,12 @@ func (e *ProtobufEncoder) EncodeMultiple(ctx context.Context, events []events.Ev
 			Message: fmt.Sprintf("failed to allocate buffer for batch size %d", totalSize),
 		}
 	}
-	
+
 	// Write event count
 	countBytes := make([]byte, 4)
 	writeUint32(countBytes, uint32(len(events)))
 	outputBuf.Write(countBytes)
-	
+
 	// Write each event with its length
 	for _, encoded := range encodedEvents {
 		lengthBytes := make([]byte, 4)
@@ -209,7 +209,7 @@ func (e *ProtobufEncoder) EncodeMultiple(ctx context.Context, events []events.Ev
 	// Copy final result
 	output := make([]byte, outputBuf.Len())
 	copy(output, outputBuf.Bytes())
-	
+
 	return output, nil
 }
 

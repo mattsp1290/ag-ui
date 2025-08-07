@@ -67,11 +67,11 @@ type StreamManager struct {
 	metrics *StreamMetrics
 
 	// Stream lifecycle
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	startOnce  sync.Once
-	closeOnce  sync.Once
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	startOnce sync.Once
+	closeOnce sync.Once
 
 	// Buffer management
 	writeBuffer chan writeRequest
@@ -134,7 +134,7 @@ func (sm *StreamManager) Start() error {
 	if currentState != StreamStateIdle {
 		return errors.NewStreamingError("STREAM_MANAGER_INVALID_STATE", "stream manager already started or closed")
 	}
-	
+
 	var startErr error
 	sm.startOnce.Do(func() {
 		if !sm.state.CompareAndSwap(int32(StreamStateIdle), int32(StreamStateActive)) {

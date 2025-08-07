@@ -8,10 +8,10 @@ import (
 type EventDataType interface {
 	// Validate ensures the event data is valid
 	Validate() error
-	
+
 	// ToMap converts the event data to a map[string]interface{} for backward compatibility
 	ToMap() map[string]interface{}
-	
+
 	// DataType returns the type identifier for this data
 	DataType() string
 }
@@ -58,15 +58,15 @@ func (m *MessageEventData) FromMap(data map[string]interface{}) error {
 	} else {
 		return fmt.Errorf("messageId field is required and must be a string")
 	}
-	
+
 	if role, ok := data["role"].(string); ok {
 		m.Role = &role
 	}
-	
+
 	if delta, ok := data["delta"].(string); ok {
 		m.Delta = delta
 	}
-	
+
 	return nil
 }
 
@@ -115,19 +115,19 @@ func (t *ToolCallEventData) FromMap(data map[string]interface{}) error {
 	} else {
 		return fmt.Errorf("toolCallId field is required and must be a string")
 	}
-	
+
 	if toolCallName, ok := data["toolCallName"].(string); ok {
 		t.ToolCallName = toolCallName
 	}
-	
+
 	if parentMessageID, ok := data["parentMessageId"].(string); ok {
 		t.ParentMessageID = &parentMessageID
 	}
-	
+
 	if delta, ok := data["delta"].(string); ok {
 		t.Delta = delta
 	}
-	
+
 	return nil
 }
 
@@ -176,19 +176,19 @@ func (r *RunEventData) FromMap(data map[string]interface{}) error {
 	} else {
 		return fmt.Errorf("runId field is required and must be a string")
 	}
-	
+
 	if threadID, ok := data["threadId"].(string); ok {
 		r.ThreadID = threadID
 	}
-	
+
 	if message, ok := data["message"].(string); ok {
 		r.Message = message
 	}
-	
+
 	if code, ok := data["code"].(string); ok {
 		r.Code = &code
 	}
-	
+
 	return nil
 }
 
@@ -276,14 +276,14 @@ func (s StateDeltaEventData) Validate() error {
 	if len(s.Delta) == 0 {
 		return fmt.Errorf("delta field must contain at least one operation")
 	}
-	
+
 	// Validate each operation
 	for i, op := range s.Delta {
 		if err := validateJSONPatchOperation(op); err != nil {
 			return fmt.Errorf("invalid operation at index %d: %w", i, err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -309,14 +309,14 @@ func (s *StateDeltaEventData) FromMap(data map[string]interface{}) error {
 	if !ok {
 		return fmt.Errorf("delta field is required and must be an array")
 	}
-	
+
 	s.Delta = make([]JSONPatchOperation, len(deltaRaw))
 	for i, opRaw := range deltaRaw {
 		opMap, ok := opRaw.(map[string]interface{})
 		if !ok {
 			return fmt.Errorf("delta operation at index %d must be an object", i)
 		}
-		
+
 		op := JSONPatchOperation{}
 		if opStr, ok := opMap["op"].(string); ok {
 			op.Op = opStr
@@ -328,10 +328,10 @@ func (s *StateDeltaEventData) FromMap(data map[string]interface{}) error {
 		if fromStr, ok := opMap["from"].(string); ok {
 			op.From = fromStr
 		}
-		
+
 		s.Delta[i] = op
 	}
-	
+
 	return nil
 }
 
@@ -399,14 +399,14 @@ func (m *MessagesSnapshotEventData) FromMap(data map[string]interface{}) error {
 	if !ok {
 		return fmt.Errorf("messages field is required and must be an array")
 	}
-	
+
 	m.Messages = make([]Message, len(messagesRaw))
 	for i, msgRaw := range messagesRaw {
 		msgMap, ok := msgRaw.(map[string]interface{})
 		if !ok {
 			return fmt.Errorf("message at index %d must be an object", i)
 		}
-		
+
 		msg := Message{}
 		if id, ok := msgMap["id"].(string); ok {
 			msg.ID = id
@@ -423,7 +423,7 @@ func (m *MessagesSnapshotEventData) FromMap(data map[string]interface{}) error {
 		if toolCallID, ok := msgMap["toolCallId"].(string); ok {
 			msg.ToolCallID = &toolCallID
 		}
-		
+
 		if toolCallsRaw, ok := msgMap["toolCalls"].([]interface{}); ok {
 			msg.ToolCalls = make([]ToolCall, len(toolCallsRaw))
 			for j, tcRaw := range toolCallsRaw {
@@ -431,7 +431,7 @@ func (m *MessagesSnapshotEventData) FromMap(data map[string]interface{}) error {
 				if !ok {
 					continue
 				}
-				
+
 				tc := ToolCall{}
 				if id, ok := tcMap["id"].(string); ok {
 					tc.ID = id
@@ -450,10 +450,10 @@ func (m *MessagesSnapshotEventData) FromMap(data map[string]interface{}) error {
 				msg.ToolCalls[j] = tc
 			}
 		}
-		
+
 		m.Messages[i] = msg
 	}
-	
+
 	return nil
 }
 
@@ -493,11 +493,11 @@ func (r *RawEventData) FromMap(data map[string]interface{}) error {
 	if r.Event == nil {
 		return fmt.Errorf("event field is required")
 	}
-	
+
 	if source, ok := data["source"].(string); ok {
 		r.Source = &source
 	}
-	
+
 	return nil
 }
 
@@ -538,9 +538,9 @@ func (c *CustomEventData) FromMap(data map[string]interface{}) error {
 	} else {
 		return fmt.Errorf("name field is required and must be a string")
 	}
-	
+
 	c.Value = data["value"]
-	
+
 	return nil
 }
 

@@ -84,7 +84,7 @@ func TestErrorWrappingConsistencyNew(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.errorFunc()
-			
+
 			if err == nil {
 				t.Fatal("Expected error, got nil")
 			}
@@ -116,7 +116,7 @@ func TestErrorConstantsUsage(t *testing.T) {
 			constant: "base URL cannot be empty",
 		},
 		{
-			name:     "agent name cannot be empty", 
+			name:     "agent name cannot be empty",
 			errorMsg: MsgAgentNameCannotBeEmpty,
 			constant: "agent name cannot be empty",
 		},
@@ -155,7 +155,7 @@ func TestErrorConstantsUsage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.errorMsg != tt.constant {
-				t.Errorf("Constant value mismatch for %s:\nWant: %s\nGot:  %s", 
+				t.Errorf("Constant value mismatch for %s:\nWant: %s\nGot:  %s",
 					tt.name, tt.constant, tt.errorMsg)
 			}
 		})
@@ -252,9 +252,9 @@ func TestFormatHelperFunctions(t *testing.T) {
 
 func TestErrorChainPreservationNew(t *testing.T) {
 	tests := []struct {
-		name     string
+		name        string
 		createError func() error
-		checkChain []string
+		checkChain  []string
 	}{
 		{
 			name: "three level error chain",
@@ -302,11 +302,11 @@ func TestErrorChainPreservationNew(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.createError()
-			
+
 			// Check that each level in the chain is preserved
 			for _, expectedMsg := range tt.checkChain {
 				if !strings.Contains(err.Error(), expectedMsg) {
-					t.Errorf("Error chain missing expected message: %s\nFull error: %s", 
+					t.Errorf("Error chain missing expected message: %s\nFull error: %s",
 						expectedMsg, err.Error())
 				}
 			}
@@ -372,22 +372,22 @@ func TestContextCancellationErrorHandling(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx, cancel := tt.setupFunc()
 			cancel() // Cancel immediately for testing
-			
+
 			err := tt.operation(ctx)
-			
+
 			if tt.wantError && err == nil {
 				t.Fatal("Expected error, got nil")
 			}
-			
+
 			if !tt.wantError && err != nil {
 				t.Fatalf("Unexpected error: %v", err)
 			}
-			
+
 			if tt.wantError {
 				if !strings.Contains(err.Error(), tt.checkMsg) {
 					t.Errorf("Error message should contain %q, got: %s", tt.checkMsg, err.Error())
 				}
-				
+
 				// Check that context error is preserved in the chain
 				if !errors.Is(err, context.Canceled) {
 					t.Error("Context cancellation error should be preserved in error chain")
@@ -399,39 +399,39 @@ func TestContextCancellationErrorHandling(t *testing.T) {
 
 func TestSecurityErrorClassification(t *testing.T) {
 	tests := []struct {
-		name      string
-		error     error
+		name            string
+		error           error
 		isSecurityError bool
 		violationType   string
 		riskLevel       string
 	}{
 		{
-			name: "XSS security error",
-			error: NewXSSError("script injection detected", "<script>alert('xss')</script>"),
+			name:            "XSS security error",
+			error:           NewXSSError("script injection detected", "<script>alert('xss')</script>"),
 			isSecurityError: true,
-			violationType: "cross_site_scripting",
-			riskLevel: "high",
+			violationType:   "cross_site_scripting",
+			riskLevel:       "high",
 		},
 		{
-			name: "SQL injection security error",
-			error: NewSQLInjectionError("SQL injection detected", "' OR '1'='1"),
+			name:            "SQL injection security error",
+			error:           NewSQLInjectionError("SQL injection detected", "' OR '1'='1"),
 			isSecurityError: true,
-			violationType: "sql_injection", 
-			riskLevel: "critical",
+			violationType:   "sql_injection",
+			riskLevel:       "critical",
 		},
 		{
-			name: "Path traversal security error",
-			error: NewPathTraversalError("path traversal attempt", "../../../etc/passwd"),
+			name:            "Path traversal security error",
+			error:           NewPathTraversalError("path traversal attempt", "../../../etc/passwd"),
 			isSecurityError: true,
-			violationType: "path_traversal",
-			riskLevel: "high",
+			violationType:   "path_traversal",
+			riskLevel:       "high",
 		},
 		{
-			name: "Regular validation error",
-			error: NewValidationError(CodeValidationFailed, "invalid input"),
+			name:            "Regular validation error",
+			error:           NewValidationError(CodeValidationFailed, "invalid input"),
 			isSecurityError: false,
-			violationType: "",
-			riskLevel: "",
+			violationType:   "",
+			riskLevel:       "",
 		},
 	}
 
@@ -448,11 +448,11 @@ func TestSecurityErrorClassification(t *testing.T) {
 				if !errors.As(tt.error, &secErr) {
 					t.Fatal("Should be able to extract SecurityError")
 				}
-				
+
 				if secErr.ViolationType != tt.violationType {
 					t.Errorf("ViolationType = %s, want %s", secErr.ViolationType, tt.violationType)
 				}
-				
+
 				if secErr.RiskLevel != tt.riskLevel {
 					t.Errorf("RiskLevel = %s, want %s", secErr.RiskLevel, tt.riskLevel)
 				}

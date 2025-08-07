@@ -9,7 +9,7 @@ import (
 
 func main() {
 	fmt.Println("🚀 Testing Advanced Type-Safe Events")
-	
+
 	// Test Message Event
 	messageData := &transport.MessageEventData{
 		Content:     "Hello, this is a type-safe message!",
@@ -25,7 +25,7 @@ func main() {
 			TotalTokens:      150,
 		},
 		Metadata: map[string]string{
-			"source": "api",
+			"source":  "api",
 			"version": "1.0",
 		},
 		Attachments: []transport.MessageAttachment{
@@ -39,16 +39,16 @@ func main() {
 		},
 		ProcessingTime: 250 * time.Millisecond,
 	}
-	
+
 	if err := messageData.Validate(); err != nil {
 		fmt.Printf("❌ Message validation failed: %v\n", err)
 		return
 	}
-	
+
 	messageEvent := transport.CreateMessageEvent("evt-msg-001", messageData)
 	fmt.Printf("✅ Message Event: ID=%s, Type=%s\n", messageEvent.ID(), messageEvent.Type())
-	
-	// Test Security Event  
+
+	// Test Security Event
 	securityData := &transport.SecurityEventData{
 		EventType:   transport.SecurityEventLogin,
 		Severity:    transport.SecuritySeverityInfo,
@@ -64,34 +64,34 @@ func main() {
 		Automatic:   true,
 		Permissions: []string{"read", "write"},
 		Context: map[string]string{
-			"method": "POST",
+			"method":   "POST",
 			"endpoint": "/api/v1/messages",
 		},
 	}
-	
+
 	if err := securityData.Validate(); err != nil {
 		fmt.Printf("❌ Security validation failed: %v\n", err)
 		return
 	}
-	
+
 	securityEvent := transport.CreateSecurityEvent("evt-sec-001", securityData)
 	fmt.Printf("✅ Security Event: ID=%s, Type=%s\n", securityEvent.ID(), securityEvent.Type())
-	
+
 	// Test Performance Event
 	perfData := &transport.PerformanceEventData{
-		MetricName:    "api_response_time",
-		Value:         125.5,
-		Unit:          "milliseconds",
-		MetricType:    transport.MetricTypeTimer,
-		Component:     "api-server",
-		Operation:     "POST /api/v1/messages",
-		Threshold:     200.0,
-		Baseline:      100.0,
-		Percentile:    95.0,
-		SampleSize:    1000,
-		Duration:      time.Hour,
-		Trend:         transport.TrendStable,
-		AlertLevel:    transport.AlertLevelNone,
+		MetricName: "api_response_time",
+		Value:      125.5,
+		Unit:       "milliseconds",
+		MetricType: transport.MetricTypeTimer,
+		Component:  "api-server",
+		Operation:  "POST /api/v1/messages",
+		Threshold:  200.0,
+		Baseline:   100.0,
+		Percentile: 95.0,
+		SampleSize: 1000,
+		Duration:   time.Hour,
+		Trend:      transport.TrendStable,
+		AlertLevel: transport.AlertLevelNone,
 		Tags: map[string]string{
 			"service": "message-api",
 			"version": "1.2.3",
@@ -101,15 +101,15 @@ func main() {
 			"memory_usage": 67.8,
 		},
 	}
-	
+
 	if err := perfData.Validate(); err != nil {
 		fmt.Printf("❌ Performance validation failed: %v\n", err)
 		return
 	}
-	
+
 	perfEvent := transport.CreatePerformanceEvent("evt-perf-001", perfData)
 	fmt.Printf("✅ Performance Event: ID=%s, Type=%s\n", perfEvent.ID(), perfEvent.Type())
-	
+
 	// Test System Event
 	systemData := &transport.SystemEventData{
 		EventType:     transport.SystemEventStartup,
@@ -135,15 +135,15 @@ func main() {
 			"reason":   "deployment",
 		},
 	}
-	
+
 	if err := systemData.Validate(); err != nil {
 		fmt.Printf("❌ System validation failed: %v\n", err)
 		return
 	}
-	
+
 	systemEvent := transport.CreateSystemEvent("evt-sys-001", systemData)
 	fmt.Printf("✅ System Event: ID=%s, Type=%s\n", systemEvent.ID(), systemEvent.Type())
-	
+
 	// Test Configuration Event
 	configData := &transport.ConfigurationEventData{
 		Key:         "api.timeout",
@@ -159,15 +159,15 @@ func main() {
 		CanRollback: true,
 		Impact:      transport.ConfigImpactLow,
 	}
-	
+
 	if err := configData.Validate(); err != nil {
 		fmt.Printf("❌ Configuration validation failed: %v\n", err)
 		return
 	}
-	
+
 	configEvent := transport.CreateConfigurationEvent("evt-cfg-001", configData)
 	fmt.Printf("✅ Configuration Event: ID=%s, Type=%s\n", configEvent.ID(), configEvent.Type())
-	
+
 	// Test State Change Event
 	stateData := &transport.StateChangeEventData{
 		FromState:  "idle",
@@ -185,15 +185,15 @@ func main() {
 		Rollback:  false,
 		Version:   "1.0",
 	}
-	
+
 	if err := stateData.Validate(); err != nil {
 		fmt.Printf("❌ State change validation failed: %v\n", err)
 		return
 	}
-	
+
 	stateEvent := transport.CreateStateChangeEvent("evt-state-001", stateData)
 	fmt.Printf("✅ State Change Event: ID=%s, Type=%s\n", stateEvent.ID(), stateEvent.Type())
-	
+
 	fmt.Println("\n🎉 All advanced type-safe events created and validated successfully!")
 	fmt.Println("✨ Type safety migration is complete with comprehensive event support!")
 }

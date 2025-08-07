@@ -75,7 +75,7 @@ func (mts *MigrationTestSuite) TestTransformationRule(ruleName string, input, ex
 	}
 
 	if strings.TrimSpace(string(output)) != strings.TrimSpace(expected) {
-		mts.t.Errorf("Output doesn't match expected:\nGot:\n%s\nExpected:\n%s", 
+		mts.t.Errorf("Output doesn't match expected:\nGot:\n%s\nExpected:\n%s",
 			string(output), expected)
 	}
 }
@@ -104,7 +104,7 @@ func (mts *MigrationTestSuite) TestDeprecationDetection(code string, expectedWar
 
 	// Check deprecation warnings
 	if len(report.DeprecationWarnings) != len(expectedWarnings) {
-		mts.t.Errorf("Expected %d deprecation warnings, got %d", 
+		mts.t.Errorf("Expected %d deprecation warnings, got %d",
 			len(expectedWarnings), len(report.DeprecationWarnings))
 	}
 
@@ -113,7 +113,7 @@ func (mts *MigrationTestSuite) TestDeprecationDetection(code string, expectedWar
 			mts.t.Errorf("Missing expected warning: %s", expected)
 			continue
 		}
-		
+
 		warning := report.DeprecationWarnings[i]
 		if !strings.Contains(warning.Message, expected) {
 			mts.t.Errorf("Warning message doesn't contain expected text: %s", expected)
@@ -171,7 +171,7 @@ func (mts *MigrationTestSuite) extractPublicAPIs(file *ast.File) map[string]stri
 func (mts *MigrationTestSuite) TestInterfaceComposition() {
 	// Test that the new Transport interface properly composes smaller interfaces
 	var transport Transport
-	
+
 	// These should all compile - testing interface composition
 	var _ Connector = transport
 	var _ Sender = transport
@@ -272,9 +272,9 @@ func NewMigrationMockEvent(id, eventType string) *MigrationMockEvent {
 	}
 }
 
-func (me *MigrationMockEvent) ID() string { return me.id }
-func (me *MigrationMockEvent) Type() string { return me.eventType }
-func (me *MigrationMockEvent) Timestamp() time.Time { return me.timestamp }
+func (me *MigrationMockEvent) ID() string                   { return me.id }
+func (me *MigrationMockEvent) Type() string                 { return me.eventType }
+func (me *MigrationMockEvent) Timestamp() time.Time         { return me.timestamp }
 func (me *MigrationMockEvent) Data() map[string]interface{} { return me.data }
 
 // TestMigrationScenarios tests various migration scenarios
@@ -486,7 +486,7 @@ func (mv *MigrationValidator) ValidateInterfaceImplementation(code string, typeN
 // ValidateDeprecationAnnotations checks that deprecation comments are properly formatted
 func (mv *MigrationValidator) ValidateDeprecationAnnotations(code string) []string {
 	var issues []string
-	
+
 	file, err := parser.ParseFile(mv.fset, "test.go", code, parser.ParseComments)
 	if err != nil {
 		issues = append(issues, fmt.Sprintf("failed to parse code: %v", err))
@@ -504,17 +504,17 @@ func (mv *MigrationValidator) ValidateDeprecationAnnotations(code string) []stri
 						hasDeprecation = true
 						// Validate format
 						if !strings.Contains(comment.Text, "will be removed on") ||
-						   !strings.Contains(comment.Text, "Use") {
-							issues = append(issues, 
+							!strings.Contains(comment.Text, "Use") {
+							issues = append(issues,
 								fmt.Sprintf("function %s has malformed deprecation comment", fn.Name.Name))
 						}
 						break
 					}
 				}
-				
+
 				// For functions that should be deprecated
 				if shouldBeDeprecated(fn.Name.Name) && !hasDeprecation {
-					issues = append(issues, 
+					issues = append(issues,
 						fmt.Sprintf("function %s should have deprecation comment", fn.Name.Name))
 				}
 			}

@@ -66,7 +66,6 @@ func NewPerformanceOptimizerForTesting(opts PerformanceOptions) *PerformanceOpti
 	return NewPerformanceOptimizerImpl(opts)
 }
 
-
 // PerformanceOptimizerImpl provides performance optimization for state operations
 type PerformanceOptimizerImpl struct {
 	// Object pools for reducing allocations
@@ -326,7 +325,7 @@ func (po *PerformanceOptimizerImpl) GetPatchOperation() *JSONPatchOperation {
 	po.configMu.RLock()
 	enablePooling := po.enablePooling
 	po.configMu.RUnlock()
-	
+
 	if !enablePooling {
 		return &JSONPatchOperation{}
 	}
@@ -347,7 +346,7 @@ func (po *PerformanceOptimizerImpl) PutPatchOperation(op *JSONPatchOperation) {
 	po.configMu.RLock()
 	enablePooling := po.enablePooling
 	po.configMu.RUnlock()
-	
+
 	if !enablePooling {
 		return
 	}
@@ -366,7 +365,7 @@ func (po *PerformanceOptimizerImpl) GetStateChange() *StateChange {
 	po.configMu.RLock()
 	enablePooling := po.enablePooling
 	po.configMu.RUnlock()
-	
+
 	if !enablePooling {
 		return &StateChange{}
 	}
@@ -387,7 +386,7 @@ func (po *PerformanceOptimizerImpl) PutStateChange(sc *StateChange) {
 	po.configMu.RLock()
 	enablePooling := po.enablePooling
 	po.configMu.RUnlock()
-	
+
 	if !enablePooling {
 		return
 	}
@@ -415,7 +414,7 @@ func (po *PerformanceOptimizerImpl) GetStateEvent() *StateEvent {
 	po.configMu.RLock()
 	enablePooling := po.enablePooling
 	po.configMu.RUnlock()
-	
+
 	if !enablePooling {
 		return &StateEvent{}
 	}
@@ -436,7 +435,7 @@ func (po *PerformanceOptimizerImpl) PutStateEvent(se *StateEvent) {
 	po.configMu.RLock()
 	enablePooling := po.enablePooling
 	po.configMu.RUnlock()
-	
+
 	if !enablePooling {
 		return
 	}
@@ -523,7 +522,7 @@ func (po *PerformanceOptimizerImpl) batchWorker() {
 				po.processBatch(batch)
 			}
 			return
-			
+
 		case <-po.ctx.Done():
 			// Context cancelled, clean up and exit
 			if timerActive && !timer.Stop() {
@@ -563,7 +562,7 @@ func (po *PerformanceOptimizerImpl) BatchOperation(ctx context.Context, operatio
 	po.configMu.RLock()
 	enableBatching := po.enableBatching
 	po.configMu.RUnlock()
-	
+
 	if !enableBatching {
 		return operation()
 	}
@@ -577,13 +576,13 @@ func (po *PerformanceOptimizerImpl) BatchOperation(ctx context.Context, operatio
 
 	// Create result channel with buffer to prevent goroutine leaks
 	result := make(chan error, 1)
-	
+
 	// Create a timeout context with a reasonable max timeout
 	batchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	
+
 	item := batchItem{operation: operation, result: result}
-	
+
 	select {
 	case po.batchQueue <- item:
 		// Successfully queued, wait for result or timeout
@@ -690,12 +689,12 @@ func (po *PerformanceOptimizerImpl) calculateCacheHitRate() float64 {
 // GetStats returns performance statistics
 func (po *PerformanceOptimizerImpl) GetStats() PerformanceStats {
 	metrics := po.GetMetrics()
-	
+
 	return PerformanceStats{
-		OpsPerSecond:   1000.0, // Placeholder value
+		OpsPerSecond:   1000.0,                               // Placeholder value
 		AvgLatency:     float64(metrics.LastGCPauseNs) / 1e6, // Convert to ms
-		P95Latency:     150.0, // Placeholder value
-		P99Latency:     250.0, // Placeholder value
+		P95Latency:     150.0,                                // Placeholder value
+		P99Latency:     250.0,                                // Placeholder value
 		MemoryUsage:    metrics.MemoryUsage,
 		PeakMemory:     metrics.MemoryUsage, // Simplified
 		PoolHits:       metrics.PoolHits,
@@ -730,7 +729,7 @@ func (po *PerformanceOptimizerImpl) Stop() {
 			po.batchWorkers.Wait()
 			close(batchDone)
 		}()
-		
+
 		select {
 		case <-batchDone:
 			// Batch workers finished normally
@@ -823,7 +822,7 @@ type RateLimiter struct {
 // NewRateLimiter creates a new rate limiter
 func NewRateLimiter(ratePerSecond int) *RateLimiter {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	rl := &RateLimiter{
 		rate:   ratePerSecond,
 		bucket: make(chan struct{}, ratePerSecond),
@@ -880,7 +879,7 @@ func (rl *RateLimiter) Allow() bool {
 	if rl.stopped.Load() {
 		return false
 	}
-	
+
 	select {
 	case <-rl.bucket:
 		return true
@@ -996,7 +995,7 @@ func (cp *ConnectionPool) Get() (Connection, error) {
 		return nil, fmt.Errorf("connection pool is closed")
 	}
 	cp.mu.RUnlock()
-	
+
 	select {
 	case conn := <-cp.connections:
 		if conn.IsValid() {
@@ -1013,11 +1012,11 @@ func (cp *ConnectionPool) Get() (Connection, error) {
 	// Try to create a new connection
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
-	
+
 	if cp.closed {
 		return nil, fmt.Errorf("connection pool is closed")
 	}
-	
+
 	if cp.created < cp.maxSize {
 		cp.created++
 		// Create new connection using factory
@@ -1072,12 +1071,12 @@ func (cp *ConnectionPool) Put(conn Connection) {
 func (cp *ConnectionPool) Close() {
 	cp.mu.Lock()
 	defer cp.mu.Unlock()
-	
+
 	if cp.closed {
 		return // Already closed, nothing to do
 	}
 	cp.closed = true
-	
+
 	close(cp.connections)
 	for conn := range cp.connections {
 		conn.Close()
@@ -1175,7 +1174,7 @@ func (po *PerformanceOptimizerImpl) GetShardForKey(key string) int {
 	po.configMu.RLock()
 	enableSharding := po.enableSharding
 	po.configMu.RUnlock()
-	
+
 	if !enableSharding || len(po.stateShards) == 0 {
 		return 0
 	}
@@ -1195,7 +1194,7 @@ type LazyCache struct {
 	misses  atomic.Int64
 	mu      sync.RWMutex
 	keys    []string // For LRU eviction
-	
+
 	// Context for cancellation and cleanup coordination
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -1213,7 +1212,7 @@ type CacheEntry struct {
 // NewLazyCache creates a new lazy cache
 func NewLazyCache(maxSize int, ttl time.Duration) *LazyCache {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	lc := &LazyCache{
 		maxSize:     maxSize,
 		ttl:         ttl,
@@ -1308,7 +1307,7 @@ func (lc *LazyCache) removeKey(key string) {
 // cleanup removes expired entries
 func (lc *LazyCache) cleanup() {
 	defer close(lc.cleanupDone)
-	
+
 	ticker := time.NewTicker(DefaultCleanupWorkerInterval)
 	defer ticker.Stop()
 
@@ -1335,7 +1334,6 @@ func (lc *LazyCache) cleanup() {
 	}
 }
 
-
 // GetStats returns cache statistics
 func (lc *LazyCache) GetStats() (hits, misses int64, hitRate float64) {
 	h := lc.hits.Load()
@@ -1358,7 +1356,7 @@ func (lc *LazyCache) shutdown() {
 	default:
 		close(lc.cleanupStop)
 	}
-	
+
 	// Wait for cleanup goroutine to finish with timeout
 	select {
 	case <-lc.cleanupDone:
@@ -1439,7 +1437,7 @@ type ConcurrentOptimizer struct {
 // NewConcurrentOptimizer creates a new concurrent optimizer
 func NewConcurrentOptimizer(maxConcurrency int) *ConcurrentOptimizer {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	co := &ConcurrentOptimizer{
 		maxConcurrency: maxConcurrency,
 		taskQueue:      make(chan func(), maxConcurrency*DefaultTaskQueueMultiplier),
@@ -1501,7 +1499,7 @@ func (co *ConcurrentOptimizer) Shutdown() {
 	if co.cancel != nil {
 		co.cancel()
 	}
-	
+
 	select {
 	case <-co.shutdown:
 		// Already shut down
@@ -1509,14 +1507,14 @@ func (co *ConcurrentOptimizer) Shutdown() {
 	default:
 		close(co.shutdown)
 	}
-	
+
 	// Wait for workers with timeout
 	done := make(chan struct{})
 	go func() {
 		co.workers.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// Workers finished normally
@@ -1530,7 +1528,7 @@ func (po *PerformanceOptimizerImpl) GetBuffer() *bytes.Buffer {
 	po.configMu.RLock()
 	enablePooling := po.enablePooling
 	po.configMu.RUnlock()
-	
+
 	if !enablePooling {
 		return bytes.NewBuffer(make([]byte, 0, BufferPoolSize))
 	}
@@ -1544,7 +1542,7 @@ func (po *PerformanceOptimizerImpl) PutBuffer(buf *bytes.Buffer) {
 	po.configMu.RLock()
 	enablePooling := po.enablePooling
 	po.configMu.RUnlock()
-	
+
 	if !enablePooling {
 		return
 	}
@@ -1646,7 +1644,7 @@ func (po *PerformanceOptimizerImpl) ProcessLargeStateUpdate(ctx context.Context,
 			// Create a timeout context to prevent hanging
 			updateCtx, cancel := context.WithTimeout(ctx, 60*time.Second)
 			defer cancel()
-			
+
 			select {
 			case err := <-done:
 				return err
@@ -1679,7 +1677,7 @@ func (po *PerformanceOptimizerImpl) LazyLoadState(key string, loader func() (int
 	po.configMu.RLock()
 	enableLazyLoading := po.enableLazyLoading
 	po.configMu.RUnlock()
-	
+
 	if !enableLazyLoading || po.lazyCache == nil {
 		return loader()
 	}
@@ -1705,7 +1703,7 @@ func (po *PerformanceOptimizerImpl) ShardedGet(key string) (interface{}, bool) {
 	po.configMu.RLock()
 	enableSharding := po.enableSharding
 	po.configMu.RUnlock()
-	
+
 	if !enableSharding || len(po.stateShards) == 0 {
 		return nil, false
 	}
@@ -1719,7 +1717,7 @@ func (po *PerformanceOptimizerImpl) ShardedSet(key string, value interface{}) {
 	po.configMu.RLock()
 	enableSharding := po.enableSharding
 	po.configMu.RUnlock()
-	
+
 	if !enableSharding || len(po.stateShards) == 0 {
 		return
 	}
@@ -1733,7 +1731,7 @@ func (po *PerformanceOptimizerImpl) CompressData(data []byte) ([]byte, error) {
 	po.configMu.RLock()
 	enableCompression := po.enableCompression
 	po.configMu.RUnlock()
-	
+
 	if !enableCompression {
 		return data, nil
 	}
@@ -1742,7 +1740,7 @@ func (po *PerformanceOptimizerImpl) CompressData(data []byte) ([]byte, error) {
 	defer po.PutBuffer(buf)
 
 	writer := gzip.NewWriter(buf)
-	
+
 	if _, err := writer.Write(data); err != nil {
 		writer.Close()
 		return nil, fmt.Errorf("failed to compress data: %w", err)
@@ -1753,7 +1751,7 @@ func (po *PerformanceOptimizerImpl) CompressData(data []byte) ([]byte, error) {
 	}
 
 	po.bytesWritten.Add(int64(len(data)))
-	
+
 	// Create a copy of the compressed data before returning the buffer to the pool
 	compressed := make([]byte, buf.Len())
 	copy(compressed, buf.Bytes())
@@ -1765,7 +1763,7 @@ func (po *PerformanceOptimizerImpl) DecompressData(data []byte) ([]byte, error) 
 	po.configMu.RLock()
 	enableCompression := po.enableCompression
 	po.configMu.RUnlock()
-	
+
 	if !enableCompression {
 		return data, nil
 	}
@@ -1784,7 +1782,7 @@ func (po *PerformanceOptimizerImpl) DecompressData(data []byte) ([]byte, error) 
 	}
 
 	po.bytesRead.Add(int64(len(data)))
-	
+
 	// Make a copy of the buffer bytes since we're returning the buffer to the pool
 	result := make([]byte, buf.Len())
 	copy(result, buf.Bytes())

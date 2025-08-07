@@ -14,22 +14,22 @@ import (
 type URLValidationOptions struct {
 	// RequireHTTPS enforces HTTPS scheme
 	RequireHTTPS bool
-	
+
 	// AllowedSchemes defines allowed URL schemes (if empty and RequireHTTPS is false, allows http/https)
 	AllowedSchemes []string
-	
+
 	// BlockPrivateNetworks prevents requests to private IP ranges
 	BlockPrivateNetworks bool
-	
+
 	// BlockLocalhost prevents requests to localhost
 	BlockLocalhost bool
-	
+
 	// AllowedHosts defines hosts that are allowed (if empty, all non-blocked hosts are allowed)
 	AllowedHosts []string
-	
+
 	// BlockedHosts defines hosts that are explicitly blocked
 	BlockedHosts []string
-	
+
 	// ValidateHostResolution checks if hostname resolves to valid IPs
 	ValidateHostResolution bool
 }
@@ -64,22 +64,22 @@ func DefaultHTTPValidationOptions() URLValidationOptions {
 func checkForHeaderInjection(urlStr string) error {
 	// Convert to lowercase for case-insensitive matching
 	lower := strings.ToLower(urlStr)
-	
+
 	// Check for common header injection patterns
 	dangerousPatterns := []string{
-		"%0a", "%0d",     // Line feed and carriage return
+		"%0a", "%0d", // Line feed and carriage return
 		"%0a%0d", "%0d%0a", // CRLF combinations
-		"\n", "\r",       // Raw newlines
-		"\x0a", "\x0d",   // Hex variants
+		"\n", "\r", // Raw newlines
+		"\x0a", "\x0d", // Hex variants
 		"\u000a", "\u000d", // Unicode variants
 	}
-	
+
 	for _, pattern := range dangerousPatterns {
 		if strings.Contains(lower, pattern) || strings.Contains(urlStr, pattern) {
 			return agerrors.NewSecurityError(agerrors.CodeSecurityViolation, "URL contains potential header injection patterns").WithViolationType("header_injection")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -199,8 +199,8 @@ func isAllowedHost(host string, opts URLValidationOptions) bool {
 // isLocalhost checks if a host refers to localhost
 func isLocalhost(host string) bool {
 	lowercaseHost := strings.ToLower(host)
-	return lowercaseHost == "localhost" || 
-		lowercaseHost == "127.0.0.1" || 
+	return lowercaseHost == "localhost" ||
+		lowercaseHost == "127.0.0.1" ||
 		lowercaseHost == "::1" ||
 		strings.HasPrefix(lowercaseHost, "127.") ||
 		lowercaseHost == "0.0.0.0"

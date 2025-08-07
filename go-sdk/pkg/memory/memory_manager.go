@@ -12,32 +12,32 @@ import (
 
 // MemoryManager handles memory pressure monitoring and adaptive behavior
 type MemoryManager struct {
-	mu                sync.RWMutex
-	logger            *zap.Logger
-	
+	mu     sync.RWMutex
+	logger *zap.Logger
+
 	// Memory thresholds
 	lowMemoryThreshold  uint64 // Bytes
 	highMemoryThreshold uint64 // Bytes
 	criticalThreshold   uint64 // Bytes
-	
+
 	// Current state
 	currentMemoryUsage  atomic.Uint64
 	memoryPressureLevel atomic.Int32 // 0=normal, 1=low, 2=high, 3=critical
-	
+
 	// Adaptive settings
 	adaptiveBufferSizes map[string]int
 	bufferSizeMutex     sync.RWMutex
-	
+
 	// Monitoring
 	monitorInterval time.Duration
 	ctx             context.Context
 	cancel          context.CancelFunc
 	wg              sync.WaitGroup
-	
+
 	// Callbacks for memory pressure events
 	onMemoryPressure []func(level MemoryPressureLevel)
 	callbacksMutex   sync.RWMutex
-	
+
 	// Metrics
 	metrics *MemoryMetrics
 }
@@ -160,7 +160,7 @@ func (mm *MemoryManager) OnMemoryPressure(callback func(MemoryPressureLevel)) {
 func (mm *MemoryManager) GetAdaptiveBufferSize(key string, defaultSize int) int {
 	// Check current memory pressure
 	pressure := MemoryPressureLevel(mm.memoryPressureLevel.Load())
-	
+
 	// Adjust buffer size based on memory pressure
 	adjustedSize := defaultSize
 	switch pressure {
@@ -194,13 +194,13 @@ func (mm *MemoryManager) GetMemoryPressureLevel() MemoryPressureLevel {
 func (mm *MemoryManager) GetMetrics() MemoryMetrics {
 	mm.metrics.mu.RLock()
 	defer mm.metrics.mu.RUnlock()
-	
+
 	// Create a copy of the pressure events map
 	pressureEvents := make(map[MemoryPressureLevel]uint64)
 	for k, v := range mm.metrics.PressureEvents {
 		pressureEvents[k] = v
 	}
-	
+
 	return MemoryMetrics{
 		TotalAllocated:         mm.metrics.TotalAllocated,
 		HeapInUse:              mm.metrics.HeapInUse,
@@ -283,7 +283,7 @@ func (mm *MemoryManager) checkMemoryPressure() {
 	// Update if changed
 	if newLevel != oldLevel {
 		mm.memoryPressureLevel.Store(int32(newLevel))
-		
+
 		mm.metrics.mu.Lock()
 		mm.metrics.PressureEvents[newLevel]++
 		mm.metrics.LastPressureChangeTime = time.Now()
@@ -338,7 +338,7 @@ func (mm *MemoryManager) notifyPressureChange(level MemoryPressureLevel) {
 				defer close(done)
 				cb(level)
 			}()
-			
+
 			select {
 			case <-done:
 				// Callback completed successfully
@@ -353,7 +353,7 @@ func (mm *MemoryManager) notifyPressureChange(level MemoryPressureLevel) {
 			}
 		}(callback)
 	}
-	
+
 	// Wait for all callbacks to complete or timeout, but don't block shutdown
 	go func() {
 		wg.Wait()
@@ -371,7 +371,7 @@ func (mm *MemoryManager) adaptToMemoryPressure(level MemoryPressureLevel) {
 		if mm.logger != nil {
 			mm.logger.Warn("Critical memory pressure - forced GC")
 		}
-		
+
 	case MemoryPressureHigh:
 		// Schedule GC with proper context cancellation
 		go func() {
@@ -383,7 +383,7 @@ func (mm *MemoryManager) adaptToMemoryPressure(level MemoryPressureLevel) {
 				return
 			}
 		}()
-		
+
 	case MemoryPressureLow:
 		// Reduce GC frequency
 		runtime.GC()

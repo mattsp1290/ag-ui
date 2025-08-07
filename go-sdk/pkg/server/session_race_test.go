@@ -53,7 +53,7 @@ func TestSessionRaceConditions(t *testing.T) {
 				defer wg.Done()
 				cleanupCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				
+
 				// This should detect missing session
 				_, err := sm.GetSession(cleanupCtx, session.ID)
 				if err != nil && strings.Contains(err.Error(), "not found") {
@@ -98,11 +98,11 @@ func TestSessionRaceConditions(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				
+
 				// This should trigger an async update
 				validateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				
+
 				_, err := sm.ValidateSession(validateCtx, session.ID, req)
 				if err == nil {
 					atomic.AddInt64(&successfulValidations, 1)
@@ -126,7 +126,7 @@ func TestSessionRaceConditions(t *testing.T) {
 			sm.sessionOpsMu.RLock()
 			sessionLockCount = len(sm.sessionOps)
 			sm.sessionOpsMu.RUnlock()
-			
+
 			if sessionLockCount <= 1 { // Allow for at most one lock (the session we're still working with)
 				break
 			}
@@ -207,7 +207,7 @@ func TestConstantTimeComparison(t *testing.T) {
 	// Test timing consistency by running many comparisons
 	// This is a basic test - in practice you'd need more sophisticated timing analysis
 	iterations := 1000
-	
+
 	// Time comparisons of equal-length strings
 	start := time.Now()
 	for i := 0; i < iterations; i++ {

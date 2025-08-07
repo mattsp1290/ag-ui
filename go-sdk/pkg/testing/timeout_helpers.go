@@ -11,7 +11,7 @@ import (
 const (
 	// ShortTestTimeout for quick unit tests
 	ShortTestTimeout = 10 * time.Second
-	// MediumTestTimeout for integration tests  
+	// MediumTestTimeout for integration tests
 	MediumTestTimeout = 30 * time.Second
 	// LongTestTimeout for load/stress tests
 	LongTestTimeout = 60 * time.Second
@@ -29,7 +29,7 @@ func WithTimeout(t testing.TB, timeout time.Duration, testFunc func()) {
 		}()
 		testFunc()
 	}()
-	
+
 	select {
 	case <-done:
 		// Test completed successfully
@@ -54,7 +54,7 @@ func FastFail(ctx context.Context, t testing.TB, operation func() error) error {
 	go func() {
 		done <- operation()
 	}()
-	
+
 	select {
 	case err := <-done:
 		return err
@@ -71,7 +71,7 @@ func QuickCleanup(t testing.TB, timeout time.Duration, cleanup func()) {
 		defer close(done)
 		cleanup()
 	}()
-	
+
 	select {
 	case <-done:
 		// Cleanup completed successfully

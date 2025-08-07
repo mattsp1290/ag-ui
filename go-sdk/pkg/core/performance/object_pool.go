@@ -13,19 +13,19 @@ import (
 // ObjectPoolConfig contains configuration for object pools
 type ObjectPoolConfig struct {
 	// Pool sizing
-	InitialSize       int           // Initial number of objects to pre-allocate
-	MaxSize           int           // Maximum number of objects in pool (0 = unlimited)
-	MaxIdleTime       time.Duration // Maximum time an object can stay idle
-	CleanupInterval   time.Duration // Interval for cleanup operations
-	
+	InitialSize     int           // Initial number of objects to pre-allocate
+	MaxSize         int           // Maximum number of objects in pool (0 = unlimited)
+	MaxIdleTime     time.Duration // Maximum time an object can stay idle
+	CleanupInterval time.Duration // Interval for cleanup operations
+
 	// Performance tuning
-	PreallocationSize int           // Size for preallocated objects (e.g., buffer size)
-	GrowthFactor      float64       // Factor by which pool grows (default 1.5)
-	ShrinkThreshold   float64       // Utilization threshold below which pool shrinks
-	
+	PreallocationSize int     // Size for preallocated objects (e.g., buffer size)
+	GrowthFactor      float64 // Factor by which pool grows (default 1.5)
+	ShrinkThreshold   float64 // Utilization threshold below which pool shrinks
+
 	// Monitoring
-	EnableMetrics     bool          // Enable metrics collection
-	MetricsInterval   time.Duration // Interval for metrics collection
+	EnableMetrics   bool          // Enable metrics collection
+	MetricsInterval time.Duration // Interval for metrics collection
 }
 
 // DefaultObjectPoolConfig returns default object pool configuration
@@ -45,18 +45,18 @@ func DefaultObjectPoolConfig() *ObjectPoolConfig {
 
 // ObjectPool provides high-performance object pooling
 type ObjectPool struct {
-	config     *ObjectPoolConfig
-	pool       sync.Pool
-	factory    ObjectFactory
-	validator  ObjectValidator
-	
+	config    *ObjectPoolConfig
+	pool      sync.Pool
+	factory   ObjectFactory
+	validator ObjectValidator
+
 	// Metrics
-	metrics    *PoolMetrics
-	
+	metrics *PoolMetrics
+
 	// Lifecycle management
-	objects    map[interface{}]*PooledObject
-	mutex      sync.RWMutex
-	
+	objects map[interface{}]*PooledObject
+	mutex   sync.RWMutex
+
 	// Cleanup
 	cleanupTicker *time.Ticker
 	metricsTicker *time.Ticker
@@ -79,13 +79,13 @@ type ObjectValidator interface {
 
 // PooledObject wraps an object with pool metadata
 type PooledObject struct {
-	Object      interface{}
-	CreatedAt   time.Time
-	LastUsedAt  time.Time
-	UseCount    int64
-	InUse       bool
-	pool        *ObjectPool
-	mutex       sync.RWMutex
+	Object     interface{}
+	CreatedAt  time.Time
+	LastUsedAt time.Time
+	UseCount   int64
+	InUse      bool
+	pool       *ObjectPool
+	mutex      sync.RWMutex
 }
 
 // NewPooledObject creates a new pooled object
@@ -104,7 +104,7 @@ func NewPooledObject(obj interface{}, pool *ObjectPool) *PooledObject {
 func (po *PooledObject) Use() {
 	po.mutex.Lock()
 	defer po.mutex.Unlock()
-	
+
 	po.InUse = true
 	po.LastUsedAt = time.Now()
 	po.UseCount++
@@ -114,10 +114,10 @@ func (po *PooledObject) Use() {
 func (po *PooledObject) Release() {
 	po.mutex.Lock()
 	defer po.mutex.Unlock()
-	
+
 	po.InUse = false
 	po.LastUsedAt = time.Now()
-	
+
 	// Return to pool
 	po.pool.Put(po.Object)
 }
@@ -126,7 +126,7 @@ func (po *PooledObject) Release() {
 func (po *PooledObject) IsExpired(maxIdleTime time.Duration) bool {
 	po.mutex.RLock()
 	defer po.mutex.RUnlock()
-	
+
 	return maxIdleTime > 0 && !po.InUse && time.Since(po.LastUsedAt) > maxIdleTime
 }
 
@@ -138,25 +138,25 @@ type PoolMetrics struct {
 	TotalCreated     int64
 	TotalDiscarded   int64
 	TotalValidations int64
-	
+
 	// Performance metrics
-	AvgGetTime       time.Duration
-	AvgPutTime       time.Duration
-	AvgCreateTime    time.Duration
-	
+	AvgGetTime    time.Duration
+	AvgPutTime    time.Duration
+	AvgCreateTime time.Duration
+
 	// Pool state
-	CurrentSize      int32
-	MaxSizeReached   int32
-	CleanupRuns      int64
-	
+	CurrentSize    int32
+	MaxSizeReached int32
+	CleanupRuns    int64
+
 	// Utilization
-	HitRate          float64
-	UtilizationRate  float64
-	
+	HitRate         float64
+	UtilizationRate float64
+
 	// Memory stats
-	MemoryUsage      int64
-	MemoryAllocated  int64
-	
+	MemoryUsage     int64
+	MemoryAllocated int64
+
 	mutex sync.RWMutex
 }
 
@@ -165,7 +165,7 @@ func NewObjectPool(config *ObjectPoolConfig, factory ObjectFactory, validator Ob
 	if config == nil {
 		config = DefaultObjectPoolConfig()
 	}
-	
+
 	pool := &ObjectPool{
 		config:    config,
 		factory:   factory,
@@ -174,40 +174,40 @@ func NewObjectPool(config *ObjectPoolConfig, factory ObjectFactory, validator Ob
 		objects:   make(map[interface{}]*PooledObject),
 		stopCh:    make(chan struct{}),
 	}
-	
+
 	// Initialize sync.Pool
 	pool.pool = sync.Pool{
 		New: func() interface{} {
 			return pool.createObject()
 		},
 	}
-	
+
 	// Pre-allocate initial objects
 	pool.preallocate()
-	
+
 	// Start background workers
 	if config.CleanupInterval > 0 {
 		pool.cleanupTicker = time.NewTicker(config.CleanupInterval)
 		pool.wg.Add(1)
 		go pool.cleanupWorker()
 	}
-	
+
 	if config.EnableMetrics && config.MetricsInterval > 0 {
 		pool.metricsTicker = time.NewTicker(config.MetricsInterval)
 		pool.wg.Add(1)
 		go pool.metricsWorker()
 	}
-	
+
 	return pool
 }
 
 // Get retrieves an object from the pool
 func (p *ObjectPool) Get() interface{} {
 	start := time.Now()
-	
+
 	// Get from pool
 	obj := p.pool.Get()
-	
+
 	// Track usage
 	p.mutex.Lock()
 	if pooledObj, exists := p.objects[obj]; exists {
@@ -219,10 +219,10 @@ func (p *ObjectPool) Get() interface{} {
 		p.objects[obj] = pooledObj
 	}
 	p.mutex.Unlock()
-	
+
 	// Update metrics
 	p.updateGetMetrics(time.Since(start))
-	
+
 	return obj
 }
 
@@ -231,22 +231,22 @@ func (p *ObjectPool) Put(obj interface{}) {
 	if obj == nil {
 		return
 	}
-	
+
 	start := time.Now()
-	
+
 	// Validate object if validator is provided
 	if p.validator != nil {
 		if !p.validator.IsValid(obj) {
 			p.discardObject(obj)
 			return
 		}
-		
+
 		if p.validator.ShouldDiscard(obj) {
 			p.discardObject(obj)
 			return
 		}
 	}
-	
+
 	// Reset object if factory supports it
 	if p.factory != nil {
 		if err := p.factory.ResetObject(obj); err != nil {
@@ -254,14 +254,14 @@ func (p *ObjectPool) Put(obj interface{}) {
 			return
 		}
 	}
-	
+
 	// Update pooled object metadata
 	p.mutex.Lock()
 	if pooledObj, exists := p.objects[obj]; exists {
 		pooledObj.Release()
 	}
 	p.mutex.Unlock()
-	
+
 	// Check pool size limit
 	if p.config.MaxSize > 0 {
 		currentSize := atomic.LoadInt32(&p.metrics.CurrentSize)
@@ -270,10 +270,10 @@ func (p *ObjectPool) Put(obj interface{}) {
 			return
 		}
 	}
-	
+
 	// Return to pool
 	p.pool.Put(obj)
-	
+
 	// Update metrics
 	p.updatePutMetrics(time.Since(start))
 }
@@ -289,7 +289,7 @@ func (p *ObjectPool) preallocate() {
 // createObject creates a new object
 func (p *ObjectPool) createObject() interface{} {
 	start := time.Now()
-	
+
 	var obj interface{}
 	if p.factory != nil {
 		obj = p.factory.CreateObject()
@@ -297,11 +297,11 @@ func (p *ObjectPool) createObject() interface{} {
 		// Default object creation (empty interface)
 		obj = make(map[string]interface{})
 	}
-	
+
 	// Update metrics
 	p.updateCreateMetrics(time.Since(start))
 	atomic.AddInt32(&p.metrics.CurrentSize, 1)
-	
+
 	return obj
 }
 
@@ -310,7 +310,7 @@ func (p *ObjectPool) discardObject(obj interface{}) {
 	p.mutex.Lock()
 	delete(p.objects, obj)
 	p.mutex.Unlock()
-	
+
 	atomic.AddInt32(&p.metrics.CurrentSize, -1)
 	atomic.AddInt64(&p.metrics.TotalDiscarded, 1)
 }
@@ -318,7 +318,7 @@ func (p *ObjectPool) discardObject(obj interface{}) {
 // cleanupWorker performs periodic cleanup
 func (p *ObjectPool) cleanupWorker() {
 	defer p.wg.Done()
-	
+
 	for {
 		select {
 		case <-p.cleanupTicker.C:
@@ -333,29 +333,29 @@ func (p *ObjectPool) cleanupWorker() {
 func (p *ObjectPool) performCleanup() {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	
+
 	expiredObjects := make([]interface{}, 0)
-	
+
 	for obj, pooledObj := range p.objects {
 		if pooledObj.IsExpired(p.config.MaxIdleTime) {
 			expiredObjects = append(expiredObjects, obj)
 		}
 	}
-	
+
 	// Remove expired objects
 	for _, obj := range expiredObjects {
 		delete(p.objects, obj)
 		atomic.AddInt32(&p.metrics.CurrentSize, -1)
 		atomic.AddInt64(&p.metrics.TotalDiscarded, 1)
 	}
-	
+
 	atomic.AddInt64(&p.metrics.CleanupRuns, 1)
 }
 
 // metricsWorker collects and updates metrics
 func (p *ObjectPool) metricsWorker() {
 	defer p.wg.Done()
-	
+
 	for {
 		select {
 		case <-p.metricsTicker.C:
@@ -370,20 +370,20 @@ func (p *ObjectPool) metricsWorker() {
 func (p *ObjectPool) updateMetrics() {
 	p.metrics.mutex.Lock()
 	defer p.metrics.mutex.Unlock()
-	
+
 	// Calculate hit rate
 	totalGets := atomic.LoadInt64(&p.metrics.TotalGets)
 	totalCreated := atomic.LoadInt64(&p.metrics.TotalCreated)
 	if totalGets > 0 {
 		p.metrics.HitRate = 1.0 - (float64(totalCreated) / float64(totalGets))
 	}
-	
+
 	// Calculate utilization rate
 	currentSize := atomic.LoadInt32(&p.metrics.CurrentSize)
 	if p.config.MaxSize > 0 {
 		p.metrics.UtilizationRate = float64(currentSize) / float64(p.config.MaxSize)
 	}
-	
+
 	// Update memory stats
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
@@ -394,10 +394,10 @@ func (p *ObjectPool) updateMetrics() {
 // updateGetMetrics updates get operation metrics
 func (p *ObjectPool) updateGetMetrics(duration time.Duration) {
 	atomic.AddInt64(&p.metrics.TotalGets, 1)
-	
+
 	p.metrics.mutex.Lock()
 	defer p.metrics.mutex.Unlock()
-	
+
 	// Update average get time
 	gets := atomic.LoadInt64(&p.metrics.TotalGets)
 	if gets > 1 {
@@ -412,10 +412,10 @@ func (p *ObjectPool) updateGetMetrics(duration time.Duration) {
 // updatePutMetrics updates put operation metrics
 func (p *ObjectPool) updatePutMetrics(duration time.Duration) {
 	atomic.AddInt64(&p.metrics.TotalPuts, 1)
-	
+
 	p.metrics.mutex.Lock()
 	defer p.metrics.mutex.Unlock()
-	
+
 	// Update average put time
 	puts := atomic.LoadInt64(&p.metrics.TotalPuts)
 	if puts > 1 {
@@ -430,10 +430,10 @@ func (p *ObjectPool) updatePutMetrics(duration time.Duration) {
 // updateCreateMetrics updates create operation metrics
 func (p *ObjectPool) updateCreateMetrics(duration time.Duration) {
 	atomic.AddInt64(&p.metrics.TotalCreated, 1)
-	
+
 	p.metrics.mutex.Lock()
 	defer p.metrics.mutex.Unlock()
-	
+
 	// Update average create time
 	creates := atomic.LoadInt64(&p.metrics.TotalCreated)
 	if creates > 1 {
@@ -449,7 +449,7 @@ func (p *ObjectPool) updateCreateMetrics(duration time.Duration) {
 func (p *ObjectPool) GetMetrics() *PoolMetrics {
 	p.metrics.mutex.RLock()
 	defer p.metrics.mutex.RUnlock()
-	
+
 	return &PoolMetrics{
 		TotalGets:        atomic.LoadInt64(&p.metrics.TotalGets),
 		TotalPuts:        atomic.LoadInt64(&p.metrics.TotalPuts),
@@ -472,23 +472,23 @@ func (p *ObjectPool) GetMetrics() *PoolMetrics {
 // GetPoolInfo returns pool information
 func (p *ObjectPool) GetPoolInfo() map[string]interface{} {
 	metrics := p.GetMetrics()
-	
+
 	return map[string]interface{}{
-		"current_size":      metrics.CurrentSize,
-		"max_size":          p.config.MaxSize,
-		"initial_size":      p.config.InitialSize,
-		"hit_rate":          metrics.HitRate,
-		"utilization_rate":  metrics.UtilizationRate,
-		"total_gets":        metrics.TotalGets,
-		"total_puts":        metrics.TotalPuts,
-		"total_created":     metrics.TotalCreated,
-		"total_discarded":   metrics.TotalDiscarded,
-		"avg_get_time":      metrics.AvgGetTime,
-		"avg_put_time":      metrics.AvgPutTime,
-		"avg_create_time":   metrics.AvgCreateTime,
-		"cleanup_runs":      metrics.CleanupRuns,
-		"memory_usage":      metrics.MemoryUsage,
-		"memory_allocated":  metrics.MemoryAllocated,
+		"current_size":     metrics.CurrentSize,
+		"max_size":         p.config.MaxSize,
+		"initial_size":     p.config.InitialSize,
+		"hit_rate":         metrics.HitRate,
+		"utilization_rate": metrics.UtilizationRate,
+		"total_gets":       metrics.TotalGets,
+		"total_puts":       metrics.TotalPuts,
+		"total_created":    metrics.TotalCreated,
+		"total_discarded":  metrics.TotalDiscarded,
+		"avg_get_time":     metrics.AvgGetTime,
+		"avg_put_time":     metrics.AvgPutTime,
+		"avg_create_time":  metrics.AvgCreateTime,
+		"cleanup_runs":     metrics.CleanupRuns,
+		"memory_usage":     metrics.MemoryUsage,
+		"memory_allocated": metrics.MemoryAllocated,
 	}
 }
 
@@ -496,7 +496,7 @@ func (p *ObjectPool) GetPoolInfo() map[string]interface{} {
 func (p *ObjectPool) Close() error {
 	// Stop background workers
 	close(p.stopCh)
-	
+
 	// Stop tickers
 	if p.cleanupTicker != nil {
 		p.cleanupTicker.Stop()
@@ -504,15 +504,15 @@ func (p *ObjectPool) Close() error {
 	if p.metricsTicker != nil {
 		p.metricsTicker.Stop()
 	}
-	
+
 	// Wait for workers to finish
 	p.wg.Wait()
-	
+
 	// Clear objects
 	p.mutex.Lock()
 	p.objects = make(map[interface{}]*PooledObject)
 	p.mutex.Unlock()
-	
+
 	return nil
 }
 
@@ -610,7 +610,7 @@ func (f *JSONEncoderFactory) CreateObject() interface{} {
 	} else {
 		buffer = bytes.NewBuffer(make([]byte, 0, 1024))
 	}
-	
+
 	return json.NewEncoder(buffer)
 }
 
@@ -653,10 +653,10 @@ func (v *SimpleValidator) ShouldDiscard(obj interface{}) bool {
 var (
 	// BufferPool for byte buffers
 	BufferPool *ObjectPool
-	
+
 	// SlicePool for byte slices
 	SlicePool *ObjectPool
-	
+
 	// StringBuilderPool for string builders
 	StringBuilderPool *ObjectPool
 )
@@ -666,7 +666,7 @@ func init() {
 	// Initialize buffer pool
 	bufferFactory := NewBufferFactory(1024, 1024*1024) // 1KB initial, 1MB max
 	BufferPool = NewObjectPool(DefaultObjectPoolConfig(), bufferFactory, nil)
-	
+
 	// Initialize slice pool
 	sliceFactory := NewSliceFactory(1024, 1024*1024) // 1KB initial, 1MB max
 	SlicePool = NewObjectPool(DefaultObjectPoolConfig(), sliceFactory, nil)
@@ -691,4 +691,3 @@ func GetSlice() []byte {
 func PutSlice(slice []byte) {
 	SlicePool.Put(slice)
 }
-

@@ -33,22 +33,22 @@ type OrchestrationValidationResult struct {
 type Validator interface {
 	// Validate performs the validation operation
 	Validate(ctx *OrchestrationValidationContext) (*OrchestrationValidationResult, error)
-	
+
 	// GetID returns the unique identifier for this validator
 	GetID() string
-	
+
 	// GetType returns the type of validator
 	GetType() string
-	
+
 	// GetDescription returns a human-readable description
 	GetDescription() string
 }
 
 // EventValidator wraps the events package validator for orchestration use
 type EventValidator struct {
-	validator events.CustomValidator
-	id        string
-	vType     string
+	validator   events.CustomValidator
+	id          string
+	vType       string
 	description string
 }
 
@@ -65,33 +65,33 @@ func NewEventValidator(id, vType, description string, validator events.CustomVal
 // Validate implements the Validator interface
 func (ev *EventValidator) Validate(ctx *OrchestrationValidationContext) (*OrchestrationValidationResult, error) {
 	start := time.Now()
-	
+
 	// For simplicity, we'll simulate the validation here
 	// In a real implementation, you would properly convert the context
 	// and call the underlying events validator
-	
+
 	// Simulate validation logic
 	var err error
 	if ctx == nil {
 		err = fmt.Errorf("validation context is nil")
 	}
-	
+
 	duration := time.Since(start)
-	
+
 	result := &OrchestrationValidationResult{
 		IsValid:   err == nil,
 		Validator: ev.id,
 		Duration:  duration,
 		Timestamp: time.Now(),
 	}
-	
+
 	if err != nil {
 		result.Message = err.Error()
 		result.Errors = []string{err.Error()}
 	} else {
 		result.Message = "Validation passed"
 	}
-	
+
 	return result, nil
 }
 
@@ -133,7 +133,7 @@ func NewSimpleValidator(id, vType, description string, isValid bool, message str
 // Validate implements the Validator interface
 func (sv *SimpleValidator) Validate(ctx *OrchestrationValidationContext) (*OrchestrationValidationResult, error) {
 	start := time.Now()
-	
+
 	result := &OrchestrationValidationResult{
 		IsValid:   sv.isValid,
 		Message:   sv.message,
@@ -141,11 +141,11 @@ func (sv *SimpleValidator) Validate(ctx *OrchestrationValidationContext) (*Orche
 		Duration:  time.Since(start),
 		Timestamp: time.Now(),
 	}
-	
+
 	if !sv.isValid {
 		result.Errors = []string{sv.message}
 	}
-	
+
 	return result, nil
 }
 

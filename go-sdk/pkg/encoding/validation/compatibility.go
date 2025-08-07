@@ -36,14 +36,14 @@ func NewCrossSDKValidator() *CrossSDKValidator {
 		testVectors: make(map[string][]TestVector),
 		validators:  make(map[string]FormatValidator),
 	}
-	
+
 	// Register default validators
 	v.validators["application/json"] = NewJSONValidator(true)
 	v.validators["application/x-protobuf"] = NewProtobufValidator(10 * 1024 * 1024)
-	
+
 	// Load default test vectors
 	v.loadDefaultTestVectors()
-	
+
 	return v
 }
 
@@ -111,11 +111,11 @@ func (v *CrossSDKValidator) validateVector(ctx context.Context, vector TestVecto
 // ValidateAllSDKs validates compatibility with all registered SDKs
 func (v *CrossSDKValidator) ValidateAllSDKs(ctx context.Context, decoder encoding.Decoder) map[string]error {
 	results := make(map[string]error)
-	
+
 	for sdk := range v.testVectors {
 		results[sdk] = v.ValidateCompatibility(ctx, sdk, decoder)
 	}
-	
+
 	return results
 }
 
@@ -148,7 +148,7 @@ func (v *CrossSDKValidator) loadDefaultTestVectors() {
 			Input:       []byte(`{"type":"TEXT_MESSAGE_CONTENT","timestamp":1234567890,"messageId":"msg-789","delta":"Hello, world!"}`),
 			Expected: &events.TextMessageContentEvent{
 				BaseEvent: &events.BaseEvent{
-					EventType: events.EventTypeTextMessageContent,
+					EventType:   events.EventTypeTextMessageContent,
 					TimestampMs: int64Ptr(1234567890),
 				},
 				MessageID: "msg-789",
@@ -178,7 +178,7 @@ func (v *CrossSDKValidator) loadDefaultTestVectors() {
 			Input:       []byte(`{"type":"TOOL_CALL_START","timestamp":1234567890,"toolCallId":"tool-abc","toolCallName":"calculator"}`),
 			Expected: &events.ToolCallStartEvent{
 				BaseEvent: &events.BaseEvent{
-					EventType: events.EventTypeToolCallStart,
+					EventType:   events.EventTypeToolCallStart,
 					TimestampMs: int64Ptr(1234567890),
 				},
 				ToolCallID:   "tool-abc",
@@ -194,7 +194,7 @@ func (v *CrossSDKValidator) loadDefaultTestVectors() {
 			Input:       []byte(`{"type":"STATE_SNAPSHOT","timestamp":1234567890,"snapshot":{"key":"value","count":42}}`),
 			Expected: &events.StateSnapshotEvent{
 				BaseEvent: &events.BaseEvent{
-					EventType: events.EventTypeStateSnapshot,
+					EventType:   events.EventTypeStateSnapshot,
 					TimestampMs: int64Ptr(1234567890),
 				},
 				Snapshot: map[string]interface{}{
@@ -362,7 +362,7 @@ func NewCrossSDKTestSuite(codec encoding.Codec) *CrossSDKTestSuite {
 func (s *CrossSDKTestSuite) RunCompatibilityTests(ctx context.Context) error {
 	// Test decoding compatibility with all SDKs
 	results := s.validator.ValidateAllSDKs(ctx, s.decoder)
-	
+
 	var failures []string
 	for sdk, err := range results {
 		if err != nil {
@@ -390,7 +390,7 @@ func (s *CrossSDKTestSuite) generateTestEvents() []events.Event {
 	return []events.Event{
 		&events.RunStartedEvent{
 			BaseEvent: &events.BaseEvent{
-				EventType: events.EventTypeRunStarted,
+				EventType:   events.EventTypeRunStarted,
 				TimestampMs: int64Ptr(1234567890),
 			},
 			RunIDValue:    "run-test-123",
@@ -398,7 +398,7 @@ func (s *CrossSDKTestSuite) generateTestEvents() []events.Event {
 		},
 		&events.TextMessageContentEvent{
 			BaseEvent: &events.BaseEvent{
-				EventType: events.EventTypeTextMessageContent,
+				EventType:   events.EventTypeTextMessageContent,
 				TimestampMs: int64Ptr(1234567890),
 			},
 			MessageID: "msg-test-789",
@@ -406,7 +406,7 @@ func (s *CrossSDKTestSuite) generateTestEvents() []events.Event {
 		},
 		&events.ToolCallStartEvent{
 			BaseEvent: &events.BaseEvent{
-				EventType: events.EventTypeToolCallStart,
+				EventType:   events.EventTypeToolCallStart,
 				TimestampMs: int64Ptr(1234567890),
 			},
 			ToolCallID:   "tool-test-abc",

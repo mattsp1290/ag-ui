@@ -38,10 +38,10 @@ func (sp *stringPool) put(b *[]byte) {
 var (
 	// Pool for event type strings
 	eventTypePool = &sync.Map{}
-	
+
 	// Pool for error messages
 	errorMsgPool = &sync.Map{}
-	
+
 	// Pool for log messages
 	logMsgPool = newStringPool()
 )
@@ -69,10 +69,10 @@ func InternErrorMsg(msg string) string {
 func FormatLogMessage(format string, args ...interface{}) string {
 	buf := logMsgPool.get()
 	defer logMsgPool.put(buf)
-	
+
 	// Use append operations which are more efficient than fmt.Sprintf
 	*buf = append(*buf, format...)
-	
+
 	// Simple implementation - in production, would use more sophisticated formatting
 	// This avoids fmt.Sprintf allocations for simple cases
 	return string(*buf)

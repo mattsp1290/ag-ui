@@ -22,31 +22,31 @@ import (
 type MigrationConfig struct {
 	// DryRun indicates whether to only analyze without making changes
 	DryRun bool
-	
+
 	// Directory is the root directory to process
 	Directory string
-	
+
 	// Recursive indicates whether to process subdirectories
 	Recursive bool
-	
+
 	// OutputFile is the file to write the migration report
 	OutputFile string
-	
+
 	// IncludePatterns are patterns for files to include
 	IncludePatterns []string
-	
+
 	// ExcludePatterns are patterns for files to exclude
 	ExcludePatterns []string
-	
+
 	// LoggerMigration enables migration of Any() logger calls to SafeX() calls
 	LoggerMigration bool
-	
+
 	// MapMigration enables migration of map[string]interface{} to typed structs
 	MapMigration bool
-	
+
 	// ParamMigration enables migration of interface{} parameters to type constraints
 	ParamMigration bool
-	
+
 	// Verbose enables detailed logging
 	Verbose bool
 }
@@ -55,19 +55,19 @@ type MigrationConfig struct {
 type MigrationPattern struct {
 	// Name of the pattern
 	Name string
-	
+
 	// Pattern to match (regex or AST-based)
 	Pattern string
-	
+
 	// Replacement template
 	Replacement string
-	
+
 	// RiskLevel indicates the migration risk (high/medium/low)
 	RiskLevel string
-	
+
 	// Description explains what this pattern does
 	Description string
-	
+
 	// Validator is a function to validate the migration
 	Validator func(original, replacement string) bool
 }
@@ -76,16 +76,16 @@ type MigrationPattern struct {
 type MigrationResult struct {
 	// File is the path to the processed file
 	File string
-	
+
 	// Patterns is a list of patterns that were applied
 	Patterns []string
-	
+
 	// Changes is a list of changes made
 	Changes []MigrationChange
-	
+
 	// Errors is a list of errors encountered
 	Errors []string
-	
+
 	// RiskLevel is the overall risk level of the file
 	RiskLevel string
 }
@@ -94,22 +94,22 @@ type MigrationResult struct {
 type MigrationChange struct {
 	// Line number where the change was made
 	Line int
-	
+
 	// Column number where the change was made
 	Column int
-	
+
 	// Original code
 	Original string
-	
+
 	// Replacement code
 	Replacement string
-	
+
 	// Pattern used for the change
 	Pattern string
-	
+
 	// RiskLevel of this specific change
 	RiskLevel string
-	
+
 	// Description of what was changed
 	Description string
 }
@@ -118,13 +118,13 @@ type MigrationChange struct {
 type MigrationReport struct {
 	// Config used for the migration
 	Config MigrationConfig
-	
+
 	// Results for each file processed
 	Results []MigrationResult
-	
+
 	// Summary statistics
 	Summary MigrationSummary
-	
+
 	// Recommendations for next steps
 	Recommendations []string
 }
@@ -133,16 +133,16 @@ type MigrationReport struct {
 type MigrationSummary struct {
 	// FilesProcessed is the total number of files processed
 	FilesProcessed int
-	
+
 	// FilesChanged is the number of files that had changes
 	FilesChanged int
-	
+
 	// TotalChanges is the total number of changes made
 	TotalChanges int
-	
+
 	// RiskBreakdown shows the number of changes by risk level
 	RiskBreakdown map[string]int
-	
+
 	// PatternBreakdown shows the number of times each pattern was used
 	PatternBreakdown map[string]int
 }
@@ -188,7 +188,7 @@ var migrationPatterns = []MigrationPattern{
 
 func main() {
 	var config MigrationConfig
-	
+
 	// Parse command line flags
 	flag.BoolVar(&config.DryRun, "dry-run", true, "Only analyze without making changes")
 	flag.StringVar(&config.Directory, "dir", ".", "Root directory to process")
@@ -199,29 +199,29 @@ func main() {
 	flag.BoolVar(&config.ParamMigration, "params", false, "Enable parameter migration (high risk)")
 	flag.BoolVar(&config.Verbose, "verbose", false, "Enable verbose logging")
 	flag.Parse()
-	
+
 	// Default include patterns
 	config.IncludePatterns = []string{"*.go"}
 	config.ExcludePatterns = []string{"*_test.go", "vendor/*", ".git/*"}
-	
+
 	if config.Verbose {
 		log.Printf("Starting migration with config: %+v", config)
 	}
-	
+
 	// Run migration
 	report, err := runMigration(config)
 	if err != nil {
 		log.Fatalf("Migration failed: %v", err)
 	}
-	
+
 	// Print summary
 	printSummary(report)
-	
+
 	// Write detailed report
 	if err := writeReport(report, config.OutputFile); err != nil {
 		log.Printf("Warning: Failed to write report: %v", err)
 	}
-	
+
 	if config.Verbose {
 		log.Printf("Migration completed. Report written to %s", config.OutputFile)
 	}
@@ -236,21 +236,21 @@ func runMigration(config MigrationConfig) (*MigrationReport, error) {
 			PatternBreakdown: make(map[string]int),
 		},
 	}
-	
+
 	// Find all Go files to process
 	files, err := findGoFiles(config.Directory, config.Recursive, config.IncludePatterns, config.ExcludePatterns)
 	if err != nil {
 		return nil, fmt.Errorf("failed to find Go files: %w", err)
 	}
-	
+
 	report.Summary.FilesProcessed = len(files)
-	
+
 	// Process each file
 	for _, file := range files {
 		if config.Verbose {
 			log.Printf("Processing file: %s", file)
 		}
-		
+
 		result, err := processFile(file, config)
 		if err != nil {
 			log.Printf("Error processing %s: %v", file, err)
@@ -259,13 +259,13 @@ func runMigration(config MigrationConfig) (*MigrationReport, error) {
 				Errors: []string{err.Error()},
 			}
 		}
-		
+
 		report.Results = append(report.Results, result)
-		
+
 		if len(result.Changes) > 0 {
 			report.Summary.FilesChanged++
 			report.Summary.TotalChanges += len(result.Changes)
-			
+
 			// Update breakdown statistics
 			for _, change := range result.Changes {
 				report.Summary.RiskBreakdown[change.RiskLevel]++
@@ -273,10 +273,10 @@ func runMigration(config MigrationConfig) (*MigrationReport, error) {
 			}
 		}
 	}
-	
+
 	// Generate recommendations
 	report.Recommendations = generateRecommendations(report)
-	
+
 	return report, nil
 }
 
@@ -285,54 +285,54 @@ func processFile(filename string, config MigrationConfig) (MigrationResult, erro
 	result := MigrationResult{
 		File: filename,
 	}
-	
+
 	// Read the file
 	content, err := os.ReadFile(filename)
 	if err != nil {
 		return result, fmt.Errorf("failed to read file: %w", err)
 	}
-	
+
 	// Parse the file
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, filename, content, parser.ParseComments)
 	if err != nil {
 		return result, fmt.Errorf("failed to parse file: %w", err)
 	}
-	
+
 	// Analyze and migrate
 	modified := string(content)
-	
+
 	// Apply logger migrations
 	if config.LoggerMigration {
 		loggerChanges, newContent := migrateLoggerCalls(modified, fset, node)
 		result.Changes = append(result.Changes, loggerChanges...)
 		modified = newContent
 	}
-	
+
 	// Apply map migrations
 	if config.MapMigration {
 		mapChanges, newContent := migrateMapTypes(modified, fset, node)
 		result.Changes = append(result.Changes, mapChanges...)
 		modified = newContent
 	}
-	
+
 	// Apply parameter migrations (high risk)
 	if config.ParamMigration {
 		paramChanges, newContent := migrateParameters(modified, fset, node)
 		result.Changes = append(result.Changes, paramChanges...)
 		modified = newContent
 	}
-	
+
 	// Determine overall risk level
 	result.RiskLevel = calculateRiskLevel(result.Changes)
-	
+
 	// Write changes if not dry run
 	if !config.DryRun && len(result.Changes) > 0 {
 		if err := writeModifiedFile(filename, modified); err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("Failed to write file: %v", err))
 		}
 	}
-	
+
 	return result, nil
 }
 
@@ -340,21 +340,21 @@ func processFile(filename string, config MigrationConfig) (MigrationResult, erro
 func migrateLoggerCalls(content string, fset *token.FileSet, node *ast.File) ([]MigrationChange, string) {
 	var changes []MigrationChange
 	modified := content
-	
+
 	// Pattern for Any() calls
 	anyPattern := regexp.MustCompile(`Any\s*\(\s*"([^"]+)"\s*,\s*([^)]+)\s*\)`)
-	
+
 	matches := anyPattern.FindAllStringSubmatch(content, -1)
 	for _, match := range matches {
 		if len(match) >= 3 {
 			key := match[1]
 			value := match[2]
-			
+
 			// Try to infer type from value
 			safeFunc := inferSafeFunction(value)
 			if safeFunc != "" {
 				replacement := fmt.Sprintf(`%s("%s", %s)`, safeFunc, key, value)
-				
+
 				change := MigrationChange{
 					Original:    match[0],
 					Replacement: replacement,
@@ -362,13 +362,13 @@ func migrateLoggerCalls(content string, fset *token.FileSet, node *ast.File) ([]
 					RiskLevel:   "medium",
 					Description: fmt.Sprintf("Migrate Any() to %s() for type safety", safeFunc),
 				}
-				
+
 				changes = append(changes, change)
 				modified = strings.Replace(modified, match[0], replacement, 1)
 			}
 		}
 	}
-	
+
 	return changes, modified
 }
 
@@ -376,15 +376,15 @@ func migrateLoggerCalls(content string, fset *token.FileSet, node *ast.File) ([]
 func migrateMapTypes(content string, fset *token.FileSet, node *ast.File) ([]MigrationChange, string) {
 	var changes []MigrationChange
 	modified := content
-	
+
 	// Pattern for map[string]interface{}
 	mapPattern := regexp.MustCompile(`map\[string\]interface\{\}`)
-	
+
 	matches := mapPattern.FindAllString(content, -1)
 	for _, match := range matches {
 		// For now, suggest using map[string]any (Go 1.18+) as a safer alternative
 		replacement := "map[string]any"
-		
+
 		change := MigrationChange{
 			Original:    match,
 			Replacement: replacement,
@@ -392,11 +392,11 @@ func migrateMapTypes(content string, fset *token.FileSet, node *ast.File) ([]Mig
 			RiskLevel:   "low", // any is still type-safe compared to interface{}
 			Description: "Migrate map[string]interface{} to map[string]any for better type safety",
 		}
-		
+
 		changes = append(changes, change)
 		modified = strings.Replace(modified, match, replacement, 1)
 	}
-	
+
 	return changes, modified
 }
 
@@ -405,10 +405,10 @@ func migrateParameters(content string, fset *token.FileSet, node *ast.File) ([]M
 	var changes []MigrationChange
 	// This is a complex migration that requires careful AST analysis
 	// For now, we'll just identify interface{} parameters and suggest manual review
-	
+
 	paramPattern := regexp.MustCompile(`func\s+\w+[^{]*interface\{\}[^{]*\{`)
 	matches := paramPattern.FindAllString(content, -1)
-	
+
 	for _, match := range matches {
 		change := MigrationChange{
 			Original:    match,
@@ -419,14 +419,14 @@ func migrateParameters(content string, fset *token.FileSet, node *ast.File) ([]M
 		}
 		changes = append(changes, change)
 	}
-	
+
 	return changes, content // Don't modify for high-risk changes
 }
 
 // inferSafeFunction infers the appropriate SafeX function based on the value
 func inferSafeFunction(value string) string {
 	value = strings.TrimSpace(value)
-	
+
 	// Simple type inference based on common patterns
 	if strings.HasPrefix(value, `"`) && strings.HasSuffix(value, `"`) {
 		return "SafeString"
@@ -449,7 +449,7 @@ func inferSafeFunction(value string) string {
 	if strings.Contains(value, "err") || strings.Contains(value, "error") {
 		return "SafeError"
 	}
-	
+
 	return "" // Unable to infer, manual review needed
 }
 
@@ -458,10 +458,10 @@ func calculateRiskLevel(changes []MigrationChange) string {
 	if len(changes) == 0 {
 		return "none"
 	}
-	
+
 	hasHigh := false
 	hasMedium := false
-	
+
 	for _, change := range changes {
 		switch change.RiskLevel {
 		case "high":
@@ -470,7 +470,7 @@ func calculateRiskLevel(changes []MigrationChange) string {
 			hasMedium = true
 		}
 	}
-	
+
 	if hasHigh {
 		return "high"
 	}
@@ -483,22 +483,22 @@ func calculateRiskLevel(changes []MigrationChange) string {
 // findGoFiles finds all Go files matching the given patterns
 func findGoFiles(root string, recursive bool, includePatterns, excludePatterns []string) ([]string, error) {
 	var files []string
-	
+
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		
+
 		// Skip directories if not recursive
 		if d.IsDir() && path != root && !recursive {
 			return filepath.SkipDir
 		}
-		
+
 		// Skip non-files
 		if d.IsDir() {
 			return nil
 		}
-		
+
 		// Check exclude patterns
 		for _, pattern := range excludePatterns {
 			if matched, _ := filepath.Match(pattern, filepath.Base(path)); matched {
@@ -508,7 +508,7 @@ func findGoFiles(root string, recursive bool, includePatterns, excludePatterns [
 				return nil
 			}
 		}
-		
+
 		// Check include patterns
 		for _, pattern := range includePatterns {
 			if matched, _ := filepath.Match(pattern, filepath.Base(path)); matched {
@@ -516,10 +516,10 @@ func findGoFiles(root string, recursive bool, includePatterns, excludePatterns [
 				break
 			}
 		}
-		
+
 		return nil
 	})
-	
+
 	return files, err
 }
 
@@ -532,52 +532,52 @@ func writeModifiedFile(filename, content string) error {
 		log.Printf("Warning: Failed to format %s: %v", filename, err)
 		formatted = []byte(content)
 	}
-	
+
 	return os.WriteFile(filename, formatted, 0644)
 }
 
 // generateRecommendations generates recommendations based on the migration results
 func generateRecommendations(report *MigrationReport) []string {
 	var recommendations []string
-	
+
 	if report.Summary.TotalChanges == 0 {
 		recommendations = append(recommendations, "No interface{} usage patterns found that can be automatically migrated.")
 		return recommendations
 	}
-	
+
 	// High-risk changes
 	if report.Summary.RiskBreakdown["high"] > 0 {
-		recommendations = append(recommendations, 
-			fmt.Sprintf("⚠️  %d high-risk changes detected. Manual review required before applying.", 
+		recommendations = append(recommendations,
+			fmt.Sprintf("⚠️  %d high-risk changes detected. Manual review required before applying.",
 				report.Summary.RiskBreakdown["high"]))
 	}
-	
+
 	// Medium-risk changes
 	if report.Summary.RiskBreakdown["medium"] > 0 {
-		recommendations = append(recommendations, 
-			fmt.Sprintf("🔍 %d medium-risk changes detected. Review and test thoroughly.", 
+		recommendations = append(recommendations,
+			fmt.Sprintf("🔍 %d medium-risk changes detected. Review and test thoroughly.",
 				report.Summary.RiskBreakdown["medium"]))
 	}
-	
+
 	// Logger migrations
 	if report.Summary.PatternBreakdown["any_logger_to_safe"] > 0 {
-		recommendations = append(recommendations, 
+		recommendations = append(recommendations,
 			"✅ Logger migrations look safe. Consider running with --dry-run=false to apply.")
 	}
-	
+
 	// Map migrations
 	if report.Summary.PatternBreakdown["map_interface_to_typed"] > 0 {
-		recommendations = append(recommendations, 
+		recommendations = append(recommendations,
 			"📋 Map migrations found. Consider defining specific struct types instead of map[string]any.")
 	}
-	
+
 	// General recommendations
-	recommendations = append(recommendations, 
+	recommendations = append(recommendations,
 		"🔧 Run tests after applying changes to ensure functionality is preserved.",
 		"📚 Consider adding type assertions and validation where appropriate.",
 		"🏗️  For complex types, consider using code generation tools.",
 	)
-	
+
 	return recommendations
 }
 
@@ -587,21 +587,21 @@ func printSummary(report *MigrationReport) {
 	fmt.Printf("Files processed: %d\n", report.Summary.FilesProcessed)
 	fmt.Printf("Files with changes: %d\n", report.Summary.FilesChanged)
 	fmt.Printf("Total changes: %d\n", report.Summary.TotalChanges)
-	
+
 	if len(report.Summary.RiskBreakdown) > 0 {
 		fmt.Printf("\nRisk breakdown:\n")
 		for risk, count := range report.Summary.RiskBreakdown {
 			fmt.Printf("  %s: %d\n", risk, count)
 		}
 	}
-	
+
 	if len(report.Summary.PatternBreakdown) > 0 {
 		fmt.Printf("\nPattern breakdown:\n")
 		for pattern, count := range report.Summary.PatternBreakdown {
 			fmt.Printf("  %s: %d\n", pattern, count)
 		}
 	}
-	
+
 	if len(report.Recommendations) > 0 {
 		fmt.Printf("\nRecommendations:\n")
 		for _, rec := range report.Recommendations {
@@ -613,19 +613,19 @@ func printSummary(report *MigrationReport) {
 // writeReport writes the detailed migration report to a file
 func writeReport(report *MigrationReport, filename string) error {
 	var buf bytes.Buffer
-	
+
 	// Write detailed report in a readable format
 	buf.WriteString("# Interface{} Migration Report\n\n")
 	buf.WriteString(fmt.Sprintf("**Generated:** %s\n", ""))
 	buf.WriteString(fmt.Sprintf("**Directory:** %s\n", report.Config.Directory))
 	buf.WriteString(fmt.Sprintf("**Dry Run:** %t\n\n", report.Config.DryRun))
-	
+
 	// Summary
 	buf.WriteString("## Summary\n\n")
 	buf.WriteString(fmt.Sprintf("- Files processed: %d\n", report.Summary.FilesProcessed))
 	buf.WriteString(fmt.Sprintf("- Files with changes: %d\n", report.Summary.FilesChanged))
 	buf.WriteString(fmt.Sprintf("- Total changes: %d\n\n", report.Summary.TotalChanges))
-	
+
 	// Risk breakdown
 	if len(report.Summary.RiskBreakdown) > 0 {
 		buf.WriteString("### Risk Breakdown\n\n")
@@ -639,14 +639,14 @@ func writeReport(report *MigrationReport, filename string) error {
 		}
 		buf.WriteString("\n")
 	}
-	
+
 	// Detailed results
 	if len(report.Results) > 0 {
 		buf.WriteString("## Detailed Results\n\n")
 		for _, result := range report.Results {
 			if len(result.Changes) > 0 || len(result.Errors) > 0 {
 				buf.WriteString(fmt.Sprintf("### %s\n\n", result.File))
-				
+
 				if len(result.Errors) > 0 {
 					buf.WriteString("**Errors:**\n")
 					for _, err := range result.Errors {
@@ -654,7 +654,7 @@ func writeReport(report *MigrationReport, filename string) error {
 					}
 					buf.WriteString("\n")
 				}
-				
+
 				if len(result.Changes) > 0 {
 					buf.WriteString("**Changes:**\n")
 					for _, change := range result.Changes {
@@ -667,7 +667,7 @@ func writeReport(report *MigrationReport, filename string) error {
 			}
 		}
 	}
-	
+
 	// Recommendations
 	if len(report.Recommendations) > 0 {
 		buf.WriteString("## Recommendations\n\n")
@@ -675,6 +675,6 @@ func writeReport(report *MigrationReport, filename string) error {
 			buf.WriteString(fmt.Sprintf("- %s\n", rec))
 		}
 	}
-	
+
 	return os.WriteFile(filename, buf.Bytes(), 0644)
 }

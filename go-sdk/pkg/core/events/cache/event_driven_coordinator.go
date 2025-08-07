@@ -12,19 +12,19 @@ import (
 // EventDrivenCoordinator coordinates cache operations using event-driven architecture
 // This replaces direct coupling with event-based communication
 type EventDrivenCoordinator struct {
-	nodeID    string
-	eventBus  events.EventBus
-	config    *EventDrivenConfig
-	
+	nodeID   string
+	eventBus events.EventBus
+	config   *EventDrivenConfig
+
 	// Local state
-	nodeInfo  *NodeInfo
-	
+	nodeInfo *NodeInfo
+
 	// Event subscriptions
 	subscriptions map[string]events.SubscriptionID
-	
+
 	// Registered cache instances for local operations
 	caches map[string]CacheValidatorInterface
-	
+
 	// Synchronization
 	mu         sync.RWMutex
 	shutdownCh chan struct{}
@@ -34,21 +34,21 @@ type EventDrivenCoordinator struct {
 // EventDrivenConfig configuration for event-driven coordinator
 type EventDrivenConfig struct {
 	// Event publishing settings
-	EventTimeout        time.Duration `json:"event_timeout"`
-	AsyncPublishing     bool          `json:"async_publishing"`
-	
+	EventTimeout    time.Duration `json:"event_timeout"`
+	AsyncPublishing bool          `json:"async_publishing"`
+
 	// Health check settings
 	HealthCheckInterval time.Duration `json:"health_check_interval"`
 	NodeTimeout         time.Duration `json:"node_timeout"`
-	
+
 	// Metrics collection
-	EnableMetrics       bool          `json:"enable_metrics"`
-	MetricsInterval     time.Duration `json:"metrics_interval"`
-	
+	EnableMetrics   bool          `json:"enable_metrics"`
+	MetricsInterval time.Duration `json:"metrics_interval"`
+
 	// Consensus settings
-	EnableConsensus     bool    `json:"enable_consensus"`
-	ConsensusTimeout    time.Duration `json:"consensus_timeout"`
-	QuorumRatio         float64 `json:"quorum_ratio"`
+	EnableConsensus  bool          `json:"enable_consensus"`
+	ConsensusTimeout time.Duration `json:"consensus_timeout"`
+	QuorumRatio      float64       `json:"quorum_ratio"`
 }
 
 // DefaultEventDrivenConfig returns default configuration
@@ -71,12 +71,12 @@ func NewEventDrivenCoordinator(nodeID string, eventBus events.EventBus, config *
 	if config == nil {
 		config = DefaultEventDrivenConfig()
 	}
-	
+
 	return &EventDrivenCoordinator{
-		nodeID:        nodeID,
-		eventBus:      eventBus,
-		config:        config,
-		nodeInfo:      &NodeInfo{
+		nodeID:   nodeID,
+		eventBus: eventBus,
+		config:   config,
+		nodeInfo: &NodeInfo{
 			ID:            nodeID,
 			State:         NodeStateActive,
 			LastHeartbeat: time.Now(),
@@ -91,24 +91,24 @@ func NewEventDrivenCoordinator(nodeID string, eventBus events.EventBus, config *
 func (edc *EventDrivenCoordinator) Start(ctx context.Context) error {
 	edc.mu.Lock()
 	defer edc.mu.Unlock()
-	
+
 	if edc.started {
 		return fmt.Errorf("coordinator already started")
 	}
-	
+
 	// Subscribe to relevant events
 	if err := edc.subscribeToEvents(); err != nil {
 		return fmt.Errorf("failed to subscribe to events: %w", err)
 	}
-	
+
 	edc.started = true
-	
+
 	// Start background workers
 	go edc.healthCheckWorker(ctx)
 	if edc.config.EnableMetrics {
 		go edc.metricsWorker(ctx)
 	}
-	
+
 	// Announce node joining
 	joinEvent := events.NewDistributedEvent(
 		events.EventTypeNodeJoin,
@@ -118,18 +118,18 @@ func (edc *EventDrivenCoordinator) Start(ctx context.Context) error {
 			NodeAddress: edc.nodeID,
 			ClusterSize: 1, // Will be updated as we discover other nodes
 			Metadata: map[string]interface{}{
-				"cache_enabled": true,
+				"cache_enabled":    true,
 				"coordinator_type": "event_driven",
 			},
 		},
 	)
-	
+
 	if edc.config.AsyncPublishing {
 		edc.eventBus.PublishAsync(ctx, joinEvent)
 	} else {
 		edc.eventBus.Publish(ctx, joinEvent)
 	}
-	
+
 	return nil
 }
 
@@ -137,11 +137,11 @@ func (edc *EventDrivenCoordinator) Start(ctx context.Context) error {
 func (edc *EventDrivenCoordinator) Stop(ctx context.Context) error {
 	edc.mu.Lock()
 	defer edc.mu.Unlock()
-	
+
 	if !edc.started {
 		return nil
 	}
-	
+
 	// Announce node leaving
 	leaveEvent := events.NewDistributedEvent(
 		events.EventTypeNodeLeave,
@@ -153,19 +153,19 @@ func (edc *EventDrivenCoordinator) Stop(ctx context.Context) error {
 			},
 		},
 	)
-	
+
 	// Use sync publishing for shutdown to ensure delivery
 	edc.eventBus.Publish(ctx, leaveEvent)
-	
+
 	// Unsubscribe from events
 	for _, subID := range edc.subscriptions {
 		edc.eventBus.Unsubscribe(subID)
 	}
-	
+
 	// Signal shutdown
 	close(edc.shutdownCh)
 	edc.started = false
-	
+
 	return nil
 }
 
@@ -194,10 +194,10 @@ func (edc *EventDrivenCoordinator) InvalidateCache(ctx context.Context, eventTyp
 			NodeID: edc.nodeID,
 		},
 	)
-	
+
 	invalidateEvent.SetMetadata("invalidation_type", eventType)
 	invalidateEvent.SetMetadata("originating_node", edc.nodeID)
-	
+
 	if edc.config.AsyncPublishing {
 		return edc.eventBus.PublishAsync(ctx, invalidateEvent)
 	}
@@ -207,9 +207,9 @@ func (edc *EventDrivenCoordinator) InvalidateCache(ctx context.Context, eventTyp
 // InvalidateByEventType invalidates all cache entries for a specific event type
 func (edc *EventDrivenCoordinator) InvalidateByEventType(ctx context.Context, eventType string) error {
 	invalidateEvent := events.BusEvent{
-		ID:        fmt.Sprintf("invalidate_type_%d", time.Now().UnixNano()),
-		Type:      events.EventTypeCacheInvalidate,
-		Source:    "cache_coordinator",
+		ID:     fmt.Sprintf("invalidate_type_%d", time.Now().UnixNano()),
+		Type:   events.EventTypeCacheInvalidate,
+		Source: "cache_coordinator",
 		Data: events.CacheEventData{
 			NodeID: edc.nodeID,
 		},
@@ -221,7 +221,7 @@ func (edc *EventDrivenCoordinator) InvalidateByEventType(ctx context.Context, ev
 		Timestamp: time.Now(),
 		Priority:  3, // High priority for invalidations
 	}
-	
+
 	if edc.config.AsyncPublishing {
 		return edc.eventBus.PublishAsync(ctx, invalidateEvent)
 	}
@@ -241,7 +241,7 @@ func (edc *EventDrivenCoordinator) ReportMetrics(ctx context.Context, stats Cach
 		Timestamp: time.Now(),
 		Priority:  1,
 	}
-	
+
 	if edc.config.AsyncPublishing {
 		return edc.eventBus.PublishAsync(ctx, metricsEvent)
 	}
@@ -259,7 +259,7 @@ func (edc *EventDrivenCoordinator) subscribeToEvents() error {
 		return fmt.Errorf("failed to subscribe to cache invalidation events: %w", err)
 	}
 	edc.subscriptions["cache_invalidate"] = invalidateSubID
-	
+
 	// Subscribe to node join events
 	joinSubID, err := edc.eventBus.Subscribe(
 		events.EventTypeNodeJoin,
@@ -269,7 +269,7 @@ func (edc *EventDrivenCoordinator) subscribeToEvents() error {
 		return fmt.Errorf("failed to subscribe to node join events: %w", err)
 	}
 	edc.subscriptions["node_join"] = joinSubID
-	
+
 	// Subscribe to node leave events
 	leaveSubID, err := edc.eventBus.Subscribe(
 		events.EventTypeNodeLeave,
@@ -279,7 +279,7 @@ func (edc *EventDrivenCoordinator) subscribeToEvents() error {
 		return fmt.Errorf("failed to subscribe to node leave events: %w", err)
 	}
 	edc.subscriptions["node_leave"] = leaveSubID
-	
+
 	// Subscribe to auth events for cache invalidation
 	authSubID, err := edc.eventBus.Subscribe(
 		events.EventTypeAuthExpiration,
@@ -289,7 +289,7 @@ func (edc *EventDrivenCoordinator) subscribeToEvents() error {
 		return fmt.Errorf("failed to subscribe to auth events: %w", err)
 	}
 	edc.subscriptions["auth_expiration"] = authSubID
-	
+
 	return nil
 }
 
@@ -301,14 +301,14 @@ func (edc *EventDrivenCoordinator) handleCacheInvalidationEvent(ctx context.Cont
 			return nil
 		}
 	}
-	
+
 	edc.mu.RLock()
 	caches := make(map[string]CacheValidatorInterface)
 	for id, cache := range edc.caches {
 		caches[id] = cache
 	}
 	edc.mu.RUnlock()
-	
+
 	// Determine invalidation scope
 	if scope, exists := event.GetMetadata("invalidation_scope"); exists {
 		if scope == "event_type" {
@@ -332,7 +332,7 @@ func (edc *EventDrivenCoordinator) handleCacheInvalidationEvent(ctx context.Cont
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -360,14 +360,14 @@ func (edc *EventDrivenCoordinator) handleAuthEvent(ctx context.Context, event ev
 	if data, ok := event.Data.(events.AuthEventData); ok {
 		// Invalidate user-specific cache entries when auth expires
 		userCachePattern := fmt.Sprintf("user:%s:*", data.UserID)
-		
+
 		edc.mu.RLock()
 		caches := make(map[string]CacheValidatorInterface)
 		for id, cache := range edc.caches {
 			caches[id] = cache
 		}
 		edc.mu.RUnlock()
-		
+
 		// Publish cache invalidation for user-specific entries
 		invalidateEvent := events.BusEvent{
 			ID:     fmt.Sprintf("auth_invalidate_%s_%d", data.UserID, time.Now().UnixNano()),
@@ -379,14 +379,14 @@ func (edc *EventDrivenCoordinator) handleAuthEvent(ctx context.Context, event ev
 			},
 			Metadata: map[string]interface{}{
 				"invalidation_scope": "pattern",
-				"pattern":           userCachePattern,
-				"reason":            "auth_expiration",
-				"user_id":           data.UserID,
+				"pattern":            userCachePattern,
+				"reason":             "auth_expiration",
+				"user_id":            data.UserID,
 			},
 			Timestamp: time.Now(),
 			Priority:  3,
 		}
-		
+
 		return edc.eventBus.Publish(ctx, invalidateEvent)
 	}
 	return nil
@@ -396,7 +396,7 @@ func (edc *EventDrivenCoordinator) handleAuthEvent(ctx context.Context, event ev
 func (edc *EventDrivenCoordinator) healthCheckWorker(ctx context.Context) {
 	ticker := time.NewTicker(edc.config.HealthCheckInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -413,7 +413,7 @@ func (edc *EventDrivenCoordinator) healthCheckWorker(ctx context.Context) {
 func (edc *EventDrivenCoordinator) metricsWorker(ctx context.Context) {
 	ticker := time.NewTicker(edc.config.MetricsInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -433,15 +433,15 @@ func (edc *EventDrivenCoordinator) publishHealthStatus(ctx context.Context) {
 		Type:   "system.health",
 		Source: "cache_coordinator",
 		Data: map[string]interface{}{
-			"node_id":    edc.nodeID,
-			"status":     "healthy",
-			"uptime":     time.Since(edc.nodeInfo.LastHeartbeat),
+			"node_id":     edc.nodeID,
+			"status":      "healthy",
+			"uptime":      time.Since(edc.nodeInfo.LastHeartbeat),
 			"cache_count": len(edc.caches),
 		},
 		Timestamp: time.Now(),
 		Priority:  1,
 	}
-	
+
 	edc.eventBus.PublishAsync(ctx, healthEvent)
 }
 
@@ -449,17 +449,17 @@ func (edc *EventDrivenCoordinator) publishHealthStatus(ctx context.Context) {
 func (edc *EventDrivenCoordinator) publishMetrics(ctx context.Context) {
 	edc.mu.RLock()
 	defer edc.mu.RUnlock()
-	
+
 	// Aggregate metrics from all caches
 	aggregatedMetrics := make(map[string]interface{})
-	
+
 	for cacheID, cache := range edc.caches {
 		if cv, ok := cache.(*CacheValidatorSimple); ok {
 			stats := cv.GetStats()
 			aggregatedMetrics[cacheID] = stats
 		}
 	}
-	
+
 	if len(aggregatedMetrics) > 0 {
 		metricsEvent := events.BusEvent{
 			ID:     fmt.Sprintf("cache_metrics_%s_%d", edc.nodeID, time.Now().UnixNano()),
@@ -472,7 +472,7 @@ func (edc *EventDrivenCoordinator) publishMetrics(ctx context.Context) {
 			Timestamp: time.Now(),
 			Priority:  1,
 		}
-		
+
 		edc.eventBus.PublishAsync(ctx, metricsEvent)
 	}
 }
@@ -481,12 +481,12 @@ func (edc *EventDrivenCoordinator) publishMetrics(ctx context.Context) {
 func (edc *EventDrivenCoordinator) GetStats() map[string]interface{} {
 	edc.mu.RLock()
 	defer edc.mu.RUnlock()
-	
+
 	return map[string]interface{}{
-		"node_id":        edc.nodeID,
-		"started":        edc.started,
-		"cache_count":    len(edc.caches),
-		"subscriptions":  len(edc.subscriptions),
+		"node_id":         edc.nodeID,
+		"started":         edc.started,
+		"cache_count":     len(edc.caches),
+		"subscriptions":   len(edc.subscriptions),
 		"event_bus_stats": edc.eventBus.GetStats(),
 	}
 }

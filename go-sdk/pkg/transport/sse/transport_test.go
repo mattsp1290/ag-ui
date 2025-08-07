@@ -15,7 +15,7 @@ import (
 
 // TestSSETransport_NewSSETransport tests the creation of SSE transport
 func TestSSETransport_NewSSETransport(t *testing.T) {
-	t.Parallel()  // Safe to run in parallel
+	t.Parallel() // Safe to run in parallel
 	tests := []struct {
 		name        string
 		config      *Config
@@ -110,7 +110,7 @@ func TestSSETransport_Send(t *testing.T) {
 	// Use a more generous timeout for this integration test
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	err = transport.Send(ctx, event)
 	if err != nil {
 		t.Errorf("Failed to send event: %v", err)
@@ -150,7 +150,7 @@ func TestSSETransport_Send_ValidationError(t *testing.T) {
 
 // TestSSETransport_ParseEvents tests parsing various event types
 func TestSSETransport_ParseEvents(t *testing.T) {
-	t.Parallel()  // Safe to run in parallel
+	t.Parallel() // Safe to run in parallel
 	transport, err := NewSSETransport(nil)
 	if err != nil {
 		t.Fatalf("Failed to create transport: %v", err)

@@ -115,11 +115,11 @@ func TestSimpleLoadBalancer(t *testing.T) {
 // TestSimplePartitionDetection tests basic partition detection
 func TestSimplePartitionDetection(t *testing.T) {
 	config := &PartitionHandlerConfig{
-		HeartbeatTimeout:      1 * time.Second,
-		QuorumSize:            3, // Need 3 nodes for quorum
-		AllowLocalValidation:  true,
-		AutoRecovery:          false, // Disable auto-recovery for simplicity
-		MinNodesForOperation:  3,
+		HeartbeatTimeout:     1 * time.Second,
+		QuorumSize:           3, // Need 3 nodes for quorum
+		AllowLocalValidation: true,
+		AutoRecovery:         false, // Disable auto-recovery for simplicity
+		MinNodesForOperation: 3,
 	}
 
 	ph := NewPartitionHandler(config, "node-1")
@@ -140,7 +140,7 @@ func TestSimplePartitionDetection(t *testing.T) {
 	// Start the partition handler to enable detection
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	err := ph.Start(ctx)
 	require.NoError(t, err)
 	defer ph.Stop()
@@ -227,7 +227,7 @@ func TestSimpleNodeRegistration(t *testing.T) {
 func TestSimpleLocalValidationFallback(t *testing.T) {
 	config := TestingDistributedValidatorConfig("node-1")
 	config.PartitionHandler.AllowLocalValidation = true
-	config.ValidationTimeout = 1 * time.Second // Set a short timeout
+	config.ValidationTimeout = 1 * time.Second       // Set a short timeout
 	config.PartitionHandler.MinNodesForOperation = 1 // Allow operation with 1 node
 	// Configure consensus to only require 1 node for quorum
 	config.ConsensusConfig.MinNodes = 1
@@ -247,7 +247,7 @@ func TestSimpleLocalValidationFallback(t *testing.T) {
 	// Start the distributed validator
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	err = dv.Start(ctx)
 	require.NoError(t, err)
 	defer dv.Stop()
@@ -255,7 +255,7 @@ func TestSimpleLocalValidationFallback(t *testing.T) {
 	// Create a valid event that should pass validation - using a RUN_STARTED event
 	event := &events.RunStartedEvent{
 		BaseEvent: &events.BaseEvent{
-			EventType: events.EventTypeRunStarted,
+			EventType:   events.EventTypeRunStarted,
 			TimestampMs: func() *int64 { t := time.Now().UnixMilli(); return &t }(),
 		},
 		RunIDValue:    "test-run-1",
@@ -267,7 +267,7 @@ func TestSimpleLocalValidationFallback(t *testing.T) {
 	// Validate event - should fall back to local validation since no other nodes exist
 	validateCtx, validateCancel := context.WithTimeout(ctx, 3*time.Second)
 	defer validateCancel()
-	
+
 	result := dv.ValidateEvent(validateCtx, event)
 
 	if !result.IsValid && len(result.Errors) > 0 {
@@ -329,15 +329,15 @@ func TestSimpleMetricsCollection(t *testing.T) {
 	assert.Equal(t, uint64(0), metrics.GetValidationCount())
 	assert.Equal(t, float64(0), metrics.GetErrorRate())
 	assert.GreaterOrEqual(t, metrics.GetAverageResponseTime(), float64(0))
-	
+
 	// Test that we can start and stop the validator
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	err = dv.Start(ctx)
 	require.NoError(t, err)
 	defer dv.Stop()
-	
+
 	// Metrics should still be available after starting
 	metrics = dv.GetMetrics()
 	assert.Equal(t, uint64(0), metrics.GetValidationCount())

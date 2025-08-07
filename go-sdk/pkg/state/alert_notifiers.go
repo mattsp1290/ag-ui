@@ -28,12 +28,12 @@ func isTestMode() bool {
 	if flag.Lookup("test.v") != nil {
 		return true
 	}
-	
+
 	// Check GO_ENV environment variable as fallback
 	if os.Getenv("GO_ENV") == "test" {
 		return true
 	}
-	
+
 	return false
 }
 
@@ -242,12 +242,12 @@ func NewWebhookAlertNotifierWithOptions(url string, timeout time.Duration, allow
 			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 		},
 	}
-	
+
 	// For test environments, allow insecure TLS (self-signed certificates)
 	if allowLocalhost {
 		tlsConfig.InsecureSkipVerify = true
 	}
-	
+
 	transport := &http.Transport{
 		TLSClientConfig: tlsConfig,
 		// Prevent connection reuse that could bypass URL validation
@@ -383,12 +383,12 @@ func NewSlackAlertNotifierWithOptions(webhookURL, channel, username string, time
 			tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 		},
 	}
-	
+
 	// For test environments, allow insecure TLS (self-signed certificates)
 	if allowLocalhost {
 		tlsConfig.InsecureSkipVerify = true
 	}
-	
+
 	transport := &http.Transport{
 		TLSClientConfig: tlsConfig,
 		// Prevent connection reuse that could bypass URL validation
@@ -486,7 +486,6 @@ func (n *SlackAlertNotifier) getColorForLevel(level AlertLevel) string {
 		return "good"
 	}
 }
-
 
 // FileAlertNotifier writes alerts to a file
 type FileAlertNotifier struct {
@@ -617,23 +616,23 @@ func (n *ThrottledAlertNotifier) SendAlert(ctx context.Context, alert Alert) err
 
 	// Use a temporary timestamp to track when we're attempting to send
 	attemptTime := time.Now()
-	
+
 	n.mu.Lock()
 	lastSent, exists := n.lastSent[alertKey]
-	
+
 	// Check if we should throttle
 	if exists && time.Since(lastSent) < n.throttleDuration {
 		n.mu.Unlock()
 		return nil // Skip sending, too recent
 	}
-	
+
 	// Mark that we're attempting to send now (prevents other concurrent calls)
 	n.lastSent[alertKey] = attemptTime
 	n.mu.Unlock()
 
 	// Send the alert
 	err := n.notifier.SendAlert(ctx, alert)
-	
+
 	// Update the last sent time on success, or revert on failure
 	n.mu.Lock()
 	if err == nil {
@@ -647,7 +646,7 @@ func (n *ThrottledAlertNotifier) SendAlert(ctx context.Context, alert Alert) err
 		}
 	}
 	n.mu.Unlock()
-	
+
 	return err
 }
 
@@ -683,12 +682,12 @@ func (n *PagerDutyAlertNotifier) SendAlert(ctx context.Context, alert Alert) err
 		"routing_key":  n.integrationKey,
 		"event_action": "trigger",
 		"payload": map[string]interface{}{
-			"summary":        alert.Title,
-			"source":         alert.Component,
-			"severity":       n.getSeverityForLevel(alert.Level),
-			"component":      alert.Component,
-			"group":          "state-manager",
-			"class":          "monitoring",
+			"summary":   alert.Title,
+			"source":    alert.Component,
+			"severity":  n.getSeverityForLevel(alert.Level),
+			"component": alert.Component,
+			"group":     "state-manager",
+			"class":     "monitoring",
 			"custom_details": map[string]interface{}{
 				"description": alert.Description,
 				"value":       alert.Value,

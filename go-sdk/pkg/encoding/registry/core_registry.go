@@ -3,6 +3,7 @@ package registry
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -46,10 +47,10 @@ type CoreRegistry struct {
 	entries sync.Map // map[RegistryKey]*RegistryEntry
 
 	// Focused component responsibilities
-	cacheManager  *CacheManager
-	priorities    *PriorityManager
-	lifecycle     *LifecycleManager
-	metrics       *Metrics
+	cacheManager *CacheManager
+	priorities   *PriorityManager
+	lifecycle    *LifecycleManager
+	metrics      *Metrics
 
 	// Configuration
 	config    *RegistryConfig
@@ -85,17 +86,37 @@ func NewCoreRegistryWithConfig(config *RegistryConfig) *CoreRegistry {
 	return r
 }
 
-// cleanupCallback is used by the lifecycle manager
+// cleanupCallback is used by the lifecycle manager with enhanced memory leak prevention
 func (r *CoreRegistry) cleanupCallback() {
-	r.CleanupExpired()
-
-	// If we're under memory pressure, do more aggressive cleanup
+	// Track cleanup operations for monitoring
+	cleanupStart := time.Now()
+	
+	// Run standard TTL-based cleanup
+	expiredCleaned, _ := r.CleanupExpired()
+	
+	// Check for memory pressure and respond accordingly
 	currentCount := r.metrics.GetEntryCount()
 	maxEntries := int64(r.config.MaxEntries)
-
+	
+	// Perform preventative cleanup through cache manager
+	preventativeCleaned := r.cacheManager.PerformPreventativeCleanup()
+	
 	if maxEntries > 0 && currentCount > (maxEntries*8)/10 {
-		r.CleanupByAccessTime(r.config.TTL / 2) // More aggressive cleanup
+		// Under memory pressure - more aggressive cleanup
+		accessCleaned, _ := r.CleanupByAccessTime(r.config.TTL / 2)
+		
+		if r.config.TTL > 0 {
+			log.Printf("Registry memory pressure detected: cleaned %d expired, %d by access, %d preventative entries in %v",
+				expiredCleaned, accessCleaned, preventativeCleaned, time.Since(cleanupStart))
+		}
+	} else if expiredCleaned > 0 || preventativeCleaned > 0 {
+		// Log normal cleanup activity
+		log.Printf("Registry maintenance: cleaned %d expired, %d preventative entries in %v",
+			expiredCleaned, preventativeCleaned, time.Since(cleanupStart))
 	}
+	
+	// Update metrics with cleanup information
+	r.metrics.RecordCleanupOperation(expiredCleaned + preventativeCleaned, time.Since(cleanupStart))
 }
 
 // Helper methods for entry management
@@ -125,7 +146,7 @@ func (r *CoreRegistry) GetEntry(entryType RegistryEntryType, mimeType string) (*
 	return nil, false
 }
 
-// SetEntry safely stores an entry in the sync.Map with size limits and LRU eviction
+// SetEntry safely stores an entry in the sync.Map with enhanced size limits and leak prevention
 func (r *CoreRegistry) SetEntry(entryType RegistryEntryType, mimeType string, value interface{}) error {
 	if r.lifecycle.IsClosed() {
 		return fmt.Errorf("registry is closed")
@@ -135,13 +156,29 @@ func (r *CoreRegistry) SetEntry(entryType RegistryEntryType, mimeType string, va
 	normalizedMimeType := strings.ToLower(mimeType)
 	key := RegistryKey{EntryType: entryType, MimeType: normalizedMimeType}
 
-	// Check if we need to evict before adding (if max entries configured)
-	// Only count format entries towards the limit, not aliases or factories
+	// Enhanced memory pressure management
+	// Handle MaxEntries limit - only apply to format entries to avoid confusion
 	if r.config.MaxEntries > 0 && entryType == EntryTypeFormat {
 		currentFormatCount := r.countFormatEntries()
 		if currentFormatCount >= r.config.MaxEntries {
 			r.evictLRUFormatEntry()
 		}
+	}
+
+	// Check if entry already exists and update instead of creating duplicate
+	if existingValue, exists := r.entries.Load(key); exists {
+		// Update existing entry to prevent accumulation
+		existingEntry := existingValue.(*RegistryEntry)
+		existingEntry.Value = value
+		existingEntry.SetLastAccess(time.Now())
+		atomic.AddInt64(&existingEntry.AccessCount, 1)
+		
+		// Update LRU position
+		if r.config.EnableLRU {
+			r.cacheManager.UpdateLRUPosition(key)
+		}
+		
+		return nil
 	}
 
 	// Create new entry with metadata
@@ -362,7 +399,7 @@ func (r *CoreRegistry) ClearAll() error {
 	return nil
 }
 
-// GetRegistryStats returns statistics about the registry
+// GetRegistryStats returns comprehensive statistics about the registry with enhanced monitoring
 func (r *CoreRegistry) GetRegistryStats() map[string]interface{} {
 	// Count entries by type
 	counts := make(map[RegistryEntryType]int)
@@ -375,10 +412,19 @@ func (r *CoreRegistry) GetRegistryStats() map[string]interface{} {
 		return true
 	})
 
-	// Get LRU size from cache manager
+	// Get enhanced metrics
 	lruSize := r.cacheManager.Size()
+	cleanupMetrics := r.metrics.GetHealthMetrics()
+	evictionCount := r.cacheManager.GetEvictionCount()
+
+	// Calculate memory pressure percentage
+	memoryPressurePercent := 0
+	if r.config.MaxEntries > 0 {
+		memoryPressurePercent = int((totalEntries * 100) / int64(r.config.MaxEntries))
+	}
 
 	stats := map[string]interface{}{
+		// Entry counts by type
 		"formats_count":                  counts[EntryTypeFormat],
 		"encoder_factories_count":        counts[EntryTypeEncoderFactory],
 		"decoder_factories_count":        counts[EntryTypeDecoderFactory],
@@ -387,15 +433,36 @@ func (r *CoreRegistry) GetRegistryStats() map[string]interface{} {
 		"legacy_decoder_factories_count": counts[EntryTypeLegacyDecoderFactory],
 		"legacy_codec_factories_count":   counts[EntryTypeLegacyCodecFactory],
 		"aliases_count":                  counts[EntryTypeAlias],
+		
+		// Total counts
 		"total_entries":                  int(totalEntries),
 		"atomic_entry_count":             int(r.metrics.GetEntryCount()),
 		"lru_size":                       lruSize,
-		"max_entries_per_map":            r.config.MaxEntries,
-		"ttl_seconds":                    r.config.TTL.Seconds(),
-		"cleanup_interval_seconds":       r.config.CleanupInterval.Seconds(),
+		"total_evictions":                evictionCount,
+		
+		// Configuration
+		"max_entries_per_map":                r.config.MaxEntries,
+		"ttl_seconds":                        r.config.TTL.Seconds(),
+		"cleanup_interval_seconds":           r.config.CleanupInterval.Seconds(),
+		"preventative_cleanup_interval_seconds": r.config.PreventativeCleanupInterval.Seconds(),
+		"memory_pressure_threshold":          r.config.MemoryPressureThreshold,
+		"batch_eviction_size":               r.config.BatchEvictionSize,
+		"max_memory_pressure_level":         r.config.MaxMemoryPressureLevel,
+		
+		// Features
 		"lru_enabled":                    r.config.EnableLRU,
 		"background_cleanup_enabled":     r.config.EnableBackgroundCleanup,
+		"memory_pressure_logging_enabled": r.config.EnableMemoryPressureLogging,
+		
+		// Status
 		"is_closed":                      atomic.LoadInt32(&r.closed) != 0,
+		"memory_pressure_percent":        memoryPressurePercent,
+		"is_under_memory_pressure":       r.cacheManager.CheckMemoryPressure(),
+	}
+
+	// Merge cleanup metrics
+	for key, value := range cleanupMetrics {
+		stats[key] = value
 	}
 
 	return stats
@@ -445,61 +512,95 @@ func (r *CoreRegistry) Close() error {
 
 // Memory pressure adaptation methods
 
-// AdaptToMemoryPressure adjusts cleanup behavior based on current memory usage
+// AdaptToMemoryPressure adjusts cleanup behavior with enhanced leak prevention
 func (r *CoreRegistry) AdaptToMemoryPressure(pressureLevel int) error {
 	if r.lifecycle.IsClosed() {
 		return fmt.Errorf("registry is closed")
 	}
 
 	currentCount := r.metrics.GetEntryCount()
+	cleanupStart := time.Now()
+	var totalCleaned int
+
+	log.Printf("Adapting to memory pressure level %d, current entries: %d", pressureLevel, currentCount)
 
 	switch pressureLevel {
-	case 1: // Low pressure - normal cleanup
+	case 1: // Low pressure - normal cleanup with preventative measures
+		preventativeCleaned := r.cacheManager.PerformPreventativeCleanup()
 		if r.config.TTL > 0 {
-			return nil // Let normal cleanup handle it
+			expiredCleaned, _ := r.CleanupExpired()
+			totalCleaned = expiredCleaned + preventativeCleaned
+		} else {
+			totalCleaned = preventativeCleaned
 		}
 
-	case 2: // Medium pressure - more aggressive TTL
+	case 2: // Medium pressure - more aggressive cleanup
 		if r.config.TTL > 0 {
-			r.CleanupByAccessTime(r.config.TTL / 2)
+			cleaned, _ := r.CleanupByAccessTime(r.config.TTL / 2)
+			totalCleaned += cleaned
 		} else {
 			// If no TTL configured, use 1 hour default
-			r.CleanupByAccessTime(1 * time.Hour)
+			cleaned, _ := r.CleanupByAccessTime(1 * time.Hour)
+			totalCleaned += cleaned
 		}
+		
+		// Also perform batch eviction
+		evicted := r.cacheManager.PerformBatchEviction(int(currentCount / 20)) // 5%
+		for _, key := range evicted {
+			r.entries.Delete(key)
+			r.metrics.DecrementEntryCount()
+		}
+		totalCleaned += len(evicted)
 
-	case 3: // High pressure - very aggressive cleanup
+	case 3: // High pressure - very aggressive cleanup with bounded limits
 		if r.config.TTL > 0 {
-			r.CleanupByAccessTime(r.config.TTL / 4)
+			cleaned, _ := r.CleanupByAccessTime(r.config.TTL / 4)
+			totalCleaned += cleaned
 		} else {
 			// Very aggressive - 30 minutes
-			r.CleanupByAccessTime(30 * time.Minute)
+			cleaned, _ := r.CleanupByAccessTime(30 * time.Minute)
+			totalCleaned += cleaned
 		}
 
-		// Also force LRU eviction if we have too many entries
-		if r.config.MaxEntries > 0 && int(currentCount) > r.config.MaxEntries {
-			// Under high memory pressure, be more aggressive with eviction
-			targetEntries := r.config.MaxEntries * 2 // Target double the max entries
-			excessEntries := int(currentCount) - targetEntries
-			if excessEntries > 0 {
-				maxEvictions := excessEntries
-				if maxEvictions > 500 { // Set a reasonable upper bound
-					maxEvictions = 500
-				}
-				for i := 0; i < maxEvictions; i++ {
-					if key, ok := r.cacheManager.EvictOldest(); ok {
-						// Actually remove the entry from the sync.Map
-						r.entries.Delete(key)
-						r.metrics.DecrementEntryCount()
-					} else {
-						break // No more entries to evict
-					}
-				}
+		// Aggressive batch eviction to prevent unbounded growth
+		maxEvictions := int(currentCount / 10) // Evict up to 10%
+		if maxEvictions < 50 {
+			maxEvictions = 50 // Minimum aggressive cleanup
+		}
+		if maxEvictions > 1000 { // Cap to prevent system overload
+			maxEvictions = 1000
+		}
+		
+		evicted := r.cacheManager.PerformBatchEviction(maxEvictions)
+		for _, key := range evicted {
+			r.entries.Delete(key)
+			r.metrics.DecrementEntryCount()
+		}
+		totalCleaned += len(evicted)
+		
+		// If we still have too many entries, do emergency cleanup
+		updatedCount := r.metrics.GetEntryCount()
+		if r.config.MaxEntries > 0 && int(updatedCount) > r.config.MaxEntries*2 {
+			// Emergency cleanup - remove oldest 25% of entries
+			emergencyEvictions := int(updatedCount / 4)
+			emergencyEvicted := r.cacheManager.PerformBatchEviction(emergencyEvictions)
+			for _, key := range emergencyEvicted {
+				r.entries.Delete(key)
+				r.metrics.DecrementEntryCount()
 			}
+			totalCleaned += len(emergencyEvicted)
+			log.Printf("Emergency cleanup performed: evicted %d entries", len(emergencyEvicted))
 		}
 
 	default:
 		return fmt.Errorf("pressure level must be between 1 and 3")
 	}
+
+	log.Printf("Memory pressure adaptation completed: cleaned %d entries in %v, remaining: %d",
+		totalCleaned, time.Since(cleanupStart), r.metrics.GetEntryCount())
+
+	// Record the memory pressure adaptation
+	r.metrics.RecordMemoryPressureAdaptation(pressureLevel, totalCleaned, time.Since(cleanupStart))
 
 	return nil
 }

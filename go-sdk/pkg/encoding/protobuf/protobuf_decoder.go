@@ -15,9 +15,9 @@ import (
 
 // Ensure ProtobufDecoder implements the focused interfaces
 var (
-	_ encoding.Decoder                      = (*ProtobufDecoder)(nil)
-	_ encoding.ContentTypeProvider          = (*ProtobufDecoder)(nil)
-	_ encoding.StreamingCapabilityProvider  = (*ProtobufDecoder)(nil)
+	_ encoding.Decoder                     = (*ProtobufDecoder)(nil)
+	_ encoding.ContentTypeProvider         = (*ProtobufDecoder)(nil)
+	_ encoding.StreamingCapabilityProvider = (*ProtobufDecoder)(nil)
 )
 
 // ProtobufDecoder implements the Decoder interface for Protocol Buffer decoding
@@ -65,7 +65,7 @@ func (d *ProtobufDecoder) Decode(ctx context.Context, data []byte) (events.Event
 	// Unmarshal protobuf using buffer pooling for intermediate operations
 	buf := encoding.GetBuffer(len(data))
 	defer encoding.PutBuffer(buf)
-	
+
 	var pbEvent generated.Event
 	if err := proto.Unmarshal(data, &pbEvent); err != nil {
 		return nil, &encoding.DecodingError{
@@ -134,37 +134,37 @@ func (d *ProtobufDecoder) DecodeMultiple(ctx context.Context, data []byte) ([]ev
 		// Use buffer pooling for processing length-prefixed data
 		processingBuf := encoding.GetBuffer(len(data))
 		defer encoding.PutBuffer(processingBuf)
-		
+
 		// Try to read as length-prefixed format
 		offset := 0
 		count := binary.BigEndian.Uint32(data[offset:])
 		offset += 4
-		
+
 		// Sanity check
 		if count > 0 && count < 100000 { // reasonable upper limit
 			result := make([]events.Event, 0, count)
-			
+
 			for i := uint32(0); i < count; i++ {
 				if offset+4 > len(data) {
 					break // Not enough data, fall back to single event
 				}
-				
+
 				length := binary.BigEndian.Uint32(data[offset:])
 				offset += 4
-				
+
 				if offset+int(length) > len(data) {
 					break // Not enough data, fall back to single event
 				}
-				
-				event, err := d.Decode(ctx, data[offset : offset+int(length)])
+
+				event, err := d.Decode(ctx, data[offset:offset+int(length)])
 				if err != nil {
 					break // Decoding failed, fall back to single event
 				}
-				
+
 				result = append(result, event)
 				offset += int(length)
 			}
-			
+
 			// If we successfully decoded all events, return them
 			if len(result) == int(count) {
 				return result, nil
@@ -341,7 +341,7 @@ func protobufToRaw(pb *generated.RawEvent) (*events.RawEvent, error) {
 	if pb.Event != nil {
 		data = structValueToInterface(pb.Event)
 	}
-	
+
 	return &events.RawEvent{
 		BaseEvent: protobufToBaseEvent(pb.BaseEvent),
 		Event:     data,
@@ -410,16 +410,16 @@ func protobufToBaseEvent(pb *generated.BaseEvent) *events.BaseEvent {
 	baseEvent := &events.BaseEvent{
 		EventType: protobufToEventType(pb.Type),
 	}
-	
+
 	if pb.Timestamp != nil {
 		baseEvent.TimestampMs = pb.Timestamp
 	}
-	
+
 	// RawEvent field mapping if needed
 	if pb.RawEvent != nil {
 		baseEvent.RawEvent = structValueToInterface(pb.RawEvent)
 	}
-	
+
 	return baseEvent
 }
 
@@ -490,7 +490,7 @@ func structValueToInterface(v *structpb.Value) interface{} {
 	if v == nil {
 		return nil
 	}
-	
+
 	switch val := v.Kind.(type) {
 	case *structpb.Value_NullValue:
 		return nil
@@ -526,24 +526,24 @@ func protobufToMessage(msg *generated.Message) events.Message {
 	if msg == nil {
 		return events.Message{}
 	}
-	
+
 	message := events.Message{
 		ID:   msg.Id,
 		Role: msg.Role,
 	}
-	
+
 	if msg.Content != nil {
 		message.Content = msg.Content
 	}
-	
+
 	if msg.Name != nil {
 		message.Name = msg.Name
 	}
-	
+
 	if msg.ToolCallId != nil {
 		message.ToolCallID = msg.ToolCallId
 	}
-	
+
 	if len(msg.ToolCalls) > 0 {
 		toolCalls := make([]events.ToolCall, 0, len(msg.ToolCalls))
 		for _, tc := range msg.ToolCalls {
@@ -561,7 +561,7 @@ func protobufToMessage(msg *generated.Message) events.Message {
 		}
 		message.ToolCalls = toolCalls
 	}
-	
+
 	return message
 }
 

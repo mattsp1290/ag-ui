@@ -17,7 +17,7 @@ func TestHeartbeatBasicOperations(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping heartbeat test in short mode")
 	}
-	
+
 	// Setup test WebSocket server
 	server := createTestWebSocketServer(t)
 	defer server.Close()
@@ -41,7 +41,7 @@ func TestHeartbeatBasicOperations(t *testing.T) {
 
 	// Start the heartbeat manually (as per design)
 	heartbeat.Start(ctx)
-	
+
 	// Test state after manual start
 	assert.Equal(t, HeartbeatRunning, heartbeat.GetState())
 	assert.True(t, heartbeat.IsHealthy()) // Should start healthy
@@ -115,7 +115,7 @@ func TestHeartbeatHealthMonitoring(t *testing.T) {
 
 	// Test initial health - should be healthy at start
 	assert.True(t, heartbeat.IsHealthy())
-	
+
 	// Set lastPongAt to a recent time using nanoseconds consistently
 	now := time.Now()
 	atomic.StoreInt64(&heartbeat.lastPongAt, now.UnixNano())
@@ -131,14 +131,14 @@ func TestHeartbeatHealthMonitoring(t *testing.T) {
 	// Check health after missed pong - give it a moment to detect
 	time.Sleep(50 * time.Millisecond)
 	heartbeat.checkHealth()
-	
+
 	// After missed pong beyond timeout, should be unhealthy
 	assert.False(t, heartbeat.IsHealthy())
 	assert.Equal(t, float64(0.0), heartbeat.GetConnectionHealth())
 
 	// Simulate received pong - this should restore health
 	heartbeat.OnPong()
-	
+
 	// Should be healthy again after receiving pong
 	assert.True(t, heartbeat.IsHealthy())
 	assert.Greater(t, heartbeat.GetConnectionHealth(), float64(0.0))
@@ -162,10 +162,10 @@ func TestHeartbeatPongHandling(t *testing.T) {
 	// Test initial stats to ensure we have a baseline
 	initialStats := heartbeat.GetStats()
 	assert.Equal(t, int64(0), initialStats.PongsReceived)
-	
+
 	// Get initial pong time as baseline
 	initialPongTime := heartbeat.GetLastPongTime()
-	
+
 	// Wait a small amount to ensure timestamp difference
 	time.Sleep(10 * time.Millisecond)
 
@@ -176,9 +176,9 @@ func TestHeartbeatPongHandling(t *testing.T) {
 	newPongTime := heartbeat.GetLastPongTime()
 
 	// Check that pong time was updated (should be different)
-	assert.True(t, newPongTime.After(initialPongTime) || newPongTime.Equal(initialPongTime.Add(time.Nanosecond)), 
+	assert.True(t, newPongTime.After(initialPongTime) || newPongTime.Equal(initialPongTime.Add(time.Nanosecond)),
 		"New pong time (%v) should be after or very close to initial (%v)", newPongTime, initialPongTime)
-	
+
 	// Should be healthy after receiving pong
 	assert.True(t, heartbeat.IsHealthy())
 	assert.Equal(t, int32(0), heartbeat.GetMissedPongCount())
@@ -327,8 +327,8 @@ func TestHeartbeatConcurrency(t *testing.T) {
 		concurrencyConfig := getConcurrencyConfig("TestHeartbeatConcurrency")
 		numGoroutines := concurrencyConfig.NumGoroutines
 		iterations := concurrencyConfig.OperationsPerRoutine
-		
-		t.Logf("TestHeartbeatConcurrency: Using %d goroutines × %d iterations = %d total operations (full_suite=%v)", 
+
+		t.Logf("TestHeartbeatConcurrency: Using %d goroutines × %d iterations = %d total operations (full_suite=%v)",
 			numGoroutines, iterations, numGoroutines*iterations, isFullTestSuite())
 
 		for i := 0; i < numGoroutines; i++ {
@@ -411,7 +411,7 @@ func TestHeartbeatMissedPongHandling(t *testing.T) {
 	heartbeat := conn.heartbeat
 
 	// Set last pong time to long ago
-	atomic.StoreInt64(&heartbeat.lastPongAt, time.Now().Add(-200 * time.Millisecond).Unix())
+	atomic.StoreInt64(&heartbeat.lastPongAt, time.Now().Add(-200*time.Millisecond).Unix())
 	// Start the heartbeat to set it to running state using atomic operations
 	atomic.StoreInt32(&heartbeat.state, int32(HeartbeatRunning))
 

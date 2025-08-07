@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 	"time"
-	
+
 	"go.uber.org/zap/zapcore"
 )
 
@@ -26,9 +26,9 @@ const (
 // This constraint ensures only safe, serializable types can be logged
 type LogValue interface {
 	~string | ~int | ~int8 | ~int16 | ~int32 |
-	~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
-	~float32 | ~float64 | ~bool |
-	time.Time | time.Duration
+		~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64 |
+		~float32 | ~float64 | ~bool |
+		time.Time | time.Duration
 }
 
 // SafeInt64Value is a separate constraint for int64 to avoid overlap with time.Duration
@@ -89,7 +89,7 @@ type Logger interface {
 	Error(msg string, fields ...Field)
 	WithFields(fields ...Field) Logger
 	WithContext(ctx context.Context) Logger
-	
+
 	// Type-safe logging methods
 	DebugTyped(msg string, fields ...FieldProvider)
 	InfoTyped(msg string, fields ...FieldProvider)
@@ -272,26 +272,26 @@ func isTestEnvironment() bool {
 	if os.Getenv("GO_TEST") != "" {
 		return true
 	}
-	
+
 	// Check if any test flags are present in command line args
 	for _, arg := range os.Args {
 		if strings.HasPrefix(arg, "-test.") {
 			return true
 		}
 	}
-	
+
 	// Check if the binary name indicates test execution
 	for _, arg := range os.Args {
 		if strings.Contains(arg, ".test") || strings.HasSuffix(arg, "_test") {
 			return true
 		}
 	}
-	
+
 	// Alternative: always use test-safe logger in go test runs
 	// This is a more aggressive approach but should be safer
-	return strings.Contains(os.Args[0], ".test") || 
-		   strings.Contains(os.Args[0], "_test") ||
-		   len(os.Args) > 1 && strings.HasPrefix(os.Args[1], "-test.")
+	return strings.Contains(os.Args[0], ".test") ||
+		strings.Contains(os.Args[0], "_test") ||
+		len(os.Args) > 1 && strings.HasPrefix(os.Args[1], "-test.")
 }
 
 // convertZapLevelToSlog converts a zapcore.Level to slog.Level
@@ -399,24 +399,24 @@ func (l *structuredLogger) log(level slog.Level, msg string, fields ...Field) {
 func (l *structuredLogger) logTyped(level slog.Level, msg string, fields ...FieldProvider) {
 	// Add goroutine ID
 	gid := getGoroutineID()
-	
+
 	// Combine persistent fields with call fields
 	allFields := make([]Field, 0, len(l.fields)+len(fields)+2)
 	allFields = append(allFields, l.fields...)
 	for _, field := range fields {
 		allFields = append(allFields, field.ToField())
 	}
-	allFields = append(allFields, 
+	allFields = append(allFields,
 		Int64("goroutine_id", gid),
 		Time("timestamp", time.Now()),
 	)
-	
+
 	// Convert to slog attributes
 	attrs := make([]slog.Attr, 0, len(allFields))
 	for _, f := range allFields {
 		attrs = append(attrs, slog.Any(f.Key, f.Value))
 	}
-	
+
 	l.logger.LogAttrs(context.Background(), level, msg, attrs...)
 }
 
@@ -457,12 +457,12 @@ type testSafeWriter struct {
 func (w *testSafeWriter) Write(p []byte) (n int, err error) {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
-	
+
 	if w.closed {
 		// Silently succeed to prevent write errors
 		return len(p), nil
 	}
-	
+
 	// Try to write, but catch any errors defensively
 	defer func() {
 		if r := recover(); r != nil {
@@ -476,17 +476,17 @@ func (w *testSafeWriter) Write(p []byte) (n int, err error) {
 			err = nil
 		}
 	}()
-	
+
 	n, err = w.writer.Write(p)
 	if err != nil {
 		// If we detect any write error to stdout/stderr, mark as closed and succeed
 		// This is more aggressive but prevents the write error messages
 		if strings.Contains(err.Error(), "file already closed") ||
-		   strings.Contains(err.Error(), "closed pipe") ||
-		   strings.Contains(err.Error(), "broken pipe") ||
-		   strings.Contains(err.Error(), "bad file descriptor") ||
-		   strings.Contains(err.Error(), "/dev/stdout") ||
-		   strings.Contains(err.Error(), "/dev/stderr") {
+			strings.Contains(err.Error(), "closed pipe") ||
+			strings.Contains(err.Error(), "broken pipe") ||
+			strings.Contains(err.Error(), "bad file descriptor") ||
+			strings.Contains(err.Error(), "/dev/stdout") ||
+			strings.Contains(err.Error(), "/dev/stderr") {
 			w.mu.RUnlock()
 			w.mu.Lock()
 			w.closed = true
@@ -555,19 +555,19 @@ func NewTestSafeLogger(handler slog.Handler) Logger {
 			Level: slog.LevelDebug,
 		})
 	}
-	
+
 	baseLogger := &structuredLogger{
 		logger: slog.New(handler),
 		fields: nil,
 	}
-	
+
 	testLogger := &TestSafeLogger{
 		underlying: baseLogger,
 	}
-	
+
 	// Register for shutdown
 	registerTestLogger(testLogger)
-	
+
 	return testLogger
 }
 
@@ -717,7 +717,7 @@ func registerTestLogger(logger *TestSafeLogger) {
 func ShutdownAllTestLoggers() {
 	testLoggerRegistry.mu.Lock()
 	defer testLoggerRegistry.mu.Unlock()
-	
+
 	for _, logger := range testLoggerRegistry.loggers {
 		logger.Shutdown()
 	}

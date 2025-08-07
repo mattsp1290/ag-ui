@@ -94,7 +94,7 @@ func TestWorkerManager_PanicRecovery(t *testing.T) {
 	// Create logger with observer to capture logs
 	core, recorded := observer.New(zapcore.InfoLevel)
 	logger := zap.New(core)
-	
+
 	config := &WorkerConfig{
 		MaxWorkers:      10,
 		ShutdownTimeout: 5 * time.Second,
@@ -119,7 +119,7 @@ func TestWorkerManager_PanicRecovery(t *testing.T) {
 		metrics := wm.GetMetrics()
 		return metrics.PanicsRecovered == 1
 	}, "Expected 1 panic recovered, got %d", wm.GetMetrics().PanicsRecovered)
-	
+
 	metrics := wm.GetMetrics()
 	if metrics.WorkersFailed != 1 {
 		t.Errorf("Expected 1 worker failed, got %d", metrics.WorkersFailed)
@@ -167,7 +167,7 @@ func TestWorkerManager_WorkerRetries(t *testing.T) {
 	eventuallyWithTimeout(t, 2*time.Second, 100*time.Millisecond, func() bool {
 		return atomic.LoadInt32(&attempts) == 3
 	}, "Expected 3 attempts, got %d", atomic.LoadInt32(&attempts))
-	
+
 	eventuallyWithTimeout(t, 2*time.Second, 100*time.Millisecond, func() bool {
 		metrics := wm.GetMetrics()
 		return metrics.WorkersCompleted == 1
@@ -375,12 +375,12 @@ func TestWorkerManager_ConcurrentOperations(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			
+
 			_, err := wm.StartWorker(fmt.Sprintf("concurrent-worker-%d", i), func(ctx context.Context) error {
 				time.Sleep(time.Millisecond)
 				return nil
 			}, nil)
-			
+
 			if err != nil {
 				mu.Lock()
 				errors = append(errors, err)
@@ -408,7 +408,7 @@ func TestWorkerManager_MemoryLeaks(t *testing.T) {
 
 	for i := 0; i < 10; i++ {
 		wm := NewWorkerManager(nil)
-		
+
 		// Start some workers
 		for j := 0; j < 5; j++ {
 			_, err := wm.StartWorker(fmt.Sprintf("worker-%d", j), func(ctx context.Context) error {
@@ -431,7 +431,7 @@ func TestWorkerManager_MemoryLeaks(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	finalGoroutines := runtime.NumGoroutine()
-	
+
 	// Allow some variance in goroutine count
 	if finalGoroutines > initialGoroutines+5 {
 		t.Errorf("Potential goroutine leak detected: initial=%d, final=%d", initialGoroutines, finalGoroutines)
@@ -459,7 +459,7 @@ func TestWorkerManager_CustomPanicHandler(t *testing.T) {
 	var panicHandled int32
 	var panicValue interface{}
 	var panicMu sync.RWMutex
-	
+
 	customHandler := &testPanicHandler{
 		handleFunc: func(workerID string, panic interface{}, stackTrace []byte) {
 			panicMu.Lock()
@@ -497,7 +497,7 @@ func TestWorkerManager_CustomPanicHandler(t *testing.T) {
 	panicMu.RLock()
 	actualPanicValue := panicValue
 	panicMu.RUnlock()
-	
+
 	if actualPanicValue != expectedPanic {
 		t.Errorf("Expected panic value %v, got %v", expectedPanic, actualPanicValue)
 	}

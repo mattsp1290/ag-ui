@@ -30,7 +30,7 @@ func NewOperationErrorFromBase(operation, component string, cause error) *BaseEr
 		Severity:  SeverityError,
 		Timestamp: time.Now(),
 		Cause:     cause,
-		Details:   map[string]interface{}{
+		Details: map[string]interface{}{
 			"operation": operation,
 			"component": component,
 		},
@@ -258,7 +258,7 @@ func (h *ErrorHelpers) ExtractRootCause(err error) error {
 	if err == nil {
 		return nil
 	}
-	
+
 	for {
 		if unwrapper, ok := err.(interface{ Unwrap() error }); ok {
 			if unwrapped := unwrapper.Unwrap(); unwrapped != nil {
@@ -268,7 +268,7 @@ func (h *ErrorHelpers) ExtractRootCause(err error) error {
 		}
 		break
 	}
-	
+
 	return err
 }
 

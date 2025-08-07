@@ -36,7 +36,6 @@ func testTransportConfig() *TransportConfig {
 	return config
 }
 
-
 // TestWebSocketServer provides a configurable WebSocket test server
 type TestWebSocketServer struct {
 	server         *httptest.Server
@@ -56,7 +55,7 @@ func NewTestWebSocketServer(t testing.TB) *TestWebSocketServer {
 	server := &TestWebSocketServer{
 		connections: make(map[string]*websocket.Conn),
 		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true },
+			CheckOrigin:     func(r *http.Request) bool { return true },
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 		},
@@ -79,7 +78,7 @@ func NewTestTLSWebSocketServer(t testing.TB) *TestWebSocketServer {
 	server := &TestWebSocketServer{
 		connections: make(map[string]*websocket.Conn),
 		upgrader: websocket.Upgrader{
-			CheckOrigin: func(r *http.Request) bool { return true },
+			CheckOrigin:     func(r *http.Request) bool { return true },
 			ReadBufferSize:  1024,
 			WriteBufferSize: 1024,
 		},
@@ -173,17 +172,17 @@ func (s *TestWebSocketServer) Close() {
 	if s.server == nil {
 		return
 	}
-	
+
 	// First close all active connections aggressively
 	s.CloseAllConnections()
-	
+
 	// Give connections a moment to close gracefully
 	time.Sleep(50 * time.Millisecond)
-	
+
 	// Close the HTTP server
 	s.server.Close()
 	s.server = nil
-	
+
 	// Clear the connections map
 	s.connMutex.Lock()
 	s.connections = make(map[string]*websocket.Conn)
@@ -218,15 +217,15 @@ func (s *TestWebSocketServer) CloseAllConnections() {
 			now := time.Now()
 			conn.SetReadDeadline(now)
 			conn.SetWriteDeadline(now)
-			
+
 			// Try to send close message quickly
 			conn.WriteControl(websocket.CloseMessage,
 				websocket.FormatCloseMessage(websocket.CloseGoingAway, "server shutdown"),
 				now.Add(10*time.Millisecond))
-			
+
 			// Force close the connection
 			conn.Close()
-			
+
 			// Remove from map immediately
 			delete(s.connections, id)
 		}
@@ -235,14 +234,14 @@ func (s *TestWebSocketServer) CloseAllConnections() {
 
 func TestBasicWebSocketIntegration(t *testing.T) {
 	runner := NewIsolatedTestRunner(t)
-	
+
 	runner.RunIsolated("BasicConnection", 10*time.Second, func(cleanup *TestCleanupHelper) {
 		server := CreateIsolatedServer(t, cleanup)
 
 		// Reduced timeout for faster tests
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		
+
 		config := FastTransportConfig()
 		config.URLs = []string{server.URL()}
 		config.Logger = zaptest.NewLogger(t)
@@ -268,7 +267,7 @@ func TestBasicWebSocketIntegration(t *testing.T) {
 		// Reduced timeout for faster tests
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
-		
+
 		config := FastTransportConfig()
 		config.URLs = []string{server.URL()}
 		config.Logger = zaptest.NewLogger(t)
@@ -308,17 +307,17 @@ func TestMultiServerIntegration(t *testing.T) {
 	}
 
 	runner := NewIsolatedTestRunner(t)
-	
+
 	runner.RunIsolated("SingleServerTest", 10*time.Second, func(cleanup *TestCleanupHelper) {
-		server1 := CreateIsolatedServer(t, cleanup) 
+		server1 := CreateIsolatedServer(t, cleanup)
 		// SIMPLIFIED: Removed server2 to reduce resource usage
 
 		config := FastTransportConfig()
-		config.URLs = []string{server1.URL()}  // Single server only
+		config.URLs = []string{server1.URL()} // Single server only
 		config.Logger = zaptest.NewLogger(t)
 		config.EnableEventValidation = false
-		config.PoolConfig.MinConnections = 1  // Reduced from 2
-		config.PoolConfig.MaxConnections = 2  // Reduced from 4
+		config.PoolConfig.MinConnections = 1 // Reduced from 2
+		config.PoolConfig.MaxConnections = 2 // Reduced from 4
 
 		transport := CreateIsolatedTransport(t, cleanup, config)
 
@@ -347,7 +346,7 @@ func TestMultiServerIntegration(t *testing.T) {
 		}, 2*time.Second, 50*time.Millisecond)
 
 		// Send multiple messages
-		for i := 0; i < 5; i++ {  // Reduced from 10 to 5 messages
+		for i := 0; i < 5; i++ { // Reduced from 10 to 5 messages
 			event := &MockEvent{
 				EventType: events.EventTypeTextMessageContent,
 				Data:      fmt.Sprintf("single server test message %d", i),
@@ -358,7 +357,7 @@ func TestMultiServerIntegration(t *testing.T) {
 		}
 
 		stats := transport.Stats()
-		assert.Equal(t, int64(5), stats.EventsSent)  // Updated from 10 to 5
+		assert.Equal(t, int64(5), stats.EventsSent) // Updated from 10 to 5
 	})
 }
 
@@ -401,7 +400,7 @@ func TestTLSIntegration(t *testing.T) {
 			go func() {
 				done <- transport.Stop()
 			}()
-			
+
 			select {
 			case <-done:
 			case <-time.After(2 * time.Second):
@@ -426,7 +425,7 @@ func TestTLSIntegration(t *testing.T) {
 			go func() {
 				done <- transport.Stop()
 			}()
-			
+
 			select {
 			case <-done:
 			case <-time.After(2 * time.Second):
@@ -466,7 +465,7 @@ func TestReconnectionIntegration(t *testing.T) {
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)  // Reduced from 30s
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // Reduced from 30s
 	defer cancel()
 
 	err = transport.Start(ctx)
@@ -477,7 +476,7 @@ func TestReconnectionIntegration(t *testing.T) {
 		go func() {
 			done <- transport.Stop()
 		}()
-		
+
 		select {
 		case <-done:
 		case <-time.After(3 * time.Second): // Longer timeout for reconnection tests
@@ -514,16 +513,16 @@ func TestReconnectionIntegration(t *testing.T) {
 		for i := 0; i < 15; i++ { // Check for 3 seconds with 200ms intervals
 			time.Sleep(getOptimizedSleep(200 * time.Millisecond))
 			currentStats := transport.GetConnectionPoolStats()
-			
+
 			// Either we get reconnected or we see evidence of reconnection attempts
-			if transport.IsConnected() || 
-			   currentStats.TotalConnections > initialStats.TotalConnections ||
-			   currentStats.FailedRequests > initialStats.FailedRequests {
+			if transport.IsConnected() ||
+				currentStats.TotalConnections > initialStats.TotalConnections ||
+				currentStats.FailedRequests > initialStats.FailedRequests {
 				reconnected = true
 				break
 			}
 		}
-		
+
 		// If not reconnected yet, let's be lenient and just check that the transport
 		// is trying to manage connections (which indicates it's working properly)
 		if !reconnected {
@@ -613,7 +612,7 @@ func TestSubscriptionIntegration(t *testing.T) {
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)  // Reduced from 30s
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // Reduced from 30s
 	defer cancel()
 
 	err = transport.Start(ctx)
@@ -624,7 +623,7 @@ func TestSubscriptionIntegration(t *testing.T) {
 		go func() {
 			done <- transport.Stop()
 		}()
-		
+
 		select {
 		case <-done:
 		case <-time.After(2 * time.Second):
@@ -699,7 +698,7 @@ func TestCompressionIntegration(t *testing.T) {
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)  // Reduced from 30s
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // Reduced from 30s
 	defer cancel()
 
 	err = transport.Start(ctx)
@@ -710,7 +709,7 @@ func TestCompressionIntegration(t *testing.T) {
 		go func() {
 			done <- transport.Stop()
 		}()
-		
+
 		select {
 		case <-done:
 		case <-time.After(2 * time.Second):
@@ -785,7 +784,7 @@ func TestErrorHandlingIntegration(t *testing.T) {
 		transport, err := NewTransport(config)
 		require.NoError(t, err)
 
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)  // Reduced from 30s
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // Reduced from 30s
 		defer cancel()
 
 		err = transport.Start(ctx)
@@ -796,7 +795,7 @@ func TestErrorHandlingIntegration(t *testing.T) {
 			go func() {
 				done <- transport.Stop()
 			}()
-			
+
 			select {
 			case <-done:
 			case <-time.After(2 * time.Second):
@@ -832,7 +831,7 @@ func TestRealWorldScenarios(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping resource-intensive real-world scenarios test in short mode")
 	}
-	
+
 	server := NewTestWebSocketServer(t)
 	defer server.Close()
 
@@ -859,7 +858,7 @@ func TestRealWorldScenarios(t *testing.T) {
 		go func() {
 			done <- transport.Stop()
 		}()
-		
+
 		select {
 		case <-done:
 		case <-time.After(3 * time.Second): // Longer timeout for complex scenarios
@@ -969,11 +968,11 @@ func TestConnectionPoolIntegration(t *testing.T) {
 	// SIMPLIFIED: Using only 1 server instead of 3 to reduce resource usage
 
 	config := testTransportConfig()
-	config.URLs = []string{server1.URL()}  // Single server only
+	config.URLs = []string{server1.URL()} // Single server only
 	config.Logger = zaptest.NewLogger(t)
 	config.EnableEventValidation = false
-	config.PoolConfig.MinConnections = 1  // Reduced from 3
-	config.PoolConfig.MaxConnections = 2  // Reduced from 6
+	config.PoolConfig.MinConnections = 1 // Reduced from 3
+	config.PoolConfig.MaxConnections = 2 // Reduced from 6
 	config.PoolConfig.LoadBalancingStrategy = RoundRobin
 	// Disable rate limiting for tests
 	config.PoolConfig.ConnectionTemplate.RateLimiter = nil
@@ -981,7 +980,7 @@ func TestConnectionPoolIntegration(t *testing.T) {
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)  // Reduced from 30s
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second) // Reduced from 30s
 	defer cancel()
 
 	err = transport.Start(ctx)
@@ -992,7 +991,7 @@ func TestConnectionPoolIntegration(t *testing.T) {
 		go func() {
 			done <- transport.Stop()
 		}()
-		
+
 		select {
 		case <-done:
 		case <-time.After(3 * time.Second): // Longer timeout for pool cleanup
@@ -1018,7 +1017,7 @@ func TestConnectionPoolIntegration(t *testing.T) {
 
 		totalConnections, ok := connectionPool["total_connections"].(int)
 		require.True(t, ok)
-		assert.GreaterOrEqual(t, totalConnections, 1)  // Reduced from 3 to 1
+		assert.GreaterOrEqual(t, totalConnections, 1) // Reduced from 3 to 1
 	})
 
 	t.Run("MessageSending", func(t *testing.T) {
@@ -1027,8 +1026,8 @@ func TestConnectionPoolIntegration(t *testing.T) {
 			return transport.GetActiveConnectionCount() >= 1
 		}, 3*time.Second, 100*time.Millisecond)
 
-		// Send messages  
-		const numMessages = 10  // Reduced from 30 to 10
+		// Send messages
+		const numMessages = 10 // Reduced from 30 to 10
 		for i := 0; i < numMessages; i++ {
 			event := &MockEvent{
 				EventType: events.EventTypeTextMessageContent,
@@ -1074,7 +1073,7 @@ func BenchmarkIntegrationMessageThroughput(b *testing.B) {
 		go func() {
 			done <- transport.Stop()
 		}()
-		
+
 		select {
 		case <-done:
 		case <-time.After(2 * time.Second):
@@ -1121,7 +1120,7 @@ func BenchmarkIntegrationSubscriptionThroughput(b *testing.B) {
 		go func() {
 			done <- transport.Stop()
 		}()
-		
+
 		select {
 		case <-done:
 		case <-time.After(2 * time.Second):

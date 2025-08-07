@@ -16,10 +16,10 @@ func TestMonitoringSystemBasic(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping TestMonitoringSystemBasic in short mode to prevent background goroutines")
 	}
-	
+
 	// Set up test cleanup
 	cleanup := NewTestCleanup(t)
-	
+
 	config := NewTestSafeMonitoringConfig()
 	config.LogLevel = zapcore.DebugLevel
 	config.MetricsInterval = 1 * time.Second
@@ -86,10 +86,10 @@ func TestAlertNotifiers(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping TestAlertNotifiers in short mode to prevent write errors")
 	}
-	
+
 	// Set up test cleanup
 	cleanup := NewTestCleanup(t)
-	
+
 	// Test log notifier
 	// Create a test-safe logger that writes to a buffer instead of stdout
 	var logBuffer bytes.Buffer
@@ -111,7 +111,7 @@ func TestAlertNotifiers(t *testing.T) {
 		zapcore.DebugLevel,
 	)
 	zapLogger := zap.New(core)
-	
+
 	// Register logger for proper cleanup
 	cleanup.AddLogger(zapLogger)
 	logNotifier := NewLogAlertNotifier(zapLogger)
@@ -222,7 +222,7 @@ func TestConfigurationValidation(t *testing.T) {
 func TestMetricsRecording(t *testing.T) {
 	// Set up test cleanup
 	cleanup := NewTestCleanup(t)
-	
+
 	config := NewTestSafeMonitoringConfig()
 	config.MetricsInterval = 10 * time.Second
 	config.ResourceSampleInterval = 10 * time.Millisecond // Fast for testing
@@ -316,10 +316,10 @@ func TestMonitoringSystemGracefulShutdown(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping TestMonitoringSystemGracefulShutdown in short mode to prevent background goroutines")
 	}
-	
+
 	// Set up test cleanup
 	cleanup := NewTestCleanup(t)
-	
+
 	config := NewTestSafeMonitoringConfig()
 	config.ResourceSampleInterval = 30 * time.Second
 	config.HealthCheckInterval = 10 * time.Second
@@ -377,7 +377,7 @@ func TestMonitoringSystemResourceLeak(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping TestMonitoringSystemResourceLeak in short mode to prevent background goroutines")
 	}
-	
+
 	// Record initial goroutine count
 	initialGoroutines := runtime.NumGoroutine()
 

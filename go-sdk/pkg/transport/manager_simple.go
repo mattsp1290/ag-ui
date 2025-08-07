@@ -5,7 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	
+
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
@@ -56,12 +56,12 @@ func NewSimpleManagerWithBackpressure(backpressureConfig BackpressureConfig) *Si
 		backpressureConfig: backpressureConfig,
 		receiveWg:          &sync.WaitGroup{},
 	}
-	
+
 	// Initialize backpressure handler
 	manager.backpressureHandler = NewBackpressureHandler(backpressureConfig)
 	manager.eventChan = make(chan events.Event, backpressureConfig.BufferSize)
 	manager.errorChan = make(chan error, backpressureConfig.BufferSize)
-	
+
 	return manager
 }
 
@@ -70,19 +70,19 @@ func (m *SimpleManager) SetTransport(transport Transport) {
 	// Simple direct lock acquisition without goroutines to avoid deadlocks
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	// Keep reference to old transport for graceful shutdown
 	oldTransport := m.activeTransport
 	oldStopChan := m.transportStopChan
-	
+
 	// Set new transport immediately to minimize gap
 	m.activeTransport = transport
-	
+
 	// Create new stop channel if needed
 	if oldStopChan != nil {
 		m.transportStopChan = make(chan struct{})
 	}
-	
+
 	// Pre-connect the new transport if manager is running
 	var preConnected bool
 	if transport != nil && atomic.LoadInt32(&m.running) == 1 {
@@ -91,14 +91,14 @@ func (m *SimpleManager) SetTransport(transport Transport) {
 		cancel()
 		preConnected = connectErr == nil
 	}
-	
+
 	// If the manager is running and we have a transport, start receiving
 	if atomic.LoadInt32(&m.running) == 1 && transport != nil && preConnected {
 		if added, gen, wg := m.safeAddReceiver(); added {
 			go m.receiveEvents(gen, wg)
 		}
 	}
-	
+
 	// Signal that transport is ready (non-blocking send)
 	if transport != nil && transport.IsConnected() {
 		select {
@@ -107,7 +107,7 @@ func (m *SimpleManager) SetTransport(transport Transport) {
 			// Channel already has a value, which is fine
 		}
 	}
-	
+
 	// Clean up old transport after new one is running (outside critical section)
 	go func() {
 		if oldStopChan != nil {
@@ -136,23 +136,23 @@ func (m *SimpleManager) Start(ctx context.Context) error {
 	if !atomic.CompareAndSwapInt32(&m.running, 0, 1) {
 		return ErrAlreadyConnected
 	}
-	
+
 	// Create fresh WaitGroup for new generation
 	m.receiveWgMu.Lock()
 	m.receiveWg = &sync.WaitGroup{}
 	m.generation++ // New generation
 	m.receiveWgMu.Unlock()
-	
+
 	// Simple direct lock acquisition without goroutines to avoid deadlocks
 	// Check context first
 	if err := ctx.Err(); err != nil {
 		atomic.StoreInt32(&m.running, 0)
 		return err
 	}
-	
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.activeTransport != nil {
 		// Use the provided context for connection, but with a reasonable timeout
 		connectCtx := ctx
@@ -161,18 +161,18 @@ func (m *SimpleManager) Start(ctx context.Context) error {
 			connectCtx, cancel = context.WithTimeout(ctx, 5*time.Second)
 			defer cancel()
 		}
-		
+
 		if err := m.activeTransport.Connect(connectCtx); err != nil {
 			// Reset the flag on error to maintain consistency
 			atomic.StoreInt32(&m.running, 0)
 			return err
 		}
-		
+
 		// Start receiving events
 		if added, gen, wg := m.safeAddReceiver(); added {
 			go m.receiveEvents(gen, wg)
 		}
-		
+
 		// Signal that transport is ready (non-blocking send)
 		select {
 		case m.transportReady <- struct{}{}:
@@ -180,7 +180,7 @@ func (m *SimpleManager) Start(ctx context.Context) error {
 			// Channel already has a value, which is fine
 		}
 	}
-	
+
 	return nil
 }
 
@@ -190,10 +190,10 @@ func (m *SimpleManager) Stop(ctx context.Context) error {
 	if !atomic.CompareAndSwapInt32(&m.running, 1, 0) {
 		return nil
 	}
-	
+
 	// Simple direct lock acquisition without goroutines to avoid deadlocks
 	m.mu.Lock()
-	
+
 	// Close the stop channel to signal all goroutines to stop
 	select {
 	case <-m.stopChan:
@@ -201,7 +201,7 @@ func (m *SimpleManager) Stop(ctx context.Context) error {
 	default:
 		close(m.stopChan)
 	}
-	
+
 	// Close transport stop channel if set
 	if m.transportStopChan != nil {
 		select {
@@ -211,44 +211,44 @@ func (m *SimpleManager) Stop(ctx context.Context) error {
 			close(m.transportStopChan)
 		}
 	}
-	
+
 	// Unlock before waiting for goroutines
 	m.mu.Unlock()
-	
+
 	// Wait for all receiveEvents goroutines to finish using safe method
 	m.safeWaitReceiver(ctx)
-	
+
 	// Re-acquire lock for final cleanup
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	// Final cleanup
 	activeTransport := m.activeTransport
 	backpressureHandler := m.backpressureHandler
-	
+
 	if activeTransport != nil {
 		// Use a short timeout for transport close to prevent hanging
 		closeCtx, closeCancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer closeCancel()
-		
+
 		if err := activeTransport.Close(closeCtx); err != nil {
 			// Even on error, we keep running=false to ensure shutdown
 			return err
 		}
 	}
-	
+
 	// Stop backpressure handler
 	if backpressureHandler != nil {
 		backpressureHandler.Stop()
 	}
-	
+
 	// Reset the transport ready channel
 	// Drain any pending signals
 	select {
 	case <-m.transportReady:
 	default:
 	}
-	
+
 	// Drain channels before closing to prevent data loss
 	// Use a reasonable timeout for draining operations
 	drainTimeout := 5 * time.Second
@@ -257,17 +257,17 @@ func (m *SimpleManager) Stop(ctx context.Context) error {
 			drainTimeout = timeLeft
 		}
 	}
-	
+
 	drainCtx, drainCancel := context.WithTimeout(context.Background(), drainTimeout)
 	defer drainCancel()
-	
+
 	// Drain channels using non-blocking approach to prevent deadlock
 	drained := m.drainChannelsNonBlocking(drainCtx)
 	if !drained {
 		// Timeout during draining, but we proceed gracefully
 		// This is not considered a fatal error
 	}
-	
+
 	// Close channels after draining
 	if m.backpressureHandler != nil {
 		// Backpressure handler manages its own channels
@@ -277,7 +277,7 @@ func (m *SimpleManager) Stop(ctx context.Context) error {
 		close(m.eventChan)
 		close(m.errorChan)
 	}
-	
+
 	// Return nil even if we timed out, as per test expectations
 	// The timeout is handled gracefully without returning an error
 	return nil
@@ -287,12 +287,12 @@ func (m *SimpleManager) Stop(ctx context.Context) error {
 func (m *SimpleManager) drainChannelsNonBlocking(ctx context.Context) bool {
 	eventCount := 0
 	errorCount := 0
-	
+
 	// Use a ticker to periodically check for context cancellation
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
-	
-	drainLoop:
+
+drainLoop:
 	for {
 		select {
 		case <-ctx.Done():
@@ -313,7 +313,7 @@ func (m *SimpleManager) drainChannelsNonBlocking(ctx context.Context) bool {
 			break drainLoop
 		}
 	}
-	
+
 	// Return true if we completed draining without timeout
 	return ctx.Err() == nil
 }
@@ -333,21 +333,21 @@ func (m *SimpleManager) safeAddReceiver() (bool, int64, *sync.WaitGroup) {
 func (m *SimpleManager) safeWaitReceiver(ctx context.Context) {
 	m.receiveWgMu.Lock()
 	currentWg := m.receiveWg
-	m.generation++ // Increment generation to invalidate old goroutines
+	m.generation++    // Increment generation to invalidate old goroutines
 	m.receiveWg = nil // Clear to prevent new additions
 	m.receiveWgMu.Unlock()
-	
+
 	if currentWg == nil {
 		return
 	}
-	
+
 	// Wait for current WaitGroup to finish
 	done := make(chan struct{})
 	go func() {
 		currentWg.Wait()
 		close(done)
 	}()
-	
+
 	// Use context timeout if available, otherwise use a reasonable default
 	waitTimeout := 5 * time.Second
 	if deadline, hasDeadline := ctx.Deadline(); hasDeadline {
@@ -355,7 +355,7 @@ func (m *SimpleManager) safeWaitReceiver(ctx context.Context) {
 			waitTimeout = timeLeft
 		}
 	}
-	
+
 	select {
 	case <-done:
 		// All goroutines finished
@@ -372,17 +372,17 @@ func (m *SimpleManager) waitForReceiveGoroutines(timeout time.Duration) bool {
 	m.receiveWgMu.Lock()
 	currentWg := m.receiveWg
 	m.receiveWgMu.Unlock()
-	
+
 	if currentWg == nil {
 		return true
 	}
-	
+
 	done := make(chan struct{})
 	go func() {
 		currentWg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		return true
@@ -399,11 +399,11 @@ func (m *SimpleManager) Send(ctx context.Context, event TransportEvent) error {
 	validationEnabled := m.validationConfig != nil && m.validationConfig.Enabled
 	validator := m.validator
 	m.mu.RUnlock()
-	
+
 	if transport == nil || !transport.IsConnected() {
 		return ErrNotConnected
 	}
-	
+
 	// Validate outgoing event if validation is enabled
 	// Check both enabled flag and validator instance for safety
 	if validationEnabled && validator != nil {
@@ -411,7 +411,7 @@ func (m *SimpleManager) Send(ctx context.Context, event TransportEvent) error {
 			return err
 		}
 	}
-	
+
 	return transport.Send(ctx, event)
 }
 
@@ -450,22 +450,22 @@ func (m *SimpleManager) GetBackpressureMetrics() BackpressureMetrics {
 // SetValidationConfig sets the validation configuration
 func (m *SimpleManager) SetValidationConfig(config *ValidationConfig) {
 	var validator Validator
-	
+
 	if config != nil {
 		// Create validator outside the lock to minimize critical section
 		validator = NewValidator(config)
 	}
-	
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if config == nil {
 		// Update all fields atomically to nil state
 		m.validationConfig = nil
 		m.validator = nil
 		return
 	}
-	
+
 	// Update fields atomically to ensure consistency
 	// Set config first, then validator, so readers see consistent state
 	m.validationConfig = config
@@ -479,7 +479,7 @@ func (m *SimpleManager) GetValidationConfig() *ValidationConfig {
 	if m.validationConfig == nil {
 		return nil
 	}
-	
+
 	// Return a copy to prevent external modification
 	configCopy := *m.validationConfig
 	return &configCopy
@@ -489,7 +489,7 @@ func (m *SimpleManager) GetValidationConfig() *ValidationConfig {
 func (m *SimpleManager) SetValidationEnabled(enabled bool) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	// Update the config's enabled flag if config exists
 	if m.validationConfig != nil {
 		// Create a copy of the config to avoid modifying the original
@@ -514,7 +514,7 @@ func (m *SimpleManager) GetValidationState() (*ValidationConfig, bool) {
 	if m.validationConfig == nil {
 		return nil, enabled
 	}
-	
+
 	// Return a copy to prevent external modification
 	configCopy := *m.validationConfig
 	return &configCopy, enabled
@@ -527,7 +527,7 @@ func (m *SimpleManager) receiveEvents(generation int64, wg *sync.WaitGroup) {
 			wg.Done()
 		}
 	}()
-	
+
 	// Check if we're still valid generation - if not, exit early
 	m.receiveWgMu.Lock()
 	currentGen := m.generation
@@ -535,12 +535,12 @@ func (m *SimpleManager) receiveEvents(generation int64, wg *sync.WaitGroup) {
 	if generation != currentGen {
 		return
 	}
-	
+
 	// Get a copy of the transport stop channel to avoid races
 	m.mu.RLock()
 	transportStopChan := m.transportStopChan
 	m.mu.RUnlock()
-	
+
 	for {
 		// Periodically check if we're still the current generation
 		m.receiveWgMu.Lock()
@@ -549,7 +549,7 @@ func (m *SimpleManager) receiveEvents(generation int64, wg *sync.WaitGroup) {
 		if generation != currentGen {
 			return
 		}
-		
+
 		select {
 		case <-m.stopChan:
 			return
@@ -560,7 +560,7 @@ func (m *SimpleManager) receiveEvents(generation int64, wg *sync.WaitGroup) {
 			m.mu.RLock()
 			transport := m.activeTransport
 			m.mu.RUnlock()
-			
+
 			if transport != nil {
 				eventCh, errorCh := transport.Channels()
 				select {
@@ -570,7 +570,7 @@ func (m *SimpleManager) receiveEvents(generation int64, wg *sync.WaitGroup) {
 					validationEnabled := m.validationConfig != nil && m.validationConfig.Enabled
 					validator := m.validator
 					m.mu.RUnlock()
-					
+
 					// Validate incoming event if validation is enabled
 					if validationEnabled && validator != nil {
 						// First, use the event's built-in validation
@@ -589,7 +589,7 @@ func (m *SimpleManager) receiveEvents(generation int64, wg *sync.WaitGroup) {
 							}
 						}
 					}
-					
+
 					// Use backpressure handler to send event
 					if m.backpressureHandler != nil {
 						// Ignore error from SendEvent as backpressure handler

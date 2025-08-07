@@ -15,15 +15,15 @@ type LifecycleManager interface {
 	// Initialize prepares the agent with the given configuration.
 	// The agent must be in an uninitialized state for this to succeed.
 	Initialize(ctx context.Context, config *AgentConfig) error
-	
+
 	// Start begins the agent's operation.
 	// The agent must be initialized or stopped for this to succeed.
 	Start(ctx context.Context) error
-	
+
 	// Stop gracefully shuts down the agent.
 	// The agent must be running for this to succeed.
 	Stop(ctx context.Context) error
-	
+
 	// Cleanup releases all resources held by the agent.
 	// This can be called from any state and should be idempotent.
 	Cleanup() error
@@ -36,7 +36,7 @@ type AgentEventProcessor interface {
 	// ProcessEvent handles a single incoming event and returns response events.
 	// The agent must be running for this to succeed.
 	ProcessEvent(ctx context.Context, event events.Event) ([]events.Event, error)
-	
+
 	// StreamEvents returns a channel for receiving events from the agent.
 	// The agent must be running and support streaming for this to succeed.
 	StreamEvents(ctx context.Context) (<-chan events.Event, error)
@@ -49,7 +49,7 @@ type StateManager interface {
 	// GetState returns the current state of the agent.
 	// This can be called from any state where the agent is initialized.
 	GetState(ctx context.Context) (*AgentState, error)
-	
+
 	// UpdateState applies a state change delta to the agent's state.
 	// This uses optimistic concurrency control with version numbers.
 	UpdateState(ctx context.Context, delta *StateDelta) error
@@ -62,7 +62,7 @@ type ToolRunner interface {
 	// ExecuteTool executes a tool with the given name and parameters.
 	// The agent must be running for this to succeed.
 	ExecuteTool(ctx context.Context, name string, params interface{}) (interface{}, error)
-	
+
 	// ListTools returns a list of tools available to this agent.
 	// This can be called from any state where the agent is initialized.
 	ListTools() []ToolDefinition
@@ -73,13 +73,13 @@ type ToolRunner interface {
 type AgentMetadata interface {
 	// Name returns the unique identifier for this agent instance.
 	Name() string
-	
+
 	// Description returns a human-readable description of the agent's purpose.
 	Description() string
-	
+
 	// Capabilities returns information about what this agent can do.
 	Capabilities() AgentCapabilities
-	
+
 	// Health returns the current health status of the agent.
 	Health() AgentHealthStatus
 }
@@ -138,10 +138,10 @@ type EventProcessingConfig struct {
 
 // StateConfig contains configuration for state management.
 type StateConfig struct {
-	SyncInterval       time.Duration               `json:"sync_interval" yaml:"sync_interval"`
-	CacheSize          string                      `json:"cache_size" yaml:"cache_size"`
-	EnablePersistence  bool                        `json:"enable_persistence" yaml:"enable_persistence"`
-	ConflictResolution ConflictResolutionStrategy  `json:"conflict_resolution" yaml:"conflict_resolution"`
+	SyncInterval       time.Duration              `json:"sync_interval" yaml:"sync_interval"`
+	CacheSize          string                     `json:"cache_size" yaml:"cache_size"`
+	EnablePersistence  bool                       `json:"enable_persistence" yaml:"enable_persistence"`
+	ConflictResolution ConflictResolutionStrategy `json:"conflict_resolution" yaml:"conflict_resolution"`
 }
 
 // ToolsConfig contains configuration for tool execution.
@@ -233,22 +233,22 @@ func DefaultAgentConfig() *AgentConfig {
 type AgentState struct {
 	// Status is the current lifecycle status
 	Status AgentStatus `json:"status"`
-	
+
 	// Name is the agent identifier
 	Name string `json:"name"`
-	
+
 	// Version is the state version for conflict resolution
 	Version int64 `json:"version"`
-	
+
 	// Data contains the agent's custom state data
 	Data map[string]interface{} `json:"data"`
-	
+
 	// Metadata contains additional state information
 	Metadata map[string]interface{} `json:"metadata"`
-	
+
 	// LastModified is when the state was last updated
 	LastModified time.Time `json:"last_modified"`
-	
+
 	// Checksum for state integrity verification
 	Checksum string `json:"checksum,omitempty"`
 }
@@ -257,13 +257,13 @@ type AgentState struct {
 type StateDelta struct {
 	// Version is the expected current version
 	Version int64 `json:"version"`
-	
+
 	// Operations are the changes to apply
 	Operations []StateOperation `json:"operations"`
-	
+
 	// Metadata for the change
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
-	
+
 	// Timestamp when the delta was created
 	Timestamp time.Time `json:"timestamp"`
 }
@@ -272,13 +272,13 @@ type StateDelta struct {
 type StateOperation struct {
 	// Operation type (set, delete, merge)
 	Op StateOperationType `json:"op"`
-	
+
 	// Path to the field to modify (JSON pointer style)
 	Path string `json:"path"`
-	
+
 	// Value for set/merge operations
 	Value interface{} `json:"value,omitempty"`
-	
+
 	// Condition for conditional operations
 	Condition *StateCondition `json:"condition,omitempty"`
 }
@@ -297,10 +297,10 @@ const (
 type StateCondition struct {
 	// Field path to test
 	Path string `json:"path"`
-	
+
 	// Expected value
 	Expected interface{} `json:"expected"`
-	
+
 	// Comparison operation
 	Op string `json:"op"` // "eq", "ne", "exists", "not_exists"
 }

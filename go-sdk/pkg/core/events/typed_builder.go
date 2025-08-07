@@ -11,7 +11,7 @@ type TypedEventBuilder[T EventDataType] struct {
 	timestamp *int64
 	data      T
 	validator func(T) error
-	
+
 	// Auto-generation flags
 	autoGenerateIDs bool
 }
@@ -379,11 +379,11 @@ func QuickMessageStart(messageID string, role *string) (TypedEvent[MessageEventD
 	builder := NewMessageEventBuilder().
 		MessageStart().
 		WithMessageID(messageID)
-	
+
 	if role != nil {
 		builder = builder.WithRole(*role)
 	}
-	
+
 	return builder.Build()
 }
 
@@ -410,11 +410,11 @@ func QuickToolCallStart(toolCallID, toolCallName string, parentMessageID *string
 		ToolCallStart().
 		WithToolCallID(toolCallID).
 		WithToolCallName(toolCallName)
-	
+
 	if parentMessageID != nil {
 		builder = builder.WithParentMessageID(*parentMessageID)
 	}
-	
+
 	return builder.Build()
 }
 
@@ -459,11 +459,11 @@ func QuickRunError(runID, message string, code *string) (TypedEvent[RunEventData
 		RunError().
 		WithRunID(runID).
 		WithMessage(message)
-	
+
 	if code != nil {
 		builder = builder.WithCode(*code)
 	}
-	
+
 	return builder.Build()
 }
 

@@ -17,19 +17,19 @@ import (
 
 // Global test sequencer to prevent resource conflicts when running all tests together
 var (
-	testSequenceMutex sync.Mutex
+	testSequenceMutex  sync.Mutex
 	heavyTestSemaphore = make(chan struct{}, 2) // Allow max 2 heavy tests concurrently
-	lastTestTime      = time.Now()
-	testGapDuration   = 50 * time.Millisecond // Minimum gap between tests
+	lastTestTime       = time.Now()
+	testGapDuration    = 50 * time.Millisecond // Minimum gap between tests
 )
 
 // TestCategory defines the resource intensity of a test
 type TestCategory int
 
 const (
-	LightTest TestCategory = iota // Basic unit tests
-	MediumTest                    // Integration tests  
-	HeavyTest                     // Load/performance tests
+	LightTest  TestCategory = iota // Basic unit tests
+	MediumTest                     // Integration tests
+	HeavyTest                      // Load/performance tests
 )
 
 // SequencedTestRunner manages test execution to prevent resource conflicts
@@ -56,20 +56,20 @@ func NewSequencedTestRunner(t *testing.T, category TestCategory, timeout time.Du
 func (r *SequencedTestRunner) Run(testFunc func(*MinimalTestHelper)) {
 	r.acquireTestSlot()
 	defer r.releaseTestSlot()
-	
+
 	// Enforce minimum gap between tests to prevent resource conflicts
 	r.enforceTestGap()
-	
+
 	// Track initial resource state
 	initialGoroutines := runtime.NumGoroutine()
-	
+
 	// Run test with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), r.timeout)
 	defer cancel()
-	
+
 	done := make(chan struct{})
 	var testErr error
-	
+
 	go func() {
 		defer func() {
 			if rec := recover(); rec != nil {
@@ -78,22 +78,22 @@ func (r *SequencedTestRunner) Run(testFunc func(*MinimalTestHelper)) {
 			}
 			close(done)
 		}()
-		
+
 		testFunc(r.helper)
 	}()
-	
+
 	select {
 	case <-done:
 		if testErr != nil {
 			r.t.Fatal(testErr)
 		}
 	case <-ctx.Done():
-		r.logger.Error("Test timed out", 
+		r.logger.Error("Test timed out",
 			zap.Duration("timeout", r.timeout),
 			zap.String("category", r.categoryString()))
 		r.t.Fatalf("Test timed out after %v", r.timeout)
 	}
-	
+
 	// Verify no significant goroutine leaks
 	r.verifyResourceCleanup(initialGoroutines)
 }
@@ -118,7 +118,7 @@ func (r *SequencedTestRunner) releaseTestSlot() {
 	case HeavyTest:
 		<-heavyTestSemaphore
 		r.logger.Debug("Released heavy test slot")
-		
+
 		// Force cleanup after heavy tests
 		runtime.GC()
 		time.Sleep(100 * time.Millisecond)
@@ -133,7 +133,7 @@ func (r *SequencedTestRunner) releaseTestSlot() {
 func (r *SequencedTestRunner) enforceTestGap() {
 	testSequenceMutex.Lock()
 	defer testSequenceMutex.Unlock()
-	
+
 	elapsed := time.Since(lastTestTime)
 	if elapsed < testGapDuration {
 		waitTime := testGapDuration - elapsed
@@ -147,10 +147,10 @@ func (r *SequencedTestRunner) verifyResourceCleanup(initialGoroutines int) {
 	time.Sleep(50 * time.Millisecond)
 	runtime.GC()
 	time.Sleep(25 * time.Millisecond)
-	
+
 	finalGoroutines := runtime.NumGoroutine()
 	goroutineDiff := finalGoroutines - initialGoroutines
-	
+
 	// Set tolerance based on test category
 	tolerance := 5
 	switch r.category {
@@ -159,7 +159,7 @@ func (r *SequencedTestRunner) verifyResourceCleanup(initialGoroutines int) {
 	case MediumTest:
 		tolerance = 10
 	}
-	
+
 	if goroutineDiff > tolerance {
 		r.logger.Warn("Potential goroutine leak detected",
 			zap.Int("initial", initialGoroutines),
@@ -202,7 +202,7 @@ func NewMinimalTestHelper(t *testing.T) *MinimalTestHelper {
 func (h *MinimalTestHelper) CreateServer() *MinimalTestServer {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	server := NewMinimalTestServer(h.t)
 	h.servers = append(h.servers, server)
 	return server
@@ -212,28 +212,28 @@ func (h *MinimalTestHelper) CreateServer() *MinimalTestServer {
 func (h *MinimalTestHelper) CreateConnection(url string) *Connection {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	config := &ConnectionConfig{
 		URL:                        url,
-		ReadTimeout:               2 * time.Second,
-		WriteTimeout:              2 * time.Second,
-		PingPeriod:                5 * time.Second,
-		PongWait:                  3 * time.Second,
-		DialTimeout:               3 * time.Second,
-		HandshakeTimeout:          3 * time.Second,
-		MaxReconnectAttempts:      2,
-		InitialReconnectDelay:     50 * time.Millisecond,
-		MaxReconnectDelay:         2 * time.Second,
+		ReadTimeout:                2 * time.Second,
+		WriteTimeout:               2 * time.Second,
+		PingPeriod:                 5 * time.Second,
+		PongWait:                   3 * time.Second,
+		DialTimeout:                3 * time.Second,
+		HandshakeTimeout:           3 * time.Second,
+		MaxReconnectAttempts:       2,
+		InitialReconnectDelay:      50 * time.Millisecond,
+		MaxReconnectDelay:          2 * time.Second,
 		ReconnectBackoffMultiplier: 1.5,
-		MaxMessageSize:            64 * 1024, // 64KB - smaller than default
-		Logger:                    zaptest.NewLogger(h.t),
+		MaxMessageSize:             64 * 1024, // 64KB - smaller than default
+		Logger:                     zaptest.NewLogger(h.t),
 	}
-	
+
 	conn, err := NewConnection(config)
 	if err != nil {
 		h.t.Fatalf("Failed to create connection: %v", err)
 	}
-	
+
 	h.conns = append(h.conns, conn)
 	return conn
 }
@@ -242,12 +242,12 @@ func (h *MinimalTestHelper) CreateConnection(url string) *Connection {
 func (h *MinimalTestHelper) Cleanup() {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	// Close connections with 1s total timeout
 	if len(h.conns) > 0 {
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cancel()
-		
+
 		var wg sync.WaitGroup
 		for _, conn := range h.conns {
 			if conn != nil {
@@ -263,28 +263,28 @@ func (h *MinimalTestHelper) Cleanup() {
 				}(conn)
 			}
 		}
-		
+
 		// Wait for cleanup or timeout
 		done := make(chan struct{})
 		go func() {
 			wg.Wait()
 			close(done)
 		}()
-		
+
 		select {
 		case <-done:
 		case <-ctx.Done():
 			// Timeout - connections will be cleaned up by GC
 		}
 	}
-	
+
 	// Close servers immediately
 	for _, server := range h.servers {
 		if server != nil {
 			server.Close()
 		}
 	}
-	
+
 	// Single GC pass
 	runtime.GC()
 }
@@ -300,11 +300,11 @@ func NewMinimalTestServer(t *testing.T) *MinimalTestServer {
 	s := &MinimalTestServer{
 		closed: make(chan struct{}),
 	}
-	
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/ws", s.handleWebSocket)
 	s.server = httptest.NewServer(mux)
-	
+
 	return s
 }
 
@@ -315,33 +315,33 @@ func (s *MinimalTestServer) handleWebSocket(w http.ResponseWriter, r *http.Reque
 		return
 	default:
 	}
-	
+
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
 	}
-	
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
 	defer conn.Close()
-	
+
 	// Simple echo server with timeout
 	conn.SetReadDeadline(time.Now().Add(5 * time.Second))
 	conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
-	
+
 	for {
 		select {
 		case <-s.closed:
 			return
 		default:
 		}
-		
+
 		messageType, message, err := conn.ReadMessage()
 		if err != nil {
 			return
 		}
-		
+
 		if err := conn.WriteMessage(messageType, message); err != nil {
 			return
 		}

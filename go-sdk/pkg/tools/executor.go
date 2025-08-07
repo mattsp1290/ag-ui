@@ -7,7 +7,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	
+
 	"github.com/mattsp1290/ag-ui/go-sdk/internal/timeconfig"
 )
 
@@ -33,7 +33,7 @@ import (
 //		WithDefaultTimeout(30*time.Second),
 //		WithRateLimiter(rateLimiter),
 //	)
-//	
+//
 //	result, err := engine.Execute(ctx, "my-tool", params)
 //	if err != nil {
 //		// Handle error
@@ -62,12 +62,12 @@ type ExecutionEngine struct {
 	afterExecute  []ExecutionHook
 
 	// Enhanced features
-	cache             *ExecutionCache
-	asyncWorkers      int
-	asyncJobQueue     chan *AsyncJob
-	asyncResults      sync.Map
-	resourceMonitor   *ResourceMonitor
-	sandbox           *SandboxConfig
+	cache           *ExecutionCache
+	asyncWorkers    int
+	asyncJobQueue   chan *AsyncJob
+	asyncResults    sync.Map
+	resourceMonitor *ResourceMonitor
+	sandbox         *SandboxConfig
 }
 
 // executionState tracks the state of a single tool execution.
@@ -87,12 +87,12 @@ type ExecutionMetrics struct {
 	successCount    int64 // atomic
 	errorCount      int64 // atomic
 	totalDuration   int64 // atomic (nanoseconds)
-	
+
 	// Enhanced metrics
-	cacheHits        int64 // atomic
-	cacheMisses      int64 // atomic
-	asyncExecutions  int64 // atomic
-	
+	cacheHits       int64 // atomic
+	cacheMisses     int64 // atomic
+	asyncExecutions int64 // atomic
+
 	// Tool metrics protected by mutex
 	mu          sync.RWMutex
 	toolMetrics map[string]*ToolMetrics
@@ -118,11 +118,11 @@ type ToolMetrics struct {
 //	type TokenBucketLimiter struct {
 //		buckets map[string]*rate.Limiter
 //	}
-//	
+//
 //	func (l *TokenBucketLimiter) Allow(toolID string) bool {
 //		return l.buckets[toolID].Allow()
 //	}
-//	
+//
 //	func (l *TokenBucketLimiter) Wait(ctx context.Context, toolID string) error {
 //		return l.buckets[toolID].Wait(ctx)
 //	}
@@ -144,7 +144,7 @@ type RateLimiter interface {
 //		log.Printf("Executing tool %s with params: %v", toolID, params)
 //		return nil
 //	}
-//	
+//
 //	// Authentication hook
 //	authHook := func(ctx context.Context, toolID string, params map[string]interface{}) error {
 //		if !isAuthenticated(ctx) {
@@ -188,7 +188,7 @@ func NewExecutionEngine(registry *Registry, opts ...ExecutionEngineOption) *Exec
 	e := &ExecutionEngine{
 		registry:             registry,
 		maxConcurrent:        maxConcurrent,
-		defaultTimeout:       30 * time.Second, // Default timeout
+		defaultTimeout:       30 * time.Second,                   // Default timeout
 		concurrencySemaphore: make(chan struct{}, maxConcurrent), // Channel-based semaphore
 		metrics: &ExecutionMetrics{
 			toolMetrics: make(map[string]*ToolMetrics),
@@ -205,14 +205,14 @@ func NewExecutionEngine(registry *Registry, opts ...ExecutionEngineOption) *Exec
 
 // Execute runs a tool with the given parameters.
 // It performs the following steps:
-//   1. Retrieves the tool from the registry
-//   2. Applies rate limiting if configured
-//   3. Checks concurrency limits
-//   4. Validates parameters against the tool schema
-//   5. Runs pre-execution hooks
-//   6. Executes the tool with timeout and panic recovery
-//   7. Runs post-execution hooks
-//   8. Updates execution metrics
+//  1. Retrieves the tool from the registry
+//  2. Applies rate limiting if configured
+//  3. Checks concurrency limits
+//  4. Validates parameters against the tool schema
+//  5. Runs pre-execution hooks
+//  6. Executes the tool with timeout and panic recovery
+//  7. Runs post-execution hooks
+//  8. Updates execution metrics
 //
 // The method returns a ToolExecutionResult with the output or error.
 // Context cancellation is respected throughout the execution.
@@ -254,11 +254,11 @@ func (e *ExecutionEngine) Execute(ctx context.Context, toolID string, params map
 			WithToolID(toolID).
 			WithCause(ctx.Err())
 	}
-	
+
 	// Increment active execution counter atomically
 	e.activeExecutions.Add(1)
-	defer func() { 
-		<-e.concurrencySemaphore // Release slot
+	defer func() {
+		<-e.concurrencySemaphore   // Release slot
 		e.activeExecutions.Add(-1) // Decrement counter
 	}()
 
@@ -366,7 +366,7 @@ func (e *ExecutionEngine) Execute(ctx context.Context, toolID string, params map
 //	if err != nil {
 //		return err
 //	}
-//	
+//
 //	for chunk := range stream {
 //		switch chunk.Type {
 //		case "data":
@@ -419,11 +419,11 @@ func (e *ExecutionEngine) ExecuteStream(ctx context.Context, toolID string, para
 			WithToolID(toolID).
 			WithCause(ctx.Err())
 	}
-	
+
 	// Increment active execution counter atomically
 	e.activeExecutions.Add(1)
-	defer func() { 
-		<-e.concurrencySemaphore // Release slot
+	defer func() {
+		<-e.concurrencySemaphore   // Release slot
 		e.activeExecutions.Add(-1) // Decrement counter
 	}()
 
@@ -451,7 +451,7 @@ func (e *ExecutionEngine) ExecuteStream(ctx context.Context, toolID string, para
 
 	// Wrap the stream to handle cleanup with buffered channel to prevent goroutine blocking
 	wrappedStream := make(chan *ToolStreamChunk, 10)
-	
+
 	go func() {
 		defer close(wrappedStream)
 		defer cancel()
@@ -477,7 +477,7 @@ func (e *ExecutionEngine) ExecuteStream(ctx context.Context, toolID string, para
 					// Stream closed, exit normally
 					return
 				}
-				
+
 				// Try to send chunk with timeout protection
 				select {
 				case wrappedStream <- chunk:
@@ -491,11 +491,11 @@ func (e *ExecutionEngine) ExecuteStream(ctx context.Context, toolID string, para
 					// Stream processing timeout, prevent goroutine leak
 					return
 				}
-				
+
 			case <-execCtx.Done():
 				// Context canceled, stop streaming
 				return
-				
+
 			case <-streamTimeout.C:
 				// Stream processing timeout, prevent goroutine leak
 				return
@@ -520,7 +520,7 @@ func (e *ExecutionEngine) executeWithRecovery(ctx context.Context, tool ReadOnly
 	if tool == nil {
 		return nil, NewToolError(ErrorTypeInternal, "TOOL_NIL", "tool is nil")
 	}
-	
+
 	executor := tool.GetExecutor()
 	if executor == nil {
 		return nil, NewToolError(ErrorTypeInternal, "EXECUTOR_NIL", "tool executor is nil").
@@ -713,10 +713,10 @@ func (e *ExecutionEngine) IsExecuting(toolID string) bool {
 // for tools marked as cacheable. The cache uses LRU eviction
 // and TTL expiration for efficient memory usage.
 type ExecutionCache struct {
-	mu       sync.RWMutex
-	cache    map[string]*CacheEntry
-	maxSize  int
-	ttl      time.Duration
+	mu      sync.RWMutex
+	cache   map[string]*CacheEntry
+	maxSize int
+	ttl     time.Duration
 }
 
 // CacheEntry represents a cached execution result.
@@ -730,18 +730,18 @@ type CacheEntry struct {
 func (c *ExecutionCache) Get(key string) *ToolExecutionResult {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	entry, exists := c.cache[key]
 	if !exists {
 		return nil
 	}
-	
+
 	// Check if entry has expired
 	if time.Since(entry.CreatedAt) > c.ttl {
 		// Don't delete here to avoid write lock, let Set handle cleanup
 		return nil
 	}
-	
+
 	return entry.Result
 }
 
@@ -749,7 +749,7 @@ func (c *ExecutionCache) Get(key string) *ToolExecutionResult {
 func (c *ExecutionCache) Set(key string, result *ToolExecutionResult) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	// Simple LRU: if cache is full, remove oldest entry
 	if len(c.cache) >= c.maxSize {
 		var oldestKey string
@@ -764,7 +764,7 @@ func (c *ExecutionCache) Set(key string, result *ToolExecutionResult) {
 			delete(c.cache, oldestKey)
 		}
 	}
-	
+
 	c.cache[key] = &CacheEntry{
 		Result:    result,
 		CreatedAt: time.Now(),
@@ -795,9 +795,9 @@ type AsyncResult struct {
 // It can enforce limits on memory, CPU, goroutines, and file descriptors
 // to prevent resource exhaustion from misbehaving tools.
 type ResourceMonitor struct {
-	MaxMemory   int64
-	MaxCPU      float64
-	MaxGoroutines int
+	MaxMemory          int64
+	MaxCPU             float64
+	MaxGoroutines      int
 	MaxFileDescriptors int
 }
 
@@ -846,7 +846,7 @@ func WithAsyncWorkers(workers int) ExecutionEngineOption {
 		e.asyncWorkers = workers
 		e.asyncJobQueue = make(chan *AsyncJob, workers*2)
 		// e.asyncResults is already initialized as sync.Map
-		
+
 		// Start async workers
 		for i := 0; i < workers; i++ {
 			go e.asyncWorker()
@@ -883,9 +883,9 @@ func WithSandboxing(config *SandboxConfig) ExecutionEngineOption {
 //	if err != nil {
 //		return err
 //	}
-//	
+//
 //	// Do other work...
-//	
+//
 //	select {
 //	case result := <-resultChan:
 //		if result.Error != nil {
@@ -947,7 +947,7 @@ func (e *ExecutionEngine) processAsyncJobs() {
 		if job == nil {
 			continue
 		}
-		
+
 		// Check if context is already cancelled before processing
 		select {
 		case <-job.Context.Done():
@@ -956,13 +956,13 @@ func (e *ExecutionEngine) processAsyncJobs() {
 			continue
 		default:
 		}
-		
+
 		// Execute the job with timeout protection
 		resultChan := make(chan struct {
 			result *ToolExecutionResult
 			err    error
 		}, 1)
-		
+
 		// Execute in a separate goroutine to handle blocking Execute calls
 		go func() {
 			result, err := e.Execute(job.Context, job.ToolID, job.Params)
@@ -976,7 +976,7 @@ func (e *ExecutionEngine) processAsyncJobs() {
 				return
 			}
 		}()
-		
+
 		// Wait for execution result or context cancellation
 		select {
 		case execResult := <-resultChan:
@@ -994,18 +994,18 @@ func (e *ExecutionEngine) sendAsyncResult(job *AsyncJob, result *ToolExecutionRe
 	if job == nil {
 		return
 	}
-	
+
 	asyncResult := &AsyncResult{
 		JobID:  job.ID,
 		Result: result,
 		Error:  err,
 	}
-	
+
 	// Clean up result channel from map first
 	if job.ID != "" {
 		e.asyncResults.Delete(job.ID)
 	}
-	
+
 	// Send result with timeout protection to prevent blocking
 	// Use a longer timeout than the mock executor to ensure result delivery
 	if job.Result != nil {
@@ -1034,26 +1034,26 @@ func (e *ExecutionEngine) GetCacheMetrics() map[string]interface{} {
 	if e.cache == nil {
 		return nil
 	}
-	
+
 	e.cache.mu.RLock()
 	size := len(e.cache.cache)
 	maxSize := e.cache.maxSize
 	e.cache.mu.RUnlock()
-	
+
 	totalHits := atomic.LoadInt64(&e.metrics.cacheHits)
 	totalMisses := atomic.LoadInt64(&e.metrics.cacheMisses)
-	
+
 	var hitRatio float64
 	if totalHits+totalMisses > 0 {
 		hitRatio = float64(totalHits) / float64(totalHits+totalMisses)
 	}
-	
+
 	return map[string]interface{}{
-		"size":      size,
-		"maxSize":   maxSize,
-		"hitRatio":  hitRatio,
-		"hits":      totalHits,
-		"misses":    totalMisses,
+		"size":     size,
+		"maxSize":  maxSize,
+		"hitRatio": hitRatio,
+		"hits":     totalHits,
+		"misses":   totalMisses,
 	}
 }
 
@@ -1064,7 +1064,7 @@ func (e *ExecutionEngine) GetResourceMetrics() map[string]interface{} {
 	if e.resourceMonitor == nil {
 		return nil
 	}
-	
+
 	return map[string]interface{}{
 		"violations": 0, // Simplified for example
 		"maxMemory":  e.resourceMonitor.MaxMemory,
@@ -1079,7 +1079,7 @@ func (e *ExecutionEngine) GetJobQueueMetrics() map[string]interface{} {
 	if e.asyncJobQueue == nil {
 		return nil
 	}
-	
+
 	return map[string]interface{}{
 		"queueLength": len(e.asyncJobQueue),
 		"capacity":    cap(e.asyncJobQueue),
@@ -1092,14 +1092,14 @@ func (e *ExecutionEngine) asyncWorker() {
 	for job := range e.asyncJobQueue {
 		// Execute the job
 		result, err := e.Execute(job.Context, job.ToolID, job.Params)
-		
+
 		// Send result back
 		asyncResult := &AsyncResult{
 			JobID:  job.ID,
 			Result: result,
 			Error:  err,
 		}
-		
+
 		// Always try to send the result, even if context is canceled
 		// This ensures the caller receives notification of cancellation
 		select {
@@ -1108,23 +1108,22 @@ func (e *ExecutionEngine) asyncWorker() {
 		default:
 			// Result channel might be closed or full, continue anyway
 		}
-		
+
 		// Clean up result channel from map
 		e.asyncResults.Delete(job.ID)
 	}
 }
 
-
 // getCached retrieves a cached result if available and not expired
 func (e *ExecutionEngine) getCached(key string) (*ToolExecutionResult, bool) {
 	e.cache.mu.RLock()
 	defer e.cache.mu.RUnlock()
-	
+
 	entry, exists := e.cache.cache[key]
 	if !exists {
 		return nil, false
 	}
-	
+
 	// Check if entry has expired
 	if time.Since(entry.CreatedAt) > e.cache.ttl {
 		// Entry expired, remove it (we'll need write lock for this)
@@ -1135,7 +1134,7 @@ func (e *ExecutionEngine) getCached(key string) (*ToolExecutionResult, bool) {
 		}()
 		return nil, false
 	}
-	
+
 	return entry.Result, true
 }
 
@@ -1143,7 +1142,7 @@ func (e *ExecutionEngine) getCached(key string) (*ToolExecutionResult, bool) {
 func (e *ExecutionEngine) setCached(key string, result *ToolExecutionResult) {
 	e.cache.mu.Lock()
 	defer e.cache.mu.Unlock()
-	
+
 	// Check cache size limit
 	if len(e.cache.cache) >= e.cache.maxSize {
 		// Simple eviction: remove the oldest entry
@@ -1160,7 +1159,7 @@ func (e *ExecutionEngine) setCached(key string, result *ToolExecutionResult) {
 			delete(e.cache.cache, oldestKey)
 		}
 	}
-	
+
 	e.cache.cache[key] = &CacheEntry{
 		Result:    result,
 		CreatedAt: time.Now(),
@@ -1175,23 +1174,23 @@ func (e *ExecutionEngine) setCached(key string, result *ToolExecutionResult) {
 //
 //	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 //	defer cancel()
-//	
+//
 //	if err := engine.Shutdown(ctx); err != nil {
 //		log.Printf("shutdown error: %v", err)
 //	}
 func (e *ExecutionEngine) Shutdown(ctx context.Context) error {
 	// Cancel all active executions first
 	e.CancelAll()
-	
+
 	// Close async job queue to stop accepting new jobs
 	if e.asyncJobQueue != nil {
 		close(e.asyncJobQueue)
 	}
-	
+
 	// Wait a bit for executions to finish or until context expires
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():

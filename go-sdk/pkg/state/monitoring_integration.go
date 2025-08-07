@@ -335,10 +335,10 @@ func SetupProductionMonitoring(stateManager *StateManager, slackWebhookURL strin
 	// Add multiple notifiers (create a new zap logger for monitoring)
 	zapLogger, _ := zap.NewProduction()
 	logNotifier := NewLogAlertNotifier(zapLogger)
-	
+
 	// Create notifiers list starting with log notifier
 	notifiers := []AlertNotifier{logNotifier}
-	
+
 	// Try to create Slack notifier
 	slackNotifier, err := NewSlackAlertNotifier(slackWebhookURL, "#alerts", "StateManager")
 	if err != nil {

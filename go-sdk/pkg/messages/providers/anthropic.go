@@ -204,7 +204,7 @@ func (c *AnthropicConverter) convertToAnthropic(msg messages.Message) (Anthropic
 		})
 
 	case *messages.DeveloperMessage:
-		// Convert developer messages to assistant messages with a prefix  
+		// Convert developer messages to assistant messages with a prefix
 		anthropicMsg.Role = "assistant"
 		content := m.GetContent()
 		if content == nil {

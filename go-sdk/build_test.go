@@ -3,7 +3,7 @@ package sdk_test
 import (
 	"os/exec"
 	"testing"
-	
+
 	_ "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 

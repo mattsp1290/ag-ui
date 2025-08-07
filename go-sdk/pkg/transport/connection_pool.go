@@ -17,25 +17,25 @@ import (
 // ConnectionPoolConfig contains configuration for connection pooling
 type ConnectionPoolConfig struct {
 	// Pool sizing
-	InitialSize    int           // Initial number of connections
-	MaxSize        int           // Maximum number of connections
-	MinIdleSize    int           // Minimum number of idle connections
-	MaxIdleSize    int           // Maximum number of idle connections
-	
+	InitialSize int // Initial number of connections
+	MaxSize     int // Maximum number of connections
+	MinIdleSize int // Minimum number of idle connections
+	MaxIdleSize int // Maximum number of idle connections
+
 	// Connection management
 	MaxIdleTime    time.Duration // Maximum time a connection can be idle
 	MaxLifetime    time.Duration // Maximum lifetime of a connection
 	AcquireTimeout time.Duration // Timeout for acquiring a connection
-	
+
 	// Health checking
 	HealthCheckInterval time.Duration // Interval for health checks
 	HealthCheckTimeout  time.Duration // Timeout for health checks
-	
+
 	// Network settings
-	DialTimeout      time.Duration // Timeout for dialing new connections
-	KeepAlive        time.Duration // TCP keep-alive interval
-	MaxConnLifetime  time.Duration // Maximum connection lifetime
-	
+	DialTimeout     time.Duration // Timeout for dialing new connections
+	KeepAlive       time.Duration // TCP keep-alive interval
+	MaxConnLifetime time.Duration // Maximum connection lifetime
+
 	// Validation
 	ValidateOnAcquire bool // Validate connection when acquired
 	ValidateOnReturn  bool // Validate connection when returned
@@ -45,42 +45,42 @@ type ConnectionPoolConfig struct {
 func DefaultConnectionPoolConfig() *ConnectionPoolConfig {
 	return &ConnectionPoolConfig{
 		InitialSize:         5,
-		MaxSize:            50,
-		MinIdleSize:        5,
-		MaxIdleSize:        10,
-		MaxIdleTime:        30 * time.Minute,
-		MaxLifetime:        1 * time.Hour,
-		AcquireTimeout:     30 * time.Second,
+		MaxSize:             50,
+		MinIdleSize:         5,
+		MaxIdleSize:         10,
+		MaxIdleTime:         30 * time.Minute,
+		MaxLifetime:         1 * time.Hour,
+		AcquireTimeout:      30 * time.Second,
 		HealthCheckInterval: 1 * time.Minute,
 		HealthCheckTimeout:  5 * time.Second,
-		DialTimeout:        10 * time.Second,
-		KeepAlive:          30 * time.Second,
-		MaxConnLifetime:    1 * time.Hour,
-		ValidateOnAcquire:  true,
-		ValidateOnReturn:   false,
+		DialTimeout:         10 * time.Second,
+		KeepAlive:           30 * time.Second,
+		MaxConnLifetime:     1 * time.Hour,
+		ValidateOnAcquire:   true,
+		ValidateOnReturn:    false,
 	}
 }
 
 // PooledConnection represents a connection in the pool
 type PooledConnection struct {
-	ID          string
-	Conn        net.Conn
-	CreatedAt   time.Time
-	LastUsedAt  time.Time
-	IsHealthy   bool
-	InUse       bool
-	UseCount    int64
-	ErrorCount  int64
-	
+	ID         string
+	Conn       net.Conn
+	CreatedAt  time.Time
+	LastUsedAt time.Time
+	IsHealthy  bool
+	InUse      bool
+	UseCount   int64
+	ErrorCount int64
+
 	// Connection-specific data
-	RemoteAddr  string
-	LocalAddr   string
-	Protocol    string
-	
+	RemoteAddr string
+	LocalAddr  string
+	Protocol   string
+
 	// Pool management
-	pool        *ConnectionPool
-	returnCh    chan *PooledConnection
-	mutex       sync.RWMutex
+	pool     *ConnectionPool
+	returnCh chan *PooledConnection
+	mutex    sync.RWMutex
 }
 
 // NewPooledConnection creates a new pooled connection
@@ -106,59 +106,104 @@ func NewPooledConnection(id string, conn net.Conn, pool *ConnectionPool) *Pooled
 func (pc *PooledConnection) Use() {
 	pc.mutex.Lock()
 	defer pc.mutex.Unlock()
-	
+
 	pc.InUse = true
 	pc.LastUsedAt = time.Now()
 	pc.UseCount++
 }
 
-// Return returns the connection to the pool
+// Return returns the connection to the pool with enhanced leak prevention
 func (pc *PooledConnection) Return() {
 	pc.mutex.Lock()
 	defer pc.mutex.Unlock()
-	
+
+	// Prevent double return
+	if !pc.InUse {
+		return
+	}
+
 	pc.InUse = false
 	pc.LastUsedAt = time.Now()
-	
-	// Send to return channel (non-blocking)
+
+	// Enhanced leak prevention with timeout
+	timeout := time.NewTimer(50 * time.Millisecond)
+	defer timeout.Stop()
+
 	select {
 	case pc.returnCh <- pc:
+		// Successfully returned to pool
+	case <-timeout.C:
+		// Return channel blocked, close connection to prevent leak
+		pc.Close()
 	default:
 		// Channel full, connection will be closed
 		pc.Close()
 	}
 }
 
-// Close closes the connection
+// Close closes the connection with enhanced cleanup
 func (pc *PooledConnection) Close() error {
 	pc.mutex.Lock()
 	defer pc.mutex.Unlock()
-	
-	if pc.Conn != nil {
-		err := pc.Conn.Close()
-		pc.Conn = nil
-		return err
+
+	if pc.Conn == nil {
+		return nil // Already closed
 	}
-	return nil
+
+	// Enhanced connection cleanup with timeout
+	done := make(chan error, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- fmt.Errorf("panic during connection close: %v", r)
+			}
+		}()
+		done <- pc.Conn.Close()
+	}()
+
+	// Wait for close with timeout
+	timeout := time.NewTimer(2 * time.Second)
+	defer timeout.Stop()
+
+	var err error
+	select {
+	case err = <-done:
+		// Close completed
+	case <-timeout.C:
+		// Close timed out, log warning but continue cleanup
+		err = fmt.Errorf("connection close timed out")
+	}
+
+	// Always clear the connection reference to prevent memory leaks
+	pc.Conn = nil
+	pc.IsHealthy = false
+
+	// Close return channel to prevent goroutine leaks
+	if pc.returnCh != nil {
+		close(pc.returnCh)
+		pc.returnCh = nil
+	}
+
+	return err
 }
 
 // IsExpired checks if the connection has expired
 func (pc *PooledConnection) IsExpired(maxLifetime, maxIdleTime time.Duration) bool {
 	pc.mutex.RLock()
 	defer pc.mutex.RUnlock()
-	
+
 	now := time.Now()
-	
+
 	// Check lifetime
 	if maxLifetime > 0 && now.Sub(pc.CreatedAt) > maxLifetime {
 		return true
 	}
-	
+
 	// Check idle time
 	if maxIdleTime > 0 && !pc.InUse && now.Sub(pc.LastUsedAt) > maxIdleTime {
 		return true
 	}
-	
+
 	return false
 }
 
@@ -166,11 +211,11 @@ func (pc *PooledConnection) IsExpired(maxLifetime, maxIdleTime time.Duration) bo
 func (pc *PooledConnection) Validate() bool {
 	pc.mutex.RLock()
 	defer pc.mutex.RUnlock()
-	
+
 	if pc.Conn == nil {
 		return false
 	}
-	
+
 	// Simple validation - check if connection is not closed
 	// More sophisticated validation could be added here
 	return pc.IsHealthy
@@ -180,7 +225,7 @@ func (pc *PooledConnection) Validate() bool {
 func (pc *PooledConnection) GetStats() map[string]interface{} {
 	pc.mutex.RLock()
 	defer pc.mutex.RUnlock()
-	
+
 	return map[string]interface{}{
 		"id":          pc.ID,
 		"created_at":  pc.CreatedAt,
@@ -200,26 +245,26 @@ type ConnectionPool struct {
 	config      *ConnectionPoolConfig
 	connections map[string]*PooledConnection
 	idleConns   chan *PooledConnection
-	
+
 	// Pool state
-	totalConns   int32 // atomic
-	activeConns  int32 // atomic
-	idleCount    int32 // atomic
-	
+	totalConns  int32 // atomic
+	activeConns int32 // atomic
+	idleCount   int32 // atomic
+
 	// Statistics
-	stats       *PoolStats
-	
+	stats *PoolStats
+
 	// Synchronization
-	mutex       sync.RWMutex
-	
+	mutex sync.RWMutex
+
 	// Lifecycle
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	closed      bool
-	
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+	closed bool
+
 	// Connection factory
-	factory     ConnectionFactory
+	factory ConnectionFactory
 }
 
 // ConnectionFactory creates new connections
@@ -238,11 +283,11 @@ type PoolStats struct {
 	TotalErrors      int64
 	AcquireTimeouts  int64
 	ValidationErrors int64
-	
+
 	// Timing statistics
-	AvgAcquireTime   time.Duration
-	AvgCreateTime    time.Duration
-	
+	AvgAcquireTime time.Duration
+	AvgCreateTime  time.Duration
+
 	mutex sync.RWMutex
 }
 
@@ -251,13 +296,13 @@ func NewConnectionPool(config *ConnectionPoolConfig, factory ConnectionFactory) 
 	if config == nil {
 		config = DefaultConnectionPoolConfig()
 	}
-	
+
 	if factory == nil {
 		return nil, errors.New("connection factory is required")
 	}
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	pool := &ConnectionPool{
 		config:      config,
 		connections: make(map[string]*PooledConnection),
@@ -267,18 +312,18 @@ func NewConnectionPool(config *ConnectionPoolConfig, factory ConnectionFactory) 
 		cancel:      cancel,
 		factory:     factory,
 	}
-	
+
 	// Pre-create initial connections
 	if err := pool.initialize(); err != nil {
 		pool.Close()
 		return nil, pkgerrors.WithOperation("initialize", "connection_pool", err)
 	}
-	
+
 	// Start background workers
 	pool.wg.Add(2)
 	go pool.healthCheckWorker()
 	go pool.maintenanceWorker()
-	
+
 	return pool, nil
 }
 
@@ -298,11 +343,11 @@ func (p *ConnectionPool) Acquire(ctx context.Context) (*PooledConnection, error)
 	defer func() {
 		p.updateAcquireStats(time.Since(start))
 	}()
-	
+
 	p.stats.mutex.Lock()
 	p.stats.TotalAcquired++
 	p.stats.mutex.Unlock()
-	
+
 	// Create timeout context
 	acquireCtx := ctx
 	if p.config.AcquireTimeout > 0 {
@@ -310,43 +355,43 @@ func (p *ConnectionPool) Acquire(ctx context.Context) (*PooledConnection, error)
 		acquireCtx, cancel = context.WithTimeout(ctx, p.config.AcquireTimeout)
 		defer cancel()
 	}
-	
+
 	// Try to get an idle connection first
 	select {
 	case conn := <-p.idleConns:
 		atomic.AddInt32(&p.idleCount, -1)
-		
+
 		// Validate connection if configured
 		if p.config.ValidateOnAcquire && !conn.Validate() {
 			conn.Close()
 			return p.Acquire(ctx) // Retry
 		}
-		
+
 		conn.Use()
 		atomic.AddInt32(&p.activeConns, 1)
 		return conn, nil
 	default:
 		// No idle connections available
 	}
-	
+
 	// Try to create a new connection if under limit
 	if atomic.LoadInt32(&p.totalConns) < int32(p.config.MaxSize) {
 		if err := p.createConnection(); err == nil {
 			return p.Acquire(ctx) // Retry with new connection
 		}
 	}
-	
+
 	// Wait for a connection to become available
 	select {
 	case conn := <-p.idleConns:
 		atomic.AddInt32(&p.idleCount, -1)
-		
+
 		// Validate connection if configured
 		if p.config.ValidateOnAcquire && !conn.Validate() {
 			conn.Close()
 			return p.Acquire(ctx) // Retry
 		}
-		
+
 		conn.Use()
 		atomic.AddInt32(&p.activeConns, 1)
 		return conn, nil
@@ -363,25 +408,25 @@ func (p *ConnectionPool) Return(conn *PooledConnection) error {
 	if conn == nil {
 		return errors.New("connection is nil")
 	}
-	
+
 	p.stats.mutex.Lock()
 	p.stats.TotalReturned++
 	p.stats.mutex.Unlock()
-	
+
 	// Validate connection if configured
 	if p.config.ValidateOnReturn && !conn.Validate() {
 		return p.closeConnection(conn)
 	}
-	
+
 	// Check if connection is expired
 	if conn.IsExpired(p.config.MaxLifetime, p.config.MaxIdleTime) {
 		return p.closeConnection(conn)
 	}
-	
+
 	// Mark as not in use
 	conn.Return()
 	atomic.AddInt32(&p.activeConns, -1)
-	
+
 	// Try to return to idle pool
 	select {
 	case p.idleConns <- conn:
@@ -396,7 +441,7 @@ func (p *ConnectionPool) Return(conn *PooledConnection) error {
 // createConnection creates a new connection
 func (p *ConnectionPool) createConnection() error {
 	start := time.Now()
-	
+
 	conn, err := p.factory.CreateConnection(p.ctx)
 	if err != nil {
 		p.stats.mutex.Lock()
@@ -404,16 +449,16 @@ func (p *ConnectionPool) createConnection() error {
 		p.stats.mutex.Unlock()
 		return err
 	}
-	
+
 	// Create pooled connection
 	id := fmt.Sprintf("conn-%d", atomic.AddInt32(&p.totalConns, 1))
 	pooledConn := NewPooledConnection(id, conn, p)
-	
+
 	// Add to pool
 	p.mutex.Lock()
 	p.connections[id] = pooledConn
 	p.mutex.Unlock()
-	
+
 	// Add to idle connections
 	select {
 	case p.idleConns <- pooledConn:
@@ -424,49 +469,75 @@ func (p *ConnectionPool) createConnection() error {
 		atomic.AddInt32(&p.totalConns, -1)
 		return errors.New("idle pool is full")
 	}
-	
+
 	// Update stats
 	p.stats.mutex.Lock()
 	p.stats.TotalCreated++
 	p.stats.mutex.Unlock()
-	
+
 	p.updateCreateStats(time.Since(start))
-	
+
 	return nil
 }
 
-// closeConnection closes and removes a connection from the pool
+// closeConnection closes and removes a connection from the pool with enhanced cleanup
 func (p *ConnectionPool) closeConnection(conn *PooledConnection) error {
 	if conn == nil {
 		return nil
 	}
-	
-	// Remove from pool
+
+	// Enhanced cleanup with proper synchronization
 	p.mutex.Lock()
-	delete(p.connections, conn.ID)
-	p.mutex.Unlock()
-	
-	// Close connection
-	err := conn.Close()
-	
-	// Update counters
-	atomic.AddInt32(&p.totalConns, -1)
-	
+	defer p.mutex.Unlock()
+
+	// Remove from connections map if present
+	if _, exists := p.connections[conn.ID]; exists {
+		delete(p.connections, conn.ID)
+		
+		// Update counters atomically
+		atomic.AddInt32(&p.totalConns, -1)
+		
+		// If connection was idle, decrement idle count
+		if !conn.InUse {
+			atomic.AddInt32(&p.idleCount, -1)
+		} else {
+			atomic.AddInt32(&p.activeConns, -1)
+		}
+	}
+
+	// Close connection with timeout protection
+	done := make(chan error, 1)
+	go func() {
+		done <- conn.Close()
+	}()
+
+	timeout := time.NewTimer(3 * time.Second)
+	defer timeout.Stop()
+
+	var err error
+	select {
+	case err = <-done:
+		// Close completed normally
+	case <-timeout.C:
+		// Close timed out, but continue with cleanup
+		err = fmt.Errorf("connection close timed out for ID: %s", conn.ID)
+	}
+
 	// Update stats
 	p.stats.mutex.Lock()
 	p.stats.TotalClosed++
 	p.stats.mutex.Unlock()
-	
+
 	return err
 }
 
 // healthCheckWorker periodically checks connection health
 func (p *ConnectionPool) healthCheckWorker() {
 	defer p.wg.Done()
-	
+
 	ticker := time.NewTicker(p.config.HealthCheckInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-p.ctx.Done():
@@ -485,7 +556,7 @@ func (p *ConnectionPool) performHealthCheck() {
 		connections = append(connections, conn)
 	}
 	p.mutex.RUnlock()
-	
+
 	for _, conn := range connections {
 		if !conn.Validate() {
 			p.closeConnection(conn)
@@ -496,10 +567,10 @@ func (p *ConnectionPool) performHealthCheck() {
 // maintenanceWorker performs pool maintenance tasks
 func (p *ConnectionPool) maintenanceWorker() {
 	defer p.wg.Done()
-	
+
 	ticker := time.NewTicker(1 * time.Minute)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-p.ctx.Done():
@@ -514,10 +585,10 @@ func (p *ConnectionPool) maintenanceWorker() {
 func (p *ConnectionPool) performMaintenance() {
 	// Remove expired connections
 	p.removeExpiredConnections()
-	
+
 	// Ensure minimum idle connections
 	p.ensureMinimumIdle()
-	
+
 	// Clean up idle connections above maximum
 	p.cleanupExcessIdle()
 }
@@ -530,7 +601,7 @@ func (p *ConnectionPool) removeExpiredConnections() {
 		connections = append(connections, conn)
 	}
 	p.mutex.RUnlock()
-	
+
 	for _, conn := range connections {
 		if conn.IsExpired(p.config.MaxLifetime, p.config.MaxIdleTime) {
 			p.closeConnection(conn)
@@ -542,12 +613,12 @@ func (p *ConnectionPool) removeExpiredConnections() {
 func (p *ConnectionPool) ensureMinimumIdle() {
 	currentIdle := atomic.LoadInt32(&p.idleCount)
 	needed := int32(p.config.MinIdleSize) - currentIdle
-	
+
 	for i := int32(0); i < needed; i++ {
 		if atomic.LoadInt32(&p.totalConns) >= int32(p.config.MaxSize) {
 			break
 		}
-		
+
 		if err := p.createConnection(); err != nil {
 			// Log error but continue
 			break
@@ -559,7 +630,7 @@ func (p *ConnectionPool) ensureMinimumIdle() {
 func (p *ConnectionPool) cleanupExcessIdle() {
 	currentIdle := atomic.LoadInt32(&p.idleCount)
 	excess := currentIdle - int32(p.config.MaxIdleSize)
-	
+
 	for i := int32(0); i < excess; i++ {
 		select {
 		case conn := <-p.idleConns:
@@ -575,7 +646,7 @@ func (p *ConnectionPool) cleanupExcessIdle() {
 func (p *ConnectionPool) GetStats() *PoolStats {
 	p.stats.mutex.RLock()
 	defer p.stats.mutex.RUnlock()
-	
+
 	return &PoolStats{
 		TotalAcquired:    p.stats.TotalAcquired,
 		TotalReturned:    p.stats.TotalReturned,
@@ -595,14 +666,14 @@ func (p *ConnectionPool) GetPoolInfo() map[string]interface{} {
 		"total_connections":  atomic.LoadInt32(&p.totalConns),
 		"active_connections": atomic.LoadInt32(&p.activeConns),
 		"idle_connections":   atomic.LoadInt32(&p.idleCount),
-		"max_size":          p.config.MaxSize,
-		"min_idle":          p.config.MinIdleSize,
-		"max_idle":          p.config.MaxIdleSize,
-		"stats":             p.GetStats(),
+		"max_size":           p.config.MaxSize,
+		"min_idle":           p.config.MinIdleSize,
+		"max_idle":           p.config.MaxIdleSize,
+		"stats":              p.GetStats(),
 	}
 }
 
-// Close closes the connection pool
+// Close closes the connection pool with enhanced cleanup and leak prevention
 func (p *ConnectionPool) Close() error {
 	p.mutex.Lock()
 	if p.closed {
@@ -611,30 +682,88 @@ func (p *ConnectionPool) Close() error {
 	}
 	p.closed = true
 	p.mutex.Unlock()
-	
+
 	// Cancel context to stop workers
 	p.cancel()
-	
-	// Wait for workers to finish
-	p.wg.Wait()
-	
-	// Close all connections
+
+	// Wait for workers to finish with timeout
+	done := make(chan struct{})
+	go func() {
+		p.wg.Wait()
+		close(done)
+	}()
+
+	// Wait for workers with timeout
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+
+	select {
+	case <-done:
+		// Workers finished normally
+	case <-timeout.C:
+		// Workers didn't finish in time, continue with cleanup
+	}
+
+	// Enhanced connection cleanup with proper error handling
 	p.mutex.Lock()
 	connections := make([]*PooledConnection, 0, len(p.connections))
 	for _, conn := range p.connections {
 		connections = append(connections, conn)
 	}
+	// Clear the connections map immediately
 	p.connections = make(map[string]*PooledConnection)
 	p.mutex.Unlock()
-	
-	// Close connections
+
+	// Close all connections with concurrency control
+	var closeWg sync.WaitGroup
+	semaphore := make(chan struct{}, 10) // Limit concurrent closes
+
 	for _, conn := range connections {
-		conn.Close()
+		closeWg.Add(1)
+		go func(c *PooledConnection) {
+			defer closeWg.Done()
+			semaphore <- struct{}{} // Acquire semaphore
+			defer func() { <-semaphore }() // Release semaphore
+
+			if closeErr := c.Close(); closeErr != nil {
+				// Log but don't fail the entire close operation
+			}
+		}(conn)
 	}
-	
-	// Close idle channel
-	close(p.idleConns)
-	
+
+	// Wait for all connections to close with timeout
+	closeWaitDone := make(chan struct{})
+	go func() {
+		closeWg.Wait()
+		close(closeWaitDone)
+	}()
+
+	closeTimeout := time.NewTimer(10 * time.Second)
+	defer closeTimeout.Stop()
+
+	select {
+	case <-closeWaitDone:
+		// All connections closed
+	case <-closeTimeout.C:
+		// Some connections didn't close in time, continue anyway
+	}
+
+	// Safely close idle channel
+	if p.idleConns != nil {
+		// Drain the channel first to prevent goroutine leaks
+		for {
+			select {
+			case _, ok := <-p.idleConns:
+				if !ok {
+					return nil // Channel already closed
+				}
+			default:
+				close(p.idleConns)
+				return nil
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -642,11 +771,11 @@ func (p *ConnectionPool) Close() error {
 func (p *ConnectionPool) updateAcquireStats(duration time.Duration) {
 	p.stats.mutex.Lock()
 	defer p.stats.mutex.Unlock()
-	
+
 	if p.stats.TotalAcquired > 0 {
 		p.stats.AvgAcquireTime = time.Duration(
-			(int64(p.stats.AvgAcquireTime)*p.stats.TotalAcquired + int64(duration)) / 
-			(p.stats.TotalAcquired + 1),
+			(int64(p.stats.AvgAcquireTime)*p.stats.TotalAcquired + int64(duration)) /
+				(p.stats.TotalAcquired + 1),
 		)
 	} else {
 		p.stats.AvgAcquireTime = duration
@@ -657,11 +786,11 @@ func (p *ConnectionPool) updateAcquireStats(duration time.Duration) {
 func (p *ConnectionPool) updateCreateStats(duration time.Duration) {
 	p.stats.mutex.Lock()
 	defer p.stats.mutex.Unlock()
-	
+
 	if p.stats.TotalCreated > 0 {
 		p.stats.AvgCreateTime = time.Duration(
-			(int64(p.stats.AvgCreateTime)*p.stats.TotalCreated + int64(duration)) / 
-			(p.stats.TotalCreated + 1),
+			(int64(p.stats.AvgCreateTime)*p.stats.TotalCreated + int64(duration)) /
+				(p.stats.TotalCreated + 1),
 		)
 	} else {
 		p.stats.AvgCreateTime = duration
@@ -700,20 +829,20 @@ func (f *HTTPConnectionFactory) ValidateConnection(conn net.Conn) bool {
 	if conn == nil {
 		return false
 	}
-	
+
 	// Try to read from connection with a very short timeout
 	conn.SetReadDeadline(time.Now().Add(1 * time.Millisecond))
 	buffer := make([]byte, 1)
 	_, err := conn.Read(buffer)
-	
+
 	// Reset deadline
 	conn.SetReadDeadline(time.Time{})
-	
+
 	// If we get a timeout, connection is likely healthy
 	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 		return true
 	}
-	
+
 	// Connection is closed or has other issues
 	return false
 }
@@ -748,7 +877,7 @@ func (f *WebSocketConnectionFactory) CreateConnection(ctx context.Context) (net.
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Return the underlying network connection
 	return conn.UnderlyingConn(), nil
 }
@@ -772,20 +901,20 @@ func (f *WebSocketConnectionFactory) basicValidation(conn net.Conn) bool {
 	if conn == nil {
 		return false
 	}
-	
+
 	// Try to read from connection with a very short timeout
 	conn.SetReadDeadline(time.Now().Add(1 * time.Millisecond))
 	buffer := make([]byte, 1)
 	_, err := conn.Read(buffer)
-	
+
 	// Reset deadline
 	conn.SetReadDeadline(time.Time{})
-	
+
 	// If we get a timeout, connection is likely healthy
 	if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
 		return true
 	}
-	
+
 	// Connection is closed or has other issues
 	return false
 }

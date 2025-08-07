@@ -185,7 +185,7 @@ func TestClientRateLimiter_ConcurrentAccess(t *testing.T) {
 	}
 	rl := NewClientRateLimiter(config)
 
-	numGoroutines := 10  // Reduced from 50 to prevent resource exhaustion
+	numGoroutines := 10 // Reduced from 50 to prevent resource exhaustion
 	numRequests := 50   // Reduced from 200 to prevent test timeouts
 	var wg sync.WaitGroup
 	var allowed atomic.Int64
@@ -228,7 +228,7 @@ func TestClientRateLimiter_ConcurrentAccess(t *testing.T) {
 	if totalAllowed < minExpectedAllowed {
 		t.Errorf("Expected at least %d allowed requests, got %d", minExpectedAllowed, totalAllowed)
 	}
-	
+
 	// With concurrent access, we should have some rate limiting (some denied requests)
 	if totalDenied == 0 && total > int64(config.BurstSize) {
 		t.Logf("Note: No requests were denied. This may occur with light load or timing differences.")

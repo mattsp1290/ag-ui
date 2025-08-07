@@ -24,26 +24,26 @@ func NewGrafanaDashboardGenerator(config *Config) *GrafanaDashboardGenerator {
 // GrafanaDashboard represents a Grafana dashboard
 type GrafanaDashboard struct {
 	Dashboard DashboardJSON `json:"dashboard"`
-	FolderID  int          `json:"folderId"`
-	Overwrite bool         `json:"overwrite"`
+	FolderID  int           `json:"folderId"`
+	Overwrite bool          `json:"overwrite"`
 }
 
 // DashboardJSON represents the dashboard structure
 type DashboardJSON struct {
-	ID            *int         `json:"id"`
-	UID           string       `json:"uid,omitempty"`
-	Title         string       `json:"title"`
-	Tags          []string     `json:"tags"`
-	Timezone      string       `json:"timezone"`
-	SchemaVersion int          `json:"schemaVersion"`
-	Version       int          `json:"version"`
-	Panels        []Panel      `json:"panels"`
-	Time          TimeRange    `json:"time"`
-	Timepicker    TimePicker   `json:"timepicker"`
-	Templating    Templating   `json:"templating"`
-	Annotations   Annotations  `json:"annotations"`
-	Refresh       string       `json:"refresh"`
-	Variables     []Variable   `json:"variables,omitempty"`
+	ID            *int        `json:"id"`
+	UID           string      `json:"uid,omitempty"`
+	Title         string      `json:"title"`
+	Tags          []string    `json:"tags"`
+	Timezone      string      `json:"timezone"`
+	SchemaVersion int         `json:"schemaVersion"`
+	Version       int         `json:"version"`
+	Panels        []Panel     `json:"panels"`
+	Time          TimeRange   `json:"time"`
+	Timepicker    TimePicker  `json:"timepicker"`
+	Templating    Templating  `json:"templating"`
+	Annotations   Annotations `json:"annotations"`
+	Refresh       string      `json:"refresh"`
+	Variables     []Variable  `json:"variables,omitempty"`
 }
 
 // Panel represents a Grafana panel
@@ -91,14 +91,14 @@ type FieldConfig struct {
 
 // FieldDefaults represents field defaults
 type FieldDefaults struct {
-	Color       ColorConfig            `json:"color,omitempty"`
-	Mappings    []interface{}          `json:"mappings,omitempty"`
-	Thresholds  ThresholdConfig        `json:"thresholds,omitempty"`
-	Unit        string                 `json:"unit,omitempty"`
-	Custom      map[string]interface{} `json:"custom,omitempty"`
-	Min         *float64               `json:"min,omitempty"`
-	Max         *float64               `json:"max,omitempty"`
-	Decimals    *int                   `json:"decimals,omitempty"`
+	Color      ColorConfig            `json:"color,omitempty"`
+	Mappings   []interface{}          `json:"mappings,omitempty"`
+	Thresholds ThresholdConfig        `json:"thresholds,omitempty"`
+	Unit       string                 `json:"unit,omitempty"`
+	Custom     map[string]interface{} `json:"custom,omitempty"`
+	Min        *float64               `json:"min,omitempty"`
+	Max        *float64               `json:"max,omitempty"`
+	Decimals   *int                   `json:"decimals,omitempty"`
 }
 
 // ColorConfig represents color configuration
@@ -121,8 +121,8 @@ type Threshold struct {
 
 // FieldOverride represents field overrides
 type FieldOverride struct {
-	Matcher    Matcher                `json:"matcher"`
-	Properties []OverrideProperty     `json:"properties"`
+	Matcher    Matcher            `json:"matcher"`
+	Properties []OverrideProperty `json:"properties"`
 }
 
 // Matcher represents a field matcher
@@ -200,7 +200,7 @@ func (g *GrafanaDashboardGenerator) GenerateOverviewDashboard() (*GrafanaDashboa
 		Refresh: "30s",
 		Panels:  []Panel{},
 	}
-	
+
 	// Row 1: Key Metrics
 	dashboard.Panels = append(dashboard.Panels,
 		g.createStatPanel(1, "Total Events", "sum(increase(ag_ui_events_validation_total[5m]))", 0, 0, 6, 4),
@@ -208,7 +208,7 @@ func (g *GrafanaDashboardGenerator) GenerateOverviewDashboard() (*GrafanaDashboa
 		g.createStatPanel(3, "Throughput", "sum(rate(ag_ui_events_validation_total[5m]))", 12, 0, 6, 4),
 		g.createStatPanel(4, "SLA Compliance", "avg(ag_ui_events_sla_compliance_percent)", 18, 0, 6, 4),
 	)
-	
+
 	// Row 2: Time Series
 	dashboard.Panels = append(dashboard.Panels,
 		g.createTimeSeriesPanel(5, "Event Processing Rate", []Target{
@@ -220,13 +220,13 @@ func (g *GrafanaDashboardGenerator) GenerateOverviewDashboard() (*GrafanaDashboa
 			{RefID: "C", Expr: "histogram_quantile(0.99, sum(rate(ag_ui_events_validation_duration_seconds_bucket[5m])) by (le))", LegendFormat: "p99"},
 		}, 12, 4, 12, 8),
 	)
-	
+
 	// Row 3: Rule Performance
 	dashboard.Panels = append(dashboard.Panels,
 		g.createTablePanel(7, "Top Slow Rules", "topk(10, avg_over_time(ag_ui_rule_avg_duration[5m])) by (rule_id)", 0, 12, 12, 8),
 		g.createHeatmapPanel(8, "Rule Execution Heatmap", "sum(increase(ag_ui_events_rule_execution_duration_seconds_bucket[5m])) by (le, rule_id)", 12, 12, 12, 8),
 	)
-	
+
 	// Row 4: System Health
 	dashboard.Panels = append(dashboard.Panels,
 		g.createTimeSeriesPanel(9, "Memory Usage", []Target{
@@ -236,7 +236,7 @@ func (g *GrafanaDashboardGenerator) GenerateOverviewDashboard() (*GrafanaDashboa
 		g.createGaugePanel(10, "Memory Pressure", "ag_ui_memory_allocated_bytes / 1024 / 1024 / 1024", 12, 20, 6, 8),
 		g.createStatPanel(11, "GC Cycles", "increase(ag_ui_gc_cycles_total[5m])", 18, 20, 6, 8),
 	)
-	
+
 	return &GrafanaDashboard{
 		Dashboard: *dashboard,
 		FolderID:  0,
@@ -273,7 +273,7 @@ func (g *GrafanaDashboardGenerator) GenerateRulePerformanceDashboard() (*Grafana
 			},
 		},
 	}
-	
+
 	// Rule-specific panels
 	dashboard.Panels = append(dashboard.Panels,
 		g.createTimeSeriesPanel(1, "Rule Execution Duration", []Target{
@@ -283,7 +283,7 @@ func (g *GrafanaDashboardGenerator) GenerateRulePerformanceDashboard() (*Grafana
 		g.createStatPanel(3, "Average Duration", "avg(ag_ui_rule_avg_duration{rule_id=~\"$rule_id\"})", 8, 8, 8, 4),
 		g.createStatPanel(4, "Error Rate", "avg(ag_ui_rule_error_rate{rule_id=~\"$rule_id\"})", 16, 8, 8, 4),
 	)
-	
+
 	return &GrafanaDashboard{
 		Dashboard: *dashboard,
 		FolderID:  0,
@@ -306,7 +306,7 @@ func (g *GrafanaDashboardGenerator) GenerateSLAComplianceDashboard() (*GrafanaDa
 		Refresh: "5m",
 		Panels:  []Panel{},
 	}
-	
+
 	// SLA panels
 	dashboard.Panels = append(dashboard.Panels,
 		g.createTablePanel(1, "SLA Status", "ag_ui_sla_compliance", 0, 0, 24, 8),
@@ -317,7 +317,7 @@ func (g *GrafanaDashboardGenerator) GenerateSLAComplianceDashboard() (*GrafanaDa
 		g.createStatPanel(4, "Active Violations", "count(ag_ui_sla_compliance == 0)", 8, 18, 8, 6),
 		g.createStatPanel(5, "At Risk SLAs", "count(ag_ui_sla_current_value > ag_ui_sla_target_value * 0.9)", 16, 18, 8, 6),
 	)
-	
+
 	return &GrafanaDashboard{
 		Dashboard: *dashboard,
 		FolderID:  0,
@@ -340,7 +340,7 @@ func (g *GrafanaDashboardGenerator) GenerateSystemHealthDashboard() (*GrafanaDas
 		Refresh: "1m",
 		Panels:  []Panel{},
 	}
-	
+
 	// System health panels
 	dashboard.Panels = append(dashboard.Panels,
 		g.createTimeSeriesPanel(1, "Memory Usage Trend", []Target{
@@ -354,7 +354,7 @@ func (g *GrafanaDashboardGenerator) GenerateSystemHealthDashboard() (*GrafanaDas
 		g.createAlertListPanel(3, "Active Alerts", 0, 8, 24, 6),
 		g.createLogPanel(4, "Recent Warnings", "{component=\"event-validation\",level=\"warning\"}", 0, 14, 24, 10),
 	)
-	
+
 	return &GrafanaDashboard{
 		Dashboard: *dashboard,
 		FolderID:  0,
@@ -416,9 +416,9 @@ func (g *GrafanaDashboardGenerator) createTimeSeriesPanel(id int, title string, 
 					"fillOpacity":   10,
 					"gradientMode":  "none",
 					"hideFrom": map[string]bool{
-						"tooltip":  false,
-						"viz":      false,
-						"legend":   false,
+						"tooltip": false,
+						"viz":     false,
+						"legend":  false,
 					},
 					"lineInterpolation": "linear",
 					"lineWidth":         1,
@@ -426,10 +426,10 @@ func (g *GrafanaDashboardGenerator) createTimeSeriesPanel(id int, title string, 
 					"scaleDistribution": map[string]string{
 						"type": "linear",
 					},
-					"showPoints":        "never",
-					"spanNulls":         true,
-					"stacking":          map[string]interface{}{"group": "A", "mode": false},
-					"thresholdsStyle":   map[string]string{"mode": "off"},
+					"showPoints":      "never",
+					"spanNulls":       true,
+					"stacking":        map[string]interface{}{"group": "A", "mode": false},
+					"thresholdsStyle": map[string]string{"mode": "off"},
 				},
 				Mappings: []interface{}{},
 				Thresholds: ThresholdConfig{
@@ -471,8 +471,8 @@ func (g *GrafanaDashboardGenerator) createHeatmapPanel(id int, title, expr strin
 			{RefID: "A", Expr: expr},
 		},
 		Options: map[string]interface{}{
-			"calculate": false,
-			"cellGap":   2,
+			"calculate":  false,
+			"cellGap":    2,
 			"cellRadius": 2,
 			"color": map[string]interface{}{
 				"exponent": 0.5,
@@ -548,18 +548,18 @@ func (g *GrafanaDashboardGenerator) createAlertListPanel(id int, title string, x
 		Title:   title,
 		GridPos: GridPos{X: x, Y: y, W: w, H: h},
 		Options: map[string]interface{}{
-			"alertName":   "",
+			"alertName":       "",
 			"dashboardAlerts": false,
-			"groupBy":        []string{},
-			"groupMode":      "default",
-			"maxItems":       20,
-			"sortOrder":      1,
+			"groupBy":         []string{},
+			"groupMode":       "default",
+			"maxItems":        20,
+			"sortOrder":       1,
 			"stateFilter": map[string]bool{
-				"alerting":        true,
-				"pending":         true,
-				"noData":          false,
-				"noDataState":     false,
-				"executionError":  false,
+				"alerting":       true,
+				"pending":        true,
+				"noData":         false,
+				"noDataState":    false,
+				"executionError": false,
 			},
 		},
 	}
@@ -579,14 +579,14 @@ func (g *GrafanaDashboardGenerator) createLogPanel(id int, title, query string, 
 			{RefID: "A", Expr: query},
 		},
 		Options: map[string]interface{}{
-			"dedupStrategy":        "none",
-			"enableLogDetails":     true,
-			"prettifyLogMessage":   false,
-			"showCommonLabels":     false,
-			"showLabels":           false,
-			"showTime":             true,
-			"sortOrder":            "Descending",
-			"wrapLogMessage":       false,
+			"dedupStrategy":      "none",
+			"enableLogDetails":   true,
+			"prettifyLogMessage": false,
+			"showCommonLabels":   false,
+			"showLabels":         false,
+			"showTime":           true,
+			"sortOrder":          "Descending",
+			"wrapLogMessage":     false,
 		},
 	}
 }
@@ -596,20 +596,20 @@ func (g *GrafanaDashboardGenerator) UploadDashboard(dashboard *GrafanaDashboard)
 	if g.config.GrafanaURL == "" || g.config.GrafanaAPIKey == "" {
 		return fmt.Errorf("Grafana URL or API key not configured")
 	}
-	
+
 	data, err := json.Marshal(dashboard)
 	if err != nil {
 		return fmt.Errorf("failed to marshal dashboard: %w", err)
 	}
-	
+
 	req, err := http.NewRequest("POST", fmt.Sprintf("%s/api/dashboards/db", g.config.GrafanaURL), bytes.NewBuffer(data))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
-	
+
 	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", g.config.GrafanaAPIKey))
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	client := &http.Client{
 		Timeout: 30 * time.Second,
 		Transport: &http.Transport{
@@ -630,11 +630,11 @@ func (g *GrafanaDashboardGenerator) UploadDashboard(dashboard *GrafanaDashboard)
 		return fmt.Errorf("failed to upload dashboard: %w", err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("failed to upload dashboard: status %d", resp.StatusCode)
 	}
-	
+
 	return nil
 }
 

@@ -22,7 +22,7 @@ func NewValidatorBuilder() *ValidatorBuilder {
 // NewValidatorBuilderForEnvironment creates a new ValidatorBuilder for a specific environment
 func NewValidatorBuilderForEnvironment(env string) *ValidatorBuilder {
 	var config *ValidatorConfig
-	
+
 	switch env {
 	case "development", "dev":
 		config = DevelopmentValidatorConfig()
@@ -34,7 +34,7 @@ func NewValidatorBuilderForEnvironment(env string) *ValidatorBuilder {
 		config = DefaultValidatorConfig()
 		config.Global.Environment = env
 	}
-	
+
 	return &ValidatorBuilder{
 		config: config,
 		errors: make([]error, 0),
@@ -46,12 +46,12 @@ func (b *ValidatorBuilder) Build() (*ValidatorConfig, error) {
 	if len(b.errors) > 0 {
 		return nil, fmt.Errorf("configuration build failed with %d errors: %v", len(b.errors), b.errors)
 	}
-	
+
 	// Validate the final configuration
 	if err := b.validateConfig(); err != nil {
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
 	}
-	
+
 	return b.config, nil
 }
 
@@ -568,7 +568,7 @@ func (b *ValidatorBuilder) ForTesting() *ValidatorBuilder {
 // validateConfig validates the final configuration
 func (b *ValidatorBuilder) validateConfig() error {
 	config := b.config
-	
+
 	// Validate core configuration
 	if config.Core != nil {
 		if config.Core.ValidationTimeout <= 0 {
@@ -578,7 +578,7 @@ func (b *ValidatorBuilder) validateConfig() error {
 			return fmt.Errorf("core.max_concurrent_validations must be positive")
 		}
 	}
-	
+
 	// Validate authentication configuration
 	if config.Auth != nil && config.Auth.Enabled {
 		if config.Auth.TokenExpiration <= 0 {
@@ -588,7 +588,7 @@ func (b *ValidatorBuilder) validateConfig() error {
 			return fmt.Errorf("auth.refresh_expiration must be positive when refresh is enabled")
 		}
 	}
-	
+
 	// Validate cache configuration
 	if config.Cache != nil && config.Cache.Enabled {
 		if config.Cache.L1Enabled && config.Cache.L1Size <= 0 {
@@ -601,7 +601,7 @@ func (b *ValidatorBuilder) validateConfig() error {
 			return fmt.Errorf("cache.l2_ttl must be positive when L2 cache is enabled")
 		}
 	}
-	
+
 	// Validate distributed configuration
 	if config.Distributed != nil && config.Distributed.Enabled {
 		if config.Distributed.NodeID == "" {
@@ -617,14 +617,14 @@ func (b *ValidatorBuilder) validateConfig() error {
 			return fmt.Errorf("distributed.max_nodes must be >= min_nodes")
 		}
 	}
-	
+
 	// Validate analytics configuration
 	if config.Analytics != nil {
 		if config.Analytics.TracingEnabled && (config.Analytics.SamplingRate < 0 || config.Analytics.SamplingRate > 1) {
 			return fmt.Errorf("analytics.sampling_rate must be between 0 and 1")
 		}
 	}
-	
+
 	// Validate security configuration
 	if config.Security != nil && config.Security.Enabled {
 		if config.Security.EnableRateLimiting && config.Security.RateLimit <= 0 {
@@ -634,7 +634,7 @@ func (b *ValidatorBuilder) validateConfig() error {
 			return fmt.Errorf("security.max_content_length must be positive")
 		}
 	}
-	
+
 	// Validate global settings
 	if config.Global != nil {
 		if config.Global.MaxWorkers <= 0 {
@@ -644,7 +644,7 @@ func (b *ValidatorBuilder) validateConfig() error {
 			return fmt.Errorf("global.worker_queue_size must be positive")
 		}
 	}
-	
+
 	return nil
 }
 

@@ -48,19 +48,19 @@ func BenchmarkTool(b *testing.B) {
 func benchmarkSingleExecution(b *testing.B) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry)
-	
+
 	tool := createBenchmarkTool("bench-tool", 10*time.Millisecond)
 	if err := registry.Register(tool); err != nil {
 		b.Fatal(err)
 	}
-	
+
 	params := map[string]interface{}{
 		"input": "benchmark test",
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		_, err := engine.Execute(context.Background(), tool.ID, params)
 		if err != nil {
@@ -72,25 +72,25 @@ func benchmarkSingleExecution(b *testing.B) {
 // Concurrent execution benchmarks
 func benchmarkConcurrentExecution(b *testing.B) {
 	concurrencyLevels := []int{1, 2, 4, 8, 16, 32, 64, 128}
-	
+
 	for _, concurrency := range concurrencyLevels {
 		b.Run(fmt.Sprintf("Concurrency%d", concurrency), func(b *testing.B) {
 			registry := NewRegistry()
 			engine := NewExecutionEngine(registry, WithMaxConcurrent(concurrency))
-			
+
 			tool := createBenchmarkTool("bench-tool", 1*time.Millisecond)
 			if err := registry.Register(tool); err != nil {
 				b.Fatal(err)
 			}
-			
+
 			params := map[string]interface{}{
 				"input": "benchmark test",
 			}
-			
+
 			b.ResetTimer()
 			b.ReportAllocs()
 			b.SetParallelism(concurrency)
-			
+
 			b.RunParallel(func(pb *testing.PB) {
 				for pb.Next() {
 					_, err := engine.Execute(context.Background(), tool.ID, params)
@@ -107,7 +107,7 @@ func benchmarkConcurrentExecution(b *testing.B) {
 func benchmarkHighConcurrency(b *testing.B) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(1000))
-	
+
 	// Create multiple tools
 	tools := make([]*Tool, 100)
 	for i := 0; i < 100; i++ {
@@ -116,17 +116,17 @@ func benchmarkHighConcurrency(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
-	
+
 	params := map[string]interface{}{
 		"input": "benchmark test",
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	var wg sync.WaitGroup
 	workers := 100
-	
+
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			wg.Add(workers)
@@ -149,41 +149,41 @@ func benchmarkHighConcurrency(b *testing.B) {
 func benchmarkMemoryUsage(b *testing.B) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry)
-	
+
 	tool := createBenchmarkTool("bench-tool", 1*time.Millisecond)
 	if err := registry.Register(tool); err != nil {
 		b.Fatal(err)
 	}
-	
+
 	params := map[string]interface{}{
 		"input": "benchmark test",
 	}
-	
+
 	// Force GC before starting
 	runtime.GC()
 	runtime.GC()
-	
+
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		_, err := engine.Execute(context.Background(), tool.ID, params)
 		if err != nil {
 			b.Fatal(err)
 		}
 	}
-	
+
 	b.StopTimer()
-	
+
 	runtime.GC()
 	runtime.GC()
-	
+
 	var after runtime.MemStats
 	runtime.ReadMemStats(&after)
-	
+
 	b.ReportMetric(float64(after.Alloc-before.Alloc)/float64(b.N), "bytes/op")
 	b.ReportMetric(float64(after.Mallocs-before.Mallocs)/float64(b.N), "allocs/op")
 }
@@ -192,25 +192,25 @@ func benchmarkMemoryUsage(b *testing.B) {
 func benchmarkThroughput(b *testing.B) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(100))
-	
+
 	tool := createBenchmarkTool("bench-tool", 1*time.Millisecond)
 	if err := registry.Register(tool); err != nil {
 		b.Fatal(err)
 	}
-	
+
 	params := map[string]interface{}{
 		"input": "benchmark test",
 	}
-	
+
 	duration := 10 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
-	
+
 	var ops int64
 	var wg sync.WaitGroup
-	
+
 	b.ResetTimer()
-	
+
 	// Start multiple workers
 	workers := 50
 	for i := 0; i < workers; i++ {
@@ -230,11 +230,11 @@ func benchmarkThroughput(b *testing.B) {
 			}
 		}()
 	}
-	
+
 	wg.Wait()
-	
+
 	b.StopTimer()
-	
+
 	throughput := float64(ops) / duration.Seconds()
 	b.ReportMetric(throughput, "ops/sec")
 }
@@ -243,20 +243,20 @@ func benchmarkThroughput(b *testing.B) {
 func benchmarkLatency(b *testing.B) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry)
-	
+
 	tool := createBenchmarkTool("bench-tool", 5*time.Millisecond)
 	if err := registry.Register(tool); err != nil {
 		b.Fatal(err)
 	}
-	
+
 	params := map[string]interface{}{
 		"input": "benchmark test",
 	}
-	
+
 	latencies := make([]time.Duration, b.N)
-	
+
 	b.ResetTimer()
-	
+
 	for i := 0; i < b.N; i++ {
 		start := time.Now()
 		_, err := engine.Execute(context.Background(), tool.ID, params)
@@ -265,16 +265,16 @@ func benchmarkLatency(b *testing.B) {
 		}
 		latencies[i] = time.Since(start)
 	}
-	
+
 	b.StopTimer()
-	
+
 	// Calculate percentiles
 	sortDurations(latencies)
-	
+
 	p50 := latencies[len(latencies)*50/100]
 	p95 := latencies[len(latencies)*95/100]
 	p99 := latencies[len(latencies)*99/100]
-	
+
 	b.ReportMetric(float64(p50.Nanoseconds())/1e6, "p50_ms")
 	b.ReportMetric(float64(p95.Nanoseconds())/1e6, "p95_ms")
 	b.ReportMetric(float64(p99.Nanoseconds())/1e6, "p99_ms")
@@ -283,12 +283,12 @@ func benchmarkLatency(b *testing.B) {
 // Scalability by tool count benchmark
 func benchmarkScalabilityByToolCount(b *testing.B) {
 	toolCounts := []int{1, 10, 100, 1000, 10000}
-	
+
 	for _, toolCount := range toolCounts {
 		b.Run(fmt.Sprintf("Tools%d", toolCount), func(b *testing.B) {
 			registry := NewRegistry()
 			engine := NewExecutionEngine(registry)
-			
+
 			// Create tools
 			tools := make([]*Tool, toolCount)
 			for i := 0; i < toolCount; i++ {
@@ -297,14 +297,14 @@ func benchmarkScalabilityByToolCount(b *testing.B) {
 					b.Fatal(err)
 				}
 			}
-			
+
 			params := map[string]interface{}{
 				"input": "benchmark test",
 			}
-			
+
 			b.ResetTimer()
 			b.ReportAllocs()
-			
+
 			for i := 0; i < b.N; i++ {
 				// Execute random tool
 				tool := tools[rand.Intn(len(tools))]
@@ -321,7 +321,7 @@ func benchmarkScalabilityByToolCount(b *testing.B) {
 func benchmarkStressTest(b *testing.B) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(500))
-	
+
 	// Create many tools
 	tools := make([]*Tool, 1000)
 	for i := 0; i < 1000; i++ {
@@ -330,14 +330,14 @@ func benchmarkStressTest(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
-	
+
 	params := map[string]interface{}{
 		"input": "benchmark test",
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	// High concurrency stress test
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -353,15 +353,15 @@ func benchmarkStressTest(b *testing.B) {
 // Registry benchmarks
 func benchmarkRegistration(b *testing.B) {
 	registry := NewRegistry()
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		b.StopTimer()
 		tool := createBenchmarkTool(fmt.Sprintf("bench-tool-%d", i), 1*time.Millisecond)
 		b.StartTimer()
-		
+
 		if err := registry.Register(tool); err != nil {
 			b.Fatal(err)
 		}
@@ -370,7 +370,7 @@ func benchmarkRegistration(b *testing.B) {
 
 func benchmarkLookup(b *testing.B) {
 	registry := NewRegistry()
-	
+
 	// Pre-register tools
 	tools := make([]*Tool, 10000)
 	for i := 0; i < 10000; i++ {
@@ -379,10 +379,10 @@ func benchmarkLookup(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		toolID := fmt.Sprintf("bench-tool-%d", rand.Intn(10000))
 		_, err := registry.Get(toolID)
@@ -394,7 +394,7 @@ func benchmarkLookup(b *testing.B) {
 
 func benchmarkLookupByName(b *testing.B) {
 	registry := NewRegistry()
-	
+
 	// Pre-register tools
 	tools := make([]*Tool, 10000)
 	for i := 0; i < 10000; i++ {
@@ -403,10 +403,10 @@ func benchmarkLookupByName(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		toolName := fmt.Sprintf("Benchmark Tool %d", rand.Intn(10000))
 		_, err := registry.GetByName(toolName)
@@ -418,7 +418,7 @@ func benchmarkLookupByName(b *testing.B) {
 
 func benchmarkListAll(b *testing.B) {
 	registry := NewRegistry()
-	
+
 	// Pre-register tools
 	tools := make([]*Tool, 1000)
 	for i := 0; i < 1000; i++ {
@@ -427,10 +427,10 @@ func benchmarkListAll(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		_, err := registry.ListAll()
 		if err != nil {
@@ -441,7 +441,7 @@ func benchmarkListAll(b *testing.B) {
 
 func benchmarkListFiltered(b *testing.B) {
 	registry := NewRegistry()
-	
+
 	// Pre-register tools with tags
 	tools := make([]*Tool, 1000)
 	for i := 0; i < 1000; i++ {
@@ -454,14 +454,14 @@ func benchmarkListFiltered(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
-	
+
 	filter := &ToolFilter{
 		Tags: []string{"benchmark"},
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		_, err := registry.List(filter)
 		if err != nil {
@@ -472,7 +472,7 @@ func benchmarkListFiltered(b *testing.B) {
 
 func benchmarkConcurrentAccess(b *testing.B) {
 	registry := NewRegistry()
-	
+
 	// Pre-register tools
 	tools := make([]*Tool, 1000)
 	for i := 0; i < 1000; i++ {
@@ -481,10 +481,10 @@ func benchmarkConcurrentAccess(b *testing.B) {
 			b.Fatal(err)
 		}
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			// Mix of operations
@@ -507,11 +507,11 @@ func benchmarkConcurrentAccess(b *testing.B) {
 
 func benchmarkScalabilityByRegistrySize(b *testing.B) {
 	registrySizes := []int{10, 100, 1000, 10000, 100000}
-	
+
 	for _, size := range registrySizes {
 		b.Run(fmt.Sprintf("Size%d", size), func(b *testing.B) {
 			registry := NewRegistry()
-			
+
 			// Pre-register tools
 			tools := make([]*Tool, size)
 			for i := 0; i < size; i++ {
@@ -520,10 +520,10 @@ func benchmarkScalabilityByRegistrySize(b *testing.B) {
 					b.Fatal(err)
 				}
 			}
-			
+
 			b.ResetTimer()
 			b.ReportAllocs()
-			
+
 			for i := 0; i < b.N; i++ {
 				toolID := fmt.Sprintf("bench-tool-%d", rand.Intn(size))
 				_, err := registry.Get(toolID)
@@ -537,12 +537,12 @@ func benchmarkScalabilityByRegistrySize(b *testing.B) {
 
 func benchmarkDependencyResolution(b *testing.B) {
 	registry := NewRegistry()
-	
+
 	// Create tools with dependencies
 	tools := make([]*Tool, 100)
 	for i := 0; i < 100; i++ {
 		tool := createBenchmarkTool(fmt.Sprintf("bench-tool-%d", i), 1*time.Millisecond)
-		
+
 		// Add dependencies
 		if i > 0 {
 			var deps []string
@@ -553,16 +553,16 @@ func benchmarkDependencyResolution(b *testing.B) {
 				Dependencies: deps,
 			}
 		}
-		
+
 		tools[i] = tool
 		if err := registry.Register(tool); err != nil {
 			b.Fatal(err)
 		}
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		toolID := fmt.Sprintf("bench-tool-%d", rand.Intn(100))
 		_, err := registry.GetDependencies(toolID)
@@ -575,10 +575,10 @@ func benchmarkDependencyResolution(b *testing.B) {
 // Tool operation benchmarks
 func benchmarkToolValidation(b *testing.B) {
 	tool := createBenchmarkTool("bench-tool", 1*time.Millisecond)
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		err := tool.Validate()
 		if err != nil {
@@ -589,10 +589,10 @@ func benchmarkToolValidation(b *testing.B) {
 
 func benchmarkToolCloning(b *testing.B) {
 	tool := createComplexBenchmarkTool("bench-tool", 1*time.Millisecond)
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		_ = tool.Clone()
 	}
@@ -600,10 +600,10 @@ func benchmarkToolCloning(b *testing.B) {
 
 func benchmarkToolSerialization(b *testing.B) {
 	tool := createComplexBenchmarkTool("bench-tool", 1*time.Millisecond)
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		_, err := tool.MarshalJSON()
 		if err != nil {
@@ -615,7 +615,7 @@ func benchmarkToolSerialization(b *testing.B) {
 func benchmarkSchemaValidation(b *testing.B) {
 	tool := createComplexBenchmarkTool("bench-tool", 1*time.Millisecond)
 	validator := NewSchemaValidator(tool.Schema)
-	
+
 	params := map[string]interface{}{
 		"input":   "test string",
 		"number":  42,
@@ -625,10 +625,10 @@ func benchmarkSchemaValidation(b *testing.B) {
 			"nested": "value",
 		},
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		err := validator.Validate(params)
 		if err != nil {
@@ -661,7 +661,7 @@ func createBenchmarkTool(id string, processingTime time.Duration) *Tool {
 			Cacheable:  true,
 			Cancelable: true,
 			Retryable:  true,
-			Timeout:    5 * time.Second,  // Reduced from 30s to 5s
+			Timeout:    5 * time.Second, // Reduced from 30s to 5s
 		},
 	}
 }
@@ -771,13 +771,13 @@ func (e *BenchmarkExecutor) Execute(ctx context.Context, params map[string]inter
 		return nil, ctx.Err()
 	case <-time.After(e.processingTime):
 	}
-	
+
 	// Simulate some work
 	result := make(map[string]interface{})
 	result["processed"] = params["input"]
 	result["timestamp"] = time.Now()
 	result["processing_time"] = e.processingTime
-	
+
 	return &ToolExecutionResult{
 		Success:   true,
 		Data:      result,
@@ -817,28 +817,28 @@ func BenchmarkLoadPatterns(b *testing.B) {
 func benchmarkConstantLoad(b *testing.B) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(100))
-	
+
 	tool := createBenchmarkTool("bench-tool", 5*time.Millisecond)
 	if err := registry.Register(tool); err != nil {
 		b.Fatal(err)
 	}
-	
+
 	params := map[string]interface{}{
 		"input": "constant load test",
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	// Constant load with fixed number of workers
 	workers := 50
 	duration := 5 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
-	
+
 	var ops int64
 	var wg sync.WaitGroup
-	
+
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
 		go func() {
@@ -856,9 +856,9 @@ func benchmarkConstantLoad(b *testing.B) {
 			}
 		}()
 	}
-	
+
 	wg.Wait()
-	
+
 	b.StopTimer()
 	b.ReportMetric(float64(ops)/duration.Seconds(), "ops/sec")
 }
@@ -866,46 +866,46 @@ func benchmarkConstantLoad(b *testing.B) {
 func benchmarkRampLoad(b *testing.B) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(200))
-	
+
 	tool := createBenchmarkTool("bench-tool", 5*time.Millisecond)
 	if err := registry.Register(tool); err != nil {
 		b.Fatal(err)
 	}
-	
+
 	params := map[string]interface{}{
 		"input": "ramp load test",
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	// Ramp load - gradually increase workers
 	duration := 10 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
-	
+
 	var ops int64
 	var wg sync.WaitGroup
-	
+
 	// Start workers gradually
 	maxWorkers := 100
 	rampDuration := 5 * time.Second
-	
+
 	for i := 0; i < maxWorkers; i++ {
 		// Delay worker start based on ramp schedule
 		delay := time.Duration(i) * rampDuration / time.Duration(maxWorkers)
-		
+
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			
+
 			// Wait for ramp delay
 			select {
 			case <-ctx.Done():
 				return
 			case <-time.After(delay):
 			}
-			
+
 			// Execute operations
 			for {
 				select {
@@ -920,9 +920,9 @@ func benchmarkRampLoad(b *testing.B) {
 			}
 		}()
 	}
-	
+
 	wg.Wait()
-	
+
 	b.StopTimer()
 	b.ReportMetric(float64(ops)/duration.Seconds(), "ops/sec")
 }
@@ -930,27 +930,27 @@ func benchmarkRampLoad(b *testing.B) {
 func benchmarkSpikeLoad(b *testing.B) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(500))
-	
+
 	tool := createBenchmarkTool("bench-tool", 2*time.Millisecond)
 	if err := registry.Register(tool); err != nil {
 		b.Fatal(err)
 	}
-	
+
 	params := map[string]interface{}{
 		"input": "spike load test",
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	// Spike load - periodic high intensity bursts
 	duration := 20 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
-	
+
 	var ops int64
 	var wg sync.WaitGroup
-	
+
 	// Background load
 	baselineWorkers := 10
 	for i := 0; i < baselineWorkers; i++ {
@@ -971,14 +971,14 @@ func benchmarkSpikeLoad(b *testing.B) {
 			}
 		}()
 	}
-	
+
 	// Spike generator
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -987,7 +987,7 @@ func benchmarkSpikeLoad(b *testing.B) {
 				// Generate spike
 				spikeWorkers := 200
 				var spikeWg sync.WaitGroup
-				
+
 				for i := 0; i < spikeWorkers; i++ {
 					spikeWg.Add(1)
 					go func() {
@@ -1002,9 +1002,9 @@ func benchmarkSpikeLoad(b *testing.B) {
 			}
 		}
 	}()
-	
+
 	wg.Wait()
-	
+
 	b.StopTimer()
 	b.ReportMetric(float64(ops)/duration.Seconds(), "ops/sec")
 }
@@ -1012,48 +1012,48 @@ func benchmarkSpikeLoad(b *testing.B) {
 func benchmarkWaveLoad(b *testing.B) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(150))
-	
+
 	tool := createBenchmarkTool("bench-tool", 3*time.Millisecond)
 	if err := registry.Register(tool); err != nil {
 		b.Fatal(err)
 	}
-	
+
 	params := map[string]interface{}{
 		"input": "wave load test",
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	// Wave load - sinusoidal pattern
-	duration := 5 * time.Second  // Reduced from 30s to 5s
+	duration := 5 * time.Second // Reduced from 30s to 5s
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
-	
+
 	var ops int64
 	var wg sync.WaitGroup
-	
+
 	// Wave generator
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		ticker := time.NewTicker(500 * time.Millisecond)
 		defer ticker.Stop()
-		
+
 		startTime := time.Now()
 		var activeWorkers int
-		
+
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
 				elapsed := time.Since(startTime).Seconds()
-				
+
 				// Sine wave with 20-second period
 				waveValue := math.Sin(elapsed / 10 * math.Pi)
 				targetWorkers := int(50 + 50*waveValue) // 0-100 workers
-				
+
 				// Adjust worker count
 				if targetWorkers > activeWorkers {
 					for i := activeWorkers; i < targetWorkers; i++ {
@@ -1071,9 +1071,9 @@ func benchmarkWaveLoad(b *testing.B) {
 			}
 		}
 	}()
-	
+
 	wg.Wait()
-	
+
 	b.StopTimer()
 	b.ReportMetric(float64(ops)/duration.Seconds(), "ops/sec")
 }
@@ -1081,34 +1081,34 @@ func benchmarkWaveLoad(b *testing.B) {
 func benchmarkBurstLoad(b *testing.B) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(300))
-	
+
 	tool := createBenchmarkTool("bench-tool", 1*time.Millisecond)
 	if err := registry.Register(tool); err != nil {
 		b.Fatal(err)
 	}
-	
+
 	params := map[string]interface{}{
 		"input": "burst load test",
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	// Burst load - rapid fire bursts
 	duration := 15 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
-	
+
 	var ops int64
 	var wg sync.WaitGroup
-	
+
 	// Burst generator
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -1117,7 +1117,7 @@ func benchmarkBurstLoad(b *testing.B) {
 				// Generate burst
 				burstSize := 100
 				burstCtx, cancel := context.WithTimeout(ctx, 500*time.Millisecond)
-				
+
 				var burstWg sync.WaitGroup
 				for i := 0; i < burstSize; i++ {
 					burstWg.Add(1)
@@ -1134,9 +1134,9 @@ func benchmarkBurstLoad(b *testing.B) {
 			}
 		}
 	}()
-	
+
 	wg.Wait()
-	
+
 	b.StopTimer()
 	b.ReportMetric(float64(ops)/duration.Seconds(), "ops/sec")
 }
@@ -1144,34 +1144,34 @@ func benchmarkBurstLoad(b *testing.B) {
 func benchmarkChaosLoad(b *testing.B) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(400))
-	
+
 	tool := createBenchmarkTool("bench-tool", 2*time.Millisecond)
 	if err := registry.Register(tool); err != nil {
 		b.Fatal(err)
 	}
-	
+
 	params := map[string]interface{}{
 		"input": "chaos load test",
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	// Chaos load - random intensity changes
 	duration := 20 * time.Second
 	ctx, cancel := context.WithTimeout(context.Background(), duration)
 	defer cancel()
-	
+
 	var ops int64
 	var wg sync.WaitGroup
-	
+
 	// Chaos generator
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -1179,7 +1179,7 @@ func benchmarkChaosLoad(b *testing.B) {
 			case <-ticker.C:
 				// Random intensity
 				intensity := rand.Intn(200) + 10 // 10-210 workers
-				
+
 				var chaosWg sync.WaitGroup
 				for i := 0; i < intensity; i++ {
 					chaosWg.Add(1)
@@ -1195,9 +1195,9 @@ func benchmarkChaosLoad(b *testing.B) {
 			}
 		}
 	}()
-	
+
 	wg.Wait()
-	
+
 	b.StopTimer()
 	b.ReportMetric(float64(ops)/duration.Seconds(), "ops/sec")
 }
@@ -1213,19 +1213,19 @@ func BenchmarkResourceUtilization(b *testing.B) {
 func benchmarkMemoryIntensive(b *testing.B) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(50))
-	
+
 	tool := createMemoryIntensiveTool("memory-tool")
 	if err := registry.Register(tool); err != nil {
 		b.Fatal(err)
 	}
-	
+
 	params := map[string]interface{}{
 		"size": 1024 * 1024, // 1MB
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		_, err := engine.Execute(context.Background(), tool.ID, params)
 		if err != nil {
@@ -1237,19 +1237,19 @@ func benchmarkMemoryIntensive(b *testing.B) {
 func benchmarkCPUIntensive(b *testing.B) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(runtime.NumCPU()))
-	
+
 	tool := createCPUIntensiveTool("cpu-tool")
 	if err := registry.Register(tool); err != nil {
 		b.Fatal(err)
 	}
-	
+
 	params := map[string]interface{}{
 		"iterations": 1000000,
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		_, err := engine.Execute(context.Background(), tool.ID, params)
 		if err != nil {
@@ -1261,19 +1261,19 @@ func benchmarkCPUIntensive(b *testing.B) {
 func benchmarkGoroutineIntensive(b *testing.B) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(1000))
-	
+
 	tool := createGoroutineIntensiveTool("goroutine-tool")
 	if err := registry.Register(tool); err != nil {
 		b.Fatal(err)
 	}
-	
+
 	params := map[string]interface{}{
 		"goroutines": 100,
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		_, err := engine.Execute(context.Background(), tool.ID, params)
 		if err != nil {
@@ -1285,19 +1285,19 @@ func benchmarkGoroutineIntensive(b *testing.B) {
 func benchmarkAllocationIntensive(b *testing.B) {
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(50))
-	
+
 	tool := createAllocationIntensiveTool("allocation-tool")
 	if err := registry.Register(tool); err != nil {
 		b.Fatal(err)
 	}
-	
+
 	params := map[string]interface{}{
 		"allocations": 10000,
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		_, err := engine.Execute(context.Background(), tool.ID, params)
 		if err != nil {
@@ -1392,19 +1392,19 @@ type MemoryIntensiveExecutor struct{}
 
 func (e *MemoryIntensiveExecutor) Execute(ctx context.Context, params map[string]interface{}) (*ToolExecutionResult, error) {
 	size := int(params["size"].(float64))
-	
+
 	// Allocate and use memory
 	data := make([]byte, size)
 	for i := 0; i < size; i++ {
 		data[i] = byte(i % 256)
 	}
-	
+
 	// Simulate processing
 	checksum := 0
 	for _, b := range data {
 		checksum += int(b)
 	}
-	
+
 	return &ToolExecutionResult{
 		Success: true,
 		Data: map[string]interface{}{
@@ -1419,14 +1419,14 @@ type CPUIntensiveExecutor struct{}
 
 func (e *CPUIntensiveExecutor) Execute(ctx context.Context, params map[string]interface{}) (*ToolExecutionResult, error) {
 	iterations := int(params["iterations"].(float64))
-	
+
 	// CPU-intensive computation
 	result := 0
 	for i := 0; i < iterations; i++ {
 		result += i * i
 		result = result % 1000000
 	}
-	
+
 	return &ToolExecutionResult{
 		Success: true,
 		Data: map[string]interface{}{
@@ -1441,15 +1441,15 @@ type GoroutineIntensiveExecutor struct{}
 
 func (e *GoroutineIntensiveExecutor) Execute(ctx context.Context, params map[string]interface{}) (*ToolExecutionResult, error) {
 	goroutines := int(params["goroutines"].(float64))
-	
+
 	var wg sync.WaitGroup
 	results := make([]int, goroutines)
-	
+
 	for i := 0; i < goroutines; i++ {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			
+
 			// Simulate work
 			sum := 0
 			for j := 0; j < 1000; j++ {
@@ -1458,14 +1458,14 @@ func (e *GoroutineIntensiveExecutor) Execute(ctx context.Context, params map[str
 			results[idx] = sum
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	total := 0
 	for _, r := range results {
 		total += r
 	}
-	
+
 	return &ToolExecutionResult{
 		Success: true,
 		Data: map[string]interface{}{
@@ -1480,7 +1480,7 @@ type AllocationIntensiveExecutor struct{}
 
 func (e *AllocationIntensiveExecutor) Execute(ctx context.Context, params map[string]interface{}) (*ToolExecutionResult, error) {
 	allocations := int(params["allocations"].(float64))
-	
+
 	// Perform many allocations
 	var objects []interface{}
 	for i := 0; i < allocations; i++ {
@@ -1491,10 +1491,10 @@ func (e *AllocationIntensiveExecutor) Execute(ctx context.Context, params map[st
 		}
 		objects = append(objects, obj)
 	}
-	
+
 	// Force some GC work
 	runtime.GC()
-	
+
 	return &ToolExecutionResult{
 		Success: true,
 		Data: map[string]interface{}{

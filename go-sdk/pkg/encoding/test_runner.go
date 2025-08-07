@@ -68,33 +68,33 @@ func (tr *TestRunner) SetConfig(config RunnerConfig) {
 // RunAll runs all test suites
 func (tr *TestRunner) RunAll() error {
 	fmt.Printf("Running %d test suites...\n", len(tr.suites))
-	
+
 	var results []SuiteResult
-	
+
 	for _, suite := range tr.suites {
 		fmt.Printf("\n=== Running %s ===\n", suite.Name)
 		fmt.Printf("Description: %s\n", suite.Description)
-		
+
 		result := tr.runSuite(suite)
 		results = append(results, result)
-		
+
 		if result.Error != nil {
 			fmt.Printf("❌ Suite %s failed: %v\n", suite.Name, result.Error)
 		} else {
 			fmt.Printf("✅ Suite %s passed in %s\n", suite.Name, result.Duration)
 		}
 	}
-	
+
 	// Print summary
 	tr.printSummary(results)
-	
+
 	// Check for failures
 	for _, result := range results {
 		if result.Error != nil {
 			return fmt.Errorf("test suite failures detected")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -109,52 +109,52 @@ type SuiteResult struct {
 // runSuite runs a single test suite
 func (tr *TestRunner) runSuite(suite TestSuite) SuiteResult {
 	start := time.Now()
-	
+
 	// Build command
 	args := []string{"test"}
-	
+
 	// Add test files
 	for _, file := range suite.TestFiles {
 		args = append(args, file)
 	}
-	
+
 	// Add flags
 	if tr.config.Verbose || suite.Verbose {
 		args = append(args, "-v")
 	}
-	
+
 	if tr.config.Short || suite.Short {
 		args = append(args, "-short")
 	}
-	
+
 	if tr.config.Parallel || suite.Parallel {
 		args = append(args, "-parallel", "8")
 	}
-	
+
 	if tr.config.Race {
 		args = append(args, "-race")
 	}
-	
+
 	if tr.config.Coverage {
 		args = append(args, "-cover")
 	}
-	
+
 	// Set timeout
 	timeout := tr.config.Timeout
 	if suite.Timeout > 0 {
 		timeout = suite.Timeout
 	}
 	args = append(args, "-timeout", timeout.String())
-	
+
 	// Add tags
 	if len(suite.Tags) > 0 {
 		args = append(args, "-tags", strings.Join(suite.Tags, ","))
 	}
-	
+
 	// Execute
 	cmd := exec.Command("go", args...)
 	output, err := cmd.CombinedOutput()
-	
+
 	return SuiteResult{
 		Name:     suite.Name,
 		Duration: time.Since(start),
@@ -168,13 +168,13 @@ func (tr *TestRunner) printSummary(results []SuiteResult) {
 	fmt.Print("\n" + strings.Repeat("=", 80) + "\n")
 	fmt.Print("TEST SUMMARY\n")
 	fmt.Print(strings.Repeat("=", 80) + "\n")
-	
+
 	var totalDuration time.Duration
 	var passed, failed int
-	
+
 	for _, result := range results {
 		totalDuration += result.Duration
-		
+
 		status := "✅ PASS"
 		if result.Error != nil {
 			status = "❌ FAIL"
@@ -182,14 +182,14 @@ func (tr *TestRunner) printSummary(results []SuiteResult) {
 		} else {
 			passed++
 		}
-		
+
 		fmt.Printf("%-30s %s (%s)\n", result.Name, status, result.Duration)
 	}
-	
+
 	fmt.Print(strings.Repeat("-", 80) + "\n")
 	fmt.Printf("Total: %d, Passed: %d, Failed: %d\n", len(results), passed, failed)
 	fmt.Printf("Total Time: %s\n", totalDuration)
-	
+
 	if failed > 0 {
 		fmt.Printf("\nFAILED SUITES:\n")
 		for _, result := range results {
@@ -290,9 +290,9 @@ func GetDefaultTestSuites() []TestSuite {
 func RunEncodingTests() error {
 	fmt.Println("AG-UI Go SDK Encoding System - Comprehensive Test Suite")
 	fmt.Println("========================================================")
-	
+
 	runner := NewTestRunner()
-	
+
 	// Configure runner
 	config := RunnerConfig{
 		Verbose:    true,
@@ -303,23 +303,23 @@ func RunEncodingTests() error {
 		Race:       true,
 		Benchmarks: true,
 	}
-	
+
 	// Check for environment variables
 	if os.Getenv("SHORT") == "true" {
 		config.Short = true
 		config.Timeout = 10 * time.Minute
 	}
-	
+
 	if os.Getenv("VERBOSE") == "false" {
 		config.Verbose = false
 	}
-	
+
 	if os.Getenv("NO_RACE") == "true" {
 		config.Race = false
 	}
-	
+
 	runner.SetConfig(config)
-	
+
 	// Add all test suites
 	for _, suite := range GetDefaultTestSuites() {
 		// Skip long-running tests in short mode
@@ -327,10 +327,10 @@ func RunEncodingTests() error {
 			fmt.Printf("Skipping %s in short mode\n", suite.Name)
 			continue
 		}
-		
+
 		runner.AddSuite(suite)
 	}
-	
+
 	// Run all tests
 	return runner.RunAll()
 }
@@ -339,9 +339,9 @@ func RunEncodingTests() error {
 func RunBenchmarkOnly() error {
 	fmt.Println("Running Performance Benchmarks Only")
 	fmt.Println("===================================")
-	
+
 	runner := NewTestRunner()
-	
+
 	config := RunnerConfig{
 		Verbose:    true,
 		Short:      false,
@@ -351,9 +351,9 @@ func RunBenchmarkOnly() error {
 		Race:       false,
 		Benchmarks: true,
 	}
-	
+
 	runner.SetConfig(config)
-	
+
 	// Add only benchmark suite
 	benchmarkSuite := TestSuite{
 		Name:        "Performance Benchmarks",
@@ -365,9 +365,9 @@ func RunBenchmarkOnly() error {
 		Short:       false,
 		Description: "Performance benchmarks for encoding/decoding operations",
 	}
-	
+
 	runner.AddSuite(benchmarkSuite)
-	
+
 	return runner.RunAll()
 }
 
@@ -375,9 +375,9 @@ func RunBenchmarkOnly() error {
 func RunQuickTests() error {
 	fmt.Println("Running Quick Test Suite")
 	fmt.Println("========================")
-	
+
 	runner := NewTestRunner()
-	
+
 	config := RunnerConfig{
 		Verbose:    true,
 		Short:      true,
@@ -387,9 +387,9 @@ func RunQuickTests() error {
 		Race:       false,
 		Benchmarks: false,
 	}
-	
+
 	runner.SetConfig(config)
-	
+
 	// Add quick test suites
 	quickSuites := []TestSuite{
 		{
@@ -413,11 +413,11 @@ func RunQuickTests() error {
 			Description: "Quick integration tests",
 		},
 	}
-	
+
 	for _, suite := range quickSuites {
 		runner.AddSuite(suite)
 	}
-	
+
 	return runner.RunAll()
 }
 

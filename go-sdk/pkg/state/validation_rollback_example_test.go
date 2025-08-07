@@ -139,7 +139,7 @@ func Example_stateRollback() {
 	// Enable deterministic IDs for consistent example output
 	state.EnableDeterministicIDs()
 	defer state.DisableDeterministicIDs()
-	
+
 	// Create a state store
 	store := state.NewStateStore()
 	defer store.Close()
@@ -252,7 +252,7 @@ func Example_validationWithRollback() {
 	// Enable deterministic IDs for consistent example output
 	state.EnableDeterministicIDs()
 	defer state.DisableDeterministicIDs()
-	
+
 	// Define schema for a game state
 	schema := &state.StateSchema{
 		Type: "object",
@@ -359,7 +359,7 @@ func Example_rollbackStrategies() {
 	// Enable deterministic IDs for consistent example output
 	state.EnableDeterministicIDs()
 	defer state.DisableDeterministicIDs()
-	
+
 	store := state.NewStateStore()
 	defer store.Close()
 
@@ -392,9 +392,9 @@ func Example_rollbackStrategies() {
 
 	// Test different strategies with deterministic durations for example output
 	strategies := []struct {
-		name             string
-		strategy         state.RollbackStrategy
-		exampleDuration  string
+		name            string
+		strategy        state.RollbackStrategy
+		exampleDuration string
 	}{
 		{"Safe", state.NewSafeRollbackStrategy(), "48.417µs"},
 		{"Fast", state.NewFastRollbackStrategy(), "63.209µs"},

@@ -7,58 +7,58 @@ import (
 // RegressionConfig configures regression testing parameters
 type RegressionConfig struct {
 	// Baseline configuration
-	BaselineStrategy       RegressionBaselineStrategy
-	BaselineStorage        string
-	BaselineRetentionDays  int
-	BaselineWindow         time.Duration
-	
+	BaselineStrategy      RegressionBaselineStrategy
+	BaselineStorage       string
+	BaselineRetentionDays int
+	BaselineWindow        time.Duration
+
 	// Detection configuration
-	DetectionAlgorithms    []RegressionDetectionAlgorithm
-	DetectionThresholds    *RegressionDetectionThresholds
-	StatisticalConfidence  float64
-	MinimumSampleSize      int
-	
+	DetectionAlgorithms   []RegressionDetectionAlgorithm
+	DetectionThresholds   *RegressionDetectionThresholds
+	StatisticalConfidence float64
+	MinimumSampleSize     int
+
 	// Analysis configuration
-	AnalysisDepth          RegressionAnalysisDepth
-	TrendAnalysisWindow    time.Duration
-	SeasonalityDetection   bool
-	OutlierDetection       bool
-	
+	AnalysisDepth        RegressionAnalysisDepth
+	TrendAnalysisWindow  time.Duration
+	SeasonalityDetection bool
+	OutlierDetection     bool
+
 	// Reporting configuration
-	ReportDetailLevel      RegressionReportDetailLevel
-	ReportFormats          []string
-	ReportOutputDir        string
-	
+	ReportDetailLevel RegressionReportDetailLevel
+	ReportFormats     []string
+	ReportOutputDir   string
+
 	// Alert configuration
-	AlertThresholds        *RegressionAlertThresholds
-	AlertChannels          []RegressionAlertChannel
-	AlertsEnabled          bool
-	
+	AlertThresholds *RegressionAlertThresholds
+	AlertChannels   []RegressionAlertChannel
+	AlertsEnabled   bool
+
 	// Test configuration
-	TestEnvironment        string
-	TestLabels             map[string]string
-	MetricsToTrack         []string
-	CustomMetrics          map[string]MetricConfig
-	
+	TestEnvironment string
+	TestLabels      map[string]string
+	MetricsToTrack  []string
+	CustomMetrics   map[string]MetricConfig
+
 	// Quality gates
-	QualityGates           []RegressionQualityGate
-	FailOnRegression       bool
-	FailOnDegradation      bool
-	
+	QualityGates      []RegressionQualityGate
+	FailOnRegression  bool
+	FailOnDegradation bool
+
 	// Advanced configuration
-	AnomalyDetection       bool
-	PredictiveAnalysis     bool
-	ModelUpdateInterval    time.Duration
-	HistoricalDataLimit    int
+	AnomalyDetection    bool
+	PredictiveAnalysis  bool
+	ModelUpdateInterval time.Duration
+	HistoricalDataLimit int
 }
 
 // RegressionBaselineStrategy defines how baselines are managed
 type RegressionBaselineStrategy string
 
 const (
-	RegressionBaselineStrategyFixed      RegressionBaselineStrategy = "fixed"
-	RegressionBaselineStrategyRolling    RegressionBaselineStrategy = "rolling"
-	RegressionBaselineStrategyAdaptive   RegressionBaselineStrategy = "adaptive"
+	RegressionBaselineStrategyFixed       RegressionBaselineStrategy = "fixed"
+	RegressionBaselineStrategyRolling     RegressionBaselineStrategy = "rolling"
+	RegressionBaselineStrategyAdaptive    RegressionBaselineStrategy = "adaptive"
 	RegressionBaselineStrategyStatistical RegressionBaselineStrategy = "statistical"
 )
 
@@ -66,11 +66,11 @@ const (
 type RegressionDetectionAlgorithm string
 
 const (
-	RegressionAlgorithmThreshold      RegressionDetectionAlgorithm = "threshold"
-	RegressionAlgorithmStatistical    RegressionDetectionAlgorithm = "statistical"
-	RegressionAlgorithmTrend          RegressionDetectionAlgorithm = "trend"
-	RegressionAlgorithmChangePoint    RegressionDetectionAlgorithm = "changepoint"
-	RegressionAlgorithmAnomaly        RegressionDetectionAlgorithm = "anomaly"
+	RegressionAlgorithmThreshold       RegressionDetectionAlgorithm = "threshold"
+	RegressionAlgorithmStatistical     RegressionDetectionAlgorithm = "statistical"
+	RegressionAlgorithmTrend           RegressionDetectionAlgorithm = "trend"
+	RegressionAlgorithmChangePoint     RegressionDetectionAlgorithm = "changepoint"
+	RegressionAlgorithmAnomaly         RegressionDetectionAlgorithm = "anomaly"
 	RegressionAlgorithmMachineLearning RegressionDetectionAlgorithm = "ml"
 )
 
@@ -78,9 +78,9 @@ const (
 type RegressionAnalysisDepth string
 
 const (
-	RegressionAnalysisDepthBasic       RegressionAnalysisDepth = "basic"
-	RegressionAnalysisDepthStandard    RegressionAnalysisDepth = "standard"
-	RegressionAnalysisDepthDetailed    RegressionAnalysisDepth = "detailed"
+	RegressionAnalysisDepthBasic         RegressionAnalysisDepth = "basic"
+	RegressionAnalysisDepthStandard      RegressionAnalysisDepth = "standard"
+	RegressionAnalysisDepthDetailed      RegressionAnalysisDepth = "detailed"
 	RegressionAnalysisDepthComprehensive RegressionAnalysisDepth = "comprehensive"
 )
 
@@ -102,44 +102,44 @@ type RegressionDetectionThresholds struct {
 	ResponseTimeIncrease   float64
 	ErrorRateIncrease      float64
 	MemoryUsageIncrease    float64
-	
+
 	// Statistical thresholds
 	StatisticalSignificance float64
 	ConfidenceLevel         float64
 	MinimumEffectSize       float64
-	
+
 	// Trend thresholds
-	TrendSignificance       float64
-	TrendDuration          time.Duration
-	TrendConsistency       float64
-	
+	TrendSignificance float64
+	TrendDuration     time.Duration
+	TrendConsistency  float64
+
 	// Anomaly thresholds
-	AnomalyScore           float64
-	AnomalyDeviation       float64
-	AnomalyFrequency       float64
+	AnomalyScore     float64
+	AnomalyDeviation float64
+	AnomalyFrequency float64
 }
 
 // RegressionAlertThresholds defines when to trigger alerts
 type RegressionAlertThresholds struct {
-	CriticalRegression     float64
-	MajorRegression        float64
-	MinorRegression        float64
-	WarningRegression      float64
-	
-	CriticalAnomaly        float64
-	MajorAnomaly           float64
-	MinorAnomaly           float64
-	
-	TrendDegradation       float64
-	ConsistentDegradation  float64
+	CriticalRegression float64
+	MajorRegression    float64
+	MinorRegression    float64
+	WarningRegression  float64
+
+	CriticalAnomaly float64
+	MajorAnomaly    float64
+	MinorAnomaly    float64
+
+	TrendDegradation      float64
+	ConsistentDegradation float64
 }
 
 // RegressionAlertChannel defines alert notification channels
 type RegressionAlertChannel struct {
-	Type     string
-	Config   map[string]string
-	Enabled  bool
-	Filters  []string
+	Type    string
+	Config  map[string]string
+	Enabled bool
+	Filters []string
 }
 
 // MetricConfig defines configuration for custom metrics
@@ -153,12 +153,12 @@ type MetricConfig struct {
 
 // RegressionQualityGate defines quality gates for regression testing
 type RegressionQualityGate struct {
-	Name        string
-	Metric      string
-	Threshold   float64
-	Operator    string
-	Severity    TestRegressionSeverity
-	Enabled     bool
+	Name      string
+	Metric    string
+	Threshold float64
+	Operator  string
+	Severity  TestRegressionSeverity
+	Enabled   bool
 }
 
 // TestRegressionSeverity defines severity levels for regressions in tests
@@ -193,11 +193,11 @@ func DefaultRegressionConfig() *RegressionConfig {
 			ConfidenceLevel:         0.95,
 			MinimumEffectSize:       0.2,
 			TrendSignificance:       0.01,
-			TrendDuration:          24 * time.Hour,
-			TrendConsistency:       0.8,
-			AnomalyScore:           0.7,
-			AnomalyDeviation:       2.0,
-			AnomalyFrequency:       0.1,
+			TrendDuration:           24 * time.Hour,
+			TrendConsistency:        0.8,
+			AnomalyScore:            0.7,
+			AnomalyDeviation:        2.0,
+			AnomalyFrequency:        0.1,
 		},
 		StatisticalConfidence: 0.95,
 		MinimumSampleSize:     10,
@@ -219,9 +219,9 @@ func DefaultRegressionConfig() *RegressionConfig {
 			TrendDegradation:      0.8,
 			ConsistentDegradation: 0.6,
 		},
-		AlertsEnabled:         true,
-		TestEnvironment:       "test",
-		TestLabels:            make(map[string]string),
+		AlertsEnabled:   true,
+		TestEnvironment: "test",
+		TestLabels:      make(map[string]string),
 		MetricsToTrack: []string{
 			"throughput",
 			"response_time",
@@ -231,27 +231,27 @@ func DefaultRegressionConfig() *RegressionConfig {
 		},
 		QualityGates: []RegressionQualityGate{
 			{
-				Name:     "Performance Degradation",
-				Metric:   "performance_degradation",
+				Name:      "Performance Degradation",
+				Metric:    "performance_degradation",
 				Threshold: 10.0,
-				Operator: "lt",
-				Severity: TestRegressionSeverityMajor,
-				Enabled:  true,
+				Operator:  "lt",
+				Severity:  TestRegressionSeverityMajor,
+				Enabled:   true,
 			},
 			{
-				Name:     "Error Rate Increase",
-				Metric:   "error_rate_increase",
+				Name:      "Error Rate Increase",
+				Metric:    "error_rate_increase",
 				Threshold: 2.0,
-				Operator: "lt",
-				Severity: TestRegressionSeverityCritical,
-				Enabled:  true,
+				Operator:  "lt",
+				Severity:  TestRegressionSeverityCritical,
+				Enabled:   true,
 			},
 		},
-		FailOnRegression:     true,
-		FailOnDegradation:    true,
-		AnomalyDetection:     true,
-		PredictiveAnalysis:   false,
-		ModelUpdateInterval:  24 * time.Hour,
-		HistoricalDataLimit:  1000,
+		FailOnRegression:    true,
+		FailOnDegradation:   true,
+		AnomalyDetection:    true,
+		PredictiveAnalysis:  false,
+		ModelUpdateInterval: 24 * time.Hour,
+		HistoricalDataLimit: 1000,
 	}
 }

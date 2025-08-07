@@ -57,7 +57,7 @@ func createDemoSSEServer() *httptest.Server {
 		for i, event := range events {
 			fmt.Fprintf(w, "%s\n\n", event)
 			flusher.Flush()
-			
+
 			// Add delay between events to simulate real-time data
 			if i < len(events)-1 {
 				time.Sleep(500 * time.Millisecond)
@@ -112,7 +112,7 @@ func demonstrateSSEClient(serverURL string) {
 // parseSSEEvents manually parses SSE events to demonstrate the protocol
 func parseSSEEvents(ctx context.Context, resp *http.Response) {
 	scanner := bufio.NewScanner(resp.Body)
-	
+
 	var currentEvent SSEEvent
 	eventCount := 0
 
@@ -209,17 +209,17 @@ func (e *SSEEvent) parseLine(line string) {
 // display prints the event in a formatted way
 func (e *SSEEvent) display(count int) {
 	fmt.Printf("\n📋 Event #%d:\n", count)
-	
+
 	if e.ID != "" {
 		fmt.Printf("   ID: %s\n", e.ID)
 	}
-	
+
 	if e.Event != "" {
 		fmt.Printf("   Type: %s\n", e.Event)
 	} else {
 		fmt.Printf("   Type: (default)\n")
 	}
-	
+
 	if e.Data != "" {
 		// Format multiline data
 		if len(e.Data) > 100 {
@@ -228,7 +228,7 @@ func (e *SSEEvent) display(count int) {
 			fmt.Printf("   Data: %s\n", e.Data)
 		}
 	}
-	
+
 	if e.Retry != "" {
 		fmt.Printf("   Retry: %s ms\n", e.Retry)
 	}
@@ -257,13 +257,12 @@ func (e *SSEEvent) handleEventType() {
 	}
 }
 
-
 // Additional demo functionality
 func init() {
 	fmt.Println("🔧 SSE Client Demo Initialized")
 	fmt.Println("This demonstrates the core concepts of Server-Sent Events:")
 	fmt.Println("  • Event ID tracking")
-	fmt.Println("  • Event type handling") 
+	fmt.Println("  • Event type handling")
 	fmt.Println("  • Multiline data parsing")
 	fmt.Println("  • Retry interval processing")
 	fmt.Println("  • Connection management")

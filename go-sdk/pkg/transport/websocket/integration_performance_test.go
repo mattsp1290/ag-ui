@@ -250,10 +250,10 @@ func TestPerformanceConstraintsCompliance(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping resource-intensive test in short mode")
 	}
-	
+
 	config := DefaultPerformanceConfig()
 	config.Logger = zaptest.NewLogger(t)
-	config.MaxConcurrentConnections = 5  // Drastically reduced for CI stability
+	config.MaxConcurrentConnections = 5 // Drastically reduced for CI stability
 	config.MaxLatency = 50 * time.Millisecond
 	config.MaxMemoryUsage = 10 * 1024 * 1024 // 10MB
 

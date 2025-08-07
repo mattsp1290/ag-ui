@@ -35,17 +35,17 @@ func (e *CompositeEvent) Data() map[string]interface{} {
 	if data == nil {
 		data = make(map[string]interface{})
 	}
-	
+
 	// Add child event count
 	data["event_count"] = len(e.Events)
-	
+
 	// Add child event IDs
 	childIDs := make([]string, len(e.Events))
 	for i, event := range e.Events {
 		childIDs[i] = event.ID()
 	}
 	data["child_event_ids"] = childIDs
-	
+
 	return data
 }
 
@@ -53,49 +53,49 @@ func (e *CompositeEvent) Data() map[string]interface{} {
 type BatchEvent[T EventData] struct {
 	// BatchID is the unique identifier for this batch
 	BatchID string `json:"batch_id"`
-	
+
 	// Events contains the events in this batch
 	Events []TypedTransportEvent[T] `json:"events"`
-	
+
 	// BatchSize is the number of events in this batch
 	BatchSize int `json:"batch_size"`
-	
+
 	// MaxBatchSize is the maximum allowed batch size
 	MaxBatchSize int `json:"max_batch_size"`
-	
+
 	// CreatedAt when the batch was created
 	CreatedAt time.Time `json:"created_at"`
-	
+
 	// CompletedAt when the batch processing completed (nil if not completed)
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
-	
+
 	// ProcessingDuration how long the batch took to process
 	ProcessingDuration time.Duration `json:"processing_duration,omitempty"`
-	
+
 	// Status indicates the batch status (pending, processing, completed, failed)
 	Status string `json:"status"`
-	
+
 	// Errors contains any processing errors
 	Errors []error `json:"errors,omitempty"`
-	
+
 	// SuccessCount number of successfully processed events
 	SuccessCount int `json:"success_count"`
-	
+
 	// FailureCount number of failed events
 	FailureCount int `json:"failure_count"`
-	
+
 	// Metadata contains additional batch metadata
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
-	
+
 	// ProcessorID identifies the processor that handled this batch
 	ProcessorID string `json:"processor_id,omitempty"`
-	
+
 	// Priority indicates batch processing priority
 	Priority int `json:"priority,omitempty"`
-	
+
 	// RetryAttempt for failed batch retries
 	RetryAttempt int `json:"retry_attempt,omitempty"`
-	
+
 	// MaxRetries maximum number of retry attempts
 	MaxRetries int `json:"max_retries,omitempty"`
 }
@@ -123,14 +123,14 @@ func (b BatchEvent[T]) Validate() error {
 	if b.SuccessCount+b.FailureCount > b.BatchSize {
 		return NewValidationError("success_count + failure_count cannot exceed batch_size", nil)
 	}
-	
+
 	// Validate individual events
 	for i, event := range b.Events {
 		if err := event.TypedData().Validate(); err != nil {
 			return fmt.Errorf("event[%d] validation failed: %w", i, err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -144,14 +144,14 @@ func (b BatchEvent[T]) ToMap() map[string]interface{} {
 	result["status"] = b.Status
 	result["success_count"] = b.SuccessCount
 	result["failure_count"] = b.FailureCount
-	
+
 	// Convert events to maps
 	eventMaps := make([]map[string]interface{}, len(b.Events))
 	for i, event := range b.Events {
 		eventMaps[i] = event.Data()
 	}
 	result["events"] = eventMaps
-	
+
 	if b.CompletedAt != nil {
 		result["completed_at"] = b.CompletedAt
 	}
@@ -180,7 +180,7 @@ func (b BatchEvent[T]) ToMap() map[string]interface{} {
 	if b.MaxRetries > 0 {
 		result["max_retries"] = b.MaxRetries
 	}
-	
+
 	return result
 }
 
@@ -188,46 +188,46 @@ func (b BatchEvent[T]) ToMap() map[string]interface{} {
 type SequencedEvent[T EventData] struct {
 	// SequenceID identifies the sequence this event belongs to
 	SequenceID string `json:"sequence_id"`
-	
+
 	// SequenceNumber is the position in the sequence (1-based)
 	SequenceNumber uint64 `json:"sequence_number"`
-	
+
 	// TotalInSequence is the total number of events in this sequence (if known)
 	TotalInSequence *uint64 `json:"total_in_sequence,omitempty"`
-	
+
 	// Event is the wrapped event data
 	Event TypedTransportEvent[T] `json:"event"`
-	
+
 	// PreviousSequenceNumber for gap detection
 	PreviousSequenceNumber *uint64 `json:"previous_sequence_number,omitempty"`
-	
+
 	// NextExpectedSequenceNumber for ordering validation
 	NextExpectedSequenceNumber *uint64 `json:"next_expected_sequence_number,omitempty"`
-	
+
 	// IsLast indicates if this is the last event in the sequence
 	IsLast bool `json:"is_last"`
-	
+
 	// IsFirst indicates if this is the first event in the sequence
 	IsFirst bool `json:"is_first"`
-	
+
 	// ChecksumPrevious for integrity checking with previous event
 	ChecksumPrevious string `json:"checksum_previous,omitempty"`
-	
+
 	// ChecksumCurrent for integrity checking
 	ChecksumCurrent string `json:"checksum_current"`
-	
+
 	// Dependencies lists sequence numbers this event depends on
 	Dependencies []uint64 `json:"dependencies,omitempty"`
-	
+
 	// PartitionKey for partitioned sequences
 	PartitionKey string `json:"partition_key,omitempty"`
-	
+
 	// OrderingKey for sub-sequence ordering
 	OrderingKey string `json:"ordering_key,omitempty"`
-	
+
 	// Timeout for sequence completion
 	Timeout time.Duration `json:"timeout,omitempty"`
-	
+
 	// CreatedAt when this sequenced event was created
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -249,25 +249,25 @@ func (s SequencedEvent[T]) Validate() error {
 	if s.CreatedAt.IsZero() {
 		return NewValidationError("created_at is required", nil)
 	}
-	
+
 	// Validate wrapped event
 	if err := s.Event.TypedData().Validate(); err != nil {
 		return fmt.Errorf("wrapped event validation failed: %w", err)
 	}
-	
+
 	// Validate sequence consistency
 	if s.TotalInSequence != nil && s.SequenceNumber > *s.TotalInSequence {
 		return NewValidationError("sequence_number cannot exceed total_in_sequence", nil)
 	}
-	
+
 	if s.IsFirst && s.SequenceNumber != 1 {
 		return NewValidationError("first event must have sequence_number 1", nil)
 	}
-	
+
 	if s.IsLast && s.TotalInSequence != nil && s.SequenceNumber != *s.TotalInSequence {
 		return NewValidationError("last event sequence_number must match total_in_sequence", nil)
 	}
-	
+
 	return nil
 }
 
@@ -281,7 +281,7 @@ func (s SequencedEvent[T]) ToMap() map[string]interface{} {
 	result["is_first"] = s.IsFirst
 	result["checksum_current"] = s.ChecksumCurrent
 	result["created_at"] = s.CreatedAt
-	
+
 	if s.TotalInSequence != nil {
 		result["total_in_sequence"] = *s.TotalInSequence
 	}
@@ -306,7 +306,7 @@ func (s SequencedEvent[T]) ToMap() map[string]interface{} {
 	if s.Timeout > 0 {
 		result["timeout"] = s.Timeout.String()
 	}
-	
+
 	return result
 }
 
@@ -314,40 +314,40 @@ func (s SequencedEvent[T]) ToMap() map[string]interface{} {
 type ConditionalEvent[T EventData] struct {
 	// ConditionID identifies the condition to evaluate
 	ConditionID string `json:"condition_id"`
-	
+
 	// Event is the wrapped event that may be processed conditionally
 	Event TypedTransportEvent[T] `json:"event"`
-	
+
 	// Condition defines the condition to evaluate
 	Condition *EventCondition `json:"condition"`
-	
+
 	// IsConditionMet indicates if the condition has been evaluated and met
 	IsConditionMet *bool `json:"is_condition_met,omitempty"`
-	
+
 	// EvaluatedAt when the condition was last evaluated
 	EvaluatedAt *time.Time `json:"evaluated_at,omitempty"`
-	
+
 	// EvaluationContext contains context used for condition evaluation
 	EvaluationContext map[string]interface{} `json:"evaluation_context,omitempty"`
-	
+
 	// AlternativeAction defines what to do if condition is not met
 	AlternativeAction string `json:"alternative_action,omitempty"`
-	
+
 	// MaxEvaluationAttempts limits how many times condition can be evaluated
 	MaxEvaluationAttempts int `json:"max_evaluation_attempts,omitempty"`
-	
+
 	// EvaluationAttempts tracks how many times condition has been evaluated
 	EvaluationAttempts int `json:"evaluation_attempts"`
-	
+
 	// TimeoutAt when the conditional event expires
 	TimeoutAt *time.Time `json:"timeout_at,omitempty"`
-	
+
 	// Dependencies lists other conditions this condition depends on
 	Dependencies []string `json:"dependencies,omitempty"`
-	
+
 	// Priority for condition evaluation ordering
 	Priority int `json:"priority,omitempty"`
-	
+
 	// RetryPolicy for condition evaluation failures
 	RetryPolicy *EventRetryPolicy `json:"retry_policy,omitempty"`
 }
@@ -356,31 +356,31 @@ type ConditionalEvent[T EventData] struct {
 type EventCondition struct {
 	// Type indicates the condition type (field_match, event_count, time_window, etc.)
 	Type string `json:"type"`
-	
+
 	// Expression is the condition expression (varies by type)
 	Expression string `json:"expression"`
-	
+
 	// Parameters contains condition-specific parameters
 	Parameters map[string]interface{} `json:"parameters,omitempty"`
-	
+
 	// Operator for comparison conditions (eq, ne, gt, lt, gte, lte, in, not_in, etc.)
 	Operator string `json:"operator,omitempty"`
-	
+
 	// ExpectedValue for comparison conditions
 	ExpectedValue interface{} `json:"expected_value,omitempty"`
-	
+
 	// FieldPath for field-based conditions
 	FieldPath string `json:"field_path,omitempty"`
-	
+
 	// TimeWindow for time-based conditions
 	TimeWindow time.Duration `json:"time_window,omitempty"`
-	
+
 	// EventTypes for event-type-based conditions
 	EventTypes []string `json:"event_types,omitempty"`
-	
+
 	// MinCount for count-based conditions
 	MinCount *int `json:"min_count,omitempty"`
-	
+
 	// MaxCount for count-based conditions
 	MaxCount *int `json:"max_count,omitempty"`
 }
@@ -389,16 +389,16 @@ type EventCondition struct {
 type EventRetryPolicy struct {
 	// MaxRetries maximum number of retry attempts
 	MaxRetries int `json:"max_retries"`
-	
+
 	// InitialDelay before first retry
 	InitialDelay time.Duration `json:"initial_delay"`
-	
+
 	// MaxDelay maximum delay between retries
 	MaxDelay time.Duration `json:"max_delay"`
-	
+
 	// BackoffMultiplier for exponential backoff
 	BackoffMultiplier float64 `json:"backoff_multiplier"`
-	
+
 	// Jitter adds randomness to delay
 	Jitter bool `json:"jitter"`
 }
@@ -414,12 +414,12 @@ func (c ConditionalEvent[T]) Validate() error {
 	if c.Condition == nil {
 		return NewValidationError("condition is required", nil)
 	}
-	
+
 	// Validate wrapped event
 	if err := c.Event.TypedData().Validate(); err != nil {
 		return fmt.Errorf("wrapped event validation failed: %w", err)
 	}
-	
+
 	// Validate condition
 	if c.Condition.Type == "" {
 		return NewValidationError("condition.type is required", nil)
@@ -427,7 +427,7 @@ func (c ConditionalEvent[T]) Validate() error {
 	if c.Condition.Expression == "" {
 		return NewValidationError("condition.expression is required", nil)
 	}
-	
+
 	// Validate retry policy if present
 	if c.RetryPolicy != nil {
 		if c.RetryPolicy.MaxRetries < 0 {
@@ -437,7 +437,7 @@ func (c ConditionalEvent[T]) Validate() error {
 			return NewValidationError("retry_policy.backoff_multiplier must be >= 1.0", nil)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -447,7 +447,7 @@ func (c ConditionalEvent[T]) ToMap() map[string]interface{} {
 	result["condition_id"] = c.ConditionID
 	result["event"] = c.Event.Data()
 	result["evaluation_attempts"] = c.EvaluationAttempts
-	
+
 	// Convert condition
 	conditionMap := map[string]interface{}{
 		"type":       c.Condition.Type,
@@ -478,7 +478,7 @@ func (c ConditionalEvent[T]) ToMap() map[string]interface{} {
 		conditionMap["max_count"] = *c.Condition.MaxCount
 	}
 	result["condition"] = conditionMap
-	
+
 	if c.IsConditionMet != nil {
 		result["is_condition_met"] = *c.IsConditionMet
 	}
@@ -513,7 +513,7 @@ func (c ConditionalEvent[T]) ToMap() map[string]interface{} {
 		}
 		result["retry_policy"] = retryMap
 	}
-	
+
 	return result
 }
 
@@ -521,55 +521,55 @@ func (c ConditionalEvent[T]) ToMap() map[string]interface{} {
 type TimedEvent[T EventData] struct {
 	// TimerID identifies the timer associated with this event
 	TimerID string `json:"timer_id"`
-	
+
 	// Event is the wrapped event
 	Event TypedTransportEvent[T] `json:"event"`
-	
+
 	// ScheduledAt when the event should be processed
 	ScheduledAt time.Time `json:"scheduled_at"`
-	
+
 	// CreatedAt when the timed event was created
 	CreatedAt time.Time `json:"created_at"`
-	
+
 	// ProcessedAt when the event was actually processed (nil if not yet processed)
 	ProcessedAt *time.Time `json:"processed_at,omitempty"`
-	
+
 	// Delay intended delay from creation to processing
 	Delay time.Duration `json:"delay"`
-	
+
 	// ActualDelay actual delay experienced
 	ActualDelay time.Duration `json:"actual_delay,omitempty"`
-	
+
 	// MaxDelay maximum allowed delay before event expires
 	MaxDelay time.Duration `json:"max_delay,omitempty"`
-	
+
 	// IsExpired indicates if the event has expired
 	IsExpired bool `json:"is_expired"`
-	
+
 	// ExpiresAt when the event expires
 	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	
+
 	// IsRecurring indicates if this is a recurring event
 	IsRecurring bool `json:"is_recurring"`
-	
+
 	// RecurrencePattern for recurring events (cron-like syntax)
 	RecurrencePattern string `json:"recurrence_pattern,omitempty"`
-	
+
 	// NextScheduledAt when the next occurrence is scheduled (for recurring events)
 	NextScheduledAt *time.Time `json:"next_scheduled_at,omitempty"`
-	
+
 	// MaxOccurrences limits recurring events (0 = unlimited)
 	MaxOccurrences int `json:"max_occurrences,omitempty"`
-	
+
 	// OccurrenceCount tracks how many times this event has occurred
 	OccurrenceCount int `json:"occurrence_count"`
-	
+
 	// TimeZone for schedule calculations
 	TimeZone string `json:"time_zone,omitempty"`
-	
+
 	// Priority for timing queue ordering
 	Priority int `json:"priority,omitempty"`
-	
+
 	// OnExpiry action to take when event expires (discard, log, alert, etc.)
 	OnExpiry string `json:"on_expiry,omitempty"`
 }
@@ -591,27 +591,27 @@ func (t TimedEvent[T]) Validate() error {
 	if t.Delay < 0 {
 		return NewValidationError("delay cannot be negative", nil)
 	}
-	
+
 	// Validate wrapped event
 	if err := t.Event.TypedData().Validate(); err != nil {
 		return fmt.Errorf("wrapped event validation failed: %w", err)
 	}
-	
+
 	// Validate scheduling consistency
 	expectedScheduledAt := t.CreatedAt.Add(t.Delay)
 	if !t.ScheduledAt.Equal(expectedScheduledAt) {
 		return NewValidationError("scheduled_at must equal created_at + delay", nil)
 	}
-	
+
 	// Validate recurring event constraints
 	if t.IsRecurring && t.RecurrencePattern == "" {
 		return NewValidationError("recurrence_pattern is required for recurring events", nil)
 	}
-	
+
 	if t.MaxOccurrences > 0 && t.OccurrenceCount > t.MaxOccurrences {
 		return NewValidationError("occurrence_count cannot exceed max_occurrences", nil)
 	}
-	
+
 	return nil
 }
 
@@ -626,7 +626,7 @@ func (t TimedEvent[T]) ToMap() map[string]interface{} {
 	result["is_expired"] = t.IsExpired
 	result["is_recurring"] = t.IsRecurring
 	result["occurrence_count"] = t.OccurrenceCount
-	
+
 	if t.ProcessedAt != nil {
 		result["processed_at"] = t.ProcessedAt
 	}
@@ -657,7 +657,7 @@ func (t TimedEvent[T]) ToMap() map[string]interface{} {
 	if t.OnExpiry != "" {
 		result["on_expiry"] = t.OnExpiry
 	}
-	
+
 	return result
 }
 
@@ -665,46 +665,46 @@ func (t TimedEvent[T]) ToMap() map[string]interface{} {
 type ContextualEvent[T EventData] struct {
 	// ContextID identifies the context
 	ContextID string `json:"context_id"`
-	
+
 	// Event is the wrapped event
 	Event TypedTransportEvent[T] `json:"event"`
-	
+
 	// Context contains rich contextual information
 	Context *EventContext `json:"context"`
-	
+
 	// CorrelationID for event correlation across systems
 	CorrelationID string `json:"correlation_id,omitempty"`
-	
+
 	// CausationID identifies the event that caused this one
 	CausationID string `json:"causation_id,omitempty"`
-	
+
 	// TraceID for distributed tracing
 	TraceID string `json:"trace_id,omitempty"`
-	
+
 	// SpanID for distributed tracing
 	SpanID string `json:"span_id,omitempty"`
-	
+
 	// BusinessContext contains business-specific context
 	BusinessContext map[string]interface{} `json:"business_context,omitempty"`
-	
+
 	// TechnicalContext contains technical context
 	TechnicalContext map[string]interface{} `json:"technical_context,omitempty"`
-	
+
 	// UserContext contains user-specific context
 	UserContext *UserContext `json:"user_context,omitempty"`
-	
+
 	// RequestContext contains request-specific context
 	RequestContext *RequestContext `json:"request_context,omitempty"`
-	
+
 	// EnvironmentContext contains environment information
 	EnvironmentContext *EnvironmentContext `json:"environment_context,omitempty"`
-	
+
 	// SecurityContext contains security-related context
 	SecurityContext *SecurityContext `json:"security_context,omitempty"`
-	
+
 	// Tags for event categorization and filtering
 	Tags map[string]string `json:"tags,omitempty"`
-	
+
 	// Annotations for additional metadata
 	Annotations map[string]string `json:"annotations,omitempty"`
 }
@@ -713,34 +713,34 @@ type ContextualEvent[T EventData] struct {
 type EventContext struct {
 	// Timestamp when the context was captured
 	Timestamp time.Time `json:"timestamp"`
-	
+
 	// Version of the context schema
 	Version string `json:"version"`
-	
+
 	// Source system or component that generated the event
 	Source string `json:"source"`
-	
+
 	// SourceVersion version of the source system
 	SourceVersion string `json:"source_version,omitempty"`
-	
+
 	// Environment (development, staging, production, etc.)
 	Environment string `json:"environment"`
-	
+
 	// Region or datacenter location
 	Region string `json:"region,omitempty"`
-	
+
 	// Tenant or organization identifier
 	TenantID string `json:"tenant_id,omitempty"`
-	
+
 	// ServiceName of the originating service
 	ServiceName string `json:"service_name,omitempty"`
-	
+
 	// ServiceInstance identifier
 	ServiceInstance string `json:"service_instance,omitempty"`
-	
+
 	// ProcessID of the generating process
 	ProcessID int `json:"process_id,omitempty"`
-	
+
 	// ThreadID of the generating thread
 	ThreadID string `json:"thread_id,omitempty"`
 }
@@ -749,25 +749,25 @@ type EventContext struct {
 type UserContext struct {
 	// UserID identifies the user
 	UserID string `json:"user_id"`
-	
+
 	// UserType indicates the type of user (human, service, etc.)
 	UserType string `json:"user_type,omitempty"`
-	
+
 	// SessionID identifies the user session
 	SessionID string `json:"session_id,omitempty"`
-	
+
 	// Roles assigned to the user
 	Roles []string `json:"roles,omitempty"`
-	
+
 	// Permissions granted to the user
 	Permissions []string `json:"permissions,omitempty"`
-	
+
 	// Groups the user belongs to
 	Groups []string `json:"groups,omitempty"`
-	
+
 	// ClientInfo about the user's client
 	ClientInfo map[string]string `json:"client_info,omitempty"`
-	
+
 	// Preferences user preferences relevant to the event
 	Preferences map[string]interface{} `json:"preferences,omitempty"`
 }
@@ -776,31 +776,31 @@ type UserContext struct {
 type RequestContext struct {
 	// RequestID identifies the request
 	RequestID string `json:"request_id"`
-	
+
 	// Method HTTP method or operation type
 	Method string `json:"method,omitempty"`
-	
+
 	// URL or endpoint
 	URL string `json:"url,omitempty"`
-	
+
 	// Headers relevant headers
 	Headers map[string]string `json:"headers,omitempty"`
-	
+
 	// QueryParams query parameters
 	QueryParams map[string]string `json:"query_params,omitempty"`
-	
+
 	// UserAgent client user agent
 	UserAgent string `json:"user_agent,omitempty"`
-	
+
 	// ClientIP client IP address
 	ClientIP string `json:"client_ip,omitempty"`
-	
+
 	// ContentType request content type
 	ContentType string `json:"content_type,omitempty"`
-	
+
 	// ContentLength request content length
 	ContentLength int64 `json:"content_length,omitempty"`
-	
+
 	// Referrer request referrer
 	Referrer string `json:"referrer,omitempty"`
 }
@@ -809,28 +809,28 @@ type RequestContext struct {
 type EnvironmentContext struct {
 	// Hostname of the machine
 	Hostname string `json:"hostname,omitempty"`
-	
+
 	// Platform (linux, windows, darwin, etc.)
 	Platform string `json:"platform,omitempty"`
-	
+
 	// Architecture (amd64, arm64, etc.)
 	Architecture string `json:"architecture,omitempty"`
-	
+
 	// RuntimeVersion (Go version, etc.)
 	RuntimeVersion string `json:"runtime_version,omitempty"`
-	
+
 	// ContainerID if running in container
 	ContainerID string `json:"container_id,omitempty"`
-	
+
 	// PodName if running in Kubernetes
 	PodName string `json:"pod_name,omitempty"`
-	
+
 	// Namespace Kubernetes namespace
 	Namespace string `json:"namespace,omitempty"`
-	
+
 	// NodeName Kubernetes node
 	NodeName string `json:"node_name,omitempty"`
-	
+
 	// Environment variables relevant to the event
 	EnvironmentVars map[string]string `json:"environment_vars,omitempty"`
 }
@@ -839,25 +839,25 @@ type EnvironmentContext struct {
 type SecurityContext struct {
 	// AuthenticationMethod used
 	AuthenticationMethod string `json:"authentication_method,omitempty"`
-	
+
 	// TokenType (bearer, api_key, etc.)
 	TokenType string `json:"token_type,omitempty"`
-	
+
 	// TokenHash hashed token for audit purposes
 	TokenHash string `json:"token_hash,omitempty"`
-	
+
 	// ClientCertificateHash if using client certificates
 	ClientCertificateHash string `json:"client_certificate_hash,omitempty"`
-	
+
 	// TLSVersion used for the connection
 	TLSVersion string `json:"tls_version,omitempty"`
-	
+
 	// CipherSuite used
 	CipherSuite string `json:"cipher_suite,omitempty"`
-	
+
 	// IsEncrypted indicates if the communication is encrypted
 	IsEncrypted bool `json:"is_encrypted"`
-	
+
 	// SecurityHeaders relevant security headers
 	SecurityHeaders map[string]string `json:"security_headers,omitempty"`
 }
@@ -873,12 +873,12 @@ func (c ContextualEvent[T]) Validate() error {
 	if c.Context == nil {
 		return NewValidationError("context is required", nil)
 	}
-	
+
 	// Validate wrapped event
 	if err := c.Event.TypedData().Validate(); err != nil {
 		return fmt.Errorf("wrapped event validation failed: %w", err)
 	}
-	
+
 	// Validate context
 	if c.Context.Timestamp.IsZero() {
 		return NewValidationError("context.timestamp is required", nil)
@@ -889,17 +889,17 @@ func (c ContextualEvent[T]) Validate() error {
 	if c.Context.Environment == "" {
 		return NewValidationError("context.environment is required", nil)
 	}
-	
+
 	// Validate user context if present
 	if c.UserContext != nil && c.UserContext.UserID == "" {
 		return NewValidationError("user_context.user_id is required when user_context is provided", nil)
 	}
-	
+
 	// Validate request context if present
 	if c.RequestContext != nil && c.RequestContext.RequestID == "" {
 		return NewValidationError("request_context.request_id is required when request_context is provided", nil)
 	}
-	
+
 	return nil
 }
 
@@ -908,7 +908,7 @@ func (c ContextualEvent[T]) ToMap() map[string]interface{} {
 	result := make(map[string]interface{})
 	result["context_id"] = c.ContextID
 	result["event"] = c.Event.Data()
-	
+
 	// Convert context
 	contextMap := map[string]interface{}{
 		"timestamp":   c.Context.Timestamp,
@@ -940,7 +940,7 @@ func (c ContextualEvent[T]) ToMap() map[string]interface{} {
 		contextMap["thread_id"] = c.Context.ThreadID
 	}
 	result["context"] = contextMap
-	
+
 	if c.CorrelationID != "" {
 		result["correlation_id"] = c.CorrelationID
 	}
@@ -959,7 +959,7 @@ func (c ContextualEvent[T]) ToMap() map[string]interface{} {
 	if c.TechnicalContext != nil {
 		result["technical_context"] = c.TechnicalContext
 	}
-	
+
 	// Convert user context
 	if c.UserContext != nil {
 		userMap := map[string]interface{}{
@@ -988,7 +988,7 @@ func (c ContextualEvent[T]) ToMap() map[string]interface{} {
 		}
 		result["user_context"] = userMap
 	}
-	
+
 	// Convert request context
 	if c.RequestContext != nil {
 		requestMap := map[string]interface{}{
@@ -1023,7 +1023,7 @@ func (c ContextualEvent[T]) ToMap() map[string]interface{} {
 		}
 		result["request_context"] = requestMap
 	}
-	
+
 	// Convert environment context
 	if c.EnvironmentContext != nil {
 		envMap := make(map[string]interface{})
@@ -1058,7 +1058,7 @@ func (c ContextualEvent[T]) ToMap() map[string]interface{} {
 			result["environment_context"] = envMap
 		}
 	}
-	
+
 	// Convert security context
 	if c.SecurityContext != nil {
 		secMap := make(map[string]interface{})
@@ -1086,14 +1086,14 @@ func (c ContextualEvent[T]) ToMap() map[string]interface{} {
 		}
 		result["security_context"] = secMap
 	}
-	
+
 	if c.Tags != nil {
 		result["tags"] = c.Tags
 	}
 	if c.Annotations != nil {
 		result["annotations"] = c.Annotations
 	}
-	
+
 	return result
 }
 

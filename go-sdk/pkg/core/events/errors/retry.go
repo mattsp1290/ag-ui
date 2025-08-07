@@ -88,7 +88,7 @@ func Retry(ctx context.Context, policy *RetryPolicy, operation RetryableOperatio
 
 		// Calculate delay
 		delay := policy.calculateDelay(attempt)
-		
+
 		// Wait before retry
 		timer := time.NewTimer(delay)
 		select {
@@ -109,8 +109,8 @@ func Retry(ctx context.Context, policy *RetryPolicy, operation RetryableOperatio
 
 // RetryExhaustedError is returned when all retry attempts are exhausted
 type RetryExhaustedError struct {
-	Attempts  int   `json:"attempts"`
-	LastError error `json:"-"`
+	Attempts  int    `json:"attempts"`
+	LastError error  `json:"-"`
 	Operation string `json:"operation"`
 }
 
@@ -145,7 +145,7 @@ func (p *RetryPolicy) isRetryable(err error) bool {
 // calculateDelay calculates the delay for the given attempt
 func (p *RetryPolicy) calculateDelay(attempt int) time.Duration {
 	delay := float64(p.InitialDelay) * math.Pow(p.BackoffFactor, float64(attempt-1))
-	
+
 	if delay > float64(p.MaxDelay) {
 		delay = float64(p.MaxDelay)
 	}
@@ -209,7 +209,7 @@ func RetryWithLogging(ctx context.Context, policy *RetryPolicy, operation Retrya
 
 		// Calculate delay
 		delay := policy.calculateDelay(attempt)
-		
+
 		if logger != nil {
 			logger.Logf("Waiting %v before retry", delay)
 		}

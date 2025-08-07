@@ -12,10 +12,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"golang.org/x/sync/semaphore"
 	"github.com/mattsp1290/ag-ui/go-sdk/internal"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 	"github.com/sirupsen/logrus"
+	"golang.org/x/sync/semaphore"
 )
 
 // HTTPConnectionPool provides HTTP connection pooling with health monitoring,
@@ -23,37 +23,37 @@ import (
 type HTTPConnectionPool struct {
 	// Configuration
 	config *HTTPPoolConfig
-	
+
 	// Connection management
 	pools   *internal.BoundedMap // Bounded map for server pools to prevent memory leaks
 	poolsMu sync.RWMutex
-	
+
 	// Load balancing
 	servers   []*ServerTarget
 	serversMu sync.RWMutex
-	
+
 	// Metrics and monitoring
 	metrics   *HTTPPoolMetrics
 	metricsMu sync.RWMutex
-	
+
 	// Health monitoring
 	healthChecker *HealthChecker
-	
+
 	// Lifecycle management
 	shutdown     chan struct{}
 	shutdownOnce sync.Once
 	isShutdown   int32
-	
+
 	// Background goroutines
 	cleanupTicker    *time.Ticker
 	metricsTicker    *time.Ticker
 	healthTicker     *time.Ticker
 	monitoringTicker *time.Ticker
 	workerGroup      sync.WaitGroup
-	
+
 	// Connection semaphore for global limiting
 	connSemaphore *semaphore.Weighted
-	
+
 	// Connection reuse pool to prevent memory leaks
 	connPool sync.Pool
 }
@@ -65,38 +65,38 @@ type HTTPPoolConfig struct {
 	MaxTotalConnections     int           `json:"max_total_connections" default:"1000"`
 	MaxIdleConnections      int           `json:"max_idle_connections" default:"50"`
 	MaxIdleTime             time.Duration `json:"max_idle_time" default:"5m"`
-	
+
 	// Connection timeouts
-	ConnectTimeout    time.Duration `json:"connect_timeout" default:"10s"`
-	RequestTimeout    time.Duration `json:"request_timeout" default:"30s"`
-	KeepAliveTimeout  time.Duration `json:"keep_alive_timeout" default:"30s"`
-	IdleConnTimeout   time.Duration `json:"idle_conn_timeout" default:"90s"`
-	
+	ConnectTimeout   time.Duration `json:"connect_timeout" default:"10s"`
+	RequestTimeout   time.Duration `json:"request_timeout" default:"30s"`
+	KeepAliveTimeout time.Duration `json:"keep_alive_timeout" default:"30s"`
+	IdleConnTimeout  time.Duration `json:"idle_conn_timeout" default:"90s"`
+
 	// Health checking
-	HealthCheckInterval   time.Duration `json:"health_check_interval" default:"30s"`
-	HealthCheckTimeout    time.Duration `json:"health_check_timeout" default:"5s"`
-	HealthCheckPath       string        `json:"health_check_path" default:"/health"`
-	UnhealthyThreshold    int           `json:"unhealthy_threshold" default:"3"`
-	HealthyThreshold      int           `json:"healthy_threshold" default:"2"`
-	
+	HealthCheckInterval time.Duration `json:"health_check_interval" default:"30s"`
+	HealthCheckTimeout  time.Duration `json:"health_check_timeout" default:"5s"`
+	HealthCheckPath     string        `json:"health_check_path" default:"/health"`
+	UnhealthyThreshold  int           `json:"unhealthy_threshold" default:"3"`
+	HealthyThreshold    int           `json:"healthy_threshold" default:"2"`
+
 	// Load balancing
 	LoadBalanceStrategy LoadBalanceStrategy `json:"load_balance_strategy" default:"round_robin"`
-	
+
 	// Cleanup and monitoring
-	CleanupInterval   time.Duration `json:"cleanup_interval" default:"1m"`
-	MetricsInterval   time.Duration `json:"metrics_interval" default:"10s"`
+	CleanupInterval    time.Duration `json:"cleanup_interval" default:"1m"`
+	MetricsInterval    time.Duration `json:"metrics_interval" default:"10s"`
 	MonitoringInterval time.Duration `json:"monitoring_interval" default:"30s"`
-	
+
 	// TLS configuration
 	TLSConfig *tls.Config `json:"-"`
-	
+
 	// Custom transport options
-	DisableKeepAlives     bool          `json:"disable_keep_alives"`
-	DisableCompression    bool          `json:"disable_compression"`
-	MaxResponseHeaderSize int64         `json:"max_response_header_size" default:"1048576"`
-	WriteBufferSize       int           `json:"write_buffer_size" default:"4096"`
-	ReadBufferSize        int           `json:"read_buffer_size" default:"4096"`
-	
+	DisableKeepAlives     bool  `json:"disable_keep_alives"`
+	DisableCompression    bool  `json:"disable_compression"`
+	MaxResponseHeaderSize int64 `json:"max_response_header_size" default:"1048576"`
+	WriteBufferSize       int   `json:"write_buffer_size" default:"4096"`
+	ReadBufferSize        int   `json:"read_buffer_size" default:"4096"`
+
 	// Bounded pool configuration to prevent memory leaks
 	BoundedPool BoundedPoolConfig `json:"bounded_pool"`
 }
@@ -105,13 +105,13 @@ type HTTPPoolConfig struct {
 type BoundedPoolConfig struct {
 	// MaxServerPools is the maximum number of server pools to maintain (default: 1000)
 	MaxServerPools int `json:"max_server_pools"`
-	
+
 	// ServerPoolTTL is the time-to-live for unused server pools (default: 30 minutes)
 	ServerPoolTTL time.Duration `json:"server_pool_ttl"`
-	
+
 	// PoolCleanupInterval is how often to run pool cleanup (default: 5 minutes)
 	PoolCleanupInterval time.Duration `json:"pool_cleanup_interval"`
-	
+
 	// EnablePoolMetrics enables server pool metrics collection (default: true)
 	EnablePoolMetrics bool `json:"enable_pool_metrics"`
 }
@@ -129,45 +129,102 @@ const (
 
 // ServerTarget represents a target server for load balancing.
 type ServerTarget struct {
-	URL             *url.URL      `json:"url"`
-	Weight          int           `json:"weight" default:"1"`
-	MaxConnections  int           `json:"max_connections" default:"100"`
-	CurrentConnections int64      `json:"current_connections"`
-	IsHealthy       bool          `json:"is_healthy"`
-	LastHealthCheck time.Time     `json:"last_health_check"`
-	FailureCount    int           `json:"failure_count"`
-	TotalRequests   int64         `json:"total_requests"`
-	ResponseTime    time.Duration `json:"response_time"`
-	mu              sync.RWMutex
+	URL                *url.URL      `json:"url"`
+	Weight             int           `json:"weight" default:"1"`
+	MaxConnections     int           `json:"max_connections" default:"100"`
+	CurrentConnections int64         `json:"current_connections"`
+	IsHealthy          bool          `json:"is_healthy"`
+	LastHealthCheck    time.Time     `json:"last_health_check"`
+	FailureCount       int           `json:"failure_count"`
+	TotalRequests      int64         `json:"total_requests"`
+	ResponseTime       time.Duration `json:"response_time"`
+	mu                 sync.RWMutex
 }
 
 // serverPool manages connections for a specific server.
 type serverPool struct {
-	server       *ServerTarget
-	transport    *http.Transport
-	client       *http.Client
-	connections  chan *pooledConnection
-	activeConns  int64
-	totalConns   int64
-	maxConns     int64
-	mu           sync.RWMutex
-	created      time.Time
-	
+	server      *ServerTarget
+	transport   *http.Transport
+	client      *http.Client
+	connections chan *pooledConnection
+	activeConns int64
+	totalConns  int64
+	maxConns    int64
+	mu          sync.RWMutex
+	created     time.Time
+
 	// Cleanup management
 	cleanupCtx    context.Context
 	cleanupCancel context.CancelFunc
 }
 
-// pooledConnection wraps an HTTP connection with metadata.
+// ConnectionState represents the lifecycle state of a connection
+type ConnectionState int
+
+const (
+	// ConnectionStateCreated - connection just created
+	ConnectionStateCreated ConnectionState = iota
+	// ConnectionStateActive - connection is actively used
+	ConnectionStateActive
+	// ConnectionStateIdle - connection is idle but available
+	ConnectionStateIdle
+	// ConnectionStateValidating - connection is being validated
+	ConnectionStateValidating
+	// ConnectionStateClosing - connection is being closed
+	ConnectionStateClosing
+	// ConnectionStateClosed - connection is closed
+	ConnectionStateClosed
+)
+
+// String returns string representation of connection state
+func (s ConnectionState) String() string {
+	switch s {
+	case ConnectionStateCreated:
+		return "created"
+	case ConnectionStateActive:
+		return "active"
+	case ConnectionStateIdle:
+		return "idle"
+	case ConnectionStateValidating:
+		return "validating"
+	case ConnectionStateClosing:
+		return "closing"
+	case ConnectionStateClosed:
+		return "closed"
+	default:
+		return "unknown"
+	}
+}
+
+// pooledConnection wraps an HTTP connection with enhanced metadata and lifecycle tracking.
 type pooledConnection struct {
-	transport   *http.Transport
-	client      *http.Client
-	server      *ServerTarget
-	created     time.Time
-	lastUsed    time.Time
-	usageCount  int64
-	isHealthy   bool
-	mu          sync.RWMutex
+	transport  *http.Transport
+	client     *http.Client
+	server     *ServerTarget
+	created    time.Time
+	lastUsed   time.Time
+	usageCount int64
+	isHealthy  bool
+	mu         sync.RWMutex
+
+	// Enhanced lifecycle tracking
+	state           ConnectionState
+	lastValidated   time.Time
+	validationCount int64
+	errorCount      int64
+	lastError       error
+	lastErrorTime   time.Time
+
+	// Resource tracking
+	bytesTransferred int64
+	requestCount     int64
+	responseCount    int64
+
+	// Cleanup tracking
+	cleanupScheduled bool
+	cleanupDeadline  time.Time
+	closed           int32 // atomic flag
+	closeOnce        sync.Once
 }
 
 // HTTPPoolMetrics contains comprehensive metrics for the connection pool.
@@ -179,37 +236,55 @@ type HTTPPoolMetrics struct {
 	ConnectionsCreated   int64 `json:"connections_created"`
 	ConnectionsDestroyed int64 `json:"connections_destroyed"`
 	ConnectionsReused    int64 `json:"connections_reused"`
-	
+
 	// Request metrics
-	TotalRequests        int64         `json:"total_requests"`
-	SuccessfulRequests   int64         `json:"successful_requests"`
-	FailedRequests       int64         `json:"failed_requests"`
-	AverageResponseTime  time.Duration `json:"average_response_time"`
-	
+	TotalRequests       int64         `json:"total_requests"`
+	SuccessfulRequests  int64         `json:"successful_requests"`
+	FailedRequests      int64         `json:"failed_requests"`
+	AverageResponseTime time.Duration `json:"average_response_time"`
+
 	// Health metrics
-	HealthyServers       int           `json:"healthy_servers"`
-	UnhealthyServers     int           `json:"unhealthy_servers"`
-	HealthChecksFailed   int64         `json:"health_checks_failed"`
-	HealthChecksSuccess  int64         `json:"health_checks_success"`
-	
+	HealthyServers      int   `json:"healthy_servers"`
+	UnhealthyServers    int   `json:"unhealthy_servers"`
+	HealthChecksFailed  int64 `json:"health_checks_failed"`
+	HealthChecksSuccess int64 `json:"health_checks_success"`
+
 	// Performance metrics
-	PoolUtilization      float64       `json:"pool_utilization"`
-	AverageWaitTime      time.Duration `json:"average_wait_time"`
-	MaxWaitTime          time.Duration `json:"max_wait_time"`
-	
+	PoolUtilization float64       `json:"pool_utilization"`
+	AverageWaitTime time.Duration `json:"average_wait_time"`
+	MaxWaitTime     time.Duration `json:"max_wait_time"`
+
 	// Load balancing metrics
-	RequestsPerServer    map[string]int64 `json:"requests_per_server"`
-	
+	RequestsPerServer map[string]int64 `json:"requests_per_server"`
+
 	// Error tracking
-	ConnectionErrors     int64         `json:"connection_errors"`
-	TimeoutErrors        int64         `json:"timeout_errors"`
-	
+	ConnectionErrors int64 `json:"connection_errors"`
+	TimeoutErrors    int64 `json:"timeout_errors"`
+
 	// Resource usage
-	MemoryUsage          int64         `json:"memory_usage"`
-	
+	MemoryUsage int64 `json:"memory_usage"`
+
+	// Enhanced lifecycle and leak detection metrics
+	TotalConnectionLifetime  int64   `json:"total_connection_lifetime_ms"`
+	AverageConnectionAge     float64 `json:"average_connection_age_ms"`
+	TotalUsageCount          int64   `json:"total_usage_count"`
+	AverageUsagePerConnection float64 `json:"average_usage_per_connection"`
+	TotalErrorCount          int64   `json:"total_error_count"`
+	TotalBytesTransferred    int64   `json:"total_bytes_transferred"`
+	TotalValidationCount     int64   `json:"total_validation_count"`
+	ConnectionsInErrorState  int64   `json:"connections_in_error_state"`
+	LeakDetectionCount       int64   `json:"leak_detection_count"`
+	AutomaticRecoveryCount   int64   `json:"automatic_recovery_count"`
+	StalenessDetectedCount   int64   `json:"staleness_detected_count"`
+	ConnectionCreationRate   float64 `json:"connection_creation_rate"`
+	ConnectionDestructionRate float64 `json:"connection_destruction_rate"`
+	ValidationSuccessRate    float64 `json:"validation_success_rate"`
+	RecoverySuccessRate      float64 `json:"recovery_success_rate"`
+	HealthScore              float64 `json:"health_score"`
+
 	// Timing
-	LastUpdated          time.Time     `json:"last_updated"`
-	StartTime            time.Time     `json:"start_time"`
+	LastUpdated time.Time `json:"last_updated"`
+	StartTime   time.Time `json:"start_time"`
 }
 
 // HealthChecker manages health checking for servers.
@@ -222,10 +297,10 @@ type HealthChecker struct {
 
 // ConnectionRequest represents a request for a connection.
 type ConnectionRequest struct {
-	Context     context.Context
-	ServerHint  string // Hint for server selection
-	ClientID    string // For IP hash load balancing
-	Priority    int    // Request priority
+	Context    context.Context
+	ServerHint string // Hint for server selection
+	ClientID   string // For IP hash load balancing
+	Priority   int    // Request priority
 }
 
 // ConnectionResponse contains the result of a connection request.
@@ -241,7 +316,7 @@ func NewHTTPConnectionPool(config *HTTPPoolConfig) (*HTTPConnectionPool, error) 
 	if config == nil {
 		config = DefaultHTTPPoolConfig()
 	}
-	
+
 	// Validate configuration
 	if err := validateHTTPPoolConfig(config); err != nil {
 		return nil, errors.NewAgentError(
@@ -250,10 +325,10 @@ func NewHTTPConnectionPool(config *HTTPPoolConfig) (*HTTPConnectionPool, error) 
 			"ConnectionPool",
 		).WithCause(err).WithDetail("operation", "NewHTTPConnectionPool")
 	}
-	
+
 	// Apply defaults
 	config = mergeWithDefaults(config)
-	
+
 	// Set bounded pool defaults
 	if config.BoundedPool.MaxServerPools == 0 {
 		config.BoundedPool.MaxServerPools = 1000
@@ -278,7 +353,7 @@ func NewHTTPConnectionPool(config *HTTPPoolConfig) (*HTTPConnectionPool, error) 
 			if pool, ok := value.(*serverPool); ok {
 				logrus.WithFields(logrus.Fields{
 					"server_url": key,
-					"reason": reason.String(),
+					"reason":     reason.String(),
 				}).Debug("Server pool evicted from bounded map")
 				// Cancel cleanup worker and close connections
 				if pool.cleanupCancel != nil {
@@ -319,7 +394,7 @@ func NewHTTPConnectionPool(config *HTTPPoolConfig) (*HTTPConnectionPool, error) 
 		shutdown:      make(chan struct{}),
 		connSemaphore: semaphore.NewWeighted(int64(config.MaxTotalConnections)),
 	}
-	
+
 	// Initialize connection pool for reuse
 	pool.connPool.New = func() interface{} {
 		return &pooledConnection{
@@ -329,7 +404,7 @@ func NewHTTPConnectionPool(config *HTTPPoolConfig) (*HTTPConnectionPool, error) 
 			isHealthy:  true,
 		}
 	}
-	
+
 	// Initialize health checker
 	pool.healthChecker = &HealthChecker{
 		config: config,
@@ -339,20 +414,20 @@ func NewHTTPConnectionPool(config *HTTPPoolConfig) (*HTTPConnectionPool, error) 
 				Timeout:   config.HealthCheckTimeout,
 				KeepAlive: 0, // Disable keep-alive for health checks
 			}).DialContext,
-			MaxIdleConns:        1,
-			IdleConnTimeout:     config.HealthCheckTimeout,
-			DisableKeepAlives:   true,
-			DisableCompression:  true,
+			MaxIdleConns:       1,
+			IdleConnTimeout:    config.HealthCheckTimeout,
+			DisableKeepAlives:  true,
+			DisableCompression: true,
 		},
 	}
 	pool.healthChecker.client = &http.Client{
 		Transport: pool.healthChecker.transport,
 		Timeout:   config.HealthCheckTimeout,
 	}
-	
+
 	// Start background workers
 	pool.startBackgroundWorkers()
-	
+
 	return pool, nil
 }
 
@@ -365,42 +440,42 @@ func (p *HTTPConnectionPool) AddServer(serverURL string, weight int) error {
 			"ConnectionPool",
 		).WithDetail("operation", "AddServer")
 	}
-	
+
 	parsedURL, err := url.Parse(serverURL)
 	if err != nil {
 		validationErr := errors.NewValidationError("invalid_server_url", "invalid server URL").
 			WithField("serverURL", serverURL)
 		return validationErr.WithCause(err)
 	}
-	
+
 	if weight <= 0 {
 		weight = 1
 	}
-	
+
 	server := &ServerTarget{
-		URL:                parsedURL,
-		Weight:             weight,
-		MaxConnections:     p.config.MaxConnectionsPerServer,
-		IsHealthy:          true, // Start as healthy
-		LastHealthCheck:    time.Now(),
-		FailureCount:       0,
-		TotalRequests:      0,
+		URL:             parsedURL,
+		Weight:          weight,
+		MaxConnections:  p.config.MaxConnectionsPerServer,
+		IsHealthy:       true, // Start as healthy
+		LastHealthCheck: time.Now(),
+		FailureCount:    0,
+		TotalRequests:   0,
 	}
-	
+
 	// Create server pool
 	pool := p.createServerPool(server)
-	
+
 	p.poolsMu.Lock()
 	p.pools.Set(serverURL, pool)
 	p.poolsMu.Unlock()
-	
+
 	p.serversMu.Lock()
 	p.servers = append(p.servers, server)
 	p.serversMu.Unlock()
-	
+
 	// Trigger immediate health check
 	go p.healthChecker.checkServerHealth(server)
-	
+
 	return nil
 }
 
@@ -413,23 +488,23 @@ func (p *HTTPConnectionPool) RemoveServer(serverURL string) error {
 			"ConnectionPool",
 		).WithDetail("operation", "RemoveServer")
 	}
-	
+
 	p.poolsMu.Lock()
 	poolInterface, exists := p.pools.Get(serverURL)
 	if exists {
 		p.pools.Delete(serverURL)
 	}
 	p.poolsMu.Unlock()
-	
+
 	if !exists {
 		return errors.NewResourceNotFoundError("server", serverURL)
 	}
-	
+
 	// Close server pool
 	if pool, ok := poolInterface.(*serverPool); ok {
 		p.closeServerPool(pool)
 	}
-	
+
 	// Remove from servers list
 	p.serversMu.Lock()
 	for i, server := range p.servers {
@@ -439,7 +514,7 @@ func (p *HTTPConnectionPool) RemoveServer(serverURL string) error {
 		}
 	}
 	p.serversMu.Unlock()
-	
+
 	return nil
 }
 
@@ -452,13 +527,13 @@ func (p *HTTPConnectionPool) GetConnection(req *ConnectionRequest) (*ConnectionR
 			"ConnectionPool",
 		).WithDetail("operation", "GetConnection")
 	}
-	
+
 	if req.Context == nil {
 		req.Context = context.Background()
 	}
-	
+
 	startTime := time.Now()
-	
+
 	// Select server using load balancing
 	server, err := p.selectServer(req)
 	if err != nil {
@@ -469,7 +544,7 @@ func (p *HTTPConnectionPool) GetConnection(req *ConnectionRequest) (*ConnectionR
 			"ConnectionPool",
 		).WithCause(err).WithDetail("operation", "GetConnection")
 	}
-	
+
 	// Acquire global connection semaphore
 	if err := p.connSemaphore.Acquire(req.Context, 1); err != nil {
 		atomic.AddInt64(&p.metrics.FailedRequests, 1)
@@ -479,7 +554,7 @@ func (p *HTTPConnectionPool) GetConnection(req *ConnectionRequest) (*ConnectionR
 			"ConnectionPool",
 		).WithCause(err).WithDetail("operation", "GetConnection")
 	}
-	
+
 	// Get connection from server pool
 	conn, fromPool, err := p.getConnectionFromServerPool(req.Context, server)
 	if err != nil {
@@ -491,23 +566,23 @@ func (p *HTTPConnectionPool) GetConnection(req *ConnectionRequest) (*ConnectionR
 			"ConnectionPool",
 		).WithCause(err).WithDetail("operation", "GetConnection")
 	}
-	
+
 	waitTime := time.Since(startTime)
-	
+
 	// Update metrics
 	atomic.AddInt64(&p.metrics.TotalRequests, 1)
 	if fromPool {
 		atomic.AddInt64(&p.metrics.ConnectionsReused, 1)
 	}
-	
+
 	p.updateWaitTimeMetrics(waitTime)
-	
+
 	// Update server metrics
 	server.mu.Lock()
 	atomic.AddInt64(&server.TotalRequests, 1)
 	atomic.AddInt64(&server.CurrentConnections, 1)
 	server.mu.Unlock()
-	
+
 	return &ConnectionResponse{
 		Connection: conn,
 		Server:     server,
@@ -516,56 +591,72 @@ func (p *HTTPConnectionPool) GetConnection(req *ConnectionRequest) (*ConnectionR
 	}, nil
 }
 
-// ReleaseConnection returns a connection to the pool.
+// ReleaseConnection returns a connection to the pool with enhanced lifecycle management.
 func (p *HTTPConnectionPool) ReleaseConnection(conn *pooledConnection) error {
 	if atomic.LoadInt32(&p.isShutdown) == 1 {
 		return p.destroyConnection(conn)
 	}
-	
+
 	if conn == nil {
 		return errors.NewValidationError("connection_nil", "connection is nil").
 			WithField("connection", conn).WithDetail("operation", "ReleaseConnection")
 	}
-	
+
+	// Enhanced connection state management
 	conn.mu.Lock()
+	if atomic.LoadInt32(&conn.closed) == 1 {
+		conn.mu.Unlock()
+		p.connSemaphore.Release(1)
+		return errors.NewValidationError("connection_closed", "connection is already closed")
+	}
+
 	conn.lastUsed = time.Now()
 	atomic.AddInt64(&conn.usageCount, 1)
+	conn.state = ConnectionStateIdle
 	conn.mu.Unlock()
-	
+
 	// Update server metrics
 	if conn.server != nil {
 		atomic.AddInt64(&conn.server.CurrentConnections, -1)
 	}
-	
-	// Check if connection is still healthy and within limits
-	if !conn.isHealthy || time.Since(conn.created) > p.config.MaxIdleTime {
+
+	// Enhanced connection validation before returning to pool
+	isValid := p.validateConnectionForReuse(conn)
+	if !isValid {
 		p.connSemaphore.Release(1)
 		return p.destroyConnection(conn)
 	}
-	
-	// Return to pool
+
+	// Return to pool with proper error handling
 	serverURL := conn.server.URL.String()
 	p.poolsMu.RLock()
 	poolInterface, exists := p.pools.Get(serverURL)
 	p.poolsMu.RUnlock()
-	
+
 	if !exists {
 		p.connSemaphore.Release(1)
 		return p.destroyConnection(conn)
 	}
-	
+
 	pool, ok := poolInterface.(*serverPool)
 	if !ok {
 		p.connSemaphore.Release(1)
 		return p.destroyConnection(conn)
 	}
-	
-	// Try to return to pool
+
+	// Try to return to pool with timeout to prevent hanging
+	timeout := time.NewTimer(100 * time.Millisecond)
+	defer timeout.Stop()
+
 	select {
 	case pool.connections <- conn:
 		// Successfully returned to pool
 		p.connSemaphore.Release(1)
 		return nil
+	case <-timeout.C:
+		// Pool return timed out, destroy connection
+		p.connSemaphore.Release(1)
+		return p.destroyConnection(conn)
 	default:
 		// Pool is full, destroy connection
 		p.connSemaphore.Release(1)
@@ -577,7 +668,7 @@ func (p *HTTPConnectionPool) ReleaseConnection(conn *pooledConnection) error {
 func (p *HTTPConnectionPool) GetMetrics() *HTTPPoolMetrics {
 	p.metricsMu.RLock()
 	defer p.metricsMu.RUnlock()
-	
+
 	// Create a deep copy of metrics
 	metrics := &HTTPPoolMetrics{
 		TotalConnections:     atomic.LoadInt64(&p.metrics.TotalConnections),
@@ -604,12 +695,12 @@ func (p *HTTPConnectionPool) GetMetrics() *HTTPPoolMetrics {
 		LastUpdated:          p.metrics.LastUpdated,
 		StartTime:            p.metrics.StartTime,
 	}
-	
+
 	// Copy requests per server
 	for k, v := range p.metrics.RequestsPerServer {
 		metrics.RequestsPerServer[k] = v
 	}
-	
+
 	return metrics
 }
 
@@ -617,7 +708,7 @@ func (p *HTTPConnectionPool) GetMetrics() *HTTPPoolMetrics {
 func (p *HTTPConnectionPool) GetServerStats() []*ServerTarget {
 	p.serversMu.RLock()
 	defer p.serversMu.RUnlock()
-	
+
 	stats := make([]*ServerTarget, len(p.servers))
 	for i, server := range p.servers {
 		server.mu.RLock()
@@ -634,7 +725,7 @@ func (p *HTTPConnectionPool) GetServerStats() []*ServerTarget {
 		}
 		server.mu.RUnlock()
 	}
-	
+
 	return stats
 }
 
@@ -644,7 +735,7 @@ func (p *HTTPConnectionPool) Shutdown(ctx context.Context) error {
 		atomic.StoreInt32(&p.isShutdown, 1)
 		close(p.shutdown)
 	})
-	
+
 	// Stop background workers
 	if p.cleanupTicker != nil {
 		p.cleanupTicker.Stop()
@@ -658,21 +749,21 @@ func (p *HTTPConnectionPool) Shutdown(ctx context.Context) error {
 	if p.monitoringTicker != nil {
 		p.monitoringTicker.Stop()
 	}
-	
+
 	// Wait for background workers to finish
 	done := make(chan struct{})
 	go func() {
 		p.workerGroup.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// Workers finished gracefully
 	case <-ctx.Done():
 		// Context timeout, force shutdown
 	}
-	
+
 	// Close all server pools
 	p.poolsMu.Lock()
 	for _, keyInterface := range p.pools.Keys() {
@@ -685,12 +776,12 @@ func (p *HTTPConnectionPool) Shutdown(ctx context.Context) error {
 	// Close bounded map
 	p.pools.Close()
 	p.poolsMu.Unlock()
-	
+
 	// Close health checker
 	if p.healthChecker.transport != nil {
 		p.healthChecker.transport.CloseIdleConnections()
 	}
-	
+
 	return nil
 }
 
@@ -702,24 +793,24 @@ func (p *HTTPConnectionPool) createServerPool(server *ServerTarget) *serverPool 
 			Timeout:   p.config.ConnectTimeout,
 			KeepAlive: p.config.KeepAliveTimeout,
 		}).DialContext,
-		MaxIdleConns:          p.config.MaxIdleConnections,
-		MaxIdleConnsPerHost:   p.config.MaxConnectionsPerServer,
-		IdleConnTimeout:       p.config.IdleConnTimeout,
-		TLSHandshakeTimeout:   p.config.ConnectTimeout,
-		ExpectContinueTimeout: 1 * time.Second,
-		DisableKeepAlives:     p.config.DisableKeepAlives,
-		DisableCompression:    p.config.DisableCompression,
+		MaxIdleConns:           p.config.MaxIdleConnections,
+		MaxIdleConnsPerHost:    p.config.MaxConnectionsPerServer,
+		IdleConnTimeout:        p.config.IdleConnTimeout,
+		TLSHandshakeTimeout:    p.config.ConnectTimeout,
+		ExpectContinueTimeout:  1 * time.Second,
+		DisableKeepAlives:      p.config.DisableKeepAlives,
+		DisableCompression:     p.config.DisableCompression,
 		MaxResponseHeaderBytes: p.config.MaxResponseHeaderSize,
-		WriteBufferSize:       p.config.WriteBufferSize,
-		ReadBufferSize:        p.config.ReadBufferSize,
-		TLSClientConfig:       p.config.TLSConfig,
+		WriteBufferSize:        p.config.WriteBufferSize,
+		ReadBufferSize:         p.config.ReadBufferSize,
+		TLSClientConfig:        p.config.TLSConfig,
 	}
-	
+
 	client := &http.Client{
 		Transport: transport,
 		Timeout:   p.config.RequestTimeout,
 	}
-	
+
 	pool := &serverPool{
 		server:      server,
 		transport:   transport,
@@ -728,11 +819,11 @@ func (p *HTTPConnectionPool) createServerPool(server *ServerTarget) *serverPool 
 		maxConns:    int64(server.MaxConnections),
 		created:     time.Now(),
 	}
-	
+
 	// Initialize connection cleanup with timeout
 	pool.cleanupCtx, pool.cleanupCancel = context.WithCancel(context.Background())
 	go pool.startCleanupWorker(p.config.MaxIdleTime)
-	
+
 	return pool
 }
 
@@ -741,11 +832,11 @@ func (p *HTTPConnectionPool) closeServerPool(pool *serverPool) {
 	if pool.cleanupCancel != nil {
 		pool.cleanupCancel()
 	}
-	
+
 	// Close all connections in pool with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
@@ -754,14 +845,14 @@ func (p *HTTPConnectionPool) closeServerPool(pool *serverPool) {
 			p.destroyConnectionUnsafe(conn, true) // already have pools lock
 		}
 	}()
-	
+
 	select {
 	case <-done:
 		// Cleanup completed successfully
 	case <-ctx.Done():
 		// Timeout reached, force cleanup
 	}
-	
+
 	// Close transport
 	if pool.transport != nil {
 		pool.transport.CloseIdleConnections()
@@ -770,54 +861,92 @@ func (p *HTTPConnectionPool) closeServerPool(pool *serverPool) {
 
 func (p *HTTPConnectionPool) getConnectionFromServerPool(ctx context.Context, server *ServerTarget) (*pooledConnection, bool, error) {
 	serverURL := server.URL.String()
-	
+
 	p.poolsMu.RLock()
 	poolInterface, exists := p.pools.Get(serverURL)
 	p.poolsMu.RUnlock()
-	
+
 	if !exists {
 		return nil, false, errors.NewResourceNotFoundError("server_pool", serverURL)
 	}
-	
+
 	pool, ok := poolInterface.(*serverPool)
 	if !ok {
 		return nil, false, errors.NewInternalErrorWithComponent("ConnectionPool", "invalid server pool type", nil)
 	}
-	
-	// Try to get existing connection from pool
-	select {
-	case conn := <-pool.connections:
-		// Check if connection is still valid
-		if p.isConnectionValid(conn) {
-			atomic.AddInt64(&pool.activeConns, 1)
-			return conn, true, nil
+
+	// Try to get existing connection from pool with timeout
+	timeout := time.NewTimer(100 * time.Millisecond)
+	defer timeout.Stop()
+
+	for attempts := 0; attempts < 3; attempts++ {
+		select {
+		case conn := <-pool.connections:
+			// Enhanced connection validation with healing
+			if p.isConnectionValid(conn) {
+				conn.mu.Lock()
+				conn.state = ConnectionStateActive
+				conn.mu.Unlock()
+				atomic.AddInt64(&pool.activeConns, 1)
+				return conn, true, nil
+			}
+
+			// Attempt to heal the connection
+			if p.healConnection(conn) == nil && p.isConnectionValid(conn) {
+				conn.mu.Lock()
+				conn.state = ConnectionStateActive
+				conn.mu.Unlock()
+				atomic.AddInt64(&pool.activeConns, 1)
+				return conn, true, nil
+			}
+
+			// Connection is invalid and cannot be healed, destroy it
+			p.destroyConnection(conn)
+		case <-timeout.C:
+			// Timeout waiting for connection, break to create new one
+			goto createNew
+		default:
+			// No connections available in pool, break to create new one
+			goto createNew
 		}
-		// Connection is invalid, destroy it and create new one
-		p.destroyConnection(conn)
-	default:
-		// No connections available in pool
 	}
-	
+
+createNew:
 	// Check connection limits
 	if atomic.LoadInt64(&pool.activeConns) >= pool.maxConns {
-		return nil, false, errors.NewOperationError("getConnectionFromServerPool", "ConnectionPool", 
+		return nil, false, errors.NewOperationError("getConnectionFromServerPool", "ConnectionPool",
 			fmt.Errorf("server connection limit reached for %s", serverURL))
 	}
-	
-	// Create new connection using sync.Pool for reuse
+
+	// Create new connection using sync.Pool for reuse with enhanced initialization
 	conn := p.connPool.Get().(*pooledConnection)
+	now := time.Now()
+	
+	// Enhanced connection initialization
 	conn.transport = pool.transport
 	conn.client = pool.client
 	conn.server = server
-	conn.created = time.Now()
-	conn.lastUsed = time.Now()
+	conn.created = now
+	conn.lastUsed = now
+	conn.lastValidated = now
+	conn.state = ConnectionStateCreated
 	atomic.StoreInt64(&conn.usageCount, 0)
+	atomic.StoreInt64(&conn.validationCount, 0)
+	atomic.StoreInt64(&conn.errorCount, 0)
+	atomic.StoreInt32(&conn.closed, 0)
 	conn.isHealthy = true
-	
+	conn.lastError = nil
+	conn.cleanupScheduled = false
+
+	// Transition to active state
+	conn.mu.Lock()
+	conn.state = ConnectionStateActive
+	conn.mu.Unlock()
+
 	atomic.AddInt64(&pool.activeConns, 1)
 	atomic.AddInt64(&pool.totalConns, 1)
 	atomic.AddInt64(&p.metrics.ConnectionsCreated, 1)
-	
+
 	return conn, false, nil
 }
 
@@ -829,32 +958,80 @@ func (p *HTTPConnectionPool) destroyConnectionUnsafe(conn *pooledConnection, alr
 	if conn == nil {
 		return nil
 	}
-	
-	// Update pool metrics
-	if conn.server != nil && !alreadyLocked {
-		serverURL := conn.server.URL.String()
-		p.poolsMu.RLock()
-		if poolInterface, exists := p.pools.Get(serverURL); exists {
-			if pool, ok := poolInterface.(*serverPool); ok {
-				atomic.AddInt64(&pool.activeConns, -1)
+
+	// Enhanced connection destruction with proper cleanup
+	conn.closeOnce.Do(func() {
+		atomic.StoreInt32(&conn.closed, 1)
+		
+		conn.mu.Lock()
+		conn.state = ConnectionStateClosing
+		conn.mu.Unlock()
+
+		// Update pool metrics
+		if conn.server != nil && !alreadyLocked {
+			serverURL := conn.server.URL.String()
+			p.poolsMu.RLock()
+			if poolInterface, exists := p.pools.Get(serverURL); exists {
+				if pool, ok := poolInterface.(*serverPool); ok {
+					atomic.AddInt64(&pool.activeConns, -1)
+				}
 			}
+			p.poolsMu.RUnlock()
 		}
-		p.poolsMu.RUnlock()
-	}
-	
-	atomic.AddInt64(&p.metrics.ConnectionsDestroyed, 1)
-	
-	// Return connection to sync.Pool for reuse
-	if conn != nil {
-		// Reset connection state
+
+		// Graceful transport cleanup with timeout
+		// Capture transport while holding mutex to avoid race condition
+		conn.mu.Lock()
+		transport := conn.transport
+		conn.mu.Unlock()
+		
+		if transport != nil {
+			// Close idle connections with timeout
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						logrus.WithField("panic", r).Warn("Panic during transport cleanup")
+					}
+				}()
+				
+				// Set a timeout for transport cleanup
+				cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+				defer cancel()
+				
+				done := make(chan struct{})
+				go func() {
+					transport.CloseIdleConnections()
+					close(done)
+				}()
+				
+				select {
+				case <-done:
+					// Cleanup completed successfully
+				case <-cleanupCtx.Done():
+					// Cleanup timed out, log warning
+					logrus.Warn("Transport cleanup timed out")
+				}
+			}()
+		}
+
+		atomic.AddInt64(&p.metrics.ConnectionsDestroyed, 1)
+
+		// Enhanced connection reset with proper state management
+		conn.mu.Lock()
 		conn.transport = nil
 		conn.client = nil
 		conn.server = nil
 		conn.isHealthy = false
+		conn.state = ConnectionStateClosed
 		atomic.StoreInt64(&conn.usageCount, 0)
+		atomic.StoreInt64(&conn.errorCount, 0)
+		conn.lastError = nil
+		conn.mu.Unlock()
+
+		// Return connection to sync.Pool for reuse
 		p.connPool.Put(conn)
-	}
-	
+	})
+
 	return nil
 }
 
@@ -862,26 +1039,140 @@ func (p *HTTPConnectionPool) isConnectionValid(conn *pooledConnection) bool {
 	if conn == nil {
 		return false
 	}
-	
+
 	conn.mu.RLock()
 	defer conn.mu.RUnlock()
-	
+
+	// Check if connection is closed
+	if atomic.LoadInt32(&conn.closed) == 1 {
+		return false
+	}
+
+	// Check connection state
+	if conn.state == ConnectionStateClosing || conn.state == ConnectionStateClosed {
+		return false
+	}
+
 	// Check if connection is healthy
 	if !conn.isHealthy {
 		return false
 	}
-	
+
 	// Check if connection has exceeded max idle time
 	if time.Since(conn.lastUsed) > p.config.MaxIdleTime {
 		return false
 	}
-	
+
 	// Check if server is healthy
 	if conn.server != nil && !conn.server.IsHealthy {
 		return false
 	}
-	
+
+	// Check error rate - if too many errors, consider unhealthy
+	if conn.errorCount > 10 && time.Since(conn.lastErrorTime) < 5*time.Minute {
+		return false
+	}
+
 	return true
+}
+
+// validateConnectionForReuse performs comprehensive validation before reusing a connection
+func (p *HTTPConnectionPool) validateConnectionForReuse(conn *pooledConnection) bool {
+	if !p.isConnectionValid(conn) {
+		return false
+	}
+
+	// Enhanced validation for reuse
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	// Check if validation is needed based on time since last validation
+	now := time.Now()
+	validationInterval := 30 * time.Second // Validate every 30 seconds
+	if now.Sub(conn.lastValidated) < validationInterval {
+		// Recent validation, skip detailed checks
+		return true
+	}
+
+	// Perform detailed validation
+	if p.performConnectionHealthCheck(conn) {
+		conn.lastValidated = now
+		atomic.AddInt64(&conn.validationCount, 1)
+		return true
+	}
+
+	return false
+}
+
+// performConnectionHealthCheck performs a lightweight health check on the connection
+func (p *HTTPConnectionPool) performConnectionHealthCheck(conn *pooledConnection) bool {
+	// Skip health check if transport or client is nil
+	if conn.transport == nil || conn.client == nil {
+		return false
+	}
+
+	// Check if transport has any idle connections
+	// This is a lightweight check that doesn't make network requests
+	if conn.transport != nil {
+		// Transport exists, assume it's valid for now
+		// More sophisticated checks could be added here
+		return true
+	}
+
+	return false
+}
+
+// healConnection attempts to heal an unhealthy connection
+func (p *HTTPConnectionPool) healConnection(conn *pooledConnection) error {
+	if conn == nil {
+		return errors.NewValidationError("connection_nil", "connection is nil")
+	}
+
+	conn.mu.Lock()
+	defer conn.mu.Unlock()
+
+	// Mark as validating
+	conn.state = ConnectionStateValidating
+
+	// Reset error count if enough time has passed
+	if time.Since(conn.lastErrorTime) > 10*time.Minute {
+		atomic.StoreInt64(&conn.errorCount, 0)
+		conn.lastError = nil
+	}
+
+	// Attempt to recreate transport if needed
+	if conn.transport == nil && conn.server != nil {
+		transport := &http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout:   p.config.ConnectTimeout,
+				KeepAlive: p.config.KeepAliveTimeout,
+			}).DialContext,
+			MaxIdleConns:           p.config.MaxIdleConnections,
+			MaxIdleConnsPerHost:    p.config.MaxConnectionsPerServer,
+			IdleConnTimeout:        p.config.IdleConnTimeout,
+			TLSHandshakeTimeout:    p.config.ConnectTimeout,
+			ExpectContinueTimeout:  1 * time.Second,
+			DisableKeepAlives:      p.config.DisableKeepAlives,
+			DisableCompression:     p.config.DisableCompression,
+			MaxResponseHeaderBytes: p.config.MaxResponseHeaderSize,
+			WriteBufferSize:        p.config.WriteBufferSize,
+			ReadBufferSize:         p.config.ReadBufferSize,
+			TLSClientConfig:        p.config.TLSConfig,
+		}
+
+		conn.transport = transport
+		conn.client = &http.Client{
+			Transport: transport,
+			Timeout:   p.config.RequestTimeout,
+		}
+	}
+
+	// Mark as healthy and active
+	conn.isHealthy = true
+	conn.state = ConnectionStateActive
+	conn.lastValidated = time.Now()
+
+	return nil
 }
 
 func (p *HTTPConnectionPool) selectServer(req *ConnectionRequest) (*ServerTarget, error) {
@@ -889,7 +1180,7 @@ func (p *HTTPConnectionPool) selectServer(req *ConnectionRequest) (*ServerTarget
 	servers := make([]*ServerTarget, len(p.servers))
 	copy(servers, p.servers)
 	p.serversMu.RUnlock()
-	
+
 	if len(servers) == 0 {
 		return nil, errors.NewAgentError(
 			errors.ErrorTypeInvalidState,
@@ -897,7 +1188,7 @@ func (p *HTTPConnectionPool) selectServer(req *ConnectionRequest) (*ServerTarget
 			"ConnectionPool",
 		).WithDetail("operation", "selectServer")
 	}
-	
+
 	// Filter healthy servers
 	healthyServers := make([]*ServerTarget, 0, len(servers))
 	for _, server := range servers {
@@ -907,7 +1198,7 @@ func (p *HTTPConnectionPool) selectServer(req *ConnectionRequest) (*ServerTarget
 		}
 		server.mu.RUnlock()
 	}
-	
+
 	if len(healthyServers) == 0 {
 		return nil, errors.NewAgentError(
 			errors.ErrorTypeInvalidState,
@@ -915,7 +1206,7 @@ func (p *HTTPConnectionPool) selectServer(req *ConnectionRequest) (*ServerTarget
 			"ConnectionPool",
 		).WithDetail("operation", "selectServer")
 	}
-	
+
 	// Apply load balancing strategy
 	switch p.config.LoadBalanceStrategy {
 	case RoundRobin:
@@ -937,7 +1228,7 @@ func (p *HTTPConnectionPool) selectRoundRobin(servers []*ServerTarget) *ServerTa
 	if len(servers) == 0 {
 		return nil
 	}
-	
+
 	// Simple round-robin using current time as seed
 	index := int(time.Now().UnixNano()) % len(servers)
 	return servers[index]
@@ -947,10 +1238,10 @@ func (p *HTTPConnectionPool) selectLeastConnections(servers []*ServerTarget) *Se
 	if len(servers) == 0 {
 		return nil
 	}
-	
+
 	var selected *ServerTarget
 	minConnections := int64(^uint64(0) >> 1) // Max int64
-	
+
 	for _, server := range servers {
 		connCount := atomic.LoadInt64(&server.CurrentConnections)
 		if connCount < minConnections {
@@ -958,7 +1249,7 @@ func (p *HTTPConnectionPool) selectLeastConnections(servers []*ServerTarget) *Se
 			selected = server
 		}
 	}
-	
+
 	return selected
 }
 
@@ -966,28 +1257,28 @@ func (p *HTTPConnectionPool) selectWeightedRoundRobin(servers []*ServerTarget) *
 	if len(servers) == 0 {
 		return nil
 	}
-	
+
 	// Calculate total weight
 	totalWeight := 0
 	for _, server := range servers {
 		totalWeight += server.Weight
 	}
-	
+
 	if totalWeight == 0 {
 		return p.selectRoundRobin(servers)
 	}
-	
+
 	// Select based on weight
 	target := rand.Intn(totalWeight)
 	current := 0
-	
+
 	for _, server := range servers {
 		current += server.Weight
 		if current > target {
 			return server
 		}
 	}
-	
+
 	return servers[len(servers)-1]
 }
 
@@ -995,7 +1286,7 @@ func (p *HTTPConnectionPool) selectRandom(servers []*ServerTarget) *ServerTarget
 	if len(servers) == 0 {
 		return nil
 	}
-	
+
 	index := rand.Intn(len(servers))
 	return servers[index]
 }
@@ -1004,22 +1295,22 @@ func (p *HTTPConnectionPool) selectIPHash(servers []*ServerTarget, clientID stri
 	if len(servers) == 0 {
 		return nil
 	}
-	
+
 	if clientID == "" {
 		return p.selectRoundRobin(servers)
 	}
-	
+
 	// Simple hash of client ID
 	hash := 0
 	for _, c := range clientID {
 		hash = hash*31 + int(c)
 	}
-	
+
 	index := hash % len(servers)
 	if index < 0 {
 		index = -index
 	}
-	
+
 	return servers[index]
 }
 
@@ -1038,7 +1329,7 @@ func (p *HTTPConnectionPool) startBackgroundWorkers() {
 			}
 		}
 	}()
-	
+
 	// Metrics worker
 	p.metricsTicker = time.NewTicker(p.config.MetricsInterval)
 	p.workerGroup.Add(1)
@@ -1053,7 +1344,7 @@ func (p *HTTPConnectionPool) startBackgroundWorkers() {
 			}
 		}
 	}()
-	
+
 	// Health check worker
 	p.healthTicker = time.NewTicker(p.config.HealthCheckInterval)
 	p.workerGroup.Add(1)
@@ -1068,7 +1359,7 @@ func (p *HTTPConnectionPool) startBackgroundWorkers() {
 			}
 		}
 	}()
-	
+
 	// Start monitoring worker
 	p.startMonitoring()
 }
@@ -1084,7 +1375,7 @@ func (p *HTTPConnectionPool) performCleanup() {
 		}
 	}
 	p.poolsMu.RUnlock()
-	
+
 	for _, pool := range pools {
 		p.cleanupServerPool(pool)
 	}
@@ -1114,7 +1405,7 @@ func (p *HTTPConnectionPool) cleanupServerPool(pool *serverPool) {
 func (sp *serverPool) startCleanupWorker(maxIdleTime time.Duration) {
 	ticker := time.NewTicker(maxIdleTime / 2) // Check twice as often as max idle time
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-sp.cleanupCtx.Done():
@@ -1130,7 +1421,7 @@ func (sp *serverPool) cleanupIdleConnections(maxIdleTime time.Duration) {
 	// Use timeout to prevent blocking indefinitely
 	timeout := time.NewTimer(100 * time.Millisecond)
 	defer timeout.Stop()
-	
+
 	for {
 		select {
 		case conn := <-sp.connections:
@@ -1138,7 +1429,7 @@ func (sp *serverPool) cleanupIdleConnections(maxIdleTime time.Duration) {
 				conn.mu.RLock()
 				isExpired := time.Since(conn.lastUsed) > maxIdleTime
 				conn.mu.RUnlock()
-				
+
 				if isExpired {
 					// Connection expired, destroy it
 					atomic.AddInt64(&sp.activeConns, -1)
@@ -1169,11 +1460,11 @@ func (p *HTTPConnectionPool) UpdateMetrics() {
 func (p *HTTPConnectionPool) updateMetrics() {
 	p.metricsMu.Lock()
 	defer p.metricsMu.Unlock()
-	
+
 	// Update server counts
 	healthyCount := 0
 	unhealthyCount := 0
-	
+
 	p.serversMu.RLock()
 	for _, server := range p.servers {
 		server.mu.RLock()
@@ -1185,23 +1476,23 @@ func (p *HTTPConnectionPool) updateMetrics() {
 		server.mu.RUnlock()
 	}
 	p.serversMu.RUnlock()
-	
+
 	p.metrics.HealthyServers = healthyCount
 	p.metrics.UnhealthyServers = unhealthyCount
-	
+
 	// Calculate pool utilization
 	totalConnections := atomic.LoadInt64(&p.metrics.TotalConnections)
 	if p.config.MaxTotalConnections > 0 {
 		p.metrics.PoolUtilization = float64(totalConnections) / float64(p.config.MaxTotalConnections)
 	}
-	
+
 	p.metrics.LastUpdated = time.Now()
 }
 
 func (p *HTTPConnectionPool) updateWaitTimeMetrics(waitTime time.Duration) {
 	p.metricsMu.Lock()
 	defer p.metricsMu.Unlock()
-	
+
 	// Update average wait time using exponential moving average
 	const alpha = 0.1
 	if p.metrics.AverageWaitTime == 0 {
@@ -1211,7 +1502,7 @@ func (p *HTTPConnectionPool) updateWaitTimeMetrics(waitTime time.Duration) {
 			alpha*float64(waitTime) + (1-alpha)*float64(p.metrics.AverageWaitTime),
 		)
 	}
-	
+
 	// Update max wait time
 	if waitTime > p.metrics.MaxWaitTime {
 		p.metrics.MaxWaitTime = waitTime
@@ -1223,7 +1514,7 @@ func (p *HTTPConnectionPool) performHealthChecks() {
 	servers := make([]*ServerTarget, len(p.servers))
 	copy(servers, p.servers)
 	p.serversMu.RUnlock()
-	
+
 	for _, server := range servers {
 		go p.healthChecker.checkServerHealth(server)
 	}
@@ -1233,11 +1524,11 @@ func (p *HTTPConnectionPool) performHealthChecks() {
 
 func (h *HealthChecker) checkServerHealth(server *ServerTarget) {
 	startTime := time.Now()
-	
+
 	// Build health check URL
 	healthURL := *server.URL
 	healthURL.Path = h.config.HealthCheckPath
-	
+
 	// Create health check request
 	req, err := http.NewRequest("GET", healthURL.String(), nil)
 	if err != nil {
@@ -1249,12 +1540,12 @@ func (h *HealthChecker) checkServerHealth(server *ServerTarget) {
 		h.markServerUnhealthy(server, err)
 		return
 	}
-	
+
 	// Set timeout context
 	ctx, cancel := context.WithTimeout(context.Background(), h.config.HealthCheckTimeout)
 	defer cancel()
 	req = req.WithContext(ctx)
-	
+
 	// Perform health check
 	resp, err := h.client.Do(req)
 	if err != nil {
@@ -1267,9 +1558,9 @@ func (h *HealthChecker) checkServerHealth(server *ServerTarget) {
 		return
 	}
 	defer resp.Body.Close()
-	
+
 	responseTime := time.Since(startTime)
-	
+
 	// Check response status
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		err = errors.NewAgentError(
@@ -1280,7 +1571,7 @@ func (h *HealthChecker) checkServerHealth(server *ServerTarget) {
 		h.markServerUnhealthy(server, err)
 		return
 	}
-	
+
 	// Health check passed
 	h.markServerHealthy(server, responseTime)
 }
@@ -1288,13 +1579,13 @@ func (h *HealthChecker) checkServerHealth(server *ServerTarget) {
 func (h *HealthChecker) markServerHealthy(server *ServerTarget, responseTime time.Duration) {
 	server.mu.Lock()
 	defer server.mu.Unlock()
-	
+
 	wasUnhealthy := !server.IsHealthy
-	
+
 	server.FailureCount = 0
 	server.LastHealthCheck = time.Now()
 	server.ResponseTime = responseTime
-	
+
 	// Mark as healthy if it meets the threshold
 	if wasUnhealthy {
 		// For now, mark as healthy immediately
@@ -1303,22 +1594,22 @@ func (h *HealthChecker) markServerHealthy(server *ServerTarget, responseTime tim
 	} else {
 		server.IsHealthy = true
 	}
-	
+
 	atomic.AddInt64(&h.pool.metrics.HealthChecksSuccess, 1)
 }
 
 func (h *HealthChecker) markServerUnhealthy(server *ServerTarget, err error) {
 	server.mu.Lock()
 	defer server.mu.Unlock()
-	
+
 	server.FailureCount++
 	server.LastHealthCheck = time.Now()
-	
+
 	// Mark as unhealthy if it exceeds the threshold
 	if server.FailureCount >= h.config.UnhealthyThreshold {
 		server.IsHealthy = false
 	}
-	
+
 	atomic.AddInt64(&h.pool.metrics.HealthChecksFailed, 1)
 }
 
@@ -1411,7 +1702,7 @@ func validateHTTPPoolConfig(config *HTTPPoolConfig) error {
 
 func mergeWithDefaults(config *HTTPPoolConfig) *HTTPPoolConfig {
 	defaults := DefaultHTTPPoolConfig()
-	
+
 	if config.MaxConnectionsPerServer == 0 {
 		config.MaxConnectionsPerServer = defaults.MaxConnectionsPerServer
 	}
@@ -1472,7 +1763,7 @@ func mergeWithDefaults(config *HTTPPoolConfig) *HTTPPoolConfig {
 	if config.ReadBufferSize == 0 {
 		config.ReadBufferSize = defaults.ReadBufferSize
 	}
-	
+
 	return config
 }
 
@@ -1482,7 +1773,7 @@ func mergeWithDefaults(config *HTTPPoolConfig) *HTTPPoolConfig {
 func (p *HTTPConnectionPool) startMonitoring() {
 	logrus.WithFields(logrus.Fields{
 		"monitoring_interval": p.config.MonitoringInterval,
-		"component":          "ConnectionPool",
+		"component":           "ConnectionPool",
 	}).Debug("Starting connection pool monitoring")
 
 	p.monitoringTicker = time.NewTicker(p.config.MonitoringInterval)
@@ -1510,7 +1801,7 @@ func (p *HTTPConnectionPool) logPoolMetrics() {
 	poolCount := p.pools.Len()
 	totalConnections := p.getTotalConnectionCount()
 	utilizationPercentage := float64(0)
-	
+
 	if p.config.MaxTotalConnections > 0 {
 		utilizationPercentage = (float64(totalConnections) / float64(p.config.MaxTotalConnections)) * 100
 	}
@@ -1554,7 +1845,7 @@ func (p *HTTPConnectionPool) logPoolMetrics() {
 			"utilization_percent": utilizationPercentage,
 			"total_connections":   totalConnections,
 			"max_connections":     p.config.MaxTotalConnections,
-			"alert":              "HIGH_UTILIZATION",
+			"alert":               "HIGH_UTILIZATION",
 		}).Warn("Connection pool utilization exceeds 80% threshold")
 	}
 }
@@ -1588,17 +1879,17 @@ func (p *HTTPConnectionPool) checkPoolHealth() {
 
 		// Check if pool is unhealthy (e.g., old, unused, or has errors)
 		isUnhealthy := false
-		
+
 		// Check if pool is too old and unused
 		if time.Since(pool.created) > p.config.BoundedPool.ServerPoolTTL {
 			activeConns := atomic.LoadInt64(&pool.activeConns)
 			if activeConns == 0 {
 				isUnhealthy = true
 				logrus.WithFields(logrus.Fields{
-					"component": "ConnectionPool",
-					"server_url": key,
-					"reason": "pool_expired_and_unused",
-					"age": time.Since(pool.created),
+					"component":          "ConnectionPool",
+					"server_url":         key,
+					"reason":             "pool_expired_and_unused",
+					"age":                time.Since(pool.created),
 					"active_connections": activeConns,
 				}).Debug("Identified unhealthy pool for cleanup")
 			}
@@ -1612,16 +1903,16 @@ func (p *HTTPConnectionPool) checkPoolHealth() {
 				failureCount := server.FailureCount
 				lastHealthCheck := server.LastHealthCheck
 				server.mu.RUnlock()
-				
+
 				// If server has been unhealthy for too long, mark pool as unhealthy
-				if failureCount >= p.config.UnhealthyThreshold && 
-				   time.Since(lastHealthCheck) > p.config.HealthCheckInterval*5 {
+				if failureCount >= p.config.UnhealthyThreshold &&
+					time.Since(lastHealthCheck) > p.config.HealthCheckInterval*5 {
 					isUnhealthy = true
 					logrus.WithFields(logrus.Fields{
-						"component": "ConnectionPool",
-						"server_url": key,
-						"reason": "server_unhealthy_too_long",
-						"failure_count": failureCount,
+						"component":         "ConnectionPool",
+						"server_url":        key,
+						"reason":            "server_unhealthy_too_long",
+						"failure_count":     failureCount,
 						"last_health_check": lastHealthCheck,
 					}).Debug("Identified unhealthy pool due to server health")
 				}
@@ -1642,9 +1933,9 @@ func (p *HTTPConnectionPool) checkPoolHealth() {
 			if pool, ok := poolInterface.(*serverPool); ok {
 				p.closeServerPool(pool)
 				p.pools.Delete(poolKey)
-				
+
 				logrus.WithFields(logrus.Fields{
-					"component": "ConnectionPool",
+					"component":  "ConnectionPool",
 					"server_url": poolKey,
 				}).Info("Cleaned up unhealthy pool")
 			}

@@ -47,7 +47,7 @@ func (l DebugLevel) String() string {
 // EventType represents the type of AG-UI event (local definition)
 type EventType string
 
-// Event defines a basic event interface (local definition)  
+// Event defines a basic event interface (local definition)
 type Event interface {
 	Type() EventType
 	Validate() error

@@ -109,10 +109,10 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Input:       []byte(`{"type":"RUN_FINISHED","timestamp":1640995300,"runId":"run-12345","threadId":"thread-67890"}`),
 				Expected: &events.RunFinishedEvent{
 					BaseEvent: &events.BaseEvent{
-						EventType: events.EventTypeRunFinished,
+						EventType:   events.EventTypeRunFinished,
 						TimestampMs: int64Ptr(1640995300),
 					},
-					RunIDValue: "run-12345",
+					RunIDValue:    "run-12345",
 					ThreadIDValue: "thread-67890",
 				},
 			},
@@ -132,7 +132,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Input:       []byte(`{"type":"TEXT_MESSAGE_START","timestamp":1640995200,"messageId":"msg-abc123"}`),
 				Expected: &events.TextMessageStartEvent{
 					BaseEvent: &events.BaseEvent{
-						EventType: events.EventTypeTextMessageStart,
+						EventType:   events.EventTypeTextMessageStart,
 						TimestampMs: int64Ptr(1640995200),
 					},
 					MessageID: "msg-abc123",
@@ -147,7 +147,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Input:       []byte(`{"type":"TEXT_MESSAGE_CONTENT","timestamp":1640995200,"messageId":"msg-abc123","delta":"Hello, world!"}`),
 				Expected: &events.TextMessageContentEvent{
 					BaseEvent: &events.BaseEvent{
-						EventType: events.EventTypeTextMessageContent,
+						EventType:   events.EventTypeTextMessageContent,
 						TimestampMs: int64Ptr(1640995200),
 					},
 					MessageID: "msg-abc123",
@@ -163,7 +163,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Input:       []byte(`{"type":"TEXT_MESSAGE_CONTENT","timestamp":1640995200,"messageId":"msg-abc123","delta":"Hello 🌍! こんにちは世界"}`),
 				Expected: &events.TextMessageContentEvent{
 					BaseEvent: &events.BaseEvent{
-						EventType: events.EventTypeTextMessageContent,
+						EventType:   events.EventTypeTextMessageContent,
 						TimestampMs: int64Ptr(1640995200),
 					},
 					MessageID: "msg-abc123",
@@ -179,7 +179,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Input:       []byte(`{"type":"TEXT_MESSAGE_END","timestamp":1640995300,"messageId":"msg-abc123"}`),
 				Expected: &events.TextMessageEndEvent{
 					BaseEvent: &events.BaseEvent{
-						EventType: events.EventTypeTextMessageEnd,
+						EventType:   events.EventTypeTextMessageEnd,
 						TimestampMs: int64Ptr(1640995300),
 					},
 					MessageID: "msg-abc123",
@@ -201,7 +201,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Input:       []byte(`{"type":"TOOL_CALL_START","timestamp":1640995200,"toolCallId":"tool-xyz789","toolCallName":"calculator"}`),
 				Expected: &events.ToolCallStartEvent{
 					BaseEvent: &events.BaseEvent{
-						EventType: events.EventTypeToolCallStart,
+						EventType:   events.EventTypeToolCallStart,
 						TimestampMs: int64Ptr(1640995200),
 					},
 					ToolCallID:   "tool-xyz789",
@@ -217,7 +217,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Input:       []byte(`{"type":"TOOL_CALL_ARGS","timestamp":1640995200,"toolCallId":"tool-xyz789","delta":"{\"operation\":\"add\",\"a\":5,\"b\":3}"}`),
 				Expected: &events.ToolCallArgsEvent{
 					BaseEvent: &events.BaseEvent{
-						EventType: events.EventTypeToolCallArgs,
+						EventType:   events.EventTypeToolCallArgs,
 						TimestampMs: int64Ptr(1640995200),
 					},
 					ToolCallID: "tool-xyz789",
@@ -233,7 +233,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Input:       []byte(`{"type":"TOOL_CALL_END","timestamp":1640995300,"toolCallId":"tool-xyz789"}`),
 				Expected: &events.ToolCallEndEvent{
 					BaseEvent: &events.BaseEvent{
-						EventType: events.EventTypeToolCallEnd,
+						EventType:   events.EventTypeToolCallEnd,
 						TimestampMs: int64Ptr(1640995300),
 					},
 					ToolCallID: "tool-xyz789",
@@ -255,7 +255,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Input:       []byte(`{"type":"STATE_SNAPSHOT","timestamp":1640995200,"snapshot":{"counter":42,"status":"active"}}`),
 				Expected: &events.StateSnapshotEvent{
 					BaseEvent: &events.BaseEvent{
-						EventType: events.EventTypeStateSnapshot,
+						EventType:   events.EventTypeStateSnapshot,
 						TimestampMs: int64Ptr(1640995200),
 					},
 					Snapshot: map[string]interface{}{
@@ -273,7 +273,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Input:       []byte(`{"type":"STATE_SNAPSHOT","timestamp":1640995200,"snapshot":{"user":{"id":123,"name":"John","preferences":{"theme":"dark","lang":"en"}},"sessions":[{"id":"sess1","active":true},{"id":"sess2","active":false}]}}`),
 				Expected: &events.StateSnapshotEvent{
 					BaseEvent: &events.BaseEvent{
-						EventType: events.EventTypeStateSnapshot,
+						EventType:   events.EventTypeStateSnapshot,
 						TimestampMs: int64Ptr(1640995200),
 					},
 					Snapshot: map[string]interface{}{
@@ -307,7 +307,7 @@ var StandardTestVectors = map[string]TestVectorSet{
 				Input:       []byte(`{"type":"STATE_DELTA","timestamp":1640995200,"delta":[{"op":"add","path":"/counter","value":1}]}`),
 				Expected: &events.StateDeltaEvent{
 					BaseEvent: &events.BaseEvent{
-						EventType: events.EventTypeStateDelta,
+						EventType:   events.EventTypeStateDelta,
 						TimestampMs: int64Ptr(1640995200),
 					},
 					Delta: []events.JSONPatchOperation{
@@ -348,7 +348,7 @@ var EdgeCaseTestVectors = TestVectorSet{
 			Input:       []byte(`{"type":"RUN_STARTED","timestamp":9223372036854775807,"runId":"run-max","threadId":"thread-max"}`),
 			Expected: &events.RunStartedEvent{
 				BaseEvent: &events.BaseEvent{
-					EventType: events.EventTypeRunStarted,
+					EventType:   events.EventTypeRunStarted,
 					TimestampMs: int64Ptr(9223372036854775807), // max int64
 				},
 				RunIDValue:    "run-max",
@@ -364,7 +364,7 @@ var EdgeCaseTestVectors = TestVectorSet{
 			Input:       []byte(`{"type":"RUN_STARTED","timestamp":0,"runId":"run-zero","threadId":"thread-zero"}`),
 			Expected: &events.RunStartedEvent{
 				BaseEvent: &events.BaseEvent{
-					EventType: events.EventTypeRunStarted,
+					EventType:   events.EventTypeRunStarted,
 					TimestampMs: int64Ptr(0),
 				},
 				RunIDValue:    "run-zero",
@@ -395,7 +395,7 @@ var EdgeCaseTestVectors = TestVectorSet{
 			Input:       []byte(`{"type":"RUN_STARTED","timestamp":1640995200,"runId":"run-測試-🚀","threadId":"thread-тест-🔧"}`),
 			Expected: &events.RunStartedEvent{
 				BaseEvent: &events.BaseEvent{
-					EventType: events.EventTypeRunStarted,
+					EventType:   events.EventTypeRunStarted,
 					TimestampMs: int64Ptr(1640995200),
 				},
 				RunIDValue:    "run-測試-🚀",
@@ -411,7 +411,7 @@ var EdgeCaseTestVectors = TestVectorSet{
 			Input:       []byte(`{"type":"TEXT_MESSAGE_CONTENT","timestamp":1640995200,"messageId":"msg-long","delta":"` + generateLongString(10000) + `"}`),
 			Expected: &events.TextMessageContentEvent{
 				BaseEvent: &events.BaseEvent{
-					EventType: events.EventTypeTextMessageContent,
+					EventType:   events.EventTypeTextMessageContent,
 					TimestampMs: int64Ptr(1640995200),
 				},
 				MessageID: "msg-long",
@@ -427,7 +427,7 @@ var EdgeCaseTestVectors = TestVectorSet{
 			Input:       []byte(`{"type":"STATE_SNAPSHOT","timestamp":1640995200,"snapshot":` + generateDeeplyNestedJSON(10) + `}`),
 			Expected: &events.StateSnapshotEvent{
 				BaseEvent: &events.BaseEvent{
-					EventType: events.EventTypeStateSnapshot,
+					EventType:   events.EventTypeStateSnapshot,
 					TimestampMs: int64Ptr(1640995200),
 				},
 				Snapshot: generateDeeplyNestedMap(10),
@@ -442,7 +442,7 @@ var EdgeCaseTestVectors = TestVectorSet{
 			Input:       []byte(`{"type":"STATE_SNAPSHOT","timestamp":1640995200,"snapshot":{"nullValue":null,"emptyString":"","zeroNumber":0}}`),
 			Expected: &events.StateSnapshotEvent{
 				BaseEvent: &events.BaseEvent{
-					EventType: events.EventTypeStateSnapshot,
+					EventType:   events.EventTypeStateSnapshot,
 					TimestampMs: int64Ptr(1640995200),
 				},
 				Snapshot: map[string]interface{}{
@@ -556,7 +556,7 @@ var MalformedTestVectors = TestVectorSet{
 			Input:       []byte(`{"type":"STATE_SNAPSHOT","timestamp":1640995200,"snapshot":{"self":{"$ref":"#"}}}`),
 			Expected: &events.StateSnapshotEvent{
 				BaseEvent: &events.BaseEvent{
-					EventType: events.EventTypeStateSnapshot,
+					EventType:   events.EventTypeStateSnapshot,
 					TimestampMs: int64Ptr(1640995200),
 				},
 				Snapshot: map[string]interface{}{
@@ -575,7 +575,7 @@ var MalformedTestVectors = TestVectorSet{
 			Input:       []byte(`{"type":"TEXT_MESSAGE_CONTENT","timestamp":1640995200,"messageId":"msg-123","delta":"<script>alert('xss')</script>"}`),
 			Expected: &events.TextMessageContentEvent{
 				BaseEvent: &events.BaseEvent{
-					EventType: events.EventTypeTextMessageContent,
+					EventType:   events.EventTypeTextMessageContent,
 					TimestampMs: int64Ptr(1640995200),
 				},
 				MessageID: "msg-123",
@@ -613,7 +613,6 @@ func generateDeeplyNestedMap(depth int) interface{} {
 	}
 }
 
-
 // TestVectorRegistry manages test vector collections
 type TestVectorRegistry struct {
 	vectorSets map[string]TestVectorSet
@@ -624,18 +623,18 @@ func NewTestVectorRegistry() *TestVectorRegistry {
 	registry := &TestVectorRegistry{
 		vectorSets: make(map[string]TestVectorSet),
 	}
-	
+
 	// Register standard test vectors
 	for name, vectorSet := range StandardTestVectors {
 		registry.vectorSets[name] = vectorSet
 	}
-	
+
 	// Register edge case vectors
 	registry.vectorSets["edge_cases"] = EdgeCaseTestVectors
-	
+
 	// Register malformed vectors
 	registry.vectorSets["malformed"] = MalformedTestVectors
-	
+
 	return registry
 }
 
@@ -704,7 +703,7 @@ func (r *TestVectorRegistry) ExportToJSON(name string) ([]byte, error) {
 	if !ok {
 		return nil, fmt.Errorf("test vector set not found: %s", name)
 	}
-	
+
 	return json.MarshalIndent(vectorSet, "", "  ")
 }
 
@@ -714,7 +713,7 @@ func (r *TestVectorRegistry) ImportFromJSON(name string, data []byte) error {
 	if err := json.Unmarshal(data, &vectorSet); err != nil {
 		return fmt.Errorf("failed to unmarshal test vector set: %w", err)
 	}
-	
+
 	r.vectorSets[name] = vectorSet
 	return nil
 }
@@ -724,22 +723,22 @@ func (r *TestVectorRegistry) ValidateVectorSet(vectorSet TestVectorSet) error {
 	if vectorSet.Version == "" {
 		return errors.New("vector set version is required")
 	}
-	
+
 	if vectorSet.Format == "" {
 		return errors.New("vector set format is required")
 	}
-	
+
 	if len(vectorSet.Vectors) == 0 {
 		return errors.New("vector set must contain at least one test vector")
 	}
-	
+
 	// Validate each vector
 	for i, vector := range vectorSet.Vectors {
 		if err := r.validateVector(vector); err != nil {
 			return fmt.Errorf("vector %d validation failed: %w", i, err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -748,27 +747,27 @@ func (r *TestVectorRegistry) validateVector(vector TestVector) error {
 	if vector.Name == "" {
 		return errors.New("vector name is required")
 	}
-	
+
 	if vector.Format == "" {
 		return errors.New("vector format is required")
 	}
-	
+
 	if vector.SDK == "" {
 		return errors.New("vector SDK is required")
 	}
-	
+
 	if len(vector.Input) == 0 {
 		return errors.New("vector input is required")
 	}
-	
+
 	if !vector.ShouldFail && vector.Expected == nil {
 		return errors.New("vector expected result is required when ShouldFail is false")
 	}
-	
+
 	if vector.ShouldFail && vector.FailureMsg == "" {
 		return errors.New("vector failure message is required when ShouldFail is true")
 	}
-	
+
 	return nil
 }
 
@@ -777,16 +776,16 @@ func (r *TestVectorRegistry) GetStatistics() map[string]interface{} {
 	stats := map[string]interface{}{
 		"total_vector_sets": len(r.vectorSets),
 		"total_vectors":     0,
-		"by_sdk":           make(map[string]int),
-		"by_format":        make(map[string]int),
-		"failure_vectors":  0,
+		"by_sdk":            make(map[string]int),
+		"by_format":         make(map[string]int),
+		"failure_vectors":   0,
 	}
-	
+
 	totalVectors := 0
 	failureVectors := 0
 	bySdk := make(map[string]int)
 	byFormat := make(map[string]int)
-	
+
 	for _, vectorSet := range r.vectorSets {
 		totalVectors += len(vectorSet.Vectors)
 		for _, vector := range vectorSet.Vectors {
@@ -797,11 +796,11 @@ func (r *TestVectorRegistry) GetStatistics() map[string]interface{} {
 			}
 		}
 	}
-	
+
 	stats["total_vectors"] = totalVectors
 	stats["failure_vectors"] = failureVectors
 	stats["by_sdk"] = bySdk
 	stats["by_format"] = byFormat
-	
+
 	return stats
 }

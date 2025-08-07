@@ -132,7 +132,7 @@ func NewStoreHealthCheck(store StoreInterface, timeout time.Duration) *StoreHeal
 	if timeout <= 0 {
 		timeout = 5 * time.Second // Default timeout
 	}
-	
+
 	return &StoreHealthCheck{
 		store:   store,
 		name:    "store",
@@ -158,7 +158,7 @@ func (hc *StoreHealthCheck) Check(ctx context.Context) error {
 		if stateStore.shards == nil || len(stateStore.shards) == 0 {
 			return errors.New("store shards not initialized")
 		}
-		
+
 		// Check each shard for nil current state
 		for i, shard := range stateStore.shards {
 			if shard == nil {
@@ -177,10 +177,10 @@ func (hc *StoreHealthCheck) Check(ctx context.Context) error {
 	// Safely attempt to get state with panic recovery
 	var state map[string]interface{}
 	var err error
-	
+
 	// Use a channel to handle timeout
 	done := make(chan bool, 1)
-	
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -188,12 +188,12 @@ func (hc *StoreHealthCheck) Check(ctx context.Context) error {
 				done <- true
 			}
 		}()
-		
+
 		// Try to get the state
 		state = hc.store.GetState()
 		done <- true
 	}()
-	
+
 	// Wait for either completion or timeout
 	select {
 	case <-done:
@@ -210,7 +210,7 @@ func (hc *StoreHealthCheck) Check(ctx context.Context) error {
 	// Verify we can check for a non-existent key (basic operation test)
 	testStateID := fmt.Sprintf("health_check_%d", time.Now().UnixNano())
 	_, exists := state[testStateID]
-	_ = exists  // This is expected to be false for a non-existent key
+	_ = exists // This is expected to be false for a non-existent key
 
 	return nil
 }
@@ -547,31 +547,31 @@ func NewHealthChecker(manager *StateManager) *HealthChecker {
 	hc := &HealthChecker{
 		checks: make([]HealthCheck, 0),
 	}
-	
+
 	// Add default health checks
 	if manager != nil {
 		hc.AddHealthCheck(NewStateManagerHealthCheck(manager))
-		
+
 		if manager.store != nil {
 			hc.AddHealthCheck(NewStoreHealthCheck(manager.store, 5*time.Second))
 		}
-		
+
 		if manager.eventHandler != nil {
 			hc.AddHealthCheck(NewEventHandlerHealthCheck(manager.eventHandler))
 		}
-		
+
 		if manager.rateLimiter != nil || manager.clientRateLimiter != nil {
 			hc.AddHealthCheck(NewRateLimiterHealthCheck(manager.rateLimiter, manager.clientRateLimiter))
 		}
-		
+
 		if manager.auditManager != nil {
 			hc.AddHealthCheck(NewAuditHealthCheck(manager.auditManager))
 		}
-		
+
 		// Add memory health check with reasonable defaults
 		hc.AddHealthCheck(NewMemoryHealthCheck(500, 100, 1000)) // 500MB, 100ms GC pause, 1000 goroutines
 	}
-	
+
 	return hc
 }
 
@@ -586,7 +586,7 @@ func (hc *HealthChecker) AddHealthCheck(check HealthCheck) {
 func (hc *HealthChecker) RemoveHealthCheck(name string) {
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
-	
+
 	for i, check := range hc.checks {
 		if check.Name() == name {
 			hc.checks = append(hc.checks[:i], hc.checks[i+1:]...)
@@ -599,23 +599,23 @@ func (hc *HealthChecker) RemoveHealthCheck(name string) {
 func (hc *HealthChecker) CheckHealth(ctx context.Context) HealthReport {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
-	
+
 	report := HealthReport{
 		Timestamp: time.Now(),
 		Checks:    make(map[string]HealthCheckResult),
 	}
-	
+
 	overallStatus := HealthStatusHealthy
-	
+
 	for _, check := range hc.checks {
 		start := time.Now()
 		err := check.Check(ctx)
 		responseTime := time.Since(start)
-		
+
 		result := HealthCheckResult{
 			ResponseTime: responseTime,
 		}
-		
+
 		if err != nil {
 			result.Status = HealthStatusUnhealthy
 			result.Message = err.Error()
@@ -624,16 +624,16 @@ func (hc *HealthChecker) CheckHealth(ctx context.Context) HealthReport {
 			result.Status = HealthStatusHealthy
 			result.Message = "OK"
 		}
-		
+
 		report.Checks[check.Name()] = result
 	}
-	
+
 	report.Status = overallStatus
-	
+
 	// Collect health metrics
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
-	
+
 	report.Metrics = HealthMetrics{
 		CPUUsage:        0.0, // Would need actual CPU monitoring
 		MemoryUsage:     float64(memStats.Alloc) / float64(memStats.Sys) * 100,
@@ -641,7 +641,7 @@ func (hc *HealthChecker) CheckHealth(ctx context.Context) HealthReport {
 		GoroutineCount:  runtime.NumGoroutine(),
 		GCPauseAvg:      float64(memStats.PauseNs[(memStats.NumGC+255)%256]) / 1e6, // Convert to ms
 	}
-	
+
 	return report
 }
 
@@ -649,13 +649,13 @@ func (hc *HealthChecker) CheckHealth(ctx context.Context) HealthReport {
 func (hc *HealthChecker) CheckHealthLegacy(ctx context.Context) map[string]error {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
-	
+
 	results := make(map[string]error)
-	
+
 	for _, check := range hc.checks {
 		results[check.Name()] = check.Check(ctx)
 	}
-	
+
 	return results
 }
 
@@ -669,7 +669,7 @@ func (hc *HealthChecker) IsHealthy(ctx context.Context) bool {
 func (hc *HealthChecker) GetHealthChecks() []HealthCheck {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
-	
+
 	checks := make([]HealthCheck, len(hc.checks))
 	copy(checks, hc.checks)
 	return checks

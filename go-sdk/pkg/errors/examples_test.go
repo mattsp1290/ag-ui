@@ -179,7 +179,7 @@ func Example_errorCollector() {
 	// Check results
 	if collector.HasErrors() {
 		fmt.Printf("Batch processing completed with %d errors\n", collector.Count())
-		
+
 		// Get all errors
 		for i, err := range collector.Errors() {
 			fmt.Printf("Error %d: %v\n", i+1, err)
@@ -290,13 +290,13 @@ func Example_panicHandling() {
 // Example_comprehensiveErrorHandling shows a complete error handling setup
 func Example_comprehensiveErrorHandling() {
 	// Setup comprehensive error handling for an application
-	
+
 	// 1. Create main error handler with severity handling (not used in this example)
 	// mainHandler := errors.CreateDefaultSeverityHandler()
 
 	// 2. Create specialized handlers
 	loggingHandler := errors.NewLoggingHandler(log.Default(), errors.SeverityInfo)
-	
+
 	notificationHandler := errors.NewNotificationHandler(
 		func(ctx context.Context, err error) error {
 			fmt.Printf("ALERT: Critical error: %v\n", err)

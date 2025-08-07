@@ -38,8 +38,8 @@ func TestSecurityValidationRule(t *testing.T) {
 				MessageID: "msg-123",
 				Delta:     "Hello <script>alert('XSS')</script>",
 			},
-			config:      DefaultSecurityConfig(),
-			expectError: true,
+			config:        DefaultSecurityConfig(),
+			expectError:   true,
 			errorContains: "XSS attack detected",
 		},
 		{
@@ -51,8 +51,8 @@ func TestSecurityValidationRule(t *testing.T) {
 				MessageID: "msg-123",
 				Delta:     `<img src="x" onerror="alert('XSS')">`,
 			},
-			config:      DefaultSecurityConfig(),
-			expectError: true,
+			config:        DefaultSecurityConfig(),
+			expectError:   true,
 			errorContains: "XSS attack detected",
 		},
 		{
@@ -64,8 +64,8 @@ func TestSecurityValidationRule(t *testing.T) {
 				ToolCallID: "tool-123",
 				Delta:      "' UNION SELECT * FROM users--",
 			},
-			config:      DefaultSecurityConfig(),
-			expectError: true,
+			config:        DefaultSecurityConfig(),
+			expectError:   true,
 			errorContains: "SQL injection detected",
 		},
 		{
@@ -74,11 +74,11 @@ func TestSecurityValidationRule(t *testing.T) {
 				BaseEvent: &events.BaseEvent{
 					EventType: events.EventTypeCustom,
 				},
-				Name: "query",
+				Name:  "query",
 				Value: "'; DROP TABLE users; --",
 			},
-			config:      DefaultSecurityConfig(),
-			expectError: true,
+			config:        DefaultSecurityConfig(),
+			expectError:   true,
 			errorContains: "SQL injection detected",
 		},
 		{
@@ -90,8 +90,8 @@ func TestSecurityValidationRule(t *testing.T) {
 				MessageID: "msg-123",
 				Delta:     "echo test | rm -rf /",
 			},
-			config:      DefaultSecurityConfig(),
-			expectError: true,
+			config:        DefaultSecurityConfig(),
+			expectError:   true,
 			errorContains: "command injection detected",
 		},
 		{
@@ -106,7 +106,7 @@ func TestSecurityValidationRule(t *testing.T) {
 			config: &SecurityConfig{
 				MaxContentLength: 1048576, // 1MB
 			},
-			expectError: true,
+			expectError:   true,
 			errorContains: "exceeds maximum allowed length",
 		},
 		{
@@ -120,17 +120,17 @@ func TestSecurityValidationRule(t *testing.T) {
 			},
 			config: &SecurityConfig{
 				EnableInputSanitization:     true,
-				MaxContentLength:           1048576,
-				AllowedHTMLTags:           []string{},
-				EnableXSSDetection:         false,
+				MaxContentLength:            1048576,
+				AllowedHTMLTags:             []string{},
+				EnableXSSDetection:          false,
 				EnableSQLInjectionDetection: false,
-				EnableCommandInjection:     false,
-				EnableRateLimiting:         false,
-				RequireEncryption:          true,
-				MinimumEncryptionBits:      256,
-				AllowedEncryptionTypes:     []string{"AES-256-GCM"},
+				EnableCommandInjection:      false,
+				EnableRateLimiting:          false,
+				RequireEncryption:           true,
+				MinimumEncryptionBits:       256,
+				AllowedEncryptionTypes:      []string{"AES-256-GCM"},
 			},
-			expectError: true,
+			expectError:   true,
 			errorContains: "Encryption validation failed",
 		},
 	}
@@ -161,7 +161,7 @@ func TestSecurityValidationRule(t *testing.T) {
 						}
 					}
 					if !found {
-						t.Errorf("Expected error containing '%s', but not found in errors: %v", 
+						t.Errorf("Expected error containing '%s', but not found in errors: %v",
 							tt.errorContains, result.Errors)
 					}
 				}
@@ -334,7 +334,7 @@ func TestSecurityPolicy(t *testing.T) {
 
 	context := &SecurityContext{
 		ExtractedContent: "Hello <script>alert('XSS')</script>",
-		Source:          "test-source",
+		Source:           "test-source",
 	}
 
 	results, err := manager.EvaluatePolicies(event, context)
@@ -421,7 +421,7 @@ func TestAuditTrail(t *testing.T) {
 	// Check metrics
 	metrics := auditTrail.GetMetrics()
 	stats := metrics.GetStats()
-	
+
 	if totalEvents, ok := stats["total_events"].(int64); !ok || totalEvents != 2 {
 		t.Errorf("Expected total_events to be 2, got %v", stats["total_events"])
 	}
@@ -431,8 +431,8 @@ func TestAuditTrail(t *testing.T) {
 func TestAnomalyDetector(t *testing.T) {
 	config := &SecurityConfig{
 		EnableAnomalyDetection: true,
-		AnomalyThreshold:      10.0, // Much higher threshold for testing
-		AnomalyWindowSize:     time.Hour,
+		AnomalyThreshold:       10.0, // Much higher threshold for testing
+		AnomalyWindowSize:      time.Hour,
 	}
 
 	detector := NewAnomalyDetector(config)
@@ -452,10 +452,10 @@ func TestAnomalyDetector(t *testing.T) {
 			MessageID: "msg-" + string(rune(i)),
 			Delta:     "Normal content",
 		}
-		
+
 		_ = detector.DetectAnomaly(event, context)
 		// With higher threshold, these should not trigger anomalies
-		
+
 		time.Sleep(200 * time.Millisecond)
 	}
 
@@ -469,7 +469,7 @@ func TestAnomalyDetector(t *testing.T) {
 			MessageID: "burst-" + string(rune(i)),
 			Delta:     "Burst content",
 		}
-		
+
 		detector.DetectAnomaly(event, context)
 		// No sleep for burst effect
 	}
@@ -522,8 +522,8 @@ func (m *mockAuditStorage) Cleanup(before time.Time) error {
 // Helper functions
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && s[:len(substr)] == substr || 
-		   len(s) > len(substr) && contains(s[1:], substr)
+	return len(s) >= len(substr) && s[:len(substr)] == substr ||
+		len(s) > len(substr) && contains(s[1:], substr)
 }
 
 func timePtr(t int64) *int64 {
@@ -535,43 +535,43 @@ func timePtr(t int64) *int64 {
 func TestRateLimiterRefillPrecision(t *testing.T) {
 	// Create a token bucket with 60 tokens per minute refill rate
 	tb := NewTokenBucket(10, 60)
-	
+
 	// Consume all tokens
 	for i := 0; i < 10; i++ {
 		if !tb.TryConsume(1) {
 			t.Fatalf("Failed to consume token %d", i+1)
 		}
 	}
-	
+
 	// Verify bucket is empty
 	if tb.TryConsume(1) {
 		t.Error("Expected bucket to be empty")
 	}
-	
+
 	// Wait for 1 second (should refill 1 token with 60/minute rate)
 	time.Sleep(1 * time.Second)
-	
+
 	// Should have exactly 1 token available
 	if !tb.TryConsume(1) {
 		t.Error("Expected to have 1 token after 1 second")
 	}
-	
+
 	// Should not have more tokens
 	if tb.TryConsume(1) {
 		t.Error("Expected to have only 1 token, but got more")
 	}
-	
+
 	// Wait for 500ms more (should refill 0.5 tokens, rounded down to 0)
 	time.Sleep(500 * time.Millisecond)
-	
+
 	// Should still have no tokens
 	if tb.TryConsume(1) {
 		t.Error("Expected no tokens after 500ms")
 	}
-	
+
 	// Wait another 500ms (total 1 second, should have 1 token)
 	time.Sleep(500 * time.Millisecond)
-	
+
 	// Should have exactly 1 token available
 	if !tb.TryConsume(1) {
 		t.Error("Expected to have 1 token after another 1 second")

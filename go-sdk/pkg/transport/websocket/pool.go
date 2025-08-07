@@ -11,8 +11,8 @@ import (
 	"github.com/hashicorp/golang-lru/v2"
 	"go.uber.org/zap"
 
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
 	"github.com/mattsp1290/ag-ui/go-sdk/internal/timeconfig"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
 )
 
 // ConnectionPool manages a pool of WebSocket connections with load balancing
@@ -130,12 +130,12 @@ func DefaultPoolConfig() *PoolConfig {
 	config := timeconfig.GetConfig()
 	if timeconfig.IsTestMode() {
 		return &PoolConfig{
-			MinConnections:        1,  // Minimal connections for tests
-			MaxConnections:        3,  // Low limit for tests
+			MinConnections:        1, // Minimal connections for tests
+			MaxConnections:        3, // Low limit for tests
 			ConnectionTimeout:     config.DefaultDialTimeout,
 			HealthCheckInterval:   config.DefaultHealthCheckInterval,
 			IdleTimeout:           config.DefaultIdleConnectionTimeout,
-			MaxIdleConnections:    1,  // Minimal idle connections
+			MaxIdleConnections:    1, // Minimal idle connections
 			LoadBalancingStrategy: RoundRobin,
 			ConnectionTemplate:    DefaultConnectionConfig(),
 			Logger:                zap.NewNop(),
@@ -250,7 +250,7 @@ func (p *ConnectionPool) FastStop() error {
 		p.config.Logger.Debug("Connection pool fast stopped")
 		return nil
 	}
-	
+
 	// Fall back to normal stop for non-test environments
 	return p.Stop()
 }
@@ -268,7 +268,7 @@ func (p *ConnectionPool) Stop() error {
 	p.connMutex.Lock()
 	connectionList := make([]*Connection, 0, len(p.connections))
 	connectionIDs := make([]string, 0, len(p.connections))
-	
+
 	for id, conn := range p.connections {
 		connectionList = append(connectionList, conn)
 		connectionIDs = append(connectionIDs, id)
@@ -283,13 +283,13 @@ func (p *ConnectionPool) Stop() error {
 		go func(c *Connection, id string) {
 			defer closeWg.Done()
 			p.config.Logger.Debug("Force closing connection", zap.String("id", id))
-			
+
 			// Close connection with timeout to prevent hanging
 			done := make(chan error, 1)
 			go func() {
 				done <- c.Close()
 			}()
-			
+
 			select {
 			case err := <-done:
 				if err != nil {
@@ -323,22 +323,22 @@ func (p *ConnectionPool) Stop() error {
 		p.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		p.config.Logger.Debug("Connection pool stopped cleanly")
 	case <-time.After(50 * time.Millisecond): // Extremely short timeout for tests
 		p.config.Logger.Debug("Connection pool stop timeout - proceeding with force cleanup")
 	}
-	
+
 	// Cancel context to stop all goroutines first to signal shutdown
 	if p.cancel != nil {
 		p.cancel()
 	}
-	
+
 	// Give connections a moment to react to context cancellation - optimized for tests
 	time.Sleep(50 * time.Millisecond)
-	
+
 	// Close all connections to prevent goroutine leaks
 	p.connMutex.Lock()
 	remainingConns := len(p.connections)
@@ -356,17 +356,17 @@ func (p *ConnectionPool) Stop() error {
 	}
 	p.connections = make(map[string]*Connection)
 	p.connMutex.Unlock()
-	
+
 	// Wait for pool goroutines with timeout - allow more time for proper cleanup
 	waitCtx, waitCancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer waitCancel()
-	
+
 	waitDone := make(chan struct{})
 	go func() {
 		defer close(waitDone)
 		p.wg.Wait()
 	}()
-	
+
 	select {
 	case <-waitDone:
 		p.config.Logger.Debug("All pool goroutines stopped successfully")
@@ -445,7 +445,7 @@ func (p *ConnectionPool) SendMessage(ctx context.Context, message []byte) error 
 
 	err = conn.SendMessage(ctx, message)
 	if err != nil {
-		p.config.Logger.Error("Failed to send message through connection", 
+		p.config.Logger.Error("Failed to send message through connection",
 			zap.Error(err),
 			zap.String("connection_url", conn.GetURL()))
 		p.stats.mutex.Lock()
@@ -517,7 +517,7 @@ func (p *ConnectionPool) Stats() PoolStats {
 
 	activeConnections := int64(p.GetActiveConnectionCount())
 	healthyConnections := int64(p.GetHealthyConnectionCount())
-	
+
 	return PoolStats{
 		TotalConnections:     totalConnections,
 		ActiveConnections:    activeConnections,
@@ -550,7 +550,7 @@ func (p *ConnectionPool) SetOnHealthChange(handler func(connID string, healthy b
 func (p *ConnectionPool) SetMessageHandler(handler func(data []byte)) {
 	p.config.Logger.Debug("Setting message handler on pool",
 		zap.Int("existing_connections", len(p.connections)))
-	
+
 	p.handlersMutex.Lock()
 	p.onMessage = handler
 	p.handlersMutex.Unlock()
@@ -565,7 +565,7 @@ func (p *ConnectionPool) SetMessageHandler(handler func(data []byte)) {
 		conn.SetOnMessage(handler)
 	}
 	p.connMutex.RUnlock()
-	
+
 	p.config.Logger.Debug("Message handler set on all connections",
 		zap.Int("connection_count", connectionCount))
 }
@@ -703,23 +703,23 @@ func (p *ConnectionPool) selectLeastConnections(connections []*Connection) *Conn
 	for _, conn := range connections {
 		// Calculate connection load based on multiple factors
 		metrics := conn.GetMetrics()
-		
+
 		// Primary metric: pending messages in channel (approximate active requests)
 		pendingMessages := int64(len(conn.messageCh))
-		
+
 		// Secondary metric: message rate difference (sent vs received)
 		// Higher difference indicates more outbound load
 		messageRate := metrics.MessagesSent - metrics.MessagesReceived
 		if messageRate < 0 {
 			messageRate = 0 // Only count positive outbound load
 		}
-		
+
 		// Tertiary metric: error rate (higher errors = higher load/instability)
 		errorRate := metrics.Errors
-		
+
 		// Calculate composite load score
 		load := pendingMessages*100 + messageRate*10 + errorRate*5
-		
+
 		// Select connection with lowest load
 		if load < minLoad {
 			minLoad = load
@@ -790,7 +790,7 @@ func (h *HealthChecker) Start(ctx context.Context, wg *sync.WaitGroup) {
 		h.pool.config.Logger.Debug("HealthChecker: Goroutine fully exited")
 		wg.Done()
 	}()
-	
+
 	h.ctx = ctx
 	h.pool.config.Logger.Debug("Starting health checker")
 
@@ -809,7 +809,7 @@ func (h *HealthChecker) Start(ctx context.Context, wg *sync.WaitGroup) {
 		// Wait for interval or context cancellation with responsive timeout
 		timer := time.NewTimer(h.interval)
 		defer timer.Stop()
-		
+
 		select {
 		case <-ctx.Done():
 			h.pool.config.Logger.Debug("HealthChecker: Context cancelled during wait, exiting")

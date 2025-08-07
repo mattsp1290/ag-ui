@@ -54,10 +54,10 @@ func streamingParamsToMap(count int) map[string]interface{} {
 // TestIntegrationFullWorkflow tests a complete tool workflow
 func TestIntegrationFullWorkflow(t *testing.T) {
 	defer testhelper.VerifyNoGoroutineLeaks(t)
-	
+
 	// Set up cleanup helpers
 	cleanup := testhelper.NewCleanupManager(t)
-	
+
 	// Create registry and execution engine
 	registry := tools.NewRegistry()
 	engine := tools.NewExecutionEngine(registry, tools.WithMaxConcurrent(10))
@@ -132,7 +132,7 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 	t.Run("concurrent executions", func(t *testing.T) {
 		var wg sync.WaitGroup
 		results := make(chan *tools.ToolExecutionResult, 20)
-		
+
 		// Register channel cleanup
 		cleanup.Register("results-channel", func() {
 			testhelper.CloseChannel(t, results, "results")
@@ -180,7 +180,7 @@ func TestIntegrationFullWorkflow(t *testing.T) {
 // TestIntegrationProviderConversion tests AI provider integration
 func TestIntegrationProviderConversion(t *testing.T) {
 	defer testhelper.VerifyNoGoroutineLeaks(t)
-	
+
 	// Create registry with tools
 	registry := tools.NewRegistry()
 	err := tools.RegisterBuiltinTools(registry)

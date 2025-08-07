@@ -15,7 +15,7 @@ import (
 func Example_basicAuthentication() {
 	// Create an auth provider
 	provider := auth.NewBasicAuthProvider(nil)
-	
+
 	// Add a user - use complex password: Secret123!
 	provider.AddUser(&auth.User{
 		Username:     "alice",
@@ -25,14 +25,14 @@ func Example_basicAuthentication() {
 		Active:       true,
 	})
 	provider.SetUserPassword("alice", "Secret123!")
-	
+
 	// Create an authenticated validator
 	validator := auth.NewAuthenticatedValidator(
 		events.DefaultValidationConfig(),
 		provider,
 		auth.DefaultAuthConfig(),
 	)
-	
+
 	// Create an event to validate
 	event := &events.RunStartedEvent{
 		BaseEvent: &events.BaseEvent{
@@ -42,15 +42,15 @@ func Example_basicAuthentication() {
 		RunIDValue:    "run-123",
 		ThreadIDValue: "thread-456",
 	}
-	
+
 	// Validate with authentication
 	ctx := context.Background()
 	result := validator.ValidateWithBasicAuth(ctx, event, "alice", "Secret123!")
-	
+
 	if result.IsValid {
 		fmt.Println("Validation successful")
 	}
-	
+
 	// Output: Validation successful
 }
 
@@ -66,7 +66,7 @@ func Example_tokenAuthentication() {
 		Active:       true,
 	})
 	provider.SetUserPassword("bob", "Password123!")
-	
+
 	// Authenticate to get a token
 	ctx := context.Background()
 	authCtx, err := provider.Authenticate(ctx, &auth.BasicCredentials{
@@ -76,14 +76,14 @@ func Example_tokenAuthentication() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	// Create validator
 	validator := auth.NewAuthenticatedValidator(
 		events.DefaultValidationConfig(),
 		provider,
 		auth.DefaultAuthConfig(),
 	)
-	
+
 	// Create event
 	event := &events.RunStartedEvent{
 		BaseEvent: &events.BaseEvent{
@@ -93,14 +93,14 @@ func Example_tokenAuthentication() {
 		RunIDValue:    "run-123",
 		ThreadIDValue: "thread-456",
 	}
-	
+
 	// Validate with token
 	result := validator.ValidateWithToken(ctx, event, authCtx.Token)
-	
+
 	if result.IsValid {
 		fmt.Println("Token validation successful")
 	}
-	
+
 	// Output: Token validation successful
 }
 
@@ -108,11 +108,11 @@ func Example_tokenAuthentication() {
 func Example_requiredAuthentication() {
 	// Create validator with required authentication (but without logging hooks for clean output)
 	validator := auth.CreateWithBasicAuth()
-	
+
 	// Enable required authentication
 	validator.GetAuthHooks().GetConfig().RequireAuth = true
 	validator.GetAuthHooks().GetConfig().AllowAnonymous = false
-	
+
 	// Create event (use RunStartedEvent since it's the first event)
 	event := &events.RunStartedEvent{
 		BaseEvent: &events.BaseEvent{
@@ -122,21 +122,21 @@ func Example_requiredAuthentication() {
 		RunIDValue:    "run-123",
 		ThreadIDValue: "thread-456",
 	}
-	
+
 	ctx := context.Background()
-	
+
 	// Try to validate without authentication (will fail)
 	result := validator.ValidateEvent(ctx, event)
 	if !result.IsValid {
 		fmt.Printf("Validation failed: %s\n", result.Errors[0].Message)
 	}
-	
+
 	// Validate with authentication (will succeed)
 	result = validator.ValidateWithBasicAuth(ctx, event, "validator", "Validator123!")
 	if result.IsValid {
 		fmt.Println("Authenticated validation successful")
 	}
-	
+
 	// Output:
 	// Validation failed: Authentication failed: unauthorized
 	// Authenticated validation successful
@@ -146,7 +146,7 @@ func Example_requiredAuthentication() {
 func Example_authorizationRoles() {
 	// Create provider with users having different roles
 	provider := auth.NewBasicAuthProvider(nil)
-	
+
 	// Admin user - use complex password: Admin123!
 	provider.AddUser(&auth.User{
 		Username:     "admin",
@@ -156,7 +156,7 @@ func Example_authorizationRoles() {
 		Active:       true,
 	})
 	provider.SetUserPassword("admin", "Admin123!")
-	
+
 	// Read-only user - use complex password: Reader123!
 	provider.AddUser(&auth.User{
 		Username:     "reader",
@@ -166,7 +166,7 @@ func Example_authorizationRoles() {
 		Active:       true,
 	})
 	provider.SetUserPassword("reader", "Reader123!")
-	
+
 	// Create validator
 	authConfig := auth.DefaultAuthConfig()
 	authConfig.RequireAuth = true
@@ -175,7 +175,7 @@ func Example_authorizationRoles() {
 		provider,
 		authConfig,
 	)
-	
+
 	// Create event (use RunStartedEvent since it's the first event)
 	event := &events.RunStartedEvent{
 		BaseEvent: &events.BaseEvent{
@@ -185,19 +185,19 @@ func Example_authorizationRoles() {
 		RunIDValue:    "run-123",
 		ThreadIDValue: "thread-456",
 	}
-	
+
 	ctx := context.Background()
-	
+
 	// Admin can validate
 	result := validator.ValidateWithBasicAuth(ctx, event, "admin", "Admin123!")
 	fmt.Printf("Admin validation: %v\n", result.IsValid)
-	
+
 	// Reader cannot validate (no validate permission)
 	result = validator.ValidateWithBasicAuth(ctx, event, "reader", "Reader123!")
 	if !result.IsValid {
 		fmt.Printf("Reader validation failed: %s\n", result.Errors[0].Message)
 	}
-	
+
 	// Output:
 	// Admin validation: true
 	// Reader validation failed: Authorization failed: insufficient permissions
@@ -207,7 +207,7 @@ func Example_authorizationRoles() {
 func Example_customHooks() {
 	// Create validator
 	validator := auth.CreateWithBasicAuth()
-	
+
 	// Add custom pre-validation hook
 	validator.AddPreValidationHook(func(ctx context.Context, event events.Event, authCtx *auth.AuthContext) error {
 		if authCtx != nil {
@@ -216,7 +216,7 @@ func Example_customHooks() {
 		}
 		return nil
 	})
-	
+
 	// Add custom post-validation hook
 	validator.AddPostValidationHook(func(ctx context.Context, event events.Event, authCtx *auth.AuthContext, result *events.ValidationResult) error {
 		if authCtx != nil && result.IsValid {
@@ -224,7 +224,7 @@ func Example_customHooks() {
 		}
 		return nil
 	})
-	
+
 	// Create and validate event (use RunStartedEvent since it's the first event)
 	event := &events.RunStartedEvent{
 		BaseEvent: &events.BaseEvent{
@@ -234,14 +234,14 @@ func Example_customHooks() {
 		RunIDValue:    "run-123",
 		ThreadIDValue: "thread-456",
 	}
-	
+
 	ctx := context.Background()
 	result := validator.ValidateWithBasicAuth(ctx, event, "admin", "Admin123!")
-	
+
 	if result.IsValid {
 		fmt.Println("Validation completed")
 	}
-	
+
 	// Output:
 	// Pre-validation: User admin is validating run_started event
 	// Post-validation: User admin successfully validated event

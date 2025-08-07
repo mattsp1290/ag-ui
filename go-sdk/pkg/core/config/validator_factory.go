@@ -28,7 +28,7 @@ func NewValidatorFactoryFromBuilder(builder *ValidatorBuilder) (*ValidatorFactor
 	if err != nil {
 		return nil, fmt.Errorf("failed to build configuration: %w", err)
 	}
-	
+
 	return NewValidatorFactory(config), nil
 }
 
@@ -115,7 +115,7 @@ func CreateSimpleValidator() (*ValidatorFactory, error) {
 		WithDistributedEnabled(false).
 		WithSecurityEnabled(false).
 		MustBuild()
-	
+
 	return NewValidatorFactory(config), nil
 }
 
@@ -124,7 +124,7 @@ func CreateDevelopmentValidator() (*ValidatorFactory, error) {
 	config := NewValidatorBuilder().
 		ForDevelopment().
 		MustBuild()
-	
+
 	return NewValidatorFactory(config), nil
 }
 
@@ -133,7 +133,7 @@ func CreateProductionValidator() (*ValidatorFactory, error) {
 	config := NewValidatorBuilder().
 		ForProduction().
 		MustBuild()
-	
+
 	return NewValidatorFactory(config), nil
 }
 
@@ -142,7 +142,7 @@ func CreateTestingValidator() (*ValidatorFactory, error) {
 	config := NewValidatorBuilder().
 		ForTesting().
 		MustBuild()
-	
+
 	return NewValidatorFactory(config), nil
 }
 
@@ -153,7 +153,7 @@ func CreateValidatorWithAuth(providerType string, providerConfig map[string]inte
 		WithAuthenticationProvider(providerType, providerConfig).
 		WithRBAC(true, []string{"user"}).
 		MustBuild()
-	
+
 	return NewValidatorFactory(config), nil
 }
 
@@ -161,13 +161,13 @@ func CreateValidatorWithAuth(providerType string, providerConfig map[string]inte
 func CreateValidatorWithCache(l1Size int, l1TTL, l2TTL string) (*ValidatorFactory, error) {
 	builder := NewValidatorBuilder().
 		WithCacheEnabled(true)
-	
+
 	// Parse TTL strings and configure cache
 	// This is a simplified example - would need proper parsing
 	if l1TTL != "" {
 		// builder = builder.WithL1Cache(l1Size, parseTTL(l1TTL))
 	}
-	
+
 	config := builder.MustBuild()
 	return NewValidatorFactory(config), nil
 }
@@ -178,7 +178,7 @@ func CreateValidatorWithDistributed(nodeID, role, listenAddr string) (*Validator
 		WithDistributedEnabled(true).
 		WithDistributedNode(nodeID, role, listenAddr).
 		MustBuild()
-	
+
 	return NewValidatorFactory(config), nil
 }
 
@@ -327,13 +327,13 @@ func GetConfigurationPresets() []*ConfigurationPreset {
 // CreateValidatorFromPreset creates a validator factory from a preset
 func CreateValidatorFromPreset(presetName string) (*ValidatorFactory, error) {
 	presets := GetConfigurationPresets()
-	
+
 	for _, preset := range presets {
 		if preset.Name == presetName {
 			return NewValidatorFactory(preset.Config), nil
 		}
 	}
-	
+
 	return nil, fmt.Errorf("unknown configuration preset: %s", presetName)
 }
 
@@ -341,11 +341,11 @@ func CreateValidatorFromPreset(presetName string) (*ValidatorFactory, error) {
 func ListAvailablePresets() []string {
 	presets := GetConfigurationPresets()
 	names := make([]string, len(presets))
-	
+
 	for i, preset := range presets {
 		names[i] = preset.Name
 	}
-	
+
 	return names
 }
 
@@ -378,7 +378,7 @@ func (vfr *ValidatorFactoryRegistry) CreateValidator(ctx context.Context, factor
 	if !exists {
 		return nil, fmt.Errorf("validator factory not found: %s", factoryName)
 	}
-	
+
 	return factory.CreateValidator(ctx)
 }
 

@@ -114,8 +114,8 @@ func DefaultHeartbeatConfig() *HeartbeatConfig {
 	return &HeartbeatConfig{
 		Enabled:      true,
 		Interval:     30 * time.Second,
-		Timeout:      15 * time.Second,  // Increased timeout for better reliability
-		MaxMissed:    5,                 // Allow more missed heartbeats
+		Timeout:      15 * time.Second, // Increased timeout for better reliability
+		MaxMissed:    5,                // Allow more missed heartbeats
 		PingEndpoint: "/ping",
 	}
 }
@@ -295,7 +295,7 @@ type Connection struct {
 	// Heartbeat management
 	heartbeatTicker  *time.Ticker
 	heartbeatMutex   sync.RWMutex // Protects heartbeatTicker access
-	missedHeartbeats int32 // atomic
+	missedHeartbeats int32        // atomic
 
 	// Metrics
 	metrics *ConnectionMetrics
@@ -603,7 +603,7 @@ func (c *Connection) calculateReconnectDelay(attempt int) time.Duration {
 func (c *Connection) startHeartbeat() {
 	c.heartbeatMutex.Lock()
 	defer c.heartbeatMutex.Unlock()
-	
+
 	if c.heartbeatTicker != nil {
 		c.heartbeatTicker.Stop()
 	}
@@ -620,7 +620,7 @@ func (c *Connection) startHeartbeat() {
 func (c *Connection) stopHeartbeat() {
 	c.heartbeatMutex.Lock()
 	defer c.heartbeatMutex.Unlock()
-	
+
 	if c.heartbeatTicker != nil {
 		c.heartbeatTicker.Stop()
 		c.heartbeatTicker = nil
@@ -630,18 +630,18 @@ func (c *Connection) stopHeartbeat() {
 // heartbeatLoop performs periodic heartbeat checks
 func (c *Connection) heartbeatLoop() {
 	defer c.wg.Done() // Properly signal goroutine completion
-	
+
 	for {
 		// Get ticker channel safely
 		c.heartbeatMutex.RLock()
 		tickerC := c.heartbeatTicker.C
 		c.heartbeatMutex.RUnlock()
-		
+
 		if tickerC == nil {
 			// Ticker was stopped, exit
 			return
 		}
-		
+
 		select {
 		case <-c.ctx.Done():
 			return

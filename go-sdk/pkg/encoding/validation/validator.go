@@ -60,7 +60,7 @@ func (v *JSONValidator) ValidateFormat(data []byte) error {
 		// Additional strict validation
 		decoder := json.NewDecoder(bytes.NewReader(data))
 		decoder.DisallowUnknownFields()
-		
+
 		var temp interface{}
 		if err := decoder.Decode(&temp); err != nil {
 			return fmt.Errorf("strict JSON validation failed: %w", err)
@@ -90,7 +90,7 @@ func (v *JSONValidator) ValidateEvent(event events.Event) error {
 func (v *JSONValidator) ValidateSchema(data []byte, schema interface{}) error {
 	// For JSON, we'll do structural validation
 	// In a full implementation, this could use JSON Schema validation
-	
+
 	if schema == nil {
 		return v.ValidateFormat(data)
 	}
@@ -351,7 +351,7 @@ func compareEvents(original, decoded events.Event) error {
 		return compareTextMessageContentEvents(original.(*events.TextMessageContentEvent), decoded.(*events.TextMessageContentEvent))
 	case events.EventTypeToolCallStart:
 		return compareToolCallStartEvents(original.(*events.ToolCallStartEvent), decoded.(*events.ToolCallStartEvent))
-	// Add more type-specific comparisons as needed
+		// Add more type-specific comparisons as needed
 	}
 
 	return nil

@@ -12,13 +12,13 @@ import (
 func ExampleFormatRegistry() {
 	// Get the global registry
 	registry := encoding.GetGlobalRegistry()
-	
+
 	// List all supported formats
 	formats := registry.ListFormats()
 	for _, format := range formats {
 		fmt.Printf("Format: %s (%s)\n", format.Name, format.MIMEType)
 	}
-	
+
 	// Output:
 	// Format: JSON (application/json)
 	// Format: Protocol Buffers (application/x-protobuf)
@@ -26,7 +26,7 @@ func ExampleFormatRegistry() {
 
 func ExampleFormatRegistry_GetEncoder() {
 	registry := encoding.GetGlobalRegistry()
-	
+
 	// Get a JSON encoder
 	encoder, err := registry.GetEncoder(context.Background(), "application/json", &encoding.EncodingOptions{
 		Pretty: true,
@@ -34,39 +34,39 @@ func ExampleFormatRegistry_GetEncoder() {
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	// Use the encoder
 	event := events.NewTextMessageStartEvent("msg-123", events.WithRole("assistant"))
-	
+
 	data, err := encoder.Encode(context.Background(), event)
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	fmt.Printf("Encoded %d bytes\n", len(data))
 }
 
 func ExampleFormatRegistry_SelectFormat() {
 	registry := encoding.GetGlobalRegistry()
-	
+
 	// Client accepts multiple formats
 	acceptedFormats := []string{
 		"application/json",
 		"application/x-protobuf",
 		"application/x-msgpack",
 	}
-	
+
 	// But requires human-readable format
 	requiredCapabilities := &encoding.FormatCapabilities{
 		HumanReadable: true,
 	}
-	
+
 	// Registry selects the best format
 	selectedFormat, err := registry.SelectFormat(acceptedFormats, requiredCapabilities)
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	fmt.Printf("Selected format: %s\n", selectedFormat)
 	// Output: Selected format: application/json
 }
@@ -74,24 +74,24 @@ func ExampleFormatRegistry_SelectFormat() {
 func ExampleFormatRegistry_RegisterFormat() {
 	// Create a custom registry
 	registry := encoding.NewFormatRegistry()
-	
+
 	// Define a custom format
 	customFormat := encoding.NewFormatInfo("Custom Binary", "application/x-custom")
 	customFormat.Aliases = []string{"custom", "cbin"}
 	customFormat.FileExtensions = []string{".cbin"}
 	customFormat.Description = "Custom binary format for high performance"
 	customFormat.Priority = 15 // Between JSON (10) and Protobuf (20)
-	
+
 	// Set capabilities
 	customFormat.Capabilities = encoding.FormatCapabilities{
-		Streaming:       true,
-		BinaryEfficient: true,
-		Compression:     true,
+		Streaming:             true,
+		BinaryEfficient:       true,
+		Compression:           true,
 		CompressionAlgorithms: []string{"gzip", "zstd"},
-		SchemaValidation: true,
-		Versionable:     true,
+		SchemaValidation:      true,
+		Versionable:           true,
 	}
-	
+
 	// Set performance profile
 	customFormat.Performance = encoding.PerformanceProfile{
 		EncodingSpeed:  3.0, // 3x faster than JSON
@@ -99,12 +99,12 @@ func ExampleFormatRegistry_RegisterFormat() {
 		SizeEfficiency: 4.0, // 4x more compact than JSON
 		MemoryUsage:    0.5, // Uses half the memory of JSON
 	}
-	
+
 	// Register the format
 	if err := registry.RegisterFormat(customFormat); err != nil {
 		log.Fatal(err)
 	}
-	
+
 	// Register a factory for the format
 	factory := encoding.NewDefaultCodecFactory()
 	factory.RegisterCodec(
@@ -114,11 +114,11 @@ func ExampleFormatRegistry_RegisterFormat() {
 			return nil, fmt.Errorf("not implemented in example")
 		},
 	)
-	
+
 	if err := registry.RegisterCodec("application/x-custom", factory); err != nil {
 		log.Fatal(err)
 	}
-	
+
 	// Now the format can be used
 	fmt.Printf("Custom format registered: %v\n", registry.SupportsFormat("custom"))
 	// Output: Custom format registered: true
@@ -127,25 +127,25 @@ func ExampleFormatRegistry_RegisterFormat() {
 func ExampleFormatRegistry_factoryExample() {
 	// Create a default codec factory
 	factory := encoding.NewDefaultCodecFactory()
-	
+
 	// Register a simple codec
 	factory.RegisterCodec("application/x-simple", func(encOptions *encoding.EncodingOptions, decOptions *encoding.DecodingOptions) (encoding.Codec, error) {
 		// Return a simple codec implementation
 		return &mockSimpleCodec{contentType: "application/x-simple"}, nil
 	})
-	
+
 	// Create a registry and register the factory
 	registry := encoding.NewFormatRegistry()
 	if err := registry.RegisterCodecFactory("application/x-simple", factory); err != nil {
 		log.Fatal(err)
 	}
-	
+
 	// Now the codec is available
 	codec, err := registry.GetCodec(context.Background(), "application/x-simple", nil, nil)
 	if err != nil {
 		log.Fatal(err)
 	}
-	
+
 	fmt.Printf("Factory codec created: %s\n", codec.ContentType())
 }
 

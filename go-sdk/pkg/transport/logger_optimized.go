@@ -28,15 +28,15 @@ var logBufferPool = sync.Pool{
 type OptimizedLogger struct {
 	config *LoggerConfig
 	fields []Field
-	
+
 	// Pre-allocated buffers
 	timestampBuf []byte
 	fieldsBuf    []byte
-	
+
 	// Cache formatted timestamps
-	lastTimestamp     time.Time
-	lastTimestampStr  string
-	timestampMutex    sync.RWMutex
+	lastTimestamp    time.Time
+	lastTimestampStr string
+	timestampMutex   sync.RWMutex
 }
 
 // NewOptimizedLogger creates a new optimized logger
@@ -44,7 +44,7 @@ func NewOptimizedLogger(config *LoggerConfig) Logger {
 	if config == nil {
 		config = DefaultLoggerConfig()
 	}
-	
+
 	return &OptimizedLogger{
 		config:       config,
 		fields:       make([]Field, 0),
@@ -63,16 +63,16 @@ func (l *OptimizedLogger) formatTimestamp(t time.Time) string {
 		return ts
 	}
 	l.timestampMutex.RUnlock()
-	
+
 	// Format new timestamp
 	l.timestampMutex.Lock()
 	defer l.timestampMutex.Unlock()
-	
+
 	// Double-check after acquiring write lock
 	if t.Unix() == l.lastTimestamp.Unix() {
 		return l.lastTimestampStr
 	}
-	
+
 	l.lastTimestamp = t
 	l.lastTimestampStr = t.Format(l.config.TimestampFormat)
 	return l.lastTimestampStr
@@ -83,22 +83,22 @@ func (l *OptimizedLogger) Log(level LogLevel, message string, fields ...Field) {
 	if level < l.config.Level {
 		return
 	}
-	
+
 	// Get buffer from pool
 	buf := logBufferPool.Get().(*bytes.Buffer)
 	defer func() {
 		buf.Reset()
 		logBufferPool.Put(buf)
 	}()
-	
+
 	// Format timestamp
 	timestamp := l.formatTimestamp(time.Now())
-	
+
 	// Build log message efficiently
 	buf.WriteByte('[')
 	buf.WriteString(timestamp)
 	buf.WriteString("] ")
-	
+
 	// Write level without allocation
 	switch level {
 	case LogLevelDebug:
@@ -110,13 +110,13 @@ func (l *OptimizedLogger) Log(level LogLevel, message string, fields ...Field) {
 	case LogLevelError:
 		buf.Write(errorBytes[1:7])
 	}
-	
+
 	buf.WriteByte(' ')
 	buf.WriteString(message)
-	
+
 	// Add fields efficiently
 	l.writeFields(buf, fields...)
-	
+
 	// Output the log
 	l.output(buf.Bytes())
 }
@@ -127,7 +127,7 @@ func (l *OptimizedLogger) writeFields(buf *bytes.Buffer, fields ...Field) {
 	for _, field := range l.fields {
 		l.writeField(buf, field)
 	}
-	
+
 	// Add new fields
 	for _, field := range fields {
 		l.writeField(buf, field)
@@ -139,7 +139,7 @@ func (l *OptimizedLogger) writeField(buf *bytes.Buffer, field Field) {
 	buf.WriteByte(' ')
 	buf.WriteString(field.Key)
 	buf.WriteByte('=')
-	
+
 	// Type switch for common types to avoid reflection
 	switch v := field.Value.(type) {
 	case string:
@@ -233,7 +233,7 @@ func (l *OptimizedLogger) WithFields(fields ...Field) Logger {
 	newFields := make([]Field, len(l.fields)+len(fields))
 	copy(newFields, l.fields)
 	copy(newFields[len(l.fields):], fields)
-	
+
 	return &OptimizedLogger{
 		config: l.config,
 		fields: newFields,
@@ -250,13 +250,13 @@ func (l *OptimizedLogger) LogTyped(level LogLevel, message string, fields ...Fie
 	if level < l.config.Level {
 		return
 	}
-	
+
 	// Convert to Field slice efficiently
 	convertedFields := make([]Field, len(fields))
 	for i, fp := range fields {
 		convertedFields[i] = fp.ToField()
 	}
-	
+
 	l.Log(level, message, convertedFields...)
 }
 
@@ -287,7 +287,7 @@ func (l *OptimizedLogger) WithTypedFields(fields ...FieldProvider) Logger {
 // FastLogger provides zero-allocation logging for hot paths
 type FastLogger struct {
 	w io.Writer
-	
+
 	// Pre-allocated buffers
 	buf      []byte
 	scratch  []byte
@@ -307,12 +307,12 @@ func NewFastLogger(w io.Writer) *FastLogger {
 // LogFast logs a message with minimal allocations
 func (fl *FastLogger) LogFast(level LogLevel, message string) {
 	fl.buf = fl.buf[:0]
-	
+
 	// Timestamp (simplified - just unix timestamp)
 	fl.buf = append(fl.buf, '[')
 	fl.buf = strconv.AppendInt(fl.buf, time.Now().Unix(), 10)
 	fl.buf = append(fl.buf, "] "...)
-	
+
 	// Level
 	switch level {
 	case LogLevelDebug:
@@ -324,11 +324,11 @@ func (fl *FastLogger) LogFast(level LogLevel, message string) {
 	case LogLevelError:
 		fl.buf = append(fl.buf, "ERROR "...)
 	}
-	
+
 	// Message
 	fl.buf = append(fl.buf, message...)
 	fl.buf = append(fl.buf, '\n')
-	
+
 	// Write (ignore errors in hot path)
 	_, _ = fl.w.Write(fl.buf)
 }

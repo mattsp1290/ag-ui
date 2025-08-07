@@ -2,7 +2,7 @@ package state
 
 import (
 	"time"
-	
+
 	"github.com/mattsp1290/ag-ui/go-sdk/internal/timeconfig"
 )
 
@@ -55,12 +55,12 @@ const (
 	DefaultMaxConnections     = 100             // Maximum connections
 
 	// Performance and Monitoring
-	DefaultGCMonitoringInterval       = 30 * time.Second       // GC monitoring frequency
-	DefaultResourceSampleInterval     = 5 * time.Minute        // Resource monitoring interval
-	DefaultMemoryMonitoringInterval   = 2 * time.Minute        // Memory monitoring frequency
-	DefaultPerformanceMetricsInterval = 2 * time.Minute        // Performance metrics collection
-	DefaultCompressionLevel           = 6                      // Default compression level
-	DefaultCompressionThreshold       = 50 * 1024 * 1024       // 50MB threshold for compression
+	DefaultGCMonitoringInterval       = 30 * time.Second // GC monitoring frequency
+	DefaultResourceSampleInterval     = 5 * time.Minute  // Resource monitoring interval
+	DefaultMemoryMonitoringInterval   = 2 * time.Minute  // Memory monitoring frequency
+	DefaultPerformanceMetricsInterval = 2 * time.Minute  // Performance metrics collection
+	DefaultCompressionLevel           = 6                // Default compression level
+	DefaultCompressionThreshold       = 50 * 1024 * 1024 // 50MB threshold for compression
 
 	// Circuit Breaker and Error Handling
 	DefaultErrorCountWindow         = 5 * time.Minute // Error count tracking window
@@ -93,7 +93,7 @@ const (
 // Health Check and Monitoring Constants
 const (
 	// Health Check Settings
-	DefaultHealthCheckInterval = 5 * time.Minute // Health check frequency
+	DefaultHealthCheckInterval = 5 * time.Minute  // Health check frequency
 	DefaultHealthCheckTimeout  = 30 * time.Second // Health check timeout
 
 	// Alert Thresholds

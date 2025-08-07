@@ -48,6 +48,6 @@ func (l *DefaultLogger) Info(msg string) {
 type NoOpLogger struct{}
 
 func (l *NoOpLogger) Logf(format string, args ...interface{}) {}
-func (l *NoOpLogger) Error(msg string)                       {}
-func (l *NoOpLogger) Warn(msg string)                        {}
-func (l *NoOpLogger) Info(msg string)                        {}
+func (l *NoOpLogger) Error(msg string)                        {}
+func (l *NoOpLogger) Warn(msg string)                         {}
+func (l *NoOpLogger) Info(msg string)                         {}

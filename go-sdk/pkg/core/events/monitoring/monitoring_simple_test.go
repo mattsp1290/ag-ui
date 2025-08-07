@@ -23,11 +23,11 @@ func TestSimpleMonitoringCreation(t *testing.T) {
 		SLAWindowSize:    5 * time.Minute,
 		EnableSLAReports: false,
 		AlertThresholds: AlertThresholds{
-			ErrorRatePercent:     5.0,
-			LatencyP99Millis:     100.0,
-			MemoryUsagePercent:   80.0,
-			ThroughputMinEvents:  10.0,
-			SLAViolationPercent:  10.0,
+			ErrorRatePercent:    5.0,
+			LatencyP99Millis:    100.0,
+			MemoryUsagePercent:  80.0,
+			ThroughputMinEvents: 10.0,
+			SLAViolationPercent: 10.0,
 		},
 	}
 

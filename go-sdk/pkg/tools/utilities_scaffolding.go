@@ -22,50 +22,50 @@ func NewToolScaffolder(config *UtilitiesConfig) *ToolScaffolder {
 // ToolScaffoldOptions defines options for tool scaffolding.
 type ToolScaffoldOptions struct {
 	// Basic info
-	ToolID          string
-	ToolName        string
-	Description     string
-	Version         string
-	Author          string
-	License         string
-	
+	ToolID      string
+	ToolName    string
+	Description string
+	Version     string
+	Author      string
+	License     string
+
 	// Functionality
-	Parameters      []ParameterSpec
-	Capabilities    *ToolCapabilities
-	Dependencies    []string
-	
+	Parameters   []ParameterSpec
+	Capabilities *ToolCapabilities
+	Dependencies []string
+
 	// Code generation
-	GenerateTests   bool
+	GenerateTests    bool
 	GenerateExamples bool
-	GenerateDocs    bool
-	PackageName     string
-	
+	GenerateDocs     bool
+	PackageName      string
+
 	// Advanced options
 	ImplementStreaming bool
 	ImplementAsync     bool
 	ImplementCaching   bool
 	SecurityLevel      SecurityLevel
-	
+
 	// Custom templates
 	CustomTemplates map[string]string
 }
 
 // ParameterSpec defines a parameter for tool scaffolding.
 type ParameterSpec struct {
-	Name         string
-	Type         string
-	Description  string
-	Required     bool
-	Default      interface{}
-	Validation   []ValidationRule
-	Examples     []interface{}
+	Name        string
+	Type        string
+	Description string
+	Required    bool
+	Default     interface{}
+	Validation  []ValidationRule
+	Examples    []interface{}
 }
 
 // ValidationRule defines a validation rule for parameters.
 type ValidationRule struct {
-	Type     string
-	Value    interface{}
-	Message  string
+	Type    string
+	Value   interface{}
+	Message string
 }
 
 // SecurityLevel defines security requirements for tools.
@@ -97,10 +97,10 @@ func (s *ToolScaffolder) ScaffoldTool(ctx context.Context, options *ToolScaffold
 	if err := s.validateOptions(options); err != nil {
 		return nil, fmt.Errorf("invalid scaffold options: %w", err)
 	}
-	
+
 	// Set defaults
 	s.setDefaults(options)
-	
+
 	generated := &GeneratedTool{
 		Options:    options,
 		SourceCode: make(map[string]string),
@@ -111,13 +111,13 @@ func (s *ToolScaffolder) ScaffoldTool(ctx context.Context, options *ToolScaffold
 		Metadata:   make(map[string]interface{}),
 		CreatedAt:  time.Now(),
 	}
-	
+
 	// Generate basic source code
 	generated.SourceCode["main.go"] = s.generateBasicSourceCode(options)
-	
+
 	// Generate basic schema
 	generated.SourceCode["schema.json"] = s.generateSchemaJSON(options)
-	
+
 	return generated, nil
 }
 
@@ -126,20 +126,20 @@ func (s *ToolScaffolder) validateOptions(options *ToolScaffoldOptions) error {
 	if options == nil {
 		return fmt.Errorf("scaffold options cannot be nil")
 	}
-	
+
 	if options.ToolID == "" {
 		return fmt.Errorf("tool ID is required")
 	}
-	
+
 	if options.ToolName == "" {
 		return fmt.Errorf("tool name is required")
 	}
-	
+
 	// Validate tool ID format - must start with a letter and contain only letters, numbers, and hyphens
 	if !isValidToolID(options.ToolID) {
 		return fmt.Errorf("invalid tool ID format: %s", options.ToolID)
 	}
-	
+
 	// Validate parameters
 	paramNames := make(map[string]bool)
 	for i, param := range options.Parameters {
@@ -158,7 +158,7 @@ func (s *ToolScaffolder) validateOptions(options *ToolScaffoldOptions) error {
 		}
 		paramNames[param.Name] = true
 	}
-	
+
 	return nil
 }
 
@@ -239,7 +239,7 @@ func (s *ToolScaffolder) generateSchemaJSON(options *ToolScaffoldOptions) string
   "required": []
 }`
 	}
-	
+
 	// For simplicity, generate a basic schema
 	return `{
   "type": "object",
@@ -272,12 +272,12 @@ func isValidParameterType(typ string) bool {
 		"float32", "float64", "bool", "[]string", "[]int", "[]float64",
 		"map[string]interface{}", "interface{}",
 	}
-	
+
 	for _, validType := range validTypes {
 		if typ == validType {
 			return true
 		}
 	}
-	
+
 	return false
 }

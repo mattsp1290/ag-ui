@@ -31,10 +31,10 @@ func TestAtomicStartStopRaceConditions(t *testing.T) {
 				wg.Add(1)
 				go func(id int) {
 					defer wg.Done()
-					
+
 					ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 					defer cancel()
-					
+
 					err := manager.Start(ctx)
 					if err == nil {
 						atomic.AddInt64(&startSuccesses, 1)
@@ -52,13 +52,13 @@ func TestAtomicStartStopRaceConditions(t *testing.T) {
 				wg.Add(1)
 				go func(id int) {
 					defer wg.Done()
-					
+
 					// Small delay to let some starts complete
 					time.Sleep(10 * time.Millisecond)
-					
+
 					ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 					defer cancel()
-					
+
 					err := manager.Stop(ctx)
 					if err == nil {
 						atomic.AddInt64(&stopSuccesses, 1)
@@ -79,13 +79,13 @@ func TestAtomicStartStopRaceConditions(t *testing.T) {
 
 			// Verify the rest got ErrAlreadyConnected
 			startErrorCount := atomic.LoadInt64(&startErrors)
-			if startSuccessCount + startErrorCount != numGoroutines {
-				t.Errorf("Start operations don't add up: success=%d, errors=%d, expected=%d", 
+			if startSuccessCount+startErrorCount != numGoroutines {
+				t.Errorf("Start operations don't add up: success=%d, errors=%d, expected=%d",
 					startSuccessCount, startErrorCount, numGoroutines)
 			}
 
 			t.Logf("Iteration %d: Start successes=%d, errors=%d, Stop successes=%d, errors=%d",
-				iteration, startSuccessCount, startErrorCount, 
+				iteration, startSuccessCount, startErrorCount,
 				atomic.LoadInt64(&stopSuccesses), atomic.LoadInt64(&stopErrors))
 		})
 	}
@@ -94,9 +94,9 @@ func TestAtomicStartStopRaceConditions(t *testing.T) {
 // TestAtomicStateTransitions tests atomic state transitions under failure conditions
 func TestAtomicStateTransitions(t *testing.T) {
 	tests := []struct {
-		name          string
+		name           string
 		setupTransport func() *RaceTestTransport
-		expectSuccess bool
+		expectSuccess  bool
 	}{
 		{
 			name: "successful_connection",
@@ -132,7 +132,7 @@ func TestAtomicStateTransitions(t *testing.T) {
 			defer cancel()
 
 			err := manager.Start(ctx)
-			
+
 			if tt.expectSuccess {
 				if err != nil {
 					t.Errorf("Expected success but got error: %v", err)
@@ -195,7 +195,7 @@ func TestConcurrentStateQueries(t *testing.T) {
 						t.Errorf("Invalid running state: %d", running)
 					}
 					atomic.AddInt64(&readOperations, 1)
-					
+
 					// Add some CPU work to increase contention
 					if j%100 == 0 {
 						runtime.Gosched()
@@ -212,7 +212,7 @@ func TestConcurrentStateQueries(t *testing.T) {
 
 	totalOperations := atomic.LoadInt64(&readOperations)
 	t.Logf("Completed %d concurrent state read operations", totalOperations)
-	
+
 	if totalOperations == 0 {
 		t.Error("No read operations completed")
 	}
@@ -229,9 +229,9 @@ func TestFailSafeStateManagement(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			manager := NewSimpleManager()
-			
+
 			// Create a transport that will fail sometimes
 			transport := NewRaceTestTransport()
 			if id%3 == 0 {
@@ -246,7 +246,7 @@ func TestFailSafeStateManagement(t *testing.T) {
 
 			// Check state consistency
 			runningState := atomic.LoadInt32(&manager.running)
-			
+
 			if err == nil {
 				// Success: should be running
 				if runningState != 1 {
@@ -305,7 +305,7 @@ func TestAtomicCompareAndSwapBehavior(t *testing.T) {
 // BenchmarkAtomicOperations benchmarks the atomic operations
 func BenchmarkAtomicOperations(b *testing.B) {
 	manager := NewSimpleManager()
-	
+
 	b.Run("atomic_load", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			atomic.LoadInt32(&manager.running)
@@ -385,7 +385,7 @@ func TestMemoryConsistency(t *testing.T) {
 			for j := 0; j < iterations; j++ {
 				val1 := atomic.LoadInt32(&manager.running)
 				val2 := atomic.LoadInt32(&manager.running)
-				
+
 				// Values should be 0 or 1, and two consecutive reads
 				// should see a consistent state (unless changed between reads)
 				if val1 < 0 || val1 > 1 || val2 < 0 || val2 > 1 {
@@ -419,7 +419,7 @@ func TestIsRunningMethod(t *testing.T) {
 	if err := manager.Start(ctx); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
-	
+
 	// Should now be running
 	if !manager.IsRunning() {
 		t.Error("Manager should be running after start")
@@ -437,12 +437,12 @@ func TestIsRunningMethod(t *testing.T) {
 			for j := 0; j < 1000; j++ {
 				running1 := manager.IsRunning()
 				running2 := manager.IsRunning()
-				
+
 				// Both reads should be consistent (true in this case)
 				if running1 != running2 {
 					atomic.AddInt64(&inconsistencies, 1)
 				}
-				
+
 				// Values should be boolean-consistent
 				if running1 != true && running1 != false {
 					atomic.AddInt64(&inconsistencies, 1)

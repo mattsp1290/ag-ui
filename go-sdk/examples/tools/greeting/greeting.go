@@ -144,11 +144,22 @@ func generateGreeting(name, language, style, timeOfDay string, includeEmoji, per
 		}
 	}
 
+	// Estimate final size for builder optimization
+	var builder strings.Builder
+	estimatedSize := len(greeting) + len(name) + 50 // base size + extra for formatting
+	if personalize {
+		estimatedSize += 35 // approximate personalization length
+	}
+	builder.Grow(estimatedSize)
+	builder.WriteString(greeting)
+
 	// Add name
 	if style == "formal" {
-		greeting += ", " + name
+		builder.WriteString(", ")
+		builder.WriteString(name)
 	} else {
-		greeting += " " + name
+		builder.WriteString(" ")
+		builder.WriteString(name)
 	}
 
 	// Add emoji if requested
@@ -159,7 +170,8 @@ func generateGreeting(name, language, style, timeOfDay string, includeEmoji, per
 			"friendly": "🤗",
 		}
 		if emoji, ok := emojiMap[style]; ok {
-			greeting += " " + emoji
+			builder.WriteString(" ")
+			builder.WriteString(emoji)
 		}
 	}
 
@@ -172,8 +184,11 @@ func generateGreeting(name, language, style, timeOfDay string, includeEmoji, per
 		}
 		// Use name length to deterministically select personalization
 		idx := len(name) % len(personalizations)
-		greeting += " " + personalizations[idx]
+		builder.WriteString(" ")
+		builder.WriteString(personalizations[idx])
 	}
+
+	greeting = builder.String()
 
 	// Add punctuation
 	if style == "formal" {

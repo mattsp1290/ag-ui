@@ -35,12 +35,6 @@ type Capabilities struct {
 	Features map[string]interface{}
 }
 
-
-
-
-
-
-
 // Metrics contains performance metrics for a transport.
 type Metrics struct {
 	// ConnectionUptime is how long the connection has been established
@@ -94,4 +88,3 @@ type ReconnectStrategy struct {
 	// Jitter adds randomness to reconnection delays
 	Jitter bool
 }
-

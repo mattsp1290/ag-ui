@@ -10,7 +10,7 @@ import (
 // BenchmarkRegistryListPaginated benchmarks the paginated list operation
 func BenchmarkRegistryListPaginated(b *testing.B) {
 	registry := NewRegistry()
-	
+
 	// Setup: Create 1000 tools
 	for i := 0; i < 1000; i++ {
 		tool := &Tool{
@@ -36,9 +36,9 @@ func BenchmarkRegistryListPaginated(b *testing.B) {
 		}
 		registry.Register(tool)
 	}
-	
+
 	b.ResetTimer()
-	
+
 	// Benchmark paginated list operations
 	b.Run("PaginatedList", func(b *testing.B) {
 		options := &PaginationOptions{
@@ -47,7 +47,7 @@ func BenchmarkRegistryListPaginated(b *testing.B) {
 			SortBy:    "name",
 			SortOrder: "asc",
 		}
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_, err := registry.ListPaginated(nil, options)
@@ -56,7 +56,7 @@ func BenchmarkRegistryListPaginated(b *testing.B) {
 			}
 		}
 	})
-	
+
 	// Benchmark filtered list operations
 	b.Run("FilteredList", func(b *testing.B) {
 		filter := &ToolFilter{
@@ -68,7 +68,7 @@ func BenchmarkRegistryListPaginated(b *testing.B) {
 			SortBy:    "name",
 			SortOrder: "asc",
 		}
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_, err := registry.ListPaginated(filter, options)
@@ -77,7 +77,7 @@ func BenchmarkRegistryListPaginated(b *testing.B) {
 			}
 		}
 	})
-	
+
 	// Benchmark original list operation for comparison
 	b.Run("OriginalList", func(b *testing.B) {
 		b.ResetTimer()
@@ -115,13 +115,13 @@ func BenchmarkSchemaValidationCaching(b *testing.B) {
 		},
 		Required: []string{"name", "age", "email"},
 	}
-	
+
 	params := map[string]interface{}{
 		"name":  "John Doe",
 		"age":   30,
 		"email": "john@example.com",
 	}
-	
+
 	b.Run("CachedSchemaValidator", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -132,7 +132,7 @@ func BenchmarkSchemaValidationCaching(b *testing.B) {
 			}
 		}
 	})
-	
+
 	b.Run("NonCachedSchemaValidator", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -194,7 +194,7 @@ func BenchmarkToolCloning(b *testing.B) {
 			Timeout:    30 * time.Second,
 		},
 	}
-	
+
 	b.Run("RegularClone", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -202,7 +202,7 @@ func BenchmarkToolCloning(b *testing.B) {
 			_ = clone // Prevent optimization
 		}
 	})
-	
+
 	b.Run("OptimizedClone", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -215,7 +215,7 @@ func BenchmarkToolCloning(b *testing.B) {
 // BenchmarkMemoryPool benchmarks memory pool performance
 func BenchmarkMemoryPool(b *testing.B) {
 	pool := NewMemoryPool()
-	
+
 	b.Run("WithMemoryPool", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -225,7 +225,7 @@ func BenchmarkMemoryPool(b *testing.B) {
 			pool.PutTool(tool)
 		}
 	})
-	
+
 	b.Run("WithoutMemoryPool", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -241,7 +241,7 @@ func BenchmarkMemoryPool(b *testing.B) {
 // BenchmarkConcurrentAccess benchmarks concurrent access to optimized structures
 func BenchmarkConcurrentAccess(b *testing.B) {
 	registry := NewRegistry()
-	
+
 	// Setup: Create 100 tools
 	for i := 0; i < 100; i++ {
 		tool := &Tool{
@@ -266,7 +266,7 @@ func BenchmarkConcurrentAccess(b *testing.B) {
 		}
 		registry.Register(tool)
 	}
-	
+
 	b.Run("ConcurrentPaginatedList", func(b *testing.B) {
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
@@ -276,7 +276,7 @@ func BenchmarkConcurrentAccess(b *testing.B) {
 				SortBy:    "name",
 				SortOrder: "asc",
 			}
-			
+
 			for pb.Next() {
 				_, err := registry.ListPaginated(nil, options)
 				if err != nil {
@@ -285,7 +285,7 @@ func BenchmarkConcurrentAccess(b *testing.B) {
 			}
 		})
 	})
-	
+
 	b.Run("ConcurrentSchemaValidation", func(b *testing.B) {
 		schema := &ToolSchema{
 			Type: "object",
@@ -297,11 +297,11 @@ func BenchmarkConcurrentAccess(b *testing.B) {
 			},
 			Required: []string{"input"},
 		}
-		
+
 		params := map[string]interface{}{
 			"input": "test value",
 		}
-		
+
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
@@ -318,7 +318,7 @@ func BenchmarkConcurrentAccess(b *testing.B) {
 // BenchmarkCacheEfficiency benchmarks cache efficiency with different cache sizes
 func BenchmarkCacheEfficiency(b *testing.B) {
 	registry := NewRegistry()
-	
+
 	// Create schemas with different patterns
 	schemas := make([]*ToolSchema, 20)
 	for i := 0; i < 20; i++ {
@@ -333,11 +333,11 @@ func BenchmarkCacheEfficiency(b *testing.B) {
 			Required: []string{"input"},
 		}
 	}
-	
+
 	params := map[string]interface{}{
 		"input": "test value",
 	}
-	
+
 	b.Run("SchemaCache", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -349,7 +349,7 @@ func BenchmarkCacheEfficiency(b *testing.B) {
 			}
 		}
 	})
-	
+
 	// Test list cache effectiveness
 	b.Run("ListCache", func(b *testing.B) {
 		// Create tools
@@ -364,14 +364,14 @@ func BenchmarkCacheEfficiency(b *testing.B) {
 			}
 			registry.Register(tool)
 		}
-		
+
 		options := &PaginationOptions{
 			Page:      1,
 			Size:      20,
 			SortBy:    "name",
 			SortOrder: "asc",
 		}
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			_, err := registry.ListPaginated(nil, options)
@@ -412,7 +412,7 @@ func TestPerformanceImprovements(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping performance improvements test in short mode")
 	}
-	
+
 	// Test schema cache hit rate
 	t.Run("SchemaCacheHitRate", func(t *testing.T) {
 		schema := &ToolSchema{
@@ -425,27 +425,27 @@ func TestPerformanceImprovements(t *testing.T) {
 			},
 			Required: []string{"input"},
 		}
-		
+
 		// Create multiple validators with the same schema
 		validators := make([]*SchemaValidator, 10)
 		for i := 0; i < 10; i++ {
 			validators[i] = NewSchemaValidator(schema)
 		}
-		
+
 		// Check that they share the same cached instance
 		for i := 1; i < len(validators); i++ {
 			if validators[i].schemaHash != validators[0].schemaHash {
 				t.Errorf("Expected same schema hash, got different hashes")
 			}
 		}
-		
+
 		// Check cache statistics
 		if globalSchemaCache != nil {
 			hitCount, missCount, hitRate := globalSchemaCache.GetStats()
 			t.Logf("Schema cache stats: hits=%d, misses=%d, hit_rate=%.2f%%", hitCount, missCount, hitRate*100)
 		}
 	})
-	
+
 	// Test copy-on-write behavior
 	t.Run("CopyOnWriteBehavior", func(t *testing.T) {
 		original := &Tool{
@@ -454,57 +454,57 @@ func TestPerformanceImprovements(t *testing.T) {
 			Description: "Test description",
 			Version:     "1.0.0",
 		}
-		
+
 		clone := original.CloneOptimized()
-		
+
 		// Check that it's shared
 		if !clone.IsShared() {
 			t.Error("Expected clone to be shared")
 		}
-		
+
 		// Check that original is also marked as shared
 		if !original.IsShared() {
 			t.Error("Expected original to be shared after cloning")
 		}
-		
+
 		// Modify clone and check copy-on-write
 		clone.SetName("Modified Name")
-		
+
 		// After modification, clone should no longer be shared
 		if clone.IsShared() {
 			t.Error("Expected clone to not be shared after modification")
 		}
-		
+
 		// Original should still have the original name
 		if original.Name != "Test Tool" {
 			t.Errorf("Expected original name to remain unchanged, got: %s", original.Name)
 		}
-		
+
 		// Clone should have the modified name
 		if clone.Name != "Modified Name" {
 			t.Errorf("Expected clone name to be modified, got: %s", clone.Name)
 		}
 	})
-	
+
 	// Test memory pool efficiency
 	t.Run("MemoryPoolEfficiency", func(t *testing.T) {
 		pool := NewMemoryPool()
-		
+
 		// Get and return multiple objects
 		for i := 0; i < 100; i++ {
 			tool := pool.GetTool()
 			tool.ID = fmt.Sprintf("tool-%d", i)
 			pool.PutTool(tool)
 		}
-		
+
 		// The pool should reuse objects
 		tool1 := pool.GetTool()
 		_ = pool.GetTool() // tool2 - just ensuring pool can provide multiple tools
-		
+
 		// After putting back, we should get the same instance
 		pool.PutTool(tool1)
 		tool3 := pool.GetTool()
-		
+
 		// tool3 should be the same instance as tool1 (memory address)
 		if tool3 != tool1 {
 			t.Log("Memory pool is working correctly (different instances is also valid)")
@@ -515,7 +515,7 @@ func TestPerformanceImprovements(t *testing.T) {
 // Benchmark memory usage
 func BenchmarkMemoryUsage(b *testing.B) {
 	registry := NewRegistry()
-	
+
 	b.Run("MemoryUsageWithOptimizations", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -536,10 +536,10 @@ func BenchmarkMemoryUsage(b *testing.B) {
 				},
 				Executor: &MockExecutor{},
 			}
-			
+
 			// Use optimized clone
 			clone := tool.CloneOptimized()
-			
+
 			// Store in registry
 			registry.Register(clone)
 		}

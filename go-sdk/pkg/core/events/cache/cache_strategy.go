@@ -11,16 +11,16 @@ import (
 type CacheStrategy interface {
 	// ShouldCache determines if a validation result should be cached
 	ShouldCache(key ValidationCacheKey, result ValidationResult) bool
-	
+
 	// GetTTL returns the TTL for a cache entry
 	GetTTL(key ValidationCacheKey) time.Duration
-	
+
 	// OnHit is called when a cache hit occurs
 	OnHit(key ValidationCacheKey, entry *ValidationCacheEntry)
-	
+
 	// OnMiss is called when a cache miss occurs
 	OnMiss(key ValidationCacheKey)
-	
+
 	// Score returns a score for cache entry prioritization
 	Score(entry *ValidationCacheEntry) float64
 }
@@ -35,12 +35,12 @@ type ValidationResult struct {
 
 // TTLStrategy implements time-based caching
 type TTLStrategy struct {
-	DefaultTTL     time.Duration
-	MaxTTL         time.Duration
-	MinTTL         time.Duration
-	TTLMultiplier  float64
-	mu             sync.RWMutex
-	hitCounts      map[string]uint64
+	DefaultTTL    time.Duration
+	MaxTTL        time.Duration
+	MinTTL        time.Duration
+	TTLMultiplier float64
+	mu            sync.RWMutex
+	hitCounts     map[string]uint64
 }
 
 // NewTTLStrategy creates a new TTL-based strategy
@@ -63,7 +63,7 @@ func (s *TTLStrategy) GetTTL(key ValidationCacheKey) time.Duration {
 	s.mu.RLock()
 	hits := s.hitCounts[key.EventHash]
 	s.mu.RUnlock()
-	
+
 	// Adaptive TTL based on hit count
 	ttl := s.DefaultTTL
 	if hits > 0 {
@@ -71,14 +71,14 @@ func (s *TTLStrategy) GetTTL(key ValidationCacheKey) time.Duration {
 		multiplier := math.Min(float64(hits)*s.TTLMultiplier, 10.0)
 		ttl = time.Duration(float64(s.DefaultTTL) * multiplier)
 	}
-	
+
 	// Clamp to min/max
 	if ttl < s.MinTTL {
 		ttl = s.MinTTL
 	} else if ttl > s.MaxTTL {
 		ttl = s.MaxTTL
 	}
-	
+
 	return ttl
 }
 
@@ -97,18 +97,18 @@ func (s *TTLStrategy) Score(entry *ValidationCacheEntry) float64 {
 	remainingTTL := time.Until(entry.ExpiresAt)
 	ttlScore := float64(remainingTTL) / float64(s.MaxTTL)
 	accessScore := math.Log10(float64(entry.AccessCount + 1))
-	
+
 	return ttlScore*0.3 + accessScore*0.7
 }
 
 // LFUStrategy implements Least Frequently Used caching
 type LFUStrategy struct {
-	MinFrequency   uint64
-	DecayRate      float64
-	DecayInterval  time.Duration
-	mu             sync.RWMutex
-	frequencies    map[string]float64
-	lastDecay      time.Time
+	MinFrequency  uint64
+	DecayRate     float64
+	DecayInterval time.Duration
+	mu            sync.RWMutex
+	frequencies   map[string]float64
+	lastDecay     time.Time
 }
 
 // NewLFUStrategy creates a new LFU-based strategy
@@ -135,10 +135,10 @@ func (s *LFUStrategy) GetTTL(key ValidationCacheKey) time.Duration {
 func (s *LFUStrategy) OnHit(key ValidationCacheKey, entry *ValidationCacheEntry) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Apply decay if needed (no lock needed, we already hold it)
 	s.applyDecayLocked()
-	
+
 	// Increment frequency
 	s.frequencies[key.EventHash]++
 }
@@ -146,7 +146,7 @@ func (s *LFUStrategy) OnHit(key ValidationCacheKey, entry *ValidationCacheEntry)
 func (s *LFUStrategy) OnMiss(key ValidationCacheKey) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Initialize frequency for new items
 	s.frequencies[key.EventHash] = float64(s.MinFrequency)
 }
@@ -154,15 +154,15 @@ func (s *LFUStrategy) OnMiss(key ValidationCacheKey) {
 func (s *LFUStrategy) Score(entry *ValidationCacheEntry) float64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	freq, exists := s.frequencies[entry.Key.EventHash]
 	if !exists {
 		return 0
 	}
-	
+
 	// Consider both frequency and recency
 	recencyScore := 1.0 / (1.0 + time.Since(entry.LastAccessedAt).Hours())
-	
+
 	return freq*0.7 + recencyScore*0.3
 }
 
@@ -172,7 +172,7 @@ func (s *LFUStrategy) applyDecayLocked() {
 	if time.Since(s.lastDecay) < s.DecayInterval {
 		return
 	}
-	
+
 	// Apply exponential decay to all frequencies
 	for key, freq := range s.frequencies {
 		s.frequencies[key] = freq * s.DecayRate
@@ -180,7 +180,7 @@ func (s *LFUStrategy) applyDecayLocked() {
 			s.frequencies[key] = float64(s.MinFrequency)
 		}
 	}
-	
+
 	s.lastDecay = time.Now()
 }
 
@@ -198,12 +198,12 @@ func (s *LFUStrategy) TriggerDecay() {
 
 // AdaptiveStrategy adjusts caching based on system conditions
 type AdaptiveStrategy struct {
-	BaseStrategy   CacheStrategy
-	MemoryLimit    int64
-	LoadThreshold  float64
-	mu             sync.RWMutex
-	currentMemory  int64
-	systemLoad     float64
+	BaseStrategy  CacheStrategy
+	MemoryLimit   int64
+	LoadThreshold float64
+	mu            sync.RWMutex
+	currentMemory int64
+	systemLoad    float64
 }
 
 // NewAdaptiveStrategy creates a new adaptive strategy
@@ -218,7 +218,7 @@ func NewAdaptiveStrategy(baseStrategy CacheStrategy, memoryLimit int64) *Adaptiv
 func (s *AdaptiveStrategy) ShouldCache(key ValidationCacheKey, result ValidationResult) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	// Check memory constraints
 	if s.currentMemory >= int64(float64(s.MemoryLimit)*s.LoadThreshold) {
 		// Only cache small, frequently accessed items when memory is tight
@@ -226,7 +226,7 @@ func (s *AdaptiveStrategy) ShouldCache(key ValidationCacheKey, result Validation
 			return false
 		}
 	}
-	
+
 	// Check system load
 	if s.systemLoad > s.LoadThreshold {
 		// Be more selective during high load
@@ -234,21 +234,21 @@ func (s *AdaptiveStrategy) ShouldCache(key ValidationCacheKey, result Validation
 			return false // Don't cache fast validations
 		}
 	}
-	
+
 	return s.BaseStrategy.ShouldCache(key, result)
 }
 
 func (s *AdaptiveStrategy) GetTTL(key ValidationCacheKey) time.Duration {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	baseTTL := s.BaseStrategy.GetTTL(key)
-	
+
 	// Reduce TTL under memory pressure
 	if s.currentMemory >= int64(float64(s.MemoryLimit)*0.9) {
 		baseTTL = baseTTL / 2
 	}
-	
+
 	return baseTTL
 }
 
@@ -262,10 +262,10 @@ func (s *AdaptiveStrategy) OnMiss(key ValidationCacheKey) {
 
 func (s *AdaptiveStrategy) Score(entry *ValidationCacheEntry) float64 {
 	baseScore := s.BaseStrategy.Score(entry)
-	
+
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	// Adjust score based on system conditions
 	if s.systemLoad > s.LoadThreshold {
 		// Prefer smaller entries during high load
@@ -285,14 +285,14 @@ func (s *AdaptiveStrategy) Score(entry *ValidationCacheEntry) float64 {
 		sizeScore := 1.0 / (1.0 + float64(eventSize)/1024.0)
 		baseScore = baseScore*0.7 + sizeScore*0.3
 	}
-	
+
 	return baseScore
 }
 
 func (s *AdaptiveStrategy) UpdateSystemMetrics(memory int64, load float64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	s.currentMemory = memory
 	s.systemLoad = load
 }
@@ -308,10 +308,10 @@ type PredictiveStrategy struct {
 
 // AccessPattern tracks access patterns for prediction
 type AccessPattern struct {
-	LastAccess   time.Time
-	AccessTimes  []time.Time
+	LastAccess    time.Time
+	AccessTimes   []time.Time
 	PredictedNext time.Time
-	Confidence   float64
+	Confidence    float64
 }
 
 // NewPredictiveStrategy creates a new predictive strategy
@@ -332,18 +332,18 @@ func (s *PredictiveStrategy) GetTTL(key ValidationCacheKey) time.Duration {
 	s.mu.RLock()
 	pattern, exists := s.accessPatterns[key.EventHash]
 	s.mu.RUnlock()
-	
+
 	if !exists || pattern.Confidence < 0.7 {
 		return s.BaseStrategy.GetTTL(key)
 	}
-	
+
 	// Extend TTL to cover predicted next access
 	timeUntilNext := time.Until(pattern.PredictedNext)
 	if timeUntilNext > 0 {
 		// Add buffer
 		return timeUntilNext + 5*time.Minute
 	}
-	
+
 	return s.BaseStrategy.GetTTL(key)
 }
 
@@ -359,28 +359,28 @@ func (s *PredictiveStrategy) OnMiss(key ValidationCacheKey) {
 
 func (s *PredictiveStrategy) Score(entry *ValidationCacheEntry) float64 {
 	baseScore := s.BaseStrategy.Score(entry)
-	
+
 	s.mu.RLock()
 	pattern, exists := s.accessPatterns[entry.Key.EventHash]
 	s.mu.RUnlock()
-	
+
 	if !exists {
 		return baseScore
 	}
-	
+
 	// Boost score if predicted to be accessed soon
 	if pattern.Confidence > 0.7 && time.Until(pattern.PredictedNext) < 30*time.Minute {
 		predictiveBoost := pattern.Confidence
 		return baseScore*0.6 + predictiveBoost*0.4
 	}
-	
+
 	return baseScore
 }
 
 func (s *PredictiveStrategy) updatePattern(eventHash string, accessTime time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	pattern, exists := s.accessPatterns[eventHash]
 	if !exists {
 		pattern = &AccessPattern{
@@ -388,11 +388,11 @@ func (s *PredictiveStrategy) updatePattern(eventHash string, accessTime time.Tim
 		}
 		s.accessPatterns[eventHash] = pattern
 	}
-	
+
 	// Add access time
 	pattern.LastAccess = accessTime
 	pattern.AccessTimes = append(pattern.AccessTimes, accessTime)
-	
+
 	// Keep only recent accesses
 	cutoff := time.Now().Add(-s.PatternWindow)
 	filtered := make([]time.Time, 0)
@@ -402,7 +402,7 @@ func (s *PredictiveStrategy) updatePattern(eventHash string, accessTime time.Tim
 		}
 	}
 	pattern.AccessTimes = filtered
-	
+
 	// Predict next access if we have enough data
 	if len(pattern.AccessTimes) >= s.MinPatternCount {
 		s.predictNextAccess(pattern)
@@ -414,15 +414,15 @@ func (s *PredictiveStrategy) predictNextAccess(pattern *AccessPattern) {
 	if len(pattern.AccessTimes) < 2 {
 		return
 	}
-	
+
 	var totalInterval time.Duration
 	for i := 1; i < len(pattern.AccessTimes); i++ {
 		interval := pattern.AccessTimes[i].Sub(pattern.AccessTimes[i-1])
 		totalInterval += interval
 	}
-	
+
 	avgInterval := totalInterval / time.Duration(len(pattern.AccessTimes)-1)
-	
+
 	// Calculate confidence based on interval consistency
 	var variance float64
 	avgSeconds := avgInterval.Seconds()
@@ -432,11 +432,11 @@ func (s *PredictiveStrategy) predictNextAccess(pattern *AccessPattern) {
 	}
 	variance /= float64(len(pattern.AccessTimes) - 1)
 	stdDev := math.Sqrt(variance)
-	
+
 	// Confidence inversely proportional to coefficient of variation
 	coeffOfVariation := stdDev / avgSeconds
 	pattern.Confidence = math.Max(0, 1.0-coeffOfVariation)
-	
+
 	// Predict next access
 	pattern.PredictedNext = pattern.LastAccess.Add(avgInterval)
 }
@@ -452,18 +452,18 @@ func NewCompositeStrategy(strategies []CacheStrategy, weights []float64) (*Compo
 	if len(strategies) != len(weights) {
 		return nil, fmt.Errorf("strategies and weights must have the same length")
 	}
-	
+
 	// Normalize weights
 	var sum float64
 	for _, w := range weights {
 		sum += w
 	}
-	
+
 	normalizedWeights := make([]float64, len(weights))
 	for i, w := range weights {
 		normalizedWeights[i] = w / sum
 	}
-	
+
 	return &CompositeStrategy{
 		Strategies: strategies,
 		Weights:    normalizedWeights,

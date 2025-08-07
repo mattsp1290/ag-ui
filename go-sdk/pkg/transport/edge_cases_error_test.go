@@ -77,13 +77,13 @@ func TestEdgeCaseErrors(t *testing.T) {
 			manager := NewSimpleManager()
 			transport := NewDemoTransport()
 			manager.SetTransport(transport)
-			
+
 			manager.Start(context.Background())
-			
+
 			// Start goroutines that will be accessing channels
 			var wg sync.WaitGroup
 			stopFlag := int32(0)
-			
+
 			// Reader goroutine
 			wg.Add(1)
 			go func() {
@@ -97,7 +97,7 @@ func TestEdgeCaseErrors(t *testing.T) {
 					}
 				}
 			}()
-			
+
 			// Sender goroutine
 			wg.Add(1)
 			go func() {
@@ -108,23 +108,23 @@ func TestEdgeCaseErrors(t *testing.T) {
 					runtime.Gosched()
 				}
 			}()
-			
+
 			// Let goroutines run
 			time.Sleep(10 * time.Millisecond)
-			
+
 			// Stop manager (will close channels)
 			manager.Stop(context.Background())
-			
+
 			// Signal goroutines to stop
 			atomic.StoreInt32(&stopFlag, 1)
-			
+
 			// Wait for goroutines to finish
 			done := make(chan struct{})
 			go func() {
 				wg.Wait()
 				close(done)
 			}()
-			
+
 			select {
 			case <-done:
 				// Success - no panic
@@ -138,36 +138,36 @@ func TestEdgeCaseErrors(t *testing.T) {
 		// Test that panics in receive goroutine are handled
 		// This test verifies the behavior when a transport panics
 		// In production, we'd want to add panic recovery to the receiveEvents goroutine
-		
+
 		defer func() {
 			if r := recover(); r != nil {
 				// Expected - we're testing panic behavior
 				t.Logf("Recovered from panic (expected): %v", r)
 			}
 		}()
-		
+
 		manager := NewSimpleManager()
-		
+
 		// Create a transport that will cause issues
 		transport := &PanicTransport{
-			baseTransport: NewErrorTransport(),
+			baseTransport:  NewErrorTransport(),
 			panicOnReceive: false, // Don't panic immediately
 		}
-		
+
 		manager.SetTransport(transport)
-		
+
 		// Start the manager
 		err := manager.Start(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to start: %v", err)
 		}
-		
+
 		// Now enable panic
 		transport.panicOnReceive = true
-		
+
 		// Try to trigger the panic in a controlled way
 		// In real code, we'd add panic recovery to receiveEvents
-		
+
 		// Cleanup
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
@@ -179,36 +179,36 @@ func TestEdgeCaseErrors(t *testing.T) {
 		transport := NewErrorTransport()
 		transport.connectDelay = 10 * time.Millisecond
 		transport.sendDelay = 10 * time.Millisecond
-		
+
 		manager.SetTransport(transport)
-		
+
 		// Start with zero timeout
 		ctx, cancel := context.WithTimeout(context.Background(), 0)
 		defer cancel()
-		
+
 		err := manager.Start(ctx)
 		if !errors.Is(err, context.DeadlineExceeded) {
 			t.Errorf("Expected deadline exceeded, got %v", err)
 		}
-		
+
 		// Create a new manager for normal operations to avoid state issues
 		manager2 := NewSimpleManager()
 		transport2 := NewErrorTransport()
 		transport2.connectDelay = 0 // No delay for successful connection
 		transport2.sendDelay = 10 * time.Millisecond
 		manager2.SetTransport(transport2)
-		
+
 		// Start normally
 		err = manager2.Start(context.Background())
 		if err != nil {
 			t.Fatalf("Failed to start manager: %v", err)
 		}
 		defer manager2.Stop(context.Background())
-		
+
 		// Send with zero timeout
 		ctx2, cancel2 := context.WithTimeout(context.Background(), 0)
 		defer cancel2()
-		
+
 		event := &DemoEvent{id: "test", eventType: "demo"}
 		err = manager2.Send(ctx2, event)
 		if !errors.Is(err, context.DeadlineExceeded) {
@@ -218,7 +218,7 @@ func TestEdgeCaseErrors(t *testing.T) {
 
 	t.Run("manager_state_after_panic", func(t *testing.T) {
 		manager := NewSimpleManager()
-		
+
 		// Force panic in a controlled way
 		func() {
 			defer func() {
@@ -226,28 +226,28 @@ func TestEdgeCaseErrors(t *testing.T) {
 					// Expected panic
 				}
 			}()
-			
+
 			// This might panic if channels are nil
 			manager.eventChan = nil
 			manager.errorChan = nil
-			
+
 			// Try to use manager
 			_ = manager.Receive()
 		}()
-		
+
 		// Manager should still be usable after fixing state
 		manager.eventChan = make(chan events.Event, 100)
 		manager.errorChan = make(chan error, 100)
-		
+
 		transport := NewErrorTransport()
 		manager.SetTransport(transport)
-		
+
 		// Should be able to start
 		err := manager.Start(context.Background())
 		if err != nil {
 			t.Errorf("Manager should be usable after panic recovery: %v", err)
 		}
-		
+
 		manager.Stop(context.Background())
 	})
 }
@@ -256,25 +256,25 @@ func TestEdgeCaseErrors(t *testing.T) {
 func TestMemoryLeakScenarios(t *testing.T) {
 	t.Run("goroutine_leak_on_transport_change", func(t *testing.T) {
 		initialGoroutines := runtime.NumGoroutine()
-		
+
 		manager := NewSimpleManager()
 		manager.Start(context.Background())
-		
+
 		// Change transport many times
 		for i := 0; i < 100; i++ {
 			transport := NewErrorTransport()
 			manager.SetTransport(transport)
 			time.Sleep(time.Millisecond) // Let goroutines start
 		}
-		
+
 		manager.Stop(context.Background())
-		
+
 		// Give time for goroutines to clean up
 		time.Sleep(100 * time.Millisecond)
-		
+
 		finalGoroutines := runtime.NumGoroutine()
 		leaked := finalGoroutines - initialGoroutines
-		
+
 		// Allow some tolerance for runtime goroutines
 		if leaked > 10 {
 			t.Errorf("Potential goroutine leak: %d goroutines leaked", leaked)
@@ -288,7 +288,7 @@ func TestMemoryLeakScenarios(t *testing.T) {
 			BufferSize:    2, // Very small buffer
 			EnableMetrics: true,
 		}
-		
+
 		manager := NewSimpleManagerWithBackpressure(config)
 		transport := NewDemoTransport()
 		// Connect the transport first
@@ -299,13 +299,13 @@ func TestMemoryLeakScenarios(t *testing.T) {
 		manager.SetTransport(transport)
 		manager.Start(context.Background())
 		defer manager.Stop(context.Background())
-		
-		// Fill the receive buffer by sending events through the transport 
+
+		// Fill the receive buffer by sending events through the transport
 		// but not consuming them from the manager
 		sentCount := 0
 		for i := 0; i < 100; i++ {
 			event := &DemoEvent{
-				id:        fmt.Sprintf("overflow-%d", i), 
+				id:        fmt.Sprintf("overflow-%d", i),
 				eventType: "test",
 				timestamp: time.Now(),
 				data:      map[string]interface{}{"message": fmt.Sprintf("test-%d", i)},
@@ -316,9 +316,9 @@ func TestMemoryLeakScenarios(t *testing.T) {
 				sentCount++
 			}
 		}
-		
+
 		t.Logf("Successfully sent %d events to transport", sentCount)
-		
+
 		// Force all events through by consuming from transport's receive channel
 		// This ensures the simple manager's receiveEvents goroutine processes them
 		for i := 0; i < 20; i++ {
@@ -330,12 +330,12 @@ func TestMemoryLeakScenarios(t *testing.T) {
 				break
 			}
 		}
-		
+
 		// Should handle overflow gracefully
 		metrics := manager.GetBackpressureMetrics()
-		t.Logf("Backpressure metrics: EventsDropped=%d, CurrentBufferSize=%d, MaxBufferSize=%d", 
+		t.Logf("Backpressure metrics: EventsDropped=%d, CurrentBufferSize=%d, MaxBufferSize=%d",
 			metrics.EventsDropped, metrics.CurrentBufferSize, metrics.MaxBufferSize)
-		
+
 		// Check how many events are in the receive channel
 		receiveChan := manager.Receive()
 		receivedCount := 0
@@ -352,15 +352,15 @@ func TestMemoryLeakScenarios(t *testing.T) {
 			}
 		}()
 		<-done
-		
+
 		t.Logf("Received %d events from manager", receivedCount)
-		
+
 		// With 10 events sent and buffer size of 2, we expect 8 drops
 		expectedDrops := sentCount - config.BufferSize
 		if expectedDrops < 0 {
 			expectedDrops = 0
 		}
-		
+
 		if metrics.EventsDropped == 0 && sentCount > config.BufferSize {
 			t.Error("Expected events to be dropped with small buffer")
 		}
@@ -375,12 +375,12 @@ func TestErrorTypeEdgeCases(t *testing.T) {
 		wrappedErr := fmt.Errorf("wrapped: %w", baseErr)
 		transportErr := NewTransportError("test", "operation", wrappedErr)
 		finalErr := fmt.Errorf("final: %w", transportErr)
-		
+
 		// Should be able to unwrap to base error
 		if !errors.Is(finalErr, baseErr) {
 			t.Error("Should be able to unwrap to base error")
 		}
-		
+
 		// Should detect transport error
 		if !IsTransportError(finalErr) {
 			t.Error("Should detect transport error in chain")
@@ -390,18 +390,18 @@ func TestErrorTypeEdgeCases(t *testing.T) {
 	t.Run("nil_error_handling", func(t *testing.T) {
 		// Test nil error edge cases
 		var nilErr error
-		
+
 		if IsTransportError(nilErr) {
 			t.Error("IsTransportError should return false for nil")
 		}
-		
+
 		// Configuration error with nil values
 		configErr := &LegacyConfigurationError{
 			Field:   "",
 			Value:   nil,
 			Message: "test",
 		}
-		
+
 		if configErr.Error() != "configuration error: test" {
 			t.Errorf("Unexpected error message: %s", configErr.Error())
 		}
@@ -419,9 +419,9 @@ func TestErrorTypeEdgeCases(t *testing.T) {
 			Temporary: false,
 			Retryable: false,
 		}
-		
+
 		var wg sync.WaitGroup
-		
+
 		// Concurrent readers
 		for i := 0; i < 10; i++ {
 			wg.Add(1)
@@ -435,7 +435,7 @@ func TestErrorTypeEdgeCases(t *testing.T) {
 				}
 			}()
 		}
-		
+
 		// Concurrent modifiers
 		for i := 0; i < 5; i++ {
 			wg.Add(1)
@@ -447,7 +447,7 @@ func TestErrorTypeEdgeCases(t *testing.T) {
 				}
 			}(i)
 		}
-		
+
 		wg.Wait()
 	})
 }
@@ -465,29 +465,29 @@ func TestConfigurationEdgeCases(t *testing.T) {
 				AllowedEventTypes: []string{}, // Empty allowed types
 			},
 			{
-				Enabled:         true,
-				RequiredFields:  []string{"", " ", "\t"}, // Empty/whitespace fields
+				Enabled:        true,
+				RequiredFields: []string{"", " ", "\t"}, // Empty/whitespace fields
 			},
 			{
-				Enabled:           true,
+				Enabled: true,
 				PatternValidators: map[string]*regexp.Regexp{
 					"": regexp.MustCompile("pattern"), // Empty field name
 				},
 			},
 		}
-		
+
 		for i, config := range configs {
 			t.Run(fmt.Sprintf("config_%d", i), func(t *testing.T) {
 				manager := NewSimpleManagerWithValidation(
 					BackpressureConfig{Strategy: BackpressureNone, BufferSize: 100},
 					config,
 				)
-				
+
 				transport := NewErrorTransport()
 				manager.SetTransport(transport)
 				manager.Start(context.Background())
 				defer manager.Stop(context.Background())
-				
+
 				// Should handle invalid config gracefully
 				event := &DemoEvent{id: "test", eventType: "demo"}
 				_ = manager.Send(context.Background(), event)
@@ -498,30 +498,30 @@ func TestConfigurationEdgeCases(t *testing.T) {
 	t.Run("extreme_backpressure_values", func(t *testing.T) {
 		configs := []BackpressureConfig{
 			{
-				Strategy:      BackpressureBlock,
-				BufferSize:    0, // Zero buffer
-				BlockTimeout:  0, // Zero timeout
+				Strategy:     BackpressureBlock,
+				BufferSize:   0, // Zero buffer
+				BlockTimeout: 0, // Zero timeout
 			},
 			{
 				Strategy:      BackpressureDropNewest,
 				BufferSize:    100000, // Large but reasonable size
-				HighWaterMark: 2.0, // > 1.0
-				LowWaterMark:  -1.0, // < 0
+				HighWaterMark: 2.0,    // > 1.0
+				LowWaterMark:  -1.0,   // < 0
 			},
 			{
-				Strategy:      "invalid_strategy",
-				BufferSize:    100,
-				BlockTimeout:  -1 * time.Second, // Negative timeout
+				Strategy:     "invalid_strategy",
+				BufferSize:   100,
+				BlockTimeout: -1 * time.Second, // Negative timeout
 			},
 		}
-		
+
 		for i, config := range configs {
 			t.Run(fmt.Sprintf("backpressure_%d", i), func(t *testing.T) {
 				// Should not panic with extreme values
 				manager := NewSimpleManagerWithBackpressure(config)
 				transport := NewErrorTransport()
 				manager.SetTransport(transport)
-				
+
 				// Should handle gracefully
 				err := manager.Start(context.Background())
 				if err == nil {
@@ -536,7 +536,7 @@ func TestConfigurationEdgeCases(t *testing.T) {
 func TestBoundaryConditions(t *testing.T) {
 	t.Run("max_message_size_boundary", func(t *testing.T) {
 		transport := NewErrorTransport()
-		
+
 		testCases := []struct {
 			name     string
 			size     int
@@ -547,7 +547,7 @@ func TestBoundaryConditions(t *testing.T) {
 			{"just_under", 999, nil},
 			{"zero_size", 0, nil},
 		}
-		
+
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				transport.connected = true
@@ -555,7 +555,7 @@ func TestBoundaryConditions(t *testing.T) {
 					id:        string(make([]byte, tc.size)),
 					eventType: "test",
 				}
-				
+
 				err := transport.Send(context.Background(), event)
 				if tc.expected != nil {
 					if !errors.Is(err, tc.expected) {
@@ -574,12 +574,12 @@ func TestBoundaryConditions(t *testing.T) {
 		manager.SetTransport(transport)
 		manager.Start(context.Background())
 		defer manager.Stop(context.Background())
-		
+
 		// Test with maximum concurrent operations
 		concurrency := 1000
 		var wg sync.WaitGroup
 		errors := make(chan error, concurrency)
-		
+
 		for i := 0; i < concurrency; i++ {
 			wg.Add(1)
 			go func(id int) {
@@ -596,16 +596,16 @@ func TestBoundaryConditions(t *testing.T) {
 				}
 			}(i)
 		}
-		
+
 		wg.Wait()
 		close(errors)
-		
+
 		// Check error rate
 		errorCount := 0
 		for range errors {
 			errorCount++
 		}
-		
+
 		// Should handle high concurrency without excessive errors
 		errorRate := float64(errorCount) / float64(concurrency)
 		if errorRate > 0.1 { // Allow up to 10% error rate
@@ -616,9 +616,9 @@ func TestBoundaryConditions(t *testing.T) {
 
 // PanicTransport is a transport that panics in certain operations
 type PanicTransport struct {
-	baseTransport   Transport
-	panicOnReceive  bool
-	panicOnConnect  bool
+	baseTransport  Transport
+	panicOnReceive bool
+	panicOnConnect bool
 }
 
 func (t *PanicTransport) Connect(ctx context.Context) error {
@@ -677,7 +677,7 @@ func BenchmarkEdgeCasePerformance(b *testing.B) {
 		manager.SetTransport(transport)
 		manager.Start(context.Background())
 		defer manager.Stop(context.Background())
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			manager.Send(context.Background(), nil)
@@ -691,12 +691,12 @@ func BenchmarkEdgeCasePerformance(b *testing.B) {
 		manager.SetTransport(transport)
 		manager.Start(context.Background())
 		defer manager.Stop(context.Background())
-		
+
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Pre-cancelled context
-		
+
 		event := &DemoEvent{id: "bench", eventType: "test"}
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			manager.Send(ctx, event)
@@ -709,9 +709,9 @@ func BenchmarkEdgeCasePerformance(b *testing.B) {
 		manager.SetTransport(transport)
 		manager.Start(context.Background())
 		defer manager.Stop(context.Background())
-		
+
 		event := &DemoEvent{id: "bench", eventType: "test"}
-		
+
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {

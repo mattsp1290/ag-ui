@@ -116,10 +116,10 @@ type WorkerFunc func(ctx context.Context) error
 
 // WorkerOptions provides options for worker execution
 type WorkerOptions struct {
-	Name            string
-	Timeout         time.Duration
-	MaxRetries      int
-	RetryDelay      time.Duration
+	Name              string
+	Timeout           time.Duration
+	MaxRetries        int
+	RetryDelay        time.Duration
 	SkipPanicRecovery bool
 }
 
@@ -181,16 +181,16 @@ func (wm *WorkerManager) runWorker(workerID string, fn WorkerFunc, opts *WorkerO
 	defer func() {
 		// Ensure WaitGroup is always decremented
 		wm.wg.Done()
-		
+
 		// Ensure context is always cancelled
 		if cancel != nil {
 			cancel()
 		}
-		
+
 		// Update metrics atomically
 		atomic.AddInt64(&wm.metrics.WorkersActive, -1)
 		atomic.AddInt64(&wm.metrics.WorkersCompleted, 1)
-		
+
 		// Remove worker from registry with timeout protection
 		done := make(chan struct{})
 		go func() {
@@ -199,7 +199,7 @@ func (wm *WorkerManager) runWorker(workerID string, fn WorkerFunc, opts *WorkerO
 			defer wm.mu.Unlock()
 			delete(wm.workers, workerID)
 		}()
-		
+
 		// Wait for cleanup with timeout to prevent blocking
 		select {
 		case <-done:
@@ -217,10 +217,10 @@ func (wm *WorkerManager) runWorker(workerID string, fn WorkerFunc, opts *WorkerO
 				// Update metrics atomically
 				atomic.AddInt64(&wm.metrics.PanicsRecovered, 1)
 				atomic.AddInt64(&wm.metrics.WorkersFailed, 1)
-				
+
 				// Capture stack trace
 				stackTrace := debug.Stack()
-				
+
 				// Handle panic through configured handler with timeout protection
 				if wm.panicHandler != nil {
 					go func() {
@@ -232,7 +232,7 @@ func (wm *WorkerManager) runWorker(workerID string, fn WorkerFunc, opts *WorkerO
 						wm.panicHandler.HandlePanic(workerID, r, stackTrace)
 					}()
 				}
-				
+
 				wm.logger.Error("Worker panic recovered",
 					zap.String("worker_id", workerID),
 					zap.String("worker_name", opts.Name),
@@ -261,7 +261,7 @@ func (wm *WorkerManager) runWorker(workerID string, fn WorkerFunc, opts *WorkerO
 
 		// Execute the function directly - let panics bubble up to main recovery
 		var err error
-		
+
 		// Check for context cancellation before execution
 		select {
 		case <-ctx.Done():
@@ -274,10 +274,10 @@ func (wm *WorkerManager) runWorker(workerID string, fn WorkerFunc, opts *WorkerO
 			return
 		default:
 		}
-		
+
 		// Execute function directly - panics will be caught by outer recovery
 		err = fn(ctx)
-		
+
 		if err == nil {
 			// Success
 			wm.logger.Debug("Worker completed successfully",
@@ -289,7 +289,7 @@ func (wm *WorkerManager) runWorker(workerID string, fn WorkerFunc, opts *WorkerO
 		}
 
 		lastErr = err
-		
+
 		// If this is the last attempt, don't retry
 		if attempt == opts.MaxRetries {
 			break
@@ -402,7 +402,7 @@ func (wm *WorkerManager) GetMetrics() WorkerMetrics {
 // Stop gracefully shuts down the worker manager
 func (wm *WorkerManager) Stop() error {
 	var stopErr error
-	
+
 	wm.stopOnce.Do(func() {
 		wm.logger.Info("Stopping worker manager",
 			zap.Int64("active_workers", atomic.LoadInt64(&wm.metrics.WorkersActive)),
@@ -442,12 +442,12 @@ func (wm *WorkerManager) Stop() error {
 				zap.Duration("timeout", wm.shutdownTimeout),
 				zap.Int64("remaining_workers", atomic.LoadInt64(&wm.metrics.WorkersActive)),
 			)
-			
+
 			// Force cleanup of remaining workers
 			wm.mu.Lock()
 			remainingWorkers := len(wm.workers)
 			if remainingWorkers > 0 {
-				wm.logger.Warn("Force cleaning up remaining workers", 
+				wm.logger.Warn("Force cleaning up remaining workers",
 					zap.Int("remaining_count", remainingWorkers))
 				// Clear workers map to prevent memory leaks
 				wm.workers = make(map[string]*WorkerInfo)
@@ -513,7 +513,7 @@ func (wm *WorkerManager) HealthCheck() error {
 	}
 
 	metrics := wm.GetMetrics()
-	
+
 	// Check for excessive failures
 	if metrics.WorkersCreated > 0 {
 		failureRate := float64(metrics.WorkersFailed) / float64(metrics.WorkersCreated)

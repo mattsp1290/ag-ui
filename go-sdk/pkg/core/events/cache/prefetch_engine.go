@@ -13,20 +13,20 @@ import (
 
 // PrefetchEngine handles predictive cache warming
 type PrefetchEngine struct {
-	validator      *CacheValidator
-	predictor      *EventPredictor
-	scheduler      *PrefetchScheduler
-	config         *PrefetchConfig
-	
+	validator *CacheValidator
+	predictor *EventPredictor
+	scheduler *PrefetchScheduler
+	config    *PrefetchConfig
+
 	// Metrics
-	prefetchCount  uint64
-	hitCount       uint64
-	missCount      uint64
-	
+	prefetchCount uint64
+	hitCount      uint64
+	missCount     uint64
+
 	// Control
-	mu             sync.RWMutex
-	shutdownCh     chan struct{}
-	wg             sync.WaitGroup
+	mu         sync.RWMutex
+	shutdownCh chan struct{}
+	wg         sync.WaitGroup
 }
 
 // PrefetchConfig contains configuration for the prefetch engine
@@ -57,74 +57,74 @@ func DefaultPrefetchConfig() *PrefetchConfig {
 
 // EventPredictor predicts which events will be validated
 type EventPredictor struct {
-	patterns       map[string]*EventPattern
-	sequences      map[string]*EventSequence
-	correlations   map[string]*EventCorrelation
-	mu             sync.RWMutex
-	historySize    int
-	learningRate   float64
+	patterns     map[string]*EventPattern
+	sequences    map[string]*EventSequence
+	correlations map[string]*EventCorrelation
+	mu           sync.RWMutex
+	historySize  int
+	learningRate float64
 }
 
 // EventPattern represents a pattern of event access
 type EventPattern struct {
-	EventType      events.EventType
-	AccessHistory  []time.Time
-	Features       map[string]float64
-	NextPredicted  time.Time
-	Confidence     float64
-	LastUpdated    time.Time
+	EventType     events.EventType
+	AccessHistory []time.Time
+	Features      map[string]float64
+	NextPredicted time.Time
+	Confidence    float64
+	LastUpdated   time.Time
 }
 
 // EventSequence represents a sequence of events
 type EventSequence struct {
-	Events         []events.EventType
-	Occurrences    int
-	LastSeen       time.Time
-	AvgInterval    time.Duration
-	Confidence     float64
+	Events      []events.EventType
+	Occurrences int
+	LastSeen    time.Time
+	AvgInterval time.Duration
+	Confidence  float64
 }
 
 // EventCorrelation represents correlation between events
 type EventCorrelation struct {
-	SourceType     events.EventType
-	TargetType     events.EventType
-	Correlation    float64
-	AvgDelay       time.Duration
-	Occurrences    int
+	SourceType  events.EventType
+	TargetType  events.EventType
+	Correlation float64
+	AvgDelay    time.Duration
+	Occurrences int
 }
 
 // PrefetchScheduler schedules prefetch operations
 type PrefetchScheduler struct {
-	queue          *PrefetchQueue
-	workers        []*PrefetchWorker
-	config         *PrefetchConfig
-	mu             sync.RWMutex
+	queue   *PrefetchQueue
+	workers []*PrefetchWorker
+	config  *PrefetchConfig
+	mu      sync.RWMutex
 }
 
 // PrefetchQueue is a priority queue for prefetch tasks
 type PrefetchQueue struct {
-	tasks          []*PrefetchTask
-	mu             sync.Mutex
-	cond           *sync.Cond
+	tasks []*PrefetchTask
+	mu    sync.Mutex
+	cond  *sync.Cond
 }
 
 // PrefetchTask represents a prefetch task
 type PrefetchTask struct {
-	Event          events.Event
-	Priority       float64
-	Deadline       time.Time
-	Confidence     float64
-	Source         string
-	CreatedAt      time.Time
+	Event      events.Event
+	Priority   float64
+	Deadline   time.Time
+	Confidence float64
+	Source     string
+	CreatedAt  time.Time
 }
 
 // PrefetchWorker processes prefetch tasks
 type PrefetchWorker struct {
-	id             int
-	queue          *PrefetchQueue
-	validator      *CacheValidator
-	shutdownCh     chan struct{}
-	metrics        *WorkerMetrics
+	id         int
+	queue      *PrefetchQueue
+	validator  *CacheValidator
+	shutdownCh chan struct{}
+	metrics    *WorkerMetrics
 }
 
 // WorkerMetrics tracks worker performance
@@ -139,7 +139,7 @@ func NewPrefetchEngine(validator *CacheValidator, config *PrefetchConfig) *Prefe
 	if config == nil {
 		config = DefaultPrefetchConfig()
 	}
-	
+
 	pe := &PrefetchEngine{
 		validator:  validator,
 		predictor:  NewEventPredictor(),
@@ -147,10 +147,10 @@ func NewPrefetchEngine(validator *CacheValidator, config *PrefetchConfig) *Prefe
 		config:     config,
 		shutdownCh: make(chan struct{}),
 	}
-	
+
 	// Initialize scheduler with validator
 	pe.scheduler.Initialize(validator)
-	
+
 	return pe
 }
 
@@ -158,40 +158,40 @@ func NewPrefetchEngine(validator *CacheValidator, config *PrefetchConfig) *Prefe
 func (pe *PrefetchEngine) Start(ctx context.Context) error {
 	// Start scheduler workers
 	pe.scheduler.Start()
-	
+
 	// Start prediction loop
 	pe.wg.Add(1)
 	go pe.predictionLoop(ctx)
-	
+
 	// Start pattern learning if enabled
 	if pe.config.EnablePatternLearning {
 		pe.wg.Add(1)
 		go pe.learningLoop(ctx)
 	}
-	
+
 	// Start adaptive tuning if enabled
 	if pe.config.EnableAdaptive {
 		pe.wg.Add(1)
 		go pe.adaptiveLoop(ctx)
 	}
-	
+
 	return nil
 }
 
 // Stop stops the prefetch engine
 func (pe *PrefetchEngine) Stop(ctx context.Context) error {
 	close(pe.shutdownCh)
-	
+
 	// Stop scheduler
 	pe.scheduler.Stop()
-	
+
 	// Wait for goroutines
 	done := make(chan struct{})
 	go func() {
 		pe.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		return nil
@@ -210,12 +210,12 @@ func (pe *PrefetchEngine) GetMetrics() map[string]interface{} {
 	totalPrefetches := atomic.LoadUint64(&pe.prefetchCount)
 	hits := atomic.LoadUint64(&pe.hitCount)
 	misses := atomic.LoadUint64(&pe.missCount)
-	
+
 	hitRate := float64(0)
 	if totalPrefetches > 0 {
 		hitRate = float64(hits) / float64(totalPrefetches)
 	}
-	
+
 	return map[string]interface{}{
 		"total_prefetches": totalPrefetches,
 		"hit_count":        hits,
@@ -229,10 +229,10 @@ func (pe *PrefetchEngine) GetMetrics() map[string]interface{} {
 // predictionLoop runs the main prediction loop
 func (pe *PrefetchEngine) predictionLoop(ctx context.Context) {
 	defer pe.wg.Done()
-	
+
 	ticker := time.NewTicker(pe.config.PrefetchInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -249,10 +249,10 @@ func (pe *PrefetchEngine) predictionLoop(ctx context.Context) {
 func (pe *PrefetchEngine) runPrediction(ctx context.Context) {
 	// Get predictions
 	predictions := pe.predictor.Predict(pe.config.PredictionWindow, pe.config.MinConfidence)
-	
+
 	// Filter and prioritize
 	tasks := pe.createPrefetchTasks(predictions)
-	
+
 	// Schedule tasks
 	for _, task := range tasks {
 		if err := pe.scheduler.Schedule(task); err != nil {
@@ -266,13 +266,13 @@ func (pe *PrefetchEngine) runPrediction(ctx context.Context) {
 // createPrefetchTasks creates prefetch tasks from predictions
 func (pe *PrefetchEngine) createPrefetchTasks(predictions []*EventPrediction) []*PrefetchTask {
 	tasks := make([]*PrefetchTask, 0, len(predictions))
-	
+
 	for _, pred := range predictions {
 		// Skip if confidence too low
 		if pred.Confidence < pe.config.MinConfidence {
 			continue
 		}
-		
+
 		// Create task
 		task := &PrefetchTask{
 			Event:      pred.Event,
@@ -282,20 +282,20 @@ func (pe *PrefetchEngine) createPrefetchTasks(predictions []*EventPrediction) []
 			Source:     pred.Source,
 			CreatedAt:  time.Now(),
 		}
-		
+
 		tasks = append(tasks, task)
 	}
-	
+
 	// Sort by priority
 	sort.Slice(tasks, func(i, j int) bool {
 		return tasks[i].Priority > tasks[j].Priority
 	})
-	
+
 	// Limit size
 	if len(tasks) > pe.config.MaxPrefetchSize {
 		tasks = tasks[:pe.config.MaxPrefetchSize]
 	}
-	
+
 	return tasks
 }
 
@@ -303,7 +303,7 @@ func (pe *PrefetchEngine) createPrefetchTasks(predictions []*EventPrediction) []
 func (pe *PrefetchEngine) calculatePriority(pred *EventPrediction) float64 {
 	// Base priority from confidence
 	priority := pred.Confidence
-	
+
 	// Adjust for time urgency
 	timeUntil := time.Until(pred.PredictedTime)
 	if timeUntil < 1*time.Minute {
@@ -311,27 +311,27 @@ func (pe *PrefetchEngine) calculatePriority(pred *EventPrediction) float64 {
 	} else if timeUntil < 5*time.Minute {
 		priority *= 1.5
 	}
-	
+
 	// Adjust for validation cost
 	if pred.ValidationCost > 100*time.Millisecond {
 		priority *= 1.3
 	}
-	
+
 	// Adjust for event importance
 	if pred.Importance > 0.8 {
 		priority *= 1.2
 	}
-	
+
 	return priority
 }
 
 // learningLoop runs the pattern learning loop
 func (pe *PrefetchEngine) learningLoop(ctx context.Context) {
 	defer pe.wg.Done()
-	
+
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -347,10 +347,10 @@ func (pe *PrefetchEngine) learningLoop(ctx context.Context) {
 // adaptiveLoop runs the adaptive tuning loop
 func (pe *PrefetchEngine) adaptiveLoop(ctx context.Context) {
 	defer pe.wg.Done()
-	
+
 	ticker := time.NewTicker(10 * time.Minute)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -367,10 +367,10 @@ func (pe *PrefetchEngine) adaptiveLoop(ctx context.Context) {
 func (pe *PrefetchEngine) adaptConfiguration() {
 	metrics := pe.GetMetrics()
 	hitRate := metrics["hit_rate"].(float64)
-	
+
 	pe.mu.Lock()
 	defer pe.mu.Unlock()
-	
+
 	// Adjust confidence threshold
 	if hitRate < 0.5 {
 		// Increase confidence requirement
@@ -379,7 +379,7 @@ func (pe *PrefetchEngine) adaptConfiguration() {
 		// Decrease confidence requirement
 		pe.config.MinConfidence = math.Max(0.5, pe.config.MinConfidence-0.05)
 	}
-	
+
 	// Adjust prefetch size
 	if hitRate < 0.6 {
 		// Reduce prefetch size
@@ -417,10 +417,10 @@ type EventPrediction struct {
 func (p *EventPredictor) RecordAccess(event events.Event) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	eventType := event.Type()
 	key := string(eventType)
-	
+
 	// Update pattern
 	pattern, exists := p.patterns[key]
 	if !exists {
@@ -432,15 +432,15 @@ func (p *EventPredictor) RecordAccess(event events.Event) {
 		}
 		p.patterns[key] = pattern
 	}
-	
+
 	// Add to history
 	pattern.AccessHistory = append(pattern.AccessHistory, time.Now())
-	
+
 	// Maintain history size
 	if len(pattern.AccessHistory) > p.historySize {
 		pattern.AccessHistory = pattern.AccessHistory[1:]
 	}
-	
+
 	// Update features
 	p.updateFeatures(pattern)
 }
@@ -449,10 +449,10 @@ func (p *EventPredictor) RecordAccess(event events.Event) {
 func (p *EventPredictor) Predict(window time.Duration, minConfidence float64) []*EventPrediction {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
-	
+
 	predictions := make([]*EventPrediction, 0)
 	now := time.Now()
-	
+
 	// Pattern-based predictions
 	for _, pattern := range p.patterns {
 		if pattern.Confidence >= minConfidence && pattern.NextPredicted.After(now) && pattern.NextPredicted.Before(now.Add(window)) {
@@ -466,13 +466,13 @@ func (p *EventPredictor) Predict(window time.Duration, minConfidence float64) []
 			predictions = append(predictions, pred)
 		}
 	}
-	
+
 	// Sequence-based predictions
 	predictions = append(predictions, p.predictFromSequences(window, minConfidence)...)
-	
+
 	// Correlation-based predictions
 	predictions = append(predictions, p.predictFromCorrelations(window, minConfidence)...)
-	
+
 	return predictions
 }
 
@@ -480,14 +480,14 @@ func (p *EventPredictor) Predict(window time.Duration, minConfidence float64) []
 func (p *EventPredictor) UpdatePatterns() {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	for _, pattern := range p.patterns {
 		p.updatePattern(pattern)
 	}
-	
+
 	// Update sequences
 	p.updateSequences()
-	
+
 	// Update correlations
 	p.updateCorrelations()
 }
@@ -497,19 +497,19 @@ func (p *EventPredictor) updateFeatures(pattern *EventPattern) {
 	if len(pattern.AccessHistory) < 2 {
 		return
 	}
-	
+
 	// Calculate access frequency
 	timeSpan := pattern.AccessHistory[len(pattern.AccessHistory)-1].Sub(pattern.AccessHistory[0])
 	if timeSpan > 0 {
 		pattern.Features["frequency"] = float64(len(pattern.AccessHistory)) / timeSpan.Hours()
 	}
-	
+
 	// Calculate regularity
 	intervals := make([]time.Duration, 0)
 	for i := 1; i < len(pattern.AccessHistory); i++ {
 		intervals = append(intervals, pattern.AccessHistory[i].Sub(pattern.AccessHistory[i-1]))
 	}
-	
+
 	if len(intervals) > 0 {
 		// Calculate mean interval
 		var sum time.Duration
@@ -517,7 +517,7 @@ func (p *EventPredictor) updateFeatures(pattern *EventPattern) {
 			sum += interval
 		}
 		meanInterval := sum / time.Duration(len(intervals))
-		
+
 		// Calculate variance
 		var variance float64
 		for _, interval := range intervals {
@@ -525,14 +525,14 @@ func (p *EventPredictor) updateFeatures(pattern *EventPattern) {
 			variance += diff * diff
 		}
 		variance /= float64(len(intervals))
-		
+
 		// Regularity is inverse of coefficient of variation
 		if meanInterval.Seconds() > 0 {
 			cv := math.Sqrt(variance) / meanInterval.Seconds()
 			pattern.Features["regularity"] = 1.0 / (1.0 + cv)
 		}
 	}
-	
+
 	// Default importance
 	pattern.Features["importance"] = 0.5
 }
@@ -543,15 +543,15 @@ func (p *EventPredictor) updatePattern(pattern *EventPattern) {
 		pattern.Confidence = 0
 		return
 	}
-	
+
 	// Use exponential smoothing for prediction
 	alpha := p.learningRate
 	intervals := make([]time.Duration, 0)
-	
+
 	for i := 1; i < len(pattern.AccessHistory); i++ {
 		intervals = append(intervals, pattern.AccessHistory[i].Sub(pattern.AccessHistory[i-1]))
 	}
-	
+
 	// Calculate smoothed interval
 	var smoothedInterval time.Duration
 	if len(intervals) > 0 {
@@ -562,32 +562,32 @@ func (p *EventPredictor) updatePattern(pattern *EventPattern) {
 			)
 		}
 	}
-	
+
 	// Predict next access
 	lastAccess := pattern.AccessHistory[len(pattern.AccessHistory)-1]
 	pattern.NextPredicted = lastAccess.Add(smoothedInterval)
-	
+
 	// Calculate confidence based on regularity
 	pattern.Confidence = pattern.Features["regularity"]
-	
+
 	pattern.LastUpdated = time.Now()
 }
 
 // predictFromSequences generates sequence-based predictions
 func (p *EventPredictor) predictFromSequences(window time.Duration, minConfidence float64) []*EventPrediction {
 	predictions := make([]*EventPrediction, 0)
-	
+
 	// TODO: Implement sequence-based prediction
-	
+
 	return predictions
 }
 
 // predictFromCorrelations generates correlation-based predictions
 func (p *EventPredictor) predictFromCorrelations(window time.Duration, minConfidence float64) []*EventPrediction {
 	predictions := make([]*EventPrediction, 0)
-	
+
 	// TODO: Implement correlation-based prediction
-	
+
 	return predictions
 }
 
@@ -625,7 +625,7 @@ func NewPrefetchScheduler(config *PrefetchConfig) *PrefetchScheduler {
 		tasks: make([]*PrefetchTask, 0),
 	}
 	queue.cond = sync.NewCond(&queue.mu)
-	
+
 	return &PrefetchScheduler{
 		queue:   queue,
 		config:  config,
@@ -637,7 +637,7 @@ func NewPrefetchScheduler(config *PrefetchConfig) *PrefetchScheduler {
 func (s *PrefetchScheduler) Initialize(validator *CacheValidator) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Create workers
 	for i := 0; i < s.config.WorkerPoolSize; i++ {
 		worker := &PrefetchWorker{
@@ -655,7 +655,7 @@ func (s *PrefetchScheduler) Initialize(validator *CacheValidator) {
 func (s *PrefetchScheduler) Start() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	for _, worker := range s.workers {
 		go worker.Run()
 	}
@@ -665,7 +665,7 @@ func (s *PrefetchScheduler) Start() {
 func (s *PrefetchScheduler) Stop() {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	// Stop all workers
 	for _, worker := range s.workers {
 		close(worker.shutdownCh)
@@ -686,7 +686,7 @@ func (s *PrefetchScheduler) QueueSize() int {
 func (s *PrefetchScheduler) ActiveWorkers() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	active := 0
 	for _, worker := range s.workers {
 		if atomic.LoadUint64(&worker.metrics.TasksProcessed) > 0 {
@@ -702,7 +702,7 @@ func (s *PrefetchScheduler) ActiveWorkers() int {
 func (q *PrefetchQueue) Push(task *PrefetchTask) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	
+
 	// Insert in priority order
 	inserted := false
 	for i, t := range q.tasks {
@@ -712,14 +712,14 @@ func (q *PrefetchQueue) Push(task *PrefetchTask) error {
 			break
 		}
 	}
-	
+
 	if !inserted {
 		q.tasks = append(q.tasks, task)
 	}
-	
+
 	// Signal waiting workers
 	q.cond.Signal()
-	
+
 	return nil
 }
 
@@ -727,18 +727,18 @@ func (q *PrefetchQueue) Push(task *PrefetchTask) error {
 func (q *PrefetchQueue) Pop() (*PrefetchTask, bool) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
-	
+
 	for len(q.tasks) == 0 {
 		q.cond.Wait()
 	}
-	
+
 	if len(q.tasks) == 0 {
 		return nil, false
 	}
-	
+
 	task := q.tasks[0]
 	q.tasks = q.tasks[1:]
-	
+
 	return task, true
 }
 
@@ -762,7 +762,7 @@ func (w *PrefetchWorker) Run() {
 			if !ok {
 				continue
 			}
-			
+
 			w.processTask(task)
 		}
 	}
@@ -771,22 +771,22 @@ func (w *PrefetchWorker) Run() {
 // processTask processes a single prefetch task
 func (w *PrefetchWorker) processTask(task *PrefetchTask) {
 	startTime := time.Now()
-	
+
 	// Skip if deadline passed
 	if time.Now().After(task.Deadline) {
 		return
 	}
-	
+
 	// Validate the event to warm the cache
 	ctx := context.Background()
 	err := w.validator.ValidateEvent(ctx, task.Event)
-	
+
 	// Update metrics
 	atomic.AddUint64(&w.metrics.TasksProcessed, 1)
 	if err != nil {
 		atomic.AddUint64(&w.metrics.ErrorCount, 1)
 	}
-	
+
 	// Update total time
 	elapsed := time.Since(startTime)
 	w.metrics.TotalTime += elapsed

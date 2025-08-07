@@ -215,8 +215,8 @@ func TestConnectionPoolHealthChecking(t *testing.T) {
 	defer unhealthyServer.Close()
 
 	config := DefaultHTTPPoolConfig()
-	config.HealthCheckInterval = 50 * time.Millisecond  // More frequent checks
-	config.UnhealthyThreshold = 1 // Mark unhealthy after 1 failure
+	config.HealthCheckInterval = 50 * time.Millisecond // More frequent checks
+	config.UnhealthyThreshold = 1                      // Mark unhealthy after 1 failure
 
 	pool, err := NewHTTPConnectionPool(config)
 	if err != nil {
@@ -240,7 +240,7 @@ func TestConnectionPoolHealthChecking(t *testing.T) {
 
 	// Wait for health checks to run (allow time for multiple checks)
 	time.Sleep(200 * time.Millisecond)
-	
+
 	// Manually update metrics for testing
 	pool.UpdateMetrics()
 
@@ -250,7 +250,7 @@ func TestConnectionPoolHealthChecking(t *testing.T) {
 	unhealthyCount := 0
 
 	for _, stat := range stats {
-		t.Logf("Server %s: healthy=%t, failureCount=%d, lastCheck=%v", 
+		t.Logf("Server %s: healthy=%t, failureCount=%d, lastCheck=%v",
 			stat.URL.String(), stat.IsHealthy, stat.FailureCount, stat.LastHealthCheck)
 		if stat.IsHealthy {
 			healthyCount++
@@ -291,8 +291,8 @@ func TestConnectionPoolConcurrency(t *testing.T) {
 	defer server.Close()
 
 	config := DefaultHTTPPoolConfig()
-	config.MaxConnectionsPerServer = 50  // Increase to handle concurrency
-	config.MaxTotalConnections = 100     // Increase total limit
+	config.MaxConnectionsPerServer = 50 // Increase to handle concurrency
+	config.MaxTotalConnections = 100    // Increase total limit
 
 	pool, err := NewHTTPConnectionPool(config)
 	if err != nil {
@@ -314,8 +314,8 @@ func TestConnectionPoolConcurrency(t *testing.T) {
 	time.Sleep(100 * time.Millisecond)
 
 	// Test concurrent requests
-	numWorkers := 10  // Reduce concurrency
-	numRequestsPerWorker := 3  // Reduce requests per worker
+	numWorkers := 10          // Reduce concurrency
+	numRequestsPerWorker := 3 // Reduce requests per worker
 	var wg sync.WaitGroup
 	errors := make(chan error, numWorkers*numRequestsPerWorker)
 
@@ -549,9 +549,9 @@ func BenchmarkConnectionPoolGetRelease(b *testing.B) {
 	defer server.Close()
 
 	config := DefaultHTTPPoolConfig()
-	config.MaxConnectionsPerServer = 1000  // High limit for benchmarks
+	config.MaxConnectionsPerServer = 1000 // High limit for benchmarks
 	config.MaxTotalConnections = 5000
-	
+
 	pool, err := NewHTTPConnectionPool(config)
 	if err != nil {
 		b.Fatalf("Failed to create connection pool: %v", err)

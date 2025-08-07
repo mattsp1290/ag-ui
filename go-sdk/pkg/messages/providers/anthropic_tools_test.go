@@ -17,7 +17,7 @@ func TestAnthropicToolCallConversion(t *testing.T) {
 			Function: messages.FunctionCall{Name: "get_weather", Arguments: `{"city": "San Francisco"}`},
 		},
 		{
-			ID:       "call_456", 
+			ID:       "call_456",
 			Type:     "function",
 			Function: messages.FunctionCall{Name: "calculate_tip", Arguments: `{"amount": 50.00, "percentage": 0.18}`},
 		},
@@ -91,12 +91,12 @@ func TestAnthropicToolCallConversion(t *testing.T) {
 	}
 }
 
-// TestAnthropicToolResultConversion tests converting tool result messages  
+// TestAnthropicToolResultConversion tests converting tool result messages
 func TestAnthropicToolResultConversion(t *testing.T) {
 	converter := NewAnthropicConverter()
 
 	toolMsg := messages.NewToolMessage("The weather in San Francisco is sunny, 72°F", "call_123")
-	
+
 	msgs := messages.MessageList{
 		messages.NewUserMessage("What's the weather?"),
 		toolMsg,
@@ -167,10 +167,10 @@ func TestAnthropicComplexToolFlow(t *testing.T) {
 	// Tool call message
 	toolCall := messages.ToolCall{
 		ID:       "call_weather",
-		Type:     "function", 
+		Type:     "function",
 		Function: messages.FunctionCall{Name: "get_weather", Arguments: `{"city": "Tokyo"}`},
 	}
-	
+
 	assistantMsg := messages.NewAssistantMessage("Let me check the weather for you.")
 	assistantMsg.SetToolCalls([]messages.ToolCall{toolCall})
 

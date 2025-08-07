@@ -39,20 +39,20 @@ func TestExecutorConcurrentExecution(t *testing.T) {
 			},
 		},
 	}
-	
+
 	err := registry.Register(tool)
 	if err != nil {
 		t.Fatalf("Failed to register tool: %v", err)
 	}
-	
+
 	// Create execution engine with low concurrency limit
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(5))
-	
+
 	// Run many concurrent executions
 	var wg sync.WaitGroup
 	results := make([]*ToolExecutionResult, 20)
 	errors := make([]error, 20)
-	
+
 	for i := 0; i < 20; i++ {
 		wg.Add(1)
 		go func(idx int) {
@@ -61,9 +61,9 @@ func TestExecutorConcurrentExecution(t *testing.T) {
 			results[idx], errors[idx] = engine.Execute(ctx, "test-tool", map[string]interface{}{})
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Check results
 	successCount := 0
 	for i, result := range results {
@@ -71,11 +71,11 @@ func TestExecutorConcurrentExecution(t *testing.T) {
 			successCount++
 		}
 	}
-	
+
 	if successCount != 20 {
 		t.Errorf("Expected 20 successful executions, got %d", successCount)
 	}
-	
+
 	// Check that active count is back to 0
 	activeCount := engine.GetActiveExecutions()
 	if activeCount != 0 {
@@ -102,18 +102,18 @@ func TestExecutorMetricsRaceCondition(t *testing.T) {
 			},
 		},
 	}
-	
+
 	err := registry.Register(tool)
 	if err != nil {
 		t.Fatalf("Failed to register tool: %v", err)
 	}
-	
+
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(10))
-	
+
 	// Run concurrent executions
 	var wg sync.WaitGroup
 	numExecutions := 100
-	
+
 	for i := 0; i < numExecutions; i++ {
 		wg.Add(1)
 		go func() {
@@ -122,9 +122,9 @@ func TestExecutorMetricsRaceCondition(t *testing.T) {
 			engine.Execute(ctx, "test-tool", map[string]interface{}{})
 		}()
 	}
-	
+
 	wg.Wait()
-	
+
 	// Check metrics
 	metrics := engine.GetMetrics()
 	if metrics.totalExecutions != int64(numExecutions) {
@@ -151,19 +151,19 @@ func TestExecutorHookRaceCondition(t *testing.T) {
 			},
 		},
 	}
-	
+
 	err := registry.Register(tool)
 	if err != nil {
 		t.Fatalf("Failed to register tool: %v", err)
 	}
-	
+
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(10))
-	
+
 	// Add hooks concurrently while executing
 	var wg sync.WaitGroup
 	hookCount := 0
 	var hookMu sync.Mutex
-	
+
 	// Hook that increments counter
 	hook := func(ctx context.Context, toolID string, params map[string]interface{}) error {
 		hookMu.Lock()
@@ -171,7 +171,7 @@ func TestExecutorHookRaceCondition(t *testing.T) {
 		hookMu.Unlock()
 		return nil
 	}
-	
+
 	// Add hooks and execute concurrently
 	for i := 0; i < 50; i++ {
 		wg.Add(1)
@@ -187,9 +187,9 @@ func TestExecutorHookRaceCondition(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// The test passes if no race conditions occurred (detected by -race flag)
 	t.Logf("Hook count: %d", hookCount)
 }
@@ -213,24 +213,24 @@ func TestExecutorChannelSemaphoreStressTest(t *testing.T) {
 			},
 		},
 	}
-	
+
 	err := registry.Register(tool)
 	if err != nil {
 		t.Fatalf("Failed to register tool: %v", err)
 	}
-	
+
 	// Create execution engine with limited concurrency to stress test semaphore
 	maxConcurrent := 10
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(maxConcurrent))
-	
+
 	// Run 1000+ concurrent executions to stress test the semaphore
 	var wg sync.WaitGroup
 	numExecutions := 1500
 	results := make([]*ToolExecutionResult, numExecutions)
 	errors := make([]error, numExecutions)
-	
+
 	startTime := time.Now()
-	
+
 	for i := 0; i < numExecutions; i++ {
 		wg.Add(1)
 		go func(idx int) {
@@ -241,15 +241,15 @@ func TestExecutorChannelSemaphoreStressTest(t *testing.T) {
 			})
 		}(i)
 	}
-	
+
 	wg.Wait()
 	duration := time.Since(startTime)
-	
+
 	// Count different result types
 	successCount := 0
 	cancelledCount := 0
 	otherErrorCount := 0
-	
+
 	for i, result := range results {
 		if errors[i] != nil {
 			// Check if it's a context cancellation (expected during shutdown)
@@ -262,29 +262,29 @@ func TestExecutorChannelSemaphoreStressTest(t *testing.T) {
 			successCount++
 		}
 	}
-	
+
 	t.Logf("Stress test completed in %v", duration)
-	t.Logf("Successful executions: %d, Cancelled: %d, Other errors: %d", 
+	t.Logf("Successful executions: %d, Cancelled: %d, Other errors: %d",
 		successCount, cancelledCount, otherErrorCount)
-	
+
 	// With blocking semaphore, all executions should eventually succeed
 	// (unless context was cancelled during shutdown)
 	if successCount < numExecutions-cancelledCount {
-		t.Errorf("Expected %d successful executions, got %d (cancelled: %d)", 
+		t.Errorf("Expected %d successful executions, got %d (cancelled: %d)",
 			numExecutions-cancelledCount, successCount, cancelledCount)
 	}
-	
+
 	// Should have no other types of errors
 	if otherErrorCount > 0 {
 		t.Errorf("Unexpected other errors: %d", otherErrorCount)
 	}
-	
+
 	// Verify active count is back to 0
 	activeCount := engine.GetActiveExecutions()
 	if activeCount != 0 {
 		t.Errorf("Expected 0 active executions after completion, got %d", activeCount)
 	}
-	
+
 	// Verify semaphore capacity is correct
 	if cap(engine.concurrencySemaphore) != maxConcurrent {
 		t.Errorf("Expected semaphore capacity %d, got %d", maxConcurrent, cap(engine.concurrencySemaphore))
@@ -294,7 +294,7 @@ func TestExecutorChannelSemaphoreStressTest(t *testing.T) {
 // Test concurrent execution with context cancellation and timeouts
 func TestExecutorConcurrentCancellation(t *testing.T) {
 	registry := NewRegistry()
-	
+
 	// Create a slow executor for timeout/cancellation testing
 	slowExecutor := &slowMockExecutor{delay: 100 * time.Millisecond}
 	tool := &Tool{
@@ -313,29 +313,29 @@ func TestExecutorConcurrentCancellation(t *testing.T) {
 			},
 		},
 	}
-	
+
 	err := registry.Register(tool)
 	if err != nil {
 		t.Fatalf("Failed to register tool: %v", err)
 	}
-	
+
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(5))
-	
+
 	var wg sync.WaitGroup
 	numExecutions := 20
 	results := make([]*ToolExecutionResult, numExecutions)
 	errors := make([]error, numExecutions)
-	
+
 	// Start executions with various contexts
 	for i := 0; i < numExecutions; i++ {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			
+
 			// Create contexts with different cancellation patterns
 			var ctx context.Context
 			var cancel context.CancelFunc
-			
+
 			switch idx % 3 {
 			case 0:
 				// Normal context
@@ -348,24 +348,24 @@ func TestExecutorConcurrentCancellation(t *testing.T) {
 				ctx, cancel = context.WithCancel(context.Background())
 				cancel() // Cancel immediately
 			}
-			
+
 			if cancel != nil {
 				defer cancel()
 			}
-			
+
 			results[idx], errors[idx] = engine.Execute(ctx, "slow-tool", map[string]interface{}{
 				"iteration": idx,
 			})
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Count different result types
 	successCount := 0
 	cancelledCount := 0
 	otherErrorCount := 0
-	
+
 	for i, result := range results {
 		if errors[i] != nil {
 			if errors[i] == context.Canceled || errors[i] == context.DeadlineExceeded {
@@ -377,9 +377,9 @@ func TestExecutorConcurrentCancellation(t *testing.T) {
 			successCount++
 		}
 	}
-	
+
 	t.Logf("Success: %d, Cancelled: %d, Other errors: %d", successCount, cancelledCount, otherErrorCount)
-	
+
 	// Verify active count is back to 0
 	activeCount := engine.GetActiveExecutions()
 	if activeCount != 0 {
@@ -390,7 +390,7 @@ func TestExecutorConcurrentCancellation(t *testing.T) {
 // Test that the semaphore correctly limits concurrent executions
 func TestExecutorSemaphoreLimit(t *testing.T) {
 	registry := NewRegistry()
-	
+
 	// Create an executor that tracks concurrent executions
 	concurrentExecutor := &concurrencyTrackingExecutor{}
 	tool := &Tool{
@@ -409,18 +409,18 @@ func TestExecutorSemaphoreLimit(t *testing.T) {
 			},
 		},
 	}
-	
+
 	err := registry.Register(tool)
 	if err != nil {
 		t.Fatalf("Failed to register tool: %v", err)
 	}
-	
+
 	maxConcurrent := 3
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(maxConcurrent))
-	
+
 	var wg sync.WaitGroup
 	numExecutions := 20
-	
+
 	for i := 0; i < numExecutions; i++ {
 		wg.Add(1)
 		go func(idx int) {
@@ -431,15 +431,15 @@ func TestExecutorSemaphoreLimit(t *testing.T) {
 			})
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Verify the maximum concurrent executions never exceeded the limit
 	if concurrentExecutor.maxConcurrent > maxConcurrent {
-		t.Errorf("Semaphore failed: max concurrent executions was %d, limit was %d", 
+		t.Errorf("Semaphore failed: max concurrent executions was %d, limit was %d",
 			concurrentExecutor.maxConcurrent, maxConcurrent)
 	}
-	
+
 	// Verify active count is back to 0
 	activeCount := engine.GetActiveExecutions()
 	if activeCount != 0 {
@@ -479,15 +479,15 @@ func (c *concurrencyTrackingExecutor) Execute(ctx context.Context, params map[st
 		c.maxConcurrent = int(c.currentConcurrent)
 	}
 	c.mu.Unlock()
-	
+
 	// Simulate work
 	time.Sleep(50 * time.Millisecond)
-	
+
 	// Decrement concurrent executions
 	c.mu.Lock()
 	c.currentConcurrent--
 	c.mu.Unlock()
-	
+
 	return &ToolExecutionResult{
 		Success: true,
 		Data:    map[string]interface{}{"result": "success"},
@@ -513,32 +513,32 @@ func TestExecutorAtomicCounterRaceFix(t *testing.T) {
 			},
 		},
 	}
-	
+
 	err := registry.Register(tool)
 	if err != nil {
 		t.Fatalf("Failed to register tool: %v", err)
 	}
-	
+
 	// Create execution engine with moderate concurrency limit
 	maxConcurrent := 50
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(maxConcurrent))
-	
+
 	// Run many concurrent executions to stress test the atomic counter
 	var wg sync.WaitGroup
 	numGoroutines := 200 // More than max concurrent to ensure queuing
 	results := make([]*ToolExecutionResult, numGoroutines)
 	errors := make([]error, numGoroutines)
-	
+
 	// Track GetActiveExecutions() calls during concurrent execution
 	var activeCountChecks []int
 	var activeCountMu sync.Mutex
-	
+
 	// Start a goroutine to continuously check active executions
 	checkDone := make(chan struct{})
 	go func() {
 		ticker := time.NewTicker(1 * time.Millisecond)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-checkDone:
@@ -551,9 +551,9 @@ func TestExecutorAtomicCounterRaceFix(t *testing.T) {
 			}
 		}
 	}()
-	
+
 	startTime := time.Now()
-	
+
 	// Launch all goroutines
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
@@ -565,11 +565,11 @@ func TestExecutorAtomicCounterRaceFix(t *testing.T) {
 			})
 		}(i)
 	}
-	
+
 	wg.Wait()
 	close(checkDone)
 	duration := time.Since(startTime)
-	
+
 	// Verify all executions completed successfully
 	successCount := 0
 	for i, result := range results {
@@ -579,30 +579,30 @@ func TestExecutorAtomicCounterRaceFix(t *testing.T) {
 			t.Errorf("Execution %d failed with error: %v", i, errors[i])
 		}
 	}
-	
+
 	// Verify final state
 	finalActiveCount := engine.GetActiveExecutions()
-	
+
 	// Get count checks safely
 	activeCountMu.Lock()
 	checkCount := len(activeCountChecks)
 	activeCountMu.Unlock()
-	
+
 	t.Logf("Atomic counter race test completed in %v", duration)
 	t.Logf("Successful executions: %d/%d", successCount, numGoroutines)
 	t.Logf("Final active count: %d", finalActiveCount)
 	t.Logf("Active count checks performed: %d", checkCount)
-	
+
 	// All executions should complete successfully
 	if successCount != numGoroutines {
 		t.Errorf("Expected %d successful executions, got %d", numGoroutines, successCount)
 	}
-	
+
 	// Final active count should be 0 (this is the main test for the race condition fix)
 	if finalActiveCount != 0 {
 		t.Errorf("RACE CONDITION NOT FIXED: Expected 0 active executions after completion, got %d", finalActiveCount)
 	}
-	
+
 	// Verify active count never exceeded the maximum concurrent limit
 	activeCountMu.Lock()
 	maxObservedActive := 0
@@ -615,9 +615,9 @@ func TestExecutorAtomicCounterRaceFix(t *testing.T) {
 		}
 	}
 	activeCountMu.Unlock()
-	
+
 	t.Logf("Maximum observed active executions: %d (limit: %d)", maxObservedActive, maxConcurrent)
-	
+
 	// Ensure we actually had some concurrent executions
 	if maxObservedActive == 0 {
 		t.Error("Test may be invalid: no concurrent executions were observed")
@@ -627,7 +627,7 @@ func TestExecutorAtomicCounterRaceFix(t *testing.T) {
 // Test atomic counter consistency across Execute and ExecuteStream methods
 func TestExecutorAtomicCounterConsistency(t *testing.T) {
 	registry := NewRegistry()
-	
+
 	// Create both regular and streaming executors
 	streamingTool := &Tool{
 		ID:          "streaming-atomic-tool",
@@ -645,7 +645,7 @@ func TestExecutorAtomicCounterConsistency(t *testing.T) {
 			},
 		},
 	}
-	
+
 	regularTool := &Tool{
 		ID:          "regular-atomic-tool",
 		Name:        "Regular Atomic Test Tool",
@@ -662,29 +662,29 @@ func TestExecutorAtomicCounterConsistency(t *testing.T) {
 			},
 		},
 	}
-	
+
 	err := registry.Register(streamingTool)
 	if err != nil {
 		t.Fatalf("Failed to register streaming tool: %v", err)
 	}
-	
+
 	err = registry.Register(regularTool)
 	if err != nil {
 		t.Fatalf("Failed to register regular tool: %v", err)
 	}
-	
+
 	engine := NewExecutionEngine(registry, WithMaxConcurrent(25))
-	
+
 	var wg sync.WaitGroup
 	numExecutions := 100
-	
+
 	// Mix of Execute and ExecuteStream calls
 	for i := 0; i < numExecutions; i++ {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
 			ctx := context.Background()
-			
+
 			if idx%2 == 0 {
 				// Regular execution
 				_, err := engine.Execute(ctx, "regular-atomic-tool", map[string]interface{}{
@@ -702,7 +702,7 @@ func TestExecutorAtomicCounterConsistency(t *testing.T) {
 					t.Errorf("Streaming execution %d failed: %v", idx, err)
 					return
 				}
-				
+
 				// Consume the stream
 				for range stream {
 					// Just consume chunks
@@ -710,9 +710,9 @@ func TestExecutorAtomicCounterConsistency(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Verify final active count is 0
 	finalActiveCount := engine.GetActiveExecutions()
 	if finalActiveCount != 0 {
@@ -733,10 +733,10 @@ func (s *streamingMockExecutor) Execute(ctx context.Context, params map[string]i
 
 func (s *streamingMockExecutor) ExecuteStream(ctx context.Context, params map[string]interface{}) (<-chan *ToolStreamChunk, error) {
 	ch := make(chan *ToolStreamChunk, 3)
-	
+
 	go func() {
 		defer close(ch)
-		
+
 		// Send a few chunks with small delays
 		for i := 0; i < 3; i++ {
 			select {
@@ -750,7 +750,7 @@ func (s *streamingMockExecutor) ExecuteStream(ctx context.Context, params map[st
 				time.Sleep(2 * time.Millisecond)
 			}
 		}
-		
+
 		// Send completion chunk
 		select {
 		case <-ctx.Done():
@@ -760,6 +760,6 @@ func (s *streamingMockExecutor) ExecuteStream(ctx context.Context, params map[st
 		}:
 		}
 	}()
-	
+
 	return ch, nil
 }

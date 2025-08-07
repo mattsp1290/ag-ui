@@ -35,7 +35,7 @@ func TestValidateNestingDepthLimit(t *testing.T) {
 			errType:   "recursion_depth_limit",
 		},
 		{
-			name:      "array nesting exceeds limit", 
+			name:      "array nesting exceeds limit",
 			data:      createDeeplyNestedArray(100),
 			maxDepth:  15,
 			expectErr: true,
@@ -53,13 +53,13 @@ func TestValidateNestingDepthLimit(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := validator.validateNestingDepthWithLimit(ctx, tt.data, 0, tt.maxDepth)
-			
+
 			if tt.expectErr {
 				if err == nil {
 					t.Errorf("expected error but got none")
 					return
 				}
-				
+
 				if secErr, ok := err.(*agerrors.SecurityError); ok {
 					if violationType := secErr.ViolationType; violationType != tt.errType {
 						t.Errorf("expected violation type %s, got %s", tt.errType, violationType)
@@ -82,9 +82,9 @@ func TestSanitizeValueDepthLimit(t *testing.T) {
 	validator := NewSecurityValidator(config)
 
 	tests := []struct {
-		name      string
-		data      interface{}
-		maxDepth  int
+		name       string
+		data       interface{}
+		maxDepth   int
 		expectSafe bool
 	}{
 		{
@@ -111,11 +111,11 @@ func TestSanitizeValueDepthLimit(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// This should not crash even with deep nesting
 			result := validator.sanitizeValueWithDepth(tt.data, 0, tt.maxDepth)
-			
+
 			if !tt.expectSafe {
 				t.Error("expected unsafe operation")
 			}
-			
+
 			// Result should be non-nil (even if unsanitized at depth limit)
 			if result == nil {
 				t.Error("expected non-nil result")
@@ -127,8 +127,8 @@ func TestSanitizeValueDepthLimit(t *testing.T) {
 // TestSecurityConfigDepthLimits verifies that security configurations include proper depth limits
 func TestSecurityConfigDepthLimits(t *testing.T) {
 	tests := []struct {
-		name           string
-		config         SecurityConfig
+		name             string
+		config           SecurityConfig
 		expectedValDepth int
 		expectedSanDepth int
 	}{
@@ -189,14 +189,14 @@ func TestRecursionDepthErrorMessages(t *testing.T) {
 
 	// Create deeply nested data that will exceed limits
 	deepData := createDeeplyNestedMap(100)
-	
+
 	err := validator.validateNestingDepthWithLimit(ctx, deepData, 0, 10)
 	if err == nil {
 		t.Fatal("expected error for deep nesting")
 	}
 
 	errMsg := err.Error()
-	
+
 	// Check that error message contains useful information
 	requiredStrings := []string{
 		"recursion depth",
@@ -233,7 +233,7 @@ func createMixedNesting(depth int) interface{} {
 	if depth <= 0 {
 		return "end"
 	}
-	
+
 	if depth%2 == 0 {
 		return map[string]interface{}{
 			"nested": createMixedNesting(depth - 1),
@@ -250,7 +250,7 @@ func BenchmarkValidateNestingDepthShallow(b *testing.B) {
 	validator := NewSecurityValidator(config)
 	ctx := context.Background()
 	data := createDeeplyNestedMap(10)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = validator.validateNestingDepth(ctx, data, 0)
@@ -262,7 +262,7 @@ func BenchmarkValidateNestingDepthDeep(b *testing.B) {
 	validator := NewSecurityValidator(config)
 	ctx := context.Background()
 	data := createDeeplyNestedMap(50) // Just under default limit
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = validator.validateNestingDepth(ctx, data, 0)
@@ -273,7 +273,7 @@ func BenchmarkSanitizeValueShallow(b *testing.B) {
 	config := DefaultSecurityConfig()
 	validator := NewSecurityValidator(config)
 	data := createDeeplyNestedMap(10)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = validator.sanitizeValue(data)
@@ -284,7 +284,7 @@ func BenchmarkSanitizeValueDeep(b *testing.B) {
 	config := DefaultSecurityConfig()
 	validator := NewSecurityValidator(config)
 	data := createDeeplyNestedMap(25) // Just under default limit
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = validator.sanitizeValue(data)

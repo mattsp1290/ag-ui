@@ -198,7 +198,7 @@ func TestAcceptHeaderParsing(t *testing.T) {
 
 func TestPerformanceBasedSelection(t *testing.T) {
 	negotiator := negotiation.NewContentNegotiator("application/json")
-	
+
 	// Update performance metrics
 	negotiator.UpdatePerformance("application/json", negotiation.PerformanceMetrics{
 		EncodingTime: 10 * time.Millisecond,
@@ -209,7 +209,7 @@ func TestPerformanceBasedSelection(t *testing.T) {
 		MemoryUsage:  1024 * 1024,
 		CPUUsage:     15.0,
 	})
-	
+
 	negotiator.UpdatePerformance("application/x-protobuf", negotiation.PerformanceMetrics{
 		EncodingTime: 5 * time.Millisecond,
 		DecodingTime: 3 * time.Millisecond,
@@ -219,13 +219,13 @@ func TestPerformanceBasedSelection(t *testing.T) {
 		MemoryUsage:  512 * 1024,
 		CPUUsage:     10.0,
 	})
-	
+
 	// When quality factors are equal, performance should decide
 	result, err := negotiator.Negotiate("application/json;q=0.9, application/x-protobuf;q=0.9")
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	
+
 	// Protobuf should win due to better performance
 	if result != "application/x-protobuf" {
 		t.Errorf("Expected application/x-protobuf based on performance, got %s", result)
@@ -235,22 +235,22 @@ func TestPerformanceBasedSelection(t *testing.T) {
 func TestFormatSelector(t *testing.T) {
 	negotiator := negotiation.NewContentNegotiator("application/json")
 	selector := negotiation.NewFormatSelector(negotiator)
-	
+
 	// Test with streaming requirement
 	criteria := &negotiation.SelectionCriteria{
 		RequireStreaming: true,
 		MinQuality:       0.5,
 	}
-	
+
 	result, err := selector.SelectFormat("application/json, application/xml", criteria)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	
+
 	if result != "application/json" {
 		t.Errorf("Expected application/json (supports streaming), got %s", result)
 	}
-	
+
 	// Test with client capabilities
 	criteria = &negotiation.SelectionCriteria{
 		ClientCapabilities: &negotiation.ClientCapabilities{
@@ -259,12 +259,12 @@ func TestFormatSelector(t *testing.T) {
 			PreferredFormats:   []string{"application/x-protobuf"},
 		},
 	}
-	
+
 	result, err = selector.SelectFormat("*/*, application/json;q=0.8", criteria)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	
+
 	// Should prefer protobuf based on client preferences
 	if result != "application/x-protobuf" {
 		t.Errorf("Expected application/x-protobuf based on client preference, got %s", result)
@@ -274,28 +274,28 @@ func TestFormatSelector(t *testing.T) {
 func TestAdaptiveSelection(t *testing.T) {
 	negotiator := negotiation.NewContentNegotiator("application/json")
 	adaptive := negotiation.NewAdaptiveSelector(negotiator)
-	
+
 	// Simulate successful JSON requests
 	for i := 0; i < 10; i++ {
 		adaptive.UpdateHistory("application/json", true, 20*time.Millisecond)
 	}
-	
+
 	// Simulate some failed JSON requests
 	for i := 0; i < 5; i++ {
 		adaptive.UpdateHistory("application/json", false, 50*time.Millisecond)
 	}
-	
+
 	// Simulate successful protobuf requests
 	for i := 0; i < 10; i++ {
 		adaptive.UpdateHistory("application/x-protobuf", true, 10*time.Millisecond)
 	}
-	
+
 	// Now select with adaptive logic
 	result, err := adaptive.SelectAdaptive("application/json, application/x-protobuf", nil)
 	if err != nil {
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	
+
 	// Should prefer protobuf due to better success rate and performance
 	if result != "application/x-protobuf" {
 		t.Logf("Warning: Expected application/x-protobuf based on adaptive selection, got %s", result)
@@ -304,16 +304,16 @@ func TestAdaptiveSelection(t *testing.T) {
 
 func TestSupportedTypes(t *testing.T) {
 	negotiator := negotiation.NewContentNegotiator("application/json")
-	
+
 	supported := negotiator.SupportedTypes()
-	
+
 	// Should have at least the default types
 	expectedTypes := []string{
 		"application/json",
 		"application/x-protobuf",
 		"application/vnd.ag-ui+json",
 	}
-	
+
 	for _, expected := range expectedTypes {
 		found := false
 		for _, supported := range supported {
@@ -330,7 +330,7 @@ func TestSupportedTypes(t *testing.T) {
 
 func TestCanHandle(t *testing.T) {
 	negotiator := negotiation.NewContentNegotiator("application/json")
-	
+
 	tests := []struct {
 		contentType string
 		expected    bool
@@ -343,7 +343,7 @@ func TestCanHandle(t *testing.T) {
 		{"application/vnd.ag-ui+json", true},
 		{"*/*", false}, // Wildcards not directly handled
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.contentType, func(t *testing.T) {
 			result := negotiator.CanHandle(tt.contentType)
@@ -381,11 +381,11 @@ func TestMediaTypeParsing(t *testing.T) {
 			hasError: true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
 			mediaType, params, err := negotiation.ParseMediaType(tt.input)
-			
+
 			if tt.hasError {
 				if err == nil {
 					t.Errorf("Expected error but got none")
@@ -429,7 +429,7 @@ func TestFormatMediaType(t *testing.T) {
 			expected:  `multipart/form-data; boundary="----WebKitFormBoundary"`,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.expected, func(t *testing.T) {
 			result := negotiation.FormatMediaType(tt.mediaType, tt.params)
@@ -448,14 +448,14 @@ func TestFormatMediaType(t *testing.T) {
 
 func TestConcurrentPerformanceAccess(t *testing.T) {
 	negotiator := negotiation.NewContentNegotiator("application/json")
-	
+
 	// Number of concurrent goroutines
 	numGoroutines := 100
 	numIterations := 1000
-	
+
 	var wg sync.WaitGroup
 	wg.Add(numGoroutines * 3) // 3 types of operations
-	
+
 	// Goroutines that update performance metrics
 	for i := 0; i < numGoroutines; i++ {
 		go func(id int) {
@@ -465,7 +465,7 @@ func TestConcurrentPerformanceAccess(t *testing.T) {
 				if j%2 == 0 {
 					contentType = "application/x-protobuf"
 				}
-				
+
 				negotiator.UpdatePerformance(contentType, negotiation.PerformanceMetrics{
 					EncodingTime: time.Duration(id+j) * time.Microsecond,
 					DecodingTime: time.Duration(id+j) * time.Microsecond,
@@ -478,7 +478,7 @@ func TestConcurrentPerformanceAccess(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	// Goroutines that read performance scores
 	for i := 0; i < numGoroutines; i++ {
 		go func(id int) {
@@ -488,14 +488,14 @@ func TestConcurrentPerformanceAccess(t *testing.T) {
 				if j%3 == 0 {
 					contentType = "application/x-protobuf"
 				}
-				
+
 				// This should not panic or race
 				score := negotiator.GetPerformanceScore(contentType)
 				_ = score // Use the score to avoid compiler optimization
 			}
 		}(i)
 	}
-	
+
 	// Goroutines that negotiate content types (which internally access performance)
 	for i := 0; i < numGoroutines; i++ {
 		go func(id int) {
@@ -505,7 +505,7 @@ func TestConcurrentPerformanceAccess(t *testing.T) {
 				if j%2 == 0 {
 					acceptHeader = "application/json;q=0.9, application/x-protobuf;q=0.9"
 				}
-				
+
 				// This should not panic or race
 				result, err := negotiator.Negotiate(acceptHeader)
 				if err != nil {
@@ -515,11 +515,11 @@ func TestConcurrentPerformanceAccess(t *testing.T) {
 			}
 		}(i)
 	}
-	
+
 	// Wait for all goroutines to complete
 	wg.Wait()
-	
+
 	// If we get here without panics or data races, the test passes
-	t.Logf("Successfully completed %d concurrent operations across %d goroutines", 
+	t.Logf("Successfully completed %d concurrent operations across %d goroutines",
 		numGoroutines*numIterations*3, numGoroutines*3)
 }

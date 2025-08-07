@@ -65,13 +65,13 @@ func TestHistoryTimestampFiltering(t *testing.T) {
 	// Add messages with different timestamps
 	msg1 := NewUserMessage("Message 1")
 	msg1.SetTimestamp(baseTime.Add(-2 * time.Hour))
-	
-	msg2 := NewUserMessage("Message 2")  
+
+	msg2 := NewUserMessage("Message 2")
 	msg2.SetTimestamp(baseTime.Add(-1 * time.Hour))
-	
+
 	msg3 := NewUserMessage("Message 3")
 	msg3.SetTimestamp(baseTime)
-	
+
 	messages := []Message{msg1, msg2, msg3}
 	if err := h.AddBatch(messages); err != nil {
 		t.Errorf("Failed to add batch: %v", err)
@@ -132,7 +132,7 @@ func TestHistorySearch(t *testing.T) {
 		t.Errorf("Expected 3 messages containing 'help', got %d", len(helpMessages))
 	}
 
-	// Search for case-insensitive "GOLANG" 
+	// Search for case-insensitive "GOLANG"
 	golangMessages, err := h.Search("GOLANG")
 	if err != nil {
 		t.Errorf("Failed to search for 'GOLANG': %v", err)
@@ -166,7 +166,7 @@ func TestHistoryContentTypeFiltering(t *testing.T) {
 
 	// Add messages with different content types
 	textMsg := NewUserMessage("Plain text message")
-	
+
 	// Add structured message (assuming we have this functionality)
 	structuredMsg := NewUserMessage("Structured content")
 	// Simulate structured content by setting metadata

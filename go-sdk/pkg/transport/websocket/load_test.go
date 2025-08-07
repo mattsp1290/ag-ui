@@ -5,9 +5,9 @@ package websocket
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"net/http"
 	"net/http/httptest"
-	"math/rand"
 	"os"
 	"runtime"
 	"strconv"
@@ -30,7 +30,7 @@ import (
 // Resource limits can be overridden via environment variables for local stress testing.
 //
 // Environment Variables for Customization:
-// 
+//
 // High Concurrency Test:
 //   LOAD_TEST_TIMEOUT=5s (default: 5s)
 //   LOAD_TEST_GOROUTINES=10 (default: 10)
@@ -96,14 +96,14 @@ func cleanupBetweenTests(t testing.TB) {
 	// Force garbage collection
 	runtime.GC()
 	runtime.GC() // Run twice to ensure cleanup
-	
+
 	// Brief pause to allow cleanup to complete
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Log current resource usage for debugging
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
-	t.Logf("Cleanup: Memory usage: %.2f MB, Goroutines: %d", 
+	t.Logf("Cleanup: Memory usage: %.2f MB, Goroutines: %d",
 		float64(memStats.Alloc)/(1024*1024), runtime.NumGoroutine())
 }
 
@@ -233,37 +233,37 @@ func TestBasicConcurrency(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping concurrency test in short mode")
 	}
-	
+
 	// Ultra-simple concurrency test with minimal setup
 	helper := NewSimpleTestHelper(t)
 	server := helper.CreateServer()
 	defer server.Close()
-	
+
 	config := DefaultTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zap.NewNop()
 	config.PoolConfig.MinConnections = 1
-	config.PoolConfig.MaxConnections = 2  // Minimal
+	config.PoolConfig.MaxConnections = 2 // Minimal
 	config.EnableEventValidation = false
-	
+
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	err = transport.Start(ctx)
 	require.NoError(t, err)
 	defer transport.Stop()
-	
+
 	// Wait for connection (shortened)
 	testutils.EventuallyWithTimeout(t, func() bool {
 		return transport.GetActiveConnectionCount() > 0
 	}, 2*time.Second, 50*time.Millisecond, "Should establish connection")
-		
+
 	// Minimal concurrent test
 	var wg sync.WaitGroup
-	for i := 0; i < 2; i++ {  // Only 2 workers
+	for i := 0; i < 2; i++ { // Only 2 workers
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
@@ -285,8 +285,8 @@ func testHighConcurrencyConnections(t *testing.T) {
 	config := DefaultTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zap.NewNop()
-	config.PoolConfig.MinConnections = 1  // Minimal for CI
-	config.PoolConfig.MaxConnections = 3  // Minimal for CI
+	config.PoolConfig.MinConnections = 1 // Minimal for CI
+	config.PoolConfig.MaxConnections = 3 // Minimal for CI
 	config.EnableEventValidation = false
 
 	transport, err := NewTransport(config)
@@ -307,8 +307,8 @@ func testHighConcurrencyConnections(t *testing.T) {
 
 		// Simple concurrent test with minimal resources
 		var wg sync.WaitGroup
-		numWorkers := 3  // Very small for CI stability
-		messagesPerWorker := 2  // Minimal messages
+		numWorkers := 3        // Very small for CI stability
+		messagesPerWorker := 2 // Minimal messages
 
 		for i := 0; i < numWorkers; i++ {
 			wg.Add(1)
@@ -330,11 +330,8 @@ func testHighConcurrencyConnections(t *testing.T) {
 	})
 }
 
-
-
-
 // TestBasicPoolScaling tests essential pool scaling with minimal setup
-// Replaces TestConnectionPoolScaling with ultra-simplified version  
+// Replaces TestConnectionPoolScaling with ultra-simplified version
 func TestBasicPoolScaling(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping pool scaling test in short mode")
@@ -348,7 +345,7 @@ func TestBasicPoolScaling(t *testing.T) {
 	config.URLs = []string{server.URL()}
 	config.Logger = zap.NewNop()
 	config.PoolConfig.MinConnections = 1
-	config.PoolConfig.MaxConnections = 2  // Minimal
+	config.PoolConfig.MaxConnections = 2 // Minimal
 	config.EnableEventValidation = false
 
 	transport, err := NewTransport(config)
@@ -369,7 +366,7 @@ func TestBasicPoolScaling(t *testing.T) {
 		t.Logf("Initial connections: %d", initialConnections)
 
 		// Much more conservative load levels for CI stability
-		loadLevels := []int{2, 4}  // Reduced from [3, 10, 20] to [2, 4]
+		loadLevels := []int{2, 4} // Reduced from [3, 10, 20] to [2, 4]
 
 		for _, load := range loadLevels {
 			t.Logf("Testing load level: %d concurrent senders", load)
@@ -385,7 +382,7 @@ func TestBasicPoolScaling(t *testing.T) {
 				go func(id int) {
 					defer wg.Done()
 
-					for j := 0; j < 3; j++ {  // Reduced from 5 to 3 messages per sender
+					for j := 0; j < 3; j++ { // Reduced from 5 to 3 messages per sender
 						event := &MockEvent{
 							EventType: events.EventTypeTextMessageContent,
 							Data:      fmt.Sprintf("scaling_test_%d_%d", id, j),
@@ -396,7 +393,7 @@ func TestBasicPoolScaling(t *testing.T) {
 						}
 
 						// Conservative delay
-						time.Sleep(50 * time.Millisecond)  // Increased from 20ms to 50ms for gentler load
+						time.Sleep(50 * time.Millisecond) // Increased from 20ms to 50ms for gentler load
 					}
 				}(i)
 			}
@@ -449,16 +446,16 @@ func TestUnderAdverseConditions(t *testing.T) {
 	config := FastTransportConfig()
 	config.URLs = []string{server.URL()}
 	config.Logger = zap.NewNop()
-	config.PoolConfig.MinConnections = getEnvInt("ADVERSE_LOAD_MIN_CONN", 2)  // Very conservative
-	config.PoolConfig.MaxConnections = getEnvInt("ADVERSE_LOAD_MAX_CONN", 5)  // Very conservative
-	config.PoolConfig.ConnectionTemplate.MaxReconnectAttempts = 3  // Reduced from 5
+	config.PoolConfig.MinConnections = getEnvInt("ADVERSE_LOAD_MIN_CONN", 2) // Very conservative
+	config.PoolConfig.MaxConnections = getEnvInt("ADVERSE_LOAD_MAX_CONN", 5) // Very conservative
+	config.PoolConfig.ConnectionTemplate.MaxReconnectAttempts = 3            // Reduced from 5
 	config.PoolConfig.ConnectionTemplate.InitialReconnectDelay = 100 * time.Millisecond
 	config.EnableEventValidation = false
 
 	transport, err := NewTransport(config)
 	require.NoError(t, err)
 
-	testTimeout := getEnvDuration("ADVERSE_LOAD_TIMEOUT", 15*time.Second)  // Conservative
+	testTimeout := getEnvDuration("ADVERSE_LOAD_TIMEOUT", 15*time.Second) // Conservative
 	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
 	defer cancel()
 
@@ -474,8 +471,8 @@ func TestUnderAdverseConditions(t *testing.T) {
 		time.Sleep(1 * time.Second)
 
 		// Very conservative values for CI
-		numMessages := getEnvInt("ADVERSE_LOAD_MESSAGES", 100)  // Much fewer messages
-		numWorkers := getEnvInt("ADVERSE_LOAD_WORKERS", 10)  // Much fewer workers
+		numMessages := getEnvInt("ADVERSE_LOAD_MESSAGES", 100) // Much fewer messages
+		numWorkers := getEnvInt("ADVERSE_LOAD_WORKERS", 10)    // Much fewer workers
 
 		var wg sync.WaitGroup
 		var successfulMessages int64
@@ -507,7 +504,7 @@ func TestUnderAdverseConditions(t *testing.T) {
 					}
 
 					// Conservative delays
-					time.Sleep(time.Duration(rand.Intn(50)+20) * time.Millisecond)  // Longer delays
+					time.Sleep(time.Duration(rand.Intn(50)+20) * time.Millisecond) // Longer delays
 				}
 			}(i)
 		}
@@ -545,12 +542,12 @@ func BenchmarkHighConcurrencyLoad(b *testing.B) {
 	initialGoroutines := runtime.NumGoroutine()
 	var initialMemStats runtime.MemStats
 	runtime.ReadMemStats(&initialMemStats)
-	
+
 	server := NewLoadTestServer(b)
 	defer func() {
 		server.Close()
 		cleanupBetweenTests(b)
-		
+
 		// Verify resource cleanup after benchmark
 		runtime.GC()
 		time.Sleep(100 * time.Millisecond)
@@ -602,12 +599,12 @@ func BenchmarkHighConcurrencyLoad(b *testing.B) {
 			}
 		}
 	})
-	
+
 	// Report error rate if significant
 	if errorCount > 0 {
 		b.Logf("Benchmark completed with %d errors out of %d operations", errorCount, b.N)
 	}
-	
+
 	// Report resource usage
 	var finalMemStats runtime.MemStats
 	runtime.ReadMemStats(&finalMemStats)
@@ -665,7 +662,7 @@ func BenchmarkConnectionPoolPerformance(b *testing.B) {
 // createLoadTestWebSocketServer creates a test WebSocket server for load testing
 func createLoadTestWebSocketServer(t testing.TB) *httptest.Server {
 	upgrader := websocket.Upgrader{
-		CheckOrigin: func(r *http.Request) bool { return true },
+		CheckOrigin:     func(r *http.Request) bool { return true },
 		ReadBufferSize:  4096,
 		WriteBufferSize: 4096,
 	}
@@ -716,14 +713,14 @@ func TestOptimizationsIntegration(t *testing.T) {
 		// Test zero-copy string conversion
 		data := []byte("test zero-copy optimization")
 		zcb := NewZeroCopyBuffer(data)
-		
+
 		// String conversion should be extremely fast
 		start := time.Now()
 		for i := 0; i < 1000000; i++ {
 			_ = zcb.String()
 		}
 		duration := time.Since(start)
-		
+
 		// Should complete 1M operations in under 100ms
 		assert.Less(t, duration, 100*time.Millisecond)
 		t.Logf("Zero-copy string: 1M operations in %v", duration)
@@ -731,20 +728,20 @@ func TestOptimizationsIntegration(t *testing.T) {
 
 	t.Run("DynamicMemoryMonitoring", func(t *testing.T) {
 		mm := NewMemoryManager(100 * 1024 * 1024) // 100MB
-		
+
 		// Test interval calculation
 		intervals := map[float64]time.Duration{
-			10.0: 60 * time.Second,   // Low pressure
-			60.0: 15 * time.Second,   // Medium pressure
-			85.0: 2 * time.Second,    // High pressure
+			10.0: 60 * time.Second,       // Low pressure
+			60.0: 15 * time.Second,       // Medium pressure
+			85.0: 2 * time.Second,        // High pressure
 			95.0: 500 * time.Millisecond, // Critical pressure
 		}
-		
+
 		for pressure, expected := range intervals {
 			actual := mm.getMonitoringInterval(pressure)
 			assert.Equal(t, expected, actual, "For pressure %.0f%%", pressure)
 		}
-		
+
 		t.Log("Dynamic memory monitoring intervals validated")
 	})
 
@@ -753,26 +750,26 @@ func TestOptimizationsIntegration(t *testing.T) {
 		config := DefaultPerformanceConfig()
 		pm, err := NewPerformanceManager(config)
 		require.NoError(t, err)
-		
+
 		// Verify zero-copy is enabled
 		assert.True(t, config.EnableZeroCopy)
-		
+
 		// Verify memory pooling is enabled
 		assert.True(t, config.EnableMemoryPooling)
-		
+
 		// Test buffer operations
 		buf := pm.GetBuffer()
 		assert.NotNil(t, buf)
-		
+
 		// Use zero-copy buffer
 		data := []byte("combined optimization test")
 		zcb := NewZeroCopyBuffer(data)
 		str := zcb.String()
 		assert.Equal(t, "combined optimization test", str)
-		
+
 		// Return buffer to pool
 		pm.PutBuffer(buf)
-		
+
 		t.Log("All optimizations working together successfully")
 	})
 }
@@ -783,43 +780,43 @@ func TestSecurityManagerConcurrency(t *testing.T) {
 	initialGoroutines := runtime.NumGoroutine()
 	var initialMemStats runtime.MemStats
 	runtime.ReadMemStats(&initialMemStats)
-	
+
 	sm := NewSecurityManager(DefaultSecurityConfig())
-	
+
 	// Much more conservative resource usage to prevent test interference
 	var wg sync.WaitGroup
 	numGoroutines := getEnvInt("SECURITY_TEST_GOROUTINES", 10)  // Reduced from 50 to 10
 	numOperations := getEnvInt("SECURITY_TEST_OPERATIONS", 100) // Reduced from 1000 to 100
-	
+
 	// Add timeout protection
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	
+
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			for j := 0; j < numOperations; j++ {
 				select {
 				case <-ctx.Done():
 					return
 				default:
 				}
-				
+
 				// Simulate different IPs with smaller range to reduce memory
 				ip := fmt.Sprintf("10.0.%d.%d", id%10, j%10) // Reduced range from 256 to 10
-				
+
 				// Get limiter (this should be lock-free with sync.Map)
 				limiter := sm.getClientLimiter(ip)
 				require.NotNil(t, limiter)
-				
+
 				// Use the limiter
 				limiter.Allow()
 			}
 		}(i)
 	}
-	
+
 	// Measure time with timeout protection
 	start := time.Now()
 	done := make(chan struct{})
@@ -827,37 +824,37 @@ func TestSecurityManagerConcurrency(t *testing.T) {
 		wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// Success
 	case <-ctx.Done():
 		t.Fatal("Test timed out - potential resource leak or deadlock")
 	}
-	
+
 	duration := time.Since(start)
 	totalOps := numGoroutines * numOperations
 	opsPerSec := float64(totalOps) / duration.Seconds()
-	
+
 	t.Logf("Processed %d rate limiter operations in %v (%.0f ops/sec)",
 		totalOps, duration, opsPerSec)
-	
+
 	// More realistic performance expectation
 	assert.Greater(t, opsPerSec, 1000.0, "Should process >1k ops/sec")
-	
+
 	// Clean up resources and verify no leaks
 	runtime.GC()
-	runtime.GC() // Double GC to ensure cleanup
+	runtime.GC()                       // Double GC to ensure cleanup
 	time.Sleep(100 * time.Millisecond) // Allow cleanup to complete
-	
+
 	finalGoroutines := runtime.NumGoroutine()
 	var finalMemStats runtime.MemStats
 	runtime.ReadMemStats(&finalMemStats)
-	
+
 	// Verify resource cleanup (allow small tolerance for test framework overhead)
 	assert.LessOrEqual(t, finalGoroutines, initialGoroutines+5, "Goroutine leak detected")
 	if finalMemStats.Alloc > initialMemStats.Alloc*2 {
-		t.Logf("Warning: Memory usage increased significantly (from %d to %d bytes)", 
+		t.Logf("Warning: Memory usage increased significantly (from %d to %d bytes)",
 			initialMemStats.Alloc, finalMemStats.Alloc)
 	}
 }

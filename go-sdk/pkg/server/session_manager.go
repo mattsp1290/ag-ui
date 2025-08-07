@@ -20,22 +20,22 @@ import (
 
 // Session constants for better maintainability
 const (
-	DefaultSessionTTL           = 24 * time.Hour
-	DefaultCleanupInterval      = time.Hour
+	DefaultSessionTTL            = 24 * time.Hour
+	DefaultCleanupInterval       = time.Hour
 	DefaultMaxConcurrentSessions = 10000
-	DefaultSessionPoolSize      = 1000
-	DefaultMaxSessionsPerUser   = 10
-	
+	DefaultSessionPoolSize       = 1000
+	DefaultMaxSessionsPerUser    = 10
+
 	// Cookie configuration
-	DefaultCookieName       = "session_id"
-	DefaultCookiePath       = "/"
-	DefaultSameSiteCookies  = "Strict"
-	
+	DefaultCookieName      = "session_id"
+	DefaultCookiePath      = "/"
+	DefaultSameSiteCookies = "Strict"
+
 	// Session validation
-	MinSessionTTL           = time.Minute
-	MinCleanupInterval      = time.Minute
-	MaxSessionIDLength      = 128
-	SessionIDLength         = 64
+	MinSessionTTL      = time.Minute
+	MinCleanupInterval = time.Minute
+	MaxSessionIDLength = 128
+	SessionIDLength    = 64
 )
 
 // Session represents a user session
@@ -84,10 +84,10 @@ type SessionManager struct {
 
 	// Metrics
 	metrics *SessionMetrics
-	
+
 	// Secure credential management
 	credentialManager *middleware.CredentialManager
-	auditor          *middleware.CredentialAuditor
+	auditor           *middleware.CredentialAuditor
 }
 
 // SessionMetrics tracks session management metrics
@@ -164,7 +164,7 @@ func NewSessionManager(config *SessionConfig, logger *zap.Logger) (*SessionManag
 		pendingCleanups:   make(map[string]int64),
 		sessionOps:        make(map[string]*sync.Mutex),
 		credentialManager: middleware.NewCredentialManager(logger),
-		auditor:          middleware.NewCredentialAuditor(logger),
+		auditor:           middleware.NewCredentialAuditor(logger),
 		metrics: &SessionMetrics{
 			LastMetricsUpdate: time.Now(),
 		},
@@ -494,7 +494,7 @@ func (sm *SessionManager) Close() error {
 		// Use a reasonable timeout for shutdown
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		
+
 		shutdownErr = sm.Shutdown(ctx)
 	})
 	return shutdownErr
@@ -645,12 +645,12 @@ func (sm *SessionManager) GetSessionFromRequest(r *http.Request) (*Session, erro
 	if err != nil {
 		return nil, fmt.Errorf("no session cookie found")
 	}
-	
+
 	sessionID := cookie.Value
 	if sessionID == "" {
 		return nil, fmt.Errorf("empty session ID")
 	}
-	
+
 	// Get and validate session
 	return sm.ValidateSession(context.Background(), sessionID, r)
 }

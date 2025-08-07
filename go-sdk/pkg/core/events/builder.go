@@ -492,8 +492,8 @@ func (b *EventBuilder) buildRunErrorEvent() (*RunErrorEvent, error) {
 			EventType:   b.eventType,
 			TimestampMs: b.timestamp,
 		},
-		Message: b.errorMessage,
-		Code:    b.errorCode,
+		Message:    b.errorMessage,
+		Code:       b.errorCode,
 		RunIDValue: b.runID,
 	}
 	// Error return is kept for future extensibility (e.g., field validation)

@@ -17,13 +17,13 @@ import (
 // Common error conditions for HttpAgent
 const (
 	// HTTP configuration errors
-	ErrHTTPConfigNil               = "config_nil"
-	ErrMaxIdleConnsInvalid         = "max_idle_conns_invalid"
-	ErrMaxIdleConnsPerHostInvalid  = "max_idle_conns_per_host_invalid"
-	ErrMaxConnsPerHostInvalid      = "max_conns_per_host_invalid"
-	ErrDialTimeoutInvalid          = "dial_timeout_invalid"
-	ErrRequestTimeoutInvalid       = "request_timeout_invalid"
-	ErrMaxResponseBodySizeInvalid  = "max_response_body_size_invalid"
+	ErrHTTPConfigNil              = "config_nil"
+	ErrMaxIdleConnsInvalid        = "max_idle_conns_invalid"
+	ErrMaxIdleConnsPerHostInvalid = "max_idle_conns_per_host_invalid"
+	ErrMaxConnsPerHostInvalid     = "max_conns_per_host_invalid"
+	ErrDialTimeoutInvalid         = "dial_timeout_invalid"
+	ErrRequestTimeoutInvalid      = "request_timeout_invalid"
+	ErrMaxResponseBodySizeInvalid = "max_response_body_size_invalid"
 )
 
 // HttpAgent provides HTTP-specific functionality by embedding BaseAgent.
@@ -31,68 +31,68 @@ const (
 // management, connection pooling, and protocol support for HTTP/1.1 and HTTP/2.
 type HttpAgent struct {
 	*BaseAgent
-	
+
 	// HTTP-specific configuration
 	httpConfig *HttpConfig
-	
+
 	// HTTP client management
-	client     *http.Client
-	transport  *http.Transport
+	client      *http.Client
+	transport   *http.Transport
 	h2Transport *http2.Transport
-	
+
 	// Connection management
-	connPool     *ConnectionPool
-	connPoolMu   sync.RWMutex
-	activeConns  int64
-	maxConns     int64
-	
+	connPool    *ConnectionPool
+	connPoolMu  sync.RWMutex
+	activeConns int64
+	maxConns    int64
+
 	// Protocol configuration
 	protocolVersion HttpProtocolVersion
-	tlsConfig      *tls.Config
-	
+	tlsConfig       *tls.Config
+
 	// Request/response tracking
-	requestCount   int64
-	responseCount  int64
-	errorCount     int64
-	
+	requestCount  int64
+	responseCount int64
+	errorCount    int64
+
 	// Lifecycle management
-	httpMu        sync.RWMutex
-	shutdownCtx   context.Context
+	httpMu         sync.RWMutex
+	shutdownCtx    context.Context
 	shutdownCancel context.CancelFunc
 }
 
 // HttpConfig contains HTTP-specific configuration options.
 type HttpConfig struct {
 	// Protocol settings
-	ProtocolVersion    HttpProtocolVersion `json:"protocol_version" yaml:"protocol_version"`
-	EnableHTTP2        bool                `json:"enable_http2" yaml:"enable_http2"`
-	ForceHTTP2         bool                `json:"force_http2" yaml:"force_http2"`
-	
+	ProtocolVersion HttpProtocolVersion `json:"protocol_version" yaml:"protocol_version"`
+	EnableHTTP2     bool                `json:"enable_http2" yaml:"enable_http2"`
+	ForceHTTP2      bool                `json:"force_http2" yaml:"force_http2"`
+
 	// Connection settings
 	MaxIdleConns        int           `json:"max_idle_conns" yaml:"max_idle_conns"`
 	MaxIdleConnsPerHost int           `json:"max_idle_conns_per_host" yaml:"max_idle_conns_per_host"`
 	MaxConnsPerHost     int           `json:"max_conns_per_host" yaml:"max_conns_per_host"`
 	IdleConnTimeout     time.Duration `json:"idle_conn_timeout" yaml:"idle_conn_timeout"`
 	KeepAlive           time.Duration `json:"keep_alive" yaml:"keep_alive"`
-	
+
 	// Timeout settings
 	DialTimeout         time.Duration `json:"dial_timeout" yaml:"dial_timeout"`
 	RequestTimeout      time.Duration `json:"request_timeout" yaml:"request_timeout"`
 	ResponseTimeout     time.Duration `json:"response_timeout" yaml:"response_timeout"`
 	TLSHandshakeTimeout time.Duration `json:"tls_handshake_timeout" yaml:"tls_handshake_timeout"`
-	
+
 	// TLS settings
 	TLSConfig          *tls.Config `json:"-" yaml:"-"` // Not serializable
 	InsecureSkipVerify bool        `json:"insecure_skip_verify" yaml:"insecure_skip_verify"`
-	
+
 	// Advanced settings
-	DisableCompression   bool   `json:"disable_compression" yaml:"disable_compression"`
+	DisableCompression  bool   `json:"disable_compression" yaml:"disable_compression"`
 	DisableKeepAlives   bool   `json:"disable_keep_alives" yaml:"disable_keep_alives"`
 	UserAgent           string `json:"user_agent" yaml:"user_agent"`
 	MaxResponseBodySize int64  `json:"max_response_body_size" yaml:"max_response_body_size"`
-	
+
 	// Circuit breaker settings
-	EnableCircuitBreaker bool          `json:"enable_circuit_breaker" yaml:"enable_circuit_breaker"`
+	EnableCircuitBreaker bool                  `json:"enable_circuit_breaker" yaml:"enable_circuit_breaker"`
 	CircuitBreakerConfig *CircuitBreakerConfig `json:"circuit_breaker" yaml:"circuit_breaker"`
 }
 
@@ -111,14 +111,14 @@ const (
 
 // HttpMetrics contains HTTP-specific metrics.
 type HttpMetrics struct {
-	RequestCount       int64         `json:"request_count"`
-	ResponseCount      int64         `json:"response_count"`
-	ErrorCount         int64         `json:"error_count"`
-	ActiveConnections  int64         `json:"active_connections"`
-	PooledConnections  int64         `json:"pooled_connections"`
+	RequestCount        int64         `json:"request_count"`
+	ResponseCount       int64         `json:"response_count"`
+	ErrorCount          int64         `json:"error_count"`
+	ActiveConnections   int64         `json:"active_connections"`
+	PooledConnections   int64         `json:"pooled_connections"`
 	AverageResponseTime time.Duration `json:"average_response_time"`
-	TotalBytesReceived int64         `json:"total_bytes_received"`
-	TotalBytesSent     int64         `json:"total_bytes_sent"`
+	TotalBytesReceived  int64         `json:"total_bytes_received"`
+	TotalBytesSent      int64         `json:"total_bytes_sent"`
 }
 
 // NewHttpAgent creates a new HTTP agent with the specified configuration.
@@ -126,7 +126,7 @@ func NewHttpAgent(name, description string, httpConfig *HttpConfig) (*HttpAgent,
 	if httpConfig == nil {
 		httpConfig = DefaultHttpConfig()
 	}
-	
+
 	// Validate HTTP configuration
 	if err := validateHttpConfig(httpConfig); err != nil {
 		return nil, errors.NewAgentError(
@@ -135,13 +135,13 @@ func NewHttpAgent(name, description string, httpConfig *HttpConfig) (*HttpAgent,
 			"HttpAgent",
 		).WithCause(err).WithDetail("operation", "NewHttpAgent")
 	}
-	
+
 	// Create base agent
 	baseAgent := NewBaseAgent(name, description)
-	
+
 	// Create shutdown context
 	shutdownCtx, shutdownCancel := context.WithCancel(context.Background())
-	
+
 	// Create HTTP agent
 	httpAgent := &HttpAgent{
 		BaseAgent:       baseAgent,
@@ -151,10 +151,10 @@ func NewHttpAgent(name, description string, httpConfig *HttpConfig) (*HttpAgent,
 		shutdownCtx:     shutdownCtx,
 		shutdownCancel:  shutdownCancel,
 	}
-	
+
 	// Initialize connection pool
 	httpAgent.connPool = NewConnectionPool(httpConfig.MaxIdleConns, httpConfig.IdleConnTimeout)
-	
+
 	return httpAgent, nil
 }
 
@@ -168,10 +168,10 @@ func (h *HttpAgent) Initialize(ctx context.Context, config *AgentConfig) error {
 			h.Name(),
 		).WithCause(err).WithDetail("operation", "Initialize")
 	}
-	
+
 	h.httpMu.Lock()
 	defer h.httpMu.Unlock()
-	
+
 	// Setup HTTP transport
 	if err := h.setupHttpTransport(); err != nil {
 		return errors.NewAgentError(
@@ -180,7 +180,7 @@ func (h *HttpAgent) Initialize(ctx context.Context, config *AgentConfig) error {
 			h.Name(),
 		).WithCause(err).WithDetail("operation", "Initialize")
 	}
-	
+
 	// Setup HTTP client
 	if err := h.setupHttpClient(); err != nil {
 		return errors.NewAgentError(
@@ -189,7 +189,7 @@ func (h *HttpAgent) Initialize(ctx context.Context, config *AgentConfig) error {
 			h.Name(),
 		).WithCause(err).WithDetail("operation", "Initialize")
 	}
-	
+
 	// Setup TLS configuration if needed
 	if err := h.setupTLSConfig(); err != nil {
 		return errors.NewAgentError(
@@ -198,7 +198,7 @@ func (h *HttpAgent) Initialize(ctx context.Context, config *AgentConfig) error {
 			h.Name(),
 		).WithCause(err).WithDetail("operation", "Initialize")
 	}
-	
+
 	return nil
 }
 
@@ -212,42 +212,42 @@ func (h *HttpAgent) Start(ctx context.Context) error {
 			h.Name(),
 		).WithCause(err).WithDetail("operation", "Start")
 	}
-	
+
 	h.httpMu.Lock()
 	defer h.httpMu.Unlock()
-	
+
 	// Start connection pool maintenance
 	if h.connPool != nil {
 		go h.connPool.maintainConnections(h.shutdownCtx)
 	}
-	
+
 	// Start metrics collection
 	go h.collectMetrics(h.shutdownCtx)
-	
+
 	return nil
 }
 
 // Stop gracefully shuts down the HTTP agent.
 func (h *HttpAgent) Stop(ctx context.Context) error {
 	h.httpMu.Lock()
-	
+
 	// Cancel shutdown context to stop background goroutines
 	if h.shutdownCancel != nil {
 		h.shutdownCancel()
 	}
-	
+
 	// Close connection pool
 	if h.connPool != nil {
 		h.connPool.Close()
 	}
-	
+
 	// Close idle connections in transport
 	if h.transport != nil {
 		h.transport.CloseIdleConnections()
 	}
-	
+
 	h.httpMu.Unlock()
-	
+
 	// Stop base agent
 	if err := h.BaseAgent.Stop(ctx); err != nil {
 		return errors.NewAgentError(
@@ -256,7 +256,7 @@ func (h *HttpAgent) Stop(ctx context.Context) error {
 			h.Name(),
 		).WithCause(err).WithDetail("operation", "Stop")
 	}
-	
+
 	return nil
 }
 
@@ -264,12 +264,12 @@ func (h *HttpAgent) Stop(ctx context.Context) error {
 func (h *HttpAgent) Cleanup() error {
 	h.httpMu.Lock()
 	defer h.httpMu.Unlock()
-	
+
 	// Cancel shutdown context
 	if h.shutdownCancel != nil {
 		h.shutdownCancel()
 	}
-	
+
 	// Cleanup HTTP client and transport
 	if h.transport != nil {
 		h.transport.CloseIdleConnections()
@@ -278,13 +278,13 @@ func (h *HttpAgent) Cleanup() error {
 	h.client = nil
 	h.h2Transport = nil
 	h.tlsConfig = nil
-	
+
 	// Close connection pool
 	if h.connPool != nil {
 		h.connPool.Close()
 		h.connPool = nil
 	}
-	
+
 	// Cleanup base agent
 	return h.BaseAgent.Cleanup()
 }
@@ -316,15 +316,15 @@ func (h *HttpAgent) SendRequest(ctx context.Context, req *http.Request) (*http.R
 			h.Name(),
 		)
 	}
-	
+
 	atomic.AddInt64(&h.requestCount, 1)
 	atomic.AddInt64(&h.activeConns, 1)
 	defer atomic.AddInt64(&h.activeConns, -1)
-	
+
 	h.httpMu.RLock()
 	client := h.client
 	h.httpMu.RUnlock()
-	
+
 	if client == nil {
 		atomic.AddInt64(&h.errorCount, 1)
 		return nil, errors.NewAgentError(
@@ -333,14 +333,14 @@ func (h *HttpAgent) SendRequest(ctx context.Context, req *http.Request) (*http.R
 			h.Name(),
 		)
 	}
-	
+
 	// Set timeout if configured
 	if h.httpConfig.RequestTimeout > 0 {
 		var cancel context.CancelFunc
 		ctx, cancel = context.WithTimeout(ctx, h.httpConfig.RequestTimeout)
 		defer cancel()
 	}
-	
+
 	// Send request
 	resp, err := client.Do(req.WithContext(ctx))
 	if err != nil {
@@ -351,7 +351,7 @@ func (h *HttpAgent) SendRequest(ctx context.Context, req *http.Request) (*http.R
 			h.Name(),
 		)
 	}
-	
+
 	atomic.AddInt64(&h.responseCount, 1)
 	return resp, nil
 }
@@ -359,24 +359,24 @@ func (h *HttpAgent) SendRequest(ctx context.Context, req *http.Request) (*http.R
 // setupHttpTransport configures the HTTP transport based on protocol version.
 func (h *HttpAgent) setupHttpTransport() error {
 	config := h.httpConfig
-	
+
 	// Create base transport
 	h.transport = &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout:   config.DialTimeout,
 			KeepAlive: config.KeepAlive,
 		}).DialContext,
-		
+
 		MaxIdleConns:        config.MaxIdleConns,
 		MaxIdleConnsPerHost: config.MaxIdleConnsPerHost,
 		MaxConnsPerHost:     config.MaxConnsPerHost,
 		IdleConnTimeout:     config.IdleConnTimeout,
 		TLSHandshakeTimeout: config.TLSHandshakeTimeout,
-		
+
 		DisableCompression: config.DisableCompression,
 		DisableKeepAlives:  config.DisableKeepAlives,
 	}
-	
+
 	// Configure HTTP/2 support
 	if config.EnableHTTP2 {
 		if config.ForceHTTP2 {
@@ -395,14 +395,14 @@ func (h *HttpAgent) setupHttpTransport() error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
 // setupHttpClient creates and configures the HTTP client.
 func (h *HttpAgent) setupHttpClient() error {
 	config := h.httpConfig
-	
+
 	// Choose transport based on protocol configuration
 	var transport http.RoundTripper
 	switch {
@@ -411,19 +411,19 @@ func (h *HttpAgent) setupHttpClient() error {
 	default:
 		transport = h.transport
 	}
-	
+
 	h.client = &http.Client{
 		Transport: transport,
 		Timeout:   config.RequestTimeout,
 	}
-	
+
 	return nil
 }
 
 // setupTLSConfig configures TLS settings.
 func (h *HttpAgent) setupTLSConfig() error {
 	config := h.httpConfig
-	
+
 	if config.TLSConfig != nil {
 		h.tlsConfig = config.TLSConfig.Clone()
 	} else {
@@ -431,16 +431,16 @@ func (h *HttpAgent) setupTLSConfig() error {
 			InsecureSkipVerify: config.InsecureSkipVerify,
 		}
 	}
-	
+
 	// Apply TLS config to transport
 	if h.transport != nil {
 		h.transport.TLSClientConfig = h.tlsConfig
 	}
-	
+
 	if h.h2Transport != nil {
 		h.h2Transport.TLSClientConfig = h.tlsConfig
 	}
-	
+
 	return nil
 }
 
@@ -448,7 +448,7 @@ func (h *HttpAgent) setupTLSConfig() error {
 func (h *HttpAgent) collectMetrics(ctx context.Context) {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -465,7 +465,7 @@ func (h *HttpAgent) collectMetrics(ctx context.Context) {
 // DefaultHttpConfig returns a default HTTP configuration.
 func DefaultHttpConfig() *HttpConfig {
 	return &HttpConfig{
-		ProtocolVersion:       HttpProtocolVersionAuto,
+		ProtocolVersion:      HttpProtocolVersionAuto,
 		EnableHTTP2:          true,
 		ForceHTTP2:           false,
 		MaxIdleConns:         100,
@@ -480,16 +480,16 @@ func DefaultHttpConfig() *HttpConfig {
 		InsecureSkipVerify:   false,
 		DisableCompression:   false,
 		DisableKeepAlives:    false,
-		UserAgent:           "AG-UI-HttpAgent/1.0",
+		UserAgent:            "AG-UI-HttpAgent/1.0",
 		MaxResponseBodySize:  10 * 1024 * 1024, // 10MB
 		EnableCircuitBreaker: false,
 		CircuitBreakerConfig: &CircuitBreakerConfig{
-			Enabled:          false,
-			FailureThreshold: 5,
-			SuccessThreshold: 3,
-			Timeout:          60 * time.Second,
-			HalfOpenMaxCalls: 3,
-			FailureRateThreshold: 0.5,
+			Enabled:                 false,
+			FailureThreshold:        5,
+			SuccessThreshold:        3,
+			Timeout:                 60 * time.Second,
+			HalfOpenMaxCalls:        3,
+			FailureRateThreshold:    0.5,
 			MinimumRequestThreshold: 10,
 		},
 	}
@@ -500,31 +500,31 @@ func validateHttpConfig(config *HttpConfig) error {
 	if config == nil {
 		return errors.NewValidationError(ErrHTTPConfigNil, "HTTP configuration cannot be nil")
 	}
-	
+
 	if config.MaxIdleConns <= 0 {
 		return errors.NewValidationError(ErrMaxIdleConnsInvalid, "max idle connections must be positive").WithField("MaxIdleConns", config.MaxIdleConns)
 	}
-	
+
 	if config.MaxIdleConnsPerHost <= 0 {
 		return errors.NewValidationError(ErrMaxIdleConnsPerHostInvalid, "max idle connections per host must be positive").WithField("MaxIdleConnsPerHost", config.MaxIdleConnsPerHost)
 	}
-	
+
 	if config.MaxConnsPerHost <= 0 {
 		return errors.NewValidationError(ErrMaxConnsPerHostInvalid, "max connections per host must be positive").WithField("MaxConnsPerHost", config.MaxConnsPerHost)
 	}
-	
+
 	if config.DialTimeout <= 0 {
 		return errors.NewValidationError(ErrDialTimeoutInvalid, "dial timeout must be positive").WithField("DialTimeout", config.DialTimeout.String())
 	}
-	
+
 	if config.RequestTimeout <= 0 {
 		return errors.NewValidationError(ErrRequestTimeoutInvalid, "request timeout must be positive").WithField("RequestTimeout", config.RequestTimeout.String())
 	}
-	
+
 	if config.MaxResponseBodySize <= 0 {
 		return errors.NewValidationError(ErrMaxResponseBodySizeInvalid, "max response body size must be positive").WithField("MaxResponseBodySize", config.MaxResponseBodySize)
 	}
-	
+
 	return nil
 }
 

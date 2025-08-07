@@ -11,7 +11,7 @@ import (
 func TestHistoryCompaction(t *testing.T) {
 	// Create history with size limit
 	options := HistoryOptions{
-		MaxMessages: 5,
+		MaxMessages:      5,
 		CompactThreshold: 3,
 	}
 	h := NewHistory(options)
@@ -50,9 +50,9 @@ func TestHistoryCompaction(t *testing.T) {
 func TestHistoryAgeLimit(t *testing.T) {
 	// Create history with age limit
 	options := HistoryOptions{
-		MaxAge: 100 * time.Millisecond,
+		MaxAge:           100 * time.Millisecond,
 		CompactThreshold: 3,
-		EnableIndexing: true, // Required for Get() method to work
+		EnableIndexing:   true, // Required for Get() method to work
 	}
 	h := NewHistory(options)
 
@@ -189,8 +189,8 @@ func TestHistorySnapshot(t *testing.T) {
 	for i, msg := range restoredMessages {
 		content1 := msg.GetContent()
 		content2 := originalMessages[i].GetContent()
-		if (content1 == nil && content2 != nil) || (content1 != nil && content2 == nil) || 
-		   (content1 != nil && content2 != nil && *content1 != *content2) {
+		if (content1 == nil && content2 != nil) || (content1 != nil && content2 == nil) ||
+			(content1 != nil && content2 != nil && *content1 != *content2) {
 			t.Errorf("Restored message %d content mismatch", i)
 		}
 	}

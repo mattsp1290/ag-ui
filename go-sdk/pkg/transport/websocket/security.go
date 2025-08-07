@@ -15,8 +15,8 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
-	"golang.org/x/time/rate"
 	"github.com/mattsp1290/ag-ui/go-sdk/internal/timeconfig"
+	"golang.org/x/time/rate"
 )
 
 // Common JWT validation errors
@@ -533,11 +533,11 @@ func (sm *SecurityManager) logSecurityEvent(ctx context.Context, event *Security
 	sm.wg.Add(1)
 	go func() {
 		defer sm.wg.Done()
-		
+
 		// Create context with timeout for audit logging to prevent hanging
 		auditCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
-		
+
 		// Check again in case shutdown happened after we added to wait group
 		select {
 		case <-sm.shutdownCh:

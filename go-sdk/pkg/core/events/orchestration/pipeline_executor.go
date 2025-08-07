@@ -32,55 +32,55 @@ type TimeoutManager struct {
 
 // PipelineMetrics tracks pipeline execution metrics
 type PipelineMetrics struct {
-	TotalExecutions    int64
-	SuccessfulRuns     int64
-	FailedRuns         int64
+	TotalExecutions      int64
+	SuccessfulRuns       int64
+	FailedRuns           int64
 	AverageExecutionTime time.Duration
-	StageMetrics       map[string]*StageMetrics
-	mu                 sync.RWMutex
+	StageMetrics         map[string]*StageMetrics
+	mu                   sync.RWMutex
 }
 
 // StageMetrics tracks metrics for individual stages
 type StageMetrics struct {
-	ExecutionCount   int64
-	SuccessCount     int64
-	FailureCount     int64
-	AverageTime      time.Duration
-	MinTime          time.Duration
-	MaxTime          time.Duration
-	RetryCount       int64
-	TimeoutCount     int64
+	ExecutionCount int64
+	SuccessCount   int64
+	FailureCount   int64
+	AverageTime    time.Duration
+	MinTime        time.Duration
+	MaxTime        time.Duration
+	RetryCount     int64
+	TimeoutCount   int64
 }
 
 // PipelineContext provides context for pipeline execution
 type PipelineContext struct {
-	ExecutionID     string
-	WorkflowID      string
-	StageID         string
-	ValidationCtx   *ValidationContext
-	ParentContext   context.Context
-	Timeout         time.Duration
-	RetryPolicy     *RetryPolicy
-	Metadata        map[string]interface{}
-	SharedData      map[string]interface{}
-	mu              sync.RWMutex
+	ExecutionID   string
+	WorkflowID    string
+	StageID       string
+	ValidationCtx *ValidationContext
+	ParentContext context.Context
+	Timeout       time.Duration
+	RetryPolicy   *RetryPolicy
+	Metadata      map[string]interface{}
+	SharedData    map[string]interface{}
+	mu            sync.RWMutex
 }
 
 // StageExecutionResult represents the result of stage execution
 type StageExecutionResult struct {
-	StageID        string
-	Status         ValidationStatus
-	StartTime      time.Time
-	EndTime        time.Time
-	Duration       time.Duration
+	StageID           string
+	Status            ValidationStatus
+	StartTime         time.Time
+	EndTime           time.Time
+	Duration          time.Duration
 	ValidationResults []*OrchestrationValidationResult
-	Errors         []error
-	Warnings       []string
-	RetryCount     int
-	TimeoutOccurred bool
-	Skipped        bool
-	SkipReason     string
-	Metadata       map[string]interface{}
+	Errors            []error
+	Warnings          []string
+	RetryCount        int
+	TimeoutOccurred   bool
+	Skipped           bool
+	SkipReason        string
+	Metadata          map[string]interface{}
 }
 
 // NewPipelineExecutor creates a new pipeline executor
@@ -203,7 +203,7 @@ func (pe *PipelineExecutor) executeSingleAttempt(ctx context.Context, pipelineCt
 func (pe *PipelineExecutor) executeValidatorsParallel(ctx context.Context, pipelineCtx *PipelineContext, stage *ValidationStage, result *StageResult) error {
 	var wg sync.WaitGroup
 	var resultMutex sync.Mutex
-	
+
 	// Track if any validation errors occurred
 	hasErrors := false
 
@@ -214,11 +214,11 @@ func (pe *PipelineExecutor) executeValidatorsParallel(ctx context.Context, pipel
 			defer wg.Done()
 
 			valResult, err := pe.executeValidator(ctx, v, pipelineCtx)
-			
+
 			// Safely append results and errors with mutex protection
 			resultMutex.Lock()
 			defer resultMutex.Unlock()
-			
+
 			if err != nil {
 				result.Errors = append(result.Errors, err)
 				hasErrors = true
@@ -276,7 +276,7 @@ func (pe *PipelineExecutor) executeValidatorsSequential(ctx context.Context, pip
 func (pe *PipelineExecutor) executeValidator(ctx context.Context, validator Validator, pipelineCtx *PipelineContext) (*OrchestrationValidationResult, error) {
 	// Create validation context with thread-safe access to shared maps
 	eventData := make(map[string]interface{})
-	
+
 	// Use pipeline context mutex to safely access shared properties
 	pipelineCtx.mu.RLock()
 	if pipelineCtx.ValidationCtx.Properties != nil {
@@ -289,7 +289,7 @@ func (pe *PipelineExecutor) executeValidator(ctx context.Context, validator Vali
 		eventData["event_type"] = pipelineCtx.ValidationCtx.EventType
 	}
 	pipelineCtx.mu.RUnlock()
-	
+
 	valCtx := &OrchestrationValidationContext{
 		EventData:   eventData,
 		Properties:  pipelineCtx.ValidationCtx.Properties,
@@ -433,7 +433,7 @@ func (pe *PipelineExecutor) updateMetrics(stageID string, result *StageResult) {
 	// Calculate average time
 	stageMetrics.AverageTime = time.Duration(
 		(int64(stageMetrics.AverageTime)*stageMetrics.ExecutionCount + int64(result.Duration)) /
-		(stageMetrics.ExecutionCount + 1))
+			(stageMetrics.ExecutionCount + 1))
 
 	stageMetrics.RetryCount += int64(result.RetryCount)
 }
@@ -531,7 +531,7 @@ func NewPipelineMetrics() *PipelineMetrics {
 
 // Helper function to check if a string contains a substring
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && (s == substr || (len(s) > len(substr) && 
-		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || 
-		 (len(s) > len(substr) && s[1:len(substr)+1] == substr))))
+	return len(s) >= len(substr) && (s == substr || (len(s) > len(substr) &&
+		(s[:len(substr)] == substr || s[len(s)-len(substr):] == substr ||
+			(len(s) > len(substr) && s[1:len(substr)+1] == substr))))
 }

@@ -11,52 +11,52 @@ import (
 type ToolUtilities struct {
 	// Configuration
 	config *UtilitiesConfig
-	
+
 	// Components
-	scaffolder     *ToolScaffolder
-	validator      *ToolValidator
-	docGenerator   *DocumentationGenerator
-	packager       *ToolPackager
-	benchmarker    *PerformanceBenchmarker
-	
+	scaffolder   *ToolScaffolder
+	validator    *ToolValidator
+	docGenerator *DocumentationGenerator
+	packager     *ToolPackager
+	benchmarker  *PerformanceBenchmarker
+
 	// State
-	mu           sync.RWMutex
+	mu             sync.RWMutex
 	generatedTools map[string]*GeneratedTool
 }
 
 // UtilitiesConfig holds configuration for the utilities system.
 type UtilitiesConfig struct {
 	// Scaffolding options
-	DefaultAuthor      string
-	DefaultLicense     string
-	DefaultVersion     string
-	TemplateDirectory  string
-	OutputDirectory    string
-	
+	DefaultAuthor     string
+	DefaultLicense    string
+	DefaultVersion    string
+	TemplateDirectory string
+	OutputDirectory   string
+
 	// Validation options
 	StrictValidation   bool
 	SchemaValidation   bool
 	SecurityValidation bool
-	
+
 	// Documentation options
-	DocFormat          DocFormat
-	IncludeExamples    bool
-	IncludeMetrics     bool
-	OutputFormat       []string
-	
+	DocFormat       DocFormat
+	IncludeExamples bool
+	IncludeMetrics  bool
+	OutputFormat    []string
+
 	// Packaging options
-	CompressionLevel   int
-	IncludeSource      bool
+	CompressionLevel    int
+	IncludeSource       bool
 	IncludeDependencies bool
-	
+
 	// Benchmarking options
-	BenchmarkDuration  time.Duration
+	BenchmarkDuration   time.Duration
 	BenchmarkIterations int
-	ProfileMemory      bool
-	ProfileCPU         bool
-	
+	ProfileMemory       bool
+	ProfileCPU          bool
+
 	// Custom settings
-	CustomSettings     map[string]interface{}
+	CustomSettings map[string]interface{}
 }
 
 // DefaultUtilitiesConfig returns a default configuration.
@@ -70,18 +70,18 @@ func DefaultUtilitiesConfig() *UtilitiesConfig {
 		StrictValidation:    true,
 		SchemaValidation:    true,
 		SecurityValidation:  true,
-		DocFormat:          DocFormatMarkdown,
-		IncludeExamples:    true,
-		IncludeMetrics:     true,
-		OutputFormat:       []string{"markdown", "html"},
-		CompressionLevel:   6,
-		IncludeSource:      true,
+		DocFormat:           DocFormatMarkdown,
+		IncludeExamples:     true,
+		IncludeMetrics:      true,
+		OutputFormat:        []string{"markdown", "html"},
+		CompressionLevel:    6,
+		IncludeSource:       true,
 		IncludeDependencies: true,
-		BenchmarkDuration:  5 * time.Second,  // Reduced from 30s to 5s
-		BenchmarkIterations: 100,  // Reduced from 1000 to 100
-		ProfileMemory:      true,
-		ProfileCPU:         true,
-		CustomSettings:     make(map[string]interface{}),
+		BenchmarkDuration:   5 * time.Second, // Reduced from 30s to 5s
+		BenchmarkIterations: 100,             // Reduced from 1000 to 100
+		ProfileMemory:       true,
+		ProfileCPU:          true,
+		CustomSettings:      make(map[string]interface{}),
 	}
 }
 
@@ -90,19 +90,19 @@ func NewToolUtilities(config *UtilitiesConfig) *ToolUtilities {
 	if config == nil {
 		config = DefaultUtilitiesConfig()
 	}
-	
+
 	utils := &ToolUtilities{
 		config:         config,
 		generatedTools: make(map[string]*GeneratedTool),
 	}
-	
+
 	// Initialize components
 	utils.scaffolder = NewToolScaffolder(config)
 	utils.validator = NewToolValidator(config)
 	utils.docGenerator = NewDocumentationGenerator(config)
 	utils.packager = NewToolPackager(config)
 	utils.benchmarker = NewPerformanceBenchmarker(config)
-	
+
 	return utils
 }
 
@@ -112,12 +112,12 @@ func (u *ToolUtilities) Scaffold(ctx context.Context, opts *ToolScaffoldOptions)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Store the generated tool
 	u.mu.Lock()
 	u.generatedTools[tool.Options.ToolID] = tool
 	u.mu.Unlock()
-	
+
 	return tool, nil
 }
 
@@ -145,7 +145,7 @@ func (u *ToolUtilities) BenchmarkTool(ctx context.Context, tool *Tool) (*Benchma
 func (u *ToolUtilities) GetGeneratedTools() map[string]*GeneratedTool {
 	u.mu.RLock()
 	defer u.mu.RUnlock()
-	
+
 	result := make(map[string]*GeneratedTool)
 	for id, tool := range u.generatedTools {
 		result[id] = tool
@@ -161,7 +161,7 @@ func (u *ToolUtilities) GetConfig() *UtilitiesConfig {
 // SetConfig updates the utilities configuration.
 func (u *ToolUtilities) SetConfig(config *UtilitiesConfig) {
 	u.config = config
-	
+
 	// Update component configurations
 	if u.scaffolder != nil {
 		u.scaffolder.config = config
@@ -194,14 +194,14 @@ func NewToolValidator(config *UtilitiesConfig) *ToolValidator {
 
 // ValidationReport contains the results of tool validation.
 type ValidationReport struct {
-	Valid               bool
-	Score               float64
-	SchemaValidation    *SchemaValidationResult
-	SecurityValidation  *SecurityValidationResult
-	TestValidation      *TestValidationResult
-	Issues              []ValidationIssue
-	Warnings            []ValidationWarning
-	Recommendations     []string
+	Valid              bool
+	Score              float64
+	SchemaValidation   *SchemaValidationResult
+	SecurityValidation *SecurityValidationResult
+	TestValidation     *TestValidationResult
+	Issues             []ValidationIssue
+	Warnings           []ValidationWarning
+	Recommendations    []string
 }
 
 // SchemaValidationResult contains schema validation results.
@@ -220,18 +220,18 @@ type SecurityValidationResult struct {
 
 // TestValidationResult contains test validation results.
 type TestValidationResult struct {
-	Valid        bool
-	TestsPassed  int
-	TestsFailed  int
-	Coverage     float64
+	Valid       bool
+	TestsPassed int
+	TestsFailed int
+	Coverage    float64
 }
 
 // ValidationIssue represents a validation issue.
 type ValidationIssue struct {
-	Type        string
-	Message     string
-	Location    string
-	Suggestion  string
+	Type       string
+	Message    string
+	Location   string
+	Suggestion string
 }
 
 // ValidationWarning represents a validation warning.
@@ -255,27 +255,27 @@ func (v *ToolValidator) ValidateTool(ctx context.Context, tool *Tool) (*Validati
 	if tool == nil {
 		return nil, fmt.Errorf("tool cannot be nil")
 	}
-	
+
 	report := &ValidationReport{
-		Valid:               true,
-		Score:               100.0,
-		SchemaValidation:    &SchemaValidationResult{Valid: true},
-		SecurityValidation:  &SecurityValidationResult{Valid: true},
-		TestValidation:      &TestValidationResult{Valid: true},
-		Issues:              []ValidationIssue{},
-		Warnings:            []ValidationWarning{},
-		Recommendations:     []string{},
+		Valid:              true,
+		Score:              100.0,
+		SchemaValidation:   &SchemaValidationResult{Valid: true},
+		SecurityValidation: &SecurityValidationResult{Valid: true},
+		TestValidation:     &TestValidationResult{Valid: true},
+		Issues:             []ValidationIssue{},
+		Warnings:           []ValidationWarning{},
+		Recommendations:    []string{},
 	}
-	
+
 	// Basic validation
 	if tool.Schema == nil {
 		return nil, fmt.Errorf("tool schema is required")
 	}
-	
+
 	if tool.Executor == nil {
 		return nil, fmt.Errorf("tool executor is required")
 	}
-	
+
 	// Validate schema
 	if err := tool.Schema.Validate(); err != nil {
 		report.Valid = false
@@ -286,7 +286,7 @@ func (v *ToolValidator) ValidateTool(ctx context.Context, tool *Tool) (*Validati
 			Message: err.Error(),
 		})
 	}
-	
+
 	return report, nil
 }
 
@@ -312,11 +312,11 @@ const (
 
 // GeneratedDocumentation represents generated documentation.
 type GeneratedDocumentation struct {
-	Tool       *Tool
-	Format     DocFormat
-	Content    string
-	Files      []DocFile
-	Metadata   *DocMetadata
+	Tool        *Tool
+	Format      DocFormat
+	Content     string
+	Files       []DocFile
+	Metadata    *DocMetadata
 	GeneratedAt time.Time
 }
 
@@ -340,14 +340,14 @@ func (g *DocumentationGenerator) GenerateDocumentation(tool *Tool, format DocFor
 	if tool == nil {
 		return nil, fmt.Errorf("tool cannot be nil")
 	}
-	
+
 	// Validate tool
 	if err := tool.Validate(); err != nil {
 		return nil, fmt.Errorf("tool validation failed: %w", err)
 	}
-	
+
 	content := g.generateMarkdownContent(tool)
-	
+
 	return &GeneratedDocumentation{
 		Tool:        tool,
 		Format:      format,
@@ -362,7 +362,7 @@ func (g *DocumentationGenerator) GenerateDocumentation(tool *Tool, format DocFor
 func (g *DocumentationGenerator) generateMarkdownContent(tool *Tool) string {
 	content := fmt.Sprintf("# %s\n\n%s\n\n", tool.Name, tool.Description)
 	content += fmt.Sprintf("**Version**: %s\n\n", tool.Version)
-	
+
 	if tool.Schema != nil && len(tool.Schema.Properties) > 0 {
 		content += "## Parameters\n\n"
 		for name, prop := range tool.Schema.Properties {
@@ -372,7 +372,7 @@ func (g *DocumentationGenerator) generateMarkdownContent(tool *Tool) string {
 			content += fmt.Sprintf("- **Required**: %t\n\n", g.isRequired(name, tool.Schema.Required))
 		}
 	}
-	
+
 	return content
 }
 
@@ -398,36 +398,36 @@ func NewToolPackager(config *UtilitiesConfig) *ToolPackager {
 
 // PackageOptions defines options for packaging.
 type PackageOptions struct {
-	IncludeSource      bool
-	IncludeTests       bool
-	IncludeDocs        bool
+	IncludeSource       bool
+	IncludeTests        bool
+	IncludeDocs         bool
 	IncludeDependencies bool
-	Compress           bool
-	Sign               bool
-	OutputPath         string
+	Compress            bool
+	Sign                bool
+	OutputPath          string
 }
 
 // ToolPackage represents a packaged tool.
 type ToolPackage struct {
-	ID           string
-	Name         string
-	Version      string
-	Files        []PackageFile
-	Metadata     *PackageMetadata
-	Signature    string
-	Size         int64
-	Checksum     string
-	CreatedAt    time.Time
+	ID        string
+	Name      string
+	Version   string
+	Files     []PackageFile
+	Metadata  *PackageMetadata
+	Signature string
+	Size      int64
+	Checksum  string
+	CreatedAt time.Time
 }
 
 // PackageFile represents a file in the package.
 type PackageFile struct {
-	Path        string
-	Content     []byte
-	Type        PackageFileType
-	Compressed  bool
-	Size        int64
-	Checksum    string
+	Path       string
+	Content    []byte
+	Type       PackageFileType
+	Compressed bool
+	Size       int64
+	Checksum   string
 }
 
 // PackageFileType defines the type of file in the package.
@@ -458,7 +458,7 @@ func (p *ToolPackager) CreatePackage(tool *Tool, opts *PackageOptions) (*ToolPac
 	if tool == nil {
 		return nil, fmt.Errorf("tool cannot be nil")
 	}
-	
+
 	if opts == nil {
 		opts = &PackageOptions{
 			IncludeSource: true,
@@ -467,7 +467,7 @@ func (p *ToolPackager) CreatePackage(tool *Tool, opts *PackageOptions) (*ToolPac
 			Compress:      true,
 		}
 	}
-	
+
 	pkg := &ToolPackage{
 		ID:        tool.ID,
 		Name:      tool.Name,
@@ -475,7 +475,7 @@ func (p *ToolPackager) CreatePackage(tool *Tool, opts *PackageOptions) (*ToolPac
 		Files:     []PackageFile{},
 		CreatedAt: time.Now(),
 	}
-	
+
 	// Add a basic source file
 	if opts.IncludeSource {
 		sourceContent := fmt.Sprintf("// %s - %s\npackage tools\n\n// Generated package for %s\n", tool.Name, tool.Description, tool.Name)
@@ -486,7 +486,7 @@ func (p *ToolPackager) CreatePackage(tool *Tool, opts *PackageOptions) (*ToolPac
 			Size:    int64(len(sourceContent)),
 		})
 	}
-	
+
 	// Add basic documentation
 	if opts.IncludeDocs {
 		docContent := fmt.Sprintf("# %s\n\n%s\n\nVersion: %s\n", tool.Name, tool.Description, tool.Version)
@@ -497,24 +497,24 @@ func (p *ToolPackager) CreatePackage(tool *Tool, opts *PackageOptions) (*ToolPac
 			Size:    int64(len(docContent)),
 		})
 	}
-	
+
 	// Calculate package size
 	var totalSize int64
 	for _, file := range pkg.Files {
 		totalSize += file.Size
 	}
 	pkg.Size = totalSize
-	
+
 	// Generate checksum (simple implementation)
 	pkg.Checksum = fmt.Sprintf("checksum-%s-%d", tool.ID, time.Now().Unix())
-	
+
 	// Set metadata
 	pkg.Metadata = &PackageMetadata{
 		Tool:     tool,
 		License:  p.config.DefaultLicense,
 		Keywords: []string{tool.ID, "tool", "generated"},
 	}
-	
+
 	return pkg, nil
 }
 
@@ -566,23 +566,23 @@ type BenchmarkMetadata struct {
 
 // BenchmarkEnvironment describes the benchmark environment.
 type BenchmarkEnvironment struct {
-	OS            string
-	Architecture  string
-	CPUCores      int
-	MemoryTotal   int64
-	GoVersion     string
-	CGOEnabled    bool
+	OS           string
+	Architecture string
+	CPUCores     int
+	MemoryTotal  int64
+	GoVersion    string
+	CGOEnabled   bool
 }
 
 // BenchmarkConfiguration holds benchmark configuration.
 type BenchmarkConfiguration struct {
-	Duration         time.Duration
-	Iterations       int
-	Concurrency      int
-	WarmupDuration   time.Duration
-	ProfileMemory    bool
-	ProfileCPU       bool
-	CustomParams     map[string]interface{}
+	Duration       time.Duration
+	Iterations     int
+	Concurrency    int
+	WarmupDuration time.Duration
+	ProfileMemory  bool
+	ProfileCPU     bool
+	CustomParams   map[string]interface{}
 }
 
 // RunBenchmark runs a basic benchmark for a tool.
@@ -590,15 +590,15 @@ func (b *PerformanceBenchmarker) RunBenchmark(ctx context.Context, tool *Tool) (
 	if tool == nil {
 		return nil, fmt.Errorf("tool cannot be nil")
 	}
-	
+
 	start := time.Now()
-	
+
 	// Run basic benchmark
 	iterations := b.config.BenchmarkIterations
 	if iterations == 0 {
 		iterations = 100
 	}
-	
+
 	// Simulate benchmark results
 	results := []BenchmarkResult{
 		{
@@ -618,11 +618,11 @@ func (b *PerformanceBenchmarker) RunBenchmark(ctx context.Context, tool *Tool) (
 			},
 		},
 	}
-	
+
 	suite := &BenchmarkSuite{
-		Tool:        tool,
-		Results:     results,
-		Summary:     &BenchmarkSummary{
+		Tool:    tool,
+		Results: results,
+		Summary: &BenchmarkSummary{
 			TotalTests:      len(results),
 			AverageLatency:  time.Millisecond,
 			ThroughputRPS:   2000.0,
@@ -652,6 +652,6 @@ func (b *PerformanceBenchmarker) RunBenchmark(ctx context.Context, tool *Tool) (
 		},
 		GeneratedAt: start,
 	}
-	
+
 	return suite, nil
 }

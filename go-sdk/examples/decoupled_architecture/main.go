@@ -52,9 +52,9 @@ type CacheEventData struct {
 // NewCacheEvent creates a new cache event
 func NewCacheEvent(eventType, source, key string, data interface{}) events.BusEvent {
 	return events.BusEvent{
-		ID:        fmt.Sprintf("cache-%d", time.Now().UnixNano()),
-		Type:      eventType,
-		Source:    source,
+		ID:     fmt.Sprintf("cache-%d", time.Now().UnixNano()),
+		Type:   eventType,
+		Source: source,
 		Data: CacheEventData{
 			Key:   key,
 			Value: data,
@@ -110,29 +110,29 @@ func NewDistributedEvent(eventType, source, nodeID string, data DistributedEvent
 // This shows how auth, cache, and distributed modules communicate
 // through events instead of direct coupling
 type DecoupledSystemExample struct {
-	eventBus         events.EventBus
-	authManager      *AuthManager
-	cacheManager     *CacheManager
+	eventBus           events.EventBus
+	authManager        *AuthManager
+	cacheManager       *CacheManager
 	distributedManager *DistributedManager
 }
 
 // AuthManager handles authentication using event-driven approach
 type AuthManager struct {
-	eventBus     events.EventBus
-	nodeID       string
-	userStore    map[string]bool // Simple user store for demo
-	
+	eventBus  events.EventBus
+	nodeID    string
+	userStore map[string]bool // Simple user store for demo
+
 	// Subscriptions
 	subscriptions map[string]events.SubscriptionID
 }
 
 // CacheManager handles caching using event-driven approach
 type CacheManager struct {
-	eventBus      events.EventBus
-	coordinator   *cache.EventDrivenCoordinator
+	eventBus       events.EventBus
+	coordinator    *cache.EventDrivenCoordinator
 	cacheValidator *cache.CacheValidator
-	nodeID        string
-	
+	nodeID         string
+
 	// Subscriptions
 	subscriptions map[string]events.SubscriptionID
 }
@@ -142,7 +142,7 @@ type DistributedManager struct {
 	eventBus     events.EventBus
 	nodeID       string
 	clusterNodes map[string]*NodeStatus
-	
+
 	// Subscriptions
 	subscriptions map[string]events.SubscriptionID
 }
@@ -160,7 +160,7 @@ type NodeStatus struct {
 func NewDecoupledSystemExample(nodeID string) *DecoupledSystemExample {
 	// Create event bus
 	eventBus := events.NewEventBus(events.DefaultEventBusConfig())
-	
+
 	// Create managers
 	authManager := &AuthManager{
 		eventBus:      eventBus,
@@ -168,20 +168,20 @@ func NewDecoupledSystemExample(nodeID string) *DecoupledSystemExample {
 		userStore:     make(map[string]bool),
 		subscriptions: make(map[string]events.SubscriptionID),
 	}
-	
+
 	cacheManager := &CacheManager{
 		eventBus:      eventBus,
 		nodeID:        nodeID,
 		subscriptions: make(map[string]events.SubscriptionID),
 	}
-	
+
 	distributedManager := &DistributedManager{
 		eventBus:      eventBus,
 		nodeID:        nodeID,
 		clusterNodes:  make(map[string]*NodeStatus),
 		subscriptions: make(map[string]events.SubscriptionID),
 	}
-	
+
 	return &DecoupledSystemExample{
 		eventBus:           eventBus,
 		authManager:        authManager,
@@ -196,15 +196,15 @@ func (dse *DecoupledSystemExample) Start(ctx context.Context) error {
 	if err := dse.authManager.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start auth manager: %w", err)
 	}
-	
+
 	if err := dse.cacheManager.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start cache manager: %w", err)
 	}
-	
+
 	if err := dse.distributedManager.Start(ctx); err != nil {
 		return fmt.Errorf("failed to start distributed manager: %w", err)
 	}
-	
+
 	log.Printf("Decoupled system started with node ID: %s", dse.authManager.nodeID)
 	return nil
 }
@@ -215,7 +215,7 @@ func (dse *DecoupledSystemExample) Stop(ctx context.Context) error {
 	dse.cacheManager.Stop(ctx)
 	dse.distributedManager.Stop(ctx)
 	dse.eventBus.Close()
-	
+
 	log.Println("Decoupled system stopped")
 	return nil
 }
@@ -223,31 +223,31 @@ func (dse *DecoupledSystemExample) Stop(ctx context.Context) error {
 // Simulate demonstrates the event-driven interactions
 func (dse *DecoupledSystemExample) Simulate(ctx context.Context) error {
 	log.Println("Starting event-driven simulation...")
-	
+
 	// Simulate user authentication
 	dse.simulateAuthentication(ctx, "user123", "password")
-	
+
 	// Wait a bit for events to propagate
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Simulate cache operations
 	dse.simulateCacheOperations(ctx)
-	
+
 	// Wait a bit for events to propagate
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Simulate distributed node operations
 	dse.simulateDistributedOperations(ctx)
-	
+
 	// Wait a bit for events to propagate
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Simulate auth expiration (should trigger cache invalidation)
 	dse.simulateAuthExpiration(ctx, "user123")
-	
+
 	// Wait for final events to propagate
 	time.Sleep(100 * time.Millisecond)
-	
+
 	log.Println("Event-driven simulation completed")
 	return nil
 }
@@ -262,11 +262,11 @@ func (am *AuthManager) Start(ctx context.Context) error {
 		return err
 	}
 	am.subscriptions["auth_expiration"] = subID
-	
+
 	// Add some demo users
 	am.userStore["user123"] = true
 	am.userStore["admin"] = true
-	
+
 	log.Printf("Auth manager started on node %s", am.nodeID)
 	return nil
 }
@@ -286,7 +286,7 @@ func (am *AuthManager) Authenticate(ctx context.Context, username, password stri
 	if !am.userStore[username] {
 		return fmt.Errorf("user not found: %s", username)
 	}
-	
+
 	// Publish auth success event
 	authEvent := NewAuthEvent(
 		EventTypeAuthSuccess,
@@ -298,13 +298,13 @@ func (am *AuthManager) Authenticate(ctx context.Context, username, password stri
 			TokenType: "session",
 		},
 	)
-	
+
 	err := am.eventBus.Publish(ctx, authEvent)
 	if err != nil {
 		log.Printf("Failed to publish auth success event: %v", err)
 		return err
 	}
-	
+
 	log.Printf("User %s authenticated successfully", username)
 	return nil
 }
@@ -319,7 +319,7 @@ func (am *AuthManager) ExpireAuth(ctx context.Context, userID string) {
 			Reason: "session_timeout",
 		},
 	)
-	
+
 	am.eventBus.PublishAsync(ctx, authEvent)
 	log.Printf("Auth expired for user %s", userID)
 }
@@ -343,19 +343,19 @@ func (cm *CacheManager) Start(ctx context.Context) error {
 		cm.eventBus,
 		cache.DefaultEventDrivenConfig(),
 	)
-	
+
 	// Start coordinator
 	if err := cm.coordinator.Start(ctx); err != nil {
 		return err
 	}
-	
+
 	// Subscribe to cache-related events
 	subID, err := cm.eventBus.Subscribe(EventTypeCacheHit, cm.handleCacheHit)
 	if err != nil {
 		return err
 	}
 	cm.subscriptions["cache_hit"] = subID
-	
+
 	log.Printf("Cache manager started on node %s", cm.nodeID)
 	return nil
 }
@@ -365,11 +365,11 @@ func (cm *CacheManager) Stop(ctx context.Context) error {
 	if cm.coordinator != nil {
 		cm.coordinator.Stop(ctx)
 	}
-	
+
 	for _, subID := range cm.subscriptions {
 		cm.eventBus.Unsubscribe(subID)
 	}
-	
+
 	log.Printf("Cache manager stopped on node %s", cm.nodeID)
 	return nil
 }
@@ -378,11 +378,11 @@ func (cm *CacheManager) Stop(ctx context.Context) error {
 func (cm *CacheManager) CacheGet(ctx context.Context, key string) ([]byte, error) {
 	// Simulate cache operation
 	data := []byte(fmt.Sprintf("cached_data_for_%s", key))
-	
+
 	// Publish cache hit event
 	cacheEvent := NewCacheEvent(EventTypeCacheHit, "cache_manager", key, data)
 	cm.eventBus.PublishAsync(ctx, cacheEvent)
-	
+
 	log.Printf("Cache hit for key %s", key)
 	return data, nil
 }
@@ -406,13 +406,13 @@ func (dm *DistributedManager) Start(ctx context.Context) error {
 		return err
 	}
 	dm.subscriptions["node_join"] = joinSubID
-	
+
 	leaveSubID, err := dm.eventBus.Subscribe(EventTypeNodeLeave, dm.handleNodeLeave)
 	if err != nil {
 		return err
 	}
 	dm.subscriptions["node_leave"] = leaveSubID
-	
+
 	// Announce this node joining
 	joinEvent := NewDistributedEvent(
 		EventTypeNodeJoin,
@@ -426,7 +426,7 @@ func (dm *DistributedManager) Start(ctx context.Context) error {
 			},
 		},
 	)
-	
+
 	dm.eventBus.PublishAsync(ctx, joinEvent)
 	log.Printf("Distributed manager started on node %s", dm.nodeID)
 	return nil
@@ -445,13 +445,13 @@ func (dm *DistributedManager) Stop(ctx context.Context) error {
 			},
 		},
 	)
-	
+
 	dm.eventBus.Publish(ctx, leaveEvent)
-	
+
 	for _, subID := range dm.subscriptions {
 		dm.eventBus.Unsubscribe(subID)
 	}
-	
+
 	log.Printf("Distributed manager stopped on node %s", dm.nodeID)
 	return nil
 }
@@ -514,38 +514,38 @@ func main() {
 	fmt.Println("====================================")
 
 	ctx := context.Background()
-	
+
 	// Create the system
 	system := NewDecoupledSystemExample("node-1")
-	
+
 	// Start all components
 	if err := system.Start(ctx); err != nil {
 		log.Fatalf("Failed to start system: %v", err)
 	}
-	
+
 	// Run simulations
 	time.Sleep(500 * time.Millisecond)
-	
+
 	// Simulate authentication
 	system.simulateAuthentication(ctx, "user123", "password")
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Simulate cache operations
 	system.simulateCacheOperations(ctx)
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Simulate distributed operations
 	system.simulateDistributedOperations(ctx)
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Simulate auth expiration
 	system.simulateAuthExpiration(ctx, "user123")
 	time.Sleep(500 * time.Millisecond)
-	
+
 	// Stop the system
 	if err := system.Stop(ctx); err != nil {
 		log.Printf("Error stopping system: %v", err)
 	}
-	
+
 	fmt.Println("\nExample completed!")
 }

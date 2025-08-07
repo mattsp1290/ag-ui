@@ -233,12 +233,12 @@ func TestProtobufOptions(t *testing.T) {
 
 		// Create an encoder to generate test data
 		encoder := NewProtobufEncoder(nil)
-		
+
 		// Create an invalid event (empty error message)
 		event := events.NewRunErrorEvent("") // Invalid: empty error message
 
 		data, _ := encoder.Encode(context.Background(), event)
-		
+
 		_, err := decoder.Decode(context.Background(), data)
 		if err == nil {
 			t.Error("Expected validation error for invalid event")

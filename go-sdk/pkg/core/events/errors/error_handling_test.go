@@ -66,7 +66,7 @@ func TestStructuredErrorTypes(t *testing.T) {
 func TestErrorCodeMapping(t *testing.T) {
 	// Test legacy error code conversion
 	legacyErr := ConvertLegacyError("AUTH_VALIDATION", "Authentication required")
-	
+
 	if !IsAuthenticationError(legacyErr) {
 		t.Error("Expected converted legacy error to be an authentication error")
 	}
@@ -78,7 +78,7 @@ func TestErrorCodeMapping(t *testing.T) {
 
 	// Test unknown legacy code conversion
 	unknownErr := ConvertLegacyError("UNKNOWN_RULE", "Unknown error")
-	
+
 	if !IsValidationError(unknownErr) {
 		t.Error("Expected unknown legacy error to be converted to validation error")
 	}
@@ -86,7 +86,7 @@ func TestErrorCodeMapping(t *testing.T) {
 
 func TestRetryPolicy(t *testing.T) {
 	policy := DefaultRetryPolicy()
-	
+
 	if policy.MaxAttempts != 3 {
 		t.Errorf("Expected MaxAttempts to be 3, got %d", policy.MaxAttempts)
 	}
@@ -94,7 +94,7 @@ func TestRetryPolicy(t *testing.T) {
 	// Test retry mechanism
 	attempts := 0
 	ctx := context.Background()
-	
+
 	err := Retry(ctx, policy, func(ctx context.Context, attempt int) error {
 		attempts++
 		if attempts < 2 {
@@ -134,7 +134,7 @@ func TestRetryPolicy(t *testing.T) {
 
 func TestCacheRetryPolicy(t *testing.T) {
 	policy := CacheRetryPolicy()
-	
+
 	if policy.MaxAttempts != 2 {
 		t.Errorf("Expected MaxAttempts to be 2 for cache policy, got %d", policy.MaxAttempts)
 	}
@@ -154,7 +154,7 @@ func TestCacheRetryPolicy(t *testing.T) {
 
 func TestLogger(t *testing.T) {
 	logger := NewDefaultLogger("test")
-	
+
 	// Test that logger doesn't panic (basic functionality test)
 	logger.Info("Test info message")
 	logger.Warn("Test warning message")

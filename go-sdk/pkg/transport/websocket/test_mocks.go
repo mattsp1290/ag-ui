@@ -13,8 +13,8 @@ import (
 type MockEvent struct {
 	EventType      events.EventType
 	Data           interface{}
-	TimestampMs    *int64  // Exported field for test initialization
-	timestampMs    *int64  // Internal field for compatibility
+	TimestampMs    *int64       // Exported field for test initialization
+	timestampMs    *int64       // Internal field for compatibility
 	ValidationFunc func() error // Optional validation function for testing
 }
 
@@ -32,7 +32,7 @@ func (e *MockEvent) Timestamp() *int64 {
 		e.timestampMs = e.TimestampMs
 		return e.TimestampMs
 	}
-	
+
 	// Return nil if no timestamp was explicitly set
 	// This allows testing of validation logic that requires timestamps
 	return e.timestampMs

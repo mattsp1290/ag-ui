@@ -39,7 +39,7 @@ func TestStreamingContext(t *testing.T) {
 		type TestData struct {
 			Key string `json:"key"`
 		}
-		
+
 		testCases := []interface{}{
 			"string data",
 			123,
@@ -90,7 +90,7 @@ func TestStreamingContext(t *testing.T) {
 			Progress int    `json:"progress"`
 			Status   string `json:"status"`
 		}
-		
+
 		metadata := map[string]interface{}{
 			"progress": 50,
 			"status":   "processing",

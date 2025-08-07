@@ -17,10 +17,9 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
 	"github.com/mattsp1290/ag-ui/go-sdk/internal/timeconfig"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core"
 )
-
 
 // ConnectionState represents the current state of a WebSocket connection
 type ConnectionState int32
@@ -171,16 +170,16 @@ type Connection struct {
 	config *ConnectionConfig
 
 	// Connection state
-	state        int32 // atomic access with ConnectionState
-	conn         *websocket.Conn
-	connMutex    sync.RWMutex
+	state          int32 // atomic access with ConnectionState
+	conn           *websocket.Conn
+	connMutex      sync.RWMutex
 	connGeneration int64 // atomic access - increments on each new connection
-	url          *url.URL
-	reconnectCh  chan struct{}
-	closeCh      chan struct{}
-	errorCh      chan error
-	messageCh    chan []byte
-	writeBacklog *lru.Cache[string, []byte]
+	url            *url.URL
+	reconnectCh    chan struct{}
+	closeCh        chan struct{}
+	errorCh        chan error
+	messageCh      chan []byte
+	writeBacklog   *lru.Cache[string, []byte]
 
 	// Reconnection state
 	reconnectAttempts int32
@@ -196,12 +195,12 @@ type Connection struct {
 	ctx      context.Context
 	cancel   context.CancelFunc
 	stopOnce sync.Once
-	
+
 	// Connection-specific goroutine management
-	connCtx      context.Context
-	connCancel   context.CancelFunc
-	connWg       sync.WaitGroup
-	connMutexGr  sync.Mutex // protects connCtx, connCancel, connWg
+	connCtx     context.Context
+	connCancel  context.CancelFunc
+	connWg      sync.WaitGroup
+	connMutexGr sync.Mutex // protects connCtx, connCancel, connWg
 
 	// Cleanup coordination
 	cleanupOnce    sync.Once
@@ -305,14 +304,14 @@ func (c *Connection) stopConnectionGoroutines() {
 	c.connMutexGr.Lock()
 	connCancel := c.connCancel
 	c.connMutexGr.Unlock()
-	
+
 	if connCancel != nil {
 		c.config.Logger.Debug("Stopping connection goroutines with enhanced aggressive shutdown")
-		
+
 		// Phase 1: Cancel context first to signal goroutines to exit immediately
 		c.config.Logger.Debug("Cancelling connection context to signal goroutines")
 		connCancel()
-		
+
 		// Phase 2: Force close WebSocket connection to unblock any I/O operations
 		c.connMutex.Lock()
 		if c.conn != nil {
@@ -323,41 +322,41 @@ func (c *Connection) stopConnectionGoroutines() {
 			}
 		}
 		c.connMutex.Unlock()
-		
+
 		// Phase 3: Wait for connection-specific goroutines with enhanced timeout and retry logic
 		maxRetries := 3
 		baseTimeout := 100 * time.Millisecond
-		
+
 		for retry := 0; retry < maxRetries; retry++ {
 			timeout := time.Duration(retry+1) * baseTimeout // Progressive timeout: 100ms, 200ms, 300ms
-			
+
 			done := make(chan struct{})
 			go func() {
 				c.connWg.Wait()
 				close(done)
 			}()
-			
+
 			select {
 			case <-done:
-				c.config.Logger.Debug("Connection goroutines stopped cleanly", 
-					zap.Int("retry", retry), 
+				c.config.Logger.Debug("Connection goroutines stopped cleanly",
+					zap.Int("retry", retry),
 					zap.Duration("timeout", timeout))
 				return // Success - exit immediately
 			case <-time.After(timeout):
-				c.config.Logger.Debug("Connection goroutines did not stop within timeout", 
-					zap.Int("retry", retry), 
+				c.config.Logger.Debug("Connection goroutines did not stop within timeout",
+					zap.Int("retry", retry),
 					zap.Duration("timeout", timeout))
-				
+
 				// On final retry, give up gracefully
 				if retry == maxRetries-1 {
 					c.config.Logger.Debug("Final retry timeout - proceeding with cleanup")
 					return
 				}
-				
+
 				// Intermediate retry - force additional cleanup
 				c.config.Logger.Debug("Forcing additional cleanup before retry",
 					zap.Int("retry", retry))
-				
+
 				// Additional forced cleanup measures
 				c.connMutex.Lock()
 				if c.conn != nil {
@@ -368,7 +367,7 @@ func (c *Connection) stopConnectionGoroutines() {
 					c.conn.Close() // Force close again
 				}
 				c.connMutex.Unlock()
-				
+
 				// Brief pause before retry
 				time.Sleep(10 * time.Millisecond)
 			}
@@ -384,7 +383,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 	if !success {
 		return errors.New("connection is not in a state that allows connecting")
 	}
-	
+
 	// Stop any existing connection goroutines before starting new ones
 	c.stopConnectionGoroutines()
 
@@ -427,13 +426,13 @@ func (c *Connection) Connect(ctx context.Context) error {
 		c.config.Logger.Debug("Client received pong", zap.String("data", data))
 		conn.SetReadDeadline(time.Now().Add(c.config.PongWait))
 		c.heartbeat.OnPong()
-		
+
 		// If we're in reconnecting state and received a pong, we can recover
 		if c.State() == StateReconnecting && c.heartbeat.IsHealthy() {
 			c.config.Logger.Info("Connection recovered from reconnecting state")
 			c.setState(StateConnected)
 		}
-		
+
 		return nil
 	})
 
@@ -469,7 +468,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 	// Start connection goroutines with proper error handling
 	c.wg.Add(2)
 	c.connWg.Add(2)
-	
+
 	// Start readPump with proper cleanup tracking
 	go func() {
 		defer func() {
@@ -479,7 +478,7 @@ func (c *Connection) Connect(ctx context.Context) error {
 		}()
 		c.readPump()
 	}()
-	
+
 	// Start writePump with proper cleanup tracking
 	go func() {
 		defer func() {
@@ -522,14 +521,14 @@ func (c *Connection) disconnect(err error) error {
 		// Already closing or closed
 		c.config.Logger.Debug("Disconnect called but connection already closing/closed",
 			zap.String("current_state", prevState.String()))
-		
+
 		// If we were in StateReconnecting and trying to disconnect, we should still call the disconnect handler
 		// This fixes the issue where disconnect handler wasn't called during state transitions
 		if prevState == StateReconnecting && err != nil {
 			c.handlersMutex.RLock()
 			onDisconnect := c.onDisconnect
 			c.handlersMutex.RUnlock()
-			
+
 			if onDisconnect != nil {
 				c.config.Logger.Debug("Calling disconnect handler for reconnecting state")
 				onDisconnect(err)
@@ -636,7 +635,7 @@ func (c *Connection) Close() error {
 		// Cancel main context to signal all goroutines to stop immediately
 		c.config.Logger.Debug("Cancelling main connection context")
 		c.cancel()
-		
+
 		// Stop connection-specific goroutines aggressively
 		c.stopConnectionGoroutines()
 
@@ -661,7 +660,7 @@ func (c *Connection) Close() error {
 			c.wg.Wait()
 			close(done)
 		}()
-		
+
 		select {
 		case <-done:
 			c.config.Logger.Debug("All goroutines stopped cleanly")
@@ -674,7 +673,7 @@ func (c *Connection) Close() error {
 		c.cleanupOnce.Do(func() {
 			c.channelMutex.Lock()
 			defer c.channelMutex.Unlock()
-			
+
 			// Close channels - order matters for proper cleanup
 			safeCloseChannel(c.reconnectCh, "reconnect")
 			safeCloseChannel(c.messageCh, "message")
@@ -696,19 +695,19 @@ func (c *Connection) closeChannelsSafely() {
 			c.config.Logger.Debug("Recovered from panic while closing channels", zap.Any("panic", r))
 		}
 	}()
-	
+
 	// Close channels to unblock waiting goroutines with proper synchronization
 	c.channelMutex.Lock()
 	defer c.channelMutex.Unlock()
-	
+
 	// Only close if channels haven't been closed already
 	if atomic.LoadInt32(&c.channelsClosed) == 0 {
 		// Close message channel first to stop message processing
 		safeCloseChannel(c.messageCh, "message")
-		
+
 		// Close close channel to unblock any waiting operations
 		safeCloseChannel(c.closeCh, "close")
-		
+
 		// Close reconnect channel last
 		safeCloseChannel(c.reconnectCh, "reconnect")
 	}
@@ -719,20 +718,20 @@ func forceCloseConnection(conn *websocket.Conn) error {
 	if conn == nil {
 		return nil
 	}
-	
+
 	// Set immediate deadlines to interrupt any blocked operations
 	now := time.Now()
 	conn.SetReadDeadline(now)
 	conn.SetWriteDeadline(now)
-	
+
 	// Try to send close message
 	err := conn.WriteControl(websocket.CloseMessage,
 		websocket.FormatCloseMessage(websocket.CloseGoingAway, "connection closing"),
 		now.Add(50*time.Millisecond))
-	
+
 	// Close the connection
 	closeErr := conn.Close()
-	
+
 	// Return the write error if any, otherwise the close error
 	if err != nil {
 		return err
@@ -744,19 +743,19 @@ func forceCloseConnection(conn *websocket.Conn) error {
 func (c *Connection) forceCloseConnectionNow() {
 	c.connMutex.Lock()
 	defer c.connMutex.Unlock()
-	
+
 	if c.conn != nil {
 		// Set immediate deadlines to unblock any I/O operations
 		now := time.Now()
 		c.conn.SetReadDeadline(now)
 		c.conn.SetWriteDeadline(now)
-		
+
 		// Force close underlying TCP connection if possible
 		if tcpConn, ok := c.conn.UnderlyingConn().(*net.TCPConn); ok {
 			tcpConn.SetLinger(0) // Force immediate close
 			tcpConn.Close()
 		}
-		
+
 		// Close WebSocket connection
 		c.conn.Close()
 		c.conn = nil
@@ -771,7 +770,7 @@ func safeCloseChannel(ch interface{}, name string) {
 			// Channel was already closed, which is fine
 		}
 	}()
-	
+
 	switch c := ch.(type) {
 	case chan struct{}:
 		close(c)
@@ -819,7 +818,7 @@ func (c *Connection) SendMessage(ctx context.Context, message []byte) error {
 			return context.DeadlineExceeded
 		}
 	}
-	
+
 	timeoutCtx, cancel := context.WithTimeout(ctx, sendTimeout)
 	defer cancel()
 
@@ -848,7 +847,7 @@ func (c *Connection) SendMessageSync(ctx context.Context, message []byte) error 
 		// Create a timeout context for rate limiting to prevent goroutine leaks
 		rateLimitCtx, cancel := context.WithTimeout(ctx, c.config.WriteTimeout)
 		defer cancel()
-		
+
 		if err := c.config.RateLimiter.Wait(rateLimitCtx); err != nil {
 			return fmt.Errorf("rate limit exceeded: %w", err)
 		}
@@ -866,7 +865,7 @@ func (c *Connection) SendMessageSync(ctx context.Context, message []byte) error 
 		c.metrics.MessagesSent++
 		c.metrics.BytesSent += int64(len(message))
 		c.metrics.mutex.Unlock()
-		
+
 		c.config.Logger.Debug("Connection message queued successfully",
 			zap.String("url", c.url.String()),
 			zap.Int("channel_size", len(c.messageCh)),
@@ -922,17 +921,17 @@ func (c *Connection) trySetState(expectedState, newState ConnectionState) bool {
 	// Use atomic compare-and-swap for race-free state transition
 	for {
 		currentState := ConnectionState(atomic.LoadInt32(&c.state))
-		
+
 		// Check if current state matches expected state
 		if currentState != expectedState {
 			return false
 		}
-		
+
 		// Check if state transition is valid
 		if !c.isValidStateTransition(currentState, newState) {
 			return false
 		}
-		
+
 		// Attempt atomic compare-and-swap
 		if atomic.CompareAndSwapInt32(&c.state, int32(currentState), int32(newState)) {
 			c.config.Logger.Debug("Connection state changed atomically",
@@ -940,7 +939,7 @@ func (c *Connection) trySetState(expectedState, newState ConnectionState) bool {
 				zap.String("to", newState.String()))
 			return true
 		}
-		
+
 		// CAS failed, retry with updated current state
 		// This handles the case where state changed between our read and CAS attempt
 	}
@@ -951,7 +950,7 @@ func (c *Connection) trySetState(expectedState, newState ConnectionState) bool {
 func (c *Connection) trySetStateFromMultiple(expectedStates []ConnectionState, newState ConnectionState) (ConnectionState, bool) {
 	for {
 		currentState := ConnectionState(atomic.LoadInt32(&c.state))
-		
+
 		// Check if current state is one of the expected states
 		found := false
 		for _, expected := range expectedStates {
@@ -963,12 +962,12 @@ func (c *Connection) trySetStateFromMultiple(expectedStates []ConnectionState, n
 		if !found {
 			return currentState, false
 		}
-		
+
 		// Check if state transition is valid
 		if !c.isValidStateTransition(currentState, newState) {
 			return currentState, false
 		}
-		
+
 		// Attempt atomic compare-and-swap
 		if atomic.CompareAndSwapInt32(&c.state, int32(currentState), int32(newState)) {
 			c.config.Logger.Debug("Connection state changed atomically from multiple",
@@ -976,7 +975,7 @@ func (c *Connection) trySetStateFromMultiple(expectedStates []ConnectionState, n
 				zap.String("to", newState.String()))
 			return currentState, true
 		}
-		
+
 		// CAS failed, retry with updated current state
 	}
 }
@@ -1066,7 +1065,7 @@ func (c *Connection) SetOnMessage(handler func([]byte)) {
 	c.config.Logger.Debug("Setting message handler on connection",
 		zap.String("url", c.url.String()),
 		zap.String("state", c.State().String()))
-	
+
 	c.handlersMutex.Lock()
 	c.onMessage = handler
 	c.handlersMutex.Unlock()
@@ -1101,7 +1100,7 @@ func (c *Connection) readPump() {
 	c.connMutexGr.Lock()
 	hasConnCtx := c.connCtx != nil
 	c.connMutexGr.Unlock()
-	
+
 	if !hasConnCtx {
 		c.config.Logger.Debug("ReadPump: No connection context, exiting immediately")
 		return // No connection context available
@@ -1125,7 +1124,7 @@ func (c *Connection) readPump() {
 			c.connMutexGr.Lock()
 			currentConnCtx := c.connCtx
 			c.connMutexGr.Unlock()
-			
+
 			if currentConnCtx != nil {
 				select {
 				case <-currentConnCtx.Done():
@@ -1135,7 +1134,7 @@ func (c *Connection) readPump() {
 				default:
 				}
 			}
-			
+
 			// Check connection state - exit if closing/closed
 			if c.State() >= StateClosing {
 				c.config.Logger.Debug("ReadPump: Connection closing/closed, exiting")
@@ -1143,7 +1142,7 @@ func (c *Connection) readPump() {
 			}
 		default:
 		}
-		
+
 		// Proceed to read operation - all checks done above
 
 		// Get connection reference and its generation atomically
@@ -1179,7 +1178,7 @@ func (c *Connection) readPump() {
 				return
 			default:
 			}
-			
+
 			if currentConnCtx != nil {
 				select {
 				case <-currentConnCtx.Done():
@@ -1188,7 +1187,7 @@ func (c *Connection) readPump() {
 				default:
 				}
 			}
-			
+
 			// Handle specific error types
 
 			// Check if this indicates connection should be closed
@@ -1226,7 +1225,7 @@ func (c *Connection) readMessageWithTimeout(conn *websocket.Conn, generation int
 		baseTimeout = 50 * time.Millisecond // Shorter for tests but not too aggressive
 	}
 	readDeadline := time.Now().Add(baseTimeout)
-	
+
 	// Respect context deadline if it's sooner
 	if deadline, ok := c.ctx.Deadline(); ok && deadline.Before(readDeadline) {
 		readDeadline = deadline
@@ -1236,7 +1235,7 @@ func (c *Connection) readMessageWithTimeout(conn *websocket.Conn, generation int
 			readDeadline = deadline
 		}
 	}
-	
+
 	if err := conn.SetReadDeadline(readDeadline); err != nil {
 		return nil, fmt.Errorf("failed to set read deadline: %w", err)
 	}
@@ -1248,7 +1247,7 @@ func (c *Connection) readMessageWithTimeout(conn *websocket.Conn, generation int
 		return nil, c.ctx.Err()
 	default:
 	}
-	
+
 	if connCtx != nil {
 		select {
 		case <-connCtx.Done():
@@ -1257,7 +1256,7 @@ func (c *Connection) readMessageWithTimeout(conn *websocket.Conn, generation int
 		default:
 		}
 	}
-	
+
 	// Read message with connection validation and enhanced error handling
 	_, message, err := c.readMessageSafely(conn, generation)
 	if err != nil {
@@ -1268,7 +1267,7 @@ func (c *Connection) readMessageWithTimeout(conn *websocket.Conn, generation int
 			return nil, c.ctx.Err()
 		default:
 		}
-		
+
 		if connCtx != nil {
 			select {
 			case <-connCtx.Done():
@@ -1277,7 +1276,7 @@ func (c *Connection) readMessageWithTimeout(conn *websocket.Conn, generation int
 			default:
 			}
 		}
-		
+
 		return nil, err
 	}
 
@@ -1308,7 +1307,6 @@ func (c *Connection) processReceivedMessage(message []byte) {
 	}
 }
 
-
 // writePump handles writing messages to the WebSocket connection
 // Uses connection generation tracking to prevent race conditions with reconnection
 func (c *Connection) writePump() {
@@ -1321,11 +1319,11 @@ func (c *Connection) writePump() {
 	}()
 
 	c.config.Logger.Debug("WritePump: Starting write loop")
-	
+
 	// Use aggressive exit strategy similar to readPump
 	exitTicker := time.NewTicker(5 * time.Millisecond)
 	defer exitTicker.Stop()
-	
+
 	for {
 		// Check exit conditions first - prioritize immediate exit
 		select {
@@ -1338,7 +1336,7 @@ func (c *Connection) writePump() {
 			c.connMutexGr.Lock()
 			currentConnCtx := c.connCtx
 			c.connMutexGr.Unlock()
-			
+
 			if currentConnCtx != nil {
 				select {
 				case <-currentConnCtx.Done():
@@ -1348,7 +1346,7 @@ func (c *Connection) writePump() {
 				default:
 				}
 			}
-			
+
 			// Check connection state - exit if closing/closed
 			state := c.State()
 			if state >= StateClosing {
@@ -1357,12 +1355,12 @@ func (c *Connection) writePump() {
 			}
 		default:
 		}
-		
+
 		// Get current connection context for message processing
 		c.connMutexGr.Lock()
 		currentConnCtx := c.connCtx
 		c.connMutexGr.Unlock()
-		
+
 		// Final cancellation check before message processing
 		if currentConnCtx != nil {
 			select {
@@ -1372,7 +1370,7 @@ func (c *Connection) writePump() {
 			default:
 			}
 		}
-		
+
 		// Try to read messages non-blocking to prevent hang
 		select {
 		case <-c.ctx.Done():
@@ -1383,7 +1381,7 @@ func (c *Connection) writePump() {
 				c.config.Logger.Debug("WritePump: Message channel closed, exiting")
 				return
 			}
-			
+
 			// Final cancellation check before processing
 			select {
 			case <-c.ctx.Done():
@@ -1391,7 +1389,7 @@ func (c *Connection) writePump() {
 				return
 			default:
 			}
-			
+
 			// Process the message with proper error handling
 			if err := c.processMessage(message, currentConnCtx); err != nil {
 				// Don't exit on message processing errors in most cases
@@ -1403,7 +1401,7 @@ func (c *Connection) writePump() {
 				// For other errors, continue processing
 				continue
 			}
-			
+
 		default:
 			// Non-blocking - continue to next iteration to check exit conditions
 			time.Sleep(5 * time.Millisecond) // Brief pause to prevent busy loop
@@ -1421,7 +1419,7 @@ func (c *Connection) processMessage(message []byte, connCtx context.Context) err
 		return c.ctx.Err()
 	default:
 	}
-	
+
 	if connCtx != nil {
 		select {
 		case <-connCtx.Done():
@@ -1449,7 +1447,7 @@ func (c *Connection) processMessage(message []byte, connCtx context.Context) err
 	// Enhanced write deadline calculation with context awareness
 	baseTimeout := 50 * time.Millisecond // Base timeout for faster exit
 	writeDeadline := time.Now().Add(baseTimeout)
-	
+
 	// Respect context deadline if it's sooner
 	if deadline, ok := c.ctx.Deadline(); ok && deadline.Before(writeDeadline) {
 		writeDeadline = deadline
@@ -1459,7 +1457,7 @@ func (c *Connection) processMessage(message []byte, connCtx context.Context) err
 			writeDeadline = deadline
 		}
 	}
-	
+
 	if err := conn.SetWriteDeadline(writeDeadline); err != nil {
 		return fmt.Errorf("failed to set write deadline: %w", err)
 	}
@@ -1471,7 +1469,7 @@ func (c *Connection) processMessage(message []byte, connCtx context.Context) err
 		return c.ctx.Err()
 	default:
 	}
-	
+
 	if connCtx != nil {
 		select {
 		case <-connCtx.Done():
@@ -1480,7 +1478,7 @@ func (c *Connection) processMessage(message []byte, connCtx context.Context) err
 		default:
 		}
 	}
-	
+
 	// Write message with connection validation and enhanced error handling
 	if err := c.writeMessageSafely(conn, currentGeneration, message); err != nil {
 		// Priority check for cancellation errors with detailed logging
@@ -1490,7 +1488,7 @@ func (c *Connection) processMessage(message []byte, connCtx context.Context) err
 			return c.ctx.Err()
 		default:
 		}
-		
+
 		if connCtx != nil {
 			select {
 			case <-connCtx.Done():
@@ -1499,7 +1497,7 @@ func (c *Connection) processMessage(message []byte, connCtx context.Context) err
 			default:
 			}
 		}
-		
+
 		return err
 	}
 
@@ -1511,7 +1509,6 @@ func (c *Connection) processMessage(message []byte, connCtx context.Context) err
 
 	return nil
 }
-
 
 // drainMessageChannel drains the message channel to prevent goroutine leaks
 func (c *Connection) drainMessageChannel() {
@@ -1533,11 +1530,11 @@ func (c *Connection) writeMessageWithTimeout(message []byte) error {
 		c.config.Logger.Debug("Connection is closing/closed, cannot write message")
 		return websocket.ErrCloseSent
 	}
-	
+
 	// Acquire connection mutex to prevent concurrent writes
 	c.connMutex.Lock()
 	defer c.connMutex.Unlock()
-	
+
 	conn := c.conn
 	if conn == nil {
 		c.config.Logger.Debug("No connection available for write")
@@ -1568,7 +1565,7 @@ func (c *Connection) writeMessageWithTimeout(message []byte) error {
 		}()
 		writeErr = conn.WriteMessage(websocket.TextMessage, message)
 	}()
-	
+
 	// Check for timeout errors which might be due to context deadline
 	if writeErr != nil {
 		if netErr, ok := writeErr.(interface{ Timeout() bool }); ok && netErr.Timeout() {
@@ -1582,7 +1579,7 @@ func (c *Connection) writeMessageWithTimeout(message []byte) error {
 			}
 		}
 	}
-	
+
 	return writeErr
 }
 
@@ -1597,7 +1594,7 @@ func (c *Connection) drainMessageChannelWithMetrics() {
 			}
 			close(done)
 		}()
-		
+
 		// Use timer to prevent goroutine leak
 		timer := time.NewTimer(100 * time.Millisecond)
 		defer func() {
@@ -1609,7 +1606,7 @@ func (c *Connection) drainMessageChannelWithMetrics() {
 				}
 			}
 		}()
-		
+
 		for {
 			select {
 			case <-c.messageCh:
@@ -1624,7 +1621,7 @@ func (c *Connection) drainMessageChannelWithMetrics() {
 			}
 		}
 	}()
-	
+
 	// Wait for draining to complete with timeout
 	timeout := time.NewTimer(200 * time.Millisecond)
 	defer timeout.Stop()
@@ -1669,7 +1666,7 @@ func (c *Connection) triggerReconnect() {
 		}
 		return
 	}
-	
+
 	// Fallback approach for other states
 	currentState := c.State()
 	if currentState == StateConnected || currentState == StateDisconnected {
@@ -1678,7 +1675,7 @@ func (c *Connection) triggerReconnect() {
 		// Use mutex to synchronize channel access with Close()
 		c.channelMutex.Lock()
 		defer c.channelMutex.Unlock()
-		
+
 		// Only trigger reconnect if channels are still open
 		if atomic.LoadInt32(&c.channelsClosed) == 0 {
 			select {
@@ -1699,7 +1696,7 @@ func (c *Connection) ForceConnectionCheck() {
 			conn.SetWriteDeadline(time.Now().Add(100 * time.Millisecond))
 			err := conn.WriteMessage(websocket.TextMessage, []byte("connection-check"))
 			c.connMutex.Unlock()
-			
+
 			if err != nil {
 				c.config.Logger.Debug("Force connection check detected disconnection", zap.Error(err))
 				c.triggerReconnect()
@@ -1726,7 +1723,7 @@ func (c *Connection) StartAutoReconnect(ctx context.Context) {
 		return
 	default:
 	}
-	
+
 	c.wg.Add(1)
 	go c.autoReconnectLoop(ctx)
 }
@@ -1778,7 +1775,6 @@ func (c *Connection) autoReconnectLoop(ctx context.Context) {
 		}
 	}
 }
-
 
 // performReconnect performs the actual reconnection logic
 func (c *Connection) performReconnect(ctx context.Context) {
@@ -1894,12 +1890,12 @@ func (c *Connection) isConnectionValid(conn *websocket.Conn, generation int64) b
 	if conn == nil {
 		return false
 	}
-	
+
 	c.connMutex.RLock()
 	currentConn := c.conn
 	currentGeneration := atomic.LoadInt64(&c.connGeneration)
 	c.connMutex.RUnlock()
-	
+
 	// Connection is valid if it's the same pointer and generation matches
 	return currentConn == conn && currentGeneration == generation
 }
@@ -1912,30 +1908,30 @@ func (c *Connection) readMessageSafely(conn *websocket.Conn, generation int64) (
 			// Convert panic to error
 			messageType = 0
 			message = nil
-			
+
 			err = fmt.Errorf("websocket read panic: %v", r)
-			c.config.Logger.Debug("WebSocket read panic recovered - connection likely closed", 
+			c.config.Logger.Debug("WebSocket read panic recovered - connection likely closed",
 				zap.Any("panic", r),
 				zap.Int64("generation", generation))
 		}
 	}()
-	
+
 	// Validate connection before reading
 	if !c.isConnectionValid(conn, generation) {
 		return 0, nil, &StaleConnectionError{Generation: generation}
 	}
-	
+
 	// Double-check that the connection is not nil (additional safety)
 	if conn == nil {
 		return 0, nil, fmt.Errorf("websocket connection is nil")
 	}
-	
+
 	// Use very short read deadline to prevent hanging
 	readDeadline := time.Now().Add(100 * time.Millisecond)
 	if err := conn.SetReadDeadline(readDeadline); err != nil {
 		return 0, nil, fmt.Errorf("failed to set read deadline: %w", err)
 	}
-	
+
 	// Attempt to read the message with safety checks
 	messageType, message, err = conn.ReadMessage()
 	if err != nil {
@@ -1949,12 +1945,12 @@ func (c *Connection) readMessageSafely(conn *websocket.Conn, generation int64) (
 		}
 		return messageType, message, err
 	}
-	
+
 	// Validate connection again after reading to ensure it wasn't replaced during read
 	if !c.isConnectionValid(conn, generation) {
 		return 0, nil, &StaleConnectionError{Generation: generation}
 	}
-	
+
 	return messageType, message, nil
 }
 
@@ -1978,29 +1974,29 @@ func (c *Connection) writeMessageSafely(conn *websocket.Conn, generation int64, 
 	// Add panic recovery for websocket write operations
 	defer func() {
 		if r := recover(); r != nil {
-			c.config.Logger.Debug("WebSocket write panic recovered - connection likely closed", 
+			c.config.Logger.Debug("WebSocket write panic recovered - connection likely closed",
 				zap.Any("panic", r),
 				zap.Int64("generation", generation),
 				zap.Int("message_size", len(message)))
 		}
 	}()
-	
+
 	// Validate connection before writing
 	if !c.isConnectionValid(conn, generation) {
 		return &StaleConnectionError{Generation: generation}
 	}
-	
+
 	// Double-check that the connection is not nil (additional safety)
 	if conn == nil {
 		return fmt.Errorf("websocket connection is nil")
 	}
-	
+
 	// Use very short write deadline to prevent hanging
 	writeDeadline := time.Now().Add(100 * time.Millisecond)
 	if err := conn.SetWriteDeadline(writeDeadline); err != nil {
 		return fmt.Errorf("failed to set write deadline: %w", err)
 	}
-	
+
 	// Attempt to write the message
 	err := conn.WriteMessage(websocket.TextMessage, message)
 	if err != nil {
@@ -2014,12 +2010,11 @@ func (c *Connection) writeMessageSafely(conn *websocket.Conn, generation int64, 
 		}
 		return err
 	}
-	
+
 	// Validate connection again after writing to ensure it wasn't replaced during write
 	if !c.isConnectionValid(conn, generation) {
 		return &StaleConnectionError{Generation: generation}
 	}
-	
+
 	return nil
 }
-

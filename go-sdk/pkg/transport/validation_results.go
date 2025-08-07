@@ -58,43 +58,43 @@ func ParseSeverity(s string) ValidationSeverity {
 type ValidationIssue struct {
 	// Message is the human-readable error message
 	Message string `json:"message"`
-	
+
 	// Code is a machine-readable error code
 	Code string `json:"code,omitempty"`
-	
+
 	// Severity indicates the severity level of this issue
 	Severity ValidationSeverity `json:"severity"`
-	
+
 	// Field is the field path where the issue occurred
 	Field string `json:"field,omitempty"`
-	
+
 	// Value is the actual value that caused the issue (for debugging)
 	Value interface{} `json:"value,omitempty"`
-	
+
 	// ExpectedValue is what was expected (for comparison errors)
 	ExpectedValue interface{} `json:"expected_value,omitempty"`
-	
+
 	// Suggestion provides a hint on how to fix the issue
 	Suggestion string `json:"suggestion,omitempty"`
-	
+
 	// Context provides additional context about the validation
 	Context map[string]interface{} `json:"context,omitempty"`
-	
+
 	// Timestamp when the issue was detected
 	Timestamp time.Time `json:"timestamp"`
-	
+
 	// Validator is the name of the validator that generated this issue
 	Validator string `json:"validator,omitempty"`
-	
+
 	// RuleID identifies the specific validation rule that failed
 	RuleID string `json:"rule_id,omitempty"`
-	
+
 	// Category groups related validation issues
 	Category string `json:"category,omitempty"`
-	
+
 	// Tags allow for flexible categorization and filtering
 	Tags []string `json:"tags,omitempty"`
-	
+
 	// Details contains additional structured information about the issue
 	Details map[string]interface{} `json:"details,omitempty"`
 }
@@ -191,35 +191,35 @@ func (i *ValidationIssue) WithDetail(key string, value interface{}) *ValidationI
 // Error implements the error interface
 func (i *ValidationIssue) Error() string {
 	var parts []string
-	
+
 	// Add severity prefix
 	if i.Severity != SeverityError {
 		parts = append(parts, fmt.Sprintf("[%s]", i.Severity.String()))
 	}
-	
+
 	// Add field context
 	if i.Field != "" {
 		parts = append(parts, fmt.Sprintf("field '%s':", i.Field))
 	}
-	
+
 	// Add main message
 	parts = append(parts, i.Message)
-	
+
 	// Add code if present
 	if i.Code != "" {
 		parts = append(parts, fmt.Sprintf("(code: %s)", i.Code))
 	}
-	
+
 	return strings.Join(parts, " ")
 }
 
 // String returns a detailed string representation
 func (i *ValidationIssue) String() string {
 	var parts []string
-	
+
 	// Basic error information
 	parts = append(parts, i.Error())
-	
+
 	// Add value information if present
 	if i.Value != nil {
 		parts = append(parts, fmt.Sprintf("actual: %v", i.Value))
@@ -227,12 +227,12 @@ func (i *ValidationIssue) String() string {
 	if i.ExpectedValue != nil {
 		parts = append(parts, fmt.Sprintf("expected: %v", i.ExpectedValue))
 	}
-	
+
 	// Add suggestion if present
 	if i.Suggestion != "" {
 		parts = append(parts, fmt.Sprintf("suggestion: %s", i.Suggestion))
 	}
-	
+
 	return strings.Join(parts, ", ")
 }
 
@@ -255,19 +255,19 @@ func (i *ValidationIssue) IsFatal() bool {
 type ValidationResult struct {
 	// Valid indicates whether validation passed
 	valid bool
-	
+
 	// Issues contains all validation issues found
 	issues []*ValidationIssue
-	
+
 	// FieldIssues maps field paths to their specific issues
 	fieldIssues map[string][]*ValidationIssue
-	
+
 	// Summary provides a high-level summary of the validation
 	summary *ValidationSummary
-	
+
 	// Metadata contains additional information about the validation process
 	metadata map[string]interface{}
-	
+
 	// Timestamp when the validation was performed
 	timestamp time.Time
 }
@@ -276,31 +276,31 @@ type ValidationResult struct {
 type ValidationSummary struct {
 	// TotalIssues is the total number of issues found
 	TotalIssues int `json:"total_issues"`
-	
+
 	// ErrorCount is the number of error-level issues
 	ErrorCount int `json:"error_count"`
-	
+
 	// WarningCount is the number of warning-level issues
 	WarningCount int `json:"warning_count"`
-	
+
 	// InfoCount is the number of info-level issues
 	InfoCount int `json:"info_count"`
-	
+
 	// FatalCount is the number of fatal-level issues
 	FatalCount int `json:"fatal_count"`
-	
+
 	// FieldsWithIssues is the number of fields that have issues
 	FieldsWithIssues int `json:"fields_with_issues"`
-	
+
 	// Categories lists all issue categories found
 	Categories []string `json:"categories"`
-	
+
 	// Validators lists all validators that reported issues
 	Validators []string `json:"validators"`
-	
+
 	// HasErrors indicates if there are any error-level or fatal-level issues
 	HasErrors bool `json:"has_errors"`
-	
+
 	// HasWarnings indicates if there are any warning-level issues
 	HasWarnings bool `json:"has_warnings"`
 }
@@ -329,17 +329,17 @@ func (r *ValidationResult) SetValid(valid bool) {
 // AddIssue adds a validation issue
 func (r *ValidationResult) AddIssue(issue *ValidationIssue) {
 	r.issues = append(r.issues, issue)
-	
+
 	// Mark as invalid if this is an error-level issue
 	if issue.IsError() {
 		r.valid = false
 	}
-	
+
 	// Add to field-specific issues if field is specified
 	if issue.Field != "" {
 		r.fieldIssues[issue.Field] = append(r.fieldIssues[issue.Field], issue)
 	}
-	
+
 	// Invalidate cached summary
 	r.summary = nil
 }
@@ -347,7 +347,7 @@ func (r *ValidationResult) AddIssue(issue *ValidationIssue) {
 // AddError adds an error-level validation issue
 func (r *ValidationResult) AddError(err error) {
 	var issue *ValidationIssue
-	
+
 	// Try to extract ValidationIssue if the error is already one
 	if validationErr, ok := err.(*ValidationError); ok {
 		// Convert ValidationError to ValidationIssue
@@ -357,7 +357,7 @@ func (r *ValidationResult) AddError(err error) {
 	} else {
 		issue = NewValidationIssue(err.Error(), SeverityError)
 	}
-	
+
 	r.AddIssue(issue)
 }
 
@@ -376,7 +376,7 @@ func (r *ValidationResult) AddInfo(message string) {
 // AddFieldError adds an error for a specific field
 func (r *ValidationResult) AddFieldError(field string, err error) {
 	var issue *ValidationIssue
-	
+
 	if validationErr, ok := err.(*ValidationError); ok {
 		issue = NewValidationIssue(validationErr.Error(), SeverityError).WithField(field)
 	} else if existingIssue, ok := err.(*ValidationIssue); ok {
@@ -385,7 +385,7 @@ func (r *ValidationResult) AddFieldError(field string, err error) {
 	} else {
 		issue = NewValidationIssue(err.Error(), SeverityError).WithField(field)
 	}
-	
+
 	r.AddIssue(issue)
 }
 
@@ -465,10 +465,10 @@ func (r *ValidationResult) computeSummary() *ValidationSummary {
 		Categories:  make([]string, 0),
 		Validators:  make([]string, 0),
 	}
-	
+
 	categorySet := make(map[string]bool)
 	validatorSet := make(map[string]bool)
-	
+
 	// Count issues by severity and collect categories/validators
 	for _, issue := range r.issues {
 		switch issue.Severity {
@@ -484,25 +484,25 @@ func (r *ValidationResult) computeSummary() *ValidationSummary {
 			summary.FatalCount++
 			summary.HasErrors = true
 		}
-		
+
 		if issue.Category != "" && !categorySet[issue.Category] {
 			categorySet[issue.Category] = true
 			summary.Categories = append(summary.Categories, issue.Category)
 		}
-		
+
 		if issue.Validator != "" && !validatorSet[issue.Validator] {
 			validatorSet[issue.Validator] = true
 			summary.Validators = append(summary.Validators, issue.Validator)
 		}
 	}
-	
+
 	// Count fields with issues
 	summary.FieldsWithIssues = len(r.fieldIssues)
-	
+
 	// Sort categories and validators for consistent output
 	sort.Strings(summary.Categories)
 	sort.Strings(summary.Validators)
-	
+
 	return summary
 }
 
@@ -522,20 +522,20 @@ func (r *ValidationResult) GetMetadata(key string) (interface{}, bool) {
 func (r *ValidationResult) Merge(other ValidationResult) {
 	// Merge validity (false if either is false)
 	r.valid = r.valid && other.valid
-	
+
 	// Merge issues
 	r.issues = append(r.issues, other.issues...)
-	
+
 	// Merge field issues
 	for field, issues := range other.fieldIssues {
 		r.fieldIssues[field] = append(r.fieldIssues[field], issues...)
 	}
-	
+
 	// Merge metadata
 	for key, value := range other.metadata {
 		r.metadata[key] = value
 	}
-	
+
 	// Invalidate cached summary
 	r.summary = nil
 }
@@ -543,18 +543,18 @@ func (r *ValidationResult) Merge(other ValidationResult) {
 // Filter returns a new ValidationResult containing only issues that match the filter
 func (r *ValidationResult) Filter(filter func(*ValidationIssue) bool) ValidationResult {
 	filtered := NewValidationResult(r.valid)
-	
+
 	for _, issue := range r.issues {
 		if filter(issue) {
 			filtered.AddIssue(issue)
 		}
 	}
-	
+
 	// Copy metadata
 	for key, value := range r.metadata {
 		filtered.metadata[key] = value
 	}
-	
+
 	return filtered
 }
 
@@ -601,18 +601,18 @@ func (r *ValidationResult) Error() string {
 	if r.IsValid() {
 		return ""
 	}
-	
+
 	var messages []string
 	for _, issue := range r.issues {
 		if issue.IsError() {
 			messages = append(messages, issue.Error())
 		}
 	}
-	
+
 	if len(messages) == 0 {
 		return "validation failed"
 	}
-	
+
 	return fmt.Sprintf("validation failed: %s", strings.Join(messages, "; "))
 }
 
@@ -626,7 +626,7 @@ func (r *ValidationResult) ToJSON() ([]byte, error) {
 		"timestamp":    r.timestamp,
 		"field_issues": r.fieldIssues,
 	}
-	
+
 	return json.Marshal(result)
 }
 
@@ -636,25 +636,25 @@ func FromJSON(data []byte) (*ValidationResult, error) {
 	if err := json.Unmarshal(data, &raw); err != nil {
 		return nil, err
 	}
-	
+
 	result := NewValidationResult(true)
-	
+
 	// Parse basic fields
 	if valid, ok := raw["valid"].(bool); ok {
 		result.valid = valid
 	}
-	
+
 	if timestamp, ok := raw["timestamp"].(string); ok {
 		if t, err := time.Parse(time.RFC3339, timestamp); err == nil {
 			result.timestamp = t
 		}
 	}
-	
+
 	// Parse metadata
 	if metadata, ok := raw["metadata"].(map[string]interface{}); ok {
 		result.metadata = metadata
 	}
-	
+
 	// Parse issues
 	if issuesRaw, ok := raw["issues"].([]interface{}); ok {
 		for _, issueRaw := range issuesRaw {
@@ -666,7 +666,7 @@ func FromJSON(data []byte) (*ValidationResult, error) {
 			}
 		}
 	}
-	
+
 	return &result, nil
 }
 
@@ -676,56 +676,56 @@ func parseIssueFromMap(data map[string]interface{}) *ValidationIssue {
 		Context: make(map[string]interface{}),
 		Details: make(map[string]interface{}),
 	}
-	
+
 	// Parse basic fields
 	if message, ok := data["message"].(string); ok {
 		issue.Message = message
 	}
-	
+
 	if code, ok := data["code"].(string); ok {
 		issue.Code = code
 	}
-	
+
 	if severity, ok := data["severity"].(string); ok {
 		issue.Severity = ParseSeverity(severity)
 	} else if severityNum, ok := data["severity"].(float64); ok {
 		issue.Severity = ValidationSeverity(int(severityNum))
 	}
-	
+
 	if field, ok := data["field"].(string); ok {
 		issue.Field = field
 	}
-	
+
 	if value, ok := data["value"]; ok {
 		issue.Value = value
 	}
-	
+
 	if expected, ok := data["expected_value"]; ok {
 		issue.ExpectedValue = expected
 	}
-	
+
 	if suggestion, ok := data["suggestion"].(string); ok {
 		issue.Suggestion = suggestion
 	}
-	
+
 	if validator, ok := data["validator"].(string); ok {
 		issue.Validator = validator
 	}
-	
+
 	if ruleID, ok := data["rule_id"].(string); ok {
 		issue.RuleID = ruleID
 	}
-	
+
 	if category, ok := data["category"].(string); ok {
 		issue.Category = category
 	}
-	
+
 	if timestamp, ok := data["timestamp"].(string); ok {
 		if t, err := time.Parse(time.RFC3339, timestamp); err == nil {
 			issue.Timestamp = t
 		}
 	}
-	
+
 	// Parse tags
 	if tagsRaw, ok := data["tags"].([]interface{}); ok {
 		for _, tagRaw := range tagsRaw {
@@ -734,17 +734,17 @@ func parseIssueFromMap(data map[string]interface{}) *ValidationIssue {
 			}
 		}
 	}
-	
+
 	// Parse context
 	if context, ok := data["context"].(map[string]interface{}); ok {
 		issue.Context = context
 	}
-	
+
 	// Parse details
 	if details, ok := data["details"].(map[string]interface{}); ok {
 		issue.Details = details
 	}
-	
+
 	return issue
 }
 
@@ -754,10 +754,10 @@ func parseIssueFromMap(data map[string]interface{}) *ValidationIssue {
 type LocalizationProvider interface {
 	// GetMessage returns a localized message for the given key and parameters
 	GetMessage(key string, params map[string]interface{}) string
-	
+
 	// GetSuggestion returns a localized suggestion for the given key and parameters
 	GetSuggestion(key string, params map[string]interface{}) string
-	
+
 	// SupportedLanguages returns a list of supported language codes
 	SupportedLanguages() []string
 }
@@ -781,11 +781,11 @@ func (p *DefaultLocalizationProvider) GetMessage(key string, params map[string]i
 		"future_date":        "date must be in the future",
 		"past_date":          "date must be in the past",
 	}
-	
+
 	if message, exists := messages[key]; exists {
 		return message
 	}
-	
+
 	return key // Fallback to key if no message found
 }
 
@@ -799,11 +799,11 @@ func (p *DefaultLocalizationProvider) GetSuggestion(key string, params map[strin
 		"too_short":          "enter more characters",
 		"too_long":           "enter fewer characters",
 	}
-	
+
 	if suggestion, exists := suggestions[key]; exists {
 		return suggestion
 	}
-	
+
 	return ""
 }
 
@@ -828,7 +828,7 @@ func GetLocalizationProvider() LocalizationProvider {
 // NewLocalizedValidationIssue creates a validation issue with localized messages
 func NewLocalizedValidationIssue(messageKey string, severity ValidationSeverity, params map[string]interface{}) *ValidationIssue {
 	provider := GetLocalizationProvider()
-	
+
 	issue := &ValidationIssue{
 		Message:   provider.GetMessage(messageKey, params),
 		Code:      messageKey,
@@ -837,19 +837,19 @@ func NewLocalizedValidationIssue(messageKey string, severity ValidationSeverity,
 		Context:   make(map[string]interface{}),
 		Details:   make(map[string]interface{}),
 	}
-	
+
 	// Add suggestion if available
 	if suggestion := provider.GetSuggestion(messageKey, params); suggestion != "" {
 		issue.Suggestion = suggestion
 	}
-	
+
 	// Add parameters to context
 	if params != nil {
 		for key, value := range params {
 			issue.WithContext(key, value)
 		}
 	}
-	
+
 	return issue
 }
 
@@ -865,16 +865,16 @@ type ValidationResultAggregator struct {
 type AggregatorOptions struct {
 	// StopOnFirstError stops aggregation when the first error is encountered
 	StopOnFirstError bool
-	
+
 	// MaxIssues limits the total number of issues to collect
 	MaxIssues int
-	
+
 	// IncludeWarnings includes warning-level issues in the aggregation
 	IncludeWarnings bool
-	
+
 	// IncludeInfo includes info-level issues in the aggregation
 	IncludeInfo bool
-	
+
 	// DuplicateDetection enables detection and removal of duplicate issues
 	DuplicateDetection bool
 }
@@ -894,7 +894,7 @@ func (a *ValidationResultAggregator) Add(result ValidationResult) bool {
 		a.results = append(a.results, result)
 		return false // Signal to stop
 	}
-	
+
 	a.results = append(a.results, result)
 	return true // Continue aggregating
 }
@@ -904,33 +904,33 @@ func (a *ValidationResultAggregator) Aggregate() ValidationResult {
 	if len(a.results) == 0 {
 		return NewValidationResult(true)
 	}
-	
+
 	// Start with a valid result
 	aggregated := NewValidationResult(true)
-	
+
 	// Track issue count
 	issueCount := 0
-	
+
 	// Track duplicates if enabled
 	var seenIssues map[string]bool
 	if a.options.DuplicateDetection {
 		seenIssues = make(map[string]bool)
 	}
-	
+
 	// Merge all results
 	for _, result := range a.results {
 		// Check validity
 		if !result.IsValid() {
 			aggregated.SetValid(false)
 		}
-		
+
 		// Add issues based on options
 		for _, issue := range result.Issues() {
 			// Check issue count limit
 			if a.options.MaxIssues > 0 && issueCount >= a.options.MaxIssues {
 				break
 			}
-			
+
 			// Filter by severity
 			include := true
 			switch issue.Severity {
@@ -941,11 +941,11 @@ func (a *ValidationResultAggregator) Aggregate() ValidationResult {
 			case SeverityError, SeverityFatal:
 				include = true // Always include errors
 			}
-			
+
 			if !include {
 				continue
 			}
-			
+
 			// Check for duplicates
 			if a.options.DuplicateDetection {
 				issueKey := fmt.Sprintf("%s:%s:%s", issue.Field, issue.Code, issue.Message)
@@ -954,16 +954,16 @@ func (a *ValidationResultAggregator) Aggregate() ValidationResult {
 				}
 				seenIssues[issueKey] = true
 			}
-			
+
 			aggregated.AddIssue(issue)
 			issueCount++
 		}
-		
+
 		// Merge metadata
 		for key, value := range result.metadata {
 			aggregated.WithMetadata(key, value)
 		}
 	}
-	
+
 	return aggregated
 }

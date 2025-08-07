@@ -726,34 +726,34 @@ func GetErrorCode(err error) (code string, ok bool) {
 // Common error codes for the system
 const (
 	// Connection error codes
-	CodeConnectionFailed    = "CONNECTION_FAILED"
-	CodeConnectionTimeout   = "CONNECTION_TIMEOUT"
-	CodeConnectionLost      = "CONNECTION_LOST"
-	
+	CodeConnectionFailed  = "CONNECTION_FAILED"
+	CodeConnectionTimeout = "CONNECTION_TIMEOUT"
+	CodeConnectionLost    = "CONNECTION_LOST"
+
 	// Validation error codes
-	CodeValidationFailed    = "VALIDATION_FAILED"
-	CodeInvalidTimeout      = "INVALID_TIMEOUT"
-	CodeMissingEvent        = "MISSING_EVENT"
-	CodeMissingEventType    = "MISSING_EVENT_TYPE"
-	CodeNegativeTimestamp   = "NEGATIVE_TIMESTAMP"
-	CodeIDTooLong          = "ID_TOO_LONG"
-	
+	CodeValidationFailed  = "VALIDATION_FAILED"
+	CodeInvalidTimeout    = "INVALID_TIMEOUT"
+	CodeMissingEvent      = "MISSING_EVENT"
+	CodeMissingEventType  = "MISSING_EVENT_TYPE"
+	CodeNegativeTimestamp = "NEGATIVE_TIMESTAMP"
+	CodeIDTooLong         = "ID_TOO_LONG"
+
 	// Resource error codes
-	CodeResourceNotFound    = "RESOURCE_NOT_FOUND"
-	CodeResourceLimitExceeded = "RESOURCE_LIMIT_EXCEEDED"
+	CodeResourceNotFound         = "RESOURCE_NOT_FOUND"
+	CodeResourceLimitExceeded    = "RESOURCE_LIMIT_EXCEEDED"
 	CodeResourceAllocationFailed = "RESOURCE_ALLOCATION_FAILED"
-	
+
 	// Operation error codes
-	CodeOperationFailed     = "OPERATION_FAILED"
-	CodeOperationTimeout    = "OPERATION_TIMEOUT"
-	CodeOperationCancelled  = "OPERATION_CANCELLED"
-	
+	CodeOperationFailed    = "OPERATION_FAILED"
+	CodeOperationTimeout   = "OPERATION_TIMEOUT"
+	CodeOperationCancelled = "OPERATION_CANCELLED"
+
 	// Registry error codes
 	CodeFormatNotRegistered = "FORMAT_NOT_REGISTERED"
 	CodeInvalidMimeType     = "INVALID_MIME_TYPE"
 	CodeNilFactory          = "NIL_FACTORY"
 	CodeEmptyMimeType       = "EMPTY_MIME_TYPE"
-	
+
 	// Encoding/Decoding error codes
 	CodeEncodingFailed      = "ENCODING_FAILED"
 	CodeDecodingFailed      = "DECODING_FAILED"
@@ -761,25 +761,25 @@ const (
 	CodeCompressionFailed   = "COMPRESSION_FAILED"
 	CodeStreamingFailed     = "STREAMING_FAILED"
 	CodeChunkingFailed      = "CHUNKING_FAILED"
-	
+
 	// Security error codes
-	CodeSecurityViolation   = "SECURITY_VIOLATION"
-	CodeXSSDetected         = "XSS_DETECTED"
-	CodeSQLInjectionDetected = "SQL_INJECTION_DETECTED"
+	CodeSecurityViolation       = "SECURITY_VIOLATION"
+	CodeXSSDetected             = "XSS_DETECTED"
+	CodeSQLInjectionDetected    = "SQL_INJECTION_DETECTED"
 	CodeScriptInjectionDetected = "SCRIPT_INJECTION_DETECTED"
-	CodeDOSDetected         = "DOS_ATTACK_DETECTED"
-	CodeInvalidData         = "INVALID_DATA"
-	CodeSizeExceeded        = "SIZE_EXCEEDED"
-	CodeDepthExceeded       = "DEPTH_EXCEEDED"
-	CodeNullByteDetected    = "NULL_BYTE_DETECTED"
-	CodeInvalidUTF8         = "INVALID_UTF8"
-	CodeHTMLNotAllowed      = "HTML_NOT_ALLOWED"
-	CodeEntityExpansion     = "ENTITY_EXPANSION"
-	CodeZipBomb             = "ZIP_BOMB"
-	CodeExcessiveRepetition = "EXCESSIVE_REPETITION"
-	
+	CodeDOSDetected             = "DOS_ATTACK_DETECTED"
+	CodeInvalidData             = "INVALID_DATA"
+	CodeSizeExceeded            = "SIZE_EXCEEDED"
+	CodeDepthExceeded           = "DEPTH_EXCEEDED"
+	CodeNullByteDetected        = "NULL_BYTE_DETECTED"
+	CodeInvalidUTF8             = "INVALID_UTF8"
+	CodeHTMLNotAllowed          = "HTML_NOT_ALLOWED"
+	CodeEntityExpansion         = "ENTITY_EXPANSION"
+	CodeZipBomb                 = "ZIP_BOMB"
+	CodeExcessiveRepetition     = "EXCESSIVE_REPETITION"
+
 	// Negotiation error codes
-	CodeNegotiationFailed   = "NEGOTIATION_FAILED"
-	CodeNoSuitableFormat    = "NO_SUITABLE_FORMAT"
-	CodeUnsupportedFormat   = "UNSUPPORTED_FORMAT"
+	CodeNegotiationFailed = "NEGOTIATION_FAILED"
+	CodeNoSuitableFormat  = "NO_SUITABLE_FORMAT"
+	CodeUnsupportedFormat = "UNSUPPORTED_FORMAT"
 )

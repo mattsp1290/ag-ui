@@ -330,7 +330,7 @@ func TestPerformanceOptimizer(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping performance test in short mode")
 	}
-	
+
 	t.Run("ObjectPooling", func(t *testing.T) {
 		po := NewPerformanceOptimizerForTesting(PerformanceOptions{
 			EnablePooling: true,

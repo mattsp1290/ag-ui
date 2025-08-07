@@ -18,28 +18,28 @@ type PrometheusExporter struct {
 	metricsCollector events.MetricsCollector
 	server           *http.Server
 	registry         *prometheus.Registry
-	
+
 	// Standard metrics
-	eventCounter        *prometheus.CounterVec
-	eventDuration       *prometheus.HistogramVec
-	ruleExecutionHist   *prometheus.HistogramVec
-	errorCounter        *prometheus.CounterVec
-	warningCounter      *prometheus.CounterVec
-	
+	eventCounter      *prometheus.CounterVec
+	eventDuration     *prometheus.HistogramVec
+	ruleExecutionHist *prometheus.HistogramVec
+	errorCounter      *prometheus.CounterVec
+	warningCounter    *prometheus.CounterVec
+
 	// Gauge metrics
-	memoryUsage         *prometheus.GaugeVec
-	throughput          prometheus.Gauge
-	slaCompliance       *prometheus.GaugeVec
-	activeRules         prometheus.Gauge
-	
+	memoryUsage   *prometheus.GaugeVec
+	throughput    prometheus.Gauge
+	slaCompliance *prometheus.GaugeVec
+	activeRules   prometheus.Gauge
+
 	// Summary metrics
-	latencySummary      *prometheus.SummaryVec
-	
+	latencySummary *prometheus.SummaryVec
+
 	// Context for graceful shutdown
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
-	
+
 	mu sync.RWMutex
 }
 
@@ -51,15 +51,15 @@ func NewPrometheusExporter(config *Config, collector events.MetricsCollector) *P
 			labels = append(labels, k)
 		}
 	}
-	
+
 	// Create a new registry for this exporter to avoid conflicts
 	registry := prometheus.NewRegistry()
-	
+
 	pe := &PrometheusExporter{
 		config:           config,
 		metricsCollector: collector,
 		registry:         registry,
-		
+
 		eventCounter: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "ag_ui",
@@ -69,7 +69,7 @@ func NewPrometheusExporter(config *Config, collector events.MetricsCollector) *P
 			},
 			labels,
 		),
-		
+
 		eventDuration: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "ag_ui",
@@ -80,7 +80,7 @@ func NewPrometheusExporter(config *Config, collector events.MetricsCollector) *P
 			},
 			labels,
 		),
-		
+
 		ruleExecutionHist: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
 				Namespace: "ag_ui",
@@ -91,7 +91,7 @@ func NewPrometheusExporter(config *Config, collector events.MetricsCollector) *P
 			},
 			append([]string{"rule_id"}, labels...),
 		),
-		
+
 		errorCounter: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "ag_ui",
@@ -101,7 +101,7 @@ func NewPrometheusExporter(config *Config, collector events.MetricsCollector) *P
 			},
 			[]string{"error_type"},
 		),
-		
+
 		warningCounter: prometheus.NewCounterVec(
 			prometheus.CounterOpts{
 				Namespace: "ag_ui",
@@ -111,7 +111,7 @@ func NewPrometheusExporter(config *Config, collector events.MetricsCollector) *P
 			},
 			[]string{"warning_type"},
 		),
-		
+
 		memoryUsage: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "ag_ui",
@@ -121,7 +121,7 @@ func NewPrometheusExporter(config *Config, collector events.MetricsCollector) *P
 			},
 			[]string{"type"},
 		),
-		
+
 		throughput: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: "ag_ui",
@@ -130,7 +130,7 @@ func NewPrometheusExporter(config *Config, collector events.MetricsCollector) *P
 				Help:      "Current event processing throughput",
 			},
 		),
-		
+
 		slaCompliance: prometheus.NewGaugeVec(
 			prometheus.GaugeOpts{
 				Namespace: "ag_ui",
@@ -140,7 +140,7 @@ func NewPrometheusExporter(config *Config, collector events.MetricsCollector) *P
 			},
 			[]string{"sla_name"},
 		),
-		
+
 		activeRules: prometheus.NewGauge(
 			prometheus.GaugeOpts{
 				Namespace: "ag_ui",
@@ -149,7 +149,7 @@ func NewPrometheusExporter(config *Config, collector events.MetricsCollector) *P
 				Help:      "Number of active validation rules",
 			},
 		),
-		
+
 		latencySummary: prometheus.NewSummaryVec(
 			prometheus.SummaryOpts{
 				Namespace:  "ag_ui",
@@ -161,7 +161,7 @@ func NewPrometheusExporter(config *Config, collector events.MetricsCollector) *P
 			labels,
 		),
 	}
-	
+
 	// Register all metrics with local registry
 	pe.registry.MustRegister(
 		pe.eventCounter,
@@ -175,10 +175,10 @@ func NewPrometheusExporter(config *Config, collector events.MetricsCollector) *P
 		pe.activeRules,
 		pe.latencySummary,
 	)
-	
+
 	// Create context for lifecycle management
 	pe.ctx, pe.cancel = context.WithCancel(context.Background())
-	
+
 	// Start metrics update routine
 	pe.wg.Add(1)
 	go func() {
@@ -190,7 +190,7 @@ func NewPrometheusExporter(config *Config, collector events.MetricsCollector) *P
 		}()
 		pe.updateMetricsRoutine()
 	}()
-	
+
 	return pe
 }
 
@@ -200,18 +200,18 @@ func (pe *PrometheusExporter) Start() error {
 	if pe.config.PrometheusPort == 0 {
 		return nil
 	}
-	
+
 	mux := http.NewServeMux()
 	// Use handler from local registry instead of global one
 	mux.Handle(pe.config.PrometheusPath, promhttp.HandlerFor(pe.registry, promhttp.HandlerOpts{}))
 	mux.HandleFunc("/health", pe.healthHandler)
 	mux.HandleFunc("/ready", pe.readyHandler)
-	
+
 	pe.server = &http.Server{
 		Addr:    fmt.Sprintf(":%d", pe.config.PrometheusPort),
 		Handler: mux,
 	}
-	
+
 	// Start server in a goroutine and handle shutdown
 	pe.wg.Add(1)
 	go func() {
@@ -221,7 +221,7 @@ func (pe *PrometheusExporter) Start() error {
 				fmt.Printf("Panic in prometheus server goroutine: %v\n", r)
 			}
 		}()
-		
+
 		// Listen for context cancellation
 		go func() {
 			defer func() {
@@ -234,13 +234,13 @@ func (pe *PrometheusExporter) Start() error {
 			defer cancel()
 			pe.server.Shutdown(ctx)
 		}()
-		
+
 		err := pe.server.ListenAndServe()
 		if err != nil && err != http.ErrServerClosed {
 			fmt.Printf("Prometheus server error: %v\n", err)
 		}
 	}()
-	
+
 	return nil
 }
 
@@ -248,7 +248,7 @@ func (pe *PrometheusExporter) Start() error {
 func (pe *PrometheusExporter) Shutdown() error {
 	// Cancel context to stop all goroutines
 	pe.cancel()
-	
+
 	// Shutdown HTTP server if running
 	if pe.server != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -258,10 +258,10 @@ func (pe *PrometheusExporter) Shutdown() error {
 			pe.server.Close()
 		}
 	}
-	
+
 	// Wait for all goroutines to finish
 	pe.wg.Wait()
-	
+
 	return nil
 }
 
@@ -274,7 +274,7 @@ func (pe *PrometheusExporter) GetRegistry() *prometheus.Registry {
 func (pe *PrometheusExporter) updateMetricsRoutine() {
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-pe.ctx.Done():
@@ -291,23 +291,23 @@ func (pe *PrometheusExporter) updateMetrics() {
 	if dashboard == nil {
 		return
 	}
-	
+
 	// Update throughput
 	pe.throughput.Set(dashboard.EventsPerSecond)
-	
+
 	// Update active rules
 	pe.activeRules.Set(float64(dashboard.ActiveRules))
-	
+
 	// Update memory usage
 	if dashboard.MemoryUsage != nil {
 		pe.memoryUsage.WithLabelValues("allocated").Set(float64(dashboard.MemoryUsage.AllocBytes))
 		pe.memoryUsage.WithLabelValues("heap_inuse").Set(float64(dashboard.MemoryUsage.HeapInuse))
 		pe.memoryUsage.WithLabelValues("stack_inuse").Set(float64(dashboard.MemoryUsage.StackInuse))
 	}
-	
+
 	// Update SLA compliance
 	pe.slaCompliance.WithLabelValues("overall").Set(dashboard.SLACompliance)
-	
+
 	// Update rule metrics
 	ruleMetrics := pe.metricsCollector.GetAllRuleMetrics()
 	for ruleID, metric := range ruleMetrics {
@@ -316,11 +316,11 @@ func (pe *PrometheusExporter) updateMetrics() {
 			"status":  "success",
 		}
 		pe.addCustomLabels(labels)
-		
+
 		// Record execution counts and durations
 		execCount := metric.GetExecutionCount()
 		avgDuration := metric.GetAverageDuration()
-		
+
 		if execCount > 0 && avgDuration > 0 {
 			pe.ruleExecutionHist.With(labels).Observe(avgDuration.Seconds())
 		}
@@ -333,10 +333,10 @@ func (pe *PrometheusExporter) RecordEvent(duration time.Duration, success bool) 
 	if !success {
 		status = "failure"
 	}
-	
+
 	labels := prometheus.Labels{"status": status}
 	pe.addCustomLabels(labels)
-	
+
 	pe.eventCounter.With(labels).Inc()
 	pe.eventDuration.With(labels).Observe(duration.Seconds())
 	pe.latencySummary.With(labels).Observe(duration.Seconds())
@@ -378,7 +378,7 @@ func (pe *PrometheusExporter) readyHandler(w http.ResponseWriter, r *http.Reques
 		w.Write([]byte("Not Ready"))
 		return
 	}
-	
+
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Ready"))
 }
@@ -413,13 +413,13 @@ func (c *EventValidationCollector) Collect(ch chan<- prometheus.Metric) {
 	if dashboard == nil {
 		return
 	}
-	
+
 	ch <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc("ag_ui_event_validation_rate", "Event validation rate", nil, c.customLabels),
 		prometheus.GaugeValue,
 		dashboard.EventsPerSecond,
 	)
-	
+
 	ch <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc("ag_ui_event_error_rate", "Event error rate", nil, c.customLabels),
 		prometheus.GaugeValue,
@@ -451,7 +451,7 @@ func (c *RuleExecutionCollector) Describe(ch chan<- *prometheus.Desc) {
 // Collect collects the metrics from the collector
 func (c *RuleExecutionCollector) Collect(ch chan<- prometheus.Metric) {
 	ruleMetrics := c.metricsCollector.GetAllRuleMetrics()
-	
+
 	for ruleID, metric := range ruleMetrics {
 		ch <- prometheus.MustNewConstMetric(
 			prometheus.NewDesc("ag_ui_rule_execution_count", "Rule execution count", []string{"rule_id"}, c.customLabels),
@@ -459,14 +459,14 @@ func (c *RuleExecutionCollector) Collect(ch chan<- prometheus.Metric) {
 			float64(metric.GetExecutionCount()),
 			ruleID,
 		)
-		
+
 		ch <- prometheus.MustNewConstMetric(
 			prometheus.NewDesc("ag_ui_rule_avg_duration", "Rule average duration", []string{"rule_id"}, c.customLabels),
 			prometheus.GaugeValue,
 			metric.GetAverageDuration().Seconds(),
 			ruleID,
 		)
-		
+
 		ch <- prometheus.MustNewConstMetric(
 			prometheus.NewDesc("ag_ui_rule_error_rate", "Rule error rate", []string{"rule_id"}, c.customLabels),
 			prometheus.GaugeValue,
@@ -500,13 +500,13 @@ func (c *SLAComplianceCollector) Describe(ch chan<- *prometheus.Desc) {
 // Collect collects the metrics from the collector
 func (c *SLAComplianceCollector) Collect(ch chan<- prometheus.Metric) {
 	slaStatus := c.slaMonitor.GetCurrentStatus()
-	
+
 	for slaName, status := range slaStatus {
 		compliance := 1.0
 		if status.IsViolated {
 			compliance = 0.0
 		}
-		
+
 		ch <- prometheus.MustNewConstMetric(
 			prometheus.NewDesc("ag_ui_sla_compliance", "SLA compliance status", []string{"sla_name", "target_type"}, c.customLabels),
 			prometheus.GaugeValue,
@@ -514,7 +514,7 @@ func (c *SLAComplianceCollector) Collect(ch chan<- prometheus.Metric) {
 			slaName,
 			status.Target.Name,
 		)
-		
+
 		ch <- prometheus.MustNewConstMetric(
 			prometheus.NewDesc("ag_ui_sla_current_value", "SLA current value", []string{"sla_name", "unit"}, c.customLabels),
 			prometheus.GaugeValue,
@@ -553,28 +553,28 @@ func (c *MemoryUsageCollector) Collect(ch chan<- prometheus.Metric) {
 	if len(memHistory) == 0 {
 		return
 	}
-	
+
 	// Get the most recent memory stats
 	latest := memHistory[len(memHistory)-1]
-	
+
 	ch <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc("ag_ui_memory_allocated_bytes", "Allocated memory in bytes", nil, c.customLabels),
 		prometheus.GaugeValue,
 		float64(latest.AllocBytes),
 	)
-	
+
 	ch <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc("ag_ui_memory_heap_objects", "Number of heap objects", nil, c.customLabels),
 		prometheus.GaugeValue,
 		float64(latest.HeapObjects),
 	)
-	
+
 	ch <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc("ag_ui_gc_cycles_total", "Total GC cycles", nil, c.customLabels),
 		prometheus.CounterValue,
 		float64(latest.GCCycles),
 	)
-	
+
 	ch <- prometheus.MustNewConstMetric(
 		prometheus.NewDesc("ag_ui_gc_pause_total_seconds", "Total GC pause time", nil, c.customLabels),
 		prometheus.CounterValue,

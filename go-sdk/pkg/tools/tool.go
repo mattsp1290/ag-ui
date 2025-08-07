@@ -69,11 +69,11 @@ type Tool struct {
 
 	// Capabilities defines what features this tool supports
 	Capabilities *ToolCapabilities `json:"capabilities,omitempty"`
-	
+
 	// Copy-on-write optimization fields
-	refCount int32            `json:"-"`
-	isShared bool             `json:"-"`
-	mu       sync.RWMutex     `json:"-"`
+	refCount int32        `json:"-"`
+	isShared bool         `json:"-"`
+	mu       sync.RWMutex `json:"-"`
 }
 
 // ReadOnlyTool provides a read-only view of a tool to avoid cloning overhead.
@@ -208,14 +208,14 @@ type ToolSchema struct {
 //		Format:      "email",
 //		Description: "User email address",
 //	}
-//	
+//
 //	// Enum with specific values
 //	statusProp := &Property{
 //		Type:        "string",
 //		Enum:        []interface{}{"active", "inactive", "pending"},
 //		Description: "Account status",
 //	}
-//	
+//
 //	// Array with item constraints
 //	tagsProp := &Property{
 //		Type:        "array",
@@ -261,52 +261,52 @@ type Property struct {
 	Required []string `json:"required,omitempty"`
 
 	// Advanced JSON Schema features
-	
+
 	// OneOf specifies that the value must match exactly one of the schemas
 	OneOf []*Property `json:"oneOf,omitempty"`
-	
+
 	// AnyOf specifies that the value must match at least one of the schemas
 	AnyOf []*Property `json:"anyOf,omitempty"`
-	
+
 	// AllOf specifies that the value must match all of the schemas
 	AllOf []*Property `json:"allOf,omitempty"`
-	
+
 	// Not specifies that the value must not match the schema
 	Not *Property `json:"not,omitempty"`
-	
+
 	// Conditional validation
 	If   *Property `json:"if,omitempty"`
 	Then *Property `json:"then,omitempty"`
 	Else *Property `json:"else,omitempty"`
-	
+
 	// Schema reference
 	Ref string `json:"$ref,omitempty"`
-	
+
 	// Additional constraints
 	ExclusiveMinimum *float64 `json:"exclusiveMinimum,omitempty"`
 	ExclusiveMaximum *float64 `json:"exclusiveMaximum,omitempty"`
 	MultipleOf       *float64 `json:"multipleOf,omitempty"`
-	
+
 	// Object-specific constraints
 	MinProperties        *int  `json:"minProperties,omitempty"`
 	MaxProperties        *int  `json:"maxProperties,omitempty"`
 	AdditionalProperties *bool `json:"additionalProperties,omitempty"`
-	
+
 	// Array-specific constraints
 	MinItems    *int  `json:"minItems,omitempty"`
 	MaxItems    *int  `json:"maxItems,omitempty"`
 	UniqueItems *bool `json:"uniqueItems,omitempty"`
-	
+
 	// String-specific constraints
 	ContentMediaType *string `json:"contentMediaType,omitempty"`
 	ContentEncoding  *string `json:"contentEncoding,omitempty"`
-	
+
 	// Metadata
-	Title    string                 `json:"title,omitempty"`
-	Examples []interface{}          `json:"examples,omitempty"`
-	ReadOnly *bool                  `json:"readOnly,omitempty"`
-	WriteOnly *bool                 `json:"writeOnly,omitempty"`
-	
+	Title     string        `json:"title,omitempty"`
+	Examples  []interface{} `json:"examples,omitempty"`
+	ReadOnly  *bool         `json:"readOnly,omitempty"`
+	WriteOnly *bool         `json:"writeOnly,omitempty"`
+
 	// Custom extensions
 	Extensions map[string]interface{} `json:"-"`
 }
@@ -418,7 +418,7 @@ type ToolCapabilities struct {
 // Example implementation:
 //
 //	type MyToolExecutor struct{}
-//	
+//
 //	func (e *MyToolExecutor) Execute(ctx context.Context, params map[string]interface{}) (*ToolExecutionResult, error) {
 //		// Check context
 //		select {
@@ -426,10 +426,10 @@ type ToolCapabilities struct {
 //			return nil, ctx.Err()
 //		default:
 //		}
-//		
+//
 //		// Execute tool logic
 //		result := processData(params["input"].(string))
-//		
+//
 //		return &ToolExecutionResult{
 //			Success: true,
 //			Data:    result,
@@ -452,13 +452,13 @@ type ToolExecutor interface {
 //
 //	func (e *LogReaderExecutor) ExecuteStream(ctx context.Context, params map[string]interface{}) (<-chan *ToolStreamChunk, error) {
 //		stream := make(chan *ToolStreamChunk)
-//		
+//
 //		go func() {
 //			defer close(stream)
-//			
+//
 //			file := params["file"].(string)
 //			lines := readFileByLine(file)
-//			
+//
 //			for i, line := range lines {
 //				select {
 //				case <-ctx.Done():
@@ -472,7 +472,7 @@ type ToolExecutor interface {
 //				}
 //			}
 //		}()
-//		
+//
 //		return stream, nil
 //	}
 type StreamingToolExecutor interface {
@@ -552,12 +552,12 @@ type ToolStreamChunk struct {
 //	filter := &ToolFilter{
 //		Tags: []string{"text", "nlp"},
 //	}
-//	
+//
 //	// Find tools by name pattern
 //	filter := &ToolFilter{
 //		Name: "*analyzer*",  // Wildcards supported
 //	}
-//	
+//
 //	// Find tools with specific capabilities
 //	filter := &ToolFilter{
 //		Capabilities: &ToolCapabilities{
@@ -761,16 +761,16 @@ func (t *Tool) CloneOptimized() *Tool {
 
 	// Create a shallow copy with copy-on-write semantics
 	clone := &Tool{
-		ID:            t.ID,
-		Name:          t.Name,
-		Description:   t.Description,
-		Version:       t.Version,
-		Schema:        t.Schema,        // Shared initially
-		Metadata:      t.Metadata,     // Shared initially
-		Executor:      t.Executor,     // Always shared
-		Capabilities:  t.Capabilities, // Shared initially
-		refCount:      1,
-		isShared:      true,
+		ID:           t.ID,
+		Name:         t.Name,
+		Description:  t.Description,
+		Version:      t.Version,
+		Schema:       t.Schema,       // Shared initially
+		Metadata:     t.Metadata,     // Shared initially
+		Executor:     t.Executor,     // Always shared
+		Capabilities: t.Capabilities, // Shared initially
+		refCount:     1,
+		isShared:     true,
 	}
 
 	// Mark original as shared too

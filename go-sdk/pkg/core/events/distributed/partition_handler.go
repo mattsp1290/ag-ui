@@ -125,39 +125,39 @@ const (
 
 // PartitionHandler manages network partition detection and recovery
 type PartitionHandler struct {
-	config            *PartitionHandlerConfig
-	nodeID            NodeID
-	
+	config *PartitionHandlerConfig
+	nodeID NodeID
+
 	// Node tracking
-	nodeHealth        map[NodeID]*NodeHealthInfo
-	nodeHealthMutex   sync.RWMutex
-	
+	nodeHealth      map[NodeID]*NodeHealthInfo
+	nodeHealthMutex sync.RWMutex
+
 	// Partition tracking
-	currentPartition  *PartitionInfo
-	partitionHistory  []*PartitionInfo
-	partitionMutex    sync.RWMutex
-	
+	currentPartition *PartitionInfo
+	partitionHistory []*PartitionInfo
+	partitionMutex   sync.RWMutex
+
 	// Recovery state
 	recoveryInProgress bool
 	recoveryMutex      sync.RWMutex
-	
+
 	// Callbacks
-	onPartitionDetected   func(*PartitionInfo)
-	onPartitionRecovered  func(*PartitionInfo)
-	
+	onPartitionDetected  func(*PartitionInfo)
+	onPartitionRecovered func(*PartitionInfo)
+
 	// Metrics
-	partitionCount    uint64
-	recoveryCount     uint64
-	failedRecoveries  uint64
-	
+	partitionCount   uint64
+	recoveryCount    uint64
+	failedRecoveries uint64
+
 	// Lifecycle
-	running           int32 // Use atomic operations for thread-safe access
-	runningMutex      sync.RWMutex
-	stopChan          chan struct{}
-	stopOnce          sync.Once
-	wg                sync.WaitGroup
-	ctx               context.Context
-	cancel            context.CancelFunc
+	running      int32 // Use atomic operations for thread-safe access
+	runningMutex sync.RWMutex
+	stopChan     chan struct{}
+	stopOnce     sync.Once
+	wg           sync.WaitGroup
+	ctx          context.Context
+	cancel       context.CancelFunc
 }
 
 // NodeHealthInfo tracks health information for a node
@@ -319,14 +319,14 @@ func (ph *PartitionHandler) Stop() error {
 	ph.stopOnce.Do(func() {
 		close(ph.stopChan)
 	})
-	
+
 	// Wait for all goroutines to finish with timeout
 	done := make(chan struct{})
 	go func() {
 		ph.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// All goroutines finished
@@ -334,7 +334,7 @@ func (ph *PartitionHandler) Stop() error {
 		// Shorter timeout, more aggressive
 		fmt.Printf("Warning: Partition handler goroutines did not stop within timeout\n")
 	}
-	
+
 	atomic.StoreInt32(&ph.running, 0)
 	ph.cancel = nil
 	ph.ctx = nil
@@ -517,7 +517,7 @@ func (ph *PartitionHandler) checkHeartbeats() {
 	// Count failed nodes while holding the lock
 	failedNodes := 0
 	totalNodes := 0
-	
+
 	func() {
 		ph.nodeHealthMutex.RLock()
 		defer ph.nodeHealthMutex.RUnlock()
@@ -543,11 +543,11 @@ func (ph *PartitionHandler) checkHeartbeats() {
 func (ph *PartitionHandler) checkQuorum() {
 	// Count reachable nodes while holding the lock
 	reachableNodes := 0
-	
+
 	func() {
 		ph.nodeHealthMutex.RLock()
 		defer ph.nodeHealthMutex.RUnlock()
-		
+
 		for _, health := range ph.nodeHealth {
 			if health.IsReachable {
 				reachableNodes++
@@ -567,10 +567,10 @@ func (ph *PartitionHandler) checkQuorum() {
 // checkForPartition checks if a partition has occurred
 func (ph *PartitionHandler) checkForPartition() {
 	ph.nodeHealthMutex.RLock()
-	
+
 	reachableNodes := []NodeID{ph.nodeID}
 	unreachableNodes := []NodeID{}
-	
+
 	for nodeID, health := range ph.nodeHealth {
 		if health.IsReachable {
 			reachableNodes = append(reachableNodes, nodeID)
@@ -578,7 +578,7 @@ func (ph *PartitionHandler) checkForPartition() {
 			unreachableNodes = append(unreachableNodes, nodeID)
 		}
 	}
-	
+
 	ph.nodeHealthMutex.RUnlock()
 
 	// Determine if we're partitioned
@@ -677,7 +677,7 @@ func (ph *PartitionHandler) determinePartitionType(reachableCount, totalCount in
 	}
 
 	majoritySize := (totalCount / 2) + 1
-	
+
 	if reachableCount >= majoritySize {
 		return PartitionTypeMajority
 	} else if reachableCount == totalCount/2 {
@@ -763,7 +763,7 @@ func (ph *PartitionHandler) recoveryWait(partition *PartitionInfo) bool {
 	// Re-check node health
 	ph.nodeHealthMutex.RLock()
 	unreachableCount := 0
-	
+
 	for _, nodeID := range partition.UnreachableNodes {
 		if health, exists := ph.nodeHealth[nodeID]; exists && !health.IsReachable {
 			unreachableCount++
@@ -813,7 +813,7 @@ func (ph *PartitionHandler) completeRecovery(partition *PartitionInfo) {
 	now := time.Now()
 	partition.RecoveredAt = &now
 	partition.IsActive = false
-	
+
 	if ph.currentPartition == partition {
 		ph.currentPartition = nil
 	}
@@ -862,11 +862,11 @@ func (ph *PartitionHandler) GetMetrics() map[string]interface{} {
 	ph.partitionMutex.RUnlock()
 
 	return map[string]interface{}{
-		"is_partitioned":      isPartitioned,
-		"partition_count":     ph.partitionCount,
-		"recovery_count":      ph.recoveryCount,
-		"failed_recoveries":   ph.failedRecoveries,
-		"partition_duration":  partitionDuration,
-		"history_size":        len(ph.partitionHistory),
+		"is_partitioned":     isPartitioned,
+		"partition_count":    ph.partitionCount,
+		"recovery_count":     ph.recoveryCount,
+		"failed_recoveries":  ph.failedRecoveries,
+		"partition_duration": partitionDuration,
+		"history_size":       len(ph.partitionHistory),
 	}
 }

@@ -22,7 +22,7 @@ const (
 
 // ValidationConfig contains configuration for event validation
 type ValidationConfig struct {
-	Level ValidationLevel
+	Level  ValidationLevel
 	Strict bool
 
 	// Custom validation options
@@ -441,14 +441,14 @@ func isValidIDFormat(id, expectedPrefix string) bool {
 //
 //	// Create a standard validator
 //	validator := events.NewValidator(events.DefaultValidationConfig())
-//	
+//
 //	// Add authentication
 //	authProvider := auth.NewBasicAuthProvider(nil)
 //	authConfig := auth.DefaultAuthConfig()
-//	
+//
 //	// Wrap with authentication
 //	authValidator := events.WithAuthentication(validator, authProvider, authConfig)
-//	
+//
 //	// Now use authValidator for validation with authentication support
 //	result := authValidator.ValidateEvent(ctx, event)
 func WithAuthentication(validator *Validator, authProvider interface{}, authConfig interface{}) interface{} {

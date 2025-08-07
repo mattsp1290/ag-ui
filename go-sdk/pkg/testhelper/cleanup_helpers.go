@@ -479,7 +479,7 @@ func SafeCloseChannelConcurrently[T any](t *testing.T, ch chan T, name string, g
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			defer func() {
 				if r := recover(); r != nil {
 					t.Logf("Goroutine %d: Channel %s was already closed", id, name)

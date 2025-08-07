@@ -25,15 +25,15 @@ type StreamingServerConfig struct {
 	WebSocket WebSocketConfig `yaml:"websocket" json:"websocket"`
 
 	// Server Configuration
-	Address            string        `yaml:"address" json:"address"`
-	ReadTimeout        time.Duration `yaml:"read_timeout" json:"read_timeout"`
-	WriteTimeout       time.Duration `yaml:"write_timeout" json:"write_timeout"`
-	MaxConnections     int           `yaml:"max_connections" json:"max_connections"`
-	EnableCompression  bool          `yaml:"enable_compression" json:"enable_compression"`
-	EnableHealthCheck  bool          `yaml:"enable_health_check" json:"enable_health_check"`
-	HealthCheckPath    string        `yaml:"health_check_path" json:"health_check_path"`
-	EnableMetrics      bool          `yaml:"enable_metrics" json:"enable_metrics"`
-	MetricsPath        string        `yaml:"metrics_path" json:"metrics_path"`
+	Address           string        `yaml:"address" json:"address"`
+	ReadTimeout       time.Duration `yaml:"read_timeout" json:"read_timeout"`
+	WriteTimeout      time.Duration `yaml:"write_timeout" json:"write_timeout"`
+	MaxConnections    int           `yaml:"max_connections" json:"max_connections"`
+	EnableCompression bool          `yaml:"enable_compression" json:"enable_compression"`
+	EnableHealthCheck bool          `yaml:"enable_health_check" json:"enable_health_check"`
+	HealthCheckPath   string        `yaml:"health_check_path" json:"health_check_path"`
+	EnableMetrics     bool          `yaml:"enable_metrics" json:"enable_metrics"`
+	MetricsPath       string        `yaml:"metrics_path" json:"metrics_path"`
 
 	// CORS Configuration
 	CORS CORSConfig `yaml:"cors" json:"cors"`
@@ -73,79 +73,115 @@ type CORSConfig struct {
 
 // SecurityConfig configures security settings
 type SecurityConfig struct {
-	EnableRateLimit     bool          `yaml:"enable_rate_limit" json:"enable_rate_limit"`
-	RateLimit           int           `yaml:"rate_limit" json:"rate_limit"`
-	RateLimitWindow     time.Duration `yaml:"rate_limit_window" json:"rate_limit_window"`
+	EnableRateLimit bool          `yaml:"enable_rate_limit" json:"enable_rate_limit"`
+	RateLimit       int           `yaml:"rate_limit" json:"rate_limit"`
+	RateLimitWindow time.Duration `yaml:"rate_limit_window" json:"rate_limit_window"`
 	// Memory protection for rate limiters
-	MaxRateLimiters     int           `yaml:"max_rate_limiters" json:"max_rate_limiters"`
-	RateLimiterTTL      time.Duration `yaml:"rate_limiter_ttl" json:"rate_limiter_ttl"`
-	RequireAuth         bool          `yaml:"require_auth" json:"require_auth"`
-	AuthHeaderName      string        `yaml:"auth_header_name" json:"auth_header_name"`
-	MaxRequestSize      int64         `yaml:"max_request_size" json:"max_request_size"`
-	TrustedProxies      []string      `yaml:"trusted_proxies" json:"trusted_proxies"`
+	MaxRateLimiters int           `yaml:"max_rate_limiters" json:"max_rate_limiters"`
+	RateLimiterTTL  time.Duration `yaml:"rate_limiter_ttl" json:"rate_limiter_ttl"`
+	RequireAuth     bool          `yaml:"require_auth" json:"require_auth"`
+	AuthHeaderName  string        `yaml:"auth_header_name" json:"auth_header_name"`
+	MaxRequestSize  int64         `yaml:"max_request_size" json:"max_request_size"`
+	TrustedProxies  []string      `yaml:"trusted_proxies" json:"trusted_proxies"`
 }
 
 // StreamingServer implements server-side event streaming with SSE and WebSocket support
 type StreamingServer struct {
 	config *StreamingServerConfig
-	
+
 	// HTTP server
 	httpServer *http.Server
 	mux        *http.ServeMux
-	
+
 	// Client management
 	sseClients       map[string]*SSEClient
 	websocketClients map[string]*WebSocketClient
 	clientsMutex     sync.RWMutex
-	
+
 	// Event broadcasting
 	eventBroadcaster *EventBroadcaster
-	
+
 	// Connection management
 	connectionManager *ConnectionManager
-	
+
 	// Performance monitoring
 	metrics *StreamingMetrics
-	
+
 	// Health monitoring
 	healthChecker *HealthChecker
-	
+
 	// Lifecycle management
-	ctx            context.Context
-	cancel         context.CancelFunc
-	shutdownWg     sync.WaitGroup
-	running        int32 // atomic
-	
+	ctx        context.Context
+	cancel     context.CancelFunc
+	shutdownWg sync.WaitGroup
+	running    int32 // atomic
+
 	// WebSocket upgrader
 	upgrader websocket.Upgrader
 }
 
 // SSEClient represents a Server-Sent Events client connection
 type SSEClient struct {
-	ID             string
-	Writer         http.ResponseWriter
-	Flusher        http.Flusher
-	Context        context.Context
-	Cancel         context.CancelFunc
-	LastEventID    string
-	ConnectedAt    time.Time
-	LastActivity   time.Time
-	EventChannel   chan *StreamEvent
-	EventCount     int64
-	BytesSent      int64
-	Subscriptions  map[string]bool
-	Compression    bool
-	mutex          sync.RWMutex
-	channelClosed  int32  // atomic flag to track if channel is closed
-	closeOnce      sync.Once // ensures channel is closed only once
+	ID            string
+	Writer        http.ResponseWriter
+	Flusher       http.Flusher
+	Context       context.Context
+	Cancel        context.CancelFunc
+	LastEventID   string
+	ConnectedAt   time.Time
+	LastActivity  time.Time
+	EventChannel  chan *StreamEvent
+	EventCount    int64
+	BytesSent     int64
+	Subscriptions map[string]bool
+	Compression   bool
+	mutex         sync.RWMutex
+	channelClosed int32     // atomic flag to track if channel is closed
+	closeOnce     sync.Once // ensures channel is closed only once
 }
 
 // SafeCloseEventChannel safely closes the event channel, preventing double-close panics
 func (c *SSEClient) SafeCloseEventChannel() {
 	c.closeOnce.Do(func() {
 		atomic.StoreInt32(&c.channelClosed, 1)
-		close(c.EventChannel)
+		// Drain the channel before closing to prevent goroutine leaks
+		go func() {
+			// Drain remaining events with timeout
+			timeout := time.NewTimer(1 * time.Second)
+			defer timeout.Stop()
+			for {
+				select {
+				case _, ok := <-c.EventChannel:
+					if !ok {
+						return // Channel already closed
+					}
+				case <-timeout.C:
+					return // Timeout reached
+				default:
+					// No more events, safe to close
+					close(c.EventChannel)
+					return
+				}
+			}
+		}()
 	})
+}
+
+// SafeSendEvent safely sends an event to the client's channel, checking if it's closed first
+func (c *SSEClient) SafeSendEvent(event *StreamEvent) bool {
+	// Check if channel is closed atomically
+	if atomic.LoadInt32(&c.channelClosed) == 1 {
+		return false
+	}
+
+	// Use select with default to prevent blocking on a potentially closed channel
+	select {
+	case c.EventChannel <- event:
+		return true
+	default:
+		// Channel is either closed or full, don't block
+		return false
+	}
 }
 
 // WebSocketClient represents a WebSocket client connection
@@ -162,7 +198,7 @@ type WebSocketClient struct {
 	BytesReceived int64
 	Subscriptions map[string]bool
 	mutex         sync.RWMutex
-	channelClosed int32  // atomic flag to track if channel is closed
+	channelClosed int32     // atomic flag to track if channel is closed
 	closeOnce     sync.Once // ensures channel is closed only once
 }
 
@@ -170,8 +206,51 @@ type WebSocketClient struct {
 func (c *WebSocketClient) SafeCloseEventChannel() {
 	c.closeOnce.Do(func() {
 		atomic.StoreInt32(&c.channelClosed, 1)
-		close(c.EventChannel)
+		// Enhanced cleanup with connection closure
+		if c.Conn != nil {
+			// Send close message before closing
+			c.Conn.WriteControl(websocket.CloseMessage, 
+				websocket.FormatCloseMessage(websocket.CloseNormalClosure, "server closing"), 
+				time.Now().Add(time.Second))
+			c.Conn.Close()
+		}
+		// Drain the channel before closing to prevent goroutine leaks
+		go func() {
+			timeout := time.NewTimer(1 * time.Second)
+			defer timeout.Stop()
+			for {
+				select {
+				case _, ok := <-c.EventChannel:
+					if !ok {
+						return // Channel already closed
+					}
+				case <-timeout.C:
+					return // Timeout reached
+				default:
+					// No more events, safe to close
+					close(c.EventChannel)
+					return
+				}
+			}
+		}()
 	})
+}
+
+// SafeSendEvent safely sends an event to the client's channel, checking if it's closed first
+func (c *WebSocketClient) SafeSendEvent(event *StreamEvent) bool {
+	// Check if channel is closed atomically
+	if atomic.LoadInt32(&c.channelClosed) == 1 {
+		return false
+	}
+
+	// Use select with default to prevent blocking on a potentially closed channel
+	select {
+	case c.EventChannel <- event:
+		return true
+	default:
+		// Channel is either closed or full, don't block
+		return false
+	}
 }
 
 // StreamEvent represents an event that can be streamed to clients
@@ -187,23 +266,27 @@ type StreamEvent struct {
 
 // EventBroadcaster manages event broadcasting to connected clients
 type EventBroadcaster struct {
-	eventChannel   chan *BroadcastEvent
-	subscriptions  map[string]map[string]*ClientSubscription
-	subsMutex      sync.RWMutex
-	ctx            context.Context
-	cancel         context.CancelFunc
-	wg             sync.WaitGroup
-	config         *StreamingServerConfig
-	metrics        *StreamingMetrics
+	eventChannel     chan *BroadcastEvent
+	subscriptions    map[string]map[string]*ClientSubscription
+	subsMutex        sync.RWMutex
+	ctx              context.Context
+	cancel           context.CancelFunc
+	wg               sync.WaitGroup
+	config           *StreamingServerConfig
+	metrics          *StreamingMetrics
+	server           *StreamingServer // reference to access clients
+	channelMutex     sync.RWMutex     // protects channel operations
+	channelClosed    bool             // tracks if eventChannel is closed (protected by channelMutex)
+	closeOnce        sync.Once        // ensures channel is closed only once
 }
 
 // BroadcastEvent represents an event to be broadcast
 type BroadcastEvent struct {
-	Event       *StreamEvent
-	EventType   string
-	TargetIDs   []string // If empty, broadcast to all
-	Exclude     []string // Client IDs to exclude
-	Multicast   bool     // If true, send to multiple specific clients
+	Event     *StreamEvent
+	EventType string
+	TargetIDs []string // If empty, broadcast to all
+	Exclude   []string // Client IDs to exclude
+	Multicast bool     // If true, send to multiple specific clients
 }
 
 // ClientSubscription represents a client's subscription to an event type
@@ -240,34 +323,38 @@ type StreamingMetrics struct {
 	SSEConnections       int64 `json:"sse_connections"`
 	WebSocketConnections int64 `json:"websocket_connections"`
 	TotalConnections     int64 `json:"total_connections"`
-	
+
 	// Event metrics
-	EventsSent       int64 `json:"events_sent"`
-	EventsReceived   int64 `json:"events_received"`
-	BytesSent        int64 `json:"bytes_sent"`
-	BytesReceived    int64 `json:"bytes_received"`
-	BroadcastEvents  int64 `json:"broadcast_events"`
-	MulticastEvents  int64 `json:"multicast_events"`
-	
+	EventsSent      int64 `json:"events_sent"`
+	EventsReceived  int64 `json:"events_received"`
+	BytesSent       int64 `json:"bytes_sent"`
+	BytesReceived   int64 `json:"bytes_received"`
+	BroadcastEvents int64 `json:"broadcast_events"`
+	MulticastEvents int64 `json:"multicast_events"`
+
 	// Performance metrics
-	AverageLatency   time.Duration `json:"average_latency"`
-	EventsPerSecond  float64       `json:"events_per_second"`
-	ConnectionsPerSecond float64   `json:"connections_per_second"`
-	
+	AverageLatency       time.Duration `json:"average_latency"`
+	EventsPerSecond      float64       `json:"events_per_second"`
+	ConnectionsPerSecond float64       `json:"connections_per_second"`
+
 	// Error metrics
-	ConnectionErrors int64 `json:"connection_errors"`
-	EventErrors      int64 `json:"event_errors"`
-	RateLimitHits    int64 `json:"rate_limit_hits"`
-	
+	ConnectionErrors        int64 `json:"connection_errors"`
+	EventErrors             int64 `json:"event_errors"`
+	RateLimitHits           int64 `json:"rate_limit_hits"`
+	RateLimitErrors         int64 `json:"rate_limit_errors"`
+	RateLimiterCreations    int64 `json:"rate_limiter_creations"`
+	RateLimiterEvictions    int64 `json:"rate_limiter_evictions"`
+	RateLimiterRetries      int64 `json:"rate_limiter_retries"`
+
 	// Buffer metrics
 	BufferUtilization float64 `json:"buffer_utilization"`
 	DroppedEvents     int64   `json:"dropped_events"`
-	
+
 	// Health metrics
-	Uptime         time.Duration `json:"uptime"`
-	StartTime      time.Time     `json:"start_time"`
-	LastEventTime  time.Time     `json:"last_event_time"`
-	
+	Uptime        time.Duration `json:"uptime"`
+	StartTime     time.Time     `json:"start_time"`
+	LastEventTime time.Time     `json:"last_event_time"`
+
 	mutex sync.RWMutex
 }
 
@@ -319,15 +406,15 @@ func DefaultStreamingServerConfig() *StreamingServerConfig {
 			AllowHeaders: []string{"Content-Type", "Authorization", "Last-Event-ID", "Cache-Control"},
 		},
 		Security: SecurityConfig{
-			EnableRateLimit:  true,
-			RateLimit:        100,
-			RateLimitWindow:  time.Minute,
-			MaxRateLimiters:  10000,
-			RateLimiterTTL:   10 * time.Minute,
-			RequireAuth:      false,
-			AuthHeaderName:   "Authorization",
-			MaxRequestSize:   1024 * 1024, // 1MB
-			TrustedProxies:   []string{"127.0.0.1", "::1"},
+			EnableRateLimit: true,
+			RateLimit:       100,
+			RateLimitWindow: time.Minute,
+			MaxRateLimiters: 10000,
+			RateLimiterTTL:  10 * time.Minute,
+			RequireAuth:     false,
+			AuthHeaderName:  "Authorization",
+			MaxRequestSize:  1024 * 1024, // 1MB
+			TrustedProxies:  []string{"127.0.0.1", "::1"},
 		},
 	}
 }
@@ -337,13 +424,13 @@ func NewStreamingServer(config *StreamingServerConfig) (*StreamingServer, error)
 	if config == nil {
 		config = DefaultStreamingServerConfig()
 	}
-	
+
 	if err := validateConfig(config); err != nil {
 		return nil, pkgerrors.NewValidationError("invalid_config", "streaming server configuration validation failed").WithCause(err)
 	}
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	server := &StreamingServer{
 		config:           config,
 		sseClients:       make(map[string]*SSEClient),
@@ -352,28 +439,28 @@ func NewStreamingServer(config *StreamingServerConfig) (*StreamingServer, error)
 		cancel:           cancel,
 		mux:              http.NewServeMux(),
 	}
-	
+
 	// Initialize upgrader after server is created so we can reference server.checkOrigin
 	server.upgrader = websocket.Upgrader{
-		ReadBufferSize:   config.WebSocket.BufferSize,
-		WriteBufferSize:  config.WebSocket.BufferSize,
-		CheckOrigin:      server.checkOrigin,
-		Subprotocols:     config.WebSocket.Subprotocols,
+		ReadBufferSize:    config.WebSocket.BufferSize,
+		WriteBufferSize:   config.WebSocket.BufferSize,
+		CheckOrigin:       server.checkOrigin,
+		Subprotocols:      config.WebSocket.Subprotocols,
 		EnableCompression: config.EnableCompression,
 	}
-	
+
 	// Initialize components
-	server.eventBroadcaster = NewEventBroadcaster(config, ctx)
+	server.eventBroadcaster = NewEventBroadcaster(config, ctx, server)
 	server.connectionManager = NewConnectionManager(config)
 	server.metrics = NewStreamingMetrics()
-	
+
 	if config.EnableHealthCheck {
 		server.healthChecker = NewHealthChecker(server, config)
 	}
-	
+
 	// Setup HTTP routes
 	server.setupRoutes()
-	
+
 	return server, nil
 }
 
@@ -382,18 +469,23 @@ func (s *StreamingServer) Start() error {
 	if !atomic.CompareAndSwapInt32(&s.running, 0, 1) {
 		return pkgerrors.NewOperationError("Start", "StreamingServer", fmt.Errorf("server is already running"))
 	}
-	
+
 	// Start event broadcaster
 	s.eventBroadcaster.Start()
-	
+
 	// Start health checker
 	if s.healthChecker != nil {
 		s.healthChecker.Start()
 	}
-	
+
+	// Start periodic rate limiter cleanup if rate limiting is enabled
+	if s.config.Security.EnableRateLimit {
+		s.connectionManager.StartPeriodicCleanup(s.ctx, 5*time.Minute)
+	}
+
 	// Start metrics collection
 	s.metrics.StartTime = time.Now()
-	
+
 	// Create HTTP server
 	s.httpServer = &http.Server{
 		Addr:         s.config.Address,
@@ -401,7 +493,7 @@ func (s *StreamingServer) Start() error {
 		ReadTimeout:  s.config.ReadTimeout,
 		WriteTimeout: s.config.WriteTimeout,
 	}
-	
+
 	// Start server in goroutine
 	s.shutdownWg.Add(1)
 	go func() {
@@ -410,7 +502,7 @@ func (s *StreamingServer) Start() error {
 			fmt.Printf("Streaming server error: %v\n", err)
 		}
 	}()
-	
+
 	fmt.Printf("Streaming server started on %s\n", s.config.Address)
 	return nil
 }
@@ -420,31 +512,31 @@ func (s *StreamingServer) Stop(ctx context.Context) error {
 	if !atomic.CompareAndSwapInt32(&s.running, 1, 0) {
 		return pkgerrors.NewOperationError("Stop", "StreamingServer", fmt.Errorf("server is not running"))
 	}
-	
+
 	// Cancel context
 	s.cancel()
-	
+
 	// Stop health checker
 	if s.healthChecker != nil {
 		s.healthChecker.Stop()
 	}
-	
+
 	// Stop event broadcaster
 	s.eventBroadcaster.Stop()
-	
+
 	// Close all client connections
 	s.closeAllClients()
-	
+
 	// Shutdown HTTP server
 	if s.httpServer != nil {
 		if err := s.httpServer.Shutdown(ctx); err != nil {
 			return pkgerrors.NewOperationError("Stop", "HTTPServer", err)
 		}
 	}
-	
+
 	// Wait for shutdown completion
 	s.shutdownWg.Wait()
-	
+
 	return nil
 }
 
@@ -453,13 +545,13 @@ func (s *StreamingServer) BroadcastEvent(event *StreamEvent) error {
 	if atomic.LoadInt32(&s.running) == 0 {
 		return pkgerrors.NewOperationError("BroadcastEvent", "StreamingServer", fmt.Errorf("server is not running"))
 	}
-	
+
 	broadcastEvent := &BroadcastEvent{
 		Event:     event,
 		EventType: event.Event,
 		Multicast: false,
 	}
-	
+
 	return s.eventBroadcaster.Broadcast(broadcastEvent)
 }
 
@@ -468,14 +560,14 @@ func (s *StreamingServer) MulticastEvent(event *StreamEvent, clientIDs []string)
 	if atomic.LoadInt32(&s.running) == 0 {
 		return pkgerrors.NewOperationError("MulticastEvent", "StreamingServer", fmt.Errorf("server is not running"))
 	}
-	
+
 	broadcastEvent := &BroadcastEvent{
 		Event:     event,
 		EventType: event.Event,
 		TargetIDs: clientIDs,
 		Multicast: true,
 	}
-	
+
 	return s.eventBroadcaster.Broadcast(broadcastEvent)
 }
 
@@ -483,19 +575,44 @@ func (s *StreamingServer) MulticastEvent(event *StreamEvent, clientIDs []string)
 func (s *StreamingServer) GetMetrics() *StreamingMetrics {
 	s.metrics.mutex.RLock()
 	defer s.metrics.mutex.RUnlock()
-	
-	// Create a copy
-	metrics := *s.metrics
-	metrics.Uptime = time.Since(metrics.StartTime)
-	
-	return &metrics
+
+	// Create a copy without the mutex to avoid copying lock value
+	metrics := &StreamingMetrics{
+		SSEConnections:       s.metrics.SSEConnections,
+		WebSocketConnections: s.metrics.WebSocketConnections,
+		TotalConnections:     s.metrics.TotalConnections,
+		EventsSent:           s.metrics.EventsSent,
+		EventsReceived:       s.metrics.EventsReceived,
+		BytesSent:            s.metrics.BytesSent,
+		BytesReceived:        s.metrics.BytesReceived,
+		BroadcastEvents:      s.metrics.BroadcastEvents,
+		MulticastEvents:      s.metrics.MulticastEvents,
+		AverageLatency:       s.metrics.AverageLatency,
+		EventsPerSecond:      s.metrics.EventsPerSecond,
+		ConnectionsPerSecond: s.metrics.ConnectionsPerSecond,
+		ConnectionErrors:        s.metrics.ConnectionErrors,
+		EventErrors:             s.metrics.EventErrors,
+		RateLimitHits:           s.metrics.RateLimitHits,
+		RateLimitErrors:         s.metrics.RateLimitErrors,
+		RateLimiterCreations:    s.metrics.RateLimiterCreations,
+		RateLimiterEvictions:    s.metrics.RateLimiterEvictions,
+		RateLimiterRetries:      s.metrics.RateLimiterRetries,
+		BufferUtilization:    s.metrics.BufferUtilization,
+		DroppedEvents:        s.metrics.DroppedEvents,
+		Uptime:               time.Since(s.metrics.StartTime), // Calculate uptime
+		StartTime:            s.metrics.StartTime,
+		LastEventTime:        s.metrics.LastEventTime,
+		// Note: deliberately omitting mutex field to avoid copying the lock
+	}
+
+	return metrics
 }
 
 // GetActiveConnections returns the number of active connections
 func (s *StreamingServer) GetActiveConnections() (int, int) {
 	s.clientsMutex.RLock()
 	defer s.clientsMutex.RUnlock()
-	
+
 	return len(s.sseClients), len(s.websocketClients)
 }
 
@@ -503,20 +620,20 @@ func (s *StreamingServer) GetActiveConnections() (int, int) {
 func (s *StreamingServer) setupRoutes() {
 	// SSE endpoint
 	s.mux.HandleFunc("/events", s.handleSSE)
-	
+
 	// WebSocket endpoint
 	s.mux.HandleFunc("/ws", s.handleWebSocket)
-	
+
 	// Health check endpoint
 	if s.config.EnableHealthCheck {
 		s.mux.HandleFunc(s.config.HealthCheckPath, s.handleHealth)
 	}
-	
+
 	// Metrics endpoint
 	if s.config.EnableMetrics {
 		s.mux.HandleFunc(s.config.MetricsPath, s.handleMetrics)
 	}
-	
+
 	// CORS preflight
 	if s.config.CORS.Enabled {
 		s.mux.HandleFunc("/", s.handleCORS)
@@ -530,70 +647,70 @@ func (s *StreamingServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Server not running", http.StatusServiceUnavailable)
 		return
 	}
-	
+
 	// Apply CORS headers
 	if s.config.CORS.Enabled {
 		s.applyCORSHeaders(w, r)
 	}
-	
+
 	// Handle preflight requests
 	if r.Method == "OPTIONS" {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	
+
 	// Only allow GET requests
 	if r.Method != "GET" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	// Check connection limits
 	if !s.connectionManager.CanAcceptSSEConnection() {
 		http.Error(w, "Too many connections", http.StatusTooManyRequests)
 		return
 	}
-	
+
 	// Apply rate limiting
 	if !s.connectionManager.AllowRequest(s.getClientIP(r)) {
 		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 		s.metrics.IncrementRateLimitHits()
 		return
 	}
-	
+
 	// Check for flusher support
 	flusher, ok := w.(http.Flusher)
 	if !ok {
 		http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
 		return
 	}
-	
+
 	// Set SSE headers
 	w.Header().Set("Content-Type", "text/event-stream")
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "Cache-Control")
-	
+
 	// Enable compression if requested and configured
-	enableCompression := s.config.SSE.EnableCompression && 
+	enableCompression := s.config.SSE.EnableCompression &&
 		strings.Contains(r.Header.Get("Accept-Encoding"), "gzip")
-	
+
 	var writer http.ResponseWriter = w
 	var gzipWriter *gzip.Writer
-	
+
 	if enableCompression {
 		w.Header().Set("Content-Encoding", "gzip")
 		gzipWriter = gzip.NewWriter(w)
 		writer = &gzipResponseWriter{ResponseWriter: w, gzipWriter: gzipWriter}
 	}
-	
+
 	// Get last event ID for resuming connections
 	lastEventID := r.Header.Get("Last-Event-ID")
 	if lastEventID == "" {
 		lastEventID = r.URL.Query().Get("lastEventId")
 	}
-	
+
 	// Create client
 	clientCtx, clientCancel := context.WithCancel(s.ctx)
 	client := &SSEClient{
@@ -609,27 +726,27 @@ func (s *StreamingServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 		Subscriptions: make(map[string]bool),
 		Compression:   enableCompression,
 	}
-	
+
 	// Register client
 	s.clientsMutex.Lock()
 	s.sseClients[client.ID] = client
 	s.clientsMutex.Unlock()
-	
+
 	// Update metrics
 	s.connectionManager.IncrementSSEConnections()
 	s.metrics.IncrementSSEConnections()
-	
+
 	// Subscribe to events based on query parameters
 	eventTypes := r.URL.Query()["events"]
 	if len(eventTypes) == 0 {
 		eventTypes = []string{"*"} // Subscribe to all events by default
 	}
-	
+
 	for _, eventType := range eventTypes {
 		s.eventBroadcaster.Subscribe(client.ID, "sse", eventType)
 		client.Subscriptions[eventType] = true
 	}
-	
+
 	// Send connection event
 	connectionEvent := &StreamEvent{
 		ID:        generateEventID(),
@@ -637,20 +754,20 @@ func (s *StreamingServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 		Data:      map[string]interface{}{"status": "connected", "client_id": client.ID},
 		Timestamp: time.Now(),
 	}
-	
+
 	if err := s.sendSSEEvent(client, connectionEvent); err != nil {
 		fmt.Printf("Error sending connection event: %v\n", err)
 	}
-	
+
 	// Send buffered events if resuming
 	if lastEventID != "" {
 		// TODO: Implement event replay from last event ID
 	}
-	
+
 	// Start heartbeat
 	heartbeatTicker := time.NewTicker(s.config.SSE.HeartbeatInterval)
 	defer heartbeatTicker.Stop()
-	
+
 	// Event processing loop
 	for {
 		select {
@@ -677,30 +794,30 @@ func (s *StreamingServer) handleSSE(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	
+
 cleanup:
 	// Cleanup client
 	clientCancel()
-	
+
 	// Close gzip writer if used
 	if gzipWriter != nil {
 		gzipWriter.Close()
 	}
-	
+
 	// Unregister client
 	s.clientsMutex.Lock()
 	delete(s.sseClients, client.ID)
 	s.clientsMutex.Unlock()
-	
+
 	// Unsubscribe from events
 	for eventType := range client.Subscriptions {
 		s.eventBroadcaster.Unsubscribe(client.ID, eventType)
 	}
-	
+
 	// Update metrics
 	s.connectionManager.DecrementSSEConnections()
 	s.metrics.DecrementSSEConnections()
-	
+
 	// Close event channel safely
 	client.SafeCloseEventChannel()
 }
@@ -712,25 +829,25 @@ func (s *StreamingServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 		http.Error(w, "Server not running", http.StatusServiceUnavailable)
 		return
 	}
-	
+
 	// Apply CORS headers
 	if s.config.CORS.Enabled {
 		s.applyCORSHeaders(w, r)
 	}
-	
+
 	// Check connection limits
 	if !s.connectionManager.CanAcceptWebSocketConnection() {
 		http.Error(w, "Too many connections", http.StatusTooManyRequests)
 		return
 	}
-	
+
 	// Apply rate limiting
 	if !s.connectionManager.AllowRequest(s.getClientIP(r)) {
 		http.Error(w, "Rate limit exceeded", http.StatusTooManyRequests)
 		s.metrics.IncrementRateLimitHits()
 		return
 	}
-	
+
 	// Upgrade to WebSocket
 	conn, err := s.upgrader.Upgrade(w, r, nil)
 	if err != nil {
@@ -738,7 +855,7 @@ func (s *StreamingServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 		s.metrics.IncrementConnectionErrors()
 		return
 	}
-	
+
 	// Set connection limits
 	conn.SetReadLimit(s.config.WebSocket.MaxMessageSize)
 	conn.SetReadDeadline(time.Now().Add(s.config.WebSocket.PongWait))
@@ -746,7 +863,7 @@ func (s *StreamingServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 		conn.SetReadDeadline(time.Now().Add(s.config.WebSocket.PongWait))
 		return nil
 	})
-	
+
 	// Create client
 	clientCtx, clientCancel := context.WithCancel(s.ctx)
 	client := &WebSocketClient{
@@ -759,16 +876,16 @@ func (s *StreamingServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 		EventChannel:  make(chan *StreamEvent, s.config.WebSocket.BufferSize),
 		Subscriptions: make(map[string]bool),
 	}
-	
+
 	// Register client
 	s.clientsMutex.Lock()
 	s.websocketClients[client.ID] = client
 	s.clientsMutex.Unlock()
-	
+
 	// Update metrics
 	s.connectionManager.IncrementWebSocketConnections()
 	s.metrics.IncrementWebSocketConnections()
-	
+
 	// Send connection event
 	connectionEvent := &StreamEvent{
 		ID:        generateEventID(),
@@ -776,52 +893,52 @@ func (s *StreamingServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 		Data:      map[string]interface{}{"status": "connected", "client_id": client.ID},
 		Timestamp: time.Now(),
 	}
-	
+
 	if err := s.sendWebSocketEvent(client, connectionEvent); err != nil {
 		fmt.Printf("Error sending connection event: %v\n", err)
 	}
-	
+
 	// Start ping ticker
 	pingTicker := time.NewTicker(s.config.WebSocket.PingPeriod)
 	defer pingTicker.Stop()
-	
+
 	// Start read and write goroutines
 	var wg sync.WaitGroup
 	wg.Add(2)
-	
+
 	// Read goroutine
 	go func() {
 		defer wg.Done()
 		s.handleWebSocketRead(client)
 	}()
-	
+
 	// Write goroutine
 	go func() {
 		defer wg.Done()
 		s.handleWebSocketWrite(client, pingTicker)
 	}()
-	
+
 	// Wait for goroutines to complete
 	wg.Wait()
-	
+
 	// Cleanup
 	clientCancel()
 	conn.Close()
-	
+
 	// Unregister client
 	s.clientsMutex.Lock()
 	delete(s.websocketClients, client.ID)
 	s.clientsMutex.Unlock()
-	
+
 	// Unsubscribe from events
 	for eventType := range client.Subscriptions {
 		s.eventBroadcaster.Unsubscribe(client.ID, eventType)
 	}
-	
+
 	// Update metrics
 	s.connectionManager.DecrementWebSocketConnections()
 	s.metrics.DecrementWebSocketConnections()
-	
+
 	// Close event channel safely
 	client.SafeCloseEventChannel()
 }
@@ -829,14 +946,14 @@ func (s *StreamingServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 // handleWebSocketRead handles reading messages from WebSocket clients
 func (s *StreamingServer) handleWebSocketRead(client *WebSocketClient) {
 	defer client.Cancel()
-	
+
 	for {
 		select {
 		case <-client.Context.Done():
 			return
 		default:
 		}
-		
+
 		messageType, message, err := client.Conn.ReadMessage()
 		if err != nil {
 			if websocket.IsUnexpectedCloseError(err, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
@@ -844,16 +961,16 @@ func (s *StreamingServer) handleWebSocketRead(client *WebSocketClient) {
 			}
 			return
 		}
-		
+
 		client.mutex.Lock()
 		client.LastActivity = time.Now()
 		client.BytesReceived += int64(len(message))
 		client.mutex.Unlock()
-		
+
 		// Update metrics
 		s.metrics.IncrementBytesReceived(int64(len(message)))
 		s.metrics.IncrementEventsReceived()
-		
+
 		// Handle different message types
 		switch messageType {
 		case websocket.TextMessage:
@@ -867,7 +984,7 @@ func (s *StreamingServer) handleWebSocketRead(client *WebSocketClient) {
 // handleWebSocketWrite handles writing messages to WebSocket clients
 func (s *StreamingServer) handleWebSocketWrite(client *WebSocketClient, pingTicker *time.Ticker) {
 	defer client.Cancel()
-	
+
 	for {
 		select {
 		case <-client.Context.Done():
@@ -893,7 +1010,7 @@ func (s *StreamingServer) handleWebSocketTextMessage(client *WebSocketClient, me
 		fmt.Printf("Error parsing WebSocket message: %v\n", err)
 		return
 	}
-	
+
 	// Handle subscription requests
 	if action, ok := msg["action"].(string); ok {
 		switch action {
@@ -926,23 +1043,23 @@ func (s *StreamingServer) handleWebSocketBinaryMessage(client *WebSocketClient, 
 func (s *StreamingServer) sendSSEEvent(client *SSEClient, event *StreamEvent) error {
 	client.mutex.Lock()
 	defer client.mutex.Unlock()
-	
+
 	// Set write deadline
 	if err := setWriteDeadline(client.Writer, s.config.SSE.EventTimeout); err != nil {
 		return err
 	}
-	
+
 	// Format SSE event
 	var data []byte
 	var err error
-	
+
 	if event.Data != nil {
 		data, err = json.Marshal(event.Data)
 		if err != nil {
 			return pkgerrors.NewEncodingError("json_marshal_failed", "failed to marshal event data").WithCause(err)
 		}
 	}
-	
+
 	// Write event fields
 	if event.ID != "" {
 		if _, err := fmt.Fprintf(client.Writer, "id: %s\n", event.ID); err != nil {
@@ -950,19 +1067,19 @@ func (s *StreamingServer) sendSSEEvent(client *SSEClient, event *StreamEvent) er
 		}
 		client.LastEventID = event.ID
 	}
-	
+
 	if event.Event != "" {
 		if _, err := fmt.Fprintf(client.Writer, "event: %s\n", event.Event); err != nil {
 			return err
 		}
 	}
-	
+
 	if event.Retry != nil {
 		if _, err := fmt.Fprintf(client.Writer, "retry: %d\n", *event.Retry); err != nil {
 			return err
 		}
 	}
-	
+
 	// Write data (can be multi-line)
 	if data != nil {
 		dataStr := string(data)
@@ -972,24 +1089,24 @@ func (s *StreamingServer) sendSSEEvent(client *SSEClient, event *StreamEvent) er
 			}
 		}
 	}
-	
+
 	// End event with blank line
 	if _, err := fmt.Fprint(client.Writer, "\n"); err != nil {
 		return err
 	}
-	
+
 	// Flush
 	client.Flusher.Flush()
-	
+
 	// Update client stats
 	client.LastActivity = time.Now()
 	client.EventCount++
 	client.BytesSent += int64(len(data) + 50) // Approximate SSE overhead
-	
+
 	// Update metrics
 	s.metrics.IncrementEventsSent()
 	s.metrics.IncrementBytesSent(int64(len(data)))
-	
+
 	return nil
 }
 
@@ -997,30 +1114,30 @@ func (s *StreamingServer) sendSSEEvent(client *SSEClient, event *StreamEvent) er
 func (s *StreamingServer) sendWebSocketEvent(client *WebSocketClient, event *StreamEvent) error {
 	client.mutex.Lock()
 	defer client.mutex.Unlock()
-	
+
 	// Set write deadline
 	client.Conn.SetWriteDeadline(time.Now().Add(s.config.WebSocket.WriteWait))
-	
+
 	// Marshal event to JSON
 	data, err := json.Marshal(event)
 	if err != nil {
 		return pkgerrors.NewEncodingError("json_marshal_failed", "failed to marshal event").WithCause(err)
 	}
-	
+
 	// Send message
 	if err := client.Conn.WriteMessage(websocket.TextMessage, data); err != nil {
 		return err
 	}
-	
+
 	// Update client stats
 	client.LastActivity = time.Now()
 	client.EventCount++
 	client.BytesSent += int64(len(data))
-	
+
 	// Update metrics
 	s.metrics.IncrementEventsSent()
 	s.metrics.IncrementBytesSent(int64(len(data)))
-	
+
 	return nil
 }
 
@@ -1030,27 +1147,27 @@ func (s *StreamingServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	healthy := atomic.LoadInt32(&s.running) == 1
 	if s.healthChecker != nil {
 		healthy = healthy && atomic.LoadInt32(&s.healthChecker.healthy) == 1
 	}
-	
+
 	status := "healthy"
 	code := http.StatusOK
-	
+
 	if !healthy {
 		status = "unhealthy"
 		code = http.StatusServiceUnavailable
 	}
-	
+
 	sseCount, wsCount := s.GetActiveConnections()
 	metrics := s.GetMetrics()
-	
+
 	response := map[string]interface{}{
-		"status":      status,
-		"timestamp":   time.Now().UTC(),
-		"uptime":      metrics.Uptime.String(),
+		"status":    status,
+		"timestamp": time.Now().UTC(),
+		"uptime":    metrics.Uptime.String(),
 		"connections": map[string]interface{}{
 			"sse":       sseCount,
 			"websocket": wsCount,
@@ -1063,7 +1180,7 @@ func (s *StreamingServer) handleHealth(w http.ResponseWriter, r *http.Request) {
 			"bytes_received":  metrics.BytesReceived,
 		},
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
 	json.NewEncoder(w).Encode(response)
@@ -1075,9 +1192,9 @@ func (s *StreamingServer) handleMetrics(w http.ResponseWriter, r *http.Request) 
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	metrics := s.GetMetrics()
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(metrics)
@@ -1090,7 +1207,7 @@ func (s *StreamingServer) handleCORS(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-	
+
 	http.NotFound(w, r)
 }
 
@@ -1099,12 +1216,12 @@ func (s *StreamingServer) applyCORSHeaders(w http.ResponseWriter, r *http.Reques
 	if !s.config.CORS.Enabled {
 		return
 	}
-	
+
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return
 	}
-	
+
 	// Check allowed origins
 	allowed := false
 	for _, allowedOrigin := range s.config.CORS.AllowOrigins {
@@ -1113,11 +1230,11 @@ func (s *StreamingServer) applyCORSHeaders(w http.ResponseWriter, r *http.Reques
 			break
 		}
 	}
-	
+
 	if !allowed {
 		return
 	}
-	
+
 	w.Header().Set("Access-Control-Allow-Origin", origin)
 	w.Header().Set("Access-Control-Allow-Methods", strings.Join(s.config.CORS.AllowMethods, ", "))
 	w.Header().Set("Access-Control-Allow-Headers", strings.Join(s.config.CORS.AllowHeaders, ", "))
@@ -1129,18 +1246,18 @@ func (s *StreamingServer) checkOrigin(r *http.Request) bool {
 	if !s.config.CORS.Enabled {
 		return true
 	}
-	
+
 	origin := r.Header.Get("Origin")
 	if origin == "" {
 		return true
 	}
-	
+
 	for _, allowedOrigin := range s.config.CORS.AllowOrigins {
 		if allowedOrigin == "*" || allowedOrigin == origin {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -1148,12 +1265,12 @@ func (s *StreamingServer) checkOrigin(r *http.Request) bool {
 func (s *StreamingServer) closeAllClients() {
 	s.clientsMutex.Lock()
 	defer s.clientsMutex.Unlock()
-	
+
 	// Close SSE clients
 	for _, client := range s.sseClients {
 		client.Cancel()
 	}
-	
+
 	// Close WebSocket clients
 	for _, client := range s.websocketClients {
 		client.Cancel()
@@ -1169,13 +1286,13 @@ func (s *StreamingServer) getClientIP(r *http.Request) string {
 		ips := strings.Split(xff, ",")
 		return strings.TrimSpace(ips[0])
 	}
-	
+
 	// Check X-Real-IP header
 	xri := r.Header.Get("X-Real-IP")
 	if xri != "" {
 		return xri
 	}
-	
+
 	// Fall back to RemoteAddr
 	return strings.Split(r.RemoteAddr, ":")[0]
 }
@@ -1185,23 +1302,23 @@ func validateConfig(config *StreamingServerConfig) error {
 	if config.Address == "" {
 		return fmt.Errorf("address cannot be empty")
 	}
-	
+
 	if config.MaxConnections <= 0 {
 		return fmt.Errorf("max_connections must be positive")
 	}
-	
+
 	if config.SSE.BufferSize <= 0 {
 		return fmt.Errorf("sse.buffer_size must be positive")
 	}
-	
+
 	if config.WebSocket.BufferSize <= 0 {
 		return fmt.Errorf("websocket.buffer_size must be positive")
 	}
-	
+
 	if config.WebSocket.MaxMessageSize <= 0 {
 		return fmt.Errorf("websocket.max_message_size must be positive")
 	}
-	
+
 	return nil
 }
 
@@ -1220,11 +1337,11 @@ func setWriteDeadline(w http.ResponseWriter, timeout time.Duration) error {
 	if timeout <= 0 {
 		return nil
 	}
-	
+
 	if conn, ok := w.(interface{ SetWriteDeadline(time.Time) error }); ok {
 		return conn.SetWriteDeadline(time.Now().Add(timeout))
 	}
-	
+
 	return nil
 }
 
@@ -1239,9 +1356,9 @@ func (w *gzipResponseWriter) Write(b []byte) (int, error) {
 }
 
 // NewEventBroadcaster creates a new event broadcaster
-func NewEventBroadcaster(config *StreamingServerConfig, ctx context.Context) *EventBroadcaster {
+func NewEventBroadcaster(config *StreamingServerConfig, ctx context.Context, server *StreamingServer) *EventBroadcaster {
 	broadcastCtx, cancel := context.WithCancel(ctx)
-	
+
 	return &EventBroadcaster{
 		eventChannel:  make(chan *BroadcastEvent, config.SSE.BufferSize*2),
 		subscriptions: make(map[string]map[string]*ClientSubscription),
@@ -1249,6 +1366,7 @@ func NewEventBroadcaster(config *StreamingServerConfig, ctx context.Context) *Ev
 		cancel:        cancel,
 		config:        config,
 		metrics:       NewStreamingMetrics(),
+		server:        server,
 	}
 }
 
@@ -1260,17 +1378,43 @@ func (eb *EventBroadcaster) Start() {
 
 // Stop stops the event broadcaster
 func (eb *EventBroadcaster) Stop() {
+	// Safely close the event channel to prevent further writes
+	eb.closeOnce.Do(func() {
+		eb.channelMutex.Lock()
+		defer eb.channelMutex.Unlock()
+		
+		if !eb.channelClosed {
+			eb.channelClosed = true
+			close(eb.eventChannel)
+		}
+	})
+	
 	eb.cancel()
 	eb.wg.Wait()
 }
 
 // Broadcast broadcasts an event
 func (eb *EventBroadcaster) Broadcast(event *BroadcastEvent) error {
+	// Check if the context is done first
+	select {
+	case <-eb.ctx.Done():
+		return pkgerrors.NewOperationError("Broadcast", "EventBroadcaster", eb.ctx.Err())
+	default:
+	}
+
+	// Use read lock to check if channel is closed and send event atomically
+	eb.channelMutex.RLock()
+	defer eb.channelMutex.RUnlock()
+
+	// Check if channel is closed
+	if eb.channelClosed {
+		return pkgerrors.NewOperationError("Broadcast", "EventBroadcaster", fmt.Errorf("event channel is closed"))
+	}
+
+	// Try to send event with non-blocking select
 	select {
 	case eb.eventChannel <- event:
 		return nil
-	case <-eb.ctx.Done():
-		return pkgerrors.NewOperationError("Broadcast", "EventBroadcaster", eb.ctx.Err())
 	default:
 		// Channel is full, drop event or apply backpressure
 		eb.metrics.IncrementDroppedEvents()
@@ -1282,11 +1426,11 @@ func (eb *EventBroadcaster) Broadcast(event *BroadcastEvent) error {
 func (eb *EventBroadcaster) Subscribe(clientID, clientType, eventType string) {
 	eb.subsMutex.Lock()
 	defer eb.subsMutex.Unlock()
-	
+
 	if eb.subscriptions[eventType] == nil {
 		eb.subscriptions[eventType] = make(map[string]*ClientSubscription)
 	}
-	
+
 	eb.subscriptions[eventType][clientID] = &ClientSubscription{
 		ClientID:   clientID,
 		ClientType: clientType,
@@ -1300,7 +1444,7 @@ func (eb *EventBroadcaster) Subscribe(clientID, clientType, eventType string) {
 func (eb *EventBroadcaster) Unsubscribe(clientID, eventType string) {
 	eb.subsMutex.Lock()
 	defer eb.subsMutex.Unlock()
-	
+
 	if subs, ok := eb.subscriptions[eventType]; ok {
 		delete(subs, clientID)
 		if len(subs) == 0 {
@@ -1312,7 +1456,7 @@ func (eb *EventBroadcaster) Unsubscribe(clientID, eventType string) {
 // run runs the event broadcaster loop
 func (eb *EventBroadcaster) run() {
 	defer eb.wg.Done()
-	
+
 	for {
 		select {
 		case <-eb.ctx.Done():
@@ -1325,24 +1469,28 @@ func (eb *EventBroadcaster) run() {
 
 // processBroadcastEvent processes a broadcast event
 func (eb *EventBroadcaster) processBroadcastEvent(broadcastEvent *BroadcastEvent) {
+	if broadcastEvent == nil || broadcastEvent.Event == nil {
+		return // Skip processing nil events
+	}
+
 	eb.subsMutex.RLock()
 	defer eb.subsMutex.RUnlock()
-	
+
 	eventType := broadcastEvent.EventType
 	if eventType == "" {
 		eventType = "*"
 	}
-	
+
 	// Get subscribers for this event type
 	var subscribers []*ClientSubscription
-	
+
 	// Add subscribers for specific event type
 	if subs, ok := eb.subscriptions[eventType]; ok {
 		for _, sub := range subs {
 			subscribers = append(subscribers, sub)
 		}
 	}
-	
+
 	// Add subscribers for wildcard (*) if not a wildcard event
 	if eventType != "*" {
 		if subs, ok := eb.subscriptions["*"]; ok {
@@ -1351,17 +1499,17 @@ func (eb *EventBroadcaster) processBroadcastEvent(broadcastEvent *BroadcastEvent
 			}
 		}
 	}
-	
+
 	// Filter subscribers based on target IDs and exclusions
 	var targetSubscribers []*ClientSubscription
-	
+
 	if broadcastEvent.Multicast && len(broadcastEvent.TargetIDs) > 0 {
 		// Multicast to specific clients
 		targetMap := make(map[string]bool)
 		for _, id := range broadcastEvent.TargetIDs {
 			targetMap[id] = true
 		}
-		
+
 		for _, sub := range subscribers {
 			if targetMap[sub.ClientID] {
 				targetSubscribers = append(targetSubscribers, sub)
@@ -1373,14 +1521,14 @@ func (eb *EventBroadcaster) processBroadcastEvent(broadcastEvent *BroadcastEvent
 		targetSubscribers = subscribers
 		eb.metrics.IncrementBroadcastEvents()
 	}
-	
+
 	// Apply exclusions
 	if len(broadcastEvent.Exclude) > 0 {
 		excludeMap := make(map[string]bool)
 		for _, id := range broadcastEvent.Exclude {
 			excludeMap[id] = true
 		}
-		
+
 		var filtered []*ClientSubscription
 		for _, sub := range targetSubscribers {
 			if !excludeMap[sub.ClientID] {
@@ -1389,11 +1537,41 @@ func (eb *EventBroadcaster) processBroadcastEvent(broadcastEvent *BroadcastEvent
 		}
 		targetSubscribers = filtered
 	}
-	
+
 	// Send event to target subscribers
-	// Note: This would typically interact with the main server to send events
-	// For now, we'll just update metrics
-	eb.metrics.IncrementEventsSent()
+	deliveredCount := 0
+	for _, sub := range targetSubscribers {
+		if eb.server != nil {
+			if eb.deliverEventToClient(sub.ClientID, sub.ClientType, broadcastEvent.Event) {
+				deliveredCount++
+			}
+		}
+	}
+
+	// Update metrics based on actual delivery
+	if deliveredCount > 0 {
+		eb.metrics.IncrementEventsSent()
+	}
+}
+
+// deliverEventToClient safely delivers an event to a specific client
+func (eb *EventBroadcaster) deliverEventToClient(clientID, clientType string, event *StreamEvent) bool {
+	// Get the client from the server's client maps
+	eb.server.clientsMutex.RLock()
+	defer eb.server.clientsMutex.RUnlock()
+
+	switch clientType {
+	case "sse":
+		if client, exists := eb.server.sseClients[clientID]; exists {
+			return client.SafeSendEvent(event)
+		}
+	case "websocket":
+		if client, exists := eb.server.websocketClients[clientID]; exists {
+			return client.SafeSendEvent(event)
+		}
+	}
+
+	return false
 }
 
 // NewConnectionManager creates a new connection manager
@@ -1404,7 +1582,7 @@ func NewConnectionManager(config *StreamingServerConfig) *ConnectionManager {
 		EnableTimeouts: true,
 		TTL:            config.Security.RateLimiterTTL,
 	}
-	
+
 	// Use defaults if not configured
 	if mapConfig.MaxSize <= 0 {
 		mapConfig.MaxSize = 10000
@@ -1412,7 +1590,7 @@ func NewConnectionManager(config *StreamingServerConfig) *ConnectionManager {
 	if mapConfig.TTL <= 0 {
 		mapConfig.TTL = 10 * time.Minute
 	}
-	
+
 	return &ConnectionManager{
 		config:       config,
 		rateLimiters: NewBoundedMap[string, *RateLimiter](mapConfig),
@@ -1453,31 +1631,129 @@ func (cm *ConnectionManager) DecrementWebSocketConnections() {
 }
 
 // AllowRequest checks if a request from the given IP is allowed by rate limiting
+// Implements retry logic to handle race conditions in limiter lookup and creation
 func (cm *ConnectionManager) AllowRequest(ip string) bool {
 	if !cm.config.Security.EnableRateLimit {
 		return true
 	}
-	
-	// Get or create rate limiter for this IP using bounded map
+
+	// Get or create rate limiter for this IP using race-condition-safe bounded map
 	limiter := cm.rateLimiters.GetOrSet(ip, func() *RateLimiter {
+		// Track rate limiter creation for monitoring
+		cm.metrics.IncrementRateLimiterCreations()
 		return NewRateLimiter(
 			float64(cm.config.Security.RateLimit),
 			float64(cm.config.Security.RateLimit),
 			float64(cm.config.Security.RateLimit)/cm.config.Security.RateLimitWindow.Seconds(),
 		)
 	})
-	
-	return limiter.Allow()
+
+	// Handle potential nil limiter (should not happen with fixed GetOrSet, but defensive programming)
+	if limiter == nil {
+		cm.metrics.IncrementRateLimitErrors()
+		// Fail open - allow request rather than deny due to internal error
+		// This prevents a DoS condition where internal errors block all traffic
+		return true
+	}
+
+	allowed := limiter.Allow()
+	if !allowed {
+		cm.metrics.IncrementRateLimitHits()
+	}
+	return allowed
 }
 
 // CleanupRateLimiters removes expired rate limiters to free memory
+// Returns the number of rate limiters that were evicted
 func (cm *ConnectionManager) CleanupRateLimiters() int {
-	return cm.rateLimiters.Cleanup()
+	evicted := cm.rateLimiters.Cleanup()
+	if evicted > 0 {
+		// Track evictions for monitoring
+		for i := 0; i < evicted; i++ {
+			cm.metrics.IncrementRateLimiterEvictions()
+		}
+	}
+	return evicted
 }
 
 // GetRateLimiterStats returns statistics about the rate limiter map
 func (cm *ConnectionManager) GetRateLimiterStats() BoundedMapStats {
 	return cm.rateLimiters.Stats()
+}
+
+// StartPeriodicCleanup starts a goroutine that periodically cleans up expired rate limiters
+// This helps prevent memory exhaustion under high load with many unique IPs
+func (cm *ConnectionManager) StartPeriodicCleanup(ctx context.Context, interval time.Duration) {
+	if interval <= 0 {
+		interval = 5 * time.Minute // Default cleanup interval
+	}
+	
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				if evicted := cm.CleanupRateLimiters(); evicted > 0 {
+					// Log cleanup activity for monitoring
+					stats := cm.GetRateLimiterStats()
+					fmt.Printf("Rate limiter cleanup: evicted %d expired limiters, current size: %d/%d, hit rate: %.2f%%\n",
+						evicted, stats.Size, stats.MaxSize, stats.HitRate*100)
+				}
+			}
+		}
+	}()
+}
+
+// GetRateLimitingHealth returns comprehensive health information about the rate limiting system
+func (cm *ConnectionManager) GetRateLimitingHealth() map[string]interface{} {
+	stats := cm.GetRateLimiterStats()
+	
+	health := map[string]interface{}{
+		"enabled":      cm.config.Security.EnableRateLimit,
+		"stats":        stats,
+		"memory_usage": float64(stats.Size) / float64(stats.MaxSize),
+		"efficiency": map[string]interface{}{
+			"hit_rate":    stats.HitRate,
+			"total_ops":   stats.Hits + stats.Misses,
+			"evictions":   stats.Evictions,
+			"timeouts":    stats.Timeouts,
+			"retries":     stats.Retries,
+		},
+		"health_score": cm.calculateRateLimitHealthScore(stats),
+	}
+	
+	return health
+}
+
+// calculateRateLimitHealthScore computes a health score (0-1) for the rate limiting system
+func (cm *ConnectionManager) calculateRateLimitHealthScore(stats BoundedMapStats) float64 {
+	score := 1.0
+	
+	// Penalize low hit rates (indicates too much eviction/churn)
+	if stats.HitRate < 0.8 {
+		score *= 0.8
+	}
+	
+	// Penalize high memory usage
+	memoryUsage := float64(stats.Size) / float64(stats.MaxSize)
+	if memoryUsage > 0.9 {
+		score *= 0.7
+	}
+	
+	// Penalize high retry rates (indicates race conditions)
+	totalOps := stats.Hits + stats.Misses
+	if totalOps > 0 {
+		retryRate := float64(stats.Retries) / float64(totalOps)
+		if retryRate > 0.1 { // More than 10% retry rate is concerning
+			score *= 0.6
+		}
+	}
+	
+	return score
 }
 
 // NewRateLimiter creates a new rate limiter
@@ -1491,28 +1767,56 @@ func NewRateLimiter(tokens, maxTokens, refillRate float64) *RateLimiter {
 }
 
 // Allow checks if a request is allowed
+// Thread-safe token bucket implementation with defensive programming
 func (rl *RateLimiter) Allow() bool {
 	rl.mutex.Lock()
 	defer rl.mutex.Unlock()
-	
+
 	now := time.Now()
 	elapsed := now.Sub(rl.lastRefill).Seconds()
-	
+
+	// Defensive check: prevent negative elapsed time due to clock skew
+	if elapsed < 0 {
+		elapsed = 0
+	}
+
+	// Limit maximum elapsed time to prevent overflow in high-load scenarios
+	// where rate limiters might not be accessed for a very long time
+	if elapsed > 3600 { // 1 hour max
+		elapsed = 3600
+	}
+
 	// Refill tokens
 	rl.tokens += elapsed * rl.refillRate
 	if rl.tokens > rl.maxTokens {
 		rl.tokens = rl.maxTokens
 	}
-	
+
 	rl.lastRefill = now
-	
+
 	// Check if we have tokens
 	if rl.tokens >= 1.0 {
 		rl.tokens--
 		return true
 	}
-	
+
 	return false
+}
+
+// GetTokens returns the current number of tokens (for debugging/monitoring)
+func (rl *RateLimiter) GetTokens() float64 {
+	rl.mutex.Lock()
+	defer rl.mutex.Unlock()
+	return rl.tokens
+}
+
+// IsHealthy checks if the rate limiter is in a valid state
+func (rl *RateLimiter) IsHealthy() bool {
+	rl.mutex.Lock()
+	defer rl.mutex.Unlock()
+	
+	// Check for reasonable values
+	return rl.tokens >= 0 && rl.tokens <= rl.maxTokens && rl.refillRate > 0
 }
 
 // NewStreamingMetrics creates a new streaming metrics instance
@@ -1627,10 +1931,30 @@ func (sm *StreamingMetrics) IncrementDroppedEvents() {
 	sm.DroppedEvents++
 }
 
+// IncrementRateLimitErrors increments rate limit errors count
+func (sm *StreamingMetrics) IncrementRateLimitErrors() {
+	atomic.AddInt64(&sm.RateLimitErrors, 1)
+}
+
+// IncrementRateLimiterCreations increments rate limiter creations count
+func (sm *StreamingMetrics) IncrementRateLimiterCreations() {
+	atomic.AddInt64(&sm.RateLimiterCreations, 1)
+}
+
+// IncrementRateLimiterEvictions increments rate limiter evictions count
+func (sm *StreamingMetrics) IncrementRateLimiterEvictions() {
+	atomic.AddInt64(&sm.RateLimiterEvictions, 1)
+}
+
+// IncrementRateLimiterRetries increments rate limiter retries count
+func (sm *StreamingMetrics) IncrementRateLimiterRetries() {
+	atomic.AddInt64(&sm.RateLimiterRetries, 1)
+}
+
 // NewHealthChecker creates a new health checker
 func NewHealthChecker(server *StreamingServer, config *StreamingServerConfig) *HealthChecker {
 	ctx, cancel := context.WithCancel(server.ctx)
-	
+
 	return &HealthChecker{
 		server:   server,
 		ctx:      ctx,
@@ -1655,10 +1979,10 @@ func (hc *HealthChecker) Stop() {
 // run runs the health check loop
 func (hc *HealthChecker) run() {
 	defer hc.wg.Done()
-	
+
 	ticker := time.NewTicker(hc.interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-hc.ctx.Done():
@@ -1673,34 +1997,516 @@ func (hc *HealthChecker) run() {
 func (hc *HealthChecker) performHealthCheck() {
 	hc.mutex.Lock()
 	defer hc.mutex.Unlock()
-	
+
 	hc.lastCheck = time.Now()
-	
+
 	// Check if server is running
 	if atomic.LoadInt32(&hc.server.running) == 0 {
 		atomic.StoreInt32(&hc.healthy, 0)
 		return
 	}
-	
+
 	// Check connection counts
 	sseCount, wsCount := hc.server.GetActiveConnections()
 	totalConnections := sseCount + wsCount
-	
+
 	// Check if connections are within limits
 	if totalConnections > hc.server.config.MaxConnections {
 		atomic.StoreInt32(&hc.healthy, 0)
 		return
 	}
-	
+
 	// Check metrics for anomalies
 	metrics := hc.server.GetMetrics()
-	
+
 	// Check error rates
 	if metrics.ConnectionErrors > 100 || metrics.EventErrors > 100 {
 		atomic.StoreInt32(&hc.healthy, 0)
 		return
 	}
-	
+
 	// All checks passed
 	atomic.StoreInt32(&hc.healthy, 1)
+}
+
+// Enhanced Connection Monitoring and Healing Functions
+
+// ConnectionHealthChecker monitors and heals streaming connections
+type ConnectionHealthChecker struct {
+	server    *StreamingServer
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	interval  time.Duration
+	mutex     sync.RWMutex
+}
+
+// NewConnectionHealthChecker creates a new connection health checker
+func NewConnectionHealthChecker(server *StreamingServer) *ConnectionHealthChecker {
+	ctx, cancel := context.WithCancel(server.ctx)
+	return &ConnectionHealthChecker{
+		server:   server,
+		ctx:      ctx,
+		cancel:   cancel,
+		interval: 30 * time.Second, // Check every 30 seconds
+	}
+}
+
+// Start starts the connection health checking process
+func (chc *ConnectionHealthChecker) Start() {
+	chc.wg.Add(1)
+	go chc.run()
+}
+
+// Stop stops the connection health checker
+func (chc *ConnectionHealthChecker) Stop() {
+	chc.cancel()
+	chc.wg.Wait()
+}
+
+// run is the main loop for connection health checking
+func (chc *ConnectionHealthChecker) run() {
+	defer chc.wg.Done()
+
+	ticker := time.NewTicker(chc.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-chc.ctx.Done():
+			return
+		case <-ticker.C:
+			chc.performHealthChecks()
+		}
+	}
+}
+
+// performHealthChecks performs comprehensive health checks on all connections
+func (chc *ConnectionHealthChecker) performHealthChecks() {
+	chc.mutex.Lock()
+	defer chc.mutex.Unlock()
+
+	// Check SSE connections
+	chc.checkSSEConnections()
+
+	// Check WebSocket connections
+	chc.checkWebSocketConnections()
+
+	// Perform cleanup of stale connections
+	chc.cleanupStaleConnections()
+}
+
+// checkSSEConnections validates and heals SSE connections
+func (chc *ConnectionHealthChecker) checkSSEConnections() {
+	chc.server.clientsMutex.RLock()
+	defer chc.server.clientsMutex.RUnlock()
+
+	now := time.Now()
+	staleConnections := make([]string, 0)
+
+	for clientID, client := range chc.server.sseClients {
+		if client == nil {
+			staleConnections = append(staleConnections, clientID)
+			continue
+		}
+
+		client.mutex.RLock()
+		lastActivity := client.LastActivity
+		channelClosed := atomic.LoadInt32(&client.channelClosed)
+		client.mutex.RUnlock()
+
+		// Check for stale connections (no activity for 5 minutes)
+		if now.Sub(lastActivity) > 5*time.Minute {
+			staleConnections = append(staleConnections, clientID)
+			continue
+		}
+
+		// Check for closed channels
+		if channelClosed == 1 {
+			staleConnections = append(staleConnections, clientID)
+			continue
+		}
+
+		// Attempt to send heartbeat for health validation
+		chc.sendSSEHeartbeat(client)
+	}
+
+	// Clean up stale SSE connections
+	for _, clientID := range staleConnections {
+		chc.cleanupSSEConnection(clientID)
+	}
+}
+
+// checkWebSocketConnections validates and heals WebSocket connections
+func (chc *ConnectionHealthChecker) checkWebSocketConnections() {
+	chc.server.clientsMutex.RLock()
+	defer chc.server.clientsMutex.RUnlock()
+
+	now := time.Now()
+	staleConnections := make([]string, 0)
+
+	for clientID, client := range chc.server.websocketClients {
+		if client == nil {
+			staleConnections = append(staleConnections, clientID)
+			continue
+		}
+
+		client.mutex.RLock()
+		lastActivity := client.LastActivity
+		conn := client.Conn
+		channelClosed := atomic.LoadInt32(&client.channelClosed)
+		client.mutex.RUnlock()
+
+		// Check for stale connections
+		if now.Sub(lastActivity) > 5*time.Minute {
+			staleConnections = append(staleConnections, clientID)
+			continue
+		}
+
+		// Check for closed channels
+		if channelClosed == 1 {
+			staleConnections = append(staleConnections, clientID)
+			continue
+		}
+
+		// Perform WebSocket ping test
+		if conn != nil {
+			if !chc.testWebSocketConnection(conn) {
+				staleConnections = append(staleConnections, clientID)
+				continue
+			}
+		} else {
+			staleConnections = append(staleConnections, clientID)
+		}
+	}
+
+	// Clean up stale WebSocket connections
+	for _, clientID := range staleConnections {
+		chc.cleanupWebSocketConnection(clientID)
+	}
+}
+
+// sendSSEHeartbeat sends a heartbeat to SSE client to test connection health
+func (chc *ConnectionHealthChecker) sendSSEHeartbeat(client *SSEClient) bool {
+	heartbeatEvent := &StreamEvent{
+		ID:        fmt.Sprintf("hb_%d", time.Now().Unix()),
+		Event:     "heartbeat",
+		Data:      map[string]interface{}{"timestamp": time.Now().Unix()},
+		Timestamp: time.Now(),
+		Source:    "health_checker",
+	}
+
+	// Try to send heartbeat with timeout
+	timeout := time.NewTimer(2 * time.Second)
+	defer timeout.Stop()
+
+	sent := make(chan bool, 1)
+	go func() {
+		sent <- client.SafeSendEvent(heartbeatEvent)
+	}()
+
+	select {
+	case success := <-sent:
+		return success
+	case <-timeout.C:
+		return false // Heartbeat timed out
+	}
+}
+
+// testWebSocketConnection tests WebSocket connection health with ping
+func (chc *ConnectionHealthChecker) testWebSocketConnection(conn *websocket.Conn) bool {
+	if conn == nil {
+		return false
+	}
+
+	// Set ping deadline
+	conn.SetWriteDeadline(time.Now().Add(2 * time.Second))
+
+	// Send ping
+	err := conn.WriteMessage(websocket.PingMessage, []byte("healthcheck"))
+	if err != nil {
+		return false
+	}
+
+	// Wait for pong with timeout
+	pongReceived := make(chan bool, 1)
+	conn.SetPongHandler(func(appData string) error {
+		if appData == "healthcheck" {
+			pongReceived <- true
+		}
+		return nil
+	})
+
+	// Set read deadline for pong response
+	conn.SetReadDeadline(time.Now().Add(3 * time.Second))
+
+	timeout := time.NewTimer(3 * time.Second)
+	defer timeout.Stop()
+
+	select {
+	case <-pongReceived:
+		return true
+	case <-timeout.C:
+		return false
+	}
+}
+
+// cleanupStaleConnections removes connections that are no longer valid
+func (chc *ConnectionHealthChecker) cleanupStaleConnections() {
+	// This method performs additional cleanup for edge cases
+	// where connections might be orphaned
+
+	chc.server.clientsMutex.Lock()
+	defer chc.server.clientsMutex.Unlock()
+
+	// Check for orphaned SSE clients
+	for clientID, client := range chc.server.sseClients {
+		if client == nil || client.Context == nil {
+			delete(chc.server.sseClients, clientID)
+			chc.server.connectionManager.DecrementSSEConnections()
+			continue
+		}
+
+		// Check if context is cancelled
+		select {
+		case <-client.Context.Done():
+			delete(chc.server.sseClients, clientID)
+			chc.server.connectionManager.DecrementSSEConnections()
+			client.SafeCloseEventChannel()
+		default:
+			// Context still valid
+		}
+	}
+
+	// Check for orphaned WebSocket clients
+	for clientID, client := range chc.server.websocketClients {
+		if client == nil || client.Context == nil {
+			delete(chc.server.websocketClients, clientID)
+			chc.server.connectionManager.DecrementWebSocketConnections()
+			continue
+		}
+
+		// Check if context is cancelled
+		select {
+		case <-client.Context.Done():
+			delete(chc.server.websocketClients, clientID)
+			chc.server.connectionManager.DecrementWebSocketConnections()
+			client.SafeCloseEventChannel()
+		default:
+			// Context still valid
+		}
+	}
+}
+
+// cleanupSSEConnection properly cleans up an SSE connection
+func (chc *ConnectionHealthChecker) cleanupSSEConnection(clientID string) {
+	chc.server.clientsMutex.Lock()
+	client, exists := chc.server.sseClients[clientID]
+	if exists {
+		delete(chc.server.sseClients, clientID)
+	}
+	chc.server.clientsMutex.Unlock()
+
+	if !exists || client == nil {
+		return
+	}
+
+	// Cancel client context
+	if client.Cancel != nil {
+		client.Cancel()
+	}
+
+	// Close event channel safely
+	client.SafeCloseEventChannel()
+
+	// Update connection count
+	chc.server.connectionManager.DecrementSSEConnections()
+
+	// Clean up subscriptions
+	chc.cleanupClientSubscriptions(clientID)
+
+	// Update metrics
+	chc.server.metrics.IncrementConnectionErrors()
+}
+
+// cleanupWebSocketConnection properly cleans up a WebSocket connection
+func (chc *ConnectionHealthChecker) cleanupWebSocketConnection(clientID string) {
+	chc.server.clientsMutex.Lock()
+	client, exists := chc.server.websocketClients[clientID]
+	if exists {
+		delete(chc.server.websocketClients, clientID)
+	}
+	chc.server.clientsMutex.Unlock()
+
+	if !exists || client == nil {
+		return
+	}
+
+	// Cancel client context
+	if client.Cancel != nil {
+		client.Cancel()
+	}
+
+	// Close WebSocket connection
+	if client.Conn != nil {
+		client.Conn.WriteControl(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseGoingAway, "server cleanup"),
+			time.Now().Add(time.Second))
+		client.Conn.Close()
+	}
+
+	// Close event channel safely
+	client.SafeCloseEventChannel()
+
+	// Update connection count
+	chc.server.connectionManager.DecrementWebSocketConnections()
+
+	// Clean up subscriptions
+	chc.cleanupClientSubscriptions(clientID)
+
+	// Update metrics
+	chc.server.metrics.IncrementConnectionErrors()
+}
+
+// cleanupClientSubscriptions removes all subscriptions for a client
+func (chc *ConnectionHealthChecker) cleanupClientSubscriptions(clientID string) {
+	if chc.server.eventBroadcaster == nil {
+		return
+	}
+
+	// Remove all subscriptions for this client
+	chc.server.eventBroadcaster.subsMutex.Lock()
+	defer chc.server.eventBroadcaster.subsMutex.Unlock()
+
+	for eventType, subs := range chc.server.eventBroadcaster.subscriptions {
+		if _, exists := subs[clientID]; exists {
+			delete(subs, clientID)
+			// Clean up empty subscription maps
+			if len(subs) == 0 {
+				delete(chc.server.eventBroadcaster.subscriptions, eventType)
+			}
+		}
+	}
+}
+
+// GetConnectionHealth returns comprehensive health information about all connections
+func (chc *ConnectionHealthChecker) GetConnectionHealth() map[string]interface{} {
+	chc.server.clientsMutex.RLock()
+	defer chc.server.clientsMutex.RUnlock()
+
+	now := time.Now()
+	sseHealth := make(map[string]interface{})
+	websocketHealth := make(map[string]interface{})
+
+	// Analyze SSE connections
+	sseHealthy := 0
+	sseStale := 0
+	sseTotal := len(chc.server.sseClients)
+
+	for clientID, client := range chc.server.sseClients {
+		if client == nil {
+			sseStale++
+			continue
+		}
+
+		client.mutex.RLock()
+		lastActivity := client.LastActivity
+		channelClosed := atomic.LoadInt32(&client.channelClosed)
+		client.mutex.RUnlock()
+
+		if channelClosed == 1 || now.Sub(lastActivity) > 5*time.Minute {
+			sseStale++
+		} else {
+			sseHealthy++
+		}
+
+		// Store individual connection health
+		sseHealth[clientID] = map[string]interface{}{
+			"healthy":       channelClosed == 0 && now.Sub(lastActivity) <= 5*time.Minute,
+			"last_activity": lastActivity,
+			"idle_duration": now.Sub(lastActivity).String(),
+			"channel_closed": channelClosed == 1,
+		}
+	}
+
+	// Analyze WebSocket connections
+	websocketHealthy := 0
+	websocketStale := 0
+	websocketTotal := len(chc.server.websocketClients)
+
+	for clientID, client := range chc.server.websocketClients {
+		if client == nil {
+			websocketStale++
+			continue
+		}
+
+		client.mutex.RLock()
+		lastActivity := client.LastActivity
+		channelClosed := atomic.LoadInt32(&client.channelClosed)
+		client.mutex.RUnlock()
+
+		if channelClosed == 1 || now.Sub(lastActivity) > 5*time.Minute {
+			websocketStale++
+		} else {
+			websocketHealthy++
+		}
+
+		// Store individual connection health
+		websocketHealth[clientID] = map[string]interface{}{
+			"healthy":       channelClosed == 0 && now.Sub(lastActivity) <= 5*time.Minute,
+			"last_activity": lastActivity,
+			"idle_duration": now.Sub(lastActivity).String(),
+			"channel_closed": channelClosed == 1,
+		}
+	}
+
+	// Calculate health scores
+	sseHealthScore := float64(sseHealthy) / float64(max(sseTotal, 1))
+	websocketHealthScore := float64(websocketHealthy) / float64(max(websocketTotal, 1))
+	overallHealthScore := (sseHealthScore + websocketHealthScore) / 2
+
+	return map[string]interface{}{
+		"overall": map[string]interface{}{
+			"health_score": overallHealthScore,
+			"status":       chc.getHealthStatus(overallHealthScore),
+			"timestamp":    now,
+		},
+		"sse": map[string]interface{}{
+			"total":        sseTotal,
+			"healthy":      sseHealthy,
+			"stale":        sseStale,
+			"health_score": sseHealthScore,
+			"connections":  sseHealth,
+		},
+		"websocket": map[string]interface{}{
+			"total":        websocketTotal,
+			"healthy":      websocketHealthy,
+			"stale":        websocketStale,
+			"health_score": websocketHealthScore,
+			"connections":  websocketHealth,
+		},
+	}
+}
+
+// getHealthStatus returns a human-readable health status
+func (chc *ConnectionHealthChecker) getHealthStatus(score float64) string {
+	if score >= 0.9 {
+		return "excellent"
+	} else if score >= 0.7 {
+		return "good"
+	} else if score >= 0.5 {
+		return "fair"
+	} else if score >= 0.3 {
+		return "poor"
+	} else {
+		return "critical"
+	}
+}
+
+// Helper function for max calculation
+func max(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }

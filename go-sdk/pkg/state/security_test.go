@@ -29,7 +29,7 @@ func TestSecurityValidator(t *testing.T) {
 		if testing.Short() {
 			t.Skip("Skipping resource limits test in short mode")
 		}
-		
+
 		// Test oversized state
 		largeState := make(map[string]interface{})
 		for i := 0; i < 1000; i++ {

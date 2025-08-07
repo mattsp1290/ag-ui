@@ -508,7 +508,7 @@ func (cm *CompressionManager) startStatsCollection() {
 	go func() {
 		defer cm.wg.Done()
 		defer cm.statsTimer.Stop() // Ensure timer is stopped
-		
+
 		for {
 			select {
 			case <-cm.statsTimer.C:

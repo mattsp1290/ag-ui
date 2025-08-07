@@ -21,7 +21,7 @@ var (
 			return &TokenBucketLimiter{}
 		},
 	}
-	
+
 	// Sliding window limiter pool
 	slidingWindowLimiterPool = sync.Pool{
 		New: func() interface{} {
@@ -30,7 +30,7 @@ var (
 			}
 		},
 	}
-	
+
 	// Rate limit response map pool
 	rateResponsePool = sync.Pool{
 		New: func() interface{} {
@@ -45,10 +45,10 @@ type RateLimitAlgorithm string
 const (
 	// TokenBucket uses token bucket algorithm
 	TokenBucket RateLimitAlgorithm = "token_bucket"
-	
+
 	// SlidingWindow uses sliding window algorithm
 	SlidingWindow RateLimitAlgorithm = "sliding_window"
-	
+
 	// FixedWindow uses fixed window algorithm
 	FixedWindow RateLimitAlgorithm = "fixed_window"
 )
@@ -59,19 +59,19 @@ type RateLimitScope string
 const (
 	// ScopeGlobal applies rate limit globally
 	ScopeGlobal RateLimitScope = "global"
-	
+
 	// ScopeIP applies rate limit per IP address
 	ScopeIP RateLimitScope = "ip"
-	
+
 	// ScopeUser applies rate limit per authenticated user
 	ScopeUser RateLimitScope = "user"
-	
+
 	// ScopeAPIKey applies rate limit per API key
 	ScopeAPIKey RateLimitScope = "api_key"
-	
+
 	// ScopeEndpoint applies rate limit per endpoint
 	ScopeEndpoint RateLimitScope = "endpoint"
-	
+
 	// ScopeCustom applies rate limit based on custom key extraction
 	ScopeCustom RateLimitScope = "custom"
 )
@@ -79,48 +79,48 @@ const (
 // RateLimitConfig contains rate limiting middleware configuration
 type RateLimitConfig struct {
 	BaseConfig `json:",inline" yaml:",inline"`
-	
+
 	// Algorithm specifies the rate limiting algorithm to use
 	Algorithm RateLimitAlgorithm `json:"algorithm" yaml:"algorithm"`
-	
+
 	// Scope defines how rate limits are scoped
 	Scope RateLimitScope `json:"scope" yaml:"scope"`
-	
+
 	// Rate limit settings
 	RequestsPerSecond float64       `json:"requests_per_second" yaml:"requests_per_second"`
 	RequestsPerMinute int           `json:"requests_per_minute" yaml:"requests_per_minute"`
 	RequestsPerHour   int           `json:"requests_per_hour" yaml:"requests_per_hour"`
 	BurstSize         int           `json:"burst_size" yaml:"burst_size"`
 	WindowSize        time.Duration `json:"window_size" yaml:"window_size"`
-	
+
 	// Custom key extraction (for ScopeCustom)
 	CustomKeyExtractor string `json:"custom_key_extractor" yaml:"custom_key_extractor"`
 	CustomKeyHeader    string `json:"custom_key_header" yaml:"custom_key_header"`
-	
+
 	// Per-endpoint rate limits
 	EndpointLimits map[string]*EndpointRateLimit `json:"endpoint_limits" yaml:"endpoint_limits"`
-	
+
 	// Per-user rate limits
 	UserLimits map[string]*UserRateLimit `json:"user_limits" yaml:"user_limits"`
-	
+
 	// IP whitelist/blacklist
 	WhitelistedIPs []string `json:"whitelisted_ips" yaml:"whitelisted_ips"`
 	BlacklistedIPs []string `json:"blacklisted_ips" yaml:"blacklisted_ips"`
-	
+
 	// Headers to include in rate limit response
 	IncludeHeaders bool `json:"include_headers" yaml:"include_headers"`
-	
+
 	// Storage settings
-	CleanupInterval    time.Duration `json:"cleanup_interval" yaml:"cleanup_interval"`
-	LimiterTTL         time.Duration `json:"limiter_ttl" yaml:"limiter_ttl"`
+	CleanupInterval time.Duration `json:"cleanup_interval" yaml:"cleanup_interval"`
+	LimiterTTL      time.Duration `json:"limiter_ttl" yaml:"limiter_ttl"`
 	// Memory protection settings
-	MaxLimiters        int           `json:"max_limiters" yaml:"max_limiters"`
-	EnableMemoryBounds bool          `json:"enable_memory_bounds" yaml:"enable_memory_bounds"`
-	
+	MaxLimiters        int  `json:"max_limiters" yaml:"max_limiters"`
+	EnableMemoryBounds bool `json:"enable_memory_bounds" yaml:"enable_memory_bounds"`
+
 	// Error handling
-	RetryAfterHeader   bool          `json:"retry_after_header" yaml:"retry_after_header"`
-	CustomErrorMessage string        `json:"custom_error_message" yaml:"custom_error_message"`
-	
+	RetryAfterHeader   bool   `json:"retry_after_header" yaml:"retry_after_header"`
+	CustomErrorMessage string `json:"custom_error_message" yaml:"custom_error_message"`
+
 	// Skip rate limiting for certain conditions
 	SkipSuccessfulAuth bool     `json:"skip_successful_auth" yaml:"skip_successful_auth"`
 	SkipPaths          []string `json:"skip_paths" yaml:"skip_paths"`
@@ -151,22 +151,22 @@ type UserRateLimit struct {
 type RateLimiter interface {
 	// Allow checks if a request is allowed
 	Allow() bool
-	
+
 	// AllowN checks if N requests are allowed
 	AllowN(n int) bool
-	
+
 	// Reserve reserves a token and returns a reservation
 	Reserve() Reservation
-	
+
 	// ReserveN reserves N tokens and returns a reservation
 	ReserveN(n int) Reservation
-	
+
 	// Limit returns the current rate limit
 	Limit() rate.Limit
-	
+
 	// Burst returns the current burst size
 	Burst() int
-	
+
 	// Tokens returns the number of tokens available
 	Tokens() float64
 }
@@ -175,13 +175,13 @@ type RateLimiter interface {
 type Reservation interface {
 	// OK returns whether the reservation is valid
 	OK() bool
-	
+
 	// Cancel cancels the reservation
 	Cancel()
-	
+
 	// Delay returns how long to wait before the reservation becomes valid
 	Delay() time.Duration
-	
+
 	// DelayFrom returns how long to wait from a specific time
 	DelayFrom(time.Time) time.Duration
 }
@@ -312,17 +312,17 @@ func (swl *SlidingWindowLimiter) Release() {
 func (swl *SlidingWindowLimiter) Allow() bool {
 	swl.mu.Lock()
 	defer swl.mu.Unlock()
-	
+
 	now := time.Now()
-	
+
 	// Clean old requests
 	swl.cleanOldRequests(now)
-	
+
 	// Check if we can allow the request
 	if len(swl.requests) >= swl.limit {
 		return false
 	}
-	
+
 	// Add the request
 	swl.requests = append(swl.requests, now)
 	return true
@@ -332,17 +332,17 @@ func (swl *SlidingWindowLimiter) Allow() bool {
 func (swl *SlidingWindowLimiter) AllowN(n int) bool {
 	swl.mu.Lock()
 	defer swl.mu.Unlock()
-	
+
 	now := time.Now()
-	
+
 	// Clean old requests
 	swl.cleanOldRequests(now)
-	
+
 	// Check if we can allow N requests
 	if len(swl.requests)+n > swl.limit {
 		return false
 	}
-	
+
 	// Add N requests
 	for i := 0; i < n; i++ {
 		swl.requests = append(swl.requests, now)
@@ -380,7 +380,7 @@ func (swl *SlidingWindowLimiter) Burst() int {
 func (swl *SlidingWindowLimiter) Tokens() float64 {
 	swl.mu.Lock()
 	defer swl.mu.Unlock()
-	
+
 	swl.cleanOldRequests(time.Now())
 	return float64(swl.limit - len(swl.requests))
 }
@@ -388,13 +388,13 @@ func (swl *SlidingWindowLimiter) Tokens() float64 {
 func (swl *SlidingWindowLimiter) cleanOldRequests(now time.Time) {
 	cutoff := now.Add(-swl.windowSize)
 	var validRequests []time.Time
-	
+
 	for _, reqTime := range swl.requests {
 		if reqTime.After(cutoff) {
 			validRequests = append(validRequests, reqTime)
 		}
 	}
-	
+
 	swl.requests = validRequests
 }
 
@@ -428,13 +428,13 @@ func (swr *slidingWindowReservation) DelayFrom(t time.Time) time.Duration {
 type RateLimitMiddleware struct {
 	config *RateLimitConfig
 	logger *zap.Logger
-	
+
 	// Limiter storage - either bounded or unbounded based on configuration
-	limiters         map[string]RateLimiter
-	boundedLimiters  *BoundedMap[string, RateLimiter]
-	limitersMu       sync.RWMutex
-	lastCleanup      time.Time
-	
+	limiters        map[string]RateLimiter
+	boundedLimiters *BoundedMap[string, RateLimiter]
+	limitersMu      sync.RWMutex
+	lastCleanup     time.Time
+
 	// Precomputed maps for performance
 	whitelistedIPMap map[string]bool
 	blacklistedIPMap map[string]bool
@@ -448,15 +448,15 @@ func NewRateLimitMiddleware(config *RateLimitConfig, logger *zap.Logger) (*RateL
 	if config == nil {
 		return nil, fmt.Errorf("rate limit config cannot be nil")
 	}
-	
+
 	if err := ValidateBaseConfig(&config.BaseConfig); err != nil {
 		return nil, fmt.Errorf("invalid base config: %w", err)
 	}
-	
+
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	
+
 	// Set defaults
 	if config.Name == "" {
 		config.Name = "ratelimit"
@@ -493,7 +493,7 @@ func NewRateLimitMiddleware(config *RateLimitConfig, logger *zap.Logger) (*RateL
 	if config.MaxLimiters <= 0 {
 		config.MaxLimiters = 50000
 	}
-	
+
 	middleware := &RateLimitMiddleware{
 		config:           config,
 		logger:           logger,
@@ -504,7 +504,7 @@ func NewRateLimitMiddleware(config *RateLimitConfig, logger *zap.Logger) (*RateL
 		skipMethodMap:    make(map[string]bool),
 		skipUserAgentMap: make(map[string]bool),
 	}
-	
+
 	// Initialize limiter storage based on memory bounds configuration
 	if config.EnableMemoryBounds {
 		boundedConfig := BoundedMapConfig{
@@ -516,10 +516,10 @@ func NewRateLimitMiddleware(config *RateLimitConfig, logger *zap.Logger) (*RateL
 	} else {
 		middleware.limiters = make(map[string]RateLimiter)
 	}
-	
+
 	// Build maps for performance
 	middleware.buildMaps()
-	
+
 	return middleware, nil
 }
 
@@ -530,26 +530,26 @@ func (rlm *RateLimitMiddleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		
+
 		// Check if request should skip rate limiting
 		if rlm.shouldSkipRequest(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
-		
+
 		// Check blacklisted IPs
 		clientIP := GetClientIP(r)
 		if rlm.blacklistedIPMap[clientIP] {
 			rlm.handleRateLimitExceeded(w, r, "IP blacklisted")
 			return
 		}
-		
+
 		// Check whitelisted IPs
 		if rlm.whitelistedIPMap[clientIP] {
 			next.ServeHTTP(w, r)
 			return
 		}
-		
+
 		// Get or create rate limiter
 		limiter, key := rlm.getLimiter(r)
 		if limiter == nil {
@@ -557,7 +557,7 @@ func (rlm *RateLimitMiddleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		
+
 		// Check rate limit
 		if !limiter.Allow() {
 			rlm.logger.Debug("Rate limit exceeded",
@@ -566,19 +566,19 @@ func (rlm *RateLimitMiddleware) Handler(next http.Handler) http.Handler {
 				zap.String("path", r.URL.Path),
 				zap.String("method", r.Method),
 			)
-			
+
 			rlm.handleRateLimitExceeded(w, r, "Rate limit exceeded")
 			return
 		}
-		
+
 		// Add rate limit headers if enabled
 		if rlm.config.IncludeHeaders {
 			rlm.addRateLimitHeaders(w, limiter)
 		}
-		
+
 		// Cleanup old limiters periodically
 		rlm.periodicCleanup()
-		
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -609,7 +609,7 @@ func (rlm *RateLimitMiddleware) Cleanup() error {
 		rlm.limiters = make(map[string]RateLimiter)
 		rlm.limitersMu.Unlock()
 	}
-	
+
 	return nil
 }
 
@@ -620,32 +620,32 @@ func (rlm *RateLimitMiddleware) shouldSkipRequest(r *http.Request) bool {
 	if rlm.skipPathMap[path] {
 		return true
 	}
-	
+
 	// Check path prefixes
 	for skipPath := range rlm.skipPathMap {
 		if strings.HasPrefix(path, skipPath) {
 			return true
 		}
 	}
-	
+
 	// Check skip methods
 	if rlm.skipMethodMap[r.Method] {
 		return true
 	}
-	
+
 	// Check skip user agents
 	userAgent := r.Header.Get("User-Agent")
 	if userAgent != "" && rlm.skipUserAgentMap[userAgent] {
 		return true
 	}
-	
+
 	// Check if we should skip for successful auth
 	if rlm.config.SkipSuccessfulAuth {
 		if user, ok := GetAuthUser(r.Context()); ok && user != nil {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -655,35 +655,35 @@ func (rlm *RateLimitMiddleware) getLimiter(r *http.Request) (RateLimiter, string
 	if key == "" {
 		return nil, ""
 	}
-	
+
 	// Use bounded map if memory bounds are enabled
 	if rlm.config.EnableMemoryBounds && rlm.boundedLimiters != nil {
 		return rlm.getBoundedLimiter(r, key)
 	}
-	
+
 	// Use unbounded map (legacy behavior)
 	rlm.limitersMu.RLock()
 	limiter, exists := rlm.limiters[key]
 	rlm.limitersMu.RUnlock()
-	
+
 	if exists {
 		return limiter, key
 	}
-	
+
 	// Create new limiter
 	rlm.limitersMu.Lock()
 	defer rlm.limitersMu.Unlock()
-	
+
 	// Double-check after acquiring write lock
 	if limiter, exists := rlm.limiters[key]; exists {
 		return limiter, key
 	}
-	
+
 	limiter = rlm.createLimiter(r, key)
 	if limiter != nil {
 		rlm.limiters[key] = limiter
 	}
-	
+
 	return limiter, key
 }
 
@@ -699,7 +699,7 @@ func (rlm *RateLimitMiddleware) getBoundedLimiter(r *http.Request, key string) (
 func (rlm *RateLimitMiddleware) createLimiter(r *http.Request, key string) RateLimiter {
 	// Determine rate limit settings for this key
 	rps, rpm, burst, windowSize := rlm.getRateLimitSettings(r, key)
-	
+
 	// Create limiter based on algorithm
 	var limiter RateLimiter
 	switch rlm.config.Algorithm {
@@ -723,7 +723,7 @@ func (rlm *RateLimitMiddleware) createLimiter(r *http.Request, key string) RateL
 			limiter = NewSlidingWindowLimiter(int(rps*windowSize.Seconds()), windowSize)
 		}
 	}
-	
+
 	return limiter
 }
 
@@ -766,23 +766,23 @@ func (rlm *RateLimitMiddleware) getRateLimitSettings(r *http.Request, key string
 	// Check for user-specific limits
 	if userID := GetUserID(r.Context()); userID != "" {
 		if userLimit, exists := rlm.config.UserLimits[userID]; exists {
-			return userLimit.RequestsPerSecond, userLimit.RequestsPerMinute, 
-				   userLimit.BurstSize, userLimit.WindowSize
+			return userLimit.RequestsPerSecond, userLimit.RequestsPerMinute,
+				userLimit.BurstSize, userLimit.WindowSize
 		}
 	}
-	
+
 	// Check for endpoint-specific limits
 	for _, endpointLimit := range rlm.config.EndpointLimits {
 		if (endpointLimit.Method == "" || endpointLimit.Method == r.Method) &&
-		   (endpointLimit.Path == "" || strings.HasPrefix(r.URL.Path, endpointLimit.Path)) {
+			(endpointLimit.Path == "" || strings.HasPrefix(r.URL.Path, endpointLimit.Path)) {
 			return endpointLimit.RequestsPerSecond, endpointLimit.RequestsPerMinute,
-				   endpointLimit.BurstSize, endpointLimit.WindowSize
+				endpointLimit.BurstSize, endpointLimit.WindowSize
 		}
 	}
-	
+
 	// Use default config
 	return rlm.config.RequestsPerSecond, rlm.config.RequestsPerMinute,
-		   rlm.config.BurstSize, rlm.config.WindowSize
+		rlm.config.BurstSize, rlm.config.WindowSize
 }
 
 // addRateLimitHeaders adds rate limit headers to the response
@@ -795,20 +795,20 @@ func (rlm *RateLimitMiddleware) addRateLimitHeaders(w http.ResponseWriter, limit
 // handleRateLimitExceeded handles rate limit exceeded responses
 func (rlm *RateLimitMiddleware) handleRateLimitExceeded(w http.ResponseWriter, r *http.Request, message string) {
 	statusCode := http.StatusTooManyRequests
-	
+
 	// Set retry-after header if enabled
 	if rlm.config.RetryAfterHeader {
 		w.Header().Set("Retry-After", "60") // 60 seconds
 	}
-	
+
 	// Use custom error message if provided
 	if rlm.config.CustomErrorMessage != "" {
 		message = rlm.config.CustomErrorMessage
 	}
-	
+
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	
+
 	// Use pooled response map for better performance
 	response := rateResponsePool.Get().(map[string]interface{})
 	defer func() {
@@ -818,11 +818,11 @@ func (rlm *RateLimitMiddleware) handleRateLimitExceeded(w http.ResponseWriter, r
 		}
 		rateResponsePool.Put(response)
 	}()
-	
+
 	response["error"] = message
 	response["timestamp"] = time.Now().Unix()
 	response["retry_after"] = 60
-	
+
 	json.NewEncoder(w).Encode(response)
 }
 
@@ -832,7 +832,7 @@ func (rlm *RateLimitMiddleware) periodicCleanup() {
 	if now.Sub(rlm.lastCleanup) < rlm.config.CleanupInterval {
 		return
 	}
-	
+
 	if rlm.config.EnableMemoryBounds && rlm.boundedLimiters != nil {
 		// Bounded map handles cleanup automatically
 		cleanedCount := rlm.boundedLimiters.Cleanup()
@@ -845,7 +845,7 @@ func (rlm *RateLimitMiddleware) periodicCleanup() {
 		// Manual cleanup for unbounded map
 		rlm.limitersMu.Lock()
 		defer rlm.limitersMu.Unlock()
-		
+
 		// Simple cleanup - limit the number of stored limiters
 		if len(rlm.limiters) > 10000 {
 			// Clear half the limiters randomly
@@ -861,7 +861,7 @@ func (rlm *RateLimitMiddleware) periodicCleanup() {
 				zap.Time("timestamp", now))
 		}
 	}
-	
+
 	rlm.lastCleanup = now
 }
 
@@ -870,10 +870,10 @@ func (rlm *RateLimitMiddleware) GetLimiterStats() interface{} {
 	if rlm.config.EnableMemoryBounds && rlm.boundedLimiters != nil {
 		return rlm.boundedLimiters.Stats()
 	}
-	
+
 	rlm.limitersMu.RLock()
 	defer rlm.limitersMu.RUnlock()
-	
+
 	return map[string]interface{}{
 		"type":         "unbounded",
 		"size":         len(rlm.limiters),
@@ -886,7 +886,7 @@ func (rlm *RateLimitMiddleware) CleanupExpiredLimiters() int {
 	if rlm.config.EnableMemoryBounds && rlm.boundedLimiters != nil {
 		return rlm.boundedLimiters.Cleanup()
 	}
-	
+
 	// For unbounded maps, we don't have TTL tracking, so return 0
 	return 0
 }
@@ -897,28 +897,27 @@ func (rlm *RateLimitMiddleware) buildMaps() {
 	for _, ip := range rlm.config.WhitelistedIPs {
 		rlm.whitelistedIPMap[ip] = true
 	}
-	
+
 	// Build blacklisted IP map
 	for _, ip := range rlm.config.BlacklistedIPs {
 		rlm.blacklistedIPMap[ip] = true
 	}
-	
+
 	// Build skip path map
 	for _, path := range rlm.config.SkipPaths {
 		rlm.skipPathMap[path] = true
 	}
-	
+
 	// Build skip method map
 	for _, method := range rlm.config.SkipMethods {
 		rlm.skipMethodMap[strings.ToUpper(method)] = true
 	}
-	
+
 	// Build skip user agent map
 	for _, userAgent := range rlm.config.SkipUserAgents {
 		rlm.skipUserAgentMap[userAgent] = true
 	}
 }
-
 
 // Default configurations
 
@@ -930,16 +929,16 @@ func DefaultRateLimitConfig() *RateLimitConfig {
 			Priority: 80,
 			Name:     "ratelimit",
 		},
-		Algorithm:         TokenBucket,
-		Scope:             ScopeIP,
-		RequestsPerMinute: 1000,
-		BurstSize:         100,
-		WindowSize:        time.Minute,
-		IncludeHeaders:      true,
-		CleanupInterval:     5 * time.Minute,
+		Algorithm:          TokenBucket,
+		Scope:              ScopeIP,
+		RequestsPerMinute:  1000,
+		BurstSize:          100,
+		WindowSize:         time.Minute,
+		IncludeHeaders:     true,
+		CleanupInterval:    5 * time.Minute,
 		LimiterTTL:         1 * time.Hour,
-		EnableMemoryBounds: true,      // Enable memory bounds by default
-		MaxLimiters:        50000,     // Allow up to 50K rate limiters
+		EnableMemoryBounds: true,  // Enable memory bounds by default
+		MaxLimiters:        50000, // Allow up to 50K rate limiters
 		RetryAfterHeader:   true,
 		SkipPaths:          []string{"/health", "/metrics"},
 		EndpointLimits:     make(map[string]*EndpointRateLimit),

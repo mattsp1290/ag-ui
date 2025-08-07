@@ -16,12 +16,12 @@ type JSONCodec struct {
 
 // Ensure JSONCodec implements the core interfaces
 var (
-	_ encoding.Encoder               = (*JSONCodec)(nil)
-	_ encoding.Decoder               = (*JSONCodec)(nil)
-	_ encoding.ContentTypeProvider   = (*JSONCodec)(nil)
-	_ encoding.Codec                 = (*JSONCodec)(nil)
-	_ encoding.LegacyEncoder         = (*JSONCodec)(nil)
-	_ encoding.LegacyDecoder         = (*JSONCodec)(nil)
+	_ encoding.Encoder             = (*JSONCodec)(nil)
+	_ encoding.Decoder             = (*JSONCodec)(nil)
+	_ encoding.ContentTypeProvider = (*JSONCodec)(nil)
+	_ encoding.Codec               = (*JSONCodec)(nil)
+	_ encoding.LegacyEncoder       = (*JSONCodec)(nil)
+	_ encoding.LegacyDecoder       = (*JSONCodec)(nil)
 )
 
 // NewJSONCodec creates a new JSON codec with the given options

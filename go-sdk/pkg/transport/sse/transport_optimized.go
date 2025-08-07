@@ -75,7 +75,7 @@ func (t *SSETransport) optimizedParseSSEEvent(eventType, data, id string, retry 
 	}()
 
 	dec = json.NewDecoder(strings.NewReader(data))
-	
+
 	// Pre-allocate map with estimated capacity
 	eventData := make(map[string]interface{}, 8)
 	if err := dec.Decode(&eventData); err != nil {
@@ -175,7 +175,7 @@ func (t *SSETransport) parseStateDeltaEventOptimized(data map[string]interface{}
 
 	// Pre-allocate slice with exact capacity
 	delta := make([]events.JSONPatchOperation, 0, len(deltaData))
-	
+
 	for _, opData := range deltaData {
 		opMap, ok := opData.(map[string]interface{})
 		if !ok {
@@ -225,7 +225,7 @@ func (t *SSETransport) parseMessagesSnapshotEventOptimized(data map[string]inter
 
 	// Pre-allocate with exact capacity
 	messagesList := make([]events.Message, 0, len(messagesData))
-	
+
 	for _, msgData := range messagesData {
 		msgMap, ok := msgData.(map[string]interface{})
 		if !ok {
@@ -259,7 +259,7 @@ func (t *SSETransport) parseMessagesSnapshotEventOptimized(data map[string]inter
 		// Parse tool calls with pre-allocation
 		if toolCallsData, ok := msgMap["toolCalls"].([]interface{}); ok {
 			msg.ToolCalls = make([]events.ToolCall, 0, len(toolCallsData))
-			
+
 			for _, tcData := range toolCallsData {
 				tcMap, ok := tcData.(map[string]interface{})
 				if !ok {
@@ -348,13 +348,13 @@ func (t *SSETransport) optimizedReadEvent() (events.Event, error) {
 			if len(data) > 0 && data[0] == ' ' {
 				data = data[1:]
 			}
-			
+
 		case len(line) > 6 && line[:6] == prefixEvent:
 			eventType = strings.TrimSpace(line[6:])
-			
+
 		case len(line) > 3 && line[:3] == prefixID:
 			id = strings.TrimSpace(line[3:])
-			
+
 		case len(line) > 6 && line[:6] == prefixRetry:
 			// Parse retry value efficiently
 			retryStr := strings.TrimSpace(line[6:])
@@ -392,7 +392,7 @@ func FormatSSEEventOptimized(event events.Event) (string, error) {
 	// Pre-calculate size to avoid reallocations
 	eventType := event.Type()
 	size := 7 + len(eventType) + 7 + len(eventData) + 2 // "event: " + type + "\ndata: " + data + "\n\n"
-	
+
 	if event.Timestamp() != nil {
 		size += 20 // Approximate size for "id: <timestamp>\n"
 	}
@@ -400,24 +400,24 @@ func FormatSSEEventOptimized(event events.Event) (string, error) {
 	// Use bytes.Buffer with pre-allocated capacity
 	var buf bytes.Buffer
 	buf.Grow(size)
-	
+
 	buf.WriteString("event: ")
 	buf.WriteString(string(eventType))
 	buf.WriteByte('\n')
-	
+
 	buf.WriteString("data: ")
 	buf.Write(eventData)
 	buf.WriteByte('\n')
-	
+
 	if ts := event.Timestamp(); ts != nil {
 		buf.WriteString("id: ")
 		// Fast integer to string conversion
 		buf.Write(appendInt(nil, *ts))
 		buf.WriteByte('\n')
 	}
-	
+
 	buf.WriteByte('\n')
-	
+
 	return buf.String(), nil
 }
 
@@ -427,10 +427,10 @@ func appendInt(dst []byte, i int64) []byte {
 		dst = append(dst, '-')
 		i = -i
 	}
-	
+
 	var buf [20]byte
 	j := len(buf)
-	
+
 	for {
 		j--
 		buf[j] = byte('0' + i%10)
@@ -439,6 +439,6 @@ func appendInt(dst []byte, i int64) []byte {
 			break
 		}
 	}
-	
+
 	return append(dst, buf[j:]...)
 }

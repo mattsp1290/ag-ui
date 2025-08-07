@@ -27,34 +27,34 @@ func main() {
 	// Configure the SSE client
 	config := client.SSEClientConfig{
 		URL: sseURL,
-		
+
 		// Connection settings
 		InitialBackoff:       time.Second,
 		MaxBackoff:           30 * time.Second,
 		BackoffMultiplier:    2.0,
 		MaxReconnectAttempts: 0, // Unlimited reconnection attempts
-		
+
 		// Buffer and flow control
-		EventBufferSize:       1000,
-		FlowControlEnabled:    true,
-		FlowControlThreshold:  0.8,
-		
+		EventBufferSize:      1000,
+		FlowControlEnabled:   true,
+		FlowControlThreshold: 0.8,
+
 		// Timeouts
-		ReadTimeout:           30 * time.Second,
-		WriteTimeout:          10 * time.Second,
-		HealthCheckInterval:   30 * time.Second,
-		
+		ReadTimeout:         30 * time.Second,
+		WriteTimeout:        10 * time.Second,
+		HealthCheckInterval: 30 * time.Second,
+
 		// Headers
 		Headers: map[string]string{
 			"Authorization": "Bearer your-token-here",
 			"User-Agent":    "AG-UI SSE Example/1.0",
 		},
-		
+
 		// TLS configuration
 		TLSConfig: &tls.Config{
 			InsecureSkipVerify: false, // Set to true only for testing
 		},
-		
+
 		// Event filtering - only process certain event types
 		EventFilter: func(eventType string) bool {
 			allowedTypes := map[string]bool{
@@ -68,20 +68,20 @@ func main() {
 			}
 			return allowedTypes[eventType] || eventType == ""
 		},
-		
+
 		// Callback functions
 		OnConnect: func() {
 			fmt.Println("✅ Connected to SSE stream")
 		},
-		
+
 		OnDisconnect: func(err error) {
 			fmt.Printf("❌ Disconnected from SSE stream: %v\n", err)
 		},
-		
+
 		OnReconnect: func(attempt int) {
 			fmt.Printf("🔄 Reconnection attempt #%d\n", attempt)
 		},
-		
+
 		OnError: func(err error) {
 			fmt.Printf("⚠️  SSE Error: %v\n", err)
 		},
@@ -162,14 +162,14 @@ func processSSEEvent(event *client.SSEEvent, count int) {
 	fmt.Printf("  Type: %s\n", event.Event)
 	fmt.Printf("  Sequence: %d\n", event.Sequence)
 	fmt.Printf("  Timestamp: %s\n", event.Timestamp.Format(time.RFC3339))
-	
+
 	// Show data (truncated if too long)
 	data := event.Data
 	if len(data) > 200 {
 		data = data[:200] + "..."
 	}
 	fmt.Printf("  Data: %s\n", data)
-	
+
 	// Show custom headers if any
 	if len(event.Headers) > 0 {
 		fmt.Printf("  Headers: %v\n", event.Headers)
@@ -178,7 +178,7 @@ func processSSEEvent(event *client.SSEEvent, count int) {
 	// Convert to AG-UI event and demonstrate usage
 	if agEvent, err := client.ConvertSSEToEvent(event); err == nil {
 		fmt.Printf("  AG-UI Event Type: %s\n", agEvent.Type())
-		
+
 		// Process based on event type
 		switch agEvent.Type() {
 		case events.EventTypeTextMessageStart:
@@ -239,13 +239,13 @@ func startDemoServer(sseClient *client.SSEClient) {
 	// Endpoint to get client status
 	mux.HandleFunc("/status", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		
+
 		status := map[string]interface{}{
-			"state":               sseClient.State().String(),
-			"lastEventID":         sseClient.LastEventID(),
-			"reconnectCount":      sseClient.ReconnectCount(),
-			"bufferLength":        sseClient.BufferLength(),
-			"backpressureActive":  sseClient.IsBackpressureActive(),
+			"state":              sseClient.State().String(),
+			"lastEventID":        sseClient.LastEventID(),
+			"reconnectCount":     sseClient.ReconnectCount(),
+			"bufferLength":       sseClient.BufferLength(),
+			"backpressureActive": sseClient.IsBackpressureActive(),
 		}
 
 		fmt.Fprintf(w, `{
@@ -254,11 +254,11 @@ func startDemoServer(sseClient *client.SSEClient) {
 			"reconnectCount": %d,
 			"bufferLength": %d,
 			"backpressureActive": %t
-		}`, 
-			status["state"], 
-			status["lastEventID"], 
-			status["reconnectCount"], 
-			status["bufferLength"], 
+		}`,
+			status["state"],
+			status["lastEventID"],
+			status["reconnectCount"],
+			status["bufferLength"],
 			status["backpressureActive"])
 	})
 
@@ -292,7 +292,7 @@ func startDemoServer(sseClient *client.SSEClient) {
 				"data": "%s",
 				"timestamp": "%s"
 			}
-		}`, 
+		}`,
 			sseEvent.ID,
 			sseEvent.Event,
 			sseEvent.Data,
@@ -328,11 +328,11 @@ func ExampleWithCustomEventHandler() {
 		URL: "https://api.example.com/events",
 		EventFilter: func(eventType string) bool {
 			// Only process message and tool events
-			return eventType == "TEXT_MESSAGE_START" || 
-				   eventType == "TEXT_MESSAGE_CONTENT" || 
-				   eventType == "TEXT_MESSAGE_END" ||
-				   eventType == "TOOL_CALL_START" ||
-				   eventType == "TOOL_CALL_END"
+			return eventType == "TEXT_MESSAGE_START" ||
+				eventType == "TEXT_MESSAGE_CONTENT" ||
+				eventType == "TEXT_MESSAGE_END" ||
+				eventType == "TOOL_CALL_START" ||
+				eventType == "TOOL_CALL_END"
 		},
 	}
 

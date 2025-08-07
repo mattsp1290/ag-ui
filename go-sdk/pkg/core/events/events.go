@@ -120,15 +120,15 @@ func (b *BaseEvent) ToJSON() ([]byte, error) {
 	eventData := map[string]interface{}{
 		"type": b.EventType,
 	}
-	
+
 	if b.TimestampMs != nil {
 		eventData["timestamp"] = *b.TimestampMs
 	}
-	
+
 	if b.RawEvent != nil {
 		eventData["data"] = b.RawEvent
 	}
-	
+
 	return json.Marshal(eventData)
 }
 
@@ -136,7 +136,7 @@ func (b *BaseEvent) ToJSON() ([]byte, error) {
 func (b *BaseEvent) ToProtobuf() (*generated.Event, error) {
 	// Create a basic protobuf event - actual field names depend on the protobuf definition
 	event := &generated.Event{}
-	
+
 	// This is a placeholder implementation
 	// The actual field names should match the protobuf schema
 	return event, nil
@@ -178,7 +178,6 @@ func (b *BaseEvent) Validate() error {
 
 	return nil
 }
-
 
 // ToProtobufBase converts the base event to its protobuf representation
 func (b *BaseEvent) ToProtobufBase() *generated.BaseEvent {

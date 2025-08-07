@@ -63,7 +63,7 @@ type SSETransport struct {
 	reconnectDelay time.Duration
 	maxReconnects  int
 	reconnectCount int
-	
+
 	// Backpressure tracking
 	droppedEvents      int64
 	droppedErrors      int64
@@ -76,19 +76,19 @@ type SSETransport struct {
 type BackpressureConfig struct {
 	// ErrorChannelBuffer is the buffer size for error channel
 	ErrorChannelBuffer int
-	
+
 	// EventChannelBuffer is the buffer size for event channel
 	EventChannelBuffer int
-	
+
 	// MaxDroppedEvents is the maximum number of events that can be dropped before taking action
 	MaxDroppedEvents int
-	
+
 	// DropActionType defines what to do when max dropped events is reached
 	DropActionType DropActionType
-	
+
 	// EnableBackpressureLogging enables detailed logging of backpressure events
 	EnableBackpressureLogging bool
-	
+
 	// BackpressureThresholdPercent is the percentage at which to start applying backpressure (0-100)
 	BackpressureThresholdPercent int
 }
@@ -99,10 +99,10 @@ type DropActionType int
 const (
 	// DropActionLog logs dropped events but continues
 	DropActionLog DropActionType = iota
-	
+
 	// DropActionReconnect attempts to reconnect
 	DropActionReconnect
-	
+
 	// DropActionStop stops the transport
 	DropActionStop
 )
@@ -110,12 +110,12 @@ const (
 // DefaultBackpressureConfig returns default backpressure configuration
 func DefaultBackpressureConfig() *BackpressureConfig {
 	return &BackpressureConfig{
-		ErrorChannelBuffer:           200,   // Increased error buffer
-		EventChannelBuffer:           5000,  // Much larger event buffer for high throughput
-		MaxDroppedEvents:             1000,  // Higher tolerance for dropped events
+		ErrorChannelBuffer:           200,  // Increased error buffer
+		EventChannelBuffer:           5000, // Much larger event buffer for high throughput
+		MaxDroppedEvents:             1000, // Higher tolerance for dropped events
 		DropActionType:               DropActionReconnect,
 		EnableBackpressureLogging:    true,
-		BackpressureThresholdPercent: 90,    // Higher threshold for backpressure activation
+		BackpressureThresholdPercent: 90, // Higher threshold for backpressure activation
 	}
 }
 
@@ -137,18 +137,18 @@ func DefaultConfig() *Config {
 	return &Config{
 		BaseURL:            "http://localhost:8080",
 		Headers:            make(map[string]string),
-		BufferSize:         5000,           // Increased buffer size for performance
-		ReadTimeout:        120 * time.Second, // Much longer timeout for SSE streams
-		WriteTimeout:       60 * time.Second,  // Longer write timeout
+		BufferSize:         5000,                   // Increased buffer size for performance
+		ReadTimeout:        120 * time.Second,      // Much longer timeout for SSE streams
+		WriteTimeout:       60 * time.Second,       // Longer write timeout
 		ReconnectDelay:     100 * time.Millisecond, // Faster reconnection
 		MaxReconnects:      5,
 		BackpressureConfig: DefaultBackpressureConfig(),
 		Client: &http.Client{
 			Timeout: 120 * time.Second, // Much longer client timeout for SSE
 			Transport: &http.Transport{
-				MaxIdleConns:        200,        // Higher connection pool
-				MaxIdleConnsPerHost: 100,        // Higher per-host connections
-				IdleConnTimeout:     300 * time.Second, // Longer idle timeout
+				MaxIdleConns:          200,               // Higher connection pool
+				MaxIdleConnsPerHost:   100,               // Higher per-host connections
+				IdleConnTimeout:       300 * time.Second, // Longer idle timeout
 				ResponseHeaderTimeout: 60 * time.Second,  // Longer response timeout
 				TLSClientConfig: &tls.Config{
 					MinVersion: tls.VersionTLS12,
@@ -177,12 +177,12 @@ func NewSSETransport(config *Config) (*SSETransport, error) {
 
 	if config.Client == nil {
 		config.Client = &http.Client{
-			Timeout: 60 * time.Second,  // Increased fallback timeout
+			Timeout: 60 * time.Second, // Increased fallback timeout
 			Transport: &http.Transport{
-				MaxIdleConns:        100,        // Increased for concurrency
-				MaxIdleConnsPerHost: 50,         // Increased per host
-				IdleConnTimeout:     90 * time.Second,
-				ResponseHeaderTimeout: 30 * time.Second,  // Added response timeout
+				MaxIdleConns:          100, // Increased for concurrency
+				MaxIdleConnsPerHost:   50,  // Increased per host
+				IdleConnTimeout:       90 * time.Second,
+				ResponseHeaderTimeout: 30 * time.Second, // Added response timeout
 				TLSClientConfig: &tls.Config{
 					MinVersion: tls.VersionTLS12,
 					CipherSuites: []uint16{
@@ -196,7 +196,7 @@ func NewSSETransport(config *Config) (*SSETransport, error) {
 			},
 		}
 	}
-	
+
 	if config.BackpressureConfig == nil {
 		config.BackpressureConfig = DefaultBackpressureConfig()
 	}
@@ -212,7 +212,7 @@ func NewSSETransport(config *Config) (*SSETransport, error) {
 			bufferSize = 1000
 		}
 	}
-	
+
 	errorBufferSize := config.BackpressureConfig.ErrorChannelBuffer
 	if errorBufferSize == 0 {
 		errorBufferSize = 10
@@ -275,7 +275,7 @@ func (t *SSETransport) Send(ctx context.Context, event events.Event) error {
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	// Copy headers safely under read lock
 	t.headersMutex.RLock()
 	headersCopy := make(map[string]string, len(t.headers))
@@ -283,7 +283,7 @@ func (t *SSETransport) Send(ctx context.Context, event events.Event) error {
 		headersCopy[key] = value
 	}
 	t.headersMutex.RUnlock()
-	
+
 	// Use copied headers for request
 	for key, value := range headersCopy {
 		if key != "Accept" && key != "Cache-Control" && key != "Connection" {
@@ -357,7 +357,7 @@ func (t *SSETransport) connect(ctx context.Context) error {
 		headersCopy[key] = value
 	}
 	t.headersMutex.RUnlock()
-	
+
 	for key, value := range headersCopy {
 		req.Header.Set(key, value)
 	}
@@ -402,15 +402,15 @@ func (t *SSETransport) readEvents() {
 
 		// Create a timeout context for each read operation
 		readCtx, cancel := context.WithTimeout(t.ctx, 30*time.Second)
-		
+
 		// Use a channel to signal completion of read operation
 		type readResult struct {
 			event events.Event
 			err   error
 		}
-		
+
 		resultChan := make(chan readResult, 1)
-		
+
 		// Perform read in a separate goroutine
 		go func() {
 			defer cancel()
@@ -426,12 +426,12 @@ func (t *SSETransport) readEvents() {
 		select {
 		case result := <-resultChan:
 			cancel() // Clean up the read context
-			
+
 			if result.err != nil {
 				if !t.isClosed() {
 					// Handle error with backpressure control
 					t.handleErrorWithBackpressure(result.err)
-					
+
 					// Try to reconnect
 					if t.shouldReconnect(result.err) {
 						if reconnectErr := t.reconnect(); reconnectErr != nil {
@@ -450,7 +450,7 @@ func (t *SSETransport) readEvents() {
 			if result.event != nil && !t.isClosed() {
 				t.handleEventWithBackpressure(result.event)
 			}
-			
+
 		case <-readCtx.Done():
 			cancel() // Clean up the read context
 			// Check if it's the parent context or timeout
@@ -459,7 +459,7 @@ func (t *SSETransport) readEvents() {
 			}
 			// Otherwise, it was a read timeout - continue to try again
 			continue
-			
+
 		case <-t.ctx.Done():
 			cancel() // Clean up the read context
 			return
@@ -473,7 +473,7 @@ func (t *SSETransport) readEvent() (events.Event, error) {
 	t.connMutex.RLock()
 	reader := t.reader
 	t.connMutex.RUnlock()
-	
+
 	if reader == nil {
 		return nil, messages.NewStreamingError("transport", 0, "no active connection")
 	}
@@ -543,16 +543,16 @@ func (t *SSETransport) readLineWithTimeout() (string, error) {
 		line string
 		err  error
 	}
-	
+
 	resultChan := make(chan readResult, 1)
-	
+
 	// Perform the blocking read in a separate goroutine
 	go func() {
 		// Acquire read lock to safely access t.reader
 		t.connMutex.RLock()
 		reader := t.reader
 		t.connMutex.RUnlock()
-		
+
 		if reader == nil {
 			select {
 			case resultChan <- readResult{line: "", err: fmt.Errorf("reader is nil")}:
@@ -560,7 +560,7 @@ func (t *SSETransport) readLineWithTimeout() (string, error) {
 			}
 			return
 		}
-		
+
 		line, err := reader.ReadString('\n')
 		select {
 		case resultChan <- readResult{line: line, err: err}:
@@ -568,7 +568,7 @@ func (t *SSETransport) readLineWithTimeout() (string, error) {
 			// Read was cancelled, don't send result
 		}
 	}()
-	
+
 	// Wait for either the read to complete or context cancellation
 	select {
 	case result := <-resultChan:
@@ -1065,7 +1065,6 @@ func (t *SSETransport) closeConnection() {
 	}
 }
 
-
 // Close closes the transport and releases resources
 func (t *SSETransport) Close(ctx context.Context) error {
 	t.closeMutex.Lock()
@@ -1093,14 +1092,14 @@ func (t *SSETransport) Close(ctx context.Context) error {
 				shutdownTimeout = timeLeft
 			}
 		}
-		
+
 		time.Sleep(shutdownTimeout)
-		
+
 		// Close channels safely
 		defer func() {
 			recover() // Handle any panic from closing already-closed channels
 		}()
-		
+
 		close(t.eventChan)
 		close(t.errorChan)
 	}()
@@ -1275,7 +1274,7 @@ func (t *SSETransport) Ping(ctx context.Context) error {
 		headersCopy[key] = value
 	}
 	t.headersMutex.RUnlock()
-	
+
 	for key, value := range headersCopy {
 		if key != "Accept" && key != "Cache-Control" && key != "Connection" {
 			req.Header.Set(key, value)
@@ -1323,7 +1322,7 @@ func (t *SSETransport) SendBatch(ctx context.Context, events []events.Event) err
 			batchErr.AddError(i, fmt.Errorf("event at index %d validation failed: %w", i, err))
 		}
 	}
-	
+
 	// Return combined validation errors if any occurred
 	if batchErr.HasErrors() {
 		return fmt.Errorf("batch validation failed: %w", batchErr)
@@ -1340,7 +1339,7 @@ func (t *SSETransport) SendBatch(ctx context.Context, events []events.Event) err
 		}
 		eventDataList = append(eventDataList, eventData)
 	}
-	
+
 	// Return combined serialization errors if any occurred
 	if serializationErr.HasErrors() {
 		return fmt.Errorf("batch serialization failed: %w", serializationErr)
@@ -1360,7 +1359,7 @@ func (t *SSETransport) SendBatch(ctx context.Context, events []events.Event) err
 
 	// Set headers
 	req.Header.Set("Content-Type", "application/json")
-	
+
 	// Copy headers safely under read lock
 	t.headersMutex.RLock()
 	headersCopy := make(map[string]string, len(t.headers))
@@ -1368,7 +1367,7 @@ func (t *SSETransport) SendBatch(ctx context.Context, events []events.Event) err
 		headersCopy[key] = value
 	}
 	t.headersMutex.RUnlock()
-	
+
 	// Use copied headers for request
 	for key, value := range headersCopy {
 		if key != "Accept" && key != "Cache-Control" && key != "Connection" {

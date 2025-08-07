@@ -16,60 +16,60 @@ import (
 // TestBasicSetGetOperations tests basic cache set/get functionality
 func TestBasicSetGetOperations(t *testing.T) {
 	tests := []struct {
-		name          string
-		config        *CacheValidatorConfig
-		events        []events.Event
-		expectedHits  uint64
+		name           string
+		config         *CacheValidatorConfig
+		events         []events.Event
+		expectedHits   uint64
 		expectedMisses uint64
 	}{
 		{
 			name: "single event caching",
 			config: &CacheValidatorConfig{
-				L1Size:        100,
-				L1TTL:         5 * time.Minute,
-				L2Enabled:     false,
+				L1Size:         100,
+				L1TTL:          5 * time.Minute,
+				L2Enabled:      false,
 				MetricsEnabled: true,
-				Validator:     events.NewValidator(events.DefaultValidationConfig()),
+				Validator:      events.NewValidator(events.DefaultValidationConfig()),
 			},
 			events: []events.Event{
 				events.NewRunStartedEvent("thread-1", "run-1"),
 				events.NewRunStartedEvent("thread-1", "run-1"), // Same event again for cache hit
 			},
-			expectedHits:  1,
+			expectedHits:   1,
 			expectedMisses: 1,
 		},
 		{
 			name: "multiple different events",
 			config: &CacheValidatorConfig{
-				L1Size:        100,
-				L1TTL:         5 * time.Minute,
-				L2Enabled:     false,
+				L1Size:         100,
+				L1TTL:          5 * time.Minute,
+				L2Enabled:      false,
 				MetricsEnabled: true,
-				Validator:     events.NewValidator(events.DefaultValidationConfig()),
+				Validator:      events.NewValidator(events.DefaultValidationConfig()),
 			},
 			events: []events.Event{
 				events.NewRunStartedEvent("thread-1", "run-1"),
 				events.NewRunStartedEvent("thread-2", "run-2"),
 				events.NewToolCallStartEvent("tool-1", "ToolName"),
 			},
-			expectedHits:  0,
+			expectedHits:   0,
 			expectedMisses: 3,
 		},
 		{
 			name: "repeated event access",
 			config: &CacheValidatorConfig{
-				L1Size:        100,
-				L1TTL:         5 * time.Minute,
-				L2Enabled:     false,
+				L1Size:         100,
+				L1TTL:          5 * time.Minute,
+				L2Enabled:      false,
 				MetricsEnabled: true,
-				Validator:     events.NewValidator(events.DefaultValidationConfig()),
+				Validator:      events.NewValidator(events.DefaultValidationConfig()),
 			},
 			events: []events.Event{
 				events.NewRunStartedEvent("thread-1", "run-1"),
 				events.NewRunStartedEvent("thread-1", "run-1"),
 				events.NewRunStartedEvent("thread-1", "run-1"),
 			},
-			expectedHits:  2,
+			expectedHits:   2,
 			expectedMisses: 1,
 		},
 	}
@@ -79,10 +79,10 @@ func TestBasicSetGetOperations(t *testing.T) {
 			cv, err := NewCacheValidator(tt.config)
 			require.NoError(t, err)
 			defer func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			cv.Shutdown(ctx)
-		}()
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				cv.Shutdown(ctx)
+			}()
 
 			ctx := context.Background()
 
@@ -104,11 +104,11 @@ func TestBasicSetGetOperations(t *testing.T) {
 func TestCacheEvictionPolicies(t *testing.T) {
 	t.Run("LRU eviction", func(t *testing.T) {
 		config := &CacheValidatorConfig{
-			L1Size:        3, // Small size to trigger eviction
-			L1TTL:         5 * time.Minute,
-			L2Enabled:     false,
+			L1Size:         3, // Small size to trigger eviction
+			L1TTL:          5 * time.Minute,
+			L2Enabled:      false,
 			MetricsEnabled: true,
-			Validator:     events.NewValidator(events.DefaultValidationConfig()),
+			Validator:      events.NewValidator(events.DefaultValidationConfig()),
 		}
 
 		cv, err := NewCacheValidator(config)
@@ -144,11 +144,11 @@ func TestCacheEvictionPolicies(t *testing.T) {
 
 	t.Run("Size-based eviction", func(t *testing.T) {
 		config := &CacheValidatorConfig{
-			L1Size:        5,
-			L1TTL:         5 * time.Minute,
-			L2Enabled:     false,
+			L1Size:         5,
+			L1TTL:          5 * time.Minute,
+			L2Enabled:      false,
 			MetricsEnabled: true,
-			Validator:     events.NewValidator(events.DefaultValidationConfig()),
+			Validator:      events.NewValidator(events.DefaultValidationConfig()),
 		}
 
 		cv, err := NewCacheValidator(config)
@@ -176,20 +176,20 @@ func TestCacheEvictionPolicies(t *testing.T) {
 // TestConcurrentCacheOperations tests thread-safe cache operations
 func TestConcurrentCacheOperations(t *testing.T) {
 	config := &CacheValidatorConfig{
-		L1Size:        1000,
-		L1TTL:         5 * time.Minute,
-		L2Enabled:     false,
+		L1Size:         1000,
+		L1TTL:          5 * time.Minute,
+		L2Enabled:      false,
 		MetricsEnabled: true,
-		Validator:     events.NewValidator(events.DefaultValidationConfig()),
+		Validator:      events.NewValidator(events.DefaultValidationConfig()),
 	}
 
 	cv, err := NewCacheValidator(config)
 	require.NoError(t, err)
 	defer func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			cv.Shutdown(ctx)
-		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cv.Shutdown(ctx)
+	}()
 
 	ctx := context.Background()
 	numGoroutines := 50
@@ -203,7 +203,7 @@ func TestConcurrentCacheOperations(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			for j := 0; j < numOperations; j++ {
 				// Mix of same and different events
 				var event events.Event
@@ -255,11 +255,11 @@ func TestConcurrentCacheOperations(t *testing.T) {
 func TestTTLExpirationHandling(t *testing.T) {
 	t.Run("Basic TTL expiration", func(t *testing.T) {
 		config := &CacheValidatorConfig{
-			L1Size:        100,
-			L1TTL:         200 * time.Millisecond,
-			L2Enabled:     false,
+			L1Size:         100,
+			L1TTL:          200 * time.Millisecond,
+			L2Enabled:      false,
 			MetricsEnabled: true,
-			Validator:     events.NewValidator(events.DefaultValidationConfig()),
+			Validator:      events.NewValidator(events.DefaultValidationConfig()),
 		}
 
 		cv, err := NewCacheValidator(config)
@@ -297,11 +297,11 @@ func TestTTLExpirationHandling(t *testing.T) {
 
 	t.Run("TTL refresh on access", func(t *testing.T) {
 		config := &CacheValidatorConfig{
-			L1Size:        100,
-			L1TTL:         500 * time.Millisecond,
-			L2Enabled:     false,
+			L1Size:         100,
+			L1TTL:          500 * time.Millisecond,
+			L2Enabled:      false,
 			MetricsEnabled: true,
-			Validator:     events.NewValidator(events.DefaultValidationConfig()),
+			Validator:      events.NewValidator(events.DefaultValidationConfig()),
 		}
 
 		cv, err := NewCacheValidator(config)
@@ -337,39 +337,39 @@ func TestCacheKeyGeneration(t *testing.T) {
 	cv, err := NewCacheValidator(config)
 	require.NoError(t, err)
 	defer func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			cv.Shutdown(ctx)
-		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cv.Shutdown(ctx)
+	}()
 
 	tests := []struct {
-		name           string
-		event1         events.Event
-		event2         events.Event
+		name            string
+		event1          events.Event
+		event2          events.Event
 		shouldBeSameKey bool
 	}{
 		{
-			name:           "identical events",
-			event1:         events.NewRunStartedEvent("thread-1", "run-1"),
-			event2:         events.NewRunStartedEvent("thread-1", "run-1"),
+			name:            "identical events",
+			event1:          events.NewRunStartedEvent("thread-1", "run-1"),
+			event2:          events.NewRunStartedEvent("thread-1", "run-1"),
 			shouldBeSameKey: true,
 		},
 		{
-			name:           "different thread IDs",
-			event1:         events.NewRunStartedEvent("thread-1", "run-1"),
-			event2:         events.NewRunStartedEvent("thread-2", "run-1"),
+			name:            "different thread IDs",
+			event1:          events.NewRunStartedEvent("thread-1", "run-1"),
+			event2:          events.NewRunStartedEvent("thread-2", "run-1"),
 			shouldBeSameKey: false,
 		},
 		{
-			name:           "different run IDs",
-			event1:         events.NewRunStartedEvent("thread-1", "run-1"),
-			event2:         events.NewRunStartedEvent("thread-1", "run-2"),
+			name:            "different run IDs",
+			event1:          events.NewRunStartedEvent("thread-1", "run-1"),
+			event2:          events.NewRunStartedEvent("thread-1", "run-2"),
 			shouldBeSameKey: false,
 		},
 		{
-			name:           "different event types",
-			event1:         events.NewRunStartedEvent("thread-1", "run-1"),
-			event2:         events.NewToolCallStartEvent("tool-1", "ToolName"),
+			name:            "different event types",
+			event1:          events.NewRunStartedEvent("thread-1", "run-1"),
+			event2:          events.NewToolCallStartEvent("tool-1", "ToolName"),
 			shouldBeSameKey: false,
 		},
 	}
@@ -425,13 +425,13 @@ func TestCacheErrorHandling(t *testing.T) {
 	t.Run("L2 cache errors", func(t *testing.T) {
 		mockL2 := NewMockDistributedCache()
 		config := &CacheValidatorConfig{
-			L1Size:        100,
-			L1TTL:         5 * time.Minute,
-			L2Cache:       mockL2,
-			L2Enabled:     true,
-			L2TTL:         10 * time.Minute,
+			L1Size:         100,
+			L1TTL:          5 * time.Minute,
+			L2Cache:        mockL2,
+			L2Enabled:      true,
+			L2TTL:          10 * time.Minute,
 			MetricsEnabled: true,
-			Validator:     events.NewValidator(events.DefaultValidationConfig()),
+			Validator:      events.NewValidator(events.DefaultValidationConfig()),
 		}
 
 		cv, err := NewCacheValidator(config)
@@ -467,23 +467,23 @@ func TestCacheErrorHandling(t *testing.T) {
 // TestCacheWarmup tests cache pre-warming functionality
 func TestCacheWarmup(t *testing.T) {
 	config := &CacheValidatorConfig{
-		L1Size:        100,
-		L1TTL:         5 * time.Minute,
-		L2Enabled:     false,
+		L1Size:         100,
+		L1TTL:          5 * time.Minute,
+		L2Enabled:      false,
 		MetricsEnabled: true,
-		Validator:     events.NewValidator(events.DefaultValidationConfig()),
+		Validator:      events.NewValidator(events.DefaultValidationConfig()),
 		// Use no-op logger for tests to reduce noise
-		Logger: &eventerrors.NoOpLogger{},
+		Logger:      &eventerrors.NoOpLogger{},
 		RetryPolicy: &eventerrors.RetryPolicy{MaxAttempts: 1},
 	}
 
 	cv, err := NewCacheValidator(config)
 	require.NoError(t, err)
 	defer func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			cv.Shutdown(ctx)
-		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cv.Shutdown(ctx)
+	}()
 
 	ctx := context.Background()
 
@@ -587,35 +587,35 @@ func TestCacheInvalidation(t *testing.T) {
 // TestCacheMetrics tests metrics collection
 func TestCacheMetrics(t *testing.T) {
 	config := &CacheValidatorConfig{
-		L1Size:        100,
-		L1TTL:         5 * time.Minute,
-		L2Enabled:     false,
+		L1Size:         100,
+		L1TTL:          5 * time.Minute,
+		L2Enabled:      false,
 		MetricsEnabled: true,
-		Validator:     events.NewValidator(events.DefaultValidationConfig()),
+		Validator:      events.NewValidator(events.DefaultValidationConfig()),
 		// Use no-op logger for tests to reduce noise
-		Logger: &eventerrors.NoOpLogger{},
+		Logger:      &eventerrors.NoOpLogger{},
 		RetryPolicy: &eventerrors.RetryPolicy{MaxAttempts: 1},
 	}
 
 	cv, err := NewCacheValidator(config)
 	require.NoError(t, err)
 	defer func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			cv.Shutdown(ctx)
-		}()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		cv.Shutdown(ctx)
+	}()
 
 	ctx := context.Background()
 
 	// Perform various operations with a single event for predictable metrics
 	event := events.NewRunStartedEvent("thread-1", "run-1")
-	
+
 	// Get initial stats
 	initialStats := cv.GetStats()
 
 	// Cache miss
 	cv.ValidateEvent(ctx, event)
-	
+
 	// Cache hit
 	cv.ValidateEvent(ctx, event)
 
@@ -630,7 +630,7 @@ func TestCacheMetrics(t *testing.T) {
 	hitsFromTest := stats.L1Hits - initialStats.L1Hits
 	missesFromTest := stats.L1Misses - initialStats.L1Misses
 	evictionsFromTest := stats.Evictions - initialStats.Evictions
-	
+
 	assert.Equal(t, uint64(1), hitsFromTest, "Should have 1 cache hit")
 	assert.Equal(t, uint64(2), missesFromTest, "Should have 2 cache misses")
 	// Note: evictions might be higher due to background cleanup, so we just check it's non-zero
@@ -644,7 +644,7 @@ func BenchmarkCacheOperations(b *testing.B) {
 	b.Run("sequential access", func(b *testing.B) {
 		config := DefaultCacheValidatorConfig()
 		config.L2Enabled = false
-		
+
 		cv, err := NewCacheValidator(config)
 		if err != nil {
 			b.Fatal(err)
@@ -670,7 +670,7 @@ func BenchmarkCacheOperations(b *testing.B) {
 	b.Run("random access", func(b *testing.B) {
 		config := DefaultCacheValidatorConfig()
 		config.L2Enabled = false
-		
+
 		cv, err := NewCacheValidator(config)
 		if err != nil {
 			b.Fatal(err)
@@ -704,7 +704,7 @@ func BenchmarkCacheOperations(b *testing.B) {
 	b.Run("concurrent access", func(b *testing.B) {
 		config := DefaultCacheValidatorConfig()
 		config.L2Enabled = false
-		
+
 		cv, err := NewCacheValidator(config)
 		if err != nil {
 			b.Fatal(err)

@@ -19,10 +19,10 @@ type StageManager struct {
 
 // StageRegistry manages registered validation stages
 type StageRegistry struct {
-	stages        map[string]*ValidationStage
+	stages         map[string]*ValidationStage
 	stageTemplates map[string]*StageTemplate
-	stageGroups   map[string]*StageGroup
-	mu            sync.RWMutex
+	stageGroups    map[string]*StageGroup
+	mu             sync.RWMutex
 }
 
 // StageTemplate defines a reusable stage template
@@ -60,9 +60,9 @@ const (
 
 // VariableValidation defines validation rules for template variables
 type VariableValidation struct {
-	MinValue    interface{}
-	MaxValue    interface{}
-	Pattern     string
+	MinValue      interface{}
+	MaxValue      interface{}
+	Pattern       string
 	AllowedValues []interface{}
 }
 
@@ -77,11 +77,11 @@ type StageGroup struct {
 
 // GroupConfig provides configuration for stage groups
 type GroupConfig struct {
-	ExecutionMode    GroupExecutionMode
-	FailureHandling  GroupFailureHandling
-	Timeout          time.Duration
-	MaxConcurrency   int
-	DependsOn        []string
+	ExecutionMode   GroupExecutionMode
+	FailureHandling GroupFailureHandling
+	Timeout         time.Duration
+	MaxConcurrency  int
+	DependsOn       []string
 }
 
 // GroupExecutionMode defines how stages in a group are executed
@@ -104,11 +104,11 @@ const (
 
 // StageConfig provides stage-specific configuration
 type StageConfig struct {
-	ExecutionMode     StageExecutionMode
-	ResourceLimits    *ResourceLimits
-	HealthCheck       *HealthCheck
-	CircuitBreaker    *CircuitBreaker
-	RateLimiter      *RateLimiter
+	ExecutionMode  StageExecutionMode
+	ResourceLimits *ResourceLimits
+	HealthCheck    *HealthCheck
+	CircuitBreaker *CircuitBreaker
+	RateLimiter    *RateLimiter
 }
 
 // StageExecutionMode defines how a stage executes
@@ -131,23 +131,23 @@ type ResourceLimits struct {
 
 // HealthCheck defines health check configuration for stages
 type HealthCheck struct {
-	Enabled         bool
-	Interval        time.Duration
-	Timeout         time.Duration
+	Enabled          bool
+	Interval         time.Duration
+	Timeout          time.Duration
 	FailureThreshold int
 	SuccessThreshold int
 }
 
 // CircuitBreaker implements circuit breaker pattern for stage execution
 type CircuitBreaker struct {
-	Enabled           bool
-	FailureThreshold  int
-	RecoveryTimeout   time.Duration
-	HalfOpenRequests  int
-	state             CircuitState
-	failures          int
-	lastFailure       time.Time
-	mu                sync.RWMutex
+	Enabled          bool
+	FailureThreshold int
+	RecoveryTimeout  time.Duration
+	HalfOpenRequests int
+	state            CircuitState
+	failures         int
+	lastFailure      time.Time
+	mu               sync.RWMutex
 }
 
 // CircuitState represents the state of a circuit breaker
@@ -161,12 +161,12 @@ const (
 
 // RateLimiter implements rate limiting for stage execution
 type RateLimiter struct {
-	Enabled       bool
+	Enabled           bool
 	RequestsPerSecond float64
-	BurstSize     int
-	tokens        float64
-	lastRefill    time.Time
-	mu            sync.Mutex
+	BurstSize         int
+	tokens            float64
+	lastRefill        time.Time
+	mu                sync.Mutex
 }
 
 // DependencyGraph manages stage dependencies
@@ -228,19 +228,19 @@ const (
 
 // ExecutionProgress tracks execution progress
 type ExecutionProgress struct {
-	CurrentStep   int
-	TotalSteps    int
-	Percentage    float64
-	Message       string
-	LastUpdated   time.Time
+	CurrentStep int
+	TotalSteps  int
+	Percentage  float64
+	Message     string
+	LastUpdated time.Time
 }
 
 // StageScheduler manages stage scheduling and execution order
 type StageScheduler struct {
-	readyQueue    *PriorityQueue
-	waitingQueue  *WaitingQueue
-	executingSet  map[string]bool
-	schedulerMu   sync.Mutex
+	readyQueue   *PriorityQueue
+	waitingQueue *WaitingQueue
+	executingSet map[string]bool
+	schedulerMu  sync.Mutex
 }
 
 // PriorityQueue implements a priority queue for stage scheduling
@@ -265,10 +265,10 @@ type WaitingQueue struct {
 
 // WaitingStage represents a stage waiting for dependencies
 type WaitingStage struct {
-	StageID           string
+	StageID             string
 	PendingDependencies []string
-	Context           *ValidationContext
-	QueueTime         time.Time
+	Context             *ValidationContext
+	QueueTime           time.Time
 }
 
 // NewStageManager creates a new stage manager

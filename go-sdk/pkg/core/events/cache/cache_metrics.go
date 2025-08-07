@@ -14,114 +14,114 @@ import (
 // MetricsCollector collects and aggregates cache metrics
 type MetricsCollector struct {
 	// Basic counters
-	hits          uint64
-	misses        uint64
-	evictions     uint64
-	expirations   uint64
-	
+	hits        uint64
+	misses      uint64
+	evictions   uint64
+	expirations uint64
+
 	// Level-specific counters
-	l1Hits        uint64
-	l1Misses      uint64
-	l2Hits        uint64
-	l2Misses      uint64
-	
+	l1Hits   uint64
+	l1Misses uint64
+	l2Hits   uint64
+	l2Misses uint64
+
 	// Latency tracking
 	hitLatencies  *LatencyTracker
 	missLatencies *LatencyTracker
 	setLatencies  *LatencyTracker
-	
+
 	// Size tracking
-	currentSize   int64
-	maxSize       int64
-	totalBytes    int64
-	
+	currentSize int64
+	maxSize     int64
+	totalBytes  int64
+
 	// Time series data
-	timeSeries    *TimeSeriesData
-	
+	timeSeries *TimeSeriesData
+
 	// Histogram data
 	sizeHistogram *Histogram
 	ttlHistogram  *Histogram
-	
+
 	// Advanced metrics
 	compressionStats *CompressionStats
 	memoryStats      *MemoryStats
-	
+
 	// Bounded percentile maps for memory management
 	hitPercentiles  *BoundedPercentileMap
 	missPercentiles *BoundedPercentileMap
-	
+
 	// Configuration
-	config        *MetricsConfig
-	
+	config *MetricsConfig
+
 	// Memory monitoring
-	memoryUsage   int64
-	memoryLimit   int64
-	
+	memoryUsage int64
+	memoryLimit int64
+
 	// Synchronization
-	mu            sync.RWMutex
-	shutdownCh    chan struct{}
-	wg            sync.WaitGroup
+	mu         sync.RWMutex
+	shutdownCh chan struct{}
+	wg         sync.WaitGroup
 }
 
 // MetricsConfig contains configuration for metrics collection
 type MetricsConfig struct {
-	EnableDetailedLatency   bool
-	EnableTimeSeries        bool
-	EnableHistograms        bool
-	EnableMemoryProfiling   bool
-	TimeSeriesWindow        time.Duration
-	HistogramBuckets        int
-	ReportingInterval       time.Duration
-	PercentilesToTrack      []float64
+	EnableDetailedLatency bool
+	EnableTimeSeries      bool
+	EnableHistograms      bool
+	EnableMemoryProfiling bool
+	TimeSeriesWindow      time.Duration
+	HistogramBuckets      int
+	ReportingInterval     time.Duration
+	PercentilesToTrack    []float64
 	// Memory management configuration
-	MaxPercentileEntries    int           // Maximum entries in percentile maps
-	PercentileCleanupTTL    time.Duration // TTL for percentile entries
-	MaxLatencySamples       int           // Maximum latency samples per tracker
-	MaxTimeSeriesPoints     int           // Maximum time series points
-	MemoryLimitMB           int64         // Memory usage limit in MB
-	CleanupInterval         time.Duration // Interval for cleanup operations
+	MaxPercentileEntries int           // Maximum entries in percentile maps
+	PercentileCleanupTTL time.Duration // TTL for percentile entries
+	MaxLatencySamples    int           // Maximum latency samples per tracker
+	MaxTimeSeriesPoints  int           // Maximum time series points
+	MemoryLimitMB        int64         // Memory usage limit in MB
+	CleanupInterval      time.Duration // Interval for cleanup operations
 }
 
 // DefaultMetricsConfig returns default metrics configuration
 func DefaultMetricsConfig() *MetricsConfig {
 	return &MetricsConfig{
-		EnableDetailedLatency:   true,
-		EnableTimeSeries:        true,
-		EnableHistograms:        true,
-		EnableMemoryProfiling:   true,
-		TimeSeriesWindow:        1 * time.Hour,
-		HistogramBuckets:        20,
-		ReportingInterval:       1 * time.Minute,
-		PercentilesToTrack:      []float64{0.5, 0.75, 0.9, 0.95, 0.99},
+		EnableDetailedLatency: true,
+		EnableTimeSeries:      true,
+		EnableHistograms:      true,
+		EnableMemoryProfiling: true,
+		TimeSeriesWindow:      1 * time.Hour,
+		HistogramBuckets:      20,
+		ReportingInterval:     1 * time.Minute,
+		PercentilesToTrack:    []float64{0.5, 0.75, 0.9, 0.95, 0.99},
 		// Memory management defaults
-		MaxPercentileEntries:    100,
-		PercentileCleanupTTL:    5 * time.Minute,
-		MaxLatencySamples:       1000,
-		MaxTimeSeriesPoints:     3600, // 1 hour at 1 second resolution
-		MemoryLimitMB:           50,
-		CleanupInterval:         30 * time.Second,
+		MaxPercentileEntries: 100,
+		PercentileCleanupTTL: 5 * time.Minute,
+		MaxLatencySamples:    1000,
+		MaxTimeSeriesPoints:  3600, // 1 hour at 1 second resolution
+		MemoryLimitMB:        50,
+		CleanupInterval:      30 * time.Second,
 	}
 }
 
 // LatencyTracker tracks operation latencies
 type LatencyTracker struct {
-	samples       []time.Duration
-	maxSamples    int
-	sum           time.Duration
-	count         uint64
-	min           time.Duration
-	max           time.Duration
-	lastCleanup   time.Time
-	mu            sync.Mutex
+	samples     []time.Duration
+	maxSamples  int
+	sum         time.Duration
+	count       uint64
+	min         time.Duration
+	max         time.Duration
+	lastCleanup time.Time
+	mu          sync.Mutex
 }
 
 // TimeSeriesData maintains time series metrics
 type TimeSeriesData struct {
-	points        []*MetricPoint
-	window        time.Duration
-	resolution    time.Duration
-	maxPoints     int
-	mu            sync.RWMutex
+	points     []*MetricPoint
+	window     time.Duration
+	resolution time.Duration
+	maxPoints  int
+	mu         sync.RWMutex
 }
 
 // MetricPoint represents a point in time series
@@ -137,11 +137,11 @@ type MetricPoint struct {
 
 // Histogram maintains histogram data
 type Histogram struct {
-	buckets      []uint64
-	boundaries   []float64
-	count        uint64
-	sum          float64
-	mu           sync.Mutex
+	buckets    []uint64
+	boundaries []float64
+	count      uint64
+	sum        float64
+	mu         sync.Mutex
 }
 
 // CompressionStats tracks compression performance
@@ -156,35 +156,35 @@ type CompressionStats struct {
 
 // MemoryStats tracks memory usage
 type MemoryStats struct {
-	HeapAlloc      uint64
-	HeapInUse      uint64
-	StackInUse     uint64
-	NumGC          uint32
-	GCPauseTotal   time.Duration
-	LastGC         time.Time
-	mu             sync.RWMutex
+	HeapAlloc    uint64
+	HeapInUse    uint64
+	StackInUse   uint64
+	NumGC        uint32
+	GCPauseTotal time.Duration
+	LastGC       time.Time
+	mu           sync.RWMutex
 }
 
 // CacheMetricsReport represents a comprehensive metrics report
 type CacheMetricsReport struct {
-	Timestamp         time.Time                 `json:"timestamp"`
-	BasicMetrics      *BasicMetrics             `json:"basic_metrics"`
-	LatencyMetrics    *LatencyMetrics           `json:"latency_metrics"`
-	SizeMetrics       *SizeMetrics              `json:"size_metrics"`
-	PerformanceMetrics *PerformanceMetrics      `json:"performance_metrics"`
-	HealthMetrics     *HealthMetrics            `json:"health_metrics"`
-	Recommendations   []string                  `json:"recommendations"`
+	Timestamp          time.Time           `json:"timestamp"`
+	BasicMetrics       *BasicMetrics       `json:"basic_metrics"`
+	LatencyMetrics     *LatencyMetrics     `json:"latency_metrics"`
+	SizeMetrics        *SizeMetrics        `json:"size_metrics"`
+	PerformanceMetrics *PerformanceMetrics `json:"performance_metrics"`
+	HealthMetrics      *HealthMetrics      `json:"health_metrics"`
+	Recommendations    []string            `json:"recommendations"`
 }
 
 // BasicMetrics contains basic cache metrics
 type BasicMetrics struct {
-	Hits          uint64  `json:"hits"`
-	Misses        uint64  `json:"misses"`
-	HitRate       float64 `json:"hit_rate"`
-	Evictions     uint64  `json:"evictions"`
-	Expirations   uint64  `json:"expirations"`
-	L1HitRate     float64 `json:"l1_hit_rate"`
-	L2HitRate     float64 `json:"l2_hit_rate"`
+	Hits        uint64  `json:"hits"`
+	Misses      uint64  `json:"misses"`
+	HitRate     float64 `json:"hit_rate"`
+	Evictions   uint64  `json:"evictions"`
+	Expirations uint64  `json:"expirations"`
+	L1HitRate   float64 `json:"l1_hit_rate"`
+	L2HitRate   float64 `json:"l2_hit_rate"`
 }
 
 // PercentileEntry represents a percentile entry with TTL
@@ -216,17 +216,17 @@ func NewBoundedPercentileMap(maxEntries int, ttl time.Duration) *BoundedPercenti
 func (bpm *BoundedPercentileMap) Set(key string, value time.Duration) {
 	bpm.mu.Lock()
 	defer bpm.mu.Unlock()
-	
+
 	// Cleanup expired entries periodically
 	if time.Since(bpm.lastCleanup) > bpm.ttl/2 {
 		bpm.cleanupExpiredLocked()
 	}
-	
+
 	// If at capacity, remove oldest entry
 	if len(bpm.entries) >= bpm.maxEntries {
 		bpm.evictOldestLocked()
 	}
-	
+
 	bpm.entries[key] = &PercentileEntry{
 		Value:     value,
 		Timestamp: time.Now(),
@@ -237,17 +237,17 @@ func (bpm *BoundedPercentileMap) Set(key string, value time.Duration) {
 func (bpm *BoundedPercentileMap) Get(key string) (time.Duration, bool) {
 	bpm.mu.RLock()
 	defer bpm.mu.RUnlock()
-	
+
 	entry, exists := bpm.entries[key]
 	if !exists {
 		return 0, false
 	}
-	
+
 	// Check if entry is expired
 	if time.Since(entry.Timestamp) > bpm.ttl {
 		return 0, false
 	}
-	
+
 	return entry.Value, true
 }
 
@@ -255,16 +255,16 @@ func (bpm *BoundedPercentileMap) Get(key string) (time.Duration, bool) {
 func (bpm *BoundedPercentileMap) GetAll() map[string]time.Duration {
 	bpm.mu.RLock()
 	defer bpm.mu.RUnlock()
-	
+
 	result := make(map[string]time.Duration)
 	now := time.Now()
-	
+
 	for key, entry := range bpm.entries {
 		if now.Sub(entry.Timestamp) <= bpm.ttl {
 			result[key] = entry.Value
 		}
 	}
-	
+
 	return result
 }
 
@@ -284,17 +284,17 @@ func (bpm *BoundedPercentileMap) evictOldestLocked() {
 	if len(bpm.entries) == 0 {
 		return
 	}
-	
+
 	oldestKey := ""
 	oldestTime := time.Now()
-	
+
 	for key, entry := range bpm.entries {
 		if entry.Timestamp.Before(oldestTime) {
 			oldestTime = entry.Timestamp
 			oldestKey = key
 		}
 	}
-	
+
 	if oldestKey != "" {
 		delete(bpm.entries, oldestKey)
 	}
@@ -304,47 +304,47 @@ func (bpm *BoundedPercentileMap) evictOldestLocked() {
 func (bpm *BoundedPercentileMap) MemoryUsage() int64 {
 	bpm.mu.RLock()
 	defer bpm.mu.RUnlock()
-	
+
 	// Approximate: key string + entry struct + pointer overhead
 	return int64(len(bpm.entries)) * (32 + 24 + 8) // rough estimate
 }
 
 // LatencyMetrics contains latency-related metrics
 type LatencyMetrics struct {
-	AvgHitLatency    time.Duration            `json:"avg_hit_latency"`
-	AvgMissLatency   time.Duration            `json:"avg_miss_latency"`
-	AvgSetLatency    time.Duration            `json:"avg_set_latency"`
-	HitPercentiles   map[string]time.Duration `json:"hit_percentiles"`
-	MissPercentiles  map[string]time.Duration `json:"miss_percentiles"`
+	AvgHitLatency   time.Duration            `json:"avg_hit_latency"`
+	AvgMissLatency  time.Duration            `json:"avg_miss_latency"`
+	AvgSetLatency   time.Duration            `json:"avg_set_latency"`
+	HitPercentiles  map[string]time.Duration `json:"hit_percentiles"`
+	MissPercentiles map[string]time.Duration `json:"miss_percentiles"`
 }
 
 // SizeMetrics contains size-related metrics
 type SizeMetrics struct {
-	CurrentSize        int64   `json:"current_size"`
-	MaxSize            int64   `json:"max_size"`
-	Utilization        float64 `json:"utilization"`
-	AvgEntrySize       int64   `json:"avg_entry_size"`
-	TotalBytes         int64   `json:"total_bytes"`
-	CompressionRatio   float64 `json:"compression_ratio"`
+	CurrentSize      int64   `json:"current_size"`
+	MaxSize          int64   `json:"max_size"`
+	Utilization      float64 `json:"utilization"`
+	AvgEntrySize     int64   `json:"avg_entry_size"`
+	TotalBytes       int64   `json:"total_bytes"`
+	CompressionRatio float64 `json:"compression_ratio"`
 }
 
 // PerformanceMetrics contains performance metrics
 type PerformanceMetrics struct {
-	ThroughputPerSec   float64       `json:"throughput_per_sec"`
-	OperationsPerSec   float64       `json:"operations_per_sec"`
-	CacheMissesPerSec  float64       `json:"cache_misses_per_sec"`
-	EvictionsPerSec    float64       `json:"evictions_per_sec"`
-	ResponseTime       time.Duration `json:"response_time"`
+	ThroughputPerSec  float64       `json:"throughput_per_sec"`
+	OperationsPerSec  float64       `json:"operations_per_sec"`
+	CacheMissesPerSec float64       `json:"cache_misses_per_sec"`
+	EvictionsPerSec   float64       `json:"evictions_per_sec"`
+	ResponseTime      time.Duration `json:"response_time"`
 }
 
 // HealthMetrics contains cache health indicators
 type HealthMetrics struct {
-	HealthScore        float64              `json:"health_score"`
-	MemoryPressure     float64              `json:"memory_pressure"`
-	EvictionPressure   float64              `json:"eviction_pressure"`
-	FragmentationRatio float64              `json:"fragmentation_ratio"`
-	ErrorRate          float64              `json:"error_rate"`
-	Issues             []string             `json:"issues"`
+	HealthScore        float64  `json:"health_score"`
+	MemoryPressure     float64  `json:"memory_pressure"`
+	EvictionPressure   float64  `json:"eviction_pressure"`
+	FragmentationRatio float64  `json:"fragmentation_ratio"`
+	ErrorRate          float64  `json:"error_rate"`
+	Issues             []string `json:"issues"`
 }
 
 // NewMetricsCollector creates a new metrics collector
@@ -352,7 +352,7 @@ func NewMetricsCollector(config *MetricsConfig) *MetricsCollector {
 	if config == nil {
 		config = DefaultMetricsConfig()
 	}
-	
+
 	mc := &MetricsCollector{
 		config:           config,
 		hitLatencies:     NewLatencyTracker(config.MaxLatencySamples),
@@ -365,43 +365,43 @@ func NewMetricsCollector(config *MetricsConfig) *MetricsCollector {
 		memoryLimit:      config.MemoryLimitMB * 1024 * 1024, // Convert MB to bytes
 		shutdownCh:       make(chan struct{}),
 	}
-	
+
 	if config.EnableTimeSeries {
 		mc.timeSeries = NewTimeSeriesData(config.TimeSeriesWindow, 1*time.Minute, config.MaxTimeSeriesPoints)
 	}
-	
+
 	if config.EnableHistograms {
 		mc.sizeHistogram = NewHistogram(config.HistogramBuckets, 0, 10*1024*1024) // 0-10MB
-		mc.ttlHistogram = NewHistogram(config.HistogramBuckets, 0, 3600)        // 0-1hour
+		mc.ttlHistogram = NewHistogram(config.HistogramBuckets, 0, 3600)          // 0-1hour
 	}
-	
+
 	// Start background workers
 	mc.wg.Add(1)
 	go mc.aggregationWorker()
-	
+
 	if config.EnableMemoryProfiling {
 		mc.wg.Add(1)
 		go mc.memoryProfilingWorker()
 	}
-	
+
 	// Start memory cleanup worker
 	mc.wg.Add(1)
 	go mc.memoryCleanupWorker()
-	
+
 	return mc
 }
 
 // RecordHit records a cache hit
 func (mc *MetricsCollector) RecordHit(level CacheLevel, latency time.Duration) {
 	atomic.AddUint64(&mc.hits, 1)
-	
+
 	switch level {
 	case L1Cache:
 		atomic.AddUint64(&mc.l1Hits, 1)
 	case L2Cache:
 		atomic.AddUint64(&mc.l2Hits, 1)
 	}
-	
+
 	if mc.config != nil && mc.config.EnableDetailedLatency && mc.hitLatencies != nil {
 		mc.hitLatencies.Record(latency)
 	}
@@ -411,7 +411,7 @@ func (mc *MetricsCollector) RecordHit(level CacheLevel, latency time.Duration) {
 func (mc *MetricsCollector) RecordMiss(latency time.Duration) {
 	atomic.AddUint64(&mc.misses, 1)
 	atomic.AddUint64(&mc.l1Misses, 1)
-	
+
 	if mc.config != nil && mc.config.EnableDetailedLatency && mc.missLatencies != nil {
 		mc.missLatencies.Record(latency)
 	}
@@ -422,9 +422,9 @@ func (mc *MetricsCollector) RecordSet(latency time.Duration, size int64) {
 	if mc.config != nil && mc.config.EnableDetailedLatency && mc.setLatencies != nil {
 		mc.setLatencies.Record(latency)
 	}
-	
+
 	atomic.AddInt64(&mc.totalBytes, size)
-	
+
 	if mc.config != nil && mc.config.EnableHistograms && mc.sizeHistogram != nil {
 		mc.sizeHistogram.Record(float64(size))
 	}
@@ -444,7 +444,7 @@ func (mc *MetricsCollector) RecordExpiration() {
 func (mc *MetricsCollector) RecordCompression(uncompressed, compressed uint64, duration time.Duration) {
 	mc.compressionStats.mu.Lock()
 	defer mc.compressionStats.mu.Unlock()
-	
+
 	mc.compressionStats.UncompressedBytes += uncompressed
 	mc.compressionStats.CompressedBytes += compressed
 	mc.compressionStats.CompressionTime += duration
@@ -468,7 +468,7 @@ func (mc *MetricsCollector) GetReport() *CacheMetricsReport {
 		HealthMetrics:      mc.getHealthMetrics(),
 		Recommendations:    mc.generateRecommendations(),
 	}
-	
+
 	return report
 }
 
@@ -477,20 +477,20 @@ func (mc *MetricsCollector) GetTimeSeries(duration time.Duration) []*MetricPoint
 	if mc.timeSeries == nil {
 		return nil
 	}
-	
+
 	return mc.timeSeries.GetPoints(duration)
 }
 
 // Shutdown shuts down the metrics collector
 func (mc *MetricsCollector) Shutdown(ctx context.Context) error {
 	close(mc.shutdownCh)
-	
+
 	done := make(chan struct{})
 	go func() {
 		mc.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		return nil
@@ -505,29 +505,29 @@ func (mc *MetricsCollector) getBasicMetrics() *BasicMetrics {
 	hits := atomic.LoadUint64(&mc.hits)
 	misses := atomic.LoadUint64(&mc.misses)
 	total := hits + misses
-	
+
 	hitRate := float64(0)
 	if total > 0 {
 		hitRate = float64(hits) / float64(total)
 	}
-	
+
 	l1Hits := atomic.LoadUint64(&mc.l1Hits)
 	l1Misses := atomic.LoadUint64(&mc.l1Misses)
 	l1Total := l1Hits + l1Misses
-	
+
 	l1HitRate := float64(0)
 	if l1Total > 0 {
 		l1HitRate = float64(l1Hits) / float64(l1Total)
 	}
-	
+
 	l2Hits := atomic.LoadUint64(&mc.l2Hits)
 	l2Total := l2Hits + (l1Misses - l2Hits) // L2 misses = L1 misses - L2 hits
-	
+
 	l2HitRate := float64(0)
 	if l2Total > 0 {
 		l2HitRate = float64(l2Hits) / float64(l2Total)
 	}
-	
+
 	return &BasicMetrics{
 		Hits:        hits,
 		Misses:      misses,
@@ -544,17 +544,17 @@ func (mc *MetricsCollector) getLatencyMetrics() *LatencyMetrics {
 		HitPercentiles:  make(map[string]time.Duration),
 		MissPercentiles: make(map[string]time.Duration),
 	}
-	
+
 	if mc.config.EnableDetailedLatency && mc.hitLatencies != nil && mc.missLatencies != nil && mc.setLatencies != nil {
 		metrics.AvgHitLatency = mc.hitLatencies.Average()
 		metrics.AvgMissLatency = mc.missLatencies.Average()
 		metrics.AvgSetLatency = mc.setLatencies.Average()
-		
+
 		// Calculate and cache percentiles using bounded maps
 		if mc.config.PercentilesToTrack != nil {
 			for _, p := range mc.config.PercentilesToTrack {
 				pStr := fmt.Sprintf("p%.0f", p*100)
-				
+
 				// Try to get cached value first
 				if hitVal, exists := mc.hitPercentiles.Get(pStr); exists {
 					metrics.HitPercentiles[pStr] = hitVal
@@ -564,7 +564,7 @@ func (mc *MetricsCollector) getLatencyMetrics() *LatencyMetrics {
 					mc.hitPercentiles.Set(pStr, val)
 					metrics.HitPercentiles[pStr] = val
 				}
-				
+
 				if missVal, exists := mc.missPercentiles.Get(pStr); exists {
 					metrics.MissPercentiles[pStr] = missVal
 				} else {
@@ -576,32 +576,32 @@ func (mc *MetricsCollector) getLatencyMetrics() *LatencyMetrics {
 			}
 		}
 	}
-	
+
 	return metrics
 }
 
 func (mc *MetricsCollector) getSizeMetrics() *SizeMetrics {
 	currentSize := atomic.LoadInt64(&mc.currentSize)
 	maxSize := atomic.LoadInt64(&mc.maxSize)
-	
+
 	utilization := float64(0)
 	if maxSize > 0 {
 		utilization = float64(currentSize) / float64(maxSize)
 	}
-	
+
 	avgEntrySize := int64(0)
 	if currentSize > 0 {
 		totalBytes := atomic.LoadInt64(&mc.totalBytes)
 		avgEntrySize = totalBytes / currentSize
 	}
-	
+
 	compressionRatio := float64(1.0)
 	mc.compressionStats.mu.Lock()
 	if mc.compressionStats.UncompressedBytes > 0 {
 		compressionRatio = float64(mc.compressionStats.CompressedBytes) / float64(mc.compressionStats.UncompressedBytes)
 	}
 	mc.compressionStats.mu.Unlock()
-	
+
 	return &SizeMetrics{
 		CurrentSize:      currentSize,
 		MaxSize:          maxSize,
@@ -617,7 +617,7 @@ func (mc *MetricsCollector) getPerformanceMetrics() *PerformanceMetrics {
 	if mc.hitLatencies != nil {
 		responseTime = mc.hitLatencies.Average()
 	}
-	
+
 	// TODO: Calculate actual rates based on time windows
 	return &PerformanceMetrics{
 		ThroughputPerSec:  0,
@@ -632,14 +632,14 @@ func (mc *MetricsCollector) getHealthMetrics() *HealthMetrics {
 	health := &HealthMetrics{
 		Issues: make([]string, 0),
 	}
-	
+
 	// Calculate health score
 	basicMetrics := mc.getBasicMetrics()
 	sizeMetrics := mc.getSizeMetrics()
-	
+
 	// Base score starts at 100
 	score := float64(100)
-	
+
 	// Penalize low hit rate
 	if basicMetrics.HitRate < 0.5 {
 		score -= 20
@@ -648,14 +648,14 @@ func (mc *MetricsCollector) getHealthMetrics() *HealthMetrics {
 		score -= 10
 		health.Issues = append(health.Issues, "Suboptimal hit rate")
 	}
-	
+
 	// Check memory pressure
 	health.MemoryPressure = sizeMetrics.Utilization
 	if sizeMetrics.Utilization > 0.9 {
 		score -= 15
 		health.Issues = append(health.Issues, "High memory pressure")
 	}
-	
+
 	// Check eviction pressure
 	evictions := atomic.LoadUint64(&mc.evictions)
 	hits := atomic.LoadUint64(&mc.hits)
@@ -666,52 +666,52 @@ func (mc *MetricsCollector) getHealthMetrics() *HealthMetrics {
 			health.Issues = append(health.Issues, "High eviction rate")
 		}
 	}
-	
+
 	// TODO: Calculate fragmentation ratio
 	health.FragmentationRatio = 0
-	
+
 	// TODO: Calculate error rate
 	health.ErrorRate = 0
-	
+
 	health.HealthScore = math.Max(0, score)
-	
+
 	return health
 }
 
 func (mc *MetricsCollector) generateRecommendations() []string {
 	recommendations := make([]string, 0)
-	
+
 	basicMetrics := mc.getBasicMetrics()
 	sizeMetrics := mc.getSizeMetrics()
 	latencyMetrics := mc.getLatencyMetrics()
-	
+
 	// Hit rate recommendations
 	if basicMetrics.HitRate < 0.5 {
 		recommendations = append(recommendations, "Consider increasing cache size to improve hit rate")
 		recommendations = append(recommendations, "Review cache key patterns and access patterns")
 	}
-	
+
 	// Size recommendations
 	if sizeMetrics.Utilization > 0.9 {
 		recommendations = append(recommendations, "Cache is near capacity, consider increasing max size")
 	}
-	
+
 	// Eviction recommendations
 	evictionRate := float64(basicMetrics.Evictions) / float64(basicMetrics.Hits+basicMetrics.Misses)
 	if evictionRate > 0.1 {
 		recommendations = append(recommendations, "High eviction rate detected, consider adjusting eviction policy")
 	}
-	
+
 	// Latency recommendations
 	if latencyMetrics.AvgMissLatency > 100*time.Millisecond {
 		recommendations = append(recommendations, "High miss latency, consider implementing prefetching")
 	}
-	
+
 	// L1/L2 recommendations
 	if basicMetrics.L1HitRate < 0.8 && basicMetrics.L2HitRate > 0.5 {
 		recommendations = append(recommendations, "Consider increasing L1 cache size for better performance")
 	}
-	
+
 	return recommendations
 }
 
@@ -719,10 +719,10 @@ func (mc *MetricsCollector) generateRecommendations() []string {
 
 func (mc *MetricsCollector) aggregationWorker() {
 	defer mc.wg.Done()
-	
+
 	ticker := time.NewTicker(mc.config.ReportingInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-mc.shutdownCh:
@@ -735,10 +735,10 @@ func (mc *MetricsCollector) aggregationWorker() {
 
 func (mc *MetricsCollector) memoryProfilingWorker() {
 	defer mc.wg.Done()
-	
+
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-mc.shutdownCh:
@@ -753,21 +753,21 @@ func (mc *MetricsCollector) aggregateMetrics() {
 	if mc.timeSeries == nil {
 		return
 	}
-	
+
 	// Create metric point
 	point := &MetricPoint{
-		Timestamp:  time.Now(),
-		HitRate:    mc.getBasicMetrics().HitRate,
-		Size:       atomic.LoadInt64(&mc.currentSize),
+		Timestamp: time.Now(),
+		HitRate:   mc.getBasicMetrics().HitRate,
+		Size:      atomic.LoadInt64(&mc.currentSize),
 	}
-	
+
 	// Only add average latency if hitLatencies is initialized
 	if mc.hitLatencies != nil {
 		point.AvgLatency = mc.hitLatencies.Average()
 	}
-	
+
 	// TODO: Add more metrics to time series
-	
+
 	mc.timeSeries.AddPoint(point)
 }
 
@@ -778,10 +778,10 @@ func (mc *MetricsCollector) updateMemoryStats() {
 // memoryCleanupWorker performs periodic memory cleanup
 func (mc *MetricsCollector) memoryCleanupWorker() {
 	defer mc.wg.Done()
-	
+
 	ticker := time.NewTicker(mc.config.CleanupInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-mc.shutdownCh:
@@ -796,11 +796,11 @@ func (mc *MetricsCollector) memoryCleanupWorker() {
 func (mc *MetricsCollector) performMemoryCleanup() {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
-	
+
 	// Calculate current memory usage
 	currentMemory := mc.calculateMemoryUsage()
 	atomic.StoreInt64(&mc.memoryUsage, currentMemory)
-	
+
 	// If we're approaching the memory limit, perform aggressive cleanup
 	if currentMemory > mc.memoryLimit*8/10 { // 80% threshold
 		mc.performAggressiveCleanup()
@@ -810,7 +810,7 @@ func (mc *MetricsCollector) performMemoryCleanup() {
 // calculateMemoryUsage estimates current memory usage
 func (mc *MetricsCollector) calculateMemoryUsage() int64 {
 	var total int64
-	
+
 	// Estimate latency tracker memory
 	if mc.hitLatencies != nil {
 		total += int64(len(mc.hitLatencies.samples)) * 8 // 8 bytes per time.Duration
@@ -821,7 +821,7 @@ func (mc *MetricsCollector) calculateMemoryUsage() int64 {
 	if mc.setLatencies != nil {
 		total += int64(len(mc.setLatencies.samples)) * 8
 	}
-	
+
 	// Estimate percentile map memory
 	if mc.hitPercentiles != nil {
 		total += mc.hitPercentiles.MemoryUsage()
@@ -829,12 +829,12 @@ func (mc *MetricsCollector) calculateMemoryUsage() int64 {
 	if mc.missPercentiles != nil {
 		total += mc.missPercentiles.MemoryUsage()
 	}
-	
+
 	// Estimate time series memory
 	if mc.timeSeries != nil {
 		total += int64(len(mc.timeSeries.points)) * 64 // Estimate per MetricPoint
 	}
-	
+
 	return total
 }
 
@@ -846,13 +846,13 @@ func (mc *MetricsCollector) performAggressiveCleanup() {
 		mc.hitPercentiles.cleanupExpiredLocked()
 		mc.hitPercentiles.mu.Unlock()
 	}
-	
+
 	if mc.missPercentiles != nil {
 		mc.missPercentiles.mu.Lock()
 		mc.missPercentiles.cleanupExpiredLocked()
 		mc.missPercentiles.mu.Unlock()
 	}
-	
+
 	// Reduce time series points if necessary
 	if mc.timeSeries != nil {
 		mc.timeSeries.mu.Lock()
@@ -865,20 +865,20 @@ func (mc *MetricsCollector) performAggressiveCleanup() {
 		}
 		mc.timeSeries.mu.Unlock()
 	}
-	
+
 	// Force cleanup of latency trackers
 	if mc.hitLatencies != nil {
 		mc.hitLatencies.mu.Lock()
 		mc.hitLatencies.cleanupIfNeeded()
 		mc.hitLatencies.mu.Unlock()
 	}
-	
+
 	if mc.missLatencies != nil {
 		mc.missLatencies.mu.Lock()
 		mc.missLatencies.cleanupIfNeeded()
 		mc.missLatencies.mu.Unlock()
 	}
-	
+
 	if mc.setLatencies != nil {
 		mc.setLatencies.mu.Lock()
 		mc.setLatencies.cleanupIfNeeded()
@@ -912,7 +912,7 @@ func NewLatencyTracker(maxSamples int) *LatencyTracker {
 func (lt *LatencyTracker) Record(latency time.Duration) {
 	lt.mu.Lock()
 	defer lt.mu.Unlock()
-	
+
 	// Maintain bounded sample size
 	if len(lt.samples) >= lt.maxSamples {
 		// Remove oldest sample and adjust sum
@@ -920,18 +920,18 @@ func (lt *LatencyTracker) Record(latency time.Duration) {
 		lt.sum -= oldSample
 		lt.samples = lt.samples[1:]
 	}
-	
+
 	lt.samples = append(lt.samples, latency)
 	lt.sum += latency
 	lt.count++
-	
+
 	if lt.count == 1 || latency < lt.min {
 		lt.min = latency
 	}
 	if latency > lt.max {
 		lt.max = latency
 	}
-	
+
 	// Periodic cleanup to prevent memory drift
 	if time.Since(lt.lastCleanup) > 5*time.Minute {
 		lt.cleanupIfNeeded()
@@ -960,11 +960,11 @@ func (lt *LatencyTracker) cleanupIfNeeded() {
 func (lt *LatencyTracker) Average() time.Duration {
 	lt.mu.Lock()
 	defer lt.mu.Unlock()
-	
+
 	if lt.count == 0 {
 		return 0
 	}
-	
+
 	return lt.sum / time.Duration(lt.count)
 }
 
@@ -972,18 +972,18 @@ func (lt *LatencyTracker) Average() time.Duration {
 func (lt *LatencyTracker) Percentile(p float64) time.Duration {
 	lt.mu.Lock()
 	defer lt.mu.Unlock()
-	
+
 	if len(lt.samples) == 0 {
 		return 0
 	}
-	
+
 	// Copy and sort samples
 	sorted := make([]time.Duration, len(lt.samples))
 	copy(sorted, lt.samples)
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i] < sorted[j]
 	})
-	
+
 	index := int(float64(len(sorted)-1) * p)
 	return sorted[index]
 }
@@ -1004,16 +1004,16 @@ func NewTimeSeriesData(window, resolution time.Duration, maxPoints int) *TimeSer
 func (ts *TimeSeriesData) AddPoint(point *MetricPoint) {
 	ts.mu.Lock()
 	defer ts.mu.Unlock()
-	
+
 	ts.points = append(ts.points, point)
-	
+
 	// Enforce maximum points limit
 	if len(ts.points) > ts.maxPoints {
 		// Remove oldest points to maintain limit
 		excessPoints := len(ts.points) - ts.maxPoints
 		ts.points = ts.points[excessPoints:]
 	}
-	
+
 	// Remove old points based on time window
 	cutoff := time.Now().Add(-ts.window)
 	newPoints := make([]*MetricPoint, 0, len(ts.points))
@@ -1029,16 +1029,16 @@ func (ts *TimeSeriesData) AddPoint(point *MetricPoint) {
 func (ts *TimeSeriesData) GetPoints(duration time.Duration) []*MetricPoint {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
-	
+
 	cutoff := time.Now().Add(-duration)
 	result := make([]*MetricPoint, 0)
-	
+
 	for _, p := range ts.points {
 		if p.Timestamp.After(cutoff) {
 			result = append(result, p)
 		}
 	}
-	
+
 	return result
 }
 
@@ -1050,13 +1050,13 @@ func NewHistogram(buckets int, min, max float64) *Histogram {
 		buckets:    make([]uint64, buckets),
 		boundaries: make([]float64, buckets+1),
 	}
-	
+
 	// Create bucket boundaries
 	step := (max - min) / float64(buckets)
 	for i := 0; i <= buckets; i++ {
 		h.boundaries[i] = min + float64(i)*step
 	}
-	
+
 	return h
 }
 
@@ -1064,7 +1064,7 @@ func NewHistogram(buckets int, min, max float64) *Histogram {
 func (h *Histogram) Record(value float64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	// Find appropriate bucket
 	bucket := 0
 	for i := 1; i < len(h.boundaries); i++ {
@@ -1073,12 +1073,12 @@ func (h *Histogram) Record(value float64) {
 			break
 		}
 	}
-	
+
 	// Handle values beyond max
 	if bucket == 0 && value >= h.boundaries[len(h.boundaries)-1] {
 		bucket = len(h.buckets) - 1
 	}
-	
+
 	h.buckets[bucket]++
 	h.count++
 	h.sum += value
@@ -1088,12 +1088,12 @@ func (h *Histogram) Record(value float64) {
 func (h *Histogram) ToJSON() ([]byte, error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	average := float64(0)
 	if h.count > 0 {
 		average = h.sum / float64(h.count)
 	}
-	
+
 	data := map[string]interface{}{
 		"buckets":    h.buckets,
 		"boundaries": h.boundaries,
@@ -1101,6 +1101,6 @@ func (h *Histogram) ToJSON() ([]byte, error) {
 		"sum":        h.sum,
 		"average":    average,
 	}
-	
+
 	return json.Marshal(data)
 }

@@ -22,17 +22,17 @@ type SecureCredential struct {
 
 // CredentialValidator defines validation rules for credentials
 type CredentialValidator struct {
-	MinLength    int
-	MaxLength    int
-	RequireBase64 bool
+	MinLength       int
+	MaxLength       int
+	RequireBase64   bool
 	CustomValidator func(string) error
 }
 
 // DefaultJWTValidator returns default JWT secret validation rules
 func DefaultJWTValidator() *CredentialValidator {
 	return &CredentialValidator{
-		MinLength:    32, // Minimum 256 bits
-		MaxLength:    512,
+		MinLength:     32, // Minimum 256 bits
+		MaxLength:     512,
 		RequireBase64: false,
 		CustomValidator: func(value string) error {
 			if len(value) < 32 {
@@ -46,8 +46,8 @@ func DefaultJWTValidator() *CredentialValidator {
 // DefaultHMACValidator returns default HMAC secret validation rules
 func DefaultHMACValidator() *CredentialValidator {
 	return &CredentialValidator{
-		MinLength:    32, // Minimum 256 bits
-		MaxLength:    512,
+		MinLength:     32, // Minimum 256 bits
+		MaxLength:     512,
 		RequireBase64: false,
 		CustomValidator: func(value string) error {
 			if len(value) < 32 {
@@ -61,8 +61,8 @@ func DefaultHMACValidator() *CredentialValidator {
 // DefaultPasswordValidator returns default password validation rules
 func DefaultPasswordValidator() *CredentialValidator {
 	return &CredentialValidator{
-		MinLength:    8,
-		MaxLength:    128,
+		MinLength:     8,
+		MaxLength:     128,
 		RequireBase64: false,
 		CustomValidator: func(value string) error {
 			if len(value) < 8 {
@@ -234,18 +234,18 @@ type SecureJWTConfig struct {
 	SecretKeyEnv  string `json:"secret_key_env" yaml:"secret_key_env"`   // Environment variable name
 	PublicKeyEnv  string `json:"public_key_env" yaml:"public_key_env"`   // Environment variable name
 	PrivateKeyEnv string `json:"private_key_env" yaml:"private_key_env"` // Environment variable name
-	
+
 	// Token validation
-	Issuer       string        `json:"issuer" yaml:"issuer"`
-	Audience     []string      `json:"audience" yaml:"audience"`
-	LeewayTime   time.Duration `json:"leeway_time" yaml:"leeway_time"`
-	
+	Issuer     string        `json:"issuer" yaml:"issuer"`
+	Audience   []string      `json:"audience" yaml:"audience"`
+	LeewayTime time.Duration `json:"leeway_time" yaml:"leeway_time"`
+
 	// Token extraction
 	TokenHeader string `json:"token_header" yaml:"token_header"`
 	TokenPrefix string `json:"token_prefix" yaml:"token_prefix"`
 	QueryParam  string `json:"query_param" yaml:"query_param"`
 	CookieName  string `json:"cookie_name" yaml:"cookie_name"`
-	
+
 	// Runtime credentials (populated from env vars)
 	secretKey  *SecureCredential
 	publicKey  *SecureCredential
@@ -320,20 +320,20 @@ type SecureHMACConfig struct {
 	// Signature configuration - NO PLAINTEXT CREDENTIALS
 	SecretKeyEnv string `json:"secret_key_env" yaml:"secret_key_env"` // Environment variable name
 	Algorithm    string `json:"algorithm" yaml:"algorithm"`
-	
+
 	// Header configuration
 	SignatureHeader string   `json:"signature_header" yaml:"signature_header"`
 	TimestampHeader string   `json:"timestamp_header" yaml:"timestamp_header"`
 	NonceHeader     string   `json:"nonce_header" yaml:"nonce_header"`
 	IncludeHeaders  []string `json:"include_headers" yaml:"include_headers"`
-	
+
 	// Validation
 	MaxClockSkew time.Duration `json:"max_clock_skew" yaml:"max_clock_skew"`
 	RequireNonce bool          `json:"require_nonce" yaml:"require_nonce"`
-	
+
 	// User mapping (signature -> user info)
 	Users map[string]*HMACUser `json:"users" yaml:"users"`
-	
+
 	// Runtime credentials
 	secretKey *SecureCredential
 }
@@ -374,7 +374,7 @@ type SecureRedisConfig struct {
 	PoolSize    int    `json:"pool_size" yaml:"pool_size"`
 	MaxRetries  int    `json:"max_retries" yaml:"max_retries"`
 	EnableTLS   bool   `json:"enable_tls" yaml:"enable_tls"`
-	
+
 	// Runtime credentials
 	password *SecureCredential
 }
@@ -410,7 +410,7 @@ type SecureDatabaseConfig struct {
 	TableName           string `json:"table_name" yaml:"table_name"`
 	MaxConnections      int    `json:"max_connections" yaml:"max_connections"`
 	EnableSSL           bool   `json:"enable_ssl" yaml:"enable_ssl"`
-	
+
 	// Runtime credentials
 	connectionString *SecureCredential
 }
@@ -472,11 +472,11 @@ func (ca *CredentialAuditor) AuditCredentialValidation(credentialName string, su
 		zap.Bool("success", success),
 		zap.Time("timestamp", time.Now()),
 	}
-	
+
 	if error != nil {
 		fields = append(fields, zap.Error(error))
 	}
-	
+
 	if success {
 		ca.logger.Info("Credential validation audit", fields...)
 	} else {
@@ -487,13 +487,13 @@ func (ca *CredentialAuditor) AuditCredentialValidation(credentialName string, su
 // ValidateEnvironmentSetup validates that all required environment variables are set
 func ValidateEnvironmentSetup(requiredEnvVars []string, logger *zap.Logger) error {
 	var missing []string
-	
+
 	for _, envVar := range requiredEnvVars {
 		if value := os.Getenv(envVar); value == "" {
 			missing = append(missing, envVar)
 		}
 	}
-	
+
 	if len(missing) > 0 {
 		err := fmt.Errorf("missing required environment variables: %v", missing)
 		if logger != nil {
@@ -501,11 +501,11 @@ func ValidateEnvironmentSetup(requiredEnvVars []string, logger *zap.Logger) erro
 		}
 		return err
 	}
-	
+
 	if logger != nil {
-		logger.Info("Environment validation successful", 
+		logger.Info("Environment validation successful",
 			zap.Strings("validated_vars", requiredEnvVars))
 	}
-	
+
 	return nil
 }

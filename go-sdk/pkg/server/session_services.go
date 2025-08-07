@@ -12,21 +12,21 @@ import (
 
 // Background service constants
 const (
-	CleanupTimeoutSeconds       = 30
-	SessionLockTimeoutSeconds   = 30
-	MinTimingAttackDelay       = 10 * time.Millisecond
-	MinValidationTime          = 50 * time.Millisecond
-	MetricsUpdateInterval      = 30 * time.Second
+	CleanupTimeoutSeconds     = 30
+	SessionLockTimeoutSeconds = 30
+	MinTimingAttackDelay      = 10 * time.Millisecond
+	MinValidationTime         = 50 * time.Millisecond
+	MetricsUpdateInterval     = 30 * time.Second
 )
 
 // startBackgroundServices starts the background cleanup and maintenance services
 func (sm *SessionManager) startBackgroundServices() {
 	// Start cleanup service
 	sm.startCleanupService()
-	
+
 	// Start metrics update service
 	sm.startMetricsService()
-	
+
 	sm.logger.Debug("Background services started",
 		zap.Duration("cleanup_interval", sm.config.CleanupInterval),
 		zap.Duration("metrics_interval", MetricsUpdateInterval))
@@ -40,12 +40,12 @@ func (sm *SessionManager) startCleanupService() {
 	}
 
 	sm.cleanupTicker = time.NewTicker(sm.config.CleanupInterval)
-	
+
 	sm.wg.Add(1)
 	go func() {
 		defer sm.wg.Done()
 		defer sm.cleanupTicker.Stop()
-		
+
 		for {
 			select {
 			case <-sm.cleanupTicker.C:
@@ -63,10 +63,10 @@ func (sm *SessionManager) startMetricsService() {
 	sm.wg.Add(1)
 	go func() {
 		defer sm.wg.Done()
-		
+
 		ticker := time.NewTicker(MetricsUpdateInterval)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ticker.C:
@@ -86,14 +86,14 @@ func (sm *SessionManager) performScheduledCleanup() {
 
 	startTime := time.Now()
 	cleaned, err := sm.CleanupExpiredSessions(ctx)
-	
+
 	if err != nil {
 		sm.logger.Error("Scheduled cleanup failed", zap.Error(err))
 		return
 	}
 
 	duration := time.Since(startTime)
-	
+
 	if cleaned > 0 {
 		sm.logger.Info("Scheduled cleanup completed",
 			zap.Int64("cleaned_sessions", cleaned),
@@ -222,7 +222,7 @@ func (sm *SessionManager) shutdownBackgroundServices(ctx context.Context) error 
 		sm.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		sm.logger.Info("All background services stopped")
@@ -267,7 +267,7 @@ func (sm *SessionManager) shutdownBackgroundServices(ctx context.Context) error 
 	if sm.credentialManager != nil {
 		sm.credentialManager.Cleanup()
 	}
-	
+
 	// Cleanup backend-specific credentials
 	if sm.config != nil {
 		if sm.config.Redis != nil {
@@ -277,7 +277,7 @@ func (sm *SessionManager) shutdownBackgroundServices(ctx context.Context) error 
 			sm.config.Database.Cleanup()
 		}
 	}
-	
+
 	sm.logger.Info("Session manager shutdown complete with secure credential cleanup")
 	return nil
 }
@@ -418,7 +418,6 @@ func (sm *SessionManager) recordValidationError() {
 
 // Security helper methods for timing attack protection
 
-
 // Storage factory function
 
 // createSessionStorage creates the appropriate session storage backend
@@ -513,7 +512,7 @@ func (sm *SessionManager) UpdateConfig(updates *SessionConfigUpdate) error {
 	// Only allow updating certain safe fields
 	if updates.CleanupInterval != nil && *updates.CleanupInterval > MinCleanupInterval {
 		sm.config.CleanupInterval = *updates.CleanupInterval
-		
+
 		// Restart cleanup ticker with new interval
 		if sm.cleanupTicker != nil {
 			sm.cleanupTicker.Stop()

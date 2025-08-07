@@ -461,7 +461,7 @@ type ChunkEvent struct {
 // NewChunkEvent creates a new chunk event as a custom event
 func NewChunkEvent(header ChunkHeader, data []byte) *ChunkEvent {
 	// Create custom event with chunk data
-	customEvent := events.NewCustomEvent("streaming.chunk", 
+	customEvent := events.NewCustomEvent("streaming.chunk",
 		events.WithValue(map[string]interface{}{
 			"chunk_id":     header.ChunkID,
 			"sequence_num": header.SequenceNum,
@@ -471,7 +471,7 @@ func NewChunkEvent(header ChunkHeader, data []byte) *ChunkEvent {
 			"checksum":     header.Checksum,
 		}),
 	)
-	
+
 	return &ChunkEvent{
 		CustomEvent: customEvent,
 		Header:      header,

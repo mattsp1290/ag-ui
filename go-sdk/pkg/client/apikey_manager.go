@@ -17,10 +17,10 @@ import (
 
 // APIKeyManager handles API key validation and management
 type APIKeyManager struct {
-	config      *APIKeyConfig
-	logger      *zap.Logger
-	apiKeys     map[string]*APIKeyInfo
-	mu          sync.RWMutex
+	config         *APIKeyConfig
+	logger         *zap.Logger
+	apiKeys        map[string]*APIKeyInfo
+	mu             sync.RWMutex
 	rotationTicker *time.Ticker
 	stopRotation   chan bool
 }
@@ -41,13 +41,13 @@ type APIKeyInfo struct {
 	LastUsedAt  *time.Time             `json:"last_used_at,omitempty"`
 	IsActive    bool                   `json:"is_active"`
 	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-	
+
 	// Usage tracking
-	UsageCount  int64     `json:"usage_count"`
-	RateLimit   int       `json:"rate_limit,omitempty"`   // requests per minute
-	QuotaLimit  int64     `json:"quota_limit,omitempty"`  // total requests allowed
-	QuotaUsed   int64     `json:"quota_used"`
-	QuotaReset  time.Time `json:"quota_reset,omitempty"`
+	UsageCount int64     `json:"usage_count"`
+	RateLimit  int       `json:"rate_limit,omitempty"`  // requests per minute
+	QuotaLimit int64     `json:"quota_limit,omitempty"` // total requests allowed
+	QuotaUsed  int64     `json:"quota_used"`
+	QuotaReset time.Time `json:"quota_reset,omitempty"`
 }
 
 // APIKeyStore represents stored API keys data
@@ -62,28 +62,28 @@ func NewAPIKeyManager(config *APIKeyConfig, logger *zap.Logger) (*APIKeyManager,
 	if config == nil {
 		return nil, fmt.Errorf("API key config cannot be nil")
 	}
-	
+
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	
+
 	akm := &APIKeyManager{
 		config:       config,
 		logger:       logger,
 		apiKeys:      make(map[string]*APIKeyInfo),
 		stopRotation: make(chan bool),
 	}
-	
+
 	// Load existing API keys
 	if err := akm.loadAPIKeys(); err != nil {
 		return nil, fmt.Errorf("failed to load API keys: %w", err)
 	}
-	
+
 	// Start key rotation if enabled
 	if config.EnableKeyRotation && config.KeyRotationInterval > 0 {
 		akm.startKeyRotation()
 	}
-	
+
 	return akm, nil
 }
 
@@ -93,26 +93,26 @@ func (akm *APIKeyManager) loadAPIKeys() error {
 		akm.logger.Info("No API keys file configured, starting with empty key store")
 		return nil
 	}
-	
+
 	// Check if file exists
 	if _, err := os.Stat(akm.config.KeysFile); os.IsNotExist(err) {
 		akm.logger.Info("API keys file does not exist, creating new store",
 			zap.String("file", akm.config.KeysFile))
 		return akm.saveAPIKeys()
 	}
-	
+
 	// Read file
 	data, err := os.ReadFile(akm.config.KeysFile)
 	if err != nil {
 		return fmt.Errorf("failed to read API keys file: %w", err)
 	}
-	
+
 	// Parse JSON
 	var store APIKeyStore
 	if err := json.Unmarshal(data, &store); err != nil {
 		return fmt.Errorf("failed to parse API keys file: %w", err)
 	}
-	
+
 	// Load keys
 	akm.mu.Lock()
 	akm.apiKeys = store.Keys
@@ -120,13 +120,13 @@ func (akm *APIKeyManager) loadAPIKeys() error {
 		akm.apiKeys = make(map[string]*APIKeyInfo)
 	}
 	akm.mu.Unlock()
-	
+
 	akm.logger.Info("Loaded API keys",
 		zap.Int("count", len(store.Keys)),
 		zap.String("version", store.Version),
 		zap.Time("last_updated", store.LastUpdated),
 	)
-	
+
 	return nil
 }
 
@@ -135,7 +135,7 @@ func (akm *APIKeyManager) saveAPIKeys() error {
 	if akm.config.KeysFile == "" {
 		return nil // No file configured, don't save
 	}
-	
+
 	akm.mu.RLock()
 	store := APIKeyStore{
 		Keys:        akm.apiKeys,
@@ -143,23 +143,23 @@ func (akm *APIKeyManager) saveAPIKeys() error {
 		Version:     "1.0",
 	}
 	akm.mu.RUnlock()
-	
+
 	// Marshal to JSON
 	data, err := json.MarshalIndent(store, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal API keys: %w", err)
 	}
-	
+
 	// Write to file
 	if err := os.WriteFile(akm.config.KeysFile, data, 0600); err != nil {
 		return fmt.Errorf("failed to write API keys file: %w", err)
 	}
-	
+
 	akm.logger.Debug("Saved API keys to file",
 		zap.String("file", akm.config.KeysFile),
 		zap.Int("count", len(store.Keys)),
 	)
-	
+
 	return nil
 }
 
@@ -168,12 +168,12 @@ func (akm *APIKeyManager) ValidateAPIKey(apiKey string) (*UserInfo, error) {
 	if apiKey == "" {
 		return nil, fmt.Errorf("API key cannot be empty")
 	}
-	
+
 	// Find matching key
 	akm.mu.RLock()
 	var keyInfo *APIKeyInfo
 	var keyID string
-	
+
 	for id, info := range akm.apiKeys {
 		if akm.compareAPIKey(apiKey, info) {
 			keyInfo = info
@@ -182,13 +182,13 @@ func (akm *APIKeyManager) ValidateAPIKey(apiKey string) (*UserInfo, error) {
 		}
 	}
 	akm.mu.RUnlock()
-	
+
 	if keyInfo == nil {
 		akm.logger.Warn("Invalid API key attempted",
 			zap.String("key_prefix", akm.getKeyPrefix(apiKey)))
 		return nil, fmt.Errorf("invalid API key")
 	}
-	
+
 	// Check if key is active
 	if !keyInfo.IsActive {
 		akm.logger.Warn("Inactive API key attempted",
@@ -196,7 +196,7 @@ func (akm *APIKeyManager) ValidateAPIKey(apiKey string) (*UserInfo, error) {
 			zap.String("user_id", keyInfo.UserID))
 		return nil, fmt.Errorf("API key is inactive")
 	}
-	
+
 	// Check expiration
 	if keyInfo.ExpiresAt != nil && time.Now().After(*keyInfo.ExpiresAt) {
 		akm.logger.Warn("Expired API key attempted",
@@ -205,7 +205,7 @@ func (akm *APIKeyManager) ValidateAPIKey(apiKey string) (*UserInfo, error) {
 			zap.Time("expired_at", *keyInfo.ExpiresAt))
 		return nil, fmt.Errorf("API key has expired")
 	}
-	
+
 	// Check quota
 	if keyInfo.QuotaLimit > 0 && keyInfo.QuotaUsed >= keyInfo.QuotaLimit {
 		// Check if quota has reset
@@ -224,10 +224,10 @@ func (akm *APIKeyManager) ValidateAPIKey(apiKey string) (*UserInfo, error) {
 			return nil, fmt.Errorf("API key quota exceeded")
 		}
 	}
-	
+
 	// Update usage tracking
 	akm.updateKeyUsage(keyID, keyInfo)
-	
+
 	// Create user info
 	userInfo := &UserInfo{
 		ID:          keyInfo.UserID,
@@ -241,17 +241,17 @@ func (akm *APIKeyManager) ValidateAPIKey(apiKey string) (*UserInfo, error) {
 			"usage_count":    keyInfo.UsageCount,
 		},
 	}
-	
+
 	// Add custom metadata
 	for key, value := range keyInfo.Metadata {
 		userInfo.Metadata[key] = value
 	}
-	
+
 	akm.logger.Debug("API key validated successfully",
 		zap.String("key_id", keyID),
 		zap.String("user_id", keyInfo.UserID),
 		zap.Int64("usage_count", keyInfo.UsageCount))
-	
+
 	return userInfo, nil
 }
 
@@ -265,7 +265,7 @@ func (akm *APIKeyManager) compareAPIKey(providedKey string, keyInfo *APIKeyInfo)
 		}
 		err := bcrypt.CompareHashAndPassword([]byte(keyInfo.HashedKey), []byte(providedKey))
 		return err == nil
-		
+
 	case "sha256":
 		// Compare with SHA256
 		if keyInfo.HashedKey == "" {
@@ -275,11 +275,11 @@ func (akm *APIKeyManager) compareAPIKey(providedKey string, keyInfo *APIKeyInfo)
 		hasher.Write([]byte(providedKey))
 		providedHash := hex.EncodeToString(hasher.Sum(nil))
 		return subtle.ConstantTimeCompare([]byte(providedHash), []byte(keyInfo.HashedKey)) == 1
-		
+
 	case "plain":
 		// Direct comparison (not recommended for production)
 		return subtle.ConstantTimeCompare([]byte(providedKey), []byte(keyInfo.Key)) == 1
-		
+
 	default:
 		// Default to plain comparison
 		return subtle.ConstantTimeCompare([]byte(providedKey), []byte(keyInfo.Key)) == 1
@@ -290,12 +290,12 @@ func (akm *APIKeyManager) compareAPIKey(providedKey string, keyInfo *APIKeyInfo)
 func (akm *APIKeyManager) updateKeyUsage(keyID string, keyInfo *APIKeyInfo) {
 	akm.mu.Lock()
 	defer akm.mu.Unlock()
-	
+
 	now := time.Now()
 	keyInfo.LastUsedAt = &now
 	keyInfo.UsageCount++
 	keyInfo.QuotaUsed++
-	
+
 	// Save periodically (every 100 uses to avoid too frequent disk writes)
 	if keyInfo.UsageCount%100 == 0 {
 		go func() {
@@ -313,13 +313,13 @@ func (akm *APIKeyManager) CreateAPIKey(userID, username, email string, roles, pe
 	if _, err := rand.Read(keyBytes); err != nil {
 		return nil, fmt.Errorf("failed to generate random key: %w", err)
 	}
-	
+
 	apiKey := hex.EncodeToString(keyBytes)
 	keyID := generateKeyID()
-	
+
 	// Hash the key if required
 	var hashedKey string
-	
+
 	switch akm.config.HashingAlgorithm {
 	case "bcrypt":
 		hashedBytes, err := bcrypt.GenerateFromPassword([]byte(apiKey), bcrypt.DefaultCost)
@@ -327,20 +327,20 @@ func (akm *APIKeyManager) CreateAPIKey(userID, username, email string, roles, pe
 			return nil, fmt.Errorf("failed to hash API key with bcrypt: %w", err)
 		}
 		hashedKey = string(hashedBytes)
-		
+
 	case "sha256":
 		hasher := sha256.New()
 		hasher.Write([]byte(apiKey))
 		hashedKey = hex.EncodeToString(hasher.Sum(nil))
-		
+
 	case "plain":
 		// No hashing for plain storage (not recommended)
 		hashedKey = ""
-		
+
 	default:
 		hashedKey = ""
 	}
-	
+
 	// Create key info
 	now := time.Now()
 	keyInfo := &APIKeyInfo{
@@ -359,33 +359,33 @@ func (akm *APIKeyManager) CreateAPIKey(userID, username, email string, roles, pe
 		QuotaUsed:   0,
 		Metadata:    make(map[string]interface{}),
 	}
-	
+
 	// Set expiration if provided
 	if expiresIn != nil {
 		expiresAt := now.Add(*expiresIn)
 		keyInfo.ExpiresAt = &expiresAt
 	}
-	
+
 	// Set quota reset time
 	keyInfo.QuotaReset = now.Add(24 * time.Hour)
-	
+
 	// Store key
 	akm.mu.Lock()
 	akm.apiKeys[keyID] = keyInfo
 	akm.mu.Unlock()
-	
+
 	// Save to file
 	if err := akm.saveAPIKeys(); err != nil {
 		akm.logger.Error("Failed to save API keys after creation", zap.Error(err))
 	}
-	
+
 	akm.logger.Info("Created new API key",
 		zap.String("key_id", keyID),
 		zap.String("user_id", userID),
 		zap.String("username", username),
 		zap.Strings("roles", roles),
 		zap.Strings("scopes", scopes))
-	
+
 	return keyInfo, nil
 }
 
@@ -393,24 +393,24 @@ func (akm *APIKeyManager) CreateAPIKey(userID, username, email string, roles, pe
 func (akm *APIKeyManager) RevokeAPIKey(keyID string) error {
 	akm.mu.Lock()
 	defer akm.mu.Unlock()
-	
+
 	keyInfo, exists := akm.apiKeys[keyID]
 	if !exists {
 		return fmt.Errorf("API key not found: %s", keyID)
 	}
-	
+
 	// Mark as inactive instead of deleting to preserve audit trail
 	keyInfo.IsActive = false
-	
+
 	// Save to file
 	if err := akm.saveAPIKeys(); err != nil {
 		akm.logger.Error("Failed to save API keys after revocation", zap.Error(err))
 	}
-	
+
 	akm.logger.Info("Revoked API key",
 		zap.String("key_id", keyID),
 		zap.String("user_id", keyInfo.UserID))
-	
+
 	return nil
 }
 
@@ -418,12 +418,12 @@ func (akm *APIKeyManager) RevokeAPIKey(keyID string) error {
 func (akm *APIKeyManager) UpdateAPIKey(keyID string, updates map[string]interface{}) error {
 	akm.mu.Lock()
 	defer akm.mu.Unlock()
-	
+
 	keyInfo, exists := akm.apiKeys[keyID]
 	if !exists {
 		return fmt.Errorf("API key not found: %s", keyID)
 	}
-	
+
 	// Apply updates
 	for field, value := range updates {
 		switch field {
@@ -463,17 +463,17 @@ func (akm *APIKeyManager) UpdateAPIKey(keyID string, updates map[string]interfac
 			keyInfo.Metadata[field] = value
 		}
 	}
-	
+
 	// Save to file
 	if err := akm.saveAPIKeys(); err != nil {
 		akm.logger.Error("Failed to save API keys after update", zap.Error(err))
 	}
-	
+
 	akm.logger.Info("Updated API key",
 		zap.String("key_id", keyID),
 		zap.String("user_id", keyInfo.UserID),
 		zap.Any("updates", updates))
-	
+
 	return nil
 }
 
@@ -481,7 +481,7 @@ func (akm *APIKeyManager) UpdateAPIKey(keyID string, updates map[string]interfac
 func (akm *APIKeyManager) ListAPIKeys(userID string) ([]*APIKeyInfo, error) {
 	akm.mu.RLock()
 	defer akm.mu.RUnlock()
-	
+
 	var userKeys []*APIKeyInfo
 	for _, keyInfo := range akm.apiKeys {
 		if keyInfo.UserID == userID {
@@ -491,7 +491,7 @@ func (akm *APIKeyManager) ListAPIKeys(userID string) ([]*APIKeyInfo, error) {
 			userKeys = append(userKeys, &keyCopy)
 		}
 	}
-	
+
 	return userKeys, nil
 }
 
@@ -499,23 +499,23 @@ func (akm *APIKeyManager) ListAPIKeys(userID string) ([]*APIKeyInfo, error) {
 func (akm *APIKeyManager) GetAPIKeyInfo(keyID string) (*APIKeyInfo, error) {
 	akm.mu.RLock()
 	defer akm.mu.RUnlock()
-	
+
 	keyInfo, exists := akm.apiKeys[keyID]
 	if !exists {
 		return nil, fmt.Errorf("API key not found: %s", keyID)
 	}
-	
+
 	// Create a copy without the actual key for security
 	keyCopy := *keyInfo
 	keyCopy.Key = "" // Don't expose the actual key
-	
+
 	return &keyCopy, nil
 }
 
 // startKeyRotation starts the automatic key rotation process
 func (akm *APIKeyManager) startKeyRotation() {
 	akm.rotationTicker = time.NewTicker(akm.config.KeyRotationInterval)
-	
+
 	go func() {
 		for {
 			select {
@@ -527,7 +527,7 @@ func (akm *APIKeyManager) startKeyRotation() {
 			}
 		}
 	}()
-	
+
 	akm.logger.Info("Started API key rotation",
 		zap.Duration("interval", akm.config.KeyRotationInterval))
 }
@@ -536,10 +536,10 @@ func (akm *APIKeyManager) startKeyRotation() {
 func (akm *APIKeyManager) performKeyRotation() {
 	akm.mu.Lock()
 	defer akm.mu.Unlock()
-	
+
 	now := time.Now()
 	rotatedCount := 0
-	
+
 	for keyID, keyInfo := range akm.apiKeys {
 		// Check if key should be rotated (close to expiration)
 		if keyInfo.ExpiresAt != nil {
@@ -553,9 +553,9 @@ func (akm *APIKeyManager) performKeyRotation() {
 						zap.Error(err))
 					continue
 				}
-				
+
 				newAPIKey := hex.EncodeToString(keyBytes)
-				
+
 				// Hash the new key if required
 				var hashedKey string
 				switch akm.config.HashingAlgorithm {
@@ -568,21 +568,21 @@ func (akm *APIKeyManager) performKeyRotation() {
 						continue
 					}
 					hashedKey = string(hashedBytes)
-					
+
 				case "sha256":
 					hasher := sha256.New()
 					hasher.Write([]byte(newAPIKey))
 					hashedKey = hex.EncodeToString(hasher.Sum(nil))
 				}
-				
+
 				// Update key info
 				keyInfo.Key = newAPIKey
 				keyInfo.HashedKey = hashedKey
 				newExpiresAt := now.Add(akm.config.KeyRotationInterval)
 				keyInfo.ExpiresAt = &newExpiresAt
-				
+
 				rotatedCount++
-				
+
 				akm.logger.Info("Rotated API key",
 					zap.String("key_id", keyID),
 					zap.String("user_id", keyInfo.UserID),
@@ -590,7 +590,7 @@ func (akm *APIKeyManager) performKeyRotation() {
 			}
 		}
 	}
-	
+
 	if rotatedCount > 0 {
 		// Save rotated keys
 		go func() {
@@ -598,7 +598,7 @@ func (akm *APIKeyManager) performKeyRotation() {
 				akm.logger.Error("Failed to save API keys after rotation", zap.Error(err))
 			}
 		}()
-		
+
 		akm.logger.Info("Completed key rotation",
 			zap.Int("rotated_count", rotatedCount))
 	}
@@ -619,12 +619,12 @@ func (akm *APIKeyManager) Cleanup() error {
 		close(akm.stopRotation)
 		akm.rotationTicker.Stop()
 	}
-	
+
 	// Save any pending changes
 	if err := akm.saveAPIKeys(); err != nil {
 		return fmt.Errorf("failed to save API keys during cleanup: %w", err)
 	}
-	
+
 	akm.logger.Info("API key manager cleanup completed")
 	return nil
 }

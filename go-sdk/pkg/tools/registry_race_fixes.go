@@ -182,9 +182,9 @@ func (r *RaceFixedRegistry) WatchFile(filename string) error {
 	}
 
 	watcher := &SafeFileWatcher{
-		path:     filename,
-		stop:     make(chan struct{}),
-		modTime:  info.ModTime(),
+		path:    filename,
+		stop:    make(chan struct{}),
+		modTime: info.ModTime(),
 		callback: func(path string) error {
 			return r.LoadFromFile(context.Background(), path)
 		},

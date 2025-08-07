@@ -112,21 +112,21 @@ func TestHistoryMemoryLimits(t *testing.T) {
 				break // Stop when we hit the limit
 			}
 			messageCount++
-			
+
 			// After each successful addition, verify memory stays below limit
 			currentMem := history.CurrentMemoryBytes()
-			assert.Less(t, currentMem, options.MaxMemoryBytes, 
-				"Memory usage (%d) should be strictly less than limit (%d) after adding message %d", 
+			assert.Less(t, currentMem, options.MaxMemoryBytes,
+				"Memory usage (%d) should be strictly less than limit (%d) after adding message %d",
 				currentMem, options.MaxMemoryBytes, messageCount)
 		}
 
 		// Ensure we added at least one message
 		assert.Greater(t, messageCount, 0, "Should have been able to add at least one message")
-		
+
 		// Final check - memory should definitely be less than limit
 		finalMem := history.CurrentMemoryBytes()
-		assert.Less(t, finalMem, options.MaxMemoryBytes, 
-			"Final memory usage (%d) must be strictly less than limit (%d)", 
+		assert.Less(t, finalMem, options.MaxMemoryBytes,
+			"Final memory usage (%d) must be strictly less than limit (%d)",
 			finalMem, options.MaxMemoryBytes)
 	})
 }

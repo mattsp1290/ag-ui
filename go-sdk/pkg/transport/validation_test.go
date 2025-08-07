@@ -44,7 +44,7 @@ func TestDefaultValidator(t *testing.T) {
 		timestamp: time.Now(),
 		data: map[string]interface{}{
 			"id":        "test-123",
-			"type":      "data", 
+			"type":      "data",
 			"timestamp": time.Now(),
 			"message":   "hello world",
 		},
@@ -75,14 +75,14 @@ func TestDefaultValidator(t *testing.T) {
 func TestMessageSizeValidation(t *testing.T) {
 	// Test with minimal configuration to isolate message size validation
 	config := &ValidationConfig{
-		Enabled:        true,
-		MaxMessageSize: 50, // Very small size for testing
-		RequiredFields: []string{}, // No required fields
+		Enabled:           true,
+		MaxMessageSize:    50,         // Very small size for testing
+		RequiredFields:    []string{}, // No required fields
 		AllowedEventTypes: []string{}, // No event type restrictions
 		DeniedEventTypes:  []string{}, // No denied types
-		MaxDataDepth:      100, // High depth limit
-		MaxArraySize:      1000, // High array size limit
-		MaxStringLength:   10000, // High string length limit
+		MaxDataDepth:      100,        // High depth limit
+		MaxArraySize:      1000,       // High array size limit
+		MaxStringLength:   10000,      // High string length limit
 		AllowedDataTypes:  []string{"string", "number", "boolean", "object", "array", "null"},
 		FailFast:          false,
 		CollectAllErrors:  true,
@@ -103,15 +103,15 @@ func TestMessageSizeValidation(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	
+
 	// Check actual serialized size
 	serialized, _ := json.Marshal(largeEvent.Data())
 	t.Logf("Serialized size: %d bytes (limit: %d)", len(serialized), config.MaxMessageSize)
-	
+
 	// Check if validator rules are enabled
 	t.Logf("Validator config enabled: %t", config.Enabled)
 	t.Logf("Max message size: %d", config.MaxMessageSize)
-	
+
 	if err := validator.Validate(ctx, largeEvent); err == nil {
 		t.Error("Expected large message to fail validation")
 	} else {
@@ -125,7 +125,7 @@ func TestEventTypeValidation(t *testing.T) {
 		AllowedEventTypes: []string{"allowed_type"},
 		DeniedEventTypes:  []string{"denied_type"},
 		MaxMessageSize:    1024 * 1024, // High limit to avoid size issues
-		RequiredFields:    []string{}, // No required fields to avoid other validation issues
+		RequiredFields:    []string{},  // No required fields to avoid other validation issues
 		MaxDataDepth:      100,
 		MaxArraySize:      1000,
 		MaxStringLength:   10000,
@@ -180,17 +180,17 @@ func TestEventTypeValidation(t *testing.T) {
 
 func TestDataFormatValidation(t *testing.T) {
 	config := &ValidationConfig{
-		Enabled:          true,
-		MaxDataDepth:     2,
-		MaxArraySize:     3,
-		MaxStringLength:  10,
-		AllowedDataTypes: []string{"string", "number", "boolean", "object", "array"},
-		MaxMessageSize:   1024 * 1024, // High limit to avoid size issues
-		RequiredFields:   []string{}, // No required fields to avoid other validation issues
-		AllowedEventTypes: []string{}, // No event type restrictions
-		DeniedEventTypes:  []string{}, // No denied types
-		FailFast:         false,
-		CollectAllErrors: true,
+		Enabled:           true,
+		MaxDataDepth:      2,
+		MaxArraySize:      3,
+		MaxStringLength:   10,
+		AllowedDataTypes:  []string{"string", "number", "boolean", "object", "array"},
+		MaxMessageSize:    1024 * 1024, // High limit to avoid size issues
+		RequiredFields:    []string{},  // No required fields to avoid other validation issues
+		AllowedEventTypes: []string{},  // No event type restrictions
+		DeniedEventTypes:  []string{},  // No denied types
+		FailFast:          false,
+		CollectAllErrors:  true,
 	}
 	validator := NewValidator(config)
 
@@ -276,16 +276,16 @@ func TestPatternValidation(t *testing.T) {
 			"email": regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`),
 			"phone": regexp.MustCompile(`^\+?[1-9]\d{1,14}$`),
 		},
-		MaxMessageSize:   1024 * 1024, // High limit to avoid size issues
-		RequiredFields:   []string{}, // No required fields to avoid other validation issues
-		AllowedEventTypes: []string{}, // No event type restrictions
-		DeniedEventTypes:  []string{}, // No denied types
-		MaxDataDepth:     100,
-		MaxArraySize:     1000,
-		MaxStringLength:  10000,
-		AllowedDataTypes: []string{"string", "number", "boolean", "object", "array", "null"},
-		FailFast:         false,
-		CollectAllErrors: true,
+		MaxMessageSize:    1024 * 1024, // High limit to avoid size issues
+		RequiredFields:    []string{},  // No required fields to avoid other validation issues
+		AllowedEventTypes: []string{},  // No event type restrictions
+		DeniedEventTypes:  []string{},  // No denied types
+		MaxDataDepth:      100,
+		MaxArraySize:      1000,
+		MaxStringLength:   10000,
+		AllowedDataTypes:  []string{"string", "number", "boolean", "object", "array", "null"},
+		FailFast:          false,
+		CollectAllErrors:  true,
 	}
 	validator := NewValidator(config)
 
@@ -376,15 +376,15 @@ func TestValidationMiddleware(t *testing.T) {
 		Enabled:        true,
 		RequiredFields: []string{"id", "type"},
 	}
-	
+
 	middleware := NewValidationMiddleware(config)
-	
+
 	// Cast to concrete type to access methods
 	vm, ok := middleware.(*ValidationMiddleware)
 	if !ok {
 		t.Fatal("Expected ValidationMiddleware concrete type")
 	}
-	
+
 	// Test that middleware can be created and configured
 	if !vm.IsEnabled() {
 		t.Error("Expected middleware to be enabled")
@@ -414,7 +414,7 @@ func TestFastValidator(t *testing.T) {
 		RequiredFields:    []string{"id", "type"},
 		AllowedEventTypes: []string{"test"},
 	}
-	
+
 	validator := NewFastValidator(config)
 	ctx := context.Background()
 

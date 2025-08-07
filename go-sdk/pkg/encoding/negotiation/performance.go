@@ -42,7 +42,7 @@ type aggregatedMetrics struct {
 	totalMemory  int64
 	totalCPU     float64
 	lastUpdated  time.Time
-	
+
 	// Moving averages for better adaptability
 	recentEncTimes []time.Duration
 	recentDecTimes []time.Duration
@@ -238,14 +238,14 @@ func (pt *PerformanceTracker) GetScore(contentType string) float64 {
 func calculateSpeedScore(duration time.Duration) float64 {
 	// Convert to milliseconds
 	ms := duration.Milliseconds()
-	
+
 	// Score mapping:
 	// 0-10ms: 1.0
 	// 10-50ms: 0.8-1.0
 	// 50-100ms: 0.6-0.8
 	// 100-500ms: 0.3-0.6
 	// >500ms: 0.0-0.3
-	
+
 	switch {
 	case ms <= 10:
 		return 1.0
@@ -269,9 +269,9 @@ func calculateSizeScore(size int64) float64 {
 	// 10-100KB: 0.6-0.8
 	// 100KB-1MB: 0.3-0.6
 	// >1MB: 0.0-0.3
-	
+
 	kb := float64(size) / 1024
-	
+
 	switch {
 	case kb <= 1:
 		return 1.0
@@ -341,23 +341,23 @@ func (pt *PerformanceTracker) GetAllScores() map[string]float64 {
 // Benchmark runs a benchmark for a content type
 func (pt *PerformanceTracker) Benchmark(contentType string, benchFunc func() error) error {
 	start := time.Now()
-	
+
 	// Run the benchmark function
 	err := benchFunc()
-	
+
 	elapsed := time.Since(start)
-	
+
 	// Update metrics based on result
 	metrics := PerformanceMetrics{
 		EncodingTime: elapsed / 2, // Assume half time for encoding
 		DecodingTime: elapsed / 2, // Assume half time for decoding
 		SuccessRate:  1.0,
 	}
-	
+
 	if err != nil {
 		metrics.SuccessRate = 0.0
 	}
-	
+
 	pt.UpdateMetrics(contentType, metrics)
 	return err
 }
@@ -365,16 +365,16 @@ func (pt *PerformanceTracker) Benchmark(contentType string, benchFunc func() err
 // GetRecommendation returns a recommendation for the best performing format
 func (pt *PerformanceTracker) GetRecommendation() (string, float64) {
 	scores := pt.GetAllScores()
-	
+
 	var bestType string
 	var bestScore float64
-	
+
 	for contentType, score := range scores {
 		if score > bestScore {
 			bestScore = score
 			bestType = contentType
 		}
 	}
-	
+
 	return bestType, bestScore
 }

@@ -15,8 +15,8 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/time/rate"
 
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 	"github.com/mattsp1290/ag-ui/go-sdk/internal/timeconfig"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // PerformanceConfig contains configuration for performance optimizations
@@ -99,18 +99,18 @@ func DefaultPerformanceConfig() *PerformanceConfig {
 	config := timeconfig.GetConfig()
 	if timeconfig.IsTestMode() {
 		return &PerformanceConfig{
-			MaxConcurrentConnections: 50,   // Much lower for tests
-			MessageBatchSize:         5,    // Smaller batches for tests
+			MaxConcurrentConnections: 50, // Much lower for tests
+			MessageBatchSize:         5,  // Smaller batches for tests
 			MessageBatchTimeout:      config.DefaultMessageBatchTimeout,
-			BufferPoolSize:           50,   // Much smaller buffer pool
+			BufferPoolSize:           50,       // Much smaller buffer pool
 			MaxBufferSize:            8 * 1024, // 8KB - smaller for tests
-			EnableZeroCopy:           false, // Disable for test simplicity
-			EnableMemoryPooling:      false, // Disable for test isolation
+			EnableZeroCopy:           false,    // Disable for test simplicity
+			EnableMemoryPooling:      false,    // Disable for test isolation
 			EnableProfiling:          false,
 			ProfilingInterval:        config.DefaultProfilingInterval,
 			MaxLatency:               config.DefaultMaxLatency,
 			MaxMemoryUsage:           10 * 1024 * 1024, // 10MB for tests
-			EnableMetrics:            false, // Disable metrics for test speed
+			EnableMetrics:            false,            // Disable metrics for test speed
 			MetricsInterval:          config.DefaultMetricsInterval,
 			MessageSerializerType:    JSONSerializer, // Use simple serializer for tests
 			Logger:                   zap.NewNop(),
@@ -141,8 +141,8 @@ func HighConcurrencyPerformanceConfig() *PerformanceConfig {
 	config := timeconfig.GetConfig()
 	if timeconfig.IsTestMode() {
 		return &PerformanceConfig{
-			MaxConcurrentConnections: 100,       // Reduced for test stability
-			MessageBatchSize:         20,        // Moderate batches for tests
+			MaxConcurrentConnections: 100, // Reduced for test stability
+			MessageBatchSize:         20,  // Moderate batches for tests
 			MessageBatchTimeout:      config.DefaultMessageBatchTimeout,
 			BufferPoolSize:           200,       // Smaller pool for tests
 			MaxBufferSize:            16 * 1024, // 16KB for tests
@@ -152,25 +152,25 @@ func HighConcurrencyPerformanceConfig() *PerformanceConfig {
 			ProfilingInterval:        config.DefaultProfilingInterval,
 			MaxLatency:               config.DefaultMaxLatency,
 			MaxMemoryUsage:           50 * 1024 * 1024, // 50MB for tests
-			EnableMetrics:            false,     // Disable metrics to reduce overhead
+			EnableMetrics:            false,            // Disable metrics to reduce overhead
 			MetricsInterval:          config.DefaultMetricsInterval,
 			MessageSerializerType:    JSONSerializer, // Simple serializer for tests
 			Logger:                   zap.NewNop(),
 		}
 	}
 	return &PerformanceConfig{
-		MaxConcurrentConnections: 50000,     // Much higher concurrency limit
-		MessageBatchSize:         100,       // Larger batches for better throughput  
+		MaxConcurrentConnections: 50000,                             // Much higher concurrency limit
+		MessageBatchSize:         100,                               // Larger batches for better throughput
 		MessageBatchTimeout:      config.DefaultMessageBatchTimeout, // Use configurable timeout
-		BufferPoolSize:           10000,     // More buffers for high concurrency
-		MaxBufferSize:            64 * 1024, // 64KB
+		BufferPoolSize:           10000,                             // More buffers for high concurrency
+		MaxBufferSize:            64 * 1024,                         // 64KB
 		EnableZeroCopy:           true,
 		EnableMemoryPooling:      true,
 		EnableProfiling:          false,
 		ProfilingInterval:        config.DefaultProfilingInterval,
 		MaxLatency:               config.DefaultMaxLatency, // Use configurable latency
-		MaxMemoryUsage:           500 * 1024 * 1024, // 500MB for high concurrency
-		EnableMetrics:            false,     // Disable metrics to reduce overhead
+		MaxMemoryUsage:           500 * 1024 * 1024,        // 500MB for high concurrency
+		EnableMetrics:            false,                    // Disable metrics to reduce overhead
 		MetricsInterval:          config.DefaultMetricsInterval,
 		MessageSerializerType:    OptimizedJSONSerializer,
 		Logger:                   zap.NewNop(),
@@ -422,10 +422,10 @@ func (pm *PerformanceManager) GetMemoryUsage() int64 {
 
 // BufferPool manages a pool of reusable buffers
 type BufferPool struct {
-	pool    sync.Pool
-	maxSize int
+	pool     sync.Pool
+	maxSize  int
 	testMode bool // Track if we're in test mode for cleanup optimization
-	stats   struct {
+	stats    struct {
 		// Cache line padded to prevent false sharing
 		gets     int64
 		_        [56]byte // Cache line padding
@@ -501,7 +501,7 @@ func (bp *BufferPool) Reset() {
 	if !bp.testMode {
 		return // Only reset in test mode to prevent accidental production issues
 	}
-	
+
 	// Drain the pool by getting buffers until we can't get any more
 	for {
 		select {
@@ -537,7 +537,7 @@ type MessageBatcher struct {
 		_              [56]byte // Cache line padding
 		batchesOut     int64
 		_              [56]byte // Cache line padding
-		avgBatchSize   float64 // Protected by mutex, no padding needed
+		avgBatchSize   float64  // Protected by mutex, no padding needed
 		droppedBatches int64
 		_              [56]byte // Cache line padding
 	}
@@ -551,7 +551,7 @@ func NewMessageBatcher(batchSize int, batchTimeout time.Duration) *MessageBatche
 		batchSize:    batchSize,
 		batchTimeout: batchTimeout,
 		messages:     make(chan []byte, batchSize*100), // Increased for high throughput
-		batches:      make(chan [][]byte, 1000), // Increased for high throughput
+		batches:      make(chan [][]byte, 1000),        // Increased for high throughput
 	}
 }
 
@@ -626,7 +626,7 @@ func (mb *MessageBatcher) GetBatch() [][]byte {
 func (mb *MessageBatcher) Close() {
 	mb.mutex.Lock()
 	defer mb.mutex.Unlock()
-	
+
 	if mb.closed.CompareAndSwap(false, true) {
 		close(mb.messages)
 		close(mb.batches)
@@ -1398,7 +1398,7 @@ func (mm *MemoryManager) AllocateBuffer(size int) []byte {
 		runtime.GC()
 		var memStats runtime.MemStats
 		runtime.ReadMemStats(&memStats)
-		
+
 		// Still check against our limit, not system memory
 		if mm.currentUsage+int64(size) > mm.maxMemory {
 			return nil // Out of memory
@@ -1409,10 +1409,10 @@ func (mm *MemoryManager) AllocateBuffer(size int) []byte {
 	// Update our tracked usage
 	mm.currentUsage += int64(size)
 	atomic.AddInt64(&mm.stats.allocations, 1)
-	
+
 	// Update current usage to reflect this allocation
 	mm.currentUsage += int64(size)
-	
+
 	return make([]byte, size)
 }
 
@@ -1427,18 +1427,18 @@ func (mm *MemoryManager) DeallocateBuffer(buf []byte) {
 	if buf == nil {
 		return
 	}
-	
+
 	mm.mutex.Lock()
 	defer mm.mutex.Unlock()
-	
+
 	atomic.AddInt64(&mm.stats.deallocations, 1)
-	
+
 	// Update current usage to reflect this deallocation
 	mm.currentUsage -= int64(len(buf))
 	if mm.currentUsage < 0 {
 		mm.currentUsage = 0
 	}
-	
+
 	// Buffer will be garbage collected automatically
 }
 

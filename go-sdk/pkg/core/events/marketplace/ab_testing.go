@@ -21,53 +21,53 @@ type ABTesting struct {
 
 // Experiment represents an A/B test experiment
 type Experiment struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Status      ExperimentStatus       `json:"status"`
-	Type        ExperimentType         `json:"type"`
-	
+	ID          string           `json:"id"`
+	Name        string           `json:"name"`
+	Description string           `json:"description"`
+	Status      ExperimentStatus `json:"status"`
+	Type        ExperimentType   `json:"type"`
+
 	// Configuration
-	StartDate    time.Time              `json:"start_date"`
-	EndDate      time.Time              `json:"end_date"`
-	MinDuration  time.Duration          `json:"min_duration"`
-	MaxDuration  time.Duration          `json:"max_duration"`
-	
+	StartDate   time.Time     `json:"start_date"`
+	EndDate     time.Time     `json:"end_date"`
+	MinDuration time.Duration `json:"min_duration"`
+	MaxDuration time.Duration `json:"max_duration"`
+
 	// Traffic allocation
-	TrafficAllocation float64           `json:"traffic_allocation"` // 0.0 to 1.0
-	TargetCriteria    *TargetCriteria   `json:"target_criteria"`
-	
+	TrafficAllocation float64         `json:"traffic_allocation"` // 0.0 to 1.0
+	TargetCriteria    *TargetCriteria `json:"target_criteria"`
+
 	// Variants
-	Variants         []*Variant         `json:"variants"`
-	ControlVariant   string             `json:"control_variant"`
-	
+	Variants       []*Variant `json:"variants"`
+	ControlVariant string     `json:"control_variant"`
+
 	// Metrics
-	PrimaryMetric    string             `json:"primary_metric"`
-	SecondaryMetrics []string           `json:"secondary_metrics"`
-	
+	PrimaryMetric    string   `json:"primary_metric"`
+	SecondaryMetrics []string `json:"secondary_metrics"`
+
 	// Statistical configuration
-	StatisticalPower   float64          `json:"statistical_power"`    // typically 0.8
-	SignificanceLevel  float64          `json:"significance_level"`   // typically 0.05
-	MinimumSampleSize  int              `json:"minimum_sample_size"`
-	
+	StatisticalPower  float64 `json:"statistical_power"`  // typically 0.8
+	SignificanceLevel float64 `json:"significance_level"` // typically 0.05
+	MinimumSampleSize int     `json:"minimum_sample_size"`
+
 	// Results
-	Results          *ExperimentResults `json:"results,omitempty"`
-	
+	Results *ExperimentResults `json:"results,omitempty"`
+
 	// Metadata
-	CreatedBy        string             `json:"created_by"`
-	CreatedAt        time.Time          `json:"created_at"`
-	UpdatedAt        time.Time          `json:"updated_at"`
-	Tags             []string           `json:"tags"`
-	Metadata         map[string]interface{} `json:"metadata"`
+	CreatedBy string                 `json:"created_by"`
+	CreatedAt time.Time              `json:"created_at"`
+	UpdatedAt time.Time              `json:"updated_at"`
+	Tags      []string               `json:"tags"`
+	Metadata  map[string]interface{} `json:"metadata"`
 }
 
 // ExperimentStatus defines the status of an experiment
 type ExperimentStatus string
 
 const (
-	StatusDraft    ExperimentStatus = "draft"
-	StatusRunning  ExperimentStatus = "running"
-	StatusPaused   ExperimentStatus = "paused"
+	StatusDraft     ExperimentStatus = "draft"
+	StatusRunning   ExperimentStatus = "running"
+	StatusPaused    ExperimentStatus = "paused"
 	StatusCompleted ExperimentStatus = "completed"
 	StatusCancelled ExperimentStatus = "cancelled"
 )
@@ -84,44 +84,44 @@ const (
 
 // Variant represents a variant in an A/B test
 type Variant struct {
-	ID          string                 `json:"id"`
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Weight      float64                `json:"weight"` // 0.0 to 1.0
-	IsControl   bool                   `json:"is_control"`
-	
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	Weight      float64 `json:"weight"` // 0.0 to 1.0
+	IsControl   bool    `json:"is_control"`
+
 	// Rule configuration
 	RulePackageID string                 `json:"rule_package_id"`
 	RuleVersion   string                 `json:"rule_version"`
 	RuleConfig    map[string]interface{} `json:"rule_config"`
-	
+
 	// Feature flags
-	FeatureFlags  map[string]bool        `json:"feature_flags"`
-	
+	FeatureFlags map[string]bool `json:"feature_flags"`
+
 	// Metadata
-	Metadata      map[string]interface{} `json:"metadata"`
+	Metadata map[string]interface{} `json:"metadata"`
 }
 
 // TargetCriteria defines who should be included in the experiment
 type TargetCriteria struct {
-	UserSegments    []string           `json:"user_segments"`
-	Countries       []string           `json:"countries"`
-	Platforms       []string           `json:"platforms"`
-	UserTypes       []string           `json:"user_types"`
-	MinUserAge      int                `json:"min_user_age"`
-	MaxUserAge      int                `json:"max_user_age"`
+	UserSegments    []string               `json:"user_segments"`
+	Countries       []string               `json:"countries"`
+	Platforms       []string               `json:"platforms"`
+	UserTypes       []string               `json:"user_types"`
+	MinUserAge      int                    `json:"min_user_age"`
+	MaxUserAge      int                    `json:"max_user_age"`
 	CustomFilters   map[string]interface{} `json:"custom_filters"`
-	ExcludePrevious bool               `json:"exclude_previous"` // Exclude users from previous experiments
+	ExcludePrevious bool                   `json:"exclude_previous"` // Exclude users from previous experiments
 }
 
 // Participation represents a user's participation in experiments
 type Participation struct {
-	UserID       string                      `json:"user_id"`
-	Experiments  map[string]*UserExperiment  `json:"experiments"` // experimentID -> user experiment
-	JoinedAt     time.Time                   `json:"joined_at"`
-	LastActivity time.Time                   `json:"last_activity"`
-	Segments     []string                    `json:"segments"`
-	Properties   map[string]interface{}      `json:"properties"`
+	UserID       string                     `json:"user_id"`
+	Experiments  map[string]*UserExperiment `json:"experiments"` // experimentID -> user experiment
+	JoinedAt     time.Time                  `json:"joined_at"`
+	LastActivity time.Time                  `json:"last_activity"`
+	Segments     []string                   `json:"segments"`
+	Properties   map[string]interface{}     `json:"properties"`
 }
 
 // UserExperiment represents a user's participation in a specific experiment
@@ -139,27 +139,27 @@ type UserExperiment struct {
 
 // ExperimentResults contains the results of an experiment
 type ExperimentResults struct {
-	ExperimentID     string                         `json:"experiment_id"`
-	Status           ResultStatus                   `json:"status"`
-	Winner           string                         `json:"winner,omitempty"`
-	Confidence       float64                        `json:"confidence"`
-	PValue           float64                        `json:"p_value"`
-	EffectSize       float64                        `json:"effect_size"`
-	
+	ExperimentID string       `json:"experiment_id"`
+	Status       ResultStatus `json:"status"`
+	Winner       string       `json:"winner,omitempty"`
+	Confidence   float64      `json:"confidence"`
+	PValue       float64      `json:"p_value"`
+	EffectSize   float64      `json:"effect_size"`
+
 	// Variant results
-	VariantResults   map[string]*VariantResult      `json:"variant_results"`
-	
+	VariantResults map[string]*VariantResult `json:"variant_results"`
+
 	// Statistical tests
-	StatisticalTests []*StatisticalTest             `json:"statistical_tests"`
-	
+	StatisticalTests []*StatisticalTest `json:"statistical_tests"`
+
 	// Timing
-	StartedAt        time.Time                      `json:"started_at"`
-	CompletedAt      *time.Time                     `json:"completed_at,omitempty"`
-	Duration         time.Duration                  `json:"duration"`
-	
+	StartedAt   time.Time     `json:"started_at"`
+	CompletedAt *time.Time    `json:"completed_at,omitempty"`
+	Duration    time.Duration `json:"duration"`
+
 	// Metadata
-	GeneratedAt      time.Time                      `json:"generated_at"`
-	GeneratedBy      string                         `json:"generated_by"`
+	GeneratedAt time.Time `json:"generated_at"`
+	GeneratedBy string    `json:"generated_by"`
 }
 
 // ResultStatus defines the status of experiment results
@@ -174,14 +174,14 @@ const (
 
 // VariantResult contains results for a specific variant
 type VariantResult struct {
-	VariantID        string                 `json:"variant_id"`
-	Participants     int                    `json:"participants"`
-	Conversions      int                    `json:"conversions"`
-	ConversionRate   float64                `json:"conversion_rate"`
-	Revenue          float64                `json:"revenue"`
-	RevenuePerUser   float64                `json:"revenue_per_user"`
-	ConfidenceInterval *ConfidenceInterval  `json:"confidence_interval"`
-	Metrics          map[string]float64     `json:"metrics"`
+	VariantID          string              `json:"variant_id"`
+	Participants       int                 `json:"participants"`
+	Conversions        int                 `json:"conversions"`
+	ConversionRate     float64             `json:"conversion_rate"`
+	Revenue            float64             `json:"revenue"`
+	RevenuePerUser     float64             `json:"revenue_per_user"`
+	ConfidenceInterval *ConfidenceInterval `json:"confidence_interval"`
+	Metrics            map[string]float64  `json:"metrics"`
 }
 
 // ConfidenceInterval represents a confidence interval
@@ -193,20 +193,20 @@ type ConfidenceInterval struct {
 
 // StatisticalTest represents a statistical test performed
 type StatisticalTest struct {
-	Name        string                 `json:"name"`
-	Type        string                 `json:"type"`
-	PValue      float64                `json:"p_value"`
-	Statistic   float64                `json:"statistic"`
-	DegreesOfFreedom int               `json:"degrees_of_freedom,omitempty"`
-	Result      string                 `json:"result"`
-	Metadata    map[string]interface{} `json:"metadata"`
+	Name             string                 `json:"name"`
+	Type             string                 `json:"type"`
+	PValue           float64                `json:"p_value"`
+	Statistic        float64                `json:"statistic"`
+	DegreesOfFreedom int                    `json:"degrees_of_freedom,omitempty"`
+	Result           string                 `json:"result"`
+	Metadata         map[string]interface{} `json:"metadata"`
 }
 
 // MetricsCollector collects and aggregates experiment metrics
 type MetricsCollector struct {
-	events    []ExperimentEvent
-	metrics   map[string]*MetricAggregation
-	mu        sync.RWMutex
+	events  []ExperimentEvent
+	metrics map[string]*MetricAggregation
+	mu      sync.RWMutex
 }
 
 // ExperimentEvent represents an event in an experiment
@@ -223,16 +223,16 @@ type ExperimentEvent struct {
 
 // MetricAggregation contains aggregated metrics
 type MetricAggregation struct {
-	MetricName   string                 `json:"metric_name"`
-	Values       []float64              `json:"values"`
-	Count        int                    `json:"count"`
-	Sum          float64                `json:"sum"`
-	Mean         float64                `json:"mean"`
-	Median       float64                `json:"median"`
-	StdDev       float64                `json:"std_dev"`
-	Min          float64                `json:"min"`
-	Max          float64                `json:"max"`
-	Percentiles  map[string]float64     `json:"percentiles"`
+	MetricName  string             `json:"metric_name"`
+	Values      []float64          `json:"values"`
+	Count       int                `json:"count"`
+	Sum         float64            `json:"sum"`
+	Mean        float64            `json:"mean"`
+	Median      float64            `json:"median"`
+	StdDev      float64            `json:"std_dev"`
+	Min         float64            `json:"min"`
+	Max         float64            `json:"max"`
+	Percentiles map[string]float64 `json:"percentiles"`
 }
 
 // TrafficAllocator manages traffic allocation for experiments
@@ -272,7 +272,7 @@ func NewMetricsCollector() *MetricsCollector {
 func NewTrafficAllocator() *TrafficAllocator {
 	salt := make([]byte, 16)
 	rand.Read(salt)
-	
+
 	return &TrafficAllocator{
 		hashSalt: hex.EncodeToString(salt),
 	}
@@ -283,12 +283,12 @@ func NewStatisticalAnalyzer() *StatisticalAnalyzer {
 	analyzer := &StatisticalAnalyzer{
 		tests: make(map[string]StatisticalTestFunc),
 	}
-	
+
 	// Register default statistical tests
 	analyzer.RegisterTest("t_test", analyzer.tTest)
 	analyzer.RegisterTest("chi_square", analyzer.chiSquareTest)
 	analyzer.RegisterTest("mann_whitney", analyzer.mannWhitneyTest)
-	
+
 	return analyzer
 }
 
@@ -586,7 +586,7 @@ func (ab *ABTesting) meetsTargetCriteria(userProperties map[string]interface{}, 
 		if !ok {
 			return false
 		}
-		
+
 		hasMatchingSegment := false
 		for _, segment := range criteria.UserSegments {
 			for _, userSegment := range userSegments {
@@ -599,7 +599,7 @@ func (ab *ABTesting) meetsTargetCriteria(userProperties map[string]interface{}, 
 				break
 			}
 		}
-		
+
 		if !hasMatchingSegment {
 			return false
 		}
@@ -611,7 +611,7 @@ func (ab *ABTesting) meetsTargetCriteria(userProperties map[string]interface{}, 
 		if !ok {
 			return false
 		}
-		
+
 		hasMatchingCountry := false
 		for _, country := range criteria.Countries {
 			if country == userCountry {
@@ -619,7 +619,7 @@ func (ab *ABTesting) meetsTargetCriteria(userProperties map[string]interface{}, 
 				break
 			}
 		}
-		
+
 		if !hasMatchingCountry {
 			return false
 		}
@@ -682,7 +682,7 @@ func (ta *TrafficAllocator) shouldIncludeUser(userID, experimentID string, alloc
 
 func (ta *TrafficAllocator) assignVariant(userID, experimentID string, variants []*Variant) *Variant {
 	hash := ta.hashUser(userID, experimentID+"_variant")
-	
+
 	cumulative := 0.0
 	for _, variant := range variants {
 		cumulative += variant.Weight
@@ -690,7 +690,7 @@ func (ta *TrafficAllocator) assignVariant(userID, experimentID string, variants 
 			return variant
 		}
 	}
-	
+
 	// Fallback to first variant
 	return variants[0]
 }
@@ -709,7 +709,7 @@ func (ta *TrafficAllocator) hashUser(userID, experimentID string) float64 {
 func (mc *MetricsCollector) TrackEvent(event ExperimentEvent) {
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
-	
+
 	mc.events = append(mc.events, event)
 }
 
@@ -721,25 +721,25 @@ func (sa *StatisticalAnalyzer) RegisterTest(name string, testFunc StatisticalTes
 func (sa *StatisticalAnalyzer) performTTest(control, variant *VariantResult) *StatisticalTest {
 	// Simplified t-test implementation
 	// In production, would use proper statistical library
-	
+
 	n1, n2 := float64(control.Participants), float64(variant.Participants)
 	x1, x2 := control.ConversionRate, variant.ConversionRate
-	
+
 	// Calculate pooled standard error
 	p := (float64(control.Conversions) + float64(variant.Conversions)) / (n1 + n2)
 	se := math.Sqrt(p * (1 - p) * (1/n1 + 1/n2))
-	
+
 	// Calculate t-statistic
 	t := (x2 - x1) / se
-	
+
 	// Simple p-value approximation
 	pValue := 2 * (1 - math.Abs(t)/3) // Very simplified
-	
+
 	result := "insignificant"
 	if pValue < 0.05 {
 		result = "significant"
 	}
-	
+
 	return &StatisticalTest{
 		Name:      "t_test",
 		Type:      "two_sample",
@@ -776,7 +776,7 @@ func (ab *ABTesting) calculateVariantResult(experimentID, variantID string) *Var
 	participants := 0
 	conversions := 0
 	revenue := 0.0
-	
+
 	// Count participants and conversions
 	for _, participation := range ab.participations {
 		if userExp, exists := participation.Experiments[experimentID]; exists {
@@ -787,15 +787,15 @@ func (ab *ABTesting) calculateVariantResult(experimentID, variantID string) *Var
 			}
 		}
 	}
-	
+
 	conversionRate := 0.0
 	revenuePerUser := 0.0
-	
+
 	if participants > 0 {
 		conversionRate = float64(conversions) / float64(participants)
 		revenuePerUser = revenue / float64(participants)
 	}
-	
+
 	return &VariantResult{
 		VariantID:      variantID,
 		Participants:   participants,
@@ -813,21 +813,21 @@ func (ab *ABTesting) determineWinner(variantResults map[string]*VariantResult, t
 	var bestVariant string
 	bestRate := 0.0
 	bestConfidence := 0.0
-	
+
 	for variantID, result := range variantResults {
 		if result.ConversionRate > bestRate {
 			bestRate = result.ConversionRate
 			bestVariant = variantID
 		}
 	}
-	
+
 	// Check if the best variant is statistically significant
 	for _, test := range tests {
 		if test.Result == "significant" && test.PValue < 0.05 {
 			bestConfidence = 1.0 - test.PValue
 		}
 	}
-	
+
 	return bestVariant, bestConfidence
 }
 
@@ -840,11 +840,11 @@ func (ab *ABTesting) determineResultStatus(tests []*StatisticalTest) ResultStatu
 			break
 		}
 	}
-	
+
 	if hasSignificant {
 		return ResultSignificant
 	}
-	
+
 	return ResultInsignificant
 }
 

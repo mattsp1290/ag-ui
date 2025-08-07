@@ -34,11 +34,11 @@ func WithTestTimeout(t *testing.T, timeout time.Duration, testFunc func()) {
 
 // RetryConfig configures retry behavior for flaky operations
 type RetryConfig struct {
-	MaxAttempts int
-	InitialDelay time.Duration
-	MaxDelay     time.Duration
+	MaxAttempts   int
+	InitialDelay  time.Duration
+	MaxDelay      time.Duration
 	BackoffFactor float64
-	ShouldRetry  func(error) bool
+	ShouldRetry   func(error) bool
 }
 
 // DefaultRetryConfig returns a sensible default retry configuration
@@ -117,7 +117,6 @@ func EventuallyWithTimeout(t *testing.T, condition func() bool, timeout time.Dur
 		}
 	}
 }
-
 
 // ConcurrentTester helps test concurrent operations safely
 type ConcurrentTester struct {
@@ -233,7 +232,7 @@ func (r *ResourceMonitor) Start(interval time.Duration) {
 
 func (r *ResourceMonitor) update() {
 	goroutines := runtime.NumGoroutine()
-	
+
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 
@@ -280,7 +279,7 @@ type ResourceStats struct {
 
 // String returns a string representation of the stats
 func (r ResourceStats) String() string {
-	return fmt.Sprintf("Goroutines: %d->%d, Memory: %.1fMB->%.1fMB", 
+	return fmt.Sprintf("Goroutines: %d->%d, Memory: %.1fMB->%.1fMB",
 		r.InitialGoroutines, r.PeakGoroutines, r.InitialMemoryMB, r.PeakMemoryMB)
 }
 
@@ -373,18 +372,18 @@ type TestContext struct {
 // NewTestContext creates a new test context with timeout
 func NewTestContext(t *testing.T, timeout time.Duration) *TestContext {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	
+
 	tc := &TestContext{
 		t:      t,
 		ctx:    ctx,
 		cancel: cancel,
 	}
-	
+
 	// Auto-cleanup on test completion
 	t.Cleanup(func() {
 		tc.Cleanup()
 	})
-	
+
 	return tc
 }
 
@@ -403,12 +402,12 @@ func (tc *TestContext) AddCleanup(cleanup CleanupFunc) {
 // Cleanup runs all registered cleanup functions
 func (tc *TestContext) Cleanup() {
 	tc.cancel()
-	
+
 	tc.mu.Lock()
 	cleanups := make([]CleanupFunc, len(tc.cleanups))
 	copy(cleanups, tc.cleanups)
 	tc.mu.Unlock()
-	
+
 	// Run cleanups in reverse order
 	for i := len(cleanups) - 1; i >= 0; i-- {
 		func() {

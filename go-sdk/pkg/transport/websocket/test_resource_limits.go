@@ -61,7 +61,7 @@ func (r *ResourceLimitedTest) RunWithLimits(t *testing.T, name string, testFunc 
 		var initialMemStats runtime.MemStats
 		runtime.ReadMemStats(&initialMemStats)
 
-		t.Logf("Starting test with %d active tests, %d goroutines, %d MB memory", 
+		t.Logf("Starting test with %d active tests, %d goroutines, %d MB memory",
 			currentActive, initialGoroutines, initialMemStats.Alloc/(1024*1024))
 
 		// Run test with timeout
@@ -100,8 +100,8 @@ func (r *ResourceLimitedTest) RunWithLimits(t *testing.T, name string, testFunc 
 			t.Logf("WARNING: Potential memory leak detected: %d MB", memoryLeakMB)
 		}
 
-		t.Logf("Test completed: %d goroutines (%+d), %d MB memory (%+d MB)", 
-			finalGoroutines, goroutineLeak, 
+		t.Logf("Test completed: %d goroutines (%+d), %d MB memory (%+d MB)",
+			finalGoroutines, goroutineLeak,
 			finalMemStats.Alloc/(1024*1024), memoryLeakMB)
 	})
 }

@@ -24,16 +24,15 @@ import (
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport/common"
 )
 
-
 // WebSocketMockEvent implements the events.Event interface for testing
 type WebSocketMockEvent struct {
-	EventType      events.EventType `json:"type"`
-	TimestampMs    *int64           `json:"timestamp,omitempty"`
-	Data           string           `json:"data"`
-	ValidationFunc func() error     `json:"-"`
+	EventType      events.EventType  `json:"type"`
+	TimestampMs    *int64            `json:"timestamp,omitempty"`
+	Data           string            `json:"data"`
+	ValidationFunc func() error      `json:"-"`
 	baseEvent      *events.BaseEvent `json:"-"` // Cached BaseEvent for validation
-	threadID       string           `json:"-"` // Mock thread ID
-	runID          string           `json:"-"` // Mock run ID
+	threadID       string            `json:"-"` // Mock thread ID
+	runID          string            `json:"-"` // Mock run ID
 }
 
 func (m *WebSocketMockEvent) Type() events.EventType                { return m.EventType }
@@ -52,18 +51,18 @@ func (m *WebSocketMockEvent) GetBaseEvent() *events.BaseEvent {
 	return m.baseEvent
 }
 
-func (m *WebSocketMockEvent) ThreadID() string { 
+func (m *WebSocketMockEvent) ThreadID() string {
 	if m.threadID == "" {
 		return "mock-thread-id"
 	}
-	return m.threadID 
+	return m.threadID
 }
 
-func (m *WebSocketMockEvent) RunID() string { 
+func (m *WebSocketMockEvent) RunID() string {
 	if m.runID == "" {
 		return "mock-run-id"
 	}
-	return m.runID 
+	return m.runID
 }
 func (m *WebSocketMockEvent) Validate() error {
 	if m.ValidationFunc != nil {
@@ -140,20 +139,20 @@ func waitForStatsCondition(t *testing.T, transport *Transport, condition func(Tr
 // with optimized resource usage to prevent test interference
 func waitForActiveSubscriptions(t *testing.T, transport *Transport, expected int64, timeout time.Duration) {
 	t.Helper()
-	
+
 	// Track initial goroutine state for leak detection
 	initialGoroutines := runtime.NumGoroutine()
-	
+
 	// Lightweight cleanup - single GC to reduce resource usage
 	runtime.GC()
 	time.Sleep(getOptimizedSleep(50 * time.Millisecond)) // Reduced from 150ms to 50ms
-	
+
 	// Less frequent polling to reduce CPU usage in test suite
 	pollInterval := 25 * time.Millisecond // Increased from 10ms to 25ms
-	
+
 	// Track retry attempts for debugging
 	var attempts int
-	
+
 	// Optimized condition function with reduced overhead
 	waitForStatsCondition(t, transport, func(stats TransportStats) bool {
 		actual := stats.ActiveSubscriptions
@@ -163,9 +162,9 @@ func waitForActiveSubscriptions(t *testing.T, transport *Transport, expected int
 			if attempts%40 == 0 { // Log every 40 attempts (every 1000ms with 25ms interval)
 				currentGoroutines := runtime.NumGoroutine()
 				goroutineChange := currentGoroutines - initialGoroutines
-				t.Logf("Retry %d: Active subscriptions check: expected=%d, actual=%d, handlers=%d, goroutines=%d (+%d)", 
+				t.Logf("Retry %d: Active subscriptions check: expected=%d, actual=%d, handlers=%d, goroutines=%d (+%d)",
 					attempts, expected, actual, transport.GetEventHandlerCount(), currentGoroutines, goroutineChange)
-				
+
 				// Lightweight cleanup every 40 attempts - single GC only
 				runtime.GC()
 				time.Sleep(getOptimizedSleep(25 * time.Millisecond)) // Reduced from 100ms to 25ms
@@ -178,80 +177,79 @@ func waitForActiveSubscriptions(t *testing.T, transport *Transport, expected int
 // NewTestTransportConfig returns a transport configuration optimized for testing
 func NewTestTransportConfig() *TransportConfig {
 	config := DefaultTransportConfig()
-	
+
 	// Use testing-friendly validation config
 	config.EventValidator = events.NewEventValidator(events.TestingValidationConfig())
-	
+
 	// Use environment-aware timeouts
 	config.DialTimeout = getTestTimeout(5 * time.Second)
 	config.EventTimeout = getTestTimeout(5 * time.Second)
-	
+
 	// Use test logger
 	config.Logger = zaptest.NewLogger(&testingT{})
-	
+
 	// Configure pool for testing stability
 	if config.PoolConfig == nil {
 		config.PoolConfig = DefaultPoolConfig()
 	}
 	config.PoolConfig.HealthCheckInterval = 300 * time.Second // Very long interval to prevent connection drops during tests
 	config.PoolConfig.IdleTimeout = 300 * time.Second         // Very long idle timeout
-	
+
 	// Configure testing-friendly backpressure settings
 	config.BackpressureConfig = &BackpressureConfig{
-		EventChannelBuffer:           50000,  // Larger buffer for testing
-		MaxDroppedEvents:             10000,  // Allow more dropped events before taking action
-		DropActionType:               DropActionLog, // Only log, don't take aggressive action
-		EnableBackpressureLogging:    false,  // Reduce test noise
-		BackpressureThresholdPercent: 95,     // Higher threshold for testing
-		EnableChannelMonitoring:      false,  // Disable monitoring in tests
+		EventChannelBuffer:           50000,            // Larger buffer for testing
+		MaxDroppedEvents:             10000,            // Allow more dropped events before taking action
+		DropActionType:               DropActionLog,    // Only log, don't take aggressive action
+		EnableBackpressureLogging:    false,            // Reduce test noise
+		BackpressureThresholdPercent: 95,               // Higher threshold for testing
+		EnableChannelMonitoring:      false,            // Disable monitoring in tests
 		MonitoringInterval:           30 * time.Second, // Longer interval
 	}
-	
+
 	// Disable performance manager for testing to use direct pool sending
 	config.PerformanceConfig = nil
-	
+
 	// Configure connection template for testing stability
 	if config.PoolConfig.ConnectionTemplate == nil {
 		config.PoolConfig.ConnectionTemplate = DefaultConnectionConfig()
 	}
-	
+
 	// CRITICAL: Use test rate limiter to prevent indefinite blocking
 	config.PoolConfig.ConnectionTemplate.RateLimiter = NewTestRateLimiter()
-	
+
 	// Use more lenient heartbeat settings for testing
-	config.PoolConfig.ConnectionTemplate.PingPeriod = 30 * time.Second      // Longer between pings
-	config.PoolConfig.ConnectionTemplate.PongWait = 60 * time.Second        // Longer wait for pong
-	config.PoolConfig.ConnectionTemplate.ReadTimeout = 120 * time.Second    // Longer read timeout
-	config.PoolConfig.ConnectionTemplate.WriteTimeout = 30 * time.Second    // Longer write timeout
-	config.PoolConfig.ConnectionTemplate.MaxReconnectAttempts = 3           // Fewer reconnection attempts
+	config.PoolConfig.ConnectionTemplate.PingPeriod = 30 * time.Second   // Longer between pings
+	config.PoolConfig.ConnectionTemplate.PongWait = 60 * time.Second     // Longer wait for pong
+	config.PoolConfig.ConnectionTemplate.ReadTimeout = 120 * time.Second // Longer read timeout
+	config.PoolConfig.ConnectionTemplate.WriteTimeout = 30 * time.Second // Longer write timeout
+	config.PoolConfig.ConnectionTemplate.MaxReconnectAttempts = 3        // Fewer reconnection attempts
 	config.PoolConfig.ConnectionTemplate.InitialReconnectDelay = 50 * time.Millisecond
 	config.PoolConfig.ConnectionTemplate.MaxReconnectDelay = 500 * time.Millisecond
-	
+
 	return config
 }
-
 
 // testingT implements the testing.TB interface for zaptest
 type testingT struct{}
 
-func (t *testingT) Cleanup(func())     {}
-func (t *testingT) Error(args ...any)  {}
+func (t *testingT) Cleanup(func())                    {}
+func (t *testingT) Error(args ...any)                 {}
 func (t *testingT) Errorf(format string, args ...any) {}
-func (t *testingT) Fail()             {}
-func (t *testingT) FailNow()          {}
-func (t *testingT) Failed() bool      { return false }
-func (t *testingT) Fatal(args ...any) {}
+func (t *testingT) Fail()                             {}
+func (t *testingT) FailNow()                          {}
+func (t *testingT) Failed() bool                      { return false }
+func (t *testingT) Fatal(args ...any)                 {}
 func (t *testingT) Fatalf(format string, args ...any) {}
-func (t *testingT) Helper()           {}
-func (t *testingT) Log(args ...any)   {}
-func (t *testingT) Logf(format string, args ...any) {}
-func (t *testingT) Name() string      { return "test" }
-func (t *testingT) Setenv(key, value string) {}
-func (t *testingT) Skip(args ...any)  {}
-func (t *testingT) SkipNow()          {}
-func (t *testingT) Skipf(format string, args ...any) {}
-func (t *testingT) Skipped() bool     { return false }
-func (t *testingT) TempDir() string   { return "" }
+func (t *testingT) Helper()                           {}
+func (t *testingT) Log(args ...any)                   {}
+func (t *testingT) Logf(format string, args ...any)   {}
+func (t *testingT) Name() string                      { return "test" }
+func (t *testingT) Setenv(key, value string)          {}
+func (t *testingT) Skip(args ...any)                  {}
+func (t *testingT) SkipNow()                          {}
+func (t *testingT) Skipf(format string, args ...any)  {}
+func (t *testingT) Skipped() bool                     { return false }
+func (t *testingT) TempDir() string                   { return "" }
 
 // MockEventValidator implements a simple event validator for testing
 type MockEventValidator struct {
@@ -521,7 +519,7 @@ func TestSubscriptionManagement(t *testing.T) {
 	t.Run("CreateSubscription", func(t *testing.T) {
 		// Get initial stats to track relative changes
 		initialStats := transport.Stats()
-		
+
 		eventTypes := []string{string(events.EventTypeTextMessageContent)}
 		var receivedEvents []events.Event
 		var mu sync.Mutex
@@ -545,7 +543,7 @@ func TestSubscriptionManagement(t *testing.T) {
 		stats := transport.Stats()
 		assert.Equal(t, initialStats.ActiveSubscriptions+1, stats.ActiveSubscriptions)
 		assert.Equal(t, initialStats.TotalSubscriptions+1, stats.TotalSubscriptions)
-		
+
 		// Clean up this test's subscription
 		err = transport.Unsubscribe(subscription.ID)
 		require.NoError(t, err)
@@ -569,7 +567,7 @@ func TestSubscriptionManagement(t *testing.T) {
 	t.Run("UnsubscribeExisting", func(t *testing.T) {
 		// Get initial stats to track relative changes
 		initialStats := transport.Stats()
-		
+
 		// Create a subscription first
 		eventTypes := []string{string(events.EventTypeTextMessageContent)}
 		handler := func(ctx context.Context, event events.Event) error { return nil }
@@ -617,7 +615,7 @@ func TestSubscriptionManagement(t *testing.T) {
 		_, err = transport.GetSubscription("non-existent")
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "subscription not found")
-		
+
 		// Clean up this test's subscription
 		err = transport.Unsubscribe(subscription.ID)
 		require.NoError(t, err)
@@ -627,7 +625,7 @@ func TestSubscriptionManagement(t *testing.T) {
 		// Get initial count of subscriptions from previous tests
 		initialSubscriptions := transport.ListSubscriptions()
 		initialCount := len(initialSubscriptions)
-		
+
 		// Create multiple subscriptions
 		eventTypes1 := []string{string(events.EventTypeTextMessageContent)}
 		eventTypes2 := []string{string(events.EventTypeToolCallStart)}
@@ -651,7 +649,7 @@ func TestSubscriptionManagement(t *testing.T) {
 		}
 		assert.True(t, ids[sub1.ID])
 		assert.True(t, ids[sub2.ID])
-		
+
 		// Clean up this test's subscriptions
 		err = transport.Unsubscribe(sub1.ID)
 		require.NoError(t, err)
@@ -748,7 +746,7 @@ func TestTransportDetailedStatus(t *testing.T) {
 		go func() {
 			done <- transport.Stop()
 		}()
-		
+
 		select {
 		case <-done:
 		case <-time.After(2 * time.Second):
@@ -788,260 +786,260 @@ func TestTransportConcurrency(t *testing.T) {
 		time.Sleep(50 * time.Millisecond)
 		initialGoroutines := runtime.NumGoroutine()
 		t.Logf("TestTransportConcurrency: Initial goroutines: %d", initialGoroutines)
-	
-	defer func() {
-		// Aggressive cleanup and goroutine leak verification
-		runtime.GC()
-		time.Sleep(getOptimizedSleep(200 * time.Millisecond))
-		runtime.GC()
-		time.Sleep(getOptimizedSleep(100 * time.Millisecond))
-		
-		finalGoroutines := runtime.NumGoroutine()
-		t.Logf("TestTransportConcurrency: Final goroutines: %d", finalGoroutines)
-		
-		leaked := finalGoroutines - initialGoroutines
-		if leaked > 15 { // Allow 15 goroutine tolerance for test framework
-			t.Errorf("Goroutine leak detected: started=%d, ended=%d, leaked=%d", 
-				initialGoroutines, finalGoroutines, leaked)
-		}
-	}()
-	
-	defer testhelper.VerifyNoGoroutineLeaks(t)
-	
-	server := createTestWebSocketServer(t)
-	defer server.Close()
-	
-	// Set up cleanup helpers
-	cleanup := testhelper.NewCleanupManager(t)
 
-	config := DefaultTransportConfig()
-	config.URLs = []string{"ws" + strings.TrimPrefix(server.URL, "http")}
-	config.Logger = zaptest.NewLogger(t)
-	config.EnableEventValidation = false
+		defer func() {
+			// Aggressive cleanup and goroutine leak verification
+			runtime.GC()
+			time.Sleep(getOptimizedSleep(200 * time.Millisecond))
+			runtime.GC()
+			time.Sleep(getOptimizedSleep(100 * time.Millisecond))
 
-	transport, err := NewTransport(config)
-	require.NoError(t, err)
+			finalGoroutines := runtime.NumGoroutine()
+			t.Logf("TestTransportConcurrency: Final goroutines: %d", finalGoroutines)
 
-	testCtx := testhelper.NewTestContextWithTimeout(t, 15*time.Second)
-	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second) // Reduced timeout
-	defer cancel()
-	
-	// Use testCtx for cleanup, ctx for the actual transport operations
-	_ = testCtx
-
-	err = transport.Start(ctx)
-	require.NoError(t, err)
-	
-	// Register enhanced transport cleanup with aggressive reset and goroutine tracking
-	cleanup.Register("transport", func() {
-		t.Logf("Starting enhanced transport cleanup")
-		
-		// Track goroutines before cleanup
-		preCleanupGoroutines := runtime.NumGoroutine()
-		
-		// Log current state before cleanup
-		stats := transport.Stats()
-		t.Logf("Pre-cleanup transport state: ActiveSubscriptions=%d, EventHandlers=%d, Goroutines=%d", 
-			stats.ActiveSubscriptions, transport.GetEventHandlerCount(), preCleanupGoroutines)
-		
-		// Force aggressive cleanup with timeout
-		runtime.GC()
-		time.Sleep(getOptimizedSleep(100 * time.Millisecond))
-		
-		// Stop transport with timeout protection
-		done := make(chan error, 1)
-		go func() {
-			done <- transport.Stop()
+			leaked := finalGoroutines - initialGoroutines
+			if leaked > 15 { // Allow 15 goroutine tolerance for test framework
+				t.Errorf("Goroutine leak detected: started=%d, ended=%d, leaked=%d",
+					initialGoroutines, finalGoroutines, leaked)
+			}
 		}()
-		
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Logf("Error stopping transport: %v", err)
+
+		defer testhelper.VerifyNoGoroutineLeaks(t)
+
+		server := createTestWebSocketServer(t)
+		defer server.Close()
+
+		// Set up cleanup helpers
+		cleanup := testhelper.NewCleanupManager(t)
+
+		config := DefaultTransportConfig()
+		config.URLs = []string{"ws" + strings.TrimPrefix(server.URL, "http")}
+		config.Logger = zaptest.NewLogger(t)
+		config.EnableEventValidation = false
+
+		transport, err := NewTransport(config)
+		require.NoError(t, err)
+
+		testCtx := testhelper.NewTestContextWithTimeout(t, 15*time.Second)
+		ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second) // Reduced timeout
+		defer cancel()
+
+		// Use testCtx for cleanup, ctx for the actual transport operations
+		_ = testCtx
+
+		err = transport.Start(ctx)
+		require.NoError(t, err)
+
+		// Register enhanced transport cleanup with aggressive reset and goroutine tracking
+		cleanup.Register("transport", func() {
+			t.Logf("Starting enhanced transport cleanup")
+
+			// Track goroutines before cleanup
+			preCleanupGoroutines := runtime.NumGoroutine()
+
+			// Log current state before cleanup
+			stats := transport.Stats()
+			t.Logf("Pre-cleanup transport state: ActiveSubscriptions=%d, EventHandlers=%d, Goroutines=%d",
+				stats.ActiveSubscriptions, transport.GetEventHandlerCount(), preCleanupGoroutines)
+
+			// Force aggressive cleanup with timeout
+			runtime.GC()
+			time.Sleep(getOptimizedSleep(100 * time.Millisecond))
+
+			// Stop transport with timeout protection
+			done := make(chan error, 1)
+			go func() {
+				done <- transport.Stop()
+			}()
+
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Logf("Error stopping transport: %v", err)
+				}
+			case <-time.After(3 * time.Second):
+				t.Logf("Transport.Stop() timed out, forcing cleanup")
+				// Force cancel if available
+				if transport.cancel != nil {
+					transport.cancel()
+				}
 			}
-		case <-time.After(3 * time.Second):
-			t.Logf("Transport.Stop() timed out, forcing cleanup")
-			// Force cancel if available
-			if transport.cancel != nil {
-				transport.cancel()
+
+			// Additional aggressive cleanup
+			runtime.GC()
+			time.Sleep(getOptimizedSleep(200 * time.Millisecond))
+			runtime.GC()
+			time.Sleep(getOptimizedSleep(100 * time.Millisecond))
+
+			// Verify final cleanup
+			finalStats := transport.Stats()
+			postCleanupGoroutines := runtime.NumGoroutine()
+			t.Logf("Post-cleanup transport state: ActiveSubscriptions=%d, EventHandlers=%d, Goroutines=%d",
+				finalStats.ActiveSubscriptions, transport.GetEventHandlerCount(), postCleanupGoroutines)
+
+			// Warn about goroutine leaks during cleanup
+			if postCleanupGoroutines > preCleanupGoroutines {
+				t.Logf("WARNING: Goroutines increased during cleanup: %d -> %d",
+					preCleanupGoroutines, postCleanupGoroutines)
 			}
-		}
-		
-		// Additional aggressive cleanup
-		runtime.GC()
-		time.Sleep(getOptimizedSleep(200 * time.Millisecond))
-		runtime.GC()
+		})
+
+		// Wait for connections with reduced delay
 		time.Sleep(getOptimizedSleep(100 * time.Millisecond))
-		
-		// Verify final cleanup
-		finalStats := transport.Stats()
-		postCleanupGoroutines := runtime.NumGoroutine()
-		t.Logf("Post-cleanup transport state: ActiveSubscriptions=%d, EventHandlers=%d, Goroutines=%d", 
-			finalStats.ActiveSubscriptions, transport.GetEventHandlerCount(), postCleanupGoroutines)
-		
-		// Warn about goroutine leaks during cleanup
-		if postCleanupGoroutines > preCleanupGoroutines {
-			t.Logf("WARNING: Goroutines increased during cleanup: %d -> %d", 
-				preCleanupGoroutines, postCleanupGoroutines)
-		}
-	})
 
-	// Wait for connections with reduced delay
-	time.Sleep(getOptimizedSleep(100 * time.Millisecond))
+		t.Run("ConcurrentEventSending", func(t *testing.T) {
+			var wg sync.WaitGroup
+			// Reduced resource usage to prevent test interference
+			numGoroutines := 3      // Reduced from 10 to 3
+			eventsPerGoroutine := 3 // Reduced from 10 to 3
+			var errors int32
 
-	t.Run("ConcurrentEventSending", func(t *testing.T) {
-		var wg sync.WaitGroup
-		// Reduced resource usage to prevent test interference
-		numGoroutines := 3  // Reduced from 10 to 3
-		eventsPerGoroutine := 3  // Reduced from 10 to 3
-		var errors int32
+			// Add timeout protection to prevent hanging
+			testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
 
-		// Add timeout protection to prevent hanging
-		testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
+			for i := 0; i < numGoroutines; i++ {
+				wg.Add(1)
+				go func(id int) {
+					defer wg.Done()
+					for j := 0; j < eventsPerGoroutine; j++ {
+						select {
+						case <-testCtx.Done():
+							atomic.AddInt32(&errors, 1)
+							return
+						default:
+						}
 
-		for i := 0; i < numGoroutines; i++ {
-			wg.Add(1)
-			go func(id int) {
-				defer wg.Done()
-				for j := 0; j < eventsPerGoroutine; j++ {
-					select {
-					case <-testCtx.Done():
-						atomic.AddInt32(&errors, 1)
-						return
-					default:
+						event := &WebSocketMockEvent{
+							EventType: events.EventTypeTextMessageContent,
+							Data:      fmt.Sprintf("concurrent message from goroutine %d, event %d", id, j),
+						}
+
+						if err := transport.SendEvent(testCtx, event); err != nil {
+							atomic.AddInt32(&errors, 1)
+						}
 					}
-					
-					event := &WebSocketMockEvent{
-						EventType: events.EventTypeTextMessageContent,
-						Data:      fmt.Sprintf("concurrent message from goroutine %d, event %d", id, j),
-					}
+				}(i)
+			}
 
-					if err := transport.SendEvent(testCtx, event); err != nil {
-						atomic.AddInt32(&errors, 1)
-					}
-				}
-			}(i)
-		}
+			wg.Wait()
 
-		wg.Wait()
-
-		assert.Equal(t, int32(0), errors)
-		stats := transport.Stats()
-		assert.Equal(t, int64(numGoroutines*eventsPerGoroutine), stats.EventsSent)
-	})
-
-	// Enhanced inter-test cleanup and transport reset
-	// This ensures the transport is fully reset between tests to prevent state leakage
-	t.Logf("Performing enhanced transport reset between subtests")
-	runtime.GC() // Force garbage collection to clean up any lingering references
-	time.Sleep(getOptimizedSleep(100 * time.Millisecond)) // Allow background operations to complete
-	
-	// Log pre-reset state for debugging
-	preResetStats := transport.Stats()
-	t.Logf("Pre-reset state: ActiveSubscriptions=%d, TotalSubscriptions=%d, EventHandlers=%d", 
-		preResetStats.ActiveSubscriptions, preResetStats.TotalSubscriptions, transport.GetEventHandlerCount())
-	
-	// Verify transport is in expected state before proceeding
-	if preResetStats.ActiveSubscriptions != 0 {
-		t.Logf("WARNING: ActiveSubscriptions not zero before next test: %d", preResetStats.ActiveSubscriptions)
-	}
-
-	t.Run("ConcurrentSubscriptionManagement", func(t *testing.T) {
-		var wg sync.WaitGroup
-		// Reduced resource usage to prevent cumulative resource exhaustion
-		numGoroutines := 3  // Reduced from 5 to 3
-		subscriptionsPerGoroutine := 2  // Reduced from 3 to 2
-		var subscriptionIDs sync.Map
-		var errors int32
-
-		// Add timeout protection
-		subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		defer cancel()
-
-		handler := func(ctx context.Context, event events.Event) error { return nil }
-
-		// Create subscriptions concurrently
-		for i := 0; i < numGoroutines; i++ {
-			wg.Add(1)
-			go func(id int) {
-				defer wg.Done()
-				for j := 0; j < subscriptionsPerGoroutine; j++ {
-					eventTypes := []string{fmt.Sprintf("test_type_%d_%d", id, j)}
-					sub, err := transport.Subscribe(subCtx, eventTypes, handler)
-					if err != nil {
-						atomic.AddInt32(&errors, 1)
-					} else {
-						subscriptionIDs.Store(sub.ID, true)
-					}
-				}
-			}(i)
-		}
-
-		wg.Wait()
-		assert.Equal(t, int32(0), errors)
-
-		// Count subscriptions
-		count := 0
-		subscriptionIDs.Range(func(key, value interface{}) bool {
-			count++
-			return true
-		})
-		assert.Equal(t, numGoroutines*subscriptionsPerGoroutine, count)
-
-		// Unsubscribe concurrently
-		wg = sync.WaitGroup{}
-		subscriptionIDs.Range(func(key, value interface{}) bool {
-			wg.Add(1)
-			go func(id string) {
-				defer wg.Done()
-				if err := transport.Unsubscribe(id); err != nil {
-					atomic.AddInt32(&errors, 1)
-				}
-			}(key.(string))
-			return true
+			assert.Equal(t, int32(0), errors)
+			stats := transport.Stats()
+			assert.Equal(t, int64(numGoroutines*eventsPerGoroutine), stats.EventsSent)
 		})
 
-		wg.Wait()
-		assert.Equal(t, int32(0), errors)
+		// Enhanced inter-test cleanup and transport reset
+		// This ensures the transport is fully reset between tests to prevent state leakage
+		t.Logf("Performing enhanced transport reset between subtests")
+		runtime.GC()                                          // Force garbage collection to clean up any lingering references
+		time.Sleep(getOptimizedSleep(100 * time.Millisecond)) // Allow background operations to complete
 
-		// Enhanced cleanup procedure with goroutine tracking and aggressive retry mechanism
-		preCleanupGoroutines := runtime.NumGoroutine()
-		
-		// Stage 1: Force immediate cleanup operations
-		runtime.GC() // Force garbage collection to clean up any lingering references
-		time.Sleep(getOptimizedSleep(200 * time.Millisecond)) // Allow background cleanup operations to complete
-		
-		// Stage 2: Check if cleanup is needed and log current state
-		preCleanupStats := transport.Stats()
-		if preCleanupStats.ActiveSubscriptions > 0 {
-			t.Logf("Pre-cleanup state: ActiveSubscriptions=%d, EventHandlers=%d, Goroutines=%d", 
-				preCleanupStats.ActiveSubscriptions, transport.GetEventHandlerCount(), preCleanupGoroutines)
-			
-			// Stage 2a: Force additional cleanup operations if subscriptions remain
-			runtime.GC()  // Additional GC run
-			time.Sleep(300 * time.Millisecond) // Longer wait for background operations
-		}
-		
-		// Stage 3: Wait for all cleanup operations to complete with robust retry mechanism
-		// Increased timeout from 500ms to 5 seconds for full test suite environment
-		// This ensures statistics are consistent and all background operations finish
-		waitForActiveSubscriptions(t, transport, 0, 5*time.Second)
-		
-		// Stage 4: Verify goroutine cleanup
-		postCleanupGoroutines := runtime.NumGoroutine()
-		gorooutineChange := postCleanupGoroutines - preCleanupGoroutines
-		if gorooutineChange > 5 {
-			t.Logf("WARNING: Goroutines increased during subscription cleanup: %d -> %d (+%d)", 
-				preCleanupGoroutines, postCleanupGoroutines, gorooutineChange)
+		// Log pre-reset state for debugging
+		preResetStats := transport.Stats()
+		t.Logf("Pre-reset state: ActiveSubscriptions=%d, TotalSubscriptions=%d, EventHandlers=%d",
+			preResetStats.ActiveSubscriptions, preResetStats.TotalSubscriptions, transport.GetEventHandlerCount())
+
+		// Verify transport is in expected state before proceeding
+		if preResetStats.ActiveSubscriptions != 0 {
+			t.Logf("WARNING: ActiveSubscriptions not zero before next test: %d", preResetStats.ActiveSubscriptions)
 		}
 
-		// Final verification
-		finalStats := transport.Stats()
-		assert.Equal(t, int64(0), finalStats.ActiveSubscriptions)
-		stats := transport.Stats()
-		assert.Equal(t, int64(0), stats.ActiveSubscriptions)
-	})
+		t.Run("ConcurrentSubscriptionManagement", func(t *testing.T) {
+			var wg sync.WaitGroup
+			// Reduced resource usage to prevent cumulative resource exhaustion
+			numGoroutines := 3             // Reduced from 5 to 3
+			subscriptionsPerGoroutine := 2 // Reduced from 3 to 2
+			var subscriptionIDs sync.Map
+			var errors int32
+
+			// Add timeout protection
+			subCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+
+			handler := func(ctx context.Context, event events.Event) error { return nil }
+
+			// Create subscriptions concurrently
+			for i := 0; i < numGoroutines; i++ {
+				wg.Add(1)
+				go func(id int) {
+					defer wg.Done()
+					for j := 0; j < subscriptionsPerGoroutine; j++ {
+						eventTypes := []string{fmt.Sprintf("test_type_%d_%d", id, j)}
+						sub, err := transport.Subscribe(subCtx, eventTypes, handler)
+						if err != nil {
+							atomic.AddInt32(&errors, 1)
+						} else {
+							subscriptionIDs.Store(sub.ID, true)
+						}
+					}
+				}(i)
+			}
+
+			wg.Wait()
+			assert.Equal(t, int32(0), errors)
+
+			// Count subscriptions
+			count := 0
+			subscriptionIDs.Range(func(key, value interface{}) bool {
+				count++
+				return true
+			})
+			assert.Equal(t, numGoroutines*subscriptionsPerGoroutine, count)
+
+			// Unsubscribe concurrently
+			wg = sync.WaitGroup{}
+			subscriptionIDs.Range(func(key, value interface{}) bool {
+				wg.Add(1)
+				go func(id string) {
+					defer wg.Done()
+					if err := transport.Unsubscribe(id); err != nil {
+						atomic.AddInt32(&errors, 1)
+					}
+				}(key.(string))
+				return true
+			})
+
+			wg.Wait()
+			assert.Equal(t, int32(0), errors)
+
+			// Enhanced cleanup procedure with goroutine tracking and aggressive retry mechanism
+			preCleanupGoroutines := runtime.NumGoroutine()
+
+			// Stage 1: Force immediate cleanup operations
+			runtime.GC()                                          // Force garbage collection to clean up any lingering references
+			time.Sleep(getOptimizedSleep(200 * time.Millisecond)) // Allow background cleanup operations to complete
+
+			// Stage 2: Check if cleanup is needed and log current state
+			preCleanupStats := transport.Stats()
+			if preCleanupStats.ActiveSubscriptions > 0 {
+				t.Logf("Pre-cleanup state: ActiveSubscriptions=%d, EventHandlers=%d, Goroutines=%d",
+					preCleanupStats.ActiveSubscriptions, transport.GetEventHandlerCount(), preCleanupGoroutines)
+
+				// Stage 2a: Force additional cleanup operations if subscriptions remain
+				runtime.GC()                       // Additional GC run
+				time.Sleep(300 * time.Millisecond) // Longer wait for background operations
+			}
+
+			// Stage 3: Wait for all cleanup operations to complete with robust retry mechanism
+			// Increased timeout from 500ms to 5 seconds for full test suite environment
+			// This ensures statistics are consistent and all background operations finish
+			waitForActiveSubscriptions(t, transport, 0, 5*time.Second)
+
+			// Stage 4: Verify goroutine cleanup
+			postCleanupGoroutines := runtime.NumGoroutine()
+			gorooutineChange := postCleanupGoroutines - preCleanupGoroutines
+			if gorooutineChange > 5 {
+				t.Logf("WARNING: Goroutines increased during subscription cleanup: %d -> %d (+%d)",
+					preCleanupGoroutines, postCleanupGoroutines, gorooutineChange)
+			}
+
+			// Final verification
+			finalStats := transport.Stats()
+			assert.Equal(t, int64(0), finalStats.ActiveSubscriptions)
+			stats := transport.Stats()
+			assert.Equal(t, int64(0), stats.ActiveSubscriptions)
+		})
 	}) // Close WithResourceControl
 }
 
@@ -1051,24 +1049,24 @@ func TestTransportErrorHandling(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 	initialGoroutines := runtime.NumGoroutine()
 	t.Logf("TestTransportErrorHandling: Initial goroutines: %d", initialGoroutines)
-	
+
 	defer func() {
 		// Verify no goroutine leaks after all error handling tests
 		runtime.GC()
 		time.Sleep(getOptimizedSleep(200 * time.Millisecond))
 		runtime.GC()
 		time.Sleep(getOptimizedSleep(100 * time.Millisecond))
-		
+
 		finalGoroutines := runtime.NumGoroutine()
 		t.Logf("TestTransportErrorHandling: Final goroutines: %d", finalGoroutines)
-		
+
 		leaked := finalGoroutines - initialGoroutines
 		if leaked > 10 { // Allow 10 goroutine tolerance
-			t.Errorf("Goroutine leak detected in error handling tests: started=%d, ended=%d, leaked=%d", 
+			t.Errorf("Goroutine leak detected in error handling tests: started=%d, ended=%d, leaked=%d",
 				initialGoroutines, finalGoroutines, leaked)
 		}
 	}()
-	
+
 	t.Run("SendEventWithoutConnections", func(t *testing.T) {
 		config := DefaultTransportConfig()
 		config.URLs = []string{"ws://localhost:9999"} // Non-existent server
@@ -1098,7 +1096,7 @@ func TestTransportErrorHandling(t *testing.T) {
 		go func() {
 			done <- transport.Stop()
 		}()
-		
+
 		select {
 		case err := <-done:
 			if err != nil {
@@ -1132,7 +1130,7 @@ func TestTransportErrorHandling(t *testing.T) {
 			go func() {
 				done <- transport.Stop()
 			}()
-			
+
 			select {
 			case <-done:
 			case <-time.After(2 * time.Second):
@@ -1192,7 +1190,7 @@ func TestTransportEventProcessing(t *testing.T) {
 		go func() {
 			done <- transport.Stop()
 		}()
-		
+
 		select {
 		case <-done:
 		case <-time.After(2 * time.Second):
@@ -1592,7 +1590,7 @@ func TestEventProcessingPipeline(t *testing.T) {
 	// Send event to the channel
 	select {
 	case transport.eventCh <- eventJSON:
-		// Event sent successfully  
+		// Event sent successfully
 	case <-time.After(5 * time.Second):
 		t.Fatal("Failed to send event to channel")
 	}

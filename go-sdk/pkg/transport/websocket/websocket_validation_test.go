@@ -23,7 +23,7 @@ import (
 
 // TestWebSocketEventValidation tests basic WebSocket event validation
 func TestWebSocketEventValidation(t *testing.T) {
-	
+
 	tests := []struct {
 		name            string
 		event           events.Event
@@ -80,8 +80,8 @@ func TestWebSocketEventValidation(t *testing.T) {
 			errorContains:   "timestamp",
 		},
 		{
-			name: "permissive_validation_allows_empty_timestamp",
-			event: events.NewTextMessageContentEvent("msg-1", "test"),
+			name:            "permissive_validation_allows_empty_timestamp",
+			event:           events.NewTextMessageContentEvent("msg-1", "test"),
 			validationLevel: events.ValidationPermissive,
 			expectError:     false,
 		},
@@ -94,14 +94,14 @@ func TestWebSocketEventValidation(t *testing.T) {
 				Level:                  tt.validationLevel,
 				SkipSequenceValidation: true, // Skip sequence validation for individual event tests
 			}
-			
+
 			// Use the simpler validator that respects the config
 			simpleValidator := events.NewValidator(validationConfig)
-			
+
 			// Test validation
 			ctx := context.Background()
 			validationErr := simpleValidator.ValidateEvent(ctx, tt.event)
-			
+
 			if tt.expectError {
 				assert.Error(t, validationErr)
 				if tt.errorContains != "" && validationErr != nil {
@@ -116,7 +116,7 @@ func TestWebSocketEventValidation(t *testing.T) {
 
 // TestWebSocketDifferentEventTypes tests validation for different event types
 func TestWebSocketDifferentEventTypes(t *testing.T) {
-	
+
 	// Test different event types with validation (without WebSocket transport)
 	eventTypes := []struct {
 		name        string
@@ -210,13 +210,13 @@ func TestWebSocketDifferentEventTypes(t *testing.T) {
 
 // TestWebSocketValidationErrorHandling tests error handling during validation
 func TestWebSocketValidationErrorHandling(t *testing.T) {
-	
+
 	tests := []struct {
-		name          string
-		event         events.Event
+		name             string
+		event            events.Event
 		validationConfig *events.ValidationConfig
-		expectError   bool
-		errorContains string
+		expectError      bool
+		errorContains    string
 	}{
 		{
 			name: "event_size_validation",
@@ -226,7 +226,7 @@ func TestWebSocketValidationErrorHandling(t *testing.T) {
 				TimestampMs: func() *int64 { t := time.Now().UnixMilli(); return &t }(),
 			},
 			validationConfig: events.TestingValidationConfig(), // Use testing config to avoid strict timestamp validation
-			expectError: false, // Size validation is not part of basic validation
+			expectError:      false,                            // Size validation is not part of basic validation
 		},
 		{
 			name: "validation_timeout_simulation",
@@ -240,14 +240,14 @@ func TestWebSocketValidationErrorHandling(t *testing.T) {
 				},
 			},
 			validationConfig: events.TestingValidationConfig(),
-			expectError: false,
+			expectError:      false,
 		},
 		{
-			name: "nil_event_validation",
-			event: nil,
+			name:             "nil_event_validation",
+			event:            nil,
 			validationConfig: events.DefaultValidationConfig(),
-			expectError: true,
-			errorContains: "nil",
+			expectError:      true,
+			errorContains:    "nil",
 		},
 		{
 			name: "invalid_event_type",
@@ -260,8 +260,8 @@ func TestWebSocketValidationErrorHandling(t *testing.T) {
 				},
 			},
 			validationConfig: events.TestingValidationConfig(),
-			expectError: true,
-			errorContains: "event type",
+			expectError:      true,
+			errorContains:    "event type",
 		},
 	}
 
@@ -292,7 +292,7 @@ func TestWebSocketValidationErrorHandling(t *testing.T) {
 
 // TestWebSocketConnectionLifecycleValidation tests validation during connection lifecycle
 func TestWebSocketConnectionLifecycleValidation(t *testing.T) {
-	
+
 	// Test event validation during different lifecycle phases
 	lifecycleTests := []struct {
 		name        string
@@ -554,7 +554,7 @@ func TestWebSocketConcurrentValidation(t *testing.T) {
 
 // TestWebSocketValidationWithCustomRules tests custom validation rules
 func TestWebSocketValidationWithCustomRules(t *testing.T) {
-	
+
 	// Create custom validation rules
 	var validationLog sync.Map
 
@@ -661,7 +661,7 @@ func TestWebSocketValidationWithCustomRules(t *testing.T) {
 
 // TestJWTTokenValidation consolidates all JWT validation tests into a comprehensive table-driven test
 func TestJWTTokenValidation(t *testing.T) {
-	
+
 	secretKey := []byte("test-secret-key-256-bits-minimum")
 	issuer := "test-issuer"
 	audience := "test-audience"

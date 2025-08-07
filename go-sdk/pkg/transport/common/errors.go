@@ -51,16 +51,16 @@ const (
 
 // TransportError is the base error type for transport-related errors.
 type TransportError struct {
-	Type        TransportErrorType `json:"type"`
-	Message     string             `json:"message"`
-	Code        string             `json:"code,omitempty"`
-	Cause       error              `json:"-"`
-	Timestamp   time.Time          `json:"timestamp"`
-	Transport   string             `json:"transport,omitempty"`
-	Endpoint    string             `json:"endpoint,omitempty"`
-	Metadata    map[string]any     `json:"metadata,omitempty"`
-	Retryable   bool               `json:"retryable"`
-	Temporary   bool               `json:"temporary"`
+	Type      TransportErrorType `json:"type"`
+	Message   string             `json:"message"`
+	Code      string             `json:"code,omitempty"`
+	Cause     error              `json:"-"`
+	Timestamp time.Time          `json:"timestamp"`
+	Transport string             `json:"transport,omitempty"`
+	Endpoint  string             `json:"endpoint,omitempty"`
+	Metadata  map[string]any     `json:"metadata,omitempty"`
+	Retryable bool               `json:"retryable"`
+	Temporary bool               `json:"temporary"`
 }
 
 // Error implements the error interface.
@@ -81,11 +81,11 @@ func (e *TransportError) Is(target error) bool {
 	if target == nil {
 		return false
 	}
-	
+
 	if te, ok := target.(*TransportError); ok {
 		return e.Type == te.Type
 	}
-	
+
 	return errors.Is(e.Cause, target)
 }
 
@@ -150,7 +150,7 @@ type ConnectionError struct {
 // NewConnectionError creates a new connection error.
 func NewConnectionError(endpoint string, cause error) *ConnectionError {
 	return &ConnectionError{
-		TransportError: NewTransportError(ErrorTypeConnection, 
+		TransportError: NewTransportError(ErrorTypeConnection,
 			fmt.Sprintf("failed to connect to %s", endpoint), cause),
 		Endpoint: endpoint,
 	}
@@ -195,8 +195,8 @@ func NewAuthenticationError(authType, reason string) *AuthenticationError {
 // AuthorizationError represents authorization errors.
 type AuthorizationError struct {
 	*TransportError
-	Resource   string   `json:"resource"`
-	Action     string   `json:"action"`
+	Resource            string   `json:"resource"`
+	Action              string   `json:"action"`
 	RequiredPermissions []string `json:"required_permissions,omitempty"`
 }
 
@@ -205,8 +205,8 @@ func NewAuthorizationError(resource, action string, requiredPermissions []string
 	return &AuthorizationError{
 		TransportError: NewTransportError(ErrorTypeAuthorization,
 			fmt.Sprintf("authorization failed for %s on %s", action, resource), nil),
-		Resource:   resource,
-		Action:     action,
+		Resource:            resource,
+		Action:              action,
 		RequiredPermissions: requiredPermissions,
 	}
 }
@@ -231,9 +231,9 @@ func NewProtocolError(protocol, version, details string) *ProtocolError {
 
 	return &ProtocolError{
 		TransportError: NewTransportError(ErrorTypeProtocol, message, nil),
-		Protocol: protocol,
-		Version:  version,
-		Details:  details,
+		Protocol:       protocol,
+		Version:        version,
+		Details:        details,
 	}
 }
 
@@ -276,9 +276,9 @@ func NewCompressionError(algorithm, operation string, dataSize int64, cause erro
 // ConfigurationError represents configuration errors.
 type ConfigurationError struct {
 	*TransportError
-	Field   string `json:"field"`
-	Value   any    `json:"value,omitempty"`
-	Reason  string `json:"reason"`
+	Field  string `json:"field"`
+	Value  any    `json:"value,omitempty"`
+	Reason string `json:"reason"`
 }
 
 // NewConfigurationError creates a new configuration error.
@@ -675,13 +675,13 @@ func isTransportErrorType(err error, errorType TransportErrorType) bool {
 	if transportErr, ok := err.(*TransportError); ok {
 		return transportErr.Type == errorType
 	}
-	
+
 	// Check wrapped errors
 	var transportErr *TransportError
 	if errors.As(err, &transportErr) {
 		return transportErr.Type == errorType
 	}
-	
+
 	return false
 }
 
@@ -759,11 +759,11 @@ func (g *ErrorGroup) Error() string {
 	if len(g.Errors) == 0 {
 		return "no errors"
 	}
-	
+
 	if len(g.Errors) == 1 {
 		return g.Errors[0].Error()
 	}
-	
+
 	return fmt.Sprintf("multiple errors occurred: %d errors", len(g.Errors))
 }
 
@@ -820,11 +820,11 @@ func CombineErrors(errs ...error) error {
 			nonNilErrors = append(nonNilErrors, err)
 		}
 	}
-	
+
 	if len(nonNilErrors) == 0 {
 		return nil
 	}
-	
+
 	// Use errors.Join for proper error chaining
 	return errors.Join(nonNilErrors...)
 }
@@ -850,7 +850,7 @@ func (e *BatchError) Unwrap() error {
 	if len(e.Errors) == 0 {
 		return nil
 	}
-	
+
 	// Convert map values to slice for errors.Join
 	errs := make([]error, 0, len(e.Errors))
 	for _, err := range e.Errors {
@@ -858,7 +858,7 @@ func (e *BatchError) Unwrap() error {
 			errs = append(errs, err)
 		}
 	}
-	
+
 	return errors.Join(errs...)
 }
 

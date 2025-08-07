@@ -69,25 +69,25 @@ type ErrorType string
 const (
 	// ErrorTypeInvalidState indicates an invalid agent state transition
 	ErrorTypeInvalidState ErrorType = "invalid_state"
-	
+
 	// ErrorTypeUnsupported indicates an unsupported operation
 	ErrorTypeUnsupported ErrorType = "unsupported"
-	
+
 	// ErrorTypeTimeout indicates a timeout occurred
 	ErrorTypeTimeout ErrorType = "timeout"
-	
+
 	// ErrorTypeValidation indicates validation failed
 	ErrorTypeValidation ErrorType = "validation"
-	
+
 	// ErrorTypeNotFound indicates a resource was not found
 	ErrorTypeNotFound ErrorType = "not_found"
-	
+
 	// ErrorTypePermission indicates insufficient permissions
 	ErrorTypePermission ErrorType = "permission"
-	
+
 	// ErrorTypeExternal indicates an external service error
 	ErrorTypeExternal ErrorType = "external"
-	
+
 	// ErrorTypeRateLimit indicates rate limiting errors
 	ErrorTypeRateLimit ErrorType = "rate_limit"
 )
@@ -523,7 +523,7 @@ func NewEncodingError(code, message string) *EncodingError {
 func (e *EncodingError) Error() string {
 	// Start with base message without cause
 	base := fmt.Sprintf("[%s] %s: %s", e.Severity, e.Code, e.Message)
-	
+
 	// Add encoding-specific details first
 	if e.Format != "" {
 		base = fmt.Sprintf("%s (format: %s)", base, e.Format)
@@ -537,12 +537,12 @@ func (e *EncodingError) Error() string {
 	if e.Position > 0 {
 		base = fmt.Sprintf("%s (position: %d)", base, e.Position)
 	}
-	
+
 	// Add cause at the end
 	if e.Cause != nil {
 		base = fmt.Sprintf("%s (caused by: %v)", base, e.Cause)
 	}
-	
+
 	return base
 }
 
@@ -672,13 +672,13 @@ func (e *SecurityError) WithCause(cause error) *SecurityError {
 // AgentError represents errors specific to agent operations
 type AgentError struct {
 	*BaseError
-	
+
 	// Type categorizes the error
 	Type ErrorType
-	
+
 	// Agent identifies which agent encountered the error
 	Agent string
-	
+
 	// EventID identifies the event being processed when error occurred (if applicable)
 	EventID string
 }
@@ -724,12 +724,12 @@ func (e *AgentError) WithEventID(eventID string) *AgentError {
 
 // OperationError represents errors that occur during specific operations with context preservation
 type OperationError struct {
-	Op       string    // Operation that failed
-	Target   string    // What was being operated on
-	Err      error     // Underlying error
-	Code     string    // Error code for programmatic handling
-	Time     time.Time // When the error occurred
-	Details  map[string]interface{} // Additional context
+	Op      string                 // Operation that failed
+	Target  string                 // What was being operated on
+	Err     error                  // Underlying error
+	Code    string                 // Error code for programmatic handling
+	Time    time.Time              // When the error occurred
+	Details map[string]interface{} // Additional context
 }
 
 // NewOperationError creates a new OperationError
@@ -784,6 +784,6 @@ func (e *OperationError) String() string {
 	if e.Code != "" {
 		codeStr = fmt.Sprintf(" [%s]", e.Code)
 	}
-	return fmt.Sprintf("OperationError{Op:%s, Target:%s, Code:%s, Time:%s}%s%s: %v", 
+	return fmt.Sprintf("OperationError{Op:%s, Target:%s, Code:%s, Time:%s}%s%s: %v",
 		e.Op, e.Target, e.Code, e.Time.Format(time.RFC3339), codeStr, details, e.Err)
 }

@@ -979,7 +979,7 @@ func TestPerformanceHealthCheck(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping PerformanceHealthCheck test in short mode to prevent goroutine leaks")
 	}
-	
+
 	// t.Parallel() // Removed to prevent test deadlocks with goroutines
 	tests := []struct {
 		name            string
@@ -1356,8 +1356,8 @@ func BenchmarkCompositeHealthCheckParallelMany(b *testing.B) {
 // TestHealthCheckInterfaceCompliance verifies all health checks implement the interface correctly
 func TestHealthCheckInterfaceCompliance(t *testing.T) {
 	tests := []struct {
-		name        string
-		healthCheck HealthCheck
+		name         string
+		healthCheck  HealthCheck
 		expectedName string
 	}{
 		{
@@ -1418,7 +1418,7 @@ func TestHealthCheckInterfaceCompliance(t *testing.T) {
 			// Test Check method exists and can be called
 			ctx := context.Background()
 			err := tt.healthCheck.Check(ctx)
-			
+
 			// We don't care about the result, just that it doesn't panic
 			// and the method exists
 			_ = err
@@ -1555,27 +1555,27 @@ func TestMemoryHealthCheckGCPause(t *testing.T) {
 	t.Run("gc pause under threshold", func(t *testing.T) {
 		// Force a GC to ensure we have GC statistics
 		runtime.GC()
-		
+
 		healthCheck := NewMemoryHealthCheck(1024, 10000, 10000) // 10 second GC pause limit
 		ctx := context.Background()
 		err := healthCheck.Check(ctx)
-		
+
 		if err != nil {
 			t.Errorf("Expected no error for reasonable GC pause limit, got: %v", err)
 		}
 	})
-	
+
 	t.Run("gc pause threshold validation", func(t *testing.T) {
 		// Force multiple GCs to generate pause statistics
 		for i := 0; i < 5; i++ {
 			runtime.GC()
 		}
-		
+
 		// Set an extremely low GC pause threshold (1 nanosecond)
 		healthCheck := NewMemoryHealthCheck(1024, 0, 10000) // 0ms GC pause limit
 		ctx := context.Background()
 		err := healthCheck.Check(ctx)
-		
+
 		// This might fail if there have been any GCs with non-zero pause times
 		if err != nil && !strings.Contains(err.Error(), "GC pause time") {
 			t.Errorf("Expected GC pause error or no error, got: %v", err)
@@ -1588,37 +1588,37 @@ func TestStoreHealthCheckComprehensiveTimeout(t *testing.T) {
 	t.Run("immediate timeout", func(t *testing.T) {
 		store := createTestStateStore()
 		healthCheck := NewStoreHealthCheck(store, 1*time.Nanosecond)
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 1*time.Nanosecond)
 		defer cancel()
-		
+
 		err := healthCheck.Check(ctx)
 		// Should handle timeout gracefully
 		if err != nil && err != context.DeadlineExceeded {
 			t.Logf("Got error (expected timeout or success): %v", err)
 		}
 	})
-	
+
 	t.Run("context timeout before health check timeout", func(t *testing.T) {
 		store := createTestStateStore()
 		healthCheck := NewStoreHealthCheck(store, 100*time.Millisecond)
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
 		defer cancel()
-		
+
 		err := healthCheck.Check(ctx)
 		if err != nil && err != context.DeadlineExceeded {
 			t.Logf("Expected timeout or success, got: %v", err)
 		}
 	})
-	
+
 	t.Run("health check timeout before context timeout", func(t *testing.T) {
 		store := createTestStateStore()
 		healthCheck := NewStoreHealthCheck(store, 10*time.Millisecond)
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
-		
+
 		err := healthCheck.Check(ctx)
 		// Should either pass quickly or timeout
 		if err != nil {
@@ -1631,8 +1631,8 @@ func TestStoreHealthCheckComprehensiveTimeout(t *testing.T) {
 func TestEventHandlerHealthCheckAdvanced(t *testing.T) {
 	t.Run("queue depth boundary conditions", func(t *testing.T) {
 		tests := []struct {
-			name       string
-			queueDepth int
+			name        string
+			queueDepth  int
 			expectError bool
 		}{
 			{"exactly at threshold", 10000, false},
@@ -1640,15 +1640,15 @@ func TestEventHandlerHealthCheckAdvanced(t *testing.T) {
 			{"way above threshold", 50000, true},
 			{"zero queue depth", 0, false},
 		}
-		
+
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				handler := createTestEventHandler(true, tt.queueDepth)
 				healthCheck := NewEventHandlerHealthCheck(handler)
-				
+
 				ctx := context.Background()
 				err := healthCheck.Check(ctx)
-				
+
 				if tt.expectError && err == nil {
 					t.Errorf("Expected error for queue depth %d, got none", tt.queueDepth)
 				} else if !tt.expectError && err != nil {
@@ -1657,19 +1657,19 @@ func TestEventHandlerHealthCheckAdvanced(t *testing.T) {
 			})
 		}
 	})
-	
+
 	t.Run("handler state transitions", func(t *testing.T) {
 		handler := createTestEventHandler(true, 100)
 		healthCheck := NewEventHandlerHealthCheck(handler)
-		
+
 		// Initially running
 		ctx := context.Background()
 		err := healthCheck.Check(ctx)
 		if err != nil {
 			t.Errorf("Expected no error for running handler, got: %v", err)
 		}
-		
-		// This test demonstrates the limitation that we can't easily modify 
+
+		// This test demonstrates the limitation that we can't easily modify
 		// the running state of a real StateEventHandler in tests.
 		// In practice, this would require integration testing or dependency injection.
 	})
@@ -1683,45 +1683,45 @@ func TestAuditHealthCheckAdvanced(t *testing.T) {
 		healthCheck := NewAuditHealthCheck(auditManager)
 		ctx := context.Background()
 		err := healthCheck.Check(ctx)
-		
+
 		if err != nil {
 			t.Errorf("Expected healthy audit system, got: %v", err)
 		}
 	})
-	
+
 	t.Run("audit verification disabled", func(t *testing.T) {
 		// Test disabled audit manager
 		auditManager := createTestAuditManager(true) // disabled
 		healthCheck := NewAuditHealthCheck(auditManager)
 		ctx := context.Background()
 		err := healthCheck.Check(ctx)
-		
+
 		if err == nil {
 			t.Error("Expected error for disabled audit system")
 		}
 	})
-	
+
 	t.Run("audit verification nil manager", func(t *testing.T) {
 		// Test nil audit manager
 		healthCheck := NewAuditHealthCheck(nil)
 		ctx := context.Background()
 		err := healthCheck.Check(ctx)
-		
+
 		if err == nil {
 			t.Error("Expected error for nil audit manager")
 		}
 	})
-	
+
 	t.Run("audit verification logger failure", func(t *testing.T) {
 		// Test audit logger failure
 		auditManager := createTestAuditManager(false)
 		mockLogger := auditManager.logger.(*MockAuditLogger)
 		mockLogger.SetFail(true)
-		
+
 		healthCheck := NewAuditHealthCheck(auditManager)
 		ctx := context.Background()
 		err := healthCheck.Check(ctx)
-		
+
 		if err == nil {
 			t.Error("Expected error for audit logger failure")
 		}
@@ -1739,24 +1739,24 @@ func TestCompositeHealthCheckAdvanced(t *testing.T) {
 				return nil
 			})
 		}
-		
+
 		healthCheck := NewCompositeHealthCheck("large_parallel", true, checks...)
-		
+
 		start := time.Now()
 		ctx := context.Background()
 		err := healthCheck.Check(ctx)
 		duration := time.Since(start)
-		
+
 		if err != nil {
 			t.Errorf("Expected no error, got: %v", err)
 		}
-		
+
 		// Should complete much faster than sequential (100ms)
 		if duration > 50*time.Millisecond {
 			t.Errorf("Parallel execution took too long: %v", duration)
 		}
 	})
-	
+
 	t.Run("mixed success and failure parallel", func(t *testing.T) {
 		checks := []HealthCheck{
 			NewCustomHealthCheck("success1", func(ctx context.Context) error { return nil }),
@@ -1764,22 +1764,22 @@ func TestCompositeHealthCheckAdvanced(t *testing.T) {
 			NewCustomHealthCheck("success2", func(ctx context.Context) error { return nil }),
 			NewCustomHealthCheck("failure2", func(ctx context.Context) error { return errors.New("error2") }),
 		}
-		
+
 		healthCheck := NewCompositeHealthCheck("mixed_parallel", true, checks...)
 		ctx := context.Background()
 		err := healthCheck.Check(ctx)
-		
+
 		if err == nil {
 			t.Error("Expected error from failed checks")
 		}
-		
+
 		// Should contain multiple errors
 		errorStr := err.Error()
 		if !strings.Contains(errorStr, "failure1") || !strings.Contains(errorStr, "failure2") {
 			t.Errorf("Expected both failure1 and failure2 in error, got: %s", errorStr)
 		}
 	})
-	
+
 	t.Run("context cancellation during parallel execution", func(t *testing.T) {
 		checks := make([]HealthCheck, 10)
 		for i := 0; i < 10; i++ {
@@ -1792,36 +1792,36 @@ func TestCompositeHealthCheckAdvanced(t *testing.T) {
 				}
 			})
 		}
-		
+
 		healthCheck := NewCompositeHealthCheck("cancellation_test", true, checks...)
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
-		
+
 		err := healthCheck.Check(ctx)
 		// Should handle cancellation gracefully
 		if err != nil && err != context.DeadlineExceeded {
 			t.Logf("Expected timeout or success, got: %v", err)
 		}
 	})
-	
+
 	t.Run("nested composite health checks", func(t *testing.T) {
 		// Create nested composite checks
 		inner1 := NewCompositeHealthCheck("inner1", false,
 			NewCustomHealthCheck("test1", func(ctx context.Context) error { return nil }),
 			NewCustomHealthCheck("test2", func(ctx context.Context) error { return nil }),
 		)
-		
+
 		inner2 := NewCompositeHealthCheck("inner2", true,
 			NewCustomHealthCheck("test3", func(ctx context.Context) error { return nil }),
 			NewCustomHealthCheck("test4", func(ctx context.Context) error { return nil }),
 		)
-		
+
 		outer := NewCompositeHealthCheck("outer", false, inner1, inner2)
-		
+
 		ctx := context.Background()
 		err := outer.Check(ctx)
-		
+
 		if err != nil {
 			t.Errorf("Expected no error from nested composite checks, got: %v", err)
 		}
@@ -1833,7 +1833,7 @@ func TestPerformanceHealthCheckAdvanced(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping PerformanceHealthCheckAdvanced test in short mode to prevent goroutine leaks")
 	}
-	
+
 	t.Run("pool efficiency boundary conditions", func(t *testing.T) {
 		tests := []struct {
 			name           string
@@ -1847,18 +1847,18 @@ func TestPerformanceHealthCheckAdvanced(t *testing.T) {
 			{"perfect efficiency", 100.0, 10.0, false},
 			{"zero efficiency", 0.0, 10.0, true},
 		}
-		
+
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
 				optimizer := NewMockPerformanceOptimizer()
 				optimizer.SetMetrics(PerformanceMetrics{
 					PoolEfficiency: tt.poolEfficiency,
 				})
-				
+
 				healthCheck := NewPerformanceHealthCheck(optimizer, tt.maxMissRate, 5.0)
 				ctx := context.Background()
 				err := healthCheck.Check(ctx)
-				
+
 				if tt.expectError && err == nil {
 					t.Errorf("Expected error for efficiency %.2f%%, got none", tt.poolEfficiency)
 				} else if !tt.expectError && err != nil {
@@ -1960,16 +1960,16 @@ func TestAllHealthChecksWithTimeout(t *testing.T) {
 			expectError: true, // Should timeout
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			healthCheck := tt.factory()
-			
+
 			ctx, cancel := context.WithTimeout(context.Background(), tt.timeout)
 			defer cancel()
-			
+
 			err := healthCheck.Check(ctx)
-			
+
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("Expected timeout error, got none")
@@ -1981,7 +1981,7 @@ func TestAllHealthChecksWithTimeout(t *testing.T) {
 					t.Logf("Expected success or timeout, got: %v", err)
 				}
 			}
-			
+
 			// Clean up resources if needed
 			switch tt.name {
 			case "RateLimiterHealthCheck":
@@ -2002,21 +2002,21 @@ func TestHealthCheckFailureRecovery(t *testing.T) {
 	t.Run("state manager recovery", func(t *testing.T) {
 		manager := createTestStateManager()
 		healthCheck := NewStateManagerHealthCheck(manager)
-		
+
 		// Initially healthy
 		ctx := context.Background()
 		err := healthCheck.Check(ctx)
 		if err != nil {
 			t.Errorf("Expected healthy state initially, got: %v", err)
 		}
-		
+
 		// Simulate failure
 		atomic.StoreInt32(&manager.closing, 1)
 		err = healthCheck.Check(ctx)
 		if err == nil {
 			t.Error("Expected error for closing state")
 		}
-		
+
 		// Simulate recovery
 		atomic.StoreInt32(&manager.closing, 0)
 		err = healthCheck.Check(ctx)
@@ -2024,17 +2024,17 @@ func TestHealthCheckFailureRecovery(t *testing.T) {
 			t.Errorf("Expected recovery to healthy state, got: %v", err)
 		}
 	})
-	
+
 	t.Run("event handler nil recovery", func(t *testing.T) {
 		// Test with nil handler (simulates stopped state)
 		healthCheck := NewEventHandlerHealthCheck(nil)
-		
+
 		ctx := context.Background()
 		err := healthCheck.Check(ctx)
 		if err == nil {
 			t.Error("Expected error for nil handler")
 		}
-		
+
 		// Test with valid handler (simulates recovery)
 		handler := createTestEventHandler(true, 100)
 		healthCheck2 := NewEventHandlerHealthCheck(handler)
@@ -2059,21 +2059,21 @@ func createTestStateManager() *StateManager {
 // createTestStateManagerWithoutAudit creates a StateManager without audit logging for performance
 func createTestStateManagerWithoutAudit() *StateManager {
 	opts := DefaultManagerOptions()
-	opts.EnableAudit = false  // Disable audit for faster tests
-	opts.EnableMetrics = false // Disable metrics for faster tests
+	opts.EnableAudit = false         // Disable audit for faster tests
+	opts.EnableMetrics = false       // Disable metrics for faster tests
 	opts.MetricsInterval = time.Hour // Long interval to prevent collection
-	
+
 	sm, err := NewStateManager(opts)
 	if err != nil {
 		panic(err) // This should not happen in tests
 	}
-	
+
 	// Replace logger with no-op logger for silence
 	sm.logger = &NoOpLogger{}
 	if store, ok := sm.store.(*StateStore); ok {
 		store.logger = &NoOpLogger{}
 	}
-	
+
 	return sm
 }
 
@@ -2115,18 +2115,18 @@ func createTestEventHandler(running bool, queueDepth int) *StateEventHandler {
 		// This way it won't return high queue depth but will still be not running
 		baseStore := createTestStateStore()
 		return &StateEventHandler{
-			store:        baseStore, // Has store so queue depth won't be high
+			store: baseStore, // Has store so queue depth won't be high
 			// Missing deltaComputer and metrics - will be considered not running
 			batchSize:    100,
 			batchTimeout: time.Second,
 		}
 	}
-	
+
 	// Create a failing store for error injection testing
 	baseStore := createTestStateStore()
 	failingStore := NewFailingStore(baseStore, "storage", 0.1)
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	handler := &StateEventHandler{
 		store:         failingStore,
 		deltaComputer: &DeltaComputer{},
@@ -2137,12 +2137,12 @@ func createTestEventHandler(running bool, queueDepth int) *StateEventHandler {
 		cancel:        cancel,
 		running:       running, // Set the running state as requested
 	}
-	
+
 	// Simulate high queue depth by setting store to nil
 	if queueDepth > 10000 {
 		handler.store = nil
 	}
-	
+
 	return handler
 }
 
@@ -2157,7 +2157,6 @@ func createTestAuditManager(failing bool) *AuditManager {
 	}
 	return am
 }
-
 
 // createTestPerformanceOptimizer creates a minimal PerformanceOptimizer for testing
 func createTestPerformanceOptimizer() PerformanceOptimizer {

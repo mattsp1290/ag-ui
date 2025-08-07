@@ -54,9 +54,9 @@ func TestConcurrentSubscriptions(t *testing.T) {
 	}
 
 	// Create multiple subscribers
-	const numSubscribers = 3   // Reduced from 10
-	const numPublishers = 2    // Reduced from 5
-	const eventsPerPublisher = 5  // Reduced from 20
+	const numSubscribers = 3     // Reduced from 10
+	const numPublishers = 2      // Reduced from 5
+	const eventsPerPublisher = 5 // Reduced from 20
 
 	var wg sync.WaitGroup
 	var totalEventsReceived atomic.Int64
@@ -85,7 +85,7 @@ func TestConcurrentSubscriptions(t *testing.T) {
 	}
 
 	// Give subscribers time to start
-	time.Sleep(5 * time.Millisecond)  // Reduced from 10ms
+	time.Sleep(5 * time.Millisecond) // Reduced from 10ms
 
 	// Start publishers
 	startSignal := make(chan struct{})
@@ -111,7 +111,7 @@ func TestConcurrentSubscriptions(t *testing.T) {
 				}
 
 				// Small delay between events
-				time.Sleep(time.Microsecond * 10)  // Reduced from 100µs
+				time.Sleep(time.Microsecond * 10) // Reduced from 100µs
 			}
 		}(i)
 	}
@@ -123,7 +123,7 @@ func TestConcurrentSubscriptions(t *testing.T) {
 	wg.Wait()
 
 	// Give time for event processing
-	time.Sleep(20 * time.Millisecond)  // Reduced from 100ms
+	time.Sleep(20 * time.Millisecond) // Reduced from 100ms
 
 	// Unsubscribe all
 	for _, unsubscribe := range unsubscribers {
@@ -210,7 +210,7 @@ func TestDeadlockPrevention(t *testing.T) {
 		ctx2, _ := manager.CreateContext(ctx, "lock-order-2", nil)
 
 		var wg sync.WaitGroup
-		const iterations = 10  // Reduced from 50
+		const iterations = 10 // Reduced from 50
 
 		// Goroutine 1: Updates ctx1 then ctx2
 		wg.Add(1)
@@ -260,7 +260,7 @@ func TestDeadlockPrevention(t *testing.T) {
 		select {
 		case <-done:
 			// Success - no deadlock
-		case <-time.After(2 * time.Second):  // Reduced from 5s
+		case <-time.After(2 * time.Second): // Reduced from 5s
 			t.Error("potential deadlock detected - operations took too long")
 		}
 	})
@@ -312,7 +312,7 @@ func TestDeadlockPrevention(t *testing.T) {
 		}, UpdateOptions{})
 
 		// Wait a bit
-		time.Sleep(20 * time.Millisecond)  // Reduced from 100ms
+		time.Sleep(20 * time.Millisecond) // Reduced from 100ms
 
 		// Clean up
 		close(done)
@@ -483,8 +483,8 @@ func TestDataConsistencyAfterConcurrentOps(t *testing.T) {
 	}
 
 	// Perform concurrent increments
-	const numGoroutines = 5       // Reduced from 20
-	const incrementsPerGoroutine = 5  // Reduced from 25
+	const numGoroutines = 5          // Reduced from 20
+	const incrementsPerGoroutine = 5 // Reduced from 25
 
 	var wg sync.WaitGroup
 	startSignal := make(chan struct{})

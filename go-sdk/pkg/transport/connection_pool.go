@@ -112,34 +112,79 @@ func (pc *PooledConnection) Use() {
 	pc.UseCount++
 }
 
-// Return returns the connection to the pool
+// Return returns the connection to the pool with enhanced leak prevention
 func (pc *PooledConnection) Return() {
 	pc.mutex.Lock()
 	defer pc.mutex.Unlock()
 
+	// Prevent double return
+	if !pc.InUse {
+		return
+	}
+
 	pc.InUse = false
 	pc.LastUsedAt = time.Now()
 
-	// Send to return channel (non-blocking)
+	// Enhanced leak prevention with timeout
+	timeout := time.NewTimer(50 * time.Millisecond)
+	defer timeout.Stop()
+
 	select {
 	case pc.returnCh <- pc:
+		// Successfully returned to pool
+	case <-timeout.C:
+		// Return channel blocked, close connection to prevent leak
+		pc.Close()
 	default:
 		// Channel full, connection will be closed
 		pc.Close()
 	}
 }
 
-// Close closes the connection
+// Close closes the connection with enhanced cleanup
 func (pc *PooledConnection) Close() error {
 	pc.mutex.Lock()
 	defer pc.mutex.Unlock()
 
-	if pc.Conn != nil {
-		err := pc.Conn.Close()
-		pc.Conn = nil
-		return err
+	if pc.Conn == nil {
+		return nil // Already closed
 	}
-	return nil
+
+	// Enhanced connection cleanup with timeout
+	done := make(chan error, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				done <- fmt.Errorf("panic during connection close: %v", r)
+			}
+		}()
+		done <- pc.Conn.Close()
+	}()
+
+	// Wait for close with timeout
+	timeout := time.NewTimer(2 * time.Second)
+	defer timeout.Stop()
+
+	var err error
+	select {
+	case err = <-done:
+		// Close completed
+	case <-timeout.C:
+		// Close timed out, log warning but continue cleanup
+		err = fmt.Errorf("connection close timed out")
+	}
+
+	// Always clear the connection reference to prevent memory leaks
+	pc.Conn = nil
+	pc.IsHealthy = false
+
+	// Close return channel to prevent goroutine leaks
+	if pc.returnCh != nil {
+		close(pc.returnCh)
+		pc.returnCh = nil
+	}
+
+	return err
 }
 
 // IsExpired checks if the connection has expired
@@ -435,22 +480,48 @@ func (p *ConnectionPool) createConnection() error {
 	return nil
 }
 
-// closeConnection closes and removes a connection from the pool
+// closeConnection closes and removes a connection from the pool with enhanced cleanup
 func (p *ConnectionPool) closeConnection(conn *PooledConnection) error {
 	if conn == nil {
 		return nil
 	}
 
-	// Remove from pool
+	// Enhanced cleanup with proper synchronization
 	p.mutex.Lock()
-	delete(p.connections, conn.ID)
-	p.mutex.Unlock()
+	defer p.mutex.Unlock()
 
-	// Close connection
-	err := conn.Close()
+	// Remove from connections map if present
+	if _, exists := p.connections[conn.ID]; exists {
+		delete(p.connections, conn.ID)
+		
+		// Update counters atomically
+		atomic.AddInt32(&p.totalConns, -1)
+		
+		// If connection was idle, decrement idle count
+		if !conn.InUse {
+			atomic.AddInt32(&p.idleCount, -1)
+		} else {
+			atomic.AddInt32(&p.activeConns, -1)
+		}
+	}
 
-	// Update counters
-	atomic.AddInt32(&p.totalConns, -1)
+	// Close connection with timeout protection
+	done := make(chan error, 1)
+	go func() {
+		done <- conn.Close()
+	}()
+
+	timeout := time.NewTimer(3 * time.Second)
+	defer timeout.Stop()
+
+	var err error
+	select {
+	case err = <-done:
+		// Close completed normally
+	case <-timeout.C:
+		// Close timed out, but continue with cleanup
+		err = fmt.Errorf("connection close timed out for ID: %s", conn.ID)
+	}
 
 	// Update stats
 	p.stats.mutex.Lock()
@@ -602,7 +673,7 @@ func (p *ConnectionPool) GetPoolInfo() map[string]interface{} {
 	}
 }
 
-// Close closes the connection pool
+// Close closes the connection pool with enhanced cleanup and leak prevention
 func (p *ConnectionPool) Close() error {
 	p.mutex.Lock()
 	if p.closed {
@@ -615,25 +686,83 @@ func (p *ConnectionPool) Close() error {
 	// Cancel context to stop workers
 	p.cancel()
 
-	// Wait for workers to finish
-	p.wg.Wait()
+	// Wait for workers to finish with timeout
+	done := make(chan struct{})
+	go func() {
+		p.wg.Wait()
+		close(done)
+	}()
 
-	// Close all connections
+	// Wait for workers with timeout
+	timeout := time.NewTimer(5 * time.Second)
+	defer timeout.Stop()
+
+	select {
+	case <-done:
+		// Workers finished normally
+	case <-timeout.C:
+		// Workers didn't finish in time, continue with cleanup
+	}
+
+	// Enhanced connection cleanup with proper error handling
 	p.mutex.Lock()
 	connections := make([]*PooledConnection, 0, len(p.connections))
 	for _, conn := range p.connections {
 		connections = append(connections, conn)
 	}
+	// Clear the connections map immediately
 	p.connections = make(map[string]*PooledConnection)
 	p.mutex.Unlock()
 
-	// Close connections
+	// Close all connections with concurrency control
+	var closeWg sync.WaitGroup
+	semaphore := make(chan struct{}, 10) // Limit concurrent closes
+
 	for _, conn := range connections {
-		conn.Close()
+		closeWg.Add(1)
+		go func(c *PooledConnection) {
+			defer closeWg.Done()
+			semaphore <- struct{}{} // Acquire semaphore
+			defer func() { <-semaphore }() // Release semaphore
+
+			if closeErr := c.Close(); closeErr != nil {
+				// Log but don't fail the entire close operation
+			}
+		}(conn)
 	}
 
-	// Close idle channel
-	close(p.idleConns)
+	// Wait for all connections to close with timeout
+	closeWaitDone := make(chan struct{})
+	go func() {
+		closeWg.Wait()
+		close(closeWaitDone)
+	}()
+
+	closeTimeout := time.NewTimer(10 * time.Second)
+	defer closeTimeout.Stop()
+
+	select {
+	case <-closeWaitDone:
+		// All connections closed
+	case <-closeTimeout.C:
+		// Some connections didn't close in time, continue anyway
+	}
+
+	// Safely close idle channel
+	if p.idleConns != nil {
+		// Drain the channel first to prevent goroutine leaks
+		for {
+			select {
+			case _, ok := <-p.idleConns:
+				if !ok {
+					return nil // Channel already closed
+				}
+			default:
+				close(p.idleConns)
+				return nil
+			}
+		}
+	}
 
 	return nil
 }

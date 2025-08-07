@@ -3,6 +3,7 @@ package security
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 )
@@ -31,6 +32,103 @@ type Response struct {
 
 type NextHandler func(ctx context.Context, req *Request) (*Response, error)
 
+// TrieNode represents a node in the path trie for efficient prefix matching
+type TrieNode struct {
+	isEndOfPath bool
+	children    map[string]*TrieNode
+}
+
+// PathTrie provides efficient path prefix matching using trie data structure
+type PathTrie struct {
+	root *TrieNode
+	mu   sync.RWMutex
+}
+
+// NewPathTrie creates a new path trie
+func NewPathTrie() *PathTrie {
+	return &PathTrie{
+		root: &TrieNode{
+			children: make(map[string]*TrieNode),
+		},
+	}
+}
+
+// AddPath adds a path to the trie for matching
+func (t *PathTrie) AddPath(path string) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	
+	if path == "" {
+		return
+	}
+	
+	// Normalize path by removing trailing slash and splitting
+	path = strings.TrimSuffix(path, "/")
+	if path == "" {
+		path = "/"
+	}
+	
+	parts := strings.Split(path, "/")
+	current := t.root
+	
+	for _, part := range parts {
+		if part == "" {
+			continue // Skip empty parts from leading/trailing slashes
+		}
+		
+		if current.children == nil {
+			current.children = make(map[string]*TrieNode)
+		}
+		
+		if current.children[part] == nil {
+			current.children[part] = &TrieNode{
+				children: make(map[string]*TrieNode),
+			}
+		}
+		current = current.children[part]
+	}
+	current.isEndOfPath = true
+}
+
+// MatchesPath checks if the given path matches any stored path or is a prefix
+func (t *PathTrie) MatchesPath(path string) bool {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	
+	if path == "" {
+		return false
+	}
+	
+	// Normalize path
+	path = strings.TrimSuffix(path, "/")
+	if path == "" {
+		path = "/"
+	}
+	
+	parts := strings.Split(path, "/")
+	current := t.root
+	
+	for _, part := range parts {
+		if part == "" {
+			continue
+		}
+		
+		if current.children == nil || current.children[part] == nil {
+			return false
+		}
+		
+		current = current.children[part]
+		
+		// If we find a complete path match, return true
+		if current.isEndOfPath {
+			return true
+		}
+	}
+	
+	// Check if current node represents a complete path
+	return current.isEndOfPath
+}
+
 // SecurityConfig represents security middleware configuration
 type SecurityConfig struct {
 	CORS            *CORSConfig            `json:"cors" yaml:"cors"`
@@ -47,7 +145,7 @@ type SecurityMiddleware struct {
 	config         *SecurityConfig
 	enabled        bool
 	priority       int
-	skipMap        map[string]bool
+	skipPaths      *PathTrie
 	corsHandler    *CORSHandler
 	csrfHandler    *CSRFHandler
 	headersHandler *HeadersHandler
@@ -82,18 +180,18 @@ func NewSecurityMiddleware(config *SecurityConfig) (*SecurityMiddleware, error) 
 		}
 	}
 
-	skipMap := make(map[string]bool)
+	skipPaths := NewPathTrie()
 	for _, path := range config.SkipPaths {
-		skipMap[path] = true
+		skipPaths.AddPath(path)
 	}
 
 	// Add common health check paths
 	if config.SkipHealthCheck {
-		skipMap["/health"] = true
-		skipMap["/healthz"] = true
-		skipMap["/ping"] = true
-		skipMap["/ready"] = true
-		skipMap["/live"] = true
+		skipPaths.AddPath("/health")
+		skipPaths.AddPath("/healthz")
+		skipPaths.AddPath("/ping")
+		skipPaths.AddPath("/ready")
+		skipPaths.AddPath("/live")
 	}
 
 	// Initialize handlers
@@ -111,7 +209,7 @@ func NewSecurityMiddleware(config *SecurityConfig) (*SecurityMiddleware, error) 
 		config:         config,
 		enabled:        true,
 		priority:       200, // Very high priority for security
-		skipMap:        skipMap,
+		skipPaths:      skipPaths,
 		corsHandler:    corsHandler,
 		csrfHandler:    csrfHandler,
 		headersHandler: headersHandler,
@@ -130,8 +228,8 @@ func (sm *SecurityMiddleware) Name() string {
 
 // Process processes the request through security middleware
 func (sm *SecurityMiddleware) Process(ctx context.Context, req *Request, next NextHandler) (*Response, error) {
-	// Skip security for configured paths
-	if sm.skipMap[req.Path] {
+	// Skip security for configured paths using efficient trie lookup
+	if sm.skipPaths.MatchesPath(req.Path) {
 		return next(ctx, req)
 	}
 

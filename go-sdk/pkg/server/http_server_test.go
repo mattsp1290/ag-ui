@@ -113,7 +113,7 @@ func TestHTTPServerConfig(t *testing.T) {
 				name: "zero timeout",
 				config: &HTTPServerConfig{
 					Address:      "localhost",
-					Port:         8080,
+					Port:         0,
 					ReadTimeout:  0,
 					WriteTimeout: 5 * time.Second,
 				},
@@ -123,7 +123,7 @@ func TestHTTPServerConfig(t *testing.T) {
 				name: "valid config",
 				config: &HTTPServerConfig{
 					Address:        "localhost",
-					Port:           8080,
+					Port:           0,
 					ReadTimeout:    5 * time.Second,
 					WriteTimeout:   5 * time.Second,
 					IdleTimeout:    60 * time.Second,

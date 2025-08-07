@@ -863,8 +863,8 @@ func (f *BaseFramework) validateConfig(config *FrameworkConfig) error {
 		return fmt.Errorf("framework name cannot be empty")
 	}
 
-	if config.HTTP.Port <= 0 || config.HTTP.Port > 65535 {
-		return fmt.Errorf("invalid HTTP port: %d", config.HTTP.Port)
+	if config.HTTP.Port < 0 || config.HTTP.Port > 65535 {
+		return fmt.Errorf("invalid HTTP port: %d (must be 0-65535, 0 means auto-assign)", config.HTTP.Port)
 	}
 
 	if config.HTTP.ReadTimeout < 0 {

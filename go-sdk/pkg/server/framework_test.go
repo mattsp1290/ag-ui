@@ -106,7 +106,7 @@ func TestServerFrameworkConfig(t *testing.T) {
 					Name: "",
 					HTTP: HTTPConfig{
 						Host: "localhost",
-						Port: 8080,
+						Port: 0,
 					},
 				},
 				wantErr: true,
@@ -139,7 +139,7 @@ func TestServerFrameworkConfig(t *testing.T) {
 					Name: "test-server",
 					HTTP: HTTPConfig{
 						Host:         "localhost",
-						Port:         8080,
+						Port:         0,
 						ReadTimeout:  5 * time.Second,
 						WriteTimeout: 5 * time.Second,
 					},

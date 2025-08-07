@@ -342,7 +342,13 @@ func (al *AuditLogger) logToFile(entry *AuditLogEntry) {
 			entry.IPAddress, entry.Timestamp.Format(time.RFC3339), entry.Result)
 
 		if entry.Error != "" {
-			message += " (Error: " + entry.Error + ")"
+			var b strings.Builder
+			b.Grow(len(message) + 9 + len(entry.Error) + 1) // message + " (Error: " + entry.Error + ")"
+			b.WriteString(message)
+			b.WriteString(" (Error: ")
+			b.WriteString(entry.Error)
+			b.WriteString(")")
+			message = b.String()
 		}
 
 		al.fileLogger.Info(message)

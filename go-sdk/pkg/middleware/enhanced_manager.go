@@ -115,8 +115,15 @@ func (emm *EnhancedMiddlewareManager) ProcessWithDependencies(ctx context.Contex
 	return response, err
 }
 
-// ProcessBatch processes multiple requests concurrently
+// ProcessBatch processes multiple requests concurrently with context cancellation support
 func (emm *EnhancedMiddlewareManager) ProcessBatch(ctx context.Context, chainName string, requests []*Request) ([]*MiddlewareResult, error) {
+	// Check context cancellation before starting batch processing
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	default:
+	}
+	
 	processor := emm.getBatchProcessor(chainName)
 	if processor == nil {
 		return nil, fmt.Errorf("batch processor for chain %s not found", chainName)

@@ -626,6 +626,28 @@ func (r *FormatRegistry) ForceCleanup(olderThan time.Duration) (int, error) {
 	return r.core.ForceCleanup(olderThan)
 }
 
+// Health monitoring and reporting methods
+
+// GenerateHealthReport creates a comprehensive health report for monitoring
+func (r *FormatRegistry) GenerateHealthReport() interface{} {
+	return r.core.GenerateHealthReport()
+}
+
+// LogHealthReport logs a formatted health report for debugging
+func (r *FormatRegistry) LogHealthReport() {
+	r.core.LogHealthReport()
+}
+
+// GetHealthReportJSON returns the health report as JSON string for monitoring systems
+func (r *FormatRegistry) GetHealthReportJSON() (string, error) {
+	return r.core.GetHealthReportJSON()
+}
+
+// PerformHealthCheck runs a comprehensive health check
+func (r *FormatRegistry) PerformHealthCheck() (bool, []string) {
+	return r.core.PerformHealthCheck()
+}
+
 // Global registry management
 var (
 	// Global registry instance

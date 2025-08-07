@@ -1,5 +1,7 @@
 package errors
 
+import "strings"
+
 // Common error message constants to ensure consistency across the codebase.
 // These constants prevent duplicate error messages and provide a centralized
 // location for maintaining error message consistency.
@@ -271,53 +273,132 @@ const (
 // FormatComponentError creates a consistent component error message
 func FormatComponentError(component, operation, message string) string {
 	if component == "" {
-		return operation + ": " + message
+		var b strings.Builder
+		b.Grow(len(operation) + 2 + len(message)) // operation + ": " + message
+		b.WriteString(operation)
+		b.WriteString(": ")
+		b.WriteString(message)
+		return b.String()
 	}
-	return component + " " + operation + ": " + message
+	var b strings.Builder
+	b.Grow(len(component) + 1 + len(operation) + 2 + len(message)) // component + " " + operation + ": " + message
+	b.WriteString(component)
+	b.WriteString(" ")
+	b.WriteString(operation)
+	b.WriteString(": ")
+	b.WriteString(message)
+	return b.String()
 }
 
 // FormatFieldError creates a consistent field validation error message
 func FormatFieldError(field, message string) string {
-	return "field '" + field + "' " + message
+	var b strings.Builder
+	b.Grow(7 + len(field) + 2 + len(message)) // "field '" + field + "' " + message
+	b.WriteString("field '")
+	b.WriteString(field)
+	b.WriteString("' ")
+	b.WriteString(message)
+	return b.String()
 }
 
 // FormatOperationError creates a consistent operation error message
 func FormatOperationError(operation, message string) string {
-	return operation + " " + SuffixFailed + ": " + message
+	var b strings.Builder
+	b.Grow(len(operation) + 1 + len(SuffixFailed) + 2 + len(message)) // operation + " " + SuffixFailed + ": " + message
+	b.WriteString(operation)
+	b.WriteString(" ")
+	b.WriteString(SuffixFailed)
+	b.WriteString(": ")
+	b.WriteString(message)
+	return b.String()
 }
 
 // FormatResourceError creates a consistent resource error message
 func FormatResourceError(resourceType, resourceID, message string) string {
 	if resourceID == "" {
-		return resourceType + " " + message
+		var b strings.Builder
+		b.Grow(len(resourceType) + 1 + len(message)) // resourceType + " " + message
+		b.WriteString(resourceType)
+		b.WriteString(" ")
+		b.WriteString(message)
+		return b.String()
 	}
-	return resourceType + " '" + resourceID + "' " + message
+	var b strings.Builder
+	b.Grow(len(resourceType) + 2 + len(resourceID) + 2 + len(message)) // resourceType + " '" + resourceID + "' " + message
+	b.WriteString(resourceType)
+	b.WriteString(" '")
+	b.WriteString(resourceID)
+	b.WriteString("' ")
+	b.WriteString(message)
+	return b.String()
 }
 
 // FormatSecurityError creates a consistent security error message
 func FormatSecurityError(violationType, location, message string) string {
 	if location == "" {
-		return MsgSecurityViolation + " (" + violationType + "): " + message
+		var b strings.Builder
+		b.Grow(len(MsgSecurityViolation) + 2 + len(violationType) + 3 + len(message)) // MsgSecurityViolation + " (" + violationType + "): " + message
+		b.WriteString(MsgSecurityViolation)
+		b.WriteString(" (")
+		b.WriteString(violationType)
+		b.WriteString("): ")
+		b.WriteString(message)
+		return b.String()
 	}
-	return MsgSecurityViolation + " (" + violationType + ") at " + location + ": " + message
+	var b strings.Builder
+	b.Grow(len(MsgSecurityViolation) + 2 + len(violationType) + 5 + len(location) + 2 + len(message)) // MsgSecurityViolation + " (" + violationType + ") at " + location + ": " + message
+	b.WriteString(MsgSecurityViolation)
+	b.WriteString(" (")
+	b.WriteString(violationType)
+	b.WriteString(") at ")
+	b.WriteString(location)
+	b.WriteString(": ")
+	b.WriteString(message)
+	return b.String()
 }
 
 // FormatLimitError creates a consistent limit exceeded error message
 func FormatLimitError(limitType string, current, maximum int64) string {
-	return limitType + " limit exceeded: " +
-		"current=" + string(rune(current)) +
-		", maximum=" + string(rune(maximum))
+	var b strings.Builder
+	// Estimate size: limitType + " limit exceeded: current=" + current + ", maximum=" + maximum
+	// Numbers can be up to 20 chars each for int64
+	b.Grow(len(limitType) + 41 + 40) // 41 for fixed text, 40 for two 20-char numbers
+	b.WriteString(limitType)
+	b.WriteString(" limit exceeded: current=")
+	b.WriteString(string(rune(current)))
+	b.WriteString(", maximum=")
+	b.WriteString(string(rune(maximum)))
+	return b.String()
 }
 
 // FormatNotImplementedError creates a consistent not implemented error message
 func FormatNotImplementedError(component, method string) string {
 	if component == "" {
-		return method + ": " + MsgMethodNotImplemented
+		var b strings.Builder
+		b.Grow(len(method) + 2 + len(MsgMethodNotImplemented)) // method + ": " + MsgMethodNotImplemented
+		b.WriteString(method)
+		b.WriteString(": ")
+		b.WriteString(MsgMethodNotImplemented)
+		return b.String()
 	}
-	return component + "." + method + ": " + MsgMethodNotImplemented
+	var b strings.Builder
+	b.Grow(len(component) + 1 + len(method) + 2 + len(MsgMethodNotImplemented)) // component + "." + method + ": " + MsgMethodNotImplemented
+	b.WriteString(component)
+	b.WriteString(".")
+	b.WriteString(method)
+	b.WriteString(": ")
+	b.WriteString(MsgMethodNotImplemented)
+	return b.String()
 }
 
 // FormatTimeoutError creates a consistent timeout error message
 func FormatTimeoutError(operation, timeout string) string {
-	return operation + " " + MsgOperationTimeout + " after " + timeout
+	var b strings.Builder
+	b.Grow(len(operation) + 1 + len(MsgOperationTimeout) + 7 + len(timeout)) // operation + " " + MsgOperationTimeout + " after " + timeout
+	b.WriteString(operation)
+	b.WriteString(" ")
+	b.WriteString(MsgOperationTimeout)
+	b.WriteString(" after ")
+	b.WriteString(timeout)
+	return b.String()
 }

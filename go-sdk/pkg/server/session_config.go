@@ -141,6 +141,12 @@ type MemorySessionConfig struct {
 	MaxSessions    int  `json:"max_sessions" yaml:"max_sessions"`
 	EnableSharding bool `json:"enable_sharding" yaml:"enable_sharding"`
 	ShardCount     int  `json:"shard_count" yaml:"shard_count"`
+	
+	// Memory management settings to prevent memory leaks
+	EnableMapRecreation       bool          `json:"enable_map_recreation" yaml:"enable_map_recreation"`
+	RecreationDeletionThreshold int         `json:"recreation_deletion_threshold" yaml:"recreation_deletion_threshold"`
+	RecreationTimeThreshold   time.Duration `json:"recreation_time_threshold" yaml:"recreation_time_threshold"`
+	MaxMapCapacityRatio       float64       `json:"max_map_capacity_ratio" yaml:"max_map_capacity_ratio"`
 }
 
 // DefaultSessionConfig returns default session configuration
@@ -161,9 +167,13 @@ func DefaultSessionConfig() *SessionConfig {
 		SessionPoolSize:       DefaultSessionPoolSize,
 		EnableCompression:     true,
 		Memory: &MemorySessionConfig{
-			MaxSessions:    DefaultMaxConcurrentSessions,
-			EnableSharding: true,
-			ShardCount:     16,
+			MaxSessions:                 DefaultMaxConcurrentSessions,
+			EnableSharding:              true,
+			ShardCount:                  16,
+			EnableMapRecreation:         true,
+			RecreationDeletionThreshold: 1000,
+			RecreationTimeThreshold:     30 * time.Minute,
+			MaxMapCapacityRatio:         2.0,
 		},
 	}
 }
@@ -251,6 +261,21 @@ func (c *SessionConfig) validateMemoryConfig() error {
 
 	if c.Memory.EnableSharding && c.Memory.ShardCount <= 0 {
 		return fmt.Errorf("shard count must be positive when sharding is enabled")
+	}
+
+	// Validate memory management settings
+	if c.Memory.EnableMapRecreation {
+		if c.Memory.RecreationDeletionThreshold <= 0 {
+			return fmt.Errorf("recreation deletion threshold must be positive when map recreation is enabled")
+		}
+		
+		if c.Memory.RecreationTimeThreshold <= 0 {
+			return fmt.Errorf("recreation time threshold must be positive when map recreation is enabled")
+		}
+		
+		if c.Memory.MaxMapCapacityRatio <= 1.0 {
+			return fmt.Errorf("max map capacity ratio must be greater than 1.0 when map recreation is enabled")
+		}
 	}
 
 	return nil
@@ -357,9 +382,13 @@ func (c *SessionConfig) SetDefaults() {
 	case "memory":
 		if c.Memory == nil {
 			c.Memory = &MemorySessionConfig{
-				MaxSessions:    DefaultMaxConcurrentSessions,
-				EnableSharding: true,
-				ShardCount:     16,
+				MaxSessions:                 DefaultMaxConcurrentSessions,
+				EnableSharding:              true,
+				ShardCount:                  16,
+				EnableMapRecreation:         true,
+				RecreationDeletionThreshold: 1000,
+				RecreationTimeThreshold:     30 * time.Minute,
+				MaxMapCapacityRatio:         2.0,
 			}
 		}
 	case "redis":

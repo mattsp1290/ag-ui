@@ -89,7 +89,7 @@ func (t *IDTracker) ValidateIDConsistency() []*ValidationError {
 	t.mutex.RLock()
 	defer t.mutex.RUnlock()
 
-	var errors []*ValidationError
+	errors := make([]*ValidationError, 0)
 
 	// Validate message triplets
 	errors = append(errors, t.validateMessageTriplets()...)

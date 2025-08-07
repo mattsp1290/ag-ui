@@ -462,17 +462,30 @@ func (p *RequestProcessingPipeline) Process(ctx context.Context, req *http.Reque
 		return p.createErrorResponse(pipelineCtx, err, http.StatusInternalServerError), nil
 	}
 
-	// Update final metrics
+	// Update final metrics with context cancellation check
 	if p.metrics != nil {
-		duration := time.Since(pipelineCtx.StartTime)
-		p.metrics.RequestDuration.Record(ctx, duration.Seconds())
+		// Check if context was cancelled before recording metrics
+		select {
+		case <-ctx.Done():
+			// Record cancellation metrics
+			p.metrics.TimeoutErrors.Add(ctx, 1,
+				metric.WithAttributes(
+					attribute.String("reason", "context_cancelled"),
+					attribute.String("stage", pipelineCtx.Stage),
+				),
+			)
+		default:
+			// Normal completion metrics
+			duration := time.Since(pipelineCtx.StartTime)
+			p.metrics.RequestDuration.Record(ctx, duration.Seconds())
 
-		if pipelineCtx.Request.ContentLength > 0 {
-			p.metrics.RequestSize.Record(ctx, pipelineCtx.Request.ContentLength)
-		}
+			if pipelineCtx.Request.ContentLength > 0 {
+				p.metrics.RequestSize.Record(ctx, pipelineCtx.Request.ContentLength)
+			}
 
-		if pipelineCtx.Response.ContentLength > 0 {
-			p.metrics.ResponseSize.Record(ctx, pipelineCtx.Response.ContentLength)
+			if pipelineCtx.Response.ContentLength > 0 {
+				p.metrics.ResponseSize.Record(ctx, pipelineCtx.Response.ContentLength)
+			}
 		}
 	}
 
@@ -599,6 +612,13 @@ func (rp *ResponseProcessingPipeline) ProcessResponse(ctx context.Context, resp 
 	rp.mu.RUnlock()
 
 	for _, transformer := range transformers {
+		// Check context cancellation before each transformer
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		
 		if transformer.ShouldTransform(ctx, resp) {
 			if err := transformer.Transform(ctx, resp); err != nil {
 				return pkgerrors.NewStateError("response_transform_failed", "response transformation failed").
@@ -1124,7 +1144,22 @@ func (p *RequestProcessingPipeline) processStages(ctx context.Context, pipelineC
 	p.stagesMu.RUnlock()
 
 	for i, stage := range stages {
+		// Check context cancellation before each stage
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+		
 		if pipelineCtx.Failed && p.config.FailFast {
+			// Ensure graceful cleanup on fail-fast
+			if p.config.EnableDetailedLogs {
+				p.logger.WithFields(logrus.Fields{
+					"request_id": pipelineCtx.Request.ID,
+					"stage": pipelineCtx.Stage,
+					"stage_index": pipelineCtx.StageIndex,
+				}).Info("Pipeline processing stopped due to fail-fast")
+			}
 			break
 		}
 
@@ -1139,14 +1174,44 @@ func (p *RequestProcessingPipeline) processStages(ctx context.Context, pipelineC
 
 		// Add timeout for stage processing
 		stageCtx := ctx
+		var cancel context.CancelFunc
 		if p.config.RequestTimeout > 0 {
-			var cancel context.CancelFunc
 			stageCtx, cancel = context.WithTimeout(ctx, p.config.RequestTimeout)
-			defer cancel()
+		} else {
+			// Always create a cancellable context for graceful shutdown
+			stageCtx, cancel = context.WithCancel(ctx)
 		}
+		defer func() {
+			if cancel != nil {
+				cancel()
+			}
+		}()
 
-		// Process stage with recovery
-		err := p.processStageWithRecovery(stageCtx, stage, pipelineCtx)
+		// Process stage with recovery and cancellation handling
+		// Use a channel to handle both completion and cancellation
+		errChan := make(chan error, 1)
+		
+		go func() {
+			errChan <- p.processStageWithRecovery(stageCtx, stage, pipelineCtx)
+		}()
+		
+		var err error
+		select {
+		case err = <-errChan:
+			// Stage completed normally
+		case <-stageCtx.Done():
+			// Context was cancelled or timed out
+			err = stageCtx.Err()
+			// Mark pipeline context as failed for proper cleanup
+			pipelineCtx.Failed = true
+			if p.config.EnableDetailedLogs {
+				p.logger.WithFields(logrus.Fields{
+					"stage": stage.Name(),
+					"request_id": pipelineCtx.Request.ID,
+					"error": err,
+				}).Warn("Stage processing cancelled")
+			}
+		}
 
 		// Record stage timing
 		stageDuration := time.Since(stageStart)
@@ -1276,6 +1341,13 @@ func (p *RequestProcessingPipeline) createErrorResponse(pipelineCtx *PipelineCon
 
 // checkRateLimit checks if the request is within rate limits.
 func (p *RequestProcessingPipeline) checkRateLimit(ctx context.Context, pipelineCtx *PipelineContext) error {
+	// Check context cancellation before rate limit check
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	
 	// TODO: Implement actual rate limiting logic
 	// This is a placeholder implementation
 
@@ -1295,6 +1367,14 @@ func (p *RequestProcessingPipeline) checkRateLimit(ctx context.Context, pipeline
 
 // recoverFromError attempts to recover from processing errors.
 func (p *RequestProcessingPipeline) recoverFromError(ctx context.Context, pipelineCtx *PipelineContext, err error) error {
+	// Check context cancellation before recovery attempt
+	select {
+	case <-ctx.Done():
+		// Don't attempt recovery if context is cancelled
+		return ctx.Err()
+	default:
+	}
+	
 	// TODO: Implement actual recovery logic
 	// This could include retry logic, fallback processing, etc.
 

@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -690,72 +689,6 @@ func BenchmarkHighFrequencyUpdates(b *testing.B) {
 func TestStressTestLargeStateObjects(t *testing.T) {
 	t.Skip("Large state objects test removed - was designed to test memory exhaustion with large data structures")
 }
-				"value": fmt.Sprintf("Item %d", i),
-				"data":  make([]byte, 100), // 100 bytes per item
-			}
-		}
-
-		// Set the large array
-		start := time.Now()
-		err := store.Set("/largeArray", largeArray)
-		duration := time.Since(start)
-
-		require.NoError(t, err)
-		t.Logf("Set large array (%d items) in %v", size, duration)
-
-		// Modify single element
-		start = time.Now()
-		err = store.Set("/largeArray/5000", map[string]interface{}{
-			"id":       5000,
-			"value":    "Modified",
-			"modified": true,
-		})
-		duration = time.Since(start)
-
-		require.NoError(t, err)
-		t.Logf("Modified single array element in %v", duration)
-	})
-
-	t.Run("Many Keys", func(t *testing.T) {
-		// Create object with many keys
-		numKeys := 50000
-		manyKeys := make(map[string]interface{})
-
-		for i := 0; i < numKeys; i++ {
-			manyKeys[fmt.Sprintf("key_%d", i)] = map[string]interface{}{
-				"value": i,
-				"data":  fmt.Sprintf("Value for key %d", i),
-			}
-		}
-
-		// Set the object
-		start := time.Now()
-		err := store.Set("/manyKeys", manyKeys)
-		duration := time.Since(start)
-
-		require.NoError(t, err)
-		t.Logf("Set object with %d keys in %v", numKeys, duration)
-
-		// Random access test
-		start = time.Now()
-		for i := 0; i < 100; i++ {
-			key := rand.Intn(numKeys)
-			path := fmt.Sprintf("/manyKeys/key_%d", key)
-			_, err := store.Get(path)
-			require.NoError(t, err)
-		}
-		duration = time.Since(start)
-		t.Logf("100 random accesses completed in %v", duration)
-	})
-
-	// Memory usage check
-	var m runtime.MemStats
-	runtime.GC()
-	runtime.ReadMemStats(&m)
-	t.Logf("Memory usage: Alloc = %v MB, TotalAlloc = %v MB, Sys = %v MB",
-		m.Alloc/1024/1024, m.TotalAlloc/1024/1024, m.Sys/1024/1024)
-}
-
 
 // TestRecoveryScenarios tests various recovery scenarios
 func TestRecoveryScenarios(t *testing.T) {

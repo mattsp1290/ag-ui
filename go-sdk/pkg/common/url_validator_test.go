@@ -41,7 +41,7 @@ func TestValidateURL(t *testing.T) {
 			wantErr: true,
 			errMsg:  "invalid URL format",
 		},
-		
+
 		// Scheme validation tests
 		{
 			name:    "http URL when HTTPS required",
@@ -63,7 +63,7 @@ func TestValidateURL(t *testing.T) {
 			wantErr: true,
 			errMsg:  "scheme \"ftp\" is not allowed",
 		},
-		
+
 		// Localhost blocking tests
 		{
 			name:    "localhost blocked",
@@ -93,7 +93,7 @@ func TestValidateURL(t *testing.T) {
 			wantErr: true,
 			errMsg:  "URL cannot point to localhost",
 		},
-		
+
 		// Private IP blocking tests
 		{
 			name:    "10.x.x.x blocked",
@@ -123,7 +123,7 @@ func TestValidateURL(t *testing.T) {
 			wantErr: true,
 			errMsg:  "URL points to internal IP address",
 		},
-		
+
 		// Blocked hosts tests
 		{
 			name:    "metadata.google.internal blocked",
@@ -139,7 +139,7 @@ func TestValidateURL(t *testing.T) {
 			wantErr: true,
 			errMsg:  "host \"169.254.169.254\" is blocked",
 		},
-		
+
 		// Allowed hosts tests
 		{
 			name: "host not in allowed list",
@@ -169,7 +169,7 @@ func TestValidateURL(t *testing.T) {
 			},
 			wantErr: false,
 		},
-		
+
 		// Edge cases
 		{
 			name:    "URL without hostname",
@@ -212,7 +212,7 @@ func TestIsInternalIP(t *testing.T) {
 		// Loopback addresses
 		{"IPv4 loopback", "127.0.0.1", true},
 		{"IPv6 loopback", "::1", true},
-		
+
 		// Private IPv4 ranges
 		{"10.0.0.0/8", "10.0.0.1", true},
 		{"10.255.255.255", "10.255.255.255", true},
@@ -220,25 +220,25 @@ func TestIsInternalIP(t *testing.T) {
 		{"172.31.255.255", "172.31.255.255", true},
 		{"192.168.0.0/16", "192.168.1.1", true},
 		{"192.168.255.255", "192.168.255.255", true},
-		
+
 		// Link-local
 		{"169.254.0.0/16", "169.254.1.1", true},
 		{"IPv6 link-local", "fe80::1", true},
-		
+
 		// IPv6 unique local
 		{"IPv6 unique local fc", "fc00::1", true},
 		{"IPv6 unique local fd", "fd00::1", true},
-		
+
 		// Public addresses
 		{"Google DNS", "8.8.8.8", false},
 		{"Cloudflare DNS", "1.1.1.1", false},
 		{"Public IPv6", "2001:4860:4860::8888", false},
-		
+
 		// Edge cases
 		{"172.15.255.255", "172.15.255.255", false}, // Just outside 172.16.0.0/12
-		{"172.32.0.0", "172.32.0.0", false}, // Just outside 172.16.0.0/12
-		{"11.0.0.0", "11.0.0.0", false}, // Just outside 10.0.0.0/8
-		{"9.255.255.255", "9.255.255.255", false}, // Just outside 10.0.0.0/8
+		{"172.32.0.0", "172.32.0.0", false},         // Just outside 172.16.0.0/12
+		{"11.0.0.0", "11.0.0.0", false},             // Just outside 10.0.0.0/8
+		{"9.255.255.255", "9.255.255.255", false},   // Just outside 10.0.0.0/8
 	}
 
 	for _, tt := range tests {

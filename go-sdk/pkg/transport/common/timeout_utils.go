@@ -27,18 +27,18 @@ func DefaultTimeoutConfig() TimeoutConfig {
 // TestTimeoutConfig returns faster timeouts for unit tests
 func TestTimeoutConfig() TimeoutConfig {
 	return TimeoutConfig{
-		Short:  1 * time.Second,   // For quick operations
-		Medium: 3 * time.Second,   // For normal operations
-		Long:   8 * time.Second,   // For complex operations
+		Short:  1 * time.Second, // For quick operations
+		Medium: 3 * time.Second, // For normal operations
+		Long:   8 * time.Second, // For complex operations
 	}
 }
 
 // IntegrationTimeoutConfig returns appropriate timeouts for integration tests
 func IntegrationTimeoutConfig() TimeoutConfig {
 	return TimeoutConfig{
-		Short:  3 * time.Second,   // For quick operations
-		Medium: 8 * time.Second,   // For normal operations
-		Long:   20 * time.Second,  // For complex operations
+		Short:  3 * time.Second,  // For quick operations
+		Medium: 8 * time.Second,  // For normal operations
+		Long:   20 * time.Second, // For complex operations
 	}
 }
 
@@ -63,7 +63,7 @@ func WithLongTimeout(parent context.Context) (context.Context, context.CancelFun
 // WithCustomTimeout creates a context with a custom timeout based on operation type
 func WithCustomTimeout(parent context.Context, operation string) (context.Context, context.CancelFunc) {
 	config := DefaultTimeoutConfig()
-	
+
 	switch operation {
 	case "connect", "send", "close":
 		return context.WithTimeout(parent, config.Short)
@@ -97,22 +97,22 @@ func (th *TimeoutHandler) Execute(ctx context.Context, fn func(context.Context) 
 	// Create a context with the specified timeout
 	timeoutCtx, cancel := context.WithTimeout(ctx, th.timeout)
 	defer cancel()
-	
+
 	// Channel to receive the result
 	resultChan := make(chan error, 1)
-	
+
 	// Run the function in a goroutine
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				resultChan <- NewTransportError(ErrorTypeInternal, 
+				resultChan <- NewTransportError(ErrorTypeInternal,
 					"panic during operation", nil).WithMetadata("panic", r)
 			}
 		}()
-		
+
 		resultChan <- fn(timeoutCtx)
 	}()
-	
+
 	// Wait for either completion or timeout
 	select {
 	case err := <-resultChan:
@@ -122,7 +122,7 @@ func (th *TimeoutHandler) Execute(ctx context.Context, fn func(context.Context) 
 		if th.cleanup != nil {
 			th.cleanup()
 		}
-		
+
 		return NewTimeoutError(th.operation, th.timeout, th.timeout)
 	}
 }
@@ -146,17 +146,17 @@ func NewRetryableTimeoutHandler(operation string, timeout time.Duration, maxRetr
 // Execute runs the function with retry logic on timeout
 func (rth *RetryableTimeoutHandler) Execute(ctx context.Context, fn func(context.Context) error) error {
 	var lastErr error
-	
+
 	for attempt := 0; attempt <= rth.maxRetries; attempt++ {
 		// Execute with timeout
 		err := rth.TimeoutHandler.Execute(ctx, fn)
-		
+
 		if err == nil {
 			return nil
 		}
-		
+
 		lastErr = err
-		
+
 		// Check if this is a timeout error and we have retries left
 		if IsTimeoutError(err) && attempt < rth.maxRetries {
 			// Wait before retrying
@@ -167,11 +167,11 @@ func (rth *RetryableTimeoutHandler) Execute(ctx context.Context, fn func(context
 				return ctx.Err()
 			}
 		}
-		
+
 		// If not a timeout error or no retries left, return the error
 		break
 	}
-	
+
 	return lastErr
 }
 
@@ -180,10 +180,10 @@ func (rth *RetryableTimeoutHandler) Execute(ctx context.Context, fn func(context
 // WaitWithTimeout waits for a channel with timeout and proper cleanup
 func WaitWithTimeout[T any](ctx context.Context, ch <-chan T, timeout time.Duration, operation string) (T, error) {
 	var zero T
-	
+
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	
+
 	select {
 	case result := <-ch:
 		return result, nil
@@ -197,10 +197,10 @@ func WaitWithTimeout[T any](ctx context.Context, ch <-chan T, timeout time.Durat
 // WaitWithTimeoutAndCleanup waits for a channel with timeout and runs cleanup on timeout
 func WaitWithTimeoutAndCleanup[T any](ctx context.Context, ch <-chan T, timeout time.Duration, operation string, cleanup func()) (T, error) {
 	var zero T
-	
+
 	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	
+
 	select {
 	case result := <-ch:
 		return result, nil

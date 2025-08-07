@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-
 // TestSSEMonitoringFailureScenarios tests comprehensive failure scenarios for SSE monitoring
 func TestSSEMonitoringFailureScenarios(t *testing.T) {
 	t.Run("connection_failure_scenarios", func(t *testing.T) {
@@ -57,7 +56,7 @@ func TestSSEMonitoringFailureScenarios(t *testing.T) {
 func testConnectionFailureScenarios(t *testing.T) {
 	config := DefaultMonitoringConfig()
 	config.Metrics.Interval = 50 * time.Millisecond
-	
+
 	ms, err := NewMonitoringSystem(config)
 	if err != nil {
 		t.Fatalf("Failed to create monitoring system: %v", err)
@@ -106,31 +105,31 @@ func testConnectionFailureScenarios(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			connID, remoteAddr, userAgent := tt.scenario()
-			
+
 			// Record connection establishment
 			ms.RecordConnectionEstablished(connID, remoteAddr, userAgent)
-			
+
 			// Verify connection is tracked
 			stats := ms.GetConnectionStats()
 			if len(stats.ActiveConnectionList) == 0 && connID != "" {
 				t.Error("Expected connection to be tracked")
 			}
-			
+
 			// Record some activity
 			ms.RecordEventReceived(connID, "test_event", 100)
 			ms.RecordEventSent(connID, "response_event", 50, 5*time.Millisecond)
-			
+
 			// Simulate connection error
 			testErr := errors.New("connection failed")
 			ms.RecordConnectionError(connID, testErr)
-			
+
 			// Close connection
 			ms.RecordConnectionClosed(connID, "test completed")
-			
+
 			// Verify connection is no longer active
 			time.Sleep(50 * time.Millisecond)
 			stats = ms.GetConnectionStats()
-			
+
 			// Check that connection was properly cleaned up
 			found := false
 			for _, conn := range stats.ActiveConnectionList {
@@ -139,7 +138,7 @@ func testConnectionFailureScenarios(t *testing.T) {
 					break
 				}
 			}
-			
+
 			if found && connID != "" {
 				t.Error("Expected connection to be removed from active list")
 			}
@@ -151,7 +150,7 @@ func testStreamInterruptionScenarios(t *testing.T) {
 	config := DefaultMonitoringConfig()
 	config.Alerting.Enabled = true
 	config.Alerting.Thresholds.ErrorRate = 10.0 // 10% error rate threshold
-	
+
 	ms, err := NewMonitoringSystem(config)
 	if err != nil {
 		t.Fatalf("Failed to create monitoring system: %v", err)
@@ -285,10 +284,10 @@ func testEventProcessingFailures(t *testing.T) {
 			// Record event reception
 			eventSize := int64(100 + len(scenario.eventType))
 			ms.RecordEventReceived(connID, scenario.eventType, eventSize)
-			
+
 			// Record processing failure
 			ms.RecordEventProcessed(scenario.eventType, scenario.duration, scenario.error)
-			
+
 			// Verify error was recorded
 			stats := ms.GetEventStats()
 			if eventStats, exists := stats[scenario.eventType]; exists {
@@ -306,10 +305,10 @@ func testEventProcessingFailures(t *testing.T) {
 			eventType := fmt.Sprintf("queued_event_%d", i)
 			ms.RecordEventReceived(connID, eventType, 50)
 		}
-		
+
 		// Simulate some events being dropped
 		ms.promMetrics.EventDropped.WithLabelValues("queue_full").Add(3)
-		
+
 		// Verify metrics
 		time.Sleep(50 * time.Millisecond)
 	})
@@ -331,29 +330,29 @@ func testNetworkPartitionRecovery(t *testing.T) {
 
 	// Simulate network partition scenario
 	connID := "partition_test_001"
-	
+
 	// Initial connection
 	ms.RecordConnectionEstablished(connID, "192.168.1.100:12345", "TestClient/1.0")
-	
+
 	// Normal operation
 	for i := 0; i < 5; i++ {
 		ms.RecordEventReceived(connID, "normal_event", 100)
 		ms.RecordEventProcessed("normal_event", 5*time.Millisecond, nil)
 	}
-	
+
 	// Network partition - multiple reconnection attempts
 	for attempt := 1; attempt <= 5; attempt++ {
 		success := attempt == 5 // Last attempt succeeds
 		ms.RecordReconnection(connID, attempt, success)
-		
+
 		if !success {
 			// Record connection errors during failed attempts
 			ms.RecordConnectionError(connID, errors.New("network unreachable"))
 		}
-		
+
 		time.Sleep(10 * time.Millisecond)
 	}
-	
+
 	// Verify reconnection metrics
 	stats := ms.GetConnectionStats()
 	found := false
@@ -366,17 +365,17 @@ func testNetworkPartitionRecovery(t *testing.T) {
 			break
 		}
 	}
-	
+
 	if !found {
 		t.Error("Expected connection to be found in active list after recovery")
 	}
-	
+
 	// Post-recovery normal operation
 	for i := 0; i < 3; i++ {
 		ms.RecordEventReceived(connID, "recovery_event", 100)
 		ms.RecordEventProcessed("recovery_event", 5*time.Millisecond, nil)
 	}
-	
+
 	ms.RecordConnectionClosed(connID, "test completed")
 }
 
@@ -385,7 +384,7 @@ func testResourceExhaustion(t *testing.T) {
 	config.Alerting.Enabled = true
 	config.Alerting.Thresholds.MemoryUsage = 50.0 // 50% threshold
 	config.Alerting.Thresholds.ConnectionCount = 10
-	
+
 	ms, err := NewMonitoringSystem(config)
 	if err != nil {
 		t.Fatalf("Failed to create monitoring system: %v", err)
@@ -408,10 +407,10 @@ func testResourceExhaustion(t *testing.T) {
 			ms.RecordEventReceived("mem_test", eventType, 1024*1024) // 1MB events
 			ms.RecordEventProcessed(eventType, 10*time.Millisecond, nil)
 		}
-		
+
 		// Force memory metrics update
 		ms.collectResourceMetrics()
-		
+
 		// Wait for alert processing
 		time.Sleep(200 * time.Millisecond)
 	})
@@ -422,10 +421,10 @@ func testResourceExhaustion(t *testing.T) {
 			connID := fmt.Sprintf("exhaust_conn_%d", i)
 			ms.RecordConnectionEstablished(connID, fmt.Sprintf("192.168.1.%d:12345", i+1), "TestClient/1.0")
 		}
-		
+
 		// Wait for alert processing
 		time.Sleep(200 * time.Millisecond)
-		
+
 		// Should receive connection count alert
 		select {
 		case alert := <-alertChan:
@@ -435,7 +434,7 @@ func testResourceExhaustion(t *testing.T) {
 		case <-time.After(500 * time.Millisecond):
 			t.Log("No connection count alert received (may be expected)")
 		}
-		
+
 		// Clean up connections
 		for i := 0; i < 15; i++ {
 			connID := fmt.Sprintf("exhaust_conn_%d", i)
@@ -447,21 +446,21 @@ func testResourceExhaustion(t *testing.T) {
 		// Simulate event queue building up
 		connID := "queue_test"
 		ms.RecordConnectionEstablished(connID, "192.168.1.200:12345", "TestClient/1.0")
-		
+
 		// Send events faster than they can be processed
 		for i := 0; i < 100; i++ {
 			eventType := fmt.Sprintf("queued_event_%d", i)
 			ms.RecordEventReceived(connID, eventType, 100)
-			
+
 			// Only process every 10th event to create backlog
 			if i%10 == 0 {
 				ms.RecordEventProcessed(eventType, 50*time.Millisecond, nil)
 			}
 		}
-		
+
 		// Simulate high queue depth
 		ms.promMetrics.EventQueueDepth.Set(500)
-		
+
 		ms.RecordConnectionClosed(connID, "test completed")
 	})
 }
@@ -487,32 +486,32 @@ func testConcurrentConnectionFailures(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			defer func() {
 				if r := recover(); r != nil {
 					errorChan <- fmt.Errorf("panic in connection %d: %v", id, r)
 				}
 			}()
-			
+
 			connID := fmt.Sprintf("concurrent_conn_%d", id)
 			remoteAddr := fmt.Sprintf("192.168.1.%d:12345", (id%254)+1)
-			
+
 			// Establish connection
 			ms.RecordConnectionEstablished(connID, remoteAddr, "ConcurrentTestClient/1.0")
-			
+
 			// Simulate various activities and failures
 			eventCount := 10 + (id % 20) // Variable event count
-			
+
 			for j := 0; j < eventCount; j++ {
 				eventType := fmt.Sprintf("event_%d_%d", id, j)
-				
+
 				// Receive event
 				ms.RecordEventReceived(connID, eventType, int64(100+(j*10)))
-				
+
 				// Simulate various processing outcomes
 				var processingErr error
 				processingDuration := time.Duration(j+1) * time.Millisecond
-				
+
 				switch j % 5 {
 				case 0:
 					// Success
@@ -526,20 +525,20 @@ func testConcurrentConnectionFailures(t *testing.T) {
 					// Success but slow
 					processingDuration = 100 * time.Millisecond
 				}
-				
+
 				ms.RecordEventProcessed(eventType, processingDuration, processingErr)
-				
+
 				// Occasionally send events
 				if j%3 == 0 {
 					ms.RecordEventSent(connID, fmt.Sprintf("response_%d_%d", id, j), int64(50+(j*5)), time.Millisecond)
 				}
-				
+
 				// Simulate connection errors for some connections
 				if id%10 == 0 && j%5 == 0 {
 					ms.RecordConnectionError(connID, fmt.Errorf("connection error %d-%d", id, j))
 				}
 			}
-			
+
 			// Simulate reconnections for some connections
 			if id%7 == 0 {
 				for attempt := 1; attempt <= 3; attempt++ {
@@ -547,14 +546,14 @@ func testConcurrentConnectionFailures(t *testing.T) {
 					ms.RecordReconnection(connID, attempt, success)
 				}
 			}
-			
+
 			// Close connection
 			reason := "normal_close"
 			if id%15 == 0 {
 				reason = "error_close"
 			}
 			ms.RecordConnectionClosed(connID, reason)
-			
+
 		}(i)
 	}
 
@@ -575,11 +574,11 @@ func testConcurrentConnectionFailures(t *testing.T) {
 	// Verify final state
 	time.Sleep(100 * time.Millisecond)
 	stats := ms.GetConnectionStats()
-	
+
 	if stats.TotalConnections != int64(connectionCount) {
 		t.Errorf("Expected %d total connections, got %d", connectionCount, stats.TotalConnections)
 	}
-	
+
 	if len(stats.ActiveConnectionList) > 0 {
 		t.Errorf("Expected no active connections, got %d", len(stats.ActiveConnectionList))
 	}
@@ -590,7 +589,7 @@ func testMonitoringSystemFailures(t *testing.T) {
 		// Test with invalid configuration
 		config := DefaultMonitoringConfig()
 		config.Logging.Level = -99 // Invalid log level
-		
+
 		// Should still initialize successfully with defaults
 		ms, err := NewMonitoringSystem(config)
 		if err != nil {
@@ -606,7 +605,7 @@ func testMonitoringSystemFailures(t *testing.T) {
 		config := DefaultMonitoringConfig()
 		config.Metrics.Interval = 10 * time.Millisecond // Very frequent
 		config.HealthChecks.Interval = 10 * time.Millisecond
-		
+
 		ms, err := NewMonitoringSystem(config)
 		if err != nil {
 			t.Fatalf("Failed to create monitoring system: %v", err)
@@ -620,22 +619,22 @@ func testMonitoringSystemFailures(t *testing.T) {
 		// Register a health check that panics
 		panicCheck := &PanicHealthCheck{}
 		ms.RegisterHealthCheck(panicCheck)
-		
+
 		// Register a health check that times out
 		timeoutCheck := &TimeoutHealthCheck{delay: 200 * time.Millisecond}
 		ms.RegisterHealthCheck(timeoutCheck)
-		
+
 		// Let background tasks run
 		time.Sleep(200 * time.Millisecond)
-		
+
 		// System should still be responsive
 		ms.RecordConnectionEstablished("test_conn", "192.168.1.1:12345", "TestClient/1.0")
 		stats := ms.GetConnectionStats()
-		
+
 		if stats.TotalConnections == 0 {
 			t.Error("Expected monitoring system to remain functional despite health check failures")
 		}
-		
+
 		ms.RecordConnectionClosed("test_conn", "test completed")
 	})
 
@@ -653,9 +652,9 @@ func testMonitoringSystemFailures(t *testing.T) {
 
 		// Try to cause metrics collection issues by providing extreme values
 		ms.RecordEventProcessed("extreme_event", time.Hour*24*365, errors.New("extreme error"))
-		ms.RecordConnectionEstablished("", "", "") // Empty values
+		ms.RecordConnectionEstablished("", "", "")       // Empty values
 		ms.RecordEventReceived("test", "test_event", -1) // Negative size
-		
+
 		// System should handle these gracefully
 		metrics := ms.GetPerformanceMetrics()
 		if metrics.Timestamp.IsZero() {
@@ -669,7 +668,7 @@ func testHealthCheckFailures(t *testing.T) {
 	config.HealthChecks.Enabled = true
 	config.HealthChecks.Interval = 50 * time.Millisecond
 	config.HealthChecks.Timeout = 100 * time.Millisecond
-	
+
 	ms, err := NewMonitoringSystem(config)
 	if err != nil {
 		t.Fatalf("Failed to create monitoring system: %v", err)
@@ -697,7 +696,7 @@ func testHealthCheckFailures(t *testing.T) {
 
 	// Get health status
 	status := ms.GetHealthStatus()
-	
+
 	if len(status) != len(checks) {
 		t.Errorf("Expected %d health check results, got %d", len(checks), len(status))
 	}
@@ -723,7 +722,7 @@ func testAlertSystemFailures(t *testing.T) {
 	config := DefaultMonitoringConfig()
 	config.Alerting.Enabled = true
 	config.Alerting.Thresholds.ErrorRate = 5.0
-	
+
 	ms, err := NewMonitoringSystem(config)
 	if err != nil {
 		t.Fatalf("Failed to create monitoring system: %v", err)
@@ -750,12 +749,12 @@ func testAlertSystemFailures(t *testing.T) {
 	// Create high error rate
 	for i := 0; i < 20; i++ {
 		ms.RecordEventReceived(connID, "test_event", 100)
-		
+
 		var err error
 		if i%2 == 0 { // 50% error rate
 			err = errors.New("test error")
 		}
-		
+
 		ms.RecordEventProcessed("test_event", 5*time.Millisecond, err)
 	}
 
@@ -774,7 +773,7 @@ func testAlertSystemFailures(t *testing.T) {
 func testPerformanceDegradation(t *testing.T) {
 	config := DefaultMonitoringConfig()
 	config.Metrics.Interval = 10 * time.Millisecond // Very frequent
-	
+
 	ms, err := NewMonitoringSystem(config)
 	if err != nil {
 		t.Fatalf("Failed to create monitoring system: %v", err)
@@ -938,7 +937,7 @@ func BenchmarkSSEMonitoringFailures(b *testing.B) {
 	config := DefaultMonitoringConfig()
 	config.Metrics.Enabled = false // Disable background processing
 	config.HealthChecks.Enabled = false
-	
+
 	ms, err := NewMonitoringSystem(config)
 	if err != nil {
 		b.Fatalf("Failed to create monitoring system: %v", err)
@@ -952,9 +951,9 @@ func BenchmarkSSEMonitoringFailures(b *testing.B) {
 	b.Run("connection_error_recording", func(b *testing.B) {
 		connID := "bench_conn"
 		ms.RecordConnectionEstablished(connID, "192.168.1.1:12345", "BenchClient/1.0")
-		
+
 		testErr := errors.New("benchmark error")
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			ms.RecordConnectionError(connID, testErr)
@@ -963,7 +962,7 @@ func BenchmarkSSEMonitoringFailures(b *testing.B) {
 
 	b.Run("event_processing_errors", func(b *testing.B) {
 		testErr := errors.New("processing error")
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			ms.RecordEventProcessed("bench_event", time.Microsecond, testErr)
@@ -972,7 +971,7 @@ func BenchmarkSSEMonitoringFailures(b *testing.B) {
 
 	b.Run("concurrent_failure_recording", func(b *testing.B) {
 		testErr := errors.New("concurrent error")
-		
+
 		b.ResetTimer()
 		b.RunParallel(func(pb *testing.PB) {
 			connID := "bench_concurrent"

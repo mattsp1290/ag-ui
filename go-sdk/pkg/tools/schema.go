@@ -2,24 +2,24 @@ package tools
 
 import (
 	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"hash/fnv"
+	"net/mail"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"strconv"
-	"net/url"
-	"net/mail"
-	"hash/fnv"
-	"encoding/hex"
 )
 
 // Schema validation recursion depth limits to prevent stack overflow attacks
 const (
 	// DefaultMaxSchemaValidationDepth is the default maximum depth for schema validation operations
 	DefaultMaxSchemaValidationDepth = 100
-	
+
 	// StrictMaxSchemaValidationDepth is the strict maximum depth for security-critical schema validation
 	StrictMaxSchemaValidationDepth = 50
 )
@@ -34,7 +34,6 @@ func ResetGlobalSchemaCache() {
 	globalSchemaCache = nil
 	globalSchemaCacheOnce = sync.Once{}
 }
-
 
 // SchemaValidator provides JSON Schema validation for tool parameters.
 // It supports the JSON Schema draft-07 specification with additional
@@ -52,7 +51,7 @@ func ResetGlobalSchemaCache() {
 //	validator := NewSchemaValidator(tool.Schema)
 //	validator.SetCoercionEnabled(true)
 //	validator.AddCustomFormat("phone", validatePhoneNumber)
-//	
+//
 //	if err := validator.Validate(params); err != nil {
 //		// Handle validation error
 //	}
@@ -73,13 +72,13 @@ type SchemaValidator struct {
 
 	// debug enables detailed validation logging
 	debug bool
-	
+
 	// schemaHash is the hash of the schema for caching
 	schemaHash string
-	
+
 	// globalCache is the global schema cache
 	globalCache *SchemaCache
-	
+
 	// maxValidationDepth is the maximum recursion depth for validation operations
 	maxValidationDepth int
 }
@@ -94,7 +93,7 @@ func NewSchemaValidator(schema *ToolSchema) *SchemaValidator {
 
 	// Generate schema hash for caching
 	schemaHash := generateSchemaHash(schema)
-	
+
 	// Check if we have a cached validator
 	if cachedValidator, exists := globalSchemaCache.Get(schemaHash); exists {
 		return cachedValidator
@@ -136,9 +135,9 @@ func NewAdvancedSchemaValidator(schema *ToolSchema, opts *ValidatorOptions) *Sch
 		schema:             schema,
 		cache:              NewValidationCache(),
 		customFormats:      make(map[string]FormatValidator),
-		coercionEnabled:    true,                               // default value
-		debug:              false,                              // default value
-		maxValidationDepth: DefaultMaxSchemaValidationDepth,    // default value
+		coercionEnabled:    true,                            // default value
+		debug:              false,                           // default value
+		maxValidationDepth: DefaultMaxSchemaValidationDepth, // default value
 	}
 
 	if opts != nil {
@@ -204,17 +203,17 @@ func (v *SchemaValidator) ValidateWithResult(params map[string]interface{}) *Val
 		Valid: true,
 		Data:  params,
 	}
-	
+
 	if v.schema == nil {
 		return result
 	}
-	
+
 	// Generate cache key
 	cacheKey := v.generateCacheKey(params)
 	if cached, exists := v.cache.Get(cacheKey); exists {
 		return cached
 	}
-	
+
 	// Apply type coercion if enabled
 	if v.coercionEnabled {
 		coercedParams, err := v.coerceTypes(params, v.schema)
@@ -231,7 +230,7 @@ func (v *SchemaValidator) ValidateWithResult(params map[string]interface{}) *Val
 		result.Data = coercedParams
 		params = coercedParams
 	}
-	
+
 	// Validate the top-level object
 	if err := v.validateObject(v.schema, params, ""); err != nil {
 		result.Valid = false
@@ -245,7 +244,7 @@ func (v *SchemaValidator) ValidateWithResult(params map[string]interface{}) *Val
 			})
 		}
 	}
-	
+
 	v.cache.Set(cacheKey, result)
 	return result
 }
@@ -362,29 +361,29 @@ func (v *SchemaValidator) validateValueWithDepth(prop *Property, value interface
 		// This is a placeholder for future implementation
 		return nil
 	}
-	
+
 	// Handle composition schemas first
 	if len(prop.OneOf) > 0 {
 		return v.validateOneOfWithDepth(prop.OneOf, value, path, depth)
 	}
-	
+
 	if len(prop.AnyOf) > 0 {
 		return v.validateAnyOfWithDepth(prop.AnyOf, value, path, depth)
 	}
-	
+
 	if len(prop.AllOf) > 0 {
 		return v.validateAllOfWithDepth(prop.AllOf, value, path, depth)
 	}
-	
+
 	if prop.Not != nil {
 		return v.validateNotWithDepth(prop.Not, value, path, depth)
 	}
-	
+
 	// Handle conditional schemas
 	if prop.If != nil {
 		return v.validateConditionalWithDepth(prop, value, path, depth)
 	}
-	
+
 	// Handle null values
 	if value == nil {
 		if prop.Type != "" && prop.Type != "null" {
@@ -447,13 +446,13 @@ func (v *SchemaValidator) validateEnum(prop *Property, value interface{}, path s
 	if len(prop.Enum) == 0 {
 		return nil
 	}
-	
+
 	for _, allowed := range prop.Enum {
 		if allowed == value {
 			return nil
 		}
 	}
-	
+
 	return newValidationError(path, fmt.Sprintf("value %v is not in enum %v", value, prop.Enum))
 }
 
@@ -672,7 +671,6 @@ func (v *SchemaValidator) validateObjectPropertyWithDepth(prop *Property, value 
 	return v.validateObjectWithDepth(tempSchema, obj, path, depth)
 }
 
-
 // ValidationError represents a schema validation error.
 // It provides detailed information about what failed and where.
 //
@@ -682,9 +680,9 @@ func (v *SchemaValidator) validateObjectPropertyWithDepth(prop *Property, value 
 //   - Code: Machine-readable error code for programmatic handling
 //   - Details: Additional context about the error
 type ValidationError struct {
-	Path    string `json:"path"`
-	Message string `json:"message"`
-	Code    string `json:"code,omitempty"`
+	Path    string                 `json:"path"`
+	Message string                 `json:"message"`
+	Code    string                 `json:"code,omitempty"`
 	Details map[string]interface{} `json:"details,omitempty"`
 }
 
@@ -726,22 +724,22 @@ type ValidationResult struct {
 type ValidatorOptions struct {
 	// CoercionEnabled enables automatic type coercion
 	CoercionEnabled bool
-	
+
 	// Debug enables detailed validation logging
 	Debug bool
-	
+
 	// CacheSize sets the validation cache size (0 = default)
 	CacheSize int
-	
+
 	// CustomFormats provides custom format validators
 	CustomFormats map[string]FormatValidator
-	
+
 	// DefaultInjection enables default value injection
 	DefaultInjection bool
-	
+
 	// StrictMode enables strict validation (no coercion)
 	StrictMode bool
-	
+
 	// MaxValidationDepth sets the maximum recursion depth for validation operations
 	MaxValidationDepth int
 }
@@ -761,9 +759,9 @@ type FormatValidator func(value string) error
 //   - High-frequency tool executions
 //   - Complex schemas with expensive validation logic
 type ValidationCache struct {
-	cache map[string]*ValidationResult
-	mutex sync.RWMutex
-	size  int
+	cache   map[string]*ValidationResult
+	mutex   sync.RWMutex
+	size    int
 	maxSize int
 	// LRU tracking
 	accessOrder []string
@@ -796,7 +794,7 @@ func NewValidationCacheWithSize(size int) *ValidationCache {
 func (c *ValidationCache) Get(key string) (*ValidationResult, bool) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	
+
 	result, exists := c.cache[key]
 	if exists {
 		// Move to end of access order (most recently used)
@@ -811,19 +809,19 @@ func (c *ValidationCache) Get(key string) (*ValidationResult, bool) {
 func (c *ValidationCache) Set(key string, result *ValidationResult) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	
+
 	// If key already exists, update and move to end
 	if _, exists := c.cache[key]; exists {
 		c.cache[key] = result
 		c.moveToEnd(key)
 		return
 	}
-	
+
 	// If cache is full, evict least recently used
 	if c.size >= c.maxSize && c.maxSize > 0 {
 		c.evictLRU()
 	}
-	
+
 	// Add new entry
 	c.cache[key] = result
 	c.accessOrder = append(c.accessOrder, key)
@@ -859,7 +857,7 @@ func (c *ValidationCache) evictLRU() {
 	if len(c.accessOrder) == 0 {
 		return
 	}
-	
+
 	// Remove the first entry (least recently used)
 	lruKey := c.accessOrder[0]
 	c.accessOrder = c.accessOrder[1:]
@@ -887,13 +885,13 @@ func (c *ValidationCache) evictLRU() {
 type SchemaComposition struct {
 	// OneOf specifies that the value must match exactly one of the schemas
 	OneOf []*Property `json:"oneOf,omitempty"`
-	
+
 	// AnyOf specifies that the value must match at least one of the schemas
 	AnyOf []*Property `json:"anyOf,omitempty"`
-	
+
 	// AllOf specifies that the value must match all of the schemas
 	AllOf []*Property `json:"allOf,omitempty"`
-	
+
 	// Not specifies that the value must not match the schema
 	Not *Property `json:"not,omitempty"`
 }
@@ -911,10 +909,10 @@ type SchemaComposition struct {
 type ConditionalSchema struct {
 	// If specifies the condition schema
 	If *Property `json:"if,omitempty"`
-	
+
 	// Then specifies the schema to apply if the condition is true
 	Then *Property `json:"then,omitempty"`
-	
+
 	// Else specifies the schema to apply if the condition is false
 	Else *Property `json:"else,omitempty"`
 }
@@ -925,7 +923,7 @@ type ConditionalSchema struct {
 type SchemaReference struct {
 	// Ref is the schema reference URI
 	Ref string `json:"$ref,omitempty"`
-	
+
 	// Resolved is the resolved schema (populated during validation)
 	Resolved *Property `json:"-"`
 }
@@ -941,10 +939,10 @@ type SchemaReference struct {
 type PropertyTransformation struct {
 	// CoercionRules define how to coerce types
 	CoercionRules map[string][]string `json:"coercionRules,omitempty"`
-	
+
 	// NormalizationRules define how to normalize values
 	NormalizationRules map[string]string `json:"normalizationRules,omitempty"`
-	
+
 	// DefaultValueRules define default value injection
 	DefaultValueRules map[string]interface{} `json:"defaultValueRules,omitempty"`
 }
@@ -1050,21 +1048,21 @@ func (v *SchemaValidator) validateOneOf(schemas []*Property, value interface{}, 
 // validateOneOfWithDepth validates that the value matches exactly one of the provided schemas with depth tracking.
 func (v *SchemaValidator) validateOneOfWithDepth(schemas []*Property, value interface{}, path string, depth int) error {
 	matchCount := 0
-	
+
 	for _, schema := range schemas {
 		if err := v.validateValueWithDepth(schema, value, path, depth+1); err == nil {
 			matchCount++
 		}
 	}
-	
+
 	if matchCount == 0 {
 		return newValidationErrorWithCode(path, "value does not match any of the oneOf schemas", "ONEOF_NO_MATCH")
 	}
-	
+
 	if matchCount > 1 {
 		return newValidationErrorWithCode(path, fmt.Sprintf("value matches %d schemas, but oneOf requires exactly one match", matchCount), "ONEOF_MULTIPLE_MATCH")
 	}
-	
+
 	return nil
 }
 
@@ -1080,7 +1078,7 @@ func (v *SchemaValidator) validateAnyOfWithDepth(schemas []*Property, value inte
 			return nil
 		}
 	}
-	
+
 	return newValidationErrorWithCode(path, "value does not match any of the anyOf schemas", "ANYOF_NO_MATCH")
 }
 
@@ -1096,7 +1094,7 @@ func (v *SchemaValidator) validateAllOfWithDepth(schemas []*Property, value inte
 			return newValidationErrorWithCode(path, fmt.Sprintf("value fails allOf schema at index %d: %v", i, err), "ALLOF_FAILED")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -1110,7 +1108,7 @@ func (v *SchemaValidator) validateNotWithDepth(schema *Property, value interface
 	if err := v.validateValueWithDepth(schema, value, path, depth+1); err == nil {
 		return newValidationErrorWithCode(path, "value matches the not schema, but it should not", "NOT_MATCHED")
 	}
-	
+
 	return nil
 }
 
@@ -1124,12 +1122,12 @@ func (v *SchemaValidator) validateConditionalWithDepth(prop *Property, value int
 	if prop.If == nil {
 		return nil
 	}
-	
+
 	// Check depth limit before proceeding
 	if depth > v.maxValidationDepth {
 		return newValidationErrorWithCode(path, fmt.Sprintf("validation recursion depth %d exceeds maximum %d", depth, v.maxValidationDepth), "RECURSION_DEPTH_EXCEEDED")
 	}
-	
+
 	// First, validate the base schema (if it has a type)
 	if prop.Type != "" {
 		switch prop.Type {
@@ -1159,20 +1157,20 @@ func (v *SchemaValidator) validateConditionalWithDepth(prop *Property, value int
 			}
 		}
 	}
-	
+
 	// Test the condition
 	conditionMatches := v.validateValueWithDepth(prop.If, value, path, depth+1) == nil
-	
+
 	if conditionMatches && prop.Then != nil {
 		// Apply the "then" schema
 		return v.validateValueWithDepth(prop.Then, value, path, depth+1)
 	}
-	
+
 	if !conditionMatches && prop.Else != nil {
 		// Apply the "else" schema
 		return v.validateValueWithDepth(prop.Else, value, path, depth+1)
 	}
-	
+
 	return nil
 }
 
@@ -1183,14 +1181,14 @@ func (v *SchemaValidator) coerceTypes(params map[string]interface{}, schema *Too
 	if schema == nil || schema.Properties == nil {
 		return params, nil
 	}
-	
+
 	coerced := make(map[string]interface{})
-	
+
 	// Copy all existing parameters
 	for k, v := range params {
 		coerced[k] = v
 	}
-	
+
 	// Apply coercion rules for each property
 	for name, prop := range schema.Properties {
 		if value, exists := coerced[name]; exists {
@@ -1204,7 +1202,7 @@ func (v *SchemaValidator) coerceTypes(params map[string]interface{}, schema *Too
 			coerced[name] = prop.Default
 		}
 	}
-	
+
 	return coerced, nil
 }
 
@@ -1213,7 +1211,7 @@ func (v *SchemaValidator) coerceValue(value interface{}, prop *Property) (interf
 	if prop.Type == "" {
 		return value, nil
 	}
-	
+
 	switch prop.Type {
 	case "string":
 		return v.coerceToString(value), nil
@@ -1345,7 +1343,7 @@ func (v *SchemaValidator) generateCacheKey(params map[string]interface{}) string
 		CoercionEnabled: v.coercionEnabled,
 		Debug:           v.debug,
 	}
-	
+
 	data, _ := json.Marshal(cacheData)
 	hash := fnv.New64a()
 	hash.Write(data)
@@ -1369,14 +1367,14 @@ func (v *SchemaValidator) validateFormat(format, value, path string) error {
 	v.mu.RLock()
 	validator, exists := v.customFormats[format]
 	v.mu.RUnlock()
-	
+
 	if exists {
 		if err := validator(value); err != nil {
 			return newValidationErrorWithCode(path, fmt.Sprintf("format %q validation failed: %v", format, err), "FORMAT_CUSTOM_FAILED")
 		}
 		return nil
 	}
-	
+
 	// Built-in formats
 	switch format {
 	case "email":

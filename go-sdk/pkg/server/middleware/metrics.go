@@ -17,13 +17,13 @@ import (
 type MetricsCollector interface {
 	// Counter metrics
 	IncrementCounter(name string, labels map[string]string, value float64)
-	
+
 	// Histogram metrics
 	RecordHistogram(name string, labels map[string]string, value float64)
-	
+
 	// Gauge metrics
 	SetGauge(name string, labels map[string]string, value float64)
-	
+
 	// Summary metrics
 	RecordSummary(name string, labels map[string]string, value float64)
 }
@@ -62,11 +62,11 @@ type GaugeMetric struct {
 
 // SummaryMetric represents a summary metric
 type SummaryMetric struct {
-	Name       string            `json:"name"`
-	Labels     map[string]string `json:"labels"`
-	Count      int64             `json:"count"`
-	Sum        float64           `json:"sum"`
-	Quantiles  map[string]float64 `json:"quantiles"`
+	Name      string             `json:"name"`
+	Labels    map[string]string  `json:"labels"`
+	Count     int64              `json:"count"`
+	Sum       float64            `json:"sum"`
+	Quantiles map[string]float64 `json:"quantiles"`
 }
 
 // NewInMemoryMetricsCollector creates a new in-memory metrics collector
@@ -83,7 +83,7 @@ func NewInMemoryMetricsCollector() *InMemoryMetricsCollector {
 func (imc *InMemoryMetricsCollector) IncrementCounter(name string, labels map[string]string, value float64) {
 	imc.mu.Lock()
 	defer imc.mu.Unlock()
-	
+
 	key := imc.buildKey(name, labels)
 	if counter, exists := imc.counters[key]; exists {
 		counter.Value += value
@@ -100,7 +100,7 @@ func (imc *InMemoryMetricsCollector) IncrementCounter(name string, labels map[st
 func (imc *InMemoryMetricsCollector) RecordHistogram(name string, labels map[string]string, value float64) {
 	imc.mu.Lock()
 	defer imc.mu.Unlock()
-	
+
 	key := imc.buildKey(name, labels)
 	if histogram, exists := imc.histograms[key]; exists {
 		histogram.Count++
@@ -112,7 +112,7 @@ func (imc *InMemoryMetricsCollector) RecordHistogram(name string, labels map[str
 		buckets := make(map[string]int64)
 		bucket := imc.getBucket(value)
 		buckets[bucket] = 1
-		
+
 		imc.histograms[key] = &HistogramMetric{
 			Name:    name,
 			Labels:  labels,
@@ -127,7 +127,7 @@ func (imc *InMemoryMetricsCollector) RecordHistogram(name string, labels map[str
 func (imc *InMemoryMetricsCollector) SetGauge(name string, labels map[string]string, value float64) {
 	imc.mu.Lock()
 	defer imc.mu.Unlock()
-	
+
 	key := imc.buildKey(name, labels)
 	imc.gauges[key] = &GaugeMetric{
 		Name:   name,
@@ -140,14 +140,14 @@ func (imc *InMemoryMetricsCollector) SetGauge(name string, labels map[string]str
 func (imc *InMemoryMetricsCollector) RecordSummary(name string, labels map[string]string, value float64) {
 	imc.mu.Lock()
 	defer imc.mu.Unlock()
-	
+
 	key := imc.buildKey(name, labels)
 	if summary, exists := imc.summaries[key]; exists {
 		summary.Count++
 		summary.Sum += value
 		// Simplified quantile calculation
 		summary.Quantiles["0.5"] = summary.Sum / float64(summary.Count) // Simple average as median
-		summary.Quantiles["0.95"] = value // Simplified - use latest value
+		summary.Quantiles["0.95"] = value                               // Simplified - use latest value
 		summary.Quantiles["0.99"] = value
 	} else {
 		quantiles := map[string]float64{
@@ -155,7 +155,7 @@ func (imc *InMemoryMetricsCollector) RecordSummary(name string, labels map[strin
 			"0.95": value,
 			"0.99": value,
 		}
-		
+
 		imc.summaries[key] = &SummaryMetric{
 			Name:      name,
 			Labels:    labels,
@@ -170,33 +170,33 @@ func (imc *InMemoryMetricsCollector) RecordSummary(name string, labels map[strin
 func (imc *InMemoryMetricsCollector) GetMetrics() map[string]interface{} {
 	imc.mu.RLock()
 	defer imc.mu.RUnlock()
-	
+
 	metrics := make(map[string]interface{})
-	
+
 	counters := make([]*CounterMetric, 0, len(imc.counters))
 	for _, counter := range imc.counters {
 		counters = append(counters, counter)
 	}
 	metrics["counters"] = counters
-	
+
 	histograms := make([]*HistogramMetric, 0, len(imc.histograms))
 	for _, histogram := range imc.histograms {
 		histograms = append(histograms, histogram)
 	}
 	metrics["histograms"] = histograms
-	
+
 	gauges := make([]*GaugeMetric, 0, len(imc.gauges))
 	for _, gauge := range imc.gauges {
 		gauges = append(gauges, gauge)
 	}
 	metrics["gauges"] = gauges
-	
+
 	summaries := make([]*SummaryMetric, 0, len(imc.summaries))
 	for _, summary := range imc.summaries {
 		summaries = append(summaries, summary)
 	}
 	metrics["summaries"] = summaries
-	
+
 	return metrics
 }
 
@@ -205,14 +205,14 @@ func (imc *InMemoryMetricsCollector) buildKey(name string, labels map[string]str
 	if len(labels) == 0 {
 		return name
 	}
-	
+
 	var parts []string
 	parts = append(parts, name)
-	
+
 	for k, v := range labels {
 		parts = append(parts, fmt.Sprintf("%s=%s", k, v))
 	}
-	
+
 	return strings.Join(parts, ",")
 }
 
@@ -220,72 +220,72 @@ func (imc *InMemoryMetricsCollector) buildKey(name string, labels map[string]str
 func (imc *InMemoryMetricsCollector) getBucket(value float64) string {
 	// Simplified bucketing - in practice, you'd use predefined buckets
 	buckets := []float64{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}
-	
+
 	for _, bucket := range buckets {
 		if value <= bucket {
 			return fmt.Sprintf("%.3f", bucket)
 		}
 	}
-	
+
 	return "+Inf"
 }
 
 // MetricsConfig contains metrics middleware configuration
 type MetricsConfig struct {
 	BaseConfig `json:",inline" yaml:",inline"`
-	
+
 	// Collector is the metrics collector to use
 	Collector MetricsCollector `json:"-" yaml:"-"`
-	
+
 	// Request metrics
-	EnableRequestMetrics bool `json:"enable_request_metrics" yaml:"enable_request_metrics"`
+	EnableRequestMetrics bool   `json:"enable_request_metrics" yaml:"enable_request_metrics"`
 	RequestMetricName    string `json:"request_metric_name" yaml:"request_metric_name"`
-	
+
 	// Response metrics
-	EnableResponseMetrics bool `json:"enable_response_metrics" yaml:"enable_response_metrics"`
+	EnableResponseMetrics  bool   `json:"enable_response_metrics" yaml:"enable_response_metrics"`
 	ResponseSizeMetricName string `json:"response_size_metric_name" yaml:"response_size_metric_name"`
-	
+
 	// Duration metrics
-	EnableDurationMetrics bool `json:"enable_duration_metrics" yaml:"enable_duration_metrics"`
+	EnableDurationMetrics bool   `json:"enable_duration_metrics" yaml:"enable_duration_metrics"`
 	DurationMetricName    string `json:"duration_metric_name" yaml:"duration_metric_name"`
-	
+
 	// Active requests gauge
-	EnableActiveRequests bool `json:"enable_active_requests" yaml:"enable_active_requests"`
+	EnableActiveRequests     bool   `json:"enable_active_requests" yaml:"enable_active_requests"`
 	ActiveRequestsMetricName string `json:"active_requests_metric_name" yaml:"active_requests_metric_name"`
-	
+
 	// Custom metrics
 	CustomCounters   []CustomMetricConfig `json:"custom_counters" yaml:"custom_counters"`
 	CustomHistograms []CustomMetricConfig `json:"custom_histograms" yaml:"custom_histograms"`
 	CustomGauges     []CustomMetricConfig `json:"custom_gauges" yaml:"custom_gauges"`
-	
+
 	// Label configuration
-	IncludeMethod     bool     `json:"include_method" yaml:"include_method"`
-	IncludeStatus     bool     `json:"include_status" yaml:"include_status"`
-	IncludePath       bool     `json:"include_path" yaml:"include_path"`
-	IncludeUserAgent  bool     `json:"include_user_agent" yaml:"include_user_agent"`
-	IncludeUserID     bool     `json:"include_user_id" yaml:"include_user_id"`
-	CustomLabels      []string `json:"custom_labels" yaml:"custom_labels"`
-	
+	IncludeMethod    bool     `json:"include_method" yaml:"include_method"`
+	IncludeStatus    bool     `json:"include_status" yaml:"include_status"`
+	IncludePath      bool     `json:"include_path" yaml:"include_path"`
+	IncludeUserAgent bool     `json:"include_user_agent" yaml:"include_user_agent"`
+	IncludeUserID    bool     `json:"include_user_id" yaml:"include_user_id"`
+	CustomLabels     []string `json:"custom_labels" yaml:"custom_labels"`
+
 	// Path normalization
-	NormalizePaths    bool              `json:"normalize_paths" yaml:"normalize_paths"`
-	PathReplacements  map[string]string `json:"path_replacements" yaml:"path_replacements"`
-	
+	NormalizePaths   bool              `json:"normalize_paths" yaml:"normalize_paths"`
+	PathReplacements map[string]string `json:"path_replacements" yaml:"path_replacements"`
+
 	// Filtering
-	ExcludePaths      []string `json:"exclude_paths" yaml:"exclude_paths"`
-	ExcludeStatusCodes []int   `json:"exclude_status_codes" yaml:"exclude_status_codes"`
-	ExcludeUserAgents []string `json:"exclude_user_agents" yaml:"exclude_user_agents"`
-	
+	ExcludePaths       []string `json:"exclude_paths" yaml:"exclude_paths"`
+	ExcludeStatusCodes []int    `json:"exclude_status_codes" yaml:"exclude_status_codes"`
+	ExcludeUserAgents  []string `json:"exclude_user_agents" yaml:"exclude_user_agents"`
+
 	// Performance
 	SampleRate float64 `json:"sample_rate" yaml:"sample_rate"`
 }
 
 // CustomMetricConfig defines a custom metric
 type CustomMetricConfig struct {
-	Name       string            `json:"name" yaml:"name"`
-	Help       string            `json:"help" yaml:"help"`
-	Labels     []string          `json:"labels" yaml:"labels"`
-	ValueFrom  string            `json:"value_from" yaml:"value_from"` // header, context, etc.
-	Condition  string            `json:"condition" yaml:"condition"`   // when to record
+	Name      string   `json:"name" yaml:"name"`
+	Help      string   `json:"help" yaml:"help"`
+	Labels    []string `json:"labels" yaml:"labels"`
+	ValueFrom string   `json:"value_from" yaml:"value_from"` // header, context, etc.
+	Condition string   `json:"condition" yaml:"condition"`   // when to record
 }
 
 // MetricsMiddleware implements performance monitoring middleware
@@ -293,14 +293,14 @@ type MetricsMiddleware struct {
 	config    *MetricsConfig
 	logger    *zap.Logger
 	collector MetricsCollector
-	
+
 	// Active request tracking
 	activeRequests sync.Map
-	
+
 	// Precomputed maps for performance
-	excludePathMap      map[string]bool
+	excludePathMap       map[string]bool
 	excludeStatusCodeMap map[int]bool
-	excludeUserAgentMap map[string]bool
+	excludeUserAgentMap  map[string]bool
 }
 
 // ActiveRequest tracks an active request
@@ -316,15 +316,15 @@ func NewMetricsMiddleware(config *MetricsConfig, logger *zap.Logger) (*MetricsMi
 	if config == nil {
 		return nil, fmt.Errorf("metrics config cannot be nil")
 	}
-	
+
 	if err := ValidateBaseConfig(&config.BaseConfig); err != nil {
 		return nil, fmt.Errorf("invalid base config: %w", err)
 	}
-	
+
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	
+
 	// Set defaults
 	if config.Name == "" {
 		config.Name = "metrics"
@@ -347,25 +347,25 @@ func NewMetricsMiddleware(config *MetricsConfig, logger *zap.Logger) (*MetricsMi
 	if config.SampleRate == 0 {
 		config.SampleRate = 1.0 // Default to 100% sampling
 	}
-	
+
 	// Use provided collector or create default
 	collector := config.Collector
 	if collector == nil {
 		collector = NewInMemoryMetricsCollector()
 	}
-	
+
 	middleware := &MetricsMiddleware{
-		config:              config,
-		logger:              logger,
-		collector:           collector,
-		excludePathMap:      make(map[string]bool),
+		config:               config,
+		logger:               logger,
+		collector:            collector,
+		excludePathMap:       make(map[string]bool),
 		excludeStatusCodeMap: make(map[int]bool),
-		excludeUserAgentMap: make(map[string]bool),
+		excludeUserAgentMap:  make(map[string]bool),
 	}
-	
+
 	// Build maps for performance
 	middleware.buildMaps()
-	
+
 	return middleware, nil
 }
 
@@ -376,13 +376,13 @@ func (mm *MetricsMiddleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		
+
 		// Check if request should be excluded
 		if mm.shouldExcludeRequest(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
-		
+
 		// Sample requests if configured
 		if mm.config.SampleRate < 1.0 {
 			// Use math/rand for unbiased random sampling
@@ -391,10 +391,10 @@ func (mm *MetricsMiddleware) Handler(next http.Handler) http.Handler {
 				return
 			}
 		}
-		
+
 		startTime := time.Now()
 		requestID := GenerateRequestID()
-		
+
 		// Track active request
 		if mm.config.EnableActiveRequests {
 			activeReq := &ActiveRequest{
@@ -404,20 +404,20 @@ func (mm *MetricsMiddleware) Handler(next http.Handler) http.Handler {
 				UserID:    GetUserID(r.Context()),
 			}
 			mm.activeRequests.Store(requestID, activeReq)
-			
+
 			// Update active requests gauge
 			mm.updateActiveRequestsGauge(1)
 		}
-		
+
 		// Create metrics response writer
 		mrw := NewResponseWriter(w)
-		
+
 		// Process request
 		next.ServeHTTP(mrw, r)
-		
+
 		// Record metrics
 		mm.recordMetrics(r, mrw, startTime)
-		
+
 		// Remove from active requests
 		if mm.config.EnableActiveRequests {
 			mm.activeRequests.Delete(requestID)
@@ -448,7 +448,7 @@ func (mm *MetricsMiddleware) Cleanup() error {
 		mm.activeRequests.Delete(key)
 		return true
 	})
-	
+
 	return nil
 }
 
@@ -459,20 +459,20 @@ func (mm *MetricsMiddleware) shouldExcludeRequest(r *http.Request) bool {
 	if mm.excludePathMap[path] {
 		return true
 	}
-	
+
 	// Check path prefixes
 	for excludePath := range mm.excludePathMap {
 		if strings.HasPrefix(path, excludePath) {
 			return true
 		}
 	}
-	
+
 	// Check excluded user agents
 	userAgent := r.Header.Get("User-Agent")
 	if userAgent != "" && mm.excludeUserAgentMap[userAgent] {
 		return true
 	}
-	
+
 	return false
 }
 
@@ -480,27 +480,27 @@ func (mm *MetricsMiddleware) shouldExcludeRequest(r *http.Request) bool {
 func (mm *MetricsMiddleware) recordMetrics(r *http.Request, rw *ResponseWriter, startTime time.Time) {
 	duration := time.Since(startTime)
 	labels := mm.buildLabels(r, rw)
-	
+
 	// Check if status code should be excluded
 	if mm.excludeStatusCodeMap[rw.Status()] {
 		return
 	}
-	
+
 	// Record request metrics
 	if mm.config.EnableRequestMetrics {
 		mm.collector.IncrementCounter(mm.config.RequestMetricName, labels, 1)
 	}
-	
+
 	// Record response size metrics
 	if mm.config.EnableResponseMetrics {
 		mm.collector.RecordHistogram(mm.config.ResponseSizeMetricName, labels, float64(rw.Written()))
 	}
-	
+
 	// Record duration metrics
 	if mm.config.EnableDurationMetrics {
 		mm.collector.RecordHistogram(mm.config.DurationMetricName, labels, duration.Seconds())
 	}
-	
+
 	// Record custom counter metrics
 	for _, customCounter := range mm.config.CustomCounters {
 		if mm.shouldRecordCustomMetric(&customCounter, r, rw) {
@@ -509,7 +509,7 @@ func (mm *MetricsMiddleware) recordMetrics(r *http.Request, rw *ResponseWriter, 
 			mm.collector.IncrementCounter(customCounter.Name, customLabels, value)
 		}
 	}
-	
+
 	// Record custom histogram metrics
 	for _, customHistogram := range mm.config.CustomHistograms {
 		if mm.shouldRecordCustomMetric(&customHistogram, r, rw) {
@@ -518,7 +518,7 @@ func (mm *MetricsMiddleware) recordMetrics(r *http.Request, rw *ResponseWriter, 
 			mm.collector.RecordHistogram(customHistogram.Name, customLabels, value)
 		}
 	}
-	
+
 	// Record custom gauge metrics
 	for _, customGauge := range mm.config.CustomGauges {
 		if mm.shouldRecordCustomMetric(&customGauge, r, rw) {
@@ -532,52 +532,52 @@ func (mm *MetricsMiddleware) recordMetrics(r *http.Request, rw *ResponseWriter, 
 // buildLabels builds labels for metrics
 func (mm *MetricsMiddleware) buildLabels(r *http.Request, rw *ResponseWriter) map[string]string {
 	labels := make(map[string]string)
-	
+
 	if mm.config.IncludeMethod {
 		labels["method"] = r.Method
 	}
-	
+
 	if mm.config.IncludeStatus {
 		labels["status"] = strconv.Itoa(rw.Status())
 	}
-	
+
 	if mm.config.IncludePath {
 		labels["path"] = mm.normalizePath(r.URL.Path)
 	}
-	
+
 	if mm.config.IncludeUserAgent {
 		if userAgent := r.Header.Get("User-Agent"); userAgent != "" {
 			labels["user_agent"] = mm.normalizeUserAgent(userAgent)
 		}
 	}
-	
+
 	if mm.config.IncludeUserID {
 		if userID := GetUserID(r.Context()); userID != "" {
 			labels["user_id"] = userID
 		}
 	}
-	
+
 	// Add custom labels from headers
 	for _, labelName := range mm.config.CustomLabels {
 		if value := r.Header.Get(labelName); value != "" {
 			labels[strings.ToLower(labelName)] = value
 		}
 	}
-	
+
 	return labels
 }
 
 // buildCustomLabels builds labels for custom metrics
 func (mm *MetricsMiddleware) buildCustomLabels(config *CustomMetricConfig, r *http.Request, rw *ResponseWriter) map[string]string {
 	labels := make(map[string]string)
-	
+
 	for _, labelName := range config.Labels {
 		// Extract label value based on configuration
 		if value := mm.extractLabelValue(labelName, r, rw); value != "" {
 			labels[labelName] = value
 		}
 	}
-	
+
 	return labels
 }
 
@@ -605,7 +605,7 @@ func (mm *MetricsMiddleware) shouldRecordCustomMetric(config *CustomMetricConfig
 	if config.Condition == "" {
 		return true
 	}
-	
+
 	// Simple condition evaluation - in practice, use a proper expression evaluator
 	switch config.Condition {
 	case "error":
@@ -646,14 +646,14 @@ func (mm *MetricsMiddleware) normalizePath(path string) string {
 	if !mm.config.NormalizePaths {
 		return path
 	}
-	
+
 	// Apply path replacements
 	for pattern, replacement := range mm.config.PathReplacements {
 		if strings.Contains(path, pattern) {
 			path = strings.ReplaceAll(path, pattern, replacement)
 		}
 	}
-	
+
 	// Simple ID replacement - in practice, use regex
 	// Replace common ID patterns like /users/123 -> /users/{id}
 	parts := strings.Split(path, "/")
@@ -667,7 +667,7 @@ func (mm *MetricsMiddleware) normalizePath(path string) string {
 			parts[i] = "{uuid}"
 		}
 	}
-	
+
 	return strings.Join(parts, "/")
 }
 
@@ -689,7 +689,7 @@ func (mm *MetricsMiddleware) normalizeUserAgent(userAgent string) string {
 	if strings.Contains(userAgent, "wget") {
 		return "wget"
 	}
-	
+
 	return "other"
 }
 
@@ -706,7 +706,7 @@ func (mm *MetricsMiddleware) updateActiveRequestsGauge(delta int) {
 		count++
 		return true
 	})
-	
+
 	labels := map[string]string{}
 	mm.collector.SetGauge(mm.config.ActiveRequestsMetricName, labels, float64(count))
 }
@@ -717,12 +717,12 @@ func (mm *MetricsMiddleware) buildMaps() {
 	for _, path := range mm.config.ExcludePaths {
 		mm.excludePathMap[path] = true
 	}
-	
+
 	// Build exclude status code map
 	for _, statusCode := range mm.config.ExcludeStatusCodes {
 		mm.excludeStatusCodeMap[statusCode] = true
 	}
-	
+
 	// Build exclude user agent map
 	for _, userAgent := range mm.config.ExcludeUserAgents {
 		mm.excludeUserAgentMap[userAgent] = true
@@ -772,9 +772,9 @@ func DefaultMetricsConfig() *MetricsConfig {
 			"/api/v1": "/api/{version}",
 			"/api/v2": "/api/{version}",
 		},
-		ExcludePaths:      []string{"/health", "/metrics", "/favicon.ico"},
+		ExcludePaths:       []string{"/health", "/metrics", "/favicon.ico"},
 		ExcludeStatusCodes: []int{},
-		SampleRate:        1.0,
+		SampleRate:         1.0,
 	}
 }
 
@@ -814,11 +814,11 @@ func MetricsHandler(collector MetricsCollector) http.HandlerFunc {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		
+
 		// Return metrics in JSON format
 		// In practice, you might want to support Prometheus format
 		w.Header().Set("Content-Type", "application/json")
-		
+
 		if imc, ok := collector.(*InMemoryMetricsCollector); ok {
 			metrics := imc.GetMetrics()
 			if err := json.NewEncoder(w).Encode(metrics); err != nil {

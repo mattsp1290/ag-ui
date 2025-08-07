@@ -32,7 +32,7 @@ type Command struct {
 func main() {
 	ctx := context.Background()
 	commands := buildCommands()
-	
+
 	args := os.Args[1:]
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" {
 		showHelp(commands)

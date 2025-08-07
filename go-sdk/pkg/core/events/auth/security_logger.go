@@ -16,9 +16,9 @@ import (
 type SecurityEventType string
 
 const (
-	SecurityEventAuthFailure           SecurityEventType = "auth_failure"
-	SecurityEventAuthSuccess           SecurityEventType = "auth_success"
-	SecurityEventAuthAttempt           SecurityEventType = "auth_attempt"
+	SecurityEventAuthFailure          SecurityEventType = "auth_failure"
+	SecurityEventAuthSuccess          SecurityEventType = "auth_success"
+	SecurityEventAuthAttempt          SecurityEventType = "auth_attempt"
 	SecurityEventTokenGeneration      SecurityEventType = "token_generation"
 	SecurityEventTokenValidation      SecurityEventType = "token_validation"
 	SecurityEventPasswordChange       SecurityEventType = "password_change"
@@ -69,37 +69,37 @@ type SecurityLogger struct {
 type SecurityLoggerConfig struct {
 	// Enabled enables security logging
 	Enabled bool
-	
+
 	// LogLevel defines minimum log level
 	LogLevel string
-	
+
 	// LogFile specifies the log file path
 	LogFile string
-	
+
 	// MaxLogSize maximum log file size before rotation
 	MaxLogSize int64
-	
+
 	// MaxLogFiles maximum number of log files to keep
 	MaxLogFiles int
-	
+
 	// FlushInterval how often to flush logs to disk
 	FlushInterval time.Duration
-	
+
 	// StructuredLogging enables structured JSON logging
 	StructuredLogging bool
-	
+
 	// IncludeStackTrace includes stack trace in error logs
 	IncludeStackTrace bool
-	
+
 	// SyslogEnabled enables syslog output
 	SyslogEnabled bool
-	
+
 	// SyslogAddress syslog server address
 	SyslogAddress string
-	
+
 	// AlertThresholds defines thresholds for security alerts
 	AlertThresholds map[SecurityEventType]int
-	
+
 	// RetentionDays how long to keep security logs
 	RetentionDays int
 }
@@ -117,9 +117,9 @@ func DefaultSecurityLoggerConfig() *SecurityLoggerConfig {
 		IncludeStackTrace: false,
 		SyslogEnabled:     false,
 		AlertThresholds: map[SecurityEventType]int{
-			SecurityEventAuthFailure:         5,
-			SecurityEventCSRFAttempt:         3,
-			SecurityEventRateLimitExceeded:   10,
+			SecurityEventAuthFailure:        5,
+			SecurityEventCSRFAttempt:        3,
+			SecurityEventRateLimitExceeded:  10,
 			SecurityEventSuspiciousActivity: 1,
 		},
 		RetentionDays: 90,
@@ -131,24 +131,24 @@ func NewSecurityLogger(config *SecurityLoggerConfig) (*SecurityLogger, error) {
 	if config == nil {
 		config = DefaultSecurityLoggerConfig()
 	}
-	
+
 	logger := &SecurityLogger{
 		config:   config,
 		events:   make([]SecurityEvent, 0),
 		stopChan: make(chan struct{}),
 	}
-	
+
 	if config.Enabled && config.LogFile != "" {
 		file, err := os.OpenFile(config.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 		if err != nil {
 			return nil, fmt.Errorf("failed to open security log file: %w", err)
 		}
 		logger.file = file
-		
+
 		// Start flush routine
 		go logger.flushRoutine()
 	}
-	
+
 	return logger, nil
 }
 
@@ -157,30 +157,30 @@ func (sl *SecurityLogger) LogEvent(event *SecurityEvent) {
 	if !sl.config.Enabled {
 		return
 	}
-	
+
 	// Set timestamp if not provided
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now()
 	}
-	
+
 	// Generate event ID if not provided
 	if event.ID == "" {
 		event.ID = generateEventID()
 	}
-	
+
 	// Set risk score if not provided
 	if event.RiskScore == 0 {
 		event.RiskScore = sl.calculateRiskScore(event)
 	}
-	
+
 	// Store event
 	sl.mutex.Lock()
 	sl.events = append(sl.events, *event)
 	sl.mutex.Unlock()
-	
+
 	// Log to standard logger
 	sl.logToStandardLogger(event)
-	
+
 	// Check alert thresholds
 	sl.checkAlertThresholds(event)
 }
@@ -245,7 +245,7 @@ func (sl *SecurityLogger) LogCORSViolation(ipAddress, userAgent, origin string) 
 		Result:    "BLOCKED",
 		ErrorMsg:  "CORS policy violation",
 		Metadata: map[string]interface{}{
-			"origin":        origin,
+			"origin":         origin,
 			"violation_type": "cors",
 		},
 	}
@@ -281,7 +281,7 @@ func (sl *SecurityLogger) LogInputValidationError(userID, ipAddress, userAgent, 
 		Result:    "BLOCKED",
 		ErrorMsg:  errorMsg,
 		Metadata: map[string]interface{}{
-			"field":          field,
+			"field":           field,
 			"validation_type": "input",
 		},
 	}
@@ -326,12 +326,12 @@ func (sl *SecurityLogger) LogPermissionDenied(userID, username, ipAddress, resou
 func (sl *SecurityLogger) GetEvents(filter *SecurityEventFilter) []*SecurityEvent {
 	sl.mutex.RLock()
 	defer sl.mutex.RUnlock()
-	
+
 	var filtered []*SecurityEvent
-	
+
 	for i := range sl.events {
 		event := &sl.events[i]
-		
+
 		if filter != nil {
 			// Apply filters
 			if len(filter.EventTypes) > 0 {
@@ -346,31 +346,31 @@ func (sl *SecurityLogger) GetEvents(filter *SecurityEventFilter) []*SecurityEven
 					continue
 				}
 			}
-			
+
 			if filter.UserID != "" && event.UserID != filter.UserID {
 				continue
 			}
-			
+
 			if filter.IPAddress != "" && event.IPAddress != filter.IPAddress {
 				continue
 			}
-			
+
 			if filter.StartTime != nil && event.Timestamp.Before(*filter.StartTime) {
 				continue
 			}
-			
+
 			if filter.EndTime != nil && event.Timestamp.After(*filter.EndTime) {
 				continue
 			}
-			
+
 			if filter.MinRiskScore > 0 && event.RiskScore < filter.MinRiskScore {
 				continue
 			}
 		}
-		
+
 		filtered = append(filtered, event)
 	}
-	
+
 	return filtered
 }
 
@@ -391,7 +391,7 @@ func (sl *SecurityLogger) logToStandardLogger(event *SecurityEvent) {
 		data, _ := json.Marshal(event)
 		log.Printf("[SECURITY] %s", string(data))
 	} else {
-		log.Printf("[SECURITY] %s - %s: %s (User: %s, IP: %s)", 
+		log.Printf("[SECURITY] %s - %s: %s (User: %s, IP: %s)",
 			event.Severity, event.EventType, event.ErrorMsg, event.UserID, event.IPAddress)
 	}
 }
@@ -399,7 +399,7 @@ func (sl *SecurityLogger) logToStandardLogger(event *SecurityEvent) {
 // calculateRiskScore calculates risk score for an event
 func (sl *SecurityLogger) calculateRiskScore(event *SecurityEvent) int {
 	baseScore := 0
-	
+
 	switch event.EventType {
 	case SecurityEventAuthFailure:
 		baseScore = 30
@@ -418,18 +418,18 @@ func (sl *SecurityLogger) calculateRiskScore(event *SecurityEvent) int {
 	default:
 		baseScore = 10
 	}
-	
+
 	// Adjust based on user history (simplified)
 	if event.UserID != "" {
 		recentFailures := sl.getRecentEventCount(event.UserID, event.EventType, 5*time.Minute)
 		baseScore += recentFailures * 10
 	}
-	
+
 	// Cap at 100
 	if baseScore > 100 {
 		baseScore = 100
 	}
-	
+
 	return baseScore
 }
 
@@ -437,16 +437,16 @@ func (sl *SecurityLogger) calculateRiskScore(event *SecurityEvent) int {
 func (sl *SecurityLogger) getRecentEventCount(userID string, eventType SecurityEventType, duration time.Duration) int {
 	sl.mutex.RLock()
 	defer sl.mutex.RUnlock()
-	
+
 	cutoff := time.Now().Add(-duration)
 	count := 0
-	
+
 	for _, event := range sl.events {
 		if event.UserID == userID && event.EventType == eventType && event.Timestamp.After(cutoff) {
 			count++
 		}
 	}
-	
+
 	return count
 }
 
@@ -456,10 +456,10 @@ func (sl *SecurityLogger) checkAlertThresholds(event *SecurityEvent) {
 	if !exists {
 		return
 	}
-	
+
 	// Check count in last 5 minutes
 	count := sl.getRecentEventCount(event.UserID, event.EventType, 5*time.Minute)
-	
+
 	if count >= threshold {
 		sl.triggerAlert(event, count, threshold)
 	}
@@ -482,7 +482,7 @@ func (sl *SecurityLogger) triggerAlert(event *SecurityEvent, count, threshold in
 			"alert_type":     "threshold_exceeded",
 		},
 	}
-	
+
 	sl.LogEvent(alertEvent)
 }
 
@@ -490,7 +490,7 @@ func (sl *SecurityLogger) triggerAlert(event *SecurityEvent, count, threshold in
 func (sl *SecurityLogger) flushRoutine() {
 	ticker := time.NewTicker(sl.config.FlushInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -507,12 +507,12 @@ func (sl *SecurityLogger) flush() {
 	if sl.file == nil {
 		return
 	}
-	
+
 	sl.mutex.RLock()
 	events := make([]SecurityEvent, len(sl.events))
 	copy(events, sl.events)
 	sl.mutex.RUnlock()
-	
+
 	for _, event := range events {
 		if sl.config.StructuredLogging {
 			data, _ := json.Marshal(event)
@@ -524,19 +524,19 @@ func (sl *SecurityLogger) flush() {
 			sl.file.WriteString(line)
 		}
 	}
-	
+
 	sl.file.Sync()
 }
 
 // Close closes the security logger
 func (sl *SecurityLogger) Close() error {
 	close(sl.stopChan)
-	
+
 	if sl.file != nil {
 		sl.flush()
 		return sl.file.Close()
 	}
-	
+
 	return nil
 }
 
@@ -562,10 +562,10 @@ func ExtractSecurityInfoFromRequest(r *http.Request) (ipAddress, userAgent, requ
 	if ipAddress == "" {
 		ipAddress = r.RemoteAddr
 	}
-	
+
 	// Extract user agent
 	userAgent = r.Header.Get("User-Agent")
-	
+
 	// Extract request ID
 	requestID = r.Header.Get("X-Request-ID")
 	if requestID == "" {
@@ -575,7 +575,7 @@ func ExtractSecurityInfoFromRequest(r *http.Request) (ipAddress, userAgent, requ
 			}
 		}
 	}
-	
+
 	return
 }
 
@@ -584,7 +584,7 @@ func IsSecurityEvent(err error) bool {
 	if err == nil {
 		return false
 	}
-	
+
 	securityErrors := []string{
 		"authentication failed",
 		"invalid credentials",
@@ -599,14 +599,14 @@ func IsSecurityEvent(err error) bool {
 		"injection",
 		"malicious",
 	}
-	
+
 	errorStr := err.Error()
 	for _, secErr := range securityErrors {
 		if strings.Contains(strings.ToLower(errorStr), secErr) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -615,30 +615,30 @@ func SecurityLoggerMiddleware(logger *SecurityLogger) func(http.Handler) http.Ha
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			
+
 			// Extract security info
 			ipAddress, userAgent, requestID := ExtractSecurityInfoFromRequest(r)
-			
+
 			// Create wrapper to capture response
 			wrapper := &responseWrapper{ResponseWriter: w, statusCode: 200}
-			
+
 			// Add security info to context
 			ctx := context.WithValue(r.Context(), "security_logger", logger)
 			ctx = context.WithValue(ctx, "request_id", requestID)
 			ctx = context.WithValue(ctx, "ip_address", ipAddress)
 			ctx = context.WithValue(ctx, "user_agent", userAgent)
 			ctx = context.WithValue(ctx, "request_start", start)
-			
+
 			r = r.WithContext(ctx)
-			
+
 			// Call next handler
 			next.ServeHTTP(wrapper, r)
-			
+
 			// Log security events based on response
 			if wrapper.statusCode >= 400 {
 				eventType := SecurityEventAuthFailure
 				severity := "MEDIUM"
-				
+
 				switch wrapper.statusCode {
 				case 401:
 					eventType = SecurityEventAuthFailure
@@ -650,7 +650,7 @@ func SecurityLoggerMiddleware(logger *SecurityLogger) func(http.Handler) http.Ha
 					eventType = SecurityEventRateLimitExceeded
 					severity = "MEDIUM"
 				}
-				
+
 				event := &SecurityEvent{
 					EventType: eventType,
 					Severity:  severity,
@@ -665,7 +665,7 @@ func SecurityLoggerMiddleware(logger *SecurityLogger) func(http.Handler) http.Ha
 						"duration_ms": time.Since(start).Milliseconds(),
 					},
 				}
-				
+
 				logger.LogEvent(event)
 			}
 		})

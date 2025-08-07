@@ -5,18 +5,18 @@ import (
 	"fmt"
 	"sync"
 	"time"
-	
+
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // ValidationMiddleware implements middleware for transport validation
 type ValidationMiddleware struct {
-	validator     Validator
-	config        *ValidationConfig
-	metrics       *ValidationMetrics
-	logger        Logger
-	enabled       bool
-	mu            sync.RWMutex
+	validator Validator
+	config    *ValidationConfig
+	metrics   *ValidationMetrics
+	logger    Logger
+	enabled   bool
+	mu        sync.RWMutex
 }
 
 // ValidationMetrics tracks validation performance metrics
@@ -46,7 +46,7 @@ func NewValidationMiddleware(config ...*ValidationConfig) Middleware {
 	} else {
 		cfg = DefaultValidationConfig()
 	}
-	
+
 	return &ValidationMiddleware{
 		validator: NewValidator(cfg),
 		config:    cfg,
@@ -85,7 +85,7 @@ func (m *ValidationMiddleware) ProcessIncoming(ctx context.Context, event events
 		EventTimestamp: time.Now(),
 		EventData:      make(map[string]interface{}),
 	}
-	
+
 	if err := m.validateEvent(ctx, transportEvent, "incoming"); err != nil {
 		return nil, err
 	}
@@ -123,19 +123,19 @@ func (m *ValidationMiddleware) IsEnabled() bool {
 func (m *ValidationMiddleware) GetMetrics() ValidationMetrics {
 	m.metrics.mu.RLock()
 	defer m.metrics.mu.RUnlock()
-	
+
 	// Deep copy metrics without copying the mutex
 	validationsByType := make(map[string]uint64)
 	validationsByRule := make(map[string]uint64)
-	
+
 	for k, v := range m.metrics.ValidationsByType {
 		validationsByType[k] = v
 	}
-	
+
 	for k, v := range m.metrics.ValidationsByRule {
 		validationsByRule[k] = v
 	}
-	
+
 	return ValidationMetrics{
 		TotalValidations:        m.metrics.TotalValidations,
 		SuccessfulValidations:   m.metrics.SuccessfulValidations,
@@ -158,7 +158,7 @@ func (m *ValidationMiddleware) GetMetrics() ValidationMetrics {
 func (m *ValidationMiddleware) ResetMetrics() {
 	m.metrics.mu.Lock()
 	defer m.metrics.mu.Unlock()
-	
+
 	m.metrics.TotalValidations = 0
 	m.metrics.SuccessfulValidations = 0
 	m.metrics.FailedValidations = 0
@@ -179,7 +179,7 @@ func (m *ValidationMiddleware) ResetMetrics() {
 func (m *ValidationMiddleware) UpdateConfig(config *ValidationConfig) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	m.config = config
 	m.validator = NewValidator(config)
 	m.enabled = config.Enabled
@@ -190,24 +190,24 @@ func (m *ValidationMiddleware) validateEvent(ctx context.Context, event Transpor
 	if !m.IsEnabled() {
 		return nil
 	}
-	
+
 	// Create a timeout context for validation if none exists
 	validationCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	
+
 	start := time.Now()
 	defer func() {
 		duration := time.Since(start)
 		m.updateMetrics(event, direction, duration, nil)
 	}()
-	
+
 	// Check if context was cancelled before validation
 	select {
 	case <-validationCtx.Done():
 		return fmt.Errorf("validation cancelled: %w", validationCtx.Err())
 	default:
 	}
-	
+
 	var err error
 	switch direction {
 	case "incoming":
@@ -217,22 +217,22 @@ func (m *ValidationMiddleware) validateEvent(ctx context.Context, event Transpor
 	default:
 		err = m.validator.Validate(validationCtx, event)
 	}
-	
+
 	if err != nil {
 		m.updateMetrics(event, direction, time.Since(start), err)
-		m.logger.Warn("Event validation failed", 
+		m.logger.Warn("Event validation failed",
 			String("direction", direction),
 			String("event_id", event.ID()),
 			String("event_type", event.Type()),
 			Error(err))
 		return err
 	}
-	
-	m.logger.Debug("Event validation successful", 
+
+	m.logger.Debug("Event validation successful",
 		String("direction", direction),
 		String("event_id", event.ID()),
 		String("event_type", event.Type()))
-	
+
 	return nil
 }
 
@@ -240,25 +240,25 @@ func (m *ValidationMiddleware) validateEvent(ctx context.Context, event Transpor
 func (m *ValidationMiddleware) updateMetrics(event TransportEvent, direction string, duration time.Duration, err error) {
 	m.metrics.mu.Lock()
 	defer m.metrics.mu.Unlock()
-	
+
 	m.metrics.TotalValidations++
 	m.metrics.LastValidationTime = time.Now()
-	
+
 	if direction == "incoming" {
 		m.metrics.IncomingValidations++
 	} else if direction == "outgoing" {
 		m.metrics.OutgoingValidations++
 	}
-	
+
 	eventType := event.Type()
 	m.metrics.ValidationsByType[eventType]++
-	
+
 	if err != nil {
 		m.metrics.FailedValidations++
 		m.metrics.ValidationErrors++
 		m.metrics.LastValidationError = err
 		m.metrics.LastValidationErrorTime = time.Now()
-		
+
 		// Track validation rule errors
 		if ve, ok := err.(*ValidationError); ok {
 			for _, e := range ve.Errors() {
@@ -270,11 +270,11 @@ func (m *ValidationMiddleware) updateMetrics(event TransportEvent, direction str
 	} else {
 		m.metrics.SuccessfulValidations++
 	}
-	
+
 	// Update timing metrics
 	m.metrics.ValidationTimeTotal += duration
 	m.metrics.AverageValidationTime = m.metrics.ValidationTimeTotal / time.Duration(m.metrics.TotalValidations)
-	
+
 	if duration > m.metrics.MaxValidationTime {
 		m.metrics.MaxValidationTime = duration
 	}
@@ -291,7 +291,7 @@ func (t *validatedTransport) Send(ctx context.Context, event TransportEvent) err
 	if err := t.middleware.validateEvent(ctx, event, "outgoing"); err != nil {
 		return err
 	}
-	
+
 	return t.Transport.Send(ctx, event)
 }
 
@@ -299,12 +299,12 @@ func (t *validatedTransport) Send(ctx context.Context, event TransportEvent) err
 func (t *validatedTransport) Channels() (<-chan events.Event, <-chan error) {
 	originalEventChan, originalErrorChan := t.Transport.Channels()
 	validatedEventChan := make(chan events.Event, 100) // Buffer for validation processing
-	validatedErrorChan := make(chan error, 100) // Buffer for validation processing
-	
+	validatedErrorChan := make(chan error, 100)        // Buffer for validation processing
+
 	go func() {
 		defer close(validatedEventChan)
 		defer close(validatedErrorChan)
-		
+
 		for {
 			select {
 			case event, ok := <-originalEventChan:
@@ -313,7 +313,7 @@ func (t *validatedTransport) Channels() (<-chan events.Event, <-chan error) {
 				}
 				// Validate event using events.Event interface
 				if err := event.Validate(); err != nil {
-					t.middleware.logger.Warn("Event validation failed with built-in validator", 
+					t.middleware.logger.Warn("Event validation failed with built-in validator",
 						String("event_type", string(event.Type())),
 						Err(err))
 					// Continue processing - middleware should not block pipeline
@@ -322,16 +322,16 @@ func (t *validatedTransport) Channels() (<-chan events.Event, <-chan error) {
 					// Additionally, use the events package validator for comprehensive validation
 					ctx := context.Background()
 					if err := events.ValidateEventWithContext(ctx, event); err != nil {
-						t.middleware.logger.Warn("Event validation failed with events package validator", 
+						t.middleware.logger.Warn("Event validation failed with events package validator",
 							String("event_type", string(event.Type())),
 							Err(err))
 						// Continue processing - log error but don't block pipeline
 					} else {
-						t.middleware.logger.Debug("Event validation passed", 
+						t.middleware.logger.Debug("Event validation passed",
 							String("event_type", string(event.Type())))
 					}
 				}
-				
+
 				// Send the event directly without validation
 				validatedEventChan <- event
 			case err, ok := <-originalErrorChan:
@@ -343,7 +343,7 @@ func (t *validatedTransport) Channels() (<-chan events.Event, <-chan error) {
 			}
 		}
 	}()
-	
+
 	return validatedEventChan, validatedErrorChan
 }
 
@@ -361,7 +361,7 @@ func NewValidationTransport(transport Transport, config *ValidationConfig) *Vali
 	if config == nil {
 		config = DefaultValidationConfig()
 	}
-	
+
 	return &ValidationTransport{
 		Transport: transport,
 		validator: NewValidator(config),
@@ -387,14 +387,14 @@ func NewValidationTransportWithLogger(transport Transport, config *ValidationCon
 func (vt *ValidationTransport) Send(ctx context.Context, event TransportEvent) error {
 	if vt.config.Enabled && !vt.config.SkipValidationOnOutgoing {
 		if err := vt.validator.ValidateOutgoing(ctx, event); err != nil {
-			vt.logger.Error("Outgoing event validation failed", 
+			vt.logger.Error("Outgoing event validation failed",
 				String("event_id", event.ID()),
 				String("event_type", event.Type()),
 				Error(err))
 			return err
 		}
 	}
-	
+
 	return vt.Transport.Send(ctx, event)
 }
 
@@ -403,11 +403,11 @@ func (vt *ValidationTransport) Channels() (<-chan events.Event, <-chan error) {
 	originalEventChan, originalErrorChan := vt.Transport.Channels()
 	validatedEventChan := make(chan events.Event, 100)
 	validatedErrorChan := make(chan error, 100)
-	
+
 	go func() {
 		defer close(validatedEventChan)
 		defer close(validatedErrorChan)
-		
+
 		for {
 			select {
 			case event, ok := <-originalEventChan:
@@ -417,7 +417,7 @@ func (vt *ValidationTransport) Channels() (<-chan events.Event, <-chan error) {
 				if vt.config.Enabled && !vt.config.SkipValidationOnIncoming {
 					// Validate event using events.Event interface
 					if err := event.Validate(); err != nil {
-						vt.logger.Warn("Event validation failed with built-in validator", 
+						vt.logger.Warn("Event validation failed with built-in validator",
 							String("event_type", string(event.Type())),
 							Err(err))
 						// Continue processing - middleware should not block pipeline
@@ -426,17 +426,17 @@ func (vt *ValidationTransport) Channels() (<-chan events.Event, <-chan error) {
 						// Additionally, use the events package validator for comprehensive validation
 						ctx := context.Background()
 						if err := events.ValidateEventWithContext(ctx, event); err != nil {
-							vt.logger.Warn("Event validation failed with events package validator", 
+							vt.logger.Warn("Event validation failed with events package validator",
 								String("event_type", string(event.Type())),
 								Err(err))
 							// Continue processing - log error but don't block pipeline
 						} else {
-							vt.logger.Debug("Event validation passed", 
+							vt.logger.Debug("Event validation passed",
 								String("event_type", string(event.Type())))
 						}
 					}
 				}
-				
+
 				validatedEventChan <- event
 			case err, ok := <-originalErrorChan:
 				if !ok {
@@ -446,7 +446,7 @@ func (vt *ValidationTransport) Channels() (<-chan events.Event, <-chan error) {
 			}
 		}
 	}()
-	
+
 	return validatedEventChan, validatedErrorChan
 }
 
@@ -454,19 +454,19 @@ func (vt *ValidationTransport) Channels() (<-chan events.Event, <-chan error) {
 func (vt *ValidationTransport) GetValidationMetrics() ValidationMetrics {
 	vt.metrics.mu.RLock()
 	defer vt.metrics.mu.RUnlock()
-	
+
 	// Deep copy metrics without copying the mutex
 	validationsByType := make(map[string]uint64)
 	validationsByRule := make(map[string]uint64)
-	
+
 	for k, v := range vt.metrics.ValidationsByType {
 		validationsByType[k] = v
 	}
-	
+
 	for k, v := range vt.metrics.ValidationsByRule {
 		validationsByRule[k] = v
 	}
-	
+
 	return ValidationMetrics{
 		TotalValidations:        vt.metrics.TotalValidations,
 		SuccessfulValidations:   vt.metrics.SuccessfulValidations,

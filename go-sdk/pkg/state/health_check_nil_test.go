@@ -32,7 +32,7 @@ func TestStoreHealthCheckNilStore(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			hc := NewStoreHealthCheck(tt.store, 1*time.Second)
 			err := hc.Check(context.Background())
-			
+
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("expected error but got none")
@@ -97,7 +97,7 @@ func (m *MockNilStateStore) Close() error {
 func TestStoreHealthCheckNilStateReturn(t *testing.T) {
 	store := &MockNilStateStore{}
 	hc := NewStoreHealthCheck(store, 1*time.Second)
-	
+
 	err := hc.Check(context.Background())
 	if err == nil {
 		t.Error("expected error for nil state return, but got none")
@@ -111,7 +111,7 @@ func TestStoreHealthCheckPanicRecovery(t *testing.T) {
 	// Create a store that will panic
 	store := &PanicStore{}
 	hc := NewStoreHealthCheck(store, 1*time.Second)
-	
+
 	err := hc.Check(context.Background())
 	if err == nil {
 		t.Error("expected error for panic, but got none")

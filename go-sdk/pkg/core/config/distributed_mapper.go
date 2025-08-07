@@ -24,39 +24,39 @@ func (m *DistributedConfigMapper) MapToDistributedConfig() (*DistributedValidato
 	if err != nil {
 		return nil, fmt.Errorf("failed to get distributed config: %w", err)
 	}
-	
+
 	coreConfig, err := m.provider.GetCoreConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get core config: %w", err)
 	}
-	
+
 	_, err = m.provider.GetSecurityConfig()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get security config: %w", err)
 	}
-	
+
 	globalSettings, err := m.provider.GetGlobalSettings()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get global settings: %w", err)
 	}
-	
+
 	// Create the adapted configuration
 	adapter := &DistributedValidatorConfigAdapter{
 		NodeID:                        distributedConfig.NodeID,
-		MaxNodeFailures:              distributedConfig.MaxNodeFailures,
-		ValidationTimeout:            coreConfig.ValidationTimeout,
-		HeartbeatInterval:            distributedConfig.HeartbeatInterval,
-		EnableMetrics:                m.provider.IsEnabled("metrics"),
-		ConsensusConfig:              m.mapConsensusConfig(distributedConfig),
-		StateSync:                    m.mapStateSyncConfig(distributedConfig),
-		LoadBalancer:                 m.mapLoadBalancerConfig(distributedConfig),
-		PartitionHandler:             m.mapPartitionHandlerConfig(distributedConfig),
+		MaxNodeFailures:               distributedConfig.MaxNodeFailures,
+		ValidationTimeout:             coreConfig.ValidationTimeout,
+		HeartbeatInterval:             distributedConfig.HeartbeatInterval,
+		EnableMetrics:                 m.provider.IsEnabled("metrics"),
+		ConsensusConfig:               m.mapConsensusConfig(distributedConfig),
+		StateSync:                     m.mapStateSyncConfig(distributedConfig),
+		LoadBalancer:                  m.mapLoadBalancerConfig(distributedConfig),
+		PartitionHandler:              m.mapPartitionHandlerConfig(distributedConfig),
 		ConsensusCircuitBreakerConfig: m.mapCircuitBreakerConfig("consensus", distributedConfig),
 		StateSyncCircuitBreakerConfig: m.mapCircuitBreakerConfig("state-sync", distributedConfig),
 		HeartbeatCircuitBreakerConfig: m.mapCircuitBreakerConfig("heartbeat", distributedConfig),
-		GoroutineRestartPolicy:       m.mapGoroutineRestartPolicy(globalSettings),
+		GoroutineRestartPolicy:        m.mapGoroutineRestartPolicy(globalSettings),
 	}
-	
+
 	return adapter, nil
 }
 
@@ -79,64 +79,64 @@ func (m *DistributedConfigMapper) mapConsensusConfig(config *DistributedValidati
 // mapStateSyncConfig maps state synchronization configuration
 func (m *DistributedConfigMapper) mapStateSyncConfig(config *DistributedValidationConfig) *StateSyncConfigAdapter {
 	return &StateSyncConfigAdapter{
-		Enabled:       config.StateSyncEnabled,
-		Interval:      config.StateSyncInterval,
-		Protocol:      config.StateSyncProtocol,
-		Timeout:       config.FailureDetectTimeout,
-		MaxRetries:    3, // Default value
-		RetryBackoff:  1 * time.Second, // Default value
-		BatchSize:     100, // Default value
-		EnableTLS:     config.EnableTLS,
-		TLSCertFile:   config.TLSCertFile,
-		TLSKeyFile:    config.TLSKeyFile,
-		TLSCAFile:     config.TLSCAFile,
+		Enabled:      config.StateSyncEnabled,
+		Interval:     config.StateSyncInterval,
+		Protocol:     config.StateSyncProtocol,
+		Timeout:      config.FailureDetectTimeout,
+		MaxRetries:   3,               // Default value
+		RetryBackoff: 1 * time.Second, // Default value
+		BatchSize:    100,             // Default value
+		EnableTLS:    config.EnableTLS,
+		TLSCertFile:  config.TLSCertFile,
+		TLSKeyFile:   config.TLSKeyFile,
+		TLSCAFile:    config.TLSCAFile,
 	}
 }
 
 // mapLoadBalancerConfig maps load balancer configuration
 func (m *DistributedConfigMapper) mapLoadBalancerConfig(config *DistributedValidationConfig) *LoadBalancerConfigAdapter {
 	return &LoadBalancerConfigAdapter{
-		Strategy:           config.LoadBalanceStrategy,
-		HealthCheckEnabled: true, // Default value
-		HealthCheckInterval: 30 * time.Second, // Default value
-		HealthCheckTimeout:  5 * time.Second, // Default value
-		MaxRetries:         3, // Default value
-		RetryBackoff:       1 * time.Second, // Default value
-		LoadThreshold:      config.LoadThreshold,
-		EnableStickySessions: false, // Default value
-		SessionTimeout:     30 * time.Minute, // Default value
+		Strategy:             config.LoadBalanceStrategy,
+		HealthCheckEnabled:   true,             // Default value
+		HealthCheckInterval:  30 * time.Second, // Default value
+		HealthCheckTimeout:   5 * time.Second,  // Default value
+		MaxRetries:           3,                // Default value
+		RetryBackoff:         1 * time.Second,  // Default value
+		LoadThreshold:        config.LoadThreshold,
+		EnableStickySessions: false,            // Default value
+		SessionTimeout:       30 * time.Minute, // Default value
 	}
 }
 
 // mapPartitionHandlerConfig maps partition handler configuration
 func (m *DistributedConfigMapper) mapPartitionHandlerConfig(config *DistributedValidationConfig) *PartitionHandlerConfigAdapter {
 	return &PartitionHandlerConfigAdapter{
-		PartitionTolerance:   config.PartitionTolerance,
-		AllowLocalValidation: config.AllowLocalValidation,
-		PartitionTimeout:     config.PartitionTimeout,
-		RecoveryEnabled:      config.RecoveryEnabled,
-		RecoveryInterval:     30 * time.Second, // Default value
-		MaxPartitionTime:     5 * time.Minute, // Default value
-		QuorumSize:          config.MinNodes,
-		EnableSplitBrainProtection: true, // Default value
-		SplitBrainTimeout:    1 * time.Minute, // Default value
+		PartitionTolerance:         config.PartitionTolerance,
+		AllowLocalValidation:       config.AllowLocalValidation,
+		PartitionTimeout:           config.PartitionTimeout,
+		RecoveryEnabled:            config.RecoveryEnabled,
+		RecoveryInterval:           30 * time.Second, // Default value
+		MaxPartitionTime:           5 * time.Minute,  // Default value
+		QuorumSize:                 config.MinNodes,
+		EnableSplitBrainProtection: true,            // Default value
+		SplitBrainTimeout:          1 * time.Minute, // Default value
 	}
 }
 
 // mapCircuitBreakerConfig maps circuit breaker configuration
 func (m *DistributedConfigMapper) mapCircuitBreakerConfig(name string, config *DistributedValidationConfig) *CircuitBreakerConfigAdapter {
 	return &CircuitBreakerConfigAdapter{
-		Name:              name,
-		MaxRequests:       100,
-		Interval:          60 * time.Second,
-		Timeout:           30 * time.Second,
-		MaxRetries:        3,
-		RetryBackoff:      1 * time.Second,
-		FailureThreshold:  5,
-		SuccessThreshold:  3,
-		HalfOpenRequests:  10,
-		EnableMetrics:     true,
-		MetricsInterval:   30 * time.Second,
+		Name:             name,
+		MaxRequests:      100,
+		Interval:         60 * time.Second,
+		Timeout:          30 * time.Second,
+		MaxRetries:       3,
+		RetryBackoff:     1 * time.Second,
+		FailureThreshold: 5,
+		SuccessThreshold: 3,
+		HalfOpenRequests: 10,
+		EnableMetrics:    true,
+		MetricsInterval:  30 * time.Second,
 	}
 }
 
@@ -160,18 +160,18 @@ func (m *DistributedConfigMapper) mapGoroutineRestartPolicy(config *GlobalSettin
 // DistributedValidatorConfigAdapter adapts unified configuration for distributed validator
 type DistributedValidatorConfigAdapter struct {
 	NodeID                        string
-	MaxNodeFailures              int
-	ValidationTimeout            time.Duration
-	HeartbeatInterval            time.Duration
-	EnableMetrics                bool
-	ConsensusConfig              *ConsensusConfigAdapter
-	StateSync                    *StateSyncConfigAdapter
-	LoadBalancer                 *LoadBalancerConfigAdapter
-	PartitionHandler             *PartitionHandlerConfigAdapter
+	MaxNodeFailures               int
+	ValidationTimeout             time.Duration
+	HeartbeatInterval             time.Duration
+	EnableMetrics                 bool
+	ConsensusConfig               *ConsensusConfigAdapter
+	StateSync                     *StateSyncConfigAdapter
+	LoadBalancer                  *LoadBalancerConfigAdapter
+	PartitionHandler              *PartitionHandlerConfigAdapter
 	ConsensusCircuitBreakerConfig *CircuitBreakerConfigAdapter
 	StateSyncCircuitBreakerConfig *CircuitBreakerConfigAdapter
 	HeartbeatCircuitBreakerConfig *CircuitBreakerConfigAdapter
-	GoroutineRestartPolicy       *GoroutineRestartPolicyAdapter
+	GoroutineRestartPolicy        *GoroutineRestartPolicyAdapter
 }
 
 // ConsensusConfigAdapter adapts consensus configuration
@@ -190,58 +190,58 @@ type ConsensusConfigAdapter struct {
 
 // StateSyncConfigAdapter adapts state synchronization configuration
 type StateSyncConfigAdapter struct {
-	Enabled       bool
-	Interval      time.Duration
-	Protocol      string
-	Timeout       time.Duration
-	MaxRetries    int
-	RetryBackoff  time.Duration
-	BatchSize     int
-	EnableTLS     bool
-	TLSCertFile   string
-	TLSKeyFile    string
-	TLSCAFile     string
+	Enabled      bool
+	Interval     time.Duration
+	Protocol     string
+	Timeout      time.Duration
+	MaxRetries   int
+	RetryBackoff time.Duration
+	BatchSize    int
+	EnableTLS    bool
+	TLSCertFile  string
+	TLSKeyFile   string
+	TLSCAFile    string
 }
 
 // LoadBalancerConfigAdapter adapts load balancer configuration
 type LoadBalancerConfigAdapter struct {
-	Strategy               string
-	HealthCheckEnabled     bool
-	HealthCheckInterval    time.Duration
-	HealthCheckTimeout     time.Duration
-	MaxRetries            int
-	RetryBackoff          time.Duration
-	LoadThreshold         float64
-	EnableStickySessions  bool
-	SessionTimeout        time.Duration
+	Strategy             string
+	HealthCheckEnabled   bool
+	HealthCheckInterval  time.Duration
+	HealthCheckTimeout   time.Duration
+	MaxRetries           int
+	RetryBackoff         time.Duration
+	LoadThreshold        float64
+	EnableStickySessions bool
+	SessionTimeout       time.Duration
 }
 
 // PartitionHandlerConfigAdapter adapts partition handler configuration
 type PartitionHandlerConfigAdapter struct {
 	PartitionTolerance         bool
 	AllowLocalValidation       bool
-	PartitionTimeout          time.Duration
-	RecoveryEnabled           bool
-	RecoveryInterval          time.Duration
-	MaxPartitionTime          time.Duration
-	QuorumSize               int
+	PartitionTimeout           time.Duration
+	RecoveryEnabled            bool
+	RecoveryInterval           time.Duration
+	MaxPartitionTime           time.Duration
+	QuorumSize                 int
 	EnableSplitBrainProtection bool
-	SplitBrainTimeout         time.Duration
+	SplitBrainTimeout          time.Duration
 }
 
 // CircuitBreakerConfigAdapter adapts circuit breaker configuration
 type CircuitBreakerConfigAdapter struct {
-	Name              string
-	MaxRequests       int
-	Interval          time.Duration
-	Timeout           time.Duration
-	MaxRetries        int
-	RetryBackoff      time.Duration
-	FailureThreshold  int
-	SuccessThreshold  int
-	HalfOpenRequests  int
-	EnableMetrics     bool
-	MetricsInterval   time.Duration
+	Name             string
+	MaxRequests      int
+	Interval         time.Duration
+	Timeout          time.Duration
+	MaxRetries       int
+	RetryBackoff     time.Duration
+	FailureThreshold int
+	SuccessThreshold int
+	HalfOpenRequests int
+	EnableMetrics    bool
+	MetricsInterval  time.Duration
 }
 
 // GoroutineRestartPolicyAdapter adapts goroutine restart policy
@@ -323,44 +323,44 @@ func (a *DistributedValidatorConfigAdapter) Validate() error {
 	if a.NodeID == "" {
 		return fmt.Errorf("node ID cannot be empty")
 	}
-	
+
 	if a.MaxNodeFailures < 0 {
 		return fmt.Errorf("max node failures cannot be negative")
 	}
-	
+
 	if a.ValidationTimeout <= 0 {
 		return fmt.Errorf("validation timeout must be positive")
 	}
-	
+
 	if a.HeartbeatInterval <= 0 {
 		return fmt.Errorf("heartbeat interval must be positive")
 	}
-	
+
 	// Validate nested configs
 	if a.ConsensusConfig != nil {
 		if err := a.ConsensusConfig.Validate(); err != nil {
 			return fmt.Errorf("consensus config validation failed: %w", err)
 		}
 	}
-	
+
 	if a.StateSync != nil {
 		if err := a.StateSync.Validate(); err != nil {
 			return fmt.Errorf("state sync config validation failed: %w", err)
 		}
 	}
-	
+
 	if a.LoadBalancer != nil {
 		if err := a.LoadBalancer.Validate(); err != nil {
 			return fmt.Errorf("load balancer config validation failed: %w", err)
 		}
 	}
-	
+
 	if a.PartitionHandler != nil {
 		if err := a.PartitionHandler.Validate(); err != nil {
 			return fmt.Errorf("partition handler config validation failed: %w", err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -369,19 +369,19 @@ func (c *ConsensusConfigAdapter) Validate() error {
 	if c.Algorithm == "" {
 		return fmt.Errorf("consensus algorithm cannot be empty")
 	}
-	
+
 	if c.MinNodes <= 0 {
 		return fmt.Errorf("min nodes must be positive")
 	}
-	
+
 	if c.MaxNodes < c.MinNodes {
 		return fmt.Errorf("max nodes must be >= min nodes")
 	}
-	
+
 	if c.Timeout <= 0 {
 		return fmt.Errorf("timeout must be positive")
 	}
-	
+
 	return nil
 }
 
@@ -391,24 +391,24 @@ func (s *StateSyncConfigAdapter) Validate() error {
 		if s.Interval <= 0 {
 			return fmt.Errorf("sync interval must be positive when enabled")
 		}
-		
+
 		if s.Protocol == "" {
 			return fmt.Errorf("sync protocol cannot be empty when enabled")
 		}
-		
+
 		if s.Timeout <= 0 {
 			return fmt.Errorf("sync timeout must be positive")
 		}
-		
+
 		if s.MaxRetries < 0 {
 			return fmt.Errorf("max retries cannot be negative")
 		}
-		
+
 		if s.BatchSize <= 0 {
 			return fmt.Errorf("batch size must be positive")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -417,21 +417,21 @@ func (l *LoadBalancerConfigAdapter) Validate() error {
 	if l.Strategy == "" {
 		return fmt.Errorf("load balance strategy cannot be empty")
 	}
-	
+
 	if l.LoadThreshold < 0 || l.LoadThreshold > 1 {
 		return fmt.Errorf("load threshold must be between 0 and 1")
 	}
-	
+
 	if l.HealthCheckEnabled {
 		if l.HealthCheckInterval <= 0 {
 			return fmt.Errorf("health check interval must be positive when enabled")
 		}
-		
+
 		if l.HealthCheckTimeout <= 0 {
 			return fmt.Errorf("health check timeout must be positive when enabled")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -440,18 +440,18 @@ func (p *PartitionHandlerConfigAdapter) Validate() error {
 	if p.PartitionTimeout <= 0 {
 		return fmt.Errorf("partition timeout must be positive")
 	}
-	
+
 	if p.RecoveryEnabled && p.RecoveryInterval <= 0 {
 		return fmt.Errorf("recovery interval must be positive when recovery is enabled")
 	}
-	
+
 	if p.MaxPartitionTime <= 0 {
 		return fmt.Errorf("max partition time must be positive")
 	}
-	
+
 	if p.QuorumSize <= 0 {
 		return fmt.Errorf("quorum size must be positive")
 	}
-	
+
 	return nil
 }

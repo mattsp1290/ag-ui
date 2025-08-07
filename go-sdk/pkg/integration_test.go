@@ -36,9 +36,9 @@ func TestCoreEventsTransportIntegration(t *testing.T) {
 		{
 			name: "TextMessageStartEvent",
 			event: &events.TextMessageStartEvent{
-				BaseEvent:  events.NewBaseEvent(events.EventTypeTextMessageStart),
-				MessageID:  "msg-123",
-				Role:       ptrString("assistant"),
+				BaseEvent: events.NewBaseEvent(events.EventTypeTextMessageStart),
+				MessageID: "msg-123",
+				Role:      ptrString("assistant"),
 			},
 		},
 		{
@@ -110,7 +110,7 @@ func TestStateTransportIntegration(t *testing.T) {
 	require.NoError(t, err)
 
 	// Set up state change handler that sends events through transport
-	// Note: StateManager doesn't have OnStateChange directly, 
+	// Note: StateManager doesn't have OnStateChange directly,
 	// we would need to use event handlers, but for this test we'll send events manually
 
 	// Test state updates
@@ -235,7 +235,7 @@ func TestConcurrentEventFlow(t *testing.T) {
 	require.NoError(t, err)
 
 	// Concurrent event producers - reduced for faster execution
-	numProducers := 3   // Reduced from 10
+	numProducers := 3      // Reduced from 10
 	eventsPerProducer := 5 // Reduced from 100
 	var wg sync.WaitGroup
 
@@ -257,16 +257,16 @@ func TestConcurrentEventFlow(t *testing.T) {
 		wg.Add(1)
 		go func(producerID int) {
 			defer wg.Done()
-			
+
 			for j := 0; j < eventsPerProducer; j++ {
 				var event events.Event
-				
+
 				switch j % 3 {
 				case 0:
 					event = &events.TextMessageContentEvent{
 						BaseEvent: events.NewBaseEvent(events.EventTypeTextMessageContent),
 						MessageID: fmt.Sprintf("msg-%d-%d", producerID, j),
-				Delta:     fmt.Sprintf("Message from producer %d, event %d", producerID, j),
+						Delta:     fmt.Sprintf("Message from producer %d, event %d", producerID, j),
 					}
 				case 1:
 					event = &events.StateSnapshotEvent{
@@ -308,13 +308,13 @@ func TestConcurrentEventFlow(t *testing.T) {
 	// Verify all events were received
 	mu.Lock()
 	defer mu.Unlock()
-	
+
 	totalExpected := numProducers * eventsPerProducer
 	totalReceived := 0
 	for _, count := range receivedEvents {
 		totalReceived += count
 	}
-	
+
 	assert.Equal(t, totalExpected, totalReceived, "Not all events were received")
 }
 
@@ -338,7 +338,7 @@ func TestErrorPropagation(t *testing.T) {
 			EventTimestamp: time.Now(),
 			EventData:      map[string]interface{}{"index": i},
 		}
-		
+
 		err := tr.Send(ctx, event)
 		if err != nil {
 			errors = append(errors, err)
@@ -347,7 +347,7 @@ func TestErrorPropagation(t *testing.T) {
 
 	// Should have some backpressure errors
 	assert.NotEmpty(t, errors, "Expected backpressure errors")
-	
+
 	// Check error channel
 	select {
 	case err := <-tr.Errors():
@@ -366,10 +366,10 @@ func ptrString(s string) *string {
 func eventToMap(event events.Event) map[string]interface{} {
 	// Simple conversion - in real implementation would use proper serialization
 	data := make(map[string]interface{})
-	
+
 	// Marshal event to JSON and back to map
 	jsonData, _ := json.Marshal(event)
 	json.Unmarshal(jsonData, &data)
-	
+
 	return data
 }

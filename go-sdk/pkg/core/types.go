@@ -12,10 +12,10 @@ import (
 type EventData interface {
 	// Validate ensures the event data is valid
 	Validate() error
-	
+
 	// ToMap converts the event data to a map[string]interface{} for backward compatibility
 	ToMap() map[string]interface{}
-	
+
 	// FromMap populates the event data from a map[string]interface{} for backward compatibility
 	FromMap(data map[string]interface{}) error
 }
@@ -35,14 +35,14 @@ type TypedEvent[T EventData] interface {
 
 	// TypedData returns the strongly-typed event data
 	TypedData() T
-	
+
 	// Data returns the event data as a map for backward compatibility
 	// Deprecated: Use TypedData() for type-safe access
 	Data() map[string]interface{}
-	
+
 	// Validate validates the event and its data
 	Validate() error
-	
+
 	// ToJSON serializes the event to JSON
 	ToJSON() ([]byte, error)
 }
@@ -194,17 +194,17 @@ func (m *MessageData) FromMap(data map[string]interface{}) error {
 	} else {
 		return fmt.Errorf("content field is required and must be a string")
 	}
-	
+
 	if sender, ok := data["sender"].(string); ok {
 		m.Sender = sender
 	} else {
 		return fmt.Errorf("sender field is required and must be a string")
 	}
-	
+
 	if role, ok := data["role"].(string); ok {
 		m.Role = role
 	}
-	
+
 	return nil
 }
 
@@ -240,12 +240,12 @@ func (s *StateData) FromMap(data map[string]interface{}) error {
 	} else {
 		return fmt.Errorf("key field is required and must be a string")
 	}
-	
+
 	s.Value = data["value"]
 	if s.Value == nil {
 		return fmt.Errorf("value field is required")
 	}
-	
+
 	return nil
 }
 
@@ -286,15 +286,15 @@ func (t *ToolData) FromMap(data map[string]interface{}) error {
 	} else {
 		return fmt.Errorf("tool_name field is required and must be a string")
 	}
-	
+
 	if args, ok := data["args"].(map[string]interface{}); ok {
 		t.Args = args
 	} else {
 		return fmt.Errorf("args field is required and must be a map")
 	}
-	
+
 	t.Result = data["result"]
-	
+
 	return nil
 }
 
@@ -316,7 +316,7 @@ type ToolEvent = Event[ToolData]
 type AgentIdentity interface {
 	// Name returns the agent's identifier
 	Name() string
-	
+
 	// Description returns a human-readable description of the agent's capabilities
 	Description() string
 }
@@ -346,7 +346,7 @@ type TypedAgentEventHandler[T EventData, R EventData] interface {
 type AgentTypeRegistry interface {
 	// SupportedInputTypes returns the event data types this agent can handle
 	SupportedInputTypes() []string
-	
+
 	// SupportedOutputTypes returns the event data types this agent can produce
 	SupportedOutputTypes() []string
 }
@@ -377,10 +377,10 @@ type StreamConfig struct {
 
 	// EnableCompression enables event compression during transport
 	EnableCompression bool
-	
+
 	// ValidationEnabled enables event validation during streaming
 	ValidationEnabled bool
-	
+
 	// TypeSafetyEnabled enables type-safe event processing
 	TypeSafetyEnabled bool
 }
@@ -413,7 +413,7 @@ type EventProcessor[T EventData, R EventData] struct {
 
 // NewEventProcessor creates a new type-safe event processor
 func NewEventProcessor[T EventData, R EventData](
-	handler TypedEventHandler[T, R], 
+	handler TypedEventHandler[T, R],
 	config *StreamConfig,
 ) *EventProcessor[T, R] {
 	if config == nil {
@@ -438,7 +438,7 @@ func (p *EventProcessor[T, R]) Process(ctx context.Context, event TypedEvent[T])
 			return nil, fmt.Errorf("event validation failed: %w", err)
 		}
 	}
-	
+
 	return p.handler(ctx, event)
 }
 
@@ -447,14 +447,14 @@ type EventAdapter struct{}
 
 // ToTypedEvent converts a legacy event to a typed event
 func ToTypedEvent[T EventData](
-	event Event[map[string]interface{}], 
+	event Event[map[string]interface{}],
 	constructor func() T,
 ) (TypedEvent[T], error) {
 	data := constructor()
 	if err := data.FromMap(event.Data()); err != nil {
 		return nil, fmt.Errorf("failed to convert event data: %w", err)
 	}
-	
+
 	return NewTypedEvent[T](event.ID(), event.Type(), data), nil
 }
 

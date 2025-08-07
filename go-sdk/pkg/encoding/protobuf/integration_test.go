@@ -33,7 +33,7 @@ func TestProtobufIntegration_CompleteWorkflow(t *testing.T) {
 		events.NewStepFinishedEvent("tool-execution"),
 		// State update
 		events.NewStateSnapshotEvent(map[string]interface{}{
-			"last_calculation": 42,
+			"last_calculation":   42,
 			"total_calculations": 1,
 		}),
 		// Run completes
@@ -94,7 +94,7 @@ func TestProtobufIntegration_CompleteWorkflow(t *testing.T) {
 
 	// Stream decode
 	eventChan := make(chan events.Event, len(workflow))
-	
+
 	streamDecoder := streamCodec.GetStreamDecoder()
 	if err := streamDecoder.StartStream(context.Background(), &buf); err != nil {
 		t.Fatalf("Failed to start decode stream: %v", err)
@@ -125,10 +125,10 @@ func TestProtobufIntegration_CompleteWorkflow(t *testing.T) {
 func TestProtobufIntegration_ConcurrentStreaming(t *testing.T) {
 	// Test concurrent streaming operations
 	streamCodec := NewStreamingProtobufCodec(nil, nil)
-	
+
 	numGoroutines := 10
 	eventsPerGoroutine := 100
-	
+
 	var wg sync.WaitGroup
 	errors := make(chan error, numGoroutines)
 
@@ -206,10 +206,10 @@ func TestProtobufIntegration_ConcurrentStreaming(t *testing.T) {
 
 func TestProtobufIntegration_ErrorHandling(t *testing.T) {
 	// Test various error conditions
-	
+
 	t.Run("invalid data", func(t *testing.T) {
 		decoder := NewProtobufDecoder(nil)
-		
+
 		// Random invalid data
 		_, err := decoder.Decode(context.Background(), []byte("invalid protobuf data"))
 		if err == nil {

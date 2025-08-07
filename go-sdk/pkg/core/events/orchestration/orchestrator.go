@@ -9,14 +9,14 @@ import (
 
 // ValidationContext provides context for validation execution
 type ValidationContext struct {
-	EventType    string
-	Source       string
-	Environment  string
-	Tags         map[string]string
-	Properties   map[string]interface{}
-	Metadata     map[string]interface{}
-	Timeout      time.Duration
-	RetryPolicy  *RetryPolicy
+	EventType   string
+	Source      string
+	Environment string
+	Tags        map[string]string
+	Properties  map[string]interface{}
+	Metadata    map[string]interface{}
+	Timeout     time.Duration
+	RetryPolicy *RetryPolicy
 }
 
 // RetryPolicy defines retry behavior for failed validations
@@ -51,11 +51,11 @@ type ValidationStage struct {
 
 // StageCondition defines when a stage should execute
 type StageCondition struct {
-	Type      ConditionType
-	Field     string
-	Operator  ConditionOperator
-	Value     interface{}
-	Negated   bool
+	Type     ConditionType
+	Field    string
+	Operator ConditionOperator
+	Value    interface{}
+	Negated  bool
 }
 
 // ConditionType defines the type of condition
@@ -125,33 +125,33 @@ type WorkflowConfig struct {
 
 // ValidationResult represents the result of validation execution
 type ValidationResult struct {
-	WorkflowID     string
-	ExecutionID    string
-	Context        *ValidationContext
-	StartTime      time.Time
-	EndTime        time.Time
-	Duration       time.Duration
-	Status         ValidationStatus
-	StageResults   map[string]*StageResult
-	Errors         []error
-	Warnings       []string
-	Metrics        *ExecutionMetrics
-	Summary        *ResultSummary
-	IsValid        bool  // Add the missing field
+	WorkflowID   string
+	ExecutionID  string
+	Context      *ValidationContext
+	StartTime    time.Time
+	EndTime      time.Time
+	Duration     time.Duration
+	Status       ValidationStatus
+	StageResults map[string]*StageResult
+	Errors       []error
+	Warnings     []string
+	Metrics      *ExecutionMetrics
+	Summary      *ResultSummary
+	IsValid      bool // Add the missing field
 }
 
 // StageResult represents the result of a single stage
 type StageResult struct {
-	StageID       string
-	Status        ValidationStatus
-	StartTime     time.Time
-	EndTime       time.Time
-	Duration      time.Duration
-	Results       []*OrchestrationValidationResult
-	Errors        []error
-	Skipped       bool
-	SkipReason    string
-	RetryCount    int
+	StageID    string
+	Status     ValidationStatus
+	StartTime  time.Time
+	EndTime    time.Time
+	Duration   time.Duration
+	Results    []*OrchestrationValidationResult
+	Errors     []error
+	Skipped    bool
+	SkipReason string
+	RetryCount int
 }
 
 // ValidationStatus defines validation execution status
@@ -169,25 +169,25 @@ const (
 
 // ExecutionMetrics provides execution metrics
 type ExecutionMetrics struct {
-	TotalStages       int
-	CompletedStages   int
-	FailedStages      int
-	SkippedStages     int
-	ParallelStages    int
-	AverageStageTime  time.Duration
-	ValidationCount   int
-	ErrorCount        int
-	WarningCount      int
+	TotalStages      int
+	CompletedStages  int
+	FailedStages     int
+	SkippedStages    int
+	ParallelStages   int
+	AverageStageTime time.Duration
+	ValidationCount  int
+	ErrorCount       int
+	WarningCount     int
 }
 
 // ResultSummary provides a high-level summary
 type ResultSummary struct {
-	TotalValidations int
-	PassedValidations int
-	FailedValidations int
+	TotalValidations   int
+	PassedValidations  int
+	FailedValidations  int
 	SkippedValidations int
-	SuccessRate       float64
-	Performance       string
+	SuccessRate        float64
+	Performance        string
 }
 
 // Orchestrator manages validation workflow execution

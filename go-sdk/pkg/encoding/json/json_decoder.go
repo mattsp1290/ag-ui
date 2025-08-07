@@ -12,17 +12,17 @@ import (
 
 // Ensure JSONDecoder implements the focused interfaces
 var (
-	_ encoding.Decoder                      = (*JSONDecoder)(nil)
-	_ encoding.ContentTypeProvider          = (*JSONDecoder)(nil)
-	_ encoding.StreamingCapabilityProvider  = (*JSONDecoder)(nil)
+	_ encoding.Decoder                     = (*JSONDecoder)(nil)
+	_ encoding.ContentTypeProvider         = (*JSONDecoder)(nil)
+	_ encoding.StreamingCapabilityProvider = (*JSONDecoder)(nil)
 )
 
 // JSONDecoder implements the Decoder interface for JSON format
 // This decoder is stateless and thread-safe for concurrent use.
 type JSONDecoder struct {
-	options           *encoding.DecodingOptions
-	activeOperations  int32  // Track active decoding operations
-	maxConcurrent     int32  // Maximum concurrent operations
+	options          *encoding.DecodingOptions
+	activeOperations int32 // Track active decoding operations
+	maxConcurrent    int32 // Maximum concurrent operations
 }
 
 // NewJSONDecoder creates a new JSON decoder with the given options
@@ -220,9 +220,9 @@ func (d *JSONDecoder) createEvent(eventType events.EventType, data []byte) (even
 		}
 	}
 	defer encoding.PutBuffer(buf)
-	
+
 	buf.Write(data)
-	
+
 	decoder := json.NewDecoder(buf)
 	if d.options.Strict && !d.options.AllowUnknownFields {
 		decoder.DisallowUnknownFields()

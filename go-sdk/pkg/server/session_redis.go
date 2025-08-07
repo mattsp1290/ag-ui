@@ -11,13 +11,13 @@ import (
 
 // Redis storage constants
 const (
-	DefaultRedisPoolSize    = 10
-	DefaultRedisMaxRetries  = 3
-	DefaultRedisKeyPrefix   = "session:"
-	RedisUserIndexPrefix    = "user_sessions:"
-	RedisActiveSetKey       = "active_sessions"
-	RedisCleanupLockKey     = "cleanup_lock"
-	RedisCleanupLockTTL     = 30 * time.Second
+	DefaultRedisPoolSize   = 10
+	DefaultRedisMaxRetries = 3
+	DefaultRedisKeyPrefix  = "session:"
+	RedisUserIndexPrefix   = "user_sessions:"
+	RedisActiveSetKey      = "active_sessions"
+	RedisCleanupLockKey    = "cleanup_lock"
+	RedisCleanupLockTTL    = 30 * time.Second
 )
 
 // RedisClient interface to abstract Redis operations
@@ -200,7 +200,7 @@ func (r *RedisSessionStorage) CreateSession(ctx context.Context, session *Sessio
 
 	// Create session key
 	sessionKey := r.config.KeyPrefix + session.ID
-	
+
 	// Calculate TTL based on expiration time
 	ttl := time.Until(session.ExpiresAt)
 	if ttl <= 0 {
@@ -447,10 +447,10 @@ func (r *RedisSessionStorage) CleanupExpiredSessions(ctx context.Context) (int64
 
 	var cleaned int64
 	var cursor uint64
-	
+
 	// Scan for session keys
 	pattern := r.config.KeyPrefix + "*"
-	
+
 	for {
 		keys, nextCursor, err := r.client.Scan(ctx, cursor, pattern, 100)
 		if err != nil {
@@ -557,7 +557,7 @@ func (r *RedisSessionStorage) Stats() map[string]interface{} {
 		if err == nil {
 			stats["session_count"] = count
 		}
-		
+
 		if err := r.client.Ping(context.Background()); err != nil {
 			stats["status"] = "disconnected"
 			stats["error"] = err.Error()
@@ -644,12 +644,12 @@ func (r *SecureRedisSessionStorage) Close() error {
 			return err
 		}
 	}
-	
+
 	// Cleanup credentials
 	if r.config != nil {
 		r.config.Cleanup()
 	}
-	
+
 	return nil
 }
 
@@ -662,13 +662,13 @@ func (r *SecureRedisSessionStorage) Ping(ctx context.Context) error {
 
 func (r *SecureRedisSessionStorage) Stats() map[string]interface{} {
 	stats := map[string]interface{}{
-		"type":             "secure_redis",
-		"address":          r.config.Address,
-		"key_prefix":       r.config.KeyPrefix,
-		"pool_size":        r.config.PoolSize,
-		"max_retries":      r.config.MaxRetries,
-		"tls_enabled":      r.config.EnableTLS,
-		"password_loaded":  r.config.GetPassword() != nil,
+		"type":            "secure_redis",
+		"address":         r.config.Address,
+		"key_prefix":      r.config.KeyPrefix,
+		"pool_size":       r.config.PoolSize,
+		"max_retries":     r.config.MaxRetries,
+		"tls_enabled":     r.config.EnableTLS,
+		"password_loaded": r.config.GetPassword() != nil,
 	}
 
 	if r.client != nil {
@@ -676,7 +676,7 @@ func (r *SecureRedisSessionStorage) Stats() map[string]interface{} {
 		if err == nil {
 			stats["session_count"] = count
 		}
-		
+
 		if err := r.client.Ping(context.Background()); err != nil {
 			stats["status"] = "disconnected"
 			stats["error"] = err.Error()

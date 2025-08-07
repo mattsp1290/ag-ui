@@ -85,11 +85,11 @@ type NodeLoadInfo struct {
 	ConsecutiveFails   int       `json:"consecutive_fails"`
 	ConsecutiveSuccess int       `json:"consecutive_success"`
 	Weight             int       `json:"weight"`
-	
+
 	// Circuit breaker state
-	CircuitState       CircuitState `json:"circuit_state"`
-	CircuitOpenedAt    *time.Time   `json:"circuit_opened_at,omitempty"`
-	ErrorRate          float64      `json:"error_rate"`
+	CircuitState    CircuitState `json:"circuit_state"`
+	CircuitOpenedAt *time.Time   `json:"circuit_opened_at,omitempty"`
+	ErrorRate       float64      `json:"error_rate"`
 }
 
 // CircuitState represents the state of a circuit breaker
@@ -106,23 +106,23 @@ const (
 
 // LoadBalancer manages load distribution across validation nodes
 type LoadBalancer struct {
-	config        *LoadBalancerConfig
-	nodes         map[NodeID]*NodeLoadInfo
-	nodesMutex    sync.RWMutex
-	
+	config     *LoadBalancerConfig
+	nodes      map[NodeID]*NodeLoadInfo
+	nodesMutex sync.RWMutex
+
 	// Round-robin state
-	currentIndex  int
-	indexMutex    sync.Mutex
-	
+	currentIndex int
+	indexMutex   sync.Mutex
+
 	// Consistent hash ring
-	hashRing      *ConsistentHashRing
-	
+	hashRing *ConsistentHashRing
+
 	// Metrics
 	totalRequests uint64
 	metrics       *LoadBalancerMetrics
-	
+
 	// Random generator
-	rand          *rand.Rand
+	rand *rand.Rand
 }
 
 // NewLoadBalancer creates a new load balancer
@@ -132,10 +132,10 @@ func NewLoadBalancer(config *LoadBalancerConfig) *LoadBalancer {
 	}
 
 	lb := &LoadBalancer{
-		config:   config,
-		nodes:    make(map[NodeID]*NodeLoadInfo),
-		metrics:  NewLoadBalancerMetrics(),
-		rand:     rand.New(rand.NewSource(time.Now().UnixNano())),
+		config:  config,
+		nodes:   make(map[NodeID]*NodeLoadInfo),
+		metrics: NewLoadBalancerMetrics(),
+		rand:    rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 
 	// Initialize consistent hash ring if needed
@@ -313,7 +313,7 @@ func (lb *LoadBalancer) filterHealthyNodes(nodes []NodeID) []NodeID {
 	defer lb.nodesMutex.RUnlock()
 
 	healthy := make([]NodeID, 0, len(nodes))
-	
+
 	for _, nodeID := range nodes {
 		info, exists := lb.nodes[nodeID]
 		if !exists || (info.IsHealthy && info.CircuitState != CircuitOpen) {
@@ -331,7 +331,7 @@ func (lb *LoadBalancer) selectRoundRobin(nodes []NodeID, count int) []NodeID {
 	}
 
 	selected := make([]NodeID, 0, count)
-	
+
 	lb.indexMutex.Lock()
 	defer lb.indexMutex.Unlock()
 
@@ -388,7 +388,7 @@ func (lb *LoadBalancer) selectWeightedRoundRobin(nodes []NodeID, count int) []No
 		if info, exists := lb.nodes[nodeID]; exists {
 			weight = info.Weight
 		}
-		
+
 		// Add node multiple times based on weight
 		for i := 0; i < weight; i++ {
 			weightedNodes = append(weightedNodes, nodeID)
@@ -409,7 +409,7 @@ func (lb *LoadBalancer) selectWeightedRoundRobin(nodes []NodeID, count int) []No
 	for len(selected) < count {
 		nodeID := weightedNodes[lb.currentIndex%len(weightedNodes)]
 		lb.currentIndex++
-		
+
 		if !selectedMap[nodeID] {
 			selected = append(selected, nodeID)
 			selectedMap[nodeID] = true
@@ -449,15 +449,15 @@ func (lb *LoadBalancer) selectLeastResponseTime(nodes []NodeID, count int) []Nod
 	nodeScores := make([]nodeScore, 0, len(nodes))
 	for _, nodeID := range nodes {
 		score := math.MaxFloat64
-		
+
 		if info, exists := lb.nodes[nodeID]; exists {
 			// Score based on response time and load
 			// Lower is better
 			score = info.ResponseTimeMs * (1 + info.CurrentLoad)
-			
+
 			// Penalize nodes with high error rates
 			score *= (1 + info.ErrorRate)
-			
+
 			// Favor nodes with circuit in closed state
 			if info.CircuitState == CircuitOpen {
 				score *= 10 // Heavy penalty
@@ -465,7 +465,7 @@ func (lb *LoadBalancer) selectLeastResponseTime(nodes []NodeID, count int) []Nod
 				score *= 2 // Moderate penalty
 			}
 		}
-		
+
 		nodeScores = append(nodeScores, nodeScore{nodeID, score})
 	}
 
@@ -492,7 +492,7 @@ func (lb *LoadBalancer) selectRandom(nodes []NodeID, count int) []NodeID {
 	// Shuffle and take first count elements
 	shuffled := make([]NodeID, len(nodes))
 	copy(shuffled, nodes)
-	
+
 	lb.rand.Shuffle(len(shuffled), func(i, j int) {
 		shuffled[i], shuffled[j] = shuffled[j], shuffled[i]
 	})
@@ -513,7 +513,7 @@ func (lb *LoadBalancer) updateCircuitBreaker(info *NodeLoadInfo) {
 
 	case CircuitOpen:
 		// Check if we should transition to half-open
-		if info.CircuitOpenedAt != nil && 
+		if info.CircuitOpenedAt != nil &&
 			time.Since(*info.CircuitOpenedAt) > lb.config.CircuitBreakerTimeout {
 			info.CircuitState = CircuitHalfOpen
 		}
@@ -606,7 +606,7 @@ func (chr *ConsistentHashRing) GetNodes(key string, count int) []NodeID {
 	}
 
 	hash := hashKey(key)
-	
+
 	// Binary search for the first hash >= key hash
 	idx := sort.Search(len(chr.sortedHashes), func(i int) bool {
 		return chr.sortedHashes[i] >= hash
@@ -624,7 +624,7 @@ func (chr *ConsistentHashRing) GetNodes(key string, count int) []NodeID {
 	for i := 0; len(selected) < count && i < len(chr.sortedHashes); i++ {
 		hashIdx := (idx + i) % len(chr.sortedHashes)
 		nodeID := chr.nodes[chr.sortedHashes[hashIdx]]
-		
+
 		if !selectedMap[nodeID] {
 			selected = append(selected, nodeID)
 			selectedMap[nodeID] = true

@@ -420,7 +420,7 @@ func BenchmarkThroughput(b *testing.B) {
 
 // TestPerformanceConstraints tests that performance constraints are met
 func TestPerformanceConstraints(t *testing.T) {
-	
+
 	config := DefaultPerformanceConfig()
 	config.Logger = zaptest.NewLogger(t)
 	config.MaxConcurrentConnections = 1000
@@ -511,7 +511,7 @@ func TestPerformanceConstraints(t *testing.T) {
 
 // TestPerformanceMetrics tests that metrics are collected correctly
 func TestPerformanceMetrics(t *testing.T) {
-	
+
 	config := DefaultPerformanceConfig()
 	config.Logger = zaptest.NewLogger(t)
 	config.EnableMetrics = true
@@ -543,7 +543,7 @@ func TestPerformanceMetrics(t *testing.T) {
 
 // TestAdaptiveOptimization tests adaptive optimization
 func TestAdaptiveOptimization(t *testing.T) {
-	
+
 	config := DefaultPerformanceConfig()
 	config.Logger = zaptest.NewLogger(t)
 	config.EnableMetrics = true
@@ -593,7 +593,7 @@ func TestAdaptiveOptimization(t *testing.T) {
 
 // TestBufferPoolEfficiency tests buffer pool efficiency
 func TestBufferPoolEfficiency(t *testing.T) {
-	
+
 	bp := NewBufferPool(100, 1024)
 
 	// Test that buffers are reused
@@ -617,7 +617,7 @@ func TestBufferPoolEfficiency(t *testing.T) {
 
 // TestZeroCopyOperations tests zero-copy operations
 func TestZeroCopyOperations(t *testing.T) {
-	
+
 	data := []byte("test data for zero copy operations")
 	zcb := NewZeroCopyBuffer(data)
 
@@ -645,7 +645,7 @@ func TestZeroCopyOperations(t *testing.T) {
 
 // TestMemoryManagerConstraints tests memory manager constraints
 func TestMemoryManagerConstraints(t *testing.T) {
-	
+
 	maxMemory := int64(1024 * 1024) // 1MB
 	mm := NewMemoryManager(maxMemory)
 
@@ -675,7 +675,7 @@ func TestMemoryManagerConstraints(t *testing.T) {
 	// Clean up
 	mm.DeallocateBuffer(buf1)
 
-	// Let memory manager do a final check  
+	// Let memory manager do a final check
 	time.Sleep(50 * time.Millisecond)
 
 	cancel()
@@ -690,7 +690,7 @@ func TestMemoryManagerConstraints(t *testing.T) {
 
 // TestProfilingIntegration tests profiling integration
 func TestProfilingIntegration(t *testing.T) {
-	
+
 	config := DefaultPerformanceConfig()
 	config.Logger = zaptest.NewLogger(t)
 	config.EnableProfiling = true

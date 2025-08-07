@@ -1,3 +1,4 @@
+//go:build ignore
 // +build ignore
 
 package main
@@ -28,7 +29,7 @@ func main() {
 
 	// Try to build the events package
 	fmt.Println("Attempting to build pkg/core/events package...")
-	
+
 	// First, let's check if the package can be imported
 	pkg, err := build.Import("github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events", ".", build.FindOnly)
 	if err != nil {
@@ -41,11 +42,11 @@ func main() {
 	cmd := exec.Command("go", "build", "-v", "./pkg/core/events")
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	
+
 	fmt.Println("\nRunning: go build -v ./pkg/core/events")
 	if err := cmd.Run(); err != nil {
 		fmt.Printf("\nBuild failed with error: %v\n", err)
-		
+
 		// Try to get more detailed error information
 		cmd2 := exec.Command("go", "list", "-e", "-json", "./pkg/core/events")
 		output, err2 := cmd2.CombinedOutput()
@@ -53,7 +54,7 @@ func main() {
 			fmt.Println("\nPackage information:")
 			fmt.Println(string(output))
 		}
-		
+
 		// Also try to compile specific files
 		fmt.Println("\nTrying to compile individual files...")
 		files := []string{
@@ -64,7 +65,7 @@ func main() {
 			"pkg/core/events/state_events.go",
 			"pkg/core/events/custom_events.go",
 		}
-		
+
 		for _, file := range files {
 			cmd3 := exec.Command("go", "build", "-o", "/dev/null", file)
 			if output, err3 := cmd3.CombinedOutput(); err3 != nil {

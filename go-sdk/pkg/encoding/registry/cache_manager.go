@@ -41,11 +41,11 @@ func (c *CacheManager) Size() int {
 func (c *CacheManager) EvictOldest() (RegistryKey, bool) {
 	c.lruMu.Lock()
 	defer c.lruMu.Unlock()
-	
+
 	if c.lruList.Len() == 0 {
 		return RegistryKey{}, false
 	}
-	
+
 	// Remove the oldest entry (back of the list)
 	oldest := c.lruList.Back()
 	if oldest != nil {
@@ -109,7 +109,7 @@ func (c *CacheManager) GetLRUCandidate() *RegistryKey {
 func (c *CacheManager) FindOldestFormatEntry() *RegistryKey {
 	c.lruMu.Lock()
 	defer c.lruMu.Unlock()
-	
+
 	// Walk from back (oldest) to front to find the oldest format entry
 	for elem := c.lruList.Back(); elem != nil; elem = elem.Prev() {
 		key := elem.Value.(RegistryKey)

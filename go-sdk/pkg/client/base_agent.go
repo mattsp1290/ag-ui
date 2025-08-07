@@ -16,18 +16,18 @@ import (
 // Common error conditions for BaseAgent
 const (
 	// Validation errors
-	ErrConfigNil           = "config_nil"
-	ErrNameRequired        = "name_required"
-	ErrBufferSizeInvalid   = "buffer_size_invalid"
-	ErrBatchSizeInvalid    = "batch_size_invalid"
+	ErrConfigNil            = "config_nil"
+	ErrNameRequired         = "name_required"
+	ErrBufferSizeInvalid    = "buffer_size_invalid"
+	ErrBatchSizeInvalid     = "batch_size_invalid"
 	ErrMaxConcurrentInvalid = "max_concurrent_invalid"
-	ErrMaxMessagesInvalid  = "max_messages_invalid"
-	
+	ErrMaxMessagesInvalid   = "max_messages_invalid"
+
 	// Operation errors
-	ErrEmptyPath           = "empty_path"
-	ErrConditionNotMet     = "condition_not_met"
-	ErrUnknownOperation    = "unknown_operation"
-	
+	ErrEmptyPath        = "empty_path"
+	ErrConditionNotMet  = "condition_not_met"
+	ErrUnknownOperation = "unknown_operation"
+
 	// Tool execution errors
 	ErrToolSerializeFailed   = "tool_serialize_failed"
 	ErrToolDeserializeFailed = "tool_deserialize_failed"
@@ -42,22 +42,22 @@ type BaseAgent struct {
 	config *AgentConfig
 	name   string
 	desc   string
-	
+
 	// Lifecycle management
-	status     atomic.Value // AgentStatus
-	mu         sync.RWMutex
-	startTime  time.Time
-	
+	status    atomic.Value // AgentStatus
+	mu        sync.RWMutex
+	startTime time.Time
+
 	// Event processing
 	eventStream chan events.Event
 	streamMu    sync.RWMutex
-	
+
 	// Metrics and monitoring
 	metrics      AgentMetrics
 	metricsMu    sync.RWMutex
 	healthStatus AgentHealthStatus
 	healthMu     sync.RWMutex
-	
+
 	// Tool execution framework
 	toolFramework *ToolExecutionFramework
 	toolMu        sync.RWMutex
@@ -97,7 +97,7 @@ func NewBaseAgent(name, description string) *BaseAgent {
 			Errors:    make([]string, 0),
 		},
 	}
-	
+
 	agent.status.Store(AgentStatusUninitialized)
 	return agent
 }
@@ -110,10 +110,10 @@ func (a *BaseAgent) Initialize(ctx context.Context, config *AgentConfig) error {
 		return ctx.Err()
 	default:
 	}
-	
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	
+
 	if a.getStatus() != AgentStatusUninitialized {
 		return errors.NewAgentError(
 			errors.ErrorTypeInvalidState,
@@ -121,7 +121,7 @@ func (a *BaseAgent) Initialize(ctx context.Context, config *AgentConfig) error {
 			a.name,
 		)
 	}
-	
+
 	// Validate configuration
 	if err := a.validateConfig(config); err != nil {
 		return errors.NewAgentError(
@@ -130,17 +130,17 @@ func (a *BaseAgent) Initialize(ctx context.Context, config *AgentConfig) error {
 			a.name,
 		).WithCause(err)
 	}
-	
+
 	// Set configuration with defaults
 	a.config = a.mergeWithDefaults(config)
-	
+
 	// Initialize event stream
 	a.eventStream = make(chan events.Event, a.config.EventProcessing.BufferSize)
-	
+
 	// Update status and health
 	a.setStatus(AgentStatusInitialized)
 	a.updateHealth("initialized", nil)
-	
+
 	return nil
 }
 
@@ -152,10 +152,10 @@ func (a *BaseAgent) Start(ctx context.Context) error {
 		return ctx.Err()
 	default:
 	}
-	
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	
+
 	status := a.getStatus()
 	if status != AgentStatusInitialized && status != AgentStatusStopped {
 		return errors.NewAgentError(
@@ -164,14 +164,14 @@ func (a *BaseAgent) Start(ctx context.Context) error {
 			a.name,
 		)
 	}
-	
+
 	a.setStatus(AgentStatusStarting)
-	
+
 	// Update status and metrics
 	a.setStatus(AgentStatusRunning)
 	a.startTime = time.Now()
 	a.updateHealth("healthy", nil)
-	
+
 	return nil
 }
 
@@ -180,7 +180,7 @@ func (a *BaseAgent) Stop(ctx context.Context) error {
 	// Don't check context cancellation here as we want Stop to complete even if context is cancelled
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	
+
 	if a.getStatus() != AgentStatusRunning {
 		return errors.NewAgentError(
 			errors.ErrorTypeInvalidState,
@@ -188,21 +188,21 @@ func (a *BaseAgent) Stop(ctx context.Context) error {
 			a.name,
 		)
 	}
-	
+
 	a.setStatus(AgentStatusStopping)
-	
+
 	// Cancel all active tool executions
 	if a.toolFramework != nil {
 		a.toolFramework.CancelAll()
 	}
-	
+
 	// Close event streams with proper resource cleanup
 	a.streamMu.Lock()
 	if a.eventStream != nil {
 		stream := a.eventStream // Capture reference before goroutine
 		close(a.eventStream)
 		a.eventStream = nil
-		
+
 		// Drain the channel to prevent goroutine leaks with proper context cancellation
 		drainCtx, drainCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		go func() {
@@ -219,10 +219,10 @@ func (a *BaseAgent) Stop(ctx context.Context) error {
 		}()
 	}
 	a.streamMu.Unlock()
-	
+
 	a.setStatus(AgentStatusStopped)
 	a.updateHealth("stopped", nil)
-	
+
 	return nil
 }
 
@@ -230,22 +230,22 @@ func (a *BaseAgent) Stop(ctx context.Context) error {
 func (a *BaseAgent) Cleanup() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	
+
 	// Shutdown tool framework
 	if a.toolFramework != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		
+
 		if err := a.toolFramework.Shutdown(ctx); err != nil {
 			// Log error but continue cleanup
 			fmt.Printf("Warning: tool framework shutdown error: %v\n", err)
 		}
 		a.toolFramework = nil
 	}
-	
+
 	// Reset state
 	a.config = nil
-	
+
 	return nil
 }
 
@@ -258,17 +258,17 @@ func (a *BaseAgent) ProcessEvent(ctx context.Context, event events.Event) ([]eve
 			a.name,
 		)
 	}
-	
+
 	// Update metrics
 	a.incrementEventsProcessed()
 	startTime := time.Now()
-	
+
 	defer func() {
 		processingTime := time.Since(startTime)
 		a.updateAverageProcessingTime(processingTime)
 		a.updateLastActivity()
 	}()
-	
+
 	// Validate the incoming event
 	if err := event.Validate(); err != nil {
 		a.incrementErrorCount()
@@ -578,7 +578,7 @@ func (a *BaseAgent) processMessagesSnapshot(ctx context.Context, event events.Ev
 
 	// Process message snapshot
 	messageCount := len(msgEvent.Messages)
-	
+
 	// Generate summary response
 	responseEvent := events.NewCustomEvent(
 		"message_snapshot_processed",
@@ -639,7 +639,7 @@ func (a *BaseAgent) processCustomEvent(ctx context.Context, event events.Event) 
 
 	case "metrics_request":
 		metrics := map[string]interface{}{
-			"events_processed":         a.getEventsProcessed(),
+			"events_processed":        a.getEventsProcessed(),
 			"error_count":             a.getErrorCount(),
 			"tools_executed":          atomic.LoadInt64(&a.metrics.ToolsExecuted),
 			"state_updates":           atomic.LoadInt64(&a.metrics.StateUpdates),
@@ -797,7 +797,7 @@ func (a *BaseAgent) StreamEvents(ctx context.Context) (<-chan events.Event, erro
 		return nil, ctx.Err()
 	default:
 	}
-	
+
 	if a.getStatus() != AgentStatusRunning {
 		return nil, errors.NewAgentError(
 			errors.ErrorTypeInvalidState,
@@ -805,7 +805,7 @@ func (a *BaseAgent) StreamEvents(ctx context.Context) (<-chan events.Event, erro
 			a.name,
 		)
 	}
-	
+
 	if !a.config.Capabilities.Streaming {
 		return nil, errors.NewAgentError(
 			errors.ErrorTypeUnsupported,
@@ -813,11 +813,11 @@ func (a *BaseAgent) StreamEvents(ctx context.Context) (<-chan events.Event, erro
 			a.name,
 		)
 	}
-	
+
 	// Fix race condition: protect eventStream access with proper locking
 	a.streamMu.RLock()
 	defer a.streamMu.RUnlock()
-	
+
 	if a.eventStream == nil {
 		return nil, errors.NewAgentError(
 			errors.ErrorTypeInvalidState,
@@ -825,7 +825,7 @@ func (a *BaseAgent) StreamEvents(ctx context.Context) (<-chan events.Event, erro
 			a.name,
 		)
 	}
-	
+
 	return a.eventStream, nil
 }
 
@@ -837,10 +837,10 @@ func (a *BaseAgent) GetState(ctx context.Context) (*AgentState, error) {
 		return nil, ctx.Err()
 	default:
 	}
-	
+
 	a.mu.RLock()
 	defer a.mu.RUnlock()
-	
+
 	// Build comprehensive agent state
 	state := &AgentState{
 		Status:       a.getStatus(),
@@ -850,23 +850,23 @@ func (a *BaseAgent) GetState(ctx context.Context) (*AgentState, error) {
 		Metadata:     make(map[string]interface{}),
 		LastModified: a.metrics.LastActivity,
 	}
-	
+
 	// Add basic agent data
 	state.Data["description"] = a.desc
 	state.Data["start_time"] = a.startTime
 	state.Data["events_processed"] = a.getEventsProcessed()
 	state.Data["error_count"] = a.getErrorCount()
-	
+
 	// Add metadata
 	if a.config != nil {
 		state.Metadata["capabilities"] = a.config.Capabilities
 		state.Metadata["tools_enabled"] = len(a.config.Capabilities.Tools) > 0
 		state.Metadata["streaming_enabled"] = a.config.Capabilities.Streaming
 	}
-	
+
 	// Calculate and add checksum for integrity
 	state.Checksum = a.calculateStateChecksum(state)
-	
+
 	return state, nil
 }
 
@@ -878,7 +878,7 @@ func (a *BaseAgent) UpdateState(ctx context.Context, delta *StateDelta) error {
 		return ctx.Err()
 	default:
 	}
-	
+
 	if delta == nil {
 		return errors.NewAgentError(
 			errors.ErrorTypeValidation,
@@ -886,13 +886,13 @@ func (a *BaseAgent) UpdateState(ctx context.Context, delta *StateDelta) error {
 			a.name,
 		)
 	}
-	
+
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	
+
 	// Get current state version
 	currentVersion := atomic.LoadInt64(&a.metrics.StateUpdates)
-	
+
 	// Version conflict check
 	if delta.Version != currentVersion {
 		return errors.NewAgentError(
@@ -901,7 +901,7 @@ func (a *BaseAgent) UpdateState(ctx context.Context, delta *StateDelta) error {
 			a.name,
 		)
 	}
-	
+
 	// Apply each operation in the delta
 	for i, op := range delta.Operations {
 		if err := a.applyStateOperation(&op); err != nil {
@@ -912,18 +912,18 @@ func (a *BaseAgent) UpdateState(ctx context.Context, delta *StateDelta) error {
 			)
 		}
 	}
-	
+
 	// Increment state version and update metrics
 	a.incrementStateUpdates()
 	a.updateLastActivity()
-	
+
 	return nil
 }
 
 // ExecuteTool executes a tool with the given name and parameters.
 func (a *BaseAgent) ExecuteTool(ctx context.Context, name string, params interface{}) (interface{}, error) {
 	a.incrementToolsExecuted()
-	
+
 	// Check if agent is running
 	if a.getStatus() != AgentStatusRunning {
 		return nil, errors.NewAgentError(
@@ -932,7 +932,7 @@ func (a *BaseAgent) ExecuteTool(ctx context.Context, name string, params interfa
 			a.name,
 		)
 	}
-	
+
 	// Get the tool execution framework
 	framework := a.getToolExecutionFramework()
 	if framework == nil {
@@ -942,7 +942,7 @@ func (a *BaseAgent) ExecuteTool(ctx context.Context, name string, params interfa
 			a.name,
 		)
 	}
-	
+
 	// Convert params to map[string]interface{} if needed
 	var paramsMap map[string]interface{}
 	switch p := params.(type) {
@@ -968,16 +968,16 @@ func (a *BaseAgent) ExecuteTool(ctx context.Context, name string, params interfa
 			).WithCause(err).WithDetail("operation", "ExecuteTool")
 		}
 	}
-	
+
 	// Create execution context with timeout from tools config
 	timeout := a.config.Tools.Timeout
 	if timeout == 0 {
 		timeout = 30 * time.Second // default timeout
 	}
-	
+
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	
+
 	// Execute the tool
 	result, err := framework.Execute(execCtx, name, paramsMap)
 	if err != nil {
@@ -988,12 +988,12 @@ func (a *BaseAgent) ExecuteTool(ctx context.Context, name string, params interfa
 			a.name,
 		).WithCause(err).WithDetail("tool_name", name).WithDetail("operation", "ExecuteTool")
 	}
-	
+
 	// Return the result data
 	if result != nil && result.Success {
 		return result.Data, nil
 	}
-	
+
 	// Tool execution failed
 	if result != nil && result.Error != "" {
 		a.incrementErrorCount()
@@ -1003,7 +1003,7 @@ func (a *BaseAgent) ExecuteTool(ctx context.Context, name string, params interfa
 			a.name,
 		).WithDetail("tool_name", name).WithDetail("error_message", result.Error)
 	}
-	
+
 	// Unknown error
 	a.incrementErrorCount()
 	return nil, errors.NewAgentError(
@@ -1019,19 +1019,19 @@ func (a *BaseAgent) ListTools() []ToolDefinition {
 	if framework == nil {
 		return []ToolDefinition{}
 	}
-	
+
 	registry := framework.GetRegistry()
 	if registry == nil {
 		return []ToolDefinition{}
 	}
-	
+
 	// Get all tools from registry
 	allTools, err := registry.ListAll()
 	if err != nil {
 		return []ToolDefinition{}
 	}
 	toolDefs := make([]ToolDefinition, 0, len(allTools))
-	
+
 	for _, tool := range allTools {
 		toolView := tools.NewReadOnlyTool(tool)
 		toolDef := ToolDefinition{
@@ -1039,7 +1039,7 @@ func (a *BaseAgent) ListTools() []ToolDefinition {
 			Description: toolView.GetDescription(),
 			Schema:      toolView.GetSchema(),
 		}
-		
+
 		// Add capabilities if available
 		if capabilities := toolView.GetCapabilities(); capabilities != nil {
 			toolDef.Capabilities = map[string]interface{}{
@@ -1054,10 +1054,10 @@ func (a *BaseAgent) ListTools() []ToolDefinition {
 				toolDef.Capabilities["rateLimit"] = capabilities.RateLimit
 			}
 		}
-		
+
 		toolDefs = append(toolDefs, toolDef)
 	}
-	
+
 	return toolDefs
 }
 
@@ -1083,7 +1083,7 @@ func (a *BaseAgent) Capabilities() AgentCapabilities {
 func (a *BaseAgent) Health() AgentHealthStatus {
 	a.healthMu.RLock()
 	defer a.healthMu.RUnlock()
-	
+
 	// Create a new health status with efficient copying
 	health := AgentHealthStatus{
 		Status:    a.healthStatus.Status,
@@ -1091,18 +1091,18 @@ func (a *BaseAgent) Health() AgentHealthStatus {
 		Details:   make(map[string]interface{}, len(a.healthStatus.Details)+4),
 		Errors:    a.healthStatus.Errors, // Slice header copy only
 	}
-	
+
 	// Copy existing details efficiently
 	for k, v := range a.healthStatus.Details {
 		health.Details[k] = v
 	}
-	
+
 	// Add current runtime metrics
 	health.Details["status"] = a.getStatus()
 	health.Details["uptime"] = time.Since(a.startTime).String()
 	health.Details["events_processed"] = a.getEventsProcessed()
 	health.Details["error_count"] = a.getErrorCount()
-	
+
 	return health
 }
 
@@ -1119,7 +1119,7 @@ func (a *BaseAgent) setStatus(status AgentStatus) {
 func (a *BaseAgent) updateHealth(status string, errors []string) {
 	a.healthMu.Lock()
 	defer a.healthMu.Unlock()
-	
+
 	a.healthStatus.Status = status
 	a.healthStatus.LastCheck = time.Now()
 	if errors != nil {
@@ -1154,7 +1154,7 @@ func (a *BaseAgent) getErrorCount() int64 {
 func (a *BaseAgent) updateAverageProcessingTime(duration time.Duration) {
 	a.metricsMu.Lock()
 	defer a.metricsMu.Unlock()
-	
+
 	// Use exponential moving average for better accuracy
 	const alpha = 0.1 // Smoothing factor
 	if a.metrics.AverageProcessingTime == 0 {
@@ -1177,76 +1177,76 @@ func (a *BaseAgent) validateConfig(config *AgentConfig) error {
 	if config == nil {
 		return errors.NewValidationError(ErrConfigNil, "configuration cannot be nil")
 	}
-	
+
 	if config.Name == "" {
 		return errors.NewValidationError(ErrNameRequired, "agent name is required").WithField("Name", config.Name)
 	}
-	
+
 	if config.EventProcessing.BufferSize <= 0 {
 		return errors.NewValidationError(ErrBufferSizeInvalid, "event processing buffer size must be positive").WithField("EventProcessing.BufferSize", config.EventProcessing.BufferSize)
 	}
-	
+
 	if config.EventProcessing.BatchSize <= 0 {
 		return errors.NewValidationError(ErrBatchSizeInvalid, "event processing batch size must be positive").WithField("EventProcessing.BatchSize", config.EventProcessing.BatchSize)
 	}
-	
+
 	if config.Tools.MaxConcurrent <= 0 {
 		return errors.NewValidationError(ErrMaxConcurrentInvalid, "tool max concurrent must be positive").WithField("Tools.MaxConcurrent", config.Tools.MaxConcurrent)
 	}
-	
+
 	if config.History.MaxMessages <= 0 {
 		return errors.NewValidationError(ErrMaxMessagesInvalid, "history max messages must be positive").WithField("History.MaxMessages", config.History.MaxMessages)
 	}
-	
+
 	return nil
 }
 
 func (a *BaseAgent) mergeWithDefaults(config *AgentConfig) *AgentConfig {
 	defaults := DefaultAgentConfig()
-	
+
 	// Merge configuration with defaults
 	merged := *config
-	
+
 	if merged.EventProcessing.BufferSize == 0 {
 		merged.EventProcessing.BufferSize = defaults.EventProcessing.BufferSize
 	}
-	
+
 	if merged.EventProcessing.BatchSize == 0 {
 		merged.EventProcessing.BatchSize = defaults.EventProcessing.BatchSize
 	}
-	
+
 	if merged.EventProcessing.Timeout == 0 {
 		merged.EventProcessing.Timeout = defaults.EventProcessing.Timeout
 	}
-	
+
 	if merged.State.SyncInterval == 0 {
 		merged.State.SyncInterval = defaults.State.SyncInterval
 	}
-	
+
 	if merged.State.CacheSize == "" {
 		merged.State.CacheSize = defaults.State.CacheSize
 	}
-	
+
 	if merged.Tools.Timeout == 0 {
 		merged.Tools.Timeout = defaults.Tools.Timeout
 	}
-	
+
 	if merged.Tools.MaxConcurrent == 0 {
 		merged.Tools.MaxConcurrent = defaults.Tools.MaxConcurrent
 	}
-	
+
 	if merged.History.MaxMessages == 0 {
 		merged.History.MaxMessages = defaults.History.MaxMessages
 	}
-	
+
 	if merged.History.Retention == 0 {
 		merged.History.Retention = defaults.History.Retention
 	}
-	
+
 	if merged.Custom == nil {
 		merged.Custom = make(map[string]interface{})
 	}
-	
+
 	return &merged
 }
 
@@ -1262,14 +1262,14 @@ func (a *BaseAgent) applyStateOperation(op *StateOperation) error {
 	if op.Path == "" {
 		return errors.NewValidationError(ErrEmptyPath, "operation path cannot be empty").WithField("Path", op.Path)
 	}
-	
+
 	// Check condition if present
 	if op.Condition != nil {
 		if !a.evaluateStateCondition(op.Condition) {
 			return errors.NewValidationError(ErrConditionNotMet, "operation condition not met").WithDetail("condition", op.Condition)
 		}
 	}
-	
+
 	// Apply operation based on type
 	switch op.Op {
 	case StateOpSet:
@@ -1314,7 +1314,7 @@ type ToolExecutionFramework struct {
 	executionEngine *tools.ExecutionEngine
 	config          *ToolsConfig
 	mu              sync.RWMutex
-	
+
 	// Custom tool registry for agent-specific tools
 	customTools map[string]*tools.Tool
 	customMu    sync.RWMutex
@@ -1324,13 +1324,13 @@ type ToolExecutionFramework struct {
 func NewToolExecutionFramework(config *ToolsConfig) *ToolExecutionFramework {
 	// Create tool registry
 	registry := tools.NewRegistry()
-	
+
 	// Register built-in tools
 	if err := tools.RegisterBuiltinTools(registry); err != nil {
 		// Log error but continue - built-in tools are optional
 		fmt.Printf("Warning: failed to register built-in tools: %v\n", err)
 	}
-	
+
 	// Create execution engine with configuration
 	var opts []tools.ExecutionEngineOption
 	if config != nil {
@@ -1345,9 +1345,9 @@ func NewToolExecutionFramework(config *ToolsConfig) *ToolExecutionFramework {
 			opts = append(opts, tools.WithCaching(1000, time.Hour))
 		}
 	}
-	
+
 	executionEngine := tools.NewExecutionEngine(registry, opts...)
-	
+
 	return &ToolExecutionFramework{
 		registry:        registry,
 		executionEngine: executionEngine,
@@ -1370,20 +1370,20 @@ func (f *ToolExecutionFramework) ExecuteStream(ctx context.Context, name string,
 func (f *ToolExecutionFramework) RegisterTool(tool *tools.Tool) error {
 	f.customMu.Lock()
 	defer f.customMu.Unlock()
-	
+
 	// Validate the tool first
 	if err := tool.Validate(); err != nil {
 		return fmt.Errorf("tool validation failed: %w", err)
 	}
-	
+
 	// Register in the main registry
 	if err := f.registry.Register(tool); err != nil {
 		return fmt.Errorf("failed to register tool in registry: %w", err)
 	}
-	
+
 	// Store in custom tools map for tracking
 	f.customTools[tool.ID] = tool
-	
+
 	return nil
 }
 
@@ -1391,15 +1391,15 @@ func (f *ToolExecutionFramework) RegisterTool(tool *tools.Tool) error {
 func (f *ToolExecutionFramework) UnregisterTool(toolID string) error {
 	f.customMu.Lock()
 	defer f.customMu.Unlock()
-	
+
 	// Remove from registry
 	if err := f.registry.Unregister(toolID); err != nil {
 		return fmt.Errorf("failed to unregister tool from registry: %w", err)
 	}
-	
+
 	// Remove from custom tools map
 	delete(f.customTools, toolID)
-	
+
 	return nil
 }
 
@@ -1414,7 +1414,7 @@ func (f *ToolExecutionFramework) ListTools() []tools.ReadOnlyTool {
 	if err != nil {
 		return []tools.ReadOnlyTool{}
 	}
-	
+
 	// Convert to ReadOnlyTool views
 	readOnlyTools := make([]tools.ReadOnlyTool, 0, len(allTools))
 	for _, tool := range allTools {
@@ -1453,26 +1453,26 @@ func (a *BaseAgent) getToolExecutionFramework() *ToolExecutionFramework {
 	a.toolMu.RLock()
 	framework := a.toolFramework
 	a.toolMu.RUnlock()
-	
+
 	if framework != nil {
 		return framework
 	}
-	
+
 	// Initialize framework with double-checked locking
 	a.toolMu.Lock()
 	defer a.toolMu.Unlock()
-	
+
 	// Check again after acquiring write lock
 	if a.toolFramework != nil {
 		return a.toolFramework
 	}
-	
+
 	// Initialize with agent's tools config
 	var config *ToolsConfig
 	if a.config != nil {
 		config = &a.config.Tools
 	}
-	
+
 	a.toolFramework = NewToolExecutionFramework(config)
 	return a.toolFramework
 }
@@ -1488,7 +1488,7 @@ func (a *BaseAgent) RegisterCustomTool(tool *tools.Tool) error {
 			a.name,
 		)
 	}
-	
+
 	return framework.RegisterTool(tool)
 }
 
@@ -1502,7 +1502,7 @@ func (a *BaseAgent) UnregisterCustomTool(toolID string) error {
 			a.name,
 		)
 	}
-	
+
 	return framework.UnregisterTool(toolID)
 }
 
@@ -1512,7 +1512,7 @@ func (a *BaseAgent) GetToolMetrics() *tools.ExecutionMetrics {
 	if framework == nil {
 		return nil
 	}
-	
+
 	return framework.GetMetrics()
 }
 
@@ -1526,7 +1526,7 @@ func (a *BaseAgent) ExecuteToolAsync(ctx context.Context, name string, params in
 			a.name,
 		)
 	}
-	
+
 	// Get the tool execution framework
 	framework := a.getToolExecutionFramework()
 	if framework == nil {
@@ -1536,7 +1536,7 @@ func (a *BaseAgent) ExecuteToolAsync(ctx context.Context, name string, params in
 			a.name,
 		)
 	}
-	
+
 	// Convert params to map[string]interface{} if needed
 	var paramsMap map[string]interface{}
 	switch p := params.(type) {
@@ -1562,7 +1562,7 @@ func (a *BaseAgent) ExecuteToolAsync(ctx context.Context, name string, params in
 			).WithCause(err).WithDetail("operation", "ExecuteToolAsync")
 		}
 	}
-	
+
 	// Execute asynchronously using the execution engine
 	return framework.GetExecutionEngine().ExecuteAsync(ctx, name, paramsMap, priority)
 }
@@ -1577,7 +1577,7 @@ func (a *BaseAgent) ExecuteToolStream(ctx context.Context, name string, params i
 			a.name,
 		)
 	}
-	
+
 	// Get the tool execution framework
 	framework := a.getToolExecutionFramework()
 	if framework == nil {
@@ -1587,7 +1587,7 @@ func (a *BaseAgent) ExecuteToolStream(ctx context.Context, name string, params i
 			a.name,
 		)
 	}
-	
+
 	// Convert params to map[string]interface{} if needed
 	var paramsMap map[string]interface{}
 	switch p := params.(type) {
@@ -1613,16 +1613,16 @@ func (a *BaseAgent) ExecuteToolStream(ctx context.Context, name string, params i
 			).WithCause(err).WithDetail("operation", "ExecuteToolStream")
 		}
 	}
-	
+
 	// Create execution context with timeout from tools config
 	timeout := a.config.Tools.Timeout
 	if timeout == 0 {
 		timeout = 30 * time.Second // default timeout
 	}
-	
+
 	execCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	
+
 	// Execute the streaming tool
 	return framework.ExecuteStream(execCtx, name, paramsMap)
 }

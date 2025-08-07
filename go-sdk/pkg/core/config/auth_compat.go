@@ -9,22 +9,22 @@ import (
 type AuthConfigCompat struct {
 	// Enabled determines if authentication is enabled
 	Enabled bool `json:"enabled"`
-	
+
 	// RequireAuth determines if authentication is required for all operations
 	RequireAuth bool `json:"require_auth"`
-	
+
 	// AllowAnonymous allows anonymous access for certain operations
 	AllowAnonymous bool `json:"allow_anonymous"`
-	
+
 	// TokenExpiration is the default token expiration duration
 	TokenExpiration time.Duration `json:"token_expiration"`
-	
+
 	// RefreshEnabled allows token refresh
 	RefreshEnabled bool `json:"refresh_enabled"`
-	
+
 	// RefreshExpiration is the refresh token expiration duration
 	RefreshExpiration time.Duration `json:"refresh_expiration"`
-	
+
 	// ProviderConfig contains provider-specific configuration
 	ProviderConfig map[string]interface{} `json:"provider_config,omitempty"`
 }
@@ -40,14 +40,14 @@ func (ac *AuthConfigCompat) ToUnifiedConfig() *AuthValidationConfig {
 		RefreshExpiration: ac.RefreshExpiration,
 		ProviderType:      "basic", // Default to basic auth
 		ProviderConfig:    ac.ProviderConfig,
-		
+
 		// Set sensible defaults for new fields
-		MaxLoginAttempts:     5,
-		LockoutDuration:      15 * time.Minute,
-		SessionTimeout:       2 * time.Hour,
-		RequireSecureTokens:  false,
-		EnableRBAC:           false,
-		DefaultRoles:         []string{"user"},
+		MaxLoginAttempts:    5,
+		LockoutDuration:     15 * time.Minute,
+		SessionTimeout:      2 * time.Hour,
+		RequireSecureTokens: false,
+		EnableRBAC:          false,
+		DefaultRoles:        []string{"user"},
 	}
 }
 
@@ -78,28 +78,28 @@ func DefaultAuthConfigCompat() *AuthConfigCompat {
 // CacheValidatorConfigCompat provides backward compatibility for cache configuration
 type CacheValidatorConfigCompat struct {
 	// L1 Cache settings
-	L1Size        int
-	L1TTL         time.Duration
-	
+	L1Size int
+	L1TTL  time.Duration
+
 	// L2 Cache settings
-	L2Cache       interface{} // DistributedCache interface
-	L2TTL         time.Duration
-	L2Enabled     bool
-	
+	L2Cache   interface{} // DistributedCache interface
+	L2TTL     time.Duration
+	L2Enabled bool
+
 	// Validation settings
-	Validator     interface{} // *events.Validator
-	
+	Validator interface{} // *events.Validator
+
 	// Compression settings
 	CompressionEnabled bool
 	CompressionLevel   int
-	
+
 	// Invalidation strategies
 	InvalidationStrategies []interface{} // []InvalidationStrategy
-	
+
 	// Coordination settings
 	NodeID      string
 	Coordinator interface{} // *CacheCoordinator
-	
+
 	// Metrics
 	MetricsEnabled bool
 }
@@ -107,24 +107,24 @@ type CacheValidatorConfigCompat struct {
 // ToUnifiedConfig converts the legacy CacheValidatorConfig to the unified configuration
 func (cc *CacheValidatorConfigCompat) ToUnifiedConfig() *CacheValidationConfig {
 	return &CacheValidationConfig{
-		Enabled:               true, // Assume enabled if config exists
-		L1Size:                cc.L1Size,
-		L1TTL:                 cc.L1TTL,
-		L1Enabled:             cc.L1Size > 0,
-		L2TTL:                 cc.L2TTL,
-		L2Enabled:             cc.L2Enabled,
-		L2Provider:            "custom", // Legacy uses custom provider
-		L2Config:              make(map[string]interface{}),
-		CompressionEnabled:    cc.CompressionEnabled,
-		CompressionLevel:      cc.CompressionLevel,
-		CompressionType:       "gzip", // Default compression type
-		InvalidationStrategy:  "ttl",  // Default strategy
-		InvalidationDelay:     1 * time.Second,
-		NodeID:                cc.NodeID,
-		ClusterMode:           cc.Coordinator != nil,
-		MetricsEnabled:        cc.MetricsEnabled,
-		MetricsInterval:       30 * time.Second,
-		WarmupEnabled:         false,
+		Enabled:              true, // Assume enabled if config exists
+		L1Size:               cc.L1Size,
+		L1TTL:                cc.L1TTL,
+		L1Enabled:            cc.L1Size > 0,
+		L2TTL:                cc.L2TTL,
+		L2Enabled:            cc.L2Enabled,
+		L2Provider:           "custom", // Legacy uses custom provider
+		L2Config:             make(map[string]interface{}),
+		CompressionEnabled:   cc.CompressionEnabled,
+		CompressionLevel:     cc.CompressionLevel,
+		CompressionType:      "gzip", // Default compression type
+		InvalidationStrategy: "ttl",  // Default strategy
+		InvalidationDelay:    1 * time.Second,
+		NodeID:               cc.NodeID,
+		ClusterMode:          cc.Coordinator != nil,
+		MetricsEnabled:       cc.MetricsEnabled,
+		MetricsInterval:      30 * time.Second,
+		WarmupEnabled:        false,
 	}
 }
 
@@ -161,31 +161,31 @@ type DistributedValidatorConfigCompat struct {
 // ToUnifiedConfig converts the legacy DistributedValidatorConfig to the unified configuration
 func (dc *DistributedValidatorConfigCompat) ToUnifiedConfig() *DistributedValidationConfig {
 	return &DistributedValidationConfig{
-		Enabled:               true, // Assume enabled if config exists
-		NodeID:                dc.NodeID,
-		NodeRole:              "follower", // Default role
-		ConsensusAlgorithm:    "majority", // Default algorithm
-		ConsensusTimeout:      dc.ValidationTimeout,
-		MinNodes:              1,
-		MaxNodes:              10,
-		RequireUnanimous:      false,
-		ListenAddress:         ":8080", // Default address
-		MaxConnections:        100,
-		ConnectionTimeout:     10 * time.Second,
-		HeartbeatInterval:     dc.HeartbeatInterval,
-		LoadBalanceStrategy:   "round_robin",
-		LoadThreshold:         0.8,
-		PartitionTolerance:    true,
-		AllowLocalValidation:  true,
-		PartitionTimeout:      30 * time.Second,
-		StateSyncEnabled:      true,
-		StateSyncInterval:     10 * time.Second,
-		StateSyncProtocol:     "gossip",
-		MaxNodeFailures:       dc.MaxNodeFailures,
-		FailureDetectTimeout:  5 * time.Second,
-		RecoveryEnabled:       true,
-		EnableTLS:             false,
-		EnableMutualTLS:       false,
+		Enabled:              true, // Assume enabled if config exists
+		NodeID:               dc.NodeID,
+		NodeRole:             "follower", // Default role
+		ConsensusAlgorithm:   "majority", // Default algorithm
+		ConsensusTimeout:     dc.ValidationTimeout,
+		MinNodes:             1,
+		MaxNodes:             10,
+		RequireUnanimous:     false,
+		ListenAddress:        ":8080", // Default address
+		MaxConnections:       100,
+		ConnectionTimeout:    10 * time.Second,
+		HeartbeatInterval:    dc.HeartbeatInterval,
+		LoadBalanceStrategy:  "round_robin",
+		LoadThreshold:        0.8,
+		PartitionTolerance:   true,
+		AllowLocalValidation: true,
+		PartitionTimeout:     30 * time.Second,
+		StateSyncEnabled:     true,
+		StateSyncInterval:    10 * time.Second,
+		StateSyncProtocol:    "gossip",
+		MaxNodeFailures:      dc.MaxNodeFailures,
+		FailureDetectTimeout: 5 * time.Second,
+		RecoveryEnabled:      true,
+		EnableTLS:            false,
+		EnableMutualTLS:      false,
 	}
 }
 
@@ -203,24 +203,24 @@ func (cm *ConfigMigrator) MigrateFromLegacy(
 	cacheConfig *CacheValidatorConfigCompat,
 	distributedConfig *DistributedValidatorConfigCompat,
 ) *ValidatorConfig {
-	
+
 	config := DefaultValidatorConfig()
-	
+
 	// Migrate auth configuration if provided
 	if authConfig != nil {
 		config.Auth = authConfig.ToUnifiedConfig()
 	}
-	
+
 	// Migrate cache configuration if provided
 	if cacheConfig != nil {
 		config.Cache = cacheConfig.ToUnifiedConfig()
 	}
-	
+
 	// Migrate distributed configuration if provided
 	if distributedConfig != nil {
 		config.Distributed = distributedConfig.ToUnifiedConfig()
 	}
-	
+
 	return config
 }
 
@@ -230,31 +230,31 @@ func (cm *ConfigMigrator) MigrateToLegacy(unified *ValidatorConfig) (
 	*CacheValidatorConfigCompat,
 	*DistributedValidatorConfigCompat,
 ) {
-	
+
 	var authConfig *AuthConfigCompat
 	var cacheConfig *CacheValidatorConfigCompat
 	var distributedConfig *DistributedValidatorConfigCompat
-	
+
 	// Convert auth configuration
 	if unified.Auth != nil {
 		authConfig = &AuthConfigCompat{}
 		authConfig.FromUnifiedConfig(unified.Auth)
 	}
-	
+
 	// Convert cache configuration (partial, as some new fields can't be mapped back)
 	if unified.Cache != nil {
 		cacheConfig = &CacheValidatorConfigCompat{
-			L1Size:                unified.Cache.L1Size,
-			L1TTL:                 unified.Cache.L1TTL,
-			L2TTL:                 unified.Cache.L2TTL,
-			L2Enabled:             unified.Cache.L2Enabled,
-			CompressionEnabled:    unified.Cache.CompressionEnabled,
-			CompressionLevel:      unified.Cache.CompressionLevel,
-			NodeID:                unified.Cache.NodeID,
-			MetricsEnabled:        unified.Cache.MetricsEnabled,
+			L1Size:             unified.Cache.L1Size,
+			L1TTL:              unified.Cache.L1TTL,
+			L2TTL:              unified.Cache.L2TTL,
+			L2Enabled:          unified.Cache.L2Enabled,
+			CompressionEnabled: unified.Cache.CompressionEnabled,
+			CompressionLevel:   unified.Cache.CompressionLevel,
+			NodeID:             unified.Cache.NodeID,
+			MetricsEnabled:     unified.Cache.MetricsEnabled,
 		}
 	}
-	
+
 	// Convert distributed configuration (partial)
 	if unified.Distributed != nil {
 		distributedConfig = &DistributedValidatorConfigCompat{
@@ -265,7 +265,7 @@ func (cm *ConfigMigrator) MigrateToLegacy(unified *ValidatorConfig) (
 			EnableMetrics:     true, // Assume metrics are enabled
 		}
 	}
-	
+
 	return authConfig, cacheConfig, distributedConfig
 }
 
@@ -276,16 +276,16 @@ func WrapLegacyAuthConfig(legacy *AuthConfigCompat) *ValidatorConfig {
 	if legacy == nil {
 		return DefaultValidatorConfig()
 	}
-	
+
 	config := DefaultValidatorConfig()
 	config.Auth = legacy.ToUnifiedConfig()
-	
+
 	// Disable other features since we're only using auth
 	config.Cache.Enabled = false
 	config.Distributed.Enabled = false
 	config.Analytics.Enabled = false
 	config.Security.Enabled = false
-	
+
 	return config
 }
 
@@ -294,7 +294,7 @@ func ExtractLegacyAuthConfig(unified *ValidatorConfig) *AuthConfigCompat {
 	if unified == nil || unified.Auth == nil {
 		return nil
 	}
-	
+
 	legacy := &AuthConfigCompat{}
 	legacy.FromUnifiedConfig(unified.Auth)
 	return legacy
@@ -306,15 +306,15 @@ func IsLegacyCompatible(unified *ValidatorConfig) bool {
 	if unified.Security != nil && unified.Security.Enabled {
 		return false // Security features are new
 	}
-	
+
 	if unified.Analytics != nil && unified.Analytics.TracingEnabled {
 		return false // Tracing is new
 	}
-	
+
 	if unified.Features != nil && unified.Features.EnableExperimentalValidation {
 		return false // Experimental features are new
 	}
-	
+
 	return true
 }
 
@@ -364,7 +364,7 @@ func (mb *MigrationBuilder) Build() *ValidatorConfig {
 // BuildForEnvironment builds and applies environment-specific overrides
 func (mb *MigrationBuilder) BuildForEnvironment(env string) *ValidatorConfig {
 	config := mb.unified
-	
+
 	// Apply environment-specific overrides
 	switch env {
 	case "development":
@@ -390,6 +390,6 @@ func (mb *MigrationBuilder) BuildForEnvironment(env string) *ValidatorConfig {
 			config.Auth.Enabled = false
 		}
 	}
-	
+
 	return config
 }

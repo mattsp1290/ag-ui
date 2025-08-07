@@ -17,8 +17,8 @@ func TestShardedStateStore_ConcurrentAccess(t *testing.T) {
 	store := NewStateStore(WithShardCount(16))
 
 	// Number of concurrent operations - reduced for faster execution
-	numGoroutines := 10  // Reduced from 50
-	numOperations := 20  // Reduced from 100
+	numGoroutines := 10 // Reduced from 50
+	numOperations := 20 // Reduced from 100
 
 	// Track successful operations
 	var successCount int64
@@ -57,7 +57,7 @@ func TestShardedStateStore_ConcurrentAccess(t *testing.T) {
 					// JSON unmarshaling converts numbers to float64, so we need to handle both int and float64
 					var retrievedRoutine, retrievedItem int
 					var routineOk, itemOk bool
-					
+
 					// Handle routine field (can be int or float64)
 					if r, ok := retrievedMap["routine"].(int); ok {
 						retrievedRoutine = r
@@ -66,7 +66,7 @@ func TestShardedStateStore_ConcurrentAccess(t *testing.T) {
 						retrievedRoutine = int(r)
 						routineOk = true
 					}
-					
+
 					// Handle item field (can be int or float64)
 					if i, ok := retrievedMap["item"].(int); ok {
 						retrievedItem = i
@@ -75,7 +75,7 @@ func TestShardedStateStore_ConcurrentAccess(t *testing.T) {
 						retrievedItem = int(i)
 						itemOk = true
 					}
-					
+
 					if routineOk && itemOk && retrievedRoutine == routineID && retrievedItem == j {
 						atomic.AddInt64(&successCount, 1)
 					}
@@ -104,7 +104,7 @@ func TestShardedStateStore_ShardDistribution(t *testing.T) {
 
 	// Track which shard each path maps to
 	shardCounts := make(map[uint32]int)
-	numPaths := 1000  // Reduced from 10000
+	numPaths := 1000 // Reduced from 10000
 
 	for i := 0; i < numPaths; i++ {
 		path := fmt.Sprintf("/test/path/%d", i)
@@ -216,11 +216,11 @@ func TestShardedStateStore_TransactionAcrossShards(t *testing.T) {
 
 	// Verify all changes were applied
 	verifyPaths := map[string]interface{}{
-		"/user1":           map[string]interface{}{"name": "Alice"},
-		"/user2":           map[string]interface{}{"name": "Bob"},
-		"/user3":           map[string]interface{}{"name": "Charlie"},
-		"/config":          map[string]interface{}{"setting1": "value1"},
-		"/data":            map[string]interface{}{"item1": "data1"},
+		"/user1":  map[string]interface{}{"name": "Alice"},
+		"/user2":  map[string]interface{}{"name": "Bob"},
+		"/user3":  map[string]interface{}{"name": "Charlie"},
+		"/config": map[string]interface{}{"setting1": "value1"},
+		"/data":   map[string]interface{}{"item1": "data1"},
 	}
 
 	for path, expectedValue := range verifyPaths {
@@ -315,17 +315,17 @@ func TestShardedStateStore_LockContentionReduction(t *testing.T) {
 func BenchmarkShardedStateStore_ContentionDemonstration(b *testing.B) {
 	// Test with different shard counts to show the impact of sharding
 	shardCounts := []uint32{1, 4, 8, 16, 32}
-	
+
 	for _, shardCount := range shardCounts {
 		b.Run(fmt.Sprintf("%d_shards", shardCount), func(b *testing.B) {
 			store := NewStateStore(WithShardCount(shardCount))
-			
+
 			// Use a smaller number of operations for benchmarking
 			numGoroutines := 20
 			opsPerGoroutine := 100
-			
+
 			b.ResetTimer()
-			
+
 			for i := 0; i < b.N; i++ {
 				var wg sync.WaitGroup
 				for g := 0; g < numGoroutines; g++ {
@@ -340,7 +340,7 @@ func BenchmarkShardedStateStore_ContentionDemonstration(b *testing.B) {
 				}
 				wg.Wait()
 			}
-			
+
 			b.ReportMetric(float64(numGoroutines*opsPerGoroutine), "ops/iteration")
 		})
 	}

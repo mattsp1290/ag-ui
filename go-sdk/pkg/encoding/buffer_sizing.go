@@ -8,19 +8,19 @@ import (
 const (
 	// Small events (typically 100-500 bytes)
 	SmallEventBufferSize = 512
-	
+
 	// Medium events (typically 500-2KB)
 	MediumEventBufferSize = 2048
-	
+
 	// Large events (typically 2KB-8KB)
 	LargeEventBufferSize = 8192
-	
+
 	// Very large events (8KB+)
 	VeryLargeEventBufferSize = 16384
-	
+
 	// Default buffer size for unknown events
 	DefaultEventBufferSize = 1024
-	
+
 	// Array processing buffer size per event
 	ArrayProcessingBufferSize = 1024
 )
@@ -70,9 +70,9 @@ func GetOptimalBufferSizeForEvent(event events.Event) int {
 	if event == nil {
 		return DefaultEventBufferSize
 	}
-	
+
 	baseSize := GetOptimalBufferSize(event.Type())
-	
+
 	// For certain event types, we can make more precise estimates
 	switch e := event.(type) {
 	case *events.TextMessageContentEvent:
@@ -107,7 +107,7 @@ func GetOptimalBufferSizeForEvent(event events.Event) int {
 		// For custom events, we can't easily estimate without knowing the value
 		return baseSize
 	}
-	
+
 	return baseSize
 }
 
@@ -116,12 +116,12 @@ func GetOptimalBufferSizeForMultiple(events []events.Event) int {
 	if len(events) == 0 {
 		return DefaultEventBufferSize
 	}
-	
+
 	totalSize := 0
 	for _, event := range events {
 		totalSize += GetOptimalBufferSizeForEvent(event)
 	}
-	
+
 	// Add some overhead for array structure
 	arrayOverhead := 50 * len(events) // Rough estimate for JSON array overhead
 	return totalSize + arrayOverhead

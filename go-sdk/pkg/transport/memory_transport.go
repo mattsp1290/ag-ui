@@ -56,14 +56,14 @@ func (c *MemoryConfig) IsSecure() bool {
 
 // MemoryTransport is an in-memory transport implementation for testing
 type MemoryTransport struct {
-	mu            sync.RWMutex
-	connected     bool
-	eventChan     chan events.Event
-	errorChan     chan error
-	bufferSize    int
-	closeOnce     sync.Once
-	ctx           context.Context
-	cancel        context.CancelFunc
+	mu         sync.RWMutex
+	connected  bool
+	eventChan  chan events.Event
+	errorChan  chan error
+	bufferSize int
+	closeOnce  sync.Once
+	ctx        context.Context
+	cancel     context.CancelFunc
 }
 
 // NewMemoryTransport creates a new in-memory transport
@@ -185,18 +185,18 @@ func (t *MemoryTransport) Stats() TransportStats {
 	defer t.mu.RUnlock()
 
 	return TransportStats{
-		ConnectedAt:      time.Now(),
-		ReconnectCount:   0,
-		LastError:        nil,
-		Uptime:           time.Since(time.Now()),
-		EventsSent:       0, // Would need counters
-		EventsReceived:   0,
-		BytesSent:        0,
-		BytesReceived:    0,
-		AverageLatency:   0,
-		ErrorCount:       0,
-		LastEventSentAt:  time.Time{},
-		LastEventRecvAt:  time.Time{},
+		ConnectedAt:     time.Now(),
+		ReconnectCount:  0,
+		LastError:       nil,
+		Uptime:          time.Since(time.Now()),
+		EventsSent:      0, // Would need counters
+		EventsReceived:  0,
+		BytesSent:       0,
+		BytesReceived:   0,
+		AverageLatency:  0,
+		ErrorCount:      0,
+		LastEventSentAt: time.Time{},
+		LastEventRecvAt: time.Time{},
 	}
 }
 

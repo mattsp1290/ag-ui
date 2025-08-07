@@ -263,7 +263,7 @@ func NewRedisBackend(config *StorageConfig, logger Logger) (*RedisBackend, error
 	if logger == nil {
 		return nil, fmt.Errorf("logger cannot be nil")
 	}
-	
+
 	// TODO: Implement Redis backend when redis package is available
 	// TODO: Uncomment when redis package is available
 	// opts := &redis.Options{
@@ -965,7 +965,7 @@ func NewFileBackend(config *StorageConfig, logger Logger) (*FileBackend, error) 
 		if err := os.MkdirAll(path, 0755); err != nil {
 			return nil, fmt.Errorf("failed to create directory %s: %w", path, err)
 		}
-		
+
 		// Create shard subdirectories if sharding is enabled
 		if config.FileOptions.EnableSharding && config.FileOptions.ShardCount > 0 {
 			for i := 0; i < config.FileOptions.ShardCount; i++ {
@@ -1443,7 +1443,7 @@ func NewPersistentStateStore(config *StorageConfig, storeOpts []StateStoreOption
 
 	// Create in-memory state store first to get logger
 	store := NewStateStore(storeOpts...)
-	
+
 	// Use logger from store (which may have been set via WithLogger option)
 	logger := store.logger
 	if logger == nil {

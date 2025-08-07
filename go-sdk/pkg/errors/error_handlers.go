@@ -138,7 +138,7 @@ func (h *LoggingHandler) Handle(ctx context.Context, err error) error {
 	case SeverityWarning, SeverityError:
 		h.logger.Printf("[%s]%s %v\nDetails: %+v", severity, contextInfo, err, err)
 	case SeverityCritical, SeverityFatal:
-		h.logger.Printf("[%s]%s %v\nDetails: %+v\nStack trace:\n%s", 
+		h.logger.Printf("[%s]%s %v\nDetails: %+v\nStack trace:\n%s",
 			severity, contextInfo, err, err, string(debug.Stack()))
 	}
 

@@ -29,100 +29,100 @@ const (
 type Schema struct {
 	// Type specifies the expected data type
 	Type SchemaType `json:"type,omitempty"`
-	
+
 	// Title provides a human-readable title for the schema
 	Title string `json:"title,omitempty"`
-	
+
 	// Description provides additional documentation
 	Description string `json:"description,omitempty"`
-	
+
 	// Required specifies which properties are required (for object types)
 	Required []string `json:"required,omitempty"`
-	
+
 	// Properties defines the schema for object properties
 	Properties map[string]*Schema `json:"properties,omitempty"`
-	
+
 	// AdditionalProperties controls whether additional properties are allowed
 	AdditionalProperties interface{} `json:"additionalProperties,omitempty"`
-	
+
 	// Items defines the schema for array items
 	Items *Schema `json:"items,omitempty"`
-	
+
 	// MinItems specifies the minimum number of items in an array
 	MinItems *int `json:"minItems,omitempty"`
-	
+
 	// MaxItems specifies the maximum number of items in an array
 	MaxItems *int `json:"maxItems,omitempty"`
-	
+
 	// UniqueItems requires all items in an array to be unique
 	UniqueItems bool `json:"uniqueItems,omitempty"`
-	
+
 	// MinLength specifies the minimum length for strings
 	MinLength *int `json:"minLength,omitempty"`
-	
+
 	// MaxLength specifies the maximum length for strings
 	MaxLength *int `json:"maxLength,omitempty"`
-	
+
 	// Pattern specifies a regex pattern for string validation
 	Pattern string `json:"pattern,omitempty"`
-	
+
 	// Format specifies a semantic format for string validation
 	Format string `json:"format,omitempty"`
-	
+
 	// Minimum specifies the minimum value for numbers
 	Minimum *float64 `json:"minimum,omitempty"`
-	
+
 	// Maximum specifies the maximum value for numbers
 	Maximum *float64 `json:"maximum,omitempty"`
-	
+
 	// ExclusiveMinimum specifies whether the minimum is exclusive
 	ExclusiveMinimum bool `json:"exclusiveMinimum,omitempty"`
-	
+
 	// ExclusiveMaximum specifies whether the maximum is exclusive
 	ExclusiveMaximum bool `json:"exclusiveMaximum,omitempty"`
-	
+
 	// MultipleOf specifies that a number must be a multiple of this value
 	MultipleOf *float64 `json:"multipleOf,omitempty"`
-	
+
 	// Enum specifies a list of valid values
 	Enum []interface{} `json:"enum,omitempty"`
-	
+
 	// Const specifies a single valid value
 	Const interface{} `json:"const,omitempty"`
-	
+
 	// AllOf requires the value to be valid against all schemas in the array
 	AllOf []*Schema `json:"allOf,omitempty"`
-	
+
 	// AnyOf requires the value to be valid against any schema in the array
 	AnyOf []*Schema `json:"anyOf,omitempty"`
-	
+
 	// OneOf requires the value to be valid against exactly one schema in the array
 	OneOf []*Schema `json:"oneOf,omitempty"`
-	
+
 	// Not requires the value to NOT be valid against the schema
 	Not *Schema `json:"not,omitempty"`
-	
+
 	// Default provides a default value
 	Default interface{} `json:"default,omitempty"`
-	
+
 	// Examples provides example values
 	Examples []interface{} `json:"examples,omitempty"`
-	
+
 	// Custom validation function
 	CustomValidator func(interface{}) error `json:"-"`
-	
+
 	// Version specifies the schema version for migration support
 	Version string `json:"version,omitempty"`
-	
+
 	// Deprecated marks the schema as deprecated
 	Deprecated bool `json:"deprecated,omitempty"`
-	
+
 	// ID provides a unique identifier for the schema
 	ID string `json:"$id,omitempty"`
-	
+
 	// Ref allows referencing other schemas
 	Ref string `json:"$ref,omitempty"`
-	
+
 	// Definitions allows defining reusable schema components
 	Definitions map[string]*Schema `json:"definitions,omitempty"`
 }
@@ -241,39 +241,39 @@ func (s *Schema) AddDefinition(name string, definition *Schema) *Schema {
 
 // SchemaValidator validates data against JSON-like schemas
 type SchemaValidator struct {
-	name               string
-	schema             *Schema
-	schemaRegistry     map[string]*Schema
-	formatValidators   map[string]func(string) bool
-	customValidators   map[string]func(interface{}) error
-	strictMode         bool
-	allowUndefined     bool
-	validationOptions  SchemaValidationOptions
-	enabled            bool
-	priority           int
-	mutex              sync.RWMutex
+	name              string
+	schema            *Schema
+	schemaRegistry    map[string]*Schema
+	formatValidators  map[string]func(string) bool
+	customValidators  map[string]func(interface{}) error
+	strictMode        bool
+	allowUndefined    bool
+	validationOptions SchemaValidationOptions
+	enabled           bool
+	priority          int
+	mutex             sync.RWMutex
 }
 
 // SchemaValidationOptions configures schema validation behavior
 type SchemaValidationOptions struct {
 	// ValidateFormats enables format validation for string types
 	ValidateFormats bool
-	
+
 	// StrictTypes requires exact type matches
 	StrictTypes bool
-	
+
 	// AllowCoercion enables type coercion (e.g., string "123" to number 123)
 	AllowCoercion bool
-	
+
 	// CollectAllErrors continues validation even after finding errors
 	CollectAllErrors bool
-	
+
 	// MaxErrorCount limits the number of errors to collect
 	MaxErrorCount int
-	
+
 	// ValidateDefaults validates default values against their schemas
 	ValidateDefaults bool
-	
+
 	// ReportDeprecated reports usage of deprecated schema elements
 	ReportDeprecated bool
 }
@@ -289,13 +289,13 @@ func NewSchemaValidator(name string, schema *Schema) *SchemaValidator {
 		strictMode:       true,
 		allowUndefined:   false,
 		validationOptions: SchemaValidationOptions{
-			ValidateFormats:   true,
-			StrictTypes:       true,
-			AllowCoercion:     false,
-			CollectAllErrors:  true,
-			MaxErrorCount:     100,
-			ValidateDefaults:  true,
-			ReportDeprecated:  true,
+			ValidateFormats:  true,
+			StrictTypes:      true,
+			AllowCoercion:    false,
+			CollectAllErrors: true,
+			MaxErrorCount:    100,
+			ValidateDefaults: true,
+			ReportDeprecated: true,
 		},
 		enabled:  true,
 		priority: 50,
@@ -373,10 +373,10 @@ func (v *SchemaValidator) Validate(ctx context.Context, value interface{}) Valid
 	defer v.mutex.RUnlock()
 
 	result := NewValidationResult(true)
-	
+
 	// Validate against the schema
 	v.validateValue(ctx, value, v.schema, "", &result)
-	
+
 	return result
 }
 
@@ -646,7 +646,7 @@ func (v *SchemaValidator) validateObject(ctx context.Context, value interface{},
 	if schema.Properties != nil {
 		for propName, propValue := range objMap {
 			fieldPath := v.buildPath(path, propName)
-			
+
 			if propSchema, exists := schema.Properties[propName]; exists {
 				// Validate against defined property schema
 				v.validateValue(ctx, propValue, propSchema, fieldPath, result)
@@ -707,7 +707,7 @@ func (v *SchemaValidator) validateCombinators(ctx context.Context, value interfa
 	if len(schema.AnyOf) > 0 {
 		anyValid := false
 		var anyOfErrors []string
-		
+
 		for i, subSchema := range schema.AnyOf {
 			subResult := NewValidationResult(true)
 			v.validateValue(ctx, value, subSchema, path, &subResult)
@@ -721,7 +721,7 @@ func (v *SchemaValidator) validateCombinators(ctx context.Context, value interfa
 				}
 			}
 		}
-		
+
 		if !anyValid {
 			result.AddFieldError(path, NewValidationError(fmt.Sprintf("value does not match any schema in anyOf: %s", strings.Join(anyOfErrors, "; ")), nil))
 		}
@@ -731,7 +731,7 @@ func (v *SchemaValidator) validateCombinators(ctx context.Context, value interfa
 	if len(schema.OneOf) > 0 {
 		validCount := 0
 		var oneOfErrors []string
-		
+
 		for i, subSchema := range schema.OneOf {
 			subResult := NewValidationResult(true)
 			v.validateValue(ctx, value, subSchema, path, &subResult)
@@ -743,7 +743,7 @@ func (v *SchemaValidator) validateCombinators(ctx context.Context, value interfa
 				}
 			}
 		}
-		
+
 		if validCount == 0 {
 			result.AddFieldError(path, NewValidationError(fmt.Sprintf("value does not match any schema in oneOf: %s", strings.Join(oneOfErrors, "; ")), nil))
 		} else if validCount > 1 {
@@ -773,7 +773,7 @@ func (v *SchemaValidator) resolveReference(ref string) *Schema {
 			return v.schema.Definitions[defName]
 		}
 	}
-	
+
 	// Check schema registry
 	return v.schemaRegistry[ref]
 }
@@ -797,16 +797,16 @@ func (v *SchemaValidator) isNullAllowed(schema *Schema) bool {
 // validateType checks if a value matches the expected schema type
 func (v *SchemaValidator) validateType(value interface{}, expectedType SchemaType) bool {
 	actualType := v.getValueType(value)
-	
+
 	if v.validationOptions.StrictTypes {
 		return actualType == expectedType
 	}
-	
+
 	// Allow some flexibility for numbers
 	if expectedType == SchemaTypeNumber && (actualType == SchemaTypeInteger || actualType == SchemaTypeNumber) {
 		return true
 	}
-	
+
 	return actualType == expectedType
 }
 
@@ -815,7 +815,7 @@ func (v *SchemaValidator) getValueType(value interface{}) SchemaType {
 	if value == nil {
 		return SchemaTypeNull
 	}
-	
+
 	switch value.(type) {
 	case bool:
 		return SchemaTypeBoolean
@@ -848,7 +848,7 @@ func (v *SchemaValidator) coerceValue(value interface{}, expectedType SchemaType
 	if !v.validationOptions.AllowCoercion {
 		return value
 	}
-	
+
 	switch expectedType {
 	case SchemaTypeString:
 		return fmt.Sprintf("%v", value)
@@ -874,7 +874,7 @@ func (v *SchemaValidator) coerceValue(value interface{}, expectedType SchemaType
 			}
 		}
 	}
-	
+
 	return value
 }
 
@@ -894,16 +894,16 @@ func (v *SchemaValidator) getValueKey(value interface{}) interface{} {
 func (v *SchemaValidator) structToMap(val reflect.Value) map[string]interface{} {
 	result := make(map[string]interface{})
 	typ := val.Type()
-	
+
 	for i := 0; i < val.NumField(); i++ {
 		field := typ.Field(i)
 		fieldValue := val.Field(i)
-		
+
 		// Skip unexported fields
 		if !field.IsExported() {
 			continue
 		}
-		
+
 		// Use JSON tag if available, otherwise use field name
 		fieldName := field.Name
 		if jsonTag := field.Tag.Get("json"); jsonTag != "" && jsonTag != "-" {
@@ -913,10 +913,10 @@ func (v *SchemaValidator) structToMap(val reflect.Value) map[string]interface{} 
 				fieldName = jsonTag
 			}
 		}
-		
+
 		result[fieldName] = fieldValue.Interface()
 	}
-	
+
 	return result
 }
 
@@ -926,12 +926,12 @@ func (v *SchemaValidator) mapToSchema(m map[string]interface{}) (*Schema, error)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var schema Schema
 	if err := json.Unmarshal(data, &schema); err != nil {
 		return nil, err
 	}
-	
+
 	return &schema, nil
 }
 
@@ -1003,9 +1003,9 @@ func getDefaultFormatValidators() map[string]func(string) bool {
 
 // SchemaComposer helps compose complex schemas from simpler ones
 type SchemaComposer struct {
-	baseSchema  *Schema
-	mixins      []*Schema
-	overrides   *Schema
+	baseSchema *Schema
+	mixins     []*Schema
+	overrides  *Schema
 }
 
 // NewSchemaComposer creates a new schema composer
@@ -1031,17 +1031,17 @@ func (c *SchemaComposer) SetOverrides(overrides *Schema) *SchemaComposer {
 // Compose creates the final composed schema
 func (c *SchemaComposer) Compose() *Schema {
 	result := c.deepCopySchema(c.baseSchema)
-	
+
 	// Apply mixins
 	for _, mixin := range c.mixins {
 		c.mergeSchema(result, mixin)
 	}
-	
+
 	// Apply overrides
 	if c.overrides != nil {
 		c.mergeSchema(result, c.overrides)
 	}
-	
+
 	return result
 }
 
@@ -1065,10 +1065,10 @@ func (c *SchemaComposer) mergeSchema(target, source *Schema) {
 			target.Properties[key] = value
 		}
 	}
-	
+
 	// Merge required fields
 	target.Required = append(target.Required, source.Required...)
-	
+
 	// Override scalar fields
 	if source.Type != "" {
 		target.Type = source.Type
@@ -1079,7 +1079,7 @@ func (c *SchemaComposer) mergeSchema(target, source *Schema) {
 	if source.Description != "" {
 		target.Description = source.Description
 	}
-	
+
 	// Add more merge logic as needed
 }
 
@@ -1087,14 +1087,14 @@ func (c *SchemaComposer) mergeSchema(target, source *Schema) {
 
 // DynamicSchemaValidator validates against schemas loaded at runtime
 type DynamicSchemaValidator struct {
-	name            string
-	schemaProvider  func() (*Schema, error)
-	cacheTimeout    time.Duration
-	cachedSchema    *Schema
-	cacheTime       time.Time
-	enabled         bool
-	priority        int
-	mutex           sync.RWMutex
+	name           string
+	schemaProvider func() (*Schema, error)
+	cacheTimeout   time.Duration
+	cachedSchema   *Schema
+	cacheTime      time.Time
+	enabled        bool
+	priority       int
+	mutex          sync.RWMutex
 }
 
 // NewDynamicSchemaValidator creates a new dynamic schema validator
@@ -1180,9 +1180,9 @@ func (v *DynamicSchemaValidator) Priority() int {
 
 // VersionedSchema represents a schema with version information
 type VersionedSchema struct {
-	Schema   *Schema            `json:"schema"`
-	Version  string             `json:"version"`
-	Previous string             `json:"previous,omitempty"`
+	Schema   *Schema                `json:"schema"`
+	Version  string                 `json:"version"`
+	Previous string                 `json:"previous,omitempty"`
 	Metadata map[string]interface{} `json:"metadata,omitempty"`
 }
 

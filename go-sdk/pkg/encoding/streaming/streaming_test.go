@@ -240,7 +240,7 @@ func TestUnifiedStreamCodec_BasicFunctionality(t *testing.T) {
 	baseCodec := newMockStreamCodec()
 	config := DefaultUnifiedStreamConfig()
 	config.EnableMetrics = true
-	
+
 	codec := NewUnifiedStreamCodec(baseCodec, config)
 
 	// Test basic encoding
@@ -392,9 +392,9 @@ func TestStreamMetrics_Collection(t *testing.T) {
 	}
 
 	// Record some latencies
-	metrics.RecordLatency(1000000)  // 1ms
-	metrics.RecordLatency(2000000)  // 2ms
-	metrics.RecordLatency(500000)   // 0.5ms
+	metrics.RecordLatency(1000000) // 1ms
+	metrics.RecordLatency(2000000) // 2ms
+	metrics.RecordLatency(500000)  // 0.5ms
 
 	// Get snapshot
 	snapshot := metrics.GetSnapshot()

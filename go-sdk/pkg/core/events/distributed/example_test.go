@@ -29,7 +29,7 @@ func ExampleDistributedValidator() {
 	// Start the validator
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	
+
 	err = dv.Start(ctx)
 	if err != nil {
 		log.Fatal(err)
@@ -183,7 +183,7 @@ func ExampleDistributedValidator_partitionHandling() {
 	// Wait for partition detection
 	select {
 	case partition := <-partitionDetected:
-		fmt.Printf("Partition detected: Type=%s, Severity=%s\n", 
+		fmt.Printf("Partition detected: Type=%s, Severity=%s\n",
 			partition.Type, partition.Severity)
 	case <-time.After(1 * time.Second):
 		fmt.Println("No partition detected within timeout")

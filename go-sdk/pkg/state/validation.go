@@ -140,7 +140,7 @@ type SchemaProperty struct {
 	MaxProperties *int                       `json:"maxProperties,omitempty"`
 	Properties    map[string]*SchemaProperty `json:"properties,omitempty"`
 	Required      []string                   `json:"required,omitempty"`
-	
+
 	// PatternProperties defines schemas for properties matching patterns
 	PatternProperties map[string]*SchemaProperty `json:"patternProperties,omitempty"`
 

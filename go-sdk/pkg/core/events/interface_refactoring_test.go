@@ -89,50 +89,50 @@ func TestEventDrivenDecoupling(t *testing.T) {
 func testBasicCacheInterface(t *testing.T) {
 	// Test that BasicCache only has essential methods
 	var basicCache cache.BasicCache
-	
+
 	// Mock implementation to verify interface
 	basicCache = &MockBasicCache{}
-	
+
 	ctx := context.Background()
 	key := "test_key"
 	value := []byte("test_value")
 	ttl := time.Hour
-	
+
 	// These methods should be available
 	err := basicCache.Set(ctx, key, value, ttl)
 	if err != nil {
 		t.Errorf("BasicCache.Set() failed: %v", err)
 	}
-	
+
 	_, err = basicCache.Get(ctx, key)
 	if err != nil {
 		t.Errorf("BasicCache.Get() failed: %v", err)
 	}
-	
+
 	err = basicCache.Delete(ctx, key)
 	if err != nil {
 		t.Errorf("BasicCache.Delete() failed: %v", err)
 	}
-	
+
 	t.Log("BasicCache interface correctly exposes only basic operations")
 }
 
 func testAdvancedCacheInterface(t *testing.T) {
 	// Test that AdvancedCache extends BasicCache
 	var advancedCache cache.AdvancedCache
-	
+
 	// Mock implementation
 	advancedCache = &MockAdvancedCache{}
-	
+
 	ctx := context.Background()
 	key := "test_key"
-	
+
 	// Should have basic operations
 	err := advancedCache.Set(ctx, key, []byte("value"), time.Hour)
 	if err != nil {
 		t.Errorf("AdvancedCache.Set() failed: %v", err)
 	}
-	
+
 	// Should have advanced operations
 	exists, err := advancedCache.Exists(ctx, key)
 	if err != nil {
@@ -141,55 +141,55 @@ func testAdvancedCacheInterface(t *testing.T) {
 	if !exists {
 		t.Error("AdvancedCache.Exists() should return true for existing key")
 	}
-	
+
 	_, err = advancedCache.TTL(ctx, key)
 	if err != nil {
 		t.Errorf("AdvancedCache.TTL() failed: %v", err)
 	}
-	
+
 	t.Log("AdvancedCache interface correctly extends BasicCache with advanced operations")
 }
 
 func testDistributedCacheInterface(t *testing.T) {
 	// Test that DistributedCache provides full functionality
 	var distributedCache cache.DistributedCache
-	
+
 	// Mock implementation
 	distributedCache = &MockDistributedCache{}
-	
+
 	ctx := context.Background()
-	
+
 	// Should have all previous operations plus distributed ones
 	pattern := "test_*"
 	keys, err := distributedCache.Scan(ctx, pattern)
 	if err != nil {
 		t.Errorf("DistributedCache.Scan() failed: %v", err)
 	}
-	
+
 	if len(keys) == 0 {
 		t.Log("No keys found matching pattern (expected for empty cache)")
 	}
-	
+
 	t.Log("DistributedCache interface correctly provides distributed operations")
 }
 
 func testSeparateMetricsInterface(t *testing.T) {
 	// Test that metrics are in a separate interface
 	var metrics cache.CacheMetrics
-	
+
 	// Mock implementation
 	metrics = &MockCacheMetrics{}
-	
+
 	// Test metrics operations
 	metrics.RecordHit("L1")
 	metrics.RecordMiss()
 	metrics.RecordEviction()
-	
+
 	stats := metrics.GetStats()
 	if stats.L1Hits == 0 {
 		t.Error("Expected L1 hits to be recorded")
 	}
-	
+
 	t.Log("Cache metrics interface is correctly separated")
 }
 
@@ -199,21 +199,21 @@ func testEventBusPubSub(t *testing.T) {
 	// Test basic publish-subscribe functionality
 	eventBus := events.NewEventBus(events.DefaultEventBusConfig())
 	defer eventBus.Close()
-	
+
 	received := make(chan events.BusEvent, 1)
-	
+
 	// Subscribe to events
 	handler := func(ctx context.Context, event events.BusEvent) error {
 		received <- event
 		return nil
 	}
-	
+
 	subID, err := eventBus.Subscribe("test.event", handler)
 	if err != nil {
 		t.Fatalf("Failed to subscribe: %v", err)
 	}
 	defer eventBus.Unsubscribe(subID)
-	
+
 	// Publish an event
 	testEvent := events.BusEvent{
 		ID:        "test-1",
@@ -222,12 +222,12 @@ func testEventBusPubSub(t *testing.T) {
 		Data:      "test data",
 		Timestamp: time.Now(),
 	}
-	
+
 	err = eventBus.Publish(context.Background(), testEvent)
 	if err != nil {
 		t.Fatalf("Failed to publish event: %v", err)
 	}
-	
+
 	// Verify event was received
 	select {
 	case receivedEvent := <-received:
@@ -237,7 +237,7 @@ func testEventBusPubSub(t *testing.T) {
 	case <-time.After(1 * time.Second):
 		t.Error("Event was not received within timeout")
 	}
-	
+
 	t.Log("EventBus publish-subscribe functionality works correctly")
 }
 
@@ -245,9 +245,9 @@ func testAuthCacheEventDriven(t *testing.T) {
 	// Test that auth events trigger cache invalidation without direct coupling
 	eventBus := events.NewEventBus(events.DefaultEventBusConfig())
 	defer eventBus.Close()
-	
+
 	invalidationTriggered := make(chan bool, 1)
-	
+
 	// Mock cache manager that responds to auth events
 	authEventHandler := func(ctx context.Context, event events.BusEvent) error {
 		if event.Type == events.EventTypeAuthExpiration {
@@ -256,13 +256,13 @@ func testAuthCacheEventDriven(t *testing.T) {
 		}
 		return nil
 	}
-	
+
 	subID, err := eventBus.Subscribe(events.EventTypeAuthExpiration, authEventHandler)
 	if err != nil {
 		t.Fatalf("Failed to subscribe to auth events: %v", err)
 	}
 	defer eventBus.Unsubscribe(subID)
-	
+
 	// Simulate auth expiration
 	authEvent := events.NewAuthEvent(
 		events.EventTypeAuthExpiration,
@@ -273,12 +273,12 @@ func testAuthCacheEventDriven(t *testing.T) {
 			Reason: "session_timeout",
 		},
 	)
-	
+
 	err = eventBus.Publish(context.Background(), authEvent)
 	if err != nil {
 		t.Fatalf("Failed to publish auth event: %v", err)
 	}
-	
+
 	// Verify cache invalidation was triggered
 	select {
 	case <-invalidationTriggered:
@@ -292,9 +292,9 @@ func testDistributedEventCoordination(t *testing.T) {
 	// Test that distributed operations use events instead of direct calls
 	eventBus := events.NewEventBus(events.DefaultEventBusConfig())
 	defer eventBus.Close()
-	
+
 	nodeJoinReceived := make(chan bool, 1)
-	
+
 	// Mock distributed manager
 	distributedHandler := func(ctx context.Context, event events.BusEvent) error {
 		if event.Type == events.EventTypeNodeJoin {
@@ -302,13 +302,13 @@ func testDistributedEventCoordination(t *testing.T) {
 		}
 		return nil
 	}
-	
+
 	subID, err := eventBus.Subscribe(events.EventTypeNodeJoin, distributedHandler)
 	if err != nil {
 		t.Fatalf("Failed to subscribe to distributed events: %v", err)
 	}
 	defer eventBus.Unsubscribe(subID)
-	
+
 	// Simulate node joining
 	nodeEvent := events.NewDistributedEvent(
 		events.EventTypeNodeJoin,
@@ -319,12 +319,12 @@ func testDistributedEventCoordination(t *testing.T) {
 			ClusterSize: 2,
 		},
 	)
-	
+
 	err = eventBus.Publish(context.Background(), nodeEvent)
 	if err != nil {
 		t.Fatalf("Failed to publish node event: %v", err)
 	}
-	
+
 	// Verify event was processed
 	select {
 	case <-nodeJoinReceived:
@@ -336,22 +336,22 @@ func testDistributedEventCoordination(t *testing.T) {
 
 func testModuleIndependence(t *testing.T) {
 	// Test that modules can operate independently
-	
+
 	// Create separate event buses to simulate module independence
 	authEventBus := events.NewEventBus(events.DefaultEventBusConfig())
 	cacheEventBus := events.NewEventBus(events.DefaultEventBusConfig())
 	defer authEventBus.Close()
 	defer cacheEventBus.Close()
-	
+
 	// Test that auth module can work without cache module
 	authProvider := auth.NewBasicAuthProvider(auth.DefaultAuthConfig())
-	
+
 	ctx := context.Background()
 	creds := &auth.BasicCredentials{
 		Username: "testuser",
 		Password: "TestPass123!",
 	}
-	
+
 	// Add a test user
 	user := &auth.User{
 		Username:     "testuser",
@@ -362,17 +362,17 @@ func testModuleIndependence(t *testing.T) {
 	}
 	authProvider.AddUser(user)
 	authProvider.SetUserPassword("testuser", "TestPass123!")
-	
+
 	// Auth should work independently
 	authCtx, err := authProvider.Authenticate(ctx, creds)
 	if err != nil {
 		t.Fatalf("Auth module failed to work independently: %v", err)
 	}
-	
+
 	if authCtx.Username != "testuser" {
 		t.Errorf("Expected username 'testuser', got '%s'", authCtx.Username)
 	}
-	
+
 	t.Log("Modules can operate independently without direct coupling")
 }
 

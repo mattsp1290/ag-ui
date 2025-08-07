@@ -42,12 +42,12 @@ func DefaultChunkConfig() *ChunkConfig {
 
 // ChunkHeader contains metadata about a chunk
 type ChunkHeader struct {
-	ChunkID      string
-	SequenceNum  int64
-	EventCount   int
-	ByteSize     int
-	Compressed   bool
-	Checksum     uint32
+	ChunkID     string
+	SequenceNum int64
+	EventCount  int
+	ByteSize    int
+	Compressed  bool
+	Checksum    uint32
 }
 
 // Chunk represents a chunk of events
@@ -64,15 +64,15 @@ type ChunkedEncoder struct {
 	chunkSequence  atomic.Int64
 	processedCount atomic.Int64
 	totalBytes     atomic.Int64
-	
+
 	// Progress tracking
 	progressCallbacks []func(processed, total int64)
 	progressMu        sync.RWMutex
-	
+
 	// Chunk processing
 	chunkPool sync.Pool
 	workers   sync.WaitGroup
-	
+
 	// Metrics
 	metrics *ChunkMetrics
 }

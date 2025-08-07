@@ -62,14 +62,14 @@ type Registry struct {
 	hookMu sync.RWMutex
 
 	// Performance optimization components
-	listCache    *ListCache
-	schemaCache  *SchemaCache
-	memoryPool   *MemoryPool
+	listCache   *ListCache
+	schemaCache *SchemaCache
+	memoryPool  *MemoryPool
 
 	// Resource tracking
-	currentMemoryUsage   int64  // Current memory usage in bytes
-	activeRegistrations  int32  // Number of active registration operations
-	
+	currentMemoryUsage  int64 // Current memory usage in bytes
+	activeRegistrations int32 // Number of active registration operations
+
 	// Tool cleanup control
 	toolCleanupStop chan struct{}
 	toolCleanupOnce sync.Once
@@ -129,22 +129,22 @@ type RegistryConfig struct {
 // DefaultRegistryConfig returns the default configuration.
 func DefaultRegistryConfig() *RegistryConfig {
 	return &RegistryConfig{
-		EnableHotReloading:             false,
-		HotReloadInterval:              30 * time.Second,
-		MaxDependencyDepth:             10,
-		ConflictResolutionStrategy:     ConflictStrategyError,
-		EnableVersionMigration:         true,
-		MigrationTimeout:               30 * time.Second,
-		LoadingTimeout:                 10 * time.Second,
-		EnableCaching:                  true,
-		CacheExpiration:                5 * time.Minute,
-		MaxTools:                       10000,                // Limit to 10k tools
-		MaxMemoryUsage:                 100 * 1024 * 1024,    // 100MB memory limit
-		MaxConcurrentRegistrations:     10,                   // Max 10 concurrent registrations
-		ToolTTL:                        2 * time.Hour,        // 2 hour TTL for tools
-		EnableToolLRU:                  true,                 // Enable LRU eviction
-		ToolCleanupInterval:            15 * time.Minute,     // Cleanup every 15 minutes
-		EnableBackgroundToolCleanup:    true,                 // Enable background cleanup
+		EnableHotReloading:          false,
+		HotReloadInterval:           30 * time.Second,
+		MaxDependencyDepth:          10,
+		ConflictResolutionStrategy:  ConflictStrategyError,
+		EnableVersionMigration:      true,
+		MigrationTimeout:            30 * time.Second,
+		LoadingTimeout:              10 * time.Second,
+		EnableCaching:               true,
+		CacheExpiration:             5 * time.Minute,
+		MaxTools:                    10000,             // Limit to 10k tools
+		MaxMemoryUsage:              100 * 1024 * 1024, // 100MB memory limit
+		MaxConcurrentRegistrations:  10,                // Max 10 concurrent registrations
+		ToolTTL:                     2 * time.Hour,     // 2 hour TTL for tools
+		EnableToolLRU:               true,              // Enable LRU eviction
+		ToolCleanupInterval:         15 * time.Minute,  // Cleanup every 15 minutes
+		EnableBackgroundToolCleanup: true,              // Enable background cleanup
 	}
 }
 
@@ -215,39 +215,39 @@ type CachedListResult struct {
 
 // SchemaCache provides LRU caching for compiled schemas.
 type SchemaCache struct {
-	mu       sync.RWMutex
-	cache    map[string]*CachedSchema
-	order    []string
-	maxSize  int
-	size     int
-	hitCount int64
+	mu        sync.RWMutex
+	cache     map[string]*CachedSchema
+	order     []string
+	maxSize   int
+	size      int
+	hitCount  int64
 	missCount int64
 }
 
 // CachedSchema represents a cached compiled schema.
 type CachedSchema struct {
-	Validator *SchemaValidator
-	Schema    *ToolSchema
-	Hash      string
-	CreatedAt time.Time
+	Validator   *SchemaValidator
+	Schema      *ToolSchema
+	Hash        string
+	CreatedAt   time.Time
 	AccessCount int64
 }
 
 // MemoryPool provides object pooling for frequently allocated objects.
 type MemoryPool struct {
-	toolPool       sync.Pool
-	resultPool     sync.Pool
-	filterPool     sync.Pool
+	toolPool        sync.Pool
+	resultPool      sync.Pool
+	filterPool      sync.Pool
 	stringSlicePool sync.Pool
-	mapPool        sync.Pool
+	mapPool         sync.Pool
 }
 
 // ToolWrapper provides copy-on-write semantics for tools.
 type ToolWrapper struct {
-	tool      *Tool
-	refCount  int32
+	tool        *Tool
+	refCount    int32
 	copyOnWrite bool
-	mu        sync.RWMutex
+	mu          sync.RWMutex
 }
 
 // ConflictResolver defines a function that resolves tool conflicts.
@@ -316,10 +316,10 @@ const (
 //	    ├── email
 //	    └── messaging
 type CategoryTree struct {
-	mu     sync.RWMutex
-	root   *CategoryNode
-	index  map[string]*CategoryNode
-	tools  map[string]map[string]bool // category -> tool IDs
+	mu    sync.RWMutex
+	root  *CategoryNode
+	index map[string]*CategoryNode
+	tools map[string]map[string]bool // category -> tool IDs
 }
 
 // CategoryNode represents a node in the category tree.
@@ -384,10 +384,10 @@ type DependencyGraph struct {
 // It specifies which version of a tool is required, whether the
 // dependency is optional, and if transitive dependencies should be resolved.
 type DependencyConstraint struct {
-	ToolID           string
+	ToolID            string
 	VersionConstraint string
-	Optional         bool
-	Transitive       bool
+	Optional          bool
+	Transitive        bool
 }
 
 // NewDependencyGraph creates a new dependency graph.
@@ -408,12 +408,12 @@ func NewRegistryWithConfig(config *RegistryConfig) *Registry {
 	if config == nil {
 		config = DefaultRegistryConfig()
 	}
-	
+
 	// Ensure cleanup interval is positive if background cleanup is enabled
 	if config.EnableBackgroundToolCleanup && config.ToolCleanupInterval <= 0 {
 		config.ToolCleanupInterval = 15 * time.Minute // Use default value
 	}
-	
+
 	r := &Registry{
 		tools:             make(map[string]*ToolRegistryEntry),
 		categoryIndex:     make(map[string]map[string]bool),
@@ -431,17 +431,17 @@ func NewRegistryWithConfig(config *RegistryConfig) *Registry {
 		loadingStrategies: make(map[string]LoadingStrategy),
 		config:            config,
 		// Performance optimization components
-		listCache:        NewListCache(),
-		schemaCache:      NewSchemaCache(),
-		memoryPool:       NewMemoryPool(),
-		toolCleanupStop:  make(chan struct{}),
+		listCache:       NewListCache(),
+		schemaCache:     NewSchemaCache(),
+		memoryPool:      NewMemoryPool(),
+		toolCleanupStop: make(chan struct{}),
 	}
-	
+
 	// Start background cleanup if enabled
 	if config.EnableBackgroundToolCleanup && config.ToolCleanupInterval > 0 {
 		go r.backgroundToolCleanup()
 	}
-	
+
 	return r
 }
 
@@ -467,7 +467,7 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 	// Check concurrency limits before acquiring lock
 	if r.config.MaxConcurrentRegistrations > 0 {
 		if current := atomic.LoadInt32(&r.activeRegistrations); current >= r.config.MaxConcurrentRegistrations {
-			return NewToolError(ErrorTypeResource, "CONCURRENT_REGISTRATIONS_EXCEEDED", 
+			return NewToolError(ErrorTypeResource, "CONCURRENT_REGISTRATIONS_EXCEEDED",
 				fmt.Sprintf("maximum concurrent registrations (%d) exceeded", r.config.MaxConcurrentRegistrations))
 		}
 	}
@@ -479,8 +479,8 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 	// Validate the tool
 	if err := tool.Validate(); err != nil {
 		return NewToolError(ErrorTypeValidation, "VALIDATION_FAILED", "tool validation failed").
-		WithToolID(tool.ID).
-		WithCause(err)
+			WithToolID(tool.ID).
+			WithCause(err)
 	}
 
 	// Run custom validators with hook protection
@@ -491,8 +491,8 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 	for _, validator := range validators {
 		if err := validator(tool); err != nil {
 			return NewToolError(ErrorTypeValidation, "CUSTOM_VALIDATION_FAILED", "custom validation failed").
-			WithToolID(tool.ID).
-			WithCause(err)
+				WithToolID(tool.ID).
+				WithCause(err)
 		}
 	}
 
@@ -506,7 +506,7 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 		if r.config.EnableToolLRU {
 			r.evictLRUTool()
 		} else {
-			return NewToolError(ErrorTypeResource, "MAX_TOOLS_EXCEEDED", 
+			return NewToolError(ErrorTypeResource, "MAX_TOOLS_EXCEEDED",
 				fmt.Sprintf("maximum number of tools (%d) exceeded", r.config.MaxTools))
 		}
 	}
@@ -515,8 +515,8 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 	if r.config.MaxMemoryUsage > 0 {
 		estimatedSize := r.estimateToolMemoryUsage(tool)
 		if r.currentMemoryUsage+estimatedSize > r.config.MaxMemoryUsage {
-			return NewToolError(ErrorTypeResource, "MEMORY_LIMIT_EXCEEDED", 
-				fmt.Sprintf("memory limit (%d bytes) would be exceeded by %d bytes", 
+			return NewToolError(ErrorTypeResource, "MEMORY_LIMIT_EXCEEDED",
+				fmt.Sprintf("memory limit (%d bytes) would be exceeded by %d bytes",
 					r.config.MaxMemoryUsage, estimatedSize))
 		}
 	}
@@ -530,7 +530,7 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 			existingByName = existingEntryByName.tool
 		}
 	}
-	
+
 	var existingTool *Tool
 	if idExists {
 		existingTool = existingEntry.tool
@@ -541,8 +541,8 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 		resolvedTool, err := r.resolveConflict(ctx, existingTool, tool)
 		if err != nil {
 			return NewToolError(ErrorTypeInternal, "CONFLICT_RESOLUTION_FAILED", "conflict resolution failed").
-			WithToolID(tool.ID).
-			WithCause(err)
+				WithToolID(tool.ID).
+				WithCause(err)
 		}
 		if resolvedTool == nil {
 			// Conflict resolution decided to skip registration
@@ -573,11 +573,10 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 		}
 	}
 
-	
 	// Store a clone to prevent external modifications
 	clonedTool := tool.Clone()
 	estimatedSize := r.estimateToolMemoryUsage(clonedTool)
-	
+
 	// Create registry entry with metadata
 	entry := &ToolRegistryEntry{
 		tool:        clonedTool,
@@ -587,7 +586,7 @@ func (r *Registry) RegisterWithContext(ctx context.Context, tool *Tool) error {
 	}
 	r.tools[tool.ID] = entry
 	r.currentMemoryUsage += estimatedSize
-	
+
 	// Update LRU tracking
 	if r.config.EnableToolLRU {
 		elem := r.toolsLRU.PushFront(tool.ID)
@@ -645,7 +644,7 @@ func (r *Registry) Unregister(toolID string) error {
 	entry, exists := r.tools[toolID]
 	if !exists {
 		return NewToolError(ErrorTypeValidation, "TOOL_NOT_FOUND", "tool not found").
-		WithToolID(toolID)
+			WithToolID(toolID)
 	}
 
 	// Calculate memory usage to be freed
@@ -721,10 +720,10 @@ func (r *Registry) Get(toolID string) (*Tool, error) {
 	// Update access tracking
 	entry.lastAccess = time.Now()
 	atomic.AddInt64(&entry.accessCount, 1)
-	
+
 	// Clone the tool while holding read lock
 	clonedTool := entry.tool.Clone()
-	
+
 	// Update LRU position if enabled - requires write lock
 	if r.config.EnableToolLRU {
 		// Upgrade to write lock for LRU modification
@@ -968,7 +967,7 @@ func (r *Registry) ListPaginated(filter *ToolFilter, options *PaginationOptions)
 	totalPages := (totalCount + options.Size - 1) / options.Size
 	startIndex := (options.Page - 1) * options.Size
 	endIndex := startIndex + options.Size
-	
+
 	if endIndex > totalCount {
 		endIndex = totalCount
 	}
@@ -1034,14 +1033,14 @@ func (r *Registry) AddValidator(validator RegistryValidator) {
 	if r == nil || validator == nil {
 		return // Silently ignore to prevent panics
 	}
-	
+
 	r.hookMu.Lock()
 	defer r.hookMu.Unlock()
-	
+
 	if r.validators == nil {
 		r.validators = []RegistryValidator{}
 	}
-	
+
 	r.validators = append(r.validators, validator)
 }
 
@@ -1267,7 +1266,7 @@ func (r *Registry) resolveConflict(ctx context.Context, existing, new *Tool) (*T
 	r.hookMu.RLock()
 	resolvers := append([]ConflictResolver{}, r.conflictResolvers...)
 	r.hookMu.RUnlock()
-	
+
 	for _, resolver := range resolvers {
 		resolved, err := resolver(existing, new)
 		if err != nil {
@@ -1312,7 +1311,7 @@ func (r *Registry) resolveVersionBasedConflict(existing, new *Tool) (*Tool, erro
 func (r *Registry) resolvePriorityBasedConflict(existing, new *Tool) (*Tool, error) {
 	existingPriority := r.getToolPriority(existing)
 	newPriority := r.getToolPriority(new)
-	
+
 	if newPriority > existingPriority {
 		return new, nil
 	}
@@ -1342,11 +1341,11 @@ func (r *Registry) handleVersionMigration(ctx context.Context, tool *Tool) error
 			return NewMigrationError(CodeMigrationFailed, "existing tool is nil", "", tool.Version).
 				WithToolID(tool.ID)
 		}
-		
+
 		if handler, exists := r.migrationHandlers[entry.tool.Version]; exists {
 			return handler(ctx, entry.tool, tool)
 		}
-		
+
 		// Default migration behavior
 		return r.defaultVersionMigration(ctx, entry.tool, tool)
 	}
@@ -1359,14 +1358,14 @@ func (r *Registry) defaultVersionMigration(ctx context.Context, oldTool, newTool
 	if oldTool.Version == newTool.Version {
 		return nil
 	}
-	
+
 	// Perform basic compatibility checks
 	if err := r.validateMigrationCompatibility(oldTool, newTool); err != nil {
 		return NewMigrationError(CodeMigrationCompatibilityFailed, "migration compatibility check failed", oldTool.Version, newTool.Version).
 			WithToolID(newTool.ID).
 			WithCause(err)
 	}
-	
+
 	return nil
 }
 
@@ -1388,7 +1387,7 @@ func (r *Registry) validateMigrationCompatibility(oldTool, newTool *Tool) error 
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -1397,7 +1396,7 @@ func (r *Registry) updateCategoryTree(tool *Tool) error {
 	if tool.Metadata == nil || len(tool.Metadata.Tags) == 0 {
 		return nil
 	}
-	
+
 	// Add tool to each category tag
 	for _, tag := range tool.Metadata.Tags {
 		// Add the category if it doesn't exist
@@ -1409,7 +1408,7 @@ func (r *Registry) updateCategoryTree(tool *Tool) error {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
@@ -1418,14 +1417,14 @@ func (r *Registry) AddConflictResolver(resolver ConflictResolver) {
 	if r == nil || resolver == nil {
 		return // Silently ignore to prevent panics
 	}
-	
+
 	r.hookMu.Lock()
 	defer r.hookMu.Unlock()
-	
+
 	if r.conflictResolvers == nil {
 		r.conflictResolvers = []ConflictResolver{}
 	}
-	
+
 	r.conflictResolvers = append(r.conflictResolvers, resolver)
 }
 
@@ -1434,14 +1433,14 @@ func (r *Registry) AddMigrationHandler(version string, handler MigrationHandler)
 	if r == nil || version == "" || handler == nil {
 		return // Silently ignore to prevent panics
 	}
-	
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	if r.migrationHandlers == nil {
 		r.migrationHandlers = make(map[string]MigrationHandler)
 	}
-	
+
 	r.migrationHandlers[version] = handler
 }
 
@@ -1452,7 +1451,7 @@ func (r *Registry) LoadFromFile(ctx context.Context, filename string) error {
 		return NewIOError(CodeFileOpenFailed, fmt.Sprintf("failed to open file %q", filename), filename, err)
 	}
 	defer file.Close()
-	
+
 	return r.LoadFromReader(ctx, file)
 }
 
@@ -1460,22 +1459,22 @@ func (r *Registry) LoadFromFile(ctx context.Context, filename string) error {
 func (r *Registry) LoadFromReader(ctx context.Context, reader io.Reader) error {
 	var tools []*Tool
 	decoder := json.NewDecoder(reader)
-	
+
 	if err := decoder.Decode(&tools); err != nil {
 		return NewIOError(CodeDecodeFailed, "failed to decode tools", "", err)
 	}
-	
+
 	for _, tool := range tools {
 		// Add a default executor if none exists (for tools loaded from JSON)
 		if tool.Executor == nil {
 			tool.Executor = &DefaultExecutor{}
 		}
-		
+
 		if err := r.RegisterWithContext(ctx, tool); err != nil {
 			return NewIOError(CodeRegistrationFailed, fmt.Sprintf("failed to register tool %q", tool.ID), tool.ID, err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -1508,23 +1507,23 @@ func (r *Registry) LoadFromURL(ctx context.Context, url string) error {
 			},
 		},
 	}
-	
+
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return NewNetworkError(CodeRequestCreationFailed, "failed to create request", url, err)
 	}
-	
+
 	resp, err := client.Do(req)
 	if err != nil {
 		return NewNetworkError(CodeHTTPRequestFailed, "failed to fetch from URL", url, err)
 	}
 	defer resp.Body.Close()
-	
+
 	if resp.StatusCode != http.StatusOK {
 		return NewNetworkError(CodeHTTPError, fmt.Sprintf("HTTP error: %s", resp.Status), url, nil).
 			WithDetail("status_code", resp.StatusCode)
 	}
-	
+
 	return r.LoadFromReader(ctx, resp.Body)
 }
 
@@ -1533,19 +1532,19 @@ func (r *Registry) WatchFile(filename string) error {
 	if !r.config.EnableHotReloading {
 		return NewToolError(ErrorTypeConfiguration, CodeHotReloadingDisabled, "hot reloading is disabled")
 	}
-	
+
 	// Check if already watching using sync.Map
 	if _, loaded := r.watchers.Load(filename); loaded {
 		return NewToolError(ErrorTypeConfiguration, CodeFileAlreadyWatched, fmt.Sprintf("file %q is already being watched", filename)).
 			WithDetail("filename", filename)
 	}
-	
+
 	// Get initial file info
 	info, err := os.Stat(filename)
 	if err != nil {
 		return NewIOError(CodeFileOpenFailed, fmt.Sprintf("failed to stat file %q", filename), filename, err)
 	}
-	
+
 	watcher := &FileWatcher{
 		path:    filename,
 		modTime: info.ModTime(),
@@ -1554,7 +1553,7 @@ func (r *Registry) WatchFile(filename string) error {
 			return r.LoadFromFile(context.Background(), path)
 		},
 	}
-	
+
 	// Use LoadOrStore to prevent race conditions
 	_, loaded := r.watchers.LoadOrStore(filename, watcher)
 	if loaded {
@@ -1562,14 +1561,14 @@ func (r *Registry) WatchFile(filename string) error {
 		return NewToolError(ErrorTypeConfiguration, CodeFileAlreadyWatched, fmt.Sprintf("file %q is already being watched", filename)).
 			WithDetail("filename", filename)
 	}
-	
+
 	// Start goroutine with proper lifecycle tracking
 	watcher.wg.Add(1)
 	go func() {
 		defer watcher.wg.Done()
 		r.watchFileChanges(watcher)
 	}()
-	
+
 	return nil
 }
 
@@ -1577,7 +1576,7 @@ func (r *Registry) WatchFile(filename string) error {
 func (r *Registry) watchFileChanges(watcher *FileWatcher) {
 	ticker := time.NewTicker(r.config.HotReloadInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-watcher.stop:
@@ -1595,17 +1594,17 @@ func (r *Registry) watchFileChanges(watcher *FileWatcher) {
 func (r *Registry) checkFileForChanges(watcher *FileWatcher) error {
 	watcher.mu.Lock()
 	defer watcher.mu.Unlock()
-	
+
 	info, err := os.Stat(watcher.path)
 	if err != nil {
 		return err
 	}
-	
+
 	if info.ModTime().After(watcher.modTime) {
 		watcher.modTime = info.ModTime()
 		return watcher.callback(watcher.path)
 	}
-	
+
 	return nil
 }
 
@@ -1616,17 +1615,17 @@ func (r *Registry) StopWatching(filename string) error {
 		return NewToolError(ErrorTypeConfiguration, CodeFileNotWatched, fmt.Sprintf("file %q is not being watched", filename)).
 			WithDetail("filename", filename)
 	}
-	
+
 	watcher := value.(*FileWatcher)
-	
+
 	// Use sync.Once to ensure stop is closed only once
 	watcher.stopOnce.Do(func() {
 		close(watcher.stop)
 	})
-	
+
 	// Wait for goroutine to complete
 	watcher.wg.Wait()
-	
+
 	return nil
 }
 
@@ -1634,7 +1633,7 @@ func (r *Registry) StopWatching(filename string) error {
 func (r *Registry) GetDependenciesWithConstraints(toolID string) ([]*Tool, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	// Convert ToolRegistryEntry map to Tool map for the dependency graph
 	toolsMap := make(map[string]*Tool)
 	for id, entry := range r.tools {
@@ -1642,7 +1641,7 @@ func (r *Registry) GetDependenciesWithConstraints(toolID string) ([]*Tool, error
 			toolsMap[id] = entry.tool
 		}
 	}
-	
+
 	return r.dependencyGraph.ResolveDependencies(toolID, toolsMap)
 }
 
@@ -1650,10 +1649,10 @@ func (r *Registry) GetDependenciesWithConstraints(toolID string) ([]*Tool, error
 func (r *Registry) GetByCategory(category string) ([]*Tool, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	toolIDs := r.categories.GetToolsInCategory(category)
 	tools := make([]*Tool, 0, len(toolIDs))
-	
+
 	for _, toolID := range toolIDs {
 		if entry, exists := r.tools[toolID]; exists {
 			if entry != nil && entry.tool != nil {
@@ -1661,7 +1660,7 @@ func (r *Registry) GetByCategory(category string) ([]*Tool, error) {
 			}
 		}
 	}
-	
+
 	return tools, nil
 }
 
@@ -1678,7 +1677,7 @@ func (r *Registry) SetConfig(config *RegistryConfig) {
 	if config == nil {
 		config = DefaultRegistryConfig()
 	}
-	
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.config = config
@@ -1689,14 +1688,14 @@ func (r *Registry) GetConfig() *RegistryConfig {
 	if r == nil {
 		return DefaultRegistryConfig()
 	}
-	
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	if r.config == nil {
 		return DefaultRegistryConfig()
 	}
-	
+
 	return r.config
 }
 
@@ -1829,19 +1828,19 @@ func (r *Registry) invalidateListCache() {
 func (ct *CategoryTree) AddCategory(path string, metadata map[string]interface{}) error {
 	ct.mu.Lock()
 	defer ct.mu.Unlock()
-	
+
 	parts := strings.Split(path, "/")
 	current := ct.root
-	
+
 	for _, part := range parts {
 		if part == "" {
 			continue
 		}
-		
+
 		if current.Children == nil {
 			current.Children = make(map[string]*CategoryNode)
 		}
-		
+
 		if _, exists := current.Children[part]; !exists {
 			node := &CategoryNode{
 				Name:     part,
@@ -1859,10 +1858,10 @@ func (ct *CategoryTree) AddCategory(path string, metadata map[string]interface{}
 			current.Children[part] = node
 			ct.index[path] = node
 		}
-		
+
 		current = current.Children[part]
 	}
-	
+
 	return nil
 }
 
@@ -1870,11 +1869,11 @@ func (ct *CategoryTree) AddCategory(path string, metadata map[string]interface{}
 func (ct *CategoryTree) AddTool(category, toolID string) error {
 	ct.mu.Lock()
 	defer ct.mu.Unlock()
-	
+
 	if ct.tools[category] == nil {
 		ct.tools[category] = make(map[string]bool)
 	}
-	
+
 	ct.tools[category][toolID] = true
 	return nil
 }
@@ -1883,17 +1882,17 @@ func (ct *CategoryTree) AddTool(category, toolID string) error {
 func (ct *CategoryTree) GetToolsInCategory(category string) []string {
 	ct.mu.RLock()
 	defer ct.mu.RUnlock()
-	
+
 	toolMap := ct.tools[category]
 	if toolMap == nil {
 		return []string{}
 	}
-	
+
 	tools := make([]string, 0, len(toolMap))
 	for toolID := range toolMap {
 		tools = append(tools, toolID)
 	}
-	
+
 	return tools
 }
 
@@ -1901,7 +1900,7 @@ func (ct *CategoryTree) GetToolsInCategory(category string) []string {
 func (ct *CategoryTree) GetCategoryNode(path string) *CategoryNode {
 	ct.mu.RLock()
 	defer ct.mu.RUnlock()
-	
+
 	return ct.index[path]
 }
 
@@ -1909,12 +1908,12 @@ func (ct *CategoryTree) GetCategoryNode(path string) *CategoryNode {
 func (ct *CategoryTree) GetAllCategories() []string {
 	ct.mu.RLock()
 	defer ct.mu.RUnlock()
-	
+
 	categories := make([]string, 0, len(ct.index))
 	for path := range ct.index {
 		categories = append(categories, path)
 	}
-	
+
 	return categories
 }
 
@@ -1924,27 +1923,27 @@ func (ct *CategoryTree) GetAllCategories() []string {
 func (dg *DependencyGraph) AddTool(tool *Tool) error {
 	dg.mu.Lock()
 	defer dg.mu.Unlock()
-	
+
 	if tool.Metadata == nil || len(tool.Metadata.Dependencies) == 0 {
 		return nil
 	}
-	
+
 	if dg.dependencies[tool.ID] == nil {
 		dg.dependencies[tool.ID] = make(map[string]*DependencyConstraint)
 	}
-	
+
 	// Add dependencies
 	for _, depID := range tool.Metadata.Dependencies {
 		constraint := &DependencyConstraint{
-			ToolID:           depID,
+			ToolID:            depID,
 			VersionConstraint: "", // Default to any version
-			Optional:         false,
-			Transitive:       true,
+			Optional:          false,
+			Transitive:        true,
 		}
-		
+
 		dg.dependencies[tool.ID][depID] = constraint
 	}
-	
+
 	return nil
 }
 
@@ -1952,18 +1951,18 @@ func (dg *DependencyGraph) AddTool(tool *Tool) error {
 func (dg *DependencyGraph) AddDependency(toolID, depID, versionConstraint string, optional bool) error {
 	dg.mu.Lock()
 	defer dg.mu.Unlock()
-	
+
 	if dg.dependencies[toolID] == nil {
 		dg.dependencies[toolID] = make(map[string]*DependencyConstraint)
 	}
-	
+
 	constraint := &DependencyConstraint{
-		ToolID:           depID,
+		ToolID:            depID,
 		VersionConstraint: versionConstraint,
-		Optional:         optional,
-		Transitive:       true,
+		Optional:          optional,
+		Transitive:        true,
 	}
-	
+
 	dg.dependencies[toolID][depID] = constraint
 	return nil
 }
@@ -1974,17 +1973,17 @@ func (dg *DependencyGraph) ResolveDependencies(toolID string, tools map[string]*
 	if cached, exists := dg.cache.Load(toolID); exists {
 		return cached.([]*Tool), nil
 	}
-	
+
 	dg.mu.RLock()
 	defer dg.mu.RUnlock()
-	
+
 	visited := make(map[string]bool)
 	var result []*Tool
-	
+
 	if err := dg.resolveDependenciesRecursive(toolID, tools, visited, &result, 0, 10); err != nil {
 		return nil, err
 	}
-	
+
 	// Cache the result using sync.Map
 	dg.cache.Store(toolID, result)
 	return result, nil
@@ -1997,14 +1996,14 @@ func (dg *DependencyGraph) resolveDependenciesRecursive(toolID string, tools map
 			WithDetail("depth", depth).
 			WithDetail("max_depth", maxDepth)
 	}
-	
+
 	if visited[toolID] {
 		return NewDependencyError(CodeCircularDependency, fmt.Sprintf("circular dependency detected for tool %q", toolID), toolID)
 	}
-	
+
 	visited[toolID] = true
 	defer func() { visited[toolID] = false }()
-	
+
 	dependencies := dg.dependencies[toolID]
 	for _, constraint := range dependencies {
 		tool, exists := tools[constraint.ToolID]
@@ -2015,7 +2014,7 @@ func (dg *DependencyGraph) resolveDependenciesRecursive(toolID string, tools map
 			}
 			continue
 		}
-		
+
 		// Check version constraint
 		if constraint.VersionConstraint != "" {
 			matches, err := matchesVersionConstraint(tool.Version, constraint.VersionConstraint)
@@ -2035,10 +2034,10 @@ func (dg *DependencyGraph) resolveDependenciesRecursive(toolID string, tools map
 				continue
 			}
 		}
-		
+
 		// Add to result
 		*result = append(*result, tool.Clone())
-		
+
 		// Resolve transitive dependencies
 		if constraint.Transitive {
 			if err := dg.resolveDependenciesRecursive(constraint.ToolID, tools, visited, result, depth+1, maxDepth); err != nil {
@@ -2046,7 +2045,7 @@ func (dg *DependencyGraph) resolveDependenciesRecursive(toolID string, tools map
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -2054,10 +2053,10 @@ func (dg *DependencyGraph) resolveDependenciesRecursive(toolID string, tools map
 func (dg *DependencyGraph) HasCircularDependencies() bool {
 	dg.mu.RLock()
 	defer dg.mu.RUnlock()
-	
+
 	visited := make(map[string]bool)
 	stack := make(map[string]bool)
-	
+
 	for toolID := range dg.dependencies {
 		if !visited[toolID] {
 			if dg.hasCycleDFS(toolID, visited, stack) {
@@ -2065,7 +2064,7 @@ func (dg *DependencyGraph) HasCircularDependencies() bool {
 			}
 		}
 	}
-	
+
 	return false
 }
 
@@ -2073,7 +2072,7 @@ func (dg *DependencyGraph) HasCircularDependencies() bool {
 func (dg *DependencyGraph) hasCycleDFS(toolID string, visited, stack map[string]bool) bool {
 	visited[toolID] = true
 	stack[toolID] = true
-	
+
 	for _, constraint := range dg.dependencies[toolID] {
 		if !visited[constraint.ToolID] {
 			if dg.hasCycleDFS(constraint.ToolID, visited, stack) {
@@ -2083,7 +2082,7 @@ func (dg *DependencyGraph) hasCycleDFS(toolID string, visited, stack map[string]
 			return true
 		}
 	}
-	
+
 	stack[toolID] = false
 	return false
 }
@@ -2092,20 +2091,20 @@ func (dg *DependencyGraph) hasCycleDFS(toolID string, visited, stack map[string]
 func (dg *DependencyGraph) GetDependencyGraph() map[string]map[string]*DependencyConstraint {
 	dg.mu.RLock()
 	defer dg.mu.RUnlock()
-	
+
 	result := make(map[string]map[string]*DependencyConstraint)
 	for toolID, deps := range dg.dependencies {
 		result[toolID] = make(map[string]*DependencyConstraint)
 		for depID, constraint := range deps {
 			result[toolID][depID] = &DependencyConstraint{
-				ToolID:           constraint.ToolID,
+				ToolID:            constraint.ToolID,
 				VersionConstraint: constraint.VersionConstraint,
-				Optional:         constraint.Optional,
-				Transitive:       constraint.Transitive,
+				Optional:          constraint.Optional,
+				Transitive:        constraint.Transitive,
 			}
 		}
 	}
-	
+
 	return result
 }
 
@@ -2114,8 +2113,8 @@ func (dg *DependencyGraph) GetDependencyGraph() map[string]map[string]*Dependenc
 // NewListCache creates a new list cache with default settings.
 func NewListCache() *ListCache {
 	return &ListCache{
-		cache:   make(map[string]*CachedListResult),
-		maxSize: 1000,
+		cache:       make(map[string]*CachedListResult),
+		maxSize:     1000,
 		accessOrder: make([]string, 0),
 	}
 }
@@ -2566,11 +2565,11 @@ func (r *Registry) GetResourceUsage() map[string]interface{} {
 	defer r.mu.RUnlock()
 
 	return map[string]interface{}{
-		"tool_count":          len(r.tools),
-		"max_tools":           r.config.MaxTools,
-		"memory_usage":        r.currentMemoryUsage,
-		"max_memory_usage":    r.config.MaxMemoryUsage,
-		"active_registrations": atomic.LoadInt32(&r.activeRegistrations),
+		"tool_count":                   len(r.tools),
+		"max_tools":                    r.config.MaxTools,
+		"memory_usage":                 r.currentMemoryUsage,
+		"max_memory_usage":             r.config.MaxMemoryUsage,
+		"active_registrations":         atomic.LoadInt32(&r.activeRegistrations),
 		"max_concurrent_registrations": r.config.MaxConcurrentRegistrations,
 		"memory_utilization": func() float64 {
 			if r.config.MaxMemoryUsage == 0 {
@@ -2597,19 +2596,19 @@ func (r *Registry) evictLRUTool() {
 	if r.toolsLRU.Len() == 0 {
 		return
 	}
-	
+
 	// Get the least recently used tool
 	elem := r.toolsLRU.Back()
 	if elem == nil {
 		return
 	}
-	
+
 	toolID := elem.Value.(string)
-	
+
 	// Remove from all structures
 	r.toolsLRU.Remove(elem)
 	delete(r.toolsIndex, toolID)
-	
+
 	// Remove the tool entry and update memory tracking
 	if entry, exists := r.tools[toolID]; exists {
 		estimatedSize := r.estimateToolMemoryUsage(entry.tool)
@@ -2618,7 +2617,7 @@ func (r *Registry) evictLRUTool() {
 			r.currentMemoryUsage = 0
 		}
 		delete(r.tools, toolID)
-		
+
 		// Clean up indexes
 		r.removeFromIndexes(entry.tool)
 	}
@@ -2628,7 +2627,7 @@ func (r *Registry) evictLRUTool() {
 func (r *Registry) removeFromIndexes(tool *Tool) {
 	// Remove from name index
 	delete(r.nameIndex, tool.Name)
-	
+
 	// Remove from tag index
 	if tool.Metadata != nil && len(tool.Metadata.Tags) > 0 {
 		for _, tag := range tool.Metadata.Tags {
@@ -2640,7 +2639,7 @@ func (r *Registry) removeFromIndexes(tool *Tool) {
 			}
 		}
 	}
-	
+
 	// Remove from category index (if using categories)
 	if tool.Metadata != nil && len(tool.Metadata.Tags) > 0 {
 		for _, category := range tool.Metadata.Tags {
@@ -2660,15 +2659,15 @@ func (r *Registry) backgroundToolCleanup() {
 	r.mu.RLock()
 	interval := r.config.ToolCleanupInterval
 	r.mu.RUnlock()
-	
+
 	// Ensure we have a positive interval, use a minimum of 1 second if invalid
 	if interval <= 0 {
 		interval = 1 * time.Second // Fallback to prevent panic
 	}
-	
+
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -2684,20 +2683,20 @@ func (r *Registry) CleanupExpiredTools() (int, error) {
 	if r.config.ToolTTL <= 0 {
 		return 0, nil // TTL not configured
 	}
-	
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	cutoff := time.Now().Add(-r.config.ToolTTL)
 	var toRemove []string
-	
+
 	// Collect expired tools
 	for toolID, entry := range r.tools {
 		if entry.createdAt.Before(cutoff) {
 			toRemove = append(toRemove, toolID)
 		}
 	}
-	
+
 	// Remove expired tools
 	for _, toolID := range toRemove {
 		if entry, exists := r.tools[toolID]; exists {
@@ -2706,24 +2705,24 @@ func (r *Registry) CleanupExpiredTools() (int, error) {
 			if r.currentMemoryUsage < 0 {
 				r.currentMemoryUsage = 0
 			}
-			
+
 			// Remove from LRU tracking
 			if elem, exists := r.toolsIndex[toolID]; exists {
 				r.toolsLRU.Remove(elem)
 				delete(r.toolsIndex, toolID)
 			}
-			
+
 			// Remove from all indexes
 			r.removeFromIndexes(entry.tool)
-			
+
 			// Remove the tool entry
 			delete(r.tools, toolID)
 		}
 	}
-	
+
 	// Invalidate caches after cleanup
 	r.invalidateListCache()
-	
+
 	return len(toRemove), nil
 }
 
@@ -2731,17 +2730,17 @@ func (r *Registry) CleanupExpiredTools() (int, error) {
 func (r *Registry) CleanupByAccessTime(maxAge time.Duration) (int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	cutoff := time.Now().Add(-maxAge)
 	var toRemove []string
-	
+
 	// Collect old tools
 	for toolID, entry := range r.tools {
 		if entry.lastAccess.Before(cutoff) {
 			toRemove = append(toRemove, toolID)
 		}
 	}
-	
+
 	// Remove old tools
 	for _, toolID := range toRemove {
 		if entry, exists := r.tools[toolID]; exists {
@@ -2750,24 +2749,24 @@ func (r *Registry) CleanupByAccessTime(maxAge time.Duration) (int, error) {
 			if r.currentMemoryUsage < 0 {
 				r.currentMemoryUsage = 0
 			}
-			
+
 			// Remove from LRU tracking
 			if elem, exists := r.toolsIndex[toolID]; exists {
 				r.toolsLRU.Remove(elem)
 				delete(r.toolsIndex, toolID)
 			}
-			
+
 			// Remove from all indexes
 			r.removeFromIndexes(entry.tool)
-			
+
 			// Remove the tool entry
 			delete(r.tools, toolID)
 		}
 	}
-	
+
 	// Invalidate caches after cleanup
 	r.invalidateListCache()
-	
+
 	return len(toRemove), nil
 }
 
@@ -2775,25 +2774,25 @@ func (r *Registry) CleanupByAccessTime(maxAge time.Duration) (int, error) {
 func (r *Registry) ClearAllTools() error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	// Clear main tools map
 	r.tools = make(map[string]*ToolRegistryEntry)
-	
+
 	// Clear all indexes
 	r.categoryIndex = make(map[string]map[string]bool)
 	r.tagIndex = make(map[string]map[string]bool)
 	r.nameIndex = make(map[string]string)
-	
+
 	// Clear LRU tracking
 	r.toolsLRU = list.New()
 	r.toolsIndex = make(map[string]*list.Element)
-	
+
 	// Reset memory usage
 	r.currentMemoryUsage = 0
-	
+
 	// Invalidate caches
 	r.invalidateListCache()
-	
+
 	return nil
 }
 
@@ -2801,22 +2800,22 @@ func (r *Registry) ClearAllTools() error {
 func (r *Registry) GetToolsCleanupStats() map[string]interface{} {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	stats := map[string]interface{}{
-		"total_tools":        len(r.tools),
-		"lru_list_length":    r.toolsLRU.Len(),
-		"lru_index_length":   len(r.toolsIndex),
-		"ttl_seconds":        r.config.ToolTTL.Seconds(),
-		"cleanup_interval":   r.config.ToolCleanupInterval.Seconds(),
-		"lru_enabled":        r.config.EnableToolLRU,
-		"cleanup_enabled":    r.config.EnableBackgroundToolCleanup,
+		"total_tools":      len(r.tools),
+		"lru_list_length":  r.toolsLRU.Len(),
+		"lru_index_length": len(r.toolsIndex),
+		"ttl_seconds":      r.config.ToolTTL.Seconds(),
+		"cleanup_interval": r.config.ToolCleanupInterval.Seconds(),
+		"lru_enabled":      r.config.EnableToolLRU,
+		"cleanup_enabled":  r.config.EnableBackgroundToolCleanup,
 	}
-	
+
 	// Find oldest and newest tools
 	var oldestCreated, newestCreated time.Time
 	var oldestAccess, newestAccess time.Time
 	totalAccessCount := int64(0)
-	
+
 	for _, entry := range r.tools {
 		if oldestCreated.IsZero() || entry.createdAt.Before(oldestCreated) {
 			oldestCreated = entry.createdAt
@@ -2832,7 +2831,7 @@ func (r *Registry) GetToolsCleanupStats() map[string]interface{} {
 		}
 		totalAccessCount += entry.accessCount
 	}
-	
+
 	if !oldestCreated.IsZero() {
 		stats["oldest_created"] = oldestCreated
 		stats["newest_created"] = newestCreated
@@ -2841,7 +2840,7 @@ func (r *Registry) GetToolsCleanupStats() map[string]interface{} {
 		stats["total_access_count"] = totalAccessCount
 		stats["average_access_count"] = float64(totalAccessCount) / float64(len(r.tools))
 	}
-	
+
 	return stats
 }
 
@@ -2850,27 +2849,27 @@ func (r *Registry) UpdateToolsConfig(config *RegistryConfig) error {
 	if config == nil {
 		return fmt.Errorf("config cannot be nil")
 	}
-	
+
 	// Ensure cleanup interval is positive if background cleanup is enabled
 	if config.EnableBackgroundToolCleanup && config.ToolCleanupInterval <= 0 {
 		config.ToolCleanupInterval = 15 * time.Minute // Use default value
 	}
-	
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	oldConfig := r.config
 	r.config = config
-	
+
 	// If background cleanup settings changed, restart background cleanup
 	if oldConfig.EnableBackgroundToolCleanup != config.EnableBackgroundToolCleanup ||
 		oldConfig.ToolCleanupInterval != config.ToolCleanupInterval {
-		
+
 		// Stop existing cleanup
 		r.toolCleanupOnce.Do(func() {
 			close(r.toolCleanupStop)
 		})
-		
+
 		// Start new cleanup if enabled
 		if config.EnableBackgroundToolCleanup && config.ToolCleanupInterval > 0 {
 			r.toolCleanupStop = make(chan struct{})
@@ -2878,7 +2877,7 @@ func (r *Registry) UpdateToolsConfig(config *RegistryConfig) error {
 			go r.backgroundToolCleanup()
 		}
 	}
-	
+
 	return nil
 }
 

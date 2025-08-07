@@ -215,7 +215,7 @@ func TestStateManagerMemoryLeakPrevention(t *testing.T) {
 	}
 
 	opts := DefaultManagerOptions()
-	opts.CacheSize = 100 // Small cache to test eviction
+	opts.CacheSize = 100       // Small cache to test eviction
 	opts.EnableMetrics = false // Disable metrics to reduce noise
 
 	sm, err := NewStateManager(opts)
@@ -275,7 +275,7 @@ func TestConflictResolverMemoryLeakPrevention(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping memory leak test in short mode")
 	}
-	
+
 	cr := NewConflictResolver(LastWriteWins)
 
 	// Register many custom resolvers

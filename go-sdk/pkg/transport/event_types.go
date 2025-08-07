@@ -9,7 +9,7 @@ import (
 type EventData interface {
 	// Validate ensures the event data is valid
 	Validate() error
-	
+
 	// ToMap converts the event data to a map[string]interface{} for backward compatibility
 	ToMap() map[string]interface{}
 }
@@ -20,16 +20,16 @@ type EventData interface {
 type TypedTransportEvent[T EventData] interface {
 	// ID returns the unique identifier for this event
 	ID() string
-	
+
 	// Type returns the event type
 	Type() string
-	
+
 	// Timestamp returns when the event was created
 	Timestamp() time.Time
-	
+
 	// TypedData returns the strongly-typed event data
 	TypedData() T
-	
+
 	// Data returns the event data as a map for backward compatibility
 	// Deprecated: Use TypedData() for type-safe access
 	Data() map[string]interface{}
@@ -39,25 +39,25 @@ type TypedTransportEvent[T EventData] interface {
 type ConnectionEventData struct {
 	// Status indicates the connection status (connected, disconnected, reconnecting, etc.)
 	Status string `json:"status"`
-	
+
 	// RemoteAddress is the address of the remote endpoint
 	RemoteAddress string `json:"remote_address,omitempty"`
-	
+
 	// LocalAddress is the local address used for the connection
 	LocalAddress string `json:"local_address,omitempty"`
-	
+
 	// Protocol is the protocol used (http, websocket, grpc, etc.)
 	Protocol string `json:"protocol,omitempty"`
-	
+
 	// Version is the protocol version
 	Version string `json:"version,omitempty"`
-	
+
 	// Capabilities are the negotiated capabilities
 	Capabilities ConnectionCapabilities `json:"capabilities,omitempty"`
-	
+
 	// Error contains error information if the connection failed
 	Error string `json:"error,omitempty"`
-	
+
 	// AttemptNumber for reconnection events
 	AttemptNumber int `json:"attempt_number,omitempty"`
 }
@@ -74,7 +74,7 @@ func (c ConnectionEventData) Validate() error {
 func (c ConnectionEventData) ToMap() map[string]interface{} {
 	result := make(map[string]interface{})
 	result["status"] = c.Status
-	
+
 	if c.RemoteAddress != "" {
 		result["remote_address"] = c.RemoteAddress
 	}
@@ -96,7 +96,7 @@ func (c ConnectionEventData) ToMap() map[string]interface{} {
 	if c.AttemptNumber > 0 {
 		result["attempt_number"] = c.AttemptNumber
 	}
-	
+
 	return result
 }
 
@@ -104,25 +104,25 @@ func (c ConnectionEventData) ToMap() map[string]interface{} {
 type DataEventData struct {
 	// Content is the actual data payload
 	Content []byte `json:"content"`
-	
+
 	// ContentType indicates the MIME type or format of the content
 	ContentType string `json:"content_type,omitempty"`
-	
+
 	// Encoding indicates the encoding used (utf-8, base64, etc.)
 	Encoding string `json:"encoding,omitempty"`
-	
+
 	// Size is the size of the content in bytes
 	Size int64 `json:"size"`
-	
+
 	// Checksum for data integrity verification
 	Checksum string `json:"checksum,omitempty"`
-	
+
 	// Compressed indicates if the content is compressed
 	Compressed bool `json:"compressed,omitempty"`
-	
+
 	// StreamID if this data belongs to a specific stream
 	StreamID string `json:"stream_id,omitempty"`
-	
+
 	// SequenceNumber for ordered delivery
 	SequenceNumber uint64 `json:"sequence_number,omitempty"`
 }
@@ -146,7 +146,7 @@ func (d DataEventData) ToMap() map[string]interface{} {
 	result := make(map[string]interface{})
 	result["content"] = d.Content
 	result["size"] = d.Size
-	
+
 	if d.ContentType != "" {
 		result["content_type"] = d.ContentType
 	}
@@ -163,7 +163,7 @@ func (d DataEventData) ToMap() map[string]interface{} {
 	if d.SequenceNumber > 0 {
 		result["sequence_number"] = d.SequenceNumber
 	}
-	
+
 	return result
 }
 
@@ -171,25 +171,25 @@ func (d DataEventData) ToMap() map[string]interface{} {
 type ErrorEventData struct {
 	// Message is the error message
 	Message string `json:"message"`
-	
+
 	// Code is an error code for programmatic handling
 	Code string `json:"code,omitempty"`
-	
+
 	// Severity indicates the error severity (fatal, error, warning, info)
 	Severity string `json:"severity,omitempty"`
-	
+
 	// Category categorizes the error (network, protocol, validation, etc.)
 	Category string `json:"category,omitempty"`
-	
+
 	// Retryable indicates if the operation can be retried
 	Retryable bool `json:"retryable"`
-	
+
 	// Details contains additional error context
 	Details ErrorDetails `json:"details,omitempty"`
-	
+
 	// StackTrace for debugging (should be omitted in production)
 	StackTrace string `json:"stack_trace,omitempty"`
-	
+
 	// RequestID for request correlation
 	RequestID string `json:"request_id,omitempty"`
 }
@@ -207,7 +207,7 @@ func (e ErrorEventData) ToMap() map[string]interface{} {
 	result := make(map[string]interface{})
 	result["message"] = e.Message
 	result["retryable"] = e.Retryable
-	
+
 	if e.Code != "" {
 		result["code"] = e.Code
 	}
@@ -226,7 +226,7 @@ func (e ErrorEventData) ToMap() map[string]interface{} {
 	if e.RequestID != "" {
 		result["request_id"] = e.RequestID
 	}
-	
+
 	return result
 }
 
@@ -234,25 +234,25 @@ func (e ErrorEventData) ToMap() map[string]interface{} {
 type StreamEventData struct {
 	// StreamID is the unique identifier for the stream
 	StreamID string `json:"stream_id"`
-	
+
 	// Action indicates the stream action (create, close, reset, etc.)
 	Action string `json:"action"`
-	
+
 	// Direction indicates data flow direction (inbound, outbound, bidirectional)
 	Direction string `json:"direction,omitempty"`
-	
+
 	// Priority for stream prioritization
 	Priority int `json:"priority,omitempty"`
-	
+
 	// WindowSize for flow control
 	WindowSize uint32 `json:"window_size,omitempty"`
-	
+
 	// State indicates the current stream state
 	State string `json:"state,omitempty"`
-	
+
 	// Reason provides additional context for the action
 	Reason string `json:"reason,omitempty"`
-	
+
 	// Headers contains stream-specific headers
 	Headers map[string]string `json:"headers,omitempty"`
 }
@@ -273,7 +273,7 @@ func (s StreamEventData) ToMap() map[string]interface{} {
 	result := make(map[string]interface{})
 	result["stream_id"] = s.StreamID
 	result["action"] = s.Action
-	
+
 	if s.Direction != "" {
 		result["direction"] = s.Direction
 	}
@@ -292,7 +292,7 @@ func (s StreamEventData) ToMap() map[string]interface{} {
 	if s.Headers != nil {
 		result["headers"] = s.Headers
 	}
-	
+
 	return result
 }
 
@@ -300,22 +300,22 @@ func (s StreamEventData) ToMap() map[string]interface{} {
 type MetricsEventData struct {
 	// MetricName is the name of the metric
 	MetricName string `json:"metric_name"`
-	
+
 	// Value is the metric value
 	Value float64 `json:"value"`
-	
+
 	// Unit indicates the unit of measurement
 	Unit string `json:"unit,omitempty"`
-	
+
 	// Tags for metric categorization and filtering
 	Tags map[string]string `json:"tags,omitempty"`
-	
+
 	// Labels for additional metric metadata (same as tags, different naming convention)
 	Labels map[string]string `json:"labels,omitempty"`
-	
+
 	// SampleRate for sampled metrics
 	SampleRate float64 `json:"sample_rate,omitempty"`
-	
+
 	// Interval indicates the measurement interval
 	Interval time.Duration `json:"interval,omitempty"`
 }
@@ -336,7 +336,7 @@ func (m MetricsEventData) ToMap() map[string]interface{} {
 	result := make(map[string]interface{})
 	result["metric_name"] = m.MetricName
 	result["value"] = m.Value
-	
+
 	if m.Unit != "" {
 		result["unit"] = m.Unit
 	}
@@ -352,7 +352,7 @@ func (m MetricsEventData) ToMap() map[string]interface{} {
 	if m.Interval > 0 {
 		result["interval"] = m.Interval.String()
 	}
-	
+
 	return result
 }
 
@@ -495,7 +495,7 @@ func ToTypedEvent[T EventData](event TransportEvent, constructor func(map[string
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &typedEventImpl[T]{
 		id:        event.ID(),
 		eventType: event.Type(),

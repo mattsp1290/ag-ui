@@ -14,23 +14,23 @@ func ExampleBasicUsage() {
 		WithValidationLevel(ValidationLevelPermissive).
 		WithEnvironment("example", "1.0.0", "example-app").
 		Build()
-	
+
 	if err != nil {
 		log.Fatal("Failed to build configuration:", err)
 	}
-	
+
 	// Create a validator factory
 	factory := NewValidatorFactory(config)
-	
+
 	// Create the main validator
 	ctx := context.Background()
 	validator, err := factory.CreateValidator(ctx)
 	if err != nil {
 		log.Fatal("Failed to create validator:", err)
 	}
-	
+
 	fmt.Printf("Created validator: %v\n", validator)
-	
+
 	// Output: Created validator: MainValidator(components=map[core_validator:CoreValidator(level=permissive)])
 }
 
@@ -41,27 +41,27 @@ func ExampleWithAuthentication() {
 		WithBasicAuth().
 		WithRBAC(true, []string{"user"}).
 		Build()
-	
+
 	if err != nil {
 		log.Fatal("Failed to build configuration:", err)
 	}
-	
+
 	factory := NewValidatorFactory(config)
-	
+
 	ctx := context.Background()
 	validator, err := factory.CreateValidator(ctx)
 	if err != nil {
 		log.Fatal("Failed to create validator:", err)
 	}
-	
+
 	fmt.Printf("Created authenticated validator: %v\n", validator)
-	
+
 	// Also get the auth validator specifically
 	authValidator, err := factory.CreateAuthValidator(ctx)
 	if err != nil {
 		log.Fatal("Failed to create auth validator:", err)
 	}
-	
+
 	fmt.Printf("Auth validator: %v\n", authValidator)
 }
 
@@ -72,19 +72,19 @@ func ExampleWithCaching() {
 		WithL1Cache(10000, 5*time.Minute).
 		WithCacheCompression(true, "gzip", 6).
 		Build()
-	
+
 	if err != nil {
 		log.Fatal("Failed to build configuration:", err)
 	}
-	
+
 	factory := NewValidatorFactory(config)
-	
+
 	ctx := context.Background()
 	validator, err := factory.CreateValidator(ctx)
 	if err != nil {
 		log.Fatal("Failed to create validator:", err)
 	}
-	
+
 	fmt.Printf("Created cached validator: %v\n", validator)
 }
 
@@ -106,27 +106,27 @@ func ExampleFullConfiguration() {
 		WithRateLimiting(true, 1000, time.Minute, 100).
 		WithEnvironment("production", "1.0.0", "example-app").
 		Build()
-	
+
 	if err != nil {
 		log.Fatal("Failed to build configuration:", err)
 	}
-	
+
 	factory := NewValidatorFactory(config)
-	
+
 	ctx := context.Background()
 	validator, err := factory.CreateValidator(ctx)
 	if err != nil {
 		log.Fatal("Failed to create validator:", err)
 	}
-	
+
 	fmt.Printf("Created full-featured validator: %v\n", validator)
-	
+
 	// Get services by tag
 	validators, err := factory.GetServicesByTag(ctx, "validator")
 	if err != nil {
 		log.Fatal("Failed to get validators:", err)
 	}
-	
+
 	fmt.Printf("Found %d validator services\n", len(validators))
 }
 
@@ -135,32 +135,32 @@ func ExamplePresets() {
 	// List available presets
 	presets := ListAvailablePresets()
 	fmt.Printf("Available presets: %v\n", presets)
-	
+
 	// Create validator from development preset
 	devFactory, err := CreateValidatorFromPreset("development")
 	if err != nil {
 		log.Fatal("Failed to create development validator:", err)
 	}
-	
+
 	ctx := context.Background()
 	devValidator, err := devFactory.CreateValidator(ctx)
 	if err != nil {
 		log.Fatal("Failed to create dev validator:", err)
 	}
-	
+
 	fmt.Printf("Development validator: %v\n", devValidator)
-	
+
 	// Create validator from production preset
 	prodFactory, err := CreateValidatorFromPreset("production")
 	if err != nil {
 		log.Fatal("Failed to create production validator:", err)
 	}
-	
+
 	prodValidator, err := prodFactory.CreateValidator(ctx)
 	if err != nil {
 		log.Fatal("Failed to create prod validator:", err)
 	}
-	
+
 	fmt.Printf("Production validator: %v\n", prodValidator)
 }
 
@@ -176,7 +176,7 @@ func ExampleLegacyMigration() {
 		RefreshExpiration: 7 * 24 * time.Hour,
 		ProviderConfig:    make(map[string]interface{}),
 	}
-	
+
 	// Legacy cache configuration
 	legacyCache := &CacheValidatorConfigCompat{
 		L1Size:             10000,
@@ -187,22 +187,22 @@ func ExampleLegacyMigration() {
 		CompressionLevel:   6,
 		MetricsEnabled:     true,
 	}
-	
+
 	// Migrate to unified configuration
 	factory := NewValidatorFactoryFromLegacy(legacyAuth, legacyCache, nil)
-	
+
 	ctx := context.Background()
 	validator, err := factory.CreateValidator(ctx)
 	if err != nil {
 		log.Fatal("Failed to create migrated validator:", err)
 	}
-	
+
 	fmt.Printf("Migrated validator: %v\n", validator)
-	
+
 	// Show that we can still extract legacy config
 	config := factory.GetConfiguration()
 	extractedAuth := ExtractLegacyAuthConfig(config)
-	
+
 	fmt.Printf("Extracted auth config enabled: %t\n", extractedAuth.Enabled)
 	fmt.Printf("Extracted auth config token expiration: %v\n", extractedAuth.TokenExpiration)
 }
@@ -213,42 +213,42 @@ func ExampleDependencyInjection() {
 		WithAuthenticationEnabled(true).
 		WithCacheEnabled(true).
 		Build()
-	
+
 	if err != nil {
 		log.Fatal("Failed to build configuration:", err)
 	}
-	
+
 	factory := NewValidatorFactory(config)
-	
+
 	// Add interceptor to monitor service creation
 	factory.AddInterceptor(&LoggingInterceptor{})
-	
+
 	ctx := context.Background()
-	
+
 	// Get core validator
 	coreValidator, err := factory.CreateCoreValidator(ctx)
 	if err != nil {
 		log.Fatal("Failed to create core validator:", err)
 	}
-	
+
 	fmt.Printf("Core validator: %v\n", coreValidator)
-	
+
 	// Get auth validator
 	authValidator, err := factory.CreateAuthValidator(ctx)
 	if err != nil {
 		log.Fatal("Failed to create auth validator:", err)
 	}
-	
+
 	fmt.Printf("Auth validator: %v\n", authValidator)
-	
+
 	// Get all validators
 	validators, err := factory.GetServicesByTag(ctx, "validator")
 	if err != nil {
 		log.Fatal("Failed to get validators:", err)
 	}
-	
+
 	fmt.Printf("Total validators: %d\n", len(validators))
-	
+
 	// Get service names
 	serviceNames := factory.GetServiceNames()
 	fmt.Printf("Available services: %v\n", serviceNames)

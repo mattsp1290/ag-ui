@@ -37,7 +37,7 @@ func (lm *LifecycleManager) backgroundCleanup(cleanupCallback func()) {
 		if atomic.LoadInt32(&lm.closed) != 0 {
 			return
 		}
-		
+
 		select {
 		case <-ticker.C:
 			// Double-check if we're closed before running cleanup

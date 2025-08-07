@@ -15,10 +15,10 @@ import (
 
 // TestToolParams represents typed parameters for test tool execution
 type TestToolParams struct {
-	Message string                 `json:"message"`
-	Count   int                    `json:"count,omitempty"`
-	Options []string              `json:"options,omitempty"`
-	Config  TestToolConfigParams  `json:"config,omitempty"`
+	Message string               `json:"message"`
+	Count   int                  `json:"count,omitempty"`
+	Options []string             `json:"options,omitempty"`
+	Config  TestToolConfigParams `json:"config,omitempty"`
 }
 
 // TestToolConfigParams represents configuration for test tools
@@ -51,8 +51,8 @@ type ComplexResultData struct {
 
 // ComplexNestedData represents nested data structure
 type ComplexNestedData struct {
-	Value string        `json:"value"`
-	Array []int         `json:"array"`
+	Value string `json:"value"`
+	Array []int  `json:"array"`
 }
 
 // StreamingChunkData represents data in OpenAI streaming chunks
@@ -62,8 +62,8 @@ type StreamingChunkData struct {
 
 // StreamingToolCall represents a tool call in streaming data
 type StreamingToolCall struct {
-	ID       string                  `json:"id,omitempty"`
-	Function StreamingFunctionCall  `json:"function"`
+	ID       string                `json:"id,omitempty"`
+	Function StreamingFunctionCall `json:"function"`
 }
 
 // StreamingFunctionCall represents function call data in streaming
@@ -366,7 +366,7 @@ func TestProviderConverter_ConvertOpenAIToolCall(t *testing.T) {
 		assert.Equal(t, "TestTool", name)
 		assert.Equal(t, "hello", args["message"])
 		assert.Equal(t, float64(5), args["count"])
-		
+
 		// Verify parameters can be safely converted to typed structure
 		var params OpenAIToolCallParams
 		paramBytes, _ := json.Marshal(args)
@@ -437,7 +437,7 @@ func TestProviderConverter_ConvertAnthropicToolUse(t *testing.T) {
 		assert.Equal(t, "TestTool", name)
 		assert.Equal(t, "hello", args["message"])
 		assert.Equal(t, 5, args["count"])
-		
+
 		// Verify parameters can be safely converted to typed structure
 		var params AnthropicToolUseParams
 		paramBytes, _ := json.Marshal(args)

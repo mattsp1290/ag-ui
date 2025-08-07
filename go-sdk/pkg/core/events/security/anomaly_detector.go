@@ -27,10 +27,10 @@ type AnomalyDetector struct {
 
 // CircularBuffer stores recent events for analysis
 type CircularBuffer struct {
-	events    []EventRecord
-	capacity  int
-	position  int
-	mutex     sync.RWMutex
+	events   []EventRecord
+	capacity int
+	position int
+	mutex    sync.RWMutex
 }
 
 // EventRecord stores event data for anomaly detection
@@ -50,11 +50,11 @@ type PatternAnalyzer struct {
 
 // Pattern represents an event pattern
 type Pattern struct {
-	Name       string
-	Count      int
-	LastSeen   time.Time
-	Frequency  float64
-	IsAnomaly  bool
+	Name      string
+	Count     int
+	LastSeen  time.Time
+	Frequency float64
+	IsAnomaly bool
 }
 
 // StatisticsCache caches statistical calculations
@@ -89,10 +89,10 @@ func (ad *AnomalyDetector) DetectAnomaly(event events.Event, context *events.Val
 	if !ad.config.EnableAnomalyDetection {
 		return nil
 	}
-	
+
 	ad.mutex.Lock()
 	defer ad.mutex.Unlock()
-	
+
 	// Record event
 	record := EventRecord{
 		Event:     event,
@@ -101,27 +101,27 @@ func (ad *AnomalyDetector) DetectAnomaly(event events.Event, context *events.Val
 		Size:      ad.calculateEventSize(event),
 	}
 	ad.eventHistory.Add(record)
-	
+
 	// Update patterns
 	ad.patternAnalyzer.UpdatePattern(event)
-	
+
 	// Check various anomaly types
 	if anomaly := ad.checkFrequencyAnomaly(event); anomaly != nil {
 		return anomaly
 	}
-	
+
 	if anomaly := ad.checkSizeAnomaly(record); anomaly != nil {
 		return anomaly
 	}
-	
+
 	if anomaly := ad.checkPatternAnomaly(event); anomaly != nil {
 		return anomaly
 	}
-	
+
 	if anomaly := ad.checkBurstAnomaly(); anomaly != nil {
 		return anomaly
 	}
-	
+
 	return nil
 }
 
@@ -129,41 +129,41 @@ func (ad *AnomalyDetector) DetectAnomaly(event events.Event, context *events.Val
 func (ad *AnomalyDetector) checkFrequencyAnomaly(event events.Event) *Anomaly {
 	recentEvents := ad.eventHistory.GetRecent(100)
 	eventTypeCount := 0
-	
+
 	for _, record := range recentEvents {
 		if record.Event != nil && record.Event.Type() == event.Type() {
 			eventTypeCount++
 		}
 	}
-	
+
 	// Calculate z-score
 	stats := ad.statisticsCache.GetStats()
 	if stats.stdDev > 0 {
 		zScore := math.Abs(float64(eventTypeCount)-stats.mean) / stats.stdDev
-		
+
 		if zScore > ad.config.AnomalyThreshold {
 			return &Anomaly{
 				Type:      "frequency_anomaly",
 				Score:     zScore,
 				Timestamp: time.Now(),
 				Details: map[string]interface{}{
-					"event_type":  event.Type(),
-					"count":       eventTypeCount,
-					"mean":        stats.mean,
-					"std_dev":     stats.stdDev,
-					"z_score":     zScore,
+					"event_type": event.Type(),
+					"count":      eventTypeCount,
+					"mean":       stats.mean,
+					"std_dev":    stats.stdDev,
+					"z_score":    zScore,
 				},
 			}
 		}
 	}
-	
+
 	return nil
 }
 
 // checkSizeAnomaly checks for unusual event sizes
 func (ad *AnomalyDetector) checkSizeAnomaly(record EventRecord) *Anomaly {
 	recentEvents := ad.eventHistory.GetRecent(100)
-	
+
 	// Calculate average size
 	totalSize := 0
 	count := 0
@@ -173,13 +173,13 @@ func (ad *AnomalyDetector) checkSizeAnomaly(record EventRecord) *Anomaly {
 			count++
 		}
 	}
-	
+
 	if count == 0 {
 		return nil
 	}
-	
+
 	avgSize := float64(totalSize) / float64(count)
-	
+
 	// Check if current size is anomalous
 	if float64(record.Size) > avgSize*3 {
 		return &Anomaly{
@@ -193,7 +193,7 @@ func (ad *AnomalyDetector) checkSizeAnomaly(record EventRecord) *Anomaly {
 			},
 		}
 	}
-	
+
 	return nil
 }
 
@@ -212,7 +212,7 @@ func (ad *AnomalyDetector) checkPatternAnomaly(event events.Event) *Anomaly {
 			},
 		}
 	}
-	
+
 	return nil
 }
 
@@ -222,21 +222,21 @@ func (ad *AnomalyDetector) checkBurstAnomaly() *Anomaly {
 	if len(recentEvents) < 10 {
 		return nil
 	}
-	
+
 	// Check time difference between events
 	timeDiffs := make([]float64, 0, len(recentEvents)-1)
 	for i := 1; i < len(recentEvents); i++ {
 		diff := recentEvents[i].Timestamp.Sub(recentEvents[i-1].Timestamp).Seconds()
 		timeDiffs = append(timeDiffs, diff)
 	}
-	
+
 	// Calculate average time difference
 	avgDiff := 0.0
 	for _, diff := range timeDiffs {
 		avgDiff += diff
 	}
 	avgDiff /= float64(len(timeDiffs))
-	
+
 	// Check for burst (very small time differences)
 	if avgDiff < 0.1 { // Less than 100ms average
 		return &Anomaly{
@@ -249,7 +249,7 @@ func (ad *AnomalyDetector) checkBurstAnomaly() *Anomaly {
 			},
 		}
 	}
-	
+
 	return nil
 }
 
@@ -257,7 +257,7 @@ func (ad *AnomalyDetector) checkBurstAnomaly() *Anomaly {
 func (ad *AnomalyDetector) UpdateConfig(config *SecurityConfig) {
 	ad.mutex.Lock()
 	defer ad.mutex.Unlock()
-	
+
 	ad.config = config
 	ad.patternAnalyzer.patternWindow = config.AnomalyWindowSize
 }
@@ -267,11 +267,11 @@ func (ad *AnomalyDetector) extractSource(context *events.ValidationContext) stri
 	if context == nil || context.Metadata == nil {
 		return "unknown"
 	}
-	
+
 	if source, ok := context.Metadata["source"].(string); ok {
 		return source
 	}
-	
+
 	return "unknown"
 }
 
@@ -295,7 +295,7 @@ func (ad *AnomalyDetector) calculateEventSize(event events.Event) int {
 func (cb *CircularBuffer) Add(record EventRecord) {
 	cb.mutex.Lock()
 	defer cb.mutex.Unlock()
-	
+
 	cb.events[cb.position] = record
 	cb.position = (cb.position + 1) % cb.capacity
 }
@@ -303,13 +303,13 @@ func (cb *CircularBuffer) Add(record EventRecord) {
 func (cb *CircularBuffer) GetRecent(count int) []EventRecord {
 	cb.mutex.RLock()
 	defer cb.mutex.RUnlock()
-	
+
 	if count > cb.capacity {
 		count = cb.capacity
 	}
-	
+
 	result := make([]EventRecord, 0, count)
-	
+
 	// Start from the most recent position and go backwards
 	for i := 0; i < count; i++ {
 		idx := (cb.position - 1 - i + cb.capacity) % cb.capacity
@@ -317,7 +317,7 @@ func (cb *CircularBuffer) GetRecent(count int) []EventRecord {
 			result = append(result, cb.events[idx])
 		}
 	}
-	
+
 	return result
 }
 
@@ -326,19 +326,19 @@ func (cb *CircularBuffer) GetRecent(count int) []EventRecord {
 func (pa *PatternAnalyzer) UpdatePattern(event events.Event) {
 	pa.mutex.Lock()
 	defer pa.mutex.Unlock()
-	
+
 	patternKey := string(event.Type())
-	
+
 	if pattern, exists := pa.patterns[patternKey]; exists {
 		pattern.Count++
 		pattern.LastSeen = time.Now()
-		
+
 		// Update frequency
 		elapsed := time.Since(pattern.LastSeen)
 		if elapsed.Minutes() > 0 {
 			pattern.Frequency = float64(pattern.Count) / elapsed.Minutes()
 		}
-		
+
 		// Simple anomaly detection - if frequency suddenly increases
 		if pattern.Frequency > 100 { // More than 100 per minute
 			pattern.IsAnomaly = true
@@ -352,7 +352,7 @@ func (pa *PatternAnalyzer) UpdatePattern(event events.Event) {
 			IsAnomaly: false,
 		}
 	}
-	
+
 	// Clean old patterns
 	pa.cleanOldPatterns()
 }
@@ -360,13 +360,13 @@ func (pa *PatternAnalyzer) UpdatePattern(event events.Event) {
 func (pa *PatternAnalyzer) GetPattern(key string) *Pattern {
 	pa.mutex.RLock()
 	defer pa.mutex.RUnlock()
-	
+
 	return pa.patterns[key]
 }
 
 func (pa *PatternAnalyzer) cleanOldPatterns() {
 	cutoff := time.Now().Add(-pa.patternWindow)
-	
+
 	for key, pattern := range pa.patterns {
 		if pattern.LastSeen.Before(cutoff) {
 			delete(pa.patterns, key)
@@ -384,15 +384,15 @@ type Statistics struct {
 func (sc *StatisticsCache) GetStats() Statistics {
 	sc.mutex.RLock()
 	defer sc.mutex.RUnlock()
-	
+
 	// Recalculate if cache is old
 	if time.Since(sc.lastCalculated) > sc.calculationWindow {
 		// In real implementation, recalculate from event history
-		sc.mean = 10.0    // Placeholder
-		sc.stdDev = 3.0   // Placeholder
+		sc.mean = 10.0  // Placeholder
+		sc.stdDev = 3.0 // Placeholder
 		sc.lastCalculated = time.Now()
 	}
-	
+
 	return Statistics{
 		mean:   sc.mean,
 		stdDev: sc.stdDev,

@@ -18,19 +18,19 @@ import (
 type BoundedMapConfig struct {
 	// MaxSize is the maximum number of entries (0 = unlimited)
 	MaxSize int `json:"max_size"`
-	
+
 	// TTL is the time-to-live for entries (0 = no TTL)
 	TTL time.Duration `json:"ttl"`
-	
+
 	// CleanupInterval is how often to run cleanup (default: TTL/4)
 	CleanupInterval time.Duration `json:"cleanup_interval"`
-	
+
 	// EvictionCallback is called when entries are evicted
 	EvictionCallback func(key, value interface{}, reason EvictionReason) `json:"-"`
-	
+
 	// EnableMetrics enables metrics collection
 	EnableMetrics bool `json:"enable_metrics"`
-	
+
 	// MetricsPrefix is the prefix for metrics names
 	MetricsPrefix string `json:"metrics_prefix"`
 }
@@ -41,10 +41,10 @@ type EvictionReason int
 const (
 	// EvictionReasonTTL indicates entry was evicted due to TTL expiry
 	EvictionReasonTTL EvictionReason = iota
-	
+
 	// EvictionReasonCapacity indicates entry was evicted due to capacity limit
 	EvictionReasonCapacity
-	
+
 	// EvictionReasonExplicit indicates entry was explicitly removed
 	EvictionReasonExplicit
 )
@@ -74,15 +74,15 @@ type boundedMapEntry struct {
 
 // BoundedMap is a thread-safe map with size limits, TTL, and LRU eviction
 type BoundedMap struct {
-	config      BoundedMapConfig
-	data        map[interface{}]*boundedMapEntry
-	accessList  *list.List // LRU list for access order
-	mu          sync.RWMutex
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	logger      *logrus.Logger
-	
+	config     BoundedMapConfig
+	data       map[interface{}]*boundedMapEntry
+	accessList *list.List // LRU list for access order
+	mu         sync.RWMutex
+	ctx        context.Context
+	cancel     context.CancelFunc
+	wg         sync.WaitGroup
+	logger     *logrus.Logger
+
 	// Metrics
 	metrics *boundedMapMetrics
 }
@@ -113,7 +113,7 @@ func NewBoundedMap(config BoundedMapConfig) *BoundedMap {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	bm := &BoundedMap{
 		config:     config,
 		data:       make(map[interface{}]*boundedMapEntry),
@@ -247,7 +247,7 @@ func (bm *BoundedMap) Set(key, value interface{}) {
 	defer bm.mu.Unlock()
 
 	now := time.Now()
-	
+
 	// Check if key already exists
 	if entry, exists := bm.data[key]; exists {
 		// Update existing entry
@@ -271,7 +271,7 @@ func (bm *BoundedMap) Set(key, value interface{}) {
 		value:      value,
 		accessTime: now,
 	}
-	
+
 	if bm.config.TTL > 0 {
 		entry.expiresAt = now.Add(bm.config.TTL)
 	}
@@ -334,9 +334,9 @@ func (bm *BoundedMap) GetStats() map[string]interface{} {
 	defer bm.mu.RUnlock()
 
 	stats := map[string]interface{}{
-		"size":          len(bm.data),
-		"max_size":      bm.config.MaxSize,
-		"ttl_seconds":   bm.config.TTL.Seconds(),
+		"size":                     len(bm.data),
+		"max_size":                 bm.config.MaxSize,
+		"ttl_seconds":              bm.config.TTL.Seconds(),
 		"cleanup_interval_seconds": bm.config.CleanupInterval.Seconds(),
 	}
 
@@ -366,7 +366,7 @@ func (bm *BoundedMap) Close() error {
 func (bm *BoundedMap) removeEntryUnsafe(key interface{}, entry *boundedMapEntry, reason EvictionReason) {
 	// Remove from data map
 	delete(bm.data, key)
-	
+
 	// Remove from LRU list
 	bm.accessList.Remove(entry.listElem)
 
@@ -380,7 +380,7 @@ func (bm *BoundedMap) removeEntryUnsafe(key interface{}, entry *boundedMapEntry,
 		bm.metrics.entries.Add(bm.ctx, -1)
 		bm.metrics.evictions.Add(bm.ctx, 1,
 			metric.WithAttributes(attribute.String("reason", reason.String())))
-		
+
 		switch reason {
 		case EvictionReasonTTL:
 			bm.metrics.ttlEvictions.Add(bm.ctx, 1)
@@ -430,7 +430,7 @@ func (bm *BoundedMap) cleanupExpired() {
 	}
 
 	start := time.Now()
-	
+
 	bm.mu.Lock()
 	defer bm.mu.Unlock()
 

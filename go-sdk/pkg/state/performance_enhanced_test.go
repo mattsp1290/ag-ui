@@ -409,7 +409,7 @@ func testHighConcurrency(t *testing.T) {
 	for range errors {
 		errorCount++
 	}
-	
+
 	// Allow up to 50% errors in high concurrency scenarios due to timeouts
 	maxErrors := (numGoroutines * numOpsPerGoroutine) / 2
 	if errorCount > maxErrors {

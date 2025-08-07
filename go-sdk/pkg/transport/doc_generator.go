@@ -24,92 +24,92 @@ type DocumentationGenerator struct {
 type DocConfig struct {
 	// OutputDir is where documentation files will be written
 	OutputDir string
-	
+
 	// Format specifies the output format (markdown, html, json)
 	Format string
-	
+
 	// IncludeExamples includes code examples in documentation
 	IncludeExamples bool
-	
+
 	// IncludeDeprecated includes deprecated items with warnings
 	IncludeDeprecated bool
-	
+
 	// GenerateIndex creates an index file
 	GenerateIndex bool
-	
+
 	// CustomTemplates allows custom documentation templates
 	CustomTemplates map[string]string
 }
 
 // APIDocumentation represents the complete API documentation
 type APIDocumentation struct {
-	PackageName   string                   `json:"package_name"`
-	Synopsis      string                   `json:"synopsis"`
-	Description   string                   `json:"description"`
-	Interfaces    []InterfaceDoc          `json:"interfaces"`
-	Types         []TypeDoc               `json:"types"`
-	Functions     []FunctionDoc           `json:"functions"`
-	Examples      []ExampleDoc            `json:"examples"`
-	Deprecations  []DeprecationDoc        `json:"deprecations"`
-	GeneratedAt   time.Time               `json:"generated_at"`
-	Version       string                  `json:"version"`
+	PackageName  string           `json:"package_name"`
+	Synopsis     string           `json:"synopsis"`
+	Description  string           `json:"description"`
+	Interfaces   []InterfaceDoc   `json:"interfaces"`
+	Types        []TypeDoc        `json:"types"`
+	Functions    []FunctionDoc    `json:"functions"`
+	Examples     []ExampleDoc     `json:"examples"`
+	Deprecations []DeprecationDoc `json:"deprecations"`
+	GeneratedAt  time.Time        `json:"generated_at"`
+	Version      string           `json:"version"`
 }
 
 // InterfaceDoc documents an interface
 type InterfaceDoc struct {
-	Name         string        `json:"name"`
-	Description  string        `json:"description"`
-	Methods      []MethodDoc   `json:"methods"`
-	Examples     []ExampleDoc  `json:"examples"`
-	Embeds       []string      `json:"embeds"`
-	Implementations []string   `json:"implementations"`
-	IsDeprecated bool          `json:"is_deprecated"`
+	Name            string          `json:"name"`
+	Description     string          `json:"description"`
+	Methods         []MethodDoc     `json:"methods"`
+	Examples        []ExampleDoc    `json:"examples"`
+	Embeds          []string        `json:"embeds"`
+	Implementations []string        `json:"implementations"`
+	IsDeprecated    bool            `json:"is_deprecated"`
 	DeprecationInfo *DeprecationDoc `json:"deprecation_info,omitempty"`
 }
 
 // MethodDoc documents a method
 type MethodDoc struct {
-	Name        string       `json:"name"`
-	Description string       `json:"description"`
-	Signature   string       `json:"signature"`
-	Parameters  []ParamDoc   `json:"parameters"`
-	Returns     []ReturnDoc  `json:"returns"`
-	Examples    []ExampleDoc `json:"examples"`
-	IsDeprecated bool        `json:"is_deprecated"`
+	Name            string          `json:"name"`
+	Description     string          `json:"description"`
+	Signature       string          `json:"signature"`
+	Parameters      []ParamDoc      `json:"parameters"`
+	Returns         []ReturnDoc     `json:"returns"`
+	Examples        []ExampleDoc    `json:"examples"`
+	IsDeprecated    bool            `json:"is_deprecated"`
 	DeprecationInfo *DeprecationDoc `json:"deprecation_info,omitempty"`
 }
 
 // TypeDoc documents a type
 type TypeDoc struct {
-	Name        string        `json:"name"`
-	Description string        `json:"description"`
-	Kind        string        `json:"kind"` // struct, interface, alias, etc.
-	Fields      []FieldDoc    `json:"fields,omitempty"`
-	Methods     []MethodDoc   `json:"methods,omitempty"`
-	Examples    []ExampleDoc  `json:"examples"`
-	IsDeprecated bool         `json:"is_deprecated"`
+	Name            string          `json:"name"`
+	Description     string          `json:"description"`
+	Kind            string          `json:"kind"` // struct, interface, alias, etc.
+	Fields          []FieldDoc      `json:"fields,omitempty"`
+	Methods         []MethodDoc     `json:"methods,omitempty"`
+	Examples        []ExampleDoc    `json:"examples"`
+	IsDeprecated    bool            `json:"is_deprecated"`
 	DeprecationInfo *DeprecationDoc `json:"deprecation_info,omitempty"`
 }
 
 // FunctionDoc documents a function
 type FunctionDoc struct {
-	Name        string       `json:"name"`
-	Description string       `json:"description"`
-	Signature   string       `json:"signature"`
-	Parameters  []ParamDoc   `json:"parameters"`
-	Returns     []ReturnDoc  `json:"returns"`
-	Examples    []ExampleDoc `json:"examples"`
-	IsDeprecated bool        `json:"is_deprecated"`
+	Name            string          `json:"name"`
+	Description     string          `json:"description"`
+	Signature       string          `json:"signature"`
+	Parameters      []ParamDoc      `json:"parameters"`
+	Returns         []ReturnDoc     `json:"returns"`
+	Examples        []ExampleDoc    `json:"examples"`
+	IsDeprecated    bool            `json:"is_deprecated"`
 	DeprecationInfo *DeprecationDoc `json:"deprecation_info,omitempty"`
 }
 
 // FieldDoc documents a struct field
 type FieldDoc struct {
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	Description string `json:"description"`
-	Tags        string `json:"tags,omitempty"`
-	IsDeprecated bool  `json:"is_deprecated"`
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	Description  string `json:"description"`
+	Tags         string `json:"tags,omitempty"`
+	IsDeprecated bool   `json:"is_deprecated"`
 }
 
 // ParamDoc documents a parameter
@@ -183,18 +183,18 @@ func (dg *DocumentationGenerator) GenerateDocumentation(sourceDir string) (*APID
 
 	// Generate interface documentation
 	apiDoc.Interfaces = dg.generateInterfaceDoc(transportPkg)
-	
+
 	// Generate type documentation
 	apiDoc.Types = dg.generateTypeDoc(transportPkg)
-	
+
 	// Generate function documentation
 	apiDoc.Functions = dg.generateFunctionDoc(transportPkg)
-	
+
 	// Extract examples
 	if dg.config.IncludeExamples {
 		apiDoc.Examples = dg.extractExamples(transportPkg)
 	}
-	
+
 	// Extract deprecations
 	if dg.config.IncludeDeprecated {
 		apiDoc.Deprecations = dg.extractDeprecations(transportPkg)
@@ -352,7 +352,7 @@ func (dg *DocumentationGenerator) generateFunctionDoc(pkg *doc.Package) []Functi
 func (dg *DocumentationGenerator) isInterface(t *doc.Type) bool {
 	// Check if the type declaration contains "interface"
 	return strings.Contains(t.Decl.Tok.String(), "interface") ||
-		   strings.Contains(strings.ToLower(t.Doc), "interface")
+		strings.Contains(strings.ToLower(t.Doc), "interface")
 }
 
 func (dg *DocumentationGenerator) isDeprecated(docString string) bool {
@@ -371,7 +371,7 @@ func (dg *DocumentationGenerator) parseDeprecation(docString string) *Deprecatio
 			}
 
 			content := strings.TrimSpace(parts[1])
-			
+
 			// Extract removal date
 			var removalDate time.Time
 			if strings.Contains(content, "will be removed on") {
@@ -415,7 +415,7 @@ func (dg *DocumentationGenerator) extractMethods(t *doc.Type) []MethodDoc {
 func (dg *DocumentationGenerator) extractTypeExamples(t *doc.Type) []ExampleDoc {
 	// Extract examples from documentation comments
 	var examples []ExampleDoc
-	
+
 	lines := strings.Split(t.Doc, "\n")
 	inExample := false
 	var currentExample strings.Builder
@@ -427,7 +427,7 @@ func (dg *DocumentationGenerator) extractTypeExamples(t *doc.Type) []ExampleDoc 
 			exampleName = "Basic Usage"
 			continue
 		}
-		
+
 		if inExample {
 			if strings.TrimSpace(line) == "" && currentExample.Len() > 0 {
 				// End of example
@@ -560,7 +560,7 @@ func (dg *DocumentationGenerator) writeMarkdownDocumentation(apiDoc *APIDocument
 	// Write header
 	content.WriteString(fmt.Sprintf("# %s Package Documentation\n\n", apiDoc.PackageName))
 	content.WriteString(fmt.Sprintf("Generated on: %s\n\n", apiDoc.GeneratedAt.Format("2006-01-02 15:04:05")))
-	
+
 	if apiDoc.Synopsis != "" {
 		content.WriteString(fmt.Sprintf("## Synopsis\n\n%s\n\n", apiDoc.Synopsis))
 	}
@@ -582,13 +582,13 @@ func (dg *DocumentationGenerator) writeMarkdownDocumentation(apiDoc *APIDocument
 						content.WriteString(fmt.Sprintf("- **Alternative**: %s\n", iface.DeprecationInfo.Alternative))
 					}
 					if !iface.DeprecationInfo.RemovalDate.IsZero() {
-						content.WriteString(fmt.Sprintf("- **Removal Date**: %s\n", 
+						content.WriteString(fmt.Sprintf("- **Removal Date**: %s\n",
 							iface.DeprecationInfo.RemovalDate.Format("2006-01-02")))
 					}
 					content.WriteString("\n")
 				}
 			}
-			
+
 			if iface.Description != "" {
 				content.WriteString(fmt.Sprintf("%s\n\n", iface.Description))
 			}
@@ -655,7 +655,7 @@ func ExampleDocumentationGeneration() {
 	}
 
 	generator := NewDocumentationGenerator(config)
-	
+
 	// Generate documentation
 	apiDoc, err := generator.GenerateDocumentation("./pkg/transport")
 	if err != nil {

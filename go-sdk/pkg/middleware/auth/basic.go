@@ -13,12 +13,12 @@ import (
 
 // BasicAuthProvider implements basic HTTP authentication
 type BasicAuthProvider struct {
-	config      *BasicAuthConfig
-	cache       TokenCache
-	auditor     AuditLogger
-	userStore   UserStore
-	mu          sync.RWMutex
-	users       map[string]*UserInfo
+	config    *BasicAuthConfig
+	cache     TokenCache
+	auditor   AuditLogger
+	userStore UserStore
+	mu        sync.RWMutex
+	users     map[string]*UserInfo
 }
 
 // UserInfo represents user information for basic authentication
@@ -43,16 +43,16 @@ type UserInfo struct {
 type UserStore interface {
 	// GetUser retrieves user by username
 	GetUser(ctx context.Context, username string) (*UserInfo, error)
-	
+
 	// UpdateUser updates user information
 	UpdateUser(ctx context.Context, user *UserInfo) error
-	
+
 	// CreateUser creates a new user
 	CreateUser(ctx context.Context, user *UserInfo) error
-	
+
 	// DeleteUser deletes a user
 	DeleteUser(ctx context.Context, username string) error
-	
+
 	// ListUsers lists all users
 	ListUsers(ctx context.Context) ([]*UserInfo, error)
 }
@@ -74,11 +74,11 @@ func NewMemoryUserStore() *MemoryUserStore {
 func (m *MemoryUserStore) GetUser(ctx context.Context, username string) (*UserInfo, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	if user, exists := m.users[username]; exists {
 		return user, nil
 	}
-	
+
 	return nil, fmt.Errorf("user not found: %s", username)
 }
 
@@ -86,7 +86,7 @@ func (m *MemoryUserStore) GetUser(ctx context.Context, username string) (*UserIn
 func (m *MemoryUserStore) UpdateUser(ctx context.Context, user *UserInfo) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	m.users[user.Username] = user
 	return nil
 }
@@ -95,11 +95,11 @@ func (m *MemoryUserStore) UpdateUser(ctx context.Context, user *UserInfo) error 
 func (m *MemoryUserStore) CreateUser(ctx context.Context, user *UserInfo) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if _, exists := m.users[user.Username]; exists {
 		return fmt.Errorf("user already exists: %s", user.Username)
 	}
-	
+
 	user.CreatedAt = time.Now()
 	user.Active = true
 	m.users[user.Username] = user
@@ -110,7 +110,7 @@ func (m *MemoryUserStore) CreateUser(ctx context.Context, user *UserInfo) error 
 func (m *MemoryUserStore) DeleteUser(ctx context.Context, username string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	delete(m.users, username)
 	return nil
 }
@@ -119,12 +119,12 @@ func (m *MemoryUserStore) DeleteUser(ctx context.Context, username string) error
 func (m *MemoryUserStore) ListUsers(ctx context.Context) ([]*UserInfo, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	users := make([]*UserInfo, 0, len(m.users))
 	for _, user := range m.users {
 		users = append(users, user)
 	}
-	
+
 	return users, nil
 }
 
@@ -212,12 +212,12 @@ func (b *BasicAuthProvider) Authenticate(ctx context.Context, credentials *Crede
 	if err := b.validatePassword(credentials.Password, user.PasswordHash); err != nil {
 		// Increment failed login counter
 		user.FailedLogins++
-		
+
 		// Lock account if too many failed attempts
 		if user.FailedLogins >= 5 {
 			user.LockedUntil = time.Now().Add(30 * time.Minute)
 		}
-		
+
 		_ = b.userStore.UpdateUser(ctx, user)
 
 		if b.auditor != nil {
@@ -375,7 +375,6 @@ func (b *BasicAuthProvider) hashPassword(password string) (string, error) {
 		return password, nil
 	}
 }
-
 
 // BasicAuthMiddleware implements basic authentication middleware
 type BasicAuthMiddleware struct {

@@ -24,13 +24,13 @@ func TestGoroutineManagement(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping goroutine management test in short mode")
 	}
-	
+
 	// Skip when race detection is likely enabled (CI environments)
 	// Race detection significantly changes goroutine timing and can cause flaky results
 	if os.Getenv("CI") == "true" {
 		t.Skip("Skipping goroutine management test in CI environment due to race detection sensitivity")
 	}
-	
+
 	const goroutineTolerance = 5
 
 	testCases := []struct {
@@ -59,7 +59,7 @@ func TestGoroutineManagement(t *testing.T) {
 
 			leaked := final - initial
 			if leaked > goroutineTolerance {
-				t.Errorf("Goroutine leak detected: initial=%d, final=%d, leaked=%d (tolerance=%d)", 
+				t.Errorf("Goroutine leak detected: initial=%d, final=%d, leaked=%d (tolerance=%d)",
 					initial, final, leaked, goroutineTolerance)
 			}
 		})
@@ -263,13 +263,13 @@ func TestGoroutineLeakDetection(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping goroutine leak detection in short mode")
 	}
-	
+
 	// Skip when race detection is enabled - race detection changes timing and goroutine behavior
 	// making leak detection unreliable and flaky
 	if os.Getenv("CI") == "true" {
 		t.Skip("Skipping goroutine leak detection in CI environment due to race detection sensitivity")
 	}
-	
+
 	// Detect if running with race detection using a build constraint approach
 	// When race detection is enabled, goroutine leak detection becomes unreliable
 	// This is a more reliable method to detect race detector
@@ -291,7 +291,7 @@ func TestGoroutineLeakDetection(t *testing.T) {
 			raceEnabled = true
 		}
 	}()
-	
+
 	if raceEnabled {
 		t.Skip("Skipping goroutine leak detection - race detector changes goroutine behavior")
 	}

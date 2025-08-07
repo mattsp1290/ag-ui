@@ -36,11 +36,11 @@ type UserWithAddressParams struct {
 
 // ComplexUserParams represents complex user structure
 type ComplexUserParams struct {
-	Name        string            `json:"name"`
-	Email       string            `json:"email"`
-	Age         int               `json:"age,omitempty"`
-	Roles       []string          `json:"roles,omitempty"`
-	Preferences UserPreferences   `json:"preferences,omitempty"`
+	Name        string          `json:"name"`
+	Email       string          `json:"email"`
+	Age         int             `json:"age,omitempty"`
+	Roles       []string        `json:"roles,omitempty"`
+	Preferences UserPreferences `json:"preferences,omitempty"`
 }
 
 // UserPreferences represents user preferences
@@ -51,9 +51,9 @@ type UserPreferences struct {
 
 // ArrayTestParams represents array test parameters
 type ArrayTestParams struct {
-	Tags    []string `json:"tags,omitempty"`
-	Items   []string `json:"items,omitempty"`
-	Numbers []int    `json:"numbers,omitempty"`
+	Tags    []string            `json:"tags,omitempty"`
+	Items   []string            `json:"items,omitempty"`
+	Numbers []int               `json:"numbers,omitempty"`
 	Users   []ComplexUserParams `json:"users,omitempty"`
 }
 
@@ -1969,7 +1969,7 @@ func TestSchemaValidator_TypeCoercion(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			validator := tools.NewSchemaValidator(tt.schema)
 			validator.SetCoercionEnabled(true)
-			
+
 			result := validator.ValidateWithResult(tt.params)
 			if tt.wantErr {
 				assert.False(t, result.Valid)
@@ -2028,10 +2028,10 @@ func TestSchemaValidator_CustomFormats(t *testing.T) {
 
 func TestSchemaValidator_EnhancedFormats(t *testing.T) {
 	tests := []struct {
-		name    string
-		format  string
-		value   string
-		valid   bool
+		name   string
+		format string
+		value  string
+		valid  bool
 	}{
 		// Enhanced email validation
 		{
@@ -2139,22 +2139,22 @@ func TestSchemaValidator_ValidationCache(t *testing.T) {
 			"name": {Type: "string"},
 		},
 	}
-	
+
 	validator := tools.NewSchemaValidator(schema)
 	params := map[string]interface{}{"name": "test"}
-	
+
 	// First validation
 	result1 := validator.ValidateWithResult(params)
 	assert.True(t, result1.Valid)
-	
+
 	// Second validation should use cache
 	result2 := validator.ValidateWithResult(params)
 	assert.True(t, result2.Valid)
 	assert.Equal(t, result1.Data, result2.Data)
-	
+
 	// Clear cache
 	validator.ClearCache()
-	
+
 	// Third validation should work after cache clear
 	result3 := validator.ValidateWithResult(params)
 	assert.True(t, result3.Valid)
@@ -2167,19 +2167,19 @@ func TestSchemaValidator_AdvancedOptions(t *testing.T) {
 			"age": {Type: "number"},
 		},
 	}
-	
+
 	opts := &tools.ValidatorOptions{
 		CoercionEnabled: false,
 		Debug:           true,
 		CacheSize:       100,
 	}
-	
+
 	validator := tools.NewAdvancedSchemaValidator(schema, opts)
-	
+
 	// Without coercion, string should fail for number type
 	result := validator.ValidateWithResult(map[string]interface{}{"age": "25"})
 	assert.False(t, result.Valid)
-	
+
 	// Enable coercion
 	validator.SetCoercionEnabled(true)
 	result = validator.ValidateWithResult(map[string]interface{}{"age": "25"})
@@ -2209,7 +2209,7 @@ func TestSchemaValidator_ComplexComposition(t *testing.T) {
 			},
 		},
 	}
-	
+
 	tests := []struct {
 		name    string
 		params  map[string]interface{}
@@ -2236,7 +2236,7 @@ func TestSchemaValidator_ComplexComposition(t *testing.T) {
 			wantErr: true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			validator := tools.NewSchemaValidator(schema)
@@ -2262,10 +2262,10 @@ func TestValidationResult_ErrorCodes(t *testing.T) {
 			},
 		},
 	}
-	
+
 	validator := tools.NewSchemaValidator(schema)
 	result := validator.ValidateWithResult(map[string]interface{}{"value": true})
-	
+
 	assert.False(t, result.Valid)
 	assert.Len(t, result.Errors, 1)
 	assert.Contains(t, result.Errors[0].Code, "ONEOF")

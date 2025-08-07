@@ -3,7 +3,7 @@ package protobuf
 import (
 	"context"
 	"sync"
-	
+
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
@@ -46,21 +46,21 @@ func RegisterTo(registry *encoding.FormatRegistry) error {
 	if registry == nil {
 		return errors.NewEncodingError("PROTOBUF_NIL_REGISTRY", "registry cannot be nil").WithOperation("register")
 	}
-	
+
 	// Register Protobuf format info
 	formatInfo := encoding.ProtobufFormatInfo()
 	if err := registry.RegisterFormat(formatInfo); err != nil {
 		return errors.NewEncodingError("PROTOBUF_FORMAT_REGISTRATION_FAILED", "failed to register Protobuf format").WithOperation("register").WithCause(err)
 	}
-	
+
 	// Create factory
 	factory := &protobufCodecFactory{}
-	
+
 	// Register the codec factory
 	if err := registry.RegisterCodec("application/x-protobuf", factory); err != nil {
 		return errors.NewEncodingError("PROTOBUF_CODEC_REGISTRATION_FAILED", "failed to register Protobuf codec").WithOperation("register").WithCause(err)
 	}
-	
+
 	return nil
 }
 

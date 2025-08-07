@@ -32,7 +32,7 @@
 //
 //	// Using the global registry
 //	registry := encoding.GetGlobalRegistry()
-//	
+//
 //	// Get an encoder by MIME type
 //	encoder, err := registry.GetEncoder("application/json", nil)
 //	if err != nil {
@@ -64,7 +64,7 @@
 //		BinaryEfficient: true,
 //		SchemaValidation: true,
 //	}
-//	
+//
 //	format, err := registry.SelectFormat(
 //		[]string{"application/json", "application/x-protobuf"},
 //		required,
@@ -77,7 +77,7 @@
 //	info := encoding.NewFormatInfo("Custom", "application/x-custom")
 //	info.Capabilities = encoding.BinaryFormatCapabilities()
 //	registry.RegisterFormat(info)
-//	
+//
 //	// Register codec factory
 //	factory := &customCodecFactory{}
 //	registry.RegisterCodec("application/x-custom", factory)

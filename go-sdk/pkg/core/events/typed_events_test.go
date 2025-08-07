@@ -68,8 +68,8 @@ func TestTypedEventDataInterface(t *testing.T) {
 	messagesSnapshotData := MessagesSnapshotEventData{
 		Messages: []Message{
 			{
-				ID:   "msg-1",
-				Role: "user",
+				ID:      "msg-1",
+				Role:    "user",
 				Content: stringPtrTyped("Hello"),
 			},
 		},
@@ -339,4 +339,3 @@ func TestEventDataTypePointerVsValueReceivers(t *testing.T) {
 		t.Error("FromMap should have set Delta correctly")
 	}
 }
-

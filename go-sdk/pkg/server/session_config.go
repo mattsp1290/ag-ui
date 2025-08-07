@@ -41,13 +41,13 @@ type SessionConfig struct {
 
 // RedisSessionConfig configures Redis session storage with plain credentials
 type RedisSessionConfig struct {
-	Address     string `json:"address" yaml:"address"`
-	Password    string `json:"password" yaml:"password"` // Plain password (less secure)
-	DB          int    `json:"db" yaml:"db"`
-	KeyPrefix   string `json:"key_prefix" yaml:"key_prefix"`
-	PoolSize    int    `json:"pool_size" yaml:"pool_size"`
-	MaxRetries  int    `json:"max_retries" yaml:"max_retries"`
-	EnableTLS   bool   `json:"enable_tls" yaml:"enable_tls"`
+	Address    string `json:"address" yaml:"address"`
+	Password   string `json:"password" yaml:"password"` // Plain password (less secure)
+	DB         int    `json:"db" yaml:"db"`
+	KeyPrefix  string `json:"key_prefix" yaml:"key_prefix"`
+	PoolSize   int    `json:"pool_size" yaml:"pool_size"`
+	MaxRetries int    `json:"max_retries" yaml:"max_retries"`
+	EnableTLS  bool   `json:"enable_tls" yaml:"enable_tls"`
 }
 
 // SecureRedisSessionConfig configures Redis session storage with secure credential handling

@@ -5,7 +5,7 @@ package server
 // - session_manager.go: Core session management logic
 // - session_config.go: Configuration types and validation
 // - session_memory.go: Memory storage implementation
-// - session_redis.go: Redis storage implementation  
+// - session_redis.go: Redis storage implementation
 // - session_database.go: Database storage implementation
 // - session_middleware.go: HTTP middleware and cookie handling
 // - session_services.go: Background services and utilities
@@ -15,7 +15,7 @@ package server
 
 // Core session types are defined in session_manager.go
 // - Session struct
-// - SessionManager struct  
+// - SessionManager struct
 // - SessionMetrics struct
 // - SessionStorage interface
 

@@ -78,15 +78,15 @@ const (
 type ConditionOperator string
 
 const (
-	OperatorEquals       ConditionOperator = "EQUALS"
-	OperatorNotEquals    ConditionOperator = "NOT_EQUALS"
-	OperatorContains     ConditionOperator = "CONTAINS"
-	OperatorNotContains  ConditionOperator = "NOT_CONTAINS"
-	OperatorGreaterThan  ConditionOperator = "GREATER_THAN"
-	OperatorLessThan     ConditionOperator = "LESS_THAN"
-	OperatorMatches      ConditionOperator = "MATCHES"
-	OperatorIn           ConditionOperator = "IN"
-	OperatorNotIn        ConditionOperator = "NOT_IN"
+	OperatorEquals      ConditionOperator = "EQUALS"
+	OperatorNotEquals   ConditionOperator = "NOT_EQUALS"
+	OperatorContains    ConditionOperator = "CONTAINS"
+	OperatorNotContains ConditionOperator = "NOT_CONTAINS"
+	OperatorGreaterThan ConditionOperator = "GREATER_THAN"
+	OperatorLessThan    ConditionOperator = "LESS_THAN"
+	OperatorMatches     ConditionOperator = "MATCHES"
+	OperatorIn          ConditionOperator = "IN"
+	OperatorNotIn       ConditionOperator = "NOT_IN"
 )
 
 // PolicyManager manages security policies
@@ -99,11 +99,11 @@ type PolicyManager struct {
 
 // PolicyEvaluationResult represents the result of policy evaluation
 type PolicyEvaluationResult struct {
-	PolicyID    string
-	PolicyName  string
-	Matched     bool
-	Actions     []PolicyActionConfig
-	Timestamp   time.Time
+	PolicyID   string
+	PolicyName string
+	Matched    bool
+	Actions    []PolicyActionConfig
+	Timestamp  time.Time
 }
 
 // NewPolicyManager creates a new policy manager
@@ -124,24 +124,24 @@ func NewPolicyManager() *PolicyManager {
 func (pm *PolicyManager) AddPolicy(policy *SecurityPolicy) error {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
-	
+
 	if policy.ID == "" {
 		return fmt.Errorf("policy ID is required")
 	}
-	
+
 	if _, exists := pm.policies[policy.ID]; exists {
 		return fmt.Errorf("policy with ID %s already exists", policy.ID)
 	}
-	
+
 	policy.CreatedAt = time.Now()
 	policy.UpdatedAt = time.Now()
-	
+
 	pm.policies[policy.ID] = policy
 	pm.policyByScope[policy.Scope] = append(pm.policyByScope[policy.Scope], policy)
-	
+
 	// Sort policies by priority
 	pm.sortPoliciesByPriority(policy.Scope)
-	
+
 	return nil
 }
 
@@ -149,20 +149,20 @@ func (pm *PolicyManager) AddPolicy(policy *SecurityPolicy) error {
 func (pm *PolicyManager) UpdatePolicy(policy *SecurityPolicy) error {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
-	
+
 	existing, exists := pm.policies[policy.ID]
 	if !exists {
 		return fmt.Errorf("policy with ID %s not found", policy.ID)
 	}
-	
+
 	policy.CreatedAt = existing.CreatedAt
 	policy.UpdatedAt = time.Now()
-	
+
 	pm.policies[policy.ID] = policy
-	
+
 	// Rebuild scope index
 	pm.rebuildScopeIndex()
-	
+
 	return nil
 }
 
@@ -170,14 +170,14 @@ func (pm *PolicyManager) UpdatePolicy(policy *SecurityPolicy) error {
 func (pm *PolicyManager) RemovePolicy(policyID string) error {
 	pm.mutex.Lock()
 	defer pm.mutex.Unlock()
-	
+
 	if _, exists := pm.policies[policyID]; !exists {
 		return fmt.Errorf("policy with ID %s not found", policyID)
 	}
-	
+
 	delete(pm.policies, policyID)
 	pm.rebuildScopeIndex()
-	
+
 	return nil
 }
 
@@ -185,25 +185,25 @@ func (pm *PolicyManager) RemovePolicy(policyID string) error {
 func (pm *PolicyManager) EvaluatePolicies(event events.Event, context *SecurityContext) ([]*PolicyEvaluationResult, error) {
 	pm.mutex.RLock()
 	defer pm.mutex.RUnlock()
-	
+
 	var results []*PolicyEvaluationResult
-	
+
 	// Evaluate global policies
 	globalResults := pm.evaluatePoliciesByScope(PolicyScopeGlobal, event, context)
 	results = append(results, globalResults...)
-	
+
 	// Evaluate event type specific policies
 	eventTypeResults := pm.evaluatePoliciesByScope(PolicyScopeEventType, event, context)
 	results = append(results, eventTypeResults...)
-	
+
 	// Evaluate source specific policies
 	sourceResults := pm.evaluatePoliciesByScope(PolicyScopeSource, event, context)
 	results = append(results, sourceResults...)
-	
+
 	// Evaluate content specific policies
 	contentResults := pm.evaluatePoliciesByScope(PolicyScopeContent, event, context)
 	results = append(results, contentResults...)
-	
+
 	return results, nil
 }
 
@@ -213,14 +213,14 @@ func (pm *PolicyManager) evaluatePoliciesByScope(scope PolicyScope, event events
 	if !exists {
 		return nil
 	}
-	
+
 	var results []*PolicyEvaluationResult
-	
+
 	for _, policy := range policies {
 		if !policy.Enabled {
 			continue
 		}
-		
+
 		if pm.evaluatePolicy(policy, event, context) {
 			result := &PolicyEvaluationResult{
 				PolicyID:   policy.ID,
@@ -232,7 +232,7 @@ func (pm *PolicyManager) evaluatePoliciesByScope(scope PolicyScope, event events
 			results = append(results, result)
 		}
 	}
-	
+
 	return results
 }
 
@@ -271,7 +271,7 @@ func (pm *PolicyManager) evaluateCondition(condition PolicyCondition, event even
 // evaluateEventTypeCondition evaluates event type conditions
 func (pm *PolicyManager) evaluateEventTypeCondition(condition PolicyCondition, event events.Event) bool {
 	eventType := string(event.Type())
-	
+
 	switch condition.Operator {
 	case OperatorEquals:
 		return eventType == condition.Value.(string)
@@ -307,7 +307,7 @@ func (pm *PolicyManager) evaluateEventTypeCondition(condition PolicyCondition, e
 // evaluateContentCondition evaluates content conditions
 func (pm *PolicyManager) evaluateContentCondition(condition PolicyCondition, event events.Event, context *SecurityContext) bool {
 	content := context.ExtractedContent
-	
+
 	switch condition.Operator {
 	case OperatorContains:
 		pattern, ok := condition.Value.(string)
@@ -339,7 +339,7 @@ func (pm *PolicyManager) evaluateRateCondition(condition PolicyCondition, event 
 	if !ok {
 		return false
 	}
-	
+
 	switch condition.Operator {
 	case OperatorGreaterThan:
 		return currentRate > threshold
@@ -353,21 +353,21 @@ func (pm *PolicyManager) evaluateRateCondition(condition PolicyCondition, event 
 // evaluateTimeCondition evaluates time-based conditions
 func (pm *PolicyManager) evaluateTimeCondition(condition PolicyCondition) bool {
 	now := time.Now()
-	
+
 	params, ok := condition.Parameters["time_window"].(map[string]interface{})
 	if !ok {
 		return false
 	}
-	
+
 	startHour, _ := params["start_hour"].(int)
 	endHour, _ := params["end_hour"].(int)
-	
+
 	currentHour := now.Hour()
-	
+
 	if startHour <= endHour {
 		return currentHour >= startHour && currentHour <= endHour
 	}
-	
+
 	// Handle overnight windows (e.g., 22:00 - 06:00)
 	return currentHour >= startHour || currentHour <= endHour
 }
@@ -375,7 +375,7 @@ func (pm *PolicyManager) evaluateTimeCondition(condition PolicyCondition) bool {
 // evaluateSourceCondition evaluates source conditions
 func (pm *PolicyManager) evaluateSourceCondition(condition PolicyCondition, context *SecurityContext) bool {
 	source := context.Source
-	
+
 	switch condition.Operator {
 	case OperatorEquals:
 		return source == condition.Value.(string)
@@ -402,7 +402,7 @@ func (pm *PolicyManager) evaluateThreatScoreCondition(condition PolicyCondition,
 	if !ok {
 		return false
 	}
-	
+
 	switch condition.Operator {
 	case OperatorGreaterThan:
 		return score > threshold
@@ -417,12 +417,12 @@ func (pm *PolicyManager) evaluateThreatScoreCondition(condition PolicyCondition,
 func (pm *PolicyManager) evaluateContentLengthCondition(condition PolicyCondition, event events.Event) bool {
 	content := extractEventContent(event)
 	length := len(content)
-	
+
 	threshold, ok := condition.Value.(int)
 	if !ok {
 		return false
 	}
-	
+
 	switch condition.Operator {
 	case OperatorGreaterThan:
 		return length > threshold
@@ -448,11 +448,11 @@ func (pm *PolicyManager) sortPoliciesByPriority(scope PolicyScope) {
 // rebuildScopeIndex rebuilds the scope index
 func (pm *PolicyManager) rebuildScopeIndex() {
 	pm.policyByScope = make(map[PolicyScope][]*SecurityPolicy)
-	
+
 	for _, policy := range pm.policies {
 		pm.policyByScope[policy.Scope] = append(pm.policyByScope[policy.Scope], policy)
 	}
-	
+
 	// Sort all scopes
 	for scope := range pm.policyByScope {
 		pm.sortPoliciesByPriority(scope)
@@ -463,12 +463,12 @@ func (pm *PolicyManager) rebuildScopeIndex() {
 func (pm *PolicyManager) GetPolicy(policyID string) (*SecurityPolicy, error) {
 	pm.mutex.RLock()
 	defer pm.mutex.RUnlock()
-	
+
 	policy, exists := pm.policies[policyID]
 	if !exists {
 		return nil, fmt.Errorf("policy with ID %s not found", policyID)
 	}
-	
+
 	return policy, nil
 }
 
@@ -476,12 +476,12 @@ func (pm *PolicyManager) GetPolicy(policyID string) (*SecurityPolicy, error) {
 func (pm *PolicyManager) ListPolicies() []*SecurityPolicy {
 	pm.mutex.RLock()
 	defer pm.mutex.RUnlock()
-	
+
 	policies := make([]*SecurityPolicy, 0, len(pm.policies))
 	for _, policy := range pm.policies {
 		policies = append(policies, policy)
 	}
-	
+
 	return policies
 }
 
@@ -489,7 +489,7 @@ func (pm *PolicyManager) ListPolicies() []*SecurityPolicy {
 func (pm *PolicyManager) ExportPolicies() ([]byte, error) {
 	pm.mutex.RLock()
 	defer pm.mutex.RUnlock()
-	
+
 	policies := pm.ListPolicies()
 	return json.MarshalIndent(policies, "", "  ")
 }
@@ -500,13 +500,13 @@ func (pm *PolicyManager) ImportPolicies(data []byte) error {
 	if err := json.Unmarshal(data, &policies); err != nil {
 		return fmt.Errorf("failed to unmarshal policies: %w", err)
 	}
-	
+
 	for _, policy := range policies {
 		if err := pm.AddPolicy(policy); err != nil {
 			return fmt.Errorf("failed to add policy %s: %w", policy.ID, err)
 		}
 	}
-	
+
 	return nil
 }
 

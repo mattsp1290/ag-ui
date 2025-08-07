@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 )
@@ -12,7 +13,8 @@ type TestMiddleware struct {
 	name      string
 	priority  int
 	enabled   bool
-	processed bool
+	processed int
+	mu        sync.Mutex
 }
 
 func NewTestMiddleware(name string, priority int) *TestMiddleware {
@@ -28,17 +30,19 @@ func (tm *TestMiddleware) Name() string {
 }
 
 func (tm *TestMiddleware) Process(ctx context.Context, req *Request, next NextHandler) (*Response, error) {
-	tm.processed = true
-	
+	tm.mu.Lock()
+	tm.processed++
+	tm.mu.Unlock()
+
 	// Add metadata to track middleware execution
 	if req.Metadata == nil {
 		req.Metadata = make(map[string]interface{})
 	}
-	
+
 	executionOrder, _ := req.Metadata["execution_order"].([]string)
 	executionOrder = append(executionOrder, tm.name)
 	req.Metadata["execution_order"] = executionOrder
-	
+
 	return next(ctx, req)
 }
 
@@ -55,6 +59,12 @@ func (tm *TestMiddleware) Enabled() bool {
 
 func (tm *TestMiddleware) Priority() int {
 	return tm.priority
+}
+
+func (tm *TestMiddleware) GetProcessed() int {
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+	return tm.processed
 }
 
 func TestMiddlewareChain_Add(t *testing.T) {
@@ -130,7 +140,7 @@ func TestMiddlewareChain_Process(t *testing.T) {
 			if len(executionOrder) != len(expectedOrder) {
 				t.Errorf("Expected %d items in execution order, got %d", len(expectedOrder), len(executionOrder))
 			}
-			
+
 			for i, expected := range expectedOrder {
 				if i >= len(executionOrder) || executionOrder[i] != expected {
 					t.Errorf("Expected %s at position %d, got %s", expected, i, executionOrder[i])
@@ -251,7 +261,7 @@ func TestMiddlewareChain_DisabledMiddleware(t *testing.T) {
 			if len(executionOrder) != len(expectedOrder) {
 				t.Errorf("Expected %d items in execution order, got %d", len(expectedOrder), len(executionOrder))
 			}
-			
+
 			for i, expected := range expectedOrder {
 				if i >= len(executionOrder) || executionOrder[i] != expected {
 					t.Errorf("Expected %s at position %d, got %s", expected, i, executionOrder[i])
@@ -273,7 +283,7 @@ func TestMiddlewareChain_NilRequest(t *testing.T) {
 	if err == nil {
 		t.Error("Expected error for nil request")
 	}
-	
+
 	if resp != nil {
 		t.Error("Expected nil response for nil request")
 	}
@@ -282,25 +292,25 @@ func TestMiddlewareChain_NilRequest(t *testing.T) {
 func TestMiddlewareContext(t *testing.T) {
 	ctx := context.Background()
 	requestID := "test-request-123"
-	
+
 	middlewareCtx := NewMiddlewareContext(ctx, requestID)
-	
+
 	if middlewareCtx.RequestID != requestID {
 		t.Errorf("Expected request ID %s, got %s", requestID, middlewareCtx.RequestID)
 	}
-	
+
 	// Test metadata operations
 	middlewareCtx.SetMetadata("key1", "value1")
-	
+
 	value, exists := middlewareCtx.GetMetadata("key1")
 	if !exists {
 		t.Error("Expected metadata key1 to exist")
 	}
-	
+
 	if value != "value1" {
 		t.Errorf("Expected metadata value 'value1', got %v", value)
 	}
-	
+
 	// Test elapsed time
 	time.Sleep(10 * time.Millisecond)
 	elapsed := middlewareCtx.Elapsed()

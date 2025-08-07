@@ -76,7 +76,6 @@ func (e *RunStartedEvent) Validate() error {
 	return nil
 }
 
-
 // ThreadID returns the thread ID
 func (e *RunStartedEvent) ThreadID() string {
 	return e.ThreadIDValue
@@ -91,7 +90,6 @@ func (e *RunStartedEvent) RunID() string {
 func (e *RunStartedEvent) ToJSON() ([]byte, error) {
 	return json.Marshal(e)
 }
-
 
 // ToProtobuf converts the event to its protobuf representation
 func (e *RunStartedEvent) ToProtobuf() (*generated.Event, error) {
@@ -192,7 +190,6 @@ func (e *RunFinishedEvent) ToJSON() ([]byte, error) {
 	return json.Marshal(e)
 }
 
-
 // ToProtobuf converts the event to its protobuf representation
 func (e *RunFinishedEvent) ToProtobuf() (*generated.Event, error) {
 	pbEvent := &generated.RunFinishedEvent{
@@ -268,7 +265,6 @@ func (e *RunErrorEvent) Validate() error {
 
 	return nil
 }
-
 
 // RunID returns the run ID
 func (e *RunErrorEvent) RunID() string {

@@ -19,11 +19,11 @@ func (ls *LifecycleService) StartAgent(ctx context.Context, mgr client.Lifecycle
 	if err := mgr.Initialize(ctx, config); err != nil {
 		return fmt.Errorf("initialization failed: %w", err)
 	}
-	
+
 	if err := mgr.Start(ctx); err != nil {
 		return fmt.Errorf("start failed: %w", err)
 	}
-	
+
 	fmt.Println("Agent started successfully")
 	return nil
 }
@@ -46,7 +46,7 @@ func (ss *StateService) GetAgentState(ctx context.Context, mgr client.StateManag
 	if err != nil {
 		return nil, fmt.Errorf("failed to get state: %w", err)
 	}
-	
+
 	fmt.Printf("Agent state retrieved: %s\n", state.Name)
 	return state, nil
 }
@@ -72,54 +72,54 @@ func (ms *MetadataService) GetAgentInfo(metadata client.AgentMetadata) {
 func main() {
 	fmt.Println("Interface Segregation Principle Demonstration")
 	fmt.Println("==============================================")
-	
+
 	// Create a concrete agent that implements all interfaces
 	baseAgent := client.NewBaseAgent("demo-agent", "Demonstration agent for interface segregation")
-	
+
 	// Configure the agent
 	config := client.DefaultAgentConfig()
 	config.Name = "demo-agent"
 	config.Description = "Demonstration agent"
-	
+
 	ctx := context.Background()
-	
+
 	// Each service only depends on the interface it needs
 	lifecycleService := &LifecycleService{}
 	eventService := &EventService{}
 	stateService := &StateService{}
 	toolService := &ToolService{}
 	metadataService := &MetadataService{}
-	
+
 	// Initialize and start agent using only LifecycleManager interface
 	if err := lifecycleService.StartAgent(ctx, baseAgent, config); err != nil {
 		log.Fatalf("Failed to start agent: %v", err)
 	}
-	
+
 	// Process events using only AgentEventProcessor interface
 	if err := eventService.ProcessEvents(ctx, baseAgent, []interface{}{"event1", "event2"}); err != nil {
 		log.Fatalf("Failed to process events: %v", err)
 	}
-	
+
 	// Get state using only StateManager interface
 	if _, err := stateService.GetAgentState(ctx, baseAgent); err != nil {
 		log.Fatalf("Failed to get state: %v", err)
 	}
-	
+
 	// List tools using only ToolRunner interface
 	toolService.ListAvailableTools(baseAgent)
-	
+
 	// Get metadata using only AgentMetadata interface
 	metadataService.GetAgentInfo(baseAgent)
-	
+
 	// Clean up
 	if err := baseAgent.Stop(ctx); err != nil {
 		log.Printf("Warning: Failed to stop agent: %v", err)
 	}
-	
+
 	if err := baseAgent.Cleanup(); err != nil {
 		log.Printf("Warning: Failed to cleanup agent: %v", err)
 	}
-	
+
 	fmt.Println("\nDemonstration completed successfully!")
 	fmt.Println("Each service only depends on the specific interface it needs,")
 	fmt.Println("following the Interface Segregation Principle.")

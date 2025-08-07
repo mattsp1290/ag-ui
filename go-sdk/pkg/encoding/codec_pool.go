@@ -10,41 +10,41 @@ import (
 
 // CodecPool manages pools for encoder and decoder instances
 type CodecPool struct {
-	jsonEncoderPool    sync.Pool
-	jsonDecoderPool    sync.Pool
+	jsonEncoderPool     sync.Pool
+	jsonDecoderPool     sync.Pool
 	protobufEncoderPool sync.Pool
 	protobufDecoderPool sync.Pool
-	metrics            PoolMetrics
+	metrics             PoolMetrics
 }
 
 // NewCodecPool creates a new codec pool
 func NewCodecPool() *CodecPool {
 	cp := &CodecPool{}
-	
+
 	// Initialize JSON encoder pool - will be set up by factory
 	cp.jsonEncoderPool.New = func() interface{} {
 		atomic.AddInt64(&cp.metrics.News, 1)
 		return nil // Will be overridden by factory
 	}
-	
+
 	// Initialize JSON decoder pool - will be set up by factory
 	cp.jsonDecoderPool.New = func() interface{} {
 		atomic.AddInt64(&cp.metrics.News, 1)
 		return nil // Will be overridden by factory
 	}
-	
+
 	// Initialize Protobuf encoder pool - will be set up by factory
 	cp.protobufEncoderPool.New = func() interface{} {
 		atomic.AddInt64(&cp.metrics.News, 1)
 		return nil // Will be overridden by factory
 	}
-	
+
 	// Initialize Protobuf decoder pool - will be set up by factory
 	cp.protobufDecoderPool.New = func() interface{} {
 		atomic.AddInt64(&cp.metrics.News, 1)
 		return nil // Will be overridden by factory
 	}
-	
+
 	return cp
 }
 
@@ -210,7 +210,7 @@ func NewPooledCodecFactory() *PooledCodecFactory {
 	globalRegistry := GetGlobalRegistry()
 	factory := NewDefaultCodecFactory()
 	codecPool := NewCodecPool()
-	
+
 	// Copy codec registrations from global registry to the pooled factory
 	for _, contentType := range []string{"application/json", "application/x-protobuf"} {
 		if globalRegistry.SupportsFormat(contentType) {
@@ -221,7 +221,7 @@ func NewPooledCodecFactory() *PooledCodecFactory {
 			})
 		}
 	}
-	
+
 	// Configure the pool constructors
 	codecPool.SetJSONEncoderConstructor(func() interface{} {
 		// Create a new JSON encoder using global registry
@@ -231,7 +231,7 @@ func NewPooledCodecFactory() *PooledCodecFactory {
 		}
 		return encoder
 	})
-	
+
 	codecPool.SetJSONDecoderConstructor(func() interface{} {
 		// Create a new JSON decoder using global registry
 		decoder, err := globalRegistry.GetDecoder(context.Background(), "application/json", nil)
@@ -240,7 +240,7 @@ func NewPooledCodecFactory() *PooledCodecFactory {
 		}
 		return decoder
 	})
-	
+
 	// Configure protobuf constructors if supported
 	if globalRegistry.SupportsFormat("application/x-protobuf") {
 		codecPool.SetProtobufEncoderConstructor(func() interface{} {
@@ -250,7 +250,7 @@ func NewPooledCodecFactory() *PooledCodecFactory {
 			}
 			return encoder
 		})
-		
+
 		codecPool.SetProtobufDecoderConstructor(func() interface{} {
 			decoder, err := globalRegistry.GetDecoder(context.Background(), "application/x-protobuf", nil)
 			if err != nil {
@@ -259,7 +259,7 @@ func NewPooledCodecFactory() *PooledCodecFactory {
 			return decoder
 		})
 	}
-	
+
 	return &PooledCodecFactory{
 		factory:   factory,
 		codecPool: codecPool,
@@ -273,12 +273,12 @@ func (pcf *PooledCodecFactory) CreateCodec(ctx context.Context, contentType stri
 		// Try to get cached encoder/decoder components
 		encoderInterface := pcf.codecPool.GetJSONEncoder(encOptions)
 		decoderInterface := pcf.codecPool.GetJSONDecoder(decOptions)
-		
+
 		if encoderInterface != nil && decoderInterface != nil {
 			// Create a composite codec from cached components
 			encoder := encoderInterface.(Encoder)
 			decoder := decoderInterface.(Decoder)
-			
+
 			// Wrap in pooled instances
 			pooledEncoder := &PooledEncoder{
 				encoder:     EnsureFullEncoder(encoder),
@@ -286,26 +286,26 @@ func (pcf *PooledCodecFactory) CreateCodec(ctx context.Context, contentType stri
 				contentType: contentType,
 				putFunc:     pcf.codecPool.PutJSONEncoder,
 			}
-			
+
 			pooledDecoder := &PooledDecoder{
 				decoder:     EnsureFullDecoderWithContentType(decoder),
 				pool:        pcf.codecPool,
 				contentType: contentType,
 				putFunc:     pcf.codecPool.PutJSONDecoder,
 			}
-			
+
 			return &compositeCodec{
 				encoder: pooledEncoder,
 				decoder: pooledDecoder,
 			}, nil
 		}
-		
+
 		// Fall back to factory and create pooled wrappers
 		codec, err := pcf.factory.CreateCodec(ctx, contentType, encOptions, decOptions)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		// Wrap the codec components in pooled instances
 		if composite, ok := codec.(*compositeCodec); ok {
 			pooledEncoder := &PooledEncoder{
@@ -314,45 +314,45 @@ func (pcf *PooledCodecFactory) CreateCodec(ctx context.Context, contentType stri
 				contentType: contentType,
 				putFunc:     pcf.codecPool.PutJSONEncoder,
 			}
-			
+
 			pooledDecoder := &PooledDecoder{
 				decoder:     EnsureFullDecoderWithContentType(composite.decoder),
 				pool:        pcf.codecPool,
 				contentType: contentType,
 				putFunc:     pcf.codecPool.PutJSONDecoder,
 			}
-			
+
 			return &compositeCodec{
 				encoder: pooledEncoder,
 				decoder: pooledDecoder,
 			}, nil
 		}
-		
+
 		return codec, nil
-	
+
 	case "application/x-protobuf":
 		// Try to get cached encoder/decoder components
 		encoderInterface := pcf.codecPool.GetProtobufEncoder(encOptions)
 		decoderInterface := pcf.codecPool.GetProtobufDecoder(decOptions)
-		
+
 		if encoderInterface != nil && decoderInterface != nil {
 			// Create a composite codec from cached components
 			encoder := encoderInterface.(Encoder)
 			decoder := decoderInterface.(Decoder)
-			
+
 			// Create adapters that implement the required interfaces
 			encoderAdapter := EnsureFullEncoder(encoder)
 			decoderAdapter := EnsureFullDecoder(decoder)
-			
+
 			return &compositeCodec{
 				encoder: encoderAdapter,
 				decoder: decoderAdapter,
 			}, nil
 		}
-		
+
 		// Fall back to factory
 		return pcf.factory.CreateCodec(ctx, contentType, encOptions, decOptions)
-	
+
 	default:
 		return pcf.factory.CreateCodec(ctx, contentType, encOptions, decOptions)
 	}

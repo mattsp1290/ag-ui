@@ -157,9 +157,9 @@ func TestParallelWorkerPool(t *testing.T) {
 
 		// Submit jobs
 		event := &RunStartedEvent{
-			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-			RunIDValue:     "test-run",
-			ThreadIDValue:  "test-thread",
+			BaseEvent:     &BaseEvent{EventType: EventTypeRunStarted},
+			RunIDValue:    "test-run",
+			ThreadIDValue: "test-thread",
 		}
 
 		rule := &MockValidationRule{id: "TEST_RULE", enabled: true}
@@ -201,9 +201,9 @@ func TestParallelWorkerPool(t *testing.T) {
 		defer pool.Stop()
 
 		event := &RunStartedEvent{
-			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-			RunIDValue:     "test-run",
-			ThreadIDValue:  "test-thread",
+			BaseEvent:     &BaseEvent{EventType: EventTypeRunStarted},
+			RunIDValue:    "test-run",
+			ThreadIDValue: "test-thread",
 		}
 
 		rule := &MockValidationRule{id: "FAST_RULE", enabled: true, delay: 1 * time.Millisecond}
@@ -241,9 +241,9 @@ func TestParallelValidator(t *testing.T) {
 		validator := NewParallelValidator(config)
 
 		event := &RunStartedEvent{
-			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-			RunIDValue:     "test-run",
-			ThreadIDValue:  "test-thread",
+			BaseEvent:     &BaseEvent{EventType: EventTypeRunStarted},
+			RunIDValue:    "test-run",
+			ThreadIDValue: "test-thread",
 		}
 
 		rules := []ValidationRule{
@@ -283,9 +283,9 @@ func TestParallelValidator(t *testing.T) {
 		validator := NewParallelValidator(config)
 
 		event := &RunStartedEvent{
-			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-			RunIDValue:     "test-run",
-			ThreadIDValue:  "test-thread",
+			BaseEvent:     &BaseEvent{EventType: EventTypeRunStarted},
+			RunIDValue:    "test-run",
+			ThreadIDValue: "test-thread",
 		}
 
 		rules := []ValidationRule{
@@ -320,9 +320,9 @@ func TestParallelValidator(t *testing.T) {
 		validator := NewParallelValidator(config)
 
 		event := &RunStartedEvent{
-			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-			RunIDValue:     "test-run",
-			ThreadIDValue:  "test-thread",
+			BaseEvent:     &BaseEvent{EventType: EventTypeRunStarted},
+			RunIDValue:    "test-run",
+			ThreadIDValue: "test-thread",
 		}
 
 		rules := []ValidationRule{
@@ -351,9 +351,9 @@ func TestParallelValidator(t *testing.T) {
 		validator := NewParallelValidator(config)
 
 		event := &RunStartedEvent{
-			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-			RunIDValue:     "test-run",
-			ThreadIDValue:  "test-thread",
+			BaseEvent:     &BaseEvent{EventType: EventTypeRunStarted},
+			RunIDValue:    "test-run",
+			ThreadIDValue: "test-thread",
 		}
 
 		rules := []ValidationRule{
@@ -385,9 +385,9 @@ func TestParallelValidator(t *testing.T) {
 		validator := NewParallelValidator(config)
 
 		event := &RunStartedEvent{
-			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-			RunIDValue:     "test-run",
-			ThreadIDValue:  "test-thread",
+			BaseEvent:     &BaseEvent{EventType: EventTypeRunStarted},
+			RunIDValue:    "test-run",
+			ThreadIDValue: "test-thread",
 		}
 
 		rules := []ValidationRule{
@@ -434,9 +434,9 @@ func TestEventValidatorParallel(t *testing.T) {
 		validator.SetParallelConfig(parallelConfig)
 
 		event := &RunStartedEvent{
-			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-			RunIDValue:     "test-run",
-			ThreadIDValue:  "test-thread",
+			BaseEvent:     &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
+			RunIDValue:    "test-run",
+			ThreadIDValue: "test-thread",
 		}
 
 		ctx := context.Background()
@@ -506,9 +506,9 @@ func TestEventValidatorParallel(t *testing.T) {
 		validator.SetParallelConfig(parallelConfig)
 
 		event := &RunStartedEvent{
-			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-			RunIDValue:     "test-run",
-			ThreadIDValue:  "test-thread",
+			BaseEvent:     &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
+			RunIDValue:    "test-run",
+			ThreadIDValue: "test-thread",
 		}
 
 		ctx := context.Background()
@@ -597,9 +597,9 @@ func TestConcurrentParallelValidation(t *testing.T) {
 			defer wg.Done()
 
 			event := &RunStartedEvent{
-				BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-				RunIDValue:     fmt.Sprintf("test-run-%d", id),
-				ThreadIDValue:  fmt.Sprintf("test-thread-%d", id),
+				BaseEvent:     &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
+				RunIDValue:    fmt.Sprintf("test-run-%d", id),
+				ThreadIDValue: fmt.Sprintf("test-thread-%d", id),
 			}
 
 			ctx := context.Background()

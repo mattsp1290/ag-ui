@@ -63,7 +63,7 @@ func main() {
 	fmt.Println("2. WebSocket Connection Example:")
 	config := websocket.DefaultConnectionConfig()
 	config.URL = "wss://echo.websocket.org"
-	
+
 	// In production: these would be longer timeouts (30s, 10s, etc.)
 	// In test mode: these are much shorter (500ms, 100ms, etc.)
 	fmt.Printf("   Connection will use dial timeout: %v\n", config.DialTimeout)
@@ -74,14 +74,14 @@ func main() {
 	shutdownTimeout := state.GetDefaultShutdownTimeout()
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
-	
+
 	startTime := time.Now()
 	select {
 	case <-ctx.Done():
-		fmt.Printf("   Context timed out after: %v (configured: %v)\n", 
+		fmt.Printf("   Context timed out after: %v (configured: %v)\n",
 			time.Since(startTime), shutdownTimeout)
 	case <-time.After(10 * time.Millisecond):
-		fmt.Printf("   Context still active after 10ms (timeout: %v)\n", 
+		fmt.Printf("   Context still active after 10ms (timeout: %v)\n",
 			shutdownTimeout)
 	}
 	fmt.Println()
@@ -91,11 +91,11 @@ func main() {
 	// In production mode, these will be the full timeouts
 	fmt.Printf("Sample timeouts from current config:\n")
 	fmt.Printf("  - Shutdown: %v\n", state.GetDefaultShutdownTimeout())
-	fmt.Printf("  - Update: %v\n", state.GetDefaultUpdateTimeout()) 
+	fmt.Printf("  - Update: %v\n", state.GetDefaultUpdateTimeout())
 	fmt.Printf("  - WebSocket Dial: %v\n", wsConfig.DialTimeout)
 	fmt.Printf("  - WebSocket Read: %v\n", wsConfig.ReadTimeout)
 	fmt.Printf("  - I/O Operations: %v\n", state.GetDefaultIOTimeout())
-	
+
 	fmt.Println()
 	fmt.Println("Note: When running under 'go test', these timeouts are automatically")
 	fmt.Println("reduced to speed up test execution. In production, they use full values.")

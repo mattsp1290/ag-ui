@@ -25,12 +25,12 @@ func TestAdvancedEventTypes(t *testing.T) {
 			},
 			ProcessingTime: 100 * time.Millisecond,
 		}
-		
+
 		// Test validation
 		if err := data.Validate(); err != nil {
 			t.Errorf("Valid MessageEventData failed validation: %v", err)
 		}
-		
+
 		// Test invalid data
 		invalidData := &MessageEventData{
 			Content: "",
@@ -39,7 +39,7 @@ func TestAdvancedEventTypes(t *testing.T) {
 		if err := invalidData.Validate(); err == nil {
 			t.Error("Invalid MessageEventData passed validation")
 		}
-		
+
 		// Test ToMap conversion
 		dataMap := data.ToMap()
 		if dataMap["content"] != "Test message" {
@@ -49,7 +49,7 @@ func TestAdvancedEventTypes(t *testing.T) {
 			t.Error("ToMap conversion failed for role")
 		}
 	})
-	
+
 	t.Run("SecurityEventData", func(t *testing.T) {
 		data := &SecurityEventData{
 			EventType:   SecurityEventLogin,
@@ -59,11 +59,11 @@ func TestAdvancedEventTypes(t *testing.T) {
 			ThreatLevel: ThreatLevelNone,
 			Permissions: []string{"read", "write"},
 		}
-		
+
 		if err := data.Validate(); err != nil {
 			t.Errorf("Valid SecurityEventData failed validation: %v", err)
 		}
-		
+
 		// Test invalid data
 		invalidData := &SecurityEventData{
 			EventType:   "invalid-type",
@@ -73,30 +73,30 @@ func TestAdvancedEventTypes(t *testing.T) {
 		if err := invalidData.Validate(); err == nil {
 			t.Error("Invalid SecurityEventData passed validation")
 		}
-		
+
 		// Test ToMap
 		dataMap := data.ToMap()
 		if dataMap["event_type"] != string(SecurityEventLogin) {
 			t.Error("ToMap conversion failed for event_type")
 		}
 	})
-	
+
 	t.Run("PerformanceEventData", func(t *testing.T) {
 		data := &PerformanceEventData{
-			MetricName:  "api_latency",
-			Value:       125.5,
-			Unit:        "ms",
-			MetricType:  MetricTypeTimer,
-			Component:   "api",
-			Trend:       TrendStable,
-			AlertLevel:  AlertLevelNone,
-			Percentile:  95.0,
+			MetricName: "api_latency",
+			Value:      125.5,
+			Unit:       "ms",
+			MetricType: MetricTypeTimer,
+			Component:  "api",
+			Trend:      TrendStable,
+			AlertLevel: AlertLevelNone,
+			Percentile: 95.0,
 		}
-		
+
 		if err := data.Validate(); err != nil {
 			t.Errorf("Valid PerformanceEventData failed validation: %v", err)
 		}
-		
+
 		// Test invalid percentile
 		invalidData := &PerformanceEventData{
 			MetricName: "test",
@@ -111,7 +111,7 @@ func TestAdvancedEventTypes(t *testing.T) {
 			t.Error("Invalid PerformanceEventData passed validation")
 		}
 	})
-	
+
 	t.Run("SystemEventData", func(t *testing.T) {
 		data := &SystemEventData{
 			EventType:    SystemEventStartup,
@@ -123,11 +123,11 @@ func TestAdvancedEventTypes(t *testing.T) {
 			},
 			Dependencies: []string{"db", "cache"},
 		}
-		
+
 		if err := data.Validate(); err != nil {
 			t.Errorf("Valid SystemEventData failed validation: %v", err)
 		}
-		
+
 		// Test ToMap with resources
 		dataMap := data.ToMap()
 		if dataMap["component"] != "test-service" {
@@ -137,7 +137,7 @@ func TestAdvancedEventTypes(t *testing.T) {
 			t.Error("ToMap conversion failed to include resources")
 		}
 	})
-	
+
 	t.Run("ConfigurationEventData", func(t *testing.T) {
 		data := &ConfigurationEventData{
 			Key:       "api.timeout",
@@ -145,11 +145,11 @@ func TestAdvancedEventTypes(t *testing.T) {
 			ValueType: "duration",
 			Impact:    ConfigImpactLow,
 		}
-		
+
 		if err := data.Validate(); err != nil {
 			t.Errorf("Valid ConfigurationEventData failed validation: %v", err)
 		}
-		
+
 		// Test invalid impact
 		invalidData := &ConfigurationEventData{
 			Key:       "test",
@@ -161,7 +161,7 @@ func TestAdvancedEventTypes(t *testing.T) {
 			t.Error("Invalid ConfigurationEventData passed validation")
 		}
 	})
-	
+
 	t.Run("StateChangeEventData", func(t *testing.T) {
 		data := &StateChangeEventData{
 			FromState:  "idle",
@@ -171,11 +171,11 @@ func TestAdvancedEventTypes(t *testing.T) {
 			Duration:   5 * time.Second,
 			Automatic:  true,
 		}
-		
+
 		if err := data.Validate(); err != nil {
 			t.Errorf("Valid StateChangeEventData failed validation: %v", err)
 		}
-		
+
 		// Test ToMap with duration
 		dataMap := data.ToMap()
 		if dataMap["duration"] != "5s" {
@@ -191,7 +191,7 @@ func TestAdvancedEventCreation(t *testing.T) {
 			Role:    "user",
 		}
 		event := CreateMessageEvent("msg-1", data)
-		
+
 		if event.ID() != "msg-1" {
 			t.Errorf("Expected ID msg-1, got %s", event.ID())
 		}
@@ -202,7 +202,7 @@ func TestAdvancedEventCreation(t *testing.T) {
 			t.Error("Event data not preserved correctly")
 		}
 	})
-	
+
 	t.Run("CreateSecurityEvent", func(t *testing.T) {
 		data := &SecurityEventData{
 			EventType:   SecurityEventLogin,
@@ -210,12 +210,12 @@ func TestAdvancedEventCreation(t *testing.T) {
 			ThreatLevel: ThreatLevelNone,
 		}
 		event := CreateSecurityEvent("sec-1", data)
-		
+
 		if event.Type() != "security" {
 			t.Errorf("Expected type security, got %s", event.Type())
 		}
 	})
-	
+
 	t.Run("CreatePerformanceEvent", func(t *testing.T) {
 		data := &PerformanceEventData{
 			MetricName: "test_metric",
@@ -226,7 +226,7 @@ func TestAdvancedEventCreation(t *testing.T) {
 			AlertLevel: AlertLevelNone,
 		}
 		event := CreatePerformanceEvent("perf-1", data)
-		
+
 		if event.Type() != "performance" {
 			t.Errorf("Expected type performance, got %s", event.Type())
 		}

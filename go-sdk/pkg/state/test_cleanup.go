@@ -11,10 +11,10 @@ func CleanupTestResources() {
 	// Force garbage collection to clean up any remaining resources
 	runtime.GC()
 	runtime.GC() // Run twice to ensure full cleanup
-	
+
 	// Give goroutines time to finish
 	time.Sleep(200 * time.Millisecond)
-	
+
 	// Redirect any remaining log output away from stdout
 	if os.Getenv("GO_TEST") != "" {
 		// During tests, redirect to devnull to prevent write errors

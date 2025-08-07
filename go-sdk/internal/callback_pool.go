@@ -15,14 +15,14 @@ type CallbackJob struct {
 // CallbackPool manages a pool of worker goroutines for executing small callback operations
 // to reduce the overhead of creating individual goroutines for each callback
 type CallbackPool struct {
-	workers    int
-	jobQueue   chan CallbackJob
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	started    int32  // use atomic operations for thread-safe access
-	startOnce  sync.Once
-	stopOnce   sync.Once
+	workers   int
+	jobQueue  chan CallbackJob
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	started   int32 // use atomic operations for thread-safe access
+	startOnce sync.Once
+	stopOnce  sync.Once
 }
 
 // NewCallbackPool creates a new callback pool with the specified number of workers
@@ -33,7 +33,7 @@ func NewCallbackPool(workers int) *CallbackPool {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &CallbackPool{
 		workers:  workers,
 		jobQueue: make(chan CallbackJob, workers*2), // Buffer size = workers * 2
@@ -56,7 +56,7 @@ func (cp *CallbackPool) Start() {
 // worker is the main worker goroutine that processes jobs from the queue
 func (cp *CallbackPool) worker() {
 	defer cp.wg.Done()
-	
+
 	for {
 		select {
 		case <-cp.ctx.Done():
@@ -65,7 +65,7 @@ func (cp *CallbackPool) worker() {
 			if !ok {
 				return
 			}
-			
+
 			// Execute the job with panic recovery
 			func() {
 				defer func() {
@@ -96,7 +96,7 @@ func (cp *CallbackPool) Submit(fn func()) {
 	}
 
 	job := CallbackJob{fn: fn}
-	
+
 	select {
 	case cp.jobQueue <- job:
 		// Successfully queued

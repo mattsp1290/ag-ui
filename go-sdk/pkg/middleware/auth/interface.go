@@ -8,19 +8,19 @@ import (
 
 // Credentials represents authentication credentials
 type Credentials struct {
-	Type       string            `json:"type"`
-	Token      string            `json:"token,omitempty"`
-	Username   string            `json:"username,omitempty"`
-	Password   string            `json:"password,omitempty"`
-	APIKey     string            `json:"api_key,omitempty"`
-	Claims     map[string]any    `json:"claims,omitempty"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
-	ExpiresAt  time.Time         `json:"expires_at,omitempty"`
-	IssuedAt   time.Time         `json:"issued_at,omitempty"`
-	Subject    string            `json:"subject,omitempty"`
-	Issuer     string            `json:"issuer,omitempty"`
-	Audience   []string          `json:"audience,omitempty"`
-	Scopes     []string          `json:"scopes,omitempty"`
+	Type      string            `json:"type"`
+	Token     string            `json:"token,omitempty"`
+	Username  string            `json:"username,omitempty"`
+	Password  string            `json:"password,omitempty"`
+	APIKey    string            `json:"api_key,omitempty"`
+	Claims    map[string]any    `json:"claims,omitempty"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
+	ExpiresAt time.Time         `json:"expires_at,omitempty"`
+	IssuedAt  time.Time         `json:"issued_at,omitempty"`
+	Subject   string            `json:"subject,omitempty"`
+	Issuer    string            `json:"issuer,omitempty"`
+	Audience  []string          `json:"audience,omitempty"`
+	Scopes    []string          `json:"scopes,omitempty"`
 }
 
 // AuthContext represents the authentication context
@@ -182,35 +182,35 @@ type SessionManager interface {
 // AuthConfig represents authentication configuration
 type AuthConfig struct {
 	// Provider specific configuration
-	JWTConfig      *JWTConfig      `json:"jwt,omitempty" yaml:"jwt,omitempty"`
-	APIKeyConfig   *APIKeyConfig   `json:"api_key,omitempty" yaml:"api_key,omitempty"`
+	JWTConfig       *JWTConfig       `json:"jwt,omitempty" yaml:"jwt,omitempty"`
+	APIKeyConfig    *APIKeyConfig    `json:"api_key,omitempty" yaml:"api_key,omitempty"`
 	BasicAuthConfig *BasicAuthConfig `json:"basic_auth,omitempty" yaml:"basic_auth,omitempty"`
-	OAuth2Config   *OAuth2Config   `json:"oauth2,omitempty" yaml:"oauth2,omitempty"`
+	OAuth2Config    *OAuth2Config    `json:"oauth2,omitempty" yaml:"oauth2,omitempty"`
 
 	// General settings
 	EnableAuditLogging bool          `json:"enable_audit_logging" yaml:"enable_audit_logging"`
-	TokenCaching      bool          `json:"token_caching" yaml:"token_caching"`
-	SessionTimeout    time.Duration `json:"session_timeout" yaml:"session_timeout"`
-	RefreshThreshold  time.Duration `json:"refresh_threshold" yaml:"refresh_threshold"`
+	TokenCaching       bool          `json:"token_caching" yaml:"token_caching"`
+	SessionTimeout     time.Duration `json:"session_timeout" yaml:"session_timeout"`
+	RefreshThreshold   time.Duration `json:"refresh_threshold" yaml:"refresh_threshold"`
 
 	// Security settings
-	RequireHTTPS      bool     `json:"require_https" yaml:"require_https"`
-	AllowedOrigins    []string `json:"allowed_origins" yaml:"allowed_origins"`
-	RequiredScopes    []string `json:"required_scopes" yaml:"required_scopes"`
-	RequiredRoles     []string `json:"required_roles" yaml:"required_roles"`
+	RequireHTTPS   bool     `json:"require_https" yaml:"require_https"`
+	AllowedOrigins []string `json:"allowed_origins" yaml:"allowed_origins"`
+	RequiredScopes []string `json:"required_scopes" yaml:"required_scopes"`
+	RequiredRoles  []string `json:"required_roles" yaml:"required_roles"`
 }
 
 // JWTConfig represents JWT authentication configuration
 type JWTConfig struct {
-	Secret         string        `json:"secret,omitempty" yaml:"secret,omitempty"`
-	PublicKey      string        `json:"public_key,omitempty" yaml:"public_key,omitempty"`
-	PrivateKey     string        `json:"private_key,omitempty" yaml:"private_key,omitempty"`
-	Algorithm      string        `json:"algorithm" yaml:"algorithm"`
-	Issuer         string        `json:"issuer" yaml:"issuer"`
-	Audience       []string      `json:"audience" yaml:"audience"`
-	Expiration     time.Duration `json:"expiration" yaml:"expiration"`
-	RefreshWindow  time.Duration `json:"refresh_window" yaml:"refresh_window"`
-	ClaimsValidation bool        `json:"claims_validation" yaml:"claims_validation"`
+	Secret           string        `json:"secret,omitempty" yaml:"secret,omitempty"`
+	PublicKey        string        `json:"public_key,omitempty" yaml:"public_key,omitempty"`
+	PrivateKey       string        `json:"private_key,omitempty" yaml:"private_key,omitempty"`
+	Algorithm        string        `json:"algorithm" yaml:"algorithm"`
+	Issuer           string        `json:"issuer" yaml:"issuer"`
+	Audience         []string      `json:"audience" yaml:"audience"`
+	Expiration       time.Duration `json:"expiration" yaml:"expiration"`
+	RefreshWindow    time.Duration `json:"refresh_window" yaml:"refresh_window"`
+	ClaimsValidation bool          `json:"claims_validation" yaml:"claims_validation"`
 }
 
 // APIKeyConfig represents API key authentication configuration
@@ -232,12 +232,12 @@ type BasicAuthConfig struct {
 
 // OAuth2Config represents OAuth 2.0 authentication configuration
 type OAuth2Config struct {
-	ClientID         string   `json:"client_id" yaml:"client_id"`
-	ClientSecret     string   `json:"client_secret,omitempty" yaml:"client_secret,omitempty"`
-	AuthURL          string   `json:"auth_url" yaml:"auth_url"`
-	TokenURL         string   `json:"token_url" yaml:"token_url"`
-	RedirectURL      string   `json:"redirect_url" yaml:"redirect_url"`
-	Scopes           []string `json:"scopes" yaml:"scopes"`
-	UserInfoURL      string   `json:"user_info_url,omitempty" yaml:"user_info_url,omitempty"`
-	RefreshTokens    bool     `json:"refresh_tokens" yaml:"refresh_tokens"`
+	ClientID      string   `json:"client_id" yaml:"client_id"`
+	ClientSecret  string   `json:"client_secret,omitempty" yaml:"client_secret,omitempty"`
+	AuthURL       string   `json:"auth_url" yaml:"auth_url"`
+	TokenURL      string   `json:"token_url" yaml:"token_url"`
+	RedirectURL   string   `json:"redirect_url" yaml:"redirect_url"`
+	Scopes        []string `json:"scopes" yaml:"scopes"`
+	UserInfoURL   string   `json:"user_info_url,omitempty" yaml:"user_info_url,omitempty"`
+	RefreshTokens bool     `json:"refresh_tokens" yaml:"refresh_tokens"`
 }

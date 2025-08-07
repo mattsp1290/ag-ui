@@ -12,7 +12,7 @@ import (
 func TestPerformanceComparison(t *testing.T) {
 	// Removed t.Parallel() to prevent resource contention
 	// t.Parallel()
-	sizes := []int{50, 100, 200, 500}  // Reduced sizes to prevent timeout
+	sizes := []int{50, 100, 200, 500} // Reduced sizes to prevent timeout
 
 	for _, size := range sizes {
 		t.Run(fmt.Sprintf("size_%d", size), func(t *testing.T) {
@@ -47,7 +47,7 @@ func TestPerformanceComparison(t *testing.T) {
 
 // BenchmarkLinearVsQuadratic simulates the difference between O(n²) and O(n)
 func BenchmarkLinearVsQuadratic(b *testing.B) {
-	sizes := []int{50, 100, 200, 400}  // Reduced sizes to prevent timeout
+	sizes := []int{50, 100, 200, 400} // Reduced sizes to prevent timeout
 
 	for _, size := range sizes {
 		// Our optimized O(n) implementation

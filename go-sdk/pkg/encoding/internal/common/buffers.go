@@ -36,10 +36,10 @@ func (bp *BufferPool) Put(buf *bytes.Buffer) {
 var (
 	// SmallBufferPool for buffers up to 1KB
 	SmallBufferPool = NewBufferPool(1024)
-	
+
 	// MediumBufferPool for buffers up to 64KB
 	MediumBufferPool = NewBufferPool(65536)
-	
+
 	// LargeBufferPool for buffers up to 1MB
 	LargeBufferPool = NewBufferPool(1048576)
 )
@@ -178,7 +178,7 @@ func NewBufferWriter(buf *bytes.Buffer) *BufferWriter {
 
 // WriteUint32 writes a uint32 in big-endian format
 func (bw *BufferWriter) WriteUint32(value uint32) error {
-	return bw.buf.WriteByte(byte(value>>24))
+	return bw.buf.WriteByte(byte(value >> 24))
 }
 
 // WriteUint16 writes a uint16 in big-endian format
@@ -223,7 +223,7 @@ func (br *BufferReader) ReadUint32() (uint32, error) {
 	if br.buf.Len() < 4 {
 		return 0, ErrBufferTooSmall
 	}
-	
+
 	var value uint32
 	for i := 0; i < 4; i++ {
 		b, err := br.buf.ReadByte()
@@ -232,7 +232,7 @@ func (br *BufferReader) ReadUint32() (uint32, error) {
 		}
 		value = (value << 8) | uint32(b)
 	}
-	
+
 	return value, nil
 }
 
@@ -241,7 +241,7 @@ func (br *BufferReader) ReadUint16() (uint16, error) {
 	if br.buf.Len() < 2 {
 		return 0, ErrBufferTooSmall
 	}
-	
+
 	var value uint16
 	for i := 0; i < 2; i++ {
 		b, err := br.buf.ReadByte()
@@ -250,7 +250,7 @@ func (br *BufferReader) ReadUint16() (uint16, error) {
 		}
 		value = (value << 8) | uint16(b)
 	}
-	
+
 	return value, nil
 }
 
@@ -266,11 +266,11 @@ func (br *BufferReader) ReadBytes() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if br.buf.Len() < int(length) {
 		return nil, ErrBufferTooSmall
 	}
-	
+
 	data := make([]byte, length)
 	_, err = br.buf.Read(data)
 	return data, err

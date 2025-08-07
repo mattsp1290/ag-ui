@@ -27,40 +27,40 @@ import (
 type AgentToolManager struct {
 	// Configuration
 	config ToolsConfig
-	
+
 	// Tool registry
-	registry    *tools.Registry
-	toolCache   *ToolCache
-	
+	registry  *tools.Registry
+	toolCache *ToolCache
+
 	// Execution management
-	executor    *ToolExecutor
-	executions  map[string]*ToolExecution
-	execMu      sync.RWMutex
-	
+	executor   *ToolExecutor
+	executions map[string]*ToolExecution
+	execMu     sync.RWMutex
+
 	// Security and sandboxing
-	sandbox     *ToolSandbox
-	
+	sandbox *ToolSandbox
+
 	// Resource management
-	semaphore   chan struct{} // For limiting concurrent executions
-	
+	semaphore chan struct{} // For limiting concurrent executions
+
 	// Metrics and monitoring
-	metrics     ToolManagerMetrics
-	metricsMu   sync.RWMutex
-	
+	metrics   ToolManagerMetrics
+	metricsMu sync.RWMutex
+
 	// Lifecycle
-	running     atomic.Bool
-	ctx         context.Context
-	cancel      context.CancelFunc
-	wg          sync.WaitGroup
-	isHealthy   atomic.Bool
+	running   atomic.Bool
+	ctx       context.Context
+	cancel    context.CancelFunc
+	wg        sync.WaitGroup
+	isHealthy atomic.Bool
 }
 
 // ToolCache provides efficient caching of tool results.
 type ToolCache struct {
-	cache       map[string]*CachedResult
-	mu          sync.RWMutex
-	maxSize     int
-	ttl         time.Duration
+	cache         map[string]*CachedResult
+	mu            sync.RWMutex
+	maxSize       int
+	ttl           time.Duration
 	cleanupTicker *time.Ticker
 }
 
@@ -75,24 +75,24 @@ type CachedResult struct {
 
 // ToolExecutor manages tool execution with sandboxing and resource limits.
 type ToolExecutor struct {
-	timeout     time.Duration
-	sandbox     *ToolSandbox
+	timeout        time.Duration
+	sandbox        *ToolSandbox
 	resourceLimits ResourceLimits
 }
 
 // ToolExecution represents an active tool execution.
 type ToolExecution struct {
-	ID          string                 `json:"id"`
-	ToolName    string                 `json:"tool_name"`
-	Parameters  interface{}            `json:"parameters"`
-	StartTime   time.Time              `json:"start_time"`
-	Status      ExecutionStatus        `json:"status"`
-	Result      interface{}            `json:"result,omitempty"`
-	Error       string                 `json:"error,omitempty"`
-	Duration    time.Duration          `json:"duration"`
-	Context     context.Context        `json:"-"`
-	Cancel      context.CancelFunc     `json:"-"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
+	ID         string                 `json:"id"`
+	ToolName   string                 `json:"tool_name"`
+	Parameters interface{}            `json:"parameters"`
+	StartTime  time.Time              `json:"start_time"`
+	Status     ExecutionStatus        `json:"status"`
+	Result     interface{}            `json:"result,omitempty"`
+	Error      string                 `json:"error,omitempty"`
+	Duration   time.Duration          `json:"duration"`
+	Context    context.Context        `json:"-"`
+	Cancel     context.CancelFunc     `json:"-"`
+	Metadata   map[string]interface{} `json:"metadata,omitempty"`
 }
 
 // ExecutionStatus represents the status of a tool execution.
@@ -109,40 +109,40 @@ const (
 
 // ToolSandbox provides security sandboxing for tool execution.
 type ToolSandbox struct {
-	enabled       bool
-	allowedPaths  []string
-	blockedPaths  []string
-	networkPolicy NetworkPolicy
+	enabled        bool
+	allowedPaths   []string
+	blockedPaths   []string
+	networkPolicy  NetworkPolicy
 	resourceLimits ResourceLimits
 }
 
 // NetworkPolicy defines network access restrictions.
 type NetworkPolicy struct {
-	AllowOutbound  bool     `json:"allow_outbound"`
-	AllowedHosts   []string `json:"allowed_hosts"`
-	BlockedHosts   []string `json:"blocked_hosts"`
-	AllowedPorts   []int    `json:"allowed_ports"`
+	AllowOutbound bool     `json:"allow_outbound"`
+	AllowedHosts  []string `json:"allowed_hosts"`
+	BlockedHosts  []string `json:"blocked_hosts"`
+	AllowedPorts  []int    `json:"allowed_ports"`
 }
 
 // ResourceLimits defines resource usage limits for tool execution.
 type ResourceLimits struct {
-	MaxMemory     int64         `json:"max_memory"`     // In bytes
-	MaxCPUTime    time.Duration `json:"max_cpu_time"`   // CPU time limit
-	MaxDiskSpace  int64         `json:"max_disk_space"` // In bytes
-	MaxNetworkIO  int64         `json:"max_network_io"` // In bytes
+	MaxMemory    int64         `json:"max_memory"`     // In bytes
+	MaxCPUTime   time.Duration `json:"max_cpu_time"`   // CPU time limit
+	MaxDiskSpace int64         `json:"max_disk_space"` // In bytes
+	MaxNetworkIO int64         `json:"max_network_io"` // In bytes
 }
 
 // ToolManagerMetrics contains metrics for the tool manager.
 type ToolManagerMetrics struct {
-	ToolsExecuted      int64         `json:"tools_executed"`
-	SuccessfulExecutions int64       `json:"successful_executions"`
-	FailedExecutions   int64         `json:"failed_executions"`
-	CachedExecutions   int64         `json:"cached_executions"`
-	AverageExecutionTime time.Duration `json:"average_execution_time"`
-	ConcurrentExecutions int32       `json:"concurrent_executions"`
-	SandboxViolations  int64         `json:"sandbox_violations"`
-	ResourceLimitExceeded int64      `json:"resource_limit_exceeded"`
-	LastExecutionTime  time.Time     `json:"last_execution_time"`
+	ToolsExecuted         int64         `json:"tools_executed"`
+	SuccessfulExecutions  int64         `json:"successful_executions"`
+	FailedExecutions      int64         `json:"failed_executions"`
+	CachedExecutions      int64         `json:"cached_executions"`
+	AverageExecutionTime  time.Duration `json:"average_execution_time"`
+	ConcurrentExecutions  int32         `json:"concurrent_executions"`
+	SandboxViolations     int64         `json:"sandbox_violations"`
+	ResourceLimitExceeded int64         `json:"resource_limit_exceeded"`
+	LastExecutionTime     time.Time     `json:"last_execution_time"`
 }
 
 // StreamingResult represents a streaming tool execution result.
@@ -162,28 +162,28 @@ func NewAgentToolManager(config ToolsConfig) (*AgentToolManager, error) {
 	if config.MaxConcurrent <= 0 {
 		config.MaxConcurrent = 10
 	}
-	
+
 	// Create tool registry
 	registry := tools.NewRegistry()
-	
+
 	// Create tool cache
 	cache := &ToolCache{
 		cache:   make(map[string]*CachedResult),
 		maxSize: 1000, // Configurable
 		ttl:     5 * time.Minute,
 	}
-	
+
 	// Create executor
 	executor := &ToolExecutor{
 		timeout: config.Timeout,
 		resourceLimits: ResourceLimits{
 			MaxMemory:    100 * 1024 * 1024, // 100MB
 			MaxCPUTime:   config.Timeout,
-			MaxDiskSpace: 50 * 1024 * 1024,  // 50MB
-			MaxNetworkIO: 10 * 1024 * 1024,  // 10MB
+			MaxDiskSpace: 50 * 1024 * 1024, // 50MB
+			MaxNetworkIO: 10 * 1024 * 1024, // 10MB
 		},
 	}
-	
+
 	// Create sandbox if enabled
 	var sandbox *ToolSandbox
 	if config.EnableSandboxing {
@@ -199,7 +199,7 @@ func NewAgentToolManager(config ToolsConfig) (*AgentToolManager, error) {
 		}
 		executor.sandbox = sandbox
 	}
-	
+
 	manager := &AgentToolManager{
 		config:     config,
 		registry:   registry,
@@ -212,9 +212,9 @@ func NewAgentToolManager(config ToolsConfig) (*AgentToolManager, error) {
 			LastExecutionTime: time.Now(),
 		},
 	}
-	
+
 	manager.isHealthy.Store(true)
-	
+
 	return manager, nil
 }
 
@@ -223,30 +223,30 @@ func (tm *AgentToolManager) Start(ctx context.Context) error {
 	if tm.running.Load() {
 		return errors.NewAgentError(errors.ErrorTypeInvalidState, "tool manager is already running", "tool_manager")
 	}
-	
+
 	tm.ctx, tm.cancel = context.WithCancel(ctx)
 	tm.running.Store(true)
-	
+
 	// Start cache cleanup if caching is enabled
 	if tm.config.EnableCaching {
 		tm.toolCache.cleanupTicker = time.NewTicker(1 * time.Minute)
 		tm.wg.Add(1)
 		go tm.cacheCleanupLoop()
 	}
-	
+
 	// Start metrics collection
 	tm.wg.Add(1)
 	go tm.metricsLoop()
-	
+
 	// Start execution monitoring
 	tm.wg.Add(1)
 	go tm.executionMonitorLoop()
-	
+
 	// Register built-in tools
 	if err := tm.registerBuiltinTools(); err != nil {
 		return fmt.Errorf("failed to register builtin tools: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -255,10 +255,10 @@ func (tm *AgentToolManager) Stop(ctx context.Context) error {
 	if !tm.running.Load() {
 		return nil
 	}
-	
+
 	tm.running.Store(false)
 	tm.cancel()
-	
+
 	// Cancel all active executions
 	tm.execMu.Lock()
 	for _, execution := range tm.executions {
@@ -267,26 +267,26 @@ func (tm *AgentToolManager) Stop(ctx context.Context) error {
 		}
 	}
 	tm.execMu.Unlock()
-	
+
 	// Stop cache cleanup
 	if tm.toolCache.cleanupTicker != nil {
 		tm.toolCache.cleanupTicker.Stop()
 	}
-	
+
 	// Wait for goroutines to finish
 	done := make(chan struct{})
 	go func() {
 		tm.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// All goroutines finished
 	case <-ctx.Done():
 		return fmt.Errorf("timeout waiting for tool manager to stop")
 	}
-	
+
 	return nil
 }
 
@@ -302,13 +302,13 @@ func (tm *AgentToolManager) ExecuteTool(ctx context.Context, name string, params
 	if !tm.running.Load() {
 		return nil, errors.NewAgentError(errors.ErrorTypeInvalidState, "tool manager is not running", "tool_manager")
 	}
-	
+
 	// Check if tool exists
 	tool, err := tm.registry.Get(name)
 	if err != nil {
 		return nil, errors.NewAgentError(errors.ErrorTypeNotFound, fmt.Sprintf("tool %s not found", name), "tool_manager")
 	}
-	
+
 	// Check cache if enabled
 	if tm.config.EnableCaching {
 		if cached := tm.getCachedResult(name, params); cached != nil {
@@ -319,7 +319,7 @@ func (tm *AgentToolManager) ExecuteTool(ctx context.Context, name string, params
 			return cached.Result, nil
 		}
 	}
-	
+
 	// Acquire semaphore for concurrency control
 	select {
 	case tm.semaphore <- struct{}{}:
@@ -327,15 +327,15 @@ func (tm *AgentToolManager) ExecuteTool(ctx context.Context, name string, params
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
-	
+
 	// Update concurrent execution count
 	atomic.AddInt32(&tm.metrics.ConcurrentExecutions, 1)
 	defer atomic.AddInt32(&tm.metrics.ConcurrentExecutions, -1)
-	
+
 	// Create execution context with timeout
 	execCtx, cancel := context.WithTimeout(ctx, tm.config.Timeout)
 	defer cancel()
-	
+
 	// Create execution record
 	execution := &ToolExecution{
 		ID:         fmt.Sprintf("exec_%d", time.Now().UnixNano()),
@@ -347,25 +347,25 @@ func (tm *AgentToolManager) ExecuteTool(ctx context.Context, name string, params
 		Cancel:     cancel,
 		Metadata:   make(map[string]interface{}),
 	}
-	
+
 	// Register execution
 	tm.execMu.Lock()
 	tm.executions[execution.ID] = execution
 	tm.execMu.Unlock()
-	
+
 	// Clean up execution record when done
 	defer func() {
 		tm.execMu.Lock()
 		delete(tm.executions, execution.ID)
 		tm.execMu.Unlock()
 	}()
-	
+
 	// Convert tool to ReadOnlyTool for safe access
 	readOnlyTool := tools.NewReadOnlyTool(tool)
-	
+
 	// Execute tool
 	result, err := tm.executeToolWithSandbox(execCtx, readOnlyTool, params, execution)
-	
+
 	// Update execution record
 	execution.Duration = time.Since(execution.StartTime)
 	if err != nil {
@@ -377,20 +377,20 @@ func (tm *AgentToolManager) ExecuteTool(ctx context.Context, name string, params
 		execution.Result = result
 		atomic.AddInt64(&tm.metrics.SuccessfulExecutions, 1)
 	}
-	
+
 	// Update metrics
 	atomic.AddInt64(&tm.metrics.ToolsExecuted, 1)
 	tm.updateAverageExecutionTime(execution.Duration)
-	
+
 	// Cache result if enabled
 	if tm.config.EnableCaching && err == nil {
 		tm.cacheResult(name, params, result, err)
 	}
-	
+
 	tm.metricsMu.Lock()
 	tm.metrics.LastExecutionTime = time.Now()
 	tm.metricsMu.Unlock()
-	
+
 	return result, err
 }
 
@@ -398,14 +398,14 @@ func (tm *AgentToolManager) ExecuteTool(ctx context.Context, name string, params
 func (tm *AgentToolManager) ExecuteToolStreaming(ctx context.Context, name string, params interface{}) (<-chan StreamingResult, error) {
 	// Create result channel
 	resultChan := make(chan StreamingResult, 100)
-	
+
 	// Start execution in goroutine
 	go func() {
 		defer close(resultChan)
-		
+
 		// Execute tool normally first
 		result, err := tm.ExecuteTool(ctx, name, params)
-		
+
 		if err != nil {
 			resultChan <- StreamingResult{
 				ExecutionID: fmt.Sprintf("stream_%d", time.Now().UnixNano()),
@@ -415,7 +415,7 @@ func (tm *AgentToolManager) ExecuteToolStreaming(ctx context.Context, name strin
 			}
 			return
 		}
-		
+
 		// For non-streaming tools, send the complete result
 		resultChan <- StreamingResult{
 			ExecutionID: fmt.Sprintf("stream_%d", time.Now().UnixNano()),
@@ -424,7 +424,7 @@ func (tm *AgentToolManager) ExecuteToolStreaming(ctx context.Context, name strin
 			Timestamp:   time.Now(),
 		}
 	}()
-	
+
 	return resultChan, nil
 }
 
@@ -432,7 +432,7 @@ func (tm *AgentToolManager) ExecuteToolStreaming(ctx context.Context, name strin
 func (tm *AgentToolManager) ListTools() []ToolDefinition {
 	allTools, _ := tm.registry.List(nil)
 	definitions := make([]ToolDefinition, len(allTools))
-	
+
 	for i, tool := range allTools {
 		readOnlyTool := tools.NewReadOnlyTool(tool)
 		definitions[i] = ToolDefinition{
@@ -440,14 +440,14 @@ func (tm *AgentToolManager) ListTools() []ToolDefinition {
 			Description: readOnlyTool.GetDescription(),
 			Schema:      readOnlyTool.GetSchema(),
 			Capabilities: map[string]interface{}{
-				"version":     readOnlyTool.GetVersion(),
-				"cacheable":   readOnlyTool.GetCapabilities() != nil && readOnlyTool.GetCapabilities().Cacheable,
-				"streaming":   readOnlyTool.GetCapabilities() != nil && readOnlyTool.GetCapabilities().Streaming,
-				"async":       readOnlyTool.GetCapabilities() != nil && readOnlyTool.GetCapabilities().Async,
+				"version":   readOnlyTool.GetVersion(),
+				"cacheable": readOnlyTool.GetCapabilities() != nil && readOnlyTool.GetCapabilities().Cacheable,
+				"streaming": readOnlyTool.GetCapabilities() != nil && readOnlyTool.GetCapabilities().Streaming,
+				"async":     readOnlyTool.GetCapabilities() != nil && readOnlyTool.GetCapabilities().Async,
 			},
 		}
 	}
-	
+
 	return definitions
 }
 
@@ -465,12 +465,12 @@ func (tm *AgentToolManager) UnregisterTool(name string) error {
 func (tm *AgentToolManager) GetExecution(executionID string) (*ToolExecution, error) {
 	tm.execMu.RLock()
 	defer tm.execMu.RUnlock()
-	
+
 	execution, exists := tm.executions[executionID]
 	if !exists {
 		return nil, errors.NewAgentError(errors.ErrorTypeNotFound, fmt.Sprintf("execution %s not found", executionID), "tool_manager")
 	}
-	
+
 	return execution, nil
 }
 
@@ -478,17 +478,17 @@ func (tm *AgentToolManager) GetExecution(executionID string) (*ToolExecution, er
 func (tm *AgentToolManager) CancelExecution(executionID string) error {
 	tm.execMu.RLock()
 	defer tm.execMu.RUnlock()
-	
+
 	execution, exists := tm.executions[executionID]
 	if !exists {
 		return errors.NewAgentError(errors.ErrorTypeNotFound, fmt.Sprintf("execution %s not found", executionID), "tool_manager")
 	}
-	
+
 	if execution.Cancel != nil {
 		execution.Cancel()
 		execution.Status = ExecutionStatusCancelled
 	}
-	
+
 	return nil
 }
 
@@ -508,12 +508,12 @@ func (tm *AgentToolManager) IsHealthy() bool {
 
 func (tm *AgentToolManager) executeToolWithSandbox(ctx context.Context, tool tools.ReadOnlyTool, params interface{}, execution *ToolExecution) (interface{}, error) {
 	execution.Status = ExecutionStatusRunning
-	
+
 	// Validate parameters
 	if err := tm.validateParameters(tool, params); err != nil {
 		return nil, fmt.Errorf("parameter validation failed: %w", err)
 	}
-	
+
 	// Apply sandbox if enabled
 	if tm.sandbox != nil && tm.sandbox.enabled {
 		if err := tm.applySandbox(ctx, execution); err != nil {
@@ -521,17 +521,17 @@ func (tm *AgentToolManager) executeToolWithSandbox(ctx context.Context, tool too
 			return nil, fmt.Errorf("sandbox violation: %w", err)
 		}
 	}
-	
+
 	// Execute the tool
 	executor := tool.GetExecutor()
 	if executor == nil {
 		return nil, errors.NewAgentError(errors.ErrorTypeValidation, fmt.Sprintf("tool %s has no executor", tool.GetID()), "tool_manager")
 	}
-	
+
 	// Monitor resource usage
 	resourceMonitor := tm.startResourceMonitoring(ctx, execution)
 	defer resourceMonitor.Stop()
-	
+
 	// Execute with timeout
 	paramsMap, ok := params.(map[string]interface{})
 	if !ok {
@@ -546,7 +546,7 @@ func (tm *AgentToolManager) executeToolWithSandbox(ctx context.Context, tool too
 		}
 		return nil, err
 	}
-	
+
 	return result, nil
 }
 
@@ -555,13 +555,13 @@ func (tm *AgentToolManager) validateParameters(tool tools.ReadOnlyTool, params i
 	if schema == nil {
 		return nil // No schema validation required
 	}
-	
+
 	// Convert params to map[string]interface{}
 	paramsMap, ok := params.(map[string]interface{})
 	if !ok {
 		return fmt.Errorf("params must be a map[string]interface{}")
 	}
-	
+
 	// Create validator and validate parameters against schema
 	validator := tools.NewSchemaValidator(schema)
 	return validator.Validate(paramsMap)
@@ -573,7 +573,7 @@ func (tm *AgentToolManager) applySandbox(ctx context.Context, execution *ToolExe
 	if tm.sandbox.networkPolicy.AllowOutbound == false {
 		execution.Metadata["network_restricted"] = true
 	}
-	
+
 	return nil
 }
 
@@ -582,7 +582,7 @@ func (tm *AgentToolManager) startResourceMonitoring(ctx context.Context, executi
 		limits: tm.executor.resourceLimits,
 		ctx:    ctx,
 	}
-	
+
 	go monitor.Start(execution)
 	return monitor
 }
@@ -600,17 +600,17 @@ func (tm *AgentToolManager) getCachedResult(toolName string, params interface{})
 
 func (tm *AgentToolManager) cacheResult(toolName string, params interface{}, result interface{}, err error) {
 	cacheKey := tm.generateCacheKey(toolName, params)
-	
+
 	cached := &CachedResult{
 		Result:    result,
 		Cached:    time.Now(),
 		ExpiresAt: time.Now().Add(tm.toolCache.ttl),
 	}
-	
+
 	if err != nil {
 		cached.Error = err.Error()
 	}
-	
+
 	tm.toolCache.set(cacheKey, cached)
 }
 
@@ -623,7 +623,7 @@ func (tm *AgentToolManager) generateCacheKey(toolName string, params interface{}
 func (tm *AgentToolManager) updateAverageExecutionTime(duration time.Duration) {
 	tm.metricsMu.Lock()
 	defer tm.metricsMu.Unlock()
-	
+
 	if tm.metrics.AverageExecutionTime == 0 {
 		tm.metrics.AverageExecutionTime = duration
 	} else {
@@ -635,7 +635,7 @@ func (tm *AgentToolManager) updateAverageExecutionTime(duration time.Duration) {
 
 func (tm *AgentToolManager) cacheCleanupLoop() {
 	defer tm.wg.Done()
-	
+
 	for {
 		select {
 		case <-tm.ctx.Done():
@@ -648,10 +648,10 @@ func (tm *AgentToolManager) cacheCleanupLoop() {
 
 func (tm *AgentToolManager) metricsLoop() {
 	defer tm.wg.Done()
-	
+
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-tm.ctx.Done():
@@ -664,10 +664,10 @@ func (tm *AgentToolManager) metricsLoop() {
 
 func (tm *AgentToolManager) executionMonitorLoop() {
 	defer tm.wg.Done()
-	
+
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-tm.ctx.Done():
@@ -681,7 +681,7 @@ func (tm *AgentToolManager) executionMonitorLoop() {
 func (tm *AgentToolManager) updateHealthStatus() {
 	failedExecutions := atomic.LoadInt64(&tm.metrics.FailedExecutions)
 	totalExecutions := atomic.LoadInt64(&tm.metrics.ToolsExecuted)
-	
+
 	if totalExecutions > 0 {
 		failureRate := float64(failedExecutions) / float64(totalExecutions)
 		if failureRate > 0.5 { // 50% failure rate
@@ -695,7 +695,7 @@ func (tm *AgentToolManager) updateHealthStatus() {
 func (tm *AgentToolManager) monitorExecutions() {
 	tm.execMu.RLock()
 	defer tm.execMu.RUnlock()
-	
+
 	now := time.Now()
 	for _, execution := range tm.executions {
 		if execution.Status == ExecutionStatusRunning {
@@ -715,19 +715,19 @@ func (tm *AgentToolManager) monitorExecutions() {
 func (tc *ToolCache) get(key string) *CachedResult {
 	tc.mu.RLock()
 	defer tc.mu.RUnlock()
-	
+
 	result, exists := tc.cache[key]
 	if !exists {
 		return nil
 	}
-	
+
 	// Check expiration
 	if time.Now().After(result.ExpiresAt) {
 		// Expired, remove it
 		delete(tc.cache, key)
 		return nil
 	}
-	
+
 	// Update hit count
 	atomic.AddInt64(&result.Hits, 1)
 	return result
@@ -736,9 +736,9 @@ func (tc *ToolCache) get(key string) *CachedResult {
 func (tc *ToolCache) set(key string, result *CachedResult) {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-	
+
 	tc.cache[key] = result
-	
+
 	// Check if cache is full
 	if len(tc.cache) > tc.maxSize {
 		tc.evictOldest()
@@ -748,7 +748,7 @@ func (tc *ToolCache) set(key string, result *CachedResult) {
 func (tc *ToolCache) cleanup() {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-	
+
 	now := time.Now()
 	for key, result := range tc.cache {
 		if now.After(result.ExpiresAt) {
@@ -760,7 +760,7 @@ func (tc *ToolCache) cleanup() {
 func (tc *ToolCache) clear() {
 	tc.mu.Lock()
 	defer tc.mu.Unlock()
-	
+
 	tc.cache = make(map[string]*CachedResult)
 }
 
@@ -768,14 +768,14 @@ func (tc *ToolCache) evictOldest() {
 	// Find oldest entry
 	var oldestKey string
 	var oldestTime time.Time
-	
+
 	for key, result := range tc.cache {
 		if oldestTime.IsZero() || result.Cached.Before(oldestTime) {
 			oldestKey = key
 			oldestTime = result.Cached
 		}
 	}
-	
+
 	if oldestKey != "" {
 		delete(tc.cache, oldestKey)
 	}

@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools"
 )
 
 // Import the calculator tool (assuming it's in the main package for now)
@@ -141,9 +141,9 @@ func createCalculatorTool() *tools.Tool {
 			Timeout:    5 * time.Second,
 		},
 		Metadata: &tools.ToolMetadata{
-			Author:   "Math Team",
-			License:  "MIT",
-			Tags:     []string{"math", "calculator", "arithmetic"},
+			Author:  "Math Team",
+			License: "MIT",
+			Tags:    []string{"math", "calculator", "arithmetic"},
 			Examples: []tools.ToolExample{
 				{
 					Name:        "Addition",
@@ -239,21 +239,21 @@ func TestCalculatorTool_BasicOperations(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result, err := tool.Executor.Execute(ctx, tc.params)
-			
+
 			if tc.shouldErr {
 				assert.Error(t, err)
 				return
 			}
-			
+
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.True(t, result.Success)
-			
+
 			// Check the result
 			resultValue, ok := result.Data.(float64)
 			require.True(t, ok, "Result should be a float64")
 			assert.InDelta(t, tc.expected, resultValue, 0.0001, "Result should match expected value")
-			
+
 			// Check metadata
 			assert.NotNil(t, result.Metadata)
 			assert.Equal(t, tc.params["operation"], result.Metadata["operation"])
@@ -268,9 +268,9 @@ func TestCalculatorTool_ErrorHandling(t *testing.T) {
 	ctx := context.Background()
 
 	testCases := []struct {
-		name           string
-		params         map[string]interface{}
-		expectedError  string
+		name          string
+		params        map[string]interface{}
+		expectedError string
 	}{
 		{
 			name: "Division by zero",
@@ -346,7 +346,7 @@ func TestCalculatorTool_ErrorHandling(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result, err := tool.Executor.Execute(ctx, tc.params)
-			
+
 			require.NoError(t, err) // No execution error
 			require.NotNil(t, result)
 			assert.False(t, result.Success)
@@ -406,7 +406,7 @@ func TestCalculatorTool_EdgeCases(t *testing.T) {
 			params: map[string]interface{}{
 				"operation": "power",
 				"operand1":  8.0,
-				"operand2":  1.0/3.0,
+				"operand2":  1.0 / 3.0,
 			},
 			expected: 2.0,
 		},
@@ -415,11 +415,11 @@ func TestCalculatorTool_EdgeCases(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			result, err := tool.Executor.Execute(ctx, tc.params)
-			
+
 			require.NoError(t, err)
 			require.NotNil(t, result)
 			assert.True(t, result.Success)
-			
+
 			resultValue, ok := result.Data.(float64)
 			require.True(t, ok)
 			assert.InDelta(t, tc.expected, resultValue, 1e-10)
@@ -446,26 +446,26 @@ func TestCalculatorTool_Performance(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.True(t, result.Success)
-	
+
 	// Should complete quickly
 	assert.Less(t, duration, time.Millisecond, "Operation should complete within 1ms")
 
 	// Test multiple operations performance
 	numOperations := 1000
 	start = time.Now()
-	
+
 	for i := 0; i < numOperations; i++ {
 		result, err := tool.Executor.Execute(ctx, params)
 		require.NoError(t, err)
 		require.True(t, result.Success)
 	}
-	
+
 	totalDuration := time.Since(start)
 	avgDuration := totalDuration / time.Duration(numOperations)
-	
+
 	assert.Less(t, avgDuration, time.Millisecond, "Average operation should complete within 1ms")
-	
-	t.Logf("Performed %d operations in %v (avg: %v per operation)", 
+
+	t.Logf("Performed %d operations in %v (avg: %v per operation)",
 		numOperations, totalDuration, avgDuration)
 }
 

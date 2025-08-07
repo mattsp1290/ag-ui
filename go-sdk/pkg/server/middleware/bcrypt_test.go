@@ -10,10 +10,10 @@ import (
 
 func TestBCryptCostValidation(t *testing.T) {
 	tests := []struct {
-		name     string
-		cost     int
-		wantErr  bool
-		errMsg   string
+		name    string
+		cost    int
+		wantErr bool
+		errMsg  string
 	}{
 		{
 			name:    "valid_minimum_cost",
@@ -21,7 +21,7 @@ func TestBCryptCostValidation(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			name:    "valid_maximum_cost", 
+			name:    "valid_maximum_cost",
 			cost:    BCryptMaxCost,
 			wantErr: false,
 		},
@@ -59,7 +59,7 @@ func TestBCryptCostValidation(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := ValidateBCryptCost(tt.cost)
-			
+
 			if tt.wantErr {
 				assert.Error(t, err)
 				assert.Contains(t, err.Error(), tt.errMsg)
@@ -135,7 +135,7 @@ func TestGetSecureBCryptCost(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := GetSecureBCryptCost(tt.cost)
-			
+
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -150,14 +150,14 @@ func TestHashPassword(t *testing.T) {
 	t.Run("hash_password_success", func(t *testing.T) {
 		password := "test_password_123"
 		hash, err := HashPassword(password)
-		
+
 		assert.NoError(t, err)
 		assert.NotEmpty(t, hash)
-		
+
 		// Verify password can be verified
 		err = VerifyPassword(password, hash)
 		assert.NoError(t, err)
-		
+
 		// Check that the hash uses secure cost
 		cost, err := GetBCryptCostFromHash(hash)
 		assert.NoError(t, err)
@@ -175,11 +175,11 @@ func TestHashPasswordWithCost(t *testing.T) {
 	t.Run("valid_cost", func(t *testing.T) {
 		password := "test_password_123"
 		cost := BCryptMinCost
-		
+
 		hash, err := HashPasswordWithCost(password, cost)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, hash)
-		
+
 		// Verify the cost is correct
 		actualCost, err := GetBCryptCostFromHash(hash)
 		assert.NoError(t, err)
@@ -189,7 +189,7 @@ func TestHashPasswordWithCost(t *testing.T) {
 	t.Run("invalid_cost", func(t *testing.T) {
 		password := "test_password_123"
 		cost := 11 // Below minimum
-		
+
 		_, err := HashPasswordWithCost(password, cost)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid bcrypt cost")
@@ -200,14 +200,14 @@ func TestCreateAPIKeyHash(t *testing.T) {
 	t.Run("create_api_key_hash_success", func(t *testing.T) {
 		key := "test_api_key_123"
 		hash, err := CreateAPIKeyHash(key)
-		
+
 		assert.NoError(t, err)
 		assert.NotEmpty(t, hash)
-		
+
 		// Verify key can be verified
 		err = bcrypt.CompareHashAndPassword([]byte(hash), []byte(key))
 		assert.NoError(t, err)
-		
+
 		// Check that the hash uses secure cost
 		cost, err := GetBCryptCostFromHash(hash)
 		assert.NoError(t, err)
@@ -225,11 +225,11 @@ func TestCreateAPIKeyHashWithCost(t *testing.T) {
 	t.Run("valid_cost", func(t *testing.T) {
 		key := "test_api_key_123"
 		cost := BCryptMaxCost
-		
+
 		hash, err := CreateAPIKeyHashWithCost(key, cost)
 		assert.NoError(t, err)
 		assert.NotEmpty(t, hash)
-		
+
 		// Verify the cost is correct
 		actualCost, err := GetBCryptCostFromHash(hash)
 		assert.NoError(t, err)
@@ -239,7 +239,7 @@ func TestCreateAPIKeyHashWithCost(t *testing.T) {
 	t.Run("invalid_cost", func(t *testing.T) {
 		key := "test_api_key_123"
 		cost := 16 // Above maximum
-		
+
 		_, err := CreateAPIKeyHashWithCost(key, cost)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid bcrypt cost")
@@ -251,7 +251,7 @@ func TestVerifyPassword(t *testing.T) {
 		password := "test_password_123"
 		hash, err := HashPassword(password)
 		require.NoError(t, err)
-		
+
 		err = VerifyPassword(password, hash)
 		assert.NoError(t, err)
 	})
@@ -260,7 +260,7 @@ func TestVerifyPassword(t *testing.T) {
 		password := "test_password_123"
 		hash, err := HashPassword(password)
 		require.NoError(t, err)
-		
+
 		err = VerifyPassword("wrong_password", hash)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "password verification failed")
@@ -269,7 +269,7 @@ func TestVerifyPassword(t *testing.T) {
 	t.Run("empty_password", func(t *testing.T) {
 		hash, err := HashPassword("test")
 		require.NoError(t, err)
-		
+
 		err = VerifyPassword("", hash)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "password cannot be empty")
@@ -287,7 +287,7 @@ func TestGetBCryptCostFromHash(t *testing.T) {
 		expectedCost := BCryptMinCost
 		hash, err := HashPasswordWithCost("test", expectedCost)
 		require.NoError(t, err)
-		
+
 		actualCost, err := GetBCryptCostFromHash(hash)
 		assert.NoError(t, err)
 		assert.Equal(t, expectedCost, actualCost)
@@ -310,7 +310,7 @@ func TestValidatePasswordHash(t *testing.T) {
 	t.Run("valid_secure_hash", func(t *testing.T) {
 		hash, err := HashPassword("test")
 		require.NoError(t, err)
-		
+
 		err = ValidatePasswordHash(hash)
 		assert.NoError(t, err)
 	})
@@ -319,7 +319,7 @@ func TestValidatePasswordHash(t *testing.T) {
 		// Create hash with cost 10 (below minimum)
 		hash, err := bcrypt.GenerateFromPassword([]byte("test"), 10)
 		require.NoError(t, err)
-		
+
 		err = ValidatePasswordHash(string(hash))
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "insecure bcrypt cost")
@@ -340,7 +340,7 @@ func TestGetEffectiveBCryptCost(t *testing.T) {
 				BCryptCost: 14,
 			},
 		}
-		
+
 		cost := GetEffectiveBCryptCost(config, AuthMethodBasic)
 		assert.Equal(t, 14, cost)
 	})
@@ -352,7 +352,7 @@ func TestGetEffectiveBCryptCost(t *testing.T) {
 				BCryptCost: 0, // Not set
 			},
 		}
-		
+
 		cost := GetEffectiveBCryptCost(config, AuthMethodBasic)
 		assert.Equal(t, 13, cost)
 	})
@@ -364,7 +364,7 @@ func TestGetEffectiveBCryptCost(t *testing.T) {
 				BCryptCost: 0, // Not set
 			},
 		}
-		
+
 		cost := GetEffectiveBCryptCost(config, AuthMethodBasic)
 		assert.Equal(t, BCryptDefaultCost, cost)
 	})
@@ -373,7 +373,7 @@ func TestGetEffectiveBCryptCost(t *testing.T) {
 		config := &AuthConfig{
 			BCryptCost: 13,
 		}
-		
+
 		cost := GetEffectiveBCryptCost(config, AuthMethodJWT)
 		assert.Equal(t, 13, cost)
 	})

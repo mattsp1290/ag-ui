@@ -11,20 +11,20 @@ import (
 
 // AuthHooks provides authentication integration for the event validation system
 type AuthHooks struct {
-	provider     AuthProvider
-	config       *AuthConfig
-	enabled      bool
-	mutex        sync.RWMutex
-	
+	provider AuthProvider
+	config   *AuthConfig
+	enabled  bool
+	mutex    sync.RWMutex
+
 	// Hooks for different validation stages
 	preValidationHooks  []PreValidationHook
 	postValidationHooks []PostValidationHook
-	
+
 	// Metrics
-	authAttempts    int64
-	authSuccesses   int64
-	authFailures    int64
-	lastAuthTime    time.Time
+	authAttempts  int64
+	authSuccesses int64
+	authFailures  int64
+	lastAuthTime  time.Time
 }
 
 // PreValidationHook is called before validation occurs
@@ -38,7 +38,7 @@ func NewAuthHooks(provider AuthProvider, config *AuthConfig) *AuthHooks {
 	if config == nil {
 		config = DefaultAuthConfig()
 	}
-	
+
 	return &AuthHooks{
 		provider:            provider,
 		config:              config,
@@ -102,12 +102,12 @@ func (ah *AuthHooks) AuthenticateFromContext(ctx context.Context) (*AuthContext,
 	if !ah.IsEnabled() {
 		return nil, nil // Authentication disabled
 	}
-	
+
 	ah.mutex.Lock()
 	ah.authAttempts++
 	ah.lastAuthTime = time.Now()
 	ah.mutex.Unlock()
-	
+
 	// Check if auth context is already in context
 	if authCtx, ok := ctx.Value(authContextKey).(*AuthContext); ok {
 		ah.mutex.Lock()
@@ -115,7 +115,7 @@ func (ah *AuthHooks) AuthenticateFromContext(ctx context.Context) (*AuthContext,
 		ah.mutex.Unlock()
 		return authCtx, nil
 	}
-	
+
 	// Check for credentials in context
 	if creds, ok := ctx.Value(credentialsKey).(Credentials); ok {
 		authCtx, err := ah.provider.Authenticate(ctx, creds)
@@ -125,13 +125,13 @@ func (ah *AuthHooks) AuthenticateFromContext(ctx context.Context) (*AuthContext,
 			ah.mutex.Unlock()
 			return nil, err
 		}
-		
+
 		ah.mutex.Lock()
 		ah.authSuccesses++
 		ah.mutex.Unlock()
 		return authCtx, nil
 	}
-	
+
 	// No authentication found
 	if ah.config.RequireAuth {
 		ah.mutex.Lock()
@@ -139,7 +139,7 @@ func (ah *AuthHooks) AuthenticateFromContext(ctx context.Context) (*AuthContext,
 		ah.mutex.Unlock()
 		return nil, ErrUnauthorized
 	}
-	
+
 	return nil, nil // Anonymous access
 }
 
@@ -148,15 +148,15 @@ func (ah *AuthHooks) AuthorizeEvent(ctx context.Context, authCtx *AuthContext, e
 	if !ah.IsEnabled() {
 		return nil
 	}
-	
+
 	if ah.provider == nil {
 		return ErrNoAuthProvider
 	}
-	
+
 	// Determine resource and action based on event type
 	resource := "event"
 	action := "validate"
-	
+
 	// You can customize this based on event types
 	switch event.Type() {
 	case events.EventTypeRunStarted, events.EventTypeRunFinished:
@@ -172,7 +172,7 @@ func (ah *AuthHooks) AuthorizeEvent(ctx context.Context, authCtx *AuthContext, e
 		resource = "state"
 		action = "validate"
 	}
-	
+
 	return ah.provider.Authorize(ctx, authCtx, resource, action)
 }
 
@@ -182,13 +182,13 @@ func (ah *AuthHooks) ExecutePreValidationHooks(ctx context.Context, event events
 	hooks := make([]PreValidationHook, len(ah.preValidationHooks))
 	copy(hooks, ah.preValidationHooks)
 	ah.mutex.RUnlock()
-	
+
 	for _, hook := range hooks {
 		if err := hook(ctx, event, authCtx); err != nil {
 			return fmt.Errorf("pre-validation hook failed: %w", err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -198,13 +198,13 @@ func (ah *AuthHooks) ExecutePostValidationHooks(ctx context.Context, event event
 	hooks := make([]PostValidationHook, len(ah.postValidationHooks))
 	copy(hooks, ah.postValidationHooks)
 	ah.mutex.RUnlock()
-	
+
 	for _, hook := range hooks {
 		if err := hook(ctx, event, authCtx, result); err != nil {
 			return fmt.Errorf("post-validation hook failed: %w", err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -217,22 +217,22 @@ func (ah *AuthHooks) GetConfig() *AuthConfig {
 func (ah *AuthHooks) GetMetrics() map[string]interface{} {
 	ah.mutex.RLock()
 	defer ah.mutex.RUnlock()
-	
+
 	successRate := float64(0)
 	if ah.authAttempts > 0 {
 		successRate = float64(ah.authSuccesses) / float64(ah.authAttempts) * 100
 	}
-	
+
 	return map[string]interface{}{
-		"auth_attempts":    ah.authAttempts,
-		"auth_successes":   ah.authSuccesses,
-		"auth_failures":    ah.authFailures,
-		"success_rate":     successRate,
-		"last_auth_time":   ah.lastAuthTime,
-		"provider_type":    ah.provider.GetProviderType(),
-		"enabled":          ah.enabled,
-		"require_auth":     ah.config.RequireAuth,
-		"allow_anonymous":  ah.config.AllowAnonymous,
+		"auth_attempts":   ah.authAttempts,
+		"auth_successes":  ah.authSuccesses,
+		"auth_failures":   ah.authFailures,
+		"success_rate":    successRate,
+		"last_auth_time":  ah.lastAuthTime,
+		"provider_type":   ah.provider.GetProviderType(),
+		"enabled":         ah.enabled,
+		"require_auth":    ah.config.RequireAuth,
+		"allow_anonymous": ah.config.AllowAnonymous,
 	}
 }
 
@@ -240,8 +240,8 @@ func (ah *AuthHooks) GetMetrics() map[string]interface{} {
 type contextKey string
 
 const (
-	authContextKey  contextKey = "auth_context"
-	credentialsKey  contextKey = "credentials"
+	authContextKey contextKey = "auth_context"
+	credentialsKey contextKey = "credentials"
 )
 
 // WithAuthContext adds an authentication context to the context
@@ -298,16 +298,16 @@ func RateLimitHook(limits map[string]int) PreValidationHook {
 		resetTime  time.Time
 		mutex      sync.Mutex
 	}
-	
+
 	state := &rateLimitState{
 		userCounts: make(map[string]int),
 		resetTime:  time.Now().Add(time.Minute),
 	}
-	
+
 	return func(ctx context.Context, event events.Event, authCtx *AuthContext) error {
 		state.mutex.Lock()
 		defer state.mutex.Unlock()
-		
+
 		// Reset counts every minute
 		if time.Now().After(state.resetTime) {
 			// Clear the map instead of reassigning to prevent race conditions
@@ -316,10 +316,10 @@ func RateLimitHook(limits map[string]int) PreValidationHook {
 			}
 			state.resetTime = time.Now().Add(time.Minute)
 		}
-		
+
 		userID := "anonymous"
 		limit := 100 // Default limit for anonymous
-		
+
 		if authCtx != nil {
 			userID = authCtx.UserID
 			// Check for user-specific limit
@@ -331,12 +331,12 @@ func RateLimitHook(limits map[string]int) PreValidationHook {
 				limit = 1000 // Default authenticated limit
 			}
 		}
-		
+
 		state.userCounts[userID]++
 		if state.userCounts[userID] > limit {
 			return fmt.Errorf("rate limit exceeded: %d requests per minute", limit)
 		}
-		
+
 		return nil
 	}
 }
@@ -350,11 +350,11 @@ func AuditHook() PostValidationHook {
 		if authCtx != nil {
 			userID = authCtx.UserID
 		}
-		
+
 		// In a real implementation, you would write to an audit log
 		fmt.Printf("Audit: User %s validated event %s, result: %v (errors: %d, warnings: %d)\n",
 			userID, event.Type(), result.IsValid, len(result.Errors), len(result.Warnings))
-		
+
 		return nil
 	}
 }
@@ -367,7 +367,7 @@ func EnrichResultHook() PostValidationHook {
 			if result.Information == nil {
 				result.Information = make([]*events.ValidationError, 0)
 			}
-			
+
 			result.Information = append(result.Information, &events.ValidationError{
 				RuleID:    "AUTH_INFO",
 				EventType: event.Type(),
@@ -381,7 +381,7 @@ func EnrichResultHook() PostValidationHook {
 				Timestamp: time.Now(),
 			})
 		}
-		
+
 		return nil
 	}
 }

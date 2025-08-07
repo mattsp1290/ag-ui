@@ -244,14 +244,14 @@ func TestMarketplace_InstallPackage(t *testing.T) {
 
 func TestRulePackageBuilder(t *testing.T) {
 	builder := NewPackageBuilder("test-pkg", "Test Package", "1.0.0")
-	
+
 	rule := &Rule{
 		ID:       "test-rule",
 		Name:     "Test Rule",
 		Logic:    "return data.valid === true;",
 		Language: "javascript",
 	}
-	
+
 	dep := &Dependency{
 		ID:           "dep-pkg",
 		Name:         "Dependency Package",
@@ -260,7 +260,7 @@ func TestRulePackageBuilder(t *testing.T) {
 		Required:     true,
 		Type:         "runtime",
 	}
-	
+
 	pkg := builder.
 		SetAuthor("Test Author", "test@example.com").
 		SetDescription("A test package").
@@ -271,27 +271,27 @@ func TestRulePackageBuilder(t *testing.T) {
 		AddRule(rule).
 		AddDependency(dep).
 		Build()
-	
+
 	if pkg.ID != "test-pkg" {
 		t.Errorf("Expected ID 'test-pkg', got %s", pkg.ID)
 	}
-	
+
 	if pkg.Name != "Test Package" {
 		t.Errorf("Expected name 'Test Package', got %s", pkg.Name)
 	}
-	
+
 	if pkg.Author != "Test Author" {
 		t.Errorf("Expected author 'Test Author', got %s", pkg.Author)
 	}
-	
+
 	if len(pkg.Rules) != 1 {
 		t.Errorf("Expected 1 rule, got %d", len(pkg.Rules))
 	}
-	
+
 	if len(pkg.Dependencies) != 1 {
 		t.Errorf("Expected 1 dependency, got %d", len(pkg.Dependencies))
 	}
-	
+
 	if pkg.Hash == "" {
 		t.Error("Expected hash to be generated")
 	}
@@ -299,24 +299,24 @@ func TestRulePackageBuilder(t *testing.T) {
 
 func TestVersionManager_AddVersion(t *testing.T) {
 	vm := NewVersionManager()
-	
+
 	pkg := &RulePackage{
 		ID:      "test-pkg",
 		Version: "1.0.0",
 		Name:    "Test Package",
 	}
-	
+
 	err := vm.AddVersion("test-pkg", "1.0.0", pkg)
 	if err != nil {
 		t.Fatalf("Expected no error, got %v", err)
 	}
-	
+
 	// Test adding duplicate version
 	err = vm.AddVersion("test-pkg", "1.0.0", pkg)
 	if err == nil {
 		t.Fatal("Expected error for duplicate version")
 	}
-	
+
 	// Test invalid version format
 	err = vm.AddVersion("test-pkg", "invalid-version", pkg)
 	if err == nil {
@@ -326,17 +326,17 @@ func TestVersionManager_AddVersion(t *testing.T) {
 
 func TestVersionManager_GetVersion(t *testing.T) {
 	vm := NewVersionManager()
-	
+
 	packages := []*RulePackage{
 		{ID: "test-pkg", Version: "1.0.0", Name: "Test Package v1.0.0"},
 		{ID: "test-pkg", Version: "1.1.0", Name: "Test Package v1.1.0"},
 		{ID: "test-pkg", Version: "2.0.0-beta.1", Name: "Test Package v2.0.0-beta.1"},
 	}
-	
+
 	for _, pkg := range packages {
 		vm.AddVersion("test-pkg", pkg.Version, pkg)
 	}
-	
+
 	// Test specific version
 	pkg, err := vm.GetVersion("test-pkg", "1.0.0")
 	if err != nil {
@@ -345,7 +345,7 @@ func TestVersionManager_GetVersion(t *testing.T) {
 	if pkg.Version != "1.0.0" {
 		t.Errorf("Expected version 1.0.0, got %s", pkg.Version)
 	}
-	
+
 	// Test latest version
 	pkg, err = vm.GetVersion("test-pkg", "latest")
 	if err != nil {
@@ -354,7 +354,7 @@ func TestVersionManager_GetVersion(t *testing.T) {
 	if pkg.Version != "2.0.0-beta.1" {
 		t.Errorf("Expected latest version 2.0.0-beta.1, got %s", pkg.Version)
 	}
-	
+
 	// Test stable version
 	pkg, err = vm.GetVersion("test-pkg", "stable")
 	if err != nil {
@@ -367,7 +367,7 @@ func TestVersionManager_GetVersion(t *testing.T) {
 
 func TestVersionManager_CompareVersions(t *testing.T) {
 	vm := NewVersionManager()
-	
+
 	tests := []struct {
 		v1       string
 		v2       string
@@ -381,13 +381,13 @@ func TestVersionManager_CompareVersions(t *testing.T) {
 		{"1.0.0", "1.0.0-alpha", 1},
 		{"1.0.0-alpha", "1.0.0-beta", -1},
 	}
-	
+
 	for _, test := range tests {
 		result := vm.compareVersions(test.v1, test.v2)
 		if (result > 0 && test.expected <= 0) ||
-		   (result < 0 && test.expected >= 0) ||
-		   (result == 0 && test.expected != 0) {
-			t.Errorf("compareVersions(%s, %s) = %d, expected %d", 
+			(result < 0 && test.expected >= 0) ||
+			(result == 0 && test.expected != 0) {
+			t.Errorf("compareVersions(%s, %s) = %d, expected %d",
 				test.v1, test.v2, result, test.expected)
 		}
 	}
@@ -395,7 +395,7 @@ func TestVersionManager_CompareVersions(t *testing.T) {
 
 func TestDependencyResolver_ResolveDependencies(t *testing.T) {
 	resolver := NewDependencyResolver()
-	
+
 	// Create packages with dependencies
 	_ = &RulePackage{
 		ID:           "dependency",
@@ -404,7 +404,7 @@ func TestDependencyResolver_ResolveDependencies(t *testing.T) {
 		Rules:        []*Rule{{ID: "dep-rule", Name: "Dep Rule", Logic: "true", Language: "js"}},
 		Dependencies: []*Dependency{},
 	}
-	
+
 	mainPkg := &RulePackage{
 		ID:      "main-package",
 		Version: "1.0.0",
@@ -421,12 +421,12 @@ func TestDependencyResolver_ResolveDependencies(t *testing.T) {
 			},
 		},
 	}
-	
+
 	// Mock the marketplace for dependency resolution
 	// In a real test, you'd inject a mock marketplace
-	
+
 	_, err := resolver.ResolveDependencies(mainPkg)
-	
+
 	// Since we don't have a real marketplace injected, this will fail
 	// which is expected behavior - we're testing that the resolver handles missing dependencies
 	if err == nil {
@@ -436,7 +436,7 @@ func TestDependencyResolver_ResolveDependencies(t *testing.T) {
 
 func TestDependencyResolver_ValidateDependencies(t *testing.T) {
 	resolver := NewDependencyResolver()
-	
+
 	// Test valid dependencies
 	pkg := &RulePackage{
 		ID:      "test-pkg",
@@ -454,23 +454,23 @@ func TestDependencyResolver_ValidateDependencies(t *testing.T) {
 			},
 		},
 	}
-	
+
 	err := resolver.ValidateDependencies(pkg)
 	if err != nil {
 		t.Fatalf("Expected no error for valid dependencies, got %v", err)
 	}
-	
+
 	// Test duplicate dependencies
 	pkg.Dependencies = append(pkg.Dependencies, &Dependency{
 		ID:           "dep1", // Duplicate
 		VersionRange: "^1.0.0",
 	})
-	
+
 	err = resolver.ValidateDependencies(pkg)
 	if err == nil {
 		t.Fatal("Expected error for duplicate dependencies")
 	}
-	
+
 	// Test self-dependency
 	pkg.Dependencies = []*Dependency{
 		{
@@ -478,7 +478,7 @@ func TestDependencyResolver_ValidateDependencies(t *testing.T) {
 			VersionRange: "^1.0.0",
 		},
 	}
-	
+
 	err = resolver.ValidateDependencies(pkg)
 	if err == nil {
 		t.Fatal("Expected error for self-dependency")
@@ -487,13 +487,13 @@ func TestDependencyResolver_ValidateDependencies(t *testing.T) {
 
 func TestABTesting_CreateExperiment(t *testing.T) {
 	ab := NewABTesting()
-	
+
 	exp := &Experiment{
-		Name:        "Test Experiment",
-		Description: "A test A/B experiment",
-		Type:        TypeRuleComparison,
+		Name:              "Test Experiment",
+		Description:       "A test A/B experiment",
+		Type:              TypeRuleComparison,
 		TrafficAllocation: 0.5,
-		PrimaryMetric: "conversion_rate",
+		PrimaryMetric:     "conversion_rate",
 		Variants: []*Variant{
 			{
 				ID:        "control",
@@ -513,16 +513,16 @@ func TestABTesting_CreateExperiment(t *testing.T) {
 		CreatedBy:         "test-user",
 		Tags:              []string{"test"},
 	}
-	
+
 	err := ab.CreateExperiment(exp)
 	if err != nil {
 		t.Fatalf("Expected no error creating experiment, got %v", err)
 	}
-	
+
 	if exp.ID == "" {
 		t.Error("Expected experiment ID to be generated")
 	}
-	
+
 	if exp.Status != StatusDraft {
 		t.Errorf("Expected status to be draft, got %s", exp.Status)
 	}
@@ -530,14 +530,14 @@ func TestABTesting_CreateExperiment(t *testing.T) {
 
 func TestABTesting_ValidateExperiment(t *testing.T) {
 	ab := NewABTesting()
-	
+
 	// Test experiment without name
 	exp := &Experiment{}
 	err := ab.validateExperiment(exp)
 	if err == nil {
 		t.Fatal("Expected error for experiment without name")
 	}
-	
+
 	// Test experiment with insufficient variants
 	exp = &Experiment{
 		Name: "Test",
@@ -549,10 +549,10 @@ func TestABTesting_ValidateExperiment(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for experiment with insufficient variants")
 	}
-	
+
 	// Test experiment with invalid weights
 	exp = &Experiment{
-		Name: "Test",
+		Name:              "Test",
 		TrafficAllocation: 0.5,
 		Variants: []*Variant{
 			{ID: "v1", Weight: 0.3, IsControl: true},
@@ -563,10 +563,10 @@ func TestABTesting_ValidateExperiment(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for experiment with invalid weights")
 	}
-	
+
 	// Test valid experiment
 	exp = &Experiment{
-		Name: "Test",
+		Name:              "Test",
 		TrafficAllocation: 0.5,
 		Variants: []*Variant{
 			{ID: "control", Weight: 0.5, IsControl: true},
@@ -581,12 +581,12 @@ func TestABTesting_ValidateExperiment(t *testing.T) {
 
 func TestABTesting_AssignUserToExperiment(t *testing.T) {
 	ab := NewABTesting()
-	
+
 	// Create and start experiment
 	exp := &Experiment{
-		ID:   "test-exp",
-		Name: "Test Experiment",
-		Status: StatusRunning,
+		ID:                "test-exp",
+		Name:              "Test Experiment",
+		Status:            StatusRunning,
 		TrafficAllocation: 1.0, // Include all users
 		Variants: []*Variant{
 			{ID: "control", Weight: 0.5, IsControl: true},
@@ -594,31 +594,31 @@ func TestABTesting_AssignUserToExperiment(t *testing.T) {
 		},
 	}
 	ab.experiments["test-exp"] = exp
-	
+
 	userProperties := map[string]interface{}{
-		"country": "US",
+		"country":  "US",
 		"segments": []string{"beta_users"},
 	}
-	
+
 	userExp, err := ab.AssignUserToExperiment("user123", "test-exp", userProperties)
 	if err != nil {
 		t.Fatalf("Expected no error assigning user, got %v", err)
 	}
-	
+
 	if userExp.ExperimentID != "test-exp" {
 		t.Errorf("Expected experiment ID 'test-exp', got %s", userExp.ExperimentID)
 	}
-	
+
 	if userExp.VariantID != "control" && userExp.VariantID != "variant" {
 		t.Errorf("Expected variant to be 'control' or 'variant', got %s", userExp.VariantID)
 	}
-	
+
 	// Test assigning same user again (should return existing assignment)
 	userExp2, err := ab.AssignUserToExperiment("user123", "test-exp", userProperties)
 	if err != nil {
 		t.Fatalf("Expected no error for existing assignment, got %v", err)
 	}
-	
+
 	if userExp2.VariantID != userExp.VariantID {
 		t.Error("Expected same variant assignment for same user")
 	}
@@ -626,7 +626,7 @@ func TestABTesting_AssignUserToExperiment(t *testing.T) {
 
 func TestABTesting_TrackEvent(t *testing.T) {
 	ab := NewABTesting()
-	
+
 	// Setup experiment and user
 	exp := &Experiment{
 		ID:     "test-exp",
@@ -636,7 +636,7 @@ func TestABTesting_TrackEvent(t *testing.T) {
 		},
 	}
 	ab.experiments["test-exp"] = exp
-	
+
 	participation := &Participation{
 		UserID: "user123",
 		Experiments: map[string]*UserExperiment{
@@ -648,24 +648,24 @@ func TestABTesting_TrackEvent(t *testing.T) {
 		},
 	}
 	ab.participations["user123"] = participation
-	
+
 	// Track conversion event
-	err := ab.TrackEvent("user123", "test-exp", "conversion", 
+	err := ab.TrackEvent("user123", "test-exp", "conversion",
 		map[string]interface{}{"page": "checkout"}, 100.0)
-	
+
 	if err != nil {
 		t.Fatalf("Expected no error tracking event, got %v", err)
 	}
-	
+
 	userExp := participation.Experiments["test-exp"]
 	if userExp.EventCount != 1 {
 		t.Errorf("Expected event count 1, got %d", userExp.EventCount)
 	}
-	
+
 	if userExp.Conversions != 1 {
 		t.Errorf("Expected conversions 1, got %d", userExp.Conversions)
 	}
-	
+
 	if userExp.Revenue != 100.0 {
 		t.Errorf("Expected revenue 100.0, got %f", userExp.Revenue)
 	}
@@ -673,14 +673,14 @@ func TestABTesting_TrackEvent(t *testing.T) {
 
 func TestPackageManager_ValidatePackageStructure(t *testing.T) {
 	pm := NewPackageManager("/tmp/packages")
-	
+
 	// Test empty package
 	pkg := &RulePackage{}
 	err := pm.ValidatePackageStructure(pkg)
 	if err == nil {
 		t.Fatal("Expected error for empty package")
 	}
-	
+
 	// Test package without rules
 	pkg = &RulePackage{
 		ID:      "test",
@@ -692,7 +692,7 @@ func TestPackageManager_ValidatePackageStructure(t *testing.T) {
 	if err == nil {
 		t.Fatal("Expected error for package without rules")
 	}
-	
+
 	// Test valid package
 	pkg = &RulePackage{
 		ID:      "test",
@@ -710,7 +710,7 @@ func TestPackageManager_ValidatePackageStructure(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Expected no error for valid package, got %v", err)
 	}
-	
+
 	// Test duplicate rule IDs
 	pkg.Rules = append(pkg.Rules, &Rule{
 		ID:    "rule1", // Duplicate
@@ -731,19 +731,19 @@ func TestRule_Execute(t *testing.T) {
 		Logic:    "return data.valid === true;",
 		Timeout:  5 * time.Second,
 	}
-	
+
 	ctx := context.Background()
-	
+
 	// Test with valid data
 	result, err := rule.Execute(ctx, map[string]interface{}{"valid": true})
 	if err != nil {
 		t.Fatalf("Expected no error executing rule, got %v", err)
 	}
-	
+
 	if result == nil {
 		t.Fatal("Expected result to be non-nil")
 	}
-	
+
 	// Test with unsupported language
 	rule.Language = "unsupported"
 	_, err = rule.Execute(ctx, map[string]interface{}{})

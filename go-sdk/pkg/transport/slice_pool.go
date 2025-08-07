@@ -26,16 +26,16 @@ func (sp *SlicePool[T]) getPool(capacity int) *sync.Pool {
 		return pool
 	}
 	sp.mutex.RUnlock()
-	
+
 	// Create new pool
 	sp.mutex.Lock()
 	defer sp.mutex.Unlock()
-	
+
 	// Double-check after acquiring write lock
 	if pool, exists := sp.pools[capacity]; exists {
 		return pool
 	}
-	
+
 	pool := &sync.Pool{
 		New: func() interface{} {
 			return make([]T, 0, capacity)
@@ -59,13 +59,13 @@ func (sp *SlicePool[T]) Put(slice []T) {
 	if slice == nil {
 		return
 	}
-	
+
 	// Clear the slice to avoid memory leaks
 	for i := range slice {
 		var zero T
 		slice[i] = zero
 	}
-	
+
 	capacity := cap(slice)
 	pool := sp.getPool(capacity)
 	pool.Put(slice[:0])
@@ -76,7 +76,7 @@ func roundUpPowerOf2(n int) int {
 	if n <= 0 {
 		return 1
 	}
-	
+
 	// Use bit manipulation to find next power of 2
 	n--
 	n |= n >> 1
@@ -86,7 +86,7 @@ func roundUpPowerOf2(n int) int {
 	n |= n >> 16
 	n |= n >> 32
 	n++
-	
+
 	return n
 }
 
@@ -124,25 +124,25 @@ func (p *EventHandlerSlicePool) Put(slice []interface{}) {
 	if slice == nil {
 		return
 	}
-	
+
 	// Clear references to avoid memory leaks
 	for i := range slice {
 		slice[i] = nil
 	}
-	
+
 	p.pool.Put(slice[:0])
 }
 
 // PreAllocatedSlices provides pre-allocated slices for common use cases
 type PreAllocatedSlices struct {
 	// Event handler slices
-	smallHandlers [4]interface{}
+	smallHandlers  [4]interface{}
 	mediumHandlers [16]interface{}
-	largeHandlers [64]interface{}
-	
+	largeHandlers  [64]interface{}
+
 	// String slices for event types
 	eventTypes [8]string
-	
+
 	// Field slices for logging
 	logFields [16]Field
 }
@@ -199,13 +199,13 @@ func (SliceOps) RemoveString(slice []string, index int) []string {
 	if index < 0 || index >= len(slice) {
 		return slice
 	}
-	
+
 	// Move elements to fill the gap
 	copy(slice[index:], slice[index+1:])
-	
+
 	// Clear the last element to avoid memory leak
 	slice[len(slice)-1] = ""
-	
+
 	return slice[:len(slice)-1]
 }
 
@@ -214,7 +214,7 @@ func FastSliceGrow[T any](slice []T, targetCap int) []T {
 	if cap(slice) >= targetCap {
 		return slice
 	}
-	
+
 	// Allocate new slice with target capacity
 	newSlice := make([]T, len(slice), targetCap)
 	copy(newSlice, slice)
@@ -234,7 +234,7 @@ type SliceStats struct {
 func (s *SliceStats) RecordAllocation(size int) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	
+
 	s.TotalAllocations++
 	s.CurrentUsage += int64(size)
 	if s.CurrentUsage > s.PeakUsage {
@@ -246,7 +246,7 @@ func (s *SliceStats) RecordAllocation(size int) {
 func (s *SliceStats) RecordDeallocation(size int) {
 	s.mutex.Lock()
 	defer s.mutex.Unlock()
-	
+
 	s.TotalDeallocations++
 	s.CurrentUsage -= int64(size)
 }
@@ -255,7 +255,7 @@ func (s *SliceStats) RecordDeallocation(size int) {
 func (s *SliceStats) GetStats() (total, peak, current int64) {
 	s.mutex.RLock()
 	defer s.mutex.RUnlock()
-	
+
 	return s.TotalAllocations, s.PeakUsage, s.CurrentUsage
 }
 

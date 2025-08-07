@@ -22,9 +22,9 @@ const (
 type ErrorSeverity string
 
 const (
-	SeverityInfo    ErrorSeverity = "info"
-	SeverityWarning ErrorSeverity = "warning"
-	SeverityError   ErrorSeverity = "error"
+	SeverityInfo     ErrorSeverity = "info"
+	SeverityWarning  ErrorSeverity = "warning"
+	SeverityError    ErrorSeverity = "error"
 	SeverityCritical ErrorSeverity = "critical"
 )
 
@@ -62,10 +62,10 @@ func (e *BaseError) Is(target error) bool {
 // AuthenticationError represents authentication-related errors
 type AuthenticationError struct {
 	*BaseError
-	UserID      string `json:"user_id,omitempty"`
-	TokenType   string `json:"token_type,omitempty"`
+	UserID      string     `json:"user_id,omitempty"`
+	TokenType   string     `json:"token_type,omitempty"`
 	ExpiresAt   *time.Time `json:"expires_at,omitempty"`
-	Permissions []string `json:"permissions,omitempty"`
+	Permissions []string   `json:"permissions,omitempty"`
 }
 
 // Authentication error codes
@@ -127,19 +127,19 @@ type CacheError struct {
 
 // Cache error codes
 const (
-	CacheErrorConnectionFailed = "CONNECTION_FAILED"
-	CacheErrorTimeout          = "TIMEOUT"
-	CacheErrorKeyNotFound      = "KEY_NOT_FOUND"
+	CacheErrorConnectionFailed    = "CONNECTION_FAILED"
+	CacheErrorTimeout             = "TIMEOUT"
+	CacheErrorKeyNotFound         = "KEY_NOT_FOUND"
 	CacheErrorSerializationFailed = "SERIALIZATION_FAILED"
-	CacheErrorCompressionFailed = "COMPRESSION_FAILED"
-	CacheErrorEvictionFailed   = "EVICTION_FAILED"
-	CacheErrorL2Unavailable    = "L2_UNAVAILABLE"
-	CacheErrorInvalidOperation = "INVALID_OPERATION"
+	CacheErrorCompressionFailed   = "COMPRESSION_FAILED"
+	CacheErrorEvictionFailed      = "EVICTION_FAILED"
+	CacheErrorL2Unavailable       = "L2_UNAVAILABLE"
+	CacheErrorInvalidOperation    = "INVALID_OPERATION"
 )
 
 func NewCacheError(code, message string) *CacheError {
 	retryable := code == CacheErrorTimeout || code == CacheErrorConnectionFailed || code == CacheErrorL2Unavailable
-	
+
 	return &CacheError{
 		BaseError: &BaseError{
 			Category:  CategoryCache,
@@ -184,24 +184,24 @@ func (e *CacheError) IsCacheError() bool {
 // ValidationError represents validation-related errors
 type ValidationError struct {
 	*BaseError
-	RuleID      string `json:"rule_id"`
-	EventID     string `json:"event_id,omitempty"`
-	EventType   string `json:"event_type,omitempty"`
-	FieldPath   string `json:"field_path,omitempty"`
-	ActualValue interface{} `json:"actual_value,omitempty"`
+	RuleID        string      `json:"rule_id"`
+	EventID       string      `json:"event_id,omitempty"`
+	EventType     string      `json:"event_type,omitempty"`
+	FieldPath     string      `json:"field_path,omitempty"`
+	ActualValue   interface{} `json:"actual_value,omitempty"`
 	ExpectedValue interface{} `json:"expected_value,omitempty"`
 }
 
 // Validation error codes
 const (
-	ValidationErrorRequired       = "REQUIRED_FIELD_MISSING"
-	ValidationErrorInvalidFormat  = "INVALID_FORMAT"
-	ValidationErrorOutOfRange     = "OUT_OF_RANGE"
-	ValidationErrorInvalidType    = "INVALID_TYPE"
+	ValidationErrorRequired            = "REQUIRED_FIELD_MISSING"
+	ValidationErrorInvalidFormat       = "INVALID_FORMAT"
+	ValidationErrorOutOfRange          = "OUT_OF_RANGE"
+	ValidationErrorInvalidType         = "INVALID_TYPE"
 	ValidationErrorConstraintViolation = "CONSTRAINT_VIOLATION"
-	ValidationErrorSequenceError = "SEQUENCE_ERROR"
-	ValidationErrorDuplicateID   = "DUPLICATE_ID"
-	ValidationErrorOrphanedEvent = "ORPHANED_EVENT"
+	ValidationErrorSequenceError       = "SEQUENCE_ERROR"
+	ValidationErrorDuplicateID         = "DUPLICATE_ID"
+	ValidationErrorOrphanedEvent       = "ORPHANED_EVENT"
 )
 
 func NewValidationError(code, message string) *ValidationError {
@@ -265,23 +265,23 @@ func IsRetryable(err error) bool {
 	if errors.As(err, &baseErr) {
 		return baseErr.Retryable
 	}
-	
+
 	// Check for specific error types
 	var authErr *AuthenticationError
 	if errors.As(err, &authErr) && authErr.BaseError != nil {
 		return authErr.BaseError.Retryable
 	}
-	
+
 	var cacheErr *CacheError
 	if errors.As(err, &cacheErr) && cacheErr.BaseError != nil {
 		return cacheErr.BaseError.Retryable
 	}
-	
+
 	var validationErr *ValidationError
 	if errors.As(err, &validationErr) && validationErr.BaseError != nil {
 		return validationErr.BaseError.Retryable
 	}
-	
+
 	return false
 }
 
@@ -291,23 +291,23 @@ func GetErrorCode(err error) string {
 	if errors.As(err, &baseErr) {
 		return baseErr.Code
 	}
-	
+
 	// Check for specific error types
 	var authErr *AuthenticationError
 	if errors.As(err, &authErr) && authErr.BaseError != nil {
 		return authErr.BaseError.Code
 	}
-	
+
 	var cacheErr *CacheError
 	if errors.As(err, &cacheErr) && cacheErr.BaseError != nil {
 		return cacheErr.BaseError.Code
 	}
-	
+
 	var validationErr *ValidationError
 	if errors.As(err, &validationErr) && validationErr.BaseError != nil {
 		return validationErr.BaseError.Code
 	}
-	
+
 	return ""
 }
 
@@ -317,23 +317,23 @@ func GetErrorCategory(err error) ErrorCategory {
 	if errors.As(err, &baseErr) {
 		return baseErr.Category
 	}
-	
+
 	// Check for specific error types
 	var authErr *AuthenticationError
 	if errors.As(err, &authErr) && authErr.BaseError != nil {
 		return authErr.BaseError.Category
 	}
-	
+
 	var cacheErr *CacheError
 	if errors.As(err, &cacheErr) && cacheErr.BaseError != nil {
 		return cacheErr.BaseError.Category
 	}
-	
+
 	var validationErr *ValidationError
 	if errors.As(err, &validationErr) && validationErr.BaseError != nil {
 		return validationErr.BaseError.Category
 	}
-	
+
 	return ""
 }
 
@@ -344,7 +344,7 @@ func HasErrorCode(err error, code string) bool {
 
 // Legacy error code mappings for backward compatibility
 var LegacyErrorCodeMap = map[string]string{
-	"AUTH_VALIDATION":     AuthErrorAuthRequired,
+	"AUTH_VALIDATION":      AuthErrorAuthRequired,
 	"POST_AUTH_VALIDATION": AuthErrorInsufficientPerms,
 }
 
@@ -359,7 +359,7 @@ func ConvertLegacyError(ruleID, message string) error {
 		authErr.Context["rule_id"] = ruleID
 		return authErr
 	}
-	
+
 	// Default to validation error for unknown rule IDs
 	return NewValidationError(ValidationErrorConstraintViolation, message).WithRule(ruleID)
 }

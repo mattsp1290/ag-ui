@@ -33,45 +33,45 @@ type AgentConfigManager struct {
 	// Configuration sources
 	configSources []ConfigSource
 	sourcesMu     sync.RWMutex
-	
+
 	// Configuration cache
-	configCache   map[string]*CachedConfig
-	cacheMu       sync.RWMutex
-	
+	configCache map[string]*CachedConfig
+	cacheMu     sync.RWMutex
+
 	// Watchers for hot-reloading
-	watchers      map[string]*ConfigWatcher
-	watchersMu    sync.RWMutex
-	
+	watchers   map[string]*ConfigWatcher
+	watchersMu sync.RWMutex
+
 	// Validation schemas
-	schemas       map[string]*ConfigSchema
-	schemasMu     sync.RWMutex
-	
+	schemas   map[string]*ConfigSchema
+	schemasMu sync.RWMutex
+
 	// Change listeners
-	listeners     map[string][]ConfigChangeListener
-	listenersMu   sync.RWMutex
-	
+	listeners   map[string][]ConfigChangeListener
+	listenersMu sync.RWMutex
+
 	// Lifecycle
-	running       bool
-	ctx           context.Context
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup
-	
+	running bool
+	ctx     context.Context
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
+
 	// Metrics
-	metrics       ConfigMetrics
-	metricsMu     sync.RWMutex
+	metrics   ConfigMetrics
+	metricsMu sync.RWMutex
 }
 
 // ConfigSource represents a source of configuration data.
 type ConfigSource interface {
 	// Load loads configuration data
 	Load(ctx context.Context) (map[string]interface{}, error)
-	
+
 	// Watch watches for configuration changes
 	Watch(ctx context.Context, callback func(map[string]interface{})) error
-	
+
 	// Name returns the name of the configuration source
 	Name() string
-	
+
 	// Priority returns the priority of this source (higher = more important)
 	Priority() int
 }
@@ -88,43 +88,43 @@ type CachedConfig struct {
 
 // ConfigWatcher watches configuration changes and triggers reloads.
 type ConfigWatcher struct {
-	source     ConfigSource
-	callback   func(map[string]interface{})
-	ctx        context.Context
-	cancel     context.CancelFunc
-	isActive   bool
+	source   ConfigSource
+	callback func(map[string]interface{})
+	ctx      context.Context
+	cancel   context.CancelFunc
+	isActive bool
 }
 
 // ConfigSchema defines validation rules for configuration.
 type ConfigSchema struct {
-	Name        string                    `json:"name" yaml:"name"`
-	Version     string                    `json:"version" yaml:"version"`
-	Properties  map[string]*PropertySpec  `json:"properties" yaml:"properties"`
-	Required    []string                  `json:"required" yaml:"required"`
-	Defaults    map[string]interface{}    `json:"defaults" yaml:"defaults"`
-	Validators  []ConfigValidator         `json:"-" yaml:"-"`
+	Name       string                   `json:"name" yaml:"name"`
+	Version    string                   `json:"version" yaml:"version"`
+	Properties map[string]*PropertySpec `json:"properties" yaml:"properties"`
+	Required   []string                 `json:"required" yaml:"required"`
+	Defaults   map[string]interface{}   `json:"defaults" yaml:"defaults"`
+	Validators []ConfigValidator        `json:"-" yaml:"-"`
 }
 
 // PropertySpec defines a configuration property specification.
 type PropertySpec struct {
-	Type        string                 `json:"type" yaml:"type"`
-	Description string                 `json:"description" yaml:"description"`
-	Default     interface{}            `json:"default" yaml:"default"`
-	Required    bool                   `json:"required" yaml:"required"`
-	Constraints *PropertyConstraints   `json:"constraints" yaml:"constraints"`
-	EnvVar      string                 `json:"env_var" yaml:"env_var"`
-	Sensitive   bool                   `json:"sensitive" yaml:"sensitive"`
+	Type        string               `json:"type" yaml:"type"`
+	Description string               `json:"description" yaml:"description"`
+	Default     interface{}          `json:"default" yaml:"default"`
+	Required    bool                 `json:"required" yaml:"required"`
+	Constraints *PropertyConstraints `json:"constraints" yaml:"constraints"`
+	EnvVar      string               `json:"env_var" yaml:"env_var"`
+	Sensitive   bool                 `json:"sensitive" yaml:"sensitive"`
 }
 
 // PropertyConstraints defines constraints for a configuration property.
 type PropertyConstraints struct {
-	Min         *float64               `json:"min" yaml:"min"`
-	Max         *float64               `json:"max" yaml:"max"`
-	MinLength   *int                   `json:"min_length" yaml:"min_length"`
-	MaxLength   *int                   `json:"max_length" yaml:"max_length"`
-	Pattern     string                 `json:"pattern" yaml:"pattern"`
-	Enum        []interface{}          `json:"enum" yaml:"enum"`
-	Format      string                 `json:"format" yaml:"format"`
+	Min       *float64      `json:"min" yaml:"min"`
+	Max       *float64      `json:"max" yaml:"max"`
+	MinLength *int          `json:"min_length" yaml:"min_length"`
+	MaxLength *int          `json:"max_length" yaml:"max_length"`
+	Pattern   string        `json:"pattern" yaml:"pattern"`
+	Enum      []interface{} `json:"enum" yaml:"enum"`
+	Format    string        `json:"format" yaml:"format"`
 }
 
 // ConfigValidator is a function that validates configuration.
@@ -146,14 +146,14 @@ type ConfigChangeEvent struct {
 
 // ConfigMetrics contains metrics for configuration management.
 type ConfigMetrics struct {
-	ConfigLoads       int64         `json:"config_loads"`
-	ConfigReloads     int64         `json:"config_reloads"`
-	ValidationErrors  int64         `json:"validation_errors"`
-	SourceErrors      int64         `json:"source_errors"`
-	WatcherErrors     int64         `json:"watcher_errors"`
-	AverageLoadTime   time.Duration `json:"average_load_time"`
-	LastLoadTime      time.Time     `json:"last_load_time"`
-	ActiveWatchers    int32         `json:"active_watchers"`
+	ConfigLoads      int64         `json:"config_loads"`
+	ConfigReloads    int64         `json:"config_reloads"`
+	ValidationErrors int64         `json:"validation_errors"`
+	SourceErrors     int64         `json:"source_errors"`
+	WatcherErrors    int64         `json:"watcher_errors"`
+	AverageLoadTime  time.Duration `json:"average_load_time"`
+	LastLoadTime     time.Time     `json:"last_load_time"`
+	ActiveWatchers   int32         `json:"active_watchers"`
 }
 
 // File-based configuration source
@@ -204,21 +204,21 @@ func (acm *AgentConfigManager) Start(ctx context.Context) error {
 	if acm.running {
 		return errors.NewAgentError(errors.ErrorTypeInvalidState, "agent config manager is already running", "config_manager")
 	}
-	
+
 	acm.ctx, acm.cancel = context.WithCancel(ctx)
 	acm.running = true
-	
+
 	// Start watchers for all sources
 	for _, source := range acm.configSources {
 		if err := acm.startWatcher(source); err != nil {
 			return fmt.Errorf("failed to start watcher for source %s: %w", source.Name(), err)
 		}
 	}
-	
+
 	// Start metrics collection
 	acm.wg.Add(1)
 	go acm.metricsLoop()
-	
+
 	return nil
 }
 
@@ -227,10 +227,10 @@ func (acm *AgentConfigManager) Stop(ctx context.Context) error {
 	if !acm.running {
 		return nil
 	}
-	
+
 	acm.running = false
 	acm.cancel()
-	
+
 	// Stop all watchers
 	acm.watchersMu.Lock()
 	for _, watcher := range acm.watchers {
@@ -238,21 +238,21 @@ func (acm *AgentConfigManager) Stop(ctx context.Context) error {
 	}
 	acm.watchers = make(map[string]*ConfigWatcher)
 	acm.watchersMu.Unlock()
-	
+
 	// Wait for goroutines to finish
 	done := make(chan struct{})
 	go func() {
 		acm.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// All goroutines finished
 	case <-ctx.Done():
 		return fmt.Errorf("timeout waiting for config manager to stop")
 	}
-	
+
 	return nil
 }
 
@@ -260,12 +260,12 @@ func (acm *AgentConfigManager) Stop(ctx context.Context) error {
 func (acm *AgentConfigManager) AddSource(source ConfigSource) {
 	acm.sourcesMu.Lock()
 	defer acm.sourcesMu.Unlock()
-	
+
 	acm.configSources = append(acm.configSources, source)
-	
+
 	// Sort sources by priority (highest first)
 	acm.sortSources()
-	
+
 	// Start watcher if manager is running
 	if acm.running {
 		acm.startWatcher(source)
@@ -283,20 +283,20 @@ func (acm *AgentConfigManager) LoadConfig(ctx context.Context, agentName string)
 		acm.metrics.LastLoadTime = time.Now()
 		acm.metricsMu.Unlock()
 	}()
-	
+
 	// Check cache first
 	if cached := acm.getCachedConfig(agentName); cached != nil && !acm.isExpired(cached) {
 		return acm.unmarshalConfig(cached.Data)
 	}
-	
+
 	// Load from sources
 	mergedConfig := make(map[string]interface{})
-	
+
 	acm.sourcesMu.RLock()
 	sources := make([]ConfigSource, len(acm.configSources))
 	copy(sources, acm.configSources)
 	acm.sourcesMu.RUnlock()
-	
+
 	// Load from all sources in priority order
 	for _, source := range sources {
 		sourceConfig, err := source.Load(ctx)
@@ -306,14 +306,14 @@ func (acm *AgentConfigManager) LoadConfig(ctx context.Context, agentName string)
 			acm.metricsMu.Unlock()
 			continue // Skip sources with errors
 		}
-		
+
 		// Merge configuration
 		acm.mergeConfig(mergedConfig, sourceConfig)
 	}
-	
+
 	// Apply environment variable overrides
 	acm.applyEnvOverrides(mergedConfig, agentName)
-	
+
 	// Validate configuration
 	if err := acm.validateConfig(agentName, mergedConfig); err != nil {
 		acm.metricsMu.Lock()
@@ -321,13 +321,13 @@ func (acm *AgentConfigManager) LoadConfig(ctx context.Context, agentName string)
 		acm.metricsMu.Unlock()
 		return nil, fmt.Errorf("configuration validation failed: %w", err)
 	}
-	
+
 	// Apply defaults
 	acm.applyDefaults(agentName, mergedConfig)
-	
+
 	// Cache the configuration
 	acm.cacheConfig(agentName, mergedConfig)
-	
+
 	// Convert to AgentConfig
 	return acm.unmarshalConfig(mergedConfig)
 }
@@ -338,14 +338,14 @@ func (acm *AgentConfigManager) ReloadConfig(ctx context.Context, agentName strin
 	acm.cacheMu.Lock()
 	delete(acm.configCache, agentName)
 	acm.cacheMu.Unlock()
-	
+
 	// Load fresh configuration
 	config, err := acm.LoadConfig(ctx, agentName)
 	if err == nil {
 		acm.metricsMu.Lock()
 		acm.metrics.ConfigReloads++
 		acm.metricsMu.Unlock()
-		
+
 		// Notify listeners
 		acm.notifyConfigChange(ConfigChangeEvent{
 			Source:    "reload",
@@ -353,7 +353,7 @@ func (acm *AgentConfigManager) ReloadConfig(ctx context.Context, agentName strin
 			Version:   fmt.Sprintf("reload_%d", time.Now().Unix()),
 		})
 	}
-	
+
 	return config, err
 }
 
@@ -361,7 +361,7 @@ func (acm *AgentConfigManager) ReloadConfig(ctx context.Context, agentName strin
 func (acm *AgentConfigManager) RegisterSchema(schema *ConfigSchema) {
 	acm.schemasMu.Lock()
 	defer acm.schemasMu.Unlock()
-	
+
 	acm.schemas[schema.Name] = schema
 }
 
@@ -369,11 +369,11 @@ func (acm *AgentConfigManager) RegisterSchema(schema *ConfigSchema) {
 func (acm *AgentConfigManager) AddConfigChangeListener(agentName string, listener ConfigChangeListener) {
 	acm.listenersMu.Lock()
 	defer acm.listenersMu.Unlock()
-	
+
 	if acm.listeners[agentName] == nil {
 		acm.listeners[agentName] = make([]ConfigChangeListener, 0)
 	}
-	
+
 	acm.listeners[agentName] = append(acm.listeners[agentName], listener)
 }
 
@@ -384,26 +384,26 @@ func (acm *AgentConfigManager) UpdateConfigValue(ctx context.Context, agentName,
 	if err != nil {
 		return err
 	}
-	
+
 	// Convert to map for manipulation
 	configMap := acm.configToMap(currentConfig)
-	
+
 	// Store old value for change event
 	oldValue := acm.getValueByPath(configMap, path)
-	
+
 	// Update the value
 	if err := acm.setValueByPath(configMap, path, value); err != nil {
 		return fmt.Errorf("failed to update config value: %w", err)
 	}
-	
+
 	// Validate the updated configuration
 	if err := acm.validateConfig(agentName, configMap); err != nil {
 		return fmt.Errorf("configuration validation failed after update: %w", err)
 	}
-	
+
 	// Update cache
 	acm.cacheConfig(agentName, configMap)
-	
+
 	// Notify listeners
 	acm.notifyConfigChange(ConfigChangeEvent{
 		Source:    "dynamic_update",
@@ -413,7 +413,7 @@ func (acm *AgentConfigManager) UpdateConfigValue(ctx context.Context, agentName,
 		Timestamp: time.Now(),
 		Version:   fmt.Sprintf("update_%d", time.Now().Unix()),
 	})
-	
+
 	return nil
 }
 
@@ -421,9 +421,9 @@ func (acm *AgentConfigManager) UpdateConfigValue(ctx context.Context, agentName,
 func (acm *AgentConfigManager) GetMetrics() ConfigMetrics {
 	acm.metricsMu.Lock()
 	defer acm.metricsMu.Unlock()
-	
+
 	metrics := acm.metrics
-	
+
 	// Count active watchers
 	acm.watchersMu.RLock()
 	activeWatchers := int32(0)
@@ -433,9 +433,9 @@ func (acm *AgentConfigManager) GetMetrics() ConfigMetrics {
 		}
 	}
 	acm.watchersMu.RUnlock()
-	
+
 	metrics.ActiveWatchers = activeWatchers
-	
+
 	return metrics
 }
 
@@ -454,12 +454,12 @@ func (acm *AgentConfigManager) sortSources() {
 
 func (acm *AgentConfigManager) startWatcher(source ConfigSource) error {
 	watcherCtx, cancel := context.WithCancel(acm.ctx)
-	
+
 	callback := func(config map[string]interface{}) {
 		// Handle configuration change
 		acm.handleConfigChange(source.Name(), config)
 	}
-	
+
 	watcher := &ConfigWatcher{
 		source:   source,
 		callback: callback,
@@ -467,11 +467,11 @@ func (acm *AgentConfigManager) startWatcher(source ConfigSource) error {
 		cancel:   cancel,
 		isActive: true,
 	}
-	
+
 	acm.watchersMu.Lock()
 	acm.watchers[source.Name()] = watcher
 	acm.watchersMu.Unlock()
-	
+
 	// Start watching in goroutine
 	acm.wg.Add(1)
 	go func() {
@@ -481,12 +481,12 @@ func (acm *AgentConfigManager) startWatcher(source ConfigSource) error {
 			acm.metrics.WatcherErrors++
 			acm.metricsMu.Unlock()
 		}
-		
+
 		acm.watchersMu.Lock()
 		watcher.isActive = false
 		acm.watchersMu.Unlock()
 	}()
-	
+
 	return nil
 }
 
@@ -497,7 +497,7 @@ func (acm *AgentConfigManager) handleConfigChange(sourceName string, config map[
 		delete(acm.configCache, key)
 	}
 	acm.cacheMu.Unlock()
-	
+
 	// Notify listeners
 	acm.notifyConfigChange(ConfigChangeEvent{
 		Source:    sourceName,
@@ -509,7 +509,7 @@ func (acm *AgentConfigManager) handleConfigChange(sourceName string, config map[
 func (acm *AgentConfigManager) getCachedConfig(agentName string) *CachedConfig {
 	acm.cacheMu.RLock()
 	defer acm.cacheMu.RUnlock()
-	
+
 	return acm.configCache[agentName]
 }
 
@@ -520,9 +520,9 @@ func (acm *AgentConfigManager) isExpired(cached *CachedConfig) bool {
 func (acm *AgentConfigManager) cacheConfig(agentName string, config map[string]interface{}) {
 	acm.cacheMu.Lock()
 	defer acm.cacheMu.Unlock()
-	
+
 	checksum := acm.calculateChecksum(config)
-	
+
 	cached := &CachedConfig{
 		Data:      config,
 		Source:    "merged",
@@ -531,7 +531,7 @@ func (acm *AgentConfigManager) cacheConfig(agentName string, config map[string]i
 		Version:   fmt.Sprintf("v_%d", time.Now().Unix()),
 		Checksum:  checksum,
 	}
-	
+
 	acm.configCache[agentName] = cached
 }
 
@@ -554,20 +554,20 @@ func (acm *AgentConfigManager) mergeConfig(target, source map[string]interface{}
 func (acm *AgentConfigManager) applyEnvOverrides(config map[string]interface{}, agentName string) {
 	// Apply environment variable overrides
 	prefix := fmt.Sprintf("AG_UI_%s_", strings.ToUpper(agentName))
-	
+
 	for _, env := range os.Environ() {
 		if strings.HasPrefix(env, prefix) {
 			parts := strings.SplitN(env, "=", 2)
 			if len(parts) != 2 {
 				continue
 			}
-			
+
 			envKey := strings.TrimPrefix(parts[0], prefix)
 			envValue := parts[1]
-			
+
 			// Convert environment key to config path
 			configPath := acm.envKeyToPath(envKey)
-			
+
 			// Set the value
 			acm.setValueByPath(config, configPath, envValue)
 		}
@@ -578,40 +578,40 @@ func (acm *AgentConfigManager) validateConfig(agentName string, config map[strin
 	acm.schemasMu.RLock()
 	schema, exists := acm.schemas[agentName]
 	acm.schemasMu.RUnlock()
-	
+
 	if !exists {
 		// No schema registered, skip validation
 		return nil
 	}
-	
+
 	// Validate required fields
 	for _, required := range schema.Required {
 		if _, exists := config[required]; !exists {
 			return fmt.Errorf("required field '%s' is missing", required)
 		}
 	}
-	
+
 	// Validate properties
 	for propName, propSpec := range schema.Properties {
 		value, exists := config[propName]
 		if !exists && propSpec.Required {
 			return fmt.Errorf("required property '%s' is missing", propName)
 		}
-		
+
 		if exists {
 			if err := acm.validateProperty(propName, value, propSpec); err != nil {
 				return fmt.Errorf("property '%s' validation failed: %w", propName, err)
 			}
 		}
 	}
-	
+
 	// Run custom validators
 	for _, validator := range schema.Validators {
 		if err := validator(config); err != nil {
 			return fmt.Errorf("custom validation failed: %w", err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -620,20 +620,20 @@ func (acm *AgentConfigManager) validateProperty(name string, value interface{}, 
 	if err := acm.validateType(value, spec.Type); err != nil {
 		return err
 	}
-	
+
 	// Constraint validation
 	if spec.Constraints != nil {
 		if err := acm.validateConstraints(value, spec.Constraints); err != nil {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
 func (acm *AgentConfigManager) validateType(value interface{}, expectedType string) error {
 	actualType := reflect.TypeOf(value).Kind().String()
-	
+
 	switch expectedType {
 	case "string":
 		if _, ok := value.(string); !ok {
@@ -664,7 +664,7 @@ func (acm *AgentConfigManager) validateType(value interface{}, expectedType stri
 			return fmt.Errorf("expected array, got %s", actualType)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -684,16 +684,16 @@ func (acm *AgentConfigManager) validateConstraints(value interface{}, constraint
 		default:
 			return fmt.Errorf("min/max constraints only apply to numeric values")
 		}
-		
+
 		if constraints.Min != nil && numValue < *constraints.Min {
 			return fmt.Errorf("value %v is less than minimum %v", numValue, *constraints.Min)
 		}
-		
+
 		if constraints.Max != nil && numValue > *constraints.Max {
 			return fmt.Errorf("value %v is greater than maximum %v", numValue, *constraints.Max)
 		}
 	}
-	
+
 	// Length validation for strings and arrays
 	if constraints.MinLength != nil || constraints.MaxLength != nil {
 		var length int
@@ -705,16 +705,16 @@ func (acm *AgentConfigManager) validateConstraints(value interface{}, constraint
 		default:
 			return fmt.Errorf("length constraints only apply to strings and arrays")
 		}
-		
+
 		if constraints.MinLength != nil && length < *constraints.MinLength {
 			return fmt.Errorf("length %d is less than minimum %d", length, *constraints.MinLength)
 		}
-		
+
 		if constraints.MaxLength != nil && length > *constraints.MaxLength {
 			return fmt.Errorf("length %d is greater than maximum %d", length, *constraints.MaxLength)
 		}
 	}
-	
+
 	// Enum validation
 	if len(constraints.Enum) > 0 {
 		found := false
@@ -728,7 +728,7 @@ func (acm *AgentConfigManager) validateConstraints(value interface{}, constraint
 			return fmt.Errorf("value %v is not in allowed enum values %v", value, constraints.Enum)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -736,18 +736,18 @@ func (acm *AgentConfigManager) applyDefaults(agentName string, config map[string
 	acm.schemasMu.RLock()
 	schema, exists := acm.schemas[agentName]
 	acm.schemasMu.RUnlock()
-	
+
 	if !exists {
 		return
 	}
-	
+
 	// Apply schema defaults
 	for key, value := range schema.Defaults {
 		if _, exists := config[key]; !exists {
 			config[key] = value
 		}
 	}
-	
+
 	// Apply property defaults
 	for propName, propSpec := range schema.Properties {
 		if _, exists := config[propName]; !exists && propSpec.Default != nil {
@@ -762,12 +762,12 @@ func (acm *AgentConfigManager) unmarshalConfig(configMap map[string]interface{})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal config map: %w", err)
 	}
-	
+
 	var config AgentConfig
 	if err := json.Unmarshal(jsonBytes, &config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
-	
+
 	return &config, nil
 }
 
@@ -782,32 +782,32 @@ func (acm *AgentConfigManager) configToMap(config *AgentConfig) map[string]inter
 func (acm *AgentConfigManager) getValueByPath(config map[string]interface{}, path string) interface{} {
 	parts := strings.Split(path, ".")
 	current := config
-	
+
 	for i, part := range parts {
 		if i == len(parts)-1 {
 			return current[part]
 		}
-		
+
 		if next, ok := current[part].(map[string]interface{}); ok {
 			current = next
 		} else {
 			return nil
 		}
 	}
-	
+
 	return nil
 }
 
 func (acm *AgentConfigManager) setValueByPath(config map[string]interface{}, path string, value interface{}) error {
 	parts := strings.Split(path, ".")
 	current := config
-	
+
 	for i, part := range parts {
 		if i == len(parts)-1 {
 			current[part] = value
 			return nil
 		}
-		
+
 		if next, ok := current[part].(map[string]interface{}); ok {
 			current = next
 		} else {
@@ -817,7 +817,7 @@ func (acm *AgentConfigManager) setValueByPath(config map[string]interface{}, pat
 			current = newMap
 		}
 	}
-	
+
 	return nil
 }
 
@@ -835,7 +835,7 @@ func (acm *AgentConfigManager) calculateChecksum(config map[string]interface{}) 
 func (acm *AgentConfigManager) notifyConfigChange(event ConfigChangeEvent) {
 	acm.listenersMu.RLock()
 	defer acm.listenersMu.RUnlock()
-	
+
 	for _, listeners := range acm.listeners {
 		for _, listener := range listeners {
 			go listener(event) // Non-blocking notification
@@ -846,7 +846,7 @@ func (acm *AgentConfigManager) notifyConfigChange(event ConfigChangeEvent) {
 func (acm *AgentConfigManager) updateLoadTimeMetrics(duration time.Duration) {
 	acm.metricsMu.Lock()
 	defer acm.metricsMu.Unlock()
-	
+
 	if acm.metrics.AverageLoadTime == 0 {
 		acm.metrics.AverageLoadTime = duration
 	} else {
@@ -856,10 +856,10 @@ func (acm *AgentConfigManager) updateLoadTimeMetrics(duration time.Duration) {
 
 func (acm *AgentConfigManager) metricsLoop() {
 	defer acm.wg.Done()
-	
+
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-acm.ctx.Done():
@@ -892,9 +892,9 @@ func (fcs *FileConfigSource) Load(ctx context.Context) (map[string]interface{}, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %s: %w", fcs.filePath, err)
 	}
-	
+
 	var config map[string]interface{}
-	
+
 	switch fcs.format {
 	case ConfigFormatJSON:
 		err = json.Unmarshal(data, &config)
@@ -903,11 +903,11 @@ func (fcs *FileConfigSource) Load(ctx context.Context) (map[string]interface{}, 
 	default:
 		return nil, fmt.Errorf("unsupported config format: %s", fcs.format)
 	}
-	
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse config file %s: %w", fcs.filePath, err)
 	}
-	
+
 	return config, nil
 }
 
@@ -916,9 +916,9 @@ func (fcs *FileConfigSource) Watch(ctx context.Context, callback func(map[string
 	// In a real implementation, this would use filesystem notifications
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	
+
 	var lastModTime time.Time
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -955,23 +955,23 @@ func NewEnvConfigSource(prefix string, priority int) *EnvConfigSource {
 
 func (ecs *EnvConfigSource) Load(ctx context.Context) (map[string]interface{}, error) {
 	config := make(map[string]interface{})
-	
+
 	for _, env := range os.Environ() {
 		if strings.HasPrefix(env, ecs.prefix) {
 			parts := strings.SplitN(env, "=", 2)
 			if len(parts) != 2 {
 				continue
 			}
-			
+
 			key := strings.TrimPrefix(parts[0], ecs.prefix)
 			value := parts[1]
-			
+
 			// Convert key to lowercase and use dots as separators
 			configKey := strings.ToLower(strings.ReplaceAll(key, "_", "."))
 			config[configKey] = value
 		}
 	}
-	
+
 	return config, nil
 }
 

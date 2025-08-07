@@ -1,7 +1,7 @@
 package testing
 
 // Performance Optimization Demonstration
-// 
+//
 // This file documents the performance optimizations implemented in AGENT 11.
 // Run benchmarks with: go test -bench=. -benchmem
 //
@@ -19,7 +19,7 @@ import (
 // from replacing string concatenation with strings.Builder
 func BenchmarkStringBuilderOptimization(b *testing.B) {
 	fieldName := "NodeIDConfigSettingValueTest"
-	
+
 	b.Run("OldMethod_StringConcatenation", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
@@ -33,7 +33,7 @@ func BenchmarkStringBuilderOptimization(b *testing.B) {
 			_ = result
 		}
 	})
-	
+
 	b.Run("NewMethod_StringsBuilder", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
@@ -54,12 +54,12 @@ func BenchmarkStringBuilderOptimization(b *testing.B) {
 func BenchmarkSSEDataParsing(b *testing.B) {
 	lines := []string{
 		"data: Line 1",
-		"data: Line 2", 
+		"data: Line 2",
 		"data: Line 3",
 		"data: Line 4",
 		"data: Line 5",
 	}
-	
+
 	b.Run("OldMethod_StringConcatenation", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
@@ -79,7 +79,7 @@ func BenchmarkSSEDataParsing(b *testing.B) {
 			_ = data
 		}
 	})
-	
+
 	b.Run("NewMethod_StringsBuilder", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {

@@ -26,9 +26,9 @@ func createMinimalTestSchema() *ToolSchema {
 // TestRegistryToolLRUEviction tests LRU eviction when MaxTools is reached
 func TestRegistryToolLRUEviction(t *testing.T) {
 	config := &RegistryConfig{
-		MaxTools:      5,  // Small limit to test eviction
-		EnableToolLRU: true,
-		ToolTTL:       0, // Disable TTL for this test
+		MaxTools:                    5, // Small limit to test eviction
+		EnableToolLRU:               true,
+		ToolTTL:                     0, // Disable TTL for this test
 		EnableBackgroundToolCleanup: false,
 	}
 
@@ -69,11 +69,11 @@ func TestRegistryToolLRUEviction(t *testing.T) {
 // TestRegistryToolTTLCleanup tests TTL-based cleanup of expired tools
 func TestRegistryToolTTLCleanup(t *testing.T) {
 	config := &RegistryConfig{
-		MaxTools:                     100,
-		EnableToolLRU:                false,
-		ToolTTL:                      100 * time.Millisecond, // Very short TTL
-		ToolCleanupInterval:          50 * time.Millisecond,  // Frequent cleanup
-		EnableBackgroundToolCleanup: false, // Manual cleanup for testing
+		MaxTools:                    100,
+		EnableToolLRU:               false,
+		ToolTTL:                     100 * time.Millisecond, // Very short TTL
+		ToolCleanupInterval:         50 * time.Millisecond,  // Frequent cleanup
+		EnableBackgroundToolCleanup: false,                  // Manual cleanup for testing
 	}
 
 	registry := NewRegistryWithConfig(config)
@@ -115,9 +115,9 @@ func TestRegistryToolTTLCleanup(t *testing.T) {
 // TestRegistryAccessTimeCleanup tests cleanup based on last access time
 func TestRegistryAccessTimeCleanup(t *testing.T) {
 	config := &RegistryConfig{
-		MaxTools:                     100,
-		EnableToolLRU:                false,
-		ToolTTL:                      0, // Disable TTL
+		MaxTools:                    100,
+		EnableToolLRU:               false,
+		ToolTTL:                     0, // Disable TTL
 		EnableBackgroundToolCleanup: false,
 	}
 
@@ -153,7 +153,7 @@ func TestRegistryAccessTimeCleanup(t *testing.T) {
 
 	// Verify correct tools remain
 	assert.Equal(t, 2, registry.Count())
-	
+
 	// Tools 2 and 3 should still be present (they were accessed recently)
 	_, err = registry.Get("tool-2")
 	assert.NoError(t, err)
@@ -172,11 +172,11 @@ func TestRegistryAccessTimeCleanup(t *testing.T) {
 // TestRegistryBackgroundCleanup tests background TTL cleanup
 func TestRegistryBackgroundCleanup(t *testing.T) {
 	config := &RegistryConfig{
-		MaxTools:                     100,
-		EnableToolLRU:                false,
-		ToolTTL:                      100 * time.Millisecond, // Short TTL
-		ToolCleanupInterval:          50 * time.Millisecond,  // Frequent cleanup
-		EnableBackgroundToolCleanup: true, // Enable background cleanup
+		MaxTools:                    100,
+		EnableToolLRU:               false,
+		ToolTTL:                     100 * time.Millisecond, // Short TTL
+		ToolCleanupInterval:         50 * time.Millisecond,  // Frequent cleanup
+		EnableBackgroundToolCleanup: true,                   // Enable background cleanup
 	}
 
 	registry := NewRegistryWithConfig(config)
@@ -210,9 +210,9 @@ func TestRegistryBackgroundCleanup(t *testing.T) {
 // TestRegistryLRUAccessPattern tests that LRU correctly tracks access patterns
 func TestRegistryLRUAccessPattern(t *testing.T) {
 	config := &RegistryConfig{
-		MaxTools:      3,  // Small limit
-		EnableToolLRU: true,
-		ToolTTL:       0, // Disable TTL
+		MaxTools:                    3, // Small limit
+		EnableToolLRU:               true,
+		ToolTTL:                     0, // Disable TTL
 		EnableBackgroundToolCleanup: false,
 	}
 
@@ -223,12 +223,12 @@ func TestRegistryLRUAccessPattern(t *testing.T) {
 	tools := []string{"tool-1", "tool-2", "tool-3"}
 	for _, toolID := range tools {
 		tool := &Tool{
-			ID:       toolID,
-			Name:     toolID,
+			ID:          toolID,
+			Name:        toolID,
 			Description: "Test tool",
-			Version:  "1.0.0",
-			Schema:   createMinimalTestSchema(),
-			Executor: &testExecutor{},
+			Version:     "1.0.0",
+			Schema:      createMinimalTestSchema(),
+			Executor:    &testExecutor{},
 		}
 		err := registry.Register(tool)
 		require.NoError(t, err)
@@ -240,12 +240,12 @@ func TestRegistryLRUAccessPattern(t *testing.T) {
 
 	// Register a new tool, should evict tool-2 (least recently used)
 	newTool := &Tool{
-		ID:       "tool-4",
-		Name:     "tool-4",
+		ID:          "tool-4",
+		Name:        "tool-4",
 		Description: "New test tool",
-		Version:  "1.0.0",
-		Schema:   createMinimalTestSchema(),
-		Executor: &testExecutor{},
+		Version:     "1.0.0",
+		Schema:      createMinimalTestSchema(),
+		Executor:    &testExecutor{},
 	}
 	err = registry.Register(newTool)
 	require.NoError(t, err)
@@ -266,10 +266,10 @@ func TestRegistryLRUAccessPattern(t *testing.T) {
 // TestRegistryConcurrentCleanup tests cleanup mechanisms under concurrent access
 func TestRegistryConcurrentCleanup(t *testing.T) {
 	config := &RegistryConfig{
-		MaxTools:                     50,
-		EnableToolLRU:                true,
-		ToolTTL:                      200 * time.Millisecond,
-		ToolCleanupInterval:          100 * time.Millisecond,
+		MaxTools:                    50,
+		EnableToolLRU:               true,
+		ToolTTL:                     200 * time.Millisecond,
+		ToolCleanupInterval:         100 * time.Millisecond,
 		EnableBackgroundToolCleanup: true,
 		MaxConcurrentRegistrations:  10,
 	}
@@ -286,7 +286,7 @@ func TestRegistryConcurrentCleanup(t *testing.T) {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
-			
+
 			// Register tools
 			for j := 0; j < toolsPerGoroutine; j++ {
 				tool := &Tool{
@@ -299,7 +299,7 @@ func TestRegistryConcurrentCleanup(t *testing.T) {
 				}
 				_ = registry.Register(tool) // Ignore errors due to eviction/concurrency
 			}
-			
+
 			// Random access to tools
 			for k := 0; k < 10; k++ {
 				toolID := fmt.Sprintf("tool-%d-%d", goroutineID, k%toolsPerGoroutine)
@@ -368,9 +368,9 @@ func TestRegistryClearAllTools(t *testing.T) {
 // TestRegistryCleanupStats tests cleanup statistics
 func TestRegistryCleanupStats(t *testing.T) {
 	config := &RegistryConfig{
-		MaxTools:      10,
-		EnableToolLRU: true,
-		ToolTTL:       1 * time.Hour, // Long TTL
+		MaxTools:                    10,
+		EnableToolLRU:               true,
+		ToolTTL:                     1 * time.Hour, // Long TTL
 		EnableBackgroundToolCleanup: false,
 	}
 
@@ -412,7 +412,7 @@ func TestRegistryCleanupStats(t *testing.T) {
 	assert.Contains(t, stats, "total_access_count")
 	assert.Contains(t, stats, "average_access_count")
 	assert.Equal(t, int64(8), stats["total_access_count"]) // 5 initial + 2 for tool-0 + 1 for tool-1
-	assert.Equal(t, 1.6, stats["average_access_count"])   // 8/5 = 1.6
+	assert.Equal(t, 1.6, stats["average_access_count"])    // 8/5 = 1.6
 
 	// Verify timestamp fields are present
 	assert.Contains(t, stats, "oldest_created")
@@ -424,10 +424,10 @@ func TestRegistryCleanupStats(t *testing.T) {
 // TestRegistryConfigUpdate tests updating cleanup configuration
 func TestRegistryConfigUpdate(t *testing.T) {
 	initialConfig := &RegistryConfig{
-		MaxTools:                     10,
-		EnableToolLRU:                true,
-		ToolTTL:                      1 * time.Hour,
-		ToolCleanupInterval:          30 * time.Minute,
+		MaxTools:                    10,
+		EnableToolLRU:               true,
+		ToolTTL:                     1 * time.Hour,
+		ToolCleanupInterval:         30 * time.Minute,
 		EnableBackgroundToolCleanup: false,
 	}
 
@@ -436,22 +436,22 @@ func TestRegistryConfigUpdate(t *testing.T) {
 
 	// Register a tool
 	tool := &Tool{
-		ID:       "test-tool",
-		Name:     "Test Tool",
+		ID:          "test-tool",
+		Name:        "Test Tool",
 		Description: "Test tool",
-		Version:  "1.0.0",
-		Schema:   createMinimalTestSchema(),
-		Executor: &testExecutor{},
+		Version:     "1.0.0",
+		Schema:      createMinimalTestSchema(),
+		Executor:    &testExecutor{},
 	}
 	err := registry.Register(tool)
 	require.NoError(t, err)
 
 	// Update configuration
 	newConfig := &RegistryConfig{
-		MaxTools:                     5,   // Smaller limit
-		EnableToolLRU:                true,
-		ToolTTL:                      10 * time.Minute, // Shorter TTL
-		ToolCleanupInterval:          5 * time.Minute,  // More frequent cleanup
+		MaxTools:                    5, // Smaller limit
+		EnableToolLRU:               true,
+		ToolTTL:                     10 * time.Minute, // Shorter TTL
+		ToolCleanupInterval:         5 * time.Minute,  // More frequent cleanup
 		EnableBackgroundToolCleanup: true,             // Enable background cleanup
 	}
 
@@ -460,7 +460,7 @@ func TestRegistryConfigUpdate(t *testing.T) {
 
 	// Verify configuration was updated
 	stats := registry.GetToolsCleanupStats()
-	assert.Equal(t, 600.0, stats["ttl_seconds"])   // 10 minutes
+	assert.Equal(t, 600.0, stats["ttl_seconds"])      // 10 minutes
 	assert.Equal(t, 300.0, stats["cleanup_interval"]) // 5 minutes
 	assert.True(t, stats["cleanup_enabled"].(bool))
 
@@ -473,11 +473,11 @@ func TestRegistryConfigUpdate(t *testing.T) {
 // TestRegistryMemoryTracking tests memory usage tracking with cleanup
 func TestRegistryMemoryTracking(t *testing.T) {
 	config := &RegistryConfig{
-		MaxTools:                     5,
-		EnableToolLRU:                true,
-		ToolTTL:                      0, // Disable TTL
+		MaxTools:                    5,
+		EnableToolLRU:               true,
+		ToolTTL:                     0, // Disable TTL
 		EnableBackgroundToolCleanup: false,
-		MaxMemoryUsage:               10 * 1024, // 10KB limit
+		MaxMemoryUsage:              10 * 1024, // 10KB limit
 	}
 
 	registry := NewRegistryWithConfig(config)
@@ -536,4 +536,3 @@ func TestRegistryMemoryTracking(t *testing.T) {
 	finalMemory := finalUsage["memory_usage"].(int64)
 	assert.Equal(t, int64(0), finalMemory, "Memory usage should be reset after clearing all tools")
 }
-

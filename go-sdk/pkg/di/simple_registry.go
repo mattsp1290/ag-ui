@@ -18,10 +18,10 @@ func NewSimpleValidatorRegistry(cfg ValidatorConfigInterface) *SimpleValidatorRe
 		container: NewContainer(),
 		config:    cfg,
 	}
-	
+
 	// Register core services
 	registry.registerCoreServices()
-	
+
 	return registry
 }
 
@@ -29,43 +29,43 @@ func NewSimpleValidatorRegistry(cfg ValidatorConfigInterface) *SimpleValidatorRe
 func (vr *SimpleValidatorRegistry) registerCoreServices() {
 	// Register configuration as singleton
 	vr.container.RegisterInstance("config", vr.config)
-	
+
 	// Register core validation service
 	vr.container.RegisterSingleton("core_validator", func(ctx context.Context, c *Container) (interface{}, error) {
 		config, err := c.Get(ctx, "config")
 		if err != nil {
 			return nil, err
 		}
-		
+
 		cfg := config.(ValidatorConfigInterface)
 		return vr.createCoreValidator(ctx, cfg.GetCore())
 	}).WithTags("validator", "core")
-	
+
 	// Register authentication service if enabled
 	if vr.config.GetAuth() != nil && vr.config.GetAuth().IsEnabled() {
 		vr.registerAuthServices()
 	}
-	
+
 	// Register cache service if enabled
 	if vr.config.GetCache() != nil && vr.config.GetCache().IsEnabled() {
 		vr.registerCacheServices()
 	}
-	
+
 	// Register distributed service if enabled
 	if vr.config.GetDistributed() != nil && vr.config.GetDistributed().IsEnabled() {
 		vr.registerDistributedServices()
 	}
-	
+
 	// Register analytics service if enabled
 	if vr.config.GetAnalytics() != nil && vr.config.GetAnalytics().IsEnabled() {
 		vr.registerAnalyticsServices()
 	}
-	
+
 	// Register security service if enabled
 	if vr.config.GetSecurity() != nil && vr.config.GetSecurity().IsEnabled() {
 		vr.registerSecurityServices()
 	}
-	
+
 	// Register main validator service that composes all components
 	vr.registerMainValidator()
 }
@@ -78,28 +78,28 @@ func (vr *SimpleValidatorRegistry) registerAuthServices() {
 		if err != nil {
 			return nil, err
 		}
-		
+
 		cfg := config.(ValidatorConfigInterface)
 		return vr.createAuthProvider(ctx, cfg.GetAuth())
 	}).WithTags("auth", "provider")
-	
+
 	// Register auth validator
 	vr.container.RegisterSingleton("auth_validator", func(ctx context.Context, c *Container) (interface{}, error) {
 		coreValidator, err := c.Get(ctx, "core_validator")
 		if err != nil {
 			return nil, err
 		}
-		
+
 		authProvider, err := c.Get(ctx, "auth_provider")
 		if err != nil {
 			return nil, err
 		}
-		
+
 		config, err := c.Get(ctx, "config")
 		if err != nil {
 			return nil, err
 		}
-		
+
 		cfg := config.(ValidatorConfigInterface)
 		return vr.createAuthValidator(ctx, coreValidator, authProvider, cfg.GetAuth())
 	}).WithDependencies("core_validator", "auth_provider").WithTags("validator", "auth")
@@ -109,18 +109,18 @@ func (vr *SimpleValidatorRegistry) registerAuthServices() {
 func (vr *SimpleValidatorRegistry) registerCacheServices() {
 	// Register cache validator
 	deps := []string{"core_validator"}
-	
+
 	vr.container.RegisterSingleton("cache_validator", func(ctx context.Context, c *Container) (interface{}, error) {
 		coreValidator, err := c.Get(ctx, "core_validator")
 		if err != nil {
 			return nil, err
 		}
-		
+
 		config, err := c.Get(ctx, "config")
 		if err != nil {
 			return nil, err
 		}
-		
+
 		cfg := config.(ValidatorConfigInterface)
 		return vr.createCacheValidator(ctx, coreValidator, cfg.GetCache())
 	}).WithDependencies(deps...).WithTags("validator", "cache")
@@ -134,12 +134,12 @@ func (vr *SimpleValidatorRegistry) registerDistributedServices() {
 		if err != nil {
 			return nil, err
 		}
-		
+
 		config, err := c.Get(ctx, "config")
 		if err != nil {
 			return nil, err
 		}
-		
+
 		cfg := config.(ValidatorConfigInterface)
 		return vr.createDistributedValidator(ctx, coreValidator, cfg.GetDistributed())
 	}).WithDependencies("core_validator").WithTags("validator", "distributed")
@@ -153,7 +153,7 @@ func (vr *SimpleValidatorRegistry) registerAnalyticsServices() {
 		if err != nil {
 			return nil, err
 		}
-		
+
 		cfg := config.(ValidatorConfigInterface)
 		return vr.createAnalyticsService(ctx, cfg.GetAnalytics())
 	}).WithTags("analytics", "service")
@@ -167,7 +167,7 @@ func (vr *SimpleValidatorRegistry) registerSecurityServices() {
 		if err != nil {
 			return nil, err
 		}
-		
+
 		cfg := config.(ValidatorConfigInterface)
 		return vr.createSecurityValidator(ctx, cfg.GetSecurity())
 	}).WithTags("validator", "security")
@@ -176,7 +176,7 @@ func (vr *SimpleValidatorRegistry) registerSecurityServices() {
 // registerMainValidator registers the main validator that composes all components
 func (vr *SimpleValidatorRegistry) registerMainValidator() {
 	deps := []string{"core_validator"}
-	
+
 	if vr.config.GetAuth() != nil && vr.config.GetAuth().IsEnabled() {
 		deps = append(deps, "auth_validator")
 	}
@@ -192,11 +192,11 @@ func (vr *SimpleValidatorRegistry) registerMainValidator() {
 	if vr.config.GetSecurity() != nil && vr.config.GetSecurity().IsEnabled() {
 		deps = append(deps, "security_validator")
 	}
-	
+
 	vr.container.RegisterSingleton("main_validator", func(ctx context.Context, c *Container) (interface{}, error) {
 		// Get all the components
 		components := make(map[string]interface{})
-		
+
 		for _, dep := range deps {
 			component, err := c.Get(ctx, dep)
 			if err != nil {
@@ -204,7 +204,7 @@ func (vr *SimpleValidatorRegistry) registerMainValidator() {
 			}
 			components[dep] = component
 		}
-		
+
 		// Create the main validator that composes all components
 		return vr.createMainValidator(ctx, components)
 	}).WithDependencies(deps...).WithTags("validator", "main")

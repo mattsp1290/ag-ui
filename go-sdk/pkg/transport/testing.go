@@ -16,26 +16,26 @@ type MockTransport struct {
 	mu sync.RWMutex
 
 	// Configuration
-	connectBehavior    func(ctx context.Context) error
-	sendBehavior       func(ctx context.Context, event TransportEvent) error
-	closeBehavior      func(ctx context.Context) error
-	
+	connectBehavior func(ctx context.Context) error
+	sendBehavior    func(ctx context.Context, event TransportEvent) error
+	closeBehavior   func(ctx context.Context) error
+
 	// Simulation delays
-	connectDelay       time.Duration
-	sendDelay          time.Duration
-	
+	connectDelay time.Duration
+	sendDelay    time.Duration
+
 	// State
-	connected      atomic.Bool
-	closed         atomic.Bool
-	eventChan      chan events.Event
-	errorChan      chan error
-	stats          TransportStats
-	config         Config
-	
+	connected atomic.Bool
+	closed    atomic.Bool
+	eventChan chan events.Event
+	errorChan chan error
+	stats     TransportStats
+	config    Config
+
 	// Call tracking
-	calls          map[string][]interface{}
-	callCount      map[string]int
-	
+	calls     map[string][]interface{}
+	callCount map[string]int
+
 	// Event recording
 	sentEvents     []TransportEvent
 	receivedEvents []events.Event
@@ -44,10 +44,10 @@ type MockTransport struct {
 // NewMockTransport creates a new mock transport with default behavior
 func NewMockTransport() *MockTransport {
 	return &MockTransport{
-		eventChan:  make(chan events.Event, 100),
-		errorChan:  make(chan error, 100),
-		calls:      make(map[string][]interface{}),
-		callCount:  make(map[string]int),
+		eventChan: make(chan events.Event, 100),
+		errorChan: make(chan error, 100),
+		calls:     make(map[string][]interface{}),
+		callCount: make(map[string]int),
 		config: &BaseConfig{
 			Type:           "mock",
 			Endpoint:       "mock://test",
@@ -61,16 +61,16 @@ func NewMockTransport() *MockTransport {
 func (m *MockTransport) Connect(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	m.recordCall("Connect", ctx)
-	
+
 	// Check if context is already cancelled or expired
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
-	
+
 	// Simulate delay that can be interrupted by context cancellation
 	if m.connectDelay > 0 {
 		select {
@@ -80,17 +80,17 @@ func (m *MockTransport) Connect(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
-	
+
 	if m.connectBehavior != nil {
 		if err := m.connectBehavior(ctx); err != nil {
 			return err
 		}
 	}
-	
+
 	if m.connected.Load() {
 		return ErrAlreadyConnected
 	}
-	
+
 	m.connected.Store(true)
 	m.stats.ConnectedAt = time.Now()
 	return nil
@@ -100,20 +100,20 @@ func (m *MockTransport) Connect(ctx context.Context) error {
 func (m *MockTransport) Send(ctx context.Context, event TransportEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	m.recordCall("Send", ctx, event)
-	
+
 	// Check if context is already cancelled or expired
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
-	
+
 	if !m.connected.Load() {
 		return ErrNotConnected
 	}
-	
+
 	// Simulate delay that can be interrupted by context cancellation
 	if m.sendDelay > 0 {
 		select {
@@ -123,15 +123,15 @@ func (m *MockTransport) Send(ctx context.Context, event TransportEvent) error {
 			return ctx.Err()
 		}
 	}
-	
+
 	if m.sendBehavior != nil {
 		return m.sendBehavior(ctx, event)
 	}
-	
+
 	m.sentEvents = append(m.sentEvents, event)
 	m.stats.EventsSent++
 	m.stats.LastEventSentAt = time.Now()
-	
+
 	return nil
 }
 
@@ -154,24 +154,24 @@ func (m *MockTransport) Channels() (<-chan events.Event, <-chan error) {
 func (m *MockTransport) Close(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	m.recordCall("Close", ctx)
-	
+
 	if m.closeBehavior != nil {
 		return m.closeBehavior(ctx)
 	}
-	
+
 	if !m.connected.Load() {
 		return nil
 	}
-	
+
 	// Check if already closed to prevent double-close panic
 	if m.closed.CompareAndSwap(false, true) {
 		m.connected.Store(false)
 		close(m.eventChan)
 		close(m.errorChan)
 	}
-	
+
 	return nil
 }
 
@@ -191,12 +191,12 @@ func (m *MockTransport) Config() Config {
 func (m *MockTransport) Stats() TransportStats {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	stats := m.stats
 	if m.connected.Load() && !stats.ConnectedAt.IsZero() {
 		stats.Uptime = time.Since(stats.ConnectedAt)
 	}
-	
+
 	return stats
 }
 
@@ -242,7 +242,7 @@ func (m *MockTransport) SimulateEvent(event events.Event) error {
 	if m.closed.Load() {
 		return fmt.Errorf("transport is closed: %w", ErrConnectionClosed)
 	}
-	
+
 	select {
 	case m.eventChan <- event:
 		m.mu.Lock()
@@ -261,7 +261,7 @@ func (m *MockTransport) SimulateError(err error) error {
 	if m.closed.Load() {
 		return fmt.Errorf("transport is closed: %w", ErrConnectionClosed)
 	}
-	
+
 	select {
 	case m.errorChan <- err:
 		m.mu.Lock()
@@ -278,7 +278,7 @@ func (m *MockTransport) SimulateError(err error) error {
 func (m *MockTransport) GetSentEvents() []TransportEvent {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	events := make([]TransportEvent, len(m.sentEvents))
 	copy(events, m.sentEvents)
 	return events
@@ -300,19 +300,19 @@ func (m *MockTransport) WasCalled(method string) bool {
 func (m *MockTransport) Reset() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	// Check if channels were closed before resetting the flag
 	wasClosed := m.closed.Load()
-	
+
 	m.connected.Store(false)
 	m.closed.Store(false)
-	
+
 	// Create new channels if they were closed
 	if wasClosed {
 		m.eventChan = make(chan events.Event, 100)
 		m.errorChan = make(chan error, 100)
 	}
-	
+
 	m.calls = make(map[string][]interface{})
 	m.callCount = make(map[string]int)
 	m.sentEvents = nil
@@ -328,15 +328,15 @@ func (m *MockTransport) recordCall(method string, args ...interface{}) {
 // MockManager is a mock implementation of a transport manager
 type MockManager struct {
 	mu sync.RWMutex
-	
-	transport       Transport
-	running         atomic.Bool
-	startBehavior   func(ctx context.Context) error
-	stopBehavior    func(ctx context.Context) error
-	sendBehavior    func(ctx context.Context, event TransportEvent) error
-	
-	calls           map[string][]interface{}
-	sentEvents      []TransportEvent
+
+	transport     Transport
+	running       atomic.Bool
+	startBehavior func(ctx context.Context) error
+	stopBehavior  func(ctx context.Context) error
+	sendBehavior  func(ctx context.Context, event TransportEvent) error
+
+	calls      map[string][]interface{}
+	sentEvents []TransportEvent
 }
 
 // NewMockManager creates a new mock manager
@@ -357,17 +357,17 @@ func (m *MockManager) SetTransport(transport Transport) {
 func (m *MockManager) Start(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	m.recordCall("Start", ctx)
-	
+
 	if m.startBehavior != nil {
 		return m.startBehavior(ctx)
 	}
-	
+
 	if m.running.Load() {
 		return ErrAlreadyConnected
 	}
-	
+
 	m.running.Store(true)
 	return nil
 }
@@ -376,13 +376,13 @@ func (m *MockManager) Start(ctx context.Context) error {
 func (m *MockManager) Stop(ctx context.Context) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	m.recordCall("Stop", ctx)
-	
+
 	if m.stopBehavior != nil {
 		return m.stopBehavior(ctx)
 	}
-	
+
 	m.running.Store(false)
 	return nil
 }
@@ -391,17 +391,17 @@ func (m *MockManager) Stop(ctx context.Context) error {
 func (m *MockManager) Send(ctx context.Context, event TransportEvent) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	m.recordCall("Send", ctx, event)
-	
+
 	if m.sendBehavior != nil {
 		return m.sendBehavior(ctx, event)
 	}
-	
+
 	if !m.running.Load() {
 		return ErrNotConnected
 	}
-	
+
 	m.sentEvents = append(m.sentEvents, event)
 	return nil
 }
@@ -417,7 +417,7 @@ func (m *MockManager) recordCall(method string, args ...interface{}) {
 
 // MockEventHandler is a mock implementation of EventHandler
 type MockEventHandler struct {
-	mu          sync.Mutex
+	mu            sync.Mutex
 	handledEvents []events.Event
 	behavior      func(ctx context.Context, event events.Event) error
 }
@@ -431,13 +431,13 @@ func NewMockEventHandler() *MockEventHandler {
 func (h *MockEventHandler) Handle(ctx context.Context, event events.Event) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	h.handledEvents = append(h.handledEvents, event)
-	
+
 	if h.behavior != nil {
 		return h.behavior(ctx, event)
 	}
-	
+
 	return nil
 }
 
@@ -445,7 +445,7 @@ func (h *MockEventHandler) Handle(ctx context.Context, event events.Event) error
 func (h *MockEventHandler) GetHandledEvents() []events.Event {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	events := make([]events.Event, len(h.handledEvents))
 	copy(events, h.handledEvents)
 	return events
@@ -488,10 +488,10 @@ func NewTestEventWithData(id, eventType string, data map[string]interface{}) *Te
 	}
 }
 
-func (e *TestEvent) ID() string                    { return e.id }
-func (e *TestEvent) Type() string                  { return e.eventType }
-func (e *TestEvent) Timestamp() time.Time          { return e.timestamp }
-func (e *TestEvent) Data() map[string]interface{}  { return e.data }
+func (e *TestEvent) ID() string                   { return e.id }
+func (e *TestEvent) Type() string                 { return e.eventType }
+func (e *TestEvent) Timestamp() time.Time         { return e.timestamp }
+func (e *TestEvent) Data() map[string]interface{} { return e.data }
 
 // Test Data Generators
 
@@ -527,7 +527,7 @@ func GenerateTestEventsWithDelay(count int, prefix string, delay time.Duration) 
 // AssertEventReceived asserts that an event is received within the timeout
 func AssertEventReceived(t *testing.T, eventChan <-chan events.Event, timeout time.Duration) events.Event {
 	t.Helper()
-	
+
 	select {
 	case event := <-eventChan:
 		if event == nil {
@@ -543,7 +543,7 @@ func AssertEventReceived(t *testing.T, eventChan <-chan events.Event, timeout ti
 // AssertNoEvent asserts that no event is received within the timeout
 func AssertNoEvent(t *testing.T, eventChan <-chan events.Event, timeout time.Duration) {
 	t.Helper()
-	
+
 	select {
 	case event := <-eventChan:
 		t.Fatalf("Unexpected event received: %v", event)
@@ -555,7 +555,7 @@ func AssertNoEvent(t *testing.T, eventChan <-chan events.Event, timeout time.Dur
 // AssertErrorReceived asserts that an error is received within the timeout
 func AssertErrorReceived(t *testing.T, errorChan <-chan error, timeout time.Duration) error {
 	t.Helper()
-	
+
 	select {
 	case err := <-errorChan:
 		if err == nil {
@@ -571,7 +571,7 @@ func AssertErrorReceived(t *testing.T, errorChan <-chan error, timeout time.Dura
 // AssertNoError asserts that no error is received within the timeout
 func AssertNoError(t *testing.T, errorChan <-chan error, timeout time.Duration) {
 	t.Helper()
-	
+
 	select {
 	case err := <-errorChan:
 		t.Fatalf("Unexpected error received: %v", err)
@@ -583,7 +583,7 @@ func AssertNoError(t *testing.T, errorChan <-chan error, timeout time.Duration) 
 // AssertTransportConnected asserts that a transport is connected
 func AssertTransportConnected(t *testing.T, transport Transport) {
 	t.Helper()
-	
+
 	if !transport.IsConnected() {
 		t.Fatal("Transport is not connected")
 	}
@@ -592,7 +592,7 @@ func AssertTransportConnected(t *testing.T, transport Transport) {
 // AssertTransportNotConnected asserts that a transport is not connected
 func AssertTransportNotConnected(t *testing.T, transport Transport) {
 	t.Helper()
-	
+
 	if transport.IsConnected() {
 		t.Fatal("Transport is connected when it should not be")
 	}
@@ -603,16 +603,16 @@ func AssertTransportNotConnected(t *testing.T, transport Transport) {
 // WithTimeout runs a function with a timeout
 func WithTimeout(t *testing.T, timeout time.Duration, fn func(ctx context.Context)) {
 	t.Helper()
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	
+
 	done := make(chan struct{})
 	go func() {
 		fn(ctx)
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// Success
@@ -627,16 +627,16 @@ func WithTimeout(t *testing.T, timeout time.Duration, fn func(ctx context.Contex
 // The test can check ctx.Err() to verify if the timeout occurred.
 func WithTimeoutExpected(t *testing.T, timeout time.Duration, fn func(ctx context.Context)) {
 	t.Helper()
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	
+
 	done := make(chan struct{})
 	go func() {
 		fn(ctx)
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// Function completed (either successfully or with an error)
@@ -655,7 +655,7 @@ func WithTimeoutExpected(t *testing.T, timeout time.Duration, fn func(ctx contex
 // WaitForCondition waits for a condition to be true
 func WaitForCondition(t *testing.T, timeout time.Duration, condition func() bool) {
 	t.Helper()
-	
+
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
 		if condition() {
@@ -663,7 +663,7 @@ func WaitForCondition(t *testing.T, timeout time.Duration, condition func() bool
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	
+
 	t.Fatal("Condition not met within timeout")
 }
 
@@ -671,10 +671,10 @@ func WaitForCondition(t *testing.T, timeout time.Duration, condition func() bool
 
 // ErrorSimulator provides utilities for simulating various error conditions
 type ErrorSimulator struct {
-	mu              sync.RWMutex
-	errorPatterns   map[string]error
-	errorFrequency  map[string]int
-	callCounts      map[string]int
+	mu             sync.RWMutex
+	errorPatterns  map[string]error
+	errorFrequency map[string]int
+	callCounts     map[string]int
 }
 
 // NewErrorSimulator creates a new error simulator
@@ -704,9 +704,9 @@ func (s *ErrorSimulator) SetErrorFrequency(operation string, frequency int) {
 func (s *ErrorSimulator) ShouldError(operation string) (error, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	s.callCounts[operation]++
-	
+
 	if err, ok := s.errorPatterns[operation]; ok {
 		if freq, hasFreq := s.errorFrequency[operation]; hasFreq {
 			if s.callCounts[operation]%freq == 0 {
@@ -716,7 +716,7 @@ func (s *ErrorSimulator) ShouldError(operation string) (error, bool) {
 			return err, true
 		}
 	}
-	
+
 	return nil, false
 }
 
@@ -724,10 +724,10 @@ func (s *ErrorSimulator) ShouldError(operation string) (error, bool) {
 
 // TestConfig provides common test configurations
 type TestConfig struct {
-	DefaultTimeout     time.Duration
-	EventChannelSize   int
-	ErrorChannelSize   int
-	MaxMessageSize     int
+	DefaultTimeout   time.Duration
+	EventChannelSize int
+	ErrorChannelSize int
+	MaxMessageSize   int
 }
 
 // DefaultTestConfig returns the default test configuration
@@ -753,7 +753,7 @@ type TestFixture struct {
 // NewTestFixture creates a new test fixture
 func NewTestFixture(t *testing.T) *TestFixture {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	fixture := &TestFixture{
 		Transport: NewMockTransport(),
 		Manager:   NewMockManager(),
@@ -762,25 +762,25 @@ func NewTestFixture(t *testing.T) *TestFixture {
 		Ctx:       ctx,
 		Cancel:    cancel,
 	}
-	
+
 	// Wire up the manager and transport
 	fixture.Manager.SetTransport(fixture.Transport)
-	
+
 	// Cleanup
 	t.Cleanup(func() {
 		cancel()
 	})
-	
+
 	return fixture
 }
 
 // ConnectTransport connects the transport with error handling
 func (f *TestFixture) ConnectTransport(t *testing.T) {
 	t.Helper()
-	
+
 	ctx, cancel := context.WithTimeout(f.Ctx, f.Config.DefaultTimeout)
 	defer cancel()
-	
+
 	if err := f.Transport.Connect(ctx); err != nil {
 		t.Fatalf("Failed to connect transport: %v", err)
 	}
@@ -789,10 +789,10 @@ func (f *TestFixture) ConnectTransport(t *testing.T) {
 // StartManager starts the manager with error handling
 func (f *TestFixture) StartManager(t *testing.T) {
 	t.Helper()
-	
+
 	ctx, cancel := context.WithTimeout(f.Ctx, f.Config.DefaultTimeout)
 	defer cancel()
-	
+
 	if err := f.Manager.Start(ctx); err != nil {
 		t.Fatalf("Failed to start manager: %v", err)
 	}
@@ -801,10 +801,10 @@ func (f *TestFixture) StartManager(t *testing.T) {
 // SendEvent sends an event through the transport
 func (f *TestFixture) SendEvent(t *testing.T, event TransportEvent) {
 	t.Helper()
-	
+
 	ctx, cancel := context.WithTimeout(f.Ctx, f.Config.DefaultTimeout)
 	defer cancel()
-	
+
 	if err := f.Transport.Send(ctx, event); err != nil {
 		t.Fatalf("Failed to send event: %v", err)
 	}
@@ -814,9 +814,9 @@ func (f *TestFixture) SendEvent(t *testing.T, event TransportEvent) {
 
 // ConcurrentTest helps with concurrent testing scenarios
 type ConcurrentTest struct {
-	wg        sync.WaitGroup
-	errors    chan error
-	done      chan struct{}
+	wg     sync.WaitGroup
+	errors chan error
+	done   chan struct{}
 }
 
 // NewConcurrentTest creates a new concurrent test helper
@@ -830,11 +830,11 @@ func NewConcurrentTest() *ConcurrentTest {
 // Run runs a function concurrently N times
 func (ct *ConcurrentTest) Run(count int, fn func(id int) error) {
 	ct.wg.Add(count)
-	
+
 	for i := 0; i < count; i++ {
 		go func(id int) {
 			defer ct.wg.Done()
-			
+
 			if err := fn(id); err != nil {
 				select {
 				case ct.errors <- err:
@@ -851,12 +851,12 @@ func (ct *ConcurrentTest) Wait() []error {
 	ct.wg.Wait()
 	close(ct.done)
 	close(ct.errors)
-	
+
 	var errs []error
 	for err := range ct.errors {
 		errs = append(errs, err)
 	}
-	
+
 	return errs
 }
 
@@ -865,18 +865,18 @@ func (ct *ConcurrentTest) Wait() []error {
 // BenchmarkTransport runs standard transport benchmarks
 func BenchmarkTransport(b *testing.B, transport Transport) {
 	ctx := context.Background()
-	
+
 	// Connect
 	if err := transport.Connect(ctx); err != nil {
 		b.Fatalf("Failed to connect: %v", err)
 	}
 	defer transport.Close(ctx)
-	
+
 	// Create test event
 	event := NewTestEvent("bench-1", "benchmark")
-	
+
 	b.ResetTimer()
-	
+
 	for i := 0; i < b.N; i++ {
 		if err := transport.Send(ctx, event); err != nil {
 			b.Fatalf("Failed to send: %v", err)
@@ -887,15 +887,15 @@ func BenchmarkTransport(b *testing.B, transport Transport) {
 // BenchmarkConcurrentSend benchmarks concurrent send operations
 func BenchmarkConcurrentSend(b *testing.B, transport Transport, concurrency int) {
 	ctx := context.Background()
-	
+
 	// Connect
 	if err := transport.Connect(ctx); err != nil {
 		b.Fatalf("Failed to connect: %v", err)
 	}
 	defer transport.Close(ctx)
-	
+
 	b.ResetTimer()
-	
+
 	b.RunParallel(func(pb *testing.PB) {
 		event := NewTestEvent("bench-concurrent", "benchmark")
 		for pb.Next() {

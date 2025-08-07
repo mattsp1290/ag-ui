@@ -21,26 +21,26 @@ func NewGoroutineLeakDetector() *GoroutineLeakDetector {
 	return &GoroutineLeakDetector{
 		baselineCount: runtime.NumGoroutine(),
 		ignored: map[string]bool{
-			"testing.(*T).Run":                    true,
-			"testing.tRunner":                     true,
-			"testing.(*M).Run":                    true,
-			"runtime.goexit":                      true,
-			"go.uber.org/goleak":                  true,
-			"github.com/stretchr/testify":         true,
-			"net/http.(*Server).Serve":            true,
-			"net/http.(*Server).ListenAndServe":   true,
-			"internal/poll.runtime_pollWait":      true,
-			"go.uber.org/zap/zapcore.(*sampler)":  true,
+			"testing.(*T).Run":                   true,
+			"testing.tRunner":                    true,
+			"testing.(*M).Run":                   true,
+			"runtime.goexit":                     true,
+			"go.uber.org/goleak":                 true,
+			"github.com/stretchr/testify":        true,
+			"net/http.(*Server).Serve":           true,
+			"net/http.(*Server).ListenAndServe":  true,
+			"internal/poll.runtime_pollWait":     true,
+			"go.uber.org/zap/zapcore.(*sampler)": true,
 			// Transport layer specific ignored patterns
-			"net/http.(*Transport).dialConnFor":   true,
-			"net/http.(*persistConn).readLoop":    true,
-			"net/http.(*persistConn).writeLoop":   true,
+			"net/http.(*Transport).dialConnFor": true,
+			"net/http.(*persistConn).readLoop":  true,
+			"net/http.(*persistConn).writeLoop": true,
 			// Temporary goroutines that may appear during state transitions
-			"time.NewTicker":                      true,
-			"time.Sleep":                          true,
-			"runtime.GC":                          true,
-			"finalizer":                           true,
-			"reflect.":                            true,
+			"time.NewTicker": true,
+			"time.Sleep":     true,
+			"runtime.GC":     true,
+			"finalizer":      true,
+			"reflect.":       true,
 		},
 	}
 }
@@ -65,24 +65,24 @@ func (g *GoroutineLeakDetector) CheckForLeaksWithTimeout(t testing.TB, timeout t
 	// Force garbage collection to help clean up any finalizers
 	runtime.GC()
 	runtime.GC() // Run twice to ensure finalization
-	
+
 	// Wait for goroutines to settle - reduced initial wait
 	time.Sleep(50 * time.Millisecond)
 
 	// Poll for goroutine count to stabilize with faster polling
 	stabilized := g.waitForStableGoroutineCount(ctx, 50*time.Millisecond)
-	
+
 	if !stabilized {
 		t.Logf("Warning: Goroutine count did not stabilize within %v", timeout)
 	}
 
 	currentCount := runtime.NumGoroutine()
-	
+
 	// Increased tolerance for tests that do rapid state changes
 	tolerance := 5
 	if currentCount > g.baselineCount+tolerance {
 		leaks := g.detectLeaks()
-		
+
 		if len(leaks) > 0 {
 			t.Errorf("Detected %d potential goroutine leaks (baseline: %d, current: %d):\n%s",
 				len(leaks), g.baselineCount, currentCount, strings.Join(leaks, "\n"))
@@ -115,7 +115,7 @@ func (g *GoroutineLeakDetector) waitForStableGoroutineCount(ctx context.Context,
 			if diff < 0 {
 				diff = -diff
 			}
-			
+
 			if diff <= tolerance {
 				stableCount++
 				if stableCount >= requiredStableChecks {
@@ -209,19 +209,19 @@ func (g *GoroutineLeakDetector) GetBaseline() int {
 // WithGoroutineLeakDetection is a test helper that automatically checks for leaks
 func WithGoroutineLeakDetection(t *testing.T, testFunc func(t *testing.T)) {
 	detector := NewGoroutineLeakDetector()
-	
+
 	// Run the test
 	testFunc(t)
-	
+
 	// Check for leaks after test completion
 	detector.CheckForLeaks(t)
 }
 
 // TestingCleanupHelper helps with test cleanup and leak detection
 type TestingCleanupHelper struct {
-	detector    *GoroutineLeakDetector
+	detector     *GoroutineLeakDetector
 	cleanupFuncs []func()
-	mu          sync.Mutex
+	mu           sync.Mutex
 }
 
 // NewTestingCleanupHelper creates a new testing cleanup helper
@@ -266,10 +266,10 @@ func (h *TestingCleanupHelper) Cleanup(t testing.TB) {
 // func TestSomething(t *testing.T) {
 //     helper := NewTestingCleanupHelper()
 //     defer helper.Cleanup(t)
-//     
+//
 //     // Your test code here
 //     ctx, cancel := context.WithCancel(context.Background())
 //     helper.AddCleanup(cancel)
-//     
+//
 //     // More test code...
 // }

@@ -22,10 +22,10 @@ func createMinimalBenchmarkSchema() *ToolSchema {
 // BenchmarkRegistryWithCleanup benchmarks registry operations with cleanup enabled
 func BenchmarkRegistryWithCleanup(b *testing.B) {
 	config := &RegistryConfig{
-		MaxTools:                     1000,
-		EnableToolLRU:                true,
-		ToolTTL:                      1 * time.Hour, // Long TTL to avoid cleanup during benchmark
-		ToolCleanupInterval:          30 * time.Minute,
+		MaxTools:                    1000,
+		EnableToolLRU:               true,
+		ToolTTL:                     1 * time.Hour, // Long TTL to avoid cleanup during benchmark
+		ToolCleanupInterval:         30 * time.Minute,
 		EnableBackgroundToolCleanup: false, // Disable background cleanup for consistent benchmarks
 	}
 
@@ -89,9 +89,9 @@ func BenchmarkRegistryWithCleanup(b *testing.B) {
 // BenchmarkRegistryWithoutCleanup benchmarks registry operations without cleanup for comparison
 func BenchmarkRegistryWithoutCleanup(b *testing.B) {
 	config := &RegistryConfig{
-		MaxTools:                     0, // Unlimited
-		EnableToolLRU:                false,
-		ToolTTL:                      0, // No TTL
+		MaxTools:                    0, // Unlimited
+		EnableToolLRU:               false,
+		ToolTTL:                     0, // No TTL
 		EnableBackgroundToolCleanup: false,
 	}
 
@@ -155,9 +155,9 @@ func BenchmarkRegistryWithoutCleanup(b *testing.B) {
 // BenchmarkRegistryCleanupOperations benchmarks the cleanup operations themselves
 func BenchmarkRegistryCleanupOperations(b *testing.B) {
 	config := &RegistryConfig{
-		MaxTools:                     10000,
-		EnableToolLRU:                true,
-		ToolTTL:                      1 * time.Millisecond, // Very short TTL for cleanup testing
+		MaxTools:                    10000,
+		EnableToolLRU:               true,
+		ToolTTL:                     1 * time.Millisecond, // Very short TTL for cleanup testing
 		EnableBackgroundToolCleanup: false,
 	}
 
@@ -198,7 +198,7 @@ func BenchmarkRegistryCleanupOperations(b *testing.B) {
 				}
 				time.Sleep(5 * time.Millisecond) // Let them expire
 			}
-			
+
 			_, _ = registry.CleanupExpiredTools()
 		}
 	})
@@ -236,7 +236,7 @@ func BenchmarkRegistryCleanupOperations(b *testing.B) {
 				}
 				time.Sleep(5 * time.Millisecond) // Age them
 			}
-			
+
 			_, _ = registry.CleanupByAccessTime(1 * time.Millisecond)
 		}
 	})
@@ -258,7 +258,7 @@ func BenchmarkRegistryCleanupOperations(b *testing.B) {
 					_ = registry.Register(tool)
 				}
 			}
-			
+
 			_ = registry.ClearAllTools()
 		}
 	})
@@ -267,9 +267,9 @@ func BenchmarkRegistryCleanupOperations(b *testing.B) {
 // BenchmarkRegistryLRUEviction benchmarks LRU eviction performance
 func BenchmarkRegistryLRUEviction(b *testing.B) {
 	config := &RegistryConfig{
-		MaxTools:      100, // Small limit to force frequent evictions
-		EnableToolLRU: true,
-		ToolTTL:       0, // No TTL
+		MaxTools:                    100, // Small limit to force frequent evictions
+		EnableToolLRU:               true,
+		ToolTTL:                     0, // No TTL
 		EnableBackgroundToolCleanup: false,
 	}
 
@@ -331,9 +331,9 @@ func BenchmarkRegistryMemoryUsage(b *testing.B) {
 // BenchmarkRegistryConcurrentOperations benchmarks concurrent operations with cleanup
 func BenchmarkRegistryConcurrentOperations(b *testing.B) {
 	config := &RegistryConfig{
-		MaxTools:                     1000,
-		EnableToolLRU:                true,
-		ToolTTL:                      1 * time.Hour, // Long TTL
+		MaxTools:                    1000,
+		EnableToolLRU:               true,
+		ToolTTL:                     1 * time.Hour, // Long TTL
 		EnableBackgroundToolCleanup: false,
 		MaxConcurrentRegistrations:  10,
 	}

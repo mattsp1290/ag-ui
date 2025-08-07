@@ -24,7 +24,7 @@ func TestMemoryManagerCore(t *testing.T) {
 		// Test adaptive buffer sizing
 		baseSize := 1000
 		adaptedSize := mm.GetAdaptiveBufferSize("test_buffer", baseSize)
-		
+
 		if adaptedSize <= 0 {
 			t.Errorf("Expected positive buffer size, got %d", adaptedSize)
 		}
@@ -44,7 +44,7 @@ func TestMemoryManagerCore(t *testing.T) {
 
 	t.Run("CallbackRegistration", func(t *testing.T) {
 		called := make(chan bool, 1)
-		
+
 		mm.OnMemoryPressure(func(level MemoryPressureLevel) {
 			select {
 			case called <- true:
@@ -82,7 +82,7 @@ func TestCleanupManagerCore(t *testing.T) {
 
 	t.Run("TaskRegistration", func(t *testing.T) {
 		executed := make(chan bool, 1)
-		
+
 		err := cm.RegisterTask("test_task", 25*time.Millisecond, func() (int, error) {
 			select {
 			case executed <- true:
@@ -147,7 +147,7 @@ func TestSliceCore(t *testing.T) {
 
 	t.Run("ConcurrentAccess", func(t *testing.T) {
 		slice.Clear()
-		
+
 		var wg sync.WaitGroup
 		numWorkers := 10
 		itemsPerWorker := 100
@@ -212,7 +212,7 @@ func BenchmarkSlice(b *testing.B) {
 		for i := 0; i < 1000; i++ {
 			slice.Append(i)
 		}
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			slice.Get(i % 1000)
@@ -225,7 +225,7 @@ func BenchmarkSlice(b *testing.B) {
 		for i := 0; i < 1000; i++ {
 			slice.Append(i)
 		}
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			slice.Range(func(item interface{}) bool {

@@ -22,7 +22,7 @@ func TestHeartbeatFailureScenarios(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping resource-intensive heartbeat failure test in short mode")
 	}
-	
+
 	// Essential scenario 1: Connection drop detection
 	t.Run("connection_drop_detection", func(t *testing.T) {
 		testEssentialConnectionDrop(t)
@@ -73,7 +73,7 @@ func testConnectionDropScenarios(t *testing.T) {
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
 			logger := zaptest.NewLogger(t)
-			
+
 			// Create test server that drops connection after specified time
 			server := createDroppableServer(t, scenario.dropAfter)
 			defer server.Close()
@@ -95,11 +95,11 @@ func testConnectionDropScenarios(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to create connection: %v", err)
 			}
-			
+
 			// Connect
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			
+
 			err = conn.Connect(ctx)
 			if err != nil {
 				t.Fatalf("Failed to connect: %v", err)
@@ -127,7 +127,7 @@ func testConnectionDropScenarios(t *testing.T) {
 				if hb.IsHealthy() {
 					t.Error("Expected heartbeat to detect unhealthy connection")
 				}
-				
+
 				// Check missed pongs
 				missedPongs := hb.GetMissedPongCount()
 				if missedPongs == 0 {
@@ -278,24 +278,24 @@ func testHeartbeatTimingFailures(t *testing.T) {
 			name:         "slow_pong_response",
 			pingPeriod:   20 * time.Millisecond,
 			pongWait:     50 * time.Millisecond,
-			serverDelay:  30 * time.Millisecond, // Slower but still within pongWait
-			expectHealth: true, // Should be healthy since pongs are received within timeout
+			serverDelay:  30 * time.Millisecond,  // Slower but still within pongWait
+			expectHealth: true,                   // Should be healthy since pongs are received within timeout
 			testDuration: 120 * time.Millisecond, // Reduced from 300ms
 		},
 		{
 			name:         "very_slow_pong",
 			pingPeriod:   15 * time.Millisecond,
 			pongWait:     30 * time.Millisecond,
-			serverDelay:  60 * time.Millisecond, // Much slower than pongWait - will cause timeouts (reduced from 120ms)
-			expectHealth: false, // Will be unhealthy due to missed pongs from timeout
+			serverDelay:  60 * time.Millisecond,  // Much slower than pongWait - will cause timeouts (reduced from 120ms)
+			expectHealth: false,                  // Will be unhealthy due to missed pongs from timeout
 			testDuration: 100 * time.Millisecond, // Reduced from 250ms
 		},
 		{
 			name:         "intermittent_delay",
 			pingPeriod:   25 * time.Millisecond,
 			pongWait:     60 * time.Millisecond,
-			serverDelay:  40 * time.Millisecond, // Moderate delay but still within pongWait
-			expectHealth: true, // Should be healthy since pongs are received within timeout
+			serverDelay:  40 * time.Millisecond,  // Moderate delay but still within pongWait
+			expectHealth: true,                   // Should be healthy since pongs are received within timeout
 			testDuration: 150 * time.Millisecond, // Reduced from 400ms
 		},
 	}
@@ -345,7 +345,7 @@ func testHeartbeatTimingFailures(t *testing.T) {
 
 			// Check health status with tolerance for timing variations
 			isHealthy := hb.IsHealthy()
-			
+
 			// For tests that expect unhealthy state, give more time to detect issues
 			if !tt.expectHealth && isHealthy {
 				// Wait longer to allow health check to detect timeouts
@@ -356,16 +356,16 @@ func testHeartbeatTimingFailures(t *testing.T) {
 					t.Fatalf("Test context cancelled during health check wait: %v", ctx.Err())
 				}
 			}
-			
+
 			if isHealthy != tt.expectHealth {
 				// Log debug info for investigation
 				stats := hb.GetStats()
 				t.Logf("Test: %s - Expected: %v, Got: %v", tt.name, tt.expectHealth, isHealthy)
 				t.Logf("Stats: Pings=%d, Pongs=%d, Missed=%d, Health checks=%d",
 					stats.PingsSent, stats.PongsReceived, stats.MissedPongs, stats.HealthChecks)
-				t.Logf("Current missed pong count: %d, Server delay: %v, Pong wait: %v", 
+				t.Logf("Current missed pong count: %d, Server delay: %v, Pong wait: %v",
 					hb.GetMissedPongCount(), tt.serverDelay, tt.pongWait)
-				
+
 				// For very_slow_pong test, be more strict about unhealthy state
 				if tt.name == "very_slow_pong" && tt.expectHealth == false {
 					t.Errorf("Expected health status %v, got %v for test %s", tt.expectHealth, isHealthy, tt.name)
@@ -408,7 +408,7 @@ func testConcurrentHeartbeatFailures(t *testing.T) {
 
 	// Use resource limiter to prevent goroutine leaks
 	budget := NewConnectionBudget(connectionCount)
-	
+
 	// Main test context with reasonable timeout
 	testCtx, testCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer testCancel()
@@ -497,7 +497,7 @@ func testConcurrentHeartbeatFailures(t *testing.T) {
 			// Cleanup with bounded timeout and proper cancellation
 			cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 1*time.Second)
 			defer cleanupCancel()
-			
+
 			cleanupDone := make(chan struct{})
 			go func() {
 				defer close(cleanupDone)
@@ -552,7 +552,7 @@ func testConcurrentHeartbeatFailures(t *testing.T) {
 	healthy := atomic.LoadInt32(&healthyCount)
 	unhealthy := atomic.LoadInt32(&unhealthyCount)
 
-	t.Logf("Concurrent heartbeat test - Healthy: %d, Unhealthy: %d, Errors: %d", 
+	t.Logf("Concurrent heartbeat test - Healthy: %d, Unhealthy: %d, Errors: %d",
 		healthy, unhealthy, errorCount)
 
 	// With 30% drop rate, expect some unhealthy connections (but account for errors)
@@ -563,7 +563,7 @@ func testConcurrentHeartbeatFailures(t *testing.T) {
 
 	// Verify that most connections were processed (allowing for some errors)
 	if totalProcessed < int32(connectionCount)/2 {
-		t.Errorf("Too few connections processed (%d out of %d), test may have failed", 
+		t.Errorf("Too few connections processed (%d out of %d), test may have failed",
 			totalProcessed, connectionCount)
 	}
 }
@@ -571,23 +571,23 @@ func testConcurrentHeartbeatFailures(t *testing.T) {
 func testResourceExhaustionScenarios(t *testing.T) {
 	// Use resource limits to prevent system exhaustion
 	resourceLimiter := DefaultResourceLimits()
-	
+
 	resourceLimiter.RunWithLimits(t, "goroutine_leak_prevention", func(t *testing.T) {
 		logger := zaptest.NewLogger(t)
-		
+
 		server := createEchoServer(t)
 		defer server.Close()
 
 		wsURL := "ws" + strings.TrimPrefix(server.URL, "http")
-		
+
 		// Reduced connection count for stability
 		const numConnections = 5 // Further reduced for stability
 		connections := make([]*Connection, numConnections)
 		heartbeats := make([]*HeartbeatManager, numConnections)
-		
+
 		// Use connection budget to prevent resource exhaustion
 		budget := NewConnectionBudget(numConnections)
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second) // Further reduced timeout
 		defer cancel()
 
@@ -599,7 +599,7 @@ func testResourceExhaustionScenarios(t *testing.T) {
 				t.Fatal("Context cancelled during connection creation")
 			default:
 			}
-			
+
 			if err := budget.AcquireConnection(ctx); err != nil {
 				t.Fatalf("Failed to acquire connection slot: %v", err)
 			}
@@ -619,7 +619,7 @@ func testResourceExhaustionScenarios(t *testing.T) {
 				budget.ReleaseConnection()
 				t.Fatalf("Failed to create connection %d: %v", i, err)
 			}
-			
+
 			err = conn.Connect(ctx)
 			if err != nil {
 				budget.ReleaseConnection()
@@ -646,7 +646,7 @@ func testResourceExhaustionScenarios(t *testing.T) {
 		// Cleanup with bounded timeout and proper resource management
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 1*time.Second)
 		defer cleanupCancel()
-		
+
 		cleanupDone := make(chan struct{})
 		go func() {
 			defer close(cleanupDone)
@@ -674,7 +674,7 @@ func testResourceExhaustionScenarios(t *testing.T) {
 
 	t.Run("memory_pressure", func(t *testing.T) {
 		logger := zaptest.NewLogger(t)
-		
+
 		server := createEchoServer(t)
 		defer server.Close()
 
@@ -730,7 +730,7 @@ func testResourceExhaustionScenarios(t *testing.T) {
 		// Cleanup with timeout protection
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cleanupCancel()
-		
+
 		cleanupDone := make(chan struct{})
 		go func() {
 			defer close(cleanupDone)
@@ -770,9 +770,9 @@ func testRecoveryMechanisms(t *testing.T) {
 		}
 
 		conn, err := NewConnection(config)
-	if err != nil {
-		t.Fatalf("Failed to create connection: %v", err)
-	}
+		if err != nil {
+			t.Fatalf("Failed to create connection: %v", err)
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -803,7 +803,7 @@ func testRecoveryMechanisms(t *testing.T) {
 		case <-ctx.Done():
 			t.Fatalf("Test context cancelled during outage wait: %v", ctx.Err())
 		}
-		
+
 		// Should be unhealthy during outage
 		if hb.IsHealthy() {
 			// Allow a bit more time for health check to detect the issue
@@ -828,7 +828,7 @@ func testRecoveryMechanisms(t *testing.T) {
 		case <-ctx.Done():
 			t.Fatalf("Test context cancelled during additional run time: %v", ctx.Err())
 		}
-		
+
 		// Verify that the heartbeat system correctly detected the outage
 		stats := hb.GetStats()
 		if stats.MissedPongs == 0 {
@@ -837,7 +837,7 @@ func testRecoveryMechanisms(t *testing.T) {
 		if stats.PongsReceived == 0 {
 			t.Error("Expected some pongs to be received before outage")
 		}
-		
+
 		// The connection may or may not recover depending on timing,
 		// but the important thing is that the outage was detected
 		t.Logf("Recovery test completed - Stats: Pings=%d, Pongs=%d, Missed=%d, Healthy=%v",
@@ -845,7 +845,7 @@ func testRecoveryMechanisms(t *testing.T) {
 
 		// This section was already covered above, so we can remove the duplicate
 
-		// Ensure proper cleanup order  
+		// Ensure proper cleanup order
 		if hb != nil {
 			hb.Stop()
 		}
@@ -872,9 +872,9 @@ func testRecoveryMechanisms(t *testing.T) {
 		}
 
 		conn, err := NewConnection(config)
-	if err != nil {
-		t.Fatalf("Failed to create connection: %v", err)
-	}
+		if err != nil {
+			t.Fatalf("Failed to create connection: %v", err)
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
@@ -913,7 +913,7 @@ func testRecoveryMechanisms(t *testing.T) {
 			t.Error("Expected more pings to be sent after reset")
 		}
 
-		// Ensure proper cleanup order  
+		// Ensure proper cleanup order
 		if hb != nil {
 			hb.Stop()
 		}
@@ -942,9 +942,9 @@ func testEdgeCaseScenarios(t *testing.T) {
 		}
 
 		conn, err := NewConnection(config)
-	if err != nil {
-		t.Fatalf("Failed to create connection: %v", err)
-	}
+		if err != nil {
+			t.Fatalf("Failed to create connection: %v", err)
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -965,12 +965,12 @@ func testEdgeCaseScenarios(t *testing.T) {
 			t.Fatalf("Test context cancelled during ping check: %v", ctx.Err())
 		}
 		stats := hb.GetStats()
-		
+
 		if stats.PingsSent > 0 {
 			t.Error("Expected no pings to be sent when ping period is 0")
 		}
 
-		// Ensure proper cleanup order  
+		// Ensure proper cleanup order
 		if hb != nil {
 			hb.Stop()
 		}
@@ -997,9 +997,9 @@ func testEdgeCaseScenarios(t *testing.T) {
 		}
 
 		conn, err := NewConnection(config)
-	if err != nil {
-		t.Fatalf("Failed to create connection: %v", err)
-	}
+		if err != nil {
+			t.Fatalf("Failed to create connection: %v", err)
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -1020,7 +1020,7 @@ func testEdgeCaseScenarios(t *testing.T) {
 			t.Fatalf("Test context cancelled during ping/health check: %v", ctx.Err())
 		}
 		stats := hb.GetStats()
-		
+
 		if stats.PingsSent == 0 {
 			t.Error("Expected pings to be sent even when pong wait is 0")
 		}
@@ -1029,7 +1029,7 @@ func testEdgeCaseScenarios(t *testing.T) {
 			t.Error("Expected no health checks when pong wait is 0")
 		}
 
-		// Ensure proper cleanup order  
+		// Ensure proper cleanup order
 		if hb != nil {
 			hb.Stop()
 		}
@@ -1056,9 +1056,9 @@ func testEdgeCaseScenarios(t *testing.T) {
 		}
 
 		conn, err := NewConnection(config)
-	if err != nil {
-		t.Fatalf("Failed to create connection: %v", err)
-	}
+		if err != nil {
+			t.Fatalf("Failed to create connection: %v", err)
+		}
 
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -1102,7 +1102,7 @@ func testEdgeCaseScenarios(t *testing.T) {
 			t.Errorf("Expected running state, got %v", hb.GetState())
 		}
 
-		// Ensure proper cleanup order  
+		// Ensure proper cleanup order
 		if hb != nil {
 			hb.Stop()
 		}
@@ -1128,7 +1128,7 @@ func testStressTesting(t *testing.T) {
 		config := &ConnectionConfig{
 			URL:          wsURL,
 			Logger:       logger,
-			PingPeriod:   2 * time.Millisecond, // Slightly reduced frequency for stability
+			PingPeriod:   2 * time.Millisecond,  // Slightly reduced frequency for stability
 			PongWait:     10 * time.Millisecond, // Increased for reliability
 			WriteTimeout: 100 * time.Millisecond,
 			ReadTimeout:  100 * time.Millisecond,
@@ -1162,7 +1162,7 @@ func testStressTesting(t *testing.T) {
 		}
 
 		stats := hb.GetStats()
-		t.Logf("High frequency stats - Pings: %d, Pongs: %d, Health checks: %d", 
+		t.Logf("High frequency stats - Pings: %d, Pongs: %d, Health checks: %d",
 			stats.PingsSent, stats.PongsReceived, stats.HealthChecks)
 
 		// Should handle high frequency without issues (reduced expectation)
@@ -1173,7 +1173,7 @@ func testStressTesting(t *testing.T) {
 		// Cleanup with timeout protection
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 		defer cleanupCancel()
-		
+
 		cleanupDone := make(chan struct{})
 		go func() {
 			defer close(cleanupDone)
@@ -1202,8 +1202,8 @@ func testStressTesting(t *testing.T) {
 		config := &ConnectionConfig{
 			URL:          wsURL,
 			Logger:       logger,
-			PingPeriod:   20 * time.Millisecond, // Slightly reduced frequency for stability
-			PongWait:     50 * time.Millisecond, // Increased for reliability
+			PingPeriod:   20 * time.Millisecond,  // Slightly reduced frequency for stability
+			PongWait:     50 * time.Millisecond,  // Increased for reliability
 			WriteTimeout: 500 * time.Millisecond, // Reduced timeout
 			ReadTimeout:  500 * time.Millisecond, // Reduced timeout
 		}
@@ -1253,7 +1253,7 @@ func testStressTesting(t *testing.T) {
 		// Cleanup with timeout protection
 		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 		defer cleanupCancel()
-		
+
 		cleanupDone := make(chan struct{})
 		go func() {
 			defer close(cleanupDone)
@@ -1305,7 +1305,7 @@ func createDroppableServer(t *testing.T, dropAfter time.Duration) *httptest.Serv
 			if err != nil {
 				break
 			}
-			
+
 			// Check for timeout
 			select {
 			case <-timeout:
@@ -1344,7 +1344,7 @@ func createDelayedPongServer(t *testing.T, delay time.Duration) *httptest.Server
 			if err != nil {
 				break
 			}
-			
+
 			// Check for timeout
 			select {
 			case <-timeout:
@@ -1386,7 +1386,7 @@ func createEchoServer(t *testing.T) *httptest.Server {
 			if err != nil {
 				break
 			}
-			
+
 			// Check for timeout
 			select {
 			case <-timeout:
@@ -1407,7 +1407,7 @@ func createRandomDropServer(t *testing.T, dropRate float64) *httptest.Server {
 
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		connID := atomic.AddInt32(&connectionCount, 1)
-		
+
 		// Decide whether to drop this connection
 		shouldDrop := float64(connID%100)/100.0 < dropRate
 
@@ -1440,7 +1440,7 @@ func createRandomDropServer(t *testing.T, dropRate float64) *httptest.Server {
 			if err != nil {
 				break
 			}
-			
+
 			// Check for timeout
 			select {
 			case <-timeout:
@@ -1470,14 +1470,14 @@ func createRecoveryServer(t *testing.T, outageStart time.Duration) *httptest.Ser
 
 		conn.SetPingHandler(func(message string) error {
 			elapsed := time.Since(startTime)
-			
+
 			// During outage period, don't respond to pings at all
 			if elapsed >= outageStart && elapsed < outageEnd {
 				t.Logf("Server ignoring ping during outage period: elapsed=%v", elapsed)
 				// Don't send pong response during outage
 				return nil
 			}
-			
+
 			// Send pong response normally outside outage period
 			t.Logf("Server sending pong: elapsed=%v", elapsed)
 			return conn.WriteMessage(websocket.PongMessage, []byte(message))
@@ -1488,11 +1488,11 @@ func createRecoveryServer(t *testing.T, outageStart time.Duration) *httptest.Ser
 			t.Logf("Server received close: code=%d, text=%s", code, text)
 			return nil
 		})
-		
+
 		// Add timeout mechanism to prevent infinite hanging
 		timeout := time.After(10 * time.Second)
 		done := make(chan bool)
-		
+
 		go func() {
 			defer close(done)
 			for {
@@ -1503,7 +1503,7 @@ func createRecoveryServer(t *testing.T, outageStart time.Duration) *httptest.Ser
 					t.Logf("Server read error: %v", err)
 					return
 				}
-				
+
 				// Echo back non-ping messages
 				if messageType != websocket.PingMessage {
 					if err := conn.WriteMessage(messageType, message); err != nil {
@@ -1513,7 +1513,7 @@ func createRecoveryServer(t *testing.T, outageStart time.Duration) *httptest.Ser
 				}
 			}
 		}()
-		
+
 		// Wait for either completion or timeout
 		select {
 		case <-done:
@@ -1562,7 +1562,7 @@ func createPartitionableServer(t *testing.T) *PartitionableServer {
 				// Expected error when connection is closed or times out
 				break
 			}
-			
+
 			// Check for timeout
 			select {
 			case <-timeout:
@@ -1611,7 +1611,7 @@ func BenchmarkHeartbeatFailureScenarios(b *testing.B) {
 				b.Fatalf("Failed to create connection: %v", err)
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-			
+
 			if conn.Connect(ctx) == nil {
 				hb := conn.heartbeat
 				hb.Start(ctx)
@@ -1625,7 +1625,7 @@ func BenchmarkHeartbeatFailureScenarios(b *testing.B) {
 				hb.Stop()
 				conn.Disconnect()
 			}
-			
+
 			cancel()
 		}
 	})
@@ -1663,7 +1663,7 @@ func BenchmarkHeartbeatFailureScenarios(b *testing.B) {
 // testEssentialConnectionDrop tests basic connection drop detection with minimal setup
 func testEssentialConnectionDrop(t *testing.T) {
 	logger := zaptest.NewLogger(t)
-	
+
 	// Create simple server that drops connection after 50ms
 	server := createDroppableServer(t, 50*time.Millisecond)
 	defer server.Close()
@@ -1686,7 +1686,7 @@ func testEssentialConnectionDrop(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	
+
 	err = conn.Connect(ctx)
 	if err != nil {
 		t.Fatalf("Failed to connect: %v", err)
@@ -1814,7 +1814,7 @@ func testEssentialRecovery(t *testing.T) {
 		t.Error("Expected missed pongs during partition")
 	}
 
-	// Restore network  
+	// Restore network
 	server.SetPartitioned(false)
 
 	// Cleanup
@@ -1854,7 +1854,7 @@ func createDroppableServerForBench(b *testing.B, dropAfter time.Duration) *httpt
 			if err != nil {
 				break
 			}
-			
+
 			// Check for timeout
 			select {
 			case <-timeout:

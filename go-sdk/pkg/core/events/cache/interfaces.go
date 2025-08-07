@@ -10,10 +10,10 @@ import (
 type BasicCache interface {
 	// Get retrieves a value from the cache
 	Get(ctx context.Context, key string) ([]byte, error)
-	
+
 	// Set stores a value in the cache with TTL
 	Set(ctx context.Context, key string, value []byte, ttl time.Duration) error
-	
+
 	// Delete removes a value from the cache
 	Delete(ctx context.Context, key string) error
 }
@@ -22,10 +22,10 @@ type BasicCache interface {
 // Separated from BasicCache to follow Interface Segregation Principle
 type AdvancedCache interface {
 	BasicCache
-	
+
 	// Exists checks if a key exists in the cache
 	Exists(ctx context.Context, key string) (bool, error)
-	
+
 	// TTL returns the time-to-live for a key
 	TTL(ctx context.Context, key string) (time.Duration, error)
 }
@@ -34,7 +34,7 @@ type AdvancedCache interface {
 // Highest level interface for full distributed cache functionality
 type DistributedCache interface {
 	AdvancedCache
-	
+
 	// Scan searches for keys matching a pattern (distributed operation)
 	Scan(ctx context.Context, pattern string) ([]string, error)
 }
@@ -44,13 +44,13 @@ type DistributedCache interface {
 type CacheMetrics interface {
 	// RecordHit records a cache hit
 	RecordHit(level string)
-	
+
 	// RecordMiss records a cache miss
 	RecordMiss()
-	
+
 	// RecordEviction records a cache eviction
 	RecordEviction()
-	
+
 	// GetStats returns current cache statistics
 	GetStats() CacheStats
 }
@@ -60,10 +60,10 @@ type CacheMetrics interface {
 type CacheInvalidator interface {
 	// InvalidateKey invalidates a specific cache key
 	InvalidateKey(ctx context.Context, key string) error
-	
+
 	// InvalidatePattern invalidates keys matching a pattern
 	InvalidatePattern(ctx context.Context, pattern string) error
-	
+
 	// InvalidateAll invalidates all cache entries
 	InvalidateAll(ctx context.Context) error
 }
@@ -73,7 +73,7 @@ type CacheInvalidator interface {
 type CacheWarmup interface {
 	// Warmup pre-populates the cache with frequently accessed data
 	Warmup(ctx context.Context, keys []string) error
-	
+
 	// PrefetchKey prefetches a single key
 	PrefetchKey(ctx context.Context, key string) error
 }
@@ -82,13 +82,13 @@ type CacheWarmup interface {
 type L1CacheInterface interface {
 	BasicCache
 	CacheMetrics
-	
+
 	// SetEvictionCallback sets a callback for when items are evicted
 	SetEvictionCallback(callback func(key string, value interface{}))
-	
+
 	// Size returns the current number of items in the cache
 	Size() int
-	
+
 	// Clear removes all items from the cache
 	Clear()
 }
@@ -98,10 +98,10 @@ type L2CacheInterface interface {
 	DistributedCache
 	CacheMetrics
 	CacheInvalidator
-	
+
 	// GetNodes returns the list of cache nodes
 	GetNodes(ctx context.Context) ([]string, error)
-	
+
 	// GetShardInfo returns sharding information for a key
 	GetShardInfo(ctx context.Context, key string) (ShardInfo, error)
 }
@@ -119,21 +119,21 @@ type ShardInfo struct {
 type CacheFactory interface {
 	// CreateL1Cache creates an L1 (in-memory) cache
 	CreateL1Cache(config L1CacheConfig) (L1CacheInterface, error)
-	
+
 	// CreateL2Cache creates an L2 (distributed) cache
 	CreateL2Cache(config L2CacheConfig) (L2CacheInterface, error)
-	
+
 	// CreateMultiLevelCache creates a multi-level cache
 	CreateMultiLevelCache(l1Config L1CacheConfig, l2Config L2CacheConfig) (MultiLevelCache, error)
 }
 
 // L1CacheConfig configuration for L1 cache
 type L1CacheConfig struct {
-	MaxSize           int           `json:"max_size"`
-	TTL               time.Duration `json:"ttl"`
-	EvictionPolicy    string        `json:"eviction_policy"` // LRU, LFU, etc.
-	EnableMetrics     bool          `json:"enable_metrics"`
-	CleanupInterval   time.Duration `json:"cleanup_interval"`
+	MaxSize         int           `json:"max_size"`
+	TTL             time.Duration `json:"ttl"`
+	EvictionPolicy  string        `json:"eviction_policy"` // LRU, LFU, etc.
+	EnableMetrics   bool          `json:"enable_metrics"`
+	CleanupInterval time.Duration `json:"cleanup_interval"`
 }
 
 // L2CacheConfig configuration for L2 cache
@@ -153,16 +153,16 @@ type MultiLevelCache interface {
 	CacheMetrics
 	CacheInvalidator
 	CacheWarmup
-	
+
 	// GetL1 returns the L1 cache instance
 	GetL1() L1CacheInterface
-	
+
 	// GetL2 returns the L2 cache instance
 	GetL2() L2CacheInterface
-	
+
 	// PromoteToL1 promotes a key from L2 to L1
 	PromoteToL1(ctx context.Context, key string) error
-	
+
 	// SetConsistencyMode sets the consistency mode for multi-level operations
 	SetConsistencyMode(mode ConsistencyMode)
 }

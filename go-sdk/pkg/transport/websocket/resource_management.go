@@ -2,6 +2,7 @@ package websocket
 
 import (
 	"context"
+	"fmt"
 	"reflect"
 	"runtime"
 	"sync/atomic"
@@ -17,81 +18,90 @@ import (
 // This function ensures proper Add/Done pairing to prevent WaitGroup panics
 // and implements rapid cleanup for better resource management
 func (t *Transport) startGoroutine(name string, fn func()) {
+	// Generate unique goroutine name to prevent test interference
+	uniqueID := fmt.Sprintf("%d", time.Now().UnixNano())
+	uniqueName := fmt.Sprintf("%s-%s", name, uniqueID)
+
 	// Check if transport context is already cancelled before starting
 	select {
 	case <-t.ctx.Done():
-		t.config.Logger.Debug("StartGoroutine: Transport context already cancelled, not starting goroutine", zap.String("name", name))
+		t.config.Logger.Debug("StartGoroutine: Transport context already cancelled, not starting goroutine",
+			zap.String("original_name", name), zap.String("unique_name", uniqueName))
 		return
 	case <-t.monitoringCtx.Done():
-		t.config.Logger.Debug("StartGoroutine: Monitoring context already cancelled, not starting goroutine", zap.String("name", name))
+		t.config.Logger.Debug("StartGoroutine: Monitoring context already cancelled, not starting goroutine",
+			zap.String("original_name", name), zap.String("unique_name", uniqueName))
 		return
 	default:
 		// OK to start goroutine
 	}
-	
+
 	goroutineCtx, goroutineCancel := context.WithCancel(t.ctx)
-	
-	// Track the goroutine
+
+	// Track the goroutine with unique name to prevent test interference
 	goroutineInfo := &GoroutineInfo{
-		Name:      name,
+		Name:      uniqueName,
 		StartTime: time.Now(),
 		LastSeen:  time.Now(),
 		Function:  runtime.FuncForPC(reflect.ValueOf(fn).Pointer()).Name(),
 		Context:   goroutineCtx,
 		Cancel:    goroutineCancel,
 	}
-	
+
 	t.goroutinesMutex.Lock()
-	t.activeGoroutines[name] = goroutineInfo
+	t.activeGoroutines[uniqueName] = goroutineInfo
 	t.stats.mutex.Lock()
 	t.stats.ActiveGoroutines++
 	t.stats.mutex.Unlock()
 	t.goroutinesMutex.Unlock()
-	
+
 	// Add to WaitGroup here, not in the caller
 	t.wg.Add(1)
-	
+
 	go func() {
 		defer func() {
 			// Clean up goroutine tracking immediately
 			t.goroutinesMutex.Lock()
-			delete(t.activeGoroutines, name)
+			delete(t.activeGoroutines, uniqueName)
 			t.stats.mutex.Lock()
 			t.stats.ActiveGoroutines--
 			t.stats.mutex.Unlock()
 			t.goroutinesMutex.Unlock()
-			
+
 			// Ensure cancel is called to clean up any remaining resources
 			goroutineCancel()
-			
+
 			// Standard cleanup - Done() matches the Add(1) above
 			t.wg.Done()
-			
+
 			// Handle panic recovery
 			if r := recover(); r != nil {
 				t.config.Logger.Error("Goroutine panic recovered",
-					zap.String("goroutine", name),
+					zap.String("unique_name", uniqueName),
+					zap.String("original_name", name),
 					zap.Any("panic", r))
 			}
-			
-			t.config.Logger.Debug("Transport goroutine fully exited", zap.String("name", name))
+
+			t.config.Logger.Debug("Transport goroutine fully exited",
+				zap.String("unique_name", uniqueName),
+				zap.String("original_name", name))
 		}()
-		
+
 		// Skip monitoring goroutine for better performance and reduced leak risk
 		// The monitoring functionality is not critical and adds complexity
 		t.config.Logger.Debug("Skipping monitoring goroutine for better performance", zap.String("name", name))
-		
+
 		// Run the actual function with timeout protection
 		done := make(chan struct{})
 		go func() {
 			defer close(done)
 			fn()
 		}()
-		
+
 		// Wait for function to complete with context cancellation and aggressive timeout
 		maxWaitTime := 5 * time.Second // Maximum time to wait for function to start responding to cancellation
 		deadline := time.Now().Add(maxWaitTime)
-		
+
 		for time.Now().Before(deadline) {
 			select {
 			case <-done:
@@ -133,7 +143,7 @@ func (t *Transport) startGoroutine(name string, fn func()) {
 				continue
 			}
 		}
-		
+
 		// If we reach here, the function has been running for too long
 		t.config.Logger.Debug("Transport goroutine function timeout - forcing exit", zap.String("name", name), zap.Duration("waited", maxWaitTime))
 	}()
@@ -143,16 +153,16 @@ func (t *Transport) startGoroutine(name string, fn func()) {
 func (t *Transport) handleEventWithBackpressure(data []byte) {
 	// Check if backpressure threshold is reached
 	currentUsage := float64(len(t.eventCh)) / float64(cap(t.eventCh)) * 100
-	
+
 	if int(currentUsage) >= t.config.BackpressureConfig.BackpressureThresholdPercent {
 		t.activateBackpressure()
 	}
-	
+
 	// Use a timeout-based approach instead of immediate drop
 	// This allows for brief delays without dropping messages, important for testing
 	timeout := time.NewTimer(100 * time.Millisecond)
 	defer timeout.Stop()
-	
+
 	select {
 	case t.eventCh <- data:
 		// Successfully sent event
@@ -169,13 +179,13 @@ func (t *Transport) handleEventWithBackpressure(data []byte) {
 func (t *Transport) handleDroppedEvent(data []byte) {
 	droppedCount := atomic.AddInt64(&t.droppedEvents, 1)
 	t.lastDropTime = time.Now()
-	
+
 	// Update stats
 	t.stats.mutex.Lock()
 	t.stats.EventsDropped++
 	t.stats.EventsFailed++
 	t.stats.mutex.Unlock()
-	
+
 	if t.config.BackpressureConfig.EnableBackpressureLogging {
 		t.config.Logger.Warn("WebSocket Transport: Dropped event due to backpressure",
 			zap.Int64("total_dropped_events", droppedCount),
@@ -183,7 +193,7 @@ func (t *Transport) handleDroppedEvent(data []byte) {
 			zap.Int("channel_size", len(t.eventCh)),
 			zap.Int("channel_capacity", cap(t.eventCh)))
 	}
-	
+
 	// Check if we need to take action
 	if droppedCount >= t.config.BackpressureConfig.MaxDroppedEvents {
 		t.handleBackpressureAction()
@@ -194,13 +204,13 @@ func (t *Transport) handleDroppedEvent(data []byte) {
 func (t *Transport) activateBackpressure() {
 	t.backpressureMutex.Lock()
 	defer t.backpressureMutex.Unlock()
-	
+
 	if !t.backpressureActive {
 		t.backpressureActive = true
 		t.stats.mutex.Lock()
 		t.stats.BackpressureEvents++
 		t.stats.mutex.Unlock()
-		
+
 		if t.config.BackpressureConfig.EnableBackpressureLogging {
 			t.config.Logger.Warn("WebSocket Transport: Backpressure activated",
 				zap.Int("threshold_percent", t.config.BackpressureConfig.BackpressureThresholdPercent),
@@ -214,7 +224,7 @@ func (t *Transport) activateBackpressure() {
 func (t *Transport) deactivateBackpressure() {
 	t.backpressureMutex.Lock()
 	defer t.backpressureMutex.Unlock()
-	
+
 	if t.backpressureActive {
 		t.backpressureActive = false
 		if t.config.BackpressureConfig.EnableBackpressureLogging {
@@ -229,11 +239,11 @@ func (t *Transport) handleBackpressureAction() {
 	case DropActionLog:
 		t.config.Logger.Error("WebSocket Transport: Maximum dropped events reached, continuing with logging only",
 			zap.Int64("max_dropped_events", t.config.BackpressureConfig.MaxDroppedEvents))
-		
+
 	case DropActionReconnect:
 		t.config.Logger.Error("WebSocket Transport: Maximum dropped events reached, reconnecting pool",
 			zap.Int64("max_dropped_events", t.config.BackpressureConfig.MaxDroppedEvents))
-		
+
 		// Restart the connection pool
 		if err := t.pool.Stop(); err != nil {
 			t.config.Logger.Error("Error stopping pool for reconnection", zap.Error(err))
@@ -244,21 +254,21 @@ func (t *Transport) handleBackpressureAction() {
 			// Reset counters on successful reconnection
 			atomic.StoreInt64(&t.droppedEvents, 0)
 		}
-		
+
 	case DropActionStop:
 		t.config.Logger.Error("WebSocket Transport: Maximum dropped events reached, stopping transport",
 			zap.Int64("max_dropped_events", t.config.BackpressureConfig.MaxDroppedEvents))
 		if err := t.Stop(); err != nil {
 			t.config.Logger.Error("Error during shutdown", zap.Error(err))
 		}
-		
+
 	case DropActionSlowDown:
 		t.config.Logger.Warn("WebSocket Transport: Maximum dropped events reached, applying flow control",
 			zap.Int64("max_dropped_events", t.config.BackpressureConfig.MaxDroppedEvents))
-		
+
 		// Apply flow control by sleeping briefly
 		time.Sleep(100 * time.Millisecond)
-		
+
 		// Reset counter to allow gradual recovery
 		atomic.StoreInt64(&t.droppedEvents, t.config.BackpressureConfig.MaxDroppedEvents/2)
 	}
@@ -268,13 +278,13 @@ func (t *Transport) handleBackpressureAction() {
 func (t *Transport) channelMonitoringLoop() {
 	ticker := time.NewTicker(t.config.BackpressureConfig.MonitoringInterval)
 	defer ticker.Stop()
-	
+
 	t.config.Logger.Debug("Channel monitoring: Starting channel monitoring loop")
-	
+
 	// Use shorter intervals for more responsive shutdown
 	shutdownTicker := time.NewTicker(50 * time.Millisecond)
 	defer shutdownTicker.Stop()
-	
+
 	for {
 		select {
 		case <-t.monitoringCtx.Done():
@@ -315,7 +325,7 @@ func (t *Transport) channelMonitoringLoop() {
 // monitorChannelUsage monitors channel usage and manages backpressure
 func (t *Transport) monitorChannelUsage() {
 	eventChannelUsage := float64(len(t.eventCh)) / float64(cap(t.eventCh)) * 100
-	
+
 	// Activate backpressure if threshold is exceeded
 	if int(eventChannelUsage) >= t.config.BackpressureConfig.BackpressureThresholdPercent {
 		t.activateBackpressure()
@@ -323,7 +333,7 @@ func (t *Transport) monitorChannelUsage() {
 		// Deactivate backpressure if usage drops significantly below threshold
 		t.deactivateBackpressure()
 	}
-	
+
 	// Log channel usage if backpressure logging is enabled
 	if t.config.BackpressureConfig.EnableBackpressureLogging && eventChannelUsage > 50 {
 		t.config.Logger.Debug("Channel usage monitoring",
@@ -338,13 +348,13 @@ func (t *Transport) monitorChannelUsage() {
 func (t *Transport) resourceCleanupLoop() {
 	ticker := time.NewTicker(t.config.ResourceCleanupConfig.CleanupInterval)
 	defer ticker.Stop()
-	
+
 	t.config.Logger.Debug("Resource cleanup: Starting resource cleanup loop")
-	
+
 	// Use shorter intervals for more responsive shutdown
 	shutdownTicker := time.NewTicker(50 * time.Millisecond)
 	defer shutdownTicker.Stop()
-	
+
 	for {
 		select {
 		case <-t.monitoringCtx.Done():
@@ -385,11 +395,11 @@ func (t *Transport) resourceCleanupLoop() {
 // performResourceCleanup performs resource cleanup tasks with enhanced cleanup logic
 func (t *Transport) performResourceCleanup() {
 	now := time.Now()
-	
+
 	// Clean up idle goroutines with two-phase approach
 	if t.config.ResourceCleanupConfig.EnableGoroutineTracking {
 		toCleanup := make(map[string]*GoroutineInfo)
-		
+
 		// Phase 1: Identify idle goroutines
 		t.goroutinesMutex.Lock()
 		for name, info := range t.activeGoroutines {
@@ -398,22 +408,22 @@ func (t *Transport) performResourceCleanup() {
 			}
 		}
 		t.goroutinesMutex.Unlock()
-		
+
 		// Phase 2: Clean up identified goroutines
 		if len(toCleanup) > 0 {
 			t.config.Logger.Info("Performing goroutine cleanup",
 				zap.Int("idle_goroutines", len(toCleanup)))
-				
+
 			for name, info := range toCleanup {
 				t.config.Logger.Warn("Cancelling idle goroutine",
 					zap.String("name", name),
 					zap.Duration("idle_time", now.Sub(info.LastSeen)))
-				
+
 				// Cancel the goroutine context
 				if info.Cancel != nil {
 					info.Cancel()
 				}
-				
+
 				// Remove from tracking - the goroutine's defer will also try to remove it
 				// but this prevents it from being identified as idle again
 				t.goroutinesMutex.Lock()
@@ -422,23 +432,23 @@ func (t *Transport) performResourceCleanup() {
 			}
 		}
 	}
-	
+
 	// Log resource usage if monitoring is enabled
 	if t.config.ResourceCleanupConfig.EnableResourceMonitoring {
 		var m runtime.MemStats
 		runtime.GC()
 		runtime.ReadMemStats(&m)
-		
+
 		// Get current goroutine count for comparison
 		currentGoroutines := runtime.NumGoroutine()
-		
+
 		t.config.Logger.Debug("Resource usage monitoring",
 			zap.Int64("tracked_active_goroutines", t.stats.ActiveGoroutines),
 			zap.Int("runtime_goroutines", currentGoroutines),
 			zap.Uint64("memory_alloc_mb", m.Alloc/1024/1024),
 			zap.Uint64("memory_sys_mb", m.Sys/1024/1024),
 			zap.Uint32("gc_cycles", m.NumGC))
-			
+
 		// Warn if there's a significant discrepancy between tracked and runtime goroutines
 		if int64(currentGoroutines) > t.stats.ActiveGoroutines+10 {
 			t.config.Logger.Warn("Potential goroutine leak detected",
@@ -460,9 +470,9 @@ func (t *Transport) RegisterCleanupFunc(cleanup func() error) {
 func (t *Transport) GetBackpressureStats() BackpressureStats {
 	t.backpressureMutex.RLock()
 	defer t.backpressureMutex.RUnlock()
-	
+
 	eventChannelUsage := float64(len(t.eventCh)) / float64(cap(t.eventCh)) * 100
-	
+
 	return BackpressureStats{
 		DroppedEvents:        atomic.LoadInt64(&t.droppedEvents),
 		BackpressureActive:   t.backpressureActive,
@@ -487,10 +497,10 @@ type BackpressureStats struct {
 func (t *Transport) GetGoroutineStats() map[string]GoroutineStats {
 	t.goroutinesMutex.RLock()
 	defer t.goroutinesMutex.RUnlock()
-	
+
 	stats := make(map[string]GoroutineStats)
 	now := time.Now()
-	
+
 	for name, info := range t.activeGoroutines {
 		stats[name] = GoroutineStats{
 			Name:      info.Name,
@@ -500,7 +510,7 @@ func (t *Transport) GetGoroutineStats() map[string]GoroutineStats {
 			IdleTime:  now.Sub(info.LastSeen),
 		}
 	}
-	
+
 	return stats
 }
 

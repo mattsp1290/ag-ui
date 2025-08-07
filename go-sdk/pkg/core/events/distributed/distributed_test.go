@@ -43,7 +43,7 @@ func (m *mockEvent) GetEventID() string {
 // Test DistributedValidator creation and initialization
 func TestNewDistributedValidator(t *testing.T) {
 	defer testhelper.VerifyNoGoroutineLeaks(t)
-	
+
 	config := TestingDistributedValidatorConfig("node-1")
 	localValidator := events.NewEventValidator(nil)
 
@@ -62,10 +62,10 @@ func TestNewDistributedValidator(t *testing.T) {
 func TestDistributedValidatorLifecycle(t *testing.T) {
 	t.Parallel()
 	defer testhelper.VerifyNoGoroutineLeaks(t)
-	
+
 	// Use test context with automatic cleanup
 	ctx := testhelper.NewTestContextWithTimeout(t, 10*time.Second)
-	
+
 	config := TestingDistributedValidatorConfig("node-1")
 	localValidator := events.NewEventValidator(nil)
 
@@ -87,7 +87,7 @@ func TestDistributedValidatorLifecycle(t *testing.T) {
 		assert.NoError(t, err)
 		done <- true
 	}()
-	
+
 	select {
 	case <-done:
 		// Stop completed successfully
@@ -144,17 +144,17 @@ func TestNodeManagement(t *testing.T) {
 func TestDistributedValidationWithPartition(t *testing.T) {
 	t.Parallel()
 	defer testhelper.VerifyNoGoroutineLeaks(t)
-	
+
 	// Use test context with automatic cleanup
 	testCtx := testhelper.NewTestContextWithTimeout(t, 15*time.Second)
-	
+
 	// Set up cleanup manager
 	cleanup := testhelper.NewCleanupManager(t)
-	
+
 	config := TestingDistributedValidatorConfig("node-1")
 	// Set MinNodesForOperation to 2 so partition is detected when all other nodes fail
 	config.PartitionHandler.MinNodesForOperation = 2
-	
+
 	// Create a validator without sequence validation for this test
 	localValidator := events.NewEventValidator(events.TestingValidationConfig())
 
@@ -163,7 +163,7 @@ func TestDistributedValidationWithPartition(t *testing.T) {
 
 	err = dv.Start(testCtx)
 	require.NoError(t, err)
-	
+
 	// Register cleanup for the distributed validator
 	cleanup.Register("distributed-validator", func() {
 		if err := dv.Stop(); err != nil {
@@ -174,10 +174,10 @@ func TestDistributedValidationWithPartition(t *testing.T) {
 	// Create a valid RUN_STARTED event since validator expects it as first event
 	event := &events.RunStartedEvent{
 		BaseEvent: &events.BaseEvent{
-			EventType: events.EventTypeRunStarted,
+			EventType:   events.EventTypeRunStarted,
 			TimestampMs: func() *int64 { t := time.Now().UnixMilli(); return &t }(),
 		},
-		RunIDValue: "test-run-1",
+		RunIDValue:    "test-run-1",
 		ThreadIDValue: "test-thread-1",
 	}
 
@@ -219,13 +219,13 @@ func TestDistributedValidationWithPartition(t *testing.T) {
 	// Validate event during partition with timeout
 	validateCtx, validateCancel := context.WithTimeout(testCtx, 2*time.Second)
 	defer validateCancel()
-	
+
 	resultChan := make(chan *ValidationResult)
 	go func() {
 		result := dv.ValidateEvent(validateCtx, event)
 		resultChan <- result
 	}()
-	
+
 	select {
 	case result := <-resultChan:
 		// Should fall back to local validation
@@ -311,18 +311,18 @@ func TestConsensusAlgorithms(t *testing.T) {
 func TestStateSynchronization(t *testing.T) {
 	// Removed t.Parallel() to avoid resource contention with worker pool
 	defer testhelper.VerifyNoGoroutineLeaks(t)
-	
+
 	// Use a background context that won't be cancelled during the test
 	// The StateSynchronizer will be stopped explicitly via Stop()
 	ctx := context.Background()
-	
+
 	// Create a separate timeout context for test operations
 	testCtx, testCancel := context.WithTimeout(ctx, 8*time.Second)
 	defer testCancel()
-	
+
 	// Set up cleanup manager
 	cleanup := testhelper.NewCleanupManager(t)
-	
+
 	config := DefaultStateSyncConfig()
 	// Use shorter intervals for testing to speed up test execution
 	config.SyncInterval = 50 * time.Millisecond
@@ -332,7 +332,7 @@ func TestStateSynchronization(t *testing.T) {
 
 	err = ss.Start(ctx)
 	require.NoError(t, err)
-	
+
 	// Register cleanup for the state synchronizer - must be called before test ends
 	cleanup.Register("state-synchronizer", func() {
 		if err := ss.Stop(); err != nil {
@@ -350,7 +350,7 @@ func TestStateSynchronization(t *testing.T) {
 				t.Errorf("Panic in test goroutine: %v", r)
 			}
 		}()
-		
+
 		// Set state
 		err = ss.SetState("key1", "value1")
 		assert.NoError(t, err)
@@ -368,10 +368,10 @@ func TestStateSynchronization(t *testing.T) {
 		// Apply snapshot
 		err = ss.ApplySnapshot(snapshot)
 		assert.NoError(t, err)
-		
+
 		testDone <- true
 	}()
-	
+
 	select {
 	case <-testDone:
 		// Test completed successfully - cleanup will be called automatically
@@ -382,15 +382,15 @@ func TestStateSynchronization(t *testing.T) {
 
 // Test partition detection and recovery
 func TestPartitionDetectionAndRecovery(t *testing.T) {
-	t.Parallel()
+	// Remove t.Parallel() to avoid interference with other tests
 	defer testhelper.VerifyNoGoroutineLeaks(t)
-	
+
 	// Use test context with automatic cleanup
 	ctx := testhelper.NewTestContextWithTimeout(t, 8*time.Second)
-	
+
 	// Set up cleanup manager
 	cleanup := testhelper.NewCleanupManager(t)
-	
+
 	config := DefaultPartitionHandlerConfig()
 	config.HeartbeatTimeout = 100 * time.Millisecond
 	config.AutoRecovery = true
@@ -400,8 +400,8 @@ func TestPartitionDetectionAndRecovery(t *testing.T) {
 	// Set up partition callbacks with buffered channels
 	partitionDetected := make(chan *PartitionInfo, 2)
 	partitionRecovered := make(chan *PartitionInfo, 2)
-	
-	// Register cleanup for channels
+
+	// Register cleanup for channels - move this after setting callbacks
 	cleanup.Register("partition-channels", func() {
 		testhelper.CloseChannel(t, partitionDetected, "partitionDetected")
 		testhelper.CloseChannel(t, partitionRecovered, "partitionRecovered")
@@ -426,12 +426,14 @@ func TestPartitionDetectionAndRecovery(t *testing.T) {
 
 	err := ph.Start(ctx)
 	require.NoError(t, err)
-	
-	// Register cleanup for the partition handler
+
+	// Register cleanup for the partition handler - this must happen before any goroutine callbacks
 	cleanup.Register("partition-handler", func() {
 		if err := ph.Stop(); err != nil {
 			t.Logf("Error stopping partition handler: %v", err)
 		}
+		// Give time for all goroutines to fully exit
+		time.Sleep(100 * time.Millisecond)
 	})
 
 	// Register healthy nodes
@@ -460,6 +462,14 @@ func TestPartitionDetectionAndRecovery(t *testing.T) {
 	}
 
 	assert.True(t, ph.IsPartitioned())
+
+	// Drain any remaining callback goroutines by reading from channels
+	select {
+	case <-partitionRecovered:
+		// Recovery callback fired, drain it
+	case <-time.After(10 * time.Millisecond):
+		// No recovery callback, that's fine
+	}
 }
 
 // Test load balancing algorithms
@@ -558,18 +568,18 @@ func TestCircuitBreaker(t *testing.T) {
 func TestConcurrentDistributedValidation(t *testing.T) {
 	// Removed t.Parallel() to avoid resource contention with worker pool
 	defer testhelper.VerifyNoGoroutineLeaks(t)
-	
+
 	// Use test context with automatic cleanup
 	ctx := testhelper.NewTestContextWithTimeout(t, 30*time.Second)
-	
+
 	// Set up cleanup manager
 	cleanup := testhelper.NewCleanupManager(t)
-	
+
 	config := TestingDistributedValidatorConfig("node-1")
 	// Set consensus to only require 1 node since we're testing locally
 	config.ConsensusConfig.MinNodes = 1
 	config.ConsensusConfig.QuorumSize = 1
-	
+
 	// Use a permissive validator that won't reject events based on sequence
 	localValidator := events.NewEventValidator(&events.ValidationConfig{
 		Level:                   events.ValidationPermissive,
@@ -584,7 +594,7 @@ func TestConcurrentDistributedValidation(t *testing.T) {
 
 	err = dv.Start(ctx)
 	require.NoError(t, err)
-	
+
 	// Register cleanup for the distributed validator
 	cleanup.Register("distributed-validator", func() {
 		if err := dv.Stop(); err != nil {
@@ -598,7 +608,7 @@ func TestConcurrentDistributedValidation(t *testing.T) {
 	semaphore := make(chan struct{}, 10) // Limit concurrent validations
 	errorCount := 0
 	var errorMutex sync.Mutex
-	
+
 	// Register cleanup for semaphore channel
 	cleanup.Register("semaphore", func() {
 		testhelper.CloseChannel(t, semaphore, "semaphore")
@@ -609,7 +619,7 @@ func TestConcurrentDistributedValidation(t *testing.T) {
 		wg.Add(1)
 		go func(idx int) {
 			defer wg.Done()
-			
+
 			// Acquire semaphore
 			select {
 			case semaphore <- struct{}{}:
@@ -624,17 +634,17 @@ func TestConcurrentDistributedValidation(t *testing.T) {
 			// Create independent RUN_STARTED events (each is a separate run)
 			event := &events.RunStartedEvent{
 				BaseEvent: &events.BaseEvent{
-					EventType: events.EventTypeRunStarted,
+					EventType:   events.EventTypeRunStarted,
 					TimestampMs: func() *int64 { t := time.Now().UnixMilli() + int64(idx*10); return &t }(),
 				},
-				RunIDValue: fmt.Sprintf("test-run-%d", idx),
+				RunIDValue:    fmt.Sprintf("test-run-%d", idx),
 				ThreadIDValue: fmt.Sprintf("test-thread-%d", idx),
 			}
 
 			// Use context with timeout for each validation
 			validateCtx, validateCancel := context.WithTimeout(ctx, 3*time.Second)
 			defer validateCancel()
-			
+
 			result := dv.ValidateEvent(validateCtx, event)
 			if result != nil {
 				results[idx] = result
@@ -670,24 +680,24 @@ func TestConcurrentDistributedValidation(t *testing.T) {
 	}
 
 	t.Logf("Results: valid=%d, invalid=%d, nil=%d, errors=%d", validCount, invalidCount, nilCount, errorCount)
-	
+
 	// With permissive validation and skip sequence, events should validate
 	// We're testing concurrent execution works without deadlocks
 	assert.GreaterOrEqual(t, validCount, 40, "At least 40 events should be valid")
-	assert.LessOrEqual(t, nilCount + errorCount, 5, "At most 5 events should timeout")
+	assert.LessOrEqual(t, nilCount+errorCount, 5, "At most 5 events should timeout")
 }
 
 // Test distributed lock functionality
 func TestDistributedLock(t *testing.T) {
 	// Removed t.Parallel() to avoid resource contention with worker pool
 	defer testhelper.VerifyNoGoroutineLeaks(t)
-	
+
 	// Use test context with automatic cleanup
 	ctx := testhelper.NewTestContextWithTimeout(t, 15*time.Second)
-	
+
 	// Set up cleanup manager
 	cleanup := testhelper.NewCleanupManager(t)
-	
+
 	config := DefaultConsensusConfig()
 	cm1, err := NewConsensusManager(config, "node-1")
 	require.NoError(t, err)
@@ -695,7 +705,7 @@ func TestDistributedLock(t *testing.T) {
 	// Start consensus manager
 	err = cm1.Start(ctx)
 	require.NoError(t, err)
-	
+
 	// Register cleanup for consensus manager
 	cleanup.Register("consensus-manager", func() {
 		if err := cm1.Stop(); err != nil {
@@ -733,17 +743,17 @@ func TestDistributedLock(t *testing.T) {
 	defer releaseCancel2()
 	err = cm1.ReleaseLock(releaseCtx2, "test-lock")
 	assert.NoError(t, err)
-	
+
 	// Test expired lock takeover
 	// Acquire lock with very short duration
 	lockCtx4, lockCancel4 := context.WithTimeout(ctx, 1*time.Second)
 	defer lockCancel4()
 	err = cm1.AcquireLock(lockCtx4, "test-lock-2", 10*time.Millisecond)
 	assert.NoError(t, err)
-	
+
 	// Wait for lock to expire
 	time.Sleep(20 * time.Millisecond)
-	
+
 	// Should be able to acquire expired lock
 	lockCtx5, lockCancel5 := context.WithTimeout(ctx, 1*time.Second)
 	defer lockCancel5()
@@ -755,13 +765,13 @@ func TestDistributedLock(t *testing.T) {
 func TestDistributedMetrics(t *testing.T) {
 	// Removed t.Parallel() to avoid resource contention with worker pool
 	// Remove defer here to fix cleanup order - moved to end of function
-	
+
 	// Use test context with automatic cleanup
 	ctx := testhelper.NewTestContextWithTimeout(t, 35*time.Second)
-	
+
 	config := TestingDistributedValidatorConfig("node-1")
 	config.EnableMetrics = true
-	
+
 	// Use a permissive local validator to avoid sequence validation issues
 	localValidator := events.NewEventValidator(&events.ValidationConfig{
 		Level:                   events.ValidationPermissive,
@@ -776,17 +786,17 @@ func TestDistributedMetrics(t *testing.T) {
 
 	err = dv.Start(ctx)
 	require.NoError(t, err)
-	
+
 	// Ensure cleanup happens before goroutine leak check
 	defer func() {
 		// Stop the distributed validator first
 		if err := dv.Stop(); err != nil {
 			t.Logf("Error stopping distributed validator: %v", err)
 		}
-		
+
 		// Give goroutines time to fully exit
 		time.Sleep(100 * time.Millisecond)
-		
+
 		// Now check for goroutine leaks
 		testhelper.VerifyNoGoroutineLeaks(t)
 	}()
@@ -796,7 +806,7 @@ func TestDistributedMetrics(t *testing.T) {
 	assert.Equal(t, uint64(0), metrics.GetValidationCount())
 	assert.Equal(t, float64(0), metrics.GetErrorRate())
 	assert.GreaterOrEqual(t, metrics.GetAverageResponseTime(), float64(0))
-	
+
 	// Metrics should still be available after starting
 	metrics = dv.GetMetrics()
 	assert.Equal(t, uint64(0), metrics.GetValidationCount())

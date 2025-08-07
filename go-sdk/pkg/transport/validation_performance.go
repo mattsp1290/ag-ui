@@ -9,9 +9,9 @@ import (
 
 // CachedValidator implements a validator with caching for performance
 type CachedValidator struct {
-	validator   Validator
-	cache       map[string]error
-	cacheMutex  sync.RWMutex
+	validator    Validator
+	cache        map[string]error
+	cacheMutex   sync.RWMutex
 	maxCacheSize int
 	cacheTTL     time.Duration
 	cacheStats   *CacheStats
@@ -46,21 +46,21 @@ func NewCachedValidator(validator Validator, maxCacheSize int, cacheTTL time.Dur
 func (cv *CachedValidator) Validate(ctx context.Context, event TransportEvent) error {
 	// Generate cache key from event
 	cacheKey := cv.generateCacheKey(event)
-	
+
 	// Check cache first
 	cv.cacheMutex.RLock()
 	cachedResult, exists := cv.cache[cacheKey]
 	cv.cacheMutex.RUnlock()
-	
+
 	if exists {
 		cv.updateStats(true)
 		return cachedResult
 	}
-	
+
 	// Cache miss - validate and cache result
 	cv.updateStats(false)
 	result := cv.validator.Validate(ctx, event)
-	
+
 	// Cache the result
 	cv.cacheMutex.Lock()
 	if len(cv.cache) >= cv.maxCacheSize {
@@ -68,7 +68,7 @@ func (cv *CachedValidator) Validate(ctx context.Context, event TransportEvent) e
 	}
 	cv.cache[cacheKey] = result
 	cv.cacheMutex.Unlock()
-	
+
 	return result
 }
 
@@ -95,7 +95,7 @@ func (cv *CachedValidator) hashEventData(event TransportEvent) string {
 	if data == nil {
 		return "empty"
 	}
-	
+
 	// Create a more deterministic hash
 	return fmt.Sprintf("%s_%d", event.Type(), len(data))
 }
@@ -137,7 +137,7 @@ func (cv *CachedValidator) evictOldest() {
 func (cv *CachedValidator) updateStats(hit bool) {
 	cv.cacheStats.mu.Lock()
 	defer cv.cacheStats.mu.Unlock()
-	
+
 	cv.cacheStats.TotalOps++
 	if hit {
 		cv.cacheStats.Hits++
@@ -146,11 +146,11 @@ func (cv *CachedValidator) updateStats(hit bool) {
 		cv.cacheStats.Misses++
 		cv.cacheStats.LastMissTime = time.Now()
 	}
-	
+
 	if cv.cacheStats.TotalOps > 0 {
 		cv.cacheStats.HitRate = float64(cv.cacheStats.Hits) / float64(cv.cacheStats.TotalOps)
 	}
-	
+
 	cv.cacheStats.Size = len(cv.cache)
 }
 
@@ -175,7 +175,7 @@ func (cv *CachedValidator) GetCacheStats() CacheStats {
 func (cv *CachedValidator) ClearCache() {
 	cv.cacheMutex.Lock()
 	defer cv.cacheMutex.Unlock()
-	
+
 	cv.cache = make(map[string]error)
 	cv.cacheStats.mu.Lock()
 	cv.cacheStats.Size = 0
@@ -184,11 +184,11 @@ func (cv *CachedValidator) ClearCache() {
 
 // FastValidator implements a lightweight validator for high-throughput scenarios
 type FastValidator struct {
-	config          *ValidationConfig
-	enabledRules    []string
-	maxMessageSize  int64
-	requiredFields  []string
-	allowedTypes    map[string]bool
+	config                *ValidationConfig
+	enabledRules          []string
+	maxMessageSize        int64
+	requiredFields        []string
+	allowedTypes          map[string]bool
 	skipComplexValidation bool
 }
 
@@ -201,12 +201,12 @@ func NewFastValidator(config *ValidationConfig) *FastValidator {
 			RequiredFields: []string{"id", "type"},
 		}
 	}
-	
+
 	allowedTypes := make(map[string]bool)
 	for _, t := range config.AllowedEventTypes {
 		allowedTypes[t] = true
 	}
-	
+
 	return &FastValidator{
 		config:                config,
 		maxMessageSize:        config.MaxMessageSize,
@@ -221,14 +221,14 @@ func (fv *FastValidator) Validate(ctx context.Context, event TransportEvent) err
 	if !fv.config.Enabled {
 		return nil
 	}
-	
+
 	// Fast path validations only
-	
+
 	// 1. Check event type
 	if len(fv.allowedTypes) > 0 && !fv.allowedTypes[event.Type()] {
 		return NewValidationError("event type not allowed", nil)
 	}
-	
+
 	// 2. Check required fields (fast)
 	data := event.Data()
 	for _, field := range fv.requiredFields {
@@ -236,7 +236,7 @@ func (fv *FastValidator) Validate(ctx context.Context, event TransportEvent) err
 			return NewValidationError("missing required field: "+field, nil)
 		}
 	}
-	
+
 	// 3. Rough size check (without serialization)
 	if fv.maxMessageSize > 0 {
 		estimatedSize := fv.estimateSize(data)
@@ -244,7 +244,7 @@ func (fv *FastValidator) Validate(ctx context.Context, event TransportEvent) err
 			return NewValidationError("estimated message size exceeds limit", nil)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -361,25 +361,25 @@ func NewBatchValidator(validator Validator, batchSize int) *BatchValidator {
 // ValidateBatch validates a batch of events
 func (bv *BatchValidator) ValidateBatch(ctx context.Context, events []TransportEvent) []error {
 	errors := make([]error, len(events))
-	
+
 	// Process in batches to avoid overwhelming the system
 	for i := 0; i < len(events); i += bv.batchSize {
 		end := i + bv.batchSize
 		if end > len(events) {
 			end = len(events)
 		}
-		
+
 		// Validate batch
 		for j := i; j < end; j++ {
 			errors[j] = bv.validator.Validate(ctx, events[j])
 		}
-		
+
 		// Check for context cancellation
 		if ctx.Err() != nil {
 			return errors
 		}
 	}
-	
+
 	return errors
 }
 
@@ -407,7 +407,7 @@ type validationResult struct {
 // NewAsynchronousValidator creates a new asynchronous validator
 func NewAsynchronousValidator(validator Validator, workers int, queueSize int) *AsynchronousValidator {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	av := &AsynchronousValidator{
 		validator: validator,
 		workers:   workers,
@@ -416,20 +416,20 @@ func NewAsynchronousValidator(validator Validator, workers int, queueSize int) *
 		ctx:       ctx,
 		cancel:    cancel,
 	}
-	
+
 	// Start worker goroutines
 	for i := 0; i < workers; i++ {
 		av.wg.Add(1)
 		go av.worker()
 	}
-	
+
 	return av
 }
 
 // worker processes validation tasks
 func (av *AsynchronousValidator) worker() {
 	defer av.wg.Done()
-	
+
 	for {
 		select {
 		case task := <-av.queue:
@@ -437,7 +437,7 @@ func (av *AsynchronousValidator) worker() {
 				id:    task.id,
 				error: av.validator.Validate(av.ctx, task.event),
 			}
-			
+
 			select {
 			case av.results <- result:
 			case <-av.ctx.Done():
@@ -455,7 +455,7 @@ func (av *AsynchronousValidator) ValidateAsync(event TransportEvent, id string) 
 		event: event,
 		id:    id,
 	}
-	
+
 	select {
 	case av.queue <- task:
 		return nil

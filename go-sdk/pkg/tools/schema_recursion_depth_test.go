@@ -14,10 +14,10 @@ func TestSchemaValidatorDepthLimits(t *testing.T) {
 			"value": {Type: "string"},
 		},
 	}
-	
+
 	// Create self-referencing property structure
 	nestedProperty.Properties["nested"] = nestedProperty
-	
+
 	schema := &ToolSchema{
 		Type: "object",
 		Properties: map[string]*Property{
@@ -66,15 +66,15 @@ func TestSchemaValidatorDepthLimits(t *testing.T) {
 				MaxValidationDepth: tt.maxDepth,
 			}
 			validator := NewAdvancedSchemaValidator(schema, opts)
-			
+
 			err := validator.Validate(tt.data)
-			
+
 			if tt.expectError {
 				if err == nil {
 					t.Errorf("expected error but got none")
 					return
 				}
-				
+
 				// Check if it's a ValidationError with the expected code
 				if validationErr, ok := err.(*ValidationError); ok {
 					if validationErr.Code != tt.expectedErrCode {
@@ -134,9 +134,9 @@ func TestSchemaCompositionDepthLimits(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "deep composition nesting",
-			maxDepth: 5,
-			data: createDeeplyNestedComposition(10),
+			name:        "deep composition nesting",
+			maxDepth:    5,
+			data:        createDeeplyNestedComposition(10),
 			expectError: true,
 		},
 	}
@@ -147,9 +147,9 @@ func TestSchemaCompositionDepthLimits(t *testing.T) {
 				MaxValidationDepth: tt.maxDepth,
 			}
 			validator := NewAdvancedSchemaValidator(schema, opts)
-			
+
 			err := validator.Validate(tt.data)
-			
+
 			if tt.expectError && err == nil {
 				t.Errorf("expected error but got none")
 			} else if !tt.expectError && err != nil {
@@ -202,9 +202,9 @@ func TestArrayValidationDepthLimits(t *testing.T) {
 				MaxValidationDepth: tt.maxDepth,
 			}
 			validator := NewAdvancedSchemaValidator(schema, opts)
-			
+
 			err := validator.Validate(tt.data)
-			
+
 			if tt.expectError && err == nil {
 				t.Errorf("expected error but got none")
 			} else if !tt.expectError && err != nil {
@@ -217,19 +217,19 @@ func TestArrayValidationDepthLimits(t *testing.T) {
 // TestDepthLimitDefaults verifies that default depth limits are set correctly
 func TestDepthLimitDefaults(t *testing.T) {
 	schema := &ToolSchema{Type: "object"}
-	
+
 	// Test default validator
 	defaultValidator := NewSchemaValidator(schema)
 	if defaultValidator.maxValidationDepth != DefaultMaxSchemaValidationDepth {
 		t.Errorf("expected default depth %d, got %d", DefaultMaxSchemaValidationDepth, defaultValidator.maxValidationDepth)
 	}
-	
+
 	// Test advanced validator with no options
 	advancedValidator := NewAdvancedSchemaValidator(schema, nil)
 	if advancedValidator.maxValidationDepth != DefaultMaxSchemaValidationDepth {
 		t.Errorf("expected default depth %d, got %d", DefaultMaxSchemaValidationDepth, advancedValidator.maxValidationDepth)
 	}
-	
+
 	// Test advanced validator with custom depth
 	customDepth := 200
 	customValidator := NewAdvancedSchemaValidator(schema, &ValidatorOptions{
@@ -264,10 +264,10 @@ func TestConditionalSchemaDepthLimits(t *testing.T) {
 			},
 		},
 	}
-	
+
 	// Add recursive nested property
 	objectWithConditionalValidation.Properties["nested"] = objectWithConditionalValidation
-	
+
 	schema := &ToolSchema{
 		Type: "object",
 		Properties: map[string]*Property{
@@ -282,14 +282,14 @@ func TestConditionalSchemaDepthLimits(t *testing.T) {
 		expectError bool
 	}{
 		{
-			name: "conditional within limits",
+			name:     "conditional within limits",
 			maxDepth: 50,
 			data: map[string]interface{}{
 				"conditional": map[string]interface{}{
-					"type": "test",
+					"type":  "test",
 					"value": "valid",
 					"nested": map[string]interface{}{
-						"type": "test",
+						"type":  "test",
 						"value": "also_valid",
 					},
 				},
@@ -297,7 +297,7 @@ func TestConditionalSchemaDepthLimits(t *testing.T) {
 			expectError: false,
 		},
 		{
-			name: "conditional exceeds depth limit",
+			name:     "conditional exceeds depth limit",
 			maxDepth: 3,
 			data: map[string]interface{}{
 				"conditional": createDeeplyNestedConditional(5),
@@ -312,9 +312,9 @@ func TestConditionalSchemaDepthLimits(t *testing.T) {
 				MaxValidationDepth: tt.maxDepth,
 			}
 			validator := NewAdvancedSchemaValidator(schema, opts)
-			
+
 			err := validator.Validate(tt.data)
-			
+
 			if tt.expectError && err == nil {
 				t.Errorf("expected error but got none")
 			} else if !tt.expectError && err != nil {
@@ -352,7 +352,7 @@ func TestLegitimateDeepNesting(t *testing.T) {
 																Type: "object",
 																Properties: map[string]*Property{
 																	"path": {Type: "string"},
-																	"key": {Type: "string"},
+																	"key":  {Type: "string"},
 																},
 															},
 														},
@@ -380,7 +380,7 @@ func TestLegitimateDeepNesting(t *testing.T) {
 							"ssl": map[string]interface{}{
 								"certificate": map[string]interface{}{
 									"path": "/path/to/cert.pem",
-									"key": "/path/to/key.pem",
+									"key":  "/path/to/key.pem",
 								},
 							},
 						},
@@ -392,7 +392,7 @@ func TestLegitimateDeepNesting(t *testing.T) {
 
 	validator := NewSchemaValidator(schema)
 	err := validator.Validate(legitimateData)
-	
+
 	if err != nil {
 		t.Errorf("legitimate deep nesting should not fail validation: %v", err)
 	}
@@ -430,12 +430,12 @@ func createDeeplyNestedArrayData(depth int) []interface{} {
 func createDeeplyNestedConditional(depth int) map[string]interface{} {
 	if depth <= 0 {
 		return map[string]interface{}{
-			"type": "test",
+			"type":  "test",
 			"value": "end",
 		}
 	}
 	return map[string]interface{}{
-		"type": "test",
+		"type":   "test",
 		"nested": createDeeplyNestedConditional(depth - 1),
 	}
 }
@@ -451,7 +451,7 @@ func BenchmarkSchemaValidationShallow(b *testing.B) {
 	}
 	validator := NewSchemaValidator(schema)
 	data := createNestedObject(5)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = validator.Validate(data)
@@ -467,7 +467,7 @@ func BenchmarkSchemaValidationDeep(b *testing.B) {
 	}
 	validator := NewSchemaValidator(schema)
 	data := createNestedObject(50) // Near default limit
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		_ = validator.Validate(data)
@@ -478,4 +478,3 @@ func BenchmarkSchemaValidationDeep(b *testing.B) {
 func intPtr2(i int) *int {
 	return &i
 }
-

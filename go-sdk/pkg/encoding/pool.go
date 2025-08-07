@@ -25,13 +25,13 @@ type Pool[T any] interface {
 
 // BufferPool manages a pool of bytes.Buffer instances
 type BufferPool struct {
-	pool       sync.Pool
-	metrics    PoolMetrics
-	maxSize    int   // Maximum buffer size to keep in pool
-	maxBuffers int32 // Maximum number of buffers to allocate
+	pool          sync.Pool
+	metrics       PoolMetrics
+	maxSize       int   // Maximum buffer size to keep in pool
+	maxBuffers    int32 // Maximum number of buffers to allocate
 	activeBuffers int32 // Current number of active buffers
-	secureZero bool    // Enable secure zeroing for sensitive data
-	mu         sync.RWMutex
+	secureZero    bool  // Enable secure zeroing for sensitive data
+	mu            sync.RWMutex
 }
 
 // NewBufferPool creates a new buffer pool with secure zeroing enabled by default
@@ -81,18 +81,18 @@ func (bp *BufferPool) Put(buf *bytes.Buffer) {
 	if buf == nil {
 		return
 	}
-	
+
 	atomic.AddInt64(&bp.metrics.Puts, 1)
-	
+
 	// Don't keep very large buffers in the pool
 	if bp.maxSize > 0 && buf.Cap() > bp.maxSize {
 		// Decrement active count for oversized buffers that won't be pooled
 		atomic.AddInt32(&bp.activeBuffers, -1)
 		return
 	}
-	
+
 	atomic.AddInt64(&bp.metrics.Resets, 1)
-	
+
 	// Conditionally zero out sensitive data if secure mode is enabled
 	if bp.secureZero && buf.Len() > 0 {
 		bufBytes := buf.Bytes()
@@ -100,7 +100,7 @@ func (bp *BufferPool) Put(buf *bytes.Buffer) {
 			bufBytes[i] = 0
 		}
 	}
-	
+
 	// Reset buffer length efficiently
 	buf.Reset()
 	bp.pool.Put(buf)
@@ -111,18 +111,18 @@ func (bp *BufferPool) PutSecure(buf *bytes.Buffer) {
 	if buf == nil {
 		return
 	}
-	
+
 	atomic.AddInt64(&bp.metrics.Puts, 1)
-	
+
 	// Don't keep very large buffers in the pool
 	if bp.maxSize > 0 && buf.Cap() > bp.maxSize {
 		// Decrement active count for oversized buffers that won't be pooled
 		atomic.AddInt32(&bp.activeBuffers, -1)
 		return
 	}
-	
+
 	atomic.AddInt64(&bp.metrics.Resets, 1)
-	
+
 	// Always zero out contents for sensitive data
 	if buf.Len() > 0 {
 		bufBytes := buf.Bytes()
@@ -130,7 +130,7 @@ func (bp *BufferPool) PutSecure(buf *bytes.Buffer) {
 			bufBytes[i] = 0
 		}
 	}
-	
+
 	buf.Reset()
 	bp.pool.Put(buf)
 }
@@ -167,12 +167,12 @@ func (bp *BufferPool) Reset() {
 
 // SlicePool manages a pool of byte slices
 type SlicePool struct {
-	pool       sync.Pool
-	metrics    PoolMetrics
-	maxSize    int   // Maximum slice size to keep in pool
-	maxSlices  int32 // Maximum number of slices to allocate
+	pool         sync.Pool
+	metrics      PoolMetrics
+	maxSize      int   // Maximum slice size to keep in pool
+	maxSlices    int32 // Maximum number of slices to allocate
 	activeSlices int32 // Current number of active slices
-	secureZero bool    // Enable secure zeroing for sensitive data
+	secureZero   bool  // Enable secure zeroing for sensitive data
 }
 
 // NewSlicePool creates a new slice pool with secure zeroing enabled by default
@@ -188,8 +188,8 @@ func NewSlicePoolWithCapacity(initialSize, maxSize int, maxSlices int32) *SliceP
 // NewSlicePoolWithOptions creates a new slice pool with full configuration
 func NewSlicePoolWithOptions(initialSize, maxSize int, maxSlices int32, secureZero bool) *SlicePool {
 	sp := &SlicePool{
-		maxSize:   maxSize,
-		maxSlices: maxSlices,
+		maxSize:    maxSize,
+		maxSlices:  maxSlices,
 		secureZero: secureZero,
 	}
 	sp.pool.New = func() interface{} {
@@ -221,25 +221,25 @@ func (sp *SlicePool) Put(slice []byte) {
 	if slice == nil {
 		return
 	}
-	
+
 	atomic.AddInt64(&sp.metrics.Puts, 1)
-	
+
 	// Don't keep very large slices in the pool
 	if sp.maxSize > 0 && cap(slice) > sp.maxSize {
 		// Decrement active count for oversized slices that won't be pooled
 		atomic.AddInt32(&sp.activeSlices, -1)
 		return
 	}
-	
+
 	atomic.AddInt64(&sp.metrics.Resets, 1)
-	
+
 	// Conditionally zero out sensitive data if secure mode is enabled
 	if sp.secureZero && len(slice) > 0 {
 		for i := range slice {
 			slice[i] = 0
 		}
 	}
-	
+
 	sp.pool.Put(slice[:0]) // Reset length
 }
 
@@ -248,25 +248,25 @@ func (sp *SlicePool) PutSecure(slice []byte) {
 	if slice == nil {
 		return
 	}
-	
+
 	atomic.AddInt64(&sp.metrics.Puts, 1)
-	
+
 	// Don't keep very large slices in the pool
 	if sp.maxSize > 0 && cap(slice) > sp.maxSize {
 		// Decrement active count for oversized slices that won't be pooled
 		atomic.AddInt32(&sp.activeSlices, -1)
 		return
 	}
-	
+
 	atomic.AddInt64(&sp.metrics.Resets, 1)
-	
+
 	// Always zero out contents for sensitive data
 	if len(slice) > 0 {
 		for i := range slice {
 			slice[i] = 0
 		}
 	}
-	
+
 	sp.pool.Put(slice[:0]) // Reset length
 }
 
@@ -562,14 +562,14 @@ func (e *DecodingError) Reset() {
 // Global pools for common objects
 var (
 	// Buffer pools with different size limits and capacity limits (secure by default)
-	smallBufferPool  = NewBufferPoolWithOptions(4096, 500, true)     // 4KB max, 500 buffers, secure
-	mediumBufferPool = NewBufferPoolWithOptions(65536, 200, true)    // 64KB max, 200 buffers, secure
-	largeBufferPool  = NewBufferPoolWithOptions(1048576, 50, true)   // 1MB max, 50 buffers, secure
+	smallBufferPool  = NewBufferPoolWithOptions(4096, 500, true)   // 4KB max, 500 buffers, secure
+	mediumBufferPool = NewBufferPoolWithOptions(65536, 200, true)  // 64KB max, 200 buffers, secure
+	largeBufferPool  = NewBufferPoolWithOptions(1048576, 50, true) // 1MB max, 50 buffers, secure
 
 	// Slice pools for different sizes with capacity limits (secure by default)
-	smallSlicePool  = NewSlicePoolWithOptions(1024, 4096, 500, true)     // 1KB initial, 4KB max, 500 slices, secure
-	mediumSlicePool = NewSlicePoolWithOptions(4096, 65536, 200, true)    // 4KB initial, 64KB max, 200 slices, secure
-	largeSlicePool  = NewSlicePoolWithOptions(16384, 1048576, 50, true)  // 16KB initial, 1MB max, 50 slices, secure
+	smallSlicePool  = NewSlicePoolWithOptions(1024, 4096, 500, true)    // 1KB initial, 4KB max, 500 slices, secure
+	mediumSlicePool = NewSlicePoolWithOptions(4096, 65536, 200, true)   // 4KB initial, 64KB max, 200 slices, secure
+	largeSlicePool  = NewSlicePoolWithOptions(16384, 1048576, 50, true) // 16KB initial, 1MB max, 50 slices, secure
 
 	// Error pool
 	errorPool = NewErrorPool()
@@ -606,7 +606,7 @@ func PutBuffer(buf *bytes.Buffer) {
 	if buf == nil {
 		return
 	}
-	
+
 	// The individual pool's Put method will handle zeroing
 	switch {
 	case buf.Cap() <= 4096:
@@ -623,7 +623,7 @@ func PutBufferSecure(buf *bytes.Buffer) {
 	if buf == nil {
 		return
 	}
-	
+
 	switch {
 	case buf.Cap() <= 4096:
 		smallBufferPool.PutSecure(buf)
@@ -665,7 +665,7 @@ func PutSlice(slice []byte) {
 	if slice == nil {
 		return
 	}
-	
+
 	// The individual pool's Put method will handle zeroing
 	switch {
 	case cap(slice) <= 4096:
@@ -682,7 +682,7 @@ func PutSliceSecure(slice []byte) {
 	if slice == nil {
 		return
 	}
-	
+
 	switch {
 	case cap(slice) <= 4096:
 		smallSlicePool.PutSecure(slice)
@@ -787,7 +787,6 @@ func ResetAllPools() {
 	errorPool.Reset()
 }
 
-
 // PoolManager manages lifecycle of pools
 type PoolManager struct {
 	pools   map[string]interface{}
@@ -821,7 +820,7 @@ func (pm *PoolManager) GetPool(name string) interface{} {
 func (pm *PoolManager) GetAllMetrics() map[string]PoolMetrics {
 	pm.mu.RLock()
 	defer pm.mu.RUnlock()
-	
+
 	metrics := make(map[string]PoolMetrics)
 	for name, pool := range pm.pools {
 		if p, ok := pool.(interface{ Metrics() PoolMetrics }); ok {
@@ -834,11 +833,11 @@ func (pm *PoolManager) GetAllMetrics() map[string]PoolMetrics {
 // StartMonitoring starts periodic monitoring of pools
 func (pm *PoolManager) StartMonitoring(interval time.Duration) <-chan map[string]PoolMetrics {
 	ch := make(chan map[string]PoolMetrics, 1)
-	
+
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ticker.C:
@@ -851,6 +850,6 @@ func (pm *PoolManager) StartMonitoring(interval time.Duration) <-chan map[string
 			}
 		}
 	}()
-	
+
 	return ch
 }

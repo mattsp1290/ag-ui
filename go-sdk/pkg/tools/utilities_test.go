@@ -35,9 +35,9 @@ func createSampleTool() *Tool {
 		},
 		Executor: &mockUtilityExecutor{},
 		Metadata: &ToolMetadata{
-			Author:   "Test Author",
-			License:  "MIT",
-			Tags:     []string{"test", "utility"},
+			Author:  "Test Author",
+			License: "MIT",
+			Tags:    []string{"test", "utility"},
 			Examples: []ToolExample{
 				{
 					Name:        "Basic Example",
@@ -135,7 +135,7 @@ func TestToolScaffolder_GenerateTool(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := utils.Scaffold(ctx, tt.opts)
-			
+
 			if tt.wantErr {
 				assert.Error(t, err)
 				assert.Nil(t, result)
@@ -156,7 +156,7 @@ func TestParameterSpec_Validation(t *testing.T) {
 	ctx := context.Background()
 
 	validTypes := []string{"string", "number", "integer", "boolean", "array", "object"}
-	
+
 	for _, validType := range validTypes {
 		t.Run("valid type: "+validType, func(t *testing.T) {
 			opts := &ToolScaffoldOptions{
@@ -170,7 +170,7 @@ func TestParameterSpec_Validation(t *testing.T) {
 					},
 				},
 			}
-			
+
 			result, err := utils.Scaffold(ctx, opts)
 			assert.NoError(t, err)
 			assert.NotNil(t, result)
@@ -189,7 +189,7 @@ func TestParameterSpec_Validation(t *testing.T) {
 				},
 			},
 		}
-		
+
 		result, err := utils.Scaffold(ctx, opts)
 		assert.Error(t, err)
 		assert.Nil(t, result)
@@ -239,7 +239,7 @@ func TestToolValidator_ValidateTool(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			report, err := utils.Validate(ctx, tt.tool)
-			
+
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {
@@ -304,8 +304,8 @@ func TestToolPackager_CreatePackage(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "default options",
-			opts: nil,
+			name:    "default options",
+			opts:    nil,
 			wantErr: false,
 		},
 		{
@@ -332,7 +332,7 @@ func TestToolPackager_CreatePackage(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			pkg, err := utils.PackageTool(tool, tt.opts)
-			
+
 			if tt.wantErr {
 				assert.Error(t, err)
 				assert.Nil(t, pkg)
@@ -460,42 +460,42 @@ func TestToolUtilities_ErrorHandling(t *testing.T) {
 // CreateTestContext creates a context with an appropriate timeout for the test environment
 func CreateTestContext(t *testing.T) (context.Context, context.CancelFunc) {
 	t.Helper()
-	
+
 	timeout := OptimizedTestTimeout()
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	
+
 	// Set a deadline on the test itself
 	t.Cleanup(func() {
 		cancel()
 	})
-	
+
 	return ctx, cancel
 }
 
 // PerformanceTestContext creates a context for performance tests with appropriate timeout
 func PerformanceTestContext(t *testing.T) (context.Context, context.CancelFunc) {
 	t.Helper()
-	
+
 	var timeout time.Duration
 	if isCI() {
 		timeout = 10 * time.Second // Shorter for CI
 	} else {
 		timeout = 30 * time.Second // Longer for local testing
 	}
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	
+
 	t.Cleanup(func() {
 		cancel()
 	})
-	
+
 	return ctx, cancel
 }
 
 // SkipIfCI skips a test if running in CI environment
 func SkipIfCI(t *testing.T, reason string) {
 	t.Helper()
-	
+
 	if isCI() {
 		t.Skipf("Skipping in CI: %s", reason)
 	}
@@ -504,7 +504,7 @@ func SkipIfCI(t *testing.T, reason string) {
 // SkipSlowTestInCI skips slow tests in CI environment
 func SkipSlowTestInCI(t *testing.T) {
 	t.Helper()
-	
+
 	if isCI() {
 		t.Skip("Skipping slow test in CI environment")
 	}
@@ -539,17 +539,17 @@ func max(a, b int) int {
 // RunTestWithTimeout runs a test function with an appropriate timeout
 func RunTestWithTimeout(t *testing.T, name string, timeout time.Duration, fn func(t *testing.T)) {
 	t.Helper()
-	
+
 	adjustedTimeout := AdjustDurationForEnvironment(timeout)
-	
+
 	t.Run(name, func(t *testing.T) {
 		done := make(chan struct{})
-		
+
 		go func() {
 			defer close(done)
 			fn(t)
 		}()
-		
+
 		select {
 		case <-done:
 			// Test completed successfully
@@ -562,58 +562,57 @@ func RunTestWithTimeout(t *testing.T, name string, timeout time.Duration, fn fun
 // RunBenchmarkWithOptimizedConfig runs a benchmark with optimized configuration
 func RunBenchmarkWithOptimizedConfig(b *testing.B, fn func(b *testing.B, config *PerformanceConfig)) {
 	b.Helper()
-	
+
 	config := OptimizedPerformanceConfig()
-	
+
 	// Further reduce for benchmarks
 	if isCI() {
 		config.BaselineIterations = 5
 		config.LoadTestDuration = 2 * time.Second
 	}
-	
+
 	fn(b, config)
 }
 
 // Helper functions for test configuration
 
-
 // TestConfig holds configuration for test execution
 type TestConfig struct {
 	// Performance test settings
-	PerformanceTestTimeout   time.Duration
-	BaselineIterations       int
-	ThroughputTestDuration   time.Duration
-	
+	PerformanceTestTimeout time.Duration
+	BaselineIterations     int
+	ThroughputTestDuration time.Duration
+
 	// Regression test settings
-	RegressionTestTimeout    time.Duration
-	RegressionDataPoints     int
-	
+	RegressionTestTimeout time.Duration
+	RegressionDataPoints  int
+
 	// Load test settings
-	LoadTestDuration         time.Duration
-	MaxConcurrency           int
-	
+	LoadTestDuration time.Duration
+	MaxConcurrency   int
+
 	// General settings
-	EnableProfiling          bool
-	EnableDetailedLogging    bool
-	SkipSlowTests            bool
+	EnableProfiling       bool
+	EnableDetailedLogging bool
+	SkipSlowTests         bool
 }
 
 // GetTestConfig returns test configuration based on environment
 func GetTestConfig() *TestConfig {
 	config := &TestConfig{
 		// Default values
-		PerformanceTestTimeout:   30 * time.Second,
-		BaselineIterations:       100,
-		ThroughputTestDuration:   10 * time.Second,
-		RegressionTestTimeout:    60 * time.Second,
-		RegressionDataPoints:     50,
-		LoadTestDuration:         30 * time.Second,
-		MaxConcurrency:           1000,
-		EnableProfiling:          false,
-		EnableDetailedLogging:    false,
-		SkipSlowTests:            false,
+		PerformanceTestTimeout: 30 * time.Second,
+		BaselineIterations:     100,
+		ThroughputTestDuration: 10 * time.Second,
+		RegressionTestTimeout:  60 * time.Second,
+		RegressionDataPoints:   50,
+		LoadTestDuration:       30 * time.Second,
+		MaxConcurrency:         1000,
+		EnableProfiling:        false,
+		EnableDetailedLogging:  false,
+		SkipSlowTests:          false,
 	}
-	
+
 	// Override with CI-optimized values
 	if isCI() {
 		config.PerformanceTestTimeout = 10 * time.Second
@@ -625,53 +624,51 @@ func GetTestConfig() *TestConfig {
 		config.MaxConcurrency = 100
 		config.SkipSlowTests = true
 	}
-	
+
 	// Override with environment variables if set
 	if v := os.Getenv("TEST_PERFORMANCE_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			config.PerformanceTestTimeout = d
 		}
 	}
-	
+
 	if v := os.Getenv("TEST_BASELINE_ITERATIONS"); v != "" {
 		if i, err := strconv.Atoi(v); err == nil {
 			config.BaselineIterations = i
 		}
 	}
-	
+
 	if v := os.Getenv("TEST_THROUGHPUT_DURATION"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			config.ThroughputTestDuration = d
 		}
 	}
-	
+
 	if v := os.Getenv("TEST_REGRESSION_TIMEOUT"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			config.RegressionTestTimeout = d
 		}
 	}
-	
+
 	if v := os.Getenv("TEST_LOAD_DURATION"); v != "" {
 		if d, err := time.ParseDuration(v); err == nil {
 			config.LoadTestDuration = d
 		}
 	}
-	
+
 	if v := os.Getenv("TEST_MAX_CONCURRENCY"); v != "" {
 		if i, err := strconv.Atoi(v); err == nil {
 			config.MaxConcurrency = i
 		}
 	}
-	
+
 	if v := os.Getenv("TEST_ENABLE_PROFILING"); v != "" {
 		config.EnableProfiling = v == "true" || v == "1"
 	}
-	
+
 	if v := os.Getenv("TEST_SKIP_SLOW"); v != "" {
 		config.SkipSlowTests = v == "true" || v == "1"
 	}
-	
+
 	return config
 }
-
-

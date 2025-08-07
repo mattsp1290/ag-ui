@@ -26,7 +26,7 @@ func createSimpleEchoServer(t *testing.T) *httptest.Server {
 	upgrader := websocket.Upgrader{
 		CheckOrigin: func(r *http.Request) bool { return true },
 	}
-	
+
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -34,18 +34,18 @@ func createSimpleEchoServer(t *testing.T) *httptest.Server {
 			return
 		}
 		defer conn.Close()
-		
+
 		// Set up automatic pong responses for ping messages
 		conn.SetPingHandler(func(message string) error {
 			return conn.WriteMessage(websocket.PongMessage, []byte(message))
 		})
-		
+
 		for {
 			messageType, message, err := conn.ReadMessage()
 			if err != nil {
 				break
 			}
-			
+
 			// Echo the message back
 			if err := conn.WriteMessage(messageType, message); err != nil {
 				break
@@ -58,58 +58,58 @@ func createSimpleEchoServer(t *testing.T) *httptest.Server {
 // are properly synchronized and don't cause panics
 func TestConcurrentWriteSynchronization(t *testing.T) {
 	WithResourceControl(t, "TestConcurrentWriteSynchronization", func() {
-		testutils.WithTestTimeout(t, 10*time.Second, func() {  // Reduced from 30s
+		testutils.WithTestTimeout(t, 10*time.Second, func() { // Reduced from 30s
 			tester := NewReliableConnectionTester(t)
 			defer tester.Cleanup()
 
-		tester.TestConnection(func(conn *Connection) {
-			// Test concurrent writes from multiple goroutines with proper synchronization
-			const numGoroutines = 5  // Reduced for reliability
-			const messagesPerGoroutine = 10  // Reduced for faster execution
-			
-			concurrentTester := testutils.NewConcurrentTester(t, numGoroutines*2)
-			barrier := testutils.NewTestBarrier(numGoroutines)
-			
-			for i := 0; i < numGoroutines; i++ {
-				goroutineID := i
-				concurrentTester.Go(func() error {
-					// Wait for all goroutines to start simultaneously
-					if err := barrier.WaitWithTimeout(5 * time.Second); err != nil {
-						return err
-					}
+			tester.TestConnection(func(conn *Connection) {
+				// Test concurrent writes from multiple goroutines with proper synchronization
+				const numGoroutines = 5         // Reduced for reliability
+				const messagesPerGoroutine = 10 // Reduced for faster execution
 
-					for j := 0; j < messagesPerGoroutine; j++ {
-						message := []byte(fmt.Sprintf("test message from goroutine %d-%d", goroutineID, j))
-						
-						ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-						err := conn.SendMessage(ctx, message)
-						cancel()
-						
-						if err != nil && err != context.DeadlineExceeded {
-							return fmt.Errorf("send error in goroutine %d message %d: %w", goroutineID, j, err)
+				concurrentTester := testutils.NewConcurrentTester(t, numGoroutines*2)
+				barrier := testutils.NewTestBarrier(numGoroutines)
+
+				for i := 0; i < numGoroutines; i++ {
+					goroutineID := i
+					concurrentTester.Go(func() error {
+						// Wait for all goroutines to start simultaneously
+						if err := barrier.WaitWithTimeout(5 * time.Second); err != nil {
+							return err
 						}
-						
-						// Small delay to allow heartbeat and other operations to interleave
-						time.Sleep(time.Millisecond)
-					}
-					return nil
-				})
-			}
 
-			concurrentTester.Wait()
+						for j := 0; j < messagesPerGoroutine; j++ {
+							message := []byte(fmt.Sprintf("test message from goroutine %d-%d", goroutineID, j))
 
-			// Verify the connection is still functional
-			assert.True(t, conn.IsConnected(), "Connection should still be connected after concurrent writes")
-			
-			// Verify heartbeat is still functioning
-			heartbeat := conn.GetHeartbeat()
-			assert.NotNil(t, heartbeat, "Heartbeat manager should be available")
-			assert.True(t, heartbeat.IsHealthy(), "Connection should be healthy after concurrent writes")
+							ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+							err := conn.SendMessage(ctx, message)
+							cancel()
 
-			t.Logf("Successfully completed %d concurrent goroutines each sending %d messages", 
-				numGoroutines, messagesPerGoroutine)
+							if err != nil && err != context.DeadlineExceeded {
+								return fmt.Errorf("send error in goroutine %d message %d: %w", goroutineID, j, err)
+							}
+
+							// Small delay to allow heartbeat and other operations to interleave
+							time.Sleep(time.Millisecond)
+						}
+						return nil
+					})
+				}
+
+				concurrentTester.Wait()
+
+				// Verify the connection is still functional
+				assert.True(t, conn.IsConnected(), "Connection should still be connected after concurrent writes")
+
+				// Verify heartbeat is still functioning
+				heartbeat := conn.GetHeartbeat()
+				assert.NotNil(t, heartbeat, "Heartbeat manager should be available")
+				assert.True(t, heartbeat.IsHealthy(), "Connection should be healthy after concurrent writes")
+
+				t.Logf("Successfully completed %d concurrent goroutines each sending %d messages",
+					numGoroutines, messagesPerGoroutine)
+			})
 		})
-	})
 	}) // Close WithResourceControl
 }
 
@@ -138,14 +138,14 @@ func TestHeartbeatWriteMessageConcurrency(t *testing.T) {
 			for i := 0; i < 100; i++ {
 				msgCtx, msgCancel := context.WithTimeout(context.Background(), 25*time.Millisecond)
 				message := []byte("concurrent test message")
-				
+
 				err := conn.SendMessage(msgCtx, message)
 				msgCancel()
-				
+
 				if err != nil && err != context.DeadlineExceeded {
 					t.Logf("Send error on message %d: %v", i, err)
 				}
-				
+
 				// No delay - maximum stress test
 			}
 
@@ -153,13 +153,13 @@ func TestHeartbeatWriteMessageConcurrency(t *testing.T) {
 
 			// Verify connection is still healthy
 			assert.True(t, conn.IsConnected(), "Connection should still be connected")
-			
+
 			heartbeat := conn.GetHeartbeat()
 			assert.NotNil(t, heartbeat, "Heartbeat manager should be available")
-			
+
 			// Give a moment for final heartbeat operations
 			time.Sleep(50 * time.Millisecond)
-			
+
 			t.Logf("Heartbeat stats: %+v", heartbeat.GetStats())
 			t.Log("Concurrent heartbeat/message write test completed successfully")
 		})
@@ -201,8 +201,8 @@ func TestRaceConditionFixes(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	t.Run("ConcurrentMessageSending", func(t *testing.T) {
-		const numGoroutines = 20  // Reduced from 50 for better reliability
-		const messagesPerGoroutine = 10  // Reduced from 20 for better reliability
+		const numGoroutines = 20        // Reduced from 50 for better reliability
+		const messagesPerGoroutine = 10 // Reduced from 20 for better reliability
 		const expectedMessages = numGoroutines * messagesPerGoroutine
 
 		var wg sync.WaitGroup
@@ -210,7 +210,7 @@ func TestRaceConditionFixes(t *testing.T) {
 		var messagesSent int64
 
 		startTime := time.Now()
-		
+
 		// Launch concurrent message senders
 		for i := 0; i < numGoroutines; i++ {
 			wg.Add(1)
@@ -249,7 +249,7 @@ func TestRaceConditionFixes(t *testing.T) {
 		// Check that we successfully sent most/all messages
 		successRate := float64(finalSent) / float64(expectedMessages)
 		assert.Greater(t, successRate, 0.95, "Should successfully send at least 95% of messages")
-		
+
 		// Wait for transport to process all sent messages
 		for i := 0; i < 100; i++ { // Wait up to 1 second
 			stats := transport.Stats()
@@ -261,7 +261,7 @@ func TestRaceConditionFixes(t *testing.T) {
 
 		// Verify transport stats are consistent
 		stats := transport.Stats()
-		assert.GreaterOrEqual(t, stats.EventsSent, finalSent, 
+		assert.GreaterOrEqual(t, stats.EventsSent, finalSent,
 			"Transport should have processed all sent messages")
 	})
 }
@@ -289,22 +289,22 @@ func TestConnectionRaceConditions(t *testing.T) {
 		// Test rapid connect/disconnect cycles - reduced from 5 to 3 for reliability
 		for i := 0; i < 3; i++ {
 			t.Logf("Connect/disconnect cycle %d", i+1)
-			
+
 			err := conn.Connect(ctx)
 			require.NoError(t, err)
-			
+
 			// Send a few messages - reduced from 10 to 5
 			for j := 0; j < 5; j++ {
 				message := []byte("test message")
 				_ = conn.SendMessage(ctx, message)
 			}
-			
+
 			// Wait briefly before disconnect
 			time.Sleep(50 * time.Millisecond)
-			
+
 			err = conn.Disconnect()
 			require.NoError(t, err)
-			
+
 			// Brief pause between cycles
 			time.Sleep(100 * time.Millisecond)
 		}

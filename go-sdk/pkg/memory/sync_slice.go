@@ -28,7 +28,7 @@ func (s *Slice) Append(item interface{}) {
 func (s *Slice) RemoveFunc(f func(interface{}) bool) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	for i, item := range s.items {
 		if f(item) {
 			// Remove item efficiently
@@ -43,11 +43,11 @@ func (s *Slice) RemoveFunc(f func(interface{}) bool) bool {
 func (s *Slice) RemoveAt(index int) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	
+
 	if index < 0 || index >= len(s.items) {
 		return false
 	}
-	
+
 	s.items = append(s.items[:index], s.items[index+1:]...)
 	return true
 }
@@ -56,11 +56,11 @@ func (s *Slice) RemoveAt(index int) bool {
 func (s *Slice) Get(index int) (interface{}, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	if index < 0 || index >= len(s.items) {
 		return nil, false
 	}
-	
+
 	return s.items[index], true
 }
 
@@ -78,7 +78,7 @@ func (s *Slice) Range(f func(interface{}) bool) {
 	items := make([]interface{}, len(s.items))
 	copy(items, s.items)
 	s.mu.RUnlock()
-	
+
 	for _, item := range items {
 		if !f(item) {
 			break
@@ -97,7 +97,7 @@ func (s *Slice) Clear() {
 func (s *Slice) ToSlice() []interface{} {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	result := make([]interface{}, len(s.items))
 	copy(result, s.items)
 	return result
@@ -107,14 +107,14 @@ func (s *Slice) ToSlice() []interface{} {
 func (s *Slice) Filter(f func(interface{}) bool) *Slice {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	result := NewSlice()
 	for _, item := range s.items {
 		if f(item) {
 			result.items = append(result.items, item)
 		}
 	}
-	
+
 	return result
 }
 
@@ -122,13 +122,13 @@ func (s *Slice) Filter(f func(interface{}) bool) *Slice {
 func (s *Slice) Map(f func(interface{}) interface{}) *Slice {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	result := NewSlice()
 	result.items = make([]interface{}, len(s.items))
 	for i, item := range s.items {
 		result.items[i] = f(item)
 	}
-	
+
 	return result
 }
 
@@ -136,7 +136,7 @@ func (s *Slice) Map(f func(interface{}) interface{}) *Slice {
 func (s *Slice) Any(f func(interface{}) bool) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	for _, item := range s.items {
 		if f(item) {
 			return true
@@ -149,7 +149,7 @@ func (s *Slice) Any(f func(interface{}) bool) bool {
 func (s *Slice) All(f func(interface{}) bool) bool {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	for _, item := range s.items {
 		if !f(item) {
 			return false
@@ -162,7 +162,7 @@ func (s *Slice) All(f func(interface{}) bool) bool {
 func (s *Slice) Find(f func(interface{}) bool) (interface{}, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	for _, item := range s.items {
 		if f(item) {
 			return item, true
@@ -175,7 +175,7 @@ func (s *Slice) Find(f func(interface{}) bool) (interface{}, bool) {
 func (s *Slice) FindIndex(f func(interface{}) bool) int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	for i, item := range s.items {
 		if f(item) {
 			return i
@@ -188,7 +188,7 @@ func (s *Slice) FindIndex(f func(interface{}) bool) int {
 func (s *Slice) Count(f func(interface{}) bool) int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	count := 0
 	for _, item := range s.items {
 		if f(item) {

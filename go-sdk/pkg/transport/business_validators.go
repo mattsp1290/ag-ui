@@ -118,13 +118,13 @@ func (v *RangeValidator[T]) Priority() int {
 
 // PatternValidator validates strings against complex regex patterns
 type PatternValidator struct {
-	name        string
-	patterns    map[string]*regexp.Regexp
-	required    map[string]bool
-	anyMatch    bool // if true, value must match any pattern; if false, must match all
-	condition   func(string) bool
-	enabled     bool
-	priority    int
+	name            string
+	patterns        map[string]*regexp.Regexp
+	required        map[string]bool
+	anyMatch        bool // if true, value must match any pattern; if false, must match all
+	condition       func(string) bool
+	enabled         bool
+	priority        int
 	caseInsensitive bool
 }
 
@@ -146,12 +146,12 @@ func (v *PatternValidator) AddPattern(name, pattern string, required bool) error
 	if v.caseInsensitive {
 		flags = "(?i)"
 	}
-	
+
 	regex, err := regexp.Compile(flags + pattern)
 	if err != nil {
 		return fmt.Errorf("invalid regex pattern '%s': %w", pattern, err)
 	}
-	
+
 	v.patterns[name] = regex
 	v.required[name] = required
 	return nil
@@ -215,7 +215,7 @@ func (v *PatternValidator) Validate(ctx context.Context, value string) Validatio
 	// Check each pattern
 	for name, pattern := range v.patterns {
 		matches := pattern.MatchString(value)
-		
+
 		if matches {
 			matchedPatterns = append(matchedPatterns, name)
 		} else if v.required[name] {
@@ -256,7 +256,7 @@ func (v *PatternValidator) Priority() int {
 // DependencyValidator validates field dependencies (field A requires field B to be present/valid)
 type DependencyValidator struct {
 	name         string
-	dependencies map[string][]string // field -> list of required fields
+	dependencies map[string][]string            // field -> list of required fields
 	validators   map[string]TypedValidator[any] // field -> validator for that field
 	condition    func(map[string]interface{}) bool
 	enabled      bool
@@ -325,12 +325,12 @@ func (v *DependencyValidator) Validate(ctx context.Context, value map[string]int
 	// Check each dependency rule
 	for field, requiredFields := range v.dependencies {
 		fieldValue, fieldExists := value[field]
-		
+
 		// If the field exists and is not nil/empty, check its dependencies
 		if fieldExists && !isEmptyValue(fieldValue) {
 			for _, requiredField := range requiredFields {
 				requiredValue, requiredExists := value[requiredField]
-				
+
 				if !requiredExists || isEmptyValue(requiredValue) {
 					result.AddFieldError(field, NewValidationError(fmt.Sprintf("field '%s' requires field '%s' to be present and non-empty", field, requiredField), nil))
 				} else {
@@ -403,19 +403,19 @@ func (v *CrossFieldValidator) AddComparisonRule(name, field1, field2 string, com
 		Validator: func(values map[string]interface{}) error {
 			val1, exists1 := values[field1]
 			val2, exists2 := values[field2]
-			
+
 			if !exists1 || !exists2 {
 				return fmt.Errorf("both fields '%s' and '%s' must be present", field1, field2)
 			}
-			
+
 			if !compare(val1, val2) {
 				return fmt.Errorf(errorMsg)
 			}
-			
+
 			return nil
 		},
 	}
-	
+
 	return v.AddRule(rule)
 }
 
@@ -464,7 +464,7 @@ func (v *CrossFieldValidator) Validate(ctx context.Context, value map[string]int
 				ruleValues[field] = val
 			}
 		}
-		
+
 		// Apply the rule validator
 		if err := rule.Validator(ruleValues); err != nil {
 			result.AddError(NewValidationError(fmt.Sprintf("cross-field rule '%s' failed: %s", rule.Name, err.Error()), nil))
@@ -531,7 +531,7 @@ func (v *ConditionalValidator) AddFieldCondition(name, field string, condition f
 			return false
 		},
 	}
-	
+
 	return v.AddRule(rule)
 }
 
@@ -717,9 +717,9 @@ func MustNewPhonePatternValidator() *PatternValidator {
 
 // URLValidator provides comprehensive URL validation with security checks
 type URLValidator struct {
-	name    string
-	options common.URLValidationOptions
-	enabled bool
+	name     string
+	options  common.URLValidationOptions
+	enabled  bool
 	priority int
 }
 
@@ -796,7 +796,7 @@ func (v *URLValidator) Priority() int {
 // CreateDateRangeValidator creates a cross-field validator for date ranges
 func CreateDateRangeValidator(startField, endField string) *CrossFieldValidator {
 	validator := NewCrossFieldValidator("date_range")
-	
+
 	validator.AddComparisonRule(
 		"start_before_end",
 		startField,
@@ -811,14 +811,14 @@ func CreateDateRangeValidator(startField, endField string) *CrossFieldValidator 
 		},
 		fmt.Sprintf("'%s' must be before or equal to '%s'", startField, endField),
 	)
-	
+
 	return validator
 }
 
 // CreatePasswordConfirmationValidator creates a cross-field validator for password confirmation
 func CreatePasswordConfirmationValidator(passwordField, confirmField string) *CrossFieldValidator {
 	validator := NewCrossFieldValidator("password_confirmation")
-	
+
 	validator.AddComparisonRule(
 		"passwords_match",
 		passwordField,
@@ -833,7 +833,7 @@ func CreatePasswordConfirmationValidator(passwordField, confirmField string) *Cr
 		},
 		"passwords do not match",
 	)
-	
+
 	return validator
 }
 
@@ -844,7 +844,7 @@ func isEmptyValue(value interface{}) bool {
 	if value == nil {
 		return true
 	}
-	
+
 	v := reflect.ValueOf(value)
 	switch v.Kind() {
 	case reflect.String:
@@ -872,7 +872,7 @@ func compareValues(a, b interface{}) int {
 	if b == nil {
 		return 1
 	}
-	
+
 	// Try to compare as common types
 	switch va := a.(type) {
 	case int:
@@ -907,7 +907,7 @@ func compareValues(a, b interface{}) int {
 			return 0
 		}
 	}
-	
+
 	// Fallback to string comparison
 	return strings.Compare(fmt.Sprintf("%v", a), fmt.Sprintf("%v", b))
 }

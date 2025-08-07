@@ -25,17 +25,17 @@ const (
 //
 //	stream := NewStreamingContext(ctx)
 //	defer stream.Close()
-//	
+//
 //	// Send data chunks
 //	for _, item := range items {
 //		if err := stream.Send(item); err != nil {
 //			return nil, err
 //		}
 //	}
-//	
+//
 //	// Send completion
 //	stream.SendComplete(map[string]interface{}{"total": len(items)})
-//	
+//
 //	return stream.Channel(), nil
 type StreamingContext struct {
 	ctx       context.Context
@@ -114,7 +114,7 @@ func (sc *StreamingContext) sendChunk(chunkType string, data interface{}) error 
 	// Create chunk under lock and keep lock during send to prevent race with Close()
 	sc.mu.Lock()
 	defer sc.mu.Unlock()
-	
+
 	if sc.closed {
 		return fmt.Errorf("streaming context is closed")
 	}
@@ -125,7 +125,7 @@ func (sc *StreamingContext) sendChunk(chunkType string, data interface{}) error 
 		Index: sc.index,
 	}
 	sc.index++
-	
+
 	// Send chunk while holding lock to prevent race with Close()
 	// We need to handle the case where the channel might be closed during send
 	// Use a defer to recover from panic if channel is closed

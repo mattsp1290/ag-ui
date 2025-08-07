@@ -214,11 +214,11 @@ type (
 )
 
 // ErrorString implementations for common types
-func (v StringValue) ErrorString() string { return v.Value }
-func (v IntValue) ErrorString() string    { return fmt.Sprintf("%d", v.Value) }
-func (v BoolValue) ErrorString() string   { return fmt.Sprintf("%t", v.Value) }
-func (v FloatValue) ErrorString() string  { return fmt.Sprintf("%g", v.Value) }
-func (v NilValue) ErrorString() string    { return "<nil>" }
+func (v StringValue) ErrorString() string  { return v.Value }
+func (v IntValue) ErrorString() string     { return fmt.Sprintf("%d", v.Value) }
+func (v BoolValue) ErrorString() string    { return fmt.Sprintf("%t", v.Value) }
+func (v FloatValue) ErrorString() string   { return fmt.Sprintf("%g", v.Value) }
+func (v NilValue) ErrorString() string     { return "<nil>" }
 func (v GenericValue) ErrorString() string { return fmt.Sprintf("%v", v.Value) }
 
 // ConfigurationError represents a type-safe configuration-related error
@@ -309,7 +309,7 @@ func ValidateErrorValue(value interface{}) ErrorValue {
 	if value == nil {
 		return NilValue{}
 	}
-	
+
 	switch v := value.(type) {
 	case string:
 		return StringValue{Value: v}
@@ -357,13 +357,13 @@ func IsConfigurationError(err error) bool {
 	if errors.As(err, &genericErr) {
 		return true
 	}
-	
+
 	// Check for legacy configuration error
 	var legacyErr *LegacyConfigurationError
 	if errors.As(err, &legacyErr) {
 		return true
 	}
-	
+
 	// Check for specific typed configuration errors
 	var stringErr *ConfigurationError[StringValue]
 	var intErr *ConfigurationError[IntValue]
@@ -371,7 +371,7 @@ func IsConfigurationError(err error) bool {
 	var floatErr *ConfigurationError[FloatValue]
 	var nilErr *ConfigurationError[NilValue]
 	var genericValueErr *ConfigurationError[GenericValue]
-	
+
 	return errors.As(err, &stringErr) ||
 		errors.As(err, &intErr) ||
 		errors.As(err, &boolErr) ||
@@ -386,12 +386,12 @@ func GetConfigurationErrorField(err error) string {
 	if legacyErr, ok := err.(*LegacyConfigurationError); ok {
 		return legacyErr.Field
 	}
-	
+
 	// Try generic configuration error
 	if genericErr, ok := err.(*ConfigurationError[ErrorValue]); ok {
 		return genericErr.Field
 	}
-	
+
 	// Try specific typed errors
 	if stringErr, ok := err.(*ConfigurationError[StringValue]); ok {
 		return stringErr.Field
@@ -411,7 +411,7 @@ func GetConfigurationErrorField(err error) string {
 	if genericValueErr, ok := err.(*ConfigurationError[GenericValue]); ok {
 		return genericValueErr.Field
 	}
-	
+
 	return ""
 }
 
@@ -421,7 +421,7 @@ func GetConfigurationErrorValue(err error) interface{} {
 	if legacyErr, ok := err.(*LegacyConfigurationError); ok {
 		return legacyErr.Value
 	}
-	
+
 	// Try generic configuration error
 	if genericErr, ok := err.(*ConfigurationError[ErrorValue]); ok {
 		if genericValue, ok := genericErr.Value.(GenericValue); ok {
@@ -443,7 +443,7 @@ func GetConfigurationErrorValue(err error) interface{} {
 			return v
 		}
 	}
-	
+
 	// Try specific typed errors
 	if stringErr, ok := err.(*ConfigurationError[StringValue]); ok {
 		return stringErr.Value.Value
@@ -463,6 +463,6 @@ func GetConfigurationErrorValue(err error) interface{} {
 	if genericValueErr, ok := err.(*ConfigurationError[GenericValue]); ok {
 		return genericValueErr.Value.Value
 	}
-	
+
 	return nil
 }

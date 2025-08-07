@@ -14,8 +14,8 @@ import (
 
 // Common client errors
 var (
-	ErrClientClosed = errors.New("client is closed")
-	ErrAgentNotFound = errors.New("agent not found")
+	ErrClientClosed           = errors.New("client is closed")
+	ErrAgentNotFound          = errors.New("agent not found")
 	ErrAgentAlreadyRegistered = errors.New("agent already registered")
 )
 
@@ -116,7 +116,7 @@ func (c *Client) SendEvent(ctx context.Context, agentName string, event any) (re
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	
+
 	timeoutCtx, cancel := context.WithTimeout(ctx, c.config.Timeout)
 	defer cancel()
 
@@ -159,7 +159,7 @@ func (c *Client) Stream(ctx context.Context, agentName string) (eventChan <-chan
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	
+
 	timeoutCtx, cancel := context.WithTimeout(ctx, c.config.Timeout)
 	defer cancel()
 
@@ -177,7 +177,7 @@ func (c *Client) Close() error {
 	if c.closed {
 		return ErrClientClosed
 	}
-	
+
 	c.closed = true
 	// Resource cleanup will be implemented when transport layer is added
 	return nil

@@ -25,23 +25,23 @@ const (
 
 // AuditEvent represents a security audit event
 type AuditEvent struct {
-	ID            string                 `json:"id"`
-	Type          AuditEventType         `json:"type"`
-	Timestamp     time.Time              `json:"timestamp"`
-	EventID       string                 `json:"event_id,omitempty"`
-	EventType     events.EventType       `json:"event_type,omitempty"`
-	Source        string                 `json:"source"`
-	Actor         string                 `json:"actor,omitempty"`
-	Action        string                 `json:"action"`
-	Result        AuditResult            `json:"result"`
-	Severity      ThreatSeverity         `json:"severity"`
-	Description   string                 `json:"description"`
-	Details       map[string]interface{} `json:"details,omitempty"`
-	Threat        *Threat                `json:"threat,omitempty"`
-	PolicyID      string                 `json:"policy_id,omitempty"`
-	RuleID        string                 `json:"rule_id,omitempty"`
-	Remediation   []string               `json:"remediation,omitempty"`
-	Tags          []string               `json:"tags,omitempty"`
+	ID          string                 `json:"id"`
+	Type        AuditEventType         `json:"type"`
+	Timestamp   time.Time              `json:"timestamp"`
+	EventID     string                 `json:"event_id,omitempty"`
+	EventType   events.EventType       `json:"event_type,omitempty"`
+	Source      string                 `json:"source"`
+	Actor       string                 `json:"actor,omitempty"`
+	Action      string                 `json:"action"`
+	Result      AuditResult            `json:"result"`
+	Severity    ThreatSeverity         `json:"severity"`
+	Description string                 `json:"description"`
+	Details     map[string]interface{} `json:"details,omitempty"`
+	Threat      *Threat                `json:"threat,omitempty"`
+	PolicyID    string                 `json:"policy_id,omitempty"`
+	RuleID      string                 `json:"rule_id,omitempty"`
+	Remediation []string               `json:"remediation,omitempty"`
+	Tags        []string               `json:"tags,omitempty"`
 }
 
 // AuditResult represents the result of an audited action
@@ -56,25 +56,25 @@ const (
 
 // AuditTrail manages security audit events
 type AuditTrail struct {
-	events          []*AuditEvent
-	eventsByType    map[AuditEventType][]*AuditEvent
-	eventsBySource  map[string][]*AuditEvent
-	storage         AuditStorage
-	config          *AuditConfig
-	metrics         *AuditMetrics
-	alertHandlers   []AuditAlertHandler
-	mutex           sync.RWMutex
+	events         []*AuditEvent
+	eventsByType   map[AuditEventType][]*AuditEvent
+	eventsBySource map[string][]*AuditEvent
+	storage        AuditStorage
+	config         *AuditConfig
+	metrics        *AuditMetrics
+	alertHandlers  []AuditAlertHandler
+	mutex          sync.RWMutex
 }
 
 // AuditConfig defines audit trail configuration
 type AuditConfig struct {
-	MaxEvents           int
-	RetentionPeriod     time.Duration
-	EnablePersistence   bool
-	EnableAlerts        bool
-	AlertSeverityLevel  ThreatSeverity
-	CompressOldEvents   bool
-	EncryptAuditTrail   bool
+	MaxEvents          int
+	RetentionPeriod    time.Duration
+	EnablePersistence  bool
+	EnableAlerts       bool
+	AlertSeverityLevel ThreatSeverity
+	CompressOldEvents  bool
+	EncryptAuditTrail  bool
 }
 
 // AuditStorage interface for persistent storage
@@ -88,16 +88,16 @@ type AuditStorage interface {
 
 // AuditFilter defines filters for querying audit events
 type AuditFilter struct {
-	StartTime    *time.Time
-	EndTime      *time.Time
-	EventTypes   []AuditEventType
-	Sources      []string
-	Severities   []ThreatSeverity
-	Results      []AuditResult
-	PolicyIDs    []string
-	Tags         []string
-	Limit        int
-	Offset       int
+	StartTime  *time.Time
+	EndTime    *time.Time
+	EventTypes []AuditEventType
+	Sources    []string
+	Severities []ThreatSeverity
+	Results    []AuditResult
+	PolicyIDs  []string
+	Tags       []string
+	Limit      int
+	Offset     int
 }
 
 // AuditAlertHandler interface for audit alerts
@@ -132,7 +132,7 @@ func NewAuditTrail(config *AuditConfig, storage AuditStorage) *AuditTrail {
 	if config == nil {
 		config = DefaultAuditConfig()
 	}
-	
+
 	return &AuditTrail{
 		events:         make([]*AuditEvent, 0, config.MaxEvents),
 		eventsByType:   make(map[AuditEventType][]*AuditEvent),
@@ -151,7 +151,7 @@ func NewAuditTrail(config *AuditConfig, storage AuditStorage) *AuditTrail {
 func (at *AuditTrail) RecordSecurityValidation(event events.Event, result *events.ValidationResult, details map[string]interface{}) error {
 	severity := ThreatSeverityLow
 	auditResult := AuditResultSuccess
-	
+
 	if result.HasErrors() {
 		severity = ThreatSeverityHigh
 		auditResult = AuditResultFailure
@@ -159,7 +159,7 @@ func (at *AuditTrail) RecordSecurityValidation(event events.Event, result *event
 		severity = ThreatSeverityMedium
 		auditResult = AuditResultWarning
 	}
-	
+
 	auditEvent := &AuditEvent{
 		ID:          fmt.Sprintf("AUDIT-%d-%s", time.Now().UnixNano(), AuditEventSecurityValidation),
 		Type:        AuditEventSecurityValidation,
@@ -173,7 +173,7 @@ func (at *AuditTrail) RecordSecurityValidation(event events.Event, result *event
 		Details:     details,
 		Tags:        []string{"validation", "security"},
 	}
-	
+
 	// Add error details
 	if result.HasErrors() {
 		errors := make([]string, 0, len(result.Errors))
@@ -182,7 +182,7 @@ func (at *AuditTrail) RecordSecurityValidation(event events.Event, result *event
 		}
 		auditEvent.Details["errors"] = errors
 	}
-	
+
 	return at.recordEvent(auditEvent)
 }
 
@@ -208,7 +208,7 @@ func (at *AuditTrail) RecordThreatDetection(threat *Threat) error {
 		Remediation: threat.Mitigations,
 		Tags:        []string{"threat", "security", string(threat.Type)},
 	}
-	
+
 	return at.recordEvent(auditEvent)
 }
 
@@ -226,13 +226,13 @@ func (at *AuditTrail) RecordPolicyViolation(event events.Event, policy *Security
 		Description: fmt.Sprintf("Policy violation: %s", policy.Name),
 		PolicyID:    policy.ID,
 		Details: map[string]interface{}{
-			"policy_name": policy.Name,
+			"policy_name":  policy.Name,
 			"policy_scope": policy.Scope,
 			"action_taken": action,
 		},
 		Tags: []string{"policy", "violation", string(policy.Scope)},
 	}
-	
+
 	return at.recordEvent(auditEvent)
 }
 
@@ -256,7 +256,7 @@ func (at *AuditTrail) RecordRateLimitExceeded(event events.Event, source string,
 		Remediation: []string{"Implement client-side throttling", "Review rate limit configuration"},
 		Tags:        []string{"rate_limit", "throttling"},
 	}
-	
+
 	return at.recordEvent(auditEvent)
 }
 
@@ -279,7 +279,7 @@ func (at *AuditTrail) RecordAnomalyDetection(event events.Event, anomaly *Anomal
 		},
 		Tags: []string{"anomaly", "behavior"},
 	}
-	
+
 	return at.recordEvent(auditEvent)
 }
 
@@ -287,32 +287,32 @@ func (at *AuditTrail) RecordAnomalyDetection(event events.Event, anomaly *Anomal
 func (at *AuditTrail) recordEvent(event *AuditEvent) error {
 	at.mutex.Lock()
 	defer at.mutex.Unlock()
-	
+
 	// Add to memory
 	at.events = append(at.events, event)
 	at.eventsByType[event.Type] = append(at.eventsByType[event.Type], event)
 	at.eventsBySource[event.Source] = append(at.eventsBySource[event.Source], event)
-	
+
 	// Update metrics
 	at.metrics.recordEvent(event)
-	
+
 	// Check size limits
 	if len(at.events) > at.config.MaxEvents {
 		at.pruneOldEvents()
 	}
-	
+
 	// Persist if enabled
 	if at.config.EnablePersistence && at.storage != nil {
 		if err := at.storage.Store(event); err != nil {
 			return fmt.Errorf("failed to persist audit event: %w", err)
 		}
 	}
-	
+
 	// Send alerts if needed
 	if at.config.EnableAlerts && event.Severity >= at.config.AlertSeverityLevel {
 		at.sendAlerts(event)
 	}
-	
+
 	return nil
 }
 
@@ -320,18 +320,18 @@ func (at *AuditTrail) recordEvent(event *AuditEvent) error {
 func (at *AuditTrail) pruneOldEvents() {
 	cutoff := time.Now().Add(-at.config.RetentionPeriod)
 	newEvents := make([]*AuditEvent, 0, at.config.MaxEvents)
-	
+
 	for _, event := range at.events {
 		if event.Timestamp.After(cutoff) {
 			newEvents = append(newEvents, event)
 		}
 	}
-	
+
 	at.events = newEvents
-	
+
 	// Rebuild indices
 	at.rebuildIndices()
-	
+
 	// Clean up storage
 	if at.storage != nil {
 		at.storage.Cleanup(cutoff)
@@ -342,7 +342,7 @@ func (at *AuditTrail) pruneOldEvents() {
 func (at *AuditTrail) rebuildIndices() {
 	at.eventsByType = make(map[AuditEventType][]*AuditEvent)
 	at.eventsBySource = make(map[string][]*AuditEvent)
-	
+
 	for _, event := range at.events {
 		at.eventsByType[event.Type] = append(at.eventsByType[event.Type], event)
 		at.eventsBySource[event.Source] = append(at.eventsBySource[event.Source], event)
@@ -359,7 +359,7 @@ func (at *AuditTrail) sendAlerts(event *AuditEvent) {
 			}
 		}(handler)
 	}
-	
+
 	at.metrics.mutex.Lock()
 	at.metrics.alertsSent++
 	at.metrics.mutex.Unlock()
@@ -369,7 +369,7 @@ func (at *AuditTrail) sendAlerts(event *AuditEvent) {
 func (at *AuditTrail) AddAlertHandler(handler AuditAlertHandler) {
 	at.mutex.Lock()
 	defer at.mutex.Unlock()
-	
+
 	at.alertHandlers = append(at.alertHandlers, handler)
 }
 
@@ -377,21 +377,21 @@ func (at *AuditTrail) AddAlertHandler(handler AuditAlertHandler) {
 func (at *AuditTrail) Query(filter AuditFilter) ([]*AuditEvent, error) {
 	at.mutex.RLock()
 	defer at.mutex.RUnlock()
-	
+
 	// Use storage if available for large queries
 	if at.storage != nil && filter.StartTime != nil {
 		return at.storage.Query(filter)
 	}
-	
+
 	// Otherwise query from memory
 	var results []*AuditEvent
-	
+
 	for _, event := range at.events {
 		if at.matchesFilter(event, filter) {
 			results = append(results, event)
 		}
 	}
-	
+
 	// Apply limit and offset
 	if filter.Offset > 0 && filter.Offset < len(results) {
 		results = results[filter.Offset:]
@@ -399,7 +399,7 @@ func (at *AuditTrail) Query(filter AuditFilter) ([]*AuditEvent, error) {
 	if filter.Limit > 0 && filter.Limit < len(results) {
 		results = results[:filter.Limit]
 	}
-	
+
 	return results, nil
 }
 
@@ -412,7 +412,7 @@ func (at *AuditTrail) matchesFilter(event *AuditEvent, filter AuditFilter) bool 
 	if filter.EndTime != nil && event.Timestamp.After(*filter.EndTime) {
 		return false
 	}
-	
+
 	// Event type filter
 	if len(filter.EventTypes) > 0 {
 		found := false
@@ -426,7 +426,7 @@ func (at *AuditTrail) matchesFilter(event *AuditEvent, filter AuditFilter) bool 
 			return false
 		}
 	}
-	
+
 	// Source filter
 	if len(filter.Sources) > 0 {
 		found := false
@@ -440,7 +440,7 @@ func (at *AuditTrail) matchesFilter(event *AuditEvent, filter AuditFilter) bool 
 			return false
 		}
 	}
-	
+
 	// Severity filter
 	if len(filter.Severities) > 0 {
 		found := false
@@ -454,7 +454,7 @@ func (at *AuditTrail) matchesFilter(event *AuditEvent, filter AuditFilter) bool 
 			return false
 		}
 	}
-	
+
 	// Result filter
 	if len(filter.Results) > 0 {
 		found := false
@@ -468,7 +468,7 @@ func (at *AuditTrail) matchesFilter(event *AuditEvent, filter AuditFilter) bool 
 			return false
 		}
 	}
-	
+
 	// Policy ID filter
 	if len(filter.PolicyIDs) > 0 {
 		found := false
@@ -482,7 +482,7 @@ func (at *AuditTrail) matchesFilter(event *AuditEvent, filter AuditFilter) bool 
 			return false
 		}
 	}
-	
+
 	// Tag filter
 	if len(filter.Tags) > 0 {
 		for _, tag := range filter.Tags {
@@ -498,7 +498,7 @@ func (at *AuditTrail) matchesFilter(event *AuditEvent, filter AuditFilter) bool 
 			}
 		}
 	}
-	
+
 	return true
 }
 
@@ -513,7 +513,7 @@ func (at *AuditTrail) ExportEvents(filter AuditFilter) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return json.MarshalIndent(events, "", "  ")
 }
 
@@ -522,7 +522,7 @@ func (at *AuditTrail) ExportEvents(filter AuditFilter) ([]byte, error) {
 func (m *AuditMetrics) recordEvent(event *AuditEvent) {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	m.totalEvents++
 	m.eventsByType[event.Type]++
 	m.eventsBySeverity[event.Severity]++
@@ -531,7 +531,7 @@ func (m *AuditMetrics) recordEvent(event *AuditEvent) {
 func (m *AuditMetrics) GetStats() map[string]interface{} {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	return map[string]interface{}{
 		"total_events":       m.totalEvents,
 		"events_by_type":     m.eventsByType,

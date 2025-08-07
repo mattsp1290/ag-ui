@@ -23,7 +23,7 @@ import (
 	"go.uber.org/zap"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/time/rate"
-	
+
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/common"
 )
 
@@ -35,31 +35,31 @@ import (
 type TokenRevocationStore interface {
 	// RevokeToken adds a token to the revocation list
 	RevokeToken(tokenID string, expiresAt time.Time) error
-	
+
 	// IsRevoked checks if a token is revoked
 	IsRevoked(tokenID string) bool
-	
+
 	// Cleanup removes expired revocations
 	Cleanup() error
 }
 
 // InMemoryRevocationStore implements an in-memory token revocation store
 type InMemoryRevocationStore struct {
-	revocations sync.Map // map[string]time.Time
+	revocations   sync.Map // map[string]time.Time
 	cleanupTicker *time.Ticker
-	stopCh chan struct{}
+	stopCh        chan struct{}
 }
 
 // NewInMemoryRevocationStore creates a new in-memory revocation store
 func NewInMemoryRevocationStore() *InMemoryRevocationStore {
 	store := &InMemoryRevocationStore{
 		cleanupTicker: time.NewTicker(5 * time.Minute),
-		stopCh: make(chan struct{}),
+		stopCh:        make(chan struct{}),
 	}
-	
+
 	// Start cleanup routine
 	go store.cleanupRoutine()
-	
+
 	return store
 }
 
@@ -68,7 +68,7 @@ func (s *InMemoryRevocationStore) RevokeToken(tokenID string, expiresAt time.Tim
 	if tokenID == "" {
 		return errors.New("token ID is required")
 	}
-	
+
 	s.revocations.Store(tokenID, expiresAt)
 	return nil
 }
@@ -78,7 +78,7 @@ func (s *InMemoryRevocationStore) IsRevoked(tokenID string) bool {
 	if tokenID == "" {
 		return false
 	}
-	
+
 	if expiresAt, ok := s.revocations.Load(tokenID); ok {
 		// Check if the revocation is still valid
 		if expiry, ok := expiresAt.(time.Time); ok {
@@ -90,14 +90,14 @@ func (s *InMemoryRevocationStore) IsRevoked(tokenID string) bool {
 		}
 		return true
 	}
-	
+
 	return false
 }
 
 // Cleanup removes expired revocations
 func (s *InMemoryRevocationStore) Cleanup() error {
 	now := time.Now()
-	
+
 	s.revocations.Range(func(key, value interface{}) bool {
 		if expiresAt, ok := value.(time.Time); ok {
 			if now.After(expiresAt) {
@@ -106,7 +106,7 @@ func (s *InMemoryRevocationStore) Cleanup() error {
 		}
 		return true
 	})
-	
+
 	return nil
 }
 
@@ -353,18 +353,18 @@ func (sm *SecurityManager) RevokeToken(tokenID string, expiresAt time.Time) erro
 	if sm.revocationStore == nil {
 		return errors.New("revocation store not configured")
 	}
-	
+
 	err := sm.revocationStore.RevokeToken(tokenID, expiresAt)
 	if err != nil {
 		sm.logger.Error("failed to revoke token", zap.String("token_id", tokenID), zap.Error(err))
 		return err
 	}
-	
+
 	sm.auditLogger.LogSecurityEvent("token_revoked", map[string]interface{}{
-		"token_id": tokenID,
+		"token_id":   tokenID,
 		"expires_at": expiresAt,
 	})
-	
+
 	return nil
 }
 
@@ -373,7 +373,7 @@ func (sm *SecurityManager) IsTokenRevoked(tokenID string) bool {
 	if sm.revocationStore == nil {
 		return false
 	}
-	
+
 	return sm.revocationStore.IsRevoked(tokenID)
 }
 
@@ -381,22 +381,23 @@ func (sm *SecurityManager) IsTokenRevoked(tokenID string) bool {
 func (sm *SecurityManager) Close() error {
 	sm.mutex.Lock()
 	defer sm.mutex.Unlock()
-	
+
 	// Stop the rate limiter if it exists
 	if sm.rateLimiter != nil {
 		sm.rateLimiter.Stop()
 	}
-	
+
 	// Stop the token revocation store cleanup routine
 	if revocationStore, ok := sm.revocationStore.(*InMemoryRevocationStore); ok {
 		revocationStore.Stop()
 	}
-	
+
 	// Close audit logger if it has resources to clean up
 	// (currently it doesn't, but good practice for future extensions)
-	
+
 	return nil
 }
+
 // ============================================================================
 // Authentication Interfaces and Implementations
 // ============================================================================
@@ -556,7 +557,7 @@ func (aka *APIKeyAuthenticator) constantTimeAPIKeyLookup(inputKey string) *APIKe
 	for storedKey, keyInfo := range aka.apiKeys {
 		// Use constant-time comparison for each key
 		match := subtle.ConstantTimeCompare([]byte(inputKey), []byte(storedKey))
-		
+
 		// Use constant-time selection to avoid branching
 		if match == 1 {
 			// Constant-time assignment using conditional move semantics
@@ -611,7 +612,7 @@ func NewBasicAuthenticator(username, password string) *BasicAuthenticator {
 	// Add the configured user with bcrypt hash
 	ba.AddUser(&BasicAuthUser{
 		Username:     username,
-		Password:     "",  // Don't store plaintext password
+		Password:     "", // Don't store plaintext password
 		PasswordHash: hashPassword(password),
 	})
 
@@ -1197,7 +1198,7 @@ func (rv *RequestValidator) validateURL(u *url.URL) error {
 			BlockLocalhost:         true,
 			ValidateHostResolution: false, // Don't resolve during request validation
 		}
-		
+
 		if err := common.ValidateURL(u.String(), opts); err != nil {
 			return fmt.Errorf("URL validation failed: %w", err)
 		}
@@ -1428,7 +1429,7 @@ func (sh *SecurityHeaders) isOriginAllowed(origin string) bool {
 				// Log security warning
 				continue // Skip wildcard when credentials are enabled
 			}
-			
+
 			if allowed == origin {
 				return true
 			}

@@ -14,7 +14,7 @@ func BenchmarkSimpleBufferPooling(b *testing.B) {
 			_ = buf
 		}
 	})
-	
+
 	b.Run("WithPool", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
@@ -33,7 +33,7 @@ func BenchmarkSimpleSlicePooling(b *testing.B) {
 			_ = slice
 		}
 	})
-	
+
 	b.Run("WithPool", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
@@ -55,7 +55,7 @@ func BenchmarkSimpleErrorPooling(b *testing.B) {
 			_ = err
 		}
 	})
-	
+
 	b.Run("WithPool", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
@@ -73,36 +73,36 @@ func BenchmarkSimpleGCPressure(b *testing.B) {
 		var m1, m2 runtime.MemStats
 		runtime.GC()
 		runtime.ReadMemStats(&m1)
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			buf := make([]byte, 1024)
 			_ = buf
 		}
 		b.StopTimer()
-		
+
 		runtime.GC()
 		runtime.ReadMemStats(&m2)
-		
+
 		b.ReportMetric(float64(m2.NumGC-m1.NumGC), "gc-runs")
 		b.ReportMetric(float64(m2.PauseTotalNs-m1.PauseTotalNs)/1000000, "gc-pause-ms")
 	})
-	
+
 	b.Run("WithPool", func(b *testing.B) {
 		var m1, m2 runtime.MemStats
 		runtime.GC()
 		runtime.ReadMemStats(&m1)
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			buf := GetBuffer(1024)
 			PutBuffer(buf)
 		}
 		b.StopTimer()
-		
+
 		runtime.GC()
 		runtime.ReadMemStats(&m2)
-		
+
 		b.ReportMetric(float64(m2.NumGC-m1.NumGC), "gc-runs")
 		b.ReportMetric(float64(m2.PauseTotalNs-m1.PauseTotalNs)/1000000, "gc-pause-ms")
 	})
@@ -112,7 +112,7 @@ func BenchmarkSimpleGCPressure(b *testing.B) {
 func BenchmarkSimpleConcurrentUsage(b *testing.B) {
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
 			buf := GetBuffer(1024)

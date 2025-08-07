@@ -23,7 +23,7 @@ func BenchmarkStringBuilding(b *testing.B) {
 			_ = fmt.Sprintf("HTTP Server Metrics - Total: %d, Success: %d, Failed: %d", 1000, 950, 50)
 		}
 	})
-	
+
 	b.Run("strings.Builder_pooled", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -56,7 +56,7 @@ func BenchmarkObjectPooling(b *testing.B) {
 			_ = user
 		}
 	})
-	
+
 	b.Run("object_pooling", func(b *testing.B) {
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
@@ -77,16 +77,16 @@ func BenchmarkHTTPServerThroughput(b *testing.B) {
 	config.PreferredFramework = FrameworkStdlib
 	config.EnableLogging = false
 	config.EnableMetrics = false
-	
+
 	server, err := NewHTTPServer(config)
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer server.Stop(context.Background())
-	
+
 	// Create test request
 	req := httptest.NewRequest("GET", "/health", nil)
-	
+
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -103,18 +103,18 @@ func BenchmarkRateLimiterPerformance(b *testing.B) {
 	config.BurstSize = 100
 	config.EnableMemoryBounds = true
 	config.MaxLimiters = 1000
-	
+
 	logger := zap.NewNop()
 	rateLimiter, err := middleware.NewRateLimitMiddleware(config, logger)
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer rateLimiter.Cleanup()
-	
+
 	handler := rateLimiter.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
-	
+
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		clientID := 0
@@ -145,18 +145,18 @@ func BenchmarkAuthMiddlewarePerformance(b *testing.B) {
 	config.Enabled = true
 	config.Name = "auth"
 	config.Priority = 100
-	
+
 	logger := zap.NewNop()
 	authMiddleware, err := middleware.NewAuthMiddleware(config, logger)
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer authMiddleware.Cleanup()
-	
+
 	handler := authMiddleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
-	
+
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -186,15 +186,15 @@ func BenchmarkMiddlewareChainPerformance(b *testing.B) {
 		time.Sleep(time.Microsecond)
 		next()
 	}
-	
+
 	b.Run("optimized_chain", func(b *testing.B) {
 		chain := NewOptimizedMiddlewareChain()
 		chain.Add(middleware1)
 		chain.Add(middleware2)
 		chain.Add(middleware3)
-		
+
 		req := httptest.NewRequest("GET", "/test", nil)
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			rec := httptest.NewRecorder()
@@ -218,7 +218,7 @@ func BenchmarkMemoryUsage(b *testing.B) {
 			stringBuilderPool.Put(builder)
 		}
 	})
-	
+
 	b.Run("object_pooling", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
@@ -234,13 +234,13 @@ func BenchmarkMemoryUsage(b *testing.B) {
 func BenchmarkConcurrentAccess(b *testing.B) {
 	config := DefaultHTTPServerConfig()
 	config.PreferredFramework = FrameworkStdlib
-	
+
 	server, err := NewHTTPServer(config)
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer server.Stop(context.Background())
-	
+
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -258,21 +258,21 @@ func TestPerformanceTargets(t *testing.T) {
 	config.PreferredFramework = FrameworkStdlib
 	config.EnableLogging = false
 	config.EnableMetrics = false
-	
+
 	server, err := NewHTTPServer(config)
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer server.Stop(context.Background())
-	
+
 	// Measure throughput
 	duration := time.Second
 	start := time.Now()
 	var requests int64
-	
+
 	var wg sync.WaitGroup
 	done := make(chan bool)
-	
+
 	// Start background goroutines to generate load
 	for i := 0; i < 10; i++ {
 		wg.Add(1)
@@ -291,18 +291,18 @@ func TestPerformanceTargets(t *testing.T) {
 			}
 		}()
 	}
-	
+
 	// Run for specified duration
 	time.Sleep(duration)
 	close(done)
 	wg.Wait()
-	
+
 	elapsed := time.Since(start)
 	finalRequests := atomic.LoadInt64(&requests)
 	rps := float64(finalRequests) / elapsed.Seconds()
-	
+
 	t.Logf("Achieved %d requests in %v (%.0f RPS)", finalRequests, elapsed, rps)
-	
+
 	// Validate we achieved target performance
 	if rps < 5000 { // Conservative target for test environment
 		t.Errorf("Performance target not met: %.0f RPS < 5000 RPS", rps)

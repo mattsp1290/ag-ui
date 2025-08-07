@@ -231,25 +231,25 @@ type StreamMetrics struct {
 // DefaultStreamConfig returns a default stream configuration
 func DefaultStreamConfig() *StreamConfig {
 	return &StreamConfig{
-		EventBufferSize:     5000,        // Increased buffer size for higher throughput
-		ChunkBufferSize:     500,         // Increased chunk buffer
-		MaxChunkSize:        64 * 1024,   // 64KB
+		EventBufferSize:     5000,                  // Increased buffer size for higher throughput
+		ChunkBufferSize:     500,                   // Increased chunk buffer
+		MaxChunkSize:        64 * 1024,             // 64KB
 		FlushInterval:       10 * time.Millisecond, // Reduced flush interval for faster processing
 		BatchEnabled:        true,
-		BatchSize:           100,         // Increased batch size for better throughput
+		BatchSize:           100,                   // Increased batch size for better throughput
 		BatchTimeout:        10 * time.Millisecond, // Much faster batching for low latency
-		MaxBatchSize:        1000,        // Increased max batch size
+		MaxBatchSize:        1000,                  // Increased max batch size
 		CompressionEnabled:  true,
 		CompressionType:     CompressionGzip,
-		CompressionLevel:    1,           // Fastest compression level for performance
-		MinCompressionSize:  512,         // Lower threshold for compression
-		MaxConcurrentEvents: 500,         // Higher concurrency for better throughput
+		CompressionLevel:    1,   // Fastest compression level for performance
+		MinCompressionSize:  512, // Lower threshold for compression
+		MaxConcurrentEvents: 500, // Higher concurrency for better throughput
 		BackpressureTimeout: 5 * time.Second,
 		DrainTimeout:        30 * time.Second,
-		SequenceEnabled:     false,       // Disable sequencing for performance gain
+		SequenceEnabled:     false, // Disable sequencing for performance gain
 		OrderingRequired:    false,
 		OutOfOrderBuffer:    1000,
-		WorkerCount:         8,           // More workers for higher throughput
+		WorkerCount:         8, // More workers for higher throughput
 		EnableMetrics:       true,
 		MetricsInterval:     30 * time.Second,
 	}
@@ -383,7 +383,7 @@ func (s *EventStream) SendEvent(event events.Event) error {
 	case s.eventChan <- event:
 		if s.metrics != nil {
 			atomic.AddUint64(&s.metrics.TotalEvents, 1)
-			
+
 			// Update time fields under mutex
 			s.metrics.mu.Lock()
 			s.metrics.LastEventTime = time.Now()
@@ -444,7 +444,7 @@ func (s *EventStream) GetMetrics() *StreamMetrics {
 		StartTime:           s.metrics.StartTime,
 		LastEventTime:       s.metrics.LastEventTime,
 	}
-	
+
 	if s.metrics.FlowControl != nil {
 		flowMetrics := *s.metrics.FlowControl
 		metrics.FlowControl = &flowMetrics
@@ -531,7 +531,7 @@ func (s *EventStream) closeChannelSafely(ch interface{}) {
 			// Channel was already closed, ignore panic
 		}
 	}()
-	
+
 	switch c := ch.(type) {
 	case chan events.Event:
 		close(c)
@@ -597,7 +597,7 @@ func (s *EventStream) eventProcessor(workerID int) {
 			// Context cancelled, drain any remaining events in the channel with timeout
 			drainCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
-			
+
 			for {
 				select {
 				case <-s.eventChan:
@@ -611,7 +611,7 @@ func (s *EventStream) eventProcessor(workerID int) {
 					return
 				}
 			}
-		
+
 		case <-time.After(100 * time.Millisecond):
 			// Periodic check for context cancellation and to prevent blocking
 			if s.isClosed() {
@@ -690,7 +690,7 @@ func (s *EventStream) addToBatch(event events.Event) error {
 	// Acquire read lock to safely access batchChan during the entire operation
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	
+
 	// Check again if closed after acquiring lock
 	if s.isClosed() || s.batchChan == nil {
 		return fmt.Errorf("stream is closed")
@@ -772,7 +772,7 @@ func (s *EventStream) batchProcessor() {
 			// Drain remaining batches with timeout to prevent hanging
 			drainCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 			defer cancel()
-			
+
 			for {
 				select {
 				case batch, ok := <-s.batchChan:
@@ -1167,7 +1167,7 @@ func (fc *FlowController) Drain() {
 	// Drain the backpressure channel with timeout to prevent hanging
 	drainCtx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
-	
+
 	for {
 		select {
 		case <-fc.backpressureCh:
@@ -1225,7 +1225,7 @@ func (fc *FlowController) Release() {
 	if current <= 0 {
 		return // Nothing to release
 	}
-	
+
 	select {
 	case <-fc.backpressureCh:
 		newCurrent := atomic.AddInt32(&fc.current, -1)

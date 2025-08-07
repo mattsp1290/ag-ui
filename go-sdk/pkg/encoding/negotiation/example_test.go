@@ -121,12 +121,12 @@ func ExamplePerformanceTracker() {
 
 	// Simulate performance measurements
 	formats := []string{"application/json", "application/x-protobuf"}
-	
+
 	for _, format := range formats {
 		// Simulate multiple requests
 		for i := 0; i < 5; i++ {
 			var metrics negotiation.PerformanceMetrics
-			
+
 			if format == "application/json" {
 				metrics = negotiation.PerformanceMetrics{
 					EncodingTime: time.Duration(10+i) * time.Millisecond,
@@ -146,7 +146,7 @@ func ExamplePerformanceTracker() {
 					CPUUsage:     10.0 + float64(i)*0.5,
 				}
 			}
-			
+
 			negotiator.UpdatePerformance(format, metrics)
 		}
 	}
@@ -192,7 +192,7 @@ func ExampleAdaptiveSelector() {
 func ExampleParseAcceptHeader() {
 	// Parse complex Accept header
 	header := "application/json;q=0.9, application/x-protobuf;q=1.0, */*, text/html;q=0.8"
-	
+
 	acceptTypes, err := negotiation.ParseAcceptHeader(header)
 	if err != nil {
 		log.Fatal(err)
@@ -214,7 +214,7 @@ func ExampleParseAcceptHeader() {
 func ExampleParseMediaType() {
 	// Parse Content-Type header
 	contentType := "application/json;charset=utf-8"
-	
+
 	mediaType, params, err := negotiation.ParseMediaType(contentType)
 	if err != nil {
 		log.Fatal(err)
@@ -230,16 +230,16 @@ func ExampleParseMediaType() {
 
 func ExamplePreferenceOrderSelector() {
 	negotiator := negotiation.NewContentNegotiator("application/json")
-	
+
 	// Define explicit preference order
 	preferences := []string{
 		"application/vnd.ag-ui+json",
 		"application/x-protobuf",
 		"application/json",
 	}
-	
+
 	selector := negotiation.NewPreferenceOrderSelector(negotiator, preferences)
-	
+
 	// Will select first matching preference
 	contentType, err := selector.SelectByPreference("application/json, application/x-protobuf, application/vnd.ag-ui+json")
 	if err != nil {

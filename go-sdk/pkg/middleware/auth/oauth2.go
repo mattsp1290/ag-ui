@@ -249,7 +249,7 @@ func (o *OAuth2Provider) Revoke(ctx context.Context, credentials *Credentials) e
 
 	// Note: OAuth 2.0 token revocation would typically involve calling
 	// the provider's revocation endpoint, but this is simplified for the interface
-	
+
 	return nil
 }
 
@@ -334,11 +334,11 @@ func (o *OAuth2Provider) GetAuthorizationURL(state, codeChallenge string) string
 	params.Set("client_id", o.config.ClientID)
 	params.Set("redirect_uri", o.config.RedirectURL)
 	params.Set("state", state)
-	
+
 	if len(o.config.Scopes) > 0 {
 		params.Set("scope", strings.Join(o.config.Scopes, " "))
 	}
-	
+
 	if codeChallenge != "" {
 		params.Set("code_challenge", codeChallenge)
 		params.Set("code_challenge_method", "S256")
@@ -354,11 +354,11 @@ func (o *OAuth2Provider) ExchangeCodeForToken(ctx context.Context, code, codeVer
 	data.Set("code", code)
 	data.Set("client_id", o.config.ClientID)
 	data.Set("redirect_uri", o.config.RedirectURL)
-	
+
 	if o.config.ClientSecret != "" {
 		data.Set("client_secret", o.config.ClientSecret)
 	}
-	
+
 	if codeVerifier != "" {
 		data.Set("code_verifier", codeVerifier)
 	}

@@ -217,7 +217,7 @@ func BenchmarkFormatRegistryCleanupOperations(b *testing.B) {
 				}
 				time.Sleep(5 * time.Millisecond) // Let them expire
 			}
-			
+
 			_, _ = registry.CleanupExpired()
 		}
 	})
@@ -267,7 +267,7 @@ func BenchmarkFormatRegistryCleanupOperations(b *testing.B) {
 				}
 				time.Sleep(5 * time.Millisecond) // Age them
 			}
-			
+
 			_, _ = registry.CleanupByAccessTime(1 * time.Millisecond)
 		}
 	})
@@ -295,7 +295,7 @@ func BenchmarkFormatRegistryCleanupOperations(b *testing.B) {
 					_ = registry.RegisterFormat(info)
 				}
 			}
-			
+
 			_ = registry.ClearAll()
 		}
 	})

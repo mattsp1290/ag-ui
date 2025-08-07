@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 	"github.com/google/uuid"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // Common errors
@@ -55,7 +55,7 @@ type ManagerOptions struct {
 	BatchSize         int
 	BatchTimeout      time.Duration
 	UpdateQueueSize   int // Size of the update queue for concurrent operations
-	
+
 	// Performance optimizer configuration
 	PerformanceOptimizer PerformanceOptimizer
 
@@ -65,7 +65,7 @@ type ManagerOptions struct {
 	EnableTracing   bool
 
 	// Rate limiting configuration
-	GlobalRateLimit        int                      // Global rate limit (requests per second)
+	GlobalRateLimit         int                      // Global rate limit (requests per second)
 	ClientRateLimiterConfig *ClientRateLimiterConfig // Client rate limiter configuration
 
 	// Audit configuration
@@ -78,60 +78,60 @@ func (opts *ManagerOptions) Validate() error {
 	if opts == nil {
 		return fmt.Errorf("manager options cannot be nil")
 	}
-	
+
 	// Validate history size
 	if opts.MaxHistorySize < 0 {
 		return fmt.Errorf("max history size cannot be negative, got %d", opts.MaxHistorySize)
 	}
-	
+
 	// Validate retry configuration
 	if opts.MaxRetries < 0 {
 		return fmt.Errorf("max retries cannot be negative, got %d", opts.MaxRetries)
 	}
-	
+
 	if opts.RetryDelay < 0 {
 		return fmt.Errorf("retry delay cannot be negative, got %v", opts.RetryDelay)
 	}
-	
+
 	// Validate checkpoint configuration
 	if opts.MaxCheckpoints < 0 {
 		return fmt.Errorf("max checkpoints cannot be negative, got %d", opts.MaxCheckpoints)
 	}
-	
+
 	if opts.CheckpointInterval < 0 {
 		return fmt.Errorf("checkpoint interval cannot be negative, got %v", opts.CheckpointInterval)
 	}
-	
+
 	// Validate event handling configuration
 	if opts.EventBufferSize < 0 {
 		return fmt.Errorf("event buffer size cannot be negative, got %d", opts.EventBufferSize)
 	}
-	
+
 	if opts.ProcessingWorkers <= 0 {
 		return fmt.Errorf("processing workers must be positive, got %d", opts.ProcessingWorkers)
 	}
-	
+
 	if opts.EventRetryBackoff < 0 {
 		return fmt.Errorf("event retry backoff cannot be negative, got %v", opts.EventRetryBackoff)
 	}
-	
+
 	// Validate performance configuration
 	if opts.CacheSize < 0 {
 		return fmt.Errorf("cache size cannot be negative, got %d", opts.CacheSize)
 	}
-	
+
 	if opts.CacheTTL < 0 {
 		return fmt.Errorf("cache TTL cannot be negative, got %v", opts.CacheTTL)
 	}
-	
+
 	if opts.BatchSize < 0 {
 		return fmt.Errorf("batch size cannot be negative, got %d", opts.BatchSize)
 	}
-	
+
 	if opts.BatchTimeout < 0 {
 		return fmt.Errorf("batch timeout cannot be negative, got %v", opts.BatchTimeout)
 	}
-	
+
 	if opts.UpdateQueueSize <= 0 {
 		// Set a sensible default based on the existing pattern but with higher capacity
 		// Use max of BatchSize*10 or DefaultUpdateQueueSize to handle high-concurrency scenarios
@@ -145,49 +145,49 @@ func (opts *ManagerOptions) Validate() error {
 			opts.UpdateQueueSize = DefaultUpdateQueueSize
 		}
 	}
-	
+
 	// Validate metrics configuration
 	if opts.MetricsInterval < 0 {
 		return fmt.Errorf("metrics interval cannot be negative, got %v", opts.MetricsInterval)
 	}
-	
+
 	// Validate rate limiting configuration
 	if opts.GlobalRateLimit < 0 {
 		return fmt.Errorf("global rate limit cannot be negative, got %d", opts.GlobalRateLimit)
 	}
-	
+
 	return nil
 }
 
 // DefaultManagerOptions returns sensible defaults
 func DefaultManagerOptions() ManagerOptions {
 	return ManagerOptions{
-		MaxHistorySize:      DefaultMaxHistorySize,
-		ConflictStrategy:    LastWriteWins,
-		MaxRetries:          DefaultMaxRetries,
-		RetryDelay:          GetDefaultRetryDelay(),
-		StrictMode:          true,
-		MaxCheckpoints:      DefaultMaxCheckpoints,
-		CheckpointInterval:  GetDefaultCheckpointInterval(),
-		AutoCheckpoint:      true,
-		CompressCheckpoints: true,
-		EventBufferSize:     DefaultEventBufferSize,
-		ProcessingWorkers:   DefaultProcessingWorkers,
-		EventRetryBackoff:   GetDefaultEventRetryBackoff(),
-		CacheSize:           DefaultCacheSize,
-		CacheTTL:            GetDefaultCacheTTL(),
-		EnableCompression:   true,
-		EnableBatching:      true,
-		BatchSize:           DefaultBatchSize,
-		BatchTimeout:        GetDefaultBatchTimeout(),
-		UpdateQueueSize:     DefaultUpdateQueueSize,
-		EnableMetrics:       true,
-		MetricsInterval:     GetDefaultMetricsInterval(),
-		EnableTracing:       false,
-		GlobalRateLimit:     DefaultGlobalRateLimit,
+		MaxHistorySize:          DefaultMaxHistorySize,
+		ConflictStrategy:        LastWriteWins,
+		MaxRetries:              DefaultMaxRetries,
+		RetryDelay:              GetDefaultRetryDelay(),
+		StrictMode:              true,
+		MaxCheckpoints:          DefaultMaxCheckpoints,
+		CheckpointInterval:      GetDefaultCheckpointInterval(),
+		AutoCheckpoint:          true,
+		CompressCheckpoints:     true,
+		EventBufferSize:         DefaultEventBufferSize,
+		ProcessingWorkers:       DefaultProcessingWorkers,
+		EventRetryBackoff:       GetDefaultEventRetryBackoff(),
+		CacheSize:               DefaultCacheSize,
+		CacheTTL:                GetDefaultCacheTTL(),
+		EnableCompression:       true,
+		EnableBatching:          true,
+		BatchSize:               DefaultBatchSize,
+		BatchTimeout:            GetDefaultBatchTimeout(),
+		UpdateQueueSize:         DefaultUpdateQueueSize,
+		EnableMetrics:           true,
+		MetricsInterval:         GetDefaultMetricsInterval(),
+		EnableTracing:           false,
+		GlobalRateLimit:         DefaultGlobalRateLimit,
 		ClientRateLimiterConfig: nil, // Will use default configuration
-		EnableAudit:         true,
-		AuditLogger:         nil, // Will use default JSON logger
+		EnableAudit:             true,
+		AuditLogger:             nil, // Will use default JSON logger
 	}
 }
 
@@ -210,12 +210,12 @@ type StateManager struct {
 	options ManagerOptions
 
 	// Runtime state
-	mu               sync.RWMutex
-	activeContexts   *ContextManager // Bounded context manager to prevent memory leaks
-	updateQueue      chan *updateRequest
-	eventQueue       chan *stateEvent
-	metricsCollector *metricsCollector
-	errCh            chan error // Channel for error propagation from goroutines
+	mu                   sync.RWMutex
+	activeContexts       *ContextManager // Bounded context manager to prevent memory leaks
+	updateQueue          chan *updateRequest
+	eventQueue           chan *stateEvent
+	metricsCollector     *metricsCollector
+	errCh                chan error           // Channel for error propagation from goroutines
 	performanceOptimizer PerformanceOptimizer // Internal performance optimizer instance
 
 	// Context management
@@ -383,27 +383,27 @@ func NewStateManager(opts ManagerOptions) (*StateManager, error) {
 	}
 
 	sm := &StateManager{
-		store:             store,
-		deltaComputer:     deltaComputer,
-		conflictResolver:  conflictResolver,
-		validator:         validator,
-		rollbackManager:   rollbackManager,
-		eventHandler:      eventHandler,
-		securityValidator: securityValidator,
-		rateLimiter:       rateLimiter,
-		clientRateLimiter: clientRateLimiter,
-		logger:            logger,
-		auditManager:      auditManager,
-		options:           opts,
-		activeContexts:    NewContextManager(maxContexts),
-		updateQueue:       make(chan *updateRequest, opts.UpdateQueueSize),
-		eventQueue:        make(chan *stateEvent, opts.EventBufferSize),
-		errCh:             make(chan error, DefaultErrorChannelSize), // Buffer for error propagation
-		contextTTL:        GetDefaultContextTTL(),                         // Default context TTL
-		cleanupInterval:   GetDefaultCleanupInterval(),                    // Default cleanup interval
-		lastCleanup:       time.Now(),
-		ctx:               ctx,
-		cancel:            cancel,
+		store:                store,
+		deltaComputer:        deltaComputer,
+		conflictResolver:     conflictResolver,
+		validator:            validator,
+		rollbackManager:      rollbackManager,
+		eventHandler:         eventHandler,
+		securityValidator:    securityValidator,
+		rateLimiter:          rateLimiter,
+		clientRateLimiter:    clientRateLimiter,
+		logger:               logger,
+		auditManager:         auditManager,
+		options:              opts,
+		activeContexts:       NewContextManager(maxContexts),
+		updateQueue:          make(chan *updateRequest, opts.UpdateQueueSize),
+		eventQueue:           make(chan *stateEvent, opts.EventBufferSize),
+		errCh:                make(chan error, DefaultErrorChannelSize), // Buffer for error propagation
+		contextTTL:           GetDefaultContextTTL(),                    // Default context TTL
+		cleanupInterval:      GetDefaultCleanupInterval(),               // Default cleanup interval
+		lastCleanup:          time.Now(),
+		ctx:                  ctx,
+		cancel:               cancel,
 		performanceOptimizer: performanceOptimizer,
 	}
 
@@ -597,7 +597,7 @@ func (sm *StateManager) UpdateState(ctx context.Context, contextID, stateID stri
 	if atomic.LoadInt32(&sm.closing) == 1 {
 		return nil, ErrManagerClosing
 	}
-	
+
 	select {
 	case <-sm.ctx.Done():
 		return nil, ErrManagerClosed
@@ -882,7 +882,7 @@ func (sm *StateManager) Close() error {
 		if err := sm.auditManager.Close(); err != nil {
 			sm.logger.Error("failed to close audit manager", Err(err))
 		}
-		
+
 		// Then close the logger
 		if sm.auditManager.logger != nil {
 			if err := sm.auditManager.logger.Close(); err != nil {
@@ -904,12 +904,12 @@ func (sm *StateManager) Close() error {
 	}
 
 	sm.logger.Info("state manager shutdown complete")
-	
+
 	// Shutdown the logger if it's a TestSafeLogger
 	if testLogger, ok := sm.logger.(*TestSafeLogger); ok {
 		testLogger.Shutdown()
 	}
-	
+
 	return nil
 }
 
@@ -937,7 +937,7 @@ func (sm *StateManager) processUpdates() {
 	batch := make([]*updateRequest, 0, sm.options.BatchSize)
 	timer := time.NewTimer(sm.options.BatchTimeout)
 	defer timer.Stop()
-	
+
 	// Track batch resets to detect memory growth
 	batchResetCount := 0
 
@@ -981,7 +981,7 @@ func (sm *StateManager) processUpdates() {
 		case <-timer.C:
 			if len(batch) > 0 && atomic.LoadInt32(&sm.closing) == 0 {
 				sm.processBatch(batch)
-				// Proper slice cleanup with memory management  
+				// Proper slice cleanup with memory management
 				batch = sm.resetBatchSlice(batch, &batchResetCount)
 			}
 			timer.Reset(sm.options.BatchTimeout)
@@ -1028,13 +1028,13 @@ func (sm *StateManager) processStateUpdates(stateID string, requests []*updateRe
 	// Get current state with retry logic
 	var currentState interface{}
 	var err error
-	
+
 	for attempt := 0; attempt <= sm.options.MaxRetries; attempt++ {
 		currentState, err = sm.store.Get(stateID)
 		if err == nil {
 			break // Success
 		}
-		
+
 		// If this is the last attempt, fail
 		if attempt == sm.options.MaxRetries {
 			// Send error to all requests
@@ -1043,14 +1043,14 @@ func (sm *StateManager) processStateUpdates(stateID string, requests []*updateRe
 			}
 			return
 		}
-		
+
 		// Log retry attempt
 		sm.logger.Debug("store get failed, retrying",
 			Err(err),
 			String("state_id", stateID),
 			Int("attempt", attempt+1),
 			Int("max_retries", sm.options.MaxRetries))
-		
+
 		// Wait before retrying (with exponential backoff)
 		retryDelay := time.Duration(float64(sm.options.RetryDelay) * float64(attempt+1))
 		time.Sleep(retryDelay)
@@ -1141,7 +1141,7 @@ func (sm *StateManager) processSingleUpdate(state interface{}, req *updateReques
 	// Apply the patch to the store with retry logic
 	for attempt := 0; attempt <= sm.options.MaxRetries; attempt++ {
 		if err := sm.store.ApplyPatch(delta); err != nil {
-			
+
 			// If this is the last attempt, fail
 			if attempt == sm.options.MaxRetries {
 				// Audit failed store update after all retries
@@ -1155,7 +1155,7 @@ func (sm *StateManager) processSingleUpdate(state interface{}, req *updateReques
 				}
 				return updateResult{err: fmt.Errorf("store update failed after %d attempts: %w", attempt+1, err)}
 			}
-			
+
 			// Log retry attempt
 			sm.logger.Debug("store update failed, retrying",
 				Err(err),
@@ -1163,7 +1163,7 @@ func (sm *StateManager) processSingleUpdate(state interface{}, req *updateReques
 				String("state_id", req.stateID),
 				Int("attempt", attempt+1),
 				Int("max_retries", sm.options.MaxRetries))
-			
+
 			// Wait before retrying (with exponential backoff)
 			retryDelay := time.Duration(float64(sm.options.RetryDelay) * float64(attempt+1))
 			select {
@@ -1284,7 +1284,7 @@ func (sm *StateManager) processEvents() {
 						// Suppress panics during event processing
 					}
 				}()
-				
+
 				switch event.Type {
 				case "state_snapshot":
 					if snapshot, ok := event.Data["snapshot"]; ok {
@@ -1346,7 +1346,7 @@ func (sm *StateManager) autoCheckpoint() {
 				sm.logger.Debug("autoCheckpoint exiting during shutdown")
 				return
 			}
-			
+
 			// Create checkpoints with timeout
 			go func() {
 				defer func() {
@@ -1354,7 +1354,7 @@ func (sm *StateManager) autoCheckpoint() {
 						// Suppress panics during checkpoint creation
 					}
 				}()
-				
+
 				if atomic.LoadInt32(&sm.closing) == 0 {
 					sm.createAutoCheckpoints()
 				}
@@ -1427,7 +1427,7 @@ func (sm *StateManager) collectMetrics() {
 				sm.logger.Debug("collectMetrics exiting during shutdown")
 				return
 			}
-			
+
 			// Collect metrics with timeout
 			go func() {
 				defer func() {
@@ -1435,7 +1435,7 @@ func (sm *StateManager) collectMetrics() {
 						// Suppress panics during metrics collection
 					}
 				}()
-				
+
 				if atomic.LoadInt32(&sm.closing) == 0 {
 					sm.metricsCollector.Collect(sm)
 				}
@@ -1498,7 +1498,7 @@ func (sm *StateManager) logAuditAsync(log *AuditLog, operation string) {
 	if sm.auditManager == nil || log == nil {
 		return
 	}
-	
+
 	// Check if manager is closing to avoid spawning new goroutines during shutdown
 	if atomic.LoadInt32(&sm.closing) == 1 {
 		// For shutdown operations, log synchronously to ensure they're captured
@@ -1511,7 +1511,7 @@ func (sm *StateManager) logAuditAsync(log *AuditLog, operation string) {
 		}
 		return
 	}
-	
+
 	// Use bounded goroutine pool to prevent excessive goroutine creation
 	go func() {
 		defer func() {
@@ -1519,11 +1519,11 @@ func (sm *StateManager) logAuditAsync(log *AuditLog, operation string) {
 				sm.reportError(fmt.Errorf("panic in %s audit logging goroutine: %v", operation, r))
 			}
 		}()
-		
+
 		// Create context that respects both timeout and manager shutdown
 		auditCtx, cancel := context.WithTimeout(sm.ctx, 5*time.Second)
 		defer cancel()
-		
+
 		if err := sm.auditManager.logger.Log(auditCtx, log); err != nil {
 			// Check if error is due to context cancellation (manager shutting down)
 			select {
@@ -1761,7 +1761,7 @@ func (sm *StateManager) contextCleanup() {
 				sm.logger.Debug("contextCleanup exiting during shutdown")
 				return
 			}
-			
+
 			// Cleanup with timeout
 			go func() {
 				defer func() {
@@ -1769,7 +1769,7 @@ func (sm *StateManager) contextCleanup() {
 						// Suppress panics during cleanup
 					}
 				}()
-				
+
 				if atomic.LoadInt32(&sm.closing) == 0 {
 					sm.cleanupExpiredContexts()
 				}
@@ -1885,10 +1885,10 @@ func (sm *StateManager) isClosing() bool {
 // resetBatchSlice properly resets the batch slice to prevent memory retention
 func (sm *StateManager) resetBatchSlice(batch []*updateRequest, resetCount *int) []*updateRequest {
 	*resetCount++
-	
+
 	// Clear the slice properly to allow GC of underlying data
 	batch = batch[:0]
-	
+
 	// Recreate slice periodically when capacity grows too large
 	// This prevents memory retention from large batches
 	if cap(batch) > sm.options.BatchSize*4 {
@@ -1896,11 +1896,11 @@ func (sm *StateManager) resetBatchSlice(batch []*updateRequest, resetCount *int)
 			Int("current_cap", cap(batch)),
 			Int("target_batch_size", sm.options.BatchSize),
 			Int("reset_count", *resetCount))
-		
+
 		// Create new slice with original capacity
 		batch = make([]*updateRequest, 0, sm.options.BatchSize)
 		*resetCount = 0 // Reset counter after recreation
 	}
-	
+
 	return batch
 }

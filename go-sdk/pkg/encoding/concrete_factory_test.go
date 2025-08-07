@@ -14,15 +14,15 @@ func TestConcreteFactoryFunctions(t *testing.T) {
 		// Create factory using concrete function
 		factory := encoding.NewEncoderFactory()
 		assert.NotNil(t, factory)
-		
+
 		// Verify it returns the correct concrete type
 		assert.IsType(t, &encoding.DefaultEncoderFactory{}, factory)
-		
+
 		// Test it can be used with the registry
 		registry := encoding.NewFormatRegistry()
 		err := registry.RegisterEncoderFactory("application/test", factory)
 		assert.NoError(t, err)
-		
+
 		// Verify we can get it back
 		retrievedFactory, err := registry.GetEncoderFactory("application/test")
 		assert.NoError(t, err)
@@ -33,15 +33,15 @@ func TestConcreteFactoryFunctions(t *testing.T) {
 		// Create factory using concrete function
 		factory := encoding.NewDecoderFactory()
 		assert.NotNil(t, factory)
-		
+
 		// Verify it returns the correct concrete type
 		assert.IsType(t, &encoding.DefaultDecoderFactory{}, factory)
-		
+
 		// Test it can be used with the registry
 		registry := encoding.NewFormatRegistry()
 		err := registry.RegisterDecoderFactory("application/test", factory)
 		assert.NoError(t, err)
-		
+
 		// Verify we can get it back
 		retrievedFactory, err := registry.GetDecoderFactory("application/test")
 		assert.NoError(t, err)
@@ -52,15 +52,15 @@ func TestConcreteFactoryFunctions(t *testing.T) {
 		// Create factory using concrete function
 		factory := encoding.NewCodecFactory()
 		assert.NotNil(t, factory)
-		
+
 		// Verify it returns the correct concrete type
 		assert.IsType(t, &encoding.DefaultCodecFactory{}, factory)
-		
+
 		// Test it can be used with the registry
 		registry := encoding.NewFormatRegistry()
 		err := registry.RegisterCodecFactory("application/test", factory)
 		assert.NoError(t, err)
-		
+
 		// Verify we can get it back
 		retrievedFactory, err := registry.GetCodecFactory("application/test")
 		assert.NoError(t, err)
@@ -71,10 +71,10 @@ func TestConcreteFactoryFunctions(t *testing.T) {
 		// Create factory using concrete function
 		factory := encoding.NewPluginBasedEncoderFactory()
 		assert.NotNil(t, factory)
-		
+
 		// Verify it returns the correct concrete type
 		assert.IsType(t, &encoding.PluginEncoderFactory{}, factory)
-		
+
 		// Test it has the expected methods
 		assert.NotNil(t, factory.SupportedEncoders())
 	})
@@ -83,10 +83,10 @@ func TestConcreteFactoryFunctions(t *testing.T) {
 		// Create factory using concrete function
 		factory := encoding.NewPluginBasedDecoderFactory()
 		assert.NotNil(t, factory)
-		
+
 		// Verify it returns the correct concrete type
 		assert.IsType(t, &encoding.PluginDecoderFactory{}, factory)
-		
+
 		// Test it has the expected methods
 		assert.NotNil(t, factory.SupportedDecoders())
 	})
@@ -94,14 +94,14 @@ func TestConcreteFactoryFunctions(t *testing.T) {
 	t.Run("concrete caching encoder factory", func(t *testing.T) {
 		// Create base factory
 		baseFactory := encoding.NewEncoderFactory()
-		
+
 		// Create caching factory using concrete function
 		cachingFactory := encoding.NewCachingEncoderFactoryWithConcrete(baseFactory)
 		assert.NotNil(t, cachingFactory)
-		
+
 		// Verify it returns the correct concrete type
 		assert.IsType(t, &encoding.CachingEncoderFactory{}, cachingFactory)
-		
+
 		// Test it has the expected methods
 		assert.NotNil(t, cachingFactory.SupportedEncoders())
 	})
@@ -110,30 +110,30 @@ func TestConcreteFactoryFunctions(t *testing.T) {
 func TestBackwardCompatibility(t *testing.T) {
 	t.Run("legacy interface methods still work", func(t *testing.T) {
 		registry := encoding.NewFormatRegistry()
-		
+
 		// Create a concrete factory and register constructors
 		concreteFactory := encoding.NewDefaultCodecFactory()
-		
+
 		// Register encoder and decoder separately using the new methods
-		concreteFactory.RegisterEncoder("application/test", 
+		concreteFactory.RegisterEncoder("application/test",
 			func(options *encoding.EncodingOptions) (encoding.Encoder, error) {
 				return &mockTestEncoder{}, nil
 			})
-		
-		concreteFactory.RegisterDecoder("application/test", 
+
+		concreteFactory.RegisterDecoder("application/test",
 			func(options *encoding.DecodingOptions) (encoding.Decoder, error) {
 				return &mockTestDecoder{}, nil
 			})
-		
+
 		// Register using legacy interface method
 		err := registry.RegisterCodec("application/test", concreteFactory)
 		assert.NoError(t, err)
-		
+
 		// Verify we can get encoder and decoder
 		encoder, err := registry.GetEncoder(context.Background(), "application/test", nil)
 		assert.NoError(t, err)
 		assert.NotNil(t, encoder)
-		
+
 		decoder, err := registry.GetDecoder(context.Background(), "application/test", nil)
 		assert.NoError(t, err)
 		assert.NotNil(t, decoder)

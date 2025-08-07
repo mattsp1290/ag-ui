@@ -34,50 +34,50 @@ const (
 // LoggingConfig contains logging middleware configuration
 type LoggingConfig struct {
 	BaseConfig `json:",inline" yaml:",inline"`
-	
+
 	// Level specifies the minimum log level
 	Level LogLevel `json:"level" yaml:"level"`
-	
+
 	// Format specifies the log format
 	Format LogFormat `json:"format" yaml:"format"`
-	
+
 	// IncludeRequestBody logs request body for specified methods
-	IncludeRequestBody   bool     `json:"include_request_body" yaml:"include_request_body"`
-	RequestBodyMethods   []string `json:"request_body_methods" yaml:"request_body_methods"`
-	MaxRequestBodySize   int64    `json:"max_request_body_size" yaml:"max_request_body_size"`
-	
+	IncludeRequestBody bool     `json:"include_request_body" yaml:"include_request_body"`
+	RequestBodyMethods []string `json:"request_body_methods" yaml:"request_body_methods"`
+	MaxRequestBodySize int64    `json:"max_request_body_size" yaml:"max_request_body_size"`
+
 	// IncludeResponseBody logs response body
-	IncludeResponseBody  bool     `json:"include_response_body" yaml:"include_response_body"`
-	ResponseBodyMethods  []string `json:"response_body_methods" yaml:"response_body_methods"`
-	MaxResponseBodySize  int64    `json:"max_response_body_size" yaml:"max_response_body_size"`
-	
+	IncludeResponseBody bool     `json:"include_response_body" yaml:"include_response_body"`
+	ResponseBodyMethods []string `json:"response_body_methods" yaml:"response_body_methods"`
+	MaxResponseBodySize int64    `json:"max_response_body_size" yaml:"max_response_body_size"`
+
 	// Request/Response headers to log
 	IncludeRequestHeaders  []string `json:"include_request_headers" yaml:"include_request_headers"`
 	IncludeResponseHeaders []string `json:"include_response_headers" yaml:"include_response_headers"`
 	ExcludeHeaders         []string `json:"exclude_headers" yaml:"exclude_headers"`
-	
+
 	// Sensitive data handling
 	SanitizeHeaders    []string `json:"sanitize_headers" yaml:"sanitize_headers"`
 	SanitizeQueries    []string `json:"sanitize_queries" yaml:"sanitize_queries"`
 	SanitizeFormFields []string `json:"sanitize_form_fields" yaml:"sanitize_form_fields"`
-	
+
 	// Request filtering
 	ExcludePaths       []string `json:"exclude_paths" yaml:"exclude_paths"`
 	ExcludeUserAgents  []string `json:"exclude_user_agents" yaml:"exclude_user_agents"`
 	ExcludeStatusCodes []int    `json:"exclude_status_codes" yaml:"exclude_status_codes"`
-	
+
 	// Performance settings
-	LogSlowRequests    bool          `json:"log_slow_requests" yaml:"log_slow_requests"`
+	LogSlowRequests      bool          `json:"log_slow_requests" yaml:"log_slow_requests"`
 	SlowRequestThreshold time.Duration `json:"slow_request_threshold" yaml:"slow_request_threshold"`
-	
+
 	// Additional fields
-	IncludeClientIP    bool `json:"include_client_ip" yaml:"include_client_ip"`
-	IncludeUserAgent   bool `json:"include_user_agent" yaml:"include_user_agent"`
-	IncludeReferer     bool `json:"include_referer" yaml:"include_referer"`
-	IncludeUserID      bool `json:"include_user_id" yaml:"include_user_id"`
-	IncludeRequestID   bool `json:"include_request_id" yaml:"include_request_id"`
-	IncludeTraceID     bool `json:"include_trace_id" yaml:"include_trace_id"`
-	
+	IncludeClientIP  bool `json:"include_client_ip" yaml:"include_client_ip"`
+	IncludeUserAgent bool `json:"include_user_agent" yaml:"include_user_agent"`
+	IncludeReferer   bool `json:"include_referer" yaml:"include_referer"`
+	IncludeUserID    bool `json:"include_user_id" yaml:"include_user_id"`
+	IncludeRequestID bool `json:"include_request_id" yaml:"include_request_id"`
+	IncludeTraceID   bool `json:"include_trace_id" yaml:"include_trace_id"`
+
 	// Custom fields to extract from headers or context
 	CustomFields map[string]string `json:"custom_fields" yaml:"custom_fields"`
 }
@@ -86,7 +86,7 @@ type LoggingConfig struct {
 type LoggingMiddleware struct {
 	config *LoggingConfig
 	logger *zap.Logger
-	
+
 	// Precomputed maps for performance
 	requestBodyMethodMap  map[string]bool
 	responseBodyMethodMap map[string]bool
@@ -133,7 +133,7 @@ func (lrw *LoggingResponseWriter) WriteHeader(code int) {
 func (lrw *LoggingResponseWriter) Write(data []byte) (int, error) {
 	n, err := lrw.ResponseWriter.Write(data)
 	lrw.responseSize += int64(n)
-	
+
 	// Capture response body if enabled
 	if lrw.captureBody && len(lrw.bodyBuffer) < int(lrw.maxBodySize) {
 		remaining := int(lrw.maxBodySize) - len(lrw.bodyBuffer)
@@ -145,7 +145,7 @@ func (lrw *LoggingResponseWriter) Write(data []byte) (int, error) {
 			lrw.bodyBuffer = append(lrw.bodyBuffer, data[:captureSize]...)
 		}
 	}
-	
+
 	return n, err
 }
 
@@ -183,15 +183,15 @@ func NewLoggingMiddleware(config *LoggingConfig, logger *zap.Logger) (*LoggingMi
 	if config == nil {
 		return nil, fmt.Errorf("logging config cannot be nil")
 	}
-	
+
 	if err := ValidateBaseConfig(&config.BaseConfig); err != nil {
 		return nil, fmt.Errorf("invalid base config: %w", err)
 	}
-	
+
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	
+
 	// Set defaults
 	if config.Name == "" {
 		config.Name = "logging"
@@ -226,7 +226,7 @@ func NewLoggingMiddleware(config *LoggingConfig, logger *zap.Logger) (*LoggingMi
 			"x-auth-token", "x-access-token", "x-csrf-token",
 		}
 	}
-	
+
 	middleware := &LoggingMiddleware{
 		config:                config,
 		logger:                logger,
@@ -240,10 +240,10 @@ func NewLoggingMiddleware(config *LoggingConfig, logger *zap.Logger) (*LoggingMi
 		sanitizeFormFieldMap:  make(map[string]bool),
 		excludeHeaderMap:      make(map[string]bool),
 	}
-	
+
 	// Build maps for performance
 	middleware.buildMaps()
-	
+
 	return middleware, nil
 }
 
@@ -254,34 +254,34 @@ func (lm *LoggingMiddleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		
+
 		// Check if request should be excluded
 		if lm.shouldExcludeRequest(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
-		
+
 		startTime := time.Now()
-		
+
 		// Set start time in context
 		ctx := SetStartTime(r.Context(), startTime)
 		r = r.WithContext(ctx)
-		
+
 		// Determine if we should capture response body
-		captureResponseBody := lm.config.IncludeResponseBody && 
+		captureResponseBody := lm.config.IncludeResponseBody &&
 			lm.responseBodyMethodMap[r.Method]
-		
+
 		// Create logging response writer
 		lrw := NewLoggingResponseWriter(w, captureResponseBody, lm.config.MaxResponseBodySize)
-		
+
 		// Process the request
 		next.ServeHTTP(lrw, r)
-		
+
 		// Check if response should be excluded by status code
 		if lm.excludeStatusCodeMap[lrw.Status()] {
 			return
 		}
-		
+
 		// Log the request/response
 		lm.logRequest(r, lrw, startTime)
 	})
@@ -314,33 +314,33 @@ func (lm *LoggingMiddleware) shouldExcludeRequest(r *http.Request) bool {
 	if lm.excludePathMap[r.URL.Path] {
 		return true
 	}
-	
+
 	// Check path prefixes
 	for excludePath := range lm.excludePathMap {
 		if strings.HasPrefix(r.URL.Path, excludePath) {
 			return true
 		}
 	}
-	
+
 	// Check excluded user agents
 	userAgent := r.Header.Get("User-Agent")
 	if userAgent != "" && lm.excludeUserAgentMap[userAgent] {
 		return true
 	}
-	
+
 	return false
 }
 
 // logRequest logs the request and response details
 func (lm *LoggingMiddleware) logRequest(r *http.Request, lrw *LoggingResponseWriter, startTime time.Time) {
 	duration := time.Since(startTime)
-	
+
 	// Determine log level
 	level := lm.getLogLevel(lrw.Status(), duration)
-	
+
 	// Build log fields
 	fields := lm.buildLogFields(r, lrw, duration)
-	
+
 	// Log based on level
 	switch level {
 	case zapcore.DebugLevel:
@@ -360,17 +360,17 @@ func (lm *LoggingMiddleware) getLogLevel(statusCode int, duration time.Duration)
 	if statusCode >= 500 {
 		return zapcore.ErrorLevel
 	}
-	
+
 	// Client errors
 	if statusCode >= 400 {
 		return zapcore.WarnLevel
 	}
-	
+
 	// Slow requests
 	if lm.config.LogSlowRequests && duration > lm.config.SlowRequestThreshold {
 		return zapcore.WarnLevel
 	}
-	
+
 	// Determine level based on config
 	switch lm.config.Level {
 	case LogLevelDebug:
@@ -396,52 +396,52 @@ func (lm *LoggingMiddleware) buildLogFields(r *http.Request, lrw *LoggingRespons
 		zap.Duration("duration", duration),
 		zap.String("protocol", r.Proto),
 	}
-	
+
 	// Add query parameters
 	if len(r.URL.RawQuery) > 0 {
 		fields = append(fields, zap.String("query", lm.sanitizeQuery(r.URL.RawQuery)))
 	}
-	
+
 	// Add client IP
 	if lm.config.IncludeClientIP {
 		fields = append(fields, zap.String("client_ip", GetClientIP(r)))
 	}
-	
+
 	// Add user agent
 	if lm.config.IncludeUserAgent {
 		if userAgent := r.Header.Get("User-Agent"); userAgent != "" {
 			fields = append(fields, zap.String("user_agent", userAgent))
 		}
 	}
-	
+
 	// Add referer
 	if lm.config.IncludeReferer {
 		if referer := r.Header.Get("Referer"); referer != "" {
 			fields = append(fields, zap.String("referer", referer))
 		}
 	}
-	
+
 	// Add request ID
 	if lm.config.IncludeRequestID {
 		if requestID := GetRequestID(r.Context()); requestID != "" {
 			fields = append(fields, zap.String("request_id", requestID))
 		}
 	}
-	
+
 	// Add user ID
 	if lm.config.IncludeUserID {
 		if userID := GetUserID(r.Context()); userID != "" {
 			fields = append(fields, zap.String("user_id", userID))
 		}
 	}
-	
+
 	// Add trace ID
 	if lm.config.IncludeTraceID {
 		if traceID := r.Header.Get("X-Trace-ID"); traceID != "" {
 			fields = append(fields, zap.String("trace_id", traceID))
 		}
 	}
-	
+
 	// Add request headers
 	if len(lm.config.IncludeRequestHeaders) > 0 {
 		headers := make(map[string]string)
@@ -456,7 +456,7 @@ func (lm *LoggingMiddleware) buildLogFields(r *http.Request, lrw *LoggingRespons
 			fields = append(fields, zap.Any("request_headers", headers))
 		}
 	}
-	
+
 	// Add response headers
 	if len(lm.config.IncludeResponseHeaders) > 0 {
 		headers := make(map[string]string)
@@ -471,28 +471,28 @@ func (lm *LoggingMiddleware) buildLogFields(r *http.Request, lrw *LoggingRespons
 			fields = append(fields, zap.Any("response_headers", headers))
 		}
 	}
-	
+
 	// Add request body
 	if lm.config.IncludeRequestBody && lm.requestBodyMethodMap[r.Method] {
 		if body := lm.extractRequestBody(r); body != "" {
 			fields = append(fields, zap.String("request_body", body))
 		}
 	}
-	
+
 	// Add response body
 	if lm.config.IncludeResponseBody && lm.responseBodyMethodMap[r.Method] {
 		if body := lrw.Body(); len(body) > 0 {
 			fields = append(fields, zap.String("response_body", string(body)))
 		}
 	}
-	
+
 	// Add custom fields
 	for fieldName, headerName := range lm.config.CustomFields {
 		if value := r.Header.Get(headerName); value != "" {
 			fields = append(fields, zap.String(fieldName, value))
 		}
 	}
-	
+
 	return fields
 }
 
@@ -501,15 +501,15 @@ func (lm *LoggingMiddleware) extractRequestBody(r *http.Request) string {
 	// This is a simplified implementation
 	// In practice, you'd need to read the body without consuming it
 	// or use a request body capture mechanism
-	
+
 	if r.ContentLength == 0 {
 		return ""
 	}
-	
+
 	if r.ContentLength > lm.config.MaxRequestBodySize {
 		return fmt.Sprintf("[body too large: %d bytes]", r.ContentLength)
 	}
-	
+
 	// For demonstration purposes, return placeholder
 	// Real implementation would need careful body handling
 	return "[request body capture not fully implemented]"
@@ -531,7 +531,7 @@ func (lm *LoggingMiddleware) sanitizeQuery(query string) string {
 	if len(lm.config.SanitizeQueries) == 0 {
 		return query
 	}
-	
+
 	// Simple implementation - in practice, you'd parse and sanitize individually
 	for _, sensitiveParam := range lm.config.SanitizeQueries {
 		if strings.Contains(query, sensitiveParam+"=") {
@@ -545,7 +545,7 @@ func (lm *LoggingMiddleware) sanitizeQuery(query string) string {
 			query = strings.Join(parts, "&")
 		}
 	}
-	
+
 	return query
 }
 
@@ -555,42 +555,42 @@ func (lm *LoggingMiddleware) buildMaps() {
 	for _, method := range lm.config.RequestBodyMethods {
 		lm.requestBodyMethodMap[strings.ToUpper(method)] = true
 	}
-	
+
 	// Build response body method map
 	for _, method := range lm.config.ResponseBodyMethods {
 		lm.responseBodyMethodMap[strings.ToUpper(method)] = true
 	}
-	
+
 	// Build exclude path map
 	for _, path := range lm.config.ExcludePaths {
 		lm.excludePathMap[path] = true
 	}
-	
+
 	// Build exclude user agent map
 	for _, userAgent := range lm.config.ExcludeUserAgents {
 		lm.excludeUserAgentMap[userAgent] = true
 	}
-	
+
 	// Build exclude status code map
 	for _, statusCode := range lm.config.ExcludeStatusCodes {
 		lm.excludeStatusCodeMap[statusCode] = true
 	}
-	
+
 	// Build sanitize header map
 	for _, header := range lm.config.SanitizeHeaders {
 		lm.sanitizeHeaderMap[strings.ToLower(header)] = true
 	}
-	
+
 	// Build sanitize query map
 	for _, query := range lm.config.SanitizeQueries {
 		lm.sanitizeQueryMap[strings.ToLower(query)] = true
 	}
-	
+
 	// Build sanitize form field map
 	for _, field := range lm.config.SanitizeFormFields {
 		lm.sanitizeFormFieldMap[strings.ToLower(field)] = true
 	}
-	
+
 	// Build exclude header map
 	for _, header := range lm.config.ExcludeHeaders {
 		lm.excludeHeaderMap[strings.ToLower(header)] = true
@@ -607,32 +607,32 @@ func DefaultLoggingConfig() *LoggingConfig {
 			Priority: 10,
 			Name:     "logging",
 		},
-		Level:                    LogLevelInfo,
-		Format:                   LogFormatJSON,
-		IncludeRequestBody:       false,
-		RequestBodyMethods:       []string{"POST", "PUT", "PATCH"},
-		MaxRequestBodySize:       64 * 1024,
-		IncludeResponseBody:      false,
-		ResponseBodyMethods:      []string{"GET", "POST", "PUT", "PATCH"},
-		MaxResponseBodySize:      64 * 1024,
-		IncludeRequestHeaders:    []string{},
-		IncludeResponseHeaders:   []string{},
-		ExcludeHeaders:           []string{"cookie", "set-cookie"},
-		SanitizeHeaders:          []string{"authorization", "x-api-key", "cookie", "set-cookie"},
-		SanitizeQueries:          []string{"token", "key", "secret", "password"},
-		SanitizeFormFields:       []string{"password", "secret", "token"},
-		ExcludePaths:             []string{"/health", "/metrics", "/favicon.ico"},
-		ExcludeUserAgents:        []string{},
-		ExcludeStatusCodes:       []int{},
-		LogSlowRequests:          true,
-		SlowRequestThreshold:     1 * time.Second,
-		IncludeClientIP:          true,
-		IncludeUserAgent:         true,
-		IncludeReferer:           false,
-		IncludeUserID:            true,
-		IncludeRequestID:         true,
-		IncludeTraceID:           true,
-		CustomFields:             make(map[string]string),
+		Level:                  LogLevelInfo,
+		Format:                 LogFormatJSON,
+		IncludeRequestBody:     false,
+		RequestBodyMethods:     []string{"POST", "PUT", "PATCH"},
+		MaxRequestBodySize:     64 * 1024,
+		IncludeResponseBody:    false,
+		ResponseBodyMethods:    []string{"GET", "POST", "PUT", "PATCH"},
+		MaxResponseBodySize:    64 * 1024,
+		IncludeRequestHeaders:  []string{},
+		IncludeResponseHeaders: []string{},
+		ExcludeHeaders:         []string{"cookie", "set-cookie"},
+		SanitizeHeaders:        []string{"authorization", "x-api-key", "cookie", "set-cookie"},
+		SanitizeQueries:        []string{"token", "key", "secret", "password"},
+		SanitizeFormFields:     []string{"password", "secret", "token"},
+		ExcludePaths:           []string{"/health", "/metrics", "/favicon.ico"},
+		ExcludeUserAgents:      []string{},
+		ExcludeStatusCodes:     []int{},
+		LogSlowRequests:        true,
+		SlowRequestThreshold:   1 * time.Second,
+		IncludeClientIP:        true,
+		IncludeUserAgent:       true,
+		IncludeReferer:         false,
+		IncludeUserID:          true,
+		IncludeRequestID:       true,
+		IncludeTraceID:         true,
+		CustomFields:           make(map[string]string),
 	}
 }
 
@@ -667,15 +667,15 @@ func AccessLogMiddleware(logger *zap.Logger) (*LoggingMiddleware, error) {
 			Priority: 10,
 			Name:     "access-log",
 		},
-		Level:                LogLevelInfo,
-		Format:               LogFormatText,
-		IncludeClientIP:      true,
-		IncludeUserAgent:     false,
-		IncludeRequestID:     true,
-		ExcludePaths:         []string{"/health", "/metrics"},
-		ExcludeStatusCodes:   []int{200},
+		Level:              LogLevelInfo,
+		Format:             LogFormatText,
+		IncludeClientIP:    true,
+		IncludeUserAgent:   false,
+		IncludeRequestID:   true,
+		ExcludePaths:       []string{"/health", "/metrics"},
+		ExcludeStatusCodes: []int{200},
 	}
-	
+
 	return NewLoggingMiddleware(config, logger)
 }
 
@@ -684,13 +684,13 @@ func RequestIDMiddleware(logger *zap.Logger) MiddlewareFunc {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			requestID := GenerateRequestID()
-			
+
 			// Set request ID in context
 			ctx := SetRequestID(r.Context(), requestID)
-			
+
 			// Set request ID in response header
 			w.Header().Set("X-Request-ID", requestID)
-			
+
 			// Continue with the request
 			next.ServeHTTP(w, r.WithContext(ctx))
 		})

@@ -190,8 +190,8 @@ func (l *JSONAuditLogger) Log(ctx context.Context, log *AuditLog) error {
 	// Write to output (handle closed stdout gracefully)
 	if err := l.encoder.Encode(log); err != nil {
 		// Check if this is a "file already closed" error on stdout/stderr
-		if strings.Contains(err.Error(), "file already closed") && 
-		   (l.writer == os.Stdout || l.writer == os.Stderr) {
+		if strings.Contains(err.Error(), "file already closed") &&
+			(l.writer == os.Stdout || l.writer == os.Stderr) {
 			// Log is being written to closed stdout/stderr during test shutdown
 			// This is expected behavior, silently ignore
 			return nil
@@ -410,17 +410,17 @@ type AuditManager struct {
 	// Configuration
 	logStateValues bool // Whether to log old/new state values
 	maxValueSize   int  // Maximum size of values to log
-	
+
 	// Lifecycle management
-	wg        sync.WaitGroup
-	ctx       context.Context
-	cancel    context.CancelFunc
+	wg     sync.WaitGroup
+	ctx    context.Context
+	cancel context.CancelFunc
 }
 
 // NewAuditManager creates a new audit manager
 func NewAuditManager(logger AuditLogger) *AuditManager {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &AuditManager{
 		logger:         logger,
 		enabled:        true,
@@ -468,18 +468,18 @@ func (am *AuditManager) LogStateUpdate(ctx context.Context, contextID, stateID, 
 	am.wg.Add(1)
 	go func() {
 		defer am.wg.Done()
-		
+
 		// Check if context is cancelled
 		select {
 		case <-am.ctx.Done():
 			return
 		default:
 		}
-		
+
 		// Use a timeout context for the log operation
 		logCtx, cancel := context.WithTimeout(am.ctx, 5*time.Second)
 		defer cancel()
-		
+
 		if err := am.logger.Log(logCtx, log); err != nil {
 			// In production, this would go to a fallback logger
 			fmt.Fprintf(os.Stderr, "Failed to write audit log: %v\n", err)
@@ -535,18 +535,18 @@ func (am *AuditManager) LogError(ctx context.Context, action AuditAction, err er
 	am.wg.Add(1)
 	go func() {
 		defer am.wg.Done()
-		
+
 		// Check if context is cancelled
 		select {
 		case <-am.ctx.Done():
 			return
 		default:
 		}
-		
+
 		// Use a timeout context for the log operation
 		logCtx, cancel := context.WithTimeout(am.ctx, 5*time.Second)
 		defer cancel()
-		
+
 		if err := am.logger.Log(logCtx, log); err != nil {
 			fmt.Fprintf(os.Stderr, "Failed to write error audit log: %v\n", err)
 		}
@@ -619,10 +619,10 @@ func (am *AuditManager) enrichFromContext(ctx context.Context, log *AuditLog) {
 func (am *AuditManager) Close() error {
 	// Cancel context to signal all goroutines to stop
 	am.cancel()
-	
+
 	// Wait for all goroutines to complete
 	am.wg.Wait()
-	
+
 	return nil
 }
 

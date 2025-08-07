@@ -67,8 +67,8 @@ type RateLimiter interface {
 
 // TokenBucket implements token bucket rate limiting algorithm
 type TokenBucket struct {
-	rate     int64         // tokens per second
-	capacity int64         // maximum tokens
+	rate     int64 // tokens per second
+	capacity int64 // maximum tokens
 	buckets  map[string]*bucket
 	mu       sync.RWMutex
 }
@@ -310,9 +310,9 @@ type FixedWindow struct {
 }
 
 type fixedWindowBucket struct {
-	count      int64
+	count       int64
 	windowStart time.Time
-	mu         sync.Mutex
+	mu          sync.Mutex
 }
 
 // NewFixedWindow creates a new fixed window rate limiter
@@ -786,7 +786,7 @@ func extractClientIP(req *Request) string {
 	if ip := req.Headers["X-Client-IP"]; ip != "" {
 		return ip
 	}
-	
+
 	// Fallback to a default IP if none found
 	return "unknown"
 }

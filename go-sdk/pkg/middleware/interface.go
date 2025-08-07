@@ -88,7 +88,7 @@ func (c *MiddlewareChain) Add(middleware Middleware) {
 			break
 		}
 	}
-	
+
 	if !inserted {
 		c.middlewares = append(c.middlewares, middleware)
 	}
@@ -137,7 +137,7 @@ func (c *MiddlewareChain) executeChain(ctx context.Context, req *Request, index 
 				Timestamp:  time.Now(),
 			}, nil
 		}
-		
+
 		startTime := time.Now()
 		resp, err := c.handler(ctx, req)
 		if resp != nil && resp.Duration == 0 {
@@ -147,7 +147,7 @@ func (c *MiddlewareChain) executeChain(ctx context.Context, req *Request, index 
 	}
 
 	middleware := c.middlewares[index]
-	
+
 	// Skip disabled middleware
 	if !middleware.Enabled() {
 		return c.executeChain(ctx, req, index+1)
@@ -164,7 +164,7 @@ func (c *MiddlewareChain) executeChain(ctx context.Context, req *Request, index 
 	if resp != nil && resp.Duration == 0 {
 		resp.Duration = time.Since(startTime)
 	}
-	
+
 	return resp, err
 }
 
@@ -190,7 +190,7 @@ func (c *MiddlewareChain) GetMiddleware(name string) Middleware {
 // ConditionalMiddleware represents middleware that executes based on conditions
 type ConditionalMiddleware interface {
 	Middleware
-	
+
 	// ShouldExecute determines if this middleware should execute for the given request
 	ShouldExecute(ctx context.Context, req *Request) bool
 }
@@ -198,7 +198,7 @@ type ConditionalMiddleware interface {
 // AsyncMiddleware represents middleware that can execute asynchronously
 type AsyncMiddleware interface {
 	Middleware
-	
+
 	// ProcessAsync processes a request asynchronously
 	ProcessAsync(ctx context.Context, req *Request, next NextHandler) <-chan *MiddlewareResult
 }
@@ -212,13 +212,13 @@ type MiddlewareResult struct {
 // MiddlewareContext provides context and utilities for middleware execution
 type MiddlewareContext struct {
 	context.Context
-	
+
 	// StartTime when the request processing started
 	StartTime time.Time
-	
+
 	// RequestID unique identifier for this request
 	RequestID string
-	
+
 	// Metadata additional context data
 	Metadata map[string]interface{}
 }
@@ -262,7 +262,7 @@ type MiddlewareConfig struct {
 type MiddlewareFactory interface {
 	// Create creates a new middleware instance from configuration
 	Create(config *MiddlewareConfig) (Middleware, error)
-	
+
 	// SupportedTypes returns the middleware types this factory can create
 	SupportedTypes() []string
 }
@@ -271,13 +271,13 @@ type MiddlewareFactory interface {
 type MiddlewareRegistry interface {
 	// Register registers a middleware factory for a specific type
 	Register(middlewareType string, factory MiddlewareFactory) error
-	
+
 	// Unregister removes a middleware factory
 	Unregister(middlewareType string) error
-	
+
 	// Create creates middleware instance from configuration
 	Create(config *MiddlewareConfig) (Middleware, error)
-	
+
 	// ListTypes returns all registered middleware types
 	ListTypes() []string
 }
@@ -292,7 +292,7 @@ type ErrorHandler interface {
 type MiddlewareLifecycle interface {
 	// Initialize initializes the middleware (called once at startup)
 	Initialize(ctx context.Context) error
-	
+
 	// Shutdown gracefully shuts down the middleware
 	Shutdown(ctx context.Context) error
 }
@@ -301,23 +301,23 @@ type MiddlewareLifecycle interface {
 type MetricsCollector interface {
 	// RecordDuration records middleware execution duration
 	RecordDuration(middlewareName string, duration time.Duration)
-	
+
 	// RecordError records middleware error
 	RecordError(middlewareName string, err error)
-	
+
 	// RecordRequest records request processing
 	RecordRequest(middlewareName string, req *Request)
-	
+
 	// GetMetrics returns collected metrics
 	GetMetrics() map[string]interface{}
 }
 
 // Common errors
 var (
-	ErrMiddlewareNotFound     = errors.New("middleware not found")
-	ErrInvalidConfiguration   = errors.New("invalid middleware configuration")
-	ErrMiddlewareNotEnabled   = errors.New("middleware not enabled")
-	ErrChainExecutionFailed   = errors.New("middleware chain execution failed")
-	ErrFactoryNotRegistered   = errors.New("middleware factory not registered")
-	ErrInvalidMiddlewareType  = errors.New("invalid middleware type")
+	ErrMiddlewareNotFound    = errors.New("middleware not found")
+	ErrInvalidConfiguration  = errors.New("invalid middleware configuration")
+	ErrMiddlewareNotEnabled  = errors.New("middleware not enabled")
+	ErrChainExecutionFailed  = errors.New("middleware chain execution failed")
+	ErrFactoryNotRegistered  = errors.New("middleware factory not registered")
+	ErrInvalidMiddlewareType = errors.New("invalid middleware type")
 )

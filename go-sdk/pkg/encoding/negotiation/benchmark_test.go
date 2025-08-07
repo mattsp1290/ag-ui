@@ -59,7 +59,7 @@ func BenchmarkAcceptHeaderParsing(b *testing.B) {
 
 func BenchmarkPerformanceTracking(b *testing.B) {
 	tracker := negotiation.NewPerformanceTracker()
-	
+
 	metrics := negotiation.PerformanceMetrics{
 		EncodingTime: 10 * time.Millisecond,
 		DecodingTime: 8 * time.Millisecond,

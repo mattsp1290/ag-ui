@@ -757,7 +757,7 @@ func (h *History) Search(query string) ([]Message, error) {
 
 		msg := h.messages[i]
 		content := msg.GetContent()
-		
+
 		// If query is empty, return all messages
 		if query == "" {
 			results = append(results, msg)

@@ -7,34 +7,33 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-
 )
 
 // AdvancedMockTransport provides advanced testing capabilities with state machine,
 // network simulation, and detailed behavior control
 type AdvancedMockTransport struct {
 	*MockTransport
-	
+
 	// State machine
-	state           atomic.Value // ConnectionState
-	stateHistory    []ConnectionState
-	stateCallbacks  []ConnectionHandler
-	
+	state          atomic.Value // ConnectionState
+	stateHistory   []ConnectionState
+	stateCallbacks []ConnectionHandler
+
 	// Network simulation
-	latency         time.Duration
-	jitter          time.Duration
-	packetLoss      float64
-	bandwidth       int64 // bytes per second
-	
+	latency    time.Duration
+	jitter     time.Duration
+	packetLoss float64
+	bandwidth  int64 // bytes per second
+
 	// Behavior control
-	middleware      []Middleware
-	eventFilter     EventFilter
-	serializer      Serializer
-	compressor      Compressor
-	
+	middleware  []Middleware
+	eventFilter EventFilter
+	serializer  Serializer
+	compressor  Compressor
+
 	// Metrics
-	metrics         *TransportMetrics
-	healthChecker   *MockHealthChecker
+	metrics       *TransportMetrics
+	healthChecker *MockHealthChecker
 }
 
 // NewAdvancedMockTransport creates a new advanced mock transport
@@ -51,7 +50,7 @@ func NewAdvancedMockTransport() *AdvancedMockTransport {
 // Connect with state machine support
 func (t *AdvancedMockTransport) Connect(ctx context.Context) error {
 	t.setState(StateConnecting)
-	
+
 	// Simulate network latency
 	if t.latency > 0 {
 		select {
@@ -61,13 +60,13 @@ func (t *AdvancedMockTransport) Connect(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
-	
+
 	err := t.MockTransport.Connect(ctx)
 	if err != nil {
 		t.setState(StateError)
 		return err
 	}
-	
+
 	t.setState(StateConnected)
 	return nil
 }
@@ -79,7 +78,7 @@ func (t *AdvancedMockTransport) Send(ctx context.Context, event TransportEvent) 
 		t.metrics.RecordDroppedEvent()
 		return errors.New("packet dropped due to network simulation")
 	}
-	
+
 	// Apply middleware
 	processedEvent := event
 	for _, mw := range t.middleware {
@@ -89,19 +88,19 @@ func (t *AdvancedMockTransport) Send(ctx context.Context, event TransportEvent) 
 			return err
 		}
 	}
-	
+
 	// Simulate bandwidth limitation
 	if t.bandwidth > 0 {
 		size := t.estimateEventSize(processedEvent)
 		delay := time.Duration(float64(size) / float64(t.bandwidth) * float64(time.Second))
-		
+
 		select {
 		case <-time.After(delay):
 		case <-ctx.Done():
 			return ctx.Err()
 		}
 	}
-	
+
 	// Simulate network latency
 	if t.latency > 0 {
 		select {
@@ -110,20 +109,20 @@ func (t *AdvancedMockTransport) Send(ctx context.Context, event TransportEvent) 
 			return ctx.Err()
 		}
 	}
-	
+
 	return t.MockTransport.Send(ctx, processedEvent)
 }
 
 // Close with state machine support
 func (t *AdvancedMockTransport) Close(ctx context.Context) error {
 	t.setState(StateClosing)
-	
+
 	err := t.MockTransport.Close(ctx)
 	if err != nil {
 		t.setState(StateError)
 		return err
 	}
-	
+
 	t.setState(StateClosed)
 	return nil
 }
@@ -137,7 +136,7 @@ func (t *AdvancedMockTransport) GetState() ConnectionState {
 func (t *AdvancedMockTransport) SetNetworkConditions(latency, jitter time.Duration, packetLoss float64, bandwidth int64) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	
+
 	t.latency = latency
 	t.jitter = jitter
 	t.packetLoss = packetLoss
@@ -161,22 +160,22 @@ func (t *AdvancedMockTransport) SetEventFilter(filter EventFilter) {
 func (t *AdvancedMockTransport) setState(state ConnectionState) {
 	oldState := t.GetState()
 	t.state.Store(state)
-	
+
 	t.mu.Lock()
 	t.stateHistory = append(t.stateHistory, state)
 	callbacks := append([]ConnectionHandler{}, t.stateCallbacks...)
 	t.mu.Unlock()
-	
+
 	// Notify callbacks
 	var err error
 	if state == StateError {
 		err = errors.New("connection error")
 	}
-	
+
 	for _, cb := range callbacks {
 		cb(state, err)
 	}
-	
+
 	// Update metrics
 	if oldState != state {
 		t.metrics.RecordStateChange(oldState, state)
@@ -187,13 +186,13 @@ func (t *AdvancedMockTransport) shouldDropPacket() bool {
 	if t.packetLoss <= 0 {
 		return false
 	}
-	
+
 	// Use a simple counter-based approach for consistent packet loss
 	// Every Nth packet is dropped where N = 1/packetLoss
 	if t.packetLoss >= 1.0 {
 		return true // Drop all packets if loss is 100% or more
 	}
-	
+
 	// Initialize metrics if needed (no lock required for atomic operations)
 	if t.metrics == nil {
 		t.mu.Lock()
@@ -202,7 +201,7 @@ func (t *AdvancedMockTransport) shouldDropPacket() bool {
 		}
 		t.mu.Unlock()
 	}
-	
+
 	// Use atomic counter for thread safety (no lock required)
 	packetCount := atomic.AddInt64(&t.metrics.eventsSent, 1)
 	dropInterval := int64(1.0 / t.packetLoss)
@@ -223,7 +222,7 @@ func (t *AdvancedMockTransport) getJitter() time.Duration {
 func (t *AdvancedMockTransport) estimateEventSize(event TransportEvent) int64 {
 	// Simple size estimation
 	size := int64(len(event.ID()) + len(event.Type()))
-	
+
 	if data := event.Data(); data != nil {
 		for k, v := range data {
 			size += int64(len(k))
@@ -234,42 +233,42 @@ func (t *AdvancedMockTransport) estimateEventSize(event TransportEvent) int64 {
 			}
 		}
 	}
-	
+
 	return size
 }
 
 // TransportMetrics tracks detailed transport metrics
 type TransportMetrics struct {
 	mu sync.RWMutex
-	
+
 	// Event metrics - cache line padded to prevent false sharing
-	eventsSent        int64
-	_                 [56]byte // Cache line padding
-	eventsReceived    int64
-	_                 [56]byte // Cache line padding
-	eventsDropped     int64
-	_                 [56]byte // Cache line padding
-	eventsFiltered    int64
-	_                 [56]byte // Cache line padding
-	
+	eventsSent     int64
+	_              [56]byte // Cache line padding
+	eventsReceived int64
+	_              [56]byte // Cache line padding
+	eventsDropped  int64
+	_              [56]byte // Cache line padding
+	eventsFiltered int64
+	_              [56]byte // Cache line padding
+
 	// Byte metrics - cache line padded to prevent false sharing
-	bytesSent         int64
-	_                 [56]byte // Cache line padding
-	bytesReceived     int64
-	_                 [56]byte // Cache line padding
-	
+	bytesSent     int64
+	_             [56]byte // Cache line padding
+	bytesReceived int64
+	_             [56]byte // Cache line padding
+
 	// Latency metrics
-	latencySamples    []time.Duration
-	minLatency        time.Duration
-	maxLatency        time.Duration
-	
+	latencySamples []time.Duration
+	minLatency     time.Duration
+	maxLatency     time.Duration
+
 	// State metrics
-	stateChanges      map[string]int64
-	connectionTime    time.Duration
-	lastConnectedAt   time.Time
-	
+	stateChanges    map[string]int64
+	connectionTime  time.Duration
+	lastConnectedAt time.Time
+
 	// Error metrics
-	errorsByType      map[string]int64
+	errorsByType map[string]int64
 }
 
 // NewTransportMetrics creates new transport metrics
@@ -289,10 +288,10 @@ func (m *TransportMetrics) RecordDroppedEvent() {
 func (m *TransportMetrics) RecordStateChange(from, to ConnectionState) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	key := fmt.Sprintf("%s->%s", from, to)
 	m.stateChanges[key]++
-	
+
 	if to == StateConnected {
 		m.lastConnectedAt = time.Now()
 	} else if from == StateConnected && !m.lastConnectedAt.IsZero() {
@@ -304,7 +303,7 @@ func (m *TransportMetrics) RecordStateChange(from, to ConnectionState) {
 func (m *TransportMetrics) GetSummary() map[string]interface{} {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	summary := map[string]interface{}{
 		"events_sent":     atomic.LoadInt64(&m.eventsSent),
 		"events_received": atomic.LoadInt64(&m.eventsReceived),
@@ -315,7 +314,7 @@ func (m *TransportMetrics) GetSummary() map[string]interface{} {
 		"state_changes":   m.stateChanges,
 		"errors_by_type":  m.errorsByType,
 	}
-	
+
 	if len(m.latencySamples) > 0 {
 		var total time.Duration
 		for _, l := range m.latencySamples {
@@ -325,7 +324,7 @@ func (m *TransportMetrics) GetSummary() map[string]interface{} {
 		summary["min_latency"] = m.minLatency
 		summary["max_latency"] = m.maxLatency
 	}
-	
+
 	return summary
 }
 
@@ -350,14 +349,14 @@ func NewMockHealthChecker() *MockHealthChecker {
 func (h *MockHealthChecker) CheckHealth(ctx context.Context) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	
+
 	h.lastCheck = time.Now()
-	
+
 	if h.checkError != nil {
 		h.healthy = false
 		return h.checkError
 	}
-	
+
 	h.healthy = true
 	return nil
 }
@@ -373,17 +372,17 @@ func (h *MockHealthChecker) IsHealthy() bool {
 func (h *MockHealthChecker) GetHealthStatus() HealthStatus {
 	h.mu.RLock()
 	defer h.mu.RUnlock()
-	
+
 	status := HealthStatus{
 		Healthy:   h.healthy,
 		Timestamp: h.lastCheck,
 		Metadata:  h.metadata,
 	}
-	
+
 	if h.checkError != nil {
 		status.Error = h.checkError.Error()
 	}
-	
+
 	return status
 }
 
@@ -417,40 +416,40 @@ func NewScenarioTransport(scenario string) *ScenarioTransport {
 		ctx:                   ctx,
 		cancel:                cancel,
 	}
-	
+
 	switch scenario {
 	case "flaky-network":
 		st.SetNetworkConditions(
-			100*time.Millisecond,  // latency
-			50*time.Millisecond,   // jitter
-			0.05,                  // 5% packet loss
+			100*time.Millisecond, // latency
+			50*time.Millisecond,  // jitter
+			0.05,                 // 5% packet loss
 			1024*1024,            // 1MB/s bandwidth
 		)
-		
+
 	case "slow-connection":
 		st.SetNetworkConditions(
-			500*time.Millisecond,  // high latency
-			100*time.Millisecond,  // high jitter
-			0,                     // no packet loss
+			500*time.Millisecond, // high latency
+			100*time.Millisecond, // high jitter
+			0,                    // no packet loss
 			56*1024,              // 56KB/s (dial-up speed)
 		)
-		
+
 	case "unreliable":
 		st.SetNetworkConditions(
-			50*time.Millisecond,   // moderate latency
-			20*time.Millisecond,   // some jitter
-			0.2,                   // 20% packet loss
-			1024*1024,            // 1MB/s
+			50*time.Millisecond, // moderate latency
+			20*time.Millisecond, // some jitter
+			0.2,                 // 20% packet loss
+			1024*1024,           // 1MB/s
 		)
-		
+
 	case "perfect":
 		st.SetNetworkConditions(
-			0,                    // no latency
-			0,                    // no jitter
-			0,                    // no packet loss
-			0,                    // unlimited bandwidth
+			0, // no latency
+			0, // no jitter
+			0, // no packet loss
+			0, // unlimited bandwidth
 		)
-		
+
 	case "disconnecting":
 		// Disconnect after 5 sends
 		sendCount := 0
@@ -462,22 +461,22 @@ func NewScenarioTransport(scenario string) *ScenarioTransport {
 			}
 			return nil
 		})
-		
+
 	case "reconnecting":
 		// Simulate periodic disconnections with proper lifecycle management
 		st.shutdownWG.Add(1)
 		go func() {
 			defer st.shutdownWG.Done()
-			
+
 			ticker := time.NewTicker(2 * time.Second)
 			defer ticker.Stop()
-			
+
 			for {
 				select {
 				case <-ticker.C:
 					if st.GetState() == StateConnected {
 						st.setState(StateReconnecting)
-						
+
 						// Use context-aware sleep for reconnection delay
 						select {
 						case <-time.After(500 * time.Millisecond):
@@ -494,7 +493,7 @@ func NewScenarioTransport(scenario string) *ScenarioTransport {
 			}
 		}()
 	}
-	
+
 	return st
 }
 
@@ -502,14 +501,14 @@ func NewScenarioTransport(scenario string) *ScenarioTransport {
 func (st *ScenarioTransport) Close(ctx context.Context) error {
 	// Signal shutdown to all goroutines
 	st.cancel()
-	
+
 	// Wait for all background goroutines to finish with timeout
 	done := make(chan struct{})
 	go func() {
 		st.shutdownWG.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// All goroutines finished successfully
@@ -520,7 +519,7 @@ func (st *ScenarioTransport) Close(ctx context.Context) error {
 		// Default timeout to prevent hanging tests
 		return fmt.Errorf("scenario transport goroutines failed to finish within 5 seconds")
 	}
-	
+
 	// Call parent Close method
 	return st.AdvancedMockTransport.Close(ctx)
 }
@@ -528,12 +527,12 @@ func (st *ScenarioTransport) Close(ctx context.Context) error {
 // ChaosTransport introduces random failures and delays for chaos testing
 type ChaosTransport struct {
 	*AdvancedMockTransport
-	
+
 	// Chaos configuration
 	errorRate      float64
 	delayRange     [2]time.Duration
 	possibleErrors []error
-	
+
 	// Counters for deterministic error simulation
 	connectCount int64
 	sendCount    int64
@@ -543,8 +542,8 @@ type ChaosTransport struct {
 func NewChaosTransport(errorRate float64) *ChaosTransport {
 	ct := &ChaosTransport{
 		AdvancedMockTransport: NewAdvancedMockTransport(),
-		errorRate:            errorRate,
-		delayRange:           [2]time.Duration{0, 100 * time.Millisecond},
+		errorRate:             errorRate,
+		delayRange:            [2]time.Duration{0, 100 * time.Millisecond},
 		possibleErrors: []error{
 			ErrConnectionClosed,
 			ErrTimeout,
@@ -552,9 +551,9 @@ func NewChaosTransport(errorRate float64) *ChaosTransport {
 			errors.New("random chaos error"),
 		},
 	}
-	
+
 	// Don't set send/connect behavior to avoid recursion - override the methods instead
-	
+
 	return ct
 }
 
@@ -578,12 +577,12 @@ func (ct *ChaosTransport) chaosSend(ctx context.Context, event TransportEvent) e
 			return ctx.Err()
 		}
 	}
-	
+
 	// Random error
 	if ct.shouldSendError() {
 		return ct.randomError()
 	}
-	
+
 	// If no error, call the base mock transport send method (avoid AdvancedMockTransport to prevent loops)
 	return ct.MockTransport.Send(ctx, event)
 }
@@ -598,12 +597,12 @@ func (ct *ChaosTransport) chaosConnect(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
-	
+
 	// Random error
 	if ct.shouldConnectError() {
 		return ErrConnectionFailed
 	}
-	
+
 	// If no error, call the base mock transport connect method (avoid AdvancedMockTransport to prevent loops)
 	return ct.MockTransport.Connect(ctx)
 }
@@ -615,7 +614,7 @@ func (ct *ChaosTransport) shouldConnectError() bool {
 	if ct.errorRate >= 1.0 {
 		return true
 	}
-	
+
 	// Use deterministic counter-based error simulation for consistent results
 	count := atomic.AddInt64(&ct.connectCount, 1)
 	errorInterval := int64(1.0 / ct.errorRate)
@@ -629,7 +628,7 @@ func (ct *ChaosTransport) shouldSendError() bool {
 	if ct.errorRate >= 1.0 {
 		return true
 	}
-	
+
 	// Use deterministic counter-based error simulation for consistent results
 	count := atomic.AddInt64(&ct.sendCount, 1)
 	errorInterval := int64(1.0 / ct.errorRate)
@@ -640,7 +639,7 @@ func (ct *ChaosTransport) randomDelay() time.Duration {
 	if ct.delayRange[0] >= ct.delayRange[1] {
 		return ct.delayRange[0]
 	}
-	
+
 	diff := int64(ct.delayRange[1] - ct.delayRange[0])
 	delay := int64(ct.delayRange[0]) + (time.Now().UnixNano() % diff)
 	return time.Duration(delay)
@@ -650,7 +649,7 @@ func (ct *ChaosTransport) randomError() error {
 	if len(ct.possibleErrors) == 0 {
 		return errors.New("chaos error")
 	}
-	
+
 	idx := int(time.Now().UnixNano() % int64(len(ct.possibleErrors)))
 	return ct.possibleErrors[idx]
 }
@@ -658,7 +657,7 @@ func (ct *ChaosTransport) randomError() error {
 // RecordingTransport records all operations for detailed analysis
 type RecordingTransport struct {
 	Transport
-	
+
 	mu         sync.RWMutex
 	operations []Operation
 	recording  bool
@@ -710,7 +709,7 @@ func (rt *RecordingTransport) Close(ctx context.Context) error {
 func (rt *RecordingTransport) GetOperations() []Operation {
 	rt.mu.RLock()
 	defer rt.mu.RUnlock()
-	
+
 	ops := make([]Operation, len(rt.operations))
 	copy(ops, rt.operations)
 	return ops
@@ -740,11 +739,11 @@ func (rt *RecordingTransport) StopRecording() {
 func (rt *RecordingTransport) recordOperation(opType string, start time.Time, args []interface{}, result interface{}, err error) {
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	
+
 	if !rt.recording {
 		return
 	}
-	
+
 	op := Operation{
 		Type:      opType,
 		Timestamp: start,
@@ -753,6 +752,6 @@ func (rt *RecordingTransport) recordOperation(opType string, start time.Time, ar
 		Result:    result,
 		Error:     err,
 	}
-	
+
 	rt.operations = append(rt.operations, op)
 }

@@ -1381,12 +1381,12 @@ func DevelopmentConfig() ComprehensiveConfig {
 	config.Monitoring.Logging.Format = "console"
 	config.Monitoring.Tracing.Enabled = true
 	config.Monitoring.Tracing.SamplingRate = 1.0
-	config.Retry.MaxRetries = 2                          // Increased slightly for stability
-	config.Retry.InitialDelay = 250 * time.Millisecond  // Faster retry for tests
-	config.Connection.ConnectTimeout = 3 * time.Second   // Optimized for test speed
-	config.Connection.ReadTimeout = 8 * time.Second      // Reasonable for test operations
-	config.Connection.WriteTimeout = 3 * time.Second     // Faster writes for tests
-	config.Monitoring.HealthChecks.Timeout = 2 * time.Second  // Faster health checks
+	config.Retry.MaxRetries = 2                              // Increased slightly for stability
+	config.Retry.InitialDelay = 250 * time.Millisecond       // Faster retry for tests
+	config.Connection.ConnectTimeout = 3 * time.Second       // Optimized for test speed
+	config.Connection.ReadTimeout = 8 * time.Second          // Reasonable for test operations
+	config.Connection.WriteTimeout = 3 * time.Second         // Faster writes for tests
+	config.Monitoring.HealthChecks.Timeout = 2 * time.Second // Faster health checks
 	return config
 }
 
@@ -2217,7 +2217,7 @@ func getSecureCipherSuites() []uint16 {
 		tls.TLS_AES_128_GCM_SHA256,
 		tls.TLS_AES_256_GCM_SHA384,
 		tls.TLS_CHACHA20_POLY1305_SHA256,
-		
+
 		// TLS 1.2 cipher suites (ECDHE + AEAD)
 		tls.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
 		tls.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
@@ -2225,7 +2225,7 @@ func getSecureCipherSuites() []uint16 {
 		tls.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
 		tls.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
 		tls.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-		
+
 		// Fallback cipher suites (still secure but less preferred)
 		tls.TLS_RSA_WITH_AES_128_GCM_SHA256,
 		tls.TLS_RSA_WITH_AES_256_GCM_SHA384,
@@ -2253,7 +2253,7 @@ func (c *ComprehensiveConfig) GetHTTPClient() *http.Client {
 			tls.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
 		},
 	}
-	
+
 	if c.Connection.TLS.Enabled {
 		// Override defaults with configuration values
 		if c.Connection.TLS.InsecureSkipVerify {
@@ -2271,7 +2271,7 @@ func (c *ComprehensiveConfig) GetHTTPClient() *http.Client {
 		if len(c.Connection.TLS.CipherSuites) > 0 {
 			tlsConfig.CipherSuites = c.Connection.TLS.CipherSuites
 		}
-		
+
 		// Use secure cipher suites if not explicitly configured
 		if len(c.Connection.TLS.CipherSuites) == 0 {
 			tlsConfig.CipherSuites = getSecureCipherSuites()
@@ -2279,7 +2279,7 @@ func (c *ComprehensiveConfig) GetHTTPClient() *http.Client {
 		} else {
 			tlsConfig.CipherSuites = c.Connection.TLS.CipherSuites
 		}
-		
+
 		// Set secure defaults if not configured
 		if tlsConfig.MinVersion == 0 {
 			tlsConfig.MinVersion = tls.VersionTLS12
@@ -2287,15 +2287,15 @@ func (c *ComprehensiveConfig) GetHTTPClient() *http.Client {
 		if tlsConfig.MaxVersion == 0 {
 			tlsConfig.MaxVersion = tls.VersionTLS13
 		}
-		
+
 		// Configure certificate pinning if enabled
 		if c.Connection.TLS.CertificatePinning.Enabled {
 			tlsConfig.VerifyPeerCertificate = c.createCertificatePinningVerifier()
 		}
-		
+
 		transport.TLSClientConfig = tlsConfig
 	}
-	
+
 	transport.TLSClientConfig = tlsConfig
 
 	// Configure proxy

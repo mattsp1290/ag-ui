@@ -20,13 +20,13 @@ import (
 const (
 	// DefaultMaxValidationDepth is the default maximum depth for validation operations
 	DefaultMaxValidationDepth = 100
-	
-	// DefaultMaxSanitizationDepth is the default maximum depth for sanitization operations  
+
+	// DefaultMaxSanitizationDepth is the default maximum depth for sanitization operations
 	DefaultMaxSanitizationDepth = 50
-	
+
 	// StrictMaxValidationDepth is the strict maximum depth for security-critical operations
 	StrictMaxValidationDepth = 50
-	
+
 	// StrictMaxSanitizationDepth is the strict maximum depth for security-critical sanitization
 	StrictMaxSanitizationDepth = 25
 )
@@ -34,26 +34,26 @@ const (
 // SecurityValidator provides security validation for encoding/decoding operations
 type SecurityValidator struct {
 	config           SecurityConfig
-	currentMemory    int64  // Current memory usage being tracked
-	activeOperations int32  // Number of active validation operations
+	currentMemory    int64 // Current memory usage being tracked
+	activeOperations int32 // Number of active validation operations
 }
 
 // SecurityConfig defines security validation configuration
 type SecurityConfig struct {
 	// Size limits
-	MaxInputSize      int64  // Maximum input data size in bytes
-	MaxOutputSize     int64  // Maximum output data size in bytes
-	MaxStringLength   int    // Maximum string field length
-	MaxArrayLength    int    // Maximum array field length
-	MaxNestingDepth   int    // Maximum nesting depth for objects
-	MaxFieldCount     int    // Maximum number of fields in an object
+	MaxInputSize    int64 // Maximum input data size in bytes
+	MaxOutputSize   int64 // Maximum output data size in bytes
+	MaxStringLength int   // Maximum string field length
+	MaxArrayLength  int   // Maximum array field length
+	MaxNestingDepth int   // Maximum nesting depth for objects
+	MaxFieldCount   int   // Maximum number of fields in an object
 
 	// Content validation
-	AllowHTMLContent      bool     // Allow HTML tags in string fields
-	AllowScriptContent    bool     // Allow script tags and javascript: URLs
-	AllowedURLSchemes     []string // Allowed URL schemes (http, https, etc.)
-	BlockedPatterns       []string // Blocked regex patterns
-	SanitizeInput         bool     // Enable input sanitization
+	AllowHTMLContent   bool     // Allow HTML tags in string fields
+	AllowScriptContent bool     // Allow script tags and javascript: URLs
+	AllowedURLSchemes  []string // Allowed URL schemes (http, https, etc.)
+	BlockedPatterns    []string // Blocked regex patterns
+	SanitizeInput      bool     // Enable input sanitization
 
 	// Resource limits
 	MaxProcessingTime     time.Duration // Maximum processing time
@@ -64,24 +64,24 @@ type SecurityConfig struct {
 	EnableInjectionPrevention bool // Enable injection attack prevention
 	EnableDOSPrevention       bool // Enable DoS attack prevention
 	EnableXSSPrevention       bool // Enable XSS attack prevention
-	
+
 	// Recursion depth limits to prevent stack overflow attacks
-	MaxValidationDepth    int // Maximum recursion depth for validation operations
-	MaxSanitizationDepth  int // Maximum recursion depth for sanitization operations
+	MaxValidationDepth   int // Maximum recursion depth for validation operations
+	MaxSanitizationDepth int // Maximum recursion depth for sanitization operations
 }
 
 // DefaultSecurityConfig returns the default security configuration
 func DefaultSecurityConfig() SecurityConfig {
 	return SecurityConfig{
-		MaxInputSize:      10 * 1024 * 1024, // 10MB
-		MaxOutputSize:     10 * 1024 * 1024, // 10MB
-		MaxStringLength:   1024 * 1024,      // 1MB
-		MaxArrayLength:    10000,
-		MaxNestingDepth:   50,
-		MaxFieldCount:     1000,
-		AllowHTMLContent:  false,
+		MaxInputSize:       10 * 1024 * 1024, // 10MB
+		MaxOutputSize:      10 * 1024 * 1024, // 10MB
+		MaxStringLength:    1024 * 1024,      // 1MB
+		MaxArrayLength:     10000,
+		MaxNestingDepth:    50,
+		MaxFieldCount:      1000,
+		AllowHTMLContent:   false,
 		AllowScriptContent: false,
-		AllowedURLSchemes: []string{"http", "https"},
+		AllowedURLSchemes:  []string{"http", "https"},
 		BlockedPatterns: []string{
 			`<script[^>]*>.*?</script>`,
 			`javascript:`,
@@ -92,27 +92,27 @@ func DefaultSecurityConfig() SecurityConfig {
 		},
 		SanitizeInput:             true,
 		MaxProcessingTime:         30 * time.Second,
-		MaxMemoryUsage:           100 * 1024 * 1024, // 100MB
+		MaxMemoryUsage:            100 * 1024 * 1024, // 100MB
 		EnableResourceMonitor:     true,
 		EnableInjectionPrevention: true,
-		EnableDOSPrevention:      true,
-		EnableXSSPrevention:      true,
-		MaxValidationDepth:       DefaultMaxValidationDepth,
-		MaxSanitizationDepth:     DefaultMaxSanitizationDepth,
+		EnableDOSPrevention:       true,
+		EnableXSSPrevention:       true,
+		MaxValidationDepth:        DefaultMaxValidationDepth,
+		MaxSanitizationDepth:      DefaultMaxSanitizationDepth,
 	}
 }
 
 // StrictSecurityConfig returns a strict security configuration
 func StrictSecurityConfig() SecurityConfig {
 	config := DefaultSecurityConfig()
-	config.MaxInputSize = 1 * 1024 * 1024      // 1MB
-	config.MaxOutputSize = 1 * 1024 * 1024     // 1MB
-	config.MaxStringLength = 64 * 1024         // 64KB
+	config.MaxInputSize = 1 * 1024 * 1024  // 1MB
+	config.MaxOutputSize = 1 * 1024 * 1024 // 1MB
+	config.MaxStringLength = 64 * 1024     // 64KB
 	config.MaxArrayLength = 1000
 	config.MaxNestingDepth = 20
 	config.MaxFieldCount = 100
 	config.MaxProcessingTime = 10 * time.Second
-	config.MaxMemoryUsage = 50 * 1024 * 1024   // 50MB
+	config.MaxMemoryUsage = 50 * 1024 * 1024 // 50MB
 	config.MaxValidationDepth = StrictMaxValidationDepth
 	config.MaxSanitizationDepth = StrictMaxSanitizationDepth
 	return config
@@ -355,19 +355,19 @@ func (v *SecurityValidator) validateInjectionPatterns(ctx context.Context, data 
 
 	// Check for path traversal patterns
 	pathTraversalPatterns := []string{
-		`\.\./`,                    // Basic path traversal
-		`\.\.\\`,                   // Windows path traversal
-		`\.\.\x2f`,                 // URL encoded path traversal (../)
-		`\.\.\x5c`,                 // URL encoded Windows path traversal (..\)
-		`(?i)%2e%2e%2f`,           // Double URL encoded path traversal
-		`(?i)%2e%2e%5c`,           // Double URL encoded Windows path traversal
-		`(?i)\.\.%2f`,             // Mixed encoding path traversal (..%2f)
-		`(?i)\.\.%5c`,             // Mixed encoding Windows path traversal (..%5c)
-		`\.\.[\\/]`,               // Combined path separators
-		`(?i)(\.\.[\\/]){2,}`,     // Multiple path traversal sequences
-		`(?i)(etc[\\/]passwd)`,    // Direct access to passwd file
+		`\.\./`,                      // Basic path traversal
+		`\.\.\\`,                     // Windows path traversal
+		`\.\.\x2f`,                   // URL encoded path traversal (../)
+		`\.\.\x5c`,                   // URL encoded Windows path traversal (..\)
+		`(?i)%2e%2e%2f`,              // Double URL encoded path traversal
+		`(?i)%2e%2e%5c`,              // Double URL encoded Windows path traversal
+		`(?i)\.\.%2f`,                // Mixed encoding path traversal (..%2f)
+		`(?i)\.\.%5c`,                // Mixed encoding Windows path traversal (..%5c)
+		`\.\.[\\/]`,                  // Combined path separators
+		`(?i)(\.\.[\\/]){2,}`,        // Multiple path traversal sequences
+		`(?i)(etc[\\/]passwd)`,       // Direct access to passwd file
 		`(?i)(windows[\\/]system32)`, // Direct access to system32
-		`(?i)(\.\.[\\/])+.*passwd`, // Path traversal to passwd
+		`(?i)(\.\.[\\/])+.*passwd`,   // Path traversal to passwd
 	}
 	for _, pattern := range pathTraversalPatterns {
 		matched, _ := regexp.MatchString(pattern, dataStr)
@@ -437,7 +437,7 @@ func (v *SecurityValidator) validateNestingDepthWithLimit(ctx context.Context, d
 			WithDetail("depth", depth).
 			WithDetail("max_depth", maxDepth)
 	}
-	
+
 	// Check data nesting depth limit (this is different from recursion depth)
 	if depth > v.config.MaxNestingDepth {
 		return agerrors.NewSecurityError(agerrors.CodeDepthExceeded, fmt.Sprintf("data nesting depth %d exceeds maximum %d", depth, v.config.MaxNestingDepth)).
@@ -808,12 +808,12 @@ func stripScript(s string) string {
 		`(?i)vbscript:[^"'\s]*`,
 		`(?i)on\w+\s*=[^"'\s]*`,
 	}
-	
+
 	for _, pattern := range scriptPatterns {
 		re := regexp.MustCompile(pattern)
 		s = re.ReplaceAllString(s, "")
 	}
-	
+
 	return s
 }
 
@@ -867,13 +867,13 @@ func (v *SecurityValidator) checkResourceLimits() error {
 		// Get current system memory usage
 		var memStats runtime.MemStats
 		runtime.ReadMemStats(&memStats)
-		
+
 		// Check if we would exceed memory limits
 		currentTracked := atomic.LoadInt64(&v.currentMemory)
 		totalMemory := int64(memStats.Alloc) + currentTracked
-		
+
 		if totalMemory > v.config.MaxMemoryUsage {
-			return agerrors.NewSecurityError(agerrors.CodeSizeExceeded, 
+			return agerrors.NewSecurityError(agerrors.CodeSizeExceeded,
 				fmt.Sprintf("memory usage limit exceeded: %d > %d", totalMemory, v.config.MaxMemoryUsage))
 		}
 	}
@@ -892,7 +892,7 @@ func (v *SecurityValidator) checkResourceLimits() error {
 	}
 
 	if current := atomic.LoadInt32(&v.activeOperations); current >= maxConcurrent {
-		return agerrors.NewSecurityError(agerrors.CodeSizeExceeded, 
+		return agerrors.NewSecurityError(agerrors.CodeSizeExceeded,
 			fmt.Sprintf("concurrent validation limit exceeded: %d >= %d", current, maxConcurrent))
 	}
 
@@ -934,11 +934,11 @@ func (v *SecurityValidator) GetResourceStats() map[string]interface{} {
 	runtime.ReadMemStats(&memStats)
 
 	return map[string]interface{}{
-		"system_memory_alloc":    memStats.Alloc,
-		"system_memory_sys":      memStats.Sys,
-		"tracked_memory":         atomic.LoadInt64(&v.currentMemory),
-		"active_operations":      atomic.LoadInt32(&v.activeOperations),
-		"max_memory_limit":       v.config.MaxMemoryUsage,
+		"system_memory_alloc":      memStats.Alloc,
+		"system_memory_sys":        memStats.Sys,
+		"tracked_memory":           atomic.LoadInt64(&v.currentMemory),
+		"active_operations":        atomic.LoadInt32(&v.activeOperations),
+		"max_memory_limit":         v.config.MaxMemoryUsage,
 		"resource_monitor_enabled": v.config.EnableResourceMonitor,
 		"memory_utilization": func() float64 {
 			if v.config.MaxMemoryUsage == 0 {

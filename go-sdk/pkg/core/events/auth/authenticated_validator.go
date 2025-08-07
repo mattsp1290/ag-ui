@@ -11,12 +11,12 @@ import (
 
 // AuthenticatedValidator wraps the EventValidator to add authentication support
 type AuthenticatedValidator struct {
-	validator       *events.EventValidator
-	authHooks       *AuthHooks
-	authRule        *AuthValidationRule
-	postAuthRule    *PostValidationRule
-	mutex           sync.RWMutex
-	
+	validator    *events.EventValidator
+	authHooks    *AuthHooks
+	authRule     *AuthValidationRule
+	postAuthRule *PostValidationRule
+	mutex        sync.RWMutex
+
 	// Metrics
 	authValidations int64
 	authFailures    int64
@@ -26,14 +26,14 @@ type AuthenticatedValidator struct {
 func NewAuthenticatedValidator(config *events.ValidationConfig, authProvider AuthProvider, authConfig *AuthConfig) *AuthenticatedValidator {
 	// Create base validator
 	validator := events.NewEventValidator(config)
-	
+
 	// Create auth hooks
 	authHooks := NewAuthHooks(authProvider, authConfig)
-	
+
 	// Create auth validation rules
 	authRule := NewAuthValidationRule(authHooks)
 	postAuthRule := NewPostValidationRule(authHooks)
-	
+
 	// Create authenticated validator
 	av := &AuthenticatedValidator{
 		validator:    validator,
@@ -41,11 +41,11 @@ func NewAuthenticatedValidator(config *events.ValidationConfig, authProvider Aut
 		authRule:     authRule,
 		postAuthRule: postAuthRule,
 	}
-	
+
 	// Add authentication rules to the validator
 	// Add auth rule at the beginning to check auth first
 	av.addAuthRules()
-	
+
 	return av
 }
 
@@ -53,20 +53,20 @@ func NewAuthenticatedValidator(config *events.ValidationConfig, authProvider Aut
 func (av *AuthenticatedValidator) addAuthRules() {
 	// Get existing rules
 	existingRules := av.validator.GetRules()
-	
+
 	// Remove all rules
 	for _, rule := range existingRules {
 		av.validator.RemoveRule(rule.ID())
 	}
-	
+
 	// Add auth rule first
 	av.validator.AddRule(av.authRule)
-	
+
 	// Re-add existing rules
 	for _, rule := range existingRules {
 		av.validator.AddRule(rule)
 	}
-	
+
 	// Add post-auth rule last
 	av.validator.AddRule(av.postAuthRule)
 }
@@ -76,10 +76,10 @@ func (av *AuthenticatedValidator) ValidateEvent(ctx context.Context, event event
 	av.mutex.Lock()
 	av.authValidations++
 	av.mutex.Unlock()
-	
+
 	// Validate with authentication context
 	result := av.validator.ValidateEvent(ctx, event)
-	
+
 	// Track auth failures using structured error detection
 	if !result.IsValid {
 		for _, err := range result.Errors {
@@ -92,7 +92,7 @@ func (av *AuthenticatedValidator) ValidateEvent(ctx context.Context, event event
 			}
 		}
 	}
-	
+
 	return result
 }
 
@@ -100,7 +100,7 @@ func (av *AuthenticatedValidator) ValidateEvent(ctx context.Context, event event
 func (av *AuthenticatedValidator) ValidateEventWithAuth(ctx context.Context, event events.Event, authCtx *AuthContext) *events.ValidationResult {
 	// Add auth context to context
 	ctx = WithAuthContext(ctx, authCtx)
-	
+
 	return av.ValidateEvent(ctx, event)
 }
 
@@ -108,7 +108,7 @@ func (av *AuthenticatedValidator) ValidateEventWithAuth(ctx context.Context, eve
 func (av *AuthenticatedValidator) ValidateEventWithCredentials(ctx context.Context, event events.Event, credentials Credentials) *events.ValidationResult {
 	// Add credentials to context
 	ctx = WithCredentials(ctx, credentials)
-	
+
 	return av.ValidateEvent(ctx, event)
 }
 
@@ -160,13 +160,13 @@ func (av *AuthenticatedValidator) AddPostValidationHook(hook PostValidationHook)
 func (av *AuthenticatedValidator) GetMetrics() map[string]interface{} {
 	av.mutex.RLock()
 	defer av.mutex.RUnlock()
-	
+
 	// Get base validator metrics
 	validationMetrics := av.validator.GetMetrics()
-	
+
 	// Get auth metrics
 	authMetrics := av.authHooks.GetMetrics()
-	
+
 	// Combine metrics
 	metrics := map[string]interface{}{
 		"validation": map[string]interface{}{
@@ -176,16 +176,16 @@ func (av *AuthenticatedValidator) GetMetrics() map[string]interface{} {
 			"error_count":           validationMetrics.ErrorCount,
 			"warning_count":         validationMetrics.WarningCount,
 		},
-		"authentication": authMetrics,
+		"authentication":   authMetrics,
 		"auth_validations": av.authValidations,
 		"auth_failures":    av.authFailures,
 		"auth_enabled":     av.IsAuthenticationEnabled(),
 	}
-	
+
 	if av.authValidations > 0 {
 		metrics["auth_failure_rate"] = float64(av.authFailures) / float64(av.authValidations) * 100
 	}
-	
+
 	return metrics
 }
 
@@ -200,7 +200,7 @@ func (av *AuthenticatedValidator) GetValidator() *events.EventValidator {
 func CreateWithBasicAuth() *AuthenticatedValidator {
 	// Create auth provider
 	authProvider := NewBasicAuthProvider(nil)
-	
+
 	// Add some test users - use complex passwords
 	adminHash, err := hashPassword("Admin123!")
 	if err != nil {
@@ -208,14 +208,14 @@ func CreateWithBasicAuth() *AuthenticatedValidator {
 		// For now, we'll use a fallback that should never happen
 		adminHash = "Admin123!" // This is insecure but maintains backward compatibility
 	}
-	
+
 	validatorHash, err := hashPassword("Validator123!")
 	if err != nil {
 		// In a real implementation, this would return an error
 		// For now, we'll use a fallback that should never happen
 		validatorHash = "Validator123!" // This is insecure but maintains backward compatibility
 	}
-	
+
 	authProvider.AddUser(&User{
 		Username:     "admin",
 		PasswordHash: adminHash,
@@ -223,7 +223,7 @@ func CreateWithBasicAuth() *AuthenticatedValidator {
 		Permissions:  []string{"*:*"},
 		Active:       true,
 	})
-	
+
 	authProvider.AddUser(&User{
 		Username:     "validator",
 		PasswordHash: validatorHash,
@@ -231,7 +231,7 @@ func CreateWithBasicAuth() *AuthenticatedValidator {
 		Permissions:  []string{"event:validate", "event:read", "run:validate", "message:validate", "tool:validate", "state:validate"},
 		Active:       true,
 	})
-	
+
 	// Create auth config
 	authConfig := &AuthConfig{
 		Enabled:         true,
@@ -239,7 +239,7 @@ func CreateWithBasicAuth() *AuthenticatedValidator {
 		AllowAnonymous:  true,
 		TokenExpiration: 24 * time.Hour,
 	}
-	
+
 	// Create validator
 	return NewAuthenticatedValidator(events.DefaultValidationConfig(), authProvider, authConfig)
 }
@@ -247,11 +247,11 @@ func CreateWithBasicAuth() *AuthenticatedValidator {
 // CreateWithRequiredAuth creates an authenticated validator that requires authentication
 func CreateWithRequiredAuth() *AuthenticatedValidator {
 	validator := CreateWithBasicAuth()
-	
+
 	// Update config to require auth
 	validator.authHooks.config.RequireAuth = true
 	validator.authHooks.config.AllowAnonymous = false
-	
+
 	// Add pre-validation hooks
 	validator.AddPreValidationHook(RequireAuthenticationHook())
 	validator.AddPreValidationHook(LogAuthenticationHook())
@@ -259,11 +259,11 @@ func CreateWithRequiredAuth() *AuthenticatedValidator {
 		"default": 1000,
 		"admin":   10000,
 	}))
-	
+
 	// Add post-validation hooks
 	validator.AddPostValidationHook(AuditHook())
 	validator.AddPostValidationHook(EnrichResultHook())
-	
+
 	return validator
 }
 
@@ -273,7 +273,7 @@ func (av *AuthenticatedValidator) ValidateWithBasicAuth(ctx context.Context, eve
 		Username: username,
 		Password: password,
 	}
-	
+
 	return av.ValidateEventWithCredentials(ctx, event, creds)
 }
 
@@ -283,7 +283,7 @@ func (av *AuthenticatedValidator) ValidateWithToken(ctx context.Context, event e
 		Token:     token,
 		TokenType: "Bearer",
 	}
-	
+
 	return av.ValidateEventWithCredentials(ctx, event, creds)
 }
 
@@ -292,7 +292,7 @@ func (av *AuthenticatedValidator) ValidateWithAPIKey(ctx context.Context, event 
 	creds := &APIKeyCredentials{
 		APIKey: apiKey,
 	}
-	
+
 	return av.ValidateEventWithCredentials(ctx, event, creds)
 }
 
@@ -301,7 +301,7 @@ func (av *AuthenticatedValidator) StartCleanupRoutine(ctx context.Context, inter
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -320,29 +320,29 @@ func (av *AuthenticatedValidator) StartCleanupRoutine(ctx context.Context, inter
 func Example() {
 	// Create an authenticated validator
 	validator := CreateWithRequiredAuth()
-	
+
 	// Create an event
 	event := &events.RunStartedEvent{
 		BaseEvent: &events.BaseEvent{
-			EventType: events.EventTypeRunStarted,
+			EventType:   events.EventTypeRunStarted,
 			TimestampMs: func() *int64 { t := time.Now().UnixMilli(); return &t }(),
 		},
 		RunIDValue:    "run-123",
 		ThreadIDValue: "thread-456",
 	}
-	
+
 	// Validate without auth (will fail)
 	result := validator.ValidateEvent(context.Background(), event)
 	if !result.IsValid {
 		fmt.Printf("Validation failed: %v\n", result.Errors[0].Message)
 	}
-	
+
 	// Validate with auth
 	result = validator.ValidateWithBasicAuth(context.Background(), event, "validator", "Validator123!")
 	if result.IsValid {
 		fmt.Println("Validation succeeded with authentication")
 	}
-	
+
 	// Get metrics
 	metrics := validator.GetMetrics()
 	fmt.Printf("Metrics: %+v\n", metrics)
@@ -354,19 +354,19 @@ func (av *AuthenticatedValidator) isAuthenticationError(err *events.ValidationEr
 	if err == nil {
 		return false
 	}
-	
+
 	// Check for known authentication rule IDs
 	authRuleIDs := []string{
 		"AUTH_VALIDATION",
 		"POST_AUTH_VALIDATION",
 	}
-	
+
 	for _, ruleID := range authRuleIDs {
 		if err.RuleID == ruleID {
 			return true
 		}
 	}
-	
+
 	// Check for authentication-related error messages/context
 	if err.Context != nil {
 		if _, hasAuthError := err.Context["auth_error"]; hasAuthError {
@@ -376,6 +376,6 @@ func (av *AuthenticatedValidator) isAuthenticationError(err *events.ValidationEr
 			return true
 		}
 	}
-	
+
 	return false
 }

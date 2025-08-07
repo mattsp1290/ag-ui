@@ -24,7 +24,7 @@ var (
 			return new(strings.Builder)
 		},
 	}
-	
+
 	errorMsgPool = &sync.Pool{
 		New: func() interface{} {
 			return new(strings.Builder)
@@ -41,43 +41,43 @@ var (
 // generateHandlerID generates a handler ID without string allocation
 func generateHandlerID() string {
 	id := atomic.AddUint64(&handlerIDCounter, 1)
-	
+
 	// Use a pooled string builder
 	sb := handlerIDPool.Get().(*strings.Builder)
 	defer func() {
 		sb.Reset()
 		handlerIDPool.Put(sb)
 	}()
-	
+
 	sb.WriteString("handler_")
 	sb.WriteString(strconv.FormatUint(id, 10))
 	sb.WriteByte('_')
 	sb.WriteString(strconv.FormatInt(time.Now().UnixNano(), 10))
-	
+
 	return sb.String()
 }
 
 // generateSubID generates a subscription ID without string allocation
 func generateSubID() string {
 	id := atomic.AddUint64(&subIDCounter, 1)
-	
+
 	// Pre-allocate buffer for the ID
 	buf := make([]byte, 0, 20)
 	buf = append(buf, "sub_"...)
 	buf = strconv.AppendUint(buf, id, 10)
-	
+
 	return string(buf)
 }
 
 // OptimizedTransport wraps the standard transport with performance optimizations
 type OptimizedTransport struct {
 	*Transport
-	
+
 	// Pre-allocated error messages
-	closedError      error
-	emptyHandlerErr  error
-	noEventTypesErr  error
-	nilHandlerErr    error
+	closedError     error
+	emptyHandlerErr error
+	noEventTypesErr error
+	nilHandlerErr   error
 }
 
 // NewOptimizedTransport creates a new optimized transport
@@ -86,7 +86,7 @@ func NewOptimizedTransport(config *TransportConfig) (*OptimizedTransport, error)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return &OptimizedTransport{
 		Transport:       transport,
 		closedError:     fmt.Errorf("transport is closed"),
@@ -117,7 +117,7 @@ func (t *OptimizedTransport) AddEventHandlerOptimized(eventType string, handler 
 		handlers = make([]*EventHandlerWrapper, 0, 4)
 		t.eventHandlers[eventType] = handlers
 	}
-	
+
 	t.eventHandlers[eventType] = append(handlers, wrapper)
 
 	return handlerID
@@ -147,15 +147,15 @@ func (t *OptimizedTransport) RemoveEventHandlerOptimized(eventType string, handl
 				copy(handlers[i:], handlers[i+1:])
 				t.eventHandlers[eventType] = handlers[:len(handlers)-1]
 			}
-			
+
 			// Clear the removed handler
 			handlers[i].Handler = nil
 			handlers[i].ID = ""
-			
+
 			if len(t.eventHandlers[eventType]) == 0 {
 				delete(t.eventHandlers, eventType)
 			}
-			
+
 			return nil
 		}
 	}
@@ -210,11 +210,11 @@ func buildError(parts ...string) error {
 		sb.Reset()
 		errorMsgPool.Put(sb)
 	}()
-	
+
 	for _, part := range parts {
 		sb.WriteString(part)
 	}
-	
+
 	return fmt.Errorf(sb.String())
 }
 
@@ -222,7 +222,7 @@ func buildError(parts ...string) error {
 type eventHandlerCache struct {
 	mu       sync.RWMutex
 	handlers map[string][]*EventHandlerWrapper
-	
+
 	// Pre-allocated slices for common event types
 	textMessageHandlers []EventHandler
 	toolCallHandlers    []EventHandler
@@ -243,7 +243,7 @@ func newEventHandlerCache() *eventHandlerCache {
 func (c *eventHandlerCache) getHandlers(eventType string) []EventHandler {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	// Check pre-allocated slices for common types
 	switch eventType {
 	case "TEXT_MESSAGE_START", "TEXT_MESSAGE_CONTENT", "TEXT_MESSAGE_END":
@@ -253,19 +253,19 @@ func (c *eventHandlerCache) getHandlers(eventType string) []EventHandler {
 	case "STATE_SNAPSHOT", "STATE_DELTA":
 		return c.stateHandlers
 	}
-	
+
 	// Fall back to map lookup
 	wrappers := c.handlers[eventType]
 	if len(wrappers) == 0 {
 		return nil
 	}
-	
+
 	// Reuse slice if possible
 	handlers := make([]EventHandler, len(wrappers))
 	for i, w := range wrappers {
 		handlers[i] = w.Handler
 	}
-	
+
 	return handlers
 }
 

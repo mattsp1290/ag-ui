@@ -3,7 +3,7 @@ package json
 import (
 	"context"
 	"sync"
-	
+
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
@@ -46,30 +46,30 @@ func RegisterTo(registry *encoding.FormatRegistry) error {
 	if registry == nil {
 		return errors.NewEncodingError("JSON_NIL_REGISTRY", "registry cannot be nil").WithOperation("register")
 	}
-	
+
 	// Register JSON format info
 	formatInfo := encoding.JSONFormatInfo()
 	if err := registry.RegisterFormat(formatInfo); err != nil {
 		return errors.NewEncodingError("JSON_FORMAT_REGISTRATION_FAILED", "failed to register JSON format").WithOperation("register").WithCause(err)
 	}
-	
+
 	// Create factory
 	factory := &jsonCodecFactory{}
-	
+
 	// Register the codec factory (using legacy interface method for custom implementations)
 	if err := registry.RegisterCodec("application/json", factory); err != nil {
 		return errors.NewEncodingError("JSON_CODEC_REGISTRATION_FAILED", "failed to register JSON codec").WithOperation("register").WithCause(err)
 	}
-	
+
 	// Also register as encoder and decoder factories for full compatibility
 	if err := registry.RegisterEncoder("application/json", factory); err != nil {
 		return errors.NewEncodingError("JSON_ENCODER_REGISTRATION_FAILED", "failed to register JSON encoder").WithOperation("register").WithCause(err)
 	}
-	
+
 	if err := registry.RegisterDecoder("application/json", factory); err != nil {
 		return errors.NewEncodingError("JSON_DECODER_REGISTRATION_FAILED", "failed to register JSON decoder").WithOperation("register").WithCause(err)
 	}
-	
+
 	return nil
 }
 

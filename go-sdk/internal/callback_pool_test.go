@@ -38,7 +38,7 @@ func TestCallbackPoolSubmit(t *testing.T) {
 	// Submit multiple jobs
 	numJobs := 10
 	wg.Add(numJobs)
-	
+
 	for i := 0; i < numJobs; i++ {
 		pool.Submit(func() {
 			defer wg.Done()
@@ -166,7 +166,7 @@ func TestCallbackPoolNilFunction(t *testing.T) {
 
 	// Should not panic with nil function
 	pool.Submit(nil)
-	
+
 	// Verify pool still works
 	var executed bool
 	var wg sync.WaitGroup
@@ -185,14 +185,14 @@ func TestCallbackPoolNilFunction(t *testing.T) {
 
 func TestCallbackPoolGracefulShutdown(t *testing.T) {
 	pool := NewCallbackPool(2)
-	
+
 	var counter int64
 	var wg sync.WaitGroup
 
 	// Submit several jobs
 	numJobs := 5
 	wg.Add(numJobs)
-	
+
 	for i := 0; i < numJobs; i++ {
 		pool.Submit(func() {
 			defer wg.Done()
@@ -257,7 +257,7 @@ func TestCallbackPoolConcurrentSubmit(t *testing.T) {
 // Benchmark to compare goroutine creation vs pool usage
 func BenchmarkDirectGoroutines(b *testing.B) {
 	var wg sync.WaitGroup
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		wg.Add(1)
@@ -273,9 +273,9 @@ func BenchmarkDirectGoroutines(b *testing.B) {
 func BenchmarkCallbackPool(b *testing.B) {
 	pool := NewCallbackPool(runtime.NumCPU())
 	defer pool.Stop()
-	
+
 	var wg sync.WaitGroup
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		wg.Add(1)
@@ -310,7 +310,7 @@ func BenchmarkDirectGoroutinesHighLoad(b *testing.B) {
 func BenchmarkCallbackPoolHighLoad(b *testing.B) {
 	pool := NewCallbackPool(runtime.NumCPU())
 	defer pool.Stop()
-	
+
 	for i := 0; i < b.N; i++ {
 		var wg sync.WaitGroup
 		// Simulate 100 concurrent callbacks (like SSE events)

@@ -4,7 +4,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	
+
 	"github.com/gorilla/websocket"
 )
 
@@ -29,15 +29,15 @@ func (sc *SafeConnection) ReadMessage() (messageType int, p []byte, err error) {
 	if atomic.LoadInt32(&sc.closed) == 1 {
 		return 0, nil, websocket.ErrCloseSent
 	}
-	
+
 	// Attempt to read
 	messageType, p, err = sc.conn.ReadMessage()
-	
+
 	// If we get an error indicating the connection is closed, mark it as closed
 	if err != nil && websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway, websocket.CloseAbnormalClosure) {
 		atomic.StoreInt32(&sc.closed, 1)
 	}
-	
+
 	return messageType, p, err
 }
 
@@ -47,7 +47,7 @@ func (sc *SafeConnection) WriteMessage(messageType int, data []byte) error {
 	if atomic.LoadInt32(&sc.closed) == 1 {
 		return websocket.ErrCloseSent
 	}
-	
+
 	return sc.conn.WriteMessage(messageType, data)
 }
 
@@ -73,15 +73,15 @@ func (sc *SafeConnection) Close() error {
 	sc.closeOnce.Do(func() {
 		sc.closeMu.Lock()
 		defer sc.closeMu.Unlock()
-		
+
 		// Mark as closed first
 		atomic.StoreInt32(&sc.closed, 1)
-		
+
 		// Set immediate deadlines to interrupt any blocked operations
 		now := time.Now()
 		sc.conn.SetReadDeadline(now)
 		sc.conn.SetWriteDeadline(now)
-		
+
 		// Close the connection
 		err = sc.conn.Close()
 	})

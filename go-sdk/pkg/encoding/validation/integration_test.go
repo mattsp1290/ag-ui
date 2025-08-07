@@ -19,7 +19,7 @@ func TestEncodingDecodingPipeline(t *testing.T) {
 	// Create encoders and decoders
 	jsonEncoder := json.NewEncoder()
 	jsonDecoder := json.NewDecoder()
-	
+
 	// Note: Protobuf encoder/decoder would be created similarly when available
 	// protobufEncoder := protobuf.NewEncoder()
 	// protobufDecoder := protobuf.NewDecoder()
@@ -76,7 +76,7 @@ func testBasicPipeline(ctx context.Context, t *testing.T, encoder encoding.Encod
 	testEvents := []events.Event{
 		&events.RunStartedEvent{
 			BaseEvent: &events.BaseEvent{
-				EventType: events.EventTypeRunStarted,
+				EventType:   events.EventTypeRunStarted,
 				TimestampMs: int64Ptr(time.Now().Unix()),
 			},
 			RunIDValue:    "test-run-123",
@@ -84,7 +84,7 @@ func testBasicPipeline(ctx context.Context, t *testing.T, encoder encoding.Encod
 		},
 		&events.TextMessageContentEvent{
 			BaseEvent: &events.BaseEvent{
-				EventType: events.EventTypeTextMessageContent,
+				EventType:   events.EventTypeTextMessageContent,
 				TimestampMs: int64Ptr(time.Now().Unix()),
 			},
 			MessageID: "test-msg-789",
@@ -131,7 +131,7 @@ func testValidationPipeline(ctx context.Context, t *testing.T, encoder encoding.
 	// Test event validation
 	testEvent := &events.RunStartedEvent{
 		BaseEvent: &events.BaseEvent{
-			EventType: events.EventTypeRunStarted,
+			EventType:   events.EventTypeRunStarted,
 			TimestampMs: int64Ptr(time.Now().Unix()),
 		},
 		RunIDValue:    "validation-test-123",
@@ -163,7 +163,7 @@ func testSecurityPipeline(ctx context.Context, t *testing.T, encoder encoding.En
 	// Test with safe content
 	safeEvent := &events.TextMessageContentEvent{
 		BaseEvent: &events.BaseEvent{
-			EventType: events.EventTypeTextMessageContent,
+			EventType:   events.EventTypeTextMessageContent,
 			TimestampMs: int64Ptr(time.Now().Unix()),
 		},
 		MessageID: "security-test-safe",
@@ -189,7 +189,7 @@ func testSecurityPipeline(ctx context.Context, t *testing.T, encoder encoding.En
 	// Test with potentially dangerous content
 	dangerousEvent := &events.TextMessageContentEvent{
 		BaseEvent: &events.BaseEvent{
-			EventType: events.EventTypeTextMessageContent,
+			EventType:   events.EventTypeTextMessageContent,
 			TimestampMs: int64Ptr(time.Now().Unix()),
 		},
 		MessageID: "security-test-dangerous",
@@ -211,7 +211,7 @@ func testRoundTripValidation(ctx context.Context, t *testing.T, encoder encoding
 	testEvents := []events.Event{
 		&events.RunStartedEvent{
 			BaseEvent: &events.BaseEvent{
-				EventType: events.EventTypeRunStarted,
+				EventType:   events.EventTypeRunStarted,
 				TimestampMs: int64Ptr(time.Now().Unix()),
 			},
 			RunIDValue:    "roundtrip-test-123",
@@ -219,7 +219,7 @@ func testRoundTripValidation(ctx context.Context, t *testing.T, encoder encoding
 		},
 		&events.StateSnapshotEvent{
 			BaseEvent: &events.BaseEvent{
-				EventType: events.EventTypeStateSnapshot,
+				EventType:   events.EventTypeStateSnapshot,
 				TimestampMs: int64Ptr(time.Now().Unix()),
 			},
 			Snapshot: map[string]interface{}{
@@ -292,7 +292,7 @@ func TestStandardTestVectors(t *testing.T) {
 				t.Skip("Security vectors are tested separately in TestSecurityValidation")
 				return
 			}
-			
+
 			for _, vector := range vectorSet.Vectors {
 				t.Run(vector.Name, func(t *testing.T) {
 					// Decode the input
@@ -407,7 +407,7 @@ func TestValidationIntegration(t *testing.T) {
 	// Test event that should pass both validations
 	validEvent := &events.RunStartedEvent{
 		BaseEvent: &events.BaseEvent{
-			EventType: events.EventTypeRunStarted,
+			EventType:   events.EventTypeRunStarted,
 			TimestampMs: int64Ptr(time.Now().Unix()),
 		},
 		RunIDValue:    "integration-test-123",
@@ -427,7 +427,7 @@ func TestValidationIntegration(t *testing.T) {
 	// Test event that should fail validation
 	invalidEvent := &events.RunStartedEvent{
 		BaseEvent: &events.BaseEvent{
-			EventType: events.EventTypeRunStarted,
+			EventType:   events.EventTypeRunStarted,
 			TimestampMs: int64Ptr(-1), // Invalid negative timestamp
 		},
 		RunIDValue:    "", // Empty required field
@@ -503,7 +503,7 @@ func BenchmarkJSONEncoding(b *testing.B) {
 	encoder := json.NewEncoder()
 	event := &events.RunStartedEvent{
 		BaseEvent: &events.BaseEvent{
-			EventType: events.EventTypeRunStarted,
+			EventType:   events.EventTypeRunStarted,
 			TimestampMs: int64Ptr(time.Now().Unix()),
 		},
 		RunIDValue:    "benchmark-run-123",
@@ -524,7 +524,7 @@ func BenchmarkJSONDecoding(b *testing.B) {
 	decoder := json.NewDecoder()
 	event := &events.RunStartedEvent{
 		BaseEvent: &events.BaseEvent{
-			EventType: events.EventTypeRunStarted,
+			EventType:   events.EventTypeRunStarted,
 			TimestampMs: int64Ptr(time.Now().Unix()),
 		},
 		RunIDValue:    "benchmark-run-123",
@@ -550,10 +550,10 @@ func BenchmarkRoundTrip(b *testing.B) {
 	decoder := json.NewDecoder()
 	validator := NewRoundTripValidator(encoder, decoder)
 	ctx := context.Background()
-	
+
 	event := &events.RunStartedEvent{
 		BaseEvent: &events.BaseEvent{
-			EventType: events.EventTypeRunStarted,
+			EventType:   events.EventTypeRunStarted,
 			TimestampMs: int64Ptr(time.Now().Unix()),
 		},
 		RunIDValue:    "benchmark-run-123",
@@ -572,7 +572,7 @@ func BenchmarkRoundTrip(b *testing.B) {
 func BenchmarkSecurityValidation(b *testing.B) {
 	validator := NewSecurityValidator(DefaultSecurityConfig())
 	ctx := context.Background()
-	
+
 	data := []byte(`{"eventType":"text.message.content","messageId":"msg-123","delta":"This is a test message for security validation"}`)
 
 	b.ResetTimer()

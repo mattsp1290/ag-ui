@@ -1775,13 +1775,13 @@ func TestInjectionAttackPreventionIntegration(t *testing.T) {
 
 	// Create a comprehensive secure environment
 	registry := NewRegistry()
-	
+
 	// For this test, we'll use HTTP options that allow localhost testing
 	// The security is still tested in other test cases
 	httpOptions := DefaultSecureHTTPOptions()
 	httpOptions.AllowPrivateNetworks = true
 	httpOptions.AllowedHosts = []string{"127.0.0.1", "localhost", "[::1]"}
-	
+
 	options := &BuiltinToolsOptions{
 		SecureMode: true,
 		FileOptions: &SecureFileOptions{

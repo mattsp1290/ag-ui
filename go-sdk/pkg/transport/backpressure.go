@@ -5,7 +5,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
-	
+
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
@@ -15,16 +15,16 @@ type BackpressureStrategy string
 const (
 	// BackpressureNone disables backpressure handling (default behavior)
 	BackpressureNone BackpressureStrategy = "none"
-	
+
 	// BackpressureDropOldest drops the oldest events when buffer is full
 	BackpressureDropOldest BackpressureStrategy = "drop_oldest"
-	
+
 	// BackpressureDropNewest drops the newest events when buffer is full
 	BackpressureDropNewest BackpressureStrategy = "drop_newest"
-	
+
 	// BackpressureBlock blocks the producer when buffer is full
 	BackpressureBlock BackpressureStrategy = "block"
-	
+
 	// BackpressureBlockWithTimeout blocks the producer with a timeout
 	BackpressureBlockWithTimeout BackpressureStrategy = "block_timeout"
 )
@@ -33,71 +33,71 @@ const (
 type BackpressureConfig struct {
 	// Strategy defines the backpressure strategy to use
 	Strategy BackpressureStrategy `yaml:"strategy" json:"strategy" default:"none"`
-	
+
 	// BufferSize is the size of the event buffer
 	BufferSize int `yaml:"buffer_size" json:"buffer_size" default:"1024"`
-	
+
 	// HighWaterMark is the percentage of buffer fullness that triggers backpressure
 	HighWaterMark float64 `yaml:"high_water_mark" json:"high_water_mark" default:"0.8"`
-	
+
 	// LowWaterMark is the percentage of buffer fullness that releases backpressure
 	LowWaterMark float64 `yaml:"low_water_mark" json:"low_water_mark" default:"0.2"`
-	
+
 	// BlockTimeout is the maximum time to block when using block_timeout strategy
 	BlockTimeout time.Duration `yaml:"block_timeout" json:"block_timeout" default:"5s"`
-	
+
 	// EnableMetrics enables backpressure metrics collection
 	EnableMetrics bool `yaml:"enable_metrics" json:"enable_metrics" default:"true"`
 }
 
 // BackpressureMetrics contains metrics for backpressure handling
 type BackpressureMetrics struct {
-	mu                    sync.RWMutex
-	EventsDropped         uint64    `json:"events_dropped"`
-	EventsBlocked         uint64    `json:"events_blocked"`
-	BlockedDuration       time.Duration `json:"blocked_duration"`
-	CurrentBufferSize     int       `json:"current_buffer_size"`
-	MaxBufferSize         int       `json:"max_buffer_size"`
-	HighWaterMarkHits     uint64    `json:"high_water_mark_hits"`
-	LowWaterMarkHits      uint64    `json:"low_water_mark_hits"`
-	LastDropTime          time.Time `json:"last_drop_time"`
-	LastBlockTime         time.Time `json:"last_block_time"`
-	BackpressureActive    bool      `json:"backpressure_active"`
+	mu                 sync.RWMutex
+	EventsDropped      uint64        `json:"events_dropped"`
+	EventsBlocked      uint64        `json:"events_blocked"`
+	BlockedDuration    time.Duration `json:"blocked_duration"`
+	CurrentBufferSize  int           `json:"current_buffer_size"`
+	MaxBufferSize      int           `json:"max_buffer_size"`
+	HighWaterMarkHits  uint64        `json:"high_water_mark_hits"`
+	LowWaterMarkHits   uint64        `json:"low_water_mark_hits"`
+	LastDropTime       time.Time     `json:"last_drop_time"`
+	LastBlockTime      time.Time     `json:"last_block_time"`
+	BackpressureActive bool          `json:"backpressure_active"`
 }
 
 // BackpressureHandler manages backpressure for event channels
 type BackpressureHandler struct {
-	mu              sync.RWMutex
-	config          BackpressureConfig
-	metrics         *BackpressureMetrics
-	eventChan       chan events.Event
-	errorChan       chan error
-	backpressureOn  bool
-	stopChan        chan struct{}
-	ctx             context.Context
-	cancel          context.CancelFunc
-	stopped         int32 // Use atomic int32 for thread-safe access
+	mu             sync.RWMutex
+	config         BackpressureConfig
+	metrics        *BackpressureMetrics
+	eventChan      chan events.Event
+	errorChan      chan error
+	backpressureOn bool
+	stopChan       chan struct{}
+	ctx            context.Context
+	cancel         context.CancelFunc
+	stopped        int32 // Use atomic int32 for thread-safe access
 }
 
 // NewBackpressureHandler creates a new backpressure handler
 func NewBackpressureHandler(config BackpressureConfig) *BackpressureHandler {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	handler := &BackpressureHandler{
-		config:     config,
-		metrics:    &BackpressureMetrics{MaxBufferSize: config.BufferSize},
-		eventChan:  make(chan events.Event, config.BufferSize),
-		errorChan:  make(chan error, config.BufferSize),
-		stopChan:   make(chan struct{}),
-		ctx:        ctx,
-		cancel:     cancel,
+		config:    config,
+		metrics:   &BackpressureMetrics{MaxBufferSize: config.BufferSize},
+		eventChan: make(chan events.Event, config.BufferSize),
+		errorChan: make(chan error, config.BufferSize),
+		stopChan:  make(chan struct{}),
+		ctx:       ctx,
+		cancel:    cancel,
 	}
-	
+
 	// Start the backpressure monitor if needed
 	if config.Strategy != BackpressureNone {
 		go handler.monitorBackpressure()
 	}
-	
+
 	return handler
 }
 
@@ -107,14 +107,14 @@ func (h *BackpressureHandler) SendEvent(event events.Event) error {
 	if atomic.LoadInt32(&h.stopped) == 1 {
 		return ErrConnectionClosed
 	}
-	
+
 	// Update metrics if enabled
 	if h.config.EnableMetrics {
 		h.metrics.mu.Lock()
 		h.metrics.CurrentBufferSize = len(h.eventChan)
 		h.metrics.mu.Unlock()
 	}
-	
+
 	// For non-blocking strategies, we can hold the lock
 	// For blocking strategies, we need to release it
 	switch h.config.Strategy {
@@ -165,7 +165,7 @@ func (h *BackpressureHandler) SendError(err error) error {
 	if atomic.LoadInt32(&h.stopped) == 1 {
 		return ErrConnectionClosed
 	}
-	
+
 	// Errors use the same backpressure strategy as events
 	select {
 	case h.errorChan <- err:
@@ -175,7 +175,7 @@ func (h *BackpressureHandler) SendError(err error) error {
 		if atomic.LoadInt32(&h.stopped) == 1 {
 			return ErrConnectionClosed
 		}
-		
+
 		if h.config.Strategy == BackpressureDropOldest || h.config.Strategy == BackpressureDropNewest {
 			// For drop strategies, just drop the error
 			if h.config.EnableMetrics {
@@ -212,16 +212,16 @@ func (h *BackpressureHandler) GetMetrics() BackpressureMetrics {
 	h.metrics.mu.RLock()
 	defer h.metrics.mu.RUnlock()
 	return BackpressureMetrics{
-		EventsDropped:         h.metrics.EventsDropped,
-		EventsBlocked:         h.metrics.EventsBlocked,
-		BlockedDuration:       h.metrics.BlockedDuration,
-		CurrentBufferSize:     h.metrics.CurrentBufferSize,
-		MaxBufferSize:         h.metrics.MaxBufferSize,
-		HighWaterMarkHits:     h.metrics.HighWaterMarkHits,
-		LowWaterMarkHits:      h.metrics.LowWaterMarkHits,
-		LastDropTime:          h.metrics.LastDropTime,
-		LastBlockTime:         h.metrics.LastBlockTime,
-		BackpressureActive:    h.metrics.BackpressureActive,
+		EventsDropped:      h.metrics.EventsDropped,
+		EventsBlocked:      h.metrics.EventsBlocked,
+		BlockedDuration:    h.metrics.BlockedDuration,
+		CurrentBufferSize:  h.metrics.CurrentBufferSize,
+		MaxBufferSize:      h.metrics.MaxBufferSize,
+		HighWaterMarkHits:  h.metrics.HighWaterMarkHits,
+		LowWaterMarkHits:   h.metrics.LowWaterMarkHits,
+		LastDropTime:       h.metrics.LastDropTime,
+		LastBlockTime:      h.metrics.LastBlockTime,
+		BackpressureActive: h.metrics.BackpressureActive,
 	}
 }
 
@@ -232,10 +232,10 @@ func (h *BackpressureHandler) Stop() {
 		// Already stopped
 		return
 	}
-	
+
 	// Cancel context first to signal all goroutines to stop
 	h.cancel()
-	
+
 	// Close stopChan to signal monitor goroutine
 	h.mu.Lock()
 	select {
@@ -245,7 +245,7 @@ func (h *BackpressureHandler) Stop() {
 		close(h.stopChan)
 	}
 	h.mu.Unlock()
-	
+
 	// Wait for monitor goroutine to exit with timeout protection
 	// This is more reliable than just sleeping
 	if h.config.Strategy != BackpressureNone {
@@ -262,7 +262,7 @@ func (h *BackpressureHandler) Stop() {
 			}
 			close(done)
 		}()
-		
+
 		select {
 		case <-done:
 			// Monitor goroutine should have stopped
@@ -328,9 +328,9 @@ func (h *BackpressureHandler) sendEventBlock(event events.Event) error {
 	if atomic.LoadInt32(&h.stopped) == 1 {
 		return ErrConnectionClosed
 	}
-	
+
 	startTime := time.Now()
-	
+
 	select {
 	case h.eventChan <- event:
 		return nil
@@ -341,7 +341,7 @@ func (h *BackpressureHandler) sendEventBlock(event events.Event) error {
 		if atomic.LoadInt32(&h.stopped) == 1 {
 			return ErrConnectionClosed
 		}
-		
+
 		// Update metrics before blocking
 		if h.config.EnableMetrics {
 			h.metrics.mu.Lock()
@@ -349,7 +349,7 @@ func (h *BackpressureHandler) sendEventBlock(event events.Event) error {
 			h.metrics.LastBlockTime = time.Now()
 			h.metrics.mu.Unlock()
 		}
-		
+
 		select {
 		case h.eventChan <- event:
 			if h.config.EnableMetrics {
@@ -370,9 +370,9 @@ func (h *BackpressureHandler) sendEventBlockTimeout(event events.Event) error {
 	if atomic.LoadInt32(&h.stopped) == 1 {
 		return ErrConnectionClosed
 	}
-	
+
 	startTime := time.Now()
-	
+
 	select {
 	case h.eventChan <- event:
 		return nil
@@ -383,7 +383,7 @@ func (h *BackpressureHandler) sendEventBlockTimeout(event events.Event) error {
 		if atomic.LoadInt32(&h.stopped) == 1 {
 			return ErrConnectionClosed
 		}
-		
+
 		// Update metrics before blocking
 		if h.config.EnableMetrics {
 			h.metrics.mu.Lock()
@@ -391,10 +391,10 @@ func (h *BackpressureHandler) sendEventBlockTimeout(event events.Event) error {
 			h.metrics.LastBlockTime = time.Now()
 			h.metrics.mu.Unlock()
 		}
-		
+
 		ctx, cancel := context.WithTimeout(h.ctx, h.config.BlockTimeout)
 		defer cancel()
-		
+
 		select {
 		case h.eventChan <- event:
 			if h.config.EnableMetrics {
@@ -415,7 +415,7 @@ func (h *BackpressureHandler) sendEventBlockTimeout(event events.Event) error {
 func (h *BackpressureHandler) monitorBackpressure() {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -434,41 +434,41 @@ func (h *BackpressureHandler) checkBackpressureConditions() {
 	if atomic.LoadInt32(&h.stopped) == 1 {
 		return
 	}
-	
+
 	// Quick check if context is done
 	select {
 	case <-h.ctx.Done():
 		return
 	default:
 	}
-	
+
 	// Get channel info without holding main lock
 	currentSize := len(h.eventChan)
 	maxSize := cap(h.eventChan)
-	
+
 	if !h.config.EnableMetrics {
 		return
 	}
-	
+
 	fillPercentage := float64(currentSize) / float64(maxSize)
-	
+
 	// Update metrics with additional stopped check
 	h.metrics.mu.Lock()
 	defer h.metrics.mu.Unlock()
-	
+
 	// Double-check stopped state while holding metrics lock
 	if atomic.LoadInt32(&h.stopped) == 1 {
 		return
 	}
-	
+
 	h.metrics.CurrentBufferSize = currentSize
-	
+
 	// Check high water mark
 	if fillPercentage >= h.config.HighWaterMark && !h.metrics.BackpressureActive {
 		h.metrics.BackpressureActive = true
 		h.metrics.HighWaterMarkHits++
 	}
-	
+
 	// Check low water mark
 	if fillPercentage <= h.config.LowWaterMark && h.metrics.BackpressureActive {
 		h.metrics.BackpressureActive = false

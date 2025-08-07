@@ -21,16 +21,16 @@ func NewSecurityHeaderManager(config *SecurityHeadersConfig, logger *zap.Logger)
 	if config == nil {
 		return nil, fmt.Errorf("security headers config cannot be nil")
 	}
-	
+
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	
+
 	shm := &SecurityHeaderManager{
 		config: config,
 		logger: logger,
 	}
-	
+
 	return shm, nil
 }
 
@@ -40,47 +40,47 @@ func (shm *SecurityHeaderManager) ApplySecurityHeaders(w http.ResponseWriter, r 
 	if shm.config.CORSConfig.Enabled {
 		shm.handleCORS(w, r)
 	}
-	
+
 	// Apply Content Security Policy
 	if shm.config.EnableCSP && shm.config.CSPPolicy != "" {
 		w.Header().Set("Content-Security-Policy", shm.config.CSPPolicy)
 		shm.logger.Debug("Applied CSP header", zap.String("policy", shm.config.CSPPolicy))
 	}
-	
+
 	// Apply HTTP Strict Transport Security
 	if shm.config.EnableHSTS && shm.config.HSTSMaxAge > 0 {
 		hstsValue := fmt.Sprintf("max-age=%d; includeSubDomains", shm.config.HSTSMaxAge)
 		w.Header().Set("Strict-Transport-Security", hstsValue)
 		shm.logger.Debug("Applied HSTS header", zap.String("value", hstsValue))
 	}
-	
+
 	// Apply X-Frame-Options
 	if shm.config.EnableXFrameOptions && shm.config.XFrameOptions != "" {
 		w.Header().Set("X-Frame-Options", shm.config.XFrameOptions)
 		shm.logger.Debug("Applied X-Frame-Options header", zap.String("value", shm.config.XFrameOptions))
 	}
-	
+
 	// Apply X-Content-Type-Options
 	if shm.config.EnableXContentType {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 		shm.logger.Debug("Applied X-Content-Type-Options header")
 	}
-	
+
 	// Apply Referrer Policy
 	if shm.config.EnableReferrerPolicy && shm.config.ReferrerPolicy != "" {
 		w.Header().Set("Referrer-Policy", shm.config.ReferrerPolicy)
 		shm.logger.Debug("Applied Referrer-Policy header", zap.String("value", shm.config.ReferrerPolicy))
 	}
-	
+
 	// Apply X-XSS-Protection (deprecated but some legacy systems might need it)
 	w.Header().Set("X-XSS-Protection", "1; mode=block")
-	
+
 	// Apply X-Download-Options for IE
 	w.Header().Set("X-Download-Options", "noopen")
-	
+
 	// Apply X-Permitted-Cross-Domain-Policies
 	w.Header().Set("X-Permitted-Cross-Domain-Policies", "none")
-	
+
 	// Apply custom headers
 	for name, value := range shm.config.CustomHeaders {
 		w.Header().Set(name, value)
@@ -91,7 +91,7 @@ func (shm *SecurityHeaderManager) ApplySecurityHeaders(w http.ResponseWriter, r 
 // handleCORS handles Cross-Origin Resource Sharing
 func (shm *SecurityHeaderManager) handleCORS(w http.ResponseWriter, r *http.Request) {
 	origin := r.Header.Get("Origin")
-	
+
 	// Check if origin is allowed
 	if origin != "" && shm.isOriginAllowed(origin) {
 		w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -100,40 +100,40 @@ func (shm *SecurityHeaderManager) handleCORS(w http.ResponseWriter, r *http.Requ
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		shm.logger.Debug("Set CORS Allow-Origin to wildcard")
 	}
-	
+
 	// Set allowed methods
 	if len(shm.config.CORSConfig.AllowedMethods) > 0 {
 		methods := strings.Join(shm.config.CORSConfig.AllowedMethods, ", ")
 		w.Header().Set("Access-Control-Allow-Methods", methods)
 		shm.logger.Debug("Set CORS Allow-Methods", zap.String("methods", methods))
 	}
-	
+
 	// Set allowed headers
 	if len(shm.config.CORSConfig.AllowedHeaders) > 0 {
 		headers := strings.Join(shm.config.CORSConfig.AllowedHeaders, ", ")
 		w.Header().Set("Access-Control-Allow-Headers", headers)
 		shm.logger.Debug("Set CORS Allow-Headers", zap.String("headers", headers))
 	}
-	
+
 	// Set exposed headers
 	if len(shm.config.CORSConfig.ExposedHeaders) > 0 {
 		headers := strings.Join(shm.config.CORSConfig.ExposedHeaders, ", ")
 		w.Header().Set("Access-Control-Expose-Headers", headers)
 		shm.logger.Debug("Set CORS Expose-Headers", zap.String("headers", headers))
 	}
-	
+
 	// Set credentials
 	if shm.config.CORSConfig.AllowCredentials {
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		shm.logger.Debug("Set CORS Allow-Credentials")
 	}
-	
+
 	// Set max age
 	if shm.config.CORSConfig.MaxAge > 0 {
 		w.Header().Set("Access-Control-Max-Age", strconv.Itoa(shm.config.CORSConfig.MaxAge))
 		shm.logger.Debug("Set CORS Max-Age", zap.Int("max_age", shm.config.CORSConfig.MaxAge))
 	}
-	
+
 	// Handle preflight requests
 	if r.Method == "OPTIONS" {
 		shm.handlePreflightRequest(w, r)
@@ -147,10 +147,10 @@ func (shm *SecurityHeaderManager) handlePreflightRequest(w http.ResponseWriter, 
 		shm.logger.Debug("Invalid preflight request - missing Access-Control-Request-Method")
 		return
 	}
-	
+
 	requestMethod := r.Header.Get("Access-Control-Request-Method")
 	requestHeaders := r.Header.Get("Access-Control-Request-Headers")
-	
+
 	// Validate requested method
 	if !shm.isMethodAllowed(requestMethod) {
 		shm.logger.Warn("CORS preflight - method not allowed",
@@ -158,7 +158,7 @@ func (shm *SecurityHeaderManager) handlePreflightRequest(w http.ResponseWriter, 
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		return
 	}
-	
+
 	// Validate requested headers
 	if requestHeaders != "" && !shm.areHeadersAllowed(requestHeaders) {
 		shm.logger.Warn("CORS preflight - headers not allowed",
@@ -166,10 +166,10 @@ func (shm *SecurityHeaderManager) handlePreflightRequest(w http.ResponseWriter, 
 		w.WriteHeader(http.StatusForbidden)
 		return
 	}
-	
+
 	// Set response status for successful preflight
 	w.WriteHeader(http.StatusNoContent)
-	
+
 	shm.logger.Debug("Handled CORS preflight request successfully",
 		zap.String("method", requestMethod),
 		zap.String("headers", requestHeaders))
@@ -181,7 +181,7 @@ func (shm *SecurityHeaderManager) isOriginAllowed(origin string) bool {
 		if allowedOrigin == "*" || allowedOrigin == origin {
 			return true
 		}
-		
+
 		// Support for wildcard subdomains (e.g., "*.example.com")
 		if strings.HasPrefix(allowedOrigin, "*.") {
 			domain := strings.TrimPrefix(allowedOrigin, "*.")
@@ -232,20 +232,20 @@ func (shm *SecurityHeaderManager) isHeaderAllowed(header string) bool {
 		"Accept", "Accept-Language", "Content-Language", "Content-Type",
 		"DPR", "Downlink", "Save-Data", "Viewport-Width", "Width",
 	}
-	
+
 	for _, simpleHeader := range simpleHeaders {
 		if strings.EqualFold(header, simpleHeader) {
 			return true
 		}
 	}
-	
+
 	// Check against configured allowed headers
 	for _, allowedHeader := range shm.config.CORSConfig.AllowedHeaders {
 		if strings.EqualFold(allowedHeader, header) || allowedHeader == "*" {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -256,15 +256,15 @@ func (shm *SecurityHeaderManager) GetCSPViolationHandler() http.HandlerFunc {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 			return
 		}
-		
+
 		// Read the violation report
 		// Note: In a real implementation, you would parse the JSON report
 		// and log or store the violation details
-		
+
 		shm.logger.Warn("CSP violation reported",
 			zap.String("user_agent", r.Header.Get("User-Agent")),
 			zap.String("remote_addr", r.RemoteAddr))
-		
+
 		w.WriteHeader(http.StatusNoContent)
 	}
 }
@@ -272,35 +272,35 @@ func (shm *SecurityHeaderManager) GetCSPViolationHandler() http.HandlerFunc {
 // ValidateCSPPolicy validates a CSP policy string
 func (shm *SecurityHeaderManager) ValidateCSPPolicy(policy string) []string {
 	var issues []string
-	
+
 	if policy == "" {
 		issues = append(issues, "CSP policy is empty")
 		return issues
 	}
-	
+
 	// Split directives
 	directives := strings.Split(policy, ";")
 	directiveMap := make(map[string]bool)
-	
+
 	for _, directive := range directives {
 		directive = strings.TrimSpace(directive)
 		if directive == "" {
 			continue
 		}
-		
+
 		parts := strings.Fields(directive)
 		if len(parts) == 0 {
 			continue
 		}
-		
+
 		directiveName := parts[0]
-		
+
 		// Check for duplicate directives
 		if directiveMap[directiveName] {
 			issues = append(issues, fmt.Sprintf("Duplicate directive: %s", directiveName))
 		}
 		directiveMap[directiveName] = true
-		
+
 		// Validate specific directives
 		switch directiveName {
 		case "default-src":
@@ -322,12 +322,12 @@ func (shm *SecurityHeaderManager) ValidateCSPPolicy(policy string) []string {
 			}
 		}
 	}
-	
+
 	// Check for missing critical directives
 	if !directiveMap["default-src"] && !directiveMap["script-src"] {
 		issues = append(issues, "Missing default-src or script-src directive")
 	}
-	
+
 	return issues
 }
 
@@ -361,7 +361,7 @@ func (shm *SecurityHeaderManager) isKnownCSPDirective(directive string) bool {
 		"prefetch-src", "navigate-to", "require-sri-for", "upgrade-insecure-requests",
 		"block-all-mixed-content", "trusted-types", "require-trusted-types-for",
 	}
-	
+
 	for _, known := range knownDirectives {
 		if directive == known {
 			return true
@@ -405,12 +405,12 @@ func (shm *SecurityHeaderManager) UpdateCSPPolicy(policy string) error {
 	if len(issues) > 0 {
 		return fmt.Errorf("CSP policy validation failed: %v", issues)
 	}
-	
+
 	shm.config.CSPPolicy = policy
-	
+
 	shm.logger.Info("Updated CSP policy",
 		zap.String("new_policy", policy))
-	
+
 	return nil
 }
 
@@ -419,9 +419,9 @@ func (shm *SecurityHeaderManager) AddCustomHeader(name, value string) {
 	if shm.config.CustomHeaders == nil {
 		shm.config.CustomHeaders = make(map[string]string)
 	}
-	
+
 	shm.config.CustomHeaders[name] = value
-	
+
 	shm.logger.Info("Added custom security header",
 		zap.String("name", name),
 		zap.String("value", value))
@@ -431,7 +431,7 @@ func (shm *SecurityHeaderManager) AddCustomHeader(name, value string) {
 func (shm *SecurityHeaderManager) RemoveCustomHeader(name string) {
 	if shm.config.CustomHeaders != nil {
 		delete(shm.config.CustomHeaders, name)
-		
+
 		shm.logger.Info("Removed custom security header",
 			zap.String("name", name))
 	}

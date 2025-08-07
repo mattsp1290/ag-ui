@@ -15,23 +15,23 @@ import (
 // QuickHTTPConfig creates a simple HTTP configuration with sensible defaults
 func QuickHTTPConfig(timeout time.Duration) *HttpConfig {
 	return &HttpConfig{
-		ProtocolVersion:     "HTTP/1.1",
-		EnableHTTP2:         false,
-		ForceHTTP2:          false,
-		MaxIdleConns:        10,
-		MaxIdleConnsPerHost: 2,
-		MaxConnsPerHost:     10,
-		IdleConnTimeout:     30 * time.Second,
-		KeepAlive:           30 * time.Second,
-		DialTimeout:         timeout,
-		RequestTimeout:      timeout,
-		ResponseTimeout:     timeout,
-		TLSHandshakeTimeout: 10 * time.Second,
-		InsecureSkipVerify:  false,
-		DisableCompression:  false,
-		DisableKeepAlives:   false,
-		UserAgent:           "ag-ui-sdk/1.0",
-		MaxResponseBodySize: 50 * 1024 * 1024, // 50MB
+		ProtocolVersion:      "HTTP/1.1",
+		EnableHTTP2:          false,
+		ForceHTTP2:           false,
+		MaxIdleConns:         10,
+		MaxIdleConnsPerHost:  2,
+		MaxConnsPerHost:      10,
+		IdleConnTimeout:      30 * time.Second,
+		KeepAlive:            30 * time.Second,
+		DialTimeout:          timeout,
+		RequestTimeout:       timeout,
+		ResponseTimeout:      timeout,
+		TLSHandshakeTimeout:  10 * time.Second,
+		InsecureSkipVerify:   false,
+		DisableCompression:   false,
+		DisableKeepAlives:    false,
+		UserAgent:            "ag-ui-sdk/1.0",
+		MaxResponseBodySize:  50 * 1024 * 1024, // 50MB
 		EnableCircuitBreaker: false,
 	}
 }
@@ -53,12 +53,12 @@ func QuickJWTConfig(secretKey string, accessTTL, refreshTTL time.Duration) *JWTC
 // QuickAPIKeyConfig creates a simple API key configuration
 func QuickAPIKeyConfig(headerName, prefix string) *APIKeyConfig {
 	return &APIKeyConfig{
-		HeaderName:              headerName,
-		QueryParam:              "api_key",
-		Prefix:                  prefix,
-		HashingAlgorithm:        "sha256",
-		EnableKeyRotation:       false,
-		KeyRotationInterval:     0,
+		HeaderName:          headerName,
+		QueryParam:          "api_key",
+		Prefix:              prefix,
+		HashingAlgorithm:    "sha256",
+		EnableKeyRotation:   false,
+		KeyRotationInterval: 0,
 	}
 }
 
@@ -78,12 +78,12 @@ func QuickTLSConfig(certFile, keyFile string) *TLSConfig {
 // QuickCORSConfig creates a permissive CORS configuration for development
 func QuickCORSConfig(allowedOrigins []string) *CORSConfig {
 	return &CORSConfig{
-		Enabled:         true,
-		AllowedOrigins:  allowedOrigins,
-		AllowedMethods:  []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-		AllowedHeaders:  []string{"Authorization", "Content-Type", "X-API-Key"},
+		Enabled:          true,
+		AllowedOrigins:   allowedOrigins,
+		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+		AllowedHeaders:   []string{"Authorization", "Content-Type", "X-API-Key"},
 		AllowCredentials: len(allowedOrigins) > 0 && allowedOrigins[0] != "*",
-		MaxAge:          3600, // 1 hour
+		MaxAge:           3600, // 1 hour
 	}
 }
 
@@ -157,7 +157,7 @@ func APIGatewayConfig() *ConfigBuilder {
 		WithHTTPTimeouts(2*time.Second, 15*time.Second, 15*time.Second).
 		WithHTTPConnectionLimits(100, 20, 50).
 		WithHTTP2(true, false).
-		WithRateLimit(1000, 100). // High rate limit for gateway
+		WithRateLimit(1000, 100).                          // High rate limit for gateway
 		WithRetry(2, 500*time.Millisecond, 2*time.Second). // Fast retries
 		WithCircuitBreaker(true, 20, 5, 30*time.Second)
 }
@@ -179,9 +179,9 @@ func BatchProcessingConfig(batchName string) *ConfigBuilder {
 		WithAgentName(fmt.Sprintf("%s-batch-agent", batchName)).
 		WithAgentDescription(fmt.Sprintf("Batch processing agent for %s", batchName)).
 		WithHTTPTimeouts(30*time.Second, 5*time.Minute, 5*time.Minute). // Long timeouts for batch
-		WithHTTPConnectionLimits(5, 2, 3). // Few connections for batch
-		WithRetry(2, 5*time.Second, 30*time.Second). // Longer delays for batch
-		WithCircuitBreaker(false, 0, 0, 0) // Disable circuit breaker for batch
+		WithHTTPConnectionLimits(5, 2, 3).                              // Few connections for batch
+		WithRetry(2, 5*time.Second, 30*time.Second).                    // Longer delays for batch
+		WithCircuitBreaker(false, 0, 0, 0)                              // Disable circuit breaker for batch
 }
 
 // =============================================================================
@@ -195,24 +195,24 @@ func DevSecurityConfig() *SecurityConfig {
 		EnableMultiAuth:  false,
 		SupportedMethods: []AuthMethod{AuthMethodAPIKey},
 		APIKey: APIKeyConfig{
-			HeaderName:              "X-API-Key",
-			QueryParam:              "api_key",
-			Prefix:                  "",
-			HashingAlgorithm:        "sha256",
-			EnableKeyRotation:       false,
+			HeaderName:        "X-API-Key",
+			QueryParam:        "api_key",
+			Prefix:            "",
+			HashingAlgorithm:  "sha256",
+			EnableKeyRotation: false,
 		},
 		TLS: TLSConfig{
-			Enabled:               false,
-			InsecureSkipVerify:    true,
+			Enabled:            false,
+			InsecureSkipVerify: true,
 		},
 		SecurityHeaders: SecurityHeadersConfig{
 			CORSConfig: CORSConfig{
-				Enabled:         true,
-				AllowedOrigins:  []string{"*"},
-				AllowedMethods:  []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-				AllowedHeaders:  []string{"*"},
+				Enabled:          true,
+				AllowedOrigins:   []string{"*"},
+				AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+				AllowedHeaders:   []string{"*"},
 				AllowCredentials: false,
-				MaxAge:          3600,
+				MaxAge:           3600,
 			},
 		},
 		RateLimit: RateLimitConfig{
@@ -238,11 +238,11 @@ func ProdSecurityConfig(jwtSecret string) *SecurityConfig {
 			CustomClaims:     make(map[string]interface{}),
 		},
 		APIKey: APIKeyConfig{
-			HeaderName:              "X-API-Key",
-			Prefix:                  "Bearer ",
-			HashingAlgorithm:        "sha256",
-			EnableKeyRotation:       true,
-			KeyRotationInterval:     24 * time.Hour,
+			HeaderName:          "X-API-Key",
+			Prefix:              "Bearer ",
+			HashingAlgorithm:    "sha256",
+			EnableKeyRotation:   true,
+			KeyRotationInterval: 24 * time.Hour,
 		},
 		TLS: TLSConfig{
 			Enabled:            true,
@@ -252,26 +252,26 @@ func ProdSecurityConfig(jwtSecret string) *SecurityConfig {
 			EnableSNI:          true,
 		},
 		SecurityHeaders: SecurityHeadersConfig{
-			EnableCSP:           true,
-			CSPPolicy:           "default-src 'self'; script-src 'self' 'unsafe-inline'",
-			EnableHSTS:          true,
-			HSTSMaxAge:          31536000, // 1 year
-			EnableXFrameOptions: true,
-			XFrameOptions:       "DENY",
-			EnableXContentType:  true,
+			EnableCSP:            true,
+			CSPPolicy:            "default-src 'self'; script-src 'self' 'unsafe-inline'",
+			EnableHSTS:           true,
+			HSTSMaxAge:           31536000, // 1 year
+			EnableXFrameOptions:  true,
+			XFrameOptions:        "DENY",
+			EnableXContentType:   true,
 			EnableReferrerPolicy: true,
-			ReferrerPolicy:      "strict-origin-when-cross-origin",
+			ReferrerPolicy:       "strict-origin-when-cross-origin",
 			CustomHeaders: map[string]string{
 				"X-Content-Type-Options": "nosniff",
 				"X-XSS-Protection":       "1; mode=block",
 			},
 			CORSConfig: CORSConfig{
-				Enabled:         true,
-				AllowedOrigins:  []string{}, // Must be explicitly configured
-				AllowedMethods:  []string{"GET", "POST", "PUT", "DELETE"},
-				AllowedHeaders:  []string{"Authorization", "Content-Type", "X-API-Key"},
+				Enabled:          true,
+				AllowedOrigins:   []string{}, // Must be explicitly configured
+				AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE"},
+				AllowedHeaders:   []string{"Authorization", "Content-Type", "X-API-Key"},
 				AllowCredentials: true,
-				MaxAge:          86400, // 24 hours
+				MaxAge:           86400, // 24 hours
 			},
 		},
 		TokenStorage: TokenStorageConfig{
@@ -282,9 +282,9 @@ func ProdSecurityConfig(jwtSecret string) *SecurityConfig {
 			},
 		},
 		AuditLogging: AuditLoggingConfig{
-			Enabled:    true,
-			LogLevel:   "INFO",
-			LogFormat:  "json",
+			Enabled:             true,
+			LogLevel:            "INFO",
+			LogFormat:           "json",
 			IncludeRequestBody:  false,
 			IncludeResponseBody: false,
 		},
@@ -306,11 +306,11 @@ func LoadBalancerConfig(lbName string) *ConfigBuilder {
 		WithAgentName(fmt.Sprintf("%s-lb-agent", lbName)).
 		WithAgentDescription(fmt.Sprintf("Load balancer agent for %s", lbName)).
 		WithHTTPTimeouts(1*time.Second, 10*time.Second, 10*time.Second). // Fast timeouts
-		WithHTTPConnectionLimits(200, 50, 100). // High connection limits
+		WithHTTPConnectionLimits(200, 50, 100).                          // High connection limits
 		WithHTTP2(true, false).
-		WithRateLimit(5000, 500). // Very high rate limits
+		WithRateLimit(5000, 500).                                 // Very high rate limits
 		WithRetry(1, 100*time.Millisecond, 500*time.Millisecond). // Very fast retries
-		WithCircuitBreaker(true, 50, 10, 10*time.Second) // Sensitive circuit breaker
+		WithCircuitBreaker(true, 50, 10, 10*time.Second)          // Sensitive circuit breaker
 }
 
 // EdgeComputingConfig creates configuration for edge computing scenarios
@@ -319,8 +319,8 @@ func EdgeComputingConfig(edgeName string) *ConfigBuilder {
 		WithAgentName(fmt.Sprintf("%s-edge-agent", edgeName)).
 		WithAgentDescription(fmt.Sprintf("Edge computing agent for %s", edgeName)).
 		WithHTTPTimeouts(3*time.Second, 20*time.Second, 20*time.Second).
-		WithHTTPConnectionLimits(10, 3, 5). // Limited resources at edge
-		WithRetry(5, 1*time.Second, 30*time.Second). // More retries for unreliable networks
+		WithHTTPConnectionLimits(10, 3, 5).            // Limited resources at edge
+		WithRetry(5, 1*time.Second, 30*time.Second).   // More retries for unreliable networks
 		WithCircuitBreaker(true, 3, 1, 60*time.Second) // Sensitive to failures
 }
 
@@ -330,10 +330,10 @@ func TestingConfig(testName string) *ConfigBuilder {
 		WithAgentName(fmt.Sprintf("%s-test-agent", testName)).
 		WithAgentDescription(fmt.Sprintf("Test agent for %s", testName)).
 		WithHTTPTimeouts(1*time.Second, 5*time.Second, 5*time.Second). // Fast timeouts for tests
-		WithHTTPConnectionLimits(5, 2, 3). // Limited connections for tests
-		WithInsecureTLS(). // Allow insecure connections for testing
-		WithRetry(1, 100*time.Millisecond, 500*time.Millisecond). // Minimal retries
-		WithCircuitBreaker(false, 0, 0, 0) // Disable circuit breaker for tests
+		WithHTTPConnectionLimits(5, 2, 3).                             // Limited connections for tests
+		WithInsecureTLS().                                             // Allow insecure connections for testing
+		WithRetry(1, 100*time.Millisecond, 500*time.Millisecond).      // Minimal retries
+		WithCircuitBreaker(false, 0, 0, 0)                             // Disable circuit breaker for tests
 }
 
 // =============================================================================

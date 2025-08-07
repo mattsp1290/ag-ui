@@ -8,10 +8,10 @@ import (
 
 // RegistryEntry wraps registry data with metadata for cleanup
 type RegistryEntry struct {
-	Value        interface{}
-	CreatedAt    time.Time
-	lastAccess   int64 // atomic: Unix nano timestamp
-	AccessCount  int64 // atomic
+	Value       interface{}
+	CreatedAt   time.Time
+	lastAccess  int64 // atomic: Unix nano timestamp
+	AccessCount int64 // atomic
 }
 
 // GetLastAccess atomically gets the last access time
@@ -42,9 +42,9 @@ type RegistryConfig struct {
 // DefaultRegistryConfig returns sensible defaults for registry cleanup
 func DefaultRegistryConfig() *RegistryConfig {
 	return &RegistryConfig{
-		MaxEntries:              1000,                // Limit to 1000 entries per map
-		TTL:                     1 * time.Hour,       // 1 hour TTL
-		CleanupInterval:         10 * time.Minute,    // Cleanup every 10 minutes
+		MaxEntries:              1000,             // Limit to 1000 entries per map
+		TTL:                     1 * time.Hour,    // 1 hour TTL
+		CleanupInterval:         10 * time.Minute, // Cleanup every 10 minutes
 		EnableLRU:               true,
 		EnableBackgroundCleanup: true,
 	}

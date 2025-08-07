@@ -56,14 +56,14 @@ type StreamingCapabilityProvider interface {
 type StreamEncoder interface {
 	// EncodeStream encodes events from a channel to a writer
 	EncodeStream(ctx context.Context, input <-chan events.Event, output io.Writer) error
-	
+
 	// Session management methods
 	StartStream(ctx context.Context, w io.Writer) error
 	EndStream(ctx context.Context) error
-	
+
 	// Event processing method
 	WriteEvent(ctx context.Context, event events.Event) error
-	
+
 	// ContentType returns the MIME type for this stream encoder
 	ContentType() string
 }
@@ -72,14 +72,14 @@ type StreamEncoder interface {
 type StreamDecoder interface {
 	// DecodeStream decodes events from a reader to a channel
 	DecodeStream(ctx context.Context, input io.Reader, output chan<- events.Event) error
-	
+
 	// Session management methods
 	StartStream(ctx context.Context, r io.Reader) error
 	EndStream(ctx context.Context) error
-	
+
 	// Event processing method
 	ReadEvent(ctx context.Context) (events.Event, error)
-	
+
 	// ContentType returns the MIME type for this stream decoder
 	ContentType() string
 }
@@ -142,15 +142,15 @@ type Codec interface {
 
 // StreamCodec combines streaming encoding and decoding
 type StreamCodec interface {
-	Encoder                     // Basic encoding operations
-	Decoder                     // Basic decoding operations  
+	Encoder // Basic encoding operations
+	Decoder // Basic decoding operations
 	ContentTypeProvider
 	StreamingCapabilityProvider
-	
+
 	// Streaming operations (delegated to components)
 	EncodeStream(ctx context.Context, input <-chan events.Event, output io.Writer) error
 	DecodeStream(ctx context.Context, input io.Reader, output chan<- events.Event) error
-	
+
 	// Session management methods (legacy compatibility)
 	StartEncoding(ctx context.Context, w io.Writer) error
 	WriteEvent(ctx context.Context, event events.Event) error
@@ -158,7 +158,7 @@ type StreamCodec interface {
 	StartDecoding(ctx context.Context, r io.Reader) error
 	ReadEvent(ctx context.Context) (events.Event, error)
 	EndDecoding(ctx context.Context) error
-	
+
 	// Stream component access methods
 	GetStreamEncoder() StreamEncoder
 	GetStreamDecoder() StreamDecoder
@@ -167,10 +167,10 @@ type StreamCodec interface {
 // FullStreamCodec provides complete streaming functionality
 // This includes both basic and streaming operations with session management
 type FullStreamCodec interface {
-	Codec                    // Basic encode/decode operations
-	StreamCodec             // Stream operations
-	StreamSessionManager    // Session management
-	StreamEventProcessor    // Event-level streaming
+	Codec                // Basic encode/decode operations
+	StreamCodec          // Stream operations
+	StreamSessionManager // Session management
+	StreamEventProcessor // Event-level streaming
 }
 
 // ValidatingCodec adds validation capabilities to basic codec operations
@@ -210,17 +210,17 @@ func (opts *EncodingOptions) Validate() error {
 	if opts == nil {
 		return nil // nil options are acceptable, defaults will be used
 	}
-	
+
 	// Validate buffer size
 	if opts.BufferSize < 0 {
 		return fmt.Errorf("buffer size cannot be negative, got %d", opts.BufferSize)
 	}
-	
+
 	// Validate max size
 	if opts.MaxSize < 0 {
 		return fmt.Errorf("max size cannot be negative, got %d", opts.MaxSize)
 	}
-	
+
 	// Validate compression algorithm
 	if opts.Compression != "" {
 		validCompressions := []string{"gzip", "zstd", "lz4", "deflate"}
@@ -235,7 +235,7 @@ func (opts *EncodingOptions) Validate() error {
 			return fmt.Errorf("unsupported compression algorithm %q, supported: %v", opts.Compression, validCompressions)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -262,17 +262,17 @@ func (opts *DecodingOptions) Validate() error {
 	if opts == nil {
 		return nil // nil options are acceptable, defaults will be used
 	}
-	
+
 	// Validate buffer size
 	if opts.BufferSize < 0 {
 		return fmt.Errorf("buffer size cannot be negative, got %d", opts.BufferSize)
 	}
-	
+
 	// Validate max size
 	if opts.MaxSize < 0 {
 		return fmt.Errorf("max size cannot be negative, got %d", opts.MaxSize)
 	}
-	
+
 	return nil
 }
 

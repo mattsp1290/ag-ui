@@ -75,28 +75,28 @@ func TestTypedTransportEventInterface(t *testing.T) {
 		RemoteAddress: "example.com:8080",
 		Protocol:      "websocket",
 	}
-	
+
 	typedEvent := NewTypedEvent("test-id", "connection", data)
-	
+
 	// Test the interface methods
 	if typedEvent.ID() != "test-id" {
 		t.Errorf("expected ID 'test-id', got %s", typedEvent.ID())
 	}
-	
+
 	if typedEvent.Type() != "connection" {
 		t.Errorf("expected type 'connection', got %s", typedEvent.Type())
 	}
-	
+
 	if typedEvent.Timestamp().IsZero() {
 		t.Error("expected non-zero timestamp")
 	}
-	
+
 	// Test typed data access
 	retrievedData := typedEvent.TypedData()
 	if retrievedData.Status != "connected" {
 		t.Errorf("expected status 'connected', got %s", retrievedData.Status)
 	}
-	
+
 	// Test backward compatibility - Data() method
 	dataMap := typedEvent.Data()
 	if dataMap["status"] != "connected" {
@@ -111,26 +111,26 @@ func TestEventConversion(t *testing.T) {
 		Size:        12,
 		ContentType: "text/plain",
 	}
-	
+
 	typedEvent := NewTypedEvent("test-id", "data", data)
-	
+
 	// Convert to legacy event
 	legacyEvent := AdaptToLegacyEvent(typedEvent)
-	
+
 	// Verify the legacy event works
 	if legacyEvent.ID() != "test-id" {
 		t.Errorf("expected ID 'test-id', got %s", legacyEvent.ID())
 	}
-	
+
 	if legacyEvent.Type() != "data" {
 		t.Errorf("expected type 'data', got %s", legacyEvent.Type())
 	}
-	
+
 	dataMap := legacyEvent.Data()
 	if string(dataMap["content"].([]byte)) != "test content" {
 		t.Errorf("expected content 'test content', got %v", dataMap["content"])
 	}
-	
+
 	// Try to convert back to typed event
 	retrievedTypedEvent := TryGetTypedEvent[DataEventData](legacyEvent)
 	if retrievedTypedEvent == nil {
@@ -149,7 +149,7 @@ func TestEventCreators(t *testing.T) {
 		WithRemoteAddress("example.com:8080"),
 		WithProtocol("websocket"),
 	)
-	
+
 	data := connEvent.TypedData()
 	if data.Status != "connected" {
 		t.Errorf("expected status 'connected', got %s", data.Status)
@@ -160,14 +160,14 @@ func TestEventCreators(t *testing.T) {
 	if data.Protocol != "websocket" {
 		t.Errorf("expected protocol 'websocket', got %s", data.Protocol)
 	}
-	
+
 	// Test data event creator
 	content := []byte("test data")
 	dataEvent := CreateDataEvent("data-1", content,
 		WithContentType("application/json"),
 		WithStreamID("stream-123"),
 	)
-	
+
 	dataEventData := dataEvent.TypedData()
 	if string(dataEventData.Content) != "test data" {
 		t.Errorf("expected content 'test data', got %s", string(dataEventData.Content))
@@ -178,14 +178,14 @@ func TestEventCreators(t *testing.T) {
 	if dataEventData.StreamID != "stream-123" {
 		t.Errorf("expected stream ID 'stream-123', got %s", dataEventData.StreamID)
 	}
-	
+
 	// Test error event creator
 	errorEvent := CreateErrorEvent("error-1", "test error",
 		WithErrorCode("E001"),
 		WithErrorSeverity("error"),
 		WithRetryable(true),
 	)
-	
+
 	errorData := errorEvent.TypedData()
 	if errorData.Message != "test error" {
 		t.Errorf("expected message 'test error', got %s", errorData.Message)
@@ -199,14 +199,14 @@ func TestEventCreators(t *testing.T) {
 	if !errorData.Retryable {
 		t.Error("expected retryable to be true")
 	}
-	
+
 	// Test metrics event creator
 	metricsEvent := CreateMetricsEvent("metrics-1", "cpu_usage", 75.5,
 		WithUnit("percent"),
 		WithTags(map[string]string{"host": "server1"}),
 		WithInterval(time.Minute),
 	)
-	
+
 	metricsData := metricsEvent.TypedData()
 	if metricsData.MetricName != "cpu_usage" {
 		t.Errorf("expected metric name 'cpu_usage', got %s", metricsData.MetricName)
@@ -228,13 +228,13 @@ func TestBackwardCompatibility(t *testing.T) {
 		"message": "hello world",
 		"count":   42,
 	})
-	
+
 	// Verify it works with the TransportEvent interface
 	var event TransportEvent = legacyEvent
 	if event.ID() != "legacy-1" {
 		t.Errorf("expected ID 'legacy-1', got %s", event.ID())
 	}
-	
+
 	data := event.Data()
 	if data["message"] != "hello world" {
 		t.Errorf("expected message 'hello world', got %v", data["message"])
@@ -242,20 +242,20 @@ func TestBackwardCompatibility(t *testing.T) {
 	if data["count"] != 42 {
 		t.Errorf("expected count 42, got %v", data["count"])
 	}
-	
+
 	// Create a typed event and use it as a legacy event
 	typedData := ConnectionEventData{
 		Status:   "connected",
 		Protocol: "http",
 	}
 	typedEvent := NewTypedEvent("typed-1", "connection", typedData)
-	
+
 	// Convert to legacy and use as TransportEvent
 	var legacyFromTyped TransportEvent = AdaptToLegacyEvent(typedEvent)
 	if legacyFromTyped.ID() != "typed-1" {
 		t.Errorf("expected ID 'typed-1', got %s", legacyFromTyped.ID())
 	}
-	
+
 	adaptedData := legacyFromTyped.Data()
 	if adaptedData["status"] != "connected" {
 		t.Errorf("expected status 'connected', got %v", adaptedData["status"])

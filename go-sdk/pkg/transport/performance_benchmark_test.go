@@ -21,7 +21,7 @@ func BenchmarkStringAllocations(b *testing.B) {
 			_ = fmt.Sprintf("handler_%d_%d", i, time.Now().UnixNano())
 		}
 	})
-	
+
 	b.Run("strings.Builder", func(b *testing.B) {
 		var sb strings.Builder
 		for i := 0; i < b.N; i++ {
@@ -33,7 +33,7 @@ func BenchmarkStringAllocations(b *testing.B) {
 			_ = sb.String()
 		}
 	})
-	
+
 	b.Run("pre-allocated buffer", func(b *testing.B) {
 		buf := make([]byte, 0, 64)
 		for i := 0; i < b.N; i++ {
@@ -54,14 +54,14 @@ func BenchmarkSliceOperations(b *testing.B) {
 			var slice []string
 			iterations := 100
 			if testing.Short() {
-				iterations = 20  // Reduced for short mode
+				iterations = 20 // Reduced for short mode
 			}
 			for j := 0; j < iterations; j++ {
 				slice = append(slice, "item")
 			}
 		}
 	})
-	
+
 	b.Run("append with preallocation", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			iterations := 100
@@ -74,7 +74,7 @@ func BenchmarkSliceOperations(b *testing.B) {
 			}
 		}
 	})
-	
+
 	b.Run("slice pool", func(b *testing.B) {
 		pool := NewSlicePool[string]()
 		for i := 0; i < b.N; i++ {
@@ -94,14 +94,14 @@ func BenchmarkSliceOperations(b *testing.B) {
 // BenchmarkEventParsing compares event parsing approaches
 func BenchmarkEventParsing(b *testing.B) {
 	eventData := `{"type":"TEXT_MESSAGE_CONTENT","messageId":"msg123","delta":"hello"}`
-	
+
 	b.Run("json.Unmarshal", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			var data map[string]interface{}
 			json.Unmarshal([]byte(eventData), &data)
 		}
 	})
-	
+
 	b.Run("json.Decoder", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			dec := json.NewDecoder(strings.NewReader(eventData))
@@ -109,14 +109,14 @@ func BenchmarkEventParsing(b *testing.B) {
 			dec.Decode(&data)
 		}
 	})
-	
+
 	b.Run("pooled decoder", func(b *testing.B) {
 		pool := &sync.Pool{
 			New: func() interface{} {
 				return json.NewDecoder(strings.NewReader(""))
 			},
 		}
-		
+
 		for i := 0; i < b.N; i++ {
 			dec := pool.Get().(*json.Decoder)
 			dec = json.NewDecoder(strings.NewReader(eventData))
@@ -131,16 +131,16 @@ func BenchmarkEventParsing(b *testing.B) {
 func BenchmarkLoggerPerformance(b *testing.B) {
 	defaultLogger := NewLogger(DefaultLoggerConfig())
 	optimizedLogger := NewOptimizedLogger(DefaultLoggerConfig())
-	
+
 	b.Run("default logger", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			defaultLogger.Info("test message", 
+			defaultLogger.Info("test message",
 				String("key1", "value1"),
 				Int("key2", 42),
 				Duration("key3", time.Millisecond*100))
 		}
 	})
-	
+
 	b.Run("optimized logger", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			optimizedLogger.Info("test message",
@@ -155,13 +155,13 @@ func BenchmarkLoggerPerformance(b *testing.B) {
 func BenchmarkSSEEventProcessing(b *testing.B) {
 	config := sse.DefaultConfig()
 	transport, _ := sse.NewSSETransport(config)
-	
+
 	eventData := map[string]interface{}{
 		"messageId": "msg123",
 		"delta":     "hello world",
 		"timestamp": float64(time.Now().Unix()),
 	}
-	
+
 	b.Run("original parsing", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			// Skip parsing test since method is not exported
@@ -169,13 +169,13 @@ func BenchmarkSSEEventProcessing(b *testing.B) {
 			_ = transport
 		}
 	})
-	
+
 	b.Run("optimized parsing", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			// Simulate optimized parsing
 			messageID, _ := eventData["messageId"].(string)
 			delta, _ := eventData["delta"].(string)
-			
+
 			event := events.NewTextMessageContentEvent(messageID, delta)
 			if timestamp, ok := eventData["timestamp"].(float64); ok {
 				event.SetTimestamp(int64(timestamp))
@@ -189,19 +189,19 @@ func BenchmarkEventHandlerManagement(b *testing.B) {
 	handler := func(ctx context.Context, event events.Event) error {
 		return nil
 	}
-	
+
 	b.Run("map with slice", func(b *testing.B) {
 		handlers := make(map[string][]func(context.Context, events.Event) error)
-		
+
 		for i := 0; i < b.N; i++ {
 			eventType := "test_event"
 			handlers[eventType] = append(handlers[eventType], handler)
 		}
 	})
-	
+
 	b.Run("map with preallocated slice", func(b *testing.B) {
 		handlers := make(map[string][]func(context.Context, events.Event) error)
-		
+
 		for i := 0; i < b.N; i++ {
 			eventType := "test_event"
 			if _, exists := handlers[eventType]; !exists {
@@ -216,20 +216,20 @@ func BenchmarkEventHandlerManagement(b *testing.B) {
 func BenchmarkStringInternment(b *testing.B) {
 	eventTypes := []string{
 		"TEXT_MESSAGE_START",
-		"TEXT_MESSAGE_CONTENT", 
+		"TEXT_MESSAGE_CONTENT",
 		"TEXT_MESSAGE_END",
 		"TOOL_CALL_START",
 		"TOOL_CALL_ARGS",
 		"TOOL_CALL_END",
 	}
-	
+
 	b.Run("no internment", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			eventType := eventTypes[i%len(eventTypes)]
 			_ = eventType
 		}
 	})
-	
+
 	b.Run("sync.Map internment", func(b *testing.B) {
 		var m sync.Map
 		for i := 0; i < b.N; i++ {
@@ -251,14 +251,14 @@ func BenchmarkMemoryAllocation(b *testing.B) {
 			var slice []int
 			iterations := 1000
 			if testing.Short() {
-				iterations = 100  // Reduced for short mode
+				iterations = 100 // Reduced for short mode
 			}
 			for j := 0; j < iterations; j++ {
 				slice = append(slice, j)
 			}
 		}
 	})
-	
+
 	b.Run("pre-allocated slice", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {
@@ -278,13 +278,13 @@ func BenchmarkMemoryAllocation(b *testing.B) {
 func BenchmarkEventTypeSwitch(b *testing.B) {
 	eventTypes := []string{
 		"TEXT_MESSAGE_START",
-		"TEXT_MESSAGE_CONTENT", 
+		"TEXT_MESSAGE_CONTENT",
 		"TEXT_MESSAGE_END",
 		"TOOL_CALL_START",
 		"TOOL_CALL_ARGS",
 		"TOOL_CALL_END",
 	}
-	
+
 	b.Run("switch on events.EventType", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			eventType := eventTypes[i%len(eventTypes)]
@@ -304,7 +304,7 @@ func BenchmarkEventTypeSwitch(b *testing.B) {
 			}
 		}
 	})
-	
+
 	b.Run("switch on string", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
 			eventType := eventTypes[i%len(eventTypes)]
@@ -330,7 +330,7 @@ func BenchmarkEventTypeSwitch(b *testing.B) {
 func BenchmarkConcurrentOperations(b *testing.B) {
 	b.Run("concurrent string pool", func(b *testing.B) {
 		pool := newStringPool()
-		
+
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
 				buf := pool.get()
@@ -339,10 +339,10 @@ func BenchmarkConcurrentOperations(b *testing.B) {
 			}
 		})
 	})
-	
+
 	b.Run("concurrent slice pool", func(b *testing.B) {
 		pool := NewSlicePool[string]()
-		
+
 		b.RunParallel(func(pb *testing.PB) {
 			for pb.Next() {
 				slice := pool.Get(10)
@@ -373,7 +373,7 @@ func BenchmarkMemoryUsage(b *testing.B) {
 			}
 		}
 	})
-	
+
 	b.Run("optimized", func(b *testing.B) {
 		b.ReportAllocs()
 		for i := 0; i < b.N; i++ {

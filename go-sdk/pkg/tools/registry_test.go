@@ -16,8 +16,8 @@ import (
 
 // RegistryTestParams represents typed parameters for registry test tools
 type RegistryTestParams struct {
-	Data   string                      `json:"data"`
-	Config RegistryTestConfigParams   `json:"config,omitempty"`
+	Data   string                   `json:"data"`
+	Config RegistryTestConfigParams `json:"config,omitempty"`
 }
 
 // RegistryTestConfigParams represents configuration for registry test tools
@@ -29,8 +29,8 @@ type RegistryTestConfigParams struct {
 
 // ToolExampleInput represents typed input for tool examples
 type ToolExampleInput struct {
-	Data   string                      `json:"data"`
-	Config RegistryTestConfigParams   `json:"config,omitempty"`
+	Data   string                   `json:"data"`
+	Config RegistryTestConfigParams `json:"config,omitempty"`
 }
 
 // Helper functions to convert typed structures to map[string]interface{}
@@ -324,9 +324,9 @@ func TestRegistry_List(t *testing.T) {
 func TestRegistry_ConcurrentAccess(t *testing.T) {
 	// Create registry with higher concurrent registration limit for this test
 	config := &tools.RegistryConfig{
-		MaxConcurrentRegistrations: 200, // Allow enough concurrent registrations for test
+		MaxConcurrentRegistrations:  200,   // Allow enough concurrent registrations for test
 		EnableBackgroundToolCleanup: false, // Disable cleanup for test simplicity
-		ToolCleanupInterval: 15 * time.Minute,
+		ToolCleanupInterval:         15 * time.Minute,
 	}
 	reg := tools.NewRegistryWithConfig(config)
 	numGoroutines := 100

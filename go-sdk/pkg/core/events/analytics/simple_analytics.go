@@ -26,8 +26,8 @@ type SimpleAnalyticsConfig struct {
 
 // SimpleEventBuffer stores recent events for analysis
 type SimpleEventBuffer struct {
-	mu     sync.RWMutex
-	events []events.Event
+	mu      sync.RWMutex
+	events  []events.Event
 	maxSize int
 }
 
@@ -41,22 +41,22 @@ type SimpleMetrics struct {
 
 // SimplePattern represents a basic pattern
 type SimplePattern struct {
-	ID          string        `json:"id"`
-	Name        string        `json:"name"`
-	EventType   events.EventType `json:"event_type"`
-	Count       int           `json:"count"`
-	LastSeen    time.Time     `json:"last_seen"`
-	Window      time.Duration `json:"window"`
+	ID        string           `json:"id"`
+	Name      string           `json:"name"`
+	EventType events.EventType `json:"event_type"`
+	Count     int              `json:"count"`
+	LastSeen  time.Time        `json:"last_seen"`
+	Window    time.Duration    `json:"window"`
 }
 
 // SimpleAnalyticsResult represents analysis results
 type SimpleAnalyticsResult struct {
-	EventType        events.EventType  `json:"event_type"`
-	Timestamp        time.Time         `json:"timestamp"`
-	PatternsFound    []string          `json:"patterns_found"`
-	IsAnomaly        bool              `json:"is_anomaly"`
-	AnomalyScore     float64           `json:"anomaly_score"`
-	ProcessingTime   time.Duration     `json:"processing_time"`
+	EventType      events.EventType `json:"event_type"`
+	Timestamp      time.Time        `json:"timestamp"`
+	PatternsFound  []string         `json:"patterns_found"`
+	IsAnomaly      bool             `json:"is_anomaly"`
+	AnomalyScore   float64          `json:"anomaly_score"`
+	ProcessingTime time.Duration    `json:"processing_time"`
 }
 
 // NewSimpleAnalyticsEngine creates a new simple analytics engine
@@ -89,9 +89,9 @@ func NewSimpleEventBuffer(maxSize int) *SimpleEventBuffer {
 func (b *SimpleEventBuffer) Add(event events.Event) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	
+
 	b.events = append(b.events, event)
-	
+
 	// Keep only recent events
 	if len(b.events) > b.maxSize {
 		b.events = b.events[len(b.events)-b.maxSize:]
@@ -102,10 +102,10 @@ func (b *SimpleEventBuffer) Add(event events.Event) {
 func (b *SimpleEventBuffer) GetRecent(duration time.Duration) []events.Event {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	
+
 	cutoff := time.Now().Add(-duration)
 	var recent []events.Event
-	
+
 	for _, event := range b.events {
 		if ts := event.Timestamp(); ts != nil {
 			eventTime := time.Unix(*ts/1000, (*ts%1000)*1000000)
@@ -114,39 +114,39 @@ func (b *SimpleEventBuffer) GetRecent(duration time.Duration) []events.Event {
 			}
 		}
 	}
-	
+
 	return recent
 }
 
 // AnalyzeEvent analyzes a single event
 func (engine *SimpleAnalyticsEngine) AnalyzeEvent(event events.Event) (*SimpleAnalyticsResult, error) {
 	startTime := time.Now()
-	
+
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	
+
 	// Add to buffer
 	engine.buffer.Add(event)
-	
+
 	result := &SimpleAnalyticsResult{
 		EventType:      event.Type(),
 		Timestamp:      time.Now(),
 		PatternsFound:  make([]string, 0),
 		ProcessingTime: time.Since(startTime),
 	}
-	
+
 	// Simple pattern detection
 	patterns := engine.detectSimplePatterns(event)
 	result.PatternsFound = patterns
-	
+
 	// Simple anomaly detection
 	isAnomaly, score := engine.detectSimpleAnomaly(event)
 	result.IsAnomaly = isAnomaly
 	result.AnomalyScore = score
-	
+
 	// Update metrics
 	engine.updateSimpleMetrics(result)
-	
+
 	result.ProcessingTime = time.Since(startTime)
 	return result, nil
 }
@@ -154,10 +154,10 @@ func (engine *SimpleAnalyticsEngine) AnalyzeEvent(event events.Event) (*SimpleAn
 // detectSimplePatterns performs basic pattern detection
 func (engine *SimpleAnalyticsEngine) detectSimplePatterns(event events.Event) []string {
 	var patterns []string
-	
+
 	eventType := event.Type()
 	recentEvents := engine.buffer.GetRecent(engine.config.AnalysisWindow)
-	
+
 	// Count events of same type
 	count := 0
 	for _, recentEvent := range recentEvents {
@@ -165,7 +165,7 @@ func (engine *SimpleAnalyticsEngine) detectSimplePatterns(event events.Event) []
 			count++
 		}
 	}
-	
+
 	// Update or create pattern
 	patternID := string(eventType)
 	pattern, exists := engine.patterns[patternID]
@@ -178,16 +178,16 @@ func (engine *SimpleAnalyticsEngine) detectSimplePatterns(event events.Event) []
 		}
 		engine.patterns[patternID] = pattern
 	}
-	
+
 	pattern.Count = count
 	pattern.LastSeen = time.Now()
-	
+
 	// Check if pattern meets threshold
 	if count >= engine.config.MinPatternCount {
 		patterns = append(patterns, pattern.Name)
 		engine.metrics.PatternsDetected++
 	}
-	
+
 	return patterns
 }
 
@@ -195,24 +195,24 @@ func (engine *SimpleAnalyticsEngine) detectSimplePatterns(event events.Event) []
 func (engine *SimpleAnalyticsEngine) detectSimpleAnomaly(event events.Event) (bool, float64) {
 	eventType := event.Type()
 	recentEvents := engine.buffer.GetRecent(engine.config.AnalysisWindow)
-	
+
 	// Count events of same type
 	sameTypeCount := 0
 	totalCount := len(recentEvents)
-	
+
 	for _, recentEvent := range recentEvents {
 		if recentEvent.Type() == eventType {
 			sameTypeCount++
 		}
 	}
-	
+
 	if totalCount == 0 {
 		return false, 0.0
 	}
-	
+
 	// Calculate frequency ratio
 	frequency := float64(sameTypeCount) / float64(totalCount)
-	
+
 	// Simple anomaly detection based on frequency
 	// Events that are too rare or too frequent might be anomalies
 	var anomalyScore float64
@@ -223,12 +223,12 @@ func (engine *SimpleAnalyticsEngine) detectSimpleAnomaly(event events.Event) (bo
 	} else {
 		anomalyScore = 0.0
 	}
-	
+
 	isAnomaly := anomalyScore > 0.5
 	if isAnomaly {
 		engine.metrics.AnomaliesDetected++
 	}
-	
+
 	return isAnomaly, anomalyScore
 }
 
@@ -242,7 +242,7 @@ func (engine *SimpleAnalyticsEngine) updateSimpleMetrics(result *SimpleAnalytics
 func (engine *SimpleAnalyticsEngine) GetMetrics() *SimpleMetrics {
 	engine.mu.RLock()
 	defer engine.mu.RUnlock()
-	
+
 	// Return a copy
 	metrics := *engine.metrics
 	return &metrics
@@ -252,14 +252,14 @@ func (engine *SimpleAnalyticsEngine) GetMetrics() *SimpleMetrics {
 func (engine *SimpleAnalyticsEngine) GetPatterns() map[string]*SimplePattern {
 	engine.mu.RLock()
 	defer engine.mu.RUnlock()
-	
+
 	// Return a copy
 	patterns := make(map[string]*SimplePattern)
 	for id, pattern := range engine.patterns {
 		patternCopy := *pattern
 		patterns[id] = &patternCopy
 	}
-	
+
 	return patterns
 }
 
@@ -272,7 +272,7 @@ func (engine *SimpleAnalyticsEngine) GetRecentEvents(duration time.Duration) []e
 func (engine *SimpleAnalyticsEngine) ClearBuffer() {
 	engine.buffer.mu.Lock()
 	defer engine.buffer.mu.Unlock()
-	
+
 	engine.buffer.events = engine.buffer.events[:0]
 }
 
@@ -280,12 +280,12 @@ func (engine *SimpleAnalyticsEngine) ClearBuffer() {
 func (engine *SimpleAnalyticsEngine) Reset() {
 	engine.mu.Lock()
 	defer engine.mu.Unlock()
-	
+
 	// Clear buffer without taking engine lock (already held)
 	engine.buffer.mu.Lock()
 	engine.buffer.events = engine.buffer.events[:0]
 	engine.buffer.mu.Unlock()
-	
+
 	engine.patterns = make(map[string]*SimplePattern)
 	engine.metrics = &SimpleMetrics{}
 }

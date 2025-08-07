@@ -6,6 +6,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/chromedp/chromedp"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"io"
 	"math/rand"
 	"net/http"
@@ -18,11 +23,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
-	"github.com/chromedp/chromedp"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"go.uber.org/zap"
 )
 
 // isRaceEnabled returns true if race detection is enabled
@@ -68,13 +68,6 @@ func getTestTimeout(baseTimeout time.Duration) time.Duration {
 	return baseTimeout
 }
 
-
-
-
-
-
-
-
 // NewNetworkSimulator creates a new network simulator with the given handler
 func NewNetworkSimulator(handler http.Handler) *NetworkSimulator {
 	ns := &NetworkSimulator{}
@@ -85,7 +78,7 @@ func NewNetworkSimulator(handler http.Handler) *NetworkSimulator {
 		// Add timeout to prevent proxy hanging
 		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
 		defer cancel()
-		
+
 		ns.mu.RLock()
 		latency := ns.latency
 		packetLoss := ns.packetLoss
@@ -162,7 +155,7 @@ func NewNetworkSimulator(handler http.Handler) *NetworkSimulator {
 				ns:        ns,
 				ctx:       ctx,
 			}
-			
+
 			// For SSE streams, we need to handle flushing
 			if resp.Header.Get("Content-Type") == "text/event-stream" && flusher != nil {
 				// Read and write in chunks for SSE
@@ -174,7 +167,7 @@ func NewNetworkSimulator(handler http.Handler) *NetworkSimulator {
 						return
 					default:
 					}
-					
+
 					line := scanner.Text()
 					if _, err := limitedWriter.Write([]byte(line + "\n")); err != nil {
 						return
@@ -207,7 +200,7 @@ func (rlw *rateLimitedWriter) Write(p []byte) (n int, err error) {
 	// Write the entire buffer, respecting bandwidth limits
 	written := 0
 	remaining := len(p)
-	
+
 	for remaining > 0 {
 		// Check context cancellation
 		if rlw.ctx != nil {
@@ -217,7 +210,7 @@ func (rlw *rateLimitedWriter) Write(p []byte) (n int, err error) {
 			default:
 			}
 		}
-		
+
 		rlw.ns.mu.Lock()
 		elapsed := time.Since(rlw.ns.lastReset)
 		if elapsed >= time.Second {
@@ -229,7 +222,7 @@ func (rlw *rateLimitedWriter) Write(p []byte) (n int, err error) {
 			// Wait until next second
 			sleepTime := time.Second - elapsed
 			rlw.ns.mu.Unlock()
-			
+
 			// Use context-aware sleep
 			if rlw.ctx != nil {
 				select {
@@ -240,7 +233,7 @@ func (rlw *rateLimitedWriter) Write(p []byte) (n int, err error) {
 			} else {
 				time.Sleep(sleepTime)
 			}
-			
+
 			rlw.ns.mu.Lock()
 			rlw.ns.transferred = 0
 			rlw.ns.lastReset = time.Now()
@@ -257,12 +250,12 @@ func (rlw *rateLimitedWriter) Write(p []byte) (n int, err error) {
 		n, err := rlw.w.Write(p[written : written+toWrite])
 		written += n
 		remaining -= n
-		
+
 		if err != nil {
 			return written, err
 		}
 	}
-	
+
 	return written, nil
 }
 
@@ -307,14 +300,14 @@ func (ns *NetworkSimulator) Reset() {
 // Close closes the simulator
 func (ns *NetworkSimulator) Close() error {
 	var errs []error
-	
+
 	if ns.proxy != nil {
 		ns.proxy.Close()
 	}
 	if ns.server != nil {
 		ns.server.Close()
 	}
-	
+
 	if len(errs) > 0 {
 		return fmt.Errorf("errors closing network simulator: %v", errs)
 	}
@@ -358,7 +351,7 @@ func (m *LoadTestMetrics) RecordEvent(latency time.Duration, success bool) {
 			break
 		}
 	}
-	
+
 	for {
 		oldMax := atomic.LoadInt64(&m.MaxLatency)
 		if latencyNs <= oldMax {
@@ -375,11 +368,11 @@ func (m *LoadTestMetrics) GetAverageLatency() time.Duration {
 	successfulEvents := atomic.LoadInt64(&m.SuccessfulEvents)
 	failedEvents := atomic.LoadInt64(&m.FailedEvents)
 	totalEvents := successfulEvents + failedEvents
-	
+
 	if totalEvents == 0 {
 		return 0
 	}
-	
+
 	totalLatency := atomic.LoadInt64(&m.TotalLatency)
 	return time.Duration(totalLatency / totalEvents)
 }
@@ -463,7 +456,7 @@ func testChromeSSE(t *testing.T, serverURL string) {
 	defer cancel()
 
 	// Set timeout (reduced)
-	ctx, cancel = context.WithTimeout(ctx, 5*time.Second)  // Reduced from 30s
+	ctx, cancel = context.WithTimeout(ctx, 5*time.Second) // Reduced from 30s
 	defer cancel()
 
 	var eventData string
@@ -507,36 +500,36 @@ func TestNetworkResilience(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping network resilience tests in short mode")
 	}
-	
+
 	// This test focuses on validating that the network simulation components work
 	// rather than full end-to-end SSE behavior under adverse conditions
-	
+
 	t.Run("Network Simulator Components", func(t *testing.T) {
 		// Test that NetworkSimulator can be created and configured
 		handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("test response"))
 		})
-		
+
 		ns := NewNetworkSimulator(handler)
 		defer ns.Close()
-		
+
 		// Test latency configuration
 		ns.SetLatency(10 * time.Millisecond)
 		t.Logf("Latency simulation configured: 10ms")
-		
+
 		// Test packet loss configuration
 		ns.SetPacketLoss(0.1) // 10%
 		t.Logf("Packet loss simulation configured: 10%%")
-		
+
 		// Test bandwidth limitation configuration
 		ns.SetBandwidth(1024 * 1024) // 1MB/s
 		t.Logf("Bandwidth limitation configured: 1MB/s")
-		
+
 		// Test reset functionality
 		ns.Reset()
 		t.Logf("Network conditions reset successfully")
-		
+
 		// Basic connectivity test to ensure simulator is working
 		client := &http.Client{Timeout: 1 * time.Second}
 		resp, err := client.Get(ns.proxy.URL + "/test")
@@ -545,31 +538,31 @@ func TestNetworkResilience(t *testing.T) {
 			return
 		}
 		defer resp.Body.Close()
-		
+
 		if resp.StatusCode != 200 {
 			t.Skipf("Unexpected status code from network simulator: %d", resp.StatusCode)
 			return
 		}
-		
+
 		t.Logf("Network simulator basic functionality verified")
 	})
-	
+
 	t.Run("SSE Resilience Parameters", func(t *testing.T) {
 		// Test the optimized transport configuration parameters
 		config := DefaultConfig()
-		config.ReconnectDelay = 100 * time.Millisecond  // Reduced from default
-		config.MaxReconnects = 3                        // Reduced from default
+		config.ReconnectDelay = 100 * time.Millisecond // Reduced from default
+		config.MaxReconnects = 3                       // Reduced from default
 		config.ReadTimeout = 10 * time.Second          // Reduced from default
 		config.WriteTimeout = 5 * time.Second          // Reduced from default
 		config.Client.Timeout = 10 * time.Second       // Reduced from default
-		
+
 		t.Logf("Transport configuration optimized for test resilience:")
 		t.Logf("  ReconnectDelay: %v", config.ReconnectDelay)
 		t.Logf("  MaxReconnects: %d", config.MaxReconnects)
 		t.Logf("  ReadTimeout: %v", config.ReadTimeout)
 		t.Logf("  WriteTimeout: %v", config.WriteTimeout)
 		t.Logf("  ClientTimeout: %v", config.Client.Timeout)
-		
+
 		// Validate that these are reasonable values for testing
 		assert.LessOrEqual(t, config.ReconnectDelay, 1*time.Second, "ReconnectDelay should be fast for testing")
 		assert.LessOrEqual(t, config.MaxReconnects, 5, "MaxReconnects should be limited for fast failure")
@@ -577,28 +570,27 @@ func TestNetworkResilience(t *testing.T) {
 		assert.LessOrEqual(t, config.WriteTimeout, 15*time.Second, "WriteTimeout should be reasonable for testing")
 		assert.LessOrEqual(t, config.Client.Timeout, 30*time.Second, "ClientTimeout should be reasonable for testing")
 	})
-	
+
 	t.Run("Simulation Parameter Validation", func(t *testing.T) {
 		// Validate the optimized simulation parameters
 		testParams := map[string]interface{}{
-			"HighLatency":        20 * time.Millisecond,  // Reduced from 1s+
-			"PacketLoss":         0.1,                     // 10%, reduced from higher values
-			"BandwidthLimit":     20 * 1024,              // 20KB/s, reasonable for testing
-			"TestTimeout":        2 * time.Second,        // Reduced from 10s+
-			"EventSize":          2 * 1024,               // 2KB, reduced from larger sizes
+			"HighLatency":    20 * time.Millisecond, // Reduced from 1s+
+			"PacketLoss":     0.1,                   // 10%, reduced from higher values
+			"BandwidthLimit": 20 * 1024,             // 20KB/s, reasonable for testing
+			"TestTimeout":    2 * time.Second,       // Reduced from 10s+
+			"EventSize":      2 * 1024,              // 2KB, reduced from larger sizes
 		}
-		
+
 		t.Logf("Optimized simulation parameters for faster test execution:")
 		for param, value := range testParams {
 			t.Logf("  %s: %v", param, value)
 		}
-		
+
 		// These parameters ensure tests complete within reasonable time bounds
 		// while still validating SSE behavior under adverse conditions
 		assert.True(t, true, "Parameter validation completed successfully")
 	})
 }
-
 
 // ======================== Security Vulnerability Tests ========================
 
@@ -618,11 +610,11 @@ func TestSecurityVulnerabilities(t *testing.T) {
 		RateLimit: RateLimitConfig{
 			Enabled:           true,
 			RequestsPerSecond: 100,
-			BurstSize:         25,  // Increased to allow more requests for testing
+			BurstSize:         25, // Increased to allow more requests for testing
 			PerClient: RateLimitPerClientConfig{
 				Enabled:              true,
-				RequestsPerSecond:    10,  // Lower per-client limit to trigger blocking
-				BurstSize:            5,   // Lower per-client burst
+				RequestsPerSecond:    10, // Lower per-client limit to trigger blocking
+				BurstSize:            5,  // Lower per-client burst
 				IdentificationMethod: "ip",
 			},
 		},
@@ -633,8 +625,8 @@ func TestSecurityVulnerabilities(t *testing.T) {
 		},
 		Validation: ValidationConfig{
 			Enabled:             true,
-			MaxRequestSize:      512 * 1024,  // 512KB limit to reject 1MB test payload
-			MaxHeaderSize:       64 * 1024,   // 64KB header limit
+			MaxRequestSize:      512 * 1024, // 512KB limit to reject 1MB test payload
+			MaxHeaderSize:       64 * 1024,  // 64KB header limit
 			AllowedContentTypes: []string{"application/json", "text/plain", "text/event-stream"},
 		},
 	}
@@ -722,7 +714,7 @@ func TestSecurityVulnerabilities(t *testing.T) {
 		// Should allow initial requests - reduced for faster execution
 		successCount := 0
 		startTime := time.Now()
-		for i := 0; i < 50; i++ {  // Reduced from 150
+		for i := 0; i < 50; i++ { // Reduced from 150
 			req, _ := http.NewRequest("GET", server.URL+"/events/stream", nil)
 			req.Header.Set("Authorization", "Bearer secure-token-123")
 			req.Header.Set("X-Forwarded-For", "192.168.1.1") // Same IP
@@ -742,10 +734,10 @@ func TestSecurityVulnerabilities(t *testing.T) {
 
 		duration := time.Since(startTime).Seconds()
 		expectedMax := int(duration*10) + 5 // per-client rate * duration + per-client burst size
-		
-		// We should get close to the per-client rate limit  
+
+		// We should get close to the per-client rate limit
 		t.Logf("Made %d requests in %.2f seconds, %d succeeded", 50, duration, successCount)
-		
+
 		// With per-client limiting at 10 req/sec + 5 burst, should allow initial burst then limit
 		assert.LessOrEqual(t, successCount, expectedMax+3, "Should not exceed per-client rate limit by much")
 		assert.GreaterOrEqual(t, successCount, 5, "Should allow at least initial burst requests")
@@ -771,7 +763,7 @@ func TestSecurityVulnerabilities(t *testing.T) {
 			t.Run(tc.name, func(t *testing.T) {
 				// Create a fresh client for each test to avoid connection reuse issues
 				freshClient := server.Client()
-				
+
 				req, _ := http.NewRequest("GET", server.URL+"/events/stream", nil)
 				req.Header.Set("Authorization", "Bearer secure-token-123")
 				if tc.origin != "" {
@@ -795,7 +787,7 @@ func TestSecurityVulnerabilities(t *testing.T) {
 	t.Run("XSS Prevention", func(t *testing.T) {
 		// Create stream for XSS test
 		config := DefaultStreamConfig()
-		config.DrainTimeout = 1 * time.Second  // Shorter timeout for tests
+		config.DrainTimeout = 1 * time.Second // Shorter timeout for tests
 		stream, err := NewEventStream(config)
 		require.NoError(t, err)
 		err = stream.Start()
@@ -837,7 +829,6 @@ func TestSecurityVulnerabilities(t *testing.T) {
 		assert.NotEqual(t, http.StatusOK, resp.StatusCode, "Should reject large payloads")
 	})
 }
-
 
 // BenchmarkSSETransport benchmarks the SSE transport
 func BenchmarkSSETransport(b *testing.B) {
@@ -922,7 +913,6 @@ func BenchmarkSSETransport(b *testing.B) {
 	})
 }
 
-
 // ======================== Helper Functions ========================
 
 // createTestSSEHandler creates a basic SSE handler for testing
@@ -935,7 +925,7 @@ func createTestSSEHandler() http.HandlerFunc {
 			w.Write([]byte(`{"status": "ok", "timestamp": "` + time.Now().Format(time.RFC3339) + `"}`))
 			return
 		}
-		
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
@@ -947,7 +937,7 @@ func createTestSSEHandler() http.HandlerFunc {
 		}
 
 		// Create context with timeout to prevent indefinite blocking
-		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)  // Reasonable timeout
+		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second) // Reasonable timeout
 		defer cancel()
 
 		// Send test events with context awareness - faster event generation
@@ -962,7 +952,7 @@ func createTestSSEHandler() http.HandlerFunc {
 
 				// Much faster event generation for performance
 				select {
-				case <-time.After(10 * time.Millisecond):  // Reduced from 100ms to 10ms
+				case <-time.After(10 * time.Millisecond): // Reduced from 100ms to 10ms
 				case <-ctx.Done():
 					return
 				}
@@ -981,7 +971,7 @@ func createStreamingSSEHandler(stream *EventStream) http.HandlerFunc {
 			w.Write([]byte(`{"status": "ok", "timestamp": "` + time.Now().Format(time.RFC3339) + `"}`))
 			return
 		}
-		
+
 		// Handle POST requests to /events (for sending events)
 		if r.Method == "POST" && r.URL.Path == "/events" {
 			// For packet loss testing, we need to accept and process the event
@@ -991,13 +981,13 @@ func createStreamingSSEHandler(stream *EventStream) http.HandlerFunc {
 			w.Write([]byte(`{"status": "accepted"}`))
 			return
 		}
-		
+
 		// Handle SSE streaming endpoint
 		if r.URL.Path != "/events/stream" {
 			http.NotFound(w, r)
 			return
 		}
-		
+
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
@@ -1010,7 +1000,7 @@ func createStreamingSSEHandler(stream *EventStream) http.HandlerFunc {
 		}
 
 		// Create context with longer timeout for SSE streaming
-		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)  // Longer timeout for SSE
+		ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second) // Longer timeout for SSE
 		defer cancel()
 
 		// Send initial connection message with multiple flushes to ensure client receives response
@@ -1032,28 +1022,28 @@ func createStreamingSSEHandler(stream *EventStream) http.HandlerFunc {
 		// Create a timeout for the handler to prevent hanging - shorter for tests
 		handlerCtx, cancel2 := context.WithTimeout(ctx, 60*time.Second)
 		defer cancel2()
-		
+
 		// Send initial heartbeat to establish connection
 		if _, err := w.Write([]byte("data: {\"type\":\"connected\"}\n\n")); err != nil {
 			return
 		}
 		flusher.Flush()
-		
+
 		// Track last activity to detect stale connections
 		lastActivity := time.Now()
 		heartbeatInterval := 2 * time.Second // More frequent heartbeats for tests
-		maxIdleTime := 10 * time.Second // Shorter idle timeout for tests
-		
+		maxIdleTime := 10 * time.Second      // Shorter idle timeout for tests
+
 		heartbeatTicker := time.NewTicker(heartbeatInterval)
 		defer heartbeatTicker.Stop()
-		
+
 		for {
 			select {
 			case chunk, ok := <-stream.ReceiveChunks():
 				if !ok {
 					return // Channel closed
 				}
-				
+
 				if chunk == nil {
 					return
 				}
@@ -1078,7 +1068,7 @@ func createStreamingSSEHandler(stream *EventStream) http.HandlerFunc {
 					flusher.Flush()
 					return
 				}
-				
+
 				// Send periodic heartbeat to keep connection alive
 				if _, err := w.Write([]byte("data: {\"type\":\"heartbeat\"}\n\n")); err != nil {
 					return
@@ -1090,7 +1080,7 @@ func createStreamingSSEHandler(stream *EventStream) http.HandlerFunc {
 				w.Write([]byte("data: {\"type\":\"disconnected\"}\n\n"))
 				flusher.Flush()
 				return
-				
+
 			case <-ctx.Done():
 				return
 			}
@@ -1148,12 +1138,12 @@ func runPerformanceBenchmark(t *testing.T, duration time.Duration) PerformanceBa
 	// Create test components with optimized performance config
 	config := DefaultStreamConfig()
 	config.EnableMetrics = true
-	config.WorkerCount = 8               // More workers for higher throughput
-	config.BatchEnabled = true           // Enable batching for efficiency
-	config.BatchSize = 50               // Larger batches
-	config.BatchTimeout = 5 * time.Millisecond // Very fast batching
-	config.CompressionEnabled = false    // Disable compression for performance test
-	config.SequenceEnabled = false       // Keep sequencing disabled
+	config.WorkerCount = 8                      // More workers for higher throughput
+	config.BatchEnabled = true                  // Enable batching for efficiency
+	config.BatchSize = 50                       // Larger batches
+	config.BatchTimeout = 5 * time.Millisecond  // Very fast batching
+	config.CompressionEnabled = false           // Disable compression for performance test
+	config.SequenceEnabled = false              // Keep sequencing disabled
 	config.FlushInterval = 5 * time.Millisecond // Very fast flushing
 	stream, err := NewEventStream(config)
 	require.NoError(t, err)
@@ -1176,7 +1166,7 @@ func runPerformanceBenchmark(t *testing.T, duration time.Duration) PerformanceBa
 	defer cancel()
 
 	// Create stream consumers to measure performance directly
-	connectionCount := 10  // Reduced from 100
+	connectionCount := 10 // Reduced from 100
 	var wg sync.WaitGroup
 
 	for i := 0; i < connectionCount; i++ {
@@ -1204,7 +1194,7 @@ func runPerformanceBenchmark(t *testing.T, duration time.Duration) PerformanceBa
 	}
 
 	// Wait for connections to establish (shorter)
-	time.Sleep(100 * time.Millisecond)  // Reduced from 500ms
+	time.Sleep(100 * time.Millisecond) // Reduced from 500ms
 
 	// Event generator - optimized for higher throughput
 	eventsSent := int64(0)
@@ -1244,7 +1234,7 @@ func runPerformanceBenchmark(t *testing.T, duration time.Duration) PerformanceBa
 	}()
 
 	// Use a faster cleanup timeout
-	cleanupTimeout := 2 * time.Second  // Reduced from 30-60s
+	cleanupTimeout := 2 * time.Second // Reduced from 30-60s
 	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), cleanupTimeout)
 	defer cleanupCancel()
 
@@ -1258,7 +1248,7 @@ func runPerformanceBenchmark(t *testing.T, duration time.Duration) PerformanceBa
 	// Calculate metrics
 	elapsed := time.Since(startTime)
 	throughput := float64(eventCount) / elapsed.Seconds()
-	
+
 	t.Logf("Debug: eventsSent=%d, eventCount=%d", atomic.LoadInt64(&eventsSent), eventCount)
 
 	// Calculate percentiles
@@ -1395,7 +1385,7 @@ func TestStreamSSEIntegration(t *testing.T) {
 	config.CompressionEnabled = false
 	config.SequenceEnabled = false
 	config.EnableMetrics = true
-	config.DrainTimeout = 1 * time.Second  // Shorter timeout for tests
+	config.DrainTimeout = 1 * time.Second // Shorter timeout for tests
 
 	stream, err := NewEventStream(config)
 	if err != nil {
@@ -1470,17 +1460,17 @@ func TestStreamSSEIntegration(t *testing.T) {
 				t.Errorf("Failed to send event: %v", err)
 				return
 			}
-			time.Sleep(10 * time.Millisecond)  // Reduced from 50ms
+			time.Sleep(10 * time.Millisecond) // Reduced from 50ms
 		}
 	}()
 
 	// Create HTTP client with longer timeout for SSE streaming
 	client := &http.Client{
-		Timeout: 10 * time.Second,  // Longer timeout for reliable SSE streaming
+		Timeout: 10 * time.Second, // Longer timeout for reliable SSE streaming
 		Transport: &http.Transport{
-			MaxIdleConns:        100,
-			MaxIdleConnsPerHost: 50,
-			IdleConnTimeout:     300 * time.Second,
+			MaxIdleConns:          100,
+			MaxIdleConnsPerHost:   50,
+			IdleConnTimeout:       300 * time.Second,
 			ResponseHeaderTimeout: 30 * time.Second,
 		},
 	}
@@ -1514,7 +1504,7 @@ func TestStreamSSEIntegration(t *testing.T) {
 	done := make(chan bool, 1) // Buffered channel to prevent goroutine leak
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	
+
 	go func() {
 		defer func() {
 			// Always try to send completion signal, but don't block
@@ -1523,7 +1513,7 @@ func TestStreamSSEIntegration(t *testing.T) {
 			default:
 			}
 		}()
-		
+
 		for {
 			select {
 			case <-readCtx.Done():
@@ -1596,7 +1586,7 @@ func TestStreamCompressionWithSSE(t *testing.T) {
 	config.MinCompressionSize = 0 // Compress everything for testing
 	config.SequenceEnabled = false
 	config.EnableMetrics = false
-	config.DrainTimeout = 1 * time.Second  // Shorter timeout for tests
+	config.DrainTimeout = 1 * time.Second // Shorter timeout for tests
 
 	stream, err := NewEventStream(config)
 	if err != nil {
@@ -1610,7 +1600,7 @@ func TestStreamCompressionWithSSE(t *testing.T) {
 	defer stream.Close()
 
 	// Create content that will benefit from compression - reduced size
-	largeContent := strings.Repeat("This is a test message that repeats many times. ", 20)  // Reduced from 100
+	largeContent := strings.Repeat("This is a test message that repeats many times. ", 20) // Reduced from 100
 	event := events.NewTextMessageContentEvent("large-msg", largeContent)
 
 	// Send the event
@@ -1656,7 +1646,7 @@ func TestStreamBatchingWithSSE(t *testing.T) {
 	config.CompressionEnabled = false
 	config.SequenceEnabled = false
 	config.EnableMetrics = false
-	config.DrainTimeout = 1 * time.Second  // Shorter timeout for tests
+	config.DrainTimeout = 1 * time.Second // Shorter timeout for tests
 
 	stream, err := NewEventStream(config)
 	if err != nil {
@@ -1719,7 +1709,7 @@ func TestStreamChunkingWithSSE(t *testing.T) {
 	config.CompressionEnabled = false
 	config.SequenceEnabled = false
 	config.EnableMetrics = false
-	config.DrainTimeout = 1 * time.Second  // Shorter timeout for tests
+	config.DrainTimeout = 1 * time.Second // Shorter timeout for tests
 
 	stream, err := NewEventStream(config)
 	if err != nil {
@@ -1733,7 +1723,7 @@ func TestStreamChunkingWithSSE(t *testing.T) {
 	defer stream.Close()
 
 	// Create content that will require chunking - reduced size
-	largeContent := strings.Repeat("Large message content. ", 50)  // Reduced from 200
+	largeContent := strings.Repeat("Large message content. ", 50) // Reduced from 200
 	event := events.NewTextMessageContentEvent("large-msg", largeContent)
 
 	err = stream.SendEvent(event)
@@ -1820,7 +1810,7 @@ done:
 		t.Errorf("Reassembled data doesn't match original serialized event")
 		t.Logf("Expected length: %d, Got length: %d", len(expectedJSON), len(reassembled))
 	}
-	
+
 	// The reassembled data should be valid JSON containing the original event
 	// Parse the JSON to verify it contains the original message
 	var eventData map[string]interface{}
@@ -1852,7 +1842,7 @@ func TestStreamMetricsCollection(t *testing.T) {
 	config.BatchEnabled = false
 	config.CompressionEnabled = true
 	config.MinCompressionSize = 0
-	config.DrainTimeout = 1 * time.Second  // Shorter timeout for tests
+	config.DrainTimeout = 1 * time.Second // Shorter timeout for tests
 
 	stream, err := NewEventStream(config)
 	if err != nil {
@@ -1866,7 +1856,7 @@ func TestStreamMetricsCollection(t *testing.T) {
 	defer stream.Close()
 
 	// Send fewer events for faster execution
-	numEvents := 5  // Reduced from 10
+	numEvents := 5 // Reduced from 10
 	for i := 0; i < numEvents; i++ {
 		event := events.NewTextMessageContentEvent("msg", "test content for compression")
 		err = stream.SendEvent(event)

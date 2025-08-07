@@ -19,22 +19,22 @@ import (
 type ResilienceConfig struct {
 	// RetryConfig configures retry behavior
 	Retry RetryConfig `json:"retry"`
-	
+
 	// CircuitBreakerConfig configures circuit breaker behavior
 	CircuitBreaker CircuitBreakerConfig `json:"circuit_breaker"`
-	
+
 	// RateLimiterConfig configures rate limiting
 	RateLimit RateLimitConfig `json:"rate_limit"`
-	
+
 	// TimeoutConfig configures timeout behavior
 	Timeout TimeoutConfig `json:"timeout"`
-	
+
 	// BulkheadConfig configures resource isolation
 	Bulkhead BulkheadConfig `json:"bulkhead"`
-	
+
 	// HealthCheckConfig configures health monitoring
 	HealthCheck HealthCheckConfig `json:"health_check"`
-	
+
 	// MetricsConfig configures metrics collection
 	Metrics MetricsConfig `json:"metrics"`
 }
@@ -43,22 +43,22 @@ type ResilienceConfig struct {
 type RetryConfig struct {
 	// MaxAttempts is the maximum number of retry attempts
 	MaxAttempts int `json:"max_attempts"`
-	
+
 	// BaseDelay is the initial delay between retries
 	BaseDelay time.Duration `json:"base_delay"`
-	
+
 	// MaxDelay is the maximum delay between retries
 	MaxDelay time.Duration `json:"max_delay"`
-	
+
 	// BackoffMultiplier is the multiplier for exponential backoff
 	BackoffMultiplier float64 `json:"backoff_multiplier"`
-	
+
 	// JitterEnabled enables random jitter to prevent thundering herd
 	JitterEnabled bool `json:"jitter_enabled"`
-	
+
 	// JitterMaxFactor is the maximum jitter factor (0.0 to 1.0)
 	JitterMaxFactor float64 `json:"jitter_max_factor"`
-	
+
 	// RetryableErrors defines which errors should trigger retries
 	RetryableErrors []string `json:"retryable_errors"`
 }
@@ -67,22 +67,22 @@ type RetryConfig struct {
 type CircuitBreakerConfig struct {
 	// Enabled indicates if circuit breaker is active
 	Enabled bool `json:"enabled"`
-	
+
 	// FailureThreshold is the number of failures before opening
 	FailureThreshold int `json:"failure_threshold"`
-	
+
 	// SuccessThreshold is the number of successes needed to close
 	SuccessThreshold int `json:"success_threshold"`
-	
+
 	// Timeout is how long to wait before attempting to close
 	Timeout time.Duration `json:"timeout"`
-	
+
 	// HalfOpenMaxCalls is max calls allowed in half-open state
 	HalfOpenMaxCalls int `json:"half_open_max_calls"`
-	
+
 	// FailureRateThreshold is the failure rate threshold (0.0 to 1.0)
 	FailureRateThreshold float64 `json:"failure_rate_threshold"`
-	
+
 	// MinimumRequestThreshold is minimum requests before rate calculation
 	MinimumRequestThreshold int `json:"minimum_request_threshold"`
 }
@@ -91,16 +91,16 @@ type CircuitBreakerConfig struct {
 type RateLimitConfig struct {
 	// Enabled indicates if rate limiting is active
 	Enabled bool `json:"enabled"`
-	
+
 	// RequestsPerSecond is the maximum requests per second
 	RequestsPerSecond float64 `json:"requests_per_second"`
-	
+
 	// BurstSize is the maximum burst of requests allowed
 	BurstSize int `json:"burst_size"`
-	
+
 	// WindowSize is the time window for rate calculation
 	WindowSize time.Duration `json:"window_size"`
-	
+
 	// ThrottleDelay is the delay when throttling is applied
 	ThrottleDelay time.Duration `json:"throttle_delay"`
 }
@@ -109,19 +109,19 @@ type RateLimitConfig struct {
 type TimeoutConfig struct {
 	// OperationTimeout is the default operation timeout
 	OperationTimeout time.Duration `json:"operation_timeout"`
-	
+
 	// ConnectionTimeout is the connection establishment timeout
 	ConnectionTimeout time.Duration `json:"connection_timeout"`
-	
+
 	// ReadTimeout is the read operation timeout
 	ReadTimeout time.Duration `json:"read_timeout"`
-	
+
 	// WriteTimeout is the write operation timeout
 	WriteTimeout time.Duration `json:"write_timeout"`
-	
+
 	// KeepAliveTimeout is the keep-alive timeout
 	KeepAliveTimeout time.Duration `json:"keep_alive_timeout"`
-	
+
 	// IdleConnectionTimeout is the idle connection timeout
 	IdleConnectionTimeout time.Duration `json:"idle_connection_timeout"`
 }
@@ -130,16 +130,16 @@ type TimeoutConfig struct {
 type BulkheadConfig struct {
 	// Enabled indicates if bulkhead isolation is active
 	Enabled bool `json:"enabled"`
-	
+
 	// MaxConcurrentRequests is the maximum concurrent requests
 	MaxConcurrentRequests int `json:"max_concurrent_requests"`
-	
+
 	// QueueSize is the size of the request queue
 	QueueSize int `json:"queue_size"`
-	
+
 	// QueueTimeout is the maximum time to wait in queue
 	QueueTimeout time.Duration `json:"queue_timeout"`
-	
+
 	// SemaphoreTimeout is the timeout for acquiring semaphore
 	SemaphoreTimeout time.Duration `json:"semaphore_timeout"`
 }
@@ -148,22 +148,22 @@ type BulkheadConfig struct {
 type HealthCheckConfig struct {
 	// Enabled indicates if health checks are active
 	Enabled bool `json:"enabled"`
-	
+
 	// Interval is the health check interval
 	Interval time.Duration `json:"interval"`
-	
+
 	// Timeout is the health check timeout
 	Timeout time.Duration `json:"timeout"`
-	
+
 	// FailureThreshold is failures needed to mark unhealthy
 	FailureThreshold int `json:"failure_threshold"`
-	
+
 	// RecoveryThreshold is successes needed to mark healthy
 	RecoveryThreshold int `json:"recovery_threshold"`
-	
+
 	// Endpoint is the health check endpoint
 	Endpoint string `json:"endpoint"`
-	
+
 	// ExpectedStatusCodes are the expected healthy status codes
 	ExpectedStatusCodes []int `json:"expected_status_codes"`
 }
@@ -172,16 +172,16 @@ type HealthCheckConfig struct {
 type MetricsConfig struct {
 	// Enabled indicates if metrics collection is active
 	Enabled bool `json:"enabled"`
-	
+
 	// CollectionInterval is the metrics collection interval
 	CollectionInterval time.Duration `json:"collection_interval"`
-	
+
 	// RetentionPeriod is how long to retain metrics
 	RetentionPeriod time.Duration `json:"retention_period"`
-	
+
 	// HistogramBuckets defines histogram bucket boundaries
 	HistogramBuckets []float64 `json:"histogram_buckets"`
-	
+
 	// EnableDetailedMetrics enables detailed metric collection
 	EnableDetailedMetrics bool `json:"enable_detailed_metrics"`
 }
@@ -192,10 +192,10 @@ type CircuitBreakerState int
 const (
 	// CircuitBreakerClosed indicates normal operation
 	CircuitBreakerClosed CircuitBreakerState = iota
-	
+
 	// CircuitBreakerOpen indicates circuit is open (failing fast)
 	CircuitBreakerOpen
-	
+
 	// CircuitBreakerHalfOpen indicates testing if service recovered
 	CircuitBreakerHalfOpen
 )
@@ -220,13 +220,13 @@ type HealthStatus int
 const (
 	// HealthStatusUnknown indicates health status is unknown
 	HealthStatusUnknown HealthStatus = iota
-	
+
 	// HealthStatusHealthy indicates service is healthy
 	HealthStatusHealthy
-	
+
 	// HealthStatusUnhealthy indicates service is unhealthy
 	HealthStatusUnhealthy
-	
+
 	// HealthStatusDegraded indicates service is degraded
 	HealthStatusDegraded
 )
@@ -247,14 +247,14 @@ func (s HealthStatus) String() string {
 
 // ResilienceManager coordinates all resilience patterns
 type ResilienceManager struct {
-	config       ResilienceConfig
-	retryManager *RetryManager
+	config         ResilienceConfig
+	retryManager   *RetryManager
 	circuitBreaker *CircuitBreaker
-	rateLimiter  *RateLimiter
-	bulkhead     *Bulkhead
-	healthChecker *HealthChecker
-	metrics      *MetricsCollector
-	mu           sync.RWMutex
+	rateLimiter    *RateLimiter
+	bulkhead       *Bulkhead
+	healthChecker  *HealthChecker
+	metrics        *MetricsCollector
+	mu             sync.RWMutex
 }
 
 // NewResilienceManager creates a new resilience manager with the given configuration
@@ -262,7 +262,7 @@ func NewResilienceManager(config ResilienceConfig) *ResilienceManager {
 	rm := &ResilienceManager{
 		config: config,
 	}
-	
+
 	// Initialize components
 	rm.retryManager = NewRetryManager(config.Retry)
 	rm.circuitBreaker = NewCircuitBreaker(config.CircuitBreaker)
@@ -270,43 +270,43 @@ func NewResilienceManager(config ResilienceConfig) *ResilienceManager {
 	rm.bulkhead = NewBulkhead(config.Bulkhead)
 	rm.healthChecker = NewHealthChecker(config.HealthCheck)
 	rm.metrics = NewMetricsCollector(config.Metrics)
-	
+
 	return rm
 }
 
 // Execute executes an operation with all resilience patterns applied
 func (rm *ResilienceManager) Execute(ctx context.Context, operation func(ctx context.Context) error) error {
 	start := time.Now()
-	
+
 	// Check if circuit breaker allows the call
 	if !rm.circuitBreaker.AllowRequest() {
 		rm.metrics.RecordCircuitBreakerReject()
-		return pkgerrors.NewOperationError("Execute", "circuit_breaker", 
+		return pkgerrors.NewOperationError("Execute", "circuit_breaker",
 			fmt.Errorf("circuit breaker is open"))
 	}
-	
+
 	// Apply rate limiting
 	if !rm.rateLimiter.Allow() {
 		rm.metrics.RecordRateLimitReject()
 		return pkgerrors.NewOperationError("Execute", "rate_limiter", fmt.Errorf("rate limit exceeded"))
 	}
-	
+
 	// Acquire bulkhead semaphore
 	if err := rm.bulkhead.Acquire(ctx); err != nil {
 		rm.metrics.RecordBulkheadReject()
 		return pkgerrors.NewOperationError("Execute", "bulkhead", err)
 	}
 	defer rm.bulkhead.Release()
-	
+
 	// Execute with retry logic
 	err := rm.retryManager.ExecuteWithRetry(ctx, func(ctx context.Context) error {
 		// Apply timeout
 		timeoutCtx, cancel := context.WithTimeout(ctx, rm.config.Timeout.OperationTimeout)
 		defer cancel()
-		
+
 		return operation(timeoutCtx)
 	})
-	
+
 	// Record circuit breaker result
 	if err != nil {
 		rm.circuitBreaker.RecordFailure()
@@ -315,7 +315,7 @@ func (rm *ResilienceManager) Execute(ctx context.Context, operation func(ctx con
 		rm.circuitBreaker.RecordSuccess()
 		rm.metrics.RecordSuccess(time.Since(start))
 	}
-	
+
 	return err
 }
 
@@ -337,39 +337,39 @@ func NewRetryManager(config RetryConfig) *RetryManager {
 // ExecuteWithRetry executes an operation with retry logic
 func (rm *RetryManager) ExecuteWithRetry(ctx context.Context, operation func(ctx context.Context) error) error {
 	var lastErr error
-	
+
 	for attempt := 0; attempt <= rm.config.MaxAttempts; attempt++ {
 		if attempt > 0 {
 			delay := rm.calculateDelay(attempt)
-			
+
 			select {
 			case <-ctx.Done():
-				return pkgerrors.NewTimeoutErrorWithOperation("ExecuteWithRetry", 
+				return pkgerrors.NewTimeoutErrorWithOperation("ExecuteWithRetry",
 					time.Duration(0), delay).WithCause(ctx.Err())
 			case <-time.After(delay):
 				// Continue to retry
 			}
 		}
-		
+
 		err := operation(ctx)
 		if err == nil {
 			return nil
 		}
-		
+
 		lastErr = err
-		
+
 		// Check if error is retryable
 		if !rm.isRetryable(err) {
 			break
 		}
-		
+
 		// Check if we've exhausted retries
 		if attempt >= rm.config.MaxAttempts {
 			break
 		}
 	}
-	
-	return pkgerrors.NewOperationError("ExecuteWithRetry", "retry_exhausted", 
+
+	return pkgerrors.NewOperationError("ExecuteWithRetry", "retry_exhausted",
 		pkgerrors.ErrRetryExhausted).WithCause(lastErr)
 }
 
@@ -377,21 +377,21 @@ func (rm *RetryManager) ExecuteWithRetry(ctx context.Context, operation func(ctx
 func (rm *RetryManager) calculateDelay(attempt int) time.Duration {
 	// Calculate exponential backoff
 	delay := float64(rm.config.BaseDelay) * math.Pow(rm.config.BackoffMultiplier, float64(attempt-1))
-	
+
 	// Apply maximum delay limit
 	if maxDelay := float64(rm.config.MaxDelay); delay > maxDelay {
 		delay = maxDelay
 	}
-	
+
 	// Apply jitter if enabled
 	if rm.config.JitterEnabled {
 		rm.mu.Lock()
 		jitter := rm.rand.Float64() * rm.config.JitterMaxFactor * delay
 		rm.mu.Unlock()
-		
+
 		delay += jitter
 	}
-	
+
 	return time.Duration(delay)
 }
 
@@ -400,12 +400,12 @@ func (rm *RetryManager) isRetryable(err error) bool {
 	if err == nil {
 		return false
 	}
-	
+
 	// Check if it's marked as retryable in our error system
 	if pkgerrors.IsRetryable(err) {
 		return true
 	}
-	
+
 	// Check against configured retryable error patterns
 	errStr := err.Error()
 	for _, pattern := range rm.config.RetryableErrors {
@@ -413,13 +413,13 @@ func (rm *RetryManager) isRetryable(err error) bool {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
 // CircuitBreaker implements the circuit breaker pattern
 type CircuitBreaker struct {
-	config          CircuitBreakerConfig
+	config         CircuitBreakerConfig
 	state          CircuitBreakerState
 	failures       int64
 	successes      int64
@@ -443,14 +443,14 @@ func (cb *CircuitBreaker) AllowRequest() bool {
 	if !cb.config.Enabled {
 		return true
 	}
-	
+
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-	
+
 	switch cb.state {
 	case CircuitBreakerClosed:
 		return true
-		
+
 	case CircuitBreakerOpen:
 		// Check if timeout has elapsed
 		if time.Since(cb.stateChangedAt) >= cb.config.Timeout {
@@ -460,11 +460,11 @@ func (cb *CircuitBreaker) AllowRequest() bool {
 			return true
 		}
 		return false
-		
+
 	case CircuitBreakerHalfOpen:
 		// Allow limited requests in half-open state
 		return cb.requests < int64(cb.config.HalfOpenMaxCalls)
-		
+
 	default:
 		return false
 	}
@@ -475,13 +475,13 @@ func (cb *CircuitBreaker) RecordSuccess() {
 	if !cb.config.Enabled {
 		return
 	}
-	
+
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-	
+
 	atomic.AddInt64(&cb.requests, 1)
 	atomic.AddInt64(&cb.successes, 1)
-	
+
 	switch cb.state {
 	case CircuitBreakerHalfOpen:
 		if cb.successes >= int64(cb.config.SuccessThreshold) {
@@ -489,7 +489,7 @@ func (cb *CircuitBreaker) RecordSuccess() {
 			cb.stateChangedAt = time.Now()
 			cb.reset()
 		}
-		
+
 	case CircuitBreakerOpen:
 		// Should not happen, but reset if it does
 		cb.reset()
@@ -501,14 +501,14 @@ func (cb *CircuitBreaker) RecordFailure() {
 	if !cb.config.Enabled {
 		return
 	}
-	
+
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-	
+
 	atomic.AddInt64(&cb.requests, 1)
 	atomic.AddInt64(&cb.failures, 1)
 	cb.lastFailTime = time.Now()
-	
+
 	if cb.shouldTrip() {
 		cb.state = CircuitBreakerOpen
 		cb.stateChangedAt = time.Now()
@@ -521,12 +521,12 @@ func (cb *CircuitBreaker) shouldTrip() bool {
 	if cb.requests < int64(cb.config.MinimumRequestThreshold) {
 		return false
 	}
-	
+
 	// Check failure threshold
 	if cb.failures >= int64(cb.config.FailureThreshold) {
 		return true
 	}
-	
+
 	// Check failure rate threshold
 	failureRate := float64(cb.failures) / float64(cb.requests)
 	return failureRate >= cb.config.FailureRateThreshold
@@ -550,7 +550,7 @@ func (cb *CircuitBreaker) GetState() CircuitBreakerState {
 func (cb *CircuitBreaker) GetMetrics() map[string]interface{} {
 	cb.mu.RLock()
 	defer cb.mu.RUnlock()
-	
+
 	return map[string]interface{}{
 		"state":            cb.state.String(),
 		"failures":         atomic.LoadInt64(&cb.failures),
@@ -590,15 +590,15 @@ func NewBulkhead(config BulkheadConfig) *Bulkhead {
 	b := &Bulkhead{
 		config: config,
 	}
-	
+
 	if config.Enabled {
 		b.semaphore = make(chan struct{}, config.MaxConcurrentRequests)
 		b.queue = make(chan request, config.QueueSize)
-		
+
 		// Start request processor
 		go b.processRequests()
 	}
-	
+
 	return b
 }
 
@@ -607,16 +607,16 @@ func (b *Bulkhead) Acquire(ctx context.Context) error {
 	if !b.config.Enabled {
 		return nil
 	}
-	
+
 	req := request{
 		ctx:      ctx,
 		response: make(chan error, 1),
 	}
-	
+
 	select {
 	case b.queue <- req:
 		atomic.AddInt64(&b.metrics.queuedRequests, 1)
-		
+
 		select {
 		case err := <-req.response:
 			atomic.AddInt64(&b.metrics.queuedRequests, -1)
@@ -624,13 +624,13 @@ func (b *Bulkhead) Acquire(ctx context.Context) error {
 		case <-ctx.Done():
 			atomic.AddInt64(&b.metrics.queuedRequests, -1)
 			atomic.AddInt64(&b.metrics.timeouts, 1)
-			return pkgerrors.NewTimeoutErrorWithOperation("Bulkhead.Acquire", 
+			return pkgerrors.NewTimeoutErrorWithOperation("Bulkhead.Acquire",
 				b.config.QueueTimeout, b.config.QueueTimeout).WithCause(ctx.Err())
 		}
-		
+
 	default:
 		atomic.AddInt64(&b.metrics.rejectedRequests, 1)
-		return pkgerrors.NewOperationError("Bulkhead.Acquire", "queue_full", 
+		return pkgerrors.NewOperationError("Bulkhead.Acquire", "queue_full",
 			fmt.Errorf("bulkhead queue is full"))
 	}
 }
@@ -640,7 +640,7 @@ func (b *Bulkhead) Release() {
 	if !b.config.Enabled {
 		return
 	}
-	
+
 	select {
 	case <-b.semaphore:
 		atomic.AddInt64(&b.metrics.activeRequests, -1)
@@ -657,10 +657,10 @@ func (b *Bulkhead) processRequests() {
 			atomic.AddInt64(&b.metrics.activeRequests, 1)
 			req.response <- nil
 		case <-time.After(b.config.SemaphoreTimeout):
-			req.response <- pkgerrors.NewTimeoutErrorWithOperation("Bulkhead.processRequests", 
+			req.response <- pkgerrors.NewTimeoutErrorWithOperation("Bulkhead.processRequests",
 				b.config.SemaphoreTimeout, b.config.SemaphoreTimeout)
 		case <-req.ctx.Done():
-			req.response <- pkgerrors.NewTimeoutErrorWithOperation("Bulkhead.processRequests", 
+			req.response <- pkgerrors.NewTimeoutErrorWithOperation("Bulkhead.processRequests",
 				b.config.SemaphoreTimeout, b.config.SemaphoreTimeout).WithCause(req.ctx.Err())
 		}
 	}
@@ -678,13 +678,13 @@ func (b *Bulkhead) GetMetrics() map[string]interface{} {
 
 // HealthChecker monitors service health and implements recovery mechanisms
 type HealthChecker struct {
-	config      HealthCheckConfig
-	status      HealthStatus
-	failures    int
-	successes   int
-	lastCheck   time.Time
-	mu          sync.RWMutex
-	stopCh      chan struct{}
+	config    HealthCheckConfig
+	status    HealthStatus
+	failures  int
+	successes int
+	lastCheck time.Time
+	mu        sync.RWMutex
+	stopCh    chan struct{}
 }
 
 // NewHealthChecker creates a new health checker
@@ -695,11 +695,11 @@ func NewHealthChecker(config HealthCheckConfig) *HealthChecker {
 		lastCheck: time.Now(),
 		stopCh:    make(chan struct{}),
 	}
-	
+
 	if config.Enabled {
 		go hc.startHealthChecks()
 	}
-	
+
 	return hc
 }
 
@@ -719,7 +719,7 @@ func (hc *HealthChecker) IsHealthy() bool {
 func (hc *HealthChecker) startHealthChecks() {
 	ticker := time.NewTicker(hc.config.Interval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ticker.C:
@@ -734,25 +734,25 @@ func (hc *HealthChecker) startHealthChecks() {
 func (hc *HealthChecker) performHealthCheck() {
 	ctx, cancel := context.WithTimeout(context.Background(), hc.config.Timeout)
 	defer cancel()
-	
+
 	err := hc.checkHealth(ctx)
-	
+
 	hc.mu.Lock()
 	defer hc.mu.Unlock()
-	
+
 	hc.lastCheck = time.Now()
-	
+
 	if err != nil {
 		hc.failures++
 		hc.successes = 0
-		
+
 		if hc.failures >= hc.config.FailureThreshold {
 			hc.status = HealthStatusUnhealthy
 		}
 	} else {
 		hc.successes++
 		hc.failures = 0
-		
+
 		if hc.successes >= hc.config.RecoveryThreshold {
 			hc.status = HealthStatusHealthy
 		}
@@ -776,25 +776,25 @@ func (hc *HealthChecker) Stop() {
 func (hc *HealthChecker) GetMetrics() map[string]interface{} {
 	hc.mu.RLock()
 	defer hc.mu.RUnlock()
-	
+
 	return map[string]interface{}{
-		"status":      hc.status.String(),
-		"failures":    hc.failures,
-		"successes":   hc.successes,
-		"last_check":  hc.lastCheck,
+		"status":     hc.status.String(),
+		"failures":   hc.failures,
+		"successes":  hc.successes,
+		"last_check": hc.lastCheck,
 	}
 }
 
 // MetricsCollector collects and manages resilience metrics
 type MetricsCollector struct {
-	config                  MetricsConfig
-	successCount            int64
-	failureCount            int64
-	circuitBreakerRejects   int64
-	rateLimitRejects        int64
-	bulkheadRejects         int64
-	responseTimeHistogram   []int64
-	mu                      sync.RWMutex
+	config                MetricsConfig
+	successCount          int64
+	failureCount          int64
+	circuitBreakerRejects int64
+	rateLimitRejects      int64
+	bulkheadRejects       int64
+	responseTimeHistogram []int64
+	mu                    sync.RWMutex
 }
 
 // NewMetricsCollector creates a new metrics collector
@@ -810,7 +810,7 @@ func (mc *MetricsCollector) RecordSuccess(duration time.Duration) {
 	if !mc.config.Enabled {
 		return
 	}
-	
+
 	atomic.AddInt64(&mc.successCount, 1)
 	mc.recordResponseTime(duration)
 }
@@ -820,7 +820,7 @@ func (mc *MetricsCollector) RecordFailure(duration time.Duration) {
 	if !mc.config.Enabled {
 		return
 	}
-	
+
 	atomic.AddInt64(&mc.failureCount, 1)
 	mc.recordResponseTime(duration)
 }
@@ -851,12 +851,12 @@ func (mc *MetricsCollector) recordResponseTime(duration time.Duration) {
 	if !mc.config.EnableDetailedMetrics {
 		return
 	}
-	
+
 	durationMs := float64(duration.Nanoseconds()) / 1e6
-	
+
 	mc.mu.Lock()
 	defer mc.mu.Unlock()
-	
+
 	for i, bucket := range mc.config.HistogramBuckets {
 		if durationMs <= bucket {
 			mc.responseTimeHistogram[i]++
@@ -869,20 +869,20 @@ func (mc *MetricsCollector) recordResponseTime(duration time.Duration) {
 func (mc *MetricsCollector) GetMetrics() map[string]interface{} {
 	mc.mu.RLock()
 	defer mc.mu.RUnlock()
-	
+
 	metrics := map[string]interface{}{
-		"success_count":              atomic.LoadInt64(&mc.successCount),
-		"failure_count":              atomic.LoadInt64(&mc.failureCount),
-		"circuit_breaker_rejects":    atomic.LoadInt64(&mc.circuitBreakerRejects),
-		"rate_limit_rejects":         atomic.LoadInt64(&mc.rateLimitRejects),
-		"bulkhead_rejects":           atomic.LoadInt64(&mc.bulkheadRejects),
+		"success_count":           atomic.LoadInt64(&mc.successCount),
+		"failure_count":           atomic.LoadInt64(&mc.failureCount),
+		"circuit_breaker_rejects": atomic.LoadInt64(&mc.circuitBreakerRejects),
+		"rate_limit_rejects":      atomic.LoadInt64(&mc.rateLimitRejects),
+		"bulkhead_rejects":        atomic.LoadInt64(&mc.bulkheadRejects),
 	}
-	
+
 	if mc.config.EnableDetailedMetrics {
 		metrics["response_time_histogram"] = mc.responseTimeHistogram
 		metrics["histogram_buckets"] = mc.config.HistogramBuckets
 	}
-	
+
 	return metrics
 }
 

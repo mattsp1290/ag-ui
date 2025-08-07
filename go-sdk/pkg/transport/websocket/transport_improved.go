@@ -351,7 +351,7 @@ func (t *ImprovedTransport) RemoveEventHandler(eventType string, handlerID strin
 		}
 		return false
 	})
-	
+
 	// Clear wrapper references to prevent memory leaks
 	if removedWrapper != nil {
 		runtime.SetFinalizer(removedWrapper, nil)
@@ -528,7 +528,7 @@ func (t *ImprovedTransport) registerCleanupTasks() {
 		cleaned := 0
 		t.eventHandlers.Range(func(key, value interface{}) bool {
 			handlers := value.(*transport.Slice)
-			
+
 			// Clean up nil handlers within slices
 			handlers.RemoveFunc(func(item interface{}) bool {
 				wrapper := item.(*EventHandlerWrapper)
@@ -542,21 +542,21 @@ func (t *ImprovedTransport) registerCleanupTasks() {
 				}
 				return false
 			})
-			
+
 			// Remove entire event type if no handlers left
 			if handlers.Len() == 0 {
 				t.eventHandlers.Delete(key)
 				cleaned++
 			}
-			
+
 			return true
 		})
-		
+
 		// Force GC if we cleaned up handlers
 		if cleaned > 0 {
 			runtime.GC()
 		}
-		
+
 		return cleaned, nil
 	})
 
@@ -736,7 +736,7 @@ func (t *ImprovedTransport) processIncomingEvent(data []byte) error {
 	}
 
 	handlers := value.(*transport.Slice)
-	
+
 	// Create a mock event for handler execution
 	event := &mockEvent{
 		eventType: events.EventType(eventTypeStr),
@@ -777,13 +777,12 @@ type rawEvent struct {
 	data []byte
 }
 
-func (r *rawEvent) Type() events.EventType          { return "raw" }
-func (r *rawEvent) Timestamp() *int64               { return nil }
-func (r *rawEvent) SetTimestamp(int64)              {}
-func (r *rawEvent) Validate() error                 { return nil }
-func (r *rawEvent) ToJSON() ([]byte, error)         { return r.data, nil }
+func (r *rawEvent) Type() events.EventType                { return "raw" }
+func (r *rawEvent) Timestamp() *int64                     { return nil }
+func (r *rawEvent) SetTimestamp(int64)                    {}
+func (r *rawEvent) Validate() error                       { return nil }
+func (r *rawEvent) ToJSON() ([]byte, error)               { return r.data, nil }
 func (r *rawEvent) ToProtobuf() (*generated.Event, error) { return nil, nil }
-func (r *rawEvent) GetBaseEvent() *events.BaseEvent { return nil }
-func (r *rawEvent) ThreadID() string                { return "" }
-func (r *rawEvent) RunID() string                   { return "" }
-
+func (r *rawEvent) GetBaseEvent() *events.BaseEvent       { return nil }
+func (r *rawEvent) ThreadID() string                      { return "" }
+func (r *rawEvent) RunID() string                         { return "" }

@@ -62,7 +62,7 @@ func CreateConnectionEvent(id string, status string, options ...interface{}) Typ
 	data := ConnectionEventData{
 		Status: status,
 	}
-	
+
 	// Apply options - support both ConnectionEventOption and builder functions
 	for _, opt := range options {
 		switch v := opt.(type) {
@@ -72,7 +72,7 @@ func CreateConnectionEvent(id string, status string, options ...interface{}) Typ
 			v(&data)
 		}
 	}
-	
+
 	return NewTypedEvent(id, "connection", data)
 }
 
@@ -128,7 +128,7 @@ func CreateDataEvent(id string, content []byte, options ...interface{}) TypedTra
 		Content: content,
 		Size:    int64(len(content)),
 	}
-	
+
 	// Apply options - support both DataEventOption and builder functions
 	for _, opt := range options {
 		switch v := opt.(type) {
@@ -138,7 +138,7 @@ func CreateDataEvent(id string, content []byte, options ...interface{}) TypedTra
 			v(&data)
 		}
 	}
-	
+
 	return NewTypedEvent(id, "data", data)
 }
 
@@ -200,7 +200,7 @@ func CreateErrorEvent(id string, message string, options ...interface{}) TypedTr
 	data := ErrorEventData{
 		Message: message,
 	}
-	
+
 	// Apply options - support both ErrorEventOption and builder functions
 	for _, opt := range options {
 		switch v := opt.(type) {
@@ -210,7 +210,7 @@ func CreateErrorEvent(id string, message string, options ...interface{}) TypedTr
 			v(&data)
 		}
 	}
-	
+
 	return NewTypedEvent(id, "error", data)
 }
 
@@ -265,12 +265,12 @@ func CreateStreamEvent(id string, streamID string, action string, options ...Str
 		StreamID: streamID,
 		Action:   action,
 	}
-	
+
 	// Apply all options
 	for _, opt := range options {
 		opt(&data)
 	}
-	
+
 	return NewTypedEvent(id, "stream", data)
 }
 
@@ -318,12 +318,12 @@ func CreateMetricsEvent(id string, metricName string, value float64, options ...
 		MetricName: metricName,
 		Value:      value,
 	}
-	
+
 	// Apply all options
 	for _, opt := range options {
 		opt(&data)
 	}
-	
+
 	return NewTypedEvent(id, "metrics", data)
 }
 
@@ -346,12 +346,12 @@ func TryGetTypedEvent[T EventData](event TransportEvent) TypedTransportEvent[T] 
 			}
 		}
 	}
-	
+
 	// Check if it's already a typed event
 	if te, ok := event.(TypedTransportEvent[T]); ok {
 		return te
 	}
-	
+
 	return nil
 }
 
@@ -362,11 +362,11 @@ func CreateDataEventWithBuilder(id string, content []byte, builder func(*DataEve
 		Content: content,
 		Size:    int64(len(content)),
 	}
-	
+
 	if builder != nil {
 		builder(&data)
 	}
-	
+
 	return NewTypedEvent(id, "data", data)
 }
 
@@ -376,10 +376,10 @@ func CreateConnectionEventWithBuilder(id string, status string, builder func(*Co
 	data := ConnectionEventData{
 		Status: status,
 	}
-	
+
 	if builder != nil {
 		builder(&data)
 	}
-	
+
 	return NewTypedEvent(id, "connection", data)
 }

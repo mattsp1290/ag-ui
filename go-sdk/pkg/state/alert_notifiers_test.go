@@ -254,7 +254,7 @@ func createTestWebhookNotifier(url string, timeout time.Duration) *WebhookAlertN
 		},
 		DisableKeepAlives: true,
 	}
-	
+
 	return &WebhookAlertNotifier{
 		url:     url,
 		method:  http.MethodPost,
@@ -860,7 +860,7 @@ func TestConcurrentNotifierUsage(t *testing.T) {
 	}
 
 	// Test concurrent sending
-	const numGoroutines = 10  // Reduced from 100 to prevent resource exhaustion
+	const numGoroutines = 10 // Reduced from 100 to prevent resource exhaustion
 	var wg sync.WaitGroup
 	errChan := make(chan error, numGoroutines)
 

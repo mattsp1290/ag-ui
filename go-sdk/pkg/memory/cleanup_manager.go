@@ -11,34 +11,34 @@ import (
 
 // CleanupManager handles periodic cleanup of growing maps and resources
 type CleanupManager struct {
-	mu            sync.RWMutex
-	logger        *zap.Logger
-	
+	mu     sync.RWMutex
+	logger *zap.Logger
+
 	// Cleanup tasks
-	tasks         map[string]*CleanupTask
-	tasksMutex    sync.RWMutex
-	
+	tasks      map[string]*CleanupTask
+	tasksMutex sync.RWMutex
+
 	// Configuration
 	defaultTTL    time.Duration
 	checkInterval time.Duration
-	
+
 	// Lifecycle
-	ctx           context.Context
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup
-	running       atomic.Bool
-	
+	ctx     context.Context
+	cancel  context.CancelFunc
+	wg      sync.WaitGroup
+	running atomic.Bool
+
 	// Metrics
-	metrics       *CleanupMetrics
+	metrics *CleanupMetrics
 }
 
 // CleanupTask represents a cleanup task
 type CleanupTask struct {
-	Name          string
-	TTL           time.Duration
-	LastCleanup   time.Time
-	CleanupFunc   func() (itemsCleaned int, err error)
-	
+	Name        string
+	TTL         time.Duration
+	LastCleanup time.Time
+	CleanupFunc func() (itemsCleaned int, err error)
+
 	// Statistics
 	TotalRuns     atomic.Uint64
 	TotalCleaned  atomic.Uint64
@@ -50,24 +50,24 @@ type CleanupTask struct {
 
 // CleanupMetrics tracks cleanup statistics
 type CleanupMetrics struct {
-	mu                sync.RWMutex
-	TotalTasks        int
-	ActiveTasks       int
-	TotalRuns         uint64
-	TotalItemsCleaned uint64
-	TotalErrors       uint64
-	LastCleanupTime   time.Time
+	mu                     sync.RWMutex
+	TotalTasks             int
+	ActiveTasks            int
+	TotalRuns              uint64
+	TotalItemsCleaned      uint64
+	TotalErrors            uint64
+	LastCleanupTime        time.Time
 	AverageCleanupDuration time.Duration
-	TaskMetrics       map[string]*TaskMetrics
+	TaskMetrics            map[string]*TaskMetrics
 }
 
 // TaskMetrics tracks per-task metrics
 type TaskMetrics struct {
-	Runs          uint64
-	ItemsCleaned  uint64
-	Errors        uint64
-	LastRun       time.Time
-	LastDuration  time.Duration
+	Runs            uint64
+	ItemsCleaned    uint64
+	Errors          uint64
+	LastRun         time.Time
+	LastDuration    time.Duration
 	AverageDuration time.Duration
 }
 
@@ -229,7 +229,7 @@ type CleanupMetricsData struct {
 func (cm *CleanupManager) GetMetrics() CleanupMetricsData {
 	cm.metrics.mu.RLock()
 	defer cm.metrics.mu.RUnlock()
-	
+
 	// Deep copy metrics
 	metrics := CleanupMetricsData{
 		TotalTasks:             cm.metrics.TotalTasks,
@@ -424,7 +424,7 @@ func CreateMapCleanupFunc[K comparable, V any](
 	return func() (int, error) {
 		cleaned := 0
 		now := time.Now()
-		
+
 		m.Range(func(key, value interface{}) bool {
 			if v, ok := value.(V); ok {
 				if now.Sub(getTimestamp(v)) > ttl {
@@ -434,7 +434,7 @@ func CreateMapCleanupFunc[K comparable, V any](
 			}
 			return true
 		})
-		
+
 		return cleaned, nil
 	}
 }
@@ -448,10 +448,10 @@ func CreateSliceCleanupFunc[T any](
 	return func() (int, error) {
 		mu.Lock()
 		defer mu.Unlock()
-		
+
 		cleaned := 0
 		newSlice := make([]T, 0, len(*slice))
-		
+
 		for _, item := range *slice {
 			if !isExpired(item) {
 				newSlice = append(newSlice, item)
@@ -459,7 +459,7 @@ func CreateSliceCleanupFunc[T any](
 				cleaned++
 			}
 		}
-		
+
 		*slice = newSlice
 		return cleaned, nil
 	}

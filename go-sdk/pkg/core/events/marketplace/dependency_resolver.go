@@ -9,18 +9,18 @@ import (
 
 // DependencyResolver handles package dependency resolution and management
 type DependencyResolver struct {
-	installed    map[string]*InstalledPackage // packageID -> installed package
-	graph        *DependencyGraph
-	constraints  map[string]*DependencyConstraint
-	cache        map[string]*ResolutionResult
-	mu           sync.RWMutex
+	installed   map[string]*InstalledPackage // packageID -> installed package
+	graph       *DependencyGraph
+	constraints map[string]*DependencyConstraint
+	cache       map[string]*ResolutionResult
+	mu          sync.RWMutex
 }
 
 // InstalledPackage represents an installed package
 type InstalledPackage struct {
-	Package     *RulePackage
-	Version     string
-	InstallPath string
+	Package      *RulePackage
+	Version      string
+	InstallPath  string
 	Dependencies map[string]string // dependencyID -> version
 	Dependents   map[string]string // dependentID -> version
 	InstallTime  int64
@@ -34,22 +34,22 @@ type DependencyGraph struct {
 
 // DependencyNode represents a node in the dependency graph
 type DependencyNode struct {
-	PackageID   string
-	Version     string
-	Package     *RulePackage
-	Level       int
-	Visited     bool
-	InProgress  bool
-	Conflicts   []*DependencyConflict
+	PackageID  string
+	Version    string
+	Package    *RulePackage
+	Level      int
+	Visited    bool
+	InProgress bool
+	Conflicts  []*DependencyConflict
 }
 
 // DependencyEdge represents an edge in the dependency graph
 type DependencyEdge struct {
-	From         string
-	To           string
-	Constraint   string
-	Required     bool
-	Type         DependencyType
+	From       string
+	To         string
+	Constraint string
+	Required   bool
+	Type       DependencyType
 }
 
 // DependencyType defines the type of dependency
@@ -76,20 +76,20 @@ type DependencyConstraint struct {
 type ConflictStrategy string
 
 const (
-	ConflictStrict    ConflictStrategy = "strict"    // Fail on any conflict
-	ConflictLatest    ConflictStrategy = "latest"    // Use latest compatible version
-	ConflictExplicit  ConflictStrategy = "explicit"  // Require explicit resolution
-	ConflictIgnore    ConflictStrategy = "ignore"    // Ignore conflicts
+	ConflictStrict   ConflictStrategy = "strict"   // Fail on any conflict
+	ConflictLatest   ConflictStrategy = "latest"   // Use latest compatible version
+	ConflictExplicit ConflictStrategy = "explicit" // Require explicit resolution
+	ConflictIgnore   ConflictStrategy = "ignore"   // Ignore conflicts
 )
 
 // DependencyConflict represents a dependency conflict
 type DependencyConflict struct {
-	PackageID     string
-	RequestedBy   []string
-	Versions      []string
-	Type          ConflictType
-	Severity      ConflictSeverity
-	Resolution    *ConflictResolution
+	PackageID   string
+	RequestedBy []string
+	Versions    []string
+	Type        ConflictType
+	Severity    ConflictSeverity
+	Resolution  *ConflictResolution
 }
 
 // ConflictType defines the type of conflict
@@ -114,10 +114,10 @@ const (
 
 // ConflictResolution represents a conflict resolution
 type ConflictResolution struct {
-	Strategy    ConflictStrategy
+	Strategy      ConflictStrategy
 	ChosenVersion string
-	Reason      string
-	Manual      bool
+	Reason        string
+	Manual        bool
 }
 
 // ResolutionResult represents the result of dependency resolution
@@ -131,13 +131,13 @@ type ResolutionResult struct {
 
 // ResolvedDependency represents a resolved dependency
 type ResolvedDependency struct {
-	ID           string
-	Version      string
-	Package      *RulePackage
-	Type         DependencyType
-	Required     bool
-	Source       string
-	Children     []*ResolvedDependency
+	ID       string
+	Version  string
+	Package  *RulePackage
+	Type     DependencyType
+	Required bool
+	Source   string
+	Children []*ResolvedDependency
 }
 
 // NewDependencyResolver creates a new dependency resolver
@@ -371,7 +371,7 @@ func (dr *DependencyResolver) UnmarkInstalled(packageID string) error {
 func (dr *DependencyResolver) GetInstallOrder(packages []*RulePackage) ([]string, error) {
 	// Build temporary graph for these packages
 	tempGraph := NewDependencyGraph()
-	
+
 	for _, pkg := range packages {
 		nodeKey := fmt.Sprintf("%s@%s", pkg.ID, pkg.Version)
 		tempGraph.Nodes[nodeKey] = &DependencyNode{
@@ -383,8 +383,8 @@ func (dr *DependencyResolver) GetInstallOrder(packages []*RulePackage) ([]string
 		for _, dep := range pkg.Dependencies {
 			depKey := fmt.Sprintf("%s@%s", dep.ID, dep.Version)
 			tempGraph.Edges[nodeKey] = append(tempGraph.Edges[nodeKey], &DependencyEdge{
-				From: nodeKey,
-				To:   depKey,
+				From:     nodeKey,
+				To:       depKey,
 				Required: dep.Required,
 			})
 		}
@@ -396,18 +396,18 @@ func (dr *DependencyResolver) GetInstallOrder(packages []*RulePackage) ([]string
 // detectConflicts detects dependency conflicts in the current graph
 func (dr *DependencyResolver) detectConflicts() []*DependencyConflict {
 	var conflicts []*DependencyConflict
-	
+
 	// Group nodes by package ID
 	packageVersions := make(map[string][]string)
 	packageRequesters := make(map[string]map[string][]string)
-	
+
 	for nodeKey, node := range dr.graph.Nodes {
 		packageVersions[node.PackageID] = append(packageVersions[node.PackageID], node.Version)
-		
+
 		if packageRequesters[node.PackageID] == nil {
 			packageRequesters[node.PackageID] = make(map[string][]string)
 		}
-		
+
 		// Find who requested this version
 		for fromKey, edges := range dr.graph.Edges {
 			for _, edge := range edges {
@@ -421,7 +421,7 @@ func (dr *DependencyResolver) detectConflicts() []*DependencyConflict {
 			}
 		}
 	}
-	
+
 	// Check for version conflicts
 	for packageID, versions := range packageVersions {
 		if len(versions) > 1 {
@@ -434,7 +434,7 @@ func (dr *DependencyResolver) detectConflicts() []*DependencyConflict {
 						requestedBy = append(requestedBy, requesters...)
 					}
 				}
-				
+
 				conflicts = append(conflicts, &DependencyConflict{
 					PackageID:   packageID,
 					RequestedBy: dr.removeDuplicates(requestedBy),
@@ -445,7 +445,7 @@ func (dr *DependencyResolver) detectConflicts() []*DependencyConflict {
 			}
 		}
 	}
-	
+
 	return conflicts
 }
 
@@ -457,12 +457,12 @@ func (dr *DependencyResolver) resolveConflicts(conflicts []*DependencyConflict) 
 		if constraint != nil {
 			strategy = constraint.ConflictStrategy
 		}
-		
+
 		switch strategy {
 		case ConflictStrict:
-			return fmt.Errorf("conflict detected for package %s: multiple versions requested %v", 
+			return fmt.Errorf("conflict detected for package %s: multiple versions requested %v",
 				conflict.PackageID, conflict.Versions)
-			
+
 		case ConflictLatest:
 			// Choose the latest version
 			latestVersion := dr.findLatestVersion(conflict.Versions)
@@ -471,10 +471,10 @@ func (dr *DependencyResolver) resolveConflicts(conflicts []*DependencyConflict) 
 				ChosenVersion: latestVersion,
 				Reason:        "Chose latest compatible version",
 			}
-			
+
 		case ConflictExplicit:
 			return fmt.Errorf("explicit conflict resolution required for package %s", conflict.PackageID)
-			
+
 		case ConflictIgnore:
 			// Use the first version encountered
 			conflict.Resolution = &ConflictResolution{
@@ -484,7 +484,7 @@ func (dr *DependencyResolver) resolveConflicts(conflicts []*DependencyConflict) 
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -497,19 +497,19 @@ func (dr *DependencyResolver) generateInstallOrder() ([]string, error) {
 func (dr *DependencyResolver) topologicalSort(graph *DependencyGraph) ([]string, error) {
 	// Kahn's algorithm for topological sorting
 	inDegree := make(map[string]int)
-	
+
 	// Initialize in-degree count
 	for nodeKey := range graph.Nodes {
 		inDegree[nodeKey] = 0
 	}
-	
+
 	// Calculate in-degree for each node
 	for _, edges := range graph.Edges {
 		for _, edge := range edges {
 			inDegree[edge.To]++
 		}
 	}
-	
+
 	// Find nodes with no incoming edges
 	queue := make([]string, 0)
 	for nodeKey, degree := range inDegree {
@@ -517,15 +517,15 @@ func (dr *DependencyResolver) topologicalSort(graph *DependencyGraph) ([]string,
 			queue = append(queue, nodeKey)
 		}
 	}
-	
+
 	var result []string
-	
+
 	for len(queue) > 0 {
 		// Remove node from queue
 		current := queue[0]
 		queue = queue[1:]
 		result = append(result, current)
-		
+
 		// For each neighbor of current node
 		if edges, exists := graph.Edges[current]; exists {
 			for _, edge := range edges {
@@ -536,12 +536,12 @@ func (dr *DependencyResolver) topologicalSort(graph *DependencyGraph) ([]string,
 			}
 		}
 	}
-	
+
 	// Check for cycles
 	if len(result) != len(graph.Nodes) {
 		return nil, fmt.Errorf("circular dependency detected")
 	}
-	
+
 	return result, nil
 }
 
@@ -563,7 +563,7 @@ func (dr *DependencyResolver) validateVersionConstraint(constraint string) error
 	if constraint == "" {
 		return fmt.Errorf("version constraint cannot be empty")
 	}
-	
+
 	// Add more validation logic here
 	return nil
 }
@@ -571,14 +571,14 @@ func (dr *DependencyResolver) validateVersionConstraint(constraint string) error
 func (dr *DependencyResolver) removeDuplicates(slice []string) []string {
 	seen := make(map[string]bool)
 	var result []string
-	
+
 	for _, item := range slice {
 		if !seen[item] {
 			seen[item] = true
 			result = append(result, item)
 		}
 	}
-	
+
 	return result
 }
 
@@ -586,7 +586,7 @@ func (dr *DependencyResolver) findLatestVersion(versions []string) string {
 	if len(versions) == 0 {
 		return ""
 	}
-	
+
 	// Sort versions and return the latest
 	sort.Strings(versions)
 	return versions[len(versions)-1]
@@ -596,7 +596,7 @@ func (dr *DependencyResolver) findLatestVersion(versions []string) string {
 func (dr *DependencyResolver) SetConstraint(constraint *DependencyConstraint) {
 	dr.mu.Lock()
 	defer dr.mu.Unlock()
-	
+
 	dr.constraints[constraint.PackageID] = constraint
 }
 
@@ -604,13 +604,13 @@ func (dr *DependencyResolver) SetConstraint(constraint *DependencyConstraint) {
 func (dr *DependencyResolver) GetInstalledPackages() map[string]*InstalledPackage {
 	dr.mu.RLock()
 	defer dr.mu.RUnlock()
-	
+
 	// Return a copy to avoid races
 	result := make(map[string]*InstalledPackage)
 	for k, v := range dr.installed {
 		result[k] = v
 	}
-	
+
 	return result
 }
 
@@ -618,6 +618,6 @@ func (dr *DependencyResolver) GetInstalledPackages() map[string]*InstalledPackag
 func (dr *DependencyResolver) ClearCache() {
 	dr.mu.Lock()
 	defer dr.mu.Unlock()
-	
+
 	dr.cache = make(map[string]*ResolutionResult)
 }

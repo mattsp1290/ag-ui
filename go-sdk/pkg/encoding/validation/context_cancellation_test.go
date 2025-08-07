@@ -4,6 +4,7 @@ import (
 	"context"
 	encoding_json "encoding/json"
 	"io"
+	"strings"
 	"testing"
 	"time"
 
@@ -84,7 +85,12 @@ func TestContextCancellationRoundTripValidator(t *testing.T) {
 
 		err := validator.ValidateRoundTripMultiple(ctx, eventSlice)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "round-trip multiple validation cancelled")
+		// The error could be either a validation cancellation or encoding cancellation
+		errorMsg := err.Error()
+		isContextCancelled := strings.Contains(errorMsg, "round-trip multiple validation cancelled") ||
+			strings.Contains(errorMsg, "context cancelled") ||
+			strings.Contains(errorMsg, "context deadline exceeded")
+		assert.True(t, isContextCancelled, "Error should indicate context cancellation, but got: %s", errorMsg)
 	})
 }
 
@@ -148,7 +154,7 @@ func TestContextCancellationStreamManager(t *testing.T) {
 	// Create streaming versions
 	streamEncoder := json.NewStreamingJSONEncoder(nil)
 	streamDecoder := json.NewStreamingJSONDecoder(nil)
-	
+
 	config := streaming.DefaultStreamConfig()
 	streamManager := streaming.NewStreamManager(streamEncoder, streamDecoder, config)
 
@@ -158,7 +164,7 @@ func TestContextCancellationStreamManager(t *testing.T) {
 
 	t.Run("WriteStream", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
-		
+
 		input := make(chan events.Event)
 		output := &mockWriter{}
 
@@ -170,10 +176,10 @@ func TestContextCancellationStreamManager(t *testing.T) {
 
 		// Send one event to ensure WriteStream is active
 		input <- events.NewTextMessageStartEvent("msg-1")
-		
+
 		// Give it a moment to process
 		time.Sleep(10 * time.Millisecond)
-		
+
 		// Cancel the context
 		cancel()
 
@@ -185,7 +191,7 @@ func TestContextCancellationStreamManager(t *testing.T) {
 		case <-time.After(100 * time.Millisecond):
 			t.Fatal("WriteStream did not return within expected time after context cancellation")
 		}
-		
+
 		close(input)
 	})
 }
@@ -215,7 +221,7 @@ func TestContextCancellationSecurityValidator(t *testing.T) {
 		defer cancel()
 
 		event := events.NewTextMessageStartEvent("msg-1")
-		
+
 		// This should work normally
 		err := validator.ValidateEvent(ctx, event)
 		assert.NoError(t, err)
@@ -264,7 +270,7 @@ func TestContextCancellationUnifiedStreaming(t *testing.T) {
 func TestPartialOperationHandling(t *testing.T) {
 	t.Run("EncodingPartialResults", func(t *testing.T) {
 		encoder := json.NewJSONEncoder(nil)
-		
+
 		// Create context that will timeout after some events are processed
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Millisecond)
 		defer cancel()
@@ -336,8 +342,8 @@ func (m *mockStreamCodec) DecodeMultiple(ctx context.Context, data []byte) ([]ev
 	return []events.Event{events.NewTextMessageStartEvent("msg-1")}, nil
 }
 
-func (m *mockStreamCodec) ContentType() string { return "application/json" }
-func (m *mockStreamCodec) CanStream() bool     { return true }
+func (m *mockStreamCodec) ContentType() string     { return "application/json" }
+func (m *mockStreamCodec) CanStream() bool         { return true }
 func (m *mockStreamCodec) SupportsStreaming() bool { return true }
 
 func (m *mockStreamCodec) GetStreamEncoder() encoding.StreamEncoder { return &mockStreamEncoder{} }
@@ -349,10 +355,10 @@ func (m *mockStreamCodec) EncodeStream(ctx context.Context, input <-chan events.
 func (m *mockStreamCodec) DecodeStream(ctx context.Context, input io.Reader, output chan<- events.Event) error {
 	return nil
 }
-func (m *mockStreamCodec) StartEncoding(ctx context.Context, w io.Writer) error  { return nil }
+func (m *mockStreamCodec) StartEncoding(ctx context.Context, w io.Writer) error     { return nil }
 func (m *mockStreamCodec) WriteEvent(ctx context.Context, event events.Event) error { return nil }
-func (m *mockStreamCodec) EndEncoding(ctx context.Context) error           { return nil }
-func (m *mockStreamCodec) StartDecoding(ctx context.Context, r io.Reader) error  { return nil }
+func (m *mockStreamCodec) EndEncoding(ctx context.Context) error                    { return nil }
+func (m *mockStreamCodec) StartDecoding(ctx context.Context, r io.Reader) error     { return nil }
 func (m *mockStreamCodec) ReadEvent(ctx context.Context) (events.Event, error) {
 	return events.NewTextMessageStartEvent("msg-1"), nil
 }
@@ -366,15 +372,15 @@ func (m *mockStreamEncoder) Encode(ctx context.Context, event events.Event) ([]b
 func (m *mockStreamEncoder) EncodeMultiple(ctx context.Context, events []events.Event) ([]byte, error) {
 	return []byte(`[{"type":"test"}]`), nil
 }
-func (m *mockStreamEncoder) ContentType() string        { return "application/json" }
-func (m *mockStreamEncoder) CanStream() bool            { return true }
-func (m *mockStreamEncoder) SupportsStreaming() bool    { return true }
+func (m *mockStreamEncoder) ContentType() string     { return "application/json" }
+func (m *mockStreamEncoder) CanStream() bool         { return true }
+func (m *mockStreamEncoder) SupportsStreaming() bool { return true }
 func (m *mockStreamEncoder) EncodeStream(ctx context.Context, input <-chan events.Event, output io.Writer) error {
 	return nil
 }
-func (m *mockStreamEncoder) StartStream(ctx context.Context, w io.Writer) error { return nil }
+func (m *mockStreamEncoder) StartStream(ctx context.Context, w io.Writer) error       { return nil }
 func (m *mockStreamEncoder) WriteEvent(ctx context.Context, event events.Event) error { return nil }
-func (m *mockStreamEncoder) EndStream(ctx context.Context) error { return nil }
+func (m *mockStreamEncoder) EndStream(ctx context.Context) error                      { return nil }
 
 type mockStreamDecoder struct{}
 
@@ -400,14 +406,14 @@ func (m *mockStreamDecoder) EndStream(ctx context.Context) error { return nil }
 func createLargeNestedJSON(t *testing.T, depth int) []byte {
 	data := make(map[string]interface{})
 	current := data
-	
+
 	for i := 0; i < depth; i++ {
 		next := make(map[string]interface{})
 		current["nested"] = next
 		current["value"] = "test data with some content to make it larger"
 		current = next
 	}
-	
+
 	result, err := encoding_json.Marshal(data)
 	require.NoError(t, err)
 	return result

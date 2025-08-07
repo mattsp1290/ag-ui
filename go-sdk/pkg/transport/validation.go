@@ -14,10 +14,10 @@ import (
 type Validator interface {
 	// Validate validates a transport event
 	Validate(ctx context.Context, event TransportEvent) error
-	
+
 	// ValidateIncoming validates an incoming event
 	ValidateIncoming(ctx context.Context, event TransportEvent) error
-	
+
 	// ValidateOutgoing validates an outgoing event
 	ValidateOutgoing(ctx context.Context, event TransportEvent) error
 }
@@ -26,13 +26,13 @@ type Validator interface {
 type ValidationRule interface {
 	// Name returns the name of the validation rule
 	Name() string
-	
+
 	// Validate validates the event against this rule
 	Validate(ctx context.Context, event TransportEvent) error
-	
+
 	// IsEnabled returns whether this rule is enabled
 	IsEnabled() bool
-	
+
 	// Priority returns the priority of this rule (higher = earlier execution)
 	Priority() int
 }
@@ -41,58 +41,58 @@ type ValidationRule interface {
 type ValidationConfig struct {
 	// Enabled controls whether validation is enabled
 	Enabled bool
-	
+
 	// MaxMessageSize is the maximum allowed message size in bytes
 	MaxMessageSize int64
-	
+
 	// RequiredFields lists fields that must be present in event data
 	RequiredFields []string
-	
+
 	// AllowedEventTypes lists allowed event types (empty = all allowed)
 	AllowedEventTypes []string
-	
+
 	// DeniedEventTypes lists denied event types
 	DeniedEventTypes []string
-	
+
 	// MaxDataDepth is the maximum nesting depth for event data
 	MaxDataDepth int
-	
+
 	// MaxArraySize is the maximum size for arrays in event data
 	MaxArraySize int
-	
+
 	// MaxStringLength is the maximum length for string values
 	MaxStringLength int
-	
+
 	// AllowedDataTypes lists allowed data types for event data values
 	AllowedDataTypes []string
-	
+
 	// CustomValidators are custom validation functions
 	CustomValidators []ValidationRule
-	
+
 	// FieldValidators are field-specific validation rules
 	FieldValidators map[string][]ValidationRule
-	
+
 	// PatternValidators are regex-based validation rules
 	PatternValidators map[string]*regexp.Regexp
-	
+
 	// SkipValidationOnIncoming skips validation for incoming events
 	SkipValidationOnIncoming bool
-	
+
 	// SkipValidationOnOutgoing skips validation for outgoing events
 	SkipValidationOnOutgoing bool
-	
+
 	// FailFast stops validation on first error
 	FailFast bool
-	
+
 	// CollectAllErrors collects all validation errors
 	CollectAllErrors bool
-	
+
 	// ValidateTimestamps enables timestamp validation
 	ValidateTimestamps bool
-	
+
 	// StrictMode enables strict validation mode
 	StrictMode bool
-	
+
 	// MaxEventSize is the maximum size of an event in bytes
 	MaxEventSize int
 }
@@ -100,18 +100,18 @@ type ValidationConfig struct {
 // DefaultValidationConfig returns a default validation configuration
 func DefaultValidationConfig() *ValidationConfig {
 	return &ValidationConfig{
-		Enabled:           true,
-		MaxMessageSize:    1024 * 1024, // 1MB
-		RequiredFields:    []string{"id", "type", "timestamp"},
-		AllowedEventTypes: []string{},
-		DeniedEventTypes:  []string{},
-		MaxDataDepth:      10,
-		MaxArraySize:      1000,
-		MaxStringLength:   10000,
-		AllowedDataTypes:  []string{"string", "number", "boolean", "object", "array", "null"},
-		CustomValidators:  []ValidationRule{},
-		FieldValidators:   make(map[string][]ValidationRule),
-		PatternValidators: make(map[string]*regexp.Regexp),
+		Enabled:                  true,
+		MaxMessageSize:           1024 * 1024, // 1MB
+		RequiredFields:           []string{"id", "type", "timestamp"},
+		AllowedEventTypes:        []string{},
+		DeniedEventTypes:         []string{},
+		MaxDataDepth:             10,
+		MaxArraySize:             1000,
+		MaxStringLength:          10000,
+		AllowedDataTypes:         []string{"string", "number", "boolean", "object", "array", "null"},
+		CustomValidators:         []ValidationRule{},
+		FieldValidators:          make(map[string][]ValidationRule),
+		PatternValidators:        make(map[string]*regexp.Regexp),
 		SkipValidationOnIncoming: false,
 		SkipValidationOnOutgoing: false,
 		FailFast:                 false,
@@ -133,18 +133,18 @@ func NewValidator(config *ValidationConfig) *DefaultValidator {
 	if config == nil {
 		config = DefaultValidationConfig()
 	}
-	
+
 	validator := &DefaultValidator{
 		config: config,
 		rules:  make([]ValidationRule, 0),
 	}
-	
+
 	// Add built-in validation rules
 	validator.addBuiltinRules()
-	
+
 	// Add custom validation rules
 	validator.rules = append(validator.rules, config.CustomValidators...)
-	
+
 	return validator
 }
 
@@ -153,14 +153,14 @@ func (v *DefaultValidator) Validate(ctx context.Context, event TransportEvent) e
 	if !v.config.Enabled {
 		return nil
 	}
-	
+
 	var errors []error
-	
+
 	for _, rule := range v.rules {
 		if !rule.IsEnabled() {
 			continue
 		}
-		
+
 		if err := rule.Validate(ctx, event); err != nil {
 			if v.config.FailFast {
 				return err
@@ -173,11 +173,11 @@ func (v *DefaultValidator) Validate(ctx context.Context, event TransportEvent) e
 			}
 		}
 	}
-	
+
 	if len(errors) > 0 {
 		return NewValidationError("validation failed", errors)
 	}
-	
+
 	return nil
 }
 
@@ -204,20 +204,20 @@ func (v *DefaultValidator) addBuiltinRules() {
 		maxSize: v.config.MaxMessageSize,
 		enabled: v.config.MaxMessageSize > 0,
 	})
-	
+
 	// Add required fields validation
 	v.rules = append(v.rules, &RequiredFieldsRule{
 		requiredFields: v.config.RequiredFields,
 		enabled:        len(v.config.RequiredFields) > 0,
 	})
-	
+
 	// Add event type validation
 	v.rules = append(v.rules, &EventTypeRule{
 		allowedTypes: v.config.AllowedEventTypes,
 		deniedTypes:  v.config.DeniedEventTypes,
 		enabled:      len(v.config.AllowedEventTypes) > 0 || len(v.config.DeniedEventTypes) > 0,
 	})
-	
+
 	// Add data format validation
 	v.rules = append(v.rules, &DataFormatRule{
 		maxDepth:         v.config.MaxDataDepth,
@@ -226,7 +226,7 @@ func (v *DefaultValidator) addBuiltinRules() {
 		allowedDataTypes: v.config.AllowedDataTypes,
 		enabled:          true,
 	})
-	
+
 	// Add field-specific validators
 	for field, validators := range v.config.FieldValidators {
 		v.rules = append(v.rules, &FieldValidatorRule{
@@ -235,7 +235,7 @@ func (v *DefaultValidator) addBuiltinRules() {
 			enabled:    len(validators) > 0,
 		})
 	}
-	
+
 	// Add pattern validators
 	for field, pattern := range v.config.PatternValidators {
 		v.rules = append(v.rules, &PatternValidatorRule{
@@ -260,18 +260,18 @@ func (r *MessageSizeRule) Validate(ctx context.Context, event TransportEvent) er
 	if !r.enabled {
 		return nil
 	}
-	
+
 	// Calculate message size by serializing the event data
 	data, err := json.Marshal(event.Data())
 	if err != nil {
 		return NewValidationError("failed to serialize event data for size validation", []error{err})
 	}
-	
+
 	size := int64(len(data))
 	if size > r.maxSize {
 		return ErrInvalidMessageSize
 	}
-	
+
 	return nil
 }
 
@@ -297,20 +297,20 @@ func (r *RequiredFieldsRule) Validate(ctx context.Context, event TransportEvent)
 	if !r.enabled {
 		return nil
 	}
-	
+
 	data := event.Data()
 	var missingFields []string
-	
+
 	for _, field := range r.requiredFields {
 		if _, exists := data[field]; !exists {
 			missingFields = append(missingFields, field)
 		}
 	}
-	
+
 	if len(missingFields) > 0 {
 		return ErrMissingRequiredFields
 	}
-	
+
 	return nil
 }
 
@@ -337,16 +337,16 @@ func (r *EventTypeRule) Validate(ctx context.Context, event TransportEvent) erro
 	if !r.enabled {
 		return nil
 	}
-	
+
 	eventType := event.Type()
-	
+
 	// Check denied types first
 	for _, deniedType := range r.deniedTypes {
 		if eventType == deniedType {
 			return ErrInvalidEventType
 		}
 	}
-	
+
 	// Check allowed types if specified
 	if len(r.allowedTypes) > 0 {
 		for _, allowedType := range r.allowedTypes {
@@ -356,7 +356,7 @@ func (r *EventTypeRule) Validate(ctx context.Context, event TransportEvent) erro
 		}
 		return ErrInvalidEventType
 	}
-	
+
 	return nil
 }
 
@@ -385,7 +385,7 @@ func (r *DataFormatRule) Validate(ctx context.Context, event TransportEvent) err
 	if !r.enabled {
 		return nil
 	}
-	
+
 	data := event.Data()
 	return r.validateValue(data, 0)
 }
@@ -394,7 +394,7 @@ func (r *DataFormatRule) validateValue(value interface{}, depth int) error {
 	if depth > r.maxDepth {
 		return NewValidationError(fmt.Sprintf("data depth %d exceeds maximum allowed depth %d", depth, r.maxDepth), nil)
 	}
-	
+
 	switch v := value.(type) {
 	case string:
 		if len(v) > r.maxStringLength {
@@ -455,7 +455,7 @@ func (r *DataFormatRule) validateValue(value interface{}, depth int) error {
 			return NewValidationError("converted string data type is not allowed", nil)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -494,13 +494,13 @@ func (r *FieldValidatorRule) Validate(ctx context.Context, event TransportEvent)
 	if !r.enabled {
 		return nil
 	}
-	
+
 	data := event.Data()
 	value, exists := data[r.field]
 	if !exists {
 		return nil // Field is optional, let RequiredFieldsRule handle required fields
 	}
-	
+
 	// Create a temporary event with just this field for validation
 	fieldEvent := &simpleEvent{
 		id:        event.ID(),
@@ -508,18 +508,18 @@ func (r *FieldValidatorRule) Validate(ctx context.Context, event TransportEvent)
 		timestamp: event.Timestamp(),
 		data:      map[string]interface{}{r.field: value},
 	}
-	
+
 	var errors []error
 	for _, validator := range r.validators {
 		if err := validator.Validate(ctx, fieldEvent); err != nil {
 			errors = append(errors, err)
 		}
 	}
-	
+
 	if len(errors) > 0 {
 		return NewValidationError(fmt.Sprintf("field '%s' validation failed", r.field), errors)
 	}
-	
+
 	return nil
 }
 
@@ -546,13 +546,13 @@ func (r *PatternValidatorRule) Validate(ctx context.Context, event TransportEven
 	if !r.enabled {
 		return nil
 	}
-	
+
 	data := event.Data()
 	value, exists := data[r.field]
 	if !exists {
 		return nil // Field is optional
 	}
-	
+
 	// Convert value to string for pattern matching
 	var strValue string
 	switch v := value.(type) {
@@ -563,11 +563,11 @@ func (r *PatternValidatorRule) Validate(ctx context.Context, event TransportEven
 	default:
 		strValue = fmt.Sprintf("%v", v)
 	}
-	
+
 	if !r.pattern.MatchString(strValue) {
 		return NewValidationError(fmt.Sprintf("field '%s' value '%s' does not match pattern '%s'", r.field, strValue, r.pattern.String()), nil)
 	}
-	
+
 	return nil
 }
 
@@ -613,12 +613,12 @@ func (e *ValidationError) Error() string {
 	if len(e.errors) == 0 {
 		return e.message
 	}
-	
+
 	var errorMessages []string
 	for _, err := range e.errors {
 		errorMessages = append(errorMessages, err.Error())
 	}
-	
+
 	return fmt.Sprintf("%s: %s", e.message, strings.Join(errorMessages, "; "))
 }
 
@@ -659,11 +659,11 @@ func (e *ValidatedTransportEvent) Data() map[string]interface{} {
 	if data == nil {
 		data = make(map[string]interface{})
 	}
-	
+
 	// Add validation metadata
 	data["_validated_at"] = e.ValidatedAt
 	data["_validator"] = e.Validator
-	
+
 	return data
 }
 

@@ -68,9 +68,9 @@ func TestEventValidator_ConcurrentAccess(t *testing.T) {
 		var wg sync.WaitGroup
 		events := []Event{
 			&RunStartedEvent{
-				BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-				RunIDValue:     "run-1",
-				ThreadIDValue:  "thread-1",
+				BaseEvent:     &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
+				RunIDValue:    "run-1",
+				ThreadIDValue: "thread-1",
 			},
 			&TextMessageStartEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeTextMessageStart, TimestampMs: timePtr(time.Now().UnixMilli())},
@@ -87,8 +87,8 @@ func TestEventValidator_ConcurrentAccess(t *testing.T) {
 				MessageID: "msg-1",
 			},
 			&RunFinishedEvent{
-				BaseEvent: &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli())},
-				RunIDValue:     "run-1",
+				BaseEvent:  &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli())},
+				RunIDValue: "run-1",
 			},
 		}
 
@@ -151,9 +151,9 @@ func TestEventValidator_ConcurrentSequenceValidation(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		sequences[i] = []Event{
 			&RunStartedEvent{
-				BaseEvent: &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
-				RunIDValue:     fmt.Sprintf("run-%d", i),
-				ThreadIDValue:  fmt.Sprintf("thread-%d", i),
+				BaseEvent:     &BaseEvent{EventType: EventTypeRunStarted, TimestampMs: timePtr(time.Now().UnixMilli())},
+				RunIDValue:    fmt.Sprintf("run-%d", i),
+				ThreadIDValue: fmt.Sprintf("thread-%d", i),
 			},
 			&TextMessageStartEvent{
 				BaseEvent: &BaseEvent{EventType: EventTypeTextMessageStart, TimestampMs: timePtr(time.Now().UnixMilli())},
@@ -165,8 +165,8 @@ func TestEventValidator_ConcurrentSequenceValidation(t *testing.T) {
 				MessageID: fmt.Sprintf("msg-%d", i),
 			},
 			&RunFinishedEvent{
-				BaseEvent: &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli())},
-				RunIDValue:     fmt.Sprintf("run-%d", i),
+				BaseEvent:  &BaseEvent{EventType: EventTypeRunFinished, TimestampMs: timePtr(time.Now().UnixMilli())},
+				RunIDValue: fmt.Sprintf("run-%d", i),
 			},
 		}
 	}
@@ -263,9 +263,9 @@ func TestEventSequenceTracker_ConcurrentAccess(t *testing.T) {
 	// Track events concurrently
 	events := []Event{
 		&RunStartedEvent{
-			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-			RunIDValue:     "run-concurrent",
-			ThreadIDValue:  "thread-concurrent",
+			BaseEvent:     &BaseEvent{EventType: EventTypeRunStarted},
+			RunIDValue:    "run-concurrent",
+			ThreadIDValue: "thread-concurrent",
 		},
 		&TextMessageStartEvent{
 			BaseEvent: &BaseEvent{EventType: EventTypeTextMessageStart},
@@ -387,9 +387,9 @@ func TestValidator_RaceConditions(t *testing.T) {
 
 	// Create shared events
 	event1 := &RunStartedEvent{
-		BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-		RunIDValue:     "run-race",
-		ThreadIDValue:  "thread-race",
+		BaseEvent:     &BaseEvent{EventType: EventTypeRunStarted},
+		RunIDValue:    "run-race",
+		ThreadIDValue: "thread-race",
 	}
 
 	event2 := &TextMessageStartEvent{
@@ -451,9 +451,9 @@ func TestValidator_ContextCancellation(t *testing.T) {
 		cancel() // Cancel immediately
 
 		event := &RunStartedEvent{
-			BaseEvent: &BaseEvent{EventType: EventTypeRunStarted},
-			RunIDValue:     "run-1",
-			ThreadIDValue:  "thread-1",
+			BaseEvent:     &BaseEvent{EventType: EventTypeRunStarted},
+			RunIDValue:    "run-1",
+			ThreadIDValue: "thread-1",
 		}
 
 		result := validator.ValidateEvent(ctx, event)

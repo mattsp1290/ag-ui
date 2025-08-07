@@ -20,12 +20,12 @@
 //
 // The transport layer is built around several key interfaces:
 //
-//   1. Transport: Basic transport operations (connect, send, receive, close)
-//   2. StreamingTransport: Real-time bidirectional streaming capabilities
-//   3. ReliableTransport: Guaranteed delivery with acknowledgments and retries
-//   4. TransportManager: Manages multiple transports with load balancing
-//   5. Config: Type-safe configuration with validation
-//   6. Middleware: Interceptors for cross-cutting concerns
+//  1. Transport: Basic transport operations (connect, send, receive, close)
+//  2. StreamingTransport: Real-time bidirectional streaming capabilities
+//  3. ReliableTransport: Guaranteed delivery with acknowledgments and retries
+//  4. TransportManager: Manages multiple transports with load balancing
+//  5. Config: Type-safe configuration with validation
+//  6. Middleware: Interceptors for cross-cutting concerns
 //
 // Basic Capabilities:
 //
@@ -119,7 +119,7 @@
 // Streaming Transport:
 //
 //	streamingTransport := transport.NewGRPCStreamingTransport(config)
-//	
+//
 //	// Start bidirectional streaming
 //	send, receive, errors, err := streamingTransport.StartStreaming(ctx)
 //	if err != nil {
@@ -142,14 +142,14 @@
 // Transport Manager with Load Balancing:
 //
 //	manager := transport.NewTransportManager()
-//	
+//
 //	// Add multiple transports
 //	manager.AddTransport("primary", primaryTransport)
 //	manager.AddTransport("backup", backupTransport)
-//	
+//
 //	// Configure load balancer
 //	manager.SetLoadBalancer(transport.NewFailoverLoadBalancer())
-//	
+//
 //	// Send using best available transport
 //	err = manager.SendEvent(ctx, event)
 //

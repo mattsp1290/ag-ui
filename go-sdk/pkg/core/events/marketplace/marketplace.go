@@ -13,16 +13,16 @@ import (
 // Marketplace manages the validation rule marketplace with rule distribution,
 // community sharing, and validation features
 type Marketplace struct {
-	packages         map[string]*RulePackage
-	versions         *VersionManager
-	dependencies     *DependencyResolver
-	abTesting        *ABTesting
-	sandbox          *Sandbox
-	community        *CommunityManager
-	distribution     *DistributionManager
-	mu               sync.RWMutex
-	config           MarketplaceConfig
-	ruleValidator    RuleValidator
+	packages      map[string]*RulePackage
+	versions      *VersionManager
+	dependencies  *DependencyResolver
+	abTesting     *ABTesting
+	sandbox       *Sandbox
+	community     *CommunityManager
+	distribution  *DistributionManager
+	mu            sync.RWMutex
+	config        MarketplaceConfig
+	ruleValidator RuleValidator
 }
 
 // MarketplaceConfig contains configuration for the marketplace
@@ -82,11 +82,11 @@ const (
 
 // CommunityManager handles community features
 type CommunityManager struct {
-	ratings     map[string]*PackageRating
-	reviews     map[string][]*PackageReview
-	users       map[string]*CommunityUser
-	moderators  map[string]*Moderator
-	mu          sync.RWMutex
+	ratings    map[string]*PackageRating
+	reviews    map[string][]*PackageReview
+	users      map[string]*CommunityUser
+	moderators map[string]*Moderator
+	mu         sync.RWMutex
 }
 
 // PackageRating represents community rating for a package
@@ -111,14 +111,14 @@ type PackageReview struct {
 
 // CommunityUser represents a marketplace user
 type CommunityUser struct {
-	ID           string
-	Username     string
-	Reputation   int
-	Packages     []string
-	Reviews      []string
-	JoinDate     time.Time
-	Verified     bool
-	Moderator    bool
+	ID         string
+	Username   string
+	Reputation int
+	Packages   []string
+	Reviews    []string
+	JoinDate   time.Time
+	Verified   bool
+	Moderator  bool
 }
 
 // Moderator represents a community moderator
@@ -132,9 +132,9 @@ type Moderator struct {
 type ModeratorPermission string
 
 const (
-	PermissionReviewPackages ModeratorPermission = "review_packages"
-	PermissionModerateReviews ModeratorPermission = "moderate_reviews"
-	PermissionBanUsers       ModeratorPermission = "ban_users"
+	PermissionReviewPackages   ModeratorPermission = "review_packages"
+	PermissionModerateReviews  ModeratorPermission = "moderate_reviews"
+	PermissionBanUsers         ModeratorPermission = "ban_users"
 	PermissionFeaturedPackages ModeratorPermission = "featured_packages"
 )
 
@@ -148,33 +148,33 @@ type DistributionManager struct {
 
 // Repository represents a package repository
 type Repository struct {
-	ID          string
-	Name        string
-	URL         string
-	Type        RepositoryType
-	Trusted     bool
-	Packages    map[string]*RulePackage
-	LastSync    time.Time
+	ID       string
+	Name     string
+	URL      string
+	Type     RepositoryType
+	Trusted  bool
+	Packages map[string]*RulePackage
+	LastSync time.Time
 }
 
 // RepositoryType defines the type of repository
 type RepositoryType string
 
 const (
-	RepoTypeOfficial   RepositoryType = "official"
-	RepoTypeCommunity  RepositoryType = "community"
-	RepoTypePrivate    RepositoryType = "private"
-	RepoTypeMirror     RepositoryType = "mirror"
+	RepoTypeOfficial  RepositoryType = "official"
+	RepoTypeCommunity RepositoryType = "community"
+	RepoTypePrivate   RepositoryType = "private"
+	RepoTypeMirror    RepositoryType = "mirror"
 )
 
 // Mirror represents a repository mirror
 type Mirror struct {
-	ID           string
-	SourceRepo   string
-	URL          string
-	Region       string
-	LastSync     time.Time
-	Available    bool
+	ID         string
+	SourceRepo string
+	URL        string
+	Region     string
+	LastSync   time.Time
+	Available  bool
 }
 
 // CDNConfig contains CDN configuration
@@ -310,24 +310,24 @@ func (m *Marketplace) SearchPackages(criteria SearchCriteria) ([]*RulePackage, e
 
 // SearchCriteria defines package search criteria
 type SearchCriteria struct {
-	Query       string
-	Category    string
-	Tags        []string
-	Author      string
-	MinRating   float64
-	MaxResults  int
-	SortBy      SortOption
+	Query      string
+	Category   string
+	Tags       []string
+	Author     string
+	MinRating  float64
+	MaxResults int
+	SortBy     SortOption
 }
 
 // SortOption defines sorting options for search results
 type SortOption string
 
 const (
-	SortByRelevance   SortOption = "relevance"
-	SortByRating      SortOption = "rating"
-	SortByDownloads   SortOption = "downloads"
-	SortByDate        SortOption = "date"
-	SortByName        SortOption = "name"
+	SortByRelevance SortOption = "relevance"
+	SortByRating    SortOption = "rating"
+	SortByDownloads SortOption = "downloads"
+	SortByDate      SortOption = "date"
+	SortByName      SortOption = "name"
 )
 
 // InstallPackage installs a package with dependency resolution
@@ -452,12 +452,12 @@ func (m *Marketplace) generatePackageHash(pkg *RulePackage) string {
 	hasher.Write([]byte(pkg.ID))
 	hasher.Write([]byte(pkg.Version))
 	hasher.Write([]byte(pkg.Name))
-	
+
 	for _, rule := range pkg.Rules {
 		hasher.Write([]byte(rule.ID))
 		hasher.Write([]byte(rule.Name))
 	}
-	
+
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
@@ -466,7 +466,7 @@ func (m *Marketplace) matchesCriteria(pkg *RulePackage, criteria SearchCriteria)
 	// Query matching
 	if criteria.Query != "" {
 		if !m.containsIgnoreCase(pkg.Name, criteria.Query) &&
-		   !m.containsIgnoreCase(pkg.Description, criteria.Query) {
+			!m.containsIgnoreCase(pkg.Description, criteria.Query) {
 			return false
 		}
 	}
@@ -506,11 +506,11 @@ func (m *Marketplace) containsIgnoreCase(text, query string) bool {
 	if len(text) == 0 || len(query) == 0 {
 		return false
 	}
-	
+
 	// Convert to lowercase for comparison
 	textLower := strings.ToLower(text)
 	queryLower := strings.ToLower(query)
-	
+
 	return strings.Contains(textLower, queryLower)
 }
 
@@ -519,13 +519,13 @@ func (m *Marketplace) hasAnyTag(packageTags, searchTags []string) bool {
 	for _, tag := range packageTags {
 		tagSet[tag] = true
 	}
-	
+
 	for _, tag := range searchTags {
 		if tagSet[tag] {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -548,17 +548,17 @@ func (m *Marketplace) performInstallation(ctx context.Context, pkg *RulePackage)
 	// Mark package as installed
 	pkg.Installed = true
 	pkg.InstalledAt = time.Now()
-	
+
 	// Update download count
 	pkg.Downloads++
-	
+
 	return nil
 }
 
 func (m *Marketplace) generateTestData(rule *Rule) interface{} {
 	// Generate appropriate test data based on rule schema
 	return map[string]interface{}{
-		"test": true,
+		"test":      true,
 		"timestamp": time.Now(),
 	}
 }
@@ -568,18 +568,18 @@ func (m *Marketplace) validateRuleResult(result interface{}, rule *Rule) error {
 	if result == nil {
 		return fmt.Errorf("rule returned nil result")
 	}
-	
+
 	return nil
 }
 
 func (cm *CommunityManager) getPackageRating(packageID string) float64 {
 	cm.mu.RLock()
 	defer cm.mu.RUnlock()
-	
+
 	if rating, exists := cm.ratings[packageID]; exists {
 		return rating.AverageRating
 	}
-	
+
 	return 0.0
 }
 
@@ -600,11 +600,11 @@ func (v *DefaultRuleValidator) ValidateRule(ctx context.Context, rule *Rule) err
 	if rule.ID == "" {
 		return fmt.Errorf("rule ID is required")
 	}
-	
+
 	if rule.Name == "" {
 		return fmt.Errorf("rule name is required")
 	}
-	
+
 	return nil
 }
 
@@ -612,20 +612,20 @@ func (v *DefaultRuleValidator) ValidatePackage(ctx context.Context, pkg *RulePac
 	if pkg.ID == "" {
 		return fmt.Errorf("package ID is required")
 	}
-	
+
 	if pkg.Name == "" {
 		return fmt.Errorf("package name is required")
 	}
-	
+
 	if len(pkg.Rules) == 0 {
 		return fmt.Errorf("package must contain at least one rule")
 	}
-	
+
 	for _, rule := range pkg.Rules {
 		if err := v.ValidateRule(ctx, rule); err != nil {
 			return fmt.Errorf("invalid rule %s: %w", rule.ID, err)
 		}
 	}
-	
+
 	return nil
 }

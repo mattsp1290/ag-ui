@@ -22,20 +22,20 @@ func TestConcurrentMapWriteStress(t *testing.T) {
 	// t.Parallel()
 
 	const (
-		numManagerInstances = 3   // Reduced from 10 to prevent resource exhaustion
-		numWorkersPerManager = 3  // Reduced from 5 to prevent goroutine bottlenecks
-		numOperations = 5         // Reduced from 10 to prevent timeout
-		maxTestDuration = 10 * time.Second // Reduced from 15s for faster completion
+		numManagerInstances  = 3                // Reduced from 10 to prevent resource exhaustion
+		numWorkersPerManager = 3                // Reduced from 5 to prevent goroutine bottlenecks
+		numOperations        = 5                // Reduced from 10 to prevent timeout
+		maxTestDuration      = 10 * time.Second // Reduced from 15s for faster completion
 	)
 
 	var (
-		totalErrors       int64
-		totalPanics       int64
-		totalOperations   int64
-		managers          []*StateManager
-		wg                sync.WaitGroup
-		mu                sync.Mutex
-		testCtx, cancel   = context.WithTimeout(context.Background(), maxTestDuration)
+		totalErrors     int64
+		totalPanics     int64
+		totalOperations int64
+		managers        []*StateManager
+		wg              sync.WaitGroup
+		mu              sync.Mutex
+		testCtx, cancel = context.WithTimeout(context.Background(), maxTestDuration)
 	)
 	defer cancel()
 
@@ -78,15 +78,15 @@ func TestConcurrentMapWriteStress(t *testing.T) {
 				opts.MaxCheckpoints = 5
 				opts.AutoCheckpoint = true
 			}
-			
+
 			// Use test-friendly performance optimizer with minimal resources
 			performanceOpts := DefaultPerformanceOptions()
 			performanceOpts.EnableBatching = false // Disable batching in tests to prevent hanging
-			performanceOpts.MaxConcurrency = 1    // Severely limit concurrency to prevent resource contention
-			performanceOpts.MaxPoolSize = 20      // Much smaller pools for tests
-			performanceOpts.MaxIdleObjects = 5    // Minimal idle objects
+			performanceOpts.MaxConcurrency = 1     // Severely limit concurrency to prevent resource contention
+			performanceOpts.MaxPoolSize = 20       // Much smaller pools for tests
+			performanceOpts.MaxIdleObjects = 5     // Minimal idle objects
 			performanceOpts.ConnectionPoolSize = 2 // Minimal connection pool
-			performanceOpts.LazyCacheSize = 10    // Much smaller cache
+			performanceOpts.LazyCacheSize = 10     // Much smaller cache
 			opts.PerformanceOptimizer = NewPerformanceOptimizer(performanceOpts)
 
 			manager, err := NewStateManager(opts)
@@ -249,7 +249,7 @@ func TestConcurrentMapWriteStress(t *testing.T) {
 	// Phase 3: Cleanup all managers sequentially with timeout
 	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cleanupCancel()
-	
+
 	cleanupWg := sync.WaitGroup{}
 	for i, manager := range managers {
 		cleanupWg.Add(1)
@@ -263,14 +263,14 @@ func TestConcurrentMapWriteStress(t *testing.T) {
 					t.Logf("Manager cleanup panic recovered for manager %d: %v", idx, r)
 				}
 			}()
-			
+
 			// Create a channel to signal completion
 			done := make(chan struct{})
 			go func() {
 				defer close(done)
 				mgr.Close()
 			}()
-			
+
 			// Wait for close to complete or timeout
 			select {
 			case <-done:
@@ -282,14 +282,14 @@ func TestConcurrentMapWriteStress(t *testing.T) {
 			}
 		}(i, manager)
 	}
-	
+
 	// Wait for all cleanup to complete with timeout
 	cleanupDone := make(chan struct{})
 	go func() {
 		cleanupWg.Wait()
 		close(cleanupDone)
 	}()
-	
+
 	select {
 	case <-cleanupDone:
 		t.Logf("All managers cleaned up successfully")
@@ -298,7 +298,7 @@ func TestConcurrentMapWriteStress(t *testing.T) {
 	}
 
 	duration := time.Since(startTime)
-	
+
 	// Report results
 	mu.Lock()
 	errors := totalErrors

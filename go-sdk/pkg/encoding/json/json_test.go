@@ -108,7 +108,7 @@ func TestJSONDecoder_Decode(t *testing.T) {
 
 	t.Run("decode text message start event", func(t *testing.T) {
 		jsonData := `{"type":"TEXT_MESSAGE_START","messageId":"msg123","role":"assistant","timestamp":1234567890}`
-		
+
 		event, err := decoder.Decode(context.Background(), []byte(jsonData))
 		if err != nil {
 			t.Fatalf("failed to decode event: %v", err)
@@ -134,7 +134,7 @@ func TestJSONDecoder_Decode(t *testing.T) {
 
 		// Invalid event (missing messageId)
 		jsonData := `{"type":"TEXT_MESSAGE_START","timestamp":1234567890}`
-		
+
 		_, err := decoder.Decode(context.Background(), []byte(jsonData))
 		if err == nil {
 			t.Error("expected validation error, got nil")
@@ -143,7 +143,7 @@ func TestJSONDecoder_Decode(t *testing.T) {
 
 	t.Run("decode unknown event type", func(t *testing.T) {
 		jsonData := `{"type":"UNKNOWN_EVENT_TYPE"}`
-		
+
 		_, err := decoder.Decode(context.Background(), []byte(jsonData))
 		if err == nil {
 			t.Error("expected error for unknown event type, got nil")
@@ -238,7 +238,7 @@ func TestStreamingJSONEncoder(t *testing.T) {
 	t.Run("stream not started error", func(t *testing.T) {
 		encoder := NewStreamingJSONEncoder(nil)
 		event := events.NewTextMessageStartEvent("msg1")
-		
+
 		err := encoder.WriteEvent(context.Background(), event)
 		if err == nil {
 			t.Error("expected error when writing to unstarted stream")
@@ -282,7 +282,7 @@ func TestStreamingJSONEncoder(t *testing.T) {
 func TestStreamingJSONDecoder(t *testing.T) {
 	t.Run("basic streaming", func(t *testing.T) {
 		decoder := NewStreamingJSONDecoder(nil)
-		
+
 		ndjson := `{"type":"TEXT_MESSAGE_START","messageId":"msg1","timestamp":1234567890}
 {"type":"TEXT_MESSAGE_CONTENT","messageId":"msg1","delta":"Hello","timestamp":1234567891}
 {"type":"TEXT_MESSAGE_END","messageId":"msg1","timestamp":1234567892}
@@ -317,7 +317,7 @@ func TestStreamingJSONDecoder(t *testing.T) {
 
 	t.Run("skip empty lines", func(t *testing.T) {
 		decoder := NewStreamingJSONDecoder(nil)
-		
+
 		ndjson := `{"type":"TEXT_MESSAGE_START","messageId":"msg1","timestamp":1234567890}
 
 {"type":"TEXT_MESSAGE_END","messageId":"msg1","timestamp":1234567892}
@@ -382,7 +382,7 @@ func TestJSONCodec(t *testing.T) {
 
 	t.Run("round trip single event", func(t *testing.T) {
 		original := events.NewTextMessageStartEvent("msg123", events.WithRole("user"))
-		
+
 		// Encode
 		data, err := codec.Encode(context.Background(), original)
 		if err != nil {

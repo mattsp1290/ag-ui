@@ -24,7 +24,6 @@ import (
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
-
 // NetworkCondition represents different network conditions for testing
 type NetworkCondition int
 
@@ -599,8 +598,8 @@ func TestIntermittentConnectivity(t *testing.T) {
 			return false
 		}, 10*time.Second, 200*time.Millisecond)
 
-		const testDuration = 3 * time.Second  // Reduced from 30s to prevent test interference
-		const messageInterval = 200 * time.Millisecond  // Reduced frequency to prevent resource buildup
+		const testDuration = 3 * time.Second           // Reduced from 30s to prevent test interference
+		const messageInterval = 200 * time.Millisecond // Reduced frequency to prevent resource buildup
 
 		startTime := time.Now()
 		messageCount := 0

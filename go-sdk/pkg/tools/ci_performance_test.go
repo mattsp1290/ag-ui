@@ -1,3 +1,4 @@
+//go:build integration
 // +build integration
 
 package tools
@@ -33,82 +34,82 @@ type CIPerformanceTestFramework struct {
 // CIPerformanceConfig defines CI/CD performance testing configuration
 type CIPerformanceConfig struct {
 	// CI/CD Integration
-	CIProvider           string // "github", "gitlab", "jenkins", "azure", "circleci"
-	PipelineID           string
-	BuildID              string
-	CommitHash           string
-	Branch               string
-	PullRequestID        string
-	
+	CIProvider    string // "github", "gitlab", "jenkins", "azure", "circleci"
+	PipelineID    string
+	BuildID       string
+	CommitHash    string
+	Branch        string
+	PullRequestID string
+
 	// Test Configuration
-	TestSuite            string
-	TestEnvironment      string
-	TestLabels           map[string]string
-	TestTimeout          time.Duration
-	
+	TestSuite       string
+	TestEnvironment string
+	TestLabels      map[string]string
+	TestTimeout     time.Duration
+
 	// Baseline Management
-	BaselineStrategy     BaselineStrategy
-	BaselineStorage      string // "filesystem", "s3", "gcs", "azure-blob"
-	BaselineRetention    time.Duration
-	BaselineComparison   bool
-	
+	BaselineStrategy   BaselineStrategy
+	BaselineStorage    string // "filesystem", "s3", "gcs", "azure-blob"
+	BaselineRetention  time.Duration
+	BaselineComparison bool
+
 	// Performance Thresholds
 	PerformanceThresholds *PerformanceThresholds
 	RegressionThresholds  *RegressionThresholds
-	
+
 	// Reporting
-	ReportFormats        []string // "json", "xml", "html", "markdown"
-	ReportOutputDir      string
-	ReportUpload         bool
-	ReportUploadURL      string
-	
+	ReportFormats   []string // "json", "xml", "html", "markdown"
+	ReportOutputDir string
+	ReportUpload    bool
+	ReportUploadURL string
+
 	// Alerts
-	AlertsEnabled        bool
-	AlertChannels        []AlertChannel
-	AlertThresholds      *AlertThresholds
-	
+	AlertsEnabled   bool
+	AlertChannels   []AlertChannel
+	AlertThresholds *AlertThresholds
+
 	// Artifacts
-	ArtifactCollection   bool
-	ArtifactStorage      string
-	ArtifactRetention    time.Duration
-	
+	ArtifactCollection bool
+	ArtifactStorage    string
+	ArtifactRetention  time.Duration
+
 	// Test Selection
-	TestSelection        *TestSelection
-	ParallelExecution    bool
-	MaxParallelTests     int
-	
+	TestSelection     *TestSelection
+	ParallelExecution bool
+	MaxParallelTests  int
+
 	// Quality Gates
-	QualityGates         []QualityGate
-	FailOnRegression     bool
-	FailOnThreshold      bool
-	
+	QualityGates     []QualityGate
+	FailOnRegression bool
+	FailOnThreshold  bool
+
 	// Monitoring
-	MonitoringEnabled    bool
-	MonitoringEndpoints  []string
-	MetricsCollection    bool
+	MonitoringEnabled   bool
+	MonitoringEndpoints []string
+	MetricsCollection   bool
 }
 
 // BaselineStrategy defines how baselines are managed
 type BaselineStrategy string
 
 const (
-	BaselineStrategyNone       BaselineStrategy = "none"
-	BaselineStrategyFixed      BaselineStrategy = "fixed"
-	BaselineStrategyRolling    BaselineStrategy = "rolling"
-	BaselineStrategyBranch     BaselineStrategy = "branch"
-	BaselineStrategyAutomatic  BaselineStrategy = "automatic"
+	BaselineStrategyNone      BaselineStrategy = "none"
+	BaselineStrategyFixed     BaselineStrategy = "fixed"
+	BaselineStrategyRolling   BaselineStrategy = "rolling"
+	BaselineStrategyBranch    BaselineStrategy = "branch"
+	BaselineStrategyAutomatic BaselineStrategy = "automatic"
 )
 
 // PerformanceThresholds defines performance thresholds for CI
 type PerformanceThresholds struct {
-	MaxResponseTime      time.Duration
-	MinThroughput        float64
-	MaxErrorRate         float64
-	MaxMemoryUsage       uint64
-	MaxCPUUsage          float64
-	MaxGoroutines        int
-	MaxLatencyP95        time.Duration
-	MaxLatencyP99        time.Duration
+	MaxResponseTime time.Duration
+	MinThroughput   float64
+	MaxErrorRate    float64
+	MaxMemoryUsage  uint64
+	MaxCPUUsage     float64
+	MaxGoroutines   int
+	MaxLatencyP95   time.Duration
+	MaxLatencyP99   time.Duration
 }
 
 // RegressionThresholds defines regression detection thresholds
@@ -124,8 +125,8 @@ type RegressionThresholds struct {
 
 // AlertThresholds defines when alerts should be triggered
 type AlertThresholds struct {
-	CriticalThreshold  float64
-	WarningThreshold   float64
+	CriticalThreshold   float64
+	WarningThreshold    float64
 	RegressionThreshold float64
 	ErrorRateThreshold  float64
 }
@@ -151,64 +152,64 @@ type QualityGate struct {
 
 // CIPerformanceResults stores CI performance test results
 type CIPerformanceResults struct {
-	TestRun          *TestRunInfo
-	TestResults      []*CITestResult
-	BaselineResults  *BaselineComparisonResult
+	TestRun            *TestRunInfo
+	TestResults        []*CITestResult
+	BaselineResults    *BaselineComparisonResult
 	QualityGateResults []*QualityGateResult
-	Alerts           []*PerformanceAlert
-	Artifacts        []*TestArtifact
-	Summary          *CIResultSummary
-	Metadata         *CIMetadata
+	Alerts             []*PerformanceAlert
+	Artifacts          []*TestArtifact
+	Summary            *CIResultSummary
+	Metadata           *CIMetadata
 }
 
 // TestRunInfo contains information about the test run
 type TestRunInfo struct {
-	RunID           string
-	Timestamp       time.Time
-	Duration        time.Duration
-	Environment     string
-	PipelineInfo    *PipelineInfo
-	TestConfig      *CIPerformanceConfig
-	SystemInfo      *SystemInfo
+	RunID        string
+	Timestamp    time.Time
+	Duration     time.Duration
+	Environment  string
+	PipelineInfo *PipelineInfo
+	TestConfig   *CIPerformanceConfig
+	SystemInfo   *SystemInfo
 }
 
 // PipelineInfo contains CI/CD pipeline information
 type PipelineInfo struct {
-	Provider        string
-	PipelineID      string
-	BuildID         string
-	BuildNumber     int
-	CommitHash      string
-	Branch          string
-	PullRequestID   string
-	TriggerEvent    string
-	Actor           string
-	Repository      string
+	Provider      string
+	PipelineID    string
+	BuildID       string
+	BuildNumber   int
+	CommitHash    string
+	Branch        string
+	PullRequestID string
+	TriggerEvent  string
+	Actor         string
+	Repository    string
 }
 
 // SystemInfo contains system information
 type SystemInfo struct {
-	OS              string
-	Architecture    string
-	CPUCount        int
-	MemoryTotal     uint64
-	GoVersion       string
-	Hostname        string
-	Environment     map[string]string
+	OS           string
+	Architecture string
+	CPUCount     int
+	MemoryTotal  uint64
+	GoVersion    string
+	Hostname     string
+	Environment  map[string]string
 }
 
 // CITestResult represents a single test result
 type CITestResult struct {
-	TestName        string
-	TestCategory    string
-	TestDuration    time.Duration
-	Status          TestStatus
-	Metrics         *TestMetrics
-	Baseline        *BaselineComparisonResult
-	QualityGates    []*QualityGateResult
-	Errors          []string
-	Warnings        []string
-	Artifacts       []string
+	TestName     string
+	TestCategory string
+	TestDuration time.Duration
+	Status       TestStatus
+	Metrics      *TestMetrics
+	Baseline     *BaselineComparisonResult
+	QualityGates []*QualityGateResult
+	Errors       []string
+	Warnings     []string
+	Artifacts    []string
 }
 
 // TestStatus represents test execution status
@@ -223,45 +224,45 @@ const (
 
 // TestMetrics contains test performance metrics
 type TestMetrics struct {
-	Throughput      float64
-	ResponseTime    *ResponseTimeMetrics
-	ErrorRate       float64
-	MemoryUsage     uint64
-	CPUUsage        float64
-	GoroutineCount  int
-	CustomMetrics   map[string]float64
+	Throughput     float64
+	ResponseTime   *ResponseTimeMetrics
+	ErrorRate      float64
+	MemoryUsage    uint64
+	CPUUsage       float64
+	GoroutineCount int
+	CustomMetrics  map[string]float64
 }
 
 // BaselineComparisonResult contains baseline comparison results
 type BaselineComparisonResult struct {
-	BaselineExists      bool
-	BaselineTimestamp   time.Time
-	BaselineHash        string
-	Comparisons         []*MetricComparison
-	OverallRegression   bool
-	RegressionSeverity  string
-	RegressionMetrics   []string
+	BaselineExists     bool
+	BaselineTimestamp  time.Time
+	BaselineHash       string
+	Comparisons        []*MetricComparison
+	OverallRegression  bool
+	RegressionSeverity string
+	RegressionMetrics  []string
 }
 
 // MetricComparison compares a metric against baseline
 type MetricComparison struct {
-	Metric          string
-	Current         float64
-	Baseline        float64
-	Change          float64
-	ChangePercent   float64
-	Regression      bool
-	Severity        string
-	ThresholdMet    bool
+	Metric        string
+	Current       float64
+	Baseline      float64
+	Change        float64
+	ChangePercent float64
+	Regression    bool
+	Severity      string
+	ThresholdMet  bool
 }
 
 // QualityGateResult contains quality gate evaluation results
 type QualityGateResult struct {
-	Gate            *QualityGate
-	ActualValue     float64
-	ThresholdMet    bool
-	Status          QualityGateStatus
-	Message         string
+	Gate         *QualityGate
+	ActualValue  float64
+	ThresholdMet bool
+	Status       QualityGateStatus
+	Message      string
 }
 
 // QualityGateStatus represents quality gate status
@@ -275,17 +276,17 @@ const (
 
 // PerformanceAlert represents a performance alert
 type PerformanceAlert struct {
-	ID              string
-	Timestamp       time.Time
-	Severity        AlertSeverity
-	Title           string
-	Description     string
-	Metric          string
-	CurrentValue    float64
-	ThresholdValue  float64
-	TestName        string
-	Channel         string
-	Acknowledged    bool
+	ID             string
+	Timestamp      time.Time
+	Severity       AlertSeverity
+	Title          string
+	Description    string
+	Metric         string
+	CurrentValue   float64
+	ThresholdValue float64
+	TestName       string
+	Channel        string
+	Acknowledged   bool
 }
 
 // AlertSeverity represents alert severity levels
@@ -300,29 +301,29 @@ const (
 
 // TestArtifact represents a test artifact
 type TestArtifact struct {
-	Name            string
-	Type            string
-	Path            string
-	Size            int64
-	Timestamp       time.Time
-	TestName        string
-	Description     string
-	UploadURL       string
+	Name        string
+	Type        string
+	Path        string
+	Size        int64
+	Timestamp   time.Time
+	TestName    string
+	Description string
+	UploadURL   string
 }
 
 // CIResultSummary contains summary of CI performance results
 type CIResultSummary struct {
-	TotalTests      int
-	PassedTests     int
-	FailedTests     int
-	SkippedTests    int
-	ErrorTests      int
-	TotalDuration   time.Duration
-	
+	TotalTests    int
+	PassedTests   int
+	FailedTests   int
+	SkippedTests  int
+	ErrorTests    int
+	TotalDuration time.Duration
+
 	QualityGatesStatus map[string]int
 	AlertsGenerated    int
 	RegressionsFound   int
-	
+
 	OverallStatus      string
 	PerformanceScore   float64
 	RecommendedActions []string
@@ -330,10 +331,10 @@ type CIResultSummary struct {
 
 // CIMetadata contains additional metadata
 type CIMetadata struct {
-	Labels          map[string]string
-	Tags            []string
-	CustomFields    map[string]interface{}
-	Links           map[string]string
+	Labels       map[string]string
+	Tags         []string
+	CustomFields map[string]interface{}
+	Links        map[string]string
 }
 
 // BaselineManager manages performance baselines
@@ -361,10 +362,10 @@ type AlertManager struct {
 
 // ArtifactManager manages test artifacts
 type ArtifactManager struct {
-	config      *CIPerformanceConfig
-	storage     ArtifactStorage
-	artifacts   []*TestArtifact
-	mu          sync.RWMutex
+	config    *CIPerformanceConfig
+	storage   ArtifactStorage
+	artifacts []*TestArtifact
+	mu        sync.RWMutex
 }
 
 // ArtifactStorage defines interface for artifact storage
@@ -377,18 +378,18 @@ type ArtifactStorage interface {
 
 // TestOrchestrator orchestrates test execution
 type TestOrchestrator struct {
-	config      *CIPerformanceConfig
-	testSuite   *PerformanceTestSuite
-	mu          sync.RWMutex
+	config    *CIPerformanceConfig
+	testSuite *PerformanceTestSuite
+	mu        sync.RWMutex
 }
 
 // PerformanceTestSuite contains the test suite
 type PerformanceTestSuite struct {
-	Tests       []*PerformanceTest
-	Setup       func() error
-	Teardown    func() error
-	BeforeTest  func(test *PerformanceTest) error
-	AfterTest   func(test *PerformanceTest, result *CITestResult) error
+	Tests      []*PerformanceTest
+	Setup      func() error
+	Teardown   func() error
+	BeforeTest func(test *PerformanceTest) error
+	AfterTest  func(test *PerformanceTest, result *CITestResult) error
 }
 
 // PerformanceTest represents a single performance test
@@ -408,7 +409,7 @@ func NewCIPerformanceTestFramework(config *CIPerformanceConfig) *CIPerformanceTe
 	if config == nil {
 		config = DefaultCIPerformanceConfig()
 	}
-	
+
 	framework := &CIPerformanceTestFramework{
 		config: config,
 		results: &CIPerformanceResults{
@@ -432,14 +433,14 @@ func NewCIPerformanceTestFramework(config *CIPerformanceConfig) *CIPerformanceTe
 			Artifacts:          make([]*TestArtifact, 0),
 		},
 	}
-	
+
 	// Initialize components
 	framework.baselineManager = NewBaselineManager(config)
 	framework.reportGenerator = NewCIReportGenerator(config)
 	framework.alertManager = NewAlertManager(config)
 	framework.artifactManager = NewArtifactManager(config)
 	framework.testOrchestrator = NewTestOrchestrator(config)
-	
+
 	return framework
 }
 
@@ -450,7 +451,7 @@ func DefaultCIPerformanceConfig() *CIPerformanceConfig {
 	if testing.Short() || os.Getenv("CI") != "" {
 		testTimeout = 2 * time.Minute
 	}
-	
+
 	return &CIPerformanceConfig{
 		CIProvider:         "github",
 		TestSuite:          "default",
@@ -461,14 +462,14 @@ func DefaultCIPerformanceConfig() *CIPerformanceConfig {
 		BaselineRetention:  30 * 24 * time.Hour,
 		BaselineComparison: true,
 		PerformanceThresholds: &PerformanceThresholds{
-			MaxResponseTime:   100 * time.Millisecond,
-			MinThroughput:     1000,
-			MaxErrorRate:      1.0,
-			MaxMemoryUsage:    1024 * 1024 * 1024,
-			MaxCPUUsage:       80.0,
-			MaxGoroutines:     1000,
-			MaxLatencyP95:     200 * time.Millisecond,
-			MaxLatencyP99:     500 * time.Millisecond,
+			MaxResponseTime: 100 * time.Millisecond,
+			MinThroughput:   1000,
+			MaxErrorRate:    1.0,
+			MaxMemoryUsage:  1024 * 1024 * 1024,
+			MaxCPUUsage:     80.0,
+			MaxGoroutines:   1000,
+			MaxLatencyP95:   200 * time.Millisecond,
+			MaxLatencyP99:   500 * time.Millisecond,
 		},
 		RegressionThresholds: &RegressionThresholds{
 			ResponseTimeRegression: 20.0,
@@ -477,9 +478,9 @@ func DefaultCIPerformanceConfig() *CIPerformanceConfig {
 			MemoryRegression:       15.0,
 			LatencyRegression:      25.0,
 		},
-		ReportFormats:     []string{"json", "html"},
-		ReportOutputDir:   "./performance-reports",
-		AlertsEnabled:     true,
+		ReportFormats:   []string{"json", "html"},
+		ReportOutputDir: "./performance-reports",
+		AlertsEnabled:   true,
 		AlertThresholds: &AlertThresholds{
 			CriticalThreshold:   90.0,
 			WarningThreshold:    75.0,
@@ -518,8 +519,8 @@ func DefaultCIPerformanceConfig() *CIPerformanceConfig {
 				Description: "Error rate must be below 1%",
 			},
 		},
-		FailOnRegression: true,
-		FailOnThreshold:  true,
+		FailOnRegression:  true,
+		FailOnThreshold:   true,
 		ParallelExecution: true,
 		MaxParallelTests:  4,
 	}
@@ -528,70 +529,70 @@ func DefaultCIPerformanceConfig() *CIPerformanceConfig {
 // RunCIPerformanceTests runs CI performance tests
 func (framework *CIPerformanceTestFramework) RunCIPerformanceTests(t *testing.T) error {
 	startTime := time.Now()
-	
+
 	// Setup test environment
 	if err := framework.setupTestEnvironment(t); err != nil {
 		return fmt.Errorf("failed to setup test environment: %w", err)
 	}
-	
+
 	// Load or create baseline
 	if framework.config.BaselineComparison {
 		if err := framework.loadBaseline(t); err != nil {
 			t.Logf("Warning: Failed to load baseline: %v", err)
 		}
 	}
-	
+
 	// Run tests
 	if err := framework.runTests(t); err != nil {
 		return fmt.Errorf("failed to run tests: %w", err)
 	}
-	
+
 	// Compare against baseline
 	if framework.config.BaselineComparison {
 		if err := framework.compareBaseline(t); err != nil {
 			t.Logf("Warning: Failed to compare baseline: %v", err)
 		}
 	}
-	
+
 	// Evaluate quality gates
 	if err := framework.evaluateQualityGates(t); err != nil {
 		return fmt.Errorf("failed to evaluate quality gates: %w", err)
 	}
-	
+
 	// Generate alerts
 	if framework.config.AlertsEnabled {
 		if err := framework.generateAlerts(t); err != nil {
 			t.Logf("Warning: Failed to generate alerts: %v", err)
 		}
 	}
-	
+
 	// Collect artifacts
 	if framework.config.ArtifactCollection {
 		if err := framework.collectArtifacts(t); err != nil {
 			t.Logf("Warning: Failed to collect artifacts: %v", err)
 		}
 	}
-	
+
 	// Generate reports
 	if err := framework.generateReports(t); err != nil {
 		return fmt.Errorf("failed to generate reports: %w", err)
 	}
-	
+
 	// Update baseline if needed
 	if framework.shouldUpdateBaseline() {
 		if err := framework.updateBaseline(t); err != nil {
 			t.Logf("Warning: Failed to update baseline: %v", err)
 		}
 	}
-	
+
 	// Finalize results
 	framework.finalizeResults(time.Since(startTime))
-	
+
 	// Check if tests should fail the CI build
 	if framework.shouldFailBuild() {
 		return fmt.Errorf("performance tests failed CI quality gates")
 	}
-	
+
 	return nil
 }
 
@@ -601,14 +602,14 @@ func (framework *CIPerformanceTestFramework) setupTestEnvironment(t *testing.T) 
 	if err := os.MkdirAll(framework.config.ReportOutputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create report output directory: %w", err)
 	}
-	
+
 	// Use optimized timeouts based on environment
 	executionTimeout := 10 * time.Second
 	registryTimeout := 5 * time.Second
 	concurrencyTimeout := 10 * time.Second
 	memoryTimeout := 5 * time.Second
 	stressTimeout := 10 * time.Second
-	
+
 	if testing.Short() {
 		// Very aggressive timeouts for short mode
 		executionTimeout = 2 * time.Second
@@ -624,7 +625,7 @@ func (framework *CIPerformanceTestFramework) setupTestEnvironment(t *testing.T) 
 		memoryTimeout = 3 * time.Second
 		stressTimeout = 5 * time.Second
 	}
-	
+
 	// Initialize test suite
 	framework.testOrchestrator.testSuite = &PerformanceTestSuite{
 		Tests: []*PerformanceTest{
@@ -680,19 +681,19 @@ func (framework *CIPerformanceTestFramework) setupTestEnvironment(t *testing.T) 
 			},
 		},
 	}
-	
+
 	return nil
 }
 
 // loadBaseline loads the baseline for comparison
 func (framework *CIPerformanceTestFramework) loadBaseline(t *testing.T) error {
 	baselineKey := framework.generateBaselineKey()
-	
+
 	baseline, err := framework.baselineManager.LoadBaseline(baselineKey)
 	if err != nil {
 		return fmt.Errorf("failed to load baseline: %w", err)
 	}
-	
+
 	if baseline != nil {
 		framework.results.BaselineResults = &BaselineComparisonResult{
 			BaselineExists:    true,
@@ -701,17 +702,17 @@ func (framework *CIPerformanceTestFramework) loadBaseline(t *testing.T) error {
 			Comparisons:       make([]*MetricComparison, 0),
 		}
 	}
-	
+
 	return nil
 }
 
 // runTests executes the performance tests
 func (framework *CIPerformanceTestFramework) runTests(t *testing.T) error {
 	testSuite := framework.testOrchestrator.testSuite
-	
+
 	// Filter tests based on selection criteria
 	selectedTests := framework.filterTests(testSuite.Tests)
-	
+
 	// Run tests
 	if framework.config.ParallelExecution {
 		return framework.runTestsParallel(t, selectedTests)
@@ -725,24 +726,24 @@ func (framework *CIPerformanceTestFramework) runTestsParallel(t *testing.T, test
 	semaphore := make(chan struct{}, framework.config.MaxParallelTests)
 	var wg sync.WaitGroup
 	var mu sync.Mutex
-	
+
 	for _, test := range tests {
 		wg.Add(1)
 		go func(test *PerformanceTest) {
 			defer wg.Done()
-			
+
 			// Acquire semaphore
 			semaphore <- struct{}{}
 			defer func() { <-semaphore }()
-			
+
 			result := framework.runSingleTest(t, test)
-			
+
 			mu.Lock()
 			framework.results.TestResults = append(framework.results.TestResults, result)
 			mu.Unlock()
 		}(test)
 	}
-	
+
 	wg.Wait()
 	return nil
 }
@@ -759,7 +760,7 @@ func (framework *CIPerformanceTestFramework) runTestsSequential(t *testing.T, te
 // runSingleTest runs a single performance test
 func (framework *CIPerformanceTestFramework) runSingleTest(t *testing.T, test *PerformanceTest) *CITestResult {
 	startTime := time.Now()
-	
+
 	result := &CITestResult{
 		TestName:     test.Name,
 		TestCategory: test.Category,
@@ -768,11 +769,11 @@ func (framework *CIPerformanceTestFramework) runSingleTest(t *testing.T, test *P
 		Warnings:     make([]string, 0),
 		Artifacts:    make([]string, 0),
 	}
-	
+
 	// Run test with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), test.Timeout)
 	defer cancel()
-	
+
 	done := make(chan *CITestResult, 1)
 	go func() {
 		defer func() {
@@ -782,7 +783,7 @@ func (framework *CIPerformanceTestFramework) runSingleTest(t *testing.T, test *P
 			}
 			done <- result
 		}()
-		
+
 		// Run the actual test
 		testResult := test.RunFunc(t)
 		if testResult != nil {
@@ -792,16 +793,16 @@ func (framework *CIPerformanceTestFramework) runSingleTest(t *testing.T, test *P
 			result.Warnings = testResult.Warnings
 		}
 	}()
-	
+
 	select {
 	case <-ctx.Done():
 		result.Status = TestStatusError
 		result.Errors = append(result.Errors, "Test timed out")
 	case result = <-done:
 	}
-	
+
 	result.TestDuration = time.Since(startTime)
-	
+
 	return result
 }
 
@@ -814,11 +815,11 @@ func (framework *CIPerformanceTestFramework) runExecutionEngineTest(t *testing.T
 		Errors:       make([]string, 0),
 		Warnings:     make([]string, 0),
 	}
-	
+
 	// Create test environment
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry)
-	
+
 	// Create test tools
 	tools := make([]*Tool, 100)
 	for i := 0; i < 100; i++ {
@@ -829,7 +830,7 @@ func (framework *CIPerformanceTestFramework) runExecutionEngineTest(t *testing.T
 			return result
 		}
 	}
-	
+
 	// Warmup
 	ctx := context.Background()
 	for i := 0; i < 50; i++ {
@@ -838,13 +839,13 @@ func (framework *CIPerformanceTestFramework) runExecutionEngineTest(t *testing.T
 			"input": "warmup",
 		})
 	}
-	
+
 	// Performance test
 	var operations int64
 	var errors int64
 	var responseTimesMutex sync.Mutex
 	var responseTimes []time.Duration
-	
+
 	// Use optimized test duration based on environment
 	testDuration := 5 * time.Second
 	if testing.Short() {
@@ -856,7 +857,7 @@ func (framework *CIPerformanceTestFramework) runExecutionEngineTest(t *testing.T
 	}
 	testCtx, cancel := context.WithTimeout(ctx, testDuration)
 	defer cancel()
-	
+
 	var wg sync.WaitGroup
 	// Scale workers based on environment
 	workers := 10
@@ -870,7 +871,7 @@ func (framework *CIPerformanceTestFramework) runExecutionEngineTest(t *testing.T
 		go func(workerID int) {
 			defer wg.Done()
 			localOps := int64(0)
-			
+
 			for {
 				select {
 				case <-testCtx.Done():
@@ -878,34 +879,34 @@ func (framework *CIPerformanceTestFramework) runExecutionEngineTest(t *testing.T
 				default:
 					// Add a small delay to prevent tight loops from consuming too much CPU
 					time.Sleep(time.Millisecond)
-					
+
 					// Check cancellation again after sleep
 					select {
 					case <-testCtx.Done():
 						return
 					default:
 					}
-					
+
 					// Limit operations per worker to prevent runaway loops
 					if localOps >= 1000 {
 						return
 					}
-					
+
 					tool := tools[localOps%int64(len(tools))]
 					execStart := time.Now()
-					
+
 					_, err := engine.Execute(testCtx, tool.ID, map[string]interface{}{
 						"input": fmt.Sprintf("test-%d-%d", workerID, localOps),
 					})
-					
+
 					execTime := time.Since(execStart)
 					localOps++
 					atomic.AddInt64(&operations, 1)
-					
+
 					if err != nil {
 						atomic.AddInt64(&errors, 1)
 					}
-					
+
 					responseTimesMutex.Lock()
 					if len(responseTimes) < 10000 { // Limit response times collection to prevent memory issues
 						responseTimes = append(responseTimes, execTime)
@@ -915,45 +916,45 @@ func (framework *CIPerformanceTestFramework) runExecutionEngineTest(t *testing.T
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	// Calculate metrics
 	finalOps := atomic.LoadInt64(&operations)
 	finalErrors := atomic.LoadInt64(&errors)
 	throughput := float64(finalOps) / testDuration.Seconds()
 	errorRate := float64(finalErrors) / float64(finalOps) * 100
-	
+
 	responseTimeMetrics := calculateResponseTimeMetrics(responseTimes)
-	
+
 	result.Metrics = &TestMetrics{
 		Throughput:   throughput,
 		ResponseTime: responseTimeMetrics,
 		ErrorRate:    errorRate,
 	}
-	
+
 	// Check thresholds
 	if throughput < framework.config.PerformanceThresholds.MinThroughput {
 		result.Status = TestStatusFailed
-		result.Errors = append(result.Errors, 
-			fmt.Sprintf("Throughput %.2f below threshold %.2f", 
+		result.Errors = append(result.Errors,
+			fmt.Sprintf("Throughput %.2f below threshold %.2f",
 				throughput, framework.config.PerformanceThresholds.MinThroughput))
 	}
-	
+
 	if errorRate > framework.config.PerformanceThresholds.MaxErrorRate {
 		result.Status = TestStatusFailed
-		result.Errors = append(result.Errors, 
-			fmt.Sprintf("Error rate %.2f%% above threshold %.2f%%", 
+		result.Errors = append(result.Errors,
+			fmt.Sprintf("Error rate %.2f%% above threshold %.2f%%",
 				errorRate, framework.config.PerformanceThresholds.MaxErrorRate))
 	}
-	
+
 	if responseTimeMetrics.P95 > framework.config.PerformanceThresholds.MaxLatencyP95 {
 		result.Status = TestStatusFailed
-		result.Errors = append(result.Errors, 
-			fmt.Sprintf("P95 latency %v above threshold %v", 
+		result.Errors = append(result.Errors,
+			fmt.Sprintf("P95 latency %v above threshold %v",
 				responseTimeMetrics.P95, framework.config.PerformanceThresholds.MaxLatencyP95))
 	}
-	
+
 	return result
 }
 
@@ -965,10 +966,10 @@ func (framework *CIPerformanceTestFramework) runRegistryTest(t *testing.T) *CITe
 		Errors:       make([]string, 0),
 		Warnings:     make([]string, 0),
 	}
-	
+
 	// Create registry
 	registry := NewRegistry()
-	
+
 	// Test registration performance - scale tool count based on environment
 	toolCount := 1000
 	if testing.Short() {
@@ -977,7 +978,7 @@ func (framework *CIPerformanceTestFramework) runRegistryTest(t *testing.T) *CITe
 		toolCount = 500 // Moderate tool count for CI
 	}
 	registrationStart := time.Now()
-	
+
 	for i := 0; i < toolCount; i++ {
 		tool := createCITestTool(fmt.Sprintf("reg-test-%d", i))
 		if err := registry.Register(tool); err != nil {
@@ -986,9 +987,9 @@ func (framework *CIPerformanceTestFramework) runRegistryTest(t *testing.T) *CITe
 			return result
 		}
 	}
-	
+
 	registrationTime := time.Since(registrationStart)
-	
+
 	// Test lookup performance - scale lookup count based on environment
 	lookupCount := 10000
 	if testing.Short() {
@@ -997,7 +998,7 @@ func (framework *CIPerformanceTestFramework) runRegistryTest(t *testing.T) *CITe
 		lookupCount = 5000 // Moderate lookup count for CI
 	}
 	lookupStart := time.Now()
-	
+
 	for i := 0; i < lookupCount; i++ {
 		toolID := fmt.Sprintf("reg-test-%d", i%toolCount)
 		if _, err := registry.Get(toolID); err != nil {
@@ -1006,13 +1007,13 @@ func (framework *CIPerformanceTestFramework) runRegistryTest(t *testing.T) *CITe
 			return result
 		}
 	}
-	
+
 	lookupTime := time.Since(lookupStart)
-	
+
 	// Calculate metrics
 	registrationThroughput := float64(toolCount) / registrationTime.Seconds()
 	lookupThroughput := float64(lookupCount) / lookupTime.Seconds()
-	
+
 	result.Metrics = &TestMetrics{
 		Throughput: lookupThroughput,
 		CustomMetrics: map[string]float64{
@@ -1020,7 +1021,7 @@ func (framework *CIPerformanceTestFramework) runRegistryTest(t *testing.T) *CITe
 			"lookup_throughput":       lookupThroughput,
 		},
 	}
-	
+
 	return result
 }
 
@@ -1032,11 +1033,11 @@ func (framework *CIPerformanceTestFramework) runConcurrencyScalabilityTest(t *te
 		Errors:       make([]string, 0),
 		Warnings:     make([]string, 0),
 	}
-	
+
 	// Run simplified scalability test to avoid hanging
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry)
-	
+
 	// Create test tools
 	tools := make([]*Tool, 10)
 	for i := 0; i < 10; i++ {
@@ -1047,7 +1048,7 @@ func (framework *CIPerformanceTestFramework) runConcurrencyScalabilityTest(t *te
 			return result
 		}
 	}
-	
+
 	// Test with limited duration and proper timeout
 	timeout := 10 * time.Second
 	if isCI() {
@@ -1055,11 +1056,11 @@ func (framework *CIPerformanceTestFramework) runConcurrencyScalabilityTest(t *te
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	
+
 	var operations int64
 	var errors int64
 	start := time.Now()
-	
+
 	// Scale concurrency based on environment
 	workers := 5
 	if testing.Short() {
@@ -1080,24 +1081,24 @@ func (framework *CIPerformanceTestFramework) runConcurrencyScalabilityTest(t *te
 				default:
 					// Add small delay to prevent overwhelming
 					time.Sleep(time.Millisecond)
-					
+
 					// Check cancellation again after sleep
 					select {
 					case <-ctx.Done():
 						return
 					default:
 					}
-					
+
 					// Limit operations per worker to prevent runaway loops
 					if localOps >= 500 {
 						return
 					}
-					
+
 					tool := tools[localOps%int64(len(tools))]
 					_, err := engine.Execute(ctx, tool.ID, map[string]interface{}{
 						"input": fmt.Sprintf("scalability-test-%d", workerID),
 					})
-					
+
 					localOps++
 					atomic.AddInt64(&operations, 1)
 					if err != nil {
@@ -1107,31 +1108,31 @@ func (framework *CIPerformanceTestFramework) runConcurrencyScalabilityTest(t *te
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	duration := time.Since(start)
 	finalOps := atomic.LoadInt64(&operations)
 	finalErrors := atomic.LoadInt64(&errors)
 	throughput := float64(finalOps) / duration.Seconds()
 	errorRate := float64(finalErrors) / float64(finalOps) * 100
-	
+
 	result.Metrics = &TestMetrics{
 		Throughput: throughput,
 		ErrorRate:  errorRate,
 		CustomMetrics: map[string]float64{
 			"scalability_factor": 1.0, // Simplified
 			"efficiency_score":   math.Max(0, 100-errorRate),
-			"stability":         1.0, // Simplified
+			"stability":          1.0, // Simplified
 		},
 	}
-	
+
 	// Check if test passed based on basic criteria
 	if errorRate > 5.0 || throughput < 10.0 {
 		result.Status = TestStatusFailed
 		result.Errors = append(result.Errors, "Concurrency scalability test failed")
 	}
-	
+
 	return result
 }
 
@@ -1143,11 +1144,11 @@ func (framework *CIPerformanceTestFramework) runMemoryTest(t *testing.T) *CITest
 		Errors:       make([]string, 0),
 		Warnings:     make([]string, 0),
 	}
-	
+
 	// Run simplified memory test to avoid hanging
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry)
-	
+
 	// Create test tools
 	tools := make([]*Tool, 10)
 	for i := 0; i < 10; i++ {
@@ -1158,12 +1159,12 @@ func (framework *CIPerformanceTestFramework) runMemoryTest(t *testing.T) *CITest
 			return result
 		}
 	}
-	
+
 	// Get baseline memory
 	runtime.GC()
 	var before runtime.MemStats
 	runtime.ReadMemStats(&before)
-	
+
 	// Run memory test with timeout
 	timeout := 10 * time.Second
 	if isCI() {
@@ -1171,7 +1172,7 @@ func (framework *CIPerformanceTestFramework) runMemoryTest(t *testing.T) *CITest
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	
+
 	// Scale operations based on environment
 	operations := 100
 	if testing.Short() {
@@ -1190,30 +1191,30 @@ func (framework *CIPerformanceTestFramework) runMemoryTest(t *testing.T) *CITest
 			})
 		}
 	}
-	
+
 	// Get final memory usage
 	runtime.GC()
 	var after runtime.MemStats
 	runtime.ReadMemStats(&after)
-	
+
 	result.Metrics = &TestMetrics{
 		MemoryUsage: after.Alloc,
 		CustomMetrics: map[string]float64{
-			"heap_size":        float64(after.HeapAlloc),
-			"gc_count":         float64(after.NumGC),
-			"gc_cpu_fraction":  after.GCCPUFraction * 100,
-			"memory_delta":     float64(after.Alloc - before.Alloc),
+			"heap_size":       float64(after.HeapAlloc),
+			"gc_count":        float64(after.NumGC),
+			"gc_cpu_fraction": after.GCCPUFraction * 100,
+			"memory_delta":    float64(after.Alloc - before.Alloc),
 		},
 	}
-	
+
 	// Check memory thresholds
 	if after.Alloc > framework.config.PerformanceThresholds.MaxMemoryUsage {
 		result.Status = TestStatusFailed
-		result.Errors = append(result.Errors, 
-			fmt.Sprintf("Memory usage %d above threshold %d", 
+		result.Errors = append(result.Errors,
+			fmt.Sprintf("Memory usage %d above threshold %d",
 				after.Alloc, framework.config.PerformanceThresholds.MaxMemoryUsage))
 	}
-	
+
 	return result
 }
 
@@ -1225,11 +1226,11 @@ func (framework *CIPerformanceTestFramework) runStressTest(t *testing.T) *CITest
 		Errors:       make([]string, 0),
 		Warnings:     make([]string, 0),
 	}
-	
+
 	// Run simplified stress test to avoid hanging
 	registry := NewRegistry()
 	engine := NewExecutionEngine(registry)
-	
+
 	// Create test tools
 	tools := make([]*Tool, 10)
 	for i := 0; i < 10; i++ {
@@ -1240,7 +1241,7 @@ func (framework *CIPerformanceTestFramework) runStressTest(t *testing.T) *CITest
 			return result
 		}
 	}
-	
+
 	// Stress test with limited duration and controlled concurrency
 	timeout := 10 * time.Second
 	if isCI() {
@@ -1248,12 +1249,12 @@ func (framework *CIPerformanceTestFramework) runStressTest(t *testing.T) *CITest
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	
+
 	var operations int64
 	var errors int64
 	var maxMemory uint64
 	start := time.Now()
-	
+
 	// Scale stress test workers based on environment
 	workers := 10
 	if testing.Short() {
@@ -1274,31 +1275,31 @@ func (framework *CIPerformanceTestFramework) runStressTest(t *testing.T) *CITest
 				default:
 					// Small delay to prevent overwhelming
 					time.Sleep(time.Millisecond)
-					
+
 					// Check cancellation again after sleep
 					select {
 					case <-ctx.Done():
 						return
 					default:
 					}
-					
+
 					// Limit operations per worker to prevent runaway loops
 					if localOps >= 300 {
 						return
 					}
-					
+
 					// Use local operation count to avoid race in tool selection
 					tool := tools[localOps%int64(len(tools))]
 					_, err := engine.Execute(ctx, tool.ID, map[string]interface{}{
 						"input": fmt.Sprintf("stress-test-%d", workerID),
 					})
-					
+
 					localOps++
 					atomic.AddInt64(&operations, 1)
 					if err != nil {
 						atomic.AddInt64(&errors, 1)
 					}
-					
+
 					// Track memory usage with atomic operations
 					var m runtime.MemStats
 					runtime.ReadMemStats(&m)
@@ -1315,15 +1316,15 @@ func (framework *CIPerformanceTestFramework) runStressTest(t *testing.T) *CITest
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
-	
+
 	duration := time.Since(start)
 	finalOps := atomic.LoadInt64(&operations)
 	finalErrors := atomic.LoadInt64(&errors)
 	throughput := float64(finalOps) / duration.Seconds()
 	errorRate := float64(finalErrors) / float64(finalOps) * 100
-	
+
 	finalMaxMemory := atomic.LoadUint64(&maxMemory)
 	result.Metrics = &TestMetrics{
 		Throughput:     throughput,
@@ -1336,13 +1337,13 @@ func (framework *CIPerformanceTestFramework) runStressTest(t *testing.T) *CITest
 			"operations_completed":    float64(operations),
 		},
 	}
-	
+
 	// Check if stress test passed based on error rate and throughput
 	if errorRate > 10.0 || throughput < 1.0 {
 		result.Status = TestStatusFailed
 		result.Errors = append(result.Errors, "Stress test failed")
 	}
-	
+
 	return result
 }
 
@@ -1380,10 +1381,10 @@ func (e *CITestExecutor) Execute(ctx context.Context, params map[string]interfac
 		}, ctx.Err()
 	default:
 	}
-	
+
 	// Simulate processing
 	time.Sleep(1 * time.Millisecond)
-	
+
 	// Safe type assertion with nil checks
 	if params == nil {
 		return &ToolExecutionResult{
@@ -1392,7 +1393,7 @@ func (e *CITestExecutor) Execute(ctx context.Context, params map[string]interfac
 			Timestamp: time.Now(),
 		}, fmt.Errorf("parameters cannot be nil")
 	}
-	
+
 	inputRaw, exists := params["input"]
 	if !exists {
 		return &ToolExecutionResult{
@@ -1401,7 +1402,7 @@ func (e *CITestExecutor) Execute(ctx context.Context, params map[string]interfac
 			Timestamp: time.Now(),
 		}, fmt.Errorf("missing required parameter 'input'")
 	}
-	
+
 	input, ok := inputRaw.(string)
 	if !ok {
 		return &ToolExecutionResult{
@@ -1410,9 +1411,9 @@ func (e *CITestExecutor) Execute(ctx context.Context, params map[string]interfac
 			Timestamp: time.Now(),
 		}, fmt.Errorf("parameter 'input' must be a string, got %T", inputRaw)
 	}
-	
+
 	result := fmt.Sprintf("processed: %s", input)
-	
+
 	return &ToolExecutionResult{
 		Success: true,
 		Data: map[string]interface{}{
@@ -1427,7 +1428,6 @@ func generateRunID() string {
 	return fmt.Sprintf("run-%d", time.Now().UnixNano())
 }
 
-
 func collectSystemInfo() *SystemInfo {
 	return &SystemInfo{
 		OS:           runtime.GOOS,
@@ -1440,13 +1440,13 @@ func collectSystemInfo() *SystemInfo {
 
 // ResponseTimeMetrics contains response time statistics
 type ResponseTimeMetrics struct {
-	Mean   time.Duration
-	P50    time.Duration
-	P95    time.Duration
-	P99    time.Duration
-	P999   time.Duration
-	Min    time.Duration
-	Max    time.Duration
+	Mean time.Duration
+	P50  time.Duration
+	P95  time.Duration
+	P99  time.Duration
+	P999 time.Duration
+	Min  time.Duration
+	Max  time.Duration
 }
 
 // calculateResponseTimeMetrics calculates response time metrics from a slice of durations
@@ -1454,21 +1454,21 @@ func calculateResponseTimeMetrics(responseTimes []time.Duration) *ResponseTimeMe
 	if len(responseTimes) == 0 {
 		return &ResponseTimeMetrics{}
 	}
-	
+
 	// Sort response times for percentile calculations
 	sorted := make([]time.Duration, len(responseTimes))
 	copy(sorted, responseTimes)
 	sort.Slice(sorted, func(i, j int) bool {
 		return sorted[i] < sorted[j]
 	})
-	
+
 	// Calculate mean
 	var total time.Duration
 	for _, rt := range responseTimes {
 		total += rt
 	}
 	mean := total / time.Duration(len(responseTimes))
-	
+
 	// Calculate percentiles
 	n := len(sorted)
 	p50 := sorted[n/2]
@@ -1478,7 +1478,7 @@ func calculateResponseTimeMetrics(responseTimes []time.Duration) *ResponseTimeMe
 	if int(float64(n)*0.999) >= n {
 		p999 = sorted[n-1]
 	}
-	
+
 	return &ResponseTimeMetrics{
 		Mean: mean,
 		P50:  p50,
@@ -1507,12 +1507,12 @@ func (framework *CIPerformanceTestFramework) filterTests(tests []*PerformanceTes
 	if framework.config.TestSelection.RunAll {
 		return tests
 	}
-	
+
 	var filtered []*PerformanceTest
-	
+
 	for _, test := range tests {
 		include := true
-		
+
 		// Check include patterns
 		if len(framework.config.TestSelection.IncludePatterns) > 0 {
 			include = false
@@ -1523,7 +1523,7 @@ func (framework *CIPerformanceTestFramework) filterTests(tests []*PerformanceTes
 				}
 			}
 		}
-		
+
 		// Check exclude patterns
 		if include {
 			for _, pattern := range framework.config.TestSelection.ExcludePatterns {
@@ -1533,7 +1533,7 @@ func (framework *CIPerformanceTestFramework) filterTests(tests []*PerformanceTes
 				}
 			}
 		}
-		
+
 		// Check tags
 		if include && len(framework.config.TestSelection.Tags) > 0 {
 			include = false
@@ -1549,12 +1549,12 @@ func (framework *CIPerformanceTestFramework) filterTests(tests []*PerformanceTes
 				}
 			}
 		}
-		
+
 		if include {
 			filtered = append(filtered, test)
 		}
 	}
-	
+
 	return filtered
 }
 
@@ -1562,44 +1562,44 @@ func (framework *CIPerformanceTestFramework) compareBaseline(t *testing.T) error
 	if framework.results.BaselineResults == nil || !framework.results.BaselineResults.BaselineExists {
 		return nil
 	}
-	
+
 	// Compare each test result against baseline
 	for _, testResult := range framework.results.TestResults {
 		if testResult.Metrics == nil {
 			continue
 		}
-		
+
 		// Load baseline metrics for this test
 		baselineKey := fmt.Sprintf("%s-%s", framework.generateBaselineKey(), testResult.TestName)
 		baseline, err := framework.baselineManager.LoadBaseline(baselineKey)
 		if err != nil {
 			continue
 		}
-		
+
 		if baseline == nil {
 			continue
 		}
-		
+
 		// Compare metrics
 		comparison := framework.compareMetrics(testResult.Metrics, baseline)
 		testResult.Baseline = comparison
-		
+
 		if framework.results.BaselineResults == nil {
 			framework.results.BaselineResults = &BaselineComparisonResult{
 				Comparisons: make([]*MetricComparison, 0),
 			}
 		}
 		framework.results.BaselineResults.Comparisons = append(
-			framework.results.BaselineResults.Comparisons, 
+			framework.results.BaselineResults.Comparisons,
 			comparison.Comparisons...)
 	}
-	
+
 	return nil
 }
 
 func (framework *CIPerformanceTestFramework) compareMetrics(current *TestMetrics, baseline *PerformanceBaseline) *BaselineComparisonResult {
 	comparisons := make([]*MetricComparison, 0)
-	
+
 	// Compare throughput
 	if current.Throughput > 0 && baseline.ThroughputBaseline > 0 {
 		change := ((current.Throughput - baseline.ThroughputBaseline) / baseline.ThroughputBaseline) * 100
@@ -1612,13 +1612,13 @@ func (framework *CIPerformanceTestFramework) compareMetrics(current *TestMetrics
 			Regression:    change < -framework.config.RegressionThresholds.ThroughputRegression,
 		})
 	}
-	
+
 	// Compare response time
 	if current.ResponseTime != nil && baseline.LatencyP95Baseline > 0 {
 		currentP95 := current.ResponseTime.P95.Seconds() * 1000 // Convert to ms
 		baselineP95 := baseline.LatencyP95Baseline.Seconds() * 1000
 		change := ((currentP95 - baselineP95) / baselineP95) * 100
-		
+
 		comparisons = append(comparisons, &MetricComparison{
 			Metric:        "response_time_p95",
 			Current:       currentP95,
@@ -1628,7 +1628,7 @@ func (framework *CIPerformanceTestFramework) compareMetrics(current *TestMetrics
 			Regression:    change > framework.config.RegressionThresholds.LatencyRegression,
 		})
 	}
-	
+
 	// Compare error rate
 	if current.ErrorRate >= 0 && baseline.ErrorRateBaseline >= 0 {
 		change := current.ErrorRate - baseline.ErrorRateBaseline
@@ -1641,7 +1641,7 @@ func (framework *CIPerformanceTestFramework) compareMetrics(current *TestMetrics
 			Regression:    change > framework.config.RegressionThresholds.ErrorRateRegression,
 		})
 	}
-	
+
 	// Determine overall regression status
 	var hasRegression bool
 	var regressionMetrics []string
@@ -1651,14 +1651,14 @@ func (framework *CIPerformanceTestFramework) compareMetrics(current *TestMetrics
 			regressionMetrics = append(regressionMetrics, comp.Metric)
 		}
 	}
-	
+
 	return &BaselineComparisonResult{
-		BaselineExists:     true,
-		BaselineTimestamp:  baseline.CreatedAt,
-		BaselineHash:       baseline.CommitHash,
-		Comparisons:        comparisons,
-		OverallRegression:  hasRegression,
-		RegressionMetrics:  regressionMetrics,
+		BaselineExists:    true,
+		BaselineTimestamp: baseline.CreatedAt,
+		BaselineHash:      baseline.CommitHash,
+		Comparisons:       comparisons,
+		OverallRegression: hasRegression,
+		RegressionMetrics: regressionMetrics,
 	}
 }
 
@@ -1667,7 +1667,7 @@ func (framework *CIPerformanceTestFramework) evaluateQualityGates(t *testing.T) 
 		result := framework.evaluateQualityGate(gate)
 		framework.results.QualityGateResults = append(framework.results.QualityGateResults, result)
 	}
-	
+
 	return nil
 }
 
@@ -1676,16 +1676,16 @@ func (framework *CIPerformanceTestFramework) evaluateQualityGate(gate QualityGat
 		Gate:   &gate,
 		Status: QualityGateStatusPassed,
 	}
-	
+
 	// Find the metric value from test results
 	var metricValue float64
 	var found bool
-	
+
 	for _, testResult := range framework.results.TestResults {
 		if testResult.Metrics == nil {
 			continue
 		}
-		
+
 		switch gate.Metric {
 		case "throughput":
 			metricValue = testResult.Metrics.Throughput
@@ -1706,20 +1706,20 @@ func (framework *CIPerformanceTestFramework) evaluateQualityGate(gate QualityGat
 				}
 			}
 		}
-		
+
 		if found {
 			break
 		}
 	}
-	
+
 	if !found {
 		result.Status = QualityGateStatusWarning
 		result.Message = "Metric not found"
 		return result
 	}
-	
+
 	result.ActualValue = metricValue
-	
+
 	// Evaluate threshold
 	switch gate.Operator {
 	case "gt":
@@ -1737,19 +1737,19 @@ func (framework *CIPerformanceTestFramework) evaluateQualityGate(gate QualityGat
 		result.Message = "Unknown operator"
 		return result
 	}
-	
+
 	if !result.ThresholdMet {
 		if gate.Critical {
 			result.Status = QualityGateStatusFailed
 		} else {
 			result.Status = QualityGateStatusWarning
 		}
-		result.Message = fmt.Sprintf("Threshold not met: %.2f %s %.2f", 
+		result.Message = fmt.Sprintf("Threshold not met: %.2f %s %.2f",
 			metricValue, gate.Operator, gate.Threshold)
 	} else {
 		result.Message = "Threshold met"
 	}
-	
+
 	return result
 }
 
@@ -1767,11 +1767,11 @@ func (framework *CIPerformanceTestFramework) generateAlerts(t *testing.T) error 
 				CurrentValue:   qgResult.ActualValue,
 				ThresholdValue: qgResult.Gate.Threshold,
 			}
-			
+
 			framework.results.Alerts = append(framework.results.Alerts, alert)
 		}
 	}
-	
+
 	// Generate alerts for regressions
 	if framework.results.BaselineResults != nil {
 		for _, comparison := range framework.results.BaselineResults.Comparisons {
@@ -1786,12 +1786,12 @@ func (framework *CIPerformanceTestFramework) generateAlerts(t *testing.T) error 
 					CurrentValue:   comparison.Current,
 					ThresholdValue: comparison.Baseline,
 				}
-				
+
 				framework.results.Alerts = append(framework.results.Alerts, alert)
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -1813,9 +1813,9 @@ func (framework *CIPerformanceTestFramework) collectArtifacts(t *testing.T) erro
 			Description: "Memory profiling data",
 		},
 	}
-	
+
 	framework.results.Artifacts = append(framework.results.Artifacts, artifacts...)
-	
+
 	return nil
 }
 
@@ -1840,48 +1840,48 @@ func (framework *CIPerformanceTestFramework) generateReports(t *testing.T) error
 			}
 		}
 	}
-	
+
 	return nil
 }
 
 func (framework *CIPerformanceTestFramework) generateJSONReport() error {
 	reportPath := filepath.Join(framework.config.ReportOutputDir, "performance-report.json")
-	
+
 	data, err := json.MarshalIndent(framework.results, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal JSON report: %w", err)
 	}
-	
+
 	return ioutil.WriteFile(reportPath, data, 0644)
 }
 
 func (framework *CIPerformanceTestFramework) generateHTMLReport() error {
 	reportPath := filepath.Join(framework.config.ReportOutputDir, "performance-report.html")
-	
+
 	html := framework.generateHTMLContent()
-	
+
 	return ioutil.WriteFile(reportPath, []byte(html), 0644)
 }
 
 func (framework *CIPerformanceTestFramework) generateXMLReport() error {
 	reportPath := filepath.Join(framework.config.ReportOutputDir, "performance-report.xml")
-	
+
 	xml := framework.generateXMLContent()
-	
+
 	return ioutil.WriteFile(reportPath, []byte(xml), 0644)
 }
 
 func (framework *CIPerformanceTestFramework) generateMarkdownReport() error {
 	reportPath := filepath.Join(framework.config.ReportOutputDir, "performance-report.md")
-	
+
 	markdown := framework.generateMarkdownContent()
-	
+
 	return ioutil.WriteFile(reportPath, []byte(markdown), 0644)
 }
 
 func (framework *CIPerformanceTestFramework) generateHTMLContent() string {
 	var html strings.Builder
-	
+
 	html.WriteString(`<!DOCTYPE html>
 <html>
 <head>
@@ -1898,7 +1898,7 @@ func (framework *CIPerformanceTestFramework) generateHTMLContent() string {
     </style>
 </head>
 <body>`)
-	
+
 	// Header
 	html.WriteString(`<div class="header">`)
 	html.WriteString(fmt.Sprintf(`<h1>Performance Test Report</h1>`))
@@ -1906,7 +1906,7 @@ func (framework *CIPerformanceTestFramework) generateHTMLContent() string {
 	html.WriteString(fmt.Sprintf(`<p>Timestamp: %s</p>`, framework.results.TestRun.Timestamp.Format(time.RFC3339)))
 	html.WriteString(fmt.Sprintf(`<p>Duration: %s</p>`, framework.results.TestRun.Duration))
 	html.WriteString(`</div>`)
-	
+
 	// Test Results
 	html.WriteString(`<h2>Test Results</h2>`)
 	for _, testResult := range framework.results.TestResults {
@@ -1916,12 +1916,12 @@ func (framework *CIPerformanceTestFramework) generateHTMLContent() string {
 		} else if testResult.Status == TestStatusError {
 			statusClass = "failed"
 		}
-		
+
 		html.WriteString(fmt.Sprintf(`<div class="test-result %s">`, statusClass))
 		html.WriteString(fmt.Sprintf(`<h3>%s</h3>`, testResult.TestName))
 		html.WriteString(fmt.Sprintf(`<p>Status: %s</p>`, testResult.Status))
 		html.WriteString(fmt.Sprintf(`<p>Duration: %s</p>`, testResult.TestDuration))
-		
+
 		if testResult.Metrics != nil {
 			html.WriteString(`<div class="metrics">`)
 			html.WriteString(`<h4>Metrics:</h4>`)
@@ -1932,67 +1932,67 @@ func (framework *CIPerformanceTestFramework) generateHTMLContent() string {
 			}
 			html.WriteString(`</div>`)
 		}
-		
+
 		html.WriteString(`</div>`)
 	}
-	
+
 	html.WriteString(`</body></html>`)
-	
+
 	return html.String()
 }
 
 func (framework *CIPerformanceTestFramework) generateXMLContent() string {
 	var xml strings.Builder
-	
+
 	xml.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
 <performance-report>`)
-	
+
 	xml.WriteString(fmt.Sprintf(`<run-info>
     <run-id>%s</run-id>
     <timestamp>%s</timestamp>
     <duration>%s</duration>
-</run-info>`, 
+</run-info>`,
 		framework.results.TestRun.RunID,
 		framework.results.TestRun.Timestamp.Format(time.RFC3339),
 		framework.results.TestRun.Duration))
-	
+
 	xml.WriteString(`<test-results>`)
 	for _, testResult := range framework.results.TestResults {
 		xml.WriteString(fmt.Sprintf(`<test-result>
     <name>%s</name>
     <status>%s</status>
-    <duration>%s</duration>`, 
+    <duration>%s</duration>`,
 			testResult.TestName, testResult.Status, testResult.TestDuration))
-		
+
 		if testResult.Metrics != nil {
 			xml.WriteString(`<metrics>`)
 			xml.WriteString(fmt.Sprintf(`<throughput>%.2f</throughput>`, testResult.Metrics.Throughput))
 			xml.WriteString(fmt.Sprintf(`<error-rate>%.2f</error-rate>`, testResult.Metrics.ErrorRate))
 			xml.WriteString(`</metrics>`)
 		}
-		
+
 		xml.WriteString(`</test-result>`)
 	}
 	xml.WriteString(`</test-results>`)
-	
+
 	xml.WriteString(`</performance-report>`)
-	
+
 	return xml.String()
 }
 
 func (framework *CIPerformanceTestFramework) generateMarkdownContent() string {
 	var md strings.Builder
-	
+
 	md.WriteString("# Performance Test Report\n\n")
-	
+
 	md.WriteString("## Test Run Information\n\n")
 	md.WriteString(fmt.Sprintf("- **Run ID**: %s\n", framework.results.TestRun.RunID))
 	md.WriteString(fmt.Sprintf("- **Timestamp**: %s\n", framework.results.TestRun.Timestamp.Format(time.RFC3339)))
 	md.WriteString(fmt.Sprintf("- **Duration**: %s\n", framework.results.TestRun.Duration))
 	md.WriteString("\n")
-	
+
 	md.WriteString("## Test Results\n\n")
-	
+
 	for _, testResult := range framework.results.TestResults {
 		status := "✅"
 		if testResult.Status == TestStatusFailed {
@@ -2000,11 +2000,11 @@ func (framework *CIPerformanceTestFramework) generateMarkdownContent() string {
 		} else if testResult.Status == TestStatusError {
 			status = "⚠️"
 		}
-		
+
 		md.WriteString(fmt.Sprintf("### %s %s\n\n", status, testResult.TestName))
 		md.WriteString(fmt.Sprintf("- **Status**: %s\n", testResult.Status))
 		md.WriteString(fmt.Sprintf("- **Duration**: %s\n", testResult.TestDuration))
-		
+
 		if testResult.Metrics != nil {
 			md.WriteString("- **Metrics**:\n")
 			md.WriteString(fmt.Sprintf("  - Throughput: %.2f ops/sec\n", testResult.Metrics.Throughput))
@@ -2013,10 +2013,10 @@ func (framework *CIPerformanceTestFramework) generateMarkdownContent() string {
 				md.WriteString(fmt.Sprintf("  - P95 Response Time: %v\n", testResult.Metrics.ResponseTime.P95))
 			}
 		}
-		
+
 		md.WriteString("\n")
 	}
-	
+
 	return md.String()
 }
 
@@ -2025,9 +2025,9 @@ func (framework *CIPerformanceTestFramework) shouldUpdateBaseline() bool {
 	if framework.results.Summary == nil {
 		return false
 	}
-	
-	return framework.results.Summary.FailedTests == 0 && 
-		   framework.results.Summary.RegressionsFound == 0
+
+	return framework.results.Summary.FailedTests == 0 &&
+		framework.results.Summary.RegressionsFound == 0
 }
 
 func (framework *CIPerformanceTestFramework) updateBaseline(t *testing.T) error {
@@ -2036,38 +2036,38 @@ func (framework *CIPerformanceTestFramework) updateBaseline(t *testing.T) error 
 		if testResult.Status != TestStatusPassed || testResult.Metrics == nil {
 			continue
 		}
-		
+
 		baseline := &PerformanceBaseline{
-			CreatedAt:         time.Now(),
-			CommitHash:        framework.config.CommitHash,
+			CreatedAt:          time.Now(),
+			CommitHash:         framework.config.CommitHash,
 			ThroughputBaseline: testResult.Metrics.Throughput,
 			ErrorRateBaseline:  testResult.Metrics.ErrorRate,
 		}
-		
+
 		if testResult.Metrics.ResponseTime != nil {
 			baseline.LatencyP95Baseline = testResult.Metrics.ResponseTime.P95
 		}
-		
+
 		baselineKey := fmt.Sprintf("%s-%s", framework.generateBaselineKey(), testResult.TestName)
 		if err := framework.baselineManager.StoreBaseline(baselineKey, baseline); err != nil {
 			return fmt.Errorf("failed to store baseline for %s: %w", testResult.TestName, err)
 		}
 	}
-	
+
 	return nil
 }
 
 func (framework *CIPerformanceTestFramework) finalizeResults(duration time.Duration) {
 	framework.results.TestRun.Duration = duration
-	
+
 	// Calculate summary
 	summary := &CIResultSummary{
-		TotalTests:    len(framework.results.TestResults),
-		TotalDuration: duration,
+		TotalTests:         len(framework.results.TestResults),
+		TotalDuration:      duration,
 		QualityGatesStatus: make(map[string]int),
-		AlertsGenerated:   len(framework.results.Alerts),
+		AlertsGenerated:    len(framework.results.Alerts),
 	}
-	
+
 	for _, testResult := range framework.results.TestResults {
 		switch testResult.Status {
 		case TestStatusPassed:
@@ -2080,11 +2080,11 @@ func (framework *CIPerformanceTestFramework) finalizeResults(duration time.Durat
 			summary.ErrorTests++
 		}
 	}
-	
+
 	for _, qgResult := range framework.results.QualityGateResults {
 		summary.QualityGatesStatus[string(qgResult.Status)]++
 	}
-	
+
 	if framework.results.BaselineResults != nil {
 		for _, comparison := range framework.results.BaselineResults.Comparisons {
 			if comparison.Regression {
@@ -2092,7 +2092,7 @@ func (framework *CIPerformanceTestFramework) finalizeResults(duration time.Durat
 			}
 		}
 	}
-	
+
 	// Calculate overall status
 	if summary.FailedTests > 0 || summary.ErrorTests > 0 {
 		summary.OverallStatus = "failed"
@@ -2101,12 +2101,12 @@ func (framework *CIPerformanceTestFramework) finalizeResults(duration time.Durat
 	} else {
 		summary.OverallStatus = "passed"
 	}
-	
+
 	// Calculate performance score
 	if summary.TotalTests > 0 {
 		summary.PerformanceScore = (float64(summary.PassedTests) / float64(summary.TotalTests)) * 100
 	}
-	
+
 	framework.results.Summary = summary
 }
 
@@ -2114,30 +2114,30 @@ func (framework *CIPerformanceTestFramework) shouldFailBuild() bool {
 	if framework.results.Summary == nil {
 		return false
 	}
-	
+
 	// Fail build if configured thresholds are exceeded
 	if framework.config.FailOnThreshold && framework.results.Summary.FailedTests > 0 {
 		return true
 	}
-	
+
 	if framework.config.FailOnRegression && framework.results.Summary.RegressionsFound > 0 {
 		return true
 	}
-	
+
 	// Fail build if critical quality gates failed
 	for _, qgResult := range framework.results.QualityGateResults {
 		if qgResult.Gate.Critical && qgResult.Status == QualityGateStatusFailed {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
 // Component initialization functions
 func NewBaselineManager(config *CIPerformanceConfig) *BaselineManager {
 	var storage BaselineStorage
-	
+
 	switch config.BaselineStorage {
 	case "filesystem":
 		storage = &FilesystemBaselineStorage{
@@ -2148,7 +2148,7 @@ func NewBaselineManager(config *CIPerformanceConfig) *BaselineManager {
 			basePath: filepath.Join(config.ReportOutputDir, "baselines"),
 		}
 	}
-	
+
 	return &BaselineManager{
 		config:          config,
 		storage:         storage,
@@ -2191,18 +2191,18 @@ func (bm *BaselineManager) LoadBaseline(key string) (*PerformanceBaseline, error
 		return cached, nil
 	}
 	bm.mu.RUnlock()
-	
+
 	baseline, err := bm.storage.Load(key)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if baseline != nil {
 		bm.mu.Lock()
 		bm.cachedBaselines[key] = baseline
 		bm.mu.Unlock()
 	}
-	
+
 	return baseline, nil
 }
 
@@ -2210,11 +2210,11 @@ func (bm *BaselineManager) StoreBaseline(key string, baseline *PerformanceBaseli
 	if err := bm.storage.Store(key, baseline); err != nil {
 		return err
 	}
-	
+
 	bm.mu.Lock()
 	bm.cachedBaselines[key] = baseline
 	bm.mu.Unlock()
-	
+
 	return nil
 }
 
@@ -2223,19 +2223,19 @@ func (fs *FilesystemBaselineStorage) Store(key string, baseline *PerformanceBase
 	if err := os.MkdirAll(fs.basePath, 0755); err != nil {
 		return err
 	}
-	
+
 	filePath := filepath.Join(fs.basePath, key+".json")
 	data, err := json.MarshalIndent(baseline, "", "  ")
 	if err != nil {
 		return err
 	}
-	
+
 	return ioutil.WriteFile(filePath, data, 0644)
 }
 
 func (fs *FilesystemBaselineStorage) Load(key string) (*PerformanceBaseline, error) {
 	filePath := filepath.Join(fs.basePath, key+".json")
-	
+
 	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -2243,12 +2243,12 @@ func (fs *FilesystemBaselineStorage) Load(key string) (*PerformanceBaseline, err
 		}
 		return nil, err
 	}
-	
+
 	var baseline PerformanceBaseline
 	if err := json.Unmarshal(data, &baseline); err != nil {
 		return nil, err
 	}
-	
+
 	return &baseline, nil
 }
 
@@ -2257,7 +2257,7 @@ func (fs *FilesystemBaselineStorage) List(prefix string) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var keys []string
 	for _, file := range files {
 		if strings.HasPrefix(file.Name(), prefix) && strings.HasSuffix(file.Name(), ".json") {
@@ -2265,7 +2265,7 @@ func (fs *FilesystemBaselineStorage) List(prefix string) ([]string, error) {
 			keys = append(keys, key)
 		}
 	}
-	
+
 	return keys, nil
 }
 
@@ -2286,33 +2286,33 @@ func TestCIPerformanceFramework(t *testing.T) {
 	if testing.Short() {
 		t.Skip("Skipping performance test in short mode")
 	}
-	
+
 	config := DefaultCIPerformanceConfig()
 	// Use reasonable timeout - longer than individual test duration but not excessive
-	config.TestTimeout = 30 * time.Second  // Reduced from 10 minutes to 30s
+	config.TestTimeout = 30 * time.Second // Reduced from 10 minutes to 30s
 	// Allow slightly longer in non-CI environments
 	if !testing.Short() && os.Getenv("CI") == "" {
 		config.TestTimeout = 2 * time.Minute
 	}
-	
+
 	framework := NewCIPerformanceTestFramework(config)
-	
+
 	if err := framework.RunCIPerformanceTests(t); err != nil {
 		t.Fatalf("CI Performance tests failed: %v", err)
 	}
-	
+
 	// Verify results
 	if framework.results.Summary == nil {
 		t.Fatal("No summary generated")
 	}
-	
+
 	t.Logf("CI Performance Test Summary:")
 	t.Logf("  Total Tests: %d", framework.results.Summary.TotalTests)
 	t.Logf("  Passed Tests: %d", framework.results.Summary.PassedTests)
 	t.Logf("  Failed Tests: %d", framework.results.Summary.FailedTests)
 	t.Logf("  Overall Status: %s", framework.results.Summary.OverallStatus)
 	t.Logf("  Performance Score: %.2f", framework.results.Summary.PerformanceScore)
-	
+
 	// Check for artifacts
 	if len(framework.results.Artifacts) > 0 {
 		t.Logf("  Artifacts Generated: %d", len(framework.results.Artifacts))
@@ -2320,7 +2320,7 @@ func TestCIPerformanceFramework(t *testing.T) {
 			t.Logf("    - %s (%s)", artifact.Name, artifact.Type)
 		}
 	}
-	
+
 	// Check for alerts
 	if len(framework.results.Alerts) > 0 {
 		t.Logf("  Alerts Generated: %d", len(framework.results.Alerts))

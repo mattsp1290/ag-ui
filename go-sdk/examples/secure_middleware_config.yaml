@@ -1,0 +1,153 @@
+# Example configuration showing secure middleware setup
+# This demonstrates how to configure middleware with proper secret management
+
+# Environment variables that should be set:
+# AGUI_JWT_SECRET=your-super-secure-jwt-secret-at-least-32-characters-long
+# AGUI_OAUTH2_CLIENT_SECRET=your-oauth2-client-secret
+# AGUI_ENV=production  # or development, test
+
+default_chain: "secure_auth"
+
+chains:
+  - name: "secure_auth"
+    enabled: true
+    handler:
+      type: "http"
+      config:
+        timeout: "30s"
+    middleware:
+      # Secure JWT Authentication
+      - type: "jwt_auth"
+        name: "secure_jwt"
+        enabled: true
+        priority: 100
+        config:
+          # DO NOT put secrets in config files!
+          # Secret is loaded from AGUI_JWT_SECRET environment variable
+          algorithm: "HS256"
+          issuer: "your-application"
+          audience: ["your-app-users"]
+          expiration: "24h"
+          refresh_window: "1h"
+          claims_validation: true
+
+      # Secure OAuth2 Authentication  
+      - type: "oauth2_auth"
+        name: "secure_oauth2"
+        enabled: true
+        priority: 90
+        config:
+          # Client secret is loaded from AGUI_OAUTH2_CLIENT_SECRET environment variable
+          client_id: "your-oauth2-client-id"  # This can be in config as it's not secret
+          auth_url: "https://your-oauth-provider.com/auth"
+          token_url: "https://your-oauth-provider.com/token"
+          redirect_url: "https://your-app.com/auth/callback"
+          scopes: ["read", "write"]
+          refresh_tokens: true
+
+      # Enhanced Security Middleware
+      - type: "security"
+        name: "comprehensive_security"
+        enabled: true
+        priority: 200  # Highest priority
+        config:
+          cors:
+            enabled: true
+            allowed_origins: ["https://your-frontend.com"]
+            allowed_methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+            allowed_headers: ["Content-Type", "Authorization"]
+            max_age: 3600
+
+          headers:
+            enabled: true
+            x_frame_options: "DENY"
+            x_content_type_options: "nosniff"
+            x_xss_protection: "1; mode=block"
+            strict_transport_security: "max-age=31536000; includeSubDomains"
+            content_security_policy: "default-src 'self'"
+
+          input_validation:
+            enabled: true
+            max_request_size: 10485760  # 10MB
+            max_header_size: 8192       # 8KB
+            max_string_length: 10000
+            max_array_length: 1000
+            max_object_depth: 10
+            allowed_content_types:
+              - "application/json"
+              - "application/x-www-form-urlencoded"
+              - "multipart/form-data"
+            strict_mode: true
+            log_violations: true
+            block_on_violation: true
+
+          threat_detection:
+            enabled: true
+            sql_injection: true
+            xss_detection: true
+            command_injection: true
+            path_traversal: true
+            log_threats: true
+            block_threats: true
+
+      # Rate Limiting
+      - type: "rate_limit"
+        name: "api_rate_limit"
+        enabled: true
+        priority: 80
+        config:
+          algorithm: "token_bucket"
+          requests_per_unit: 100
+          unit: "1m"
+          burst: 10
+          key_generator: "ip"
+
+      # Logging with Security Context
+      - type: "logging"
+        name: "secure_logging"
+        enabled: true
+        priority: 10
+        config:
+          level: "INFO"
+          format: "json"
+          enable_correlation: true
+          # Sensitive fields are automatically redacted
+          redact_sensitive: true
+
+global:
+  # Global security settings
+  security:
+    # Require HTTPS in production
+    require_https: true
+    
+    # Secret management configuration
+    secret_management:
+      env_prefix: "AGUI_"
+      validate_secret_strength: true
+      min_secret_length: 32
+      allow_config_fallback: false  # Secure by default
+
+    # Audit logging
+    audit_logging:
+      enabled: true
+      log_auth_events: true
+      log_permission_events: true
+      log_security_violations: true
+
+  # Environment-specific overrides
+  development:
+    security:
+      secret_management:
+        allow_config_fallback: true  # Allow fallback in dev
+      audit_logging:
+        log_level: "DEBUG"
+
+  production:
+    security:
+      require_https: true
+      secret_management:
+        allow_config_fallback: false  # Never allow fallback in prod
+        validate_secret_strength: true
+      input_validation:
+        strict_mode: true
+        block_on_violation: true

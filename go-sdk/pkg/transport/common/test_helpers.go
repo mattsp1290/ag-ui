@@ -11,17 +11,17 @@ type TestTimeouts struct {
 	// Connection timeouts
 	Connect    time.Duration
 	Disconnect time.Duration
-	
+
 	// Operation timeouts
-	Send     time.Duration
-	Receive  time.Duration
-	Process  time.Duration
-	
+	Send    time.Duration
+	Receive time.Duration
+	Process time.Duration
+
 	// Test-specific timeouts
 	Unit        time.Duration
 	Integration time.Duration
 	Load        time.Duration
-	
+
 	// Event timeouts
 	EventWait     time.Duration
 	EventBatch    time.Duration
@@ -34,17 +34,17 @@ func DefaultTestTimeouts() TestTimeouts {
 		// Connection timeouts
 		Connect:    2 * time.Second,
 		Disconnect: 1 * time.Second,
-		
+
 		// Operation timeouts
-		Send:    3 * time.Second,  // Increased for HTTP request reliability
+		Send:    3 * time.Second, // Increased for HTTP request reliability
 		Receive: 3 * time.Second,
 		Process: 2 * time.Second,
-		
+
 		// Test-specific timeouts
 		Unit:        5 * time.Second,
 		Integration: 15 * time.Second,
 		Load:        30 * time.Second,
-		
+
 		// Event timeouts
 		EventWait:     500 * time.Millisecond,
 		EventBatch:    300 * time.Millisecond,
@@ -175,7 +175,7 @@ func (th *TestHelper) WaitForEventWithTimeout(eventChan <-chan interface{}, time
 func (th *TestHelper) WaitForEvents(eventChan <-chan interface{}, count int) []interface{} {
 	events := make([]interface{}, 0, count)
 	timeout := time.After(th.timeouts.EventBatch * time.Duration(count))
-	
+
 	for i := 0; i < count; i++ {
 		select {
 		case event := <-eventChan:
@@ -185,7 +185,7 @@ func (th *TestHelper) WaitForEvents(eventChan <-chan interface{}, count int) []i
 			return events
 		}
 	}
-	
+
 	return events
 }
 
@@ -193,18 +193,18 @@ func (th *TestHelper) WaitForEvents(eventChan <-chan interface{}, count int) []i
 func (th *TestHelper) WaitForEventSequence(eventChan <-chan interface{}, count int) []interface{} {
 	events := make([]interface{}, 0, count)
 	deadline := time.After(th.timeouts.EventSequence)
-	
+
 	for i := 0; i < count; i++ {
 		select {
 		case event := <-eventChan:
 			events = append(events, event)
 		case <-deadline:
-			th.t.Fatalf("Timeout waiting for event sequence after %v (received %d/%d events)", 
+			th.t.Fatalf("Timeout waiting for event sequence after %v (received %d/%d events)",
 				th.timeouts.EventSequence, len(events), count)
 			return events
 		}
 	}
-	
+
 	return events
 }
 
@@ -232,11 +232,11 @@ func (th *TestHelper) ExpectNoEvent(eventChan <-chan interface{}, description st
 // WaitWithCleanup waits for an operation to complete with cleanup on timeout
 func (th *TestHelper) WaitWithCleanup(operation func() error, cleanup func(), timeout time.Duration, description string) {
 	done := make(chan error, 1)
-	
+
 	go func() {
 		done <- operation()
 	}()
-	
+
 	select {
 	case err := <-done:
 		if err != nil {
@@ -255,12 +255,12 @@ func (th *TestHelper) AssertEventually(condition func() bool, timeout time.Durat
 	deadline := time.After(timeout)
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
-	
+
 	for {
 		if condition() {
 			return
 		}
-		
+
 		select {
 		case <-ticker.C:
 			continue
@@ -288,12 +288,12 @@ func (th *TestHelper) RetryLong(operation func() bool, description string) {
 // Cleanup runs cleanup functions with a timeout
 func (th *TestHelper) Cleanup(cleanup func()) {
 	done := make(chan struct{})
-	
+
 	go func() {
 		defer close(done)
 		cleanup()
 	}()
-	
+
 	select {
 	case <-done:
 		// Cleanup completed

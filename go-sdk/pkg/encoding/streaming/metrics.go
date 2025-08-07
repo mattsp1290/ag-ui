@@ -17,44 +17,44 @@ type StreamMetrics struct {
 	eventsErrored   atomic.Int64
 
 	// Throughput
-	bytesProcessed   atomic.Int64
-	bytesPerSecond   atomic.Int64
-	eventsPerSecond  atomic.Int64
+	bytesProcessed  atomic.Int64
+	bytesPerSecond  atomic.Int64
+	eventsPerSecond atomic.Int64
 
 	// Latency tracking
-	latencySum       atomic.Int64
-	latencyCount     atomic.Int64
-	maxLatency       atomic.Int64
+	latencySum   atomic.Int64
+	latencyCount atomic.Int64
+	maxLatency   atomic.Int64
 
 	// Memory usage
-	memoryUsed       atomic.Int64
-	peakMemoryUsed   atomic.Int64
-	bufferSize       atomic.Int64
+	memoryUsed     atomic.Int64
+	peakMemoryUsed atomic.Int64
+	bufferSize     atomic.Int64
 
 	// Progress tracking
-	startTime        time.Time
-	lastUpdateTime   atomic.Int64
-	progressPercent  atomic.Uint32
+	startTime       time.Time
+	lastUpdateTime  atomic.Int64
+	progressPercent atomic.Uint32
 
 	// Event type breakdown
-	eventTypes      map[string]*EventTypeMetrics
-	eventTypesMu    sync.RWMutex
+	eventTypes   map[string]*EventTypeMetrics
+	eventTypesMu sync.RWMutex
 
 	// Sampling
-	sampleInterval  time.Duration
-	sampleTicker    *time.Ticker
-	stopChan        chan struct{}
-	wg              sync.WaitGroup
-	ctx             context.Context
-	cancel          context.CancelFunc
+	sampleInterval time.Duration
+	sampleTicker   *time.Ticker
+	stopChan       chan struct{}
+	wg             sync.WaitGroup
+	ctx            context.Context
+	cancel         context.CancelFunc
 }
 
 // EventTypeMetrics tracks metrics for a specific event type
 type EventTypeMetrics struct {
-	Count     atomic.Int64
-	Bytes     atomic.Int64
-	AvgSize   atomic.Int64
-	Errors    atomic.Int64
+	Count   atomic.Int64
+	Bytes   atomic.Int64
+	AvgSize atomic.Int64
+	Errors  atomic.Int64
 }
 
 // MetricsSnapshot represents a point-in-time snapshot of metrics

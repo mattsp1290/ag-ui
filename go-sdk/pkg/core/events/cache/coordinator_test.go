@@ -38,14 +38,14 @@ func NewMockTransport() *MockTransport {
 func (m *MockTransport) Send(ctx context.Context, nodeID string, message Message) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.closed {
 		return fmt.Errorf("transport closed")
 	}
-	
+
 	message.Target = nodeID
 	m.messages = append(m.messages, message)
-	
+
 	// Deliver to subscribers
 	if channels, exists := m.subscribers[message.Type]; exists {
 		for _, ch := range channels {
@@ -56,20 +56,20 @@ func (m *MockTransport) Send(ctx context.Context, nodeID string, message Message
 			}
 		}
 	}
-	
+
 	return nil
 }
 
 func (m *MockTransport) Broadcast(ctx context.Context, message Message) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.closed {
 		return fmt.Errorf("transport closed")
 	}
-	
+
 	m.messages = append(m.messages, message)
-	
+
 	// Deliver to all subscribers
 	if channels, exists := m.subscribers[message.Type]; exists {
 		for _, ch := range channels {
@@ -80,33 +80,33 @@ func (m *MockTransport) Broadcast(ctx context.Context, message Message) error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
 func (m *MockTransport) Subscribe(messageType string) <-chan Message {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	ch := make(chan Message, 100)
 	if m.subscribers[messageType] == nil {
 		m.subscribers[messageType] = make([]chan Message, 0)
 	}
 	m.subscribers[messageType] = append(m.subscribers[messageType], ch)
-	
+
 	return ch
 }
 
 func (m *MockTransport) Close() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.closed {
 		return nil // Already closed
 	}
-	
+
 	m.closed = true
-	
+
 	// Close all subscriber channels
 	for _, channels := range m.subscribers {
 		for _, ch := range channels {
@@ -118,14 +118,14 @@ func (m *MockTransport) Close() error {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
 func (m *MockTransport) GetMessages() []Message {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	messages := make([]Message, len(m.messages))
 	copy(messages, m.messages)
 	return messages
@@ -134,18 +134,18 @@ func (m *MockTransport) GetMessages() []Message {
 func (m *MockTransport) ClearMessages() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	m.messages = make([]Message, 0)
 }
 
 func (suite *CacheCoordinatorTestSuite) SetupTest() {
 	suite.ctx, suite.cancel = context.WithCancel(context.Background())
 	suite.transport = NewMockTransport()
-	
+
 	config := DefaultCoordinatorConfig()
 	config.HeartbeatInterval = 100 * time.Millisecond
 	config.NodeTimeout = 500 * time.Millisecond
-	
+
 	suite.coordinator = NewCacheCoordinator("node-1", suite.transport, config)
 	err := suite.coordinator.Start(suite.ctx)
 	suite.Require().NoError(err)
@@ -176,16 +176,16 @@ func (suite *CacheCoordinatorTestSuite) TestBroadcastInvalidation() {
 		EventType: "test-event",
 		Timestamp: time.Now(),
 	}
-	
+
 	err := suite.coordinator.BroadcastInvalidation(suite.ctx, invalidationMsg)
 	suite.NoError(err)
-	
+
 	// Check that message was broadcast
 	messages := suite.transport.GetMessages()
 	suite.Len(messages, 1)
 	suite.Equal("invalidation", messages[0].Type)
 	suite.Equal("node-1", messages[0].Source)
-	
+
 	// Verify message content
 	var receivedMsg InvalidationMessage
 	err = json.Unmarshal(messages[0].Payload, &receivedMsg)
@@ -202,10 +202,10 @@ func (suite *CacheCoordinatorTestSuite) TestNotifyCacheUpdate() {
 		Operation: "SET",
 		Timestamp: time.Now(),
 	}
-	
+
 	err := suite.coordinator.NotifyCacheUpdate(suite.ctx, updateMsg)
 	suite.NoError(err)
-	
+
 	// Check that message was broadcast
 	messages := suite.transport.GetMessages()
 	suite.Len(messages, 1)
@@ -216,11 +216,11 @@ func (suite *CacheCoordinatorTestSuite) TestNotifyCacheUpdate() {
 func (suite *CacheCoordinatorTestSuite) TestHeartbeatWorker() {
 	// Wait for a few heartbeats
 	time.Sleep(250 * time.Millisecond)
-	
+
 	// Check that heartbeat messages were sent
 	messages := suite.transport.GetMessages()
 	suite.Greater(len(messages), 0)
-	
+
 	// Find heartbeat messages
 	heartbeatCount := 0
 	for _, msg := range messages {
@@ -228,7 +228,7 @@ func (suite *CacheCoordinatorTestSuite) TestHeartbeatWorker() {
 			heartbeatCount++
 		}
 	}
-	
+
 	suite.Greater(heartbeatCount, 0)
 }
 
@@ -241,33 +241,33 @@ func (suite *CacheCoordinatorTestSuite) TestNodeHealthManagement() {
 		LastHeartbeat: time.Now(),
 	}
 	suite.coordinator.mu.Unlock()
-	
+
 	// Wait for health check
 	time.Sleep(200 * time.Millisecond)
-	
+
 	// Node should still be active
 	suite.coordinator.mu.RLock()
 	node := suite.coordinator.nodes["node-2"]
 	suite.Equal(NodeStateActive, node.State)
 	suite.coordinator.mu.RUnlock()
-	
+
 	// Set node's last heartbeat to past
 	suite.coordinator.mu.Lock()
 	suite.coordinator.nodes["node-2"].LastHeartbeat = time.Now().Add(-1 * time.Second)
 	suite.coordinator.mu.Unlock()
-	
+
 	// Wait for health check
 	time.Sleep(200 * time.Millisecond)
-	
+
 	// Node should be suspect
 	suite.coordinator.mu.RLock()
 	node = suite.coordinator.nodes["node-2"]
 	suite.Equal(NodeStateSuspect, node.State)
 	suite.coordinator.mu.RUnlock()
-	
+
 	// Wait more time
 	time.Sleep(300 * time.Millisecond)
-	
+
 	// Node should be failed
 	suite.coordinator.mu.RLock()
 	node = suite.coordinator.nodes["node-2"]
@@ -284,7 +284,7 @@ func (suite *CacheCoordinatorTestSuite) TestConsensusRequest() {
 		Value:     "test-value",
 		Timestamp: time.Now(),
 	}
-	
+
 	// Add another active node to have quorum
 	suite.coordinator.mu.Lock()
 	suite.coordinator.nodes["node-2"] = &NodeInfo{
@@ -293,14 +293,14 @@ func (suite *CacheCoordinatorTestSuite) TestConsensusRequest() {
 		LastHeartbeat: time.Now(),
 	}
 	suite.coordinator.mu.Unlock()
-	
+
 	// Request consensus
 	consensus, err := suite.coordinator.RequestConsensus(suite.ctx, request)
 	suite.NoError(err)
-	
+
 	// With only self vote, should achieve consensus (quorum = 0.51)
 	suite.True(consensus)
-	
+
 	// Check that request was broadcast
 	messages := suite.transport.GetMessages()
 	consensusRequests := 0
@@ -317,10 +317,10 @@ func (suite *CacheCoordinatorTestSuite) TestShardingEnabled() {
 	config := DefaultCoordinatorConfig()
 	config.EnableSharding = true
 	config.ShardCount = 4
-	
+
 	coordinator := NewCacheCoordinator("node-1", suite.transport, config)
 	defer coordinator.Stop(suite.ctx)
-	
+
 	// Add nodes
 	coordinator.mu.Lock()
 	coordinator.nodes["node-2"] = &NodeInfo{
@@ -329,14 +329,14 @@ func (suite *CacheCoordinatorTestSuite) TestShardingEnabled() {
 		LastHeartbeat: time.Now(),
 	}
 	coordinator.mu.Unlock()
-	
+
 	// Start coordinator
 	err := coordinator.Start(suite.ctx)
 	suite.NoError(err)
-	
+
 	// Wait for shard rebalancing
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Check shard distribution
 	info := coordinator.GetClusterInfo()
 	suite.Equal(4, info["shard_count"])
@@ -348,19 +348,19 @@ func (suite *CacheCoordinatorTestSuite) TestShardKeyMapping() {
 	config := DefaultCoordinatorConfig()
 	config.EnableSharding = true
 	config.ShardCount = 4
-	
+
 	coordinator := NewCacheCoordinator("node-1", suite.transport, config)
 	defer coordinator.Stop(suite.ctx)
-	
+
 	// Test shard calculation
 	key1 := "test-key-1"
 	key2 := "test-key-2"
 	key3 := "test-key-1" // Same as key1
-	
+
 	shard1 := coordinator.getShardForKey(key1)
 	shard2 := coordinator.getShardForKey(key2)
 	shard3 := coordinator.getShardForKey(key3)
-	
+
 	suite.GreaterOrEqual(shard1, 0)
 	suite.Less(shard1, 4)
 	suite.GreaterOrEqual(shard2, 0)
@@ -373,13 +373,13 @@ func (suite *CacheCoordinatorTestSuite) TestShardedCacheUpdate() {
 	config := DefaultCoordinatorConfig()
 	config.EnableSharding = true
 	config.ShardCount = 4
-	
+
 	coordinator := NewCacheCoordinator("node-1", suite.transport, config)
 	defer coordinator.Stop(suite.ctx)
-	
+
 	err := coordinator.Start(suite.ctx)
 	suite.NoError(err)
-	
+
 	// Add nodes and set up shards
 	coordinator.mu.Lock()
 	coordinator.nodes["node-2"] = &NodeInfo{
@@ -395,7 +395,7 @@ func (suite *CacheCoordinatorTestSuite) TestShardedCacheUpdate() {
 		3: {"node-2"},
 	}
 	coordinator.mu.Unlock()
-	
+
 	// Find a key that maps to shard 1 (which has node-2)
 	testKey := "a" // Simple key that should map to shard 1
 	hash := 0
@@ -407,7 +407,7 @@ func (suite *CacheCoordinatorTestSuite) TestShardedCacheUpdate() {
 	if expectedShard != 1 && expectedShard != 3 { // shard 1 or 3 both have node-2
 		testKey = "b"
 	}
-	
+
 	updateMsg := CacheUpdateMessage{
 		NodeID:    "node-1",
 		Key:       testKey,
@@ -415,10 +415,10 @@ func (suite *CacheCoordinatorTestSuite) TestShardedCacheUpdate() {
 		Operation: "SET",
 		Timestamp: time.Now(),
 	}
-	
+
 	err = coordinator.NotifyCacheUpdate(suite.ctx, updateMsg)
 	suite.NoError(err)
-	
+
 	// Should send targeted messages based on sharding
 	messages := suite.transport.GetMessages()
 	suite.Greater(len(messages), 0)
@@ -435,13 +435,13 @@ func (suite *CacheCoordinatorTestSuite) TestMetricsReporting() {
 		},
 		Timestamp: time.Now(),
 	}
-	
+
 	err := suite.coordinator.ReportMetrics(suite.ctx, report)
 	suite.NoError(err)
-	
+
 	// Wait for metrics processing
 	time.Sleep(50 * time.Millisecond)
-	
+
 	// Check that metrics were processed
 	// (In a real implementation, this would update node metrics)
 	suite.True(true) // Placeholder assertion
@@ -462,9 +462,9 @@ func (suite *CacheCoordinatorTestSuite) TestClusterInfo() {
 		LastHeartbeat: time.Now().Add(-1 * time.Hour),
 	}
 	suite.coordinator.mu.Unlock()
-	
+
 	info := suite.coordinator.GetClusterInfo()
-	
+
 	suite.Equal("node-1", info["node_id"])
 	suite.Equal(3, info["total_nodes"])
 	suite.Equal(2, info["active_nodes"]) // node-1 and node-2
@@ -475,15 +475,15 @@ func (suite *CacheCoordinatorTestSuite) TestClusterInfo() {
 func (suite *CacheCoordinatorTestSuite) TestConcurrentOperations() {
 	const numGoroutines = 10
 	const numOperations = 50
-	
+
 	var wg sync.WaitGroup
 	errors := make(chan error, numGoroutines*numOperations)
-	
+
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
-			
+
 			for j := 0; j < numOperations; j++ {
 				// Mix different operations
 				switch j % 3 {
@@ -529,15 +529,15 @@ func (suite *CacheCoordinatorTestSuite) TestConcurrentOperations() {
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
 	close(errors)
-	
+
 	// Check for errors
 	for err := range errors {
 		suite.Fail("Concurrent operation failed", err)
 	}
-	
+
 	// Verify that messages were sent
 	messages := suite.transport.GetMessages()
 	suite.Greater(len(messages), 0)
@@ -546,16 +546,16 @@ func (suite *CacheCoordinatorTestSuite) TestConcurrentOperations() {
 func (suite *CacheCoordinatorTestSuite) TestTransportErrors() {
 	// Close transport to simulate errors
 	suite.transport.Close()
-	
+
 	invalidationMsg := InvalidationMessage{
 		NodeID:    "node-1",
 		EventType: "test-event",
 		Timestamp: time.Now(),
 	}
-	
+
 	err := suite.coordinator.BroadcastInvalidation(suite.ctx, invalidationMsg)
 	suite.Error(err)
-	
+
 	updateMsg := CacheUpdateMessage{
 		NodeID:    "node-1",
 		Key:       "test-key",
@@ -563,7 +563,7 @@ func (suite *CacheCoordinatorTestSuite) TestTransportErrors() {
 		Operation: "SET",
 		Timestamp: time.Now(),
 	}
-	
+
 	err = suite.coordinator.NotifyCacheUpdate(suite.ctx, updateMsg)
 	suite.Error(err)
 }
@@ -576,21 +576,21 @@ func TestCacheCoordinatorTestSuite(t *testing.T) {
 func BenchmarkBroadcastInvalidation(b *testing.B) {
 	transport := NewMockTransport()
 	defer transport.Close()
-	
+
 	config := DefaultCoordinatorConfig()
 	coordinator := NewCacheCoordinator("node-1", transport, config)
 	defer coordinator.Stop(context.Background())
-	
+
 	coordinator.Start(context.Background())
-	
+
 	invalidationMsg := InvalidationMessage{
 		NodeID:    "node-1",
 		EventType: "test-event",
 		Timestamp: time.Now(),
 	}
-	
+
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		coordinator.BroadcastInvalidation(ctx, invalidationMsg)
@@ -600,13 +600,13 @@ func BenchmarkBroadcastInvalidation(b *testing.B) {
 func BenchmarkNotifyCacheUpdate(b *testing.B) {
 	transport := NewMockTransport()
 	defer transport.Close()
-	
+
 	config := DefaultCoordinatorConfig()
 	coordinator := NewCacheCoordinator("node-1", transport, config)
 	defer coordinator.Stop(context.Background())
-	
+
 	coordinator.Start(context.Background())
-	
+
 	updateMsg := CacheUpdateMessage{
 		NodeID:    "node-1",
 		Key:       "test-key",
@@ -614,9 +614,9 @@ func BenchmarkNotifyCacheUpdate(b *testing.B) {
 		Operation: "SET",
 		Timestamp: time.Now(),
 	}
-	
+
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		coordinator.NotifyCacheUpdate(ctx, updateMsg)
@@ -626,11 +626,11 @@ func BenchmarkNotifyCacheUpdate(b *testing.B) {
 func BenchmarkGetClusterInfo(b *testing.B) {
 	transport := NewMockTransport()
 	defer transport.Close()
-	
+
 	config := DefaultCoordinatorConfig()
 	coordinator := NewCacheCoordinator("node-1", transport, config)
 	defer coordinator.Stop(context.Background())
-	
+
 	// Add some nodes
 	coordinator.nodes["node-2"] = &NodeInfo{
 		ID:            "node-2",
@@ -642,7 +642,7 @@ func BenchmarkGetClusterInfo(b *testing.B) {
 		State:         NodeStateActive,
 		LastHeartbeat: time.Now(),
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		coordinator.GetClusterInfo()

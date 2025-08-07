@@ -16,12 +16,12 @@ type DeadlockDetector struct {
 	waitGraph      map[string][]string // Resource ID -> waiting for Resource IDs
 	detectionTimer *time.Timer
 	config         DeadlockConfig
-	
+
 	// Detection state
-	detecting      bool
-	lastDetection  time.Time
-	deadlockCount  int64
-	
+	detecting     bool
+	lastDetection time.Time
+	deadlockCount int64
+
 	// Callback for when deadlock is detected
 	onDeadlock func(DeadlockInfo)
 }
@@ -30,13 +30,13 @@ type DeadlockDetector struct {
 type DeadlockConfig struct {
 	// DetectionInterval is how often to check for deadlocks
 	DetectionInterval time.Duration
-	
+
 	// WaitTimeout is the maximum time to wait for a resource
 	WaitTimeout time.Duration
-	
+
 	// EnableStackTrace captures stack traces for debugging
 	EnableStackTrace bool
-	
+
 	// Logger for deadlock events
 	Logger Logger
 }
@@ -53,15 +53,15 @@ func DefaultDeadlockConfig() DeadlockConfig {
 
 // DeadlockResource represents a resource that can be involved in deadlocks
 type DeadlockResource struct {
-	ID          string
-	Type        ResourceType
-	Owner       string // Goroutine ID that owns this resource
-	Waiters     []string // Goroutine IDs waiting for this resource
-	AcquiredAt  time.Time
-	StackTrace  string // Stack trace of acquisition
-	
+	ID         string
+	Type       ResourceType
+	Owner      string   // Goroutine ID that owns this resource
+	Waiters    []string // Goroutine IDs waiting for this resource
+	AcquiredAt time.Time
+	StackTrace string // Stack trace of acquisition
+
 	// Synchronization
-	mu      sync.RWMutex
+	mu       sync.RWMutex
 	acquired bool
 }
 
@@ -70,22 +70,22 @@ type DeadlockInfo struct {
 	Cycle       []string // Resource IDs in the deadlock cycle
 	Resources   map[string]*DeadlockResource
 	DetectedAt  time.Time
-	Resolution  string // How the deadlock was resolved
+	Resolution  string            // How the deadlock was resolved
 	StackTraces map[string]string // Stack traces of involved goroutines
 }
 
 // NewDeadlockDetector creates a new deadlock detector
 func NewDeadlockDetector(config DeadlockConfig) *DeadlockDetector {
 	dd := &DeadlockDetector{
-		resources:  make(map[string]*DeadlockResource),
-		waitGraph:  make(map[string][]string),
-		config:     config,
+		resources: make(map[string]*DeadlockResource),
+		waitGraph: make(map[string][]string),
+		config:    config,
 	}
-	
+
 	// Start detection timer
 	dd.detectionTimer = time.NewTimer(config.DetectionInterval)
 	go dd.detectionLoop()
-	
+
 	return dd
 }
 
@@ -93,21 +93,21 @@ func NewDeadlockDetector(config DeadlockConfig) *DeadlockDetector {
 func (dd *DeadlockDetector) RegisterResource(id string, resourceType ResourceType) {
 	dd.mu.Lock()
 	defer dd.mu.Unlock()
-	
+
 	resource := &DeadlockResource{
 		ID:   id,
 		Type: resourceType,
 	}
-	
+
 	// Capture stack trace if enabled
 	if dd.config.EnableStackTrace {
 		buf := make([]byte, 4096)
 		n := runtime.Stack(buf, false)
 		resource.StackTrace = string(buf[:n])
 	}
-	
+
 	dd.resources[id] = resource
-	
+
 	if dd.config.Logger != nil {
 		dd.config.Logger.Debug("Resource registered for deadlock detection",
 			String("id", id),
@@ -119,10 +119,10 @@ func (dd *DeadlockDetector) RegisterResource(id string, resourceType ResourceTyp
 func (dd *DeadlockDetector) UnregisterResource(id string) {
 	dd.mu.Lock()
 	defer dd.mu.Unlock()
-	
+
 	delete(dd.resources, id)
 	delete(dd.waitGraph, id)
-	
+
 	// Remove from wait graph
 	for resourceID, waitList := range dd.waitGraph {
 		newWaitList := make([]string, 0, len(waitList))
@@ -133,7 +133,7 @@ func (dd *DeadlockDetector) UnregisterResource(id string) {
 		}
 		dd.waitGraph[resourceID] = newWaitList
 	}
-	
+
 	if dd.config.Logger != nil {
 		dd.config.Logger.Debug("Resource unregistered from deadlock detection", String("id", id))
 	}
@@ -143,29 +143,29 @@ func (dd *DeadlockDetector) UnregisterResource(id string) {
 func (dd *DeadlockDetector) AcquireResource(resourceID string, ownerID string) {
 	dd.mu.Lock()
 	defer dd.mu.Unlock()
-	
+
 	resource, exists := dd.resources[resourceID]
 	if !exists {
 		return
 	}
-	
+
 	resource.mu.Lock()
 	resource.acquired = true
 	resource.Owner = ownerID
 	resource.AcquiredAt = time.Now()
-	
+
 	// Capture stack trace if enabled
 	if dd.config.EnableStackTrace {
 		buf := make([]byte, 4096)
 		n := runtime.Stack(buf, false)
 		resource.StackTrace = string(buf[:n])
 	}
-	
+
 	resource.mu.Unlock()
-	
+
 	// Remove from wait graph
 	delete(dd.waitGraph, resourceID)
-	
+
 	if dd.config.Logger != nil {
 		dd.config.Logger.Debug("Resource acquired",
 			String("resource", resourceID),
@@ -177,19 +177,19 @@ func (dd *DeadlockDetector) AcquireResource(resourceID string, ownerID string) {
 func (dd *DeadlockDetector) ReleaseResource(resourceID string) {
 	dd.mu.Lock()
 	defer dd.mu.Unlock()
-	
+
 	resource, exists := dd.resources[resourceID]
 	if !exists {
 		return
 	}
-	
+
 	resource.mu.Lock()
 	resource.acquired = false
 	resource.Owner = ""
 	resource.AcquiredAt = time.Time{}
 	resource.StackTrace = ""
 	resource.mu.Unlock()
-	
+
 	if dd.config.Logger != nil {
 		dd.config.Logger.Debug("Resource released", String("resource", resourceID))
 	}
@@ -199,12 +199,12 @@ func (dd *DeadlockDetector) ReleaseResource(resourceID string) {
 func (dd *DeadlockDetector) WaitForResource(resourceID string, waiterID string, waitingFor []string) {
 	dd.mu.Lock()
 	defer dd.mu.Unlock()
-	
+
 	resource, exists := dd.resources[resourceID]
 	if !exists {
 		return
 	}
-	
+
 	resource.mu.Lock()
 	// Add waiter if not already present
 	found := false
@@ -218,10 +218,10 @@ func (dd *DeadlockDetector) WaitForResource(resourceID string, waiterID string, 
 		resource.Waiters = append(resource.Waiters, waiterID)
 	}
 	resource.mu.Unlock()
-	
+
 	// Update wait graph
 	dd.waitGraph[waiterID] = waitingFor
-	
+
 	if dd.config.Logger != nil {
 		dd.config.Logger.Debug("Resource wait recorded",
 			String("resource", resourceID),
@@ -234,12 +234,12 @@ func (dd *DeadlockDetector) WaitForResource(resourceID string, waiterID string, 
 func (dd *DeadlockDetector) StopWaitingForResource(resourceID string, waiterID string) {
 	dd.mu.Lock()
 	defer dd.mu.Unlock()
-	
+
 	resource, exists := dd.resources[resourceID]
 	if !exists {
 		return
 	}
-	
+
 	resource.mu.Lock()
 	// Remove waiter
 	newWaiters := make([]string, 0, len(resource.Waiters))
@@ -250,10 +250,10 @@ func (dd *DeadlockDetector) StopWaitingForResource(resourceID string, waiterID s
 	}
 	resource.Waiters = newWaiters
 	resource.mu.Unlock()
-	
+
 	// Remove from wait graph
 	delete(dd.waitGraph, waiterID)
-	
+
 	if dd.config.Logger != nil {
 		dd.config.Logger.Debug("Resource wait stopped",
 			String("resource", resourceID),
@@ -278,9 +278,9 @@ func (dd *DeadlockDetector) detectionLoop() {
 func (dd *DeadlockDetector) Start() {
 	dd.mu.Lock()
 	defer dd.mu.Unlock()
-	
+
 	dd.detecting = true
-	
+
 	if dd.config.Logger != nil {
 		dd.config.Logger.Info("Deadlock detection started")
 	}
@@ -290,13 +290,13 @@ func (dd *DeadlockDetector) Start() {
 func (dd *DeadlockDetector) Stop() {
 	dd.mu.Lock()
 	defer dd.mu.Unlock()
-	
+
 	dd.detecting = false
-	
+
 	if dd.detectionTimer != nil {
 		dd.detectionTimer.Stop()
 	}
-	
+
 	if dd.config.Logger != nil {
 		dd.config.Logger.Info("Deadlock detection stopped")
 	}
@@ -306,18 +306,18 @@ func (dd *DeadlockDetector) Stop() {
 func (dd *DeadlockDetector) detectDeadlocks() {
 	dd.mu.RLock()
 	defer dd.mu.RUnlock()
-	
+
 	// Create a copy of the wait graph for analysis
 	waitGraph := make(map[string][]string)
 	for k, v := range dd.waitGraph {
 		waitGraph[k] = make([]string, len(v))
 		copy(waitGraph[k], v)
 	}
-	
+
 	// Find cycles using DFS
 	visited := make(map[string]bool)
 	recStack := make(map[string]bool)
-	
+
 	for node := range waitGraph {
 		if !visited[node] {
 			if cycle := dd.findCycle(node, waitGraph, visited, recStack, []string{}); len(cycle) > 0 {
@@ -332,7 +332,7 @@ func (dd *DeadlockDetector) findCycle(node string, graph map[string][]string, vi
 	visited[node] = true
 	recStack[node] = true
 	path = append(path, node)
-	
+
 	for _, neighbor := range graph[node] {
 		if !visited[neighbor] {
 			if cycle := dd.findCycle(neighbor, graph, visited, recStack, path); len(cycle) > 0 {
@@ -352,7 +352,7 @@ func (dd *DeadlockDetector) findCycle(node string, graph map[string][]string, vi
 			}
 		}
 	}
-	
+
 	recStack[node] = false
 	return nil
 }
@@ -360,7 +360,7 @@ func (dd *DeadlockDetector) findCycle(node string, graph map[string][]string, vi
 // handleDeadlock handles a detected deadlock
 func (dd *DeadlockDetector) handleDeadlock(cycle []string) {
 	dd.deadlockCount++
-	
+
 	// Build deadlock info
 	deadlockInfo := DeadlockInfo{
 		Cycle:       cycle,
@@ -368,7 +368,7 @@ func (dd *DeadlockDetector) handleDeadlock(cycle []string) {
 		DetectedAt:  time.Now(),
 		StackTraces: make(map[string]string),
 	}
-	
+
 	// Collect resource information
 	for _, resourceID := range cycle {
 		if resource, exists := dd.resources[resourceID]; exists {
@@ -382,20 +382,20 @@ func (dd *DeadlockDetector) handleDeadlock(cycle []string) {
 				acquired:   resource.acquired,
 			}
 			deadlockInfo.Resources[resourceID] = resourceCopy
-			
+
 			if resource.StackTrace != "" {
 				deadlockInfo.StackTraces[resourceID] = resource.StackTrace
 			}
 		}
 	}
-	
+
 	if dd.config.Logger != nil {
 		dd.config.Logger.Error("Deadlock detected",
 			Any("cycle", cycle),
 			Int64("deadlock_count", dd.deadlockCount),
 			Int("resources", len(deadlockInfo.Resources)))
 	}
-	
+
 	// Call deadlock handler if set
 	if dd.onDeadlock != nil {
 		dd.onDeadlock(deadlockInfo)
@@ -406,7 +406,7 @@ func (dd *DeadlockDetector) handleDeadlock(cycle []string) {
 func (dd *DeadlockDetector) SetDeadlockHandler(handler func(DeadlockInfo)) {
 	dd.mu.Lock()
 	defer dd.mu.Unlock()
-	
+
 	dd.onDeadlock = handler
 }
 
@@ -414,7 +414,7 @@ func (dd *DeadlockDetector) SetDeadlockHandler(handler func(DeadlockInfo)) {
 func (dd *DeadlockDetector) GetDeadlockCount() int64 {
 	dd.mu.RLock()
 	defer dd.mu.RUnlock()
-	
+
 	return dd.deadlockCount
 }
 
@@ -422,13 +422,13 @@ func (dd *DeadlockDetector) GetDeadlockCount() int64 {
 func (dd *DeadlockDetector) GetWaitGraph() map[string][]string {
 	dd.mu.RLock()
 	defer dd.mu.RUnlock()
-	
+
 	graph := make(map[string][]string)
 	for k, v := range dd.waitGraph {
 		graph[k] = make([]string, len(v))
 		copy(graph[k], v)
 	}
-	
+
 	return graph
 }
 
@@ -436,12 +436,12 @@ func (dd *DeadlockDetector) GetWaitGraph() map[string][]string {
 func (dd *DeadlockDetector) GetResourceInfo(resourceID string) (*DeadlockResource, bool) {
 	dd.mu.RLock()
 	defer dd.mu.RUnlock()
-	
+
 	resource, exists := dd.resources[resourceID]
 	if !exists {
 		return nil, false
 	}
-	
+
 	// Return a copy
 	resourceCopy := &DeadlockResource{
 		ID:         resource.ID,
@@ -459,7 +459,7 @@ func (dd *DeadlockDetector) GetResourceInfo(resourceID string) (*DeadlockResourc
 func (dd *DeadlockDetector) GetAllResources() map[string]*DeadlockResource {
 	dd.mu.RLock()
 	defer dd.mu.RUnlock()
-	
+
 	resources := make(map[string]*DeadlockResource)
 	for k, v := range dd.resources {
 		resourceCopy := &DeadlockResource{
@@ -473,7 +473,7 @@ func (dd *DeadlockDetector) GetAllResources() map[string]*DeadlockResource {
 		}
 		resources[k] = resourceCopy
 	}
-	
+
 	return resources
 }
 
@@ -481,33 +481,33 @@ func (dd *DeadlockDetector) GetAllResources() map[string]*DeadlockResource {
 func (dd *DeadlockDetector) GenerateReport() string {
 	dd.mu.RLock()
 	defer dd.mu.RUnlock()
-	
+
 	var report strings.Builder
-	
+
 	report.WriteString("Deadlock Detection Report\n")
 	report.WriteString("========================\n\n")
-	
+
 	report.WriteString(fmt.Sprintf("Detection Status: %v\n", dd.detecting))
 	report.WriteString(fmt.Sprintf("Deadlocks Detected: %d\n", dd.deadlockCount))
 	report.WriteString(fmt.Sprintf("Resources Tracked: %d\n", len(dd.resources)))
 	report.WriteString(fmt.Sprintf("Wait Graph Entries: %d\n\n", len(dd.waitGraph)))
-	
+
 	// Resource information
 	if len(dd.resources) > 0 {
 		report.WriteString("Resources:\n")
 		report.WriteString("----------\n")
-		
+
 		// Sort resources by ID for consistent output
 		var resourceIDs []string
 		for id := range dd.resources {
 			resourceIDs = append(resourceIDs, id)
 		}
 		sort.Strings(resourceIDs)
-		
+
 		for _, id := range resourceIDs {
 			resource := dd.resources[id]
 			resource.mu.RLock()
-			
+
 			report.WriteString(fmt.Sprintf("  %s (%s):\n", id, resource.Type))
 			report.WriteString(fmt.Sprintf("    Acquired: %v\n", resource.acquired))
 			if resource.Owner != "" {
@@ -517,24 +517,24 @@ func (dd *DeadlockDetector) GenerateReport() string {
 			if len(resource.Waiters) > 0 {
 				report.WriteString(fmt.Sprintf("    Waiters: %v\n", resource.Waiters))
 			}
-			
+
 			resource.mu.RUnlock()
 			report.WriteString("\n")
 		}
 	}
-	
+
 	// Wait graph
 	if len(dd.waitGraph) > 0 {
 		report.WriteString("Wait Graph:\n")
 		report.WriteString("-----------\n")
-		
+
 		// Sort wait graph entries
 		var waiters []string
 		for waiter := range dd.waitGraph {
 			waiters = append(waiters, waiter)
 		}
 		sort.Strings(waiters)
-		
+
 		for _, waiter := range waiters {
 			waitingFor := dd.waitGraph[waiter]
 			if len(waitingFor) > 0 {
@@ -542,21 +542,21 @@ func (dd *DeadlockDetector) GenerateReport() string {
 			}
 		}
 	}
-	
+
 	return report.String()
 }
 
 // String returns a string representation of the deadlock info
 func (di DeadlockInfo) String() string {
 	var sb strings.Builder
-	
+
 	sb.WriteString(fmt.Sprintf("Deadlock detected at %v\n", di.DetectedAt))
 	sb.WriteString(fmt.Sprintf("Cycle: %v\n", di.Cycle))
 	sb.WriteString(fmt.Sprintf("Resources involved: %d\n", len(di.Resources)))
-	
+
 	if di.Resolution != "" {
 		sb.WriteString(fmt.Sprintf("Resolution: %s\n", di.Resolution))
 	}
-	
+
 	return sb.String()
 }

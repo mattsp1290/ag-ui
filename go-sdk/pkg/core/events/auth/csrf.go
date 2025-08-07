@@ -18,28 +18,28 @@ import (
 type CSRFConfig struct {
 	// Secret key for HMAC signing
 	SecretKey []byte
-	
+
 	// TokenHeader is the header name for CSRF tokens
 	TokenHeader string
-	
+
 	// TokenField is the form field name for CSRF tokens
 	TokenField string
-	
+
 	// CookieName is the cookie name for CSRF tokens
 	CookieName string
-	
+
 	// TokenExpiration is how long CSRF tokens are valid
 	TokenExpiration time.Duration
-	
+
 	// SecureOnly sets secure flag on cookies
 	SecureOnly bool
-	
+
 	// SameSite sets SameSite attribute on cookies
 	SameSite http.SameSite
-	
+
 	// SkipMethods lists HTTP methods to skip CSRF protection
 	SkipMethods []string
-	
+
 	// TrustedOrigins lists trusted origins for CSRF protection
 	TrustedOrigins []string
 }
@@ -78,7 +78,7 @@ func NewCSRFManager(config *CSRFConfig) (*CSRFManager, error) {
 	if config == nil {
 		config = DefaultCSRFConfig()
 	}
-	
+
 	if len(config.SecretKey) == 0 {
 		// Generate a random secret key if none provided
 		config.SecretKey = make([]byte, 32)
@@ -86,7 +86,7 @@ func NewCSRFManager(config *CSRFConfig) (*CSRFManager, error) {
 			return nil, fmt.Errorf("failed to generate CSRF secret key: %w", err)
 		}
 	}
-	
+
 	return &CSRFManager{
 		config: config,
 		tokens: make(map[string]*CSRFToken),
@@ -100,22 +100,22 @@ func (c *CSRFManager) GenerateToken(userID string) (string, error) {
 	if _, err := rand.Read(tokenData); err != nil {
 		return "", fmt.Errorf("failed to generate CSRF token: %w", err)
 	}
-	
+
 	// Create token with timestamp
 	now := time.Now()
 	expiresAt := now.Add(c.config.TokenExpiration)
-	
+
 	// Create token payload
 	payload := fmt.Sprintf("%s|%s|%d", userID, base64.RawURLEncoding.EncodeToString(tokenData), now.Unix())
-	
+
 	// Sign the payload
 	mac := hmac.New(sha256.New, c.config.SecretKey)
 	mac.Write([]byte(payload))
 	signature := mac.Sum(nil)
-	
+
 	// Create final token
 	token := fmt.Sprintf("%s.%s", payload, base64.RawURLEncoding.EncodeToString(signature))
-	
+
 	// Store token for validation
 	c.mutex.Lock()
 	c.tokens[token] = &CSRFToken{
@@ -125,7 +125,7 @@ func (c *CSRFManager) GenerateToken(userID string) (string, error) {
 		ExpiresAt: expiresAt,
 	}
 	c.mutex.Unlock()
-	
+
 	return token, nil
 }
 
@@ -134,65 +134,65 @@ func (c *CSRFManager) ValidateToken(token, userID string) error {
 	if token == "" {
 		return errors.New("CSRF token is required")
 	}
-	
+
 	// Parse token
 	parts := strings.Split(token, ".")
 	if len(parts) != 2 {
 		return errors.New("invalid CSRF token format")
 	}
-	
+
 	payload := parts[0]
 	signature := parts[1]
-	
+
 	// Verify signature
 	mac := hmac.New(sha256.New, c.config.SecretKey)
 	mac.Write([]byte(payload))
 	expectedSignature := mac.Sum(nil)
-	
+
 	decodedSignature, err := base64.RawURLEncoding.DecodeString(signature)
 	if err != nil {
 		return errors.New("invalid CSRF token signature")
 	}
-	
+
 	if subtle.ConstantTimeCompare(decodedSignature, expectedSignature) != 1 {
 		return errors.New("invalid CSRF token signature")
 	}
-	
+
 	// Parse payload
 	payloadParts := strings.Split(payload, "|")
 	if len(payloadParts) != 3 {
 		return errors.New("invalid CSRF token payload")
 	}
-	
+
 	tokenUserID := payloadParts[0]
 	tokenData := payloadParts[1]
 	issuedAtStr := payloadParts[2]
-	
+
 	// Verify user ID
 	if tokenUserID != userID {
 		return errors.New("CSRF token user ID mismatch")
 	}
-	
+
 	// Verify token hasn't expired
 	c.mutex.RLock()
 	storedToken, exists := c.tokens[token]
 	c.mutex.RUnlock()
-	
+
 	if !exists {
 		return errors.New("CSRF token not found")
 	}
-	
+
 	if time.Now().After(storedToken.ExpiresAt) {
 		c.mutex.Lock()
 		delete(c.tokens, token)
 		c.mutex.Unlock()
 		return errors.New("CSRF token has expired")
 	}
-	
+
 	// Additional validation can be added here
 	_ = tokenData
 	_ = issuedAtStr
-	
+
 	return nil
 }
 
@@ -202,17 +202,17 @@ func (c *CSRFManager) ExtractTokenFromRequest(r *http.Request) string {
 	if token := r.Header.Get(c.config.TokenHeader); token != "" {
 		return token
 	}
-	
+
 	// Try form field
 	if token := r.FormValue(c.config.TokenField); token != "" {
 		return token
 	}
-	
+
 	// Try cookie
 	if cookie, err := r.Cookie(c.config.CookieName); err == nil {
 		return cookie.Value
 	}
-	
+
 	return ""
 }
 
@@ -227,7 +227,7 @@ func (c *CSRFManager) SetTokenCookie(w http.ResponseWriter, token string) {
 		SameSite: c.config.SameSite,
 		Expires:  time.Now().Add(c.config.TokenExpiration),
 	}
-	
+
 	http.SetCookie(w, cookie)
 }
 
@@ -240,27 +240,27 @@ func (c *CSRFManager) Middleware() func(http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			
+
 			// Extract user ID from context (set by authentication middleware)
 			userID := c.getUserIDFromContext(r)
 			if userID == "" {
 				c.writeCSRFError(w, "authentication required for CSRF protection")
 				return
 			}
-			
+
 			// Validate origin
 			if !c.isOriginTrusted(r) {
 				c.writeCSRFError(w, "untrusted origin")
 				return
 			}
-			
+
 			// Extract and validate CSRF token
 			token := c.ExtractTokenFromRequest(r)
 			if err := c.ValidateToken(token, userID); err != nil {
 				c.writeCSRFError(w, fmt.Sprintf("CSRF validation failed: %v", err))
 				return
 			}
-			
+
 			next.ServeHTTP(w, r)
 		})
 	}
@@ -287,19 +287,19 @@ func (c *CSRFManager) isOriginTrusted(r *http.Request) bool {
 		}
 		origin = referer
 	}
-	
+
 	// If no trusted origins configured, allow all
 	if len(c.config.TrustedOrigins) == 0 {
 		return true
 	}
-	
+
 	// Check if origin is in trusted list
 	for _, trusted := range c.config.TrustedOrigins {
 		if strings.HasPrefix(origin, trusted) {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -310,14 +310,14 @@ func (c *CSRFManager) getUserIDFromContext(r *http.Request) string {
 	if userID := r.Header.Get("X-User-ID"); userID != "" {
 		return userID
 	}
-	
+
 	// Check context for auth information
 	if authCtx := r.Context().Value("auth_context"); authCtx != nil {
 		if ctx, ok := authCtx.(*AuthContext); ok {
 			return ctx.UserID
 		}
 	}
-	
+
 	return ""
 }
 
@@ -325,15 +325,15 @@ func (c *CSRFManager) getUserIDFromContext(r *http.Request) string {
 func (c *CSRFManager) writeCSRFError(w http.ResponseWriter, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusForbidden)
-	
+
 	response := map[string]interface{}{
 		"error":     "CSRF protection failed",
 		"message":   message,
 		"timestamp": time.Now().Unix(),
 	}
-	
+
 	// Write JSON response (simplified)
-	fmt.Fprintf(w, `{"error": "%s", "message": "%s", "timestamp": %d}`, 
+	fmt.Fprintf(w, `{"error": "%s", "message": "%s", "timestamp": %d}`,
 		response["error"], response["message"], response["timestamp"])
 }
 
@@ -341,7 +341,7 @@ func (c *CSRFManager) writeCSRFError(w http.ResponseWriter, message string) {
 func (c *CSRFManager) CleanupExpiredTokens() {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	
+
 	now := time.Now()
 	for token, tokenData := range c.tokens {
 		if now.After(tokenData.ExpiresAt) {
@@ -368,7 +368,7 @@ func (c *CSRFManager) RevokeToken(token string) {
 func (c *CSRFManager) RevokeUserTokens(userID string) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
-	
+
 	for token, tokenData := range c.tokens {
 		if tokenData.UserID == userID {
 			delete(c.tokens, token)

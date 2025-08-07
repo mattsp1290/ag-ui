@@ -208,7 +208,7 @@ func (cn *ContentNegotiator) selectBestType(acceptTypes []AcceptType) (string, e
 				return false
 			}
 		}
-		
+
 		if candidates[i].score != candidates[j].score {
 			return candidates[i].score > candidates[j].score
 		}
@@ -228,7 +228,7 @@ func (cn *ContentNegotiator) matchType(contentType string, acceptType AcceptType
 	// Make comparison case insensitive
 	lowerContentType := strings.ToLower(contentType)
 	lowerAcceptType := strings.ToLower(acceptType.Type)
-	
+
 	// Exact match
 	if lowerContentType == lowerAcceptType {
 		return true, acceptType.Quality

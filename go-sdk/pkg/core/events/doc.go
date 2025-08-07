@@ -46,7 +46,7 @@
 //	}
 //
 //	// Create streaming message content
-//	msgStart := events.NewTextMessageStartEvent("msg-1", 
+//	msgStart := events.NewTextMessageStartEvent("msg-1",
 //		events.WithMessageRole("user"))
 //	msgContent := events.NewTextMessageContentEvent("msg-1", "Hello, ")
 //	msgContent2 := events.NewTextMessageContentEvent("msg-1", "world!")
@@ -65,7 +65,7 @@
 // Events support various options for flexible configuration:
 //
 //	// Text message with role
-//	msgEvent := events.NewTextMessageStartEvent("msg-1", 
+//	msgEvent := events.NewTextMessageStartEvent("msg-1",
 //		events.WithMessageRole("assistant"))
 //
 //	// Tool call with parent message

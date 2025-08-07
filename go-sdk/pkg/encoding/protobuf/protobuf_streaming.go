@@ -61,7 +61,7 @@ func (e *StreamingProtobufEncoder) StartStream(ctx context.Context, w io.Writer)
 			Cause:   err,
 		}
 	}
-	
+
 	e.mutex.Lock()
 	e.writer = w
 	e.mutex.Unlock()
@@ -112,7 +112,7 @@ func (e *StreamingProtobufEncoder) WriteEvent(ctx context.Context, event events.
 	// This is more efficient than allocating a new buffer on each call
 	lengthPrefix := make([]byte, 4)
 	binary.BigEndian.PutUint32(lengthPrefix, uint32(len(data)))
-	
+
 	// Write length prefix
 	if _, err := e.writer.Write(lengthPrefix); err != nil {
 		return &encoding.EncodingError{
@@ -172,7 +172,7 @@ func (d *StreamingProtobufDecoder) DecodeStream(ctx context.Context, input io.Re
 	d.mutex.Unlock()
 
 	defer close(output) // Always close the output channel when done
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -205,7 +205,7 @@ func (d *StreamingProtobufDecoder) StartStream(ctx context.Context, r io.Reader)
 			Cause:   err,
 		}
 	}
-	
+
 	d.mutex.Lock()
 	d.reader = r
 	d.mutex.Unlock()
@@ -237,7 +237,7 @@ func (d *StreamingProtobufDecoder) ReadEvent(ctx context.Context) (events.Event,
 	}
 
 	length := binary.BigEndian.Uint32(lengthBuf)
-	
+
 	// Sanity check
 	if length == 0 || length > 10*1024*1024 { // 10MB max per event
 		return nil, &encoding.DecodingError{

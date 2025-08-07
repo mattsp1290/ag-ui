@@ -97,7 +97,7 @@ func TestPriorityManager(t *testing.T) {
 	pm.UpdatePriorities(formatMap)
 
 	priorityMap, _ := pm.GetPriorityMap()
-	
+
 	// Higher priority (lower number) should have lower index
 	if priorityMap["high/priority"] >= priorityMap["low/priority"] {
 		t.Fatal("Priority ordering is incorrect")
@@ -106,7 +106,7 @@ func TestPriorityManager(t *testing.T) {
 
 func TestLifecycleManager(t *testing.T) {
 	config := &registry.RegistryConfig{
-		CleanupInterval: 50 * time.Millisecond,
+		CleanupInterval:         50 * time.Millisecond,
 		EnableBackgroundCleanup: true,
 	}
 
@@ -180,7 +180,7 @@ func TestMetrics(t *testing.T) {
 
 func TestRegistryCleanup(t *testing.T) {
 	config := &registry.RegistryConfig{
-		TTL: 50 * time.Millisecond,
+		TTL:                     50 * time.Millisecond,
 		EnableBackgroundCleanup: false, // Manual cleanup for testing
 	}
 

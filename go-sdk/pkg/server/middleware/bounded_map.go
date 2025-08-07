@@ -9,22 +9,22 @@ import (
 
 // BoundedMap provides a thread-safe map with LRU eviction to prevent memory exhaustion
 type BoundedMap[K comparable, V any] struct {
-	mu         sync.RWMutex
-	data       map[K]*list.Element
-	lruList    *list.List
-	maxSize    int
-	
+	mu      sync.RWMutex
+	data    map[K]*list.Element
+	lruList *list.List
+	maxSize int
+
 	// Optional cleanup configuration
 	enableTimeouts bool
 	ttl            time.Duration
 	lastCleanup    time.Time
 	cleanupMu      sync.Mutex
-	
+
 	// Metrics (using atomic operations for thread safety)
-	hits         int64
-	misses       int64
-	evictions    int64
-	timeouts     int64
+	hits      int64
+	misses    int64
+	evictions int64
+	timeouts  int64
 }
 
 // entry represents a key-value pair with timestamp
@@ -80,7 +80,7 @@ func (bm *BoundedMap[K, V]) Get(key K) (V, bool) {
 			bm.mu.Lock()
 			bm.removeElement(element)
 			bm.mu.Unlock()
-			
+
 			atomic.AddInt64(&bm.timeouts, 1)
 			var zero V
 			return zero, false
@@ -118,7 +118,7 @@ func (bm *BoundedMap[K, V]) Set(key K, value V) {
 		value:     value,
 		timestamp: time.Now(),
 	}
-	
+
 	element := bm.lruList.PushFront(newEntry)
 	bm.data[key] = element
 
@@ -235,7 +235,7 @@ func (bm *BoundedMap[K, V]) GetOrSet(key K, factory func() V) V {
 		if _, stillExists := bm.data[key]; stillExists {
 			bm.lruList.MoveToFront(element)
 			bm.mu.Unlock()
-			
+
 			entry := element.Value.(*entry[K, V])
 			atomic.AddInt64(&bm.hits, 1)
 			return entry.value
@@ -275,13 +275,13 @@ createNew:
 	// Create new entry (factory is called only once per key under lock)
 	atomic.AddInt64(&bm.misses, 1)
 	value := factory()
-	
+
 	newEntry := &entry[K, V]{
 		key:       key,
 		value:     value,
 		timestamp: time.Now(),
 	}
-	
+
 	element = bm.lruList.PushFront(newEntry)
 	bm.data[key] = element
 
@@ -318,34 +318,34 @@ func (bm *BoundedMap[K, V]) Stats() BoundedMapStats {
 	misses := atomic.LoadInt64(&bm.misses)
 	evictions := atomic.LoadInt64(&bm.evictions)
 	timeouts := atomic.LoadInt64(&bm.timeouts)
-	
+
 	return BoundedMapStats{
-		Size:       len(bm.data),
-		MaxSize:    bm.maxSize,
-		Hits:       hits,
-		Misses:     misses,
-		Evictions:  evictions,
-		Timeouts:   timeouts,
-		HitRate:    float64(hits) / float64(hits+misses+1), // +1 to avoid division by zero
+		Size:      len(bm.data),
+		MaxSize:   bm.maxSize,
+		Hits:      hits,
+		Misses:    misses,
+		Evictions: evictions,
+		Timeouts:  timeouts,
+		HitRate:   float64(hits) / float64(hits+misses+1), // +1 to avoid division by zero
 	}
 }
 
 // BoundedMapStats contains statistics about the bounded map
 type BoundedMapStats struct {
-	Size       int     `json:"size"`
-	MaxSize    int     `json:"max_size"`
-	Hits       int64   `json:"hits"`
-	Misses     int64   `json:"misses"`
-	Evictions  int64   `json:"evictions"`
-	Timeouts   int64   `json:"timeouts"`
-	HitRate    float64 `json:"hit_rate"`
+	Size      int     `json:"size"`
+	MaxSize   int     `json:"max_size"`
+	Hits      int64   `json:"hits"`
+	Misses    int64   `json:"misses"`
+	Evictions int64   `json:"evictions"`
+	Timeouts  int64   `json:"timeouts"`
+	HitRate   float64 `json:"hit_rate"`
 }
 
 // RateLimiterBoundedMapConfig returns a configuration optimized for rate limiters
 func RateLimiterBoundedMapConfig() BoundedMapConfig {
 	return BoundedMapConfig{
-		MaxSize:        50000,             // Allow more entries for rate limiting
-		EnableTimeouts: true,              // Enable automatic expiration
-		TTL:            10 * time.Minute,  // Shorter TTL for rate limiters
+		MaxSize:        50000,            // Allow more entries for rate limiting
+		EnableTimeouts: true,             // Enable automatic expiration
+		TTL:            10 * time.Minute, // Shorter TTL for rate limiters
 	}
 }

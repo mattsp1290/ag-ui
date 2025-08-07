@@ -38,10 +38,10 @@ type TypedConverter[TRequest, TResponse, TMessageData any] interface {
 
 	// SupportsStreaming indicates if the provider supports streaming
 	SupportsStreaming() bool
-	
+
 	// ValidateRequest validates a provider request before sending
 	ValidateRequest(TRequest) error
-	
+
 	// ValidateResponse validates a provider response after receiving
 	ValidateResponse(TResponse) error
 }
@@ -50,10 +50,10 @@ type TypedConverter[TRequest, TResponse, TMessageData any] interface {
 // TStreamEvent represents the type of streaming events.
 type TypedStreamingConverter[TRequest, TResponse, TMessageData, TStreamEvent any] interface {
 	TypedConverter[TRequest, TResponse, TMessageData]
-	
+
 	// ProcessStreamEvent processes a streaming event and returns the updated message
 	ProcessStreamEvent(state TypedStreamingState[TMessageData], event TStreamEvent) (*messages.TypedAssistantMessage[TMessageData], error)
-	
+
 	// CreateStreamingState creates a new streaming state for message reconstruction
 	CreateStreamingState() TypedStreamingState[TMessageData]
 }
@@ -62,13 +62,13 @@ type TypedStreamingConverter[TRequest, TResponse, TMessageData, TStreamEvent any
 type TypedStreamingState[T any] interface {
 	// Reset clears the streaming state for reuse
 	Reset()
-	
+
 	// GetCurrentMessage returns the current message being built
 	GetCurrentMessage() *messages.TypedAssistantMessage[T]
-	
+
 	// Size returns the current size of the streaming state
 	Size() int
-	
+
 	// Cleanup releases resources held by the streaming state
 	Cleanup()
 }
@@ -99,12 +99,12 @@ func (tr *TypedRegistry[T]) RegisterTypedConverter(
 	type providerNamer interface {
 		GetProviderName() string
 	}
-	
+
 	pn, ok := converter.(providerNamer)
 	if !ok {
 		return fmt.Errorf("converter does not implement GetProviderName method")
 	}
-	
+
 	name := pn.GetProviderName()
 	if _, exists := tr.converters[name]; exists {
 		return fmt.Errorf("typed converter for provider %s already registered", name)
@@ -121,7 +121,7 @@ func (tr *TypedRegistry[T]) GetTypedConverter(
 	if !exists {
 		return nil, fmt.Errorf("no typed converter found for provider %s", providerName)
 	}
-	
+
 	return conv, nil
 }
 
@@ -195,13 +195,13 @@ func GetTyped[TRequest, TResponse any](
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Type assert to the specific converter type
 	typedConv, ok := conv.(TypedConverter[TRequest, TResponse, map[string]interface{}])
 	if !ok {
 		return nil, fmt.Errorf("converter for provider %s is not of the expected type", providerName)
 	}
-	
+
 	return typedConv, nil
 }
 
@@ -247,29 +247,29 @@ type BaseConverter struct {
 // TypedBaseConverter provides common functionality for type-safe converters.
 // T represents the message data type.
 type TypedBaseConverter[T any] struct {
-	options        TypedConversionOptions[T]
-	validateData   func(T) error
-	sanitizeData   func(T) (T, error)
-	transformData  func(T) (T, error)
+	options       TypedConversionOptions[T]
+	validateData  func(T) error
+	sanitizeData  func(T) (T, error)
+	transformData func(T) (T, error)
 }
 
 // TypedConversionOptions provides type-safe options for message conversion
 type TypedConversionOptions[T any] struct {
 	// Legacy options
 	ConversionOptions
-	
+
 	// Type-specific options
-	ValidateCustomData   func(T) error
-	SanitizeCustomData   func(T) (T, error)
-	TransformCustomData  func(T) (T, error)
-	
+	ValidateCustomData  func(T) error
+	SanitizeCustomData  func(T) (T, error)
+	TransformCustomData func(T) (T, error)
+
 	// Schema validation
 	DataSchema interface{} // JSON Schema or other validation schema
-	
+
 	// Performance options
-	EnableDataCaching    bool
-	EnableDataDedup      bool
-	MaxDataCacheSize     int
+	EnableDataCaching bool
+	EnableDataDedup   bool
+	MaxDataCacheSize  int
 }
 
 // NewTypedBaseConverter creates a new type-safe base converter with default options
@@ -328,7 +328,7 @@ func (tbc *TypedBaseConverter[T]) mergeConsecutiveTypedMessages(msgList messages
 		if current.GetRole() == next.GetRole() &&
 			current.GetRole() != messages.RoleTool &&
 			current.GetContent() != nil && next.GetContent() != nil {
-			
+
 			// Merge the content
 			mergedContent := *current.GetContent() + "\n\n" + *next.GetContent()
 
@@ -574,12 +574,12 @@ func ValidateTypedMessages[T any](msgList messages.TypedMessageList[T], opts ...
 type TypedConversionValidationOptions[T any] struct {
 	// Legacy validation options
 	ConversionValidationOptions
-	
+
 	// Type-specific validation
 	ValidateMessageData func(T) error
 	ValidateToolArgs    func(T) error
 	ValidateMetadata    func(T) error
-	
+
 	// Schema validation
 	DataSchema     interface{}
 	ArgsSchema     interface{}

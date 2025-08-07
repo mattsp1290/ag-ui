@@ -32,12 +32,12 @@ func NewUnifiedConfigProvider(config *ValidatorConfig) *UnifiedConfigProvider {
 func (p *UnifiedConfigProvider) Get(key string) (interface{}, error) {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	
+
 	value, err := p.getNestedValue(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get config key %s: %w", key, err)
 	}
-	
+
 	return value, nil
 }
 
@@ -47,11 +47,11 @@ func (p *UnifiedConfigProvider) GetString(key string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	if str, ok := value.(string); ok {
 		return str, nil
 	}
-	
+
 	return "", fmt.Errorf("config key %s is not a string", key)
 }
 
@@ -61,7 +61,7 @@ func (p *UnifiedConfigProvider) GetInt(key string) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	
+
 	switch v := value.(type) {
 	case int:
 		return v, nil
@@ -82,11 +82,11 @@ func (p *UnifiedConfigProvider) GetDuration(key string) (time.Duration, error) {
 	if err != nil {
 		return 0, err
 	}
-	
+
 	if duration, ok := value.(time.Duration); ok {
 		return duration, nil
 	}
-	
+
 	if str, ok := value.(string); ok {
 		duration, err := time.ParseDuration(str)
 		if err != nil {
@@ -94,7 +94,7 @@ func (p *UnifiedConfigProvider) GetDuration(key string) (time.Duration, error) {
 		}
 		return duration, nil
 	}
-	
+
 	return 0, fmt.Errorf("config key %s is not a duration", key)
 }
 
@@ -104,11 +104,11 @@ func (p *UnifiedConfigProvider) GetBool(key string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	
+
 	if b, ok := value.(bool); ok {
 		return b, nil
 	}
-	
+
 	return false, fmt.Errorf("config key %s is not a boolean", key)
 }
 
@@ -118,11 +118,11 @@ func (p *UnifiedConfigProvider) GetMap(key string) (map[string]interface{}, erro
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if m, ok := value.(map[string]interface{}); ok {
 		return m, nil
 	}
-	
+
 	return nil, fmt.Errorf("config key %s is not a map", key)
 }
 
@@ -132,11 +132,11 @@ func (p *UnifiedConfigProvider) GetSlice(key string) ([]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	if slice, ok := value.([]interface{}); ok {
 		return slice, nil
 	}
-	
+
 	// Handle string slices
 	if strSlice, ok := value.([]string); ok {
 		result := make([]interface{}, len(strSlice))
@@ -145,7 +145,7 @@ func (p *UnifiedConfigProvider) GetSlice(key string) ([]interface{}, error) {
 		}
 		return result, nil
 	}
-	
+
 	return nil, fmt.Errorf("config key %s is not a slice", key)
 }
 
@@ -153,15 +153,15 @@ func (p *UnifiedConfigProvider) GetSlice(key string) ([]interface{}, error) {
 func (p *UnifiedConfigProvider) Set(key string, value interface{}) error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	
+
 	err := p.setNestedValue(key, value)
 	if err != nil {
 		return fmt.Errorf("failed to set config key %s: %w", key, err)
 	}
-	
+
 	// Notify watchers
 	p.notifyWatchers(key, value)
-	
+
 	return nil
 }
 
@@ -169,7 +169,7 @@ func (p *UnifiedConfigProvider) Set(key string, value interface{}) error {
 func (p *UnifiedConfigProvider) Has(key string) bool {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	
+
 	_, err := p.getNestedValue(key)
 	return err == nil
 }
@@ -178,7 +178,7 @@ func (p *UnifiedConfigProvider) Has(key string) bool {
 func (p *UnifiedConfigProvider) GetAll() map[string]interface{} {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	
+
 	return p.flattenConfig()
 }
 
@@ -186,7 +186,7 @@ func (p *UnifiedConfigProvider) GetAll() map[string]interface{} {
 func (p *UnifiedConfigProvider) Watch(callback func(key string, value interface{})) error {
 	p.mutex.Lock()
 	defer p.mutex.Unlock()
-	
+
 	// Add to global watchers
 	p.watchers["*"] = append(p.watchers["*"], callback)
 	return nil
@@ -196,12 +196,12 @@ func (p *UnifiedConfigProvider) Watch(callback func(key string, value interface{
 func (p *UnifiedConfigProvider) Validate() error {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	
+
 	// Basic validation - check required fields
 	if p.config == nil {
 		return fmt.Errorf("configuration is nil")
 	}
-	
+
 	// Validate core configuration
 	if p.config.Core != nil {
 		if p.config.Core.ValidationTimeout <= 0 {
@@ -211,7 +211,7 @@ func (p *UnifiedConfigProvider) Validate() error {
 			return fmt.Errorf("max concurrent validations must be positive")
 		}
 	}
-	
+
 	// Validate distributed configuration
 	if p.config.Distributed != nil && p.config.Distributed.Enabled {
 		if p.config.Distributed.NodeID == "" {
@@ -221,7 +221,7 @@ func (p *UnifiedConfigProvider) Validate() error {
 			return fmt.Errorf("consensus timeout must be positive")
 		}
 	}
-	
+
 	return nil
 }
 
@@ -229,12 +229,12 @@ func (p *UnifiedConfigProvider) Validate() error {
 func (p *UnifiedConfigProvider) getNestedValue(key string) (interface{}, error) {
 	parts := strings.Split(key, ".")
 	current := reflect.ValueOf(p.config)
-	
+
 	for _, part := range parts {
 		if !current.IsValid() {
 			return nil, fmt.Errorf("invalid path at %s", part)
 		}
-		
+
 		// Dereference pointer if needed
 		if current.Kind() == reflect.Ptr {
 			if current.IsNil() {
@@ -242,7 +242,7 @@ func (p *UnifiedConfigProvider) getNestedValue(key string) (interface{}, error) 
 			}
 			current = current.Elem()
 		}
-		
+
 		// Handle struct fields
 		if current.Kind() == reflect.Struct {
 			current = current.FieldByName(p.fieldNameFromKey(part))
@@ -253,11 +253,11 @@ func (p *UnifiedConfigProvider) getNestedValue(key string) (interface{}, error) 
 			return nil, fmt.Errorf("cannot access field %s on non-struct", part)
 		}
 	}
-	
+
 	if !current.IsValid() {
 		return nil, fmt.Errorf("invalid value")
 	}
-	
+
 	return current.Interface(), nil
 }
 
@@ -265,13 +265,13 @@ func (p *UnifiedConfigProvider) getNestedValue(key string) (interface{}, error) 
 func (p *UnifiedConfigProvider) setNestedValue(key string, value interface{}) error {
 	parts := strings.Split(key, ".")
 	current := reflect.ValueOf(p.config)
-	
+
 	// Navigate to the parent of the target field
 	for i, part := range parts[:len(parts)-1] {
 		if !current.IsValid() {
 			return fmt.Errorf("invalid path at %s", part)
 		}
-		
+
 		// Dereference pointer if needed
 		if current.Kind() == reflect.Ptr {
 			if current.IsNil() {
@@ -279,7 +279,7 @@ func (p *UnifiedConfigProvider) setNestedValue(key string, value interface{}) er
 			}
 			current = current.Elem()
 		}
-		
+
 		// Handle struct fields
 		if current.Kind() == reflect.Struct {
 			fieldName := p.fieldNameFromKey(part)
@@ -287,18 +287,18 @@ func (p *UnifiedConfigProvider) setNestedValue(key string, value interface{}) er
 			if !field.IsValid() {
 				return fmt.Errorf("field %s not found", part)
 			}
-			
+
 			// If the field is a pointer and nil, initialize it
 			if field.Kind() == reflect.Ptr && field.IsNil() {
 				field.Set(reflect.New(field.Type().Elem()))
 			}
-			
+
 			current = field
 		} else {
 			return fmt.Errorf("cannot access field %s on non-struct at step %d", part, i)
 		}
 	}
-	
+
 	// Set the final field
 	lastPart := parts[len(parts)-1]
 	if current.Kind() == reflect.Ptr {
@@ -307,27 +307,27 @@ func (p *UnifiedConfigProvider) setNestedValue(key string, value interface{}) er
 		}
 		current = current.Elem()
 	}
-	
+
 	if current.Kind() == reflect.Struct {
 		fieldName := p.fieldNameFromKey(lastPart)
 		field := current.FieldByName(fieldName)
 		if !field.IsValid() {
 			return fmt.Errorf("field %s not found", lastPart)
 		}
-		
+
 		if !field.CanSet() {
 			return fmt.Errorf("field %s is not settable", lastPart)
 		}
-		
+
 		valueReflect := reflect.ValueOf(value)
 		if !valueReflect.Type().AssignableTo(field.Type()) {
 			return fmt.Errorf("value type %s is not assignable to field type %s", valueReflect.Type(), field.Type())
 		}
-		
+
 		field.Set(valueReflect)
 		return nil
 	}
-	
+
 	return fmt.Errorf("cannot set field %s on non-struct", lastPart)
 }
 
@@ -337,7 +337,7 @@ func (p *UnifiedConfigProvider) fieldNameFromKey(key string) string {
 	if key == "NodeID" {
 		return "NodeID"
 	}
-	
+
 	// Convert snake_case to PascalCase
 	parts := strings.Split(key, "_")
 	var builder strings.Builder
@@ -348,12 +348,12 @@ func (p *UnifiedConfigProvider) fieldNameFromKey(key string) string {
 		}
 	}
 	result := builder.String()
-	
+
 	// Handle special cases
 	if result == "NodeId" {
 		return "NodeID"
 	}
-	
+
 	return result
 }
 
@@ -369,7 +369,7 @@ func (p *UnifiedConfigProvider) flattenStruct(v reflect.Value, prefix string, re
 	if !v.IsValid() {
 		return
 	}
-	
+
 	// Dereference pointer if needed
 	if v.Kind() == reflect.Ptr {
 		if v.IsNil() {
@@ -377,30 +377,30 @@ func (p *UnifiedConfigProvider) flattenStruct(v reflect.Value, prefix string, re
 		}
 		v = v.Elem()
 	}
-	
+
 	if v.Kind() != reflect.Struct {
 		if prefix != "" {
 			result[prefix] = v.Interface()
 		}
 		return
 	}
-	
+
 	vType := v.Type()
 	for i := 0; i < v.NumField(); i++ {
 		field := v.Field(i)
 		fieldType := vType.Field(i)
-		
+
 		// Skip unexported fields
 		if !fieldType.IsExported() {
 			continue
 		}
-		
+
 		fieldName := p.keyFromFieldName(fieldType.Name)
 		fullKey := fieldName
 		if prefix != "" {
 			fullKey = prefix + "." + fieldName
 		}
-		
+
 		if field.Kind() == reflect.Struct || (field.Kind() == reflect.Ptr && field.Type().Elem().Kind() == reflect.Struct) {
 			p.flattenStruct(field, fullKey, result)
 		} else {
@@ -430,7 +430,7 @@ func (p *UnifiedConfigProvider) notifyWatchers(key string, value interface{}) {
 			cb(key, value)
 		})
 	}
-	
+
 	// Notify key-specific watchers
 	if watchers, exists := p.watchers[key]; exists {
 		for _, callback := range watchers {
@@ -458,11 +458,11 @@ func NewUnifiedValidatorConfigProvider(config *ValidatorConfig) *UnifiedValidato
 func (p *UnifiedValidatorConfigProvider) GetCoreConfig() (*CoreValidationConfig, error) {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	
+
 	if p.config.Core == nil {
 		return DefaultCoreValidationConfig(), nil
 	}
-	
+
 	return p.config.Core, nil
 }
 
@@ -470,11 +470,11 @@ func (p *UnifiedValidatorConfigProvider) GetCoreConfig() (*CoreValidationConfig,
 func (p *UnifiedValidatorConfigProvider) GetAuthConfig() (*AuthValidationConfig, error) {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	
+
 	if p.config.Auth == nil {
 		return DefaultAuthValidationConfig(), nil
 	}
-	
+
 	return p.config.Auth, nil
 }
 
@@ -482,11 +482,11 @@ func (p *UnifiedValidatorConfigProvider) GetAuthConfig() (*AuthValidationConfig,
 func (p *UnifiedValidatorConfigProvider) GetCacheConfig() (*CacheValidationConfig, error) {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	
+
 	if p.config.Cache == nil {
 		return DefaultCacheValidationConfig(), nil
 	}
-	
+
 	return p.config.Cache, nil
 }
 
@@ -494,11 +494,11 @@ func (p *UnifiedValidatorConfigProvider) GetCacheConfig() (*CacheValidationConfi
 func (p *UnifiedValidatorConfigProvider) GetDistributedConfig() (*DistributedValidationConfig, error) {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	
+
 	if p.config.Distributed == nil {
 		return DefaultDistributedValidationConfig(), nil
 	}
-	
+
 	return p.config.Distributed, nil
 }
 
@@ -506,11 +506,11 @@ func (p *UnifiedValidatorConfigProvider) GetDistributedConfig() (*DistributedVal
 func (p *UnifiedValidatorConfigProvider) GetAnalyticsConfig() (*AnalyticsValidationConfig, error) {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	
+
 	if p.config.Analytics == nil {
 		return DefaultAnalyticsValidationConfig(), nil
 	}
-	
+
 	return p.config.Analytics, nil
 }
 
@@ -518,11 +518,11 @@ func (p *UnifiedValidatorConfigProvider) GetAnalyticsConfig() (*AnalyticsValidat
 func (p *UnifiedValidatorConfigProvider) GetSecurityConfig() (*SecurityValidationConfig, error) {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	
+
 	if p.config.Security == nil {
 		return DefaultSecurityValidationConfig(), nil
 	}
-	
+
 	return p.config.Security, nil
 }
 
@@ -530,11 +530,11 @@ func (p *UnifiedValidatorConfigProvider) GetSecurityConfig() (*SecurityValidatio
 func (p *UnifiedValidatorConfigProvider) GetFeatureFlags() (*FeatureFlags, error) {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	
+
 	if p.config.Features == nil {
 		return DefaultFeatureFlags(), nil
 	}
-	
+
 	return p.config.Features, nil
 }
 
@@ -542,11 +542,11 @@ func (p *UnifiedValidatorConfigProvider) GetFeatureFlags() (*FeatureFlags, error
 func (p *UnifiedValidatorConfigProvider) GetGlobalSettings() (*GlobalSettings, error) {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	
+
 	if p.config.Global == nil {
 		return DefaultGlobalSettings(), nil
 	}
-	
+
 	return p.config.Global, nil
 }
 
@@ -554,11 +554,11 @@ func (p *UnifiedValidatorConfigProvider) GetGlobalSettings() (*GlobalSettings, e
 func (p *UnifiedValidatorConfigProvider) GetEnvironment() string {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	
+
 	if p.config.Global != nil {
 		return p.config.Global.Environment
 	}
-	
+
 	return "development"
 }
 
@@ -566,11 +566,11 @@ func (p *UnifiedValidatorConfigProvider) GetEnvironment() string {
 func (p *UnifiedValidatorConfigProvider) IsEnabled(feature string) bool {
 	p.mutex.RLock()
 	defer p.mutex.RUnlock()
-	
+
 	if p.config.Features == nil {
 		return false
 	}
-	
+
 	switch feature {
 	case "experimental_validation":
 		return p.config.Features.EnableExperimentalValidation

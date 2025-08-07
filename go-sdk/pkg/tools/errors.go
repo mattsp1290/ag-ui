@@ -19,7 +19,6 @@
 //
 //	// Create an IO error with cause
 //	err := NewIOError(CodeFileOpenFailed, "cannot open config file", "/path/to/file", originalErr)
-//
 package tools
 
 import (
@@ -74,12 +73,12 @@ var (
 //		WithToolID("data-processor").
 //		WithDetail("field", "name").
 //		WithCause(originalErr)
-//	
+//
 //	// Check error type
 //	if errors.Is(err, ErrInvalidParameters) {
 //		// Handle validation error
 //	}
-//	
+//
 //	// Extract ToolError
 //	var toolErr *ToolError
 //	if errors.As(err, &toolErr) {
@@ -313,7 +312,7 @@ func (e *ToolError) WithRetry(after time.Duration) *ToolError {
 // Example usage:
 //
 //	handler := NewErrorHandler()
-//	
+//
 //	// Add error transformer
 //	handler.AddTransformer(func(err *ToolError) *ToolError {
 //		if err.Type == ErrorTypeTimeout {
@@ -321,12 +320,12 @@ func (e *ToolError) WithRetry(after time.Duration) *ToolError {
 //		}
 //		return err
 //	})
-//	
+//
 //	// Add error listener for logging
 //	handler.AddListener(func(err *ToolError) {
 //		log.Printf("Tool error: %v", err)
 //	})
-//	
+//
 //	// Set recovery strategy
 //	handler.SetRecoveryStrategy(ErrorTypeNetwork, retryStrategy)
 type ErrorHandler struct {
@@ -372,10 +371,10 @@ func NewErrorHandler() *ErrorHandler {
 // and notifies listeners.
 //
 // Processing steps:
-//   1. Convert to ToolError if needed
-//   2. Apply all transformers in order
-//   3. Notify all listeners
-//   4. Return the processed error
+//  1. Convert to ToolError if needed
+//  2. Apply all transformers in order
+//  3. Notify all listeners
+//  4. Return the processed error
 func (h *ErrorHandler) HandleError(err error, toolID string) error {
 	// Handle nil error
 	if err == nil {
@@ -474,15 +473,15 @@ func (h *ErrorHandler) wrapError(err error, toolID string) *ToolError {
 // Example usage:
 //
 //	builder := NewValidationErrorBuilder()
-//	
+//
 //	if name == "" {
 //		builder.AddFieldError("name", "field is required")
 //	}
-//	
+//
 //	if age < 0 {
 //		builder.AddFieldError("age", "must be non-negative")
 //	}
-//	
+//
 //	if builder.HasErrors() {
 //		return builder.Build("user-validator")
 //	}
@@ -568,11 +567,11 @@ func (b *ValidationErrorBuilder) HasErrors() bool {
 // Example usage:
 //
 //	cb := NewCircuitBreaker(5, 30*time.Second)
-//	
+//
 //	err := cb.Call(func() error {
 //		return tool.Execute(ctx, params)
 //	})
-//	
+//
 //	if err != nil {
 //		var toolErr *ToolError
 //		if errors.As(err, &toolErr) && toolErr.Code == "CIRCUIT_OPEN" {
@@ -706,56 +705,56 @@ func (cb *CircuitBreaker) Reset() {
 // Use these constants instead of string literals for consistency.
 const (
 	// Validation error codes
-	CodeNilTool              = "NIL_TOOL"
-	CodeToolNotFound         = "TOOL_NOT_FOUND"
-	CodeValidationFailed     = "VALIDATION_FAILED"
+	CodeNilTool                = "NIL_TOOL"
+	CodeToolNotFound           = "TOOL_NOT_FOUND"
+	CodeValidationFailed       = "VALIDATION_FAILED"
 	CodeCustomValidationFailed = "CUSTOM_VALIDATION_FAILED"
-	CodeNameConflict         = "NAME_CONFLICT"
-	CodeParameterMissing     = "PARAMETER_MISSING"
-	CodeParameterInvalid     = "PARAMETER_INVALID"
-	CodeTypeCoercionFailed   = "TYPE_COERCION_FAILED"
-	
+	CodeNameConflict           = "NAME_CONFLICT"
+	CodeParameterMissing       = "PARAMETER_MISSING"
+	CodeParameterInvalid       = "PARAMETER_INVALID"
+	CodeTypeCoercionFailed     = "TYPE_COERCION_FAILED"
+
 	// Execution error codes
-	CodeExecutionFailed      = "EXECUTION_FAILED"
-	CodeExecutionPanic       = "EXECUTION_PANIC"
-	CodeStreamingFailed      = "STREAMING_FAILED"
+	CodeExecutionFailed       = "EXECUTION_FAILED"
+	CodeExecutionPanic        = "EXECUTION_PANIC"
+	CodeStreamingFailed       = "STREAMING_FAILED"
 	CodeStreamingNotSupported = "STREAMING_NOT_SUPPORTED"
-	CodeHookFailed           = "HOOK_FAILED"
-	CodeAsyncNotEnabled      = "ASYNC_NOT_ENABLED"
-	
+	CodeHookFailed            = "HOOK_FAILED"
+	CodeAsyncNotEnabled       = "ASYNC_NOT_ENABLED"
+
 	// Resource error codes
-	CodeRateLimitExceeded    = "RATE_LIMIT_EXCEEDED"
-	CodeQueueFull            = "QUEUE_FULL"
-	CodeResourceExhausted    = "RESOURCE_EXHAUSTED"
-	
+	CodeRateLimitExceeded = "RATE_LIMIT_EXCEEDED"
+	CodeQueueFull         = "QUEUE_FULL"
+	CodeResourceExhausted = "RESOURCE_EXHAUSTED"
+
 	// Conflict resolution error codes
 	CodeConflictResolutionFailed = "CONFLICT_RESOLUTION_FAILED"
 	CodeUnknownConflictStrategy  = "UNKNOWN_CONFLICT_STRATEGY"
 	CodeVersionComparisonFailed  = "VERSION_COMPARISON_FAILED"
-	
+
 	// Migration error codes
-	CodeMigrationFailed      = "MIGRATION_FAILED"
+	CodeMigrationFailed              = "MIGRATION_FAILED"
 	CodeMigrationCompatibilityFailed = "MIGRATION_COMPATIBILITY_FAILED"
-	CodeParameterRemoved     = "PARAMETER_REMOVED"
-	
+	CodeParameterRemoved             = "PARAMETER_REMOVED"
+
 	// IO error codes
-	CodeFileOpenFailed       = "FILE_OPEN_FAILED"
-	CodeDecodeFailed         = "DECODE_FAILED"
-	CodeRegistrationFailed   = "REGISTRATION_FAILED"
-	
+	CodeFileOpenFailed     = "FILE_OPEN_FAILED"
+	CodeDecodeFailed       = "DECODE_FAILED"
+	CodeRegistrationFailed = "REGISTRATION_FAILED"
+
 	// Network error codes
 	CodeRequestCreationFailed = "REQUEST_CREATION_FAILED"
-	CodeHTTPRequestFailed    = "HTTP_REQUEST_FAILED"
-	CodeHTTPError            = "HTTP_ERROR"
-	
+	CodeHTTPRequestFailed     = "HTTP_REQUEST_FAILED"
+	CodeHTTPError             = "HTTP_ERROR"
+
 	// Configuration error codes
 	CodeHotReloadingDisabled = "HOT_RELOADING_DISABLED"
 	CodeFileAlreadyWatched   = "FILE_ALREADY_WATCHED"
 	CodeFileNotWatched       = "FILE_NOT_WATCHED"
-	
+
 	// Dependency error codes
-	CodeDependencyNotFound   = "DEPENDENCY_NOT_FOUND"
-	CodeCircularDependency   = "CIRCULAR_DEPENDENCY"
+	CodeDependencyNotFound      = "DEPENDENCY_NOT_FOUND"
+	CodeCircularDependency      = "CIRCULAR_DEPENDENCY"
 	CodeDependencyDepthExceeded = "DEPENDENCY_DEPTH_EXCEEDED"
 	CodeVersionConstraintFailed = "VERSION_CONSTRAINT_FAILED"
 )

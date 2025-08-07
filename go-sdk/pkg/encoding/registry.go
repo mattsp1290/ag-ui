@@ -629,9 +629,9 @@ func (r *FormatRegistry) ForceCleanup(olderThan time.Duration) (int, error) {
 // Global registry management
 var (
 	// Global registry instance
-	globalRegistry     *FormatRegistry
-	globalOnce         sync.Once
-	globalMutex        sync.RWMutex
+	globalRegistry *FormatRegistry
+	globalOnce     sync.Once
+	globalMutex    sync.RWMutex
 	// Track registration attempts to provide better error handling
 	globalRegistrationErrors []error
 )

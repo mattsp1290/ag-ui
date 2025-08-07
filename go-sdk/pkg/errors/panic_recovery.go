@@ -13,19 +13,19 @@ import (
 type PanicRecoveryOptions struct {
 	// RecoveryHandler is called when a panic is recovered
 	RecoveryHandler func(panicValue interface{}, stackTrace []byte, context *EnhancedErrorContext)
-	
+
 	// ShouldRecover determines if a panic should be recovered based on its value
 	ShouldRecover func(panicValue interface{}) bool
-	
+
 	// IncludeStackTrace includes full stack trace in error details
 	IncludeStackTrace bool
-	
+
 	// MaxStackDepth limits the stack trace depth
 	MaxStackDepth int
-	
+
 	// Component identifies the component for error reporting
 	Component string
-	
+
 	// NodeID identifies the node for distributed error tracking
 	NodeID string
 }
@@ -46,19 +46,19 @@ func WithRecovery(ctx context.Context, operationName string, options *PanicRecov
 	if options == nil {
 		options = DefaultPanicRecoveryOptions()
 	}
-	
+
 	// Get or create enhanced error context
 	eec, _ := GetOrCreateEnhancedContext(ctx, operationName)
 	eec.WithComponent(options.Component).WithNodeID(options.NodeID)
-	
+
 	var panicErr error
-	
+
 	// Capture performance metrics
 	startTime := time.Now()
 	var memStats runtime.MemStats
 	runtime.ReadMemStats(&memStats)
 	startMem := memStats.Alloc
-	
+
 	defer func() {
 		if r := recover(); r != nil {
 			// Check if we should recover this panic
@@ -66,46 +66,46 @@ func WithRecovery(ctx context.Context, operationName string, options *PanicRecov
 				// Re-panic if we shouldn't recover
 				panic(r)
 			}
-			
+
 			// Capture final memory usage
 			runtime.ReadMemStats(&memStats)
 			endMem := memStats.Alloc
-			
+
 			// Create performance metrics
 			perfMetrics := &PerformanceMetrics{
 				StartTime:   startTime,
 				Duration:    time.Since(startTime),
 				MemoryUsage: endMem - startMem,
 			}
-			
+
 			eec.WithPerformanceMetrics(perfMetrics)
-			
+
 			// Capture stack trace
 			stackTrace := debug.Stack()
-			
+
 			// Create enhanced panic error
 			panicErr = eec.createPanicError(r, stackTrace, options)
-			
+
 			// Call recovery handler if provided
 			if options.RecoveryHandler != nil {
 				options.RecoveryHandler(r, stackTrace, eec)
 			}
 		}
 	}()
-	
+
 	// Execute the function with enhanced context
 	err := fn()
-	
+
 	// If there was a panic, return the panic error
 	if panicErr != nil {
 		return panicErr
 	}
-	
+
 	// If the function returned an error, enhance it with context
 	if err != nil {
 		return eec.RecordEnhancedError(err, "OPERATION_ERROR")
 	}
-	
+
 	return nil
 }
 
@@ -113,16 +113,16 @@ func WithRecovery(ctx context.Context, operationName string, options *PanicRecov
 func WithRecoveryResult(ctx context.Context, operationName string, options *PanicRecoveryOptions, fn func() (interface{}, error)) (interface{}, error) {
 	var result interface{}
 	var fnErr error
-	
+
 	err := WithRecovery(ctx, operationName, options, func() error {
 		result, fnErr = fn()
 		return fnErr
 	})
-	
+
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return result, nil
 }
 
@@ -140,7 +140,7 @@ func SafeGoroutine(ctx context.Context, operationName string, options *PanicReco
 func SafeGoroutineWithChannel(ctx context.Context, operationName string, options *PanicRecoveryOptions, errorChan chan<- error, fn func() error) {
 	go func() {
 		defer close(errorChan)
-		
+
 		err := WithRecovery(ctx, operationName, options, fn)
 		if err != nil {
 			select {
@@ -161,41 +161,41 @@ func (eec *EnhancedErrorContext) createPanicError(panicValue interface{}, stackT
 		Timestamp: time.Now(),
 		Details:   make(map[string]interface{}),
 	}
-	
+
 	// Add panic details
 	panicErr.Details["panic_value"] = panicValue
 	panicErr.Details["panic_type"] = fmt.Sprintf("%T", panicValue)
-	
+
 	// Add stack trace if enabled
 	if options.IncludeStackTrace {
 		panicErr.Details["stack_trace"] = string(stackTrace)
 		panicErr.Details["stack_trace_parsed"] = parseStackTrace(stackTrace, options.MaxStackDepth)
 	}
-	
+
 	// Add enhanced context information
 	panicErr.Details["correlation_id"] = string(eec.CorrelationID)
 	panicErr.Details["context_id"] = eec.ErrorContext.ID
 	panicErr.Details["operation"] = eec.ErrorContext.OperationName
-	
+
 	if eec.OperationMetadata != nil {
 		panicErr.Details["operation_type"] = eec.OperationMetadata.OperationType
 		panicErr.Details["node_id"] = eec.OperationMetadata.NodeID
 		panicErr.Details["component"] = eec.OperationMetadata.Component
 	}
-	
+
 	// Add recovery context
 	panicErr.Details["recovery_time"] = time.Now()
 	panicErr.Details["goroutine_id"] = getGoroutineID()
-	
+
 	// Add actionable guidance specific to panics
 	eec.AddActionableGuidance("Check for nil pointer dereferences or array bounds violations")
 	eec.AddActionableGuidance("Review recent code changes that might cause runtime panics")
 	eec.AddActionableGuidance("Consider adding additional input validation")
 	eec.AddActionableGuidance("Monitor memory usage and resource constraints")
-	
+
 	// Record the error in the context
 	eec.ErrorContext.RecordError(panicErr)
-	
+
 	return panicErr
 }
 
@@ -211,10 +211,10 @@ func parseStackTrace(stackTrace []byte, maxDepth int) []StackFrame {
 	// This is a simplified stack trace parser
 	// In a production implementation, you might want to use a more sophisticated parser
 	frames := make([]StackFrame, 0, maxDepth)
-	
+
 	// Parse the stack trace (this is a basic implementation)
 	// The actual implementation would need to parse the specific format of Go stack traces
-	
+
 	return frames
 }
 
@@ -258,7 +258,7 @@ func NewPanicRecoveryMiddleware(options *PanicRecoveryOptions) *PanicRecoveryMid
 	if options == nil {
 		options = DefaultPanicRecoveryOptions()
 	}
-	
+
 	return &PanicRecoveryMiddleware{
 		options: options,
 	}
@@ -298,11 +298,11 @@ func CircuitBreakerWithRecoveryResult(ctx context.Context, cb CircuitBreaker, op
 
 // RecoveryStats tracks statistics about panic recovery
 type RecoveryStats struct {
-	TotalPanics      int64     `json:"total_panics"`
-	RecoveredPanics  int64     `json:"recovered_panics"`
-	UnrecoveredPanics int64    `json:"unrecovered_panics"`
-	LastPanicTime    time.Time `json:"last_panic_time"`
-	PanicsByType     map[string]int64 `json:"panics_by_type"`
+	TotalPanics       int64            `json:"total_panics"`
+	RecoveredPanics   int64            `json:"recovered_panics"`
+	UnrecoveredPanics int64            `json:"unrecovered_panics"`
+	LastPanicTime     time.Time        `json:"last_panic_time"`
+	PanicsByType      map[string]int64 `json:"panics_by_type"`
 }
 
 // RecoveryStatsCollector collects statistics about panic recovery
@@ -324,16 +324,16 @@ func NewRecoveryStatsCollector() *RecoveryStatsCollector {
 func (rsc *RecoveryStatsCollector) RecordPanic(panicValue interface{}, recovered bool) {
 	rsc.mu.Lock()
 	defer rsc.mu.Unlock()
-	
+
 	rsc.stats.TotalPanics++
 	rsc.stats.LastPanicTime = time.Now()
-	
+
 	if recovered {
 		rsc.stats.RecoveredPanics++
 	} else {
 		rsc.stats.UnrecoveredPanics++
 	}
-	
+
 	panicType := fmt.Sprintf("%T", panicValue)
 	rsc.stats.PanicsByType[panicType]++
 }
@@ -342,14 +342,14 @@ func (rsc *RecoveryStatsCollector) RecordPanic(panicValue interface{}, recovered
 func (rsc *RecoveryStatsCollector) GetStats() RecoveryStats {
 	rsc.mu.RLock()
 	defer rsc.mu.RUnlock()
-	
+
 	// Create a copy to avoid data races
 	statsCopy := *rsc.stats
 	statsCopy.PanicsByType = make(map[string]int64)
 	for k, v := range rsc.stats.PanicsByType {
 		statsCopy.PanicsByType[k] = v
 	}
-	
+
 	return statsCopy
 }
 

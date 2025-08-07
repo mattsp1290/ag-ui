@@ -32,7 +32,7 @@ func Example() {
 	// 1. Format Validation
 	fmt.Println("=== Format Validation ===")
 	jsonValidator := NewJSONValidator(true)
-	
+
 	// Validate the event
 	if err := jsonValidator.ValidateEvent(event); err != nil {
 		log.Printf("Event validation failed: %v", err)
@@ -56,7 +56,7 @@ func Example() {
 	// 2. Round-trip Validation
 	fmt.Println("\n=== Round-trip Validation ===")
 	roundTripValidator := NewRoundTripValidator(encoder, decoder)
-	
+
 	if err := roundTripValidator.ValidateRoundTrip(ctx, event); err != nil {
 		log.Printf("Round-trip validation failed: %v", err)
 	} else {
@@ -66,7 +66,7 @@ func Example() {
 	// 3. Security Validation
 	fmt.Println("\n=== Security Validation ===")
 	securityValidator := NewSecurityValidator(DefaultSecurityConfig())
-	
+
 	if err := securityValidator.ValidateInput(ctx, encoded); err != nil {
 		log.Printf("Security validation failed: %v", err)
 	} else {
@@ -82,7 +82,7 @@ func Example() {
 	// 4. Cross-SDK Compatibility
 	fmt.Println("\n=== Cross-SDK Compatibility ===")
 	crossValidator := NewCrossSDKValidator()
-	
+
 	if err := crossValidator.ValidateCompatibility(ctx, "typescript", decoder); err != nil {
 		log.Printf("TypeScript compatibility validation failed: %v", err)
 	} else {
@@ -92,30 +92,30 @@ func Example() {
 	// 5. Test Vector Validation
 	fmt.Println("\n=== Test Vector Validation ===")
 	registry := NewTestVectorRegistry()
-	
+
 	stats := registry.GetStatistics()
 	fmt.Printf("✓ Test vector registry loaded with %d vectors\n", stats["total_vectors"])
-	
+
 	fmt.Println("\nValidation framework example completed successfully!")
 
 	// Output:
 	// === Format Validation ===
 	// ✓ Event passed format validation
 	// ✓ Encoded data passed format validation
-	// 
+	//
 	// === Round-trip Validation ===
 	// ✓ Event passed round-trip validation
-	// 
+	//
 	// === Security Validation ===
 	// ✓ Input passed security validation
 	// ✓ Event passed security validation
-	// 
+	//
 	// === Cross-SDK Compatibility ===
 	// ✓ Compatible with TypeScript SDK
-	// 
+	//
 	// === Test Vector Validation ===
 	// ✓ Test vector registry loaded with 31 vectors
-	// 
+	//
 	// Validation framework example completed successfully!
 }
 
@@ -158,9 +158,9 @@ func ExampleBenchmarkSuite() {
 	config := DefaultBenchmarkConfig()
 	config.WarmupIterations = 2
 	config.TestIterations = 10
-	config.Duration = 500 * time.Millisecond // 500ms maximum duration
+	config.Duration = 500 * time.Millisecond           // 500ms maximum duration
 	config.ThroughputDuration = 200 * time.Millisecond // 200ms for throughput tests
-	config.EnableThroughputTest = false // Disable throughput tests that may be slow
+	config.EnableThroughputTest = false                // Disable throughput tests that may be slow
 
 	// Create benchmark suite
 	benchmarkSuite := NewBenchmarkSuite(encoder, decoder, validator, config)
@@ -172,10 +172,10 @@ func ExampleBenchmarkSuite() {
 
 	// Run benchmarks
 	err := benchmarkSuite.RunAllBenchmarks(ctx)
-	
+
 	// Restore stdout before printing results
 	os.Stdout = oldStdout
-	
+
 	if err != nil {
 		// Just return silently to avoid cluttering example output
 		return
@@ -183,7 +183,7 @@ func ExampleBenchmarkSuite() {
 
 	// Get results
 	results := benchmarkSuite.GetResults()
-	
+
 	// Show that benchmarks completed successfully
 	if len(results) > 0 {
 		fmt.Println("✓ Benchmark suite completed successfully")

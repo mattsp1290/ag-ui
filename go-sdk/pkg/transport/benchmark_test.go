@@ -10,9 +10,10 @@
 // - Feature comparisons (with/without logging, validation, etc.)
 //
 // Usage:
-//   go test -bench=. -benchmem                    # Run all benchmarks
-//   go test -bench=BenchmarkSend -benchmem        # Run send benchmarks
-//   go test -bench=BenchmarkConcurrent -benchmem  # Run concurrent benchmarks
+//
+//	go test -bench=. -benchmem                    # Run all benchmarks
+//	go test -bench=BenchmarkSend -benchmem        # Run send benchmarks
+//	go test -bench=BenchmarkConcurrent -benchmem  # Run concurrent benchmarks
 //
 // See ExampleBenchmark() for more usage examples and profiling options.
 package transport
@@ -23,7 +24,7 @@ import (
 	"sync"
 	"testing"
 	"time"
-	
+
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
@@ -36,37 +37,36 @@ type BenchmarkEvent struct {
 	timestamp time.Time
 }
 
-func (e *BenchmarkEvent) ID() string                      { return e.id }
-func (e *BenchmarkEvent) Type() string                    { return e.eventType }
-func (e *BenchmarkEvent) Timestamp() time.Time            { return e.timestamp }
-func (e *BenchmarkEvent) Data() map[string]interface{}    { return e.data }
-
+func (e *BenchmarkEvent) ID() string                   { return e.id }
+func (e *BenchmarkEvent) Type() string                 { return e.eventType }
+func (e *BenchmarkEvent) Timestamp() time.Time         { return e.timestamp }
+func (e *BenchmarkEvent) Data() map[string]interface{} { return e.data }
 
 // BenchmarkMockTransport implements Transport interface for benchmarking
 type BenchmarkMockTransport struct {
-	connected      bool
-	eventChan      chan events.Event
-	errorChan      chan error
-	capabilities   Capabilities
-	metrics        Metrics
-	middleware     []Middleware
-	sendDelay      time.Duration
-	receiveDelay   time.Duration
-	enableMetrics  bool
-	messagesSent   uint64
+	connected        bool
+	eventChan        chan events.Event
+	errorChan        chan error
+	capabilities     Capabilities
+	metrics          Metrics
+	middleware       []Middleware
+	sendDelay        time.Duration
+	receiveDelay     time.Duration
+	enableMetrics    bool
+	messagesSent     uint64
 	messagesReceived uint64
-	mu             sync.RWMutex
+	mu               sync.RWMutex
 }
 
 func NewBenchmarkMockTransport(bufferSize int) *BenchmarkMockTransport {
 	// Use simplified capabilities
 	caps := Capabilities{
-		Streaming:        true,
-		Bidirectional:    true,
-		MaxMessageSize:   1024 * 1024,
-		ProtocolVersion:  "1.0",
+		Streaming:       true,
+		Bidirectional:   true,
+		MaxMessageSize:  1024 * 1024,
+		ProtocolVersion: "1.0",
 	}
-	
+
 	return &BenchmarkMockTransport{
 		eventChan:    make(chan events.Event, bufferSize),
 		errorChan:    make(chan error, bufferSize),
@@ -82,14 +82,14 @@ func NewBenchmarkMockTransport(bufferSize int) *BenchmarkMockTransport {
 func (t *BenchmarkMockTransport) Connect(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	
+
 	// Check context before proceeding
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
-	
+
 	t.connected = true
 	t.metrics.ConnectionUptime = time.Since(time.Now())
 	return nil
@@ -98,14 +98,14 @@ func (t *BenchmarkMockTransport) Connect(ctx context.Context) error {
 func (t *BenchmarkMockTransport) Close(ctx context.Context) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	
+
 	// Check context before proceeding
 	select {
 	case <-ctx.Done():
 		return ctx.Err()
 	default:
 	}
-	
+
 	if t.connected {
 		t.connected = false
 		close(t.eventChan)
@@ -122,20 +122,20 @@ func (t *BenchmarkMockTransport) Send(ctx context.Context, event TransportEvent)
 			return ctx.Err()
 		}
 	}
-	
+
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	
+
 	if !t.connected {
 		return ErrNotConnected
 	}
-	
+
 	// Simulate sending by incrementing counter
 	t.messagesSent++
 	if t.enableMetrics {
 		t.metrics.BytesSent += uint64(len(event.ID()) + len(event.Type()))
 	}
-	
+
 	return nil
 }
 
@@ -189,7 +189,7 @@ func generateEvent(id string, payloadSize int) TransportEvent {
 	for i := range payload {
 		payload[i] = byte(i % 256)
 	}
-	
+
 	// Create benchmark event
 	return &BenchmarkEvent{
 		id:        id,
@@ -226,18 +226,18 @@ func BenchmarkSend_WithMetrics(b *testing.B) {
 func benchmarkSend(b *testing.B, payloadSize int, enableMetrics bool) {
 	transport := NewBenchmarkMockTransport(1000)
 	transport.enableMetrics = enableMetrics
-	
+
 	ctx := context.Background()
 	if err := transport.Connect(ctx); err != nil {
 		b.Fatal(err)
 	}
 	defer transport.Close(ctx)
-	
+
 	event := generateEvent("benchmark", payloadSize)
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		if err := transport.Send(ctx, event); err != nil {
 			b.Fatal(err)
@@ -260,22 +260,22 @@ func BenchmarkSendBatch_1000Events(b *testing.B) {
 
 func benchmarkSendBatch(b *testing.B, batchSize, payloadSize int) {
 	transport := NewBenchmarkMockTransport(batchSize * 2)
-	
+
 	ctx := context.Background()
 	if err := transport.Connect(ctx); err != nil {
 		b.Fatal(err)
 	}
 	defer transport.Close(ctx)
-	
+
 	// Pre-generate events
 	events := make([]TransportEvent, batchSize)
 	for i := 0; i < batchSize; i++ {
 		events[i] = generateEvent(fmt.Sprintf("batch-%d", i), payloadSize)
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		for _, event := range events {
 			if err := transport.Send(ctx, event); err != nil {
@@ -296,13 +296,13 @@ func BenchmarkReceive_Burst(b *testing.B) {
 
 func benchmarkReceive(b *testing.B, burstSize, payloadSize int) {
 	transport := NewBenchmarkMockTransport(burstSize * 2)
-	
+
 	ctx := context.Background()
 	if err := transport.Connect(ctx); err != nil {
 		b.Fatal(err)
 	}
 	defer transport.Close(ctx)
-	
+
 	// Pre-populate events
 	go func() {
 		for i := 0; i < b.N*burstSize; i++ {
@@ -322,10 +322,10 @@ func benchmarkReceive(b *testing.B, burstSize, payloadSize int) {
 			}
 		}
 	}()
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	received := 0
 	for i := 0; i < b.N; i++ {
 		for j := 0; j < burstSize; j++ {
@@ -342,7 +342,7 @@ func benchmarkReceive(b *testing.B, burstSize, payloadSize int) {
 // Benchmark manager lifecycle operations
 func BenchmarkManagerLifecycle_Create(b *testing.B) {
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		manager := NewSimpleManager()
 		_ = manager
@@ -351,12 +351,12 @@ func BenchmarkManagerLifecycle_Create(b *testing.B) {
 
 func BenchmarkManagerLifecycle_StartStop(b *testing.B) {
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		manager := NewSimpleManager()
 		transport := NewBenchmarkMockTransport(100)
 		manager.SetTransport(transport)
-		
+
 		ctx := context.Background()
 		if err := manager.Start(ctx); err != nil {
 			b.Fatal(err)
@@ -371,7 +371,7 @@ func BenchmarkManagerLifecycle_SetTransport(b *testing.B) {
 	manager := NewSimpleManager()
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		transport := NewBenchmarkMockTransport(100)
 		manager.SetTransport(transport)
@@ -393,21 +393,21 @@ func BenchmarkConcurrentSend_100Goroutines(b *testing.B) {
 
 func benchmarkConcurrentSend(b *testing.B, numGoroutines, payloadSize int) {
 	transport := NewBenchmarkMockTransport(numGoroutines * 100)
-	
+
 	ctx := context.Background()
 	if err := transport.Connect(ctx); err != nil {
 		b.Fatal(err)
 	}
 	defer transport.Close(ctx)
-	
+
 	event := generateEvent("concurrent", payloadSize)
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	var wg sync.WaitGroup
 	sendsPerGoroutine := b.N / numGoroutines
-	
+
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func() {
@@ -419,7 +419,7 @@ func benchmarkConcurrentSend(b *testing.B, numGoroutines, payloadSize int) {
 			}
 		}()
 	}
-	
+
 	wg.Wait()
 }
 
@@ -435,10 +435,10 @@ func benchmarkConcurrentReceive(b *testing.B, numGoroutines, payloadSize int) {
 	// Create a simple concurrent event processing test
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	var wg sync.WaitGroup
 	eventChan := make(chan events.Event, numGoroutines*10)
-	
+
 	// Create events for processing
 	testEvents := make([]events.Event, b.N)
 	for i := 0; i < b.N; i++ {
@@ -451,7 +451,7 @@ func benchmarkConcurrentReceive(b *testing.B, numGoroutines, payloadSize int) {
 			id: fmt.Sprintf("concurrent-%d", i),
 		}
 	}
-	
+
 	// Start producer
 	go func() {
 		for _, event := range testEvents {
@@ -459,7 +459,7 @@ func benchmarkConcurrentReceive(b *testing.B, numGoroutines, payloadSize int) {
 		}
 		close(eventChan)
 	}()
-	
+
 	// Start consumers
 	eventsPerGoroutine := b.N / numGoroutines
 	for i := 0; i < numGoroutines; i++ {
@@ -476,14 +476,14 @@ func benchmarkConcurrentReceive(b *testing.B, numGoroutines, payloadSize int) {
 			}
 		}()
 	}
-	
+
 	wg.Wait()
 }
 
 // Benchmark memory allocation patterns
 func BenchmarkMemoryAllocation_EventCreation(b *testing.B) {
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		event := generateEvent(fmt.Sprintf("alloc-%d", i), 1024)
 		_ = event
@@ -494,7 +494,7 @@ func BenchmarkMemoryAllocation_EventWrapping(b *testing.B) {
 	baseEvent := generateEvent("base", 1024)
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		// Simple allocation test
 		event := generateEvent(fmt.Sprintf("wrap-%d", i), 1024)
@@ -513,10 +513,10 @@ func BenchmarkMemoryAllocation_ChannelOperations(b *testing.B) {
 		},
 		id: "channel-test",
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		eventChan <- event
 		<-eventChan
@@ -528,10 +528,10 @@ func BenchmarkError_NotConnected(b *testing.B) {
 	transport := NewBenchmarkMockTransport(100)
 	event := generateEvent("error", 1024)
 	ctx := context.Background()
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		err := transport.Send(ctx, event)
 		if err != ErrNotConnected {
@@ -543,19 +543,19 @@ func BenchmarkError_NotConnected(b *testing.B) {
 func BenchmarkError_ContextCanceled(b *testing.B) {
 	transport := NewBenchmarkMockTransport(100)
 	event := generateEvent("canceled", 1024)
-	
+
 	if err := transport.Connect(context.Background()); err != nil {
 		b.Fatal(err)
 	}
 	defer transport.Close(context.Background())
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel() // Cancel immediately
-		
+
 		err := transport.Send(ctx, event)
 		_ = err // Error expected
 	}
@@ -581,12 +581,12 @@ func benchmarkBackpressure(b *testing.B, strategy BackpressureStrategy, bufferSi
 		HighWaterMark: 0.8,
 		LowWaterMark:  0.2,
 		BlockTimeout:  1 * time.Millisecond, // Very short timeout to avoid deadlock
-		EnableMetrics: false, // Disable metrics for pure performance
+		EnableMetrics: false,                // Disable metrics for pure performance
 	}
-	
+
 	handler := NewBackpressureHandler(config)
 	defer handler.Stop()
-	
+
 	timestamp := time.Now().UnixMilli()
 	event := &BackpressureMockCoreEvent{
 		BaseEvent: &events.BaseEvent{
@@ -595,7 +595,7 @@ func benchmarkBackpressure(b *testing.B, strategy BackpressureStrategy, bufferSi
 		},
 		id: "backpressure-test",
 	}
-	
+
 	// Start a consumer to drain the channel for blocking strategies
 	if strategy == BackpressureBlock || strategy == BackpressureBlockWithTimeout {
 		go func() {
@@ -609,10 +609,10 @@ func benchmarkBackpressure(b *testing.B, strategy BackpressureStrategy, bufferSi
 			}
 		}()
 	}
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		handler.SendEvent(event)
 	}
@@ -642,23 +642,23 @@ func BenchmarkWithAllFeatures(b *testing.B) {
 func benchmarkWithFeatures(b *testing.B, enableLogging, enableValidation bool) {
 	transport := NewBenchmarkMockTransport(1000)
 	transport.enableMetrics = true
-	
+
 	// Simulate logging overhead
 	if enableLogging {
 		transport.sendDelay = 1 * time.Microsecond
 	}
-	
+
 	ctx := context.Background()
 	if err := transport.Connect(ctx); err != nil {
 		b.Fatal(err)
 	}
 	defer transport.Close(ctx)
-	
+
 	event := generateEvent("features", 1024)
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		// Simulate validation overhead
 		if enableValidation {
@@ -666,7 +666,7 @@ func benchmarkWithFeatures(b *testing.B, enableLogging, enableValidation bool) {
 				b.Fatal("Invalid event")
 			}
 		}
-		
+
 		if err := transport.Send(ctx, event); err != nil {
 			b.Fatal(err)
 		}
@@ -678,18 +678,18 @@ func BenchmarkComparative_SimpleManager(b *testing.B) {
 	manager := NewSimpleManager()
 	transport := NewBenchmarkMockTransport(1000)
 	manager.SetTransport(transport)
-	
+
 	ctx := context.Background()
 	if err := manager.Start(ctx); err != nil {
 		b.Fatal(err)
 	}
 	defer manager.Stop(ctx)
-	
+
 	event := generateEvent("simple", 1024)
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		if err := manager.Send(ctx, event); err != nil {
 			b.Fatal(err)
@@ -699,18 +699,18 @@ func BenchmarkComparative_SimpleManager(b *testing.B) {
 
 func BenchmarkComparative_DirectTransport(b *testing.B) {
 	transport := NewBenchmarkMockTransport(1000)
-	
+
 	ctx := context.Background()
 	if err := transport.Connect(ctx); err != nil {
 		b.Fatal(err)
 	}
 	defer transport.Close(ctx)
-	
+
 	event := generateEvent("direct", 1024)
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		if err := transport.Send(ctx, event); err != nil {
 			b.Fatal(err)
@@ -724,12 +724,12 @@ func BenchmarkMemoryUsageTransport(b *testing.B) {
 	ctx := context.Background()
 	transport.Connect(ctx)
 	defer transport.Close(ctx)
-	
+
 	event := generateEvent("memory", 1024)
-	
+
 	b.ResetTimer()
 	b.ReportAllocs()
-	
+
 	for i := 0; i < b.N; i++ {
 		transport.Send(ctx, event)
 	}
@@ -739,21 +739,21 @@ func BenchmarkMemoryUsageTransport(b *testing.B) {
 func ExampleBenchmark() {
 	// Run specific benchmark:
 	// go test -bench=BenchmarkSend_SmallPayload -benchmem
-	
+
 	// Run all benchmarks:
 	// go test -bench=. -benchmem
-	
+
 	// Run with CPU profiling:
 	// go test -bench=BenchmarkSend_SmallPayload -cpuprofile=cpu.prof
-	
+
 	// Run with memory profiling:
 	// go test -bench=BenchmarkSend_SmallPayload -memprofile=mem.prof
-	
+
 	// Compare benchmarks:
 	// go test -bench=BenchmarkSend -benchmem -count=5 > old.txt
 	// go test -bench=BenchmarkSend -benchmem -count=5 > new.txt
 	// benchcmp old.txt new.txt
-	
+
 	// Run benchmarks by category:
 	// go test -bench="BenchmarkSend_" -benchmem          # Send operations
 	// go test -bench="BenchmarkConcurrent" -benchmem      # Concurrent operations

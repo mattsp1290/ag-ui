@@ -18,14 +18,14 @@ var originalStderr = os.Stderr
 
 func (f *simpleErrorFilter) Write(p []byte) (n int, err error) {
 	content := string(p)
-	
+
 	// Filter out write error messages
-	if strings.Contains(content, "write error: write") && 
-	   strings.Contains(content, "file already closed") {
+	if strings.Contains(content, "write error: write") &&
+		strings.Contains(content, "file already closed") {
 		// Return success without writing
 		return len(p), nil
 	}
-	
+
 	// Write to original stderr
 	return originalStderr.Write(p)
 }
@@ -35,10 +35,10 @@ func SetupErrorFiltering() {
 	if os.Getenv("SUPPRESS_WRITE_ERRORS") == "true" || os.Getenv("CI") == "true" {
 		// Create a pipe
 		r, w, _ := os.Pipe()
-		
+
 		// Replace stderr with the write end
 		os.Stderr = w
-		
+
 		// Start filtering goroutine
 		go func() {
 			buf := make([]byte, 4096)

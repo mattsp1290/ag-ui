@@ -101,7 +101,7 @@ func testConsensusManagerLeaks(t *testing.T, ctx context.Context, cleanup *testh
 
 func testStateSynchronizerLeaks(t *testing.T, ctx context.Context, cleanup *testhelper.CleanupManager) {
 	config := TestingStateSyncConfig() // Use optimized testing configuration
-	
+
 	ss, err := NewStateSynchronizer(config, "test-node")
 	require.NoError(t, err)
 
@@ -251,7 +251,7 @@ func TestConcurrentOperationsRaceDetection(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			event := &events.RunStartedEvent{
 				BaseEvent: &events.BaseEvent{
 					EventType:   events.EventTypeRunStarted,
@@ -274,7 +274,7 @@ func TestConcurrentOperationsRaceDetection(t *testing.T) {
 		wg.Add(1)
 		go func(id int) {
 			defer wg.Done()
-			
+
 			nodeInfo := &NodeInfo{
 				ID:              NodeID("concurrent-node"),
 				Address:         "localhost:8080",

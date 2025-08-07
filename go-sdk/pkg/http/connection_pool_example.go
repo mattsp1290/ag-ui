@@ -82,10 +82,10 @@ func ExampleAdvancedConfiguration() {
 		MaxIdleTime:             10 * time.Minute,
 
 		// Timeouts
-		ConnectTimeout:    15 * time.Second,
-		RequestTimeout:    60 * time.Second,
-		KeepAliveTimeout:  30 * time.Second,
-		IdleConnTimeout:   90 * time.Second,
+		ConnectTimeout:   15 * time.Second,
+		RequestTimeout:   60 * time.Second,
+		KeepAliveTimeout: 30 * time.Second,
+		IdleConnTimeout:  90 * time.Second,
 
 		// Health checking
 		HealthCheckInterval: 30 * time.Second,
@@ -171,9 +171,9 @@ func ExampleLoadBalancingStrategies() {
 
 			serverURL := resp.Server.URL.String()
 			serverCounts[serverURL]++
-			
+
 			fmt.Printf("Request %d -> %s\n", i+1, serverURL)
-			
+
 			pool.ReleaseConnection(resp.Connection)
 		}
 
@@ -192,8 +192,8 @@ func ExampleHealthMonitoring() {
 	config := &HTTPPoolConfig{
 		MaxConnectionsPerServer: 10,
 		MaxTotalConnections:     100,
-		HealthCheckInterval:     5 * time.Second,  // Check every 5 seconds
-		HealthCheckTimeout:      2 * time.Second,  // 2 second timeout
+		HealthCheckInterval:     5 * time.Second, // Check every 5 seconds
+		HealthCheckTimeout:      2 * time.Second, // 2 second timeout
 		HealthCheckPath:         "/health",
 		UnhealthyThreshold:      2, // Mark unhealthy after 2 failures
 		HealthyThreshold:        1, // Mark healthy after 1 success
@@ -224,7 +224,7 @@ func ExampleHealthMonitoring() {
 			select {
 			case <-ticker.C:
 				fmt.Println("\n=== Health Status ===")
-				
+
 				// Get server statistics
 				stats := pool.GetServerStats()
 				for _, stat := range stats {
@@ -232,7 +232,7 @@ func ExampleHealthMonitoring() {
 					if !stat.IsHealthy {
 						status = "UNHEALTHY"
 					}
-					
+
 					fmt.Printf("Server: %s\n", stat.URL.String())
 					fmt.Printf("  Status: %s\n", status)
 					fmt.Printf("  Failure Count: %d\n", stat.FailureCount)
@@ -270,12 +270,12 @@ func ExampleHealthMonitoring() {
 			continue
 		}
 
-		fmt.Printf("Request %d -> %s (wait: %v)\n", 
+		fmt.Printf("Request %d -> %s (wait: %v)\n",
 			i+1, resp.Server.URL.String(), resp.WaitTime)
 
 		// Simulate work
 		time.Sleep(100 * time.Millisecond)
-		
+
 		pool.ReleaseConnection(resp.Connection)
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -311,13 +311,13 @@ func ExampleMetricsAndMonitoring() {
 
 		// Simulate variable response times
 		time.Sleep(time.Duration(i*10) * time.Millisecond)
-		
+
 		pool.ReleaseConnection(resp.Connection)
 	}
 
 	// Display comprehensive metrics
 	metrics := pool.GetMetrics()
-	
+
 	fmt.Println("=== Connection Pool Metrics ===")
 	fmt.Printf("Total Connections: %d\n", metrics.TotalConnections)
 	fmt.Printf("Active Connections: %d\n", metrics.ActiveConnections)
@@ -383,7 +383,7 @@ func ExampleGracefulShutdown() {
 			log.Printf("Request failed: %v", err)
 			continue
 		}
-		
+
 		// Don't immediately release to test graceful shutdown
 		go func(conn *pooledConnection) {
 			time.Sleep(2 * time.Second)
@@ -392,7 +392,7 @@ func ExampleGracefulShutdown() {
 	}
 
 	fmt.Println("Starting graceful shutdown...")
-	
+
 	// Create shutdown context with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -457,9 +457,9 @@ func ExampleCustomTransport() {
 		}
 		defer httpResp.Body.Close()
 
-		fmt.Printf("GET %s -> %s (server: %s)\n", 
+		fmt.Printf("GET %s -> %s (server: %s)\n",
 			path, httpResp.Status, resp.Server.URL.String())
-		
+
 		return nil
 	}
 

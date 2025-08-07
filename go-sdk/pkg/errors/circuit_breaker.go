@@ -37,22 +37,22 @@ func (s CircuitBreakerState) String() string {
 type CircuitBreakerConfig struct {
 	// MaxFailures is the number of failures that triggers the breaker to open
 	MaxFailures uint64
-	
+
 	// ResetTimeout is how long to wait before attempting to reset from open to half-open
 	ResetTimeout time.Duration
-	
+
 	// HalfOpenMaxCalls is the maximum number of calls allowed in half-open state
 	HalfOpenMaxCalls uint64
-	
+
 	// SuccessThreshold is the number of consecutive successes required to close from half-open
 	SuccessThreshold uint64
-	
+
 	// Timeout is the timeout for operations protected by the circuit breaker
 	Timeout time.Duration
-	
+
 	// Name is a human-readable name for this circuit breaker
 	Name string
-	
+
 	// ShouldTrip is a custom function to determine if the breaker should trip
 	ShouldTrip func(counts Counts) bool
 }
@@ -72,9 +72,9 @@ func DefaultCircuitBreakerConfig(name string) *CircuitBreakerConfig {
 
 // Counts holds the statistics for a circuit breaker
 type Counts struct {
-	Requests         uint64
-	TotalSuccesses   uint64
-	TotalFailures    uint64
+	Requests             uint64
+	TotalSuccesses       uint64
+	TotalFailures        uint64
 	ConsecutiveSuccesses uint64
 	ConsecutiveFailures  uint64
 }
@@ -83,33 +83,33 @@ type Counts struct {
 type CircuitBreaker interface {
 	// Execute runs the given function with circuit breaker protection
 	Execute(ctx context.Context, operation func() error) error
-	
+
 	// Call runs the given function with circuit breaker protection and returns result
 	Call(ctx context.Context, operation func() (interface{}, error)) (interface{}, error)
-	
+
 	// State returns the current state of the circuit breaker
 	State() CircuitBreakerState
-	
+
 	// Counts returns the current statistics
 	Counts() Counts
-	
+
 	// Name returns the name of the circuit breaker
 	Name() string
-	
+
 	// Reset manually resets the circuit breaker to closed state
 	Reset()
-	
+
 	// Trip manually trips the circuit breaker to open state
 	Trip()
 }
 
 // circuitBreaker implements the CircuitBreaker interface
 type circuitBreaker struct {
-	config    *CircuitBreakerConfig
-	state     CircuitBreakerState
-	counts    Counts
-	openTime  time.Time
-	mu        sync.RWMutex
+	config   *CircuitBreakerConfig
+	state    CircuitBreakerState
+	counts   Counts
+	openTime time.Time
+	mu       sync.RWMutex
 }
 
 // NewCircuitBreaker creates a new circuit breaker with the given configuration
@@ -117,7 +117,7 @@ func NewCircuitBreaker(config *CircuitBreakerConfig) CircuitBreaker {
 	if config == nil {
 		config = DefaultCircuitBreakerConfig("default")
 	}
-	
+
 	return &circuitBreaker{
 		config: config,
 		state:  StateClosed,
@@ -139,7 +139,7 @@ func (cb *circuitBreaker) Call(ctx context.Context, operation func() (interface{
 	if err := cb.beforeCall(); err != nil {
 		return nil, err
 	}
-	
+
 	// Create a context with timeout if configured
 	var opCtx context.Context
 	var cancel context.CancelFunc
@@ -149,13 +149,13 @@ func (cb *circuitBreaker) Call(ctx context.Context, operation func() (interface{
 		opCtx, cancel = context.WithCancel(ctx)
 	}
 	defer cancel()
-	
+
 	// Execute the operation with panic recovery
 	result, err := cb.executeWithRecovery(opCtx, operation)
-	
+
 	// Record the result
 	cb.afterCall(err == nil)
-	
+
 	return result, err
 }
 
@@ -163,14 +163,14 @@ func (cb *circuitBreaker) Call(ctx context.Context, operation func() (interface{
 func (cb *circuitBreaker) beforeCall() error {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-	
+
 	now := time.Now()
-	
+
 	switch cb.state {
 	case StateClosed:
 		// Allow the call
 		return nil
-		
+
 	case StateOpen:
 		// Check if we should transition to half-open
 		if now.Sub(cb.openTime) >= cb.config.ResetTimeout {
@@ -180,14 +180,14 @@ func (cb *circuitBreaker) beforeCall() error {
 		}
 		// Still open, reject the call
 		return cb.createCircuitOpenError()
-		
+
 	case StateHalfOpen:
 		// Check if we've exceeded the half-open call limit
 		if cb.counts.Requests >= cb.config.HalfOpenMaxCalls {
 			return cb.createCircuitOpenError()
 		}
 		return nil
-		
+
 	default:
 		return cb.createCircuitOpenError()
 	}
@@ -197,14 +197,14 @@ func (cb *circuitBreaker) beforeCall() error {
 func (cb *circuitBreaker) afterCall(success bool) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-	
+
 	cb.counts.Requests++
-	
+
 	if success {
 		cb.counts.TotalSuccesses++
 		cb.counts.ConsecutiveSuccesses++
 		cb.counts.ConsecutiveFailures = 0
-		
+
 		// Check if we should close from half-open
 		if cb.state == StateHalfOpen && cb.counts.ConsecutiveSuccesses >= cb.config.SuccessThreshold {
 			cb.state = StateClosed
@@ -214,7 +214,7 @@ func (cb *circuitBreaker) afterCall(success bool) {
 		cb.counts.TotalFailures++
 		cb.counts.ConsecutiveFailures++
 		cb.counts.ConsecutiveSuccesses = 0
-		
+
 		// Check if we should trip the breaker
 		if cb.shouldTrip() {
 			cb.state = StateOpen
@@ -229,7 +229,7 @@ func (cb *circuitBreaker) shouldTrip() bool {
 	if cb.config.ShouldTrip != nil {
 		return cb.config.ShouldTrip(cb.counts)
 	}
-	
+
 	// Default logic: trip if consecutive failures exceed threshold
 	return cb.counts.ConsecutiveFailures >= cb.config.MaxFailures
 }
@@ -240,7 +240,7 @@ func (cb *circuitBreaker) executeWithRecovery(ctx context.Context, operation fun
 		if r := recover(); r != nil {
 			// Create enhanced panic error with circuit breaker context
 			panicErr := &BaseError{
-				Code:      "CIRCUIT_BREAKER_PANIC", 
+				Code:      "CIRCUIT_BREAKER_PANIC",
 				Message:   fmt.Sprintf("Operation panicked: %v", r),
 				Severity:  SeverityError,
 				Timestamp: time.Now(),
@@ -249,20 +249,20 @@ func (cb *circuitBreaker) executeWithRecovery(ctx context.Context, operation fun
 			panicErr.WithDetail("circuit_breaker", cb.config.Name).
 				WithDetail("panic_value", r).
 				WithDetail("state", cb.state.String())
-			
+
 			result = nil
 			err = panicErr
 		}
 	}()
-	
+
 	// Create a channel to receive the result
 	type opResult struct {
 		result interface{}
 		err    error
 	}
-	
+
 	resultChan := make(chan opResult, 1)
-	
+
 	// Execute operation in goroutine
 	go func() {
 		defer func() {
@@ -270,7 +270,7 @@ func (cb *circuitBreaker) executeWithRecovery(ctx context.Context, operation fun
 				resultChan <- opResult{nil, fmt.Errorf("operation panicked: %v", r)}
 			}
 		}()
-		
+
 		res, err := operation()
 		select {
 		case resultChan <- opResult{res, err}:
@@ -278,7 +278,7 @@ func (cb *circuitBreaker) executeWithRecovery(ctx context.Context, operation fun
 			// Context cancelled while operation was running
 		}
 	}()
-	
+
 	// Wait for result or timeout/cancellation
 	select {
 	case res := <-resultChan:
@@ -311,7 +311,7 @@ func (cb *circuitBreaker) Name() string {
 func (cb *circuitBreaker) Reset() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-	
+
 	cb.state = StateClosed
 	cb.counts = Counts{}
 }
@@ -320,7 +320,7 @@ func (cb *circuitBreaker) Reset() {
 func (cb *circuitBreaker) Trip() {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
-	
+
 	cb.state = StateOpen
 	cb.openTime = time.Now()
 }
@@ -366,21 +366,21 @@ func (cbm *CircuitBreakerManager) GetOrCreate(name string, config *CircuitBreake
 		return cb
 	}
 	cbm.mu.RUnlock()
-	
+
 	cbm.mu.Lock()
 	defer cbm.mu.Unlock()
-	
+
 	// Double-check in case another goroutine created it
 	if cb, exists := cbm.breakers[name]; exists {
 		return cb
 	}
-	
+
 	if config == nil {
 		config = DefaultCircuitBreakerConfig(name)
 	} else if config.Name == "" {
 		config.Name = name
 	}
-	
+
 	cb := NewCircuitBreaker(config)
 	cbm.breakers[name] = cb
 	return cb
@@ -390,7 +390,7 @@ func (cbm *CircuitBreakerManager) GetOrCreate(name string, config *CircuitBreake
 func (cbm *CircuitBreakerManager) Get(name string) (CircuitBreaker, bool) {
 	cbm.mu.RLock()
 	defer cbm.mu.RUnlock()
-	
+
 	cb, exists := cbm.breakers[name]
 	return cb, exists
 }
@@ -399,7 +399,7 @@ func (cbm *CircuitBreakerManager) Get(name string) (CircuitBreaker, bool) {
 func (cbm *CircuitBreakerManager) Remove(name string) bool {
 	cbm.mu.Lock()
 	defer cbm.mu.Unlock()
-	
+
 	if _, exists := cbm.breakers[name]; exists {
 		delete(cbm.breakers, name)
 		return true
@@ -411,7 +411,7 @@ func (cbm *CircuitBreakerManager) Remove(name string) bool {
 func (cbm *CircuitBreakerManager) List() []string {
 	cbm.mu.RLock()
 	defer cbm.mu.RUnlock()
-	
+
 	names := make([]string, 0, len(cbm.breakers))
 	for name := range cbm.breakers {
 		names = append(names, name)
@@ -423,16 +423,16 @@ func (cbm *CircuitBreakerManager) List() []string {
 func (cbm *CircuitBreakerManager) GetStats() map[string]CircuitBreakerStats {
 	cbm.mu.RLock()
 	defer cbm.mu.RUnlock()
-	
+
 	stats := make(map[string]CircuitBreakerStats)
 	for name, cb := range cbm.breakers {
 		counts := cb.Counts()
 		stats[name] = CircuitBreakerStats{
-			Name:                 cb.Name(),
-			State:                cb.State(),
-			Counts:               counts,
-			SuccessRate:          calculateSuccessRate(counts),
-			FailureRate:          calculateFailureRate(counts),
+			Name:        cb.Name(),
+			State:       cb.State(),
+			Counts:      counts,
+			SuccessRate: calculateSuccessRate(counts),
+			FailureRate: calculateFailureRate(counts),
 		}
 	}
 	return stats

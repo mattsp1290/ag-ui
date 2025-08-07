@@ -26,35 +26,35 @@ import (
 type EventProcessor struct {
 	// Configuration
 	config EventProcessingConfig
-	
+
 	// Processing state
-	running    atomic.Bool
-	mu         sync.RWMutex
-	
+	running atomic.Bool
+	mu      sync.RWMutex
+
 	// Event handling
-	handlers        map[events.EventType][]EventHandler
-	handlersMu      sync.RWMutex
-	defaultHandler  EventHandler
-	
+	handlers       map[events.EventType][]EventHandler
+	handlersMu     sync.RWMutex
+	defaultHandler EventHandler
+
 	// Processing pipeline
 	incomingEvents  chan eventJob
 	processedEvents chan events.Event
-	
+
 	// Batching and buffering
-	batchBuffer     []events.Event
-	batchMu         sync.Mutex
-	batchTimer      *time.Timer
-	
+	batchBuffer []events.Event
+	batchMu     sync.Mutex
+	batchTimer  *time.Timer
+
 	// Backpressure management
-	backpressure    *BackpressureManager
-	
+	backpressure *BackpressureManager
+
 	// Sequence tracking
 	sequenceTracker *EventSequenceTracker
-	
+
 	// Metrics
-	metrics         EventProcessorMetrics
-	metricsMu       sync.RWMutex
-	
+	metrics   EventProcessorMetrics
+	metricsMu sync.RWMutex
+
 	// Lifecycle
 	ctx       context.Context
 	cancel    context.CancelFunc
@@ -144,7 +144,7 @@ func NewEventProcessor(config EventProcessingConfig) (*EventProcessor, error) {
 	if config.Timeout == 0 {
 		config.Timeout = 30 * time.Second
 	}
-	
+
 	processor := &EventProcessor{
 		config:          config,
 		handlers:        make(map[events.EventType][]EventHandler),
@@ -163,9 +163,9 @@ func NewEventProcessor(config EventProcessingConfig) (*EventProcessor, error) {
 			LastProcessedTime: time.Now(),
 		},
 	}
-	
+
 	processor.isHealthy.Store(true)
-	
+
 	return processor, nil
 }
 
@@ -173,33 +173,33 @@ func NewEventProcessor(config EventProcessingConfig) (*EventProcessor, error) {
 func (ep *EventProcessor) Start(ctx context.Context) error {
 	ep.mu.Lock()
 	defer ep.mu.Unlock()
-	
+
 	if ep.running.Load() {
 		return errors.NewAgentError(errors.ErrorTypeInvalidState, "event processor is already running", "event_processor")
 	}
-	
+
 	ep.ctx, ep.cancel = context.WithCancel(ctx)
 	ep.running.Store(true)
-	
+
 	// Start worker goroutines
 	numWorkers := 4 // Configurable based on system resources
 	for i := 0; i < numWorkers; i++ {
 		ep.wg.Add(1)
 		go ep.workerLoop(i)
 	}
-	
+
 	// Start batch processing
 	ep.wg.Add(1)
 	go ep.batchProcessingLoop()
-	
+
 	// Start metrics collection
 	ep.wg.Add(1)
 	go ep.metricsCollectionLoop()
-	
+
 	// Start sequence cleanup
 	ep.wg.Add(1)
 	go ep.sequenceCleanupLoop()
-	
+
 	return nil
 }
 
@@ -207,34 +207,34 @@ func (ep *EventProcessor) Start(ctx context.Context) error {
 func (ep *EventProcessor) Stop(ctx context.Context) error {
 	ep.mu.Lock()
 	defer ep.mu.Unlock()
-	
+
 	if !ep.running.Load() {
 		return nil
 	}
-	
+
 	ep.running.Store(false)
 	ep.cancel()
-	
+
 	// Close incoming events channel
 	close(ep.incomingEvents)
-	
+
 	// Wait for workers to finish with timeout
 	done := make(chan struct{})
 	go func() {
 		ep.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// All workers finished
 	case <-ctx.Done():
 		return fmt.Errorf("timeout waiting for event processor to stop")
 	}
-	
+
 	// Close processed events channel
 	close(ep.processedEvents)
-	
+
 	return nil
 }
 
@@ -242,16 +242,16 @@ func (ep *EventProcessor) Stop(ctx context.Context) error {
 func (ep *EventProcessor) Cleanup() error {
 	ep.mu.Lock()
 	defer ep.mu.Unlock()
-	
+
 	if ep.batchTimer != nil {
 		ep.batchTimer.Stop()
 		ep.batchTimer = nil
 	}
-	
+
 	ep.handlers = make(map[events.EventType][]EventHandler)
 	ep.defaultHandler = nil
 	ep.batchBuffer = nil
-	
+
 	return nil
 }
 
@@ -260,10 +260,10 @@ func (ep *EventProcessor) ProcessEvent(ctx context.Context, event events.Event) 
 	if !ep.running.Load() {
 		return nil, errors.NewAgentError(errors.ErrorTypeInvalidState, "event processor is not running", "event_processor")
 	}
-	
+
 	// Update metrics
 	atomic.AddInt64(&ep.metrics.EventsReceived, 1)
-	
+
 	// Validate event if enabled
 	if ep.config.EnableValidation {
 		if err := event.Validate(); err != nil {
@@ -271,12 +271,12 @@ func (ep *EventProcessor) ProcessEvent(ctx context.Context, event events.Event) 
 			return nil, fmt.Errorf("event validation failed: %w", err)
 		}
 	}
-	
+
 	// Check backpressure
 	if ep.backpressure.shouldApplyBackpressure() {
 		return ep.handleBackpressure(ctx, event)
 	}
-	
+
 	// Create job
 	job := eventJob{
 		event:     event,
@@ -284,7 +284,7 @@ func (ep *EventProcessor) ProcessEvent(ctx context.Context, event events.Event) 
 		resultCh:  make(chan eventResult, 1),
 		timestamp: time.Now(),
 	}
-	
+
 	// Submit job
 	select {
 	case ep.incomingEvents <- job:
@@ -296,7 +296,7 @@ func (ep *EventProcessor) ProcessEvent(ctx context.Context, event events.Event) 
 		atomic.AddInt64(&ep.metrics.BackpressureEvents, 1)
 		return ep.handleBackpressure(ctx, event)
 	}
-	
+
 	// Wait for result
 	select {
 	case result := <-job.resultCh:
@@ -315,11 +315,11 @@ func (ep *EventProcessor) ProcessEvent(ctx context.Context, event events.Event) 
 func (ep *EventProcessor) RegisterHandler(eventType events.EventType, handler EventHandler) {
 	ep.handlersMu.Lock()
 	defer ep.handlersMu.Unlock()
-	
+
 	if ep.handlers[eventType] == nil {
 		ep.handlers[eventType] = make([]EventHandler, 0)
 	}
-	
+
 	ep.handlers[eventType] = append(ep.handlers[eventType], handler)
 }
 
@@ -327,7 +327,7 @@ func (ep *EventProcessor) RegisterHandler(eventType events.EventType, handler Ev
 func (ep *EventProcessor) SetDefaultHandler(handler EventHandler) {
 	ep.handlersMu.Lock()
 	defer ep.handlersMu.Unlock()
-	
+
 	ep.defaultHandler = handler
 }
 
@@ -335,7 +335,7 @@ func (ep *EventProcessor) SetDefaultHandler(handler EventHandler) {
 func (ep *EventProcessor) GetMetrics() EventProcessorMetrics {
 	ep.metricsMu.RLock()
 	defer ep.metricsMu.RUnlock()
-	
+
 	return ep.metrics
 }
 
@@ -347,17 +347,17 @@ func (ep *EventProcessor) IsHealthy() bool {
 // Worker loop for processing events
 func (ep *EventProcessor) workerLoop(workerID int) {
 	defer ep.wg.Done()
-	
+
 	for job := range ep.incomingEvents {
 		startTime := time.Now()
-		
+
 		// Process the event
 		result := ep.processEventJob(job)
-		
+
 		// Update latency metrics
 		latency := time.Since(startTime)
 		ep.updateLatencyMetrics(latency)
-		
+
 		// Send result
 		select {
 		case job.resultCh <- result:
@@ -365,7 +365,7 @@ func (ep *EventProcessor) workerLoop(workerID int) {
 		case <-ep.ctx.Done():
 			return
 		}
-		
+
 		// Update last processed time
 		ep.metricsMu.Lock()
 		ep.metrics.LastProcessedTime = time.Now()
@@ -377,22 +377,22 @@ func (ep *EventProcessor) workerLoop(workerID int) {
 func (ep *EventProcessor) processEventJob(job eventJob) eventResult {
 	event := job.event
 	ctx := job.ctx
-	
+
 	// Check sequence if needed
 	if ep.config.EnableValidation {
 		if err := ep.sequenceTracker.validateSequence(event); err != nil {
 			return eventResult{nil, fmt.Errorf("sequence validation failed: %w", err)}
 		}
 	}
-	
+
 	// Find handlers for the event type
 	ep.handlersMu.RLock()
 	handlers := ep.handlers[event.Type()]
 	defaultHandler := ep.defaultHandler
 	ep.handlersMu.RUnlock()
-	
+
 	var allResults []events.Event
-	
+
 	// Execute handlers
 	if len(handlers) > 0 {
 		for _, handler := range handlers {
@@ -409,20 +409,20 @@ func (ep *EventProcessor) processEventJob(job eventJob) eventResult {
 		}
 		allResults = append(allResults, results...)
 	}
-	
+
 	// Update sequence tracker
 	ep.sequenceTracker.updateSequence(event)
-	
+
 	return eventResult{allResults, nil}
 }
 
 // Batch processing loop
 func (ep *EventProcessor) batchProcessingLoop() {
 	defer ep.wg.Done()
-	
+
 	ep.batchTimer = time.NewTimer(ep.config.Timeout)
 	defer ep.batchTimer.Stop()
-	
+
 	for {
 		select {
 		case <-ep.ctx.Done():
@@ -441,14 +441,14 @@ func (ep *EventProcessor) batchProcessingLoop() {
 func (ep *EventProcessor) processBatch() {
 	ep.batchMu.Lock()
 	defer ep.batchMu.Unlock()
-	
+
 	if len(ep.batchBuffer) == 0 {
 		return
 	}
-	
+
 	// Process batch (simplified - could include batch optimizations)
 	atomic.AddInt64(&ep.metrics.BatchesProcessed, 1)
-	
+
 	// Clear batch buffer
 	ep.batchBuffer = ep.batchBuffer[:0]
 }
@@ -456,13 +456,13 @@ func (ep *EventProcessor) processBatch() {
 // Metrics collection loop
 func (ep *EventProcessor) metricsCollectionLoop() {
 	defer ep.wg.Done()
-	
+
 	ticker := time.NewTicker(10 * time.Second)
 	defer ticker.Stop()
-	
+
 	var lastProcessed int64
 	var lastTime time.Time = time.Now()
-	
+
 	for {
 		select {
 		case <-ep.ctx.Done():
@@ -477,10 +477,10 @@ func (ep *EventProcessor) metricsCollectionLoop() {
 func (ep *EventProcessor) updateThroughputMetrics(lastProcessed *int64, lastTime *time.Time) {
 	ep.metricsMu.Lock()
 	defer ep.metricsMu.Unlock()
-	
+
 	currentProcessed := atomic.LoadInt64(&ep.metrics.EventsProcessed)
 	currentTime := time.Now()
-	
+
 	if !lastTime.IsZero() {
 		duration := currentTime.Sub(*lastTime)
 		if duration > 0 {
@@ -488,7 +488,7 @@ func (ep *EventProcessor) updateThroughputMetrics(lastProcessed *int64, lastTime
 			ep.metrics.ThroughputPerSec = float64(eventsProcessed) / duration.Seconds()
 		}
 	}
-	
+
 	*lastProcessed = currentProcessed
 	*lastTime = currentTime
 }
@@ -497,7 +497,7 @@ func (ep *EventProcessor) updateThroughputMetrics(lastProcessed *int64, lastTime
 func (ep *EventProcessor) updateLatencyMetrics(latency time.Duration) {
 	ep.metricsMu.Lock()
 	defer ep.metricsMu.Unlock()
-	
+
 	if ep.metrics.AverageLatency == 0 {
 		ep.metrics.AverageLatency = latency
 	} else {
@@ -509,10 +509,10 @@ func (ep *EventProcessor) updateLatencyMetrics(latency time.Duration) {
 // Sequence cleanup loop
 func (ep *EventProcessor) sequenceCleanupLoop() {
 	defer ep.wg.Done()
-	
+
 	ticker := time.NewTicker(5 * time.Minute)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ep.ctx.Done():
@@ -567,7 +567,7 @@ func (est *EventSequenceTracker) validateSequence(event events.Event) error {
 func (est *EventSequenceTracker) updateSequence(event events.Event) {
 	est.mu.Lock()
 	defer est.mu.Unlock()
-	
+
 	// Update sequence state based on event
 	// This is a simplified implementation
 	sequenceID := est.getSequenceID(event)
@@ -586,7 +586,7 @@ func (est *EventSequenceTracker) updateSequence(event events.Event) {
 func (est *EventSequenceTracker) cleanup() {
 	est.mu.Lock()
 	defer est.mu.Unlock()
-	
+
 	cutoff := time.Now().Add(-10 * time.Minute)
 	for id, state := range est.sequences {
 		if state.lastSeen.Before(cutoff) {

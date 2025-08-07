@@ -214,7 +214,7 @@ func TestGoroutineLeakDetection(t *testing.T) {
 
 	// Allow for some variance but detect significant leaks
 	if finalGoroutines > initialGoroutines+3 {
-		t.Errorf("Potential goroutine leak: initial=%d, final=%d", 
+		t.Errorf("Potential goroutine leak: initial=%d, final=%d",
 			initialGoroutines, finalGoroutines)
 	}
 }

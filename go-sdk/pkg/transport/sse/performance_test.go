@@ -40,15 +40,15 @@ func TestHighConcurrencyLoad(t *testing.T) {
 	}
 
 	// Optimized for controlled test execution
-	testDuration := 5 * time.Second  // Reduced from original 20s
+	testDuration := 5 * time.Second // Reduced from original 20s
 	if testing.Short() {
 		testDuration = 2 * time.Second
 	}
 
 	// Configuration - balanced for testing vs performance
 	const (
-		targetConnections = 50   // Reduced from 1200 for controlled testing
-		eventsPerSecond   = 25   // Reduced from 100
+		targetConnections = 50                     // Reduced from 1200 for controlled testing
+		eventsPerSecond   = 25                     // Reduced from 100
 		maxLatency        = 300 * time.Millisecond // Reasonable for testing
 	)
 
@@ -121,7 +121,7 @@ func TestHighConcurrencyLoad(t *testing.T) {
 		go func(connID int) {
 			defer wg.Done()
 			defer atomic.AddInt64(&metrics.ActiveConnections, -1)
-			
+
 			// Create connection-specific context for better cleanup
 			connCtx, connCancel := context.WithCancel(ctx)
 			defer connCancel()
@@ -193,7 +193,7 @@ func TestHighConcurrencyLoad(t *testing.T) {
 				} else {
 					atomic.AddInt64(&metrics.FailedEvents, 1)
 				}
-				
+
 				// Record latency atomically
 				latencyNs := latency.Nanoseconds()
 				atomic.AddInt64(&metrics.TotalLatency, latencyNs)
@@ -237,7 +237,7 @@ func TestHighConcurrencyLoad(t *testing.T) {
 	failedEvents := atomic.LoadInt64(&metrics.FailedEvents)
 	totalEvents := successfulEvents + failedEvents
 	successRate := float64(successfulEvents) / float64(totalEvents) * 100
-	
+
 	// Calculate average latency atomically
 	totalLatency := atomic.LoadInt64(&metrics.TotalLatency)
 	var avgLatency time.Duration
@@ -254,7 +254,7 @@ func TestHighConcurrencyLoad(t *testing.T) {
 	t.Logf("  Average Latency: %v", avgLatency)
 	t.Logf("  Min Latency: %v", time.Duration(metrics.MinLatency))
 	t.Logf("  Max Latency: %v", time.Duration(metrics.MaxLatency))
-	
+
 	// Get system metrics safely
 	memoryUsed, goroutines := metrics.GetSystemMetrics()
 	t.Logf("  Memory Used: %.2f MB", float64(memoryUsed)/(1024*1024))

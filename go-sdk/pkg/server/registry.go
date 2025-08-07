@@ -61,10 +61,10 @@ type ExtendedAgentRegistry interface {
 type AgentHealthChecker interface {
 	// CheckHealth performs a health check on the specified agent
 	CheckHealth(ctx context.Context, agent client.Agent) (*AgentHealthStatus, error)
-	
+
 	// GetHealthCheckInterval returns the interval for health checks
 	GetHealthCheckInterval() time.Duration
-	
+
 	// SetHealthCheckInterval sets the interval for health checks
 	SetHealthCheckInterval(interval time.Duration)
 }
@@ -73,10 +73,10 @@ type AgentHealthChecker interface {
 type LoadBalancer interface {
 	// SelectAgent selects an agent based on the provided criteria and current load
 	SelectAgent(ctx context.Context, agents []*AgentRegistration, request *AgentSelectionRequest) (*AgentRegistration, error)
-	
+
 	// UpdateAgentLoad updates the load information for an agent
 	UpdateAgentLoad(ctx context.Context, agentID string, load *AgentLoadInfo) error
-	
+
 	// GetAlgorithm returns the load balancing algorithm name
 	GetAlgorithm() string
 }
@@ -85,7 +85,7 @@ type LoadBalancer interface {
 type AgentWatcher interface {
 	// Watch returns a channel that receives agent change events
 	Watch(ctx context.Context) (<-chan *AgentChangeEvent, error)
-	
+
 	// Close stops watching and closes the event channel
 	Close() error
 }
@@ -97,33 +97,61 @@ type AgentWatcher interface {
 // AgentRegistration represents a registered agent with all its metadata.
 type AgentRegistration struct {
 	// Core agent information
-	AgentID     string        `json:"agent_id"`
-	Agent       client.Agent  `json:"-"` // Not serialized
-	Name        string        `json:"name"`
-	Description string        `json:"description"`
-	Version     string        `json:"version"`
-	
+	AgentID     string       `json:"agent_id"`
+	Agent       client.Agent `json:"-"` // Not serialized
+	Name        string       `json:"name"`
+	Description string       `json:"description"`
+	Version     string       `json:"version"`
+
 	// Registration metadata
 	RegisteredAt time.Time                  `json:"registered_at"`
 	LastSeen     time.Time                  `json:"last_seen"`
 	Metadata     *AgentRegistrationMetadata `json:"metadata"`
-	
+
 	// Capabilities and health
 	Capabilities *client.AgentCapabilities `json:"capabilities"`
 	Health       *AgentHealthStatus        `json:"health"`
-	
+
 	// Performance and load balancing
-	Metrics    *AgentPerformanceMetrics `json:"metrics"`
-	LoadInfo   *AgentLoadInfo           `json:"load_info"`
-	
+	Metrics  *AgentPerformanceMetrics `json:"metrics"`
+	LoadInfo *AgentLoadInfo           `json:"load_info"`
+
 	// Transport and connectivity
 	Transport transport.Transport `json:"-"` // Not serialized
 	Endpoints []string            `json:"endpoints"`
-	
+
 	// Internal state
 	Status       AgentRegistrationStatus `json:"status"`
 	FailureCount int32                   `json:"failure_count"`
 	mu           sync.RWMutex            `json:"-"`
+}
+
+// Copy creates a copy of the AgentRegistration without the mutex field.
+// This method is safe for concurrent use and avoids "assignment copies lock value" warnings.
+func (ar *AgentRegistration) Copy() *AgentRegistration {
+	if ar == nil {
+		return nil
+	}
+
+	return &AgentRegistration{
+		AgentID:      ar.AgentID,
+		Agent:        ar.Agent,
+		Name:         ar.Name,
+		Description:  ar.Description,
+		Version:      ar.Version,
+		RegisteredAt: ar.RegisteredAt,
+		LastSeen:     ar.LastSeen,
+		Metadata:     ar.Metadata,
+		Capabilities: ar.Capabilities,
+		Health:       ar.Health,
+		Metrics:      ar.Metrics,
+		LoadInfo:     ar.LoadInfo,
+		Transport:    ar.Transport,
+		Endpoints:    ar.Endpoints,
+		Status:       ar.Status,
+		FailureCount: ar.FailureCount,
+		// Intentionally not copying mu field to avoid lock copying issues
+	}
 }
 
 // AgentRegistrationMetadata contains additional metadata for agent registration.
@@ -150,36 +178,36 @@ type AgentHealthStatus struct {
 // AgentPerformanceMetrics contains performance metrics for an agent.
 type AgentPerformanceMetrics struct {
 	// Request metrics
-	RequestCount     int64         `json:"request_count"`
-	SuccessCount     int64         `json:"success_count"`
-	ErrorCount       int32         `json:"error_count"`
-	AverageLatency   time.Duration `json:"average_latency"`
-	P95Latency       time.Duration `json:"p95_latency"`
-	P99Latency       time.Duration `json:"p99_latency"`
-	
+	RequestCount   int64         `json:"request_count"`
+	SuccessCount   int64         `json:"success_count"`
+	ErrorCount     int32         `json:"error_count"`
+	AverageLatency time.Duration `json:"average_latency"`
+	P95Latency     time.Duration `json:"p95_latency"`
+	P99Latency     time.Duration `json:"p99_latency"`
+
 	// Throughput metrics
 	RequestsPerSecond float64 `json:"requests_per_second"`
 	BytesPerSecond    float64 `json:"bytes_per_second"`
-	
+
 	// Resource utilization
 	CPUUsage    float64 `json:"cpu_usage"`
 	MemoryUsage float64 `json:"memory_usage"`
-	
+
 	// Connection metrics
 	ActiveConnections int32 `json:"active_connections"`
 	MaxConnections    int32 `json:"max_connections"`
-	
+
 	// Updated timestamp
 	LastUpdated time.Time `json:"last_updated"`
 }
 
 // AgentLoadInfo represents current load information for an agent.
 type AgentLoadInfo struct {
-	CurrentLoad    float64   `json:"current_load"`    // 0.0 to 1.0
-	RequestQueue   int32     `json:"request_queue"`   // Number of queued requests
+	CurrentLoad    float64       `json:"current_load"`    // 0.0 to 1.0
+	RequestQueue   int32         `json:"request_queue"`   // Number of queued requests
 	ProcessingTime time.Duration `json:"processing_time"` // Average processing time
-	Capacity       int32     `json:"capacity"`        // Maximum concurrent requests
-	LastUpdated    time.Time `json:"last_updated"`
+	Capacity       int32         `json:"capacity"`        // Maximum concurrent requests
+	LastUpdated    time.Time     `json:"last_updated"`
 }
 
 // AgentSelectionRequest represents a request for selecting an agent.
@@ -206,84 +234,84 @@ type AgentFilter struct {
 
 // DiscoveryQuery represents a service discovery query.
 type DiscoveryQuery struct {
-	ServiceName      string                 `json:"service_name,omitempty"`
-	Capabilities     []string               `json:"capabilities,omitempty"`
-	Tags             []string               `json:"tags,omitempty"`
-	Environment      string                 `json:"environment,omitempty"`
-	Region           string                 `json:"region,omitempty"`
-	HealthRequired   bool                   `json:"health_required"`
-	MaxResults       int                    `json:"max_results"`
-	IncludeMetrics   bool                   `json:"include_metrics"`
-	CustomFilters    map[string]interface{} `json:"custom_filters,omitempty"`
+	ServiceName    string                 `json:"service_name,omitempty"`
+	Capabilities   []string               `json:"capabilities,omitempty"`
+	Tags           []string               `json:"tags,omitempty"`
+	Environment    string                 `json:"environment,omitempty"`
+	Region         string                 `json:"region,omitempty"`
+	HealthRequired bool                   `json:"health_required"`
+	MaxResults     int                    `json:"max_results"`
+	IncludeMetrics bool                   `json:"include_metrics"`
+	CustomFilters  map[string]interface{} `json:"custom_filters,omitempty"`
 }
 
 // DiscoveryResult represents the result of a service discovery query.
 type DiscoveryResult struct {
-	Agents      []*AgentRegistration `json:"agents"`
-	TotalCount  int                  `json:"total_count"`
-	QueryTime   time.Duration        `json:"query_time"`
-	Timestamp   time.Time            `json:"timestamp"`
+	Agents     []*AgentRegistration `json:"agents"`
+	TotalCount int                  `json:"total_count"`
+	QueryTime  time.Duration        `json:"query_time"`
+	Timestamp  time.Time            `json:"timestamp"`
 }
 
 // AgentChangeEvent represents a change in agent registration.
 type AgentChangeEvent struct {
-	Type      AgentChangeType      `json:"type"`
-	AgentID   string               `json:"agent_id"`
-	Agent     *AgentRegistration   `json:"agent,omitempty"`
-	OldAgent  *AgentRegistration   `json:"old_agent,omitempty"`
-	Timestamp time.Time            `json:"timestamp"`
+	Type      AgentChangeType    `json:"type"`
+	AgentID   string             `json:"agent_id"`
+	Agent     *AgentRegistration `json:"agent,omitempty"`
+	OldAgent  *AgentRegistration `json:"old_agent,omitempty"`
+	Timestamp time.Time          `json:"timestamp"`
 }
 
 // LoadBalancingStats represents load balancing statistics.
 type LoadBalancingStats struct {
-	TotalRequests      int64                    `json:"total_requests"`
-	RequestsPerAgent   map[string]int64         `json:"requests_per_agent"`
-	AverageLatency     time.Duration            `json:"average_latency"`
-	LatencyPerAgent    map[string]time.Duration `json:"latency_per_agent"`
-	ErrorRate          float64                  `json:"error_rate"`
-	ErrorsPerAgent     map[string]int32         `json:"errors_per_agent"`
-	Algorithm          string                   `json:"algorithm"`
-	LastUpdated        time.Time                `json:"last_updated"`
+	TotalRequests    int64                    `json:"total_requests"`
+	RequestsPerAgent map[string]int64         `json:"requests_per_agent"`
+	AverageLatency   time.Duration            `json:"average_latency"`
+	LatencyPerAgent  map[string]time.Duration `json:"latency_per_agent"`
+	ErrorRate        float64                  `json:"error_rate"`
+	ErrorsPerAgent   map[string]int32         `json:"errors_per_agent"`
+	Algorithm        string                   `json:"algorithm"`
+	LastUpdated      time.Time                `json:"last_updated"`
 }
 
 // RegistryStats represents overall registry statistics.
 type RegistryStats struct {
-	TotalAgents       int32                        `json:"total_agents"`
-	HealthyAgents     int32                        `json:"healthy_agents"`
-	UnhealthyAgents   int32                        `json:"unhealthy_agents"`
-	AgentsByStatus    map[AgentRegistrationStatus]int32 `json:"agents_by_status"`
-	AgentsByHealth    map[AgentHealthStatusType]int32   `json:"agents_by_health"`
-	CapabilityMatrix  map[string]int32             `json:"capability_matrix"`
-	AverageLatency    time.Duration                `json:"average_latency"`
-	TotalRequests     int64                        `json:"total_requests"`
-	StartTime         time.Time                    `json:"start_time"`
-	Uptime            time.Duration                `json:"uptime"`
+	TotalAgents      int32                             `json:"total_agents"`
+	HealthyAgents    int32                             `json:"healthy_agents"`
+	UnhealthyAgents  int32                             `json:"unhealthy_agents"`
+	AgentsByStatus   map[AgentRegistrationStatus]int32 `json:"agents_by_status"`
+	AgentsByHealth   map[AgentHealthStatusType]int32   `json:"agents_by_health"`
+	CapabilityMatrix map[string]int32                  `json:"capability_matrix"`
+	AverageLatency   time.Duration                     `json:"average_latency"`
+	TotalRequests    int64                             `json:"total_requests"`
+	StartTime        time.Time                         `json:"start_time"`
+	Uptime           time.Duration                     `json:"uptime"`
 }
 
 // RegistryConfig contains configuration for the agent registry.
 type RegistryConfig struct {
 	// Health checking configuration
-	HealthCheckInterval      time.Duration `json:"health_check_interval"`
-	HealthCheckTimeout       time.Duration `json:"health_check_timeout"`
-	UnhealthyThreshold       int32         `json:"unhealthy_threshold"`
-	HealthyThreshold         int32         `json:"healthy_threshold"`
-	
+	HealthCheckInterval time.Duration `json:"health_check_interval"`
+	HealthCheckTimeout  time.Duration `json:"health_check_timeout"`
+	UnhealthyThreshold  int32         `json:"unhealthy_threshold"`
+	HealthyThreshold    int32         `json:"healthy_threshold"`
+
 	// Load balancing configuration
 	DefaultLoadBalancingAlgorithm LoadBalancingAlgorithm `json:"default_load_balancing_algorithm"`
 	EnableMetricsCollection       bool                   `json:"enable_metrics_collection"`
 	MetricsCollectionInterval     time.Duration          `json:"metrics_collection_interval"`
-	
-	// Registration configuration  
-	RegistrationTimeout       time.Duration `json:"registration_timeout"`
-	DeregistrationTimeout     time.Duration `json:"deregistration_timeout"`
-	MaxAgents                 int32         `json:"max_agents"`
-	EnableVersionCompatibility bool         `json:"enable_version_compatibility"`
-	
+
+	// Registration configuration
+	RegistrationTimeout        time.Duration `json:"registration_timeout"`
+	DeregistrationTimeout      time.Duration `json:"deregistration_timeout"`
+	MaxAgents                  int32         `json:"max_agents"`
+	EnableVersionCompatibility bool          `json:"enable_version_compatibility"`
+
 	// Discovery configuration
 	MaxDiscoveryResults       int           `json:"max_discovery_results"`
 	DiscoveryQueryTimeout     time.Duration `json:"discovery_query_timeout"`
 	EnableChangeNotifications bool          `json:"enable_change_notifications"`
-	
+
 	// Performance tuning
 	EnablePerformanceAwareRouting bool          `json:"enable_performance_aware_routing"`
 	PerformanceWindowSize         time.Duration `json:"performance_window_size"`
@@ -298,12 +326,12 @@ type RegistryConfig struct {
 type AgentRegistrationStatus string
 
 const (
-	AgentStatusRegistering    AgentRegistrationStatus = "registering"
-	AgentStatusActive         AgentRegistrationStatus = "active"
-	AgentStatusDraining       AgentRegistrationStatus = "draining"
-	AgentStatusUnhealthy      AgentRegistrationStatus = "unhealthy"
-	AgentStatusDeregistering  AgentRegistrationStatus = "deregistering"
-	AgentStatusDeregistered   AgentRegistrationStatus = "deregistered"
+	AgentStatusRegistering   AgentRegistrationStatus = "registering"
+	AgentStatusActive        AgentRegistrationStatus = "active"
+	AgentStatusDraining      AgentRegistrationStatus = "draining"
+	AgentStatusUnhealthy     AgentRegistrationStatus = "unhealthy"
+	AgentStatusDeregistering AgentRegistrationStatus = "deregistering"
+	AgentStatusDeregistered  AgentRegistrationStatus = "deregistered"
 )
 
 // AgentHealthStatusType represents the health status of an agent.
@@ -321,26 +349,26 @@ const (
 type AgentChangeType string
 
 const (
-	ChangeTypeRegistered    AgentChangeType = "registered"
-	ChangeTypeDeregistered  AgentChangeType = "deregistered"
-	ChangeTypeHealthChanged AgentChangeType = "health_changed"
-	ChangeTypeMetricsUpdated AgentChangeType = "metrics_updated"
+	ChangeTypeRegistered          AgentChangeType = "registered"
+	ChangeTypeDeregistered        AgentChangeType = "deregistered"
+	ChangeTypeHealthChanged       AgentChangeType = "health_changed"
+	ChangeTypeMetricsUpdated      AgentChangeType = "metrics_updated"
 	ChangeTypeCapabilitiesUpdated AgentChangeType = "capabilities_updated"
-	ChangeTypeStatusChanged AgentChangeType = "status_changed"
+	ChangeTypeStatusChanged       AgentChangeType = "status_changed"
 )
 
 // LoadBalancingAlgorithm represents different load balancing algorithms.
 type LoadBalancingAlgorithm string
 
 const (
-	LoadBalancingRoundRobin     LoadBalancingAlgorithm = "round_robin"
-	LoadBalancingWeightedRoundRobin LoadBalancingAlgorithm = "weighted_round_robin"
-	LoadBalancingLeastConnections LoadBalancingAlgorithm = "least_connections"
+	LoadBalancingRoundRobin               LoadBalancingAlgorithm = "round_robin"
+	LoadBalancingWeightedRoundRobin       LoadBalancingAlgorithm = "weighted_round_robin"
+	LoadBalancingLeastConnections         LoadBalancingAlgorithm = "least_connections"
 	LoadBalancingWeightedLeastConnections LoadBalancingAlgorithm = "weighted_least_connections"
-	LoadBalancingLatencyBased   LoadBalancingAlgorithm = "latency_based"
-	LoadBalancingRandom         LoadBalancingAlgorithm = "random"
-	LoadBalancingWeightedRandom LoadBalancingAlgorithm = "weighted_random"
-	LoadBalancingPerformanceBased LoadBalancingAlgorithm = "performance_based"
+	LoadBalancingLatencyBased             LoadBalancingAlgorithm = "latency_based"
+	LoadBalancingRandom                   LoadBalancingAlgorithm = "random"
+	LoadBalancingWeightedRandom           LoadBalancingAlgorithm = "weighted_random"
+	LoadBalancingPerformanceBased         LoadBalancingAlgorithm = "performance_based"
 )
 
 // ==============================================================================
@@ -351,44 +379,44 @@ const (
 type DefaultAgentRegistry struct {
 	// Configuration
 	config *RegistryConfig
-	
+
 	// Agent storage and indexing
-	agents           map[string]*AgentRegistration
+	agents             map[string]*AgentRegistration
 	agentsByCapability map[string][]*AgentRegistration
 	agentsByTag        map[string][]*AgentRegistration
 	agentsByStatus     map[AgentRegistrationStatus][]*AgentRegistration
 	agentsByHealth     map[AgentHealthStatusType][]*AgentRegistration
-	
+
 	// Synchronization
 	mu sync.RWMutex
-	
+
 	// Health checking
-	healthChecker    AgentHealthChecker
-	healthCheckStop  chan struct{}
-	healthCheckDone  chan struct{}
-	
+	healthChecker   AgentHealthChecker
+	healthCheckStop chan struct{}
+	healthCheckDone chan struct{}
+
 	// Load balancing
 	loadBalancer LoadBalancer
-	
+
 	// Change notification
-	watchers     map[string]AgentWatcher
-	watchersMu   sync.RWMutex
-	changeEvents chan *AgentChangeEvent
-	changeEventsMu sync.RWMutex  // Protects access to changeEvents channel
+	watchers           map[string]AgentWatcher
+	watchersMu         sync.RWMutex
+	changeEvents       chan *AgentChangeEvent
+	changeEventsMu     sync.RWMutex // Protects access to changeEvents channel
 	changeEventsClosed atomic.Bool
-	
+
 	// Statistics and metrics
-	stats           *RegistryStats
-	loadStats       *LoadBalancingStats
-	metricsStop     chan struct{}
-	metricsDone     chan struct{}
-	
+	stats       *RegistryStats
+	loadStats   *LoadBalancingStats
+	metricsStop chan struct{}
+	metricsDone chan struct{}
+
 	// Lifecycle management
-	startTime            time.Time
-	running              atomic.Bool
-	shutdownOnce         sync.Once
-	healthCheckDoneOnce  sync.Once
-	metricsDoneOnce      sync.Once
+	startTime           time.Time
+	running             atomic.Bool
+	shutdownOnce        sync.Once
+	healthCheckDoneOnce sync.Once
+	metricsDoneOnce     sync.Once
 }
 
 // NewAgentRegistry creates a new agent registry with the given configuration.
@@ -396,7 +424,7 @@ func NewAgentRegistry(config *RegistryConfig) ExtendedAgentRegistry {
 	if config == nil {
 		config = DefaultRegistryConfig()
 	}
-	
+
 	registry := &DefaultAgentRegistry{
 		config:             config,
 		agents:             make(map[string]*AgentRegistration),
@@ -411,19 +439,19 @@ func NewAgentRegistry(config *RegistryConfig) ExtendedAgentRegistry {
 		metricsStop:        make(chan struct{}),
 		metricsDone:        make(chan struct{}),
 		stats:              &RegistryStats{},
-		loadStats:          &LoadBalancingStats{
-			Algorithm:          string(config.DefaultLoadBalancingAlgorithm),
-			RequestsPerAgent:   make(map[string]int64),
-			LatencyPerAgent:    make(map[string]time.Duration),
-			ErrorsPerAgent:     make(map[string]int32),
-			LastUpdated:        time.Now(),
+		loadStats: &LoadBalancingStats{
+			Algorithm:        string(config.DefaultLoadBalancingAlgorithm),
+			RequestsPerAgent: make(map[string]int64),
+			LatencyPerAgent:  make(map[string]time.Duration),
+			ErrorsPerAgent:   make(map[string]int32),
+			LastUpdated:      time.Now(),
 		},
 	}
-	
+
 	// Initialize components
 	registry.healthChecker = NewDefaultHealthChecker(config.HealthCheckInterval)
 	registry.loadBalancer = NewLoadBalancer(config.DefaultLoadBalancingAlgorithm)
-	
+
 	return registry
 }
 
@@ -432,23 +460,23 @@ func (r *DefaultAgentRegistry) Start(ctx context.Context) error {
 	if r.running.Load() {
 		return pkgerrors.NewBaseError("CONFIGURATION_ERROR", "registry already running")
 	}
-	
+
 	r.startTime = time.Now()
 	r.running.Store(true)
-	
+
 	// Start health checking
 	if r.config.HealthCheckInterval > 0 {
 		go r.runHealthChecks()
 	}
-	
+
 	// Start metrics collection
 	if r.config.EnableMetricsCollection && r.config.MetricsCollectionInterval > 0 {
 		go r.runMetricsCollection()
 	}
-	
+
 	// Start change event processing
 	go r.processChangeEvents()
-	
+
 	return nil
 }
 
@@ -456,21 +484,21 @@ func (r *DefaultAgentRegistry) Start(ctx context.Context) error {
 func (r *DefaultAgentRegistry) Stop(ctx context.Context) error {
 	r.shutdownOnce.Do(func() {
 		r.running.Store(false)
-		
+
 		// Stop health checking
 		close(r.healthCheckStop)
 		select {
 		case <-r.healthCheckDone:
 		case <-ctx.Done():
 		}
-		
+
 		// Stop metrics collection
 		close(r.metricsStop)
 		select {
 		case <-r.metricsDone:
 		case <-ctx.Done():
 		}
-		
+
 		// Close change events channel with proper synchronization
 		r.changeEventsMu.Lock()
 		if !r.changeEventsClosed.Load() {
@@ -478,7 +506,7 @@ func (r *DefaultAgentRegistry) Stop(ctx context.Context) error {
 			close(r.changeEvents)
 		}
 		r.changeEventsMu.Unlock()
-		
+
 		// Close all watchers
 		r.watchersMu.Lock()
 		for _, watcher := range r.watchers {
@@ -487,7 +515,7 @@ func (r *DefaultAgentRegistry) Stop(ctx context.Context) error {
 		r.watchers = make(map[string]AgentWatcher)
 		r.watchersMu.Unlock()
 	})
-	
+
 	return nil
 }
 
@@ -496,25 +524,25 @@ func (r *DefaultAgentRegistry) RegisterAgent(ctx context.Context, agent client.A
 	if !r.running.Load() {
 		return pkgerrors.NewBaseError("CONFIGURATION_ERROR", "registry not running")
 	}
-	
+
 	agentID := agent.Name()
 	if agentID == "" {
 		return pkgerrors.NewValidationError("VALIDATION_FAILED", "agent name cannot be empty")
 	}
-	
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	// Check if agent already exists
 	if _, exists := r.agents[agentID]; exists {
 		return pkgerrors.NewConflictError("RESOURCE_CONFLICT", fmt.Sprintf("agent %s already registered", agentID))
 	}
-	
+
 	// Check agent limit
 	if r.config.MaxAgents > 0 && int32(len(r.agents)) >= r.config.MaxAgents {
 		return pkgerrors.NewResourceLimitError("maximum number of agents reached", nil)
 	}
-	
+
 	// Create registration
 	registration := &AgentRegistration{
 		AgentID:      agentID,
@@ -538,16 +566,16 @@ func (r *DefaultAgentRegistry) RegisterAgent(ctx context.Context, agent client.A
 		},
 		Status: AgentStatusRegistering,
 	}
-	
+
 	// Update registration status to active before indexing
 	registration.Status = AgentStatusActive
-	
+
 	// Store the registration
 	r.agents[agentID] = registration
-	
+
 	// Update indices
 	r.updateIndices(registration, nil)
-	
+
 	// Send change event
 	r.sendChangeEvent(&AgentChangeEvent{
 		Type:      ChangeTypeRegistered,
@@ -555,14 +583,14 @@ func (r *DefaultAgentRegistry) RegisterAgent(ctx context.Context, agent client.A
 		Agent:     registration,
 		Timestamp: time.Now(),
 	})
-	
+
 	// Trigger initial health check
 	go func() {
 		// Check if registry is still running before performing health check
 		if !r.running.Load() {
 			return
 		}
-		
+
 		if health, err := r.healthChecker.CheckHealth(ctx, agent); err == nil {
 			// Double-check registry is still running before updating health
 			if r.running.Load() {
@@ -570,7 +598,7 @@ func (r *DefaultAgentRegistry) RegisterAgent(ctx context.Context, agent client.A
 			}
 		}
 	}()
-	
+
 	return nil
 }
 
@@ -579,33 +607,33 @@ func (r *DefaultAgentRegistry) UnregisterAgent(ctx context.Context, agentID stri
 	if !r.running.Load() {
 		return pkgerrors.NewConfigurationError("registry not running", nil)
 	}
-	
+
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	registration, exists := r.agents[agentID]
 	if !exists {
 		return pkgerrors.NewNotFoundError(fmt.Sprintf("agent %s not found", agentID), nil)
 	}
-	
+
 	// Update status to deregistering
-	oldRegistration := *registration
+	oldRegistration := registration.Copy()
 	registration.Status = AgentStatusDeregistering
-	
+
 	// Remove from indices
 	r.updateIndices(nil, registration)
-	
+
 	// Remove from storage
 	delete(r.agents, agentID)
-	
+
 	// Send change event
 	r.sendChangeEvent(&AgentChangeEvent{
 		Type:      ChangeTypeDeregistered,
 		AgentID:   agentID,
-		OldAgent:  &oldRegistration,
+		OldAgent:  oldRegistration,
 		Timestamp: time.Now(),
 	})
-	
+
 	return nil
 }
 
@@ -613,36 +641,34 @@ func (r *DefaultAgentRegistry) UnregisterAgent(ctx context.Context, agentID stri
 func (r *DefaultAgentRegistry) GetAgent(ctx context.Context, agentID string) (*AgentRegistration, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	registration, exists := r.agents[agentID]
 	if !exists {
 		return nil, pkgerrors.NewNotFoundError(fmt.Sprintf("agent %s not found", agentID), nil)
 	}
-	
+
 	// Create a copy to avoid data races
-	regCopy := *registration
-	return &regCopy, nil
+	return registration.Copy(), nil
 }
 
 // ListAgents lists agents based on the provided filter.
 func (r *DefaultAgentRegistry) ListAgents(ctx context.Context, filter *AgentFilter) ([]*AgentRegistration, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	var result []*AgentRegistration
-	
+
 	for _, registration := range r.agents {
 		if r.matchesFilter(registration, filter) {
-			regCopy := *registration
-			result = append(result, &regCopy)
+			result = append(result, registration.Copy())
 		}
 	}
-	
+
 	// Sort by registration time (newest first)
 	sort.Slice(result, func(i, j int) bool {
 		return result[i].RegisteredAt.After(result[j].RegisteredAt)
 	})
-	
+
 	return result, nil
 }
 
@@ -650,21 +676,21 @@ func (r *DefaultAgentRegistry) ListAgents(ctx context.Context, filter *AgentFilt
 func (r *DefaultAgentRegistry) UpdateAgentHealth(ctx context.Context, agentID string, health *AgentHealthStatus) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	registration, exists := r.agents[agentID]
 	if !exists {
 		return pkgerrors.NewNotFoundError(fmt.Sprintf("agent %s not found", agentID), nil)
 	}
-	
+
 	oldHealth := registration.Health.Status
 	registration.Health = health
 	registration.LastSeen = time.Now()
-	
+
 	// Update health index
 	if oldHealth != health.Status {
 		r.removeFromHealthIndex(registration, oldHealth)
 		r.addToHealthIndex(registration, health.Status)
-		
+
 		// Update registration status based on health
 		oldStatus := registration.Status
 		if health.Status == HealthStatusHealthy && registration.Status == AgentStatusUnhealthy {
@@ -672,7 +698,7 @@ func (r *DefaultAgentRegistry) UpdateAgentHealth(ctx context.Context, agentID st
 		} else if health.Status == HealthStatusUnhealthy && registration.Status == AgentStatusActive {
 			registration.Status = AgentStatusUnhealthy
 		}
-		
+
 		// Send change events
 		if oldHealth != health.Status {
 			r.sendChangeEvent(&AgentChangeEvent{
@@ -682,7 +708,7 @@ func (r *DefaultAgentRegistry) UpdateAgentHealth(ctx context.Context, agentID st
 				Timestamp: time.Now(),
 			})
 		}
-		
+
 		if oldStatus != registration.Status {
 			r.sendChangeEvent(&AgentChangeEvent{
 				Type:      ChangeTypeStatusChanged,
@@ -692,7 +718,7 @@ func (r *DefaultAgentRegistry) UpdateAgentHealth(ctx context.Context, agentID st
 			})
 		}
 	}
-	
+
 	return nil
 }
 
@@ -700,12 +726,12 @@ func (r *DefaultAgentRegistry) UpdateAgentHealth(ctx context.Context, agentID st
 func (r *DefaultAgentRegistry) GetAgentHealth(ctx context.Context, agentID string) (*AgentHealthStatus, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	registration, exists := r.agents[agentID]
 	if !exists {
 		return nil, pkgerrors.NewNotFoundError(fmt.Sprintf("agent %s not found", agentID), nil)
 	}
-	
+
 	// Create a copy
 	healthCopy := *registration.Health
 	return &healthCopy, nil
@@ -715,17 +741,16 @@ func (r *DefaultAgentRegistry) GetAgentHealth(ctx context.Context, agentID strin
 func (r *DefaultAgentRegistry) GetHealthyAgents(ctx context.Context, capabilities []string) ([]*AgentRegistration, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	var result []*AgentRegistration
-	
+
 	healthyAgents := r.agentsByHealth[HealthStatusHealthy]
 	for _, registration := range healthyAgents {
 		if r.hasCapabilities(registration, capabilities) {
-			regCopy := *registration
-			result = append(result, &regCopy)
+			result = append(result, registration.Copy())
 		}
 	}
-	
+
 	return result, nil
 }
 
@@ -733,20 +758,20 @@ func (r *DefaultAgentRegistry) GetHealthyAgents(ctx context.Context, capabilitie
 func (r *DefaultAgentRegistry) UpdateAgentCapabilities(ctx context.Context, agentID string, capabilities *client.AgentCapabilities) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	registration, exists := r.agents[agentID]
 	if !exists {
 		return pkgerrors.NewNotFoundError(fmt.Sprintf("agent %s not found", agentID), nil)
 	}
-	
+
 	// Update capabilities
 	oldCapabilities := registration.Capabilities
 	registration.Capabilities = capabilities
-	
+
 	// Update capability indices
 	r.removeFromCapabilityIndex(registration, oldCapabilities.Tools)
 	r.addToCapabilityIndex(registration, capabilities.Tools)
-	
+
 	// Send change event
 	r.sendChangeEvent(&AgentChangeEvent{
 		Type:      ChangeTypeCapabilitiesUpdated,
@@ -754,7 +779,7 @@ func (r *DefaultAgentRegistry) UpdateAgentCapabilities(ctx context.Context, agen
 		Agent:     registration,
 		Timestamp: time.Now(),
 	})
-	
+
 	return nil
 }
 
@@ -762,15 +787,14 @@ func (r *DefaultAgentRegistry) UpdateAgentCapabilities(ctx context.Context, agen
 func (r *DefaultAgentRegistry) FindAgentsByCapability(ctx context.Context, capability string) ([]*AgentRegistration, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	agents := r.agentsByCapability[capability]
 	result := make([]*AgentRegistration, len(agents))
-	
+
 	for i, registration := range agents {
-		regCopy := *registration
-		result[i] = &regCopy
+		result[i] = registration.Copy()
 	}
-	
+
 	return result, nil
 }
 
@@ -778,9 +802,9 @@ func (r *DefaultAgentRegistry) FindAgentsByCapability(ctx context.Context, capab
 func (r *DefaultAgentRegistry) GetCapabilityMatrix(ctx context.Context) (map[string][]string, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	matrix := make(map[string][]string)
-	
+
 	for capability, agents := range r.agentsByCapability {
 		agentIDs := make([]string, len(agents))
 		for i, agent := range agents {
@@ -788,7 +812,7 @@ func (r *DefaultAgentRegistry) GetCapabilityMatrix(ctx context.Context) (map[str
 		}
 		matrix[capability] = agentIDs
 	}
-	
+
 	return matrix, nil
 }
 
@@ -796,22 +820,22 @@ func (r *DefaultAgentRegistry) GetCapabilityMatrix(ctx context.Context) (map[str
 func (r *DefaultAgentRegistry) SelectAgent(ctx context.Context, request *AgentSelectionRequest) (*AgentRegistration, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	// Filter agents based on requirements
 	candidates := r.findCandidateAgents(request)
 	if len(candidates) == 0 {
 		return nil, pkgerrors.NewNotFoundError("no suitable agents found", nil)
 	}
-	
+
 	// Use load balancer to select agent
 	selected, err := r.loadBalancer.SelectAgent(ctx, candidates, request)
 	if err != nil {
 		return nil, fmt.Errorf("load balancer selection failed: %w", err)
 	}
-	
+
 	// Update load statistics
 	r.updateLoadStats(selected.AgentID)
-	
+
 	return selected, nil
 }
 
@@ -819,7 +843,7 @@ func (r *DefaultAgentRegistry) SelectAgent(ctx context.Context, request *AgentSe
 func (r *DefaultAgentRegistry) GetLoadBalancingStats(ctx context.Context) (*LoadBalancingStats, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	// Create a copy
 	statsCopy := *r.loadStats
 	return &statsCopy, nil
@@ -829,14 +853,14 @@ func (r *DefaultAgentRegistry) GetLoadBalancingStats(ctx context.Context) (*Load
 func (r *DefaultAgentRegistry) UpdateAgentMetrics(ctx context.Context, agentID string, metrics *AgentPerformanceMetrics) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	
+
 	registration, exists := r.agents[agentID]
 	if !exists {
 		return pkgerrors.NewNotFoundError(fmt.Sprintf("agent %s not found", agentID), nil)
 	}
-	
+
 	registration.Metrics = metrics
-	
+
 	// Update load balancer with new metrics
 	loadInfo := &AgentLoadInfo{
 		CurrentLoad:    float64(metrics.ActiveConnections) / float64(registration.LoadInfo.Capacity),
@@ -845,10 +869,10 @@ func (r *DefaultAgentRegistry) UpdateAgentMetrics(ctx context.Context, agentID s
 		Capacity:       registration.LoadInfo.Capacity,
 		LastUpdated:    time.Now(),
 	}
-	
+
 	registration.LoadInfo = loadInfo
 	r.loadBalancer.UpdateAgentLoad(ctx, agentID, loadInfo)
-	
+
 	// Send change event
 	r.sendChangeEvent(&AgentChangeEvent{
 		Type:      ChangeTypeMetricsUpdated,
@@ -856,19 +880,19 @@ func (r *DefaultAgentRegistry) UpdateAgentMetrics(ctx context.Context, agentID s
 		Agent:     registration,
 		Timestamp: time.Now(),
 	})
-	
+
 	return nil
 }
 
 // DiscoverAgents performs service discovery based on the query.
 func (r *DefaultAgentRegistry) DiscoverAgents(ctx context.Context, query *DiscoveryQuery) (*DiscoveryResult, error) {
 	startTime := time.Now()
-	
+
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	var candidates []*AgentRegistration
-	
+
 	// Start with all agents if no specific filters
 	if len(query.Capabilities) == 0 && len(query.Tags) == 0 {
 		for _, registration := range r.agents {
@@ -888,7 +912,7 @@ func (r *DefaultAgentRegistry) DiscoverAgents(ctx context.Context, query *Discov
 				candidates = append(candidates, agent)
 			}
 		}
-		
+
 		// Filter by tags
 		if len(query.Tags) > 0 {
 			var tagFiltered []*AgentRegistration
@@ -900,28 +924,27 @@ func (r *DefaultAgentRegistry) DiscoverAgents(ctx context.Context, query *Discov
 			candidates = tagFiltered
 		}
 	}
-	
+
 	// Apply additional filters
 	var filtered []*AgentRegistration
 	for _, candidate := range candidates {
 		if r.matchesDiscoveryQuery(candidate, query) {
-			regCopy := *candidate
-			filtered = append(filtered, &regCopy)
+			filtered = append(filtered, candidate.Copy())
 		}
 	}
-	
+
 	// Apply max results limit
 	if query.MaxResults > 0 && len(filtered) > query.MaxResults {
 		filtered = filtered[:query.MaxResults]
 	}
-	
+
 	result := &DiscoveryResult{
 		Agents:     filtered,
 		TotalCount: len(filtered),
 		QueryTime:  time.Since(startTime),
 		Timestamp:  time.Now(),
 	}
-	
+
 	return result, nil
 }
 
@@ -930,24 +953,24 @@ func (r *DefaultAgentRegistry) WatchAgentChanges(ctx context.Context) (<-chan *A
 	if !r.config.EnableChangeNotifications {
 		return nil, pkgerrors.NewConfigurationError("change notifications not enabled", nil)
 	}
-	
+
 	// Create a buffered channel for the watcher
 	watcherChan := make(chan *AgentChangeEvent, 100)
-	
+
 	// Generate watcher ID
 	watcherID := fmt.Sprintf("watcher-%d", time.Now().UnixNano())
-	
+
 	// Create and register watcher
 	watcher := &defaultAgentWatcher{
 		id:      watcherID,
 		channel: watcherChan,
 		ctx:     ctx,
 	}
-	
+
 	r.watchersMu.Lock()
 	r.watchers[watcherID] = watcher
 	r.watchersMu.Unlock()
-	
+
 	// Clean up watcher when context is done
 	go func() {
 		<-ctx.Done()
@@ -956,7 +979,7 @@ func (r *DefaultAgentRegistry) WatchAgentChanges(ctx context.Context) (<-chan *A
 		r.watchersMu.Unlock()
 		close(watcherChan)
 	}()
-	
+
 	return watcherChan, nil
 }
 
@@ -964,7 +987,7 @@ func (r *DefaultAgentRegistry) WatchAgentChanges(ctx context.Context) (<-chan *A
 func (r *DefaultAgentRegistry) GetRegistryStats(ctx context.Context) (*RegistryStats, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
-	
+
 	stats := &RegistryStats{
 		TotalAgents:      int32(len(r.agents)),
 		AgentsByStatus:   make(map[AgentRegistrationStatus]int32),
@@ -973,30 +996,30 @@ func (r *DefaultAgentRegistry) GetRegistryStats(ctx context.Context) (*RegistryS
 		StartTime:        r.startTime,
 		Uptime:           time.Since(r.startTime),
 	}
-	
+
 	// Count agents by status and health
 	for _, registration := range r.agents {
 		stats.AgentsByStatus[registration.Status]++
 		stats.AgentsByHealth[registration.Health.Status]++
-		
+
 		if registration.Health.Status == HealthStatusHealthy {
 			stats.HealthyAgents++
 		} else {
 			stats.UnhealthyAgents++
 		}
 	}
-	
+
 	// Count capabilities
 	for capability, agents := range r.agentsByCapability {
 		stats.CapabilityMatrix[capability] = int32(len(agents))
 	}
-	
+
 	// Copy load balancing stats
 	if r.loadStats != nil {
 		stats.AverageLatency = r.loadStats.AverageLatency
 		stats.TotalRequests = r.loadStats.TotalRequests
 	}
-	
+
 	return stats, nil
 }
 
@@ -1017,7 +1040,7 @@ func (r *DefaultAgentRegistry) updateIndices(newAgent, oldAgent *AgentRegistrati
 		r.removeFromStatusIndex(oldAgent, oldAgent.Status)
 		r.removeFromHealthIndex(oldAgent, oldAgent.Health.Status)
 	}
-	
+
 	if newAgent != nil {
 		// Add to indices
 		if newAgent.Capabilities != nil {
@@ -1132,7 +1155,7 @@ func (r *DefaultAgentRegistry) matchesFilter(registration *AgentRegistration, fi
 	if filter == nil {
 		return true
 	}
-	
+
 	// Check status filter
 	if len(filter.Status) > 0 {
 		statusMatch := false
@@ -1146,27 +1169,27 @@ func (r *DefaultAgentRegistry) matchesFilter(registration *AgentRegistration, fi
 			return false
 		}
 	}
-	
+
 	// Check capabilities filter
 	if len(filter.Capabilities) > 0 && !r.hasCapabilities(registration, filter.Capabilities) {
 		return false
 	}
-	
+
 	// Check tags filter
 	if len(filter.Tags) > 0 && !r.hasAnyTag(registration, filter.Tags) {
 		return false
 	}
-	
+
 	// Check environment filter
 	if filter.Environment != "" && (registration.Metadata == nil || registration.Metadata.Environment != filter.Environment) {
 		return false
 	}
-	
+
 	// Check region filter
 	if filter.Region != "" && (registration.Metadata == nil || registration.Metadata.Region != filter.Region) {
 		return false
 	}
-	
+
 	// Check health status filter
 	if len(filter.HealthStatus) > 0 {
 		healthMatch := false
@@ -1180,7 +1203,7 @@ func (r *DefaultAgentRegistry) matchesFilter(registration *AgentRegistration, fi
 			return false
 		}
 	}
-	
+
 	return true
 }
 
@@ -1189,18 +1212,18 @@ func (r *DefaultAgentRegistry) hasCapabilities(registration *AgentRegistration, 
 	if registration.Capabilities == nil {
 		return len(requiredCapabilities) == 0
 	}
-	
+
 	agentCapabilities := make(map[string]bool)
 	for _, capability := range registration.Capabilities.Tools {
 		agentCapabilities[capability] = true
 	}
-	
+
 	for _, required := range requiredCapabilities {
 		if !agentCapabilities[required] {
 			return false
 		}
 	}
-	
+
 	return true
 }
 
@@ -1209,33 +1232,33 @@ func (r *DefaultAgentRegistry) hasAnyTag(registration *AgentRegistration, tags [
 	if registration.Metadata == nil || len(registration.Metadata.Tags) == 0 {
 		return false
 	}
-	
+
 	agentTags := make(map[string]bool)
 	for _, tag := range registration.Metadata.Tags {
 		agentTags[tag] = true
 	}
-	
+
 	for _, tag := range tags {
 		if agentTags[tag] {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
 // findCandidateAgents finds agents that match the selection request.
 func (r *DefaultAgentRegistry) findCandidateAgents(request *AgentSelectionRequest) []*AgentRegistration {
 	var candidates []*AgentRegistration
-	
+
 	// Collect all eligible agents from different health states, prioritizing healthy ones
 	candidateAgents := make([]*AgentRegistration, 0)
-	
+
 	// First, add healthy agents (highest priority)
 	if healthyAgents := r.agentsByHealth[HealthStatusHealthy]; healthyAgents != nil {
 		candidateAgents = append(candidateAgents, healthyAgents...)
 	}
-	
+
 	// Then add unknown health agents (newly registered agents that haven't been health-checked yet)
 	if unknownHealthAgents := r.agentsByHealth[HealthStatusUnknown]; unknownHealthAgents != nil {
 		for _, agent := range unknownHealthAgents {
@@ -1245,7 +1268,7 @@ func (r *DefaultAgentRegistry) findCandidateAgents(request *AgentSelectionReques
 			}
 		}
 	}
-	
+
 	// If still no candidates, also consider degraded agents (as fallback)
 	if len(candidateAgents) == 0 {
 		if degradedAgents := r.agentsByHealth[HealthStatusDegraded]; degradedAgents != nil {
@@ -1257,13 +1280,13 @@ func (r *DefaultAgentRegistry) findCandidateAgents(request *AgentSelectionReques
 			}
 		}
 	}
-	
+
 	for _, agent := range candidateAgents {
 		// Check required capabilities
 		if len(request.RequiredCapabilities) > 0 && !r.hasCapabilities(agent, request.RequiredCapabilities) {
 			continue
 		}
-		
+
 		// Check excluded agents
 		excluded := false
 		for _, excludeID := range request.ExcludeAgents {
@@ -1275,20 +1298,20 @@ func (r *DefaultAgentRegistry) findCandidateAgents(request *AgentSelectionReques
 		if excluded {
 			continue
 		}
-		
+
 		// Check preferred tags (optional)
 		if len(request.PreferredTags) > 0 && !r.hasAnyTag(agent, request.PreferredTags) {
 			// Don't exclude, just deprioritize
 		}
-		
+
 		// Check max latency
 		if request.MaxLatency > 0 && agent.Metrics != nil && agent.Metrics.AverageLatency > request.MaxLatency {
 			continue
 		}
-		
+
 		candidates = append(candidates, agent)
 	}
-	
+
 	return candidates
 }
 
@@ -1298,17 +1321,17 @@ func (r *DefaultAgentRegistry) matchesDiscoveryQuery(registration *AgentRegistra
 	if query.HealthRequired && registration.Health.Status != HealthStatusHealthy {
 		return false
 	}
-	
+
 	// Check environment
 	if query.Environment != "" && (registration.Metadata == nil || registration.Metadata.Environment != query.Environment) {
 		return false
 	}
-	
+
 	// Check region
 	if query.Region != "" && (registration.Metadata == nil || registration.Metadata.Region != query.Region) {
 		return false
 	}
-	
+
 	return true
 }
 
@@ -1318,16 +1341,16 @@ func (r *DefaultAgentRegistry) sendChangeEvent(event *AgentChangeEvent) {
 	if !r.running.Load() || r.changeEventsClosed.Load() {
 		return
 	}
-	
+
 	// Use read lock to protect channel access
 	r.changeEventsMu.RLock()
 	defer r.changeEventsMu.RUnlock()
-	
+
 	// Double-check if channel is closed after acquiring lock
 	if r.changeEventsClosed.Load() {
 		return
 	}
-	
+
 	// Use defer to recover from potential "send on closed channel" panic
 	defer func() {
 		if r := recover(); r != nil {
@@ -1335,7 +1358,7 @@ func (r *DefaultAgentRegistry) sendChangeEvent(event *AgentChangeEvent) {
 			// This is expected during shutdown, so we ignore the panic
 		}
 	}()
-	
+
 	select {
 	case r.changeEvents <- event:
 		// Successfully sent
@@ -1364,7 +1387,7 @@ func (r *DefaultAgentRegistry) updateLoadStats(agentID string) {
 	if r.loadStats.RequestsPerAgent == nil {
 		r.loadStats.RequestsPerAgent = make(map[string]int64)
 	}
-	
+
 	r.loadStats.TotalRequests++
 	r.loadStats.RequestsPerAgent[agentID]++
 	r.loadStats.Algorithm = r.loadBalancer.GetAlgorithm()
@@ -1376,10 +1399,10 @@ func (r *DefaultAgentRegistry) runHealthChecks() {
 	defer r.healthCheckDoneOnce.Do(func() {
 		close(r.healthCheckDone)
 	})
-	
+
 	ticker := time.NewTicker(r.config.HealthCheckInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-r.healthCheckStop:
@@ -1398,17 +1421,17 @@ func (r *DefaultAgentRegistry) performHealthChecks() {
 		agents = append(agents, agent)
 	}
 	r.mu.RUnlock()
-	
+
 	for _, registration := range agents {
 		go func(reg *AgentRegistration) {
 			ctx, cancel := context.WithTimeout(context.Background(), r.config.HealthCheckTimeout)
 			defer cancel()
-			
+
 			// Check if registry is still running before health check
 			if !r.running.Load() {
 				return
 			}
-			
+
 			health, err := r.healthChecker.CheckHealth(ctx, reg.Agent)
 			if err != nil {
 				// Health check failed
@@ -1423,7 +1446,7 @@ func (r *DefaultAgentRegistry) performHealthChecks() {
 				// Reset failure count on successful health check
 				atomic.StoreInt32(&reg.FailureCount, 0)
 			}
-			
+
 			// Double-check registry is still running before updating health
 			if r.running.Load() {
 				r.UpdateAgentHealth(context.Background(), reg.AgentID, health)
@@ -1437,10 +1460,10 @@ func (r *DefaultAgentRegistry) runMetricsCollection() {
 	defer r.metricsDoneOnce.Do(func() {
 		close(r.metricsDone)
 	})
-	
+
 	ticker := time.NewTicker(r.config.MetricsCollectionInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-r.metricsStop:
@@ -1476,10 +1499,10 @@ func NewDefaultHealthChecker(interval time.Duration) AgentHealthChecker {
 // CheckHealth performs a basic health check on an agent.
 func (hc *DefaultHealthChecker) CheckHealth(ctx context.Context, agent client.Agent) (*AgentHealthStatus, error) {
 	startTime := time.Now()
-	
+
 	// Get agent health from the agent itself
 	health := agent.Health()
-	
+
 	// Convert to our health status format
 	status := &AgentHealthStatus{
 		Status:       HealthStatusHealthy, // Default to healthy
@@ -1489,7 +1512,7 @@ func (hc *DefaultHealthChecker) CheckHealth(ctx context.Context, agent client.Ag
 		Details:      health.Details,
 		Errors:       health.Errors,
 	}
-	
+
 	// Map agent health status to registry health status
 	switch health.Status {
 	case "healthy":
@@ -1501,12 +1524,12 @@ func (hc *DefaultHealthChecker) CheckHealth(ctx context.Context, agent client.Ag
 	default:
 		status.Status = HealthStatusUnknown
 	}
-	
+
 	if len(health.Errors) > 0 {
 		status.Status = HealthStatusUnhealthy
 		return status, fmt.Errorf("agent health check failed: %v", health.Errors)
 	}
-	
+
 	return status, nil
 }
 
@@ -1539,34 +1562,34 @@ func (lb *DefaultLoadBalancer) SelectAgent(ctx context.Context, agents []*AgentR
 	if len(agents) == 0 {
 		return nil, fmt.Errorf("no agents available")
 	}
-	
+
 	if len(agents) == 1 {
 		return agents[0], nil
 	}
-	
+
 	algorithm := lb.algorithm
 	if request.LoadBalancingHint != "" {
 		algorithm = request.LoadBalancingHint
 	}
-	
+
 	switch algorithm {
 	case LoadBalancingRoundRobin:
 		idx := lb.roundRobinIdx.Add(1) % uint64(len(agents))
 		return agents[idx], nil
-		
+
 	case LoadBalancingRandom:
 		idx := rand.Intn(len(agents))
 		return agents[idx], nil
-		
+
 	case LoadBalancingLeastConnections:
 		return lb.selectLeastConnections(agents), nil
-		
+
 	case LoadBalancingLatencyBased:
 		return lb.selectLowestLatency(agents), nil
-		
+
 	case LoadBalancingPerformanceBased:
 		return lb.selectBestPerformance(agents), nil
-		
+
 	default:
 		// Default to round robin
 		idx := lb.roundRobinIdx.Add(1) % uint64(len(agents))
@@ -1578,7 +1601,7 @@ func (lb *DefaultLoadBalancer) SelectAgent(ctx context.Context, agents []*AgentR
 func (lb *DefaultLoadBalancer) selectLeastConnections(agents []*AgentRegistration) *AgentRegistration {
 	var best *AgentRegistration
 	minConnections := int32(-1)
-	
+
 	for _, agent := range agents {
 		connections := agent.Metrics.ActiveConnections
 		if minConnections == -1 || connections < minConnections {
@@ -1586,7 +1609,7 @@ func (lb *DefaultLoadBalancer) selectLeastConnections(agents []*AgentRegistratio
 			best = agent
 		}
 	}
-	
+
 	return best
 }
 
@@ -1594,7 +1617,7 @@ func (lb *DefaultLoadBalancer) selectLeastConnections(agents []*AgentRegistratio
 func (lb *DefaultLoadBalancer) selectLowestLatency(agents []*AgentRegistration) *AgentRegistration {
 	var best *AgentRegistration
 	var minLatency time.Duration = -1
-	
+
 	for _, agent := range agents {
 		latency := agent.Metrics.AverageLatency
 		if minLatency == -1 || latency < minLatency {
@@ -1602,7 +1625,7 @@ func (lb *DefaultLoadBalancer) selectLowestLatency(agents []*AgentRegistration) 
 			best = agent
 		}
 	}
-	
+
 	return best
 }
 
@@ -1610,7 +1633,7 @@ func (lb *DefaultLoadBalancer) selectLowestLatency(agents []*AgentRegistration) 
 func (lb *DefaultLoadBalancer) selectBestPerformance(agents []*AgentRegistration) *AgentRegistration {
 	var best *AgentRegistration
 	bestScore := float64(-1)
-	
+
 	for _, agent := range agents {
 		// Calculate performance score based on multiple metrics
 		score := lb.calculatePerformanceScore(agent)
@@ -1619,7 +1642,7 @@ func (lb *DefaultLoadBalancer) selectBestPerformance(agents []*AgentRegistration
 			best = agent
 		}
 	}
-	
+
 	return best
 }
 
@@ -1627,19 +1650,19 @@ func (lb *DefaultLoadBalancer) selectBestPerformance(agents []*AgentRegistration
 func (lb *DefaultLoadBalancer) calculatePerformanceScore(agent *AgentRegistration) float64 {
 	metrics := agent.Metrics
 	loadInfo := agent.LoadInfo
-	
+
 	// Base score starts at 100
 	score := 100.0
-	
+
 	// Reduce score based on current load (0-50 point reduction)
 	score -= loadInfo.CurrentLoad * 50
-	
+
 	// Reduce score based on error rate (0-30 point reduction)
 	if metrics.RequestCount > 0 {
 		errorRate := float64(metrics.ErrorCount) / float64(metrics.RequestCount)
 		score -= errorRate * 30
 	}
-	
+
 	// Reduce score based on latency (0-20 point reduction)
 	if metrics.AverageLatency > 0 {
 		latencyMs := float64(metrics.AverageLatency.Milliseconds())
@@ -1651,12 +1674,12 @@ func (lb *DefaultLoadBalancer) calculatePerformanceScore(agent *AgentRegistratio
 			score -= 5
 		}
 	}
-	
+
 	// Ensure score doesn't go below 0
 	if score < 0 {
 		score = 0
 	}
-	
+
 	return score
 }
 
@@ -1695,22 +1718,22 @@ func (w *defaultAgentWatcher) Close() error {
 // DefaultRegistryConfig returns a default registry configuration.
 func DefaultRegistryConfig() *RegistryConfig {
 	return &RegistryConfig{
-		HealthCheckInterval:               30 * time.Second,
-		HealthCheckTimeout:                5 * time.Second,
-		UnhealthyThreshold:                3,
-		HealthyThreshold:                  2,
-		DefaultLoadBalancingAlgorithm:     LoadBalancingRoundRobin,
-		EnableMetricsCollection:           true,
-		MetricsCollectionInterval:         60 * time.Second,
-		RegistrationTimeout:               30 * time.Second,
-		DeregistrationTimeout:             10 * time.Second,
-		MaxAgents:                         1000,
-		EnableVersionCompatibility:        true,
-		MaxDiscoveryResults:               100,
-		DiscoveryQueryTimeout:             10 * time.Second,
-		EnableChangeNotifications:         true,
-		EnablePerformanceAwareRouting:     true,
-		PerformanceWindowSize:             5 * time.Minute,
-		LoadBalancingWeight:               1.0,
+		HealthCheckInterval:           30 * time.Second,
+		HealthCheckTimeout:            5 * time.Second,
+		UnhealthyThreshold:            3,
+		HealthyThreshold:              2,
+		DefaultLoadBalancingAlgorithm: LoadBalancingRoundRobin,
+		EnableMetricsCollection:       true,
+		MetricsCollectionInterval:     60 * time.Second,
+		RegistrationTimeout:           30 * time.Second,
+		DeregistrationTimeout:         10 * time.Second,
+		MaxAgents:                     1000,
+		EnableVersionCompatibility:    true,
+		MaxDiscoveryResults:           100,
+		DiscoveryQueryTimeout:         10 * time.Second,
+		EnableChangeNotifications:     true,
+		EnablePerformanceAwareRouting: true,
+		PerformanceWindowSize:         5 * time.Minute,
+		LoadBalancingWeight:           1.0,
 	}
 }

@@ -421,7 +421,6 @@ func TestStateEventHandler_Callbacks(t *testing.T) {
 	var snapshotCalled, deltaCalled, stateChangeCalled bool
 	var callbackMu sync.Mutex
 
-
 	handler := NewStateEventHandler(store,
 		WithSnapshotCallback(func(event *events.StateSnapshotEvent) error {
 			snapshotCalled = true
@@ -437,7 +436,6 @@ func TestStateEventHandler_Callbacks(t *testing.T) {
 			stateChangeCalled = true
 			callbackMu.Unlock()
 		}),
-
 
 		WithBatchSize(1),
 		WithBatchTimeout(10*time.Millisecond),
@@ -468,7 +466,6 @@ func TestStateEventHandler_Callbacks(t *testing.T) {
 	// Reset flags
 	deltaCalled = false
 
-
 	// Test delta callback
 	deltaEvent := events.NewStateDeltaEvent([]events.JSONPatchOperation{
 		{Op: "add", Path: "/new", Value: "value"},
@@ -480,7 +477,6 @@ func TestStateEventHandler_Callbacks(t *testing.T) {
 	time.Sleep(50 * time.Millisecond)
 
 	assert.True(t, deltaCalled)
-
 
 	// Wait for async state change callback
 	AssertEventuallyTrue(t, func() bool {

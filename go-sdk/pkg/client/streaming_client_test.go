@@ -30,7 +30,7 @@ func MockSSEServer(events []string, delay time.Duration) *httptest.Server {
 		for i, event := range events {
 			fmt.Fprintf(w, "%s\n\n", event)
 			flusher.Flush()
-			
+
 			if delay > 0 && i < len(events)-1 {
 				time.Sleep(delay)
 			}
@@ -43,15 +43,15 @@ func TestSSEClient_BasicConnection(t *testing.T) {
 		"data: hello",
 		"data: world",
 	}
-	
+
 	server := MockSSEServer(events, 10*time.Millisecond)
 	defer server.Close()
 
 	config := SSEClientConfig{
-		URL:              server.URL,
-		EventBufferSize:  10,
-		InitialBackoff:   100 * time.Millisecond,
-		MaxBackoff:       time.Second,
+		URL:             server.URL,
+		EventBufferSize: 10,
+		InitialBackoff:  100 * time.Millisecond,
+		MaxBackoff:      time.Second,
 	}
 
 	client, err := NewSSEClient(config)
@@ -293,10 +293,10 @@ func TestSSEClient_FlowControl(t *testing.T) {
 	defer server.Close()
 
 	config := SSEClientConfig{
-		URL:                   server.URL,
-		EventBufferSize:       0,  // No channel buffering to force immediate backpressure
-		FlowControlEnabled:    true,
-		FlowControlThreshold:  0.5, // 50%
+		URL:                  server.URL,
+		EventBufferSize:      0, // No channel buffering to force immediate backpressure
+		FlowControlEnabled:   true,
+		FlowControlThreshold: 0.5, // 50%
 	}
 
 	client, err := NewSSEClient(config)
@@ -320,7 +320,7 @@ func TestSSEClient_FlowControl(t *testing.T) {
 	slowConsumer := func() {
 		for range eventChan {
 			atomic.AddInt32(&receivedCount, 1) // Atomic increment
-			time.Sleep(50 * time.Millisecond) // Very slow processing to force backpressure
+			time.Sleep(50 * time.Millisecond)  // Very slow processing to force backpressure
 		}
 	}
 
@@ -330,15 +330,15 @@ func TestSSEClient_FlowControl(t *testing.T) {
 	time.Sleep(500 * time.Millisecond)
 
 	// Check that flow control is working by verifying slower consumption than production
-	// With 50 events sent immediately and slow consumer (50ms per event), 
+	// With 50 events sent immediately and slow consumer (50ms per event),
 	// the consumer should be behind if flow control is working
-	expectedMaxReceived := int32(10) // In 500ms, slow consumer (50ms each) can process ~10 events
+	expectedMaxReceived := int32(10)                 // In 500ms, slow consumer (50ms each) can process ~10 events
 	currentCount := atomic.LoadInt32(&receivedCount) // Atomic read
-	
+
 	if currentCount > expectedMaxReceived {
 		t.Errorf("Expected flow control to limit events, but received %d events (expected <= %d)", currentCount, expectedMaxReceived)
 	}
-	
+
 	// Check that some events are being processed (not completely blocked)
 	if currentCount == 0 {
 		t.Error("Expected some events to be received with flow control")
@@ -356,7 +356,7 @@ func TestSSEClient_FlowControl(t *testing.T) {
 func TestSSEClient_EventFiltering(t *testing.T) {
 	events := []string{
 		"event: allowed\ndata: should receive",
-		"event: blocked\ndata: should not receive", 
+		"event: blocked\ndata: should not receive",
 		"event: allowed\ndata: should receive 2",
 	}
 
@@ -421,7 +421,7 @@ func TestSSEClient_LastEventID(t *testing.T) {
 		w.Header().Set("Cache-Control", "no-cache")
 
 		lastEventID := r.Header.Get("Last-Event-ID")
-		
+
 		flusher, ok := w.(http.Flusher)
 		if !ok {
 			http.Error(w, "Streaming unsupported", http.StatusInternalServerError)
@@ -664,7 +664,7 @@ func TestSSEClient_ConcurrentAccess(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			
+
 			// These should be safe to call concurrently
 			_ = client.State()
 			_ = client.LastEventID()
@@ -780,7 +780,7 @@ func BenchmarkSSEClient_EventThroughput(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	
+
 	eventChan := client.Events()
 	eventCount := 0
 

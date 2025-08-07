@@ -3,11 +3,12 @@ package transport
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"sync"
 	"time"
-	
+
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
@@ -234,8 +235,8 @@ func DefaultTransportManagerConfig() *TransportManagerConfig {
 	return &TransportManagerConfig{
 		CleanupEnabled:        true,
 		CleanupInterval:       1 * time.Hour,
-		MaxMapSize:           1000,
-		ActiveThreshold:      0.5,
+		MaxMapSize:            1000,
+		ActiveThreshold:       0.5,
 		CleanupMetricsEnabled: true,
 	}
 }
@@ -281,13 +282,13 @@ func NewDefaultTransportManagerWithConfig(registry TransportRegistry, config *Tr
 	if registry == nil {
 		return nil
 	}
-	
+
 	if config == nil {
 		config = DefaultTransportManagerConfig()
 	}
-	
+
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	manager := &DefaultTransportManager{
 		transports:        make(map[string]Transport),
 		registry:          registry,
@@ -301,12 +302,12 @@ func NewDefaultTransportManagerWithConfig(registry TransportRegistry, config *Tr
 		lastCleanupTime:   time.Now(),
 		mapCleanupMetrics: &MapCleanupMetrics{},
 	}
-	
+
 	// Start cleanup goroutine if enabled
 	if config.CleanupEnabled {
 		manager.startCleanupTicker()
 	}
-	
+
 	return manager
 }
 
@@ -335,10 +336,10 @@ func (m *DefaultTransportManager) AddTransport(name string, transport Transport)
 	}
 
 	m.transports[name] = transport
-	
+
 	// Check if cleanup is needed after adding transport
 	m.checkAndTriggerCleanup()
-	
+
 	// Register with health checker
 	if m.healthCheck != nil {
 		m.healthCheck.AddTransport(name, transport)
@@ -354,7 +355,7 @@ func (m *DefaultTransportManager) AddTransport(name string, transport Transport)
 		// Create a compatible event for the event bus
 		// For now, we'll skip event publishing since it requires complex event creation
 		// This can be implemented later with proper event construction
-		// event := NewSimpleEvent("transport-added-"+name, string(EventTypeConnected), 
+		// event := NewSimpleEvent("transport-added-"+name, string(EventTypeConnected),
 		//	map[string]interface{}{"transport": name})
 		// m.eventBus.Publish(m.ctx, "transport.added", event)
 	}
@@ -397,7 +398,7 @@ func (m *DefaultTransportManager) RemoveTransport(name string) error {
 	// Emit event
 	if m.eventBus != nil {
 		// Skip event publishing for now - requires proper events.Event implementation
-		// event := NewSimpleEvent("transport-removed-"+name, string(EventTypeDisconnected), 
+		// event := NewSimpleEvent("transport-removed-"+name, string(EventTypeDisconnected),
 		//	map[string]interface{}{"transport": name})
 		// m.eventBus.Publish(m.ctx, "transport.removed", event)
 	}
@@ -516,7 +517,7 @@ func (m *DefaultTransportManager) SendEventToTransport(ctx context.Context, tran
 		// Emit error event
 		if m.eventBus != nil {
 			// Skip event publishing for now - requires proper events.Event implementation
-			// errorEvent := NewSimpleEvent("transport-error-"+transportName, string(EventTypeError), 
+			// errorEvent := NewSimpleEvent("transport-error-"+transportName, string(EventTypeError),
 			//	map[string]interface{}{"transport": transportName, "error": err.Error()})
 			// m.eventBus.Publish(ctx, "transport.error", errorEvent)
 		}
@@ -532,7 +533,7 @@ func (m *DefaultTransportManager) SendEventToTransport(ctx context.Context, tran
 	// Emit event
 	if m.eventBus != nil {
 		// Skip event publishing for now - requires proper events.Event implementation
-		// sentEvent := NewSimpleEvent("transport-event-sent-"+transportName, string(EventTypeEventSent), 
+		// sentEvent := NewSimpleEvent("transport-event-sent-"+transportName, string(EventTypeEventSent),
 		//	map[string]interface{}{"transport": transportName, "event": event})
 		// m.eventBus.Publish(ctx, "transport.event_sent", sentEvent)
 	}
@@ -543,11 +544,11 @@ func (m *DefaultTransportManager) SendEventToTransport(ctx context.Context, tran
 // ReceiveEvents returns a channel that receives events from all transports.
 func (m *DefaultTransportManager) ReceiveEvents(ctx context.Context) (<-chan events.Event, error) {
 	resultChan := make(chan events.Event, 100)
-	
+
 	m.mu.RLock()
 	transportList := make([]Transport, 0, len(m.transports))
 	transportNames := make([]string, 0, len(m.transports))
-	
+
 	for name, transport := range m.transports {
 		transportList = append(transportList, transport)
 		transportNames = append(transportNames, name)
@@ -557,11 +558,11 @@ func (m *DefaultTransportManager) ReceiveEvents(ctx context.Context) (<-chan eve
 	// Start goroutines to receive events from each transport
 	for i, transport := range transportList {
 		transportName := transportNames[i]
-		
+
 		m.wg.Add(1)
 		go func(name string, t Transport) {
 			defer m.wg.Done()
-			
+
 			eventChan, errorChan := t.Channels()
 
 			for {
@@ -592,7 +593,7 @@ func (m *DefaultTransportManager) ReceiveEvents(ctx context.Context) (<-chan eve
 					// Emit event
 					if m.eventBus != nil {
 						// Skip event publishing for now - requires proper events.Event implementation
-						// receivedEvent := NewSimpleEvent("transport-event-received-"+name, string(EventTypeEventReceived), 
+						// receivedEvent := NewSimpleEvent("transport-event-received-"+name, string(EventTypeEventReceived),
 						//	map[string]interface{}{"transport": name, "event": event})
 						// m.eventBus.Publish(ctx, "transport.event_received", receivedEvent)
 					}
@@ -654,47 +655,111 @@ func (m *DefaultTransportManager) SetEventBus(eventBus EventBus) {
 	m.eventBus = eventBus
 }
 
-// startCleanupTicker starts the periodic cleanup goroutine
+// startCleanupTicker starts the periodic cleanup goroutine with enhanced error handling and race protection
 func (m *DefaultTransportManager) startCleanupTicker() {
 	if m.config == nil || !m.config.CleanupEnabled {
 		return
 	}
 
-	m.cleanupTicker = time.NewTicker(m.config.CleanupInterval)
+	// Check if context is already cancelled
+	select {
+	case <-m.ctx.Done():
+		m.logger.Debug("Context already cancelled, not starting cleanup ticker")
+		return
+	default:
+	}
+
+	// Create ticker and store locally to avoid race conditions
+	ticker := time.NewTicker(m.config.CleanupInterval)
+
+	// Protect access to cleanupTicker with mutex
+	m.mu.Lock()
+	m.cleanupTicker = ticker
+	m.mu.Unlock()
+
 	m.wg.Add(1)
 
 	go func() {
-		ticker := m.cleanupTicker // Store locally to avoid race condition
-		defer m.wg.Done()
-		defer ticker.Stop()
+		defer func() {
+			// Ensure proper cleanup even if panic occurs
+			if ticker != nil {
+				ticker.Stop()
+			}
+			m.wg.Done()
+
+			// Handle panic recovery
+			if r := recover(); r != nil {
+				m.logger.Error("Cleanup ticker goroutine panic recovered", Any("panic", r))
+			}
+
+			m.logger.Debug("Cleanup ticker goroutine exited")
+		}()
+
+		// Verify ticker is still valid (not stopped during startup)
+		if ticker == nil {
+			m.logger.Debug("Cleanup ticker is nil, exiting goroutine")
+			return
+		}
 
 		for {
 			select {
 			case <-ticker.C:
-				// Check context cancellation before running cleanup to prevent hanging
+				// Double-check context cancellation before running cleanup
 				select {
 				case <-m.ctx.Done():
+					m.logger.Debug("Context cancelled during cleanup tick, stopping cleanup")
 					return
 				default:
-					// Run cleanup with timeout protection
+					// Run cleanup with enhanced timeout protection and better error handling
 					cleanupDone := make(chan struct{})
+					cleanupError := make(chan error, 1)
+
 					go func() {
-						m.runPeriodicCleanup()
-						close(cleanupDone)
+						defer func() {
+							close(cleanupDone)
+							if r := recover(); r != nil {
+								select {
+								case cleanupError <- fmt.Errorf("cleanup panic: %v", r):
+								default:
+								}
+							}
+						}()
+
+						// Call cleanup with better error handling
+						func() {
+							defer func() {
+								if r := recover(); r != nil {
+									select {
+									case cleanupError <- fmt.Errorf("cleanup panic: %v", r):
+									default:
+									}
+								}
+							}()
+							m.runPeriodicCleanup()
+						}()
 					}()
-					
+
+					// Wait for cleanup with better timeout handling
 					select {
 					case <-cleanupDone:
-						// Cleanup finished normally
-					case <-time.After(30 * time.Second):
-						// Cleanup took too long - this indicates a deadlock or hang
-						m.logger.Warn("Periodic cleanup timed out, continuing with next cycle")
+						// Check for errors
+						select {
+						case err := <-cleanupError:
+							m.logger.Error("Cleanup error occurred", Error(err))
+						default:
+							// Cleanup finished normally
+						}
+					case <-time.After(60 * time.Second): // Increased timeout for complex cleanup
+						// Cleanup took too long - this indicates a potential deadlock
+						m.logger.Warn("Periodic cleanup timed out after 60 seconds, continuing with next cycle")
 					case <-m.ctx.Done():
 						// Context cancelled during cleanup
+						m.logger.Debug("Context cancelled during cleanup execution, stopping")
 						return
 					}
 				}
 			case <-m.ctx.Done():
+				m.logger.Debug("Context cancelled, stopping cleanup ticker")
 				return
 			}
 		}
@@ -750,39 +815,115 @@ func (m *DefaultTransportManager) checkAndTriggerCleanup() {
 	}
 }
 
-// runPeriodicCleanup is called by the cleanup ticker
+// runPeriodicCleanup is called by the cleanup ticker with enhanced safety checks
 func (m *DefaultTransportManager) runPeriodicCleanup() {
-	if m.config == nil || !m.config.CleanupEnabled {
+	if m == nil || m.config == nil || !m.config.CleanupEnabled {
 		return
 	}
 
 	// Check if context is cancelled before proceeding
 	select {
 	case <-m.ctx.Done():
+		m.logger.Debug("Periodic cleanup cancelled - context done")
 		return
 	default:
 	}
 
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	// Use defer to ensure we don't hold the lock indefinitely
+	cleanupStartTime := time.Now()
+	defer func() {
+		cleanupDuration := time.Since(cleanupStartTime)
+		if cleanupDuration > 10*time.Second {
+			m.logger.Warn("Periodic cleanup took longer than expected",
+				Duration("duration", cleanupDuration))
+		}
+	}()
 
-	// Double-check context cancellation after acquiring lock
+	// Try to acquire lock with timeout to prevent indefinite blocking
+	lockTimeout := time.NewTimer(30 * time.Second)
+	defer lockTimeout.Stop()
+
+	lockAcquired := make(chan struct{})
+	go func() {
+		m.mu.Lock()
+		close(lockAcquired)
+	}()
+
+	select {
+	case <-lockAcquired:
+		// Lock acquired successfully
+		defer m.mu.Unlock()
+	case <-lockTimeout.C:
+		m.logger.Warn("Periodic cleanup lock timeout - skipping this cycle")
+		return
+	case <-m.ctx.Done():
+		m.logger.Debug("Context cancelled while waiting for cleanup lock")
+		return
+	}
+
+	// Triple-check context cancellation after acquiring lock
 	select {
 	case <-m.ctx.Done():
+		m.logger.Debug("Context cancelled after acquiring cleanup lock")
 		return
 	default:
 	}
 
 	totalTransports := len(m.transports)
 	if totalTransports <= m.config.MaxMapSize {
+		m.logger.Debug("Periodic cleanup: transport count within limits",
+			Int("total", totalTransports),
+			Int("max_size", m.config.MaxMapSize))
 		return
 	}
 
-	// Count active transports
+	// Count active transports with safety checks
 	activeCount := 0
-	for _, transport := range m.transports {
-		if transport.IsConnected() {
+	inactiveTransports := make([]string, 0)
+	for name, transport := range m.transports {
+		if transport == nil {
+			// Handle nil transport - should be cleaned up
+			inactiveTransports = append(inactiveTransports, name)
+			continue
+		}
+
+		// Check connection status with timeout protection
+		isConnected := func() bool {
+			done := make(chan bool, 1)
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						// If IsConnected panics, consider it disconnected
+						select {
+						case done <- false:
+						default:
+						}
+					}
+				}()
+				select {
+				case done <- transport.IsConnected():
+				case <-time.After(5 * time.Second):
+					// IsConnected is hanging, consider it disconnected
+					select {
+					case done <- false:
+					default:
+					}
+				}
+			}()
+
+			select {
+			case connected := <-done:
+				return connected
+			case <-time.After(6 * time.Second):
+				m.logger.Warn("Transport IsConnected check timed out", String("transport", name))
+				return false // Treat as disconnected if check times out
+			}
+		}()
+
+		if isConnected {
 			activeCount++
+		} else {
+			inactiveTransports = append(inactiveTransports, name)
 		}
 	}
 
@@ -794,9 +935,15 @@ func (m *DefaultTransportManager) runPeriodicCleanup() {
 		m.logger.Info("Running periodic cleanup",
 			Int("total_transports", totalTransports),
 			Int("active_transports", activeCount),
-			Float64("active_ratio", activeRatio))
+			Int("inactive_transports", len(inactiveTransports)),
+			Float64("active_ratio", activeRatio),
+			Float64("threshold", m.config.ActiveThreshold))
 
 		m.cleanupInactiveTransportsLocked()
+	} else {
+		m.logger.Debug("Periodic cleanup: active ratio above threshold, skipping cleanup",
+			Float64("active_ratio", activeRatio),
+			Float64("threshold", m.config.ActiveThreshold))
 	}
 }
 
@@ -808,12 +955,12 @@ func (m *DefaultTransportManager) cleanupInactiveTransportsLocked() {
 	}
 
 	startTime := time.Now()
-	
+
 	// Create new map to hold only active transports
 	newTransports := make(map[string]Transport)
 	removedCount := 0
 	retainedCount := 0
-	
+
 	// Track transports that need to be cleaned up
 	var toClose []Transport
 	var closedNames []string
@@ -856,12 +1003,12 @@ func (m *DefaultTransportManager) closeRemovedTransports(transports []Transport,
 	for i, transport := range transports {
 		name := names[i]
 		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		
+
 		if err := transport.Close(closeCtx); err != nil {
 			m.logger.Error("Failed to close removed transport during cleanup",
 				String("transport", name),
 				Error(err))
-			
+
 			// Update error metrics
 			if m.config.CleanupMetricsEnabled {
 				m.mapCleanupMetrics.mu.Lock()
@@ -872,9 +1019,9 @@ func (m *DefaultTransportManager) closeRemovedTransports(transports []Transport,
 			m.logger.Debug("Successfully closed removed transport",
 				String("transport", name))
 		}
-		
+
 		cancel()
-		
+
 		// Remove from health check and metrics managers
 		if m.healthCheck != nil {
 			m.healthCheck.RemoveTransport(name)
@@ -941,25 +1088,34 @@ func (m *DefaultTransportManager) TriggerManualCleanup() {
 	m.runPeriodicCleanup()
 }
 
-// Close closes all managed transports.
+// Close closes all managed transports with improved race condition protection and timeout handling.
 func (m *DefaultTransportManager) Close() error {
+	if m == nil {
+		return nil
+	}
+
+	m.logger.Debug("Starting transport manager shutdown")
+
 	// First, acquire the lock to safely stop the cleanup ticker and signal shutdown
 	m.mu.Lock()
-	
+
 	// Stop cleanup ticker first while holding the lock to prevent deadlock
 	if m.cleanupTicker != nil {
 		m.cleanupTicker.Stop()
 		m.cleanupTicker = nil
+		m.logger.Debug("Cleanup ticker stopped")
 	}
-	
+
 	// Cancel context to signal all goroutines to stop
 	if m.cancel != nil {
 		m.cancel()
+		m.logger.Debug("Context cancelled, signaling goroutines to stop")
 	}
-	
-	// Release the lock before waiting for goroutines to avoid deadlock
+
+	// Get count of active goroutines for logging
+	activeGoroutineCount := len(m.transports)
 	m.mu.Unlock()
-	
+
 	// Wait for all goroutines (including cleanup goroutine) to finish
 	// This must be done WITHOUT holding the lock since goroutines may need to acquire it
 	// Use a timeout to prevent hanging
@@ -968,51 +1124,109 @@ func (m *DefaultTransportManager) Close() error {
 		m.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
-		// All goroutines finished normally
-	case <-time.After(10 * time.Second):
+		m.logger.Debug("All transport manager goroutines stopped successfully")
+	case <-time.After(15 * time.Second): // Increased timeout for better cleanup
 		// Timeout waiting for goroutines - proceed with cleanup anyway
-		m.logger.Warn("Timeout waiting for cleanup goroutines to finish, proceeding with shutdown")
+		m.logger.Warn("Timeout waiting for cleanup goroutines to finish, proceeding with shutdown",
+			Int("active_transports", activeGoroutineCount))
 	}
 
-	// Now safely acquire the lock for final cleanup
+	// Now safely acquire the lock for final cleanup with increased timeout protection
+	cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cleanupCancel()
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	var errors []error
+	var closeErrors []error
+
+	// Close transports with better error handling
 	for name, transport := range m.transports {
-		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if transport == nil {
+			continue
+		}
+
+		// Check if overall cleanup context is cancelled
+		select {
+		case <-cleanupCtx.Done():
+			closeErrors = append(closeErrors, fmt.Errorf("cleanup timeout reached, skipping remaining transport closures"))
+			break
+		default:
+		}
+
+		closeCtx, cancel := context.WithTimeout(cleanupCtx, 10*time.Second) // Increased per-transport timeout
+		m.logger.Debug("Closing transport", String("name", name))
+
 		if err := transport.Close(closeCtx); err != nil {
-			errors = append(errors, fmt.Errorf("failed to close transport %s: %w", name, err))
+			// Don't fail on context cancellation during shutdown
+			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				closeErrors = append(closeErrors, fmt.Errorf("failed to close transport %s: %w", name, err))
+				m.logger.Error("Transport close failed", String("name", name), Error(err))
+			} else {
+				m.logger.Debug("Transport close cancelled or timed out (expected during shutdown)",
+					String("name", name), Error(err))
+			}
+		} else {
+			m.logger.Debug("Transport closed successfully", String("name", name))
 		}
 		cancel()
 	}
 
-	// Close managers
+	// Close managers with better error handling
 	if m.healthCheck != nil {
+		m.logger.Debug("Closing health check manager")
 		if err := m.healthCheck.Close(); err != nil {
-			errors = append(errors, fmt.Errorf("failed to close health checker: %w", err))
+			// Don't fail on expected shutdown errors
+			if !errors.Is(err, context.Canceled) {
+				closeErrors = append(closeErrors, fmt.Errorf("failed to close health checker: %w", err))
+				m.logger.Error("Health check manager close failed", Error(err))
+			} else {
+				m.logger.Debug("Health check manager close cancelled (expected during shutdown)")
+			}
+		} else {
+			m.logger.Debug("Health check manager closed successfully")
 		}
 	}
 
 	if m.metrics != nil {
+		m.logger.Debug("Closing metrics manager")
 		if err := m.metrics.Close(); err != nil {
-			errors = append(errors, fmt.Errorf("failed to close metrics manager: %w", err))
+			if !errors.Is(err, context.Canceled) {
+				closeErrors = append(closeErrors, fmt.Errorf("failed to close metrics manager: %w", err))
+				m.logger.Error("Metrics manager close failed", Error(err))
+			} else {
+				m.logger.Debug("Metrics manager close cancelled (expected during shutdown)")
+			}
+		} else {
+			m.logger.Debug("Metrics manager closed successfully")
 		}
 	}
 
 	if m.eventBus != nil {
-		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		m.logger.Debug("Closing event bus")
+		closeCtx, cancel := context.WithTimeout(cleanupCtx, 10*time.Second)
 		if err := m.eventBus.Close(closeCtx); err != nil {
-			errors = append(errors, fmt.Errorf("failed to close event bus: %w", err))
+			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				closeErrors = append(closeErrors, fmt.Errorf("failed to close event bus: %w", err))
+				m.logger.Error("Event bus close failed", Error(err))
+			} else {
+				m.logger.Debug("Event bus close cancelled or timed out (expected during shutdown)")
+			}
+		} else {
+			m.logger.Debug("Event bus closed successfully")
 		}
 		cancel()
 	}
 
-	if len(errors) > 0 {
-		return fmt.Errorf("multiple errors occurred while closing transport manager: %v", errors)
+	// Clear all resources
+	m.transports = make(map[string]Transport)
+	m.logger.Info("Transport manager shutdown complete")
+
+	if len(closeErrors) > 0 {
+		return fmt.Errorf("multiple errors occurred while closing transport manager: %v", closeErrors)
 	}
 
 	return nil
@@ -1190,7 +1404,7 @@ func (lb *WeightedLoadBalancer) calculateWeight(transportName string) int {
 
 	// Calculate weight based on performance metrics
 	weight := 100
-	
+
 	// Reduce weight based on error rate
 	if stats.EventsSent > 0 {
 		errorRate := float64(stats.ErrorCount) / float64(stats.EventsSent)
@@ -1224,29 +1438,36 @@ func (lb *WeightedLoadBalancer) Name() string {
 	return "weighted"
 }
 
-// HealthCheckManager manages health checks for transports.
+// HealthCheckManager manages health checks for transports with proper resource management.
 type HealthCheckManager struct {
-	mu         sync.RWMutex
-	transports map[string]Transport
-	checkers   map[string]HealthChecker
-	interval   time.Duration
-	ctx        context.Context
-	cancel     context.CancelFunc
-	wg         sync.WaitGroup
-	logger     Logger
+	mu          sync.RWMutex
+	transports  map[string]Transport
+	checkers    map[string]HealthChecker
+	interval    time.Duration
+	ctx         context.Context
+	cancel      context.CancelFunc
+	wg          sync.WaitGroup
+	logger      Logger
 	onUnhealthy func(name string, err error)
+	// Enhanced resource management
+	activeHealthCheckers map[string]context.CancelFunc // Track health check goroutines
+	shutdownOnce         sync.Once                     // Ensure shutdown is only called once
+	shutdownComplete     chan struct{}                 // Signal when shutdown is complete
+	resourceMu           sync.Mutex                    // Protect resource management operations
 }
 
-// NewHealthCheckManager creates a new health check manager.
+// NewHealthCheckManager creates a new health check manager with enhanced resource tracking.
 func NewHealthCheckManager() *HealthCheckManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &HealthCheckManager{
-		transports: make(map[string]Transport),
-		checkers:   make(map[string]HealthChecker),
-		interval:   30 * time.Second,
-		ctx:        ctx,
-		cancel:     cancel,
-		logger:     NewLogger(DefaultLoggerConfig()),
+		transports:           make(map[string]Transport),
+		checkers:             make(map[string]HealthChecker),
+		activeHealthCheckers: make(map[string]context.CancelFunc),
+		interval:             30 * time.Second,
+		ctx:                  ctx,
+		cancel:               cancel,
+		logger:               NewLogger(DefaultLoggerConfig()),
+		shutdownComplete:     make(chan struct{}),
 	}
 }
 
@@ -1256,7 +1477,7 @@ func (m *HealthCheckManager) AddTransport(name string, transport Transport) {
 	defer m.mu.Unlock()
 
 	m.transports[name] = transport
-	
+
 	// Start health checking if transport implements HealthChecker
 	if checker, ok := transport.(HealthChecker); ok {
 		m.checkers[name] = checker
@@ -1264,36 +1485,99 @@ func (m *HealthCheckManager) AddTransport(name string, transport Transport) {
 	}
 }
 
-// RemoveTransport removes a transport from health checking.
+// RemoveTransport removes a transport from health checking with proper cleanup.
 func (m *HealthCheckManager) RemoveTransport(name string) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	delete(m.transports, name)
 	delete(m.checkers, name)
+
+	// Cancel the specific health check goroutine
+	m.resourceMu.Lock()
+	if cancel, exists := m.activeHealthCheckers[name]; exists {
+		cancel()
+		delete(m.activeHealthCheckers, name)
+	}
+	m.resourceMu.Unlock()
 }
 
-// startHealthCheck starts health checking for a transport.
+// startHealthCheck starts health checking for a transport with proper resource management.
 func (m *HealthCheckManager) startHealthCheck(name string, checker HealthChecker) {
+	// Create a dedicated context for this health check to enable individual cancellation
+	healthCheckCtx, healthCheckCancel := context.WithCancel(m.ctx)
+
+	// Store the cancel function for cleanup
+	m.resourceMu.Lock()
+	m.activeHealthCheckers[name] = healthCheckCancel
+	m.resourceMu.Unlock()
+
+	// Check if main context is already cancelled before starting
+	select {
+	case <-m.ctx.Done():
+		healthCheckCancel()
+		return
+	default:
+	}
+
 	m.wg.Add(1)
 	go func() {
-		defer m.wg.Done()
-		
+		defer func() {
+			// Clean up resources when goroutine exits
+			m.resourceMu.Lock()
+			delete(m.activeHealthCheckers, name)
+			m.resourceMu.Unlock()
+			healthCheckCancel() // Ensure cancel is called
+			m.wg.Done()
+
+			// Handle panic recovery
+			if r := recover(); r != nil {
+				m.logger.Error("health check goroutine panic recovered",
+					String("transport", name),
+					Any("panic", r))
+			}
+		}()
+
 		ticker := time.NewTicker(m.interval)
 		defer ticker.Stop()
+
+		// Use shorter timeout for health checks to prevent hanging
+		heathCheckTimeout := 10 * time.Second
+		if m.interval < 30*time.Second {
+			heathCheckTimeout = m.interval / 3
+		}
 
 		for {
 			select {
 			case <-ticker.C:
-				if err := checker.CheckHealth(m.ctx); err != nil {
-					m.logger.Error("health check failed",
-						String("transport", name),
-						Error(err))
-					// Notify transport manager about unhealthy transport
-					if m.onUnhealthy != nil {
-						m.onUnhealthy(name, err)
+				// Check if context is cancelled before performing health check
+				select {
+				case <-healthCheckCtx.Done():
+					return
+				case <-m.ctx.Done():
+					return
+				default:
+				}
+
+				// Perform health check with timeout
+				checkCtx, checkCancel := context.WithTimeout(healthCheckCtx, heathCheckTimeout)
+				err := checker.CheckHealth(checkCtx)
+				checkCancel()
+
+				if err != nil {
+					// Only log if not due to cancellation
+					if !errors.Is(err, context.Canceled) {
+						m.logger.Error("health check failed",
+							String("transport", name),
+							Error(err))
+						// Notify transport manager about unhealthy transport
+						if m.onUnhealthy != nil {
+							m.onUnhealthy(name, err)
+						}
 					}
 				}
+			case <-healthCheckCtx.Done():
+				return
 			case <-m.ctx.Done():
 				return
 			}
@@ -1301,11 +1585,52 @@ func (m *HealthCheckManager) startHealthCheck(name string, checker HealthChecker
 	}()
 }
 
-// Close closes the health check manager.
+// Close closes the health check manager with proper resource cleanup and timeout protection.
 func (m *HealthCheckManager) Close() error {
-	m.cancel()
-	m.wg.Wait()
-	return nil
+	var closeError error
+
+	m.shutdownOnce.Do(func() {
+		m.logger.Debug("Starting health check manager shutdown")
+
+		// Cancel all active health checkers first
+		m.resourceMu.Lock()
+		for name, cancel := range m.activeHealthCheckers {
+			m.logger.Debug("Cancelling health checker", String("transport", name))
+			cancel()
+		}
+		m.activeHealthCheckers = make(map[string]context.CancelFunc)
+		m.resourceMu.Unlock()
+
+		// Cancel main context to stop all health check goroutines
+		m.cancel()
+
+		// Wait for goroutines with timeout protection
+		done := make(chan struct{})
+		go func() {
+			m.wg.Wait()
+			close(done)
+		}()
+
+		select {
+		case <-done:
+			m.logger.Debug("All health check goroutines stopped successfully")
+		case <-time.After(10 * time.Second):
+			m.logger.Warn("Timeout waiting for health check goroutines to stop")
+			closeError = fmt.Errorf("timeout waiting for health check goroutines")
+		}
+
+		// Clear all resources
+		m.mu.Lock()
+		m.transports = make(map[string]Transport)
+		m.checkers = make(map[string]HealthChecker)
+		m.mu.Unlock()
+
+		// Signal shutdown complete
+		close(m.shutdownComplete)
+		m.logger.Debug("Health check manager shutdown complete")
+	})
+
+	return closeError
 }
 
 // MetricsManager manages metrics collection for transports.
@@ -1335,7 +1660,7 @@ func (m *MetricsManager) AddTransport(name string, transport Transport) {
 	defer m.mu.Unlock()
 
 	m.transports[name] = transport
-	
+
 	// Start metrics collection if transport implements MetricsCollector
 	if collector, ok := transport.(MetricsCollector); ok {
 		m.collectors[name] = collector
@@ -1359,10 +1684,10 @@ func (m *MetricsManager) RecordEvent(transportName string, event any) {
 	if collector, exists := m.collectors[transportName]; exists {
 		// Calculate event size
 		eventSize := m.calculateEventSize(event)
-		
+
 		// Calculate latency based on event timestamp
 		latency := m.calculateEventLatency(event)
-		
+
 		// Record the event with calculated metrics
 		collector.RecordEvent("event", eventSize, latency)
 	}
@@ -1383,7 +1708,7 @@ func (m *MetricsManager) calculateEventSize(event any) int64 {
 			"timestamp": transportEvent.Timestamp(),
 			"data":      transportEvent.Data(),
 		}
-		
+
 		// Marshal to JSON to calculate size
 		if jsonData, err := json.Marshal(eventMap); err == nil {
 			return int64(len(jsonData))

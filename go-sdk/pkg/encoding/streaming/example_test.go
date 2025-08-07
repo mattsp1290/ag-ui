@@ -24,7 +24,7 @@ func Example_basicStreaming() {
 
 	// Create event channel
 	eventChan := make(chan events.Event, 10)
-	
+
 	// Send some events
 	go func() {
 		defer close(eventChan)
@@ -187,7 +187,7 @@ func Example_metrics() {
 		fmt.Println("Streaming completed successfully")
 		fmt.Printf("Encoded %d bytes\n", buf.Len())
 	}
-	
+
 	// Output:
 	// Streaming completed successfully
 	// Encoded 9461 bytes
@@ -218,7 +218,7 @@ func Example_streamManager() {
 	// Use a buffer for encode/decode
 	var buf bytes.Buffer
 	ctx := context.Background()
-	
+
 	// Start encoder stream
 	if err := encoder.StartStream(ctx, &buf); err != nil {
 		fmt.Printf("Error starting encoder: %v\n", err)

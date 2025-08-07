@@ -26,25 +26,25 @@ func NewConfigurationFactory() *ConfigurationFactoryImpl {
 func (f *ConfigurationFactoryImpl) CreateConfig(moduleName string, options ...ConfigOption) (ConfigProvider, error) {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
-	
+
 	// Start with default configuration
 	config := DefaultValidatorConfig()
-	
+
 	// Apply options
 	for _, option := range options {
 		if err := option.Apply(config); err != nil {
 			return nil, fmt.Errorf("failed to apply config option: %w", err)
 		}
 	}
-	
+
 	// Create provider
 	provider := NewUnifiedConfigProvider(config)
-	
+
 	// Register with registry
 	if err := f.registry.Register(moduleName, provider); err != nil {
 		return nil, fmt.Errorf("failed to register config provider for module %s: %w", moduleName, err)
 	}
-	
+
 	return provider, nil
 }
 
@@ -52,20 +52,20 @@ func (f *ConfigurationFactoryImpl) CreateConfig(moduleName string, options ...Co
 func (f *ConfigurationFactoryImpl) CreateValidatorConfig(options ...ConfigOption) (ValidatorConfigProvider, error) {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
-	
+
 	// Start with default configuration
 	config := DefaultValidatorConfig()
-	
+
 	// Apply options
 	for _, option := range options {
 		if err := option.Apply(config); err != nil {
 			return nil, fmt.Errorf("failed to apply config option: %w", err)
 		}
 	}
-	
+
 	// Create provider
 	provider := NewUnifiedValidatorConfigProvider(config)
-	
+
 	return provider, nil
 }
 
@@ -73,17 +73,17 @@ func (f *ConfigurationFactoryImpl) CreateValidatorConfig(options ...ConfigOption
 func (f *ConfigurationFactoryImpl) CreateFromFile(filePath string, options ...ConfigOption) (ConfigProvider, error) {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
-	
+
 	// Read file
 	data, err := ioutil.ReadFile(filePath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %s: %w", filePath, err)
 	}
-	
+
 	// Parse based on file extension
 	config := &ValidatorConfig{}
 	ext := strings.ToLower(filepath.Ext(filePath))
-	
+
 	switch ext {
 	case ".json":
 		if err := json.Unmarshal(data, config); err != nil {
@@ -92,17 +92,17 @@ func (f *ConfigurationFactoryImpl) CreateFromFile(filePath string, options ...Co
 	default:
 		return nil, fmt.Errorf("unsupported config file format: %s", ext)
 	}
-	
+
 	// Apply options
 	for _, option := range options {
 		if err := option.Apply(config); err != nil {
 			return nil, fmt.Errorf("failed to apply config option: %w", err)
 		}
 	}
-	
+
 	// Create provider
 	provider := NewUnifiedConfigProvider(config)
-	
+
 	return provider, nil
 }
 
@@ -110,28 +110,28 @@ func (f *ConfigurationFactoryImpl) CreateFromFile(filePath string, options ...Co
 func (f *ConfigurationFactoryImpl) CreateFromMap(data map[string]interface{}, options ...ConfigOption) (ConfigProvider, error) {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
-	
+
 	// Convert map to JSON and then to struct
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal config data: %w", err)
 	}
-	
+
 	config := &ValidatorConfig{}
 	if err := json.Unmarshal(jsonData, config); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config data: %w", err)
 	}
-	
+
 	// Apply options
 	for _, option := range options {
 		if err := option.Apply(config); err != nil {
 			return nil, fmt.Errorf("failed to apply config option: %w", err)
 		}
 	}
-	
+
 	// Create provider
 	provider := NewUnifiedConfigProvider(config)
-	
+
 	return provider, nil
 }
 
@@ -139,7 +139,7 @@ func (f *ConfigurationFactoryImpl) CreateFromMap(data map[string]interface{}, op
 func (f *ConfigurationFactoryImpl) GetRegistry() ConfigRegistry {
 	f.mutex.RLock()
 	defer f.mutex.RUnlock()
-	
+
 	return f.registry
 }
 
@@ -234,7 +234,7 @@ func NewConfigurationManager() *ConfigurationManagerImpl {
 func (m *ConfigurationManagerImpl) Initialize() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	// Create default provider if none exists
 	if m.provider == nil {
 		provider, err := m.factory.CreateValidatorConfig()
@@ -243,12 +243,12 @@ func (m *ConfigurationManagerImpl) Initialize() error {
 		}
 		m.provider = provider
 	}
-	
+
 	// Register core services
 	if err := m.registerCoreServices(); err != nil {
 		return fmt.Errorf("failed to register core services: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -256,16 +256,16 @@ func (m *ConfigurationManagerImpl) Initialize() error {
 func (m *ConfigurationManagerImpl) Load(sources ...string) error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	m.sources = sources
-	
+
 	// Load from each source
 	for _, source := range sources {
 		if err := m.loadFromSource(source); err != nil {
 			return fmt.Errorf("failed to load config from source %s: %w", source, err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -273,25 +273,25 @@ func (m *ConfigurationManagerImpl) Load(sources ...string) error {
 func (m *ConfigurationManagerImpl) Save(destination string) error {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	if m.provider == nil {
 		return fmt.Errorf("no configuration provider available")
 	}
-	
+
 	// Get all config data
 	data := m.provider.GetAll()
-	
+
 	// Convert to JSON
 	jsonData, err := json.MarshalIndent(data, "", "  ")
 	if err != nil {
 		return fmt.Errorf("failed to marshal config data: %w", err)
 	}
-	
+
 	// Write to file
 	if err := ioutil.WriteFile(destination, jsonData, 0644); err != nil {
 		return fmt.Errorf("failed to write config file: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -299,14 +299,14 @@ func (m *ConfigurationManagerImpl) Save(destination string) error {
 func (m *ConfigurationManagerImpl) Reload() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	// Reload from all sources
 	for _, source := range m.sources {
 		if err := m.loadFromSource(source); err != nil {
 			return fmt.Errorf("failed to reload config from source %s: %w", source, err)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -314,7 +314,7 @@ func (m *ConfigurationManagerImpl) Reload() error {
 func (m *ConfigurationManagerImpl) GetProvider() ValidatorConfigProvider {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	return m.provider
 }
 
@@ -322,7 +322,7 @@ func (m *ConfigurationManagerImpl) GetProvider() ValidatorConfigProvider {
 func (m *ConfigurationManagerImpl) GetRegistry() ConfigRegistry {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	return m.registry
 }
 
@@ -330,7 +330,7 @@ func (m *ConfigurationManagerImpl) GetRegistry() ConfigRegistry {
 func (m *ConfigurationManagerImpl) GetFactory() ConfigurationFactory {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	return m.factory
 }
 
@@ -338,7 +338,7 @@ func (m *ConfigurationManagerImpl) GetFactory() ConfigurationFactory {
 func (m *ConfigurationManagerImpl) GetContainer() ServiceContainer {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	return m.container
 }
 
@@ -346,30 +346,30 @@ func (m *ConfigurationManagerImpl) GetContainer() ServiceContainer {
 func (m *ConfigurationManagerImpl) Validate() error {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	var errors []error
-	
+
 	// Validate provider
 	if m.provider != nil {
 		if err := m.provider.Validate(); err != nil {
 			errors = append(errors, fmt.Errorf("provider validation failed: %w", err))
 		}
 	}
-	
+
 	// Validate registry
 	if err := m.registry.Validate(); err != nil {
 		errors = append(errors, fmt.Errorf("registry validation failed: %w", err))
 	}
-	
+
 	// Validate container
 	if err := m.container.Validate(); err != nil {
 		errors = append(errors, fmt.Errorf("container validation failed: %w", err))
 	}
-	
+
 	if len(errors) > 0 {
 		return fmt.Errorf("configuration system validation failed: %v", errors)
 	}
-	
+
 	return nil
 }
 
@@ -377,16 +377,16 @@ func (m *ConfigurationManagerImpl) Validate() error {
 func (m *ConfigurationManagerImpl) Start() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	if m.started {
 		return fmt.Errorf("configuration manager already started")
 	}
-	
+
 	// Start the service container
 	if err := m.container.Start(); err != nil {
 		return fmt.Errorf("failed to start service container: %w", err)
 	}
-	
+
 	m.started = true
 	return nil
 }
@@ -395,16 +395,16 @@ func (m *ConfigurationManagerImpl) Start() error {
 func (m *ConfigurationManagerImpl) Stop() error {
 	m.mutex.Lock()
 	defer m.mutex.Unlock()
-	
+
 	if !m.started {
 		return nil
 	}
-	
+
 	// Stop the service container
 	if err := m.container.Stop(); err != nil {
 		return fmt.Errorf("failed to stop service container: %w", err)
 	}
-	
+
 	m.started = false
 	return nil
 }
@@ -413,15 +413,15 @@ func (m *ConfigurationManagerImpl) Stop() error {
 func (m *ConfigurationManagerImpl) GetHealth() map[string]interface{} {
 	m.mutex.RLock()
 	defer m.mutex.RUnlock()
-	
+
 	health := map[string]interface{}{
-		"started":             m.started,
-		"provider_available":  m.provider != nil,
-		"sources_count":       len(m.sources),
-		"registry_providers":  len(m.registry.GetAll()),
-		"container_services":  len(m.container.GetAll()),
+		"started":            m.started,
+		"provider_available": m.provider != nil,
+		"sources_count":      len(m.sources),
+		"registry_providers": len(m.registry.GetAll()),
+		"container_services": len(m.container.GetAll()),
 	}
-	
+
 	// Check if validation passes
 	if err := m.Validate(); err != nil {
 		health["validation_error"] = err.Error()
@@ -429,7 +429,7 @@ func (m *ConfigurationManagerImpl) GetHealth() map[string]interface{} {
 	} else {
 		health["healthy"] = true
 	}
-	
+
 	return health
 }
 
@@ -441,17 +441,17 @@ func (m *ConfigurationManagerImpl) loadFromSource(source string) error {
 		if err != nil {
 			return fmt.Errorf("failed to load config from file: %w", err)
 		}
-		
+
 		// Update main provider
 		if validatorProvider, ok := provider.(*UnifiedConfigProvider); ok {
 			m.provider = &UnifiedValidatorConfigProvider{
 				UnifiedConfigProvider: validatorProvider,
 			}
 		}
-		
+
 		return nil
 	}
-	
+
 	// Add support for other sources (environment variables, etc.)
 	return fmt.Errorf("unsupported config source: %s", source)
 }
@@ -462,16 +462,16 @@ func (m *ConfigurationManagerImpl) registerCoreServices() error {
 	if err := m.container.RegisterSingleton("config.provider", m.provider); err != nil {
 		return fmt.Errorf("failed to register config provider: %w", err)
 	}
-	
+
 	// Register configuration registry
 	if err := m.container.RegisterSingleton("config.registry", m.registry); err != nil {
 		return fmt.Errorf("failed to register config registry: %w", err)
 	}
-	
+
 	// Register configuration factory
 	if err := m.container.RegisterSingleton("config.factory", m.factory); err != nil {
 		return fmt.Errorf("failed to register config factory: %w", err)
 	}
-	
+
 	return nil
 }

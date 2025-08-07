@@ -10,38 +10,38 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 	"github.com/hashicorp/golang-lru/v2"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // CacheValidatorSimple provides multi-level caching for validation results
 // This is a simplified version for demonstration of the interface refactoring
 type CacheValidatorSimple struct {
 	// L1 Cache (in-memory)
-	l1Cache       *lru.Cache[string, *ValidationCacheEntry]
-	l1Size        int
-	l1TTL         time.Duration
-	
+	l1Cache *lru.Cache[string, *ValidationCacheEntry]
+	l1Size  int
+	l1TTL   time.Duration
+
 	// L2 Cache (distributed) - now using the interface hierarchy
-	l2Cache       DistributedCache // Uses the new interface hierarchy
-	l2TTL         time.Duration
-	l2Enabled     bool
-	
+	l2Cache   DistributedCache // Uses the new interface hierarchy
+	l2TTL     time.Duration
+	l2Enabled bool
+
 	// Validation
-	validator     *events.Validator
-	
+	validator *events.Validator
+
 	// Coordination
-	coordinator   *EventDrivenCoordinator // Uses event-driven coordinator
-	nodeID        string
-	
+	coordinator *EventDrivenCoordinator // Uses event-driven coordinator
+	nodeID      string
+
 	// Metrics
-	stats         CacheStats
+	stats          CacheStats
 	metricsEnabled bool
-	
+
 	// Synchronization
-	mu            sync.RWMutex
-	shutdownCh    chan struct{}
-	wg            sync.WaitGroup
+	mu         sync.RWMutex
+	shutdownCh chan struct{}
+	wg         sync.WaitGroup
 }
 
 // NewCacheValidatorSimple creates a new simplified cache validator
@@ -51,10 +51,10 @@ func NewCacheValidatorSimple(l2Cache DistributedCache, nodeID string, eventBus e
 	if err != nil {
 		return nil, fmt.Errorf("failed to create L1 cache: %w", err)
 	}
-	
+
 	// Create event-driven coordinator
 	coordinator := NewEventDrivenCoordinator(nodeID, eventBus, DefaultEventDrivenConfig())
-	
+
 	cv := &CacheValidatorSimple{
 		l1Cache:        l1Cache,
 		l1Size:         10000,
@@ -68,7 +68,7 @@ func NewCacheValidatorSimple(l2Cache DistributedCache, nodeID string, eventBus e
 		metricsEnabled: true,
 		shutdownCh:     make(chan struct{}),
 	}
-	
+
 	return cv, nil
 }
 
@@ -77,20 +77,20 @@ func (cv *CacheValidatorSimple) ValidateEvent(ctx context.Context, event events.
 	if event == nil {
 		return fmt.Errorf("event cannot be nil")
 	}
-	
+
 	// Generate cache key
 	key, err := cv.generateCacheKey(event)
 	if err != nil {
 		// Fallback to direct validation
 		return cv.validator.ValidateEvent(ctx, event)
 	}
-	
+
 	// Check L1 cache (BasicCache interface)
 	if entry, ok := cv.getFromL1(key); ok {
 		cv.recordHit("L1")
 		return cv.toValidationError(entry)
 	}
-	
+
 	// Check L2 cache if enabled (DistributedCache interface)
 	if cv.l2Enabled {
 		if entry, ok := cv.getFromL2(ctx, key); ok {
@@ -102,20 +102,20 @@ func (cv *CacheValidatorSimple) ValidateEvent(ctx context.Context, event events.
 			atomic.AddUint64(&cv.stats.L2Misses, 1)
 		}
 	}
-	
+
 	// Cache miss - perform validation
 	cv.recordMiss()
 	startTime := time.Now()
-	
+
 	err = cv.validator.ValidateEvent(ctx, event)
-	
+
 	validationTime := time.Since(startTime)
-	
+
 	// Create cache entry
 	metadata := make(map[string]interface{})
 	metadata["validation_time"] = validationTime
 	metadata["event_size"] = cv.estimateEventSize(event)
-	
+
 	entry := &ValidationCacheEntry{
 		Key:            *key,
 		Valid:          err == nil,
@@ -126,10 +126,10 @@ func (cv *CacheValidatorSimple) ValidateEvent(ctx context.Context, event events.
 		LastAccessedAt: time.Now(),
 		Metadata:       metadata,
 	}
-	
+
 	// Store in caches using interface hierarchy
 	cv.storeInCaches(ctx, key, entry)
-	
+
 	return err
 }
 
@@ -139,17 +139,17 @@ func (cv *CacheValidatorSimple) InvalidateEvent(ctx context.Context, event event
 	if err != nil {
 		return fmt.Errorf("failed to generate cache key: %w", err)
 	}
-	
+
 	err = cv.invalidateKey(ctx, key)
 	if err != nil {
 		return err
 	}
-	
+
 	// Use event-driven coordinator for invalidation
 	if cv.coordinator != nil {
 		return cv.coordinator.InvalidateCache(ctx, string(event.Type()), cv.cacheKeyToString(key))
 	}
-	
+
 	return nil
 }
 
@@ -157,11 +157,11 @@ func (cv *CacheValidatorSimple) InvalidateEvent(ctx context.Context, event event
 func (cv *CacheValidatorSimple) GetStats() CacheStats {
 	cv.mu.RLock()
 	defer cv.mu.RUnlock()
-	
+
 	stats := cv.stats
 	stats.TotalHits = stats.L1Hits + stats.L2Hits
 	stats.TotalMisses = cv.stats.L1Misses
-	
+
 	return stats
 }
 
@@ -169,17 +169,17 @@ func (cv *CacheValidatorSimple) GetStats() CacheStats {
 func (cv *CacheValidatorSimple) InvalidateByKeys(ctx context.Context, keys []string) error {
 	cv.mu.Lock()
 	defer cv.mu.Unlock()
-	
+
 	for _, keyStr := range keys {
 		// Remove from L1 cache
 		cv.l1Cache.Remove(keyStr)
-		
+
 		// Remove from L2 cache if enabled
 		if cv.l2Enabled {
 			cv.l2Cache.Delete(ctx, keyStr)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -187,7 +187,7 @@ func (cv *CacheValidatorSimple) InvalidateByKeys(ctx context.Context, keys []str
 func (cv *CacheValidatorSimple) InvalidateEventType(ctx context.Context, eventType string) error {
 	cv.mu.Lock()
 	defer cv.mu.Unlock()
-	
+
 	// Invalidate L1 entries
 	keys := cv.l1Cache.Keys()
 	for _, key := range keys {
@@ -197,7 +197,7 @@ func (cv *CacheValidatorSimple) InvalidateEventType(ctx context.Context, eventTy
 			}
 		}
 	}
-	
+
 	// Invalidate L2 entries if enabled
 	if cv.l2Enabled {
 		pattern := fmt.Sprintf("validation:%s:*", eventType)
@@ -205,7 +205,7 @@ func (cv *CacheValidatorSimple) InvalidateEventType(ctx context.Context, eventTy
 		if err != nil {
 			return fmt.Errorf("failed to scan L2 cache: %w", err)
 		}
-		
+
 		for _, key := range keys {
 			if err := cv.l2Cache.Delete(ctx, key); err != nil {
 				// Log error but continue
@@ -213,7 +213,7 @@ func (cv *CacheValidatorSimple) InvalidateEventType(ctx context.Context, eventTy
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -224,9 +224,9 @@ func (cv *CacheValidatorSimple) generateCacheKey(event events.Event) (*Validatio
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal event: %w", err)
 	}
-	
+
 	hash := sha256.Sum256(data)
-	
+
 	return &ValidationCacheKey{
 		EventType:   event.Type(),
 		EventHash:   hex.EncodeToString(hash[:]),
@@ -238,24 +238,24 @@ func (cv *CacheValidatorSimple) generateCacheKey(event events.Event) (*Validatio
 func (cv *CacheValidatorSimple) getFromL1(key *ValidationCacheKey) (*ValidationCacheEntry, bool) {
 	cv.mu.RLock()
 	defer cv.mu.RUnlock()
-	
+
 	keyStr := cv.cacheKeyToString(key)
 	entry, ok := cv.l1Cache.Get(keyStr)
 	if !ok {
 		return nil, false
 	}
-	
+
 	// Check expiration
 	if time.Now().After(entry.ExpiresAt) {
 		cv.l1Cache.Remove(keyStr)
 		atomic.AddUint64(&cv.stats.Expirations, 1)
 		return nil, false
 	}
-	
+
 	// Update access stats
 	atomic.AddUint64(&entry.AccessCount, 1)
 	entry.LastAccessedAt = time.Now()
-	
+
 	return entry, true
 }
 
@@ -263,37 +263,37 @@ func (cv *CacheValidatorSimple) getFromL2(ctx context.Context, key *ValidationCa
 	if !cv.l2Enabled {
 		return nil, false
 	}
-	
+
 	keyStr := cv.cacheKeyToString(key)
 	data, err := cv.l2Cache.Get(ctx, keyStr)
 	if err != nil {
 		return nil, false
 	}
-	
+
 	// Deserialize
 	var entry ValidationCacheEntry
 	if err := json.Unmarshal(data, &entry); err != nil {
 		return nil, false
 	}
-	
+
 	// Check expiration
 	if time.Now().After(entry.ExpiresAt) {
 		cv.l2Cache.Delete(ctx, keyStr)
 		atomic.AddUint64(&cv.stats.Expirations, 1)
 		return nil, false
 	}
-	
+
 	return &entry, true
 }
 
 func (cv *CacheValidatorSimple) storeInCaches(ctx context.Context, key *ValidationCacheKey, entry *ValidationCacheEntry) {
 	keyStr := cv.cacheKeyToString(key)
-	
+
 	// Store in L1 (BasicCache interface)
 	cv.mu.Lock()
 	cv.l1Cache.Add(keyStr, entry)
 	cv.mu.Unlock()
-	
+
 	// Store in L2 if enabled (DistributedCache interface)
 	if cv.l2Enabled {
 		go cv.storeInL2(ctx, keyStr, entry)
@@ -306,7 +306,7 @@ func (cv *CacheValidatorSimple) storeInL2(ctx context.Context, key string, entry
 	if err != nil {
 		return
 	}
-	
+
 	// Store with TTL using DistributedCache interface
 	cv.l2Cache.Set(ctx, key, data, cv.l2TTL)
 }
@@ -320,26 +320,26 @@ func (cv *CacheValidatorSimple) promoteToL1(key *ValidationCacheKey, entry *Vali
 
 func (cv *CacheValidatorSimple) invalidateKey(ctx context.Context, key *ValidationCacheKey) error {
 	keyStr := cv.cacheKeyToString(key)
-	
+
 	// Remove from L1
 	cv.mu.Lock()
 	cv.l1Cache.Remove(keyStr)
 	cv.mu.Unlock()
-	
+
 	// Remove from L2 if enabled
 	if cv.l2Enabled {
 		if err := cv.l2Cache.Delete(ctx, keyStr); err != nil {
 			return fmt.Errorf("failed to delete from L2 cache: %w", err)
 		}
 	}
-	
+
 	return nil
 }
 
 func (cv *CacheValidatorSimple) cacheKeyToString(key *ValidationCacheKey) string {
-	return fmt.Sprintf("validation:%s:%s:%s:%s", 
-		key.EventType, 
-		key.EventHash[:8], 
+	return fmt.Sprintf("validation:%s:%s:%s:%s",
+		key.EventType,
+		key.EventHash[:8],
 		key.ConfigHash[:8],
 		key.ValidatorID)
 }
@@ -348,19 +348,19 @@ func (cv *CacheValidatorSimple) toValidationError(entry *ValidationCacheEntry) e
 	if entry == nil {
 		return fmt.Errorf("nil cache entry")
 	}
-	
+
 	if entry.Valid {
 		return nil
 	}
-	
+
 	if len(entry.Errors) == 0 {
 		return fmt.Errorf("validation failed")
 	}
-	
+
 	if len(entry.Errors) == 1 {
 		return entry.Errors[0]
 	}
-	
+
 	// Combine multiple errors
 	errStr := "validation failed with multiple errors:"
 	for _, err := range entry.Errors {
@@ -382,7 +382,7 @@ func (cv *CacheValidatorSimple) recordHit(level string) {
 	if !cv.metricsEnabled {
 		return
 	}
-	
+
 	switch level {
 	case "L1":
 		atomic.AddUint64(&cv.stats.L1Hits, 1)
@@ -395,7 +395,7 @@ func (cv *CacheValidatorSimple) recordMiss() {
 	if !cv.metricsEnabled {
 		return
 	}
-	
+
 	atomic.AddUint64(&cv.stats.L1Misses, 1)
 }
 

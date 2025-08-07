@@ -173,11 +173,11 @@ func TestBCryptSecurityEnforcementExample(t *testing.T) {
 			cost      int
 			shouldErr bool
 		}{
-			{11, true},           // Below minimum
+			{11, true},             // Below minimum
 			{BCryptMinCost, false}, // Minimum (valid)
-			{13, false},          // Middle (valid)
+			{13, false},            // Middle (valid)
 			{BCryptMaxCost, false}, // Maximum (valid)
-			{16, true},           // Above maximum
+			{16, true},             // Above maximum
 		}
 
 		for _, tc := range testCases {

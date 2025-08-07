@@ -19,11 +19,11 @@ import (
 // TestStreamLifetimeProtection tests the core stream lifetime protection functionality
 func TestStreamLifetimeProtection(t *testing.T) {
 	tests := []struct {
-		name                 string
-		maxStreamLifetime    time.Duration
-		testDuration         time.Duration
-		expectedTermination  bool
-		description          string
+		name                string
+		maxStreamLifetime   time.Duration
+		testDuration        time.Duration
+		expectedTermination bool
+		description         string
 	}{
 		{
 			name:                "ShortLifetime_ShouldTerminate",
@@ -56,10 +56,10 @@ func TestStreamLifetimeProtection(t *testing.T) {
 				w.Header().Set("Content-Type", "text/event-stream")
 				w.Header().Set("Cache-Control", "no-cache")
 				w.Header().Set("Connection", "keep-alive")
-				
+
 				flusher, ok := w.(http.Flusher)
 				require.True(t, ok)
-				
+
 				for {
 					select {
 					case <-r.Context().Done():
@@ -142,10 +142,10 @@ func TestStreamLifetimeGoroutineCleanup(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-		
+
 		flusher, ok := w.(http.Flusher)
 		require.True(t, ok)
-		
+
 		for i := 0; i < 100; i++ {
 			select {
 			case <-r.Context().Done():
@@ -259,7 +259,7 @@ func TestStreamLifetimeConfigValidation(t *testing.T) {
 			}
 
 			client, err := NewSSEClient(config)
-			
+
 			if tt.expectError {
 				assert.Error(t, err)
 				if tt.errorMessage != "" {
@@ -269,14 +269,14 @@ func TestStreamLifetimeConfigValidation(t *testing.T) {
 			} else {
 				assert.NoError(t, err)
 				assert.NotNil(t, client)
-				
+
 				if tt.maxStreamLifetime == 0 {
 					// Should use default value
 					assert.Equal(t, 30*time.Minute, client.config.MaxStreamLifetime)
 				} else {
 					assert.Equal(t, tt.maxStreamLifetime, client.config.MaxStreamLifetime)
 				}
-				
+
 				// Test config validation separately if negative lifetime
 				if tt.name == "NegativeLifetime_ValidationCheck" {
 					err := config.Validate()
@@ -285,7 +285,7 @@ func TestStreamLifetimeConfigValidation(t *testing.T) {
 						assert.Contains(t, err.Error(), "max stream lifetime cannot be negative")
 					}
 				}
-				
+
 				client.Close()
 			}
 		})
@@ -299,10 +299,10 @@ func TestConcurrentStreamsWithDifferentLifetimes(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.Header().Set("Cache-Control", "no-cache")
 		w.Header().Set("Connection", "keep-alive")
-		
+
 		flusher, ok := w.(http.Flusher)
 		require.True(t, ok)
-		
+
 		for i := 0; i < 50; i++ {
 			select {
 			case <-r.Context().Done():
@@ -368,7 +368,7 @@ func TestConcurrentStreamsWithDifferentLifetimes(t *testing.T) {
 	shortTerminated := terminationResults["short"]
 	mediumTerminated := terminationResults["medium"]
 	longTerminated := terminationResults["long"]
-	
+
 	shortTime, shortTimeExists := terminationTimes["short"]
 	mediumTime, mediumTimeExists := terminationTimes["medium"]
 	mu.Unlock()
@@ -376,7 +376,7 @@ func TestConcurrentStreamsWithDifferentLifetimes(t *testing.T) {
 	// Short lifetime stream should have terminated
 	assert.True(t, shortTerminated, "Short lifetime stream should have terminated")
 	assert.True(t, mediumTerminated, "Medium lifetime stream should have terminated")
-	
+
 	// Verify ordering
 	if shortTimeExists && mediumTimeExists {
 		assert.True(t, shortTime.Before(mediumTime), "Short stream should terminate before medium stream")

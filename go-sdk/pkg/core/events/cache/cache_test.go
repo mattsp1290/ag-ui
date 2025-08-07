@@ -20,30 +20,30 @@ func TestCacheValidator_BasicOperations(t *testing.T) {
 	// Use no-op logger for tests to reduce noise
 	config.Logger = &eventerrors.NoOpLogger{}
 	config.RetryPolicy = &eventerrors.RetryPolicy{MaxAttempts: 1}
-	
+
 	cv, err := NewCacheValidator(config)
 	if err != nil {
 		t.Fatalf("Failed to create cache validator: %v", err)
 	}
 	defer cv.Shutdown(context.Background())
-	
+
 	ctx := context.Background()
-	
+
 	// Test with a real event
 	event := events.NewRunStartedEvent("thread-123", "run-456")
-	
+
 	// First validation should work
 	err = cv.ValidateEvent(ctx, event)
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 	}
-	
+
 	// Second validation should also work (cached)
 	err = cv.ValidateEvent(ctx, event)
 	if err != nil {
 		t.Errorf("Expected no error, got: %v", err)
 	}
-	
+
 	// Verify stats are being collected
 	stats := cv.GetStats()
 	if stats.TotalHits+stats.TotalMisses == 0 {
@@ -53,23 +53,23 @@ func TestCacheValidator_BasicOperations(t *testing.T) {
 
 func TestTTLStrategy(t *testing.T) {
 	strategy := NewTTLStrategy(5 * time.Minute)
-	
+
 	key := ValidationCacheKey{
 		EventType: events.EventTypeRunStarted,
 		EventHash: "hash123",
 	}
-	
+
 	result := ValidationResult{
 		Valid:          true,
 		ValidationTime: 10 * time.Millisecond,
 		EventSize:      1024,
 	}
-	
+
 	// Should cache all results
 	if !strategy.ShouldCache(key, result) {
 		t.Error("Expected strategy to cache result")
 	}
-	
+
 	// Initial TTL
 	ttl := strategy.GetTTL(key)
 	if ttl != 5*time.Minute {
@@ -80,26 +80,26 @@ func TestTTLStrategy(t *testing.T) {
 func TestMetricsCollector(t *testing.T) {
 	collector := NewMetricsCollector(DefaultMetricsConfig())
 	defer collector.Shutdown(context.Background())
-	
+
 	// Record some operations
 	collector.RecordHit(L1Cache, 1*time.Millisecond)
-	collector.RecordMiss(5*time.Millisecond)
+	collector.RecordMiss(5 * time.Millisecond)
 	collector.UpdateSize(50, 100)
-	
+
 	report := collector.GetReport()
-	
+
 	if report.BasicMetrics.Hits != 1 {
 		t.Errorf("Expected 1 hit, got: %d", report.BasicMetrics.Hits)
 	}
-	
+
 	if report.BasicMetrics.Misses != 1 {
 		t.Errorf("Expected 1 miss, got: %d", report.BasicMetrics.Misses)
 	}
-	
+
 	if report.SizeMetrics.CurrentSize != 50 {
 		t.Errorf("Expected current size 50, got: %d", report.SizeMetrics.CurrentSize)
 	}
-	
+
 	if report.SizeMetrics.MaxSize != 100 {
 		t.Errorf("Expected max size 100, got: %d", report.SizeMetrics.MaxSize)
 	}
@@ -132,32 +132,32 @@ func NewMockDistributedCache() *MockDistributedCache {
 func (m *MockDistributedCache) Get(ctx context.Context, key string) ([]byte, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	if m.error {
 		return nil, eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
-	
+
 	// Check TTL
 	if expires, exists := m.ttls[key]; exists && time.Now().After(expires) {
 		return nil, eventerrors.NewCacheError(eventerrors.CacheErrorKeyNotFound, "key expired")
 	}
-	
+
 	data, exists := m.data[key]
 	if !exists {
 		return nil, eventerrors.NewCacheError(eventerrors.CacheErrorKeyNotFound, "key not found")
 	}
-	
+
 	return data, nil
 }
 
 func (m *MockDistributedCache) Set(ctx context.Context, key string, value []byte, ttl time.Duration) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.error {
 		return eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
-	
+
 	m.data[key] = value
 	m.ttls[key] = time.Now().Add(ttl)
 	return nil
@@ -166,11 +166,11 @@ func (m *MockDistributedCache) Set(ctx context.Context, key string, value []byte
 func (m *MockDistributedCache) Delete(ctx context.Context, key string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	
+
 	if m.error {
 		return eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
-	
+
 	delete(m.data, key)
 	delete(m.ttls, key)
 	return nil
@@ -179,11 +179,11 @@ func (m *MockDistributedCache) Delete(ctx context.Context, key string) error {
 func (m *MockDistributedCache) Exists(ctx context.Context, key string) (bool, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	if m.error {
 		return false, eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
-	
+
 	_, exists := m.data[key]
 	return exists, nil
 }
@@ -191,27 +191,27 @@ func (m *MockDistributedCache) Exists(ctx context.Context, key string) (bool, er
 func (m *MockDistributedCache) TTL(ctx context.Context, key string) (time.Duration, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	if m.error {
 		return 0, eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
-	
+
 	expires, exists := m.ttls[key]
 	if !exists {
 		return 0, eventerrors.NewCacheError(eventerrors.CacheErrorKeyNotFound, "key not found")
 	}
-	
+
 	return time.Until(expires), nil
 }
 
 func (m *MockDistributedCache) Scan(ctx context.Context, pattern string) ([]string, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	if m.error {
 		return nil, eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, "mock connection error")
 	}
-	
+
 	keys := make([]string, 0)
 	for key := range m.data {
 		// Simple pattern matching - just check if pattern is contained
@@ -219,7 +219,7 @@ func (m *MockDistributedCache) Scan(ctx context.Context, pattern string) ([]stri
 			keys = append(keys, key)
 		}
 	}
-	
+
 	return keys, nil
 }
 
@@ -237,11 +237,11 @@ func (m *MockDistributedCache) Clear() {
 }
 
 func contains(s, substr string) bool {
-	return len(s) >= len(substr) && 
-		(s == substr || 
-			(len(s) > len(substr) && 
-				(s[:len(substr)] == substr || 
-					s[len(s)-len(substr):] == substr || 
+	return len(s) >= len(substr) &&
+		(s == substr ||
+			(len(s) > len(substr) &&
+				(s[:len(substr)] == substr ||
+					s[len(s)-len(substr):] == substr ||
 					(len(s) > len(substr) && s[1:len(substr)+1] == substr))))
 }
 
@@ -250,7 +250,7 @@ func (suite *CacheTestSuite) SetupTest() {
 	ctx := context.WithValue(context.Background(), "test_mode", true)
 	suite.ctx, suite.cancel = context.WithCancel(ctx)
 	suite.mockL2Cache = NewMockDistributedCache()
-	
+
 	config := DefaultCacheValidatorConfig()
 	config.L2Cache = suite.mockL2Cache
 	config.L2Enabled = true
@@ -261,14 +261,14 @@ func (suite *CacheTestSuite) SetupTest() {
 	config.Logger = &eventerrors.NoOpLogger{}
 	// Use less aggressive retry policy for tests
 	config.RetryPolicy = &eventerrors.RetryPolicy{
-		MaxAttempts:   1, // No retries in tests
-		InitialDelay:  1 * time.Millisecond,
-		MaxDelay:      10 * time.Millisecond,
-		BackoffFactor: 1.0,
-		Jitter:        false,
+		MaxAttempts:     1, // No retries in tests
+		InitialDelay:    1 * time.Millisecond,
+		MaxDelay:        10 * time.Millisecond,
+		BackoffFactor:   1.0,
+		Jitter:          false,
 		RetryableErrors: []string{eventerrors.CacheErrorConnectionFailed},
 	}
-	
+
 	var err error
 	suite.cacheValidator, err = NewCacheValidator(config)
 	suite.Require().NoError(err)
@@ -285,19 +285,19 @@ func (suite *CacheTestSuite) TearDownTest() {
 
 func (suite *CacheTestSuite) TestCacheValidation() {
 	event := events.NewRunStartedEvent("thread-123", "run-456")
-	
+
 	// First validation should miss cache
 	err := suite.cacheValidator.ValidateEvent(suite.ctx, event)
 	suite.NoError(err)
-	
+
 	stats := suite.cacheValidator.GetStats()
 	suite.Equal(uint64(1), stats.L1Misses)
 	suite.Equal(uint64(0), stats.L1Hits)
-	
+
 	// Second validation should hit L1 cache
 	err = suite.cacheValidator.ValidateEvent(suite.ctx, event)
 	suite.NoError(err)
-	
+
 	stats = suite.cacheValidator.GetStats()
 	suite.Equal(uint64(1), stats.L1Hits)
 }
@@ -305,39 +305,39 @@ func (suite *CacheTestSuite) TestCacheValidation() {
 func (suite *CacheTestSuite) TestL2CachePromotion() {
 	// Clear L1 cache to test L2 promotion
 	suite.cacheValidator.l1Cache.Purge()
-	
+
 	event := events.NewRunStartedEvent("thread-123", "run-456")
-	
+
 	// First validation populates both caches
 	err := suite.cacheValidator.ValidateEvent(suite.ctx, event)
 	suite.NoError(err)
-	
+
 	// Clear L1 cache
 	suite.cacheValidator.l1Cache.Purge()
-	
+
 	// Second validation should hit L2 and promote to L1
 	err = suite.cacheValidator.ValidateEvent(suite.ctx, event)
 	suite.NoError(err)
-	
+
 	stats := suite.cacheValidator.GetStats()
 	suite.Equal(uint64(1), stats.L2Hits)
 }
 
 func (suite *CacheTestSuite) TestCacheInvalidation() {
 	event := events.NewRunStartedEvent("thread-123", "run-456")
-	
+
 	// Populate cache
 	err := suite.cacheValidator.ValidateEvent(suite.ctx, event)
 	suite.NoError(err)
-	
+
 	// Invalidate the event
 	err = suite.cacheValidator.InvalidateEvent(suite.ctx, event)
 	suite.NoError(err)
-	
+
 	// Next validation should miss cache
 	err = suite.cacheValidator.ValidateEvent(suite.ctx, event)
 	suite.NoError(err)
-	
+
 	stats := suite.cacheValidator.GetStats()
 	suite.Equal(uint64(2), stats.L1Misses) // Initial miss + post-invalidation miss
 }
@@ -346,7 +346,7 @@ func (suite *CacheTestSuite) TestCacheInvalidationByEventType() {
 	event1 := events.NewRunStartedEvent("thread-123", "run-456")
 	event2 := events.NewRunStartedEvent("thread-124", "run-457")
 	event3 := events.NewToolCallStartEvent("tool-123", "ToolName")
-	
+
 	// Populate cache with different events
 	err := suite.cacheValidator.ValidateEvent(suite.ctx, event1)
 	suite.NoError(err)
@@ -354,21 +354,21 @@ func (suite *CacheTestSuite) TestCacheInvalidationByEventType() {
 	suite.NoError(err)
 	err = suite.cacheValidator.ValidateEvent(suite.ctx, event3)
 	suite.NoError(err)
-	
+
 	// Invalidate all RunStarted events
 	err = suite.cacheValidator.InvalidateEventTypeInternal(suite.ctx, events.EventTypeRunStarted)
 	suite.NoError(err)
-	
+
 	// RunStarted events should miss cache
 	err = suite.cacheValidator.ValidateEvent(suite.ctx, event1)
 	suite.NoError(err)
 	err = suite.cacheValidator.ValidateEvent(suite.ctx, event2)
 	suite.NoError(err)
-	
+
 	// ToolCallStarted event should still hit cache
 	err = suite.cacheValidator.ValidateEvent(suite.ctx, event3)
 	suite.NoError(err)
-	
+
 	stats := suite.cacheValidator.GetStats()
 	suite.Equal(uint64(1), stats.L1Hits) // Only the tool call event
 }
@@ -376,26 +376,26 @@ func (suite *CacheTestSuite) TestCacheInvalidationByEventType() {
 func (suite *CacheTestSuite) TestConcurrentCacheOperations() {
 	const numGoroutines = 10
 	const numOperations = 100
-	
+
 	var wg sync.WaitGroup
 	errors := make(chan error, numGoroutines*numOperations)
-	
+
 	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(goroutineID int) {
 			defer wg.Done()
-			
+
 			for j := 0; j < numOperations; j++ {
 				event := events.NewRunStartedEvent(
 					fmt.Sprintf("thread-%d", goroutineID),
 					fmt.Sprintf("run-%d", j),
 				)
-				
+
 				if err := suite.cacheValidator.ValidateEvent(suite.ctx, event); err != nil {
 					errors <- err
 					return
 				}
-				
+
 				// Randomly invalidate some events
 				if j%10 == 0 {
 					if err := suite.cacheValidator.InvalidateEvent(suite.ctx, event); err != nil {
@@ -406,15 +406,15 @@ func (suite *CacheTestSuite) TestConcurrentCacheOperations() {
 			}
 		}(i)
 	}
-	
+
 	wg.Wait()
 	close(errors)
-	
+
 	// Check for errors
 	for err := range errors {
 		suite.Fail("Concurrent operation failed", err)
 	}
-	
+
 	stats := suite.cacheValidator.GetStats()
 	suite.Greater(stats.TotalHits+stats.TotalMisses, uint64(0))
 }
@@ -425,16 +425,16 @@ func (suite *CacheTestSuite) TestCacheWarmup() {
 		events.NewRunStartedEvent("thread-2", "run-2"),
 		events.NewToolCallStartEvent("tool-1", "ToolName"),
 	}
-	
+
 	err := suite.cacheValidator.Warmup(suite.ctx, events)
 	suite.NoError(err)
-	
+
 	// All events should now hit cache
 	for _, event := range events {
 		err := suite.cacheValidator.ValidateEvent(suite.ctx, event)
 		suite.NoError(err)
 	}
-	
+
 	stats := suite.cacheValidator.GetStats()
 	suite.Equal(uint64(len(events)), stats.L1Hits)
 }
@@ -446,16 +446,16 @@ func (suite *CacheTestSuite) TestCacheSequenceValidation() {
 		events.NewToolCallEndEvent("tool-1"),
 		events.NewRunFinishedEvent("thread-1", "run-1"),
 	}
-	
+
 	err := suite.cacheValidator.ValidateSequence(suite.ctx, events)
 	suite.NoError(err)
-	
+
 	// Individual events should be cached
 	for _, event := range events {
 		err := suite.cacheValidator.ValidateEvent(suite.ctx, event)
 		suite.NoError(err)
 	}
-	
+
 	stats := suite.cacheValidator.GetStats()
 	suite.Greater(stats.L1Hits, uint64(0))
 }
@@ -465,24 +465,24 @@ func (suite *CacheTestSuite) TestCacheExpirationWorker() {
 	config := DefaultCacheValidatorConfig()
 	config.L1TTL = 100 * time.Millisecond
 	config.L2Enabled = false
-	
+
 	cv, err := NewCacheValidator(config)
 	suite.Require().NoError(err)
 	defer cv.Shutdown(suite.ctx)
-	
+
 	event := events.NewRunStartedEvent("thread-123", "run-456")
-	
+
 	// Populate cache
 	err = cv.ValidateEvent(suite.ctx, event)
 	suite.NoError(err)
-	
+
 	// Wait for expiration
 	time.Sleep(200 * time.Millisecond)
-	
+
 	// Should miss cache after expiration
 	err = cv.ValidateEvent(suite.ctx, event)
 	suite.NoError(err)
-	
+
 	stats := cv.GetStats()
 	suite.Equal(uint64(2), stats.L1Misses) // Initial miss + post-expiration miss
 }
@@ -490,17 +490,17 @@ func (suite *CacheTestSuite) TestCacheExpirationWorker() {
 func (suite *CacheTestSuite) TestL2CacheErrors() {
 	// Set L2 cache to return errors
 	suite.mockL2Cache.SetError(true)
-	
+
 	event := events.NewRunStartedEvent("thread-123", "run-456")
-	
+
 	// Should still work with L1 cache only
 	err := suite.cacheValidator.ValidateEvent(suite.ctx, event)
 	suite.NoError(err)
-	
+
 	// Second call should hit L1 cache
 	err = suite.cacheValidator.ValidateEvent(suite.ctx, event)
 	suite.NoError(err)
-	
+
 	stats := suite.cacheValidator.GetStats()
 	suite.Equal(uint64(1), stats.L1Hits)
 	suite.Equal(uint64(0), stats.L2Hits)
@@ -510,21 +510,21 @@ func (suite *CacheTestSuite) TestCacheKeyGeneration() {
 	event1 := events.NewRunStartedEvent("thread-123", "run-456")
 	event2 := events.NewRunStartedEvent("thread-123", "run-457") // Different run
 	event3 := events.NewRunStartedEvent("thread-124", "run-456") // Different thread
-	
+
 	key1, err := suite.cacheValidator.generateCacheKey(event1)
 	suite.NoError(err)
-	
+
 	key2, err := suite.cacheValidator.generateCacheKey(event2)
 	suite.NoError(err)
-	
+
 	key3, err := suite.cacheValidator.generateCacheKey(event3)
 	suite.NoError(err)
-	
+
 	// All keys should be different
 	suite.NotEqual(key1.EventHash, key2.EventHash)
 	suite.NotEqual(key1.EventHash, key3.EventHash)
 	suite.NotEqual(key2.EventHash, key3.EventHash)
-	
+
 	// Same event should generate same key
 	key4, err := suite.cacheValidator.generateCacheKey(event1)
 	suite.NoError(err)
@@ -539,19 +539,19 @@ func TestCacheTestSuite(t *testing.T) {
 func BenchmarkCacheValidation(b *testing.B) {
 	config := DefaultCacheValidatorConfig()
 	config.L2Enabled = false
-	
+
 	cv, err := NewCacheValidator(config)
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer cv.Shutdown(context.Background())
-	
+
 	event := events.NewRunStartedEvent("thread-123", "run-456")
 	ctx := context.Background()
-	
+
 	// Warm up cache
 	cv.ValidateEvent(ctx, event)
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		cv.ValidateEvent(ctx, event)
@@ -561,19 +561,19 @@ func BenchmarkCacheValidation(b *testing.B) {
 func BenchmarkCacheConcurrentValidation(b *testing.B) {
 	config := DefaultCacheValidatorConfig()
 	config.L2Enabled = false
-	
+
 	cv, err := NewCacheValidator(config)
 	if err != nil {
 		b.Fatal(err)
 	}
 	defer cv.Shutdown(context.Background())
-	
+
 	event := events.NewRunStartedEvent("thread-123", "run-456")
 	ctx := context.Background()
-	
+
 	// Warm up cache
 	cv.ValidateEvent(ctx, event)
-	
+
 	b.ResetTimer()
 	b.RunParallel(func(pb *testing.PB) {
 		for pb.Next() {
@@ -589,9 +589,9 @@ func BenchmarkCacheKeyGeneration(b *testing.B) {
 		b.Fatal(err)
 	}
 	defer cv.Shutdown(context.Background())
-	
+
 	event := events.NewRunStartedEvent("thread-123", "run-456")
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		cv.generateCacheKey(event)

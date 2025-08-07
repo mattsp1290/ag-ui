@@ -19,13 +19,13 @@ type VersionManager struct {
 
 // VersionConstraint defines version constraints for a package
 type VersionConstraint struct {
-	PackageID         string
-	MinVersion        string
-	MaxVersion        string
-	ExcludedVersions  []string
-	PreReleasePolicy  PreReleasePolicy
-	BreakingChanges   []BreakingChange
-	CompatibilityMap  map[string][]string // version -> compatible versions
+	PackageID        string
+	MinVersion       string
+	MaxVersion       string
+	ExcludedVersions []string
+	PreReleasePolicy PreReleasePolicy
+	BreakingChanges  []BreakingChange
+	CompatibilityMap map[string][]string // version -> compatible versions
 }
 
 // PreReleasePolicy defines how pre-release versions are handled
@@ -50,8 +50,8 @@ type BreakingChange struct {
 type ChangeSeverity string
 
 const (
-	SeverityMinor           ChangeSeverity = "minor"
-	SeverityMajor           ChangeSeverity = "major"
+	SeverityMinor            ChangeSeverity = "minor"
+	SeverityMajor            ChangeSeverity = "major"
 	SeverityBreakingCritical ChangeSeverity = "critical"
 )
 
@@ -120,12 +120,12 @@ type Changelog struct {
 
 // CompatibilityInfo contains compatibility information
 type CompatibilityInfo struct {
-	BackwardCompatible  bool
-	ForwardCompatible   bool
-	APIChanges          []APIChange
-	SchemaChanges       []SchemaChange
-	BehaviorChanges     []BehaviorChange
-	PerformanceImpact   *PerformanceImpact
+	BackwardCompatible bool
+	ForwardCompatible  bool
+	APIChanges         []APIChange
+	SchemaChanges      []SchemaChange
+	BehaviorChanges    []BehaviorChange
+	PerformanceImpact  *PerformanceImpact
 }
 
 // APIChange represents an API change
@@ -157,11 +157,11 @@ type BehaviorChange struct {
 
 // PerformanceImpact represents performance impact information
 type PerformanceImpact struct {
-	CPUUsage    string // increased, decreased, unchanged
-	MemoryUsage string
-	DiskUsage   string
+	CPUUsage     string // increased, decreased, unchanged
+	MemoryUsage  string
+	DiskUsage    string
 	NetworkUsage string
-	Notes       string
+	Notes        string
 }
 
 // NewVersionManager creates a new version manager
@@ -321,7 +321,7 @@ func (vm *VersionManager) GetCompatibleVersions(packageID, version string) ([]st
 func (vm *VersionManager) SetVersionConstraint(constraint *VersionConstraint) {
 	vm.mu.Lock()
 	defer vm.mu.Unlock()
-	
+
 	vm.constraints[constraint.PackageID] = constraint
 }
 
@@ -333,10 +333,10 @@ func (vm *VersionManager) GetVersionInfo(packageID, version string) (*VersionInf
 	}
 
 	return &VersionInfo{
-		Version:     version,
-		Package:     pkg,
-		ReleaseDate: pkg.PublishedAt,
-		Dependencies: pkg.Dependencies,
+		Version:       version,
+		Package:       pkg,
+		ReleaseDate:   pkg.PublishedAt,
+		Dependencies:  pkg.Dependencies,
 		Compatibility: vm.getCompatibilityInfo(pkg),
 	}, nil
 }
@@ -345,7 +345,7 @@ func (vm *VersionManager) GetVersionInfo(packageID, version string) (*VersionInf
 func (vm *VersionManager) validateVersionFormat(version string) error {
 	// Support semantic versioning (semver)
 	semverRegex := regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z0-9\-\.]+))?(?:\+([a-zA-Z0-9\-\.]+))?$`)
-	
+
 	if !semverRegex.MatchString(version) {
 		return fmt.Errorf("version must follow semantic versioning format (x.y.z)")
 	}
@@ -357,7 +357,7 @@ func (vm *VersionManager) validateVersionFormat(version string) error {
 func (vm *VersionManager) parseSemanticVersion(version string) (*SemanticVersion, error) {
 	semverRegex := regexp.MustCompile(`^(\d+)\.(\d+)\.(\d+)(?:-([a-zA-Z0-9\-\.]+))?(?:\+([a-zA-Z0-9\-\.]+))?$`)
 	matches := semverRegex.FindStringSubmatch(version)
-	
+
 	if len(matches) < 4 {
 		return nil, fmt.Errorf("invalid semantic version format")
 	}

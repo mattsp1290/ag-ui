@@ -11,9 +11,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/hashicorp/golang-lru/v2"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 	eventerrors "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events/errors"
-	"github.com/hashicorp/golang-lru/v2"
 )
 
 // CacheLevel represents the cache hierarchy level
@@ -73,84 +73,84 @@ type InvalidationStrategy interface {
 // CacheValidator provides multi-level caching for validation results
 type CacheValidator struct {
 	// L1 Cache (in-memory)
-	l1Cache       *lru.Cache[string, *ValidationCacheEntry]
-	l1Size        int
-	l1TTL         time.Duration
-	
+	l1Cache *lru.Cache[string, *ValidationCacheEntry]
+	l1Size  int
+	l1TTL   time.Duration
+
 	// L2 Cache (distributed)
-	l2Cache       DistributedCache
-	l2TTL         time.Duration
-	l2Enabled     bool
-	
+	l2Cache   DistributedCache
+	l2TTL     time.Duration
+	l2Enabled bool
+
 	// Validation
-	validator     *events.Validator
-	
+	validator *events.Validator
+
 	// Compression
 	compressionEnabled bool
 	compressionLevel   int
-	
+
 	// Invalidation
 	invalidationStrategies []InvalidationStrategy
-	
+
 	// Coordination
-	coordinator   *CacheCoordinator
-	nodeID        string
-	
+	coordinator *CacheCoordinator
+	nodeID      string
+
 	// Metrics
-	stats         CacheStats
+	stats          CacheStats
 	metricsEnabled bool
-	
+
 	// Error handling
 	logger      eventerrors.Logger
 	retryPolicy *eventerrors.RetryPolicy
-	
+
 	// Size limits and cleanup
 	maxL1CacheSize   int
 	maxL2CacheSize   int
 	cleanupInterval  time.Duration
 	cleanupThreshold float64
-	
+
 	// Synchronization
-	mu            sync.RWMutex
-	shutdownCh    chan struct{}
-	wg            sync.WaitGroup
+	mu         sync.RWMutex
+	shutdownCh chan struct{}
+	wg         sync.WaitGroup
 }
 
 // CacheValidatorConfig contains configuration for the cache validator
 type CacheValidatorConfig struct {
 	// L1 Cache settings
-	L1Size        int
-	L1TTL         time.Duration
-	
+	L1Size int
+	L1TTL  time.Duration
+
 	// L2 Cache settings
-	L2Cache       DistributedCache
-	L2TTL         time.Duration
-	L2Enabled     bool
-	
+	L2Cache   DistributedCache
+	L2TTL     time.Duration
+	L2Enabled bool
+
 	// Size limits and cleanup settings
-	MaxL1CacheSize    int           // Maximum L1 cache size before cleanup
-	MaxL2CacheSize    int           // Maximum L2 cache size before cleanup
-	CleanupInterval   time.Duration // How often to run cleanup
-	CleanupThreshold  float64       // Cache utilization threshold to trigger cleanup (0.0-1.0)
-	
+	MaxL1CacheSize   int           // Maximum L1 cache size before cleanup
+	MaxL2CacheSize   int           // Maximum L2 cache size before cleanup
+	CleanupInterval  time.Duration // How often to run cleanup
+	CleanupThreshold float64       // Cache utilization threshold to trigger cleanup (0.0-1.0)
+
 	// Validation settings
-	Validator     *events.Validator
-	
+	Validator *events.Validator
+
 	// Compression settings
 	CompressionEnabled bool
 	CompressionLevel   int
-	
+
 	// Invalidation strategies
 	InvalidationStrategies []InvalidationStrategy
-	
+
 	// Coordination settings
-	NodeID        string
-	Coordinator   *CacheCoordinator
-	
+	NodeID      string
+	Coordinator *CacheCoordinator
+
 	// Error handling settings
 	Logger      interface{} // Simplified for refactoring demo
 	RetryPolicy interface{} // Simplified for refactoring demo
-	
+
 	// Metrics
 	MetricsEnabled bool
 }
@@ -162,10 +162,10 @@ func DefaultCacheValidatorConfig() *CacheValidatorConfig {
 		L1TTL:              5 * time.Minute,
 		L2TTL:              30 * time.Minute,
 		L2Enabled:          false,
-		MaxL1CacheSize:     15000,                // 50% larger than L1Size for headroom
-		MaxL2CacheSize:     100000,               // Reasonable L2 limit
-		CleanupInterval:    2 * time.Minute,      // Regular cleanup
-		CleanupThreshold:   0.8,                  // Cleanup when 80% full
+		MaxL1CacheSize:     15000,           // 50% larger than L1Size for headroom
+		MaxL2CacheSize:     100000,          // Reasonable L2 limit
+		CleanupInterval:    2 * time.Minute, // Regular cleanup
+		CleanupThreshold:   0.8,             // Cleanup when 80% full
 		CompressionEnabled: true,
 		CompressionLevel:   6,
 		Validator:          events.NewValidator(events.DefaultValidationConfig()),
@@ -180,15 +180,15 @@ func NewCacheValidator(config *CacheValidatorConfig) (*CacheValidator, error) {
 	if config == nil {
 		config = DefaultCacheValidatorConfig()
 	}
-	
+
 	// We'll create the L1 cache with eviction callback after creating the validator
-	
+
 	// Initialize with safe defaults
 	invalidationStrategies := config.InvalidationStrategies
 	if invalidationStrategies == nil {
 		invalidationStrategies = []InvalidationStrategy{}
 	}
-	
+
 	// Set default logger if not provided
 	var logger eventerrors.Logger
 	if config.Logger != nil {
@@ -200,8 +200,8 @@ func NewCacheValidator(config *CacheValidatorConfig) (*CacheValidator, error) {
 	} else {
 		logger = eventerrors.NewDefaultLogger("cache")
 	}
-	
-	// Set default retry policy if not provided  
+
+	// Set default retry policy if not provided
 	var retryPolicy *eventerrors.RetryPolicy
 	if config.RetryPolicy != nil {
 		if rp, ok := config.RetryPolicy.(*eventerrors.RetryPolicy); ok {
@@ -218,7 +218,7 @@ func NewCacheValidator(config *CacheValidatorConfig) (*CacheValidator, error) {
 	if cleanupInterval <= 0 {
 		cleanupInterval = 2 * time.Minute // Safe default
 	}
-	
+
 	// Set default threshold if zero
 	cleanupThreshold := config.CleanupThreshold
 	if cleanupThreshold <= 0 {
@@ -246,7 +246,7 @@ func NewCacheValidator(config *CacheValidatorConfig) (*CacheValidator, error) {
 		cleanupThreshold:       cleanupThreshold,
 		shutdownCh:             make(chan struct{}),
 	}
-	
+
 	// Now create the real L1 cache with eviction callback
 	l1CacheWithEvict, err := lru.NewWithEvict[string, *ValidationCacheEntry](config.L1Size, func(key string, value *ValidationCacheEntry) {
 		// Track evictions when LRU automatically removes entries
@@ -256,13 +256,13 @@ func NewCacheValidator(config *CacheValidatorConfig) (*CacheValidator, error) {
 		return nil, fmt.Errorf("failed to create L1 cache with eviction: %w", err)
 	}
 	cv.l1Cache = l1CacheWithEvict
-	
+
 	// Start background workers
 	cv.wg.Add(3)
 	go cv.expirationWorker()
 	go cv.metricsWorker()
 	go cv.sizeCleanupWorker()
-	
+
 	return cv, nil
 }
 
@@ -271,20 +271,20 @@ func (cv *CacheValidator) ValidateEvent(ctx context.Context, event events.Event)
 	if event == nil {
 		return fmt.Errorf("event cannot be nil")
 	}
-	
+
 	// Generate cache key
 	key, err := cv.generateCacheKey(event)
 	if err != nil {
 		// Fallback to direct validation
 		return cv.validator.ValidateEvent(ctx, event)
 	}
-	
+
 	// Check L1 cache
 	if entry, ok := cv.getFromL1(key); ok {
 		cv.recordHit(L1Cache)
 		return cv.toValidationError(entry)
 	}
-	
+
 	// Check L2 cache if enabled
 	if cv.l2Enabled {
 		if entry, ok := cv.getFromL2(ctx, key); ok {
@@ -296,20 +296,20 @@ func (cv *CacheValidator) ValidateEvent(ctx context.Context, event events.Event)
 			atomic.AddUint64(&cv.stats.L2Misses, 1)
 		}
 	}
-	
+
 	// Cache miss - perform validation
 	cv.recordMiss()
 	startTime := time.Now()
-	
+
 	err = cv.validator.ValidateEvent(ctx, event)
-	
+
 	validationTime := time.Since(startTime)
-	
+
 	// Create cache entry with proper metadata initialization
 	metadata := make(map[string]interface{})
 	metadata["validation_time"] = validationTime
 	metadata["event_size"] = cv.estimateEventSize(event)
-	
+
 	entry := &ValidationCacheEntry{
 		Key:            *key,
 		Valid:          err == nil,
@@ -320,10 +320,10 @@ func (cv *CacheValidator) ValidateEvent(ctx context.Context, event events.Event)
 		LastAccessedAt: time.Now(),
 		Metadata:       metadata,
 	}
-	
+
 	// Store in caches
 	cv.storeInCaches(ctx, key, entry)
-	
+
 	return err
 }
 
@@ -332,7 +332,7 @@ func (cv *CacheValidator) ValidateSequence(ctx context.Context, events []events.
 	if len(events) == 0 {
 		return nil
 	}
-	
+
 	// For sequences, we validate individual events with caching
 	// but sequence validation itself is not cached
 	for i, event := range events {
@@ -340,7 +340,7 @@ func (cv *CacheValidator) ValidateSequence(ctx context.Context, events []events.
 			return fmt.Errorf("event %d validation failed: %w", i, err)
 		}
 	}
-	
+
 	// Perform sequence-specific validation without caching
 	return cv.validator.ValidateSequence(ctx, events)
 }
@@ -351,12 +351,12 @@ func (cv *CacheValidator) InvalidateEvent(ctx context.Context, event events.Even
 	if err != nil {
 		return fmt.Errorf("failed to generate cache key: %w", err)
 	}
-	
+
 	err = cv.invalidateKey(ctx, key)
 	if err != nil {
 		return err
 	}
-	
+
 	// Broadcast invalidation if coordinator is available
 	if cv.coordinator != nil {
 		cv.coordinator.BroadcastInvalidation(ctx, InvalidationMessage{
@@ -366,7 +366,7 @@ func (cv *CacheValidator) InvalidateEvent(ctx context.Context, event events.Even
 			Timestamp: time.Now(),
 		})
 	}
-	
+
 	return nil
 }
 
@@ -374,17 +374,17 @@ func (cv *CacheValidator) InvalidateEvent(ctx context.Context, event events.Even
 func (cv *CacheValidator) InvalidateByKeys(ctx context.Context, keys []string) error {
 	cv.mu.Lock()
 	defer cv.mu.Unlock()
-	
+
 	for _, keyStr := range keys {
 		// Remove from L1 cache
 		cv.l1Cache.Remove(keyStr)
-		
+
 		// Remove from L2 cache if enabled
 		if cv.l2Enabled {
 			cv.l2Cache.Delete(ctx, keyStr)
 		}
 	}
-	
+
 	// Don't increment evictions here - the LRU eviction callback already does it
 	// atomic.AddUint64(&cv.stats.Evictions, uint64(len(keys)))
 	return nil
@@ -395,7 +395,7 @@ func (cv *CacheValidator) InvalidateEventType(ctx context.Context, eventType str
 	// This method is called by the coordinator, so we should not broadcast
 	cv.mu.Lock()
 	defer cv.mu.Unlock()
-	
+
 	// Invalidate L1 entries
 	keys := cv.l1Cache.Keys()
 	for _, key := range keys {
@@ -405,7 +405,7 @@ func (cv *CacheValidator) InvalidateEventType(ctx context.Context, eventType str
 			}
 		}
 	}
-	
+
 	// Invalidate L2 entries if enabled
 	if cv.l2Enabled {
 		pattern := fmt.Sprintf("validation:%s:*", eventType)
@@ -413,33 +413,33 @@ func (cv *CacheValidator) InvalidateEventType(ctx context.Context, eventType str
 		if err != nil {
 			return fmt.Errorf("failed to scan L2 cache: %w", err)
 		}
-		
+
 		for _, key := range keys {
 			if err := cv.l2Cache.Delete(ctx, key); err != nil {
 				// Log the L2 cache deletion error with structured logging
-				cacheErr := eventerrors.NewCacheError(eventerrors.CacheErrorEvictionFailed, 
+				cacheErr := eventerrors.NewCacheError(eventerrors.CacheErrorEvictionFailed,
 					"Failed to delete key from L2 cache during event type invalidation").
 					WithLevel("L2").
 					WithKey(key).
 					WithOperation("delete").
 					WithCause(err)
-				
+
 				cv.logger.Warn(fmt.Sprintf("L2 cache deletion failed: %v", cacheErr))
-				
+
 				// Continue with other keys even if one fails
 				continue
 			}
 		}
 	}
-	
+
 	// Don't increment evictions here - the LRU eviction callback already does it
 	// atomic.AddUint64(&cv.stats.Evictions, uint64(invalidatedCount))
-	
+
 	// Notify invalidation strategies
 	for _, strategy := range cv.invalidationStrategies {
 		strategy.OnInvalidate(ValidationCacheKey{EventType: events.EventType(eventType)})
 	}
-	
+
 	// NOTE: We don't broadcast here because this method is called by the coordinator
 	return nil
 }
@@ -448,7 +448,7 @@ func (cv *CacheValidator) InvalidateEventType(ctx context.Context, eventType str
 func (cv *CacheValidator) InvalidateEventTypeInternal(ctx context.Context, eventType events.EventType) error {
 	cv.mu.Lock()
 	defer cv.mu.Unlock()
-	
+
 	// Invalidate L1 entries
 	keys := cv.l1Cache.Keys()
 	for _, key := range keys {
@@ -460,7 +460,7 @@ func (cv *CacheValidator) InvalidateEventTypeInternal(ctx context.Context, event
 			}
 		}
 	}
-	
+
 	// Invalidate L2 entries if enabled
 	if cv.l2Enabled {
 		pattern := fmt.Sprintf("validation:%s:*", eventType)
@@ -468,30 +468,30 @@ func (cv *CacheValidator) InvalidateEventTypeInternal(ctx context.Context, event
 		if err != nil {
 			return fmt.Errorf("failed to scan L2 cache: %w", err)
 		}
-		
+
 		for _, key := range keys {
 			if err := cv.l2Cache.Delete(ctx, key); err != nil {
 				// Log the L2 cache deletion error with structured logging
-				cacheErr := eventerrors.NewCacheError(eventerrors.CacheErrorEvictionFailed, 
+				cacheErr := eventerrors.NewCacheError(eventerrors.CacheErrorEvictionFailed,
 					"Failed to delete key from L2 cache during internal event type invalidation").
 					WithLevel("L2").
 					WithKey(key).
 					WithOperation("delete").
 					WithCause(err)
-				
+
 				cv.logger.Warn(fmt.Sprintf("L2 cache deletion failed: %v", cacheErr))
-				
+
 				// Continue with other keys even if one fails
 				continue
 			}
 		}
 	}
-	
+
 	// Notify invalidation strategies
 	for _, strategy := range cv.invalidationStrategies {
 		strategy.OnInvalidate(ValidationCacheKey{EventType: eventType})
 	}
-	
+
 	// Broadcast invalidation if coordinator is available
 	if cv.coordinator != nil {
 		cv.coordinator.BroadcastInvalidation(ctx, InvalidationMessage{
@@ -500,7 +500,7 @@ func (cv *CacheValidator) InvalidateEventTypeInternal(ctx context.Context, event
 			Timestamp: time.Now(),
 		})
 	}
-	
+
 	return nil
 }
 
@@ -522,30 +522,30 @@ func (cv *CacheValidator) Warmup(ctx context.Context, events []events.Event) err
 func (cv *CacheValidator) GetStats() CacheStats {
 	cv.mu.RLock()
 	defer cv.mu.RUnlock()
-	
+
 	stats := cv.stats
 	stats.TotalHits = stats.L1Hits + stats.L2Hits
 	stats.TotalMisses = stats.L1Misses + stats.L2Misses
-	
+
 	if stats.TotalHits > 0 {
-		hitRate := float64(stats.TotalHits) / float64(stats.TotalHits + stats.TotalMisses)
+		hitRate := float64(stats.TotalHits) / float64(stats.TotalHits+stats.TotalMisses)
 		stats.CompressionRate = hitRate
 	}
-	
+
 	return stats
 }
 
 // Shutdown gracefully shuts down the cache validator
 func (cv *CacheValidator) Shutdown(ctx context.Context) error {
 	close(cv.shutdownCh)
-	
+
 	// Wait for workers to finish
 	done := make(chan struct{})
 	go func() {
 		cv.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		return nil
@@ -562,23 +562,23 @@ func (cv *CacheValidator) generateCacheKey(event events.Event) (*ValidationCache
 	if err != nil {
 		return nil, fmt.Errorf("failed to normalize event for cache: %w", err)
 	}
-	
+
 	// Serialize normalized event for hashing
 	data, err := json.Marshal(normalizedEvent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal normalized event: %w", err)
 	}
-	
+
 	// Generate hash
 	hash := sha256.Sum256(data)
-	
+
 	// Get validator config hash
 	configData, err := json.Marshal(cv.validator)
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal validator config: %w", err)
 	}
 	configHash := sha256.Sum256(configData)
-	
+
 	return &ValidationCacheKey{
 		EventType:   event.Type(),
 		EventHash:   hex.EncodeToString(hash[:]),
@@ -589,14 +589,14 @@ func (cv *CacheValidator) generateCacheKey(event events.Event) (*ValidationCache
 
 func (cv *CacheValidator) getFromL1(key *ValidationCacheKey) (*ValidationCacheEntry, bool) {
 	cv.mu.RLock()
-	
+
 	keyStr := cv.cacheKeyToString(key)
 	entry, ok := cv.l1Cache.Get(keyStr)
 	if !ok {
 		cv.mu.RUnlock()
 		return nil, false
 	}
-	
+
 	// Check expiration
 	now := time.Now()
 	if now.After(entry.ExpiresAt) {
@@ -612,30 +612,30 @@ func (cv *CacheValidator) getFromL1(key *ValidationCacheKey) (*ValidationCacheEn
 		cv.mu.Unlock()
 		return nil, false
 	}
-	
+
 	// Upgrade to write lock to safely update time fields
 	cv.mu.RUnlock()
 	cv.mu.Lock()
 	defer cv.mu.Unlock()
-	
+
 	// Double-check entry still exists after lock upgrade
 	entry, ok = cv.l1Cache.Get(keyStr)
 	if !ok {
 		return nil, false
 	}
-	
+
 	// Check expiration again after re-acquiring the entry
 	if now.After(entry.ExpiresAt) {
 		cv.l1Cache.Remove(keyStr)
 		atomic.AddUint64(&cv.stats.Expirations, 1)
 		return nil, false
 	}
-	
+
 	// Update access stats and refresh TTL
 	atomic.AddUint64(&entry.AccessCount, 1)
 	entry.LastAccessedAt = now
 	entry.ExpiresAt = now.Add(cv.l1TTL) // Refresh TTL on access
-	
+
 	return entry, true
 }
 
@@ -643,7 +643,7 @@ func (cv *CacheValidator) getFromL2(ctx context.Context, key *ValidationCacheKey
 	if !cv.l2Enabled {
 		return nil, false
 	}
-	
+
 	keyStr := cv.cacheKeyToString(key)
 	data, err := cv.l2Cache.Get(ctx, keyStr)
 	if err != nil {
@@ -652,10 +652,10 @@ func (cv *CacheValidator) getFromL2(ctx context.Context, key *ValidationCacheKey
 			// Cache miss is normal, no need to log
 			return nil, false
 		}
-		
+
 		// Log other L2 cache errors (connection issues, etc.) but don't fail the operation
 		{
-			getErr := eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed, 
+			getErr := eventerrors.NewCacheError(eventerrors.CacheErrorConnectionFailed,
 				"Failed to retrieve entry from L2 cache due to connection error").
 				WithLevel("L2").
 				WithKey(keyStr).
@@ -665,14 +665,14 @@ func (cv *CacheValidator) getFromL2(ctx context.Context, key *ValidationCacheKey
 		}
 		return nil, false
 	}
-	
+
 	// Decompress if needed
 	if cv.compressionEnabled {
 		data, err = cv.decompress(data)
 		if err != nil {
 			// Log decompression error
 			{
-				decompErr := eventerrors.NewCacheError(eventerrors.CacheErrorCompressionFailed, 
+				decompErr := eventerrors.NewCacheError(eventerrors.CacheErrorCompressionFailed,
 					"Failed to decompress entry from L2 cache").
 					WithLevel("L2").
 					WithKey(keyStr).
@@ -683,13 +683,13 @@ func (cv *CacheValidator) getFromL2(ctx context.Context, key *ValidationCacheKey
 			return nil, false
 		}
 	}
-	
+
 	// Deserialize
 	var entry ValidationCacheEntry
 	if err := json.Unmarshal(data, &entry); err != nil {
 		// Log deserialization error
 		{
-			deserErr := eventerrors.NewCacheError(eventerrors.CacheErrorSerializationFailed, 
+			deserErr := eventerrors.NewCacheError(eventerrors.CacheErrorSerializationFailed,
 				"Failed to deserialize entry from L2 cache").
 				WithLevel("L2").
 				WithKey(keyStr).
@@ -699,14 +699,14 @@ func (cv *CacheValidator) getFromL2(ctx context.Context, key *ValidationCacheKey
 		}
 		return nil, false
 	}
-	
+
 	// Check expiration
 	if time.Now().After(entry.ExpiresAt) {
 		// Clean up expired entry
 		if delErr := cv.l2Cache.Delete(ctx, keyStr); delErr != nil {
 			// Log deletion error but don't fail
 			{
-				delCacheErr := eventerrors.NewCacheError(eventerrors.CacheErrorEvictionFailed, 
+				delCacheErr := eventerrors.NewCacheError(eventerrors.CacheErrorEvictionFailed,
 					"Failed to delete expired entry from L2 cache").
 					WithLevel("L2").
 					WithKey(keyStr).
@@ -718,23 +718,23 @@ func (cv *CacheValidator) getFromL2(ctx context.Context, key *ValidationCacheKey
 		atomic.AddUint64(&cv.stats.Expirations, 1)
 		return nil, false
 	}
-	
+
 	return &entry, true
 }
 
 func (cv *CacheValidator) storeInCaches(ctx context.Context, key *ValidationCacheKey, entry *ValidationCacheEntry) {
 	keyStr := cv.cacheKeyToString(key)
-	
+
 	// Check L1 cache size before storing and cleanup if necessary
 	if cv.shouldCleanupL1Cache() {
 		cv.cleanupL1CacheSize()
 	}
-	
+
 	// Store in L1
 	cv.mu.Lock()
 	cv.l1Cache.Add(keyStr, entry)
 	cv.mu.Unlock()
-	
+
 	// Store in L2 if enabled
 	if cv.l2Enabled {
 		// Store synchronously in tests to avoid timing issues
@@ -744,7 +744,7 @@ func (cv *CacheValidator) storeInCaches(ctx context.Context, key *ValidationCach
 			go cv.storeInL2(ctx, keyStr, entry)
 		}
 	}
-	
+
 	// Notify coordinator if available
 	if cv.coordinator != nil {
 		cv.coordinator.NotifyCacheUpdate(ctx, CacheUpdateMessage{
@@ -763,29 +763,29 @@ func (cv *CacheValidator) storeInL2(ctx context.Context, key string, entry *Vali
 		data, err := json.Marshal(entry)
 		if err != nil {
 			// Create structured error for serialization failure
-			serErr := eventerrors.NewCacheError(eventerrors.CacheErrorSerializationFailed, 
+			serErr := eventerrors.NewCacheError(eventerrors.CacheErrorSerializationFailed,
 				"Failed to serialize cache entry for L2 storage").
 				WithLevel("L2").
 				WithKey(key).
 				WithOperation("serialize").
 				WithCause(err)
-			
+
 			{
 				cv.logger.Error(fmt.Sprintf("Cache serialization failed: %v", serErr))
 			}
 			return serErr
 		}
-		
+
 		// Compress if enabled
 		if cv.compressionEnabled {
 			compressed, ratio := cv.compress(data)
 			if compressed == nil {
-				compErr := eventerrors.NewCacheError(eventerrors.CacheErrorCompressionFailed, 
+				compErr := eventerrors.NewCacheError(eventerrors.CacheErrorCompressionFailed,
 					"Failed to compress cache entry for L2 storage").
 					WithLevel("L2").
 					WithKey(key).
 					WithOperation("compress")
-				
+
 				{
 					cv.logger.Error(fmt.Sprintf("Cache compression failed: %v", compErr))
 				}
@@ -794,7 +794,7 @@ func (cv *CacheValidator) storeInL2(ctx context.Context, key string, entry *Vali
 			data = compressed
 			entry.CompressionRatio = ratio
 		}
-		
+
 		// Store with TTL
 		if err := cv.l2Cache.Set(ctx, key, data, cv.l2TTL); err != nil {
 			// Determine the appropriate error type based on the original error
@@ -802,25 +802,25 @@ func (cv *CacheValidator) storeInL2(ctx context.Context, key string, entry *Vali
 			if eventerrors.HasErrorCode(err, eventerrors.CacheErrorTimeout) {
 				errorCode = eventerrors.CacheErrorTimeout
 			}
-			
+
 			// Create structured error for L2 cache set failure
-			setErr := eventerrors.NewCacheError(errorCode, 
+			setErr := eventerrors.NewCacheError(errorCode,
 				"Failed to store entry in L2 cache").
 				WithLevel("L2").
 				WithKey(key).
 				WithOperation("set").
 				WithSize(int64(len(data))).
 				WithCause(err)
-			
+
 			{
 				cv.logger.Error(fmt.Sprintf("L2 cache set failed: %v", setErr))
 			}
 			return setErr
 		}
-		
+
 		return nil
 	}, cv.logger)
-	
+
 	// If all retries failed, log the final error but don't crash the system
 	if err != nil {
 		{
@@ -838,29 +838,29 @@ func (cv *CacheValidator) promoteToL1(key *ValidationCacheKey, entry *Validation
 
 func (cv *CacheValidator) invalidateKey(ctx context.Context, key *ValidationCacheKey) error {
 	keyStr := cv.cacheKeyToString(key)
-	
+
 	// Remove from L1
 	cv.mu.Lock()
 	cv.l1Cache.Remove(keyStr)
 	cv.mu.Unlock()
-	
+
 	// Remove from L2 if enabled with retry mechanism
 	if cv.l2Enabled {
 		err := eventerrors.RetryWithLogging(ctx, cv.retryPolicy, func(ctx context.Context, attempt int) error {
 			if err := cv.l2Cache.Delete(ctx, keyStr); err != nil {
 				// Create structured error for L2 cache deletion failure
-				delErr := eventerrors.NewCacheError(eventerrors.CacheErrorEvictionFailed, 
+				delErr := eventerrors.NewCacheError(eventerrors.CacheErrorEvictionFailed,
 					"Failed to delete key from L2 cache during invalidation").
 					WithLevel("L2").
 					WithKey(keyStr).
 					WithOperation("delete").
 					WithCause(err)
-				
+
 				return delErr
 			}
 			return nil
 		}, cv.logger)
-		
+
 		if err != nil {
 			// Log final error but don't fail the invalidation completely
 			{
@@ -870,15 +870,15 @@ func (cv *CacheValidator) invalidateKey(ctx context.Context, key *ValidationCach
 			return fmt.Errorf("failed to delete from L2 cache: %w", err)
 		}
 	}
-	
+
 	// Notify invalidation strategies
 	for _, strategy := range cv.invalidationStrategies {
 		strategy.OnInvalidate(*key)
 	}
-	
+
 	// Don't increment evictions here - the LRU eviction callback already does it
 	// atomic.AddUint64(&cv.stats.Evictions, 1)
-	
+
 	return nil
 }
 
@@ -890,7 +890,7 @@ func (cv *CacheValidator) cacheKeyToString(key *ValidationCacheKey) string {
 	builder.WriteString(string(key.EventType))
 	builder.WriteByte(':')
 	builder.WriteString(key.EventHash[:8])
-	builder.WriteByte(':') 
+	builder.WriteByte(':')
 	builder.WriteString(key.ConfigHash[:8])
 	builder.WriteByte(':')
 	builder.WriteString(key.ValidatorID)
@@ -901,19 +901,19 @@ func (cv *CacheValidator) toValidationError(entry *ValidationCacheEntry) error {
 	if entry == nil {
 		return fmt.Errorf("nil cache entry")
 	}
-	
+
 	if entry.Valid {
 		return nil
 	}
-	
+
 	if len(entry.Errors) == 0 {
 		return fmt.Errorf("validation failed")
 	}
-	
+
 	if len(entry.Errors) == 1 {
 		return entry.Errors[0]
 	}
-	
+
 	// Combine multiple errors
 	errStr := "validation failed with multiple errors:"
 	for _, err := range entry.Errors {
@@ -928,7 +928,7 @@ func (cv *CacheValidator) extractErrors(err error) []error {
 	if err == nil {
 		return nil
 	}
-	
+
 	// Error extraction logic will be implemented when error chain patterns are finalized
 	return []error{err}
 }
@@ -937,7 +937,7 @@ func (cv *CacheValidator) recordHit(level CacheLevel) {
 	if !cv.metricsEnabled {
 		return
 	}
-	
+
 	switch level {
 	case L1Cache:
 		atomic.AddUint64(&cv.stats.L1Hits, 1)
@@ -950,7 +950,7 @@ func (cv *CacheValidator) recordMiss() {
 	if !cv.metricsEnabled {
 		return
 	}
-	
+
 	atomic.AddUint64(&cv.stats.L1Misses, 1)
 }
 
@@ -977,10 +977,10 @@ func (cv *CacheValidator) decompress(data []byte) ([]byte, error) {
 
 func (cv *CacheValidator) expirationWorker() {
 	defer cv.wg.Done()
-	
+
 	ticker := time.NewTicker(time.Minute)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-cv.shutdownCh:
@@ -993,14 +993,14 @@ func (cv *CacheValidator) expirationWorker() {
 
 func (cv *CacheValidator) metricsWorker() {
 	defer cv.wg.Done()
-	
+
 	if !cv.metricsEnabled {
 		return
 	}
-	
+
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-cv.shutdownCh:
@@ -1014,10 +1014,10 @@ func (cv *CacheValidator) metricsWorker() {
 func (cv *CacheValidator) cleanupExpired() {
 	cv.mu.Lock()
 	defer cv.mu.Unlock()
-	
+
 	now := time.Now()
 	keys := cv.l1Cache.Keys()
-	
+
 	for _, key := range keys {
 		if entry, ok := cv.l1Cache.Peek(key); ok && entry != nil {
 			if now.After(entry.ExpiresAt) {
@@ -1043,10 +1043,10 @@ func (cv *CacheValidator) updateMetrics() {
 // sizeCleanupWorker performs periodic cleanup based on cache size limits
 func (cv *CacheValidator) sizeCleanupWorker() {
 	defer cv.wg.Done()
-	
+
 	ticker := time.NewTicker(cv.cleanupInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-cv.shutdownCh:
@@ -1062,7 +1062,7 @@ func (cv *CacheValidator) shouldCleanupL1Cache() bool {
 	cv.mu.RLock()
 	currentSize := cv.l1Cache.Len()
 	cv.mu.RUnlock()
-	
+
 	// Check if we're over the threshold
 	threshold := int(float64(cv.maxL1CacheSize) * cv.cleanupThreshold)
 	return currentSize >= threshold
@@ -1072,29 +1072,29 @@ func (cv *CacheValidator) shouldCleanupL1Cache() bool {
 func (cv *CacheValidator) cleanupL1CacheSize() {
 	cv.mu.Lock()
 	defer cv.mu.Unlock()
-	
+
 	currentSize := cv.l1Cache.Len()
 	if currentSize <= cv.maxL1CacheSize {
 		return
 	}
-	
+
 	// Remove oldest entries until we're back under the limit
 	targetSize := int(float64(cv.maxL1CacheSize) * 0.7) // Remove to 70% of max
 	removedCount := 0
-	
+
 	for currentSize > targetSize {
 		keys := cv.l1Cache.Keys()
 		if len(keys) == 0 {
 			break
 		}
-		
+
 		// Remove oldest entries (LRU cache keys are ordered by usage)
 		if cv.l1Cache.Remove(keys[0]) {
 			removedCount++
 			currentSize--
 		}
 	}
-	
+
 	if removedCount > 0 {
 		atomic.AddUint64(&cv.stats.Evictions, uint64(removedCount))
 	}
@@ -1106,7 +1106,7 @@ func (cv *CacheValidator) performSizeCleanup() {
 	if cv.shouldCleanupL1Cache() {
 		cv.cleanupL1CacheSize()
 	}
-	
+
 	// Clean up L2 cache if enabled (basic scan-based cleanup)
 	if cv.l2Enabled {
 		cv.cleanupL2CacheSize()
@@ -1121,20 +1121,20 @@ func (cv *CacheValidator) normalizeEventForCache(event events.Event) (interface{
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal original event: %w", err)
 	}
-	
+
 	// Unmarshal to a generic map
 	var eventMap map[string]interface{}
 	if err := json.Unmarshal(originalData, &eventMap); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal event to map: %w", err)
 	}
-	
+
 	// Remove timestamp field that makes events unique
 	delete(eventMap, "timestamp")
-	
+
 	// Remove other non-semantic fields that shouldn't affect validation caching
 	// These are fields that don't impact the validation logic but make events unique
 	delete(eventMap, "rawEvent") // rawEvent can contain timing/system specific data
-	
+
 	return eventMap, nil
 }
 
@@ -1144,7 +1144,7 @@ func (cv *CacheValidator) cleanupL2CacheSize() {
 	// more sophisticated distributed cache size management
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	
+
 	// Scan for expired entries and remove them as a form of size management
 	pattern := "validation:*"
 	keys, err := cv.l2Cache.Scan(ctx, pattern)
@@ -1152,7 +1152,7 @@ func (cv *CacheValidator) cleanupL2CacheSize() {
 		cv.logger.Error(fmt.Sprintf("L2 cache scan failed during cleanup: %v", err))
 		return
 	}
-	
+
 	// If we have too many keys, remove oldest 20% by attempting deletion
 	// This is approximate since we can't easily determine age in distributed cache
 	if len(keys) > cv.maxL2CacheSize {

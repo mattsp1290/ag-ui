@@ -382,12 +382,12 @@ type MetricsMiddleware struct {
 	skipMap   map[string]bool
 
 	// Pre-created metrics
-	requestCount     *Counter
-	requestDuration  *Histogram
-	requestSize      *Histogram
-	responseSize     *Histogram
-	activeRequests   *Gauge
-	errorCount       *Counter
+	requestCount    *Counter
+	requestDuration *Histogram
+	requestSize     *Histogram
+	responseSize    *Histogram
+	activeRequests  *Gauge
+	errorCount      *Counter
 }
 
 // NewMetricsMiddleware creates a new metrics middleware

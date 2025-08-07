@@ -9,19 +9,19 @@ import (
 type ValidationProvider interface {
 	// ValidateEvent validates a single event
 	ValidateEvent(ctx context.Context, event interface{}) (*ValidationResult, error)
-	
+
 	// ValidateSequence validates a sequence of events
 	ValidateSequence(ctx context.Context, events []interface{}) (*ValidationResult, error)
-	
+
 	// GetName returns the provider name
 	GetName() string
-	
+
 	// GetVersion returns the provider version
 	GetVersion() string
-	
+
 	// IsHealthy returns the health status
 	IsHealthy() bool
-	
+
 	// GetMetrics returns provider metrics
 	GetMetrics() interface{}
 }
@@ -30,10 +30,10 @@ type ValidationProvider interface {
 type ConsensusCore interface {
 	// AggregateDecisions aggregates validation decisions
 	AggregateDecisions(decisions []*ValidationDecision) *ValidationResult
-	
+
 	// GetRequiredNodes returns the number of nodes required for consensus
 	GetRequiredNodes() int
-	
+
 	// GetAlgorithm returns the consensus algorithm name
 	GetAlgorithm() string
 }
@@ -42,7 +42,7 @@ type ConsensusCore interface {
 type DistributedLockManager interface {
 	// AcquireLock acquires a distributed lock
 	AcquireLock(ctx context.Context, lockID string, timeout time.Duration) error
-	
+
 	// ReleaseLock releases a distributed lock
 	ReleaseLock(ctx context.Context, lockID string) error
 }
@@ -51,10 +51,10 @@ type DistributedLockManager interface {
 type ConsensusLifecycle interface {
 	// Start starts the consensus provider
 	Start(ctx context.Context) error
-	
+
 	// Stop stops the consensus provider
 	Stop() error
-	
+
 	// IsHealthy returns the health status
 	IsHealthy() bool
 }
@@ -71,10 +71,10 @@ type ConsensusProvider interface {
 type StateSynchronizerInterface interface {
 	// SyncState synchronizes state across nodes
 	SyncState(ctx context.Context) error
-	
+
 	// GetSyncStatus returns the synchronization status
 	GetSyncStatus() SyncStatus
-	
+
 	// GetProtocol returns the synchronization protocol name
 	GetProtocol() string
 }
@@ -89,10 +89,10 @@ type StateChangeNotifier interface {
 type StateSyncLifecycle interface {
 	// Start starts the state synchronization provider
 	Start(ctx context.Context) error
-	
+
 	// Stop stops the state synchronization provider
 	Stop() error
-	
+
 	// IsHealthy returns the health status
 	IsHealthy() bool
 }
@@ -109,7 +109,7 @@ type StateSyncProvider interface {
 type NodeSelector interface {
 	// SelectNodes selects nodes for validation based on load balancing strategy
 	SelectNodes(availableNodes []NodeID, requiredCount int) []NodeID
-	
+
 	// GetStrategy returns the load balancing strategy
 	GetStrategy() string
 }
@@ -118,10 +118,10 @@ type NodeSelector interface {
 type NodeMetricsManager interface {
 	// UpdateNodeMetrics updates metrics for a node
 	UpdateNodeMetrics(nodeID NodeID, load float64, responseTime float64)
-	
+
 	// RemoveNode removes a node from load balancing
 	RemoveNode(nodeID NodeID)
-	
+
 	// GetNodeMetrics returns metrics for all nodes
 	GetNodeMetrics() map[NodeID]NodeMetrics
 }
@@ -144,22 +144,22 @@ type LoadBalancerProvider interface {
 type PartitionHandlerProvider interface {
 	// Start starts the partition handler
 	Start(ctx context.Context) error
-	
+
 	// Stop stops the partition handler
 	Stop() error
-	
+
 	// IsPartitioned returns whether the node is partitioned
 	IsPartitioned() bool
-	
+
 	// HandleNodeFailure handles node failure
 	HandleNodeFailure(nodeID NodeID)
-	
+
 	// GetPartitionStatus returns the partition status
 	GetPartitionStatus() PartitionStatus
-	
+
 	// RegisterPartitionCallback registers a callback for partition events
 	RegisterPartitionCallback(callback func(event PartitionEvent)) error
-	
+
 	// IsHealthy returns the health status
 	IsHealthy() bool
 }
@@ -168,25 +168,25 @@ type PartitionHandlerProvider interface {
 type MetricsProvider interface {
 	// RecordValidation records a validation operation
 	RecordValidation(duration time.Duration, success bool)
-	
+
 	// RecordTimeout records a validation timeout
 	RecordTimeout()
-	
+
 	// RecordBroadcastSuccess records a successful broadcast
 	RecordBroadcastSuccess(nodeID NodeID)
-	
+
 	// RecordBroadcastFailure records a failed broadcast
 	RecordBroadcastFailure(nodeID NodeID)
-	
+
 	// RecordHeartbeat records a heartbeat operation
 	RecordHeartbeat(nodeID NodeID, success bool)
-	
+
 	// GetMetrics returns collected metrics
 	GetMetrics() interface{}
-	
+
 	// GetName returns the provider name
 	GetName() string
-	
+
 	// IsHealthy returns the health status
 	IsHealthy() bool
 }
@@ -195,16 +195,16 @@ type MetricsProvider interface {
 type CircuitBreakerProvider interface {
 	// Execute executes a function with circuit breaker protection
 	Execute(fn func() error) error
-	
+
 	// GetState returns the current circuit breaker state
 	GetState() CircuitBreakerState
-	
+
 	// GetName returns the circuit breaker name
 	GetName() string
-	
+
 	// GetMetrics returns circuit breaker metrics
 	GetMetrics() CircuitBreakerMetrics
-	
+
 	// IsHealthy returns the health status
 	IsHealthy() bool
 }
@@ -213,19 +213,19 @@ type CircuitBreakerProvider interface {
 type GoroutineManagerProvider interface {
 	// Start starts the managed goroutine
 	Start(ctx context.Context, fn func(context.Context))
-	
+
 	// Stop stops the managed goroutine
 	Stop()
-	
+
 	// GetRestartCount returns the current restart count
 	GetRestartCount() int64
-	
+
 	// IsRunning returns whether the goroutine is running
 	IsRunning() bool
-	
+
 	// GetName returns the manager name
 	GetName() string
-	
+
 	// GetStatus returns the manager status
 	GetStatus() GoroutineStatus
 }
@@ -258,7 +258,7 @@ type ConnectionStatusProvider interface {
 type NetworkProviderMetadata interface {
 	// GetName returns the provider name
 	GetName() string
-	
+
 	// IsHealthy returns the health status
 	IsHealthy() bool
 }
@@ -277,22 +277,22 @@ type NetworkProvider interface {
 type ConfigProvider interface {
 	// GetString retrieves a string configuration value
 	GetString(key string) (string, error)
-	
+
 	// GetInt retrieves an integer configuration value
 	GetInt(key string) (int, error)
-	
+
 	// GetDuration retrieves a duration configuration value
 	GetDuration(key string) (time.Duration, error)
-	
+
 	// GetBool retrieves a boolean configuration value
 	GetBool(key string) (bool, error)
-	
+
 	// IsEnabled checks if a feature is enabled
 	IsEnabled(feature string) bool
-	
+
 	// Watch watches for configuration changes
 	Watch(callback func(key string, value interface{})) error
-	
+
 	// Validate validates the configuration
 	Validate() error
 }
@@ -382,7 +382,7 @@ const (
 type ServiceRegistrar interface {
 	// RegisterService registers a service
 	RegisterService(name string, service interface{}) error
-	
+
 	// UnregisterService removes a service
 	UnregisterService(name string) error
 }
@@ -391,7 +391,7 @@ type ServiceRegistrar interface {
 type ServiceLocator interface {
 	// GetService retrieves a service by name
 	GetService(name string) (interface{}, error)
-	
+
 	// GetTypedService retrieves a service with type assertion
 	GetTypedService(name string, target interface{}) error
 }
@@ -400,7 +400,7 @@ type ServiceLocator interface {
 type ServiceListing interface {
 	// ListServices returns all registered services
 	ListServices() []string
-	
+
 	// IsServiceRegistered checks if a service is registered
 	IsServiceRegistered(name string) bool
 }
@@ -465,7 +465,7 @@ type DistributedValidatorFactory interface {
 	LoadBalancerFactory
 	PartitionHandlerFactory
 	NetworkProviderFactory
-	
+
 	// CreateMetricsProvider creates a metrics provider
 	CreateMetricsProvider(config interface{}) (MetricsProvider, error)
 }
@@ -474,10 +474,10 @@ type DistributedValidatorFactory interface {
 type ValidatorLifecycleManager interface {
 	// Start starts the distributed validator
 	Start(ctx context.Context) error
-	
+
 	// Stop stops the distributed validator
 	Stop() error
-	
+
 	// RegisterCleanupFunc registers a cleanup function
 	RegisterCleanupFunc(cleanup func() error)
 }
@@ -486,13 +486,13 @@ type ValidatorLifecycleManager interface {
 type NodeRegistryManager interface {
 	// RegisterNode registers a validation node
 	RegisterNode(nodeInfo *NodeInfo) error
-	
+
 	// UnregisterNode removes a validation node
 	UnregisterNode(nodeID NodeID) error
-	
+
 	// GetNodeInfo returns information about a node
 	GetNodeInfo(nodeID NodeID) (*NodeInfo, bool)
-	
+
 	// GetAllNodes returns information about all nodes
 	GetAllNodes() map[NodeID]*NodeInfo
 }
@@ -501,7 +501,7 @@ type NodeRegistryManager interface {
 type DistributedMetricsProvider interface {
 	// GetDistributedMetrics returns distributed validation metrics
 	GetDistributedMetrics() *DistributedMetrics
-	
+
 	// GetGoroutineStatus returns the status of managed goroutines
 	GetGoroutineStatus() map[string]GoroutineStatus
 }
@@ -510,7 +510,7 @@ type DistributedMetricsProvider interface {
 type ConfigurationManager interface {
 	// GetConfiguration returns the validator configuration
 	GetConfiguration() interface{}
-	
+
 	// UpdateConfiguration updates the validator configuration
 	UpdateConfiguration(config interface{}) error
 }
@@ -536,13 +536,13 @@ type DistributedValidatorProvider interface {
 type HealthChecker interface {
 	// CheckHealth checks the health of the component
 	CheckHealth() HealthStatus
-	
+
 	// GetHealthDetails returns detailed health information
 	GetHealthDetails() map[string]interface{}
-	
+
 	// RegisterHealthCheck registers a health check function
 	RegisterHealthCheck(name string, check func() error) error
-	
+
 	// UnregisterHealthCheck removes a health check
 	UnregisterHealthCheck(name string) error
 }
@@ -575,22 +575,22 @@ func (s HealthStatus) String() string {
 type ComponentLifecycle interface {
 	// Initialize initializes the component
 	Initialize(config interface{}) error
-	
+
 	// Start starts the component
 	Start(ctx context.Context) error
-	
+
 	// Stop stops the component
 	Stop() error
-	
+
 	// Restart restarts the component
 	Restart(ctx context.Context) error
-	
+
 	// GetState returns the current state of the component
 	GetState() ComponentState
-	
+
 	// GetName returns the component name
 	GetName() string
-	
+
 	// GetVersion returns the component version
 	GetVersion() string
 }

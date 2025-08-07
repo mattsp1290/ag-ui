@@ -56,7 +56,7 @@ func (tcm *TestCleanupManager) Cleanup(t *testing.T) {
 					t.Errorf("Cleanup function panicked: %v", r)
 				}
 			}()
-			
+
 			if err := cleanup(); err != nil {
 				t.Errorf("Cleanup function failed: %v", err)
 			}
@@ -81,11 +81,11 @@ func NewTransportTestHelper() *TransportTestHelper {
 // CreateContextWithTimeout creates a context with timeout and adds its cleanup
 func (tth *TransportTestHelper) CreateContextWithTimeout(timeout time.Duration) (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	
+
 	tth.mu.Lock()
 	tth.contexts = append(tth.contexts, cancel)
 	tth.mu.Unlock()
-	
+
 	tth.AddSimpleCleanup(cancel)
 	return ctx, cancel
 }
@@ -93,11 +93,11 @@ func (tth *TransportTestHelper) CreateContextWithTimeout(timeout time.Duration) 
 // CreateCancellableContext creates a cancellable context and adds its cleanup
 func (tth *TransportTestHelper) CreateCancellableContext() (context.Context, context.CancelFunc) {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	tth.mu.Lock()
 	tth.contexts = append(tth.contexts, cancel)
 	tth.mu.Unlock()
-	
+
 	tth.AddSimpleCleanup(cancel)
 	return ctx, cancel
 }
@@ -110,7 +110,7 @@ func (tth *TransportTestHelper) Cleanup(t *testing.T) {
 		cancel()
 	}
 	tth.mu.Unlock()
-	
+
 	// Then perform other cleanup operations
 	tth.TestCleanupManager.Cleanup(t)
 }
@@ -138,7 +138,7 @@ func (pth *PerformanceTestHelper) CheckForLeaks(t *testing.T) {
 func (pth *PerformanceTestHelper) Cleanup(t *testing.T) {
 	// Perform regular cleanup first
 	pth.TransportTestHelper.Cleanup(t)
-	
+
 	// Then check for goroutine leaks
 	pth.CheckForLeaks(t)
 }
@@ -155,13 +155,13 @@ type LoadTestHelper struct {
 // NewLoadTestHelper creates a new load test helper
 func NewLoadTestHelper() *LoadTestHelper {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	lth := &LoadTestHelper{
 		PerformanceTestHelper: NewPerformanceTestHelper(),
 		ctx:                   ctx,
 		cancel:                cancel,
 	}
-	
+
 	lth.AddSimpleCleanup(cancel)
 	lth.AddCleanup(func() error {
 		// Wait for all monitoring goroutines to finish
@@ -170,7 +170,7 @@ func NewLoadTestHelper() *LoadTestHelper {
 			lth.wg.Wait()
 			close(done)
 		}()
-		
+
 		select {
 		case <-done:
 			return nil
@@ -178,7 +178,7 @@ func NewLoadTestHelper() *LoadTestHelper {
 			return fmt.Errorf("monitoring goroutines did not finish within 5 seconds")
 		}
 	})
-	
+
 	return lth
 }
 
@@ -197,11 +197,11 @@ func (lth *LoadTestHelper) StartMonitoring(monitor func(context.Context)) {
 func BasicTestPattern(t *testing.T) {
 	helper := NewTestCleanupManager()
 	defer helper.Cleanup(t)
-	
+
 	// Example: Create a transport
 	// transport := NewTransport(config)
 	// helper.AddContextCleanup(transport.Close)
-	
+
 	// Example: Create a cancellable context
 	// ctx, cancel := context.WithCancel(context.Background())
 	// helper.AddSimpleCleanup(cancel)
@@ -211,10 +211,10 @@ func BasicTestPattern(t *testing.T) {
 func TransportTestPattern(t *testing.T) {
 	helper := NewTransportTestHelper()
 	defer helper.Cleanup(t)
-	
+
 	// Create contexts with automatic cleanup
 	ctx, _ := helper.CreateContextWithTimeout(30 * time.Second)
-	
+
 	// Use ctx for your transport operations
 	_ = ctx
 }
@@ -223,9 +223,9 @@ func TransportTestPattern(t *testing.T) {
 func PerformanceTestPattern(t *testing.T) {
 	helper := NewPerformanceTestHelper()
 	defer helper.Cleanup(t) // This includes goroutine leak detection
-	
+
 	ctx, _ := helper.CreateContextWithTimeout(60 * time.Second)
-	
+
 	// Your performance test code here
 	_ = ctx
 }
@@ -234,12 +234,12 @@ func PerformanceTestPattern(t *testing.T) {
 func LoadTestPattern(t *testing.T) {
 	helper := NewLoadTestHelper()
 	defer helper.Cleanup(t)
-	
+
 	// Start monitoring with automatic cleanup
 	helper.StartMonitoring(func(ctx context.Context) {
 		ticker := time.NewTicker(1 * time.Second)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -249,6 +249,6 @@ func LoadTestPattern(t *testing.T) {
 			}
 		}
 	})
-	
+
 	// Your load test code here
 }

@@ -16,19 +16,19 @@ import (
 type MigrationConfig struct {
 	// SourceDir is the directory to scan for Go files
 	SourceDir string
-	
+
 	// OutputDir is where migrated files should be written (if different from source)
 	OutputDir string
-	
+
 	// DryRun when true will only analyze and report changes without writing
 	DryRun bool
-	
+
 	// BackupOriginal when true will create .backup files
 	BackupOriginal bool
-	
+
 	// TargetPackages specifies which packages to migrate (empty means all)
 	TargetPackages []string
-	
+
 	// DeprecationDeadline specifies when deprecated methods will be removed
 	DeprecationDeadline time.Time
 }
@@ -44,12 +44,12 @@ type MigrationRule struct {
 
 // MigrationReport contains the results of a migration operation
 type MigrationReport struct {
-	FilesProcessed   int
-	FilesModified    int
+	FilesProcessed         int
+	FilesModified          int
 	TransformationsApplied map[string]int // rule name -> count
-	Errors          []error
-	Warnings        []string
-	DeprecationWarnings []DeprecationWarning
+	Errors                 []error
+	Warnings               []string
+	DeprecationWarnings    []DeprecationWarning
 }
 
 // DeprecationWarning represents a deprecation notice
@@ -136,7 +136,7 @@ func (tm *TransportMigrator) AddRule(rule MigrationRule) {
 func (tm *TransportMigrator) Migrate() (*MigrationReport, error) {
 	report := &MigrationReport{
 		TransformationsApplied: make(map[string]int),
-		DeprecationWarnings:   make([]DeprecationWarning, 0),
+		DeprecationWarnings:    make([]DeprecationWarning, 0),
 	}
 
 	err := filepath.Walk(tm.config.SourceDir, func(path string, info os.FileInfo, err error) error {
@@ -210,7 +210,7 @@ func (tm *TransportMigrator) processFile(filename string, report *MigrationRepor
 	if modified && !tm.config.DryRun {
 		if tm.config.BackupOriginal {
 			if err := tm.createBackup(filename); err != nil {
-				report.Warnings = append(report.Warnings, 
+				report.Warnings = append(report.Warnings,
 					fmt.Sprintf("Failed to create backup for %s: %v", filename, err))
 			}
 		}
@@ -219,7 +219,7 @@ func (tm *TransportMigrator) processFile(filename string, report *MigrationRepor
 		if tm.config.OutputDir != "" {
 			relPath, _ := filepath.Rel(tm.config.SourceDir, filename)
 			outputPath = filepath.Join(tm.config.OutputDir, relPath)
-			
+
 			// Ensure output directory exists
 			if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
 				return fmt.Errorf("failed to create output directory: %w", err)
@@ -288,7 +288,7 @@ func (v *migrationVisitor) Visit(node ast.Node) ast.Visitor {
 func (v *migrationVisitor) visitTypeSpec(node *ast.TypeSpec) {
 	// Check for deprecated transport types
 	if node.Name.Name == "Transport" {
-		v.addDeprecationWarning(node.Pos(), "Transport", 
+		v.addDeprecationWarning(node.Pos(), "Transport",
 			"Replace with composable Transport interface from interfaces_core.go")
 	}
 }
@@ -301,25 +301,25 @@ func (v *migrationVisitor) visitFuncDecl(node *ast.FuncDecl) {
 
 	// Check for deprecated method patterns
 	methodName := node.Name.Name
-	
+
 	switch {
 	case strings.Contains(methodName, "HandleEvent"):
-		v.addDeprecationWarning(node.Pos(), methodName, 
+		v.addDeprecationWarning(node.Pos(), methodName,
 			"Replace with EventHandler callback type")
 		v.applyTransformation("ReplaceOldEventHandlers")
-		
+
 	case strings.Contains(methodName, "SendBatch"):
-		v.addDeprecationWarning(node.Pos(), methodName, 
+		v.addDeprecationWarning(node.Pos(), methodName,
 			"Replace with BatchSender interface")
 		v.applyTransformation("UpdateBatchSending")
-		
+
 	case strings.Contains(methodName, "StartStream"):
-		v.addDeprecationWarning(node.Pos(), methodName, 
+		v.addDeprecationWarning(node.Pos(), methodName,
 			"Replace with StreamingTransport.StartStreaming")
 		v.applyTransformation("MigrateStreamingAPIs")
-		
+
 	case strings.Contains(methodName, "SendWithAck"):
-		v.addDeprecationWarning(node.Pos(), methodName, 
+		v.addDeprecationWarning(node.Pos(), methodName,
 			"Replace with ReliableTransport.SendEventWithAck")
 		v.applyTransformation("UpdateReliabilityFeatures")
 	}
@@ -331,12 +331,12 @@ func (v *migrationVisitor) visitCallExpr(node *ast.CallExpr) {
 	if sel, ok := node.Fun.(*ast.SelectorExpr); ok {
 		switch sel.Sel.Name {
 		case "Stats":
-			v.addDeprecationWarning(node.Pos(), "transport.Stats()", 
+			v.addDeprecationWarning(node.Pos(), "transport.Stats()",
 				"Replace with StatsProvider interface")
 			v.applyTransformation("UpdateStatsAccess")
-			
+
 		case "Config":
-			v.addDeprecationWarning(node.Pos(), "transport.Config()", 
+			v.addDeprecationWarning(node.Pos(), "transport.Config()",
 				"Replace with ConfigProvider interface")
 			v.applyTransformation("MigrateConfigAccess")
 		}
@@ -352,7 +352,7 @@ func (v *migrationVisitor) visitInterfaceType(node *ast.InterfaceType) {
 			switch methodName {
 			case "Send", "Receive", "Connect", "Close":
 				// These are now part of composable interfaces
-				v.addTransformationHint("UpdateTransportInterface", 
+				v.addTransformationHint("UpdateTransportInterface",
 					"Consider using composable interfaces")
 			}
 		}
@@ -367,7 +367,7 @@ func (v *migrationVisitor) visitStructType(node *ast.StructType) {
 			fieldName := field.Names[0].Name
 			switch fieldName {
 			case "EventHandler":
-				v.addDeprecationWarning(field.Pos(), fieldName, 
+				v.addDeprecationWarning(field.Pos(), fieldName,
 					"Use EventHandlerProvider interface instead")
 			}
 		}
@@ -396,19 +396,19 @@ func (v *migrationVisitor) applyTransformation(ruleName string) {
 
 // addTransformationHint adds a hint without actually modifying the code
 func (v *migrationVisitor) addTransformationHint(ruleName, hint string) {
-	v.report.Warnings = append(v.report.Warnings, 
+	v.report.Warnings = append(v.report.Warnings,
 		fmt.Sprintf("%s: %s", ruleName, hint))
 }
 
 // GenerateDeprecationAnnotations adds deprecation comments to the codebase
 func (tm *TransportMigrator) GenerateDeprecationAnnotations() error {
 	deprecations := map[string]DeprecationInfo{
-		"Transport.Send":           {Deadline: "2024-12-31", Replacement: "Sender.Send"},
-		"Transport.Receive":        {Deadline: "2024-12-31", Replacement: "Receiver.Channels"},
-		"Transport.HandleEvent":    {Deadline: "2024-11-30", Replacement: "EventHandler callback"},
-		"Transport.SendBatch":      {Deadline: "2024-12-31", Replacement: "BatchSender.SendBatch"},
-		"Transport.StartStream":    {Deadline: "2025-01-31", Replacement: "StreamingTransport.StartStreaming"},
-		"Transport.SendWithAck":    {Deadline: "2025-01-31", Replacement: "ReliableTransport.SendEventWithAck"},
+		"Transport.Send":        {Deadline: "2024-12-31", Replacement: "Sender.Send"},
+		"Transport.Receive":     {Deadline: "2024-12-31", Replacement: "Receiver.Channels"},
+		"Transport.HandleEvent": {Deadline: "2024-11-30", Replacement: "EventHandler callback"},
+		"Transport.SendBatch":   {Deadline: "2024-12-31", Replacement: "BatchSender.SendBatch"},
+		"Transport.StartStream": {Deadline: "2025-01-31", Replacement: "StreamingTransport.StartStreaming"},
+		"Transport.SendWithAck": {Deadline: "2025-01-31", Replacement: "ReliableTransport.SendEventWithAck"},
 	}
 
 	// Find all Go files and add deprecation comments
@@ -441,9 +441,9 @@ func (tm *TransportMigrator) addDeprecationComments(filename string, deprecation
 	for item, info := range deprecations {
 		pattern := fmt.Sprintf("func.*%s", strings.Split(item, ".")[1])
 		if strings.Contains(content, pattern) {
-			deprecationComment := fmt.Sprintf("// Deprecated: %s will be removed on %s. Use %s instead.\n", 
+			deprecationComment := fmt.Sprintf("// Deprecated: %s will be removed on %s. Use %s instead.\n",
 				item, info.Deadline, info.Replacement)
-			
+
 			// Insert deprecation comment before the function
 			// This is a simplified approach - in reality, you'd want to use AST manipulation
 			lines := strings.Split(content, "\n")
@@ -454,7 +454,7 @@ func (tm *TransportMigrator) addDeprecationComments(filename string, deprecation
 					break
 				}
 			}
-			
+
 			if modified {
 				content = strings.Join(lines, "\n")
 			}

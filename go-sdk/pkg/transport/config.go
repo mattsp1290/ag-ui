@@ -206,12 +206,12 @@ func (c *BaseConfig) IsSecure() bool {
 	if c.TLS != nil {
 		return true
 	}
-	
+
 	u, err := url.Parse(c.Endpoint)
 	if err != nil {
 		return false
 	}
-	
+
 	return u.Scheme == "wss" || u.Scheme == "https"
 }
 
@@ -286,17 +286,17 @@ func NewWebSocketConfig(endpoint string) *WebSocketConfig {
 			ReadBufferSize:    4096,
 			WriteBufferSize:   4096,
 		},
-		PingInterval:            30 * time.Second,
-		PongTimeout:             10 * time.Second,
-		CloseTimeout:            10 * time.Second,
-		HandshakeTimeout:        10 * time.Second,
-		EnablePingPong:          true,
-		EnableAutoReconnect:     true,
-		ReconnectInterval:       5 * time.Second,
-		MaxReconnectAttempts:    10,
-		EnableBinaryFrames:      true,
-		CompressionLevel:        6,
-		CompressionThreshold:    1024,
+		PingInterval:         30 * time.Second,
+		PongTimeout:          10 * time.Second,
+		CloseTimeout:         10 * time.Second,
+		HandshakeTimeout:     10 * time.Second,
+		EnablePingPong:       true,
+		EnableAutoReconnect:  true,
+		ReconnectInterval:    5 * time.Second,
+		MaxReconnectAttempts: 10,
+		EnableBinaryFrames:   true,
+		CompressionLevel:     6,
+		CompressionThreshold: 1024,
 	}
 }
 
@@ -364,24 +364,24 @@ func (c *WebSocketConfig) Validate() error {
 // Clone creates a deep copy of the WebSocket configuration.
 func (c *WebSocketConfig) Clone() Config {
 	clone := &WebSocketConfig{
-		BaseConfig:               c.BaseConfig.Clone().(*BaseConfig),
-		Subprotocols:            make([]string, len(c.Subprotocols)),
-		Origin:                  c.Origin,
-		PingInterval:            c.PingInterval,
-		PongTimeout:             c.PongTimeout,
-		CloseTimeout:            c.CloseTimeout,
-		HandshakeTimeout:        c.HandshakeTimeout,
-		EnablePingPong:          c.EnablePingPong,
-		EnableAutoReconnect:     c.EnableAutoReconnect,
-		ReconnectInterval:       c.ReconnectInterval,
-		MaxReconnectAttempts:    c.MaxReconnectAttempts,
-		EnableBinaryFrames:      c.EnableBinaryFrames,
-		CompressionLevel:        c.CompressionLevel,
-		CompressionThreshold:    c.CompressionThreshold,
-		Dialer:                  c.Dialer,
-		NetDial:                 c.NetDial,
-		NetDialContext:          c.NetDialContext,
-		CheckOrigin:             c.CheckOrigin,
+		BaseConfig:           c.BaseConfig.Clone().(*BaseConfig),
+		Subprotocols:         make([]string, len(c.Subprotocols)),
+		Origin:               c.Origin,
+		PingInterval:         c.PingInterval,
+		PongTimeout:          c.PongTimeout,
+		CloseTimeout:         c.CloseTimeout,
+		HandshakeTimeout:     c.HandshakeTimeout,
+		EnablePingPong:       c.EnablePingPong,
+		EnableAutoReconnect:  c.EnableAutoReconnect,
+		ReconnectInterval:    c.ReconnectInterval,
+		MaxReconnectAttempts: c.MaxReconnectAttempts,
+		EnableBinaryFrames:   c.EnableBinaryFrames,
+		CompressionLevel:     c.CompressionLevel,
+		CompressionThreshold: c.CompressionThreshold,
+		Dialer:               c.Dialer,
+		NetDial:              c.NetDial,
+		NetDialContext:       c.NetDialContext,
+		CheckOrigin:          c.CheckOrigin,
 	}
 
 	copy(clone.Subprotocols, c.Subprotocols)
@@ -452,18 +452,18 @@ func NewHTTPConfig(endpoint string) *HTTPConfig {
 			ReadBufferSize:    4096,
 			WriteBufferSize:   4096,
 		},
-		Method:                    "POST",
-		UserAgent:                "ag-ui-go-sdk/1.0",
-		MaxIdleConns:             100,
-		MaxIdleConnsPerHost:      2,
-		MaxConnsPerHost:          0,
-		IdleConnTimeout:          90 * time.Second,
-		ResponseHeaderTimeout:    30 * time.Second,
-		ExpectContinueTimeout:    1 * time.Second,
-		DisableKeepAlives:        false,
-		DisableCompression:       false,
-		EnableStreaming:          false,
-		StreamingBufferSize:      8192,
+		Method:                "POST",
+		UserAgent:             "ag-ui-go-sdk/1.0",
+		MaxIdleConns:          100,
+		MaxIdleConnsPerHost:   2,
+		MaxConnsPerHost:       0,
+		IdleConnTimeout:       90 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+		DisableKeepAlives:     false,
+		DisableCompression:    false,
+		EnableStreaming:       false,
+		StreamingBufferSize:   8192,
 	}
 }
 
@@ -535,21 +535,21 @@ func (c *HTTPConfig) Validate() error {
 // Clone creates a deep copy of the HTTP configuration.
 func (c *HTTPConfig) Clone() Config {
 	clone := &HTTPConfig{
-		BaseConfig:               c.BaseConfig.Clone().(*BaseConfig),
-		Method:                   c.Method,
-		UserAgent:                c.UserAgent,
-		MaxIdleConns:             c.MaxIdleConns,
-		MaxIdleConnsPerHost:      c.MaxIdleConnsPerHost,
-		MaxConnsPerHost:          c.MaxConnsPerHost,
-		IdleConnTimeout:          c.IdleConnTimeout,
-		ResponseHeaderTimeout:    c.ResponseHeaderTimeout,
-		ExpectContinueTimeout:    c.ExpectContinueTimeout,
-		DisableKeepAlives:        c.DisableKeepAlives,
-		DisableCompression:       c.DisableCompression,
-		EnableStreaming:          c.EnableStreaming,
-		StreamingBufferSize:      c.StreamingBufferSize,
-		Transport:                c.Transport,
-		Client:                   c.Client,
+		BaseConfig:            c.BaseConfig.Clone().(*BaseConfig),
+		Method:                c.Method,
+		UserAgent:             c.UserAgent,
+		MaxIdleConns:          c.MaxIdleConns,
+		MaxIdleConnsPerHost:   c.MaxIdleConnsPerHost,
+		MaxConnsPerHost:       c.MaxConnsPerHost,
+		IdleConnTimeout:       c.IdleConnTimeout,
+		ResponseHeaderTimeout: c.ResponseHeaderTimeout,
+		ExpectContinueTimeout: c.ExpectContinueTimeout,
+		DisableKeepAlives:     c.DisableKeepAlives,
+		DisableCompression:    c.DisableCompression,
+		EnableStreaming:       c.EnableStreaming,
+		StreamingBufferSize:   c.StreamingBufferSize,
+		Transport:             c.Transport,
+		Client:                c.Client,
 	}
 
 	return clone
@@ -1047,7 +1047,7 @@ func NewConfigBuilder(transportType string) *ConfigBuilder {
 	default:
 		config = &BaseConfig{Type: transportType}
 	}
-	
+
 	return &ConfigBuilder{config: config}
 }
 

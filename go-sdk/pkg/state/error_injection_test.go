@@ -29,7 +29,7 @@ type FailingStore struct {
 	failureRate  float64
 	failCount    int32
 	callCount    int32
-	specificPath string // Fail only on specific paths
+	specificPath string     // Fail only on specific paths
 	rng          *rand.Rand // Dedicated random number generator for thread safety
 }
 
@@ -349,7 +349,7 @@ func TestStateManager_WithErrors(t *testing.T) {
 			opts := DefaultManagerOptions()
 			opts.MaxRetries = 1 // Reduced retries to allow errors to surface for testing
 			opts.RetryDelay = 10 * time.Millisecond
-			opts.EnableMetrics = false // Disable to avoid logger issues
+			opts.EnableMetrics = false      // Disable to avoid logger issues
 			opts.CustomStore = failingStore // Inject the failing store
 			manager, err := NewStateManager(opts)
 			if err != nil {
@@ -513,14 +513,14 @@ func TestStateManager_ValidationErrors(t *testing.T) {
 
 			wg.Wait()
 
-			// We should get either validation errors from the failing validator 
+			// We should get either validation errors from the failing validator
 			// OR errors from the required field rule
 			totalErrors := validationErrors + requiredFieldErrors
 			if totalErrors == 0 {
 				t.Errorf("Expected validation errors but got none (type: %s)", tc.failureType)
 			}
 
-			t.Logf("Test %s - Failing validator errors: %d, Required field errors: %d, Total: %d/30", 
+			t.Logf("Test %s - Failing validator errors: %d, Required field errors: %d, Total: %d/30",
 				tc.name, validationErrors, requiredFieldErrors, totalErrors)
 		})
 	}
@@ -595,8 +595,8 @@ func TestStateManager_CascadingFailures(t *testing.T) {
 	// Create manager
 
 	opts := DefaultManagerOptions()
-	opts.EventBufferSize = 10  // Small buffer to trigger backpressure
-	opts.EnableMetrics = false // Disable to avoid logger issues
+	opts.EventBufferSize = 10       // Small buffer to trigger backpressure
+	opts.EnableMetrics = false      // Disable to avoid logger issues
 	opts.CustomStore = failingStore // Inject the failing store
 	manager, err := NewStateManager(opts)
 	if err != nil {
@@ -688,7 +688,7 @@ func TestStateManager_PathSpecificFailures(t *testing.T) {
 	// Create manager
 
 	opts := DefaultManagerOptions()
-	opts.EnableMetrics = false // Disable to avoid logger issues
+	opts.EnableMetrics = false      // Disable to avoid logger issues
 	opts.CustomStore = failingStore // Inject the failing store
 	manager, err := NewStateManager(opts)
 	if err != nil {
@@ -738,7 +738,7 @@ func TestStateManager_ErrorRecovery(t *testing.T) {
 	opts := DefaultManagerOptions()
 	opts.MaxRetries = 5
 	opts.RetryDelay = 50 * time.Millisecond
-	opts.EnableMetrics = false // Disable to avoid logger issues
+	opts.EnableMetrics = false      // Disable to avoid logger issues
 	opts.CustomStore = failingStore // Inject the failing store
 	manager, err := NewStateManager(opts)
 	if err != nil {
@@ -767,13 +767,13 @@ func TestStateManager_ErrorRecovery(t *testing.T) {
 	// Test 2: Start a goroutine to reduce failure rate after some time to allow recovery
 	recoveryStarted := make(chan bool, 1)
 	go func() {
-		time.Sleep(50 * time.Millisecond)  // Short delay
+		time.Sleep(50 * time.Millisecond)           // Short delay
 		failingStore.SetFailureMode("storage", 0.7) // Reduce failure rate
 		time.Sleep(100 * time.Millisecond)
-		failingStore.SetFailureMode("storage", 0.3) // Further reduce failure rate  
+		failingStore.SetFailureMode("storage", 0.3) // Further reduce failure rate
 		time.Sleep(100 * time.Millisecond)
 		failingStore.SetFailureMode("storage", 0) // Stop failing
-		time.Sleep(50 * time.Millisecond) // Give time for recovery to take effect
+		time.Sleep(50 * time.Millisecond)         // Give time for recovery to take effect
 		recoveryStarted <- true
 	}()
 
@@ -842,8 +842,8 @@ func TestStateManager_ConcurrentFailures(t *testing.T) {
 	// Create manager
 
 	opts := DefaultManagerOptions()
-	opts.ProcessingWorkers = 2 // Limited workers to increase contention
-	opts.EnableMetrics = false // Disable to avoid logger issues
+	opts.ProcessingWorkers = 2      // Limited workers to increase contention
+	opts.EnableMetrics = false      // Disable to avoid logger issues
 	opts.CustomStore = failingStore // Inject the failing store
 	manager, err := NewStateManager(opts)
 	if err != nil {

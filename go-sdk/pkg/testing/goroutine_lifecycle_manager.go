@@ -12,16 +12,16 @@ import (
 // GoroutineLifecycleManager provides utilities for managing goroutine lifecycles
 // to prevent leaks and ensure proper cleanup.
 type GoroutineLifecycleManager struct {
-	ctx           context.Context
-	cancel        context.CancelFunc
-	wg            sync.WaitGroup
-	activeCount   int64
-	shutdownOnce  sync.Once
-	shutdownCh    chan struct{}
-	name          string
-	timeout       time.Duration
-	mu            sync.RWMutex
-	goroutines    map[string]*ManagedGoroutine
+	ctx          context.Context
+	cancel       context.CancelFunc
+	wg           sync.WaitGroup
+	activeCount  int64
+	shutdownOnce sync.Once
+	shutdownCh   chan struct{}
+	name         string
+	timeout      time.Duration
+	mu           sync.RWMutex
+	goroutines   map[string]*ManagedGoroutine
 }
 
 // ManagedGoroutine represents a single managed goroutine
@@ -36,7 +36,7 @@ type ManagedGoroutine struct {
 // NewGoroutineLifecycleManager creates a new lifecycle manager
 func NewGoroutineLifecycleManager(name string) *GoroutineLifecycleManager {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &GoroutineLifecycleManager{
 		ctx:        ctx,
 		cancel:     cancel,
@@ -60,14 +60,14 @@ func (glm *GoroutineLifecycleManager) Go(id string, fn func(context.Context)) er
 		return fmt.Errorf("manager is shutting down")
 	default:
 	}
-	
+
 	// Create context for this specific goroutine
 	ctx, cancel := context.WithCancel(glm.ctx)
-	
+
 	// Capture stack trace for debugging
 	buf := make([]byte, 4096)
 	stack := string(buf[:runtime.Stack(buf, false)])
-	
+
 	mg := &ManagedGoroutine{
 		id:        id,
 		startTime: time.Now(),
@@ -75,14 +75,14 @@ func (glm *GoroutineLifecycleManager) Go(id string, fn func(context.Context)) er
 		cancel:    cancel,
 		done:      make(chan struct{}),
 	}
-	
+
 	glm.mu.Lock()
 	glm.goroutines[id] = mg
 	glm.mu.Unlock()
-	
+
 	glm.wg.Add(1)
 	atomic.AddInt64(&glm.activeCount, 1)
-	
+
 	go func() {
 		defer func() {
 			// Always clean up
@@ -90,22 +90,22 @@ func (glm *GoroutineLifecycleManager) Go(id string, fn func(context.Context)) er
 			atomic.AddInt64(&glm.activeCount, -1)
 			cancel()
 			close(mg.done)
-			
+
 			glm.mu.Lock()
 			delete(glm.goroutines, id)
 			glm.mu.Unlock()
-			
+
 			// Recover from panics
 			if r := recover(); r != nil {
 				fmt.Printf("Goroutine %s/%s panicked: %v\n", glm.name, id, r)
 				fmt.Printf("Stack trace:\n%s\n", mg.stack)
 			}
 		}()
-		
+
 		// Run the actual function
 		fn(ctx)
 	}()
-	
+
 	return nil
 }
 
@@ -128,7 +128,7 @@ func (glm *GoroutineLifecycleManager) GoTicker(id string, interval time.Duration
 	return glm.Go(id, func(ctx context.Context) {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
-		
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -158,21 +158,21 @@ func (glm *GoroutineLifecycleManager) GoWorker(id string, workCh <-chan interfac
 }
 
 // GoBatch starts a batch processing goroutine
-func (glm *GoroutineLifecycleManager) GoBatch(id string, batchSize int, flushInterval time.Duration, 
+func (glm *GoroutineLifecycleManager) GoBatch(id string, batchSize int, flushInterval time.Duration,
 	inputCh <-chan interface{}, fn func(context.Context, []interface{})) error {
-	
+
 	return glm.Go(id, func(ctx context.Context) {
 		batch := make([]interface{}, 0, batchSize)
 		flushTicker := time.NewTicker(flushInterval)
 		defer flushTicker.Stop()
-		
+
 		flush := func() {
 			if len(batch) > 0 {
 				fn(ctx, batch)
 				batch = batch[:0] // Reset slice
 			}
 		}
-		
+
 		for {
 			select {
 			case <-ctx.Done():
@@ -199,11 +199,11 @@ func (glm *GoroutineLifecycleManager) Cancel(id string) error {
 	glm.mu.RLock()
 	mg, exists := glm.goroutines[id]
 	glm.mu.RUnlock()
-	
+
 	if !exists {
 		return fmt.Errorf("goroutine %s not found", id)
 	}
-	
+
 	mg.cancel()
 	return nil
 }
@@ -213,11 +213,11 @@ func (glm *GoroutineLifecycleManager) Wait(id string, timeout time.Duration) err
 	glm.mu.RLock()
 	mg, exists := glm.goroutines[id]
 	glm.mu.RUnlock()
-	
+
 	if !exists {
 		return fmt.Errorf("goroutine %s not found", id)
 	}
-	
+
 	select {
 	case <-mg.done:
 		return nil
@@ -235,7 +235,7 @@ func (glm *GoroutineLifecycleManager) GetActiveCount() int64 {
 func (glm *GoroutineLifecycleManager) GetActiveGoroutines() map[string]GoroutineInfo {
 	glm.mu.RLock()
 	defer glm.mu.RUnlock()
-	
+
 	info := make(map[string]GoroutineInfo)
 	for id, mg := range glm.goroutines {
 		info[id] = GoroutineInfo{
@@ -245,7 +245,7 @@ func (glm *GoroutineLifecycleManager) GetActiveGoroutines() map[string]Goroutine
 			Stack:     mg.stack,
 		}
 	}
-	
+
 	return info
 }
 
@@ -260,27 +260,27 @@ type GoroutineInfo struct {
 // Shutdown gracefully shuts down all managed goroutines
 func (glm *GoroutineLifecycleManager) Shutdown(ctx context.Context) error {
 	var shutdownErr error
-	
+
 	glm.shutdownOnce.Do(func() {
 		// Signal shutdown to prevent new goroutines
 		close(glm.shutdownCh)
-		
+
 		// Cancel all goroutines
 		glm.cancel()
-		
+
 		// Wait for goroutines with timeout
 		done := make(chan struct{})
 		go func() {
 			glm.wg.Wait()
 			close(done)
 		}()
-		
+
 		select {
 		case <-done:
 			// Clean shutdown
 		case <-ctx.Done():
 			shutdownErr = fmt.Errorf("shutdown timeout: %d goroutines may have leaked", glm.GetActiveCount())
-			
+
 			// Log active goroutines for debugging
 			active := glm.GetActiveGoroutines()
 			if len(active) > 0 {
@@ -291,7 +291,7 @@ func (glm *GoroutineLifecycleManager) Shutdown(ctx context.Context) error {
 			}
 		}
 	})
-	
+
 	return shutdownErr
 }
 
@@ -341,7 +341,7 @@ func (sgm *SafeGoroutineManager) Go(id string, fn func(context.Context)) error {
 	if sgm.maxGoroutines > 0 && sgm.GetActiveCount() >= int64(sgm.maxGoroutines) {
 		return fmt.Errorf("maximum goroutines reached (%d)", sgm.maxGoroutines)
 	}
-	
+
 	return sgm.GoWithRecovery(id, fn, func(r interface{}) {
 		if sgm.panicHandler != nil {
 			sgm.panicHandler(id, r)
@@ -354,7 +354,7 @@ func (sgm *SafeGoroutineManager) Go(id string, fn func(context.Context)) error {
 // Basic usage:
 //   manager := NewGoroutineLifecycleManager("my-service")
 //   defer manager.MustShutdown()
-//   
+//
 //   manager.Go("worker-1", func(ctx context.Context) {
 //       for {
 //           select {

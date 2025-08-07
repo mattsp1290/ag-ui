@@ -46,10 +46,10 @@ type CoreRegistry struct {
 	entries sync.Map // map[RegistryKey]*RegistryEntry
 
 	// Focused component responsibilities
-	cacheManager  *CacheManager
-	priorities    *PriorityManager
-	lifecycle     *LifecycleManager
-	metrics       *Metrics
+	cacheManager *CacheManager
+	priorities   *PriorityManager
+	lifecycle    *LifecycleManager
+	metrics      *Metrics
 
 	// Configuration
 	config    *RegistryConfig

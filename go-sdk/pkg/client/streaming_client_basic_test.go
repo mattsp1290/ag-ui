@@ -154,4 +154,3 @@ func TestSSEClient_Configuration(t *testing.T) {
 		})
 	}
 }
-

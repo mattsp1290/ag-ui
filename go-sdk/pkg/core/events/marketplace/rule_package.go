@@ -32,37 +32,37 @@ type RulePackage struct {
 	Rules        []*Rule                `json:"rules"`
 	Dependencies []*Dependency          `json:"dependencies"`
 	Metadata     map[string]interface{} `json:"metadata"`
-	
+
 	// Package info
-	Size         int64     `json:"size"`
-	Hash         string    `json:"hash"`
-	Checksum     string    `json:"checksum"`
-	CreatedAt    time.Time `json:"created_at"`
-	PublishedAt  time.Time `json:"published_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	PublisherID  string    `json:"publisher_id"`
-	
+	Size        int64     `json:"size"`
+	Hash        string    `json:"hash"`
+	Checksum    string    `json:"checksum"`
+	CreatedAt   time.Time `json:"created_at"`
+	PublishedAt time.Time `json:"published_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	PublisherID string    `json:"publisher_id"`
+
 	// Installation info
 	Installed   bool      `json:"installed"`
 	InstalledAt time.Time `json:"installed_at"`
 	Downloads   int64     `json:"downloads"`
-	
+
 	// Marketplace info
 	Featured    bool    `json:"featured"`
 	Rating      float64 `json:"rating"`
 	ReviewCount int     `json:"review_count"`
-	
+
 	// Compatibility
-	CompatibilityVersion string            `json:"compatibility_version"`
-	RequiredFeatures     []string          `json:"required_features"`
-	OptionalFeatures     []string          `json:"optional_features"`
-	Platforms            []string          `json:"platforms"`
-	
+	CompatibilityVersion string   `json:"compatibility_version"`
+	RequiredFeatures     []string `json:"required_features"`
+	OptionalFeatures     []string `json:"optional_features"`
+	Platforms            []string `json:"platforms"`
+
 	// Security
-	Verified        bool              `json:"verified"`
-	SecurityScan    *SecurityScan     `json:"security_scan,omitempty"`
-	Permissions     []Permission      `json:"permissions"`
-	SandboxProfile  *SandboxProfile   `json:"sandbox_profile,omitempty"`
+	Verified       bool            `json:"verified"`
+	SecurityScan   *SecurityScan   `json:"security_scan,omitempty"`
+	Permissions    []Permission    `json:"permissions"`
+	SandboxProfile *SandboxProfile `json:"sandbox_profile,omitempty"`
 }
 
 // Rule represents a validation rule within a package
@@ -77,15 +77,15 @@ type Rule struct {
 	Priority    int                    `json:"priority"`
 	Enabled     bool                   `json:"enabled"`
 	Config      map[string]interface{} `json:"config"`
-	
+
 	// Execution context
-	Timeout     time.Duration          `json:"timeout"`
-	MemoryLimit int64                  `json:"memory_limit"`
-	CPULimit    float64               `json:"cpu_limit"`
-	
+	Timeout     time.Duration `json:"timeout"`
+	MemoryLimit int64         `json:"memory_limit"`
+	CPULimit    float64       `json:"cpu_limit"`
+
 	// Testing
-	TestCases   []*TestCase            `json:"test_cases"`
-	Examples    []*Example             `json:"examples"`
+	TestCases []*TestCase `json:"test_cases"`
+	Examples  []*Example  `json:"examples"`
 }
 
 // Dependency represents a package dependency
@@ -120,25 +120,25 @@ type Example struct {
 
 // SecurityScan represents security scan results
 type SecurityScan struct {
-	ScanDate      time.Time            `json:"scan_date"`
-	Scanner       string               `json:"scanner"`
-	Version       string               `json:"version"`
-	Passed        bool                 `json:"passed"`
-	Issues        []*SecurityIssue     `json:"issues"`
-	Risk          RiskLevel            `json:"risk"`
-	Recommendations []string           `json:"recommendations"`
+	ScanDate        time.Time        `json:"scan_date"`
+	Scanner         string           `json:"scanner"`
+	Version         string           `json:"version"`
+	Passed          bool             `json:"passed"`
+	Issues          []*SecurityIssue `json:"issues"`
+	Risk            RiskLevel        `json:"risk"`
+	Recommendations []string         `json:"recommendations"`
 }
 
 // SecurityIssue represents a security issue found in scanning
 type SecurityIssue struct {
-	ID          string    `json:"id"`
-	Type        string    `json:"type"`
-	Severity    string    `json:"severity"`
-	Description string    `json:"description"`
-	File        string    `json:"file"`
-	Line        int       `json:"line"`
-	Rule        string    `json:"rule"`
-	Remediation string    `json:"remediation"`
+	ID          string `json:"id"`
+	Type        string `json:"type"`
+	Severity    string `json:"severity"`
+	Description string `json:"description"`
+	File        string `json:"file"`
+	Line        int    `json:"line"`
+	Rule        string `json:"rule"`
+	Remediation string `json:"remediation"`
 }
 
 // RiskLevel represents the risk level of a package
@@ -162,22 +162,22 @@ type Permission struct {
 
 // SandboxProfile defines sandbox constraints for a package
 type SandboxProfile struct {
-	MaxMemory       int64         `json:"max_memory"`
-	MaxCPU          float64       `json:"max_cpu"`
-	MaxDisk         int64         `json:"max_disk"`
-	MaxNetworkConns int           `json:"max_network_conns"`
-	Timeout         time.Duration `json:"timeout"`
-	AllowedHosts    []string      `json:"allowed_hosts"`
-	BlockedHosts    []string      `json:"blocked_hosts"`
+	MaxMemory        int64            `json:"max_memory"`
+	MaxCPU           float64          `json:"max_cpu"`
+	MaxDisk          int64            `json:"max_disk"`
+	MaxNetworkConns  int              `json:"max_network_conns"`
+	Timeout          time.Duration    `json:"timeout"`
+	AllowedHosts     []string         `json:"allowed_hosts"`
+	BlockedHosts     []string         `json:"blocked_hosts"`
 	FileSystemAccess FileSystemAccess `json:"filesystem_access"`
 }
 
 // FileSystemAccess defines filesystem access permissions
 type FileSystemAccess struct {
-	ReadPaths     []string `json:"read_paths"`
-	WritePaths    []string `json:"write_paths"`
-	TempDir       bool     `json:"temp_dir"`
-	NoFileAccess  bool     `json:"no_file_access"`
+	ReadPaths    []string `json:"read_paths"`
+	WritePaths   []string `json:"write_paths"`
+	TempDir      bool     `json:"temp_dir"`
+	NoFileAccess bool     `json:"no_file_access"`
 }
 
 // PackageBuilder helps build rule packages
@@ -189,17 +189,17 @@ type PackageBuilder struct {
 func NewPackageBuilder(id, name, version string) *PackageBuilder {
 	return &PackageBuilder{
 		pkg: &RulePackage{
-			ID:        id,
-			Name:      name,
-			Version:   version,
-			CreatedAt: time.Now(),
-			Rules:     make([]*Rule, 0),
+			ID:           id,
+			Name:         name,
+			Version:      version,
+			CreatedAt:    time.Now(),
+			Rules:        make([]*Rule, 0),
 			Dependencies: make([]*Dependency, 0),
-			Keywords:  make([]string, 0),
-			Tags:      make([]string, 0),
-			Platforms: []string{"linux", "darwin", "windows"},
-			Metadata:  make(map[string]interface{}),
-			Permissions: make([]Permission, 0),
+			Keywords:     make([]string, 0),
+			Tags:         make([]string, 0),
+			Platforms:    []string{"linux", "darwin", "windows"},
+			Metadata:     make(map[string]interface{}),
+			Permissions:  make([]Permission, 0),
 		},
 	}
 }
@@ -293,19 +293,19 @@ func (pb *PackageBuilder) Build() *RulePackage {
 // generateHash generates a hash for the package
 func (pb *PackageBuilder) generateHash() string {
 	hasher := sha256.New()
-	
+
 	// Hash core package info
 	hasher.Write([]byte(pb.pkg.ID))
 	hasher.Write([]byte(pb.pkg.Name))
 	hasher.Write([]byte(pb.pkg.Version))
 	hasher.Write([]byte(pb.pkg.Description))
-	
+
 	// Hash rules
 	for _, rule := range pb.pkg.Rules {
 		hasher.Write([]byte(rule.ID))
 		hasher.Write([]byte(rule.Logic))
 	}
-	
+
 	return hex.EncodeToString(hasher.Sum(nil))
 }
 
@@ -331,25 +331,25 @@ func (pm *PackageManager) PackageFromDirectory(dirPath string) (*RulePackage, er
 	if err != nil {
 		return nil, fmt.Errorf("failed to read package.json: %w", err)
 	}
-	
+
 	var pkg RulePackage
 	if err := json.Unmarshal(data, &pkg); err != nil {
 		return nil, fmt.Errorf("failed to parse package.json: %w", err)
 	}
-	
+
 	// Load rules from rules directory
 	rulesDir := filepath.Join(dirPath, "rules")
 	if err := pm.loadRulesFromDirectory(&pkg, rulesDir); err != nil {
 		return nil, fmt.Errorf("failed to load rules: %w", err)
 	}
-	
+
 	// Load test cases from tests directory
 	testsDir := filepath.Join(dirPath, "tests")
 	if err := pm.loadTestCases(&pkg, testsDir); err != nil {
 		// Tests are optional, just log warning
 		fmt.Printf("Warning: failed to load test cases: %v\n", err)
 	}
-	
+
 	return &pkg, nil
 }
 
@@ -359,21 +359,21 @@ func (pm *PackageManager) loadRulesFromDirectory(pkg *RulePackage, rulesDir stri
 		if err != nil {
 			return err
 		}
-		
+
 		if !info.IsDir() && strings.HasSuffix(path, ".json") {
 			data, err := os.ReadFile(path)
 			if err != nil {
 				return err
 			}
-			
+
 			var rule Rule
 			if err := json.Unmarshal(data, &rule); err != nil {
 				return err
 			}
-			
+
 			pkg.Rules = append(pkg.Rules, &rule)
 		}
-		
+
 		return nil
 	})
 }
@@ -384,18 +384,18 @@ func (pm *PackageManager) loadTestCases(pkg *RulePackage, testsDir string) error
 		if err != nil {
 			return err
 		}
-		
+
 		if !info.IsDir() && strings.HasSuffix(path, ".json") {
 			data, err := os.ReadFile(path)
 			if err != nil {
 				return err
 			}
-			
+
 			var testCases []*TestCase
 			if err := json.Unmarshal(data, &testCases); err != nil {
 				return err
 			}
-			
+
 			// Find rule by filename and add test cases
 			filename := strings.TrimSuffix(filepath.Base(path), ".json")
 			for _, rule := range pkg.Rules {
@@ -405,7 +405,7 @@ func (pm *PackageManager) loadTestCases(pkg *RulePackage, testsDir string) error
 				}
 			}
 		}
-		
+
 		return nil
 	})
 }
@@ -417,52 +417,52 @@ func (pm *PackageManager) ExportPackage(pkg *RulePackage, outputPath string) err
 		return err
 	}
 	defer file.Close()
-	
+
 	gzipWriter := gzip.NewWriter(file)
 	defer gzipWriter.Close()
-	
+
 	tarWriter := tar.NewWriter(gzipWriter)
 	defer tarWriter.Close()
-	
+
 	// Add package.json
 	packageData, err := json.MarshalIndent(pkg, "", "  ")
 	if err != nil {
 		return err
 	}
-	
+
 	if err := pm.addFileToTar(tarWriter, "package.json", packageData); err != nil {
 		return err
 	}
-	
+
 	// Add rules
 	for _, rule := range pkg.Rules {
 		ruleData, err := json.MarshalIndent(rule, "", "  ")
 		if err != nil {
 			return err
 		}
-		
+
 		filename := fmt.Sprintf("rules/%s.json", rule.ID)
 		if err := pm.addFileToTar(tarWriter, filename, ruleData); err != nil {
 			return err
 		}
 	}
-	
+
 	return nil
 }
 
 // addFileToTar adds a file to a tar archive
 func (pm *PackageManager) addFileToTar(tarWriter *tar.Writer, filename string, data []byte) error {
 	header := &tar.Header{
-		Name: filename,
-		Size: int64(len(data)),
-		Mode: 0600,
+		Name:    filename,
+		Size:    int64(len(data)),
+		Mode:    0600,
 		ModTime: time.Now(),
 	}
-	
+
 	if err := tarWriter.WriteHeader(header); err != nil {
 		return err
 	}
-	
+
 	_, err := tarWriter.Write(data)
 	return err
 }
@@ -474,18 +474,18 @@ func (pm *PackageManager) ImportPackage(packagePath string) (*RulePackage, error
 		return nil, err
 	}
 	defer file.Close()
-	
+
 	gzipReader, err := gzip.NewReader(file)
 	if err != nil {
 		return nil, err
 	}
 	defer gzipReader.Close()
-	
+
 	tarReader := tar.NewReader(gzipReader)
-	
+
 	var pkg *RulePackage
 	rules := make(map[string]*Rule)
-	
+
 	for {
 		header, err := tarReader.Next()
 		if err == io.EOF {
@@ -494,12 +494,12 @@ func (pm *PackageManager) ImportPackage(packagePath string) (*RulePackage, error
 		if err != nil {
 			return nil, err
 		}
-		
+
 		data, err := io.ReadAll(tarReader)
 		if err != nil {
 			return nil, err
 		}
-		
+
 		if header.Name == "package.json" {
 			pkg = &RulePackage{}
 			if err := json.Unmarshal(data, pkg); err != nil {
@@ -513,17 +513,17 @@ func (pm *PackageManager) ImportPackage(packagePath string) (*RulePackage, error
 			rules[rule.ID] = &rule
 		}
 	}
-	
+
 	if pkg == nil {
 		return nil, fmt.Errorf("package.json not found in archive")
 	}
-	
+
 	// Reconstruct rules array
 	pkg.Rules = make([]*Rule, 0, len(rules))
 	for _, rule := range rules {
 		pkg.Rules = append(pkg.Rules, rule)
 	}
-	
+
 	return pkg, nil
 }
 
@@ -532,40 +532,40 @@ func (pm *PackageManager) ValidatePackageStructure(pkg *RulePackage) error {
 	if pkg.ID == "" {
 		return fmt.Errorf("package ID is required")
 	}
-	
+
 	if pkg.Name == "" {
 		return fmt.Errorf("package name is required")
 	}
-	
+
 	if pkg.Version == "" {
 		return fmt.Errorf("package version is required")
 	}
-	
+
 	if len(pkg.Rules) == 0 {
 		return fmt.Errorf("package must contain at least one rule")
 	}
-	
+
 	// Validate rules
 	ruleIDs := make(map[string]bool)
 	for _, rule := range pkg.Rules {
 		if rule.ID == "" {
 			return fmt.Errorf("rule ID is required")
 		}
-		
+
 		if ruleIDs[rule.ID] {
 			return fmt.Errorf("duplicate rule ID: %s", rule.ID)
 		}
 		ruleIDs[rule.ID] = true
-		
+
 		if rule.Name == "" {
 			return fmt.Errorf("rule name is required for rule %s", rule.ID)
 		}
-		
+
 		if rule.Logic == "" {
 			return fmt.Errorf("rule logic is required for rule %s", rule.ID)
 		}
 	}
-	
+
 	return nil
 }
 
@@ -574,7 +574,7 @@ func (r *Rule) Execute(ctx context.Context, data interface{}) (interface{}, erro
 	// Create execution context with timeout
 	execCtx, cancel := context.WithTimeout(ctx, r.Timeout)
 	defer cancel()
-	
+
 	// Execute based on language
 	switch r.Language {
 	case "javascript", "js":

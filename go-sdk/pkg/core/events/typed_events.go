@@ -14,31 +14,31 @@ import (
 type TypedEvent[T EventDataType] interface {
 	// ID returns the unique identifier for this event
 	ID() string
-	
+
 	// Type returns the event type
 	Type() EventType
-	
+
 	// Timestamp returns the event timestamp (Unix milliseconds)
 	Timestamp() *int64
-	
+
 	// SetTimestamp sets the event timestamp
 	SetTimestamp(timestamp int64)
-	
+
 	// TypedData returns the strongly-typed event data
 	TypedData() T
-	
+
 	// Validate validates the event structure and content
 	Validate() error
-	
+
 	// ToJSON serializes the event to JSON for cross-SDK compatibility
 	ToJSON() ([]byte, error)
-	
+
 	// ToProtobuf converts the event to its protobuf representation
 	ToProtobuf() (*generated.Event, error)
-	
+
 	// GetBaseEvent returns the underlying base event
 	GetBaseEvent() *BaseEvent
-	
+
 	// ToLegacyEvent converts to the legacy Event interface for compatibility
 	ToLegacyEvent() Event
 }
@@ -72,7 +72,7 @@ func (e *TypedBaseEvent[T]) Validate() error {
 	if err := e.BaseEvent.Validate(); err != nil {
 		return err
 	}
-	
+
 	// Validate typed data
 	return e.typedData.Validate()
 }
@@ -83,11 +83,11 @@ func (e *TypedBaseEvent[T]) ToJSON() ([]byte, error) {
 		"type": e.EventType,
 		"data": e.typedData.ToMap(),
 	}
-	
+
 	if e.TimestampMs != nil {
 		eventData["timestamp"] = *e.TimestampMs
 	}
-	
+
 	return json.Marshal(eventData)
 }
 
@@ -264,7 +264,7 @@ func (e *TypedBaseEvent[T]) ToLegacyEvent() Event {
 			}
 		}
 	}
-	
+
 	// Fallback: create a generic legacy event
 	return &BaseEvent{
 		EventType:   e.EventType,
@@ -287,24 +287,24 @@ func NewTypedTextMessageStartEvent(messageID string, options ...TextMessageStart
 	data := MessageEventData{
 		MessageID: messageID,
 	}
-	
+
 	event := NewTypedEvent(EventTypeTextMessageStart, data)
-	
+
 	// Apply options by converting to legacy event, applying options, then converting back
 	legacyEvent := &TextMessageStartEvent{
 		BaseEvent: event.GetBaseEvent(),
 		MessageID: messageID,
 	}
-	
+
 	for _, opt := range options {
 		opt(legacyEvent)
 	}
-	
+
 	// Update typed data from legacy event
 	if legacyEvent.Role != nil {
 		data.Role = legacyEvent.Role
 	}
-	
+
 	return &TypedBaseEvent[MessageEventData]{
 		BaseEvent: legacyEvent.BaseEvent,
 		typedData: data,
@@ -317,7 +317,7 @@ func NewTypedTextMessageContentEvent(messageID, delta string) TypedEvent[Message
 		MessageID: messageID,
 		Delta:     delta,
 	}
-	
+
 	return NewTypedEvent(EventTypeTextMessageContent, data)
 }
 
@@ -326,7 +326,7 @@ func NewTypedTextMessageEndEvent(messageID string) TypedEvent[MessageEventData] 
 	data := MessageEventData{
 		MessageID: messageID,
 	}
-	
+
 	return NewTypedEvent(EventTypeTextMessageEnd, data)
 }
 
@@ -337,7 +337,7 @@ func NewTypedToolCallStartEvent(toolCallID, toolCallName string, parentMessageID
 		ToolCallName:    toolCallName,
 		ParentMessageID: parentMessageID,
 	}
-	
+
 	return NewTypedEvent(EventTypeToolCallStart, data)
 }
 
@@ -347,7 +347,7 @@ func NewTypedToolCallArgsEvent(toolCallID, delta string) TypedEvent[ToolCallEven
 		ToolCallID: toolCallID,
 		Delta:      delta,
 	}
-	
+
 	return NewTypedEvent(EventTypeToolCallArgs, data)
 }
 
@@ -356,7 +356,7 @@ func NewTypedToolCallEndEvent(toolCallID string) TypedEvent[ToolCallEventData] {
 	data := ToolCallEventData{
 		ToolCallID: toolCallID,
 	}
-	
+
 	return NewTypedEvent(EventTypeToolCallEnd, data)
 }
 
@@ -366,7 +366,7 @@ func NewTypedRunStartedEvent(runID, threadID string) TypedEvent[RunEventData] {
 		RunID:    runID,
 		ThreadID: threadID,
 	}
-	
+
 	return NewTypedEvent(EventTypeRunStarted, data)
 }
 
@@ -376,7 +376,7 @@ func NewTypedRunFinishedEvent(runID, threadID string) TypedEvent[RunEventData] {
 		RunID:    runID,
 		ThreadID: threadID,
 	}
-	
+
 	return NewTypedEvent(EventTypeRunFinished, data)
 }
 
@@ -387,7 +387,7 @@ func NewTypedRunErrorEvent(runID, message string, code *string) TypedEvent[RunEv
 		Message: message,
 		Code:    code,
 	}
-	
+
 	return NewTypedEvent(EventTypeRunError, data)
 }
 
@@ -396,7 +396,7 @@ func NewTypedStepStartedEvent(stepName string) TypedEvent[StepEventData] {
 	data := StepEventData{
 		StepName: stepName,
 	}
-	
+
 	return NewTypedEvent(EventTypeStepStarted, data)
 }
 
@@ -405,7 +405,7 @@ func NewTypedStepFinishedEvent(stepName string) TypedEvent[StepEventData] {
 	data := StepEventData{
 		StepName: stepName,
 	}
-	
+
 	return NewTypedEvent(EventTypeStepFinished, data)
 }
 
@@ -414,7 +414,7 @@ func NewTypedStateSnapshotEvent(snapshot interface{}) TypedEvent[StateSnapshotEv
 	data := StateSnapshotEventData{
 		Snapshot: snapshot,
 	}
-	
+
 	return NewTypedEvent(EventTypeStateSnapshot, data)
 }
 
@@ -423,7 +423,7 @@ func NewTypedStateDeltaEvent(delta []JSONPatchOperation) TypedEvent[StateDeltaEv
 	data := StateDeltaEventData{
 		Delta: delta,
 	}
-	
+
 	return NewTypedEvent(EventTypeStateDelta, data)
 }
 
@@ -432,7 +432,7 @@ func NewTypedMessagesSnapshotEvent(messages []Message) TypedEvent[MessagesSnapsh
 	data := MessagesSnapshotEventData{
 		Messages: messages,
 	}
-	
+
 	return NewTypedEvent(EventTypeMessagesSnapshot, data)
 }
 
@@ -442,7 +442,7 @@ func NewTypedRawEvent(event interface{}, source *string) TypedEvent[RawEventData
 		Event:  event,
 		Source: source,
 	}
-	
+
 	return NewTypedEvent(EventTypeRaw, data)
 }
 
@@ -452,7 +452,7 @@ func NewTypedCustomEvent(name string, value interface{}) TypedEvent[CustomEventD
 		Name:  name,
 		Value: value,
 	}
-	
+
 	return NewTypedEvent(EventTypeCustom, data)
 }
 
@@ -471,7 +471,7 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 			BaseEvent: e.BaseEvent,
 			typedData: data,
 		}, nil
-		
+
 	case *TextMessageContentEvent:
 		data := MessageEventData{
 			MessageID: e.MessageID,
@@ -481,7 +481,7 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 			BaseEvent: e.BaseEvent,
 			typedData: data,
 		}, nil
-		
+
 	case *TextMessageEndEvent:
 		data := MessageEventData{
 			MessageID: e.MessageID,
@@ -490,7 +490,7 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 			BaseEvent: e.BaseEvent,
 			typedData: data,
 		}, nil
-		
+
 	case *ToolCallStartEvent:
 		data := ToolCallEventData{
 			ToolCallID:      e.ToolCallID,
@@ -501,7 +501,7 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 			BaseEvent: e.BaseEvent,
 			typedData: data,
 		}, nil
-		
+
 	case *ToolCallArgsEvent:
 		data := ToolCallEventData{
 			ToolCallID: e.ToolCallID,
@@ -511,7 +511,7 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 			BaseEvent: e.BaseEvent,
 			typedData: data,
 		}, nil
-		
+
 	case *ToolCallEndEvent:
 		data := ToolCallEventData{
 			ToolCallID: e.ToolCallID,
@@ -520,7 +520,7 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 			BaseEvent: e.BaseEvent,
 			typedData: data,
 		}, nil
-		
+
 	case *RunStartedEvent:
 		data := RunEventData{
 			RunID:    e.RunID(),
@@ -530,7 +530,7 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 			BaseEvent: e.BaseEvent,
 			typedData: data,
 		}, nil
-		
+
 	case *RunFinishedEvent:
 		data := RunEventData{
 			RunID:    e.RunID(),
@@ -540,7 +540,7 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 			BaseEvent: e.BaseEvent,
 			typedData: data,
 		}, nil
-		
+
 	case *RunErrorEvent:
 		data := RunEventData{
 			RunID:   e.RunID(),
@@ -551,7 +551,7 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 			BaseEvent: e.BaseEvent,
 			typedData: data,
 		}, nil
-		
+
 	case *StepStartedEvent:
 		data := StepEventData{
 			StepName: e.StepName,
@@ -560,7 +560,7 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 			BaseEvent: e.BaseEvent,
 			typedData: data,
 		}, nil
-		
+
 	case *StepFinishedEvent:
 		data := StepEventData{
 			StepName: e.StepName,
@@ -569,7 +569,7 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 			BaseEvent: e.BaseEvent,
 			typedData: data,
 		}, nil
-		
+
 	case *StateSnapshotEvent:
 		data := StateSnapshotEventData{
 			Snapshot: e.Snapshot,
@@ -578,7 +578,7 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 			BaseEvent: e.BaseEvent,
 			typedData: data,
 		}, nil
-		
+
 	case *StateDeltaEvent:
 		data := StateDeltaEventData{
 			Delta: e.Delta,
@@ -587,7 +587,7 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 			BaseEvent: e.BaseEvent,
 			typedData: data,
 		}, nil
-		
+
 	case *MessagesSnapshotEvent:
 		data := MessagesSnapshotEventData{
 			Messages: e.Messages,
@@ -596,7 +596,7 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 			BaseEvent: e.BaseEvent,
 			typedData: data,
 		}, nil
-		
+
 	case *RawEvent:
 		data := RawEventData{
 			Event:  e.Event,
@@ -606,7 +606,7 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 			BaseEvent: e.BaseEvent,
 			typedData: data,
 		}, nil
-		
+
 	case *CustomEvent:
 		data := CustomEventData{
 			Name:  e.Name,
@@ -616,7 +616,7 @@ func (a *EventAdapter) ToTypedEvent(legacyEvent Event) (interface{}, error) {
 			BaseEvent: e.BaseEvent,
 			typedData: data,
 		}, nil
-		
+
 	default:
 		return nil, fmt.Errorf("unsupported event type: %T", legacyEvent)
 	}
@@ -654,13 +654,13 @@ func (a *EventAdapter) FromTypedEvent(typedEvent interface{}) (Event, error) {
 func ToCoreTypedEvent[T EventDataType](event TypedEvent[T]) (core.Event[map[string]interface{}], error) {
 	// Convert EventDataType to core.EventData format
 	eventData := event.TypedData()
-	
+
 	// Use the ToMap method to convert to map format
 	mapData := eventData.ToMap()
-	
+
 	// Create a core event with map data
 	coreEvent := core.NewEvent[map[string]interface{}]("", string(event.Type()), mapData)
-	
+
 	return coreEvent, nil
 }
 
@@ -668,10 +668,10 @@ func ToCoreTypedEvent[T EventDataType](event TypedEvent[T]) (core.Event[map[stri
 func FromCoreEvent(coreEvent core.Event[map[string]interface{}]) (Event, error) {
 	// Convert map data back to a typed event
 	eventData := coreEvent.Data()
-	
+
 	// Parse the event type string to EventType
 	eventType := EventType(coreEvent.Type())
-	
+
 	// Create a BaseEvent with the raw data
 	timestamp := coreEvent.Timestamp().UnixMilli()
 	baseEvent := &BaseEvent{
@@ -679,6 +679,6 @@ func FromCoreEvent(coreEvent core.Event[map[string]interface{}]) (Event, error) 
 		TimestampMs: &timestamp,
 		RawEvent:    eventData,
 	}
-	
+
 	return baseEvent, nil
 }

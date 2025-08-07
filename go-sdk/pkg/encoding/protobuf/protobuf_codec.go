@@ -18,12 +18,12 @@ type ProtobufCodec struct {
 
 // Ensure ProtobufCodec implements the core interfaces
 var (
-	_ encoding.Encoder               = (*ProtobufCodec)(nil)
-	_ encoding.Decoder               = (*ProtobufCodec)(nil)
-	_ encoding.ContentTypeProvider   = (*ProtobufCodec)(nil)
-	_ encoding.Codec                 = (*ProtobufCodec)(nil)
-	_ encoding.LegacyEncoder         = (*ProtobufCodec)(nil)
-	_ encoding.LegacyDecoder         = (*ProtobufCodec)(nil)
+	_ encoding.Encoder             = (*ProtobufCodec)(nil)
+	_ encoding.Decoder             = (*ProtobufCodec)(nil)
+	_ encoding.ContentTypeProvider = (*ProtobufCodec)(nil)
+	_ encoding.Codec               = (*ProtobufCodec)(nil)
+	_ encoding.LegacyEncoder       = (*ProtobufCodec)(nil)
+	_ encoding.LegacyDecoder       = (*ProtobufCodec)(nil)
 )
 
 // NewProtobufCodec creates a new ProtobufCodec with optional configuration
@@ -60,10 +60,10 @@ type StreamingProtobufCodec struct {
 
 // Ensure StreamingProtobufCodec implements the streaming interfaces
 var (
-	_ encoding.StreamCodec                = (*StreamingProtobufCodec)(nil)
-	_ encoding.LegacyStreamCodec          = (*StreamingProtobufCodec)(nil)
-	_ encoding.StreamSessionManager       = (*StreamingProtobufCodec)(nil)
-	_ encoding.StreamEventProcessor       = (*StreamingProtobufCodec)(nil)
+	_ encoding.StreamCodec          = (*StreamingProtobufCodec)(nil)
+	_ encoding.LegacyStreamCodec    = (*StreamingProtobufCodec)(nil)
+	_ encoding.StreamSessionManager = (*StreamingProtobufCodec)(nil)
+	_ encoding.StreamEventProcessor = (*StreamingProtobufCodec)(nil)
 )
 
 // NewStreamingProtobufCodec creates a new StreamingProtobufCodec
@@ -121,7 +121,6 @@ func (c *StreamingProtobufCodec) EndDecoding(ctx context.Context) error {
 	return c.decoder.EndStream(ctx)
 }
 
-
 // GetStreamDecoder returns a new stream decoder instance for concurrent use
 func (c *StreamingProtobufCodec) GetStreamDecoder() encoding.StreamDecoder {
 	return NewStreamingProtobufDecoder(c.decOptions)
@@ -131,7 +130,6 @@ func (c *StreamingProtobufCodec) GetStreamDecoder() encoding.StreamDecoder {
 func (c *StreamingProtobufCodec) GetStreamEncoder() encoding.StreamEncoder {
 	return NewStreamingProtobufEncoder(c.encOptions)
 }
-
 
 // StreamSessionManager interface implementation
 

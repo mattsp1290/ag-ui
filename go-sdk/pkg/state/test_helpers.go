@@ -59,7 +59,6 @@ func TestStoreWithPath(t *testing.T, path string, value interface{}) *StateStore
 	return store
 }
 
-
 // TestGenerator creates a new StateEventGenerator for testing.
 func TestGenerator(t *testing.T, store *StateStore) *StateEventGenerator {
 	t.Helper()
@@ -82,7 +81,7 @@ func AssertEventuallyTrue(t *testing.T, condition func() bool, timeout time.Dura
 	if interval < 10*time.Millisecond {
 		interval = 10 * time.Millisecond
 	}
-	
+
 	for time.Now().Before(deadline) {
 		if condition() {
 			return
@@ -111,10 +110,10 @@ func WaitForBatchProcessing(timeout time.Duration) {
 
 // TestCleanup provides a centralized test cleanup manager
 type TestCleanup struct {
-	t              *testing.T
-	cleanupFuncs   []func()
-	monitoring     *MonitoringSystem
-	manager        *StateManager
+	t            *testing.T
+	cleanupFuncs []func()
+	monitoring   *MonitoringSystem
+	manager      *StateManager
 }
 
 // NewTestCleanup creates a new test cleanup manager
@@ -153,17 +152,17 @@ func (tc *TestCleanup) cleanup() {
 		tc.monitoring.Shutdown(ctx)
 		cancel()
 	}
-	
+
 	// Close state manager
 	if tc.manager != nil {
 		tc.manager.Close()
 	}
-	
+
 	// Run custom cleanup functions
 	for _, f := range tc.cleanupFuncs {
 		f()
 	}
-	
+
 	// Give time for goroutines to finish
 	time.Sleep(100 * time.Millisecond)
 }
@@ -172,10 +171,10 @@ func (tc *TestCleanup) cleanup() {
 func NewTestSafeMonitoringConfig() MonitoringConfig {
 	return MonitoringConfig{
 		LogLevel:            zapcore.ErrorLevel, // Reduce noise in tests
-		EnableHealthChecks:  false,             // Disable by default to reduce complexity
-		MetricsEnabled:      false,             // Disable by default
-		MetricsInterval:     10 * time.Second,  // Long intervals for tests
-		HealthCheckInterval: 10 * time.Second,  // Long intervals for tests
-		HealthCheckTimeout:  5 * time.Second,   // Reasonable timeout for tests
+		EnableHealthChecks:  false,              // Disable by default to reduce complexity
+		MetricsEnabled:      false,              // Disable by default
+		MetricsInterval:     10 * time.Second,   // Long intervals for tests
+		HealthCheckInterval: 10 * time.Second,   // Long intervals for tests
+		HealthCheckTimeout:  5 * time.Second,    // Reasonable timeout for tests
 	}
 }

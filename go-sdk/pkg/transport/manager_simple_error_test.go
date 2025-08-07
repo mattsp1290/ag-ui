@@ -30,13 +30,13 @@ func (t *DeterministicErrorTransport) Send(ctx context.Context, event TransportE
 			t.mu.RLock()
 			shouldFail := t.failurePattern[id]
 			t.mu.RUnlock()
-			
+
 			if shouldFail {
 				return errors.New("deterministic failure")
 			}
 		}
 	}
-	
+
 	// Otherwise, use the underlying transport behavior
 	return t.ErrorTransport.Send(ctx, event)
 }
@@ -172,7 +172,7 @@ func TestSimpleManagerSendFailures(t *testing.T) {
 				m.SetValidationConfig(&ValidationConfig{
 					Enabled:           true,
 					AllowedEventTypes: []string{"allowed", "demo"}, // Only allow specific types
-					FailFast:          true, // Fail on first error
+					FailFast:          true,                        // Fail on first error
 				})
 				m.Start(context.Background())
 			},
@@ -273,7 +273,7 @@ func TestSimpleManagerConcurrentErrors(t *testing.T) {
 		defer manager.Stop(context.Background())
 
 		var wg sync.WaitGroup
-		
+
 		// Rapidly change transports
 		for i := 0; i < 10; i++ {
 			wg.Add(1)
@@ -281,7 +281,7 @@ func TestSimpleManagerConcurrentErrors(t *testing.T) {
 				defer wg.Done()
 				transport := NewErrorTransport()
 				manager.SetTransport(transport)
-				
+
 				// Try to send
 				event := &DemoEvent{id: fmt.Sprintf("concurrent-%d", id), eventType: "demo"}
 				manager.Send(context.Background(), event)
@@ -293,7 +293,7 @@ func TestSimpleManagerConcurrentErrors(t *testing.T) {
 
 	t.Run("concurrent_send_with_errors", func(t *testing.T) {
 		manager := NewSimpleManager()
-		
+
 		// Create a custom transport that deterministically fails on certain IDs
 		baseTransport := NewErrorTransport()
 		transport := &DeterministicErrorTransport{
@@ -302,9 +302,9 @@ func TestSimpleManagerConcurrentErrors(t *testing.T) {
 				2: true, 5: true, 8: true, 11: true, 14: true, 17: true, // Fail these IDs
 			},
 		}
-		
+
 		manager.SetTransport(transport)
-		
+
 		// Start the manager which will connect the transport
 		ctx := context.Background()
 		if err := manager.Start(ctx); err != nil {
@@ -320,7 +320,7 @@ func TestSimpleManagerConcurrentErrors(t *testing.T) {
 			wg.Add(1)
 			go func(id int) {
 				defer wg.Done()
-				
+
 				event := &DemoEvent{id: fmt.Sprintf("test-%d", id), eventType: "demo"}
 				if err := manager.Send(context.Background(), event); err != nil {
 					atomic.AddInt32(&errorCount, 1)
@@ -339,7 +339,7 @@ func TestSimpleManagerConcurrentErrors(t *testing.T) {
 		if atomic.LoadInt32(&errorCount) == 0 {
 			t.Error("Expected some failed sends")
 		}
-		
+
 		// Log for debugging
 		t.Logf("Success: %d, Errors: %d", atomic.LoadInt32(&successCount), atomic.LoadInt32(&errorCount))
 	})
@@ -351,9 +351,9 @@ func TestSimpleManagerResourceCleanup(t *testing.T) {
 		manager := NewSimpleManager()
 		transport := NewErrorTransport()
 		transport.SetConnectError(ErrConnectionFailed)
-		
+
 		manager.SetTransport(transport)
-		
+
 		ctx := context.Background()
 		err := manager.Start(ctx)
 		if !errors.Is(err, ErrConnectionFailed) {
@@ -368,11 +368,11 @@ func TestSimpleManagerResourceCleanup(t *testing.T) {
 		// Should be able to start again with different transport
 		newTransport := NewErrorTransport()
 		manager.SetTransport(newTransport)
-		
+
 		if err := manager.Start(ctx); err != nil {
 			t.Errorf("Should be able to start after previous failure: %v", err)
 		}
-		
+
 		manager.Stop(ctx)
 	})
 
@@ -380,13 +380,13 @@ func TestSimpleManagerResourceCleanup(t *testing.T) {
 		manager := NewSimpleManager()
 		transport := NewErrorTransport()
 		transport.SetCloseError(errors.New("close failed"))
-		
+
 		manager.SetTransport(transport)
 		manager.Start(context.Background())
 
 		ctx := context.Background()
 		err := manager.Stop(ctx)
-		
+
 		// Even with close error, manager should complete stop
 		if err == nil || err.Error() != "close failed" {
 			t.Errorf("Expected close error, got %v", err)
@@ -400,25 +400,25 @@ func TestSimpleManagerResourceCleanup(t *testing.T) {
 
 	t.Run("goroutine_cleanup_on_transport_change", func(t *testing.T) {
 		manager := NewSimpleManager()
-		
+
 		// Start with first transport
 		transport1 := NewErrorTransport()
 		manager.SetTransport(transport1)
 		manager.Start(context.Background())
-		
+
 		// Change transport multiple times
 		for i := 0; i < 5; i++ {
 			transport := NewErrorTransport()
 			manager.SetTransport(transport)
 			time.Sleep(10 * time.Millisecond) // Let goroutines start/stop
 		}
-		
+
 		// Stop and wait for cleanup
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		
+
 		manager.Stop(ctx)
-		
+
 		// All goroutines should be cleaned up
 		if !manager.waitForReceiveGoroutines(500 * time.Millisecond) {
 			t.Error("Goroutines not cleaned up properly")
@@ -438,11 +438,11 @@ func TestSimpleManagerBackpressureErrors(t *testing.T) {
 			BlockTimeout:  50 * time.Millisecond,
 			EnableMetrics: true,
 		}
-		
+
 		manager := NewSimpleManagerWithBackpressure(config)
 		transport := NewDemoTransport() // Echo transport
 		manager.SetTransport(transport)
-		
+
 		ctx := context.Background()
 		manager.Start(ctx)
 		defer manager.Stop(ctx)
@@ -450,7 +450,7 @@ func TestSimpleManagerBackpressureErrors(t *testing.T) {
 		// Send many events rapidly
 		var sent int32
 		var wg sync.WaitGroup
-		
+
 		for i := 0; i < 100; i++ {
 			wg.Add(1)
 			go func(id int) {
@@ -464,18 +464,18 @@ func TestSimpleManagerBackpressureErrors(t *testing.T) {
 				}
 			}(i)
 		}
-		
+
 		wg.Wait()
-		
+
 		// Give time for echo events to be processed
 		time.Sleep(200 * time.Millisecond)
-		
+
 		// Check metrics
 		metrics := manager.GetBackpressureMetrics()
 		if metrics.EventsDropped == 0 && atomic.LoadInt32(&sent) > int32(config.BufferSize) {
 			t.Error("Expected some events to be dropped due to backpressure")
 		}
-		
+
 		t.Logf("Sent: %d, Dropped: %d", atomic.LoadInt32(&sent), metrics.EventsDropped)
 	})
 
@@ -488,11 +488,11 @@ func TestSimpleManagerBackpressureErrors(t *testing.T) {
 			BlockTimeout:  50 * time.Millisecond,
 			EnableMetrics: true,
 		}
-		
+
 		manager := NewSimpleManagerWithBackpressure(config)
 		transport := NewDemoTransport()
 		manager.SetTransport(transport)
-		
+
 		ctx := context.Background()
 		manager.Start(ctx)
 		defer manager.Stop(ctx)
@@ -505,28 +505,28 @@ func TestSimpleManagerBackpressureErrors(t *testing.T) {
 			}
 			go manager.Send(ctx, event)
 		}
-		
+
 		// Give time for buffer to fill
 		time.Sleep(100 * time.Millisecond)
-		
+
 		// Try to send when buffer is full
 		event := &DemoEvent{id: "blocked", eventType: "test"}
 		start := time.Now()
 		err := transport.Send(ctx, event)
 		duration := time.Since(start)
-		
+
 		// Should succeed but possibly with delay
 		if err != nil {
 			t.Logf("Send completed with error: %v", err)
 		}
-		
+
 		// Check that blocking occurred
 		if duration < 10*time.Millisecond {
 			t.Log("Warning: Send completed too quickly, blocking may not have occurred")
 		}
-		
+
 		metrics := manager.GetBackpressureMetrics()
-		t.Logf("Backpressure metrics - Blocked: %d, Backpressure Active: %v", 
+		t.Logf("Backpressure metrics - Blocked: %d, Backpressure Active: %v",
 			metrics.EventsBlocked, metrics.BackpressureActive)
 	})
 }
@@ -592,10 +592,10 @@ func TestSimpleManagerValidationErrors(t *testing.T) {
 				},
 				tt.config,
 			)
-			
+
 			transport := NewErrorTransport()
 			manager.SetTransport(transport)
-			
+
 			ctx := context.Background()
 			manager.Start(ctx)
 			defer manager.Stop(ctx)
@@ -616,10 +616,10 @@ func TestSimpleManagerTimeoutScenarios(t *testing.T) {
 		manager := NewSimpleManager()
 		transport := NewDemoTransport()
 		manager.SetTransport(transport)
-		
+
 		ctx := context.Background()
 		manager.Start(ctx)
-		
+
 		// Fill event channel
 		for i := 0; i < 200; i++ {
 			// Convert DemoEvent to events.Event
@@ -628,24 +628,24 @@ func TestSimpleManagerTimeoutScenarios(t *testing.T) {
 				EventType: events.EventType(demoEvent.Type()),
 			}
 			baseEvent.SetTimestamp(demoEvent.Timestamp().UnixMilli())
-			
+
 			select {
 			case manager.eventChan <- baseEvent:
 			default:
 				// Channel full
 			}
 		}
-		
+
 		// Stop with very short context
 		stopCtx, cancel := context.WithTimeout(context.Background(), 1*time.Millisecond)
 		defer cancel()
-		
+
 		// Should handle timeout gracefully
 		err := manager.Stop(stopCtx)
 		if err != nil {
 			t.Errorf("Stop should not return error on drain timeout: %v", err)
 		}
-		
+
 		// Manager should not be running
 		if atomic.LoadInt32(&manager.running) != 0 {
 			t.Error("Manager should not be running after stop")
@@ -656,18 +656,18 @@ func TestSimpleManagerTimeoutScenarios(t *testing.T) {
 		manager := NewSimpleManager()
 		transport := NewErrorTransport()
 		transport.SetCloseError(NewTemporaryError("websocket", "close", context.DeadlineExceeded))
-		
+
 		manager.SetTransport(transport)
 		manager.Start(context.Background())
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 		defer cancel()
-		
+
 		err := manager.Stop(ctx)
 		if err == nil {
 			t.Error("Expected error from transport close timeout")
 		}
-		
+
 		// Manager should still be marked as stopped
 		if atomic.LoadInt32(&manager.running) != 0 {
 			t.Error("Manager should not be running even after close error")
@@ -681,7 +681,7 @@ func BenchmarkSimpleManagerErrorPaths(b *testing.B) {
 		manager := NewSimpleManager()
 		event := &DemoEvent{id: "bench-1", eventType: "demo"}
 		ctx := context.Background()
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			manager.Send(ctx, event)
@@ -694,7 +694,7 @@ func BenchmarkSimpleManagerErrorPaths(b *testing.B) {
 			transport := NewErrorTransport()
 			manager.SetTransport(transport)
 			ctx := context.Background()
-			
+
 			for pb.Next() {
 				manager.Start(ctx)
 				manager.Stop(ctx)
@@ -707,20 +707,20 @@ func BenchmarkSimpleManagerErrorPaths(b *testing.B) {
 			Enabled:           true,
 			AllowedEventTypes: []string{"allowed"},
 		}
-		
+
 		manager := NewSimpleManagerWithValidation(
 			BackpressureConfig{Strategy: BackpressureNone, BufferSize: 100},
 			config,
 		)
-		
+
 		transport := NewErrorTransport()
 		manager.SetTransport(transport)
 		manager.Start(context.Background())
 		defer manager.Stop(context.Background())
-		
+
 		event := &DemoEvent{id: "bench-1", eventType: "forbidden"}
 		ctx := context.Background()
-		
+
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
 			manager.Send(ctx, event)

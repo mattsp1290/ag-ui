@@ -52,11 +52,11 @@ type Alternative struct {
 
 // RuleExample represents a complete example with context.
 type RuleExample struct {
-	RuleName    string
-	Context     string
-	Violation   string
-	Solution    string
-	Benefits    []string
+	RuleName  string
+	Context   string
+	Violation string
+	Solution  string
+	Benefits  []string
 }
 
 // Documentation templates
@@ -268,13 +268,13 @@ func (g *RuleDocGenerator) GenerateAll() error {
 	}
 
 	generators := map[string]func() error{
-		"README.md":                g.generateMainDoc,
-		"MIGRATION_GUIDE.md":       g.generateMigrationGuide,
-		"RULES_SUMMARY.md":         g.generateRulesSummary,
-		"EXAMPLES.md":              g.generateExamples,
-		"IDE_INTEGRATION.md":       g.generateIDEIntegration,
-		"CI_INTEGRATION.md":        g.generateCIIntegration,
-		"TROUBLESHOOTING.md":       g.generateTroubleshooting,
+		"README.md":          g.generateMainDoc,
+		"MIGRATION_GUIDE.md": g.generateMigrationGuide,
+		"RULES_SUMMARY.md":   g.generateRulesSummary,
+		"EXAMPLES.md":        g.generateExamples,
+		"IDE_INTEGRATION.md": g.generateIDEIntegration,
+		"CI_INTEGRATION.md":  g.generateCIIntegration,
+		"TROUBLESHOOTING.md": g.generateTroubleshooting,
 	}
 
 	for filename, generator := range generators {
@@ -362,7 +362,7 @@ func (g *RuleDocGenerator) getMainDocData() map[string]interface{} {
 	categories := g.groupRulesByCategory()
 	return map[string]interface{}{
 		"GeneratedAt": time.Now().Format("2006-01-02 15:04:05"),
-		"Categories": categories,
+		"Categories":  categories,
 	}
 }
 
@@ -375,11 +375,11 @@ func (g *RuleDocGenerator) getMigrationData() map[string]interface{} {
 func (g *RuleDocGenerator) groupRulesByCategory() []map[string]interface{} {
 	categories := make(map[string][]LintingRule)
 	categoryDescs := map[string]string{
-		"type-safety":      "Rules that enforce type safety and prevent interface{} usage",
-		"deprecated-api":   "Rules that detect deprecated API usage",
-		"migration":        "Rules that help with migration to type-safe alternatives",
-		"performance":      "Rules that improve performance through type safety",
-		"maintainability":  "Rules that improve code maintainability",
+		"type-safety":     "Rules that enforce type safety and prevent interface{} usage",
+		"deprecated-api":  "Rules that detect deprecated API usage",
+		"migration":       "Rules that help with migration to type-safe alternatives",
+		"performance":     "Rules that improve performance through type safety",
+		"maintainability": "Rules that improve code maintainability",
 	}
 
 	for _, rule := range g.Rules {
@@ -402,7 +402,7 @@ func (g *RuleDocGenerator) groupRulesByCategory() []map[string]interface{} {
 
 func (g *RuleDocGenerator) buildExamplesContent() string {
 	var content strings.Builder
-	
+
 	content.WriteString("# Type Safety Examples\n\n")
 	content.WriteString("This document provides comprehensive examples of type-safe patterns and their benefits.\n\n")
 
@@ -415,7 +415,7 @@ func (g *RuleDocGenerator) buildExamplesContent() string {
 		content.WriteString("**Solution:**\n```go\n")
 		content.WriteString(example.Solution)
 		content.WriteString("\n```\n\n")
-		
+
 		if len(example.Benefits) > 0 {
 			content.WriteString("**Benefits:**\n")
 			for _, benefit := range example.Benefits {
@@ -423,7 +423,7 @@ func (g *RuleDocGenerator) buildExamplesContent() string {
 			}
 			content.WriteString("\n")
 		}
-		
+
 		content.WriteString("---\n\n")
 	}
 
@@ -763,8 +763,8 @@ host := config.Host`,
 func getMigrationPatterns() []map[string]interface{} {
 	return []map[string]interface{}{
 		{
-			"Name":    "Interface{} to Generics",
-			"Problem": "func Process(data interface{}) interface{} {\n    // Process data\n    return data\n}",
+			"Name":     "Interface{} to Generics",
+			"Problem":  "func Process(data interface{}) interface{} {\n    // Process data\n    return data\n}",
 			"Solution": "func Process[T any](data T) T {\n    // Process data with type safety\n    return data\n}",
 			"Benefits": []string{
 				"Type safety at compile time",

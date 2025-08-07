@@ -62,7 +62,7 @@ type StateEventHandler struct {
 	// Context for cancellation
 	ctx    context.Context
 	cancel context.CancelFunc
-	
+
 	// Running state
 	running bool
 }
@@ -270,7 +270,7 @@ func (h *StateEventHandler) HandleStateSnapshot(event *events.StateSnapshotEvent
 		// Restore from backup on failure
 		if restoreErr := h.store.RestoreSnapshot(currentSnapshot); restoreErr != nil {
 			h.metrics.IncrementErrors("snapshot_restore")
-			return errors.WithOperation("apply", "snapshot_with_restore_failure", 
+			return errors.WithOperation("apply", "snapshot_with_restore_failure",
 				fmt.Errorf("apply failed: %w, restore failed: %w", err, restoreErr))
 		}
 		h.metrics.IncrementErrors("snapshot_apply")
@@ -1050,14 +1050,14 @@ func (s *StateEventStream) Start() error {
 // Stop stops the event stream
 func (s *StateEventStream) Stop() {
 	close(s.stopCh)
-	
+
 	// Wait for handlers to complete with timeout
 	done := make(chan struct{})
 	go func() {
 		s.wg.Wait()
 		close(done)
 	}()
-	
+
 	select {
 	case <-done:
 		// Handlers finished cleanly
@@ -1113,14 +1113,14 @@ func (s *StateEventStream) emit(event events.Event) {
 		s.wg.Add(1)
 		go func(h func(events.Event) error) {
 			defer s.wg.Done()
-			
+
 			// Check if we're stopping
 			select {
 			case <-s.stopCh:
 				return
 			default:
 			}
-			
+
 			if err := h(event); err != nil {
 				// Log error but continue with other handlers
 			}
@@ -1402,13 +1402,13 @@ func (h *StateEventHandler) isRunning() bool {
 	if h == nil {
 		return false
 	}
-	
+
 	// Check if the handler has essential components initialized
 	// A handler is not running if it lacks critical components
 	if h.store == nil || h.deltaComputer == nil || h.metrics == nil {
 		return false
 	}
-	
+
 	h.mu.RLock()
 	defer h.mu.RUnlock()
 	return h.running

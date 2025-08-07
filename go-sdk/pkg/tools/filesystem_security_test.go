@@ -98,7 +98,7 @@ func testPathValidation(t *testing.T) {
 	for _, tc := range testCases {
 		t.Run(tc.name, func(t *testing.T) {
 			executor := NewSecureFileExecutor(&readFileExecutor{}, options, "read")
-			
+
 			// Create the file if it's a valid path
 			if !tc.shouldFail && tc.path != "" {
 				dir := filepath.Dir(tc.path)
@@ -281,12 +281,12 @@ func testDirectoryTraversal(t *testing.T) {
 		"subdir/../../../secret.txt",
 		"subdir/../../secret.txt",
 		"..//../secret.txt",
-		"..\\secret.txt",            // Windows-style
-		"..%2fsecret.txt",           // URL encoded
-		"..%2f..%2fsecret.txt",      // Double URL encoded
-		"..%255csecret.txt",         // Double URL encoded backslash
-		"..%c0%afsecret.txt",        // UTF-8 encoded
-		"..%ef%bc%8fsecret.txt",     // UTF-8 fullwidth slash
+		"..\\secret.txt",        // Windows-style
+		"..%2fsecret.txt",       // URL encoded
+		"..%2f..%2fsecret.txt",  // Double URL encoded
+		"..%255csecret.txt",     // Double URL encoded backslash
+		"..%c0%afsecret.txt",    // UTF-8 encoded
+		"..%ef%bc%8fsecret.txt", // UTF-8 fullwidth slash
 	}
 
 	options := &SecureFileOptions{
@@ -307,10 +307,10 @@ func testDirectoryTraversal(t *testing.T) {
 			if err == nil && result.Success {
 				t.Errorf("Expected directory traversal to be blocked: %s", attempt)
 			}
-			if result != nil && !strings.Contains(result.Error, "access denied") && 
-			   !strings.Contains(result.Error, "symbolic links are not allowed") &&
-			   !strings.Contains(result.Error, "no such file or directory") &&
-			   !strings.Contains(result.Error, "cannot find the file") {
+			if result != nil && !strings.Contains(result.Error, "access denied") &&
+				!strings.Contains(result.Error, "symbolic links are not allowed") &&
+				!strings.Contains(result.Error, "no such file or directory") &&
+				!strings.Contains(result.Error, "cannot find the file") {
 				t.Errorf("Expected security error for %s, got: %s", attempt, result.Error)
 			}
 		})
@@ -424,10 +424,10 @@ func testSymlinkHandling(t *testing.T) {
 				}
 				if result != nil && test.expectedErr != "" {
 					// Accept either the expected error or OS-specific errors
-					if !strings.Contains(result.Error, test.expectedErr) && 
-					   !strings.Contains(result.Error, "no such file or directory") &&
-					   !strings.Contains(result.Error, "failed to open file") &&
-					   !strings.Contains(result.Error, "access denied") {
+					if !strings.Contains(result.Error, test.expectedErr) &&
+						!strings.Contains(result.Error, "no such file or directory") &&
+						!strings.Contains(result.Error, "failed to open file") &&
+						!strings.Contains(result.Error, "access denied") {
 						t.Errorf("Expected error containing '%s', got: %s", test.expectedErr, result.Error)
 					}
 				}
@@ -712,7 +712,7 @@ func testUnicodePathHandling(t *testing.T) {
 		"файл.txt",           // Russian
 		"文件.txt",             // Chinese
 		"ファイル.txt",           // Japanese
-		"🚀rocket.txt",       // Emoji
+		"🚀rocket.txt",        // Emoji
 		"test\u200bzwsp.txt", // Zero-width space
 		"test\ufeffbom.txt",  // BOM
 	}
@@ -727,7 +727,7 @@ func testUnicodePathHandling(t *testing.T) {
 	for _, filename := range unicodeFiles {
 		t.Run(fmt.Sprintf("Unicode_%s", filename), func(t *testing.T) {
 			filepath := filepath.Join(tempDir, filename)
-			
+
 			// Try to create the file
 			if err := os.WriteFile(filepath, []byte("unicode content"), 0644); err != nil {
 				t.Skipf("Cannot create Unicode file %s: %v", filename, err)
@@ -894,12 +894,12 @@ func TestFileSystemSecurityIntegration(t *testing.T) {
 
 	// Create a comprehensive test environment
 	testStructure := map[string]string{
-		"allowed/file1.txt":         "content1",
-		"allowed/file2.txt":         "content2",
-		"allowed/subdir/file3.txt":  "content3",
-		"allowed/.hidden":           "hidden content",
-		"allowed/large.txt":         strings.Repeat("x", 2048),
-		"allowed/unicode_файл.txt":  "unicode content",
+		"allowed/file1.txt":        "content1",
+		"allowed/file2.txt":        "content2",
+		"allowed/subdir/file3.txt": "content3",
+		"allowed/.hidden":          "hidden content",
+		"allowed/large.txt":        strings.Repeat("x", 2048),
+		"allowed/unicode_файл.txt": "unicode content",
 	}
 
 	for path, content := range testStructure {
@@ -1023,7 +1023,7 @@ func TestFileSystemSecurityEdgeCases(t *testing.T) {
 		}
 
 		result, err := executor.Execute(context.Background(), params)
-		
+
 		// Might fail for other reasons (directory access), but shouldn't fail due to path restrictions
 		if err != nil {
 			t.Logf("Operation failed (may be expected): %v", err)

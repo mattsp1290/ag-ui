@@ -13,8 +13,8 @@ import (
 
 	"go.uber.org/zap"
 
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 	"github.com/mattsp1290/ag-ui/go-sdk/internal/timeconfig"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/proto/generated"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/transport/common"
@@ -274,7 +274,7 @@ func DefaultTransportConfig() *TransportConfig {
 func HighConcurrencyTransportConfig() *TransportConfig {
 	// Detect CI environment for even more conservative settings
 	isCI := IsRunningInCI()
-	
+
 	// Create high concurrency pool config
 	poolConfig := DefaultPoolConfig()
 	if timeconfig.IsTestMode() {
@@ -328,7 +328,7 @@ func HighConcurrencyTransportConfig() *TransportConfig {
 		PerformanceConfig:     HighConcurrencyPerformanceConfig(),
 		DialTimeout:           config.DefaultDialTimeout,
 		EventTimeout:          config.DefaultTestTimeout,
-		MaxEventSize:          1024 * 1024, // 1MB
+		MaxEventSize:          1024 * 1024,              // 1MB
 		EnableEventValidation: !timeconfig.IsTestMode(), // Disable validation for speed in tests
 		EventValidator:        nil,
 		Logger:                zap.NewNop(),
@@ -343,7 +343,7 @@ func IsRunningInCI() bool {
 	// Check common CI environment variables
 	ciVars := []string{
 		"CI",
-		"CONTINUOUS_INTEGRATION", 
+		"CONTINUOUS_INTEGRATION",
 		"BUILD_NUMBER",
 		"GITHUB_ACTIONS",
 		"GITLAB_CI",
@@ -353,13 +353,13 @@ func IsRunningInCI() bool {
 		"BAMBOO_BUILD_NUMBER",
 		"AG_SDK_CI",
 	}
-	
+
 	for _, env := range ciVars {
 		if os.Getenv(env) != "" {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -658,7 +658,7 @@ func (t *Transport) FastStop() error {
 		return nil
 	}
 
-	// Fall back to normal stop for non-test environments  
+	// Fall back to normal stop for non-test environments
 	return t.Stop()
 }
 
@@ -767,7 +767,16 @@ func (t *Transport) AddEventHandler(eventType string, handler EventHandler) stri
 		return ""
 	}
 
-	handlerID := fmt.Sprintf("handler_%d_%d", time.Now().UnixNano(), rand.Int63())
+	// Check if transport is shutting down
+	select {
+	case <-t.ctx.Done():
+		t.config.Logger.Debug("AddEventHandler called during shutdown, ignoring",
+			zap.String("event_type", eventType))
+		return ""
+	default:
+	}
+
+	handlerID := fmt.Sprintf("handler_%d_%d_%s", time.Now().UnixNano(), rand.Int63(), eventType)
 	wrapper := &EventHandlerWrapper{
 		ID:      handlerID,
 		Handler: handler,
@@ -779,6 +788,16 @@ func (t *Transport) AddEventHandler(eventType string, handler EventHandler) stri
 	t.handlersMutex.Lock()
 	defer t.handlersMutex.Unlock()
 
+	// Double-check shutdown after acquiring lock
+	select {
+	case <-t.ctx.Done():
+		// Clean up the wrapper immediately if shutdown
+		runtime.SetFinalizer(wrapper, nil)
+		wrapper.Handler = nil
+		return ""
+	default:
+	}
+
 	if _, exists := t.eventHandlers[eventType]; !exists {
 		t.eventHandlers[eventType] = make([]*EventHandlerWrapper, 0)
 	}
@@ -786,34 +805,54 @@ func (t *Transport) AddEventHandler(eventType string, handler EventHandler) stri
 
 	t.config.Logger.Debug("Added event handler",
 		zap.String("id", handlerID),
-		zap.String("event_type", eventType))
+		zap.String("event_type", eventType),
+		zap.Int("total_handlers_for_type", len(t.eventHandlers[eventType])))
 
 	return handlerID
 }
 
-// RemoveEventHandler removes an event handler by its ID
+// RemoveEventHandler removes an event handler by its ID with enhanced race condition protection
 func (t *Transport) RemoveEventHandler(eventType string, handlerID string) error {
 	if handlerID == "" {
 		return fmt.Errorf("handler ID cannot be empty: %w", transport.ErrInvalidConfiguration)
 	}
 
+	if eventType == "" {
+		return fmt.Errorf("event type cannot be empty: %w", transport.ErrInvalidConfiguration)
+	}
+
 	t.handlersMutex.Lock()
 	defer t.handlersMutex.Unlock()
 
+	// Check if transport is shutting down
+	select {
+	case <-t.ctx.Done():
+		// During shutdown, consider removal successful since cleanup will handle it
+		t.config.Logger.Debug("RemoveEventHandler called during shutdown, skipping",
+			zap.String("handler_id", handlerID),
+			zap.String("event_type", eventType))
+		return nil
+	default:
+	}
+
 	handlers, exists := t.eventHandlers[eventType]
 	if !exists {
-		return fmt.Errorf("no handlers found for event type %s: %w", eventType, transport.ErrStreamNotFound)
+		// Don't treat this as an error - handler may have been cleaned up already
+		t.config.Logger.Debug("No handlers found for event type during removal",
+			zap.String("handler_id", handlerID),
+			zap.String("event_type", eventType))
+		return nil
 	}
 
 	// Find and remove the handler
 	found := false
 	var removedWrapper *EventHandlerWrapper
 	for i, wrapper := range handlers {
-		if wrapper.ID == handlerID {
+		if wrapper != nil && wrapper.ID == handlerID {
 			// Store reference to removed wrapper for cleanup
 			removedWrapper = wrapper
 
-			// Remove handler from slice
+			// Remove handler from slice efficiently
 			t.eventHandlers[eventType] = append(handlers[:i], handlers[i+1:]...)
 			found = true
 			break
@@ -829,7 +868,12 @@ func (t *Transport) RemoveEventHandler(eventType string, handlerID string) error
 	}
 
 	if !found {
-		return fmt.Errorf("handler with ID %s not found for event type %s", handlerID, eventType)
+		// Don't treat this as a hard error - may be a race condition with cleanup
+		t.config.Logger.Debug("Handler not found during removal (may have been cleaned up already)",
+			zap.String("handler_id", handlerID),
+			zap.String("event_type", eventType),
+			zap.Int("remaining_handlers", len(t.eventHandlers[eventType])))
+		return nil
 	}
 
 	// Remove event type if no handlers left
@@ -837,9 +881,10 @@ func (t *Transport) RemoveEventHandler(eventType string, handlerID string) error
 		delete(t.eventHandlers, eventType)
 	}
 
-	t.config.Logger.Debug("Removed event handler",
+	t.config.Logger.Debug("Successfully removed event handler",
 		zap.String("id", handlerID),
-		zap.String("event_type", eventType))
+		zap.String("event_type", eventType),
+		zap.Int("remaining_handlers", len(t.eventHandlers[eventType])))
 
 	return nil
 }
@@ -1573,4 +1618,3 @@ func (t *Transport) ResetForTesting() error {
 	t.config.Logger.Debug("Transport reset for testing completed")
 	return nil
 }
-

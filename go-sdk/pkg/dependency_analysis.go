@@ -30,22 +30,22 @@ func NewDependencyGraph() *DependencyGraph {
 // AnalyzePackageDependencies analyzes the dependency structure of the SDK
 func AnalyzePackageDependencies(rootPath string) (*DependencyGraph, error) {
 	graph := NewDependencyGraph()
-	
+
 	err := filepath.WalkDir(rootPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		
+
 		// Skip non-Go files
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		
+
 		// Skip vendor and other non-source directories
 		if strings.Contains(path, "/vendor/") || strings.Contains(path, "/.git/") {
 			return nil
 		}
-		
+
 		// Read file to check for build tags
 		content, err := os.ReadFile(path)
 		if err == nil && len(content) > 0 {
@@ -55,29 +55,29 @@ func AnalyzePackageDependencies(rootPath string) (*DependencyGraph, error) {
 				return nil
 			}
 		}
-		
+
 		// Parse the file
 		fset := token.NewFileSet()
 		node, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
 		if err != nil {
 			return nil // Skip files that can't be parsed
 		}
-		
+
 		// Get package path
 		pkgPath := getPackagePath(rootPath, path)
-		
+
 		// Extract imports
 		for _, imp := range node.Imports {
 			if imp.Path != nil {
 				importPath := strings.Trim(imp.Path.Value, `"`)
-				
+
 				// Only track internal imports
 				if strings.HasPrefix(importPath, "github.com/mattsp1290/ag-ui/go-sdk/") {
 					// Skip self-imports in test files (which is normal for _test packages)
 					if strings.HasSuffix(path, "_test.go") && importPath == pkgPath {
 						continue
 					}
-					
+
 					// Add to dependencies
 					if graph.Dependencies[pkgPath] == nil {
 						graph.Dependencies[pkgPath] = []string{}
@@ -85,7 +85,7 @@ func AnalyzePackageDependencies(rootPath string) (*DependencyGraph, error) {
 					if !contains(graph.Dependencies[pkgPath], importPath) {
 						graph.Dependencies[pkgPath] = append(graph.Dependencies[pkgPath], importPath)
 					}
-					
+
 					// Add to dependents
 					if graph.Dependents[importPath] == nil {
 						graph.Dependents[importPath] = []string{}
@@ -96,10 +96,10 @@ func AnalyzePackageDependencies(rootPath string) (*DependencyGraph, error) {
 				}
 			}
 		}
-		
+
 		return nil
 	})
-	
+
 	return graph, err
 }
 
@@ -109,13 +109,13 @@ func (g *DependencyGraph) FindCircularDependencies() [][]string {
 	visited := make(map[string]bool)
 	recStack := make(map[string]bool)
 	path := []string{}
-	
+
 	for pkg := range g.Dependencies {
 		if !visited[pkg] {
 			g.findCyclesDFS(pkg, visited, recStack, &path, &cycles)
 		}
 	}
-	
+
 	return cycles
 }
 
@@ -123,7 +123,7 @@ func (g *DependencyGraph) findCyclesDFS(pkg string, visited, recStack map[string
 	visited[pkg] = true
 	recStack[pkg] = true
 	*path = append(*path, pkg)
-	
+
 	for _, dep := range g.Dependencies[pkg] {
 		if !visited[dep] {
 			g.findCyclesDFS(dep, visited, recStack, path, cycles)
@@ -143,7 +143,7 @@ func (g *DependencyGraph) findCyclesDFS(pkg string, visited, recStack map[string
 			}
 		}
 	}
-	
+
 	recStack[pkg] = false
 	*path = (*path)[:len(*path)-1]
 }
@@ -151,10 +151,10 @@ func (g *DependencyGraph) findCyclesDFS(pkg string, visited, recStack map[string
 // PrintDependencyReport prints a human-readable dependency report
 func (g *DependencyGraph) PrintDependencyReport() string {
 	var report strings.Builder
-	
+
 	report.WriteString("Package Dependency Analysis\n")
 	report.WriteString("===========================\n\n")
-	
+
 	// Find core packages
 	corePackages := []string{
 		"github.com/mattsp1290/ag-ui/go-sdk/pkg/core",
@@ -164,7 +164,7 @@ func (g *DependencyGraph) PrintDependencyReport() string {
 		"github.com/mattsp1290/ag-ui/go-sdk/pkg/messages",
 		"github.com/mattsp1290/ag-ui/go-sdk/pkg/tools",
 	}
-	
+
 	report.WriteString("Core Package Dependencies:\n")
 	report.WriteString("--------------------------\n")
 	for _, pkg := range corePackages {
@@ -175,7 +175,7 @@ func (g *DependencyGraph) PrintDependencyReport() string {
 			}
 		}
 	}
-	
+
 	// Check for circular dependencies
 	cycles := g.FindCircularDependencies()
 	report.WriteString("\n\nCircular Dependencies:\n")
@@ -194,11 +194,11 @@ func (g *DependencyGraph) PrintDependencyReport() string {
 			report.WriteString("\n")
 		}
 	}
-	
+
 	// Cross-package dependencies
 	report.WriteString("\n\nCross-Package Dependencies:\n")
 	report.WriteString("---------------------------\n")
-	
+
 	// Transport -> Events
 	if deps := g.getDependencies("github.com/mattsp1290/ag-ui/go-sdk/pkg/transport", "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"); len(deps) > 0 {
 		report.WriteString("\nTransport -> Events:\n")
@@ -206,7 +206,7 @@ func (g *DependencyGraph) PrintDependencyReport() string {
 			report.WriteString(fmt.Sprintf("  - %s\n", dep))
 		}
 	}
-	
+
 	// State -> Events
 	if deps := g.getDependencies("github.com/mattsp1290/ag-ui/go-sdk/pkg/state", "github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"); len(deps) > 0 {
 		report.WriteString("\nState -> Events:\n")
@@ -214,7 +214,7 @@ func (g *DependencyGraph) PrintDependencyReport() string {
 			report.WriteString(fmt.Sprintf("  - %s\n", dep))
 		}
 	}
-	
+
 	// State -> Transport
 	if deps := g.getDependencies("github.com/mattsp1290/ag-ui/go-sdk/pkg/state", "github.com/mattsp1290/ag-ui/go-sdk/pkg/transport"); len(deps) > 0 {
 		report.WriteString("\nState -> Transport:\n")
@@ -222,7 +222,7 @@ func (g *DependencyGraph) PrintDependencyReport() string {
 			report.WriteString(fmt.Sprintf("  - %s\n", dep))
 		}
 	}
-	
+
 	return report.String()
 }
 

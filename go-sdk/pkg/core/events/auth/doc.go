@@ -18,7 +18,7 @@
 //
 //	// Create auth provider
 //	authProvider := auth.NewBasicAuthProvider(nil)
-//	
+//
 //	// Add users
 //	authProvider.AddUser(&auth.User{
 //	    Username:     "admin",
@@ -27,14 +27,14 @@
 //	    Permissions:  []string{"*:*"},
 //	    Active:       true,
 //	})
-//	
+//
 //	// Create authenticated validator
 //	validator := auth.NewAuthenticatedValidator(
 //	    events.DefaultValidationConfig(),
 //	    authProvider,
 //	    auth.DefaultAuthConfig(),
 //	)
-//	
+//
 //	// Validate with credentials
 //	result := validator.ValidateWithBasicAuth(ctx, event, "admin", "admin123")
 //
@@ -47,11 +47,11 @@
 //	type MyCustomProvider struct {
 //	    // ... provider fields
 //	}
-//	
+//
 //	func (p *MyCustomProvider) Authenticate(ctx context.Context, credentials Credentials) (*AuthContext, error) {
 //	    // Custom authentication logic
 //	}
-//	
+//
 //	func (p *MyCustomProvider) Authorize(ctx context.Context, authCtx *AuthContext, resource, action string) error {
 //	    // Custom authorization logic
 //	}
@@ -65,7 +65,7 @@
 //	    // Custom pre-validation logic
 //	    return nil
 //	})
-//	
+//
 //	// Post-validation hook
 //	validator.AddPostValidationHook(func(ctx context.Context, event events.Event, authCtx *AuthContext, result *events.ValidationResult) error {
 //	    // Custom post-validation logic
@@ -110,5 +110,4 @@
 //   - Multi-factor authentication
 //   - API key management
 //   - Session management and single sign-on
-//
 package auth

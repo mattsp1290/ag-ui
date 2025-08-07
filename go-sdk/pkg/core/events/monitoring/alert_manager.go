@@ -15,26 +15,26 @@ import (
 type AlertManager struct {
 	config           *Config
 	metricsCollector events.MetricsCollector
-	
+
 	// Alert state
-	activeAlerts      map[string]*Alert
-	alertHistory      []AlertEvent
-	alertRules        []AlertRule
-	
+	activeAlerts map[string]*Alert
+	alertHistory []AlertEvent
+	alertRules   []AlertRule
+
 	// Alert channels
-	alertChannel      chan Alert
-	webhookClient     *WebhookClient
-	
+	alertChannel  chan Alert
+	webhookClient *WebhookClient
+
 	// Lifecycle
-	ctx               context.Context
-	cancel            context.CancelFunc
-	wg                sync.WaitGroup
-	mu                sync.RWMutex
+	ctx                context.Context
+	cancel             context.CancelFunc
+	wg                 sync.WaitGroup
+	mu                 sync.RWMutex
 	evaluationInterval time.Duration
-	
+
 	// Worker management
-	workerManager     *worker.WorkerManager
-	logger            *zap.Logger
+	workerManager *worker.WorkerManager
+	logger        *zap.Logger
 }
 
 // AlertRule defines a rule for generating alerts
@@ -86,13 +86,13 @@ type WebhookClient struct {
 // NewAlertManager creates a new alert manager
 func NewAlertManager(config *Config, collector events.MetricsCollector) *AlertManager {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	// Create logger
 	logger, err := zap.NewProduction()
 	if err != nil {
 		logger = zap.NewNop() // Fallback to no-op logger
 	}
-	
+
 	// Create worker manager
 	workerConfig := &worker.WorkerConfig{
 		MaxWorkers:      5,
@@ -101,27 +101,27 @@ func NewAlertManager(config *Config, collector events.MetricsCollector) *AlertMa
 		PanicHandler:    worker.NewDefaultPanicHandler(logger),
 	}
 	workerManager := worker.NewWorkerManager(workerConfig)
-	
+
 	// Default evaluation interval
 	evalInterval := 30 * time.Second
 	// For tests, use a much shorter interval when prometheus port is 0
 	if config.PrometheusPort == 0 {
 		evalInterval = 100 * time.Millisecond
 	}
-	
+
 	am := &AlertManager{
-		config:           config,
-		metricsCollector: collector,
-		activeAlerts:     make(map[string]*Alert),
-		alertHistory:     make([]AlertEvent, 0),
-		alertChannel:     make(chan Alert, 100),
-		ctx:              ctx,
-		cancel:           cancel,
+		config:             config,
+		metricsCollector:   collector,
+		activeAlerts:       make(map[string]*Alert),
+		alertHistory:       make([]AlertEvent, 0),
+		alertChannel:       make(chan Alert, 100),
+		ctx:                ctx,
+		cancel:             cancel,
 		evaluationInterval: evalInterval,
-		workerManager:    workerManager,
-		logger:           logger,
+		workerManager:      workerManager,
+		logger:             logger,
 	}
-	
+
 	// Initialize webhook client if configured
 	if config.AlertWebhookURL != "" {
 		am.webhookClient = &WebhookClient{
@@ -130,15 +130,15 @@ func NewAlertManager(config *Config, collector events.MetricsCollector) *AlertMa
 			timeout: 10 * time.Second,
 		}
 	}
-	
+
 	// Initialize default alert rules
 	am.initializeDefaultRules()
-	
+
 	// Load custom rules if configured
 	if config.AlertRulesPath != "" {
 		am.loadCustomRules(config.AlertRulesPath)
 	}
-	
+
 	return am
 }
 
@@ -270,7 +270,7 @@ func (am *AlertManager) Start(ctx context.Context) {
 	if err != nil {
 		am.logger.Error("Failed to start alert evaluation worker", zap.Error(err))
 	}
-	
+
 	// Start alert processing routine
 	_, err = am.workerManager.StartBackgroundWorker("alert-processing", func(ctx context.Context) error {
 		am.processAlerts()
@@ -285,7 +285,7 @@ func (am *AlertManager) Start(ctx context.Context) {
 func (am *AlertManager) evaluateAlerts() {
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-am.ctx.Done():
@@ -299,19 +299,19 @@ func (am *AlertManager) evaluateAlerts() {
 // evaluateAllRules evaluates all configured alert rules
 func (am *AlertManager) evaluateAllRules() {
 	metrics := am.getCurrentMetrics()
-	
+
 	for _, rule := range am.alertRules {
 		value, ok := am.getMetricValue(metrics, rule.Condition.Metric)
 		if !ok {
 			continue
 		}
-		
+
 		shouldAlert := am.evaluateCondition(value, rule.Condition)
-		
+
 		am.mu.Lock()
 		existingAlert, exists := am.activeAlerts[rule.Name]
 		am.mu.Unlock()
-		
+
 		if shouldAlert {
 			if !exists {
 				// New alert
@@ -323,7 +323,7 @@ func (am *AlertManager) evaluateAllRules() {
 					Labels:      rule.Labels,
 					RunbookID:   rule.RunbookID,
 				}
-				
+
 				// Check if condition has been true for required duration
 				if am.checkAlertDuration(rule, metrics) {
 					am.fireAlert(alert)
@@ -343,19 +343,19 @@ func (am *AlertManager) evaluateAllRules() {
 func (am *AlertManager) getCurrentMetrics() map[string]float64 {
 	dashboard := am.metricsCollector.GetDashboardData()
 	stats := am.metricsCollector.GetOverallStats()
-	
+
 	metrics := make(map[string]float64)
-	
+
 	if dashboard != nil {
 		metrics["error_rate"] = dashboard.ErrorRate
 		metrics["throughput"] = dashboard.EventsPerSecond
 		metrics["sla_compliance"] = dashboard.SLACompliance
-		
+
 		if dashboard.MemoryUsage != nil {
 			memoryPercent := float64(dashboard.MemoryUsage.AllocBytes) / float64(am.config.MetricsConfig.MaxMemoryUsage) * 100.0
 			metrics["memory_usage_percent"] = memoryPercent
 		}
-		
+
 		// Calculate p99 latency from rule metrics
 		var maxP99 float64
 		for _, rule := range dashboard.TopSlowRules {
@@ -366,7 +366,7 @@ func (am *AlertManager) getCurrentMetrics() map[string]float64 {
 		metrics["latency_p99"] = maxP99
 		metrics["rule_execution_p99"] = maxP99
 	}
-	
+
 	// Add stats metrics
 	if stats != nil {
 		if errorRate, ok := stats["error_rate"].(float64); ok {
@@ -379,7 +379,7 @@ func (am *AlertManager) getCurrentMetrics() map[string]float64 {
 			metrics["sla_compliance"] = sla
 		}
 	}
-	
+
 	return metrics
 }
 
@@ -421,7 +421,7 @@ func (am *AlertManager) fireAlert(alert Alert) {
 	am.mu.Lock()
 	am.activeAlerts[alert.Name] = &alert
 	am.mu.Unlock()
-	
+
 	// Send to alert channel
 	select {
 	case am.alertChannel <- alert:
@@ -429,7 +429,7 @@ func (am *AlertManager) fireAlert(alert Alert) {
 		// Channel full, log error
 		fmt.Printf("Alert channel full, dropping alert: %s\n", alert.Name)
 	}
-	
+
 	// Record event
 	am.recordAlertEvent(alert, "fired")
 }
@@ -445,7 +445,7 @@ func (am *AlertManager) resolveAlert(alert *Alert) {
 	am.mu.Lock()
 	delete(am.activeAlerts, alert.Name)
 	am.mu.Unlock()
-	
+
 	// Record event
 	am.recordAlertEvent(*alert, "resolved")
 }
@@ -457,10 +457,10 @@ func (am *AlertManager) recordAlertEvent(alert Alert, eventType string) {
 		EventType: eventType,
 		Timestamp: time.Now(),
 	}
-	
+
 	am.mu.Lock()
 	am.alertHistory = append(am.alertHistory, event)
-	
+
 	// Keep only last 1000 events
 	if len(am.alertHistory) > 1000 {
 		am.alertHistory = am.alertHistory[len(am.alertHistory)-1000:]
@@ -488,7 +488,7 @@ func (am *AlertManager) handleAlert(alert Alert) {
 			fmt.Printf("Failed to send alert to webhook: %v\n", err)
 		}
 	}
-	
+
 	// Log alert
 	fmt.Printf("ALERT [%s] %s: %s\n", alert.Severity, alert.Name, alert.Description)
 }
@@ -497,12 +497,12 @@ func (am *AlertManager) handleAlert(alert Alert) {
 func (am *AlertManager) GetActiveAlerts() []Alert {
 	am.mu.RLock()
 	defer am.mu.RUnlock()
-	
+
 	alerts := make([]Alert, 0, len(am.activeAlerts))
 	for _, alert := range am.activeAlerts {
 		alerts = append(alerts, *alert)
 	}
-	
+
 	return alerts
 }
 
@@ -510,32 +510,32 @@ func (am *AlertManager) GetActiveAlerts() []Alert {
 func (am *AlertManager) GetAlertHistory(limit int) []AlertEvent {
 	am.mu.RLock()
 	defer am.mu.RUnlock()
-	
+
 	if limit <= 0 || limit > len(am.alertHistory) {
 		limit = len(am.alertHistory)
 	}
-	
+
 	// Return most recent events
 	start := len(am.alertHistory) - limit
 	if start < 0 {
 		start = 0
 	}
-	
+
 	result := make([]AlertEvent, limit)
 	copy(result, am.alertHistory[start:])
-	
+
 	return result
 }
 
 // Shutdown gracefully shuts down the alert manager
 func (am *AlertManager) Shutdown() error {
 	am.cancel()
-	
+
 	// Stop worker manager
 	if err := am.workerManager.Stop(); err != nil {
 		am.logger.Error("Failed to stop worker manager", zap.Error(err))
 	}
-	
+
 	am.wg.Wait()
 	close(am.alertChannel)
 	return nil
@@ -545,7 +545,7 @@ func (am *AlertManager) Shutdown() error {
 func (wc *WebhookClient) SendAlert(alert Alert) error {
 	wc.mu.Lock()
 	defer wc.mu.Unlock()
-	
+
 	// Implementation would send HTTP POST request to webhook
 	// This is a placeholder
 	return nil
@@ -555,14 +555,14 @@ func (wc *WebhookClient) SendAlert(alert Alert) error {
 type SLAMonitor struct {
 	config           *Config
 	metricsCollector events.MetricsCollector
-	
+
 	// SLA tracking
-	slaStatus        map[string]*SLAStatus
-	slaHistory       map[string][]SLADataPoint
-	
+	slaStatus  map[string]*SLAStatus
+	slaHistory map[string][]SLADataPoint
+
 	// Lifecycle
-	mu               sync.RWMutex
-	updateInterval   time.Duration
+	mu             sync.RWMutex
+	updateInterval time.Duration
 }
 
 // NewSLAMonitor creates a new SLA monitor
@@ -573,7 +573,7 @@ func NewSLAMonitor(config *Config, collector events.MetricsCollector) *SLAMonito
 	if config.PrometheusPort == 0 {
 		updateInterval = 100 * time.Millisecond
 	}
-	
+
 	return &SLAMonitor{
 		config:           config,
 		metricsCollector: collector,
@@ -587,7 +587,7 @@ func NewSLAMonitor(config *Config, collector events.MetricsCollector) *SLAMonito
 func (sm *SLAMonitor) Start(ctx context.Context) {
 	ticker := time.NewTicker(sm.updateInterval)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
@@ -601,11 +601,11 @@ func (sm *SLAMonitor) Start(ctx context.Context) {
 // updateSLAStatus updates the status of all SLAs
 func (sm *SLAMonitor) updateSLAStatus() {
 	metrics := sm.getCurrentMetrics()
-	
+
 	for name, target := range sm.config.SLATargets {
 		value := sm.getSLAMetricValue(metrics, target)
 		isViolated := sm.isSLAViolated(value, target)
-		
+
 		status := &SLAStatus{
 			Target:           target,
 			CurrentValue:     value,
@@ -614,27 +614,27 @@ func (sm *SLAMonitor) updateSLAStatus() {
 			LastUpdated:      time.Now(),
 			TrendDirection:   sm.calculateTrend(name, value),
 		}
-		
+
 		sm.mu.Lock()
 		sm.slaStatus[name] = status
-		
+
 		// Update history
 		if _, exists := sm.slaHistory[name]; !exists {
 			sm.slaHistory[name] = make([]SLADataPoint, 0)
 		}
-		
+
 		sm.slaHistory[name] = append(sm.slaHistory[name], SLADataPoint{
 			Timestamp: time.Now(),
 			Value:     value,
 			Violated:  isViolated,
 		})
-		
+
 		// Keep only window size of history
 		maxPoints := int(sm.config.SLAWindowSize / time.Minute)
 		if len(sm.slaHistory[name]) > maxPoints {
 			sm.slaHistory[name] = sm.slaHistory[name][len(sm.slaHistory[name])-maxPoints:]
 		}
-		
+
 		sm.mu.Unlock()
 	}
 }
@@ -643,13 +643,13 @@ func (sm *SLAMonitor) updateSLAStatus() {
 func (sm *SLAMonitor) getCurrentMetrics() map[string]float64 {
 	dashboard := sm.metricsCollector.GetDashboardData()
 	metrics := make(map[string]float64)
-	
+
 	if dashboard != nil {
 		metrics["latency_p99"] = float64(dashboard.AverageLatency.Milliseconds())
 		metrics["throughput"] = dashboard.EventsPerSecond
 		metrics["error_rate"] = dashboard.ErrorRate
 	}
-	
+
 	return metrics
 }
 
@@ -686,7 +686,7 @@ func (sm *SLAMonitor) calculateViolationPercent(value float64, target SLATarget)
 	if target.TargetValue == 0 {
 		return 0
 	}
-	
+
 	switch target.Name {
 	case "Event Validation Latency", "Validation Error Rate":
 		if value <= target.TargetValue {
@@ -709,16 +709,16 @@ func (sm *SLAMonitor) calculateTrend(name string, currentValue float64) string {
 	if !exists || len(history) < 2 {
 		return "stable"
 	}
-	
+
 	// Compare with previous value
 	previousValue := history[len(history)-2].Value
-	
+
 	if currentValue > previousValue*1.05 {
 		return "up"
 	} else if currentValue < previousValue*0.95 {
 		return "down"
 	}
-	
+
 	return "stable"
 }
 
@@ -726,12 +726,12 @@ func (sm *SLAMonitor) calculateTrend(name string, currentValue float64) string {
 func (sm *SLAMonitor) GetCurrentStatus() map[string]*SLAStatus {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	
+
 	result := make(map[string]*SLAStatus)
 	for k, v := range sm.slaStatus {
 		result[k] = v
 	}
-	
+
 	return result
 }
 

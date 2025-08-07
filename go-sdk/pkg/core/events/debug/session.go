@@ -17,7 +17,7 @@ type ValidationSession struct {
 	Events        []EventSequenceEntry   `json:"events"`
 	ErrorPatterns []ErrorPattern         `json:"error_patterns"`
 	Metadata      map[string]interface{} `json:"metadata"`
-	Config        *ValidationConfig        `json:"config"`
+	Config        *ValidationConfig      `json:"config"`
 }
 
 // StartSession starts a new debugging session
@@ -130,7 +130,7 @@ func (d *ValidationDebugger) ReplayEventSequence(sessionID string, startIndex, e
 	// Replay events in sequence
 	for i := startIndex; i <= endIndex; i++ {
 		entry := session.Events[i]
-		
+
 		// Simple validation - just check if event validates
 		if err := entry.Event.Validate(); err != nil {
 			result.IsValid = false

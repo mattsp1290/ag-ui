@@ -19,42 +19,42 @@ func TestSecurityIntegration(t *testing.T) {
 	t.Run("ComprehensiveSecuritySuite", func(t *testing.T) {
 		testComprehensiveSecuritySuite(t, env)
 	})
-	
+
 	t.Run("CrossToolSecurityValidation", func(t *testing.T) {
 		if testing.Short() {
 			t.Skip("Skipping cross tool security validation in short mode")
 		}
 		testCrossToolSecurityValidation(t, env)
 	})
-	
+
 	t.Run("SecureRegistryIntegration", func(t *testing.T) {
 		testSecureRegistryIntegration(t, env)
 	})
-	
+
 	t.Run("SecurityBoundaryValidation", func(t *testing.T) {
 		testSecurityBoundaryValidation(t, env)
 	})
-	
+
 	t.Run("AttackVectorCombinations", func(t *testing.T) {
 		testAttackVectorCombinations(t, env)
 	})
-	
+
 	t.Run("SecurityPolicyEnforcement", func(t *testing.T) {
 		testSecurityPolicyEnforcement(t, env)
 	})
-	
+
 	t.Run("RealWorldScenarios", func(t *testing.T) {
 		testRealWorldScenarios(t, env)
 	})
-	
+
 	t.Run("SecurityPerformance", func(t *testing.T) {
 		testSecurityPerformance(t, env)
 	})
-	
+
 	t.Run("SecurityResilience", func(t *testing.T) {
 		testSecurityResilience(t, env)
 	})
-	
+
 	t.Run("SecurityCompliance", func(t *testing.T) {
 		testSecurityCompliance(t, env)
 	})
@@ -72,7 +72,7 @@ func testComprehensiveSecuritySuite(t *testing.T, env *SecurityTestEnvironment) 
 
 	// Create test file structure
 	testFile := utils.CreateTestFile(t, "secure/test.txt", "test content")
-	
+
 	// Test file security
 	fileOptions := helpers.CreateSecureFileOptions([]string{filepath.Join(env.GetTempDir(), "secure")}, 1024*1024)
 	secureFileExecutor := NewSecureFileExecutor(&readFileExecutor{}, fileOptions, "read")
@@ -119,15 +119,15 @@ func testComprehensiveSecuritySuite(t *testing.T, env *SecurityTestEnvironment) 
 func testCrossToolSecurityValidation(t *testing.T, env *SecurityTestEnvironment) {
 	// Create a comprehensive registry with all security features
 	registry := NewRegistry()
-	
+
 	// Register secure tools
 	options := &BuiltinToolsOptions{
 		SecureMode: true,
 		FileOptions: &SecureFileOptions{
-			AllowedPaths: []string{env.GetTempDir()},
-			MaxFileSize:  1024 * 1024,
+			AllowedPaths:  []string{env.GetTempDir()},
+			MaxFileSize:   1024 * 1024,
 			AllowSymlinks: false,
-			DenyPaths:    []string{"/etc", "/sys", "/proc"},
+			DenyPaths:     []string{"/etc", "/sys", "/proc"},
 		},
 		HTTPOptions: &SecureHTTPOptions{
 			AllowedHosts:           []string{"example.com", "api.example.com"},
@@ -292,7 +292,7 @@ func testSecureRegistryIntegration(t *testing.T, env *SecurityTestEnvironment) {
 	for _, config := range securityConfigs {
 		t.Run(config.name, func(t *testing.T) {
 			testRegistry := NewRegistry()
-			
+
 			if err := RegisterBuiltinToolsWithOptions(testRegistry, config.options); err != nil {
 				t.Fatalf("Failed to register tools with %s config: %v", config.name, err)
 			}
@@ -332,17 +332,17 @@ func testSecureRegistryIntegration(t *testing.T, env *SecurityTestEnvironment) {
 // testSecurityBoundaryValidation tests security boundary validation
 func testSecurityBoundaryValidation(t *testing.T, env *SecurityTestEnvironment) {
 	utils := env.GetUtils()
-	
+
 	// Create a complex directory structure for boundary testing
 	secureDir := utils.CreateTestDirectory(t, "secure")
 	publicDir := utils.CreateTestDirectory(t, "public")
 	restrictedDir := utils.CreateTestDirectory(t, "restricted")
-	
+
 	// Create files in different directories
 	secureFile := utils.CreateTestFile(t, "secure/confidential.txt", "confidential data")
 	publicFile := utils.CreateTestFile(t, "public/public.txt", "public data")
 	restrictedFile := utils.CreateTestFile(t, "restricted/secret.txt", "secret data")
-	
+
 	// Test boundary scenarios
 	boundaryTests := []struct {
 		name        string
@@ -392,7 +392,7 @@ func testSecurityBoundaryValidation(t *testing.T, env *SecurityTestEnvironment) 
 	for _, test := range boundaryTests {
 		t.Run(test.name, func(t *testing.T) {
 			executor := NewSecureFileExecutor(&readFileExecutor{}, test.options, "read")
-			
+
 			params := map[string]interface{}{
 				"path": test.testFile,
 			}
@@ -417,17 +417,17 @@ func testSecurityBoundaryValidation(t *testing.T, env *SecurityTestEnvironment) 
 
 // testAttackVectorCombinations tests combinations of different attack vectors
 func testAttackVectorCombinations(t *testing.T, env *SecurityTestEnvironment) {
-	_ = env.GetUtils() // utils - reserved for future use
+	_ = env.GetUtils()            // utils - reserved for future use
 	_ = env.GetPayloadGenerator() // payloadGen - reserved for future use
-	
+
 	// Create secure file executor
 	fileOptions := &SecureFileOptions{
-		AllowedPaths: []string{env.GetTempDir()},
-		MaxFileSize:  1024 * 1024,
+		AllowedPaths:  []string{env.GetTempDir()},
+		MaxFileSize:   1024 * 1024,
 		AllowSymlinks: false,
 	}
 	fileExecutor := NewSecureFileExecutor(&readFileExecutor{}, fileOptions, "read")
-	
+
 	// Create secure HTTP executor
 	httpOptions := &SecureHTTPOptions{
 		AllowedHosts:           []string{"example.com"},
@@ -481,7 +481,7 @@ func testAttackVectorCombinations(t *testing.T, env *SecurityTestEnvironment) {
 	for _, test := range combinationTests {
 		t.Run(test.name, func(t *testing.T) {
 			result, err := test.executor.Execute(context.Background(), test.params)
-			
+
 			// All combination attacks should be blocked
 			if err == nil && result.Success {
 				t.Errorf("Expected combination attack to be blocked: %s", test.name)
@@ -590,18 +590,18 @@ func testSecurityPolicyEnforcement(t *testing.T, env *SecurityTestEnvironment) {
 		t.Run(policy.name, func(t *testing.T) {
 			fileExecutor := NewSecureFileExecutor(&readFileExecutor{}, policy.fileOptions, "read")
 			httpExecutor := NewSecureHTTPExecutor(&mockHTTPExecutorForIntegration{}, policy.httpOptions)
-			
+
 			for _, testCase := range policy.testCases {
 				t.Run(testCase.name, func(t *testing.T) {
 					var result *ToolExecutionResult
 					var err error
-					
+
 					if testCase.operation == "file" {
 						result, err = fileExecutor.Execute(context.Background(), testCase.params)
 					} else if testCase.operation == "http" {
 						result, err = httpExecutor.Execute(context.Background(), testCase.params)
 					}
-					
+
 					if testCase.expectAllow {
 						if err != nil {
 							t.Errorf("Unexpected error for allowed operation: %v", err)
@@ -630,18 +630,18 @@ type policyTestCase struct {
 // testRealWorldScenarios tests real-world security scenarios
 func testRealWorldScenarios(t *testing.T, env *SecurityTestEnvironment) {
 	utils := env.GetUtils()
-	
+
 	// Create realistic directory structure
 	projectDir := utils.CreateTestDirectory(t, "project")
 	srcDir := utils.CreateTestDirectory(t, "project/src")
 	configDir := utils.CreateTestDirectory(t, "project/config")
 	logsDir := utils.CreateTestDirectory(t, "project/logs")
-	
+
 	// Create realistic files
 	utils.CreateTestFile(t, "project/src/main.go", "package main\n\nfunc main() {\n\tprintln(\"Hello, World!\")\n}")
 	utils.CreateTestFile(t, "project/config/app.yaml", "port: 8080\ndb_host: localhost")
 	utils.CreateTestFile(t, "project/logs/app.log", "2023-01-01 10:00:00 INFO Application started")
-	
+
 	// Test realistic scenarios
 	scenarios := []struct {
 		name        string
@@ -654,8 +654,8 @@ func testRealWorldScenarios(t *testing.T, env *SecurityTestEnvironment) {
 			description: "Developer reading source code files",
 			setup: func() (ToolExecutor, map[string]interface{}) {
 				options := &SecureFileOptions{
-					AllowedPaths: []string{projectDir},
-					MaxFileSize:  10 * 1024 * 1024,
+					AllowedPaths:  []string{projectDir},
+					MaxFileSize:   10 * 1024 * 1024,
 					AllowSymlinks: false,
 				}
 				executor := NewSecureFileExecutor(&readFileExecutor{}, options, "read")
@@ -671,8 +671,8 @@ func testRealWorldScenarios(t *testing.T, env *SecurityTestEnvironment) {
 			description: "Attacker trying to read /etc/passwd via path traversal",
 			setup: func() (ToolExecutor, map[string]interface{}) {
 				options := &SecureFileOptions{
-					AllowedPaths: []string{projectDir},
-					MaxFileSize:  10 * 1024 * 1024,
+					AllowedPaths:  []string{projectDir},
+					MaxFileSize:   10 * 1024 * 1024,
 					AllowSymlinks: false,
 				}
 				executor := NewSecureFileExecutor(&readFileExecutor{}, options, "read")
@@ -726,8 +726,8 @@ func testRealWorldScenarios(t *testing.T, env *SecurityTestEnvironment) {
 			description: "System writing to log files",
 			setup: func() (ToolExecutor, map[string]interface{}) {
 				options := &SecureFileOptions{
-					AllowedPaths: []string{logsDir},
-					MaxFileSize:  100 * 1024 * 1024,
+					AllowedPaths:  []string{logsDir},
+					MaxFileSize:   100 * 1024 * 1024,
 					AllowSymlinks: false,
 				}
 				executor := NewSecureFileExecutor(&writeFileExecutor{}, options, "write")
@@ -745,8 +745,8 @@ func testRealWorldScenarios(t *testing.T, env *SecurityTestEnvironment) {
 			description: "Application reading configuration files",
 			setup: func() (ToolExecutor, map[string]interface{}) {
 				options := &SecureFileOptions{
-					AllowedPaths: []string{configDir},
-					MaxFileSize:  1024 * 1024,
+					AllowedPaths:  []string{configDir},
+					MaxFileSize:   1024 * 1024,
 					AllowSymlinks: false,
 				}
 				executor := NewSecureFileExecutor(&readFileExecutor{}, options, "read")
@@ -762,9 +762,9 @@ func testRealWorldScenarios(t *testing.T, env *SecurityTestEnvironment) {
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
 			executor, params := scenario.setup()
-			
+
 			result, err := executor.Execute(context.Background(), params)
-			
+
 			if scenario.expectAllow {
 				if err != nil {
 					t.Errorf("Unexpected error in realistic scenario '%s': %v", scenario.description, err)
@@ -786,12 +786,12 @@ func testRealWorldScenarios(t *testing.T, env *SecurityTestEnvironment) {
 // testSecurityPerformance tests security performance characteristics
 func testSecurityPerformance(t *testing.T, env *SecurityTestEnvironment) {
 	utils := env.GetUtils()
-	
+
 	// Create test files
 	smallFile := utils.CreateTestFile(t, "small.txt", "small content")
 	mediumFile := utils.CreateTestFile(t, "medium.txt", strings.Repeat("medium content\n", 1000))
 	largeFile := utils.CreateTestFile(t, "large.txt", strings.Repeat("large content\n", 10000))
-	
+
 	// Test performance with different file sizes
 	performanceTests := []struct {
 		name     string
@@ -804,11 +804,11 @@ func testSecurityPerformance(t *testing.T, env *SecurityTestEnvironment) {
 	}
 
 	fileOptions := &SecureFileOptions{
-		AllowedPaths: []string{env.GetTempDir()},
-		MaxFileSize:  10 * 1024 * 1024,
+		AllowedPaths:  []string{env.GetTempDir()},
+		MaxFileSize:   10 * 1024 * 1024,
 		AllowSymlinks: false,
 	}
-	
+
 	// Test with and without security
 	secureExecutor := NewSecureFileExecutor(&readFileExecutor{}, fileOptions, "read")
 	normalExecutor := &readFileExecutor{}
@@ -818,38 +818,38 @@ func testSecurityPerformance(t *testing.T, env *SecurityTestEnvironment) {
 			params := map[string]interface{}{
 				"path": test.file,
 			}
-			
+
 			// Measure secure execution time
 			start := time.Now()
 			result, err := secureExecutor.Execute(context.Background(), params)
 			secureTime := time.Since(start)
-			
+
 			if err != nil {
 				t.Errorf("Secure execution failed: %v", err)
 			}
 			if result == nil || !result.Success {
 				t.Error("Expected secure execution to succeed")
 			}
-			
+
 			// Measure normal execution time
 			start = time.Now()
 			result, err = normalExecutor.Execute(context.Background(), params)
 			normalTime := time.Since(start)
-			
+
 			if err != nil {
 				t.Errorf("Normal execution failed: %v", err)
 			}
 			if result == nil || !result.Success {
 				t.Error("Expected normal execution to succeed")
 			}
-			
+
 			// Calculate overhead
 			overhead := secureTime - normalTime
 			overheadPercent := float64(overhead) / float64(normalTime) * 100
-			
-			t.Logf("File: %s, Secure: %v, Normal: %v, Overhead: %v (%.2f%%)", 
+
+			t.Logf("File: %s, Secure: %v, Normal: %v, Overhead: %v (%.2f%%)",
 				test.fileSize, secureTime, normalTime, overhead, overheadPercent)
-			
+
 			// Security overhead should be reasonable (less than 3000% to account for comprehensive security validation and system variance)
 			if overheadPercent > 3000 {
 				t.Errorf("Security overhead too high: %.2f%%", overheadPercent)
@@ -861,7 +861,7 @@ func testSecurityPerformance(t *testing.T, env *SecurityTestEnvironment) {
 // testSecurityResilience tests security resilience under various conditions
 func testSecurityResilience(t *testing.T, env *SecurityTestEnvironment) {
 	utils := env.GetUtils()
-	
+
 	// Test edge cases and stress conditions
 	resilienceTests := []struct {
 		name        string
@@ -946,16 +946,16 @@ func testSecurityResilience(t *testing.T, env *SecurityTestEnvironment) {
 
 	// Create Unicode test file
 	unicodeFile := utils.CreateTestFile(t, "test_файл.txt", "unicode content")
-	
+
 	for _, test := range resilienceTests {
 		t.Run(test.name, func(t *testing.T) {
 			// If testing Unicode file, ensure it exists
 			if strings.Contains(test.name, "Unicode") {
 				test.params["path"] = unicodeFile
 			}
-			
+
 			result, err := test.executor.Execute(context.Background(), test.params)
-			
+
 			if test.expectAllow {
 				if err != nil {
 					t.Errorf("Unexpected error for allowed operation: %v", err)
@@ -1035,7 +1035,7 @@ func testSecurityCompliance(t *testing.T, env *SecurityTestEnvironment) {
 // OWASP compliance test functions
 func testInjectionCompliance(t *testing.T, env *SecurityTestEnvironment) {
 	payloadGen := env.GetPayloadGenerator()
-	
+
 	// Test various injection types
 	injectionTypes := []struct {
 		name     string
@@ -1056,14 +1056,14 @@ func testInjectionCompliance(t *testing.T, env *SecurityTestEnvironment) {
 					AllowedPaths: []string{env.GetTempDir()},
 					MaxFileSize:  1024 * 1024,
 				}, "write")
-				
+
 				params := map[string]interface{}{
 					"path":    filepath.Join(env.GetTempDir(), fmt.Sprintf("injection_test_%s.txt", injType.name)),
 					"content": payload,
 				}
-				
+
 				result, err := writeExecutor.Execute(context.Background(), params)
-				
+
 				if err != nil {
 					t.Errorf("Injection payload should be safely handled as content: %v", err)
 				}
@@ -1093,9 +1093,9 @@ func testAccessControlCompliance(t *testing.T, env *SecurityTestEnvironment) {
 		params := map[string]interface{}{
 			"path": payload,
 		}
-		
+
 		result, err := executor.Execute(context.Background(), params)
-		
+
 		if err == nil && result.Success {
 			t.Errorf("Path traversal should be blocked: %s", payload)
 		}
@@ -1105,25 +1105,25 @@ func testAccessControlCompliance(t *testing.T, env *SecurityTestEnvironment) {
 func testSecurityMisconfigurationCompliance(t *testing.T, env *SecurityTestEnvironment) {
 	// Test that secure defaults are enforced
 	defaultOptions := DefaultSecureFileOptions()
-	
+
 	if defaultOptions.AllowSymlinks {
 		t.Error("Default configuration should not allow symlinks")
 	}
-	
+
 	if defaultOptions.MaxFileSize == 0 {
 		t.Error("Default configuration should have file size limits")
 	}
-	
+
 	if len(defaultOptions.DenyPaths) == 0 {
 		t.Error("Default configuration should have denied paths")
 	}
-	
+
 	httpOptions := DefaultSecureHTTPOptions()
-	
+
 	if httpOptions.AllowPrivateNetworks {
 		t.Error("Default HTTP configuration should not allow private networks")
 	}
-	
+
 	if len(httpOptions.DenyHosts) == 0 {
 		t.Error("Default HTTP configuration should have denied hosts")
 	}
@@ -1144,30 +1144,30 @@ func testIdentificationFailuresCompliance(t *testing.T, env *SecurityTestEnviron
 func testDataIntegrityCompliance(t *testing.T, env *SecurityTestEnvironment) {
 	// Test that data integrity is maintained
 	utils := env.GetUtils()
-	
+
 	// Test file integrity
 	originalContent := "original content"
 	testFile := utils.CreateTestFile(t, "integrity_test.txt", originalContent)
-	
+
 	executor := NewSecureFileExecutor(&readFileExecutor{}, &SecureFileOptions{
 		AllowedPaths: []string{env.GetTempDir()},
 		MaxFileSize:  1024 * 1024,
 	}, "read")
-	
+
 	params := map[string]interface{}{
 		"path": testFile,
 	}
-	
+
 	result, err := executor.Execute(context.Background(), params)
-	
+
 	if err != nil {
 		t.Errorf("Failed to read file for integrity test: %v", err)
 	}
-	
+
 	if result == nil || !result.Success {
 		t.Error("Expected file read to succeed")
 	}
-	
+
 	// Verify content integrity
 	if data, ok := result.Data.(map[string]interface{}); ok {
 		if content, ok := data["content"].(string); ok {
@@ -1205,9 +1205,9 @@ func testSSRFCompliance(t *testing.T, env *SecurityTestEnvironment) {
 		params := map[string]interface{}{
 			"url": payload,
 		}
-		
+
 		result, err := executor.Execute(context.Background(), params)
-		
+
 		if err == nil && result.Success {
 			t.Errorf("SSRF payload should be blocked: %s", payload)
 		}
@@ -1223,22 +1223,22 @@ func BenchmarkSecurityIntegration(b *testing.B) {
 		b.Fatalf("Failed to create temp dir: %v", err)
 	}
 	defer os.RemoveAll(tempDir)
-	
+
 	testFile := filepath.Join(tempDir, "bench.txt")
 	if err := os.WriteFile(testFile, []byte("benchmark content"), 0644); err != nil {
 		b.Fatalf("Failed to create test file: %v", err)
 	}
-	
+
 	// Create secure executor
 	executor := NewSecureFileExecutor(&readFileExecutor{}, &SecureFileOptions{
 		AllowedPaths: []string{tempDir},
 		MaxFileSize:  1024 * 1024,
 	}, "read")
-	
+
 	params := map[string]interface{}{
 		"path": testFile,
 	}
-	
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		result, err := executor.Execute(context.Background(), params)

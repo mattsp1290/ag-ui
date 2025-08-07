@@ -15,22 +15,22 @@ type CorrelationID string
 type OperationMetadata struct {
 	// OperationType describes the type of operation (cache, validation, consensus, etc.)
 	OperationType string
-	
+
 	// NodeID identifies the node performing the operation
 	NodeID string
-	
+
 	// Component identifies the component performing the operation
 	Component string
-	
+
 	// RetryCount tracks how many times this operation has been retried
 	RetryCount int
-	
+
 	// ActionableGuidance provides suggestions for resolving errors
 	ActionableGuidance []string
-	
+
 	// RelatedResources lists resources involved in the operation
 	RelatedResources []string
-	
+
 	// PerformanceMetrics contains operation performance data
 	PerformanceMetrics *PerformanceMetrics
 }
@@ -49,16 +49,16 @@ type PerformanceMetrics struct {
 // EnhancedErrorContext extends ErrorContext with distributed system context
 type EnhancedErrorContext struct {
 	*ErrorContext
-	
+
 	// CorrelationID for tracking requests across services
 	CorrelationID CorrelationID
-	
+
 	// Operation metadata
 	OperationMetadata *OperationMetadata
-	
+
 	// Circuit breaker state information
 	CircuitBreakerStates map[string]CircuitBreakerState
-	
+
 	// Distributed system context
 	ClusterState *ClusterState
 }
@@ -67,16 +67,16 @@ type EnhancedErrorContext struct {
 type ClusterState struct {
 	// ActiveNodes lists currently active nodes
 	ActiveNodes []string
-	
+
 	// FailedNodes lists nodes that have failed
 	FailedNodes []string
-	
+
 	// PartitionedNodes lists nodes that are network partitioned
 	PartitionedNodes []string
-	
+
 	// ClusterHealth indicates overall cluster health (0.0 to 1.0)
 	ClusterHealth float64
-	
+
 	// ReplicationFactor indicates the current replication factor
 	ReplicationFactor int
 }
@@ -180,7 +180,7 @@ func (eec *EnhancedErrorContext) RecordEnhancedError(err error, errorCode string
 	if err == nil {
 		return nil
 	}
-	
+
 	// Create enhanced error with all context
 	enhanced := &BaseError{
 		Code:      errorCode,
@@ -190,12 +190,12 @@ func (eec *EnhancedErrorContext) RecordEnhancedError(err error, errorCode string
 		Details:   make(map[string]interface{}),
 		Cause:     err,
 	}
-	
+
 	// Add correlation and operation context
 	enhanced.Details["correlation_id"] = string(eec.CorrelationID)
 	enhanced.Details["context_id"] = eec.ErrorContext.ID
 	enhanced.Details["operation"] = eec.ErrorContext.OperationName
-	
+
 	// Add operation metadata
 	if eec.OperationMetadata != nil {
 		if eec.OperationMetadata.OperationType != "" {
@@ -220,17 +220,17 @@ func (eec *EnhancedErrorContext) RecordEnhancedError(err error, errorCode string
 			enhanced.Details["performance_metrics"] = eec.OperationMetadata.PerformanceMetrics
 		}
 	}
-	
+
 	// Add circuit breaker states
 	if len(eec.CircuitBreakerStates) > 0 {
 		enhanced.Details["circuit_breaker_states"] = eec.CircuitBreakerStates
 	}
-	
+
 	// Add cluster state
 	if eec.ClusterState != nil {
 		enhanced.Details["cluster_state"] = eec.ClusterState
 	}
-	
+
 	// Add source location
 	if pc, file, line, ok := runtime.Caller(1); ok {
 		fn := runtime.FuncForPC(pc)
@@ -244,48 +244,48 @@ func (eec *EnhancedErrorContext) RecordEnhancedError(err error, errorCode string
 			"function": fnName,
 		}
 	}
-	
+
 	// Record in error context
 	eec.ErrorContext.RecordError(enhanced)
-	
+
 	return enhanced
 }
 
 // GenerateErrorReport generates a comprehensive error report
 func (eec *EnhancedErrorContext) GenerateErrorReport() *ErrorReport {
 	errors := eec.ErrorContext.GetErrors()
-	
+
 	report := &ErrorReport{
-		CorrelationID:    string(eec.CorrelationID),
-		ContextID:        eec.ErrorContext.ID,
-		Operation:        eec.ErrorContext.OperationName,
-		Duration:         eec.ErrorContext.Duration(),
-		ErrorCount:       len(errors),
-		Errors:           make([]ErrorSummary, 0, len(errors)),
-		Timestamp:        time.Now(),
+		CorrelationID:     string(eec.CorrelationID),
+		ContextID:         eec.ErrorContext.ID,
+		Operation:         eec.ErrorContext.OperationName,
+		Duration:          eec.ErrorContext.Duration(),
+		ErrorCount:        len(errors),
+		Errors:            make([]ErrorSummary, 0, len(errors)),
+		Timestamp:         time.Now(),
 		OperationMetadata: eec.OperationMetadata,
-		ClusterState:     eec.ClusterState,
+		ClusterState:      eec.ClusterState,
 	}
-	
+
 	// Summarize errors
 	for _, err := range errors {
 		summary := ErrorSummary{
 			Message:   err.Error(),
 			Timestamp: time.Now(),
 		}
-		
+
 		if baseErr, ok := err.(*BaseError); ok {
 			summary.Code = baseErr.Code
 			summary.Severity = baseErr.Severity
 			summary.Details = baseErr.Details
 		}
-		
+
 		report.Errors = append(report.Errors, summary)
 	}
-	
+
 	// Generate recommendations
 	report.Recommendations = eec.generateRecommendations()
-	
+
 	return report
 }
 
@@ -315,24 +315,24 @@ type ErrorSummary struct {
 // generateRecommendations generates recommendations based on the error context
 func (eec *EnhancedErrorContext) generateRecommendations() []string {
 	var recommendations []string
-	
+
 	// Add actionable guidance from operation metadata
 	if eec.OperationMetadata != nil && len(eec.OperationMetadata.ActionableGuidance) > 0 {
 		recommendations = append(recommendations, eec.OperationMetadata.ActionableGuidance...)
 	}
-	
+
 	// Add circuit breaker recommendations
 	for name, state := range eec.CircuitBreakerStates {
 		switch state {
 		case StateOpen:
-			recommendations = append(recommendations, 
+			recommendations = append(recommendations,
 				fmt.Sprintf("Circuit breaker '%s' is open - check underlying service health", name))
 		case StateHalfOpen:
-			recommendations = append(recommendations, 
+			recommendations = append(recommendations,
 				fmt.Sprintf("Circuit breaker '%s' is half-open - reducing load may help recovery", name))
 		}
 	}
-	
+
 	// Add cluster state recommendations
 	if eec.ClusterState != nil {
 		if eec.ClusterState.ClusterHealth < 0.5 {
@@ -345,14 +345,14 @@ func (eec *EnhancedErrorContext) generateRecommendations() []string {
 			recommendations = append(recommendations, "Failed nodes detected - restart or replace failed nodes")
 		}
 	}
-	
+
 	// Add retry recommendations
 	if eec.OperationMetadata != nil && eec.OperationMetadata.RetryCount > 0 {
-		recommendations = append(recommendations, 
-			fmt.Sprintf("Operation has been retried %d times - consider exponential backoff", 
+		recommendations = append(recommendations,
+			fmt.Sprintf("Operation has been retried %d times - consider exponential backoff",
 				eec.OperationMetadata.RetryCount))
 	}
-	
+
 	return recommendations
 }
 
@@ -381,7 +381,7 @@ func GetOrCreateEnhancedContext(ctx context.Context, operationName string) (*Enh
 	if eec, ok := FromEnhancedContext(ctx); ok {
 		return eec, ctx
 	}
-	
+
 	eec := NewEnhancedErrorContext(operationName)
 	newCtx := eec.ToContext(ctx)
 	return eec, newCtx
@@ -392,7 +392,7 @@ func RecordEnhancedErrorInContext(ctx context.Context, err error, errorCode stri
 	if eec, ok := FromEnhancedContext(ctx); ok {
 		return eec.RecordEnhancedError(err, errorCode)
 	}
-	
+
 	// Fallback to regular error recording
 	RecordErrorInContext(ctx, err)
 	return err

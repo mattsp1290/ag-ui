@@ -47,7 +47,7 @@ func (u *SecurityTestUtils) GetTempDir() string {
 // CreateTestFile creates a test file with specified content
 func (u *SecurityTestUtils) CreateTestFile(t *testing.T, filename, content string) string {
 	filePath := filepath.Join(u.tempDir, filename)
-	
+
 	// Create directory if needed
 	dir := filepath.Dir(filePath)
 	if err := os.MkdirAll(dir, 0755); err != nil {
@@ -64,7 +64,7 @@ func (u *SecurityTestUtils) CreateTestFile(t *testing.T, filename, content strin
 // CreateTestSymlink creates a symbolic link for testing
 func (u *SecurityTestUtils) CreateTestSymlink(t *testing.T, linkName, target string) string {
 	linkPath := filepath.Join(u.tempDir, linkName)
-	
+
 	if err := os.Symlink(target, linkPath); err != nil {
 		t.Skipf("Cannot create symlink (may not be supported): %v", err)
 	}
@@ -75,7 +75,7 @@ func (u *SecurityTestUtils) CreateTestSymlink(t *testing.T, linkName, target str
 // CreateTestDirectory creates a test directory
 func (u *SecurityTestUtils) CreateTestDirectory(t *testing.T, dirName string) string {
 	dirPath := filepath.Join(u.tempDir, dirName)
-	
+
 	if err := os.MkdirAll(dirPath, 0755); err != nil {
 		t.Fatalf("Failed to create directory %s: %v", dirPath, err)
 	}
@@ -132,12 +132,12 @@ func (s *SecurityTestSuite) Run(t *testing.T) {
 func (s *SecurityTestSuite) runTestCase(t *testing.T, testCase SecurityTestCase, setupContext interface{}) {
 	// This is a placeholder - actual implementation would depend on the specific test type
 	t.Logf("Running security test: %s - %s", testCase.Name, testCase.Description)
-	
+
 	// Log test parameters for debugging
 	if testCase.Params != nil {
 		t.Logf("Test parameters: %+v", testCase.Params)
 	}
-	
+
 	// Log expected outcome
 	if testCase.Expected.ShouldFail {
 		t.Logf("Expected outcome: should fail")
@@ -147,7 +147,7 @@ func (s *SecurityTestSuite) runTestCase(t *testing.T, testCase SecurityTestCase,
 	} else {
 		t.Logf("Expected outcome: should succeed")
 	}
-	
+
 	if testCase.Expected.ShouldBlock {
 		t.Logf("Expected security blocking: enabled")
 	}
@@ -366,7 +366,7 @@ func (v *SecurityTestValidator) ValidateNoDataLeakage(t *testing.T, result *Tool
 		"private",
 		"confidential",
 		"/etc/passwd",
-		"/etc/shadow", 
+		"/etc/shadow",
 		"id_rsa",
 		"id_dsa",
 		"SSH PRIVATE KEY",
@@ -443,11 +443,11 @@ func (r *SecurityTestReporter) AddResult(result SecurityTestResult) {
 // GenerateReport generates a security test report
 func (r *SecurityTestReporter) GenerateReport(t *testing.T) {
 	t.Logf("=== Security Test Report ===")
-	
+
 	totalTests := len(r.testResults)
 	passedTests := 0
 	blockedThreats := 0
-	
+
 	for _, result := range r.testResults {
 		if result.Passed {
 			passedTests++
@@ -455,18 +455,18 @@ func (r *SecurityTestReporter) GenerateReport(t *testing.T) {
 		if result.Blocked {
 			blockedThreats++
 		}
-		
+
 		status := "PASS"
 		if !result.Passed {
 			status = "FAIL"
 		}
-		
+
 		t.Logf("[%s] %s - %s (Duration: %v)", status, result.TestName, result.Description, result.Duration)
-		
+
 		if result.Error != "" {
 			t.Logf("  Error: %s", result.Error)
 		}
-		
+
 		if result.Threat != "" {
 			blockStatus := "BLOCKED"
 			if !result.Blocked {
@@ -475,7 +475,7 @@ func (r *SecurityTestReporter) GenerateReport(t *testing.T) {
 			t.Logf("  Threat: %s - %s", result.Threat, blockStatus)
 		}
 	}
-	
+
 	t.Logf("=== Summary ===")
 	t.Logf("Total Tests: %d", totalTests)
 	t.Logf("Passed: %d", passedTests)
@@ -502,26 +502,26 @@ func NewSecurityTestExecutor() *SecurityTestExecutor {
 // ExecuteSecurityTest executes a security test with comprehensive validation
 func (e *SecurityTestExecutor) ExecuteSecurityTest(t *testing.T, testName, description string, executor ToolExecutor, params map[string]interface{}, expectBlocked bool, expectedError string) {
 	startTime := time.Now()
-	
+
 	result, err := executor.Execute(context.Background(), params)
-	
+
 	duration := time.Since(startTime)
-	
+
 	// Validate security blocking
 	e.validator.ValidateSecurityBlocking(t, result, err, expectBlocked)
-	
+
 	// Validate error message if provided
 	if expectedError != "" {
 		e.validator.ValidateErrorMessage(t, result, expectedError)
 	}
-	
+
 	// Validate no data leakage
 	e.validator.ValidateNoDataLeakage(t, result)
-	
+
 	// Determine if test passed
 	passed := true
 	errorMsg := ""
-	
+
 	if expectBlocked {
 		if err == nil && result.Success {
 			passed = false
@@ -537,7 +537,7 @@ func (e *SecurityTestExecutor) ExecuteSecurityTest(t *testing.T, testName, descr
 			errorMsg = "Expected operation to succeed but it failed"
 		}
 	}
-	
+
 	// Add result to reporter
 	e.reporter.AddResult(SecurityTestResult{
 		TestName:    testName,
@@ -612,7 +612,7 @@ func (h *SecurityTestHelpers) CreateSecureFileOptions(allowedPaths []string, max
 func (h *SecurityTestHelpers) CreateSecureHTTPOptions(allowedHosts []string) *SecureHTTPOptions {
 	return &SecureHTTPOptions{
 		AllowedHosts:         allowedHosts,
-		DenyHosts:           DefaultSecureHTTPOptions().DenyHosts,
+		DenyHosts:            DefaultSecureHTTPOptions().DenyHosts,
 		AllowPrivateNetworks: false,
 		AllowedSchemes:       []string{"http", "https"},
 		MaxRedirects:         5,
@@ -649,13 +649,13 @@ func (m *mockExecutorForUtils) Execute(ctx context.Context, params map[string]in
 
 // SecurityTestEnvironment provides a controlled environment for security testing
 type SecurityTestEnvironment struct {
-	tempDir      string
-	originalDir  string
-	cleanup      func()
-	utils        *SecurityTestUtils
-	helpers      *SecurityTestHelpers
-	executor     *SecurityTestExecutor
-	payloadGen   *PayloadGenerator
+	tempDir     string
+	originalDir string
+	cleanup     func()
+	utils       *SecurityTestUtils
+	helpers     *SecurityTestHelpers
+	executor    *SecurityTestExecutor
+	payloadGen  *PayloadGenerator
 }
 
 // NewSecurityTestEnvironment creates a new security test environment
@@ -664,13 +664,13 @@ func NewSecurityTestEnvironment(t *testing.T) *SecurityTestEnvironment {
 	helpers := NewSecurityTestHelpers()
 	executor := NewSecurityTestExecutor()
 	payloadGen := NewPayloadGenerator()
-	
+
 	// Save original directory
 	originalDir, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("Failed to get working directory: %v", err)
 	}
-	
+
 	return &SecurityTestEnvironment{
 		tempDir:     utils.GetTempDir(),
 		originalDir: originalDir,
@@ -729,9 +729,9 @@ func (e *SecurityTestEnvironment) RunSecurityTestBatch(t *testing.T, testName st
 	for i, payload := range payloads {
 		testCaseName := fmt.Sprintf("%s_%d", testName, i)
 		description := fmt.Sprintf("Testing payload: %s", payload)
-		
+
 		params := paramBuilder(payload)
-		
+
 		e.executor.ExecuteSecurityTest(t, testCaseName, description, executor, params, expectBlocked, "")
 	}
 }

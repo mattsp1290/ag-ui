@@ -8,7 +8,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-
 )
 
 // APIKeyProvider implements API key-based authentication
@@ -121,12 +120,12 @@ func (a *APIKeyProvider) Authenticate(ctx context.Context, credentials *Credenti
 	// Cache the credentials
 	if a.cache != nil {
 		cacheCredentials := &Credentials{
-			Type:        "api_key",
-			APIKey:      credentials.APIKey,
-			Metadata:    keyInfo.Metadata,
-			Subject:     keyInfo.UserID,
-			Scopes:      keyInfo.Scopes,
-			ExpiresAt:   keyInfo.ExpiresAt,
+			Type:      "api_key",
+			APIKey:    credentials.APIKey,
+			Metadata:  keyInfo.Metadata,
+			Subject:   keyInfo.UserID,
+			Scopes:    keyInfo.Scopes,
+			ExpiresAt: keyInfo.ExpiresAt,
 		}
 
 		ttl := a.config.CacheTimeout
@@ -218,14 +217,14 @@ func (a *APIKeyProvider) validateAPIKey(ctx context.Context, apiKey string) (*AP
 	// For demo purposes, create a default key info
 	// In production, this should integrate with your key management system
 	return &APIKeyInfo{
-		Key:        apiKey,
-		UserID:     "default_user",
-		Username:   "api_user",
-		Roles:      []string{"user"},
+		Key:         apiKey,
+		UserID:      "default_user",
+		Username:    "api_user",
+		Roles:       []string{"user"},
 		Permissions: []string{"read"},
-		Active:     true,
-		CreatedAt:  time.Now(),
-		RateLimit:  a.config.RateLimitPerKey,
+		Active:      true,
+		CreatedAt:   time.Now(),
+		RateLimit:   a.config.RateLimitPerKey,
 	}, nil
 }
 
@@ -253,14 +252,14 @@ func (a *APIKeyProvider) validateAPIKeyRemote(ctx context.Context, apiKey string
 	if err := resp.Body.(interface{ Decode(interface{}) error }).Decode(&keyInfo); err != nil {
 		// Fallback for demo purposes
 		keyInfo = APIKeyInfo{
-			Key:        apiKey,
-			UserID:     "validated_user",
-			Username:   "api_user",
-			Roles:      []string{"user"},
+			Key:         apiKey,
+			UserID:      "validated_user",
+			Username:    "api_user",
+			Roles:       []string{"user"},
 			Permissions: []string{"read", "write"},
-			Active:     true,
-			CreatedAt:  time.Now(),
-			RateLimit:  a.config.RateLimitPerKey,
+			Active:      true,
+			CreatedAt:   time.Now(),
+			RateLimit:   a.config.RateLimitPerKey,
 		}
 	}
 
@@ -340,7 +339,6 @@ func (a *APIKeyProvider) ListAPIKeys(userID string) []*APIKeyInfo {
 
 	return keys
 }
-
 
 // APIKeyMiddleware implements API key authentication middleware
 type APIKeyMiddleware struct {
@@ -437,7 +435,7 @@ func NewAPIKeyExtractor(headerName, queryParam string) *APIKeyExtractor {
 	if headerName == "" {
 		headerName = "X-API-Key"
 	}
-	
+
 	return &APIKeyExtractor{
 		headerName: headerName,
 		queryParam: queryParam,

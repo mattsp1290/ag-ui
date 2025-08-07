@@ -24,15 +24,15 @@ func NewServiceRegistry() *ServiceRegistryImpl {
 func (r *ServiceRegistryImpl) RegisterService(name string, service interface{}) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	
+
 	if name == "" {
 		return fmt.Errorf("service name cannot be empty")
 	}
-	
+
 	if service == nil {
 		return fmt.Errorf("service cannot be nil")
 	}
-	
+
 	r.services[name] = service
 	return nil
 }
@@ -41,11 +41,11 @@ func (r *ServiceRegistryImpl) RegisterService(name string, service interface{}) 
 func (r *ServiceRegistryImpl) GetService(name string) (interface{}, error) {
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
-	
+
 	if service, exists := r.services[name]; exists {
 		return service, nil
 	}
-	
+
 	return nil, fmt.Errorf("service %s not found", name)
 }
 
@@ -55,7 +55,7 @@ func (r *ServiceRegistryImpl) GetTypedService(name string, target interface{}) e
 	if err != nil {
 		return err
 	}
-	
+
 	// This is a simplified type assertion - in a real implementation,
 	// you would use reflection to properly assign the service to the target
 	switch t := target.(type) {
@@ -116,7 +116,7 @@ func (r *ServiceRegistryImpl) GetTypedService(name string, target interface{}) e
 	default:
 		return fmt.Errorf("unsupported target type for service %s", name)
 	}
-	
+
 	return nil
 }
 
@@ -124,7 +124,7 @@ func (r *ServiceRegistryImpl) GetTypedService(name string, target interface{}) e
 func (r *ServiceRegistryImpl) UnregisterService(name string) error {
 	r.mutex.Lock()
 	defer r.mutex.Unlock()
-	
+
 	delete(r.services, name)
 	return nil
 }
@@ -133,12 +133,12 @@ func (r *ServiceRegistryImpl) UnregisterService(name string) error {
 func (r *ServiceRegistryImpl) ListServices() []string {
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
-	
+
 	services := make([]string, 0, len(r.services))
 	for name := range r.services {
 		services = append(services, name)
 	}
-	
+
 	return services
 }
 
@@ -146,7 +146,7 @@ func (r *ServiceRegistryImpl) ListServices() []string {
 func (r *ServiceRegistryImpl) IsServiceRegistered(name string) bool {
 	r.mutex.RLock()
 	defer r.mutex.RUnlock()
-	
+
 	_, exists := r.services[name]
 	return exists
 }
@@ -157,12 +157,12 @@ func (r *ServiceRegistryImpl) GetServiceHealth(name string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	
+
 	// Check if service implements health checking
 	if healthChecker, ok := service.(interface{ IsHealthy() bool }); ok {
 		return healthChecker.IsHealthy(), nil
 	}
-	
+
 	// If no health checking, assume healthy if service exists
 	return true, nil
 }
@@ -184,82 +184,82 @@ func NewDistributedValidatorFactory() *DistributedValidatorFactoryImpl {
 func (f *DistributedValidatorFactoryImpl) CreateDistributedValidator(config interface{}) (DistributedValidatorProvider, error) {
 	f.mutex.Lock()
 	defer f.mutex.Unlock()
-	
+
 	// Build options from registered services
 	options := make([]ValidatorOption, 0)
-	
+
 	// Add config provider if available
 	if configProvider, err := f.serviceRegistry.GetService("config"); err == nil {
 		if provider, ok := configProvider.(ConfigProvider); ok {
 			options = append(options, WithConfigProvider(provider))
 		}
 	}
-	
+
 	// Add validation provider if available
 	if validationProvider, err := f.serviceRegistry.GetService("validation"); err == nil {
 		if provider, ok := validationProvider.(ValidationProvider); ok {
 			options = append(options, WithValidationProvider(provider))
 		}
 	}
-	
+
 	// Add consensus provider if available
 	if consensusProvider, err := f.serviceRegistry.GetService("consensus"); err == nil {
 		if provider, ok := consensusProvider.(ConsensusProvider); ok {
 			options = append(options, WithConsensusProvider(provider))
 		}
 	}
-	
+
 	// Add state sync provider if available
 	if stateSyncProvider, err := f.serviceRegistry.GetService("state_sync"); err == nil {
 		if provider, ok := stateSyncProvider.(StateSyncProvider); ok {
 			options = append(options, WithStateSyncProvider(provider))
 		}
 	}
-	
+
 	// Add load balancer provider if available
 	if loadBalancerProvider, err := f.serviceRegistry.GetService("load_balancer"); err == nil {
 		if provider, ok := loadBalancerProvider.(LoadBalancerProvider); ok {
 			options = append(options, WithLoadBalancerProvider(provider))
 		}
 	}
-	
+
 	// Add partition handler if available
 	if partitionHandler, err := f.serviceRegistry.GetService("partition_handler"); err == nil {
 		if handler, ok := partitionHandler.(PartitionHandlerProvider); ok {
 			options = append(options, WithPartitionHandler(handler))
 		}
 	}
-	
+
 	// Add metrics provider if available
 	if metricsProvider, err := f.serviceRegistry.GetService("metrics"); err == nil {
 		if provider, ok := metricsProvider.(MetricsProvider); ok {
 			options = append(options, WithMetricsProvider(provider))
 		}
 	}
-	
+
 	// Add network provider if available
 	if networkProvider, err := f.serviceRegistry.GetService("network"); err == nil {
 		if provider, ok := networkProvider.(NetworkProvider); ok {
 			options = append(options, WithNetworkProvider(provider))
 		}
 	}
-	
+
 	// Add health checker if available
 	if healthChecker, err := f.serviceRegistry.GetService("health_checker"); err == nil {
 		if checker, ok := healthChecker.(HealthChecker); ok {
 			options = append(options, WithHealthChecker(checker))
 		}
 	}
-	
+
 	// Add service registry
 	options = append(options, WithServiceRegistry(f.serviceRegistry))
-	
+
 	// Create the validator
 	validator, err := NewDecoupledDistributedValidator(options...)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create distributed validator: %w", err)
 	}
-	
+
 	return validator, nil
 }
 
@@ -406,12 +406,12 @@ func (p *MajorityConsensusProvider) Stop() error                     { return ni
 func (p *MajorityConsensusProvider) AggregateDecisions(decisions []*ValidationDecision) *ValidationResult {
 	return &ValidationResult{IsValid: true}
 }
-func (p *MajorityConsensusProvider) GetRequiredNodes() int                      { return 1 }
+func (p *MajorityConsensusProvider) GetRequiredNodes() int { return 1 }
 func (p *MajorityConsensusProvider) AcquireLock(ctx context.Context, lockID string, timeout time.Duration) error {
 	return nil
 }
 func (p *MajorityConsensusProvider) ReleaseLock(ctx context.Context, lockID string) error { return nil }
-func (p *MajorityConsensusProvider) GetAlgorithm() string                                  { return "majority" }
+func (p *MajorityConsensusProvider) GetAlgorithm() string                                 { return "majority" }
 func (p *MajorityConsensusProvider) IsHealthy() bool                                      { return true }
 
 // RaftConsensusProvider implements Raft consensus
@@ -422,12 +422,12 @@ func (p *RaftConsensusProvider) Stop() error                     { return nil }
 func (p *RaftConsensusProvider) AggregateDecisions(decisions []*ValidationDecision) *ValidationResult {
 	return &ValidationResult{IsValid: true}
 }
-func (p *RaftConsensusProvider) GetRequiredNodes() int                      { return 3 }
+func (p *RaftConsensusProvider) GetRequiredNodes() int { return 3 }
 func (p *RaftConsensusProvider) AcquireLock(ctx context.Context, lockID string, timeout time.Duration) error {
 	return nil
 }
 func (p *RaftConsensusProvider) ReleaseLock(ctx context.Context, lockID string) error { return nil }
-func (p *RaftConsensusProvider) GetAlgorithm() string                                  { return "raft" }
+func (p *RaftConsensusProvider) GetAlgorithm() string                                 { return "raft" }
 func (p *RaftConsensusProvider) IsHealthy() bool                                      { return true }
 
 // PBFTConsensusProvider implements PBFT consensus
@@ -438,12 +438,12 @@ func (p *PBFTConsensusProvider) Stop() error                     { return nil }
 func (p *PBFTConsensusProvider) AggregateDecisions(decisions []*ValidationDecision) *ValidationResult {
 	return &ValidationResult{IsValid: true}
 }
-func (p *PBFTConsensusProvider) GetRequiredNodes() int                      { return 4 }
+func (p *PBFTConsensusProvider) GetRequiredNodes() int { return 4 }
 func (p *PBFTConsensusProvider) AcquireLock(ctx context.Context, lockID string, timeout time.Duration) error {
 	return nil
 }
 func (p *PBFTConsensusProvider) ReleaseLock(ctx context.Context, lockID string) error { return nil }
-func (p *PBFTConsensusProvider) GetAlgorithm() string                                  { return "pbft" }
+func (p *PBFTConsensusProvider) GetAlgorithm() string                                 { return "pbft" }
 func (p *PBFTConsensusProvider) IsHealthy() bool                                      { return true }
 
 // GossipStateSyncProvider implements gossip state synchronization
@@ -548,11 +548,13 @@ func (p *LeastLoadedLoadBalancerProvider) IsHealthy() bool { return true }
 // PartitionHandlerProviderImpl implements partition handling
 type PartitionHandlerProviderImpl struct{}
 
-func (p *PartitionHandlerProviderImpl) Start(ctx context.Context) error      { return nil }
-func (p *PartitionHandlerProviderImpl) Stop() error                          { return nil }
-func (p *PartitionHandlerProviderImpl) IsPartitioned() bool                  { return false }
-func (p *PartitionHandlerProviderImpl) HandleNodeFailure(nodeID NodeID)     {}
-func (p *PartitionHandlerProviderImpl) GetPartitionStatus() PartitionStatus { return PartitionStatusHealthy }
+func (p *PartitionHandlerProviderImpl) Start(ctx context.Context) error { return nil }
+func (p *PartitionHandlerProviderImpl) Stop() error                     { return nil }
+func (p *PartitionHandlerProviderImpl) IsPartitioned() bool             { return false }
+func (p *PartitionHandlerProviderImpl) HandleNodeFailure(nodeID NodeID) {}
+func (p *PartitionHandlerProviderImpl) GetPartitionStatus() PartitionStatus {
+	return PartitionStatusHealthy
+}
 func (p *PartitionHandlerProviderImpl) RegisterPartitionCallback(callback func(event PartitionEvent)) error {
 	return nil
 }

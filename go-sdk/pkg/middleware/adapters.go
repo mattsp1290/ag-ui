@@ -309,17 +309,17 @@ func (a *AuthMiddlewareAdapter) Name() string {
 func (a *AuthMiddlewareAdapter) Process(ctx context.Context, req *Request, next NextHandler) (*Response, error) {
 	// Convert main types to auth types
 	authReq := ConvertToAuthRequest(req)
-	
+
 	// Create auth NextHandler wrapper
 	authNext := func(ctx context.Context, authReq *auth.Request) (*auth.Response, error) {
 		mainReq := ConvertFromAuthRequest(authReq)
 		mainResp, err := next(ctx, mainReq)
 		return ConvertToAuthResponse(mainResp), err
 	}
-	
+
 	// Call auth middleware
 	authResp, err := a.authMiddleware.Process(ctx, authReq, authNext)
-	
+
 	// Convert auth response back to main response
 	return ConvertFromAuthResponse(authResp), err
 }
@@ -355,7 +355,7 @@ func (o *ObservabilityMiddlewareAdapter) Name() string {
 func (o *ObservabilityMiddlewareAdapter) Process(ctx context.Context, req *Request, next NextHandler) (*Response, error) {
 	// Convert main types to observability types
 	obsReq := ConvertToObservabilityRequest(req)
-	
+
 	// Create observability NextHandler wrapper
 	obsNext := func(ctx context.Context, obsReq *observability.Request) (*observability.Response, error) {
 		// Convert observability request to main request
@@ -384,10 +384,10 @@ func (o *ObservabilityMiddlewareAdapter) Process(ctx context.Context, req *Reque
 			Duration:   mainResp.Duration,
 		}, nil
 	}
-	
+
 	// Call observability middleware
 	obsResp, err := o.observabilityMiddleware.Process(ctx, obsReq, obsNext)
-	
+
 	// Convert observability response back to main response
 	return ConvertFromObservabilityResponse(obsResp), err
 }
@@ -423,7 +423,7 @@ func (r *RateLimitMiddlewareAdapter) Name() string {
 func (r *RateLimitMiddlewareAdapter) Process(ctx context.Context, req *Request, next NextHandler) (*Response, error) {
 	// Convert main types to ratelimit types
 	rlReq := ConvertToRateLimitRequest(req)
-	
+
 	// Create ratelimit NextHandler wrapper
 	rlNext := func(ctx context.Context, rlReq *ratelimit.Request) (*ratelimit.Response, error) {
 		// Convert ratelimit request to main request
@@ -452,10 +452,10 @@ func (r *RateLimitMiddlewareAdapter) Process(ctx context.Context, req *Request, 
 			Duration:   mainResp.Duration,
 		}, nil
 	}
-	
+
 	// Call ratelimit middleware
 	rlResp, err := r.rateLimitMiddleware.Process(ctx, rlReq, rlNext)
-	
+
 	// Convert ratelimit response back to main response
 	return ConvertFromRateLimitResponse(rlResp), err
 }
@@ -491,7 +491,7 @@ func (s *SecurityMiddlewareAdapter) Name() string {
 func (s *SecurityMiddlewareAdapter) Process(ctx context.Context, req *Request, next NextHandler) (*Response, error) {
 	// Convert main types to security types
 	secReq := ConvertToSecurityRequest(req)
-	
+
 	// Create security NextHandler wrapper
 	secNext := func(ctx context.Context, secReq *security.Request) (*security.Response, error) {
 		// Convert security request to main request
@@ -520,10 +520,10 @@ func (s *SecurityMiddlewareAdapter) Process(ctx context.Context, req *Request, n
 			Duration:   mainResp.Duration,
 		}, nil
 	}
-	
+
 	// Call security middleware
 	secResp, err := s.securityMiddleware.Process(ctx, secReq, secNext)
-	
+
 	// Convert security response back to main response
 	return ConvertFromSecurityResponse(secResp), err
 }
@@ -559,7 +559,7 @@ func (t *TransformMiddlewareAdapter) Name() string {
 func (t *TransformMiddlewareAdapter) Process(ctx context.Context, req *Request, next NextHandler) (*Response, error) {
 	// Convert main types to transform types
 	transformReq := ConvertToTransformRequest(req)
-	
+
 	// Create transform NextHandler wrapper
 	transformNext := func(ctx context.Context, transformReq *transform.Request) (*transform.Response, error) {
 		// Convert transform request to main request
@@ -588,10 +588,10 @@ func (t *TransformMiddlewareAdapter) Process(ctx context.Context, req *Request, 
 			Duration:   mainResp.Duration,
 		}, nil
 	}
-	
+
 	// Call transform middleware
 	transformResp, err := t.transformMiddleware.Process(ctx, transformReq, transformNext)
-	
+
 	// Convert transform response back to main response
 	return ConvertFromTransformResponse(transformResp), err
 }

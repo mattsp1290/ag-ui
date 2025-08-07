@@ -26,30 +26,30 @@ type AuditLogger struct {
 
 // LogRotator handles log file rotation
 type LogRotator struct {
-	config     *AuditLoggingConfig
-	logger     *zap.Logger
+	config      *AuditLoggingConfig
+	logger      *zap.Logger
 	currentSize int64
-	mu         sync.Mutex
+	mu          sync.Mutex
 }
 
 // AuditLogEntry represents a structured audit log entry
 type AuditLogEntry struct {
-	Timestamp   time.Time              `json:"timestamp"`
-	Level       string                 `json:"level"`
-	EventType   string                 `json:"event_type"`
-	UserID      string                 `json:"user_id,omitempty"`
-	SessionID   string                 `json:"session_id,omitempty"`
-	IPAddress   string                 `json:"ip_address,omitempty"`
-	UserAgent   string                 `json:"user_agent,omitempty"`
-	Resource    string                 `json:"resource,omitempty"`
-	Action      string                 `json:"action,omitempty"`
-	Result      string                 `json:"result"`
-	Error       string                 `json:"error,omitempty"`
-	Duration    string                 `json:"duration,omitempty"`
-	Metadata    map[string]interface{} `json:"metadata,omitempty"`
-	Sensitive   bool                   `json:"sensitive,omitempty"`
-	TraceID     string                 `json:"trace_id,omitempty"`
-	RequestID   string                 `json:"request_id,omitempty"`
+	Timestamp time.Time              `json:"timestamp"`
+	Level     string                 `json:"level"`
+	EventType string                 `json:"event_type"`
+	UserID    string                 `json:"user_id,omitempty"`
+	SessionID string                 `json:"session_id,omitempty"`
+	IPAddress string                 `json:"ip_address,omitempty"`
+	UserAgent string                 `json:"user_agent,omitempty"`
+	Resource  string                 `json:"resource,omitempty"`
+	Action    string                 `json:"action,omitempty"`
+	Result    string                 `json:"result"`
+	Error     string                 `json:"error,omitempty"`
+	Duration  string                 `json:"duration,omitempty"`
+	Metadata  map[string]interface{} `json:"metadata,omitempty"`
+	Sensitive bool                   `json:"sensitive,omitempty"`
+	TraceID   string                 `json:"trace_id,omitempty"`
+	RequestID string                 `json:"request_id,omitempty"`
 }
 
 // NewAuditLogger creates a new audit logger
@@ -57,23 +57,23 @@ func NewAuditLogger(config *AuditLoggingConfig, logger *zap.Logger) (*AuditLogge
 	if config == nil {
 		return nil, fmt.Errorf("audit logging config cannot be nil")
 	}
-	
+
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	
+
 	al := &AuditLogger{
 		config: config,
 		logger: logger,
 	}
-	
+
 	// Initialize file logging if enabled
 	if config.Enabled && config.LogFile != "" {
 		if err := al.initializeFileLogging(); err != nil {
 			return nil, fmt.Errorf("failed to initialize file logging: %w", err)
 		}
 	}
-	
+
 	return al, nil
 }
 
@@ -84,14 +84,14 @@ func (al *AuditLogger) initializeFileLogging() error {
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		return fmt.Errorf("failed to create log directory: %w", err)
 	}
-	
+
 	// Open log file
 	var err error
 	al.logFile, err = os.OpenFile(al.config.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to open log file: %w", err)
 	}
-	
+
 	// Get current file size for rotation
 	if stat, err := al.logFile.Stat(); err == nil {
 		al.rotator = &LogRotator{
@@ -100,14 +100,14 @@ func (al *AuditLogger) initializeFileLogging() error {
 			currentSize: stat.Size(),
 		}
 	}
-	
+
 	// Create file logger
 	al.fileLogger = al.createFileLogger(al.logFile)
-	
+
 	al.logger.Info("Initialized audit file logging",
 		zap.String("log_file", al.config.LogFile),
 		zap.String("format", al.config.LogFormat))
-	
+
 	return nil
 }
 
@@ -144,16 +144,16 @@ func (al *AuditLogger) createFileLogger(writer io.Writer) *zap.Logger {
 			EncodeCaller:   zapcore.ShortCallerEncoder,
 		})
 	}
-	
+
 	// Parse log level
 	level := zapcore.InfoLevel
 	if err := level.UnmarshalText([]byte(al.config.LogLevel)); err != nil {
 		al.logger.Warn("Invalid log level, using info", zap.String("level", al.config.LogLevel))
 	}
-	
+
 	// Create core
 	core := zapcore.NewCore(encoder, zapcore.AddSync(writer), level)
-	
+
 	return zap.New(core)
 }
 
@@ -162,12 +162,12 @@ func (al *AuditLogger) LogEvent(event *SecurityEvent) {
 	if !al.config.Enabled {
 		return
 	}
-	
+
 	// Check if this event type should be logged
 	if !al.shouldLogEventType(event.Type) {
 		return
 	}
-	
+
 	// Create audit log entry
 	entry := &AuditLogEntry{
 		Timestamp: event.Timestamp,
@@ -183,7 +183,7 @@ func (al *AuditLogger) LogEvent(event *SecurityEvent) {
 		Error:     event.Error,
 		Metadata:  event.Metadata,
 	}
-	
+
 	// Add trace/request IDs if available
 	if event.Metadata != nil {
 		if traceID, ok := event.Metadata["trace_id"].(string); ok {
@@ -196,20 +196,20 @@ func (al *AuditLogger) LogEvent(event *SecurityEvent) {
 			entry.Duration = duration.String()
 		}
 	}
-	
+
 	// Check if event contains sensitive data
 	entry.Sensitive = al.containsSensitiveData(event)
-	
+
 	// Sanitize sensitive data if configured
 	if entry.Sensitive && !al.config.LogSensitiveData {
 		entry = al.sanitizeSensitiveData(entry)
 	}
-	
+
 	// Log to file if configured
 	if al.fileLogger != nil {
 		al.logToFile(entry)
 	}
-	
+
 	// Log to main logger
 	al.logToMainLogger(entry)
 }
@@ -219,13 +219,13 @@ func (al *AuditLogger) shouldLogEventType(eventType string) bool {
 	if len(al.config.EventTypes) == 0 {
 		return true // Log all events if no filter is configured
 	}
-	
+
 	for _, configuredType := range al.config.EventTypes {
 		if configuredType == eventType || configuredType == "*" {
 			return true
 		}
 	}
-	
+
 	return false
 }
 
@@ -252,7 +252,7 @@ func (al *AuditLogger) containsSensitiveData(event *SecurityEvent) bool {
 			return true
 		}
 	}
-	
+
 	// Check metadata for sensitive keys
 	if event.Metadata != nil {
 		sensitiveKeys := []string{"password", "token", "key", "secret", "credential"}
@@ -265,7 +265,7 @@ func (al *AuditLogger) containsSensitiveData(event *SecurityEvent) bool {
 			}
 		}
 	}
-	
+
 	return false
 }
 
@@ -273,14 +273,14 @@ func (al *AuditLogger) containsSensitiveData(event *SecurityEvent) bool {
 func (al *AuditLogger) sanitizeSensitiveData(entry *AuditLogEntry) *AuditLogEntry {
 	// Create a copy to avoid modifying the original
 	sanitized := *entry
-	
+
 	// Sanitize metadata
 	if entry.Metadata != nil {
 		sanitized.Metadata = make(map[string]interface{})
 		for key, value := range entry.Metadata {
 			keyLower := strings.ToLower(key)
 			isSensitive := false
-			
+
 			sensitiveKeys := []string{"password", "token", "key", "secret", "credential"}
 			for _, sensitiveKey := range sensitiveKeys {
 				if strings.Contains(keyLower, sensitiveKey) {
@@ -288,7 +288,7 @@ func (al *AuditLogger) sanitizeSensitiveData(entry *AuditLogEntry) *AuditLogEntr
 					break
 				}
 			}
-			
+
 			if isSensitive {
 				if str, ok := value.(string); ok && len(str) > 4 {
 					// Mask all but first 4 characters
@@ -301,7 +301,7 @@ func (al *AuditLogger) sanitizeSensitiveData(entry *AuditLogEntry) *AuditLogEntr
 			}
 		}
 	}
-	
+
 	// Mask IP address (keep first 3 octets for IPv4)
 	if entry.IPAddress != "" {
 		parts := strings.Split(entry.IPAddress, ".")
@@ -311,7 +311,7 @@ func (al *AuditLogger) sanitizeSensitiveData(entry *AuditLogEntry) *AuditLogEntr
 			sanitized.IPAddress = "***REDACTED***"
 		}
 	}
-	
+
 	return &sanitized
 }
 
@@ -319,14 +319,14 @@ func (al *AuditLogger) sanitizeSensitiveData(entry *AuditLogEntry) *AuditLogEntr
 func (al *AuditLogger) logToFile(entry *AuditLogEntry) {
 	al.mu.Lock()
 	defer al.mu.Unlock()
-	
+
 	// Check if rotation is needed
 	if al.rotator != nil && al.config.RotateSize > 0 {
 		if err := al.rotator.checkRotation(al); err != nil {
 			al.logger.Error("Failed to rotate log file", zap.Error(err))
 		}
 	}
-	
+
 	// Log the entry
 	if strings.ToLower(al.config.LogFormat) == "json" {
 		// JSON format
@@ -340,11 +340,11 @@ func (al *AuditLogger) logToFile(entry *AuditLogEntry) {
 		message := fmt.Sprintf("[%s] %s - %s:%s %s on %s -> %s",
 			entry.EventType, entry.UserID, entry.Action, entry.Resource,
 			entry.IPAddress, entry.Timestamp.Format(time.RFC3339), entry.Result)
-		
+
 		if entry.Error != "" {
 			message += " (Error: " + entry.Error + ")"
 		}
-		
+
 		al.fileLogger.Info(message)
 	}
 }
@@ -357,29 +357,29 @@ func (al *AuditLogger) logToMainLogger(entry *AuditLogEntry) {
 		zap.String("ip_address", entry.IPAddress),
 		zap.String("result", entry.Result),
 	}
-	
+
 	if entry.SessionID != "" {
 		fields = append(fields, zap.String("session_id", entry.SessionID))
 	}
-	
+
 	if entry.Resource != "" {
 		fields = append(fields, zap.String("resource", entry.Resource))
 	}
-	
+
 	if entry.Action != "" {
 		fields = append(fields, zap.String("action", entry.Action))
 	}
-	
+
 	if entry.Error != "" {
 		fields = append(fields, zap.String("error", entry.Error))
 	}
-	
+
 	if entry.TraceID != "" {
 		fields = append(fields, zap.String("trace_id", entry.TraceID))
 	}
-	
+
 	message := fmt.Sprintf("Security event: %s", entry.EventType)
-	
+
 	switch entry.Level {
 	case "debug":
 		al.logger.Debug(message, fields...)
@@ -398,11 +398,11 @@ func (al *AuditLogger) logToMainLogger(entry *AuditLogEntry) {
 func (lr *LogRotator) checkRotation(al *AuditLogger) error {
 	lr.mu.Lock()
 	defer lr.mu.Unlock()
-	
+
 	if lr.currentSize >= lr.config.RotateSize {
 		return lr.rotateLog(al)
 	}
-	
+
 	return nil
 }
 
@@ -412,38 +412,38 @@ func (lr *LogRotator) rotateLog(al *AuditLogger) error {
 	if al.logFile != nil {
 		al.logFile.Close()
 	}
-	
+
 	// Rotate existing files
 	for i := lr.config.RotateCount - 1; i > 0; i-- {
 		oldName := fmt.Sprintf("%s.%d", lr.config.LogFile, i)
 		newName := fmt.Sprintf("%s.%d", lr.config.LogFile, i+1)
-		
+
 		if _, err := os.Stat(oldName); err == nil {
 			os.Rename(oldName, newName)
 		}
 	}
-	
+
 	// Move current log to .1
 	if _, err := os.Stat(lr.config.LogFile); err == nil {
 		os.Rename(lr.config.LogFile, fmt.Sprintf("%s.1", lr.config.LogFile))
 	}
-	
+
 	// Create new log file
 	var err error
 	al.logFile, err = os.OpenFile(lr.config.LogFile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
 	if err != nil {
 		return fmt.Errorf("failed to create new log file: %w", err)
 	}
-	
+
 	// Update file logger
 	al.fileLogger = al.createFileLogger(al.logFile)
-	
+
 	// Reset size counter
 	lr.currentSize = 0
-	
+
 	lr.logger.Info("Rotated audit log file",
 		zap.String("log_file", lr.config.LogFile))
-	
+
 	return nil
 }
 
@@ -462,7 +462,7 @@ func (al *AuditLogger) LogSecurityEvent(eventType, userID, sessionID, ipAddress,
 		Error:     errorMsg,
 		Metadata:  metadata,
 	}
-	
+
 	al.LogEvent(event)
 }
 
@@ -472,7 +472,7 @@ func (al *AuditLogger) LogAuthenticationEvent(eventType string, userID string, i
 	if !success {
 		result = "FAILURE"
 	}
-	
+
 	al.LogSecurityEvent(eventType, userID, "", ipAddress, "", "auth", "authenticate", result, errorMsg, metadata)
 }
 
@@ -482,7 +482,7 @@ func (al *AuditLogger) LogAuthorizationEvent(userID, resource, action, ipAddress
 	if !success {
 		result = "DENIED"
 	}
-	
+
 	al.LogSecurityEvent("authorization", userID, "", ipAddress, "", resource, action, result, errorMsg, metadata)
 }
 
@@ -497,7 +497,7 @@ func (al *AuditLogger) LogDataAccessEvent(userID, resource, action, ipAddress st
 	if !success {
 		result = "FAILURE"
 	}
-	
+
 	al.LogSecurityEvent("data_access", userID, "", ipAddress, "", resource, action, result, "", metadata)
 }
 
@@ -510,7 +510,7 @@ func (al *AuditLogger) GetAuditStats() map[string]interface{} {
 		"log_level":   al.config.LogLevel,
 		"event_types": al.config.EventTypes,
 	}
-	
+
 	if al.rotator != nil {
 		al.rotator.mu.Lock()
 		stats["current_size"] = al.rotator.currentSize
@@ -518,7 +518,7 @@ func (al *AuditLogger) GetAuditStats() map[string]interface{} {
 		stats["rotate_count"] = al.config.RotateCount
 		al.rotator.mu.Unlock()
 	}
-	
+
 	return stats
 }
 
@@ -528,7 +528,7 @@ func (al *AuditLogger) Cleanup() error {
 	if al.logFile != nil {
 		al.logFile.Close()
 	}
-	
+
 	al.logger.Info("Audit logger cleanup completed")
 	return nil
 }

@@ -14,7 +14,7 @@ type CleanupValidator struct {
 	validationRules   []CleanupValidationRule
 	completedCleanups map[string]*CleanupValidationResult
 	config            CleanupValidationConfig
-	
+
 	// Validation state
 	validationErrors []CleanupValidationError
 	memoryLeaks      []MemoryLeak
@@ -26,22 +26,22 @@ type CleanupValidator struct {
 type CleanupValidationConfig struct {
 	// EnableMemoryValidation enables memory leak detection
 	EnableMemoryValidation bool
-	
+
 	// EnableGoroutineValidation enables goroutine leak detection
 	EnableGoroutineValidation bool
-	
+
 	// EnableResourceValidation enables resource leak detection
 	EnableResourceValidation bool
-	
+
 	// MemoryThreshold is the memory increase threshold to consider a leak
 	MemoryThreshold int64
-	
+
 	// GoroutineThreshold is the goroutine increase threshold to consider a leak
 	GoroutineThreshold int
-	
+
 	// ValidationTimeout is the timeout for validation operations
 	ValidationTimeout time.Duration
-	
+
 	// Logger for validation events
 	Logger Logger
 }
@@ -52,10 +52,10 @@ func DefaultCleanupValidationConfig() CleanupValidationConfig {
 		EnableMemoryValidation:    true,
 		EnableGoroutineValidation: true,
 		EnableResourceValidation:  true,
-		MemoryThreshold:          1024 * 1024, // 1MB
-		GoroutineThreshold:       5,
-		ValidationTimeout:        30 * time.Second,
-		Logger:                   nil,
+		MemoryThreshold:           1024 * 1024, // 1MB
+		GoroutineThreshold:        5,
+		ValidationTimeout:         30 * time.Second,
+		Logger:                    nil,
 	}
 }
 
@@ -68,57 +68,57 @@ type CleanupValidationRule interface {
 
 // CleanupValidationResult contains the result of a cleanup validation
 type CleanupValidationResult struct {
-	ComponentID           string
-	StartTime             time.Time
-	EndTime               time.Time
-	Duration              time.Duration
-	Success               bool
-	Errors                []error
-	
+	ComponentID string
+	StartTime   time.Time
+	EndTime     time.Time
+	Duration    time.Duration
+	Success     bool
+	Errors      []error
+
 	// Memory statistics
-	MemoryBefore          runtime.MemStats
-	MemoryAfter           runtime.MemStats
-	MemoryDelta           int64
-	
+	MemoryBefore runtime.MemStats
+	MemoryAfter  runtime.MemStats
+	MemoryDelta  int64
+
 	// Goroutine statistics
-	GoroutinesBefore      int
-	GoroutinesAfter       int
-	GoroutineDelta        int
-	
+	GoroutinesBefore int
+	GoroutinesAfter  int
+	GoroutineDelta   int
+
 	// Resource tracking
-	ResourcesTracked      int
-	ResourcesCleaned      int
-	ResourcesLeaked       int
-	LeakedResources       []string
-	
+	ResourcesTracked int
+	ResourcesCleaned int
+	ResourcesLeaked  int
+	LeakedResources  []string
+
 	// Cleanup phases
-	PhaseResults          map[CleanupPhase]PhaseResult
-	
+	PhaseResults map[CleanupPhase]PhaseResult
+
 	// Validation results
-	ValidationErrors      []CleanupValidationError
-	RulePassed            map[string]bool
-	RuleErrors            map[string]error
+	ValidationErrors []CleanupValidationError
+	RulePassed       map[string]bool
+	RuleErrors       map[string]error
 }
 
 // PhaseResult contains the result of a cleanup phase
 type PhaseResult struct {
-	Phase           CleanupPhase
-	StartTime       time.Time
-	EndTime         time.Time
-	Duration        time.Duration
-	Success         bool
+	Phase            CleanupPhase
+	StartTime        time.Time
+	EndTime          time.Time
+	Duration         time.Duration
+	Success          bool
 	ResourcesCleaned int
-	Errors          []error
+	Errors           []error
 }
 
 // CleanupValidationError represents a validation error
 type CleanupValidationError struct {
-	Rule        string
-	Message     string
-	Severity    ErrorSeverity
-	Component   string
-	Timestamp   time.Time
-	Details     map[string]interface{}
+	Rule      string
+	Message   string
+	Severity  ErrorSeverity
+	Component string
+	Timestamp time.Time
+	Details   map[string]interface{}
 }
 
 // ErrorSeverity represents the severity of a validation error
@@ -133,13 +133,13 @@ const (
 
 // MemoryLeak represents a detected memory leak
 type MemoryLeak struct {
-	Component     string
-	Delta         int64
-	Threshold     int64
-	AllocBefore   uint64
-	AllocAfter    uint64
-	DetectedAt    time.Time
-	StackTrace    string
+	Component   string
+	Delta       int64
+	Threshold   int64
+	AllocBefore uint64
+	AllocAfter  uint64
+	DetectedAt  time.Time
+	StackTrace  string
 }
 
 // GoroutineLeak represents a detected goroutine leak
@@ -174,10 +174,10 @@ func NewCleanupValidator(config CleanupValidationConfig) *CleanupValidator {
 		goroutineLeaks:    make([]GoroutineLeak, 0),
 		resourceLeaks:     make([]ResourceLeak, 0),
 	}
-	
+
 	// Add default validation rules
 	cv.addDefaultRules()
-	
+
 	return cv
 }
 
@@ -186,15 +186,15 @@ func (cv *CleanupValidator) addDefaultRules() {
 	if cv.config.EnableMemoryValidation {
 		cv.AddRule(&MemoryLeakRule{threshold: cv.config.MemoryThreshold})
 	}
-	
+
 	if cv.config.EnableGoroutineValidation {
 		cv.AddRule(&GoroutineLeakRule{threshold: cv.config.GoroutineThreshold})
 	}
-	
+
 	if cv.config.EnableResourceValidation {
 		cv.AddRule(&ResourceLeakRule{})
 	}
-	
+
 	cv.AddRule(&CleanupTimeoutRule{timeout: cv.config.ValidationTimeout})
 	cv.AddRule(&CleanupCompletionRule{})
 }
@@ -203,9 +203,9 @@ func (cv *CleanupValidator) addDefaultRules() {
 func (cv *CleanupValidator) AddRule(rule CleanupValidationRule) {
 	cv.mu.Lock()
 	defer cv.mu.Unlock()
-	
+
 	cv.validationRules = append(cv.validationRules, rule)
-	
+
 	if cv.config.Logger != nil {
 		cv.config.Logger.Debug("Validation rule added",
 			String("name", rule.Name()),
@@ -218,12 +218,12 @@ func (cv *CleanupValidator) ValidateCleanup(ctx context.Context, componentID str
 	// Create validation context with timeout
 	validationCtx, cancel := context.WithTimeout(ctx, cv.config.ValidationTimeout)
 	defer cancel()
-	
+
 	// Collect pre-cleanup metrics
 	var memBefore runtime.MemStats
 	runtime.ReadMemStats(&memBefore)
 	goroutinesBefore := runtime.NumGoroutine()
-	
+
 	// Create validation result
 	result := &CleanupValidationResult{
 		ComponentID:      componentID,
@@ -234,7 +234,7 @@ func (cv *CleanupValidator) ValidateCleanup(ctx context.Context, componentID str
 		RulePassed:       make(map[string]bool),
 		RuleErrors:       make(map[string]error),
 	}
-	
+
 	// Wait for cleanup to complete
 	if err := tracker.Wait(); err != nil {
 		result.Success = false
@@ -242,38 +242,38 @@ func (cv *CleanupValidator) ValidateCleanup(ctx context.Context, componentID str
 	} else {
 		result.Success = true
 	}
-	
+
 	result.EndTime = time.Now()
 	result.Duration = result.EndTime.Sub(result.StartTime)
-	
+
 	// Collect post-cleanup metrics
 	var memAfter runtime.MemStats
 	runtime.ReadMemStats(&memAfter)
 	goroutinesAfter := runtime.NumGoroutine()
-	
+
 	result.MemoryAfter = memAfter
 	result.GoroutinesAfter = goroutinesAfter
 	result.MemoryDelta = int64(memAfter.Alloc) - int64(memBefore.Alloc)
 	result.GoroutineDelta = goroutinesAfter - goroutinesBefore
-	
+
 	// Get cleanup statistics
 	stats := tracker.GetStats()
 	result.ResourcesTracked = int(stats.TotalTracked)
 	result.ResourcesCleaned = int(stats.TotalCleaned)
 	result.ResourcesLeaked = len(stats.ResourcesLeaked)
-	
+
 	for _, leaked := range stats.ResourcesLeaked {
 		result.LeakedResources = append(result.LeakedResources, leaked.ID)
 	}
-	
+
 	// Run validation rules
 	cv.runValidationRules(validationCtx, result)
-	
+
 	// Store result
 	cv.mu.Lock()
 	cv.completedCleanups[componentID] = result
 	cv.mu.Unlock()
-	
+
 	if cv.config.Logger != nil {
 		cv.config.Logger.Info("Cleanup validation completed",
 			String("component", componentID),
@@ -284,7 +284,7 @@ func (cv *CleanupValidator) ValidateCleanup(ctx context.Context, componentID str
 			Any("resources_leaked", result.ResourcesLeaked),
 			Int("validation_errors", len(result.ValidationErrors)))
 	}
-	
+
 	return result, nil
 }
 
@@ -294,7 +294,7 @@ func (cv *CleanupValidator) runValidationRules(ctx context.Context, result *Clea
 	rules := make([]CleanupValidationRule, len(cv.validationRules))
 	copy(rules, cv.validationRules)
 	cv.mu.RUnlock()
-	
+
 	for _, rule := range rules {
 		select {
 		case <-ctx.Done():
@@ -302,11 +302,11 @@ func (cv *CleanupValidator) runValidationRules(ctx context.Context, result *Clea
 			return
 		default:
 		}
-		
+
 		if err := rule.Validate(ctx, result); err != nil {
 			result.RulePassed[rule.Name()] = false
 			result.RuleErrors[rule.Name()] = err
-			
+
 			// Add to validation errors
 			validationErr := CleanupValidationError{
 				Rule:      rule.Name(),
@@ -316,7 +316,7 @@ func (cv *CleanupValidator) runValidationRules(ctx context.Context, result *Clea
 				Timestamp: time.Now(),
 			}
 			result.ValidationErrors = append(result.ValidationErrors, validationErr)
-			
+
 			if cv.config.Logger != nil {
 				cv.config.Logger.Error("Validation rule failed",
 					String("rule", rule.Name()),
@@ -333,7 +333,7 @@ func (cv *CleanupValidator) runValidationRules(ctx context.Context, result *Clea
 func (cv *CleanupValidator) GetValidationResult(componentID string) (*CleanupValidationResult, bool) {
 	cv.mu.RLock()
 	defer cv.mu.RUnlock()
-	
+
 	result, exists := cv.completedCleanups[componentID]
 	return result, exists
 }
@@ -342,12 +342,12 @@ func (cv *CleanupValidator) GetValidationResult(componentID string) (*CleanupVal
 func (cv *CleanupValidator) GetAllValidationResults() map[string]*CleanupValidationResult {
 	cv.mu.RLock()
 	defer cv.mu.RUnlock()
-	
+
 	results := make(map[string]*CleanupValidationResult)
 	for k, v := range cv.completedCleanups {
 		results[k] = v
 	}
-	
+
 	return results
 }
 
@@ -355,7 +355,7 @@ func (cv *CleanupValidator) GetAllValidationResults() map[string]*CleanupValidat
 func (cv *CleanupValidator) GetValidationErrors() []CleanupValidationError {
 	cv.mu.RLock()
 	defer cv.mu.RUnlock()
-	
+
 	return cv.validationErrors
 }
 

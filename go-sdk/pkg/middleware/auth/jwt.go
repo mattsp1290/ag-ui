@@ -12,10 +12,10 @@ import (
 
 // JWTProvider implements JWT-based authentication
 type JWTProvider struct {
-	config    *JWTConfig
-	cache     TokenCache
-	auditor   AuditLogger
-	publicKey *rsa.PublicKey
+	config     *JWTConfig
+	cache      TokenCache
+	auditor    AuditLogger
+	publicKey  *rsa.PublicKey
 	privateKey *rsa.PrivateKey
 }
 
@@ -82,13 +82,13 @@ func (j *JWTProvider) Authenticate(ctx context.Context, credentials *Credentials
 
 	// Create auth context
 	authCtx := &AuthContext{
-		UserID:      claims.Subject,
-		Username:    claims.Subject,
-		Roles:       claims.Roles,
-		Claims:      claims.Custom,
-		AuthMethod:  "jwt",
-		Timestamp:   time.Now(),
-		ExpiresAt:   claims.ExpiresAt,
+		UserID:     claims.Subject,
+		Username:   claims.Subject,
+		Roles:      claims.Roles,
+		Claims:     claims.Custom,
+		AuthMethod: "jwt",
+		Timestamp:  time.Now(),
+		ExpiresAt:  claims.ExpiresAt,
 	}
 
 	// Extract permissions from roles if available
@@ -103,7 +103,7 @@ func (j *JWTProvider) Authenticate(ctx context.Context, credentials *Credentials
 		credentials.Subject = claims.Subject
 		credentials.Issuer = claims.Issuer
 		credentials.Audience = claims.Audience
-		
+
 		ttl := time.Until(claims.ExpiresAt)
 		if ttl > 0 {
 			_ = j.cache.Set(ctx, credentials.Token, credentials, ttl)
@@ -114,8 +114,8 @@ func (j *JWTProvider) Authenticate(ctx context.Context, credentials *Credentials
 	if j.auditor != nil {
 		j.auditor.LogAuthSuccess(ctx, authCtx, map[string]any{
 			"token_prefix": j.tokenPrefix(credentials.Token),
-			"issuer":      claims.Issuer,
-			"audience":    claims.Audience,
+			"issuer":       claims.Issuer,
+			"audience":     claims.Audience,
 		})
 	}
 
@@ -178,7 +178,7 @@ func (j *JWTProvider) Refresh(ctx context.Context, credentials *Credentials) (*C
 	for k, v := range claims {
 		newClaims[k] = v
 	}
-	
+
 	newClaims["exp"] = time.Now().Add(j.config.Expiration).Unix()
 	newClaims["iat"] = time.Now().Unix()
 
@@ -188,7 +188,7 @@ func (j *JWTProvider) Refresh(ctx context.Context, credentials *Credentials) (*C
 		if j.privateKey == nil {
 			return nil, fmt.Errorf("RSA private key required for signing")
 		}
-		
+
 		method := jwt.GetSigningMethod(j.config.Algorithm)
 		tokenObj := jwt.NewWithClaims(method, newClaims)
 		newToken, err = tokenObj.SignedString(j.privateKey)
@@ -196,12 +196,12 @@ func (j *JWTProvider) Refresh(ctx context.Context, credentials *Credentials) (*C
 		if j.config.Secret == "" {
 			return nil, fmt.Errorf("secret required for HMAC signing")
 		}
-		
+
 		method := jwt.GetSigningMethod("HS256")
 		if j.config.Algorithm != "" {
 			method = jwt.GetSigningMethod(j.config.Algorithm)
 		}
-		
+
 		tokenObj := jwt.NewWithClaims(method, newClaims)
 		newToken, err = tokenObj.SignedString([]byte(j.config.Secret))
 	}
@@ -576,7 +576,7 @@ func NewBearerTokenExtractor() *BearerTokenExtractor {
 // Extract extracts bearer token from Authorization header
 func (b *BearerTokenExtractor) Extract(ctx context.Context, headers map[string]string, body any) (*Credentials, error) {
 	authHeader := ""
-	
+
 	// Look for Authorization header (case-insensitive)
 	for k, v := range headers {
 		if strings.ToLower(k) == "authorization" {

@@ -235,13 +235,13 @@ func (m *MockRedisClient) ZCard(ctx context.Context, key string) (int64, error) 
 func (m *MockRedisClient) Eval(ctx context.Context, script string, keys []string, args ...interface{}) (interface{}, error) {
 	// Simplified Lua script execution for common rate limiting patterns
 	// In a real implementation, this would execute actual Lua scripts
-	
+
 	if len(keys) == 0 {
 		return nil, fmt.Errorf("no keys provided")
 	}
 
 	key := keys[0]
-	
+
 	// Token bucket script simulation
 	if len(args) >= 4 {
 		capacity, _ := strconv.ParseInt(fmt.Sprintf("%v", args[0]), 10, 64)
@@ -251,7 +251,7 @@ func (m *MockRedisClient) Eval(ctx context.Context, script string, keys []string
 
 		// Get current bucket state
 		bucketData, _ := m.Get(ctx, key)
-		
+
 		bucket := struct {
 			Tokens   int64 `json:"tokens"`
 			LastFill int64 `json:"last_fill"`
@@ -280,9 +280,9 @@ func (m *MockRedisClient) Eval(ctx context.Context, script string, keys []string
 		m.Set(ctx, key, string(bucketJSON), time.Hour) // TTL of 1 hour
 
 		return map[string]interface{}{
-			"allowed":   allowed,
-			"tokens":    bucket.Tokens,
-			"reset":     bucket.LastFill + (capacity * 1000 / rate),
+			"allowed": allowed,
+			"tokens":  bucket.Tokens,
+			"reset":   bucket.LastFill + (capacity * 1000 / rate),
 		}, nil
 	}
 
@@ -349,7 +349,7 @@ func NewDistributedTokenBucket(redis RedisClient, rate, capacity int64) *Distrib
 // Allow checks if a request should be allowed using distributed token bucket
 func (dtb *DistributedTokenBucket) Allow(ctx context.Context, key string) (*RateLimitResult, error) {
 	now := time.Now().UnixMilli()
-	
+
 	result, err := dtb.redis.Eval(ctx, dtb.script, []string{key}, dtb.capacity, dtb.rate, now, 1)
 	if err != nil {
 		return nil, fmt.Errorf("failed to execute rate limit script: %w", err)

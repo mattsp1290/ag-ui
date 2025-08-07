@@ -233,7 +233,7 @@ func TestConcurrentSecurityValidation(t *testing.T) {
 	defer cancel()
 
 	// Create fewer contexts to reduce resource usage
-	numContexts := 3  // Reduced from 10 to prevent resource exhaustion
+	numContexts := 3 // Reduced from 10 to prevent resource exhaustion
 	contexts := make([]string, numContexts)
 	for i := 0; i < numContexts; i++ {
 		contextID, err := sm.CreateContext(ctx, fmt.Sprintf("state-%d", i), nil)
@@ -246,14 +246,14 @@ func TestConcurrentSecurityValidation(t *testing.T) {
 	// Concurrent updates with various security violations
 	// Significantly reduced concurrency to prevent timeout and resource contention
 	var wg sync.WaitGroup
-	numWorkers := 5         // Reduced from 10 to prevent goroutine bottlenecks
-	updatesPerWorker := 10  // Reduced from 25 to prevent timeout
+	numWorkers := 5        // Reduced from 10 to prevent goroutine bottlenecks
+	updatesPerWorker := 10 // Reduced from 25 to prevent timeout
 
 	// Thread-safe error collection
 	var (
 		successCount    atomic.Int64
-		validFailCount  atomic.Int64  // Expected failures (security violations)
-		unexpectedCount atomic.Int64  // Unexpected failures
+		validFailCount  atomic.Int64 // Expected failures (security violations)
+		unexpectedCount atomic.Int64 // Unexpected failures
 		errorMutex      sync.Mutex
 		errorDetails    []string
 	)
@@ -369,7 +369,7 @@ func TestConcurrentSecurityValidation(t *testing.T) {
 
 	// Report detailed statistics
 	totalOperations := int64(numWorkers * updatesPerWorker)
-	expectedValidOps := totalOperations / 5      // 1 in 5 operations should succeed
+	expectedValidOps := totalOperations / 5               // 1 in 5 operations should succeed
 	expectedFailOps := totalOperations - expectedValidOps // 4 in 5 should fail
 
 	t.Logf("=== Test Results ===")
@@ -422,16 +422,16 @@ func TestRateLimitingIntegration(t *testing.T) {
 	// Create state manager with more restrictive rate limiting for testing
 
 	opts := DefaultManagerOptions()
-	
+
 	// Configure restrictive rate limiting for testing
 	opts.GlobalRateLimit = 5 // 5 requests per second globally
-	
+
 	// Client rate limiter: 2 requests per second, burst of 3
 	clientConfig := DefaultClientRateLimiterConfig()
 	clientConfig.RatePerSecond = 2
 	clientConfig.BurstSize = 3
 	opts.ClientRateLimiterConfig = &clientConfig
-	
+
 	sm, err := NewStateManager(opts)
 	if err != nil {
 		t.Fatalf("Failed to create state manager: %v", err)
@@ -447,14 +447,13 @@ func TestRateLimitingIntegration(t *testing.T) {
 		t.Fatalf("Failed to create context: %v", err)
 	}
 
-
 	// Reduced from 150 to 30 for faster test execution
 	numRequests := 30
 	errors := 0
 	successes := 0
 	start := time.Now()
 
-	// Since the default limits are generous (100 ops/sec + 200 burst), 
+	// Since the default limits are generous (100 ops/sec + 200 burst),
 	// we need to exhaust the burst size first to trigger rate limiting
 	for i := 0; i < numRequests; i++ {
 		// Check if context is cancelled to prevent hangs
@@ -463,7 +462,6 @@ func TestRateLimitingIntegration(t *testing.T) {
 			t.Fatalf("Test timed out after %d requests", i)
 		default:
 		}
-
 
 		updates := map[string]interface{}{
 			fmt.Sprintf("burst_%d", i): i,
@@ -482,15 +480,15 @@ func TestRateLimitingIntegration(t *testing.T) {
 
 	// Log initial results
 	t.Logf("Initial burst test: %d successes, %d rate-limited out of %d requests", successes, errors, numRequests)
-	
+
 	// Test sustained rate limiting
 	// Wait for tokens to replenish (reduced from 2s to prevent timeout)
 	time.Sleep(200 * time.Millisecond)
-	
+
 	// Reset error count for sustained rate test
 	errors = 0
 	sustainedRequests := 20
-	
+
 	// Make rapid requests to trigger global and client rate limiting
 	start = time.Now()
 	for i := 0; i < sustainedRequests; i++ {
@@ -502,12 +500,11 @@ func TestRateLimitingIntegration(t *testing.T) {
 		if err != nil && (strings.Contains(err.Error(), "rate limit exceeded") || err == ErrRateLimited) {
 			errors++
 		}
-		
+
 		// Make requests rapidly to exceed both rate limits
 		time.Sleep(10 * time.Millisecond)
 	}
 	duration := time.Since(start)
-
 
 	// We should have rate limit errors from sustained requests
 	if errors == 0 {
@@ -528,7 +525,7 @@ func TestRateLimitingIntegration(t *testing.T) {
 	}
 
 	// Test is successful if the infrastructure is working (no panics, clean execution)
-	t.Logf("Rate limiting test completed: %d successes, %d rate-limited, %d total in %v", 
+	t.Logf("Rate limiting test completed: %d successes, %d rate-limited, %d total in %v",
 		successes, errors, numRequests, duration)
 
 }

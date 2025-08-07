@@ -31,9 +31,9 @@ type BenchmarkConfig struct {
 	ConcurrencyLevel int           // Number of concurrent goroutines
 
 	// Memory tracking
-	TrackMemory     bool // Enable memory usage tracking
-	GCBetweenTests  bool // Force GC between tests
-	MemoryBaseline  bool // Establish memory baseline
+	TrackMemory    bool // Enable memory usage tracking
+	GCBetweenTests bool // Force GC between tests
+	MemoryBaseline bool // Establish memory baseline
 
 	// Throughput testing
 	EnableThroughputTest bool          // Enable throughput testing
@@ -41,9 +41,9 @@ type BenchmarkConfig struct {
 	BatchSizes           []int         // Batch sizes to test
 
 	// Regression testing
-	EnableRegressionTest bool           // Enable regression testing
+	EnableRegressionTest bool              // Enable regression testing
 	BaselineResults      []BenchmarkResult // Baseline results for comparison
-	RegressionThreshold  float64        // Acceptable regression percentage
+	RegressionThreshold  float64           // Acceptable regression percentage
 
 	// Profiling
 	EnableCPUProfiling    bool // Enable CPU profiling
@@ -54,43 +54,43 @@ type BenchmarkConfig struct {
 // DefaultBenchmarkConfig returns default benchmark configuration
 func DefaultBenchmarkConfig() BenchmarkConfig {
 	return BenchmarkConfig{
-		WarmupIterations:     100,
-		TestIterations:       1000,
-		Duration:             30 * time.Second,
-		ConcurrencyLevel:     4,
-		TrackMemory:          true,
-		GCBetweenTests:       true,
-		MemoryBaseline:       true,
-		EnableThroughputTest: true,
-		ThroughputDuration:   10 * time.Second,
-		BatchSizes:           []int{1, 10, 100, 1000},
-		EnableRegressionTest: false,
-		RegressionThreshold:  10.0, // 10% regression threshold
-		EnableCPUProfiling:   false,
+		WarmupIterations:      100,
+		TestIterations:        1000,
+		Duration:              30 * time.Second,
+		ConcurrencyLevel:      4,
+		TrackMemory:           true,
+		GCBetweenTests:        true,
+		MemoryBaseline:        true,
+		EnableThroughputTest:  true,
+		ThroughputDuration:    10 * time.Second,
+		BatchSizes:            []int{1, 10, 100, 1000},
+		EnableRegressionTest:  false,
+		RegressionThreshold:   10.0, // 10% regression threshold
+		EnableCPUProfiling:    false,
 		EnableMemoryProfiling: false,
-		EnableBlockProfiling: false,
+		EnableBlockProfiling:  false,
 	}
 }
 
 // BenchmarkResult contains the results of a benchmark test
 type BenchmarkResult struct {
-	TestName     string        `json:"test_name"`
-	Operation    string        `json:"operation"`
-	Iterations   int           `json:"iterations"`
-	Duration     time.Duration `json:"duration"`
-	Throughput   float64       `json:"throughput"`   // ops/sec
-	Latency      time.Duration `json:"latency"`      // average per operation
-	MinLatency   time.Duration `json:"min_latency"`
-	MaxLatency   time.Duration `json:"max_latency"`
-	P50Latency   time.Duration `json:"p50_latency"`
-	P95Latency   time.Duration `json:"p95_latency"`
-	P99Latency   time.Duration `json:"p99_latency"`
-	MemoryUsed   int64         `json:"memory_used"`
-	MemoryAllocs int64         `json:"memory_allocs"`
-	GCPauses     int64         `json:"gc_pauses"`
-	ConcurrentOps int          `json:"concurrent_ops"`
-	BatchSize    int           `json:"batch_size"`
-	ErrorRate    float64       `json:"error_rate"`
+	TestName      string        `json:"test_name"`
+	Operation     string        `json:"operation"`
+	Iterations    int           `json:"iterations"`
+	Duration      time.Duration `json:"duration"`
+	Throughput    float64       `json:"throughput"` // ops/sec
+	Latency       time.Duration `json:"latency"`    // average per operation
+	MinLatency    time.Duration `json:"min_latency"`
+	MaxLatency    time.Duration `json:"max_latency"`
+	P50Latency    time.Duration `json:"p50_latency"`
+	P95Latency    time.Duration `json:"p95_latency"`
+	P99Latency    time.Duration `json:"p99_latency"`
+	MemoryUsed    int64         `json:"memory_used"`
+	MemoryAllocs  int64         `json:"memory_allocs"`
+	GCPauses      int64         `json:"gc_pauses"`
+	ConcurrentOps int           `json:"concurrent_ops"`
+	BatchSize     int           `json:"batch_size"`
+	ErrorRate     float64       `json:"error_rate"`
 }
 
 // NewBenchmarkSuite creates a new benchmark suite
@@ -159,7 +159,7 @@ func (b *BenchmarkSuite) runEncodingBenchmarks(ctx context.Context) error {
 
 	for _, event := range testEvents {
 		eventName := string(event.Type())
-		
+
 		// Single event encoding
 		result, err := b.benchmarkSingleEncoding(ctx, eventName, event)
 		if err != nil {
@@ -173,7 +173,7 @@ func (b *BenchmarkSuite) runEncodingBenchmarks(ctx context.Context) error {
 			for i := range batch {
 				batch[i] = event
 			}
-			
+
 			result, err := b.benchmarkBatchEncoding(ctx, eventName, batch)
 			if err != nil {
 				return fmt.Errorf("batch encoding benchmark failed for %s (batch size %d): %w", eventName, batchSize, err)
@@ -193,7 +193,7 @@ func (b *BenchmarkSuite) runDecodingBenchmarks(ctx context.Context) error {
 
 	for _, event := range testEvents {
 		eventName := string(event.Type())
-		
+
 		// Encode the event first
 		encoded, err := b.encoder.Encode(context.Background(), event)
 		if err != nil {
@@ -213,7 +213,7 @@ func (b *BenchmarkSuite) runDecodingBenchmarks(ctx context.Context) error {
 			for i := range batch {
 				batch[i] = event
 			}
-			
+
 			encodedBatch, err := b.encoder.EncodeMultiple(context.Background(), batch)
 			if err != nil {
 				return fmt.Errorf("failed to encode batch for decoding benchmark: %w", err)
@@ -242,7 +242,7 @@ func (b *BenchmarkSuite) runValidationBenchmarks(ctx context.Context) error {
 
 	for _, event := range testEvents {
 		eventName := string(event.Type())
-		
+
 		// Event validation
 		result, err := b.benchmarkEventValidation(ctx, eventName, event)
 		if err != nil {
@@ -275,7 +275,7 @@ func (b *BenchmarkSuite) runRoundTripBenchmarks(ctx context.Context) error {
 
 	for _, event := range testEvents {
 		eventName := string(event.Type())
-		
+
 		result, err := b.benchmarkRoundTrip(ctx, eventName, event, roundTripValidator)
 		if err != nil {
 			return fmt.Errorf("round-trip benchmark failed for %s: %w", eventName, err)
@@ -294,7 +294,7 @@ func (b *BenchmarkSuite) runThroughputTests(ctx context.Context) error {
 
 	for _, event := range testEvents {
 		eventName := string(event.Type())
-		
+
 		// Encoding throughput
 		result, err := b.benchmarkEncodingThroughput(ctx, eventName, event)
 		if err != nil {
@@ -602,7 +602,7 @@ func (b *BenchmarkSuite) addResult(result BenchmarkResult) {
 func (b *BenchmarkSuite) GetResults() []BenchmarkResult {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
-	
+
 	results := make([]BenchmarkResult, len(b.results))
 	copy(results, b.results)
 	return results
@@ -619,7 +619,7 @@ func (b *BenchmarkSuite) generateTestEvents() []events.Event {
 	return []events.Event{
 		&events.RunStartedEvent{
 			BaseEvent: &events.BaseEvent{
-				EventType: events.EventTypeRunStarted,
+				EventType:   events.EventTypeRunStarted,
 				TimestampMs: int64Ptr(time.Now().Unix()),
 			},
 			RunIDValue:    "run-benchmark-123",
@@ -627,7 +627,7 @@ func (b *BenchmarkSuite) generateTestEvents() []events.Event {
 		},
 		&events.TextMessageContentEvent{
 			BaseEvent: &events.BaseEvent{
-				EventType: events.EventTypeTextMessageContent,
+				EventType:   events.EventTypeTextMessageContent,
 				TimestampMs: int64Ptr(time.Now().Unix()),
 			},
 			MessageID: "msg-benchmark-789",
@@ -635,7 +635,7 @@ func (b *BenchmarkSuite) generateTestEvents() []events.Event {
 		},
 		&events.ToolCallStartEvent{
 			BaseEvent: &events.BaseEvent{
-				EventType: events.EventTypeToolCallStart,
+				EventType:   events.EventTypeToolCallStart,
 				TimestampMs: int64Ptr(time.Now().Unix()),
 			},
 			ToolCallID:   "tool-benchmark-abc",
@@ -643,7 +643,7 @@ func (b *BenchmarkSuite) generateTestEvents() []events.Event {
 		},
 		&events.StateSnapshotEvent{
 			BaseEvent: &events.BaseEvent{
-				EventType: events.EventTypeStateSnapshot,
+				EventType:   events.EventTypeStateSnapshot,
 				TimestampMs: int64Ptr(time.Now().Unix()),
 			},
 			Snapshot: map[string]interface{}{
@@ -667,13 +667,13 @@ type MemoryProfiler struct {
 }
 
 type MemorySample struct {
-	Timestamp time.Time
-	Alloc     uint64
+	Timestamp  time.Time
+	Alloc      uint64
 	TotalAlloc uint64
-	Sys       uint64
-	Mallocs   uint64
-	Frees     uint64
-	GCCycles  uint32
+	Sys        uint64
+	Mallocs    uint64
+	Frees      uint64
+	GCCycles   uint32
 }
 
 func NewMemoryProfiler(enabled bool) *MemoryProfiler {

@@ -12,17 +12,17 @@ import (
 
 // Ensure JSONEncoder implements the focused interfaces
 var (
-	_ encoding.Encoder                      = (*JSONEncoder)(nil)
-	_ encoding.ContentTypeProvider          = (*JSONEncoder)(nil)
-	_ encoding.StreamingCapabilityProvider  = (*JSONEncoder)(nil)
+	_ encoding.Encoder                     = (*JSONEncoder)(nil)
+	_ encoding.ContentTypeProvider         = (*JSONEncoder)(nil)
+	_ encoding.StreamingCapabilityProvider = (*JSONEncoder)(nil)
 )
 
 // JSONEncoder implements the Encoder interface for JSON format
 // This encoder is stateless and thread-safe for concurrent use.
 type JSONEncoder struct {
-	options           *encoding.EncodingOptions
-	activeOperations  int32  // Track active encoding operations
-	maxConcurrent     int32  // Maximum concurrent operations
+	options          *encoding.EncodingOptions
+	activeOperations int32 // Track active encoding operations
+	maxConcurrent    int32 // Maximum concurrent operations
 }
 
 // NewJSONEncoder creates a new JSON encoder with the given options
@@ -122,7 +122,7 @@ func (e *JSONEncoder) Encode(ctx context.Context, event events.Event) ([]byte, e
 				}
 			}
 			defer encoding.PutBuffer(buf)
-			
+
 			if err := json.Indent(buf, data, "", "  "); err != nil {
 				return nil, &encoding.EncodingError{
 					Format:  "json",
@@ -163,7 +163,7 @@ func (e *JSONEncoder) Encode(ctx context.Context, event events.Event) ([]byte, e
 			}
 		}
 		defer encoding.PutBuffer(buf)
-		
+
 		encoder := json.NewEncoder(buf)
 		encoder.SetIndent("", "  ")
 		err = encoder.Encode(event)
@@ -183,7 +183,7 @@ func (e *JSONEncoder) Encode(ctx context.Context, event events.Event) ([]byte, e
 			}
 		}
 		defer encoding.PutBuffer(buf)
-		
+
 		encoder := json.NewEncoder(buf)
 		err = encoder.Encode(event)
 		if err == nil {
@@ -272,7 +272,7 @@ func (e *JSONEncoder) EncodeMultiple(ctx context.Context, events []events.Event)
 	// Create a slice to hold all encoded events
 	encodedEvents := make([]json.RawMessage, 0, len(events))
 	totalSize := int64(2) // Account for "[]"
-	
+
 	// Use a pooled buffer for better memory efficiency - estimate based on actual events
 	estimatedSize := encoding.GetOptimalBufferSizeForMultiple(events)
 	mainBuf := encoding.GetBufferSafe(estimatedSize)
@@ -313,7 +313,7 @@ func (e *JSONEncoder) EncodeMultiple(ctx context.Context, events []events.Event)
 					Message: fmt.Sprintf("failed to allocate event buffer at index %d: resource limits exceeded", i),
 				}
 			}
-			
+
 			// Use the buffer and ensure it's returned to pool immediately after use
 			encoder := json.NewEncoder(eventBuf)
 			err = encoder.Encode(event)
@@ -326,7 +326,7 @@ func (e *JSONEncoder) EncodeMultiple(ctx context.Context, events []events.Event)
 				data = make([]byte, len(bytes))
 				copy(data, bytes)
 			}
-			
+
 			// Return buffer to pool immediately after use to reduce memory pressure
 			encoding.PutBuffer(eventBuf)
 		}

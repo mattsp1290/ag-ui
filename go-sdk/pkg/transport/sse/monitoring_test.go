@@ -167,9 +167,9 @@ func testPerformanceTracking(t *testing.T) {
 	assert.Len(t, metrics.Latencies, 3)
 
 	// Test throughput tracking
-	for i := 0; i < 3; i++ {  // Reduced iterations for speed
-		ms.updateThroughput(10, 10240) // 10 events, 10KB
-		time.Sleep(50 * time.Millisecond)  // Slightly longer for throughput calculation
+	for i := 0; i < 3; i++ { // Reduced iterations for speed
+		ms.updateThroughput(10, 10240)    // 10 events, 10KB
+		time.Sleep(50 * time.Millisecond) // Slightly longer for throughput calculation
 	}
 
 	metrics = ms.GetPerformanceMetrics()
@@ -185,7 +185,7 @@ func testPerformanceTracking(t *testing.T) {
 	benchmark.operations = 1000
 	benchmark.bytes = 1024000
 	benchmark.errors = 10
-	
+
 	// Add small delay to ensure non-zero duration
 	time.Sleep(1 * time.Millisecond)
 
@@ -215,7 +215,7 @@ func testThroughputFirstCall(t *testing.T) {
 	assert.Equal(t, float64(0), metrics.Throughput.BytesPerSecond)
 
 	// Wait a bit (reduced)
-	time.Sleep(50 * time.Millisecond)  // Reduced from 200ms
+	time.Sleep(50 * time.Millisecond) // Reduced from 200ms
 
 	// Second call should calculate reasonable rates
 	ms.updateThroughput(50, 51200) // 50 events, 50KB
@@ -230,10 +230,10 @@ func testThroughputFirstCall(t *testing.T) {
 	// Test RecordEventReceived which calls updateThroughput internally
 	connID := "test-conn-1"
 	ms.RecordConnectionEstablished(connID, "127.0.0.1:8080", "TestAgent")
-	
+
 	// Record events and verify no panic on first event
 	ms.RecordEventReceived(connID, "test-event", 1024)
-	
+
 	// Verify it was tracked
 	stats := ms.GetEventStats()
 	assert.Contains(t, stats, "test-event")
@@ -312,7 +312,7 @@ func testAlertManagement(t *testing.T) {
 	ms.sendAlert(alert)
 
 	// Wait for async notification (reduced)
-	time.Sleep(20 * time.Millisecond)  // Reduced from 100ms
+	time.Sleep(20 * time.Millisecond) // Reduced from 100ms
 
 	// Verify alert was sent
 	mockNotifier.mu.Lock()
@@ -322,16 +322,16 @@ func testAlertManagement(t *testing.T) {
 		alertTitle = mockNotifier.alerts[0].Title
 	}
 	mockNotifier.mu.Unlock()
-	
+
 	assert.Equal(t, 1, alertCount)
 	assert.Equal(t, "Test Alert", alertTitle)
 
 	// Test alert suppression
-	ms.sendAlert(alert) // Should be suppressed
-	time.Sleep(20 * time.Millisecond)  // Reduced from 100ms
+	ms.sendAlert(alert)                   // Should be suppressed
+	time.Sleep(20 * time.Millisecond)     // Reduced from 100ms
 	assert.Len(t, mockNotifier.alerts, 1) // Still only 1 alert
 	time.Sleep(100 * time.Millisecond)
-	
+
 	mockNotifier.mu.Lock()
 	finalAlertCount := len(mockNotifier.alerts)
 	mockNotifier.mu.Unlock()

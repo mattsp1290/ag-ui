@@ -12,30 +12,30 @@ import (
 
 // RingBuffer is a thread-safe circular buffer with configurable overflow policies
 type RingBuffer struct {
-	mu              sync.RWMutex
-	buffer          []events.Event
-	capacity        int
-	head            int
-	tail            int
-	size            int
-	overflowPolicy  OverflowPolicy
-	
+	mu             sync.RWMutex
+	buffer         []events.Event
+	capacity       int
+	head           int
+	tail           int
+	size           int
+	overflowPolicy OverflowPolicy
+
 	// Statistics
-	totalWritten    atomic.Uint64
-	totalRead       atomic.Uint64
-	totalDropped    atomic.Uint64
-	totalOverflows  atomic.Uint64
-	
+	totalWritten   atomic.Uint64
+	totalRead      atomic.Uint64
+	totalDropped   atomic.Uint64
+	totalOverflows atomic.Uint64
+
 	// Condition variables for blocking operations
-	notEmpty        *sync.Cond
-	notFull         *sync.Cond
-	
+	notEmpty *sync.Cond
+	notFull  *sync.Cond
+
 	// Context for cancellation
-	ctx             context.Context
-	cancel          context.CancelFunc
-	
+	ctx    context.Context
+	cancel context.CancelFunc
+
 	// Metrics
-	metrics         *RingBufferMetrics
+	metrics *RingBufferMetrics
 }
 
 // OverflowPolicy defines how to handle buffer overflow
@@ -56,9 +56,9 @@ const (
 type RingBufferConfig struct {
 	Capacity       int
 	OverflowPolicy OverflowPolicy
-	MaxCapacity    int             // For OverflowResize policy
-	ResizeFactor   float64         // Multiplier for resize (default 1.5)
-	BlockTimeout   time.Duration   // Timeout for blocking operations
+	MaxCapacity    int           // For OverflowResize policy
+	ResizeFactor   float64       // Multiplier for resize (default 1.5)
+	BlockTimeout   time.Duration // Timeout for blocking operations
 }
 
 // RingBufferMetrics tracks ring buffer statistics
@@ -147,7 +147,7 @@ func (rb *RingBuffer) PushWithContext(ctx context.Context, event events.Event) e
 	rb.buffer[rb.tail] = event
 	rb.tail = (rb.tail + 1) % rb.capacity
 	rb.size++
-	
+
 	rb.totalWritten.Add(1)
 	rb.notEmpty.Signal()
 
@@ -186,7 +186,7 @@ func (rb *RingBuffer) PopWithContext(ctx context.Context) (events.Event, error) 
 	rb.buffer[rb.head] = nil // Clear reference to help GC
 	rb.head = (rb.head + 1) % rb.capacity
 	rb.size--
-	
+
 	rb.totalRead.Add(1)
 	rb.notFull.Signal()
 
@@ -206,7 +206,7 @@ func (rb *RingBuffer) TryPop() (events.Event, bool) {
 	rb.buffer[rb.head] = nil
 	rb.head = (rb.head + 1) % rb.capacity
 	rb.size--
-	
+
 	rb.totalRead.Add(1)
 	rb.notFull.Signal()
 
@@ -256,7 +256,7 @@ func (rb *RingBuffer) Clear() {
 	rb.head = 0
 	rb.tail = 0
 	rb.size = 0
-	
+
 	rb.notFull.Broadcast()
 }
 
@@ -264,21 +264,21 @@ func (rb *RingBuffer) Clear() {
 func (rb *RingBuffer) GetMetrics() RingBufferMetrics {
 	rb.metrics.mu.RLock()
 	defer rb.metrics.mu.RUnlock()
-	
+
 	return RingBufferMetrics{
-		CurrentSize:       rb.Size(),
-		Capacity:          rb.metrics.Capacity,
-		TotalWrites:       rb.totalWritten.Load(),
-		TotalReads:        rb.totalRead.Load(),
-		TotalDrops:        rb.totalDropped.Load(),
-		TotalOverflows:    rb.totalOverflows.Load(),
-		ResizeCount:       rb.metrics.ResizeCount,
-		LastWriteTime:     rb.metrics.LastWriteTime,
-		LastReadTime:      rb.metrics.LastReadTime,
-		LastDropTime:      rb.metrics.LastDropTime,
-		LastResizeTime:    rb.metrics.LastResizeTime,
-		AverageWriteTime:  rb.metrics.AverageWriteTime,
-		AverageReadTime:   rb.metrics.AverageReadTime,
+		CurrentSize:      rb.Size(),
+		Capacity:         rb.metrics.Capacity,
+		TotalWrites:      rb.totalWritten.Load(),
+		TotalReads:       rb.totalRead.Load(),
+		TotalDrops:       rb.totalDropped.Load(),
+		TotalOverflows:   rb.totalOverflows.Load(),
+		ResizeCount:      rb.metrics.ResizeCount,
+		LastWriteTime:    rb.metrics.LastWriteTime,
+		LastReadTime:     rb.metrics.LastReadTime,
+		LastDropTime:     rb.metrics.LastDropTime,
+		LastResizeTime:   rb.metrics.LastResizeTime,
+		AverageWriteTime: rb.metrics.AverageWriteTime,
+		AverageReadTime:  rb.metrics.AverageReadTime,
 	}
 }
 
@@ -287,11 +287,11 @@ func (rb *RingBuffer) Close() {
 	rb.cancel()
 	rb.mu.Lock()
 	defer rb.mu.Unlock()
-	
+
 	// Wake up any waiting goroutines
 	rb.notEmpty.Broadcast()
 	rb.notFull.Broadcast()
-	
+
 	// Clear buffer
 	for i := 0; i < rb.capacity; i++ {
 		rb.buffer[i] = nil
@@ -307,11 +307,11 @@ func (rb *RingBuffer) handleOverflow(ctx context.Context, event events.Event) er
 		// Drop oldest event
 		rb.buffer[rb.head] = nil
 		rb.head = (rb.head + 1) % rb.capacity
-		
+
 		// Add new event
 		rb.buffer[rb.tail] = event
 		rb.tail = (rb.tail + 1) % rb.capacity
-		
+
 		rb.totalDropped.Add(1)
 		rb.totalWritten.Add(1)
 		rb.updateDropMetrics()
@@ -333,7 +333,7 @@ func (rb *RingBuffer) handleOverflow(ctx context.Context, event events.Event) er
 				rb.notFull.Wait()
 			}
 		}
-		
+
 		// Add event
 		rb.buffer[rb.tail] = event
 		rb.tail = (rb.tail + 1) % rb.capacity
@@ -372,7 +372,7 @@ func (rb *RingBuffer) resize() bool {
 func (rb *RingBuffer) updateWriteMetrics(duration time.Duration) {
 	rb.metrics.mu.Lock()
 	defer rb.metrics.mu.Unlock()
-	
+
 	rb.metrics.LastWriteTime = time.Now()
 	if rb.metrics.AverageWriteTime == 0 {
 		rb.metrics.AverageWriteTime = duration
@@ -388,7 +388,7 @@ func (rb *RingBuffer) updateWriteMetrics(duration time.Duration) {
 func (rb *RingBuffer) updateReadMetrics(duration time.Duration) {
 	rb.metrics.mu.Lock()
 	defer rb.metrics.mu.Unlock()
-	
+
 	rb.metrics.LastReadTime = time.Now()
 	if rb.metrics.AverageReadTime == 0 {
 		rb.metrics.AverageReadTime = duration
@@ -404,7 +404,7 @@ func (rb *RingBuffer) updateReadMetrics(duration time.Duration) {
 func (rb *RingBuffer) updateDropMetrics() {
 	rb.metrics.mu.Lock()
 	defer rb.metrics.mu.Unlock()
-	
+
 	rb.metrics.LastDropTime = time.Now()
 }
 

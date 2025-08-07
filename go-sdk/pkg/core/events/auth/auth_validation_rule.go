@@ -32,17 +32,17 @@ func (r *AuthValidationRule) Validate(event events.Event, context *events.Valida
 		IsValid:   true,
 		Timestamp: time.Now(),
 	}
-	
+
 	if !r.IsEnabled() || !r.authHooks.IsEnabled() {
 		return result
 	}
-	
+
 	// Extract context from validation context
 	ctx := context.Context
 	if ctx == nil {
 		ctx = contextFromValidationContext(context)
 	}
-	
+
 	// Authenticate from context
 	authCtx, err := r.authHooks.AuthenticateFromContext(ctx)
 	if err != nil {
@@ -57,7 +57,7 @@ func (r *AuthValidationRule) Validate(event events.Event, context *events.Valida
 			}))
 		return result
 	}
-	
+
 	// Check if authentication is required
 	if authCtx == nil && r.authHooks.config.RequireAuth {
 		result.AddError(r.CreateError(event,
@@ -71,13 +71,13 @@ func (r *AuthValidationRule) Validate(event events.Event, context *events.Valida
 			}))
 		return result
 	}
-	
+
 	// Authorize the event
 	if err := r.authHooks.AuthorizeEvent(ctx, authCtx, event); err != nil {
 		result.AddError(r.CreateError(event,
 			fmt.Sprintf("Authorization failed: %v", err),
 			map[string]interface{}{
-				"error":     err.Error(),
+				"error":      err.Error(),
 				"event_type": event.Type(),
 			},
 			[]string{
@@ -86,7 +86,7 @@ func (r *AuthValidationRule) Validate(event events.Event, context *events.Valida
 			}))
 		return result
 	}
-	
+
 	// Execute pre-validation hooks
 	if err := r.authHooks.ExecutePreValidationHooks(ctx, event, authCtx); err != nil {
 		result.AddError(r.CreateError(event,
@@ -97,7 +97,7 @@ func (r *AuthValidationRule) Validate(event events.Event, context *events.Valida
 			nil))
 		return result
 	}
-	
+
 	// Add authentication info as informational
 	if authCtx != nil {
 		result.AddInfo(r.CreateInfo(event,
@@ -107,14 +107,14 @@ func (r *AuthValidationRule) Validate(event events.Event, context *events.Valida
 				"username": authCtx.Username,
 				"roles":    authCtx.Roles,
 			}))
-		
+
 		// Store auth context in validation context for use by other rules
 		if context.Metadata == nil {
 			context.Metadata = make(map[string]interface{})
 		}
 		context.Metadata["auth_context"] = authCtx
 	}
-	
+
 	return result
 }
 
@@ -133,7 +133,7 @@ func (r *AuthValidationRule) CreateInfo(event events.Event, message string, cont
 // contextFromValidationContext creates a context.Context from ValidationContext
 func contextFromValidationContext(vc *events.ValidationContext) context.Context {
 	ctx := context.Background()
-	
+
 	// Check if there's auth info in metadata
 	if vc.Metadata != nil {
 		if authCtx, ok := vc.Metadata["auth_context"].(*AuthContext); ok {
@@ -143,7 +143,7 @@ func contextFromValidationContext(vc *events.ValidationContext) context.Context 
 			ctx = WithCredentials(ctx, creds)
 		}
 	}
-	
+
 	return ctx
 }
 
@@ -171,11 +171,11 @@ func (r *PostValidationRule) Validate(event events.Event, context *events.Valida
 		IsValid:   true,
 		Timestamp: time.Now(),
 	}
-	
+
 	if !r.IsEnabled() || !r.authHooks.IsEnabled() {
 		return result
 	}
-	
+
 	// Extract auth context from metadata
 	var authCtx *AuthContext
 	if context.Metadata != nil {
@@ -183,18 +183,18 @@ func (r *PostValidationRule) Validate(event events.Event, context *events.Valida
 			authCtx = ac
 		}
 	}
-	
+
 	// Note: In a real implementation, you would need access to the overall validation result
 	// For now, we'll create a dummy result
 	dummyResult := &events.ValidationResult{
 		IsValid: true,
 	}
-	
+
 	ctx := context.Context
 	if ctx == nil {
 		ctx = contextFromValidationContext(context)
 	}
-	
+
 	// Execute post-validation hooks
 	if err := r.authHooks.ExecutePostValidationHooks(ctx, event, authCtx, dummyResult); err != nil {
 		result.AddWarning(&events.ValidationError{
@@ -208,6 +208,6 @@ func (r *PostValidationRule) Validate(event events.Event, context *events.Valida
 			Timestamp: time.Now(),
 		})
 	}
-	
+
 	return result
 }

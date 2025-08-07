@@ -323,7 +323,7 @@ func TestTypedEventQuickBuilders(t *testing.T) {
 	// Test all quick builder functions
 	t.Run("QuickMessageEvents", func(t *testing.T) {
 		role := "user"
-		
+
 		startEvent, err := QuickMessageStart("msg-123", &role)
 		if err != nil {
 			t.Errorf("QuickMessageStart failed: %v", err)
@@ -351,17 +351,17 @@ func TestTypedEventQuickBuilders(t *testing.T) {
 
 	t.Run("QuickToolCallEvents", func(t *testing.T) {
 		parentMsgID := "parent-msg-123"
-		
+
 		startEvent, err := QuickToolCallStart("tool-123", "calculator", &parentMsgID)
 		if err != nil {
 			t.Errorf("QuickToolCallStart failed: %v", err)
 		}
-		
+
 		argsEvent, err := QuickToolCallArgs("tool-123", "{\"op\":\"add\"}")
 		if err != nil {
 			t.Errorf("QuickToolCallArgs failed: %v", err)
 		}
-		
+
 		endEvent, err := QuickToolCallEnd("tool-123")
 		if err != nil {
 			t.Errorf("QuickToolCallEnd failed: %v", err)

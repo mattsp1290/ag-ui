@@ -82,11 +82,11 @@ type ThreatPattern struct {
 
 // BehaviorProfile tracks behavior patterns for anomaly detection
 type BehaviorProfile struct {
-	eventFrequency   map[events.EventType]*FrequencyTracker
-	contentPatterns  map[string]int
-	sourceActivity   map[string]*ActivityTracker
-	anomalyBaseline  *AnomalyBaseline
-	mutex            sync.RWMutex
+	eventFrequency  map[events.EventType]*FrequencyTracker
+	contentPatterns map[string]int
+	sourceActivity  map[string]*ActivityTracker
+	anomalyBaseline *AnomalyBaseline
+	mutex           sync.RWMutex
 }
 
 // FrequencyTracker tracks event frequency
@@ -98,9 +98,9 @@ type FrequencyTracker struct {
 
 // ActivityTracker tracks activity from a specific source
 type ActivityTracker struct {
-	lastSeen     time.Time
-	eventCount   int
-	threatCount  int
+	lastSeen       time.Time
+	eventCount     int
+	threatCount    int
 	suspicionScore float64
 }
 
@@ -114,9 +114,9 @@ type AnomalyBaseline struct {
 
 // ThreatHistory maintains history of detected threats
 type ThreatHistory struct {
-	threats      []*Threat
-	maxSize      int
-	mutex        sync.RWMutex
+	threats []*Threat
+	maxSize int
+	mutex   sync.RWMutex
 }
 
 // AlertHandler interface for threat alerts
@@ -142,7 +142,7 @@ func NewThreatDetector(config *ThreatDetectorConfig, alertHandler AlertHandler) 
 	if config == nil {
 		config = DefaultThreatDetectorConfig()
 	}
-	
+
 	detector := &ThreatDetector{
 		config:         config,
 		threatPatterns: make(map[ThreatType][]*ThreatPattern),
@@ -161,7 +161,7 @@ func NewThreatDetector(config *ThreatDetectorConfig, alertHandler AlertHandler) 
 		},
 		alertHandler: alertHandler,
 	}
-	
+
 	detector.initializePatterns()
 	return detector
 }
@@ -185,7 +185,7 @@ func (d *ThreatDetector) initializePatterns() {
 			Severity:    ThreatSeverityHigh,
 		},
 	}
-	
+
 	// SQL Injection patterns
 	d.threatPatterns[ThreatTypeSQLInjection] = []*ThreatPattern{
 		{
@@ -210,7 +210,7 @@ func (d *ThreatDetector) initializePatterns() {
 			Severity:    ThreatSeverityHigh,
 		},
 	}
-	
+
 	// Add custom patterns
 	for threatType, patterns := range d.config.CustomPatterns {
 		d.threatPatterns[threatType] = append(d.threatPatterns[threatType], patterns...)
@@ -222,15 +222,15 @@ func (d *ThreatDetector) DetectThreats(ctx context.Context, event events.Event, 
 	if !d.config.EnableRealTimeDetection {
 		return nil, nil
 	}
-	
+
 	d.mutex.Lock()
 	defer d.mutex.Unlock()
-	
+
 	var threats []*Threat
-	
+
 	// Update behavior profile
 	d.updateBehaviorProfile(event)
-	
+
 	// Pattern-based detection
 	for threatType, patterns := range d.threatPatterns {
 		for _, pattern := range patterns {
@@ -248,26 +248,26 @@ func (d *ThreatDetector) DetectThreats(ctx context.Context, event events.Event, 
 					Indicators:  []string{pattern.Name},
 					Mitigations: d.getMitigations(threatType),
 				}
-				
+
 				threats = append(threats, threat)
 			}
 		}
 	}
-	
+
 	// Behavioral analysis
 	if anomaly := d.detectBehavioralAnomaly(event); anomaly != nil {
 		threats = append(threats, anomaly)
 	}
-	
+
 	// DDoS detection
 	if ddosThreat := d.detectDDoS(event); ddosThreat != nil {
 		threats = append(threats, ddosThreat)
 	}
-	
+
 	// Process detected threats
 	for _, threat := range threats {
 		d.threatHistory.Add(threat)
-		
+
 		// Alert on high severity threats
 		if d.shouldAlert(threat) {
 			if d.alertHandler != nil {
@@ -277,7 +277,7 @@ func (d *ThreatDetector) DetectThreats(ctx context.Context, event events.Event, 
 			}
 		}
 	}
-	
+
 	return threats, nil
 }
 
@@ -295,7 +295,7 @@ func (d *ThreatDetector) matchesPattern(content, pattern string) bool {
 func (d *ThreatDetector) updateBehaviorProfile(event events.Event) {
 	d.behaviorProfile.mutex.Lock()
 	defer d.behaviorProfile.mutex.Unlock()
-	
+
 	// Update event frequency
 	if tracker, exists := d.behaviorProfile.eventFrequency[event.Type()]; exists {
 		tracker.Record(time.Now())
@@ -305,7 +305,7 @@ func (d *ThreatDetector) updateBehaviorProfile(event events.Event) {
 		}
 		d.behaviorProfile.eventFrequency[event.Type()].Record(time.Now())
 	}
-	
+
 	// Update source activity
 	source := d.extractSource(event)
 	if activity, exists := d.behaviorProfile.sourceActivity[source]; exists {
@@ -323,7 +323,7 @@ func (d *ThreatDetector) updateBehaviorProfile(event events.Event) {
 func (d *ThreatDetector) detectBehavioralAnomaly(event events.Event) *Threat {
 	d.behaviorProfile.mutex.RLock()
 	defer d.behaviorProfile.mutex.RUnlock()
-	
+
 	// Check event frequency anomaly
 	if tracker, exists := d.behaviorProfile.eventFrequency[event.Type()]; exists {
 		currentRate := tracker.GetRate()
@@ -342,7 +342,7 @@ func (d *ThreatDetector) detectBehavioralAnomaly(event events.Event) *Threat {
 			}
 		}
 	}
-	
+
 	return nil
 }
 
@@ -350,13 +350,13 @@ func (d *ThreatDetector) detectBehavioralAnomaly(event events.Event) *Threat {
 func (d *ThreatDetector) detectDDoS(event events.Event) *Threat {
 	d.behaviorProfile.mutex.RLock()
 	defer d.behaviorProfile.mutex.RUnlock()
-	
+
 	source := d.extractSource(event)
 	activity, exists := d.behaviorProfile.sourceActivity[source]
 	if !exists {
 		return nil
 	}
-	
+
 	// Check for rapid event generation from single source
 	timeSinceLastSeen := time.Since(activity.lastSeen)
 	if activity.eventCount > 100 && timeSinceLastSeen < time.Minute {
@@ -380,7 +380,7 @@ func (d *ThreatDetector) detectDDoS(event events.Event) *Threat {
 			},
 		}
 	}
-	
+
 	return nil
 }
 
@@ -390,7 +390,7 @@ func (d *ThreatDetector) isAnomalousRate(rate float64) bool {
 	if baseline.stdDevEventRate == 0 {
 		return false
 	}
-	
+
 	// Calculate z-score
 	zScore := math.Abs(rate-baseline.meanEventRate) / baseline.stdDevEventRate
 	return zScore > 3.0 // 3 standard deviations
@@ -440,7 +440,7 @@ func (d *ThreatDetector) getMitigations(threatType ThreatType) []string {
 			"Implement CAPTCHA for suspicious activity",
 		},
 	}
-	
+
 	return mitigations[threatType]
 }
 
@@ -465,7 +465,7 @@ func (d *ThreatDetector) GetThreatHistory() []*Threat {
 func (f *FrequencyTracker) Record(timestamp time.Time) {
 	f.counts = append(f.counts, 1)
 	f.timestamps = append(f.timestamps, timestamp)
-	
+
 	// Clean old entries
 	cutoff := timestamp.Add(-f.window)
 	validIdx := 0
@@ -475,7 +475,7 @@ func (f *FrequencyTracker) Record(timestamp time.Time) {
 			break
 		}
 	}
-	
+
 	if validIdx > 0 {
 		f.counts = f.counts[validIdx:]
 		f.timestamps = f.timestamps[validIdx:]
@@ -486,12 +486,12 @@ func (f *FrequencyTracker) GetRate() float64 {
 	if len(f.timestamps) == 0 {
 		return 0
 	}
-	
+
 	duration := time.Since(f.timestamps[0])
 	if duration.Minutes() == 0 {
 		return float64(len(f.counts))
 	}
-	
+
 	return float64(len(f.counts)) / duration.Minutes()
 }
 
@@ -500,7 +500,7 @@ func (f *FrequencyTracker) GetRate() float64 {
 func (h *ThreatHistory) Add(threat *Threat) {
 	h.mutex.Lock()
 	defer h.mutex.Unlock()
-	
+
 	h.threats = append(h.threats, threat)
 	if len(h.threats) > h.maxSize {
 		h.threats = h.threats[1:]
@@ -510,7 +510,7 @@ func (h *ThreatHistory) Add(threat *Threat) {
 func (h *ThreatHistory) GetAll() []*Threat {
 	h.mutex.RLock()
 	defer h.mutex.RUnlock()
-	
+
 	result := make([]*Threat, len(h.threats))
 	copy(result, h.threats)
 	return result

@@ -501,7 +501,7 @@ func testFileNotifierFailures(t *testing.T) {
 
 		// Close the file handle to simulate file system issues
 		notifier.Close()
-		
+
 		// Delete the file
 		os.Remove(alertFile)
 
@@ -518,7 +518,7 @@ func testCompositeNotifierPartialFailures(t *testing.T) {
 
 	// Create mix of working and failing notifiers
 	workingNotifier := NewLogAlertNotifier(logger)
-	
+
 	tempDir := t.TempDir()
 	alertFile := filepath.Join(tempDir, "alerts.log")
 	fileNotifier, err := NewFileAlertNotifier(alertFile)
@@ -628,7 +628,7 @@ func testAlertStormHandling(t *testing.T) {
 		// Create a shorter timeout context for this test
 		testCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
-		
+
 		var wg sync.WaitGroup
 		errorChan := make(chan error, 20)
 
@@ -799,7 +799,7 @@ func testResourceExhaustionScenarios(t *testing.T) {
 		composite := NewCompositeAlertNotifier(notifiers...)
 
 		var wg sync.WaitGroup
-		
+
 		// Send many alerts quickly to exhaust goroutines
 		for i := 0; i < 100; i++ {
 			wg.Add(1)
@@ -832,7 +832,7 @@ func testResourceExhaustionScenarios(t *testing.T) {
 func testRecoveryScenarios(t *testing.T) {
 	t.Run("webhook_recovery_after_failure", func(t *testing.T) {
 		callCount := int32(0)
-		
+
 		// Server that fails first few requests then succeeds
 		server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			count := atomic.AddInt32(&callCount, 1)
@@ -940,7 +940,7 @@ type RandomFailureNotifier struct {
 
 func (n *RandomFailureNotifier) SendAlert(ctx context.Context, alert Alert) error {
 	count := atomic.AddInt32(&n.callCount, 1)
-	
+
 	// Use call count to simulate pseudo-random failures
 	if float64(count%100)/100.0 < n.failureRate {
 		return fmt.Errorf("random failure on call %d", count)
@@ -992,7 +992,7 @@ func BenchmarkAlertNotificationFailures(b *testing.B) {
 
 	b.Run("composite_partial_failure", func(b *testing.B) {
 		logger := zaptest.NewLogger(b)
-		
+
 		notifiers := []AlertNotifier{
 			NewLogAlertNotifier(logger),
 			&AlwaysFailingNotifier{},

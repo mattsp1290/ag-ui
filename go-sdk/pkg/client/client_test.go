@@ -260,23 +260,23 @@ func verifyWrappedError(t *testing.T, err error, expectedType any, operation str
 		t.Error("Expected error, got nil")
 		return
 	}
-	
+
 	// The error is wrapped, so we need to unwrap it to find the error type
 	var baseErr *pkgerrors.BaseError
 	var validationErr *pkgerrors.ValidationError
-	
+
 	// Check for ValidationError first (it embeds BaseError)
 	if errors.As(err, &validationErr) {
 		// Found a ValidationError
 		return
 	}
-	
+
 	// Check for BaseError
 	if errors.As(err, &baseErr) {
 		// Found a BaseError
 		return
 	}
-	
+
 	// If we can't find a BaseError or ValidationError in the chain, fail the test
 	t.Errorf("Expected to find BaseError or ValidationError in error chain, got %T: %v", err, err)
 }
@@ -297,7 +297,7 @@ func TestBaseError_Unwrap(t *testing.T) {
 	if !strings.Contains(errMsg, "BaseURL") {
 		t.Errorf("Error message should contain field name, got: %v", errMsg)
 	}
-	
+
 	// Verify it's a configuration error
 	if baseErr.Code != "CONFIGURATION_ERROR" {
 		t.Errorf("Expected CONFIGURATION_ERROR code, got %v", baseErr.Code)

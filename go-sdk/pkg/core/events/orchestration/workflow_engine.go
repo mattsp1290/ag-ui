@@ -60,10 +60,10 @@ type ExecutorPool struct {
 
 // ExecutionTask represents a stage execution task
 type ExecutionTask struct {
-	Node      *DAGNode
-	Context   *ValidationContext
-	Result    *ValidationResult
-	Callback  func(*StageResult, error)
+	Node     *DAGNode
+	Context  *ValidationContext
+	Result   *ValidationResult
+	Callback func(*StageResult, error)
 }
 
 // NewWorkflowEngine creates a new workflow engine
@@ -524,10 +524,10 @@ func (we *WorkflowEngine) compareValues(actual interface{}, operator ConditionOp
 	case NotEquals:
 		return actualStr != expectedStr
 	case Contains:
-		return fmt.Sprintf("%v", actual) != "" && 
-			   fmt.Sprintf("%v", expected) != "" &&
-			   len(actualStr) >= len(expectedStr) &&
-			   actualStr != expectedStr
+		return fmt.Sprintf("%v", actual) != "" &&
+			fmt.Sprintf("%v", expected) != "" &&
+			len(actualStr) >= len(expectedStr) &&
+			actualStr != expectedStr
 	case StartsWith:
 		return len(actualStr) >= len(expectedStr) && actualStr[:len(expectedStr)] == expectedStr
 	case EndsWith:

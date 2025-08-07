@@ -16,9 +16,9 @@ import (
 
 // Deterministic ID generation for examples and tests
 var (
-	deterministicMode   bool
-	deterministicRand   *mathrand.Rand
-	deterministicMutex  sync.Mutex
+	deterministicMode    bool
+	deterministicRand    *mathrand.Rand
+	deterministicMutex   sync.Mutex
 	deterministicCounter int
 )
 
@@ -107,7 +107,6 @@ type StateTransaction struct {
 	mu        sync.Mutex
 }
 
-
 // subscription represents an active subscription
 type subscription struct {
 	id           string
@@ -135,21 +134,21 @@ type StateStore struct {
 
 	// Subscription management
 	subscriptionTTL time.Duration
-	
+
 	// View reference counting
-	viewCount int32 // Track number of active views
+	viewCount       int32 // Track number of active views
 	lastCleanup     time.Time
 	cleanupInterval time.Duration
 
 	// Error handling
 	errorHandler func(error)
 	logger       Logger
-	
+
 	// Lifecycle management - combining both approaches for robust control
-	wg        sync.WaitGroup  // WaitGroup for goroutine lifecycle management
-	ctx       context.Context // Context for cancellation signaling
-	cancel    context.CancelFunc
-	
+	wg     sync.WaitGroup  // WaitGroup for goroutine lifecycle management
+	ctx    context.Context // Context for cancellation signaling
+	cancel context.CancelFunc
+
 	// Storage and optimization
 	storageBackend       StorageBackend
 	performanceOptimizer PerformanceOptimizer
@@ -166,7 +165,7 @@ type stateShard struct {
 // NewStateStore creates a new state store instance
 func NewStateStore(options ...StateStoreOption) *StateStore {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	store := &StateStore{
 		shardCount:      DefaultShardCount, // Default to 16 shards for better concurrency
 		version:         0,
@@ -333,13 +332,13 @@ func (s *StateStore) unlockAllShardsInReverseOrder() {
 func (s *StateStore) lockAllShardsWithTimeout(timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	
+
 	lockChan := make(chan bool, 1)
 	go func() {
 		s.lockAllShardsInOrder()
 		lockChan <- true
 	}()
-	
+
 	select {
 	case <-lockChan:
 		return nil
@@ -411,12 +410,12 @@ func (s *StateStore) getAllShardsData() map[string]interface{} {
 	if s == nil {
 		return make(map[string]interface{})
 	}
-	
+
 	// Check if shards are initialized
 	if s.shards == nil || len(s.shards) == 0 {
 		return make(map[string]interface{})
 	}
-	
+
 	merged := make(map[string]interface{})
 
 	// Collect data from all shards
@@ -424,17 +423,17 @@ func (s *StateStore) getAllShardsData() map[string]interface{} {
 		if shard == nil {
 			continue
 		}
-		
+
 		stateInterface := shard.current.Load()
 		if stateInterface == nil {
 			continue
 		}
-		
+
 		state, ok := stateInterface.(*ImmutableState)
 		if !ok || state == nil {
 			continue
 		}
-		
+
 		atomic.AddInt32(&state.refs, 1)
 
 		// Create a safe copy of the data map to prevent concurrent access
@@ -463,12 +462,12 @@ func (s *StateStore) getAllShardsDataShallow() map[string]interface{} {
 	if s == nil {
 		return make(map[string]interface{})
 	}
-	
+
 	// Check if shards are initialized
 	if s.shards == nil || len(s.shards) == 0 {
 		return make(map[string]interface{})
 	}
-	
+
 	merged := make(map[string]interface{})
 
 	// Collect data from all shards
@@ -476,12 +475,12 @@ func (s *StateStore) getAllShardsDataShallow() map[string]interface{} {
 		if shard == nil {
 			continue
 		}
-		
+
 		stateInterface := shard.current.Load()
 		if stateInterface == nil {
 			continue
 		}
-		
+
 		state, ok := stateInterface.(*ImmutableState)
 		if !ok || state == nil {
 			continue
@@ -1217,14 +1216,14 @@ func (s *StateStore) notifySubscribers(changes []StateChange) {
 		s.wg.Add(1)
 		go func(n func()) {
 			defer s.wg.Done()
-			
+
 			// Check if context is cancelled
 			select {
 			case <-s.ctx.Done():
 				return
 			default:
 			}
-			
+
 			n()
 		}(notify)
 	}
@@ -1269,21 +1268,21 @@ func (s *StateStore) createRestorePatch(oldState, newState map[string]interface{
 func generateID() (string, error) {
 	deterministicMutex.Lock()
 	defer deterministicMutex.Unlock()
-	
+
 	if deterministicMode && deterministicRand != nil {
 		// Use deterministic generation for examples and tests
 		deterministicCounter++
-		
+
 		// Create a deterministic hash based on counter
 		h := fnv.New32a()
 		h.Write([]byte(fmt.Sprintf("state-id-%d", deterministicCounter)))
 		hash := h.Sum32()
-		
+
 		// Convert to hex string with consistent length
-		return fmt.Sprintf("%08x%08x%08x%08x", 
+		return fmt.Sprintf("%08x%08x%08x%08x",
 			hash, hash^0xAAAAAAAA, hash^0x55555555, hash^0xCCCCCCCC), nil
 	}
-	
+
 	// Normal random generation
 	bytes := make([]byte, RandomIDBytes)
 	if _, err := rand.Read(bytes); err != nil {
@@ -1303,7 +1302,7 @@ func (s *StateStore) GetState() map[string]interface{} {
 	if s == nil {
 		return make(map[string]interface{})
 	}
-	
+
 	// Get data from all shards
 	return s.getAllShardsData()
 }
@@ -1362,10 +1361,10 @@ func (v *StateView) Cleanup() {
 func (s *StateStore) Close() error {
 	// Cancel context to signal all goroutines to stop
 	s.cancel()
-	
+
 	// Wait for all goroutines to complete
 	s.wg.Wait()
-	
+
 	return nil
 }
 
@@ -1529,4 +1528,3 @@ func (s *StateStore) GetReferenceCount() int32 {
 	// This matches what tests expect: 1 view = 1 reference
 	return atomic.LoadInt32(&s.viewCount)
 }
-

@@ -14,10 +14,10 @@ import (
 // StreamingJSONEncoder implements the StreamEncoder interface for NDJSON format
 type StreamingJSONEncoder struct {
 	*JSONEncoder
-	writer     io.Writer
-	bufWriter  *bufio.Writer
-	streamMu   sync.Mutex
-	inStream   bool
+	writer    io.Writer
+	bufWriter *bufio.Writer
+	streamMu  sync.Mutex
+	inStream  bool
 }
 
 // NewStreamingJSONEncoder creates a new streaming JSON encoder
@@ -162,10 +162,10 @@ func (e *StreamingJSONEncoder) EncodeStream(ctx context.Context, input <-chan ev
 // StreamingJSONDecoder implements the StreamDecoder interface for NDJSON format
 type StreamingJSONDecoder struct {
 	*JSONDecoder
-	reader    io.Reader
-	scanner   *bufio.Scanner
-	streamMu  sync.Mutex
-	inStream  bool
+	reader   io.Reader
+	scanner  *bufio.Scanner
+	streamMu sync.Mutex
+	inStream bool
 }
 
 // NewStreamingJSONDecoder creates a new streaming JSON decoder
@@ -198,7 +198,7 @@ func (d *StreamingJSONDecoder) StartStream(ctx context.Context, r io.Reader) err
 
 	d.reader = r
 	d.scanner = bufio.NewScanner(r)
-	
+
 	// Set max token size based on options
 	if d.options.MaxSize > 0 {
 		d.scanner.Buffer(make([]byte, 0, d.options.BufferSize), int(d.options.MaxSize))
@@ -237,7 +237,7 @@ func (d *StreamingJSONDecoder) ReadEvent(ctx context.Context) (events.Event, err
 	}
 
 	line := d.scanner.Bytes()
-	
+
 	// Skip empty lines
 	line = bytes.TrimSpace(line)
 	if len(line) == 0 {
@@ -253,7 +253,7 @@ func (d *StreamingJSONDecoder) ReadEvent(ctx context.Context) (events.Event, err
 				}
 			default:
 			}
-			
+
 			if !d.scanner.Scan() {
 				if err := d.scanner.Err(); err != nil {
 					return nil, &encoding.DecodingError{

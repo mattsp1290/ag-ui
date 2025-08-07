@@ -12,35 +12,35 @@ import (
 // CORSConfig contains CORS middleware configuration
 type CORSConfig struct {
 	BaseConfig `json:",inline" yaml:",inline"`
-	
+
 	// AllowedOrigins is a list of allowed origins for CORS
 	// Use ["*"] to allow all origins (not recommended for production)
 	AllowedOrigins []string `json:"allowed_origins" yaml:"allowed_origins"`
-	
+
 	// AllowedMethods is a list of allowed HTTP methods
 	AllowedMethods []string `json:"allowed_methods" yaml:"allowed_methods"`
-	
+
 	// AllowedHeaders is a list of allowed request headers
 	AllowedHeaders []string `json:"allowed_headers" yaml:"allowed_headers"`
-	
+
 	// ExposedHeaders is a list of headers exposed to the client
 	ExposedHeaders []string `json:"exposed_headers" yaml:"exposed_headers"`
-	
+
 	// AllowCredentials indicates whether credentials are allowed
 	AllowCredentials bool `json:"allow_credentials" yaml:"allow_credentials"`
-	
+
 	// MaxAge specifies how long preflight results can be cached (in seconds)
 	MaxAge int `json:"max_age" yaml:"max_age"`
-	
+
 	// AllowPrivateNetwork allows requests from private networks
 	AllowPrivateNetwork bool `json:"allow_private_network" yaml:"allow_private_network"`
-	
+
 	// VaryHeaders specifies additional headers to add to Vary header
 	VaryHeaders []string `json:"vary_headers" yaml:"vary_headers"`
-	
+
 	// Debug enables debug logging for CORS
 	Debug bool `json:"debug" yaml:"debug"`
-	
+
 	// Strict mode enforces stricter CORS policies
 	Strict bool `json:"strict" yaml:"strict"`
 }
@@ -49,12 +49,12 @@ type CORSConfig struct {
 type CORSMiddleware struct {
 	config *CORSConfig
 	logger *zap.Logger
-	
+
 	// Precomputed values for performance
 	allowedOriginMap map[string]bool
 	allowedMethodMap map[string]bool
 	allowedHeaderMap map[string]bool
-	
+
 	// Compiled header values
 	allowedMethodsHeader string
 	allowedHeadersHeader string
@@ -67,15 +67,15 @@ func NewCORSMiddleware(config *CORSConfig, logger *zap.Logger) (*CORSMiddleware,
 	if config == nil {
 		return nil, fmt.Errorf("CORS config cannot be nil")
 	}
-	
+
 	if err := ValidateBaseConfig(&config.BaseConfig); err != nil {
 		return nil, fmt.Errorf("invalid base config: %w", err)
 	}
-	
+
 	if logger == nil {
 		logger = zap.NewNop()
 	}
-	
+
 	// Set defaults
 	if config.Name == "" {
 		config.Name = "cors"
@@ -95,7 +95,7 @@ func NewCORSMiddleware(config *CORSConfig, logger *zap.Logger) (*CORSMiddleware,
 	if config.MaxAge == 0 {
 		config.MaxAge = 86400 // 24 hours
 	}
-	
+
 	middleware := &CORSMiddleware{
 		config:           config,
 		logger:           logger,
@@ -103,11 +103,11 @@ func NewCORSMiddleware(config *CORSConfig, logger *zap.Logger) (*CORSMiddleware,
 		allowedMethodMap: make(map[string]bool),
 		allowedHeaderMap: make(map[string]bool),
 	}
-	
+
 	// Precompute maps for performance
 	middleware.buildMaps()
 	middleware.buildHeaders()
-	
+
 	return middleware, nil
 }
 
@@ -118,9 +118,9 @@ func (cm *CORSMiddleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		
+
 		origin := r.Header.Get("Origin")
-		
+
 		if cm.config.Debug {
 			cm.logger.Debug("CORS request",
 				zap.String("origin", origin),
@@ -129,7 +129,7 @@ func (cm *CORSMiddleware) Handler(next http.Handler) http.Handler {
 				zap.Bool("is_preflight", cm.isPreflight(r)),
 			)
 		}
-		
+
 		// Check if origin is allowed
 		if origin != "" && !cm.isOriginAllowed(origin) {
 			if cm.config.Strict {
@@ -141,16 +141,16 @@ func (cm *CORSMiddleware) Handler(next http.Handler) http.Handler {
 				return
 			}
 		}
-		
+
 		// Handle preflight request
 		if cm.isPreflight(r) {
 			cm.handlePreflight(w, r)
 			return
 		}
-		
+
 		// Handle simple request
 		cm.handleSimpleRequest(w, r)
-		
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -189,12 +189,12 @@ func (cm *CORSMiddleware) isOriginAllowed(origin string) bool {
 	if cm.allowedOriginMap["*"] {
 		return true
 	}
-	
+
 	// Check exact match
 	if cm.allowedOriginMap[origin] {
 		return true
 	}
-	
+
 	// Check for wildcard subdomains
 	for allowedOrigin := range cm.allowedOriginMap {
 		if strings.HasPrefix(allowedOrigin, "*.") {
@@ -207,7 +207,7 @@ func (cm *CORSMiddleware) isOriginAllowed(origin string) bool {
 			}
 		}
 	}
-	
+
 	return false
 }
 
@@ -223,17 +223,17 @@ func (cm *CORSMiddleware) isHeaderAllowed(header string) bool {
 	if cm.isSimpleHeader(lowerHeader) {
 		return true
 	}
-	
+
 	return cm.allowedHeaderMap[lowerHeader]
 }
 
 // isSimpleHeader checks if the header is a simple header according to CORS spec
 func (cm *CORSMiddleware) isSimpleHeader(header string) bool {
 	simpleHeaders := map[string]bool{
-		"accept":          true,
-		"accept-language": true,
+		"accept":           true,
+		"accept-language":  true,
 		"content-language": true,
-		"content-type":    true, // with restrictions
+		"content-type":     true, // with restrictions
 	}
 	return simpleHeaders[header]
 }
@@ -243,7 +243,7 @@ func (cm *CORSMiddleware) handlePreflight(w http.ResponseWriter, r *http.Request
 	origin := r.Header.Get("Origin")
 	method := r.Header.Get("Access-Control-Request-Method")
 	headers := r.Header.Get("Access-Control-Request-Headers")
-	
+
 	if cm.config.Debug {
 		cm.logger.Debug("CORS preflight request",
 			zap.String("origin", origin),
@@ -251,7 +251,7 @@ func (cm *CORSMiddleware) handlePreflight(w http.ResponseWriter, r *http.Request
 			zap.String("headers", headers),
 		)
 	}
-	
+
 	// Validate requested method
 	if method != "" && !cm.isMethodAllowed(method) {
 		if cm.config.Strict {
@@ -263,7 +263,7 @@ func (cm *CORSMiddleware) handlePreflight(w http.ResponseWriter, r *http.Request
 			return
 		}
 	}
-	
+
 	// Validate requested headers
 	if headers != "" {
 		requestedHeaders := cm.parseHeaderList(headers)
@@ -280,15 +280,15 @@ func (cm *CORSMiddleware) handlePreflight(w http.ResponseWriter, r *http.Request
 			}
 		}
 	}
-	
+
 	// Set CORS headers
 	cm.setCORSHeaders(w, origin)
-	
+
 	// Set preflight-specific headers
 	if cm.allowedMethodsHeader != "" {
 		w.Header().Set("Access-Control-Allow-Methods", cm.allowedMethodsHeader)
 	}
-	
+
 	if cm.allowedHeadersHeader != "" || headers != "" {
 		if headers != "" && !cm.config.Strict {
 			// Echo back requested headers if not in strict mode
@@ -297,33 +297,33 @@ func (cm *CORSMiddleware) handlePreflight(w http.ResponseWriter, r *http.Request
 			w.Header().Set("Access-Control-Allow-Headers", cm.allowedHeadersHeader)
 		}
 	}
-	
+
 	if cm.config.MaxAge > 0 {
 		w.Header().Set("Access-Control-Max-Age", strconv.Itoa(cm.config.MaxAge))
 	}
-	
+
 	w.WriteHeader(http.StatusNoContent)
 }
 
 // handleSimpleRequest handles CORS simple requests
 func (cm *CORSMiddleware) handleSimpleRequest(w http.ResponseWriter, r *http.Request) {
 	origin := r.Header.Get("Origin")
-	
+
 	if origin == "" {
 		// Not a CORS request
 		return
 	}
-	
+
 	if cm.config.Debug {
 		cm.logger.Debug("CORS simple request",
 			zap.String("origin", origin),
 			zap.String("method", r.Method),
 		)
 	}
-	
+
 	// Set CORS headers
 	cm.setCORSHeaders(w, origin)
-	
+
 	// Set exposed headers
 	if cm.exposedHeadersHeader != "" {
 		w.Header().Set("Access-Control-Expose-Headers", cm.exposedHeadersHeader)
@@ -340,17 +340,17 @@ func (cm *CORSMiddleware) setCORSHeaders(w http.ResponseWriter, origin string) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 		}
 	}
-	
+
 	// Set credentials header
 	if cm.config.AllowCredentials {
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 	}
-	
+
 	// Set private network header
 	if cm.config.AllowPrivateNetwork {
 		w.Header().Set("Access-Control-Allow-Private-Network", "true")
 	}
-	
+
 	// Set Vary header
 	if cm.varyHeader != "" {
 		existing := w.Header().Get("Vary")
@@ -368,12 +368,12 @@ func (cm *CORSMiddleware) buildMaps() {
 	for _, origin := range cm.config.AllowedOrigins {
 		cm.allowedOriginMap[origin] = true
 	}
-	
+
 	// Build method map
 	for _, method := range cm.config.AllowedMethods {
 		cm.allowedMethodMap[strings.ToUpper(method)] = true
 	}
-	
+
 	// Build header map
 	for _, header := range cm.config.AllowedHeaders {
 		cm.allowedHeaderMap[strings.ToLower(header)] = true
@@ -386,17 +386,17 @@ func (cm *CORSMiddleware) buildHeaders() {
 	if len(cm.config.AllowedMethods) > 0 {
 		cm.allowedMethodsHeader = strings.Join(cm.config.AllowedMethods, ", ")
 	}
-	
+
 	// Build allowed headers header
 	if len(cm.config.AllowedHeaders) > 0 {
 		cm.allowedHeadersHeader = strings.Join(cm.config.AllowedHeaders, ", ")
 	}
-	
+
 	// Build exposed headers header
 	if len(cm.config.ExposedHeaders) > 0 {
 		cm.exposedHeadersHeader = strings.Join(cm.config.ExposedHeaders, ", ")
 	}
-	
+
 	// Build vary header
 	varyHeaders := []string{"Origin"}
 	if len(cm.config.VaryHeaders) > 0 {
@@ -410,7 +410,7 @@ func (cm *CORSMiddleware) parseHeaderList(headerList string) []string {
 	if headerList == "" {
 		return nil
 	}
-	
+
 	var headers []string
 	for _, header := range strings.Split(headerList, ",") {
 		header = strings.TrimSpace(header)
@@ -418,7 +418,7 @@ func (cm *CORSMiddleware) parseHeaderList(headerList string) []string {
 			headers = append(headers, strings.ToLower(header))
 		}
 	}
-	
+
 	return headers
 }
 
@@ -486,7 +486,7 @@ func CORSHandler(handler http.Handler, config *CORSConfig, logger *zap.Logger) (
 	if err != nil {
 		return nil, err
 	}
-	
+
 	return corsMiddleware.Handler(handler), nil
 }
 

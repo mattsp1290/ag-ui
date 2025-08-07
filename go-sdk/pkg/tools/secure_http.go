@@ -152,7 +152,7 @@ func (e *SecureHTTPExecutor) validateOriginalURL(urlStr string) error {
 		strings.Contains(strings.ToLower(urlStr), "%0d%0a") || strings.Contains(strings.ToLower(urlStr), "%0a%0d") {
 		return fmt.Errorf("URL contains encoded CRLF sequences")
 	}
-	
+
 	return nil
 }
 
@@ -162,7 +162,7 @@ func (e *SecureHTTPExecutor) isSchemeAllowed(scheme string) bool {
 	if scheme == "" {
 		return true
 	}
-	
+
 	// Case-insensitive comparison for schemes
 	for _, allowed := range e.options.AllowedSchemes {
 		if strings.EqualFold(scheme, allowed) {
@@ -172,27 +172,25 @@ func (e *SecureHTTPExecutor) isSchemeAllowed(scheme string) bool {
 	return false
 }
 
-
-
 // validateTestModeHostname simulates hostname resolution for common security test cases
 func (e *SecureHTTPExecutor) validateTestModeHostname(hostname string) error {
 	// Map common test hostnames to their simulated IP addresses for security testing
 	testHostMappings := map[string]string{
-		"localhost":                 "127.0.0.1",
-		"metadata.google.internal":  "169.254.169.254",
+		"localhost":                "127.0.0.1",
+		"metadata.google.internal": "169.254.169.254",
 		"169.254.169.254":          "169.254.169.254",
-		"metadata.azure.com":        "169.254.169.254",
-		"internal.server":           "192.168.1.1",
-		"admin":                     "127.0.0.1",
-		"evil.com":                  "203.0.113.1", // Example IP
-		"target.com":                "203.0.113.2", // Example IP
+		"metadata.azure.com":       "169.254.169.254",
+		"internal.server":          "192.168.1.1",
+		"admin":                    "127.0.0.1",
+		"evil.com":                 "203.0.113.1", // Example IP
+		"target.com":               "203.0.113.2", // Example IP
 	}
-	
+
 	// Check for direct IP address first
 	if ip := net.ParseIP(hostname); ip != nil {
 		return e.validateIPAddress(ip)
 	}
-	
+
 	// Check for mapped test hostnames
 	if mappedIP, exists := testHostMappings[hostname]; exists {
 		ip := net.ParseIP(mappedIP)
@@ -200,7 +198,7 @@ func (e *SecureHTTPExecutor) validateTestModeHostname(hostname string) error {
 			return e.validateIPAddress(ip)
 		}
 	}
-	
+
 	// For unknown hostnames in test mode, assume they resolve to a safe public IP
 	// unless they look suspicious (contain localhost, internal, admin, etc.)
 	suspiciousKeywords := []string{"localhost", "internal", "admin", "metadata", "private"}
@@ -210,7 +208,7 @@ func (e *SecureHTTPExecutor) validateTestModeHostname(hostname string) error {
 			return e.validateIPAddress(net.ParseIP("127.0.0.1"))
 		}
 	}
-	
+
 	// Default to safe public IP for testing
 	return nil
 }
@@ -454,7 +452,7 @@ func (e *SecureHTTPExecutor) validateURLStructure(parsedURL *url.URL) error {
 		if strings.Contains(strings.ToLower(parsedURL.RawQuery), "vbscript:") {
 			return fmt.Errorf("suspicious scheme in URL query")
 		}
-		
+
 		// Only check for the most dangerous encoded content
 		if decodedQuery, err := url.QueryUnescape(parsedURL.RawQuery); err == nil {
 			// Only block patterns that could lead to immediate RCE
@@ -503,10 +501,10 @@ func isTestMode() bool {
 	if os.Getenv("FORCE_PRODUCTION_MODE") != "" {
 		return false
 	}
-	
+
 	// Check if we're running tests by looking for common test environment indicators
-	return os.Getenv("GO_TESTING") != "" || 
-		   os.Getenv("CI") != "" ||
-		   strings.Contains(os.Args[0], ".test") ||
-		   strings.Contains(os.Args[0], "go-build")
+	return os.Getenv("GO_TESTING") != "" ||
+		os.Getenv("CI") != "" ||
+		strings.Contains(os.Args[0], ".test") ||
+		strings.Contains(os.Args[0], "go-build")
 }

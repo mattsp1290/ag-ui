@@ -2,6 +2,7 @@ package config
 
 import (
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -264,11 +265,14 @@ func TestConfigAllOperations(t *testing.T) {
 func TestConfigWatchers(t *testing.T) {
 	config := NewConfig()
 	
+	var mu sync.Mutex
 	called := false
 	var receivedValue interface{}
 	
 	// Add watcher
 	config.Watch("test.key", func(value interface{}) {
+		mu.Lock()
+		defer mu.Unlock()
 		called = true
 		receivedValue = value
 	})
@@ -279,12 +283,18 @@ func TestConfigWatchers(t *testing.T) {
 	// Give watcher goroutine time to execute
 	time.Sleep(time.Millisecond * 10)
 	
-	if !called {
+	// Read variables with mutex protection
+	mu.Lock()
+	wasCalled := called
+	value := receivedValue
+	mu.Unlock()
+	
+	if !wasCalled {
 		t.Error("Watcher was not called")
 	}
 	
-	if receivedValue != "test_value" {
-		t.Errorf("Expected 'test_value', got '%v'", receivedValue)
+	if value != "test_value" {
+		t.Errorf("Expected 'test_value', got '%v'", value)
 	}
 }
 

@@ -33,7 +33,9 @@ func TestEnhancedGoroutineLeakDetector(t *testing.T) {
 		// This test intentionally creates a leak to verify detection works
 		// The leak is cleaned up at the end to prevent actual test leaks
 
-		detector := NewEnhancedGoroutineLeakDetector(t).WithTolerance(0)
+		detector := NewEnhancedGoroutineLeakDetector(t).
+			WithTolerance(0).
+			WithMaxWaitTime(500 * time.Millisecond) // Reduce timeout for leak detection test
 
 		// Create a leak
 		stopCh := make(chan struct{})

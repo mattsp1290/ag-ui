@@ -23,6 +23,7 @@ type StateUtils struct {
 	snapshotsMu  sync.RWMutex
 	validators   map[string]StateValidator
 	validatorsMu sync.RWMutex
+	commonUtils  *CommonUtils
 }
 
 // StateDiff represents the difference between two states.
@@ -59,31 +60,31 @@ type DiffSummary struct {
 
 // StateProfile represents performance metrics for state operations.
 type StateProfile struct {
-	OperationType     string                 `json:"operation_type"`
-	StartTime         time.Time              `json:"start_time"`
-	EndTime           time.Time              `json:"end_time"`
-	Duration          time.Duration          `json:"duration"`
-	MemoryBefore      runtime.MemStats       `json:"memory_before"`
-	MemoryAfter       runtime.MemStats       `json:"memory_after"`
-	MemoryAllocated   uint64                 `json:"memory_allocated"`
-	StateSize         int64                  `json:"state_size"`
-	OperationCount    int                    `json:"operation_count"`
-	Metadata          map[string]interface{} `json:"metadata"`
+	OperationType      string                 `json:"operation_type"`
+	StartTime          time.Time              `json:"start_time"`
+	EndTime            time.Time              `json:"end_time"`
+	Duration           time.Duration          `json:"duration"`
+	MemoryBefore       runtime.MemStats       `json:"memory_before"`
+	MemoryAfter        runtime.MemStats       `json:"memory_after"`
+	MemoryAllocated    uint64                 `json:"memory_allocated"`
+	StateSize          int64                  `json:"state_size"`
+	OperationCount     int                    `json:"operation_count"`
+	Metadata           map[string]interface{} `json:"metadata"`
 	PerformanceMetrics map[string]float64     `json:"performance_metrics"`
 }
 
 // StateSnapshot represents a point-in-time snapshot of state.
 type StateSnapshot struct {
-	ID            string                 `json:"id"`
-	AgentName     string                 `json:"agent_name"`
-	State         map[string]interface{} `json:"state"`
-	Timestamp     time.Time              `json:"timestamp"`
-	Version       string                 `json:"version"`
-	Checksum      string                 `json:"checksum"`
-	Size          int64                  `json:"size"`
-	Metadata      map[string]interface{} `json:"metadata"`
-	CreatedBy     string                 `json:"created_by"`
-	Tags          []string               `json:"tags"`
+	ID        string                 `json:"id"`
+	AgentName string                 `json:"agent_name"`
+	State     map[string]interface{} `json:"state"`
+	Timestamp time.Time              `json:"timestamp"`
+	Version   string                 `json:"version"`
+	Checksum  string                 `json:"checksum"`
+	Size      int64                  `json:"size"`
+	Metadata  map[string]interface{} `json:"metadata"`
+	CreatedBy string                 `json:"created_by"`
+	Tags      []string               `json:"tags"`
 }
 
 // StateValidator validates state structure and content.
@@ -105,12 +106,12 @@ type ValidationResult struct {
 
 // ValidationError represents a validation error.
 type ValidationError struct {
-	Path        string      `json:"path"`
-	Message     string      `json:"message"`
-	Value       interface{} `json:"value,omitempty"`
-	Expected    string      `json:"expected,omitempty"`
-	Severity    string      `json:"severity"`
-	ErrorCode   string      `json:"error_code"`
+	Path      string      `json:"path"`
+	Message   string      `json:"message"`
+	Value     interface{} `json:"value,omitempty"`
+	Expected  string      `json:"expected,omitempty"`
+	Severity  string      `json:"severity"`
+	ErrorCode string      `json:"error_code"`
 }
 
 // ValidationWarning represents a validation warning.
@@ -124,12 +125,12 @@ type ValidationWarning struct {
 
 // DiffOptions configures diff generation behavior.
 type DiffOptions struct {
-	IgnoreFields     []string          `json:"ignore_fields"`
-	IgnorePaths      []string          `json:"ignore_paths"`
-	MaxDepth         int               `json:"max_depth"`
-	ComparisonMode   ComparisonMode    `json:"comparison_mode"`
-	OutputFormat     OutputFormat      `json:"output_format"`
-	IncludeMetadata  bool              `json:"include_metadata"`
+	IgnoreFields      []string                               `json:"ignore_fields"`
+	IgnorePaths       []string                               `json:"ignore_paths"`
+	MaxDepth          int                                    `json:"max_depth"`
+	ComparisonMode    ComparisonMode                         `json:"comparison_mode"`
+	OutputFormat      OutputFormat                           `json:"output_format"`
+	IncludeMetadata   bool                                   `json:"include_metadata"`
 	CustomComparators map[string]func(a, b interface{}) bool `json:"-"`
 }
 
@@ -137,8 +138,8 @@ type DiffOptions struct {
 type ComparisonMode string
 
 const (
-	ComparisonModeDeep    ComparisonMode = "deep"
-	ComparisonModeShallow ComparisonMode = "shallow"
+	ComparisonModeDeep       ComparisonMode = "deep"
+	ComparisonModeShallow    ComparisonMode = "shallow"
 	ComparisonModeStructural ComparisonMode = "structural"
 )
 
@@ -154,9 +155,10 @@ const (
 // NewStateUtils creates a new StateUtils instance.
 func NewStateUtils() *StateUtils {
 	return &StateUtils{
-		profiles:   make(map[string]*StateProfile),
-		snapshots:  make(map[string]*StateSnapshot),
-		validators: make(map[string]StateValidator),
+		profiles:    make(map[string]*StateProfile),
+		snapshots:   make(map[string]*StateSnapshot),
+		validators:  make(map[string]StateValidator),
+		commonUtils: NewCommonUtils(),
 	}
 }
 
@@ -171,13 +173,13 @@ func (su *StateUtils) Diff(current, previous interface{}, options *DiffOptions) 
 	}
 
 	startTime := time.Now()
-	
+
 	diff := &StateDiff{
 		Path:        "",
 		Type:        DiffTypeNone,
-		Changes:     make([]StateDiff, 0),
-		Summary:     DiffSummary{Categories: make(map[string]int)},
-		Metadata:    make(map[string]interface{}),
+		Changes:     nil,                                               // More efficient than make([]StateDiff, 0)
+		Summary:     DiffSummary{Categories: make(map[string]int, 10)}, // Pre-size with reasonable capacity
+		Metadata:    make(map[string]interface{}, 10),                  // Pre-size with reasonable capacity
 		GeneratedAt: startTime,
 	}
 
@@ -206,15 +208,15 @@ func (su *StateUtils) Validate(state interface{}, validatorName string) (*Valida
 	su.validatorsMu.RUnlock()
 
 	if !exists {
-		return nil, errors.NewNotFoundError("validator not found: " + validatorName, nil)
+		return nil, errors.NewNotFoundError("validator not found: "+validatorName, nil)
 	}
 
 	result := &ValidationResult{
 		IsValid:     true,
-		Errors:      make([]ValidationError, 0),
-		Warnings:    make([]ValidationWarning, 0),
+		Errors:      nil, // More efficient than make([]ValidationError, 0)
+		Warnings:    nil, // More efficient than make([]ValidationWarning, 0)
 		ValidatedAt: time.Now(),
-		Metadata:    make(map[string]interface{}),
+		Metadata:    make(map[string]interface{}, 5), // Pre-size with reasonable capacity
 	}
 
 	// Perform validation
@@ -310,10 +312,11 @@ func (su *StateUtils) CreateSnapshot(agent client.Agent, tags ...string) (*State
 		return nil, errors.NewValidationError("agent", "agent cannot be nil")
 	}
 
+	now := time.Now()
 	snapshot := &StateSnapshot{
-		ID:        fmt.Sprintf("%s_%d", agent.Name(), time.Now().Unix()),
+		ID:        fmt.Sprintf("%s_%d", agent.Name(), now.UnixNano()),
 		AgentName: agent.Name(),
-		Timestamp: time.Now(),
+		Timestamp: now,
 		Version:   "1.0",
 		Metadata:  make(map[string]interface{}),
 		CreatedBy: "StateUtils",
@@ -363,7 +366,7 @@ func (su *StateUtils) GetSnapshot(id string) (*StateSnapshot, error) {
 
 	snapshot, exists := su.snapshots[id]
 	if !exists {
-		return nil, errors.NewNotFoundError("snapshot not found: " + id, nil)
+		return nil, errors.NewNotFoundError("snapshot not found: "+id, nil)
 	}
 
 	return snapshot, nil
@@ -524,9 +527,9 @@ func (su *StateUtils) compareMaps(current, previous interface{}, path string, di
 			})
 		} else {
 			// Compare values
-			err := su.compareValues(currentVal.Interface(), previousVal.Interface(), currentPath, diff, options, depth+1)
-			if err != nil {
-				return err
+			compareErr := su.compareValues(currentVal.Interface(), previousVal.Interface(), currentPath, diff, options, depth+1)
+			if compareErr != nil {
+				return compareErr
 			}
 		}
 	}
@@ -582,9 +585,9 @@ func (su *StateUtils) compareSlices(current, previous interface{}, path string, 
 		}
 
 		if hasCurrentVal && hasPreviousVal {
-			err := su.compareValues(currentVal, previousVal, currentPath, diff, options, depth+1)
-			if err != nil {
-				return err
+			compareErr := su.compareValues(currentVal, previousVal, currentPath, diff, options, depth+1)
+			if compareErr != nil {
+				return compareErr
 			}
 		} else if hasCurrentVal {
 			diff.Changes = append(diff.Changes, StateDiff{
@@ -621,9 +624,9 @@ func (su *StateUtils) compareStructs(current, previous interface{}, path string,
 		currentFieldVal := currentVal.Field(i).Interface()
 		previousFieldVal := previousVal.Field(i).Interface()
 
-		err := su.compareValues(currentFieldVal, previousFieldVal, currentPath, diff, options, depth+1)
-		if err != nil {
-			return err
+		compareErr := su.compareValues(currentFieldVal, previousFieldVal, currentPath, diff, options, depth+1)
+		if compareErr != nil {
+			return compareErr
 		}
 	}
 
@@ -662,19 +665,11 @@ func (su *StateUtils) calculateDiffSummary(diff *StateDiff) {
 }
 
 func (su *StateUtils) stateToMap(state *client.AgentState) (map[string]interface{}, error) {
-	data, err := json.Marshal(state)
-	if err != nil {
-		return nil, err
-	}
-
-	var result map[string]interface{}
-	err = json.Unmarshal(data, &result)
-	return result, err
+	return su.commonUtils.JSONMarshalToMap(state)
 }
 
 func (su *StateUtils) calculateChecksum(data []byte) string {
-	// This is a simplified checksum - in production you might want to use a proper hash
-	return fmt.Sprintf("checksum_%d", len(data))
+	return su.commonUtils.CalculateChecksum(data)
 }
 
 func (su *StateUtils) exportAsText(state interface{}) ([]byte, error) {
@@ -685,30 +680,40 @@ func (su *StateUtils) exportAsText(state interface{}) ([]byte, error) {
 
 func (su *StateUtils) writeValueAsText(value interface{}, prefix string, builder *strings.Builder, depth int) {
 	if depth > 10 { // Prevent infinite recursion
-		builder.WriteString(fmt.Sprintf("%s<max depth reached>\n", prefix))
+		builder.WriteString(prefix)
+		builder.WriteString("<max depth reached>\n")
 		return
 	}
 
 	v := reflect.ValueOf(value)
 	if !v.IsValid() {
-		builder.WriteString(fmt.Sprintf("%s<nil>\n", prefix))
+		builder.WriteString(prefix)
+		builder.WriteString("<nil>\n")
 		return
 	}
 
 	switch v.Kind() {
 	case reflect.Map:
 		for _, key := range v.MapKeys() {
-			keyStr := fmt.Sprintf("%v", key.Interface())
-			newPrefix := fmt.Sprintf("%s%s: ", prefix, keyStr)
-			su.writeValueAsText(v.MapIndex(key).Interface(), newPrefix, builder, depth+1)
+			// More efficient string building without fmt.Sprintf
+			builder.WriteString(prefix)
+			builder.WriteString(fmt.Sprintf("%v", key.Interface())) // Keep fmt for interface conversion
+			builder.WriteString(": ")
+			su.writeValueAsText(v.MapIndex(key).Interface(), "", builder, depth+1)
 		}
 	case reflect.Slice, reflect.Array:
 		for i := 0; i < v.Len(); i++ {
-			newPrefix := fmt.Sprintf("%s[%d]: ", prefix, i)
-			su.writeValueAsText(v.Index(i).Interface(), newPrefix, builder, depth+1)
+			// More efficient string building
+			builder.WriteString(prefix)
+			builder.WriteByte('[')
+			builder.WriteString(fmt.Sprintf("%d", i)) // More efficient than full fmt.Sprintf
+			builder.WriteString("]: ")
+			su.writeValueAsText(v.Index(i).Interface(), "", builder, depth+1)
 		}
 	default:
-		builder.WriteString(fmt.Sprintf("%s%v\n", prefix, value))
+		builder.WriteString(prefix)
+		builder.WriteString(fmt.Sprintf("%v", value)) // Keep fmt for interface conversion
+		builder.WriteByte('\n')
 	}
 }
 
@@ -725,7 +730,13 @@ func (su *StateUtils) joinPath(base, component string) string {
 	if base == "" {
 		return component
 	}
-	return base + "." + component
+	// More efficient string concatenation for hot path
+	var builder strings.Builder
+	builder.Grow(len(base) + len(component) + 1) // Pre-allocate exact capacity
+	builder.WriteString(base)
+	builder.WriteByte('.')
+	builder.WriteString(component)
+	return builder.String()
 }
 
 func (su *StateUtils) getTopLevelPath(path string) string {

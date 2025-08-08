@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/client"
@@ -22,14 +23,15 @@ type FluentClient struct {
 
 // AgentBuilder provides a fluent API for agent configuration and creation.
 type AgentBuilder struct {
-	client     *FluentClient
-	name       string
-	config     *client.AgentConfig
-	tools      []string
-	state      interface{}
-	handlers   []events.EventHandler
+	client      *FluentClient
+	name        string
+	config      *client.AgentConfig
+	tools       []string
+	state       interface{}
+	handlers    []events.EventHandler
 	retryPolicy *RetryPolicy
-	errors     []error
+	errors      []error
+	mu          sync.Mutex // Protects tools slice for concurrent access
 }
 
 // MessageBuilder provides a fluent API for message operations.
@@ -55,14 +57,14 @@ type EventStreamBuilder struct {
 
 // StateBuilder provides a fluent API for state operations.
 type StateBuilder struct {
-	client         *FluentClient
-	agent          client.Agent
-	compareWith    interface{}
-	ignoreFields   []string
-	diffOptions    *DiffOptions
-	validatorName  string
-	format         OutputFormat
-	errors         []error
+	client        *FluentClient
+	agent         client.Agent
+	compareWith   interface{}
+	ignoreFields  []string
+	diffOptions   *DiffOptions
+	validatorName string
+	format        OutputFormat
+	errors        []error
 }
 
 // RetryPolicy defines retry behavior for operations.
@@ -89,16 +91,19 @@ type ClientUtils struct {
 	Message     *MessageUtils
 	Event       *EventUtils
 	Diagnostics *DiagnosticsUtils
+	Common      *CommonUtils
 }
 
 // NewFluentClient creates a new fluent API client.
 func NewFluentClient(client *client.Client) *FluentClient {
+	commonUtils := NewCommonUtils()
 	utils := &ClientUtils{
 		Agent:       NewAgentUtils(),
 		State:       NewStateUtils(),
 		Message:     NewMessageUtils(),
 		Event:       NewEventUtils(),
 		Diagnostics: NewDiagnosticsUtils(),
+		Common:      commonUtils,
 	}
 
 	return &FluentClient{
@@ -120,8 +125,8 @@ func (fc *FluentClient) NewAgent(name string) *AgentBuilder {
 		client: fc,
 		name:   name,
 		config: &client.AgentConfig{},
-		tools:  make([]string, 0),
-		errors: make([]error, 0),
+		tools:  nil, // More efficient than make([]string, 0)
+		errors: nil, // More efficient than make([]error, 0)
 	}
 }
 
@@ -130,8 +135,8 @@ func (fc *FluentClient) Messages(messages []messages.Message) *MessageBuilder {
 	return &MessageBuilder{
 		client:   fc,
 		messages: messages,
-		filters:  make([]MessageFilter, 0),
-		errors:   make([]error, 0),
+		filters:  nil, // More efficient than make([]MessageFilter, 0)
+		errors:   nil, // More efficient than make([]error, 0)
 	}
 }
 
@@ -140,9 +145,9 @@ func (fc *FluentClient) EventStream(agent client.Agent) *EventStreamBuilder {
 	return &EventStreamBuilder{
 		client:  fc,
 		agent:   agent,
-		filters: make([]EventFilter, 0),
-		windows: make([]WindowConfig, 0),
-		errors:  make([]error, 0),
+		filters: nil, // More efficient than make([]EventFilter, 0)
+		windows: nil, // More efficient than make([]WindowConfig, 0)
+		errors:  nil, // More efficient than make([]error, 0)
 	}
 }
 
@@ -151,7 +156,7 @@ func (fc *FluentClient) State(agent client.Agent) *StateBuilder {
 	return &StateBuilder{
 		client: fc,
 		agent:  agent,
-		errors: make([]error, 0),
+		errors: nil, // More efficient than make([]error, 0)
 	}
 }
 
@@ -174,18 +179,32 @@ func (fc *FluentClient) GetErrors() []error {
 
 // WithConfig sets the agent configuration.
 func (ab *AgentBuilder) WithConfig(config *client.AgentConfig) *AgentBuilder {
-	if config != nil {
-		ab.config = config
-	} else {
+	ab.mu.Lock()
+	defer ab.mu.Unlock()
+	if config == nil {
 		ab.errors = append(ab.errors, errors.NewValidationError("config", "config cannot be nil"))
+	} else {
+		ab.config = config
 	}
 	return ab
 }
 
 // WithTools adds tools to the agent.
 func (ab *AgentBuilder) WithTools(tools ...string) *AgentBuilder {
+	ab.mu.Lock()
+	defer ab.mu.Unlock()
 	ab.tools = append(ab.tools, tools...)
 	return ab
+}
+
+// GetTools returns a copy of the tools slice (thread-safe).
+func (ab *AgentBuilder) GetTools() []string {
+	ab.mu.Lock()
+	defer ab.mu.Unlock()
+	// Return a copy to prevent external modification
+	result := make([]string, len(ab.tools))
+	copy(result, ab.tools)
+	return result
 }
 
 // WithState sets the initial state for the agent.
@@ -196,34 +215,41 @@ func (ab *AgentBuilder) WithState(state interface{}) *AgentBuilder {
 
 // WithEventHandler adds an event handler to the agent.
 func (ab *AgentBuilder) WithEventHandler(handler events.EventHandler) *AgentBuilder {
-	if handler != nil {
-		ab.handlers = append(ab.handlers, handler)
-	} else {
+	ab.mu.Lock()
+	defer ab.mu.Unlock()
+	if handler == nil {
 		ab.errors = append(ab.errors, errors.NewValidationError("handler", "handler cannot be nil"))
+	} else {
+		ab.handlers = append(ab.handlers, handler)
 	}
 	return ab
 }
 
 // WithRetryPolicy sets the retry policy for the agent.
 func (ab *AgentBuilder) WithRetryPolicy(policy *RetryPolicy) *AgentBuilder {
-	if policy != nil {
-		ab.retryPolicy = policy
+	ab.mu.Lock()
+	defer ab.mu.Unlock()
+	if policy == nil {
+		ab.errors = append(ab.errors, errors.NewValidationError("policy", "policy cannot be nil"))
 	} else {
-		ab.errors = append(ab.errors, errors.NewValidationError("policy", "retry policy cannot be nil"))
+		ab.retryPolicy = policy
 	}
 	return ab
 }
 
 // Build creates the agent with the configured settings.
 func (ab *AgentBuilder) Build() (client.Agent, error) {
+	ab.mu.Lock()
+	defer ab.mu.Unlock()
+	
 	// Return accumulated errors if any
 	if len(ab.errors) > 0 {
 		return nil, errors.NewValidationError("build", "agent build failed")
 	}
 
-	// Validate required fields
-	if ab.name == "" {
-		return nil, errors.NewValidationError("name", "agent name is required")
+	// Validate required fields using common utilities
+	if err := ab.client.utils.Common.ValidateNotEmpty(ab.name, "name"); err != nil {
+		return nil, err
 	}
 
 	// This is a placeholder implementation - in practice, you would use
@@ -454,7 +480,7 @@ func (sb *StateBuilder) GenerateDiff() (*StateDiff, error) {
 	// Get current state
 	stateManager, ok := sb.agent.(client.StateManager)
 	if !ok {
-		return nil, errors.NewOperationError("GenerateDiff", "state", 
+		return nil, errors.NewOperationError("GenerateDiff", "state",
 			fmt.Errorf("agent does not support state management"))
 	}
 
@@ -471,10 +497,10 @@ func (sb *StateBuilder) GenerateDiff() (*StateDiff, error) {
 	options := sb.diffOptions
 	if options == nil {
 		options = &DiffOptions{
-			IgnoreFields:    sb.ignoreFields,
-			MaxDepth:        10,
-			ComparisonMode:  ComparisonModeDeep,
-			OutputFormat:    OutputFormatJSON,
+			IgnoreFields:   sb.ignoreFields,
+			MaxDepth:       10,
+			ComparisonMode: ComparisonModeDeep,
+			OutputFormat:   OutputFormatJSON,
 		}
 	} else {
 		// Merge ignore fields
@@ -497,7 +523,7 @@ func (sb *StateBuilder) AsJSON() ([]byte, error) {
 	// Get current state
 	stateManager, ok := sb.agent.(client.StateManager)
 	if !ok {
-		return nil, errors.NewOperationError("AsJSON", "state", 
+		return nil, errors.NewOperationError("AsJSON", "state",
 			fmt.Errorf("agent does not support state management"))
 	}
 
@@ -526,7 +552,7 @@ func (sb *StateBuilder) Validate() (*ValidationResult, error) {
 	// Get current state
 	stateManager, ok := sb.agent.(client.StateManager)
 	if !ok {
-		return nil, errors.NewOperationError("Validate", "state", 
+		return nil, errors.NewOperationError("Validate", "state",
 			fmt.Errorf("agent does not support state management"))
 	}
 
@@ -594,11 +620,11 @@ func (ab *AgentBuilder) validateName() error {
 	if ab.name == "" {
 		return errors.NewValidationError("name", "agent name cannot be empty")
 	}
-	
+
 	if strings.TrimSpace(ab.name) == "" {
 		return errors.NewValidationError("name", "agent name cannot be whitespace only")
 	}
-	
+
 	return nil
 }
 
@@ -606,7 +632,7 @@ func (ab *AgentBuilder) validateConfig() error {
 	if ab.config == nil {
 		return errors.NewValidationError("config", "agent config cannot be nil")
 	}
-	
+
 	// Additional config validation would go here
 	return nil
 }

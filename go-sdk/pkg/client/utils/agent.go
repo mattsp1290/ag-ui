@@ -2,7 +2,6 @@ package utils
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -15,19 +14,20 @@ import (
 type AgentUtils struct {
 	healthCheckers map[string]*HealthChecker
 	checkersMu     sync.RWMutex
+	commonUtils    *CommonUtils
 }
 
 // HealthReport represents the health status of an agent.
 type HealthReport struct {
-	AgentName      string                 `json:"agent_name"`
-	Status         string                 `json:"status"` // "healthy", "degraded", "unhealthy"
-	LastCheck      time.Time              `json:"last_check"`
-	ResponseTime   time.Duration          `json:"response_time"`
-	Metrics        map[string]interface{} `json:"metrics"`
-	Errors         []string               `json:"errors"`
-	Warnings       []string               `json:"warnings"`
-	Dependencies   []DependencyStatus     `json:"dependencies"`
-	Configuration  map[string]interface{} `json:"configuration"`
+	AgentName     string                 `json:"agent_name"`
+	Status        string                 `json:"status"` // "healthy", "degraded", "unhealthy"
+	LastCheck     time.Time              `json:"last_check"`
+	ResponseTime  time.Duration          `json:"response_time"`
+	Metrics       map[string]interface{} `json:"metrics"`
+	Errors        []string               `json:"errors"`
+	Warnings      []string               `json:"warnings"`
+	Dependencies  []DependencyStatus     `json:"dependencies"`
+	Configuration map[string]interface{} `json:"configuration"`
 }
 
 // DependencyStatus represents the status of an agent dependency.
@@ -53,21 +53,23 @@ type AgentBackup struct {
 
 // HealthChecker performs health checks on agents.
 type HealthChecker struct {
-	agent       client.Agent
-	interval    time.Duration
-	timeout     time.Duration
-	ctx         context.Context
-	cancel      context.CancelFunc
-	lastReport  *HealthReport
-	reportMu    sync.RWMutex
-	isRunning   bool
-	runningMu   sync.RWMutex
+	agent      client.Agent
+	interval   time.Duration
+	timeout    time.Duration
+	ctx        context.Context
+	cancel     context.CancelFunc
+	lastReport *HealthReport
+	reportMu   sync.RWMutex
+	isRunning  bool
+	runningMu  sync.RWMutex
+	started    chan struct{} // Channel to signal when the health checker has started
 }
 
 // NewAgentUtils creates a new AgentUtils instance.
 func NewAgentUtils() *AgentUtils {
 	return &AgentUtils{
 		healthCheckers: make(map[string]*HealthChecker),
+		commonUtils:    NewCommonUtils(),
 	}
 }
 
@@ -76,7 +78,7 @@ func NewAgentUtils() *AgentUtils {
 // before use.
 func (au *AgentUtils) Clone(agent client.Agent) (client.Agent, error) {
 	if agent == nil {
-		return nil, errors.NewValidationError("agent", "agent cannot be nil")
+		return nil, fmt.Errorf("validation error: agent - agent cannot be nil")
 	}
 
 	// Check if agent supports cloning by checking if it implements the necessary interfaces
@@ -145,17 +147,17 @@ func (au *AgentUtils) Health(agent client.Agent) (*HealthReport, error) {
 	report := &HealthReport{
 		AgentName:     agent.Name(),
 		LastCheck:     startTime,
-		Metrics:       make(map[string]interface{}),
-		Errors:        make([]string, 0),
-		Warnings:      make([]string, 0),
-		Dependencies:  make([]DependencyStatus, 0),
-		Configuration: make(map[string]interface{}),
+		Metrics:       make(map[string]interface{}, 10), // Pre-size with reasonable capacity
+		Errors:        nil,                              // More efficient than make([]string, 0)
+		Warnings:      nil,                              // More efficient than make([]string, 0)
+		Dependencies:  nil,                              // More efficient than make([]DependencyStatus, 0)
+		Configuration: make(map[string]interface{}, 20), // Pre-size with reasonable capacity
 	}
 
 	// Check basic agent health
 	healthStatus := agent.Health()
 	report.Status = healthStatus.Status
-	
+
 	// Add any health errors
 	for _, err := range healthStatus.Errors {
 		report.Errors = append(report.Errors, err)
@@ -200,7 +202,7 @@ func (au *AgentUtils) StartHealthMonitoring(agent client.Agent, interval time.Du
 	}
 
 	agentName := agent.Name()
-	
+
 	au.checkersMu.Lock()
 	defer au.checkersMu.Unlock()
 
@@ -217,10 +219,22 @@ func (au *AgentUtils) StartHealthMonitoring(agent client.Agent, interval time.Du
 		timeout:  10 * time.Second,
 		ctx:      ctx,
 		cancel:   cancel,
+		started:  make(chan struct{}),
 	}
 
 	au.healthCheckers[agentName] = checker
 	go checker.Run(au)
+
+	// Wait for the health checker to start
+	select {
+	case <-checker.started:
+		// Health checker has started successfully
+	case <-time.After(5 * time.Second):
+		// Timeout waiting for health checker to start
+		checker.Stop()
+		delete(au.healthCheckers, agentName)
+		return errors.NewOperationError("StartHealthMonitoring", agentName, fmt.Errorf("timeout waiting for health checker to start"))
+	}
 
 	return nil
 }
@@ -245,7 +259,7 @@ func (au *AgentUtils) GetHealthReport(agentName string) (*HealthReport, error) {
 
 	checker, exists := au.healthCheckers[agentName]
 	if !exists {
-		return nil, errors.NewNotFoundError("health_checker not found: " + agentName, nil)
+		return nil, errors.NewNotFoundError("health_checker not found: "+agentName, nil)
 	}
 
 	return checker.GetLastReport(), nil
@@ -261,7 +275,7 @@ func (au *AgentUtils) Backup(agent client.Agent) (*AgentBackup, error) {
 		Name:       agent.Name(),
 		BackupTime: time.Now(),
 		Version:    "1.0",
-		Metadata:   make(map[string]interface{}),
+		Metadata:   make(map[string]interface{}, 10), // Pre-size with reasonable capacity
 	}
 
 	// Backup configuration
@@ -327,18 +341,12 @@ func (au *AgentUtils) extractAgentConfig(agent client.Agent) (*client.AgentConfi
 }
 
 func (au *AgentUtils) deepCloneConfig(config *client.AgentConfig) (*client.AgentConfig, error) {
-	// Use JSON marshaling/unmarshaling for deep cloning
-	data, err := json.Marshal(config)
-	if err != nil {
-		return nil, err
-	}
-
+	// Use common utility for deep cloning
 	var cloned client.AgentConfig
-	err = json.Unmarshal(data, &cloned)
+	err := au.commonUtils.DeepCopyJSON(config, &cloned)
 	if err != nil {
 		return nil, err
 	}
-
 	return &cloned, nil
 }
 
@@ -349,61 +357,24 @@ func (au *AgentUtils) createAgentFromConfig(original client.Agent, config *clien
 }
 
 func (au *AgentUtils) configToMap(config *client.AgentConfig) (map[string]interface{}, error) {
-	data, err := json.Marshal(config)
-	if err != nil {
-		return nil, err
-	}
-
-	var result map[string]interface{}
-	err = json.Unmarshal(data, &result)
-	return result, err
+	return au.commonUtils.JSONMarshalToMap(config)
 }
 
 func (au *AgentUtils) mapToConfig(data map[string]interface{}) (*client.AgentConfig, error) {
-	jsonData, err := json.Marshal(data)
+	var config client.AgentConfig
+	err := au.commonUtils.JSONUnmarshalFromMap(data, &config)
 	if err != nil {
 		return nil, err
 	}
-
-	var config client.AgentConfig
-	err = json.Unmarshal(jsonData, &config)
-	return &config, err
+	return &config, nil
 }
 
 func (au *AgentUtils) stateToMap(state *client.AgentState) (map[string]interface{}, error) {
-	data, err := json.Marshal(state)
-	if err != nil {
-		return nil, err
-	}
-
-	var result map[string]interface{}
-	err = json.Unmarshal(data, &result)
-	return result, err
+	return au.commonUtils.JSONMarshalToMap(state)
 }
 
 func (au *AgentUtils) mergeMaps(base, override map[string]interface{}) map[string]interface{} {
-	result := make(map[string]interface{})
-
-	// Copy base map
-	for k, v := range base {
-		result[k] = v
-	}
-
-	// Override with values from override map
-	for k, v := range override {
-		if baseVal, exists := result[k]; exists {
-			// If both values are maps, merge recursively
-			if baseMap, baseIsMap := baseVal.(map[string]interface{}); baseIsMap {
-				if overrideMap, overrideIsMap := v.(map[string]interface{}); overrideIsMap {
-					result[k] = au.mergeMaps(baseMap, overrideMap)
-					continue
-				}
-			}
-		}
-		result[k] = v
-	}
-
-	return result
+	return au.commonUtils.MergeMaps(base, override)
 }
 
 // HealthChecker methods
@@ -413,6 +384,9 @@ func (hc *HealthChecker) Run(utils *AgentUtils) {
 	hc.runningMu.Lock()
 	hc.isRunning = true
 	hc.runningMu.Unlock()
+
+	// Signal that the health checker has started
+	close(hc.started)
 
 	ticker := time.NewTicker(hc.interval)
 	defer ticker.Stop()
@@ -454,7 +428,7 @@ func (hc *HealthChecker) Stop() {
 func (hc *HealthChecker) GetLastReport() *HealthReport {
 	hc.reportMu.RLock()
 	defer hc.reportMu.RUnlock()
-	
+
 	if hc.lastReport == nil {
 		return &HealthReport{
 			AgentName: hc.agent.Name(),
@@ -462,7 +436,7 @@ func (hc *HealthChecker) GetLastReport() *HealthReport {
 			LastCheck: time.Now(),
 		}
 	}
-	
+
 	return hc.lastReport
 }
 

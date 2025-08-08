@@ -6,6 +6,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,14 +14,41 @@ import (
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
+var (
+	// Object pools for performance optimization
+	httpClientPool = &sync.Pool{
+		New: func() interface{} {
+			return &http.Client{
+				Timeout: 30 * time.Second,
+				Transport: &http.Transport{
+					DisableKeepAlives: true,
+				},
+			}
+		},
+	}
+
+	latencySlicePool = &sync.Pool{
+		New: func() interface{} {
+			return make([]time.Duration, 0, 1000) // Pre-allocate with reasonable capacity
+		},
+	}
+)
+
 // DiagnosticsUtils provides utilities for connection health monitoring and diagnostics.
 type DiagnosticsUtils struct {
-	monitors    map[string]*ConnectionMonitor
-	monitorsMu  sync.RWMutex
-	benchmarks  map[string]*BenchmarkResult
-	benchmarkMu sync.RWMutex
-	alerts      *AlertManager
-	httpClient  *http.Client
+	monitors        map[string]*ConnectionMonitor
+	monitorsMu      sync.RWMutex
+	benchmarks      map[string]*BenchmarkResult
+	benchmarkMu     sync.RWMutex
+	alerts          *AlertManager
+	httpClient      *http.Client
+	cleanupTimer    *time.Timer
+	maxMonitors     int
+	maxBenchmarks   int
+	benchmarkMaxAge time.Duration
+	shutdownCtx     context.Context
+	shutdownCancel  context.CancelFunc
+	commonUtils     *CommonUtils
 }
 
 // ConnectionMonitor monitors connection health and performance.
@@ -44,19 +72,19 @@ type ConnectionMonitor struct {
 
 // ConnectionMetrics tracks connection performance metrics.
 type ConnectionMetrics struct {
-	TotalRequests        int64         `json:"total_requests"`
-	SuccessfulRequests   int64         `json:"successful_requests"`
-	FailedRequests       int64         `json:"failed_requests"`
-	AverageLatency       time.Duration `json:"average_latency"`
-	MinLatency           time.Duration `json:"min_latency"`
-	MaxLatency           time.Duration `json:"max_latency"`
-	CurrentThroughput    float64       `json:"current_throughput"`
-	ErrorRate            float64       `json:"error_rate"`
-	LastUpdate           time.Time     `json:"last_update"`
-	ConnectionsActive    int64         `json:"connections_active"`
-	ConnectionsTotal     int64         `json:"connections_total"`
-	BytesSent            int64         `json:"bytes_sent"`
-	BytesReceived        int64         `json:"bytes_received"`
+	TotalRequests      int64         `json:"total_requests"`
+	SuccessfulRequests int64         `json:"successful_requests"`
+	FailedRequests     int64         `json:"failed_requests"`
+	AverageLatency     time.Duration `json:"average_latency"`
+	MinLatency         time.Duration `json:"min_latency"`
+	MaxLatency         time.Duration `json:"max_latency"`
+	CurrentThroughput  float64       `json:"current_throughput"`
+	ErrorRate          float64       `json:"error_rate"`
+	LastUpdate         time.Time     `json:"last_update"`
+	ConnectionsActive  int64         `json:"connections_active"`
+	ConnectionsTotal   int64         `json:"connections_total"`
+	BytesSent          int64         `json:"bytes_sent"`
+	BytesReceived      int64         `json:"bytes_received"`
 }
 
 // HealthCheckResult represents the result of a health check.
@@ -74,10 +102,10 @@ type HealthCheckResult struct {
 
 // AlertThresholds defines thresholds for triggering alerts.
 type AlertThresholds struct {
-	MaxLatency        time.Duration `json:"max_latency"`
-	MinSuccessRate    float64       `json:"min_success_rate"`
-	MaxErrorRate      float64       `json:"max_error_rate"`
-	MaxConsecutiveFails int          `json:"max_consecutive_fails"`
+	MaxLatency          time.Duration `json:"max_latency"`
+	MinSuccessRate      float64       `json:"min_success_rate"`
+	MaxErrorRate        float64       `json:"max_error_rate"`
+	MaxConsecutiveFails int           `json:"max_consecutive_fails"`
 }
 
 // AlertManager manages alerts for connection issues.
@@ -92,21 +120,20 @@ type AlertManager struct {
 type AlertHandler interface {
 	HandleAlert(alert Alert) error
 	Name() string
-	Priority() int
 }
 
 // Alert represents a connection alert.
 type Alert struct {
-	ID          string                 `json:"id"`
-	Type        AlertType              `json:"type"`
-	Severity    AlertSeverity          `json:"severity"`
-	Title       string                 `json:"title"`
-	Message     string                 `json:"message"`
-	Source      string                 `json:"source"`
-	Timestamp   time.Time              `json:"timestamp"`
-	Metadata    map[string]interface{} `json:"metadata"`
-	Resolved    bool                   `json:"resolved"`
-	ResolvedAt  *time.Time             `json:"resolved_at,omitempty"`
+	ID         string                 `json:"id"`
+	Type       AlertType              `json:"type"`
+	Severity   AlertSeverity          `json:"severity"`
+	Title      string                 `json:"title"`
+	Message    string                 `json:"message"`
+	Source     string                 `json:"source"`
+	Timestamp  time.Time              `json:"timestamp"`
+	Metadata   map[string]interface{} `json:"metadata"`
+	Resolved   bool                   `json:"resolved"`
+	ResolvedAt *time.Time             `json:"resolved_at,omitempty"`
 }
 
 // AlertType represents the type of alert.
@@ -131,36 +158,36 @@ const (
 
 // BenchmarkResult represents performance benchmark results.
 type BenchmarkResult struct {
-	Name            string                 `json:"name"`
-	StartTime       time.Time              `json:"start_time"`
-	EndTime         time.Time              `json:"end_time"`
-	Duration        time.Duration          `json:"duration"`
-	TotalRequests   int                    `json:"total_requests"`
-	RequestsPerSec  float64                `json:"requests_per_sec"`
-	AverageLatency  time.Duration          `json:"average_latency"`
-	MinLatency      time.Duration          `json:"min_latency"`
-	MaxLatency      time.Duration          `json:"max_latency"`
-	P95Latency      time.Duration          `json:"p95_latency"`
-	P99Latency      time.Duration          `json:"p99_latency"`
-	ErrorCount      int                    `json:"error_count"`
-	ErrorRate       float64                `json:"error_rate"`
-	ThroughputMBps  float64                `json:"throughput_mbps"`
-	Metadata        map[string]interface{} `json:"metadata"`
-	LatencyBuckets  map[string]int         `json:"latency_buckets"`
+	Name           string                 `json:"name"`
+	StartTime      time.Time              `json:"start_time"`
+	EndTime        time.Time              `json:"end_time"`
+	Duration       time.Duration          `json:"duration"`
+	TotalRequests  int                    `json:"total_requests"`
+	RequestsPerSec float64                `json:"requests_per_sec"`
+	AverageLatency time.Duration          `json:"average_latency"`
+	MinLatency     time.Duration          `json:"min_latency"`
+	MaxLatency     time.Duration          `json:"max_latency"`
+	P95Latency     time.Duration          `json:"p95_latency"`
+	P99Latency     time.Duration          `json:"p99_latency"`
+	ErrorCount     int                    `json:"error_count"`
+	ErrorRate      float64                `json:"error_rate"`
+	ThroughputMBps float64                `json:"throughput_mbps"`
+	Metadata       map[string]interface{} `json:"metadata"`
+	LatencyBuckets map[string]int         `json:"latency_buckets"`
 }
 
 // NetworkDiagnostics provides network-level diagnostic information.
 type NetworkDiagnostics struct {
-	Target           string        `json:"target"`
-	IP               string        `json:"ip"`
-	Port             int           `json:"port"`
+	Target            string        `json:"target"`
+	IP                string        `json:"ip"`
+	Port              int           `json:"port"`
 	DNSResolutionTime time.Duration `json:"dns_resolution_time"`
-	ConnectionTime   time.Duration `json:"connection_time"`
-	TLSHandshakeTime time.Duration `json:"tls_handshake_time"`
-	IsReachable      bool          `json:"is_reachable"`
-	MTU              int           `json:"mtu"`
-	Hops             []NetworkHop  `json:"hops"`
-	Error            string        `json:"error,omitempty"`
+	ConnectionTime    time.Duration `json:"connection_time"`
+	TLSHandshakeTime  time.Duration `json:"tls_handshake_time"`
+	IsReachable       bool          `json:"is_reachable"`
+	MTU               int           `json:"mtu"`
+	Hops              []NetworkHop  `json:"hops"`
+	Error             string        `json:"error,omitempty"`
 }
 
 // NetworkHop represents a network hop in a traceroute.
@@ -173,10 +200,18 @@ type NetworkHop struct {
 
 // NewDiagnosticsUtils creates a new DiagnosticsUtils instance.
 func NewDiagnosticsUtils() *DiagnosticsUtils {
-	return &DiagnosticsUtils{
-		monitors:   make(map[string]*ConnectionMonitor),
-		benchmarks: make(map[string]*BenchmarkResult),
-		alerts:     NewAlertManager(),
+	ctx, cancel := context.WithCancel(context.Background())
+	
+	du := &DiagnosticsUtils{
+		monitors:        make(map[string]*ConnectionMonitor),
+		benchmarks:      make(map[string]*BenchmarkResult),
+		alerts:          NewAlertManager(),
+		maxMonitors:     1000,           // Prevent unbounded growth
+		maxBenchmarks:   500,            // Prevent unbounded growth
+		benchmarkMaxAge: 24 * time.Hour, // Clean up old benchmarks
+		shutdownCtx:     ctx,
+		shutdownCancel:  cancel,
+		commonUtils:     NewCommonUtils(),
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 			Transport: &http.Transport{
@@ -186,6 +221,10 @@ func NewDiagnosticsUtils() *DiagnosticsUtils {
 			},
 		},
 	}
+
+	// Start periodic cleanup
+	du.startCleanup()
+	return du
 }
 
 // CreateMonitor creates a new connection monitor.
@@ -198,10 +237,26 @@ func (du *DiagnosticsUtils) CreateMonitor(name, target string, interval time.Dur
 		return nil, errors.NewValidationError("target", "monitor target cannot be empty")
 	}
 
+	// Check monitor limit to prevent unbounded growth (only if creating a new monitor)
+	du.monitorsMu.RLock()
+	existingMonitor := du.monitors[name]
+	monitorCount := len(du.monitors)
+	du.monitorsMu.RUnlock()
+
+	// If we're replacing an existing monitor, don't count it against the limit
+	if existingMonitor == nil && monitorCount+1 > du.maxMonitors {
+		return nil, errors.NewValidationError("monitors", "maximum number of monitors exceeded")
+	}
+
 	// Validate target URL
-	_, err := url.Parse(target)
-	if err != nil {
-		return nil, errors.NewValidationError("target", "invalid target URL")
+	parsedURL, err := url.Parse(target)
+	if err != nil || parsedURL.Scheme == "" || parsedURL.Host == "" {
+		return nil, errors.NewValidationError("target", "invalid target URL - must be a valid URL with scheme and host")
+	}
+	
+	// Only allow http and https schemes
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return nil, errors.NewValidationError("target", "invalid URL scheme - only http and https are supported")
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -217,18 +272,22 @@ func (du *DiagnosticsUtils) CreateMonitor(name, target string, interval time.Dur
 			MinLatency: time.Hour, // Initialize with high value
 			LastUpdate: time.Now(),
 		},
-		healthHistory:  make([]HealthCheckResult, 0),
+		healthHistory:  nil, // More efficient than make([]HealthCheckResult, 0)
 		maxHistorySize: 1000,
 		alertThresholds: &AlertThresholds{
-			MaxLatency:           5 * time.Second,
-			MinSuccessRate:       0.95,
-			MaxErrorRate:         0.05,
-			MaxConsecutiveFails:  3,
+			MaxLatency:          5 * time.Second,
+			MinSuccessRate:      0.95,
+			MaxErrorRate:        0.05,
+			MaxConsecutiveFails: 3,
 		},
 		alertCooldown: 5 * time.Minute,
 	}
 
 	du.monitorsMu.Lock()
+	// Stop existing monitor if replacing
+	if existingMonitor != nil {
+		existingMonitor.Stop()
+	}
 	du.monitors[name] = monitor
 	du.monitorsMu.Unlock()
 
@@ -242,7 +301,7 @@ func (du *DiagnosticsUtils) StartMonitoring(name string) error {
 	du.monitorsMu.RUnlock()
 
 	if !exists {
-		return errors.NewNotFoundError("monitor not found: " + name, nil)
+		return errors.NewNotFoundError("monitor not found: "+name, nil)
 	}
 
 	return monitor.Start()
@@ -255,7 +314,7 @@ func (du *DiagnosticsUtils) StopMonitoring(name string) error {
 	du.monitorsMu.RUnlock()
 
 	if !exists {
-		return errors.NewNotFoundError("monitor not found: " + name, nil)
+		return errors.NewNotFoundError("monitor not found: "+name, nil)
 	}
 
 	return monitor.Stop()
@@ -268,7 +327,7 @@ func (du *DiagnosticsUtils) GetMonitorMetrics(name string) (*ConnectionMetrics, 
 	du.monitorsMu.RUnlock()
 
 	if !exists {
-		return nil, errors.NewNotFoundError("monitor not found: " + name, nil)
+		return nil, errors.NewNotFoundError("monitor not found: "+name, nil)
 	}
 
 	return monitor.GetMetrics(), nil
@@ -278,6 +337,20 @@ func (du *DiagnosticsUtils) GetMonitorMetrics(name string) (*ConnectionMetrics, 
 func (du *DiagnosticsUtils) RunBenchmark(name, target string, duration time.Duration, concurrency int) (*BenchmarkResult, error) {
 	if concurrency <= 0 {
 		concurrency = 1
+	}
+
+	// Limit concurrency to prevent resource exhaustion
+	if concurrency > 100 {
+		concurrency = 100
+	}
+
+	// Check benchmark limit to prevent unbounded growth
+	du.benchmarkMu.RLock()
+	benchmarkCount := len(du.benchmarks)
+	du.benchmarkMu.RUnlock()
+
+	if benchmarkCount >= du.maxBenchmarks {
+		return nil, errors.NewValidationError("benchmarks", "maximum number of benchmarks exceeded")
 	}
 
 	benchmark := &BenchmarkResult{
@@ -316,9 +389,11 @@ func (du *DiagnosticsUtils) RunBenchmark(name, target string, duration time.Dura
 	benchmark.RequestsPerSec = float64(totalRequests) / benchmark.Duration.Seconds()
 	benchmark.ErrorRate = float64(errorCount) / float64(totalRequests)
 
-	// Process latencies
+	// Process latencies using object pool for better performance
 	var latencySum time.Duration
-	var latencySlice []time.Duration
+	latencySlice := latencySlicePool.Get().([]time.Duration)
+	latencySlice = latencySlice[:0]          // Reset slice but keep capacity
+	defer latencySlicePool.Put(latencySlice) // Return to pool when done
 
 	for latency := range latencies {
 		latencySum += latency
@@ -352,13 +427,18 @@ func (du *DiagnosticsUtils) RunBenchmark(name, target string, duration time.Dura
 // DiagnoseNetwork performs comprehensive network diagnostics.
 func (du *DiagnosticsUtils) DiagnoseNetwork(target string) (*NetworkDiagnostics, error) {
 	targetURL, err := url.Parse(target)
-	if err != nil {
-		return nil, errors.NewValidationError("target", "invalid target URL")
+	if err != nil || targetURL.Scheme == "" || targetURL.Host == "" {
+		return nil, errors.NewValidationError("target", "invalid target URL - must be a valid URL with scheme and host")
+	}
+	
+	// Only allow http and https schemes
+	if targetURL.Scheme != "http" && targetURL.Scheme != "https" {
+		return nil, errors.NewValidationError("target", "invalid URL scheme - only http and https are supported")
 	}
 
 	diag := &NetworkDiagnostics{
 		Target: target,
-		Hops:   make([]NetworkHop, 0),
+		Hops:   nil, // More efficient than make([]NetworkHop, 0)
 	}
 
 	// Extract host and port
@@ -407,11 +487,11 @@ func (du *DiagnosticsUtils) DiagnoseNetwork(target string) (*NetworkDiagnostics,
 
 	// TLS handshake test (if HTTPS)
 	if targetURL.Scheme == "https" {
-		start = time.Now()
-		tlsConn, err := net.DialTimeout("tcp", net.JoinHostPort(host, port), 10*time.Second)
-		if err == nil {
+		tlsStart := time.Now()
+		tlsConn, tlsErr := net.DialTimeout("tcp", net.JoinHostPort(host, port), 10*time.Second)
+		if tlsErr == nil {
 			tlsConn.Close()
-			diag.TLSHandshakeTime = time.Since(start) - diag.ConnectionTime
+			diag.TLSHandshakeTime = time.Since(tlsStart) - diag.ConnectionTime
 		}
 	}
 
@@ -442,6 +522,11 @@ func (cm *ConnectionMonitor) Stop() error {
 	return nil
 }
 
+// IsRunning returns whether the monitor is currently running.
+func (cm *ConnectionMonitor) IsRunning() bool {
+	return cm.isRunning.Load()
+}
+
 // GetMetrics returns the current connection metrics.
 func (cm *ConnectionMonitor) GetMetrics() *ConnectionMetrics {
 	cm.metricsMu.RLock()
@@ -470,20 +555,20 @@ func (cm *ConnectionMonitor) monitorLoop() {
 			return
 		case <-ticker.C:
 			result := cm.performHealthCheck()
-			
+
 			// Update metrics
 			cm.updateMetrics(result)
-			
+
 			// Store in history
 			cm.addToHistory(result)
-			
+
 			// Check for alerts
 			if !result.Success {
 				consecutiveFailures++
 			} else {
 				consecutiveFailures = 0
 			}
-			
+
 			cm.checkAlerts(result, consecutiveFailures)
 		}
 	}
@@ -517,13 +602,10 @@ func (cm *ConnectionMonitor) performHealthCheck() HealthCheckResult {
 		return result
 	}
 
-	// Perform request
-	client := &http.Client{
-		Timeout: cm.timeout,
-		Transport: &http.Transport{
-			DisableKeepAlives: true,
-		},
-	}
+	// Use pooled HTTP client for better performance
+	client := httpClientPool.Get().(*http.Client)
+	client.Timeout = cm.timeout      // Set timeout for this request
+	defer httpClientPool.Put(client) // Return to pool when done
 
 	resp, err := client.Do(req)
 	result.Latency = time.Since(start)
@@ -621,31 +703,36 @@ func (cm *ConnectionMonitor) checkAlerts(result HealthCheckResult, consecutiveFa
 // Helper methods
 
 func (du *DiagnosticsUtils) benchmarkWorker(ctx context.Context, target string, totalRequests, errorCount *int64, latencies chan<- time.Duration) {
-	client := &http.Client{
+	benchmarkClient := &http.Client{
 		Timeout: 30 * time.Second,
 	}
+
+	// Add rate limiting to prevent excessive resource usage
+	ticker := time.NewTicker(10 * time.Millisecond) // Max 100 requests/sec per worker
+	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		default:
+		case <-ticker.C:
+			// Process one request per tick
 		}
 
-		start := time.Now()
-		
-		req, err := http.NewRequestWithContext(ctx, "GET", target, nil)
-		if err != nil {
+		requestStart := time.Now()
+
+		req, reqErr := http.NewRequestWithContext(ctx, "GET", target, nil)
+		if reqErr != nil {
 			atomic.AddInt64(errorCount, 1)
 			continue
 		}
 
-		resp, err := client.Do(req)
-		latency := time.Since(start)
+		resp, respErr := benchmarkClient.Do(req)
+		latency := time.Since(requestStart)
 
 		atomic.AddInt64(totalRequests, 1)
 
-		if err != nil {
+		if respErr != nil {
 			atomic.AddInt64(errorCount, 1)
 		} else {
 			resp.Body.Close()
@@ -667,18 +754,14 @@ func (du *DiagnosticsUtils) calculatePercentile(latencies []time.Duration, perce
 		return 0
 	}
 
-	// Sort latencies (in practice, you'd want a more efficient algorithm)
+	// Sort latencies using Go's built-in sort for O(n log n) performance
 	sorted := make([]time.Duration, len(latencies))
 	copy(sorted, latencies)
 
-	// Simple bubble sort for demonstration
-	for i := 0; i < len(sorted); i++ {
-		for j := 0; j < len(sorted)-1-i; j++ {
-			if sorted[j] > sorted[j+1] {
-				sorted[j], sorted[j+1] = sorted[j+1], sorted[j]
-			}
-		}
-	}
+	// Use Go's built-in sort.Slice for efficient sorting
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i] < sorted[j]
+	})
 
 	index := int(float64(len(sorted)-1) * percentile)
 	return sorted[index]
@@ -695,8 +778,8 @@ func (du *DiagnosticsUtils) parsePort(portStr string) int {
 
 func NewAlertManager() *AlertManager {
 	return &AlertManager{
-		handlers:     make([]AlertHandler, 0),
-		alertHistory: make([]Alert, 0),
+		handlers:     nil, // More efficient than make([]AlertHandler, 0)
+		alertHistory: nil, // More efficient than make([]Alert, 0)
 	}
 }
 
@@ -726,4 +809,61 @@ func (am *AlertManager) TriggerAlert(alert Alert) error {
 	}
 
 	return nil
+}
+
+// startCleanup starts periodic cleanup of old benchmarks and monitors.
+func (du *DiagnosticsUtils) startCleanup() {
+	du.cleanupTimer = time.AfterFunc(1*time.Hour, func() {
+		du.cleanupOldBenchmarks()
+		du.startCleanup() // Schedule next cleanup
+	})
+}
+
+// cleanupOldBenchmarks removes old benchmark results to prevent memory leaks.
+func (du *DiagnosticsUtils) cleanupOldBenchmarks() {
+	du.benchmarkMu.Lock()
+	defer du.benchmarkMu.Unlock()
+
+	cutoff := time.Now().Add(-du.benchmarkMaxAge)
+	for name, result := range du.benchmarks {
+		if result.EndTime.Before(cutoff) {
+			delete(du.benchmarks, name)
+		}
+	}
+}
+
+// Shutdown gracefully shuts down the DiagnosticsUtils instance.
+// This should be called when the application is shutting down to clean up resources.
+func (du *DiagnosticsUtils) Shutdown() {
+	// Cancel the shutdown context to signal all goroutines to stop
+	du.shutdownCancel()
+	
+	// Stop all monitors
+	du.monitorsMu.Lock()
+	var monitorsToStop []string
+	for name := range du.monitors {
+		monitorsToStop = append(monitorsToStop, name)
+	}
+	du.monitorsMu.Unlock()
+	
+	// Stop monitors without holding the lock
+	for _, name := range monitorsToStop {
+		du.StopMonitoring(name)
+	}
+	
+	// Stop cleanup timer
+	if du.cleanupTimer != nil {
+		du.cleanupTimer.Stop()
+	}
+	
+	// Close HTTP client transport if possible
+	if transport, ok := du.httpClient.Transport.(*http.Transport); ok {
+		transport.CloseIdleConnections()
+	}
+}
+
+// StopCleanup stops the periodic cleanup timer.
+// Deprecated: Use Shutdown() instead for proper resource cleanup.
+func (du *DiagnosticsUtils) StopCleanup() {
+	du.Shutdown()
 }

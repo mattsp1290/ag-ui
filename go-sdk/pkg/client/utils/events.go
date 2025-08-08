@@ -11,6 +11,15 @@ import (
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 )
 
+var (
+	// Object pools for performance optimization
+	eventBatchPool = &sync.Pool{
+		New: func() interface{} {
+			return make([]events.Event, 0, 100) // Pre-allocate with reasonable capacity
+		},
+	}
+)
+
 // EventUtils provides utilities for event stream processing and transformation.
 type EventUtils struct {
 	processors   map[string]*EventProcessor
@@ -21,34 +30,33 @@ type EventUtils struct {
 
 // EventProcessor processes event streams with filtering, windowing, and custom handlers.
 type EventProcessor struct {
-	name           string
-	filters        []EventFilter
-	handlers       []EventHandler
-	windows        []WindowConfig
-	batchSize      int
-	batchTimeout   time.Duration
-	bufferSize     int
-	ctx            context.Context
-	cancel         context.CancelFunc
-	input          chan events.Event
-	output         chan events.Event
-	metrics        *ProcessorMetrics
-	isRunning      atomic.Bool
-	wg             sync.WaitGroup
+	name         string
+	filters      []EventFilter
+	handlers     []EventHandler
+	windows      []WindowConfig
+	batchSize    int
+	batchTimeout time.Duration
+	bufferSize   int
+	ctx          context.Context
+	cancel       context.CancelFunc
+	input        chan events.Event
+	output       chan events.Event
+	metrics      *ProcessorMetrics
+	isRunning    atomic.Bool
+	outputClosed atomic.Bool
+	wg           sync.WaitGroup
 }
 
 // EventFilter filters events based on various criteria.
 type EventFilter interface {
 	Apply(event events.Event) bool
 	Name() string
-	Description() string
 }
 
 // EventHandler processes events and can modify or generate new events.
 type EventHandler interface {
 	Handle(ctx context.Context, event events.Event) ([]events.Event, error)
 	Name() string
-	Priority() int
 }
 
 // WindowConfig defines windowing strategies for event processing.
@@ -71,18 +79,19 @@ const (
 
 // EventMetrics tracks overall event processing metrics.
 type EventMetrics struct {
-	TotalProcessed   int64                    `json:"total_processed"`
-	TotalFiltered    int64                    `json:"total_filtered"`
-	TotalErrors      int64                    `json:"total_errors"`
-	ProcessingRate   float64                  `json:"processing_rate"`
-	AverageLatency   time.Duration            `json:"average_latency"`
+	TotalProcessed   int64                        `json:"total_processed"`
+	TotalFiltered    int64                        `json:"total_filtered"`
+	TotalErrors      int64                        `json:"total_errors"`
+	ProcessingRate   float64                      `json:"processing_rate"`
+	AverageLatency   time.Duration                `json:"average_latency"`
 	ProcessorMetrics map[string]*ProcessorMetrics `json:"processor_metrics"`
-	StartTime        time.Time                `json:"start_time"`
-	LastUpdate       time.Time                `json:"last_update"`
+	StartTime        time.Time                    `json:"start_time"`
+	LastUpdate       time.Time                    `json:"last_update"`
 }
 
 // ProcessorMetrics tracks metrics for individual processors.
 type ProcessorMetrics struct {
+	mu               sync.RWMutex  `json:"-"`
 	EventsProcessed  int64         `json:"events_processed"`
 	EventsFiltered   int64         `json:"events_filtered"`
 	EventsGenerated  int64         `json:"events_generated"`
@@ -95,9 +104,9 @@ type ProcessorMetrics struct {
 
 // EventBatch represents a batch of events for processing.
 type EventBatch struct {
-	Events    []events.Event `json:"events"`
-	BatchID   string         `json:"batch_id"`
-	CreatedAt time.Time      `json:"created_at"`
+	Events    []events.Event         `json:"events"`
+	BatchID   string                 `json:"batch_id"`
+	CreatedAt time.Time              `json:"created_at"`
 	Metadata  map[string]interface{} `json:"metadata"`
 }
 
@@ -106,6 +115,7 @@ type EventReplay struct {
 	events      []events.Event
 	currentPos  int
 	speed       float64
+	stateMu     sync.RWMutex // protects currentPos and speed
 	isPlaying   atomic.Bool
 	ctx         context.Context
 	cancel      context.CancelFunc
@@ -168,12 +178,12 @@ func NewEventUtils() *EventUtils {
 // CreateProcessor creates a new event processor with the specified configuration.
 func (eu *EventUtils) CreateProcessor(name string, bufferSize int) *EventProcessor {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	processor := &EventProcessor{
 		name:         name,
-		filters:      make([]EventFilter, 0),
-		handlers:     make([]EventHandler, 0),
-		windows:      make([]WindowConfig, 0),
+		filters:      nil, // More efficient than make([]EventFilter, 0)
+		handlers:     nil, // More efficient than make([]EventHandler, 0)
+		windows:      nil, // More efficient than make([]WindowConfig, 0)
 		batchSize:    100,
 		batchTimeout: 5 * time.Second,
 		bufferSize:   bufferSize,
@@ -200,7 +210,7 @@ func (eu *EventUtils) GetProcessor(name string) (*EventProcessor, error) {
 
 	processor, exists := eu.processors[name]
 	if !exists {
-		return nil, errors.NewNotFoundError("processor not found: " + name, nil)
+		return nil, errors.NewNotFoundError("processor not found: "+name, nil)
 	}
 
 	return processor, nil
@@ -233,21 +243,21 @@ func (eu *EventUtils) GetMetrics() *EventMetrics {
 
 	// Update metrics
 	eu.metrics.LastUpdate = time.Now()
-	
+
 	return eu.metrics
 }
 
 // CreateEventReplay creates a new event replay instance.
 func (eu *EventUtils) CreateEventReplay(eventList []events.Event) *EventReplay {
 	ctx, cancel := context.WithCancel(context.Background())
-	
+
 	return &EventReplay{
 		events:      eventList,
 		speed:       1.0,
 		ctx:         ctx,
 		cancel:      cancel,
 		output:      make(chan events.Event, 100),
-		subscribers: make([]chan events.Event, 0),
+		subscribers: nil, // More efficient than make([]chan events.Event, 0)
 	}
 }
 
@@ -279,8 +289,27 @@ func (ep *EventProcessor) SetBatchConfig(size int, timeout time.Duration) *Event
 }
 
 // Input returns the input channel for the processor.
+// Note: Writing to this channel after Stop() is called will panic.
+// Use SendEvent() for safer event sending.
 func (ep *EventProcessor) Input() chan<- events.Event {
 	return ep.input
+}
+
+// SendEvent safely sends an event to the processor.
+// Returns error if processor is not running or is shutting down.
+func (ep *EventProcessor) SendEvent(event events.Event) error {
+	if !ep.isRunning.Load() {
+		return errors.NewOperationError("SendEvent", "processor", fmt.Errorf("processor is not running"))
+	}
+
+	select {
+	case ep.input <- event:
+		return nil
+	case <-ep.ctx.Done():
+		return errors.NewOperationError("SendEvent", "processor", fmt.Errorf("processor is shutting down"))
+	default:
+		return errors.NewOperationError("SendEvent", "processor", fmt.Errorf("input buffer full"))
+	}
 }
 
 // Output returns the output channel for the processor.
@@ -295,7 +324,7 @@ func (ep *EventProcessor) Start() error {
 	}
 
 	ep.isRunning.Store(true)
-	
+
 	// Start processing goroutine
 	ep.wg.Add(1)
 	go ep.processEvents()
@@ -309,25 +338,48 @@ func (ep *EventProcessor) Stop() error {
 		return errors.NewOperationError("Stop", "processor", fmt.Errorf("processor is not running"))
 	}
 
+	// Set running to false first to prevent new events
+	ep.isRunning.Store(false)
+
+	// Cancel context and wait for processing goroutine to finish
 	ep.cancel()
 	ep.wg.Wait()
-	
-	close(ep.output)
-	ep.isRunning.Store(false)
+
+	// Close output channel after processing is complete (safe close)
+	if !ep.outputClosed.Load() {
+		ep.outputClosed.Store(true)
+		close(ep.output)
+	}
 
 	return nil
 }
 
 // GetMetrics returns processor-specific metrics.
 func (ep *EventProcessor) GetMetrics() *ProcessorMetrics {
-	return ep.metrics
+	ep.metrics.mu.RLock()
+	defer ep.metrics.mu.RUnlock()
+
+	// Return a copy to prevent race conditions, using atomic loads for atomic fields
+	return &ProcessorMetrics{
+		EventsProcessed:  atomic.LoadInt64(&ep.metrics.EventsProcessed),
+		EventsFiltered:   atomic.LoadInt64(&ep.metrics.EventsFiltered),
+		EventsGenerated:  atomic.LoadInt64(&ep.metrics.EventsGenerated),
+		Errors:           atomic.LoadInt64(&ep.metrics.Errors),
+		AverageLatency:   ep.metrics.AverageLatency,
+		ThroughputPerSec: ep.metrics.ThroughputPerSec,
+		LastActivity:     ep.metrics.LastActivity,
+		BufferUsage:      ep.metrics.BufferUsage,
+	}
 }
 
 // processEvents is the main event processing loop.
 func (ep *EventProcessor) processEvents() {
 	defer ep.wg.Done()
 
-	batch := make([]events.Event, 0, ep.batchSize)
+	// Use pooled batch for better performance
+	batch := eventBatchPool.Get().([]events.Event)
+	batch = batch[:0]               // Reset slice but keep capacity
+	defer eventBatchPool.Put(batch) // Return to pool when done
 	batchTimer := time.NewTimer(ep.batchTimeout)
 	defer batchTimer.Stop()
 
@@ -395,22 +447,29 @@ func (ep *EventProcessor) processBatch(batch []events.Event) {
 
 		// Send output events
 		for _, outputEvent := range outputEvents {
+			// Check if output channel is closed before attempting to send
+			if ep.outputClosed.Load() {
+				return
+			}
 			select {
 			case ep.output <- outputEvent:
 				atomic.AddInt64(&ep.metrics.EventsGenerated, 1)
+			case <-ep.ctx.Done():
+				// Processor is stopping, don't send more events
+				return
 			default:
 				// Buffer full, skip event
 			}
 		}
 	}
 
-	// Update metrics
+	// Update metrics with proper synchronization
 	duration := time.Since(start)
+	ep.metrics.mu.Lock()
 	ep.metrics.AverageLatency = (ep.metrics.AverageLatency + duration) / 2
 	ep.metrics.LastActivity = time.Now()
-
-	// Calculate buffer usage
 	ep.metrics.BufferUsage = float64(len(ep.input)) / float64(ep.bufferSize) * 100
+	ep.metrics.mu.Unlock()
 }
 
 // applyHandlers applies all handlers to an event.
@@ -419,7 +478,7 @@ func (ep *EventProcessor) applyHandlers(event events.Event) ([]events.Event, err
 
 	for _, handler := range ep.handlers {
 		var allOutputEvents []events.Event
-		
+
 		for _, inputEvent := range outputEvents {
 			handlerOutput, err := handler.Handle(ep.ctx, inputEvent)
 			if err != nil {
@@ -427,7 +486,7 @@ func (ep *EventProcessor) applyHandlers(event events.Event) ([]events.Event, err
 			}
 			allOutputEvents = append(allOutputEvents, handlerOutput...)
 		}
-		
+
 		outputEvents = allOutputEvents
 	}
 
@@ -456,8 +515,11 @@ func (er *EventReplay) Pause() error {
 // Stop stops event replay and resets position.
 func (er *EventReplay) Stop() error {
 	er.cancel()
+	er.stateMu.Lock()
 	er.currentPos = 0
+	er.stateMu.Unlock()
 	er.isPlaying.Store(false)
+	// Note: closeSubscribers is called by replayEvents() defer
 	return nil
 }
 
@@ -466,7 +528,9 @@ func (er *EventReplay) SetSpeed(speed float64) error {
 	if speed <= 0 {
 		return errors.NewValidationError("speed", "speed must be positive")
 	}
+	er.stateMu.Lock()
 	er.speed = speed
+	er.stateMu.Unlock()
 	return nil
 }
 
@@ -482,25 +546,45 @@ func (er *EventReplay) Subscribe() <-chan events.Event {
 // replayEvents replays events with timing.
 func (er *EventReplay) replayEvents() {
 	if len(er.events) == 0 {
+		er.isPlaying.Store(false)
+		er.closeSubscribers()
 		return
 	}
 
-	for er.currentPos < len(er.events) && er.isPlaying.Load() {
+	defer func() {
+		er.isPlaying.Store(false)
+		er.closeSubscribers()
+	}()
+
+	for {
+		er.stateMu.RLock()
+		currentPos := er.currentPos
+		er.stateMu.RUnlock()
+		
+		if currentPos >= len(er.events) || !er.isPlaying.Load() {
+			break
+		}
+		
 		select {
 		case <-er.ctx.Done():
 			return
 		default:
 		}
 
-		event := er.events[er.currentPos]
+		event := er.events[currentPos]
 
 		// Calculate delay based on original timing and speed
-		if er.currentPos > 0 {
-			prevEvent := er.events[er.currentPos-1]
+		er.stateMu.RLock()
+		currentPos = er.currentPos
+		speed := er.speed
+		er.stateMu.RUnlock()
+		
+		if currentPos > 0 {
+			prevEvent := er.events[currentPos-1]
 			originalDelay := event.Timestamp() != nil && prevEvent.Timestamp() != nil
 			if originalDelay {
 				delay := time.Duration(*event.Timestamp()-*prevEvent.Timestamp()) * time.Millisecond
-				adjustedDelay := time.Duration(float64(delay) / er.speed)
+				adjustedDelay := time.Duration(float64(delay) / speed)
 				time.Sleep(adjustedDelay)
 			}
 		}
@@ -510,16 +594,29 @@ func (er *EventReplay) replayEvents() {
 		for _, subscriber := range er.subscribers {
 			select {
 			case subscriber <- event:
+			case <-er.ctx.Done():
+				er.subsMu.RUnlock()
+				return
 			default:
 				// Subscriber buffer full, skip
 			}
 		}
 		er.subsMu.RUnlock()
 
+		er.stateMu.Lock()
 		er.currentPos++
+		er.stateMu.Unlock()
 	}
+}
 
-	er.isPlaying.Store(false)
+// closeSubscribers closes all subscriber channels
+func (er *EventReplay) closeSubscribers() {
+	er.subsMu.Lock()
+	for _, subscriber := range er.subscribers {
+		close(subscriber)
+	}
+	er.subscribers = nil
+	er.subsMu.Unlock()
 }
 
 // Built-in filter implementations
@@ -540,7 +637,6 @@ func (f *EventTypeFilter) Apply(event events.Event) bool {
 }
 
 func (f *EventTypeFilter) Name() string { return f.name }
-func (f *EventTypeFilter) Description() string { return "Filters events by type" }
 
 func NewTimeRangeEventFilter(start, end time.Time) *TimeRangeEventFilter {
 	return &TimeRangeEventFilter{
@@ -554,22 +650,21 @@ func (f *TimeRangeEventFilter) Apply(event events.Event) bool {
 	if event.Timestamp() == nil {
 		return false
 	}
-	
+
 	eventTime := time.Unix(0, *event.Timestamp()*int64(time.Millisecond))
-	
+
 	if !f.start.IsZero() && eventTime.Before(f.start) {
 		return false
 	}
-	
+
 	if !f.end.IsZero() && eventTime.After(f.end) {
 		return false
 	}
-	
+
 	return true
 }
 
 func (f *TimeRangeEventFilter) Name() string { return f.name }
-func (f *TimeRangeEventFilter) Description() string { return "Filters events by time range" }
 
 func NewContentEventFilter(contentCheck func(events.Event) bool) *ContentEventFilter {
 	return &ContentEventFilter{
@@ -583,7 +678,6 @@ func (f *ContentEventFilter) Apply(event events.Event) bool {
 }
 
 func (f *ContentEventFilter) Name() string { return f.name }
-func (f *ContentEventFilter) Description() string { return "Filters events by content" }
 
 // Built-in handler implementations
 
@@ -598,7 +692,6 @@ func (h *LoggingHandler) Handle(ctx context.Context, event events.Event) ([]even
 }
 
 func (h *LoggingHandler) Name() string { return h.name }
-func (h *LoggingHandler) Priority() int { return 0 }
 
 func NewMetricsHandler(metrics *EventMetrics) *MetricsHandler {
 	return &MetricsHandler{
@@ -613,7 +706,6 @@ func (h *MetricsHandler) Handle(ctx context.Context, event events.Event) ([]even
 }
 
 func (h *MetricsHandler) Name() string { return h.name }
-func (h *MetricsHandler) Priority() int { return 1000 }
 
 func NewTransformHandler(transformer func(events.Event) ([]events.Event, error)) *TransformHandler {
 	return &TransformHandler{
@@ -627,4 +719,3 @@ func (h *TransformHandler) Handle(ctx context.Context, event events.Event) ([]ev
 }
 
 func (h *TransformHandler) Name() string { return h.name }
-func (h *TransformHandler) Priority() int { return 500 }

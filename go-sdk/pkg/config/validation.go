@@ -9,17 +9,33 @@ import (
 	"time"
 )
 
-// ValidationError represents a configuration validation error
+// ValidationError represents a configuration validation error with enhanced context
 type ValidationError struct {
 	Field   string
 	Value   interface{}
 	Rule    string
 	Message string
+	Path    string // Full path for nested fields
 }
 
 // Error implements the error interface
 func (e *ValidationError) Error() string {
-	return fmt.Sprintf("validation failed for field '%s': %s", e.Field, e.Message)
+	field := e.Field
+	if e.Path != "" && e.Path != e.Field {
+		field = e.Path
+	}
+	return fmt.Sprintf("validation failed for field '%s' (rule: %s): %s", field, e.Rule, e.Message)
+}
+
+// AsConfigError converts ValidationError to ConfigError for better integration
+func (e *ValidationError) AsConfigError() *ConfigError {
+	return &ConfigError{
+		Op:       "validate",
+		Key:      e.Field,
+		Value:    e.Value,
+		Category: CategoryValidation,
+		Err:      fmt.Errorf("%s (rule: %s)", e.Message, e.Rule),
+	}
 }
 
 // ValidationErrors represents multiple validation errors
@@ -42,7 +58,38 @@ func (e *ValidationErrors) Error() string {
 		msgs = append(msgs, err.Error())
 	}
 	
-	return fmt.Sprintf("multiple validation errors: %s", strings.Join(msgs, "; "))
+	return fmt.Sprintf("multiple validation errors (%d): %s", len(e.Errors), strings.Join(msgs, "; "))
+}
+
+// AsConfigError converts ValidationErrors to ConfigError for better integration
+func (e *ValidationErrors) AsConfigError() *ConfigError {
+	return &ConfigError{
+		Op:       "validate",
+		Category: CategoryValidation,
+		Err:      e,
+	}
+}
+
+// GetByField returns all validation errors for a specific field
+func (e *ValidationErrors) GetByField(field string) []ValidationError {
+	var result []ValidationError
+	for _, err := range e.Errors {
+		if err.Field == field || strings.HasPrefix(err.Path, field+".") {
+			result = append(result, err)
+		}
+	}
+	return result
+}
+
+// GetByRule returns all validation errors for a specific rule
+func (e *ValidationErrors) GetByRule(rule string) []ValidationError {
+	var result []ValidationError
+	for _, err := range e.Errors {
+		if err.Rule == rule {
+			result = append(result, err)
+		}
+	}
+	return result
 }
 
 // Add adds a validation error

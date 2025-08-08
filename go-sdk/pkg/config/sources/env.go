@@ -204,9 +204,105 @@ func (e *EnvSource) setNestedValue(config map[string]interface{}, key string, va
 			current = next
 		} else {
 			// Can't traverse further, key conflicts with existing value
-			return fmt.Errorf("key conflict at %s", k)
+			return e.wrapError("load", "key_conflict", fmt.Errorf("key conflict at %s: cannot set nested value on non-map type %T", k, current[k]))
 		}
 	}
 	
 	return nil
+}
+
+// wrapError wraps an error with source context and categorization
+func (e *EnvSource) wrapError(op, subOp string, err error) error {
+	if err == nil {
+		return nil
+	}
+	
+	// Determine error category based on operation and error
+	category := e.categorizeError(subOp, err)
+	
+	// Create structured error with context
+	return &EnvSourceError{
+		Op:       op,
+		SubOp:    subOp,
+		Source:   e.Name(),
+		Prefix:   e.prefix,
+		Category: category,
+		Err:      err,
+	}
+}
+
+// categorizeError categorizes errors based on operation and error content
+func (e *EnvSource) categorizeError(subOp string, err error) ErrorCategory {
+	if err == nil {
+		return CategoryUnknown
+	}
+	
+	errMsg := strings.ToLower(err.Error())
+	
+	switch subOp {
+	case "key_conflict":
+		return CategoryValidation
+	case "parse_value":
+		return CategoryValidation
+	default:
+		if strings.Contains(errMsg, "type") {
+			return CategoryValidation
+		}
+		return CategoryUnknown
+	}
+}
+
+// EnvSourceError represents an error from an environment variable source
+type EnvSourceError struct {
+	Op       string        // Operation that failed
+	SubOp    string        // Sub-operation
+	Source   string        // Source name
+	Prefix   string        // Environment variable prefix
+	Category ErrorCategory // Error category
+	Err      error         // Underlying error
+}
+
+// Error implements the error interface
+func (e *EnvSourceError) Error() string {
+	var parts []string
+	
+	if e.Op != "" {
+		if e.SubOp != "" {
+			parts = append(parts, fmt.Sprintf("env %s:%s", e.Op, e.SubOp))
+		} else {
+			parts = append(parts, fmt.Sprintf("env %s", e.Op))
+		}
+	} else {
+		parts = append(parts, "env operation")
+	}
+	
+	if e.Source != "" {
+		parts = append(parts, fmt.Sprintf("source=%s", e.Source))
+	}
+	
+	if e.Prefix != "" {
+		parts = append(parts, fmt.Sprintf("prefix=%s", e.Prefix))
+	}
+	
+	if e.Category != CategoryUnknown {
+		parts = append(parts, fmt.Sprintf("category=%s", e.Category))
+	}
+	
+	message := strings.Join(parts, " ")
+	
+	if e.Err != nil {
+		return fmt.Sprintf("%s: %v", message, e.Err)
+	}
+	
+	return message
+}
+
+// Unwrap returns the underlying error
+func (e *EnvSourceError) Unwrap() error {
+	return e.Err
+}
+
+// IsTemporary returns true if the error is temporary
+func (e *EnvSourceError) IsTemporary() bool {
+	return e.Category.IsTemporary()
 }

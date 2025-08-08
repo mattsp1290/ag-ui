@@ -977,30 +977,9 @@ func (c *ConfigImpl) flattenKeys(data map[string]interface{}, prefix string) []s
 	return keys
 }
 
-// deepCopy creates a deep copy of a map
+// deepCopy creates a deep copy of a map using optimized copying
 func (c *ConfigImpl) deepCopy(original map[string]interface{}) map[string]interface{} {
-	copy := make(map[string]interface{})
-	
-	for key, value := range original {
-		switch v := value.(type) {
-		case map[string]interface{}:
-			copy[key] = c.deepCopy(v)
-		case []interface{}:
-			newSlice := make([]interface{}, len(v))
-			for i, item := range v {
-				if itemMap, ok := item.(map[string]interface{}); ok {
-					newSlice[i] = c.deepCopy(itemMap)
-				} else {
-					newSlice[i] = item
-				}
-			}
-			copy[key] = newSlice
-		default:
-			copy[key] = value
-		}
-	}
-	
-	return copy
+	return FastDeepCopy(original)
 }
 
 // String provides a string representation of the configuration

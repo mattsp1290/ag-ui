@@ -1,9 +1,5 @@
 package config
 
-import (
-	"reflect"
-)
-
 // MergerImpl implements the Merger interface
 type MergerImpl struct {
 	strategy MergeStrategy
@@ -263,40 +259,7 @@ func (m *MergerImpl) getMapKey(itemMap map[string]interface{}) string {
 	return ""
 }
 
-// deepCopyValue creates a deep copy of a value
+// deepCopyValue creates a deep copy of a value using optimized copying
 func (m *MergerImpl) deepCopyValue(value interface{}) interface{} {
-	if value == nil {
-		return nil
-	}
-	
-	val := reflect.ValueOf(value)
-	switch val.Kind() {
-	case reflect.Map:
-		if val.Type().Key().Kind() == reflect.String {
-			original := value.(map[string]interface{})
-			copy := make(map[string]interface{})
-			for k, v := range original {
-				copy[k] = m.deepCopyValue(v)
-			}
-			return copy
-		}
-	case reflect.Slice:
-		original, ok := value.([]interface{})
-		if ok {
-			copy := make([]interface{}, len(original))
-			for i, v := range original {
-				copy[i] = m.deepCopyValue(v)
-			}
-			return copy
-		}
-		// Handle string slices
-		if stringSlice, ok := value.([]string); ok {
-			copy := make([]string, len(stringSlice))
-			copy = append(copy, stringSlice...)
-			return copy
-		}
-	}
-	
-	// For primitive types, return as-is
-	return value
+	return FastDeepCopyValue(value)
 }

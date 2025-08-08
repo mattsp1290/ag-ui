@@ -263,36 +263,77 @@ func (p *ProgrammaticSource) splitKey(key string) []string {
 	return parts
 }
 
-// deepCopy creates a deep copy of a map
+// deepCopy creates a deep copy of a map using optimized type-specific copying
 func (p *ProgrammaticSource) deepCopy(original map[string]interface{}) map[string]interface{} {
 	if original == nil {
 		return nil
 	}
 	
-	result := make(map[string]interface{})
+	// Use pre-allocated capacity for better performance
+	result := make(map[string]interface{}, len(original))
 	
 	for key, value := range original {
-		switch v := value.(type) {
-		case map[string]interface{}:
-			result[key] = p.deepCopy(v)
-		case []interface{}:
-			newSlice := make([]interface{}, len(v))
-			for i, item := range v {
-				if itemMap, ok := item.(map[string]interface{}); ok {
-					newSlice[i] = p.deepCopy(itemMap)
-				} else {
-					newSlice[i] = item
-				}
-			}
-			result[key] = newSlice
-		case []string:
-			newSlice := make([]string, len(v))
-			copy(newSlice, v)
-			result[key] = newSlice
-		default:
-			result[key] = value
-		}
+		result[key] = p.deepCopyValue(value)
 	}
 	
 	return result
+}
+
+// deepCopyValue creates an optimized deep copy of individual values
+func (p *ProgrammaticSource) deepCopyValue(value interface{}) interface{} {
+	if value == nil {
+		return nil
+	}
+	
+	// Type-specific optimizations without reflection
+	switch v := value.(type) {
+	case map[string]interface{}:
+		return p.deepCopy(v)
+	case []interface{}:
+		newSlice := make([]interface{}, len(v))
+		for i, item := range v {
+			newSlice[i] = p.deepCopyValue(item)
+		}
+		return newSlice
+	case []string:
+		newSlice := make([]string, len(v))
+		copy(newSlice, v)
+		return newSlice
+	case []int:
+		newSlice := make([]int, len(v))
+		copy(newSlice, v)
+		return newSlice
+	case []int64:
+		newSlice := make([]int64, len(v))
+		copy(newSlice, v)
+		return newSlice
+	case []float64:
+		newSlice := make([]float64, len(v))
+		copy(newSlice, v)
+		return newSlice
+	case []bool:
+		newSlice := make([]bool, len(v))
+		copy(newSlice, v)
+		return newSlice
+	case map[string]string:
+		newMap := make(map[string]string, len(v))
+		for k, val := range v {
+			newMap[k] = val
+		}
+		return newMap
+	case map[string]int:
+		newMap := make(map[string]int, len(v))
+		for k, val := range v {
+			newMap[k] = val
+		}
+		return newMap
+	case string, int, int8, int16, int32, int64,
+		 uint, uint8, uint16, uint32, uint64,
+		 float32, float64, bool, complex64, complex128:
+		// Immutable types - return as-is
+		return value
+	default:
+		// For unknown types, return as-is (assume immutable)
+		return value
+	}
 }

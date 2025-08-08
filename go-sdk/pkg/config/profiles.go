@@ -255,8 +255,11 @@ func (pm *ProfileManager) CreateFromTemplate(templateName, profileName string, v
 		return nil, fmt.Errorf("template cannot be nil")
 	}
 	
-	// Apply variable substitutions
-	config := pm.substituteVariables(template.Template, variables)
+	// Apply variable substitutions with error handling
+	config, err := pm.substituteVariables(template.Template, variables)
+	if err != nil {
+		return nil, fmt.Errorf("failed to substitute template variables: %w", err)
+	}
 	
 	profile := &Profile{
 		Name:        profileName,
@@ -376,18 +379,22 @@ func (pm *ProfileManager) findProfileByEnvironment(env string) string {
 }
 
 // substituteVariables substitutes variables in a template
-func (pm *ProfileManager) substituteVariables(template map[string]interface{}, variables map[string]string) map[string]interface{} {
+func (pm *ProfileManager) substituteVariables(template map[string]interface{}, variables map[string]string) (map[string]interface{}, error) {
 	result := make(map[string]interface{})
 	
 	for key, value := range template {
-		result[key] = pm.substituteValue(value, variables)
+		substituted, err := pm.substituteValue(value, variables)
+		if err != nil {
+			return nil, fmt.Errorf("failed to substitute variables in key %s: %w", key, err)
+		}
+		result[key] = substituted
 	}
 	
-	return result
+	return result, nil
 }
 
 // substituteValue substitutes variables in a single value
-func (pm *ProfileManager) substituteValue(value interface{}, variables map[string]string) interface{} {
+func (pm *ProfileManager) substituteValue(value interface{}, variables map[string]string) (interface{}, error) {
 	switch v := value.(type) {
 	case string:
 		return pm.substituteString(v, variables)
@@ -396,16 +403,21 @@ func (pm *ProfileManager) substituteValue(value interface{}, variables map[strin
 	case []interface{}:
 		result := make([]interface{}, len(v))
 		for i, item := range v {
-			result[i] = pm.substituteValue(item, variables)
+			substituted, err := pm.substituteValue(item, variables)
+			if err != nil {
+				return nil, err
+			}
+			result[i] = substituted
 		}
-		return result
+		return result, nil
 	default:
-		return value
+		return value, nil
 	}
 }
 
 // substituteString substitutes variables in a string using ${VAR} syntax
-func (pm *ProfileManager) substituteString(s string, variables map[string]string) string {
+// Returns an error if required environment variables are undefined
+func (pm *ProfileManager) substituteString(s string, variables map[string]string) (string, error) {
 	result := s
 	
 	for varName, varValue := range variables {
@@ -413,7 +425,7 @@ func (pm *ProfileManager) substituteString(s string, variables map[string]string
 		result = strings.ReplaceAll(result, placeholder, varValue)
 	}
 	
-	// Also substitute environment variables
+	// Also substitute environment variables with security validation
 	for {
 		start := strings.Index(result, "${")
 		if start == -1 {
@@ -428,23 +440,89 @@ func (pm *ProfileManager) substituteString(s string, variables map[string]string
 		
 		varName := result[start+2 : end]
 		
+		// Validate variable name to prevent injection
+		if !isValidVariableName(varName) {
+			return "", fmt.Errorf("invalid environment variable name: %s", varName)
+		}
+		
 		// Check if it's an environment variable
 		if envVal := os.Getenv(varName); envVal != "" {
+			// Validate environment variable value to prevent injection attacks
+			if err := validateEnvironmentValue(envVal); err != nil {
+				return "", fmt.Errorf("invalid environment variable value for %s: %w", varName, err)
+			}
 			result = result[:start] + envVal + result[end+1:]
 		} else {
-			// Move past this placeholder to avoid infinite loop
-			result = result[:start] + "UNDEFINED_VAR_" + varName + result[end+1:]
+			// Fail securely when variable is undefined
+			return "", fmt.Errorf("required environment variable %s is not defined", varName)
 		}
 	}
 	
-	return result
+	return result, nil
 }
 
-// ExportProfile exports a profile configuration
+// isValidVariableName validates environment variable names
+func isValidVariableName(name string) bool {
+	if name == "" {
+		return false
+	}
+	
+	// Environment variable names should only contain alphanumeric characters and underscores
+	// and should not start with a number
+	for i, r := range name {
+		if i == 0 {
+			if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || r == '_') {
+				return false
+			}
+		} else {
+			if !((r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_') {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// validateEnvironmentValue validates environment variable values for security
+func validateEnvironmentValue(value string) error {
+	// Check for common injection patterns
+	dangerousPatterns := []string{
+		"$(", "`", "$[", "${", "eval", "exec", "system", 
+		"bash", "sh", "/bin", "../", "./", "passwd", "shadow",
+		"<script", "javascript:", "data:", "vbscript:",
+	}
+	
+	lowerValue := strings.ToLower(value)
+	for _, pattern := range dangerousPatterns {
+		if strings.Contains(lowerValue, pattern) {
+			return fmt.Errorf("potentially dangerous content detected in environment variable")
+		}
+	}
+	
+	// Check for excessive length to prevent buffer overflow attacks
+	if len(value) > 4096 {
+		return fmt.Errorf("environment variable value exceeds maximum allowed length")
+	}
+	
+	return nil
+}
+
+// ExportProfile exports a profile configuration with properly formatted conditions
 func (pm *ProfileManager) ExportProfile(name string) (map[string]interface{}, error) {
 	profile, exists := pm.profiles[name]
 	if !exists {
 		return nil, fmt.Errorf("profile %s does not exist", name)
+	}
+	
+	// Convert conditions to map format for proper serialization/import
+	conditions := make([]interface{}, len(profile.Conditions))
+	for i, cond := range profile.Conditions {
+		conditions[i] = map[string]interface{}{
+			"type":      cond.Type,
+			"key":       cond.Key,
+			"value":     cond.Value,
+			"operation": cond.Operation,
+		}
 	}
 	
 	return map[string]interface{}{
@@ -454,7 +532,7 @@ func (pm *ProfileManager) ExportProfile(name string) (map[string]interface{}, er
 		"parents":      profile.Parents,
 		"config":       profile.Config,
 		"tags":         profile.Tags,
-		"conditions":   profile.Conditions,
+		"conditions":   conditions,
 		"overrides":    profile.Overrides,
 		"enabled":      profile.Enabled,
 	}, nil
@@ -504,7 +582,18 @@ func (pm *ProfileManager) ImportProfile(data map[string]interface{}) error {
 		profile.Overrides = overrides
 	}
 	
-	// TODO: Import conditions (would need more complex parsing)
+	// Import conditions with proper type validation
+	if conditions, ok := data["conditions"].([]interface{}); ok {
+		for _, conditionData := range conditions {
+			if conditionMap, ok := conditionData.(map[string]interface{}); ok {
+				condition, err := pm.parseProfileCondition(conditionMap)
+				if err != nil {
+					return fmt.Errorf("failed to parse condition: %w", err)
+				}
+				profile.Conditions = append(profile.Conditions, condition)
+			}
+		}
+	}
 	
 	return pm.RegisterProfile(profile)
 }
@@ -532,31 +621,89 @@ func (pm *ProfileManager) Clone(sourceName, targetName string) error {
 	return pm.RegisterProfile(cloned)
 }
 
-// deepCopyMap creates a deep copy of a map
+// deepCopyMap creates a deep copy of a map using optimized copying
 func (pm *ProfileManager) deepCopyMap(original map[string]interface{}) map[string]interface{} {
-	if original == nil {
-		return nil
+	return FastDeepCopy(original)
+}
+
+// parseProfileCondition parses a profile condition from imported data
+func (pm *ProfileManager) parseProfileCondition(data map[string]interface{}) (ProfileCondition, error) {
+	condition := ProfileCondition{}
+	
+	// Extract and validate type field
+	if condType, ok := data["type"].(string); ok {
+		condition.Type = condType
+	} else {
+		return condition, fmt.Errorf("condition type is required and must be a string")
 	}
 	
-	copy := make(map[string]interface{})
-	for key, value := range original {
-		switch v := value.(type) {
-		case map[string]interface{}:
-			copy[key] = pm.deepCopyMap(v)
-		case []interface{}:
-			newSlice := make([]interface{}, len(v))
-			for i, item := range v {
-				if itemMap, ok := item.(map[string]interface{}); ok {
-					newSlice[i] = pm.deepCopyMap(itemMap)
-				} else {
-					newSlice[i] = item
-				}
-			}
-			copy[key] = newSlice
-		default:
-			copy[key] = value
-		}
+	// Extract and validate key field
+	if key, ok := data["key"].(string); ok {
+		condition.Key = key
+	} else {
+		return condition, fmt.Errorf("condition key is required and must be a string")
 	}
 	
-	return copy
+	// Extract value field (can be any type)
+	if value, exists := data["value"]; exists {
+		condition.Value = value
+	} else {
+		return condition, fmt.Errorf("condition value is required")
+	}
+	
+	// Extract operation field (optional, defaults to "equals")
+	if operation, ok := data["operation"].(string); ok {
+		condition.Operation = operation
+	} else {
+		condition.Operation = "equals" // Default operation
+	}
+	
+	// Validate the condition type
+	if err := pm.validateConditionType(condition.Type); err != nil {
+		return condition, fmt.Errorf("invalid condition type '%s': %w", condition.Type, err)
+	}
+	
+	// Validate the operation
+	if err := pm.validateConditionOperation(condition.Operation); err != nil {
+		return condition, fmt.Errorf("invalid condition operation '%s': %w", condition.Operation, err)
+	}
+	
+	return condition, nil
+}
+
+// validateConditionType validates that a condition type is supported
+func (pm *ProfileManager) validateConditionType(condType string) error {
+	validTypes := map[string]bool{
+		"env":           true,
+		"environment":   true,
+		"config":        true,
+		"configuration": true,
+		"system":        true,
+	}
+	
+	if !validTypes[condType] {
+		return fmt.Errorf("unsupported condition type, supported types are: env, environment, config, configuration, system")
+	}
+	
+	return nil
+}
+
+// validateConditionOperation validates that a condition operation is supported
+func (pm *ProfileManager) validateConditionOperation(operation string) error {
+	validOperations := map[string]bool{
+		"equals":      true,
+		"eq":          true,
+		"not_equals":  true,
+		"ne":          true,
+		"contains":    true,
+		"starts_with": true,
+		"ends_with":   true,
+		"matches":     true,
+	}
+	
+	if !validOperations[operation] {
+		return fmt.Errorf("unsupported condition operation, supported operations are: equals, eq, not_equals, ne, contains, starts_with, ends_with, matches")
+	}
+	
+	return nil
 }

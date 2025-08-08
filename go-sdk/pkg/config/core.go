@@ -4,6 +4,8 @@ package config
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"reflect"
@@ -13,8 +15,18 @@ import (
 	"time"
 )
 
-// Config represents the main configuration interface
-type Config interface {
+// CallbackID represents a unique identifier for configuration watchers
+type CallbackID string
+
+// WatcherCallback represents a registered callback with unique identification
+type WatcherCallback struct {
+	ID       CallbackID
+	Callback func(interface{})
+}
+
+// ConfigReader provides read-only access to configuration values
+// Following ISP: focused interface for reading configuration data
+type ConfigReader interface {
 	Get(key string) interface{}
 	GetString(key string) string
 	GetInt(key string) int
@@ -26,17 +38,49 @@ type Config interface {
 	GetStringSlice(key string) []string
 	GetStringMap(key string) map[string]interface{}
 	GetStringMapString(key string) map[string]string
-	Set(key string, value interface{}) error
 	IsSet(key string) bool
 	AllKeys() []string
 	AllSettings() map[string]interface{}
-	Watch(key string, callback func(interface{})) error
-	UnWatch(key string, callback func(interface{})) error
+}
+
+// ConfigWriter provides write access to configuration values
+// Following ISP: focused interface for modifying configuration data
+type ConfigWriter interface {
+	Set(key string, value interface{}) error
+}
+
+// ConfigWatcher provides configuration change notification capabilities
+// Following ISP: focused interface for watching configuration changes
+type ConfigWatcher interface {
+	Watch(key string, callback func(interface{})) (CallbackID, error)
+	UnWatch(key string, callbackID CallbackID) error
+	// Legacy compatibility method for backward compatibility
+	UnWatchLegacy(key string, callback func(interface{})) error
+}
+
+// ConfigValidator provides configuration validation capabilities
+// Following ISP: focused interface for validating configuration data
+type ConfigValidator interface {
 	Validate() error
+}
+
+// ConfigManager provides configuration management operations
+// Following ISP: focused interface for high-level configuration management
+type ConfigManager interface {
 	Clone() Config
 	Merge(other Config) error
 	GetProfile() string
 	SetProfile(profile string) error
+}
+
+// Config represents the main configuration interface
+// Following ISP: composed of focused interfaces for complete functionality
+type Config interface {
+	ConfigReader
+	ConfigWriter
+	ConfigWatcher
+	ConfigValidator
+	ConfigManager
 }
 
 // Source represents a configuration source
@@ -62,6 +106,7 @@ type Merger interface {
 	Merge(base, override map[string]interface{}) map[string]interface{}
 	Strategy() MergeStrategy
 }
+
 
 // MergeStrategy defines how configurations are merged
 type MergeStrategy int
@@ -92,27 +137,49 @@ type ConfigImpl struct {
 	profile      string
 	sources      []Source
 	validators   []Validator
-	watchers     map[string][]func(interface{})
+	watchers     map[string][]WatcherCallback
 	metadata     *Metadata
 	defaults     map[string]interface{}
 	keyDelimiter string
 	caseMapping  bool
 	envPrefix    string
+	
+	// Hot-reload management
+	hotReloadCtx    context.Context
+	hotReloadCancel context.CancelFunc
+	watcherMu       sync.RWMutex // Separate mutex for watchers to avoid deadlock
+	notificationCh  chan watcherNotification
+	shutdownOnce    sync.Once
+}
+
+// watcherNotification represents a notification to be sent to watchers
+type watcherNotification struct {
+	key   string
+	value interface{}
 }
 
 // NewConfig creates a new configuration instance
 func NewConfig() *ConfigImpl {
-	return &ConfigImpl{
-		data:         make(map[string]interface{}),
-		watchers:     make(map[string][]func(interface{})),
-		defaults:     make(map[string]interface{}),
-		keyDelimiter: ".",
-		caseMapping:  true,
+	ctx, cancel := context.WithCancel(context.Background())
+	c := &ConfigImpl{
+		data:            make(map[string]interface{}),
+		watchers:        make(map[string][]WatcherCallback),
+		defaults:        make(map[string]interface{}),
+		keyDelimiter:    ".",
+		caseMapping:     true,
+		hotReloadCtx:    ctx,
+		hotReloadCancel: cancel,
+		notificationCh:  make(chan watcherNotification, 100), // Buffered channel
 		metadata: &Metadata{
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		},
 	}
+	
+	// Start the notification processor goroutine
+	go c.processNotifications()
+	
+	return c
 }
 
 // ConfigBuilder provides a fluent interface for building configurations
@@ -235,20 +302,20 @@ func (b *ConfigBuilder) BuildWithContext(ctx context.Context) (Config, error) {
 
 	// Load configuration from all sources
 	if err := b.loadFromSources(ctx); err != nil {
-		return nil, fmt.Errorf("failed to load configuration from sources: %w", err)
+		return nil, WithOperation("build", err)
 	}
 
 	// Validate configuration if enabled
 	if b.options.ValidateOnBuild {
 		if err := b.config.Validate(); err != nil {
-			return nil, fmt.Errorf("configuration validation failed: %w", err)
+			return nil, WithOperation("build", err)
 		}
 	}
 
 	// Start hot-reloading if enabled
 	if b.options.EnableHotReload {
 		if err := b.startHotReload(ctx); err != nil {
-			return nil, fmt.Errorf("failed to start hot-reloading: %w", err)
+			return nil, WithOperation("build", WithCategory(CategorySource, fmt.Errorf("failed to start hot-reloading: %w", err)))
 		}
 	}
 
@@ -266,7 +333,7 @@ func (b *ConfigBuilder) loadFromSources(ctx context.Context) error {
 		cancel()
 		
 		if err != nil {
-			return fmt.Errorf("failed to load from source %s: %w", source.Name(), err)
+			return WithOperation("load", WithSource(source.Name(), err))
 		}
 
 		// Apply profile filtering if data contains profiles
@@ -293,13 +360,29 @@ func (b *ConfigBuilder) loadFromSources(ctx context.Context) error {
 
 // startHotReload starts hot-reloading for watchable sources
 func (b *ConfigBuilder) startHotReload(ctx context.Context) error {
+	// Use the config's hot-reload context instead of the passed context
+	// This ensures proper lifecycle management
+	watchCtx := b.config.hotReloadCtx
+	
 	for _, source := range b.sources {
 		if source.CanWatch() {
 			go func(s Source) {
-				s.Watch(ctx, func(data map[string]interface{}) {
-					b.config.mu.Lock()
-					defer b.config.mu.Unlock()
+				defer func() {
+					if r := recover(); r != nil {
+						// Log the panic but don't crash the system
+						// In production, you'd want proper logging here
+					}
+				}()
+				
+				s.Watch(watchCtx, func(data map[string]interface{}) {
+					// Check if config is still active before processing
+					select {
+					case <-b.config.hotReloadCtx.Done():
+						return // Config has been shut down
+					default:
+					}
 					
+					b.config.mu.Lock()
 					merger := NewMerger(b.options.MergeStrategy)
 					
 					// Apply profile filtering
@@ -317,11 +400,11 @@ func (b *ConfigBuilder) startHotReload(ctx context.Context) error {
 
 					oldData := b.config.data
 					b.config.data = merger.Merge(b.config.data, data)
-					
-					// Trigger watchers for changed keys
-					b.triggerWatchers(oldData, b.config.data)
-					
 					b.config.metadata.UpdatedAt = time.Now()
+					b.config.mu.Unlock()
+					
+					// Trigger watchers asynchronously to avoid holding the config lock
+					b.triggerWatchersAsync(oldData, b.config.data)
 				})
 			}(source)
 		}
@@ -329,18 +412,50 @@ func (b *ConfigBuilder) startHotReload(ctx context.Context) error {
 	return nil
 }
 
-// triggerWatchers triggers watchers for changed configuration values
+// triggerWatchers triggers watchers for changed configuration values (deprecated)
+// Use triggerWatchersAsync instead for thread-safe operation
 func (b *ConfigBuilder) triggerWatchers(oldData, newData map[string]interface{}) {
-	for key, callbacks := range b.config.watchers {
-		oldVal := b.getNestedValue(oldData, key)
-		newVal := b.getNestedValue(newData, key)
+	b.triggerWatchersAsync(oldData, newData)
+}
+
+// triggerWatchersAsync triggers watchers for changed configuration values asynchronously
+func (b *ConfigBuilder) triggerWatchersAsync(oldData, newData map[string]interface{}) {
+	// Process notifications in a separate goroutine to avoid blocking
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Log the panic but don't crash the system
+			}
+		}()
 		
-		if !reflect.DeepEqual(oldVal, newVal) {
-			for _, callback := range callbacks {
-				go callback(newVal)
+		// Take a snapshot of watchers to avoid holding locks during comparison
+		b.config.watcherMu.RLock()
+		watchersCopy := make(map[string][]WatcherCallback)
+		for key, callbacks := range b.config.watchers {
+			callbacksCopy := make([]WatcherCallback, len(callbacks))
+			copy(callbacksCopy, callbacks)
+			watchersCopy[key] = callbacksCopy
+		}
+		b.config.watcherMu.RUnlock()
+		
+		// Compare values and queue notifications
+		for key, _ := range watchersCopy {
+			oldVal := b.getNestedValue(oldData, key)
+			newVal := b.getNestedValue(newData, key)
+			
+			if !reflect.DeepEqual(oldVal, newVal) {
+				// Send notification through channel for thread-safe processing
+				select {
+				case b.config.notificationCh <- watcherNotification{key: key, value: newVal}:
+				case <-b.config.hotReloadCtx.Done():
+					return // Config has been shut down
+				default:
+					// Channel is full, skip this notification to prevent blocking
+					// In production, you might want to log this
+				}
 			}
 		}
-	}
+	}()
 }
 
 // getNestedValue retrieves a nested value from a map using dot notation
@@ -544,21 +659,19 @@ func (c *ConfigImpl) GetStringMapString(key string) map[string]string {
 
 // Set sets a configuration value
 func (c *ConfigImpl) Set(key string, value interface{}) error {
+	// Check if config is shut down
+	if c.IsShutdown() {
+		return WithOperation("set", WithKey(key, ErrShutdown))
+	}
+	
 	c.mu.Lock()
-	defer c.mu.Unlock()
-	
 	if err := c.setNestedValue(c.data, key, value); err != nil {
-		return err
+		c.mu.Unlock()
+		return WithOperation("set", WithKey(key, WithValue(value, err)))
 	}
-	
-	// Trigger watchers
-	if callbacks, ok := c.watchers[key]; ok {
-		for _, callback := range callbacks {
-			go callback(value)
-		}
-	}
-	
 	c.metadata.UpdatedAt = time.Now()
+	c.mu.Unlock()
+	
 	return nil
 }
 
@@ -584,30 +697,68 @@ func (c *ConfigImpl) AllSettings() map[string]interface{} {
 	return c.deepCopy(c.data)
 }
 
-// Watch adds a watcher for a configuration key
-func (c *ConfigImpl) Watch(key string, callback func(interface{})) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+// Watch adds a watcher for a configuration key and returns a unique CallbackID
+func (c *ConfigImpl) Watch(key string, callback func(interface{})) (CallbackID, error) {
+	// Check if config is shut down
+	if c.IsShutdown() {
+		return "", fmt.Errorf("cannot add watcher: configuration has been shut down")
+	}
+	
+	c.watcherMu.Lock()
+	defer c.watcherMu.Unlock()
+	
+	// Generate unique callback ID
+	callbackID := generateCallbackID()
+	
+	// Create watcher callback wrapper
+	watcherCallback := WatcherCallback{
+		ID:       callbackID,
+		Callback: callback,
+	}
 	
 	if c.watchers[key] == nil {
-		c.watchers[key] = []func(interface{}){}
+		c.watchers[key] = []WatcherCallback{}
 	}
-	c.watchers[key] = append(c.watchers[key], callback)
+	c.watchers[key] = append(c.watchers[key], watcherCallback)
+	
+	return callbackID, nil
+}
+
+// UnWatch removes a watcher for a configuration key using CallbackID
+func (c *ConfigImpl) UnWatch(key string, callbackID CallbackID) error {
+	c.watcherMu.Lock()
+	defer c.watcherMu.Unlock()
+	
+	if callbacks, ok := c.watchers[key]; ok {
+		// Find and remove the callback by ID
+		for i, watcherCallback := range callbacks {
+			if watcherCallback.ID == callbackID {
+				// Remove callback from slice efficiently
+				c.watchers[key] = append(callbacks[:i], callbacks[i+1:]...)
+				break
+			}
+		}
+		
+		// Clean up empty watcher list to prevent memory leaks
+		if len(c.watchers[key]) == 0 {
+			delete(c.watchers, key)
+		}
+	}
 	
 	return nil
 }
 
-// UnWatch removes a watcher for a configuration key
-func (c *ConfigImpl) UnWatch(key string, callback func(interface{})) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+// UnWatchLegacy removes a watcher using the old function pointer comparison method
+// Deprecated: This method is unreliable and may cause memory leaks. Use UnWatch with CallbackID instead.
+func (c *ConfigImpl) UnWatchLegacy(key string, callback func(interface{})) error {
+	c.watcherMu.Lock()
+	defer c.watcherMu.Unlock()
 	
 	if callbacks, ok := c.watchers[key]; ok {
-		// Find and remove the callback
-		for i, cb := range callbacks {
-			// This is a simplification - in practice, we'd need a better way
-			// to identify and remove specific callbacks
-			if fmt.Sprintf("%p", cb) == fmt.Sprintf("%p", callback) {
+		// Find and remove the callback using the old unreliable pointer comparison
+		// This is kept for backward compatibility but should not be used
+		for i, watcherCallback := range callbacks {
+			if fmt.Sprintf("%p", watcherCallback.Callback) == fmt.Sprintf("%p", callback) {
 				c.watchers[key] = append(callbacks[:i], callbacks[i+1:]...)
 				break
 			}
@@ -622,6 +773,7 @@ func (c *ConfigImpl) UnWatch(key string, callback func(interface{})) error {
 	return nil
 }
 
+
 // Validate validates the configuration using all validators
 func (c *ConfigImpl) Validate() error {
 	c.mu.RLock()
@@ -629,7 +781,7 @@ func (c *ConfigImpl) Validate() error {
 	
 	for _, validator := range c.validators {
 		if err := validator.Validate(c.data); err != nil {
-			return fmt.Errorf("validation failed for validator %s: %w", validator.Name(), err)
+			return WithOperation("validate", WithSource(validator.Name(), WithCategory(CategoryValidation, fmt.Errorf("validation failed for validator %s: %w", validator.Name(), err))))
 		}
 	}
 	
@@ -692,6 +844,18 @@ func (c *ConfigImpl) SetProfile(profile string) error {
 
 // Helper methods
 
+// generateCallbackID generates a unique callback identifier using crypto/rand
+func generateCallbackID() CallbackID {
+	// Generate 8 bytes of random data for a 16-character hex ID
+	bytes := make([]byte, 8)
+	if _, err := rand.Read(bytes); err != nil {
+		// Fallback to timestamp-based ID if crypto/rand fails
+		return CallbackID(fmt.Sprintf("cb_%d", time.Now().UnixNano()))
+	}
+	return CallbackID(hex.EncodeToString(bytes))
+}
+
+
 // getNestedValue retrieves a nested value from the configuration data
 func (c *ConfigImpl) getNestedValue(data map[string]interface{}, key string) interface{} {
 	keys := c.splitKey(key)
@@ -741,7 +905,7 @@ func (c *ConfigImpl) setNestedValue(data map[string]interface{}, key string, val
 		if next, ok := current[k].(map[string]interface{}); ok {
 			current = next
 		} else {
-			return fmt.Errorf("cannot set value at key %s: intermediate key %s is not a map", key, k)
+			return WithCategory(CategoryKey, fmt.Errorf("cannot set value at key %s: intermediate key %s is not a map", key, k))
 		}
 	}
 	
@@ -846,4 +1010,72 @@ func (c *ConfigImpl) String() string {
 	
 	data, _ := json.MarshalIndent(c.data, "", "  ")
 	return string(data)
+}
+
+// processNotifications handles watcher notifications in a separate goroutine
+// to prevent blocking configuration updates
+func (c *ConfigImpl) processNotifications() {
+	for {
+		select {
+		case <-c.hotReloadCtx.Done():
+			return
+		case notification := <-c.notificationCh:
+			c.safelyNotifyWatchers(notification.key, notification.value)
+		}
+	}
+}
+
+// safelyNotifyWatchers safely notifies watchers for a specific key
+func (c *ConfigImpl) safelyNotifyWatchers(key string, value interface{}) {
+	c.watcherMu.RLock()
+	callbacks, exists := c.watchers[key]
+	if !exists {
+		c.watcherMu.RUnlock()
+		return
+	}
+	
+	// Create a copy of callbacks to avoid holding the lock during execution
+	callbacksCopy := make([]WatcherCallback, len(callbacks))
+	copy(callbacksCopy, callbacks)
+	c.watcherMu.RUnlock()
+	
+	// Execute callbacks without holding locks
+	for _, watcherCallback := range callbacksCopy {
+		go func(wc WatcherCallback) {
+			defer func() {
+				if r := recover(); r != nil {
+					// Log the panic but don't crash the system
+					// In production, you'd want proper logging here
+				}
+			}()
+			wc.Callback(value)
+		}(watcherCallback)
+	}
+}
+
+// Shutdown gracefully shuts down the configuration system
+// This should be called when the configuration is no longer needed
+func (c *ConfigImpl) Shutdown() {
+	c.shutdownOnce.Do(func() {
+		// Cancel hot-reload context to stop all watchers
+		c.hotReloadCancel()
+		
+		// Close notification channel
+		close(c.notificationCh)
+		
+		// Clear watchers to help with garbage collection
+		c.watcherMu.Lock()
+		c.watchers = make(map[string][]WatcherCallback)
+		c.watcherMu.Unlock()
+	})
+}
+
+// IsShutdown returns whether the configuration has been shut down
+func (c *ConfigImpl) IsShutdown() bool {
+	select {
+	case <-c.hotReloadCtx.Done():
+		return true
+	default:
+		return false
+	}
 }

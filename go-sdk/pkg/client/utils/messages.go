@@ -2,7 +2,6 @@ package utils
 
 import (
 	"encoding/json"
-	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -11,6 +10,19 @@ import (
 
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/errors"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/messages"
+)
+
+var (
+	// Object pools for performance optimization
+	stringSlicePool = &sync.Pool{
+		New: func() interface{} {
+			return make([]string, 0, 50) // Pre-allocate with reasonable capacity for word extraction
+		},
+	}
+
+	// Pre-compiled regex for better performance
+	wordCleanRegex = regexp.MustCompile(`[^\w]`)
+	pureNumberRegex = regexp.MustCompile(`^\d+$`)
 )
 
 // MessageUtils provides utilities for message filtering, transformation, and analysis.
@@ -26,27 +38,25 @@ type MessageUtils struct {
 type MessageFilter interface {
 	Apply(msgs []messages.Message) []messages.Message
 	Name() string
-	Description() string
 }
 
 // MessageTransformer transforms messages from one format to another.
 type MessageTransformer interface {
 	Transform(msgs []messages.Message) ([]messages.Message, error)
 	Name() string
-	CanTransform(from, to string) bool
 }
 
 // MessageStats provides statistics about a set of messages.
 type MessageStats struct {
-	TotalMessages     int                        `json:"total_messages"`
+	TotalMessages     int                          `json:"total_messages"`
 	MessagesByRole    map[messages.MessageRole]int `json:"messages_by_role"`
-	MessagesByType    map[string]int             `json:"messages_by_type"`
-	AverageLength     float64                    `json:"average_length"`
-	TotalCharacters   int64                      `json:"total_characters"`
-	TimeSpan          *TimeSpan                  `json:"time_span"`
-	ConversationCount int                        `json:"conversation_count"`
-	TopWords          []WordFrequency            `json:"top_words"`
-	Metadata          map[string]interface{}     `json:"metadata"`
+	MessagesByType    map[string]int               `json:"messages_by_type"`
+	AverageLength     float64                      `json:"average_length"`
+	TotalCharacters   int64                        `json:"total_characters"`
+	TimeSpan          *TimeSpan                    `json:"time_span"`
+	ConversationCount int                          `json:"conversation_count"`
+	TopWords          []WordFrequency              `json:"top_words"`
+	Metadata          map[string]interface{}       `json:"metadata"`
 }
 
 // TimeSpan represents a time range.
@@ -64,16 +74,16 @@ type WordFrequency struct {
 
 // SearchQuery represents a message search query.
 type SearchQuery struct {
-	Text          string                    `json:"text"`
-	Role          messages.MessageRole      `json:"role,omitempty"`
-	ContentType   string                    `json:"content_type,omitempty"`
-	TimeRange     *TimeRange                `json:"time_range,omitempty"`
-	Limit         int                       `json:"limit,omitempty"`
-	Offset        int                       `json:"offset,omitempty"`
-	SortBy        string                    `json:"sort_by,omitempty"`
-	SortOrder     string                    `json:"sort_order,omitempty"`
-	Filters       map[string]interface{}    `json:"filters,omitempty"`
-	IncludeRegex  bool                      `json:"include_regex,omitempty"`
+	Text         string                 `json:"text"`
+	Role         messages.MessageRole   `json:"role,omitempty"`
+	ContentType  string                 `json:"content_type,omitempty"`
+	TimeRange    *TimeRange             `json:"time_range,omitempty"`
+	Limit        int                    `json:"limit,omitempty"`
+	Offset       int                    `json:"offset,omitempty"`
+	SortBy       string                 `json:"sort_by,omitempty"`
+	SortOrder    string                 `json:"sort_order,omitempty"`
+	Filters      map[string]interface{} `json:"filters,omitempty"`
+	IncludeRegex bool                   `json:"include_regex,omitempty"`
 }
 
 // TimeRange represents a time range for filtering.
@@ -84,19 +94,19 @@ type TimeRange struct {
 
 // SearchResult represents search results.
 type SearchResult struct {
-	Messages    []messages.Message `json:"messages"`
-	TotalCount  int                `json:"total_count"`
-	HasMore     bool               `json:"has_more"`
-	SearchTime  time.Duration      `json:"search_time"`
-	Query       *SearchQuery       `json:"query"`
+	Messages   []messages.Message `json:"messages"`
+	TotalCount int                `json:"total_count"`
+	HasMore    bool               `json:"has_more"`
+	SearchTime time.Duration      `json:"search_time"`
+	Query      *SearchQuery       `json:"query"`
 }
 
 // MessageSearchIndex provides full-text search capabilities for messages.
 type MessageSearchIndex struct {
-	index        map[string][]int // word -> message indices
-	messages     []messages.Message
-	indexMu      sync.RWMutex
-	lastUpdated  time.Time
+	index       map[string][]int // word -> message indices
+	messages    []messages.Message
+	indexMu     sync.RWMutex
+	lastUpdated time.Time
 }
 
 // MessageTypeFilter filters messages by content type.
@@ -207,7 +217,7 @@ func (mu *MessageUtils) Transform(msgs []messages.Message, transformerName strin
 	mu.transformerMu.RUnlock()
 
 	if !exists {
-		return nil, errors.NewNotFoundError("transformer not found: " + transformerName, nil)
+		return nil, errors.NewNotFoundError("transformer not found: "+transformerName, nil)
 	}
 
 	return transformer.Transform(msgs)
@@ -227,7 +237,7 @@ func (mu *MessageUtils) Search(msgs []messages.Message, query *SearchQuery) (*Se
 	results := mu.searchIndex.Search(query)
 
 	searchTime := time.Since(startTime)
-	
+
 	return &SearchResult{
 		Messages:   results,
 		TotalCount: len(results),
@@ -266,8 +276,8 @@ func (mu *MessageUtils) Statistics(msgs []messages.Message) *MessageStats {
 
 			// Word frequency
 			words := mu.extractWords(msgText)
-			for _, word := range words {
-				wordCounts[word]++
+			for _, wordItem := range words {
+				wordCounts[wordItem]++
 			}
 
 			// Simple content type classification
@@ -361,17 +371,25 @@ func (mu *MessageUtils) extractTextFromMessage(msg messages.Message) string {
 }
 
 func (mu *MessageUtils) extractWords(text string) []string {
-	// Simple word extraction - in production you might want more sophisticated tokenization
+	// Simple word extraction with object pooling for better performance
 	words := strings.Fields(strings.ToLower(text))
-	var result []string
+	result := stringSlicePool.Get().([]string)
+	result = result[:0] // Reset slice but keep capacity
+
 	for _, word := range words {
-		// Remove punctuation and filter short words
-		cleaned := regexp.MustCompile(`[^\w]`).ReplaceAllString(word, "")
-		if len(cleaned) > 2 {
+		// Remove punctuation and filter short words using pre-compiled regex
+		cleaned := wordCleanRegex.ReplaceAllString(word, "")
+		if len(cleaned) > 2 && !pureNumberRegex.MatchString(cleaned) {
 			result = append(result, cleaned)
 		}
 	}
-	return result
+
+	// Create a copy to return since we're putting the slice back to the pool
+	finalResult := make([]string, len(result))
+	copy(finalResult, result)
+	stringSlicePool.Put(result) // Return to pool
+
+	return finalResult
 }
 
 func (mu *MessageUtils) getTopWords(wordCounts map[string]int, limit int) []WordFrequency {
@@ -406,41 +424,56 @@ func (mu *MessageUtils) getTopWords(wordCounts map[string]int, limit int) []Word
 }
 
 func (mu *MessageUtils) exportToCSV(msgs []messages.Message) ([]byte, error) {
+	// Pre-allocate builder with estimated capacity for performance
+	estimatedSize := len(msgs) * 200 // Rough estimate per message
 	var builder strings.Builder
-	
+	builder.Grow(estimatedSize + 100) // Add some buffer for headers
+
 	// CSV header
 	builder.WriteString("id,role,text,timestamp\n")
-	
+
 	for _, msg := range msgs {
 		text := mu.extractTextFromMessage(msg)
-		// Escape CSV content
-		text = strings.ReplaceAll(text, "\"", "\"\"")
-		if strings.Contains(text, ",") || strings.Contains(text, "\n") {
-			text = fmt.Sprintf("\"%s\"", text)
+		// Optimize CSV escaping - avoid multiple string operations
+		needsQuoting := strings.ContainsAny(text, ",\n\"")
+		if needsQuoting {
+			// More efficient escaping using single replacement
+			text = "\"" + strings.ReplaceAll(text, "\"", "\"\"") + "\""
 		}
-		
-		builder.WriteString(fmt.Sprintf("%s,%s,%s,%s\n",
-			msg.GetID(),
-			msg.GetRole(),
-			text,
-			msg.GetTimestamp().Format(time.RFC3339),
-		))
+
+		// Use more efficient string concatenation instead of fmt.Sprintf
+		builder.WriteString(msg.GetID())
+		builder.WriteByte(',')
+		builder.WriteString(string(msg.GetRole()))
+		builder.WriteByte(',')
+		builder.WriteString(text)
+		builder.WriteByte(',')
+		builder.WriteString(msg.GetTimestamp().Format(time.RFC3339))
+		builder.WriteByte('\n')
 	}
-	
+
 	return []byte(builder.String()), nil
 }
 
 func (mu *MessageUtils) exportToText(msgs []messages.Message) ([]byte, error) {
+	// Pre-allocate builder with estimated capacity for performance
+	estimatedSize := len(msgs) * 150 // Rough estimate per message
 	var builder strings.Builder
-	
+	builder.Grow(estimatedSize)
+
+	const timeFormat = "2006-01-02 15:04:05" // Avoid repeated string allocation
+
 	for _, msg := range msgs {
-		builder.WriteString(fmt.Sprintf("[%s] %s: %s\n",
-			msg.GetTimestamp().Format("2006-01-02 15:04:05"),
-			msg.GetRole(),
-			mu.extractTextFromMessage(msg),
-		))
+		// Use more efficient string concatenation instead of fmt.Sprintf
+		builder.WriteByte('[')
+		builder.WriteString(msg.GetTimestamp().Format(timeFormat))
+		builder.WriteString("] ")
+		builder.WriteString(string(msg.GetRole()))
+		builder.WriteString(": ")
+		builder.WriteString(mu.extractTextFromMessage(msg))
+		builder.WriteByte('\n')
 	}
-	
+
 	return []byte(builder.String()), nil
 }
 
@@ -451,13 +484,12 @@ func (f *MessageTypeFilter) Apply(msgs []messages.Message) []messages.Message {
 		return msgs
 	}
 
-	// For now, we'll just return all messages since we don't have 
+	// For now, we'll just return all messages since we don't have
 	// a way to get the content type from the Message interface
 	return msgs
 }
 
 func (f *MessageTypeFilter) Name() string { return f.name }
-func (f *MessageTypeFilter) Description() string { return "Filters messages by content type" }
 
 func (f *RoleFilter) Apply(msgs []messages.Message) []messages.Message {
 	if len(f.allowedRoles) == 0 {
@@ -477,7 +509,6 @@ func (f *RoleFilter) Apply(msgs []messages.Message) []messages.Message {
 }
 
 func (f *RoleFilter) Name() string { return f.name }
-func (f *RoleFilter) Description() string { return "Filters messages by role" }
 
 func (f *ContentFilter) Apply(msgs []messages.Message) []messages.Message {
 	var result []messages.Message
@@ -494,14 +525,13 @@ func (f *ContentFilter) Apply(msgs []messages.Message) []messages.Message {
 }
 
 func (f *ContentFilter) Name() string { return f.name }
-func (f *ContentFilter) Description() string { return "Filters messages by content pattern" }
 
 func (f *TimeRangeFilter) Apply(msgs []messages.Message) []messages.Message {
 	var result []messages.Message
 	for _, msg := range msgs {
 		msgTime := msg.GetTimestamp()
 		if (f.timeRange.Start.IsZero() || msgTime.After(f.timeRange.Start) || msgTime.Equal(f.timeRange.Start)) &&
-		   (f.timeRange.End.IsZero() || msgTime.Before(f.timeRange.End) || msgTime.Equal(f.timeRange.End)) {
+			(f.timeRange.End.IsZero() || msgTime.Before(f.timeRange.End) || msgTime.Equal(f.timeRange.End)) {
 			result = append(result, msg)
 		}
 	}
@@ -509,7 +539,6 @@ func (f *TimeRangeFilter) Apply(msgs []messages.Message) []messages.Message {
 }
 
 func (f *TimeRangeFilter) Name() string { return f.name }
-func (f *TimeRangeFilter) Description() string { return "Filters messages by time range" }
 
 // Transformer implementations
 
@@ -519,7 +548,6 @@ func (t *TextTransformer) Transform(msgs []messages.Message) ([]messages.Message
 }
 
 func (t *TextTransformer) Name() string { return t.name }
-func (t *TextTransformer) CanTransform(from, to string) bool { return true }
 
 func (t *JSONTransformer) Transform(msgs []messages.Message) ([]messages.Message, error) {
 	// This is a placeholder - implement JSON transformation logic
@@ -527,13 +555,12 @@ func (t *JSONTransformer) Transform(msgs []messages.Message) ([]messages.Message
 }
 
 func (t *JSONTransformer) Name() string { return t.name }
-func (t *JSONTransformer) CanTransform(from, to string) bool { return to == "json" }
 
 // MessageSearchIndex implementation
 
 func NewMessageSearchIndex() *MessageSearchIndex {
 	return &MessageSearchIndex{
-		index: make(map[string][]int),
+		index: make(map[string][]int, 1000), // Pre-size with reasonable capacity
 	}
 }
 
@@ -550,10 +577,10 @@ func (idx *MessageSearchIndex) UpdateIndex(msgs []messages.Message) error {
 			text = *content
 		}
 		words := extractWords(text)
-		
+
 		for _, word := range words {
 			if _, exists := idx.index[word]; !exists {
-				idx.index[word] = make([]int, 0)
+				idx.index[word] = nil // More efficient initial value
 			}
 			idx.index[word] = append(idx.index[word], i)
 		}
@@ -652,14 +679,23 @@ func extractTextFromMessage(msg messages.Message) string {
 
 func extractWords(text string) []string {
 	words := strings.Fields(strings.ToLower(text))
-	var result []string
+	result := stringSlicePool.Get().([]string)
+	result = result[:0] // Reset slice but keep capacity
+
 	for _, word := range words {
-		cleaned := regexp.MustCompile(`[^\w]`).ReplaceAllString(word, "")
-		if len(cleaned) > 2 {
+		// Use pre-compiled regex for better performance
+		cleaned := wordCleanRegex.ReplaceAllString(word, "")
+		if len(cleaned) > 2 && !pureNumberRegex.MatchString(cleaned) {
 			result = append(result, cleaned)
 		}
 	}
-	return result
+
+	// Create a copy to return since we're putting the slice back to the pool
+	finalResult := make([]string, len(result))
+	copy(finalResult, result)
+	stringSlicePool.Put(result) // Return to pool
+
+	return finalResult
 }
 
 func intersect(a, b []int) []int {

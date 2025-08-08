@@ -454,7 +454,7 @@ type ServiceMetrics struct {
 
 func NewTestService() *TestService {
 	return &TestService{
-		manager: NewGoroutineLifecycleManager("test-service"),
+		manager: NewGoroutineLifecycleManager("test-service").WithTimeout(5 * time.Second),
 		inputCh: make(chan interface{}, 1000),
 	}
 }

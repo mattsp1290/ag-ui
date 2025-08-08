@@ -399,6 +399,11 @@ func (m *ToolMessage) Accept(v MessageVisitor) error {
 	return v.VisitTool(m)
 }
 
+// GetToolCallID returns the tool call ID
+func (m *ToolMessage) GetToolCallID() string {
+	return m.ToolCallID
+}
+
 // Validate validates the tool message
 func (m *ToolMessage) Validate() error {
 	if err := m.Role.Validate(); err != nil {

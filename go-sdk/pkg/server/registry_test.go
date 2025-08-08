@@ -358,42 +358,71 @@ func TestAgentCapabilities(t *testing.T) {
 
 func TestAgentHealth(t *testing.T) {
 	defer testhelper.VerifyNoGoroutineLeaks(t)
-	cleanup := testhelper.NewCleanupHelper(t)
-
-	config := DefaultRegistryConfig()
-	config.HealthCheckInterval = time.Hour // Disable automatic checks
-
-	registry := NewAgentRegistry(config)
-	require.NotNil(t, registry)
-
-	cleanup.Add(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		registry.Stop(ctx)
-	})
-
-	ctx := context.Background()
-	err := registry.Start(ctx)
-	require.NoError(t, err)
-	defer registry.Stop(ctx)
-
-	// Register agent
-	agent := &mockClientAgent{
-		name:   "health-agent",
-		health: client.AgentHealthStatus{Status: "healthy"},
-	}
-
-	err = registry.RegisterAgent(ctx, agent, nil)
-	require.NoError(t, err)
 
 	t.Run("Get Agent Health", func(t *testing.T) {
-		health, err := registry.GetAgentHealth(ctx, "health-agent")
+		cleanup := testhelper.NewCleanupHelper(t)
+		
+		config := DefaultRegistryConfig()
+		config.HealthCheckInterval = time.Hour // Disable automatic checks
+
+		registry := NewAgentRegistry(config)
+		require.NotNil(t, registry)
+
+		cleanup.Add(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			registry.Stop(ctx)
+		})
+
+		ctx := context.Background()
+		err := registry.Start(ctx)
+		require.NoError(t, err)
+		defer registry.Stop(ctx)
+
+		// Register agent with unique name for this test
+		agent := &mockClientAgent{
+			name:   "get-health-agent",
+			health: client.AgentHealthStatus{Status: "healthy"},
+		}
+
+		err = registry.RegisterAgent(ctx, agent, nil)
+		require.NoError(t, err)
+
+		health, err := registry.GetAgentHealth(ctx, "get-health-agent")
 		require.NoError(t, err)
 		assert.NotNil(t, health)
 		// Initial health status depends on health checker implementation
 	})
 
 	t.Run("Update Agent Health", func(t *testing.T) {
+		cleanup := testhelper.NewCleanupHelper(t)
+		
+		config := DefaultRegistryConfig()
+		config.HealthCheckInterval = time.Hour // Disable automatic checks
+
+		registry := NewAgentRegistry(config)
+		require.NotNil(t, registry)
+
+		cleanup.Add(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			registry.Stop(ctx)
+		})
+
+		ctx := context.Background()
+		err := registry.Start(ctx)
+		require.NoError(t, err)
+		defer registry.Stop(ctx)
+
+		// Register agent with unique name for this test
+		agent := &mockClientAgent{
+			name:   "update-health-agent",
+			health: client.AgentHealthStatus{Status: "healthy"},
+		}
+
+		err = registry.RegisterAgent(ctx, agent, nil)
+		require.NoError(t, err)
+
 		newHealth := &AgentHealthStatus{
 			Status:       HealthStatusHealthy,
 			LastCheck:    time.Now(),
@@ -402,34 +431,54 @@ func TestAgentHealth(t *testing.T) {
 			Uptime:       time.Hour,
 		}
 
-		err := registry.UpdateAgentHealth(ctx, "health-agent", newHealth)
+		err = registry.UpdateAgentHealth(ctx, "update-health-agent", newHealth)
 		require.NoError(t, err)
 
 		// Verify updated health
-		health, err := registry.GetAgentHealth(ctx, "health-agent")
+		health, err := registry.GetAgentHealth(ctx, "update-health-agent")
 		require.NoError(t, err)
 		assert.Equal(t, HealthStatusHealthy, health.Status)
 		assert.Equal(t, newHealth.ResponseTime, health.ResponseTime)
 	})
 
 	t.Run("Get Healthy Agents", func(t *testing.T) {
-		// Register another agent
+		cleanup := testhelper.NewCleanupHelper(t)
+		
+		config := DefaultRegistryConfig()
+		config.HealthCheckInterval = time.Hour // Disable automatic checks
+
+		registry := NewAgentRegistry(config)
+		require.NotNil(t, registry)
+
+		cleanup.Add(func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			registry.Stop(ctx)
+		})
+
+		ctx := context.Background()
+		err := registry.Start(ctx)
+		require.NoError(t, err)
+		defer registry.Stop(ctx)
+
+		// Register agent with unique name and calculator capability
+		testAgentName := fmt.Sprintf("healthy-agent-%d", time.Now().UnixNano())
 		healthyAgent := &mockClientAgent{
-			name: "healthy-agent",
+			name: testAgentName,
 			capabilities: client.AgentCapabilities{
 				Tools: []string{"calculator"},
 			},
 		}
 
-		err := registry.RegisterAgent(ctx, healthyAgent, nil)
+		err = registry.RegisterAgent(ctx, healthyAgent, nil)
 		require.NoError(t, err)
 
-		// Set as healthy
+		// Set as healthy explicitly
 		healthyStatus := &AgentHealthStatus{
 			Status:    HealthStatusHealthy,
 			LastCheck: time.Now(),
 		}
-		err = registry.UpdateAgentHealth(ctx, "healthy-agent", healthyStatus)
+		err = registry.UpdateAgentHealth(ctx, testAgentName, healthyStatus)
 		require.NoError(t, err)
 
 		// Get healthy agents with calculator capability
@@ -439,12 +488,12 @@ func TestAgentHealth(t *testing.T) {
 		// Should include the healthy agent with calculator capability
 		found := false
 		for _, agent := range agents {
-			if agent.AgentID == "healthy-agent" {
+			if agent.AgentID == testAgentName {
 				found = true
 				break
 			}
 		}
-		assert.True(t, found)
+		assert.True(t, found, "Expected to find healthy agent %s with calculator capability, but it was not returned", testAgentName)
 	})
 }
 

@@ -1,0 +1,543 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "AG-UI Configuration Schema",
+  "description": "JSON Schema for AG-UI configuration validation",
+  "type": "object",
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "Configuration name"
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+$",
+          "description": "Configuration version in semantic versioning format"
+        },
+        "environment": {
+          "type": "string",
+          "enum": ["development", "staging", "production"],
+          "description": "Target environment"
+        }
+      },
+      "required": ["name", "version"]
+    },
+    "server": {
+      "type": "object",
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Server host address"
+        },
+        "port": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Server port number"
+        },
+        "timeout": {
+          "type": "object",
+          "properties": {
+            "read": {
+              "type": "string",
+              "pattern": "^\\d+[smh]$",
+              "description": "Read timeout duration"
+            },
+            "write": {
+              "type": "string",
+              "pattern": "^\\d+[smh]$",
+              "description": "Write timeout duration"
+            },
+            "idle": {
+              "type": "string",
+              "pattern": "^\\d+[smh]$",
+              "description": "Idle timeout duration"
+            }
+          }
+        },
+        "tls": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable TLS/SSL"
+            },
+            "cert_file": {
+              "type": "string",
+              "description": "Path to TLS certificate file"
+            },
+            "key_file": {
+              "type": "string",
+              "description": "Path to TLS private key file"
+            }
+          }
+        }
+      },
+      "required": ["host", "port"]
+    },
+    "security": {
+      "type": "object",
+      "properties": {
+        "auth": {
+          "type": "object",
+          "properties": {
+            "jwt": {
+              "type": "object",
+              "properties": {
+                "secret": {
+                  "type": "string",
+                  "minLength": 32,
+                  "description": "JWT signing secret (minimum 32 characters)"
+                },
+                "expiration": {
+                  "type": "string",
+                  "pattern": "^\\d+[smh]$",
+                  "description": "JWT token expiration duration"
+                },
+                "issuer": {
+                  "type": "string",
+                  "description": "JWT issuer"
+                },
+                "audience": {
+                  "type": "string",
+                  "description": "JWT audience"
+                }
+              },
+              "required": ["secret"]
+            },
+            "api_keys": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean",
+                  "description": "Enable API key authentication"
+                },
+                "header": {
+                  "type": "string",
+                  "description": "HTTP header name for API key"
+                },
+                "keys": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "description": "API key name"
+                      },
+                      "key": {
+                        "type": "string",
+                        "minLength": 16,
+                        "description": "API key value (minimum 16 characters)"
+                      },
+                      "roles": {
+                        "type": "array",
+                        "items": {
+                          "type": "string"
+                        },
+                        "description": "Roles associated with this API key"
+                      }
+                    },
+                    "required": ["name", "key"]
+                  }
+                }
+              }
+            }
+          }
+        },
+        "cors": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable CORS"
+            },
+            "allowed_origins": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Allowed CORS origins"
+            },
+            "allowed_methods": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]
+              },
+              "description": "Allowed HTTP methods"
+            },
+            "allowed_headers": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Allowed HTTP headers"
+            },
+            "credentials": {
+              "type": "boolean",
+              "description": "Allow credentials in CORS requests"
+            }
+          }
+        },
+        "rate_limiting": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable rate limiting"
+            },
+            "requests_per_minute": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Maximum requests per minute"
+            },
+            "burst": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Burst capacity"
+            }
+          }
+        }
+      }
+    },
+    "observability": {
+      "type": "object",
+      "properties": {
+        "logging": {
+          "type": "object",
+          "properties": {
+            "level": {
+              "type": "string",
+              "enum": ["debug", "info", "warn", "error"],
+              "description": "Log level"
+            },
+            "format": {
+              "type": "string",
+              "enum": ["json", "text"],
+              "description": "Log format"
+            },
+            "output": {
+              "type": "string",
+              "description": "Log output destination"
+            },
+            "structured": {
+              "type": "boolean",
+              "description": "Use structured logging"
+            },
+            "fields": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "Additional log fields"
+            }
+          }
+        },
+        "metrics": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable metrics collection"
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
+              "description": "Metrics server port"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^/",
+              "description": "Metrics endpoint path"
+            },
+            "namespace": {
+              "type": "string",
+              "description": "Metrics namespace"
+            }
+          }
+        },
+        "tracing": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable distributed tracing"
+            },
+            "endpoint": {
+              "type": "string",
+              "format": "uri",
+              "description": "Tracing endpoint URL"
+            },
+            "sampler_type": {
+              "type": "string",
+              "enum": ["const", "probabilistic", "adaptive"],
+              "description": "Trace sampler type"
+            },
+            "sampler_param": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Sampler parameter"
+            }
+          }
+        },
+        "health_checks": {
+          "type": "object",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Enable health checks"
+            },
+            "path": {
+              "type": "string",
+              "pattern": "^/",
+              "description": "Health check endpoint path"
+            },
+            "port": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 65535,
+              "description": "Health check port"
+            }
+          }
+        }
+      }
+    },
+    "client": {
+      "type": "object",
+      "properties": {
+        "timeout": {
+          "type": "string",
+          "pattern": "^\\d+[smh]$",
+          "description": "Client timeout duration"
+        },
+        "retry": {
+          "type": "object",
+          "properties": {
+            "max_attempts": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Maximum retry attempts"
+            },
+            "backoff": {
+              "type": "string",
+              "enum": ["linear", "exponential"],
+              "description": "Backoff strategy"
+            },
+            "initial_interval": {
+              "type": "string",
+              "pattern": "^\\d+[smh]$",
+              "description": "Initial retry interval"
+            },
+            "max_interval": {
+              "type": "string",
+              "pattern": "^\\d+[smh]$",
+              "description": "Maximum retry interval"
+            }
+          }
+        },
+        "http": {
+          "type": "object",
+          "properties": {
+            "max_idle_connections": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Maximum idle HTTP connections"
+            },
+            "idle_connection_timeout": {
+              "type": "string",
+              "pattern": "^\\d+[smh]$",
+              "description": "Idle connection timeout"
+            },
+            "keepalive_timeout": {
+              "type": "string",
+              "pattern": "^\\d+[smh]$",
+              "description": "Keep-alive timeout"
+            }
+          }
+        }
+      }
+    },
+    "agent": {
+      "type": "object",
+      "properties": {
+        "max_concurrent_tools": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Maximum concurrent tools"
+        },
+        "tool_timeout": {
+          "type": "string",
+          "pattern": "^\\d+[smh]$",
+          "description": "Tool execution timeout"
+        },
+        "memory_limit": {
+          "type": "string",
+          "pattern": "^\\d+(KB|MB|GB)$",
+          "description": "Memory limit per agent"
+        },
+        "session_timeout": {
+          "type": "string",
+          "pattern": "^\\d+[smh]$",
+          "description": "Agent session timeout"
+        },
+        "cleanup_interval": {
+          "type": "string",
+          "pattern": "^\\d+[smh]$",
+          "description": "Cleanup interval"
+        }
+      }
+    },
+    "state": {
+      "type": "object",
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": ["memory", "redis", "database"],
+          "description": "State storage backend"
+        },
+        "redis": {
+          "type": "object",
+          "properties": {
+            "address": {
+              "type": "string",
+              "description": "Redis server address"
+            },
+            "password": {
+              "type": "string",
+              "description": "Redis password"
+            },
+            "database": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 15,
+              "description": "Redis database number"
+            },
+            "pool_size": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Redis connection pool size"
+            }
+          }
+        },
+        "database": {
+          "type": "object",
+          "properties": {
+            "driver": {
+              "type": "string",
+              "enum": ["postgres", "mysql", "sqlite"],
+              "description": "Database driver"
+            },
+            "connection": {
+              "type": "string",
+              "description": "Database connection string"
+            },
+            "max_connections": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Maximum database connections"
+            },
+            "max_idle_connections": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Maximum idle database connections"
+            }
+          }
+        }
+      }
+    },
+    "tools": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of enabled tools"
+        },
+        "disabled": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "List of disabled tools"
+        },
+        "http": {
+          "type": "object",
+          "properties": {
+            "timeout": {
+              "type": "string",
+              "pattern": "^\\d+[smh]$",
+              "description": "HTTP tool timeout"
+            },
+            "max_redirects": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Maximum HTTP redirects"
+            },
+            "user_agent": {
+              "type": "string",
+              "description": "HTTP User-Agent header"
+            }
+          }
+        },
+        "file": {
+          "type": "object",
+          "properties": {
+            "max_file_size": {
+              "type": "string",
+              "pattern": "^\\d+(KB|MB|GB)$",
+              "description": "Maximum file size"
+            },
+            "allowed_extensions": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^\\."
+              },
+              "description": "Allowed file extensions"
+            },
+            "base_path": {
+              "type": "string",
+              "description": "Base path for file operations"
+            }
+          }
+        }
+      }
+    },
+    "development": {
+      "type": "object",
+      "properties": {
+        "debug": {
+          "type": "boolean",
+          "description": "Enable debug mode"
+        },
+        "hot_reload": {
+          "type": "boolean",
+          "description": "Enable hot reloading"
+        },
+        "profiling": {
+          "type": "boolean",
+          "description": "Enable profiling"
+        },
+        "test_mode": {
+          "type": "boolean",
+          "description": "Enable test mode"
+        }
+      }
+    },
+    "profiles": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "description": "Environment-specific configuration profiles"
+      }
+    }
+  },
+  "required": ["metadata", "server"]
+}

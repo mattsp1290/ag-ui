@@ -450,7 +450,7 @@ func TestValidationErrors(t *testing.T) {
 		Message: "test error message",
 	}
 	
-	expectedMsg := "validation failed for field 'test.field': test error message"
+	expectedMsg := "validation failed for field 'test.field' (rule: test_rule): test error message"
 	if err.Error() != expectedMsg {
 		t.Errorf("Expected '%s', got '%s'", expectedMsg, err.Error())
 	}

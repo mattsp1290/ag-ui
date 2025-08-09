@@ -28,6 +28,7 @@ const (
 	FileFormatAuto FileFormat = iota
 	FileFormatJSON
 	FileFormatYAML
+	FileFormatUnsupported
 )
 
 // FileSourceOptions configures file source behavior
@@ -76,6 +77,11 @@ func (f *FileSource) Priority() int {
 
 // Load loads configuration from the file
 func (f *FileSource) Load(ctx context.Context) (map[string]interface{}, error) {
+	// Check for path traversal attempts before sanitizing
+	if strings.Contains(f.filePath, "..") {
+		return nil, f.wrapError("load", "security_validation", fmt.Errorf("path traversal attempt detected in %s", f.filePath))
+	}
+	
 	// Validate and sanitize file path to prevent path traversal attacks
 	sanitizedPath, err := f.sanitizeFilePath(f.filePath)
 	if err != nil {
@@ -123,6 +129,8 @@ func (f *FileSource) Load(ctx context.Context) (map[string]interface{}, error) {
 		if err := yaml.Unmarshal(data, &config); err != nil {
 			return nil, f.wrapError("load", "yaml_parse", fmt.Errorf("failed to parse YAML config file %s: %w", sanitizedPath, err))
 		}
+	case FileFormatUnsupported:
+		return nil, f.wrapError("load", "format_unsupported", fmt.Errorf("unsupported file format for %s", sanitizedPath))
 	default:
 		return nil, f.wrapError("load", "format_unsupported", fmt.Errorf("unsupported file format for %s", sanitizedPath))
 	}
@@ -190,8 +198,8 @@ func detectFormat(filePath string) FileFormat {
 	case ".yaml", ".yml":
 		return FileFormatYAML
 	default:
-		// Default to YAML for unknown extensions
-		return FileFormatYAML
+		// Return unsupported for unknown extensions
+		return FileFormatUnsupported
 	}
 }
 

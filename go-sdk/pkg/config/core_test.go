@@ -270,12 +270,15 @@ func TestConfigWatchers(t *testing.T) {
 	var receivedValue interface{}
 	
 	// Add watcher
-	config.Watch("test.key", func(value interface{}) {
+	_, err := config.Watch("test.key", func(value interface{}) {
 		mu.Lock()
 		defer mu.Unlock()
 		called = true
 		receivedValue = value
 	})
+	if err != nil {
+		t.Fatalf("Failed to add watcher: %v", err)
+	}
 	
 	// Set value to trigger watcher
 	config.Set("test.key", "test_value")

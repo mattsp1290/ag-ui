@@ -110,23 +110,24 @@ func TestProfileConditionImportExport(t *testing.T) {
 	}
 
 	// Verify exported conditions
-	exportedConditions, ok := exported["conditions"].([]ProfileCondition)
+	exportedConditionsInterface, ok := exported["conditions"].([]interface{})
 	if !ok {
-		t.Fatal("Exported conditions should be of type []ProfileCondition")
+		t.Fatal("Exported conditions should be of type []interface{}")
 	}
 
-	if len(exportedConditions) != 3 {
-		t.Fatalf("Expected 3 exported conditions, got %d", len(exportedConditions))
+	if len(exportedConditionsInterface) != 3 {
+		t.Fatalf("Expected 3 exported conditions, got %d", len(exportedConditionsInterface))
 	}
 
 	// Verify exported condition details match original
-	if exportedConditions[0].Type != "env" {
+	firstCondition := exportedConditionsInterface[0].(map[string]interface{})
+	if firstCondition["type"] != "env" {
 		t.Error("Exported condition type mismatch")
 	}
-	if exportedConditions[0].Key != "NODE_ENV" {
+	if firstCondition["key"] != "NODE_ENV" {
 		t.Error("Exported condition key mismatch")
 	}
-	if exportedConditions[0].Value != "test" {
+	if firstCondition["value"] != "test" {
 		t.Error("Exported condition value mismatch")
 	}
 }

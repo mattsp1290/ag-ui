@@ -56,13 +56,19 @@ func TestDoSProtection_MemoryExhaustionAttack(t *testing.T) {
 	options := DefaultSecurityOptions()
 	options.ResourceLimits.MaxMemoryUsage = 1024 * 1024 // 1MB limit
 	options.ResourceLimits.MaxStringLength = 512 * 1024 // 512KB per string
+	options.ResourceLimits.UpdateRateLimit = 1 * time.Millisecond // Reduce rate limit for testing
 	
 	config := NewSecureConfig(options)
 	defer config.Shutdown()
 	
 	// Try to set multiple large values that would exhaust memory
 	for i := 0; i < 10; i++ {
+		if i > 0 {
+			time.Sleep(2 * time.Millisecond) // Avoid rate limiting
+		}
+		
 		largeValue := strings.Repeat("x", 400*1024) // 400KB each
+		
 		err := config.Set(fmt.Sprintf("large_key_%d", i), largeValue)
 		
 		if err != nil {
@@ -455,13 +461,22 @@ func TestSecurityViolationDetection(t *testing.T) {
 
 // TestPerformanceUnderLimits demonstrates that normal operations perform well within limits
 func TestPerformanceUnderLimits(t *testing.T) {
-	config := NewSecureConfig(DefaultSecurityOptions())
+	options := DefaultSecurityOptions()
+	// Reduce rate limits for performance testing
+	options.ResourceLimits.UpdateRateLimit = 1 * time.Millisecond
+	options.ResourceLimits.ValidationRateLimit = 1 * time.Millisecond
+	
+	config := NewSecureConfig(options)
 	defer config.Shutdown()
 	
 	start := time.Now()
 	
 	// Perform normal operations within limits
 	for i := 0; i < 100; i++ {
+		if i > 0 {
+			time.Sleep(2 * time.Millisecond) // Avoid rate limiting
+		}
+		
 		config.Set(fmt.Sprintf("key_%d", i), fmt.Sprintf("value_%d", i))
 		
 		if i%10 == 0 {

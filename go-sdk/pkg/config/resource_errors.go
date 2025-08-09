@@ -2,6 +2,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"time"
 )
@@ -355,6 +356,16 @@ func IsResourceError(err error) bool {
 	case *ResourceLimitError, *RateLimitError, *StructureLimitError, *TimeoutError, *SecurityError:
 		return true
 	default:
+		// Check if it's a wrapped resource error (handled error)
+		var resourceErr *ResourceLimitError
+		var rateErr *RateLimitError  
+		var structErr *StructureLimitError
+		var timeoutErr *TimeoutError
+		var secErr *SecurityError
+		if errors.As(err, &resourceErr) || errors.As(err, &rateErr) || 
+		   errors.As(err, &structErr) || errors.As(err, &timeoutErr) || errors.As(err, &secErr) {
+			return true
+		}
 		return false
 	}
 }

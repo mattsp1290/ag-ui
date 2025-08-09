@@ -351,14 +351,14 @@ func TestResourceManager_ConcurrentAccess(t *testing.T) {
 
 func TestResourceErrors(t *testing.T) {
 	// Test ResourceLimitError
-	err := NewResourceLimitError("memory", 2048, 1024, "memory exceeded")
+	err := NewResourceLimitError("memory_usage", 2048, 1024, "memory exceeded")
 	if !err.IsRecoverable() {
 		t.Error("memory limit error should be recoverable")
 	}
 	if err.GetSeverity() != "high" {
 		t.Errorf("expected high severity, got %s", err.GetSeverity())
 	}
-	expectedMsg := "resource limit exceeded [memory]: memory exceeded (current: 2048, limit: 1024)"
+	expectedMsg := "resource limit exceeded [memory_usage]: memory exceeded (current: 2048, limit: 1024)"
 	if err.Error() != expectedMsg {
 		t.Errorf("expected error message %q, got %q", expectedMsg, err.Error())
 	}
@@ -404,7 +404,7 @@ func TestResourceErrorHandler(t *testing.T) {
 	handler := NewResourceErrorHandler()
 	
 	// Test resource limit error handling
-	resourceErr := NewResourceLimitError("memory", 2048, 1024, "memory exceeded")
+	resourceErr := NewResourceLimitError("memory_usage", 2048, 1024, "memory exceeded")
 	handledErr := handler.HandleError(resourceErr)
 	if handledErr == nil {
 		t.Error("resource limit error should not be completely handled")

@@ -251,6 +251,7 @@ func TestSecureConfig_MemoryUsageTracking(t *testing.T) {
 func TestSecureConfig_DeepNestingProtection(t *testing.T) {
 	options := DefaultSecurityOptions()
 	options.ResourceLimits.MaxNestingDepth = 3
+	options.ResourceLimits.UpdateRateLimit = 1 * time.Millisecond // Reduce rate limit for testing
 	
 	config := NewSecureConfig(options)
 	defer config.Shutdown()
@@ -270,6 +271,9 @@ func TestSecureConfig_DeepNestingProtection(t *testing.T) {
 	if err == nil {
 		t.Error("deeply nested structure should be rejected")
 	}
+	
+	// Wait briefly to avoid rate limiting
+	time.Sleep(2 * time.Millisecond)
 	
 	// Shallow structure should be allowed
 	shallowValue := map[string]interface{}{

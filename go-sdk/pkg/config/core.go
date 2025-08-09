@@ -150,6 +150,9 @@ type ConfigImpl struct {
 	watcherMu       sync.RWMutex // Separate mutex for watchers to avoid deadlock
 	notificationCh  chan watcherNotification
 	shutdownOnce    sync.Once
+	
+	// Validation caching
+	validationCacheManager *CachedValidatorManager
 }
 
 // watcherNotification represents a notification to be sent to watchers
@@ -174,6 +177,7 @@ func NewConfig() *ConfigImpl {
 			CreatedAt: time.Now(),
 			UpdatedAt: time.Now(),
 		},
+		validationCacheManager: NewCachedValidatorManager(DefaultValidationCacheConfig()),
 	}
 	
 	// Start the notification processor goroutine
@@ -194,17 +198,18 @@ type ConfigBuilder struct {
 
 // BuilderOptions contains configuration builder options
 type BuilderOptions struct {
-	EnableHotReload   bool
-	ValidateOnBuild   bool
-	MergeStrategy     MergeStrategy
-	CaseSensitive     bool
-	KeyDelimiter      string
-	EnvPrefix         string
-	AllowEmptyValues  bool
-	StrictValidation  bool
-	CacheSize         int
-	RefreshInterval   time.Duration
-	Timeout           time.Duration
+	EnableHotReload      bool
+	ValidateOnBuild      bool
+	MergeStrategy        MergeStrategy
+	CaseSensitive        bool
+	KeyDelimiter         string
+	EnvPrefix            string
+	AllowEmptyValues     bool
+	StrictValidation     bool
+	CacheSize            int
+	RefreshInterval      time.Duration
+	Timeout              time.Duration
+	ValidationCacheConfig *ValidationCacheConfig // Configuration for validation caching
 }
 
 // NewConfigBuilder creates a new configuration builder
@@ -212,16 +217,17 @@ func NewConfigBuilder() *ConfigBuilder {
 	return &ConfigBuilder{
 		config:  NewConfig(),
 		options: &BuilderOptions{
-			EnableHotReload:   false,
-			ValidateOnBuild:   true,
-			MergeStrategy:     MergeStrategyDeepMerge,
-			CaseSensitive:     true,
-			KeyDelimiter:      ".",
-			AllowEmptyValues:  true,
-			StrictValidation:  false,
-			CacheSize:         1000,
-			RefreshInterval:   time.Minute * 5,
-			Timeout:           time.Second * 30,
+			EnableHotReload:       false,
+			ValidateOnBuild:       true,
+			MergeStrategy:         MergeStrategyDeepMerge,
+			CaseSensitive:         true,
+			KeyDelimiter:          ".",
+			AllowEmptyValues:      true,
+			StrictValidation:      false,
+			CacheSize:             1000,
+			RefreshInterval:       time.Minute * 5,
+			Timeout:               time.Second * 30,
+			ValidationCacheConfig: DefaultValidationCacheConfig(),
 		},
 	}
 }
@@ -298,7 +304,23 @@ func (b *ConfigBuilder) BuildWithContext(ctx context.Context) (Config, error) {
 	})
 
 	b.config.sources = b.sources
-	b.config.validators = b.validators
+	
+	// Initialize validation cache manager with builder options
+	if b.options.ValidationCacheConfig != nil {
+		b.config.validationCacheManager = NewCachedValidatorManager(b.options.ValidationCacheConfig)
+	}
+	
+	// Wrap validators with caching if enabled
+	if b.options.ValidationCacheConfig != nil && b.options.ValidationCacheConfig.Enabled {
+		var cachedValidators []Validator
+		for _, validator := range b.validators {
+			cachedValidator := b.config.validationCacheManager.WrapValidator(validator)
+			cachedValidators = append(cachedValidators, cachedValidator)
+		}
+		b.config.validators = cachedValidators
+	} else {
+		b.config.validators = b.validators
+	}
 
 	// Load configuration from all sources
 	if err := b.loadFromSources(ctx); err != nil {
@@ -402,6 +424,11 @@ func (b *ConfigBuilder) startHotReload(ctx context.Context) error {
 					b.config.data = merger.Merge(b.config.data, data)
 					b.config.metadata.UpdatedAt = time.Now()
 					b.config.mu.Unlock()
+					
+					// Invalidate validation cache on configuration change
+					if b.config.validationCacheManager != nil {
+						b.config.validationCacheManager.InvalidateAll()
+					}
 					
 					// Trigger watchers asynchronously to avoid holding the config lock
 					b.triggerWatchersAsync(oldData, b.config.data)
@@ -671,6 +698,20 @@ func (c *ConfigImpl) Set(key string, value interface{}) error {
 	}
 	c.metadata.UpdatedAt = time.Now()
 	c.mu.Unlock()
+	
+	// Invalidate validation cache when configuration changes
+	if c.validationCacheManager != nil {
+		c.validationCacheManager.InvalidateAll()
+	}
+	
+	// Trigger watchers for the changed key
+	select {
+	case c.notificationCh <- watcherNotification{key: key, value: value}:
+	case <-c.hotReloadCtx.Done():
+		// Config has been shut down, don't send notification
+	default:
+		// Channel is full, skip this notification to prevent blocking
+	}
 	
 	return nil
 }
@@ -1042,6 +1083,11 @@ func (c *ConfigImpl) Shutdown() {
 		// Close notification channel
 		close(c.notificationCh)
 		
+		// Stop validation cache manager
+		if c.validationCacheManager != nil {
+			c.validationCacheManager.Stop()
+		}
+		
 		// Clear watchers to help with garbage collection
 		c.watcherMu.Lock()
 		c.watchers = make(map[string][]WatcherCallback)
@@ -1056,5 +1102,34 @@ func (c *ConfigImpl) IsShutdown() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// GetValidationCacheMetrics returns aggregated validation cache metrics
+func (c *ConfigImpl) GetValidationCacheMetrics() ValidationCacheMetrics {
+	if c.validationCacheManager != nil {
+		return c.validationCacheManager.GetAggregatedMetrics()
+	}
+	return ValidationCacheMetrics{}
+}
+
+// InvalidateValidationCache invalidates all cached validation results
+func (c *ConfigImpl) InvalidateValidationCache() {
+	if c.validationCacheManager != nil {
+		c.validationCacheManager.InvalidateAll()
+	}
+}
+
+// EnableValidationCache enables validation caching for all validators
+func (c *ConfigImpl) EnableValidationCache() {
+	if c.validationCacheManager != nil {
+		c.validationCacheManager.EnableAllCaches()
+	}
+}
+
+// DisableValidationCache disables validation caching for all validators
+func (c *ConfigImpl) DisableValidationCache() {
+	if c.validationCacheManager != nil {
+		c.validationCacheManager.DisableAllCaches()
 	}
 }

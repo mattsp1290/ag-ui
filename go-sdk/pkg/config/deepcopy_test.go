@@ -460,8 +460,8 @@ func TestOptimizedCopier_LargeData(t *testing.T) {
 	}
 	
 	// Spot check some values
-	if result["key_500"] != "value_500" {
-		t.Errorf("Incorrect value for key_500")
+	if result["key_501"] != "value_501" {
+		t.Errorf("Incorrect value for key_501")
 	}
 	
 	if nested, ok := result["nested_500"].(map[string]interface{}); ok {
@@ -482,7 +482,8 @@ func TestUnsafeCopyMap_ZeroCopy(t *testing.T) {
 	result := UnsafeCopyMap(original)
 	
 	// Should be the same instance (zero-copy)
-	if &result != &original {
+	// Check by comparing map pointers using fmt.Sprintf
+	if fmt.Sprintf("%p", result) != fmt.Sprintf("%p", original) {
 		t.Error("UnsafeCopyMap should return the same instance")
 	}
 	

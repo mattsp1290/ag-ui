@@ -460,6 +460,14 @@ func (c *SecureConfigImpl) Set(key string, value interface{}) error {
 		if c.metrics != nil {
 			c.metrics.RecordOperation()
 		}
+		
+		// Update memory usage tracking after successful set
+		if c.securityEnabled && c.resourceManager != nil {
+			tempData := map[string]interface{}{key: value}
+			estimatedSize := c.estimateMemoryUsage(tempData)
+			c.resourceManager.UpdateMemoryUsage(estimatedSize)
+			c.updateMemoryUsage(estimatedSize)
+		}
 	}
 	
 	return err

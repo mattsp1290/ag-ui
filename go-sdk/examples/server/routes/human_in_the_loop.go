@@ -27,12 +27,12 @@ func (r *RunAgentInput) parseMessages() ([]messages.Message, error) {
 		if !ok {
 			return nil, fmt.Errorf("message missing role field")
 		}
-		
+
 		content := ""
 		if c, ok := msgData["content"].(string); ok {
 			content = c
 		}
-		
+
 		msg := messages.NewMessage(messages.MessageRole(role), content)
 		result = append(result, msg)
 	}
@@ -170,7 +170,7 @@ func streamAssistantTextResponse(reqCtx context.Context, w *bufio.Writer, sseWri
 
 	// Send assistant response content
 	responseContent := "Thank you for using the tool. Based on the results, I can see that the task has been completed successfully. Is there anything else you'd like me to help you with?"
-	
+
 	msgContent := events.NewTextMessageContentEvent(messageID, responseContent)
 	if err := sseWriter.WriteEvent(ctx, w, msgContent); err != nil {
 		return fmt.Errorf("failed to write TEXT_MESSAGE_CONTENT event: %w", err)
@@ -258,7 +258,7 @@ func streamToolCallArgs(reqCtx context.Context, w *bufio.Writer, sseWriter *enco
 	for i, step := range steps {
 		// Create JSON for this step
 		stepJSON := fmt.Sprintf(`{"step":%d,"description":"%s"}`, i+1, step)
-		
+
 		// Add comma if not the first step
 		if i > 0 {
 			stepJSON = "," + stepJSON

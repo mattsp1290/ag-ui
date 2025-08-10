@@ -214,7 +214,7 @@ func TestHumanInTheLoopHandler_NonToolBranch(t *testing.T) {
 
 	// Concatenate all TOOL_CALL_ARGS deltas
 	concatenatedJSON := strings.Join(argsEvents, "")
-	
+
 	// Verify it's valid JSON
 	var result map[string]interface{}
 	err = json.Unmarshal([]byte(concatenatedJSON), &result)
@@ -334,7 +334,7 @@ func TestHumanInTheLoopHandler_CancellationHandling(t *testing.T) {
 
 	// This should handle cancellation gracefully
 	resp, err := app.Test(req, fiber.TestConfig{Timeout: 1000 * time.Millisecond})
-	
+
 	// The request should complete (even if truncated) without panicking
 	require.NoError(t, err)
 	if resp != nil {
@@ -352,7 +352,7 @@ func TestHumanInTheLoopHandler_CancellationHandling(t *testing.T) {
 func parseSSEStream(t *testing.T, body io.Reader) []map[string]interface{} {
 	var events []map[string]interface{}
 	scanner := bufio.NewScanner(body)
-	
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "data: ") {
@@ -360,7 +360,7 @@ func parseSSEStream(t *testing.T, body io.Reader) []map[string]interface{} {
 			if dataJSON == "" {
 				continue
 			}
-			
+
 			var event map[string]interface{}
 			err := json.Unmarshal([]byte(dataJSON), &event)
 			if err != nil {
@@ -370,11 +370,11 @@ func parseSSEStream(t *testing.T, body io.Reader) []map[string]interface{} {
 			events = append(events, event)
 		}
 	}
-	
+
 	if err := scanner.Err(); err != nil {
 		t.Logf("Scanner error: %v", err)
 	}
-	
+
 	return events
 }
 
@@ -401,7 +401,7 @@ func BenchmarkHumanInTheLoopHandler_ToolBranch(b *testing.B) {
 		if err != nil {
 			b.Fatalf("Request failed: %v", err)
 		}
-		
+
 		// Read and discard the response to complete the request
 		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()
@@ -430,7 +430,7 @@ func BenchmarkHumanInTheLoopHandler_NonToolBranch(b *testing.B) {
 		if err != nil {
 			b.Fatalf("Request failed: %v", err)
 		}
-		
+
 		// Read and discard the response to complete the request
 		io.Copy(io.Discard, resp.Body)
 		resp.Body.Close()

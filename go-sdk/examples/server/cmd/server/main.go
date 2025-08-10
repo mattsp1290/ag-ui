@@ -18,6 +18,7 @@ import (
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/encoding"
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/transport/sse"
+	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/routes"
 )
 
 func main() {
@@ -131,6 +132,9 @@ func main() {
 
 		// Keep the original handler for backwards compatibility
 		app.Get("/examples/_internal/stream/legacy", sse.BuildSSEHandler(cfg))
+
+		// Agentic chat route with deterministic event sequence
+		app.Get("/examples/agentic-chat", routes.AgenticChatHandler(cfg))
 	}
 
 	// Start server in a goroutine

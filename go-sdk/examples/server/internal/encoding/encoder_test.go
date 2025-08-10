@@ -3,6 +3,8 @@ package encoding
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
@@ -210,4 +212,91 @@ func BenchmarkEventEncoder_NegotiateContentType(b *testing.B) {
 	for i := 0; i < b.N; i++ {
 		_, _ = encoder.NegotiateContentType(acceptHeader)
 	}
+}
+
+// Additional tests to improve coverage
+
+func TestEventEncoder_GetContentType(t *testing.T) {
+	encoder := NewEventEncoder()
+
+	tests := []struct {
+		name         string
+		acceptHeader string
+		expected     string
+	}{
+		{
+			name:         "empty accept header",
+			acceptHeader: "",
+			expected:     "application/json",
+		},
+		{
+			name:         "valid JSON accept",
+			acceptHeader: "application/json",
+			expected:     "application/json",
+		},
+		{
+			name:         "unsupported type falls back",
+			acceptHeader: "application/xml",
+			expected:     "application/json",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := encoder.GetContentType(tt.acceptHeader)
+			if result != tt.expected {
+				t.Errorf("GetContentType() = %v, expected %v", result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestEventEncoder_EncodeEvent_ValidationFailure(t *testing.T) {
+	encoder := NewEventEncoder()
+	ctx := context.Background()
+
+	// Create an event that will fail validation
+	invalidEvent := &InvalidEvent{
+		BaseEvent: events.BaseEvent{
+			EventType: events.EventTypeCustom,
+		},
+	}
+
+	_, err := encoder.EncodeEvent(ctx, invalidEvent, "application/json")
+	if err == nil {
+		t.Error("Expected validation error for invalid event")
+	}
+	if !strings.Contains(err.Error(), "event validation failed") {
+		t.Errorf("Expected validation error message, got: %v", err)
+	}
+}
+
+func TestEventEncoder_EncodeEvent_UnsupportedType(t *testing.T) {
+	encoder := NewEventEncoder()
+	ctx := context.Background()
+
+	testEvent := &CustomEvent{
+		BaseEvent: events.BaseEvent{
+			EventType: events.EventTypeCustom,
+		},
+	}
+	testEvent.SetData(map[string]interface{}{"test": "data"})
+	testEvent.SetTimestamp(1234567890)
+
+	// Test with a content type that doesn't negotiate to JSON
+	_, err := encoder.EncodeEvent(ctx, testEvent, "application/protobuf")
+	if err == nil {
+		t.Error("Expected error for unsupported content type")
+	}
+}
+
+// InvalidEvent for testing validation failures
+type InvalidEvent struct {
+	events.BaseEvent
+}
+
+func (e *InvalidEvent) ThreadID() string { return "" }
+func (e *InvalidEvent) RunID() string    { return "" }
+func (e *InvalidEvent) Validate() error {
+	return fmt.Errorf("this event is always invalid")
 }

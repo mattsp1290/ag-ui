@@ -215,13 +215,13 @@ func SharedStateUpdateHandler(cfg *config.Config) fiber.Handler {
 		// Return current state info
 		snapshot := sharedStore.Snapshot()
 		return c.JSON(fiber.Map{
-			"success": true,
+			"success":   true,
 			"operation": op,
 			"state": fiber.Map{
-				"version": snapshot.Version,
-				"counter": snapshot.Counter,
+				"version":     snapshot.Version,
+				"counter":     snapshot.Counter,
 				"items_count": len(snapshot.Items),
-				"watchers": sharedStore.GetWatcherCount(),
+				"watchers":    sharedStore.GetWatcherCount(),
 			},
 		})
 	}

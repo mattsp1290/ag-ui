@@ -1,0 +1,125 @@
+[
+  {
+    "type": "RUN_STARTED",
+    "data": {
+      "runId": "{{runId}}",
+      "threadId": "{{threadId}}",
+      "timestamp": "{{timestamp}}",
+      "type": "RUN_STARTED"
+    }
+  },
+  {
+    "type": "TEXT_MESSAGE_START",
+    "data": {
+      "messageId": "{{messageId}}",
+      "role": "assistant",
+      "timestamp": "{{timestamp}}",
+      "type": "TEXT_MESSAGE_START"
+    }
+  },
+  {
+    "type": "TEXT_MESSAGE_CONTENT",
+    "data": {
+      "delta": "I'll help you with that task. Let me use a tool to get the information you need.",
+      "messageId": "{{messageId}}",
+      "timestamp": "{{timestamp}}",
+      "type": "TEXT_MESSAGE_CONTENT"
+    }
+  },
+  {
+    "type": "TEXT_MESSAGE_END",
+    "data": {
+      "messageId": "{{messageId}}",
+      "timestamp": "{{timestamp}}",
+      "type": "TEXT_MESSAGE_END"
+    }
+  },
+  {
+    "type": "TOOL_CALL_START",
+    "data": {
+      "timestamp": "{{timestamp}}",
+      "toolCallId": "{{toolCallId}}",
+      "toolCallName": "get_weather",
+      "type": "TOOL_CALL_START"
+    }
+  },
+  {
+    "type": "TOOL_CALL_ARGS",
+    "data": {
+      "delta": "{\"location\": \"San Francisco\", \"unit\": \"celsius\"}",
+      "timestamp": "{{timestamp}}",
+      "toolCallId": "{{toolCallId}}",
+      "type": "TOOL_CALL_ARGS"
+    }
+  },
+  {
+    "type": "TOOL_CALL_END",
+    "data": {
+      "timestamp": "{{timestamp}}",
+      "toolCallId": "{{toolCallId}}",
+      "type": "TOOL_CALL_END"
+    }
+  },
+  {
+    "type": "TEXT_MESSAGE_START",
+    "data": {
+      "messageId": "{{messageId}}",
+      "role": "assistant",
+      "timestamp": "{{timestamp}}",
+      "type": "TEXT_MESSAGE_START"
+    }
+  },
+  {
+    "type": "TEXT_MESSAGE_CONTENT",
+    "data": {
+      "delta": "Based on the weather data, ",
+      "messageId": "{{messageId}}",
+      "timestamp": "{{timestamp}}",
+      "type": "TEXT_MESSAGE_CONTENT"
+    }
+  },
+  {
+    "type": "TEXT_MESSAGE_CONTENT",
+    "data": {
+      "delta": "the current temperature in San Francisco is 22°C ",
+      "messageId": "{{messageId}}",
+      "timestamp": "{{timestamp}}",
+      "type": "TEXT_MESSAGE_CONTENT"
+    }
+  },
+  {
+    "type": "TEXT_MESSAGE_CONTENT",
+    "data": {
+      "delta": "with partly cloudy skies. ",
+      "messageId": "{{messageId}}",
+      "timestamp": "{{timestamp}}",
+      "type": "TEXT_MESSAGE_CONTENT"
+    }
+  },
+  {
+    "type": "TEXT_MESSAGE_CONTENT",
+    "data": {
+      "delta": "It's a pleasant day for outdoor activities! ✓",
+      "messageId": "{{messageId}}",
+      "timestamp": "{{timestamp}}",
+      "type": "TEXT_MESSAGE_CONTENT"
+    }
+  },
+  {
+    "type": "TEXT_MESSAGE_END",
+    "data": {
+      "messageId": "{{messageId}}",
+      "timestamp": "{{timestamp}}",
+      "type": "TEXT_MESSAGE_END"
+    }
+  },
+  {
+    "type": "RUN_FINISHED",
+    "data": {
+      "runId": "{{runId}}",
+      "threadId": "{{threadId}}",
+      "timestamp": "{{timestamp}}",
+      "type": "RUN_FINISHED"
+    }
+  }
+]

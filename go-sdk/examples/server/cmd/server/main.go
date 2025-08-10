@@ -7,11 +7,13 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
 	"github.com/gofiber/fiber/v3/middleware/logger"
 	"github.com/gofiber/fiber/v3/middleware/recover"
+	"github.com/gofiber/fiber/v3/middleware/requestid"
 
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 )
@@ -34,7 +36,7 @@ func main() {
 	// Log the effective configuration
 	cfg.LogSafeConfig(slogger)
 
-	// Create Fiber app
+	// Create Fiber app with updated configuration
 	app := fiber.New(fiber.Config{
 		AppName:      "AG-UI Example Server",
 		ReadTimeout:  cfg.ReadTimeout,
@@ -52,27 +54,28 @@ func main() {
 		},
 	})
 
-	// Add middleware
+	// Configure middleware stack
+	app.Use(requestid.New())
 	app.Use(recover.New(recover.Config{
 		EnableStackTrace: logLevel == slog.LevelDebug,
-	}))
-
-	// Add structured request logging
-	app.Use(logger.New(logger.Config{
-		Format: "${time} | ${status} | ${latency} | ${ip} | ${method} | ${path} | ${error}\n",
-		Output: os.Stdout,
 	}))
 
 	// Add CORS middleware if enabled
 	if cfg.CORSEnabled {
 		app.Use(cors.New(cors.Config{
-			AllowOrigins: []string{"*"},
-			AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-			AllowHeaders: []string{"Origin", "Content-Type", "Accept", "Authorization"},
+			AllowOrigins:     []string{"*"},
+			AllowMethods:     []string{"GET", "POST", "HEAD", "PUT", "DELETE", "PATCH", "OPTIONS"},
+			AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Request-ID"},
+			AllowCredentials: false,
 		}))
 	}
 
-	// Basic health check endpoint
+	// Add structured request logging
+	app.Use(logger.New(logger.Config{
+		Format: "${time} | ${status} | ${latency} | ${ip} | ${method} | ${path} | ${error}\n",
+	}))
+
+	// Health check endpoint
 	app.Get("/health", func(c fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"status":  "healthy",
@@ -87,6 +90,16 @@ func main() {
 			"version":      "1.0.0",
 			"sse_enabled":  cfg.EnableSSE,
 			"cors_enabled": cfg.CORSEnabled,
+		})
+	})
+
+	// Basic info route (from main branch)
+	app.Get("/", func(c fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"message": "AG-UI Go Example Server is running!",
+			"path":    c.Path(),
+			"method":  c.Method(),
+			"headers": c.GetReqHeaders(),
 		})
 	})
 
@@ -117,14 +130,18 @@ func main() {
 
 	slogger.Info("Server started successfully", "address", serverAddr)
 
-	// Set up graceful shutdown
+	// Wait for interrupt signal to gracefully shutdown the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
 	slogger.Info("Shutting down server...")
 
-	if err := app.ShutdownWithContext(context.Background()); err != nil {
+	// Graceful shutdown with timeout
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := app.ShutdownWithContext(ctx); err != nil {
 		slogger.Error("Server shutdown error", "error", err)
 		os.Exit(1)
 	}

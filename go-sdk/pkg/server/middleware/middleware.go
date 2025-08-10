@@ -75,11 +75,14 @@ func NewChain(logger *zap.Logger) *Chain {
 		logger = zap.NewNop()
 	}
 
-	return &Chain{
+	c := &Chain{
 		middlewares: make([]Middleware, 0),
 		logger:      logger,
 		dirty:       true,
 	}
+	// Explicitly initialize the mutex to ensure proper state
+	c.mu = sync.RWMutex{}
+	return c
 }
 
 // Use adds middleware to the chain
@@ -174,8 +177,8 @@ func (c *Chain) Compile() http.Handler {
 		}
 	}
 
-	// Build the chain from the end
-	c.compiled = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	// Build the chain from the end - use local variable to avoid multiple writes to c.compiled
+	var handler http.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Default handler if no final handler is set
 		w.WriteHeader(http.StatusNotFound)
 	})
@@ -183,7 +186,7 @@ func (c *Chain) Compile() http.Handler {
 	// Apply middleware in reverse order (last middleware wraps first)
 	for i := len(sortedMiddleware) - 1; i >= 0; i-- {
 		mw := sortedMiddleware[i]
-		c.compiled = mw.Handler(c.compiled)
+		handler = mw.Handler(handler)
 
 		c.logger.Debug("Applied middleware to chain",
 			zap.String("middleware_name", mw.Name()),
@@ -191,6 +194,8 @@ func (c *Chain) Compile() http.Handler {
 		)
 	}
 
+	// Assign the completed handler chain only once
+	c.compiled = handler
 	c.dirty = false
 	return c.compiled
 }

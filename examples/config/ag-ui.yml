@@ -1,0 +1,188 @@
+# AG-UI Configuration Example
+# This is the main configuration file for the AG-UI Go SDK
+
+metadata:
+  name: "ag-ui-config"
+  version: "1.0.0"
+  environment: "${AG_UI_ENV:development}"
+
+# Server configuration
+server:
+  host: "${AG_UI_HOST:0.0.0.0}"
+  port: "${AG_UI_PORT:8080}"
+  timeout:
+    read: "30s"
+    write: "30s"
+    idle: "120s"
+  tls:
+    enabled: false
+    cert_file: ""
+    key_file: ""
+
+# Security configuration
+security:
+  auth:
+    jwt:
+      secret: "${JWT_SECRET}"
+      expiration: "24h"
+      issuer: "ag-ui"
+      audience: "ag-ui-clients"
+    api_keys:
+      enabled: true
+      header: "X-API-Key"
+      keys:
+        - name: "admin-key"
+          key: "${API_KEY_ADMIN}"
+          roles: ["admin", "user"]
+        - name: "user-key"
+          key: "${API_KEY_USER}"
+          roles: ["user"]
+  cors:
+    enabled: true
+    allowed_origins:
+      - "https://localhost:3000"
+      - "https://*.example.com"
+    allowed_methods: ["GET", "POST", "PUT", "DELETE"]
+    allowed_headers: ["Content-Type", "Authorization", "X-API-Key"]
+    credentials: true
+  rate_limiting:
+    enabled: true
+    requests_per_minute: 100
+    burst: 10
+
+# Observability configuration
+observability:
+  logging:
+    level: "${LOG_LEVEL:info}"
+    format: "${LOG_FORMAT:json}"
+    output: "stdout"
+    structured: true
+    fields:
+      service: "ag-ui"
+      version: "1.0.0"
+  metrics:
+    enabled: true
+    port: 9090
+    path: "/metrics"
+    namespace: "ag_ui"
+  tracing:
+    enabled: false
+    endpoint: "${JAEGER_ENDPOINT}"
+    sampler_type: "const"
+    sampler_param: 1.0
+  health_checks:
+    enabled: true
+    path: "/health"
+    port: 8080
+
+# Client configuration
+client:
+  timeout: "30s"
+  retry:
+    max_attempts: 3
+    backoff: "exponential"
+    initial_interval: "1s"
+    max_interval: "30s"
+  http:
+    max_idle_connections: 100
+    idle_connection_timeout: "90s"
+    keepalive_timeout: "30s"
+
+# Agent configuration
+agent:
+  max_concurrent_tools: 10
+  tool_timeout: "60s"
+  memory_limit: "512MB"
+  session_timeout: "1h"
+  cleanup_interval: "10m"
+
+# State management
+state:
+  backend: "memory" # memory, redis, database
+  redis:
+    address: "${REDIS_ADDRESS:localhost:6379}"
+    password: "${REDIS_PASSWORD}"
+    database: 0
+    pool_size: 10
+  database:
+    driver: "postgres"
+    connection: "${DATABASE_URL}"
+    max_connections: 25
+    max_idle_connections: 5
+
+# Tools configuration
+tools:
+  enabled:
+    - "http"
+    - "file"
+    - "text"
+  disabled: []
+  http:
+    timeout: "30s"
+    max_redirects: 10
+    user_agent: "AG-UI/1.0.0"
+  file:
+    max_file_size: "10MB"
+    allowed_extensions: [".txt", ".json", ".yaml", ".md"]
+    base_path: "/tmp/ag-ui"
+
+# Development settings
+development:
+  debug: "${DEBUG:false}"
+  hot_reload: true
+  profiling: false
+  test_mode: false
+
+# Environment-specific overrides
+profiles:
+  development:
+    observability:
+      logging:
+        level: "debug"
+    security:
+      auth:
+        jwt:
+          expiration: "1h"
+    development:
+      debug: true
+      hot_reload: true
+      profiling: true
+  
+  staging:
+    server:
+      timeout:
+        read: "45s"
+        write: "45s"
+    observability:
+      logging:
+        level: "info"
+      tracing:
+        enabled: true
+    security:
+      rate_limiting:
+        requests_per_minute: 200
+  
+  production:
+    server:
+      timeout:
+        read: "60s"
+        write: "60s"
+    observability:
+      logging:
+        level: "warn"
+      tracing:
+        enabled: true
+      metrics:
+        enabled: true
+    security:
+      cors:
+        allowed_origins:
+          - "https://app.example.com"
+          - "https://api.example.com"
+      rate_limiting:
+        requests_per_minute: 500
+        burst: 50
+    development:
+      debug: false
+      hot_reload: false
+      profiling: false

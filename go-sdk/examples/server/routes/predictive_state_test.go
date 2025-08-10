@@ -46,11 +46,11 @@ func TestPredictiveStateHandler(t *testing.T) {
 
 	// Just verify we get a 200 response and some content
 	assert.Equal(t, 200, resp.StatusCode)
-	
+
 	// Read some initial content to verify streaming starts
 	body, err := io.ReadAll(resp.Body)
 	require.NoError(t, err)
-	
+
 	// Check that we got some SSE-formatted content
 	content := string(body)
 	assert.Contains(t, content, "data:", "Should contain SSE data events")
@@ -79,7 +79,7 @@ func TestPredictiveStateSequence(t *testing.T) {
 	assert.Contains(t, result, `"type":"STATE_SNAPSHOT"`)
 	assert.Contains(t, result, `"type":"STATE_DELTA"`)
 	assert.Contains(t, result, `"predictive":true`)
-	
+
 	// Should contain either confirmation or correction
 	hasConfirmed := strings.Contains(result, `"confirmed":true`)
 	hasCorrective := strings.Contains(result, `"corrective":true`)
@@ -119,7 +119,7 @@ func TestCreatePredictiveDelta(t *testing.T) {
 	itemPatch := delta.Patches[2]
 	assert.Equal(t, "add", itemPatch["op"])
 	assert.Equal(t, "/items/-", itemPatch["path"])
-	
+
 	// Verify the item being added
 	addedItem, ok := itemPatch["value"].(DemoItem)
 	require.True(t, ok)
@@ -175,7 +175,7 @@ func TestCreateCorrectiveDelta(t *testing.T) {
 	itemsPatch := delta.Patches[2]
 	assert.Equal(t, "replace", itemsPatch["op"])
 	assert.Equal(t, "/items", itemsPatch["path"])
-	
+
 	// Verify the corrected items
 	correctedItems, ok := itemsPatch["value"].([]DemoItem)
 	require.True(t, ok)

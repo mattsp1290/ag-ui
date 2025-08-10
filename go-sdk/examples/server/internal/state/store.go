@@ -25,12 +25,12 @@ type StateChange struct {
 
 // Watcher represents a subscription to state changes
 type Watcher struct {
-	ch      chan *StateDelta
-	ctx     context.Context
-	cancel  context.CancelFunc
-	id      string
-	mu      sync.Mutex
-	closed  bool
+	ch     chan *StateDelta
+	ctx    context.Context
+	cancel context.CancelFunc
+	id     string
+	mu     sync.Mutex
+	closed bool
 }
 
 // NewWatcher creates a new state watcher
@@ -58,7 +58,7 @@ func (w *Watcher) Context() context.Context {
 func (w *Watcher) Close() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	
+
 	if !w.closed {
 		w.closed = true
 		w.cancel()
@@ -70,11 +70,11 @@ func (w *Watcher) Close() {
 func (w *Watcher) Send(delta *StateDelta) bool {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	
+
 	if w.closed {
 		return false
 	}
-	
+
 	select {
 	case w.ch <- delta:
 		return true
@@ -132,10 +132,10 @@ func (s *Store) Update(updateFn UpdateFunc) error {
 	// Apply the update to a cloned state
 	newState := oldState.Clone()
 	updateFn(newState)
-	
+
 	// Increment version
 	newState.Version = oldState.Version + 1
-	
+
 	// Generate new state JSON
 	newJSON, err := newState.ToJSON()
 	if err != nil {
@@ -154,8 +154,8 @@ func (s *Store) Update(updateFn UpdateFunc) error {
 	patchMaps := make([]map[string]interface{}, len(patchOps))
 	for i, op := range patchOps {
 		patchMaps[i] = map[string]interface{}{
-			"op":    op.Operation,
-			"path":  op.Path,
+			"op":   op.Operation,
+			"path": op.Path,
 		}
 		if op.Value != nil {
 			patchMaps[i]["value"] = op.Value
@@ -172,8 +172,8 @@ func (s *Store) Update(updateFn UpdateFunc) error {
 	if len(patchOps) > 0 {
 		// Commit the new state
 		s.state = newState
-		
-		s.logger.Debug("State updated", 
+
+		s.logger.Debug("State updated",
 			"old_version", oldState.Version,
 			"new_version", newState.Version,
 			"patch_operations", len(patchOps))
@@ -195,13 +195,13 @@ func (s *Store) validatePatch(oldJSON, newJSON []byte, patchMaps []map[string]in
 	if err != nil {
 		return fmt.Errorf("failed to marshal patch for validation: %w", err)
 	}
-	
+
 	// Create patch using evanphx library
 	patch, err := jsonpatch.DecodePatch(patchBytes)
 	if err != nil {
 		return fmt.Errorf("failed to decode patch for validation: %w", err)
 	}
-	
+
 	// Apply the patch to the old JSON
 	appliedJSON, err := patch.Apply(oldJSON)
 	if err != nil {
@@ -211,11 +211,11 @@ func (s *Store) validatePatch(oldJSON, newJSON []byte, patchMaps []map[string]in
 	// Compare the applied result with the expected new JSON
 	// We need to normalize both JSONs for comparison (e.g., handle field ordering)
 	var applied, expected interface{}
-	
+
 	if err := json.Unmarshal(appliedJSON, &applied); err != nil {
 		return fmt.Errorf("failed to unmarshal applied JSON: %w", err)
 	}
-	
+
 	if err := json.Unmarshal(newJSON, &expected); err != nil {
 		return fmt.Errorf("failed to unmarshal expected JSON: %w", err)
 	}
@@ -225,7 +225,7 @@ func (s *Store) validatePatch(oldJSON, newJSON []byte, patchMaps []map[string]in
 	if err != nil {
 		return fmt.Errorf("failed to marshal applied JSON: %w", err)
 	}
-	
+
 	expectedNormalized, err := json.Marshal(expected)
 	if err != nil {
 		return fmt.Errorf("failed to marshal expected JSON: %w", err)
@@ -265,7 +265,7 @@ func (s *Store) Watch(ctx context.Context) (*Watcher, error) {
 func (s *Store) removeWatcher(watcherID string) {
 	s.watcherMu.Lock()
 	defer s.watcherMu.Unlock()
-	
+
 	if watcher, exists := s.watchers[watcherID]; exists {
 		watcher.Close()
 		delete(s.watchers, watcherID)

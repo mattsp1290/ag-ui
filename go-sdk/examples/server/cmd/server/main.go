@@ -16,6 +16,7 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/requestid"
 
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
+	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/transport/sse"
 )
 
 func main() {
@@ -103,8 +104,9 @@ func main() {
 		})
 	})
 
-	// SSE endpoint (if enabled)
+	// SSE endpoints (if enabled)
 	if cfg.EnableSSE {
+		// Legacy simple SSE endpoint for backward compatibility
 		app.Get("/events", func(c fiber.Ctx) error {
 			c.Set("Content-Type", "text/event-stream")
 			c.Set("Cache-Control", "no-cache")
@@ -115,6 +117,9 @@ func main() {
 			// Send a simple SSE message
 			return c.SendString("data: {\"type\": \"connection\", \"message\": \"SSE connection established\"}\n\n")
 		})
+		
+		// New SSE transport endpoint with full streaming capabilities
+		app.Get("/examples/_internal/stream", sse.BuildSSEHandler(cfg))
 	}
 
 	// Start server in a goroutine

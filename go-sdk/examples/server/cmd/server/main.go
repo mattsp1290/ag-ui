@@ -144,6 +144,10 @@ func main() {
 
 		// Tool-based generative UI route with tool call demonstration
 		app.Get("/examples/tool-based-generative-ui", routes.ToolBasedGenerativeUIHandler(cfg))
+
+		// Shared state routes
+		app.Get("/examples/shared-state", routes.SharedStateHandler(cfg))
+		app.Post("/examples/shared-state/update", routes.SharedStateUpdateHandler(cfg))
 	}
 
 	// Start server in a goroutine

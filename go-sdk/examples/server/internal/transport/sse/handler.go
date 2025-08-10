@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v3"
@@ -90,13 +91,23 @@ func handleSSEStream(reqCtx *fasthttp.RequestCtx, c fiber.Ctx, config *HandlerCo
 
 		if _, err := w.WriteString(initialEvent); err != nil {
 			logCtx = append(logCtx, "error", err, "event_type", "connection")
-			logger.Error("Failed to write initial connection event", logCtx...)
+			// Log connection closed errors as debug instead of error since they're expected
+			if strings.Contains(err.Error(), "connection closed") || strings.Contains(err.Error(), "broken pipe") {
+				logger.Debug("Initial connection write failed due to connection closure", logCtx...)
+			} else {
+				logger.Error("Failed to write initial connection event", logCtx...)
+			}
 			return
 		}
 
 		if err := w.Flush(); err != nil {
 			logCtx = append(logCtx, "error", err, "event_type", "connection")
-			logger.Error("Failed to flush initial connection event", logCtx...)
+			// Log connection closed errors as debug instead of error since they're expected
+			if strings.Contains(err.Error(), "connection closed") || strings.Contains(err.Error(), "broken pipe") {
+				logger.Debug("Initial connection flush failed due to connection closure", logCtx...)
+			} else {
+				logger.Error("Failed to flush initial connection event", logCtx...)
+			}
 			return
 		}
 
@@ -123,14 +134,24 @@ func handleSSEStream(reqCtx *fasthttp.RequestCtx, c fiber.Ctx, config *HandlerCo
 
 				if _, err := w.WriteString(keepaliveEvent); err != nil {
 					logCtx = append(logCtx, "error", err, "event_type", "keepalive")
-					logger.Error("Failed to write keepalive event", logCtx...)
+					// Log connection closed errors as debug instead of error since they're expected
+					if strings.Contains(err.Error(), "connection closed") || strings.Contains(err.Error(), "broken pipe") {
+						logger.Debug("Keepalive write failed due to connection closure", logCtx...)
+					} else {
+						logger.Error("Failed to write keepalive event", logCtx...)
+					}
 					return
 				}
 
 				// Flush immediately after write to ensure delivery
 				if err := w.Flush(); err != nil {
 					logCtx = append(logCtx, "error", err, "event_type", "keepalive")
-					logger.Error("Failed to flush keepalive event", logCtx...)
+					// Log connection closed errors as debug instead of error since they're expected
+					if strings.Contains(err.Error(), "connection closed") || strings.Contains(err.Error(), "broken pipe") {
+						logger.Debug("Keepalive flush failed due to connection closure", logCtx...)
+					} else {
+						logger.Error("Failed to flush keepalive event", logCtx...)
+					}
 					return
 				}
 
@@ -154,13 +175,23 @@ func handleSSEStream(reqCtx *fasthttp.RequestCtx, c fiber.Ctx, config *HandlerCo
 
 					if _, err := w.WriteString(sampleEvent); err != nil {
 						logCtx = append(logCtx, "error", err, "event_type", "sample")
-						logger.Error("Failed to write sample event", logCtx...)
+						// Log connection closed errors as debug instead of error since they're expected
+						if strings.Contains(err.Error(), "connection closed") || strings.Contains(err.Error(), "broken pipe") {
+							logger.Debug("Sample event write failed due to connection closure", logCtx...)
+						} else {
+							logger.Error("Failed to write sample event", logCtx...)
+						}
 						return
 					}
 
 					if err := w.Flush(); err != nil {
 						logCtx = append(logCtx, "error", err, "event_type", "sample")
-						logger.Error("Failed to flush sample event", logCtx...)
+						// Log connection closed errors as debug instead of error since they're expected
+						if strings.Contains(err.Error(), "connection closed") || strings.Contains(err.Error(), "broken pipe") {
+							logger.Debug("Sample event flush failed due to connection closure", logCtx...)
+						} else {
+							logger.Error("Failed to flush sample event", logCtx...)
+						}
 						return
 					}
 

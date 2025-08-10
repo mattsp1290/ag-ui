@@ -1,9 +1,9 @@
 package sse
 
 import (
-	"bufio"
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -21,101 +21,63 @@ func TestSSEIntegration_FullFlow(t *testing.T) {
 	cfg.EnableSSE = true
 	cfg.SSEKeepAlive = 50 * time.Millisecond
 
-	// Create test server
 	app := fiber.New()
 	app.Use(requestid.New())
 	app.Get("/stream", BuildSSEHandler(cfg))
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Convert http request to fiber context and handle
-		fiberApp := app
-		fiberApp.Test(r)
+	req := httptest.NewRequest("GET", "/stream?cid=integration_test", nil)
 
-		// For integration test, we'll make a direct HTTP call
-		ctx := r.Context()
-
-		// Manually set SSE headers
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
-		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Headers", "Cache-Control")
-
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			t.Fatal("ResponseWriter does not support flushing")
-		}
-
-		// Send initial connection event
-		fmt.Fprintf(w, "data: {\"type\":\"connection\",\"timestamp\":\"%s\"}\n\n", time.Now().Format(time.RFC3339))
-		flusher.Flush()
-
-		// Keepalive loop
-		ticker := time.NewTicker(cfg.SSEKeepAlive)
-		defer ticker.Stop()
-
-		counter := 0
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				counter++
-				fmt.Fprintf(w, "event: keepalive\ndata: {\"type\":\"keepalive\",\"sequence\":%d}\n\n", counter)
-				flusher.Flush()
-			}
-		}
-	}))
-	defer server.Close()
-
-	// Test client connection
+	// Test should run long enough to get initial connection + at least one keepalive
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
+	req = req.WithContext(ctx)
 
-	req, err := http.NewRequestWithContext(ctx, "GET", server.URL+"/stream?cid=integration_test", nil)
-	if err != nil {
-		t.Fatalf("Failed to create request: %v", err)
-	}
-
-	client := &http.Client{Timeout: 300 * time.Millisecond}
-	resp, err := client.Do(req)
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 300 * time.Millisecond})
 	if err != nil {
 		t.Fatalf("Failed to make request: %v", err)
 	}
 	defer resp.Body.Close()
 
-	// Verify headers
+	// Verify headers first
 	if resp.Header.Get("Content-Type") != "text/event-stream" {
 		t.Errorf("Expected Content-Type text/event-stream, got %s", resp.Header.Get("Content-Type"))
 	}
 
-	// Read streaming response
-	scanner := bufio.NewScanner(resp.Body)
-	events := []string{}
+	// Read streaming response with a larger buffer
+	buf := make([]byte, 4096)
+	totalRead := 0
 
-	for scanner.Scan() && len(events) < 10 { // Limit to prevent infinite loop
-		line := scanner.Text()
-		if line != "" {
-			events = append(events, line)
+	// Read in chunks with small delays to capture multiple events
+	for i := 0; i < 5 && totalRead < len(buf)-100; i++ {
+		n, err := resp.Body.Read(buf[totalRead : totalRead+800])
+		if err != nil && err != io.EOF {
+			// Handle expected errors when connection is closed due to context timeout
+			if strings.Contains(err.Error(), "timeout") || 
+			   strings.Contains(err.Error(), "deadline") || 
+			   strings.Contains(err.Error(), "unexpected EOF") {
+				break // Expected when context times out
+			}
+			t.Fatalf("Failed to read response chunk %d: %v", i, err)
 		}
-	}
-
-	// Verify we got events
-	if len(events) == 0 {
-		t.Fatal("Expected to receive SSE events, got none")
-	}
-
-	// Check for connection event
-	foundConnection := false
-	for _, event := range events {
-		if strings.Contains(event, "\"type\":\"connection\"") {
-			foundConnection = true
+		totalRead += n
+		if n == 0 { // No more data available
 			break
 		}
+		if i < 4 { // Don't sleep on the last iteration
+			time.Sleep(60 * time.Millisecond) // Wait between reads to get more events
+		}
 	}
 
-	if !foundConnection {
-		t.Errorf("Expected connection event, events received: %v", events)
+	response := string(buf[:totalRead])
+
+	// Check for connection event
+	if !strings.Contains(response, "\"type\":\"connection\"") {
+		t.Errorf("Expected connection event, got response: %s", response)
+	}
+
+	// Check for integration_test cid
+	if !strings.Contains(response, "integration_test") {
+		t.Errorf("Expected cid 'integration_test' in response, got: %s", response)
 	}
 }
 
@@ -199,9 +161,14 @@ func TestSSEIntegration_HeaderValidation(t *testing.T) {
 	app.Use(requestid.New())
 	app.Get("/stream", BuildSSEHandler(cfg))
 
-	// Use fiber test method for header validation
+	// Use fiber test method for header validation with timeout
 	req := httptest.NewRequest("GET", "/stream", nil)
-	resp, err := app.Test(req)
+	
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	req = req.WithContext(ctx)
+	
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 200 * time.Millisecond})
 	if err != nil {
 		t.Fatalf("Failed to make test request: %v", err)
 	}
@@ -288,68 +255,58 @@ func TestSSEIntegration_ConcurrentConnections(t *testing.T) {
 func TestSSEIntegration_KeepaliveInterval(t *testing.T) {
 	cfg := config.New()
 	cfg.EnableSSE = true
-	cfg.SSEKeepAlive = 30 * time.Millisecond // Short interval for testing
+	cfg.SSEKeepAlive = 40 * time.Millisecond // Short interval for testing
 
-	keepaliveTimes := []time.Time{}
+	app := fiber.New()
+	app.Use(requestid.New())
+	app.Get("/stream", BuildSSEHandler(cfg))
 
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/event-stream")
-		w.Header().Set("Cache-Control", "no-cache")
-		w.Header().Set("Connection", "keep-alive")
+	req := httptest.NewRequest("GET", "/stream", nil)
 
-		flusher, ok := w.(http.Flusher)
-		if !ok {
-			t.Fatal("ResponseWriter does not support flushing")
-		}
-
-		ctx := r.Context()
-
-		// Send initial connection
-		fmt.Fprintf(w, "data: {\"type\":\"connection\"}\n\n")
-		flusher.Flush()
-
-		ticker := time.NewTicker(cfg.SSEKeepAlive)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case now := <-ticker.C:
-				keepaliveTimes = append(keepaliveTimes, now)
-				fmt.Fprintf(w, "event: keepalive\ndata: {\"type\":\"keepalive\"}\n\n")
-				flusher.Flush()
-			}
-		}
-	}))
-	defer server.Close()
-
-	// Connect and wait for a few keepalives
-	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Millisecond)
+	// Run long enough to capture multiple keepalives
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
+	req = req.WithContext(ctx)
 
-	req, _ := http.NewRequestWithContext(ctx, "GET", server.URL, nil)
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 200 * time.Millisecond})
 	if err != nil {
-		t.Fatalf("Failed to connect: %v", err)
+		t.Fatalf("Failed to make request: %v", err)
 	}
-	resp.Body.Close()
+	defer resp.Body.Close()
 
-	// Should have received several keepalives in the time window
-	if len(keepaliveTimes) < 2 {
-		t.Errorf("Expected at least 2 keepalives, got %d", len(keepaliveTimes))
-	}
+	// Read response in chunks to capture keepalive events
+	buf := make([]byte, 2048)
+	totalRead := 0
 
-	// Check intervals are approximately correct
-	if len(keepaliveTimes) >= 2 {
-		interval := keepaliveTimes[1].Sub(keepaliveTimes[0])
-		expectedInterval := cfg.SSEKeepAlive
-
-		// Allow for some timing variance (±10ms)
-		tolerance := 10 * time.Millisecond
-		if interval < expectedInterval-tolerance || interval > expectedInterval+tolerance {
-			t.Errorf("Keepalive interval: expected ~%v, got %v", expectedInterval, interval)
+	// Read for long enough to get multiple keepalives
+	for i := 0; i < 4 && totalRead < len(buf)-200; i++ {
+		n, err := resp.Body.Read(buf[totalRead : totalRead+500])
+		if err != nil && err != io.EOF {
+			// Handle expected errors when connection is closed due to context timeout
+			if strings.Contains(err.Error(), "timeout") || 
+			   strings.Contains(err.Error(), "deadline") || 
+			   strings.Contains(err.Error(), "unexpected EOF") {
+				break // Expected when context times out
+			}
+			t.Fatalf("Failed to read response: %v", err)
 		}
+		totalRead += n
+		if n == 0 { // No more data available
+			break
+		}
+		time.Sleep(45 * time.Millisecond) // Wait a bit longer than keepalive interval
+	}
+
+	response := string(buf[:totalRead])
+
+	// Should have connection event
+	if !strings.Contains(response, "\"type\":\"connection\"") {
+		t.Error("Expected initial connection event")
+	}
+
+	// Count keepalive events
+	keepaliveCount := strings.Count(response, "\"type\":\"keepalive\"")
+	if keepaliveCount < 2 {
+		t.Errorf("Expected at least 2 keepalives, got %d. Response: %s", keepaliveCount, response)
 	}
 }

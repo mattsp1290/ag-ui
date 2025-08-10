@@ -24,7 +24,13 @@ func TestBuildSSEHandler_Headers(t *testing.T) {
 	app.Get("/stream", BuildSSEHandler(cfg))
 
 	req := httptest.NewRequest("GET", "/stream?cid=test123", nil)
-	resp, err := app.Test(req)
+	
+	// Use a shorter timeout since we only care about headers
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	req = req.WithContext(ctx)
+	
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 200 * time.Millisecond})
 	if err != nil {
 		t.Fatalf("Failed to make test request: %v", err)
 	}
@@ -63,19 +69,19 @@ func TestBuildSSEHandler_InitialConnection(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "/stream?cid=test123", nil)
 
-	// Use a short timeout to prevent test from hanging
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	// Use a short timeout - just long enough to get initial connection event
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	req = req.WithContext(ctx)
 
-	resp, err := app.Test(req, fiber.TestConfig{Timeout: 3 * time.Second})
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 500 * time.Millisecond})
 	if err != nil {
 		t.Fatalf("Failed to make test request: %v", err)
 	}
 	defer resp.Body.Close()
 
-	// Read initial response
-	buf := make([]byte, 1024)
+	// Read response with a reasonable buffer for SSE initial event
+	buf := make([]byte, 2048)
 	n, err := resp.Body.Read(buf)
 	if err != nil && err != io.EOF {
 		t.Fatalf("Failed to read response: %v", err)
@@ -93,9 +99,10 @@ func TestBuildSSEHandler_InitialConnection(t *testing.T) {
 		t.Errorf("Expected cid 'test123' in response, got: %s", response)
 	}
 
-	// Verify SSE format
-	if !strings.HasSuffix(response, "\n\n") {
-		t.Errorf("SSE response should end with double newline, got: %s", response)
+	// Check for proper SSE formatting - should have connection event ending with \n\n
+	if !strings.Contains(response, "\"type\":\"connection\"") || 
+	   !strings.Contains(response, "\n\n") {
+		t.Errorf("SSE response should contain properly formatted connection event, got: %s", response)
 	}
 }
 

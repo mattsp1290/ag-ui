@@ -45,8 +45,8 @@ const (
 	DefaultCORSEnabled  = true
 )
 
-// Default CORS allowed origins (secure by default)
-var DefaultCORSAllowedOrigins = []string{"http://localhost:3000", "http://localhost:8080"}
+// Default CORS allowed origins
+var DefaultCORSAllowedOrigins = []string{"*"}
 
 // Valid log levels
 var ValidLogLevels = map[string]slog.Level{

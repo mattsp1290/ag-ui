@@ -2,10 +2,10 @@ package main
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
-	"strconv"
 	"syscall"
 	"time"
 
@@ -14,48 +14,86 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/logger"
 	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/gofiber/fiber/v3/middleware/requestid"
+
+	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 )
 
 func main() {
-	log.Println("AG-UI Go Example Server starting...")
+	// Load configuration with proper precedence: flags > env > defaults
+	cfg, err := config.LoadConfig()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to load configuration: %v\n", err)
+		os.Exit(1)
+	}
 
-	// Create Fiber v3 app with configuration
+	// Set up structured logging
+	logLevel := cfg.GetLogLevel()
+	slogger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: logLevel,
+	}))
+	slog.SetDefault(slogger)
+
+	// Log the effective configuration
+	cfg.LogSafeConfig(slogger)
+
+	// Create Fiber app with updated configuration
 	app := fiber.New(fiber.Config{
-		AppName: "AG-UI Example Server",
+		AppName:      "AG-UI Example Server",
+		ReadTimeout:  cfg.ReadTimeout,
+		WriteTimeout: cfg.WriteTimeout,
 		ErrorHandler: func(c fiber.Ctx, err error) error {
 			code := fiber.StatusInternalServerError
 			if e, ok := err.(*fiber.Error); ok {
 				code = e.Code
 			}
+			slogger.Error("Request error", "error", err, "path", c.Path(), "method", c.Method(), "status", code)
 			return c.Status(code).JSON(fiber.Map{
-				"error": err.Error(),
+				"error":   true,
+				"message": err.Error(),
 			})
 		},
 	})
 
 	// Configure middleware stack
 	app.Use(requestid.New())
-	app.Use(recover.New())
-	app.Use(cors.New(cors.Config{
-		AllowOrigins:     []string{"*"},
-		AllowMethods:     []string{"GET", "POST", "HEAD", "PUT", "DELETE", "PATCH", "OPTIONS"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Request-ID"},
-		AllowCredentials: false,
-	}))
-	app.Use(logger.New(logger.Config{
-		Format: "${time} ${status} - ${method} ${path} - ${ip} - ${latency}\n",
+	app.Use(recover.New(recover.Config{
+		EnableStackTrace: logLevel == slog.LevelDebug,
 	}))
 
-	// Health check route
+	// Add CORS middleware if enabled
+	if cfg.CORSEnabled {
+		app.Use(cors.New(cors.Config{
+			AllowOrigins:     []string{"*"},
+			AllowMethods:     []string{"GET", "POST", "HEAD", "PUT", "DELETE", "PATCH", "OPTIONS"},
+			AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Request-ID"},
+			AllowCredentials: false,
+		}))
+	}
+
+	// Add structured request logging
+	app.Use(logger.New(logger.Config{
+		Format: "${time} | ${status} | ${latency} | ${ip} | ${method} | ${path} | ${error}\n",
+	}))
+
+	// Health check endpoint
 	app.Get("/health", func(c fiber.Ctx) error {
 		return c.JSON(fiber.Map{
-			"status":  "ok",
-			"service": "ag-ui-example-server",
-			"version": "1.0.0",
+			"status":  "healthy",
+			"service": "ag-ui-server",
 		})
 	})
 
-	// Basic info route
+	// Server info endpoint
+	app.Get("/info", func(c fiber.Ctx) error {
+		return c.JSON(fiber.Map{
+			"service":      "ag-ui-server",
+			"version":      "1.0.0",
+			"sse_enabled":  cfg.EnableSSE,
+			"cors_enabled": cfg.CORSEnabled,
+		})
+	})
+
+	// Basic info route (from main branch)
 	app.Get("/", func(c fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"message": "AG-UI Go Example Server is running!",
@@ -65,39 +103,48 @@ func main() {
 		})
 	})
 
-	// Get PORT from environment, default to 8080
-	port := "8080"
-	if envPort := os.Getenv("PORT"); envPort != "" {
-		if _, err := strconv.Atoi(envPort); err == nil {
-			port = envPort
-		} else {
-			log.Printf("Invalid PORT environment variable: %s, using default 8080", envPort)
-		}
+	// SSE endpoint (if enabled)
+	if cfg.EnableSSE {
+		app.Get("/events", func(c fiber.Ctx) error {
+			c.Set("Content-Type", "text/event-stream")
+			c.Set("Cache-Control", "no-cache")
+			c.Set("Connection", "keep-alive")
+			c.Set("Access-Control-Allow-Origin", "*")
+			c.Set("Access-Control-Allow-Headers", "Cache-Control")
+
+			// Send a simple SSE message
+			return c.SendString("data: {\"type\": \"connection\", \"message\": \"SSE connection established\"}\n\n")
+		})
 	}
 
-	// Start server in goroutine
+	// Start server in a goroutine
+	serverAddr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
+
 	go func() {
-		addr := "0.0.0.0:" + port
-		log.Printf("Server starting on http://%s", addr)
-		if err := app.Listen(addr); err != nil {
-			log.Fatalf("Failed to start server: %v", err)
+		slogger.Info("Starting server", "address", serverAddr)
+		if err := app.Listen(serverAddr); err != nil {
+			slogger.Error("Server failed to start", "error", err)
+			os.Exit(1)
 		}
 	}()
+
+	slogger.Info("Server started successfully", "address", serverAddr)
 
 	// Wait for interrupt signal to gracefully shutdown the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	log.Println("Server shutting down...")
+	slogger.Info("Shutting down server...")
 
 	// Graceful shutdown with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := app.ShutdownWithContext(ctx); err != nil {
-		log.Printf("Server shutdown error: %v", err)
+		slogger.Error("Server shutdown error", "error", err)
+		os.Exit(1)
 	}
 
-	log.Println("Server stopped")
+	slogger.Info("Server shutdown complete")
 }

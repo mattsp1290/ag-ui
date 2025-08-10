@@ -36,7 +36,11 @@ func TestSSEIntegration_FullFlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to make request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil && !strings.Contains(err.Error(), "EOF") {
+			t.Errorf("Failed to close response body: %v", err)
+		}
+	}()
 
 	// Verify headers first
 	if resp.Header.Get("Content-Type") != "text/event-stream" {
@@ -52,9 +56,9 @@ func TestSSEIntegration_FullFlow(t *testing.T) {
 		n, err := resp.Body.Read(buf[totalRead : totalRead+800])
 		if err != nil && err != io.EOF {
 			// Handle expected errors when connection is closed due to context timeout
-			if strings.Contains(err.Error(), "timeout") || 
-			   strings.Contains(err.Error(), "deadline") || 
-			   strings.Contains(err.Error(), "unexpected EOF") {
+			if strings.Contains(err.Error(), "timeout") ||
+				strings.Contains(err.Error(), "deadline") ||
+				strings.Contains(err.Error(), "unexpected EOF") {
 				break // Expected when context times out
 			}
 			t.Fatalf("Failed to read response chunk %d: %v", i, err)
@@ -103,7 +107,10 @@ func TestSSEIntegration_ClientDisconnect(t *testing.T) {
 		ctx := r.Context()
 
 		// Send initial event
-		fmt.Fprintf(w, "data: {\"type\":\"connection\"}\n\n")
+		if _, err := fmt.Fprintf(w, "data: {\"type\":\"connection\"}\n\n"); err != nil {
+			t.Logf("Failed to write SSE event: %v", err)
+			return
+		}
 		flusher.Flush()
 
 		// Keepalive loop that should detect disconnection
@@ -140,7 +147,9 @@ func TestSSEIntegration_ClientDisconnect(t *testing.T) {
 			t.Fatalf("Unexpected error: %v", err)
 		}
 	} else {
-		resp.Body.Close() // Close immediately to simulate disconnect
+		if err := resp.Body.Close(); err != nil && !strings.Contains(err.Error(), "EOF") {
+			t.Logf("Failed to close response body: %v", err)
+		}
 	}
 
 	// Wait for disconnect detection
@@ -163,16 +172,20 @@ func TestSSEIntegration_HeaderValidation(t *testing.T) {
 
 	// Use fiber test method for header validation with timeout
 	req := httptest.NewRequest("GET", "/stream", nil)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	req = req.WithContext(ctx)
-	
+
 	resp, err := app.Test(req, fiber.TestConfig{Timeout: 200 * time.Millisecond})
 	if err != nil {
 		t.Fatalf("Failed to make test request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil && !strings.Contains(err.Error(), "EOF") {
+			t.Errorf("Failed to close response body: %v", err)
+		}
+	}()
 
 	requiredHeaders := map[string]string{
 		"Content-Type":                 "text/event-stream",
@@ -222,7 +235,11 @@ func TestSSEIntegration_ConcurrentConnections(t *testing.T) {
 				t.Errorf("Connection %d failed: %v", connID, err)
 				return
 			}
-			defer resp.Body.Close()
+			defer func() {
+		if err := resp.Body.Close(); err != nil && !strings.Contains(err.Error(), "EOF") {
+			t.Errorf("Failed to close response body: %v", err)
+		}
+	}()
 
 			// Verify each connection gets proper headers
 			if resp.Header.Get("Content-Type") != "text/event-stream" {
@@ -272,7 +289,11 @@ func TestSSEIntegration_KeepaliveInterval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to make request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil && !strings.Contains(err.Error(), "EOF") {
+			t.Errorf("Failed to close response body: %v", err)
+		}
+	}()
 
 	// Read response in chunks to capture keepalive events
 	buf := make([]byte, 2048)
@@ -283,9 +304,9 @@ func TestSSEIntegration_KeepaliveInterval(t *testing.T) {
 		n, err := resp.Body.Read(buf[totalRead : totalRead+500])
 		if err != nil && err != io.EOF {
 			// Handle expected errors when connection is closed due to context timeout
-			if strings.Contains(err.Error(), "timeout") || 
-			   strings.Contains(err.Error(), "deadline") || 
-			   strings.Contains(err.Error(), "unexpected EOF") {
+			if strings.Contains(err.Error(), "timeout") ||
+				strings.Contains(err.Error(), "deadline") ||
+				strings.Contains(err.Error(), "unexpected EOF") {
 				break // Expected when context times out
 			}
 			t.Fatalf("Failed to read response: %v", err)

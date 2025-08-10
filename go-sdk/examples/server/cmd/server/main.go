@@ -16,6 +16,7 @@ import (
 	"github.com/gofiber/fiber/v3/middleware/requestid"
 
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
+	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/encoding"
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/transport/sse"
 )
 
@@ -64,12 +65,19 @@ func main() {
 	// Add CORS middleware if enabled
 	if cfg.CORSEnabled {
 		app.Use(cors.New(cors.Config{
-			AllowOrigins:     []string{"*"},
+			AllowOrigins:     cfg.CORSAllowedOrigins,
 			AllowMethods:     []string{"GET", "POST", "HEAD", "PUT", "DELETE", "PATCH", "OPTIONS"},
 			AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", "X-Request-ID"},
 			AllowCredentials: false,
 		}))
 	}
+
+	// Add content negotiation middleware for all routes
+	app.Use(encoding.ContentNegotiationMiddleware(encoding.ContentNegotiationConfig{
+		DefaultContentType: "application/json",
+		SupportedTypes:     []string{"application/json", "application/vnd.ag-ui+json"},
+		EnableLogging:      logLevel == slog.LevelDebug,
+	}))
 
 	// Add structured request logging
 	app.Use(logger.New(logger.Config{
@@ -117,9 +125,12 @@ func main() {
 			// Send a simple SSE message
 			return c.SendString("data: {\"type\": \"connection\", \"message\": \"SSE connection established\"}\n\n")
 		})
-		
-		// New SSE transport endpoint with full streaming capabilities
-		app.Get("/examples/_internal/stream", sse.BuildSSEHandler(cfg))
+
+		// Enhanced SSE transport endpoint with proper event encoding and validation
+		app.Get("/examples/_internal/stream", sse.BuildEnhancedSSEHandler(cfg))
+
+		// Keep the original handler for backwards compatibility
+		app.Get("/examples/_internal/stream/legacy", sse.BuildSSEHandler(cfg))
 	}
 
 	// Start server in a goroutine

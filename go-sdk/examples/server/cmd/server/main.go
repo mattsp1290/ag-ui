@@ -148,6 +148,9 @@ func main() {
 		// Shared state routes
 		app.Get("/examples/shared-state", routes.SharedStateHandler(cfg))
 		app.Post("/examples/shared-state/update", routes.SharedStateUpdateHandler(cfg))
+
+		// Predictive state updates route
+		app.Get("/examples/state/predictive", routes.PredictiveStateHandler(cfg))
 	}
 
 	// Start server in a goroutine

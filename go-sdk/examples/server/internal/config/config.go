@@ -29,7 +29,8 @@ type Config struct {
 	SSEKeepAlive time.Duration
 
 	// CORS settings
-	CORSEnabled bool
+	CORSEnabled        bool
+	CORSAllowedOrigins []string
 }
 
 // Default configuration values
@@ -44,6 +45,9 @@ const (
 	DefaultCORSEnabled  = true
 )
 
+// Default CORS allowed origins (secure by default)
+var DefaultCORSAllowedOrigins = []string{"http://localhost:3000", "http://localhost:8080"}
+
 // Valid log levels
 var ValidLogLevels = map[string]slog.Level{
 	"debug": slog.LevelDebug,
@@ -55,14 +59,15 @@ var ValidLogLevels = map[string]slog.Level{
 // New creates a new Config with default values
 func New() *Config {
 	return &Config{
-		Host:         DefaultHost,
-		Port:         DefaultPort,
-		LogLevel:     DefaultLogLevel,
-		EnableSSE:    DefaultEnableSSE,
-		ReadTimeout:  DefaultReadTimeout,
-		WriteTimeout: DefaultWriteTimeout,
-		SSEKeepAlive: DefaultSSEKeepAlive,
-		CORSEnabled:  DefaultCORSEnabled,
+		Host:               DefaultHost,
+		Port:               DefaultPort,
+		LogLevel:           DefaultLogLevel,
+		EnableSSE:          DefaultEnableSSE,
+		ReadTimeout:        DefaultReadTimeout,
+		WriteTimeout:       DefaultWriteTimeout,
+		SSEKeepAlive:       DefaultSSEKeepAlive,
+		CORSEnabled:        DefaultCORSEnabled,
+		CORSAllowedOrigins: DefaultCORSAllowedOrigins,
 	}
 }
 
@@ -122,6 +127,14 @@ func (c *Config) LoadFromEnv() error {
 			return fmt.Errorf("invalid AGUI_CORS_ENABLED value '%s': %w", corsEnabledStr, err)
 		}
 		c.CORSEnabled = corsEnabled
+	}
+
+	if corsOriginsStr := os.Getenv("AGUI_CORS_ORIGINS"); corsOriginsStr != "" {
+		origins := strings.Split(corsOriginsStr, ",")
+		for i, origin := range origins {
+			origins[i] = strings.TrimSpace(origin)
+		}
+		c.CORSAllowedOrigins = origins
 	}
 
 	return nil

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -11,12 +10,13 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/cors"
-	"github.com/gofiber/fiber/v3/middleware/logger"
-	"github.com/gofiber/fiber/v3/middleware/recover"
 	"github.com/gofiber/fiber/v3/middleware/requestid"
+	"github.com/sirupsen/logrus"
 
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/encoding"
+	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/logging"
+	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/middleware"
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/transport/sse"
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/routes"
 )
@@ -29,15 +29,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	// Set up structured logging
-	logLevel := cfg.GetLogLevel()
-	slogger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
-		Level: logLevel,
-	}))
-	slog.SetDefault(slogger)
+	// Set up structured logging with logrus
+	logger, err := logging.Init(logging.Config{
+		Level:        cfg.LogLevel,
+		EnableCaller: cfg.LogLevel == "debug",
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to initialize logger: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Log the effective configuration
-	cfg.LogSafeConfig(slogger)
+	logger.WithFields(logrus.Fields{
+		"host":                  cfg.Host,
+		"port":                  cfg.Port,
+		"log_level":             cfg.LogLevel,
+		"enable_sse":            cfg.EnableSSE,
+		"read_timeout":          cfg.ReadTimeout,
+		"write_timeout":         cfg.WriteTimeout,
+		"sse_keepalive":         cfg.SSEKeepAlive,
+		"cors_enabled":          cfg.CORSEnabled,
+		"streaming_chunk_delay": cfg.StreamingChunkDelay,
+	}).Info("Server configuration loaded")
 
 	// Create Fiber app with updated configuration
 	app := fiber.New(fiber.Config{
@@ -49,7 +62,14 @@ func main() {
 			if e, ok := err.(*fiber.Error); ok {
 				code = e.Code
 			}
-			slogger.Error("Request error", "error", err, "path", c.Path(), "method", c.Method(), "status", code)
+
+			// Use request logger if available, otherwise use main logger
+			entry := middleware.GetLogger(c)
+			entry.WithFields(logrus.Fields{
+				"error":  err.Error(),
+				"status": code,
+			}).Error("Request error")
+
 			return c.Status(code).JSON(fiber.Map{
 				"error":   true,
 				"message": err.Error(),
@@ -57,11 +77,11 @@ func main() {
 		},
 	})
 
-	// Configure middleware stack
+	// Configure middleware stack in proper order
 	app.Use(requestid.New())
-	app.Use(recover.New(recover.Config{
-		EnableStackTrace: logLevel == slog.LevelDebug,
-	}))
+	app.Use(middleware.RequestContext(logger))
+	app.Use(middleware.Recovery())
+	app.Use(middleware.AccessLog())
 
 	// Add CORS middleware if enabled
 	if cfg.CORSEnabled {
@@ -77,12 +97,7 @@ func main() {
 	app.Use(encoding.ContentNegotiationMiddleware(encoding.ContentNegotiationConfig{
 		DefaultContentType: "application/json",
 		SupportedTypes:     []string{"application/json", "application/vnd.ag-ui+json"},
-		EnableLogging:      logLevel == slog.LevelDebug,
-	}))
-
-	// Add structured request logging
-	app.Use(logger.New(logger.Config{
-		Format: "${time} | ${status} | ${latency} | ${ip} | ${method} | ${path} | ${error}\n",
+		EnableLogging:      cfg.LogLevel == "debug",
 	}))
 
 	// Health check endpoint
@@ -157,30 +172,30 @@ func main() {
 	serverAddr := fmt.Sprintf("%s:%d", cfg.Host, cfg.Port)
 
 	go func() {
-		slogger.Info("Starting server", "address", serverAddr)
+		logger.WithField("address", serverAddr).Info("Starting server")
 		if err := app.Listen(serverAddr); err != nil {
-			slogger.Error("Server failed to start", "error", err)
+			logger.WithError(err).Error("Server failed to start")
 			os.Exit(1)
 		}
 	}()
 
-	slogger.Info("Server started successfully", "address", serverAddr)
+	logger.WithField("address", serverAddr).Info("Server started successfully")
 
 	// Wait for interrupt signal to gracefully shutdown the server
 	quit := make(chan os.Signal, 1)
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
 
-	slogger.Info("Shutting down server...")
+	logger.Info("Shutting down server...")
 
 	// Graceful shutdown with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
 	if err := app.ShutdownWithContext(ctx); err != nil {
-		slogger.Error("Server shutdown error", "error", err)
+		logger.WithError(err).Error("Server shutdown error")
 		os.Exit(1)
 	}
 
-	slogger.Info("Server shutdown complete")
+	logger.Info("Server shutdown complete")
 }

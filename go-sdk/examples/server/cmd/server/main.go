@@ -135,6 +135,9 @@ func main() {
 
 		// Agentic chat route with deterministic event sequence
 		app.Get("/examples/agentic-chat", routes.AgenticChatHandler(cfg))
+
+		// Human-in-the-loop route with conditional branching
+		app.Post("/human_in_the_loop", routes.HumanInTheLoopHandler(cfg))
 	}
 
 	// Start server in a goroutine

@@ -31,18 +31,22 @@ type Config struct {
 	// CORS settings
 	CORSEnabled        bool
 	CORSAllowedOrigins []string
+	
+	// Streaming settings
+	StreamingChunkDelay time.Duration
 }
 
 // Default configuration values
 const (
-	DefaultHost         = "0.0.0.0"
-	DefaultPort         = 8080
-	DefaultLogLevel     = "info"
-	DefaultEnableSSE    = true
-	DefaultReadTimeout  = 30 * time.Second
-	DefaultWriteTimeout = 30 * time.Second
-	DefaultSSEKeepAlive = 15 * time.Second
-	DefaultCORSEnabled  = true
+	DefaultHost                = "0.0.0.0"
+	DefaultPort                = 8080
+	DefaultLogLevel            = "info"
+	DefaultEnableSSE           = true
+	DefaultReadTimeout         = 30 * time.Second
+	DefaultWriteTimeout        = 30 * time.Second
+	DefaultSSEKeepAlive        = 15 * time.Second
+	DefaultCORSEnabled         = true
+	DefaultStreamingChunkDelay = 200 * time.Millisecond
 )
 
 // Default CORS allowed origins
@@ -59,15 +63,16 @@ var ValidLogLevels = map[string]slog.Level{
 // New creates a new Config with default values
 func New() *Config {
 	return &Config{
-		Host:               DefaultHost,
-		Port:               DefaultPort,
-		LogLevel:           DefaultLogLevel,
-		EnableSSE:          DefaultEnableSSE,
-		ReadTimeout:        DefaultReadTimeout,
-		WriteTimeout:       DefaultWriteTimeout,
-		SSEKeepAlive:       DefaultSSEKeepAlive,
-		CORSEnabled:        DefaultCORSEnabled,
-		CORSAllowedOrigins: DefaultCORSAllowedOrigins,
+		Host:                DefaultHost,
+		Port:                DefaultPort,
+		LogLevel:            DefaultLogLevel,
+		EnableSSE:           DefaultEnableSSE,
+		ReadTimeout:         DefaultReadTimeout,
+		WriteTimeout:        DefaultWriteTimeout,
+		SSEKeepAlive:        DefaultSSEKeepAlive,
+		CORSEnabled:         DefaultCORSEnabled,
+		CORSAllowedOrigins:  DefaultCORSAllowedOrigins,
+		StreamingChunkDelay: DefaultStreamingChunkDelay,
 	}
 }
 
@@ -137,6 +142,14 @@ func (c *Config) LoadFromEnv() error {
 		c.CORSAllowedOrigins = origins
 	}
 
+	if streamingChunkDelayStr := os.Getenv("AGUI_STREAMING_CHUNK_DELAY"); streamingChunkDelayStr != "" {
+		streamingChunkDelay, err := time.ParseDuration(streamingChunkDelayStr)
+		if err != nil {
+			return fmt.Errorf("invalid AGUI_STREAMING_CHUNK_DELAY value '%s': %w", streamingChunkDelayStr, err)
+		}
+		c.StreamingChunkDelay = streamingChunkDelay
+	}
+
 	return nil
 }
 
@@ -169,6 +182,10 @@ func (c *Config) Validate() error {
 
 	if c.SSEKeepAlive < 0 {
 		errs = append(errs, fmt.Errorf("SSE keep-alive must be non-negative, got %v", c.SSEKeepAlive))
+	}
+
+	if c.StreamingChunkDelay < 0 {
+		errs = append(errs, fmt.Errorf("streaming chunk delay must be non-negative, got %v", c.StreamingChunkDelay))
 	}
 
 	if len(errs) > 0 {
@@ -249,5 +266,6 @@ func (c *Config) LogSafeConfig(logger *slog.Logger) {
 		"write_timeout", c.WriteTimeout,
 		"sse_keepalive", c.SSEKeepAlive,
 		"cors_enabled", c.CORSEnabled,
+		"streaming_chunk_delay", c.StreamingChunkDelay,
 	)
 }

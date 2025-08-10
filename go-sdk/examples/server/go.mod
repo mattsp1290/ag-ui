@@ -12,6 +12,7 @@ require (
 	github.com/gofiber/fiber/v3 v3.0.0-beta.5
 	github.com/mattbaird/jsonpatch v0.0.0-20240118010651-0ba75a80ca38
 	github.com/mattsp1290/ag-ui/go-sdk v0.0.0-00010101000000-000000000000
+	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.10.0
 	github.com/valyala/fasthttp v1.64.0
 )

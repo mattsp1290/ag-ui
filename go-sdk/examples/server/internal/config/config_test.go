@@ -88,16 +88,22 @@ func TestLoadFromEnv(t *testing.T) {
 
 			// Set test environment variables
 			for key, value := range tt.envVars {
-				os.Setenv(key, value)
+				if err := os.Setenv(key, value); err != nil {
+					t.Fatalf("Failed to set environment variable %s: %v", key, err)
+				}
 			}
 
 			// Restore environment after test
 			defer func() {
 				for key := range tt.envVars {
 					if originalValue, exists := originalEnv[key]; exists {
-						os.Setenv(key, originalValue)
+						if err := os.Setenv(key, originalValue); err != nil {
+							t.Errorf("Failed to restore environment variable %s: %v", key, err)
+						}
 					} else {
-						os.Unsetenv(key)
+						if err := os.Unsetenv(key); err != nil {
+							t.Errorf("Failed to unset environment variable %s: %v", key, err)
+						}
 					}
 				}
 			}()
@@ -269,16 +275,24 @@ func TestLoadConfig_Precedence(t *testing.T) {
 	defer func() {
 		for key, value := range originalEnv {
 			if value != "" {
-				os.Setenv(key, value)
+				if err := os.Setenv(key, value); err != nil {
+					t.Errorf("Failed to restore environment variable %s: %v", key, err)
+				}
 			} else {
-				os.Unsetenv(key)
+				if err := os.Unsetenv(key); err != nil {
+					t.Errorf("Failed to unset environment variable %s: %v", key, err)
+				}
 			}
 		}
 	}()
 
 	// Set environment variables
-	os.Setenv("AGUI_HOST", "env-host")
-	os.Setenv("AGUI_PORT", "9999")
+	if err := os.Setenv("AGUI_HOST", "env-host"); err != nil {
+		t.Fatalf("Failed to set AGUI_HOST: %v", err)
+	}
+	if err := os.Setenv("AGUI_PORT", "9999"); err != nil {
+		t.Fatalf("Failed to set AGUI_PORT: %v", err)
+	}
 
 	// Set up command line arguments (flags should override env)
 	oldArgs := os.Args

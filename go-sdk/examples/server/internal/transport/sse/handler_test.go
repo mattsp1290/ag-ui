@@ -24,17 +24,21 @@ func TestBuildSSEHandler_Headers(t *testing.T) {
 	app.Get("/stream", BuildSSEHandler(cfg))
 
 	req := httptest.NewRequest("GET", "/stream?cid=test123", nil)
-	
+
 	// Use a shorter timeout since we only care about headers
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	req = req.WithContext(ctx)
-	
+
 	resp, err := app.Test(req, fiber.TestConfig{Timeout: 200 * time.Millisecond})
 	if err != nil {
 		t.Fatalf("Failed to make test request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil && !strings.Contains(err.Error(), "EOF") {
+			t.Errorf("Failed to close response body: %v", err)
+		}
+	}()
 
 	// Check required SSE headers
 	expectedHeaders := map[string]string{
@@ -78,7 +82,11 @@ func TestBuildSSEHandler_InitialConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to make test request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil && !strings.Contains(err.Error(), "EOF") {
+			t.Errorf("Failed to close response body: %v", err)
+		}
+	}()
 
 	// Read response with a reasonable buffer for SSE initial event
 	buf := make([]byte, 2048)
@@ -100,8 +108,8 @@ func TestBuildSSEHandler_InitialConnection(t *testing.T) {
 	}
 
 	// Check for proper SSE formatting - should have connection event ending with \n\n
-	if !strings.Contains(response, "\"type\":\"connection\"") || 
-	   !strings.Contains(response, "\n\n") {
+	if !strings.Contains(response, "\"type\":\"connection\"") ||
+		!strings.Contains(response, "\n\n") {
 		t.Errorf("SSE response should contain properly formatted connection event, got: %s", response)
 	}
 }
@@ -126,7 +134,11 @@ func TestBuildSSEHandler_KeepaliveInterval(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to make test request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil && !strings.Contains(err.Error(), "EOF") {
+			t.Errorf("Failed to close response body: %v", err)
+		}
+	}()
 
 	// Read response data for a short time to capture keepalives
 	buf := make([]byte, 2048)
@@ -202,7 +214,11 @@ func TestBuildSSEHandler_ConfigIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to make test request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil && !strings.Contains(err.Error(), "EOF") {
+			t.Errorf("Failed to close response body: %v", err)
+		}
+	}()
 
 	// Read some data
 	buf := make([]byte, 1024)
@@ -224,15 +240,6 @@ func TestGetConnectionCount(t *testing.T) {
 	}
 }
 
-// Test helper to create a test app with SSE handler
-func createTestApp(cfg *config.Config) *fiber.App {
-	app := fiber.New()
-	app.Use(requestid.New())
-	if cfg.EnableSSE {
-		app.Get("/stream", BuildSSEHandler(cfg))
-	}
-	return app
-}
 
 func TestBuildSSEHandler_WithoutRequestID(t *testing.T) {
 	cfg := config.New()
@@ -253,7 +260,11 @@ func TestBuildSSEHandler_WithoutRequestID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to make test request: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil && !strings.Contains(err.Error(), "EOF") {
+			t.Errorf("Failed to close response body: %v", err)
+		}
+	}()
 
 	// Should still work even without request ID middleware
 	buf := make([]byte, 512)

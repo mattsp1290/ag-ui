@@ -236,10 +236,10 @@ func TestSSEIntegration_ConcurrentConnections(t *testing.T) {
 				return
 			}
 			defer func() {
-		if err := resp.Body.Close(); err != nil && !strings.Contains(err.Error(), "EOF") {
-			t.Errorf("Failed to close response body: %v", err)
-		}
-	}()
+				if err := resp.Body.Close(); err != nil && !strings.Contains(err.Error(), "EOF") {
+					t.Errorf("Failed to close response body: %v", err)
+				}
+			}()
 
 			// Verify each connection gets proper headers
 			if resp.Header.Get("Content-Type") != "text/event-stream" {

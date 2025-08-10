@@ -141,6 +141,9 @@ func main() {
 
 		// Agentic generative UI route with state updates
 		app.Get("/examples/agentic-generative-ui", routes.AgenticGenerativeUIHandler(cfg))
+
+		// Tool-based generative UI route with tool call demonstration
+		app.Get("/examples/tool-based-generative-ui", routes.ToolBasedGenerativeUIHandler(cfg))
 	}
 
 	// Start server in a goroutine

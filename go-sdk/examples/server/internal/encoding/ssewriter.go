@@ -160,7 +160,7 @@ type flusher interface {
 // CustomEvent is a simple implementation of events.Event for error and custom events
 type CustomEvent struct {
 	events.BaseEvent
-	mu   sync.RWMutex                 // Protect concurrent map access
+	mu   sync.RWMutex           // Protect concurrent map access
 	data map[string]interface{} // Thread-safe access via Data()/SetData() methods
 }
 

@@ -240,7 +240,6 @@ func TestGetConnectionCount(t *testing.T) {
 	}
 }
 
-
 func TestBuildSSEHandler_WithoutRequestID(t *testing.T) {
 	cfg := config.New()
 	cfg.EnableSSE = true

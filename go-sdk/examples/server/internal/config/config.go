@@ -31,7 +31,7 @@ type Config struct {
 	// CORS settings
 	CORSEnabled        bool
 	CORSAllowedOrigins []string
-	
+
 	// Streaming settings
 	StreamingChunkDelay time.Duration
 }

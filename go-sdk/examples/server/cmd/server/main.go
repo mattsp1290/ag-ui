@@ -138,6 +138,9 @@ func main() {
 
 		// Human-in-the-loop route with conditional branching
 		app.Post("/human_in_the_loop", routes.HumanInTheLoopHandler(cfg))
+
+		// Agentic generative UI route with state updates
+		app.Get("/examples/agentic-generative-ui", routes.AgenticGenerativeUIHandler(cfg))
 	}
 
 	// Start server in a goroutine

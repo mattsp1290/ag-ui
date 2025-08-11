@@ -8,9 +8,10 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/encoding"
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // AgenticGenerativeUIHandler creates a Fiber handler for the agentic generative UI route
@@ -69,7 +70,7 @@ func streamAgenticGenerativeUIEvents(reqCtx context.Context, w *bufio.Writer, ss
 
 	// Check for cancellation
 	if err := reqCtx.Err(); err != nil {
-		logger.Debug("Client disconnected during RUN_STARTED", append(logCtx, "reason", "context_cancelled")...)
+		logger.Debug("Client disconnected during RUN_STARTED", append(logCtx, "reason", "context_canceled")...)
 		return nil
 	}
 
@@ -100,7 +101,7 @@ func streamAgenticGenerativeUIEvents(reqCtx context.Context, w *bufio.Writer, ss
 
 	// Check for cancellation
 	if err := reqCtx.Err(); err != nil {
-		logger.Debug("Client disconnected after initial snapshot", append(logCtx, "reason", "context_cancelled")...)
+		logger.Debug("Client disconnected after initial snapshot", append(logCtx, "reason", "context_canceled")...)
 		return nil
 	}
 
@@ -108,7 +109,7 @@ func streamAgenticGenerativeUIEvents(reqCtx context.Context, w *bufio.Writer, ss
 	for i := 0; i < 10; i++ {
 		// Check for cancellation before each step
 		if err := reqCtx.Err(); err != nil {
-			logger.Debug("Client disconnected during step updates", append(logCtx, "step", i+1, "reason", "context_cancelled")...)
+			logger.Debug("Client disconnected during step updates", append(logCtx, "step", i+1, "reason", "context_canceled")...)
 			return nil
 		}
 
@@ -137,7 +138,7 @@ func streamAgenticGenerativeUIEvents(reqCtx context.Context, w *bufio.Writer, ss
 
 	// Check for cancellation before final snapshot
 	if err := reqCtx.Err(); err != nil {
-		logger.Debug("Client disconnected before final snapshot", append(logCtx, "reason", "context_cancelled")...)
+		logger.Debug("Client disconnected before final snapshot", append(logCtx, "reason", "context_canceled")...)
 		return nil
 	}
 

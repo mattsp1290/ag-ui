@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/state"
 )
@@ -18,7 +19,7 @@ import (
 var sharedStore = state.NewStore().WithLogger(slog.Default())
 
 // SharedStateHandler creates the SSE endpoint for shared state streaming
-func SharedStateHandler(cfg *config.Config) fiber.Handler {
+func SharedStateHandler(_ *config.Config) fiber.Handler {
 	logger := slog.Default()
 
 	return func(c fiber.Ctx) error {
@@ -92,8 +93,8 @@ func SharedStateHandler(cfg *config.Config) fiber.Handler {
 					return
 
 				case <-connCtx.Done():
-					// Context cancelled
-					logger.Info("Shared state SSE connection closed", append(logCtx, "reason", "context_cancelled")...)
+					// Context canceled
+					logger.Info("Shared state SSE connection closed", append(logCtx, "reason", "context_canceled")...)
 					return
 
 				case delta := <-watcher.Channel():
@@ -148,7 +149,7 @@ func SharedStateHandler(cfg *config.Config) fiber.Handler {
 }
 
 // SharedStateUpdateHandler handles POST requests to update shared state
-func SharedStateUpdateHandler(cfg *config.Config) fiber.Handler {
+func SharedStateUpdateHandler(_ *config.Config) fiber.Handler {
 	logger := slog.Default()
 
 	return func(c fiber.Ctx) error {

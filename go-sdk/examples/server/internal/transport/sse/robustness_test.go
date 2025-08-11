@@ -11,6 +11,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/requestid"
+
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 )
 
@@ -106,7 +107,7 @@ func TestSSEHandler_ConcurrentConnections(t *testing.T) {
 			}()
 
 			req := httptest.NewRequest("GET", fmt.Sprintf("/stream?cid=concurrent_%d", connID), nil)
-			
+
 			ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 			defer cancel()
 			req = req.WithContext(ctx)
@@ -157,7 +158,7 @@ func TestSSEHandler_BasicFunctionality(t *testing.T) {
 
 	// Single connection test
 	req := httptest.NewRequest("GET", "/stream?cid=basic_test", nil)
-	
+
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
 	req = req.WithContext(ctx)
@@ -171,7 +172,7 @@ func TestSSEHandler_BasicFunctionality(t *testing.T) {
 		}
 		t.Fatalf("Unexpected error: %v", err)
 	}
-	
+
 	defer func() {
 		if err := resp.Body.Close(); err != nil && !strings.Contains(err.Error(), "EOF") {
 			t.Logf("Response close: %v", err)
@@ -230,12 +231,12 @@ func TestEnhancedSSEHandler_EventCycle(t *testing.T) {
 
 	req := httptest.NewRequest("GET", "/enhanced-stream?cid=event_cycle", nil)
 
-	// Use a shorter duration to avoid EOF issues
-	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
+	// Extend duration to capture at least one keepalive reliably
+	ctx, cancel := context.WithTimeout(context.Background(), 600*time.Millisecond)
 	defer cancel()
 	req = req.WithContext(ctx)
 
-	resp, err := app.Test(req, fiber.TestConfig{Timeout: 300 * time.Millisecond})
+	resp, err := app.Test(req, fiber.TestConfig{Timeout: 800 * time.Millisecond})
 	if err != nil {
 		t.Fatalf("Failed to make test request: %v", err)
 	}
@@ -250,10 +251,10 @@ func TestEnhancedSSEHandler_EventCycle(t *testing.T) {
 	totalRead := 0
 
 	for totalRead < len(buf)-100 {
-		n, err := resp.Body.Read(buf[totalRead:totalRead+100])
+		n, err := resp.Body.Read(buf[totalRead : totalRead+100])
 		if err != nil {
-			if err == io.EOF || strings.Contains(err.Error(), "context deadline exceeded") || 
-			   strings.Contains(err.Error(), "unexpected EOF") {
+			if err == io.EOF || strings.Contains(err.Error(), "context deadline exceeded") ||
+				strings.Contains(err.Error(), "unexpected EOF") {
 				// These are expected when context is cancelled
 				break
 			}
@@ -261,7 +262,7 @@ func TestEnhancedSSEHandler_EventCycle(t *testing.T) {
 			break
 		}
 		totalRead += n
-		
+
 		// Give time for more events
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -271,6 +272,11 @@ func TestEnhancedSSEHandler_EventCycle(t *testing.T) {
 	// Should have connection event (at minimum)
 	if !strings.Contains(response, "event: connection") && !strings.Contains(response, "\"type\":\"connection\"") {
 		t.Errorf("Expected connection event in enhanced response, got: %s", response)
+	}
+
+	// Should include at least one keepalive during the extended window
+	if !strings.Contains(response, "event: keepalive") || !strings.Contains(response, "\"type\":\"keepalive\"") {
+		t.Errorf("Expected keepalive event(s) in enhanced response, got: %s", response)
 	}
 
 	// Log what we received for debugging
@@ -350,7 +356,7 @@ func TestSSEHandler_LongRunning(t *testing.T) {
 		n, err := resp.Body.Read(buf[totalRead:])
 		if err != nil {
 			if err == io.EOF || strings.Contains(err.Error(), "context deadline exceeded") ||
-			   strings.Contains(err.Error(), "unexpected EOF") {
+				strings.Contains(err.Error(), "unexpected EOF") {
 				// These are expected when context is cancelled
 				break
 			}

@@ -11,11 +11,12 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 )
 
 // PredictiveStateHandler creates the SSE endpoint for predictive state updates
-func PredictiveStateHandler(cfg *config.Config) fiber.Handler {
+func PredictiveStateHandler(_ *config.Config) fiber.Handler {
 	logger := slog.Default()
 
 	return func(c fiber.Ctx) error {
@@ -105,7 +106,7 @@ func runPredictiveStateSequence(ctx context.Context, w *bufio.Writer, logger *sl
 			LastUpdated: time.Now(),
 			Version:     2,
 		}
-		reconciliationDelta = createCorrectiveDelta(initialState, newState, predictionID)
+		reconciliationDelta = createCorrectiveDelta(newState, predictionID)
 		logger.Debug("Prediction was incorrect, sending correction", append(logCtx, "prediction_id", predictionID)...)
 	}
 
@@ -229,7 +230,7 @@ func createConfirmingDelta(predictionID string) *StateDelta {
 }
 
 // createCorrectiveDelta creates a corrective STATE_DELTA event
-func createCorrectiveDelta(currentState, actualState *DemoState, predictionID string) *StateDelta {
+func createCorrectiveDelta(actualState *DemoState, predictionID string) *StateDelta {
 	// Create patches to correct the state
 	patches := []map[string]interface{}{
 		{

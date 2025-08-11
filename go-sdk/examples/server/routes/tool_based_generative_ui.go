@@ -9,13 +9,14 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/encoding"
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // ToolBasedGenerativeUIHandler creates a Fiber handler for the tool-based generative UI route
-func ToolBasedGenerativeUIHandler(cfg *config.Config) fiber.Handler {
+func ToolBasedGenerativeUIHandler(_ *config.Config) fiber.Handler {
 	logger := slog.Default()
 	sseWriter := encoding.NewSSEWriter().WithLogger(logger)
 
@@ -46,7 +47,7 @@ func ToolBasedGenerativeUIHandler(cfg *config.Config) fiber.Handler {
 
 		// Start streaming
 		return c.SendStreamWriter(func(w *bufio.Writer) {
-			if err := streamToolBasedGenerativeUIEvents(ctx, w, sseWriter, cfg, logger, logCtx); err != nil {
+			if err := streamToolBasedGenerativeUIEvents(ctx, w, sseWriter, nil, logger, logCtx); err != nil {
 				logger.Error("Error streaming tool-based generative UI events", append(logCtx, "error", err)...)
 			}
 		})
@@ -54,7 +55,7 @@ func ToolBasedGenerativeUIHandler(cfg *config.Config) fiber.Handler {
 }
 
 // streamToolBasedGenerativeUIEvents implements the tool-based generative UI event sequence
-func streamToolBasedGenerativeUIEvents(reqCtx context.Context, w *bufio.Writer, sseWriter *encoding.SSEWriter, cfg *config.Config, logger *slog.Logger, logCtx []any) error {
+func streamToolBasedGenerativeUIEvents(reqCtx context.Context, w *bufio.Writer, sseWriter *encoding.SSEWriter, _ *config.Config, logger *slog.Logger, logCtx []any) error {
 	// Generate IDs for this session
 	threadID := events.GenerateThreadID()
 	runID := events.GenerateRunID()
@@ -70,7 +71,7 @@ func streamToolBasedGenerativeUIEvents(reqCtx context.Context, w *bufio.Writer, 
 
 	// Check for cancellation
 	if err := reqCtx.Err(); err != nil {
-		logger.Debug("Client disconnected during RUN_STARTED", append(logCtx, "reason", "context_cancelled")...)
+		logger.Debug("Client disconnected during RUN_STARTED", append(logCtx, "reason", "context_canceled")...)
 		return nil
 	}
 
@@ -120,7 +121,7 @@ func streamToolBasedGenerativeUIEvents(reqCtx context.Context, w *bufio.Writer, 
 
 	// Check for cancellation before sending messages
 	if err := reqCtx.Err(); err != nil {
-		logger.Debug("Client disconnected before messages snapshot", append(logCtx, "reason", "context_cancelled")...)
+		logger.Debug("Client disconnected before messages snapshot", append(logCtx, "reason", "context_canceled")...)
 		return nil
 	}
 
@@ -135,7 +136,7 @@ func streamToolBasedGenerativeUIEvents(reqCtx context.Context, w *bufio.Writer, 
 
 	// Check for cancellation before final event
 	if err := reqCtx.Err(); err != nil {
-		logger.Debug("Client disconnected before RUN_FINISHED", append(logCtx, "reason", "context_cancelled")...)
+		logger.Debug("Client disconnected before RUN_FINISHED", append(logCtx, "reason", "context_canceled")...)
 		return nil
 	}
 

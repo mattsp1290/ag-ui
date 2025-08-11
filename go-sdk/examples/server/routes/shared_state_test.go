@@ -13,10 +13,11 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
-	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/state"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
+	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/state"
 )
 
 func TestSharedStateUpdateHandler(t *testing.T) {

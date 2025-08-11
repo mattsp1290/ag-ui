@@ -9,10 +9,11 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/valyala/fasthttp"
+
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/encoding"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
-	"github.com/valyala/fasthttp"
 )
 
 // EnhancedSSEHandler provides an SSE handler with proper event encoding integration
@@ -89,101 +90,76 @@ func BuildEnhancedSSEHandler(cfg *config.Config) fiber.Handler {
 // handleEnhancedSSEStream manages the SSE streaming loop with proper event encoding
 func (h *EnhancedSSEHandler) handleEnhancedSSEStream(reqCtx *fasthttp.RequestCtx, c fiber.Ctx, logCtx []any, cid, eventContentType string) error {
 	return c.SendStreamWriter(func(w *bufio.Writer) {
-		ctx := context.Background() // Create context for encoding operations
-
-		// Send initial connection event using proper encoding
-		connectionEvent := &encoding.CustomEvent{
-			BaseEvent: events.BaseEvent{
-				EventType: events.EventTypeCustom,
-			},
-		}
-		connectionEvent.SetData(map[string]interface{}{
-			"type":         "connection",
-			"timestamp":    time.Now().Format(time.RFC3339),
-			"cid":          cid,
-			"content_type": eventContentType,
-		})
-		connectionEvent.SetTimestamp(time.Now().UnixMilli())
-
-		// Write initial connection event with proper encoding and validation
-		if err := h.sseWriter.WriteEventWithType(ctx, w, connectionEvent, "connection"); err != nil {
-			logCtx = append(logCtx, "error", err, "event_type", "connection")
-			h.handleWriteError(err, logCtx)
+		ctx := context.Background()
+		if !h.writeInitialEnhanced(ctx, w, logCtx, cid, eventContentType) {
 			return
 		}
+		h.enhancedLoop(reqCtx, w, logCtx, cid)
+	})
+}
 
-		h.logger.Debug("Initial connection event sent",
-			append(logCtx, "event_type", "connection")...)
+func (h *EnhancedSSEHandler) writeInitialEnhanced(ctx context.Context, w *bufio.Writer, logCtx []any, cid, eventContentType string) bool {
+	connectionEvent := &encoding.CustomEvent{BaseEvent: events.BaseEvent{EventType: events.EventTypeCustom}}
+	data := map[string]any{
+		"type":         "connection",
+		"timestamp":    time.Now().Format(time.RFC3339),
+		"cid":          cid,
+		"content_type": eventContentType,
+	}
+	connectionEvent.SetData(data)
+	connectionEvent.SetTimestamp(time.Now().UnixMilli())
+	if err := h.sseWriter.WriteEventWithType(ctx, w, connectionEvent, "connection"); err != nil {
+		h.handleWriteError(err, append(logCtx, "event_type", "connection"))
+		return false
+	}
+	h.logger.Debug("Initial connection event sent", append(logCtx, "event_type", "connection")...)
+	return true
+}
 
-		keepaliveTicker := time.NewTicker(h.config.KeepaliveInterval)
-		defer keepaliveTicker.Stop()
-
-		// Counter for demonstration purposes
-		eventCounter := 0
-
-		for {
-			select {
-			case <-reqCtx.Done():
-				// Client disconnected or context cancelled
-				h.logger.Info("Enhanced SSE connection closed",
-					append(logCtx, "reason", "context_cancelled")...)
+func (h *EnhancedSSEHandler) enhancedLoop(reqCtx *fasthttp.RequestCtx, w *bufio.Writer, logCtx []any, cid string) {
+	keepaliveTicker := time.NewTicker(h.config.KeepaliveInterval)
+	defer keepaliveTicker.Stop()
+	eventCounter := 0
+	ctx := context.Background()
+	for {
+		select {
+		case <-reqCtx.Done():
+			h.logger.Info("Enhanced SSE connection closed", append(logCtx, "reason", "context_canceled")...)
+			return
+		case <-keepaliveTicker.C:
+			eventCounter++
+			keepaliveEvent := &encoding.CustomEvent{BaseEvent: events.BaseEvent{EventType: events.EventTypeCustom}}
+			keepaliveEvent.SetData(map[string]any{
+				"type":      "keepalive",
+				"timestamp": time.Now().Format(time.RFC3339),
+				"sequence":  eventCounter,
+				"cid":       cid,
+			})
+			keepaliveEvent.SetTimestamp(time.Now().UnixMilli())
+			if err := h.sseWriter.WriteEventWithType(ctx, w, keepaliveEvent, "keepalive"); err != nil {
+				h.handleWriteError(err, append(logCtx, "event_type", "keepalive"))
 				return
-
-			case <-keepaliveTicker.C:
-				// Send keepalive event with proper encoding
-				eventCounter++
-
-				keepaliveEvent := &encoding.CustomEvent{
-					BaseEvent: events.BaseEvent{
-						EventType: events.EventTypeCustom,
-					},
-				}
-				keepaliveEvent.SetData(map[string]interface{}{
-					"type":      "keepalive",
-					"timestamp": time.Now().Format(time.RFC3339),
-					"sequence":  eventCounter,
-					"cid":       cid,
-				})
-				keepaliveEvent.SetTimestamp(time.Now().UnixMilli())
-
-				// Validate and write keepalive event
-				if err := h.sseWriter.WriteEventWithType(ctx, w, keepaliveEvent, "keepalive"); err != nil {
-					logCtx = append(logCtx, "error", err, "event_type", "keepalive")
-					h.handleWriteError(err, logCtx)
+			}
+			if h.config.EnableDebugLogging {
+				h.logger.Debug("Keepalive event sent", append(logCtx, "event_type", "keepalive", "sequence", eventCounter)...)
+			}
+		case <-time.After(100 * time.Millisecond):
+			if reqCtx.Err() != nil {
+				h.logger.Info("Enhanced SSE connection closed via periodic check", append(logCtx, "reason", "periodic_check_detected_cancellation")...)
+				return
+			}
+			if eventCounter > 0 && eventCounter%10 == 0 {
+				sampleEvent := h.createSampleAGUIEvent(eventCounter, cid)
+				if err := h.sseWriter.WriteEvent(ctx, w, sampleEvent); err != nil {
+					h.handleWriteError(err, append(logCtx, "event_type", sampleEvent.Type()))
 					return
 				}
-
 				if h.config.EnableDebugLogging {
-					h.logger.Debug("Keepalive event sent",
-						append(logCtx, "event_type", "keepalive", "sequence", eventCounter)...)
-				}
-
-			case <-time.After(100 * time.Millisecond):
-				// Periodic check for context cancellation
-				if reqCtx.Err() != nil {
-					h.logger.Info("Enhanced SSE connection closed via periodic check",
-						append(logCtx, "reason", "periodic_check_detected_cancellation")...)
-					return
-				}
-
-				// Send sample AG-UI events for demonstration
-				if eventCounter > 0 && eventCounter%10 == 0 {
-					sampleEvent := h.createSampleAGUIEvent(eventCounter, cid)
-
-					if err := h.sseWriter.WriteEvent(ctx, w, sampleEvent); err != nil {
-						logCtx = append(logCtx, "error", err, "event_type", sampleEvent.Type())
-						h.handleWriteError(err, logCtx)
-						return
-					}
-
-					if h.config.EnableDebugLogging {
-						h.logger.Debug("Sample AG-UI event sent",
-							append(logCtx, "event_type", sampleEvent.Type(), "counter", eventCounter)...)
-					}
+					h.logger.Debug("Sample AG-UI event sent", append(logCtx, "event_type", sampleEvent.Type(), "counter", eventCounter)...)
 				}
 			}
 		}
-	})
+	}
 }
 
 // createSampleAGUIEvent creates a sample AG-UI event for demonstration
@@ -234,7 +210,7 @@ func (h *EnhancedSSEHandler) createSampleAGUIEvent(counter int, cid string) even
 				EventType:   eventType,
 				TimestampMs: timePtr(time.Now().UnixMilli()),
 			},
-			RunData: map[string]interface{}{
+			RunData: map[string]any{
 				"run_id":  fmt.Sprintf("run_%d", counter),
 				"status":  "running",
 				"counter": counter,
@@ -306,7 +282,7 @@ func (e *SampleTextMessageEndEvent) Validate() error  { return nil }
 
 type SampleRunEvent struct {
 	events.BaseEvent
-	RunData map[string]interface{} `json:"run_data"`
+	RunData map[string]any `json:"run_data"`
 }
 
 func (e *SampleRunEvent) ThreadID() string { return "" }

@@ -8,8 +8,9 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 	"github.com/valyala/fasthttp"
+
+	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 )
 
 // HandlerConfig contains configuration options for the SSE handler
@@ -83,125 +84,81 @@ func BuildSSEHandler(cfg *config.Config) fiber.Handler {
 
 // handleSSEStream manages the SSE streaming loop with keepalive and cancellation
 func handleSSEStream(reqCtx *fasthttp.RequestCtx, c fiber.Ctx, config *HandlerConfig, logger *slog.Logger, logCtx []any, cid string) error {
-	// Use SendStreamWriter for proper streaming
 	return c.SendStreamWriter(func(w *bufio.Writer) {
-		// Send initial connection event first
-		initialEvent := fmt.Sprintf("data: {\"type\":\"connection\",\"timestamp\":\"%s\",\"cid\":\"%s\"}\n\n",
-			time.Now().Format(time.RFC3339), cid)
-
-		if _, err := w.WriteString(initialEvent); err != nil {
-			logCtx = append(logCtx, "error", err, "event_type", "connection")
-			// Log connection closed errors as debug instead of error since they're expected
-			if strings.Contains(err.Error(), "connection closed") || strings.Contains(err.Error(), "broken pipe") {
-				logger.Debug("Initial connection write failed due to connection closure", logCtx...)
-			} else {
-				logger.Error("Failed to write initial connection event", logCtx...)
-			}
+		if !writeInitialConnection(w, logger, logCtx, cid) {
 			return
 		}
-
-		if err := w.Flush(); err != nil {
-			logCtx = append(logCtx, "error", err, "event_type", "connection")
-			// Log connection closed errors as debug instead of error since they're expected
-			if strings.Contains(err.Error(), "connection closed") || strings.Contains(err.Error(), "broken pipe") {
-				logger.Debug("Initial connection flush failed due to connection closure", logCtx...)
-			} else {
-				logger.Error("Failed to flush initial connection event", logCtx...)
-			}
-			return
-		}
-
-		keepaliveTicker := time.NewTicker(config.KeepaliveInterval)
-		defer keepaliveTicker.Stop()
-
-		// Counter for demonstration purposes
-		eventCounter := 0
-
-		for {
-			select {
-			case <-reqCtx.Done():
-				// Client disconnected or context cancelled
-				logCtx = append(logCtx, "reason", "context_cancelled")
-				logger.Info("SSE connection closed", logCtx...)
-				return
-
-			case <-keepaliveTicker.C:
-				// Send keepalive frame
-				eventCounter++
-
-				keepaliveEvent := fmt.Sprintf("event: keepalive\ndata: {\"type\":\"keepalive\",\"timestamp\":\"%s\",\"sequence\":%d,\"cid\":\"%s\"}\n\n",
-					time.Now().Format(time.RFC3339), eventCounter, cid)
-
-				if _, err := w.WriteString(keepaliveEvent); err != nil {
-					logCtx = append(logCtx, "error", err, "event_type", "keepalive")
-					// Log connection closed errors as debug instead of error since they're expected
-					if strings.Contains(err.Error(), "connection closed") || strings.Contains(err.Error(), "broken pipe") {
-						logger.Debug("Keepalive write failed due to connection closure", logCtx...)
-					} else {
-						logger.Error("Failed to write keepalive event", logCtx...)
-					}
-					return
-				}
-
-				// Flush immediately after write to ensure delivery
-				if err := w.Flush(); err != nil {
-					logCtx = append(logCtx, "error", err, "event_type", "keepalive")
-					// Log connection closed errors as debug instead of error since they're expected
-					if strings.Contains(err.Error(), "connection closed") || strings.Contains(err.Error(), "broken pipe") {
-						logger.Debug("Keepalive flush failed due to connection closure", logCtx...)
-					} else {
-						logger.Error("Failed to flush keepalive event", logCtx...)
-					}
-					return
-				}
-
-				if config.EnableDebugLogging {
-					logger.Debug("Keepalive sent", append(logCtx, "event_type", "keepalive", "sequence", eventCounter)...)
-				}
-
-			case <-time.After(100 * time.Millisecond):
-				// Periodic check for context cancellation to ensure we detect disconnects quickly
-				// This provides a tight bound for cancellation detection as required by spec (< 100ms)
-				if reqCtx.Err() != nil {
-					logCtx = append(logCtx, "reason", "periodic_check_detected_cancellation")
-					logger.Info("SSE connection closed via periodic check", logCtx...)
-					return
-				}
-
-				// Optional: Send a sample data event occasionally for testing
-				if eventCounter > 0 && eventCounter%10 == 0 {
-					sampleEvent := fmt.Sprintf("data: {\"type\":\"sample\",\"message\":\"Sample event #%d\",\"timestamp\":\"%s\",\"cid\":\"%s\"}\n\n",
-						eventCounter/10, time.Now().Format(time.RFC3339), cid)
-
-					if _, err := w.WriteString(sampleEvent); err != nil {
-						logCtx = append(logCtx, "error", err, "event_type", "sample")
-						// Log connection closed errors as debug instead of error since they're expected
-						if strings.Contains(err.Error(), "connection closed") || strings.Contains(err.Error(), "broken pipe") {
-							logger.Debug("Sample event write failed due to connection closure", logCtx...)
-						} else {
-							logger.Error("Failed to write sample event", logCtx...)
-						}
-						return
-					}
-
-					if err := w.Flush(); err != nil {
-						logCtx = append(logCtx, "error", err, "event_type", "sample")
-						// Log connection closed errors as debug instead of error since they're expected
-						if strings.Contains(err.Error(), "connection closed") || strings.Contains(err.Error(), "broken pipe") {
-							logger.Debug("Sample event flush failed due to connection closure", logCtx...)
-						} else {
-							logger.Error("Failed to flush sample event", logCtx...)
-						}
-						return
-					}
-
-					if config.EnableDebugLogging {
-						logger.Debug("Sample event sent", append(logCtx, "event_type", "sample")...)
-					}
-				}
-			}
-		}
+		streamLoop(reqCtx, w, config, logger, logCtx, cid)
 	})
+}
+
+func writeInitialConnection(w *bufio.Writer, logger *slog.Logger, logCtx []any, cid string) bool {
+	initialEvent := fmt.Sprintf("data: {\"type\":\"connection\",\"timestamp\":\"%s\",\"cid\":\"%s\"}\n\n",
+		time.Now().Format(time.RFC3339), cid)
+	if _, err := w.WriteString(initialEvent); err != nil {
+		logWriteError(logger, logCtx, err, "connection", "Initial connection write failed due to connection closure", "Failed to write initial connection event")
+		return false
+	}
+	if err := w.Flush(); err != nil {
+		logWriteError(logger, logCtx, err, "connection", "Initial connection flush failed due to connection closure", "Failed to flush initial connection event")
+		return false
+	}
+	return true
+}
+
+func streamLoop(reqCtx *fasthttp.RequestCtx, w *bufio.Writer, config *HandlerConfig, logger *slog.Logger, logCtx []any, cid string) {
+	keepaliveTicker := time.NewTicker(config.KeepaliveInterval)
+	defer keepaliveTicker.Stop()
+	eventCounter := 0
+	for {
+		select {
+		case <-reqCtx.Done():
+			logger.Info("SSE connection closed", append(logCtx, "reason", "context_canceled")...)
+			return
+		case <-keepaliveTicker.C:
+			eventCounter++
+			if !writeAndFlush(w, logger, logCtx, fmt.Sprintf("event: keepalive\ndata: {\"type\":\"keepalive\",\"timestamp\":\"%s\",\"sequence\":%d,\"cid\":\"%s\"}\n\n", time.Now().Format(time.RFC3339), eventCounter, cid), "keepalive", "Keepalive write failed due to connection closure", "Failed to write keepalive event") {
+				return
+			}
+			if config.EnableDebugLogging {
+				logger.Debug("Keepalive sent", append(logCtx, "event_type", "keepalive", "sequence", eventCounter)...)
+			}
+		case <-time.After(100 * time.Millisecond):
+			if reqCtx.Err() != nil {
+				logger.Info("SSE connection closed via periodic check", append(logCtx, "reason", "periodic_check_detected_cancellation")...)
+				return
+			}
+			if eventCounter > 0 && eventCounter%10 == 0 {
+				if !writeAndFlush(w, logger, logCtx, fmt.Sprintf("data: {\"type\":\"sample\",\"message\":\"Sample event #%d\",\"timestamp\":\"%s\",\"cid\":\"%s\"}\n\n", eventCounter/10, time.Now().Format(time.RFC3339), cid), "sample", "Sample event write failed due to connection closure", "Failed to write sample event") {
+					return
+				}
+				if config.EnableDebugLogging {
+					logger.Debug("Sample event sent", append(logCtx, "event_type", "sample")...)
+				}
+			}
+		}
+	}
+}
+
+func writeAndFlush(w *bufio.Writer, logger *slog.Logger, logCtx []any, payload string, eventType string, debugMsg string, errMsg string) bool {
+	if _, err := w.WriteString(payload); err != nil {
+		logWriteError(logger, logCtx, err, eventType, debugMsg, errMsg)
+		return false
+	}
+	if err := w.Flush(); err != nil {
+		logWriteError(logger, logCtx, err, eventType, strings.Replace(debugMsg, "write", "flush", 1), strings.Replace(errMsg, "write", "flush", 1))
+		return false
+	}
+	return true
+}
+
+func logWriteError(logger *slog.Logger, logCtx []any, err error, eventType, debugMsg, errMsg string) {
+	logCtx = append(logCtx, "error", err, "event_type", eventType)
+	if strings.Contains(err.Error(), "connection closed") || strings.Contains(err.Error(), "broken pipe") {
+		logger.Debug(debugMsg, logCtx...)
+	} else {
+		logger.Error(errMsg, logCtx...)
+	}
 }
 
 // GetConnectionCount returns the current number of active SSE connections

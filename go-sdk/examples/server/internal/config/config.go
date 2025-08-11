@@ -36,6 +36,84 @@ type Config struct {
 	StreamingChunkDelay time.Duration
 }
 
+// envVar defines an environment variable handler
+type envVar struct {
+	key   string
+	apply func(string) error
+}
+
+// getEnvHandlers builds handlers for environment variables
+func getEnvHandlers(c *Config) []envVar {
+	return []envVar{
+		{"AGUI_HOST", func(v string) error { c.Host = v; return nil }},
+		{"AGUI_PORT", func(v string) error {
+			port, err := strconv.Atoi(v)
+			if err != nil {
+				return fmt.Errorf("invalid AGUI_PORT value '%s': %w", v, err)
+			}
+			c.Port = port
+			return nil
+		}},
+		{"AGUI_LOG_LEVEL", func(v string) error { c.LogLevel = strings.ToLower(v); return nil }},
+		{"AGUI_ENABLE_SSE", func(v string) error {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("invalid AGUI_ENABLE_SSE value '%s': %w", v, err)
+			}
+			c.EnableSSE = b
+			return nil
+		}},
+		{"AGUI_READ_TIMEOUT", func(v string) error {
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				return fmt.Errorf("invalid AGUI_READ_TIMEOUT value '%s': %w", v, err)
+			}
+			c.ReadTimeout = d
+			return nil
+		}},
+		{"AGUI_WRITE_TIMEOUT", func(v string) error {
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				return fmt.Errorf("invalid AGUI_WRITE_TIMEOUT value '%s': %w", v, err)
+			}
+			c.WriteTimeout = d
+			return nil
+		}},
+		{"AGUI_SSE_KEEPALIVE", func(v string) error {
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				return fmt.Errorf("invalid AGUI_SSE_KEEPALIVE value '%s': %w", v, err)
+			}
+			c.SSEKeepAlive = d
+			return nil
+		}},
+		{"AGUI_CORS_ENABLED", func(v string) error {
+			b, err := strconv.ParseBool(v)
+			if err != nil {
+				return fmt.Errorf("invalid AGUI_CORS_ENABLED value '%s': %w", v, err)
+			}
+			c.CORSEnabled = b
+			return nil
+		}},
+		{"AGUI_CORS_ORIGINS", func(v string) error {
+			parts := strings.Split(v, ",")
+			for i := range parts {
+				parts[i] = strings.TrimSpace(parts[i])
+			}
+			c.CORSAllowedOrigins = parts
+			return nil
+		}},
+		{"AGUI_STREAMING_CHUNK_DELAY", func(v string) error {
+			d, err := time.ParseDuration(v)
+			if err != nil {
+				return fmt.Errorf("invalid AGUI_STREAMING_CHUNK_DELAY value '%s': %w", v, err)
+			}
+			c.StreamingChunkDelay = d
+			return nil
+		}},
+	}
+}
+
 // Default configuration values
 const (
 	DefaultHost                = "0.0.0.0"
@@ -78,78 +156,14 @@ func New() *Config {
 
 // LoadFromEnv loads configuration from environment variables with AGUI_ prefix
 func (c *Config) LoadFromEnv() error {
-	if host := os.Getenv("AGUI_HOST"); host != "" {
-		c.Host = host
-	}
-
-	if portStr := os.Getenv("AGUI_PORT"); portStr != "" {
-		port, err := strconv.Atoi(portStr)
-		if err != nil {
-			return fmt.Errorf("invalid AGUI_PORT value '%s': %w", portStr, err)
+	for _, h := range getEnvHandlers(c) {
+		if val := os.Getenv(h.key); val == "" {
+			continue
 		}
-		c.Port = port
-	}
-
-	if logLevel := os.Getenv("AGUI_LOG_LEVEL"); logLevel != "" {
-		c.LogLevel = strings.ToLower(logLevel)
-	}
-
-	if enableSSEStr := os.Getenv("AGUI_ENABLE_SSE"); enableSSEStr != "" {
-		enableSSE, err := strconv.ParseBool(enableSSEStr)
-		if err != nil {
-			return fmt.Errorf("invalid AGUI_ENABLE_SSE value '%s': %w", enableSSEStr, err)
+		if err := h.apply(os.Getenv(h.key)); err != nil {
+			return err
 		}
-		c.EnableSSE = enableSSE
 	}
-
-	if readTimeoutStr := os.Getenv("AGUI_READ_TIMEOUT"); readTimeoutStr != "" {
-		readTimeout, err := time.ParseDuration(readTimeoutStr)
-		if err != nil {
-			return fmt.Errorf("invalid AGUI_READ_TIMEOUT value '%s': %w", readTimeoutStr, err)
-		}
-		c.ReadTimeout = readTimeout
-	}
-
-	if writeTimeoutStr := os.Getenv("AGUI_WRITE_TIMEOUT"); writeTimeoutStr != "" {
-		writeTimeout, err := time.ParseDuration(writeTimeoutStr)
-		if err != nil {
-			return fmt.Errorf("invalid AGUI_WRITE_TIMEOUT value '%s': %w", writeTimeoutStr, err)
-		}
-		c.WriteTimeout = writeTimeout
-	}
-
-	if sseKeepAliveStr := os.Getenv("AGUI_SSE_KEEPALIVE"); sseKeepAliveStr != "" {
-		sseKeepAlive, err := time.ParseDuration(sseKeepAliveStr)
-		if err != nil {
-			return fmt.Errorf("invalid AGUI_SSE_KEEPALIVE value '%s': %w", sseKeepAliveStr, err)
-		}
-		c.SSEKeepAlive = sseKeepAlive
-	}
-
-	if corsEnabledStr := os.Getenv("AGUI_CORS_ENABLED"); corsEnabledStr != "" {
-		corsEnabled, err := strconv.ParseBool(corsEnabledStr)
-		if err != nil {
-			return fmt.Errorf("invalid AGUI_CORS_ENABLED value '%s': %w", corsEnabledStr, err)
-		}
-		c.CORSEnabled = corsEnabled
-	}
-
-	if corsOriginsStr := os.Getenv("AGUI_CORS_ORIGINS"); corsOriginsStr != "" {
-		origins := strings.Split(corsOriginsStr, ",")
-		for i, origin := range origins {
-			origins[i] = strings.TrimSpace(origin)
-		}
-		c.CORSAllowedOrigins = origins
-	}
-
-	if streamingChunkDelayStr := os.Getenv("AGUI_STREAMING_CHUNK_DELAY"); streamingChunkDelayStr != "" {
-		streamingChunkDelay, err := time.ParseDuration(streamingChunkDelayStr)
-		if err != nil {
-			return fmt.Errorf("invalid AGUI_STREAMING_CHUNK_DELAY value '%s': %w", streamingChunkDelayStr, err)
-		}
-		c.StreamingChunkDelay = streamingChunkDelay
-	}
-
 	return nil
 }
 

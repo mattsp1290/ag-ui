@@ -12,6 +12,7 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/requestid"
+
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 )
 

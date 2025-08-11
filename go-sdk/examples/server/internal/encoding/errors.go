@@ -214,7 +214,7 @@ func isConnectionError(err error) bool {
 		"connection closed",
 		"broken pipe",
 		"client disconnected",
-		"context cancelled",
+		"context canceled",
 		"use of closed network connection",
 	}
 

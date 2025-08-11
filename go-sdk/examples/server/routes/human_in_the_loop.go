@@ -8,10 +8,11 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
-	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/encoding"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/messages"
+
+	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
+	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/encoding"
 )
 
 // RunAgentInput represents the input structure for the human-in-the-loop endpoint
@@ -21,7 +22,7 @@ type RunAgentInput struct {
 
 // parseMessages converts the raw message maps to message objects
 func (r *RunAgentInput) parseMessages() ([]messages.Message, error) {
-	var result []messages.Message
+	result := make([]messages.Message, 0, len(r.Messages))
 	for _, msgData := range r.Messages {
 		role, ok := msgData["role"].(string)
 		if !ok {
@@ -120,7 +121,7 @@ func streamHumanInTheLoopEvents(reqCtx context.Context, w *bufio.Writer, sseWrit
 
 	// Check for cancellation
 	if err := reqCtx.Err(); err != nil {
-		logger.Debug("Client disconnected during RUN_STARTED", append(logCtx, "reason", "context_cancelled")...)
+		logger.Debug("Client disconnected during RUN_STARTED", append(logCtx, "reason", "context_canceled")...)
 		return nil
 	}
 
@@ -164,7 +165,7 @@ func streamAssistantTextResponse(reqCtx context.Context, w *bufio.Writer, sseWri
 
 	// Check for cancellation
 	if err := reqCtx.Err(); err != nil {
-		logger.Debug("Client disconnected during message start", append(logCtx, "reason", "context_cancelled")...)
+		logger.Debug("Client disconnected during message start", append(logCtx, "reason", "context_canceled")...)
 		return nil
 	}
 
@@ -178,7 +179,7 @@ func streamAssistantTextResponse(reqCtx context.Context, w *bufio.Writer, sseWri
 
 	// Check for cancellation
 	if err := reqCtx.Err(); err != nil {
-		logger.Debug("Client disconnected during message content", append(logCtx, "reason", "context_cancelled")...)
+		logger.Debug("Client disconnected during message content", append(logCtx, "reason", "context_canceled")...)
 		return nil
 	}
 
@@ -204,7 +205,7 @@ func streamGenerateTaskSteps(reqCtx context.Context, w *bufio.Writer, sseWriter 
 
 	// Check for cancellation
 	if err := reqCtx.Err(); err != nil {
-		logger.Debug("Client disconnected during tool start", append(logCtx, "reason", "context_cancelled")...)
+		logger.Debug("Client disconnected during tool start", append(logCtx, "reason", "context_canceled")...)
 		return nil
 	}
 
@@ -250,7 +251,7 @@ func streamToolCallArgs(reqCtx context.Context, w *bufio.Writer, sseWriter *enco
 	// Check for cancellation and add pacing
 	time.Sleep(chunkDelay)
 	if err := reqCtx.Err(); err != nil {
-		logger.Debug("Client disconnected during opening args", append(logCtx, "reason", "context_cancelled")...)
+		logger.Debug("Client disconnected during opening args", append(logCtx, "reason", "context_canceled")...)
 		return nil
 	}
 
@@ -273,7 +274,7 @@ func streamToolCallArgs(reqCtx context.Context, w *bufio.Writer, sseWriter *enco
 		// Check for cancellation and add pacing
 		time.Sleep(chunkDelay)
 		if err := reqCtx.Err(); err != nil {
-			logger.Debug("Client disconnected during step args", append(logCtx, "step", i+1, "reason", "context_cancelled")...)
+			logger.Debug("Client disconnected during step args", append(logCtx, "step", i+1, "reason", "context_canceled")...)
 			return nil
 		}
 	}

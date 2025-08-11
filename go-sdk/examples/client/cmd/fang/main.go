@@ -2,26 +2,21 @@ package main
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 
+	"github.com/ag-ui/go-sdk/examples/client/internal/config"
 	"github.com/ag-ui/go-sdk/examples/client/internal/logging"
 	"github.com/charmbracelet/fang"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 )
 
-// Config holds the global CLI configuration
-type Config struct {
-	ServerURL string
-	APIKey    string
-	LogLevel  string
-	LogFormat string
-	Output    string // json or text
-}
-
 var (
-	config Config
-	logger *logrus.Logger
+	configManager *config.Manager
+	logger        *logrus.Logger
 )
 
 func main() {
@@ -32,12 +27,29 @@ func main() {
 }
 
 func newRootCommand() *cobra.Command {
+	// Initialize config manager
+	configManager = config.NewManager()
+	
+	// Load configuration from all sources (defaults, file, env)
+	if err := configManager.Load(); err != nil {
+		fmt.Fprintf(os.Stderr, "Warning: failed to load config: %v\n", err)
+	}
+	
+	// Get initial config
+	cfg := configManager.GetConfig()
+	
 	cmd := &cobra.Command{
 		Use:   "ag-ui-client",
 		Short: "AG-UI Client - A tool-based UI client with SSE support",
 		Long: `AG-UI Client is a command-line interface for interacting with AG-UI servers.
 It provides tool-based UI capabilities with Server-Sent Events (SSE) support
 for real-time communication and state synchronization.
+
+Configuration Precedence (highest to lowest):
+  1. Command-line flags
+  2. Environment variables (AGUI_*)
+  3. Configuration file (~/.config/ag-ui/client/config.yaml)
+  4. Default values
 
 Examples:
   # Connect to a server with an API key
@@ -47,31 +59,45 @@ Examples:
   ag-ui-client --log-level debug --output json
   
   # Use environment variables
-  export AG_UI_SERVER=https://api.example.com
-  export AG_UI_API_KEY=your-key
-  ag-ui-client`,
+  export AGUI_SERVER=https://api.example.com
+  export AGUI_API_KEY=your-key
+  ag-ui-client
+  
+  # Set persistent configuration
+  ag-ui-client config set server https://api.example.com
+  ag-ui-client config set api_key your-key`,
 		PersistentPreRun: func(cmd *cobra.Command, args []string) {
-			// Initialize logger with command flags
+			// Apply command-line flags to configuration
+			flags := make(map[string]string)
+			cmd.Flags().Visit(func(f *pflag.Flag) {
+				flags[f.Name] = f.Value.String()
+			})
+			configManager.ApplyFlags(flags)
+			
+			// Get final config after all precedence applied
+			finalCfg := configManager.GetConfig()
+			
+			// Initialize logger with final config
 			logger = logging.Initialize(logging.Options{
-				Level:  config.LogLevel,
-				Format: config.LogFormat,
+				Level:  finalCfg.LogLevel,
+				Format: finalCfg.LogFormat,
 			})
 			
 			// Log initialization info with config
 			logger.WithFields(logrus.Fields{
 				"component": "cli",
 				"version":   "0.1.0",
-				"server":    config.ServerURL,
-				"output":    config.Output,
+				"server":    finalCfg.ServerURL,
+				"output":    finalCfg.Output,
 			}).Info("AG-UI Client initialized")
 			
 			// Debug log the full config (without sensitive data)
 			logger.WithFields(logrus.Fields{
-				"server":     config.ServerURL,
-				"log_level":  config.LogLevel,
-				"log_format": config.LogFormat,
-				"output":     config.Output,
-				"has_api_key": config.APIKey != "",
+				"server":     finalCfg.ServerURL,
+				"log_level":  finalCfg.LogLevel,
+				"log_format": finalCfg.LogFormat,
+				"output":     finalCfg.Output,
+				"has_api_key": finalCfg.APIKey != "",
 			}).Debug("Configuration loaded")
 		},
 		Run: func(cmd *cobra.Command, args []string) {
@@ -80,16 +106,17 @@ Examples:
 	}
 	
 	// Add persistent flags for global configuration
-	cmd.PersistentFlags().StringVar(&config.ServerURL, "server", getEnvOrDefault("AG_UI_SERVER", "http://localhost:8080"), 
-		"AG-UI server URL")
-	cmd.PersistentFlags().StringVar(&config.APIKey, "api-key", getEnvOrDefault("AG_UI_API_KEY", ""), 
-		"API key for authentication")
-	cmd.PersistentFlags().StringVar(&config.LogLevel, "log-level", getEnvOrDefault("AG_UI_LOG_LEVEL", "info"), 
-		"Set the logging level (debug, info, warn, error)")
-	cmd.PersistentFlags().StringVar(&config.LogFormat, "log-format", getEnvOrDefault("AG_UI_LOG_FORMAT", "text"), 
-		"Set the logging format (json, text)")
-	cmd.PersistentFlags().StringVar(&config.Output, "output", getEnvOrDefault("AG_UI_OUTPUT", "text"), 
-		"Set the output format (json, text)")
+	// Use values from loaded config as defaults
+	cmd.PersistentFlags().StringP("server", "s", cfg.ServerURL, 
+		"AG-UI server URL (env: AGUI_SERVER)")
+	cmd.PersistentFlags().StringP("api-key", "k", cfg.APIKey, 
+		"API key for authentication (env: AGUI_API_KEY)")
+	cmd.PersistentFlags().StringP("log-level", "l", cfg.LogLevel, 
+		"Set the logging level: debug, info, warn, error (env: AGUI_LOG_LEVEL)")
+	cmd.PersistentFlags().String("log-format", cfg.LogFormat, 
+		"Set the logging format: json, text (env: AGUI_LOG_FORMAT)")
+	cmd.PersistentFlags().StringP("output", "o", cfg.Output, 
+		"Set the output format: json, text (env: AGUI_OUTPUT)")
 	
 	// Add subcommands
 	cmd.AddCommand(newVersionCommand())
@@ -174,10 +201,10 @@ Examples:
 				"action":   "session_open",
 				"name":     sessionName,
 				"metadata": metadata,
-				"server":   config.ServerURL,
+				"server":   configManager.GetConfig().ServerURL,
 			}).Info("Opening new session (stub)")
 			
-			if config.Output == "json" {
+			if configManager.GetConfig().Output == "json" {
 				logger.WithFields(logrus.Fields{
 					"session_id": "stub-session-" + sessionName,
 					"status":     "opened",
@@ -215,7 +242,7 @@ Examples:
 				"session_id": sessionID,
 			}).Info("Closing session (stub)")
 			
-			if config.Output == "json" {
+			if configManager.GetConfig().Output == "json" {
 				logger.WithFields(logrus.Fields{
 					"session_id": sessionID,
 					"status":     "closed",
@@ -249,7 +276,7 @@ Examples:
 				"action": "session_list",
 			}).Info("Listing sessions (stub)")
 			
-			if config.Output == "json" {
+			if configManager.GetConfig().Output == "json" {
 				logger.WithFields(logrus.Fields{
 					"sessions": []map[string]string{
 						{"id": "stub-session-1", "name": "default", "status": "active"},
@@ -326,7 +353,7 @@ Examples:
 				{"name": "file_write", "type": "filesystem", "description": "Write file contents"},
 			}
 			
-			if jsonOutput || config.Output == "json" {
+			if jsonOutput || configManager.GetConfig().Output == "json" {
 				logger.WithFields(logrus.Fields{
 					"tools": tools,
 					"count": len(tools),
@@ -360,7 +387,7 @@ func newToolsDescribeCommand() *cobra.Command {
 				"tool":   toolName,
 			}).Info("Describing tool (stub)")
 			
-			if config.Output == "json" {
+			if configManager.GetConfig().Output == "json" {
 				logger.WithFields(logrus.Fields{
 					"name":        toolName,
 					"type":        "network",
@@ -419,7 +446,7 @@ Examples:
 				"session_id": sessionID,
 			}).Info("Sending chat message (stub)")
 			
-			if jsonOutput || config.Output == "json" {
+			if jsonOutput || configManager.GetConfig().Output == "json" {
 				logger.WithFields(logrus.Fields{
 					"request": map[string]string{
 						"message":    message,
@@ -470,7 +497,7 @@ Examples:
 				"follow":     follow,
 			}).Info("Starting event stream (stub)")
 			
-			if config.Output == "json" {
+			if configManager.GetConfig().Output == "json" {
 				logger.WithFields(logrus.Fields{
 					"event": map[string]string{
 						"type":       "connection",
@@ -522,6 +549,9 @@ Examples:
 	// Add subcommands
 	cmd.AddCommand(newConfigShowCommand())
 	cmd.AddCommand(newConfigPathsCommand())
+	cmd.AddCommand(newConfigGetCommand())
+	cmd.AddCommand(newConfigSetCommand())
+	cmd.AddCommand(newConfigUnsetCommand())
 	
 	return cmd
 }
@@ -539,21 +569,20 @@ Examples:
   # Show configuration in JSON format
   ag-ui-client config show --output json`,
 		Run: func(cmd *cobra.Command, args []string) {
-			if config.Output == "json" {
-				logger.WithFields(logrus.Fields{
-					"server":      config.ServerURL,
-					"has_api_key": config.APIKey != "",
-					"log_level":   config.LogLevel,
-					"log_format":  config.LogFormat,
-					"output":      config.Output,
-				}).Info("Current configuration")
+			cfg := configManager.GetConfig()
+			if cfg.Output == "json" {
+				jsonStr, _ := configManager.ToJSON(true)
+				fmt.Println(jsonStr)
 			} else {
 				logger.Info("Current Configuration:")
-				logger.Infof("  Server URL: %s", config.ServerURL)
-				logger.Infof("  API Key: %s", maskAPIKey(config.APIKey))
-				logger.Infof("  Log Level: %s", config.LogLevel)
-				logger.Infof("  Log Format: %s", config.LogFormat)
-				logger.Infof("  Output Format: %s", config.Output)
+				logger.Infof("  Server URL: %s", cfg.ServerURL)
+				logger.Infof("  API Key: %s", maskAPIKey(cfg.APIKey))
+				logger.Infof("  Log Level: %s", cfg.LogLevel)
+				logger.Infof("  Log Format: %s", cfg.LogFormat)
+				logger.Infof("  Output Format: %s", cfg.Output)
+				if cfg.LastSessionID != "" {
+					logger.Infof("  Last Session ID: %s", cfg.LastSessionID)
+				}
 			}
 		},
 	}
@@ -574,35 +603,212 @@ Examples:
   # Show paths in JSON format
   ag-ui-client config paths --output json`,
 		Run: func(cmd *cobra.Command, args []string) {
-			paths := []string{
-				"$HOME/.config/ag-ui/config.yaml",
-				"$HOME/.ag-ui/config.yaml",
-				"./ag-ui.yaml",
-				"./.ag-ui.yaml",
-			}
+			paths := configManager.GetConfigPaths()
+			envVars := configManager.GetEnvironmentVariables()
 			
-			if config.Output == "json" {
-				logger.WithFields(logrus.Fields{
-					"config_paths": paths,
-					"env_vars": []string{
-						"AG_UI_SERVER",
-						"AG_UI_API_KEY",
-						"AG_UI_LOG_LEVEL",
-						"AG_UI_LOG_FORMAT",
-						"AG_UI_OUTPUT",
-					},
-				}).Info("Configuration paths")
+			if configManager.GetConfig().Output == "json" {
+				output := map[string]interface{}{
+					"config_file":  configManager.GetConfigPath(),
+					"search_paths": paths,
+					"env_vars":     envVars,
+				}
+				data, _ := json.MarshalIndent(output, "", "  ")
+				fmt.Println(string(data))
 			} else {
+				logger.Info("Configuration file location:")
+				logger.Infof("  %s", configManager.GetConfigPath())
 				logger.Info("Configuration search paths:")
 				for _, path := range paths {
 					logger.Infof("  - %s", path)
 				}
 				logger.Info("Environment variables:")
-				logger.Info("  - AG_UI_SERVER")
-				logger.Info("  - AG_UI_API_KEY")
-				logger.Info("  - AG_UI_LOG_LEVEL")
-				logger.Info("  - AG_UI_LOG_FORMAT")
-				logger.Info("  - AG_UI_OUTPUT")
+				for _, env := range envVars {
+					logger.Infof("  - %s", env)
+				}
+			}
+		},
+	}
+	
+	return cmd
+}
+
+func newConfigGetCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "get <key>",
+		Short: "Get a configuration value",
+		Long: `Get a specific configuration value by key.
+
+Available keys:
+  - server, serverurl
+  - apikey, api_key, api-key
+  - loglevel, log_level, log-level
+  - logformat, log_format, log-format
+  - output
+  - lastsessionid, last_session_id, last-session-id
+
+Examples:
+  # Get server URL
+  ag-ui-client config get server
+  
+  # Get API key (will be redacted)
+  ag-ui-client config get api_key
+  
+  # Get output format in JSON
+  ag-ui-client config get output --output json`,
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			key := args[0]
+			value, err := configManager.Get(key)
+			
+			// Redact API key if requested
+			if (key == "apikey" || key == "api_key" || key == "api-key") && value != "" {
+				value = maskAPIKey(value)
+			}
+			
+			if configManager.GetConfig().Output == "json" {
+				output := map[string]interface{}{
+					"key":   key,
+					"value": value,
+				}
+				if err != nil {
+					output["error"] = err.Error()
+				}
+				data, _ := json.MarshalIndent(output, "", "  ")
+				fmt.Println(string(data))
+			} else {
+				if err != nil {
+					logger.Errorf("Error: %v", err)
+					os.Exit(1)
+				}
+				fmt.Println(value)
+			}
+		},
+	}
+	
+	return cmd
+}
+
+func newConfigSetCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "set <key> <value>",
+		Short: "Set a configuration value",
+		Long: `Set a configuration value and persist it to the config file.
+
+Available keys:
+  - server, serverurl
+  - apikey, api_key, api-key
+  - loglevel, log_level, log-level
+  - logformat, log_format, log-format
+  - output
+  - lastsessionid, last_session_id, last-session-id
+  - Any custom key (stored in extras)
+
+Examples:
+  # Set server URL
+  ag-ui-client config set server https://api.example.com
+  
+  # Set API key
+  ag-ui-client config set api_key your-secret-key
+  
+  # Set log level
+  ag-ui-client config set log_level debug
+  
+  # Set custom value
+  ag-ui-client config set custom_setting value123`,
+		Args: cobra.ExactArgs(2),
+		Run: func(cmd *cobra.Command, args []string) {
+			key := args[0]
+			value := args[1]
+			
+			// Set the value
+			if err := configManager.Set(key, value); err != nil {
+				logger.Errorf("Failed to set config value: %v", err)
+				os.Exit(1)
+			}
+			
+			// Save to file
+			if err := configManager.SaveToFile(); err != nil {
+				logger.Errorf("Failed to save config file: %v", err)
+				os.Exit(1)
+			}
+			
+			// Mask API key in output
+			displayValue := value
+			if key == "apikey" || key == "api_key" || key == "api-key" {
+				displayValue = maskAPIKey(value)
+			}
+			
+			if configManager.GetConfig().Output == "json" {
+				output := map[string]interface{}{
+					"key":    key,
+					"value":  displayValue,
+					"saved":  true,
+					"config_file": configManager.GetConfigPath(),
+				}
+				data, _ := json.MarshalIndent(output, "", "  ")
+				fmt.Println(string(data))
+			} else {
+				logger.Infof("Set %s = %s", key, displayValue)
+				logger.Infof("Configuration saved to: %s", configManager.GetConfigPath())
+			}
+		},
+	}
+	
+	return cmd
+}
+
+func newConfigUnsetCommand() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "unset <key>",
+		Short: "Unset a configuration value",
+		Long: `Remove a configuration value from the config file.
+
+Available keys:
+  - server, serverurl
+  - apikey, api_key, api-key
+  - loglevel, log_level, log-level
+  - logformat, log_format, log-format
+  - output
+  - lastsessionid, last_session_id, last-session-id
+  - Any custom key in extras
+
+Examples:
+  # Unset API key
+  ag-ui-client config unset api_key
+  
+  # Unset last session ID
+  ag-ui-client config unset last_session_id
+  
+  # Unset custom value
+  ag-ui-client config unset custom_setting`,
+		Args: cobra.ExactArgs(1),
+		Run: func(cmd *cobra.Command, args []string) {
+			key := args[0]
+			
+			// Unset the value
+			if err := configManager.Unset(key); err != nil {
+				logger.Errorf("Failed to unset config value: %v", err)
+				os.Exit(1)
+			}
+			
+			// Save to file
+			if err := configManager.SaveToFile(); err != nil {
+				logger.Errorf("Failed to save config file: %v", err)
+				os.Exit(1)
+			}
+			
+			if configManager.GetConfig().Output == "json" {
+				output := map[string]interface{}{
+					"key":    key,
+					"unset":  true,
+					"saved":  true,
+					"config_file": configManager.GetConfigPath(),
+				}
+				data, _ := json.MarshalIndent(output, "", "  ")
+				fmt.Println(string(data))
+			} else {
+				logger.Infof("Unset %s", key)
+				logger.Infof("Configuration saved to: %s", configManager.GetConfigPath())
 			}
 		},
 	}
@@ -625,9 +831,3 @@ func maskAPIKey(key string) string {
 	return key[:4] + "..." + key[len(key)-4:]
 }
 
-func getEnvOrDefault(key, defaultValue string) string {
-	if value := os.Getenv(key); value != "" {
-		return value
-	}
-	return defaultValue
-}

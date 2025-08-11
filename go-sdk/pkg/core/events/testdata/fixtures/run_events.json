@@ -1,0 +1,53 @@
+{
+  "RUN_STARTED": {
+    "type": "RUN_STARTED",
+    "threadId": "test-thread-123",
+    "runId": "test-run-456",
+    "timestamp": 1672531200000
+  },
+  "RUN_STARTED_MINIMAL": {
+    "type": "RUN_STARTED",
+    "threadId": "test-thread-123",
+    "runId": "test-run-456"
+  },
+  "RUN_FINISHED": {
+    "type": "RUN_FINISHED",
+    "threadId": "test-thread-123",
+    "runId": "test-run-456",
+    "timestamp": 1672531200000,
+    "result": "optional_result_data"
+  },
+  "RUN_FINISHED_MINIMAL": {
+    "type": "RUN_FINISHED",
+    "threadId": "test-thread-123",
+    "runId": "test-run-456"
+  },
+  "RUN_ERROR": {
+    "type": "RUN_ERROR",
+    "message": "Error description",
+    "code": "ERROR_CODE",
+    "timestamp": 1672531200000
+  },
+  "RUN_ERROR_MINIMAL": {
+    "type": "RUN_ERROR",
+    "message": "Error description"
+  },
+  "STEP_STARTED": {
+    "type": "STEP_STARTED",
+    "stepName": "data_processing",
+    "timestamp": 1672531200000
+  },
+  "STEP_STARTED_MINIMAL": {
+    "type": "STEP_STARTED",
+    "stepName": "data_processing"
+  },
+  "STEP_FINISHED": {
+    "type": "STEP_FINISHED",
+    "stepName": "data_processing",
+    "timestamp": 1672531200000
+  },
+  "STEP_FINISHED_MINIMAL": {
+    "type": "STEP_FINISHED",
+    "stepName": "data_processing"
+  }
+}

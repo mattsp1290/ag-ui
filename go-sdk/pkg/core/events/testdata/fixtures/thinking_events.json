@@ -1,0 +1,40 @@
+{
+  "THINKING_START": {
+    "type": "THINKING_START",
+    "title": "Reasoning about the problem",
+    "timestamp": 1672531200000
+  },
+  "THINKING_START_MINIMAL": {
+    "type": "THINKING_START"
+  },
+  "THINKING_END": {
+    "type": "THINKING_END",
+    "timestamp": 1672531200000
+  },
+  "THINKING_END_MINIMAL": {
+    "type": "THINKING_END"
+  },
+  "THINKING_TEXT_MESSAGE_START": {
+    "type": "THINKING_TEXT_MESSAGE_START",
+    "timestamp": 1672531200000
+  },
+  "THINKING_TEXT_MESSAGE_START_MINIMAL": {
+    "type": "THINKING_TEXT_MESSAGE_START"
+  },
+  "THINKING_TEXT_MESSAGE_CONTENT": {
+    "type": "THINKING_TEXT_MESSAGE_CONTENT",
+    "delta": "Let me think about this...",
+    "timestamp": 1672531200000
+  },
+  "THINKING_TEXT_MESSAGE_CONTENT_MINIMAL": {
+    "type": "THINKING_TEXT_MESSAGE_CONTENT",
+    "delta": "Let me think about this..."
+  },
+  "THINKING_TEXT_MESSAGE_END": {
+    "type": "THINKING_TEXT_MESSAGE_END",
+    "timestamp": 1672531200000
+  },
+  "THINKING_TEXT_MESSAGE_END_MINIMAL": {
+    "type": "THINKING_TEXT_MESSAGE_END"
+  }
+}

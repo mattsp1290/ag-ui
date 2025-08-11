@@ -109,8 +109,9 @@ func (e *RunStartedEvent) ToProtobuf() (*generated.Event, error) {
 // RunFinishedEvent indicates that an agent run has finished successfully
 type RunFinishedEvent struct {
 	*BaseEvent
-	ThreadIDValue string `json:"threadId"`
-	RunIDValue    string `json:"runId"`
+	ThreadIDValue string      `json:"threadId"`
+	RunIDValue    string      `json:"runId"`
+	Result        interface{} `json:"result,omitempty"`
 }
 
 // NewRunFinishedEvent creates a new run finished event
@@ -155,6 +156,13 @@ func WithAutoThreadIDFinished() RunFinishedOption {
 		if e.ThreadIDValue == "" {
 			e.ThreadIDValue = GenerateThreadID()
 		}
+	}
+}
+
+// WithResult sets the result for the run finished event
+func WithResult(result interface{}) RunFinishedOption {
+	return func(e *RunFinishedEvent) {
+		e.Result = result
 	}
 }
 

@@ -1,0 +1,58 @@
+{
+  "STATE_SNAPSHOT": {
+    "type": "STATE_SNAPSHOT",
+    "snapshot": {
+      "key": "value",
+      "nested": {
+        "data": "structure"
+      }
+    },
+    "timestamp": 1672531200000
+  },
+  "STATE_SNAPSHOT_MINIMAL": {
+    "type": "STATE_SNAPSHOT",
+    "snapshot": {}
+  },
+  "STATE_DELTA": {
+    "type": "STATE_DELTA",
+    "delta": [
+      {"op": "add", "path": "/key", "value": "new_value"},
+      {"op": "replace", "path": "/existing", "value": "updated_value"}
+    ],
+    "timestamp": 1672531200000
+  },
+  "STATE_DELTA_MINIMAL": {
+    "type": "STATE_DELTA",
+    "delta": []
+  },
+  "MESSAGES_SNAPSHOT": {
+    "type": "MESSAGES_SNAPSHOT",
+    "messages": [
+      {
+        "id": "efdebb3a-05ca-4e85-97c7-c3a355c30e1b",
+        "role": "assistant",
+        "toolCalls": [
+          {
+            "id": "bb200a26-2e10-4d07-a4e9-73206a52f223",
+            "type": "function",
+            "function": {
+              "name": "generate_haiku",
+              "arguments": "{\"japanese\": [\"エーアイの\", \"橋つなぐ道\", \"コパキット\"], \"english\": [\"From AI's realm\", \"A bridge-road linking us—\", \"CopilotKit.\"]}"
+            }
+          }
+        ]
+      },
+      {
+        "id": "msg-1",
+        "role": "tool",
+        "content": "Haiku generated successfully",
+        "toolCallId": "tool-123"
+      }
+    ],
+    "timestamp": 1672531200000
+  },
+  "MESSAGES_SNAPSHOT_MINIMAL": {
+    "type": "MESSAGES_SNAPSHOT",
+    "messages": []
+  }
+}

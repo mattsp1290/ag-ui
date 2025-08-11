@@ -299,9 +299,10 @@ func (e *ToolCallResultEvent) ToProtobuf() (*generated.Event, error) {
 // ToolCallChunkEvent represents a chunk of tool call data
 type ToolCallChunkEvent struct {
 	*BaseEvent
-	ToolCallID   *string `json:"toolCallId,omitempty"`
-	ToolCallName *string `json:"toolCallName,omitempty"`
-	Delta        *string `json:"delta,omitempty"`
+	ToolCallID      *string `json:"toolCallId,omitempty"`
+	ToolCallName    *string `json:"toolCallName,omitempty"`
+	ParentMessageID *string `json:"parentMessageId,omitempty"`
+	Delta           *string `json:"delta,omitempty"`
 }
 
 // NewToolCallChunkEvent creates a new tool call chunk event
@@ -326,6 +327,12 @@ func (e *ToolCallChunkEvent) WithToolCallChunkName(name string) *ToolCallChunkEv
 // WithToolCallChunkDelta sets the delta content for the chunk
 func (e *ToolCallChunkEvent) WithToolCallChunkDelta(delta string) *ToolCallChunkEvent {
 	e.Delta = &delta
+	return e
+}
+
+// WithToolCallChunkParentMessageID sets the parent message ID for the chunk
+func (e *ToolCallChunkEvent) WithToolCallChunkParentMessageID(parentMessageID string) *ToolCallChunkEvent {
+	e.ParentMessageID = &parentMessageID
 	return e
 }
 

@@ -241,3 +241,116 @@ func (e *ToolCallEndEvent) ToProtobuf() (*generated.Event, error) {
 		},
 	}, nil
 }
+
+// ToolCallResultEvent represents the result of a tool call execution
+type ToolCallResultEvent struct {
+	*BaseEvent
+	MessageID  string  `json:"messageId"`
+	ToolCallID string  `json:"toolCallId"`
+	Content    string  `json:"content"`
+	Role       *string `json:"role,omitempty"`
+}
+
+// NewToolCallResultEvent creates a new tool call result event
+func NewToolCallResultEvent(messageID, toolCallID, content string) *ToolCallResultEvent {
+	role := "tool"
+	return &ToolCallResultEvent{
+		BaseEvent:  NewBaseEvent(EventTypeToolCallResult),
+		MessageID:  messageID,
+		ToolCallID: toolCallID,
+		Content:    content,
+		Role:       &role,
+	}
+}
+
+// Validate validates the tool call result event
+func (e *ToolCallResultEvent) Validate() error {
+	if err := e.BaseEvent.Validate(); err != nil {
+		return err
+	}
+
+	if e.MessageID == "" {
+		return fmt.Errorf("ToolCallResultEvent validation failed: messageId field is required")
+	}
+
+	if e.ToolCallID == "" {
+		return fmt.Errorf("ToolCallResultEvent validation failed: toolCallId field is required")
+	}
+
+	if e.Content == "" {
+		return fmt.Errorf("ToolCallResultEvent validation failed: content field is required")
+	}
+
+	return nil
+}
+
+// ToJSON serializes the event to JSON
+func (e *ToolCallResultEvent) ToJSON() ([]byte, error) {
+	return json.Marshal(e)
+}
+
+// ToProtobuf converts the event to its protobuf representation
+func (e *ToolCallResultEvent) ToProtobuf() (*generated.Event, error) {
+	// Note: This requires adding ToolCallResultEvent to the protobuf definition
+	// For now, we'll return a basic event
+	return &generated.Event{}, nil
+}
+
+// ToolCallChunkEvent represents a chunk of tool call data
+type ToolCallChunkEvent struct {
+	*BaseEvent
+	ToolCallID   *string `json:"toolCallId,omitempty"`
+	ToolCallName *string `json:"toolCallName,omitempty"`
+	Delta        *string `json:"delta,omitempty"`
+}
+
+// NewToolCallChunkEvent creates a new tool call chunk event
+func NewToolCallChunkEvent() *ToolCallChunkEvent {
+	return &ToolCallChunkEvent{
+		BaseEvent: NewBaseEvent(EventTypeToolCallChunk),
+	}
+}
+
+// WithToolCallChunkID sets the tool call ID for the chunk
+func (e *ToolCallChunkEvent) WithToolCallChunkID(id string) *ToolCallChunkEvent {
+	e.ToolCallID = &id
+	return e
+}
+
+// WithToolCallChunkName sets the tool call name for the chunk
+func (e *ToolCallChunkEvent) WithToolCallChunkName(name string) *ToolCallChunkEvent {
+	e.ToolCallName = &name
+	return e
+}
+
+// WithToolCallChunkDelta sets the delta content for the chunk
+func (e *ToolCallChunkEvent) WithToolCallChunkDelta(delta string) *ToolCallChunkEvent {
+	e.Delta = &delta
+	return e
+}
+
+// Validate validates the tool call chunk event
+func (e *ToolCallChunkEvent) Validate() error {
+	if err := e.BaseEvent.Validate(); err != nil {
+		return err
+	}
+
+	// At least one field should be present
+	if e.ToolCallID == nil && e.ToolCallName == nil && e.Delta == nil {
+		return fmt.Errorf("ToolCallChunkEvent validation failed: at least one of toolCallId, toolCallName, or delta must be present")
+	}
+
+	return nil
+}
+
+// ToJSON serializes the event to JSON
+func (e *ToolCallChunkEvent) ToJSON() ([]byte, error) {
+	return json.Marshal(e)
+}
+
+// ToProtobuf converts the event to its protobuf representation
+func (e *ToolCallChunkEvent) ToProtobuf() (*generated.Event, error) {
+	// Note: This requires adding ToolCallChunkEvent to the protobuf definition
+	// For now, we'll return a basic event
+	return &generated.Event{}, nil
+}

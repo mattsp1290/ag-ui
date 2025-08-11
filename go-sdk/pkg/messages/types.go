@@ -418,6 +418,11 @@ func (m *ToolMessage) Validate() error {
 	return nil
 }
 
+// ToJSON serializes the tool message to JSON
+func (m *ToolMessage) ToJSON() ([]byte, error) {
+	return json.Marshal(m)
+}
+
 // DeveloperMessage represents a developer/debug message
 type DeveloperMessage struct {
 	BaseMessage

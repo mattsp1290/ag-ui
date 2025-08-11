@@ -5,9 +5,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
 
 	"github.com/ag-ui/go-sdk/examples/client/internal/config"
 	"github.com/ag-ui/go-sdk/examples/client/internal/logging"
+	"github.com/ag-ui/go-sdk/examples/client/internal/sse"
 	"github.com/charmbracelet/fang"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -475,6 +480,11 @@ Examples:
 func newStreamCommand() *cobra.Command {
 	var sessionID string
 	var follow bool
+	var messages []string
+	var systemPrompt string
+	var model string
+	var temperature float64
+	var maxTokens int
 	
 	cmd := &cobra.Command{
 		Use:   "stream",
@@ -488,35 +498,155 @@ Examples:
   # Follow a session continuously
   ag-ui-client stream --session-id abc123 --follow
   
-  # Stream all events (requires appropriate permissions)
-  ag-ui-client stream --all`,
+  # Stream with messages
+  ag-ui-client stream --session-id abc123 --message "Hello, AG-UI!"
+  
+  # Stream with custom model and parameters
+  ag-ui-client stream --session-id abc123 --model gpt-4 --temperature 0.7 --max-tokens 1000`,
 		Run: func(cmd *cobra.Command, args []string) {
+			cfg := configManager.GetConfig()
+			
+			if cfg.ServerURL == "" {
+				logger.Error("Server URL not configured. Use --server flag or set AGUI_SERVER environment variable")
+				os.Exit(1)
+			}
+			
+			endpoint := strings.TrimSuffix(cfg.ServerURL, "/") + "/tool_based_generative_ui"
+			
+			sseConfig := sse.Config{
+				Endpoint:       endpoint,
+				APIKey:         cfg.APIKey,
+				AuthHeader:     "Authorization",
+				ConnectTimeout: 30 * time.Second,
+				ReadTimeout:    5 * time.Minute,
+				BufferSize:     100,
+				Logger:         logger,
+			}
+			
+			client := sse.NewClient(sseConfig)
+			defer client.Close()
+			
+			payload := sse.RunAgentInput{
+				SessionID:    sessionID,
+				Stream:       true,
+				Model:        model,
+				SystemPrompt: systemPrompt,
+			}
+			
+			if temperature > 0 {
+				payload.Temperature = &temperature
+			}
+			
+			if maxTokens > 0 {
+				payload.MaxTokens = &maxTokens
+			}
+			
+			for _, msg := range messages {
+				payload.Messages = append(payload.Messages, sse.Message{
+					Role:    "user",
+					Content: msg,
+				})
+			}
+			
+			ctx := context.Background()
+			if !follow {
+				var cancel context.CancelFunc
+				ctx, cancel = context.WithTimeout(ctx, 30*time.Second)
+				defer cancel()
+			}
+			
+			sigChan := make(chan os.Signal, 1)
+			signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
+			
+			ctx, cancel := context.WithCancel(ctx)
+			defer cancel()
+			
+			go func() {
+				<-sigChan
+				logger.Info("Received interrupt signal, closing stream...")
+				cancel()
+			}()
+			
 			logger.WithFields(logrus.Fields{
-				"action":     "stream",
+				"endpoint":   endpoint,
 				"session_id": sessionID,
 				"follow":     follow,
-			}).Info("Starting event stream (stub)")
+			}).Info("Connecting to SSE stream")
 			
-			if configManager.GetConfig().Output == "json" {
-				logger.WithFields(logrus.Fields{
-					"event": map[string]string{
-						"type":       "connection",
-						"session_id": sessionID,
-						"status":     "connected",
-					},
-				}).Info("Stream event")
-				logger.WithFields(logrus.Fields{
-					"event": map[string]string{
-						"type":    "message",
-						"content": "Stub SSE event",
-					},
-				}).Info("Stream event")
-			} else {
-				logger.Infof("Streaming events for session: %s", sessionID)
-				logger.Info("Event: connection established")
-				logger.Info("Event: stub SSE message received")
-				if !follow {
-					logger.Info("Stream ended (use --follow to continue)")
+			frames, errors, err := client.Stream(sse.StreamOptions{
+				Context: ctx,
+				Payload: payload,
+			})
+			
+			if err != nil {
+				logger.WithError(err).Error("Failed to establish SSE connection")
+				os.Exit(1)
+			}
+			
+			frameCount := 0
+			startTime := time.Now()
+			
+			for {
+				select {
+				case frame, ok := <-frames:
+					if !ok {
+						logger.WithFields(logrus.Fields{
+							"frames":   frameCount,
+							"duration": time.Since(startTime),
+						}).Info("SSE stream closed")
+						return
+					}
+					
+					frameCount++
+					
+					if cfg.Output == "json" {
+						var event map[string]interface{}
+						if err := json.Unmarshal(frame.Data, &event); err != nil {
+							logger.WithFields(logrus.Fields{
+								"frame":     frameCount,
+								"raw":       string(frame.Data),
+								"timestamp": frame.Timestamp,
+							}).Warn("Received non-JSON frame")
+						} else {
+							logger.WithFields(logrus.Fields{
+								"frame":     frameCount,
+								"event":     event,
+								"timestamp": frame.Timestamp,
+							}).Info("SSE event")
+						}
+					} else {
+						var event map[string]interface{}
+						if err := json.Unmarshal(frame.Data, &event); err != nil {
+							logger.Infof("[Frame %d] Raw: %s", frameCount, string(frame.Data))
+						} else {
+							eventType, _ := event["event"].(string)
+							if eventType != "" {
+								logger.Infof("[Frame %d] Event: %s", frameCount, eventType)
+								
+								if data, ok := event["data"].(map[string]interface{}); ok {
+									if content, ok := data["content"].(string); ok && content != "" {
+										logger.Infof("  Content: %s", content)
+									}
+								}
+							} else {
+								formattedJSON, _ := json.MarshalIndent(event, "  ", "  ")
+								logger.Infof("[Frame %d] Data:\n  %s", frameCount, string(formattedJSON))
+							}
+						}
+					}
+					
+				case err, ok := <-errors:
+					if !ok {
+						return
+					}
+					if err != nil {
+						logger.WithError(err).Error("SSE stream error")
+						return
+					}
+					
+				case <-ctx.Done():
+					logger.Info("Context cancelled, closing stream")
+					return
 				}
 			}
 		},
@@ -524,7 +654,11 @@ Examples:
 	
 	cmd.Flags().StringVar(&sessionID, "session-id", "", "Session ID to stream")
 	cmd.Flags().BoolVar(&follow, "follow", false, "Follow stream continuously")
-	cmd.MarkFlagRequired("session-id")
+	cmd.Flags().StringArrayVar(&messages, "message", nil, "Messages to send (can be specified multiple times)")
+	cmd.Flags().StringVar(&systemPrompt, "system-prompt", "", "System prompt for the agent")
+	cmd.Flags().StringVar(&model, "model", "", "Model to use for generation")
+	cmd.Flags().Float64Var(&temperature, "temperature", 0, "Temperature for generation (0 for default)")
+	cmd.Flags().IntVar(&maxTokens, "max-tokens", 0, "Maximum tokens for generation (0 for default)")
 	
 	return cmd
 }

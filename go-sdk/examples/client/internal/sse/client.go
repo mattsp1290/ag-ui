@@ -81,7 +81,20 @@ func NewClient(config Config) *Client {
 	}
 }
 
+// Stream creates a basic SSE stream without reconnection
+// Deprecated: Use StreamWithReconnect for production use
 func (c *Client) Stream(opts StreamOptions) (<-chan Frame, <-chan error, error) {
+	return c.stream(opts)
+}
+
+// StreamWithReconnect creates an SSE stream with automatic reconnection
+func (c *Client) StreamWithReconnect(opts StreamOptions, reconnectConfig ReconnectionConfig) (<-chan Frame, <-chan error, error) {
+	rc := NewReconnectingClient(c.config, reconnectConfig)
+	return rc.StreamWithReconnect(opts)
+}
+
+// stream is the internal implementation of basic streaming
+func (c *Client) stream(opts StreamOptions) (<-chan Frame, <-chan error, error) {
 	if opts.Context == nil {
 		opts.Context = context.Background()
 	}
@@ -122,11 +135,13 @@ func (c *Client) Stream(opts StreamOptions) (<-chan Frame, <-chan error, error) 
 		req.Header.Set(key, value)
 	}
 
-	c.logger.WithFields(logrus.Fields{
-		"endpoint": c.config.Endpoint,
-		"method":   req.Method,
-		"headers":  req.Header,
-	}).Debug("Initiating SSE connection")
+	if c.logger != nil {
+		c.logger.WithFields(logrus.Fields{
+			"endpoint": c.config.Endpoint,
+			"method":   req.Method,
+			"headers":  req.Header,
+		}).Debug("Initiating SSE connection")
+	}
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -145,10 +160,12 @@ func (c *Client) Stream(opts StreamOptions) (<-chan Frame, <-chan error, error) 
 		return nil, nil, fmt.Errorf("unexpected content-type: %s", contentType)
 	}
 
-	c.logger.WithFields(logrus.Fields{
-		"status":       resp.StatusCode,
-		"content_type": contentType,
-	}).Info("SSE connection established")
+	if c.logger != nil {
+		c.logger.WithFields(logrus.Fields{
+			"status":       resp.StatusCode,
+			"content_type": contentType,
+		}).Info("SSE connection established")
+	}
 
 	frames := make(chan Frame, c.config.BufferSize)
 	errors := make(chan error, 1)
@@ -163,7 +180,9 @@ func (c *Client) readStream(ctx context.Context, resp *http.Response, frames cha
 		_ = resp.Body.Close()
 		close(frames)
 		close(errors)
-		c.logger.Info("SSE connection closed")
+		if c.logger != nil {
+			c.logger.Info("SSE connection closed")
+		}
 	}()
 
 	reader := bufio.NewReader(resp.Body)
@@ -175,7 +194,9 @@ func (c *Client) readStream(ctx context.Context, resp *http.Response, frames cha
 	for {
 		select {
 		case <-ctx.Done():
-			c.logger.WithField("reason", "context cancelled").Debug("Stopping SSE stream")
+			if c.logger != nil {
+				c.logger.WithField("reason", "context cancelled").Debug("Stopping SSE stream")
+			}
 			return
 		default:
 		}
@@ -190,11 +211,13 @@ func (c *Client) readStream(ctx context.Context, resp *http.Response, frames cha
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
 			if err == io.EOF {
-				c.logger.WithFields(logrus.Fields{
-					"frames":   frameCount,
-					"bytes":    byteCount,
-					"duration": time.Since(startTime),
-				}).Info("SSE stream ended (EOF)")
+				if c.logger != nil {
+					c.logger.WithFields(logrus.Fields{
+						"frames":   frameCount,
+						"bytes":    byteCount,
+						"duration": time.Since(startTime),
+					}).Info("SSE stream ended (EOF)")
+				}
 				return
 			}
 			select {
@@ -220,7 +243,7 @@ func (c *Client) readStream(ctx context.Context, resp *http.Response, frames cha
 				select {
 				case frames <- frame:
 					frameCount++
-					if frameCount%100 == 0 {
+					if frameCount%100 == 0 && c.logger != nil {
 						c.logger.WithFields(logrus.Fields{
 							"frames": frameCount,
 							"bytes":  byteCount,

@@ -13,6 +13,7 @@ import (
 	"github.com/ag-ui/go-sdk/examples/client/internal/config"
 	"github.com/ag-ui/go-sdk/examples/client/internal/logging"
 	"github.com/ag-ui/go-sdk/examples/client/internal/sse"
+	"github.com/ag-ui/go-sdk/examples/client/internal/ui"
 	"github.com/charmbracelet/fang"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -485,6 +486,9 @@ func newStreamCommand() *cobra.Command {
 	var model string
 	var temperature float64
 	var maxTokens int
+	var outputMode string
+	var noColor bool
+	var quiet bool
 	
 	cmd := &cobra.Command{
 		Use:   "stream",
@@ -583,6 +587,26 @@ Examples:
 				os.Exit(1)
 			}
 			
+			// Override output mode from flags if specified
+			if outputMode != "" {
+				cfg.Output = outputMode
+			}
+			
+			// Create UI renderer
+			var rendererMode ui.OutputMode
+			if cfg.Output == "json" {
+				rendererMode = ui.OutputModeJSON
+			} else {
+				rendererMode = ui.OutputModePretty
+			}
+			
+			renderer := ui.NewRenderer(ui.RendererConfig{
+				OutputMode: rendererMode,
+				NoColor:    noColor,
+				Quiet:      quiet,
+				Writer:     os.Stdout,
+			})
+			
 			frameCount := 0
 			startTime := time.Now()
 			
@@ -590,49 +614,41 @@ Examples:
 				select {
 				case frame, ok := <-frames:
 					if !ok {
-						logger.WithFields(logrus.Fields{
-							"frames":   frameCount,
-							"duration": time.Since(startTime),
-						}).Info("SSE stream closed")
+						if !quiet {
+							logger.WithFields(logrus.Fields{
+								"frames":   frameCount,
+								"duration": time.Since(startTime),
+							}).Info("SSE stream closed")
+						}
 						return
 					}
 					
 					frameCount++
 					
-					if cfg.Output == "json" {
-						var event map[string]interface{}
-						if err := json.Unmarshal(frame.Data, &event); err != nil {
+					// Parse the SSE event
+					var event map[string]interface{}
+					if err := json.Unmarshal(frame.Data, &event); err != nil {
+						if !quiet {
 							logger.WithFields(logrus.Fields{
 								"frame":     frameCount,
 								"raw":       string(frame.Data),
 								"timestamp": frame.Timestamp,
 							}).Warn("Received non-JSON frame")
-						} else {
-							logger.WithFields(logrus.Fields{
-								"frame":     frameCount,
-								"event":     event,
-								"timestamp": frame.Timestamp,
-							}).Info("SSE event")
 						}
-					} else {
-						var event map[string]interface{}
-						if err := json.Unmarshal(frame.Data, &event); err != nil {
-							logger.Infof("[Frame %d] Raw: %s", frameCount, string(frame.Data))
-						} else {
-							eventType, _ := event["event"].(string)
-							if eventType != "" {
-								logger.Infof("[Frame %d] Event: %s", frameCount, eventType)
-								
-								if data, ok := event["data"].(map[string]interface{}); ok {
-									if content, ok := data["content"].(string); ok && content != "" {
-										logger.Infof("  Content: %s", content)
-									}
-								}
-							} else {
-								formattedJSON, _ := json.MarshalIndent(event, "  ", "  ")
-								logger.Infof("[Frame %d] Data:\n  %s", frameCount, string(formattedJSON))
-							}
-						}
+						continue
+					}
+					
+					// Extract event type and data
+					eventType, _ := event["event"].(string)
+					if eventType == "" {
+						continue
+					}
+					
+					eventData, _ := json.Marshal(event["data"])
+					
+					// Handle the event through the renderer
+					if err := renderer.HandleEvent(eventType, eventData); err != nil {
+						logger.WithError(err).WithField("event", eventType).Warn("Failed to handle event")
 					}
 					
 				case err, ok := <-errors:
@@ -659,6 +675,9 @@ Examples:
 	cmd.Flags().StringVar(&model, "model", "", "Model to use for generation")
 	cmd.Flags().Float64Var(&temperature, "temperature", 0, "Temperature for generation (0 for default)")
 	cmd.Flags().IntVar(&maxTokens, "max-tokens", 0, "Maximum tokens for generation (0 for default)")
+	cmd.Flags().StringVar(&outputMode, "output", "pretty", "Output mode: pretty or json")
+	cmd.Flags().BoolVar(&noColor, "no-color", false, "Disable colored output")
+	cmd.Flags().BoolVar(&quiet, "quiet", false, "Suppress all output except errors")
 	
 	return cmd
 }

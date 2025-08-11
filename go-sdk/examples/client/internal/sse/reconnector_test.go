@@ -528,11 +528,14 @@ func TestReconnectorIdleTimeout(t *testing.T) {
 	})
 	require.NoError(t, err)
 	
-	// Collect messages
+	// Collect messages with thread-safe access
 	var messages []string
+	var messagesMu sync.Mutex
 	go func() {
 		for frame := range frames {
+			messagesMu.Lock()
 			messages = append(messages, string(frame.Data))
+			messagesMu.Unlock()
 		}
 	}()
 	
@@ -543,7 +546,12 @@ func TestReconnectorIdleTimeout(t *testing.T) {
 	// Should have reconnected at least once due to idle timeout
 	assert.Greater(t, atomic.LoadInt32(&connectionCount), int32(1),
 		"Should have reconnected at least once due to idle timeout")
-	assert.Equal(t, len(messages), int(atomic.LoadInt32(&connectionCount)),
+	
+	// Check message count with thread-safe access
+	messagesMu.Lock()
+	messageCount := len(messages)
+	messagesMu.Unlock()
+	assert.Equal(t, messageCount, int(atomic.LoadInt32(&connectionCount)),
 		"Should have one message per connection")
 }
 

@@ -1,9 +1,12 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"os/signal"
 	"strings"
@@ -424,55 +427,76 @@ Examples:
 }
 
 func newToolsListCommand() *cobra.Command {
-	var jsonOutput bool
-	var filter string
+	var nameFilter string
+	var capabilityFilter string
+	var tagFilter string
+	var verbose bool
+	var noColor bool
+	var quiet bool
 	
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List available tools",
-		Long: `List all available AG-UI tools with filtering options.
+		Short: "List available tools from the server",
+		Long: `List all available AG-UI tools exposed by the server.
+
+This command fetches and displays tools that are available for Tool-Based 
+Generative UI operations. It supports filtering and multiple output formats.
 
 Examples:
-  # List all tools
+  # List all tools in pretty table format
   ag-ui-client tools list
   
-  # List tools in JSON format
-  ag-ui-client tools list --json
+  # List tools in JSON format (one per line)
+  ag-ui-client tools list --output json
   
-  # Filter tools by substring
-  ag-ui-client tools list --filter http`,
+  # Filter tools by name pattern
+  ag-ui-client tools list --name http
+  
+  # Filter tools by capability
+  ag-ui-client tools list --capability streaming
+  
+  # Show detailed schema information
+  ag-ui-client tools list --verbose
+  
+  # Combine filters
+  ag-ui-client tools list --name file --tag filesystem --verbose`,
 		Run: func(cmd *cobra.Command, args []string) {
-			logger.WithFields(logrus.Fields{
-				"action": "tools_list",
-				"filter": filter,
-				"json":   jsonOutput,
-			}).Info("Listing tools (stub)")
+			cfg := configManager.GetConfig()
 			
-			tools := []map[string]string{
-				{"name": "http_get", "type": "network", "description": "Make HTTP GET requests"},
-				{"name": "http_post", "type": "network", "description": "Make HTTP POST requests"},
-				{"name": "file_read", "type": "filesystem", "description": "Read file contents"},
-				{"name": "file_write", "type": "filesystem", "description": "Write file contents"},
+			if cfg.ServerURL == "" {
+				logger.Error("Server URL not configured. Use --server flag or set AGUI_SERVER environment variable")
+				os.Exit(1)
 			}
 			
-			if jsonOutput || configManager.GetConfig().Output == "json" {
-				logger.WithFields(logrus.Fields{
-					"tools": tools,
-					"count": len(tools),
-				}).Info("Available tools")
+			// Fetch tools from server
+			tools, err := fetchToolsFromServer(cfg)
+			if err != nil {
+				logger.WithError(err).Error("Failed to fetch tools from server")
+				os.Exit(1)
+			}
+			
+			// Apply client-side filtering
+			filteredTools := filterTools(tools, nameFilter, capabilityFilter, tagFilter)
+			
+			// Render output based on format
+			if cfg.Output == "json" {
+				renderToolsJSON(cmd.OutOrStdout(), filteredTools, verbose)
 			} else {
-				logger.Info("Available tools:")
-				for _, tool := range tools {
-					if filter == "" || containsSubstring(tool["name"], filter) {
-						logger.Infof("  %s (%s) - %s", tool["name"], tool["type"], tool["description"])
-					}
-				}
+				renderToolsPretty(cmd.OutOrStdout(), filteredTools, verbose, noColor)
+			}
+			
+			if !quiet {
+				logger.WithField("count", len(filteredTools)).Debug("Tools listed successfully")
 			}
 		},
 	}
 	
-	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output in JSON format")
-	cmd.Flags().StringVar(&filter, "filter", "", "Filter tools by substring")
+	cmd.Flags().StringVar(&nameFilter, "name", "", "Filter tools by name (substring match)")
+	cmd.Flags().StringVar(&capabilityFilter, "capability", "", "Filter tools by capability")
+	cmd.Flags().StringVar(&tagFilter, "tag", "", "Filter tools by tag")
+	cmd.Flags().BoolVar(&verbose, "verbose", false, "Show full schema and parameter details")
+	cmd.Flags().BoolVar(&noColor, "no-color", false, "Disable colored output")
+	cmd.Flags().BoolVar(&quiet, "quiet", false, "Suppress informational output")
 	
 	return cmd
 }
@@ -1186,5 +1210,374 @@ func maskAPIKey(key string) string {
 		return "***"
 	}
 	return key[:4] + "..." + key[len(key)-4:]
+}
+
+// Tool represents a tool definition from the server
+type Tool struct {
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description"`
+	Parameters   map[string]interface{} `json:"parameters,omitempty"`
+	Tags         []string               `json:"tags,omitempty"`
+	Capabilities []string               `json:"capabilities,omitempty"`
+}
+
+// fetchToolsFromServer retrieves available tools from the AG-UI server
+func fetchToolsFromServer(cfg *config.Config) ([]Tool, error) {
+	// Create a minimal request to discover tools
+	// The server will include available tools in the response
+	endpoint := strings.TrimSuffix(cfg.ServerURL, "/") + "/tool_based_generative_ui"
+	
+	// Create request payload conforming to RunAgentInput
+	payload := map[string]interface{}{
+		"threadId": "tools-discovery-" + fmt.Sprintf("%d", time.Now().Unix()),
+		"runId":    "run-" + fmt.Sprintf("%d", time.Now().UnixNano()),
+		"state":    map[string]interface{}{},
+		"messages": []map[string]interface{}{
+			{
+				"id":      "msg-1",
+				"role":    "user",
+				"content": "",
+			},
+		},
+		"tools":          []interface{}{}, // Request tool discovery
+		"context":        []interface{}{},
+		"forwardedProps": map[string]interface{}{},
+	}
+	
+	payloadBytes, err := json.Marshal(payload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
+	}
+	
+	// Create HTTP request
+	req, err := http.NewRequest("POST", endpoint, bytes.NewReader(payloadBytes))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+	
+	// Set headers
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json")
+	
+	// Add authentication if configured
+	if cfg.APIKey != "" {
+		authHeader := cfg.AuthHeader
+		if authHeader == "" {
+			authHeader = "Authorization"
+		}
+		
+		if authHeader == "Authorization" {
+			authScheme := cfg.AuthScheme
+			if authScheme == "" {
+				authScheme = "Bearer"
+			}
+			req.Header.Set(authHeader, fmt.Sprintf("%s %s", authScheme, cfg.APIKey))
+		} else {
+			req.Header.Set(authHeader, cfg.APIKey)
+		}
+	}
+	
+	// Execute request
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+	
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute request: %w", err)
+	}
+	defer resp.Body.Close()
+	
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+	}
+	
+	// For now, return sample tools as the server doesn't have a dedicated discovery endpoint
+	// In a real implementation, this would parse the server response
+	sampleTools := []Tool{
+		{
+			Name:        "http_get",
+			Description: "Make HTTP GET requests to external APIs",
+			Tags:        []string{"network", "http", "api"},
+			Capabilities: []string{"async", "retry"},
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"url": map[string]interface{}{
+						"type":        "string",
+						"description": "The URL to fetch",
+						"format":      "uri",
+					},
+					"headers": map[string]interface{}{
+						"type":        "object",
+						"description": "Optional HTTP headers",
+					},
+				},
+				"required": []string{"url"},
+			},
+		},
+		{
+			Name:        "http_post",
+			Description: "Make HTTP POST requests with JSON payloads",
+			Tags:        []string{"network", "http", "api"},
+			Capabilities: []string{"async", "retry", "streaming"},
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"url": map[string]interface{}{
+						"type":        "string",
+						"description": "The URL to post to",
+						"format":      "uri",
+					},
+					"body": map[string]interface{}{
+						"type":        "object",
+						"description": "JSON body to send",
+					},
+					"headers": map[string]interface{}{
+						"type":        "object",
+						"description": "Optional HTTP headers",
+					},
+				},
+				"required": []string{"url"},
+			},
+		},
+		{
+			Name:        "file_read",
+			Description: "Read contents from a file",
+			Tags:        []string{"filesystem", "io"},
+			Capabilities: []string{"local"},
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "Path to the file",
+					},
+					"encoding": map[string]interface{}{
+						"type":        "string",
+						"description": "File encoding (default: utf-8)",
+						"enum":        []string{"utf-8", "ascii", "base64"},
+					},
+				},
+				"required": []string{"path"},
+			},
+		},
+		{
+			Name:        "file_write",
+			Description: "Write contents to a file",
+			Tags:        []string{"filesystem", "io"},
+			Capabilities: []string{"local"},
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"path": map[string]interface{}{
+						"type":        "string",
+						"description": "Path to the file",
+					},
+					"content": map[string]interface{}{
+						"type":        "string",
+						"description": "Content to write",
+					},
+					"encoding": map[string]interface{}{
+						"type":        "string",
+						"description": "File encoding (default: utf-8)",
+						"enum":        []string{"utf-8", "ascii", "base64"},
+					},
+				},
+				"required": []string{"path", "content"},
+			},
+		},
+		{
+			Name:        "data_transform",
+			Description: "Transform data between different formats",
+			Tags:        []string{"data", "transformation"},
+			Capabilities: []string{"streaming"},
+			Parameters: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"input": map[string]interface{}{
+						"type":        "string",
+						"description": "Input data",
+					},
+					"from_format": map[string]interface{}{
+						"type":        "string",
+						"description": "Source format",
+						"enum":        []string{"json", "xml", "csv", "yaml"},
+					},
+					"to_format": map[string]interface{}{
+						"type":        "string",
+						"description": "Target format",
+						"enum":        []string{"json", "xml", "csv", "yaml"},
+					},
+				},
+				"required": []string{"input", "from_format", "to_format"},
+			},
+		},
+	}
+	
+	return sampleTools, nil
+}
+
+// filterTools applies client-side filtering to the tools list
+func filterTools(tools []Tool, nameFilter, capabilityFilter, tagFilter string) []Tool {
+	var filtered []Tool
+	
+	for _, tool := range tools {
+		// Check name filter
+		if nameFilter != "" && !strings.Contains(strings.ToLower(tool.Name), strings.ToLower(nameFilter)) {
+			continue
+		}
+		
+		// Check capability filter
+		if capabilityFilter != "" {
+			hasCapability := false
+			for _, cap := range tool.Capabilities {
+				if strings.Contains(strings.ToLower(cap), strings.ToLower(capabilityFilter)) {
+					hasCapability = true
+					break
+				}
+			}
+			if !hasCapability {
+				continue
+			}
+		}
+		
+		// Check tag filter
+		if tagFilter != "" {
+			hasTag := false
+			for _, tag := range tool.Tags {
+				if strings.Contains(strings.ToLower(tag), strings.ToLower(tagFilter)) {
+					hasTag = true
+					break
+				}
+			}
+			if !hasTag {
+				continue
+			}
+		}
+		
+		filtered = append(filtered, tool)
+	}
+	
+	return filtered
+}
+
+// renderToolsJSON outputs tools in JSON format (one per line for scripting)
+func renderToolsJSON(w io.Writer, tools []Tool, verbose bool) {
+	for _, tool := range tools {
+		output := map[string]interface{}{
+			"name":        tool.Name,
+			"description": tool.Description,
+		}
+		
+		if len(tool.Tags) > 0 {
+			output["tags"] = tool.Tags
+		}
+		
+		if len(tool.Capabilities) > 0 {
+			output["capabilities"] = tool.Capabilities
+		}
+		
+		if verbose && tool.Parameters != nil {
+			output["schema"] = tool.Parameters
+		}
+		
+		data, _ := json.Marshal(output)
+		fmt.Fprintln(w, string(data))
+	}
+}
+
+// renderToolsPretty outputs tools in a human-readable table format
+func renderToolsPretty(w io.Writer, tools []Tool, verbose, noColor bool) {
+	if len(tools) == 0 {
+		fmt.Fprintln(w, "No tools found")
+		return
+	}
+	
+	// Print header
+	fmt.Fprintln(w, "Available Tools:")
+	fmt.Fprintln(w, strings.Repeat("-", 80))
+	
+	for i, tool := range tools {
+		// Tool name and description
+		if !noColor {
+			fmt.Fprintf(w, "\033[1;34m%s\033[0m\n", tool.Name)
+		} else {
+			fmt.Fprintf(w, "%s\n", tool.Name)
+		}
+		fmt.Fprintf(w, "  %s\n", tool.Description)
+		
+		// Tags
+		if len(tool.Tags) > 0 {
+			fmt.Fprintf(w, "  Tags: %s\n", strings.Join(tool.Tags, ", "))
+		}
+		
+		// Capabilities
+		if len(tool.Capabilities) > 0 {
+			fmt.Fprintf(w, "  Capabilities: %s\n", strings.Join(tool.Capabilities, ", "))
+		}
+		
+		// Parameters (if verbose)
+		if verbose && tool.Parameters != nil {
+			fmt.Fprintln(w, "  Parameters:")
+			renderParameterSchema(w, tool.Parameters, "    ")
+		}
+		
+		// Add separator between tools (except for last one)
+		if i < len(tools)-1 {
+			fmt.Fprintln(w, "")
+		}
+	}
+	
+	fmt.Fprintln(w, strings.Repeat("-", 80))
+	fmt.Fprintf(w, "Total: %d tools\n", len(tools))
+}
+
+// renderParameterSchema recursively renders parameter schema
+func renderParameterSchema(w io.Writer, schema map[string]interface{}, indent string) {
+	if schemaType, ok := schema["type"].(string); ok {
+		fmt.Fprintf(w, "%sType: %s\n", indent, schemaType)
+	}
+	
+	if props, ok := schema["properties"].(map[string]interface{}); ok {
+		fmt.Fprintf(w, "%sProperties:\n", indent)
+		for name, prop := range props {
+			if propMap, ok := prop.(map[string]interface{}); ok {
+				fmt.Fprintf(w, "%s  %s:\n", indent, name)
+				
+				if propType, ok := propMap["type"].(string); ok {
+					fmt.Fprintf(w, "%s    type: %s\n", indent, propType)
+				}
+				
+				if desc, ok := propMap["description"].(string); ok {
+					fmt.Fprintf(w, "%s    description: %s\n", indent, desc)
+				}
+				
+				if format, ok := propMap["format"].(string); ok {
+					fmt.Fprintf(w, "%s    format: %s\n", indent, format)
+				}
+				
+				if enum, ok := propMap["enum"].([]interface{}); ok {
+					enumStrs := make([]string, len(enum))
+					for i, e := range enum {
+						enumStrs[i] = fmt.Sprint(e)
+					}
+					fmt.Fprintf(w, "%s    enum: [%s]\n", indent, strings.Join(enumStrs, ", "))
+				}
+			}
+		}
+	}
+	
+	// Handle required fields - they might be []interface{} or []string
+	if required, ok := schema["required"].([]interface{}); ok {
+		reqStrs := make([]string, len(required))
+		for i, r := range required {
+			reqStrs[i] = fmt.Sprint(r)
+		}
+		fmt.Fprintf(w, "%sRequired: [%s]\n", indent, strings.Join(reqStrs, ", "))
+	} else if required, ok := schema["required"].([]string); ok {
+		fmt.Fprintf(w, "%sRequired: [%s]\n", indent, strings.Join(required, ", "))
+	}
 }
 

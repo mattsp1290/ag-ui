@@ -15,6 +15,8 @@ import (
 type Config struct {
 	ServerURL     string            `yaml:"server" json:"server"`
 	APIKey        string            `yaml:"api_key" json:"api_key"`
+	AuthHeader    string            `yaml:"auth_header,omitempty" json:"auth_header,omitempty"`
+	AuthScheme    string            `yaml:"auth_scheme,omitempty" json:"auth_scheme,omitempty"`
 	LogLevel      string            `yaml:"log_level" json:"log_level"`
 	LogFormat     string            `yaml:"log_format" json:"log_format"`
 	Output        string            `yaml:"output" json:"output"`
@@ -61,6 +63,8 @@ func (m *Manager) Load() error {
 // setDefaults sets the default configuration values
 func (m *Manager) setDefaults() {
 	m.config.ServerURL = "http://localhost:8080"
+	m.config.AuthHeader = "Authorization"
+	m.config.AuthScheme = "Bearer"
 	m.config.LogLevel = "info"
 	m.config.LogFormat = "text"
 	m.config.Output = "text"
@@ -103,6 +107,12 @@ func (m *Manager) applyEnvironment() {
 	if val := os.Getenv(m.envPrefix + "API_KEY"); val != "" {
 		m.config.APIKey = val
 	}
+	if val := os.Getenv(m.envPrefix + "AUTH_HEADER"); val != "" {
+		m.config.AuthHeader = val
+	}
+	if val := os.Getenv(m.envPrefix + "AUTH_SCHEME"); val != "" {
+		m.config.AuthScheme = val
+	}
 	if val := os.Getenv(m.envPrefix + "LOG_LEVEL"); val != "" {
 		m.config.LogLevel = val
 	}
@@ -126,6 +136,12 @@ func (m *Manager) ApplyFlags(flags map[string]string) {
 	if val, ok := flags["api-key"]; ok && val != "" {
 		m.config.APIKey = val
 	}
+	if val, ok := flags["auth-header"]; ok && val != "" {
+		m.config.AuthHeader = val
+	}
+	if val, ok := flags["auth-scheme"]; ok && val != "" {
+		m.config.AuthScheme = val
+	}
 	if val, ok := flags["log-level"]; ok && val != "" {
 		m.config.LogLevel = val
 	}
@@ -145,6 +161,12 @@ func (m *Manager) mergeConfig(source *Config) {
 	}
 	if source.APIKey != "" {
 		m.config.APIKey = source.APIKey
+	}
+	if source.AuthHeader != "" {
+		m.config.AuthHeader = source.AuthHeader
+	}
+	if source.AuthScheme != "" {
+		m.config.AuthScheme = source.AuthScheme
 	}
 	if source.LogLevel != "" {
 		m.config.LogLevel = source.LogLevel
@@ -256,6 +278,10 @@ func (m *Manager) Get(key string) (string, error) {
 		return m.config.ServerURL, nil
 	case "apikey", "api_key", "api-key":
 		return m.config.APIKey, nil
+	case "authheader", "auth_header", "auth-header":
+		return m.config.AuthHeader, nil
+	case "authscheme", "auth_scheme", "auth-scheme":
+		return m.config.AuthScheme, nil
 	case "loglevel", "log_level", "log-level":
 		return m.config.LogLevel, nil
 	case "logformat", "log_format", "log-format":
@@ -280,6 +306,10 @@ func (m *Manager) Set(key, value string) error {
 		m.config.ServerURL = value
 	case "apikey", "api_key", "api-key":
 		m.config.APIKey = value
+	case "authheader", "auth_header", "auth-header":
+		m.config.AuthHeader = value
+	case "authscheme", "auth_scheme", "auth-scheme":
+		m.config.AuthScheme = value
 	case "loglevel", "log_level", "log-level":
 		m.config.LogLevel = value
 	case "logformat", "log_format", "log-format":
@@ -305,6 +335,10 @@ func (m *Manager) Unset(key string) error {
 		m.config.ServerURL = ""
 	case "apikey", "api_key", "api-key":
 		m.config.APIKey = ""
+	case "authheader", "auth_header", "auth-header":
+		m.config.AuthHeader = ""
+	case "authscheme", "auth_scheme", "auth-scheme":
+		m.config.AuthScheme = ""
 	case "loglevel", "log_level", "log-level":
 		m.config.LogLevel = ""
 	case "logformat", "log_format", "log-format":
@@ -352,6 +386,8 @@ func (m *Manager) GetEnvironmentVariables() []string {
 	return []string{
 		m.envPrefix + "SERVER",
 		m.envPrefix + "API_KEY",
+		m.envPrefix + "AUTH_HEADER",
+		m.envPrefix + "AUTH_SCHEME",
 		m.envPrefix + "LOG_LEVEL",
 		m.envPrefix + "LOG_FORMAT",
 		m.envPrefix + "OUTPUT",

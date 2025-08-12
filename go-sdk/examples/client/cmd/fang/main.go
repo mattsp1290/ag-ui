@@ -119,6 +119,10 @@ Examples:
 		"AG-UI server URL (env: AGUI_SERVER)")
 	cmd.PersistentFlags().StringP("api-key", "k", cfg.APIKey, 
 		"API key for authentication (env: AGUI_API_KEY)")
+	cmd.PersistentFlags().String("auth-header", cfg.AuthHeader, 
+		"Authentication header name: Authorization or X-API-Key (env: AGUI_AUTH_HEADER)")
+	cmd.PersistentFlags().String("auth-scheme", cfg.AuthScheme, 
+		"Authentication scheme for Authorization header: Bearer, Basic, etc. (env: AGUI_AUTH_SCHEME)")
 	cmd.PersistentFlags().StringP("log-level", "l", cfg.LogLevel, 
 		"Set the logging level: debug, info, warn, error (env: AGUI_LOG_LEVEL)")
 	cmd.PersistentFlags().String("log-format", cfg.LogFormat, 
@@ -649,10 +653,21 @@ Examples:
 			
 			endpoint := strings.TrimSuffix(cfg.ServerURL, "/") + "/tool_based_generative_ui"
 			
+			// Use auth configuration from config manager
+			authHeader := cfg.AuthHeader
+			if authHeader == "" {
+				authHeader = "Authorization"
+			}
+			authScheme := cfg.AuthScheme
+			if authScheme == "" && authHeader == "Authorization" {
+				authScheme = "Bearer"
+			}
+			
 			sseConfig := sse.Config{
 				Endpoint:       endpoint,
 				APIKey:         cfg.APIKey,
-				AuthHeader:     "Authorization",
+				AuthHeader:     authHeader,
+				AuthScheme:     authScheme,
 				ConnectTimeout: 30 * time.Second,
 				ReadTimeout:    5 * time.Minute,
 				BufferSize:     100,

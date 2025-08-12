@@ -18,6 +18,7 @@ type Config struct {
 	Endpoint      string
 	APIKey        string
 	AuthHeader    string
+	AuthScheme    string
 	ConnectTimeout time.Duration
 	ReadTimeout   time.Duration
 	BufferSize    int
@@ -124,9 +125,17 @@ func (c *Client) stream(opts StreamOptions) (<-chan Frame, <-chan error, error) 
 		if authHeader == "" {
 			authHeader = "Authorization"
 		}
+		
+		// Build the header value based on header type
 		if authHeader == "Authorization" {
-			req.Header.Set(authHeader, "Bearer "+c.config.APIKey)
+			// Use scheme (Bearer by default) for Authorization header
+			scheme := "Bearer"
+			if c.config.AuthScheme != "" {
+				scheme = c.config.AuthScheme
+			}
+			req.Header.Set(authHeader, scheme+" "+c.config.APIKey)
 		} else {
+			// For custom headers like X-API-Key, use the key directly
 			req.Header.Set(authHeader, c.config.APIKey)
 		}
 	}

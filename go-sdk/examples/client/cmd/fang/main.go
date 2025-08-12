@@ -12,6 +12,7 @@ import (
 
 	"github.com/ag-ui/go-sdk/examples/client/internal/config"
 	"github.com/ag-ui/go-sdk/examples/client/internal/logging"
+	"github.com/ag-ui/go-sdk/examples/client/internal/session"
 	"github.com/ag-ui/go-sdk/examples/client/internal/sse"
 	"github.com/ag-ui/go-sdk/examples/client/internal/tools"
 	"github.com/ag-ui/go-sdk/examples/client/internal/ui"
@@ -186,7 +187,7 @@ Examples:
 }
 
 func newSessionOpenCommand() *cobra.Command {
-	var sessionName string
+	var label string
 	var metadata string
 	
 	cmd := &cobra.Command{
@@ -198,70 +199,131 @@ Examples:
   # Open a basic session
   ag-ui-client session open
   
-  # Open a named session
-  ag-ui-client session open --name development
+  # Open a labeled session
+  ag-ui-client session open --label development
   
   # Open a session with metadata
-  ag-ui-client session open --name prod --metadata '{"env":"production"}'`,
+  ag-ui-client session open --label prod --metadata '{"env":"production"}'`,
 		Run: func(cmd *cobra.Command, args []string) {
-			logger.WithFields(logrus.Fields{
-				"action":   "session_open",
-				"name":     sessionName,
-				"metadata": metadata,
-				"server":   configManager.GetConfig().ServerURL,
-			}).Info("Opening new session (stub)")
+			// Create session store
+			sessionStore := session.NewStore(configManager.GetConfigPath())
 			
-			if configManager.GetConfig().Output == "json" {
-				logger.WithFields(logrus.Fields{
-					"session_id": "stub-session-" + sessionName,
-					"status":     "opened",
-					"name":       sessionName,
-				}).Info("Session opened successfully")
-			} else {
-				logger.Infof("Session opened: stub-session-%s", sessionName)
+			// Parse metadata if provided
+			var metadataMap map[string]string
+			if metadata != "" && metadata != "{}" {
+				if err := json.Unmarshal([]byte(metadata), &metadataMap); err != nil {
+					logger.WithError(err).Error("Failed to parse metadata JSON")
+					os.Exit(1)
+				}
 			}
+			
+			// Open new session
+			sess, err := sessionStore.OpenSession(label, metadataMap)
+			if err != nil {
+				logger.WithError(err).Error("Failed to open session")
+				os.Exit(1)
+			}
+			
+			// Update config with last session ID
+			configManager.Set("last_session_id", sess.ThreadID)
+			if err := configManager.SaveToFile(); err != nil {
+				logger.WithError(err).Warn("Failed to update config with session ID")
+			}
+			
+			// Output based on format
+			if configManager.GetConfig().Output == "json" {
+				output := map[string]interface{}{
+					"threadId": sess.ThreadID,
+					"status":   "opened",
+				}
+				if sess.Label != "" {
+					output["label"] = sess.Label
+				}
+				if len(sess.Metadata) > 0 {
+					output["metadata"] = sess.Metadata
+				}
+				data, _ := json.Marshal(output)
+				fmt.Fprintln(cmd.OutOrStdout(), string(data))
+			} else {
+				// Print thread ID to stdout for piping
+				fmt.Fprintln(cmd.OutOrStdout(), sess.ThreadID)
+			}
+			
+			// Log success with details
+			logger.WithFields(logrus.Fields{
+				"threadId": sess.ThreadID,
+				"label":    sess.Label,
+			}).Debug("Session opened successfully")
 		},
 	}
 	
-	cmd.Flags().StringVar(&sessionName, "name", "default", "Session name")
+	cmd.Flags().StringVar(&label, "label", "", "Optional session label")
 	cmd.Flags().StringVar(&metadata, "metadata", "{}", "Session metadata (JSON)")
 	
 	return cmd
 }
 
 func newSessionCloseCommand() *cobra.Command {
-	var sessionID string
-	
 	cmd := &cobra.Command{
 		Use:   "close",
-		Short: "Close an existing session",
-		Long: `Close an active AG-UI session.
+		Short: "Close the active session",
+		Long: `Close the active AG-UI session and clear persisted session context.
+
+This command is idempotent - it's safe to call even when no active session exists.
 
 Examples:
-  # Close a session by ID
-  ag-ui-client session close --session-id abc123
+  # Close the active session
+  ag-ui-client session close
   
-  # Force close without cleanup
-  ag-ui-client session close --session-id abc123 --force`,
+  # Close session with JSON output
+  ag-ui-client session close --output json`,
 		Run: func(cmd *cobra.Command, args []string) {
-			logger.WithFields(logrus.Fields{
-				"action":     "session_close",
-				"session_id": sessionID,
-			}).Info("Closing session (stub)")
+			// Create session store
+			sessionStore := session.NewStore(configManager.GetConfigPath())
 			
+			// Get current session before closing (for reporting)
+			currentSession, _ := sessionStore.GetActiveSession()
+			
+			// Close session (idempotent)
+			if err := sessionStore.CloseSession(); err != nil {
+				logger.WithError(err).Error("Failed to close session")
+				os.Exit(1)
+			}
+			
+			// Clear last session ID from config
+			configManager.Set("last_session_id", "")
+			if err := configManager.SaveToFile(); err != nil {
+				logger.WithError(err).Warn("Failed to update config")
+			}
+			
+			// Output based on format
 			if configManager.GetConfig().Output == "json" {
-				logger.WithFields(logrus.Fields{
-					"session_id": sessionID,
-					"status":     "closed",
-				}).Info("Session closed successfully")
+				output := map[string]interface{}{
+					"status": "closed",
+				}
+				if currentSession != nil {
+					output["threadId"] = currentSession.ThreadID
+				}
+				data, _ := json.Marshal(output)
+				fmt.Fprintln(cmd.OutOrStdout(), string(data))
 			} else {
-				logger.Infof("Session closed: %s", sessionID)
+				if currentSession != nil {
+					fmt.Fprintf(cmd.OutOrStdout(), "Session closed: %s\n", currentSession.ThreadID)
+				} else {
+					fmt.Fprintln(cmd.OutOrStdout(), "No active session to close")
+				}
+			}
+			
+			// Log success
+			if currentSession != nil {
+				logger.WithFields(logrus.Fields{
+					"threadId": currentSession.ThreadID,
+				}).Debug("Session closed successfully")
+			} else {
+				logger.Debug("No active session was found (idempotent close)")
 			}
 		},
 	}
-	
-	cmd.Flags().StringVar(&sessionID, "session-id", "", "Session ID to close")
-	cmd.MarkFlagRequired("session-id")
 	
 	return cmd
 }
@@ -269,31 +331,60 @@ Examples:
 func newSessionListCommand() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
-		Short: "List active sessions",
-		Long: `List all active AG-UI sessions.
+		Short: "Show active session",
+		Long: `Show the current active AG-UI session.
 
 Examples:
-  # List all sessions
+  # Show active session
   ag-ui-client session list
   
-  # List sessions in JSON format
+  # Show session in JSON format
   ag-ui-client session list --output json`,
 		Run: func(cmd *cobra.Command, args []string) {
-			logger.WithFields(logrus.Fields{
-				"action": "session_list",
-			}).Info("Listing sessions (stub)")
+			// Create session store
+			sessionStore := session.NewStore(configManager.GetConfigPath())
 			
+			// Get active session
+			activeSession, err := sessionStore.GetActiveSession()
+			if err != nil {
+				logger.WithError(err).Error("Failed to load session")
+				os.Exit(1)
+			}
+			
+			// Output based on format
 			if configManager.GetConfig().Output == "json" {
-				logger.WithFields(logrus.Fields{
-					"sessions": []map[string]string{
-						{"id": "stub-session-1", "name": "default", "status": "active"},
-						{"id": "stub-session-2", "name": "development", "status": "active"},
-					},
-				}).Info("Active sessions")
+				if activeSession != nil {
+					output := map[string]interface{}{
+						"threadId":     activeSession.ThreadID,
+						"label":        activeSession.Label,
+						"lastOpenedAt": activeSession.LastOpenedAt.Format(time.RFC3339),
+						"status":       "active",
+					}
+					if len(activeSession.Metadata) > 0 {
+						output["metadata"] = activeSession.Metadata
+					}
+					data, _ := json.MarshalIndent(output, "", "  ")
+					fmt.Fprintln(cmd.OutOrStdout(), string(data))
+				} else {
+					fmt.Fprintln(cmd.OutOrStdout(), "{}")
+				}
 			} else {
-				logger.Info("Active sessions:")
-				logger.Info("  stub-session-1 (default) - active")
-				logger.Info("  stub-session-2 (development) - active")
+				if activeSession != nil {
+					fmt.Fprintf(cmd.OutOrStdout(), "Active session:\n")
+					fmt.Fprintf(cmd.OutOrStdout(), "  Thread ID: %s\n", activeSession.ThreadID)
+					if activeSession.Label != "" {
+						fmt.Fprintf(cmd.OutOrStdout(), "  Label: %s\n", activeSession.Label)
+					}
+					fmt.Fprintf(cmd.OutOrStdout(), "  Opened at: %s\n", activeSession.LastOpenedAt.Format(time.RFC3339))
+					if len(activeSession.Metadata) > 0 {
+						fmt.Fprintf(cmd.OutOrStdout(), "  Metadata:\n")
+						for k, v := range activeSession.Metadata {
+							fmt.Fprintf(cmd.OutOrStdout(), "    %s: %s\n", k, v)
+						}
+					}
+				} else {
+					fmt.Fprintln(cmd.OutOrStdout(), "No active session")
+				}
 			}
 		},
 	}
@@ -447,6 +538,23 @@ Examples:
 				message = args[0]
 			}
 			
+			// If no session ID provided, try to use the active session
+			if sessionID == "" {
+				sessionStore := session.NewStore(configManager.GetConfigPath())
+				activeSession, err := sessionStore.GetActiveSession()
+				if err == nil && activeSession != nil {
+					sessionID = activeSession.ThreadID
+					logger.WithField("threadId", sessionID).Debug("Using active session")
+				} else {
+					// Fall back to last session ID from config
+					cfg := configManager.GetConfig()
+					sessionID = cfg.LastSessionID
+					if sessionID != "" {
+						logger.WithField("threadId", sessionID).Debug("Using last session ID from config")
+					}
+				}
+			}
+			
 			logger.WithFields(logrus.Fields{
 				"action":     "chat",
 				"message":    message,
@@ -521,6 +629,22 @@ Examples:
 			if cfg.ServerURL == "" {
 				logger.Error("Server URL not configured. Use --server flag or set AGUI_SERVER environment variable")
 				os.Exit(1)
+			}
+			
+			// If no session ID provided, try to use the active session
+			if sessionID == "" {
+				sessionStore := session.NewStore(configManager.GetConfigPath())
+				activeSession, err := sessionStore.GetActiveSession()
+				if err == nil && activeSession != nil {
+					sessionID = activeSession.ThreadID
+					logger.WithField("threadId", sessionID).Debug("Using active session")
+				} else {
+					// Fall back to last session ID from config
+					sessionID = cfg.LastSessionID
+					if sessionID != "" {
+						logger.WithField("threadId", sessionID).Debug("Using last session ID from config")
+					}
+				}
 			}
 			
 			endpoint := strings.TrimSuffix(cfg.ServerURL, "/") + "/tool_based_generative_ui"

@@ -13,6 +13,7 @@ import (
 	"github.com/ag-ui/go-sdk/examples/client/internal/config"
 	"github.com/ag-ui/go-sdk/examples/client/internal/logging"
 	"github.com/ag-ui/go-sdk/examples/client/internal/sse"
+	"github.com/ag-ui/go-sdk/examples/client/internal/tools"
 	"github.com/ag-ui/go-sdk/examples/client/internal/ui"
 	"github.com/charmbracelet/fang"
 	"github.com/sirupsen/logrus"
@@ -490,6 +491,13 @@ func newStreamCommand() *cobra.Command {
 	var noColor bool
 	var quiet bool
 	
+	// Retry configuration flags
+	var onError string
+	var maxRetries int
+	var retryDelay string
+	var retryJitter float64
+	var timeout string
+	
 	cmd := &cobra.Command{
 		Use:   "stream",
 		Short: "Stream events from AG-UI sessions",
@@ -607,6 +615,48 @@ Examples:
 				Writer:     os.Stdout,
 			})
 			
+			// Parse retry configuration
+			retryDelayDuration, err := time.ParseDuration(retryDelay)
+			if err != nil {
+				logger.WithError(err).Error("Invalid retry delay duration")
+				os.Exit(1)
+			}
+			
+			timeoutDuration, err := time.ParseDuration(timeout)
+			if err != nil {
+				logger.WithError(err).Error("Invalid timeout duration")
+				os.Exit(1)
+			}
+			
+			// Helper function to parse retry policy
+			parseRetryPolicy := func(s string) tools.RetryPolicy {
+				switch strings.ToLower(s) {
+				case "retry":
+					return tools.RetryPolicyRetry
+				case "prompt":
+					return tools.RetryPolicyPrompt
+				default:
+					return tools.RetryPolicyAbort
+				}
+			}
+			
+			// Create retry configuration
+			retryConfig := tools.RetryConfig{
+				OnError:           parseRetryPolicy(onError),
+				MaxRetries:        maxRetries,
+				InitialDelay:      retryDelayDuration,
+				MaxDelay:          30 * time.Second,
+				BackoffMultiplier: 2.0,
+				JitterFactor:      retryJitter,
+				Timeout:           timeoutDuration,
+				PerAttemptTimeout: 30 * time.Second,
+				ResetAfter:        60 * time.Second,
+				Logger:            logger,
+			}
+			
+			// Create stream integration for tool handling
+			streamIntegration := tools.NewStreamIntegration(retryConfig, renderer)
+			
 			frameCount := 0
 			startTime := time.Now()
 			
@@ -646,9 +696,15 @@ Examples:
 					
 					eventData, _ := json.Marshal(event["data"])
 					
-					// Handle the event through the renderer
-					if err := renderer.HandleEvent(eventType, eventData); err != nil {
+					// Handle the event through the stream integration
+					if err := streamIntegration.HandleSSEEvent(eventType, eventData); err != nil {
 						logger.WithError(err).WithField("event", eventType).Warn("Failed to handle event")
+					}
+					
+					// Check if we should exit due to tool errors
+					if streamIntegration.ShouldExit() {
+						streamIntegration.CleanExit()
+						return
 					}
 					
 				case err, ok := <-errors:
@@ -662,6 +718,8 @@ Examples:
 					
 				case <-ctx.Done():
 					logger.Info("Context cancelled, closing stream")
+					// Perform clean exit with metrics
+					streamIntegration.CleanExit()
 					return
 				}
 			}
@@ -678,6 +736,13 @@ Examples:
 	cmd.Flags().StringVar(&outputMode, "output", "pretty", "Output mode: pretty or json")
 	cmd.Flags().BoolVar(&noColor, "no-color", false, "Disable colored output")
 	cmd.Flags().BoolVar(&quiet, "quiet", false, "Suppress all output except errors")
+	
+	// Retry configuration flags
+	cmd.Flags().StringVar(&onError, "on-error", "abort", "Error handling policy: retry, abort, or prompt")
+	cmd.Flags().IntVar(&maxRetries, "max-retries", 3, "Maximum number of retry attempts (0 = no retries)")
+	cmd.Flags().StringVar(&retryDelay, "retry-delay", "500ms", "Initial delay before first retry")
+	cmd.Flags().Float64Var(&retryJitter, "retry-jitter", 0.2, "Jitter factor for retry delays (0.0 to 1.0)")
+	cmd.Flags().StringVar(&timeout, "timeout", "5m", "Overall timeout for all retry attempts")
 	
 	return cmd
 }

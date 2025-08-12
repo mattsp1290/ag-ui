@@ -419,7 +419,7 @@ func (r *Renderer) handleToolCallResult(data json.RawMessage) error {
 	var payload struct {
 		ToolCallID string      `json:"toolCallId"`
 		Result     interface{} `json:"result"`
-		Error      *string     `json:"error,omitempty"`
+		Error      interface{} `json:"error,omitempty"`
 	}
 	
 	if err := json.Unmarshal(data, &payload); err != nil {
@@ -435,7 +435,16 @@ func (r *Renderer) handleToolCallResult(data json.RawMessage) error {
 	
 	// Pretty mode: show result card
 	if payload.Error != nil {
-		r.errorColor.Fprintf(r.writer, "\n❌ Tool Error: %s\n", *payload.Error)
+		// Handle different error formats
+		switch e := payload.Error.(type) {
+		case string:
+			r.errorColor.Fprintf(r.writer, "\n❌ Tool Error: %s\n", e)
+		case map[string]interface{}:
+			// Structured error
+			r.renderToolError(e)
+		default:
+			r.errorColor.Fprintf(r.writer, "\n❌ Tool Error: %v\n", e)
+		}
 	} else {
 		r.successColor.Fprintln(r.writer, "\n✅ Tool Result:")
 		// Format result based on type
@@ -568,4 +577,95 @@ func (r *Renderer) Clear() {
 	
 	r.messages = make(map[string]*MessageState)
 	r.state = make(map[string]interface{})
+}
+
+// renderToolError renders a structured tool error in pretty mode
+func (r *Renderer) renderToolError(errorData map[string]interface{}) {
+	r.errorColor.Fprintln(r.writer, "\n❌ Tool Error:")
+	
+	// Extract error fields
+	if toolName, ok := errorData["toolName"].(string); ok {
+		r.boldColor.Fprintf(r.writer, "   Tool: %s\n", toolName)
+	}
+	
+	if errorCode, ok := errorData["errorCode"].(string); ok {
+		r.errorColor.Fprintf(r.writer, "   Code: %s\n", errorCode)
+	}
+	
+	if errorMsg, ok := errorData["errorMessage"].(string); ok {
+		fmt.Fprintf(r.writer, "   Message: %s\n", errorMsg)
+	}
+	
+	if details, ok := errorData["details"].(string); ok && details != "" {
+		r.dimColor.Fprintf(r.writer, "   Details: %s\n", details)
+	}
+	
+	// Show retry information if available
+	if attemptNum, ok := errorData["attemptNumber"].(float64); ok {
+		if maxAttempts, ok := errorData["maxAttempts"].(float64); ok {
+			r.dimColor.Fprintf(r.writer, "   Attempt: %d/%d\n", int(attemptNum), int(maxAttempts))
+		}
+	}
+	
+	if isRetryable, ok := errorData["isRetryable"].(bool); ok {
+		if isRetryable {
+			r.infoColor.Fprintln(r.writer, "   🔄 This error is retryable")
+		} else {
+			r.dimColor.Fprintln(r.writer, "   ⛔ This error is not retryable")
+		}
+	}
+	
+	if retryAfter, ok := errorData["retryAfter"].(string); ok {
+		r.infoColor.Fprintf(r.writer, "   ⏱️  Retry after: %s\n", retryAfter)
+	}
+}
+
+// HandleToolError handles a tool error event
+func (r *Renderer) HandleToolError(eventType string, data json.RawMessage) error {
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": eventType,
+			"data":  data,
+		})
+	}
+	
+	var errorData map[string]interface{}
+	if err := json.Unmarshal(data, &errorData); err != nil {
+		return fmt.Errorf("failed to unmarshal tool error: %w", err)
+	}
+	
+	r.renderToolError(errorData)
+	return nil
+}
+
+// HandleToolRetry handles a tool retry event
+func (r *Renderer) HandleToolRetry(eventType string, data json.RawMessage) error {
+	var payload struct {
+		ToolCallID    string        `json:"toolCallId"`
+		ToolName      string        `json:"toolName"`
+		AttemptNumber int           `json:"attemptNumber"`
+		Delay         time.Duration `json:"delay"`
+		Reason        string        `json:"reason"`
+	}
+	
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal tool retry: %w", err)
+	}
+	
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": eventType,
+			"data":  payload,
+		})
+	}
+	
+	// Pretty mode
+	r.infoColor.Fprintf(r.writer, "\n🔄 Retrying Tool: %s\n", payload.ToolName)
+	r.dimColor.Fprintf(r.writer, "   Attempt: %d\n", payload.AttemptNumber)
+	r.dimColor.Fprintf(r.writer, "   Delay: %v\n", payload.Delay)
+	if payload.Reason != "" {
+		r.dimColor.Fprintf(r.writer, "   Reason: %s\n", payload.Reason)
+	}
+	
+	return nil
 }

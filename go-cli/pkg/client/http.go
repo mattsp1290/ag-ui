@@ -210,3 +210,113 @@ type ToolResult struct {
 	Output     interface{} `json:"output"`
 	Error      string      `json:"error,omitempty"`
 }
+
+// GetTools retrieves the list of available tools from the server
+func (c *HTTPClient) GetTools(ctx context.Context) ([]Tool, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", 
+		fmt.Sprintf("%s/tools", c.baseURL), nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	c.setHeaders(req)
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var tools []Tool
+	if err := json.NewDecoder(resp.Body).Decode(&tools); err != nil {
+		return nil, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return tools, nil
+}
+
+// InvokeTool invokes a tool directly on the server
+func (c *HTTPClient) InvokeTool(ctx context.Context, sessionID, toolName, arguments, toolCallID string) error {
+	// Create RunAgentInput matching Python server expectations
+	payload := map[string]interface{}{
+		"thread_id": sessionID,
+		"run_id":    fmt.Sprintf("run_%d", time.Now().UnixNano()),
+		"messages": []map[string]interface{}{
+			{
+				"role": "user",
+				"content": fmt.Sprintf("Execute tool: %s", toolName),
+			},
+			{
+				"role": "assistant",
+				"tool_calls": []map[string]interface{}{
+					{
+						"id":   toolCallID,
+						"type": "function",
+						"function": map[string]string{
+							"name":      toolName,
+							"arguments": arguments,
+						},
+					},
+				},
+			},
+		},
+		"tools": []map[string]interface{}{}, // Will be populated by server
+		"state": map[string]interface{}{},   // Empty state
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Use tool_based_generative_ui endpoint for tool invocation
+	req, err := http.NewRequestWithContext(ctx, "POST", 
+		fmt.Sprintf("%s/tool_based_generative_ui", c.baseURL), 
+		bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	c.setHeaders(req)
+	req.Header.Set("Accept", "text/event-stream")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// For SSE endpoints, we expect 200 OK with event stream
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// The actual events will be consumed via SSE client
+	return nil
+}
+
+// Tool represents a tool definition from the server
+type Tool struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	Parameters  *ToolParameters        `json:"parameters"`
+}
+
+// ToolParameters represents tool parameter schema
+type ToolParameters struct {
+	Type       string                    `json:"type"`
+	Properties map[string]*ToolProperty  `json:"properties,omitempty"`
+	Required   []string                  `json:"required,omitempty"`
+}
+
+// ToolProperty represents a single tool parameter
+type ToolProperty struct {
+	Type        string `json:"type"`
+	Description string `json:"description,omitempty"`
+}

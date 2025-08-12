@@ -1,9 +1,6 @@
 package commands
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/spf13/cobra"
 )
 
@@ -16,22 +13,26 @@ var (
 	sessionID    string
 )
 
+// Version information for the CLI
+var (
+	Version = "0.1.0"
+	Commit  = "dev"
+	Date    = "unknown"
+)
+
 // RootCmd represents the base command when called without any subcommands
 var RootCmd = &cobra.Command{
-	Use:   "ag-ui-cli",
-	Short: "AG-UI CLI - Tool-Based Generative UI Client",
+	Use:     "ag-ui-cli",
+	Short:   "AG-UI CLI - Tool-Based Generative UI Client",
+	Version: Version,
 	Long: `AG-UI CLI (Fang) is a command-line interface for interacting with
 the AG-UI server, providing chat functionality with streaming responses,
-tool call handling, and session management.`,
+tool call handling, and session management.
+
+This CLI uses the Charmbracelet Fang framework for enhanced terminal UX.`,
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-func Execute() {
-	if err := RootCmd.Execute(); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
-		os.Exit(1)
-	}
-}
+// Removed Execute() function - Fang handles execution in main.go
 
 func init() {
 	// Global flags

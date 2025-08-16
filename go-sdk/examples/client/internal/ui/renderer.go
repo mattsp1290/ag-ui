@@ -32,11 +32,12 @@ type RendererConfig struct {
 
 // Renderer handles rendering of UI updates and message deltas
 type Renderer struct {
-	config   RendererConfig
-	messages map[string]*MessageState // Track messages by messageId
-	state    map[string]interface{}   // Current application state
-	mu       sync.RWMutex
-	writer   io.Writer
+	config    RendererConfig
+	messages  map[string]*MessageState // Track messages by messageId
+	state     map[string]interface{}   // Current application state
+	toolCalls map[string]string        // Track tool names by toolCallId
+	mu        sync.RWMutex
+	writer    io.Writer
 	
 	// Color functions for pretty mode
 	infoColor    *color.Color
@@ -67,10 +68,11 @@ func NewRenderer(config RendererConfig) *Renderer {
 	}
 	
 	r := &Renderer{
-		config:   config,
-		messages: make(map[string]*MessageState),
-		state:    make(map[string]interface{}),
-		writer:   config.Writer,
+		config:    config,
+		messages:  make(map[string]*MessageState),
+		state:     make(map[string]interface{}),
+		toolCalls: make(map[string]string),
+		writer:    config.Writer,
 	}
 	
 	// Initialize colors if not disabled
@@ -99,6 +101,10 @@ func (r *Renderer) HandleEvent(eventType string, data json.RawMessage) error {
 	}
 	
 	switch eventType {
+	case "RUN_STARTED":
+		return r.handleRunStarted(data)
+	case "RUN_FINISHED":
+		return r.handleRunFinished(data)
 	case "TEXT_MESSAGE_START":
 		return r.handleTextMessageStart(data)
 	case "TEXT_MESSAGE_CONTENT":
@@ -135,6 +141,52 @@ func (r *Renderer) HandleEvent(eventType string, data json.RawMessage) error {
 		}
 		return nil
 	}
+}
+
+// handleRunStarted handles RUN_STARTED events
+func (r *Renderer) handleRunStarted(data json.RawMessage) error {
+	var payload struct {
+		ThreadID  string `json:"threadId"`
+		RunID     string `json:"runId"`
+		Timestamp string `json:"timestamp"`
+	}
+	
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal RUN_STARTED: %w", err)
+	}
+	
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": "RUN_STARTED",
+			"data":  payload,
+		})
+	}
+	
+	// Pretty mode - just track internally, no visible output
+	return nil
+}
+
+// handleRunFinished handles RUN_FINISHED events
+func (r *Renderer) handleRunFinished(data json.RawMessage) error {
+	var payload struct {
+		ThreadID  string `json:"threadId"`
+		RunID     string `json:"runId"`
+		Timestamp string `json:"timestamp"`
+	}
+	
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal RUN_FINISHED: %w", err)
+	}
+	
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": "RUN_FINISHED",
+			"data":  payload,
+		})
+	}
+	
+	// Pretty mode - just track internally, no visible output
+	return nil
 }
 
 // handleTextMessageStart handles the start of a text message
@@ -351,6 +403,11 @@ func (r *Renderer) handleToolCallStart(data json.RawMessage) error {
 		return fmt.Errorf("failed to unmarshal TOOL_CALL_START: %w", err)
 	}
 	
+	// Store the tool name for later use in TOOL_CALL_RESULT
+	r.mu.Lock()
+	r.toolCalls[payload.ToolCallID] = payload.ToolName
+	r.mu.Unlock()
+	
 	if r.config.OutputMode == OutputModeJSON {
 		return r.outputJSON(map[string]interface{}{
 			"event": "TOOL_CALL_START",
@@ -420,10 +477,21 @@ func (r *Renderer) handleToolCallResult(data json.RawMessage) error {
 		ToolCallID string      `json:"toolCallId"`
 		Result     interface{} `json:"result"`
 		Error      interface{} `json:"error,omitempty"`
+		Name       string      `json:"name,omitempty"` // Tool name might be in the event
 	}
 	
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return fmt.Errorf("failed to unmarshal TOOL_CALL_RESULT: %w", err)
+	}
+	
+	// Get the tool name from our stored mapping
+	r.mu.RLock()
+	toolName := r.toolCalls[payload.ToolCallID]
+	r.mu.RUnlock()
+	
+	// If tool name was provided in the event, use that
+	if payload.Name != "" {
+		toolName = payload.Name
 	}
 	
 	if r.config.OutputMode == OutputModeJSON {
@@ -438,15 +506,49 @@ func (r *Renderer) handleToolCallResult(data json.RawMessage) error {
 		// Handle different error formats
 		switch e := payload.Error.(type) {
 		case string:
-			r.errorColor.Fprintf(r.writer, "\n❌ Tool Error: %s\n", e)
+			r.errorColor.Fprintf(r.writer, "\n❌ Tool Error [ID: %s]: %s\n", payload.ToolCallID, e)
 		case map[string]interface{}:
+			r.errorColor.Fprintf(r.writer, "\n❌ Tool Error [ID: %s]:\n", payload.ToolCallID)
 			// Structured error
 			r.renderToolError(e)
 		default:
-			r.errorColor.Fprintf(r.writer, "\n❌ Tool Error: %v\n", e)
+			r.errorColor.Fprintf(r.writer, "\n❌ Tool Error [ID: %s]: %v\n", payload.ToolCallID, e)
 		}
 	} else {
-		r.successColor.Fprintln(r.writer, "\n✅ Tool Result:")
+		// Check if this is a haiku tool result
+		if toolName == "generate_haiku" {
+			// Try to parse the result as a haiku
+			if resultMap, ok := payload.Result.(map[string]interface{}); ok {
+				// Check for japanese and english arrays
+				var japanese, english []string
+				
+				if japArray, ok := resultMap["japanese"].([]interface{}); ok {
+					for _, line := range japArray {
+						if str, ok := line.(string); ok {
+							japanese = append(japanese, str)
+						}
+					}
+				}
+				
+				if engArray, ok := resultMap["english"].([]interface{}); ok {
+					for _, line := range engArray {
+						if str, ok := line.(string); ok {
+							english = append(english, str)
+						}
+					}
+				}
+				
+				// If we have haiku data, render it specially
+				if len(japanese) > 0 || len(english) > 0 {
+					r.successColor.Fprintf(r.writer, "\n✅ Tool Result (generate_haiku) [ID: %s]:\n", payload.ToolCallID)
+					fmt.Fprint(r.writer, RenderHaikuBox(japanese, english))
+					return nil
+				}
+			}
+		}
+		
+		// Default rendering
+		r.successColor.Fprintf(r.writer, "\n✅ Tool Result [ID: %s]:\n", payload.ToolCallID)
 		// Format result based on type
 		switch v := payload.Result.(type) {
 		case string:
@@ -577,6 +679,7 @@ func (r *Renderer) Clear() {
 	
 	r.messages = make(map[string]*MessageState)
 	r.state = make(map[string]interface{})
+	r.toolCalls = make(map[string]string)
 }
 
 // renderToolError renders a structured tool error in pretty mode

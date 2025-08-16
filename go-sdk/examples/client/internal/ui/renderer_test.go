@@ -254,7 +254,7 @@ func TestHandleToolCallEvents(t *testing.T) {
 	}`)
 	err = r.handleToolCallResult(resultData)
 	require.NoError(t, err)
-	assert.Contains(t, buf.String(), "Tool Result:")
+	assert.Contains(t, buf.String(), "✅ Tool Result")
 	assert.Contains(t, buf.String(), "answer: 5")
 }
 
@@ -274,7 +274,7 @@ func TestHandleToolCallError(t *testing.T) {
 
 	err := r.handleToolCallResult(resultData)
 	require.NoError(t, err)
-	assert.Contains(t, buf.String(), "Tool Error:")
+	assert.Contains(t, buf.String(), "❌ Tool Error")
 	assert.Contains(t, buf.String(), errorMsg)
 }
 
@@ -340,7 +340,7 @@ func TestHandleEventIntegration(t *testing.T) {
 	output := buf.String()
 	assert.Contains(t, output, "assistant")
 	assert.Contains(t, output, "Tool Call: search")
-	assert.Contains(t, output, "Tool Result:")
+	assert.Contains(t, output, "✅ Tool Result")
 }
 
 func TestQuietMode(t *testing.T) {

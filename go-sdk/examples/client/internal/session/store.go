@@ -160,3 +160,28 @@ func (s *Store) HasActiveSession() bool {
 	session, err := s.GetActiveSession()
 	return err == nil && session != nil
 }
+
+// SetActiveSession sets an existing session as the active session
+func (s *Store) SetActiveSession(threadID string, label string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	
+	// Create session object
+	session := &Session{
+		ThreadID:     threadID,
+		Label:        label,
+		LastOpenedAt: time.Now(),
+		Metadata:     make(map[string]string),
+	}
+	
+	// Save to store
+	storeData := &StoreData{
+		ActiveSession: session,
+	}
+	
+	if err := s.save(storeData); err != nil {
+		return fmt.Errorf("failed to set active session: %w", err)
+	}
+	
+	return nil
+}

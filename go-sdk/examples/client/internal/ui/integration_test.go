@@ -66,7 +66,7 @@ func TestSSETranscriptChat(t *testing.T) {
 	prettyOutput := prettyBuf.String()
 	assert.Contains(t, prettyOutput, "assistant")
 	assert.Contains(t, prettyOutput, "Tool Call: web_search")
-	assert.Contains(t, prettyOutput, "Tool Result:")
+	assert.Contains(t, prettyOutput, "✅ Tool Result")
 	assert.Contains(t, prettyOutput, "GPT-5")
 	assert.Contains(t, prettyOutput, "vision models")
 
@@ -323,7 +323,7 @@ func TestSSETranscriptErrorHandling(t *testing.T) {
 	}
 
 	output := buf.String()
-	assert.Contains(t, output, "Tool Error:")
+	assert.Contains(t, output, "❌ Tool Error")
 	assert.Contains(t, output, "Invalid parameters provided")
 }
 

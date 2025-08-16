@@ -1,0 +1,6 @@
+data: {"type":"RUN_STARTED","threadId":"test-thread","runId":"test-run"}
+
+data: {"type":"MESSAGES_SNAPSHOT","messages":[{"id":"fca41122-3b81-46ca-b4d8-e724deb30f9e","role":"assistant","toolCalls":[{"id":"b0b0c40f-dd73-4905-a1d6-b18991397bb6","type":"function","function":{"name":"generate_haiku","arguments":"{\"japanese\": [\"\\u30a8\\u30fc\\u30a2\\u30a4\\u306e\", \"\\u6a4b\\u3064\\u306a\\u3050\\u9053\", \"\\u30b3\\u30d1\\u30ad\\u30c3\\u30c8\"], \"english\": [\"From AI's realm\", \"A bridge-road linking us\\u2014\", \"CopilotKit.\"]}"}}]}]}
+
+data: {"type":"RUN_FINISHED","threadId":"test-thread","runId":"test-run"}
+

@@ -234,3 +234,62 @@ func (e *TextMessageEndEvent) ToProtobuf() (*generated.Event, error) {
 		},
 	}, nil
 }
+
+// TextMessageChunkEvent represents a chunk of text message data
+type TextMessageChunkEvent struct {
+	*BaseEvent
+	MessageID *string `json:"messageId,omitempty"`
+	Role      *string `json:"role,omitempty"`
+	Delta     *string `json:"delta,omitempty"`
+}
+
+// NewTextMessageChunkEvent creates a new text message chunk event
+func NewTextMessageChunkEvent() *TextMessageChunkEvent {
+	return &TextMessageChunkEvent{
+		BaseEvent: NewBaseEvent(EventTypeTextMessageChunk),
+	}
+}
+
+// WithChunkMessageID sets the message ID for the chunk
+func (e *TextMessageChunkEvent) WithChunkMessageID(id string) *TextMessageChunkEvent {
+	e.MessageID = &id
+	return e
+}
+
+// WithChunkRole sets the role for the chunk
+func (e *TextMessageChunkEvent) WithChunkRole(role string) *TextMessageChunkEvent {
+	e.Role = &role
+	return e
+}
+
+// WithChunkDelta sets the delta content for the chunk
+func (e *TextMessageChunkEvent) WithChunkDelta(delta string) *TextMessageChunkEvent {
+	e.Delta = &delta
+	return e
+}
+
+// Validate validates the text message chunk event
+func (e *TextMessageChunkEvent) Validate() error {
+	if err := e.BaseEvent.Validate(); err != nil {
+		return err
+	}
+
+	// At least one field should be present
+	if e.MessageID == nil && e.Role == nil && e.Delta == nil {
+		return fmt.Errorf("TextMessageChunkEvent validation failed: at least one of messageId, role, or delta must be present")
+	}
+
+	return nil
+}
+
+// ToJSON serializes the event to JSON
+func (e *TextMessageChunkEvent) ToJSON() ([]byte, error) {
+	return json.Marshal(e)
+}
+
+// ToProtobuf converts the event to its protobuf representation
+func (e *TextMessageChunkEvent) ToProtobuf() (*generated.Event, error) {
+	// Note: This requires adding TextMessageChunkEvent to the protobuf definition
+	// For now, we'll return a basic event
+	return &generated.Event{}, nil
+}

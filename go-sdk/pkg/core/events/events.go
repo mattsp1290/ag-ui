@@ -16,9 +16,12 @@ const (
 	EventTypeTextMessageStart   EventType = "TEXT_MESSAGE_START"
 	EventTypeTextMessageContent EventType = "TEXT_MESSAGE_CONTENT"
 	EventTypeTextMessageEnd     EventType = "TEXT_MESSAGE_END"
+	EventTypeTextMessageChunk   EventType = "TEXT_MESSAGE_CHUNK"
 	EventTypeToolCallStart      EventType = "TOOL_CALL_START"
 	EventTypeToolCallArgs       EventType = "TOOL_CALL_ARGS"
 	EventTypeToolCallEnd        EventType = "TOOL_CALL_END"
+	EventTypeToolCallChunk      EventType = "TOOL_CALL_CHUNK"
+	EventTypeToolCallResult     EventType = "TOOL_CALL_RESULT"
 	EventTypeStateSnapshot      EventType = "STATE_SNAPSHOT"
 	EventTypeStateDelta         EventType = "STATE_DELTA"
 	EventTypeMessagesSnapshot   EventType = "MESSAGES_SNAPSHOT"
@@ -30,28 +33,43 @@ const (
 	EventTypeStepStarted        EventType = "STEP_STARTED"
 	EventTypeStepFinished       EventType = "STEP_FINISHED"
 
+	// Thinking events for reasoning phase support
+	EventTypeThinkingStart              EventType = "THINKING_START"
+	EventTypeThinkingEnd                EventType = "THINKING_END"
+	EventTypeThinkingTextMessageStart   EventType = "THINKING_TEXT_MESSAGE_START"
+	EventTypeThinkingTextMessageContent EventType = "THINKING_TEXT_MESSAGE_CONTENT"
+	EventTypeThinkingTextMessageEnd     EventType = "THINKING_TEXT_MESSAGE_END"
+
 	// EventTypeUnknown represents an unrecognized event type
 	EventTypeUnknown EventType = "UNKNOWN"
 )
 
 // validEventTypes is a map for O(1) lookup of valid event types
 var validEventTypes = map[EventType]bool{
-	EventTypeTextMessageStart:   true,
-	EventTypeTextMessageContent: true,
-	EventTypeTextMessageEnd:     true,
-	EventTypeToolCallStart:      true,
-	EventTypeToolCallArgs:       true,
-	EventTypeToolCallEnd:        true,
-	EventTypeStateSnapshot:      true,
-	EventTypeStateDelta:         true,
-	EventTypeMessagesSnapshot:   true,
-	EventTypeRaw:                true,
-	EventTypeCustom:             true,
-	EventTypeRunStarted:         true,
-	EventTypeRunFinished:        true,
-	EventTypeRunError:           true,
-	EventTypeStepStarted:        true,
-	EventTypeStepFinished:       true,
+	EventTypeTextMessageStart:           true,
+	EventTypeTextMessageContent:         true,
+	EventTypeTextMessageEnd:             true,
+	EventTypeTextMessageChunk:           true,
+	EventTypeToolCallStart:              true,
+	EventTypeToolCallArgs:               true,
+	EventTypeToolCallEnd:                true,
+	EventTypeToolCallChunk:              true,
+	EventTypeToolCallResult:             true,
+	EventTypeStateSnapshot:              true,
+	EventTypeStateDelta:                 true,
+	EventTypeMessagesSnapshot:           true,
+	EventTypeRaw:                        true,
+	EventTypeCustom:                     true,
+	EventTypeRunStarted:                 true,
+	EventTypeRunFinished:                true,
+	EventTypeRunError:                   true,
+	EventTypeStepStarted:                true,
+	EventTypeStepFinished:               true,
+	EventTypeThinkingStart:              true,
+	EventTypeThinkingEnd:                true,
+	EventTypeThinkingTextMessageStart:   true,
+	EventTypeThinkingTextMessageContent: true,
+	EventTypeThinkingTextMessageEnd:     true,
 }
 
 // Event defines the common interface for all AG-UI events

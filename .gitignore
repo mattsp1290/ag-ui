@@ -81,3 +81,7 @@ Thumbs.db
 COMMIT_MESSAGE.txt
 commit_*.sh
 simple_commit.sh
+
+# Generated binaries
+go-sdk/examples/client/ag-ui-client
+go-sdk/examples/client/fang

@@ -8,13 +8,14 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/encoding"
-	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 )
 
 // AgenticChatHandler creates a Fiber handler for the agentic chat route
-func AgenticChatHandler(cfg *config.Config) fiber.Handler {
+func AgenticChatHandler(_ *config.Config) fiber.Handler {
 	logger := slog.Default()
 	sseWriter := encoding.NewSSEWriter().WithLogger(logger)
 
@@ -71,7 +72,7 @@ func streamAgenticChatEvents(reqCtx context.Context, w *bufio.Writer, sseWriter 
 
 	// Check for cancellation
 	if err := reqCtx.Err(); err != nil {
-		logger.Debug("Client disconnected during RUN_STARTED", append(logCtx, "reason", "context_cancelled")...)
+		logger.Debug("Client disconnected during RUN_STARTED", append(logCtx, "reason", "context_canceled")...)
 		return nil
 	}
 
@@ -89,7 +90,7 @@ func streamAgenticChatEvents(reqCtx context.Context, w *bufio.Writer, sseWriter 
 
 	// Check for cancellation
 	if err := reqCtx.Err(); err != nil {
-		logger.Debug("Client disconnected during message content", append(logCtx, "reason", "context_cancelled")...)
+		logger.Debug("Client disconnected during message content", append(logCtx, "reason", "context_canceled")...)
 		return nil
 	}
 
@@ -104,7 +105,7 @@ func streamAgenticChatEvents(reqCtx context.Context, w *bufio.Writer, sseWriter 
 
 	// Check for cancellation
 	if err := reqCtx.Err(); err != nil {
-		logger.Debug("Client disconnected before tool call", append(logCtx, "reason", "context_cancelled")...)
+		logger.Debug("Client disconnected before tool call", append(logCtx, "reason", "context_canceled")...)
 		return nil
 	}
 
@@ -125,7 +126,7 @@ func streamAgenticChatEvents(reqCtx context.Context, w *bufio.Writer, sseWriter 
 
 	// Check for cancellation
 	if err := reqCtx.Err(); err != nil {
-		logger.Debug("Client disconnected during tool execution", append(logCtx, "reason", "context_cancelled")...)
+		logger.Debug("Client disconnected during tool execution", append(logCtx, "reason", "context_canceled")...)
 		return nil
 	}
 
@@ -154,7 +155,7 @@ func streamAgenticChatEvents(reqCtx context.Context, w *bufio.Writer, sseWriter 
 	for _, part := range finalParts {
 		// Check for cancellation before each part
 		if err := reqCtx.Err(); err != nil {
-			logger.Debug("Client disconnected during final message", append(logCtx, "reason", "context_cancelled")...)
+			logger.Debug("Client disconnected during final message", append(logCtx, "reason", "context_canceled")...)
 			return nil
 		}
 

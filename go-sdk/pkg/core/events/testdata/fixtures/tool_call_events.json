@@ -1,0 +1,59 @@
+{
+  "TOOL_CALL_START": {
+    "type": "TOOL_CALL_START",
+    "toolCallId": "bb200a26-2e10-4d07-a4e9-73206a52f223",
+    "toolCallName": "generate_haiku",
+    "parentMessageId": "parent-message-id",
+    "timestamp": 1672531200000
+  },
+  "TOOL_CALL_START_MINIMAL": {
+    "type": "TOOL_CALL_START",
+    "toolCallId": "bb200a26-2e10-4d07-a4e9-73206a52f223",
+    "toolCallName": "generate_haiku"
+  },
+  "TOOL_CALL_ARGS": {
+    "type": "TOOL_CALL_ARGS",
+    "toolCallId": "bb200a26-2e10-4d07-a4e9-73206a52f223",
+    "delta": "{\"location\": \"San Francisco\", \"unit\": \"celsius\"}",
+    "timestamp": 1672531200000
+  },
+  "TOOL_CALL_ARGS_MINIMAL": {
+    "type": "TOOL_CALL_ARGS",
+    "toolCallId": "bb200a26-2e10-4d07-a4e9-73206a52f223",
+    "delta": "{\"location\": \"SF\"}"
+  },
+  "TOOL_CALL_END": {
+    "type": "TOOL_CALL_END",
+    "toolCallId": "bb200a26-2e10-4d07-a4e9-73206a52f223",
+    "timestamp": 1672531200000
+  },
+  "TOOL_CALL_END_MINIMAL": {
+    "type": "TOOL_CALL_END",
+    "toolCallId": "bb200a26-2e10-4d07-a4e9-73206a52f223"
+  },
+  "TOOL_CALL_CHUNK": {
+    "type": "TOOL_CALL_CHUNK",
+    "toolCallId": "bb200a26-2e10-4d07-a4e9-73206a52f223",
+    "toolCallName": "generate_haiku",
+    "parentMessageId": "parent-message-id",
+    "delta": "{\"location\": \"SF\"}",
+    "timestamp": 1672531200000
+  },
+  "TOOL_CALL_CHUNK_MINIMAL": {
+    "type": "TOOL_CALL_CHUNK"
+  },
+  "TOOL_CALL_RESULT": {
+    "type": "TOOL_CALL_RESULT",
+    "messageId": "msg-1",
+    "toolCallId": "tool-123",
+    "content": "Haiku generated successfully",
+    "role": "tool",
+    "timestamp": 1672531200000
+  },
+  "TOOL_CALL_RESULT_MINIMAL": {
+    "type": "TOOL_CALL_RESULT",
+    "messageId": "msg-1",
+    "toolCallId": "tool-123",
+    "content": "Haiku generated successfully"
+  }
+}

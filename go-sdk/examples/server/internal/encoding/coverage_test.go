@@ -1,4 +1,4 @@
-package encoding
+package encoding_test
 
 import (
 	"bufio"
@@ -11,22 +11,26 @@ import (
 	"testing"
 
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+
+	encoding "github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/encoding"
 )
 
 // Tests for uncovered SSEWriter functions
 
 func TestSSEWriter_WriteEventWithNegotiation(t *testing.T) {
-	writer := NewSSEWriter()
+	writer := encoding.NewSSEWriter()
 	var buf bytes.Buffer
 	bufWriter := bufio.NewWriter(&buf)
 	ctx := context.Background()
 
-	testEvent := &CustomEvent{
+	testEvent := &encoding.CustomEvent{
 		BaseEvent: events.BaseEvent{
 			EventType: events.EventTypeCustom,
 		},
 	}
-	testEvent.SetData(map[string]interface{}{"test": "negotiation"})
+	testEvent.SetData(map[string]interface{}{
+		"test": "negotiation",
+	})
 	testEvent.SetTimestamp(1234567890)
 
 	err := writer.WriteEventWithNegotiation(ctx, bufWriter, testEvent, "application/json")
@@ -46,7 +50,7 @@ func TestSSEWriter_WriteEventWithNegotiation(t *testing.T) {
 }
 
 func TestCustomEvent_DataMethods(t *testing.T) {
-	event := &CustomEvent{
+	event := &encoding.CustomEvent{
 		BaseEvent: events.BaseEvent{
 			EventType: events.EventTypeCustom,
 		},
@@ -91,7 +95,7 @@ func TestCustomEvent_DataMethods(t *testing.T) {
 }
 
 func TestCustomEvent_ToProtobuf(t *testing.T) {
-	event := &CustomEvent{
+	event := &encoding.CustomEvent{
 		BaseEvent: events.BaseEvent{
 			EventType: events.EventTypeCustom,
 		},
@@ -108,7 +112,7 @@ func TestCustomEvent_ToProtobuf(t *testing.T) {
 }
 
 func TestCustomEvent_ValidationFailure(t *testing.T) {
-	event := &CustomEvent{
+	event := &encoding.CustomEvent{
 		BaseEvent: events.BaseEvent{
 			EventType: "", // Empty type should cause validation failure
 		},
@@ -125,7 +129,7 @@ func TestCustomEvent_ValidationFailure(t *testing.T) {
 func TestErrorTypes(t *testing.T) {
 	// Test EncodingError
 	baseErr := errors.New("base error")
-	encErr := EncodingError{
+	encErr := encoding.EncodingError{
 		Operation: "test_op",
 		Cause:     baseErr,
 	}
@@ -134,50 +138,50 @@ func TestErrorTypes(t *testing.T) {
 		t.Errorf("Unexpected encoding error message: %s", encErr.Error())
 	}
 
-	if encErr.Unwrap() != baseErr {
+	if !errors.Is(encErr.Unwrap(), baseErr) {
 		t.Errorf("Unwrap() should return base error")
 	}
 
 	// Test ValidationError
-	valErr := ValidationError{Message: "validation failed"}
+	valErr := encoding.ValidationError{Message: "validation failed"}
 	if !strings.Contains(valErr.Error(), "validation failed") {
 		t.Errorf("Unexpected validation error message: %s", valErr.Error())
 	}
 
 	// Test NegotiationError
-	negErr := NegotiationError{AcceptHeader: "test"}
+	negErr := encoding.NegotiationError{AcceptHeader: "test"}
 	if negErr.Error() == "" {
 		t.Errorf("Expected non-empty negotiation error message")
 	}
 }
 
 func TestErrorHandler_MissingLogger(t *testing.T) {
-	handler := NewErrorHandler(nil)
+	handler := encoding.NewErrorHandler(nil)
 	if handler == nil {
 		t.Fatal("Expected non-nil handler")
 	}
 
 	// Test that it doesn't panic with nil logger initially
-	testErr := CreateEncodingError(nil, "test_op", errors.New("test error"), "req123")
+	testErr := encoding.CreateEncodingError(nil, "test_op", errors.New("test error"), "req123")
 	handler.HandleEncodingError(testErr)
 }
 
 func TestErrorHandlerAllTypes(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
-	handler := NewErrorHandler(logger)
+	handler := encoding.NewErrorHandler(logger)
 
 	// Test validation error
-	valErr := CreateValidationError(nil, "test_field", "test_value", "validation message", "req123")
+	valErr := encoding.CreateValidationError(nil, "test_field", "test_value", "validation message", "req123")
 	handler.HandleValidationError(valErr)
 
-	// Test negotiation error  
-	negErr := CreateNegotiationError("application/xml", []string{"application/json"}, "req456")
+	// Test negotiation error
+	negErr := encoding.CreateNegotiationError("application/xml", []string{"application/json"}, "req456")
 	handler.HandleNegotiationError(negErr)
 }
 
 func TestSSEErrorHandling(t *testing.T) {
 	logger := slog.New(slog.NewTextHandler(bytes.NewBuffer(nil), nil))
-	handler := NewErrorHandler(logger)
+	handler := encoding.NewErrorHandler(logger)
 
 	// Test SSE error handling
 	err := errors.New("write failed")
@@ -197,7 +201,7 @@ func TestSSEErrorHandling(t *testing.T) {
 
 func TestValidEventFlow(t *testing.T) {
 	// Test that a valid event doesn't trigger validation errors
-	validEvent := &CustomEvent{
+	validEvent := &encoding.CustomEvent{
 		BaseEvent: events.BaseEvent{
 			EventType: events.EventTypeCustom,
 		},
@@ -224,17 +228,17 @@ func TestValidEventFlow(t *testing.T) {
 
 func TestEncodingAPIEdgeCases(t *testing.T) {
 	// Test error creation functions
-	encErr := CreateEncodingError(nil, "test_op", errors.New("test"), "req123")
+	encErr := encoding.CreateEncodingError(nil, "test_op", errors.New("test"), "req123")
 	if encErr.Operation != "test_op" {
 		t.Errorf("Expected operation 'test_op', got %s", encErr.Operation)
 	}
 
-	valErr := CreateValidationError(nil, "field", "value", "message", "req123")
+	valErr := encoding.CreateValidationError(nil, "field", "value", "message", "req123")
 	if valErr.Field != "field" {
 		t.Errorf("Expected field 'field', got %s", valErr.Field)
 	}
 
-	negErr := CreateNegotiationError("accept", []string{"json"}, "req123")
+	negErr := encoding.CreateNegotiationError("accept", []string{"json"}, "req123")
 	if negErr.AcceptHeader != "accept" {
 		t.Errorf("Expected AcceptHeader 'accept', got %s", negErr.AcceptHeader)
 	}
@@ -252,7 +256,7 @@ func (e *InvalidEventForCoverage) Validate() error {
 }
 
 func TestSSEWriterErrorPaths(t *testing.T) {
-	writer := NewSSEWriter()
+	writer := encoding.NewSSEWriter()
 	var buf bytes.Buffer
 	bufWriter := bufio.NewWriter(&buf)
 	ctx := context.Background()

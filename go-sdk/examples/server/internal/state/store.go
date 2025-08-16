@@ -221,14 +221,14 @@ func (s *Store) validatePatch(oldJSON, newJSON []byte, patchMaps []map[string]in
 	}
 
 	// Re-marshal both to ensure consistent formatting
-	appliedNormalized, err := json.Marshal(applied)
-	if err != nil {
-		return fmt.Errorf("failed to marshal applied JSON: %w", err)
+	appliedNormalized, marshalAppliedErr := json.Marshal(applied)
+	if marshalAppliedErr != nil {
+		return fmt.Errorf("failed to marshal applied JSON: %w", marshalAppliedErr)
 	}
 
-	expectedNormalized, err := json.Marshal(expected)
-	if err != nil {
-		return fmt.Errorf("failed to marshal expected JSON: %w", err)
+	expectedNormalized, marshalExpectedErr := json.Marshal(expected)
+	if marshalExpectedErr != nil {
+		return fmt.Errorf("failed to marshal expected JSON: %w", marshalExpectedErr)
 	}
 
 	// Compare normalized JSON strings
@@ -251,7 +251,7 @@ func (s *Store) Watch(ctx context.Context) (*Watcher, error) {
 	s.watchers[watcherID] = watcher
 	s.watcherMu.Unlock()
 
-	// Clean up the watcher when its context is cancelled
+	// Clean up the watcher when its context is canceled
 	go func() {
 		<-watcher.Context().Done()
 		s.removeWatcher(watcherID)

@@ -11,9 +11,10 @@ import (
 	"time"
 
 	"github.com/gofiber/fiber/v3"
-	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 )
 
 func TestPredictiveStateHandler(t *testing.T) {
@@ -139,13 +140,6 @@ func TestCreateConfirmingDelta(t *testing.T) {
 }
 
 func TestCreateCorrectiveDelta(t *testing.T) {
-	currentState := &DemoState{
-		Counter:     0,
-		Items:       []DemoItem{},
-		LastUpdated: time.Now(),
-		Version:     1,
-	}
-
 	actualState := &DemoState{
 		Counter:     5,
 		Items:       []DemoItem{{ID: "corrected_item", Value: "Corrected", Type: "correction"}},
@@ -154,7 +148,7 @@ func TestCreateCorrectiveDelta(t *testing.T) {
 	}
 
 	predictionID := "test_prediction_123"
-	delta := createCorrectiveDelta(currentState, actualState, predictionID)
+	delta := createCorrectiveDelta(actualState, predictionID)
 
 	assert.Equal(t, "STATE_DELTA", delta.Type)
 	assert.True(t, delta.Corrective)

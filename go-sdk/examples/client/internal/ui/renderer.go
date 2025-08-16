@@ -1,0 +1,774 @@
+package ui
+
+import (
+	"encoding/json"
+	"fmt"
+	"io"
+	"os"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/fatih/color"
+	jsonpatch "github.com/evanphx/json-patch/v5"
+)
+
+// OutputMode represents the output format
+type OutputMode string
+
+const (
+	OutputModePretty OutputMode = "pretty"
+	OutputModeJSON   OutputMode = "json"
+)
+
+// RendererConfig configures the UI renderer
+type RendererConfig struct {
+	OutputMode    OutputMode
+	NoColor       bool
+	Quiet         bool
+	Writer        io.Writer
+	MaxBufferSize int // Maximum size for message buffers
+}
+
+// Renderer handles rendering of UI updates and message deltas
+type Renderer struct {
+	config    RendererConfig
+	messages  map[string]*MessageState // Track messages by messageId
+	state     map[string]interface{}   // Current application state
+	toolCalls map[string]string        // Track tool names by toolCallId
+	mu        sync.RWMutex
+	writer    io.Writer
+	
+	// Color functions for pretty mode
+	infoColor    *color.Color
+	successColor *color.Color
+	errorColor   *color.Color
+	dimColor     *color.Color
+	boldColor    *color.Color
+}
+
+// MessageState tracks the state of an assistant message
+type MessageState struct {
+	ID         string
+	Role       string
+	Content    strings.Builder
+	StartTime  time.Time
+	EndTime    *time.Time
+	IsComplete bool
+}
+
+// NewRenderer creates a new UI renderer
+func NewRenderer(config RendererConfig) *Renderer {
+	if config.Writer == nil {
+		config.Writer = os.Stdout
+	}
+	
+	if config.MaxBufferSize == 0 {
+		config.MaxBufferSize = 1024 * 1024 // 1MB default
+	}
+	
+	r := &Renderer{
+		config:    config,
+		messages:  make(map[string]*MessageState),
+		state:     make(map[string]interface{}),
+		toolCalls: make(map[string]string),
+		writer:    config.Writer,
+	}
+	
+	// Initialize colors if not disabled
+	if !config.NoColor && config.OutputMode == OutputModePretty {
+		r.infoColor = color.New(color.FgCyan)
+		r.successColor = color.New(color.FgGreen)
+		r.errorColor = color.New(color.FgRed)
+		r.dimColor = color.New(color.Faint)
+		r.boldColor = color.New(color.Bold)
+	} else {
+		// Use no-op colors
+		r.infoColor = color.New()
+		r.successColor = color.New()
+		r.errorColor = color.New()
+		r.dimColor = color.New()
+		r.boldColor = color.New()
+	}
+	
+	return r
+}
+
+// HandleEvent processes an SSE event and renders appropriate output
+func (r *Renderer) HandleEvent(eventType string, data json.RawMessage) error {
+	if r.config.Quiet {
+		return nil
+	}
+	
+	switch eventType {
+	case "RUN_STARTED":
+		return r.handleRunStarted(data)
+	case "RUN_FINISHED":
+		return r.handleRunFinished(data)
+	case "TEXT_MESSAGE_START":
+		return r.handleTextMessageStart(data)
+	case "TEXT_MESSAGE_CONTENT":
+		return r.handleTextMessageContent(data)
+	case "TEXT_MESSAGE_END":
+		return r.handleTextMessageEnd(data)
+	case "TEXT_MESSAGE_CHUNK":
+		return r.handleTextMessageChunk(data)
+	case "STATE_SNAPSHOT":
+		return r.handleStateSnapshot(data)
+	case "STATE_DELTA":
+		return r.handleStateDelta(data)
+	case "TOOL_CALL_START":
+		return r.handleToolCallStart(data)
+	case "TOOL_CALL_ARGS":
+		return r.handleToolCallArgs(data)
+	case "TOOL_CALL_END":
+		return r.handleToolCallEnd(data)
+	case "TOOL_CALL_RESULT":
+		return r.handleToolCallResult(data)
+	case "THINKING_START":
+		return r.handleThinkingStart(data)
+	case "THINKING_TEXT_MESSAGE_CONTENT":
+		return r.handleThinkingContent(data)
+	case "THINKING_END":
+		return r.handleThinkingEnd(data)
+	default:
+		// Unknown events are logged but don't cause errors
+		if r.config.OutputMode == OutputModeJSON {
+			return r.outputJSON(map[string]interface{}{
+				"event": eventType,
+				"data":  data,
+			})
+		}
+		return nil
+	}
+}
+
+// handleRunStarted handles RUN_STARTED events
+func (r *Renderer) handleRunStarted(data json.RawMessage) error {
+	var payload struct {
+		ThreadID  string `json:"threadId"`
+		RunID     string `json:"runId"`
+		Timestamp string `json:"timestamp"`
+	}
+	
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal RUN_STARTED: %w", err)
+	}
+	
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": "RUN_STARTED",
+			"data":  payload,
+		})
+	}
+	
+	// Pretty mode - just track internally, no visible output
+	return nil
+}
+
+// handleRunFinished handles RUN_FINISHED events
+func (r *Renderer) handleRunFinished(data json.RawMessage) error {
+	var payload struct {
+		ThreadID  string `json:"threadId"`
+		RunID     string `json:"runId"`
+		Timestamp string `json:"timestamp"`
+	}
+	
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal RUN_FINISHED: %w", err)
+	}
+	
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": "RUN_FINISHED",
+			"data":  payload,
+		})
+	}
+	
+	// Pretty mode - just track internally, no visible output
+	return nil
+}
+
+// handleTextMessageStart handles the start of a text message
+func (r *Renderer) handleTextMessageStart(data json.RawMessage) error {
+	var payload struct {
+		MessageID string `json:"messageId"`
+		Role      string `json:"role"`
+	}
+	
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal TEXT_MESSAGE_START: %w", err)
+	}
+	
+	r.mu.Lock()
+	r.messages[payload.MessageID] = &MessageState{
+		ID:        payload.MessageID,
+		Role:      payload.Role,
+		StartTime: time.Now(),
+	}
+	r.mu.Unlock()
+	
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": "TEXT_MESSAGE_START",
+			"data":  payload,
+		})
+	}
+	
+	// Pretty mode: show message start
+	r.dimColor.Fprintf(r.writer, "\n[%s] ", payload.Role)
+	return nil
+}
+
+// handleTextMessageContent handles message content chunks
+func (r *Renderer) handleTextMessageContent(data json.RawMessage) error {
+	var payload struct {
+		MessageID string `json:"messageId"`
+		Content   string `json:"content"`
+	}
+	
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal TEXT_MESSAGE_CONTENT: %w", err)
+	}
+	
+	r.mu.Lock()
+	msg, exists := r.messages[payload.MessageID]
+	if !exists {
+		// Create message if it doesn't exist (for resilience)
+		msg = &MessageState{
+			ID:        payload.MessageID,
+			StartTime: time.Now(),
+		}
+		r.messages[payload.MessageID] = msg
+	}
+	
+	// Check buffer size limit
+	if msg.Content.Len()+len(payload.Content) > r.config.MaxBufferSize {
+		r.mu.Unlock()
+		return fmt.Errorf("message buffer size exceeded for message %s", payload.MessageID)
+	}
+	
+	msg.Content.WriteString(payload.Content)
+	r.mu.Unlock()
+	
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": "TEXT_MESSAGE_CONTENT",
+			"data":  payload,
+		})
+	}
+	
+	// Pretty mode: stream content directly
+	fmt.Fprint(r.writer, payload.Content)
+	return nil
+}
+
+// handleTextMessageEnd handles the end of a text message
+func (r *Renderer) handleTextMessageEnd(data json.RawMessage) error {
+	var payload struct {
+		MessageID string `json:"messageId"`
+	}
+	
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal TEXT_MESSAGE_END: %w", err)
+	}
+	
+	r.mu.Lock()
+	if msg, exists := r.messages[payload.MessageID]; exists {
+		now := time.Now()
+		msg.EndTime = &now
+		msg.IsComplete = true
+	}
+	r.mu.Unlock()
+	
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": "TEXT_MESSAGE_END",
+			"data":  payload,
+		})
+	}
+	
+	// Pretty mode: add newline after message
+	fmt.Fprintln(r.writer)
+	return nil
+}
+
+// handleTextMessageChunk handles optional message chunks
+func (r *Renderer) handleTextMessageChunk(data json.RawMessage) error {
+	// TEXT_MESSAGE_CHUNK is optional and similar to CONTENT
+	return r.handleTextMessageContent(data)
+}
+
+// handleStateSnapshot handles state snapshot events
+func (r *Renderer) handleStateSnapshot(data json.RawMessage) error {
+	var payload map[string]interface{}
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal STATE_SNAPSHOT: %w", err)
+	}
+	
+	r.mu.Lock()
+	r.state = payload
+	r.mu.Unlock()
+	
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": "STATE_SNAPSHOT",
+			"data":  payload,
+		})
+	}
+	
+	// Pretty mode: show state summary
+	r.infoColor.Fprintln(r.writer, "\n📊 State Updated:")
+	r.renderStateSummary(payload)
+	return nil
+}
+
+// handleStateDelta handles state delta events (JSON Patch)
+func (r *Renderer) handleStateDelta(data json.RawMessage) error {
+	var patches []interface{}
+	if err := json.Unmarshal(data, &patches); err != nil {
+		return fmt.Errorf("failed to unmarshal STATE_DELTA: %w", err)
+	}
+	
+	r.mu.Lock()
+	// Apply JSON patches to current state
+	currentStateJSON, err := json.Marshal(r.state)
+	if err != nil {
+		r.mu.Unlock()
+		return fmt.Errorf("failed to marshal current state: %w", err)
+	}
+	
+	patchJSON, err := json.Marshal(patches)
+	if err != nil {
+		r.mu.Unlock()
+		return fmt.Errorf("failed to marshal patches: %w", err)
+	}
+	
+	patch, err := jsonpatch.DecodePatch(patchJSON)
+	if err != nil {
+		r.mu.Unlock()
+		return fmt.Errorf("failed to decode patch: %w", err)
+	}
+	
+	modifiedJSON, err := patch.Apply(currentStateJSON)
+	if err != nil {
+		r.mu.Unlock()
+		return fmt.Errorf("failed to apply patch: %w", err)
+	}
+	
+	if err := json.Unmarshal(modifiedJSON, &r.state); err != nil {
+		r.mu.Unlock()
+		return fmt.Errorf("failed to unmarshal modified state: %w", err)
+	}
+	r.mu.Unlock()
+	
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": "STATE_DELTA",
+			"data":  patches,
+		})
+	}
+	
+	// Pretty mode: show delta operations
+	r.infoColor.Fprintln(r.writer, "\n📝 State Changes:")
+	for _, p := range patches {
+		if patchMap, ok := p.(map[string]interface{}); ok {
+			op := patchMap["op"]
+			path := patchMap["path"]
+			value := patchMap["value"]
+			
+			switch op {
+			case "add":
+				r.successColor.Fprintf(r.writer, "  + %s → %v\n", path, value)
+			case "remove":
+				r.errorColor.Fprintf(r.writer, "  - %s\n", path)
+			case "replace":
+				fmt.Fprintf(r.writer, "  ~ %s → %v\n", path, value)
+			default:
+				fmt.Fprintf(r.writer, "  %s %s %v\n", op, path, value)
+			}
+		}
+	}
+	return nil
+}
+
+// handleToolCallStart handles tool call start events
+func (r *Renderer) handleToolCallStart(data json.RawMessage) error {
+	var payload struct {
+		ToolCallID string `json:"toolCallId"`
+		ToolName   string `json:"toolName"`
+	}
+	
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal TOOL_CALL_START: %w", err)
+	}
+	
+	// Store the tool name for later use in TOOL_CALL_RESULT
+	r.mu.Lock()
+	r.toolCalls[payload.ToolCallID] = payload.ToolName
+	r.mu.Unlock()
+	
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": "TOOL_CALL_START",
+			"data":  payload,
+		})
+	}
+	
+	// Pretty mode
+	r.boldColor.Fprintf(r.writer, "\n🔧 Tool Call: %s\n", payload.ToolName)
+	r.dimColor.Fprintf(r.writer, "   ID: %s\n", payload.ToolCallID)
+	return nil
+}
+
+// handleToolCallArgs handles tool call arguments
+func (r *Renderer) handleToolCallArgs(data json.RawMessage) error {
+	var payload struct {
+		ToolCallID string                 `json:"toolCallId"`
+		Arguments  map[string]interface{} `json:"arguments"`
+	}
+	
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal TOOL_CALL_ARGS: %w", err)
+	}
+	
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": "TOOL_CALL_ARGS",
+			"data":  payload,
+		})
+	}
+	
+	// Pretty mode: show arguments
+	if len(payload.Arguments) > 0 {
+		r.dimColor.Fprintln(r.writer, "   Arguments:")
+		for key, value := range payload.Arguments {
+			fmt.Fprintf(r.writer, "     %s: %v\n", key, value)
+		}
+	}
+	return nil
+}
+
+// handleToolCallEnd handles tool call end events
+func (r *Renderer) handleToolCallEnd(data json.RawMessage) error {
+	var payload struct {
+		ToolCallID string `json:"toolCallId"`
+	}
+	
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal TOOL_CALL_END: %w", err)
+	}
+	
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": "TOOL_CALL_END",
+			"data":  payload,
+		})
+	}
+	
+	// Pretty mode
+	r.dimColor.Fprintf(r.writer, "   ✓ Tool call completed\n")
+	return nil
+}
+
+// handleToolCallResult handles tool call result events
+func (r *Renderer) handleToolCallResult(data json.RawMessage) error {
+	var payload struct {
+		ToolCallID string      `json:"toolCallId"`
+		Result     interface{} `json:"result"`
+		Error      interface{} `json:"error,omitempty"`
+		Name       string      `json:"name,omitempty"` // Tool name might be in the event
+	}
+	
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal TOOL_CALL_RESULT: %w", err)
+	}
+	
+	// Get the tool name from our stored mapping
+	r.mu.RLock()
+	toolName := r.toolCalls[payload.ToolCallID]
+	r.mu.RUnlock()
+	
+	// If tool name was provided in the event, use that
+	if payload.Name != "" {
+		toolName = payload.Name
+	}
+	
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": "TOOL_CALL_RESULT",
+			"data":  payload,
+		})
+	}
+	
+	// Pretty mode: show result card
+	if payload.Error != nil {
+		// Handle different error formats
+		switch e := payload.Error.(type) {
+		case string:
+			r.errorColor.Fprintf(r.writer, "\n❌ Tool Error [ID: %s]: %s\n", payload.ToolCallID, e)
+		case map[string]interface{}:
+			r.errorColor.Fprintf(r.writer, "\n❌ Tool Error [ID: %s]:\n", payload.ToolCallID)
+			// Structured error
+			r.renderToolError(e)
+		default:
+			r.errorColor.Fprintf(r.writer, "\n❌ Tool Error [ID: %s]: %v\n", payload.ToolCallID, e)
+		}
+	} else {
+		// Check if this is a haiku tool result
+		if toolName == "generate_haiku" {
+			// Try to parse the result as a haiku
+			if resultMap, ok := payload.Result.(map[string]interface{}); ok {
+				// Check for japanese and english arrays
+				var japanese, english []string
+				
+				if japArray, ok := resultMap["japanese"].([]interface{}); ok {
+					for _, line := range japArray {
+						if str, ok := line.(string); ok {
+							japanese = append(japanese, str)
+						}
+					}
+				}
+				
+				if engArray, ok := resultMap["english"].([]interface{}); ok {
+					for _, line := range engArray {
+						if str, ok := line.(string); ok {
+							english = append(english, str)
+						}
+					}
+				}
+				
+				// If we have haiku data, render it specially
+				if len(japanese) > 0 || len(english) > 0 {
+					r.successColor.Fprintf(r.writer, "\n✅ Tool Result (generate_haiku) [ID: %s]:\n", payload.ToolCallID)
+					fmt.Fprint(r.writer, RenderHaikuBox(japanese, english))
+					return nil
+				}
+			}
+		}
+		
+		// Default rendering
+		r.successColor.Fprintf(r.writer, "\n✅ Tool Result [ID: %s]:\n", payload.ToolCallID)
+		// Format result based on type
+		switch v := payload.Result.(type) {
+		case string:
+			fmt.Fprintf(r.writer, "   %s\n", v)
+		case map[string]interface{}:
+			for key, value := range v {
+				fmt.Fprintf(r.writer, "   %s: %v\n", key, value)
+			}
+		default:
+			resultJSON, _ := json.MarshalIndent(payload.Result, "   ", "  ")
+			fmt.Fprintf(r.writer, "%s\n", resultJSON)
+		}
+	}
+	return nil
+}
+
+// handleThinkingStart handles thinking phase start
+func (r *Renderer) handleThinkingStart(data json.RawMessage) error {
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": "THINKING_START",
+			"data":  data,
+		})
+	}
+	
+	// Pretty mode
+	r.dimColor.Fprintln(r.writer, "\n💭 Thinking...")
+	return nil
+}
+
+// handleThinkingContent handles thinking phase content
+func (r *Renderer) handleThinkingContent(data json.RawMessage) error {
+	var payload struct {
+		Content string `json:"content"`
+	}
+	
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal THINKING_TEXT_MESSAGE_CONTENT: %w", err)
+	}
+	
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": "THINKING_TEXT_MESSAGE_CONTENT",
+			"data":  payload,
+		})
+	}
+	
+	// Pretty mode: show thinking content dimmed
+	r.dimColor.Fprint(r.writer, payload.Content)
+	return nil
+}
+
+// handleThinkingEnd handles thinking phase end
+func (r *Renderer) handleThinkingEnd(data json.RawMessage) error {
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": "THINKING_END",
+			"data":  data,
+		})
+	}
+	
+	// Pretty mode
+	fmt.Fprintln(r.writer)
+	return nil
+}
+
+// renderStateSummary renders a summary of the state in pretty mode
+func (r *Renderer) renderStateSummary(state map[string]interface{}) {
+	if len(state) == 0 {
+		r.dimColor.Fprintln(r.writer, "  (empty state)")
+		return
+	}
+	
+	// Show top-level keys and simple values
+	for key, value := range state {
+		switch v := value.(type) {
+		case string:
+			fmt.Fprintf(r.writer, "  %s: %q\n", key, v)
+		case float64, int, bool:
+			fmt.Fprintf(r.writer, "  %s: %v\n", key, v)
+		case []interface{}:
+			fmt.Fprintf(r.writer, "  %s: [%d items]\n", key, len(v))
+		case map[string]interface{}:
+			fmt.Fprintf(r.writer, "  %s: {%d fields}\n", key, len(v))
+		case nil:
+			fmt.Fprintf(r.writer, "  %s: null\n", key)
+		default:
+			fmt.Fprintf(r.writer, "  %s: %T\n", key, v)
+		}
+	}
+}
+
+// outputJSON outputs data in JSON format (one line per object)
+func (r *Renderer) outputJSON(data interface{}) error {
+	encoded, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+	fmt.Fprintln(r.writer, string(encoded))
+	return nil
+}
+
+// GetMessage returns a message by ID
+func (r *Renderer) GetMessage(messageID string) (*MessageState, bool) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	msg, exists := r.messages[messageID]
+	return msg, exists
+}
+
+// GetState returns the current state
+func (r *Renderer) GetState() map[string]interface{} {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	
+	// Return a copy to prevent external modifications
+	stateCopy := make(map[string]interface{})
+	for k, v := range r.state {
+		stateCopy[k] = v
+	}
+	return stateCopy
+}
+
+// Clear clears all tracked messages and state
+func (r *Renderer) Clear() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	
+	r.messages = make(map[string]*MessageState)
+	r.state = make(map[string]interface{})
+	r.toolCalls = make(map[string]string)
+}
+
+// renderToolError renders a structured tool error in pretty mode
+func (r *Renderer) renderToolError(errorData map[string]interface{}) {
+	r.errorColor.Fprintln(r.writer, "\n❌ Tool Error:")
+	
+	// Extract error fields
+	if toolName, ok := errorData["toolName"].(string); ok {
+		r.boldColor.Fprintf(r.writer, "   Tool: %s\n", toolName)
+	}
+	
+	if errorCode, ok := errorData["errorCode"].(string); ok {
+		r.errorColor.Fprintf(r.writer, "   Code: %s\n", errorCode)
+	}
+	
+	if errorMsg, ok := errorData["errorMessage"].(string); ok {
+		fmt.Fprintf(r.writer, "   Message: %s\n", errorMsg)
+	}
+	
+	if details, ok := errorData["details"].(string); ok && details != "" {
+		r.dimColor.Fprintf(r.writer, "   Details: %s\n", details)
+	}
+	
+	// Show retry information if available
+	if attemptNum, ok := errorData["attemptNumber"].(float64); ok {
+		if maxAttempts, ok := errorData["maxAttempts"].(float64); ok {
+			r.dimColor.Fprintf(r.writer, "   Attempt: %d/%d\n", int(attemptNum), int(maxAttempts))
+		}
+	}
+	
+	if isRetryable, ok := errorData["isRetryable"].(bool); ok {
+		if isRetryable {
+			r.infoColor.Fprintln(r.writer, "   🔄 This error is retryable")
+		} else {
+			r.dimColor.Fprintln(r.writer, "   ⛔ This error is not retryable")
+		}
+	}
+	
+	if retryAfter, ok := errorData["retryAfter"].(string); ok {
+		r.infoColor.Fprintf(r.writer, "   ⏱️  Retry after: %s\n", retryAfter)
+	}
+}
+
+// HandleToolError handles a tool error event
+func (r *Renderer) HandleToolError(eventType string, data json.RawMessage) error {
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": eventType,
+			"data":  data,
+		})
+	}
+	
+	var errorData map[string]interface{}
+	if err := json.Unmarshal(data, &errorData); err != nil {
+		return fmt.Errorf("failed to unmarshal tool error: %w", err)
+	}
+	
+	r.renderToolError(errorData)
+	return nil
+}
+
+// HandleToolRetry handles a tool retry event
+func (r *Renderer) HandleToolRetry(eventType string, data json.RawMessage) error {
+	var payload struct {
+		ToolCallID    string        `json:"toolCallId"`
+		ToolName      string        `json:"toolName"`
+		AttemptNumber int           `json:"attemptNumber"`
+		Delay         time.Duration `json:"delay"`
+		Reason        string        `json:"reason"`
+	}
+	
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return fmt.Errorf("failed to unmarshal tool retry: %w", err)
+	}
+	
+	if r.config.OutputMode == OutputModeJSON {
+		return r.outputJSON(map[string]interface{}{
+			"event": eventType,
+			"data":  payload,
+		})
+	}
+	
+	// Pretty mode
+	r.infoColor.Fprintf(r.writer, "\n🔄 Retrying Tool: %s\n", payload.ToolName)
+	r.dimColor.Fprintf(r.writer, "   Attempt: %d\n", payload.AttemptNumber)
+	r.dimColor.Fprintf(r.writer, "   Delay: %v\n", payload.Delay)
+	if payload.Reason != "" {
+		r.dimColor.Fprintf(r.writer, "   Reason: %s\n", payload.Reason)
+	}
+	
+	return nil
+}

@@ -1,0 +1,23 @@
+{
+  "CUSTOM": {
+    "type": "CUSTOM",
+    "name": "custom_event_name",
+    "value": {"any": "data"},
+    "timestamp": 1672531200000
+  },
+  "CUSTOM_MINIMAL": {
+    "type": "CUSTOM",
+    "name": "custom_event_name",
+    "value": {}
+  },
+  "RAW": {
+    "type": "RAW",
+    "event": {"external": "event"},
+    "source": "external_system",
+    "timestamp": 1672531200000
+  },
+  "RAW_MINIMAL": {
+    "type": "RAW",
+    "event": {}
+  }
+}

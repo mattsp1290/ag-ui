@@ -3,8 +3,9 @@ package routes
 import (
 	"testing"
 
-	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 	"github.com/stretchr/testify/assert"
+
+	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 )
 
 func TestAgenticGenerativeUIHandler(t *testing.T) {

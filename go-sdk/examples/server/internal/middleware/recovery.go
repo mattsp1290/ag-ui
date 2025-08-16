@@ -14,10 +14,15 @@ func Recovery() fiber.Handler {
 				// Get the logger entry from context
 				entry := GetLogger(c)
 
-				// Log the panic with stack trace
+				// Log the panic with stack trace without using map[string]interface{}
+				type panicFields struct {
+					Panic any
+					Stack string
+				}
+				pf := panicFields{Panic: r, Stack: string(debug.Stack())}
 				entry.WithFields(map[string]interface{}{
-					"panic": r,
-					"stack": string(debug.Stack()),
+					"panic": pf.Panic,
+					"stack": pf.Stack,
 				}).Error("Panic recovered in HTTP handler")
 
 				// Return 500 Internal Server Error

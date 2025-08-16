@@ -1,0 +1,5 @@
+{"capabilities":["async","retry"],"description":"Make HTTP GET requests to external APIs","name":"http_get","tags":["network","http","api"]}
+{"capabilities":["async","retry","streaming"],"description":"Make HTTP POST requests with JSON payloads","name":"http_post","tags":["network","http","api"]}
+{"capabilities":["local"],"description":"Read contents from a file","name":"file_read","tags":["filesystem","io"]}
+{"capabilities":["local"],"description":"Write contents to a file","name":"file_write","tags":["filesystem","io"]}
+{"capabilities":["streaming"],"description":"Transform data between different formats","name":"data_transform","tags":["data","transformation"]}

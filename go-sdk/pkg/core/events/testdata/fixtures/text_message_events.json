@@ -1,0 +1,42 @@
+{
+  "TEXT_MESSAGE_START": {
+    "type": "TEXT_MESSAGE_START",
+    "messageId": "efdebb3a-05ca-4e85-97c7-c3a355c30e1b",
+    "role": "assistant",
+    "timestamp": 1672531200000
+  },
+  "TEXT_MESSAGE_START_MINIMAL": {
+    "type": "TEXT_MESSAGE_START",
+    "messageId": "efdebb3a-05ca-4e85-97c7-c3a355c30e1b"
+  },
+  "TEXT_MESSAGE_CONTENT": {
+    "type": "TEXT_MESSAGE_CONTENT",
+    "messageId": "efdebb3a-05ca-4e85-97c7-c3a355c30e1b",
+    "delta": "Hello world",
+    "timestamp": 1672531200000
+  },
+  "TEXT_MESSAGE_CONTENT_MINIMAL": {
+    "type": "TEXT_MESSAGE_CONTENT",
+    "messageId": "efdebb3a-05ca-4e85-97c7-c3a355c30e1b",
+    "delta": "Hello world"
+  },
+  "TEXT_MESSAGE_END": {
+    "type": "TEXT_MESSAGE_END",
+    "messageId": "efdebb3a-05ca-4e85-97c7-c3a355c30e1b",
+    "timestamp": 1672531200000
+  },
+  "TEXT_MESSAGE_END_MINIMAL": {
+    "type": "TEXT_MESSAGE_END",
+    "messageId": "efdebb3a-05ca-4e85-97c7-c3a355c30e1b"
+  },
+  "TEXT_MESSAGE_CHUNK": {
+    "type": "TEXT_MESSAGE_CHUNK",
+    "messageId": "efdebb3a-05ca-4e85-97c7-c3a355c30e1b",
+    "role": "assistant",
+    "delta": "Hello world",
+    "timestamp": 1672531200000
+  },
+  "TEXT_MESSAGE_CHUNK_MINIMAL": {
+    "type": "TEXT_MESSAGE_CHUNK"
+  }
+}

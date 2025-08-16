@@ -18,11 +18,12 @@ import (
 
 	"github.com/gofiber/fiber/v3"
 	"github.com/gofiber/fiber/v3/middleware/requestid"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/config"
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/internal/encoding"
 	"github.com/mattsp1290/ag-ui/go-sdk/examples/server/routes"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 var updateGolden = flag.Bool("update", false, "Update golden snapshot files")

@@ -8,11 +8,12 @@ import (
 	"testing"
 
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	encoding2 "github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/encoder"
 )
 
 // TestEventEncoder_EncodeEvent tests basic event encoding functionality
 func TestEventEncoder_EncodeEvent(t *testing.T) {
-	encoder := NewEventEncoder()
+	encoder := encoding2.NewEventEncoder()
 	ctx := context.Background()
 
 	// Create a test event
@@ -89,7 +90,7 @@ func TestEventEncoder_EncodeEvent(t *testing.T) {
 
 // TestEventEncoder_NegotiateContentType tests content negotiation
 func TestEventEncoder_NegotiateContentType(t *testing.T) {
-	encoder := NewEventEncoder()
+	encoder := encoding2.NewEventEncoder()
 
 	tests := []struct {
 		name         string
@@ -148,7 +149,7 @@ func TestEventEncoder_NegotiateContentType(t *testing.T) {
 
 // TestEventEncoder_SupportedContentTypes tests supported types listing
 func TestEventEncoder_SupportedContentTypes(t *testing.T) {
-	encoder := NewEventEncoder()
+	encoder := encoding2.NewEventEncoder()
 	types := encoder.SupportedContentTypes()
 
 	if len(types) == 0 {
@@ -177,7 +178,7 @@ func isValidJSON(data []byte) bool {
 
 // Benchmark tests
 func BenchmarkEventEncoder_EncodeEvent(b *testing.B) {
-	encoder := NewEventEncoder()
+	encoder := encoding2.NewEventEncoder()
 	ctx := context.Background()
 
 	testEvent := &CustomEvent{
@@ -205,7 +206,7 @@ func BenchmarkEventEncoder_EncodeEvent(b *testing.B) {
 }
 
 func BenchmarkEventEncoder_NegotiateContentType(b *testing.B) {
-	encoder := NewEventEncoder()
+	encoder := encoding2.NewEventEncoder()
 	acceptHeader := "text/html,application/json;q=0.9,application/vnd.ag-ui+json;q=0.8,*/*;q=0.7"
 
 	b.ResetTimer()
@@ -217,7 +218,7 @@ func BenchmarkEventEncoder_NegotiateContentType(b *testing.B) {
 // Additional tests to improve coverage
 
 func TestEventEncoder_GetContentType(t *testing.T) {
-	encoder := NewEventEncoder()
+	encoder := encoding2.NewEventEncoder()
 
 	tests := []struct {
 		name         string
@@ -252,7 +253,7 @@ func TestEventEncoder_GetContentType(t *testing.T) {
 }
 
 func TestEventEncoder_EncodeEvent_ValidationFailure(t *testing.T) {
-	encoder := NewEventEncoder()
+	encoder := encoding2.NewEventEncoder()
 	ctx := context.Background()
 
 	// Create an event that will fail validation
@@ -272,7 +273,7 @@ func TestEventEncoder_EncodeEvent_ValidationFailure(t *testing.T) {
 }
 
 func TestEventEncoder_EncodeEvent_UnsupportedType(t *testing.T) {
-	encoder := NewEventEncoder()
+	encoder := encoding2.NewEventEncoder()
 	ctx := context.Background()
 
 	testEvent := &CustomEvent{

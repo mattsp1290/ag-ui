@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 
+	sse2 "github.com/mattsp1290/ag-ui/go-sdk/pkg/client/sse"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
 	"github.com/sirupsen/logrus"
 )
@@ -26,7 +27,7 @@ func NewEventDecoder(logger *logrus.Logger) *EventDecoder {
 // DecodeEvent decodes a raw SSE event into the appropriate Go SDK event type
 func (ed *EventDecoder) DecodeEvent(eventName string, data []byte) (events.Event, error) {
 	eventType := events.EventType(eventName)
-	
+
 	// Check if this is a valid event type
 	if !isValidEventType(eventType) {
 		ed.logger.WithField("event", eventName).Warn("Unknown event type")
@@ -237,16 +238,16 @@ func isValidEventType(eventType events.EventType) bool {
 
 // StreamProcessor combines SSE client, parser, and event decoder
 type StreamProcessor struct {
-	client   *Client
-	parser   *Parser
-	decoder  *EventDecoder
-	logger   *logrus.Logger
+	client  *sse2.Client
+	parser  *sse2.Parser
+	decoder *EventDecoder
+	logger  *logrus.Logger
 }
 
 // StreamProcessorConfig holds configuration for the stream processor
 type StreamProcessorConfig struct {
-	SSEConfig    Config
-	ParserConfig ParserConfig
+	SSEConfig    sse2.Config
+	ParserConfig sse2.ParserConfig
 	Logger       *logrus.Logger
 }
 
@@ -257,15 +258,15 @@ func NewStreamProcessor(config StreamProcessorConfig) *StreamProcessor {
 	}
 
 	return &StreamProcessor{
-		client:  NewClient(config.SSEConfig),
-		parser:  NewParser(config.ParserConfig),
+		client:  sse2.NewClient(config.SSEConfig),
+		parser:  sse2.NewParser(config.ParserConfig),
 		decoder: NewEventDecoder(config.Logger),
 		logger:  config.Logger,
 	}
 }
 
 // ProcessStream connects to an SSE endpoint and returns a channel of decoded events
-func (sp *StreamProcessor) ProcessStream(ctx context.Context, opts StreamOptions) (<-chan events.Event, <-chan error, error) {
+func (sp *StreamProcessor) ProcessStream(ctx context.Context, opts sse2.StreamOptions) (<-chan events.Event, <-chan error, error) {
 	// Start SSE connection
 	frames, sseErrors, err := sp.client.Stream(opts)
 	if err != nil {
@@ -285,7 +286,7 @@ func (sp *StreamProcessor) ProcessStream(ctx context.Context, opts StreamOptions
 // processFrames processes SSE frames and decodes them into events
 func (sp *StreamProcessor) processFrames(
 	ctx context.Context,
-	frames <-chan Frame,
+	frames <-chan sse2.Frame,
 	sseErrors <-chan error,
 	events chan<- events.Event,
 	errors chan<- error,
@@ -379,7 +380,7 @@ func (sp *StreamProcessor) processFrames(
 }
 
 // StreamWithParser creates a parsed stream directly from raw SSE data
-func StreamWithParser(ctx context.Context, client *Client, opts StreamOptions) (<-chan ParsedFrame, <-chan error, error) {
+func StreamWithParser(ctx context.Context, client *sse2.Client, opts sse2.StreamOptions) (<-chan sse2.ParsedFrame, <-chan error, error) {
 	// Get raw frames from client
 	frames, clientErrors, err := client.Stream(opts)
 	if err != nil {
@@ -387,11 +388,11 @@ func StreamWithParser(ctx context.Context, client *Client, opts StreamOptions) (
 	}
 
 	// Create parser
-	parser := NewParser(ParserConfig{})
+	parser := sse2.NewParser(sse2.ParserConfig{})
 
 	// Create pipe for feeding data to parser
 	pr, pw := io.Pipe()
-	
+
 	// Start parser
 	parsedFrames, parserErrors := parser.ParseStream(ctx, pr)
 

@@ -94,7 +94,7 @@ func registerRoutes(app *fiber.App, cfg *config.Config) {
 	app.Get("/examples/agentic-chat", routes.AgenticChatHandler(cfg))
 	app.Post("/human_in_the_loop", routes.HumanInTheLoopHandler(cfg))
 	app.Get("/examples/agentic-generative-ui", routes.AgenticGenerativeUIHandler(cfg))
-	app.Get("/examples/tool-based-generative-ui", routes.ToolBasedGenerativeUIHandler(cfg))
+	app.Post("/tool_based_generative_ui", routes.ToolBasedGenerativeUIHandler(cfg))
 	app.Get("/examples/shared-state", routes.SharedStateHandler(cfg))
 	app.Post("/examples/shared-state/update", routes.SharedStateUpdateHandler(cfg))
 	app.Get("/examples/state/predictive", routes.PredictiveStateHandler(cfg))

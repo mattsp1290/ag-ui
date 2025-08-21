@@ -117,7 +117,7 @@ func getEnvHandlers(c *Config) []envVar {
 // Default configuration values
 const (
 	DefaultHost                = "0.0.0.0"
-	DefaultPort                = 8080
+	DefaultPort                = 8000
 	DefaultLogLevel            = "info"
 	DefaultEnableSSE           = true
 	DefaultReadTimeout         = 30 * time.Second

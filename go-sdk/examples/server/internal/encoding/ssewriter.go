@@ -11,19 +11,20 @@ import (
 	"time"
 
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/core/events"
+	"github.com/mattsp1290/ag-ui/go-sdk/pkg/encoding/encoder"
 	"github.com/mattsp1290/ag-ui/go-sdk/pkg/proto/generated"
 )
 
 // SSEWriter provides utilities for writing Server-Sent Events with proper framing
 type SSEWriter struct {
-	encoder *EventEncoder
+	encoder *encoder.EventEncoder
 	logger  *slog.Logger
 }
 
 // NewSSEWriter creates a new SSE writer
 func NewSSEWriter() *SSEWriter {
 	return &SSEWriter{
-		encoder: NewEventEncoder(),
+		encoder: encoder.NewEventEncoder(),
 		logger:  slog.Default(),
 	}
 }

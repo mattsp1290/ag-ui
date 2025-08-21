@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	sse2 "github.com/ag-ui/go-sdk/examples/client/internal/sse"
 	"github.com/sirupsen/logrus"
 )
 
@@ -96,9 +95,9 @@ func TestClientStream(t *testing.T) {
 			config: Config{
 				BufferSize: 10,
 			},
-			payload: sse2.RunAgentInput{
+			payload: RunAgentInput{
 				SessionID: "test-session",
-				Messages: []sse2.Message{
+				Messages: []Message{
 					{Role: "user", Content: "Hello"},
 				},
 				Stream: true,
@@ -145,7 +144,7 @@ func TestClientStream(t *testing.T) {
 			config: Config{
 				BufferSize: 10,
 			},
-			payload:    sse2.RunAgentInput{Stream: true},
+			payload:    RunAgentInput{Stream: true},
 			wantFrames: 1,
 			checkFrames: func(t *testing.T, frames []Frame) {
 				if len(frames) != 1 {
@@ -168,7 +167,7 @@ func TestClientStream(t *testing.T) {
 				_, _ = fmt.Fprintf(w, "Internal Server Error")
 			},
 			config:  Config{},
-			payload: sse2.RunAgentInput{Stream: true},
+			payload: RunAgentInput{Stream: true},
 			wantErr: true,
 		},
 		{
@@ -179,7 +178,7 @@ func TestClientStream(t *testing.T) {
 				_, _ = fmt.Fprintf(w, "{\"error\":\"wrong type\"}")
 			},
 			config:  Config{},
-			payload: sse2.RunAgentInput{Stream: true},
+			payload: RunAgentInput{Stream: true},
 			wantErr: true,
 		},
 		{
@@ -206,7 +205,7 @@ func TestClientStream(t *testing.T) {
 				APIKey:     "test-key-123",
 				BufferSize: 10,
 			},
-			payload:    sse2.RunAgentInput{Stream: true},
+			payload:    RunAgentInput{Stream: true},
 			wantFrames: 1,
 		},
 		{
@@ -234,7 +233,7 @@ func TestClientStream(t *testing.T) {
 				AuthHeader: "X-API-Key",
 				BufferSize: 10,
 			},
-			payload:    sse2.RunAgentInput{Stream: true},
+			payload:    RunAgentInput{Stream: true},
 			wantFrames: 1,
 		},
 	}
@@ -332,7 +331,7 @@ func TestClientContextCancellation(t *testing.T) {
 
 	frames, errors, err := client.Stream(StreamOptions{
 		Context: ctx,
-		Payload: sse2.RunAgentInput{Stream: true},
+		Payload: RunAgentInput{Stream: true},
 	})
 
 	if err != nil {

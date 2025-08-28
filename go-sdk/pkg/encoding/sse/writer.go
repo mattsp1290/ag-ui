@@ -41,6 +41,36 @@ func (w *SSEWriter) WriteEvent(ctx context.Context, writer io.Writer, event even
 	return w.WriteEventWithType(ctx, writer, event, "")
 }
 
+// WriteBytes writes an event
+func (w *SSEWriter) WriteBytes(ctx context.Context, writer io.Writer, event []byte) error {
+
+	// Create SSE frame
+	sseFrame, err := w.createSSEFrame(event, "", nil)
+	if err != nil {
+		w.logger.ErrorContext(ctx, "Failed to create SSE frame",
+			"error", err)
+		return fmt.Errorf("SSE frame creation failed: %w", err)
+	}
+
+	// Write the SSE frame
+	_, err = writer.Write([]byte(sseFrame))
+	if err != nil {
+		w.logger.ErrorContext(ctx, "Failed to write SSE frame",
+			"error", err)
+		return fmt.Errorf("SSE write failed: %w", err)
+	}
+
+	// Flush if the writer supports it
+	if flusher, ok := writer.(flusher); ok {
+		if err := flusher.Flush(); err != nil {
+			w.logger.ErrorContext(ctx, "Failed to flush SSE frame",
+				"error", err)
+			return fmt.Errorf("SSE flush failed: %w", err)
+		}
+	}
+	return nil
+}
+
 // WriteEventWithType writes an event with a specific SSE event type
 func (w *SSEWriter) WriteEventWithType(ctx context.Context, writer io.Writer, event events.Event, eventType string) error {
 	if event == nil {
@@ -136,7 +166,7 @@ func (w *SSEWriter) createSSEFrame(jsonData []byte, eventType string, event even
 	}
 
 	// Add event ID if available
-	if event.Timestamp() != nil {
+	if event != nil && event.Timestamp() != nil {
 		frame.WriteString(fmt.Sprintf("id: %s_%d\n", event.Type(), *event.Timestamp()))
 	}
 

@@ -15,14 +15,14 @@ import (
 )
 
 type Config struct {
-	Endpoint      string
-	APIKey        string
-	AuthHeader    string
-	AuthScheme    string
+	Endpoint       string
+	APIKey         string
+	AuthHeader     string
+	AuthScheme     string
 	ConnectTimeout time.Duration
-	ReadTimeout   time.Duration
-	BufferSize    int
-	Logger        *logrus.Logger
+	ReadTimeout    time.Duration
+	BufferSize     int
+	Logger         *logrus.Logger
 }
 
 type Client struct {
@@ -43,31 +43,31 @@ type StreamOptions struct {
 }
 
 func NewClient(config Config) *Client {
-	if config.Logger == nil {
-		config.Logger = logrus.New()
-	}
-	
+	//if config.Logger == nil {
+	//	config.Logger = logrus.New()
+	//}
+
 	if config.ConnectTimeout == 0 {
 		config.ConnectTimeout = 30 * time.Second
 	}
-	
+
 	if config.ReadTimeout == 0 {
 		config.ReadTimeout = 5 * time.Minute
 	}
-	
+
 	if config.BufferSize == 0 {
 		config.BufferSize = 100
 	}
 
 	transport := &http.Transport{
-		DisableCompression:     true,
-		ExpectContinueTimeout:  0,
-		ResponseHeaderTimeout:  config.ConnectTimeout,
-		DisableKeepAlives:      false,
-		MaxIdleConns:           1,
-		MaxIdleConnsPerHost:    1,
-		IdleConnTimeout:        90 * time.Second,
-		TLSHandshakeTimeout:    10 * time.Second,
+		DisableCompression:    true,
+		ExpectContinueTimeout: 0,
+		ResponseHeaderTimeout: config.ConnectTimeout,
+		DisableKeepAlives:     false,
+		MaxIdleConns:          1,
+		MaxIdleConnsPerHost:   1,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
 	}
 
 	httpClient := &http.Client{
@@ -125,7 +125,7 @@ func (c *Client) stream(opts StreamOptions) (<-chan Frame, <-chan error, error) 
 		if authHeader == "" {
 			authHeader = "Authorization"
 		}
-		
+
 		// Build the header value based on header type
 		if authHeader == "Authorization" {
 			// Use scheme (Bearer by default) for Authorization header
@@ -248,7 +248,7 @@ func (c *Client) readStream(ctx context.Context, resp *http.Response, frames cha
 				}
 				copy(frame.Data, buffer.Bytes())
 				buffer.Reset()
-				
+
 				select {
 				case frames <- frame:
 					frameCount++

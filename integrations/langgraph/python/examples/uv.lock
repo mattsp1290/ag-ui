@@ -8,22 +8,22 @@ resolution-markers = [
 
 [[package]]
 name = "ag-ui-langgraph"
-version = "0.0.14a0"
-source = { registry = "https://pypi.org/simple" }
+version = "0.0.17"
+source = { directory = "../" }
 dependencies = [
     { name = "ag-ui-protocol" },
     { name = "langchain" },
     { name = "langchain-core" },
     { name = "langgraph" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/a4/26/313740686b249c46d93d1116527d3839b5e44275e4cbd6a70fcf016cbbc1/ag_ui_langgraph-0.0.14a0.tar.gz", hash = "sha256:a4154f9b2a07e007b54a54394c2bd7bef74dcdee2a979550ea8fa126cec090c2", size = 11361 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/84/a0/b1da21dd4dede288677a5dc8590430d1f56490ebdc9e356eeb5dcc905d2d/ag_ui_langgraph-0.0.14a0-py3-none-any.whl", hash = "sha256:3f89096d2e4e9e78bcf3693185d38dc06e88015bba2796070ad191ee22f22b68", size = 13044 },
-]
 
-[package.optional-dependencies]
-fastapi = [
-    { name = "fastapi" },
+[package.metadata]
+requires-dist = [
+    { name = "ag-ui-protocol", specifier = "==0.1.9" },
+    { name = "fastapi", marker = "extra == 'fastapi'", specifier = ">=0.115.12,<0.116.0" },
+    { name = "langchain", specifier = ">=0.3.0" },
+    { name = "langchain-core", specifier = ">=0.3.0" },
+    { name = "langgraph", specifier = ">=0.3.25,<1.1.0" },
 ]
 
 [[package]]
@@ -43,7 +43,7 @@ name = "agents"
 version = "0.0.1"
 source = { editable = "." }
 dependencies = [
-    { name = "ag-ui-langgraph", extra = ["fastapi"] },
+    { name = "ag-ui-langgraph" },
     { name = "dotenv" },
     { name = "fastapi" },
     { name = "langchain" },
@@ -60,7 +60,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
-    { name = "ag-ui-langgraph", extras = ["fastapi"], specifier = "==0.0.14a0" },
+    { name = "ag-ui-langgraph", directory = "../" },
     { name = "dotenv", specifier = ">=0.9.9,<0.10.0" },
     { name = "fastapi", specifier = ">=0.115.12,<0.116.0" },
     { name = "langchain", specifier = ">=0.1.0" },

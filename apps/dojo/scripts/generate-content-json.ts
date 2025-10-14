@@ -144,10 +144,11 @@ async function getFeatureFrontendFiles(featureId: string) {
 }
 
 const integrationsFolderPath = "../../../integrations";
+const middlewaresFolderPath = "../../../middlewares";
 const agentFilesMapper: Record<string, (agentKeys: string[]) => Record<string, string[]>> = {
   "middleware-starter": () => ({
     agentic_chat: [
-      path.join(__dirname, integrationsFolderPath, `/middleware-starter/src/index.ts`),
+      path.join(__dirname, middlewaresFolderPath, `/middleware-starter/src/index.ts`),
     ],
   }),
   "pydantic-ai": (agentKeys: string[]) => {
@@ -158,7 +159,7 @@ const agentFilesMapper: Record<string, (agentKeys: string[]) => Record<string, s
           path.join(
             __dirname,
             integrationsFolderPath,
-            `/pydantic-ai/examples/server/api/${agentId}.py`,
+            `/pydantic-ai/python/examples/server/api/${agentId}.py`,
           ),
         ],
       }),
@@ -170,7 +171,7 @@ const agentFilesMapper: Record<string, (agentKeys: string[]) => Record<string, s
       path.join(
         __dirname,
         integrationsFolderPath,
-        `/server-starter/server/python/example_server/__init__.py`,
+        `/server-starter/python/examples/example_server/__init__.py`,
       ),
     ],
   }),
@@ -182,7 +183,7 @@ const agentFilesMapper: Record<string, (agentKeys: string[]) => Record<string, s
           path.join(
             __dirname,
             integrationsFolderPath,
-            `/server-starter-all-features/server/python/example_server/${agentId}.py`,
+            `/server-starter-all-features/python/examples/example_server/${agentId}.py`,
           ),
         ],
       }),
@@ -194,14 +195,14 @@ const agentFilesMapper: Record<string, (agentKeys: string[]) => Record<string, s
       path.join(
         __dirname,
         integrationsFolderPath,
-        `/mastra/example/src/mastra/agents/weather-agent.ts`,
+        `/mastra/typescript/examples/src/mastra/agents/weather-agent.ts`,
       ),
     ],
     backend_tool_rendering: [
       path.join(
         __dirname,
         integrationsFolderPath,
-        `/mastra/example/src/mastra/agents/backend-tool-rendering.ts`,
+        `/mastra/typescript/examples/src/mastra/agents/backend-tool-rendering.ts`,
       ),
     ],
     tool_based_generative_ui: [
@@ -212,32 +213,21 @@ const agentFilesMapper: Record<string, (agentKeys: string[]) => Record<string, s
       ),
     ],
   }),
-  "mastra-agent-lock": () => ({
-    agentic_chat: [
-      path.join(
-        __dirname,
-        integrationsFolderPath,
-        `/mastra/example/src/mastra/agents/weather-agent.ts`,
-      ),
-    ],
-    backend_tool_rendering: [
-      path.join(
-        __dirname,
-        integrationsFolderPath,
-        `/mastra/example/src/mastra/agents/backend-tool-rendering.ts`,
-      ),
-    ],
-    tool_based_generative_ui: [
-      path.join(
-        __dirname,
-        integrationsFolderPath,
-        `/mastra/example/src/mastra/agents/haiku-agent.ts`,
-      ),
-    ],
-  }),
+
+  "mastra-agent-local": (agentKeys: string[]) => {
+    return agentKeys.reduce(
+      (acc, agentId) => ({
+        ...acc,
+        [agentId]: [path.join(__dirname, '../src/mastra/index.ts') ]
+      }),
+      {},
+    );
+  },
+
   "vercel-ai-sdk": () => ({
     agentic_chat: [path.join(__dirname, integrationsFolderPath, `/vercel-ai-sdk/src/index.ts`)],
   }),
+
   langgraph: (agentKeys: string[]) => {
     return agentKeys.reduce(
       (acc, agentId) => ({
@@ -246,12 +236,12 @@ const agentFilesMapper: Record<string, (agentKeys: string[]) => Record<string, s
           path.join(
             __dirname,
             integrationsFolderPath,
-            `/langgraph/examples/python/agents/${agentId}/agent.py`,
+            `/langgraph/python/examples/agents/${agentId}/agent.py`,
           ),
           path.join(
             __dirname,
             integrationsFolderPath,
-            `/langgraph/examples/typescript/src/agents/${agentId}/agent.ts`,
+            `/langgraph/typescript/examples/src/agents/${agentId}/agent.ts`,
           ),
         ],
       }),
@@ -266,12 +256,12 @@ const agentFilesMapper: Record<string, (agentKeys: string[]) => Record<string, s
           path.join(
             __dirname,
             integrationsFolderPath,
-            `/langgraph/examples/python/agents/${agentId}/agent.py`,
+            `/langgraph/python/examples/agents/${agentId}/agent.py`,
           ),
           path.join(
             __dirname,
             integrationsFolderPath,
-            `/langgraph/examples/typescript/src/agents/${agentId}/agent.ts`,
+            `/langgraph/typescript/examples/src/agents/${agentId}/agent.ts`,
           ),
         ],
       }),
@@ -286,7 +276,7 @@ const agentFilesMapper: Record<string, (agentKeys: string[]) => Record<string, s
           path.join(
             __dirname,
             integrationsFolderPath,
-            `/langgraph/examples/python/agents/${agentId}/agent.py`,
+            `/langgraph/python/examples/agents/${agentId}/agent.py`,
           ),
         ],
       }),
@@ -294,7 +284,21 @@ const agentFilesMapper: Record<string, (agentKeys: string[]) => Record<string, s
     );
   },
   'spring-ai': () => ({}),
-  agno: () => ({}),
+  agno: (agentKeys: string[]) => {
+    return agentKeys.reduce(
+      (acc, agentId) => ({
+        ...acc,
+        [agentId]: [
+          path.join(
+            __dirname,
+            integrationsFolderPath,
+            `/agno/python/examples/server/api/${agentId}.py`,
+          ),
+        ],
+      }),
+      {},
+    );
+  },
   "llama-index": (agentKeys: string[]) => {
     return agentKeys.reduce(
       (acc, agentId) => ({
@@ -303,7 +307,7 @@ const agentFilesMapper: Record<string, (agentKeys: string[]) => Record<string, s
           path.join(
             __dirname,
             integrationsFolderPath,
-            `/llamaindex/server-py/server/routers/${agentId}.py`,
+            `/llama-index/python/examples/server/routers/${agentId}.py`,
           ),
         ],
       }),
@@ -318,7 +322,7 @@ const agentFilesMapper: Record<string, (agentKeys: string[]) => Record<string, s
           path.join(
             __dirname,
             integrationsFolderPath,
-            `/crewai/python/ag_ui_crewai/examples/${agentId}.py`,
+            `/crew-ai/python/ag_ui_crewai/examples/${agentId}.py`,
           ),
         ],
       }),

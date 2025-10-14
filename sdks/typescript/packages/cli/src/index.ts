@@ -180,7 +180,7 @@ async function handleCliClient() {
   try {
     console.log(`📥 Downloading CLI client template: ${projectName.name}\n`);
 
-    await downloadTemplate("gh:ag-ui-protocol/ag-ui/typescript-sdk/apps/client-cli-example", {
+    await downloadTemplate("gh:ag-ui-protocol/ag-ui/apps/client-cli-example", {
       dir: projectName.name,
       install: false,
     });

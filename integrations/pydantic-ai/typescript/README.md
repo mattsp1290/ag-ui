@@ -21,10 +21,10 @@ To run this integration you need to:
     git clone https://github.com/ag-ui-protocol/ag-ui.git
     ```
 
-2. Change into the `typescript-sdk/integrations/pydantic-ai` directory
+2. Change into the integrations/pydantic-ai/python` directory
 
     ```shell
-    cd typescript-sdk/integrations/pydantic-ai
+    cd integrations/pydantic-ai/python
     ```
 
 3. Install the `pydantic-ai-examples` package, for example:
@@ -58,7 +58,6 @@ To run this integration you need to:
 6. Start the integration ag-ui dojo:
 
     ```shell
-    cd typescript-sdk
     pnpm install && pnpm run dev
     ```
 

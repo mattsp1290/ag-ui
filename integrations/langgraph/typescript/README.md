@@ -40,6 +40,6 @@ const result = await agent.runAgent({
 ## To run the example server in the dojo
 
 ```bash
-cd typescript-sdk/integrations/langgraph/examples
+cd integrations/langgraph/typescript/examples
 langgraph dev
 ```

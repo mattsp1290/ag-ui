@@ -18,10 +18,10 @@ To use this integration you need to:
     git clone https://github.com/ag-ui-protocol/ag-ui.git
     ```
 
-2. Change to the `typescript-sdk/integrations/adk-middleware` directory.
+2. Change to the `integrations/adk-middleware/python` directory.
 
     ```bash
-    cd typescript-sdk/integrations/adk-middleware
+    cd integrations/adk-middleware/python
     ```
 
 3. Install the `adk-middleware` package from the local directory.  For example,
@@ -61,7 +61,6 @@ To use this integration you need to:
 7. Start the integration ag-ui dojo:
 
     ```bash
-    cd typescript-sdk
     pnpm install && pnpm run dev
     ```
 

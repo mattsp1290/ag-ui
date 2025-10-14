@@ -39,6 +39,6 @@ const result = await agent.runAgent({
 ## To run the example server in the dojo
 
 ```bash
-cd typescript-sdk/integrations/crewai/python
+cd integrations/crew-ai/python
 poetry install && poetry run dev
 ```

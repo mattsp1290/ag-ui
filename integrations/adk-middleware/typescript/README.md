@@ -18,10 +18,10 @@ To use this integration you need to:
     git clone https://github.com/ag-ui-protocol/ag-ui.git
     ```
 
-2. Change to the `typescript-sdk/integrations/adk-middleware` directory.
+2. Change to the `integrations/adk-middleware/python` directory.
 
     ```bash
-    cd typescript-sdk/integrations/adk-middleware
+    cd integrations/adk-middleware/python
     ```
 
 3. Install the `adk-middleware` package from the local directory.  For example,
@@ -30,12 +30,12 @@ To use this integration you need to:
     pip install .
     ```
 
-    or 
+    or
 
     ```bash
     uv pip install .
     ```
-    
+
     This installs the package from the current directory which contains:
     - `src/adk_middleware/` - The middleware source code
     - `examples/` - Example servers and agents
@@ -61,7 +61,6 @@ To use this integration you need to:
 7. Start the integration ag-ui dojo:
 
     ```bash
-    cd typescript-sdk
     pnpm install && pnpm run dev
     ```
 
@@ -125,7 +124,7 @@ my_agent = Agent(
 # 2. Create the middleware with direct agent embedding
 agent = ADKAgent(
     adk_agent=my_agent,
-    app_name="my_app", 
+    app_name="my_app",
     user_id="user123"
 )
 
@@ -150,7 +149,7 @@ my_agent = Agent(
 # 2. Create the middleware with direct agent embedding
 agent = ADKAgent(
     adk_agent=my_agent,
-    app_name="my_app", 
+    app_name="my_app",
     user_id="user123"
 )
 
@@ -187,13 +186,13 @@ from ag_ui.core import RunAgentInput, UserMessage
 async def main():
     # Setup
     my_agent = Agent(name="assistant", instruction="You are a helpful assistant.")
-    
+
     agent = ADKAgent(
         adk_agent=my_agent,
-        app_name="demo_app", 
+        app_name="demo_app",
         user_id="demo"
     )
-    
+
     # Create input
     input = RunAgentInput(
         thread_id="thread_001",
@@ -206,7 +205,7 @@ async def main():
         tools=[],
         forwarded_props={}
     )
-    
+
     # Run and handle events
     async for event in agent.run(input):
         print(f"Event: {event.type}")

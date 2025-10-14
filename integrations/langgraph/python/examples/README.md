@@ -6,13 +6,13 @@ First, make sure to create a new .env file from the .env.example and include the
 
 To run the Python examples for langgraph platform, run:
 ```
-cd typescript-sdk/integrations/langgraph/examples/python
+cd integrations/langgraph/python/examples
 pnpx @langchain/langgraph-cli@latest dev
 ```
 
 To run the python examples using FastAPI, run:
 ```
-cd typescript-sdk/integrations/langgraph/examples/python
+cd integrations/langgraph/python/examples
 poetry install
 poetry run dev
 ```

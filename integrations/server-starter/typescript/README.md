@@ -7,7 +7,7 @@ This starter kit demonstrates sending the minimal set of events that are needed 
 To run the server:
 
 ```bash
-cd typescript-sdk/integrations/server-starter/server/python
+cd integrations/server-starter/python/examples
 
 poetry install && poetry run dev
 ```

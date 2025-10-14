@@ -40,7 +40,7 @@ const result = await agent.runAgent({
 ## To run the example server in the dojo
 
 ```bash
-cd typescript-sdk/integrations/mastra/example
+cd integrations/mastra/typescript/examples
 pnpm install
 pnpm run dev
 ```

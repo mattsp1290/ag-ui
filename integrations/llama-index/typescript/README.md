@@ -39,6 +39,6 @@ const result = await agent.runAgent({
 ## To run the example server in the dojo
 
 ```bash
-cd typescript-sdk/integrations/llamaindex/server-py
+cd integrations/llama-index/python/examples
 uv sync && uv run dev
 ```

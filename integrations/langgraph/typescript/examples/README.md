@@ -52,7 +52,7 @@ Example of tool-based generative UI for haiku generation with image selection ca
 ## Project Structure
 
 ```
-typescript-sdk/integrations/langgraph/examples/typescript/
+integrations/langgraph/typescript/examples
 ├── src/
 │   └── agents/
 │       ├── agentic_chat/

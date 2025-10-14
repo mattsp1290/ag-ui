@@ -7,21 +7,25 @@ import { View } from "@/types/interface";
 interface URLParamsState {
   view: View;
   sidebarHidden: boolean;
+  chatDefaultOpen: boolean;
   frameworkPickerHidden: boolean;
   viewPickerHidden: boolean;
   featurePickerHidden: boolean;
   file?: string;
   codeLayout: "sidebar" | "tabs";
+  theme: "light" | "dark";
 }
 
 interface URLParamsContextType extends URLParamsState {
   setView: (view: View) => void;
   setSidebarHidden: (disabled: boolean) => void;
+  setChatDefaultOpen: (open: boolean) => void;
   setFrameworkPickerHidden: (disabled: boolean) => void;
   setViewPickerHidden: (disabled: boolean) => void;
   setFeaturePickerHidden: (disabled: boolean) => void;
   setCodeFile: (fileName: string) => void;
   setCodeLayout: (layout: "sidebar" | "tabs") => void;
+  setTheme: (theme: "light" | "dark") => void;
 }
 
 const URLParamsContext = createContext<URLParamsContextType | undefined>(undefined);
@@ -39,10 +43,12 @@ export function URLParamsProvider({ children }: URLParamsProviderProps) {
   const [state, setState] = useState<URLParamsState>(() => ({
     view: (searchParams.get("view") as View) || "preview",
     sidebarHidden: searchParams.get("sidebar") === "false",
+    chatDefaultOpen: searchParams.get("chatDefaultOpen") !== "false",
     frameworkPickerHidden: searchParams.get("frameworkPicker") === "false",
     viewPickerHidden: searchParams.get("viewPicker") === "false",
     featurePickerHidden: searchParams.get("featurePicker") === "false",
     codeLayout: (searchParams.get("codeLayout") as "sidebar" | "tabs") || "sidebar",
+    theme: (searchParams.get("theme") as "light" | "dark") || "light",
   }));
 
   // Update URL when state changes
@@ -64,6 +70,15 @@ export function URLParamsProvider({ children }: URLParamsProviderProps) {
         params.set("sidebar", "false");
       } else {
         params.delete("sidebar");
+      }
+    }
+
+    // Update chatDefaultOpen param
+    if (newState.chatDefaultOpen !== undefined) {
+      if (newState.chatDefaultOpen) {
+        params.set("chatDefaultOpen", "true");
+      } else {
+        params.delete("chatDefaultOpen");
       }
     }
 
@@ -102,6 +117,15 @@ export function URLParamsProvider({ children }: URLParamsProviderProps) {
       }
     }
 
+    // Update theme param
+    if (newState.theme !== undefined) {
+      if (newState.theme === "light") {
+        params.delete("theme");
+      } else {
+        params.set("theme", newState.theme);
+      }
+    }
+
     // Update file param
     if (newState.file !== undefined) {
       params.set("file", newState.file);
@@ -116,11 +140,13 @@ export function URLParamsProvider({ children }: URLParamsProviderProps) {
     const newState: URLParamsState = {
       view: (searchParams.get("view") as View) || "preview",
       sidebarHidden: searchParams.get("sidebar") === "false",
+      chatDefaultOpen: searchParams.get("chatDefaultOpen") === "true",
       frameworkPickerHidden: searchParams.get("frameworkPicker") === "false",
       viewPickerHidden: searchParams.get("viewPicker") === "false",
       featurePickerHidden: searchParams.get("featurePicker") === "false",
       file: searchParams.get("file") || undefined,
       codeLayout: (searchParams.get("codeLayout") as "sidebar" | "tabs") || "sidebar",
+      theme: (searchParams.get("theme") as "light" | "dark") || "light",
     };
 
     setState(newState);
@@ -137,6 +163,12 @@ export function URLParamsProvider({ children }: URLParamsProviderProps) {
     const newState = { ...state, sidebarHidden };
     setState(newState);
     updateURL({ sidebarHidden });
+  };
+
+  const setChatDefaultOpen = (chatDefaultOpen: boolean) => {
+    const newState = { ...state, chatDefaultOpen };
+    setState(newState);
+    updateURL({ chatDefaultOpen });
   };
 
   const setFrameworkPickerHidden = (frameworkPickerHidden: boolean) => {
@@ -169,15 +201,23 @@ export function URLParamsProvider({ children }: URLParamsProviderProps) {
     updateURL({ codeLayout });
   };
 
+  const setTheme = (theme: "light" | "dark") => {
+    const newState = { ...state, theme };
+    setState(newState);
+    updateURL({ theme });
+  };
+
   const contextValue: URLParamsContextType = {
     ...state,
     setView,
     setSidebarHidden,
+    setChatDefaultOpen,
     setFrameworkPickerHidden,
     setViewPickerHidden,
     setFeaturePickerHidden,
     setCodeFile,
     setCodeLayout,
+    setTheme,
   };
 
   return <URLParamsContext.Provider value={contextValue}>{children}</URLParamsContext.Provider>;

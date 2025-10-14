@@ -16,7 +16,7 @@ if (!fs.existsSync(cpkPath)) {
 
 
 const gitRoot = execSync('git rev-parse --show-toplevel', { encoding: 'utf-8', cwd: __dirname }).trim();
-const dojoDir = path.join(gitRoot, 'typescript-sdk/apps/dojo');
+const dojoDir = path.join(gitRoot, 'apps/dojo');
 const cpkPackageDir = path.join(cpkPath, 'CopilotKit', 'packages');
 const relative = `./${path.relative(dojoDir, cpkPackageDir)}`;
 

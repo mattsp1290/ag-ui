@@ -67,6 +67,9 @@ func (w *SSEWriter) WriteBytes(ctx context.Context, writer io.Writer, event []by
 			return fmt.Errorf("SSE flush failed: %w", err)
 		}
 	}
+	if flusher, ok := writer.(flusherWithoutError); ok {
+		flusher.Flush()
+	}
 	return nil
 }
 
@@ -115,6 +118,9 @@ func (w *SSEWriter) WriteEventWithType(ctx context.Context, writer io.Writer, ev
 				"event_type", event.Type())
 			return fmt.Errorf("SSE flush failed: %w", err)
 		}
+	}
+	if flusher, ok := writer.(flusherWithoutError); ok {
+		flusher.Flush()
 	}
 
 	return nil
@@ -185,6 +191,11 @@ func (w *SSEWriter) createSSEFrame(jsonData []byte, eventType string, event even
 // flusher interface for writers that support flushing
 type flusher interface {
 	Flush() error
+}
+
+// flusherWithoutError interface for writers that support flushing
+type flusherWithoutError interface {
+	Flush()
 }
 
 // CustomEvent is a simple implementation of events.Event for error and custom events

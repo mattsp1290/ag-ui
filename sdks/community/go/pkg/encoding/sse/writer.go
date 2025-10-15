@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -193,10 +194,9 @@ type flusher interface {
 	Flush() error
 }
 
-// flusherWithoutError interface for writers that support flushing
-type flusherWithoutError interface {
-	Flush()
-}
+// flusherWithoutError is a type alias for http.Flusher.
+// It is used to flush the writer without returning an error.
+type flusherWithoutError = http.Flusher
 
 // CustomEvent is a simple implementation of events.Event for error and custom events
 type CustomEvent struct {

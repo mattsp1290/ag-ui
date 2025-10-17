@@ -140,7 +140,7 @@ AG-UI was born from CopilotKit's initial partnership with LangGraph and CrewAI -
 | --- | ------- | ---------------- | ------------- |
 | [CopilotKit]() | ✅ Supported | ➡️ [Getting Started](https://docs.copilotkit.ai/direct-to-llm/guides/quickstart) | 1st Party |
 | [Terminal + Agent]() | ✅ Supported | ➡️ [etting Started](https://docs.ag-ui.com/quickstart/clients) | Community |
-| [React Native]() | 🛠️ Help Wanted | ➡️ [GitHub Source](https://github.com/ag-ui-protocol/ag-ui/issues/366) | Community |
+| [React Native]() | 🛠️ Help Wanted | ➡️ [GitHub Source](https://github.com/ag-ui-protocol/ag-ui/issues/510) | Community |
 
 [View all supported frameworks →](https://docs.ag-ui.com/introduction#supported-frameworks)
 

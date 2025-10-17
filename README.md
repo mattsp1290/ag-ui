@@ -83,7 +83,7 @@ AG-UI was born from CopilotKit's initial partnership with LangGraph and CrewAI -
 
 | Framework                                                          | Status                   | AG-UI Resources                                                                 |
 | ------------------------------------------------------------------ | ------------------------ | -------------------------------------------------------------------------------- |
-| No-framework                                                       | ✅ Supported             | ➡️ Docs coming soon                                                              |
+| Direct to LLM                                                  | ✅ Supported             | ➡️ [Docs](https://docs.copilotkit.ai/direct-to-llm)  |
 
 #### 🤝 Partnerships
 | Framework | Status | AG-UI Resources |

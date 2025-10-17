@@ -113,12 +113,12 @@ AG-UI was born from CopilotKit's initial partnership with LangGraph and CrewAI -
 
 | SDK | Status | AG-UI Resources | Integrations |
 | --- | ------- | ---------------- | ------------- |
-| [Kotlin]() | ✅ Supported | ➡️ [GitHub Source](https://github.com/ag-ui-protocol/ag-ui/tree/main/sdks/community/kotlin) | Community |
-| [Golang]() | ✅ Supported | ➡️ [GitHub Source](https://github.com/ag-ui-protocol/ag-ui/tree/main/sdks/community/go) | Community |
+| [Kotlin]() | ✅ Supported | ➡️ [Getting Started](https://github.com/ag-ui-protocol/ag-ui/blob/main/docs/sdk/kotlin/overview.mdx) | Community |
+| [Golang]() | ✅ Supported | ➡️ [Getting Started](https://github.com/ag-ui-protocol/ag-ui/blob/main/docs/sdk/go/overview.mdx) | Community |
+| [Java]() | ✅ Supported | ➡️ [Getting Started](https://github.com/ag-ui-protocol/ag-ui/blob/main/docs/sdk/java/overview.mdx) | Community |
 | [.NET]() | 🛠️ In Progress | ➡️ [PR](https://github.com/ag-ui-protocol/ag-ui/pull/38) | Community |
 | [Nim]() | 🛠️ In Progress | ➡️ [PR](https://github.com/ag-ui-protocol/ag-ui/pull/29) | Community |
 | [Rust]() | 🛠️ In Progress | ➡️ [PR](https://github.com/ag-ui-protocol/ag-ui/pull/243) | Community |
-| [Java]() | 🛠️ In Progress | ➡️ [GitHub Source](https://github.com/ag-ui-protocol/ag-ui/issues/20) | Community |
 | [Dart]() | 🛠️ In Progress | ➡️ [PR](https://github.com/ag-ui-protocol/ag-ui/pull/432) | Community |
 | [Flowise]() | 🛠️ In Progress | ➡️ [GitHub Source](https://github.com/ag-ui-protocol/ag-ui/issues/367) | Community |
 | [Langflow]() | 🛠️ In Progress | ➡️ [GitHub Source](https://github.com/ag-ui-protocol/ag-ui/issues/366) | Community |

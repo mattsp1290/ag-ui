@@ -17,6 +17,10 @@ plugins {
     id("org.jreleaser") version "1.17.0"
 }
 
+// Single source of truth for version - used by both subprojects and JReleaser
+version = "0.2.3"
+group = "com.contextable"
+
 allprojects {
     repositories {
         google()
@@ -26,8 +30,8 @@ allprojects {
 
 // Configure all subprojects with common settings
 subprojects {
-    group = "com.contextable"
-    version = "0.2.3"
+    group = rootProject.group
+    version = rootProject.version
 
     apply(plugin = "org.jetbrains.kotlinx.kover")
     extensions.configure<KoverProjectExtension>("kover") {
@@ -156,6 +160,7 @@ jreleaser {
     // Project information
     project {
         name.set("ag-ui-kotlin-sdk")
+        version.set(rootProject.version.toString())
         description.set("Kotlin Multiplatform SDK for the Agent User Interaction Protocol")
         website.set("https://github.com/ag-ui-protocol/ag-ui")
         authors.set(listOf("Mark Fogle"))

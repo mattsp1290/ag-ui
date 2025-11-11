@@ -6,8 +6,7 @@ plugins {
     id("signing")
 }
 
-group = "com.contextable"
-    version = "0.2.3"
+// Group and version inherited from parent build.gradle.kts
 
 repositories {
     google()

@@ -9,7 +9,8 @@ plugins {
     id("signing")
 }
 
-group = "com.contextable"
+// Group and version from gradle.properties
+group = findProperty("group")?.toString() ?: "com.ag-ui.community"
 version = "0.1.0"
 
 repositories {

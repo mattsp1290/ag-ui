@@ -18,9 +18,13 @@ plugins {
     id("org.jreleaser") version "1.20.0"
 }
 
-// Single source of truth for version and group
-// Used by: subprojects, JReleaser, publish.sh, and GitHub Actions
-// Only update these values here - they are read dynamically by other scripts
+// Single source of truth for version and group (for library modules)
+// Used by:
+//   - All subprojects (core, client, tools) inherit these values
+//   - JReleaser configuration
+//   - publish.sh script (reads dynamically)
+//   - GitHub Actions workflow (reads dynamically)
+// Only update these values here - they propagate automatically
 version = "0.2.3"
 group = "com.ag-ui.community"
 

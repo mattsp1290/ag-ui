@@ -7,6 +7,7 @@ import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.jvm.tasks.Jar
 import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
 import org.jetbrains.kotlin.gradle.targets.jvm.KotlinJvmTarget
+import org.jreleaser.gradle.plugin.tasks.JReleaserDeployTask
 
 plugins {
     kotlin("multiplatform") version "2.2.20" apply false
@@ -278,4 +279,13 @@ afterEvaluate {
             }
         }
     }
+}
+
+// Workaround for JReleaser 1.20.0 and Gradle 8+ task validation
+// Manually set the required properties on the task itself.
+tasks.named<JReleaserDeployTask>("jreleaserDeploy") {
+    dryrun.set(false)
+    gitRootSearch.set(true)
+    strict.set(false)
+    yolo.set(false)
 }

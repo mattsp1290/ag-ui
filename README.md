@@ -145,7 +145,7 @@ AG-UI was born from CopilotKit's initial partnership with LangGraph and CrewAI -
 | [Terminal + Agent]() | ✅ Supported | ➡️ [Getting Started](https://docs.ag-ui.com/quickstart/clients) | Community |
 | [React Native]() | 🛠️ Help Wanted | ➡️ [GitHub Source](https://github.com/ag-ui-protocol/ag-ui/issues/510) | Community |
 
-[View all supported frameworks →](https://docs.ag-ui.com/introduction#supported-frameworks)
+[View all supported integrations →](https://docs.ag-ui.com/introduction#supported-integrations)
 
 ## Examples
 ### Hello World App

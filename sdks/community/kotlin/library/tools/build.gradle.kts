@@ -6,7 +6,7 @@ plugins {
     id("signing")
 }
 
-group = "com.agui"
+group = "com.contextable"
     version = "0.2.3"
 
 repositories {

@@ -135,15 +135,19 @@ jobs:
 
       - name: Summary
         if: success() && inputs.dry_run == false
+        working-directory: sdks/community/kotlin/library
         run: |
+          # Extract version from build.gradle.kts
+          VERSION=$(grep "^version = " build.gradle.kts | sed 's/version = "\(.*\)"/\1/')
+
           echo "## ✅ Publishing Complete!" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "The Kotlin SDK has been published to Maven Central." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Published Artifacts" >> $GITHUB_STEP_SUMMARY
-          echo "- \`com.contextable:kotlin-core:0.2.3\` (JVM, Android, iOS)" >> $GITHUB_STEP_SUMMARY
-          echo "- \`com.contextable:kotlin-client:0.2.3\` (JVM, Android, iOS)" >> $GITHUB_STEP_SUMMARY
-          echo "- \`com.contextable:kotlin-tools:0.2.3\` (JVM, Android, iOS)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`com.ag-ui.community:kotlin-core:${VERSION}\` (JVM, Android, iOS)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`com.ag-ui.community:kotlin-client:${VERSION}\` (JVM, Android, iOS)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`com.ag-ui.community:kotlin-tools:${VERSION}\` (JVM, Android, iOS)" >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "**Note:** All platforms published including iOS artifacts in .klib format." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY

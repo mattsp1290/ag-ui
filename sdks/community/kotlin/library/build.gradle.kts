@@ -18,9 +18,11 @@ plugins {
     id("org.jreleaser") version "1.20.0"
 }
 
-// Single source of truth for version - used by both subprojects and JReleaser
+// Single source of truth for version and group
+// Used by: subprojects, JReleaser, publish.sh, and GitHub Actions
+// Only update these values here - they are read dynamically by other scripts
 version = "0.2.3"
-group = "com.contextable"
+group = "com.ag-ui.community"
 
 allprojects {
     repositories {
@@ -200,7 +202,7 @@ afterEvaluate {
             // Java configuration - suppress deprecation warning for KMP projects
             @Suppress("DEPRECATION")
             java {
-                groupId.set("com.contextable")
+                groupId.set("com.ag-ui.community")
                 multiProject.set(true)
             }
         }
@@ -228,7 +230,7 @@ afterEvaluate {
 
                         stagingRepository("build/staging-deploy")
 
-                        namespace.set("com.contextable")
+                        namespace.set("com.ag-ui.community")
                         sign.set(true)
                         checksums.set(true)
 
@@ -242,63 +244,63 @@ afterEvaluate {
                         // iOS artifact overrides - disable jar validation for .klib files
                         // This allows iOS artifacts to be published to Maven Central
                         artifactOverride {
-                            groupId.set("com.contextable")
+                            groupId.set("com.ag-ui.community")
                             artifactId.set("kotlin-core-iosx64")
                             jar.set(false)
                             sourceJar.set(false)
                             javadocJar.set(false)
                         }
                         artifactOverride {
-                            groupId.set("com.contextable")
+                            groupId.set("com.ag-ui.community")
                             artifactId.set("kotlin-core-iosarm64")
                             jar.set(false)
                             sourceJar.set(false)
                             javadocJar.set(false)
                         }
                         artifactOverride {
-                            groupId.set("com.contextable")
+                            groupId.set("com.ag-ui.community")
                             artifactId.set("kotlin-core-iossimulatorarm64")
                             jar.set(false)
                             sourceJar.set(false)
                             javadocJar.set(false)
                         }
                         artifactOverride {
-                            groupId.set("com.contextable")
+                            groupId.set("com.ag-ui.community")
                             artifactId.set("kotlin-client-iosx64")
                             jar.set(false)
                             sourceJar.set(false)
                             javadocJar.set(false)
                         }
                         artifactOverride {
-                            groupId.set("com.contextable")
+                            groupId.set("com.ag-ui.community")
                             artifactId.set("kotlin-client-iosarm64")
                             jar.set(false)
                             sourceJar.set(false)
                             javadocJar.set(false)
                         }
                         artifactOverride {
-                            groupId.set("com.contextable")
+                            groupId.set("com.ag-ui.community")
                             artifactId.set("kotlin-client-iossimulatorarm64")
                             jar.set(false)
                             sourceJar.set(false)
                             javadocJar.set(false)
                         }
                         artifactOverride {
-                            groupId.set("com.contextable")
+                            groupId.set("com.ag-ui.community")
                             artifactId.set("kotlin-tools-iosx64")
                             jar.set(false)
                             sourceJar.set(false)
                             javadocJar.set(false)
                         }
                         artifactOverride {
-                            groupId.set("com.contextable")
+                            groupId.set("com.ag-ui.community")
                             artifactId.set("kotlin-tools-iosarm64")
                             jar.set(false)
                             sourceJar.set(false)
                             javadocJar.set(false)
                         }
                         artifactOverride {
-                            groupId.set("com.contextable")
+                            groupId.set("com.ag-ui.community")
                             artifactId.set("kotlin-tools-iossimulatorarm64")
                             jar.set(false)
                             sourceJar.set(false)

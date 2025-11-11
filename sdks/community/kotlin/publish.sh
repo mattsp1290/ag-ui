@@ -97,6 +97,10 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "$SCRIPT_DIR/library" || exit 1
 
 echo -e "${BLUE}📂 Working directory: $(pwd)${NC}"
+
+# Extract version from build.gradle.kts
+VERSION=$(grep "^version = " build.gradle.kts | sed 's/version = "\(.*\)"/\1/')
+echo -e "${BLUE}📦 Version: ${VERSION}${NC}"
 echo ""
 
 # Step 1: Clean previous builds and staging directory
@@ -164,9 +168,9 @@ else
         echo "   3. Publishing to Maven Central will complete in ~10-30 minutes"
         echo ""
         echo -e "${BLUE}📦 Published artifacts:${NC}"
-        echo "   - com.contextable:kotlin-core:0.2.3 (JVM, Android, iOS)"
-        echo "   - com.contextable:kotlin-client:0.2.3 (JVM, Android, iOS)"
-        echo "   - com.contextable:kotlin-tools:0.2.3 (JVM, Android, iOS)"
+        echo "   - com.ag-ui.community:kotlin-core:${VERSION} (JVM, Android, iOS)"
+        echo "   - com.ag-ui.community:kotlin-client:${VERSION} (JVM, Android, iOS)"
+        echo "   - com.ag-ui.community:kotlin-tools:${VERSION} (JVM, Android, iOS)"
         echo ""
         echo -e "${BLUE}ℹ️  All platforms published including iOS (.klib format)${NC}"
     else

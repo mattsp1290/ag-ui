@@ -274,14 +274,16 @@ afterEvaluate {
                         }
 
                         // Override for NATIVE/ANDROID artifacts (e.g., "kotlin-core-iosx64")
-                        // This fixes "kotlin-core-iosx64-0.2.3.jar is missing"
+                        // iOS targets use .klib as their main artifact, not .jar
                         nonJvmTargetArtifactIds.forEach { artifactId ->
                             artifactOverride {
                                 this.artifactId.set(artifactId)
-                                jar.set(false) // No .jar file
+                                // Main artifact is .klib for iOS targets
+                                jar.set(false)
+                                artifact.set("${artifactId}-${rootProject.version}.klib")
                                 verifyPom.set(false)
                                 sourceJar.set(false)
-                                javadocJar.set(false) // No javadoc
+                                javadocJar.set(false)
                             }
                         }
                     }

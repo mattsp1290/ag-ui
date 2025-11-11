@@ -235,7 +235,7 @@ afterEvaluate {
                     create("sonatype") {
                         active.set(org.jreleaser.model.Active.ALWAYS)
                         url.set("https://central.sonatype.com/api/v1/publisher")
-                        stagingRepository(rootProject.layout.buildDirectory.dir("staging-deploy"))
+                        stagingRepository("build/staging-deploy")
                         namespace.set("com.contextable")
                         sign.set(true)
                         checksums.set(true)

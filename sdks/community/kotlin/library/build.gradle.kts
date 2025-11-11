@@ -153,6 +153,23 @@ tasks.register("dokkaHtmlMultiModule") {
 
 // JReleaser configuration for publishing to Maven Central
 jreleaser {
+    // Project information
+    project {
+        name.set("ag-ui-kotlin-sdk")
+        description.set("Kotlin Multiplatform SDK for the Agent User Interaction Protocol")
+        website.set("https://github.com/ag-ui-protocol/ag-ui")
+        authors.set(listOf("Mark Fogle"))
+        license.set("MIT")
+        inceptionYear.set("2024")
+
+        // Java/Maven specific settings
+        java {
+            groupId.set("com.contextable")
+            version.set("21")
+            multiProject.set(true)
+        }
+    }
+
     // Enable GPG signing for all artifacts
     signing {
         active.set(org.jreleaser.model.Active.ALWAYS)
@@ -167,6 +184,9 @@ jreleaser {
                     active.set(org.jreleaser.model.Active.ALWAYS)
                     url.set("https://central.sonatype.com/api/v1/publisher")
                     stagingRepository("build/staging-deploy")
+
+                    // Maven Central namespace (must match verified namespace in Sonatype Portal)
+                    namespace.set("com.contextable")
 
                     // Sign and verify artifacts
                     sign.set(true)

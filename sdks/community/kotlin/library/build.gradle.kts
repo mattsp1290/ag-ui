@@ -265,7 +265,9 @@ afterEvaluate {
                         applyMavenCentralRules.set(false)
                         verifyPom.set(false)
 
-                        // Set defaults - these will be overridden per artifact
+                        // CRITICAL: Disable all default expectations
+                        // Set everything to false by default, let artifact overrides enable selectively
+                        jar.set(false)
                         sourceJar.set(false)
                         javadocJar.set(false)
 
@@ -273,21 +275,23 @@ afterEvaluate {
                         // This fixes "kotlin-core-0.2.3-javadoc.jar is missing"
                         metadataArtifactIds.forEach { artifactId ->
                             artifactOverride {
+                                groupId.set("com.contextable")
                                 this.artifactId.set(artifactId)
                                 jar.set(true)
                                 verifyPom.set(false)
                                 sourceJar.set(false)
-                                javadocJar.set(false) // NO JAVADOC
+                                javadocJar.set(false)
                             }
                         }
 
                         // Override for NATIVE/ANDROID artifacts (e.g., "kotlin-core-iosx64")
                         // iOS targets produce .klib files, not .jar files
-                        // We must disable validation for these artifacts
+                        // Disable ALL validation - including jar existence check
                         nonJvmTargetArtifactIds.forEach { artifactId ->
                             artifactOverride {
+                                groupId.set("com.contextable")
                                 this.artifactId.set(artifactId)
-                                // Disable all JAR expectations for native targets
+                                // Critical: These must all be false to skip validation
                                 jar.set(false)
                                 verifyPom.set(false)
                                 sourceJar.set(false)

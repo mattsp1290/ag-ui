@@ -192,9 +192,8 @@ afterEvaluate {
                     // Find all non-JVM targets (android, ios, etc.)
                     // and exclude the "metadata" target
                     if (target !is KotlinJvmTarget && target.name != "metadata") {
-                        // THIS IS THE FIX:
                         // Create artifactId: "kotlin-" + "core" + "-" + "iosx64"
-                        nonJvmTargetArtifactIds.add("kotlin-${project.name}-${target.name.lowercase()}")
+                        nonJvmTargetArtifactIds.add("${project.name}-${target.name.lowercase()}")
                     }
                 }
             }
@@ -230,6 +229,10 @@ afterEvaluate {
         // Configure Maven Central deployment
         deploy {
             maven {
+                // Disable pomchecker
+                pomchecker {
+                    enabled.set(false)
+                }
                 mavenCentral {
                     create("sonatype") {
                         active.set(org.jreleaser.model.Active.ALWAYS)
@@ -240,11 +243,6 @@ afterEvaluate {
                         checksums.set(true)
                         sourceJar.set(true)
                         javadocJar.set(true)
-
-                        // Disable pomchecker 
-                        pomchecker {
-                            enabled.set(false)
-                        }
 
                         // Merged-in Artifact Overrides
                         nonJvmTargetArtifactIds.forEach { artifactId ->

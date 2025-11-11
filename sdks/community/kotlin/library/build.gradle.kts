@@ -226,9 +226,11 @@ afterEvaluate {
             authors.set(listOf("Mark Fogle"))
             license.set("MIT")
             inceptionYear.set("2024")
+
+            // Java configuration must be set but we don't use most of it for KMP
+            groupId.set("com.contextable")
+            @Suppress("DEPRECATION")
             java {
-                groupId.set("com.contextable")
-                mainClass.set("")
                 multiProject.set(true)
             }
         }
@@ -265,39 +267,10 @@ afterEvaluate {
                         applyMavenCentralRules.set(false)
                         verifyPom.set(false)
 
-                        // CRITICAL: Disable all default expectations
-                        // Set everything to false by default, let artifact overrides enable selectively
-                        jar.set(false)
+                        // Let JReleaser upload whatever exists in staging without strict validation
+                        // With applyMavenCentralRules=false, it should accept KMP artifacts as-is
                         sourceJar.set(false)
                         javadocJar.set(false)
-
-                        // Override for METADATA artifacts (e.g., "kotlin-core")
-                        // This fixes "kotlin-core-0.2.3-javadoc.jar is missing"
-                        metadataArtifactIds.forEach { artifactId ->
-                            artifactOverride {
-                                groupId.set("com.contextable")
-                                this.artifactId.set(artifactId)
-                                jar.set(true)
-                                verifyPom.set(false)
-                                sourceJar.set(false)
-                                javadocJar.set(false)
-                            }
-                        }
-
-                        // Override for NATIVE/ANDROID artifacts (e.g., "kotlin-core-iosx64")
-                        // iOS targets produce .klib files, not .jar files
-                        // Disable ALL validation - including jar existence check
-                        nonJvmTargetArtifactIds.forEach { artifactId ->
-                            artifactOverride {
-                                groupId.set("com.contextable")
-                                this.artifactId.set(artifactId)
-                                // Critical: These must all be false to skip validation
-                                jar.set(false)
-                                verifyPom.set(false)
-                                sourceJar.set(false)
-                                javadocJar.set(false)
-                            }
-                        }
                     }
                 }
             }

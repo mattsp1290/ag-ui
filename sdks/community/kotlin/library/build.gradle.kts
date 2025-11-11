@@ -228,40 +228,39 @@ jreleaser {
 
 // Configure artifact overrides after all subprojects are evaluated
 // Workaround for Kotlin Multiplatform iOS targets that produce .klib files instead of JARs
+// In your root build.gradle.kts
+
 afterEvaluate {
-    // Collect all iOS target publications from subprojects
-    val iosArtifactIds = mutableListOf<String>()
+    // I've renamed this variable for clarity, as it includes Android, iOS, etc.
+    val nonJvmTargetArtifactIds = mutableListOf<String>()
 
     subprojects {
         plugins.withId("org.jetbrains.kotlin.multiplatform") {
             extensions.configure(org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension::class.java) {
                 targets.forEach { target ->
-                    // Collect non-JVM target artifact IDs
-                    if (target !is KotlinJvmTarget) {
-                        iosArtifactIds.add("${project.name}-${target.name.lowercase()}")
+                    // Collect non-JVM/non-Metadata target artifact IDs
+                    if (target !is KotlinJvmTarget && target.name != "metadata") {
+                        // Add the "kotlin-" prefix to match your subproject's artifactId convention
+                        nonJvmTargetArtifactIds.add("kotlin-${project.name}-${target.name.lowercase()}")
                     }
                 }
             }
         }
     }
 
-    tasks.named("jreleaserDeploy") {
-        // This maps to [":core:publish", ":client:publish", ":tools:publish", etc.]
-        dependsOn(subprojects.map { "${it.path}:publish" })
-    }
-
-    // Configure JReleaser artifact overrides for iOS targets
+    // Configure JReleaser artifact overrides
     jreleaser {
         deploy {
             maven {
                 mavenCentral {
                     named("sonatype") {
-                        // Add artifact override for each iOS target
-                        iosArtifactIds.forEach { artifactId ->
+                        // Use the corrected list of artifact IDs
+                        nonJvmTargetArtifactIds.forEach { artifactId ->
                             artifactOverride {
                                 this.artifactId.set(artifactId)
                                 jar.set(false)
-                                verifyPom.set(false)
+                                // This is the most important setting:
+                                verifyPom.set(false) 
                                 sourceJar.set(false)
                                 javadocJar.set(false)
                             }

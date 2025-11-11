@@ -179,61 +179,6 @@ tasks.register("dokkaHtmlMultiModule") {
     }
 }
 
-// JReleaser configuration for publishing to Maven Central
-jreleaser {
-    gitRootSearch = true
-    // Project information
-    project {
-        name.set("ag-ui-kotlin-sdk")
-        version.set(rootProject.version.toString())
-        description.set("Kotlin Multiplatform SDK for the Agent User Interaction Protocol")
-        website.set("https://github.com/ag-ui-protocol/ag-ui")
-        authors.set(listOf("Mark Fogle"))
-        license.set("MIT")
-        inceptionYear.set("2024")
-
-        // Java/Maven specific settings
-        java {
-            groupId.set("com.contextable")
-            version.set("21")
-            multiProject.set(true)
-        }
-    }
-
-    // Enable GPG signing for all artifacts
-    signing {
-        active.set(org.jreleaser.model.Active.ALWAYS)
-        armored.set(true)
-    }
-
-    // Configure Maven Central deployment
-    deploy {
-        maven {
-            pomchecker {
-                // Disable pomchecker. It fails on 'klib' and 'aar' packaging.
-                // Sonatype's own portal will validate the POMs upon upload.
-                enabled.set(false)
-            }
-            mavenCentral {
-                create("sonatype") {
-                    active.set(org.jreleaser.model.Active.ALWAYS)
-                    url.set("https://central.sonatype.com/api/v1/publisher")
-                    stagingRepository("build/staging-deploy")
-
-                    // Maven Central namespace (must match verified namespace in Sonatype Portal)
-                    namespace.set("com.contextable")
-
-                    // Sign and verify artifacts
-                    sign.set(true)
-                    checksums.set(true)
-                    sourceJar.set(true)
-                    javadocJar.set(true)
-                }
-            }
-        }
-    }
-}
-
 // Configure artifact overrides after all subprojects are evaluated
 // Workaround for Kotlin Multiplatform iOS targets that produce .klib files instead of JARs
 // In your root build.gradle.kts
@@ -259,15 +204,53 @@ afterEvaluate {
 
     // Configure JReleaser with this corrected list
     jreleaser {
+        gitRootSearch = true
+
+        // Project information
+        project {
+            name.set("ag-ui-kotlin-sdk")
+            version.set(rootProject.version.toString())
+            description.set("Kotlin Multiplatform SDK for the Agent User Interaction Protocol")
+            website.set("https://github.com/ag-ui-protocol/ag-ui")
+            authors.set(listOf("Mark Fogle"))
+            license.set("MIT")
+            inceptionYear.set("2024")
+            java {
+                groupId.set("com.contextable")
+                version.set("21")
+                multiProject.set(true)
+            }
+        }
+
+        // Enable GPG signing
+        signing {
+            active.set(org.jreleaser.model.Active.ALWAYS)
+            armored.set(true)
+        }
+
+        // Configure Maven Central deployment
         deploy {
             maven {
+                // Disable pomchecker (Fix from earlier)
+                pomchecker {
+                    enabled.set(false)
+                }
+
                 mavenCentral {
-                    named("sonatype") {
+                    create("sonatype") {
+                        active.set(org.jreleaser.model.Active.ALWAYS)
+                        url.set("https://central.sonatype.com/api/v1/publisher")
+                        stagingRepository("build/staging-deploy")
+                        namespace.set("com.contextable")
+                        sign.set(true)
+                        checksums.set(true)
+                        sourceJar.set(true)
+                        javadocJar.set(true)
+
+                        // Merged-in Artifact Overrides
                         nonJvmTargetArtifactIds.forEach { artifactId ->
                             artifactOverride {
                                 this.artifactId.set(artifactId)
-                                // Tell JReleaser these are not standard JARs
-                                // and to skip all verification for them.
                                 jar.set(false)
                                 verifyPom.set(false)
                                 sourceJar.set(false)
@@ -279,13 +262,4 @@ afterEvaluate {
             }
         }
     }
-}
-
-// Workaround for JReleaser 1.20.0 and Gradle 8+ task validation
-// Manually set the required properties on the task itself.
-tasks.named<JReleaserDeployTask>("jreleaserDeploy") {
-    dryrun.set(false)
-    gitRootSearch.set(true)
-    strict.set(false)
-    yolo.set(false)
 }

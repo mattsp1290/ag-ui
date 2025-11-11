@@ -227,10 +227,10 @@ afterEvaluate {
             license.set("MIT")
             inceptionYear.set("2024")
 
-            // Java configuration must be set but we don't use most of it for KMP
-            groupId.set("com.contextable")
+            // Java configuration - suppress deprecation warning for KMP projects
             @Suppress("DEPRECATION")
             java {
+                groupId.set("com.contextable")
                 multiProject.set(true)
             }
         }

@@ -90,9 +90,9 @@ subprojects {
 
             extensions.configure(PublishingExtension::class.java) {
                 publications.withType(MavenPublication::class.java) {
-                    val attachToJvm = name.equals("jvm", ignoreCase = true) ||
-                        artifactId.orEmpty().contains("jvm", ignoreCase = true)
-                    if (attachToJvm) {
+                    // Attach javadoc to the 'jvm' and 'android' publications.
+                    // This avoids native targets (e.g., 'iosX64') and metadata.
+                    if (name.equals("jvm", ignoreCase = true) || name.contains("android", ignoreCase = true)) {
                         artifact(javadocJar)
                     }
                 }
@@ -231,36 +231,38 @@ jreleaser {
 // In your root build.gradle.kts
 
 afterEvaluate {
-    // I've renamed this variable for clarity, as it includes Android, iOS, etc.
     val nonJvmTargetArtifactIds = mutableListOf<String>()
 
     subprojects {
         plugins.withId("org.jetbrains.kotlin.multiplatform") {
             extensions.configure(org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension::class.java) {
                 targets.forEach { target ->
-                    // Collect non-JVM/non-Metadata target artifact IDs
+                    //
+                    // This is the key:
+                    // 1. We use project.name (which is "kotlin-core", etc.)
+                    // 2. We override all non-JVM targets (like ios, android, wasm)
+                    // 3. We MUST exclude the "metadata" target
+                    //
                     if (target !is KotlinJvmTarget && target.name != "metadata") {
-                        // Add the "kotlin-" prefix to match your subproject's artifactId convention
-                        nonJvmTargetArtifactIds.add("kotlin-${project.name}-${target.name.lowercase()}")
+                        nonJvmTargetArtifactIds.add("${project.name}-${target.name.lowercase()}")
                     }
                 }
             }
         }
     }
 
-    // Configure JReleaser artifact overrides
+    // Now, configure JReleaser with this corrected list
     jreleaser {
         deploy {
             maven {
                 mavenCentral {
                     named("sonatype") {
-                        // Use the corrected list of artifact IDs
                         nonJvmTargetArtifactIds.forEach { artifactId ->
                             artifactOverride {
                                 this.artifactId.set(artifactId)
+                                // Disable all checks for these non-standard artifacts
                                 jar.set(false)
-                                // This is the most important setting:
-                                verifyPom.set(false) 
+                                verifyPom.set(false)
                                 sourceJar.set(false)
                                 javadocJar.set(false)
                             }

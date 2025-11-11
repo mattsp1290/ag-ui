@@ -14,7 +14,7 @@ plugins {
     id("com.android.library") version "8.10.1" apply false
     id("org.jetbrains.dokka") version "2.0.0"
     id("org.jetbrains.kotlinx.kover") version "0.8.3"
-    id("org.jreleaser") version "1.17.0"
+    id("org.jreleaser") version "1.20.0"
 }
 
 // Single source of truth for version - used by both subprojects and JReleaser
@@ -30,6 +30,22 @@ allprojects {
 
 // Configure all subprojects with common settings
 subprojects {
+
+    // Apply the publishing plugin to all subprojects
+    apply(plugin = "maven-publish")
+
+    // Configure all subprojects to publish to the root staging directory
+    extensions.configure<PublishingExtension> {
+        repositories {
+            maven {
+                name = "jreleaserStaging"
+                // Use rootProject.buildDir to ensure all modules publish to one
+                // single /build/staging-deploy directory at the project root
+                url = uri("${rootProject.buildDir}/staging-deploy")
+            }
+        }
+    }
+
     group = rootProject.group
     version = rootProject.version
 
@@ -227,6 +243,11 @@ afterEvaluate {
                 }
             }
         }
+    }
+
+    tasks.named("jreleaserDeploy") {
+        // This maps to [":core:publish", ":client:publish", ":tools:publish", etc.]
+        dependsOn(subprojects.map { "${it.path}:publish" })
     }
 
     // Configure JReleaser artifact overrides for iOS targets

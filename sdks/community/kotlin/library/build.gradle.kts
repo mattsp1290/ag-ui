@@ -75,29 +75,28 @@ subprojects {
     // Apply Dokka to all subprojects
     apply(plugin = "org.jetbrains.dokka")
         plugins.withId("org.jetbrains.dokka") {
-        afterEvaluate {
-            val dokkaTask = tasks.findByName("dokkaHtml") ?: tasks.findByName("dokkaGenerate")
 
-            if (dokkaTask == null) {
-                logger.warn("Dokka task not found in project ${project.name}; skipping javadocJar attachment.")
-                return@afterEvaluate
-            }
+        val dokkaTask = tasks.findByName("dokkaHtml") ?: tasks.findByName("dokkaGenerate")
 
-            val javadocJar = tasks.register("javadocJar", Jar::class.java) {
-                dependsOn(dokkaTask)
-                archiveClassifier.set("javadoc")
-                from(dokkaTask.outputs.files)
-            }
+        if (dokkaTask == null) {
+            logger.warn("Dokka task not found in project ${project.name}; skipping javadocJar attachment.")
+            return@afterEvaluate
+        }
 
-            extensions.configure(PublishingExtension::class.java) {
-                publications.withType(MavenPublication::class.java) {
-                    // NEW, SIMPLIFIED LOGIC:
-                    // ONLY attach javadoc to the 'jvm' publication.
-                    // All other publications (android, ios) are handled
-                    // by the artifactOverride rules.
-                    if (name.equals("jvm", ignoreCase = true)) {
-                        artifact(javadocJar)
-                    }
+        val javadocJar = tasks.register("javadocJar", Jar::class.java) {
+            dependsOn(dokkaTask)
+            archiveClassifier.set("javadoc")
+            from(dokkaTask.outputs.files)
+        }
+
+        extensions.configure(PublishingExtension::class.java) {
+            publications.withType(MavenPublication::class.java) {
+                // NEW, SIMPLIFIED LOGIC:
+                // ONLY attach javadoc to the 'jvm' publication.
+                // All other publications (android, ios) are handled
+                // by the artifactOverride rules.
+                if (name.equals("jvm", ignoreCase = true)) {
+                    artifact(javadocJar)
                 }
             }
         }
@@ -231,11 +230,6 @@ afterEvaluate {
         // Configure Maven Central deployment
         deploy {
             maven {
-                // Disable pomchecker (Fix from earlier)
-                pomchecker {
-                    enabled.set(false)
-                }
-
                 mavenCentral {
                     create("sonatype") {
                         active.set(org.jreleaser.model.Active.ALWAYS)
@@ -246,6 +240,11 @@ afterEvaluate {
                         checksums.set(true)
                         sourceJar.set(true)
                         javadocJar.set(true)
+
+                        // Disable pomchecker 
+                        pomchecker {
+                            enabled.set(false)
+                        }
 
                         // Merged-in Artifact Overrides
                         nonJvmTargetArtifactIds.forEach { artifactId ->

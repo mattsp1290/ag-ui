@@ -193,7 +193,7 @@ afterEvaluate {
                     // and exclude the "metadata" target
                     if (target !is KotlinJvmTarget && target.name != "metadata") {
                         // Create artifactId: "kotlin-" + "core" + "-" + "iosx64"
-                        nonJvmTargetArtifactIds.add("${project.name}-${target.name.lowercase()}")
+                        nonJvmTargetArtifactIds.add("kotlin-${project.name}-${target.name.lowercase()}")
                     }
                 }
             }

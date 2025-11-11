@@ -179,34 +179,39 @@ jreleaser {
     }
 }
 
-// Workaround for Kotlin Multiplatform iOS targets
-// JReleaser expects JARs for all artifacts, but iOS targets produce .klib files
-// This configuration tells JReleaser to skip JAR validation for non-JVM targets
-subprojects {
-    afterEvaluate {
-        // Only apply to projects with Kotlin Multiplatform plugin
+// Configure artifact overrides after all subprojects are evaluated
+// Workaround for Kotlin Multiplatform iOS targets that produce .klib files instead of JARs
+afterEvaluate {
+    // Collect all iOS target publications from subprojects
+    val iosArtifactIds = mutableListOf<String>()
+
+    subprojects {
         plugins.withId("org.jetbrains.kotlin.multiplatform") {
             extensions.configure(org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension::class.java) {
                 targets.forEach { target ->
-                    // Skip JVM targets (they produce JARs as expected)
+                    // Collect non-JVM target artifact IDs
                     if (target !is KotlinJvmTarget) {
-                        jreleaser {
-                            deploy {
-                                maven {
-                                    mavenCentral {
-                                        named("sonatype") {
-                                            artifactOverride {
-                                                // Set artifact ID based on target name
-                                                artifactId.set("${project.name}-${target.name.lowercase()}")
-                                                // Disable JAR expectations for non-JVM targets
-                                                jar.set(false)
-                                                verifyPom.set(false)
-                                                sourceJar.set(false)
-                                                javadocJar.set(false)
-                                            }
-                                        }
-                                    }
-                                }
+                        iosArtifactIds.add("${project.name}-${target.name.lowercase()}")
+                    }
+                }
+            }
+        }
+    }
+
+    // Configure JReleaser artifact overrides for iOS targets
+    jreleaser {
+        deploy {
+            maven {
+                mavenCentral {
+                    named("sonatype") {
+                        // Add artifact override for each iOS target
+                        iosArtifactIds.forEach { artifactId ->
+                            artifactOverride {
+                                this.artifactId.set(artifactId)
+                                jar.set(false)
+                                verifyPom.set(false)
+                                sourceJar.set(false)
+                                javadocJar.set(false)
                             }
                         }
                     }

@@ -183,24 +183,26 @@ tasks.register("dokkaHtmlMultiModule") {
 // In your root build.gradle.kts
 
 afterEvaluate {
-    // --- Start: Artifact ID Logic (THE FIX IS HERE) ---
+    // --- Start: Artifact ID Logic ---
     val nonJvmTargetArtifactIds = mutableListOf<String>()
     val metadataArtifactIds = mutableListOf<String>()
 
     subprojects {
         plugins.withId("org.jetbrains.kotlin.multiplatform") {
             //
-            // FIX #1: The project name IS "kotlin-core", not "core"
+            // THIS IS THE FIX:
+            // project.name is "core", artifactId is "kotlin-core"
             //
-            metadataArtifactIds.add(project.name)
+            metadataArtifactIds.add("kotlin-${project.name}")
 
             extensions.configure(org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension::class.java) {
                 targets.forEach { target ->
                     if (target !is KotlinJvmTarget && target.name != "metadata") {
                         //
-                        // FIX #2: The project name IS "kotlin-core", not "core"
+                        // THIS IS THE FIX:
+                        // project.name is "core", target is "iosx64", artifactId is "kotlin-core-iosx64"
                         //
-                        nonJvmTargetArtifactIds.add("${project.name}-${target.name.lowercase()}")
+                        nonJvmTargetArtifactIds.add("kotlin-${project.name}-${target.name.lowercase()}")
                     }
                 }
             }
@@ -210,7 +212,6 @@ afterEvaluate {
 
 
     // --- Start: The ENTIRE JReleaser Config ---
-    // (This config is correct, but relies on the lists above)
     jreleaser {
         gitRootSearch = true
 
@@ -243,7 +244,10 @@ afterEvaluate {
                     create("sonatype") {
                         active.set(org.jreleaser.model.Active.ALWAYS)
                         url.set("https://central.sonatype.com/api/v1/publisher")
-                        stagingRepository("build/staging-deploy") // Use the String path
+                        
+                        // THIS IS THE FIX for the compile error:
+                        stagingRepository("build/staging-deploy") 
+                        
                         namespace.set("com.contextable")
                         sign.set(true)
                         checksums.set(true)
@@ -254,7 +258,7 @@ afterEvaluate {
                         verifyPom.set(false)
 
                         // Override for METADATA artifacts (e.g., "kotlin-core")
-                        // This will now match "kotlin-core" and fix the javadoc error
+                        // This fixes "kotlin-core-0.2.3-javadoc.jar is missing"
                         metadataArtifactIds.forEach { artifactId ->
                             artifactOverride {
                                 this.artifactId.set(artifactId)
@@ -266,7 +270,7 @@ afterEvaluate {
                         }
 
                         // Override for NATIVE/ANDROID artifacts (e.g., "kotlin-core-iosx64")
-                        // This will now match "kotlin-core-iosx64" and fix all other errors
+                        // This fixes "kotlin-core-iosx64-0.2.3.jar is missing"
                         nonJvmTargetArtifactIds.forEach { artifactId ->
                             artifactOverride {
                                 this.artifactId.set(artifactId)

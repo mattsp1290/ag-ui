@@ -5,6 +5,8 @@ import kotlinx.kover.gradle.plugin.dsl.KoverProjectExtension
 import org.gradle.api.publish.PublishingExtension
 import org.gradle.api.publish.maven.MavenPublication
 import org.gradle.jvm.tasks.Jar
+import org.jetbrains.kotlin.gradle.plugin.mpp.KotlinNativeTarget
+import org.jetbrains.kotlin.gradle.targets.jvm.KotlinJvmTarget
 
 plugins {
     kotlin("multiplatform") version "2.2.20" apply false
@@ -12,6 +14,7 @@ plugins {
     id("com.android.library") version "8.10.1" apply false
     id("org.jetbrains.dokka") version "2.0.0"
     id("org.jetbrains.kotlinx.kover") version "0.8.3"
+    id("org.jreleaser") version "1.17.0"
 }
 
 allprojects {
@@ -145,5 +148,70 @@ tasks.register("dokkaHtmlMultiModule") {
         }
         
         println("Unified documentation generated at: ${outputDir.absolutePath}/index.html")
+    }
+}
+
+// JReleaser configuration for publishing to Maven Central
+jreleaser {
+    // Enable GPG signing for all artifacts
+    signing {
+        active.set(org.jreleaser.model.Active.ALWAYS)
+        armored.set(true)
+    }
+
+    // Configure Maven Central deployment
+    deploy {
+        maven {
+            mavenCentral {
+                create("sonatype") {
+                    active.set(org.jreleaser.model.Active.ALWAYS)
+                    url.set("https://central.sonatype.com/api/v1/publisher")
+                    stagingRepository("build/staging-deploy")
+
+                    // Sign and verify artifacts
+                    sign.set(true)
+                    checksums.set(true)
+                    sourceJar.set(true)
+                    javadocJar.set(true)
+                }
+            }
+        }
+    }
+}
+
+// Workaround for Kotlin Multiplatform iOS targets
+// JReleaser expects JARs for all artifacts, but iOS targets produce .klib files
+// This configuration tells JReleaser to skip JAR validation for non-JVM targets
+subprojects {
+    afterEvaluate {
+        // Only apply to projects with Kotlin Multiplatform plugin
+        plugins.withId("org.jetbrains.kotlin.multiplatform") {
+            extensions.configure(org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension::class.java) {
+                targets.forEach { target ->
+                    // Skip JVM targets (they produce JARs as expected)
+                    if (target !is KotlinJvmTarget) {
+                        jreleaser {
+                            deploy {
+                                maven {
+                                    mavenCentral {
+                                        named("sonatype") {
+                                            artifactOverride {
+                                                // Set artifact ID based on target name
+                                                artifactId.set("${project.name}-${target.name.lowercase()}")
+                                                // Disable JAR expectations for non-JVM targets
+                                                jar.set(false)
+                                                verifyPom.set(false)
+                                                sourceJar.set(false)
+                                                javadocJar.set(false)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }

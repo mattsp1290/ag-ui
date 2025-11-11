@@ -229,10 +229,6 @@ afterEvaluate {
         // Configure Maven Central deployment
         deploy {
             maven {
-                // Disable pomchecker
-                pomchecker {
-                    enabled.set(false)
-                }
                 mavenCentral {
                     create("sonatype") {
                         active.set(org.jreleaser.model.Active.ALWAYS)
@@ -243,6 +239,7 @@ afterEvaluate {
                         checksums.set(true)
                         sourceJar.set(true)
                         javadocJar.set(true)
+                        verifyPom.set(false)
 
                         // Merged-in Artifact Overrides
                         nonJvmTargetArtifactIds.forEach { artifactId ->

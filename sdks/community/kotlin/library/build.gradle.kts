@@ -251,11 +251,15 @@ afterEvaluate {
                         namespace.set("com.contextable")
                         sign.set(true)
                         checksums.set(true)
-                        sourceJar.set(true)
-                        javadocJar.set(true)
 
-                        // This IS the fix for the PomChecker
+                        // Disable strict Maven Central rules for Kotlin Multiplatform
+                        // KMP artifacts (metadata, iOS) don't follow traditional JAR structure
+                        applyMavenCentralRules.set(false)
                         verifyPom.set(false)
+
+                        // Set defaults - these will be overridden per artifact
+                        sourceJar.set(false)
+                        javadocJar.set(false)
 
                         // Override for METADATA artifacts (e.g., "kotlin-core")
                         // This fixes "kotlin-core-0.2.3-javadoc.jar is missing"

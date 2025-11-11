@@ -155,6 +155,7 @@ android {
 publishing {
     publications {
         withType<MavenPublication> {
+            version = project.version.toString()
             pom {
                 name.set("kotlin-client")
                 description.set("Client SDK for the Agent User Interaction Protocol")

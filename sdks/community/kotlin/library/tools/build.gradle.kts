@@ -125,6 +125,7 @@ android {
 publishing {
     publications {
         withType<MavenPublication> {
+            version = project.version.toString()
             pom {
                 name.set("kotlin-tools")
                 description.set("Tool execution system for the Agent User Interaction Protocol")

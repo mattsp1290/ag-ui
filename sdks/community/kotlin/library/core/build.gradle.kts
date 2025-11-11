@@ -132,6 +132,7 @@ android {
 publishing {
     publications {
         withType<MavenPublication> {
+            version = project.version.toString()
             pom {
                 name.set("kotlin-core")
                 description.set("Core types and protocol definitions for the Agent User Interaction Protocol")

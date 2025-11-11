@@ -49,6 +49,11 @@ subprojects {
     tasks.withType<Test> {
         useJUnitPlatform()
     }
+
+    afterEvaluate {
+        group = rootProject.group
+        version = rootProject.version
+    }
     
     // Apply Dokka to all subprojects
     apply(plugin = "org.jetbrains.dokka")
@@ -157,6 +162,7 @@ tasks.register("dokkaHtmlMultiModule") {
 
 // JReleaser configuration for publishing to Maven Central
 jreleaser {
+    gitRootSearch = true
     // Project information
     project {
         name.set("ag-ui-kotlin-sdk")

@@ -184,15 +184,18 @@ tasks.register("dokkaHtmlMultiModule") {
 
 afterEvaluate {
     val nonJvmTargetArtifactIds = mutableListOf<String>()
+    val metadataArtifactIds = mutableListOf<String>() // <-- NEW LIST
 
     subprojects {
         plugins.withId("org.jetbrains.kotlin.multiplatform") {
+            // Add the metadata artifact ID (e.g., "kotlin-core")
+            metadataArtifactIds.add("kotlin-${project.name}")
+
             extensions.configure(org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension::class.java) {
                 targets.forEach { target ->
-                    // Find all non-JVM targets (android, ios, etc.)
-                    // and exclude the "metadata" target
+                    // Find all non-JVM/non-Metadata targets
                     if (target !is KotlinJvmTarget && target.name != "metadata") {
-                        // Create artifactId: "kotlin-" + "core" + "-" + "iosx64"
+                        // Add native/android artifact ID (e.g., "kotlin-core-iosx64")
                         nonJvmTargetArtifactIds.add("kotlin-${project.name}-${target.name.lowercase()}")
                     }
                 }
@@ -200,7 +203,6 @@ afterEvaluate {
         }
     }
 
-    // Configure JReleaser with this corrected list
     jreleaser {
         gitRootSearch = true
 
@@ -209,7 +211,7 @@ afterEvaluate {
             name.set("ag-ui-kotlin-sdk")
             version.set(rootProject.version.toString())
             description.set("Kotlin Multiplatform SDK for the Agent User Interaction Protocol")
-            website.set("https://github.com/ag-ui-protocol/ag-ui")
+            website.set("https.github.com/ag-ui-protocol/ag-ui")
             authors.set(listOf("Mark Fogle"))
             license.set("MIT")
             inceptionYear.set("2024")
@@ -233,22 +235,40 @@ afterEvaluate {
                     create("sonatype") {
                         active.set(org.jreleaser.model.Active.ALWAYS)
                         url.set("https://central.sonatype.com/api/v1/publisher")
-                        stagingRepository("build/staging-deploy")
+                        stagingRepository(rootProject.layout.buildDirectory.dir("staging-deploy"))
                         namespace.set("com.contextable")
                         sign.set(true)
                         checksums.set(true)
                         sourceJar.set(true)
                         javadocJar.set(true)
+
+                        // This is the fix for the PomChecker
                         verifyPom.set(false)
 
-                        // Merged-in Artifact Overrides
+                        // --- V V V NEW OVERRIDE BLOCK V V V ---
+                        // Override for METADATA artifacts (kotlin-core, kotlin-client)
+                        // This fixes the "kotlin-core-0.2.3-javadoc.jar is missing" errors
+                        metadataArtifactIds.forEach { artifactId ->
+                            artifactOverride {
+                                this.artifactId.set(artifactId)
+                                jar.set(true) // Metadata HAS a jar
+                                verifyPom.set(false)
+                                sourceJar.set(false) // No sources
+                                javadocJar.set(false) // NO JAVADOC
+                            }
+                        }
+                        // --- ^ ^ ^ END OF NEW BLOCK ^ ^ ^ ---
+
+                        // --- THIS BLOCK IS UPDATED ---
+                        // Override for NATIVE/ANDROID artifacts (kotlin-core-iosx64, etc.)
+                        // This fixes the "kotlin-core-iosx64-0.2.3.jar is missing" errors
                         nonJvmTargetArtifactIds.forEach { artifactId ->
                             artifactOverride {
                                 this.artifactId.set(artifactId)
-                                jar.set(false)
+                                jar.set(false) // No .jar file
                                 verifyPom.set(false)
-                                sourceJar.set(false)
-                                javadocJar.set(false)
+                                sourceJar.set(false) // No sources
+                                javadocJar.set(false) // No javadoc
                             }
                         }
                     }

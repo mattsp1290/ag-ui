@@ -42,7 +42,7 @@ subprojects {
                 name = "jreleaserStaging"
                 // Use rootProject.buildDir to ensure all modules publish to one
                 // single /build/staging-deploy directory at the project root
-                url = uri("${rootProject.buildDir}/staging-deploy")
+                url = uri(rootProject.layout.buildDirectory.dir("staging-deploy"))
             }
         }
     }
@@ -80,7 +80,7 @@ subprojects {
 
         if (dokkaTask == null) {
             logger.warn("Dokka task not found in project ${project.name}; skipping javadocJar attachment.")
-            return@afterEvaluate
+            return@withId
         }
 
         val javadocJar = tasks.register("javadocJar", Jar::class.java) {

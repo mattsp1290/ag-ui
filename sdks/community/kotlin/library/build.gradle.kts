@@ -36,6 +36,7 @@ subprojects {
     apply(plugin = "maven-publish")
 
     // Configure all subprojects to publish to the root staging directory
+    // All artifacts (JVM, Android, iOS) publish to the same staging location
     extensions.configure<PublishingExtension> {
         repositories {
             maven {
@@ -178,40 +179,9 @@ tasks.register("dokkaHtmlMultiModule") {
     }
 }
 
-// Configure artifact overrides after all subprojects are evaluated
-// Workaround for Kotlin Multiplatform iOS targets that produce .klib files instead of JARs
-// In your root build.gradle.kts
-
+// JReleaser configuration for publishing to Maven Central
+// Uses artifactOverride to handle iOS .klib files (jar: false skips .jar validation)
 afterEvaluate {
-    // --- Start: Artifact ID Logic ---
-    val nonJvmTargetArtifactIds = mutableListOf<String>()
-    val metadataArtifactIds = mutableListOf<String>()
-
-    subprojects {
-        plugins.withId("org.jetbrains.kotlin.multiplatform") {
-            //
-            // THIS IS THE FIX:
-            // project.name is "core", artifactId is "kotlin-core"
-            //
-            metadataArtifactIds.add("kotlin-${project.name}")
-
-            extensions.configure(org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension::class.java) {
-                targets.forEach { target ->
-                    if (target !is KotlinJvmTarget && target.name != "metadata") {
-                        //
-                        // THIS IS THE FIX:
-                        // project.name is "core", target is "iosx64", artifactId is "kotlin-core-iosx64"
-                        //
-                        nonJvmTargetArtifactIds.add("kotlin-${project.name}-${target.name.lowercase()}")
-                    }
-                }
-            }
-        }
-    }
-    // --- End: Artifact ID Logic ---
-
-
-    // --- Start: The ENTIRE JReleaser Config ---
     jreleaser {
         gitRootSearch = true
 
@@ -263,14 +233,77 @@ afterEvaluate {
                         checksums.set(true)
 
                         // Disable strict Maven Central rules for Kotlin Multiplatform
-                        // KMP artifacts (metadata, iOS) don't follow traditional JAR structure
+                        // KMP artifacts (metadata, Android, iOS) don't follow traditional JAR structure
                         applyMavenCentralRules.set(false)
                         verifyPom.set(false)
-
-                        // Let JReleaser upload whatever exists in staging without strict validation
-                        // With applyMavenCentralRules=false, it should accept KMP artifacts as-is
                         sourceJar.set(false)
                         javadocJar.set(false)
+
+                        // iOS artifact overrides - disable jar validation for .klib files
+                        // This allows iOS artifacts to be published to Maven Central
+                        artifactOverride {
+                            groupId.set("com.contextable")
+                            artifactId.set("kotlin-core-iosx64")
+                            jar.set(false)
+                            sourceJar.set(false)
+                            javadocJar.set(false)
+                        }
+                        artifactOverride {
+                            groupId.set("com.contextable")
+                            artifactId.set("kotlin-core-iosarm64")
+                            jar.set(false)
+                            sourceJar.set(false)
+                            javadocJar.set(false)
+                        }
+                        artifactOverride {
+                            groupId.set("com.contextable")
+                            artifactId.set("kotlin-core-iossimulatorarm64")
+                            jar.set(false)
+                            sourceJar.set(false)
+                            javadocJar.set(false)
+                        }
+                        artifactOverride {
+                            groupId.set("com.contextable")
+                            artifactId.set("kotlin-client-iosx64")
+                            jar.set(false)
+                            sourceJar.set(false)
+                            javadocJar.set(false)
+                        }
+                        artifactOverride {
+                            groupId.set("com.contextable")
+                            artifactId.set("kotlin-client-iosarm64")
+                            jar.set(false)
+                            sourceJar.set(false)
+                            javadocJar.set(false)
+                        }
+                        artifactOverride {
+                            groupId.set("com.contextable")
+                            artifactId.set("kotlin-client-iossimulatorarm64")
+                            jar.set(false)
+                            sourceJar.set(false)
+                            javadocJar.set(false)
+                        }
+                        artifactOverride {
+                            groupId.set("com.contextable")
+                            artifactId.set("kotlin-tools-iosx64")
+                            jar.set(false)
+                            sourceJar.set(false)
+                            javadocJar.set(false)
+                        }
+                        artifactOverride {
+                            groupId.set("com.contextable")
+                            artifactId.set("kotlin-tools-iosarm64")
+                            jar.set(false)
+                            sourceJar.set(false)
+                            javadocJar.set(false)
+                        }
+                        artifactOverride {
+                            groupId.set("com.contextable")
+                            artifactId.set("kotlin-tools-iossimulatorarm64")
+                            jar.set(false)
+                            sourceJar.set(false)
+                            javadocJar.set(false)
+                        }
                     }
                 }
             }

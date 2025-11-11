@@ -141,9 +141,11 @@ jobs:
           echo "The Kotlin SDK has been published to Maven Central." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Published Artifacts" >> $GITHUB_STEP_SUMMARY
-          echo "- \`com.contextable:kotlin-core:0.2.3\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`com.contextable:kotlin-client:0.2.3\`" >> $GITHUB_STEP_SUMMARY
-          echo "- \`com.contextable:kotlin-tools:0.2.3\`" >> $GITHUB_STEP_SUMMARY
+          echo "- \`com.contextable:kotlin-core:0.2.3\` (JVM, Android, iOS)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`com.contextable:kotlin-client:0.2.3\` (JVM, Android, iOS)" >> $GITHUB_STEP_SUMMARY
+          echo "- \`com.contextable:kotlin-tools:0.2.3\` (JVM, Android, iOS)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Note:** All platforms published including iOS artifacts in .klib format." >> $GITHUB_STEP_SUMMARY
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "### Next Steps" >> $GITHUB_STEP_SUMMARY
           echo "1. Check deployment status: https://central.sonatype.com/publishing" >> $GITHUB_STEP_SUMMARY

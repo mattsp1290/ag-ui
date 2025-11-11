@@ -99,9 +99,16 @@ cd "$SCRIPT_DIR/library" || exit 1
 echo -e "${BLUE}📂 Working directory: $(pwd)${NC}"
 echo ""
 
-# Step 1: Clean previous builds
+# Step 1: Clean previous builds and staging directory
 echo -e "${BLUE}🧹 Cleaning previous builds...${NC}"
 ./gradlew clean --no-daemon
+
+# Also clean the staging directory to remove any leftover artifacts
+if [ -d "build/staging-deploy" ]; then
+    echo -e "${BLUE}🧹 Cleaning staging directory...${NC}"
+    rm -rf build/staging-deploy
+fi
+
 echo -e "${GREEN}✅ Clean complete${NC}"
 echo ""
 
@@ -157,9 +164,11 @@ else
         echo "   3. Publishing to Maven Central will complete in ~10-30 minutes"
         echo ""
         echo -e "${BLUE}📦 Published artifacts:${NC}"
-        echo "   - com.contextable:kotlin-core:0.2.3"
-        echo "   - com.contextable:kotlin-client:0.2.3"
-        echo "   - com.contextable:kotlin-tools:0.2.3"
+        echo "   - com.contextable:kotlin-core:0.2.3 (JVM, Android, iOS)"
+        echo "   - com.contextable:kotlin-client:0.2.3 (JVM, Android, iOS)"
+        echo "   - com.contextable:kotlin-tools:0.2.3 (JVM, Android, iOS)"
+        echo ""
+        echo -e "${BLUE}ℹ️  All platforms published including iOS (.klib format)${NC}"
     else
         echo ""
         echo -e "${RED}❌ Publishing failed!${NC}"

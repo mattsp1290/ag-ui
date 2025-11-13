@@ -292,6 +292,29 @@ class ADKAgent:
         except Exception as e:
             logger.error(f"Failed to remove pending tool call {tool_call_id} from session {session_id}: {e}")
     
+    async def _get_pending_tool_call_ids(self, session_id: str) -> Optional[List[str]]:
+        """Fetch the pending tool call identifiers tracked for a session."""
+        try:
+            metadata = self._get_session_metadata(session_id)
+
+            if metadata:
+                pending_calls = await self._session_manager.get_state_value(
+                    session_id=session_id,
+                    app_name=metadata["app_name"],
+                    user_id=metadata["user_id"],
+                    key="pending_tool_calls",
+                    default=[],
+                )
+
+                if pending_calls is None:
+                    return []
+
+                return list(pending_calls)
+        except Exception as e:
+            logger.error(f"Failed to fetch pending tool calls for session {session_id}: {e}")
+
+        return None
+
     async def _has_pending_tool_calls(self, session_id: str) -> bool:
         """Check if session has pending tool calls (HITL scenario).
 
@@ -301,27 +324,11 @@ class ADKAgent:
         Returns:
             True if session has pending tool calls
         """
-        try:
-            # Use efficient session metadata lookup
-            metadata = self._get_session_metadata(session_id)
+        pending_calls = await self._get_pending_tool_call_ids(session_id)
+        if pending_calls is None:
+            return False
 
-            if metadata:
-                app_name = metadata["app_name"]
-                user_id = metadata["user_id"]
-
-                # Get pending calls using SessionManager
-                pending_calls = await self._session_manager.get_state_value(
-                    session_id=session_id,
-                    app_name=app_name,
-                    user_id=user_id,
-                    key="pending_tool_calls",
-                    default=[]
-                )
-                return len(pending_calls) > 0
-        except Exception as e:
-            logger.error(f"Failed to check pending tool calls for session {session_id}: {e}")
-
-        return False
+        return len(pending_calls) > 0
     
     
     def _default_run_config(self, input: RunAgentInput) -> ADKRunConfig:
@@ -378,6 +385,39 @@ class ADKAgent:
                 while index < total_unseen and getattr(unseen_messages[index], "role", None) == "tool":
                     tool_batch.append(unseen_messages[index])
                     index += 1
+
+                tool_call_ids = [
+                    getattr(message, "tool_call_id", None)
+                    for message in tool_batch
+                    if getattr(message, "tool_call_id", None)
+                ]
+                pending_tool_call_ids = await self._get_pending_tool_call_ids(input.thread_id)
+
+                should_process_tool_batch = True
+                if pending_tool_call_ids is not None:
+                    if tool_call_ids:
+                        pending_tool_call_id_set = set(pending_tool_call_ids)
+                        should_process_tool_batch = any(
+                            tool_call_id in pending_tool_call_id_set
+                            for tool_call_id in tool_call_ids
+                        )
+                    else:
+                        should_process_tool_batch = len(pending_tool_call_ids) > 0
+
+                if not should_process_tool_batch:
+                    logger.info(
+                        "Skipping tool result batch for thread %s - no matching pending tool calls",
+                        input.thread_id,
+                    )
+                    message_ids = self._collect_message_ids(tool_batch)
+                    if message_ids:
+                        self._session_manager.mark_messages_processed(
+                            app_name,
+                            input.thread_id,
+                            message_ids,
+                        )
+                    skip_tool_message_batch = False
+                    continue
 
                 async for event in self._handle_tool_result_submission(
                     input,

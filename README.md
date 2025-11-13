@@ -79,7 +79,9 @@ AG-UI is complementary to the other 2 top agentic protocols
 
 ## 🛠 Supported Integrations
 
-AG-UI was born from CopilotKit's initial partnership with LangGraph and CrewAI - and brings the incredibly popular agent-user-interactivity infrastructure to the wider agentic ecosystem.
+AG-UI was born from CopilotKit's initial **partnership** with LangGraph and CrewAI - and brings the incredibly popular agent-user-interactivity infrastructure to the wider agentic ecosystem.
+
+**1st party** = the platforms that have AG‑UI built in and provide documentation for guidance.
 
 ## Frameworks
 

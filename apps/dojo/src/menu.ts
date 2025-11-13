@@ -114,6 +114,19 @@ export const menuIntegrations: MenuIntegrationConfig[] = [
     ],
   },
   {
+    id: "microsoft-agent-framework-python",
+    name: "Microsoft Agent Framework (Python)",
+    features: [
+      "agentic_chat",
+      "backend_tool_rendering",
+      "human_in_the_loop",
+      "agentic_generative_ui",
+      "predictive_state_updates",
+      "shared_state",
+      "tool_based_generative_ui",
+    ],
+  },
+  {
     id: "agno",
     name: "Agno",
     features: [
@@ -175,19 +188,6 @@ export const menuIntegrations: MenuIntegrationConfig[] = [
       "backend_tool_rendering",
       "human_in_the_loop",
       "agentic_chat_reasoning",
-      "agentic_generative_ui",
-      "predictive_state_updates",
-      "shared_state",
-      "tool_based_generative_ui",
-    ],
-  },
-  {
-    id: "microsoft-agent-framework-python",
-    name: "Microsoft Agent Framework (Python)",
-    features: [
-      "agentic_chat",
-      "backend_tool_rendering",
-      "human_in_the_loop",
       "agentic_generative_ui",
       "predictive_state_updates",
       "shared_state",

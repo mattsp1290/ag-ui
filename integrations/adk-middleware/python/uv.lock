@@ -20,7 +20,7 @@ wheels = [
 
 [[package]]
 name = "ag-ui-adk"
-version = "0.3.2"
+version = "0.3.3"
 source = { editable = "." }
 dependencies = [
     { name = "ag-ui-protocol" },

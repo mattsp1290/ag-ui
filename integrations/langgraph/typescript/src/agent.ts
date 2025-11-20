@@ -503,9 +503,9 @@ export class LangGraphAgent extends AbstractAgent {
           (eventType === LangGraphEventTypes.OnCustomEvent &&
             chunkData.name === CustomEventNames.Exit);
 
-        this.activeRun!.exitingNode =
-          this.activeRun!.nodeName === currentNodeName &&
-          eventType === LangGraphEventTypes.OnChainEnd;
+        if (eventType === LangGraphEventTypes.OnChainEnd && this.activeRun!.nodeName === currentNodeName) {
+          this.activeRun!.exitingNode = true;
+        }
         if (this.activeRun!.exitingNode) {
           this.activeRun!.manuallyEmittedState = null;
         }

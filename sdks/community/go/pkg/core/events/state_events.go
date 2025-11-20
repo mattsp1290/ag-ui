@@ -15,7 +15,7 @@ var validJSONPatchOps = map[string]bool{
 	"test":    true,
 }
 
-// Role constants to avoid repeated literals.
+// RoleActivity is the role for activity messages
 const RoleActivity = "activity"
 
 // StateSnapshotEvent contains a complete snapshot of the state

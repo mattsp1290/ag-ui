@@ -1,0 +1,374 @@
+=== RUN   TestActivitySnapshotEventBasics
+--- PASS: TestActivitySnapshotEventBasics (0.00s)
+=== RUN   TestActivitySnapshotEventValidationAndJSON
+--- PASS: TestActivitySnapshotEventValidationAndJSON (0.00s)
+=== RUN   TestActivitySnapshotEvent_MissingActivityType
+--- PASS: TestActivitySnapshotEvent_MissingActivityType (0.00s)
+=== RUN   TestActivityDeltaEventValidationAndJSON
+--- PASS: TestActivityDeltaEventValidationAndJSON (0.00s)
+=== RUN   TestActivityDeltaEvent_MissingActivityType
+--- PASS: TestActivityDeltaEvent_MissingActivityType (0.00s)
+=== RUN   TestBaseEventMethods
+=== RUN   TestBaseEventMethods/ID_Method
+=== RUN   TestBaseEventMethods/GetBaseEvent_Method
+=== RUN   TestBaseEventMethods/ThreadID_Method
+=== RUN   TestBaseEventMethods/RunID_Method
+=== RUN   TestBaseEventMethods/ToJSON_Method
+--- PASS: TestBaseEventMethods (0.00s)
+    --- PASS: TestBaseEventMethods/ID_Method (0.00s)
+    --- PASS: TestBaseEventMethods/GetBaseEvent_Method (0.00s)
+    --- PASS: TestBaseEventMethods/ThreadID_Method (0.00s)
+    --- PASS: TestBaseEventMethods/RunID_Method (0.00s)
+    --- PASS: TestBaseEventMethods/ToJSON_Method (0.00s)
+=== RUN   TestTextMessageChunkEvent
+=== RUN   TestTextMessageChunkEvent/NewTextMessageChunkEvent
+=== RUN   TestTextMessageChunkEvent/Validate
+=== RUN   TestTextMessageChunkEvent/ToJSON
+--- PASS: TestTextMessageChunkEvent (0.00s)
+    --- PASS: TestTextMessageChunkEvent/NewTextMessageChunkEvent (0.00s)
+    --- PASS: TestTextMessageChunkEvent/Validate (0.00s)
+    --- PASS: TestTextMessageChunkEvent/ToJSON (0.00s)
+=== RUN   TestToolCallChunkEvent
+=== RUN   TestToolCallChunkEvent/NewToolCallChunkEvent
+=== RUN   TestToolCallChunkEvent/WithToolCallChunkID
+=== RUN   TestToolCallChunkEvent/WithToolCallChunkName
+=== RUN   TestToolCallChunkEvent/WithToolCallChunkDelta
+=== RUN   TestToolCallChunkEvent/WithToolCallChunkParentMessageID
+=== RUN   TestToolCallChunkEvent/Validate
+=== RUN   TestToolCallChunkEvent/ToJSON
+--- PASS: TestToolCallChunkEvent (0.00s)
+    --- PASS: TestToolCallChunkEvent/NewToolCallChunkEvent (0.00s)
+    --- PASS: TestToolCallChunkEvent/WithToolCallChunkID (0.00s)
+    --- PASS: TestToolCallChunkEvent/WithToolCallChunkName (0.00s)
+    --- PASS: TestToolCallChunkEvent/WithToolCallChunkDelta (0.00s)
+    --- PASS: TestToolCallChunkEvent/WithToolCallChunkParentMessageID (0.00s)
+    --- PASS: TestToolCallChunkEvent/Validate (0.00s)
+    --- PASS: TestToolCallChunkEvent/ToJSON (0.00s)
+=== RUN   TestToolCallResultEvent
+=== RUN   TestToolCallResultEvent/NewToolCallResultEvent
+=== RUN   TestToolCallResultEvent/Validate
+=== RUN   TestToolCallResultEvent/ToJSON
+--- PASS: TestToolCallResultEvent (0.00s)
+    --- PASS: TestToolCallResultEvent/NewToolCallResultEvent (0.00s)
+    --- PASS: TestToolCallResultEvent/Validate (0.00s)
+    --- PASS: TestToolCallResultEvent/ToJSON (0.00s)
+=== RUN   TestAutoIDGeneration
+=== RUN   TestAutoIDGeneration/TextMessageStartEvent_WithAutoMessageID
+=== RUN   TestAutoIDGeneration/TextMessageContentEvent_WithAutoMessageIDContent
+=== RUN   TestAutoIDGeneration/TextMessageEndEvent_WithAutoMessageIDEnd
+=== RUN   TestAutoIDGeneration/ToolCallStartEvent_WithAutoToolCallID
+=== RUN   TestAutoIDGeneration/ToolCallArgsEvent_WithAutoToolCallIDArgs
+=== RUN   TestAutoIDGeneration/ToolCallEndEvent_WithAutoToolCallIDEnd
+=== RUN   TestAutoIDGeneration/RunStartedEvent_WithAutoRunID
+=== RUN   TestAutoIDGeneration/RunStartedEvent_WithAutoThreadID
+=== RUN   TestAutoIDGeneration/RunFinishedEvent_WithAutoRunIDFinished
+=== RUN   TestAutoIDGeneration/RunFinishedEvent_WithAutoThreadIDFinished
+=== RUN   TestAutoIDGeneration/RunErrorEvent_WithAutoRunIDError
+=== RUN   TestAutoIDGeneration/StepStartedEvent_WithAutoStepName
+=== RUN   TestAutoIDGeneration/StepFinishedEvent_WithAutoStepNameFinished
+--- PASS: TestAutoIDGeneration (0.00s)
+    --- PASS: TestAutoIDGeneration/TextMessageStartEvent_WithAutoMessageID (0.00s)
+    --- PASS: TestAutoIDGeneration/TextMessageContentEvent_WithAutoMessageIDContent (0.00s)
+    --- PASS: TestAutoIDGeneration/TextMessageEndEvent_WithAutoMessageIDEnd (0.00s)
+    --- PASS: TestAutoIDGeneration/ToolCallStartEvent_WithAutoToolCallID (0.00s)
+    --- PASS: TestAutoIDGeneration/ToolCallArgsEvent_WithAutoToolCallIDArgs (0.00s)
+    --- PASS: TestAutoIDGeneration/ToolCallEndEvent_WithAutoToolCallIDEnd (0.00s)
+    --- PASS: TestAutoIDGeneration/RunStartedEvent_WithAutoRunID (0.00s)
+    --- PASS: TestAutoIDGeneration/RunStartedEvent_WithAutoThreadID (0.00s)
+    --- PASS: TestAutoIDGeneration/RunFinishedEvent_WithAutoRunIDFinished (0.00s)
+    --- PASS: TestAutoIDGeneration/RunFinishedEvent_WithAutoThreadIDFinished (0.00s)
+    --- PASS: TestAutoIDGeneration/RunErrorEvent_WithAutoRunIDError (0.00s)
+    --- PASS: TestAutoIDGeneration/StepStartedEvent_WithAutoStepName (0.00s)
+    --- PASS: TestAutoIDGeneration/StepFinishedEvent_WithAutoStepNameFinished (0.00s)
+=== RUN   TestOptionalEventCreators
+=== RUN   TestOptionalEventCreators/NewTextMessageContentEventWithOptions
+=== RUN   TestOptionalEventCreators/NewTextMessageEndEventWithOptions
+=== RUN   TestOptionalEventCreators/NewToolCallArgsEventWithOptions
+=== RUN   TestOptionalEventCreators/NewToolCallEndEventWithOptions
+=== RUN   TestOptionalEventCreators/NewRunStartedEventWithOptions
+=== RUN   TestOptionalEventCreators/NewRunFinishedEventWithOptions
+=== RUN   TestOptionalEventCreators/NewStepStartedEventWithOptions
+=== RUN   TestOptionalEventCreators/NewStepFinishedEventWithOptions
+--- PASS: TestOptionalEventCreators (0.00s)
+    --- PASS: TestOptionalEventCreators/NewTextMessageContentEventWithOptions (0.00s)
+    --- PASS: TestOptionalEventCreators/NewTextMessageEndEventWithOptions (0.00s)
+    --- PASS: TestOptionalEventCreators/NewToolCallArgsEventWithOptions (0.00s)
+    --- PASS: TestOptionalEventCreators/NewToolCallEndEventWithOptions (0.00s)
+    --- PASS: TestOptionalEventCreators/NewRunStartedEventWithOptions (0.00s)
+    --- PASS: TestOptionalEventCreators/NewRunFinishedEventWithOptions (0.00s)
+    --- PASS: TestOptionalEventCreators/NewStepStartedEventWithOptions (0.00s)
+    --- PASS: TestOptionalEventCreators/NewStepFinishedEventWithOptions (0.00s)
+=== RUN   TestRunFinishedEvent_WithResult
+--- PASS: TestRunFinishedEvent_WithResult (0.00s)
+=== RUN   TestStateDeltaEvent_ToJSON
+--- PASS: TestStateDeltaEvent_ToJSON (0.00s)
+=== RUN   TestMessagesSnapshotEvent_ToJSON
+--- PASS: TestMessagesSnapshotEvent_ToJSON (0.00s)
+=== RUN   TestRawEvent_ToJSON
+--- PASS: TestRawEvent_ToJSON (0.00s)
+=== RUN   TestRunErrorEvent_ToJSON
+--- PASS: TestRunErrorEvent_ToJSON (0.00s)
+=== RUN   TestStepEvents_ToJSON
+=== RUN   TestStepEvents_ToJSON/StepStartedEvent
+=== RUN   TestStepEvents_ToJSON/StepFinishedEvent
+--- PASS: TestStepEvents_ToJSON (0.00s)
+    --- PASS: TestStepEvents_ToJSON/StepStartedEvent (0.00s)
+    --- PASS: TestStepEvents_ToJSON/StepFinishedEvent (0.00s)
+=== RUN   TestTextMessageEndEvent_ToJSON
+--- PASS: TestTextMessageEndEvent_ToJSON (0.00s)
+=== RUN   TestToolCallArgsEvent_ToJSON
+--- PASS: TestToolCallArgsEvent_ToJSON (0.00s)
+=== RUN   TestToolCallEndEvent_ToJSON
+--- PASS: TestToolCallEndEvent_ToJSON (0.00s)
+=== RUN   TestEventDecoder
+=== RUN   TestEventDecoder/NewEventDecoder
+=== RUN   TestEventDecoder/DecodeEvent_RunStarted
+=== RUN   TestEventDecoder/DecodeEvent_RunFinished
+=== RUN   TestEventDecoder/DecodeEvent_RunError
+=== RUN   TestEventDecoder/DecodeEvent_TextMessageStart
+=== RUN   TestEventDecoder/DecodeEvent_TextMessageContent
+=== RUN   TestEventDecoder/DecodeEvent_TextMessageEnd
+=== RUN   TestEventDecoder/DecodeEvent_ToolCallStart
+=== RUN   TestEventDecoder/DecodeEvent_ToolCallArgs
+=== RUN   TestEventDecoder/DecodeEvent_ToolCallEnd
+=== RUN   TestEventDecoder/DecodeEvent_ToolCallResult
+=== RUN   TestEventDecoder/DecodeEvent_StateSnapshot
+=== RUN   TestEventDecoder/DecodeEvent_StateDelta
+=== RUN   TestEventDecoder/DecodeEvent_MessagesSnapshot
+=== RUN   TestEventDecoder/DecodeEvent_ActivitySnapshot
+=== RUN   TestEventDecoder/DecodeEvent_ActivityDelta
+=== RUN   TestEventDecoder/DecodeEvent_StepStarted
+=== RUN   TestEventDecoder/DecodeEvent_StepFinished
+=== RUN   TestEventDecoder/DecodeEvent_ThinkingEvents
+=== RUN   TestEventDecoder/DecodeEvent_CustomEvent
+=== RUN   TestEventDecoder/DecodeEvent_RawEvent
+=== RUN   TestEventDecoder/DecodeEvent_UnknownEventType
+time="2025-11-20T19:04:24+08:00" level=warning msg="Unknown event type" event=UNKNOWN_EVENT
+=== RUN   TestEventDecoder/DecodeEvent_InvalidJSON
+--- PASS: TestEventDecoder (0.00s)
+    --- PASS: TestEventDecoder/NewEventDecoder (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_RunStarted (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_RunFinished (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_RunError (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_TextMessageStart (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_TextMessageContent (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_TextMessageEnd (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_ToolCallStart (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_ToolCallArgs (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_ToolCallEnd (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_ToolCallResult (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_StateSnapshot (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_StateDelta (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_MessagesSnapshot (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_ActivitySnapshot (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_ActivityDelta (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_StepStarted (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_StepFinished (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_ThinkingEvents (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_CustomEvent (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_RawEvent (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_UnknownEventType (0.00s)
+    --- PASS: TestEventDecoder/DecodeEvent_InvalidJSON (0.00s)
+=== RUN   TestBaseEvent
+=== RUN   TestBaseEvent/NewBaseEvent
+=== RUN   TestBaseEvent/SetTimestamp
+=== RUN   TestBaseEvent/Validate
+--- PASS: TestBaseEvent (0.00s)
+    --- PASS: TestBaseEvent/NewBaseEvent (0.00s)
+    --- PASS: TestBaseEvent/SetTimestamp (0.00s)
+    --- PASS: TestBaseEvent/Validate (0.00s)
+=== RUN   TestRunEvents
+=== RUN   TestRunEvents/RunStartedEvent
+=== RUN   TestRunEvents/RunFinishedEvent
+=== RUN   TestRunEvents/RunErrorEvent
+=== RUN   TestRunEvents/StepStartedEvent
+=== RUN   TestRunEvents/StepFinishedEvent
+--- PASS: TestRunEvents (0.00s)
+    --- PASS: TestRunEvents/RunStartedEvent (0.00s)
+    --- PASS: TestRunEvents/RunFinishedEvent (0.00s)
+    --- PASS: TestRunEvents/RunErrorEvent (0.00s)
+    --- PASS: TestRunEvents/StepStartedEvent (0.00s)
+    --- PASS: TestRunEvents/StepFinishedEvent (0.00s)
+=== RUN   TestMessageEvents
+=== RUN   TestMessageEvents/TextMessageStartEvent
+=== RUN   TestMessageEvents/TextMessageContentEvent
+=== RUN   TestMessageEvents/TextMessageEndEvent
+--- PASS: TestMessageEvents (0.00s)
+    --- PASS: TestMessageEvents/TextMessageStartEvent (0.00s)
+    --- PASS: TestMessageEvents/TextMessageContentEvent (0.00s)
+    --- PASS: TestMessageEvents/TextMessageEndEvent (0.00s)
+=== RUN   TestToolEvents
+=== RUN   TestToolEvents/ToolCallStartEvent
+=== RUN   TestToolEvents/ToolCallArgsEvent
+=== RUN   TestToolEvents/ToolCallEndEvent
+--- PASS: TestToolEvents (0.00s)
+    --- PASS: TestToolEvents/ToolCallStartEvent (0.00s)
+    --- PASS: TestToolEvents/ToolCallArgsEvent (0.00s)
+    --- PASS: TestToolEvents/ToolCallEndEvent (0.00s)
+=== RUN   TestStateEvents
+=== RUN   TestStateEvents/StateSnapshotEvent
+=== RUN   TestStateEvents/StateDeltaEvent
+=== RUN   TestStateEvents/MessagesSnapshotEvent
+--- PASS: TestStateEvents (0.00s)
+    --- PASS: TestStateEvents/StateSnapshotEvent (0.00s)
+    --- PASS: TestStateEvents/StateDeltaEvent (0.00s)
+    --- PASS: TestStateEvents/MessagesSnapshotEvent (0.00s)
+=== RUN   TestActivityEvents
+=== RUN   TestActivityEvents/ActivitySnapshotEvent
+=== RUN   TestActivityEvents/ActivityDeltaEvent
+--- PASS: TestActivityEvents (0.00s)
+    --- PASS: TestActivityEvents/ActivitySnapshotEvent (0.00s)
+    --- PASS: TestActivityEvents/ActivityDeltaEvent (0.00s)
+=== RUN   TestCustomEvents
+=== RUN   TestCustomEvents/RawEvent
+=== RUN   TestCustomEvents/CustomEvent
+--- PASS: TestCustomEvents (0.00s)
+    --- PASS: TestCustomEvents/RawEvent (0.00s)
+    --- PASS: TestCustomEvents/CustomEvent (0.00s)
+=== RUN   TestMessageSerialization
+=== RUN   TestMessageSerialization/MarshalAndUnmarshal_TextMessage
+=== RUN   TestMessageSerialization/MarshalAndUnmarshal_ActivityMessage
+--- PASS: TestMessageSerialization (0.00s)
+    --- PASS: TestMessageSerialization/MarshalAndUnmarshal_TextMessage (0.00s)
+    --- PASS: TestMessageSerialization/MarshalAndUnmarshal_ActivityMessage (0.00s)
+=== RUN   TestEventSequenceValidation
+=== RUN   TestEventSequenceValidation/ValidSequence
+=== RUN   TestEventSequenceValidation/InvalidSequence_DuplicateRunStart
+=== RUN   TestEventSequenceValidation/InvalidSequence_FinishNonExistentRun
+=== RUN   TestEventSequenceValidation/InvalidSequence_RestartFinishedRun
+=== RUN   TestEventSequenceValidation/InvalidSequence_DuplicateMessageStart
+=== RUN   TestEventSequenceValidation/InvalidSequence_EndNonExistentMessage
+=== RUN   TestEventSequenceValidation/InvalidSequence_DuplicateToolCallStart
+=== RUN   TestEventSequenceValidation/InvalidSequence_EndNonExistentToolCall
+--- PASS: TestEventSequenceValidation (0.00s)
+    --- PASS: TestEventSequenceValidation/ValidSequence (0.00s)
+    --- PASS: TestEventSequenceValidation/InvalidSequence_DuplicateRunStart (0.00s)
+    --- PASS: TestEventSequenceValidation/InvalidSequence_FinishNonExistentRun (0.00s)
+    --- PASS: TestEventSequenceValidation/InvalidSequence_RestartFinishedRun (0.00s)
+    --- PASS: TestEventSequenceValidation/InvalidSequence_DuplicateMessageStart (0.00s)
+    --- PASS: TestEventSequenceValidation/InvalidSequence_EndNonExistentMessage (0.00s)
+    --- PASS: TestEventSequenceValidation/InvalidSequence_DuplicateToolCallStart (0.00s)
+    --- PASS: TestEventSequenceValidation/InvalidSequence_EndNonExistentToolCall (0.00s)
+=== RUN   TestJSONSerialization
+=== RUN   TestJSONSerialization/RoundTrip
+=== RUN   TestJSONSerialization/UnknownEventType
+=== RUN   TestJSONSerialization/InvalidJSON
+--- PASS: TestJSONSerialization (0.00s)
+    --- PASS: TestJSONSerialization/RoundTrip (0.00s)
+    --- PASS: TestJSONSerialization/UnknownEventType (0.00s)
+    --- PASS: TestJSONSerialization/InvalidJSON (0.00s)
+=== RUN   TestDefaultIDGenerator
+=== RUN   TestDefaultIDGenerator/NewDefaultIDGenerator
+=== RUN   TestDefaultIDGenerator/GenerateRunID
+=== RUN   TestDefaultIDGenerator/GenerateMessageID
+=== RUN   TestDefaultIDGenerator/GenerateToolCallID
+=== RUN   TestDefaultIDGenerator/GenerateThreadID
+=== RUN   TestDefaultIDGenerator/GenerateStepID
+--- PASS: TestDefaultIDGenerator (0.00s)
+    --- PASS: TestDefaultIDGenerator/NewDefaultIDGenerator (0.00s)
+    --- PASS: TestDefaultIDGenerator/GenerateRunID (0.00s)
+    --- PASS: TestDefaultIDGenerator/GenerateMessageID (0.00s)
+    --- PASS: TestDefaultIDGenerator/GenerateToolCallID (0.00s)
+    --- PASS: TestDefaultIDGenerator/GenerateThreadID (0.00s)
+    --- PASS: TestDefaultIDGenerator/GenerateStepID (0.00s)
+=== RUN   TestTimestampIDGenerator
+=== RUN   TestTimestampIDGenerator/NewTimestampIDGenerator_NoPrefix
+=== RUN   TestTimestampIDGenerator/NewTimestampIDGenerator_WithPrefix
+=== RUN   TestTimestampIDGenerator/GenerateRunID_NoPrefix
+=== RUN   TestTimestampIDGenerator/GenerateRunID_WithPrefix
+=== RUN   TestTimestampIDGenerator/GenerateMessageID
+=== RUN   TestTimestampIDGenerator/GenerateToolCallID
+=== RUN   TestTimestampIDGenerator/GenerateThreadID
+=== RUN   TestTimestampIDGenerator/GenerateStepID
+=== RUN   TestTimestampIDGenerator/Timestamp_Ordering
+--- PASS: TestTimestampIDGenerator (0.00s)
+    --- PASS: TestTimestampIDGenerator/NewTimestampIDGenerator_NoPrefix (0.00s)
+    --- PASS: TestTimestampIDGenerator/NewTimestampIDGenerator_WithPrefix (0.00s)
+    --- PASS: TestTimestampIDGenerator/GenerateRunID_NoPrefix (0.00s)
+    --- PASS: TestTimestampIDGenerator/GenerateRunID_WithPrefix (0.00s)
+    --- PASS: TestTimestampIDGenerator/GenerateMessageID (0.00s)
+    --- PASS: TestTimestampIDGenerator/GenerateToolCallID (0.00s)
+    --- PASS: TestTimestampIDGenerator/GenerateThreadID (0.00s)
+    --- PASS: TestTimestampIDGenerator/GenerateStepID (0.00s)
+    --- PASS: TestTimestampIDGenerator/Timestamp_Ordering (0.00s)
+=== RUN   TestGlobalIDGenerator
+=== RUN   TestGlobalIDGenerator/GetDefaultIDGenerator
+=== RUN   TestGlobalIDGenerator/SetDefaultIDGenerator
+=== RUN   TestGlobalIDGenerator/GlobalGenerateRunID
+=== RUN   TestGlobalIDGenerator/GlobalGenerateMessageID
+=== RUN   TestGlobalIDGenerator/GlobalGenerateToolCallID
+=== RUN   TestGlobalIDGenerator/GlobalGenerateThreadID
+=== RUN   TestGlobalIDGenerator/GlobalGenerateStepID
+=== RUN   TestGlobalIDGenerator/Concurrent_ID_Generation
+--- PASS: TestGlobalIDGenerator (0.00s)
+    --- PASS: TestGlobalIDGenerator/GetDefaultIDGenerator (0.00s)
+    --- PASS: TestGlobalIDGenerator/SetDefaultIDGenerator (0.00s)
+    --- PASS: TestGlobalIDGenerator/GlobalGenerateRunID (0.00s)
+    --- PASS: TestGlobalIDGenerator/GlobalGenerateMessageID (0.00s)
+    --- PASS: TestGlobalIDGenerator/GlobalGenerateToolCallID (0.00s)
+    --- PASS: TestGlobalIDGenerator/GlobalGenerateThreadID (0.00s)
+    --- PASS: TestGlobalIDGenerator/GlobalGenerateStepID (0.00s)
+    --- PASS: TestGlobalIDGenerator/Concurrent_ID_Generation (0.00s)
+=== RUN   TestMessageMarshalUnmarshal_Text
+--- PASS: TestMessageMarshalUnmarshal_Text (0.00s)
+=== RUN   TestMessageMarshalUnmarshal_Activity
+--- PASS: TestMessageMarshalUnmarshal_Activity (0.00s)
+=== RUN   TestValidateMessage_NonActivityRejectsActivityFields
+--- PASS: TestValidateMessage_NonActivityRejectsActivityFields (0.00s)
+=== RUN   TestValidateMessage_ActivityRequiresFields
+--- PASS: TestValidateMessage_ActivityRequiresFields (0.00s)
+=== RUN   TestMessageMarshalJSON_IncludesOptionalFields
+--- PASS: TestMessageMarshalJSON_IncludesOptionalFields (0.00s)
+=== RUN   TestMessageMarshalJSON_ActivityPrefersActivityContent
+--- PASS: TestMessageMarshalJSON_ActivityPrefersActivityContent (0.00s)
+=== RUN   TestMessageUnmarshalJSON_InvalidTextContent
+--- PASS: TestMessageUnmarshalJSON_InvalidTextContent (0.00s)
+=== RUN   TestMessageUnmarshalJSON_InvalidActivityContent
+--- PASS: TestMessageUnmarshalJSON_InvalidActivityContent (0.00s)
+=== RUN   TestMessageUnmarshalJSON_ResetsActivityFieldsForText
+--- PASS: TestMessageUnmarshalJSON_ResetsActivityFieldsForText (0.00s)
+=== RUN   TestMessageUnmarshalJSON_TextWithNoContent
+--- PASS: TestMessageUnmarshalJSON_TextWithNoContent (0.00s)
+=== RUN   TestMessageUnmarshalJSON_ActivityWithNoContent
+--- PASS: TestMessageUnmarshalJSON_ActivityWithNoContent (0.00s)
+=== RUN   TestThinkingStartEvent
+=== RUN   TestThinkingStartEvent/basic_creation
+=== RUN   TestThinkingStartEvent/with_title
+=== RUN   TestThinkingStartEvent/JSON_serialization
+=== RUN   TestThinkingStartEvent/JSON_field_naming
+--- PASS: TestThinkingStartEvent (0.00s)
+    --- PASS: TestThinkingStartEvent/basic_creation (0.00s)
+    --- PASS: TestThinkingStartEvent/with_title (0.00s)
+    --- PASS: TestThinkingStartEvent/JSON_serialization (0.00s)
+    --- PASS: TestThinkingStartEvent/JSON_field_naming (0.00s)
+=== RUN   TestThinkingEndEvent
+=== RUN   TestThinkingEndEvent/basic_creation
+=== RUN   TestThinkingEndEvent/JSON_serialization
+--- PASS: TestThinkingEndEvent (0.00s)
+    --- PASS: TestThinkingEndEvent/basic_creation (0.00s)
+    --- PASS: TestThinkingEndEvent/JSON_serialization (0.00s)
+=== RUN   TestThinkingTextMessageStartEvent
+=== RUN   TestThinkingTextMessageStartEvent/basic_creation
+=== RUN   TestThinkingTextMessageStartEvent/JSON_serialization
+--- PASS: TestThinkingTextMessageStartEvent (0.00s)
+    --- PASS: TestThinkingTextMessageStartEvent/basic_creation (0.00s)
+    --- PASS: TestThinkingTextMessageStartEvent/JSON_serialization (0.00s)
+=== RUN   TestThinkingTextMessageContentEvent
+=== RUN   TestThinkingTextMessageContentEvent/basic_creation
+=== RUN   TestThinkingTextMessageContentEvent/validation_requires_delta
+=== RUN   TestThinkingTextMessageContentEvent/JSON_serialization
+=== RUN   TestThinkingTextMessageContentEvent/JSON_field_naming
+--- PASS: TestThinkingTextMessageContentEvent (0.00s)
+    --- PASS: TestThinkingTextMessageContentEvent/basic_creation (0.00s)
+    --- PASS: TestThinkingTextMessageContentEvent/validation_requires_delta (0.00s)
+    --- PASS: TestThinkingTextMessageContentEvent/JSON_serialization (0.00s)
+    --- PASS: TestThinkingTextMessageContentEvent/JSON_field_naming (0.00s)
+=== RUN   TestThinkingTextMessageEndEvent
+=== RUN   TestThinkingTextMessageEndEvent/basic_creation
+=== RUN   TestThinkingTextMessageEndEvent/JSON_serialization
+--- PASS: TestThinkingTextMessageEndEvent (0.00s)
+    --- PASS: TestThinkingTextMessageEndEvent/basic_creation (0.00s)
+    --- PASS: TestThinkingTextMessageEndEvent/JSON_serialization (0.00s)
+PASS
+coverage: 84.4% of statements
+ok  	github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events	0.015s	coverage: 84.4% of statements

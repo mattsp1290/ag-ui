@@ -22,7 +22,6 @@ from google.adk.events import Event as ADKEvent
 import logging
 logger = logging.getLogger(__name__)
 
-
 def _coerce_tool_response(value: Any, _visited: Optional[set[int]] = None) -> Any:
     """Recursively convert arbitrary tool responses into JSON-serializable structures."""
 
@@ -107,7 +106,6 @@ def _coerce_tool_response(value: Any, _visited: Optional[set[int]] = None) -> An
     finally:
         _visited.discard(obj_id)
 
-
 def _serialize_tool_response(response: Any) -> str:
     """Serialize a tool response into a JSON string."""
 
@@ -121,7 +119,6 @@ def _serialize_tool_response(response: Any) -> str:
         except Exception:
             logger.warning("Failed to stringify tool response; returning empty string.")
             return json.dumps("", ensure_ascii=False)
-
 
 class EventTranslator:
     """Translates Google ADK events to AG-UI protocol events.
@@ -137,6 +134,9 @@ class EventTranslator:
         # Track streaming message state
         self._streaming_message_id: Optional[str] = None  # Current streaming message ID
         self._is_streaming: bool = False  # Whether we're currently streaming a message
+        self._current_stream_text: str = ""  # Accumulates text for the active stream
+        self._last_streamed_text: Optional[str] = None  # Snapshot of most recently streamed text
+        self._last_streamed_run_id: Optional[str] = None  # Run identifier for the last streamed text
         self.long_running_tool_ids: List[str] = []  # Track the long running tool IDs
     
     async def translate(
@@ -169,16 +169,14 @@ class EventTranslator:
             
             # Determine action based on ADK streaming pattern
             should_send_end = turn_complete and not is_partial
-            
-            logger.debug(f"📥 ADK Event: partial={is_partial}, turn_complete={turn_complete}, "
-                       f"is_final_response={is_final_response}, should_send_end={should_send_end}")
-            
+
             # Skip user events (already in the conversation)
             if hasattr(adk_event, 'author') and adk_event.author == "user":
                 logger.debug("Skipping user event")
                 return
             
             # Handle text content
+            # --- THIS IS THE RESTORED LINE ---
             if adk_event.content and hasattr(adk_event.content, 'parts') and adk_event.content.parts:
                 async for event in self._translate_text_content(
                     adk_event, thread_id, run_id
@@ -219,10 +217,16 @@ class EventTranslator:
                     
             
             # Handle state changes
-            if hasattr(adk_event, 'actions') and adk_event.actions and hasattr(adk_event.actions, 'state_delta') and adk_event.actions.state_delta:
-                yield self._create_state_delta_event(
-                    adk_event.actions.state_delta, thread_id, run_id
-                )
+            if hasattr(adk_event, 'actions') and adk_event.actions:
+                if hasattr(adk_event.actions, 'state_delta') and adk_event.actions.state_delta:
+                    yield self._create_state_delta_event(
+                        adk_event.actions.state_delta, thread_id, run_id
+                    )
+
+                if hasattr(adk_event.actions, 'state_snapshot'):
+                    state_snapshot = adk_event.actions.state_snapshot
+                    if state_snapshot is not None:
+                        yield self._create_state_snapshot_event(state_snapshot)
                 
             
             # Handle custom events or metadata
@@ -253,26 +257,36 @@ class EventTranslator:
         Yields:
             Text message events (START, CONTENT, END)
         """
-        # Extract text from all parts
-        text_parts = []
-        for part in adk_event.content.parts:
-            if part.text:
-                text_parts.append(part.text)
         
-        if not text_parts:
-            return
-        
-        
-        # Use proper ADK streaming detection (handle None values)
-        is_partial = getattr(adk_event, 'partial', False)
-        turn_complete = getattr(adk_event, 'turn_complete', False)
-        
-        # Check if this is the final response (complete message - skip to avoid duplication)
+        # Check for is_final_response *before* checking for text.
+        # An empty final response is a valid stream-closing signal.
         is_final_response = False
         if hasattr(adk_event, 'is_final_response') and callable(adk_event.is_final_response):
             is_final_response = adk_event.is_final_response()
         elif hasattr(adk_event, 'is_final_response'):
             is_final_response = adk_event.is_final_response
+        
+        # Extract text from all parts
+        text_parts = []
+        # The check for adk_event.content.parts happens in the main translate method
+        for part in adk_event.content.parts:
+            if part.text: # Note: part.text == "" is False
+                text_parts.append(part.text)
+        
+        # If no text AND it's not a final response, we can safely skip.
+        # Otherwise, we must continue to process the final_response signal.
+        if not text_parts and not is_final_response:
+            return
+
+        combined_text = "".join(text_parts)
+        if not combined_text:
+            return
+
+        # Use proper ADK streaming detection (handle None values)
+        is_partial = getattr(adk_event, 'partial', False)
+        turn_complete = getattr(adk_event, 'turn_complete', False)
+        
+        # (is_final_response is already calculated above)
         
         # Handle None values: if a turn is complete or a final chunk arrives, end streaming
         has_finish_reason = bool(getattr(adk_event, 'finish_reason', None))
@@ -282,79 +296,98 @@ class EventTranslator:
             or (has_finish_reason and self._is_streaming)
         )
 
-        logger.info(f"📥 Text event - partial={is_partial}, turn_complete={turn_complete}, "
-                    f"is_final_response={is_final_response}, has_finish_reason={has_finish_reason}, "
-                    f"should_send_end={should_send_end}, currently_streaming={self._is_streaming}")
-
         if is_final_response:
+            # This is the final, complete message event.
 
-            # If a final text response wasn't streamed (not generated by an LLM) then deliver it in 3 events
-            if not self._is_streaming and not adk_event.usage_metadata and should_send_end:
-                logger.info(f"⏭️ Deliver non-llm response via message events "
-                            f"event_id={adk_event.id}")
-
-                combined_text = "".join(text_parts)
-                message_events = [
-                    TextMessageStartEvent(
-                        type=EventType.TEXT_MESSAGE_START,
-                        message_id=adk_event.id,
-                        role="assistant"
-                    ),
-                    TextMessageContentEvent(
-                        type=EventType.TEXT_MESSAGE_CONTENT,
-                        message_id=adk_event.id,
-                        delta=combined_text
-                    ),
-                    TextMessageEndEvent(
-                        type=EventType.TEXT_MESSAGE_END,
-                        message_id=adk_event.id
-                    )
-                ]
-                for msg in message_events:
-                    yield msg
-
-            logger.info("⏭️ Skipping final response event (content already streamed)")
-            
-            # If we're currently streaming, this final response means we should end the stream
+            # Case 1: A stream is actively running. We must close it.
             if self._is_streaming and self._streaming_message_id:
+                logger.info("⏭️ Final response event received. Closing active stream.")
+                
+                if self._current_stream_text:
+                    # Save the complete streamed text for de-duplication
+                    self._last_streamed_text = self._current_stream_text
+                    self._last_streamed_run_id = run_id
+                self._current_stream_text = ""
+
                 end_event = TextMessageEndEvent(
                     type=EventType.TEXT_MESSAGE_END,
                     message_id=self._streaming_message_id
                 )
-                logger.info(f"📤 TEXT_MESSAGE_END (from final response): {end_event.model_dump_json()}")
                 yield end_event
-                
-                # Reset streaming state
+
                 self._streaming_message_id = None
                 self._is_streaming = False
                 logger.info("🏁 Streaming completed via final response")
+                return # We are done.
+
+            # Case 2: No stream is active. 
+            # This event contains the *entire* message.
+            # We must send it, *unless* it's a duplicate of a stream that *just* finished.
             
+            # Check for duplicates from a *previous* stream in this *same run*.
+            is_duplicate = (
+                self._last_streamed_run_id == run_id and
+                self._last_streamed_text is not None and
+                combined_text == self._last_streamed_text
+            )
+
+            if is_duplicate:
+                logger.info(
+                    "⏭️ Skipping final response event (duplicate content detected from finished stream)"
+                )
+            else:
+                # Not a duplicate, or no previous stream. Send the full message.
+                logger.info(
+                    f"⏩ Delivering complete non-streamed message or final content event_id={adk_event.id}"
+                )
+                message_events = [
+                    TextMessageStartEvent(
+                        type=EventType.TEXT_MESSAGE_START,
+                        message_id=adk_event.id, # Use event ID for non-streamed
+                        role="assistant",
+                    ),
+                    TextMessageContentEvent(
+                        type=EventType.TEXT_MESSAGE_CONTENT,
+                        message_id=adk_event.id,
+                        delta=combined_text,
+                    ),
+                    TextMessageEndEvent(
+                        type=EventType.TEXT_MESSAGE_END,
+                        message_id=adk_event.id,
+                    ),
+                ]
+                for msg in message_events:
+                    yield msg
+
+            # Clean up state regardless, as this is the end of the line for text.
+            self._current_stream_text = ""
+            self._last_streamed_text = None
+            self._last_streamed_run_id = None
             return
+
         
-        combined_text = "".join(text_parts)  # Don't add newlines for streaming
-        
-        # Handle streaming logic
+        # Handle streaming logic (if not is_final_response)
         if not self._is_streaming:
             # Start of new message - emit START event
             self._streaming_message_id = str(uuid.uuid4())
             self._is_streaming = True
-            
+            self._current_stream_text = ""
+
             start_event = TextMessageStartEvent(
                 type=EventType.TEXT_MESSAGE_START,
                 message_id=self._streaming_message_id,
                 role="assistant"
             )
-            logger.info(f"📤 TEXT_MESSAGE_START: {start_event.model_dump_json()}")
             yield start_event
         
         # Always emit content (unless empty)
         if combined_text:
+            self._current_stream_text += combined_text
             content_event = TextMessageContentEvent(
                 type=EventType.TEXT_MESSAGE_CONTENT,
                 message_id=self._streaming_message_id,
                 delta=combined_text
             )
-            logger.info(f"📤 TEXT_MESSAGE_CONTENT: {content_event.model_dump_json()}")
             yield content_event
         
         # If turn is complete and not partial, emit END event
@@ -363,23 +396,27 @@ class EventTranslator:
                 type=EventType.TEXT_MESSAGE_END,
                 message_id=self._streaming_message_id
             )
-            logger.info(f"📤 TEXT_MESSAGE_END: {end_event.model_dump_json()}")
             yield end_event
-            
+
             # Reset streaming state
+            if self._current_stream_text:
+                self._last_streamed_text = self._current_stream_text
+                self._last_streamed_run_id = run_id
+            self._current_stream_text = ""
             self._streaming_message_id = None
             self._is_streaming = False
             logger.info("🏁 Streaming completed, state reset")
     
     async def translate_lro_function_calls(self,adk_event: ADKEvent)-> AsyncGenerator[BaseEvent, None]:
         """Translate long running function calls from ADK event to AG-UI tool call events.
-        
+
         Args:
             adk_event: The ADK event containing function calls
-            
+
         Yields:
             Tool call events (START, ARGS, END)
         """
+
         long_running_function_call = None
         if adk_event.content and adk_event.content.parts:
             for i, part in enumerate(adk_event.content.parts):
@@ -409,35 +446,39 @@ class EventTranslator:
                         yield ToolCallEndEvent(
                             type=EventType.TOOL_CALL_END,
                             tool_call_id=long_running_function_call.id
-                        )                       
-                        
+                        )
+
                         # Clean up tracking
-                        self._active_tool_calls.pop(long_running_function_call.id, None)   
+                        self._active_tool_calls.pop(long_running_function_call.id, None)
     
     async def _translate_function_calls(
         self,
         function_calls: list[types.FunctionCall],
     ) -> AsyncGenerator[BaseEvent, None]:
         """Translate function calls from ADK event to AG-UI tool call events.
-        
+
         Args:
             adk_event: The ADK event containing function calls
             function_calls: List of function calls from the event
             thread_id: The AG-UI thread ID
             run_id: The AG-UI run ID
-            
+
         Yields:
             Tool call events (START, ARGS, END)
         """
         # Since we're not tracking streaming messages, use None for parent message
         parent_message_id = None
-        
+
         for func_call in function_calls:
             tool_call_id = getattr(func_call, 'id', str(uuid.uuid4()))
-            
+
+            # Check if this tool call ID already exists
+            if tool_call_id in self._active_tool_calls:
+                logger.warning(f"⚠️  DUPLICATE TOOL CALL! Tool call ID {tool_call_id} (name: {func_call.name}) already exists in active calls!")
+
             # Track the tool call
             self._active_tool_calls[tool_call_id] = tool_call_id
-            
+
             # Emit TOOL_CALL_START
             yield ToolCallStartEvent(
                 type=EventType.TOOL_CALL_START,
@@ -445,27 +486,28 @@ class EventTranslator:
                 tool_call_name=func_call.name,
                 parent_message_id=parent_message_id
             )
-            
+
             # Emit TOOL_CALL_ARGS if we have arguments
             if hasattr(func_call, 'args') and func_call.args:
                 # Convert args to string (JSON format)
                 import json
                 args_str = json.dumps(func_call.args) if isinstance(func_call.args, dict) else str(func_call.args)
-                
+
                 yield ToolCallArgsEvent(
                     type=EventType.TOOL_CALL_ARGS,
                     tool_call_id=tool_call_id,
                     delta=args_str
                 )
-            
+
             # Emit TOOL_CALL_END
             yield ToolCallEndEvent(
                 type=EventType.TOOL_CALL_END,
                 tool_call_id=tool_call_id
             )
-            
+
             # Clean up tracking
             self._active_tool_calls.pop(tool_call_id, None)
+
     
 
     async def _translate_function_response(
@@ -556,15 +598,15 @@ class EventTranslator:
         """
         if self._is_streaming and self._streaming_message_id:
             logger.warning(f"🚨 Force-closing unterminated streaming message: {self._streaming_message_id}")
-            
+
             end_event = TextMessageEndEvent(
                 type=EventType.TEXT_MESSAGE_END,
                 message_id=self._streaming_message_id
             )
-            logger.info(f"📤 TEXT_MESSAGE_END (forced): {end_event.model_dump_json()}")
             yield end_event
-            
+
             # Reset streaming state
+            self._current_stream_text = ""
             self._streaming_message_id = None
             self._is_streaming = False
             logger.info("🔄 Streaming state reset after force-close")
@@ -578,5 +620,9 @@ class EventTranslator:
         self._active_tool_calls.clear()
         self._streaming_message_id = None
         self._is_streaming = False
+        self._current_stream_text = ""
+        self._last_streamed_text = None
+        self._last_streamed_run_id = None
         self.long_running_tool_ids.clear()
         logger.debug("Reset EventTranslator state (including streaming state)")
+        

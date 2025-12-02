@@ -19,8 +19,16 @@ function parseAgentsFile(): Array<{ id: string; agentKeys: string[] }> {
     const id = idMatch[1];
 
     // Find the return object by looking for the pattern and then manually parsing balanced braces
-    const returnMatch = block.match(/agents:\s*async\s*\(\)\s*=>\s*{\s*return\s*{/);
-    if (!returnMatch) continue;
+    const returnMatch = block.match(
+      /agents:\s*async\s*\(\)\s*=>\s*{\s*return\s*{/,
+    );
+
+    // If no return match, still add the config with empty keys if it has a mapper
+    // This handles dynamic agent discovery like Mastra
+    if (!returnMatch) {
+      agentConfigs.push({ id, agentKeys: [] });
+      continue;
+    }
 
     const startIndex = returnMatch.index! + returnMatch[0].length;
     const returnObjectContent = extractBalancedBraces(block, startIndex);
@@ -75,7 +83,8 @@ async function getFile(_filePath: string | undefined, _fileName?: string) {
   const filePath = _fileName ? path.join(_filePath, fileName) : _filePath;
 
   // Check if it's a remote URL
-  const isRemoteUrl = _filePath.startsWith("http://") || _filePath.startsWith("https://");
+  const isRemoteUrl =
+    _filePath.startsWith("http://") || _filePath.startsWith("https://");
 
   let content: string;
 
@@ -93,7 +102,9 @@ async function getFile(_filePath: string | undefined, _fileName?: string) {
       console.log(`Fetching remote file: ${fetchUrl}`);
       const response = await fetch(fetchUrl);
       if (!response.ok) {
-        console.warn(`Failed to fetch remote file: ${fetchUrl}, status: ${response.status}`);
+        console.warn(
+          `Failed to fetch remote file: ${fetchUrl}, status: ${response.status}`,
+        );
         return {};
       }
       content = await response.text();
@@ -109,6 +120,7 @@ async function getFile(_filePath: string | undefined, _fileName?: string) {
     const extension = fileName.split(".").pop();
     let language = extension;
     if (extension === "py") language = "python";
+    else if (extension === "cs") language = "csharp";
     else if (extension === "css") language = "css";
     else if (extension === "md" || extension === "mdx") language = "markdown";
     else if (extension === "tsx") language = "typescript";
@@ -145,10 +157,17 @@ async function getFeatureFrontendFiles(featureId: string) {
 
 const integrationsFolderPath = "../../../integrations";
 const middlewaresFolderPath = "../../../middlewares";
-const agentFilesMapper: Record<string, (agentKeys: string[]) => Record<string, string[]>> = {
+const agentFilesMapper: Record<
+  string,
+  (agentKeys: string[]) => Record<string, string[]>
+> = {
   "middleware-starter": () => ({
     agentic_chat: [
-      path.join(__dirname, middlewaresFolderPath, `/middleware-starter/src/index.ts`),
+      path.join(
+        __dirname,
+        middlewaresFolderPath,
+        `/middleware-starter/src/index.ts`,
+      ),
     ],
   }),
   "pydantic-ai": (agentKeys: string[]) => {
@@ -195,7 +214,7 @@ const agentFilesMapper: Record<string, (agentKeys: string[]) => Record<string, s
       path.join(
         __dirname,
         integrationsFolderPath,
-        `/mastra/typescript/examples/src/mastra/agents/weather-agent.ts`,
+        `/mastra/typescript/examples/src/mastra/agents/agentic-chat.ts`,
       ),
     ],
     backend_tool_rendering: [
@@ -205,27 +224,38 @@ const agentFilesMapper: Record<string, (agentKeys: string[]) => Record<string, s
         `/mastra/typescript/examples/src/mastra/agents/backend-tool-rendering.ts`,
       ),
     ],
+    human_in_the_loop: [
+      path.join(
+        __dirname,
+        integrationsFolderPath,
+        `/mastra/typescript/examples/src/mastra/agents/human-in-the-loop.ts`,
+      ),
+    ],
     tool_based_generative_ui: [
       path.join(
         __dirname,
         integrationsFolderPath,
-        `/mastra/example/src/mastra/agents/haiku-agent.ts`,
+        `/mastra/typescript/examples/src/mastra/agents/tool-based-generative-ui.ts`,
       ),
     ],
   }),
 
-  "mastra-agent-local": (agentKeys: string[]) => {
-    return agentKeys.reduce(
-      (acc, agentId) => ({
-        ...acc,
-        [agentId]: [path.join(__dirname, '../src/mastra/index.ts') ]
-      }),
-      {},
-    );
-  },
+  "mastra-agent-local": () => ({
+    agentic_chat: [path.join(__dirname, "../src/mastra/agents/agentic-chat.ts")],
+    human_in_the_loop: [path.join(__dirname, "../src/mastra/agents/human-in-the-loop.ts")],
+    backend_tool_rendering: [path.join(__dirname, "../src/mastra/agents/backend-tool-rendering.ts")],
+    shared_state: [path.join(__dirname, "../src/mastra/agents/shared-state.ts")],
+    tool_based_generative_ui: [path.join(__dirname, "../src/mastra/agents/tool-based-generative-ui.ts")],
+  }),
 
   "vercel-ai-sdk": () => ({
-    agentic_chat: [path.join(__dirname, integrationsFolderPath, `/vercel-ai-sdk/src/index.ts`)],
+    agentic_chat: [
+      path.join(
+        __dirname,
+        integrationsFolderPath,
+        `/vercel-ai-sdk/src/index.ts`,
+      ),
+    ],
   }),
 
   langgraph: (agentKeys: string[]) => {
@@ -283,7 +313,7 @@ const agentFilesMapper: Record<string, (agentKeys: string[]) => Record<string, s
       {},
     );
   },
-  'spring-ai': () => ({}),
+  "spring-ai": () => ({}),
   agno: (agentKeys: string[]) => {
     return agentKeys.reduce(
       (acc, agentId) => ({
@@ -344,6 +374,46 @@ const agentFilesMapper: Record<string, (agentKeys: string[]) => Record<string, s
       {},
     );
   },
+  "microsoft-agent-framework-python": (agentKeys: string[]) => {
+    return agentKeys.reduce(
+      (acc, agentId) => ({
+        ...acc,
+        [agentId]: [
+          path.join(
+            __dirname,
+            integrationsFolderPath,
+            `/microsoft-agent-framework/python/examples/agents/dojo.py`,
+          ),
+        ],
+      }),
+      {},
+    );
+  },
+  "microsoft-agent-framework-dotnet": (agentKeys: string[]) => {
+    return agentKeys.reduce(
+      (acc, agentId) => ({
+        ...acc,
+        [agentId]: [
+          path.join(
+            __dirname,
+            integrationsFolderPath,
+            `/microsoft-agent-framework/dotnet/examples/AGUIDojoServer/ChatClientAgentFactory.cs`,
+          ),
+          path.join(
+            __dirname,
+            integrationsFolderPath,
+            `/microsoft-agent-framework/dotnet/examples/AGUIDojoServer/SharedStateAgent.cs`,
+          ),
+          path.join(
+            __dirname,
+            integrationsFolderPath,
+            `/microsoft-agent-framework/dotnet/examples/AGUIDojoServer/Program.cs`,
+          ),
+        ],
+      }),
+      {},
+    );
+  },
 };
 
 async function runGenerateContent() {
@@ -352,20 +422,30 @@ async function runGenerateContent() {
     // Use the parsed agent keys instead of executing the agents function
     const agentsPerFeatures = agentConfig.agentKeys;
 
-    const agentFilePaths = agentFilesMapper[agentConfig.id]?.(agentConfig.agentKeys);
+    const agentFilePaths = agentFilesMapper[agentConfig.id]?.(
+      agentConfig.agentKeys,
+    );
     if (!agentFilePaths) {
       continue;
     }
 
+    // If agentsPerFeatures is empty but we have agentFilePaths, use the keys from agentFilePaths
+    // This handles cases like Mastra where agents are dynamically discovered
+    const featureIds = agentsPerFeatures.length > 0
+      ? agentsPerFeatures
+      : Object.keys(agentFilePaths);
+
     // Per feature, assign all the frontend files like page.tsx as well as all agent files
-    for (const featureId of agentsPerFeatures) {
+    for (const featureId of featureIds) {
       const agentFilePathsForFeature = agentFilePaths[featureId] ?? [];
       // @ts-expect-error -- redundant error about indexing of a new object.
       result[`${agentConfig.id}::${featureId}`] = [
         // Get all frontend files for the feature
         ...(await getFeatureFrontendFiles(featureId)),
         // Get the agent (python/TS) file
-        ...(await Promise.all(agentFilePathsForFeature.map(async (f) => await getFile(f)))),
+        ...(await Promise.all(
+          agentFilePathsForFeature.map(async (f) => await getFile(f)),
+        )),
       ];
     }
   }
@@ -375,7 +455,10 @@ async function runGenerateContent() {
 
 (async () => {
   const result = await runGenerateContent();
-  fs.writeFileSync(path.join(__dirname, "../src/files.json"), JSON.stringify(result, null, 2));
+  fs.writeFileSync(
+    path.join(__dirname, "../src/files.json"),
+    JSON.stringify(result, null, 2),
+  );
 
   console.log("Successfully generated src/files.json");
 })();

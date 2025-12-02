@@ -47,7 +47,12 @@ export const menuIntegrations: MenuIntegrationConfig[] = [
   {
     id: "mastra",
     name: "Mastra",
-    features: ["agentic_chat", "backend_tool_rendering", "tool_based_generative_ui"],
+    features: [
+      "agentic_chat",
+      "backend_tool_rendering",
+      "human_in_the_loop",
+      "tool_based_generative_ui",
+    ],
   },
   {
     id: "mastra-agent-local",
@@ -55,20 +60,21 @@ export const menuIntegrations: MenuIntegrationConfig[] = [
     features: [
       "agentic_chat",
       "backend_tool_rendering",
+      "human_in_the_loop",
       "shared_state",
       "tool_based_generative_ui",
     ],
   },
   {
-    id: 'spring-ai',
-    name: 'Spring AI',
+    id: "spring-ai",
+    name: "Spring AI",
     features: [
-      'agentic_chat', 
-      'shared_state', 
-      'tool_based_generative_ui', 
-      'human_in_the_loop', 
-      'agentic_generative_ui'
-    ]
+      "agentic_chat",
+      "shared_state",
+      "tool_based_generative_ui",
+      "human_in_the_loop",
+      "agentic_generative_ui",
+    ],
   },
   {
     id: "pydantic-ai",
@@ -97,9 +103,40 @@ export const menuIntegrations: MenuIntegrationConfig[] = [
     ],
   },
   {
+    id: "microsoft-agent-framework-dotnet",
+    name: "Microsoft Agent Framework (.NET)",
+    features: [
+      "agentic_chat",
+      "backend_tool_rendering",
+      "human_in_the_loop",
+      "agentic_generative_ui",
+      "predictive_state_updates",
+      "shared_state",
+      "tool_based_generative_ui",
+    ],
+  },
+  {
+    id: "microsoft-agent-framework-python",
+    name: "Microsoft Agent Framework (Python)",
+    features: [
+      "agentic_chat",
+      "backend_tool_rendering",
+      "human_in_the_loop",
+      "agentic_generative_ui",
+      "predictive_state_updates",
+      "shared_state",
+      "tool_based_generative_ui",
+    ],
+  },
+  {
     id: "agno",
     name: "Agno",
-    features: ["agentic_chat", "backend_tool_rendering", "tool_based_generative_ui"],
+    features: [
+      "agentic_chat",
+      "backend_tool_rendering",
+      "human_in_the_loop",
+      "tool_based_generative_ui",
+    ],
   },
   {
     id: "llama-index",
@@ -124,6 +161,11 @@ export const menuIntegrations: MenuIntegrationConfig[] = [
       "shared_state",
       "tool_based_generative_ui",
     ],
+  },
+  {
+    id: "a2a-basic",
+    name: "A2A (Direct)",
+    features: ["vnext_chat"],
   },
   // Disabled until we can support Vercel AI SDK v5
   // {

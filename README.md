@@ -16,7 +16,8 @@ Built for simplicity and flexibility, it enables seamless integration between AI
 
 <a href="https://discord.gg/Jd3FzfdJa8" target="_blank"> Join our Discord → </a> &nbsp;&nbsp;&nbsp; <a href="https://ag-ui.com/" target="_blank"> Read the Docs → </a> &nbsp;&nbsp;&nbsp; <a href="https://dojo.ag-ui.com/" target="_blank"> Go to the AG-UI Dojo → </a> &nbsp;&nbsp;&nbsp; <a href="https://x.com/CopilotKit" target="_blank"> Follow us → </a>
 
-<img width="4096" height="1752" alt="Your application-AG-UI protocol" src="https://github.com/user-attachments/assets/0ecc3a63-7947-442f-9a6e-be887d0bf245" />
+
+<img width="1600" height="680" alt="1600x680" src="https://github.com/user-attachments/assets/cd0376f3-0a3d-4cc3-a931-2b166c4efe5e" />
 
 
 

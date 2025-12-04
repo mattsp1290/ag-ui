@@ -1077,7 +1077,10 @@ class ADKAgent:
                     self._session_manager.mark_messages_processed(app_name, input.thread_id, message_ids)
 
             # Convert user messages first (if any)
-            user_message = await self._convert_latest_message(input, unseen_messages) if message_batch else None
+            # Note: We pass unseen_messages which is already set from message_batch or _get_unseen_messages
+            # The original code had a bug: `if message_batch else None` would skip conversion when
+            # message_batch was None but unseen_messages contained valid user messages
+            user_message = await self._convert_latest_message(input, unseen_messages)
 
             # if there is a tool response submission by the user, add FunctionResponse to session first
             if active_tool_results and user_message:
@@ -1185,6 +1188,10 @@ class ADKAgent:
                 new_message = types.Content(parts=function_response_parts, role='user')
             else:
                 # No tool results, just use the user message
+                # If user_message is None (e.g., unseen_messages was empty because all were
+                # already processed), fall back to extracting the latest user message from input.messages
+                if user_message is None and input.messages:
+                    user_message = await self._convert_latest_message(input, input.messages)
                 new_message = user_message
 
             # Create event translator

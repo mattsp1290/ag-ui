@@ -279,23 +279,10 @@ class EventTranslator:
             return
 
         combined_text = "".join(text_parts)
-        if not combined_text:
-            return
 
-        # Use proper ADK streaming detection (handle None values)
-        is_partial = getattr(adk_event, 'partial', False)
-        turn_complete = getattr(adk_event, 'turn_complete', False)
-        
-        # (is_final_response is already calculated above)
-        
-        # Handle None values: if a turn is complete or a final chunk arrives, end streaming
-        has_finish_reason = bool(getattr(adk_event, 'finish_reason', None))
-        should_send_end = (
-            (turn_complete and not is_partial)
-            or (is_final_response and not is_partial)
-            or (has_finish_reason and self._is_streaming)
-        )
-
+        # Handle is_final_response BEFORE the empty text early return.
+        # An empty final response is a valid stream-closing signal that must close
+        # any active stream, even if there's no new text content.
         if is_final_response:
             # This is the final, complete message event.
 
@@ -365,7 +352,23 @@ class EventTranslator:
             self._last_streamed_run_id = None
             return
 
-        
+        # Early return for empty text (non-final responses only).
+        # Final responses with empty text are handled above to close active streams.
+        if not combined_text:
+            return
+
+        # Use proper ADK streaming detection (handle None values)
+        is_partial = getattr(adk_event, 'partial', False)
+        turn_complete = getattr(adk_event, 'turn_complete', False)
+
+        # Handle None values: if a turn is complete or a final chunk arrives, end streaming
+        has_finish_reason = bool(getattr(adk_event, 'finish_reason', None))
+        should_send_end = (
+            (turn_complete and not is_partial)
+            or (is_final_response and not is_partial)
+            or (has_finish_reason and self._is_streaming)
+        )
+
         # Handle streaming logic (if not is_final_response)
         if not self._is_streaming:
             # Start of new message - emit START event

@@ -375,13 +375,11 @@ class ADKAgent:
         skip_tool_message_batch = False
 
         # Check if there are pending tool calls AND tool results in unseen messages
-        # If so, we should skip to the tool results first
-        pending_tool_call_ids = await self._get_pending_tool_call_ids(input.thread_id)
-        has_pending_tools = pending_tool_call_ids is not None and len(pending_tool_call_ids) > 0
+        has_pending_tools = await self._has_pending_tool_calls(input.thread_id)
         has_tool_results_in_unseen = any(getattr(msg, "role", None) == "tool" for msg in unseen_messages)
 
         if has_pending_tools and has_tool_results_in_unseen:
-            # Find the index of the first tool result and skip to it
+            # HITL/Frontend tool scenario: skip to the tool results first
             for i, msg in enumerate(unseen_messages):
                 if getattr(msg, "role", None) == "tool":
                     # Mark all messages before the tool result as processed (they're already in the ADK session)
@@ -394,6 +392,8 @@ class ADKAgent:
                         self._session_manager.mark_messages_processed(app_name, input.thread_id, skipped_ids)
                     index = i
                     break
+
+        logger.debug(f"[RUN_LOOP] Starting message loop for thread={input.thread_id}, total_unseen={total_unseen}, starting_index={index}")
 
         while index < total_unseen:
             current = unseen_messages[index]
@@ -508,6 +508,38 @@ class ADKAgent:
                 else:
                     skip_tool_message_batch = False
 
+                # Check if there's an upcoming tool batch that will be skipped
+                # If so, this non-tool batch is part of historical backend tool interaction
+                # and should also be skipped
+                upcoming_tool_batch_skipped = False
+                if index < total_unseen and getattr(unseen_messages[index], "role", None) == "tool":
+                    # Peek at the upcoming tool batch
+                    peek_idx = index
+                    upcoming_tool_call_ids = []
+                    while peek_idx < total_unseen and getattr(unseen_messages[peek_idx], "role", None) == "tool":
+                        tool_call_id = getattr(unseen_messages[peek_idx], "tool_call_id", None)
+                        if tool_call_id:
+                            upcoming_tool_call_ids.append(tool_call_id)
+                        peek_idx += 1
+
+                    if upcoming_tool_call_ids:
+                        pending_ids = await self._get_pending_tool_call_ids(input.thread_id)
+                        if pending_ids is not None:
+                            pending_set = set(pending_ids)
+                            # If NONE of the upcoming tool results match pending, they're historical
+                            if not any(tc_id in pending_set for tc_id in upcoming_tool_call_ids):
+                                upcoming_tool_batch_skipped = True
+
+                if upcoming_tool_batch_skipped:
+                    # Skip this message batch - it's part of historical backend tool interaction
+                    # Mark the messages as processed
+                    logger.debug(f"[RUN_LOOP] Skipping message batch (upcoming tool batch will be skipped)")
+                    batch_ids = self._collect_message_ids(message_batch)
+                    if batch_ids:
+                        self._session_manager.mark_messages_processed(app_name, input.thread_id, batch_ids)
+                    continue
+
+                logger.debug(f"[RUN_LOOP] Calling _start_new_execution with message_batch of {len(message_batch)} messages")
                 async for event in self._start_new_execution(input, message_batch=message_batch):
                     yield event
     
@@ -1049,6 +1081,8 @@ class ADKAgent:
             event_queue: Queue for emitting events
         """
         runner: Optional[Runner] = None
+        logger.debug(f"[BG_EXEC] _run_adk_in_background called for thread={input.thread_id}")
+        logger.debug(f"[BG_EXEC]   tool_results={len(tool_results) if tool_results else 0}, message_batch={len(message_batch) if message_batch else 0}")
         try:
             # Agent is already prepared with tools and SystemMessage instructions (if any)
             # from _start_background_execution, so no additional agent copying needed here

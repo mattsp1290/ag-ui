@@ -350,14 +350,14 @@ class ADKAgent:
     
     async def run(self, input: RunAgentInput) -> AsyncGenerator[BaseEvent, None]:
         """Run the ADK agent with client-side tool support.
-        
+
         All client-side tools are long-running. For tool result submissions,
         we continue existing executions. For new requests, we start new executions.
         ADK sessions handle conversation continuity and tool result processing.
-        
+
         Args:
             input: The AG-UI run input
-            
+
         Yields:
             AG-UI protocol events
         """
@@ -373,6 +373,27 @@ class ADKAgent:
         total_unseen = len(unseen_messages)
         app_name = self._get_app_name(input)
         skip_tool_message_batch = False
+
+        # Check if there are pending tool calls AND tool results in unseen messages
+        # If so, we should skip to the tool results first
+        pending_tool_call_ids = await self._get_pending_tool_call_ids(input.thread_id)
+        has_pending_tools = pending_tool_call_ids is not None and len(pending_tool_call_ids) > 0
+        has_tool_results_in_unseen = any(getattr(msg, "role", None) == "tool" for msg in unseen_messages)
+
+        if has_pending_tools and has_tool_results_in_unseen:
+            # Find the index of the first tool result and skip to it
+            for i, msg in enumerate(unseen_messages):
+                if getattr(msg, "role", None) == "tool":
+                    # Mark all messages before the tool result as processed (they're already in the ADK session)
+                    skipped_ids = []
+                    for j in range(i):
+                        msg_id = getattr(unseen_messages[j], "id", None)
+                        if msg_id:
+                            skipped_ids.append(msg_id)
+                    if skipped_ids:
+                        self._session_manager.mark_messages_processed(app_name, input.thread_id, skipped_ids)
+                    index = i
+                    break
 
         while index < total_unseen:
             current = unseen_messages[index]
@@ -621,24 +642,19 @@ class ADKAgent:
             return
 
         try:
-            # Remove tool calls from pending list
+            # Remove tool calls from pending list and track which ones we processed
+            processed_tool_ids = []
             for tool_result in tool_results:
                 tool_call_id = tool_result['message'].tool_call_id
                 has_pending = await self._has_pending_tool_calls(thread_id)
 
                 if has_pending:
-                    # Could add more specific check here for the exact tool_call_id
-                    # but for now just log that we're processing a tool result while tools are pending
-                    logger.debug(f"Processing tool result {tool_call_id} for thread {thread_id} with pending tools")
                     # Remove from pending tool calls now that we're processing it
                     await self._remove_pending_tool_call(thread_id, tool_call_id)
-                else:
-                    # No pending tools - this could be a stale result or from a different session
-                    logger.warning(f"No pending tool calls found for tool result {tool_call_id} in thread {thread_id}")
+                    processed_tool_ids.append(tool_call_id)
 
             # Since all tools are long-running, all tool results are standalone
             # and should start new executions with the tool results
-            logger.info(f"Starting new execution for tool result in thread {thread_id}")
 
             # Use trailing_messages if provided, otherwise fall back to candidate_messages
             message_batch = trailing_messages if trailing_messages else (candidate_messages if include_message_batch else None)
@@ -884,14 +900,11 @@ class ADKAgent:
                 if input.thread_id in self._active_executions:
                     execution = self._active_executions[input.thread_id]
                     execution.is_complete = True
-                    
+
                     # Check if session has pending tool calls before cleanup
                     has_pending = await self._has_pending_tool_calls(input.thread_id)
                     if not has_pending:
                         del self._active_executions[input.thread_id]
-                        logger.debug(f"Cleaned up execution for thread {input.thread_id}")
-                    else:
-                        logger.info(f"Preserving execution for thread {input.thread_id} - has pending tool calls (HITL scenario)")
     
     async def _start_background_execution(
         self,
@@ -1094,24 +1107,24 @@ class ADKAgent:
                     # Debug: Log the actual tool message content we received
                     logger.debug(f"Received tool result for call {tool_call_id}: content='{content}', type={type(content)}")
 
-                    # Parse JSON content, handling empty or invalid JSON gracefully
+                    # Parse content - try JSON first, fall back to plain string
                     try:
                         if content and content.strip():
-                            result = json.loads(content)
+                            # Try to parse as JSON first
+                            try:
+                                result = json.loads(content)
+                            except json.JSONDecodeError:
+                                # Not valid JSON - treat as plain string result
+                                result = {"success": True, "result": content, "status": "completed"}
+                                logger.debug(f"Tool result for {tool_call_id} is plain string, wrapped in result object")
                         else:
                             # Handle empty content as a success with empty result
-                            result = {"success": True, "result": None}
+                            result = {"success": True, "result": None, "status": "completed"}
                             logger.warning(f"Empty tool result content for tool call {tool_call_id}, using empty success result")
-                    except json.JSONDecodeError as json_error:
-                        # Handle invalid JSON by providing detailed error result
-                        result = {
-                            "error": f"Invalid JSON in tool result: {str(json_error)}",
-                            "raw_content": content,
-                            "error_type": "JSON_DECODE_ERROR",
-                            "line": getattr(json_error, 'lineno', None),
-                            "column": getattr(json_error, 'colno', None)
-                        }
-                        logger.error(f"Invalid JSON in tool result for call {tool_call_id}: {json_error} at line {getattr(json_error, 'lineno', '?')}, column {getattr(json_error, 'colno', '?')}")
+                    except Exception as e:
+                        # Handle any other error
+                        result = {"success": True, "result": str(content) if content else None, "status": "completed"}
+                        logger.warning(f"Error processing tool result for {tool_call_id}: {e}, using string fallback")
 
                     updated_function_response_part = types.Part(
                         function_response=types.FunctionResponse(
@@ -1160,21 +1173,23 @@ class ADKAgent:
 
                     logger.debug(f"Received tool result for call {tool_call_id}: content='{content}', type={type(content)}")
 
+                    # Parse content - try JSON first, fall back to plain string
                     try:
                         if content and content.strip():
-                            result = json.loads(content)
+                            # Try to parse as JSON first
+                            try:
+                                result = json.loads(content)
+                            except json.JSONDecodeError:
+                                # Not valid JSON - treat as plain string result
+                                result = {"success": True, "result": content, "status": "completed"}
+                                logger.debug(f"Tool result for {tool_call_id} is plain string, wrapped in result object")
                         else:
-                            result = {"success": True, "result": None}
+                            result = {"success": True, "result": None, "status": "completed"}
                             logger.warning(f"Empty tool result content for tool call {tool_call_id}, using empty success result")
-                    except json.JSONDecodeError as json_error:
-                        result = {
-                            "error": f"Invalid JSON in tool result: {str(json_error)}",
-                            "raw_content": content,
-                            "error_type": "JSON_DECODE_ERROR",
-                            "line": getattr(json_error, 'lineno', None),
-                            "column": getattr(json_error, 'colno', None)
-                        }
-                        logger.error(f"Invalid JSON in tool result for call {tool_call_id}: {json_error} at line {getattr(json_error, 'lineno', '?')}, column {getattr(json_error, 'colno', '?')}")
+                    except Exception as e:
+                        # Handle any other error
+                        result = {"success": True, "result": str(content) if content else None, "status": "completed"}
+                        logger.warning(f"Error processing tool result for {tool_call_id}: {e}, using string fallback")
 
                     updated_function_response_part = types.Part(
                         function_response=types.FunctionResponse(
@@ -1293,6 +1308,7 @@ class ADKAgent:
                     # hard stop the execution if we find any long running tool
                     if is_long_running_tool:
                         return
+
             # Force close any streaming messages
             async for ag_ui_event in event_translator.force_close_streaming_message():
                 await event_queue.put(ag_ui_event)

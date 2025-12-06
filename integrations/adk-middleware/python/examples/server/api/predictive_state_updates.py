@@ -1,4 +1,14 @@
-"""Predictive State Updates feature."""
+"""Predictive State Updates feature.
+
+This example demonstrates how to use predictive state updates with the ADK middleware.
+Predictive state updates allow the UI to show state changes in real-time as tool
+arguments are being streamed, providing a smooth document editing experience.
+
+Key concepts:
+1. PredictStateMapping: Configuration that tells the UI which tool arguments map to state keys
+2. When a tool is called that matches the mapping, a PredictState CustomEvent is emitted
+3. The UI uses this metadata to update state as tool arguments stream in
+"""
 
 from __future__ import annotations
 
@@ -9,7 +19,7 @@ import json
 import uuid
 from typing import Dict, List, Any, Optional
 from fastapi import FastAPI
-from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint
+from ag_ui_adk import ADKAgent, add_adk_fastapi_endpoint, PredictStateMapping
 
 from google.adk.agents import LlmAgent
 from google.adk.agents.callback_context import CallbackContext
@@ -134,13 +144,22 @@ predictive_state_updates_agent = LlmAgent(
     before_model_callback=before_model_modifier
 )
 
-# Create ADK middleware agent instance
+# Create ADK middleware agent instance with predictive state configuration
+# The PredictStateMapping tells the UI to update the "document" state key
+# with the value from the "document" argument of the "write_document" tool
 adk_predictive_state_agent = ADKAgent(
     adk_agent=predictive_state_updates_agent,
     app_name="demo_app",
     user_id="demo_user",
     session_timeout_seconds=3600,
-    use_in_memory_services=True
+    use_in_memory_services=True,
+    predict_state=[
+        PredictStateMapping(
+            state_key="document",
+            tool="write_document",
+            tool_argument="document",
+        )
+    ],
 )
 
 # Create FastAPI app

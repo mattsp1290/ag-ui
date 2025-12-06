@@ -2,7 +2,7 @@
 
 """Main ADKAgent implementation for bridging AG-UI Protocol with Google ADK."""
 
-from typing import Optional, Dict, Callable, Any, AsyncGenerator, List
+from typing import Optional, Dict, Callable, Any, AsyncGenerator, List, Iterable
 import time
 import json
 import asyncio
@@ -29,6 +29,7 @@ from .event_translator import EventTranslator
 from .session_manager import SessionManager
 from .execution_state import ExecutionState
 from .client_proxy_toolset import ClientProxyToolset
+from .config import PredictStateMapping
 
 import logging
 logger = logging.getLogger(__name__)
@@ -44,36 +45,39 @@ class ADKAgent:
         self,
         # ADK Agent instance
         adk_agent: BaseAgent,
-        
+
         # App identification
         app_name: Optional[str] = None,
         session_timeout_seconds: Optional[int] = 1200,
         app_name_extractor: Optional[Callable[[RunAgentInput], str]] = None,
-        
+
         # User identification
         user_id: Optional[str] = None,
         user_id_extractor: Optional[Callable[[RunAgentInput], str]] = None,
-        
+
         # ADK Services
         session_service: Optional[BaseSessionService] = None,
         artifact_service: Optional[BaseArtifactService] = None,
         memory_service: Optional[BaseMemoryService] = None,
         credential_service: Optional[BaseCredentialService] = None,
-        
+
         # Configuration
         run_config_factory: Optional[Callable[[RunAgentInput], ADKRunConfig]] = None,
         use_in_memory_services: bool = True,
-        
+
         # Tool configuration
         execution_timeout_seconds: int = 600,  # 10 minutes
         tool_timeout_seconds: int = 300,  # 5 minutes
         max_concurrent_executions: int = 10,
-        
+
         # Session cleanup configuration
-        cleanup_interval_seconds: int = 300  # 5 minutes default
+        cleanup_interval_seconds: int = 300,  # 5 minutes default
+
+        # Predictive state configuration
+        predict_state: Optional[Iterable[PredictStateMapping]] = None,
     ):
         """Initialize the ADKAgent.
-        
+
         Args:
             adk_agent: The ADK agent instance to use
             app_name: Static application name for all requests
@@ -89,6 +93,12 @@ class ADKAgent:
             execution_timeout_seconds: Timeout for entire execution
             tool_timeout_seconds: Timeout for individual tool calls
             max_concurrent_executions: Maximum concurrent background executions
+            cleanup_interval_seconds: Interval for session cleanup
+            predict_state: Configuration for predictive state updates. When provided,
+                the agent will emit PredictState CustomEvents for matching tool calls,
+                enabling the UI to show state changes in real-time as tool arguments
+                are streamed. Use PredictStateMapping to define which tool arguments
+                map to which state keys.
         """
         if app_name and app_name_extractor:
             raise ValueError("Cannot specify both 'app_name' and 'app_name_extractor'")
@@ -141,9 +151,12 @@ class ADKAgent:
         # Session lookup cache for efficient session ID to metadata mapping
         # Maps session_id -> {"app_name": str, "user_id": str}
         self._session_lookup_cache: Dict[str, Dict[str, str]] = {}
-        
+
+        # Predictive state configuration for real-time state updates
+        self._predict_state = predict_state
+
         # Event translator will be created per-session for thread safety
-        
+
         # Cleanup is managed by the session manager
         # Will start when first async operation runs
 
@@ -1243,8 +1256,8 @@ class ADKAgent:
                     user_message = await self._convert_latest_message(input, input.messages)
                 new_message = user_message
 
-            # Create event translator
-            event_translator = EventTranslator()
+            # Create event translator with predictive state configuration
+            event_translator = EventTranslator(predict_state=self._predict_state)
 
             try:
                 session = await self._session_manager.get_or_create_session(

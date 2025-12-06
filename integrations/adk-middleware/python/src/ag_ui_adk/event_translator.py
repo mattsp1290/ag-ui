@@ -289,7 +289,7 @@ class EventTranslator:
             # Case 1: A stream is actively running. We must close it.
             if self._is_streaming and self._streaming_message_id:
                 logger.info("⏭️ Final response event received. Closing active stream.")
-                
+
                 if self._current_stream_text:
                     # Save the complete streamed text for de-duplication
                     self._last_streamed_text = self._current_stream_text
@@ -307,10 +307,7 @@ class EventTranslator:
                 logger.info("🏁 Streaming completed via final response")
                 return # We are done.
 
-            # Case 2: No stream is active. 
-            # This event contains the *entire* message.
-            # We must send it, *unless* it's a duplicate of a stream that *just* finished.
-            
+            # Case 2: No stream is active.
             # Check for duplicates from a *previous* stream in this *same run*.
             is_duplicate = (
                 self._last_streamed_run_id == run_id and
@@ -322,35 +319,21 @@ class EventTranslator:
                 logger.info(
                     "⏭️ Skipping final response event (duplicate content detected from finished stream)"
                 )
-            else:
-                # Not a duplicate, or no previous stream. Send the full message.
-                logger.info(
-                    f"⏩ Delivering complete non-streamed message or final content event_id={adk_event.id}"
-                )
-                message_events = [
-                    TextMessageStartEvent(
-                        type=EventType.TEXT_MESSAGE_START,
-                        message_id=adk_event.id, # Use event ID for non-streamed
-                        role="assistant",
-                    ),
-                    TextMessageContentEvent(
-                        type=EventType.TEXT_MESSAGE_CONTENT,
-                        message_id=adk_event.id,
-                        delta=combined_text,
-                    ),
-                    TextMessageEndEvent(
-                        type=EventType.TEXT_MESSAGE_END,
-                        message_id=adk_event.id,
-                    ),
-                ]
-                for msg in message_events:
-                    yield msg
+                # Clean up state as this is still the terminal signal for text.
+                self._current_stream_text = ""
+                self._last_streamed_text = None
+                self._last_streamed_run_id = None
+                return
 
-            # Clean up state regardless, as this is the end of the line for text.
-            self._current_stream_text = ""
-            self._last_streamed_text = None
-            self._last_streamed_run_id = None
-            return
+            if not combined_text:
+                logger.info("⏭️ Final response contained no text; nothing to emit")
+                self._current_stream_text = ""
+                self._last_streamed_text = None
+                self._last_streamed_run_id = None
+                return
+
+            # Fall through to the normal emission path to send the consolidated
+            # START/CONTENT/END trio for non-streaming final responses.
 
         # Early return for empty text (non-final responses only).
         # Final responses with empty text are handled above to close active streams.

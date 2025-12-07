@@ -1362,8 +1362,16 @@ class ADKAgent:
             # moving states snapshot events after the text event clousure to avoid this error https://github.com/Contextable/ag-ui/issues/28
             final_state = await self._session_manager.get_session_state(input.thread_id,app_name,user_id)
             if final_state:
-                ag_ui_event =  event_translator._create_state_snapshot_event(final_state)                    
+                ag_ui_event =  event_translator._create_state_snapshot_event(final_state)
                 await event_queue.put(ag_ui_event)
+
+            # Emit any deferred confirm_changes events LAST, right before completion
+            # This ensures the frontend sees confirm_changes as the last tool call event,
+            # keeping the confirmation dialog in "executing" status with buttons enabled
+            for deferred_event in event_translator.get_and_clear_deferred_confirm_events():
+                logger.debug(f"Emitting deferred confirm_changes event: {type(deferred_event).__name__}")
+                await event_queue.put(deferred_event)
+
             # Signal completion - ADK execution is done
             logger.debug(f"Background task sending completion signal for thread {input.thread_id}")
             await event_queue.put(None)

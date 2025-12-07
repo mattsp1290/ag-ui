@@ -159,7 +159,33 @@ class EventTranslator:
                 self._predict_state_by_tool[mapping.tool] = []
             self._predict_state_by_tool[mapping.tool].append(mapping)
         self._emitted_predict_state_for_tools: set[str] = set()  # Track which tools have had PredictState emitted
-    
+        self._emitted_confirm_for_tools: set[str] = set()  # Track which tools have had confirm_changes emitted
+
+        # Deferred confirm_changes events - these must be emitted LAST, right before RUN_FINISHED
+        # to ensure the frontend shows the confirmation dialog with buttons enabled
+        self._deferred_confirm_events: List[BaseEvent] = []
+
+    def get_and_clear_deferred_confirm_events(self) -> List[BaseEvent]:
+        """Get and clear any deferred confirm_changes events.
+
+        These events must be emitted right before RUN_FINISHED to ensure
+        the frontend's confirmation dialog works correctly.
+
+        Returns:
+            List of deferred events (may be empty)
+        """
+        events = self._deferred_confirm_events
+        self._deferred_confirm_events = []
+        return events
+
+    def has_deferred_confirm_events(self) -> bool:
+        """Check if there are any deferred confirm_changes events.
+
+        Returns:
+            True if there are deferred events waiting to be emitted
+        """
+        return len(self._deferred_confirm_events) > 0
+
     async def translate(
         self, 
         adk_event: ADKEvent,
@@ -528,6 +554,44 @@ class EventTranslator:
             # Clean up tracking
             self._active_tool_calls.pop(tool_call_id, None)
 
+            # Check if we should emit confirm_changes tool call after this tool
+            # This follows the pattern used by LangGraph, CrewAI, and server-starter-all-features
+            # where the backend uses a "local" tool (e.g., write_document_local) and
+            # then emits confirm_changes to trigger the frontend confirmation UI
+            #
+            # IMPORTANT: We DEFER these events to be emitted right before RUN_FINISHED.
+            # If we emit them immediately, subsequent events (TOOL_CALL_RESULT, TEXT_MESSAGE, etc.)
+            # can cause the frontend to transition the confirm_changes status away from "executing",
+            # which disables the confirmation dialog buttons.
+            if tool_name in self._predict_state_by_tool and tool_name not in self._emitted_confirm_for_tools:
+                mappings = self._predict_state_by_tool[tool_name]
+                # Check if any mapping has emit_confirm_tool=True
+                should_emit_confirm = any(m.emit_confirm_tool for m in mappings)
+                if should_emit_confirm:
+                    confirm_tool_call_id = str(uuid.uuid4())
+                    logger.debug(f"Deferring confirm_changes tool call events after '{tool_name}' (will emit before RUN_FINISHED)")
+
+                    # Store events for later emission (right before RUN_FINISHED)
+                    self._deferred_confirm_events.append(ToolCallStartEvent(
+                        type=EventType.TOOL_CALL_START,
+                        tool_call_id=confirm_tool_call_id,
+                        tool_call_name="confirm_changes",
+                        parent_message_id=parent_message_id
+                    ))
+
+                    self._deferred_confirm_events.append(ToolCallArgsEvent(
+                        type=EventType.TOOL_CALL_ARGS,
+                        tool_call_id=confirm_tool_call_id,
+                        delta="{}"
+                    ))
+
+                    self._deferred_confirm_events.append(ToolCallEndEvent(
+                        type=EventType.TOOL_CALL_END,
+                        tool_call_id=confirm_tool_call_id
+                    ))
+
+                    self._emitted_confirm_for_tools.add(tool_name)
+
     
 
     async def _translate_function_response(
@@ -645,5 +709,7 @@ class EventTranslator:
         self._last_streamed_run_id = None
         self.long_running_tool_ids.clear()
         self._emitted_predict_state_for_tools.clear()
+        self._emitted_confirm_for_tools.clear()
+        self._deferred_confirm_events.clear()
         logger.debug("Reset EventTranslator state (including streaming state)")
         

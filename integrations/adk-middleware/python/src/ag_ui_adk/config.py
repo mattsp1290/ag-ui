@@ -19,11 +19,14 @@ class PredictStateMapping:
         state_key: The key in the state object to update
         tool: The name of the tool that triggers this mapping
         tool_argument: The argument name from the tool that provides the value
+        emit_confirm_tool: If True (default), emit a confirm_changes tool call
+            after this tool completes. This triggers the confirmation dialog in the UI.
     """
 
     state_key: str
     tool: str
     tool_argument: str
+    emit_confirm_tool: bool = True
 
     def to_payload(self) -> Dict[str, str]:
         """Convert to the payload format expected by the UI."""

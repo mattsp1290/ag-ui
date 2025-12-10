@@ -21,6 +21,7 @@ enum EventType {
   stateSnapshot('STATE_SNAPSHOT'),
   stateDelta('STATE_DELTA'),
   messagesSnapshot('MESSAGES_SNAPSHOT'),
+  activitySnapshot('ACTIVITY_SNAPSHOT'),
   raw('RAW'),
   custom('CUSTOM'),
   runStarted('RUN_STARTED'),

@@ -75,6 +75,8 @@ sealed class BaseEvent extends AGUIModel with TypeDiscriminator {
         return StateDeltaEvent.fromJson(json);
       case EventType.messagesSnapshot:
         return MessagesSnapshotEvent.fromJson(json);
+      case EventType.activitySnapshot:
+        return ActivitySnapshotEvent.fromJson(json);
       case EventType.raw:
         return RawEvent.fromJson(json);
       case EventType.custom:
@@ -892,6 +894,44 @@ final class MessagesSnapshotEvent extends BaseEvent {
   }) {
     return MessagesSnapshotEvent(
       messages: messages ?? this.messages,
+      timestamp: timestamp ?? this.timestamp,
+      rawEvent: rawEvent ?? this.rawEvent,
+    );
+  }
+}
+
+/// Event containing a snapshot of activities
+final class ActivitySnapshotEvent extends BaseEvent {
+  final List<dynamic> activities;
+
+  const ActivitySnapshotEvent({
+    required this.activities,
+    super.timestamp,
+    super.rawEvent,
+  }) : super(eventType: EventType.activitySnapshot);
+
+  factory ActivitySnapshotEvent.fromJson(Map<String, dynamic> json) {
+    return ActivitySnapshotEvent(
+      activities: json['activities'] as List<dynamic>? ?? [],
+      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      rawEvent: json['rawEvent'],
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...super.toJson(),
+    'activities': activities,
+  };
+
+  @override
+  ActivitySnapshotEvent copyWith({
+    List<dynamic>? activities,
+    int? timestamp,
+    dynamic rawEvent,
+  }) {
+    return ActivitySnapshotEvent(
+      activities: activities ?? this.activities,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );

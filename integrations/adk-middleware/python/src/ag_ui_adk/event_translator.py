@@ -404,6 +404,9 @@ class EventTranslator:
             or (has_finish_reason and self._is_streaming)
         )
 
+        # Track if we were already streaming before this event (for consolidated message detection)
+        was_already_streaming = self._is_streaming
+
         # Handle streaming logic (if not is_final_response)
         if not self._is_streaming:
             # Start of new message - emit START event
@@ -417,16 +420,28 @@ class EventTranslator:
                 role="assistant"
             )
             yield start_event
-        
-        # Always emit content (unless empty)
+
+        # Emit content with consolidated message detection (GitHub #742)
+        # When streaming, ADK sends incremental deltas with partial=True, then a final
+        # consolidated message with partial=False containing all the text. If we were
+        # already streaming and receive a consolidated message (partial=False), we skip
+        # it to avoid duplicating already-streamed content.
+        # Note: We check was_already_streaming (not _is_streaming) to allow the first
+        # event of a non-streaming response (partial=False) to emit content normally.
         if combined_text:
-            self._current_stream_text += combined_text
-            content_event = TextMessageContentEvent(
-                type=EventType.TEXT_MESSAGE_CONTENT,
-                message_id=self._streaming_message_id,
-                delta=combined_text
-            )
-            yield content_event
+            # Skip consolidated messages during active streaming
+            if was_already_streaming and not is_partial:
+                logger.info(
+                    "⏭️ Skipping consolidated text (partial=False during active stream)"
+                )
+            else:
+                self._current_stream_text += combined_text
+                content_event = TextMessageContentEvent(
+                    type=EventType.TEXT_MESSAGE_CONTENT,
+                    message_id=self._streaming_message_id,
+                    delta=combined_text
+                )
+                yield content_event
         
         # If turn is complete and not partial, emit END event
         if should_send_end:

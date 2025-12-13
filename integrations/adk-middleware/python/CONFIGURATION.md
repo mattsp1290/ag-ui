@@ -110,6 +110,21 @@ agent = ADKAgent(
 4. **Cleanup**: Expired sessions removed during cleanup intervals
 5. **Memory**: If memory service configured, expired sessions saved before deletion
 
+### State and Session Mapping
+
+#### Thread ID → Session ID
+
+The `threadId` from `RunAgentInput` maps directly to the ADK `session_id`. Each unique `threadId` corresponds to a unique ADK session, maintaining conversation continuity across multiple runs.
+
+#### Initial State
+
+The `state` field in `RunAgentInput` initializes and synchronizes session state:
+
+- **New Session**: `state` becomes the initial ADK session state
+- **Existing Session**: `state` is merged with existing session state on each request
+
+This enables passing frontend context (user preferences, selected items, UI state) to the backend agent before execution begins.
+
 ## Service Configuration
 
 The middleware supports both in-memory (development) and persistent (production) services:

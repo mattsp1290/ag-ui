@@ -172,6 +172,37 @@ async def main():
 asyncio.run(main())
 ```
 
+### Passing Initial State
+
+Pass frontend state to initialize the ADK session before the agent runs:
+
+```python
+input = RunAgentInput(
+    thread_id="session_001",
+    run_id="run_001",
+    state={
+        "selected_document": "doc-456",
+        "user_preferences": {"language": "en", "theme": "dark"},
+        "context": {"project_id": "proj-123"}
+    },
+    messages=[
+        UserMessage(id="1", role="user", content="Summarize the selected document")
+    ],
+    context=[],
+    tools=[],
+    forwarded_props={}
+)
+
+# The agent can now access state.selected_document, state.user_preferences, etc.
+async for event in agent.run(input):
+    print(f"Event: {event.type}")
+```
+
+The `state` field:
+- Initializes ADK session state on first request for a `thread_id`
+- Syncs/merges with existing state on subsequent requests
+- Is accessible to ADK agent tools via `context.session.state`
+
 ### Multi-Agent Setup
 
 ```python

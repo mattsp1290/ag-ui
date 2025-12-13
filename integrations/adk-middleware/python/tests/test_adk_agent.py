@@ -882,3 +882,270 @@ class TestADKAgent:
         assert tool_results[0].tool_call_id == "tool-skip-sum"
 
 
+class TestThreadIdSessionIdMapping:
+    """Test cases for thread_id to session_id mapping and initial state."""
+
+    @pytest.fixture(autouse=True)
+    def reset_session_manager(self):
+        """Reset session manager before each test."""
+        try:
+            SessionManager.reset_instance()
+        except RuntimeError:
+            pass
+        yield
+        try:
+            SessionManager.reset_instance()
+        except RuntimeError:
+            pass
+
+    @pytest.fixture
+    def mock_agent(self):
+        """Create a mock ADK agent."""
+        agent = Mock(spec=Agent)
+        agent.name = "test_agent"
+        agent.instruction = "Test instruction"
+        agent.tools = []
+        return agent
+
+    @pytest.fixture
+    def adk_agent(self, mock_agent):
+        """Create an ADKAgent instance."""
+        return ADKAgent(
+            adk_agent=mock_agent,
+            app_name="test_app",
+            user_id="test_user",
+            use_in_memory_services=True
+        )
+
+    @pytest.mark.asyncio
+    async def test_thread_id_becomes_session_id(self, adk_agent):
+        """Test that thread_id from RunAgentInput is used as session_id in ADK session."""
+        test_thread_id = "my-unique-thread-123"
+
+        input_data = RunAgentInput(
+            thread_id=test_thread_id,
+            run_id="run_001",
+            messages=[
+                UserMessage(id="msg1", role="user", content="Hello")
+            ],
+            context=[],
+            state={},
+            tools=[],
+            forwarded_props={}
+        )
+
+        # Track calls to _ensure_session_exists
+        ensure_session_calls = []
+        original_ensure_session = adk_agent._ensure_session_exists
+
+        async def tracking_ensure_session(app_name, user_id, session_id, initial_state):
+            ensure_session_calls.append({
+                "app_name": app_name,
+                "user_id": user_id,
+                "session_id": session_id,
+                "initial_state": initial_state
+            })
+            return await original_ensure_session(app_name, user_id, session_id, initial_state)
+
+        with patch.object(adk_agent, '_ensure_session_exists', side_effect=tracking_ensure_session), \
+             patch.object(adk_agent, '_create_runner') as mock_create_runner:
+
+            # Create a mock runner that yields a simple event
+            mock_runner = AsyncMock()
+            mock_runner.close = AsyncMock()
+
+            async def mock_run_async(*args, **kwargs):
+                mock_event = Mock()
+                mock_event.id = "event1"
+                mock_event.author = "test_agent"
+                mock_event.content = Mock()
+                mock_event.content.parts = [Mock(text="Response")]
+                mock_event.partial = False
+                mock_event.actions = None
+                mock_event.get_function_calls = Mock(return_value=[])
+                mock_event.get_function_responses = Mock(return_value=[])
+                yield mock_event
+
+            mock_runner.run_async = mock_run_async
+            mock_create_runner.return_value = mock_runner
+
+            # Run the agent
+            events = [event async for event in adk_agent.run(input_data)]
+
+        # Verify _ensure_session_exists was called with thread_id as session_id
+        assert len(ensure_session_calls) == 1
+        assert ensure_session_calls[0]["session_id"] == test_thread_id
+
+    @pytest.mark.asyncio
+    async def test_initial_state_passed_to_session(self, adk_agent):
+        """Test that state from RunAgentInput is passed as initial_state to session."""
+        initial_state = {
+            "user_preferences": {"theme": "dark", "language": "en"},
+            "selected_document": "doc-456",
+            "context_data": {"project_id": "proj-123"}
+        }
+
+        input_data = RunAgentInput(
+            thread_id="session_with_state",
+            run_id="run_001",
+            messages=[
+                UserMessage(id="msg1", role="user", content="Hello")
+            ],
+            context=[],
+            state=initial_state,
+            tools=[],
+            forwarded_props={}
+        )
+
+        # Track calls to _ensure_session_exists
+        ensure_session_calls = []
+        original_ensure_session = adk_agent._ensure_session_exists
+
+        async def tracking_ensure_session(app_name, user_id, session_id, state):
+            ensure_session_calls.append({
+                "app_name": app_name,
+                "user_id": user_id,
+                "session_id": session_id,
+                "initial_state": state
+            })
+            return await original_ensure_session(app_name, user_id, session_id, state)
+
+        with patch.object(adk_agent, '_ensure_session_exists', side_effect=tracking_ensure_session), \
+             patch.object(adk_agent, '_create_runner') as mock_create_runner:
+
+            mock_runner = AsyncMock()
+            mock_runner.close = AsyncMock()
+
+            async def mock_run_async(*args, **kwargs):
+                mock_event = Mock()
+                mock_event.id = "event1"
+                mock_event.author = "test_agent"
+                mock_event.content = Mock()
+                mock_event.content.parts = [Mock(text="Response")]
+                mock_event.partial = False
+                mock_event.actions = None
+                mock_event.get_function_calls = Mock(return_value=[])
+                mock_event.get_function_responses = Mock(return_value=[])
+                yield mock_event
+
+            mock_runner.run_async = mock_run_async
+            mock_create_runner.return_value = mock_runner
+
+            events = [event async for event in adk_agent.run(input_data)]
+
+        # Verify _ensure_session_exists was called with the initial state
+        assert len(ensure_session_calls) == 1
+        assert ensure_session_calls[0]["initial_state"] == initial_state
+
+    @pytest.mark.asyncio
+    async def test_state_synced_via_update_session_state(self, adk_agent):
+        """Test that state is synced to backend via update_session_state on each request."""
+        state_to_sync = {
+            "counter": 42,
+            "items": ["a", "b", "c"]
+        }
+
+        input_data = RunAgentInput(
+            thread_id="session_sync_test",
+            run_id="run_001",
+            messages=[
+                UserMessage(id="msg1", role="user", content="Hello")
+            ],
+            context=[],
+            state=state_to_sync,
+            tools=[],
+            forwarded_props={}
+        )
+
+        # Track calls to update_session_state
+        update_state_calls = []
+
+        async def tracking_update_state(session_id, app_name, user_id, state):
+            update_state_calls.append({
+                "session_id": session_id,
+                "app_name": app_name,
+                "user_id": user_id,
+                "state": state
+            })
+            return True
+
+        with patch.object(adk_agent._session_manager, 'update_session_state', side_effect=tracking_update_state), \
+             patch.object(adk_agent, '_create_runner') as mock_create_runner:
+
+            mock_runner = AsyncMock()
+            mock_runner.close = AsyncMock()
+
+            async def mock_run_async(*args, **kwargs):
+                mock_event = Mock()
+                mock_event.id = "event1"
+                mock_event.author = "test_agent"
+                mock_event.content = Mock()
+                mock_event.content.parts = [Mock(text="Response")]
+                mock_event.partial = False
+                mock_event.actions = None
+                mock_event.get_function_calls = Mock(return_value=[])
+                mock_event.get_function_responses = Mock(return_value=[])
+                yield mock_event
+
+            mock_runner.run_async = mock_run_async
+            mock_create_runner.return_value = mock_runner
+
+            events = [event async for event in adk_agent.run(input_data)]
+
+        # Verify update_session_state was called with the state
+        assert len(update_state_calls) == 1
+        assert update_state_calls[0]["session_id"] == "session_sync_test"
+        assert update_state_calls[0]["state"] == state_to_sync
+
+    @pytest.mark.asyncio
+    async def test_empty_initial_state(self, adk_agent):
+        """Test that empty state is handled correctly."""
+        input_data = RunAgentInput(
+            thread_id="empty_state_session",
+            run_id="run_001",
+            messages=[
+                UserMessage(id="msg1", role="user", content="Hello")
+            ],
+            context=[],
+            state={},
+            tools=[],
+            forwarded_props={}
+        )
+
+        ensure_session_calls = []
+        original_ensure_session = adk_agent._ensure_session_exists
+
+        async def tracking_ensure_session(app_name, user_id, session_id, state):
+            ensure_session_calls.append({
+                "session_id": session_id,
+                "initial_state": state
+            })
+            return await original_ensure_session(app_name, user_id, session_id, state)
+
+        with patch.object(adk_agent, '_ensure_session_exists', side_effect=tracking_ensure_session), \
+             patch.object(adk_agent, '_create_runner') as mock_create_runner:
+
+            mock_runner = AsyncMock()
+            mock_runner.close = AsyncMock()
+
+            async def mock_run_async(*args, **kwargs):
+                mock_event = Mock()
+                mock_event.id = "event1"
+                mock_event.author = "test_agent"
+                mock_event.content = Mock()
+                mock_event.content.parts = [Mock(text="Response")]
+                mock_event.partial = False
+                mock_event.actions = None
+                mock_event.get_function_calls = Mock(return_value=[])
+                mock_event.get_function_responses = Mock(return_value=[])
+                yield mock_event
+
+            mock_runner.run_async = mock_run_async
+            mock_create_runner.return_value = mock_runner
+
+            events = [event async for event in adk_agent.run(input_data)]
+
+        # Verify empty state is passed
+        assert len(ensure_session_calls) == 1
+        assert ensure_session_calls[0]["initial_state"] == {}
+

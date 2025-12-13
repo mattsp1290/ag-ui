@@ -1388,11 +1388,19 @@ class ADKAgent:
                     # Be conservative: if detection fails, do not block streaming path
                     has_lro_function_call = False
 
-                # Process as streaming if it's a chunk OR if it has content,
+                # Check if event has function responses (e.g., backend tool results)
+                # This is needed for skip_summarization scenarios where there's no text
+                # content but we still need to emit ToolCallResultEvent (GitHub #765)
+                has_function_responses = (
+                    hasattr(adk_event, 'get_function_responses') and
+                    adk_event.get_function_responses()
+                )
+
+                # Process as streaming if it's a chunk OR if it has content OR has function responses,
                 # but only when there is no LRO function call present (LRO takes precedence)
                 # Note: We don't exclude based on finish_reason - final responses with content
                 # (e.g., after backend tool completion) must still be translated.
-                if (not has_lro_function_call) and (is_streaming_chunk or has_content):
+                if (not has_lro_function_call) and (is_streaming_chunk or has_content or has_function_responses):
                     # Regular translation path
                     async for ag_ui_event in event_translator.translate(
                         adk_event,

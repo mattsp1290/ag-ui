@@ -13,7 +13,7 @@ from ag_ui_adk.event_translator import EventTranslator
 from ag_ui.core import (
     RunAgentInput, EventType, UserMessage, Context,
     RunStartedEvent, RunFinishedEvent, TextMessageChunkEvent, SystemMessage,
-    TextMessageContentEvent
+    TextMessageContentEvent, ToolCallResultEvent
 )
 from google.adk.agents import Agent
 
@@ -799,5 +799,86 @@ class TestADKAgent:
         content_events = [e for e in events if isinstance(e, TextMessageContentEvent)]
         assert len(content_events) == 1, "Expected one TextMessageContentEvent"
         assert content_events[0].delta == "Final response after tool"
+
+    @pytest.mark.asyncio
+    async def test_skip_summarization_routes_through_translate_for_tool_result(self, adk_agent, sample_input):
+        """Test that skip_summarization scenario routes through translate() to emit ToolCallResultEvent.
+
+        This is a regression test for issue #765: when skip_summarization=True is set,
+        the model returns a final response with:
+        - No text content (has_content=False)
+        - Function responses containing the tool result
+
+        Previously, the routing logic at line 1395 would send this to the LRO branch
+        because `(is_streaming_chunk or has_content)` was False. This caused
+        ToolCallResultEvent to not be emitted.
+
+        The fix adds `has_function_responses` to the routing condition.
+        """
+        translate_calls = 0
+        lro_calls = 0
+
+        async def fake_translate(self, adk_event, thread_id, run_id):
+            nonlocal translate_calls
+            translate_calls += 1
+            yield ToolCallResultEvent(
+                type=EventType.TOOL_CALL_RESULT,
+                message_id="msg-result",
+                tool_call_id="tool-skip-sum",
+                content='{"success": true}'
+            )
+
+        async def fake_translate_lro(self, adk_event):
+            nonlocal lro_calls
+            lro_calls += 1
+            if False:
+                yield  # pragma: no cover - keeps this an async generator
+
+        # Simulate skip_summarization scenario:
+        # - is_final_response() = True
+        # - has_content = False (no text parts - this is the key!)
+        # - has function_responses (tool result)
+        # - NO long_running_tool_ids (backend tool)
+        func_response = SimpleNamespace(id="tool-skip-sum", response={"success": True})
+        skip_sum_event = SimpleNamespace(
+            id="event-skip-summarization",
+            author="assistant",
+            content=SimpleNamespace(parts=[]),  # Empty parts - no text!
+            partial=False,
+            turn_complete=True,
+            usage_metadata={"tokens": 5},
+            finish_reason="STOP",
+            actions=None,
+            custom_data=None,
+            long_running_tool_ids=[],
+            get_function_calls=lambda: [],
+            get_function_responses=lambda: [func_response],  # Has function response!
+            is_final_response=lambda: True
+        )
+
+        class FakeRunner:
+            async def run_async(self, *args, **kwargs):
+                yield skip_sum_event
+
+        with patch("ag_ui_adk.adk_agent.EventTranslator.translate", new=fake_translate), \
+             patch("ag_ui_adk.adk_agent.EventTranslator.translate_lro_function_calls", new=fake_translate_lro), \
+             patch.object(adk_agent, "_create_runner", return_value=FakeRunner()):
+            events = [event async for event in adk_agent.run(sample_input)]
+
+        # KEY ASSERTION: translate() should be called to emit ToolCallResultEvent
+        # If this fails, the routing logic is incorrectly sending to LRO branch
+        assert translate_calls == 1, (
+            f"Expected translate() to be called once for skip_summarization event, got {translate_calls}. "
+            "Events with function_responses but no content must route through translate()."
+        )
+        assert lro_calls == 0, (
+            f"Expected translate_lro_function_calls() NOT to be called, got {lro_calls}. "
+            "skip_summarization events should not go through LRO path."
+        )
+
+        # Verify ToolCallResultEvent was emitted
+        tool_results = [e for e in events if isinstance(e, ToolCallResultEvent)]
+        assert len(tool_results) == 1, "Expected one ToolCallResultEvent"
+        assert tool_results[0].tool_call_id == "tool-skip-sum"
 
 

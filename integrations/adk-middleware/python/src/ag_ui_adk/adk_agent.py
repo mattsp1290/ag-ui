@@ -621,6 +621,11 @@ class ADKAgent:
             message_id = getattr(message, "id", None)
             if message_id and message_id in processed_ids:
                 continue
+            # For ToolMessages, also check if tool_call_id is processed (fixes #437 replay bug)
+            # Backend tool results mark their tool_call_id as processed when completed
+            tool_call_id = getattr(message, "tool_call_id", None)
+            if tool_call_id and tool_call_id in processed_ids:
+                continue
             unseen.append(message)
 
         return unseen
@@ -971,6 +976,10 @@ class ADKAgent:
                 if isinstance(event, ToolCallResultEvent) and event.tool_call_id in tool_call_ids:
                     logger.info(f"Detected ToolCallResultEvent with id: {event.tool_call_id}")
                     tool_call_ids.remove(event.tool_call_id)
+                    # Mark tool_call_id as processed so replay will skip it (fixes #437 replay bug)
+                    self._session_manager.mark_messages_processed(
+                        self._get_app_name(input), execution.thread_id, [event.tool_call_id]
+                    )
 
                 logger.debug(f"Yielding event: {type(event).__name__}")
                 yield event

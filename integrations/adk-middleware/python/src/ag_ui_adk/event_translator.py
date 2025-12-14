@@ -361,11 +361,18 @@ class EventTranslator:
 
             # Case 2: No stream is active.
             # Check for duplicates from a *previous* stream in this *same run*.
-            is_duplicate = (
-                self._last_streamed_run_id == run_id and
-                self._last_streamed_text is not None and
-                combined_text == self._last_streamed_text
-            )
+            # We use two checks:
+            # 1. Exact match - handles normal delta streaming where accumulated
+            #    text equals the final consolidated message
+            # 2. Suffix match - handles LLMs that send accumulated text in each
+            #    chunk (not deltas), where _last_streamed_text will be concatenated
+            #    chunks ending with the final text (GitHub #400)
+            is_duplicate = False
+            if self._last_streamed_run_id == run_id and self._last_streamed_text is not None:
+                if combined_text == self._last_streamed_text:
+                    is_duplicate = True
+                elif self._last_streamed_text.endswith(combined_text):
+                    is_duplicate = True
 
             if is_duplicate:
                 logger.info(

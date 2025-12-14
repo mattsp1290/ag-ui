@@ -1272,7 +1272,7 @@ class ADKAgent:
                     content=function_response_content
                 )
 
-                session.events.append(function_response_event)
+                await self._session_manager._session_service.append_event(session, function_response_event)
 
                 # Mark user messages from message_batch as processed
                 if message_batch:

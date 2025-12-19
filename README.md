@@ -125,7 +125,7 @@ AG-UI was born from CopilotKit's initial **partnership** with LangGraph and Crew
 | ---------- | ------- | ---------------- | ------------- |
 | [A2A]() | ✅ Supported | ➡️ [Docs](https://docs.copilotkit.ai/a2a-protocol) | Partnership |
 
-### Specification (standard)
+## Specification (standard)
 | Framework | Status | AG-UI Resources |
 | ---------- | ------- | ---------------- |
 | [Oracle Agent Spec](http://oracle.github.io/agent-spec/) | ✅ Supported | ➡️ [Docs](https://go.copilotkit.ai/copilotkit-oracle-docs) 🎮 [Demos](https://dojo.ag-ui.com/agent-spec-langgraph/feature/tool_based_generative_ui) |

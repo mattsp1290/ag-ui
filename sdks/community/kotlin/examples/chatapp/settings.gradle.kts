@@ -4,11 +4,17 @@ include(":shared")
 include(":androidApp")
 include(":desktopApp")
 
-// Include example tools module
-include(":tools")
-project(":tools").projectDir = file("../tools")
+include(":chatapp-shared")
+project(":chatapp-shared").projectDir = file("../chatapp-shared")
 
-// Library modules will be pulled from Maven instead of local build
+// Include local library for development (using local modules with new Activity types)
+includeBuild("../../library") {
+    dependencySubstitution {
+        substitute(module("com.ag-ui.community:kotlin-core")).using(project(":kotlin-core"))
+        substitute(module("com.ag-ui.community:kotlin-client")).using(project(":kotlin-client"))
+        substitute(module("com.ag-ui.community:kotlin-tools")).using(project(":kotlin-tools"))
+    }
+}
 
 pluginManagement {
     repositories {
@@ -19,9 +25,9 @@ pluginManagement {
     }
 
     plugins {
-        val kotlinVersion = "2.1.21"
-        val composeVersion = "1.7.3"
-        val agpVersion = "8.10.1"
+        val kotlinVersion = "2.1.20"
+        val composeVersion = "1.9.3"
+        val agpVersion = "8.12.0"
 
         kotlin("multiplatform") version kotlinVersion
         kotlin("android") version kotlinVersion

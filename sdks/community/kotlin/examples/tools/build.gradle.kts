@@ -4,8 +4,8 @@ plugins {
     id("com.android.library")
 }
 
-group = "com.agui.examples"
-version = "0.2.1"
+group = "com.ag-ui.community"
+version = "0.2.6"
 
 repositories {
     google()
@@ -64,22 +64,22 @@ kotlin {
         val commonMain by getting {
             dependencies {
                 // Core and tools dependencies
-                api("com.agui:kotlin-core:0.2.1")
-                api("com.agui:kotlin-tools:0.2.1")
-                
+                api(libs.agui.core)
+                api(libs.agui.tools)
+
                 // Kotlinx libraries
                 implementation(libs.kotlinx.coroutines.core)
                 implementation(libs.kotlinx.serialization.json)
                 implementation(libs.kotlinx.datetime)
             }
         }
-        
+
         val commonTest by getting {
             dependencies {
                 implementation(kotlin("test"))
                 implementation(libs.kotlinx.coroutines.test)
                 // Add client module for integration testing (includes agent functionality)
-                implementation("com.agui:kotlin-client:0.2.1")
+                implementation(libs.agui.client)
             }
         }
         

@@ -111,6 +111,12 @@ const ALL_SERVICES = {
     cwd: path.join(integrationsRoot, 'pydantic-ai/python/examples'),
     env: { PORT: 8009 },
   }],
+  'aws-strands': [{
+    command: 'poetry run dev',
+    name: 'AWS Strands',
+    cwd: path.join(integrationsRoot, 'aws-strands/python/examples'),
+    env: { PORT: 8017 },
+  }],
   'adk-middleware': [{
     command: 'uv run dev',
     name: 'ADK Middleware',
@@ -141,6 +147,18 @@ const ALL_SERVICES = {
     cwd: path.join(middlewaresRoot, "a2a-middleware/examples"),
     env: { PORT: 8014 },
   }],
+  'microsoft-agent-framework-python': [{
+    command: 'uv run dev',
+    name: 'Microsoft Agent Framework (Python)',
+    cwd: path.join(integrationsRoot, 'microsoft-agent-framework/python/examples'),
+    env: { PORT: 8015 },
+  }],
+  'microsoft-agent-framework-dotnet': [{
+    command: 'dotnet run --project AGUIDojoServer/AGUIDojoServer.csproj --urls "http://localhost:8889" --no-build',
+    name: 'Microsoft Agent Framework (.NET)',
+    cwd: path.join(integrationsRoot, 'microsoft-agent-framework/dotnet/examples'),
+    env: { PORT: 8016 },
+  }],
   'dojo': [{
     command: 'pnpm run start',
     name: 'Dojo',
@@ -162,6 +180,32 @@ const ALL_SERVICES = {
       A2A_MIDDLEWARE_FINANCE_URL: 'http://localhost:8012',
       A2A_MIDDLEWARE_IT_URL: 'http://localhost:8013',
       A2A_MIDDLEWARE_ORCHESTRATOR_URL: 'http://localhost:8014',
+      AWS_STRANDS_URL: 'http://localhost:8017',
+      NEXT_PUBLIC_CUSTOM_DOMAIN_TITLE: 'cpkdojo.local___CopilotKit Feature Viewer',
+    },
+  }],
+  'dojo-dev': [{
+    command: 'pnpm run dev --filter=demo-viewer...',
+    name: 'Dojo (dev)',
+    cwd: gitRoot,
+    env: {
+      PORT: 9999,
+      SERVER_STARTER_URL: 'http://localhost:8000',
+      SERVER_STARTER_ALL_FEATURES_URL: 'http://localhost:8001',
+      AGNO_URL: 'http://localhost:8002',
+      CREW_AI_URL: 'http://localhost:8003',
+      LANGGRAPH_FAST_API_URL: 'http://localhost:8004',
+      LANGGRAPH_PYTHON_URL: 'http://localhost:8005',
+      LANGGRAPH_TYPESCRIPT_URL: 'http://localhost:8006',
+      LLAMA_INDEX_URL: 'http://localhost:8007',
+      MASTRA_URL: 'http://localhost:8008',
+      PYDANTIC_AI_URL: 'http://localhost:8009',
+      ADK_MIDDLEWARE_URL: 'http://localhost:8010',
+      A2A_MIDDLEWARE_BUILDINGS_MANAGEMENT_URL: 'http://localhost:8011',
+      A2A_MIDDLEWARE_FINANCE_URL: 'http://localhost:8012',
+      A2A_MIDDLEWARE_IT_URL: 'http://localhost:8013',
+      A2A_MIDDLEWARE_ORCHESTRATOR_URL: 'http://localhost:8014',
+      AWS_STRANDS_URL: 'http://localhost:8017',
       NEXT_PUBLIC_CUSTOM_DOMAIN_TITLE: 'cpkdojo.local___CopilotKit Feature Viewer',
     },
   }],
@@ -193,6 +237,10 @@ async function main() {
   }
   if (excludeList && excludeList.length) {
     selectedKeys = selectedKeys.filter((k) => !excludeList.includes(k));
+  }
+
+  if (selectedKeys.includes("dojo") && selectedKeys.includes("dojo-dev")) {
+    selectedKeys= selectedKeys.filter(x => x != "dojo-dev");
   }
 
   // Build processes, warn for unknown keys

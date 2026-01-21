@@ -2,12 +2,18 @@
 
 """Session manager that adds production features to ADK's native session service."""
 
-from typing import Dict, Optional, Set, Any, Union
+from typing import Dict, Optional, Set, Any, Union, Iterable, Tuple
 import asyncio
 import logging
 import time
 
 logger = logging.getLogger(__name__)
+
+# Keys used to store AG-UI metadata in session state for recovery after restart
+THREAD_ID_STATE_KEY = "_ag_ui_thread_id"
+APP_NAME_STATE_KEY = "_ag_ui_app_name"
+USER_ID_STATE_KEY = "_ag_ui_user_id"
+CONTEXT_STATE_KEY = "_ag_ui_context"
 
 
 class SessionManager:
@@ -38,7 +44,8 @@ class SessionManager:
         session_timeout_seconds: int = 1200,  # 20 minutes default
         cleanup_interval_seconds: int = 300,  # 5 minutes
         max_sessions_per_user: Optional[int] = None,
-        auto_cleanup: bool = True
+        delete_session_on_cleanup: bool = True,
+        save_session_to_memory_on_cleanup: bool = True,
     ):
         """Initialize the session manager.
         
@@ -48,7 +55,8 @@ class SessionManager:
             session_timeout_seconds: Time before a session is considered expired
             cleanup_interval_seconds: Interval between cleanup cycles
             max_sessions_per_user: Maximum concurrent sessions per user (None = unlimited)
-            auto_cleanup: Enable automatic session cleanup task
+            delete_session_on_cleanup: Whether to delete sessions on cleanup
+            save_session_to_memory_on_cleanup: Whether to save sessions to memory on cleanup
         """
         if self._initialized:
             return
@@ -62,11 +70,13 @@ class SessionManager:
         self._timeout = session_timeout_seconds
         self._cleanup_interval = cleanup_interval_seconds
         self._max_per_user = max_sessions_per_user
-        self._auto_cleanup = auto_cleanup
+        self._delete_session_on_cleanup = delete_session_on_cleanup
+        self._save_session_to_memory_on_cleanup = save_session_to_memory_on_cleanup
         
         # Minimal tracking: just keys and user counts
         self._session_keys: Set[str] = set()  # "app_name:session_id" keys
         self._user_sessions: Dict[str, Set[str]] = {}  # user_id -> set of session_keys
+        self._processed_message_ids: Dict[str, Set[str]] = {}
         
         self._cleanup_task: Optional[asyncio.Task] = None
         self._initialized = True
@@ -99,50 +109,130 @@ class SessionManager:
     
     async def get_or_create_session(
         self,
-        session_id: str,
+        thread_id: str,
         app_name: str,
         user_id: str,
         initial_state: Optional[Dict[str, Any]] = None
-    ) -> Any:
+    ) -> Tuple[Any, str]:
         """Get existing session or create new one.
-        
-        Returns the ADK session object directly.
+
+        Args:
+            thread_id: The AG-UI thread_id (client-provided identifier)
+            app_name: Application name
+            user_id: User identifier
+            initial_state: Optional initial state for new sessions
+
+        Returns:
+            Tuple of (session, backend_session_id). The backend_session_id may differ
+            from thread_id (e.g., VertexAI generates numeric IDs). The thread_id is
+            stored in session state for recovery after middleware restarts.
         """
-        session_key = f"{app_name}:{session_id}"
-        
         # Check user limits before creating
-        if session_key not in self._session_keys and self._max_per_user:
+        if self._max_per_user:
             user_count = len(self._user_sessions.get(user_id, set()))
             if user_count >= self._max_per_user:
                 # Remove oldest session for this user
                 await self._remove_oldest_user_session(user_id)
-        
-        # Get or create via ADK
-        session = await self._session_service.get_session(
-            session_id=session_id,
+
+        # Try to find existing session by thread_id in state
+        session = await self._find_session_by_thread_id(app_name, user_id, thread_id)
+        if session:
+            session_key = self._make_session_key(app_name, session.id)
+            self._track_session(session_key, user_id)
+            logger.debug(f"Retrieved existing session for thread {thread_id}: {session.id}")
+
+            # Start cleanup
+            if not self._cleanup_task:
+                self._start_cleanup_task()
+
+            return session, session.id
+
+        # Create new session - always let backend generate session_id
+        # Store AG-UI metadata in state for recovery after restart
+        state = {
+            **(initial_state or {}),
+            THREAD_ID_STATE_KEY: thread_id,
+            APP_NAME_STATE_KEY: app_name,
+            USER_ID_STATE_KEY: user_id
+        }
+
+        session = await self._session_service.create_session(
+            user_id=user_id,
             app_name=app_name,
-            user_id=user_id
+            state=state
+            # Note: session_id intentionally omitted - let backend generate it
         )
-        
-        if not session:
-            session = await self._session_service.create_session(
-                session_id=session_id,
-                user_id=user_id,
-                app_name=app_name,
-                state=initial_state or {}
-            )
-            logger.info(f"Created new session: {session_key}")
-        else:
-            logger.debug(f"Retrieved existing session: {session_key}")
-        
-        # Track the session key
+
+        session_key = self._make_session_key(app_name, session.id)
         self._track_session(session_key, user_id)
-        
-        # Start cleanup if needed
-        if self._auto_cleanup and not self._cleanup_task:
+        logger.info(f"Created new session for thread {thread_id}: {session.id}")
+
+        # Start cleanup
+        if not self._cleanup_task:
             self._start_cleanup_task()
-        
-        return session
+
+        return session, session.id
+
+    async def _find_session_by_thread_id(
+        self,
+        app_name: str,
+        user_id: str,
+        thread_id: str
+    ) -> Optional[Any]:
+        """Find existing session by thread_id stored in session state.
+
+        This is the recovery path after middleware restart. Since we always let
+        the backend generate session_id, we can only find existing sessions by
+        searching their state for _ag_ui_thread_id.
+
+        Args:
+            app_name: Application name
+            user_id: User identifier
+            thread_id: The AG-UI thread_id to search for
+
+        Returns:
+            Session object if found, None otherwise
+        """
+        if hasattr(self._session_service, 'list_sessions'):
+            try:
+                response = await self._session_service.list_sessions(
+                    app_name=app_name,
+                    user_id=user_id
+                )
+                # list_sessions returns ListSessionsResponse with .sessions attribute
+                for session in response.sessions:
+                    if session.state and session.state.get(THREAD_ID_STATE_KEY) == thread_id:
+                        return session
+            except Exception as e:
+                logger.error(f"Error listing sessions for thread_id lookup: {e}")
+
+        return None
+
+    async def get_session(
+        self,
+        session_id: str,
+        app_name: str,
+        user_id: str
+    ) -> Optional[Any]:
+        """Get a session by its backend session_id.
+
+        Args:
+            session_id: The backend session ID
+            app_name: Application name
+            user_id: User identifier
+
+        Returns:
+            Session object if found, None otherwise
+        """
+        try:
+            return await self._session_service.get_session(
+                session_id=session_id,
+                app_name=app_name,
+                user_id=user_id
+            )
+        except Exception as e:
+            logger.error(f"Error getting session {session_id}: {e}")
+            return None
     
     # ===== STATE MANAGEMENT METHODS =====
     
@@ -195,10 +285,12 @@ class SessionManager:
                 # This depends on ADK's behavior - may need to explicitly clear
             
             # Create event with state changes
+            # Use "user" as author since state updates come from the frontend
+            # Note: Using "system" causes ADK runner warnings in _find_agent_to_run
             actions = EventActions(state_delta=state_delta)
             event = Event(
                 invocation_id=f"state_update_{int(time.time())}",
-                author="system",
+                author="user",
                 actions=actions,
                 timestamp=time.time()
             )
@@ -222,12 +314,12 @@ class SessionManager:
         user_id: str
     ) -> Optional[Dict[str, Any]]:
         """Get current session state.
-        
+
         Args:
             session_id: Session identifier
             app_name: Application name
             user_id: User identifier
-            
+
         Returns:
             Session state dictionary or None if session not found
         """
@@ -237,18 +329,18 @@ class SessionManager:
                 app_name=app_name,
                 user_id=user_id
             )
-            
+
             if not session:
                 logger.debug(f"Session not found when getting state: {app_name}:{session_id}")
                 return None
-            
+
             # Return state as dictionary
             if hasattr(session.state, 'to_dict'):
                 return session.state.to_dict()
             else:
                 # Fallback for dict-like state objects
                 return dict(session.state)
-                
+
         except Exception as e:
             logger.error(f"Failed to get session state: {e}", exc_info=True)
             return None
@@ -504,19 +596,40 @@ class SessionManager:
     def _track_session(self, session_key: str, user_id: str):
         """Track a session key for enumeration."""
         self._session_keys.add(session_key)
-        
+
         if user_id not in self._user_sessions:
             self._user_sessions[user_id] = set()
         self._user_sessions[user_id].add(session_key)
-    
+
     def _untrack_session(self, session_key: str, user_id: str):
         """Remove session tracking."""
         self._session_keys.discard(session_key)
-        
+        self._processed_message_ids.pop(session_key, None)
+
         if user_id in self._user_sessions:
             self._user_sessions[user_id].discard(session_key)
             if not self._user_sessions[user_id]:
                 del self._user_sessions[user_id]
+
+    def _make_session_key(self, app_name: str, session_id: str) -> str:
+        return f"{app_name}:{session_id}"
+
+    def get_processed_message_ids(self, app_name: str, session_id: str) -> Set[str]:
+        session_key = self._make_session_key(app_name, session_id)
+        return set(self._processed_message_ids.get(session_key, set()))
+
+    def mark_messages_processed(
+        self,
+        app_name: str,
+        session_id: str,
+        message_ids: Iterable[str],
+    ) -> None:
+        session_key = self._make_session_key(app_name, session_id)
+        processed_ids = self._processed_message_ids.setdefault(session_key, set())
+
+        for message_id in message_ids:
+            if message_id:
+                processed_ids.add(message_id)
     
     async def _remove_oldest_user_session(self, user_id: str):
         """Remove the oldest session for a user based on lastUpdateTime."""
@@ -544,7 +657,7 @@ class SessionManager:
                 logger.error(f"Error checking session {session_key}: {e}")
         
         if oldest_session:
-            session_key = f"{oldest_session.app_name}:{oldest_session.id}"
+            session_key = self._make_session_key(oldest_session.app_name, oldest_session.id)
             await self._delete_session(oldest_session)
             logger.info(f"Removed oldest session for user {user_id}: {session_key}")
     
@@ -562,22 +675,23 @@ class SessionManager:
         
         # If memory service is available, add session to memory before deletion
         logger.debug(f"Deleting session {session_key}, memory_service: {self._memory_service is not None}")
-        if self._memory_service:
+        if self._memory_service and self._save_session_to_memory_on_cleanup:
             try:
                 await self._memory_service.add_session_to_memory(session)
                 logger.debug(f"Added session {session_key} to memory before deletion")
             except Exception as e:
                 logger.error(f"Failed to add session {session_key} to memory: {e}")
         
-        try:
-            await self._session_service.delete_session(
-                session_id=session.id,
-                app_name=session.app_name,
-                user_id=session.user_id
-            )
-            logger.debug(f"Deleted session: {session_key}")
-        except Exception as e:
-            logger.error(f"Failed to delete session {session_key}: {e}")
+        if self._delete_session_on_cleanup:
+            try:
+                await self._session_service.delete_session(
+                    session_id=session.id,
+                    app_name=session.app_name,
+                    user_id=session.user_id
+                )
+                logger.debug(f"Deleted session: {session_key}")
+            except Exception as e:
+                logger.error(f"Failed to delete session {session_key}: {e}")
         
         self._untrack_session(session_key, session.user_id)
     
@@ -635,7 +749,8 @@ class SessionManager:
                     if age > self._timeout:
                         # Check for pending tool calls before deletion (HITL scenarios)
                         pending_calls = session.state.get("pending_tool_calls", []) if session.state else []
-                        if pending_calls:
+                        has_pending = len(pending_calls) > 0
+                        if has_pending:
                             logger.info(f"Preserving expired session {session_key} - has {len(pending_calls)} pending tool calls (HITL)")
                         else:
                             await self._delete_session(session)

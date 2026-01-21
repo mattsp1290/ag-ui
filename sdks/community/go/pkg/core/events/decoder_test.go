@@ -1,7 +1,6 @@
 package events
 
 import (
-	"encoding/json"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -92,6 +91,24 @@ func TestEventDecoder(t *testing.T) {
 		require.True(t, ok)
 		assert.Equal(t, "msg-123", msgEvent.MessageID)
 		assert.Equal(t, "Hello World", msgEvent.Delta)
+	})
+
+	t.Run("DecodeEvent_TextMessageChunk", func(t *testing.T) {
+		decoder := NewEventDecoder(nil)
+		data := []byte(`{"messageId": "msg-123", "role": "assistant", "delta": "Hi"}`)
+
+		event, err := decoder.DecodeEvent("TEXT_MESSAGE_CHUNK", data)
+		require.NoError(t, err)
+		require.NotNil(t, event)
+
+		msgEvent, ok := event.(*TextMessageChunkEvent)
+		require.True(t, ok)
+		require.NotNil(t, msgEvent.MessageID)
+		require.NotNil(t, msgEvent.Role)
+		require.NotNil(t, msgEvent.Delta)
+		assert.Equal(t, "msg-123", *msgEvent.MessageID)
+		assert.Equal(t, "assistant", *msgEvent.Role)
+		assert.Equal(t, "Hi", *msgEvent.Delta)
 	})
 
 	t.Run("DecodeEvent_TextMessageEnd", func(t *testing.T) {
@@ -205,6 +222,41 @@ func TestEventDecoder(t *testing.T) {
 		assert.Equal(t, "msg-1", msgEvent.Messages[0].ID)
 	})
 
+	t.Run("DecodeEvent_ActivitySnapshot", func(t *testing.T) {
+		decoder := NewEventDecoder(nil)
+		data := []byte(`{"messageId": "activity-1", "activityType": "PLAN", "content": {"status": "draft"}, "replace": false}`)
+
+		event, err := decoder.DecodeEvent("ACTIVITY_SNAPSHOT", data)
+		require.NoError(t, err)
+		require.NotNil(t, event)
+
+		activityEvent, ok := event.(*ActivitySnapshotEvent)
+		require.True(t, ok)
+		assert.Equal(t, "activity-1", activityEvent.MessageID)
+		assert.Equal(t, "PLAN", activityEvent.ActivityType)
+		require.NotNil(t, activityEvent.Replace)
+		assert.False(t, *activityEvent.Replace)
+		content, ok := activityEvent.Content.(map[string]any)
+		require.True(t, ok)
+		assert.Equal(t, "draft", content["status"])
+	})
+
+	t.Run("DecodeEvent_ActivityDelta", func(t *testing.T) {
+		decoder := NewEventDecoder(nil)
+		data := []byte(`{"messageId": "activity-1", "activityType": "PLAN", "patch": [{"op": "replace", "path": "/status", "value": "streaming"}]}`)
+
+		event, err := decoder.DecodeEvent("ACTIVITY_DELTA", data)
+		require.NoError(t, err)
+		require.NotNil(t, event)
+
+		activityEvent, ok := event.(*ActivityDeltaEvent)
+		require.True(t, ok)
+		assert.Equal(t, "activity-1", activityEvent.MessageID)
+		assert.Equal(t, "PLAN", activityEvent.ActivityType)
+		assert.Len(t, activityEvent.Patch, 1)
+		assert.Equal(t, "replace", activityEvent.Patch[0].Op)
+	})
+
 	t.Run("DecodeEvent_StepStarted", func(t *testing.T) {
 		decoder := NewEventDecoder(nil)
 		data := []byte(`{"stepName": "step-1"}`)
@@ -314,21 +366,5 @@ func TestEventDecoder(t *testing.T) {
 		event, err := decoder.DecodeEvent("RUN_STARTED", data)
 		assert.Error(t, err)
 		assert.Nil(t, event)
-	})
-
-	t.Run("DecodeEvent_UnknownButValidEventType", func(t *testing.T) {
-		decoder := NewEventDecoder(nil)
-		data := []byte(`{"some": "data"}`)
-
-		// This should fall through to the default case and return a RawEvent
-		event, err := decoder.DecodeEvent("TEXT_MESSAGE_CHUNK", data)
-		require.NoError(t, err)
-		require.NotNil(t, event)
-
-		rawEvent, ok := event.(*RawEvent)
-		require.True(t, ok)
-		assert.Equal(t, EventType("TEXT_MESSAGE_CHUNK"), rawEvent.EventType)
-		assert.Equal(t, "TEXT_MESSAGE_CHUNK", *rawEvent.Source)
-		assert.Equal(t, json.RawMessage(data), rawEvent.Event)
 	})
 }

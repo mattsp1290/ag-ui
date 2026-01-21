@@ -6,10 +6,9 @@ plugins {
     id("signing")
 }
 
-group = "com.agui"
-version = "0.2.1"
+// Group and version inherited from parent build.gradle.kts
 
-repositories {
+repositories{
     google()
     mavenCentral()
 }
@@ -106,7 +105,7 @@ android {
     compileSdk = 36
     
     defaultConfig {
-        minSdk = 26
+        minSdk = 24
     }
     
     testOptions {
@@ -125,6 +124,7 @@ android {
 publishing {
     publications {
         withType<MavenPublication> {
+            version = project.version.toString()
             pom {
                 name.set("kotlin-tools")
                 description.set("Tool execution system for the Agent User Interaction Protocol")

@@ -6,8 +6,7 @@ plugins {
     id("signing")
 }
 
-group = "com.agui"
-version = "0.2.1"
+// Group and version inherited from parent build.gradle.kts
 
 repositories {
     google()
@@ -135,7 +134,7 @@ android {
     compileSdk = 36
     
     defaultConfig {
-        minSdk = 26
+        minSdk = 24
         consumerProguardFiles("consumer-rules.pro")
     }
     
@@ -155,6 +154,7 @@ android {
 publishing {
     publications {
         withType<MavenPublication> {
+            version = project.version.toString()
             pom {
                 name.set("kotlin-client")
                 description.set("Client SDK for the Agent User Interaction Protocol")

@@ -17,6 +17,7 @@
             "group": "Get Started",
             "pages": [
               "introduction",
+              "agentic-protocols",
               {
                 "group": "Quickstart",
                 "pages": [
@@ -40,18 +41,19 @@
               "concepts/architecture",
               "concepts/events",
               "concepts/agents",
+              "concepts/middleware",
               "concepts/messages",
               "concepts/state",
-              "concepts/tools"
+              "concepts/serialization",
+              "concepts/tools",
+              "concepts/generative-ui-specs"
             ]
           },
           {
             "group": "Draft Proposals",
             "pages": [
               "drafts/overview",
-              "drafts/activity-events",
               "drafts/reasoning",
-              "drafts/serialization",
               "drafts/multimodal-messages",
               "drafts/interrupts",
               "drafts/generative-ui",
@@ -85,7 +87,9 @@
                   "sdk/js/client/overview",
                   "sdk/js/client/abstract-agent",
                   "sdk/js/client/http-agent",
-                  "sdk/js/client/subscriber"
+                  "sdk/js/client/middleware",
+                  "sdk/js/client/subscriber",
+                  "sdk/js/client/compaction"
                 ]
               },
               "sdk/js/encoder",

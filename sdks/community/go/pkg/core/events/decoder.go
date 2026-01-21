@@ -60,6 +60,13 @@ func (ed *EventDecoder) DecodeEvent(eventName string, data []byte) (Event, error
 		}
 		return &evt, nil
 
+	case EventTypeTextMessageChunk:
+		var evt TextMessageChunkEvent
+		if err := json.Unmarshal(data, &evt); err != nil {
+			return nil, fmt.Errorf("failed to decode TEXT_MESSAGE_CHUNK: %w", err)
+		}
+		return &evt, nil
+
 	case EventTypeTextMessageContent:
 		var evt TextMessageContentEvent
 		if err := json.Unmarshal(data, &evt); err != nil {
@@ -120,6 +127,20 @@ func (ed *EventDecoder) DecodeEvent(eventName string, data []byte) (Event, error
 		var evt MessagesSnapshotEvent
 		if err := json.Unmarshal(data, &evt); err != nil {
 			return nil, fmt.Errorf("failed to decode MESSAGES_SNAPSHOT: %w", err)
+		}
+		return &evt, nil
+
+	case EventTypeActivitySnapshot:
+		var evt ActivitySnapshotEvent
+		if err := json.Unmarshal(data, &evt); err != nil {
+			return nil, fmt.Errorf("failed to decode ACTIVITY_SNAPSHOT: %w", err)
+		}
+		return &evt, nil
+
+	case EventTypeActivityDelta:
+		var evt ActivityDeltaEvent
+		if err := json.Unmarshal(data, &evt); err != nil {
+			return nil, fmt.Errorf("failed to decode ACTIVITY_DELTA: %w", err)
 		}
 		return &evt, nil
 

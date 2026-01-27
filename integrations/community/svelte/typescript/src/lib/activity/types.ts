@@ -1,4 +1,3 @@
-import type { ComponentType } from "svelte";
 import type { NormalizedActivity } from "../events/types";
 
 /**
@@ -14,9 +13,10 @@ export interface ActivityRendererProps<T = unknown> {
 }
 
 /**
- * Activity renderer component type
+ * Activity renderer component type (Svelte 5 compatible)
  */
-export type ActivityRenderer<T = unknown> = ComponentType<ActivityRendererProps<T>>;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export type ActivityRenderer<T = unknown> = new (...args: any[]) => any;
 
 /**
  * Activity renderer registration

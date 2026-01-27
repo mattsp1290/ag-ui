@@ -86,7 +86,7 @@ export function getActivityPreview(
   activity: NormalizedActivity,
   maxLength = 100
 ): string {
-  const content = activity.content;
+  const content = activity.content as unknown;
 
   if (typeof content === "string") {
     if (content.length <= maxLength) return content;

@@ -88,7 +88,12 @@ export function sortToolCalls(
 
   switch (order) {
     case "status":
-      const statusOrder = { pending: 0, streaming: 1, completed: 2 };
+      const statusOrder: Record<NormalizedToolCall["status"], number> = {
+        pending: 0,
+        streaming: 1,
+        completed: 2,
+        error: 3,
+      };
       sorted.sort((a, b) => statusOrder[a.status] - statusOrder[b.status]);
       break;
     case "name":

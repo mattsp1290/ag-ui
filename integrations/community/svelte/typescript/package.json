@@ -30,6 +30,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "playwright test -c tests/e2e/playwright.config.ts",
     "link:global": "pnpm link --global",
     "unlink:global": "pnpm unlink --global"
   },
@@ -45,6 +46,7 @@
   "devDependencies": {
     "@ag-ui/client": "workspace:*",
     "@ag-ui/core": "workspace:*",
+    "@playwright/test": "^1.41.0",
     "@testing-library/svelte": "^5.2.0",
     "@types/node": "^20.11.19",
     "@types/uuid": "^9.0.0",

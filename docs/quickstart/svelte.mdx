@@ -1,0 +1,239 @@
+---
+title: "Svelte Integration"
+description: "Build agent-powered UIs with Svelte using reactive stores and AG-UI events"
+---
+
+# Svelte Integration
+
+The `@ag-ui/svelte` package provides reactive Svelte stores and utilities for building agent-powered user interfaces. It handles AG-UI protocol events and transforms them into reactive state that Svelte components can consume.
+
+## Installation
+
+```bash
+npm install @ag-ui/svelte @ag-ui/client @ag-ui/core
+```
+
+## Quick Start
+
+### 1. Create an Agent Store
+
+The `createAgentStore` function wraps any `AbstractAgent` implementation and provides reactive stores for messages, tool calls, state, and more.
+
+```typescript
+import { createAgentStore } from "@ag-ui/svelte";
+import { HttpAgent } from "@ag-ui/client";
+
+// Create an HTTP agent pointing to your AG-UI server
+const agent = new HttpAgent({
+  url: "http://localhost:3000/api/agent",
+});
+
+// Create reactive stores
+const store = createAgentStore(agent, {
+  debug: true,
+});
+
+const { messages, isRunning, error, toolCalls, state, start, cancel } = store;
+```
+
+### 2. Build Your Chat Component
+
+```svelte
+<script lang="ts">
+  import { createAgentStore } from "@ag-ui/svelte";
+  import { HttpAgent } from "@ag-ui/client";
+
+  const agent = new HttpAgent({
+    url: "/api/agent",
+  });
+
+  const store = createAgentStore(agent);
+  const { messages, isRunning, start } = store;
+
+  let input = "";
+
+  async function handleSend() {
+    if (!input.trim()) return;
+    await start({ text: input });
+    input = "";
+  }
+</script>
+
+<div class="chat">
+  <div class="messages">
+    {#each $messages as message (message.id)}
+      <div class="message {message.role}">
+        <strong>{message.role}:</strong>
+        <span>{message.content}</span>
+        {#if message.isStreaming}
+          <span class="typing">...</span>
+        {/if}
+      </div>
+    {/each}
+  </div>
+
+  <form on:submit|preventDefault={handleSend}>
+    <input
+      bind:value={input}
+      placeholder="Type a message..."
+      disabled={$isRunning}
+    />
+    <button type="submit" disabled={$isRunning}>
+      {$isRunning ? "Sending..." : "Send"}
+    </button>
+  </form>
+</div>
+```
+
+## Core Concepts
+
+### Agent Store
+
+The agent store provides reactive Svelte stores for:
+
+- `messages` - Array of normalized messages
+- `isRunning` - Whether a run is in progress
+- `error` - Current error (if any)
+- `toolCalls` - Active tool calls
+- `state` - Shared agent state
+- `status` - Human-readable status message
+
+### Event Normalization
+
+AG-UI events are automatically normalized into structured models:
+
+```typescript
+interface NormalizedMessage {
+  id: string;
+  role: "user" | "assistant" | "system" | "tool";
+  content: string;
+  isStreaming: boolean;
+  toolCalls?: NormalizedToolCall[];
+}
+
+interface NormalizedToolCall {
+  id: string;
+  name: string;
+  arguments: string;
+  result?: string;
+  status: "pending" | "streaming" | "completed" | "error";
+}
+```
+
+### Human-in-the-Loop
+
+Use the HITL store to implement approval workflows:
+
+```typescript
+import { createAgentStore, createHITLStore } from "@ag-ui/svelte";
+
+const store = createAgentStore(agent);
+const hitlStore = createHITLStore({
+  requireApproval: ["dangerous_action"],
+  autoApprove: ["safe_tool"],
+});
+
+// In your component
+const { pendingApprovals } = hitlStore;
+
+function handleApproval(toolCall, approved) {
+  if (approved) {
+    hitlStore.approve(toolCall.id);
+  } else {
+    hitlStore.reject(toolCall.id, "User rejected");
+  }
+}
+```
+
+## Utilities
+
+### Content Sanitization
+
+Safely display user-generated content:
+
+```typescript
+import { sanitizeContent, escapeHtml } from "@ag-ui/svelte";
+
+const safe = sanitizeContent(userInput);
+const escaped = escapeHtml(rawHtml);
+```
+
+### Message Helpers
+
+```typescript
+import {
+  isUserMessage,
+  isAssistantMessage,
+  getLastMessage,
+  groupMessages,
+} from "@ag-ui/svelte";
+
+const grouped = groupMessages(messages);
+const last = getLastMessage(messages);
+```
+
+### State Viewer
+
+Render shared state with tree visualization:
+
+```typescript
+import {
+  flattenState,
+  formatValue,
+  isExpandable,
+} from "@ag-ui/svelte";
+
+const nodes = flattenState(state, expandedPaths);
+```
+
+## Example Project
+
+See the [basic-chat example](https://github.com/ag-ui-protocol/ag-ui/tree/main/integrations/community/svelte/typescript/examples/basic-chat) for a complete implementation with:
+
+- Chat interface with streaming messages
+- Tool call visualization
+- Shared state viewer
+- HITL approval workflow
+- Mock agent for development
+
+## API Reference
+
+### createAgentStore
+
+```typescript
+function createAgentStore(
+  agent: AbstractAgent,
+  config?: AgentStoreConfig
+): AgentStore;
+
+interface AgentStoreConfig {
+  debug?: boolean;
+  initialMessages?: Message[];
+  initialState?: Record<string, unknown>;
+}
+```
+
+### createHITLStore
+
+```typescript
+function createHITLStore(config?: HITLConfig): HITLStore;
+
+interface HITLConfig {
+  requireApproval?: string[];
+  autoApprove?: string[];
+  defaultAction?: "approve" | "reject" | "ask";
+}
+```
+
+## TypeScript Support
+
+The package includes full TypeScript definitions. Import types as needed:
+
+```typescript
+import type {
+  NormalizedMessage,
+  NormalizedToolCall,
+  AgentStore,
+  HITLStore,
+} from "@ag-ui/svelte";
+```

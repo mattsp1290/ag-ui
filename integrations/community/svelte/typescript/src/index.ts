@@ -195,3 +195,51 @@ export type {
   ActivityStatus,
   ActivityMetadata,
 } from "./components/activity";
+
+// State viewer component utilities
+export {
+  deepEqual,
+  calculateDiff,
+  formatPath,
+  getDiffOperationClass,
+  getDiffOperationSymbol,
+  getValueDisplayClass,
+  formatValueCompact,
+  isCollapsibleValue,
+  getItemCount,
+  copyToClipboard,
+  serializeForCopy,
+} from "./components/state";
+export type {
+  BaseStateProps,
+  StatePanelProps,
+  StateDiffProps,
+  JsonViewerProps,
+  DiffOperation,
+  DiffEntry,
+  ViewerNodeState,
+} from "./components/state";
+
+// HITL component utilities
+export {
+  getStatusConfig,
+  getStatusClass,
+  isStatusActive,
+  getStatusText,
+  isHighRiskToolCall,
+  getToolCallRiskLevel,
+  getRiskLevelClass,
+  formatToolCallForApproval,
+  getActionShortcut,
+  createRejectionReason,
+  sortPendingByPriority,
+  defaultStatusConfigs,
+} from "./components/hitl";
+export type {
+  BaseHITLProps,
+  ApprovalPromptProps,
+  ActionButtonsProps,
+  RunStatusProps,
+  ApprovalAction,
+  StatusConfig,
+} from "./components/hitl";

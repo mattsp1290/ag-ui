@@ -101,3 +101,13 @@ export type {
   HITLConfig,
   HITLStore,
 } from "./features/hitl/types";
+
+// Context provider and hooks
+export {
+  provideAgentContext,
+  useAgentContext,
+  useAgentStore,
+  hasAgentContext,
+  AGENT_CONTEXT_KEY,
+} from "./context";
+export type { AgentContextConfig, AgentContextValue } from "./context";

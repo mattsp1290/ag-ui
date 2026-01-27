@@ -243,3 +243,50 @@ export type {
   ApprovalAction,
   StatusConfig,
 } from "./components/hitl";
+
+// Tool-based UI feature
+export {
+  createToolUIState,
+  groupToolCallsByStatus,
+  groupToolCallsByName,
+  filterToolCalls,
+  sortToolCalls,
+  buildTimeline,
+  getToolCallStats,
+  toggleToolCallExpanded,
+  toggleActivityExpanded,
+  expandAllToolCalls,
+  collapseAllToolCalls,
+} from "./features/tool-ui";
+export type {
+  ToolBasedUIConfig,
+  ToolBasedUIProps,
+  ToolBasedUIState,
+  ToolCallGroup,
+  TimelineEntry,
+} from "./features/tool-ui";
+
+// Agentic chat feature
+export {
+  createAgenticChatState,
+  mergeAgenticChatConfig,
+  getDisplayMessages,
+  getStreamingMessage,
+  shouldShowTypingIndicator,
+  validateInput,
+  getCharacterCountDisplay,
+  handleComposerKeyDown,
+  autoResizeTextarea,
+  scrollToBottom,
+  isScrolledToBottom,
+  formatMessageTimestamp,
+  getRoleInitials,
+  defaultAgenticChatConfig,
+} from "./features/agentic-chat";
+export type {
+  AgenticChatConfig,
+  AgenticChatProps,
+  AgenticChatState,
+  ChatEventHandlers,
+  TypingIndicatorConfig,
+} from "./features/agentic-chat";

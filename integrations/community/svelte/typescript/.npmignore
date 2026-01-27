@@ -1,0 +1,7 @@
+src/
+*.config.ts
+*.config.js
+tsconfig.json
+.gitignore
+coverage/
+.turbo/

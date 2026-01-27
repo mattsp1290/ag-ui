@@ -1,0 +1,67 @@
+{
+  "name": "@ag-ui/svelte",
+  "version": "0.0.1",
+  "description": "Svelte integration for AG-UI protocol - reactive stores and components for building agent-powered UIs",
+  "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.ts",
+  "svelte": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "svelte": "./dist/index.js",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist/**",
+    "README.md"
+  ],
+  "private": false,
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist .turbo node_modules",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "link:global": "pnpm link --global",
+    "unlink:global": "pnpm unlink --global"
+  },
+  "peerDependencies": {
+    "@ag-ui/client": ">=0.0.40",
+    "@ag-ui/core": ">=0.0.37",
+    "rxjs": "^7.8.0",
+    "svelte": "^4.0.0 || ^5.0.0"
+  },
+  "dependencies": {
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@ag-ui/client": "workspace:*",
+    "@ag-ui/core": "workspace:*",
+    "@testing-library/svelte": "^5.2.0",
+    "@types/node": "^20.11.19",
+    "@types/uuid": "^9.0.0",
+    "jsdom": "^24.0.0",
+    "rxjs": "7.8.1",
+    "svelte": "^5.0.0",
+    "tsup": "^8.0.2",
+    "typescript": "^5.3.3",
+    "vitest": "^1.6.0"
+  },
+  "keywords": [
+    "ag-ui",
+    "svelte",
+    "agent",
+    "ai",
+    "llm",
+    "streaming",
+    "reactive"
+  ]
+}

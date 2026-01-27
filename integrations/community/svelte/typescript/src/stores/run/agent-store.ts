@@ -12,6 +12,7 @@ import type {
   NormalizedActivity,
   AccumulatedState,
 } from "../../lib/events/types";
+import type { BaseEvent } from "../../lib/events/normalizer";
 import {
   createInitialState,
   processEvent,
@@ -24,6 +25,73 @@ import {
   RunStartError,
   ReconnectError,
 } from "../../lib/errors";
+
+/**
+ * Event batcher for high-frequency events
+ * Batches events and flushes them at a configurable interval
+ */
+class EventBatcher {
+  private queue: BaseEvent[] = [];
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
+  private flushCallback: (events: BaseEvent[]) => void;
+  private batchIntervalMs: number;
+  private maxBatchSize: number;
+
+  constructor(
+    onFlush: (events: BaseEvent[]) => void,
+    batchIntervalMs = 16, // ~60fps
+    maxBatchSize = 100
+  ) {
+    this.flushCallback = onFlush;
+    this.batchIntervalMs = batchIntervalMs;
+    this.maxBatchSize = maxBatchSize;
+  }
+
+  add(event: BaseEvent): void {
+    this.queue.push(event);
+
+    // Flush immediately if we hit max batch size
+    if (this.queue.length >= this.maxBatchSize) {
+      this.flush();
+      return;
+    }
+
+    // Schedule flush if not already scheduled
+    if (!this.flushTimer) {
+      this.flushTimer = setTimeout(() => this.flush(), this.batchIntervalMs);
+    }
+  }
+
+  flush(): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+
+    if (this.queue.length > 0) {
+      const events = this.queue;
+      this.queue = [];
+      this.flushCallback(events);
+    }
+  }
+
+  destroy(): void {
+    if (this.flushTimer) {
+      clearTimeout(this.flushTimer);
+      this.flushTimer = null;
+    }
+    this.queue = [];
+  }
+}
+
+/**
+ * High-frequency event types that benefit from batching
+ */
+const BATCHABLE_EVENTS = new Set([
+  "TEXT_MESSAGE_CONTENT",
+  "TOOL_CALL_ARGS",
+  "STATE_DELTA",
+]);
 
 // Define the types inline to avoid import issues with @ag-ui/client
 interface Message {
@@ -154,7 +222,12 @@ export function createAgentStore(
   agent: AbstractAgent,
   config: AgentStoreConfig = {}
 ): AgentStore {
-  const { debug = false } = config;
+  const {
+    debug = false,
+    enableBatching = true,
+    batchIntervalMs = 16,
+    maxBatchSize = 100,
+  } = config;
 
   // Internal state
   const accumulatedState = writable<AccumulatedState>(createInitialState());

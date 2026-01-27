@@ -59,6 +59,23 @@ export interface AgentStoreConfig {
   initialState?: Record<string, unknown>;
   /** Enable debug logging */
   debug?: boolean;
+  /**
+   * Enable event batching for high-frequency events (TEXT_MESSAGE_CONTENT, TOOL_CALL_ARGS).
+   * This reduces re-renders by batching rapid events into fewer store updates.
+   * Default: true
+   */
+  enableBatching?: boolean;
+  /**
+   * Batch interval in milliseconds. Events are flushed at this interval.
+   * Lower values = more responsive, higher values = fewer re-renders.
+   * Default: 16 (~60fps)
+   */
+  batchIntervalMs?: number;
+  /**
+   * Maximum events to batch before forcing a flush.
+   * Default: 100
+   */
+  maxBatchSize?: number;
 }
 
 /**

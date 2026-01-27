@@ -111,3 +111,37 @@ export {
   AGENT_CONTEXT_KEY,
 } from "./context";
 export type { AgentContextConfig, AgentContextValue } from "./context";
+
+// Content sanitization
+export {
+  defaultSanitizeConfig,
+  escapeHtml,
+  stripHtml,
+  isSafeUrl,
+  sanitizeUrl,
+  sanitizeContent,
+  sanitizeMessageContent,
+  sanitizeToolOutput,
+  containsUnsafeHtml,
+} from "./lib/sanitize";
+export type {
+  SanitizeConfig,
+  SanitizeResult,
+  UrlSanitizeOptions,
+} from "./lib/sanitize";
+
+// Activity renderer registry
+export {
+  ActivityRegistry,
+  createActivityRegistry,
+  defaultActivityRegistry,
+  registerActivityRenderer,
+  getActivityRenderer,
+} from "./lib/activity";
+export type {
+  ActivityRenderer,
+  ActivityRendererProps,
+  ActivityRendererRegistration,
+  ActivityRegistryOptions,
+  RendererLookupResult,
+} from "./lib/activity";

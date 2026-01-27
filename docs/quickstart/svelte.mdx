@@ -225,6 +225,53 @@ interface HITLConfig {
 }
 ```
 
+## Performance Considerations
+
+### Event Processing
+
+The agent store efficiently processes AG-UI events using a normalized accumulator pattern:
+
+- Events update a single accumulated state store
+- Derived stores (`messages`, `toolCalls`, etc.) compute from the accumulator
+- Svelte's reactivity only triggers updates when derived values change
+
+### Message List Optimization
+
+For large message lists, consider:
+
+```svelte
+{#each $messages as message (message.id)}
+  <!-- Svelte uses keyed each blocks for efficient DOM updates -->
+  <MessageItem {message} />
+{/each}
+```
+
+### Auto-Scroll Detection
+
+Use the `shouldAutoScroll` utility to avoid scroll jumps:
+
+```typescript
+import { shouldAutoScroll } from "@ag-ui/svelte";
+
+function scrollToBottom(container: HTMLElement) {
+  if (shouldAutoScroll(container)) {
+    container.scrollTop = container.scrollHeight;
+  }
+}
+```
+
+### Event Batching (Optional)
+
+For extremely high-frequency event streams, enable batching:
+
+```typescript
+const store = createAgentStore(agent, {
+  enableBatching: true,
+  batchIntervalMs: 16, // ~60fps
+  maxBatchSize: 100,
+});
+```
+
 ## TypeScript Support
 
 The package includes full TypeScript definitions. Import types as needed:

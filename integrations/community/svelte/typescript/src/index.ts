@@ -145,3 +145,53 @@ export type {
   ActivityRegistryOptions,
   RendererLookupResult,
 } from "./lib/activity";
+
+// Chat component utilities
+export {
+  defaultGroupConfig,
+  groupMessages,
+  isUserMessage,
+  isAssistantMessage,
+  isSystemMessage,
+  isToolMessage,
+  isActivityMessage,
+  getRoleDisplayName,
+  getRoleClassName,
+  formatMessageTime,
+  getMessageToolCalls,
+  isMessageEmpty,
+  getMessagePreview,
+  filterMessagesByRole,
+  getLastMessage,
+  shouldAutoScroll,
+} from "./components/chat";
+export type {
+  BaseChatProps,
+  ChatRootProps,
+  MessageListProps,
+  MessageItemProps,
+  ComposerProps,
+  MessageGroupConfig,
+  MessageGroup,
+} from "./components/chat";
+
+// Activity component utilities
+export {
+  getActivityStatus,
+  getActivityStatusClass,
+  extractActivityMetadata,
+  formatActivityType,
+  getActivityTitle,
+  hasActivityContentChanged,
+  getActivityPreview,
+  hasVisualContent,
+  getActivityIcon,
+} from "./components/activity";
+export type {
+  BaseActivityProps,
+  ActivityHostProps,
+  ActivitySlotProps,
+  ActivityRendererWrapperProps,
+  ActivityStatus,
+  ActivityMetadata,
+} from "./components/activity";

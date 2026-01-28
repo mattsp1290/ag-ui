@@ -30,7 +30,8 @@
                       "quickstart/middleware"
                     ]
                   },
-                  "quickstart/clients"
+                  "quickstart/clients",
+                  "quickstart/svelte"
                 ]
               }
             ]

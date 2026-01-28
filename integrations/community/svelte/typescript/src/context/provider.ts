@@ -1,25 +1,8 @@
 import { setContext, getContext, onDestroy } from "svelte";
-import type { AgentStore } from "../stores/run/types";
-import { createAgentStore } from "../stores/run/agent-store";
+import { createAgentStore, type AgentStore } from "../stores/run/agent-store.svelte";
 import type { AgentContextConfig, AgentContextValue } from "./types";
 import { AGENT_CONTEXT_KEY } from "./types";
-
-/**
- * Abstract agent interface (matches @ag-ui/client AbstractAgent)
- */
-interface AbstractAgentLike {
-  threadId: string;
-  messages: Array<{ id: string; role: string; content?: string }>;
-  state: unknown;
-  subscribe(subscriber: unknown): { unsubscribe: () => void };
-  addMessage(message: { id: string; role: string; content?: string }): void;
-  setMessages(messages: Array<{ id: string; role: string; content?: string }>): void;
-  setState(state: unknown): void;
-  runAgent(params?: unknown): Promise<unknown>;
-  connectAgent(params?: unknown): Promise<unknown>;
-  abortRun(): void;
-  detachActiveRun(): void | Promise<void>;
-}
+import type { AbstractAgent } from "../stores/run/subscriber-types";
 
 /**
  * Set up the agent context for child components.
@@ -37,10 +20,10 @@ interface AbstractAgentLike {
  * ```
  */
 export function provideAgentContext(
-  agent: AbstractAgentLike,
+  agent: AbstractAgent,
   config: AgentContextConfig = {}
 ): AgentContextValue {
-  const store = createAgentStore(agent as any, {
+  const store = createAgentStore(agent, {
     debug: config.debug,
     initialMessages: config.initialMessages,
     initialState: config.initialState,

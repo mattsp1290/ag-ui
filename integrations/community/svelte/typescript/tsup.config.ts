@@ -4,9 +4,9 @@ export default defineConfig({
   entry: ["src/index.ts"],
   format: ["cjs", "esm"],
   dts: true,
-  splitting: false,
+  splitting: true,
   sourcemap: true,
   clean: true,
   minify: true,
-  external: ["svelte", "rxjs", "@ag-ui/client", "@ag-ui/core"],
+  external: ["svelte", "rxjs", "@ag-ui/client", "@ag-ui/core", "dompurify"],
 });

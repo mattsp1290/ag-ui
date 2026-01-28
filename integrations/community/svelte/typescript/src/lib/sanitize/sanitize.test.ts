@@ -36,10 +36,9 @@ describe("sanitization security tests", () => {
   });
 
   describe("stripHtml", () => {
-    it("removes script tags", () => {
-      expect(stripHtml("<script>alert('xss')</script>")).toBe(
-        "alert('xss')"
-      );
+    it("removes script tags and their content", () => {
+      // DOMPurify removes script tags AND their content for security
+      expect(stripHtml("<script>alert('xss')</script>")).toBe("");
     });
 
     it("removes all HTML tags", () => {
@@ -107,6 +106,17 @@ describe("sanitization security tests", () => {
         isSafeUrl("https://example.com", { allowedProtocols: ["https"] })
       ).toBe(true);
     });
+
+    it("blocks URLs with leading/trailing whitespace (bypass prevention)", () => {
+      expect(isSafeUrl("  javascript:alert('xss')")).toBe(false);
+      expect(isSafeUrl("javascript:alert('xss')  ")).toBe(false);
+      expect(isSafeUrl("\tjavascript:alert('xss')")).toBe(false);
+      expect(isSafeUrl("\njavascript:alert('xss')")).toBe(false);
+    });
+
+    it("trims whitespace from valid URLs", () => {
+      expect(isSafeUrl("  https://example.com  ")).toBe(true);
+    });
   });
 
   describe("sanitizeUrl", () => {
@@ -121,8 +131,9 @@ describe("sanitization security tests", () => {
 
   describe("sanitizeContent", () => {
     it("strips HTML by default", () => {
+      // DOMPurify removes script tags AND their content for security
       const result = sanitizeContent("<p>Hello <script>evil</script></p>");
-      expect(result.content).toBe("Hello evil");
+      expect(result.content).toBe("Hello ");
       expect(result.wasModified).toBe(true);
     });
 
@@ -148,10 +159,11 @@ describe("sanitization security tests", () => {
 
   describe("sanitizeMessageContent", () => {
     it("strips all HTML from messages", () => {
+      // DOMPurify removes script tags AND their content for security
       const result = sanitizeMessageContent(
         "<b>Bold</b> and <script>alert('xss')</script>"
       );
-      expect(result.content).toBe("Bold and alert('xss')");
+      expect(result.content).toBe("Bold and ");
     });
 
     it("respects max length", () => {

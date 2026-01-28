@@ -1,5 +1,4 @@
-import type { Readable } from "svelte/store";
-import type { AgentStore } from "../stores/run/types";
+import type { AgentStore } from "../stores/run/agent-store.svelte";
 
 /**
  * Configuration for the AG-UI context provider

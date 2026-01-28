@@ -75,6 +75,38 @@ The package normalizes AG-UI events into consistent models:
 - **Tool Calls**: Function calls with arguments and results
 - **Activities**: Custom activity events with structured content
 
+## SSR Considerations
+
+The agent store should only be used client-side. In SvelteKit:
+
+```svelte
+<script>
+  import { browser } from '$app/environment';
+  import { createAgentStore } from '@ag-ui/svelte';
+  import { HttpAgent } from '@ag-ui/client';
+
+  let store;
+  if (browser) {
+    const agent = new HttpAgent({ url: '/api/agent' });
+    store = createAgentStore(agent);
+  }
+</script>
+```
+
+## Security
+
+### XSS Protection
+
+The package includes built-in XSS protection via the sanitization utilities. All message content is sanitized before display.
+
+### Content Security Policy
+
+For defense-in-depth, configure your server with appropriate CSP headers:
+
+```
+Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'
+```
+
 ## License
 
 MIT

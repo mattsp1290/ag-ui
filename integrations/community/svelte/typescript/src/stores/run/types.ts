@@ -1,35 +1,12 @@
-import type { Readable } from "svelte/store";
 import type {
-  NormalizedMessage,
-  NormalizedToolCall,
-  NormalizedActivity,
-} from "../../lib/events/types";
+  Message,
+  Tool,
+  Context,
+  AbstractAgent,
+} from "./subscriber-types";
 
-/**
- * Message type for the store
- */
-export interface Message {
-  id: string;
-  role: string;
-  content?: string;
-}
-
-/**
- * Tool definition
- */
-export interface Tool {
-  name: string;
-  description: string;
-  parameters?: unknown;
-}
-
-/**
- * Context item
- */
-export interface Context {
-  description: string;
-  value: string;
-}
+// Re-export core types from subscriber-types
+export type { Message, Tool, Context, AbstractAgent };
 
 /**
  * Input for starting an agent run
@@ -84,98 +61,15 @@ export interface AgentStoreConfig {
 export type RunStatus = "idle" | "starting" | "running" | "error" | "cancelled";
 
 /**
- * Abstract agent interface (compatible with @ag-ui/client AbstractAgent)
+ * Options for reconnect with retry
  */
-export interface AbstractAgent {
-  threadId: string;
-  messages: Message[];
-  state: unknown;
-  subscribe(subscriber: unknown): { unsubscribe: () => void };
-  addMessage(message: Message): void;
-  setMessages(messages: Message[]): void;
-  setState(state: unknown): void;
-  runAgent(params?: unknown): Promise<unknown>;
-  connectAgent(params?: unknown): Promise<unknown>;
-  abortRun(): void;
-  detachActiveRun(): void | Promise<void>;
-}
-
-/**
- * The reactive agent store interface
- */
-export interface AgentStore {
-  /** The underlying agent instance */
-  agent: AbstractAgent;
-
-  /** Readable store of normalized messages */
-  messages: Readable<NormalizedMessage[]>;
-
-  /** Readable store of agent state */
-  state: Readable<Record<string, unknown>>;
-
-  /** Readable store indicating if a run is active */
-  isRunning: Readable<boolean>;
-
-  /** Readable store of current run status */
-  status: Readable<RunStatus>;
-
-  /** Readable store of the current error (if any) */
-  error: Readable<Error | null>;
-
-  /** Readable store of active tool calls */
-  activeToolCalls: Readable<NormalizedToolCall[]>;
-
-  /** Readable store of all tool calls */
-  toolCalls: Readable<NormalizedToolCall[]>;
-
-  /** Readable store of activities */
-  activities: Readable<NormalizedActivity[]>;
-
-  /** Readable store of current run ID */
-  runId: Readable<string | null>;
-
-  /** Readable store of current thread ID */
-  threadId: Readable<string | null>;
-
-  /** Readable store of current step name */
-  currentStep: Readable<string | null>;
-
-  /**
-   * Start a new agent run
-   * @param input - The input for the run
-   * @returns Promise that resolves when the run completes
-   */
-  start(input: StartRunInput): Promise<void>;
-
-  /**
-   * Cancel the current run
-   */
-  cancel(): void;
-
-  /**
-   * Reconnect to an existing run (if supported by the agent)
-   * @returns Promise that resolves when reconnection completes
-   */
-  reconnect(): Promise<void>;
-
-  /**
-   * Add a message to the store without starting a run
-   * @param message - The message to add
-   */
-  addMessage(message: Message): void;
-
-  /**
-   * Clear all messages and reset state
-   */
-  reset(): void;
-
-  /**
-   * Clear the current error
-   */
-  clearError(): void;
-
-  /**
-   * Destroy the store and clean up subscriptions
-   */
-  destroy(): void;
+export interface ReconnectRetryOptions {
+  /** Maximum number of retry attempts (default: 3) */
+  maxRetries?: number;
+  /** Initial delay in milliseconds (default: 1000) */
+  baseDelayMs?: number;
+  /** Maximum delay cap in milliseconds (default: 30000) */
+  maxDelayMs?: number;
+  /** Callback invoked before each retry with attempt number and delay */
+  onRetry?: (attempt: number, delayMs: number) => void;
 }

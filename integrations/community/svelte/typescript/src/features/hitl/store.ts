@@ -118,12 +118,64 @@ export function createHITLStore(config: HITLConfig = {}): HITLStore {
     executeCallback(result);
   }
 
+  /**
+   * Request approval for a tool call programmatically.
+   * Returns a Promise that resolves when the user makes a decision.
+   *
+   * @param toolCall - The tool call requiring approval
+   * @returns Promise that resolves with the approval result
+   */
+  function requestApproval(toolCall: NormalizedToolCall): Promise<ApprovalResult> {
+    return new Promise((resolve) => {
+      // Add to pending queue
+      pendingQueue.update((queue) => {
+        const newQueue = new Map(queue);
+        newQueue.set(toolCall.id, toolCall);
+        return newQueue;
+      });
+
+      // Register callback
+      approvalCallbacks.set(toolCall.id, resolve);
+
+      // Set up auto-approval timeout if configured
+      if (autoApproveTimeout > 0) {
+        const timeoutId = setTimeout(() => {
+          // Auto-approve if still pending
+          const result: ApprovalResult = {
+            decision: "approve",
+            toolCallId: toolCall.id,
+          };
+          removeFromQueue(toolCall.id);
+          const callback = approvalCallbacks.get(toolCall.id);
+          if (callback) {
+            callback(result);
+            approvalCallbacks.delete(toolCall.id);
+          }
+        }, autoApproveTimeout);
+        timeoutIds.set(toolCall.id, timeoutId);
+      }
+    });
+  }
+
+  /**
+   * Clean up all pending timeouts and callbacks.
+   * Call this when the component using this store unmounts.
+   */
+  function destroy(): void {
+    timeoutIds.forEach((id) => clearTimeout(id));
+    timeoutIds.clear();
+    approvalCallbacks.clear();
+    pendingQueue.set(new Map());
+  }
+
   return {
     pendingApprovals,
     approve,
     reject,
     modify,
     requiresApproval,
+    requestApproval,
+    destroy,
   };
 }
 

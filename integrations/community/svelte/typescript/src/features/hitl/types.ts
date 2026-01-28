@@ -76,4 +76,14 @@ export interface HITLStore {
   modify(toolCallId: string, newArguments: string): void;
   /** Check if a tool requires approval */
   requiresApproval(toolName: string): boolean;
+  /**
+   * Request approval for a tool call programmatically.
+   * Returns a Promise that resolves when the user makes a decision.
+   */
+  requestApproval(toolCall: NormalizedToolCall): Promise<ApprovalResult>;
+  /**
+   * Clean up all pending timeouts and callbacks.
+   * Call this when the component using this store unmounts.
+   */
+  destroy(): void;
 }

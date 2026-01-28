@@ -265,4 +265,61 @@ describe("Event Normalizer", () => {
       expect(all).toHaveLength(2);
     });
   });
+
+  describe("STATE_DELTA security", () => {
+    it("should throw error on __proto__ prototype pollution attempt", () => {
+      const state = createInitialState();
+      state.agentState = { safe: "value" };
+
+      const event = {
+        type: EventType.STATE_DELTA,
+        delta: [{ op: "add", path: "/__proto__/polluted", value: "malicious" }],
+      };
+
+      expect(() => processEvent(state, event)).toThrow(
+        "[AG-UI Svelte] Blocked prototype pollution attempt: /__proto__/polluted"
+      );
+    });
+
+    it("should throw error on constructor prototype pollution attempt", () => {
+      const state = createInitialState();
+      state.agentState = { safe: "value" };
+
+      const event = {
+        type: EventType.STATE_DELTA,
+        delta: [{ op: "add", path: "/constructor/prototype", value: "malicious" }],
+      };
+
+      expect(() => processEvent(state, event)).toThrow(
+        "[AG-UI Svelte] Blocked prototype pollution attempt: /constructor/prototype"
+      );
+    });
+
+    it("should throw error on prototype key in nested path", () => {
+      const state = createInitialState();
+      state.agentState = { nested: { obj: {} } };
+
+      const event = {
+        type: EventType.STATE_DELTA,
+        delta: [{ op: "add", path: "/nested/prototype/evil", value: "malicious" }],
+      };
+
+      expect(() => processEvent(state, event)).toThrow(
+        "[AG-UI Svelte] Blocked prototype pollution attempt: /nested/prototype/evil"
+      );
+    });
+
+    it("should allow legitimate state updates", () => {
+      const state = createInitialState();
+      state.agentState = { counter: 0 };
+
+      const event = {
+        type: EventType.STATE_DELTA,
+        delta: [{ op: "replace", path: "/counter", value: 42 }],
+      };
+
+      const result = processEvent(state, event);
+      expect(result.agentState).toEqual({ counter: 42 });
+    });
+  });
 });

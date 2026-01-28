@@ -1,3 +1,4 @@
+import DOMPurify, { type Config as DOMPurifyConfig } from "dompurify";
 import type { SanitizeConfig, SanitizeResult, UrlSanitizeOptions } from "./types";
 
 /**
@@ -25,16 +26,6 @@ const HTML_ENTITIES: Record<string, string> = {
 };
 
 /**
- * Regex for matching HTML tags
- */
-const HTML_TAG_REGEX = /<\/?([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/gi;
-
-/**
- * Regex for matching HTML attributes
- */
-const HTML_ATTR_REGEX = /\s([a-zA-Z][a-zA-Z0-9-]*)\s*=\s*["']([^"']*)["']/gi;
-
-/**
  * Regex for matching potentially dangerous URL protocols
  */
 const DANGEROUS_PROTOCOL_REGEX = /^(javascript|vbscript|data):/i;
@@ -47,12 +38,13 @@ export function escapeHtml(text: string): string {
 }
 
 /**
- * Strip all HTML tags from content
+ * Strip all HTML tags from content using DOMPurify
  */
 export function stripHtml(html: string): string {
-  return html
-    .replace(HTML_TAG_REGEX, "")
-    .replace(/<!--[\s\S]*?-->/g, "") // Remove comments
+  // Use DOMPurify with no allowed tags to strip all HTML
+  const stripped = DOMPurify.sanitize(html, { ALLOWED_TAGS: [], ALLOWED_ATTR: [] });
+  // Decode common HTML entities
+  return stripped
     .replace(/&nbsp;/gi, " ")
     .replace(/&amp;/gi, "&")
     .replace(/&lt;/gi, "<")
@@ -71,24 +63,27 @@ export function isSafeUrl(
 ): boolean {
   const { allowedProtocols = ["http", "https"], allowRelative = true } = options;
 
+  // Trim whitespace and remove control characters to prevent bypass attacks
+  const normalizedUrl = url.trim().replace(/[\x00-\x1f\x7f]/g, "");
+
   // Check for dangerous protocols
-  if (DANGEROUS_PROTOCOL_REGEX.test(url)) {
+  if (DANGEROUS_PROTOCOL_REGEX.test(normalizedUrl)) {
     return false;
   }
 
   // Check if URL is relative
-  if (url.startsWith("/") || url.startsWith("./") || url.startsWith("../")) {
+  if (normalizedUrl.startsWith("/") || normalizedUrl.startsWith("./") || normalizedUrl.startsWith("../")) {
     return allowRelative;
   }
 
   // Check protocol
   try {
-    const urlObj = new URL(url, "https://placeholder.example");
+    const urlObj = new URL(normalizedUrl, "https://placeholder.example");
     const protocol = urlObj.protocol.replace(":", "").toLowerCase();
     return allowedProtocols.includes(protocol);
   } catch {
     // If URL parsing fails but it's not a dangerous protocol, allow if relative URLs are allowed
-    return allowRelative && !url.includes(":");
+    return allowRelative && !normalizedUrl.includes(":");
   }
 }
 
@@ -100,13 +95,13 @@ export function sanitizeUrl(
   options: UrlSanitizeOptions = {}
 ): string {
   if (isSafeUrl(url, options)) {
-    return url;
+    return url.trim();
   }
   return "";
 }
 
 /**
- * Sanitize content by removing potentially unsafe elements
+ * Sanitize content using DOMPurify for robust XSS protection
  */
 export function sanitizeContent(
   content: string,
@@ -118,29 +113,51 @@ export function sanitizeContent(
   let wasTruncated = false;
   const originalLength = content.length;
 
-  // Strip HTML if configured or no tags allowed
+  // Configure DOMPurify options
+  const purifyConfig: DOMPurifyConfig = {
+    RETURN_DOM: false,
+    RETURN_DOM_FRAGMENT: false,
+  };
+
   if (fullConfig.stripHtml || fullConfig.allowedTags.length === 0) {
-    const stripped = stripHtml(result);
-    if (stripped !== result) {
-      wasModified = true;
-      result = stripped;
-    }
+    // Strip all HTML
+    purifyConfig.ALLOWED_TAGS = [];
+    purifyConfig.ALLOWED_ATTR = [];
   } else {
-    // Filter to allowed tags only
-    result = result.replace(HTML_TAG_REGEX, (match, tagName) => {
-      if (fullConfig.allowedTags.includes(tagName.toLowerCase())) {
-        // Remove disallowed attributes
-        return match.replace(HTML_ATTR_REGEX, (attrMatch, attrName) => {
-          if (fullConfig.allowedAttributes.includes(attrName.toLowerCase())) {
-            return attrMatch;
-          }
-          wasModified = true;
-          return "";
-        });
-      }
+    // Allow only specified tags and attributes
+    purifyConfig.ALLOWED_TAGS = fullConfig.allowedTags;
+    purifyConfig.ALLOWED_ATTR = fullConfig.allowedAttributes;
+  }
+
+  // Add allowed protocols
+  purifyConfig.ALLOWED_URI_REGEXP = new RegExp(
+    `^(?:(?:${fullConfig.allowedProtocols.join("|")}):|[^a-z]|[a-z+.\\-]+(?:[^a-z+.\\-:]|$))`,
+    "i"
+  );
+
+  // Sanitize using DOMPurify (cast to string to handle TrustedHTML)
+  const sanitized = DOMPurify.sanitize(content, purifyConfig) as string;
+
+  // Check if content was modified
+  if (sanitized !== content) {
+    wasModified = true;
+    result = sanitized;
+  }
+
+  // Decode HTML entities if we stripped HTML
+  if (fullConfig.stripHtml || fullConfig.allowedTags.length === 0) {
+    const decoded = result
+      .replace(/&nbsp;/gi, " ")
+      .replace(/&amp;/gi, "&")
+      .replace(/&lt;/gi, "<")
+      .replace(/&gt;/gi, ">")
+      .replace(/&quot;/gi, '"')
+      .replace(/&#x27;/gi, "'")
+      .replace(/&#x2F;/gi, "/");
+    if (decoded !== result) {
       wasModified = true;
-      return "";
-    });
+      result = decoded;
+    }
   }
 
   // Apply length limit
@@ -199,6 +216,7 @@ export function sanitizeToolOutput(output: string, maxLength = 0): SanitizeResul
 
 /**
  * Check if content contains potentially unsafe HTML
+ * Uses DOMPurify's sanitization to detect if content would be modified
  */
 export function containsUnsafeHtml(content: string): boolean {
   // Check for script tags

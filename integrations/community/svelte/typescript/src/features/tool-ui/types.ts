@@ -1,5 +1,5 @@
 import type { NormalizedToolCall, NormalizedActivity } from "../../lib/events/types";
-import type { AgentStore } from "../../stores/run/types";
+import type { AgentStore } from "../../stores/run/agent-store.svelte";
 import type { ActivityRegistry } from "../../lib/activity";
 
 /**

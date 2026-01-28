@@ -1,2 +1,2 @@
 export * from "./types";
-export * from "./agent-store";
+export * from "./agent-store.svelte";

@@ -5,17 +5,26 @@
  */
 
 // Core agent store
-export { createAgentStore } from "./stores/run/agent-store";
+export { createAgentStore } from "./stores/run/agent-store.svelte";
+export type { AgentStore } from "./stores/run/agent-store.svelte";
 export type {
-  AgentStore,
   AgentStoreConfig,
   StartRunInput,
   RunStatus,
+  ReconnectRetryOptions,
   AbstractAgent,
   Message,
   Tool,
   Context,
 } from "./stores/run/types";
+
+// Config validation
+export {
+  validateAgentStoreConfig,
+  assertValidAgentStoreConfig,
+  AgentStoreConfigSchema,
+} from "./stores/run/validation";
+export type { ValidationResult } from "./stores/run/validation";
 
 // Event normalization
 export {

@@ -98,8 +98,9 @@ function updateMessage(
   updates: Partial<NormalizedMessage>
 ): void {
   const idx = state.messages.findIndex((m) => m.id === messageId);
-  if (idx !== -1) {
-    state.messages[idx] = { ...state.messages[idx], ...updates };
+  const existingMessage = state.messages[idx];
+  if (idx !== -1 && existingMessage) {
+    state.messages[idx] = { ...existingMessage, ...updates };
   }
 }
 
@@ -379,12 +380,32 @@ export function processEvent(
     }
   }
 
-  return state;
+  // Return a new object reference to ensure Svelte reactivity
+  return { ...state };
 }
 
 /**
- * Simple JSON Patch (RFC 6902) implementation
- * Handles add, replace, remove operations
+ * Forbidden keys that could enable prototype pollution attacks
+ */
+const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
+
+/**
+ * Simple JSON Patch (RFC 6902) implementation for state updates.
+ *
+ * @remarks
+ * This is a minimal implementation with the following limitations:
+ * - **Supported operations:** `add`, `replace`, `remove` only
+ * - **Unsupported operations:** `move`, `copy`, `test` are not implemented
+ * - **No array index support:** Paths like `/items/0` will treat `0` as an object key,
+ *   not an array index. Use STATE_SNAPSHOT for array modifications.
+ * - **No nested array support:** Arrays within objects cannot be patched
+ * - **Path format:** Uses `/` separator (e.g., `/user/name`), leading `/` is optional
+ *
+ * For complex state updates involving arrays, use STATE_SNAPSHOT instead of STATE_DELTA.
+ *
+ * @param target - The object to apply patches to
+ * @param patches - Array of JSON Patch operations
+ * @returns A new object with patches applied (does not mutate original)
  */
 function applyJsonPatch<T extends Record<string, unknown>>(
   target: T,
@@ -398,9 +419,18 @@ function applyJsonPatch<T extends Record<string, unknown>>(
 
     if (pathParts.length === 0) continue;
 
+    // SECURITY: Block prototype pollution attacks by throwing an error
+    // This makes attacks visible and prevents silent failures
+    if (pathParts.some((part) => FORBIDDEN_KEYS.has(part))) {
+      throw new Error(
+        `[AG-UI Svelte] Blocked prototype pollution attempt: ${op.path}`
+      );
+    }
+
     let current: Record<string, unknown> = result;
     for (let i = 0; i < pathParts.length - 1; i++) {
       const key = pathParts[i];
+      if (key === undefined) continue;
       if (!(key in current)) {
         current[key] = {};
       }
@@ -408,6 +438,7 @@ function applyJsonPatch<T extends Record<string, unknown>>(
     }
 
     const lastKey = pathParts[pathParts.length - 1];
+    if (lastKey === undefined) continue;
 
     switch (op.op) {
       case "add":

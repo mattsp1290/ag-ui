@@ -1,5 +1,5 @@
 import type { NormalizedMessage } from "../../lib/events/types";
-import type { AgentStore } from "../../stores/run/types";
+import type { AgentStore } from "../../stores/run/agent-store.svelte";
 import type { HITLStore } from "../hitl/types";
 
 /**

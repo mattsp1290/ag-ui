@@ -340,5 +340,129 @@ void main() {
         expect(decoded.value, customValue);
       });
     });
+
+    group('ActivityEvents', () {
+      test('ActivitySnapshotEvent serialization with spec fields', () {
+        final content = {'skill': 'rag', 'tool_name': 'search'};
+        final event = ActivitySnapshotEvent(
+          messageId: 'rag:abc123',
+          activityType: 'skill_tool_call',
+          content: content,
+        );
+
+        final json = event.toJson();
+        expect(json['type'], 'ACTIVITY_SNAPSHOT');
+        expect(json['messageId'], 'rag:abc123');
+        expect(json['activityType'], 'skill_tool_call');
+        expect(json['content'], content);
+        expect(json['replace'], true);
+
+        final decoded = ActivitySnapshotEvent.fromJson(json);
+        expect(decoded.messageId, 'rag:abc123');
+        expect(decoded.activityType, 'skill_tool_call');
+        expect(decoded.content, content);
+        expect(decoded.replace, true);
+      });
+
+      test('ActivitySnapshotEvent replace can be set to false', () {
+        const event = ActivitySnapshotEvent(
+          messageId: 'msg-1',
+          activityType: 'test',
+          content: {},
+          replace: false,
+        );
+        expect(event.replace, false);
+
+        final json = event.toJson();
+        expect(json['replace'], false);
+
+        final decoded = ActivitySnapshotEvent.fromJson(json);
+        expect(decoded.replace, false);
+      });
+
+      test('ActivitySnapshotEvent fromJson with missing optional replace', () {
+        final json = {
+          'type': 'ACTIVITY_SNAPSHOT',
+          'messageId': 'msg-1',
+          'activityType': 'test',
+          'content': {'key': 'value'},
+        };
+
+        final event = ActivitySnapshotEvent.fromJson(json);
+        expect(event.messageId, 'msg-1');
+        expect(event.activityType, 'test');
+        expect(event.content, {'key': 'value'});
+        expect(event.replace, true);
+      });
+
+      test('ActivitySnapshotEvent fromJson throws on missing messageId', () {
+        final json = {
+          'type': 'ACTIVITY_SNAPSHOT',
+          'activityType': 'test',
+          'content': {'key': 'value'},
+        };
+
+        expect(
+          () => ActivitySnapshotEvent.fromJson(json),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
+      test('ActivitySnapshotEvent fromJson throws on missing activityType', () {
+        final json = {
+          'type': 'ACTIVITY_SNAPSHOT',
+          'messageId': 'msg-1',
+          'content': {'key': 'value'},
+        };
+
+        expect(
+          () => ActivitySnapshotEvent.fromJson(json),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
+      test('ActivitySnapshotEvent fromJson throws on missing content', () {
+        final json = {
+          'type': 'ACTIVITY_SNAPSHOT',
+          'messageId': 'msg-1',
+          'activityType': 'test',
+        };
+
+        expect(
+          () => ActivitySnapshotEvent.fromJson(json),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
+      test('ActivitySnapshotEvent copyWith', () {
+        const event = ActivitySnapshotEvent(
+          messageId: 'msg-1',
+          activityType: 'test',
+          content: {'a': 1},
+        );
+
+        final updated = event.copyWith(activityType: 'updated');
+        expect(updated.messageId, 'msg-1');
+        expect(updated.activityType, 'updated');
+        expect(updated.content, {'a': 1});
+        expect(updated.replace, true);
+      });
+
+      test('ActivitySnapshotEvent via BaseEvent.fromJson factory', () {
+        final json = {
+          'type': 'ACTIVITY_SNAPSHOT',
+          'messageId': 'rag:abc123',
+          'activityType': 'skill_tool_call',
+          'content': {'skill': 'rag'},
+          'replace': true,
+        };
+
+        final event = BaseEvent.fromJson(json);
+        expect(event, isA<ActivitySnapshotEvent>());
+        final activity = event as ActivitySnapshotEvent;
+        expect(activity.messageId, 'rag:abc123');
+        expect(activity.activityType, 'skill_tool_call');
+      });
+    });
   });
 }

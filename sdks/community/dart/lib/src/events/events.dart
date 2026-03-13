@@ -900,38 +900,56 @@ final class MessagesSnapshotEvent extends BaseEvent {
   }
 }
 
-/// Event containing a snapshot of activities
+/// Event containing a snapshot of activity state.
 final class ActivitySnapshotEvent extends BaseEvent {
-  final List<dynamic> activities;
-
   const ActivitySnapshotEvent({
-    required this.activities,
+    required this.messageId,
+    required this.activityType,
+    required this.content,
+    this.replace = true,
     super.timestamp,
     super.rawEvent,
   }) : super(eventType: EventType.activitySnapshot);
 
   factory ActivitySnapshotEvent.fromJson(Map<String, dynamic> json) {
     return ActivitySnapshotEvent(
-      activities: json['activities'] as List<dynamic>? ?? [],
+      messageId: JsonDecoder.requireField<String>(json, 'messageId'),
+      activityType: JsonDecoder.requireField<String>(json, 'activityType'),
+      content: JsonDecoder.requireField<Map<String, dynamic>>(json, 'content'),
+      replace: json['replace'] as bool? ?? true,
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
 
+  final String messageId;
+  final String activityType;
+  final Map<String, dynamic> content;
+  final bool replace;
+
   @override
   Map<String, dynamic> toJson() => {
     ...super.toJson(),
-    'activities': activities,
+    'messageId': messageId,
+    'activityType': activityType,
+    'content': content,
+    'replace': replace,
   };
 
   @override
   ActivitySnapshotEvent copyWith({
-    List<dynamic>? activities,
+    String? messageId,
+    String? activityType,
+    Map<String, dynamic>? content,
+    bool? replace,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return ActivitySnapshotEvent(
-      activities: activities ?? this.activities,
+      messageId: messageId ?? this.messageId,
+      activityType: activityType ?? this.activityType,
+      content: content ?? this.content,
+      replace: replace ?? this.replace,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );

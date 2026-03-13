@@ -434,18 +434,52 @@ void main() {
         );
       });
 
-      test('ActivitySnapshotEvent copyWith', () {
+      test('ActivitySnapshotEvent copyWith preserves unchanged fields', () {
         const event = ActivitySnapshotEvent(
           messageId: 'msg-1',
           activityType: 'test',
           content: {'a': 1},
+          replace: false,
+          timestamp: 1000,
         );
 
-        final updated = event.copyWith(activityType: 'updated');
-        expect(updated.messageId, 'msg-1');
-        expect(updated.activityType, 'updated');
-        expect(updated.content, {'a': 1});
-        expect(updated.replace, true);
+        final withMessageId = event.copyWith(messageId: 'msg-2');
+        expect(withMessageId.messageId, 'msg-2');
+        expect(withMessageId.activityType, 'test');
+        expect(withMessageId.content, {'a': 1});
+        expect(withMessageId.replace, false);
+        expect(withMessageId.timestamp, 1000);
+
+        final withActivityType = event.copyWith(activityType: 'updated');
+        expect(withActivityType.messageId, 'msg-1');
+        expect(withActivityType.activityType, 'updated');
+
+        final withContent = event.copyWith(content: {'b': 2});
+        expect(withContent.content, {'b': 2});
+        expect(withContent.messageId, 'msg-1');
+
+        final withReplace = event.copyWith(replace: true);
+        expect(withReplace.replace, true);
+        expect(withReplace.messageId, 'msg-1');
+
+        final withTimestamp = event.copyWith(timestamp: 2000);
+        expect(withTimestamp.timestamp, 2000);
+        expect(withTimestamp.messageId, 'msg-1');
+      });
+
+      test('ActivitySnapshotEvent timestamp survives serialization', () {
+        const event = ActivitySnapshotEvent(
+          messageId: 'msg-1',
+          activityType: 'test',
+          content: {'key': 'value'},
+          timestamp: 1710000000,
+        );
+
+        final json = event.toJson();
+        expect(json['timestamp'], 1710000000);
+
+        final decoded = ActivitySnapshotEvent.fromJson(json);
+        expect(decoded.timestamp, 1710000000);
       });
 
       test('ActivitySnapshotEvent via BaseEvent.fromJson factory', () {

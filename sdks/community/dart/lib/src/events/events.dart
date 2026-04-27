@@ -65,7 +65,9 @@ sealed class BaseEvent extends AGUIModel with TypeDiscriminator {
         return ToolCallResultEvent.fromJson(json);
       case EventType.thinkingStart:
         return ThinkingStartEvent.fromJson(json);
+      // ignore: deprecated_member_use_from_same_package
       case EventType.thinkingContent:
+        // ignore: deprecated_member_use_from_same_package
         return ThinkingContentEvent.fromJson(json);
       case EventType.thinkingEnd:
         return ThinkingEndEvent.fromJson(json);
@@ -75,6 +77,10 @@ sealed class BaseEvent extends AGUIModel with TypeDiscriminator {
         return StateDeltaEvent.fromJson(json);
       case EventType.messagesSnapshot:
         return MessagesSnapshotEvent.fromJson(json);
+      case EventType.activitySnapshot:
+        return ActivitySnapshotEvent.fromJson(json);
+      case EventType.activityDelta:
+        return ActivityDeltaEvent.fromJson(json);
       case EventType.raw:
         return RawEvent.fromJson(json);
       case EventType.custom:
@@ -89,6 +95,20 @@ sealed class BaseEvent extends AGUIModel with TypeDiscriminator {
         return StepStartedEvent.fromJson(json);
       case EventType.stepFinished:
         return StepFinishedEvent.fromJson(json);
+      case EventType.reasoningStart:
+        return ReasoningStartEvent.fromJson(json);
+      case EventType.reasoningMessageStart:
+        return ReasoningMessageStartEvent.fromJson(json);
+      case EventType.reasoningMessageContent:
+        return ReasoningMessageContentEvent.fromJson(json);
+      case EventType.reasoningMessageEnd:
+        return ReasoningMessageEndEvent.fromJson(json);
+      case EventType.reasoningMessageChunk:
+        return ReasoningMessageChunkEvent.fromJson(json);
+      case EventType.reasoningEnd:
+        return ReasoningEndEvent.fromJson(json);
+      case EventType.reasoningEncryptedValue:
+        return ReasoningEncryptedValueEvent.fromJson(json);
     }
   }
 
@@ -355,7 +375,14 @@ final class ThinkingStartEvent extends BaseEvent {
   }
 }
 
-/// Event containing thinking content
+/// Event containing thinking content.
+///
+/// Not part of the canonical AG-UI protocol — included only for
+/// backward compatibility. Use [ThinkingTextMessageContentEvent] instead.
+@Deprecated(
+  'Not part of the canonical AG-UI protocol. '
+  'Use ThinkingTextMessageContentEvent instead.',
+)
 final class ThinkingContentEvent extends BaseEvent {
   final String delta;
 
@@ -898,6 +925,128 @@ final class MessagesSnapshotEvent extends BaseEvent {
   }
 }
 
+// ============================================================================
+// Activity Events
+// ============================================================================
+
+/// Event containing a snapshot of an activity message
+final class ActivitySnapshotEvent extends BaseEvent {
+  final String messageId;
+  final String activityType;
+  final dynamic content;
+  final bool replace;
+
+  const ActivitySnapshotEvent({
+    required this.messageId,
+    required this.activityType,
+    required this.content,
+    this.replace = true,
+    super.timestamp,
+    super.rawEvent,
+  }) : super(eventType: EventType.activitySnapshot);
+
+  factory ActivitySnapshotEvent.fromJson(Map<String, dynamic> json) {
+    final messageId =
+        JsonDecoder.optionalField<String>(json, 'messageId') ??
+        JsonDecoder.requireField<String>(json, 'message_id');
+    final activityType =
+        JsonDecoder.optionalField<String>(json, 'activityType') ??
+        JsonDecoder.requireField<String>(json, 'activity_type');
+    return ActivitySnapshotEvent(
+      messageId: messageId,
+      activityType: activityType,
+      content: json['content'],
+      replace: JsonDecoder.optionalField<bool>(json, 'replace') ?? true,
+      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      rawEvent: json['rawEvent'],
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...super.toJson(),
+    'messageId': messageId,
+    'activityType': activityType,
+    'content': content,
+    'replace': replace,
+  };
+
+  @override
+  ActivitySnapshotEvent copyWith({
+    String? messageId,
+    String? activityType,
+    dynamic content,
+    bool? replace,
+    int? timestamp,
+    dynamic rawEvent,
+  }) {
+    return ActivitySnapshotEvent(
+      messageId: messageId ?? this.messageId,
+      activityType: activityType ?? this.activityType,
+      content: content ?? this.content,
+      replace: replace ?? this.replace,
+      timestamp: timestamp ?? this.timestamp,
+      rawEvent: rawEvent ?? this.rawEvent,
+    );
+  }
+}
+
+/// Event containing a JSON Patch (RFC 6902) delta for an activity message
+final class ActivityDeltaEvent extends BaseEvent {
+  final String messageId;
+  final String activityType;
+  final List<dynamic> patch;
+
+  const ActivityDeltaEvent({
+    required this.messageId,
+    required this.activityType,
+    required this.patch,
+    super.timestamp,
+    super.rawEvent,
+  }) : super(eventType: EventType.activityDelta);
+
+  factory ActivityDeltaEvent.fromJson(Map<String, dynamic> json) {
+    final messageId =
+        JsonDecoder.optionalField<String>(json, 'messageId') ??
+        JsonDecoder.requireField<String>(json, 'message_id');
+    final activityType =
+        JsonDecoder.optionalField<String>(json, 'activityType') ??
+        JsonDecoder.requireField<String>(json, 'activity_type');
+    return ActivityDeltaEvent(
+      messageId: messageId,
+      activityType: activityType,
+      patch: JsonDecoder.requireField<List<dynamic>>(json, 'patch'),
+      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      rawEvent: json['rawEvent'],
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...super.toJson(),
+    'messageId': messageId,
+    'activityType': activityType,
+    'patch': patch,
+  };
+
+  @override
+  ActivityDeltaEvent copyWith({
+    String? messageId,
+    String? activityType,
+    List<dynamic>? patch,
+    int? timestamp,
+    dynamic rawEvent,
+  }) {
+    return ActivityDeltaEvent(
+      messageId: messageId ?? this.messageId,
+      activityType: activityType ?? this.activityType,
+      patch: patch ?? this.patch,
+      timestamp: timestamp ?? this.timestamp,
+      rawEvent: rawEvent ?? this.rawEvent,
+    );
+  }
+}
+
 /// Event containing a raw event
 final class RawEvent extends BaseEvent {
   final dynamic event;
@@ -1218,6 +1367,367 @@ final class StepFinishedEvent extends BaseEvent {
   }) {
     return StepFinishedEvent(
       stepName: stepName ?? this.stepName,
+      timestamp: timestamp ?? this.timestamp,
+      rawEvent: rawEvent ?? this.rawEvent,
+    );
+  }
+}
+
+// ============================================================================
+// Reasoning Events
+// ============================================================================
+
+/// Role for reasoning messages (aligned with the AG-UI protocol).
+enum ReasoningMessageRole {
+  reasoning('reasoning');
+
+  final String value;
+  const ReasoningMessageRole(this.value);
+
+  static ReasoningMessageRole fromString(String value) {
+    return ReasoningMessageRole.values.firstWhere(
+      (role) => role.value == value,
+      orElse: () => ReasoningMessageRole.reasoning,
+    );
+  }
+}
+
+/// Subtype for [ReasoningEncryptedValueEvent].
+enum ReasoningEncryptedValueSubtype {
+  toolCall('tool-call'),
+  message('message');
+
+  final String value;
+  const ReasoningEncryptedValueSubtype(this.value);
+
+  static ReasoningEncryptedValueSubtype fromString(String value) {
+    return ReasoningEncryptedValueSubtype.values.firstWhere(
+      (s) => s.value == value,
+      orElse: () => throw ArgumentError(
+        'Invalid reasoning encrypted value subtype: $value',
+      ),
+    );
+  }
+}
+
+/// Event indicating the start of a reasoning phase.
+final class ReasoningStartEvent extends BaseEvent {
+  final String messageId;
+
+  const ReasoningStartEvent({
+    required this.messageId,
+    super.timestamp,
+    super.rawEvent,
+  }) : super(eventType: EventType.reasoningStart);
+
+  factory ReasoningStartEvent.fromJson(Map<String, dynamic> json) {
+    final messageId =
+        JsonDecoder.optionalField<String>(json, 'messageId') ??
+        JsonDecoder.requireField<String>(json, 'message_id');
+    return ReasoningStartEvent(
+      messageId: messageId,
+      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      rawEvent: json['rawEvent'],
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...super.toJson(),
+    'messageId': messageId,
+  };
+
+  @override
+  ReasoningStartEvent copyWith({
+    String? messageId,
+    int? timestamp,
+    dynamic rawEvent,
+  }) {
+    return ReasoningStartEvent(
+      messageId: messageId ?? this.messageId,
+      timestamp: timestamp ?? this.timestamp,
+      rawEvent: rawEvent ?? this.rawEvent,
+    );
+  }
+}
+
+/// Event indicating the start of a reasoning message.
+final class ReasoningMessageStartEvent extends BaseEvent {
+  final String messageId;
+  final ReasoningMessageRole role;
+
+  const ReasoningMessageStartEvent({
+    required this.messageId,
+    this.role = ReasoningMessageRole.reasoning,
+    super.timestamp,
+    super.rawEvent,
+  }) : super(eventType: EventType.reasoningMessageStart);
+
+  factory ReasoningMessageStartEvent.fromJson(Map<String, dynamic> json) {
+    final messageId =
+        JsonDecoder.optionalField<String>(json, 'messageId') ??
+        JsonDecoder.requireField<String>(json, 'message_id');
+    final roleStr = JsonDecoder.optionalField<String>(json, 'role');
+    return ReasoningMessageStartEvent(
+      messageId: messageId,
+      role: roleStr != null
+          ? ReasoningMessageRole.fromString(roleStr)
+          : ReasoningMessageRole.reasoning,
+      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      rawEvent: json['rawEvent'],
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...super.toJson(),
+    'messageId': messageId,
+    'role': role.value,
+  };
+
+  @override
+  ReasoningMessageStartEvent copyWith({
+    String? messageId,
+    ReasoningMessageRole? role,
+    int? timestamp,
+    dynamic rawEvent,
+  }) {
+    return ReasoningMessageStartEvent(
+      messageId: messageId ?? this.messageId,
+      role: role ?? this.role,
+      timestamp: timestamp ?? this.timestamp,
+      rawEvent: rawEvent ?? this.rawEvent,
+    );
+  }
+}
+
+/// Event containing a piece of reasoning message content.
+final class ReasoningMessageContentEvent extends BaseEvent {
+  final String messageId;
+  final String delta;
+
+  const ReasoningMessageContentEvent({
+    required this.messageId,
+    required this.delta,
+    super.timestamp,
+    super.rawEvent,
+  }) : super(eventType: EventType.reasoningMessageContent);
+
+  factory ReasoningMessageContentEvent.fromJson(Map<String, dynamic> json) {
+    final messageId =
+        JsonDecoder.optionalField<String>(json, 'messageId') ??
+        JsonDecoder.requireField<String>(json, 'message_id');
+    return ReasoningMessageContentEvent(
+      messageId: messageId,
+      delta: JsonDecoder.requireField<String>(json, 'delta'),
+      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      rawEvent: json['rawEvent'],
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...super.toJson(),
+    'messageId': messageId,
+    'delta': delta,
+  };
+
+  @override
+  ReasoningMessageContentEvent copyWith({
+    String? messageId,
+    String? delta,
+    int? timestamp,
+    dynamic rawEvent,
+  }) {
+    return ReasoningMessageContentEvent(
+      messageId: messageId ?? this.messageId,
+      delta: delta ?? this.delta,
+      timestamp: timestamp ?? this.timestamp,
+      rawEvent: rawEvent ?? this.rawEvent,
+    );
+  }
+}
+
+/// Event indicating the end of a reasoning message.
+final class ReasoningMessageEndEvent extends BaseEvent {
+  final String messageId;
+
+  const ReasoningMessageEndEvent({
+    required this.messageId,
+    super.timestamp,
+    super.rawEvent,
+  }) : super(eventType: EventType.reasoningMessageEnd);
+
+  factory ReasoningMessageEndEvent.fromJson(Map<String, dynamic> json) {
+    final messageId =
+        JsonDecoder.optionalField<String>(json, 'messageId') ??
+        JsonDecoder.requireField<String>(json, 'message_id');
+    return ReasoningMessageEndEvent(
+      messageId: messageId,
+      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      rawEvent: json['rawEvent'],
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...super.toJson(),
+    'messageId': messageId,
+  };
+
+  @override
+  ReasoningMessageEndEvent copyWith({
+    String? messageId,
+    int? timestamp,
+    dynamic rawEvent,
+  }) {
+    return ReasoningMessageEndEvent(
+      messageId: messageId ?? this.messageId,
+      timestamp: timestamp ?? this.timestamp,
+      rawEvent: rawEvent ?? this.rawEvent,
+    );
+  }
+}
+
+/// Event containing a chunk of reasoning message content.
+final class ReasoningMessageChunkEvent extends BaseEvent {
+  final String? messageId;
+  final String? delta;
+
+  const ReasoningMessageChunkEvent({
+    this.messageId,
+    this.delta,
+    super.timestamp,
+    super.rawEvent,
+  }) : super(eventType: EventType.reasoningMessageChunk);
+
+  factory ReasoningMessageChunkEvent.fromJson(Map<String, dynamic> json) {
+    final messageId =
+        JsonDecoder.optionalField<String>(json, 'messageId') ??
+        JsonDecoder.optionalField<String>(json, 'message_id');
+    return ReasoningMessageChunkEvent(
+      messageId: messageId,
+      delta: JsonDecoder.optionalField<String>(json, 'delta'),
+      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      rawEvent: json['rawEvent'],
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...super.toJson(),
+    if (messageId != null) 'messageId': messageId,
+    if (delta != null) 'delta': delta,
+  };
+
+  @override
+  ReasoningMessageChunkEvent copyWith({
+    String? messageId,
+    String? delta,
+    int? timestamp,
+    dynamic rawEvent,
+  }) {
+    return ReasoningMessageChunkEvent(
+      messageId: messageId ?? this.messageId,
+      delta: delta ?? this.delta,
+      timestamp: timestamp ?? this.timestamp,
+      rawEvent: rawEvent ?? this.rawEvent,
+    );
+  }
+}
+
+/// Event indicating the end of a reasoning phase.
+final class ReasoningEndEvent extends BaseEvent {
+  final String messageId;
+
+  const ReasoningEndEvent({
+    required this.messageId,
+    super.timestamp,
+    super.rawEvent,
+  }) : super(eventType: EventType.reasoningEnd);
+
+  factory ReasoningEndEvent.fromJson(Map<String, dynamic> json) {
+    final messageId =
+        JsonDecoder.optionalField<String>(json, 'messageId') ??
+        JsonDecoder.requireField<String>(json, 'message_id');
+    return ReasoningEndEvent(
+      messageId: messageId,
+      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      rawEvent: json['rawEvent'],
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...super.toJson(),
+    'messageId': messageId,
+  };
+
+  @override
+  ReasoningEndEvent copyWith({
+    String? messageId,
+    int? timestamp,
+    dynamic rawEvent,
+  }) {
+    return ReasoningEndEvent(
+      messageId: messageId ?? this.messageId,
+      timestamp: timestamp ?? this.timestamp,
+      rawEvent: rawEvent ?? this.rawEvent,
+    );
+  }
+}
+
+/// Event containing an encrypted value for a message or tool call.
+final class ReasoningEncryptedValueEvent extends BaseEvent {
+  final ReasoningEncryptedValueSubtype subtype;
+  final String entityId;
+  final String encryptedValue;
+
+  const ReasoningEncryptedValueEvent({
+    required this.subtype,
+    required this.entityId,
+    required this.encryptedValue,
+    super.timestamp,
+    super.rawEvent,
+  }) : super(eventType: EventType.reasoningEncryptedValue);
+
+  factory ReasoningEncryptedValueEvent.fromJson(Map<String, dynamic> json) {
+    final subtypeStr = JsonDecoder.requireField<String>(json, 'subtype');
+    final entityId =
+        JsonDecoder.optionalField<String>(json, 'entityId') ??
+        JsonDecoder.requireField<String>(json, 'entity_id');
+    final encryptedValue =
+        JsonDecoder.optionalField<String>(json, 'encryptedValue') ??
+        JsonDecoder.requireField<String>(json, 'encrypted_value');
+    return ReasoningEncryptedValueEvent(
+      subtype: ReasoningEncryptedValueSubtype.fromString(subtypeStr),
+      entityId: entityId,
+      encryptedValue: encryptedValue,
+      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      rawEvent: json['rawEvent'],
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() => {
+    ...super.toJson(),
+    'subtype': subtype.value,
+    'entityId': entityId,
+    'encryptedValue': encryptedValue,
+  };
+
+  @override
+  ReasoningEncryptedValueEvent copyWith({
+    ReasoningEncryptedValueSubtype? subtype,
+    String? entityId,
+    String? encryptedValue,
+    int? timestamp,
+    dynamic rawEvent,
+  }) {
+    return ReasoningEncryptedValueEvent(
+      subtype: subtype ?? this.subtype,
+      entityId: entityId ?? this.entityId,
+      encryptedValue: encryptedValue ?? this.encryptedValue,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );

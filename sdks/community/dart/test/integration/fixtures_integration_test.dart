@@ -250,13 +250,71 @@ void main() {
         final decodedEvents = events
             .map((e) => decoder.decodeJson(e as Map<String, dynamic>))
             .toList();
-        
+
         final chunkEvent = decodedEvents
             .whereType<TextMessageChunkEvent>()
             .first;
         expect(chunkEvent.messageId, equals('msg_16'));
         expect(chunkEvent.role, equals(TextMessageRole.assistant));
         expect(chunkEvent.delta, equals('Complete message in a single chunk'));
+      });
+
+      test('processes activity events', () {
+        final events = fixtures['activity_events'] as List;
+        final decodedEvents = events
+            .map((e) => decoder.decodeJson(e as Map<String, dynamic>))
+            .toList();
+
+        final snapshot =
+            decodedEvents.whereType<ActivitySnapshotEvent>().first;
+        expect(snapshot.messageId, equals('act_01'));
+        expect(snapshot.activityType, equals('task.run'));
+        expect(snapshot.replace, isTrue);
+        expect(snapshot.content['title'], equals('Indexing files'));
+
+        final deltas = decodedEvents.whereType<ActivityDeltaEvent>().toList();
+        expect(deltas.length, equals(2));
+        expect(deltas[0].patch.length, equals(2));
+        expect(deltas[0].patch[0]['op'], equals('replace'));
+        expect(deltas[1].patch[0]['value'], equals(1.0));
+      });
+
+      test('processes reasoning events', () {
+        final events = fixtures['reasoning_events'] as List;
+        final decodedEvents = events
+            .map((e) => decoder.decodeJson(e as Map<String, dynamic>))
+            .toList();
+
+        expect(
+          decodedEvents.whereType<ReasoningStartEvent>().length,
+          equals(1),
+        );
+        expect(
+          decodedEvents.whereType<ReasoningMessageStartEvent>().single.role,
+          equals(ReasoningMessageRole.reasoning),
+        );
+
+        final content =
+            decodedEvents.whereType<ReasoningMessageContentEvent>().single;
+        expect(content.delta, contains('Analyzing'));
+
+        final chunk =
+            decodedEvents.whereType<ReasoningMessageChunkEvent>().single;
+        expect(chunk.delta, contains('considering options'));
+
+        final encrypted =
+            decodedEvents.whereType<ReasoningEncryptedValueEvent>().single;
+        expect(
+          encrypted.subtype,
+          equals(ReasoningEncryptedValueSubtype.message),
+        );
+        expect(encrypted.entityId, equals('rsn_01'));
+        expect(encrypted.encryptedValue, isNotEmpty);
+
+        expect(
+          decodedEvents.whereType<ReasoningEndEvent>().length,
+          equals(1),
+        );
       });
     });
     

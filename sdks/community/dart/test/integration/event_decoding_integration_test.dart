@@ -111,10 +111,87 @@ void main() {
 
         final event = decoder.decodeJson(pythonJson);
         expect(event, isA<RunFinishedEvent>());
-        
+
         final runEvent = event as RunFinishedEvent;
         expect(runEvent.threadId, equals('thread-123'));
         expect(runEvent.runId, equals('run-456'));
+      });
+
+      test('decodes ACTIVITY_SNAPSHOT event from Python server format', () {
+        final pythonJson = {
+          'type': 'ACTIVITY_SNAPSHOT',
+          'message_id': 'act_001',
+          'activity_type': 'task.run',
+          'content': {'title': 'Hello', 'progress': 0.25},
+          'replace': false,
+        };
+
+        final event = decoder.decodeJson(pythonJson);
+        expect(event, isA<ActivitySnapshotEvent>());
+
+        final activity = event as ActivitySnapshotEvent;
+        expect(activity.messageId, equals('act_001'));
+        expect(activity.activityType, equals('task.run'));
+        expect(activity.content['title'], equals('Hello'));
+        expect(activity.replace, isFalse);
+      });
+
+      test('decodes ACTIVITY_DELTA event from Python server format', () {
+        final pythonJson = {
+          'type': 'ACTIVITY_DELTA',
+          'message_id': 'act_001',
+          'activity_type': 'task.run',
+          'patch': [
+            {'op': 'replace', 'path': '/progress', 'value': 0.5},
+          ],
+        };
+
+        final event = decoder.decodeJson(pythonJson);
+        expect(event, isA<ActivityDeltaEvent>());
+
+        final delta = event as ActivityDeltaEvent;
+        expect(delta.messageId, equals('act_001'));
+        expect(delta.activityType, equals('task.run'));
+        expect(delta.patch.length, equals(1));
+      });
+
+      test('decodes REASONING_* events from Python server format', () {
+        final start = decoder.decodeJson({
+          'type': 'REASONING_START',
+          'message_id': 'rsn_001',
+        });
+        expect(start, isA<ReasoningStartEvent>());
+        expect((start as ReasoningStartEvent).messageId, equals('rsn_001'));
+
+        final messageStart = decoder.decodeJson({
+          'type': 'REASONING_MESSAGE_START',
+          'message_id': 'rsn_001',
+          'role': 'reasoning',
+        });
+        expect(messageStart, isA<ReasoningMessageStartEvent>());
+
+        final content = decoder.decodeJson({
+          'type': 'REASONING_MESSAGE_CONTENT',
+          'message_id': 'rsn_001',
+          'delta': 'thinking...',
+        });
+        expect(content, isA<ReasoningMessageContentEvent>());
+        expect(
+          (content as ReasoningMessageContentEvent).delta,
+          equals('thinking...'),
+        );
+
+        final encrypted = decoder.decodeJson({
+          'type': 'REASONING_ENCRYPTED_VALUE',
+          'subtype': 'tool-call',
+          'entity_id': 'tc_001',
+          'encrypted_value': 'cipher',
+        });
+        expect(encrypted, isA<ReasoningEncryptedValueEvent>());
+        final encEvent = encrypted as ReasoningEncryptedValueEvent;
+        expect(encEvent.subtype, ReasoningEncryptedValueSubtype.toolCall);
+        expect(encEvent.entityId, equals('tc_001'));
+        expect(encEvent.encryptedValue, equals('cipher'));
       });
     });
 

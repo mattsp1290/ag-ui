@@ -65,7 +65,7 @@ class TestHelpers {
           completer.complete();
         }
       },
-      onError: (error) {
+      onError: (Object error) {
         completer.completeError(error);
       },
       onDone: () {

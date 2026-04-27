@@ -21,7 +21,7 @@ dependencies:
 
 - 🎯 **Dart-native** – Idiomatic Dart APIs with full type safety and null safety
 - 🔗 **HTTP connectivity** – `AgUiClient` for direct server connections with SSE streaming
-- 📡 **Event streaming** – 16 core event types for real-time agent communication
+- 📡 **Event streaming** – Full AG-UI protocol event coverage (text messages, tool calls, state, activity, reasoning, lifecycle, and more) for real-time agent communication
 - 🔄 **State management** – Automatic message/state tracking with JSON Patch support
 - 🛠️ **Tool interactions** – Full support for tool calls and generative UI
 - ⚡ **High performance** – Efficient event decoding with backpressure handling

@@ -437,5 +437,90 @@
       "threadId": "thread_11",
       "runId": "run_12"
     }
+  ],
+  "activity_events": [
+    {
+      "type": "RUN_STARTED",
+      "threadId": "thread_12",
+      "runId": "run_13"
+    },
+    {
+      "type": "ACTIVITY_SNAPSHOT",
+      "messageId": "act_01",
+      "activityType": "task.run",
+      "content": {
+        "title": "Indexing files",
+        "progress": 0.0,
+        "items": []
+      },
+      "replace": true
+    },
+    {
+      "type": "ACTIVITY_DELTA",
+      "messageId": "act_01",
+      "activityType": "task.run",
+      "patch": [
+        {"op": "replace", "path": "/progress", "value": 0.5},
+        {"op": "add", "path": "/items/-", "value": "/foo.dart"}
+      ]
+    },
+    {
+      "type": "ACTIVITY_DELTA",
+      "messageId": "act_01",
+      "activityType": "task.run",
+      "patch": [
+        {"op": "replace", "path": "/progress", "value": 1.0}
+      ]
+    },
+    {
+      "type": "RUN_FINISHED",
+      "threadId": "thread_12",
+      "runId": "run_13"
+    }
+  ],
+  "reasoning_events": [
+    {
+      "type": "RUN_STARTED",
+      "threadId": "thread_13",
+      "runId": "run_14"
+    },
+    {
+      "type": "REASONING_START",
+      "messageId": "rsn_01"
+    },
+    {
+      "type": "REASONING_MESSAGE_START",
+      "messageId": "rsn_01",
+      "role": "reasoning"
+    },
+    {
+      "type": "REASONING_MESSAGE_CONTENT",
+      "messageId": "rsn_01",
+      "delta": "Analyzing the request..."
+    },
+    {
+      "type": "REASONING_MESSAGE_CHUNK",
+      "messageId": "rsn_01",
+      "delta": " considering options."
+    },
+    {
+      "type": "REASONING_MESSAGE_END",
+      "messageId": "rsn_01"
+    },
+    {
+      "type": "REASONING_ENCRYPTED_VALUE",
+      "subtype": "message",
+      "entityId": "rsn_01",
+      "encryptedValue": "ZW5jcnlwdGVkLXBheWxvYWQ="
+    },
+    {
+      "type": "REASONING_END",
+      "messageId": "rsn_01"
+    },
+    {
+      "type": "RUN_FINISHED",
+      "threadId": "thread_13",
+      "runId": "run_14"
+    }
   ]
 }

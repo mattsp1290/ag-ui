@@ -161,6 +161,26 @@ class EventDecoder {
       case RunStartedEvent():
         Validators.validateThreadId(event.threadId);
         Validators.validateRunId(event.runId);
+      case ActivitySnapshotEvent():
+        Validators.requireNonEmpty(event.messageId, 'messageId');
+        Validators.requireNonEmpty(event.activityType, 'activityType');
+      case ActivityDeltaEvent():
+        Validators.requireNonEmpty(event.messageId, 'messageId');
+        Validators.requireNonEmpty(event.activityType, 'activityType');
+      case ReasoningStartEvent():
+        Validators.requireNonEmpty(event.messageId, 'messageId');
+      case ReasoningMessageStartEvent():
+        Validators.requireNonEmpty(event.messageId, 'messageId');
+      case ReasoningMessageContentEvent():
+        Validators.requireNonEmpty(event.messageId, 'messageId');
+        Validators.requireNonEmpty(event.delta, 'delta');
+      case ReasoningMessageEndEvent():
+        Validators.requireNonEmpty(event.messageId, 'messageId');
+      case ReasoningEndEvent():
+        Validators.requireNonEmpty(event.messageId, 'messageId');
+      case ReasoningEncryptedValueEvent():
+        Validators.requireNonEmpty(event.entityId, 'entityId');
+        Validators.requireNonEmpty(event.encryptedValue, 'encryptedValue');
       default:
         // No specific validation for other event types
         break;

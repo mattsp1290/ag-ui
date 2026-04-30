@@ -169,7 +169,14 @@ class DecodingError extends AgUiError {
   }
 }
 
-/// Error validating input or output data
+/// Error validating input or output data.
+///
+/// Thrown by `Validators` (e.g. `Validators.requireNonEmpty`) — not by
+/// `fromJson` factories. The factory-side counterpart is
+/// `AGUIValidationError` in `lib/src/types/base.dart`, which has a
+/// different parent (does NOT extend `AgUiError`). When events flow
+/// through the public [EventDecoder] pipeline, both are caught and
+/// re-wrapped as `DecodingError`.
 class ValidationError extends AgUiError {
   /// Field that failed validation
   final String? field;

@@ -52,13 +52,30 @@ class EventDecoder {
     try {
       // Validate required fields
       Validators.requireNonEmpty(json['type'] as String?, 'type');
-      
+
       final event = BaseEvent.fromJson(json);
-      
+
       // Validate the created event
       validate(event);
-      
+
       return event;
+    } on ValidationError catch (e) {
+      // Wire-boundary contract documented on `AGUIValidationError`
+      // (lib/src/types/base.dart): both `AGUIValidationError` (from
+      // `fromJson` factories) and `ValidationError` (from `validate()`
+      // via `Validators.requireNonEmpty`) surface to consumers as
+      // `DecodingError` so callers only need to catch one error type at
+      // the decode boundary. `AGUIValidationError` does not extend
+      // `AgUiError` and is wrapped by the catch-all below; this `on`
+      // clause covers the `AgUiError`-extending sibling so it does not
+      // bypass the wrapping via the `on AgUiError` rethrow.
+      throw DecodingError(
+        'Failed to create event from JSON',
+        field: e.field ?? 'json',
+        expectedType: 'BaseEvent',
+        actualValue: json,
+        cause: e,
+      );
     } on AgUiError {
       rethrow;
     } catch (e) {
@@ -141,32 +158,93 @@ class EventDecoder {
 
   /// Validates that an event has all required fields.
   ///
+  /// Defensive re-check on top of `fromJson`: catches empty-string values
+  /// (which `JsonDecoder.requireField<String>` permits), and any event
+  /// constructed outside `fromJson` (e.g. via a `copyWith` that violates
+  /// the non-empty contract). The asymmetry is intentional — `fromJson`
+  /// only enforces presence and type; `validate()` is the single source of
+  /// truth for non-empty constraints on string identifiers.
+  ///
   /// Returns true if valid, throws [ValidationError] if not.
   bool validate(BaseEvent event) {
     // Basic validation - ensure type is set
     Validators.validateEventType(event.type);
     
-    // Type-specific validation
+    // Type-specific validation. Listing every sealed subtype explicitly
+    // (no `default`) makes the analyzer flag any new event type that is
+    // added without a corresponding decision here. When you add a case
+    // here, also update `BaseEvent.fromJson` in
+    // `lib/src/events/events.dart` so the discriminator-dispatch switch
+    // and this validator remain in sync.
     switch (event) {
       case TextMessageStartEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
       case TextMessageContentEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
         Validators.requireNonEmpty(event.delta, 'delta');
-      case ThinkingContentEvent():
-        Validators.requireNonEmpty(event.delta, 'delta');
+      case TextMessageEndEvent():
+        break;
+      case TextMessageChunkEvent():
+        break;
+      case ThinkingTextMessageStartEvent():
+        break;
+      case ThinkingTextMessageContentEvent():
+        break;
+      case ThinkingTextMessageEndEvent():
+        break;
       case ToolCallStartEvent():
         Validators.requireNonEmpty(event.toolCallId, 'toolCallId');
         Validators.requireNonEmpty(event.toolCallName, 'toolCallName');
-      case RunStartedEvent():
-        Validators.validateThreadId(event.threadId);
-        Validators.validateRunId(event.runId);
+      case ToolCallArgsEvent():
+        Validators.requireNonEmpty(event.toolCallId, 'toolCallId');
+        Validators.requireNonEmpty(event.delta, 'delta');
+      case ToolCallEndEvent():
+        Validators.requireNonEmpty(event.toolCallId, 'toolCallId');
+      case ToolCallChunkEvent():
+        break;
+      case ToolCallResultEvent():
+        Validators.requireNonEmpty(event.messageId, 'messageId');
+        Validators.requireNonEmpty(event.toolCallId, 'toolCallId');
+        Validators.requireNonEmpty(event.content, 'content');
+      case ThinkingStartEvent():
+        break;
+      // ignore: deprecated_member_use_from_same_package
+      case ThinkingContentEvent():
+        Validators.requireNonEmpty(event.delta, 'delta');
+      case ThinkingEndEvent():
+        break;
+      case StateSnapshotEvent():
+        // `snapshot` is an opaque JSON value — presence is enforced in
+        // `StateSnapshotEvent.fromJson`; there is no non-empty constraint
+        // we can express on `dynamic` content here.
+        break;
+      case StateDeltaEvent():
+        break;
+      case MessagesSnapshotEvent():
+        break;
       case ActivitySnapshotEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
         Validators.requireNonEmpty(event.activityType, 'activityType');
       case ActivityDeltaEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
         Validators.requireNonEmpty(event.activityType, 'activityType');
+      case RawEvent():
+        // `event` payload presence is enforced in `RawEvent.fromJson`.
+        break;
+      case CustomEvent():
+        Validators.requireNonEmpty(event.name, 'name');
+      case RunStartedEvent():
+        Validators.validateThreadId(event.threadId);
+        Validators.validateRunId(event.runId);
+      case RunFinishedEvent():
+        Validators.validateThreadId(event.threadId);
+        Validators.validateRunId(event.runId);
+      case RunErrorEvent():
+        Validators.requireNonEmpty(event.message, 'message');
+      case StepStartedEvent():
+        Validators.requireNonEmpty(event.stepName, 'stepName');
+      case StepFinishedEvent():
+        Validators.requireNonEmpty(event.stepName, 'stepName');
       case ReasoningStartEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
       case ReasoningMessageStartEvent():
@@ -176,16 +254,20 @@ class EventDecoder {
         Validators.requireNonEmpty(event.delta, 'delta');
       case ReasoningMessageEndEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
+      case ReasoningMessageChunkEvent():
+        break;
       case ReasoningEndEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
       case ReasoningEncryptedValueEvent():
+        // `subtype` is enum-typed and constructor-required, so it cannot
+        // be null/invalid here. If the enum ever gains an `unknown`
+        // member (currently `fromString` throws — see the dartdoc on
+        // `ReasoningEncryptedValueSubtype.fromString`), this case is the
+        // place to reject it.
         Validators.requireNonEmpty(event.entityId, 'entityId');
         Validators.requireNonEmpty(event.encryptedValue, 'encryptedValue');
-      default:
-        // No specific validation for other event types
-        break;
     }
-    
+
     return true;
   }
 }

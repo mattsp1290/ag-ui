@@ -37,6 +37,15 @@ mixin TypeDiscriminator {
 ///
 /// Thrown when JSON data does not match the expected schema for
 /// AG-UI protocol models.
+///
+/// Note on the two-class error setup: this class is thrown by `fromJson`
+/// factories (the wire-decoding boundary) and does NOT extend
+/// `AgUiError`. The separate `ValidationError` in
+/// `lib/src/client/errors.dart` is thrown by `Validators.requireNonEmpty`
+/// inside `EventDecoder.validate`. When events are decoded through the
+/// public [EventDecoder] pipeline, both classes are caught and re-thrown
+/// as `DecodingError` — see `decoder.dart` for the wrapping logic. Direct
+/// callers of `Event.fromJson` see this `AGUIValidationError` directly.
 class AGUIValidationError implements Exception {
   final String message;
   final String? field;
@@ -162,7 +171,52 @@ class JsonDecoder {
     return value;
   }
 
+  /// Reads a required field that may arrive under either of two keys.
+  ///
+  /// Servers in this protocol use camelCase (TypeScript) or snake_case
+  /// (Python) field names interchangeably. This helper tries [camelKey]
+  /// first (canonical), then [snakeKey], and throws an
+  /// [AGUIValidationError] naming BOTH keys if neither is present —
+  /// avoiding the misleading "missing message_id" error when the caller
+  /// actually sent `messageId`.
+  static T requireEitherField<T>(
+    Map<String, dynamic> json,
+    String camelKey,
+    String snakeKey,
+  ) {
+    final v = optionalField<T>(json, camelKey) ??
+        optionalField<T>(json, snakeKey);
+    if (v == null) {
+      throw AGUIValidationError(
+        message: 'Missing required field "$camelKey" (or "$snakeKey")',
+        field: camelKey,
+        json: json,
+      );
+    }
+    return v;
+  }
+
+  /// Reads an optional field that may arrive under either of two keys.
+  ///
+  /// Returns the camelCase value if present, otherwise the snake_case
+  /// value, otherwise null.
+  static T? optionalEitherField<T>(
+    Map<String, dynamic> json,
+    String camelKey,
+    String snakeKey,
+  ) {
+    return optionalField<T>(json, camelKey) ??
+        optionalField<T>(json, snakeKey);
+  }
+
   /// Safely extracts a list field from JSON.
+  ///
+  /// Use this when the elements have a concrete element type that the SDK
+  /// strongly types (`requireListField<Map<String, dynamic>>` for nested
+  /// records, etc.) — the inner `cast<T>()` step provides the type safety.
+  /// For loosely-typed payloads where the elements are intentionally
+  /// `dynamic` (e.g. JSON Patch operations in `STATE_DELTA` / `ACTIVITY_DELTA`)
+  /// prefer `requireField<List<dynamic>>` to avoid an unnecessary cast.
   static List<T> requireListField<T>(
     Map<String, dynamic> json,
     String field, {

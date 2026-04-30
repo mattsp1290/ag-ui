@@ -18,7 +18,8 @@ enum EventType {
   thinkingStart('THINKING_START'),
   @Deprecated(
     'Not part of the canonical AG-UI protocol. '
-    'Use thinkingTextMessageContent (ThinkingTextMessageContentEvent) instead.',
+    'Use thinkingTextMessageContent (ThinkingTextMessageContentEvent) instead. '
+    'Scheduled for removal in 1.0.0.',
   )
   thinkingContent('THINKING_CONTENT'),
   thinkingEnd('THINKING_END'),

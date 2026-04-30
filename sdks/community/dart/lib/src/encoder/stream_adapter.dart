@@ -89,6 +89,16 @@ class EventStreamAdapter {
   /// - Parsing JSON to typed event objects
   /// - Filtering out non-data messages (comments, etc.)
   /// - Error handling with optional recovery
+  ///
+  /// When [skipInvalidEvents] is `true`, decode failures (malformed JSON,
+  /// unknown event types, validation errors) are routed to [onError] and
+  /// the stream continues. This includes silent loss of any
+  /// `REASONING_ENCRYPTED_VALUE` event whose `subtype` is unknown to this
+  /// SDK version: there is no sensible default for an encrypted-payload
+  /// subtype, so the event becomes a `DecodingError` and is dropped under
+  /// the flag. Most other enums (`ReasoningMessageRole`, `TextMessageRole`)
+  /// absorb unknown values at the event-decoding boundary instead.
+  /// Consumers that need to react to such drops should observe [onError].
   Stream<BaseEvent> fromSseStream(
     Stream<SseMessage> sseStream, {
     bool skipInvalidEvents = false,
@@ -149,6 +159,10 @@ class EventStreamAdapter {
   ///
   /// This handles partial messages that may be split across multiple
   /// stream events, buffering as needed.
+  ///
+  /// See [fromSseStream] for the [skipInvalidEvents] / [onError]
+  /// semantics, including the silent-drop note for
+  /// `REASONING_ENCRYPTED_VALUE` events with unknown subtypes.
   Stream<BaseEvent> fromRawSseStream(
     Stream<String> rawStream, {
     bool skipInvalidEvents = false,

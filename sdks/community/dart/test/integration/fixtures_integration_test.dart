@@ -156,8 +156,11 @@ void main() {
             .first;
         expect(thinkingStart.title, equals('Analyzing request'));
         
-        // Use the new ThinkingContentEvent class
+        // Decoding still emits the (deprecated) ThinkingContentEvent for
+        // backward compatibility until removal. See [ThinkingContentEvent].
+        // ignore: deprecated_member_use_from_same_package
         final thinkingEvents = decodedEvents
+            // ignore: deprecated_member_use_from_same_package
             .whereType<ThinkingContentEvent>()
             .toList();
         expect(thinkingEvents.length, equals(2));
@@ -270,7 +273,7 @@ void main() {
         expect(snapshot.messageId, equals('act_01'));
         expect(snapshot.activityType, equals('task.run'));
         expect(snapshot.replace, isTrue);
-        expect(snapshot.content['title'], equals('Indexing files'));
+        expect((snapshot.content as Map)['title'], equals('Indexing files'));
 
         final deltas = decodedEvents.whereType<ActivityDeltaEvent>().toList();
         expect(deltas.length, equals(2));
@@ -468,6 +471,32 @@ void main() {
           StateDeltaEvent(delta: [
             {'op': 'replace', 'path': '/count', 'value': 43},
           ]),
+          ActivitySnapshotEvent(
+            messageId: 'act_01',
+            activityType: 'task.run',
+            content: {'progress': 0.25},
+          ),
+          ActivityDeltaEvent(
+            messageId: 'act_01',
+            activityType: 'task.run',
+            patch: [
+              {'op': 'replace', 'path': '/progress', 'value': 0.5},
+            ],
+          ),
+          ReasoningStartEvent(messageId: 'rsn_01'),
+          ReasoningMessageStartEvent(messageId: 'rsn_01'),
+          ReasoningMessageContentEvent(
+            messageId: 'rsn_01',
+            delta: 'thinking',
+          ),
+          ReasoningMessageEndEvent(messageId: 'rsn_01'),
+          ReasoningMessageChunkEvent(messageId: 'rsn_01', delta: 'chunk'),
+          ReasoningEncryptedValueEvent(
+            subtype: ReasoningEncryptedValueSubtype.message,
+            entityId: 'rsn_01',
+            encryptedValue: 'cipher',
+          ),
+          ReasoningEndEvent(messageId: 'rsn_01'),
           RunFinishedEvent(threadId: 'thread_01', runId: 'run_01'),
         ];
         

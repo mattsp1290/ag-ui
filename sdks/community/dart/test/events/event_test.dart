@@ -44,6 +44,37 @@ void main() {
         );
       });
 
+      test('TextMessage* events accept snake_case (Python server)', () {
+        final start = TextMessageStartEvent.fromJson({
+          'type': 'TEXT_MESSAGE_START',
+          'message_id': 'msg_001',
+          'role': 'assistant',
+        });
+        expect(start.messageId, 'msg_001');
+
+        final content = TextMessageContentEvent.fromJson({
+          'type': 'TEXT_MESSAGE_CONTENT',
+          'message_id': 'msg_001',
+          'delta': 'hello',
+        });
+        expect(content.messageId, 'msg_001');
+        expect(content.delta, 'hello');
+
+        final end = TextMessageEndEvent.fromJson({
+          'type': 'TEXT_MESSAGE_END',
+          'message_id': 'msg_001',
+        });
+        expect(end.messageId, 'msg_001');
+
+        final chunk = TextMessageChunkEvent.fromJson({
+          'type': 'TEXT_MESSAGE_CHUNK',
+          'message_id': 'msg_001',
+          'delta': 'partial',
+        });
+        expect(chunk.messageId, 'msg_001');
+        expect(chunk.delta, 'partial');
+      });
+
       test('TextMessageChunkEvent optional fields', () {
         final event = TextMessageChunkEvent(
           messageId: 'msg_001',
@@ -83,6 +114,52 @@ void main() {
         expect(decoded.toolCallId, event.toolCallId);
         expect(decoded.toolCallName, event.toolCallName);
         expect(decoded.parentMessageId, event.parentMessageId);
+      });
+
+      test('ToolCall* events accept snake_case (Python server)', () {
+        final start = ToolCallStartEvent.fromJson({
+          'type': 'TOOL_CALL_START',
+          'tool_call_id': 'call_001',
+          'tool_call_name': 'get_weather',
+          'parent_message_id': 'msg_001',
+        });
+        expect(start.toolCallId, 'call_001');
+        expect(start.toolCallName, 'get_weather');
+        expect(start.parentMessageId, 'msg_001');
+
+        final args = ToolCallArgsEvent.fromJson({
+          'type': 'TOOL_CALL_ARGS',
+          'tool_call_id': 'call_001',
+          'delta': '{"q":"x"}',
+        });
+        expect(args.toolCallId, 'call_001');
+
+        final end = ToolCallEndEvent.fromJson({
+          'type': 'TOOL_CALL_END',
+          'tool_call_id': 'call_001',
+        });
+        expect(end.toolCallId, 'call_001');
+
+        final chunk = ToolCallChunkEvent.fromJson({
+          'type': 'TOOL_CALL_CHUNK',
+          'tool_call_id': 'call_001',
+          'tool_call_name': 'get_weather',
+          'parent_message_id': 'msg_001',
+          'delta': '{',
+        });
+        expect(chunk.toolCallId, 'call_001');
+        expect(chunk.toolCallName, 'get_weather');
+        expect(chunk.parentMessageId, 'msg_001');
+
+        final result = ToolCallResultEvent.fromJson({
+          'type': 'TOOL_CALL_RESULT',
+          'message_id': 'msg_001',
+          'tool_call_id': 'call_001',
+          'content': '72F sunny',
+          'role': 'tool',
+        });
+        expect(result.messageId, 'msg_001');
+        expect(result.toolCallId, 'call_001');
       });
 
       test('ToolCallResultEvent role field', () {
@@ -261,7 +338,13 @@ void main() {
         expect(events[5], isA<CustomEvent>());
       });
 
-      test('should throw on invalid event type', () {
+      test('should throw AGUIValidationError on invalid event type', () {
+        // The factory wraps `EventType.fromString`'s raw `ArgumentError`
+        // as `AGUIValidationError` so direct callers see the same error
+        // surface as every other validation failure. Through the public
+        // `EventDecoder` pipeline this surfaces as `DecodingError` —
+        // see `event_decoding_integration_test.dart` ("validates
+        // required fields strictly", invalid event type case).
         final json = {
           'type': 'INVALID_EVENT_TYPE',
           'data': 'some data',
@@ -269,7 +352,7 @@ void main() {
 
         expect(
           () => BaseEvent.fromJson(json),
-          throwsArgumentError,
+          throwsA(isA<AGUIValidationError>()),
         );
       });
     });
@@ -296,6 +379,36 @@ void main() {
           () => ThinkingTextMessageContentEvent.fromJson(invalidJson),
           throwsA(isA<AGUIValidationError>()),
         );
+      });
+
+      test('deprecated ThinkingContentEvent still round-trips', () {
+        // Locks in the backward-compat contract on the deprecation:
+        // decoding/encoding must keep working until the planned removal.
+        // ignore: deprecated_member_use_from_same_package
+        final original = ThinkingContentEvent(delta: 'still works');
+        final json = original.toJson();
+        expect(json['type'], 'THINKING_CONTENT');
+        expect(json['delta'], 'still works');
+
+        // ignore: deprecated_member_use_from_same_package
+        final decoded = ThinkingContentEvent.fromJson(json);
+        expect(decoded.delta, 'still works');
+      });
+
+      test('EventDecoder still decodes deprecated THINKING_CONTENT', () {
+        // Backs the CHANGELOG promise that the deprecated path remains
+        // decodable end-to-end through the public decoder boundary.
+        const decoder = EventDecoder();
+
+        final event = decoder.decodeJson({
+          'type': 'THINKING_CONTENT',
+          'delta': 'legacy payload',
+        });
+
+        // ignore: deprecated_member_use_from_same_package
+        expect(event, isA<ThinkingContentEvent>());
+        // ignore: deprecated_member_use_from_same_package
+        expect((event as ThinkingContentEvent).delta, 'legacy payload');
       });
     });
 
@@ -446,6 +559,7 @@ void main() {
           'content': null,
         });
         expect(snapshot, isA<ActivitySnapshotEvent>());
+        expect((snapshot as ActivitySnapshotEvent).content, isNull);
 
         final delta = BaseEvent.fromJson({
           'type': 'ACTIVITY_DELTA',
@@ -454,6 +568,78 @@ void main() {
           'patch': <dynamic>[],
         });
         expect(delta, isA<ActivityDeltaEvent>());
+      });
+
+      test('ActivitySnapshotEvent rejects missing content key', () {
+        // Mirrors the `StateSnapshotEvent` / `RawEvent` contract: the
+        // payload field may be any JSON shape (including `null`) but the
+        // KEY must be present. Distinguishing missing-key from
+        // explicit-null is the whole point of this check.
+        expect(
+          () => ActivitySnapshotEvent.fromJson({
+            'type': 'ACTIVITY_SNAPSHOT',
+            'messageId': 'msg_001',
+            'activityType': 'task.run',
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
+      test('ActivitySnapshotEvent accepts explicit-null content', () {
+        // The companion to "rejects missing content key": an explicit
+        // `null` is a valid wire payload (Python's `content: Any`
+        // permits None) and must round-trip without error.
+        final decoded = ActivitySnapshotEvent.fromJson({
+          'type': 'ACTIVITY_SNAPSHOT',
+          'messageId': 'msg_001',
+          'activityType': 'task.run',
+          'content': null,
+        });
+        expect(decoded.content, isNull);
+      });
+
+      test('ActivitySnapshotEvent rejects missing messageId', () {
+        expect(
+          () => ActivitySnapshotEvent.fromJson({
+            'type': 'ACTIVITY_SNAPSHOT',
+            'activityType': 'task.run',
+            'content': null,
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
+      test('ActivityDeltaEvent rejects missing messageId', () {
+        expect(
+          () => ActivityDeltaEvent.fromJson({
+            'type': 'ACTIVITY_DELTA',
+            'activityType': 'task.run',
+            'patch': <dynamic>[],
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
+      test('ActivityDeltaEvent rejects missing activityType', () {
+        expect(
+          () => ActivityDeltaEvent.fromJson({
+            'type': 'ACTIVITY_DELTA',
+            'messageId': 'msg_001',
+            'patch': <dynamic>[],
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
+      test('ActivityDeltaEvent rejects missing patch', () {
+        expect(
+          () => ActivityDeltaEvent.fromJson({
+            'type': 'ACTIVITY_DELTA',
+            'messageId': 'msg_001',
+            'activityType': 'task.run',
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
       });
 
       test('ActivitySnapshotEvent copyWith preserves untouched fields', () {
@@ -489,6 +675,42 @@ void main() {
           'message_id': 'msg_r1',
         });
         expect(decoded.messageId, 'msg_r1');
+      });
+
+      test('ReasoningMessageStartEvent accepts snake_case', () {
+        final decoded = ReasoningMessageStartEvent.fromJson({
+          'type': 'REASONING_MESSAGE_START',
+          'message_id': 'msg_r2',
+          'role': 'reasoning',
+        });
+        expect(decoded.messageId, 'msg_r2');
+        expect(decoded.role, ReasoningMessageRole.reasoning);
+      });
+
+      test('ReasoningMessageContentEvent accepts snake_case', () {
+        final decoded = ReasoningMessageContentEvent.fromJson({
+          'type': 'REASONING_MESSAGE_CONTENT',
+          'message_id': 'msg_r3',
+          'delta': 'thinking step',
+        });
+        expect(decoded.messageId, 'msg_r3');
+        expect(decoded.delta, 'thinking step');
+      });
+
+      test('ReasoningMessageEndEvent accepts snake_case', () {
+        final decoded = ReasoningMessageEndEvent.fromJson({
+          'type': 'REASONING_MESSAGE_END',
+          'message_id': 'msg_r4',
+        });
+        expect(decoded.messageId, 'msg_r4');
+      });
+
+      test('ReasoningEndEvent accepts snake_case', () {
+        final decoded = ReasoningEndEvent.fromJson({
+          'type': 'REASONING_END',
+          'message_id': 'msg_r6',
+        });
+        expect(decoded.messageId, 'msg_r6');
       });
 
       test('ReasoningMessageStartEvent default role is reasoning', () {
@@ -604,12 +826,118 @@ void main() {
         );
       });
 
+      test('ReasoningMessageRole.fromString rejects invalid input', () {
+        expect(
+          () => ReasoningMessageRole.fromString('bogus'),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+
+      test(
+          'ReasoningMessageStartEvent falls back to `reasoning` for an '
+          'unknown role (forward-compat, no stream tear-down)', () {
+        final decoded = ReasoningMessageStartEvent.fromJson({
+          'type': 'REASONING_MESSAGE_START',
+          'messageId': 'msg_r2',
+          'role': 'bogus',
+        });
+        expect(decoded.role, ReasoningMessageRole.reasoning);
+        expect(decoded.messageId, 'msg_r2');
+      });
+
+      test('ReasoningMessageStartEvent rejects missing role (parity with TS/Python)',
+          () {
+        // The canonical TypeScript and Python schemas both mark `role` as
+        // required on REASONING_MESSAGE_START. A producer bug that drops
+        // the field must surface as a protocol violation here, not be
+        // silently coerced to `reasoning` (which would let malformed
+        // payloads pass undetected and diverge from the reference SDKs).
+        expect(
+          () => ReasoningMessageStartEvent.fromJson({
+            'type': 'REASONING_MESSAGE_START',
+            'messageId': 'msg_r2',
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
+      test('ReasoningMessageChunkEvent accepts snake_case', () {
+        final decoded = ReasoningMessageChunkEvent.fromJson({
+          'type': 'REASONING_MESSAGE_CHUNK',
+          'message_id': 'msg_r5',
+          'delta': 'partial',
+        });
+
+        expect(decoded.messageId, 'msg_r5');
+        expect(decoded.delta, 'partial');
+      });
+
+      test('ReasoningMessageContentEvent rejects missing delta', () {
+        expect(
+          () => ReasoningMessageContentEvent.fromJson({
+            'type': 'REASONING_MESSAGE_CONTENT',
+            'messageId': 'msg_r3',
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
+      test('ReasoningMessageContentEvent rejects empty delta', () {
+        // Mirrors the TextMessageContentEvent / ThinkingContentEvent factory
+        // contract — empty delta is rejected inside fromJson, not only later
+        // by EventDecoder.validate.
+        expect(
+          () => ReasoningMessageContentEvent.fromJson({
+            'type': 'REASONING_MESSAGE_CONTENT',
+            'messageId': 'msg_r3',
+            'delta': '',
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
+      test('ReasoningEncryptedValueEvent rejects missing subtype', () {
+        expect(
+          () => ReasoningEncryptedValueEvent.fromJson({
+            'type': 'REASONING_ENCRYPTED_VALUE',
+            'entityId': 'tc_1',
+            'encryptedValue': 'cipher-1',
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
+      test('ReasoningEncryptedValueEvent rejects missing entityId', () {
+        expect(
+          () => ReasoningEncryptedValueEvent.fromJson({
+            'type': 'REASONING_ENCRYPTED_VALUE',
+            'subtype': 'message',
+            'encryptedValue': 'cipher',
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
+      test('ReasoningEncryptedValueEvent rejects missing encryptedValue', () {
+        expect(
+          () => ReasoningEncryptedValueEvent.fromJson({
+            'type': 'REASONING_ENCRYPTED_VALUE',
+            'subtype': 'message',
+            'entityId': 'msg_1',
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
       test('Reasoning events dispatch via BaseEvent.fromJson', () {
         final cases = <Map<String, dynamic>, Type>{
           {'type': 'REASONING_START', 'messageId': 'm'}:
               ReasoningStartEvent,
-          {'type': 'REASONING_MESSAGE_START', 'messageId': 'm'}:
-              ReasoningMessageStartEvent,
+          {
+            'type': 'REASONING_MESSAGE_START',
+            'messageId': 'm',
+            'role': 'reasoning',
+          }: ReasoningMessageStartEvent,
           {'type': 'REASONING_MESSAGE_CONTENT', 'messageId': 'm', 'delta': 'd'}:
               ReasoningMessageContentEvent,
           {'type': 'REASONING_MESSAGE_END', 'messageId': 'm'}:

@@ -132,7 +132,7 @@ void main() {
         final activity = event as ActivitySnapshotEvent;
         expect(activity.messageId, equals('act_001'));
         expect(activity.activityType, equals('task.run'));
-        expect(activity.content['title'], equals('Hello'));
+        expect((activity.content as Map)['title'], equals('Hello'));
         expect(activity.replace, isFalse);
       });
 
@@ -153,6 +153,67 @@ void main() {
         expect(delta.messageId, equals('act_001'));
         expect(delta.activityType, equals('task.run'));
         expect(delta.patch.length, equals(1));
+      });
+
+      test('decodes TEXT_MESSAGE_* events from Python server format', () {
+        final start = decoder.decodeJson({
+          'type': 'TEXT_MESSAGE_START',
+          'message_id': 'm1',
+          'role': 'assistant',
+        });
+        expect(start, isA<TextMessageStartEvent>());
+        expect((start as TextMessageStartEvent).messageId, 'm1');
+
+        final content = decoder.decodeJson({
+          'type': 'TEXT_MESSAGE_CONTENT',
+          'message_id': 'm1',
+          'delta': 'hello',
+        });
+        expect(content, isA<TextMessageContentEvent>());
+
+        final end = decoder.decodeJson({
+          'type': 'TEXT_MESSAGE_END',
+          'message_id': 'm1',
+        });
+        expect(end, isA<TextMessageEndEvent>());
+      });
+
+      test('decodes TOOL_CALL_* events from Python server format', () {
+        final start = decoder.decodeJson({
+          'type': 'TOOL_CALL_START',
+          'tool_call_id': 'c1',
+          'tool_call_name': 'search',
+          'parent_message_id': 'm1',
+        });
+        expect(start, isA<ToolCallStartEvent>());
+        expect((start as ToolCallStartEvent).toolCallId, 'c1');
+        expect(start.toolCallName, 'search');
+        expect(start.parentMessageId, 'm1');
+
+        final args = decoder.decodeJson({
+          'type': 'TOOL_CALL_ARGS',
+          'tool_call_id': 'c1',
+          'delta': '{"q":"x"}',
+        });
+        expect(args, isA<ToolCallArgsEvent>());
+
+        final end = decoder.decodeJson({
+          'type': 'TOOL_CALL_END',
+          'tool_call_id': 'c1',
+        });
+        expect(end, isA<ToolCallEndEvent>());
+
+        final result = decoder.decodeJson({
+          'type': 'TOOL_CALL_RESULT',
+          'message_id': 'm2',
+          'tool_call_id': 'c1',
+          'content': 'ok',
+          'role': 'tool',
+        });
+        expect(result, isA<ToolCallResultEvent>());
+        final r = result as ToolCallResultEvent;
+        expect(r.messageId, 'm2');
+        expect(r.toolCallId, 'c1');
       });
 
       test('decodes REASONING_* events from Python server format', () {
@@ -437,10 +498,222 @@ void main() {
           throwsA(isA<DecodingError>()),
         );
 
-        // Invalid event type
+        // Invalid event type — surfaces as DecodingError through the
+        // decoder boundary. The direct factory path (no decoder) sees
+        // an `AGUIValidationError` instead; see the companion test in
+        // `test/events/event_test.dart` ("should throw AGUIValidationError
+        // on invalid event type"). The two together pin down both seams.
         expect(
           () => decoder.decodeJson({'type': 'NOT_A_REAL_EVENT'}),
           throwsA(isA<DecodingError>()),
+        );
+      });
+
+      test(
+          'EventDecoder.validate rejects empty required identifiers across '
+          'tool, run, step, activity, and reasoning events', () {
+        // These cases lock in the boundary contract documented on
+        // `EventDecoder.validate`: identifiers that pass the
+        // presence/type check in `fromJson` must still be rejected here
+        // when they arrive empty from the wire. Adding a new empty-id
+        // event class without a `validate` case will fail this test.
+        final emptyIdPayloads = <Map<String, dynamic>>[
+          {'type': 'TOOL_CALL_ARGS', 'toolCallId': '', 'delta': 'x'},
+          {'type': 'TOOL_CALL_ARGS', 'toolCallId': 'c', 'delta': ''},
+          {'type': 'TOOL_CALL_END', 'toolCallId': ''},
+          {
+            'type': 'TOOL_CALL_RESULT',
+            'messageId': '',
+            'toolCallId': 'c',
+            'content': 'x',
+          },
+          {
+            'type': 'TOOL_CALL_RESULT',
+            'messageId': 'm',
+            'toolCallId': '',
+            'content': 'x',
+          },
+          {
+            'type': 'TOOL_CALL_RESULT',
+            'messageId': 'm',
+            'toolCallId': 'c',
+            'content': '',
+          },
+          {'type': 'RUN_FINISHED', 'threadId': '', 'runId': 'r'},
+          {'type': 'RUN_FINISHED', 'threadId': 't', 'runId': ''},
+          {'type': 'RUN_ERROR', 'message': ''},
+          {'type': 'STEP_STARTED', 'stepName': ''},
+          {'type': 'STEP_FINISHED', 'stepName': ''},
+          {'type': 'CUSTOM', 'name': '', 'value': 1},
+          // Activity events — empty messageId or activityType.
+          {
+            'type': 'ACTIVITY_SNAPSHOT',
+            'messageId': '',
+            'activityType': 't',
+            'content': null,
+          },
+          {
+            'type': 'ACTIVITY_SNAPSHOT',
+            'messageId': 'm',
+            'activityType': '',
+            'content': null,
+          },
+          {
+            'type': 'ACTIVITY_DELTA',
+            'messageId': '',
+            'activityType': 't',
+            'patch': <dynamic>[],
+          },
+          {
+            'type': 'ACTIVITY_DELTA',
+            'messageId': 'm',
+            'activityType': '',
+            'patch': <dynamic>[],
+          },
+          // Reasoning events — empty messageId / delta / entityId /
+          // encryptedValue. (Empty delta on REASONING_MESSAGE_CONTENT is
+          // also rejected at the factory level; testing it via the
+          // decoder still validates the wrapping behavior end-to-end.)
+          {'type': 'REASONING_START', 'messageId': ''},
+          {
+            'type': 'REASONING_MESSAGE_START',
+            'messageId': '',
+            'role': 'reasoning',
+          },
+          {
+            'type': 'REASONING_MESSAGE_CONTENT',
+            'messageId': '',
+            'delta': 'd',
+          },
+          {
+            'type': 'REASONING_MESSAGE_CONTENT',
+            'messageId': 'm',
+            'delta': '',
+          },
+          {'type': 'REASONING_MESSAGE_END', 'messageId': ''},
+          {'type': 'REASONING_END', 'messageId': ''},
+          {
+            'type': 'REASONING_ENCRYPTED_VALUE',
+            'subtype': 'message',
+            'entityId': '',
+            'encryptedValue': 'v',
+          },
+          {
+            'type': 'REASONING_ENCRYPTED_VALUE',
+            'subtype': 'message',
+            'entityId': 'e',
+            'encryptedValue': '',
+          },
+        ];
+
+        for (final payload in emptyIdPayloads) {
+          expect(
+            () => decoder.decodeJson(payload),
+            throwsA(isA<DecodingError>()),
+            reason: 'expected DecodingError for $payload',
+          );
+        }
+      });
+
+      test(
+          'REASONING_ENCRYPTED_VALUE with unknown subtype surfaces as '
+          'DecodingError', () {
+        // The dartdoc on `ReasoningEncryptedValueEvent` and on
+        // `ReasoningEncryptedValueSubtype.fromString` documents that
+        // an unknown subtype value MUST fail decoding (mis-tagging an
+        // encrypted payload is worse than dropping it). This locks in
+        // the wire→DecodingError contract end-to-end.
+        expect(
+          () => decoder.decodeJson({
+            'type': 'REASONING_ENCRYPTED_VALUE',
+            'subtype': 'future-mode',
+            'entityId': 'e',
+            'encryptedValue': 'v',
+          }),
+          throwsA(isA<DecodingError>()),
+        );
+      });
+
+      test(
+          'REASONING_ENCRYPTED_VALUE unknown subtype is skipped under '
+          'skipInvalidEvents (forward-compat opt-in)', () async {
+        // Companion to the test above: with per-event recovery enabled
+        // on the stream adapter, the malformed event is skipped and
+        // surrounding events still flow. The dartdoc on
+        // `ReasoningEncryptedValueEvent` promises this opt-in.
+        final controller = StreamController<SseMessage>();
+        final stream = adapter.fromSseStream(
+          controller.stream,
+          skipInvalidEvents: true,
+        );
+        final events = <BaseEvent>[];
+        final sub = stream.listen(events.add);
+
+        controller.add(SseMessage(
+          data: jsonEncode({
+            'type': 'REASONING_START',
+            'messageId': 'rsn',
+          }),
+        ));
+        controller.add(SseMessage(
+          data: jsonEncode({
+            'type': 'REASONING_ENCRYPTED_VALUE',
+            'subtype': 'future-mode',
+            'entityId': 'e',
+            'encryptedValue': 'v',
+          }),
+        ));
+        controller.add(SseMessage(
+          data: jsonEncode({
+            'type': 'REASONING_END',
+            'messageId': 'rsn',
+          }),
+        ));
+
+        await controller.close();
+        await sub.cancel();
+
+        expect(events.length, 2);
+        expect(events[0], isA<ReasoningStartEvent>());
+        expect(events[1], isA<ReasoningEndEvent>());
+      });
+
+      test(
+          'EventDecoder.decodeJson rejects state/raw/custom events missing '
+          'their required value field', () {
+        // `StateSnapshotEvent.snapshot`, `RawEvent.event`, and
+        // `CustomEvent.value` accept any JSON shape (including null) but
+        // the field MUST be present. Distinguishing missing-key from
+        // explicit-null is the whole point of these checks.
+        expect(
+          () => decoder.decodeJson({'type': 'STATE_SNAPSHOT'}),
+          throwsA(isA<DecodingError>()),
+        );
+        expect(
+          () => decoder.decodeJson({'type': 'RAW'}),
+          throwsA(isA<DecodingError>()),
+        );
+        expect(
+          () => decoder.decodeJson({'type': 'CUSTOM', 'name': 'n'}),
+          throwsA(isA<DecodingError>()),
+        );
+
+        // Explicit-null should be accepted (round-trips a present-but-null
+        // payload — see the matching note in the fromJson factories).
+        expect(
+          () => decoder.decodeJson({
+            'type': 'STATE_SNAPSHOT',
+            'snapshot': null,
+          }),
+          returnsNormally,
+        );
+        expect(
+          () => decoder.decodeJson({
+            'type': 'CUSTOM',
+            'name': 'n',
+            'value': null,
+          }),
+          returnsNormally,
         );
       });
     });

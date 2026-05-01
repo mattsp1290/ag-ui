@@ -33,10 +33,34 @@ sealed class BaseEvent extends AGUIModel with TypeDiscriminator {
   @override
   String get type => eventType.value;
 
-  /// Factory constructor to create specific event types from JSON
+  /// Factory constructor to create specific event types from JSON.
+  ///
+  /// When you add a case here, also update `EventDecoder.validate` in
+  /// `lib/src/encoder/decoder.dart` so the analyzer-enforced exhaustive
+  /// switch on the sealed `BaseEvent` hierarchy continues to compile.
+  ///
+  /// Throws [AGUIValidationError] for missing/wrong-typed `type` AND for
+  /// unknown event types — `EventType.fromString` raises a raw
+  /// `ArgumentError` for unknown values, and we wrap it here so direct
+  /// callers see the same error surface as every other validation failure.
+  /// (Through the [EventDecoder] pipeline, both surface as [DecodingError].)
+  ///
+  /// Note on equality: event subtypes are `final class` and do NOT
+  /// override `==`/`hashCode`. Use field-by-field assertions in tests
+  /// rather than `expect(a, equals(b))` on whole events.
   factory BaseEvent.fromJson(Map<String, dynamic> json) {
     final typeStr = JsonDecoder.requireField<String>(json, 'type');
-    final eventType = EventType.fromString(typeStr);
+    final EventType eventType;
+    try {
+      eventType = EventType.fromString(typeStr);
+    } on ArgumentError {
+      throw AGUIValidationError(
+        message: 'Unknown event type: $typeStr',
+        field: 'type',
+        value: typeStr,
+        json: json,
+      );
+    }
 
     switch (eventType) {
       case EventType.textMessageStart:
@@ -132,6 +156,25 @@ enum TextMessageRole {
   final String value;
   const TextMessageRole(this.value);
 
+  /// Parses [value] into a [TextMessageRole].
+  ///
+  /// Falls back to [TextMessageRole.assistant] for unknown values to keep
+  /// streaming pipelines working when a server adds a new role.
+  ///
+  /// **Known asymmetry** (tracked for the next major release): other
+  /// AG-UI Dart enums (`ReasoningMessageRole`,
+  /// `ReasoningEncryptedValueSubtype`) throw on unknown input. The
+  /// `ReasoningMessageStartEvent.fromJson` factory absorbs the throw and
+  /// falls back to a sane default — that is the "throw at the enum,
+  /// absorb at the factory" pattern preferred for new code, because it
+  /// keeps the failure mode visible to callers that bypass the factory
+  /// and gives the SDK one place to log unknown wire values.
+  ///
+  /// This silent-fallback in `TextMessageRole.fromString` is historical
+  /// and left in place for backward compatibility with existing 0.x
+  /// callers. The realignment is documented as a known parity gap in
+  /// `CHANGELOG.md` (`[0.2.0]` → "Known parity gaps") and will land with
+  /// the 1.0 release.
   static TextMessageRole fromString(String value) {
     return TextMessageRole.values.firstWhere(
       (role) => role.value == value,
@@ -158,7 +201,11 @@ final class TextMessageStartEvent extends BaseEvent {
 
   factory TextMessageStartEvent.fromJson(Map<String, dynamic> json) {
     return TextMessageStartEvent(
-      messageId: JsonDecoder.requireField<String>(json, 'messageId'),
+      messageId: JsonDecoder.requireEitherField<String>(
+        json,
+        'messageId',
+        'message_id',
+      ),
       role: TextMessageRole.fromString(
         JsonDecoder.optionalField<String>(json, 'role') ?? 'assistant',
       ),
@@ -203,6 +250,14 @@ final class TextMessageContentEvent extends BaseEvent {
   }) : super(eventType: EventType.textMessageContent);
 
   factory TextMessageContentEvent.fromJson(Map<String, dynamic> json) {
+    // Validate the cheap required identifier FIRST so a missing-id error
+    // surfaces before any payload-validation work — same convention as
+    // `ReasoningMessageStartEvent.fromJson`.
+    final messageId = JsonDecoder.requireEitherField<String>(
+      json,
+      'messageId',
+      'message_id',
+    );
     final delta = JsonDecoder.requireField<String>(json, 'delta');
     if (delta.isEmpty) {
       throw AGUIValidationError(
@@ -212,9 +267,9 @@ final class TextMessageContentEvent extends BaseEvent {
         json: json,
       );
     }
-    
+
     return TextMessageContentEvent(
-      messageId: JsonDecoder.requireField<String>(json, 'messageId'),
+      messageId: messageId,
       delta: delta,
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
@@ -256,7 +311,11 @@ final class TextMessageEndEvent extends BaseEvent {
 
   factory TextMessageEndEvent.fromJson(Map<String, dynamic> json) {
     return TextMessageEndEvent(
-      messageId: JsonDecoder.requireField<String>(json, 'messageId'),
+      messageId: JsonDecoder.requireEitherField<String>(
+        json,
+        'messageId',
+        'message_id',
+      ),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
@@ -299,7 +358,11 @@ final class TextMessageChunkEvent extends BaseEvent {
   factory TextMessageChunkEvent.fromJson(Map<String, dynamic> json) {
     final roleStr = JsonDecoder.optionalField<String>(json, 'role');
     return TextMessageChunkEvent(
-      messageId: JsonDecoder.optionalField<String>(json, 'messageId'),
+      messageId: JsonDecoder.optionalEitherField<String>(
+        json,
+        'messageId',
+        'message_id',
+      ),
       role: roleStr != null ? TextMessageRole.fromString(roleStr) : null,
       delta: JsonDecoder.optionalField<String>(json, 'delta'),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
@@ -381,7 +444,8 @@ final class ThinkingStartEvent extends BaseEvent {
 /// backward compatibility. Use [ThinkingTextMessageContentEvent] instead.
 @Deprecated(
   'Not part of the canonical AG-UI protocol. '
-  'Use ThinkingTextMessageContentEvent instead.',
+  'Use ThinkingTextMessageContentEvent instead. '
+  'Scheduled for removal in 1.0.0.',
 )
 final class ThinkingContentEvent extends BaseEvent {
   final String delta;
@@ -493,6 +557,9 @@ final class ThinkingTextMessageContentEvent extends BaseEvent {
   }) : super(eventType: EventType.thinkingTextMessageContent);
 
   factory ThinkingTextMessageContentEvent.fromJson(Map<String, dynamic> json) {
+    // No identifier on this event — validate the only required payload
+    // field. (Comment kept for parity with the sibling `*ContentEvent`
+    // factories, which validate `messageId` first.)
     final delta = JsonDecoder.requireField<String>(json, 'delta');
     if (delta.isEmpty) {
       throw AGUIValidationError(
@@ -502,7 +569,7 @@ final class ThinkingTextMessageContentEvent extends BaseEvent {
         json: json,
       );
     }
-    
+
     return ThinkingTextMessageContentEvent(
       delta: delta,
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
@@ -576,9 +643,21 @@ final class ToolCallStartEvent extends BaseEvent {
 
   factory ToolCallStartEvent.fromJson(Map<String, dynamic> json) {
     return ToolCallStartEvent(
-      toolCallId: JsonDecoder.requireField<String>(json, 'toolCallId'),
-      toolCallName: JsonDecoder.requireField<String>(json, 'toolCallName'),
-      parentMessageId: JsonDecoder.optionalField<String>(json, 'parentMessageId'),
+      toolCallId: JsonDecoder.requireEitherField<String>(
+        json,
+        'toolCallId',
+        'tool_call_id',
+      ),
+      toolCallName: JsonDecoder.requireEitherField<String>(
+        json,
+        'toolCallName',
+        'tool_call_name',
+      ),
+      parentMessageId: JsonDecoder.optionalEitherField<String>(
+        json,
+        'parentMessageId',
+        'parent_message_id',
+      ),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
@@ -624,7 +703,11 @@ final class ToolCallArgsEvent extends BaseEvent {
 
   factory ToolCallArgsEvent.fromJson(Map<String, dynamic> json) {
     return ToolCallArgsEvent(
-      toolCallId: JsonDecoder.requireField<String>(json, 'toolCallId'),
+      toolCallId: JsonDecoder.requireEitherField<String>(
+        json,
+        'toolCallId',
+        'tool_call_id',
+      ),
       delta: JsonDecoder.requireField<String>(json, 'delta'),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
@@ -666,7 +749,11 @@ final class ToolCallEndEvent extends BaseEvent {
 
   factory ToolCallEndEvent.fromJson(Map<String, dynamic> json) {
     return ToolCallEndEvent(
-      toolCallId: JsonDecoder.requireField<String>(json, 'toolCallId'),
+      toolCallId: JsonDecoder.requireEitherField<String>(
+        json,
+        'toolCallId',
+        'tool_call_id',
+      ),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
@@ -710,9 +797,21 @@ final class ToolCallChunkEvent extends BaseEvent {
 
   factory ToolCallChunkEvent.fromJson(Map<String, dynamic> json) {
     return ToolCallChunkEvent(
-      toolCallId: JsonDecoder.optionalField<String>(json, 'toolCallId'),
-      toolCallName: JsonDecoder.optionalField<String>(json, 'toolCallName'),
-      parentMessageId: JsonDecoder.optionalField<String>(json, 'parentMessageId'),
+      toolCallId: JsonDecoder.optionalEitherField<String>(
+        json,
+        'toolCallId',
+        'tool_call_id',
+      ),
+      toolCallName: JsonDecoder.optionalEitherField<String>(
+        json,
+        'toolCallName',
+        'tool_call_name',
+      ),
+      parentMessageId: JsonDecoder.optionalEitherField<String>(
+        json,
+        'parentMessageId',
+        'parent_message_id',
+      ),
       delta: JsonDecoder.optionalField<String>(json, 'delta'),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
@@ -766,8 +865,16 @@ final class ToolCallResultEvent extends BaseEvent {
 
   factory ToolCallResultEvent.fromJson(Map<String, dynamic> json) {
     return ToolCallResultEvent(
-      messageId: JsonDecoder.requireField<String>(json, 'messageId'),
-      toolCallId: JsonDecoder.requireField<String>(json, 'toolCallId'),
+      messageId: JsonDecoder.requireEitherField<String>(
+        json,
+        'messageId',
+        'message_id',
+      ),
+      toolCallId: JsonDecoder.requireEitherField<String>(
+        json,
+        'toolCallId',
+        'tool_call_id',
+      ),
       content: JsonDecoder.requireField<String>(json, 'content'),
       role: JsonDecoder.optionalField<String>(json, 'role'),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
@@ -819,6 +926,18 @@ final class StateSnapshotEvent extends BaseEvent {
   }) : super(eventType: EventType.stateSnapshot);
 
   factory StateSnapshotEvent.fromJson(Map<String, dynamic> json) {
+    // `snapshot` may be any JSON shape (including `null` for an empty
+    // state), so we cannot use `requireField<T>` (which rejects null
+    // values). The field MUST be present though — its absence is a
+    // protocol violation, not "the snapshot is empty". Distinguishing
+    // missing-key from explicit-null is the whole point of this check.
+    if (!json.containsKey('snapshot')) {
+      throw AGUIValidationError(
+        message: 'Missing required field',
+        field: 'snapshot',
+        json: json,
+      );
+    }
     return StateSnapshotEvent(
       snapshot: json['snapshot'],
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
@@ -929,11 +1048,30 @@ final class MessagesSnapshotEvent extends BaseEvent {
 // Activity Events
 // ============================================================================
 
-/// Event containing a snapshot of an activity message
+/// Event containing a snapshot of an activity message.
+///
+/// Note: [content] is typed `Object?` rather than `Map<String, dynamic>`.
+/// The canonical TypeScript schema requires a non-null record
+/// (`z.record(z.any())`); the Dart SDK is intentionally more permissive on
+/// the *value* (allows primitives and `null`) to stay forward-compatible
+/// with the Python reference server's `content: Any`. The *key itself*
+/// is still required — see the matching note on `StateSnapshotEvent.fromJson`
+/// for why we check key-presence rather than `requireField<T>`. Treat any
+/// non-record value you encounter as a wire-protocol surprise rather than
+/// a contract.
 final class ActivitySnapshotEvent extends BaseEvent {
   final String messageId;
   final String activityType;
-  final dynamic content;
+  final Object? content;
+
+  /// `true` (the default) means this snapshot replaces any prior content
+  /// for the same [messageId]; `false` means it merges/extends.
+  ///
+  /// Optional on the wire (`replace: z.boolean().optional().default(true)`
+  /// in TS, `replace: bool = True` in Python). [toJson] emits the field
+  /// unconditionally — slightly heavier than the protocol minimum, but
+  /// makes the round-trip contract explicit and matches what
+  /// `event_test.dart` locks in.
   final bool replace;
 
   const ActivitySnapshotEvent({
@@ -946,15 +1084,27 @@ final class ActivitySnapshotEvent extends BaseEvent {
   }) : super(eventType: EventType.activitySnapshot);
 
   factory ActivitySnapshotEvent.fromJson(Map<String, dynamic> json) {
-    final messageId =
-        JsonDecoder.optionalField<String>(json, 'messageId') ??
-        JsonDecoder.requireField<String>(json, 'message_id');
-    final activityType =
-        JsonDecoder.optionalField<String>(json, 'activityType') ??
-        JsonDecoder.requireField<String>(json, 'activity_type');
+    // `content` may be any JSON shape (including `null`) but MUST be
+    // present — see the matching note on `StateSnapshotEvent.fromJson`
+    // for why we check key-presence rather than `requireField<T>`.
+    if (!json.containsKey('content')) {
+      throw AGUIValidationError(
+        message: 'Missing required field',
+        field: 'content',
+        json: json,
+      );
+    }
     return ActivitySnapshotEvent(
-      messageId: messageId,
-      activityType: activityType,
+      messageId: JsonDecoder.requireEitherField<String>(
+        json,
+        'messageId',
+        'message_id',
+      ),
+      activityType: JsonDecoder.requireEitherField<String>(
+        json,
+        'activityType',
+        'activity_type',
+      ),
       content: json['content'],
       replace: JsonDecoder.optionalField<bool>(json, 'replace') ?? true,
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
@@ -975,7 +1125,7 @@ final class ActivitySnapshotEvent extends BaseEvent {
   ActivitySnapshotEvent copyWith({
     String? messageId,
     String? activityType,
-    dynamic content,
+    Object? content,
     bool? replace,
     int? timestamp,
     dynamic rawEvent,
@@ -1006,15 +1156,17 @@ final class ActivityDeltaEvent extends BaseEvent {
   }) : super(eventType: EventType.activityDelta);
 
   factory ActivityDeltaEvent.fromJson(Map<String, dynamic> json) {
-    final messageId =
-        JsonDecoder.optionalField<String>(json, 'messageId') ??
-        JsonDecoder.requireField<String>(json, 'message_id');
-    final activityType =
-        JsonDecoder.optionalField<String>(json, 'activityType') ??
-        JsonDecoder.requireField<String>(json, 'activity_type');
     return ActivityDeltaEvent(
-      messageId: messageId,
-      activityType: activityType,
+      messageId: JsonDecoder.requireEitherField<String>(
+        json,
+        'messageId',
+        'message_id',
+      ),
+      activityType: JsonDecoder.requireEitherField<String>(
+        json,
+        'activityType',
+        'activity_type',
+      ),
       patch: JsonDecoder.requireField<List<dynamic>>(json, 'patch'),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
@@ -1060,6 +1212,16 @@ final class RawEvent extends BaseEvent {
   }) : super(eventType: EventType.raw);
 
   factory RawEvent.fromJson(Map<String, dynamic> json) {
+    // `event` may be any JSON shape but MUST be present — see the
+    // matching note on `StateSnapshotEvent.fromJson` for why we check
+    // key-presence rather than `requireField<T>`.
+    if (!json.containsKey('event')) {
+      throw AGUIValidationError(
+        message: 'Missing required field',
+        field: 'event',
+        json: json,
+      );
+    }
     return RawEvent(
       event: json['event'],
       source: JsonDecoder.optionalField<String>(json, 'source'),
@@ -1077,13 +1239,13 @@ final class RawEvent extends BaseEvent {
 
   @override
   RawEvent copyWith({
-    dynamic event,
+    dynamic newEvent,
     String? source,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return RawEvent(
-      event: event ?? this.event,
+      event: newEvent ?? this.event,
       source: source ?? this.source,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
@@ -1104,6 +1266,16 @@ final class CustomEvent extends BaseEvent {
   }) : super(eventType: EventType.custom);
 
   factory CustomEvent.fromJson(Map<String, dynamic> json) {
+    // `value` may be any JSON shape but MUST be present — see the
+    // matching note on `StateSnapshotEvent.fromJson` for why we check
+    // key-presence rather than `requireField<T>`.
+    if (!json.containsKey('value')) {
+      throw AGUIValidationError(
+        message: 'Missing required field',
+        field: 'value',
+        json: json,
+      );
+    }
     return CustomEvent(
       name: JsonDecoder.requireField<String>(json, 'name'),
       value: json['value'],
@@ -1152,15 +1324,17 @@ final class RunStartedEvent extends BaseEvent {
   }) : super(eventType: EventType.runStarted);
 
   factory RunStartedEvent.fromJson(Map<String, dynamic> json) {
-    // Handle both camelCase and snake_case field names
-    final threadId = JsonDecoder.optionalField<String>(json, 'threadId') ??
-        JsonDecoder.requireField<String>(json, 'thread_id');
-    final runId = JsonDecoder.optionalField<String>(json, 'runId') ??
-        JsonDecoder.requireField<String>(json, 'run_id');
-    
     return RunStartedEvent(
-      threadId: threadId,
-      runId: runId,
+      threadId: JsonDecoder.requireEitherField<String>(
+        json,
+        'threadId',
+        'thread_id',
+      ),
+      runId: JsonDecoder.requireEitherField<String>(
+        json,
+        'runId',
+        'run_id',
+      ),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
@@ -1204,15 +1378,17 @@ final class RunFinishedEvent extends BaseEvent {
   }) : super(eventType: EventType.runFinished);
 
   factory RunFinishedEvent.fromJson(Map<String, dynamic> json) {
-    // Handle both camelCase and snake_case field names
-    final threadId = JsonDecoder.optionalField<String>(json, 'threadId') ??
-        JsonDecoder.requireField<String>(json, 'thread_id');
-    final runId = JsonDecoder.optionalField<String>(json, 'runId') ??
-        JsonDecoder.requireField<String>(json, 'run_id');
-    
     return RunFinishedEvent(
-      threadId: threadId,
-      runId: runId,
+      threadId: JsonDecoder.requireEitherField<String>(
+        json,
+        'threadId',
+        'thread_id',
+      ),
+      runId: JsonDecoder.requireEitherField<String>(
+        json,
+        'runId',
+        'run_id',
+      ),
       result: json['result'],
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
@@ -1300,12 +1476,12 @@ final class StepStartedEvent extends BaseEvent {
   }) : super(eventType: EventType.stepStarted);
 
   factory StepStartedEvent.fromJson(Map<String, dynamic> json) {
-    // Handle both camelCase and snake_case field names
-    final stepName = JsonDecoder.optionalField<String>(json, 'stepName') ??
-        JsonDecoder.requireField<String>(json, 'step_name');
-    
     return StepStartedEvent(
-      stepName: stepName,
+      stepName: JsonDecoder.requireEitherField<String>(
+        json,
+        'stepName',
+        'step_name',
+      ),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
@@ -1342,12 +1518,12 @@ final class StepFinishedEvent extends BaseEvent {
   }) : super(eventType: EventType.stepFinished);
 
   factory StepFinishedEvent.fromJson(Map<String, dynamic> json) {
-    // Handle both camelCase and snake_case field names
-    final stepName = JsonDecoder.optionalField<String>(json, 'stepName') ??
-        JsonDecoder.requireField<String>(json, 'step_name');
-    
     return StepFinishedEvent(
-      stepName: stepName,
+      stepName: JsonDecoder.requireEitherField<String>(
+        json,
+        'stepName',
+        'step_name',
+      ),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
@@ -1378,16 +1554,29 @@ final class StepFinishedEvent extends BaseEvent {
 // ============================================================================
 
 /// Role for reasoning messages (aligned with the AG-UI protocol).
+///
+/// Currently a single-variant enum mirroring the canonical
+/// `Literal["reasoning"]` (Python) / `z.literal("reasoning")` (TypeScript).
+/// Modeled as an enum so a future role addition can land without churning
+/// every call site.
 enum ReasoningMessageRole {
   reasoning('reasoning');
 
   final String value;
   const ReasoningMessageRole(this.value);
 
+  /// Parses [value] into a [ReasoningMessageRole].
+  ///
+  /// Throws [ArgumentError] for unknown values. Callers decoding from the
+  /// wire should use `ReasoningMessageStartEvent.fromJson`, which absorbs
+  /// the throw and falls back to [ReasoningMessageRole.reasoning] so a
+  /// future server-side role does not tear down the SSE stream.
   static ReasoningMessageRole fromString(String value) {
     return ReasoningMessageRole.values.firstWhere(
       (role) => role.value == value,
-      orElse: () => ReasoningMessageRole.reasoning,
+      orElse: () => throw ArgumentError(
+        'Invalid reasoning message role: $value',
+      ),
     );
   }
 }
@@ -1400,6 +1589,14 @@ enum ReasoningEncryptedValueSubtype {
   final String value;
   const ReasoningEncryptedValueSubtype(this.value);
 
+  /// Parses [value] into a [ReasoningEncryptedValueSubtype].
+  ///
+  /// Throws [ArgumentError] for unknown values. The subtype is part of the
+  /// protocol contract — there is no graceful fallback at the event level
+  /// because choosing a default would silently mis-tag encrypted payloads.
+  /// Wire failures bubble up as [DecodingError] under the standard decoder
+  /// pipeline; consumers that want per-event recovery should set
+  /// `skipInvalidEvents: true` on `EventStreamAdapter`.
   static ReasoningEncryptedValueSubtype fromString(String value) {
     return ReasoningEncryptedValueSubtype.values.firstWhere(
       (s) => s.value == value,
@@ -1421,11 +1618,12 @@ final class ReasoningStartEvent extends BaseEvent {
   }) : super(eventType: EventType.reasoningStart);
 
   factory ReasoningStartEvent.fromJson(Map<String, dynamic> json) {
-    final messageId =
-        JsonDecoder.optionalField<String>(json, 'messageId') ??
-        JsonDecoder.requireField<String>(json, 'message_id');
     return ReasoningStartEvent(
-      messageId: messageId,
+      messageId: JsonDecoder.requireEitherField<String>(
+        json,
+        'messageId',
+        'message_id',
+      ),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
@@ -1464,15 +1662,40 @@ final class ReasoningMessageStartEvent extends BaseEvent {
   }) : super(eventType: EventType.reasoningMessageStart);
 
   factory ReasoningMessageStartEvent.fromJson(Map<String, dynamic> json) {
-    final messageId =
-        JsonDecoder.optionalField<String>(json, 'messageId') ??
-        JsonDecoder.requireField<String>(json, 'message_id');
-    final roleStr = JsonDecoder.optionalField<String>(json, 'role');
+    // Validate the cheap required field FIRST so a missing-id error
+    // surfaces before any role-parsing work.
+    final messageId = JsonDecoder.requireEitherField<String>(
+      json,
+      'messageId',
+      'message_id',
+    );
+    // `role` is required by the canonical TypeScript and Python schemas
+    // (see sdks/typescript/packages/core/src/events.ts and
+    // sdks/python/ag_ui/core/events.py). A missing `role` is a protocol
+    // violation and must fail decoding so it surfaces at the boundary
+    // instead of silently coercing downstream.
+    final roleStr = JsonDecoder.requireField<String>(json, 'role');
+    ReasoningMessageRole role;
+    try {
+      role = ReasoningMessageRole.fromString(roleStr);
+    } on ArgumentError {
+      // Forward-compat: a future server may introduce a new role *value*
+      // (e.g. an as-yet-unspecified reasoning sub-role). The field is
+      // present and string-typed, so this is a recoverable enum-mapping
+      // failure — keep the stream alive by defaulting to `reasoning`.
+      //
+      // We intentionally do NOT broaden to `catch (e)` or `on Exception`:
+      // a missing-key or wrong-typed `role` raises `AGUIValidationError`
+      // from `requireField<String>` above, which MUST propagate to the
+      // decoder boundary as a protocol violation. Widening the catch
+      // would silently absorb those — the test at
+      // `event_test.dart` ("rejects missing role (parity with TS/Python)")
+      // is the regression guard for that contract.
+      role = ReasoningMessageRole.reasoning;
+    }
     return ReasoningMessageStartEvent(
       messageId: messageId,
-      role: roleStr != null
-          ? ReasoningMessageRole.fromString(roleStr)
-          : ReasoningMessageRole.reasoning,
+      role: role,
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
@@ -1514,12 +1737,27 @@ final class ReasoningMessageContentEvent extends BaseEvent {
   }) : super(eventType: EventType.reasoningMessageContent);
 
   factory ReasoningMessageContentEvent.fromJson(Map<String, dynamic> json) {
-    final messageId =
-        JsonDecoder.optionalField<String>(json, 'messageId') ??
-        JsonDecoder.requireField<String>(json, 'message_id');
+    // Validate the cheap required identifier FIRST so a missing-id error
+    // surfaces before any payload-validation work — same convention as
+    // `ReasoningMessageStartEvent.fromJson`.
+    final messageId = JsonDecoder.requireEitherField<String>(
+      json,
+      'messageId',
+      'message_id',
+    );
+    final delta = JsonDecoder.requireField<String>(json, 'delta');
+    if (delta.isEmpty) {
+      throw AGUIValidationError(
+        message: 'Delta must not be an empty string',
+        field: 'delta',
+        value: delta,
+        json: json,
+      );
+    }
+
     return ReasoningMessageContentEvent(
       messageId: messageId,
-      delta: JsonDecoder.requireField<String>(json, 'delta'),
+      delta: delta,
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
@@ -1559,11 +1797,12 @@ final class ReasoningMessageEndEvent extends BaseEvent {
   }) : super(eventType: EventType.reasoningMessageEnd);
 
   factory ReasoningMessageEndEvent.fromJson(Map<String, dynamic> json) {
-    final messageId =
-        JsonDecoder.optionalField<String>(json, 'messageId') ??
-        JsonDecoder.requireField<String>(json, 'message_id');
     return ReasoningMessageEndEvent(
-      messageId: messageId,
+      messageId: JsonDecoder.requireEitherField<String>(
+        json,
+        'messageId',
+        'message_id',
+      ),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
@@ -1602,11 +1841,14 @@ final class ReasoningMessageChunkEvent extends BaseEvent {
   }) : super(eventType: EventType.reasoningMessageChunk);
 
   factory ReasoningMessageChunkEvent.fromJson(Map<String, dynamic> json) {
-    final messageId =
-        JsonDecoder.optionalField<String>(json, 'messageId') ??
-        JsonDecoder.optionalField<String>(json, 'message_id');
     return ReasoningMessageChunkEvent(
-      messageId: messageId,
+      messageId: JsonDecoder.optionalEitherField<String>(
+        json,
+        'messageId',
+        'message_id',
+      ),
+      // `delta` has no snake_case spelling in any AG-UI SDK — read it
+      // canonically and skip the dual-key lookup.
       delta: JsonDecoder.optionalField<String>(json, 'delta'),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
@@ -1647,11 +1889,12 @@ final class ReasoningEndEvent extends BaseEvent {
   }) : super(eventType: EventType.reasoningEnd);
 
   factory ReasoningEndEvent.fromJson(Map<String, dynamic> json) {
-    final messageId =
-        JsonDecoder.optionalField<String>(json, 'messageId') ??
-        JsonDecoder.requireField<String>(json, 'message_id');
     return ReasoningEndEvent(
-      messageId: messageId,
+      messageId: JsonDecoder.requireEitherField<String>(
+        json,
+        'messageId',
+        'message_id',
+      ),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
@@ -1678,6 +1921,15 @@ final class ReasoningEndEvent extends BaseEvent {
 }
 
 /// Event containing an encrypted value for a message or tool call.
+///
+/// Forward-compat note: a future server-side [subtype] value will cause
+/// [ReasoningEncryptedValueSubtype.fromString] to throw, which propagates
+/// out of `fromJson` as an [AGUIValidationError] (wrapped in a
+/// [DecodingError] when reached through [EventDecoder]). To keep streams
+/// alive across an unknown subtype, opt in to per-event recovery via
+/// `EventStreamAdapter(skipInvalidEvents: true)` — the rest of the SDK's
+/// enums absorb unknown values at the event-decoding boundary, but the
+/// encrypted-payload subtype has no sensible default to fall back to.
 final class ReasoningEncryptedValueEvent extends BaseEvent {
   final ReasoningEncryptedValueSubtype subtype;
   final String entityId;
@@ -1693,16 +1945,18 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
 
   factory ReasoningEncryptedValueEvent.fromJson(Map<String, dynamic> json) {
     final subtypeStr = JsonDecoder.requireField<String>(json, 'subtype');
-    final entityId =
-        JsonDecoder.optionalField<String>(json, 'entityId') ??
-        JsonDecoder.requireField<String>(json, 'entity_id');
-    final encryptedValue =
-        JsonDecoder.optionalField<String>(json, 'encryptedValue') ??
-        JsonDecoder.requireField<String>(json, 'encrypted_value');
     return ReasoningEncryptedValueEvent(
       subtype: ReasoningEncryptedValueSubtype.fromString(subtypeStr),
-      entityId: entityId,
-      encryptedValue: encryptedValue,
+      entityId: JsonDecoder.requireEitherField<String>(
+        json,
+        'entityId',
+        'entity_id',
+      ),
+      encryptedValue: JsonDecoder.requireEitherField<String>(
+        json,
+        'encryptedValue',
+        'encrypted_value',
+      ),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );

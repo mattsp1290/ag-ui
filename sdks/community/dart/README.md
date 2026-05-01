@@ -14,14 +14,14 @@ Or add to your `pubspec.yaml`:
 
 ```yaml
 dependencies:
-  ag_ui: ^0.1.0
+  ag_ui: ^0.2.0
 ```
 
 ## Features
 
 - 🎯 **Dart-native** – Idiomatic Dart APIs with full type safety and null safety
 - 🔗 **HTTP connectivity** – `AgUiClient` for direct server connections with SSE streaming
-- 📡 **Event streaming** – Full AG-UI protocol event coverage (text messages, tool calls, state, activity, reasoning, lifecycle, and more) for real-time agent communication
+- 📡 **Event streaming** – Event-type parity with the canonical Python and TypeScript SDKs (text messages, tool calls, state, activity, reasoning, lifecycle, and more) for real-time agent communication. Field-level parity for a few canonical events (`RunStartedEvent.parentRunId`/`input`, `TextMessageStart`/`Chunk.name`) is tracked as follow-up work.
 - 🔄 **State management** – Automatic message/state tracking with JSON Patch support
 - 🛠️ **Tool interactions** – Full support for tool calls and generative UI
 - ⚡ **High performance** – Efficient event decoding with backpressure handling
@@ -52,7 +52,7 @@ final input = SimpleRunAgentInput(
 // Stream response events
 await for (final event in client.runAgent('agentic_chat', input)) {
   if (event is TextMessageContentEvent) {
-    print('Assistant: ${event.text}');
+    print('Assistant: ${event.delta}');
   }
 }
 ```
@@ -101,12 +101,36 @@ final input = SimpleRunAgentInput(
 await for (final event in client.runAgent('agentic_chat', input)) {
   switch (event.type) {
     case EventType.textMessageContent:
-      final text = (event as TextMessageContentEvent).text;
+      final text = (event as TextMessageContentEvent).delta;
       print(text); // Stream tokens
       break;
     case EventType.runFinished:
       print('Complete');
       break;
+  }
+}
+```
+
+### Activity & Reasoning Events
+
+```dart
+await for (final event in client.runAgent('agentic_chat', input)) {
+  if (event is ActivitySnapshotEvent) {
+    // `content` is `Object?` — the Python reference server may emit a
+    // primitive or `null`. Guard before treating it as a structured record.
+    final content = event.content;
+    if (content is Map<String, dynamic>) {
+      print('Activity (${event.activityType}): $content');
+    } else {
+      // Wire-protocol surprise: log or skip rather than crash.
+    }
+  } else if (event is ActivityDeltaEvent) {
+    print('Activity patch (${event.activityType}): ${event.patch}');
+  } else if (event is ReasoningMessageContentEvent) {
+    print('Reasoning: ${event.delta}');
+  } else if (event is ReasoningEncryptedValueEvent) {
+    // Opaque cipher payload — pass through to the next agent rather than
+    // attempting to decode locally.
   }
 }
 ```
@@ -180,11 +204,11 @@ try {
       break;
     }
   }
-} on ConnectionException catch (e) {
+} on TransportError catch (e) {
   print('Connection error: ${e.message}');
 } on ValidationError catch (e) {
   print('Validation error: ${e.message}');
-} on CancelledException {
+} on CancellationError {
   print('Request cancelled');
 }
 ```
@@ -222,9 +246,9 @@ void main() async {
   stdout.write('Assistant: ');
   await for (final event in client.runAgent('agentic_chat', input)) {
     if (event is TextMessageContentEvent) {
-      stdout.write(event.text);
+      stdout.write(event.delta);
     } else if (event is ToolCallStartEvent) {
-      print('\nCalling tool: ${event.toolName}');
+      print('\nCalling tool: ${event.toolCallName}');
     } else if (event.type == EventType.runFinished) {
       print('\nDone!');
       break;

@@ -136,21 +136,21 @@ class TestHelpers {
     return messages;
   }
 
-  /// Find tool calls in messages
+  /// Find tool calls in messages.
+  ///
+  /// Uses the typed accessor on `AssistantMessage` rather than round-tripping
+  /// through `toJson` — the previous implementation read `json['tool_calls']`
+  /// (snake_case) but `AssistantMessage.toJson` emits the camelCase key
+  /// `'toolCalls'`, so the helper silently always returned an empty list.
   static List<ToolCall> findToolCalls(List<Message> messages) {
     final toolCalls = <ToolCall>[];
-    
+
     for (final message in messages) {
-      // Tool calls are stored in the message's toJson representation
-      final json = message.toJson();
-      if (json['tool_calls'] != null) {
-        final calls = json['tool_calls'] as List;
-        for (final call in calls) {
-          toolCalls.add(ToolCall.fromJson(call as Map<String, dynamic>));
-        }
+      if (message is AssistantMessage && message.toolCalls != null) {
+        toolCalls.addAll(message.toolCalls!);
       }
     }
-    
+
     return toolCalls;
   }
 

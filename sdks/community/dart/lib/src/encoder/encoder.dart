@@ -48,8 +48,16 @@ class EventEncoder {
   /// ```
   String encodeSSE(BaseEvent event) {
     final json = event.toJson();
-    // Remove null values for cleaner output
-    json.removeWhere((key, value) => value == null);
+    // Do NOT strip null values: each `toJson()` already uses
+    // `if (field != null) 'field': field` for fields that should be omitted
+    // when null. Stripping here would silently drop fields that intentionally
+    // serialize as `null` (e.g. `ActivitySnapshotEvent.content`,
+    // `RawEvent.event`, `CustomEvent.value`, `StateSnapshotEvent.snapshot`)
+    // — their factories require the key to be present and reject
+    // missing-key with `AGUIValidationError`, so a null-strip pass would
+    // break the encode→decode round-trip. See
+    // `fixtures_integration_test.dart` "round-trip preserves explicit-null
+    // payload" for the regression guard.
     final jsonString = jsonEncode(json);
     return 'data: $jsonString\n\n';
   }

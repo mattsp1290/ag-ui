@@ -137,10 +137,18 @@ class Validators {
     }
   }
 
+  /// Maximum allowed value for any [Duration] passed through
+  /// [validateTimeout]. Conservative for an agent SDK where long-running
+  /// tool sequences and human-in-the-loop steps can sometimes legitimately
+  /// approach this cap; bumping is a behavior change deferred to a future
+  /// release. Exposed so callers can inspect the limit (e.g. to warn the
+  /// user before submitting a request that will be rejected).
+  static const Duration maxTimeout = Duration(minutes: 10);
+
   /// Validates timeout duration
   static void validateTimeout(Duration? timeout) {
     if (timeout == null) return;
-    
+
     if (timeout.isNegative) {
       throw ValidationError(
         'Timeout cannot be negative',
@@ -149,14 +157,12 @@ class Validators {
         value: timeout.toString(),
       );
     }
-    
-    // Max timeout of 10 minutes
-    const maxTimeout = Duration(minutes: 10);
+
     if (timeout > maxTimeout) {
       throw ValidationError(
-        'Timeout exceeds maximum of 10 minutes',
+        'Timeout exceeds maximum of ${maxTimeout.inMinutes} minutes',
         field: 'timeout',
-        constraint: 'max-10-minutes',
+        constraint: 'max-${maxTimeout.inMinutes}-minutes',
         value: timeout.toString(),
       );
     }

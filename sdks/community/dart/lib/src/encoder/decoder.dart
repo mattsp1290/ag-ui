@@ -252,7 +252,9 @@ class EventDecoder {
         Validators.requireNonEmpty(event.messageId, 'messageId');
       case TextMessageContentEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
-        Validators.requireNonEmpty(event.delta, 'delta');
+        // `delta` may be empty per canonical TS/Python schemas
+        // (`TextMessageContentEventSchema.delta: z.string()` /
+        // pydantic `delta: str`). Do not enforce non-empty here.
       case TextMessageEndEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
       case TextMessageChunkEvent():
@@ -269,11 +271,17 @@ class EventDecoder {
         break;
       // ignore: deprecated_member_use_from_same_package
       case ThinkingTextMessageContentEvent():
-        // Match the non-empty `delta` contract that
-        // `TextMessageContentEvent` and `ReasoningMessageContentEvent`
-        // already enforce for sibling content events. A direct factory
-        // bypass that builds a `ThinkingTextMessageContentEvent(delta: '')`
-        // must not pass validation here.
+        // Deprecated path keeps the pre-0.2.0 stricter "non-empty delta"
+        // contract. The canonical TS/Python sibling events
+        // (`TextMessageContentEvent`, `ToolCallArgsEvent`,
+        // `ToolCallResultEvent`, `ReasoningMessageContentEvent`) RELAXED
+        // to `z.string()` / `delta: str` in 0.2.0 — empty `delta` is
+        // accepted on those. This deprecated path intentionally does not
+        // loosen, because (a) tightening a deprecated contract
+        // retroactively can't break new producers, and (b) the migration
+        // target `REASONING_*` already applies the relaxed contract.
+        // Pinned by `decoder_test.dart` "throws ValidationError for
+        // empty delta in thinking-text content event".
         Validators.requireNonEmpty(event.delta, 'delta');
       // ignore: deprecated_member_use_from_same_package
       case ThinkingTextMessageEndEvent():
@@ -286,7 +294,9 @@ class EventDecoder {
         Validators.requireNonEmpty(event.toolCallName, 'toolCallName');
       case ToolCallArgsEvent():
         Validators.requireNonEmpty(event.toolCallId, 'toolCallId');
-        Validators.requireNonEmpty(event.delta, 'delta');
+        // `delta` may be empty per canonical TS/Python schemas
+        // (`ToolCallArgsEventSchema.delta: z.string()` / pydantic
+        // `delta: str`). Do not enforce non-empty here.
       case ToolCallEndEvent():
         Validators.requireNonEmpty(event.toolCallId, 'toolCallId');
       case ToolCallChunkEvent():
@@ -294,7 +304,9 @@ class EventDecoder {
       case ToolCallResultEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
         Validators.requireNonEmpty(event.toolCallId, 'toolCallId');
-        Validators.requireNonEmpty(event.content, 'content');
+        // `content` may be empty per canonical TS/Python schemas
+        // (`ToolCallResultEventSchema.content: z.string()` / pydantic
+        // `content: str`). Do not enforce non-empty here.
       case ThinkingStartEvent():
         break;
       // ignore: deprecated_member_use_from_same_package
@@ -346,7 +358,9 @@ class EventDecoder {
         Validators.requireNonEmpty(event.messageId, 'messageId');
       case ReasoningMessageContentEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
-        Validators.requireNonEmpty(event.delta, 'delta');
+        // `delta` may be empty per canonical TS/Python schemas
+        // (`ReasoningMessageContentEventSchema.delta: z.string()` /
+        // pydantic `delta: str`). Do not enforce non-empty here.
       case ReasoningMessageEndEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
       case ReasoningMessageChunkEvent():

@@ -444,7 +444,10 @@ void main() {
           data: jsonEncode({'type': 'INVALID_TYPE'}), // Unknown type
         ));
         sseController.add(SseMessage(
-          data: jsonEncode({'type': 'TEXT_MESSAGE_CONTENT', 'messageId': 'm1', 'delta': ''}), // Invalid: empty delta
+          // Invalid: missing required `messageId`. (Empty `delta` is now
+          // accepted per canonical TS/Python parity, so it can no longer
+          // serve as the invalid-event trigger here.)
+          data: jsonEncode({'type': 'TEXT_MESSAGE_CONTENT', 'delta': 'x'}),
         ));
         sseController.add(SseMessage(
           data: jsonEncode({'type': 'RUN_FINISHED', 'thread_id': 't1', 'run_id': 'r1'}),
@@ -495,12 +498,15 @@ void main() {
           throwsA(isA<DecodingError>()),
         );
 
-        // Empty required field - validation error is wrapped in DecodingError
+        // Empty `messageId` (still a contract violation post-0.2.0
+        // parity work — empty `delta` is now accepted to match
+        // canonical TS/Python schemas, but identifiers must be
+        // non-empty). Validation error is wrapped in DecodingError.
         expect(
           () => decoder.decodeJson({
             'type': 'TEXT_MESSAGE_CONTENT',
-            'messageId': 'msg-1',
-            'delta': '', // Empty delta not allowed
+            'messageId': '',
+            'delta': 'x',
           }),
           throwsA(isA<DecodingError>()),
         );
@@ -551,7 +557,9 @@ void main() {
         // event class without a `validate` case will fail this test.
         final emptyIdPayloads = <Map<String, dynamic>>[
           {'type': 'TOOL_CALL_ARGS', 'toolCallId': '', 'delta': 'x'},
-          {'type': 'TOOL_CALL_ARGS', 'toolCallId': 'c', 'delta': ''},
+          // NOTE: empty `delta` on TOOL_CALL_ARGS is now accepted per
+          // canonical TS/Python parity; only empty `toolCallId` is
+          // still a contract violation.
           {'type': 'TOOL_CALL_END', 'toolCallId': ''},
           {
             'type': 'TOOL_CALL_RESULT',
@@ -565,12 +573,8 @@ void main() {
             'toolCallId': '',
             'content': 'x',
           },
-          {
-            'type': 'TOOL_CALL_RESULT',
-            'messageId': 'm',
-            'toolCallId': 'c',
-            'content': '',
-          },
+          // NOTE: empty `content` on TOOL_CALL_RESULT is now accepted
+          // per canonical TS/Python parity.
           {'type': 'RUN_FINISHED', 'threadId': '', 'runId': 'r'},
           {'type': 'RUN_FINISHED', 'threadId': 't', 'runId': ''},
           {'type': 'RUN_ERROR', 'message': ''},
@@ -602,10 +606,11 @@ void main() {
             'activityType': '',
             'patch': <dynamic>[],
           },
-          // Reasoning events — empty messageId / delta / entityId /
-          // encryptedValue. (Empty delta on REASONING_MESSAGE_CONTENT is
-          // also rejected at the factory level; testing it via the
-          // decoder still validates the wrapping behavior end-to-end.)
+          // Reasoning events — empty messageId / entityId / encryptedValue.
+          // Empty `delta` on REASONING_MESSAGE_CONTENT is now accepted
+          // per canonical parity (only empty `messageId` is still a
+          // contract violation). Empty entityId/encryptedValue on
+          // REASONING_ENCRYPTED_VALUE remain rejected (cipher contract).
           {'type': 'REASONING_START', 'messageId': ''},
           {
             'type': 'REASONING_MESSAGE_START',
@@ -616,11 +621,6 @@ void main() {
             'type': 'REASONING_MESSAGE_CONTENT',
             'messageId': '',
             'delta': 'd',
-          },
-          {
-            'type': 'REASONING_MESSAGE_CONTENT',
-            'messageId': 'm',
-            'delta': '',
           },
           {'type': 'REASONING_MESSAGE_END', 'messageId': ''},
           {'type': 'REASONING_END', 'messageId': ''},
@@ -890,6 +890,87 @@ void main() {
         expect(events.length, equals(2));
         expect(events[0], isA<RunStartedEvent>());
         expect(events[1], isA<TextMessageEndEvent>());
+      });
+
+      test(
+          'fromRawSseStream emits events from a lone-CR-encoded stream '
+          '(WHATWG spec: \\r is a valid line terminator)', () async {
+        // Companion to the CRLF regression at lines 822-868. The WHATWG SSE
+        // spec permits CRLF, lone LF, and lone CR terminators. Pre-fix,
+        // `fromRawSseStream` only split on `\n`, so a producer using bare
+        // `\r` (rare in practice but spec-valid) buffered indefinitely.
+        // The post-fix multi-terminator scanner consumes lone `\r` in
+        // steady state, with the trailing-`\r` deferral preserving correct
+        // chunk-spanning `\r\n` handling.
+        final rawController = StreamController<String>();
+        final eventStream = adapter.fromRawSseStream(rawController.stream);
+
+        final events = <BaseEvent>[];
+        final subscription = eventStream.listen(events.add);
+
+        rawController.add(
+          'data: {"type":"RUN_STARTED","thread_id":"t1","run_id":"r1"}\r\r',
+        );
+        rawController.add(
+          'data: {"type":"TEXT_MESSAGE_START","messageId":"m1","role":"assistant"}\r\r',
+        );
+        rawController.add(
+          'data: {"type":"TEXT_MESSAGE_END","messageId":"m1"}\r\r',
+        );
+
+        // Drain microtasks before close to verify steady-state, not
+        // flush-on-close. Same pattern as the CRLF test above.
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          events.length,
+          equals(3),
+          reason:
+              'Lone-CR input must be parsed in steady state, not buffered '
+              'until stream close',
+        );
+
+        await rawController.close();
+        await subscription.cancel();
+
+        expect(events[0], isA<RunStartedEvent>());
+        expect(events[1], isA<TextMessageStartEvent>());
+        expect(events[2], isA<TextMessageEndEvent>());
+      });
+
+      test(
+          'fromRawSseStream correctly disambiguates chunk-spanning \\r\\n '
+          'from lone \\r + lone \\n', () async {
+        // The trailing-`\r` deferral guarantees that a CRLF split across
+        // two chunks (chunk1 ends with `\r`, chunk2 starts with `\n`) is
+        // treated as a single CRLF terminator, not two separate lone
+        // terminators. Without the deferral, the empty-line dispatch would
+        // double-fire and the SSE event boundary would be mis-detected.
+        final rawController = StreamController<String>();
+        final eventStream = adapter.fromRawSseStream(rawController.stream);
+
+        final events = <BaseEvent>[];
+        final subscription = eventStream.listen(events.add);
+
+        // Split the CRLF terminators so each spans two chunks.
+        rawController.add(
+          'data: {"type":"RUN_STARTED","thread_id":"t1","run_id":"r1"}\r',
+        );
+        rawController.add('\n\r');
+        rawController.add(
+          '\ndata: {"type":"RUN_FINISHED","thread_id":"t1","run_id":"r1"}\r\n\r\n',
+        );
+
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        await rawController.close();
+        await subscription.cancel();
+
+        expect(events.length, equals(2));
+        expect(events[0], isA<RunStartedEvent>());
+        expect(events[1], isA<RunFinishedEvent>());
       });
 
       test('decodeSSE handles CRLF terminators (LineSplitter-based)', () {

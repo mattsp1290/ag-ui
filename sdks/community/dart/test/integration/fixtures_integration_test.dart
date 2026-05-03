@@ -597,6 +597,48 @@ void main() {
         expect(encrypted.encryptedValue, equals('cipher'));
       });
       
+      test('round-trip preserves explicit-null payload', () {
+        // Regression guard for the encoder null-strip bug: previously
+        // `encodeSSE` ran `json.removeWhere((k, v) => v == null)` which
+        // silently dropped fields that intentionally serialize as `null`.
+        // The factories below all REQUIRE the key to be present (an absent
+        // key raises `AGUIValidationError`), so the round-trip would fail
+        // with `DecodingError(field: 'content' | 'event' | 'value')`. The
+        // post-fix encoder leaves the toJson output untouched.
+        final originals = <BaseEvent>[
+          ActivitySnapshotEvent(
+            messageId: 'm',
+            activityType: 't',
+            content: null,
+          ),
+          RawEvent(event: null),
+          CustomEvent(name: 'evt', value: null),
+          StateSnapshotEvent(snapshot: null),
+        ];
+
+        for (final original in originals) {
+          final sse = encoder.encodeSSE(original);
+          final decoded = decoder.decodeSSE(sse);
+          expect(
+            decoded.runtimeType,
+            equals(original.runtimeType),
+            reason: 'round-trip type mismatch for ${original.runtimeType}',
+          );
+        }
+
+        final activity = decoder.decodeSSE(encoder.encodeSSE(originals[0]))
+            as ActivitySnapshotEvent;
+        expect(activity.content, isNull);
+        final raw = decoder.decodeSSE(encoder.encodeSSE(originals[1])) as RawEvent;
+        expect(raw.event, isNull);
+        final custom =
+            decoder.decodeSSE(encoder.encodeSSE(originals[2])) as CustomEvent;
+        expect(custom.value, isNull);
+        final snapshot = decoder
+            .decodeSSE(encoder.encodeSSE(originals[3])) as StateSnapshotEvent;
+        expect(snapshot.snapshot, isNull);
+      });
+
       test('handles protobuf content type negotiation', () {
         // Test with protobuf accept header
         final protoEncoder = EventEncoder(

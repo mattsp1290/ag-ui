@@ -33,7 +33,20 @@ enum MessageRole {
   assistant('assistant'),
   user('user'),
   tool('tool'),
+
+  /// Wire spelling is `'activity'` (lowercase, single word) — canonical
+  /// across the AG-UI protocol (TS `Literal["activity"]`, Python
+  /// `Literal["activity"]`). The Dart symbol matches; this enum value
+  /// pins the wire constant for [MessageRole.fromString] dispatch into
+  /// [ActivityMessage]. Mirrors the wire-spelling-pinning style used by
+  /// [ReasoningEncryptedValueSubtype.toolCall] (where the spelling
+  /// difference is more consequential).
   activity('activity'),
+
+  /// Wire spelling is `'reasoning'` (lowercase, single word) — canonical
+  /// across the AG-UI protocol. The Dart symbol matches; this enum value
+  /// pins the wire constant for [MessageRole.fromString] dispatch into
+  /// [ReasoningMessage].
   reasoning('reasoning');
 
   final String value;
@@ -114,6 +127,10 @@ sealed class Message extends AGUIModel with TypeDiscriminator {
         return ActivityMessage.fromJson(json);
       case MessageRole.reasoning:
         return ReasoningMessage.fromJson(json);
+      // No `default` clause — exhaustive switch on the [MessageRole] enum
+      // (analyzer-enforced). A new MessageRole value will produce a compile
+      // error here, which is the desired outcome rather than a runtime
+      // fall-through.
     }
   }
 
@@ -214,14 +231,23 @@ class AssistantMessage extends Message {
   }) : super(role: MessageRole.assistant);
 
   factory AssistantMessage.fromJson(Map<String, dynamic> json) {
-    // Use `optionalEitherField` on the KEY so a present-but-empty
-    // camelCase `'toolCalls': []` does not short-circuit the
-    // `'tool_calls': [...]` snake_case fallback. The previous
-    // `??`-on-value chain only fired on null, so an empty camelCase
-    // list silently won — protocol-edge data loss for payloads that
-    // (incorrectly) carry both keys. Mirrors `ToolMessage.fromJson`'s
-    // `toolCallId` / `tool_call_id` resolution.
-    final rawToolCalls = JsonDecoder.optionalEitherField<List<dynamic>>(
+    // KEY-level dual-key resolution with eager element-type validation.
+    // Documented precedence rule (see [JsonDecoder.requireEitherField]
+    // dartdoc): if camelCase `toolCalls` is present, it wins even when the
+    // list is empty; snake_case `tool_calls` is consulted ONLY when
+    // camelCase is absent. The pre-fix `??`-on-value chain incorrectly
+    // surfaced `tool_calls` whenever camelCase resolved to null OR an
+    // empty list — silently dropping snake_case data on payloads that
+    // (incorrectly) carry both keys. The regression test
+    // `message_test.dart:401-446` ("AssistantMessage.fromJson dual-key
+    // precedence") pins this contract.
+    //
+    // Element-type validation: `optionalEitherListField` reports
+    // `field: 'toolCalls[$i]'` on a malformed nested element rather than
+    // letting a raw `TypeError` leak from the `as Map<String, dynamic>`
+    // cast — same convention as `MessagesSnapshotEvent.fromJson`.
+    final rawToolCalls =
+        JsonDecoder.optionalEitherListField<Map<String, dynamic>>(
       json,
       'toolCalls',
       'tool_calls',
@@ -230,9 +256,7 @@ class AssistantMessage extends Message {
       id: JsonDecoder.requireField<String>(json, 'id'),
       content: JsonDecoder.optionalField<String>(json, 'content'),
       name: JsonDecoder.optionalField<String>(json, 'name'),
-      toolCalls: rawToolCalls
-          ?.map((item) => ToolCall.fromJson(item as Map<String, dynamic>))
-          .toList(),
+      toolCalls: rawToolCalls?.map(ToolCall.fromJson).toList(),
     );
   }
 

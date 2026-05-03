@@ -37,6 +37,27 @@ class _Unset {
 
 const _Unset _unsetCopyWith = _Unset();
 
+// Hoisted `@Deprecated` messages: each is repeated on the class
+// declaration AND the constructor of the corresponding event type, so a
+// constant lets the planned-removal version (1.0.0) and migration target
+// get edited in one place per event class. Sibling enum-side messages
+// live in `event_type.dart`; the surfaces are intentionally different
+// (enum names vs. event class names).
+const String _kThinkingTextMessageStartEventDeprecation =
+    'Use ReasoningMessageStartEvent instead. '
+    'Scheduled for removal in 1.0.0.';
+const String _kThinkingTextMessageContentEventDeprecation =
+    'Use ReasoningMessageContentEvent instead. '
+    'Scheduled for removal in 1.0.0.';
+const String _kThinkingTextMessageEndEventDeprecation =
+    'Use ReasoningMessageEndEvent instead. '
+    'Scheduled for removal in 1.0.0.';
+const String _kThinkingContentEventDeprecation =
+    'Dart-only legacy: never part of the canonical AG-UI protocol '
+    '(TypeScript/Python). '
+    'Use ThinkingTextMessageContentEvent instead. '
+    'Scheduled for removal in 1.0.0.';
+
 /// Base event for all AG-UI protocol events.
 ///
 /// All protocol events extend this class and are identified by their
@@ -169,6 +190,10 @@ sealed class BaseEvent extends AGUIModel with TypeDiscriminator {
         return ReasoningEndEvent.fromJson(json);
       case EventType.reasoningEncryptedValue:
         return ReasoningEncryptedValueEvent.fromJson(json);
+      // No `default` clause — exhaustive switch on the [EventType] enum
+      // (analyzer-enforced). A new EventType value will produce a compile
+      // error here AND in `EventDecoder.validate`, which is the desired
+      // outcome rather than a runtime fall-through.
     }
   }
 
@@ -312,15 +337,11 @@ final class TextMessageContentEvent extends BaseEvent {
       'messageId',
       'message_id',
     );
+    // Empty `delta` is accepted to match canonical TS/Python schemas
+    // (`TextMessageContentEventSchema.delta: z.string()` /
+    // pydantic `delta: str`). Servers may legitimately emit empty
+    // chunks (e.g. a noop content refresh).
     final delta = JsonDecoder.requireField<String>(json, 'delta');
-    if (delta.isEmpty) {
-      throw AGUIValidationError(
-        message: 'Delta must not be an empty string',
-        field: 'delta',
-        value: delta,
-        json: json,
-      );
-    }
 
     return TextMessageContentEvent(
       messageId: messageId,
@@ -520,21 +541,11 @@ final class ThinkingStartEvent extends BaseEvent {
 /// Dart-only legacy: never part of the canonical AG-UI protocol
 /// (TypeScript/Python). Included only for backward compatibility with
 /// pre-0.2.0 Dart consumers. Use [ThinkingTextMessageContentEvent] instead.
-@Deprecated(
-  'Dart-only legacy: never part of the canonical AG-UI protocol '
-  '(TypeScript/Python). '
-  'Use ThinkingTextMessageContentEvent instead. '
-  'Scheduled for removal in 1.0.0.',
-)
+@Deprecated(_kThinkingContentEventDeprecation)
 final class ThinkingContentEvent extends BaseEvent {
   final String delta;
 
-  @Deprecated(
-    'Dart-only legacy: never part of the canonical AG-UI protocol '
-    '(TypeScript/Python). '
-    'Use ThinkingTextMessageContentEvent instead. '
-    'Scheduled for removal in 1.0.0.',
-  )
+  @Deprecated(_kThinkingContentEventDeprecation)
   const ThinkingContentEvent({
     required this.delta,
     super.timestamp,
@@ -611,15 +622,9 @@ final class ThinkingEndEvent extends BaseEvent {
 /// canonical TypeScript SDK deprecation of `THINKING_TEXT_MESSAGE_*` in
 /// favor of `REASONING_*`. Decoding remains supported for backward
 /// compatibility; scheduled for removal in 1.0.0.
-@Deprecated(
-  'Use ReasoningMessageStartEvent instead. '
-  'Scheduled for removal in 1.0.0.',
-)
+@Deprecated(_kThinkingTextMessageStartEventDeprecation)
 final class ThinkingTextMessageStartEvent extends BaseEvent {
-  @Deprecated(
-    'Use ReasoningMessageStartEvent instead. '
-    'Scheduled for removal in 1.0.0.',
-  )
+  @Deprecated(_kThinkingTextMessageStartEventDeprecation)
   const ThinkingTextMessageStartEvent({
     super.timestamp,
     super.rawEvent,
@@ -651,17 +656,11 @@ final class ThinkingTextMessageStartEvent extends BaseEvent {
 /// canonical TypeScript SDK deprecation of `THINKING_TEXT_MESSAGE_*` in
 /// favor of `REASONING_*`. Decoding remains supported for backward
 /// compatibility; scheduled for removal in 1.0.0.
-@Deprecated(
-  'Use ReasoningMessageContentEvent instead. '
-  'Scheduled for removal in 1.0.0.',
-)
+@Deprecated(_kThinkingTextMessageContentEventDeprecation)
 final class ThinkingTextMessageContentEvent extends BaseEvent {
   final String delta;
 
-  @Deprecated(
-    'Use ReasoningMessageContentEvent instead. '
-    'Scheduled for removal in 1.0.0.',
-  )
+  @Deprecated(_kThinkingTextMessageContentEventDeprecation)
   const ThinkingTextMessageContentEvent({
     required this.delta,
     super.timestamp,
@@ -716,15 +715,9 @@ final class ThinkingTextMessageContentEvent extends BaseEvent {
 /// canonical TypeScript SDK deprecation of `THINKING_TEXT_MESSAGE_*` in
 /// favor of `REASONING_*`. Decoding remains supported for backward
 /// compatibility; scheduled for removal in 1.0.0.
-@Deprecated(
-  'Use ReasoningMessageEndEvent instead. '
-  'Scheduled for removal in 1.0.0.',
-)
+@Deprecated(_kThinkingTextMessageEndEventDeprecation)
 final class ThinkingTextMessageEndEvent extends BaseEvent {
-  @Deprecated(
-    'Use ReasoningMessageEndEvent instead. '
-    'Scheduled for removal in 1.0.0.',
-  )
+  @Deprecated(_kThinkingTextMessageEndEventDeprecation)
   const ThinkingTextMessageEndEvent({
     super.timestamp,
     super.rawEvent,
@@ -837,15 +830,9 @@ final class ToolCallArgsEvent extends BaseEvent {
       'toolCallId',
       'tool_call_id',
     );
+    // Empty `delta` is accepted to match canonical TS/Python schemas
+    // (`ToolCallArgsEventSchema.delta: z.string()` / pydantic `delta: str`).
     final delta = JsonDecoder.requireField<String>(json, 'delta');
-    if (delta.isEmpty) {
-      throw AGUIValidationError(
-        message: 'Delta must not be an empty string',
-        field: 'delta',
-        value: delta,
-        json: json,
-      );
-    }
     return ToolCallArgsEvent(
       toolCallId: toolCallId,
       delta: delta,
@@ -1030,6 +1017,14 @@ final class ToolCallResultEvent extends BaseEvent {
   final String messageId;
   final String toolCallId;
   final String content;
+
+  /// Optional role discriminator for the tool-call result.
+  ///
+  /// Note: [copyWith] for this field uses the standard `?? this.field`
+  /// pattern (a CHANGELOG-acknowledged "Known parity gap" — see
+  /// CHANGELOG → "Known parity gaps"). `copyWith(role: null)` does NOT
+  /// clear the field. Construct a new [ToolCallResultEvent] directly if
+  /// you need to drop the role.
   final ToolCallResultRole? role;
 
   const ToolCallResultEvent({
@@ -1110,6 +1105,15 @@ final class ToolCallResultEvent extends BaseEvent {
 
 /// Event containing a snapshot of the state
 final class StateSnapshotEvent extends BaseEvent {
+  /// The state snapshot. Type [State] permits any JSON shape including
+  /// `null` (an empty / cleared state is a valid wire payload — see the
+  /// matching note on [StateSnapshotEvent.fromJson]).
+  ///
+  /// Note: [copyWith] for this field uses the standard `?? this.field`
+  /// pattern (a CHANGELOG-acknowledged "Known parity gap" — see
+  /// CHANGELOG → "Known parity gaps"). `copyWith(snapshot: null)` does
+  /// NOT clear the field. Construct a new [StateSnapshotEvent] directly
+  /// if you need to set an explicit-null snapshot.
   final State snapshot;
 
   const StateSnapshotEvent({
@@ -1667,6 +1671,14 @@ final class RunFinishedEvent extends BaseEvent {
 /// Event indicating that a run has encountered an error
 final class RunErrorEvent extends BaseEvent {
   final String message;
+
+  /// Optional machine-readable error code.
+  ///
+  /// Note: [copyWith] for this field uses the standard `?? this.field`
+  /// pattern (a CHANGELOG-acknowledged "Known parity gap" — see
+  /// CHANGELOG → "Known parity gaps"). `copyWith(code: null)` does NOT
+  /// clear the field. Construct a new [RunErrorEvent] directly if you
+  /// need to drop the code.
   final String? code;
 
   const RunErrorEvent({
@@ -1992,15 +2004,10 @@ final class ReasoningMessageContentEvent extends BaseEvent {
       'messageId',
       'message_id',
     );
+    // Empty `delta` is accepted to match canonical TS/Python schemas
+    // (`ReasoningMessageContentEventSchema.delta: z.string()` /
+    // pydantic `delta: str`).
     final delta = JsonDecoder.requireField<String>(json, 'delta');
-    if (delta.isEmpty) {
-      throw AGUIValidationError(
-        message: 'Delta must not be an empty string',
-        field: 'delta',
-        value: delta,
-        json: json,
-      );
-    }
 
     return ReasoningMessageContentEvent(
       messageId: messageId,
@@ -2236,9 +2243,13 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
       // Reject at the factory boundary, not just at `EventDecoder.validate`,
       // so direct callers of `ReasoningEncryptedValueEvent.fromJson` can't
       // produce an event with a mis-attributed empty cipher payload.
-      // Mirrors `TextMessageContentEvent.fromJson`,
-      // `ToolCallArgsEvent.fromJson`, and
-      // `ReasoningMessageContentEvent.fromJson`.
+      // Note: this is INTENTIONALLY stricter than the sibling content-delta
+      // events (`TextMessageContentEvent`, `ToolCallArgsEvent`,
+      // `ToolCallResultEvent`, `ReasoningMessageContentEvent`), which were
+      // RELAXED to accept empty strings in 0.2.0 for canonical TS/Python
+      // parity. Cipher-payload identifiers and payloads stay non-empty
+      // because there is no defensible "empty cipher" semantic — see the
+      // class-level dartdoc on [ReasoningEncryptedValueEvent].
       throw AGUIValidationError(
         message: 'encryptedValue must not be an empty string',
         field: 'encryptedValue',

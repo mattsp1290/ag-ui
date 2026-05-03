@@ -5,6 +5,15 @@ import 'base.dart';
 import 'message.dart';
 import 'tool.dart';
 
+// Sentinel used by copyWith to distinguish "argument omitted" from
+// "argument explicitly null" on nullable fields. Mirrors the same
+// pattern in lib/src/types/message.dart and lib/src/events/events.dart.
+class _Unset {
+  const _Unset();
+}
+
+const _Unset _unsetContext = _Unset();
+
 /// Additional context for the agent
 class Context extends AGUIModel {
   final String description;
@@ -40,10 +49,15 @@ class Context extends AGUIModel {
   }
 }
 
-/// Input for running an agent
+/// Input for running an agent.
+///
+/// The optional [parentRunId] mirrors the canonical TS/Python
+/// `RunAgentInput.parentRunId` / `parent_run_id` field; it links the
+/// run to a parent run in nested-run scenarios.
 class RunAgentInput extends AGUIModel {
   final String threadId;
   final String runId;
+  final String? parentRunId;
   final dynamic state;
   final List<Message> messages;
   final List<Tool> tools;
@@ -53,6 +67,7 @@ class RunAgentInput extends AGUIModel {
   const RunAgentInput({
     required this.threadId,
     required this.runId,
+    this.parentRunId,
     this.state,
     required this.messages,
     required this.tools,
@@ -61,30 +76,22 @@ class RunAgentInput extends AGUIModel {
   });
 
   factory RunAgentInput.fromJson(Map<String, dynamic> json) {
-    // Handle both camelCase and snake_case field names
-    final threadId = JsonDecoder.optionalField<String>(json, 'threadId') ??
-        JsonDecoder.optionalField<String>(json, 'thread_id');
-    final runId = JsonDecoder.optionalField<String>(json, 'runId') ??
-        JsonDecoder.optionalField<String>(json, 'run_id');
-    
-    if (threadId == null) {
-      throw AGUIValidationError(
-        message: 'Missing required field: threadId or thread_id',
-        field: 'threadId',
-        json: json,
-      );
-    }
-    if (runId == null) {
-      throw AGUIValidationError(
-        message: 'Missing required field: runId or run_id',
-        field: 'runId',
-        json: json,
-      );
-    }
-    
     return RunAgentInput(
-      threadId: threadId,
-      runId: runId,
+      threadId: JsonDecoder.requireEitherField<String>(
+        json,
+        'threadId',
+        'thread_id',
+      ),
+      runId: JsonDecoder.requireEitherField<String>(
+        json,
+        'runId',
+        'run_id',
+      ),
+      parentRunId: JsonDecoder.optionalEitherField<String>(
+        json,
+        'parentRunId',
+        'parent_run_id',
+      ),
       state: json['state'],
       messages: JsonDecoder.requireListField<Map<String, dynamic>>(
         json,
@@ -98,6 +105,11 @@ class RunAgentInput extends AGUIModel {
         json,
         'context',
       ).map((item) => Context.fromJson(item)).toList(),
+      // `forwardedProps` is intentionally `dynamic` (any JSON shape),
+      // so the inline `??` chain is preferred over `optionalEitherField<T>`
+      // (which requires a concrete `T`). Behavior matches: camelCase wins
+      // when present (even when null-ish); snake_case is consulted only
+      // when camelCase is absent.
       forwardedProps: json['forwardedProps'] ?? json['forwarded_props'],
     );
   }
@@ -106,6 +118,7 @@ class RunAgentInput extends AGUIModel {
   Map<String, dynamic> toJson() => {
     'threadId': threadId,
     'runId': runId,
+    if (parentRunId != null) 'parentRunId': parentRunId,
     if (state != null) 'state': state,
     'messages': messages.map((m) => m.toJson()).toList(),
     'tools': tools.map((t) => t.toJson()).toList(),
@@ -113,10 +126,14 @@ class RunAgentInput extends AGUIModel {
     if (forwardedProps != null) 'forwardedProps': forwardedProps,
   };
 
+  // `parentRunId` is nullable — sentinel lets callers clear it
+  // explicitly via `copyWith(parentRunId: null)`. Mirrors the
+  // message-class sentinel in lib/src/types/message.dart.
   @override
   RunAgentInput copyWith({
     String? threadId,
     String? runId,
+    Object? parentRunId = _unsetContext,
     dynamic state,
     List<Message>? messages,
     List<Tool>? tools,
@@ -126,6 +143,9 @@ class RunAgentInput extends AGUIModel {
     return RunAgentInput(
       threadId: threadId ?? this.threadId,
       runId: runId ?? this.runId,
+      parentRunId: identical(parentRunId, _unsetContext)
+          ? this.parentRunId
+          : parentRunId as String?,
       state: state ?? this.state,
       messages: messages ?? this.messages,
       tools: tools ?? this.tools,
@@ -148,30 +168,17 @@ class Run extends AGUIModel {
   });
 
   factory Run.fromJson(Map<String, dynamic> json) {
-    // Handle both camelCase and snake_case field names
-    final threadId = JsonDecoder.optionalField<String>(json, 'threadId') ??
-        JsonDecoder.optionalField<String>(json, 'thread_id');
-    final runId = JsonDecoder.optionalField<String>(json, 'runId') ??
-        JsonDecoder.optionalField<String>(json, 'run_id');
-    
-    if (threadId == null) {
-      throw AGUIValidationError(
-        message: 'Missing required field: threadId or thread_id',
-        field: 'threadId',
-        json: json,
-      );
-    }
-    if (runId == null) {
-      throw AGUIValidationError(
-        message: 'Missing required field: runId or run_id',
-        field: 'runId',
-        json: json,
-      );
-    }
-    
     return Run(
-      threadId: threadId,
-      runId: runId,
+      threadId: JsonDecoder.requireEitherField<String>(
+        json,
+        'threadId',
+        'thread_id',
+      ),
+      runId: JsonDecoder.requireEitherField<String>(
+        json,
+        'runId',
+        'run_id',
+      ),
       result: json['result'],
     );
   }

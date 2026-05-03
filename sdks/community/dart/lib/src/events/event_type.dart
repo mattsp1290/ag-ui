@@ -1,32 +1,42 @@
 /// Event type enumeration for AG-UI protocol.
 library;
 
+// Hoisted `@Deprecated` messages: each is referenced exactly once below,
+// but the long form is repeated again in `events.dart` per event class.
+// Centralizing lets the planned-removal version (1.0.0) get edited in one
+// place per surface (enum value vs. event class) instead of drifting.
+const String _kThinkingTextMessageStartEnumDeprecation =
+    'Use reasoningMessageStart (ReasoningMessageStartEvent) instead. '
+    'Mirrors the canonical TypeScript SDK deprecation of '
+    'THINKING_TEXT_MESSAGE_* in favor of REASONING_*. '
+    'Scheduled for removal in 1.0.0.';
+const String _kThinkingTextMessageContentEnumDeprecation =
+    'Use reasoningMessageContent (ReasoningMessageContentEvent) instead. '
+    'Mirrors the canonical TypeScript SDK deprecation of '
+    'THINKING_TEXT_MESSAGE_* in favor of REASONING_*. '
+    'Scheduled for removal in 1.0.0.';
+const String _kThinkingTextMessageEndEnumDeprecation =
+    'Use reasoningMessageEnd (ReasoningMessageEndEvent) instead. '
+    'Mirrors the canonical TypeScript SDK deprecation of '
+    'THINKING_TEXT_MESSAGE_* in favor of REASONING_*. '
+    'Scheduled for removal in 1.0.0.';
+const String _kThinkingContentEnumDeprecation =
+    'Dart-only legacy: never part of the canonical AG-UI protocol '
+    '(TypeScript/Python). '
+    'Use thinkingTextMessageContent (ThinkingTextMessageContentEvent) instead. '
+    'Scheduled for removal in 1.0.0.';
+
 /// Enumeration of all AG-UI event types
 enum EventType {
   textMessageStart('TEXT_MESSAGE_START'),
   textMessageContent('TEXT_MESSAGE_CONTENT'),
   textMessageEnd('TEXT_MESSAGE_END'),
   textMessageChunk('TEXT_MESSAGE_CHUNK'),
-  @Deprecated(
-    'Use reasoningMessageStart (ReasoningMessageStartEvent) instead. '
-    'Mirrors the canonical TypeScript SDK deprecation of '
-    'THINKING_TEXT_MESSAGE_* in favor of REASONING_*. '
-    'Scheduled for removal in 1.0.0.',
-  )
+  @Deprecated(_kThinkingTextMessageStartEnumDeprecation)
   thinkingTextMessageStart('THINKING_TEXT_MESSAGE_START'),
-  @Deprecated(
-    'Use reasoningMessageContent (ReasoningMessageContentEvent) instead. '
-    'Mirrors the canonical TypeScript SDK deprecation of '
-    'THINKING_TEXT_MESSAGE_* in favor of REASONING_*. '
-    'Scheduled for removal in 1.0.0.',
-  )
+  @Deprecated(_kThinkingTextMessageContentEnumDeprecation)
   thinkingTextMessageContent('THINKING_TEXT_MESSAGE_CONTENT'),
-  @Deprecated(
-    'Use reasoningMessageEnd (ReasoningMessageEndEvent) instead. '
-    'Mirrors the canonical TypeScript SDK deprecation of '
-    'THINKING_TEXT_MESSAGE_* in favor of REASONING_*. '
-    'Scheduled for removal in 1.0.0.',
-  )
+  @Deprecated(_kThinkingTextMessageEndEnumDeprecation)
   thinkingTextMessageEnd('THINKING_TEXT_MESSAGE_END'),
   toolCallStart('TOOL_CALL_START'),
   toolCallArgs('TOOL_CALL_ARGS'),
@@ -34,12 +44,7 @@ enum EventType {
   toolCallChunk('TOOL_CALL_CHUNK'),
   toolCallResult('TOOL_CALL_RESULT'),
   thinkingStart('THINKING_START'),
-  @Deprecated(
-    'Dart-only legacy: never part of the canonical AG-UI protocol '
-    '(TypeScript/Python). '
-    'Use thinkingTextMessageContent (ThinkingTextMessageContentEvent) instead. '
-    'Scheduled for removal in 1.0.0.',
-  )
+  @Deprecated(_kThinkingContentEnumDeprecation)
   thinkingContent('THINKING_CONTENT'),
   thinkingEnd('THINKING_END'),
   stateSnapshot('STATE_SNAPSHOT'),

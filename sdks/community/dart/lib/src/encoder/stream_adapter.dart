@@ -6,6 +6,7 @@ import 'dart:async';
 import '../client/errors.dart';
 import '../events/events.dart';
 import '../sse/sse_message.dart';
+import '../types/base.dart';
 import 'decoder.dart';
 
 /// Adapter for converting streams of SSE messages to typed AG-UI events.
@@ -129,14 +130,18 @@ class EventStreamAdapter {
             }
             // Ignore non-data messages (id, event, retry, comments)
           } catch (e, stack) {
-            final error = e is AgUiError ? e : DecodingError(
+            // Preserve any `AGUIError` subtype (covers `AgUiError`,
+            // `AGUIValidationError`, and `EncoderError` siblings) so the
+            // unified error-surface contract documented on `EventDecoder`
+            // is not undone by re-wrapping at the stream-adapter layer.
+            final error = e is AGUIError ? e : DecodingError(
               'Failed to process SSE message',
               field: 'message',
               expectedType: 'BaseEvent',
               actualValue: message.data,
               cause: e,
             );
-            
+
             if (skipInvalidEvents) {
               // Log error but continue processing
               onError?.call(error, stack);
@@ -164,12 +169,18 @@ class EventStreamAdapter {
   /// This handles partial messages that may be split across multiple
   /// stream events, buffering as needed.
   ///
+  /// Line terminators: per the WHATWG SSE spec, `\r\n`, lone `\n`, and
+  /// lone `\r` are all valid. This implementation supports all three.
+  /// A trailing `\r` at the end of a chunk is deferred to the next chunk
+  /// to disambiguate from a chunk-spanning `\r\n`; on stream close the
+  /// deferred `\r` is consumed as a complete lone-CR terminator.
+  ///
   /// See [fromSseStream] for the [skipInvalidEvents] / [onError]
   /// semantics, including the silent-drop note for
   /// `REASONING_ENCRYPTED_VALUE` events with unknown subtypes.
   ///
   /// Edge case on abnormal termination: when the stream ends mid-line
-  /// without a trailing `\n` AND the partial line in the buffer is NOT
+  /// (no trailing terminator) AND the partial line in the buffer is NOT
   /// `data:`-prefixed (e.g. it is `event:`, `id:`, `retry:`, a `:`-comment,
   /// or an in-progress continuation of a multi-line `data:` block), that
   /// partial line is silently dropped. Steady-state SSE parsing already
@@ -191,95 +202,87 @@ class EventStreamAdapter {
     final dataBuffer = StringBuffer();
     var inDataBlock = false;
 
+    // Append the value portion of a `data:` or `data: ` line to the
+    // active data block. Lines that aren't `data:`-prefixed are silently
+    // ignored per the WHATWG SSE spec (event:, id:, retry:, comments).
+    // Closes over `dataBuffer` and `inDataBlock` so the per-line loop
+    // and the `onDone` final flush share the same logic.
+    void appendDataLine(String line) {
+      String value;
+      if (line.startsWith('data: ')) {
+        value = line.substring(6);
+      } else if (line.startsWith('data:')) {
+        value = line.substring(5);
+      } else {
+        return; // Not a data line — ignore per spec.
+      }
+      if (inDataBlock) {
+        // Multi-line data: add newline between lines per spec.
+        dataBuffer.write('\n');
+        dataBuffer.write(value);
+      } else {
+        dataBuffer.clear();
+        dataBuffer.write(value);
+        inDataBlock = true;
+      }
+    }
+
+    // Flush the accumulated data block as a single decoded event.
+    // Used by the empty-line dispatch and the `onDone` final flush.
+    void flushDataBlock() {
+      if (!inDataBlock) return;
+      final data = dataBuffer.toString();
+      dataBuffer.clear();
+      inDataBlock = false;
+
+      if (data.isEmpty || data.trim() == ':') return;
+
+      try {
+        // `decode` already runs `validate` via `decodeJson`; no
+        // second pass needed here.
+        controller.add(_decoder.decode(data));
+      } catch (e, stack) {
+        // Preserve any `AGUIError` subtype (`AgUiError`,
+        // `AGUIValidationError`, `EncoderError`) so the unified
+        // error-surface contract from `EventDecoder` is not undone by
+        // re-wrapping here. Only foreign exceptions become a generic
+        // `DecodingError`.
+        final error = e is AGUIError
+            ? e
+            : DecodingError(
+                'Failed to decode SSE data',
+                field: 'data',
+                expectedType: 'BaseEvent',
+                actualValue: data,
+                cause: e,
+              );
+
+        if (!skipInvalidEvents) {
+          controller.addError(error, stack);
+        } else {
+          onError?.call(error, stack);
+        }
+      }
+    }
+
     void processChunk(String chunk) {
-      // Add chunk to buffer to handle partial lines
+      // Add chunk to buffer to handle partial lines.
       buffer.write(chunk);
 
-      // Process complete lines only
-      String bufferStr = buffer.toString();
-      final lines = <String>[];
-
-      // Extract complete lines (those ending with \n). The WHATWG SSE
-      // spec permits CRLF, lone-LF, and lone-CR line terminators; here
-      // we split on \n and strip a trailing \r so a CRLF terminator
-      // ("\r\n\r\n") collapses to two empty lines (the event-boundary
-      // signal) instead of two `"\r"` lines that never match
-      // `line.isEmpty`. Without this strip, CRLF servers stalled the
-      // decoder until stream close — see
-      // `sse-protocol-parsing-edge-cases.md`.
-      while (bufferStr.contains('\n')) {
-        final lineEnd = bufferStr.indexOf('\n');
-        var line = bufferStr.substring(0, lineEnd);
-        if (line.endsWith('\r')) {
-          line = line.substring(0, line.length - 1);
-        }
-        lines.add(line);
-        bufferStr = bufferStr.substring(lineEnd + 1);
-      }
-
-      // Keep any incomplete line in the buffer
+      // Multi-terminator scan: see [_scanLines] for the spec rationale.
+      // `endOfStream: false` defers a trailing `\r` so a chunk-spanning
+      // `\r\n` doesn't double-fire as two empty lines.
+      final scan = _scanLines(buffer.toString(), endOfStream: false);
       buffer.clear();
-      buffer.write(bufferStr);
+      buffer.write(scan.unconsumed);
 
-      // Process each complete line
-      for (final line in lines) {
+      for (final line in scan.lines) {
         if (line.isEmpty) {
-          // Empty line signals end of SSE message
-          if (inDataBlock) {
-            final data = dataBuffer.toString();
-            dataBuffer.clear();
-            inDataBlock = false;
-
-            if (data.isNotEmpty && data.trim() != ':') {
-              try {
-                // `decode` already runs `validate` via `decodeJson`; no
-                // second pass needed here.
-                controller.add(_decoder.decode(data));
-              } catch (e, stack) {
-                final error = e is AgUiError
-                    ? e
-                    : DecodingError(
-                        'Failed to decode SSE data',
-                        field: 'data',
-                        expectedType: 'BaseEvent',
-                        actualValue: data,
-                        cause: e,
-                      );
-
-                if (!skipInvalidEvents) {
-                  controller.addError(error, stack);
-                } else {
-                  onError?.call(error, stack);
-                }
-              }
-            }
-          }
-        } else if (line.startsWith('data: ')) {
-          // Extract data value (after "data: ")
-          final value = line.substring(6);
-          if (inDataBlock) {
-            // Multi-line data: add newline between lines
-            dataBuffer.write('\n');
-            dataBuffer.write(value);
-          } else {
-            // Start new data block
-            dataBuffer.clear();
-            dataBuffer.write(value);
-            inDataBlock = true;
-          }
-        } else if (line.startsWith('data:')) {
-          // Handle no space after colon
-          final value = line.substring(5);
-          if (inDataBlock) {
-            dataBuffer.write('\n');
-            dataBuffer.write(value);
-          } else {
-            dataBuffer.clear();
-            dataBuffer.write(value);
-            inDataBlock = true;
-          }
+          // Empty line signals end of SSE message — flush the data block.
+          flushDataBlock();
+        } else {
+          appendDataLine(line);
         }
-        // Ignore other lines (comments, event:, id:, retry:, etc.)
       }
     }
 
@@ -303,71 +306,99 @@ class EventStreamAdapter {
         }
       },
       onDone: () {
-        // Process any remaining incomplete line in buffer.
-        // Strip a trailing \r so CRLF inputs that close mid-line behave
-        // the same as LF inputs — see the per-line note above.
-        var remaining = buffer.toString();
-        if (remaining.endsWith('\r')) {
-          remaining = remaining.substring(0, remaining.length - 1);
-        }
-        if (remaining.isNotEmpty) {
-          // Treat remaining content as a complete line
-          if (remaining.startsWith('data: ')) {
-            final value = remaining.substring(6);
-            if (inDataBlock) {
-              dataBuffer.write('\n');
-              dataBuffer.write(value);
-            } else {
-              dataBuffer.clear();
-              dataBuffer.write(value);
-              inDataBlock = true;
-            }
-          } else if (remaining.startsWith('data:')) {
-            final value = remaining.substring(5);
-            if (inDataBlock) {
-              dataBuffer.write('\n');
-              dataBuffer.write(value);
-            } else {
-              dataBuffer.clear();
-              dataBuffer.write(value);
-              inDataBlock = true;
-            }
+        // End-of-stream: any deferred trailing `\r` is now a complete
+        // terminator. Run the scanner with `endOfStream: true` to
+        // consume it (and any other complete lines still in the buffer).
+        final scan = _scanLines(buffer.toString(), endOfStream: true);
+        buffer.clear();
+
+        for (final line in scan.lines) {
+          if (line.isEmpty) {
+            flushDataBlock();
+          } else {
+            appendDataLine(line);
           }
         }
 
-        // Process any accumulated data
-        if (inDataBlock && dataBuffer.isNotEmpty) {
-          final data = dataBuffer.toString();
-          try {
-            final event = _decoder.decode(data);
-            controller.add(event);
-          } catch (e, stack) {
-            // Mirror the steady-state per-line wrap above (lines ~219-228):
-            // a non-`AgUiError` cause becomes a `DecodingError` so consumers
-            // pattern-matching on `DecodingError` see a uniform shape from
-            // the trailing-flush path and the line-by-line path.
-            final error = e is AgUiError
-                ? e
-                : DecodingError(
-                    'Failed to decode trailing SSE data',
-                    field: 'data',
-                    expectedType: 'BaseEvent',
-                    actualValue: data,
-                    cause: e,
-                  );
-            if (!skipInvalidEvents) {
-              controller.addError(error, stack);
-            } else {
-              onError?.call(error, stack);
-            }
-          }
+        // Any unconsumed suffix is a final partial line with no
+        // terminator. The pre-CRLF-fix code only handled `data:`-prefixed
+        // partials here; `appendDataLine` preserves that behavior because
+        // it ignores non-`data:` lines per spec.
+        if (scan.unconsumed.isNotEmpty) {
+          appendDataLine(scan.unconsumed);
         }
+
+        // Final flush — emits any leftover data block accumulated from
+        // either the deferred-line scan or the partial-line append above.
+        flushDataBlock();
         controller.close();
       },
       cancelOnError: false,
     );
 
     return controller.stream;
+  }
+
+  /// Scans [input] for complete lines, returning the complete lines and
+  /// the unconsumed suffix. Per the WHATWG SSE spec, line terminators
+  /// can be `\r\n`, lone `\n`, or lone `\r`.
+  ///
+  /// When [endOfStream] is `false`, a trailing `\r` at the end of the
+  /// buffer is left in the unconsumed suffix to disambiguate a
+  /// chunk-spanning `\r\n` (the next chunk could start with `\n`).
+  /// EXCEPTION: when the immediately preceding terminator in this scan
+  /// was also a lone `\r`, the producer is committed to lone-CR style and
+  /// the trailing `\r` is consumed immediately — without this exception
+  /// a single-chunk `data: foo\r\r` would defer the event-boundary `\r`
+  /// and stall steady-state lone-CR streams. CRLF producers cannot
+  /// trigger this exception because every `\r` is paired with `\n`
+  /// (so `lastWasLoneCr` never becomes `true` in the same scan).
+  ///
+  /// When [endOfStream] is `true`, the deferral is disabled entirely —
+  /// any trailing `\r` is consumed as a lone-CR terminator since no
+  /// further chunks are coming.
+  static ({List<String> lines, String unconsumed}) _scanLines(
+    String input, {
+    required bool endOfStream,
+  }) {
+    final lines = <String>[];
+    var s = input;
+    var lastWasLoneCr = false;
+    while (true) {
+      final lf = s.indexOf('\n');
+      final cr = s.indexOf('\r');
+      int breakIndex;
+      if (lf == -1 && cr == -1) break;
+      if (lf == -1) {
+        breakIndex = cr;
+      } else if (cr == -1) {
+        breakIndex = lf;
+      } else {
+        breakIndex = lf < cr ? lf : cr;
+      }
+
+      // Defer a trailing `\r` so a chunk-spanning `\r\n` doesn't appear
+      // as two terminators (lone `\r` then lone `\n`). Skip the deferral
+      // when the previous terminator was lone-CR — the producer is
+      // clearly using lone-CR style, so the trailing `\r` IS its own
+      // terminator. See class-level scan rationale above.
+      if (!endOfStream &&
+          !lastWasLoneCr &&
+          s.codeUnitAt(breakIndex) == 0x0D /* \r */ &&
+          breakIndex == s.length - 1) {
+        break;
+      }
+
+      final isCrLf = s.codeUnitAt(breakIndex) == 0x0D &&
+          breakIndex + 1 < s.length &&
+          s.codeUnitAt(breakIndex + 1) == 0x0A /* \n */;
+      lastWasLoneCr =
+          s.codeUnitAt(breakIndex) == 0x0D /* \r */ && !isCrLf;
+      final line = s.substring(0, breakIndex);
+      lines.add(line);
+      s = s.substring(breakIndex + (isCrLf ? 2 : 1));
+    }
+    return (lines: lines, unconsumed: s);
   }
 
   /// Filters a stream of events to only include specific event types.

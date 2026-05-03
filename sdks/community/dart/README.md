@@ -301,6 +301,33 @@ events directly:
   [`CHANGELOG.md`](CHANGELOG.md) "Breaking Changes" for the full
   rationale.
 
+- **`TimeoutError` was renamed to `AGUITimeoutError`** to avoid
+  shadowing `dart:async.TimeoutError` (raised by `Future.timeout(...)` /
+  `Stream.timeout(...)`). The bare name is preserved as a deprecated
+  typedef alias and will be removed in 1.0.0:
+
+  ```dart
+  // Before (0.1.0)
+  } on TimeoutError catch (e) { /* ... */ }
+
+  // After (0.2.0)
+  } on AGUITimeoutError catch (e) { /* ... */ }
+  ```
+
+  If you import both `package:ag_ui/ag_ui.dart` and `dart:async`, prefer
+  the new name to avoid a symbol collision and to ensure raw
+  `dart:async.TimeoutError` instances (very common from any
+  `.timeout(...)` call) are not silently absorbed by an `on TimeoutError`
+  arm targeting the SDK type.
+
+  Note for the inverse case: if you previously meant
+  `dart:async.TimeoutError` and were accidentally catching SDK instances
+  (because `package:ag_ui/ag_ui.dart`'s `TimeoutError` won the unqualified
+  name resolution), the rename surfaces the prior collision. After you
+  migrate to `AGUITimeoutError`, the bare `TimeoutError` arm now
+  unambiguously refers to `dart:async.TimeoutError` — runtime behavior
+  changes accordingly.
+
 The `THINKING_TEXT_MESSAGE_*` event types are also deprecated in 0.2.0
 in favor of the canonical `REASONING_*` events; decoding remains
 supported until 1.0.0. See `CHANGELOG.md` "Deprecated" for the migration
@@ -314,10 +341,12 @@ The SDK exposes a small error hierarchy that is intentionally split by origin:
   error the SDK can raise: runtime, transport, decoding, AND direct-factory
   validation. Use this when you want a single catch-all.
 - `AgUiError` — extends `AGUIError`. Covers runtime / transport / decoding:
-  `TransportError`, `TimeoutError`, `CancellationError`, `DecodingError`,
+  `TransportError`, `AGUITimeoutError`, `CancellationError`, `DecodingError`,
   and the client-side `ValidationError`. Catch this when you want to scope
   to "the SDK encountered a runtime problem" but explicitly do NOT want to
-  catch direct-factory validation errors.
+  catch direct-factory validation errors. (`TimeoutError` is preserved as
+  a deprecated alias for `AGUITimeoutError`; prefer the new name to avoid
+  shadowing `dart:async.TimeoutError`.)
 - `AGUIValidationError` — extends `AGUIError` (NOT `AgUiError`). Thrown by
   `*.fromJson` factory constructors at the wire-decoding boundary. When
   events flow through `EventDecoder`, this is wrapped as `DecodingError`,

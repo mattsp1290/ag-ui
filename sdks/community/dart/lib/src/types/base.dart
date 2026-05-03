@@ -343,6 +343,50 @@ class JsonDecoder {
     return _eagerCast<T>(list, field, json);
   }
 
+  /// Reads an optional list field that may arrive under either of two
+  /// keys, with the same eager element-type validation as
+  /// [optionalListField] / [requireListField].
+  ///
+  /// Composes the dual-key resolution rule from [optionalEitherField]
+  /// (camelCase wins when present, even when the list is empty; snake_case
+  /// is consulted ONLY when camelCase is absent) with the index-aware
+  /// element-type errors from [_eagerCast]. Use this when a list-shaped
+  /// field has both camelCase and snake_case wire spellings AND the
+  /// elements have a concrete type the SDK strongly types.
+  ///
+  /// The behavior matches [optionalListField] when [itemTransform] is
+  /// supplied: the transform is wrapped in a per-element try/catch
+  /// producing an [AGUIValidationError] (without index info, for
+  /// transform-side failures). Without [itemTransform], element type
+  /// mismatches are reported with `field: '$camelKey[$i]'`.
+  static List<T>? optionalEitherListField<T>(
+    Map<String, dynamic> json,
+    String camelKey,
+    String snakeKey, {
+    T Function(dynamic)? itemTransform,
+  }) {
+    final list = optionalEitherField<List<dynamic>>(json, camelKey, snakeKey);
+    if (list == null) return null;
+
+    if (itemTransform != null) {
+      return list.map((item) {
+        try {
+          return itemTransform(item);
+        } catch (e) {
+          throw AGUIValidationError(
+            message: 'Failed to transform list item',
+            field: camelKey,
+            value: item,
+            json: json,
+            cause: e,
+          );
+        }
+      }).toList();
+    }
+
+    return _eagerCast<T>(list, camelKey, json);
+  }
+
   /// Eagerly validates element types in a list and returns a typed copy.
   ///
   /// Replaces `list.cast<T>()`'s lazy view (which raises a raw `TypeError`

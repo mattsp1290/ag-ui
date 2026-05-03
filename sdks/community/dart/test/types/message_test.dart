@@ -315,6 +315,137 @@ void main() {
       });
     });
 
+    group('copyWith null-clearing parity (sentinel pattern)', () {
+      test('DeveloperMessage.copyWith(name: null) clears name', () {
+        // Sentinel pattern parity with the event layer: a nullable field
+        // must be clearable via `copyWith(field: null)`. The default
+        // `?? this.field` pattern (events.dart calls this out via
+        // `_unsetCopyWith`) cannot distinguish "omitted" from
+        // "explicitly null" — sentinel resolves it.
+        final msg = DeveloperMessage(
+          id: 'd1',
+          content: 'x',
+          name: 'devbot',
+        );
+        expect(msg.copyWith(name: null).name, isNull);
+        expect(msg.copyWith().name, equals('devbot'));
+      });
+
+      test('SystemMessage.copyWith(name: null) clears name', () {
+        final msg = SystemMessage(id: 's1', content: 'x', name: 'sys');
+        expect(msg.copyWith(name: null).name, isNull);
+        expect(msg.copyWith().name, equals('sys'));
+      });
+
+      test('UserMessage.copyWith(name: null) clears name', () {
+        final msg = UserMessage(id: 'u1', content: 'x', name: 'alice');
+        expect(msg.copyWith(name: null).name, isNull);
+        expect(msg.copyWith().name, equals('alice'));
+      });
+
+      test(
+          'AssistantMessage.copyWith with explicit null clears '
+          'content/name/toolCalls', () {
+        // All three nullable fields use the sentinel — verify each one
+        // independently.
+        final msg = AssistantMessage(
+          id: 'a1',
+          content: 'hi',
+          name: 'asst',
+          toolCalls: [
+            ToolCall(
+              id: 'c1',
+              function: FunctionCall(name: 'fn', arguments: '{}'),
+            ),
+          ],
+        );
+        expect(msg.copyWith(content: null).content, isNull);
+        expect(msg.copyWith(name: null).name, isNull);
+        expect(msg.copyWith(toolCalls: null).toolCalls, isNull);
+
+        // Argument omitted preserves all three fields.
+        final cloned = msg.copyWith();
+        expect(cloned.content, equals('hi'));
+        expect(cloned.name, equals('asst'));
+        expect(cloned.toolCalls, isNotNull);
+      });
+
+      test('ToolMessage.copyWith with explicit null clears error and '
+          'encryptedValue', () {
+        final msg = ToolMessage(
+          id: 't1',
+          content: 'result',
+          toolCallId: 'c1',
+          error: 'oops',
+          encryptedValue: 'cipher',
+        );
+        expect(msg.copyWith(error: null).error, isNull);
+        expect(msg.copyWith(encryptedValue: null).encryptedValue, isNull);
+
+        final cloned = msg.copyWith();
+        expect(cloned.error, equals('oops'));
+        expect(cloned.encryptedValue, equals('cipher'));
+      });
+
+      test('ReasoningMessage.copyWith(encryptedValue: null) clears it', () {
+        final msg = ReasoningMessage(
+          id: 'r1',
+          content: 'thinking',
+          encryptedValue: 'cipher',
+        );
+        expect(msg.copyWith(encryptedValue: null).encryptedValue, isNull);
+        expect(msg.copyWith().encryptedValue, equals('cipher'));
+      });
+    });
+
+    group('AssistantMessage.fromJson dual-key precedence', () {
+      test(
+          'empty toolCalls does not silently win over snake_case '
+          'tool_calls (regression for #1018 review)', () {
+        // Before the fix, the `??`-on-value chain only fired on null;
+        // an empty `toolCalls: []` short-circuited and silently
+        // dropped the populated `tool_calls` snake_case alias.
+        // `optionalEitherField` resolves on the KEY itself: camelCase
+        // wins when present (matching the documented falsy-non-null
+        // contract in `requireEitherField`), and falls back to
+        // snake_case ONLY when camelCase is entirely absent.
+        final emptyCamel = AssistantMessage.fromJson({
+          'id': 'a1',
+          'role': 'assistant',
+          'toolCalls': <dynamic>[],
+          'tool_calls': [
+            {
+              'id': 'call_1',
+              'type': 'function',
+              'function': {'name': 'fn', 'arguments': '{}'},
+            },
+          ],
+        });
+        // Documented behavior: camelCase wins when the key is present,
+        // even when the list is empty. The snake_case payload is
+        // silently ignored — surprising if you read the code as a
+        // "fallback", correct if you read it as
+        // "camelCase-key-present always wins".
+        expect(emptyCamel.toolCalls, isEmpty);
+
+        // When camelCase is absent, snake_case is consulted.
+        final onlySnake = AssistantMessage.fromJson({
+          'id': 'a2',
+          'role': 'assistant',
+          'tool_calls': [
+            {
+              'id': 'call_2',
+              'type': 'function',
+              'function': {'name': 'fn', 'arguments': '{}'},
+            },
+          ],
+        });
+        expect(onlySnake.toolCalls, isNotNull);
+        expect(onlySnake.toolCalls!.length, 1);
+        expect(onlySnake.toolCalls![0].id, equals('call_2'));
+      });
+    });
+
     group('Unknown field tolerance', () {
       test('should ignore unknown fields in JSON', () {
         final json = {

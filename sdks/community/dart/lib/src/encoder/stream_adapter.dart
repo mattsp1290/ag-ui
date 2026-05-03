@@ -199,10 +199,20 @@ class EventStreamAdapter {
       String bufferStr = buffer.toString();
       final lines = <String>[];
 
-      // Extract complete lines (those ending with \n)
+      // Extract complete lines (those ending with \n). The WHATWG SSE
+      // spec permits CRLF, lone-LF, and lone-CR line terminators; here
+      // we split on \n and strip a trailing \r so a CRLF terminator
+      // ("\r\n\r\n") collapses to two empty lines (the event-boundary
+      // signal) instead of two `"\r"` lines that never match
+      // `line.isEmpty`. Without this strip, CRLF servers stalled the
+      // decoder until stream close — see
+      // `sse-protocol-parsing-edge-cases.md`.
       while (bufferStr.contains('\n')) {
         final lineEnd = bufferStr.indexOf('\n');
-        final line = bufferStr.substring(0, lineEnd);
+        var line = bufferStr.substring(0, lineEnd);
+        if (line.endsWith('\r')) {
+          line = line.substring(0, line.length - 1);
+        }
         lines.add(line);
         bufferStr = bufferStr.substring(lineEnd + 1);
       }
@@ -293,8 +303,13 @@ class EventStreamAdapter {
         }
       },
       onDone: () {
-        // Process any remaining incomplete line in buffer
-        final remaining = buffer.toString();
+        // Process any remaining incomplete line in buffer.
+        // Strip a trailing \r so CRLF inputs that close mid-line behave
+        // the same as LF inputs — see the per-line note above.
+        var remaining = buffer.toString();
+        if (remaining.endsWith('\r')) {
+          remaining = remaining.substring(0, remaining.length - 1);
+        }
         if (remaining.isNotEmpty) {
           // Treat remaining content as a complete line
           if (remaining.startsWith('data: ')) {

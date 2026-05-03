@@ -33,51 +33,61 @@ mixin TypeDiscriminator {
   String get type;
 }
 
-/// Represents a validation error during JSON decoding.
-///
-/// Thrown when JSON data does not match the expected schema for
-/// AG-UI protocol models.
-///
-/// Note on the two-class error setup: this class is thrown by `fromJson`
-/// factories (the wire-decoding boundary) and does NOT extend
-/// `AgUiError`. The separate `ValidationError` in
-/// `lib/src/client/errors.dart` is thrown by `Validators.requireNonEmpty`
-/// inside `EventDecoder.validate`. When events are decoded through the
-/// public [EventDecoder] pipeline, both classes are caught and re-thrown
-/// as `DecodingError` — see `decoder.dart` for the wrapping logic. Direct
-/// callers of `Event.fromJson` see this `AGUIValidationError` directly.
-class AGUIValidationError implements Exception {
-  final String message;
-  final String? field;
-  final dynamic value;
-  final Map<String, dynamic>? json;
-
-  const AGUIValidationError({
-    required this.message,
-    this.field,
-    this.value,
-    this.json,
-  });
-
-  @override
-  String toString() {
-    final buffer = StringBuffer('AGUIValidationError: $message');
-    if (field != null) buffer.write(' (field: $field)');
-    if (value != null) buffer.write(' (value: $value)');
-    return buffer.toString();
-  }
-}
-
 /// Base exception for AG-UI protocol errors.
 ///
 /// The root exception class for all AG-UI protocol-related errors.
+/// `AgUiError` (lib/src/client/errors.dart) and [AGUIValidationError]
+/// both extend this class — so callers can catch the entire SDK error
+/// surface with `on AGUIError`. Catching `on AgUiError` covers
+/// transport / decoder / runtime errors but NOT direct-factory
+/// `AGUIValidationError`. See README → "Errors" for the catch-recipe.
 class AGUIError implements Exception {
+  /// Human-readable error message.
   final String message;
 
   const AGUIError(this.message);
 
   @override
   String toString() => 'AGUIError: $message';
+}
+
+/// Represents a validation error during JSON decoding.
+///
+/// Thrown by `fromJson` factories at the wire-decoding boundary. Extends
+/// [AGUIError] so `on AGUIError` catches both factory-side and
+/// runtime-side failures uniformly. The separate `ValidationError` in
+/// `lib/src/client/errors.dart` is thrown by `Validators.requireNonEmpty`
+/// inside `EventDecoder.validate`. When events are decoded through the
+/// public [EventDecoder] pipeline, both classes are caught and re-thrown
+/// as `DecodingError` — see `decoder.dart` for the wrapping logic. Direct
+/// callers of `Event.fromJson` see this `AGUIValidationError` directly.
+class AGUIValidationError extends AGUIError {
+  final String? field;
+  final dynamic value;
+  final Map<String, dynamic>? json;
+
+  /// Originating exception, if this validation error was raised in
+  /// response to another error (e.g. a wrong-typed field caught inside a
+  /// `transform` callback). Preserves structured info that would
+  /// otherwise be flattened by `'$e'` interpolation.
+  final Object? cause;
+
+  const AGUIValidationError({
+    required String message,
+    this.field,
+    this.value,
+    this.json,
+    this.cause,
+  }) : super(message);
+
+  @override
+  String toString() {
+    final buffer = StringBuffer('AGUIValidationError: $message');
+    if (field != null) buffer.write(' (field: $field)');
+    if (value != null) buffer.write(' (value: $value)');
+    if (cause != null) buffer.write('\nCaused by: $cause');
+    return buffer.toString();
+  }
 }
 
 /// Utility for tolerant JSON decoding that ignores unknown fields.
@@ -236,40 +246,76 @@ class JsonDecoder {
         optionalField<T>(json, snakeKey);
   }
 
+  /// Reads an optional integer field, accepting either `int` or `num`
+  /// on the wire.
+  ///
+  /// JS/TS producers serialize all numbers through a single Number type,
+  /// so a server emitting `Date.now() / 1000` (or any fractional value)
+  /// arrives in Dart as `double`. `optionalField<int>` rejects that with
+  /// `AGUIValidationError` even when the value is integer-shaped. This
+  /// helper accepts any `num` and coerces via `.toInt()`, fixing the
+  /// cross-runtime decode for `timestamp`-shaped fields.
+  static int? optionalIntField(
+    Map<String, dynamic> json,
+    String field,
+  ) {
+    if (!json.containsKey(field) || json[field] == null) return null;
+    final value = json[field];
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    throw AGUIValidationError(
+      message:
+          'Field has incorrect type. Expected int or num, got ${value.runtimeType}',
+      field: field,
+      value: value,
+      json: json,
+    );
+  }
+
   /// Safely extracts a list field from JSON.
   ///
   /// Use this when the elements have a concrete element type that the SDK
   /// strongly types (`requireListField<Map<String, dynamic>>` for nested
-  /// records, etc.) — the inner `cast<T>()` step provides the type safety.
+  /// records, etc.) — the inner per-element type check provides the type
+  /// safety. Wrong-typed elements raise [AGUIValidationError] eagerly with
+  /// `field: '$field[$i]'` so the decoder pipeline can preserve the
+  /// originating index instead of flattening to a generic `field: 'json'`.
   /// For loosely-typed payloads where the elements are intentionally
-  /// `dynamic` (e.g. JSON Patch operations in `STATE_DELTA` / `ACTIVITY_DELTA`)
-  /// prefer `requireField<List<dynamic>>` to avoid an unnecessary cast.
+  /// `dynamic` (e.g. JSON Patch operations in `STATE_DELTA` /
+  /// `ACTIVITY_DELTA`) prefer `requireField<List<dynamic>>` to avoid an
+  /// unnecessary check.
   static List<T> requireListField<T>(
     Map<String, dynamic> json,
     String field, {
     T Function(dynamic)? itemTransform,
   }) {
     final list = requireField<List<dynamic>>(json, field);
-    
+
     if (itemTransform != null) {
       return list.map((item) {
         try {
           return itemTransform(item);
         } catch (e) {
           throw AGUIValidationError(
-            message: 'Failed to transform list item: $e',
+            message: 'Failed to transform list item',
             field: field,
             value: item,
             json: json,
+            cause: e,
           );
         }
       }).toList();
     }
 
-    return list.cast<T>();
+    return _eagerCast<T>(list, field, json);
   }
 
   /// Safely extracts an optional list field from JSON.
+  ///
+  /// Mirrors [requireListField]'s eager element-type validation when no
+  /// transform is supplied, so a malformed list element raises
+  /// [AGUIValidationError] with the originating index instead of leaking
+  /// a `TypeError` to the decoder catch-all.
   static List<T>? optionalListField<T>(
     Map<String, dynamic> json,
     String field, {
@@ -277,23 +323,51 @@ class JsonDecoder {
   }) {
     final list = optionalField<List<dynamic>>(json, field);
     if (list == null) return null;
-    
+
     if (itemTransform != null) {
       return list.map((item) {
         try {
           return itemTransform(item);
         } catch (e) {
           throw AGUIValidationError(
-            message: 'Failed to transform list item: $e',
+            message: 'Failed to transform list item',
             field: field,
             value: item,
             json: json,
+            cause: e,
           );
         }
       }).toList();
     }
 
-    return list.cast<T>();
+    return _eagerCast<T>(list, field, json);
+  }
+
+  /// Eagerly validates element types in a list and returns a typed copy.
+  ///
+  /// Replaces `list.cast<T>()`'s lazy view (which raises a raw `TypeError`
+  /// at access time, swallowed by the decoder catch-all and flattened to
+  /// `field: 'json'`) with a fail-fast loop that names the bad index.
+  static List<T> _eagerCast<T>(
+    List<dynamic> list,
+    String field,
+    Map<String, dynamic> json,
+  ) {
+    final out = <T>[];
+    for (var i = 0; i < list.length; i++) {
+      final item = list[i];
+      if (item is! T) {
+        throw AGUIValidationError(
+          message:
+              'List item has incorrect type. Expected $T, got ${item.runtimeType}',
+          field: '$field[$i]',
+          value: item,
+          json: json,
+        );
+      }
+      out.add(item);
+    }
+    return out;
   }
 }
 

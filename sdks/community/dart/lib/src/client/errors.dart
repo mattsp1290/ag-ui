@@ -1,8 +1,15 @@
-/// Base class for all AG-UI errors
-abstract class AgUiError implements Exception {
-  /// Human-readable error message
-  final String message;
+import '../types/base.dart';
 
+/// Base class for runtime / transport / decoding AG-UI errors.
+///
+/// Extends the SDK-wide [AGUIError] root in `lib/src/types/base.dart`,
+/// so a consumer that catches `on AGUIError` will also catch every
+/// `AgUiError` subtype (transport, timeout, decoding, ...) along with
+/// `AGUIValidationError` from the factory boundary. Catching
+/// `on AgUiError` continues to scope strictly to runtime / transport /
+/// decoding — direct factory-side `AGUIValidationError` is NOT caught
+/// by `on AgUiError`. See README → "Errors" for the recipe.
+abstract class AgUiError extends AGUIError {
   /// Optional error details for debugging
   final Map<String, dynamic>? details;
 
@@ -10,7 +17,7 @@ abstract class AgUiError implements Exception {
   final Object? cause;
 
   const AgUiError(
-    this.message, {
+    super.message, {
     this.details,
     this.cause,
   });

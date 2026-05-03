@@ -4,12 +4,36 @@ import 'dart:convert';
 import 'sse_message.dart';
 
 /// Parses Server-Sent Events according to the WHATWG specification.
+///
+/// `SseParser` instances are intended to be **per-connection**. The
+/// `_eventBuffer`, `_dataBuffer`, `_retry`, and `_hasDataField` fields
+/// are reset between events via [_resetBuffers], but `_lastEventId` is
+/// intentionally sticky across messages on the same connection (per the
+/// SSE spec: the last `id:` field is preserved so a reconnecting client
+/// can supply it via the `Last-Event-ID` request header).
+///
+/// If you reuse a single `SseParser` instance across multiple
+/// independent streams (e.g. in tests), `_lastEventId` carries across —
+/// which is consistent with the spec's reconnection semantics but can
+/// be surprising in test harnesses. Construct a fresh parser per stream
+/// when you want clean isolation, or call [reset] to clear all parser
+/// state including `_lastEventId`. The streaming-side counterpart in
+/// `EventStreamAdapter.fromRawSseStream` keeps its parsing state in
+/// per-invocation locals and does not have this concern.
 class SseParser {
   final _eventBuffer = StringBuffer();
   final _dataBuffer = StringBuffer();
   String? _lastEventId;
   Duration? _retry;
   bool _hasDataField = false;
+
+  /// Clears all parser state, including the otherwise-sticky
+  /// `_lastEventId`. Use when reusing a parser instance across
+  /// independent streams that should not share reconnection state.
+  void reset() {
+    _resetBuffers();
+    _lastEventId = null;
+  }
 
   /// Parses SSE data and yields messages.
   /// 

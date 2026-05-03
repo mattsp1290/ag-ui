@@ -5,6 +5,82 @@ All notable changes to the AG-UI Dart SDK will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+- `EventStreamAdapter.fromRawSseStream` now handles CRLF (`\r\n`) line
+  terminators, not just LF. Previously a CRLF-emitting SSE server
+  produced `"\r"` lines that never matched the empty-line event-boundary
+  signal, so events buffered until stream close. The line splitter now
+  strips a trailing `\r` after splitting on `\n`. The same fix is
+  applied to `EventDecoder.decodeSSE`, which now uses `LineSplitter`
+  (handling `\n`, `\r`, and `\r\n` per the WHATWG SSE spec).
+- `JsonDecoder.optionalListField` and `requireListField` now eagerly
+  type-check elements (raising `AGUIValidationError(field: '$field[$i]')`
+  on the first wrong-typed element) instead of returning a lazy
+  `cast<T>()` view that surfaced as a raw `TypeError` at access time and
+  was flattened to `field: 'json'` by the decoder catch-all.
+- `AssistantMessage.fromJson` now uses `JsonDecoder.optionalEitherField`
+  on the `toolCalls` / `tool_calls` key itself, instead of a `??` chain
+  on the post-`.map(...).toList()` value. The previous chain only fired
+  on null, so an empty `toolCalls: []` short-circuited the snake_case
+  fallback even when `tool_calls: [...]` was populated.
+- `AssistantMessage.toJson` now emits `toolCalls` whenever the in-memory
+  field is non-null (including empty lists), so the round-trip
+  `fromJson(m.toJson()) == m` is symmetric.
+- Decoder pipeline now rethrows `EncoderError` / `DecodeError` /
+  `EncodeError` unchanged instead of re-wrapping them as a generic
+  "Failed to decode event" via the catch-all.
+
+### Changed
+- `Message` subclass `copyWith` methods (`DeveloperMessage`,
+  `SystemMessage`, `UserMessage`, `AssistantMessage`, `ToolMessage`,
+  `ReasoningMessage`) now use the `_unsetMessage` sentinel pattern for
+  nullable fields, matching the event-class discipline. Callers can
+  explicitly clear a nullable field via `copyWith(field: null)` —
+  previously `?? this.field` could not distinguish "argument omitted"
+  from "argument explicitly null".
+- `JsonDecoder.optionalIntField` (new helper) accepts `int` or `num`
+  and coerces via `.toInt()`. Every event factory now reads
+  `timestamp` via this helper, so a TS server emitting a fractional
+  number (e.g. `Date.now() / 1000`) no longer fails decode with
+  `AGUIValidationError(field: 'timestamp')`.
+- Error-hierarchy unification: `AgUiError` now extends `AGUIError`,
+  and `AGUIValidationError` now extends `AGUIError` instead of bare
+  `implements Exception`. Callers can `on AGUIError catch (e)` to
+  cover the entire SDK error surface (including direct-factory
+  validation, encoder-side failures, runtime/transport, and decoder
+  errors). `on AgUiError` still scopes to runtime/transport/decoding
+  as before. Added an "Errors" section to the README documenting the
+  recommended catch recipe.
+- `AGUIValidationError` gained an optional `cause` parameter so the
+  `transform`-rethrow path in `JsonDecoder` can preserve structured
+  error info instead of flattening to `'Failed to transform field: $e'`.
+- `SseParser` documented its per-connection state semantics (sticky
+  `_lastEventId`); a new `reset()` method clears all parser state for
+  callers that explicitly want to reuse an instance across independent
+  streams.
+
+### Documentation
+- `UserMessage` documented as a known parity gap with the canonical
+  multimodal schema (TS `Union[string, InputContent[]]`, Python
+  `Union[str, List[InputContent]]`); the Dart SDK currently only
+  supports the string variant.
+- `Message.id` documented as nullable-by-type but required-by-convention
+  (every concrete subtype constructor declares it `required`); a future
+  major version may tighten the type to non-nullable for parity with
+  canonical `BaseMessageSchema.id: z.string()`.
+- `EventDecoder.validate`'s `Thinking*` deprecated cases gained
+  comments explaining why they don't validate `messageId` (the
+  deprecated wire shape has no such field; the migration target
+  `REASONING_*` does).
+- `EventDecoder.validate`'s `ActivityDeltaEvent` case gained a comment
+  noting that an empty `patch` is intentional per the canonical
+  TS/Python schemas (`z.array(...).min(0)` / list with no length floor).
+- `BaseEvent.rawEvent` field gained a dartdoc note clarifying that the
+  field is unvalidated (typed `dynamic` because the protocol does not
+  constrain the shape).
+
 ## [0.2.0] - 2026-04-30
 
 ### Breaking Changes

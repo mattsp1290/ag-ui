@@ -45,6 +45,13 @@ const _Unset _unsetCopyWith = _Unset();
 sealed class BaseEvent extends AGUIModel with TypeDiscriminator {
   final EventType eventType;
   final int? timestamp;
+
+  /// The original wire-format payload, preserved verbatim for proxy
+  /// scenarios. Typed `dynamic` because the protocol does not constrain
+  /// the shape (TS: `z.unknown()`, Python: `Any`). No validation is
+  /// performed; the raw value flows through unchanged via every
+  /// factory (`rawEvent: json['rawEvent']`) and is re-emitted as-is
+  /// from `toJson` when non-null.
   final dynamic rawEvent;
 
   const BaseEvent({
@@ -252,7 +259,7 @@ final class TextMessageStartEvent extends BaseEvent {
       messageId: messageId,
       role: role,
       name: JsonDecoder.optionalField<String>(json, 'name'),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -318,7 +325,7 @@ final class TextMessageContentEvent extends BaseEvent {
     return TextMessageContentEvent(
       messageId: messageId,
       delta: delta,
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -363,7 +370,7 @@ final class TextMessageEndEvent extends BaseEvent {
         'messageId',
         'message_id',
       ),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -426,7 +433,7 @@ final class TextMessageChunkEvent extends BaseEvent {
       role: role,
       delta: JsonDecoder.optionalField<String>(json, 'delta'),
       name: JsonDecoder.optionalField<String>(json, 'name'),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -483,7 +490,7 @@ final class ThinkingStartEvent extends BaseEvent {
   factory ThinkingStartEvent.fromJson(Map<String, dynamic> json) {
     return ThinkingStartEvent(
       title: JsonDecoder.optionalField<String>(json, 'title'),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -547,7 +554,7 @@ final class ThinkingContentEvent extends BaseEvent {
     
     return ThinkingContentEvent(
       delta: delta,
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -581,7 +588,7 @@ final class ThinkingEndEvent extends BaseEvent {
 
   factory ThinkingEndEvent.fromJson(Map<String, dynamic> json) {
     return ThinkingEndEvent(
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -621,7 +628,7 @@ final class ThinkingTextMessageStartEvent extends BaseEvent {
 
   factory ThinkingTextMessageStartEvent.fromJson(Map<String, dynamic> json) {
     return ThinkingTextMessageStartEvent(
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -678,7 +685,7 @@ final class ThinkingTextMessageContentEvent extends BaseEvent {
 
     return ThinkingTextMessageContentEvent(
       delta: delta,
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -726,7 +733,7 @@ final class ThinkingTextMessageEndEvent extends BaseEvent {
 
   factory ThinkingTextMessageEndEvent.fromJson(Map<String, dynamic> json) {
     return ThinkingTextMessageEndEvent(
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -778,7 +785,7 @@ final class ToolCallStartEvent extends BaseEvent {
         'parentMessageId',
         'parent_message_id',
       ),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -842,7 +849,7 @@ final class ToolCallArgsEvent extends BaseEvent {
     return ToolCallArgsEvent(
       toolCallId: toolCallId,
       delta: delta,
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -887,7 +894,7 @@ final class ToolCallEndEvent extends BaseEvent {
         'toolCallId',
         'tool_call_id',
       ),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -946,7 +953,7 @@ final class ToolCallChunkEvent extends BaseEvent {
         'parent_message_id',
       ),
       delta: JsonDecoder.optionalField<String>(json, 'delta'),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -1063,7 +1070,7 @@ final class ToolCallResultEvent extends BaseEvent {
       ),
       content: JsonDecoder.requireField<String>(json, 'content'),
       role: role,
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -1126,7 +1133,7 @@ final class StateSnapshotEvent extends BaseEvent {
     }
     return StateSnapshotEvent(
       snapshot: json['snapshot'],
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -1164,7 +1171,7 @@ final class StateDeltaEvent extends BaseEvent {
   factory StateDeltaEvent.fromJson(Map<String, dynamic> json) {
     return StateDeltaEvent(
       delta: JsonDecoder.requireField<List<dynamic>>(json, 'delta'),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -1205,7 +1212,7 @@ final class MessagesSnapshotEvent extends BaseEvent {
         json,
         'messages',
       ).map((item) => Message.fromJson(item)).toList(),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -1293,7 +1300,7 @@ final class ActivitySnapshotEvent extends BaseEvent {
       ),
       content: json['content'],
       replace: JsonDecoder.optionalField<bool>(json, 'replace') ?? true,
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -1357,7 +1364,7 @@ final class ActivityDeltaEvent extends BaseEvent {
         'activity_type',
       ),
       patch: JsonDecoder.requireField<List<dynamic>>(json, 'patch'),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -1414,7 +1421,7 @@ final class RawEvent extends BaseEvent {
     return RawEvent(
       event: json['event'],
       source: JsonDecoder.optionalField<String>(json, 'source'),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -1469,7 +1476,7 @@ final class CustomEvent extends BaseEvent {
     return CustomEvent(
       name: JsonDecoder.requireField<String>(json, 'name'),
       value: json['value'],
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -1546,7 +1553,7 @@ final class RunStartedEvent extends BaseEvent {
         'parent_run_id',
       ),
       input: inputJson == null ? null : RunAgentInput.fromJson(inputJson),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -1625,7 +1632,7 @@ final class RunFinishedEvent extends BaseEvent {
         'run_id',
       ),
       result: json['result'],
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -1673,7 +1680,7 @@ final class RunErrorEvent extends BaseEvent {
     return RunErrorEvent(
       message: JsonDecoder.requireField<String>(json, 'message'),
       code: JsonDecoder.optionalField<String>(json, 'code'),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -1718,7 +1725,7 @@ final class StepStartedEvent extends BaseEvent {
         'stepName',
         'step_name',
       ),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -1760,7 +1767,7 @@ final class StepFinishedEvent extends BaseEvent {
         'stepName',
         'step_name',
       ),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -1864,7 +1871,7 @@ final class ReasoningStartEvent extends BaseEvent {
         'messageId',
         'message_id',
       ),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -1936,7 +1943,7 @@ final class ReasoningMessageStartEvent extends BaseEvent {
     return ReasoningMessageStartEvent(
       messageId: messageId,
       role: role,
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -1998,7 +2005,7 @@ final class ReasoningMessageContentEvent extends BaseEvent {
     return ReasoningMessageContentEvent(
       messageId: messageId,
       delta: delta,
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -2043,7 +2050,7 @@ final class ReasoningMessageEndEvent extends BaseEvent {
         'messageId',
         'message_id',
       ),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -2090,7 +2097,7 @@ final class ReasoningMessageChunkEvent extends BaseEvent {
       // `delta` has no snake_case spelling in any AG-UI SDK — read it
       // canonically and skip the dual-key lookup.
       delta: JsonDecoder.optionalField<String>(json, 'delta'),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -2139,7 +2146,7 @@ final class ReasoningEndEvent extends BaseEvent {
         'messageId',
         'message_id',
       ),
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }
@@ -2243,7 +2250,7 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
       subtype: subtype,
       entityId: entityId,
       encryptedValue: encryptedValue,
-      timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
   }

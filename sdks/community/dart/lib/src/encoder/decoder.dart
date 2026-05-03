@@ -10,6 +10,12 @@ import '../client/errors.dart';
 import '../client/validators.dart';
 import '../events/events.dart';
 import '../types/base.dart';
+// `encoder/errors.dart` defines its own `ValidationError`, distinct from
+// the `client/errors.dart` one. Hide it on import so the `on ValidationError`
+// clauses below unambiguously resolve to the client-side class that
+// `Validators.requireNonEmpty` actually throws — see lib/ag_ui.dart:52
+// for the parallel public-export disambiguation.
+import 'errors.dart' hide ValidationError;
 
 /// Decoder for AG-UI events.
 ///
@@ -51,7 +57,23 @@ class EventDecoder {
         actualValue: data,
         cause: e,
       );
+    } on ValidationError catch (e) {
+      // Mirror `decodeJson`'s clauses so a factory-side validation error
+      // raised before `decodeJson` ever runs (e.g. via a future inline
+      // pre-check) still surfaces as a structured `DecodingError` with
+      // the originating field preserved, instead of falling to the
+      // catch-all and getting flattened to `field: 'event'`.
+      throw _wrapValidation(e, e.field, {'data': data});
+    } on AGUIValidationError catch (e) {
+      throw _wrapValidation(e, e.field, {'data': data});
     } on AgUiError {
+      rethrow;
+    } on EncoderError {
+      // Encoder-side family (`EncoderError`, `DecodeError`, `EncodeError`,
+      // and `encoder/errors.dart`'s `ValidationError`) extends `AGUIError`
+      // but NOT `AgUiError`, so without this clause it would fall through
+      // to the catch-all and get re-wrapped as a generic decode failure.
+      // Rethrow so callers can pattern-match on the original encoder type.
       rethrow;
     } catch (e) {
       throw DecodingError(
@@ -99,6 +121,11 @@ class EventDecoder {
       throw _wrapValidation(e, e.field, json);
     } on AgUiError {
       rethrow;
+    } on EncoderError {
+      // See the matching clause in `decode()` above — encoder-side
+      // errors extend `AGUIError` (not `AgUiError`), so we rethrow them
+      // unchanged rather than re-wrapping as a generic decode failure.
+      rethrow;
     } catch (e) {
       throw DecodingError(
         'Failed to create event from JSON',
@@ -113,11 +140,29 @@ class EventDecoder {
   /// Decodes an SSE message.
   ///
   /// Expects a complete SSE message with "data: " prefix and double newlines.
+  /// Uses [LineSplitter] so `\n`, `\r`, and `\r\n` terminators are all handled
+  /// per the WHATWG SSE spec — a trailing `\r` from a CRLF-encoded payload no
+  /// longer leaks into the joined `data` value.
   BaseEvent decodeSSE(String sseMessage) {
-    // Extract data from SSE format
-    final lines = sseMessage.split('\n');
+    // Reject keep-alive / comment-only frames before any `data:` collection.
+    // A frame that is entirely `:`-prefixed comment lines (with optional
+    // blank lines) carries no payload and must surface as a structured
+    // keep-alive error rather than the misleading "No data found" path
+    // that the previous `dataLines.isEmpty`-first ordering produced.
+    final lines = const LineSplitter().convert(sseMessage);
+    final hasOnlyComments = lines.every(
+      (line) => line.isEmpty || line.startsWith(':'),
+    );
+    if (hasOnlyComments && lines.any((line) => line.startsWith(':'))) {
+      throw DecodingError(
+        'SSE keep-alive comment, not an event',
+        field: 'data',
+        expectedType: 'JSON event data',
+        actualValue: sseMessage,
+      );
+    }
+
     final dataLines = <String>[];
-    
     for (final line in lines) {
       if (line.startsWith('data: ')) {
         dataLines.add(line.substring(6)); // Remove "data: " prefix
@@ -125,7 +170,7 @@ class EventDecoder {
         dataLines.add(line.substring(5)); // Remove "data:" prefix
       }
     }
-    
+
     if (dataLines.isEmpty) {
       throw DecodingError(
         'No data found in SSE message',
@@ -134,11 +179,16 @@ class EventDecoder {
         actualValue: sseMessage,
       );
     }
-    
-    // Join all data lines (for multi-line data)
+
+    // Join all data lines (for multi-line data) with `\n`, per spec.
     final data = dataLines.join('\n');
-    
-    // Handle special SSE comment for keep-alive
+
+    // Legacy compatibility: a single `data: :` line (with the field value
+    // being the bare colon character) is treated as a keep-alive
+    // sentinel by some servers. Surface it as a structured keep-alive
+    // error rather than letting `jsonDecode(':')` raise a generic
+    // FormatException. Spec-compliant keep-alives are top-level `:`-only
+    // lines, which are caught earlier in [hasOnlyComments].
     if (data.trim() == ':') {
       throw DecodingError(
         'SSE keep-alive comment, not an event',
@@ -147,7 +197,7 @@ class EventDecoder {
         actualValue: data,
       );
     }
-    
+
     return decode(data);
   }
 
@@ -209,6 +259,13 @@ class EventDecoder {
         break;
       // ignore: deprecated_member_use_from_same_package
       case ThinkingTextMessageStartEvent():
+        // Deprecated; no `messageId` on the wire by design — matches the
+        // canonical TS `THINKING_TEXT_MESSAGE_START` shape this event
+        // mirrors. The migration target [ReasoningMessageStartEvent]
+        // adds `messageId` per canonical `REASONING_MESSAGE_START`. Do
+        // NOT add validation here at 1.0.0 removal — that would tighten
+        // the deprecated contract retroactively and break consumers
+        // still on the old wire shape.
         break;
       // ignore: deprecated_member_use_from_same_package
       case ThinkingTextMessageContentEvent():
@@ -220,6 +277,9 @@ class EventDecoder {
         Validators.requireNonEmpty(event.delta, 'delta');
       // ignore: deprecated_member_use_from_same_package
       case ThinkingTextMessageEndEvent():
+        // Same rationale as `ThinkingTextMessageStartEvent` above: no
+        // `messageId` on the wire by design; the migration target
+        // [ReasoningMessageEndEvent] adds it.
         break;
       case ToolCallStartEvent():
         Validators.requireNonEmpty(event.toolCallId, 'toolCallId');
@@ -255,6 +315,12 @@ class EventDecoder {
         Validators.requireNonEmpty(event.messageId, 'messageId');
         Validators.requireNonEmpty(event.activityType, 'activityType');
       case ActivityDeltaEvent():
+        // `patch` is allowed to be empty per canonical TS/Python
+        // (`z.array(JsonPatchOperationSchema).min(0)` / list with no
+        // length floor). This matches `StateDeltaEvent` which similarly
+        // does not enforce non-empty on its patch list. Do not add
+        // `requireNonEmpty(...patch...)` here without a corresponding
+        // schema change in the canonical SDKs.
         Validators.requireNonEmpty(event.messageId, 'messageId');
         Validators.requireNonEmpty(event.activityType, 'activityType');
       case RawEvent():

@@ -817,6 +817,92 @@ void main() {
           'RUN_FINISHED',
         ]));
       });
+
+      test(
+          'fromRawSseStream emits events from a CRLF-encoded stream before '
+          'close (regression: line-splitter CRLF handling)', () async {
+        // The WHATWG SSE spec permits CRLF, lone LF, and lone CR line
+        // terminators. Before the CRLF fix, `fromRawSseStream` split
+        // only on `\n`, leaving each line ending in `\r` — the
+        // `line.isEmpty` event-boundary check never fired and events
+        // buffered until stream close. This test asserts the steady-
+        // state path: events MUST be emitted before
+        // `rawController.close()` even on CRLF input. See
+        // `sse-protocol-parsing-edge-cases.md`.
+        final rawController = StreamController<String>();
+        final eventStream = adapter.fromRawSseStream(rawController.stream);
+
+        final events = <BaseEvent>[];
+        final subscription = eventStream.listen(events.add);
+
+        rawController.add(
+          'data: {"type":"RUN_STARTED","thread_id":"t1","run_id":"r1"}\r\n\r\n',
+        );
+        rawController.add(
+          'data: {"type":"TEXT_MESSAGE_START","messageId":"m1","role":"assistant"}\r\n\r\n',
+        );
+        rawController.add(
+          'data: {"type":"TEXT_MESSAGE_END","messageId":"m1"}\r\n\r\n',
+        );
+
+        // Allow the microtask queue to drain so the line buffer
+        // processes everything BEFORE we close the stream.
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        // Pre-close assertion: events must already be flowing.
+        expect(
+          events.length,
+          equals(3),
+          reason:
+              'CRLF input must be parsed in steady state, not buffered '
+              'until stream close',
+        );
+
+        await rawController.close();
+        await subscription.cancel();
+
+        expect(events[0], isA<RunStartedEvent>());
+        expect(events[1], isA<TextMessageStartEvent>());
+        expect(events[2], isA<TextMessageEndEvent>());
+      });
+
+      test(
+          'fromRawSseStream handles mixed LF and CRLF in the same stream',
+          () async {
+        final rawController = StreamController<String>();
+        final eventStream = adapter.fromRawSseStream(rawController.stream);
+
+        final events = <BaseEvent>[];
+        final subscription = eventStream.listen(events.add);
+
+        // Mix of pure-LF and CRLF event terminators.
+        rawController.add(
+          'data: {"type":"RUN_STARTED","thread_id":"t1","run_id":"r1"}\n\n',
+        );
+        rawController.add(
+          'data: {"type":"TEXT_MESSAGE_END","messageId":"m1"}\r\n\r\n',
+        );
+
+        await rawController.close();
+        await subscription.cancel();
+
+        expect(events.length, equals(2));
+        expect(events[0], isA<RunStartedEvent>());
+        expect(events[1], isA<TextMessageEndEvent>());
+      });
+
+      test('decodeSSE handles CRLF terminators (LineSplitter-based)', () {
+        // The single-message `decodeSSE` API mirrors the streaming
+        // parser: a `data: ...\r\n\r\n` payload must decode the same as
+        // a `data: ...\n\n` payload, with no stray `\r` corrupting the
+        // joined value.
+        final crlfMessage =
+            'data: {"type":"TEXT_MESSAGE_END","messageId":"m1"}\r\n\r\n';
+        final event = decoder.decodeSSE(crlfMessage);
+        expect(event, isA<TextMessageEndEvent>());
+        expect((event as TextMessageEndEvent).messageId, equals('m1'));
+      });
     });
   });
 }

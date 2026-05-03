@@ -8,6 +8,18 @@ library;
 import 'base.dart';
 import 'tool.dart';
 
+/// Sentinel for `copyWith` methods on message subclasses whose nullable
+/// fields can validly be cleared. Mirrors the `_unsetCopyWith` sentinel in
+/// `events.dart` — the pattern lets callers distinguish "argument
+/// omitted" (preserve current value via `?? this.field`) from "argument
+/// explicitly null" (clear the field). Comparing against this sentinel
+/// with `identical(...)` makes that distinction explicit.
+class _Unset {
+  const _Unset();
+}
+
+const _Unset _unsetMessage = _Unset();
+
 /// Role types for messages in the AG-UI protocol.
 ///
 /// Mirrors the canonical TypeScript and Python `Message` discriminated
@@ -27,6 +39,20 @@ enum MessageRole {
   final String value;
   const MessageRole(this.value);
 
+  /// Parses [value] into a [MessageRole].
+  ///
+  /// Unlike `TextMessageRole.fromString` / `ReasoningMessageRole.fromString`
+  /// (which throw `ArgumentError` and are absorbed at the event-factory
+  /// level for forward-compat), this enum throws [AGUIValidationError]
+  /// directly — the value is the discriminator that selects which
+  /// [Message] subtype's `fromJson` to dispatch to, so an unknown role
+  /// has no safe default. Mis-tagging a `MESSAGES_SNAPSHOT` payload
+  /// would corrupt the snapshot rather than just lose one field.
+  ///
+  /// Through the public [EventDecoder] pipeline, this surfaces as
+  /// `DecodingError(field: 'role')`. Direct callers of `Message.fromJson`
+  /// see `AGUIValidationError` directly. See `dart-enum-parsing-safety.md`
+  /// for the closed-vs-open enum rationale.
   static MessageRole fromString(String value) {
     return MessageRole.values.firstWhere(
       (role) => role.value == value,
@@ -45,6 +71,13 @@ enum MessageRole {
 /// Each message has a role, optional content, and may include additional metadata.
 ///
 /// Use the [Message.fromJson] factory to deserialize messages from JSON.
+///
+/// Known parity gap with the canonical TS/Python SDKs: the canonical
+/// `BaseMessageSchema.id` is `z.string()` (non-nullable). Dart keeps
+/// `id` typed `String?` for legacy reasons but every concrete subtype
+/// constructor declares it `required`, so a constructed in-memory
+/// instance is null-safe by convention. A future major version may
+/// tighten the type. See CHANGELOG → "Known parity gaps".
 sealed class Message extends AGUIModel with TypeDiscriminator {
   final String? id;
   final MessageRole role;
@@ -114,16 +147,18 @@ class DeveloperMessage extends Message {
     );
   }
 
+  // `name` is nullable on the parent — use the sentinel so callers can
+  // clear it explicitly. See `_Unset` (top of file).
   @override
   DeveloperMessage copyWith({
     String? id,
     String? content,
-    String? name,
+    Object? name = _unsetMessage,
   }) {
     return DeveloperMessage(
       id: id ?? this.id,
       content: content ?? this.content,
-      name: name ?? this.name,
+      name: identical(name, _unsetMessage) ? this.name : name as String?,
     );
   }
 }
@@ -149,16 +184,17 @@ class SystemMessage extends Message {
     );
   }
 
+  // `name` is nullable — use the sentinel for explicit-clear semantics.
   @override
   SystemMessage copyWith({
     String? id,
     String? content,
-    String? name,
+    Object? name = _unsetMessage,
   }) {
     return SystemMessage(
       id: id ?? this.id,
       content: content ?? this.content,
-      name: name ?? this.name,
+      name: identical(name, _unsetMessage) ? this.name : name as String?,
     );
   }
 }
@@ -178,40 +214,60 @@ class AssistantMessage extends Message {
   }) : super(role: MessageRole.assistant);
 
   factory AssistantMessage.fromJson(Map<String, dynamic> json) {
+    // Use `optionalEitherField` on the KEY so a present-but-empty
+    // camelCase `'toolCalls': []` does not short-circuit the
+    // `'tool_calls': [...]` snake_case fallback. The previous
+    // `??`-on-value chain only fired on null, so an empty camelCase
+    // list silently won — protocol-edge data loss for payloads that
+    // (incorrectly) carry both keys. Mirrors `ToolMessage.fromJson`'s
+    // `toolCallId` / `tool_call_id` resolution.
+    final rawToolCalls = JsonDecoder.optionalEitherField<List<dynamic>>(
+      json,
+      'toolCalls',
+      'tool_calls',
+    );
     return AssistantMessage(
       id: JsonDecoder.requireField<String>(json, 'id'),
       content: JsonDecoder.optionalField<String>(json, 'content'),
       name: JsonDecoder.optionalField<String>(json, 'name'),
-      toolCalls: JsonDecoder.optionalListField<Map<String, dynamic>>(
-        json,
-        'toolCalls',
-      )?.map((item) => ToolCall.fromJson(item)).toList() ??
-        JsonDecoder.optionalListField<Map<String, dynamic>>(
-          json,
-          'tool_calls',
-        )?.map((item) => ToolCall.fromJson(item)).toList(),
+      toolCalls: rawToolCalls
+          ?.map((item) => ToolCall.fromJson(item as Map<String, dynamic>))
+          .toList(),
     );
   }
 
   @override
   Map<String, dynamic> toJson() => {
     ...super.toJson(),
-    if (toolCalls != null && toolCalls!.isNotEmpty) 
+    // Emit `toolCalls` whenever the in-memory field is non-null, even
+    // when empty, so the round-trip `fromJson(m.toJson()) == m` is
+    // symmetric. The previous `&& toolCalls!.isNotEmpty` guard dropped
+    // the key on empty lists, which decoded back to `null` instead of
+    // `[]` and made tests that depend on field-by-field equality
+    // surprising.
+    if (toolCalls != null)
       'toolCalls': toolCalls!.map((tc) => tc.toJson()).toList(),
   };
 
+  // See `_Unset` (top of file) for the sentinel rationale. `content`,
+  // `name`, and `toolCalls` are all nullable on `AssistantMessage`, so
+  // callers may legitimately want to clear any of them via `copyWith`.
   @override
   AssistantMessage copyWith({
     String? id,
-    String? content,
-    String? name,
-    List<ToolCall>? toolCalls,
+    Object? content = _unsetMessage,
+    Object? name = _unsetMessage,
+    Object? toolCalls = _unsetMessage,
   }) {
     return AssistantMessage(
       id: id ?? this.id,
-      content: content ?? this.content,
-      name: name ?? this.name,
-      toolCalls: toolCalls ?? this.toolCalls,
+      content: identical(content, _unsetMessage)
+          ? this.content
+          : content as String?,
+      name: identical(name, _unsetMessage) ? this.name : name as String?,
+      toolCalls: identical(toolCalls, _unsetMessage)
+          ? this.toolCalls
+          : toolCalls as List<ToolCall>?,
     );
   }
 }
@@ -219,6 +275,15 @@ class AssistantMessage extends Message {
 /// User message with required content.
 ///
 /// Represents input from the user in the conversation.
+///
+/// Known parity gap with the canonical TS/Python schemas: TS uses
+/// `content: z.union([z.string(), z.array(InputContentSchema)])` and
+/// Python uses `content: Union[str, List[InputContent]]` for full
+/// multimodal support. This Dart SDK currently only supports the string
+/// variant — a multimodal payload from a TS or Python server raises
+/// `AGUIValidationError(field: 'content')` because the factory's
+/// `requireField<String>` rejects the list type. Tracked for a future
+/// release; see CHANGELOG → "Known parity gaps".
 class UserMessage extends Message {
   @override
   final String content;
@@ -237,16 +302,17 @@ class UserMessage extends Message {
     );
   }
 
+  // `name` is nullable — use the sentinel for explicit-clear semantics.
   @override
   UserMessage copyWith({
     String? id,
     String? content,
-    String? name,
+    Object? name = _unsetMessage,
   }) {
     return UserMessage(
       id: id ?? this.id,
       content: content ?? this.content,
-      name: name ?? this.name,
+      name: identical(name, _unsetMessage) ? this.name : name as String?,
     );
   }
 }
@@ -309,20 +375,26 @@ class ToolMessage extends Message {
         if (encryptedValue != null) 'encryptedValue': encryptedValue,
       };
 
+  // `error` and `encryptedValue` are nullable — use the sentinel so a
+  // caller can explicitly clear either via `copyWith(error: null)` /
+  // `copyWith(encryptedValue: null)`. Mirrors the event-class sentinel
+  // discipline.
   @override
   ToolMessage copyWith({
     String? id,
     String? content,
     String? toolCallId,
-    String? error,
-    String? encryptedValue,
+    Object? error = _unsetMessage,
+    Object? encryptedValue = _unsetMessage,
   }) {
     return ToolMessage(
       id: id ?? this.id,
       content: content ?? this.content,
       toolCallId: toolCallId ?? this.toolCallId,
-      error: error ?? this.error,
-      encryptedValue: encryptedValue ?? this.encryptedValue,
+      error: identical(error, _unsetMessage) ? this.error : error as String?,
+      encryptedValue: identical(encryptedValue, _unsetMessage)
+          ? this.encryptedValue
+          : encryptedValue as String?,
     );
   }
 }
@@ -418,16 +490,19 @@ class ReasoningMessage extends Message {
         if (encryptedValue != null) 'encryptedValue': encryptedValue,
       };
 
+  // `encryptedValue` is nullable — sentinel lets callers clear it.
   @override
   ReasoningMessage copyWith({
     String? id,
     String? content,
-    String? encryptedValue,
+    Object? encryptedValue = _unsetMessage,
   }) {
     return ReasoningMessage(
       id: id ?? this.id,
       content: content ?? this.content,
-      encryptedValue: encryptedValue ?? this.encryptedValue,
+      encryptedValue: identical(encryptedValue, _unsetMessage)
+          ? this.encryptedValue
+          : encryptedValue as String?,
     );
   }
 }

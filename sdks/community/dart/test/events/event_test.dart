@@ -579,6 +579,43 @@ void main() {
         expect(minimal.toJson().containsKey('input'), false);
       });
 
+      test(
+          'optionalIntField accepts JS/TS-shaped float timestamps '
+          '(regression: cross-runtime decode)', () {
+        // JS/TS producers serialize all numbers through a single Number
+        // type, so a server emitting `Date.now() / 1000` arrives as
+        // `double`. The previous `optionalField<int>` rejected `double`
+        // even when integer-valued. `optionalIntField` accepts any
+        // `num` and coerces via `.toInt()`. See
+        // `dart-enum-parsing-safety.md` (cross-runtime decode notes).
+        final fromDouble = TextMessageStartEvent.fromJson({
+          'type': 'TEXT_MESSAGE_START',
+          'messageId': 'msg_001',
+          'role': 'assistant',
+          'timestamp': 1.7e9, // a float — used to fail decode
+        });
+        expect(fromDouble.timestamp, equals(1700000000));
+
+        final fromInt = TextMessageStartEvent.fromJson({
+          'type': 'TEXT_MESSAGE_START',
+          'messageId': 'msg_002',
+          'role': 'assistant',
+          'timestamp': 1234567890,
+        });
+        expect(fromInt.timestamp, equals(1234567890));
+
+        // Wrong type still rejects (string is not a num).
+        expect(
+          () => TextMessageStartEvent.fromJson({
+            'type': 'TEXT_MESSAGE_START',
+            'messageId': 'msg_003',
+            'role': 'assistant',
+            'timestamp': 'not-a-number',
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
       test('RunStartedEvent.copyWith(parentRunId: null) clears parentRunId',
           () {
         // Sentinel-pattern verification: per `_Unset` dartdoc, passing
@@ -1294,15 +1331,19 @@ void main() {
         expect(decoded.encryptedValue, 'cipher-3');
       });
 
-      test('ReasoningEncryptedValueSubtype.fromString rejects invalid input',
+      test(
+          'ReasoningEncryptedValueSubtype.fromString throws on unknown values',
           () {
+        // Aligned with `TextMessageRole.fromString throws on unknown
+        // values` and the rest of the `*Role.fromString` family — single
+        // verb ("throws") across enum-rejection tests in this file.
         expect(
           () => ReasoningEncryptedValueSubtype.fromString('bogus'),
           throwsA(isA<ArgumentError>()),
         );
       });
 
-      test('ReasoningMessageRole.fromString rejects invalid input', () {
+      test('ReasoningMessageRole.fromString throws on unknown values', () {
         expect(
           () => ReasoningMessageRole.fromString('bogus'),
           throwsA(isA<ArgumentError>()),

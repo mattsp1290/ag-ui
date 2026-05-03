@@ -306,6 +306,44 @@ in favor of the canonical `REASONING_*` events; decoding remains
 supported until 1.0.0. See `CHANGELOG.md` "Deprecated" for the migration
 mapping.
 
+## Errors
+
+The SDK exposes a small error hierarchy that is intentionally split by origin:
+
+- `AGUIError` — the SDK-wide root. Catching `on AGUIError` covers every
+  error the SDK can raise: runtime, transport, decoding, AND direct-factory
+  validation. Use this when you want a single catch-all.
+- `AgUiError` — extends `AGUIError`. Covers runtime / transport / decoding:
+  `TransportError`, `TimeoutError`, `CancellationError`, `DecodingError`,
+  and the client-side `ValidationError`. Catch this when you want to scope
+  to "the SDK encountered a runtime problem" but explicitly do NOT want to
+  catch direct-factory validation errors.
+- `AGUIValidationError` — extends `AGUIError` (NOT `AgUiError`). Thrown by
+  `*.fromJson` factory constructors at the wire-decoding boundary. When
+  events flow through `EventDecoder`, this is wrapped as `DecodingError`,
+  so consumers using the decoder pipeline never see this directly. Direct
+  factory callers (`TextMessageStartEvent.fromJson(...)`) do.
+- `EncoderError` and its subtypes (`DecodeError`, `EncodeError`,
+  encoder-side `ValidationError`) extend `AGUIError`. The `EventDecoder`
+  pipeline rethrows these unchanged so callers can pattern-match by type.
+
+Recommended catch recipe in production code that uses `EventDecoder`:
+
+```dart
+try {
+  for (final event in stream) { handle(event); }
+} on DecodingError catch (e) {
+  // Wire-format problem — log e.field, e.expectedType, e.actualValue.
+} on TransportError catch (e) {
+  // HTTP / SSE transport failure.
+} on AgUiError catch (e) {
+  // Anything else from the runtime/transport family.
+} on AGUIError catch (e) {
+  // Catch-all (would also catch direct-factory AGUIValidationError if you
+  // ever bypass the decoder).
+}
+```
+
 ## Examples
 
 See the [`example/`](example/) directory for:

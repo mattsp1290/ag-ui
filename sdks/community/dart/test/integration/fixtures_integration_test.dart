@@ -519,13 +519,39 @@ void main() {
         final decodedRun = decodedEvents[0] as RunStartedEvent;
         expect(decodedRun.threadId, equals('thread_01'));
         expect(decodedRun.runId, equals('run_01'));
-        
+
         final decodedContent = decodedEvents[2] as TextMessageContentEvent;
         expect(decodedContent.delta, equals('Hello, world!'));
-        
+
         final decodedSnapshot = decodedEvents[7] as StateSnapshotEvent;
         expect(decodedSnapshot.snapshot['count'], equals(42));
         expect(decodedSnapshot.snapshot['items'], equals(['a', 'b', 'c']));
+
+        // Field-value parity for the new activity / reasoning events.
+        // `whereType<T>().first` is used instead of positional indices
+        // so the assertions stay stable if the fixture order shifts.
+        final activitySnapshot =
+            decodedEvents.whereType<ActivitySnapshotEvent>().first;
+        expect(activitySnapshot.replace, isTrue);
+        expect(activitySnapshot.activityType, equals('task.run'));
+        expect(
+          activitySnapshot.content,
+          equals({'progress': 0.25}),
+        );
+
+        final reasoningStart =
+            decodedEvents.whereType<ReasoningMessageStartEvent>().first;
+        expect(reasoningStart.role, equals(ReasoningMessageRole.reasoning));
+        expect(reasoningStart.messageId, equals('rsn_01'));
+
+        final encrypted =
+            decodedEvents.whereType<ReasoningEncryptedValueEvent>().first;
+        expect(
+          encrypted.subtype,
+          equals(ReasoningEncryptedValueSubtype.message),
+        );
+        expect(encrypted.entityId, equals('rsn_01'));
+        expect(encrypted.encryptedValue, equals('cipher'));
       });
       
       test('handles protobuf content type negotiation', () {

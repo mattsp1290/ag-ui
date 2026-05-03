@@ -14,6 +14,17 @@ import 'event_type.dart';
 
 export 'event_type.dart';
 
+/// Sentinel for `copyWith` methods on event types whose payload field can
+/// validly be `null` on the wire. With the default `?? this.field`
+/// pattern, a caller cannot distinguish "argument omitted" from
+/// "argument explicitly set to `null`". Comparing against this sentinel
+/// with `identical(...)` makes that distinction explicit.
+///
+/// Currently used by `ActivitySnapshotEvent.copyWith` for `content`. A
+/// broader sentinel sweep across the rest of the `copyWith` family is
+/// tracked in CHANGELOG → "Known parity gaps".
+const Object _unsetCopyWith = Object();
+
 /// Base event for all AG-UI protocol events.
 ///
 /// All protocol events extend this class and are identified by their
@@ -158,27 +169,19 @@ enum TextMessageRole {
 
   /// Parses [value] into a [TextMessageRole].
   ///
-  /// Falls back to [TextMessageRole.assistant] for unknown values to keep
-  /// streaming pipelines working when a server adds a new role.
-  ///
-  /// **Known asymmetry** (tracked for the next major release): other
-  /// AG-UI Dart enums (`ReasoningMessageRole`,
-  /// `ReasoningEncryptedValueSubtype`) throw on unknown input. The
-  /// `ReasoningMessageStartEvent.fromJson` factory absorbs the throw and
-  /// falls back to a sane default — that is the "throw at the enum,
-  /// absorb at the factory" pattern preferred for new code, because it
-  /// keeps the failure mode visible to callers that bypass the factory
-  /// and gives the SDK one place to log unknown wire values.
-  ///
-  /// This silent-fallback in `TextMessageRole.fromString` is historical
-  /// and left in place for backward compatibility with existing 0.x
-  /// callers. The realignment is documented as a known parity gap in
-  /// `CHANGELOG.md` (`[0.2.0]` → "Known parity gaps") and will land with
-  /// the 1.0 release.
+  /// Throws [ArgumentError] for unknown values. Callers decoding from the
+  /// wire should use `TextMessageStartEvent.fromJson`, which absorbs the
+  /// throw and falls back to [TextMessageRole.assistant] so a future
+  /// server-side role does not tear down the SSE stream. This is the
+  /// same "throw at the enum, absorb at the factory" pattern used by
+  /// [ReasoningMessageRole] — see `dart-enum-parsing-safety.md` for the
+  /// consistency rationale.
   static TextMessageRole fromString(String value) {
     return TextMessageRole.values.firstWhere(
       (role) => role.value == value,
-      orElse: () => TextMessageRole.assistant,
+      orElse: () => throw ArgumentError(
+        'Invalid text message role: $value',
+      ),
     );
   }
 }
@@ -200,15 +203,34 @@ final class TextMessageStartEvent extends BaseEvent {
   }) : super(eventType: EventType.textMessageStart);
 
   factory TextMessageStartEvent.fromJson(Map<String, dynamic> json) {
+    final messageId = JsonDecoder.requireEitherField<String>(
+      json,
+      'messageId',
+      'message_id',
+    );
+    final roleStr = JsonDecoder.optionalField<String>(json, 'role');
+    var role = TextMessageRole.assistant;
+    if (roleStr != null) {
+      try {
+        role = TextMessageRole.fromString(roleStr);
+      } on ArgumentError {
+        // Forward-compat: an unknown wire role falls back to
+        // `assistant` to keep the stream alive.
+        //
+        // We intentionally do NOT broaden to `catch (e)` or
+        // `on Exception`: a wrong-typed `role` raises
+        // `AGUIValidationError` from `optionalField<String>` above, and
+        // a missing `messageId` raises `AGUIValidationError` from
+        // `requireEitherField` — those MUST propagate to the decoder
+        // boundary as protocol violations. Widening the catch would
+        // silently absorb them. Mirrors
+        // `ReasoningMessageStartEvent.fromJson`.
+        role = TextMessageRole.assistant;
+      }
+    }
     return TextMessageStartEvent(
-      messageId: JsonDecoder.requireEitherField<String>(
-        json,
-        'messageId',
-        'message_id',
-      ),
-      role: TextMessageRole.fromString(
-        JsonDecoder.optionalField<String>(json, 'role') ?? 'assistant',
-      ),
+      messageId: messageId,
+      role: role,
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
@@ -357,13 +379,24 @@ final class TextMessageChunkEvent extends BaseEvent {
 
   factory TextMessageChunkEvent.fromJson(Map<String, dynamic> json) {
     final roleStr = JsonDecoder.optionalField<String>(json, 'role');
+    TextMessageRole? role;
+    if (roleStr != null) {
+      try {
+        role = TextMessageRole.fromString(roleStr);
+      } on ArgumentError {
+        // Forward-compat: an unknown wire role falls back to
+        // `assistant` so a future server-side role does not tear down
+        // the SSE stream. Mirrors `TextMessageStartEvent.fromJson`.
+        role = TextMessageRole.assistant;
+      }
+    }
     return TextMessageChunkEvent(
       messageId: JsonDecoder.optionalEitherField<String>(
         json,
         'messageId',
         'message_id',
       ),
-      role: roleStr != null ? TextMessageRole.fromString(roleStr) : null,
+      role: role,
       delta: JsonDecoder.optionalField<String>(json, 'delta'),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
@@ -1125,7 +1158,7 @@ final class ActivitySnapshotEvent extends BaseEvent {
   ActivitySnapshotEvent copyWith({
     String? messageId,
     String? activityType,
-    Object? content,
+    Object? content = _unsetCopyWith,
     bool? replace,
     int? timestamp,
     dynamic rawEvent,
@@ -1133,7 +1166,7 @@ final class ActivitySnapshotEvent extends BaseEvent {
     return ActivitySnapshotEvent(
       messageId: messageId ?? this.messageId,
       activityType: activityType ?? this.activityType,
-      content: content ?? this.content,
+      content: identical(content, _unsetCopyWith) ? this.content : content,
       replace: replace ?? this.replace,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
@@ -1239,13 +1272,13 @@ final class RawEvent extends BaseEvent {
 
   @override
   RawEvent copyWith({
-    dynamic newEvent,
+    dynamic event,
     String? source,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return RawEvent(
-      event: newEvent ?? this.event,
+      event: event ?? this.event,
       source: source ?? this.source,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
@@ -1945,8 +1978,26 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
 
   factory ReasoningEncryptedValueEvent.fromJson(Map<String, dynamic> json) {
     final subtypeStr = JsonDecoder.requireField<String>(json, 'subtype');
+    final ReasoningEncryptedValueSubtype subtype;
+    try {
+      subtype = ReasoningEncryptedValueSubtype.fromString(subtypeStr);
+    } on ArgumentError {
+      // Honor the class-level dartdoc contract: an unknown subtype
+      // surfaces to direct factory callers as an `AGUIValidationError`
+      // (and as a `DecodingError` through `EventDecoder`), not as the
+      // raw `ArgumentError` the enum throws. Narrow `on ArgumentError`
+      // (not `catch (e)`) preserves the discipline that
+      // type/presence errors from `requireField` above MUST propagate
+      // unchanged as `AGUIValidationError`.
+      throw AGUIValidationError(
+        message: 'Invalid reasoning encrypted value subtype: $subtypeStr',
+        field: 'subtype',
+        value: subtypeStr,
+        json: json,
+      );
+    }
     return ReasoningEncryptedValueEvent(
-      subtype: ReasoningEncryptedValueSubtype.fromString(subtypeStr),
+      subtype: subtype,
       entityId: JsonDecoder.requireEitherField<String>(
         json,
         'entityId',

@@ -94,6 +94,43 @@ void main() {
         expect(minimalJson.containsKey('role'), false);
         expect(minimalJson.containsKey('delta'), false);
       });
+
+      test('TextMessageRole.fromString throws on unknown values', () {
+        // Aligned with `ReasoningMessageRole.fromString` — unknown wire
+        // values throw at the enum so direct callers see a visible
+        // failure mode. Wire decoding still succeeds via the factory's
+        // absorb (see the `falls back to assistant` test below).
+        expect(
+          () => TextMessageRole.fromString('bogus'),
+          throwsA(isA<ArgumentError>()),
+        );
+      });
+
+      test(
+          'TextMessageStartEvent falls back to assistant for an unknown '
+          'role (forward-compat, no stream tear-down)', () {
+        final decoded = TextMessageStartEvent.fromJson({
+          'type': 'TEXT_MESSAGE_START',
+          'messageId': 'msg_001',
+          'role': 'bogus',
+        });
+        expect(decoded.role, TextMessageRole.assistant);
+        expect(decoded.messageId, 'msg_001');
+      });
+
+      test(
+          'TextMessageChunkEvent falls back to assistant for an unknown '
+          'role (forward-compat parity with TextMessageStartEvent)', () {
+        final decoded = TextMessageChunkEvent.fromJson({
+          'type': 'TEXT_MESSAGE_CHUNK',
+          'messageId': 'msg_001',
+          'role': 'bogus',
+          'delta': 'partial',
+        });
+        expect(decoded.role, TextMessageRole.assistant);
+        expect(decoded.messageId, 'msg_001');
+        expect(decoded.delta, 'partial');
+      });
     });
 
     group('ToolCallEvents', () {
@@ -598,6 +635,25 @@ void main() {
         expect(decoded.content, isNull);
       });
 
+      test('ActivitySnapshotEvent.copyWith(content: null) clears content', () {
+        // The factory contract permits explicit-null `content`, and so
+        // must `copyWith` — distinguishing "argument omitted" from
+        // "argument explicitly set to null" via the
+        // `_unsetCopyWith` sentinel.
+        final original = ActivitySnapshotEvent(
+          messageId: 'msg_001',
+          activityType: 'task.run',
+          content: {'progress': 0.25},
+        );
+        // Omitted content keeps the existing value.
+        final keep = original.copyWith();
+        expect(keep.content, equals({'progress': 0.25}));
+
+        // Explicit-null clears the content.
+        final cleared = original.copyWith(content: null);
+        expect(cleared.content, isNull);
+      });
+
       test('ActivitySnapshotEvent rejects missing messageId', () {
         expect(
           () => ActivitySnapshotEvent.fromJson({
@@ -924,6 +980,24 @@ void main() {
             'type': 'REASONING_ENCRYPTED_VALUE',
             'subtype': 'message',
             'entityId': 'msg_1',
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
+      test('ReasoningEncryptedValueEvent rejects unknown subtype', () {
+        // Pins the dartdoc contract: an unknown `subtype` must surface
+        // to direct factory callers as `AGUIValidationError` (not as
+        // the raw `ArgumentError` that the enum itself throws). The
+        // matching wire→DecodingError contract is locked in by the
+        // integration test in
+        // event_decoding_integration_test.dart.
+        expect(
+          () => ReasoningEncryptedValueEvent.fromJson({
+            'type': 'REASONING_ENCRYPTED_VALUE',
+            'subtype': 'bogus',
+            'entityId': 'rsn_01',
+            'encryptedValue': 'cipher',
           }),
           throwsA(isA<AGUIValidationError>()),
         );

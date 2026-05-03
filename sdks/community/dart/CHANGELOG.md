@@ -38,6 +38,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   now raises `AGUIValidationError` (wrapped as `DecodingError` through
   `EventDecoder`); an unknown role string still falls back to
   `ReasoningMessageRole.reasoning` for forward-compatibility.
+- `TextMessageRole.fromString` now throws `ArgumentError` on unknown
+  values, mirroring `ReasoningMessageRole.fromString`. Wire decoding is
+  unaffected: `TextMessageStartEvent.fromJson` and
+  `TextMessageChunkEvent.fromJson` absorb the throw and fall back to
+  `TextMessageRole.assistant` for forward compatibility — only direct
+  callers of `TextMessageRole.fromString` see the new visible failure
+  mode.
+- `ReasoningEncryptedValueEvent.fromJson` now wraps an unknown `subtype`
+  as `AGUIValidationError` (matching the class-level dartdoc contract),
+  instead of leaking the raw `ArgumentError` from
+  `ReasoningEncryptedValueSubtype.fromString`. The `EventDecoder`
+  pipeline still surfaces it as `DecodingError`.
+- `ActivitySnapshotEvent.copyWith` now uses an internal sentinel for the
+  `content` parameter so callers can intentionally clear it to `null`
+  (matching the factory contract that already accepted explicit-null
+  `content`). Other `copyWith` methods retain the standard
+  `?? this.field` pattern; the broader sentinel sweep remains
+  scheduled for a future release (see Known parity gaps).
 
 ### Deprecated
 - `EventType.thinkingContent` and `ThinkingContentEvent` — not part of the
@@ -51,15 +69,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `name`. These are present in the Python and TypeScript SDKs and will be
   added in a follow-up PR; until then, those wire fields are silently
   dropped on decode.
-- `TextMessageRole.fromString` silently coerces unknown wire roles to
-  `assistant` for backward compatibility. New code (`ReasoningMessageRole`)
-  uses the "throw at the enum, absorb at the factory" pattern; alignment
-  is planned for a future major version.
-- `copyWith` on event types with nullable fields uses the standard
-  `?? this.field` pattern, which cannot distinguish "omitted" from "set
-  to null" — passing `copyWith(field: null)` keeps the existing value.
-  A sweep that adopts the sentinel pattern uniformly across the sealed
-  hierarchy is planned for a future release.
+- `copyWith` on most event types with nullable payload fields still uses
+  the standard `?? this.field` pattern, which cannot distinguish
+  "omitted" from "set to null" — passing `copyWith(field: null)` keeps
+  the existing value. `ActivitySnapshotEvent.copyWith` adopts the
+  sentinel pattern for `content`; a broader sweep across the rest of the
+  sealed hierarchy (notably `RawEvent`, `CustomEvent`, `RunFinishedEvent`)
+  is planned for a future release.
 
 ## [0.1.0] - 2025-01-21
 

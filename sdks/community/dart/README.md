@@ -99,7 +99,7 @@ final input = SimpleRunAgentInput(
 );
 
 await for (final event in client.runAgent('agentic_chat', input)) {
-  switch (event.type) {
+  switch (event.eventType) {
     case EventType.textMessageContent:
       final text = (event as TextMessageContentEvent).delta;
       print(text); // Stream tokens
@@ -176,7 +176,7 @@ Map<String, dynamic> state = {};
 List<Message> messages = [];
 
 await for (final event in client.runSharedState(input)) {
-  switch (event.type) {
+  switch (event.eventType) {
     case EventType.stateSnapshot:
       state = (event as StateSnapshotEvent).snapshot;
       break;

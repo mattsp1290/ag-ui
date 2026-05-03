@@ -254,24 +254,32 @@ class UserMessage extends Message {
 /// Tool message with tool call result.
 ///
 /// Contains the result of a tool execution, linked to a specific tool call
-/// via the [toolCallId] field.
+/// via the [toolCallId] field. The optional [encryptedValue] mirrors the
+/// canonical TypeScript `ToolMessageSchema` and Python `ToolMessage` and
+/// carries an opaque cipher payload that a Dart proxy must forward
+/// verbatim to a downstream agent.
 class ToolMessage extends Message {
   @override
   final String content;
   final String toolCallId;
   final String? error;
+  final String? encryptedValue;
 
   const ToolMessage({
-    super.id,
+    required super.id,
     required this.content,
     required this.toolCallId,
     this.error,
+    this.encryptedValue,
   }) : super(role: MessageRole.tool);
 
   factory ToolMessage.fromJson(Map<String, dynamic> json) {
-    final toolCallId = JsonDecoder.optionalField<String>(json, 'toolCallId') ??
-        JsonDecoder.optionalField<String>(json, 'tool_call_id');
-    
+    final toolCallId = JsonDecoder.optionalEitherField<String>(
+      json,
+      'toolCallId',
+      'tool_call_id',
+    );
+
     if (toolCallId == null) {
       throw AGUIValidationError(
         message: 'Missing required field: toolCallId or tool_call_id',
@@ -279,21 +287,27 @@ class ToolMessage extends Message {
         json: json,
       );
     }
-    
+
     return ToolMessage(
-      id: JsonDecoder.optionalField<String>(json, 'id'),
+      id: JsonDecoder.requireField<String>(json, 'id'),
       content: JsonDecoder.requireField<String>(json, 'content'),
       toolCallId: toolCallId,
       error: JsonDecoder.optionalField<String>(json, 'error'),
+      encryptedValue: JsonDecoder.optionalEitherField<String>(
+        json,
+        'encryptedValue',
+        'encrypted_value',
+      ),
     );
   }
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'toolCallId': toolCallId,
-    if (error != null) 'error': error,
-  };
+        ...super.toJson(),
+        'toolCallId': toolCallId,
+        if (error != null) 'error': error,
+        if (encryptedValue != null) 'encryptedValue': encryptedValue,
+      };
 
   @override
   ToolMessage copyWith({
@@ -301,12 +315,14 @@ class ToolMessage extends Message {
     String? content,
     String? toolCallId,
     String? error,
+    String? encryptedValue,
   }) {
     return ToolMessage(
       id: id ?? this.id,
       content: content ?? this.content,
       toolCallId: toolCallId ?? this.toolCallId,
       error: error ?? this.error,
+      encryptedValue: encryptedValue ?? this.encryptedValue,
     );
   }
 }

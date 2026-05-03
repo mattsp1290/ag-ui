@@ -35,7 +35,11 @@ class EventDecoder {
           'Expected JSON object at top level',
           field: 'data',
           expectedType: 'Map<String, dynamic>',
-          actualValue: decoded,
+          // Surface the runtime type (e.g. `List<dynamic>`, `String`,
+          // `int`) rather than the raw value so debug logs read
+          // "actual: List<dynamic>" instead of dumping the whole
+          // payload — much more useful when the payload is large.
+          actualValue: decoded.runtimeType.toString(),
         );
       }
       return decodeJson(decoded);
@@ -203,10 +207,18 @@ class EventDecoder {
         Validators.requireNonEmpty(event.messageId, 'messageId');
       case TextMessageChunkEvent():
         break;
+      // ignore: deprecated_member_use_from_same_package
       case ThinkingTextMessageStartEvent():
         break;
+      // ignore: deprecated_member_use_from_same_package
       case ThinkingTextMessageContentEvent():
-        break;
+        // Match the non-empty `delta` contract that
+        // `TextMessageContentEvent` and `ReasoningMessageContentEvent`
+        // already enforce for sibling content events. A direct factory
+        // bypass that builds a `ThinkingTextMessageContentEvent(delta: '')`
+        // must not pass validation here.
+        Validators.requireNonEmpty(event.delta, 'delta');
+      // ignore: deprecated_member_use_from_same_package
       case ThinkingTextMessageEndEvent():
         break;
       case ToolCallStartEvent():
@@ -281,6 +293,11 @@ class EventDecoder {
         // member (currently `fromString` throws — see the dartdoc on
         // `ReasoningEncryptedValueSubtype.fromString`), this case is the
         // place to reject it.
+        // TODO: revisit if `ReasoningEncryptedValueSubtype` gains an
+        //   `unknown` member — at that point the comment above goes
+        //   stale and this case must explicitly reject the unknown
+        //   subtype to preserve the "no graceful default for cipher
+        //   payloads" contract.
         Validators.requireNonEmpty(event.entityId, 'entityId');
         Validators.requireNonEmpty(event.encryptedValue, 'encryptedValue');
     }

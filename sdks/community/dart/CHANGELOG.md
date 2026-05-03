@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0] - 2026-04-30
 
+### Breaking Changes
+- `ToolCallResultEvent.role` is now typed `ToolCallResultRole?` instead of
+  `String?`. Callers constructing the event directly must use the enum
+  (e.g. `ToolCallResultRole.tool`) instead of a raw string. Wire decoding
+  is unaffected: an unknown role string on the wire is absorbed via
+  `ToolCallResultRole.fromString` and falls back to `ToolCallResultRole.tool`
+  (forward-compatible with future canonical roles). The new `role` enum
+  exists for parity with the Python `Literal["tool"]` / TypeScript
+  `z.literal("tool")` canonical role surface.
+
 ### Added
 - Activity events for event-type parity with the Python and TypeScript SDKs
   ([#1018](https://github.com/ag-ui-protocol/ag-ui/issues/1018)):
@@ -21,6 +31,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ReasoningEndEvent` (`REASONING_END`)
   - `ReasoningEncryptedValueEvent` (`REASONING_ENCRYPTED_VALUE`)
 - Supporting enums: `ReasoningMessageRole`, `ReasoningEncryptedValueSubtype`.
+- `ActivityMessage` and `ReasoningMessage` `Message` subtypes (with
+  `MessageRole.activity` / `MessageRole.reasoning`) so `MESSAGES_SNAPSHOT`
+  payloads carrying those roles decode in Dart with the same schema as the
+  canonical TypeScript and Python SDKs. The `activityType` /
+  `activity_type` and `encryptedValue` / `encrypted_value` keys both
+  decode for camelCase/snake_case parity with the wider protocol.
 - Field-level parity for canonical events that previously dropped wire data
   on decode: `TextMessageStartEvent.name`, `TextMessageChunkEvent.name`,
   `RunStartedEvent.parentRunId`, and `RunStartedEvent.input` are now decoded
@@ -75,6 +91,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `EventType.thinkingContent` and `ThinkingContentEvent` — not part of the
   canonical AG-UI protocol. Use `EventType.thinkingTextMessageContent` /
   `ThinkingTextMessageContentEvent` instead. Decoding remains supported for
+  backward compatibility; scheduled for removal in 1.0.0.
+- `EventType.thinkingTextMessageStart` /
+  `EventType.thinkingTextMessageContent` /
+  `EventType.thinkingTextMessageEnd` (and their event classes:
+  `ThinkingTextMessageStartEvent`, `ThinkingTextMessageContentEvent`,
+  `ThinkingTextMessageEndEvent`). Mirrors the canonical TypeScript SDK's
+  deprecation of `THINKING_TEXT_MESSAGE_*` in favor of `REASONING_*`. Use
+  `ReasoningMessageStartEvent` / `ReasoningMessageContentEvent` /
+  `ReasoningMessageEndEvent` instead. Decoding remains supported for
   backward compatibility; scheduled for removal in 1.0.0.
 
 ### Known parity gaps (follow-up)

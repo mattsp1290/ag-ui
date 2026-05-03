@@ -396,6 +396,39 @@ void main() {
         expect(decoded.messages[1], isA<AssistantMessage>());
         expect(decoded.messages[2], isA<ToolMessage>());
       });
+
+      test('MessagesSnapshotEvent round-trips activity and reasoning messages',
+          () {
+        final messages = <Message>[
+          UserMessage(id: 'u1', content: 'Index this directory.'),
+          ActivityMessage(
+            id: 'act1',
+            activityType: 'task.run',
+            activityContent: const {'progress': 0.0, 'items': []},
+          ),
+          ReasoningMessage(
+            id: 'rsn1',
+            content: 'Considering file types',
+            encryptedValue: 'cGF5bG9hZA==',
+          ),
+        ];
+
+        final event = MessagesSnapshotEvent(messages: messages);
+        final json = event.toJson();
+
+        final decoded = MessagesSnapshotEvent.fromJson(json);
+        expect(decoded.messages.length, 3);
+        expect(decoded.messages[1], isA<ActivityMessage>());
+        expect(decoded.messages[2], isA<ReasoningMessage>());
+
+        final activity = decoded.messages[1] as ActivityMessage;
+        expect(activity.activityType, 'task.run');
+        expect(activity.activityContent['progress'], 0.0);
+
+        final reasoning = decoded.messages[2] as ReasoningMessage;
+        expect(reasoning.content, 'Considering file types');
+        expect(reasoning.encryptedValue, 'cGF5bG9hZA==');
+      });
     });
 
     group('LifecycleEvents', () {
@@ -634,8 +667,11 @@ void main() {
           TextMessageContentEvent(messageId: 'm', delta: 'd'),
           TextMessageEndEvent(messageId: 'm'),
           TextMessageChunkEvent(),
+          // ignore: deprecated_member_use_from_same_package
           ThinkingTextMessageStartEvent(),
+          // ignore: deprecated_member_use_from_same_package
           ThinkingTextMessageContentEvent(delta: 'd'),
+          // ignore: deprecated_member_use_from_same_package
           ThinkingTextMessageEndEvent(),
           ToolCallStartEvent(toolCallId: 'c', toolCallName: 'n'),
           ToolCallArgsEvent(toolCallId: 'c', delta: 'd'),
@@ -720,6 +756,7 @@ void main() {
         };
 
         expect(
+          // ignore: deprecated_member_use_from_same_package
           () => ThinkingTextMessageContentEvent.fromJson(invalidJson),
           throwsA(isA<AGUIValidationError>()),
         );
@@ -863,6 +900,24 @@ void main() {
 
         final decoded = ActivitySnapshotEvent.fromJson(json);
         expect(decoded.replace, true);
+      });
+
+      test('ActivitySnapshotEvent.toJson always emits replace, even when default',
+          () {
+        // Locks the always-emit contract documented at the
+        // `ActivitySnapshotEvent.replace` field — `replace` is optional on
+        // the wire (`z.boolean().optional().default(true)` in TS), but the
+        // Dart toJson emits it unconditionally so encoder→decoder symmetry
+        // doesn't depend on the producer's default. A future refactor that
+        // switches to `if (!replace) ... ` would break this test.
+        final event = ActivitySnapshotEvent(
+          messageId: 'm',
+          activityType: 't',
+          content: null,
+        );
+        expect(event.replace, isTrue);
+        expect(event.toJson().containsKey('replace'), isTrue);
+        expect(event.toJson()['replace'], isTrue);
       });
 
       test('ActivitySnapshotEvent treats explicit-null replace as default-true',
@@ -1357,6 +1412,47 @@ void main() {
           throwsA(isA<AGUIValidationError>()),
         );
       });
+
+      test('ReasoningEncryptedValueEvent rejects empty entityId at factory',
+          () {
+        // Factory-level rejection (not just decoder-validate) so direct
+        // callers of `ReasoningEncryptedValueEvent.fromJson` cannot
+        // produce an event with a mis-attributed cipher payload. Sibling
+        // factories (`TextMessageContentEvent`, `ToolCallArgsEvent`,
+        // `ReasoningMessageContentEvent`) all enforce non-empty here.
+        expect(
+          () => ReasoningEncryptedValueEvent.fromJson({
+            'type': 'REASONING_ENCRYPTED_VALUE',
+            'subtype': 'message',
+            'entityId': '',
+            'encryptedValue': 'cipher',
+          }),
+          throwsA(isA<AGUIValidationError>().having(
+            (e) => e.field,
+            'field',
+            equals('entityId'),
+          )),
+        );
+      });
+
+      test(
+        'ReasoningEncryptedValueEvent rejects empty encryptedValue at factory',
+        () {
+          expect(
+            () => ReasoningEncryptedValueEvent.fromJson({
+              'type': 'REASONING_ENCRYPTED_VALUE',
+              'subtype': 'message',
+              'entityId': 'rsn_01',
+              'encryptedValue': '',
+            }),
+            throwsA(isA<AGUIValidationError>().having(
+              (e) => e.field,
+              'field',
+              equals('encryptedValue'),
+            )),
+          );
+        },
+      );
 
       test('ReasoningEncryptedValueEvent rejects unknown subtype', () {
         // Pins the dartdoc contract: an unknown `subtype` must surface

@@ -132,6 +132,138 @@ void main() {
       });
     });
 
+    group('ActivityMessage', () {
+      test('round-trips canonical wire shape', () {
+        final message = ActivityMessage(
+          id: 'act_001',
+          activityType: 'task.run',
+          activityContent: const {'progress': 0.5, 'items': []},
+        );
+
+        final json = message.toJson();
+        expect(json['id'], 'act_001');
+        expect(json['role'], 'activity');
+        expect(json['activityType'], 'task.run');
+        expect(json['content'], const {'progress': 0.5, 'items': []});
+
+        final decoded = ActivityMessage.fromJson(json);
+        expect(decoded.id, 'act_001');
+        expect(decoded.activityType, 'task.run');
+        expect(decoded.activityContent, equals(message.activityContent));
+        expect(decoded.role, MessageRole.activity);
+      });
+
+      test('accepts snake_case activity_type (Python server)', () {
+        final message = ActivityMessage.fromJson({
+          'id': 'act_002',
+          'role': 'activity',
+          'activity_type': 'task.run',
+          'content': {'progress': 0.0},
+        });
+
+        expect(message.activityType, 'task.run');
+        expect(message.activityContent['progress'], 0.0);
+      });
+
+      test('rejects missing required content', () {
+        expect(
+          () => ActivityMessage.fromJson({
+            'id': 'act_003',
+            'role': 'activity',
+            'activityType': 'task.run',
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
+      test('copyWith preserves subtype', () {
+        final original = ActivityMessage(
+          id: 'act_004',
+          activityType: 'task.run',
+          activityContent: const {'progress': 0.0},
+        );
+
+        final updated = original.copyWith(
+          activityContent: const {'progress': 1.0},
+        );
+
+        expect(updated, isA<ActivityMessage>());
+        expect(updated.id, original.id);
+        expect(updated.activityType, original.activityType);
+        expect(updated.activityContent['progress'], 1.0);
+      });
+    });
+
+    group('ReasoningMessage', () {
+      test('round-trips canonical wire shape with encryptedValue', () {
+        final message = ReasoningMessage(
+          id: 'rsn_001',
+          content: 'Analyzing the request...',
+          encryptedValue: 'ZW5jcnlwdGVkLXBheWxvYWQ=',
+        );
+
+        final json = message.toJson();
+        expect(json['id'], 'rsn_001');
+        expect(json['role'], 'reasoning');
+        expect(json['content'], 'Analyzing the request...');
+        expect(json['encryptedValue'], 'ZW5jcnlwdGVkLXBheWxvYWQ=');
+
+        final decoded = ReasoningMessage.fromJson(json);
+        expect(decoded.id, 'rsn_001');
+        expect(decoded.content, message.content);
+        expect(decoded.encryptedValue, message.encryptedValue);
+        expect(decoded.role, MessageRole.reasoning);
+      });
+
+      test('omits encryptedValue when null', () {
+        final message = ReasoningMessage(
+          id: 'rsn_002',
+          content: 'Plain reasoning text',
+        );
+
+        final json = message.toJson();
+        expect(json.containsKey('encryptedValue'), isFalse);
+
+        final decoded = ReasoningMessage.fromJson(json);
+        expect(decoded.encryptedValue, isNull);
+      });
+
+      test('accepts snake_case encrypted_value (Python server)', () {
+        final message = ReasoningMessage.fromJson({
+          'id': 'rsn_003',
+          'role': 'reasoning',
+          'content': 'Thinking',
+          'encrypted_value': 'cGF5bG9hZA==',
+        });
+
+        expect(message.encryptedValue, 'cGF5bG9hZA==');
+      });
+
+      test('rejects missing required content', () {
+        expect(
+          () => ReasoningMessage.fromJson({
+            'id': 'rsn_004',
+            'role': 'reasoning',
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
+      test('copyWith preserves subtype', () {
+        final original = ReasoningMessage(
+          id: 'rsn_005',
+          content: 'first',
+        );
+
+        final updated = original.copyWith(content: 'second');
+
+        expect(updated, isA<ReasoningMessage>());
+        expect(updated.id, original.id);
+        expect(updated.content, 'second');
+        expect(updated.encryptedValue, isNull);
+      });
+    });
+
     group('Message Factory', () {
       test('should create correct message type based on role', () {
         final messages = [
@@ -145,6 +277,17 @@ void main() {
             'content': 'Tool result',
             'toolCallId': 'call_001'
           },
+          {
+            'id': '6',
+            'role': 'activity',
+            'activityType': 'task.run',
+            'content': {'progress': 0.0},
+          },
+          {
+            'id': '7',
+            'role': 'reasoning',
+            'content': 'Thinking out loud',
+          },
         ];
 
         final decoded = messages.map((json) => Message.fromJson(json)).toList();
@@ -154,6 +297,8 @@ void main() {
         expect(decoded[2], isA<UserMessage>());
         expect(decoded[3], isA<AssistantMessage>());
         expect(decoded[4], isA<ToolMessage>());
+        expect(decoded[5], isA<ActivityMessage>());
+        expect(decoded[6], isA<ReasoningMessage>());
       });
 
       test('should throw on invalid role', () {

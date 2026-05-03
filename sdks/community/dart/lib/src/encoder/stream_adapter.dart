@@ -167,6 +167,15 @@ class EventStreamAdapter {
   /// See [fromSseStream] for the [skipInvalidEvents] / [onError]
   /// semantics, including the silent-drop note for
   /// `REASONING_ENCRYPTED_VALUE` events with unknown subtypes.
+  ///
+  /// Edge case on abnormal termination: when the stream ends mid-line
+  /// without a trailing `\n` AND the partial line in the buffer is NOT
+  /// `data:`-prefixed (e.g. it is `event:`, `id:`, `retry:`, a `:`-comment,
+  /// or an in-progress continuation of a multi-line `data:` block), that
+  /// partial line is silently dropped. Steady-state SSE parsing already
+  /// ignores those lines per the spec; the drop only affects truly
+  /// abnormal close-without-newline cases. A trailing `data:`-prefixed
+  /// partial line, by contrast, is flushed and decoded.
   Stream<BaseEvent> fromRawSseStream(
     Stream<String> rawStream, {
     bool skipInvalidEvents = false,
@@ -318,10 +327,23 @@ class EventStreamAdapter {
             final event = _decoder.decode(data);
             controller.add(event);
           } catch (e, stack) {
+            // Mirror the steady-state per-line wrap above (lines ~219-228):
+            // a non-`AgUiError` cause becomes a `DecodingError` so consumers
+            // pattern-matching on `DecodingError` see a uniform shape from
+            // the trailing-flush path and the line-by-line path.
+            final error = e is AgUiError
+                ? e
+                : DecodingError(
+                    'Failed to decode trailing SSE data',
+                    field: 'data',
+                    expectedType: 'BaseEvent',
+                    actualValue: data,
+                    cause: e,
+                  );
             if (!skipInvalidEvents) {
-              controller.addError(e, stack);
+              controller.addError(error, stack);
             } else {
-              onError?.call(e, stack);
+              onError?.call(error, stack);
             }
           }
         }

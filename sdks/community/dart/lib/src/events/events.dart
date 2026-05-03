@@ -94,11 +94,17 @@ sealed class BaseEvent extends AGUIModel with TypeDiscriminator {
         return TextMessageEndEvent.fromJson(json);
       case EventType.textMessageChunk:
         return TextMessageChunkEvent.fromJson(json);
+      // ignore: deprecated_member_use_from_same_package
       case EventType.thinkingTextMessageStart:
+        // ignore: deprecated_member_use_from_same_package
         return ThinkingTextMessageStartEvent.fromJson(json);
+      // ignore: deprecated_member_use_from_same_package
       case EventType.thinkingTextMessageContent:
+        // ignore: deprecated_member_use_from_same_package
         return ThinkingTextMessageContentEvent.fromJson(json);
+      // ignore: deprecated_member_use_from_same_package
       case EventType.thinkingTextMessageEnd:
+        // ignore: deprecated_member_use_from_same_package
         return ThinkingTextMessageEndEvent.fromJson(json);
       case EventType.toolCallStart:
         return ToolCallStartEvent.fromJson(json);
@@ -592,11 +598,25 @@ final class ThinkingEndEvent extends BaseEvent {
   }
 }
 
-/// Event indicating the start of a thinking text message
+/// Event indicating the start of a thinking text message.
+///
+/// Deprecated in favor of [ReasoningMessageStartEvent], mirroring the
+/// canonical TypeScript SDK deprecation of `THINKING_TEXT_MESSAGE_*` in
+/// favor of `REASONING_*`. Decoding remains supported for backward
+/// compatibility; scheduled for removal in 1.0.0.
+@Deprecated(
+  'Use ReasoningMessageStartEvent instead. '
+  'Scheduled for removal in 1.0.0.',
+)
 final class ThinkingTextMessageStartEvent extends BaseEvent {
+  @Deprecated(
+    'Use ReasoningMessageStartEvent instead. '
+    'Scheduled for removal in 1.0.0.',
+  )
   const ThinkingTextMessageStartEvent({
     super.timestamp,
     super.rawEvent,
+    // ignore: deprecated_member_use_from_same_package
   }) : super(eventType: EventType.thinkingTextMessageStart);
 
   factory ThinkingTextMessageStartEvent.fromJson(Map<String, dynamic> json) {
@@ -618,14 +638,28 @@ final class ThinkingTextMessageStartEvent extends BaseEvent {
   }
 }
 
-/// Event containing thinking text message content
+/// Event containing thinking text message content.
+///
+/// Deprecated in favor of [ReasoningMessageContentEvent], mirroring the
+/// canonical TypeScript SDK deprecation of `THINKING_TEXT_MESSAGE_*` in
+/// favor of `REASONING_*`. Decoding remains supported for backward
+/// compatibility; scheduled for removal in 1.0.0.
+@Deprecated(
+  'Use ReasoningMessageContentEvent instead. '
+  'Scheduled for removal in 1.0.0.',
+)
 final class ThinkingTextMessageContentEvent extends BaseEvent {
   final String delta;
 
+  @Deprecated(
+    'Use ReasoningMessageContentEvent instead. '
+    'Scheduled for removal in 1.0.0.',
+  )
   const ThinkingTextMessageContentEvent({
     required this.delta,
     super.timestamp,
     super.rawEvent,
+    // ignore: deprecated_member_use_from_same_package
   }) : super(eventType: EventType.thinkingTextMessageContent);
 
   factory ThinkingTextMessageContentEvent.fromJson(Map<String, dynamic> json) {
@@ -669,11 +703,25 @@ final class ThinkingTextMessageContentEvent extends BaseEvent {
   }
 }
 
-/// Event indicating the end of a thinking text message
+/// Event indicating the end of a thinking text message.
+///
+/// Deprecated in favor of [ReasoningMessageEndEvent], mirroring the
+/// canonical TypeScript SDK deprecation of `THINKING_TEXT_MESSAGE_*` in
+/// favor of `REASONING_*`. Decoding remains supported for backward
+/// compatibility; scheduled for removal in 1.0.0.
+@Deprecated(
+  'Use ReasoningMessageEndEvent instead. '
+  'Scheduled for removal in 1.0.0.',
+)
 final class ThinkingTextMessageEndEvent extends BaseEvent {
+  @Deprecated(
+    'Use ReasoningMessageEndEvent instead. '
+    'Scheduled for removal in 1.0.0.',
+  )
   const ThinkingTextMessageEndEvent({
     super.timestamp,
     super.rawEvent,
+    // ignore: deprecated_member_use_from_same_package
   }) : super(eventType: EventType.thinkingTextMessageEnd);
 
   factory ThinkingTextMessageEndEvent.fromJson(Map<String, dynamic> json) {
@@ -1459,6 +1507,12 @@ final class RunStartedEvent extends BaseEvent {
   final String threadId;
   final String runId;
   final String? parentRunId;
+
+  /// Optional `RUN_STARTED` input snapshot. On the wire the `input` key
+  /// must hold a JSON object — `optionalField<Map<String, dynamic>>` in
+  /// [RunStartedEvent.fromJson] rejects a wrong-typed value (string, list,
+  /// number, etc.) with `AGUIValidationError(field: 'input')`. An absent
+  /// or explicit-null `input` decodes as `null`.
   final RunAgentInput? input;
 
   const RunStartedEvent({
@@ -1535,6 +1589,19 @@ final class RunStartedEvent extends BaseEvent {
 final class RunFinishedEvent extends BaseEvent {
   final String threadId;
   final String runId;
+
+  /// Optional run-completion payload (`z.any().optional()` /
+  /// `Optional[Any] = None` in TS/Python). On the wire, an explicit
+  /// `'result': null` and an absent `result` key are equivalent — both
+  /// produce a [RunFinishedEvent] with `result == null`, and [toJson]
+  /// drops the key when `result` is null.
+  ///
+  /// The `_Unset` sentinel on [copyWith] (`Object? result = _unsetCopyWith`)
+  /// is for in-memory disambiguation only — it lets callers explicitly
+  /// clear a previously-set result. It is NOT a wire-protocol distinction:
+  /// do not mirror the `ActivitySnapshotEvent.content` always-emit
+  /// pattern here; the protocol does not require [RunFinishedEvent.result]
+  /// to be present on the wire.
   final dynamic result;
 
   const RunFinishedEvent({
@@ -2140,18 +2207,42 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
         json: json,
       );
     }
+    final entityId = JsonDecoder.requireEitherField<String>(
+      json,
+      'entityId',
+      'entity_id',
+    );
+    if (entityId.isEmpty) {
+      throw AGUIValidationError(
+        message: 'entityId must not be an empty string',
+        field: 'entityId',
+        value: entityId,
+        json: json,
+      );
+    }
+    final encryptedValue = JsonDecoder.requireEitherField<String>(
+      json,
+      'encryptedValue',
+      'encrypted_value',
+    );
+    if (encryptedValue.isEmpty) {
+      // Reject at the factory boundary, not just at `EventDecoder.validate`,
+      // so direct callers of `ReasoningEncryptedValueEvent.fromJson` can't
+      // produce an event with a mis-attributed empty cipher payload.
+      // Mirrors `TextMessageContentEvent.fromJson`,
+      // `ToolCallArgsEvent.fromJson`, and
+      // `ReasoningMessageContentEvent.fromJson`.
+      throw AGUIValidationError(
+        message: 'encryptedValue must not be an empty string',
+        field: 'encryptedValue',
+        value: encryptedValue,
+        json: json,
+      );
+    }
     return ReasoningEncryptedValueEvent(
       subtype: subtype,
-      entityId: JsonDecoder.requireEitherField<String>(
-        json,
-        'entityId',
-        'entity_id',
-      ),
-      encryptedValue: JsonDecoder.requireEitherField<String>(
-        json,
-        'encryptedValue',
-        'encrypted_value',
-      ),
+      entityId: entityId,
+      encryptedValue: encryptedValue,
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );

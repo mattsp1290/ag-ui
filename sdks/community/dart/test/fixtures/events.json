@@ -195,6 +195,48 @@
       "runId": "run_04"
     }
   ],
+  "messages_snapshot_activity_reasoning": [
+    {
+      "type": "RUN_STARTED",
+      "threadId": "thread_04b",
+      "runId": "run_04b"
+    },
+    {
+      "type": "MESSAGES_SNAPSHOT",
+      "messages": [
+        {
+          "id": "msg_a1",
+          "role": "user",
+          "content": "Help me index this directory."
+        },
+        {
+          "id": "act_a1",
+          "role": "activity",
+          "activityType": "task.run",
+          "content": {
+            "title": "Indexing files",
+            "progress": 0.5
+          }
+        },
+        {
+          "id": "rsn_a1",
+          "role": "reasoning",
+          "content": "Considering the file types to skip.",
+          "encryptedValue": "ZW5jcnlwdGVkLXJlYXNvbmluZw=="
+        },
+        {
+          "id": "msg_a2",
+          "role": "assistant",
+          "content": "Indexing started."
+        }
+      ]
+    },
+    {
+      "type": "RUN_FINISHED",
+      "threadId": "thread_04b",
+      "runId": "run_04b"
+    }
+  ],
   "multiple_runs": [
     {
       "type": "RUN_STARTED",

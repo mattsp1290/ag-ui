@@ -7,8 +7,26 @@ enum EventType {
   textMessageContent('TEXT_MESSAGE_CONTENT'),
   textMessageEnd('TEXT_MESSAGE_END'),
   textMessageChunk('TEXT_MESSAGE_CHUNK'),
+  @Deprecated(
+    'Use reasoningMessageStart (ReasoningMessageStartEvent) instead. '
+    'Mirrors the canonical TypeScript SDK deprecation of '
+    'THINKING_TEXT_MESSAGE_* in favor of REASONING_*. '
+    'Scheduled for removal in 1.0.0.',
+  )
   thinkingTextMessageStart('THINKING_TEXT_MESSAGE_START'),
+  @Deprecated(
+    'Use reasoningMessageContent (ReasoningMessageContentEvent) instead. '
+    'Mirrors the canonical TypeScript SDK deprecation of '
+    'THINKING_TEXT_MESSAGE_* in favor of REASONING_*. '
+    'Scheduled for removal in 1.0.0.',
+  )
   thinkingTextMessageContent('THINKING_TEXT_MESSAGE_CONTENT'),
+  @Deprecated(
+    'Use reasoningMessageEnd (ReasoningMessageEndEvent) instead. '
+    'Mirrors the canonical TypeScript SDK deprecation of '
+    'THINKING_TEXT_MESSAGE_* in favor of REASONING_*. '
+    'Scheduled for removal in 1.0.0.',
+  )
   thinkingTextMessageEnd('THINKING_TEXT_MESSAGE_END'),
   toolCallStart('TOOL_CALL_START'),
   toolCallArgs('TOOL_CALL_ARGS'),

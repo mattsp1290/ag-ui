@@ -8,8 +8,11 @@ void main() {
       expect(EventType.textMessageContent.value, equals('TEXT_MESSAGE_CONTENT'));
       expect(EventType.textMessageEnd.value, equals('TEXT_MESSAGE_END'));
       expect(EventType.textMessageChunk.value, equals('TEXT_MESSAGE_CHUNK'));
+      // ignore: deprecated_member_use_from_same_package
       expect(EventType.thinkingTextMessageStart.value, equals('THINKING_TEXT_MESSAGE_START'));
+      // ignore: deprecated_member_use_from_same_package
       expect(EventType.thinkingTextMessageContent.value, equals('THINKING_TEXT_MESSAGE_CONTENT'));
+      // ignore: deprecated_member_use_from_same_package
       expect(EventType.thinkingTextMessageEnd.value, equals('THINKING_TEXT_MESSAGE_END'));
       expect(EventType.toolCallStart.value, equals('TOOL_CALL_START'));
       expect(EventType.toolCallArgs.value, equals('TOOL_CALL_ARGS'));
@@ -61,8 +64,11 @@ void main() {
       expect(EventType.fromString('TEXT_MESSAGE_CONTENT'), equals(EventType.textMessageContent));
       expect(EventType.fromString('TEXT_MESSAGE_END'), equals(EventType.textMessageEnd));
       expect(EventType.fromString('TEXT_MESSAGE_CHUNK'), equals(EventType.textMessageChunk));
+      // ignore: deprecated_member_use_from_same_package
       expect(EventType.fromString('THINKING_TEXT_MESSAGE_START'), equals(EventType.thinkingTextMessageStart));
+      // ignore: deprecated_member_use_from_same_package
       expect(EventType.fromString('THINKING_TEXT_MESSAGE_CONTENT'), equals(EventType.thinkingTextMessageContent));
+      // ignore: deprecated_member_use_from_same_package
       expect(EventType.fromString('THINKING_TEXT_MESSAGE_END'), equals(EventType.thinkingTextMessageEnd));
       expect(EventType.fromString('TOOL_CALL_START'), equals(EventType.toolCallStart));
       expect(EventType.fromString('TOOL_CALL_ARGS'), equals(EventType.toolCallArgs));
@@ -240,8 +246,11 @@ void main() {
           // ignore: deprecated_member_use_from_same_package
           EventType.thinkingContent,
           EventType.thinkingEnd,
+          // ignore: deprecated_member_use_from_same_package
           EventType.thinkingTextMessageStart,
+          // ignore: deprecated_member_use_from_same_package
           EventType.thinkingTextMessageContent,
+          // ignore: deprecated_member_use_from_same_package
           EventType.thinkingTextMessageEnd,
         ];
 

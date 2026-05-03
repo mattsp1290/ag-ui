@@ -323,7 +323,7 @@ data: {"type":"RUN_FINISHED","threadId":"t1","runId":"r1"}
           messageId: 'msg123',
           delta: '',
         );
-        
+
         expect(
           () => decoder.validate(event),
           throwsA(isA<ValidationError>()
@@ -331,6 +331,30 @@ data: {"type":"RUN_FINISHED","threadId":"t1","runId":"r1"}
             .having((e) => e.message, 'message', contains('cannot be empty'))),
         );
       });
+
+      test(
+        'throws ValidationError for empty delta in thinking-text content event',
+        () {
+          // Direct constructor bypasses fromJson's empty-string check.
+          // validate() must catch the contract breach so the public
+          // EventDecoder pipeline stays the single source of truth for
+          // non-empty constraints — symmetric with TextMessageContentEvent
+          // and ReasoningMessageContentEvent.
+          // ignore: deprecated_member_use_from_same_package
+          final event = ThinkingTextMessageContentEvent(delta: '');
+
+          expect(
+            () => decoder.validate(event),
+            throwsA(isA<ValidationError>()
+                .having((e) => e.field, 'field', equals('delta'))
+                .having(
+                  (e) => e.message,
+                  'message',
+                  contains('cannot be empty'),
+                )),
+          );
+        },
+      );
 
       test('throws ValidationError for empty tool call fields', () {
         final event = ToolCallStartEvent(

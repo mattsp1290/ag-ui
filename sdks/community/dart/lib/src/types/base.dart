@@ -198,6 +198,14 @@ class JsonDecoder {
   /// violation, and surfacing the type error at [camelKey] is more
   /// useful than silently rescuing via the snake_case alias. The same
   /// rule applies to [optionalEitherField].
+  ///
+  /// Note on falsy non-null values: the `??` chain only fires on `null`,
+  /// so a falsy non-null value at [camelKey] (`false`, `0`, `""`, an
+  /// empty list/map) is preserved and the [snakeKey] fallback is not
+  /// consulted. This matters for any future `T` other than `String` —
+  /// e.g. `requireEitherField<bool>(json, 'replace', 'replace_all')`
+  /// returns `false` when `camelKey` carries `false`, not `null`,
+  /// keeping the canonical-key value in the camelCase preference order.
   static T requireEitherField<T>(
     Map<String, dynamic> json,
     String camelKey,

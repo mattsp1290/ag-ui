@@ -1,7 +1,8 @@
 /// Message types for AG-UI protocol.
 ///
 /// This library defines the message types used in agent-user conversations,
-/// including user, assistant, system, tool, and developer messages.
+/// including user, assistant, system, tool, developer, activity, and
+/// reasoning messages.
 library;
 
 import 'base.dart';
@@ -9,13 +10,19 @@ import 'tool.dart';
 
 /// Role types for messages in the AG-UI protocol.
 ///
-/// Defines the possible roles a message can have in a conversation.
+/// Mirrors the canonical TypeScript and Python `Message` discriminated
+/// unions (see `sdks/typescript/packages/core/src/types.ts` and
+/// `sdks/python/ag_ui/core/types.py`). The `activity` and `reasoning`
+/// values exist so `MESSAGES_SNAPSHOT` payloads carrying those message
+/// shapes decode in Dart with the same schema as the other SDKs.
 enum MessageRole {
   developer('developer'),
   system('system'),
   assistant('assistant'),
   user('user'),
-  tool('tool');
+  tool('tool'),
+  activity('activity'),
+  reasoning('reasoning');
 
   final String value;
   const MessageRole(this.value);
@@ -70,6 +77,10 @@ sealed class Message extends AGUIModel with TypeDiscriminator {
         return UserMessage.fromJson(json);
       case MessageRole.tool:
         return ToolMessage.fromJson(json);
+      case MessageRole.activity:
+        return ActivityMessage.fromJson(json);
+      case MessageRole.reasoning:
+        return ReasoningMessage.fromJson(json);
     }
   }
 
@@ -296,6 +307,111 @@ class ToolMessage extends Message {
       content: content ?? this.content,
       toolCallId: toolCallId ?? this.toolCallId,
       error: error ?? this.error,
+    );
+  }
+}
+
+/// Activity message embedded in a `MESSAGES_SNAPSHOT` payload.
+///
+/// Mirrors the canonical TypeScript `ActivityMessageSchema`
+/// (`sdks/typescript/packages/core/src/types.ts`) and the Python
+/// `ActivityMessage` model (`sdks/python/ag_ui/core/types.py`). The wire
+/// shape is `{id, role: 'activity', activityType, content}` where
+/// `content` is a JSON object (`z.record(z.any())` / `Dict[str, Any]`).
+///
+/// The Dart in-memory accessor for the wire `content` field is named
+/// [activityContent] to avoid shadowing the parent [Message.content]
+/// (which is `String?`). The wire key remains `content` in [toJson] /
+/// [fromJson] for protocol parity.
+class ActivityMessage extends Message {
+  final String activityType;
+  final Map<String, dynamic> activityContent;
+
+  const ActivityMessage({
+    required super.id,
+    required this.activityType,
+    required this.activityContent,
+  }) : super(role: MessageRole.activity);
+
+  factory ActivityMessage.fromJson(Map<String, dynamic> json) {
+    return ActivityMessage(
+      id: JsonDecoder.requireField<String>(json, 'id'),
+      activityType: JsonDecoder.requireEitherField<String>(
+        json,
+        'activityType',
+        'activity_type',
+      ),
+      activityContent:
+          JsonDecoder.requireField<Map<String, dynamic>>(json, 'content'),
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...super.toJson(),
+        'activityType': activityType,
+        'content': activityContent,
+      };
+
+  @override
+  ActivityMessage copyWith({
+    String? id,
+    String? activityType,
+    Map<String, dynamic>? activityContent,
+  }) {
+    return ActivityMessage(
+      id: id ?? this.id,
+      activityType: activityType ?? this.activityType,
+      activityContent: activityContent ?? this.activityContent,
+    );
+  }
+}
+
+/// Reasoning message embedded in a `MESSAGES_SNAPSHOT` payload.
+///
+/// Mirrors the canonical TypeScript `ReasoningMessageSchema` and the
+/// Python `ReasoningMessage` model. The wire shape is
+/// `{id, role: 'reasoning', content, encryptedValue?}` with `content` as
+/// a string and `encryptedValue` as an optional opaque cipher payload.
+class ReasoningMessage extends Message {
+  @override
+  final String content;
+  final String? encryptedValue;
+
+  const ReasoningMessage({
+    required super.id,
+    required this.content,
+    this.encryptedValue,
+  }) : super(role: MessageRole.reasoning);
+
+  factory ReasoningMessage.fromJson(Map<String, dynamic> json) {
+    return ReasoningMessage(
+      id: JsonDecoder.requireField<String>(json, 'id'),
+      content: JsonDecoder.requireField<String>(json, 'content'),
+      encryptedValue: JsonDecoder.optionalEitherField<String>(
+        json,
+        'encryptedValue',
+        'encrypted_value',
+      ),
+    );
+  }
+
+  @override
+  Map<String, dynamic> toJson() => {
+        ...super.toJson(),
+        if (encryptedValue != null) 'encryptedValue': encryptedValue,
+      };
+
+  @override
+  ReasoningMessage copyWith({
+    String? id,
+    String? content,
+    String? encryptedValue,
+  }) {
+    return ReasoningMessage(
+      id: id ?? this.id,
+      content: content ?? this.content,
+      encryptedValue: encryptedValue ?? this.encryptedValue,
     );
   }
 }

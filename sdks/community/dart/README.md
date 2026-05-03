@@ -269,6 +269,43 @@ void main() async {
 }
 ```
 
+## Migrating from 0.1.0
+
+0.2.0 introduces one source-breaking change for callers that construct
+events directly:
+
+- **`ToolCallResultEvent.role` is now `ToolCallResultRole?` instead of
+  `String?`.** Update direct constructions:
+
+  ```dart
+  // Before (0.1.0)
+  ToolCallResultEvent(
+    messageId: '...',
+    toolCallId: '...',
+    content: '...',
+    role: 'tool',
+  );
+
+  // After (0.2.0)
+  ToolCallResultEvent(
+    messageId: '...',
+    toolCallId: '...',
+    content: '...',
+    role: ToolCallResultRole.tool,
+  );
+  ```
+
+  Wire decoding is unaffected: an unknown `role` string on the wire is
+  absorbed via `ToolCallResultRole.fromString` and falls back to
+  `ToolCallResultRole.tool` for forward compatibility. See
+  [`CHANGELOG.md`](CHANGELOG.md) "Breaking Changes" for the full
+  rationale.
+
+The `THINKING_TEXT_MESSAGE_*` event types are also deprecated in 0.2.0
+in favor of the canonical `REASONING_*` events; decoding remains
+supported until 1.0.0. See `CHANGELOG.md` "Deprecated" for the migration
+mapping.
+
 ## Examples
 
 See the [`example/`](example/) directory for:

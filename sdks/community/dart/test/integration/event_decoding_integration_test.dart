@@ -334,8 +334,11 @@ void main() {
         
         expect(decodedEvents[0], isA<ThinkingStartEvent>());
         expect((decodedEvents[0] as ThinkingStartEvent).title, equals('Planning approach'));
+        // ignore: deprecated_member_use_from_same_package
         expect(decodedEvents[1], isA<ThinkingTextMessageStartEvent>());
+        // ignore: deprecated_member_use_from_same_package
         expect(decodedEvents[2], isA<ThinkingTextMessageContentEvent>());
+        // ignore: deprecated_member_use_from_same_package
         expect(decodedEvents[3], isA<ThinkingTextMessageEndEvent>());
         expect(decodedEvents[4], isA<ThinkingEndEvent>());
       });

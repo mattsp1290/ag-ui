@@ -106,22 +106,65 @@ void main() {
         final decodedEvents = events
             .map((e) => decoder.decodeJson(e as Map<String, dynamic>))
             .toList();
-        
+
         final snapshot = decodedEvents
             .whereType<MessagesSnapshotEvent>()
             .first;
         expect(snapshot.messages.length, equals(3));
-        
+
         // Check message types
         expect(snapshot.messages[0], isA<UserMessage>());
         expect(snapshot.messages[1], isA<AssistantMessage>());
         expect(snapshot.messages[2], isA<ToolMessage>());
-        
+
         // Check assistant message has tool calls
         final assistantMsg = snapshot.messages[1] as AssistantMessage;
         expect(assistantMsg.toolCalls, isNotNull);
         expect(assistantMsg.toolCalls!.length, equals(1));
         expect(assistantMsg.toolCalls![0].function.name, equals('get_weather'));
+      });
+
+      test('processes messages snapshot with activity and reasoning roles',
+          () {
+        final events =
+            fixtures['messages_snapshot_activity_reasoning'] as List;
+        final decodedEvents = events
+            .map((e) => decoder.decodeJson(e as Map<String, dynamic>))
+            .toList();
+
+        final snapshot =
+            decodedEvents.whereType<MessagesSnapshotEvent>().first;
+        expect(snapshot.messages.length, equals(4));
+
+        expect(snapshot.messages[0], isA<UserMessage>());
+        expect(snapshot.messages[1], isA<ActivityMessage>());
+        expect(snapshot.messages[2], isA<ReasoningMessage>());
+        expect(snapshot.messages[3], isA<AssistantMessage>());
+
+        final activity = snapshot.messages[1] as ActivityMessage;
+        expect(activity.activityType, equals('task.run'));
+        expect(activity.activityContent['title'], equals('Indexing files'));
+        expect(activity.activityContent['progress'], equals(0.5));
+
+        final reasoning = snapshot.messages[2] as ReasoningMessage;
+        expect(reasoning.content, contains('Considering'));
+        expect(reasoning.encryptedValue, equals('ZW5jcnlwdGVkLXJlYXNvbmluZw=='));
+
+        // Round-trip the snapshot through the encoder boundary so
+        // toJson()/fromJson() symmetry is exercised end-to-end for the
+        // new Message subtypes, not just at the factory level.
+        final reEncoded = MessagesSnapshotEvent.fromJson(snapshot.toJson());
+        expect(reEncoded.messages.length, equals(4));
+        expect(reEncoded.messages[1], isA<ActivityMessage>());
+        expect(reEncoded.messages[2], isA<ReasoningMessage>());
+        expect(
+          (reEncoded.messages[1] as ActivityMessage).activityContent['title'],
+          equals('Indexing files'),
+        );
+        expect(
+          (reEncoded.messages[2] as ReasoningMessage).encryptedValue,
+          equals('ZW5jcnlwdGVkLXJlYXNvbmluZw=='),
+        );
       });
       
       test('processes multiple sequential runs', () {

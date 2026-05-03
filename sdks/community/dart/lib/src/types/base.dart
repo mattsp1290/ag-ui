@@ -84,6 +84,17 @@ class AGUIError implements Exception {
 ///
 /// Provides helper methods for safely extracting and validating fields
 /// from JSON maps, with proper error handling.
+///
+/// camelCase/snake_case parity is handled by [requireEitherField] and
+/// [optionalEitherField] for keys whose two spellings differ —
+/// e.g. `messageId` / `message_id`, `toolCallId` / `tool_call_id`,
+/// `parentRunId` / `parent_run_id`. Single-word keys whose camelCase and
+/// snake_case spellings are identical (`delta`, `name`, `title`,
+/// `replace`, `content`, `value`, `event`, `source`, `code`, `subtype`,
+/// `messages`, `patch`, `snapshot`, `role`, `result`, `input`,
+/// `timestamp`, `details`, `error`, `state`) are read with the bare
+/// [requireField] / [optionalField] helpers — they don't need
+/// `*EitherField` because there's no second spelling to fall back to.
 class JsonDecoder {
   /// Safely extracts a required field from JSON.
   static T requireField<T>(
@@ -179,6 +190,14 @@ class JsonDecoder {
   /// [AGUIValidationError] naming BOTH keys if neither is present —
   /// avoiding the misleading "missing message_id" error when the caller
   /// actually sent `messageId`.
+  ///
+  /// Note on short-circuit behavior: if [camelKey] is present but holds
+  /// a wrong-typed value, [optionalField] throws and the [snakeKey]
+  /// fallback is NOT attempted. This is intentional — a payload that
+  /// carries both keys with conflicting types is itself a protocol
+  /// violation, and surfacing the type error at [camelKey] is more
+  /// useful than silently rescuing via the snake_case alias. The same
+  /// rule applies to [optionalEitherField].
   static T requireEitherField<T>(
     Map<String, dynamic> json,
     String camelKey,

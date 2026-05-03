@@ -20,10 +20,22 @@ export 'event_type.dart';
 /// "argument explicitly set to `null`". Comparing against this sentinel
 /// with `identical(...)` makes that distinction explicit.
 ///
-/// Currently used by `ActivitySnapshotEvent.copyWith` for `content`. A
-/// broader sentinel sweep across the rest of the `copyWith` family is
-/// tracked in CHANGELOG → "Known parity gaps".
-const Object _unsetCopyWith = Object();
+/// Applied to every nullable payload field on the events whose `copyWith`
+/// callers may legitimately want to clear:
+/// `ActivitySnapshotEvent.content`, `RawEvent.event`, `CustomEvent.value`,
+/// `RunFinishedEvent.result`, `RunStartedEvent.parentRunId` /
+/// `RunStartedEvent.input`, the optional fields of
+/// `TextMessageStartEvent`, `TextMessageChunkEvent`,
+/// `ToolCallStartEvent.parentMessageId`, the optional fields of
+/// `ToolCallChunkEvent`, and the optional fields of
+/// `ReasoningMessageChunkEvent`. A few non-payload `copyWith`s still use
+/// the standard `?? this.field` pattern — see CHANGELOG → "Known parity
+/// gaps" for the remaining cases.
+class _Unset {
+  const _Unset();
+}
+
+const _Unset _unsetCopyWith = _Unset();
 
 /// Base event for all AG-UI protocol events.
 ///
@@ -194,10 +206,12 @@ enum TextMessageRole {
 final class TextMessageStartEvent extends BaseEvent {
   final String messageId;
   final TextMessageRole role;
+  final String? name;
 
   const TextMessageStartEvent({
     required this.messageId,
     this.role = TextMessageRole.assistant,
+    this.name,
     super.timestamp,
     super.rawEvent,
   }) : super(eventType: EventType.textMessageStart);
@@ -231,6 +245,7 @@ final class TextMessageStartEvent extends BaseEvent {
     return TextMessageStartEvent(
       messageId: messageId,
       role: role,
+      name: JsonDecoder.optionalField<String>(json, 'name'),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
@@ -241,18 +256,22 @@ final class TextMessageStartEvent extends BaseEvent {
     ...super.toJson(),
     'messageId': messageId,
     'role': role.value,
+    if (name != null) 'name': name,
   };
 
+  // See `_Unset` (top of file) for the sentinel rationale.
   @override
   TextMessageStartEvent copyWith({
     String? messageId,
     TextMessageRole? role,
+    Object? name = _unsetCopyWith,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return TextMessageStartEvent(
       messageId: messageId ?? this.messageId,
       role: role ?? this.role,
+      name: identical(name, _unsetCopyWith) ? this.name : name as String?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -368,11 +387,13 @@ final class TextMessageChunkEvent extends BaseEvent {
   final String? messageId;
   final TextMessageRole? role;
   final String? delta;
+  final String? name;
 
   const TextMessageChunkEvent({
     this.messageId,
     this.role,
     this.delta,
+    this.name,
     super.timestamp,
     super.rawEvent,
   }) : super(eventType: EventType.textMessageChunk);
@@ -398,6 +419,7 @@ final class TextMessageChunkEvent extends BaseEvent {
       ),
       role: role,
       delta: JsonDecoder.optionalField<String>(json, 'delta'),
+      name: JsonDecoder.optionalField<String>(json, 'name'),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
@@ -409,20 +431,29 @@ final class TextMessageChunkEvent extends BaseEvent {
     if (messageId != null) 'messageId': messageId,
     if (role != null) 'role': role!.value,
     if (delta != null) 'delta': delta,
+    if (name != null) 'name': name,
   };
 
+  // See `_Unset` (top of file) for the sentinel rationale.
   @override
   TextMessageChunkEvent copyWith({
-    String? messageId,
-    TextMessageRole? role,
-    String? delta,
+    Object? messageId = _unsetCopyWith,
+    Object? role = _unsetCopyWith,
+    Object? delta = _unsetCopyWith,
+    Object? name = _unsetCopyWith,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return TextMessageChunkEvent(
-      messageId: messageId ?? this.messageId,
-      role: role ?? this.role,
-      delta: delta ?? this.delta,
+      messageId: identical(messageId, _unsetCopyWith)
+          ? this.messageId
+          : messageId as String?,
+      role: identical(role, _unsetCopyWith)
+          ? this.role
+          : role as TextMessageRole?,
+      delta:
+          identical(delta, _unsetCopyWith) ? this.delta : delta as String?,
+      name: identical(name, _unsetCopyWith) ? this.name : name as String?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -473,16 +504,24 @@ final class ThinkingStartEvent extends BaseEvent {
 
 /// Event containing thinking content.
 ///
-/// Not part of the canonical AG-UI protocol — included only for
-/// backward compatibility. Use [ThinkingTextMessageContentEvent] instead.
+/// Dart-only legacy: never part of the canonical AG-UI protocol
+/// (TypeScript/Python). Included only for backward compatibility with
+/// pre-0.2.0 Dart consumers. Use [ThinkingTextMessageContentEvent] instead.
 @Deprecated(
-  'Not part of the canonical AG-UI protocol. '
+  'Dart-only legacy: never part of the canonical AG-UI protocol '
+  '(TypeScript/Python). '
   'Use ThinkingTextMessageContentEvent instead. '
   'Scheduled for removal in 1.0.0.',
 )
 final class ThinkingContentEvent extends BaseEvent {
   final String delta;
 
+  @Deprecated(
+    'Dart-only legacy: never part of the canonical AG-UI protocol '
+    '(TypeScript/Python). '
+    'Use ThinkingTextMessageContentEvent instead. '
+    'Scheduled for removal in 1.0.0.',
+  )
   const ThinkingContentEvent({
     required this.delta,
     super.timestamp,
@@ -704,18 +743,21 @@ final class ToolCallStartEvent extends BaseEvent {
     if (parentMessageId != null) 'parentMessageId': parentMessageId,
   };
 
+  // See `_Unset` (top of file) for the sentinel rationale.
   @override
   ToolCallStartEvent copyWith({
     String? toolCallId,
     String? toolCallName,
-    String? parentMessageId,
+    Object? parentMessageId = _unsetCopyWith,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return ToolCallStartEvent(
       toolCallId: toolCallId ?? this.toolCallId,
       toolCallName: toolCallName ?? this.toolCallName,
-      parentMessageId: parentMessageId ?? this.parentMessageId,
+      parentMessageId: identical(parentMessageId, _unsetCopyWith)
+          ? this.parentMessageId
+          : parentMessageId as String?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -735,13 +777,23 @@ final class ToolCallArgsEvent extends BaseEvent {
   }) : super(eventType: EventType.toolCallArgs);
 
   factory ToolCallArgsEvent.fromJson(Map<String, dynamic> json) {
+    final toolCallId = JsonDecoder.requireEitherField<String>(
+      json,
+      'toolCallId',
+      'tool_call_id',
+    );
+    final delta = JsonDecoder.requireField<String>(json, 'delta');
+    if (delta.isEmpty) {
+      throw AGUIValidationError(
+        message: 'Delta must not be an empty string',
+        field: 'delta',
+        value: delta,
+        json: json,
+      );
+    }
     return ToolCallArgsEvent(
-      toolCallId: JsonDecoder.requireEitherField<String>(
-        json,
-        'toolCallId',
-        'tool_call_id',
-      ),
-      delta: JsonDecoder.requireField<String>(json, 'delta'),
+      toolCallId: toolCallId,
+      delta: delta,
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
@@ -860,22 +912,60 @@ final class ToolCallChunkEvent extends BaseEvent {
     if (delta != null) 'delta': delta,
   };
 
+  // See `_Unset` (top of file) for the sentinel rationale.
   @override
   ToolCallChunkEvent copyWith({
-    String? toolCallId,
-    String? toolCallName,
-    String? parentMessageId,
-    String? delta,
+    Object? toolCallId = _unsetCopyWith,
+    Object? toolCallName = _unsetCopyWith,
+    Object? parentMessageId = _unsetCopyWith,
+    Object? delta = _unsetCopyWith,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return ToolCallChunkEvent(
-      toolCallId: toolCallId ?? this.toolCallId,
-      toolCallName: toolCallName ?? this.toolCallName,
-      parentMessageId: parentMessageId ?? this.parentMessageId,
-      delta: delta ?? this.delta,
+      toolCallId: identical(toolCallId, _unsetCopyWith)
+          ? this.toolCallId
+          : toolCallId as String?,
+      toolCallName: identical(toolCallName, _unsetCopyWith)
+          ? this.toolCallName
+          : toolCallName as String?,
+      parentMessageId: identical(parentMessageId, _unsetCopyWith)
+          ? this.parentMessageId
+          : parentMessageId as String?,
+      delta:
+          identical(delta, _unsetCopyWith) ? this.delta : delta as String?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
+    );
+  }
+}
+
+/// Role for tool-call result messages (aligned with the AG-UI protocol).
+///
+/// Currently a single-variant enum mirroring the canonical
+/// `Literal["tool"]` (Python) / `z.literal("tool")` (TypeScript). Modeled
+/// as an enum so a future role addition can land without churning every
+/// call site, and so producers cannot accidentally emit a free-form
+/// string like `'developer'` on a `TOOL_CALL_RESULT` event.
+enum ToolCallResultRole {
+  tool('tool');
+
+  final String value;
+  const ToolCallResultRole(this.value);
+
+  /// Parses [value] into a [ToolCallResultRole].
+  ///
+  /// Throws [ArgumentError] for unknown values. Callers decoding from the
+  /// wire should use `ToolCallResultEvent.fromJson`, which absorbs the
+  /// throw and falls back to [ToolCallResultRole.tool] so a future
+  /// server-side role does not tear down the SSE stream. Mirrors
+  /// `ReasoningMessageRole.fromString` and `TextMessageRole.fromString`.
+  static ToolCallResultRole fromString(String value) {
+    return ToolCallResultRole.values.firstWhere(
+      (role) => role.value == value,
+      orElse: () => throw ArgumentError(
+        'Invalid tool call result role: $value',
+      ),
     );
   }
 }
@@ -885,7 +975,7 @@ final class ToolCallResultEvent extends BaseEvent {
   final String messageId;
   final String toolCallId;
   final String content;
-  final String? role;
+  final ToolCallResultRole? role;
 
   const ToolCallResultEvent({
     required this.messageId,
@@ -897,6 +987,21 @@ final class ToolCallResultEvent extends BaseEvent {
   }) : super(eventType: EventType.toolCallResult);
 
   factory ToolCallResultEvent.fromJson(Map<String, dynamic> json) {
+    final roleStr = JsonDecoder.optionalField<String>(json, 'role');
+    ToolCallResultRole? role;
+    if (roleStr != null) {
+      try {
+        role = ToolCallResultRole.fromString(roleStr);
+      } on ArgumentError {
+        // Forward-compat: an unknown wire role falls back to `tool` so a
+        // future server-side role does not tear down the SSE stream.
+        // Mirrors `TextMessageStartEvent.fromJson` /
+        // `ReasoningMessageStartEvent.fromJson`. Narrow `on ArgumentError`
+        // (not `catch (e)`) preserves propagation of `AGUIValidationError`
+        // raised by `optionalField<String>` for a wrong-typed `role`.
+        role = ToolCallResultRole.tool;
+      }
+    }
     return ToolCallResultEvent(
       messageId: JsonDecoder.requireEitherField<String>(
         json,
@@ -909,7 +1014,7 @@ final class ToolCallResultEvent extends BaseEvent {
         'tool_call_id',
       ),
       content: JsonDecoder.requireField<String>(json, 'content'),
-      role: JsonDecoder.optionalField<String>(json, 'role'),
+      role: role,
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
@@ -921,7 +1026,7 @@ final class ToolCallResultEvent extends BaseEvent {
     'messageId': messageId,
     'toolCallId': toolCallId,
     'content': content,
-    if (role != null) 'role': role,
+    if (role != null) 'role': role!.value,
   };
 
   @override
@@ -929,7 +1034,7 @@ final class ToolCallResultEvent extends BaseEvent {
     String? messageId,
     String? toolCallId,
     String? content,
-    String? role,
+    ToolCallResultRole? role,
     int? timestamp,
     dynamic rawEvent,
   }) {
@@ -1151,9 +1256,12 @@ final class ActivitySnapshotEvent extends BaseEvent {
     'messageId': messageId,
     'activityType': activityType,
     'content': content,
+    // Always emitted, even when default `true`; see class dartdoc for the
+    // round-trip rationale and the `event_test.dart` assertion that pins it.
     'replace': replace,
   };
 
+  // See `_Unset` (top of file) for the sentinel rationale.
   @override
   ActivitySnapshotEvent copyWith({
     String? messageId,
@@ -1270,15 +1378,16 @@ final class RawEvent extends BaseEvent {
     if (source != null) 'source': source,
   };
 
+  // See `_Unset` (top of file) for the sentinel rationale.
   @override
   RawEvent copyWith({
-    dynamic event,
+    Object? event = _unsetCopyWith,
     String? source,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return RawEvent(
-      event: event ?? this.event,
+      event: identical(event, _unsetCopyWith) ? this.event : event,
       source: source ?? this.source,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
@@ -1324,16 +1433,17 @@ final class CustomEvent extends BaseEvent {
     'value': value,
   };
 
+  // See `_Unset` (top of file) for the sentinel rationale.
   @override
   CustomEvent copyWith({
     String? name,
-    dynamic value,
+    Object? value = _unsetCopyWith,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return CustomEvent(
       name: name ?? this.name,
-      value: value ?? this.value,
+      value: identical(value, _unsetCopyWith) ? this.value : value,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -1348,15 +1458,23 @@ final class CustomEvent extends BaseEvent {
 final class RunStartedEvent extends BaseEvent {
   final String threadId;
   final String runId;
+  final String? parentRunId;
+  final RunAgentInput? input;
 
   const RunStartedEvent({
     required this.threadId,
     required this.runId,
+    this.parentRunId,
+    this.input,
     super.timestamp,
     super.rawEvent,
   }) : super(eventType: EventType.runStarted);
 
   factory RunStartedEvent.fromJson(Map<String, dynamic> json) {
+    final inputJson = JsonDecoder.optionalField<Map<String, dynamic>>(
+      json,
+      'input',
+    );
     return RunStartedEvent(
       threadId: JsonDecoder.requireEitherField<String>(
         json,
@@ -1368,6 +1486,12 @@ final class RunStartedEvent extends BaseEvent {
         'runId',
         'run_id',
       ),
+      parentRunId: JsonDecoder.optionalEitherField<String>(
+        json,
+        'parentRunId',
+        'parent_run_id',
+      ),
+      input: inputJson == null ? null : RunAgentInput.fromJson(inputJson),
       timestamp: JsonDecoder.optionalField<int>(json, 'timestamp'),
       rawEvent: json['rawEvent'],
     );
@@ -1378,18 +1502,29 @@ final class RunStartedEvent extends BaseEvent {
     ...super.toJson(),
     'threadId': threadId,
     'runId': runId,
+    if (parentRunId != null) 'parentRunId': parentRunId,
+    if (input != null) 'input': input!.toJson(),
   };
 
+  // See `_Unset` (top of file) for the sentinel rationale.
   @override
   RunStartedEvent copyWith({
     String? threadId,
     String? runId,
+    Object? parentRunId = _unsetCopyWith,
+    Object? input = _unsetCopyWith,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return RunStartedEvent(
       threadId: threadId ?? this.threadId,
       runId: runId ?? this.runId,
+      parentRunId: identical(parentRunId, _unsetCopyWith)
+          ? this.parentRunId
+          : parentRunId as String?,
+      input: identical(input, _unsetCopyWith)
+          ? this.input
+          : input as RunAgentInput?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -1436,18 +1571,19 @@ final class RunFinishedEvent extends BaseEvent {
     if (result != null) 'result': result,
   };
 
+  // See `_Unset` (top of file) for the sentinel rationale.
   @override
   RunFinishedEvent copyWith({
     String? threadId,
     String? runId,
-    dynamic result,
+    Object? result = _unsetCopyWith,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return RunFinishedEvent(
       threadId: threadId ?? this.threadId,
       runId: runId ?? this.runId,
-      result: result ?? this.result,
+      result: identical(result, _unsetCopyWith) ? this.result : result,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -1616,6 +1752,10 @@ enum ReasoningMessageRole {
 
 /// Subtype for [ReasoningEncryptedValueEvent].
 enum ReasoningEncryptedValueSubtype {
+  /// Wire spelling is `'tool-call'` with a hyphen — canonical across the
+  /// AG-UI protocol (Python `Literal["tool-call"]`, TypeScript
+  /// `z.literal("tool-call")`). The Dart symbol is `toolCall`; the dash is
+  /// intentional, not a typo.
   toolCall('tool-call'),
   message('message');
 
@@ -1895,16 +2035,20 @@ final class ReasoningMessageChunkEvent extends BaseEvent {
     if (delta != null) 'delta': delta,
   };
 
+  // See `_Unset` (top of file) for the sentinel rationale.
   @override
   ReasoningMessageChunkEvent copyWith({
-    String? messageId,
-    String? delta,
+    Object? messageId = _unsetCopyWith,
+    Object? delta = _unsetCopyWith,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return ReasoningMessageChunkEvent(
-      messageId: messageId ?? this.messageId,
-      delta: delta ?? this.delta,
+      messageId: identical(messageId, _unsetCopyWith)
+          ? this.messageId
+          : messageId as String?,
+      delta:
+          identical(delta, _unsetCopyWith) ? this.delta : delta as String?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );

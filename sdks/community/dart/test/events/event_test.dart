@@ -131,6 +131,59 @@ void main() {
         expect(decoded.messageId, 'msg_001');
         expect(decoded.delta, 'partial');
       });
+
+      test('TextMessageStartEvent preserves name across round-trip', () {
+        // Regression guard for #1018: pre-PR `name` was silently dropped
+        // on decode. Now decode/re-encode preserves the field, and
+        // omitting it round-trips as absent (no `'name': null`).
+        final withName = TextMessageStartEvent.fromJson({
+          'type': 'TEXT_MESSAGE_START',
+          'messageId': 'msg_001',
+          'role': 'assistant',
+          'name': 'tool_response',
+        });
+        expect(withName.name, 'tool_response');
+        expect(withName.toJson()['name'], 'tool_response');
+
+        final withoutName = TextMessageStartEvent.fromJson({
+          'type': 'TEXT_MESSAGE_START',
+          'messageId': 'msg_002',
+          'role': 'assistant',
+        });
+        expect(withoutName.name, isNull);
+        expect(withoutName.toJson().containsKey('name'), false);
+      });
+
+      test('TextMessageChunkEvent preserves name across round-trip', () {
+        // Same parity fix as TextMessageStartEvent. `name` on chunk is
+        // optional; presence/absence must round-trip cleanly.
+        final withName = TextMessageChunkEvent.fromJson({
+          'type': 'TEXT_MESSAGE_CHUNK',
+          'messageId': 'msg_001',
+          'name': 'tool_response',
+          'delta': 'hello',
+        });
+        expect(withName.name, 'tool_response');
+        expect(withName.toJson()['name'], 'tool_response');
+
+        final withoutName = TextMessageChunkEvent.fromJson({
+          'type': 'TEXT_MESSAGE_CHUNK',
+          'messageId': 'msg_002',
+          'delta': 'hello',
+        });
+        expect(withoutName.name, isNull);
+        expect(withoutName.toJson().containsKey('name'), false);
+      });
+
+      test('TextMessageStartEvent.copyWith(name: null) clears name', () {
+        // Sentinel-pattern verification — `name` uses `_unsetCopyWith`.
+        final event = TextMessageStartEvent(
+          messageId: 'msg_001',
+          name: 'foo',
+        );
+        expect(event.copyWith(name: null).name, isNull);
+        expect(event.copyWith().name, 'foo');
+      });
     });
 
     group('ToolCallEvents', () {
@@ -204,14 +257,81 @@ void main() {
           messageId: 'msg_001',
           toolCallId: 'call_001',
           content: 'Weather: Sunny, 72°F',
-          role: 'tool',
+          role: ToolCallResultRole.tool,
         );
 
         final json = event.toJson();
         expect(json['role'], 'tool');
 
         final decoded = ToolCallResultEvent.fromJson(json);
-        expect(decoded.role, 'tool');
+        expect(decoded.role, ToolCallResultRole.tool);
+      });
+
+      test('ToolCallResultEvent absorbs unknown wire role', () {
+        // Forward-compat: an unknown role on the wire falls back to
+        // `tool` so the stream stays alive. Mirrors `TextMessageRole` /
+        // `ReasoningMessageRole` semantics — see
+        // `dart-enum-parsing-safety.md`.
+        final decoded = ToolCallResultEvent.fromJson({
+          'type': 'TOOL_CALL_RESULT',
+          'messageId': 'msg_001',
+          'toolCallId': 'call_001',
+          'content': 'ok',
+          'role': 'developer',
+        });
+        expect(decoded.role, ToolCallResultRole.tool);
+      });
+
+      test('ToolCallStartEvent.copyWith(parentMessageId: null) clears it', () {
+        // Sentinel-pattern verification for `parentMessageId`.
+        final event = ToolCallStartEvent(
+          toolCallId: 'call_001',
+          toolCallName: 'get_weather',
+          parentMessageId: 'msg_001',
+        );
+        expect(event.copyWith(parentMessageId: null).parentMessageId, isNull);
+        expect(event.copyWith().parentMessageId, 'msg_001');
+      });
+
+      test('ToolCallArgsEvent rejects empty delta at factory boundary', () {
+        // Symmetric with TextMessageContentEvent / Thinking*Content /
+        // ReasoningMessageContent: empty `delta` is a contract violation
+        // and must surface from `fromJson`, not only from
+        // `EventDecoder.validate`. Direct factory callers see the same
+        // failure mode as decoder-pipeline callers.
+        expect(
+          () => ToolCallArgsEvent.fromJson({
+            'type': 'TOOL_CALL_ARGS',
+            'toolCallId': 'call_001',
+            'delta': '',
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
+      test('ToolCallChunkEvent allows all-optional payload', () {
+        // Pins the deliberate `case ToolCallChunkEvent(): break;` in
+        // `EventDecoder.validate` (decoder.dart). An entirely empty chunk
+        // is a valid wire shape; it round-trips and survives the decoder
+        // boundary. Mirrors the equivalent assertion for
+        // `ReasoningMessageChunkEvent`.
+        final empty = ToolCallChunkEvent();
+        final emptyJson = empty.toJson();
+        expect(emptyJson['type'], 'TOOL_CALL_CHUNK');
+        expect(emptyJson.containsKey('toolCallId'), false);
+        expect(emptyJson.containsKey('toolCallName'), false);
+        expect(emptyJson.containsKey('parentMessageId'), false);
+        expect(emptyJson.containsKey('delta'), false);
+
+        final decoded = ToolCallChunkEvent.fromJson(emptyJson);
+        expect(decoded.toolCallId, isNull);
+        expect(decoded.toolCallName, isNull);
+        expect(decoded.parentMessageId, isNull);
+        expect(decoded.delta, isNull);
+
+        const decoder = EventDecoder();
+        final viaDecoder = decoder.decodeJson({'type': 'TOOL_CALL_CHUNK'});
+        expect(viaDecoder, isA<ToolCallChunkEvent>());
       });
     });
 
@@ -318,6 +438,24 @@ void main() {
         expect(decoded.result, result);
       });
 
+      test('RunFinishedEvent.copyWith(result: null) clears the result', () {
+        // The sentinel pattern lets a caller intentionally clear `result`,
+        // matching the factory contract (which already accepts an absent
+        // / null `result`).
+        final original = RunFinishedEvent(
+          threadId: 't',
+          runId: 'r',
+          result: {'status': 'success'},
+        );
+        final keep = original.copyWith();
+        expect(keep.result, equals({'status': 'success'}));
+
+        final cleared = original.copyWith(result: null);
+        expect(cleared.result, isNull);
+        expect(cleared.threadId, equals('t'));
+        expect(cleared.runId, equals('r'));
+      });
+
       test('RunErrorEvent with error code', () {
         final event = RunErrorEvent(
           message: 'Something went wrong',
@@ -351,6 +489,94 @@ void main() {
 
         final stepEnd = StepFinishedEvent.fromJson(stepEndCamel);
         expect(stepEnd.stepName, 'processing');
+      });
+
+      test('RunStartedEvent preserves parentRunId and input across round-trip',
+          () {
+        // Regression guard for #1018: pre-PR `parentRunId` and `input`
+        // were silently dropped on decode. Both fields now round-trip,
+        // including via the camelCase and snake_case wire spellings for
+        // `parentRunId`. `input` itself has no snake_case variant for the
+        // event-level key (single-word).
+        final inputJson = {
+          'threadId': 'tid',
+          'runId': 'rid',
+          'messages': <Map<String, dynamic>>[],
+          'tools': <Map<String, dynamic>>[],
+          'context': <Map<String, dynamic>>[],
+        };
+        final camelJson = {
+          'type': 'RUN_STARTED',
+          'threadId': 'tid',
+          'runId': 'rid',
+          'parentRunId': 'parent_rid',
+          'input': inputJson,
+        };
+        final fromCamel = RunStartedEvent.fromJson(camelJson);
+        expect(fromCamel.parentRunId, 'parent_rid');
+        expect(fromCamel.input, isNotNull);
+        expect(fromCamel.input!.threadId, 'tid');
+        expect(fromCamel.input!.runId, 'rid');
+
+        final reEmitted = fromCamel.toJson();
+        expect(reEmitted['parentRunId'], 'parent_rid');
+        expect(reEmitted['input'], isA<Map<String, dynamic>>());
+        expect(reEmitted['input']['threadId'], 'tid');
+
+        // snake_case parity for parentRunId
+        final snakeJson = {
+          'type': 'RUN_STARTED',
+          'thread_id': 'tid2',
+          'run_id': 'rid2',
+          'parent_run_id': 'parent_rid2',
+        };
+        final fromSnake = RunStartedEvent.fromJson(snakeJson);
+        expect(fromSnake.parentRunId, 'parent_rid2');
+        expect(fromSnake.input, isNull);
+
+        // omitted parent / input → both null and omitted from toJson
+        final minimal = RunStartedEvent.fromJson({
+          'type': 'RUN_STARTED',
+          'threadId': 'tid3',
+          'runId': 'rid3',
+        });
+        expect(minimal.parentRunId, isNull);
+        expect(minimal.input, isNull);
+        expect(minimal.toJson().containsKey('parentRunId'), false);
+        expect(minimal.toJson().containsKey('input'), false);
+      });
+
+      test('RunStartedEvent.copyWith(parentRunId: null) clears parentRunId',
+          () {
+        // Sentinel-pattern verification: per `_Unset` dartdoc, passing
+        // `null` to a sentinel-using `copyWith` parameter MUST clear the
+        // field, distinct from "argument omitted" which keeps it.
+        final event = RunStartedEvent(
+          threadId: 'tid',
+          runId: 'rid',
+          parentRunId: 'pid',
+        );
+        expect(event.copyWith(parentRunId: null).parentRunId, isNull);
+        // Argument omitted → parentRunId preserved
+        expect(event.copyWith().parentRunId, 'pid');
+      });
+
+      test('RunStartedEvent.copyWith(input: null) clears input', () {
+        final input = RunAgentInput(
+          threadId: 'tid',
+          runId: 'rid',
+          messages: const [],
+          tools: const [],
+          context: const [],
+        );
+        final event = RunStartedEvent(
+          threadId: 'tid',
+          runId: 'rid',
+          input: input,
+        );
+        expect(event.copyWith(input: null).input, isNull);
+        // Argument omitted → input preserved
+        expect(event.copyWith().input, isNotNull);
       });
     });
 
@@ -391,6 +617,87 @@ void main() {
           () => BaseEvent.fromJson(json),
           throwsA(isA<AGUIValidationError>()),
         );
+      });
+
+      test('every event toJson preserves the type discriminator after spread',
+          () {
+        // Pins the invariant that `BaseEvent.toJson` emits `'type':
+        // eventType.value` AND that no subclass `toJson` ever shadows it
+        // via `...super.toJson()` spread. A future subclass that
+        // accidentally adds a `'type'` key would silently overwrite the
+        // discriminator and the analyzer wouldn't catch it — this test
+        // would fail concretely. See `dart-sealed-classes-json-serialization.md`
+        // ("`toJson()` that uses spread `...super.toJson()` will overwrite
+        // the base's discriminator key").
+        final samples = <BaseEvent>[
+          TextMessageStartEvent(messageId: 'm'),
+          TextMessageContentEvent(messageId: 'm', delta: 'd'),
+          TextMessageEndEvent(messageId: 'm'),
+          TextMessageChunkEvent(),
+          ThinkingTextMessageStartEvent(),
+          ThinkingTextMessageContentEvent(delta: 'd'),
+          ThinkingTextMessageEndEvent(),
+          ToolCallStartEvent(toolCallId: 'c', toolCallName: 'n'),
+          ToolCallArgsEvent(toolCallId: 'c', delta: 'd'),
+          ToolCallEndEvent(toolCallId: 'c'),
+          ToolCallChunkEvent(),
+          ToolCallResultEvent(
+            messageId: 'm',
+            toolCallId: 'c',
+            content: 'ok',
+          ),
+          ThinkingStartEvent(),
+          ThinkingEndEvent(),
+          StateSnapshotEvent(snapshot: <String, dynamic>{}),
+          StateDeltaEvent(delta: const []),
+          MessagesSnapshotEvent(messages: const []),
+          ActivitySnapshotEvent(
+            messageId: 'm',
+            activityType: 't',
+            content: null,
+          ),
+          ActivityDeltaEvent(
+            messageId: 'm',
+            activityType: 't',
+            patch: const [],
+          ),
+          RawEvent(event: const {'k': 'v'}),
+          CustomEvent(name: 'n', value: 'v'),
+          RunStartedEvent(threadId: 'tid', runId: 'rid'),
+          RunFinishedEvent(threadId: 'tid', runId: 'rid'),
+          RunErrorEvent(message: 'oops'),
+          StepStartedEvent(stepName: 's'),
+          StepFinishedEvent(stepName: 's'),
+          ReasoningStartEvent(messageId: 'm'),
+          ReasoningMessageStartEvent(messageId: 'm'),
+          ReasoningMessageContentEvent(messageId: 'm', delta: 'd'),
+          ReasoningMessageEndEvent(messageId: 'm'),
+          ReasoningMessageChunkEvent(),
+          ReasoningEndEvent(messageId: 'm'),
+          ReasoningEncryptedValueEvent(
+            subtype: ReasoningEncryptedValueSubtype.message,
+            entityId: 'e',
+            encryptedValue: 'v',
+          ),
+        ];
+
+        for (final e in samples) {
+          expect(
+            e.toJson()['type'],
+            equals(e.eventType.value),
+            reason:
+                'discriminator must survive ...super.toJson() spread for ${e.runtimeType}',
+          );
+        }
+
+        // Sanity: the sample list covers every non-deprecated EventType.
+        // (`thinkingContent` is intentionally omitted — it is deprecated and
+        // already covered by the `'deprecated ThinkingContentEvent still
+        // round-trips'` test in this file.)
+        final coveredTypes = samples.map((e) => e.eventType).toSet();
+        // ignore: deprecated_member_use_from_same_package
+        final expectedTypes = EventType.values.toSet()..remove(EventType.thinkingContent);
+        expect(coveredTypes, equals(expectedTypes));
       });
     });
 
@@ -489,6 +796,32 @@ void main() {
         expect(decoded.name, 'ui_config_change');
         expect(decoded.value, customValue);
       });
+
+      test('RawEvent.copyWith(event: null) clears the payload', () {
+        // The sentinel pattern (mirroring `ActivitySnapshotEvent.content`)
+        // distinguishes "argument omitted" from "argument explicitly
+        // null", so an explicit null actually clears the field.
+        final original = RawEvent(
+          event: {'foo': 'bar'},
+          source: 'agent',
+        );
+        final keep = original.copyWith();
+        expect(keep.event, equals({'foo': 'bar'}));
+
+        final cleared = original.copyWith(event: null);
+        expect(cleared.event, isNull);
+        expect(cleared.source, equals('agent'));
+      });
+
+      test('CustomEvent.copyWith(value: null) clears the payload', () {
+        final original = CustomEvent(name: 'evt', value: 42);
+        final keep = original.copyWith();
+        expect(keep.value, equals(42));
+
+        final cleared = original.copyWith(value: null);
+        expect(cleared.value, isNull);
+        expect(cleared.name, equals('evt'));
+      });
     });
 
     group('ActivityEvents', () {
@@ -530,6 +863,23 @@ void main() {
 
         final decoded = ActivitySnapshotEvent.fromJson(json);
         expect(decoded.replace, true);
+      });
+
+      test('ActivitySnapshotEvent treats explicit-null replace as default-true',
+          () {
+        // `optionalField<bool>` returns null for both an absent key and
+        // an explicit-null value; the `?? true` coercion at the factory
+        // pins the documented behavior. This test locks the contract so
+        // a future change to `optionalField<bool>` semantics doesn't
+        // silently drift.
+        final decoded = ActivitySnapshotEvent.fromJson({
+          'type': 'ACTIVITY_SNAPSHOT',
+          'messageId': 'msg_001',
+          'activityType': 'task.run',
+          'content': null,
+          'replace': null,
+        });
+        expect(decoded.replace, isTrue);
       });
 
       test('ActivitySnapshotEvent accepts snake_case (Python server)', () {
@@ -827,6 +1177,21 @@ void main() {
         expect(pjson['delta'], 'partial');
       });
 
+      test('ReasoningMessageChunkEvent.copyWith(delta: null) clears delta',
+          () {
+        // Sentinel-pattern verification for both `messageId` and `delta`.
+        final event = ReasoningMessageChunkEvent(
+          messageId: 'msg_r5',
+          delta: 'partial',
+        );
+        expect(event.copyWith(delta: null).delta, isNull);
+        expect(event.copyWith(messageId: null).messageId, isNull);
+        // Argument omitted preserves both
+        final cloned = event.copyWith();
+        expect(cloned.messageId, 'msg_r5');
+        expect(cloned.delta, 'partial');
+      });
+
       test('ReasoningEndEvent serialization round-trip', () {
         final event = ReasoningEndEvent(messageId: 'msg_r6');
 
@@ -892,6 +1257,14 @@ void main() {
       test(
           'ReasoningMessageStartEvent falls back to `reasoning` for an '
           'unknown role (forward-compat, no stream tear-down)', () {
+        // `ReasoningMessageRole` is currently a single-variant enum
+        // mirroring the canonical `Literal["reasoning"]` in the Python
+        // and TypeScript SDKs (see the dartdoc on `ReasoningMessageRole`
+        // in `lib/src/events/events.dart`). The forward-compat machinery
+        // — `fromString` throw + factory absorb + fallback — therefore
+        // exercises a path that cannot legitimately fire today, but
+        // pins the contract for the day a future spec adds a second
+        // role value. Do not delete this as tautological.
         final decoded = ReasoningMessageStartEvent.fromJson({
           'type': 'REASONING_MESSAGE_START',
           'messageId': 'msg_r2',

@@ -198,8 +198,9 @@ class TestHelpers {
       json['messages'] = event.messages.map(_messageToJson).toList();
     } else if (event is TextMessageChunkEvent) {
       json['messageId'] = event.messageId;
-      // TextMessageChunkEvent stores content differently
-      // Will need to check the actual implementation
+      // Other chunk fields (`role`, `delta`, `name`) are intentionally
+      // omitted from this minimal helper; tests that need them build the
+      // JSON map directly rather than going through this round-tripper.
     } else if (event is ToolCallStartEvent) {
       json['toolCallId'] = event.toolCallId;
     }

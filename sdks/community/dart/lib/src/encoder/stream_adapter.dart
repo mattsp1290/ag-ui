@@ -4,7 +4,6 @@ library;
 import 'dart:async';
 
 import '../client/errors.dart';
-import '../client/validators.dart';
 import '../events/events.dart';
 import '../sse/sse_message.dart';
 import 'decoder.dart';
@@ -18,17 +17,14 @@ import 'decoder.dart';
 /// - Handle errors gracefully
 class EventStreamAdapter {
   final EventDecoder _decoder;
-  
-  /// Buffer for accumulating partial SSE data.
-  final StringBuffer _buffer = StringBuffer();
-  
-  /// Buffer for accumulating data field values (without "data: " prefix).
-  final StringBuffer _dataBuffer = StringBuffer();
-  
-  /// Whether we're currently in a multi-line data block.
-  bool _inDataBlock = false;
 
   /// Creates a new stream adapter with an optional custom decoder.
+  ///
+  /// SSE line-buffering state for [fromRawSseStream] lives in locals scoped
+  /// to each invocation, not on the adapter instance. This means the same
+  /// adapter can safely process multiple streams sequentially or
+  /// concurrently — abnormal termination of one stream cannot leak partial
+  /// `data:` payloads or a stale `inDataBlock` flag into the next.
   EventStreamAdapter({EventDecoder? decoder})
       : _decoder = decoder ?? const EventDecoder();
   
@@ -46,18 +42,29 @@ class EventStreamAdapter {
         // Array of events
         final events = <BaseEvent>[];
         for (var i = 0; i < jsonData.length; i++) {
-          if (jsonData[i] is Map<String, dynamic>) {
-            try {
-              events.add(_decoder.decodeJson(jsonData[i] as Map<String, dynamic>));
-            } catch (e) {
-              throw DecodingError(
-                'Failed to decode event at index $i',
-                field: 'jsonData[$i]',
-                expectedType: 'BaseEvent',
-                actualValue: jsonData[i],
-                cause: e,
-              );
-            }
+          final element = jsonData[i];
+          if (element is! Map<String, dynamic>) {
+            // Reject non-object elements explicitly so a list with a
+            // primitive or non-record entry produces a structured error
+            // naming the bad index, rather than silently skipping or
+            // throwing a `TypeError` swallowed by the catch-all below.
+            throw DecodingError(
+              'Expected JSON object at index $i',
+              field: 'jsonData[$i]',
+              expectedType: 'Map<String, dynamic>',
+              actualValue: element,
+            );
+          }
+          try {
+            events.add(_decoder.decodeJson(element));
+          } catch (e) {
+            throw DecodingError(
+              'Failed to decode event at index $i',
+              field: 'jsonData[$i]',
+              expectedType: 'BaseEvent',
+              actualValue: element,
+              cause: e,
+            );
           }
         }
         return events;
@@ -116,12 +123,9 @@ class EventStreamAdapter {
                 return;
               }
               
-              final event = _decoder.decode(data);
-              
-              // Validate event before adding to stream
-              if (_decoder.validate(event)) {
-                sink.add(event);
-              }
+              // `decode` already runs `validate` via `decodeJson`; no
+              // second pass needed here.
+              sink.add(_decoder.decode(data));
             }
             // Ignore non-data messages (id, event, retry, comments)
           } catch (e, stack) {
@@ -169,11 +173,101 @@ class EventStreamAdapter {
     void Function(Object error, StackTrace stackTrace)? onError,
   }) {
     final controller = StreamController<BaseEvent>(sync: true);
-    
+
+    // Per-invocation state. Keeping these local (not instance fields)
+    // ensures abnormal termination of one stream cannot leak partial
+    // `data:` payloads or a stale `inDataBlock` flag into a subsequent
+    // invocation on the same adapter.
+    final buffer = StringBuffer();
+    final dataBuffer = StringBuffer();
+    var inDataBlock = false;
+
+    void processChunk(String chunk) {
+      // Add chunk to buffer to handle partial lines
+      buffer.write(chunk);
+
+      // Process complete lines only
+      String bufferStr = buffer.toString();
+      final lines = <String>[];
+
+      // Extract complete lines (those ending with \n)
+      while (bufferStr.contains('\n')) {
+        final lineEnd = bufferStr.indexOf('\n');
+        final line = bufferStr.substring(0, lineEnd);
+        lines.add(line);
+        bufferStr = bufferStr.substring(lineEnd + 1);
+      }
+
+      // Keep any incomplete line in the buffer
+      buffer.clear();
+      buffer.write(bufferStr);
+
+      // Process each complete line
+      for (final line in lines) {
+        if (line.isEmpty) {
+          // Empty line signals end of SSE message
+          if (inDataBlock) {
+            final data = dataBuffer.toString();
+            dataBuffer.clear();
+            inDataBlock = false;
+
+            if (data.isNotEmpty && data.trim() != ':') {
+              try {
+                // `decode` already runs `validate` via `decodeJson`; no
+                // second pass needed here.
+                controller.add(_decoder.decode(data));
+              } catch (e, stack) {
+                final error = e is AgUiError
+                    ? e
+                    : DecodingError(
+                        'Failed to decode SSE data',
+                        field: 'data',
+                        expectedType: 'BaseEvent',
+                        actualValue: data,
+                        cause: e,
+                      );
+
+                if (!skipInvalidEvents) {
+                  controller.addError(error, stack);
+                } else {
+                  onError?.call(error, stack);
+                }
+              }
+            }
+          }
+        } else if (line.startsWith('data: ')) {
+          // Extract data value (after "data: ")
+          final value = line.substring(6);
+          if (inDataBlock) {
+            // Multi-line data: add newline between lines
+            dataBuffer.write('\n');
+            dataBuffer.write(value);
+          } else {
+            // Start new data block
+            dataBuffer.clear();
+            dataBuffer.write(value);
+            inDataBlock = true;
+          }
+        } else if (line.startsWith('data:')) {
+          // Handle no space after colon
+          final value = line.substring(5);
+          if (inDataBlock) {
+            dataBuffer.write('\n');
+            dataBuffer.write(value);
+          } else {
+            dataBuffer.clear();
+            dataBuffer.write(value);
+            inDataBlock = true;
+          }
+        }
+        // Ignore other lines (comments, event:, id:, retry:, etc.)
+      }
+    }
+
     rawStream.listen(
       (chunk) {
         try {
-          _processChunk(chunk, controller, skipInvalidEvents, onError);
+          processChunk(chunk);
         } catch (e, stack) {
           if (!skipInvalidEvents) {
             controller.addError(e, stack);
@@ -191,35 +285,35 @@ class EventStreamAdapter {
       },
       onDone: () {
         // Process any remaining incomplete line in buffer
-        final remaining = _buffer.toString();
+        final remaining = buffer.toString();
         if (remaining.isNotEmpty) {
           // Treat remaining content as a complete line
           if (remaining.startsWith('data: ')) {
             final value = remaining.substring(6);
-            if (_inDataBlock) {
-              _dataBuffer.write('\n');
-              _dataBuffer.write(value);
+            if (inDataBlock) {
+              dataBuffer.write('\n');
+              dataBuffer.write(value);
             } else {
-              _dataBuffer.clear();
-              _dataBuffer.write(value);
-              _inDataBlock = true;
+              dataBuffer.clear();
+              dataBuffer.write(value);
+              inDataBlock = true;
             }
           } else if (remaining.startsWith('data:')) {
             final value = remaining.substring(5);
-            if (_inDataBlock) {
-              _dataBuffer.write('\n');
-              _dataBuffer.write(value);
+            if (inDataBlock) {
+              dataBuffer.write('\n');
+              dataBuffer.write(value);
             } else {
-              _dataBuffer.clear();
-              _dataBuffer.write(value);
-              _inDataBlock = true;
+              dataBuffer.clear();
+              dataBuffer.write(value);
+              inDataBlock = true;
             }
           }
         }
-        
+
         // Process any accumulated data
-        if (_inDataBlock && _dataBuffer.isNotEmpty) {
-          final data = _dataBuffer.toString();
+        if (inDataBlock && dataBuffer.isNotEmpty) {
+          final data = dataBuffer.toString();
           try {
             final event = _decoder.decode(data);
             controller.add(event);
@@ -231,103 +325,12 @@ class EventStreamAdapter {
             }
           }
         }
-        // Clear buffers
-        _buffer.clear();
-        _dataBuffer.clear();
-        _inDataBlock = false;
         controller.close();
       },
       cancelOnError: false,
     );
-    
-    return controller.stream;
-  }
 
-  /// Process a chunk of SSE data.
-  void _processChunk(
-    String chunk,
-    StreamController<BaseEvent> controller,
-    bool skipInvalidEvents,
-    void Function(Object error, StackTrace stackTrace)? onError,
-  ) {
-    // Add chunk to buffer to handle partial lines
-    _buffer.write(chunk);
-    
-    // Process complete lines only
-    String bufferStr = _buffer.toString();
-    final lines = <String>[];
-    
-    // Extract complete lines (those ending with \n)
-    while (bufferStr.contains('\n')) {
-      final lineEnd = bufferStr.indexOf('\n');
-      final line = bufferStr.substring(0, lineEnd);
-      lines.add(line);
-      bufferStr = bufferStr.substring(lineEnd + 1);
-    }
-    
-    // Keep any incomplete line in the buffer
-    _buffer.clear();
-    _buffer.write(bufferStr);
-    
-    // Process each complete line
-    for (final line in lines) {
-      if (line.isEmpty) {
-        // Empty line signals end of SSE message
-        if (_inDataBlock) {
-          final data = _dataBuffer.toString();
-          _dataBuffer.clear();
-          _inDataBlock = false;
-          
-          if (data.isNotEmpty && data.trim() != ':') {
-            try {
-              final event = _decoder.decode(data);
-              if (_decoder.validate(event)) {
-                controller.add(event);
-              }
-            } catch (e, stack) {
-              final error = e is AgUiError ? e : DecodingError(
-                'Failed to decode SSE data',
-                field: 'data',
-                expectedType: 'BaseEvent',
-                actualValue: data,
-                cause: e,
-              );
-              
-              if (!skipInvalidEvents) {
-                controller.addError(error, stack);
-              } else {
-                onError?.call(error, stack);
-              }
-            }
-          }
-        }
-      } else if (line.startsWith('data: ')) {
-        // Extract data value (after "data: ")
-        final value = line.substring(6);
-        if (_inDataBlock) {
-          // Multi-line data: add newline between lines
-          _dataBuffer.write('\n');
-          _dataBuffer.write(value);
-        } else {
-          // Start new data block
-          _dataBuffer.clear();
-          _dataBuffer.write(value);
-          _inDataBlock = true;
-        }
-      } else if (line.startsWith('data:')) {
-        // Handle no space after colon
-        final value = line.substring(5);
-        if (_inDataBlock) {
-          _dataBuffer.write('\n');
-          _dataBuffer.write(value);
-        } else {
-          _dataBuffer.clear();
-          _dataBuffer.write(value);
-          _inDataBlock = true;
-        }
-      }
-      // Ignore other lines (comments, event:, id:, retry:, etc.)
-    }
+    return controller.stream;
   }
 
   /// Filters a stream of events to only include specific event types.

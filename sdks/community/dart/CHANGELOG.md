@@ -21,6 +21,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - `ReasoningEndEvent` (`REASONING_END`)
   - `ReasoningEncryptedValueEvent` (`REASONING_ENCRYPTED_VALUE`)
 - Supporting enums: `ReasoningMessageRole`, `ReasoningEncryptedValueSubtype`.
+- Field-level parity for canonical events that previously dropped wire data
+  on decode: `TextMessageStartEvent.name`, `TextMessageChunkEvent.name`,
+  `RunStartedEvent.parentRunId`, and `RunStartedEvent.input` are now decoded
+  and re-emitted by `toJson` so a Dart proxy preserves upstream metadata.
 - All event `fromJson` factories now accept both camelCase (TypeScript
   server) and snake_case (Python server) field keys, including the
   pre-existing `TextMessage*` and `ToolCall*` events that were previously
@@ -50,12 +54,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   instead of leaking the raw `ArgumentError` from
   `ReasoningEncryptedValueSubtype.fromString`. The `EventDecoder`
   pipeline still surfaces it as `DecodingError`.
-- `ActivitySnapshotEvent.copyWith` now uses an internal sentinel for the
-  `content` parameter so callers can intentionally clear it to `null`
-  (matching the factory contract that already accepted explicit-null
-  `content`). Other `copyWith` methods retain the standard
-  `?? this.field` pattern; the broader sentinel sweep remains
-  scheduled for a future release (see Known parity gaps).
+- `ActivitySnapshotEvent.copyWith` (`content`), `RawEvent.copyWith`
+  (`event`), `CustomEvent.copyWith` (`value`), and
+  `RunFinishedEvent.copyWith` (`result`) now use an internal sentinel
+  parameter so callers can intentionally clear the field to `null`
+  (matching each factory contract that already accepted explicit-null
+  payloads). Other `copyWith` methods retain the standard
+  `?? this.field` pattern (see Known parity gaps).
+- `EventDecoder.decodeJson` now wraps `AGUIValidationError` (thrown by
+  `fromJson` factories) explicitly so the resulting `DecodingError`
+  preserves the original failing field — `role`, `messageId`,
+  `subtype`, etc. — instead of flattening to `field: 'json'`. Pre-fix,
+  the wrapper relied on the `AgUiError`-based catch path, which
+  `AGUIValidationError` (which only `implements Exception`) bypassed.
+- `EventDecoder.validate` now rejects an empty `messageId` on
+  `TextMessageEndEvent`, restoring symmetry with `TextMessageStartEvent`
+  and `TextMessageContentEvent` (and the new reasoning-end events).
 
 ### Deprecated
 - `EventType.thinkingContent` and `ThinkingContentEvent` — not part of the
@@ -64,18 +78,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backward compatibility; scheduled for removal in 1.0.0.
 
 ### Known parity gaps (follow-up)
-- `RunStartedEvent` does not yet expose `parentRunId` / `input`, and
-  `TextMessageStartEvent` / `TextMessageChunkEvent` do not yet expose
-  `name`. These are present in the Python and TypeScript SDKs and will be
-  added in a follow-up PR; until then, those wire fields are silently
-  dropped on decode.
-- `copyWith` on most event types with nullable payload fields still uses
-  the standard `?? this.field` pattern, which cannot distinguish
-  "omitted" from "set to null" — passing `copyWith(field: null)` keeps
-  the existing value. `ActivitySnapshotEvent.copyWith` adopts the
-  sentinel pattern for `content`; a broader sweep across the rest of the
-  sealed hierarchy (notably `RawEvent`, `CustomEvent`, `RunFinishedEvent`)
-  is planned for a future release.
+- `copyWith` on some event types with nullable payload fields still uses
+  the standard `?? this.field` pattern, which cannot distinguish "omitted"
+  from "set to null" — passing `copyWith(field: null)` keeps the existing
+  value. The sentinel pattern is now in place for
+  `ActivitySnapshotEvent.content`, `RawEvent.event`, `CustomEvent.value`,
+  `RunFinishedEvent.result`, the optional fields of
+  `TextMessageStartEvent` / `TextMessageChunkEvent`,
+  `ToolCallStartEvent.parentMessageId`, the optional fields of
+  `ToolCallChunkEvent` and `ReasoningMessageChunkEvent`, and
+  `RunStartedEvent.parentRunId` / `RunStartedEvent.input`. The remaining
+  `?? this.field` cases are `ToolCallResultEvent.role`,
+  `StateSnapshotEvent.snapshot`, and `RunErrorEvent.code`. A sweep across
+  these is planned for a future release.
 
 ## [0.1.0] - 2025-01-21
 

@@ -223,7 +223,7 @@ void main() {
           messageId: 'msg123',
           toolCallId: 'tool456',
           content: 'Search results: ...',
-          role: 'tool',
+          role: ToolCallResultRole.tool,
         );
 
         final encoded = encoder.encodeSSE(originalEvent);

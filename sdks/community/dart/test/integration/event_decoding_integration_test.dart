@@ -318,7 +318,7 @@ void main() {
         
         final resultEvent = decodedEvents[3] as ToolCallResultEvent;
         expect(resultEvent.content, equals('Found 5 results'));
-        expect(resultEvent.role, equals('tool'));
+        expect(resultEvent.role, equals(ToolCallResultRole.tool));
       });
 
       test('decodes thinking events', () {
@@ -478,7 +478,11 @@ void main() {
         final textEvent = event as TextMessageStartEvent;
         expect(textEvent.messageId, equals('msg-1'));
         expect(textEvent.role, equals(TextMessageRole.assistant));
-        // Unknown fields are preserved in rawEvent if needed
+        // Unknown top-level fields are tolerated and ignored — the SDK
+        // does NOT preserve them on `rawEvent` (only `json['rawEvent']`
+        // populates that field). Re-encoding via `toJson` will drop
+        // `futureField` / `metadata`. If forward-preserve becomes a
+        // requirement, see the `BaseEvent.fromJson` factory.
       });
 
       test('validates required fields strictly', () {
@@ -505,6 +509,31 @@ void main() {
         // on invalid event type"). The two together pin down both seams.
         expect(
           () => decoder.decodeJson({'type': 'NOT_A_REAL_EVENT'}),
+          throwsA(isA<DecodingError>()),
+        );
+
+        // The wrapped `DecodingError.field` must preserve the original
+        // failing field name from `AGUIValidationError`, not collapse to
+        // `'json'`. Pin the contract on at least one factory-side
+        // failure so a future refactor can't silently regress.
+        expect(
+          () => decoder.decodeJson({
+            'type': 'REASONING_MESSAGE_START',
+            'messageId': 'msg-1',
+            // role intentionally omitted — required since 0.2.0
+          }),
+          throwsA(
+            isA<DecodingError>().having((e) => e.field, 'field', 'role'),
+          ),
+        );
+
+        // TEXT_MESSAGE_END with empty messageId must fail at the
+        // decoder boundary, matching TEXT_MESSAGE_START / _CONTENT.
+        expect(
+          () => decoder.decodeJson({
+            'type': 'TEXT_MESSAGE_END',
+            'messageId': '',
+          }),
           throwsA(isA<DecodingError>()),
         );
       });

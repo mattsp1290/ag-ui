@@ -24,8 +24,21 @@ class EventDecoder {
   /// This method expects a JSON string without the SSE "data: " prefix.
   BaseEvent decode(String data) {
     try {
-      final json = jsonDecode(data) as Map<String, dynamic>;
-      return decodeJson(json);
+      final decoded = jsonDecode(data);
+      // Validate the top-level shape explicitly so a list/primitive
+      // payload (`[1,2,3]`, `"hello"`, `42`) produces a structured
+      // [DecodingError] instead of a `TypeError` swallowed by the
+      // catch-all below — which was being wrapped as a generic "Failed
+      // to decode event" with no hint about the actual mismatch.
+      if (decoded is! Map<String, dynamic>) {
+        throw DecodingError(
+          'Expected JSON object at top level',
+          field: 'data',
+          expectedType: 'Map<String, dynamic>',
+          actualValue: decoded,
+        );
+      }
+      return decodeJson(decoded);
     } on FormatException catch (e) {
       throw DecodingError(
         'Invalid JSON format',
@@ -50,9 +63,12 @@ class EventDecoder {
   /// Decodes an event from a JSON map.
   BaseEvent decodeJson(Map<String, dynamic> json) {
     try {
-      // Validate required fields
-      Validators.requireNonEmpty(json['type'] as String?, 'type');
-
+      // `BaseEvent.fromJson` already enforces presence and string-type
+      // for the `type` discriminator via `JsonDecoder.requireField<String>`,
+      // and `validate()` below enforces non-empty on identifier strings.
+      // No standalone pre-check needed — keeping one collapsed the
+      // `type: 123` (wrong-typed) path into a single `AGUIValidationError`
+      // wrapped uniformly into [DecodingError] by the handlers below.
       final event = BaseEvent.fromJson(json);
 
       // Validate the created event
@@ -65,17 +81,18 @@ class EventDecoder {
       // `fromJson` factories) and `ValidationError` (from `validate()`
       // via `Validators.requireNonEmpty`) surface to consumers as
       // `DecodingError` so callers only need to catch one error type at
-      // the decode boundary. `AGUIValidationError` does not extend
-      // `AgUiError` and is wrapped by the catch-all below; this `on`
-      // clause covers the `AgUiError`-extending sibling so it does not
-      // bypass the wrapping via the `on AgUiError` rethrow.
-      throw DecodingError(
-        'Failed to create event from JSON',
-        field: e.field ?? 'json',
-        expectedType: 'BaseEvent',
-        actualValue: json,
-        cause: e,
-      );
+      // the decode boundary. This `on` clause covers the
+      // `AgUiError`-extending sibling so it does not bypass the wrapping
+      // via the `on AgUiError` rethrow.
+      throw _wrapValidation(e, e.field, json);
+    } on AGUIValidationError catch (e) {
+      // Companion clause for the factory-side error. Without this branch,
+      // `AGUIValidationError` (which only `implements Exception`, not
+      // `AgUiError`) falls through to the catch-all below and the
+      // original failing field — `role`, `messageId`, `subtype`, etc. —
+      // is flattened to `field: 'json'`, breaking the public decoder
+      // error surface.
+      throw _wrapValidation(e, e.field, json);
     } on AgUiError {
       rethrow;
     } catch (e) {
@@ -183,7 +200,7 @@ class EventDecoder {
         Validators.requireNonEmpty(event.messageId, 'messageId');
         Validators.requireNonEmpty(event.delta, 'delta');
       case TextMessageEndEvent():
-        break;
+        Validators.requireNonEmpty(event.messageId, 'messageId');
       case TextMessageChunkEvent():
         break;
       case ThinkingTextMessageStartEvent():
@@ -269,5 +286,23 @@ class EventDecoder {
     }
 
     return true;
+  }
+
+  /// Wraps a factory-side or validate-side validation failure into the
+  /// public [DecodingError] envelope, preserving the original failing
+  /// field name so consumers can react to specific field violations
+  /// instead of getting a flattened `field: 'json'` everywhere.
+  DecodingError _wrapValidation(
+    Object cause,
+    String? field,
+    Map<String, dynamic> json,
+  ) {
+    return DecodingError(
+      'Failed to create event from JSON',
+      field: field ?? 'json',
+      expectedType: 'BaseEvent',
+      actualValue: json,
+      cause: cause,
+    );
   }
 }

@@ -17,7 +17,8 @@ enum EventType {
   toolCallResult('TOOL_CALL_RESULT'),
   thinkingStart('THINKING_START'),
   @Deprecated(
-    'Not part of the canonical AG-UI protocol. '
+    'Dart-only legacy: never part of the canonical AG-UI protocol '
+    '(TypeScript/Python). '
     'Use thinkingTextMessageContent (ThinkingTextMessageContentEvent) instead. '
     'Scheduled for removal in 1.0.0.',
   )
@@ -46,6 +47,15 @@ enum EventType {
   final String value;
   const EventType(this.value);
 
+  /// Parses [value] into an [EventType].
+  ///
+  /// Throws [ArgumentError] for unknown values. Wire decoding via
+  /// `BaseEvent.fromJson` wraps this throw as `AGUIValidationError`, which
+  /// the [EventDecoder] pipeline ultimately surfaces as `DecodingError`.
+  /// Direct callers must catch [ArgumentError] if they want to handle
+  /// unknown event types gracefully — see `dart-enum-parsing-safety.md`
+  /// for the throw-vs-fallback rationale this enum shares with the
+  /// `*Role` family.
   static EventType fromString(String value) {
     return EventType.values.firstWhere(
       (type) => type.value == value,

@@ -21,7 +21,7 @@ dependencies:
 
 - 🎯 **Dart-native** – Idiomatic Dart APIs with full type safety and null safety
 - 🔗 **HTTP connectivity** – `AgUiClient` for direct server connections with SSE streaming
-- 📡 **Event streaming** – Event-type parity with the canonical Python and TypeScript SDKs (text messages, tool calls, state, activity, reasoning, lifecycle, and more) for real-time agent communication. Field-level parity for a few canonical events (`RunStartedEvent.parentRunId`/`input`, `TextMessageStart`/`Chunk.name`) is tracked as follow-up work.
+- 📡 **Event streaming** – Event-type parity with the canonical Python and TypeScript SDKs (text messages, tool calls, state, activity, reasoning, lifecycle, and more) for real-time agent communication.
 - 🔄 **State management** – Automatic message/state tracking with JSON Patch support
 - 🛠️ **Tool interactions** – Full support for tool calls and generative UI
 - ⚡ **High performance** – Efficient event decoding with backpressure handling
@@ -114,15 +114,25 @@ await for (final event in client.runAgent('agentic_chat', input)) {
 ### Activity & Reasoning Events
 
 ```dart
+import 'dart:io'; // for `stderr` in the example below
+
 await for (final event in client.runAgent('agentic_chat', input)) {
   if (event is ActivitySnapshotEvent) {
     // `content` is `Object?` — the Python reference server may emit a
     // primitive or `null`. Guard before treating it as a structured record.
     final content = event.content;
     if (content is Map<String, dynamic>) {
-      print('Activity (${event.activityType}): $content');
+      // `event.replace == true`  → discard prior content for this messageId.
+      // `event.replace == false` → merge/extend on top of existing content.
+      print(
+        'Activity (${event.activityType}, replace=${event.replace}): $content',
+      );
     } else {
-      // Wire-protocol surprise: log or skip rather than crash.
+      // Wire-protocol surprise: log and skip rather than crash.
+      stderr.writeln(
+        'ActivitySnapshotEvent.content is ${content.runtimeType}, '
+        'expected Map<String, dynamic>',
+      );
     }
   } else if (event is ActivityDeltaEvent) {
     print('Activity patch (${event.activityType}): ${event.patch}');
@@ -249,7 +259,7 @@ void main() async {
       stdout.write(event.delta);
     } else if (event is ToolCallStartEvent) {
       print('\nCalling tool: ${event.toolCallName}');
-    } else if (event.type == EventType.runFinished) {
+    } else if (event.eventType == EventType.runFinished) {
       print('\nDone!');
       break;
     }

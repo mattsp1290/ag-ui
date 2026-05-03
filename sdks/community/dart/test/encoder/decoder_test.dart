@@ -67,13 +67,16 @@ void main() {
         );
       });
 
-      test('throws DecodingError for empty delta in content event', () {
-        final json = '{"type":"TEXT_MESSAGE_CONTENT","messageId":"msg123","delta":""}';
-        
-        expect(
-          () => decoder.decode(json),
-          throwsA(isA<DecodingError>()),  // Event creation fails
-        );
+      test('accepts empty delta in TEXT_MESSAGE_CONTENT (canonical parity)',
+          () {
+        // Canonical TS/Python schemas allow empty `delta`. Decoder
+        // pipeline must mirror the relaxed contract end-to-end.
+        final json =
+            '{"type":"TEXT_MESSAGE_CONTENT","messageId":"msg123","delta":""}';
+
+        final event = decoder.decode(json);
+        expect(event, isA<TextMessageContentEvent>());
+        expect((event as TextMessageContentEvent).delta, isEmpty);
       });
     });
 
@@ -318,18 +321,18 @@ data: {"type":"RUN_FINISHED","threadId":"t1","runId":"r1"}
         );
       });
 
-      test('throws ValidationError for empty delta in content event', () {
+      test('validate() accepts empty delta in content event (canonical parity)',
+          () {
+        // Canonical TS/Python schemas allow empty `delta`
+        // (`TextMessageContentEventSchema.delta: z.string()`). The
+        // decoder pipeline must NOT reject it. The deprecated
+        // `Thinking*Content` mirror still rejects (different contract).
         final event = TextMessageContentEvent(
           messageId: 'msg123',
           delta: '',
         );
 
-        expect(
-          () => decoder.validate(event),
-          throwsA(isA<ValidationError>()
-            .having((e) => e.field, 'field', equals('delta'))
-            .having((e) => e.message, 'message', contains('cannot be empty'))),
-        );
+        expect(decoder.validate(event), isTrue);
       });
 
       test(

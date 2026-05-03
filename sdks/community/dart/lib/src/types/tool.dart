@@ -6,6 +6,15 @@ library;
 
 import 'base.dart';
 
+// Sentinel used by copyWith to distinguish "argument omitted" from
+// "argument explicitly null" on nullable fields. Mirrors the same
+// pattern in lib/src/types/message.dart and lib/src/events/events.dart.
+class _Unset {
+  const _Unset();
+}
+
+const _Unset _unsetTool = _Unset();
+
 /// Represents a function call within a tool call.
 ///
 /// Contains the function name and serialized arguments for execution.
@@ -47,15 +56,21 @@ class FunctionCall extends AGUIModel {
 ///
 /// Tool calls allow the assistant to request execution of external functions
 /// or tools to gather information or perform actions.
+///
+/// The optional [encryptedValue] is an opaque cipher payload that a Dart
+/// proxy must forward verbatim. It mirrors the canonical TS/Python
+/// `ToolCall.encryptedValue` / `ToolCall.encrypted_value` field.
 class ToolCall extends AGUIModel {
   final String id;
   final String type;
   final FunctionCall function;
+  final String? encryptedValue;
 
   const ToolCall({
     required this.id,
     this.type = 'function',
     required this.function,
+    this.encryptedValue,
   });
 
   factory ToolCall.fromJson(Map<String, dynamic> json) {
@@ -65,6 +80,11 @@ class ToolCall extends AGUIModel {
       function: FunctionCall.fromJson(
         JsonDecoder.requireField<Map<String, dynamic>>(json, 'function'),
       ),
+      encryptedValue: JsonDecoder.optionalEitherField<String>(
+        json,
+        'encryptedValue',
+        'encrypted_value',
+      ),
     );
   }
 
@@ -73,18 +93,26 @@ class ToolCall extends AGUIModel {
     'id': id,
     'type': type,
     'function': function.toJson(),
+    if (encryptedValue != null) 'encryptedValue': encryptedValue,
   };
 
+  // `encryptedValue` is nullable — sentinel lets callers clear it
+  // explicitly. Mirrors the message-class sentinel in
+  // lib/src/types/message.dart.
   @override
   ToolCall copyWith({
     String? id,
     String? type,
     FunctionCall? function,
+    Object? encryptedValue = _unsetTool,
   }) {
     return ToolCall(
       id: id ?? this.id,
       type: type ?? this.type,
       function: function ?? this.function,
+      encryptedValue: identical(encryptedValue, _unsetTool)
+          ? this.encryptedValue
+          : encryptedValue as String?,
     );
   }
 }

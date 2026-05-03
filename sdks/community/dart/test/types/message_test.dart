@@ -446,6 +446,72 @@ void main() {
       });
     });
 
+    group('ToolCall.encryptedValue parity', () {
+      test(
+          'round-trips encryptedValue (camelCase) on AssistantMessage.toolCalls',
+          () {
+        final msg = AssistantMessage.fromJson({
+          'id': 'a1',
+          'role': 'assistant',
+          'content': null,
+          'toolCalls': [
+            {
+              'id': 'call_1',
+              'type': 'function',
+              'function': {'name': 'fn', 'arguments': '{"a":1}'},
+              'encryptedValue': 'cipher-camel',
+            },
+          ],
+        });
+        expect(msg.toolCalls!.single.encryptedValue, equals('cipher-camel'));
+
+        final round = AssistantMessage.fromJson(msg.toJson());
+        expect(round.toolCalls!.single.encryptedValue, equals('cipher-camel'));
+      });
+
+      test(
+          'accepts snake_case encrypted_value alias and emits camelCase '
+          'on toJson', () {
+        final tc = ToolCall.fromJson({
+          'id': 'call_1',
+          'type': 'function',
+          'function': {'name': 'fn', 'arguments': '{}'},
+          'encrypted_value': 'cipher-snake',
+        });
+        expect(tc.encryptedValue, equals('cipher-snake'));
+        expect(tc.toJson()['encryptedValue'], equals('cipher-snake'));
+        expect(tc.toJson().containsKey('encrypted_value'), isFalse);
+      });
+
+      test('omits encryptedValue from toJson when null', () {
+        final tc = ToolCall(
+          id: 'call_1',
+          function: const FunctionCall(name: 'fn', arguments: '{}'),
+        );
+        expect(tc.encryptedValue, isNull);
+        expect(tc.toJson().containsKey('encryptedValue'), isFalse);
+      });
+
+      test('copyWith preserves encryptedValue when omitted', () {
+        final tc = ToolCall(
+          id: 'call_1',
+          function: const FunctionCall(name: 'fn', arguments: '{}'),
+          encryptedValue: 'cipher',
+        );
+        expect(tc.copyWith(id: 'call_2').encryptedValue, equals('cipher'));
+      });
+
+      test('copyWith(encryptedValue: null) clears the field', () {
+        final tc = ToolCall(
+          id: 'call_1',
+          function: const FunctionCall(name: 'fn', arguments: '{}'),
+          encryptedValue: 'cipher',
+        );
+        expect(tc.copyWith(encryptedValue: null).encryptedValue, isNull);
+        expect(tc.copyWith().encryptedValue, equals('cipher'));
+      });
+    });
+
     group('Unknown field tolerance', () {
       test('should ignore unknown fields in JSON', () {
         final json = {

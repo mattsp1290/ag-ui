@@ -147,7 +147,7 @@ void main() {
 
         expect(
           () => client.runAgent('test_endpoint', SimpleRunAgentInput()).toList(),
-          throwsA(isA<TimeoutError>()),
+          throwsA(isA<AGUITimeoutError>()),
         );
       });
     });

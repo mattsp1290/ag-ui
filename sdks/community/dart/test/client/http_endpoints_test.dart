@@ -198,7 +198,7 @@ void main() {
         // Act & Assert
         expect(
           () => client.runAgent('test_endpoint', input).toList(),
-          throwsA(isA<TimeoutError>()),
+          throwsA(isA<AGUITimeoutError>()),
         );
       });
       

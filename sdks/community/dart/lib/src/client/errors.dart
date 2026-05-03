@@ -79,15 +79,23 @@ class TransportError extends AgUiError {
   }
 }
 
-/// Error when operation times out
-class TimeoutError extends AgUiError {
+/// Error when operation times out.
+///
+/// Renamed from `TimeoutError` to avoid shadowing the built-in
+/// `dart:async.TimeoutError` (raised by `Future.timeout(...)` /
+/// `Stream.timeout(...)`). A consumer that imports both
+/// `package:ag_ui/ag_ui.dart` and `dart:async` would otherwise hit a
+/// symbol collision; the README "Errors" recipe used to inadvertently
+/// mask the built-in. The old `TimeoutError` name is preserved as a
+/// deprecated typedef bridge below — prefer this class.
+class AGUITimeoutError extends AgUiError {
   /// Duration that was exceeded
   final Duration? timeout;
 
   /// Operation that timed out
   final String? operation;
 
-  const TimeoutError(
+  const AGUITimeoutError(
     super.message, {
     this.timeout,
     this.operation,
@@ -98,7 +106,7 @@ class TimeoutError extends AgUiError {
   @override
   String toString() {
     final buffer = StringBuffer();
-    buffer.write('TimeoutError: $message');
+    buffer.write('AGUITimeoutError: $message');
     if (operation != null) {
       buffer.write(' (operation: $operation)');
     }
@@ -108,6 +116,17 @@ class TimeoutError extends AgUiError {
     return buffer.toString();
   }
 }
+
+/// Deprecated alias for [AGUITimeoutError].
+///
+/// The bare name `TimeoutError` shadows `dart:async.TimeoutError` when
+/// callers import both libraries. Migrate to [AGUITimeoutError]; this
+/// alias will be removed in 1.0.0.
+@Deprecated(
+  'Use AGUITimeoutError. The bare TimeoutError name shadows '
+  'dart:async.TimeoutError and will be removed in 1.0.0.',
+)
+typedef TimeoutError = AGUITimeoutError;
 
 /// Error when operation is cancelled
 class CancellationError extends AgUiError {
@@ -305,8 +324,8 @@ typedef AgUiHttpException = TransportError;
 @Deprecated('Use TransportError instead')
 typedef AgUiConnectionException = TransportError;
 
-@Deprecated('Use TimeoutError instead')
-typedef AgUiTimeoutException = TimeoutError;
+@Deprecated('Use AGUITimeoutError instead')
+typedef AgUiTimeoutException = AGUITimeoutError;
 
 @Deprecated('Use ValidationError instead')
 typedef AgUiValidationException = ValidationError;

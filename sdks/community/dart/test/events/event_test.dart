@@ -23,25 +23,24 @@ void main() {
         expect(decoded.timestamp, event.timestamp);
       });
 
-      test('TextMessageContentEvent validation', () {
-        // Valid event with non-empty delta
+      test('TextMessageContentEvent accepts empty delta (canonical parity)',
+          () {
+        // Canonical TS/Python schemas allow empty `delta`
+        // (`TextMessageContentEventSchema.delta: z.string()` /
+        // pydantic `delta: str` with no `min_length`). Servers may
+        // legitimately emit a deliberate empty content chunk.
         final validEvent = TextMessageContentEvent(
           messageId: 'msg_001',
           delta: 'Hello world',
         );
         expect(validEvent.delta, 'Hello world');
 
-        // Invalid event with empty delta should throw
-        final invalidJson = {
+        final empty = TextMessageContentEvent.fromJson({
           'type': 'TEXT_MESSAGE_CONTENT',
           'messageId': 'msg_001',
           'delta': '',
-        };
-
-        expect(
-          () => TextMessageContentEvent.fromJson(invalidJson),
-          throwsA(isA<AGUIValidationError>()),
-        );
+        });
+        expect(empty.delta, isEmpty);
       });
 
       test('TextMessage* events accept snake_case (Python server)', () {
@@ -293,20 +292,17 @@ void main() {
         expect(event.copyWith().parentMessageId, 'msg_001');
       });
 
-      test('ToolCallArgsEvent rejects empty delta at factory boundary', () {
-        // Symmetric with TextMessageContentEvent / Thinking*Content /
-        // ReasoningMessageContent: empty `delta` is a contract violation
-        // and must surface from `fromJson`, not only from
-        // `EventDecoder.validate`. Direct factory callers see the same
-        // failure mode as decoder-pipeline callers.
-        expect(
-          () => ToolCallArgsEvent.fromJson({
-            'type': 'TOOL_CALL_ARGS',
-            'toolCallId': 'call_001',
-            'delta': '',
-          }),
-          throwsA(isA<AGUIValidationError>()),
-        );
+      test('ToolCallArgsEvent accepts empty delta (canonical parity)', () {
+        // Canonical TS/Python schemas allow empty `delta`
+        // (`ToolCallArgsEventSchema.delta: z.string()` / pydantic
+        // `delta: str`). Direct factory and decoder pipeline both
+        // accept it.
+        final ev = ToolCallArgsEvent.fromJson({
+          'type': 'TOOL_CALL_ARGS',
+          'toolCallId': 'call_001',
+          'delta': '',
+        });
+        expect(ev.delta, isEmpty);
       });
 
       test('ToolCallChunkEvent allows all-optional payload', () {
@@ -577,6 +573,55 @@ void main() {
         expect(minimal.input, isNull);
         expect(minimal.toJson().containsKey('parentRunId'), false);
         expect(minimal.toJson().containsKey('input'), false);
+      });
+
+      test(
+          'RunStartedEvent.input.parentRunId round-trips '
+          '(camelCase and snake_case)', () {
+        // Parity follow-up: `RunStartedEvent.parentRunId` already
+        // round-trips at the event level; this pins the embedded
+        // `RunAgentInput.parentRunId` field, which canonical TS/Python
+        // schemas also expose (`RunAgentInputSchema.parentRunId` /
+        // `RunAgentInput.parent_run_id`). Pre-fix, the embedded field
+        // was silently dropped at decode even when the event-level one
+        // survived.
+        final camelInputJson = {
+          'threadId': 'tid',
+          'runId': 'rid',
+          'parentRunId': 'input-parent-rid',
+          'messages': <Map<String, dynamic>>[],
+          'tools': <Map<String, dynamic>>[],
+          'context': <Map<String, dynamic>>[],
+        };
+        final camelEvent = RunStartedEvent.fromJson({
+          'type': 'RUN_STARTED',
+          'threadId': 'tid',
+          'runId': 'rid',
+          'input': camelInputJson,
+        });
+        expect(camelEvent.input!.parentRunId, 'input-parent-rid');
+        final reEmitted = camelEvent.toJson();
+        expect(
+          (reEmitted['input'] as Map<String, dynamic>)['parentRunId'],
+          'input-parent-rid',
+        );
+
+        // snake_case alias on the embedded input also decodes.
+        final snakeInputJson = {
+          'thread_id': 'tid',
+          'run_id': 'rid',
+          'parent_run_id': 'input-parent-snake',
+          'messages': <Map<String, dynamic>>[],
+          'tools': <Map<String, dynamic>>[],
+          'context': <Map<String, dynamic>>[],
+        };
+        final snakeEvent = RunStartedEvent.fromJson({
+          'type': 'RUN_STARTED',
+          'threadId': 'tid',
+          'runId': 'rid',
+          'input': snakeInputJson,
+        });
+        expect(snakeEvent.input!.parentRunId, 'input-parent-snake');
       });
 
       test(
@@ -1407,18 +1452,17 @@ void main() {
         );
       });
 
-      test('ReasoningMessageContentEvent rejects empty delta', () {
-        // Mirrors the TextMessageContentEvent / ThinkingContentEvent factory
-        // contract — empty delta is rejected inside fromJson, not only later
-        // by EventDecoder.validate.
-        expect(
-          () => ReasoningMessageContentEvent.fromJson({
-            'type': 'REASONING_MESSAGE_CONTENT',
-            'messageId': 'msg_r3',
-            'delta': '',
-          }),
-          throwsA(isA<AGUIValidationError>()),
-        );
+      test('ReasoningMessageContentEvent accepts empty delta (canonical parity)',
+          () {
+        // Canonical TS/Python schemas allow empty `delta`
+        // (`ReasoningMessageContentEventSchema.delta: z.string()` /
+        // pydantic `delta: str`). The Dart SDK matches.
+        final ev = ReasoningMessageContentEvent.fromJson({
+          'type': 'REASONING_MESSAGE_CONTENT',
+          'messageId': 'msg_r3',
+          'delta': '',
+        });
+        expect(ev.delta, isEmpty);
       });
 
       test('ReasoningEncryptedValueEvent rejects missing subtype', () {

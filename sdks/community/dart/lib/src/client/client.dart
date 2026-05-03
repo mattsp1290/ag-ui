@@ -205,7 +205,7 @@ class AgUiClient {
         throw CancellationError('Request was cancelled', operation: endpoint);
       }
       if (e is TimeoutException) {
-        throw TimeoutError(
+        throw AGUITimeoutError(
           'Agent request timed out',
           timeout: config.requestTimeout,
           operation: endpoint,
@@ -371,7 +371,7 @@ class AgUiClient {
       } on TimeoutException {
         attempts++;
         if (attempts > config.maxRetries) {
-          throw TimeoutError(
+          throw AGUITimeoutError(
             'Request timed out after ${config.maxRetries} attempts',
             timeout: config.requestTimeout,
             operation: '$method $endpoint',

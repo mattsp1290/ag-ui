@@ -106,11 +106,14 @@ class RunAgentInput extends AGUIModel {
         'context',
       ).map((item) => Context.fromJson(item)).toList(),
       // `forwardedProps` is intentionally `dynamic` (any JSON shape),
-      // so the inline `??` chain is preferred over `optionalEitherField<T>`
-      // (which requires a concrete `T`). Behavior matches: camelCase wins
-      // when present (even when null-ish); snake_case is consulted only
-      // when camelCase is absent.
-      forwardedProps: json['forwardedProps'] ?? json['forwarded_props'],
+      // so the inline KEY-presence chain is preferred over
+      // `optionalEitherField<T>` (which requires a concrete `T`). Behavior
+      // matches the helper: `camelKey` wins when the key is present (even
+      // when its value is explicitly `null`); `snake_case` is consulted
+      // ONLY when camelCase is entirely absent.
+      forwardedProps: json.containsKey('forwardedProps')
+          ? json['forwardedProps']
+          : json['forwarded_props'],
     );
   }
 
@@ -126,19 +129,19 @@ class RunAgentInput extends AGUIModel {
     if (forwardedProps != null) 'forwardedProps': forwardedProps,
   };
 
-  // `parentRunId` is nullable — sentinel lets callers clear it
-  // explicitly via `copyWith(parentRunId: null)`. Mirrors the
-  // message-class sentinel in lib/src/types/message.dart.
+  // `parentRunId`, `state`, and `forwardedProps` are nullable —
+  // sentinel lets callers clear them explicitly via `copyWith(field: null)`.
+  // Mirrors the message-class sentinel in lib/src/types/message.dart.
   @override
   RunAgentInput copyWith({
     String? threadId,
     String? runId,
     Object? parentRunId = _unsetContext,
-    dynamic state,
+    Object? state = _unsetContext,
     List<Message>? messages,
     List<Tool>? tools,
     List<Context>? context,
-    dynamic forwardedProps,
+    Object? forwardedProps = _unsetContext,
   }) {
     return RunAgentInput(
       threadId: threadId ?? this.threadId,
@@ -146,11 +149,13 @@ class RunAgentInput extends AGUIModel {
       parentRunId: identical(parentRunId, _unsetContext)
           ? this.parentRunId
           : parentRunId as String?,
-      state: state ?? this.state,
+      state: identical(state, _unsetContext) ? this.state : state,
       messages: messages ?? this.messages,
       tools: tools ?? this.tools,
       context: context ?? this.context,
-      forwardedProps: forwardedProps ?? this.forwardedProps,
+      forwardedProps: identical(forwardedProps, _unsetContext)
+          ? this.forwardedProps
+          : forwardedProps,
     );
   }
 }
@@ -190,16 +195,17 @@ class Run extends AGUIModel {
     if (result != null) 'result': result,
   };
 
+  // `result` is nullable — sentinel for explicit-clear semantics.
   @override
   Run copyWith({
     String? threadId,
     String? runId,
-    dynamic result,
+    Object? result = _unsetContext,
   }) {
     return Run(
       threadId: threadId ?? this.threadId,
       runId: runId ?? this.runId,
-      result: result ?? this.result,
+      result: identical(result, _unsetContext) ? this.result : result,
     );
   }
 }

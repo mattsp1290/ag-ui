@@ -97,11 +97,31 @@ sealed class Message extends AGUIModel with TypeDiscriminator {
   final String? content;
   final String? name;
 
+  /// Opaque cipher payload preserved verbatim across proxy hops.
+  ///
+  /// Mirrors the canonical TS `BaseMessageSchema.encryptedValue:
+  /// z.string().optional()` and Python `BaseMessage.encrypted_value:
+  /// Optional[str]` — every concrete subtype that extends `BaseMessage`
+  /// (Developer/System/Assistant/User/Tool) inherits this field. The
+  /// canonical `ActivityMessage` and `ReasoningMessage` are NOT
+  /// `BaseMessage` extensions; in this Dart sealed-class hierarchy they
+  /// inherit the field too but their `fromJson` / `toJson` ignore it
+  /// (`ActivityMessage`) or carry it explicitly via the matching subtype
+  /// field (`ReasoningMessage`, which already had `encryptedValue` on
+  /// its own).
+  ///
+  /// Wire dual-key: factories read both `encryptedValue` (TS-canonical)
+  /// and `encrypted_value` (Python-canonical) via
+  /// [JsonDecoder.optionalEitherField]. `toJson` emits the camelCase
+  /// spelling.
+  final String? encryptedValue;
+
   const Message({
     this.id,
     required this.role,
     this.content,
     this.name,
+    this.encryptedValue,
   });
 
   @override
@@ -140,6 +160,7 @@ sealed class Message extends AGUIModel with TypeDiscriminator {
     'role': role.value,
     if (content != null) 'content': content,
     if (name != null) 'name': name,
+    if (encryptedValue != null) 'encryptedValue': encryptedValue,
   };
 }
 
@@ -154,6 +175,7 @@ class DeveloperMessage extends Message {
     required super.id,
     required this.content,
     super.name,
+    super.encryptedValue,
   }) : super(role: MessageRole.developer);
 
   factory DeveloperMessage.fromJson(Map<String, dynamic> json) {
@@ -161,21 +183,30 @@ class DeveloperMessage extends Message {
       id: JsonDecoder.requireField<String>(json, 'id'),
       content: JsonDecoder.requireField<String>(json, 'content'),
       name: JsonDecoder.optionalField<String>(json, 'name'),
+      encryptedValue: JsonDecoder.optionalEitherField<String>(
+        json,
+        'encryptedValue',
+        'encrypted_value',
+      ),
     );
   }
 
-  // `name` is nullable on the parent — use the sentinel so callers can
-  // clear it explicitly. See `_Unset` (top of file).
+  // `name` and `encryptedValue` are nullable on the parent — use the
+  // sentinel so callers can clear either explicitly. See `_Unset`.
   @override
   DeveloperMessage copyWith({
     String? id,
     String? content,
     Object? name = _unsetMessage,
+    Object? encryptedValue = _unsetMessage,
   }) {
     return DeveloperMessage(
       id: id ?? this.id,
       content: content ?? this.content,
       name: identical(name, _unsetMessage) ? this.name : name as String?,
+      encryptedValue: identical(encryptedValue, _unsetMessage)
+          ? this.encryptedValue
+          : encryptedValue as String?,
     );
   }
 }
@@ -191,6 +222,7 @@ class SystemMessage extends Message {
     required super.id,
     required this.content,
     super.name,
+    super.encryptedValue,
   }) : super(role: MessageRole.system);
 
   factory SystemMessage.fromJson(Map<String, dynamic> json) {
@@ -198,20 +230,30 @@ class SystemMessage extends Message {
       id: JsonDecoder.requireField<String>(json, 'id'),
       content: JsonDecoder.requireField<String>(json, 'content'),
       name: JsonDecoder.optionalField<String>(json, 'name'),
+      encryptedValue: JsonDecoder.optionalEitherField<String>(
+        json,
+        'encryptedValue',
+        'encrypted_value',
+      ),
     );
   }
 
-  // `name` is nullable — use the sentinel for explicit-clear semantics.
+  // `name` and `encryptedValue` are nullable on the parent — sentinel
+  // for explicit-clear semantics.
   @override
   SystemMessage copyWith({
     String? id,
     String? content,
     Object? name = _unsetMessage,
+    Object? encryptedValue = _unsetMessage,
   }) {
     return SystemMessage(
       id: id ?? this.id,
       content: content ?? this.content,
       name: identical(name, _unsetMessage) ? this.name : name as String?,
+      encryptedValue: identical(encryptedValue, _unsetMessage)
+          ? this.encryptedValue
+          : encryptedValue as String?,
     );
   }
 }
@@ -228,6 +270,7 @@ class AssistantMessage extends Message {
     super.content,
     super.name,
     this.toolCalls,
+    super.encryptedValue,
   }) : super(role: MessageRole.assistant);
 
   factory AssistantMessage.fromJson(Map<String, dynamic> json) {
@@ -257,6 +300,11 @@ class AssistantMessage extends Message {
       content: JsonDecoder.optionalField<String>(json, 'content'),
       name: JsonDecoder.optionalField<String>(json, 'name'),
       toolCalls: rawToolCalls?.map(ToolCall.fromJson).toList(),
+      encryptedValue: JsonDecoder.optionalEitherField<String>(
+        json,
+        'encryptedValue',
+        'encrypted_value',
+      ),
     );
   }
 
@@ -274,14 +322,16 @@ class AssistantMessage extends Message {
   };
 
   // See `_Unset` (top of file) for the sentinel rationale. `content`,
-  // `name`, and `toolCalls` are all nullable on `AssistantMessage`, so
-  // callers may legitimately want to clear any of them via `copyWith`.
+  // `name`, `toolCalls`, and `encryptedValue` are all nullable on
+  // `AssistantMessage`, so callers may legitimately want to clear any
+  // of them via `copyWith`.
   @override
   AssistantMessage copyWith({
     String? id,
     Object? content = _unsetMessage,
     Object? name = _unsetMessage,
     Object? toolCalls = _unsetMessage,
+    Object? encryptedValue = _unsetMessage,
   }) {
     return AssistantMessage(
       id: id ?? this.id,
@@ -292,6 +342,9 @@ class AssistantMessage extends Message {
       toolCalls: identical(toolCalls, _unsetMessage)
           ? this.toolCalls
           : toolCalls as List<ToolCall>?,
+      encryptedValue: identical(encryptedValue, _unsetMessage)
+          ? this.encryptedValue
+          : encryptedValue as String?,
     );
   }
 }
@@ -316,6 +369,7 @@ class UserMessage extends Message {
     required super.id,
     required this.content,
     super.name,
+    super.encryptedValue,
   }) : super(role: MessageRole.user);
 
   factory UserMessage.fromJson(Map<String, dynamic> json) {
@@ -323,20 +377,30 @@ class UserMessage extends Message {
       id: JsonDecoder.requireField<String>(json, 'id'),
       content: JsonDecoder.requireField<String>(json, 'content'),
       name: JsonDecoder.optionalField<String>(json, 'name'),
+      encryptedValue: JsonDecoder.optionalEitherField<String>(
+        json,
+        'encryptedValue',
+        'encrypted_value',
+      ),
     );
   }
 
-  // `name` is nullable — use the sentinel for explicit-clear semantics.
+  // `name` and `encryptedValue` are nullable on the parent — sentinel
+  // for explicit-clear semantics.
   @override
   UserMessage copyWith({
     String? id,
     String? content,
     Object? name = _unsetMessage,
+    Object? encryptedValue = _unsetMessage,
   }) {
     return UserMessage(
       id: id ?? this.id,
       content: content ?? this.content,
       name: identical(name, _unsetMessage) ? this.name : name as String?,
+      encryptedValue: identical(encryptedValue, _unsetMessage)
+          ? this.encryptedValue
+          : encryptedValue as String?,
     );
   }
 }
@@ -353,35 +417,24 @@ class ToolMessage extends Message {
   final String content;
   final String toolCallId;
   final String? error;
-  final String? encryptedValue;
 
   const ToolMessage({
     required super.id,
     required this.content,
     required this.toolCallId,
     this.error,
-    this.encryptedValue,
+    super.encryptedValue,
   }) : super(role: MessageRole.tool);
 
   factory ToolMessage.fromJson(Map<String, dynamic> json) {
-    final toolCallId = JsonDecoder.optionalEitherField<String>(
-      json,
-      'toolCallId',
-      'tool_call_id',
-    );
-
-    if (toolCallId == null) {
-      throw AGUIValidationError(
-        message: 'Missing required field: toolCallId or tool_call_id',
-        field: 'toolCallId',
-        json: json,
-      );
-    }
-
     return ToolMessage(
       id: JsonDecoder.requireField<String>(json, 'id'),
       content: JsonDecoder.requireField<String>(json, 'content'),
-      toolCallId: toolCallId,
+      toolCallId: JsonDecoder.requireEitherField<String>(
+        json,
+        'toolCallId',
+        'tool_call_id',
+      ),
       error: JsonDecoder.optionalField<String>(json, 'error'),
       encryptedValue: JsonDecoder.optionalEitherField<String>(
         json,
@@ -396,7 +449,6 @@ class ToolMessage extends Message {
         ...super.toJson(),
         'toolCallId': toolCallId,
         if (error != null) 'error': error,
-        if (encryptedValue != null) 'encryptedValue': encryptedValue,
       };
 
   // `error` and `encryptedValue` are nullable — use the sentinel so a
@@ -488,12 +540,11 @@ class ActivityMessage extends Message {
 class ReasoningMessage extends Message {
   @override
   final String content;
-  final String? encryptedValue;
 
   const ReasoningMessage({
     required super.id,
     required this.content,
-    this.encryptedValue,
+    super.encryptedValue,
   }) : super(role: MessageRole.reasoning);
 
   factory ReasoningMessage.fromJson(Map<String, dynamic> json) {
@@ -508,13 +559,8 @@ class ReasoningMessage extends Message {
     );
   }
 
-  @override
-  Map<String, dynamic> toJson() => {
-        ...super.toJson(),
-        if (encryptedValue != null) 'encryptedValue': encryptedValue,
-      };
-
-  // `encryptedValue` is nullable — sentinel lets callers clear it.
+  // `encryptedValue` is nullable on the parent — sentinel lets callers
+  // clear it.
   @override
   ReasoningMessage copyWith({
     String? id,

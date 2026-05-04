@@ -286,7 +286,25 @@ class EventStreamAdapter {
       }
     }
 
-    rawStream.listen(
+    // Capture the upstream subscription so we can propagate downstream
+    // backpressure and cancellation. Without this, a consumer that
+    // cancels the returned stream early leaks the upstream subscription,
+    // which keeps draining and buffering until the server closes the
+    // SSE connection. On long-lived agent streams that's a real
+    // resource leak.
+    late final StreamSubscription<String> subscription;
+
+    controller.onCancel = () {
+      return subscription.cancel();
+    };
+    controller.onPause = () {
+      subscription.pause();
+    };
+    controller.onResume = () {
+      subscription.resume();
+    };
+
+    subscription = rawStream.listen(
       (chunk) {
         try {
           processChunk(chunk);
@@ -412,6 +430,15 @@ class EventStreamAdapter {
   ///
   /// For example, groups TEXT_MESSAGE_START, TEXT_MESSAGE_CONTENT,
   /// and TEXT_MESSAGE_END events for the same messageId.
+  ///
+  /// **Unbounded-state warning.** Open groups (where `*Start` was
+  /// received but `*End` has not yet arrived) are held in memory until
+  /// the matching `*End` event arrives or the upstream stream
+  /// completes. A producer that opens IDs without closing them — for
+  /// instance, an interrupted upstream connection or a buggy server —
+  /// will grow the internal map indefinitely. For long-lived streams
+  /// from untrusted producers, sanitize upstream or wrap with a
+  /// timeout. The same caveat applies to [accumulateTextMessages].
   static Stream<List<BaseEvent>> groupRelatedEvents(
     Stream<BaseEvent> eventStream,
   ) {

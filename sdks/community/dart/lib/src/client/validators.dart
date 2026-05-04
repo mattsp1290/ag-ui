@@ -30,9 +30,25 @@ class Validators {
   /// Validates a URL format
   static void validateUrl(String? url, String fieldName) {
     requireNonEmpty(url, fieldName);
-    
+
+    // Reject embedded control characters and DEL before delegating to
+    // `Uri.parse`. `Uri.parse('http://example.com/\nfoo')` returns a
+    // valid Uri with `\n` in the path, which then flows into HTTP
+    // request lines as a header-injection vector. The check covers
+    // C0 controls (`\x00`–`\x1f`) and DEL (`\x7f`). Whitespace
+    // characters within the C0 range — `\t`, `\n`, `\r` — are caught
+    // by the same pattern.
+    if (RegExp(r'[\x00-\x1f\x7f]').hasMatch(url!)) {
+      throw ValidationError(
+        'URL contains control characters for "$fieldName"',
+        field: fieldName,
+        constraint: 'no-control-chars',
+        value: url,
+      );
+    }
+
     try {
-      final uri = Uri.parse(url!);
+      final uri = Uri.parse(url);
       if (!uri.hasScheme || !uri.hasAuthority) {
         throw ValidationError(
           'Invalid URL format for "$fieldName"',
@@ -115,7 +131,16 @@ class Validators {
     }
   }
 
-  /// Validates message content
+  /// Validates message content shape.
+  ///
+  /// Canonical contract: TS `BaseMessageSchema.content: z.string().optional()`
+  /// and Python `BaseMessage.content: Optional[str]`. The multimodal
+  /// `UserMessage.content: Union[str, List[InputContent]]` variant is not
+  /// yet supported in this Dart SDK (see CHANGELOG → "Known parity
+  /// gaps"). Until it is, this validator only accepts `String` — the
+  /// pre-0.2.0 permissive Map/List branches were dead code (no caller in
+  /// the SDK passes those types) and would have silently accepted a
+  /// malformed payload if anyone ever adopted them.
   static void validateMessageContent(dynamic content) {
     if (content == null) {
       throw ValidationError(
@@ -125,13 +150,12 @@ class Validators {
         value: content,
       );
     }
-    
-    // Content should be either a string or a structured object
-    if (content is! String && content is! Map && content is! List) {
+
+    if (content is! String) {
       throw ValidationError(
-        'Message content must be a string, map, or list',
+        'Message content must be a string',
         field: 'content',
-        constraint: 'valid-type',
+        constraint: 'string-type',
         value: content,
       );
     }

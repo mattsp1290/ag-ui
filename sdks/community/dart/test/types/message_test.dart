@@ -525,11 +525,151 @@ void main() {
         final message = UserMessage.fromJson(json);
         expect(message.id, 'msg_unknown');
         expect(message.content, 'User message');
-        
+
         // Verify unknown fields are not included in serialized output
         final serialized = message.toJson();
         expect(serialized.containsKey('unknown_field'), false);
         expect(serialized.containsKey('another_unknown'), false);
+      });
+    });
+
+    group('BaseMessage.encryptedValue parity', () {
+      // Closes the cross-SDK parity gap noted in the #1018 review:
+      // canonical TS `BaseMessageSchema.encryptedValue: z.string().optional()`
+      // and Python `BaseMessage.encrypted_value: Optional[str]` mean every
+      // BaseMessage extension (Developer/System/Assistant/User/Tool) must
+      // round-trip the field. Before this fix, only `ToolMessage` and
+      // `ReasoningMessage` (the latter not strictly a BaseMessage) carried
+      // it; a Dart proxy decoding an `assistant.encryptedValue` from a
+      // TS or Python server silently dropped the value on every hop.
+
+      test('AssistantMessage round-trips encryptedValue (camelCase)', () {
+        final original = AssistantMessage(
+          id: 'asst_001',
+          content: 'Routed via cipher.',
+          encryptedValue: 'YXNzaXN0YW50LWNpcGhlcg==',
+        );
+
+        final json = original.toJson();
+        expect(json['encryptedValue'], 'YXNzaXN0YW50LWNpcGhlcg==');
+        expect(json.containsKey('encrypted_value'), isFalse,
+            reason: 'wire output is camelCase regardless of input spelling');
+
+        final decoded = AssistantMessage.fromJson(json);
+        expect(decoded.encryptedValue, original.encryptedValue);
+        expect(decoded.role, MessageRole.assistant);
+      });
+
+      test('AssistantMessage accepts snake_case encrypted_value', () {
+        final decoded = AssistantMessage.fromJson({
+          'id': 'asst_002',
+          'role': 'assistant',
+          'content': 'From a Python server',
+          'encrypted_value': 'cHl0aG9uLWNpcGhlcg==',
+        });
+        expect(decoded.encryptedValue, 'cHl0aG9uLWNpcGhlcg==');
+        // Re-emit on the next hop in canonical camelCase.
+        expect(decoded.toJson()['encryptedValue'], 'cHl0aG9uLWNpcGhlcg==');
+      });
+
+      test('UserMessage round-trips encryptedValue (camelCase)', () {
+        final original = UserMessage(
+          id: 'user_001',
+          content: 'hi',
+          encryptedValue: 'dXNlci1jaXBoZXI=',
+        );
+
+        final json = original.toJson();
+        expect(json['encryptedValue'], 'dXNlci1jaXBoZXI=');
+
+        final decoded = UserMessage.fromJson(json);
+        expect(decoded.encryptedValue, original.encryptedValue);
+        expect(decoded.role, MessageRole.user);
+      });
+
+      test('UserMessage accepts snake_case encrypted_value', () {
+        final decoded = UserMessage.fromJson({
+          'id': 'user_002',
+          'role': 'user',
+          'content': 'hi',
+          'encrypted_value': 'cHk=',
+        });
+        expect(decoded.encryptedValue, 'cHk=');
+      });
+
+      test(
+          'DeveloperMessage and SystemMessage round-trip encryptedValue '
+          '(camelCase + snake_case)', () {
+        final dev = DeveloperMessage(
+          id: 'd1',
+          content: 'dev',
+          encryptedValue: 'ZGV2LWNpcGhlcg==',
+        );
+        expect(dev.toJson()['encryptedValue'], 'ZGV2LWNpcGhlcg==');
+        expect(
+          DeveloperMessage.fromJson(dev.toJson()).encryptedValue,
+          'ZGV2LWNpcGhlcg==',
+        );
+        expect(
+          DeveloperMessage.fromJson({
+            'id': 'd2',
+            'role': 'developer',
+            'content': 'dev',
+            'encrypted_value': 'ZGV2LXNuYWtl',
+          }).encryptedValue,
+          'ZGV2LXNuYWtl',
+        );
+
+        final sys = SystemMessage(
+          id: 's1',
+          content: 'sys',
+          encryptedValue: 'c3lzLWNpcGhlcg==',
+        );
+        expect(sys.toJson()['encryptedValue'], 'c3lzLWNpcGhlcg==');
+        expect(
+          SystemMessage.fromJson(sys.toJson()).encryptedValue,
+          'c3lzLWNpcGhlcg==',
+        );
+        expect(
+          SystemMessage.fromJson({
+            'id': 's2',
+            'role': 'system',
+            'content': 'sys',
+            'encrypted_value': 'c3lzLXNuYWtl',
+          }).encryptedValue,
+          'c3lzLXNuYWtl',
+        );
+      });
+
+      test(
+          'AssistantMessage.copyWith(encryptedValue: null) clears the '
+          'field; omitted argument preserves it', () {
+        final msg = AssistantMessage(
+          id: 'asst_003',
+          content: 'hi',
+          encryptedValue: 'cipher',
+        );
+        expect(
+            msg.copyWith(encryptedValue: null).encryptedValue, isNull);
+        expect(msg.copyWith().encryptedValue, equals('cipher'));
+      });
+
+      test(
+          'UserMessage.copyWith(encryptedValue: null) clears the field; '
+          'omitted argument preserves it', () {
+        final msg = UserMessage(
+          id: 'user_003',
+          content: 'hi',
+          encryptedValue: 'cipher',
+        );
+        expect(
+            msg.copyWith(encryptedValue: null).encryptedValue, isNull);
+        expect(msg.copyWith().encryptedValue, equals('cipher'));
+      });
+
+      test('omits encryptedValue from toJson when null', () {
+        final msg = AssistantMessage(id: 'asst_004', content: 'hi');
+        expect(msg.toJson().containsKey('encryptedValue'), isFalse);
       });
     });
   });

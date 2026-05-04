@@ -161,10 +161,15 @@ void main() {
   });
 
   group('Validators.validateMessageContent', () {
-    test('accepts valid content types', () {
-      expect(() => Validators.validateMessageContent('Hello world'), returnsNormally);
-      expect(() => Validators.validateMessageContent({'text': 'Hello'}), returnsNormally);
-      expect(() => Validators.validateMessageContent(['item1', 'item2']), returnsNormally);
+    test('accepts string content (canonical schema)', () {
+      // Tightened in 0.2.0 to match canonical
+      // `BaseMessage.content: Optional[str]`. The pre-0.2.0 permissive
+      // Map/List branches were dead code — no caller in the SDK passed
+      // those types — and disagreed with the protocol. Multimodal
+      // `UserMessage.content` (string-or-list-of-InputContent) is
+      // tracked as a "Known parity gap" in the CHANGELOG.
+      expect(() => Validators.validateMessageContent('Hello world'),
+          returnsNormally);
     });
 
     test('rejects null content', () {
@@ -176,11 +181,21 @@ void main() {
       );
     });
 
-    test('rejects invalid types', () {
+    test('rejects non-string content (Map / List / number)', () {
+      expect(
+        () => Validators.validateMessageContent({'text': 'Hello'}),
+        throwsA(isA<ValidationError>()
+            .having((e) => e.constraint, 'constraint', 'string-type')),
+      );
+      expect(
+        () => Validators.validateMessageContent(['item1', 'item2']),
+        throwsA(isA<ValidationError>()
+            .having((e) => e.constraint, 'constraint', 'string-type')),
+      );
       expect(
         () => Validators.validateMessageContent(123),
         throwsA(isA<ValidationError>()
-            .having((e) => e.constraint, 'constraint', 'valid-type')),
+            .having((e) => e.constraint, 'constraint', 'string-type')),
       );
     });
   });

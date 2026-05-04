@@ -203,6 +203,8 @@ await for (final event in client.runSharedState(input)) {
 
 ### Error Handling
 
+The Dart SDK errors form a single hierarchy under [`AGUIError`](https://pub.dev/documentation/ag_ui/latest/ag_ui/AGUIError-class.html). Catch that base if you want one handler for everything; catch the specific subclasses below for targeted recovery. Through [`EventDecoder`](https://pub.dev/documentation/ag_ui/latest/ag_ui/EventDecoder-class.html) the wire-decode side throws [`DecodingError`]; the client-side request/transport layer throws [`TransportError`] and [`ValidationError`]; cancellation surfaces as [`CancellationError`].
+
 ```dart
 final cancelToken = CancelToken();
 
@@ -216,12 +218,40 @@ try {
   }
 } on TransportError catch (e) {
   print('Connection error: ${e.message}');
+} on DecodingError catch (e) {
+  print('Decode error: ${e.message}');
 } on ValidationError catch (e) {
   print('Validation error: ${e.message}');
 } on CancellationError {
   print('Request cancelled');
+} on AGUIError catch (e) {
+  // Catch-all for any AG-UI-originated error (covers
+  // AGUIValidationError thrown directly from a `Type.fromJson` call
+  // when the event isn't routed through the EventDecoder pipeline).
+  print('AG-UI error: $e');
 }
 ```
+
+### Proxy notes: wire-spelling normalization
+
+The Dart SDK accepts both **camelCase** (TypeScript-canonical, e.g. `threadId`,
+`runId`, `parentRunId`, `encryptedValue`, `rawEvent`) and **snake_case**
+(Python-canonical, e.g. `thread_id`, `run_id`, `parent_run_id`,
+`encrypted_value`, `raw_event`) on every `fromJson` factory, but always
+emits **camelCase** on `toJson` — there is no opt-in to snake_case wire
+output.
+
+If you use the Dart SDK as a proxy between a snake_case-emitting Python
+server and a strictly snake_case-only consumer, you must convert keys
+back at the boundary. The TypeScript and Python canonical SDKs both
+tolerate the camelCase form on input, so this is rarely an issue in
+practice — but a strict snake_case consumer is technically protocol-valid
+and will see a normalized payload from a Dart middle-tier.
+
+Within a single `BaseEvent.rawEvent` round-trip the spelling is
+preserved by the helper that reads both keys (`rawEvent` /
+`raw_event`); the camelCase emit on the Dart side is the only
+normalization point.
 
 ## Complete Example
 

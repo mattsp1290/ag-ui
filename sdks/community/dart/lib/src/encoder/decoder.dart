@@ -236,6 +236,17 @@ class EventDecoder {
   /// only enforces presence and type; `validate()` is the single source of
   /// truth for non-empty constraints on string identifiers.
   ///
+  /// **Error class note.** `validate()` raises [ValidationError]
+  /// (`lib/src/client/errors.dart`, extends `AgUiError`). The eager
+  /// `fromJson`-side rejections (e.g. unknown role, unknown subtype)
+  /// raise [AGUIValidationError] (`lib/src/types/base.dart`, extends
+  /// `AGUIError` directly). Through the public [decode] / [decodeJson]
+  /// boundary both surface uniformly as [DecodingError], so the
+  /// asymmetry is only visible to direct callers of [validate] vs.
+  /// direct callers of `fromJson`. A consumer that wants to catch both
+  /// without distinguishing class can `on AGUIError catch (e)` —
+  /// `ValidationError` and `AGUIValidationError` both extend it.
+  ///
   /// Returns true if valid, throws [ValidationError] if not.
   bool validate(BaseEvent event) {
     // Basic validation - ensure type is set
@@ -378,8 +389,10 @@ class EventDecoder {
         //   stale and this case must explicitly reject the unknown
         //   subtype to preserve the "no graceful default for cipher
         //   payloads" contract.
-        Validators.requireNonEmpty(event.entityId, 'entityId');
-        Validators.requireNonEmpty(event.encryptedValue, 'encryptedValue');
+        // `entityId` and `encryptedValue` are accepted as plain strings
+        // (including empty) to match canonical TS `z.string()` and
+        // Python `str` schemas — neither imposes a minimum length.
+        break;
     }
 
     return true;

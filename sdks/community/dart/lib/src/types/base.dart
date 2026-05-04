@@ -64,6 +64,20 @@ class AGUIError implements Exception {
 class AGUIValidationError extends AGUIError {
   final String? field;
   final dynamic value;
+
+  /// The originating JSON payload that failed validation.
+  ///
+  /// **Sensitive-data warning.** This carries the entire wire payload
+  /// the factory was given, including cipher fields like
+  /// `encryptedValue` / `encrypted_value` on the
+  /// `REASONING_ENCRYPTED_VALUE` / `ToolMessage` / `ReasoningMessage` /
+  /// `BaseMessage` decode paths. The default `toString()` does NOT emit
+  /// this field, so error printing is safe by default — but consumers
+  /// that reflect-serialize errors (e.g.
+  /// `log.error('decode failed', extra: {'error': error})` with a
+  /// reflection-based serializer) will leak the cipher payload. For
+  /// log lines shipped to external sinks, prefer [field] and [value]
+  /// over [json].
   final Map<String, dynamic>? json;
 
   /// Originating exception, if this validation error was raised in
@@ -139,6 +153,7 @@ class JsonDecoder {
           field: field,
           value: value,
           json: json,
+          cause: e,
         );
       }
     }
@@ -166,7 +181,7 @@ class JsonDecoder {
     }
 
     final value = json[field];
-    
+
     if (transform != null) {
       try {
         return transform(value);
@@ -176,6 +191,7 @@ class JsonDecoder {
           field: field,
           value: value,
           json: json,
+          cause: e,
         );
       }
     }
@@ -235,15 +251,24 @@ class JsonDecoder {
 
   /// Reads an optional field that may arrive under either of two keys.
   ///
-  /// Returns the camelCase value if present, otherwise the snake_case
-  /// value, otherwise null.
+  /// Resolution is by KEY presence, matching the contract documented on
+  /// [requireEitherField]: if `camelKey` is present in `json` (even when
+  /// its value is explicitly `null`), the camelCase value wins.
+  /// `snakeKey` is consulted only when `camelKey` is entirely absent.
+  ///
+  /// This `containsKey` rule replaced the prior `??`-chain implementation,
+  /// which fell through to `snakeKey` whenever the camelCase value was
+  /// `null`-or-absent — silently overriding an explicit-null camelCase
+  /// payload with a populated snake_case one.
   static T? optionalEitherField<T>(
     Map<String, dynamic> json,
     String camelKey,
     String snakeKey,
   ) {
-    return optionalField<T>(json, camelKey) ??
-        optionalField<T>(json, snakeKey);
+    if (json.containsKey(camelKey)) {
+      return optionalField<T>(json, camelKey);
+    }
+    return optionalField<T>(json, snakeKey);
   }
 
   /// Reads an optional integer field, accepting either `int` or `num`

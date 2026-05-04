@@ -7,6 +7,121 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed (review pass — protocol parity)
+- **`encryptedValue` is now plumbed through every BaseMessage subtype**
+  (`DeveloperMessage`, `SystemMessage`, `AssistantMessage`,
+  `UserMessage`) on the base `Message` class. Mirrors canonical TS
+  `BaseMessageSchema.encryptedValue: z.string().optional()` and Python
+  `BaseMessage.encrypted_value: Optional[str]`. Previously the field
+  was only present on `ToolMessage` and `ReasoningMessage`, so a Dart
+  proxy decoding a `MESSAGES_SNAPSHOT` whose assistant or user message
+  carried `encryptedValue` from a TS or Python server silently dropped
+  the value at decode and could not re-emit it on the next hop. Decode
+  accepts both `encryptedValue` (TS-canonical) and `encrypted_value`
+  (Python-canonical); `toJson` emits camelCase; each subtype's
+  `copyWith` accepts an explicit-null clear via the sentinel pattern.
+  The `ToolMessage` and `ReasoningMessage` field declarations were
+  removed in favor of inheriting from the base — the wire shape is
+  unchanged.
+- **`raw_event` (snake_case) is now preserved on every event factory.**
+  All ~30 `BaseEvent` subclasses now read `rawEvent` via a centralized
+  `_readRawEvent` helper that uses `containsKey` precedence: the
+  camelCase key wins when present (even when explicitly `null`), and
+  the snake_case key is consulted only when camelCase is absent.
+  Previously every factory read `json['rawEvent']` directly, silently
+  dropping Python-style `raw_event` payloads. `toJson` continues to
+  emit camelCase only.
+- **`REASONING_ENCRYPTED_VALUE` no longer rejects empty
+  `entityId` / `encryptedValue` strings.** Canonical TS uses
+  `z.string()` and Python uses `str` — neither imposes a minimum
+  length. The Dart-only empty-string rejection (in both
+  `ReasoningEncryptedValueEvent.fromJson` and `EventDecoder.validate`)
+  was over-strict and would reject payloads that the canonical SDKs
+  accept. The strict subtype discriminator stays — unknown subtypes
+  still throw.
+- **`SseParser._processField` now matches the WHATWG SSE spec for
+  empty leading `data:` lines and repeated `event:` lines.** The
+  `data:` case used `_dataBuffer.isNotEmpty` as a "have we written
+  data yet?" heuristic, which collapsed `data:\ndata: x\n\n` to `"x"`
+  instead of the spec-correct `"\nx"`. Now uses the `_hasDataField`
+  flag (mirroring the `inDataBlock` pattern in
+  `EventStreamAdapter.appendDataLine`). The `event:` case appended on
+  every `event:` line; per spec it must REPLACE.
+- **`EventStreamAdapter.fromRawSseStream` now propagates downstream
+  cancellation, pause, and resume to the upstream raw SSE
+  subscription.** Previously the upstream `rawStream.listen(...)`
+  subscription was fire-and-forget — a consumer that cancelled the
+  adapted stream early left the upstream draining indefinitely
+  (a real resource leak on long-lived agent streams).
+- **`SseParser.parseBytes` now flushes any final unterminated event
+  on stream close.** Routed through `parseLines` so the final
+  `_dispatchEvent()` flush in `parseLines` fires for byte-stream
+  sources too. A byte source that ended without a trailing blank line
+  previously lost its last buffered message.
+- **`copyWith` sentinel sweep.** `RawEvent.source`,
+  `RunAgentInput.state`, `RunAgentInput.forwardedProps`, and
+  `Run.result` previously used the standard `?? this.field` pattern,
+  so a caller could not clear them via `copyWith(field: null)`. They
+  now use the existing sentinel pattern. The "Known parity gaps"
+  list below has been updated.
+- **`JsonDecoder.optionalEitherField` now resolves on KEY presence,
+  not value-non-null.** A payload carrying both `camelKey: null` and
+  `snake_key: <value>` previously fell through to the snake_case
+  value; the documented contract on `requireEitherField` is that
+  camelCase wins when its key is present (even when explicitly
+  `null`). The implementation now matches the dartdoc. The inline
+  `forwardedProps` decode in `context.dart` was migrated to the same
+  `containsKey` rule for consistency.
+- **`ToolMessage.fromJson` and `ToolResult.fromJson` now use
+  `requireEitherField`** instead of the older
+  `optionalEitherField + manual null-check + custom throw` pattern,
+  matching the migration already done for `RunAgentInput.fromJson`
+  and `Run.fromJson`.
+- **`Validators.validateMessageContent` is now `String`-only.** The
+  pre-0.2.0 permissive `Map`/`List` branches were dead code (no caller
+  in the SDK passed those types) and disagreed with canonical
+  `BaseMessage.content: Optional[str]`. Multimodal `UserMessage.content`
+  remains a tracked parity gap.
+- **`Validators.validateUrl` now rejects URLs containing C0 control
+  characters or DEL** (`\x00`–`\x1f`, `\x7f`). `Uri.parse` is
+  permissive with embedded `\n` / `\r` / `\t`, which can flow into
+  HTTP request lines as a header-injection vector.
+- **`JsonDecoder.requireField` and `optionalField` transform-failure
+  paths now preserve `cause: e`** when wrapping an inner exception
+  in `AGUIValidationError`. The structured cause was previously
+  flattened into the message via `'$e'` interpolation only.
+
+### Documented
+- `AGUIValidationError.json` dartdoc now carries an explicit
+  sensitive-data warning: the field captures the entire wire payload
+  including cipher fields. `toString()` does not emit it (safe by
+  default), but reflection-based serializers used by some logging
+  frameworks will leak. Prefer `.field` and `.value` on log lines
+  shipped to external sinks.
+- `EventDecoder.validate` dartdoc now documents the dual-source
+  error class asymmetry: `validate()` raises
+  `client/errors.dart`'s `ValidationError`; `fromJson`-side eager
+  rejections raise `types/base.dart`'s `AGUIValidationError`. Both
+  surface uniformly as `DecodingError` through the public
+  `decode` / `decodeJson` boundary; both extend `AGUIError`.
+- `BaseEvent.rawEvent` dartdoc now notes the round-trip emission
+  consequence — anything assigned to this field WILL be re-emitted
+  on the next `encode`. Set `rawEvent: null` on the in-flight event
+  if a proxy doesn't want the upstream payload echoed downstream.
+- README adds a "Proxy notes: wire-spelling normalization" paragraph
+  documenting that the SDK accepts both camelCase and snake_case on
+  `fromJson` but always emits camelCase on `toJson`. The Error
+  Handling section is refreshed to use the current error-hierarchy
+  class names (`TransportError`, `DecodingError`, `ValidationError`,
+  `CancellationError`, all under `AGUIError`).
+- `AgUiClient.runAgent` dartdoc `Throws:` list refreshed to match
+  the current error hierarchy.
+- `EventStreamAdapter.groupRelatedEvents` dartdoc now carries an
+  explicit unbounded-state warning — open groups (where `*Start` was
+  received but `*End` has not arrived) are held in memory until the
+  matching end event or stream completion. Same caveat applies to
+  `accumulateTextMessages`.
+
 ### Changed
 - `TimeoutError` renamed to `AGUITimeoutError` to avoid shadowing the
   built-in `dart:async.TimeoutError` (raised by `Future.timeout(...)` /
@@ -300,13 +415,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the standard `?? this.field` pattern, which cannot distinguish "omitted"
   from "set to null" — passing `copyWith(field: null)` keeps the existing
   value. The sentinel pattern is now in place for
-  `ActivitySnapshotEvent.content`, `RawEvent.event`, `CustomEvent.value`,
-  `RunFinishedEvent.result`, the optional fields of
+  `ActivitySnapshotEvent.content`, `RawEvent.event`, `RawEvent.source`,
+  `CustomEvent.value`, `RunFinishedEvent.result`, the optional fields of
   `TextMessageStartEvent` / `TextMessageChunkEvent`,
   `ToolCallStartEvent.parentMessageId`, the optional fields of
-  `ToolCallChunkEvent` and `ReasoningMessageChunkEvent`, and
-  `RunStartedEvent.parentRunId` / `RunStartedEvent.input`. The remaining
-  `?? this.field` cases are `ToolCallResultEvent.role`,
+  `ToolCallChunkEvent` and `ReasoningMessageChunkEvent`,
+  `RunStartedEvent.parentRunId` / `RunStartedEvent.input`,
+  `RunAgentInput.parentRunId` / `RunAgentInput.state` /
+  `RunAgentInput.forwardedProps`, `Run.result`, and the message-class
+  nullables (`name`, `content`, `toolCalls`, `error`, `encryptedValue`).
+  The remaining `?? this.field` cases are `ToolCallResultEvent.role`,
   `StateSnapshotEvent.snapshot`, and `RunErrorEvent.code`. A sweep across
   these is planned for a future release.
 

@@ -78,6 +78,43 @@ void main() {
         expect(messages[0].data, 'line 1\nline 2\nline 3');
       });
 
+      test('preserves leading newline when first data field is empty',
+          () async {
+        // Per WHATWG, every `data:` field appends `\n` before its value
+        // (with the trailing `\n` stripped at dispatch). An empty first
+        // `data:` followed by `data: x` MUST yield `"\nx"`, not `"x"`.
+        // Regression for the `_dataBuffer.isNotEmpty` heuristic that
+        // collapsed the empty-then-non-empty sequence pre-fix.
+        final lines = Stream.fromIterable([
+          'data:',
+          'data: x',
+          '',
+        ]);
+
+        final messages = await parser.parseLines(lines).toList();
+        expect(messages.length, 1);
+        expect(messages[0].data, '\nx');
+      });
+
+      test('event field replaces (not appends) on repeated event: lines',
+          () async {
+        // Per WHATWG, "If the field name is 'event', set the event type
+        // buffer to field value." Repeated `event:` lines within one
+        // dispatch block must REPLACE, not concatenate. Pre-fix, this
+        // produced `"firstsecond"`.
+        final lines = Stream.fromIterable([
+          'event: first',
+          'event: second',
+          'data: payload',
+          '',
+        ]);
+
+        final messages = await parser.parseLines(lines).toList();
+        expect(messages.length, 1);
+        expect(messages[0].event, 'second');
+        expect(messages[0].data, 'payload');
+      });
+
       test('ignores comments', () async {
         final lines = Stream.fromIterable([
           ': this is a comment',

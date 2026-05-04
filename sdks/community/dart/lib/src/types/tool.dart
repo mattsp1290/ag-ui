@@ -174,19 +174,12 @@ class ToolResult extends AGUIModel {
   });
 
   factory ToolResult.fromJson(Map<String, dynamic> json) {
-    final toolCallId = JsonDecoder.optionalField<String>(json, 'toolCallId') ??
-        JsonDecoder.optionalField<String>(json, 'tool_call_id');
-    
-    if (toolCallId == null) {
-      throw AGUIValidationError(
-        message: 'Missing required field: toolCallId or tool_call_id',
-        field: 'toolCallId',
-        json: json,
-      );
-    }
-    
     return ToolResult(
-      toolCallId: toolCallId,
+      toolCallId: JsonDecoder.requireEitherField<String>(
+        json,
+        'toolCallId',
+        'tool_call_id',
+      ),
       content: JsonDecoder.requireField<String>(json, 'content'),
       error: JsonDecoder.optionalField<String>(json, 'error'),
     );

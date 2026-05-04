@@ -227,7 +227,8 @@
         {
           "id": "msg_a2",
           "role": "assistant",
-          "content": "Indexing started."
+          "content": "Indexing started.",
+          "encryptedValue": "ZW5jcnlwdGVkLWFzc2lzdGFudA=="
         }
       ]
     },

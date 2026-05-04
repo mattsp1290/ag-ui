@@ -896,6 +896,49 @@ void main() {
         expect(decoded.source, 'external_api');
       });
 
+      test('rawEvent / raw_event dual-key — Python snake_case is preserved',
+          () {
+        // Python emits `raw_event`; TS emits `rawEvent`. Both must decode
+        // into `BaseEvent.rawEvent` so a Dart proxy can re-emit it
+        // (camelCase) on the next hop. Regression for the silent-drop bug
+        // that pre-existed across every event factory.
+        final upstreamPayload = {'origin': 'python-server', 'seq': 7};
+
+        // 1. Python-style snake_case input on RunStartedEvent.
+        final pythonJson = {
+          'type': 'RUN_STARTED',
+          'thread_id': 'thread_001',
+          'run_id': 'run_001',
+          'raw_event': upstreamPayload,
+        };
+        final fromSnake = RunStartedEvent.fromJson(pythonJson);
+        expect(fromSnake.rawEvent, upstreamPayload);
+        // Output is canonical camelCase.
+        expect(fromSnake.toJson()['rawEvent'], upstreamPayload);
+
+        // 2. camelCase wins when both keys are present.
+        final bothKeys = {
+          'type': 'RUN_STARTED',
+          'thread_id': 'thread_001',
+          'run_id': 'run_001',
+          'rawEvent': {'winner': 'camel'},
+          'raw_event': {'winner': 'snake'},
+        };
+        final fromBoth = RunStartedEvent.fromJson(bothKeys);
+        expect(fromBoth.rawEvent, {'winner': 'camel'});
+
+        // 3. camelCase explicit-null wins (containsKey precedence).
+        final nullCamel = {
+          'type': 'RUN_STARTED',
+          'thread_id': 'thread_001',
+          'run_id': 'run_001',
+          'rawEvent': null,
+          'raw_event': {'winner': 'snake'},
+        };
+        final fromNullCamel = RunStartedEvent.fromJson(nullCamel);
+        expect(fromNullCamel.rawEvent, isNull);
+      });
+
       test('CustomEvent with complex value', () {
         final customValue = {
           'action': 'update_ui',
@@ -930,6 +973,23 @@ void main() {
         final cleared = original.copyWith(event: null);
         expect(cleared.event, isNull);
         expect(cleared.source, equals('agent'));
+      });
+
+      test('RawEvent.copyWith(source: null) clears source', () {
+        // Sentinel parity for the second nullable field (was `?? this.source`
+        // before the sentinel sweep). Without the sentinel, an explicit
+        // `null` was indistinguishable from "argument omitted".
+        final original = RawEvent(
+          event: const {'foo': 'bar'},
+          source: 'agent',
+        );
+        final keep = original.copyWith();
+        expect(keep.source, equals('agent'));
+
+        final cleared = original.copyWith(source: null);
+        expect(cleared.source, isNull);
+        // Other fields preserved.
+        expect(cleared.event, equals(const {'foo': 'bar'}));
       });
 
       test('CustomEvent.copyWith(value: null) clears the payload', () {
@@ -1498,46 +1558,32 @@ void main() {
         );
       });
 
-      test('ReasoningEncryptedValueEvent rejects empty entityId at factory',
-          () {
-        // Factory-level rejection (not just decoder-validate) so direct
-        // callers of `ReasoningEncryptedValueEvent.fromJson` cannot
-        // produce an event with a mis-attributed cipher payload. Sibling
-        // factories (`TextMessageContentEvent`, `ToolCallArgsEvent`,
-        // `ReasoningMessageContentEvent`) all enforce non-empty here.
-        expect(
-          () => ReasoningEncryptedValueEvent.fromJson({
-            'type': 'REASONING_ENCRYPTED_VALUE',
-            'subtype': 'message',
-            'entityId': '',
-            'encryptedValue': 'cipher',
-          }),
-          throwsA(isA<AGUIValidationError>().having(
-            (e) => e.field,
-            'field',
-            equals('entityId'),
-          )),
-        );
-      });
-
       test(
-        'ReasoningEncryptedValueEvent rejects empty encryptedValue at factory',
-        () {
-          expect(
-            () => ReasoningEncryptedValueEvent.fromJson({
-              'type': 'REASONING_ENCRYPTED_VALUE',
-              'subtype': 'message',
-              'entityId': 'rsn_01',
-              'encryptedValue': '',
-            }),
-            throwsA(isA<AGUIValidationError>().having(
-              (e) => e.field,
-              'field',
-              equals('encryptedValue'),
-            )),
-          );
-        },
-      );
+          'ReasoningEncryptedValueEvent accepts empty entityId / '
+          'encryptedValue (canonical-schema parity)', () {
+        // Canonical schemas: TS `events.ts` declares `entityId: z.string()`
+        // and `encryptedValue: z.string()`; Python `events.py` declares
+        // `entity_id: str` and `encrypted_value: str`. Neither imposes a
+        // minimum length. Dart must not be stricter than the protocol —
+        // a payload accepted by TS/Python must decode in Dart.
+        final emptyEntity = ReasoningEncryptedValueEvent.fromJson({
+          'type': 'REASONING_ENCRYPTED_VALUE',
+          'subtype': 'message',
+          'entityId': '',
+          'encryptedValue': 'cipher',
+        });
+        expect(emptyEntity.entityId, '');
+        expect(emptyEntity.encryptedValue, 'cipher');
+
+        final emptyCipher = ReasoningEncryptedValueEvent.fromJson({
+          'type': 'REASONING_ENCRYPTED_VALUE',
+          'subtype': 'message',
+          'entityId': 'rsn_01',
+          'encryptedValue': '',
+        });
+        expect(emptyCipher.entityId, 'rsn_01');
+        expect(emptyCipher.encryptedValue, '');
+      });
 
       test('ReasoningEncryptedValueEvent rejects unknown subtype', () {
         // Pins the dartdoc contract: an unknown `subtype` must surface

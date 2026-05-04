@@ -606,11 +606,13 @@ void main() {
             'activityType': '',
             'patch': <dynamic>[],
           },
-          // Reasoning events — empty messageId / entityId / encryptedValue.
-          // Empty `delta` on REASONING_MESSAGE_CONTENT is now accepted
-          // per canonical parity (only empty `messageId` is still a
-          // contract violation). Empty entityId/encryptedValue on
-          // REASONING_ENCRYPTED_VALUE remain rejected (cipher contract).
+          // Reasoning events — empty messageId is still a contract
+          // violation. Empty `delta` on REASONING_MESSAGE_CONTENT is now
+          // accepted per canonical parity. Empty `entityId` /
+          // `encryptedValue` on REASONING_ENCRYPTED_VALUE are also
+          // accepted (canonical TS `z.string()` / Python `str` impose
+          // no minimum length); only the strict subtype discriminator
+          // remains.
           {'type': 'REASONING_START', 'messageId': ''},
           {
             'type': 'REASONING_MESSAGE_START',
@@ -624,18 +626,6 @@ void main() {
           },
           {'type': 'REASONING_MESSAGE_END', 'messageId': ''},
           {'type': 'REASONING_END', 'messageId': ''},
-          {
-            'type': 'REASONING_ENCRYPTED_VALUE',
-            'subtype': 'message',
-            'entityId': '',
-            'encryptedValue': 'v',
-          },
-          {
-            'type': 'REASONING_ENCRYPTED_VALUE',
-            'subtype': 'message',
-            'entityId': 'e',
-            'encryptedValue': '',
-          },
         ];
 
         for (final payload in emptyIdPayloads) {

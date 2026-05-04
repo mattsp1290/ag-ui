@@ -55,8 +55,12 @@ class SseParser {
   }
 
   /// Parses raw bytes from an SSE stream.
+  ///
+  /// Routes through [parseLines] so the end-of-stream flush in
+  /// [parseLines] also fires here — a byte source that closes without
+  /// a trailing blank line still emits its final buffered event.
   Stream<SseMessage> parseBytes(Stream<List<int>> bytes) {
-    return utf8.decoder
+    final lines = utf8.decoder
         .bind(bytes)
         .transform(const LineSplitter())
         .transform(StreamTransformer<String, String>.fromHandlers(
@@ -67,11 +71,8 @@ class SseParser {
             }
             sink.add(line);
           },
-        ))
-        .asyncExpand<SseMessage>((String line) {
-          final message = _processLine(line);
-          return message != null ? Stream.value(message) : Stream.empty();
-        });
+        ));
+    return parseLines(lines);
   }
 
   /// Process a single line according to SSE spec.
@@ -109,13 +110,30 @@ class SseParser {
   void _processField(String field, String value) {
     switch (field) {
       case 'event':
-        _eventBuffer.write(value);
+        // Per WHATWG: "If the field name is 'event', set the event type
+        // buffer to field value." The buffer is REPLACED on each `event:`
+        // line, not appended to. The previous `_eventBuffer.write(value)`
+        // concatenated repeated `event:` lines within a single dispatch
+        // block — spec-non-compliant and divergent from the canonical
+        // SDKs.
+        _eventBuffer
+          ..clear()
+          ..write(value);
         break;
       case 'data':
-        _hasDataField = true;
-        if (_dataBuffer.isNotEmpty) {
-          _dataBuffer.writeln(); // Add newline between data fields
+        // Per WHATWG: every `data:` field appends `\n` BEFORE its value
+        // (the trailing `\n` is then stripped at dispatch). The previous
+        // `_dataBuffer.isNotEmpty` heuristic skipped the leading `\n`
+        // when the first `data:` line was empty, collapsing
+        // `data:\ndata: x` to `"x"` instead of the spec-correct `"\nx"`.
+        // Use `_hasDataField` to track "have we already received a
+        // `data:` field in this block?" — which is the actual
+        // spec-mandated condition. Mirrors the `inDataBlock` flag pattern
+        // in `EventStreamAdapter.appendDataLine`.
+        if (_hasDataField) {
+          _dataBuffer.writeln();
         }
+        _hasDataField = true;
         _dataBuffer.write(value);
         break;
       case 'id':

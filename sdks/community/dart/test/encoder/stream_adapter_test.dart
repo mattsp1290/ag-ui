@@ -215,20 +215,54 @@ void main() {
       test('processes remaining buffered data on close', () async {
         final rawController = StreamController<String>();
         final eventStream = adapter.fromRawSseStream(rawController.stream);
-        
+
         final events = <BaseEvent>[];
         final subscription = eventStream.listen(events.add);
-        
+
         // Add data without final newlines
         rawController.add('data: {"type":"STATE_SNAPSHOT","snapshot":{"count":42}}');
-        
+
         await rawController.close();
         await subscription.cancel();
-        
+
         expect(events.length, equals(1));
         expect(events[0], isA<StateSnapshotEvent>());
         final event = events[0] as StateSnapshotEvent;
         expect(event.snapshot['count'], equals(42));
+      });
+
+      test('downstream cancellation propagates to upstream subscription',
+          () async {
+        // Regression for the leaked-subscription bug noted in the #1018
+        // review: pre-fix, `rawStream.listen(...)` was fire-and-forget —
+        // the returned stream's `controller.onCancel` did not cancel the
+        // upstream subscription. A consumer that stops listening early
+        // left the upstream draining indefinitely.
+        final rawController = StreamController<String>();
+        final eventStream = adapter.fromRawSseStream(rawController.stream);
+
+        final events = <BaseEvent>[];
+        final subscription = eventStream.listen(events.add);
+
+        // Push one complete event, then assert the upstream is alive.
+        rawController.add(
+          'data: {"type":"RUN_STARTED","threadId":"t1","runId":"r1"}\n\n',
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(events.length, equals(1));
+        expect(rawController.hasListener, isTrue);
+
+        // Cancel the downstream subscription; upstream listener should
+        // be released.
+        await subscription.cancel();
+        // A microtask hop lets the cancel propagate through the
+        // controller before we sample `hasListener`.
+        await Future<void>.delayed(Duration.zero);
+        expect(rawController.hasListener, isFalse,
+            reason: 'fromRawSseStream must cancel its upstream subscription '
+                'when the downstream stream is cancelled');
+
+        await rawController.close();
       });
     });
 

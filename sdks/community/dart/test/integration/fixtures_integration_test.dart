@@ -150,6 +150,13 @@ void main() {
         expect(reasoning.content, contains('Considering'));
         expect(reasoning.encryptedValue, equals('ZW5jcnlwdGVkLXJlYXNvbmluZw=='));
 
+        // Cross-SDK parity: AssistantMessage carries encryptedValue from
+        // the canonical BaseMessageSchema. Closes the silent-drop bug
+        // documented in the #1018 review.
+        final assistant = snapshot.messages[3] as AssistantMessage;
+        expect(assistant.encryptedValue,
+            equals('ZW5jcnlwdGVkLWFzc2lzdGFudA=='));
+
         // Round-trip the snapshot through the encoder boundary so
         // toJson()/fromJson() symmetry is exercised end-to-end for the
         // new Message subtypes, not just at the factory level.
@@ -164,6 +171,10 @@ void main() {
         expect(
           (reEncoded.messages[2] as ReasoningMessage).encryptedValue,
           equals('ZW5jcnlwdGVkLXJlYXNvbmluZw=='),
+        );
+        expect(
+          (reEncoded.messages[3] as AssistantMessage).encryptedValue,
+          equals('ZW5jcnlwdGVkLWFzc2lzdGFudA=='),
         );
       });
       

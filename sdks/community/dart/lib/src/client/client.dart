@@ -63,8 +63,15 @@ class AgUiClient {
   /// Returns a stream of [BaseEvent] objects representing the agent's response.
   ///
   /// Throws:
-  /// - [ValidationError] if the input is invalid
-  /// - [ConnectionException] if the connection fails
+  /// - [ValidationError] if the input is invalid (URL, message shape, etc.)
+  /// - [TransportError] if the HTTP/SSE connection fails or the server
+  ///   returns a non-success status
+  /// - [DecodingError] if an SSE payload cannot be decoded into a
+  ///   [BaseEvent]
+  /// - [CancellationError] if the request is cancelled via [cancelToken]
+  ///
+  /// All four extend [AGUIError] — catch that base for one-shot
+  /// handling.
   Stream<BaseEvent> runAgent(
     String endpoint,
     SimpleRunAgentInput input, {

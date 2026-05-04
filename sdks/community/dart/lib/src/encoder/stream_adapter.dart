@@ -286,73 +286,74 @@ class EventStreamAdapter {
       }
     }
 
-    // Capture the upstream subscription so we can propagate downstream
-    // backpressure and cancellation. Without this, a consumer that
-    // cancels the returned stream early leaks the upstream subscription,
-    // which keeps draining and buffering until the server closes the
-    // SSE connection. On long-lived agent streams that's a real
-    // resource leak.
-    late final StreamSubscription<String> subscription;
+    // Defer the upstream subscription to `onListen` so a caller that
+    // obtains the returned stream but never subscribes does not leak the
+    // upstream connection. Without deferral, `rawStream.listen(...)` fires
+    // immediately on the `fromRawSseStream` call — a caller that stores the
+    // stream for later or abandons it would keep the upstream alive until the
+    // server closes the SSE connection. Mirroring the standard Dart lazy-
+    // subscription idiom also makes the backpressure propagation below
+    // consistent: `onCancel` only fires after `onListen`, so `subscription`
+    // is always initialized by the time any lifecycle callback runs.
+    StreamSubscription<String>? subscription;
 
-    controller.onCancel = () {
-      return subscription.cancel();
-    };
-    controller.onPause = () {
-      subscription.pause();
-    };
-    controller.onResume = () {
-      subscription.resume();
-    };
-
-    subscription = rawStream.listen(
-      (chunk) {
-        try {
-          processChunk(chunk);
-        } catch (e, stack) {
+    controller.onListen = () {
+      subscription = rawStream.listen(
+        (chunk) {
+          try {
+            processChunk(chunk);
+          } catch (e, stack) {
+            if (!skipInvalidEvents) {
+              controller.addError(e, stack);
+            } else {
+              onError?.call(e, stack);
+            }
+          }
+        },
+        onError: (Object error, StackTrace stack) {
           if (!skipInvalidEvents) {
-            controller.addError(e, stack);
+            controller.addError(error, stack);
           } else {
-            onError?.call(e, stack);
+            onError?.call(error, stack);
           }
-        }
-      },
-      onError: (Object error, StackTrace stack) {
-        if (!skipInvalidEvents) {
-          controller.addError(error, stack);
-        } else {
-          onError?.call(error, stack);
-        }
-      },
-      onDone: () {
-        // End-of-stream: any deferred trailing `\r` is now a complete
-        // terminator. Run the scanner with `endOfStream: true` to
-        // consume it (and any other complete lines still in the buffer).
-        final scan = _scanLines(buffer.toString(), endOfStream: true);
-        buffer.clear();
+        },
+        onDone: () {
+          // End-of-stream: any deferred trailing `\r` is now a complete
+          // terminator. Run the scanner with `endOfStream: true` to
+          // consume it (and any other complete lines still in the buffer).
+          final scan = _scanLines(buffer.toString(), endOfStream: true);
+          buffer.clear();
 
-        for (final line in scan.lines) {
-          if (line.isEmpty) {
-            flushDataBlock();
-          } else {
-            appendDataLine(line);
+          for (final line in scan.lines) {
+            if (line.isEmpty) {
+              flushDataBlock();
+            } else {
+              appendDataLine(line);
+            }
           }
-        }
 
-        // Any unconsumed suffix is a final partial line with no
-        // terminator. The pre-CRLF-fix code only handled `data:`-prefixed
-        // partials here; `appendDataLine` preserves that behavior because
-        // it ignores non-`data:` lines per spec.
-        if (scan.unconsumed.isNotEmpty) {
-          appendDataLine(scan.unconsumed);
-        }
+          // Any unconsumed suffix is a final partial line with no
+          // terminator. The pre-CRLF-fix code only handled `data:`-prefixed
+          // partials here; `appendDataLine` preserves that behavior because
+          // it ignores non-`data:` lines per spec.
+          if (scan.unconsumed.isNotEmpty) {
+            appendDataLine(scan.unconsumed);
+          }
 
-        // Final flush — emits any leftover data block accumulated from
-        // either the deferred-line scan or the partial-line append above.
-        flushDataBlock();
-        controller.close();
-      },
-      cancelOnError: false,
-    );
+          // Final flush — emits any leftover data block accumulated from
+          // either the deferred-line scan or the partial-line append above.
+          flushDataBlock();
+          controller.close();
+        },
+        cancelOnError: false,
+      );
+    };
+    controller.onCancel = () async {
+      await subscription?.cancel();
+      subscription = null;
+    };
+    controller.onPause = () => subscription?.pause();
+    controller.onResume = () => subscription?.resume();
 
     return controller.stream;
   }

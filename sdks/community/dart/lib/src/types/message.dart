@@ -130,7 +130,21 @@ sealed class Message extends AGUIModel with TypeDiscriminator {
   /// Factory constructor to create specific message types from JSON
   factory Message.fromJson(Map<String, dynamic> json) {
     final roleStr = JsonDecoder.requireField<String>(json, 'role');
-    final role = MessageRole.fromString(roleStr);
+    // Re-throw with `json:` populated so callers can identify which message
+    // in a `MESSAGES_SNAPSHOT` payload had the bad role (the original throw
+    // from `MessageRole.fromString` omits the wire context).
+    final MessageRole role;
+    try {
+      role = MessageRole.fromString(roleStr);
+    } on AGUIValidationError catch (e) {
+      throw AGUIValidationError(
+        message: e.message,
+        field: e.field,
+        value: e.value,
+        json: json,
+        cause: e,
+      );
+    }
 
     switch (role) {
       case MessageRole.developer:

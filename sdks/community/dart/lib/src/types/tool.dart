@@ -147,16 +147,19 @@ class Tool extends AGUIModel {
     if (parameters != null) 'parameters': parameters,
   };
 
+  // `parameters` is nullable (any JSON Schema shape) — sentinel lets
+  // callers clear it explicitly via `copyWith(parameters: null)`. Mirrors
+  // the sentinel discipline on `ToolCall.encryptedValue` in the same file.
   @override
   Tool copyWith({
     String? name,
     String? description,
-    dynamic parameters,
+    Object? parameters = _unsetTool,
   }) {
     return Tool(
       name: name ?? this.name,
       description: description ?? this.description,
-      parameters: parameters ?? this.parameters,
+      parameters: identical(parameters, _unsetTool) ? this.parameters : parameters,
     );
   }
 }

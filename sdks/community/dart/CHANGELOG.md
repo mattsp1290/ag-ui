@@ -122,6 +122,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   matching end event or stream completion. Same caveat applies to
   `accumulateTextMessages`.
 
+### Fixed (review pass — behavior)
+- **`Tool.copyWith(parameters: null)` now correctly clears `parameters`.**
+  The previous `parameters ?? this.parameters` pattern silently kept the
+  existing value when `null` was passed; the field now uses the `_unsetTool`
+  sentinel pattern, consistent with `ToolCall.encryptedValue` and every
+  other nullable field in the SDK. This gap was omitted from the 0.2.0
+  "Known parity gaps" list — it has been corrected here.
+- **`EventStreamAdapter.fromRawSseStream` now subscribes to the upstream
+  lazily** (inside `controller.onListen`) rather than eagerly at call time.
+  A caller that obtained the returned stream but never subscribed would
+  previously leak the upstream SSE connection until the server closed it.
+  The cancellation, pause, and resume propagation added in the prior
+  review pass is preserved; subscription lifecycle callbacks now use
+  null-safe `?.` calls since the subscription is no longer `late final`.
+- **`Message.fromJson` now preserves the wire JSON payload in
+  `AGUIValidationError`** when `MessageRole.fromString` fails. Previously
+  the error was thrown without `json:` set, making it impossible to
+  identify which message in a `MESSAGES_SNAPSHOT` had the unrecognized
+  role. The re-thrown error carries the originating `json` map so the
+  decoder pipeline can surface it as a `DecodingError` with full context.
+
 ### Changed
 - `TimeoutError` renamed to `AGUITimeoutError` to avoid shadowing the
   built-in `dart:async.TimeoutError` (raised by `Future.timeout(...)` /

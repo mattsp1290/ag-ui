@@ -34,11 +34,14 @@ class Validators {
     // Reject embedded control characters and DEL before delegating to
     // `Uri.parse`. `Uri.parse('http://example.com/\nfoo')` returns a
     // valid Uri with `\n` in the path, which then flows into HTTP
-    // request lines as a header-injection vector. The check covers
-    // C0 controls (`\x00`–`\x1f`) and DEL (`\x7f`). Whitespace
-    // characters within the C0 range — `\t`, `\n`, `\r` — are caught
-    // by the same pattern.
-    if (RegExp(r'[\x00-\x1f\x7f]').hasMatch(url!)) {
+    // request lines as a header-injection vector. The check covers:
+    //   • C0 controls (`\x00`–`\x1f`) and DEL (`\x7f`) — including `\t`,
+    //     `\n`, `\r`.
+    //   • U+0085 (NEL), U+2028 (LS), U+2029 (PS) — Unicode logical-line
+    //     terminators that Dart's `Uri.parse` accepts verbatim and a naive
+    //     custom transport re-emitting the URL into an HTTP header line
+    //     would interpret as a line break.
+    if (RegExp('[\x00-\x1f\x7f\u0085\u2028\u2029]').hasMatch(url!)) {
       throw ValidationError(
         'URL contains control characters for "$fieldName"',
         field: fieldName,
@@ -233,8 +236,10 @@ class Validators {
   static void validateEventType(String? eventType) {
     requireNonEmpty(eventType, 'eventType');
     
-    // Event types should follow the naming convention
-    final pattern = RegExp(r'^[A-Z][A-Z_]*$');
+    // Event types follow UPPER_SNAKE_CASE; digits are allowed after the
+    // first character to accommodate future protocol-versioned event types
+    // (e.g. `RUN_STARTED_V2`).
+    final pattern = RegExp(r'^[A-Z][A-Z0-9_]*$');
     if (!pattern.hasMatch(eventType!)) {
       throw ValidationError(
         'Invalid event type format (should be UPPER_SNAKE_CASE)',

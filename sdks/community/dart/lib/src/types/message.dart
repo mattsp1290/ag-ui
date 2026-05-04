@@ -66,15 +66,17 @@ enum MessageRole {
   /// `DecodingError(field: 'role')`. Direct callers of `Message.fromJson`
   /// see `AGUIValidationError` directly. See `dart-enum-parsing-safety.md`
   /// for the closed-vs-open enum rationale.
+  static final Map<String, MessageRole> _byValue = {
+    for (final r in MessageRole.values) r.value: r,
+  };
+
   static MessageRole fromString(String value) {
-    return MessageRole.values.firstWhere(
-      (role) => role.value == value,
-      orElse: () => throw AGUIValidationError(
-        message: 'Invalid message role: $value',
-        field: 'role',
-        value: value,
-      ),
-    );
+    return _byValue[value] ??
+        (throw AGUIValidationError(
+          message: 'Invalid message role: $value',
+          field: 'role',
+          value: value,
+        ));
   }
 }
 
@@ -313,7 +315,23 @@ class AssistantMessage extends Message {
       id: JsonDecoder.requireField<String>(json, 'id'),
       content: JsonDecoder.optionalField<String>(json, 'content'),
       name: JsonDecoder.optionalField<String>(json, 'name'),
-      toolCalls: rawToolCalls?.map(ToolCall.fromJson).toList(),
+      toolCalls: rawToolCalls == null ? null : () {
+        final result = <ToolCall>[];
+        for (var i = 0; i < rawToolCalls.length; i++) {
+          try {
+            result.add(ToolCall.fromJson(rawToolCalls[i]));
+          } on AGUIValidationError catch (e) {
+            throw AGUIValidationError(
+              message: e.message,
+              field: 'toolCalls[$i].${e.field ?? 'unknown'}',
+              value: e.value,
+              json: json,
+              cause: e,
+            );
+          }
+        }
+        return result;
+      }(),
       encryptedValue: JsonDecoder.optionalEitherField<String>(
         json,
         'encryptedValue',

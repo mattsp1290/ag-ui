@@ -963,6 +963,51 @@ void main() {
         expect(events[1], isA<RunFinishedEvent>());
       });
 
+      test(
+          'fromRawSseStream handles per-line-chunked lone-CR producer without '
+          'extra RTT (lastWasLoneCr persists across chunks)', () async {
+        // Regression for Important #II2: when a producer uses lone-CR
+        // terminators and delivers each `\r` in its own chunk, the
+        // `lastWasLoneCr` flag must survive across processChunk calls.
+        // Without persistence the trailing-`\r` deferral misfired on every
+        // event, delaying dispatch by one chunk-RTT each time.
+        //
+        // Stream shape: each data line ends with `\r`, each event boundary
+        // is a lone `\r`, and each `\r` arrives in a separate chunk.
+        final rawController = StreamController<String>();
+        final eventStream = adapter.fromRawSseStream(rawController.stream);
+
+        final events = <BaseEvent>[];
+        final subscription = eventStream.listen(events.add);
+
+        // Event 1: RUN_STARTED — data line `\r` then boundary `\r`, each
+        // in its own chunk.
+        rawController.add(
+          'data: {"type":"RUN_STARTED","thread_id":"t1","run_id":"r1"}',
+        );
+        rawController.add('\r'); // data-line terminator
+        rawController.add('\r'); // event-boundary terminator
+
+        // Event 2: RUN_FINISHED
+        rawController.add(
+          'data: {"type":"RUN_FINISHED","thread_id":"t1","run_id":"r1"}',
+        );
+        rawController.add('\r');
+        rawController.add('\r');
+
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        await rawController.close();
+        await subscription.cancel();
+
+        expect(events.length, equals(2),
+            reason: 'Both events must be emitted without stalling');
+        expect(events[0], isA<RunStartedEvent>());
+        expect(events[1], isA<RunFinishedEvent>());
+      });
+
       test('decodeSSE handles CRLF terminators (LineSplitter-based)', () {
         // The single-message `decodeSSE` API mirrors the streaming
         // parser: a `data: ...\r\n\r\n` payload must decode the same as

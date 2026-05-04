@@ -246,13 +246,13 @@ enum TextMessageRole {
   /// same "throw at the enum, absorb at the factory" pattern used by
   /// [ReasoningMessageRole] — see `dart-enum-parsing-safety.md` for the
   /// consistency rationale.
+  static final Map<String, TextMessageRole> _byValue = {
+    for (final r in TextMessageRole.values) r.value: r,
+  };
+
   static TextMessageRole fromString(String value) {
-    return TextMessageRole.values.firstWhere(
-      (role) => role.value == value,
-      orElse: () => throw ArgumentError(
-        'Invalid text message role: $value',
-      ),
-    );
+    return _byValue[value] ??
+        (throw ArgumentError('Invalid text message role: $value'));
   }
 }
 
@@ -1022,13 +1022,13 @@ enum ToolCallResultRole {
   /// throw and falls back to [ToolCallResultRole.tool] so a future
   /// server-side role does not tear down the SSE stream. Mirrors
   /// `ReasoningMessageRole.fromString` and `TextMessageRole.fromString`.
+  static final Map<String, ToolCallResultRole> _byValue = {
+    for (final r in ToolCallResultRole.values) r.value: r,
+  };
+
   static ToolCallResultRole fromString(String value) {
-    return ToolCallResultRole.values.firstWhere(
-      (role) => role.value == value,
-      orElse: () => throw ArgumentError(
-        'Invalid tool call result role: $value',
-      ),
-    );
+    return _byValue[value] ??
+        (throw ArgumentError('Invalid tool call result role: $value'));
   }
 }
 
@@ -1231,11 +1231,26 @@ final class MessagesSnapshotEvent extends BaseEvent {
   }) : super(eventType: EventType.messagesSnapshot);
 
   factory MessagesSnapshotEvent.fromJson(Map<String, dynamic> json) {
+    final rawMessages = JsonDecoder.requireListField<Map<String, dynamic>>(
+      json,
+      'messages',
+    );
+    final messages = <Message>[];
+    for (var i = 0; i < rawMessages.length; i++) {
+      try {
+        messages.add(Message.fromJson(rawMessages[i]));
+      } on AGUIValidationError catch (e) {
+        throw AGUIValidationError(
+          message: e.message,
+          field: 'messages[$i].${e.field ?? 'unknown'}',
+          value: e.value,
+          json: json,
+          cause: e,
+        );
+      }
+    }
     return MessagesSnapshotEvent(
-      messages: JsonDecoder.requireListField<Map<String, dynamic>>(
-        json,
-        'messages',
-      ).map((item) => Message.fromJson(item)).toList(),
+      messages: messages,
       timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: _readRawEvent(json),
     );
@@ -1850,13 +1865,13 @@ enum ReasoningMessageRole {
   /// wire should use `ReasoningMessageStartEvent.fromJson`, which absorbs
   /// the throw and falls back to [ReasoningMessageRole.reasoning] so a
   /// future server-side role does not tear down the SSE stream.
+  static final Map<String, ReasoningMessageRole> _byValue = {
+    for (final r in ReasoningMessageRole.values) r.value: r,
+  };
+
   static ReasoningMessageRole fromString(String value) {
-    return ReasoningMessageRole.values.firstWhere(
-      (role) => role.value == value,
-      orElse: () => throw ArgumentError(
-        'Invalid reasoning message role: $value',
-      ),
-    );
+    return _byValue[value] ??
+        (throw ArgumentError('Invalid reasoning message role: $value'));
   }
 }
 
@@ -1880,13 +1895,15 @@ enum ReasoningEncryptedValueSubtype {
   /// Wire failures bubble up as [DecodingError] under the standard decoder
   /// pipeline; consumers that want per-event recovery should set
   /// `skipInvalidEvents: true` on `EventStreamAdapter`.
+  static final Map<String, ReasoningEncryptedValueSubtype> _byValue = {
+    for (final s in ReasoningEncryptedValueSubtype.values) s.value: s,
+  };
+
   static ReasoningEncryptedValueSubtype fromString(String value) {
-    return ReasoningEncryptedValueSubtype.values.firstWhere(
-      (s) => s.value == value,
-      orElse: () => throw ArgumentError(
-        'Invalid reasoning encrypted value subtype: $value',
-      ),
-    );
+    return _byValue[value] ??
+        (throw ArgumentError(
+          'Invalid reasoning encrypted value subtype: $value',
+        ));
   }
 }
 
@@ -2238,11 +2255,12 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
       // (not `catch (e)`) preserves the discipline that
       // type/presence errors from `requireField` above MUST propagate
       // unchanged as `AGUIValidationError`.
+      // Intentionally omit `json:` — the payload contains cipher data
+      // and logging the full wire map would leak it through error logs.
       throw AGUIValidationError(
         message: 'Invalid reasoning encrypted value subtype: $subtypeStr',
         field: 'subtype',
         value: subtypeStr,
-        json: json,
       );
     }
     // entityId and encryptedValue are accepted as plain strings (including

@@ -119,7 +119,15 @@ class EventStreamAdapter {
             // Only process data messages
             final data = message.data;
             if (data != null && data.isNotEmpty) {
-              // Skip keep-alive messages
+              // Skip keep-alive sentinels (data field whose trimmed value is
+              // `:`) silently. This differs from `decodeSSE` / `flushDataBlock`
+              // in `fromRawSseStream`, which route keep-alives through
+              // `onError` / `skipInvalidEvents`. The distinction is intentional:
+              // `fromSseStream` receives pre-parsed `SseMessage` objects where
+              // keep-alive detection must run on `data`, while `fromRawSseStream`
+              // and `decodeSSE` operate on the raw SSE text where the `:` comment
+              // line is a distinct field. Both paths ultimately discard the
+              // keep-alive; only the routing path differs.
               if (data.trim() == ':') {
                 return;
               }
@@ -201,6 +209,13 @@ class EventStreamAdapter {
     final buffer = StringBuffer();
     final dataBuffer = StringBuffer();
     var inDataBlock = false;
+    // Tracks whether the last terminator seen across ALL prior chunks was a
+    // lone CR. Persisting this across processChunk calls lets _scanLines
+    // skip the trailing-\r deferral for producers that use lone-CR style
+    // and deliver each terminator in its own chunk — without persistence the
+    // flag resets to false on every call, adding a full chunk-RTT of latency
+    // per event. See Important #II2 (review-fix pass).
+    var lastWasLoneCr = false;
 
     // Append the value portion of a `data:` or `data: ` line to the
     // active data block. Lines that aren't `data:`-prefixed are silently
@@ -272,7 +287,14 @@ class EventStreamAdapter {
       // Multi-terminator scan: see [_scanLines] for the spec rationale.
       // `endOfStream: false` defers a trailing `\r` so a chunk-spanning
       // `\r\n` doesn't double-fire as two empty lines.
-      final scan = _scanLines(buffer.toString(), endOfStream: false);
+      // Pass `lastWasLoneCrAtStart` so the flag survives chunk boundaries
+      // and capture the updated value for the next call.
+      final scan = _scanLines(
+        buffer.toString(),
+        endOfStream: false,
+        lastWasLoneCrAtStart: lastWasLoneCr,
+      );
+      lastWasLoneCr = scan.lastWasLoneCr;
       buffer.clear();
       buffer.write(scan.unconsumed);
 
@@ -376,13 +398,14 @@ class EventStreamAdapter {
   /// When [endOfStream] is `true`, the deferral is disabled entirely —
   /// any trailing `\r` is consumed as a lone-CR terminator since no
   /// further chunks are coming.
-  static ({List<String> lines, String unconsumed}) _scanLines(
+  static ({List<String> lines, String unconsumed, bool lastWasLoneCr}) _scanLines(
     String input, {
     required bool endOfStream,
+    bool lastWasLoneCrAtStart = false,
   }) {
     final lines = <String>[];
     var s = input;
-    var lastWasLoneCr = false;
+    var lastWasLoneCr = lastWasLoneCrAtStart;
     while (true) {
       final lf = s.indexOf('\n');
       final cr = s.indexOf('\r');
@@ -417,7 +440,7 @@ class EventStreamAdapter {
       lines.add(line);
       s = s.substring(breakIndex + (isCrLf ? 2 : 1));
     }
-    return (lines: lines, unconsumed: s);
+    return (lines: lines, unconsumed: s, lastWasLoneCr: lastWasLoneCr);
   }
 
   /// Filters a stream of events to only include specific event types.

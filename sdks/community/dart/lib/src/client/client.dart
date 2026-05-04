@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
@@ -264,15 +265,28 @@ class AgUiClient {
       (response) {
         if (!completer.isCompleted) {
           completer.complete(response);
+        } else {
+          // Late response after cancellation — caller already received
+          // CancellationError. Log so silent swallows are observable in
+          // dev tools / dart:developer listeners without surfacing to the
+          // stream consumer.
+          developer.log(
+            'Late HTTP response after cancellation; discarded '
+            '(status ${response.statusCode})',
+            name: 'ag_ui.client',
+          );
         }
       },
       onError: (Object error) {
         if (!completer.isCompleted) {
           completer.completeError(error);
+        } else {
+          // Late error after cancellation — log for debuggability.
+          developer.log(
+            'Late HTTP error after cancellation; discarded: $error',
+            name: 'ag_ui.client',
+          );
         }
-        // If already cancelled: swallow the late error — the caller has
-        // already received CancellationError; this response/error is
-        // irrelevant.
       },
     ));
 
@@ -452,12 +466,29 @@ class AgUiClient {
     if (input.threadId != null) {
       Validators.requireNonEmpty(input.threadId!, 'threadId');
     }
-    
-    // Validate messages if present
+
+    // Validate messages using an exhaustive sealed switch so every concrete
+    // subtype is explicitly covered. A partial `is UserMessage` check implied
+    // validation coverage that didn't exist — this makes the boundary clear.
     if (input.messages != null) {
       for (final message in input.messages!) {
-        if (message is UserMessage) {
-          Validators.validateMessageContent(message.content);
+        switch (message) {
+          case UserMessage(:final content):
+            Validators.validateMessageContent(content);
+          case AssistantMessage(:final content):
+            if (content != null) Validators.validateMessageContent(content);
+          case DeveloperMessage(:final content):
+            Validators.validateMessageContent(content);
+          case SystemMessage(:final content):
+            Validators.validateMessageContent(content);
+          case ToolMessage(:final content):
+            Validators.validateMessageContent(content);
+          case ReasoningMessage(:final content):
+            Validators.validateMessageContent(content);
+          case ActivityMessage():
+            // ActivityMessage carries structured activityContent (Map), not
+            // a string content field — nothing to validate here.
+            break;
         }
       }
     }

@@ -121,15 +121,22 @@ class ToolCall extends AGUIModel {
 ///
 /// Defines a tool that can be called by the assistant, including its
 /// name, description, and parameter schema.
+///
+/// [metadata] mirrors the canonical TS `ToolSchema.metadata:
+/// z.record(z.any()).optional()` and Python's `extra='allow'` config.
+/// A Dart proxy that decodes a tool list from a TS server and re-emits
+/// it will round-trip arbitrary tool metadata without dropping it.
 class Tool extends AGUIModel {
   final String name;
   final String description;
   final dynamic parameters; // JSON Schema for the tool parameters
+  final Map<String, dynamic>? metadata;
 
   const Tool({
     required this.name,
     required this.description,
     this.parameters,
+    this.metadata,
   });
 
   factory Tool.fromJson(Map<String, dynamic> json) {
@@ -137,6 +144,10 @@ class Tool extends AGUIModel {
       name: JsonDecoder.requireField<String>(json, 'name'),
       description: JsonDecoder.requireField<String>(json, 'description'),
       parameters: json['parameters'], // Allow any JSON Schema
+      metadata: JsonDecoder.optionalField<Map<String, dynamic>>(
+        json,
+        'metadata',
+      ),
     );
   }
 
@@ -145,21 +156,27 @@ class Tool extends AGUIModel {
     'name': name,
     'description': description,
     if (parameters != null) 'parameters': parameters,
+    if (metadata != null) 'metadata': metadata,
   };
 
   // `parameters` is nullable (any JSON Schema shape) — sentinel lets
-  // callers clear it explicitly via `copyWith(parameters: null)`. Mirrors
-  // the sentinel discipline on `ToolCall.encryptedValue` in the same file.
+  // callers clear it explicitly via `copyWith(parameters: null)`. Even
+  // though `dynamic` means `?? this.parameters` would have the same
+  // observable effect, the sentinel is kept for ergonomic symmetry with
+  // `ToolCall.encryptedValue` and `ToolResult.error` in this file so that
+  // every nullable clearable field follows the same pattern.
   @override
   Tool copyWith({
     String? name,
     String? description,
     Object? parameters = _unsetTool,
+    Map<String, dynamic>? metadata,
   }) {
     return Tool(
       name: name ?? this.name,
       description: description ?? this.description,
       parameters: identical(parameters, _unsetTool) ? this.parameters : parameters,
+      metadata: metadata ?? this.metadata,
     );
   }
 }

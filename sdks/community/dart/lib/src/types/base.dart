@@ -153,6 +153,8 @@ class JsonDecoder {
     if (transform != null) {
       try {
         return transform(value);
+      } on AGUIError {
+        rethrow;
       } catch (e) {
         throw AGUIValidationError(
           message: 'Failed to transform field: $e',
@@ -191,6 +193,8 @@ class JsonDecoder {
     if (transform != null) {
       try {
         return transform(value);
+      } on AGUIError {
+        rethrow;
       } catch (e) {
         throw AGUIValidationError(
           message: 'Failed to transform field: $e',

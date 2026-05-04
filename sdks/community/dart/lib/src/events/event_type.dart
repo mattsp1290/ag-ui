@@ -70,6 +70,10 @@ enum EventType {
   final String value;
   const EventType(this.value);
 
+  static final Map<String, EventType> _byValue = {
+    for (final t in EventType.values) t.value: t,
+  };
+
   /// Parses [value] into an [EventType].
   ///
   /// Throws [ArgumentError] for unknown values. Wire decoding via
@@ -80,9 +84,6 @@ enum EventType {
   /// for the throw-vs-fallback rationale this enum shares with the
   /// `*Role` family.
   static EventType fromString(String value) {
-    return EventType.values.firstWhere(
-      (type) => type.value == value,
-      orElse: () => throw ArgumentError('Invalid event type: $value'),
-    );
+    return _byValue[value] ?? (throw ArgumentError('Invalid event type: $value'));
   }
 }

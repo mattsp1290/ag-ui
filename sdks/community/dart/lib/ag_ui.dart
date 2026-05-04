@@ -62,8 +62,8 @@ export 'src/client/config.dart';
 export 'src/client/errors.dart';
 export 'src/client/validators.dart';
 
-// Client codec (hide ToolResult since it's defined in types/tool.dart)
-export 'src/encoder/client_codec.dart' hide ToolResult;
+// Client codec (hide ClientToolResult — outbound-only model, not part of the public API surface)
+export 'src/encoder/client_codec.dart' hide ClientToolResult;
 
 // Core exports will be added in subsequent tasks
 // export 'src/agent.dart';

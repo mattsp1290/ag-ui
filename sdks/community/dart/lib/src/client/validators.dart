@@ -294,7 +294,17 @@ class Validators {
     }
   }
 
-  /// Validates protocol compliance for event sequences
+  /// Validates protocol compliance for event sequences.
+  ///
+  /// **Note:** This method was never wired up in the SDK client path and is
+  /// not called from any production code in `lib/`. The SDK does not enforce
+  /// sequence rules client-side. This method is retained for consumers who
+  /// want to validate sequences in their own code, but may be removed in
+  /// a future major version.
+  @Deprecated(
+    'Not enforced by the SDK client-side. '
+    'May be removed in a future major release.',
+  )
   static void validateEventSequence(String currentEvent, String? previousEvent, String? state) {
     // RUN_STARTED must be first or after RUN_FINISHED
     if (currentEvent == 'RUN_STARTED') {

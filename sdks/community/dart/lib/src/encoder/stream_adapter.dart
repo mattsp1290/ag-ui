@@ -463,6 +463,11 @@ class EventStreamAdapter {
   /// will grow the internal map indefinitely. For long-lived streams
   /// from untrusted producers, sanitize upstream or wrap with a
   /// timeout. The same caveat applies to [accumulateTextMessages].
+  ///
+  /// **On stream close:** any open groups (where a `*Start` was received
+  /// but `*End` has not yet arrived) are emitted as-is. Consumers should
+  /// treat such groups as potentially incomplete — they will be missing the
+  /// terminal `*End` event and any final content that never arrived.
   static Stream<List<BaseEvent>> groupRelatedEvents(
     Stream<BaseEvent> eventStream,
   ) {
@@ -528,6 +533,13 @@ class EventStreamAdapter {
   }
 
   /// Accumulates text message content into complete messages.
+  ///
+  /// Emits one [String] per logical message when its `TextMessageEnd` event
+  /// arrives. **On stream close:** any accumulated-but-not-ended message
+  /// buffers are silently discarded — no output is emitted for them. This is
+  /// the opposite of [groupRelatedEvents], which emits incomplete groups on
+  /// close. If the stream closes before a `TextMessageEnd` arrives, the
+  /// partial content is lost without a signal to the consumer.
   static Stream<String> accumulateTextMessages(
     Stream<BaseEvent> eventStream,
   ) {

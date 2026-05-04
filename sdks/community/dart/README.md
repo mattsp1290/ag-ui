@@ -232,6 +232,8 @@ try {
 }
 ```
 
+> **Cancellation note:** `CancelToken.cancel()` stops event delivery to your stream, but does **not** abort the underlying HTTP socket. The connection releases when the server closes it or the OS idle-timeout fires. If you need true connection abort, provide a custom `IOClient` per request.
+
 ### Proxy notes: wire-spelling normalization
 
 The Dart SDK accepts both **camelCase** (TypeScript-canonical, e.g. `threadId`,

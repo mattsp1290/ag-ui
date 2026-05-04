@@ -137,10 +137,11 @@ class SseParser {
         _dataBuffer.write(value);
         break;
       case 'id':
-        // id field doesn't contain newlines; cap at 1 KB to prevent a
-        // malicious server from growing the stored value across reconnects
-        // via an oversized `id:` line (the value persists for the lifetime
-        // of the connection and propagates via `Last-Event-ID` headers).
+        // id field doesn't contain newlines; cap at ≤1024 UTF-16 code units
+        // (~1–4 KB on the wire depending on encoding) to prevent a malicious
+        // server from growing the stored value across reconnects via an
+        // oversized `id:` line (the value persists for the lifetime of the
+        // connection and propagates via `Last-Event-ID` headers).
         if (!value.contains('\n') &&
             !value.contains('\r') &&
             value.length <= 1024) {

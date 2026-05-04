@@ -108,9 +108,9 @@ sealed class Message extends AGUIModel with TypeDiscriminator {
   /// canonical `ActivityMessage` and `ReasoningMessage` are NOT
   /// `BaseMessage` extensions; in this Dart sealed-class hierarchy they
   /// inherit the field too but their `fromJson` / `toJson` ignore it
-  /// (`ActivityMessage`) or carry it explicitly via the matching subtype
-  /// field (`ReasoningMessage`, which already had `encryptedValue` on
-  /// its own).
+  /// (`ActivityMessage`) or inherit it through the sealed parent without
+  /// re-declaring locally (`ReasoningMessage` passes it via
+  /// `super.encryptedValue` — there is no shadowing field on that subtype).
   ///
   /// Wire dual-key: factories read both `encryptedValue` (TS-canonical)
   /// and `encrypted_value` (Python-canonical) via

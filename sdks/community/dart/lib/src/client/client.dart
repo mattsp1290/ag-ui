@@ -167,7 +167,7 @@ class AgUiClient {
       // Send POST request with RunAgentInput
       final headers = _buildHeaders();
       headers['Content-Type'] = 'application/json';
-      headers['Accept'] = 'text/event-stream';
+      headers.putIfAbsent('Accept', () => 'text/event-stream');
 
       final uri = Uri.parse(endpoint);
       final request = http.Request('POST', uri)
@@ -209,16 +209,15 @@ class AgUiClient {
       yield* _transformSseStream(sseStream, runId);
     } on AgUiError {
       rethrow;
+    } on TimeoutException {
+      throw AGUITimeoutError(
+        'Agent request timed out',
+        timeout: config.requestTimeout,
+        operation: endpoint,
+      );
     } catch (e) {
       if (cancelToken.isCancelled) {
         throw CancellationError('Request was cancelled', operation: endpoint);
-      }
-      if (e is TimeoutException) {
-        throw AGUITimeoutError(
-          'Agent request timed out',
-          timeout: config.requestTimeout,
-          operation: endpoint,
-        );
       }
       throw TransportError(
         'Failed to run agent',
@@ -275,6 +274,7 @@ class AgUiClient {
             '(status ${response.statusCode})',
             name: 'ag_ui.client',
           );
+          unawaited(response.stream.drain<void>().catchError((_) {}));
         }
       },
       onError: (Object error) {
@@ -467,6 +467,13 @@ class AgUiClient {
       Validators.requireNonEmpty(input.threadId!, 'threadId');
     }
 
+    // Validate caller-supplied runId if present — it flows into _activeStreams
+    // and _requestTokens as a map key, so an empty or oversized value must be
+    // rejected at the boundary rather than silently stored.
+    if (input.runId != null) {
+      Validators.validateRunId(input.runId!);
+    }
+
     // Validate messages using an exhaustive sealed switch so every concrete
     // subtype is explicitly covered. A partial `is UserMessage` check implied
     // validation coverage that didn't exist — this makes the boundary clear.
@@ -597,7 +604,7 @@ class SimpleRunAgentInput {
       'messages': messages?.map((m) => m.toJson()).toList() ?? [],
       'tools': tools?.map((t) => t.toJson()).toList() ?? [],
       'context': context?.map((c) => c.toJson()).toList() ?? [],
-      'forwardedProps': forwardedProps ?? {},
+      'forwarded_props': forwardedProps ?? {},
       if (config != null) 'config': config,
       if (metadata != null) 'metadata': metadata,
     };

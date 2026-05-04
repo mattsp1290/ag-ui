@@ -445,48 +445,62 @@ class EventStreamAdapter {
   ) {
     final controller = StreamController<List<BaseEvent>>(sync: true);
     final Map<String, List<BaseEvent>> activeGroups = {};
-    
-    eventStream.listen(
-      (event) {
-        switch (event) {
-          case TextMessageStartEvent(:final messageId):
-            activeGroups[messageId] = [event];
-          case TextMessageContentEvent(:final messageId):
-            activeGroups[messageId]?.add(event);
-          case TextMessageEndEvent(:final messageId):
-            final group = activeGroups.remove(messageId);
-            if (group != null) {
-              group.add(event);
-              controller.add(group);
-            }
-          case ToolCallStartEvent(:final toolCallId):
-            activeGroups[toolCallId] = [event];
-          case ToolCallArgsEvent(:final toolCallId):
-            activeGroups[toolCallId]?.add(event);
-          case ToolCallEndEvent(:final toolCallId):
-            final group = activeGroups.remove(toolCallId);
-            if (group != null) {
-              group.add(event);
-              controller.add(group);
-            }
-          default:
-            // Single events not part of a group
-            controller.add([event]);
-        }
-      },
-      onError: controller.addError,
-      onDone: () {
-        // Emit any incomplete groups
-        for (final group in activeGroups.values) {
-          if (group.isNotEmpty) {
-            controller.add(group);
+    StreamSubscription<BaseEvent>? subscription;
+
+    // Defer subscription to `onListen` so that:
+    //   • A caller that stores the stream but never subscribes does not
+    //     leak the upstream listener.
+    //   • Backpressure (pause/resume/cancel) propagates correctly to
+    //     the upstream, matching the pattern used by `fromRawSseStream`.
+    controller.onListen = () {
+      subscription = eventStream.listen(
+        (event) {
+          switch (event) {
+            case TextMessageStartEvent(:final messageId):
+              activeGroups[messageId] = [event];
+            case TextMessageContentEvent(:final messageId):
+              activeGroups[messageId]?.add(event);
+            case TextMessageEndEvent(:final messageId):
+              final group = activeGroups.remove(messageId);
+              if (group != null) {
+                group.add(event);
+                controller.add(group);
+              }
+            case ToolCallStartEvent(:final toolCallId):
+              activeGroups[toolCallId] = [event];
+            case ToolCallArgsEvent(:final toolCallId):
+              activeGroups[toolCallId]?.add(event);
+            case ToolCallEndEvent(:final toolCallId):
+              final group = activeGroups.remove(toolCallId);
+              if (group != null) {
+                group.add(event);
+                controller.add(group);
+              }
+            default:
+              // Single events not part of a group
+              controller.add([event]);
           }
-        }
-        controller.close();
-      },
-      cancelOnError: false,
-    );
-    
+        },
+        onError: controller.addError,
+        onDone: () {
+          // Emit any incomplete groups
+          for (final group in activeGroups.values) {
+            if (group.isNotEmpty) {
+              controller.add(group);
+            }
+          }
+          controller.close();
+        },
+        cancelOnError: false,
+      );
+    };
+    controller.onCancel = () async {
+      await subscription?.cancel();
+      subscription = null;
+    };
+    controller.onPause = () => subscription?.pause();
+    controller.onResume = () => subscription?.resume();
+
     return controller.stream;
   }
 
@@ -494,36 +508,49 @@ class EventStreamAdapter {
   static Stream<String> accumulateTextMessages(
     Stream<BaseEvent> eventStream,
   ) {
-    final controller = StreamController<String>();
+    final controller = StreamController<String>(sync: true);
     final Map<String, StringBuffer> activeMessages = {};
-    
-    eventStream.listen(
-      (event) {
-        switch (event) {
-          case TextMessageStartEvent(:final messageId):
-            activeMessages[messageId] = StringBuffer();
-          case TextMessageContentEvent(:final messageId, :final delta):
-            activeMessages[messageId]?.write(delta);
-          case TextMessageEndEvent(:final messageId):
-            final buffer = activeMessages.remove(messageId);
-            if (buffer != null) {
-              controller.add(buffer.toString());
-            }
-          case TextMessageChunkEvent(:final messageId, :final delta):
-            // Handle chunk events (single event with complete content)
-            if (messageId != null && delta != null) {
-              controller.add(delta);
-            }
-          default:
-            // Ignore other event types
-            break;
-        }
-      },
-      onError: controller.addError,
-      onDone: controller.close,
-      cancelOnError: false,
-    );
-    
+    StreamSubscription<BaseEvent>? subscription;
+
+    // Defer subscription to `onListen` — mirrors `groupRelatedEvents`
+    // and `fromRawSseStream` so upstream leaks and backpressure issues
+    // are avoided. Uses `sync: true` to match the synchronous-emit
+    // contract of the other stream helpers in this class.
+    controller.onListen = () {
+      subscription = eventStream.listen(
+        (event) {
+          switch (event) {
+            case TextMessageStartEvent(:final messageId):
+              activeMessages[messageId] = StringBuffer();
+            case TextMessageContentEvent(:final messageId, :final delta):
+              activeMessages[messageId]?.write(delta);
+            case TextMessageEndEvent(:final messageId):
+              final buffer = activeMessages.remove(messageId);
+              if (buffer != null) {
+                controller.add(buffer.toString());
+              }
+            case TextMessageChunkEvent(:final messageId, :final delta):
+              // Handle chunk events (single event with complete content)
+              if (messageId != null && delta != null) {
+                controller.add(delta);
+              }
+            default:
+              // Ignore other event types
+              break;
+          }
+        },
+        onError: controller.addError,
+        onDone: controller.close,
+        cancelOnError: false,
+      );
+    };
+    controller.onCancel = () async {
+      await subscription?.cancel();
+      subscription = null;
+    };
+    controller.onPause = () => subscription?.pause();
+    controller.onResume = () => subscription?.resume();
+
     return controller.stream;
   }
 }

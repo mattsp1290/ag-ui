@@ -98,7 +98,13 @@ class AGUIValidationError extends AGUIError {
   String toString() {
     final buffer = StringBuffer('AGUIValidationError: $message');
     if (field != null) buffer.write(' (field: $field)');
-    if (value != null) buffer.write(' (value: $value)');
+    if (value != null) {
+      final valueStr = value.toString();
+      final excerpt = valueStr.length > 100
+          ? '${valueStr.substring(0, 100)}...'
+          : valueStr;
+      buffer.write(' (value: $excerpt)');
+    }
     if (cause != null) buffer.write('\nCaused by: $cause');
     return buffer.toString();
   }
@@ -211,34 +217,31 @@ class JsonDecoder {
   /// Reads a required field that may arrive under either of two keys.
   ///
   /// Servers in this protocol use camelCase (TypeScript) or snake_case
-  /// (Python) field names interchangeably. This helper tries [camelKey]
-  /// first (canonical), then [snakeKey], and throws an
-  /// [AGUIValidationError] naming BOTH keys if neither is present —
-  /// avoiding the misleading "missing message_id" error when the caller
-  /// actually sent `messageId`.
+  /// (Python) field names interchangeably. Resolution is by KEY PRESENCE
+  /// via `containsKey` — matching the rule documented on
+  /// [optionalEitherField]:
+  ///   • If [camelKey] is present (even when its value is explicitly
+  ///     `null`), [camelKey] wins and [snakeKey] is NOT consulted.
+  ///   • [snakeKey] is consulted ONLY when [camelKey] is entirely absent.
+  ///
+  /// If neither key resolves to a non-null value, throws an
+  /// [AGUIValidationError] naming BOTH keys — avoiding the misleading
+  /// "missing message_id" error when the caller actually sent `messageId`.
   ///
   /// Note on short-circuit behavior: if [camelKey] is present but holds
   /// a wrong-typed value, [optionalField] throws and the [snakeKey]
-  /// fallback is NOT attempted. This is intentional — a payload that
-  /// carries both keys with conflicting types is itself a protocol
-  /// violation, and surfacing the type error at [camelKey] is more
-  /// useful than silently rescuing via the snake_case alias. The same
-  /// rule applies to [optionalEitherField].
-  ///
-  /// Note on falsy non-null values: the `??` chain only fires on `null`,
-  /// so a falsy non-null value at [camelKey] (`false`, `0`, `""`, an
-  /// empty list/map) is preserved and the [snakeKey] fallback is not
-  /// consulted. This matters for any future `T` other than `String` —
-  /// e.g. `requireEitherField<bool>(json, 'replace', 'replace_all')`
-  /// returns `false` when `camelKey` carries `false`, not `null`,
-  /// keeping the canonical-key value in the camelCase preference order.
+  /// fallback is NOT attempted — a payload that carries both keys with
+  /// conflicting types is a protocol violation, and surfacing the type
+  /// error at [camelKey] is more useful than silently rescuing via the
+  /// snake_case alias. The same rule applies to [optionalEitherField].
   static T requireEitherField<T>(
     Map<String, dynamic> json,
     String camelKey,
     String snakeKey,
   ) {
-    final v = optionalField<T>(json, camelKey) ??
-        optionalField<T>(json, snakeKey);
+    final v = json.containsKey(camelKey)
+        ? optionalField<T>(json, camelKey)
+        : optionalField<T>(json, snakeKey);
     if (v == null) {
       throw AGUIValidationError(
         message: 'Missing required field "$camelKey" (or "$snakeKey")',

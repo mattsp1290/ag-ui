@@ -195,16 +195,18 @@ class ToolResult extends AGUIModel {
     if (error != null) 'error': error,
   };
 
+  // `error` is nullable — sentinel lets callers clear it explicitly via
+  // `copyWith(error: null)`. Mirrors `ToolCall.encryptedValue` above.
   @override
   ToolResult copyWith({
     String? toolCallId,
     String? content,
-    String? error,
+    Object? error = _unsetTool,
   }) {
     return ToolResult(
       toolCallId: toolCallId ?? this.toolCallId,
       content: content ?? this.content,
-      error: error ?? this.error,
+      error: identical(error, _unsetTool) ? this.error : error as String?,
     );
   }
 }

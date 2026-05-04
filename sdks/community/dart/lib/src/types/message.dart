@@ -501,6 +501,12 @@ class ToolMessage extends Message {
 /// [activityContent] to avoid shadowing the parent [Message.content]
 /// (which is `String?`). The wire key remains `content` in [toJson] /
 /// [fromJson] for protocol parity.
+///
+/// **`encryptedValue` note.** `ActivityMessage` inherits [encryptedValue]
+/// from [Message] but intentionally does not expose it in the constructor,
+/// [fromJson], or [toJson]. In the canonical protocol `ActivityMessage` is
+/// NOT a `BaseMessage` extension (unlike Developer/System/Assistant/User/Tool
+/// messages), so cipher-payload forwarding does not apply here.
 class ActivityMessage extends Message {
   final String activityType;
   final Map<String, dynamic> activityContent;

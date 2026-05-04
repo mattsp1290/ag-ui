@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:math';
 import 'package:http/http.dart' as http;
 import 'package:meta/meta.dart';
 
@@ -229,29 +230,37 @@ class AgUiClient {
     }
   }
 
-  /// Send request with cancellation support
+  /// Send request with cancellation support.
+  ///
+  /// **Known limitation**: cancellation only drops the response at the
+  /// Dart completer level — the underlying HTTP connection is NOT aborted.
+  /// The `http.Client` interface does not expose per-request abort; closing
+  /// the shared `_httpClient` would affect all concurrent requests. In
+  /// practice the OS/server timeout eventually cleans up the socket. A
+  /// future refactor to per-request `IOClient` instances could add true
+  /// abort support.
+  ///
+  /// Late-arriving responses or errors from the HTTP future after
+  /// cancellation are silently swallowed by the `onError` handler below
+  /// to prevent unhandled-future-error warnings.
   Future<http.StreamedResponse> _sendWithCancellation(
     http.Request request,
     CancelToken cancelToken,
     Duration timeout,
   ) async {
-    // Create completer for cancellation
     final completer = Completer<http.StreamedResponse>();
-    
-    // Start the request
+
     final future = _httpClient.send(request).timeout(timeout);
-    
-    // Listen for cancellation
-    cancelToken.onCancel.then((_) {
+
+    unawaited(cancelToken.onCancel.then((_) {
       if (!completer.isCompleted) {
         completer.completeError(
           CancellationError('Request cancelled', operation: request.url.toString()),
         );
       }
-    });
-    
-    // Complete with result or error
-    future.then(
+    }));
+
+    unawaited(future.then(
       (response) {
         if (!completer.isCompleted) {
           completer.complete(response);
@@ -261,9 +270,12 @@ class AgUiClient {
         if (!completer.isCompleted) {
           completer.completeError(error);
         }
+        // If already cancelled: swallow the late error — the caller has
+        // already received CancellationError; this response/error is
+        // irrelevant.
       },
-    );
-    
+    ));
+
     return completer.future;
   }
 
@@ -451,11 +463,19 @@ class AgUiClient {
     }
   }
 
-  /// Generate a unique run ID
+  /// Generate a unique run ID using a timestamp + 8 cryptographically
+  /// random bytes. The random suffix prevents collisions for concurrent
+  /// calls within the same millisecond, which is important because run IDs
+  /// are used as map keys in `_activeStreams` / `_requestTokens` — a
+  /// collision would silently overwrite an in-flight stream entry.
   String _generateRunId() {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final random = DateTime.now().microsecond;
-    return 'run_${timestamp}_$random';
+    final rng = Random.secure();
+    final hex = List.generate(
+      8,
+      (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
+    return 'run_${timestamp}_$hex';
   }
 
   /// Truncate response body for error messages

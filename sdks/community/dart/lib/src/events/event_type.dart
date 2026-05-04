@@ -23,7 +23,7 @@ const String _kThinkingTextMessageEndEnumDeprecation =
 const String _kThinkingContentEnumDeprecation =
     'Dart-only legacy: never part of the canonical AG-UI protocol '
     '(TypeScript/Python). '
-    'Use thinkingTextMessageContent (ThinkingTextMessageContentEvent) instead. '
+    'Use reasoningMessageContent (ReasoningMessageContentEvent) instead. '
     'Scheduled for removal in 1.0.0.';
 
 /// Enumeration of all AG-UI event types

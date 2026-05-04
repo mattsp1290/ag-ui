@@ -57,15 +57,17 @@ class EventDecoder {
         actualValue: data,
         cause: e,
       );
-    } on ValidationError catch (e) {
+    } on ValidationError catch (e, stack) {
       // Mirror `decodeJson`'s clauses so a factory-side validation error
       // raised before `decodeJson` ever runs (e.g. via a future inline
       // pre-check) still surfaces as a structured `DecodingError` with
       // the originating field preserved, instead of falling to the
       // catch-all and getting flattened to `field: 'event'`.
-      throw _wrapValidation(e, e.field, {'data': data});
-    } on AGUIValidationError catch (e) {
-      throw _wrapValidation(e, e.field, {'data': data});
+      // `Error.throwWithStackTrace` preserves the original stack so the
+      // debug trace points at the failing field, not the wrapper.
+      Error.throwWithStackTrace(_wrapValidation(e, e.field, {'data': data}), stack);
+    } on AGUIValidationError catch (e, stack) {
+      Error.throwWithStackTrace(_wrapValidation(e, e.field, {'data': data}), stack);
     } on AgUiError {
       rethrow;
     } on EncoderError {
@@ -101,7 +103,7 @@ class EventDecoder {
       validate(event);
 
       return event;
-    } on ValidationError catch (e) {
+    } on ValidationError catch (e, stack) {
       // Wire-boundary contract documented on `AGUIValidationError`
       // (lib/src/types/base.dart): both `AGUIValidationError` (from
       // `fromJson` factories) and `ValidationError` (from `validate()`
@@ -110,15 +112,17 @@ class EventDecoder {
       // the decode boundary. This `on` clause covers the
       // `AgUiError`-extending sibling so it does not bypass the wrapping
       // via the `on AgUiError` rethrow.
-      throw _wrapValidation(e, e.field, json);
-    } on AGUIValidationError catch (e) {
+      // `Error.throwWithStackTrace` preserves the original stack so the
+      // debug trace points at the failing field, not the wrapper.
+      Error.throwWithStackTrace(_wrapValidation(e, e.field, json), stack);
+    } on AGUIValidationError catch (e, stack) {
       // Companion clause for the factory-side error. Without this branch,
       // `AGUIValidationError` (which only `implements Exception`, not
       // `AgUiError`) falls through to the catch-all below and the
       // original failing field — `role`, `messageId`, `subtype`, etc. —
       // is flattened to `field: 'json'`, breaking the public decoder
       // error surface.
-      throw _wrapValidation(e, e.field, json);
+      Error.throwWithStackTrace(_wrapValidation(e, e.field, json), stack);
     } on AgUiError {
       rethrow;
     } on EncoderError {

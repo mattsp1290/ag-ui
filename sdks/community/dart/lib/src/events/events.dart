@@ -65,7 +65,7 @@ const String _kThinkingTextMessageEndEventDeprecation =
 const String _kThinkingContentEventDeprecation =
     'Dart-only legacy: never part of the canonical AG-UI protocol '
     '(TypeScript/Python). '
-    'Use ThinkingTextMessageContentEvent instead. '
+    'Use ReasoningMessageContentEvent instead. '
     'Scheduled for removal in 1.0.0.';
 
 /// Base event for all AG-UI protocol events.
@@ -88,9 +88,11 @@ sealed class BaseEvent extends AGUIModel with TypeDiscriminator {
   /// **Consumer note: round-trip emission.** Anything assigned to this
   /// field WILL be serialized on the next `encode`. If you don't want
   /// the upstream payload echoed downstream, set `rawEvent: null` on
-  /// the in-flight event before re-encoding (e.g., via `copyWith`).
-  /// Wire output uses the camelCase key `rawEvent` regardless of which
-  /// spelling came in.
+  /// the in-flight event before re-encoding by constructing a new event
+  /// directly with `rawEvent: null` — the `copyWith` methods do NOT clear
+  /// this field (they use `rawEvent ?? this.rawEvent`, so passing `null`
+  /// keeps the existing value). Wire output uses the camelCase key
+  /// `rawEvent` regardless of which spelling came in.
   final dynamic rawEvent;
 
   const BaseEvent({

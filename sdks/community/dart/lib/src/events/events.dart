@@ -1587,6 +1587,20 @@ final class RunStartedEvent extends BaseEvent {
       json,
       'input',
     );
+    RunAgentInput? input;
+    if (inputJson != null) {
+      try {
+        input = RunAgentInput.fromJson(inputJson);
+      } on AGUIValidationError catch (e) {
+        throw AGUIValidationError(
+          message: e.message,
+          field: 'input.${e.field ?? 'unknown'}',
+          value: e.value,
+          json: json,
+          cause: e,
+        );
+      }
+    }
     return RunStartedEvent(
       threadId: JsonDecoder.requireEitherField<String>(
         json,
@@ -1603,7 +1617,7 @@ final class RunStartedEvent extends BaseEvent {
         'parentRunId',
         'parent_run_id',
       ),
-      input: inputJson == null ? null : RunAgentInput.fromJson(inputJson),
+      input: input,
       timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: _readRawEvent(json),
     );

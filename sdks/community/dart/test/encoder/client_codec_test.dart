@@ -65,7 +65,7 @@ void main() {
       expect(encoded['state'], equals({}));
       expect(encoded['tools'], isEmpty);
       expect(encoded['context'], isEmpty);
-      expect(encoded['forwarded_props'], equals({}));
+      expect(encoded['forwardedProps'], equals({}));
     });
 
     test('encodeUserMessage encodes UserMessage correctly', () {

@@ -107,8 +107,8 @@ void main() {
         expect(capturedHeaders?['Accept'], contains('text/event-stream'));
         
         final bodyJson = json.decode(capturedBody!);
-        expect(bodyJson['thread_id'], 'thread_123');
-        expect(bodyJson['run_id'], 'run_456');
+        expect(bodyJson['threadId'], 'thread_123');
+        expect(bodyJson['runId'], 'run_456');
         expect(bodyJson['messages'], hasLength(1));
         expect(bodyJson['config']['temperature'], 0.7);
         expect(bodyJson['metadata']['source'], 'test');

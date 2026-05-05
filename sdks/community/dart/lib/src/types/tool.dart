@@ -153,24 +153,25 @@ class Tool extends AGUIModel {
     if (metadata != null) 'metadata': metadata,
   };
 
-  // `parameters` is nullable (any JSON Schema shape) — sentinel lets
-  // callers clear it explicitly via `copyWith(parameters: null)`. Even
-  // though `dynamic` means `?? this.parameters` would have the same
-  // observable effect, the sentinel is kept for ergonomic symmetry with
-  // `ToolCall.encryptedValue` and `ToolResult.error` in this file so that
-  // every nullable clearable field follows the same pattern.
+  // Both `parameters` and `metadata` are nullable — sentinels let callers
+  // clear either field explicitly via `copyWith(field: null)`. Without the
+  // sentinel, `copyWith(metadata: null)` would silently retain the existing
+  // value because the `?? this.field` fallback treats explicit-null and
+  // "omitted" identically.
   @override
   Tool copyWith({
     String? name,
     String? description,
     Object? parameters = kUnsetSentinel,
-    Map<String, dynamic>? metadata,
+    Object? metadata = kUnsetSentinel,
   }) {
     return Tool(
       name: name ?? this.name,
       description: description ?? this.description,
       parameters: identical(parameters, kUnsetSentinel) ? this.parameters : parameters,
-      metadata: metadata ?? this.metadata,
+      metadata: identical(metadata, kUnsetSentinel)
+          ? this.metadata
+          : metadata as Map<String, dynamic>?,
     );
   }
 }

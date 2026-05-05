@@ -486,10 +486,19 @@ class AgUiClient {
     // subtype is explicitly covered. A partial `is UserMessage` check implied
     // validation coverage that didn't exist — this makes the boundary clear.
     if (input.messages != null) {
+      final seenMessageIds = <String>{};
       for (final message in input.messages!) {
         // `id` is the outbound message identity key — every message type
         // must carry a non-empty id before it reaches the server.
         Validators.requireNonEmpty(message.id, 'message.id');
+        if (!seenMessageIds.add(message.id!)) {
+          throw ValidationError(
+            'Duplicate message.id "${message.id}"',
+            field: 'message.id',
+            constraint: 'unique-id',
+            value: message.id,
+          );
+        }
         switch (message) {
           case UserMessage(:final content):
             Validators.validateMessageContent(content);
@@ -609,13 +618,13 @@ class SimpleRunAgentInput {
 
   Map<String, dynamic> toJson() {
     return {
-      if (threadId != null) 'thread_id': threadId,
-      if (runId != null) 'run_id': runId,
+      if (threadId != null) 'threadId': threadId,
+      if (runId != null) 'runId': runId,
       'state': state ?? {},
       'messages': messages?.map((m) => m.toJson()).toList() ?? [],
       'tools': tools?.map((t) => t.toJson()).toList() ?? [],
       'context': context?.map((c) => c.toJson()).toList() ?? [],
-      'forwarded_props': forwardedProps ?? {},
+      'forwardedProps': forwardedProps ?? {},
       if (config != null) 'config': config,
       if (metadata != null) 'metadata': metadata,
     };

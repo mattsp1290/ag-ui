@@ -120,24 +120,11 @@ class EventStreamAdapter {
             final data = message.data;
             if (data != null && data.isNotEmpty) {
               // Keep-alive sentinels (data field whose trimmed value is `:`).
-              // When `skipInvalidEvents` is true, route through `onError` for
-              // observability parity with `decodeSSE` / `fromRawSseStream`.
-              // When false, silently discard — a keep-alive is not a protocol
-              // error for the consumer. `fromSseStream` detects keep-alives on
-              // the pre-parsed `data` field, while the other two paths detect
-              // them at the raw `:` comment-line level; both ultimately discard.
+              // Silently discard regardless of `skipInvalidEvents` — a
+              // keep-alive is not a protocol error; routing it through
+              // `onError` would cause consumers that log on `onError` to
+              // receive spurious noise on every server keep-alive ping.
               if (data.trim() == ':') {
-                if (skipInvalidEvents) {
-                  onError?.call(
-                    DecodingError(
-                      'SSE keep-alive, not an event',
-                      field: 'data',
-                      expectedType: 'JSON event data',
-                      actualValue: data,
-                    ),
-                    StackTrace.current,
-                  );
-                }
                 return;
               }
               
@@ -526,32 +513,36 @@ class EventStreamAdapter {
       subscription = eventStream.listen(
         (event) {
           switch (event) {
+            // Keys are namespaced by event family ('text:', 'reasoning:',
+            // 'tool:') so that a producer reusing the same id across families
+            // (e.g. a text message and a reasoning step sharing a messageId)
+            // does not overwrite one group with another.
             case TextMessageStartEvent(:final messageId):
-              activeGroups[messageId] = [event];
+              activeGroups['text:$messageId'] = [event];
             case TextMessageContentEvent(:final messageId):
-              activeGroups[messageId]?.add(event);
+              activeGroups['text:$messageId']?.add(event);
             case TextMessageEndEvent(:final messageId):
-              final group = activeGroups.remove(messageId);
+              final group = activeGroups.remove('text:$messageId');
               if (group != null) {
                 group.add(event);
                 controller.add(group);
               }
             case ToolCallStartEvent(:final toolCallId):
-              activeGroups[toolCallId] = [event];
+              activeGroups['tool:$toolCallId'] = [event];
             case ToolCallArgsEvent(:final toolCallId):
-              activeGroups[toolCallId]?.add(event);
+              activeGroups['tool:$toolCallId']?.add(event);
             case ToolCallEndEvent(:final toolCallId):
-              final group = activeGroups.remove(toolCallId);
+              final group = activeGroups.remove('tool:$toolCallId');
               if (group != null) {
                 group.add(event);
                 controller.add(group);
               }
             case ReasoningMessageStartEvent(:final messageId):
-              activeGroups[messageId] = [event];
+              activeGroups['reasoning:$messageId'] = [event];
             case ReasoningMessageContentEvent(:final messageId):
-              activeGroups[messageId]?.add(event);
+              activeGroups['reasoning:$messageId']?.add(event);
             case ReasoningMessageEndEvent(:final messageId):
-              final group = activeGroups.remove(messageId);
+              final group = activeGroups.remove('reasoning:$messageId');
               if (group != null) {
                 group.add(event);
                 controller.add(group);
@@ -625,8 +616,16 @@ class EventStreamAdapter {
                 controller.add(buffer.toString());
               }
             case TextMessageChunkEvent(:final messageId, :final delta):
-              // Handle chunk events (single event with complete content)
-              if (messageId != null && delta != null) {
+              // A chunk is semantically a standalone complete message, but if
+              // a chunk arrives while a Start/End cycle is open for the same
+              // messageId, route it into the active buffer rather than
+              // emitting standalone — otherwise consumers see out-of-logical-
+              // order output (the chunk before the buffered Start/Content/End).
+              if (messageId == null || delta == null) break;
+              final activeBuffer = activeMessages[messageId];
+              if (activeBuffer != null) {
+                activeBuffer.write(delta);
+              } else {
                 controller.add(delta);
               }
             default:

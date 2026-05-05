@@ -2,6 +2,10 @@ import 'errors.dart';
 
 /// Validation utilities for AG-UI SDK
 class Validators {
+  // Hoisted to avoid recompiling on every validateUrl call (hot path).
+  static final RegExp _kUrlControlChars =
+      RegExp('[\x00-\x1f\x7f  ]');
+
   /// Validates that a string is not empty
   static void requireNonEmpty(String? value, String fieldName) {
     if (value == null || value.isEmpty) {
@@ -41,7 +45,7 @@ class Validators {
     //     terminators that Dart's `Uri.parse` accepts verbatim and a naive
     //     custom transport re-emitting the URL into an HTTP header line
     //     would interpret as a line break.
-    if (RegExp('[\x00-\x1f\x7f\u0085\u2028\u2029]').hasMatch(url!)) {
+    if (_kUrlControlChars.hasMatch(url!)) {
       throw ValidationError(
         'URL contains control characters for "$fieldName"',
         field: fieldName,

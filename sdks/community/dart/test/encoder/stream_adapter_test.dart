@@ -490,6 +490,48 @@ void main() {
         expect(groups[0][1], isA<ReasoningMessageContentEvent>());
         expect(groups[0][2], isA<ReasoningMessageEndEvent>());
       });
+
+      test('routes chunk into open group when Start/End cycle is active', () async {
+        // Regression: *Chunk events must be routed into an active group rather
+        // than emitted as standalone single-element groups via the default branch.
+        final controller = StreamController<BaseEvent>();
+        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
+
+        final groups = <List<BaseEvent>>[];
+        final subscription = grouped.listen(groups.add);
+
+        // TextMessageChunkEvent arriving while a Start/End cycle is open
+        controller.add(TextMessageStartEvent(messageId: 'msg1'));
+        controller.add(TextMessageChunkEvent(messageId: 'msg1', delta: 'chunk'));
+        controller.add(TextMessageEndEvent(messageId: 'msg1'));
+
+        await controller.close();
+        await subscription.cancel();
+
+        // All three events must land in a single group, not 2 groups
+        expect(groups.length, equals(1));
+        expect(groups[0].length, equals(3));
+        expect(groups[0][1], isA<TextMessageChunkEvent>());
+      });
+
+      test('emits standalone chunk when no matching open group exists', () async {
+        // A *Chunk with no active group (e.g. server sends only chunks, no
+        // Start/End) must still be emitted, just as a single-element group.
+        final controller = StreamController<BaseEvent>();
+        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
+
+        final groups = <List<BaseEvent>>[];
+        final subscription = grouped.listen(groups.add);
+
+        controller.add(TextMessageChunkEvent(messageId: 'msg1', delta: 'standalone'));
+
+        await controller.close();
+        await subscription.cancel();
+
+        expect(groups.length, equals(1));
+        expect(groups[0].length, equals(1));
+        expect(groups[0][0], isA<TextMessageChunkEvent>());
+      });
     });
 
     group('accumulateTextMessages', () {
@@ -600,19 +642,46 @@ void main() {
         final accumulated = EventStreamAdapter.accumulateTextMessages(
           controller.stream,
         );
-        
+
         final messages = <String>[];
         final subscription = accumulated.listen(messages.add);
-        
+
         // Message with no content events
         controller.add(TextMessageStartEvent(messageId: 'msg1'));
         controller.add(TextMessageEndEvent(messageId: 'msg1'));
-        
+
         await controller.close();
         await subscription.cancel();
-        
+
         expect(messages.length, equals(1));
         expect(messages[0], equals(''));
+      });
+
+      test('flushes partial content on stream close without TextMessageEnd', () async {
+        // Regression: When the upstream closes abnormally (no TextMessageEnd),
+        // accumulated content must be flushed rather than silently discarded.
+        // Mirrors groupRelatedEvents which emits incomplete groups on close.
+        final controller = StreamController<BaseEvent>();
+        final accumulated = EventStreamAdapter.accumulateTextMessages(
+          controller.stream,
+        );
+
+        final messages = <String>[];
+        final completer = Completer<void>();
+        final subscription = accumulated.listen(
+          messages.add,
+          onDone: completer.complete,
+        );
+
+        controller.add(TextMessageStartEvent(messageId: 'msg1'));
+        controller.add(TextMessageContentEvent(messageId: 'msg1', delta: 'partial'));
+        // No TextMessageEndEvent — simulates abnormal stream close
+        await controller.close();
+        await completer.future;
+        await subscription.cancel();
+
+        expect(messages.length, equals(1));
+        expect(messages[0], equals('partial'));
       });
     });
   });

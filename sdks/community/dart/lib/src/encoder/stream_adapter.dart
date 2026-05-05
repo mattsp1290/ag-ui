@@ -337,10 +337,19 @@ class EventStreamAdapter {
           try {
             processChunk(chunk);
           } catch (e, stack) {
+            final error = e is AGUIError
+                ? e
+                : DecodingError(
+                    'Internal error processing SSE chunk',
+                    field: 'chunk',
+                    expectedType: 'String',
+                    actualValue: chunk,
+                    cause: e,
+                  );
             if (!skipInvalidEvents) {
-              controller.addError(e, stack);
+              controller.addError(error, stack);
             } else {
-              onError?.call(e, stack);
+              onError?.call(error, stack);
             }
           }
         },
@@ -547,6 +556,27 @@ class EventStreamAdapter {
                 group.add(event);
                 controller.add(group);
               }
+            case TextMessageChunkEvent(:final messageId):
+              if (messageId != null &&
+                  activeGroups.containsKey('text:$messageId')) {
+                activeGroups['text:$messageId']!.add(event);
+              } else {
+                controller.add([event]);
+              }
+            case ToolCallChunkEvent(:final toolCallId):
+              if (toolCallId != null &&
+                  activeGroups.containsKey('tool:$toolCallId')) {
+                activeGroups['tool:$toolCallId']!.add(event);
+              } else {
+                controller.add([event]);
+              }
+            case ReasoningMessageChunkEvent(:final messageId):
+              if (messageId != null &&
+                  activeGroups.containsKey('reasoning:$messageId')) {
+                activeGroups['reasoning:$messageId']!.add(event);
+              } else {
+                controller.add([event]);
+              }
             default:
               // Single events not part of a group
               controller.add([event]);
@@ -634,7 +664,17 @@ class EventStreamAdapter {
           }
         },
         onError: controller.addError,
-        onDone: controller.close,
+        onDone: () {
+          // Emit accumulated content for messages that never received
+          // TextMessageEnd (e.g. abnormal stream close). Mirrors
+          // groupRelatedEvents which emits incomplete groups on close.
+          for (final entry in activeMessages.entries) {
+            final content = entry.value.toString();
+            if (content.isNotEmpty) controller.add(content);
+          }
+          activeMessages.clear();
+          controller.close();
+        },
         cancelOnError: false,
       );
     };

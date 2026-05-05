@@ -292,6 +292,13 @@ class EventDecoder {
         Validators.requireNonEmpty(event.messageId, 'messageId');
       case TextMessageChunkEvent():
         break;
+      // TODO(1.0.0): Remove the following deprecated cases + their event classes:
+      //   ThinkingTextMessageStartEvent, ThinkingTextMessageContentEvent,
+      //   ThinkingTextMessageEndEvent, ThinkingContentEvent.
+      //   Also remove EventType.thinkingTextMessage* / thinkingContent enum
+      //   values, the _kThinkingTextMessage*Deprecation / _kThinkingContent*
+      //   Deprecation constants, and the deprecated TimeoutError typedef in
+      //   client/errors.dart.
       // ignore: deprecated_member_use_from_same_package
       case ThinkingTextMessageStartEvent():
         // Deprecated; no `messageId` on the wire by design — matches the

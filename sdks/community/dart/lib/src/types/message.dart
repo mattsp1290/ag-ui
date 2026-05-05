@@ -125,9 +125,6 @@ sealed class Message extends AGUIModel with TypeDiscriminator {
   /// Factory constructor to create specific message types from JSON
   factory Message.fromJson(Map<String, dynamic> json) {
     final roleStr = JsonDecoder.requireField<String>(json, 'role');
-    // Re-throw with `json:` populated so callers can identify which message
-    // in a `MESSAGES_SNAPSHOT` payload had the bad role (the original throw
-    // from `MessageRole.fromString` omits the wire context).
     final MessageRole role;
     try {
       role = MessageRole.fromString(roleStr);
@@ -136,11 +133,17 @@ sealed class Message extends AGUIModel with TypeDiscriminator {
         message: e.message,
         field: e.field,
         value: e.value,
-        json: json,
         cause: e,
       );
     }
 
+    // `MessageRole.fromString` deliberately throws on unknown values rather
+    // than falling back to a default — unlike `TextMessageRole.fromString`
+    // and `ReasoningMessageRole.fromString`, which absorb `ArgumentError` for
+    // forward-compat. The role is the *dispatch discriminator*: an unknown role
+    // has no safe default subtype. Changing this to a fallback would silently
+    // mis-tag a MESSAGES_SNAPSHOT message, corrupting the list instead of
+    // surfacing the wire violation at the decoder boundary.
     switch (role) {
       case MessageRole.developer:
         return DeveloperMessage.fromJson(json);
@@ -176,7 +179,7 @@ sealed class Message extends AGUIModel with TypeDiscriminator {
 /// Developer message with required content.
 ///
 /// Used for system-level or developer-facing messages in the conversation.
-class DeveloperMessage extends Message {
+final class DeveloperMessage extends Message {
   @override
   final String content;
 
@@ -223,7 +226,7 @@ class DeveloperMessage extends Message {
 /// System message with required content.
 ///
 /// Represents system-level instructions or context provided to the agent.
-class SystemMessage extends Message {
+final class SystemMessage extends Message {
   @override
   final String content;
 
@@ -271,7 +274,7 @@ class SystemMessage extends Message {
 ///
 /// Represents responses from the AI assistant, which may include
 /// text content and/or tool call requests.
-class AssistantMessage extends Message {
+final class AssistantMessage extends Message {
   final List<ToolCall>? toolCalls;
 
   const AssistantMessage({
@@ -319,14 +322,12 @@ class AssistantMessage extends Message {
                 message: e.message,
                 field: 'toolCalls[$i].${e.field ?? 'unknown'}',
                 value: e.value,
-                json: json,
                 cause: e,
               );
             }
             throw AGUIValidationError(
               message: 'Failed to decode tool call at index $i: $e',
               field: 'toolCalls[$i]',
-              json: json,
               cause: e,
             );
           }
@@ -394,7 +395,7 @@ class AssistantMessage extends Message {
 /// `AGUIValidationError(field: 'content')` because the factory's
 /// `requireField<String>` rejects the list type. Tracked for a future
 /// release; see CHANGELOG → "Known parity gaps".
-class UserMessage extends Message {
+final class UserMessage extends Message {
   @override
   final String content;
 
@@ -445,7 +446,7 @@ class UserMessage extends Message {
 /// canonical TypeScript `ToolMessageSchema` and Python `ToolMessage` and
 /// carries an opaque cipher payload that a Dart proxy must forward
 /// verbatim to a downstream agent.
-class ToolMessage extends Message {
+final class ToolMessage extends Message {
   @override
   final String content;
   final String toolCallId;
@@ -526,7 +527,7 @@ class ToolMessage extends Message {
 /// [fromJson], or [toJson]. In the canonical protocol `ActivityMessage` is
 /// NOT a `BaseMessage` extension (unlike Developer/System/Assistant/User/Tool
 /// messages), so cipher-payload forwarding does not apply here.
-class ActivityMessage extends Message {
+final class ActivityMessage extends Message {
   final String activityType;
   final Map<String, dynamic> activityContent;
 
@@ -591,7 +592,7 @@ class ActivityMessage extends Message {
 /// Python `ReasoningMessage` model. The wire shape is
 /// `{id, role: 'reasoning', content, encryptedValue?}` with `content` as
 /// a string and `encryptedValue` as an optional opaque cipher payload.
-class ReasoningMessage extends Message {
+final class ReasoningMessage extends Message {
   @override
   final String content;
 

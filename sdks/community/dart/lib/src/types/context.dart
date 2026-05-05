@@ -87,18 +87,84 @@ class RunAgentInput extends AGUIModel {
         'parent_run_id',
       ),
       state: json['state'],
-      messages: JsonDecoder.requireListField<Map<String, dynamic>>(
-        json,
-        'messages',
-      ).map((item) => Message.fromJson(item)).toList(),
-      tools: JsonDecoder.requireListField<Map<String, dynamic>>(
-        json,
-        'tools',
-      ).map((item) => Tool.fromJson(item)).toList(),
-      context: JsonDecoder.requireListField<Map<String, dynamic>>(
-        json,
-        'context',
-      ).map((item) => Context.fromJson(item)).toList(),
+      messages: () {
+        final raw = JsonDecoder.requireListField<Map<String, dynamic>>(
+          json,
+          'messages',
+        );
+        final out = <Message>[];
+        for (var i = 0; i < raw.length; i++) {
+          try {
+            out.add(Message.fromJson(raw[i]));
+          } on AGUIValidationError catch (e) {
+            throw AGUIValidationError(
+              message: e.message,
+              field: 'messages[$i].${e.field ?? 'unknown'}',
+              value: e.value,
+              cause: e,
+            );
+          } catch (e) {
+            throw AGUIValidationError(
+              message: 'Failed to decode message at index $i: $e',
+              field: 'messages[$i]',
+              cause: e,
+            );
+          }
+        }
+        return out;
+      }(),
+      tools: () {
+        final raw = JsonDecoder.requireListField<Map<String, dynamic>>(
+          json,
+          'tools',
+        );
+        final out = <Tool>[];
+        for (var i = 0; i < raw.length; i++) {
+          try {
+            out.add(Tool.fromJson(raw[i]));
+          } on AGUIValidationError catch (e) {
+            throw AGUIValidationError(
+              message: e.message,
+              field: 'tools[$i].${e.field ?? 'unknown'}',
+              value: e.value,
+              cause: e,
+            );
+          } catch (e) {
+            throw AGUIValidationError(
+              message: 'Failed to decode tool at index $i: $e',
+              field: 'tools[$i]',
+              cause: e,
+            );
+          }
+        }
+        return out;
+      }(),
+      context: () {
+        final raw = JsonDecoder.requireListField<Map<String, dynamic>>(
+          json,
+          'context',
+        );
+        final out = <Context>[];
+        for (var i = 0; i < raw.length; i++) {
+          try {
+            out.add(Context.fromJson(raw[i]));
+          } on AGUIValidationError catch (e) {
+            throw AGUIValidationError(
+              message: e.message,
+              field: 'context[$i].${e.field ?? 'unknown'}',
+              value: e.value,
+              cause: e,
+            );
+          } catch (e) {
+            throw AGUIValidationError(
+              message: 'Failed to decode context at index $i: $e',
+              field: 'context[$i]',
+              cause: e,
+            );
+          }
+        }
+        return out;
+      }(),
       // `forwardedProps` is intentionally `dynamic` (any JSON shape),
       // so the inline KEY-presence chain is preferred over
       // `optionalEitherField<T>` (which requires a concrete `T`). Behavior

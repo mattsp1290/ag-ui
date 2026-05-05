@@ -216,6 +216,28 @@ void main() {
         expect(messages[0].id, isNull);
       });
 
+      test('ignores id containing NUL byte per WHATWG SSE spec', () async {
+        // WHATWG SSE spec: id values must not contain U+0000 (NUL).
+        // A NUL-bearing id is silently ignored; _lastEventId is not updated.
+        // Per spec, each dispatched message carries the current _lastEventId
+        // value, so the second message still inherits 'good-id'.
+        final lines = Stream.fromIterable([
+          'id: good-id',
+          'data: first',
+          '',
+          'id: bad\x00id',
+          'data: second',
+          '',
+        ]);
+
+        final messages = await parser.parseLines(lines).toList();
+        expect(messages.length, 2);
+        expect(messages[0].id, equals('good-id'));
+        // NUL id ignored — _lastEventId unchanged, second message inherits it
+        expect(messages[1].id, equals('good-id'));
+        expect(parser.lastEventId, equals('good-id'));
+      });
+
       test('ignores invalid retry values', () async {
         final lines = Stream.fromIterable([
           'retry: not-a-number',

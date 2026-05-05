@@ -137,6 +137,13 @@ sealed class BaseEvent extends AGUIModel with TypeDiscriminator {
         return TextMessageEndEvent.fromJson(json);
       case EventType.textMessageChunk:
         return TextMessageChunkEvent.fromJson(json);
+      // TODO(1.0.0): Remove the following deprecated cases + their event classes:
+      //   ThinkingTextMessageStartEvent, ThinkingTextMessageContentEvent,
+      //   ThinkingTextMessageEndEvent, ThinkingContentEvent.
+      //   Also remove EventType.thinkingTextMessage* / thinkingContent enum
+      //   values, the _kThinkingTextMessage*Deprecation / _kThinkingContent*
+      //   Deprecation constants, and the deprecated TimeoutError typedef in
+      //   client/errors.dart.
       // ignore: deprecated_member_use_from_same_package
       case EventType.thinkingTextMessageStart:
         // ignore: deprecated_member_use_from_same_package
@@ -1240,14 +1247,12 @@ final class MessagesSnapshotEvent extends BaseEvent {
             message: e.message,
             field: 'messages[$i].${e.field ?? 'unknown'}',
             value: e.value,
-            json: json,
             cause: e,
           );
         }
         throw AGUIValidationError(
           message: 'Failed to decode message at index $i: $e',
           field: 'messages[$i]',
-          json: json,
           cause: e,
         );
       }

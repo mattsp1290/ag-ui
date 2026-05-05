@@ -14,28 +14,23 @@ import 'event_type.dart';
 
 export 'event_type.dart';
 
-/// Sentinel for `copyWith` methods on event types whose payload field can
-/// validly be `null` on the wire. With the default `?? this.field`
-/// pattern, a caller cannot distinguish "argument omitted" from
-/// "argument explicitly set to `null`". Comparing against this sentinel
-/// with `identical(...)` makes that distinction explicit.
-///
-/// Applied to every nullable payload field on the events whose `copyWith`
-/// callers may legitimately want to clear:
-/// `ActivitySnapshotEvent.content`, `RawEvent.event`, `CustomEvent.value`,
-/// `RunFinishedEvent.result`, `RunStartedEvent.parentRunId` /
-/// `RunStartedEvent.input`, the optional fields of
-/// `TextMessageStartEvent`, `TextMessageChunkEvent`,
-/// `ToolCallStartEvent.parentMessageId`, the optional fields of
-/// `ToolCallChunkEvent`, and the optional fields of
-/// `ReasoningMessageChunkEvent`. A few non-payload `copyWith`s still use
-/// the standard `?? this.field` pattern — see CHANGELOG → "Known parity
-/// gaps" for the remaining cases.
-class _Unset {
-  const _Unset();
-}
-
-const _Unset _unsetCopyWith = _Unset();
+// `kUnsetSentinel` (from `base.dart`) is the shared sentinel for all
+// `copyWith` methods in this file. With the default `?? this.field` pattern,
+// a caller cannot distinguish "argument omitted" from "argument explicitly set
+// to `null`". Comparing against `kUnsetSentinel` with `identical(...)` makes
+// that distinction explicit.
+//
+// Applied to every nullable payload field on the events whose `copyWith`
+// callers may legitimately want to clear:
+// `ActivitySnapshotEvent.content`, `RawEvent.event`, `CustomEvent.value`,
+// `RunFinishedEvent.result`, `RunStartedEvent.parentRunId` /
+// `RunStartedEvent.input`, the `name` field of `TextMessageStartEvent`,
+// the optional fields of `TextMessageChunkEvent`,
+// `ToolCallStartEvent.parentMessageId`, the optional fields of
+// `ToolCallChunkEvent`, and the optional fields of
+// `ReasoningMessageChunkEvent`. A few non-payload `copyWith`s still use
+// the standard `?? this.field` pattern — see CHANGELOG → "Known parity
+// gaps" for the remaining cases.
 
 /// Reads the `rawEvent` field from a wire payload, accepting both
 /// `rawEvent` (TypeScript-canonical) and `raw_event` (Python-canonical).
@@ -322,14 +317,14 @@ final class TextMessageStartEvent extends BaseEvent {
   TextMessageStartEvent copyWith({
     String? messageId,
     TextMessageRole? role,
-    Object? name = _unsetCopyWith,
+    Object? name = kUnsetSentinel,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return TextMessageStartEvent(
       messageId: messageId ?? this.messageId,
       role: role ?? this.role,
-      name: identical(name, _unsetCopyWith) ? this.name : name as String?,
+      name: identical(name, kUnsetSentinel) ? this.name : name as String?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -491,23 +486,23 @@ final class TextMessageChunkEvent extends BaseEvent {
   // See `_Unset` (top of file) for the sentinel rationale.
   @override
   TextMessageChunkEvent copyWith({
-    Object? messageId = _unsetCopyWith,
-    Object? role = _unsetCopyWith,
-    Object? delta = _unsetCopyWith,
-    Object? name = _unsetCopyWith,
+    Object? messageId = kUnsetSentinel,
+    Object? role = kUnsetSentinel,
+    Object? delta = kUnsetSentinel,
+    Object? name = kUnsetSentinel,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return TextMessageChunkEvent(
-      messageId: identical(messageId, _unsetCopyWith)
+      messageId: identical(messageId, kUnsetSentinel)
           ? this.messageId
           : messageId as String?,
-      role: identical(role, _unsetCopyWith)
+      role: identical(role, kUnsetSentinel)
           ? this.role
           : role as TextMessageRole?,
       delta:
-          identical(delta, _unsetCopyWith) ? this.delta : delta as String?,
-      name: identical(name, _unsetCopyWith) ? this.name : name as String?,
+          identical(delta, kUnsetSentinel) ? this.delta : delta as String?,
+      name: identical(name, kUnsetSentinel) ? this.name : name as String?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -816,14 +811,14 @@ final class ToolCallStartEvent extends BaseEvent {
   ToolCallStartEvent copyWith({
     String? toolCallId,
     String? toolCallName,
-    Object? parentMessageId = _unsetCopyWith,
+    Object? parentMessageId = kUnsetSentinel,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return ToolCallStartEvent(
       toolCallId: toolCallId ?? this.toolCallId,
       toolCallName: toolCallName ?? this.toolCallName,
-      parentMessageId: identical(parentMessageId, _unsetCopyWith)
+      parentMessageId: identical(parentMessageId, kUnsetSentinel)
           ? this.parentMessageId
           : parentMessageId as String?,
       timestamp: timestamp ?? this.timestamp,
@@ -977,25 +972,25 @@ final class ToolCallChunkEvent extends BaseEvent {
   // See `_Unset` (top of file) for the sentinel rationale.
   @override
   ToolCallChunkEvent copyWith({
-    Object? toolCallId = _unsetCopyWith,
-    Object? toolCallName = _unsetCopyWith,
-    Object? parentMessageId = _unsetCopyWith,
-    Object? delta = _unsetCopyWith,
+    Object? toolCallId = kUnsetSentinel,
+    Object? toolCallName = kUnsetSentinel,
+    Object? parentMessageId = kUnsetSentinel,
+    Object? delta = kUnsetSentinel,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return ToolCallChunkEvent(
-      toolCallId: identical(toolCallId, _unsetCopyWith)
+      toolCallId: identical(toolCallId, kUnsetSentinel)
           ? this.toolCallId
           : toolCallId as String?,
-      toolCallName: identical(toolCallName, _unsetCopyWith)
+      toolCallName: identical(toolCallName, kUnsetSentinel)
           ? this.toolCallName
           : toolCallName as String?,
-      parentMessageId: identical(parentMessageId, _unsetCopyWith)
+      parentMessageId: identical(parentMessageId, kUnsetSentinel)
           ? this.parentMessageId
           : parentMessageId as String?,
       delta:
-          identical(delta, _unsetCopyWith) ? this.delta : delta as String?,
+          identical(delta, kUnsetSentinel) ? this.delta : delta as String?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -1239,11 +1234,19 @@ final class MessagesSnapshotEvent extends BaseEvent {
     for (var i = 0; i < rawMessages.length; i++) {
       try {
         messages.add(Message.fromJson(rawMessages[i]));
-      } on AGUIValidationError catch (e) {
+      } catch (e) {
+        if (e is AGUIValidationError) {
+          throw AGUIValidationError(
+            message: e.message,
+            field: 'messages[$i].${e.field ?? 'unknown'}',
+            value: e.value,
+            json: json,
+            cause: e,
+          );
+        }
         throw AGUIValidationError(
-          message: e.message,
-          field: 'messages[$i].${e.field ?? 'unknown'}',
-          value: e.value,
+          message: 'Failed to decode message at index $i: $e',
+          field: 'messages[$i]',
           json: json,
           cause: e,
         );
@@ -1304,6 +1307,11 @@ final class ActivitySnapshotEvent extends BaseEvent {
   /// unconditionally — slightly heavier than the protocol minimum, but
   /// makes the round-trip contract explicit and matches what
   /// `event_test.dart` locks in.
+  ///
+  /// **Known parity gap.** Canonical TypeScript and Python SDKs omit
+  /// `replace` from the wire output when it equals the default (`true`).
+  /// This Dart SDK always emits it for round-trip explicitness. See
+  /// CHANGELOG → "Known parity gaps" for the full list.
   final bool replace;
 
   const ActivitySnapshotEvent({
@@ -1360,7 +1368,7 @@ final class ActivitySnapshotEvent extends BaseEvent {
   ActivitySnapshotEvent copyWith({
     String? messageId,
     String? activityType,
-    Object? content = _unsetCopyWith,
+    Object? content = kUnsetSentinel,
     bool? replace,
     int? timestamp,
     dynamic rawEvent,
@@ -1368,7 +1376,7 @@ final class ActivitySnapshotEvent extends BaseEvent {
     return ActivitySnapshotEvent(
       messageId: messageId ?? this.messageId,
       activityType: activityType ?? this.activityType,
-      content: identical(content, _unsetCopyWith) ? this.content : content,
+      content: identical(content, kUnsetSentinel) ? this.content : content,
       replace: replace ?? this.replace,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
@@ -1477,14 +1485,14 @@ final class RawEvent extends BaseEvent {
   // semantics to drop a stale upstream payload.
   @override
   RawEvent copyWith({
-    Object? event = _unsetCopyWith,
-    Object? source = _unsetCopyWith,
+    Object? event = kUnsetSentinel,
+    Object? source = kUnsetSentinel,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return RawEvent(
-      event: identical(event, _unsetCopyWith) ? this.event : event,
-      source: identical(source, _unsetCopyWith)
+      event: identical(event, kUnsetSentinel) ? this.event : event,
+      source: identical(source, kUnsetSentinel)
           ? this.source
           : source as String?,
       timestamp: timestamp ?? this.timestamp,
@@ -1535,13 +1543,13 @@ final class CustomEvent extends BaseEvent {
   @override
   CustomEvent copyWith({
     String? name,
-    Object? value = _unsetCopyWith,
+    Object? value = kUnsetSentinel,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return CustomEvent(
       name: name ?? this.name,
-      value: identical(value, _unsetCopyWith) ? this.value : value,
+      value: identical(value, kUnsetSentinel) ? this.value : value,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -1615,18 +1623,18 @@ final class RunStartedEvent extends BaseEvent {
   RunStartedEvent copyWith({
     String? threadId,
     String? runId,
-    Object? parentRunId = _unsetCopyWith,
-    Object? input = _unsetCopyWith,
+    Object? parentRunId = kUnsetSentinel,
+    Object? input = kUnsetSentinel,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return RunStartedEvent(
       threadId: threadId ?? this.threadId,
       runId: runId ?? this.runId,
-      parentRunId: identical(parentRunId, _unsetCopyWith)
+      parentRunId: identical(parentRunId, kUnsetSentinel)
           ? this.parentRunId
           : parentRunId as String?,
-      input: identical(input, _unsetCopyWith)
+      input: identical(input, kUnsetSentinel)
           ? this.input
           : input as RunAgentInput?,
       timestamp: timestamp ?? this.timestamp,
@@ -1646,12 +1654,15 @@ final class RunFinishedEvent extends BaseEvent {
   /// produce a [RunFinishedEvent] with `result == null`, and [toJson]
   /// drops the key when `result` is null.
   ///
-  /// The `_Unset` sentinel on [copyWith] (`Object? result = _unsetCopyWith`)
-  /// is for in-memory disambiguation only — it lets callers explicitly
-  /// clear a previously-set result. It is NOT a wire-protocol distinction:
-  /// do not mirror the `ActivitySnapshotEvent.content` always-emit
-  /// pattern here; the protocol does not require [RunFinishedEvent.result]
-  /// to be present on the wire.
+  /// The [kUnsetSentinel] on [copyWith] (`Object? result = kUnsetSentinel`)
+  /// is for in-memory disambiguation only — it lets callers explicitly clear
+  /// a previously-set result without constructing a new event. It is NOT a
+  /// wire-protocol distinction: both `null` and absent produce identical
+  /// `toJson` output (key omitted). Do not mirror the
+  /// `ActivitySnapshotEvent.content` always-emit pattern here; the protocol
+  /// does not require [RunFinishedEvent.result] on the wire. If you need the
+  /// distinction visible in the wire output, construct a new [RunFinishedEvent]
+  /// directly with the field always emitted.
   final dynamic result;
 
   const RunFinishedEvent({
@@ -1693,14 +1704,14 @@ final class RunFinishedEvent extends BaseEvent {
   RunFinishedEvent copyWith({
     String? threadId,
     String? runId,
-    Object? result = _unsetCopyWith,
+    Object? result = kUnsetSentinel,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return RunFinishedEvent(
       threadId: threadId ?? this.threadId,
       runId: runId ?? this.runId,
-      result: identical(result, _unsetCopyWith) ? this.result : result,
+      result: identical(result, kUnsetSentinel) ? this.result : result,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -2160,17 +2171,17 @@ final class ReasoningMessageChunkEvent extends BaseEvent {
   // See `_Unset` (top of file) for the sentinel rationale.
   @override
   ReasoningMessageChunkEvent copyWith({
-    Object? messageId = _unsetCopyWith,
-    Object? delta = _unsetCopyWith,
+    Object? messageId = kUnsetSentinel,
+    Object? delta = kUnsetSentinel,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return ReasoningMessageChunkEvent(
-      messageId: identical(messageId, _unsetCopyWith)
+      messageId: identical(messageId, kUnsetSentinel)
           ? this.messageId
           : messageId as String?,
       delta:
-          identical(delta, _unsetCopyWith) ? this.delta : delta as String?,
+          identical(delta, kUnsetSentinel) ? this.delta : delta as String?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );

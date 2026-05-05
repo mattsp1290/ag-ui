@@ -119,16 +119,25 @@ class EventStreamAdapter {
             // Only process data messages
             final data = message.data;
             if (data != null && data.isNotEmpty) {
-              // Skip keep-alive sentinels (data field whose trimmed value is
-              // `:`) silently. This differs from `decodeSSE` / `flushDataBlock`
-              // in `fromRawSseStream`, which route keep-alives through
-              // `onError` / `skipInvalidEvents`. The distinction is intentional:
-              // `fromSseStream` receives pre-parsed `SseMessage` objects where
-              // keep-alive detection must run on `data`, while `fromRawSseStream`
-              // and `decodeSSE` operate on the raw SSE text where the `:` comment
-              // line is a distinct field. Both paths ultimately discard the
-              // keep-alive; only the routing path differs.
+              // Keep-alive sentinels (data field whose trimmed value is `:`).
+              // When `skipInvalidEvents` is true, route through `onError` for
+              // observability parity with `decodeSSE` / `fromRawSseStream`.
+              // When false, silently discard — a keep-alive is not a protocol
+              // error for the consumer. `fromSseStream` detects keep-alives on
+              // the pre-parsed `data` field, while the other two paths detect
+              // them at the raw `:` comment-line level; both ultimately discard.
               if (data.trim() == ':') {
+                if (skipInvalidEvents) {
+                  onError?.call(
+                    DecodingError(
+                      'SSE keep-alive, not an event',
+                      field: 'data',
+                      expectedType: 'JSON event data',
+                      actualValue: data,
+                    ),
+                    StackTrace.current,
+                  );
+                }
                 return;
               }
               
@@ -183,6 +192,16 @@ class EventStreamAdapter {
   /// to disambiguate from a chunk-spanning `\r\n`; on stream close the
   /// deferred `\r` is consumed as a complete lone-CR terminator.
   ///
+  /// **Semantic divergence from [EventDecoder.decodeSSE]:**
+  /// - `decodeSSE` receives a complete SSE message string and throws a
+  ///   structured [DecodingError] for keep-alive frames (comment-only or
+  ///   `data: :` payloads) and for frames with no `data:` lines.
+  /// - `fromRawSseStream` receives raw streaming chunks; keep-alives
+  ///   (`data.trim() == ':'`) are silently discarded in [flushDataBlock]
+  ///   and partial frames accumulate across chunks. The two methods share
+  ///   the same final `decode` call but differ on keep-alive routing and
+  ///   partial-frame handling.
+  ///
   /// See [fromSseStream] for the [skipInvalidEvents] / [onError]
   /// semantics, including the silent-drop note for
   /// `REASONING_ENCRYPTED_VALUE` events with unknown subtypes.
@@ -200,6 +219,12 @@ class EventStreamAdapter {
     bool skipInvalidEvents = false,
     void Function(Object error, StackTrace stackTrace)? onError,
   }) {
+    // `sync: true` means `controller.add(...)` calls downstream listeners
+    // synchronously on the same call stack. Re-entrancy contract:
+    // consumers MUST NOT call `subscription.cancel()` synchronously from
+    // inside a `listen` data handler — doing so cancels the underlying
+    // subscription while it is still being iterated. If you need to
+    // cancel on a received event, schedule it via `Future.microtask`.
     final controller = StreamController<BaseEvent>(sync: true);
 
     // Per-invocation state. Keeping these local (not instance fields)
@@ -404,8 +429,24 @@ class EventStreamAdapter {
     bool lastWasLoneCrAtStart = false,
   }) {
     final lines = <String>[];
-    var s = input;
-    var lastWasLoneCr = lastWasLoneCrAtStart;
+
+    // Edge case: when `lastWasLoneCrAtStart` is true, the previous scan
+    // consumed a lone-CR at its boundary immediately (because the exception
+    // that skips deferral for known-lone-CR producers applied). If the new
+    // chunk starts with `\n`, that `\n` is the second half of a
+    // chunk-spanning CRLF pair — skip it so the pair does not dispatch an
+    // extra empty-line boundary.
+    String s;
+    bool lastWasLoneCr;
+    if (lastWasLoneCrAtStart &&
+        input.isNotEmpty &&
+        input.codeUnitAt(0) == 0x0A /* \n */) {
+      s = input.substring(1);
+      lastWasLoneCr = false; // was actually CRLF, not lone-CR
+    } else {
+      s = input;
+      lastWasLoneCr = lastWasLoneCrAtStart;
+    }
     while (true) {
       final lf = s.indexOf('\n');
       final cr = s.indexOf('\r');
@@ -471,6 +512,7 @@ class EventStreamAdapter {
   static Stream<List<BaseEvent>> groupRelatedEvents(
     Stream<BaseEvent> eventStream,
   ) {
+    // `sync: true` — see re-entrancy note on [fromRawSseStream].
     final controller = StreamController<List<BaseEvent>>(sync: true);
     final Map<String, List<BaseEvent>> activeGroups = {};
     StreamSubscription<BaseEvent>? subscription;
@@ -504,6 +546,16 @@ class EventStreamAdapter {
                 group.add(event);
                 controller.add(group);
               }
+            case ReasoningMessageStartEvent(:final messageId):
+              activeGroups[messageId] = [event];
+            case ReasoningMessageContentEvent(:final messageId):
+              activeGroups[messageId]?.add(event);
+            case ReasoningMessageEndEvent(:final messageId):
+              final group = activeGroups.remove(messageId);
+              if (group != null) {
+                group.add(event);
+                controller.add(group);
+              }
             default:
               // Single events not part of a group
               controller.add([event]);
@@ -532,7 +584,14 @@ class EventStreamAdapter {
     return controller.stream;
   }
 
-  /// Accumulates text message content into complete messages.
+  /// Accumulates user-visible text message content into complete messages.
+  ///
+  /// **Scope: user-visible text only.** Only `TEXT_MESSAGE_*` and
+  /// `TEXT_MESSAGE_CHUNK` events are handled. `REASONING_MESSAGE_*` events
+  /// (model-internal reasoning chains, not shown to the end user) are
+  /// intentionally excluded — consumers that need to accumulate reasoning
+  /// content should use [groupRelatedEvents] and filter by type, or write
+  /// a dedicated sibling accumulator.
   ///
   /// Emits one [String] per logical message when its `TextMessageEnd` event
   /// arrives. **On stream close:** any accumulated-but-not-ended message
@@ -543,6 +602,7 @@ class EventStreamAdapter {
   static Stream<String> accumulateTextMessages(
     Stream<BaseEvent> eventStream,
   ) {
+    // `sync: true` — see re-entrancy note on [fromRawSseStream].
     final controller = StreamController<String>(sync: true);
     final Map<String, StringBuffer> activeMessages = {};
     StreamSubscription<BaseEvent>? subscription;

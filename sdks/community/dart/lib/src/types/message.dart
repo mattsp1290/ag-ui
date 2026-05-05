@@ -8,17 +8,10 @@ library;
 import 'base.dart';
 import 'tool.dart';
 
-/// Sentinel for `copyWith` methods on message subclasses whose nullable
-/// fields can validly be cleared. Mirrors the `_unsetCopyWith` sentinel in
-/// `events.dart` — the pattern lets callers distinguish "argument
-/// omitted" (preserve current value via `?? this.field`) from "argument
-/// explicitly null" (clear the field). Comparing against this sentinel
-/// with `identical(...)` makes that distinction explicit.
-class _Unset {
-  const _Unset();
-}
-
-const _Unset _unsetMessage = _Unset();
+// `kUnsetSentinel` (from `base.dart`) is the shared sentinel for all
+// `copyWith` methods in this file. The pattern lets callers distinguish
+// "argument omitted" (preserve current value via `?? this.field`) from
+// "argument explicitly null" (clear the field). Compared with `identical(...)`.
 
 /// Role types for messages in the AG-UI protocol.
 ///
@@ -208,19 +201,19 @@ class DeveloperMessage extends Message {
   }
 
   // `name` and `encryptedValue` are nullable on the parent — use the
-  // sentinel so callers can clear either explicitly. See `_Unset`.
+  // sentinel so callers can clear either explicitly. See [kUnsetSentinel].
   @override
   DeveloperMessage copyWith({
     String? id,
     String? content,
-    Object? name = _unsetMessage,
-    Object? encryptedValue = _unsetMessage,
+    Object? name = kUnsetSentinel,
+    Object? encryptedValue = kUnsetSentinel,
   }) {
     return DeveloperMessage(
       id: id ?? this.id,
       content: content ?? this.content,
-      name: identical(name, _unsetMessage) ? this.name : name as String?,
-      encryptedValue: identical(encryptedValue, _unsetMessage)
+      name: identical(name, kUnsetSentinel) ? this.name : name as String?,
+      encryptedValue: identical(encryptedValue, kUnsetSentinel)
           ? this.encryptedValue
           : encryptedValue as String?,
     );
@@ -260,14 +253,14 @@ class SystemMessage extends Message {
   SystemMessage copyWith({
     String? id,
     String? content,
-    Object? name = _unsetMessage,
-    Object? encryptedValue = _unsetMessage,
+    Object? name = kUnsetSentinel,
+    Object? encryptedValue = kUnsetSentinel,
   }) {
     return SystemMessage(
       id: id ?? this.id,
       content: content ?? this.content,
-      name: identical(name, _unsetMessage) ? this.name : name as String?,
-      encryptedValue: identical(encryptedValue, _unsetMessage)
+      name: identical(name, kUnsetSentinel) ? this.name : name as String?,
+      encryptedValue: identical(encryptedValue, kUnsetSentinel)
           ? this.encryptedValue
           : encryptedValue as String?,
     );
@@ -320,11 +313,19 @@ class AssistantMessage extends Message {
         for (var i = 0; i < rawToolCalls.length; i++) {
           try {
             result.add(ToolCall.fromJson(rawToolCalls[i]));
-          } on AGUIValidationError catch (e) {
+          } catch (e) {
+            if (e is AGUIValidationError) {
+              throw AGUIValidationError(
+                message: e.message,
+                field: 'toolCalls[$i].${e.field ?? 'unknown'}',
+                value: e.value,
+                json: json,
+                cause: e,
+              );
+            }
             throw AGUIValidationError(
-              message: e.message,
-              field: 'toolCalls[$i].${e.field ?? 'unknown'}',
-              value: e.value,
+              message: 'Failed to decode tool call at index $i: $e',
+              field: 'toolCalls[$i]',
               json: json,
               cause: e,
             );
@@ -353,28 +354,28 @@ class AssistantMessage extends Message {
       'toolCalls': toolCalls!.map((tc) => tc.toJson()).toList(),
   };
 
-  // See `_Unset` (top of file) for the sentinel rationale. `content`,
+  // See [kUnsetSentinel] for the sentinel rationale. `content`,
   // `name`, `toolCalls`, and `encryptedValue` are all nullable on
   // `AssistantMessage`, so callers may legitimately want to clear any
   // of them via `copyWith`.
   @override
   AssistantMessage copyWith({
     String? id,
-    Object? content = _unsetMessage,
-    Object? name = _unsetMessage,
-    Object? toolCalls = _unsetMessage,
-    Object? encryptedValue = _unsetMessage,
+    Object? content = kUnsetSentinel,
+    Object? name = kUnsetSentinel,
+    Object? toolCalls = kUnsetSentinel,
+    Object? encryptedValue = kUnsetSentinel,
   }) {
     return AssistantMessage(
       id: id ?? this.id,
-      content: identical(content, _unsetMessage)
+      content: identical(content, kUnsetSentinel)
           ? this.content
           : content as String?,
-      name: identical(name, _unsetMessage) ? this.name : name as String?,
-      toolCalls: identical(toolCalls, _unsetMessage)
+      name: identical(name, kUnsetSentinel) ? this.name : name as String?,
+      toolCalls: identical(toolCalls, kUnsetSentinel)
           ? this.toolCalls
           : toolCalls as List<ToolCall>?,
-      encryptedValue: identical(encryptedValue, _unsetMessage)
+      encryptedValue: identical(encryptedValue, kUnsetSentinel)
           ? this.encryptedValue
           : encryptedValue as String?,
     );
@@ -423,14 +424,14 @@ class UserMessage extends Message {
   UserMessage copyWith({
     String? id,
     String? content,
-    Object? name = _unsetMessage,
-    Object? encryptedValue = _unsetMessage,
+    Object? name = kUnsetSentinel,
+    Object? encryptedValue = kUnsetSentinel,
   }) {
     return UserMessage(
       id: id ?? this.id,
       content: content ?? this.content,
-      name: identical(name, _unsetMessage) ? this.name : name as String?,
-      encryptedValue: identical(encryptedValue, _unsetMessage)
+      name: identical(name, kUnsetSentinel) ? this.name : name as String?,
+      encryptedValue: identical(encryptedValue, kUnsetSentinel)
           ? this.encryptedValue
           : encryptedValue as String?,
     );
@@ -492,15 +493,15 @@ class ToolMessage extends Message {
     String? id,
     String? content,
     String? toolCallId,
-    Object? error = _unsetMessage,
-    Object? encryptedValue = _unsetMessage,
+    Object? error = kUnsetSentinel,
+    Object? encryptedValue = kUnsetSentinel,
   }) {
     return ToolMessage(
       id: id ?? this.id,
       content: content ?? this.content,
       toolCallId: toolCallId ?? this.toolCallId,
-      error: identical(error, _unsetMessage) ? this.error : error as String?,
-      encryptedValue: identical(encryptedValue, _unsetMessage)
+      error: identical(error, kUnsetSentinel) ? this.error : error as String?,
+      encryptedValue: identical(encryptedValue, kUnsetSentinel)
           ? this.encryptedValue
           : encryptedValue as String?,
     );
@@ -536,6 +537,21 @@ class ActivityMessage extends Message {
   }) : super(role: MessageRole.activity);
 
   factory ActivityMessage.fromJson(Map<String, dynamic> json) {
+    // `ActivityMessage` is NOT a `BaseMessage` extension in the canonical
+    // protocol — cipher-payload forwarding does not apply. Reject any
+    // inbound `encryptedValue` / `encrypted_value` explicitly so callers
+    // get a clear error instead of silently losing the field.
+    if (json.containsKey('encryptedValue') ||
+        json.containsKey('encrypted_value')) {
+      throw AGUIValidationError(
+        message: 'ActivityMessage does not support encryptedValue: '
+            'it is not a BaseMessage extension in the AG-UI protocol',
+        field: json.containsKey('encryptedValue')
+            ? 'encryptedValue'
+            : 'encrypted_value',
+        json: json,
+      );
+    }
     return ActivityMessage(
       id: JsonDecoder.requireField<String>(json, 'id'),
       activityType: JsonDecoder.requireEitherField<String>(
@@ -603,12 +619,12 @@ class ReasoningMessage extends Message {
   ReasoningMessage copyWith({
     String? id,
     String? content,
-    Object? encryptedValue = _unsetMessage,
+    Object? encryptedValue = kUnsetSentinel,
   }) {
     return ReasoningMessage(
       id: id ?? this.id,
       content: content ?? this.content,
-      encryptedValue: identical(encryptedValue, _unsetMessage)
+      encryptedValue: identical(encryptedValue, kUnsetSentinel)
           ? this.encryptedValue
           : encryptedValue as String?,
     );

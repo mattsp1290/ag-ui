@@ -141,12 +141,23 @@ class EventDecoder {
     }
   }
 
-  /// Decodes an SSE message.
+  /// Decodes a complete SSE message string.
   ///
-  /// Expects a complete SSE message with "data: " prefix and double newlines.
-  /// Uses [LineSplitter] so `\n`, `\r`, and `\r\n` terminators are all handled
-  /// per the WHATWG SSE spec — a trailing `\r` from a CRLF-encoded payload no
+  /// Expects a complete SSE frame (one logical message, from the first line
+  /// through the terminating blank line) with a `data:` prefix. Uses
+  /// [LineSplitter] so `\n`, `\r`, and `\r\n` terminators are all handled per
+  /// the WHATWG SSE spec — a trailing `\r` from a CRLF-encoded payload no
   /// longer leaks into the joined `data` value.
+  ///
+  /// **Semantic divergence from `EventStreamAdapter.fromRawSseStream`:**
+  /// - This method receives a COMPLETE frame and throws [DecodingError] for
+  ///   keep-alive frames (comment-only lines or `data: :`) and for frames
+  ///   with no `data:` lines at all (see "No data found").
+  /// - `fromRawSseStream` buffers streaming chunks, accumulates `data:` lines
+  ///   across chunk boundaries, and silently discards keep-alives (it never
+  ///   calls `decodeSSE` — it invokes `decode` directly after accumulation).
+  /// Use this method when you have a pre-assembled SSE frame; use
+  /// `fromRawSseStream` for raw streaming bytes.
   BaseEvent decodeSSE(String sseMessage) {
     // Reject keep-alive / comment-only frames before any `data:` collection.
     // A frame that is entirely `:`-prefixed comment lines (with optional
@@ -175,6 +186,13 @@ class EventDecoder {
       }
     }
 
+    // A frame whose lines are ALL empty (no comment, no data prefix) falls
+    // here. This can happen with a bare double-newline `\n\n` that acts as an
+    // SSE message boundary with no payload — the WHATWG spec says to dispatch
+    // the event but if there's nothing to decode, "No data found" is the
+    // correct outcome. Treat as a non-event rather than a keep-alive because
+    // there is no `:` comment marker to distinguish it; callers that care
+    // about empty-frame detection should observe the DecodingError.
     if (dataLines.isEmpty) {
       throw DecodingError(
         'No data found in SSE message',
@@ -393,9 +411,17 @@ class EventDecoder {
         //   stale and this case must explicitly reject the unknown
         //   subtype to preserve the "no graceful default for cipher
         //   payloads" contract.
+        //
         // `entityId` and `encryptedValue` are accepted as plain strings
         // (including empty) to match canonical TS `z.string()` and
         // Python `str` schemas — neither imposes a minimum length.
+        //
+        // **Operational risk of empty `entityId`.** An empty `entityId`
+        // will pass validation here but the referenced entity cannot be
+        // located by consumers. This matches the canonical SDK behavior
+        // (no min-length constraint). If your deployment routes these
+        // events to a decryption service that fails on empty entityId,
+        // add a length check at the consumer or via a proxy validator.
         break;
     }
 

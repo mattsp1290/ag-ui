@@ -6,14 +6,8 @@ library;
 
 import 'base.dart';
 
-// Sentinel used by copyWith to distinguish "argument omitted" from
-// "argument explicitly null" on nullable fields. Mirrors the same
-// pattern in lib/src/types/message.dart and lib/src/events/events.dart.
-class _Unset {
-  const _Unset();
-}
-
-const _Unset _unsetTool = _Unset();
+// `kUnsetSentinel` (from `base.dart`) is the shared sentinel for all
+// `copyWith` methods in this file.
 
 /// Represents a function call within a tool call.
 ///
@@ -104,13 +98,13 @@ class ToolCall extends AGUIModel {
     String? id,
     String? type,
     FunctionCall? function,
-    Object? encryptedValue = _unsetTool,
+    Object? encryptedValue = kUnsetSentinel,
   }) {
     return ToolCall(
       id: id ?? this.id,
       type: type ?? this.type,
       function: function ?? this.function,
-      encryptedValue: identical(encryptedValue, _unsetTool)
+      encryptedValue: identical(encryptedValue, kUnsetSentinel)
           ? this.encryptedValue
           : encryptedValue as String?,
     );
@@ -169,13 +163,13 @@ class Tool extends AGUIModel {
   Tool copyWith({
     String? name,
     String? description,
-    Object? parameters = _unsetTool,
+    Object? parameters = kUnsetSentinel,
     Map<String, dynamic>? metadata,
   }) {
     return Tool(
       name: name ?? this.name,
       description: description ?? this.description,
-      parameters: identical(parameters, _unsetTool) ? this.parameters : parameters,
+      parameters: identical(parameters, kUnsetSentinel) ? this.parameters : parameters,
       metadata: metadata ?? this.metadata,
     );
   }
@@ -218,12 +212,12 @@ class ToolResult extends AGUIModel {
   ToolResult copyWith({
     String? toolCallId,
     String? content,
-    Object? error = _unsetTool,
+    Object? error = kUnsetSentinel,
   }) {
     return ToolResult(
       toolCallId: toolCallId ?? this.toolCallId,
       content: content ?? this.content,
-      error: identical(error, _unsetTool) ? this.error : error as String?,
+      error: identical(error, kUnsetSentinel) ? this.error : error as String?,
     );
   }
 }

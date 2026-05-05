@@ -5,14 +5,8 @@ import 'base.dart';
 import 'message.dart';
 import 'tool.dart';
 
-// Sentinel used by copyWith to distinguish "argument omitted" from
-// "argument explicitly null" on nullable fields. Mirrors the same
-// pattern in lib/src/types/message.dart and lib/src/events/events.dart.
-class _Unset {
-  const _Unset();
-}
-
-const _Unset _unsetContext = _Unset();
+// `kUnsetSentinel` (from `base.dart`) is the shared sentinel for all
+// `copyWith` methods in this file.
 
 /// Additional context for the agent
 class Context extends AGUIModel {
@@ -136,24 +130,24 @@ class RunAgentInput extends AGUIModel {
   RunAgentInput copyWith({
     String? threadId,
     String? runId,
-    Object? parentRunId = _unsetContext,
-    Object? state = _unsetContext,
+    Object? parentRunId = kUnsetSentinel,
+    Object? state = kUnsetSentinel,
     List<Message>? messages,
     List<Tool>? tools,
     List<Context>? context,
-    Object? forwardedProps = _unsetContext,
+    Object? forwardedProps = kUnsetSentinel,
   }) {
     return RunAgentInput(
       threadId: threadId ?? this.threadId,
       runId: runId ?? this.runId,
-      parentRunId: identical(parentRunId, _unsetContext)
+      parentRunId: identical(parentRunId, kUnsetSentinel)
           ? this.parentRunId
           : parentRunId as String?,
-      state: identical(state, _unsetContext) ? this.state : state,
+      state: identical(state, kUnsetSentinel) ? this.state : state,
       messages: messages ?? this.messages,
       tools: tools ?? this.tools,
       context: context ?? this.context,
-      forwardedProps: identical(forwardedProps, _unsetContext)
+      forwardedProps: identical(forwardedProps, kUnsetSentinel)
           ? this.forwardedProps
           : forwardedProps,
     );
@@ -200,12 +194,12 @@ class Run extends AGUIModel {
   Run copyWith({
     String? threadId,
     String? runId,
-    Object? result = _unsetContext,
+    Object? result = kUnsetSentinel,
   }) {
     return Run(
       threadId: threadId ?? this.threadId,
       runId: runId ?? this.runId,
-      result: identical(result, _unsetContext) ? this.result : result,
+      result: identical(result, kUnsetSentinel) ? this.result : result,
     );
   }
 }

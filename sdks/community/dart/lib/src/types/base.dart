@@ -267,6 +267,13 @@ class JsonDecoder {
   /// which fell through to `snakeKey` whenever the camelCase value was
   /// `null`-or-absent — silently overriding an explicit-null camelCase
   /// payload with a populated snake_case one.
+  ///
+  /// **Error field name note.** When the snake_case path is taken (camelKey
+  /// absent) and a type mismatch occurs, [optionalField] reports the error
+  /// using [snakeKey] as the field name — the wire spelling, not the
+  /// canonical camelCase name. Callers that need to report the canonical
+  /// name in error messages should catch [AGUIValidationError] and remap
+  /// `field` to [camelKey] themselves.
   static T? optionalEitherField<T>(
     Map<String, dynamic> json,
     String camelKey,
@@ -446,6 +453,20 @@ class JsonDecoder {
     return out;
   }
 }
+
+/// Shared sentinel for `copyWith` methods across all AG-UI type families.
+///
+/// Each copyWith that guards a nullable field uses `Object? field = kUnsetSentinel`
+/// and checks `identical(field, kUnsetSentinel)` to distinguish "argument
+/// omitted" (preserve current value) from "argument explicitly null" (clear
+/// the field). The class is private to prevent re-construction — the only valid
+/// sentinel is this canonical constant.
+class _CopyWithSentinel {
+  const _CopyWithSentinel();
+}
+
+/// Single shared sentinel instance used across all AG-UI `copyWith` methods.
+const _CopyWithSentinel kUnsetSentinel = _CopyWithSentinel();
 
 /// Converts snake_case to camelCase
 String snakeToCamel(String snake) {

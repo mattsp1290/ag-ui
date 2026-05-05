@@ -74,6 +74,19 @@ void main() {
             .having((e) => e.constraint, 'constraint', 'non-empty')),
       );
     });
+
+    test('rejects credential-bearing URLs (userInfo component)', () {
+      expect(
+        () => Validators.validateUrl('http://user:pass@example.com', 'url'),
+        throwsA(isA<ValidationError>()
+            .having((e) => e.constraint, 'constraint', 'no-user-credentials')),
+      );
+      expect(
+        () => Validators.validateUrl('https://token@api.example.com', 'url'),
+        throwsA(isA<ValidationError>()
+            .having((e) => e.constraint, 'constraint', 'no-user-credentials')),
+      );
+    });
   });
 
   group('Validators.validateAgentId', () {

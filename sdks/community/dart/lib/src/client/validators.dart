@@ -68,6 +68,17 @@ class Validators {
           value: url,
         );
       }
+      // Reject credential-bearing URLs (`http://user:pass@host/`) to
+      // prevent credentials from leaking into logs, error messages, or
+      // HTTP Referer headers on redirects.
+      if (uri.userInfo.isNotEmpty) {
+        throw ValidationError(
+          'URL must not contain user credentials for "$fieldName"',
+          field: fieldName,
+          constraint: 'no-user-credentials',
+          value: url,
+        );
+      }
     } catch (e) {
       if (e is ValidationError) rethrow;
       throw ValidationError(
@@ -105,14 +116,20 @@ class Validators {
     }
   }
 
-  /// Validates a run ID format
+  /// Validates a run ID format.
+  ///
+  /// The 100-unit cap is measured in UTF-16 code units (Dart's [String.length]),
+  /// not Unicode code points or user-perceived grapheme clusters. Identifiers
+  /// containing characters outside the Basic Multilingual Plane (e.g. emoji)
+  /// consume two code units per character and reach the cap sooner than
+  /// ASCII-only identifiers of the same visible length.
   static void validateRunId(String? runId) {
     requireNonEmpty(runId, 'runId');
-    
+
     // Run IDs are typically UUIDs or similar identifiers
     if (runId!.length > 100) {
       throw ValidationError(
-        'Run ID too long (max 100 characters)',
+        'Run ID too long (max 100 UTF-16 code units)',
         field: 'runId',
         constraint: 'max-length-100',
         value: runId,
@@ -120,13 +137,16 @@ class Validators {
     }
   }
 
-  /// Validates a thread ID format
+  /// Validates a thread ID format.
+  ///
+  /// The 100-unit cap is measured in UTF-16 code units (Dart's [String.length]).
+  /// See [validateRunId] for the full rationale.
   static void validateThreadId(String? threadId) {
     requireNonEmpty(threadId, 'threadId');
-    
+
     if (threadId!.length > 100) {
       throw ValidationError(
-        'Thread ID too long (max 100 characters)',
+        'Thread ID too long (max 100 UTF-16 code units)',
         field: 'threadId',
         constraint: 'max-length-100',
         value: threadId,

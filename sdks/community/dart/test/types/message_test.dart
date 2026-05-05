@@ -192,6 +192,32 @@ void main() {
         expect(updated.activityType, original.activityType);
         expect(updated.activityContent['progress'], 1.0);
       });
+
+      test('rejects camelCase encryptedValue (not a BaseMessage extension)', () {
+        expect(
+          () => ActivityMessage.fromJson({
+            'id': 'act_005',
+            'role': 'activity',
+            'activityType': 'task.run',
+            'content': {'progress': 0.5},
+            'encryptedValue': 'ZW5jcnlwdGVkLXBheWxvYWQ=',
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
+
+      test('rejects snake_case encrypted_value (not a BaseMessage extension)', () {
+        expect(
+          () => ActivityMessage.fromJson({
+            'id': 'act_006',
+            'role': 'activity',
+            'activityType': 'task.run',
+            'content': {'progress': 0.5},
+            'encrypted_value': 'ZW5jcnlwdGVkLXBheWxvYWQ=',
+          }),
+          throwsA(isA<AGUIValidationError>()),
+        );
+      });
     });
 
     group('ReasoningMessage', () {

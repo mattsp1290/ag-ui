@@ -231,6 +231,44 @@ void main() {
         expect(event.snapshot['count'], equals(42));
       });
 
+      test('handles CRLF split across chunks without double-dispatch', () async {
+        // Regression for Opus2 I3: when lastWasLoneCrAtStart=true and the new
+        // chunk starts with '\n', that '\n' is the second half of a chunk-spanning
+        // CRLF pair and must NOT produce an extra empty line (which would cause a
+        // spurious flush of an in-progress data block).
+        //
+        // Chunk 1: "data: foo\r\r"
+        //   - First \r terminates "data: foo" (lone-CR, sets lastWasLoneCr=true)
+        //   - Second \r terminates "" (empty line, dispatches "foo", keeps lastWasLoneCr=true)
+        // Chunk 2: "\ndata: bar\n\n"
+        //   - Leading \n is the CRLF complement of a PRIOR chunk boundary
+        //     (skipped by the edge-case fix so it doesn't dispatch an extra event)
+        //   - "data: bar" + "\n\n" dispatches "bar"
+        final rawController = StreamController<String>();
+        final eventStream =
+            adapter.fromRawSseStream(rawController.stream);
+
+        final events = <BaseEvent>[];
+        final subscription = eventStream.listen(events.add);
+
+        rawController.add(
+          'data: {"type":"RUN_STARTED","threadId":"t1","runId":"r1"}\r\r',
+        );
+        rawController.add(
+          '\ndata: {"type":"RUN_FINISHED","threadId":"t1","runId":"r1"}\n\n',
+        );
+
+        await rawController.close();
+        await subscription.cancel();
+
+        // Must produce exactly 2 events, not 3 (the spurious empty-flush
+        // from the lone \n would have caused a double-dispatch before the fix).
+        expect(events.length, equals(2),
+            reason: 'leading \\n in chunk 2 must not produce an extra dispatch');
+        expect(events[0], isA<RunStartedEvent>());
+        expect(events[1], isA<RunFinishedEvent>());
+      });
+
       test('downstream cancellation propagates to upstream subscription',
           () async {
         // Regression for the leaked-subscription bug noted in the #1018
@@ -405,26 +443,52 @@ void main() {
       test('emits incomplete groups on stream close', () async {
         final controller = StreamController<BaseEvent>();
         final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
-        
+
         final groups = <List<BaseEvent>>[];
         final completer = Completer<void>();
         final subscription = grouped.listen(
           groups.add,
           onDone: completer.complete,
         );
-        
+
         // Incomplete message (no END event)
         controller.add(TextMessageStartEvent(messageId: 'msg1'));
         controller.add(TextMessageContentEvent(messageId: 'msg1', delta: 'Hello'));
-        
+
         await controller.close();
         await completer.future;  // Wait for stream to complete
         await subscription.cancel();
-        
+
         expect(groups.length, equals(1));
         expect(groups[0].length, equals(2));
         expect(groups[0][0], isA<TextMessageStartEvent>());
         expect(groups[0][1], isA<TextMessageContentEvent>());
+      });
+
+      test('groups ReasoningMessage* events by messageId', () async {
+        // Regression for Opus1 I1: ReasoningMessage* events must be grouped
+        // like TextMessage* events, not fall to the default single-event branch.
+        final controller = StreamController<BaseEvent>();
+        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
+
+        final groups = <List<BaseEvent>>[];
+        final subscription = grouped.listen(groups.add);
+
+        controller.add(ReasoningMessageStartEvent(messageId: 'rsn1'));
+        controller.add(ReasoningMessageContentEvent(
+          messageId: 'rsn1',
+          delta: 'Thinking...',
+        ));
+        controller.add(ReasoningMessageEndEvent(messageId: 'rsn1'));
+
+        await controller.close();
+        await subscription.cancel();
+
+        expect(groups.length, equals(1));
+        expect(groups[0].length, equals(3));
+        expect(groups[0][0], isA<ReasoningMessageStartEvent>());
+        expect(groups[0][1], isA<ReasoningMessageContentEvent>());
+        expect(groups[0][2], isA<ReasoningMessageEndEvent>());
       });
     });
 

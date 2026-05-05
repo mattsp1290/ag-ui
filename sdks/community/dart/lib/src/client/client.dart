@@ -158,11 +158,13 @@ class AgUiClient {
   }) async* {
     final runId = input.runId ?? _generateRunId();
     cancelToken ??= CancelToken();
+
+    // Validate BEFORE registering in _requestTokens so a caller-supplied
+    // bad runId (empty, over-length, control chars) never enters the map.
+    _validateRunAgentInput(input);
     _requestTokens[runId] = cancelToken;
 
     try {
-      // Validate input
-      _validateRunAgentInput(input);
 
       // Send POST request with RunAgentInput
       final headers = _buildHeaders();
@@ -274,7 +276,13 @@ class AgUiClient {
             '(status ${response.statusCode})',
             name: 'ag_ui.client',
           );
-          unawaited(response.stream.drain<void>().catchError((_) {}));
+          // `drain()` itself (not its Future) can throw `StateError` if
+          // the stream was already consumed before we got here.
+          try {
+            unawaited(response.stream.drain<void>().catchError((_) {}));
+          } catch (_) {
+            // Already consumed — ignore.
+          }
         }
       },
       onError: (Object error) {
@@ -479,6 +487,9 @@ class AgUiClient {
     // validation coverage that didn't exist — this makes the boundary clear.
     if (input.messages != null) {
       for (final message in input.messages!) {
+        // `id` is the outbound message identity key — every message type
+        // must carry a non-empty id before it reaches the server.
+        Validators.requireNonEmpty(message.id, 'message.id');
         switch (message) {
           case UserMessage(:final content):
             Validators.validateMessageContent(content);

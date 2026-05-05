@@ -431,6 +431,12 @@ class JsonDecoder {
   /// Replaces `list.cast<T>()`'s lazy view (which raises a raw `TypeError`
   /// at access time, swallowed by the decoder catch-all and flattened to
   /// `field: 'json'`) with a fail-fast loop that names the bad index.
+  ///
+  /// **Field-naming convention**: errors report `'$field[$i]'` (e.g.
+  /// `"messages[2]"`). Per-factory list decoders that re-wrap validation
+  /// errors from nested factories use a more precise `'$field[$i].$nestedField'`
+  /// form (e.g. `"messages[2].role"`) — `_eagerCast` cannot do this
+  /// because it only checks the element's Dart type, not its internal shape.
   static List<T> _eagerCast<T>(
     List<dynamic> list,
     String field,

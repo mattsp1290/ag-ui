@@ -21,11 +21,23 @@ import 'sse_message.dart';
 /// `EventStreamAdapter.fromRawSseStream` keeps its parsing state in
 /// per-invocation locals and does not have this concern.
 class SseParser {
+  /// Maximum number of bytes (UTF-16 code units) the `_dataBuffer` may
+  /// accumulate before a message is dispatched. Prevents a malicious or
+  /// misbehaving SSE producer from growing the buffer without bound across
+  /// `data:` lines, causing an OOM before the terminating blank line arrives.
+  ///
+  /// Default: 8 MiB (8 × 1024 × 1024 code units). Adjust via the
+  /// [SseParser.new] constructor when your use-case legitimately requires
+  /// larger payloads.
+  final int maxDataBytes;
+
   final _eventBuffer = StringBuffer();
   final _dataBuffer = StringBuffer();
   String? _lastEventId;
   Duration? _retry;
   bool _hasDataField = false;
+
+  SseParser({this.maxDataBytes = 8 * 1024 * 1024});
 
   /// Clears all parser state, including the otherwise-sticky
   /// `_lastEventId`. Use when reusing a parser instance across
@@ -130,6 +142,20 @@ class SseParser {
         // `data:` field in this block?" — which is the actual
         // spec-mandated condition. Mirrors the `inDataBlock` flag pattern
         // in `EventStreamAdapter.appendDataLine`.
+        // Guard against unbounded growth from a malicious/misbehaving
+        // producer. Reject the entire message if the accumulated data
+        // would exceed [maxDataBytes], reset buffers, and throw so the
+        // caller's stream adapter can surface a structured error instead
+        // of quietly OOM-ing.
+        final newlineBytes = _hasDataField ? 1 : 0; // \n separator between lines
+        if (_dataBuffer.length + newlineBytes + value.length > maxDataBytes) {
+          _resetBuffers();
+          throw FormatException(
+            'SSE data field exceeds $maxDataBytes-byte limit '
+            '(current ${_dataBuffer.length} + incoming '
+            '${newlineBytes + value.length} code units)',
+          );
+        }
         if (_hasDataField) {
           _dataBuffer.writeln();
         }

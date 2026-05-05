@@ -488,8 +488,11 @@ class AgUiClient {
     if (input.messages != null) {
       final seenMessageIds = <String>{};
       for (final message in input.messages!) {
-        // `id` is the outbound message identity key — every message type
-        // must carry a non-empty id before it reaches the server.
+        // `Message.id` is declared nullable (to accommodate inbound
+        // MESSAGES_SNAPSHOT payloads where the server may omit the field),
+        // but outbound messages MUST carry a non-empty id: the server uses
+        // it as the stable identity key for conversation history.
+        // `requireNonEmpty` rejects both null and empty-string.
         Validators.requireNonEmpty(message.id, 'message.id');
         if (!seenMessageIds.add(message.id!)) {
           throw ValidationError(
@@ -521,6 +524,11 @@ class AgUiClient {
     }
   }
 
+  /// Lazily initialized secure RNG, shared across all `_generateRunId`
+  /// calls on this instance. `Random.secure()` seeds from the OS CSPRNG
+  /// on first access; creating one per call wastes that OS round-trip.
+  static final _secureRandom = Random.secure();
+
   /// Generate a unique run ID using a timestamp + 8 cryptographically
   /// random bytes. The random suffix prevents collisions for concurrent
   /// calls within the same millisecond, which is important because run IDs
@@ -528,10 +536,9 @@ class AgUiClient {
   /// collision would silently overwrite an in-flight stream entry.
   String _generateRunId() {
     final timestamp = DateTime.now().millisecondsSinceEpoch;
-    final rng = Random.secure();
     final hex = List.generate(
       8,
-      (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0'),
+      (_) => _secureRandom.nextInt(256).toRadixString(16).padLeft(2, '0'),
     ).join();
     return 'run_${timestamp}_$hex';
   }
@@ -574,7 +581,19 @@ class AgUiClient {
   }
 }
 
-/// Cancel token for request cancellation
+/// Cancel token for request cancellation.
+///
+/// **One-shot contract**: a [CancelToken] must be used with exactly ONE
+/// request. Once [cancel] is called the token is permanently cancelled —
+/// passing the same token to a second [AgUiClient.runAgent] call will
+/// cause that call to see [isCancelled] as `true` immediately and
+/// complete with a [CancellationError] before the HTTP request is sent.
+///
+/// **Listener accumulation**: [_sendWithCancellation] attaches a single
+/// `.then` handler to [onCancel] per request via [unawaited]. Because
+/// [CancelToken] is one-shot (one request, one cancel), the handler is
+/// never re-attached across multiple calls, so no listener accumulation
+/// occurs as long as the one-shot contract is honored.
 class CancelToken {
   final _completer = Completer<void>();
   bool _isCancelled = false;
@@ -620,11 +639,11 @@ class SimpleRunAgentInput {
     return {
       if (threadId != null) 'threadId': threadId,
       if (runId != null) 'runId': runId,
-      'state': state ?? {},
-      'messages': messages?.map((m) => m.toJson()).toList() ?? [],
-      'tools': tools?.map((t) => t.toJson()).toList() ?? [],
-      'context': context?.map((c) => c.toJson()).toList() ?? [],
-      'forwardedProps': forwardedProps ?? {},
+      if (state != null) 'state': state,
+      if (messages != null) 'messages': messages!.map((m) => m.toJson()).toList(),
+      if (tools != null) 'tools': tools!.map((t) => t.toJson()).toList(),
+      if (context != null) 'context': context!.map((c) => c.toJson()).toList(),
+      if (forwardedProps != null) 'forwardedProps': forwardedProps,
       if (config != null) 'config': config,
       if (metadata != null) 'metadata': metadata,
     };

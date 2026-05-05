@@ -532,6 +532,85 @@ void main() {
         expect(groups[0].length, equals(1));
         expect(groups[0][0], isA<TextMessageChunkEvent>());
       });
+
+      // Regression for I-J: Tool and Reasoning chunk families were not covered.
+      test('routes ToolCallChunkEvent into open tool group', () async {
+        final controller = StreamController<BaseEvent>();
+        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
+
+        final groups = <List<BaseEvent>>[];
+        final subscription = grouped.listen(groups.add);
+
+        controller.add(ToolCallStartEvent(
+          toolCallId: 'tc1',
+          toolCallName: 'search',
+          parentMessageId: 'msg1',
+        ));
+        controller.add(ToolCallChunkEvent(toolCallId: 'tc1', delta: '{"q"'));
+        controller.add(ToolCallEndEvent(toolCallId: 'tc1'));
+
+        await controller.close();
+        await subscription.cancel();
+
+        // All three must land in a single group, not 2 groups
+        expect(groups.length, equals(1));
+        expect(groups[0].length, equals(3));
+        expect(groups[0][1], isA<ToolCallChunkEvent>());
+      });
+
+      test('emits standalone ToolCallChunkEvent when no open group exists', () async {
+        final controller = StreamController<BaseEvent>();
+        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
+
+        final groups = <List<BaseEvent>>[];
+        final subscription = grouped.listen(groups.add);
+
+        controller.add(ToolCallChunkEvent(toolCallId: 'tc1', delta: '{}'));
+
+        await controller.close();
+        await subscription.cancel();
+
+        expect(groups.length, equals(1));
+        expect(groups[0].length, equals(1));
+        expect(groups[0][0], isA<ToolCallChunkEvent>());
+      });
+
+      test('routes ReasoningMessageChunkEvent into open reasoning group', () async {
+        final controller = StreamController<BaseEvent>();
+        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
+
+        final groups = <List<BaseEvent>>[];
+        final subscription = grouped.listen(groups.add);
+
+        controller.add(ReasoningMessageStartEvent(messageId: 'rm1'));
+        controller.add(ReasoningMessageChunkEvent(messageId: 'rm1', delta: 'thinking'));
+        controller.add(ReasoningMessageEndEvent(messageId: 'rm1'));
+
+        await controller.close();
+        await subscription.cancel();
+
+        // All three must land in a single group, not 2 groups
+        expect(groups.length, equals(1));
+        expect(groups[0].length, equals(3));
+        expect(groups[0][1], isA<ReasoningMessageChunkEvent>());
+      });
+
+      test('emits standalone ReasoningMessageChunkEvent when no open group exists', () async {
+        final controller = StreamController<BaseEvent>();
+        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
+
+        final groups = <List<BaseEvent>>[];
+        final subscription = grouped.listen(groups.add);
+
+        controller.add(ReasoningMessageChunkEvent(messageId: 'rm1', delta: 'standalone'));
+
+        await controller.close();
+        await subscription.cancel();
+
+        expect(groups.length, equals(1));
+        expect(groups[0].length, equals(1));
+        expect(groups[0][0], isA<ReasoningMessageChunkEvent>());
+      });
     });
 
     group('accumulateTextMessages', () {

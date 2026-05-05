@@ -65,9 +65,9 @@ class EventDecoder {
       // catch-all and getting flattened to `field: 'event'`.
       // `Error.throwWithStackTrace` preserves the original stack so the
       // debug trace points at the failing field, not the wrapper.
-      Error.throwWithStackTrace(_wrapValidation(e, e.field, {'data': data}), stack);
+      _wrapValidation(e, e.field, {'data': data}, stack);
     } on AGUIValidationError catch (e, stack) {
-      Error.throwWithStackTrace(_wrapValidation(e, e.field, {'data': data}), stack);
+      _wrapValidation(e, e.field, {'data': data}, stack);
     } on AgUiError {
       rethrow;
     } on EncoderError {
@@ -114,7 +114,7 @@ class EventDecoder {
       // via the `on AgUiError` rethrow.
       // `Error.throwWithStackTrace` preserves the original stack so the
       // debug trace points at the failing field, not the wrapper.
-      Error.throwWithStackTrace(_wrapValidation(e, e.field, json), stack);
+      _wrapValidation(e, e.field, json, stack);
     } on AGUIValidationError catch (e, stack) {
       // Companion clause for the factory-side error. Without this branch,
       // `AGUIValidationError` (which only `implements Exception`, not
@@ -122,7 +122,7 @@ class EventDecoder {
       // original failing field — `role`, `messageId`, `subtype`, etc. —
       // is flattened to `field: 'json'`, breaking the public decoder
       // error surface.
-      Error.throwWithStackTrace(_wrapValidation(e, e.field, json), stack);
+      _wrapValidation(e, e.field, json, stack);
     } on AgUiError {
       rethrow;
     } on EncoderError {
@@ -439,17 +439,26 @@ class EventDecoder {
   /// public [DecodingError] envelope, preserving the original failing
   /// field name so consumers can react to specific field violations
   /// instead of getting a flattened `field: 'json'` everywhere.
-  DecodingError _wrapValidation(
+  ///
+  /// Returns [Never] so the analyzer verifies that all call sites are
+  /// unconditionally throwing — callers pass `stack` instead of wrapping
+  /// in `Error.throwWithStackTrace(...)` themselves, which keeps the
+  /// original stack trace intact.
+  Never _wrapValidation(
     Object cause,
     String? field,
     Map<String, dynamic> json,
+    StackTrace stack,
   ) {
-    return DecodingError(
-      'Failed to create event from JSON',
-      field: field ?? 'json',
-      expectedType: 'BaseEvent',
-      actualValue: json,
-      cause: cause,
+    Error.throwWithStackTrace(
+      DecodingError(
+        'Failed to create event from JSON',
+        field: field ?? 'json',
+        expectedType: 'BaseEvent',
+        actualValue: json,
+        cause: cause,
+      ),
+      stack,
     );
   }
 }

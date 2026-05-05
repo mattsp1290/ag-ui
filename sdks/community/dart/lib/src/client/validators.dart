@@ -3,8 +3,14 @@ import 'errors.dart';
 /// Validation utilities for AG-UI SDK
 class Validators {
   // Hoisted to avoid recompiling on every validateUrl call (hot path).
+  // The explicit \u escapes make the matched code points visible in source:
+  //   \x00\u2013\x1f  C0 control codes (including \t, \n, \r)
+  //   \x7f       DEL
+  //   \u0085     NEL (U+0085, C1 Next-Line \u2014 accepted verbatim by Uri.parse)
+  //   \u2028     Line Separator (Unicode LS)
+  //   \u2029     Paragraph Separator (Unicode PS)
   static final RegExp _kUrlControlChars =
-      RegExp('[\x00-\x1f\x7f  ]');
+      RegExp('[\x00-\x1f\x7f\u0085\u2028\u2029]');
 
   /// Validates that a string is not empty
   static void requireNonEmpty(String? value, String fieldName) {

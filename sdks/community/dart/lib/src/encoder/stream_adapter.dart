@@ -210,9 +210,15 @@ class EventStreamAdapter {
     // synchronously on the same call stack. Re-entrancy contract:
     // consumers MUST NOT call `subscription.cancel()` synchronously from
     // inside a `listen` data handler — doing so cancels the underlying
-    // subscription while it is still being iterated. If you need to
+    // subscription while it is still being iterated and can cause a
+    // `ConcurrentModificationError` or double-close. If you need to
     // cancel on a received event, schedule it via `Future.microtask`.
+    //
+    // Debug-mode assertion: if re-entrancy is detected (a downstream
+    // data handler calls cancel() or adds events during a dispatch), this
+    // assert will fire before the state is corrupted.
     final controller = StreamController<BaseEvent>(sync: true);
+    var _inDispatch = false;
 
     // Per-invocation state. Keeping these local (not instance fields)
     // ensures abnormal termination of one stream cannot leak partial
@@ -256,18 +262,28 @@ class EventStreamAdapter {
 
     // Flush the accumulated data block as a single decoded event.
     // Used by the empty-line dispatch and the `onDone` final flush.
-    void flushDataBlock() {
-      if (!inDataBlock) return;
+    // Returns `true` if an error was routed to the controller so callers
+    // can suppress a redundant second `addError` from their own catch.
+    bool flushDataBlock() {
+      if (!inDataBlock) return false;
       final data = dataBuffer.toString();
       dataBuffer.clear();
       inDataBlock = false;
 
-      if (data.isEmpty || data.trim() == ':') return;
+      if (data.isEmpty || data.trim() == ':') return false;
 
       try {
         // `decode` already runs `validate` via `decodeJson`; no
         // second pass needed here.
-        controller.add(_decoder.decode(data));
+        assert(!_inDispatch, 'sync re-entrancy: cancel() must not be called '
+            'synchronously from inside a data handler; use Future.microtask');
+        _inDispatch = true;
+        try {
+          controller.add(_decoder.decode(data));
+        } finally {
+          _inDispatch = false;
+        }
+        return false;
       } catch (e, stack) {
         // Preserve any `AGUIError` subtype (`AgUiError`,
         // `AGUIValidationError`, `EncoderError`) so the unified
@@ -289,8 +305,13 @@ class EventStreamAdapter {
         } else {
           onError?.call(error, stack);
         }
+        return true; // error was already routed
       }
     }
+
+    // Whether the current chunk's `flushDataBlock` call already routed an
+    // error so the outer `onListen` catch can skip a second `addError`.
+    var errorRoutedInChunk = false;
 
     void processChunk(String chunk) {
       // Add chunk to buffer to handle partial lines.
@@ -313,7 +334,7 @@ class EventStreamAdapter {
       for (final line in scan.lines) {
         if (line.isEmpty) {
           // Empty line signals end of SSE message — flush the data block.
-          flushDataBlock();
+          if (flushDataBlock()) errorRoutedInChunk = true;
         } else {
           appendDataLine(line);
         }
@@ -334,9 +355,14 @@ class EventStreamAdapter {
     controller.onListen = () {
       subscription = rawStream.listen(
         (chunk) {
+          errorRoutedInChunk = false;
           try {
             processChunk(chunk);
           } catch (e, stack) {
+            // If `flushDataBlock` already routed an error to the controller
+            // (via `controller.addError`), skip a second `addError` here to
+            // avoid double-firing the same error at the stream consumer.
+            if (errorRoutedInChunk) return;
             final error = e is AGUIError
                 ? e
                 : DecodingError(
@@ -461,6 +487,15 @@ class EventStreamAdapter {
       // when the previous terminator was lone-CR — the producer is
       // clearly using lone-CR style, so the trailing `\r` IS its own
       // terminator. See class-level scan rationale above.
+      //
+      // NOTE on the "chunk ends exactly at \r" case (e.g. chunk = "foo\r"):
+      // This deferral fires and leaves `\r` in the unconsumed suffix.
+      // `lastWasLoneCrAtStart` is NOT involved here — that flag is only set
+      // when a PREVIOUS scan already consumed a lone-CR at its boundary
+      // (the producer was confirmed lone-CR style). In this path the `\r`
+      // is tentative: the next chunk may start with `\n` (making it CRLF)
+      // or not (making it lone-CR). The next scan will resolve it via the
+      // `lastWasLoneCrAtStart` edge-case check at the top of `_scanLines`.
       if (!endOfStream &&
           !lastWasLoneCr &&
           s.codeUnitAt(breakIndex) == 0x0D /* \r */ &&
@@ -557,6 +592,8 @@ class EventStreamAdapter {
                 controller.add(group);
               }
             case TextMessageChunkEvent(:final messageId):
+              // Fold into the open text group when one exists; otherwise emit
+              // standalone — chunks may arrive without a preceding *Start.
               if (messageId != null &&
                   activeGroups.containsKey('text:$messageId')) {
                 activeGroups['text:$messageId']!.add(event);
@@ -564,6 +601,8 @@ class EventStreamAdapter {
                 controller.add([event]);
               }
             case ToolCallChunkEvent(:final toolCallId):
+              // Fold into the open tool group when one exists; otherwise emit
+              // standalone — chunks may arrive without a preceding *Start.
               if (toolCallId != null &&
                   activeGroups.containsKey('tool:$toolCallId')) {
                 activeGroups['tool:$toolCallId']!.add(event);
@@ -571,6 +610,8 @@ class EventStreamAdapter {
                 controller.add([event]);
               }
             case ReasoningMessageChunkEvent(:final messageId):
+              // Fold into the open reasoning group when one exists; otherwise
+              // emit standalone — chunks may arrive without a preceding *Start.
               if (messageId != null &&
                   activeGroups.containsKey('reasoning:$messageId')) {
                 activeGroups['reasoning:$messageId']!.add(event);

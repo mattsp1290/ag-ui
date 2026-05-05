@@ -101,6 +101,7 @@ class RunAgentInput extends AGUIModel {
               message: e.message,
               field: 'messages[$i].${e.field ?? 'unknown'}',
               value: e.value,
+              json: e.json,
               cause: e,
             );
           } catch (e) {
@@ -127,6 +128,7 @@ class RunAgentInput extends AGUIModel {
               message: e.message,
               field: 'tools[$i].${e.field ?? 'unknown'}',
               value: e.value,
+              json: e.json,
               cause: e,
             );
           } catch (e) {
@@ -153,6 +155,7 @@ class RunAgentInput extends AGUIModel {
               message: e.message,
               field: 'context[$i].${e.field ?? 'unknown'}',
               value: e.value,
+              json: e.json,
               cause: e,
             );
           } catch (e) {

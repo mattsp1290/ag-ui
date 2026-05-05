@@ -1247,6 +1247,7 @@ final class MessagesSnapshotEvent extends BaseEvent {
             message: e.message,
             field: 'messages[$i].${e.field ?? 'unknown'}',
             value: e.value,
+            json: e.json,
             cause: e,
           );
         }

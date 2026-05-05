@@ -53,6 +53,8 @@ void main() {
     });
 
     test('encodeRunAgentInput handles empty input', () {
+      // Only non-null fields are emitted — null fields are omitted to avoid
+      // sending spurious empty defaults that the server may not expect.
       final input = SimpleRunAgentInput(
         messages: [],
       );
@@ -60,12 +62,11 @@ void main() {
       final encoded = encoder.encodeRunAgentInput(input);
 
       expect(encoded, isA<Map<String, dynamic>>());
-      expect(encoded['messages'], isEmpty);
-      // These fields are always included with defaults for API consistency
-      expect(encoded['state'], equals({}));
-      expect(encoded['tools'], isEmpty);
-      expect(encoded['context'], isEmpty);
-      expect(encoded['forwardedProps'], equals({}));
+      expect(encoded['messages'], isEmpty); // non-null empty list → emitted
+      expect(encoded.containsKey('state'), isFalse); // null → omitted
+      expect(encoded.containsKey('tools'), isFalse); // null → omitted
+      expect(encoded.containsKey('context'), isFalse); // null → omitted
+      expect(encoded.containsKey('forwardedProps'), isFalse); // null → omitted
     });
 
     test('encodeUserMessage encodes UserMessage correctly', () {

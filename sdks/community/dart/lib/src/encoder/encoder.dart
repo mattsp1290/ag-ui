@@ -18,6 +18,13 @@ const String aguiMediaType = 'application/vnd.ag-ui.event+proto';
 /// and binary format (protobuf or SSE as bytes).
 class EventEncoder {
   /// Whether this encoder accepts protobuf format.
+  ///
+  /// **Important:** Setting this to `true` (via an `Accept:
+  /// application/vnd.ag-ui.event+proto` header) makes [encodeBinary] fall
+  /// back to SSE-as-bytes, not real protobuf. [EventDecoder.decodeBinary]
+  /// similarly has NO protobuf support — a server emitting real protobuf bytes
+  /// will fail with a misleading "Invalid UTF-8 data" error. Do not negotiate
+  /// `acceptsProtobuf=true` until protobuf support is implemented end-to-end.
   final bool acceptsProtobuf;
 
   /// Creates an encoder with optional format preferences.

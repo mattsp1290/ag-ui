@@ -339,6 +339,9 @@ class EventStreamAdapter {
           appendDataLine(line);
         }
       }
+      // Reset after the for-loop so future throw sites outside flushDataBlock
+      // (e.g. post-loop processing) are not silently swallowed.
+      errorRoutedInChunk = false;
     }
 
     // Defer the upstream subscription to `onListen` so a caller that
@@ -541,6 +544,16 @@ class EventStreamAdapter {
   /// but `*End` has not yet arrived) are emitted as-is. Consumers should
   /// treat such groups as potentially incomplete — they will be missing the
   /// terminal `*End` event and any final content that never arrived.
+  ///
+  /// **Reasoning event asymmetry.** Only message-level
+  /// `REASONING_MESSAGE_START` / `REASONING_MESSAGE_CONTENT` /
+  /// `REASONING_MESSAGE_END` events are grouped (under the key
+  /// `reasoning:<messageId>`). The phase-level `REASONING_START` /
+  /// `REASONING_END` events are emitted as standalone singletons — they
+  /// fall through to the `default` case. Consumers that need to associate
+  /// phase-level markers with the messages they wrap should track the phase
+  /// boundary in their own state, or subscribe to the typed event stream
+  /// directly.
   static Stream<List<BaseEvent>> groupRelatedEvents(
     Stream<BaseEvent> eventStream,
   ) {

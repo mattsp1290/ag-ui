@@ -225,7 +225,13 @@ class EventDecoder {
 
   /// Decodes an event from binary data.
   ///
-  /// Currently assumes the binary data is UTF-8 encoded SSE.
+  /// Currently assumes the binary data is UTF-8 encoded SSE/JSON.
+  /// Protobuf is NOT yet supported — a server emitting actual protobuf bytes
+  /// will raise [DecodingError] with message "Invalid UTF-8 data" rather than
+  /// a descriptive "protobuf not implemented" error. Negotiate
+  /// `acceptsProtobuf=false` (i.e. use SSE transport) until protobuf support
+  /// lands end-to-end in both encoder and decoder.
+  ///
   /// TODO: Add protobuf support when proto definitions are available.
   BaseEvent decodeBinary(Uint8List data) {
     try {

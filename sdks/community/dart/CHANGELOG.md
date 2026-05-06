@@ -7,6 +7,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Breaking Changes (review-fix pass)
+- **`StateDeltaEvent.delta` and `ActivityDeltaEvent.patch` are now
+  `List<Map<String, dynamic>>` instead of `List<dynamic>`.** RFC 6902 JSON
+  Patch operations are always objects. Using `requireListField<Map<String,
+  dynamic>>` surfaces non-object elements as `AGUIValidationError` at the
+  decoder boundary with a `field: 'delta[$i]'` / `field: 'patch[$i]'` index,
+  rather than leaking a downstream `TypeError` at the first `op['op']` access.
+  Direct consumers of `event.delta[i]` who are already casting to Map are
+  unaffected; consumers storing the list as `List<dynamic>` will need a type
+  annotation update.
+- **`SseParser.maxDataBytes` renamed to `maxDataCodeUnits`.** The field
+  already measured UTF-16 code units, not bytes — the rename corrects the
+  misleading name. `SseParser(maxDataBytes: ...)` call sites must be updated
+  to `SseParser(maxDataCodeUnits: ...)`.
+
+### Fixed (review-fix pass)
+- **`ActivityMessage.fromJson` now silently strips `encryptedValue` /
+  `encrypted_value` instead of throwing `AGUIValidationError`.** `ActivityMessage`
+  is not a `BaseMessage` extension in the canonical protocol, so the field
+  does not apply. Dart was the only SDK that tore down the stream on encountering
+  the field; TS strips silently (zod default) and Python preserves it. The
+  change restores forward compatibility when a proxy emits the field.
+- **`ReasoningEncryptedValueEvent.fromJson` no longer stores the cipher
+  payload in `BaseEvent.rawEvent`.** Previously `rawEvent: _readRawEvent(json)`
+  stored the full wire JSON (including `encryptedValue`) in the inherited
+  `rawEvent` field, undoing the cipher-data scrubbing in every error path.
+  `rawEvent` is now always `null` for this event type; proxies that need the
+  raw wire form should retain it before calling `fromJson`.
+- **`RunStartedEvent.fromJson` rethrow now forwards the inner error's `json`
+  (`e.json`) instead of the full outer payload.** The outer payload can carry
+  `input.messages[*].encryptedValue`. Using `e.json` (the specific inner map
+  that failed) limits cipher-data exposure in `AGUIValidationError`, mirroring
+  the existing cautious default in `MessagesSnapshotEvent.fromJson`.
+- **`MessagesSnapshotEvent.fromJson` rethrow now drops `json:` entirely.**
+  Forwarding `e.json` previously exposed the inner Message map on the outer
+  error; for Tool/Reasoning subtypes that map can carry `encryptedValue`. Drops
+  `json:` to match `AssistantMessage.fromJson`'s tool-call IIFE, which already
+  uses the cautious default.
+- **`JsonDecoder.requireEitherField` now distinguishes "key present but null"
+  from "key absent".** Previously both cases produced the same
+  "Missing required field 'X' (or 'Y')" message, misleading consumers into
+  thinking the snake_case alias might work when the camelCase key was
+  explicitly null. Now: key-present-but-null produces "Required field 'X' is
+  present but null"; both-absent still produces the dual-key error.
+- **`copyWith` sentinel sweep completed.** `ThinkingStartEvent.title`,
+  `ToolCallResultEvent.role`, `StateSnapshotEvent.snapshot`, and
+  `RunErrorEvent.code` now use the `kUnsetSentinel` pattern so callers can
+  clear these nullable fields via `copyWith(field: null)`. The "Known parity
+  gaps" list is now empty for payload fields.
+- **`EventEncoder.acceptsProtobuf` and `EventDecoder.decodeBinary` now carry
+  explicit dartdoc warnings** that protobuf is not yet implemented end-to-end.
+  A client negotiating `application/vnd.ag-ui.event+proto` would receive a
+  misleading "Invalid UTF-8 data" error; the docs now direct consumers to use
+  SSE transport until protobuf support lands.
+- **`groupRelatedEvents` dartdoc now documents the `ReasoningStart` /
+  `ReasoningEnd` asymmetry.** Phase-level reasoning events are emitted as
+  standalone singletons; only message-level `REASONING_MESSAGE_*` events are
+  grouped. Consumers that need to associate phase-level markers with message
+  groups must track phase boundaries in their own state.
+- **`processChunk` resets `errorRoutedInChunk` after the for-loop.** The flag
+  was previously only set inside the loop; future throw sites after the loop
+  body could have silently swallowed unrelated errors.
+- **`SseParser` error message corrected.** The OOM-guard error now says
+  "code-unit limit" (not "byte limit") to match what the cap actually measures.
+- **`SseParser._processField` now uses `write('\\n')` instead of `writeln()`**
+  for the inter-`data:` separator. `writeln()` is equivalent on all Dart
+  platforms but the explicit form removes any ambiguity about whether a
+  platform line terminator is emitted.
+- **`EventType.fromString` dartdoc strengthened** with an explicit contract
+  note: callers must not change the throw type from `ArgumentError`, because
+  `BaseEvent.fromJson` uses a narrow `on ArgumentError` catch to distinguish
+  unknown event types from factory bugs.
+
 ### Fixed (review pass — protocol parity)
 - **`encryptedValue` is now plumbed through every BaseMessage subtype**
   (`DeveloperMessage`, `SystemMessage`, `AssistantMessage`,
@@ -432,10 +505,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   backward compatibility; scheduled for removal in 1.0.0.
 
 ### Known parity gaps (follow-up)
-- `copyWith` on some event types with nullable payload fields still uses
-  the standard `?? this.field` pattern, which cannot distinguish "omitted"
-  from "set to null" — passing `copyWith(field: null)` keeps the existing
-  value. The sentinel pattern is now in place for
+- `copyWith` sentinel sweep is now complete for all nullable payload fields.
+  The sentinel pattern (`kUnsetSentinel` / `identical` check) is in place for
   `ActivitySnapshotEvent.content`, `RawEvent.event`, `RawEvent.source`,
   `CustomEvent.value`, `RunFinishedEvent.result`, the optional fields of
   `TextMessageStartEvent` / `TextMessageChunkEvent`,
@@ -443,11 +514,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `ToolCallChunkEvent` and `ReasoningMessageChunkEvent`,
   `RunStartedEvent.parentRunId` / `RunStartedEvent.input`,
   `RunAgentInput.parentRunId` / `RunAgentInput.state` /
-  `RunAgentInput.forwardedProps`, `Run.result`, and the message-class
-  nullables (`name`, `content`, `toolCalls`, `error`, `encryptedValue`).
-  The remaining `?? this.field` cases are `ToolCallResultEvent.role`,
-  `StateSnapshotEvent.snapshot`, and `RunErrorEvent.code`. A sweep across
-  these is planned for a future release.
+  `RunAgentInput.forwardedProps`, `Run.result`, the message-class nullables
+  (`name`, `content`, `toolCalls`, `error`, `encryptedValue`),
+  `ThinkingStartEvent.title`, `ToolCallResultEvent.role`,
+  `StateSnapshotEvent.snapshot`, and `RunErrorEvent.code`.
 - `RunFinishedEvent.result` is dropped from `toJson()` when null: an
   inbound explicit-null `'result': null` does not survive a Dart→Dart
   re-serialization round-trip. This matches the canonical TS/Python schemas

@@ -529,7 +529,11 @@ final class ToolMessage extends Message {
 /// from [Message] but intentionally does not expose it in the constructor,
 /// [fromJson], or [toJson]. In the canonical protocol `ActivityMessage` is
 /// NOT a `BaseMessage` extension (unlike Developer/System/Assistant/User/Tool
-/// messages), so cipher-payload forwarding does not apply here.
+/// messages), so cipher-payload forwarding does not apply here. If the wire
+/// payload contains `encryptedValue` / `encrypted_value`, [fromJson] strips
+/// it silently (matching TS zod-default strip behavior). In-memory instances
+/// constructed via [copyWith] on a parent [Message] may inherit the field,
+/// but [toJson] never emits it.
 final class ActivityMessage extends Message {
   final String activityType;
   final Map<String, dynamic> activityContent;
@@ -542,20 +546,10 @@ final class ActivityMessage extends Message {
 
   factory ActivityMessage.fromJson(Map<String, dynamic> json) {
     // `ActivityMessage` is NOT a `BaseMessage` extension in the canonical
-    // protocol — cipher-payload forwarding does not apply. Reject any
-    // inbound `encryptedValue` / `encrypted_value` explicitly so callers
-    // get a clear error instead of silently losing the field.
-    if (json.containsKey('encryptedValue') ||
-        json.containsKey('encrypted_value')) {
-      throw AGUIValidationError(
-        message: 'ActivityMessage does not support encryptedValue: '
-            'it is not a BaseMessage extension in the AG-UI protocol',
-        field: json.containsKey('encryptedValue')
-            ? 'encryptedValue'
-            : 'encrypted_value',
-        json: json,
-      );
-    }
+    // protocol — cipher-payload forwarding does not apply. Strip any inbound
+    // `encryptedValue` / `encrypted_value` silently, matching TS zod-default
+    // strip behavior. A hard-fail here would make Dart the only SDK that tears
+    // down the stream when a proxy emits the field (TS strips, Python preserves).
     return ActivityMessage(
       id: JsonDecoder.requireField<String>(json, 'id'),
       activityType: JsonDecoder.requireEitherField<String>(

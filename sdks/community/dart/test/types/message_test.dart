@@ -193,30 +193,31 @@ void main() {
         expect(updated.activityContent['progress'], 1.0);
       });
 
-      test('rejects camelCase encryptedValue (not a BaseMessage extension)', () {
-        expect(
-          () => ActivityMessage.fromJson({
-            'id': 'act_005',
-            'role': 'activity',
-            'activityType': 'task.run',
-            'content': {'progress': 0.5},
-            'encryptedValue': 'ZW5jcnlwdGVkLXBheWxvYWQ=',
-          }),
-          throwsA(isA<AGUIValidationError>()),
-        );
+      test('strips camelCase encryptedValue silently (not a BaseMessage extension)', () {
+        final msg = ActivityMessage.fromJson({
+          'id': 'act_005',
+          'role': 'activity',
+          'activityType': 'task.run',
+          'content': {'progress': 0.5},
+          'encryptedValue': 'ZW5jcnlwdGVkLXBheWxvYWQ=',
+        });
+        expect(msg.id, 'act_005');
+        expect(msg.activityType, 'task.run');
+        // encryptedValue is not exposed on ActivityMessage — stripping is silent.
+        expect(msg.toJson().containsKey('encryptedValue'), isFalse);
       });
 
-      test('rejects snake_case encrypted_value (not a BaseMessage extension)', () {
-        expect(
-          () => ActivityMessage.fromJson({
-            'id': 'act_006',
-            'role': 'activity',
-            'activityType': 'task.run',
-            'content': {'progress': 0.5},
-            'encrypted_value': 'ZW5jcnlwdGVkLXBheWxvYWQ=',
-          }),
-          throwsA(isA<AGUIValidationError>()),
-        );
+      test('strips snake_case encrypted_value silently (not a BaseMessage extension)', () {
+        final msg = ActivityMessage.fromJson({
+          'id': 'act_006',
+          'role': 'activity',
+          'activityType': 'task.run',
+          'content': {'progress': 0.5},
+          'encrypted_value': 'ZW5jcnlwdGVkLXBheWxvYWQ=',
+        });
+        expect(msg.id, 'act_006');
+        expect(msg.activityType, 'task.run');
+        expect(msg.toJson().containsKey('encryptedValue'), isFalse);
       });
     });
 

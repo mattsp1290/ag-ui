@@ -21,21 +21,27 @@ import 'sse_message.dart';
 /// `EventStreamAdapter.fromRawSseStream` keeps its parsing state in
 /// per-invocation locals and does not have this concern.
 class SseParser {
-  /// Maximum number of bytes (UTF-16 code units) the `_dataBuffer` may
-  /// accumulate before a message is dispatched. Prevents a malicious or
-  /// misbehaving SSE producer from growing the buffer without bound across
-  /// `data:` lines, causing an OOM before the terminating blank line arrives.
+  /// Maximum number of UTF-16 code units the `_dataBuffer` may accumulate
+  /// before a message is dispatched. Prevents a malicious or misbehaving SSE
+  /// producer from growing the buffer without bound across `data:` lines,
+  /// causing an OOM before the terminating blank line arrives.
+  ///
+  /// **Note:** The cap is measured in UTF-16 code units (Dart's internal string
+  /// unit), not UTF-8 bytes. ASCII content has a 1:1 ratio; BMP characters
+  /// outside ASCII still count as one code unit; supplementary characters
+  /// (emoji, etc.) count as two. For most JSON payloads the difference is
+  /// negligible, but the name reflects what is actually measured.
   ///
   /// Default: 8 MiB (8 × 1024 × 1024 code units). Adjust via the
   /// [SseParser.new] constructor when your use-case legitimately requires
   /// larger payloads.
-  final int maxDataBytes;
+  final int maxDataCodeUnits;
 
   // `_eventBuffer` stores the SSE `event:` field for the current message.
   // Unlike `_dataBuffer`, it is REPLACED (not appended) on each `event:` line
   // per the WHATWG SSE spec, so its maximum size is bounded by the line
   // splitter upstream rather than accumulating across lines. Only `_dataBuffer`
-  // needs an explicit `maxDataBytes` cap because it accumulates across multiple
+  // needs an explicit `maxDataCodeUnits` cap because it accumulates across multiple
   // `data:` lines within a single message.
   final _eventBuffer = StringBuffer();
   final _dataBuffer = StringBuffer();
@@ -43,7 +49,7 @@ class SseParser {
   Duration? _retry;
   bool _hasDataField = false;
 
-  SseParser({this.maxDataBytes = 8 * 1024 * 1024});
+  SseParser({this.maxDataCodeUnits = 8 * 1024 * 1024});
 
   /// Clears all parser state, including the otherwise-sticky
   /// `_lastEventId`. Use when reusing a parser instance across
@@ -150,20 +156,20 @@ class SseParser {
         // in `EventStreamAdapter.appendDataLine`.
         // Guard against unbounded growth from a malicious/misbehaving
         // producer. Reject the entire message if the accumulated data
-        // would exceed [maxDataBytes], reset buffers, and throw so the
+        // would exceed [maxDataCodeUnits], reset buffers, and throw so the
         // caller's stream adapter can surface a structured error instead
         // of quietly OOM-ing.
         final newlineBytes = _hasDataField ? 1 : 0; // \n separator between lines
-        if (_dataBuffer.length + newlineBytes + value.length > maxDataBytes) {
+        if (_dataBuffer.length + newlineBytes + value.length > maxDataCodeUnits) {
           _resetBuffers();
           throw FormatException(
-            'SSE data field exceeds $maxDataBytes-byte limit '
+            'SSE data field exceeds $maxDataCodeUnits-code-unit limit '
             '(current ${_dataBuffer.length} + incoming '
             '${newlineBytes + value.length} code units)',
           );
         }
         if (_hasDataField) {
-          _dataBuffer.writeln();
+          _dataBuffer.write('\n'); // explicit \n, not platform line terminator
         }
         _hasDataField = true;
         _dataBuffer.write(value);

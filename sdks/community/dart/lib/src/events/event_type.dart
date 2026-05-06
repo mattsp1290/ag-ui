@@ -76,13 +76,16 @@ enum EventType {
 
   /// Parses [value] into an [EventType].
   ///
-  /// Throws [ArgumentError] for unknown values. Wire decoding via
-  /// `BaseEvent.fromJson` wraps this throw as `AGUIValidationError`, which
-  /// the [EventDecoder] pipeline ultimately surfaces as `DecodingError`.
-  /// Direct callers must catch [ArgumentError] if they want to handle
-  /// unknown event types gracefully — see `dart-enum-parsing-safety.md`
-  /// for the throw-vs-fallback rationale this enum shares with the
-  /// `*Role` family.
+  /// **Contract:** throws [ArgumentError] for unknown values. Do NOT change
+  /// this to throw any other exception type — `BaseEvent.fromJson` uses a
+  /// narrow `on ArgumentError` catch to distinguish unknown event types
+  /// (recoverable: wrap as `AGUIValidationError`) from genuine bugs in the
+  /// factory body (rethrow). Breaking this contract will silently swallow
+  /// factory errors or surface them as unknown-type errors. Wire decoding via
+  /// `BaseEvent.fromJson` ultimately surfaces `AGUIValidationError` as
+  /// `DecodingError`. Direct callers must catch [ArgumentError] if they want
+  /// to handle unknown event types gracefully — see
+  /// `dart-enum-parsing-safety.md` for the throw-vs-fallback rationale.
   static EventType fromString(String value) {
     return _byValue[value] ?? (throw ArgumentError('Invalid event type: $value'));
   }

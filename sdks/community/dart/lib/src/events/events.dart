@@ -27,10 +27,9 @@ export 'event_type.dart';
 // `RunStartedEvent.input`, the `name` field of `TextMessageStartEvent`,
 // the optional fields of `TextMessageChunkEvent`,
 // `ToolCallStartEvent.parentMessageId`, the optional fields of
-// `ToolCallChunkEvent`, and the optional fields of
-// `ReasoningMessageChunkEvent`. A few non-payload `copyWith`s still use
-// the standard `?? this.field` pattern — see CHANGELOG → "Known parity
-// gaps" for the remaining cases.
+// `ToolCallChunkEvent`, the optional fields of `ReasoningMessageChunkEvent`,
+// `ThinkingStartEvent.title`, `ToolCallResultEvent.role`,
+// `StateSnapshotEvent.snapshot`, and `RunErrorEvent.code`.
 
 /// Reads the `rawEvent` field from a wire payload, accepting both
 /// `rawEvent` (TypeScript-canonical) and `raw_event` (Python-canonical).
@@ -551,12 +550,12 @@ final class ThinkingStartEvent extends BaseEvent {
 
   @override
   ThinkingStartEvent copyWith({
-    String? title,
+    Object? title = kUnsetSentinel,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return ThinkingStartEvent(
-      title: title ?? this.title,
+      title: identical(title, kUnsetSentinel) ? this.title : title as String?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -1111,7 +1110,7 @@ final class ToolCallResultEvent extends BaseEvent {
     String? messageId,
     String? toolCallId,
     String? content,
-    ToolCallResultRole? role,
+    Object? role = kUnsetSentinel,
     int? timestamp,
     dynamic rawEvent,
   }) {
@@ -1119,7 +1118,7 @@ final class ToolCallResultEvent extends BaseEvent {
       messageId: messageId ?? this.messageId,
       toolCallId: toolCallId ?? this.toolCallId,
       content: content ?? this.content,
-      role: role ?? this.role,
+      role: identical(role, kUnsetSentinel) ? this.role : role as ToolCallResultRole?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -1135,12 +1134,6 @@ final class StateSnapshotEvent extends BaseEvent {
   /// The state snapshot. Type [State] permits any JSON shape including
   /// `null` (an empty / cleared state is a valid wire payload — see the
   /// matching note on [StateSnapshotEvent.fromJson]).
-  ///
-  /// Note: [copyWith] for this field uses the standard `?? this.field`
-  /// pattern (a CHANGELOG-acknowledged "Known parity gap" — see
-  /// CHANGELOG → "Known parity gaps"). `copyWith(snapshot: null)` does
-  /// NOT clear the field. Construct a new [StateSnapshotEvent] directly
-  /// if you need to set an explicit-null snapshot.
   final State snapshot;
 
   const StateSnapshotEvent({
@@ -1177,12 +1170,12 @@ final class StateSnapshotEvent extends BaseEvent {
 
   @override
   StateSnapshotEvent copyWith({
-    State? snapshot,
+    Object? snapshot = kUnsetSentinel,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return StateSnapshotEvent(
-      snapshot: snapshot ?? this.snapshot,
+      snapshot: identical(snapshot, kUnsetSentinel) ? this.snapshot : snapshot,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -1191,7 +1184,11 @@ final class StateSnapshotEvent extends BaseEvent {
 
 /// Event containing a delta of the state (JSON Patch RFC 6902)
 final class StateDeltaEvent extends BaseEvent {
-  final List<dynamic> delta;
+  // RFC 6902 patch operations are always JSON objects ({op, path, …}).
+  // Using List<Map<String, dynamic>> (via requireListField) surfaces
+  // non-object elements as AGUIValidationError at the decoder boundary
+  // instead of leaking a downstream TypeError at the first op['op'] access.
+  final List<Map<String, dynamic>> delta;
 
   const StateDeltaEvent({
     required this.delta,
@@ -1201,7 +1198,7 @@ final class StateDeltaEvent extends BaseEvent {
 
   factory StateDeltaEvent.fromJson(Map<String, dynamic> json) {
     return StateDeltaEvent(
-      delta: JsonDecoder.requireField<List<dynamic>>(json, 'delta'),
+      delta: JsonDecoder.requireListField<Map<String, dynamic>>(json, 'delta'),
       timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: _readRawEvent(json),
     );
@@ -1215,7 +1212,7 @@ final class StateDeltaEvent extends BaseEvent {
 
   @override
   StateDeltaEvent copyWith({
-    List<dynamic>? delta,
+    List<Map<String, dynamic>>? delta,
     int? timestamp,
     dynamic rawEvent,
   }) {
@@ -1248,18 +1245,15 @@ final class MessagesSnapshotEvent extends BaseEvent {
         messages.add(Message.fromJson(rawMessages[i]));
       } catch (e) {
         if (e is AGUIValidationError) {
-          // Forwarding `json: e.json` here exposes the inner Message map on
-          // the outer AGUIValidationError. For Tool/Reasoning subtypes that
-          // map can carry `encryptedValue` — the field is documented as
-          // sensitive and consumers are expected to scrub before logging.
-          // Contrast with `AssistantMessage.fromJson`'s tool-call IIFE, which
-          // drops `json:` for the same reason but with the cautious default.
+          // Drop `json:` from the rethrow — the inner Message map (e.json)
+          // can carry `encryptedValue` for Tool/Reasoning subtypes. Forwarding
+          // it exposes cipher data in the error. Matches AssistantMessage's
+          // tool-call IIFE, which also drops `json:` for the same reason.
           // See `BaseMessage.encryptedValue` dartdoc and CHANGELOG.
           throw AGUIValidationError(
             message: e.message,
             field: 'messages[$i].${e.field ?? 'unknown'}',
             value: e.value,
-            json: e.json,
             cause: e,
           );
         }
@@ -1406,7 +1400,10 @@ final class ActivitySnapshotEvent extends BaseEvent {
 final class ActivityDeltaEvent extends BaseEvent {
   final String messageId;
   final String activityType;
-  final List<dynamic> patch;
+  // RFC 6902 patch operations are always JSON objects ({op, path, …}).
+  // Using List<Map<String, dynamic>> (via requireListField) surfaces
+  // non-object elements as AGUIValidationError at the decoder boundary.
+  final List<Map<String, dynamic>> patch;
 
   const ActivityDeltaEvent({
     required this.messageId,
@@ -1428,7 +1425,7 @@ final class ActivityDeltaEvent extends BaseEvent {
         'activityType',
         'activity_type',
       ),
-      patch: JsonDecoder.requireField<List<dynamic>>(json, 'patch'),
+      patch: JsonDecoder.requireListField<Map<String, dynamic>>(json, 'patch'),
       timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: _readRawEvent(json),
     );
@@ -1446,7 +1443,7 @@ final class ActivityDeltaEvent extends BaseEvent {
   ActivityDeltaEvent copyWith({
     String? messageId,
     String? activityType,
-    List<dynamic>? patch,
+    List<Map<String, dynamic>>? patch,
     int? timestamp,
     dynamic rawEvent,
   }) {
@@ -1460,7 +1457,17 @@ final class ActivityDeltaEvent extends BaseEvent {
   }
 }
 
-/// Event containing a raw event
+/// Event wrapping a raw, uninterpreted upstream event payload.
+///
+/// Three related but distinct concepts coexist on this class:
+/// - [eventType]: always `EventType.raw` — the discriminator that routes wire
+///   payloads here via `BaseEvent.fromJson`.
+/// - [event]: the raw upstream event payload as decoded from the wire JSON
+///   `event` field. May be any JSON shape, including `null`.
+/// - [rawEvent]: inherited from [BaseEvent] — the verbatim wire JSON of the
+///   *enclosing* SSE message (the whole `{type, event, ...}` map). Populated
+///   by `_readRawEvent` when the producer includes a `rawEvent` /
+///   `raw_event` key. Unrelated to the [event] field above.
 final class RawEvent extends BaseEvent {
   final dynamic event;
   final String? source;
@@ -1610,11 +1617,15 @@ final class RunStartedEvent extends BaseEvent {
       try {
         input = RunAgentInput.fromJson(inputJson);
       } on AGUIValidationError catch (e) {
+        // Forward e.json (the inner failed payload) rather than json (the full
+        // outer payload). The outer json contains input.messages which can carry
+        // encryptedValue — forwarding it here would expose cipher data in the
+        // error, mirroring the cautious default in MessagesSnapshotEvent.fromJson.
         throw AGUIValidationError(
           message: e.message,
           field: 'input.${e.field ?? 'unknown'}',
           value: e.value,
-          json: json,
+          json: e.json,
           cause: e,
         );
       }
@@ -1755,12 +1766,6 @@ final class RunErrorEvent extends BaseEvent {
   final String message;
 
   /// Optional machine-readable error code.
-  ///
-  /// Note: [copyWith] for this field uses the standard `?? this.field`
-  /// pattern (a CHANGELOG-acknowledged "Known parity gap" — see
-  /// CHANGELOG → "Known parity gaps"). `copyWith(code: null)` does NOT
-  /// clear the field. Construct a new [RunErrorEvent] directly if you
-  /// need to drop the code.
   final String? code;
 
   const RunErrorEvent({
@@ -1789,13 +1794,13 @@ final class RunErrorEvent extends BaseEvent {
   @override
   RunErrorEvent copyWith({
     String? message,
-    String? code,
+    Object? code = kUnsetSentinel,
     int? timestamp,
     dynamic rawEvent,
   }) {
     return RunErrorEvent(
       message: message ?? this.message,
-      code: code ?? this.code,
+      code: identical(code, kUnsetSentinel) ? this.code : code as String?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -2372,12 +2377,18 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
     // empty) to match canonical schemas: TS `z.string()` and Python `str`
     // (no `min_length`). The strict subtype discriminator above stays —
     // unknown subtypes still throw.
+    //
+    // rawEvent is explicitly set to null here — unlike every other factory
+    // in this file, forwarding _readRawEvent(json) would store the full
+    // cipher payload in BaseEvent.rawEvent, undoing the cipher-data scrubbing
+    // in every error path above. Proxies that need the raw wire form should
+    // maintain their own copy before calling fromJson.
     return ReasoningEncryptedValueEvent(
       subtype: subtype,
       entityId: entityIdRaw,
       encryptedValue: encryptedValueRaw,
       timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
-      rawEvent: _readRawEvent(json),
+      rawEvent: null,
     );
   }
 

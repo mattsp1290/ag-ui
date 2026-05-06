@@ -253,17 +253,33 @@ class JsonDecoder {
     String camelKey,
     String snakeKey,
   ) {
-    final v = json.containsKey(camelKey)
-        ? optionalField<T>(json, camelKey)
-        : optionalField<T>(json, snakeKey);
-    if (v == null) {
-      throw AGUIValidationError(
-        message: 'Missing required field "$camelKey" (or "$snakeKey")',
-        field: camelKey,
-        json: json,
-      );
+    if (json.containsKey(camelKey)) {
+      final v = optionalField<T>(json, camelKey);
+      if (v == null) {
+        throw AGUIValidationError(
+          message: 'Required field "$camelKey" is present but null',
+          field: camelKey,
+          json: json,
+        );
+      }
+      return v;
     }
-    return v;
+    if (json.containsKey(snakeKey)) {
+      final v = optionalField<T>(json, snakeKey);
+      if (v == null) {
+        throw AGUIValidationError(
+          message: 'Required field "$snakeKey" is present but null',
+          field: snakeKey,
+          json: json,
+        );
+      }
+      return v;
+    }
+    throw AGUIValidationError(
+      message: 'Missing required field "$camelKey" (or "$snakeKey")',
+      field: camelKey,
+      json: json,
+    );
   }
 
   /// Reads an optional field that may arrive under either of two keys.
@@ -346,8 +362,7 @@ class JsonDecoder {
   /// `field: '$field[$i]'` so the decoder pipeline can preserve the
   /// originating index instead of flattening to a generic `field: 'json'`.
   /// For loosely-typed payloads where the elements are intentionally
-  /// `dynamic` (e.g. JSON Patch operations in `STATE_DELTA` /
-  /// `ACTIVITY_DELTA`) prefer `requireField<List<dynamic>>` to avoid an
+  /// `dynamic`, prefer `requireField<List<dynamic>>` to avoid an
   /// unnecessary check.
   static List<T> requireListField<T>(
     Map<String, dynamic> json,

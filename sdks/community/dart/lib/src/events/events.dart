@@ -48,6 +48,11 @@ dynamic _readRawEvent(Map<String, dynamic> json) =>
 // get edited in one place per event class. Sibling enum-side messages
 // live in `event_type.dart`; the surfaces are intentionally different
 // (enum names vs. event class names).
+// IMPORTANT: Do NOT add `// ignore_for_file: deprecated_member_use_from_same_package`
+// to this file. The per-line `// ignore:` comments below are load-bearing:
+// they enumerate every deprecated event type use so the 1.0.0 removal sweep
+// knows exactly which lines to delete. A file-level suppression would silence
+// the deprecation alarm and make the sweep invisible to the analyzer.
 const String _kThinkingTextMessageStartEventDeprecation =
     'Use ReasoningMessageStartEvent instead. '
     'Scheduled for removal in 1.0.0.';
@@ -1243,6 +1248,13 @@ final class MessagesSnapshotEvent extends BaseEvent {
         messages.add(Message.fromJson(rawMessages[i]));
       } catch (e) {
         if (e is AGUIValidationError) {
+          // Forwarding `json: e.json` here exposes the inner Message map on
+          // the outer AGUIValidationError. For Tool/Reasoning subtypes that
+          // map can carry `encryptedValue` — the field is documented as
+          // sensitive and consumers are expected to scrub before logging.
+          // Contrast with `AssistantMessage.fromJson`'s tool-call IIFE, which
+          // drops `json:` for the same reason but with the cautious default.
+          // See `BaseMessage.encryptedValue` dartdoc and CHANGELOG.
           throw AGUIValidationError(
             message: e.message,
             field: 'messages[$i].${e.field ?? 'unknown'}',
@@ -2274,42 +2286,96 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
   }) : super(eventType: EventType.reasoningEncryptedValue);
 
   factory ReasoningEncryptedValueEvent.fromJson(Map<String, dynamic> json) {
-    final subtypeStr = JsonDecoder.requireField<String>(json, 'subtype');
-    final ReasoningEncryptedValueSubtype subtype;
-    try {
-      subtype = ReasoningEncryptedValueSubtype.fromString(subtypeStr);
-    } on ArgumentError {
-      // Honor the class-level dartdoc contract: an unknown subtype
-      // surfaces to direct factory callers as an `AGUIValidationError`
-      // (and as a `DecodingError` through `EventDecoder`), not as the
-      // raw `ArgumentError` the enum throws. Narrow `on ArgumentError`
-      // (not `catch (e)`) preserves the discipline that
-      // type/presence errors from `requireField` above MUST propagate
-      // unchanged as `AGUIValidationError`.
-      // Intentionally omit `json:` — the payload contains cipher data
-      // and logging the full wire map would leak it through error logs.
+    // All three required fields on this event use manual presence/type checks
+    // rather than `requireField`/`requireEitherField` so that every error path
+    // can intentionally omit `json:` — the payload contains cipher data and
+    // forwarding the full wire map to `AGUIValidationError.json` would leak it
+    // through reflection-based error serializers and log shippers.
+    if (!json.containsKey('subtype') || json['subtype'] == null) {
       throw AGUIValidationError(
-        message: 'Invalid reasoning encrypted value subtype: $subtypeStr',
+        message: 'Missing required field "subtype"',
         field: 'subtype',
-        value: subtypeStr,
+        // Intentionally omit json: — payload contains cipher data.
       );
     }
+    final subtypeRaw = json['subtype'];
+    if (subtypeRaw is! String) {
+      throw AGUIValidationError(
+        message:
+            'Field "subtype" has incorrect type. Expected String, got ${subtypeRaw.runtimeType}',
+        field: 'subtype',
+        value: subtypeRaw,
+        // Intentionally omit json: — payload contains cipher data.
+      );
+    }
+    final ReasoningEncryptedValueSubtype subtype;
+    try {
+      subtype = ReasoningEncryptedValueSubtype.fromString(subtypeRaw);
+    } on ArgumentError {
+      // Honor the class-level dartdoc contract: an unknown subtype
+      // surfaces as `AGUIValidationError` (and as `DecodingError` through
+      // `EventDecoder`), not as the raw `ArgumentError` the enum throws.
+      // Narrow `on ArgumentError` (not `catch (e)`) preserves the discipline
+      // that other errors from checked paths MUST propagate unchanged.
+      throw AGUIValidationError(
+        message: 'Invalid reasoning encrypted value subtype: $subtypeRaw',
+        field: 'subtype',
+        value: subtypeRaw,
+        // Intentionally omit json: — payload contains cipher data.
+      );
+    }
+
+    // `entityId` — prefer camelCase per requireEitherField contract.
+    final entityIdRaw = json.containsKey('entityId')
+        ? json['entityId']
+        : json['entity_id'];
+    if (entityIdRaw == null) {
+      throw AGUIValidationError(
+        message: 'Missing required field "entityId" (or "entity_id")',
+        field: 'entityId',
+        // Intentionally omit json: — payload contains cipher data.
+      );
+    }
+    if (entityIdRaw is! String) {
+      throw AGUIValidationError(
+        message:
+            'Field "entityId" has incorrect type. Expected String, got ${entityIdRaw.runtimeType}',
+        field: 'entityId',
+        value: entityIdRaw,
+        // Intentionally omit json: — payload contains cipher data.
+      );
+    }
+
+    // `encryptedValue` — prefer camelCase per requireEitherField contract.
+    final encryptedValueRaw = json.containsKey('encryptedValue')
+        ? json['encryptedValue']
+        : json['encrypted_value'];
+    if (encryptedValueRaw == null) {
+      throw AGUIValidationError(
+        message:
+            'Missing required field "encryptedValue" (or "encrypted_value")',
+        field: 'encryptedValue',
+        // Intentionally omit json: — payload contains cipher data.
+      );
+    }
+    if (encryptedValueRaw is! String) {
+      throw AGUIValidationError(
+        message:
+            'Field "encryptedValue" has incorrect type. Expected String, got ${encryptedValueRaw.runtimeType}',
+        field: 'encryptedValue',
+        value: encryptedValueRaw,
+        // Intentionally omit json: — payload contains cipher data.
+      );
+    }
+
     // entityId and encryptedValue are accepted as plain strings (including
     // empty) to match canonical schemas: TS `z.string()` and Python `str`
     // (no `min_length`). The strict subtype discriminator above stays —
     // unknown subtypes still throw.
     return ReasoningEncryptedValueEvent(
       subtype: subtype,
-      entityId: JsonDecoder.requireEitherField<String>(
-        json,
-        'entityId',
-        'entity_id',
-      ),
-      encryptedValue: JsonDecoder.requireEitherField<String>(
-        json,
-        'encryptedValue',
-        'encrypted_value',
-      ),
+      entityId: entityIdRaw,
+      encryptedValue: encryptedValueRaw,
       timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: _readRawEvent(json),
     );

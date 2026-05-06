@@ -31,6 +31,12 @@ class SseParser {
   /// larger payloads.
   final int maxDataBytes;
 
+  // `_eventBuffer` stores the SSE `event:` field for the current message.
+  // Unlike `_dataBuffer`, it is REPLACED (not appended) on each `event:` line
+  // per the WHATWG SSE spec, so its maximum size is bounded by the line
+  // splitter upstream rather than accumulating across lines. Only `_dataBuffer`
+  // needs an explicit `maxDataBytes` cap because it accumulates across multiple
+  // `data:` lines within a single message.
   final _eventBuffer = StringBuffer();
   final _dataBuffer = StringBuffer();
   String? _lastEventId;

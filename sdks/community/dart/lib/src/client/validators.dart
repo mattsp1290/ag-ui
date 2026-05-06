@@ -37,7 +37,20 @@ class Validators {
     return value;
   }
 
-  /// Validates a URL format
+  /// Validates a URL format.
+  ///
+  /// Rejects null/empty URLs, URLs with embedded control characters or DEL
+  /// (C0 + Unicode line-terminators), non-http/https schemes, and
+  /// credential-bearing URLs (`http://user:pass@host/`).
+  ///
+  /// **Defense-in-depth note.** The credentials block
+  /// (`uri.userInfo.isNotEmpty`) ALSO defends against percent-encoded
+  /// control-char injection (e.g. `http://%0a:@host/` → newline in
+  /// `userInfo` after `Uri.parse` decodes it). If the no-credentials rule
+  /// is ever relaxed, ALSO run `_kUrlControlChars` against
+  /// `uri.userInfo`, `uri.path`, `uri.query`, and `uri.fragment` — those
+  /// fields are percent-decoded at access time, so the top-of-function
+  /// string check on the raw URL string is not sufficient on its own.
   static void validateUrl(String? url, String fieldName) {
     requireNonEmpty(url, fieldName);
 
@@ -174,21 +187,12 @@ class Validators {
   /// pre-0.2.0 permissive Map/List branches were dead code (no caller in
   /// the SDK passes those types) and would have silently accepted a
   /// malformed payload if anyone ever adopted them.
-  static void validateMessageContent(dynamic content) {
+  static void validateMessageContent(String? content) {
     if (content == null) {
       throw ValidationError(
         'Message content cannot be null',
         field: 'content',
         constraint: 'non-null',
-        value: content,
-      );
-    }
-
-    if (content is! String) {
-      throw ValidationError(
-        'Message content must be a string',
-        field: 'content',
-        constraint: 'string-type',
         value: content,
       );
     }

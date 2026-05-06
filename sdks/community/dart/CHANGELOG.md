@@ -448,6 +448,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The remaining `?? this.field` cases are `ToolCallResultEvent.role`,
   `StateSnapshotEvent.snapshot`, and `RunErrorEvent.code`. A sweep across
   these is planned for a future release.
+- `RunFinishedEvent.result` is dropped from `toJson()` when null: an
+  inbound explicit-null `'result': null` does not survive a Dart→Dart
+  re-serialization round-trip. This matches the canonical TS/Python schemas
+  (`z.any().optional()` / `Optional[Any] = None`), so cross-SDK forwarding
+  is unaffected. Consumers relying on byte-for-byte round-trip fidelity
+  should read `rawEvent` instead of re-serializing.
 
 ## [0.1.0] - 2025-01-21
 

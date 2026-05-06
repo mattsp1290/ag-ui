@@ -194,23 +194,8 @@ void main() {
       );
     });
 
-    test('rejects non-string content (Map / List / number)', () {
-      expect(
-        () => Validators.validateMessageContent({'text': 'Hello'}),
-        throwsA(isA<ValidationError>()
-            .having((e) => e.constraint, 'constraint', 'string-type')),
-      );
-      expect(
-        () => Validators.validateMessageContent(['item1', 'item2']),
-        throwsA(isA<ValidationError>()
-            .having((e) => e.constraint, 'constraint', 'string-type')),
-      );
-      expect(
-        () => Validators.validateMessageContent(123),
-        throwsA(isA<ValidationError>()
-            .having((e) => e.constraint, 'constraint', 'string-type')),
-      );
-    });
+    // Non-String values are rejected at compile time by the `String?` parameter
+    // type — no runtime `is! String` check is needed or present.
   });
 
   group('Validators.validateTimeout', () {

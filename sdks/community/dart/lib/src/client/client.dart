@@ -546,7 +546,10 @@ class AgUiClient {
   /// Truncate response body for error messages
   String _truncateBody(String body, {int maxLength = 500}) {
     if (body.length <= maxLength) return body;
-    return '${body.substring(0, maxLength)}...';
+    var end = maxLength;
+    final cu = body.codeUnitAt(end - 1);
+    if (cu >= 0xD800 && cu <= 0xDBFF) end--; // avoid splitting surrogate pair
+    return '${body.substring(0, end)}...';
   }
 
   /// Build headers for requests

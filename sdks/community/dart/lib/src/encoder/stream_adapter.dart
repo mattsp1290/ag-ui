@@ -387,6 +387,7 @@ class EventStreamAdapter {
           }
         },
         onDone: () {
+          errorRoutedInChunk = false; // defensive reset; flag lifecycle ends at chunk handler
           // End-of-stream: any deferred trailing `\r` is now a complete
           // terminator. Run the scanner with `endOfStream: true` to
           // consume it (and any other complete lines still in the buffer).
@@ -657,10 +658,11 @@ class EventStreamAdapter {
   ///
   /// Emits one [String] per logical message when its `TextMessageEnd` event
   /// arrives. **On stream close:** any accumulated-but-not-ended message
-  /// buffers are silently discarded — no output is emitted for them. This is
-  /// the opposite of [groupRelatedEvents], which emits incomplete groups on
-  /// close. If the stream closes before a `TextMessageEnd` arrives, the
-  /// partial content is lost without a signal to the consumer.
+  /// buffers are flushed as a final [String], matching [groupRelatedEvents]'
+  /// "emit incomplete groups on close" behavior. Empty buffers are not
+  /// emitted. Consumers cannot distinguish between a normally-completed
+  /// message and a flushed-on-close partial without observing the absence
+  /// of `TextMessageEnd` upstream.
   static Stream<String> accumulateTextMessages(
     Stream<BaseEvent> eventStream,
   ) {

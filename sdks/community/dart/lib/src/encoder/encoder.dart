@@ -7,6 +7,7 @@ import 'dart:convert';
 import 'dart:typed_data';
 
 import '../events/events.dart';
+import 'errors.dart';
 
 /// The AG-UI protobuf media type constant.
 const String aguiMediaType = 'application/vnd.ag-ui.event+proto';
@@ -58,7 +59,17 @@ class EventEncoder {
     // break the encode→decode round-trip. See
     // `fixtures_integration_test.dart` "round-trip preserves explicit-null
     // payload" for the regression guard.
-    final jsonString = jsonEncode(json);
+    final String jsonString;
+    try {
+      jsonString = jsonEncode(json);
+    } on JsonUnsupportedObjectError catch (e) {
+      throw EncodeError(
+        message: 'Event payload is not JSON-encodable: '
+            '${event.runtimeType} contains a non-serializable value',
+        source: event,
+        cause: e,
+      );
+    }
     return 'data: $jsonString\n\n';
   }
 

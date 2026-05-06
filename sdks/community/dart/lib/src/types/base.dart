@@ -6,6 +6,16 @@ library;
 
 import 'dart:convert';
 
+// Truncate [s] to at most [maxLen] UTF-16 code units, backing up by 1 if the
+// cut falls on the high surrogate of a pair, to avoid emitting lone surrogates.
+String _safeTruncate(String s, int maxLen) {
+  if (s.length <= maxLen) return s;
+  var end = maxLen;
+  final cu = s.codeUnitAt(end - 1);
+  if (cu >= 0xD800 && cu <= 0xDBFF) end--; // high surrogate: back up
+  return s.substring(0, end);
+}
+
 /// Base class for all AG-UI models with JSON serialization support.
 ///
 /// All protocol models extend this class to provide consistent JSON
@@ -101,7 +111,7 @@ class AGUIValidationError extends AGUIError {
     if (value != null) {
       final valueStr = value.toString();
       final excerpt = valueStr.length > 100
-          ? '${valueStr.substring(0, 100)}...'
+          ? '${_safeTruncate(valueStr, 100)}...'
           : valueStr;
       buffer.write(' (value: $excerpt)');
     }
@@ -292,8 +302,14 @@ class JsonDecoder {
   /// so a server emitting `Date.now() / 1000` (or any fractional value)
   /// arrives in Dart as `double`. `optionalField<int>` rejects that with
   /// `AGUIValidationError` even when the value is integer-shaped. This
-  /// helper accepts any `num` and coerces via `.toInt()`, fixing the
-  /// cross-runtime decode for `timestamp`-shaped fields.
+  /// helper accepts any `num` and coerces via `.floor()`, matching
+  /// TS `Math.floor` rounding semantics (rounds toward −∞ for negative
+  /// values, identical to `.toInt()` for non-negative).
+  ///
+  /// Non-finite `num` values (`NaN`, `±Infinity`) are rejected with an
+  /// `AGUIValidationError` rather than letting `.floor()` throw a raw
+  /// `UnsupportedError` — keeping all decode failures in the AG-UI error
+  /// hierarchy.
   static int? optionalIntField(
     Map<String, dynamic> json,
     String field,
@@ -301,7 +317,17 @@ class JsonDecoder {
     if (!json.containsKey(field) || json[field] == null) return null;
     final value = json[field];
     if (value is int) return value;
-    if (value is num) return value.toInt();
+    if (value is num) {
+      if (value.isNaN || value.isInfinite) {
+        throw AGUIValidationError(
+          message: 'Field is non-finite (NaN or Infinity)',
+          field: field,
+          value: value,
+          json: json,
+        );
+      }
+      return value.floor();
+    }
     throw AGUIValidationError(
       message:
           'Field has incorrect type. Expected int or num, got ${value.runtimeType}',

@@ -570,7 +570,12 @@ final class ActivityMessage extends Message {
 
   @override
   Map<String, dynamic> toJson() => {
-        ...super.toJson(),
+        // Explicitly skip super.toJson() — the inherited Message.content field
+        // must not appear in the wire output (activityContent is the `content`
+        // key here). Using ...super.toJson() would rely on map-spread
+        // overwrite order to mask any future super.content emission.
+        if (id != null) 'id': id,
+        'role': role.value,
         'activityType': activityType,
         'content': activityContent,
       };

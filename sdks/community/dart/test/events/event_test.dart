@@ -118,15 +118,19 @@ void main() {
       });
 
       test(
-          'TextMessageChunkEvent falls back to assistant for an unknown '
-          'role (forward-compat parity with TextMessageStartEvent)', () {
+          'TextMessageChunkEvent falls back to null for an unknown role '
+          '(forward-compat: nullable field, not required like TextMessageStartEvent)', () {
         final decoded = TextMessageChunkEvent.fromJson({
           'type': 'TEXT_MESSAGE_CHUNK',
           'messageId': 'msg_001',
           'role': 'bogus',
           'delta': 'partial',
         });
-        expect(decoded.role, TextMessageRole.assistant);
+        // role is nullable/optional on TextMessageChunkEvent — an unknown wire
+        // value should produce null so callers can distinguish "absent" from
+        // "unrecognized." Contrast: TextMessageStartEvent has a required role,
+        // so the assistant fallback is appropriate there.
+        expect(decoded.role, isNull);
         expect(decoded.messageId, 'msg_001');
         expect(decoded.delta, 'partial');
       });

@@ -407,6 +407,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   catching SDK instances will see different runtime behavior after they
   fix the import.
 
+### Known parity gaps
+- **`requireNonEmpty` on `messageId`, `threadId`, and `runId` fields is
+  stricter than the canonical `z.string()` / `str` schemas** (which allow
+  empty strings). `EventDecoder.validate()` rejects empty ID strings;
+  a TS or Python server that legitimately emits an empty `messageId` would
+  fail decode in Dart. The strict behavior is intentional (empty IDs have
+  no valid semantic in the current protocol) and is tracked for review at
+  1.0.0 alignment.
+
 ## [0.2.0] - 2026-04-30
 
 ### Breaking Changes

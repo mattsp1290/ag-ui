@@ -129,14 +129,13 @@ sealed class Message extends AGUIModel with TypeDiscriminator {
     try {
       role = MessageRole.fromString(roleStr);
     } on AGUIValidationError catch (e) {
-      // Attach the originating JSON payload so debuggers can inspect the
-      // full message object — not just the bad field value.
+      // Omit json: and cause: — the message map and cause chain may carry
+      // encryptedValue from ReasoningMessage / ToolMessage subtypes.
+      // Surface only the structured field path and value for log safety.
       throw AGUIValidationError(
         message: e.message,
         field: e.field,
         value: e.value,
-        json: json,
-        cause: e,
       );
     }
 

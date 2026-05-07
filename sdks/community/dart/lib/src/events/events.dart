@@ -465,10 +465,11 @@ final class TextMessageChunkEvent extends BaseEvent {
       try {
         role = TextMessageRole.fromString(roleStr);
       } on ArgumentError {
-        // Forward-compat: an unknown wire role falls back to
-        // `assistant` so a future server-side role does not tear down
-        // the SSE stream. Mirrors `TextMessageStartEvent.fromJson`.
-        role = TextMessageRole.assistant;
+        // Forward-compat: unknown wire role falls back to null.
+        // Unlike TextMessageStartEvent (required role → assistant default),
+        // role here is nullable/optional — null is the correct sentinel for
+        // "value was present on the wire but unrecognized."
+        role = null;
       }
     }
     return TextMessageChunkEvent(
@@ -1597,15 +1598,14 @@ final class RunStartedEvent extends BaseEvent {
       try {
         input = RunAgentInput.fromJson(inputJson);
       } on AGUIValidationError catch (e) {
-        // Forward e.json (the inner failed payload) not json (the full outer
-        // payload which contains input.messages and can carry encryptedValue).
-        // Omit `cause:` — it carries e.json and exposes cipher data via the
-        // cause chain to reflection-based log shippers.
+        // Omit json: — e.json (the inner RunAgentInput payload) can carry
+        // encryptedValue via input.messages[*]. Omit cause: for the same
+        // reason: the cause chain exposes e.json to reflection-based log
+        // shippers. Surface only the field path and the non-cipher value.
         throw AGUIValidationError(
           message: e.message,
           field: 'input.${e.field ?? 'unknown'}',
           value: e.value,
-          json: e.json,
         );
       }
     }
@@ -1696,6 +1696,10 @@ final class RunFinishedEvent extends BaseEvent {
   }) : super(eventType: EventType.runFinished);
 
   factory RunFinishedEvent.fromJson(Map<String, dynamic> json) {
+    // Unlike StateSnapshotEvent / RawEvent / CustomEvent / ActivitySnapshotEvent
+    // which use containsKey to enforce key presence, `result` is truly optional
+    // (canonical `z.any().optional()` / `Optional[Any] = None`). An absent key
+    // and an explicit `'result': null` are equivalent — both produce `result == null`.
     return RunFinishedEvent(
       threadId: JsonDecoder.requireEitherField<String>(
         json,

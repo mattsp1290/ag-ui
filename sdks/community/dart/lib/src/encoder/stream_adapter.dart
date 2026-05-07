@@ -59,9 +59,22 @@ class EventStreamAdapter {
           try {
             events.add(_decoder.decodeJson(element));
           } catch (e) {
+            // Compose the inner field path so consumers driving on `.field`
+            // see 'jsonData[i].role' instead of the coarser 'jsonData[i]'.
+            final String? innerField;
+            if (e is DecodingError) {
+              innerField = e.field;
+            } else if (e is AGUIValidationError) {
+              innerField = e.field;
+            } else {
+              innerField = null;
+            }
+            final composedField = innerField != null
+                ? 'jsonData[$i].$innerField'
+                : 'jsonData[$i]';
             throw DecodingError(
               'Failed to decode event at index $i',
-              field: 'jsonData[$i]',
+              field: composedField,
               expectedType: 'BaseEvent',
               actualValue: element,
               cause: e,
@@ -344,15 +357,15 @@ class EventStreamAdapter {
       for (final line in scan.lines) {
         if (line.isEmpty) {
           // Empty line signals end of SSE message — flush the data block.
+          // Reset per-frame (not per-chunk) so a later frame's flush error
+          // is not silently swallowed because an earlier frame in the same
+          // chunk already routed its own error and set this flag true.
+          errorRoutedInChunk = false;
           if (flushDataBlock()) errorRoutedInChunk = true;
         } else {
           appendDataLine(line);
         }
       }
-      // Do NOT reset errorRoutedInChunk here. The flag is reset per-chunk
-      // at the start of the listen handler (line above processChunk call).
-      // Resetting here would nullify the deduplication invariant before the
-      // outer catch can read it, allowing double-addError on the same event.
     }
 
     // Defer the upstream subscription to `onListen` so a caller that

@@ -65,9 +65,9 @@ class EventDecoder {
       // catch-all and getting flattened to `field: 'event'`.
       // `Error.throwWithStackTrace` preserves the original stack so the
       // debug trace points at the failing field, not the wrapper.
-      _wrapValidation(e, e.field, {'data': data}, stack);
+      return _wrapValidation(e, e.field, {'data': data}, stack);
     } on AGUIValidationError catch (e, stack) {
-      _wrapValidation(e, e.field, {'data': data}, stack);
+      return _wrapValidation(e, e.field, {'data': data}, stack);
     } on AgUiError {
       rethrow;
     } on EncoderError {
@@ -114,7 +114,7 @@ class EventDecoder {
       // via the `on AgUiError` rethrow.
       // `Error.throwWithStackTrace` preserves the original stack so the
       // debug trace points at the failing field, not the wrapper.
-      _wrapValidation(e, e.field, json, stack);
+      return _wrapValidation(e, e.field, json, stack);
     } on AGUIValidationError catch (e, stack) {
       // Companion clause for the factory-side error. Without this branch,
       // `AGUIValidationError` (which only `implements Exception`, not
@@ -122,7 +122,7 @@ class EventDecoder {
       // original failing field — `role`, `messageId`, `subtype`, etc. —
       // is flattened to `field: 'json'`, breaking the public decoder
       // error surface.
-      _wrapValidation(e, e.field, json, stack);
+      return _wrapValidation(e, e.field, json, stack);
     } on AgUiError {
       rethrow;
     } on EncoderError {

@@ -75,9 +75,13 @@ class Validators {
 
     try {
       final uri = Uri.parse(url);
-      if (!uri.hasScheme || !uri.hasAuthority) {
+      // `uri.hasAuthority` is true for `http://` (authority = empty string,
+      // host = ""). Add the explicit `uri.host.isEmpty` guard so bare-scheme
+      // URLs like `http://` are rejected as invalid rather than passing
+      // through to the scheme / credentials checks.
+      if (!uri.hasScheme || !uri.hasAuthority || uri.host.isEmpty) {
         throw ValidationError(
-          'Invalid URL format for "$fieldName"',
+          'Invalid URL format or empty host for "$fieldName"',
           field: fieldName,
           constraint: 'valid-url',
           value: url,

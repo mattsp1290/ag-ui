@@ -357,8 +357,12 @@ class AgUiClient {
         for (final event in events) {
           yield event;
         }
-      } on AgUiError catch (e) {
-        // Re-throw AG-UI errors to the stream
+      } on AGUIError catch (e) {
+        // Re-throw any AG-UI error (AGUIValidationError, EncoderError,
+        // AgUiError, …) unchanged so field info is preserved. The former
+        // `on AgUiError` clause silently wrapped AGUIValidationError (which
+        // extends AGUIError but not AgUiError) as a generic DecodingError,
+        // discarding the structured field path.
         yield* Stream.error(e);
       } catch (e) {
         // Wrap other errors

@@ -484,18 +484,21 @@ class EventStreamAdapter {
       s = input;
       lastWasLoneCr = lastWasLoneCrAtStart;
     }
-    while (true) {
-      final lf = s.indexOf('\n');
-      final cr = s.indexOf('\r');
-      int breakIndex;
-      if (lf == -1 && cr == -1) break;
-      if (lf == -1) {
-        breakIndex = cr;
-      } else if (cr == -1) {
-        breakIndex = lf;
-      } else {
-        breakIndex = lf < cr ? lf : cr;
+    // Single-pass O(n) scan: advance index `i` forward rather than
+    // repeatedly calling indexOf + substring (which was O(n²) on inputs
+    // with many lines, since each iteration re-scanned the remaining string).
+    var i = 0;
+    while (i < s.length) {
+      // Scan forward for the next \r or \n terminator.
+      int brk = -1;
+      for (var j = i; j < s.length; j++) {
+        final c = s.codeUnitAt(j);
+        if (c == 0x0A /* \n */ || c == 0x0D /* \r */) {
+          brk = j;
+          break;
+        }
       }
+      if (brk == -1) break; // no more terminators in remaining input
 
       // Defer a trailing `\r` so a chunk-spanning `\r\n` doesn't appear
       // as two terminators (lone `\r` then lone `\n`). Skip the deferral
@@ -513,21 +516,20 @@ class EventStreamAdapter {
       // `lastWasLoneCrAtStart` edge-case check at the top of `_scanLines`.
       if (!endOfStream &&
           !lastWasLoneCr &&
-          s.codeUnitAt(breakIndex) == 0x0D /* \r */ &&
-          breakIndex == s.length - 1) {
+          s.codeUnitAt(brk) == 0x0D /* \r */ &&
+          brk == s.length - 1) {
         break;
       }
 
-      final isCrLf = s.codeUnitAt(breakIndex) == 0x0D &&
-          breakIndex + 1 < s.length &&
-          s.codeUnitAt(breakIndex + 1) == 0x0A /* \n */;
+      final isCrLf = s.codeUnitAt(brk) == 0x0D &&
+          brk + 1 < s.length &&
+          s.codeUnitAt(brk + 1) == 0x0A /* \n */;
       lastWasLoneCr =
-          s.codeUnitAt(breakIndex) == 0x0D /* \r */ && !isCrLf;
-      final line = s.substring(0, breakIndex);
-      lines.add(line);
-      s = s.substring(breakIndex + (isCrLf ? 2 : 1));
+          s.codeUnitAt(brk) == 0x0D /* \r */ && !isCrLf;
+      lines.add(s.substring(i, brk));
+      i = brk + (isCrLf ? 2 : 1);
     }
-    return (lines: lines, unconsumed: s, lastWasLoneCr: lastWasLoneCr);
+    return (lines: lines, unconsumed: s.substring(i), lastWasLoneCr: lastWasLoneCr);
   }
 
   /// Filters a stream of events to only include specific event types.
@@ -559,9 +561,10 @@ class EventStreamAdapter {
   /// the upstream event stream before passing it here.
   ///
   /// **On stream close:** any open groups (where a `*Start` was received
-  /// but `*End` has not yet arrived) are emitted as-is. Consumers should
-  /// treat such groups as potentially incomplete — they will be missing the
-  /// terminal `*End` event and any final content that never arrived.
+  /// but `*End` has not yet arrived) are emitted in `*Start` arrival order.
+  /// Consumers should treat such groups as potentially incomplete — they
+  /// will be missing the terminal `*End` event and any final content that
+  /// never arrived.
   ///
   /// **Reasoning event asymmetry.** Only message-level
   /// `REASONING_MESSAGE_START` / `REASONING_MESSAGE_CONTENT` /
@@ -577,6 +580,9 @@ class EventStreamAdapter {
   ) {
     // `sync: true` — see re-entrancy note on [fromRawSseStream].
     final controller = StreamController<List<BaseEvent>>(sync: true);
+    // LinkedHashMap insertion order is relied upon by the onDone flush —
+    // incomplete groups are emitted in *Start arrival order. Do NOT replace
+    // with HashMap (unordered) or SplayTreeMap (sorted).
     final Map<String, List<BaseEvent>> activeGroups = {};
     StreamSubscription<BaseEvent>? subscription;
     var inDispatch = false;
@@ -702,16 +708,19 @@ class EventStreamAdapter {
   ///
   /// Emits one [String] per logical message when its `TextMessageEnd` event
   /// arrives. **On stream close:** any accumulated-but-not-ended message
-  /// buffers are flushed as a final [String], matching [groupRelatedEvents]'
-  /// "emit incomplete groups on close" behavior. Empty buffers are not
-  /// emitted. Consumers cannot distinguish between a normally-completed
-  /// message and a flushed-on-close partial without observing the absence
-  /// of `TextMessageEnd` upstream.
+  /// buffers are flushed in `*Start` arrival order as a final [String],
+  /// matching [groupRelatedEvents]' "emit incomplete groups on close"
+  /// behavior. Empty buffers are not emitted. Consumers cannot distinguish
+  /// between a normally-completed message and a flushed-on-close partial
+  /// without observing the absence of `TextMessageEnd` upstream.
   static Stream<String> accumulateTextMessages(
     Stream<BaseEvent> eventStream,
   ) {
     // `sync: true` — see re-entrancy note on [fromRawSseStream].
     final controller = StreamController<String>(sync: true);
+    // LinkedHashMap insertion order is relied upon by the onDone flush —
+    // incomplete messages are emitted in *Start arrival order. Do NOT replace
+    // with HashMap (unordered) or SplayTreeMap (sorted).
     final Map<String, StringBuffer> activeMessages = {};
     StreamSubscription<BaseEvent>? subscription;
     var inDispatch = false;
@@ -743,18 +752,21 @@ class EventStreamAdapter {
                 controller.add(buffer.toString());
               }
             case TextMessageChunkEvent(:final messageId, :final delta):
-              // A chunk is semantically a standalone complete message, but if
-              // a chunk arrives while a Start/End cycle is open for the same
-              // messageId, route it into the active buffer rather than
-              // emitting standalone — otherwise consumers see out-of-logical-
-              // order output (the chunk before the buffered Start/Content/End).
-              if (messageId == null || delta == null) break;
-              final activeBuffer = activeMessages[messageId];
-              if (activeBuffer != null) {
-                activeBuffer.write(delta);
-              } else {
-                controller.add(delta);
+              // A chunk is a standalone text fragment. If a Start/End cycle is
+              // open for the same messageId, route it into the active buffer —
+              // otherwise a standalone chunk would appear before the eventual
+              // End-triggered buffer flush (Start/Content events have not been
+              // emitted yet at that point). When messageId is null or no open
+              // buffer exists, emit the delta immediately.
+              if (delta == null) break; // genuinely nothing to emit
+              if (messageId != null) {
+                final activeBuffer = activeMessages[messageId];
+                if (activeBuffer != null) {
+                  activeBuffer.write(delta);
+                  break;
+                }
               }
+              controller.add(delta); // standalone fragment — emit even when messageId is null
             default:
               // Ignore other event types
               break;

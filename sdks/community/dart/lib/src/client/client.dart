@@ -162,6 +162,21 @@ class AgUiClient {
     // Validate BEFORE registering in _requestTokens so a caller-supplied
     // bad runId (empty, over-length, control chars) never enters the map.
     _validateRunAgentInput(input);
+
+    // Reject a caller-supplied runId that collides with an in-flight run.
+    // Without this guard the second call would silently overwrite
+    // `_requestTokens[runId]` and `_activeStreams[runId]`, making the first
+    // run's CancelToken unreachable and leaking its SseClient when the first
+    // run's `finally` block calls `_closeStream(runId)` and closes the second
+    // run's client instead.
+    if (_requestTokens.containsKey(runId)) {
+      throw ValidationError(
+        'Duplicate runId "$runId": another run with the same id is in flight',
+        field: 'runId',
+        constraint: 'unique-in-flight',
+        value: runId,
+      );
+    }
     _requestTokens[runId] = cancelToken;
 
     try {
@@ -322,6 +337,13 @@ class AgUiClient {
   ) async* {
     await for (final message in sseStream) {
       if (message.data == null || message.data!.isEmpty) {
+        continue;
+      }
+      // Mirror the keep-alive filter in EventStreamAdapter.fromSseStream:
+      // some servers emit `data: :` as a keep-alive sentinel alongside
+      // spec-correct comment-only keep-alives. Passing it to json.decode
+      // raises FormatException and wraps it as a spurious DecodingError.
+      if (message.data!.trim() == ':') {
         continue;
       }
 

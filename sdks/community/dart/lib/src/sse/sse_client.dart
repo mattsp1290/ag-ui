@@ -61,7 +61,12 @@ class SseClient {
   }
 
   /// Parse an existing byte stream as SSE messages.
-  /// 
+  ///
+  /// **Stateless.** Creates a fresh [SseParser] per call; does not touch the
+  /// client's reconnection state (`_lastEventId`, `_reconnectAttempt`,
+  /// `_subscription`). Independent of [connect]; safe to call without a prior
+  /// [connect] call or concurrently with an active [connect] session.
+  ///
   /// [stream] - The byte stream to parse.
   /// [headers] - Optional response headers for context.
   Stream<SseMessage> parseStream(

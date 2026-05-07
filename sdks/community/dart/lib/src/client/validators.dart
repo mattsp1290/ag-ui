@@ -102,12 +102,15 @@ class Validators {
           value: url,
         );
       }
-      // Defense-in-depth: also check percent-DECODED path / query / fragment.
-      // `Uri.parse` decodes percent-escapes at access time, so a raw URL like
-      // `http://host/%0a/foo` passes the top-of-function string check but
-      // `uri.path` returns a newline — a header-injection vector for any
-      // consumer that reflects these fields into HTTP request lines.
-      for (final part in [uri.path, uri.query, uri.fragment]) {
+      // Defense-in-depth: also check percent-DECODED host / path / query /
+      // fragment. `Uri.parse` decodes percent-escapes at access time, so a
+      // raw URL like `http://host/%0a/foo` passes the top-of-function string
+      // check but `uri.path` returns a newline — a header-injection vector
+      // for any consumer that reflects these fields into HTTP request lines.
+      // `uri.host` is included because Dart allows percent-encoded IDNA host
+      // labels, and the decoded host can carry control characters that a
+      // custom transport places into `Host:` headers.
+      for (final part in [uri.host, uri.path, uri.query, uri.fragment]) {
         if (_kUrlControlChars.hasMatch(part)) {
           throw ValidationError(
             'URL contains percent-encoded control characters in '

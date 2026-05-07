@@ -342,6 +342,18 @@ class JsonDecoder {
           json: json,
         );
       }
+      // Guard against silent precision loss on Dart-on-JS where `int` is
+      // double-backed and integers above 2^53 lose precision silently.
+      // 2^53 is the largest integer exactly representable as a 64-bit double.
+      const maxSafeInt = 9007199254740992; // 2^53
+      if (value > maxSafeInt || value < -maxSafeInt) {
+        throw AGUIValidationError(
+          message: 'Field value out of safe int range (±2^53)',
+          field: field,
+          value: value,
+          json: json,
+        );
+      }
       return value.floor();
     }
     throw AGUIValidationError(
@@ -445,6 +457,11 @@ class JsonDecoder {
     String snakeKey, {
     T Function(dynamic)? itemTransform,
   }) {
+    // Resolve the wire spelling BEFORE calling optionalEitherField so that
+    // error messages produced by _eagerCast (and itemTransform errors) use
+    // the key that was actually present on the wire — matching the contract
+    // documented on optionalEitherField (snakeKey wins when camelKey absent).
+    final resolvedKey = json.containsKey(camelKey) ? camelKey : snakeKey;
     final list = optionalEitherField<List<dynamic>>(json, camelKey, snakeKey);
     if (list == null) return null;
 
@@ -455,7 +472,7 @@ class JsonDecoder {
         } catch (e) {
           throw AGUIValidationError(
             message: 'Failed to transform list item',
-            field: camelKey,
+            field: resolvedKey,
             value: item,
             json: json,
             cause: e,
@@ -464,7 +481,7 @@ class JsonDecoder {
       }).toList();
     }
 
-    return _eagerCast<T>(list, camelKey, json);
+    return _eagerCast<T>(list, resolvedKey, json);
   }
 
   /// Eagerly validates element types in a list and returns a typed copy.

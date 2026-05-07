@@ -281,6 +281,17 @@ void main() {
         expect(decoded.role, ToolCallResultRole.tool);
       });
 
+      test('ToolCallResultEvent.copyWith(role: null) clears the role', () {
+        final event = ToolCallResultEvent(
+          messageId: 'msg_001',
+          toolCallId: 'call_001',
+          content: 'ok',
+          role: ToolCallResultRole.tool,
+        );
+        expect(event.copyWith(role: null).role, isNull);
+        expect(event.copyWith().role, ToolCallResultRole.tool);
+      });
+
       test('ToolCallStartEvent.copyWith(parentMessageId: null) clears it', () {
         // Sentinel-pattern verification for `parentMessageId`.
         final event = ToolCallStartEvent(
@@ -483,6 +494,15 @@ void main() {
         expect(cleared.result, isNull);
         expect(cleared.threadId, equals('t'));
         expect(cleared.runId, equals('r'));
+      });
+
+      test('RunFinishedEvent absent result key decodes identically to explicit null', () {
+        final absentJson = {'type': 'RUN_FINISHED', 'threadId': 't', 'runId': 'r'};
+        final nullJson = {'type': 'RUN_FINISHED', 'threadId': 't', 'runId': 'r', 'result': null};
+        expect(RunFinishedEvent.fromJson(absentJson).result, isNull);
+        expect(RunFinishedEvent.fromJson(nullJson).result, isNull);
+        expect(RunFinishedEvent.fromJson(absentJson).toJson().containsKey('result'), isFalse);
+        expect(RunFinishedEvent.fromJson(nullJson).toJson().containsKey('result'), isFalse);
       });
 
       test('RunErrorEvent with error code', () {

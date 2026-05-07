@@ -214,11 +214,13 @@ class EventStreamAdapter {
     // `ConcurrentModificationError` or double-close. If you need to
     // cancel on a received event, schedule it via `Future.microtask`.
     //
-    // Debug-mode assertion: if re-entrancy is detected (a downstream
-    // data handler calls cancel() or adds events during a dispatch), this
-    // assert will fire before the state is corrupted.
+    // Re-entrancy guard: if synchronous re-entry through controller.add
+    // is detected (e.g. a downstream data handler cancels the subscription
+    // during dispatch), flushDataBlock throws StateError before state is
+    // corrupted. Note this guard only covers the dispatch site inside
+    // flushDataBlock, not the buffer-mutation path.
     final controller = StreamController<BaseEvent>(sync: true);
-    var _inDispatch = false;
+    var inDispatch = false;
 
     // Per-invocation state. Keeping these local (not instance fields)
     // ensures abnormal termination of one stream cannot leak partial
@@ -272,21 +274,24 @@ class EventStreamAdapter {
 
       if (data.isEmpty || data.trim() == ':') return false;
 
+      // Programmer-error guard sits outside the wire-error catch so a
+      // re-entrancy bug doesn't masquerade as a decoding failure.
+      if (inDispatch) {
+        throw StateError(
+          'sync re-entrancy: cancel() must not be called synchronously '
+          'from inside a data handler; use Future.microtask. See '
+          'fromRawSseStream dartdoc for details.',
+        );
+      }
+
       try {
         // `decode` already runs `validate` via `decodeJson`; no
         // second pass needed here.
-        if (_inDispatch) {
-          throw StateError(
-            'sync re-entrancy: cancel() must not be called synchronously '
-            'from inside a data handler; use Future.microtask. See '
-            'fromRawSseStream dartdoc for details.',
-          );
-        }
-        _inDispatch = true;
+        inDispatch = true;
         try {
           controller.add(_decoder.decode(data));
         } finally {
-          _inDispatch = false;
+          inDispatch = false;
         }
         return false;
       } catch (e, stack) {
@@ -546,6 +551,13 @@ class EventStreamAdapter {
   /// from untrusted producers, sanitize upstream or wrap with a
   /// timeout. The same caveat applies to [accumulateTextMessages].
   ///
+  /// **Duplicate-start policy.** If a second `*Start` event arrives with
+  /// the same id while the prior group is still open, the prior group's
+  /// accumulated events are discarded silently and a new group begins
+  /// ("last-Start-wins"). This matches the behavior of the TS/Python
+  /// reference SDKs. Consumers that need strict sequencing should validate
+  /// the upstream event stream before passing it here.
+  ///
   /// **On stream close:** any open groups (where a `*Start` was received
   /// but `*End` has not yet arrived) are emitted as-is. Consumers should
   /// treat such groups as potentially incomplete — they will be missing the
@@ -567,7 +579,7 @@ class EventStreamAdapter {
     final controller = StreamController<List<BaseEvent>>(sync: true);
     final Map<String, List<BaseEvent>> activeGroups = {};
     StreamSubscription<BaseEvent>? subscription;
-    var _inDispatch = false;
+    var inDispatch = false;
 
     // Defer subscription to `onListen` so that:
     //   • A caller that stores the stream but never subscribes does not
@@ -577,14 +589,14 @@ class EventStreamAdapter {
     controller.onListen = () {
       subscription = eventStream.listen(
         (event) {
-          if (_inDispatch) {
+          if (inDispatch) {
             throw StateError(
               'sync re-entrancy: cancel() must not be called synchronously '
               'from inside a groupRelatedEvents data handler; use '
               'Future.microtask.',
             );
           }
-          _inDispatch = true;
+          inDispatch = true;
           try {
           switch (event) {
             // Keys are namespaced by event family ('text:', 'reasoning:',
@@ -653,7 +665,7 @@ class EventStreamAdapter {
               controller.add([event]);
           }
           } finally {
-            _inDispatch = false;
+            inDispatch = false;
           }
         },
         onError: controller.addError,
@@ -702,7 +714,7 @@ class EventStreamAdapter {
     final controller = StreamController<String>(sync: true);
     final Map<String, StringBuffer> activeMessages = {};
     StreamSubscription<BaseEvent>? subscription;
-    var _inDispatch = false;
+    var inDispatch = false;
 
     // Defer subscription to `onListen` — mirrors `groupRelatedEvents`
     // and `fromRawSseStream` so upstream leaks and backpressure issues
@@ -711,14 +723,14 @@ class EventStreamAdapter {
     controller.onListen = () {
       subscription = eventStream.listen(
         (event) {
-          if (_inDispatch) {
+          if (inDispatch) {
             throw StateError(
               'sync re-entrancy: cancel() must not be called synchronously '
               'from inside an accumulateTextMessages data handler; use '
               'Future.microtask.',
             );
           }
-          _inDispatch = true;
+          inDispatch = true;
           try {
           switch (event) {
             case TextMessageStartEvent(:final messageId):
@@ -748,7 +760,7 @@ class EventStreamAdapter {
               break;
           }
           } finally {
-            _inDispatch = false;
+            inDispatch = false;
           }
         },
         onError: controller.addError,

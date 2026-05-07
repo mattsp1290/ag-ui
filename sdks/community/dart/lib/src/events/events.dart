@@ -1029,11 +1029,8 @@ final class ToolCallResultEvent extends BaseEvent {
 
   /// Optional role discriminator for the tool-call result.
   ///
-  /// Note: [copyWith] for this field uses the standard `?? this.field`
-  /// pattern (a CHANGELOG-acknowledged "Known parity gap" — see
-  /// CHANGELOG → "Known parity gaps"). `copyWith(role: null)` does NOT
-  /// clear the field. Construct a new [ToolCallResultEvent] directly if
-  /// you need to drop the role.
+  /// `copyWith(role: null)` clears this field via the [kUnsetSentinel]
+  /// pattern — same as every other nullable field on this event.
   final ToolCallResultRole? role;
 
   const ToolCallResultEvent({
@@ -1247,6 +1244,9 @@ final class MessagesSnapshotEvent extends BaseEvent {
     return MessagesSnapshotEvent(
       messages: messages,
       timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
+      // rawEvent is preserved verbatim and may duplicate cipher data
+      // already present in inner ReasoningMessages. Proxy operators should
+      // drop rawEvent before forwarding to log sinks.
       rawEvent: _readRawEvent(json),
     );
   }

@@ -102,6 +102,22 @@ class Validators {
           value: url,
         );
       }
+      // Defense-in-depth: also check percent-DECODED path / query / fragment.
+      // `Uri.parse` decodes percent-escapes at access time, so a raw URL like
+      // `http://host/%0a/foo` passes the top-of-function string check but
+      // `uri.path` returns a newline — a header-injection vector for any
+      // consumer that reflects these fields into HTTP request lines.
+      for (final part in [uri.path, uri.query, uri.fragment]) {
+        if (_kUrlControlChars.hasMatch(part)) {
+          throw ValidationError(
+            'URL contains percent-encoded control characters in '
+            'path/query/fragment for "$fieldName"',
+            field: fieldName,
+            constraint: 'no-control-chars-decoded',
+            value: url,
+          );
+        }
+      }
     } catch (e) {
       if (e is ValidationError) rethrow;
       throw ValidationError(
@@ -187,6 +203,13 @@ class Validators {
   /// pre-0.2.0 permissive Map/List branches were dead code (no caller in
   /// the SDK passes those types) and would have silently accepted a
   /// malformed payload if anyone ever adopted them.
+  ///
+  /// **Defense-in-depth note.** The null rejection here is a last line of
+  /// defense for raw-input callers. Every protocol-correct call site in the
+  /// SDK already guards null before reaching this method (the canonical
+  /// `content` field is `Optional[str]` and is only forwarded to callers
+  /// that need a non-null value). If null is somehow passed, this surfaces
+  /// the bug early rather than producing a silent empty-string or NPE.
   static void validateMessageContent(String? content) {
     if (content == null) {
       throw ValidationError(

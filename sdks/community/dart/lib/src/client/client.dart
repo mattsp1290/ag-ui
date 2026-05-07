@@ -276,13 +276,10 @@ class AgUiClient {
             '(status ${response.statusCode})',
             name: 'ag_ui.client',
           );
-          // `drain()` itself (not its Future) can throw `StateError` if
-          // the stream was already consumed before we got here.
-          try {
-            unawaited(response.stream.drain<void>().catchError((_) {}));
-          } catch (_) {
-            // Already consumed — ignore.
-          }
+          // Do NOT drain — for SSE responses the stream never ends until
+          // the server hangs up, so drain() would hold the socket open
+          // indefinitely. The body is never subscribed, so the OS will
+          // eventually reclaim the socket without application-level action.
         }
       },
       onError: (Object error) {
@@ -313,44 +310,44 @@ class AgUiClient {
     await _closeStream(runId);
   }
 
-  /// Transform SSE messages to typed AG-UI events
+  /// Transform SSE messages to typed AG-UI events.
+  ///
+  /// Lifecycle note: `_runAgentInternal` owns the `runId`/`SseClient` pair
+  /// and calls `_closeStream` in its own `finally` block. This method does
+  /// NOT clean up — do not add a `finally` here to avoid a redundant second
+  /// `_closeStream` call.
   Stream<BaseEvent> _transformSseStream(
     Stream<SseMessage> sseStream,
     String runId,
   ) async* {
-    try {
-      await for (final message in sseStream) {
-        if (message.data == null || message.data!.isEmpty) {
-          continue;
-        }
-
-        try {
-          // Parse the SSE data as JSON
-          final jsonData = json.decode(message.data!);
-          
-          // Use the stream adapter to convert to typed events
-          final events = _streamAdapter.adaptJsonToEvents(jsonData);
-          
-          for (final event in events) {
-            yield event;
-          }
-        } on AgUiError catch (e) {
-          // Re-throw AG-UI errors to the stream
-          yield* Stream.error(e);
-        } catch (e) {
-          // Wrap other errors
-          yield* Stream.error(DecodingError(
-            'Failed to decode SSE message',
-            field: 'message.data',
-            expectedType: 'BaseEvent',
-            actualValue: message.data,
-            cause: e,
-          ));
-        }
+    await for (final message in sseStream) {
+      if (message.data == null || message.data!.isEmpty) {
+        continue;
       }
-    } finally {
-      // Clean up when stream ends
-      await _closeStream(runId);
+
+      try {
+        // Parse the SSE data as JSON
+        final jsonData = json.decode(message.data!);
+
+        // Use the stream adapter to convert to typed events
+        final events = _streamAdapter.adaptJsonToEvents(jsonData);
+
+        for (final event in events) {
+          yield event;
+        }
+      } on AgUiError catch (e) {
+        // Re-throw AG-UI errors to the stream
+        yield* Stream.error(e);
+      } catch (e) {
+        // Wrap other errors
+        yield* Stream.error(DecodingError(
+          'Failed to decode SSE message',
+          field: 'message.data',
+          expectedType: 'BaseEvent',
+          actualValue: message.data,
+          cause: e,
+        ));
+      }
     }
   }
 

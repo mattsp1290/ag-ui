@@ -275,8 +275,13 @@ class EventStreamAdapter {
       try {
         // `decode` already runs `validate` via `decodeJson`; no
         // second pass needed here.
-        assert(!_inDispatch, 'sync re-entrancy: cancel() must not be called '
-            'synchronously from inside a data handler; use Future.microtask');
+        if (_inDispatch) {
+          throw StateError(
+            'sync re-entrancy: cancel() must not be called synchronously '
+            'from inside a data handler; use Future.microtask. See '
+            'fromRawSseStream dartdoc for details.',
+          );
+        }
         _inDispatch = true;
         try {
           controller.add(_decoder.decode(data));
@@ -339,9 +344,10 @@ class EventStreamAdapter {
           appendDataLine(line);
         }
       }
-      // Reset after the for-loop so future throw sites outside flushDataBlock
-      // (e.g. post-loop processing) are not silently swallowed.
-      errorRoutedInChunk = false;
+      // Do NOT reset errorRoutedInChunk here. The flag is reset per-chunk
+      // at the start of the listen handler (line above processChunk call).
+      // Resetting here would nullify the deduplication invariant before the
+      // outer catch can read it, allowing double-addError on the same event.
     }
 
     // Defer the upstream subscription to `onListen` so a caller that
@@ -561,6 +567,7 @@ class EventStreamAdapter {
     final controller = StreamController<List<BaseEvent>>(sync: true);
     final Map<String, List<BaseEvent>> activeGroups = {};
     StreamSubscription<BaseEvent>? subscription;
+    var _inDispatch = false;
 
     // Defer subscription to `onListen` so that:
     //   • A caller that stores the stream but never subscribes does not
@@ -570,6 +577,15 @@ class EventStreamAdapter {
     controller.onListen = () {
       subscription = eventStream.listen(
         (event) {
+          if (_inDispatch) {
+            throw StateError(
+              'sync re-entrancy: cancel() must not be called synchronously '
+              'from inside a groupRelatedEvents data handler; use '
+              'Future.microtask.',
+            );
+          }
+          _inDispatch = true;
+          try {
           switch (event) {
             // Keys are namespaced by event family ('text:', 'reasoning:',
             // 'tool:') so that a producer reusing the same id across families
@@ -636,6 +652,9 @@ class EventStreamAdapter {
               // Single events not part of a group
               controller.add([event]);
           }
+          } finally {
+            _inDispatch = false;
+          }
         },
         onError: controller.addError,
         onDone: () {
@@ -683,6 +702,7 @@ class EventStreamAdapter {
     final controller = StreamController<String>(sync: true);
     final Map<String, StringBuffer> activeMessages = {};
     StreamSubscription<BaseEvent>? subscription;
+    var _inDispatch = false;
 
     // Defer subscription to `onListen` — mirrors `groupRelatedEvents`
     // and `fromRawSseStream` so upstream leaks and backpressure issues
@@ -691,6 +711,15 @@ class EventStreamAdapter {
     controller.onListen = () {
       subscription = eventStream.listen(
         (event) {
+          if (_inDispatch) {
+            throw StateError(
+              'sync re-entrancy: cancel() must not be called synchronously '
+              'from inside an accumulateTextMessages data handler; use '
+              'Future.microtask.',
+            );
+          }
+          _inDispatch = true;
+          try {
           switch (event) {
             case TextMessageStartEvent(:final messageId):
               activeMessages[messageId] = StringBuffer();
@@ -717,6 +746,9 @@ class EventStreamAdapter {
             default:
               // Ignore other event types
               break;
+          }
+          } finally {
+            _inDispatch = false;
           }
         },
         onError: controller.addError,

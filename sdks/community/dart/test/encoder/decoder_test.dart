@@ -326,7 +326,7 @@ data: {"type":"RUN_FINISHED","threadId":"t1","runId":"r1"}
         // Canonical TS/Python schemas allow empty `delta`
         // (`TextMessageContentEventSchema.delta: z.string()`). The
         // decoder pipeline must NOT reject it. The deprecated
-        // `Thinking*Content` mirror still rejects (different contract).
+        // `Thinking*Content` events now also accept empty `delta`.
         final event = TextMessageContentEvent(
           messageId: 'msg123',
           delta: '',
@@ -336,26 +336,15 @@ data: {"type":"RUN_FINISHED","threadId":"t1","runId":"r1"}
       });
 
       test(
-        'throws ValidationError for empty delta in thinking-text content event',
+        'accepts empty delta in deprecated thinking-text content event',
         () {
-          // Direct constructor bypasses fromJson's empty-string check.
-          // validate() must catch the contract breach so the public
-          // EventDecoder pipeline stays the single source of truth for
-          // non-empty constraints — symmetric with TextMessageContentEvent
-          // and ReasoningMessageContentEvent.
+          // Relaxed to match the canonical `z.string()` contract — empty
+          // `delta` is now accepted. Consumers should migrate to
+          // [ReasoningMessageContentEvent] which uses the relaxed contract.
           // ignore: deprecated_member_use_from_same_package
           final event = ThinkingTextMessageContentEvent(delta: '');
 
-          expect(
-            () => decoder.validate(event),
-            throwsA(isA<ValidationError>()
-                .having((e) => e.field, 'field', equals('delta'))
-                .having(
-                  (e) => e.message,
-                  'message',
-                  contains('cannot be empty'),
-                )),
-          );
+          expect(decoder.validate(event), isTrue);
         },
       );
 

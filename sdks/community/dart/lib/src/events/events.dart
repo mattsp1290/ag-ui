@@ -579,16 +579,9 @@ final class ThinkingContentEvent extends BaseEvent {
   }) : super(eventType: EventType.thinkingContent);
 
   factory ThinkingContentEvent.fromJson(Map<String, dynamic> json) {
+    // Empty `delta` is accepted to match the relaxed canonical contract
+    // (`z.string()` / `delta: str`). Migrate to [ReasoningMessageContentEvent].
     final delta = JsonDecoder.requireField<String>(json, 'delta');
-    if (delta.isEmpty) {
-      throw AGUIValidationError(
-        message: 'Delta must not be an empty string',
-        field: 'delta',
-        value: delta,
-        json: json,
-      );
-    }
-    
     return ThinkingContentEvent(
       delta: delta,
       timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
@@ -695,19 +688,9 @@ final class ThinkingTextMessageContentEvent extends BaseEvent {
   }) : super(eventType: EventType.thinkingTextMessageContent);
 
   factory ThinkingTextMessageContentEvent.fromJson(Map<String, dynamic> json) {
-    // No identifier on this event — validate the only required payload
-    // field. (Comment kept for parity with the sibling `*ContentEvent`
-    // factories, which validate `messageId` first.)
+    // No identifier on this event. Empty `delta` is accepted to match the
+    // relaxed canonical contract (`z.string()` / `delta: str`).
     final delta = JsonDecoder.requireField<String>(json, 'delta');
-    if (delta.isEmpty) {
-      throw AGUIValidationError(
-        message: 'Delta must not be an empty string',
-        field: 'delta',
-        value: delta,
-        json: json,
-      );
-    }
-
     return ThinkingTextMessageContentEvent(
       delta: delta,
       timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
@@ -1245,16 +1228,13 @@ final class MessagesSnapshotEvent extends BaseEvent {
         messages.add(Message.fromJson(rawMessages[i]));
       } catch (e) {
         if (e is AGUIValidationError) {
-          // Drop `json:` from the rethrow — the inner Message map (e.json)
-          // can carry `encryptedValue` for Tool/Reasoning subtypes. Forwarding
-          // it exposes cipher data in the error. Matches AssistantMessage's
-          // tool-call IIFE, which also drops `json:` for the same reason.
-          // See `BaseMessage.encryptedValue` dartdoc and CHANGELOG.
+          // Drop `json:` and `cause:` — the inner Message map (e.json) can
+          // carry `encryptedValue` for Tool/Reasoning subtypes; the cause
+          // chain exposes it to reflection-based log shippers.
           throw AGUIValidationError(
             message: e.message,
             field: 'messages[$i].${e.field ?? 'unknown'}',
             value: e.value,
-            cause: e,
           );
         }
         throw AGUIValidationError(
@@ -1617,16 +1597,15 @@ final class RunStartedEvent extends BaseEvent {
       try {
         input = RunAgentInput.fromJson(inputJson);
       } on AGUIValidationError catch (e) {
-        // Forward e.json (the inner failed payload) rather than json (the full
-        // outer payload). The outer json contains input.messages which can carry
-        // encryptedValue — forwarding it here would expose cipher data in the
-        // error, mirroring the cautious default in MessagesSnapshotEvent.fromJson.
+        // Forward e.json (the inner failed payload) not json (the full outer
+        // payload which contains input.messages and can carry encryptedValue).
+        // Omit `cause:` — it carries e.json and exposes cipher data via the
+        // cause chain to reflection-based log shippers.
         throw AGUIValidationError(
           message: e.message,
           field: 'input.${e.field ?? 'unknown'}',
           value: e.value,
           json: e.json,
-          cause: e,
         );
       }
     }

@@ -321,11 +321,13 @@ final class AssistantMessage extends Message {
             result.add(ToolCall.fromJson(rawToolCalls[i]));
           } catch (e) {
             if (e is AGUIValidationError) {
+              // Omit `json:` and `cause:` — ToolCall.fromJson can set e.json
+              // to a payload with sensitive `arguments`; the cause chain
+              // exposes it to reflection-based log shippers.
               throw AGUIValidationError(
                 message: e.message,
                 field: 'toolCalls[$i].${e.field ?? 'unknown'}',
                 value: e.value,
-                cause: e,
               );
             }
             throw AGUIValidationError(

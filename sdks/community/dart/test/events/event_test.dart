@@ -831,17 +831,17 @@ void main() {
         expect(decoded.title, 'Processing request');
       });
 
-      test('ThinkingTextMessageContentEvent delta validation', () {
-        final invalidJson = {
+      test('ThinkingTextMessageContentEvent accepts empty delta', () {
+        // Relaxed to match canonical `z.string()` contract — empty `delta`
+        // is now accepted. Migrate to [ReasoningMessageContentEvent].
+        final json = {
           'type': 'THINKING_TEXT_MESSAGE_CONTENT',
           'delta': '',
         };
 
-        expect(
-          // ignore: deprecated_member_use_from_same_package
-          () => ThinkingTextMessageContentEvent.fromJson(invalidJson),
-          throwsA(isA<AGUIValidationError>()),
-        );
+        // ignore: deprecated_member_use_from_same_package
+        final event = ThinkingTextMessageContentEvent.fromJson(json);
+        expect(event.delta, isEmpty);
       });
 
       test('deprecated ThinkingContentEvent still round-trips', () {

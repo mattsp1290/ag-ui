@@ -282,8 +282,10 @@ class EventDecoder {
     
     // Type-specific validation. Listing every sealed subtype explicitly
     // (no `default`) makes the analyzer flag any new event type that is
-    // added without a corresponding decision here. When you add a case
-    // here, also update `BaseEvent.fromJson` in
+    // added without a corresponding decision here. The `exhaustive_cases`
+    // lint in `analysis_options.yaml` enforces this at analysis time —
+    // without it a new sealed subtype would silently pass `validate`.
+    // When you add a case here, also update `BaseEvent.fromJson` in
     // `lib/src/events/events.dart` so the discriminator-dispatch switch
     // and this validator remain in sync.
     switch (event) {
@@ -317,18 +319,10 @@ class EventDecoder {
         break;
       // ignore: deprecated_member_use_from_same_package
       case ThinkingTextMessageContentEvent():
-        // Deprecated path keeps the pre-0.2.0 stricter "non-empty delta"
-        // contract. The canonical TS/Python sibling events
-        // (`TextMessageContentEvent`, `ToolCallArgsEvent`,
-        // `ToolCallResultEvent`, `ReasoningMessageContentEvent`) RELAXED
-        // to `z.string()` / `delta: str` in 0.2.0 — empty `delta` is
-        // accepted on those. This deprecated path intentionally does not
-        // loosen, because (a) tightening a deprecated contract
-        // retroactively can't break new producers, and (b) the migration
-        // target `REASONING_*` already applies the relaxed contract.
-        // Pinned by `decoder_test.dart` "throws ValidationError for
-        // empty delta in thinking-text content event".
-        Validators.requireNonEmpty(event.delta, 'delta');
+        // Empty `delta` is accepted — relaxed to match the canonical
+        // `z.string()` / `delta: str` contract (parity with
+        // `TextMessageContentEvent`, `ReasoningMessageContentEvent`, etc.).
+        break;
       // ignore: deprecated_member_use_from_same_package
       case ThinkingTextMessageEndEvent():
         // Same rationale as `ThinkingTextMessageStartEvent` above: no
@@ -357,7 +351,8 @@ class EventDecoder {
         break;
       // ignore: deprecated_member_use_from_same_package
       case ThinkingContentEvent():
-        Validators.requireNonEmpty(event.delta, 'delta');
+        // Empty `delta` is accepted — relaxed to match canonical contract.
+        break;
       case ThinkingEndEvent():
         break;
       case StateSnapshotEvent():

@@ -16,10 +16,12 @@ class SseClient {
   StreamSubscription<SseMessage>? _subscription;
   http.StreamedResponse? _currentResponse;
   Timer? _idleTimer;
+  Timer? _reconnectTimer;
   String? _lastEventId;
   Duration? _serverRetryDuration;
   bool _isClosed = false;
   bool _isConnecting = false;
+  bool _hasEverConnected = false;
   int _reconnectAttempt = 0;
 
   /// Creates a new SSE client.
@@ -120,6 +122,7 @@ class SseClient {
       // Reset backoff on successful connection
       _backoffStrategy.reset();
       _reconnectAttempt = 0;
+      _hasEverConnected = true;
       
       // Create parser for this connection
       final parser = SseParser();
@@ -185,7 +188,17 @@ class SseClient {
     Duration? requestTimeout,
   ) {
     if (_isClosed) return;
-    
+
+    // Surface the first connection failure directly to the consumer rather than
+    // entering the reconnect loop — a server that never accepted the initial
+    // request is unlikely to accept a retry, and silently looping would mask
+    // the root cause from the caller.
+    if (!_hasEverConnected) {
+      _controller?.addError(error);
+      _controller?.close();
+      return;
+    }
+
     // Schedule reconnection if we have connection info
     if (url != null) {
       _scheduleReconnection(url, headers, requestTimeout);
@@ -224,8 +237,11 @@ class SseClient {
     _reconnectAttempt++;
     final delay = _serverRetryDuration ?? _backoffStrategy.nextDelay(_reconnectAttempt);
     
-    // Schedule reconnection
-    Timer(delay, () {
+    // Schedule reconnection. Store the timer so close() can cancel it and
+    // avoid a connect() call racing against a concurrent close().
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(delay, () {
+      _reconnectTimer = null;
       if (!_isClosed) {
         _connect(url, headers, requestTimeout);
       }
@@ -235,9 +251,11 @@ class SseClient {
   /// Close the connection and clean up resources.
   Future<void> close() async {
     if (_isClosed) return;
-    
+
     _isClosed = true;
     _idleTimer?.cancel();
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     await _subscription?.cancel();
     _currentResponse = null;
     await _controller?.close();

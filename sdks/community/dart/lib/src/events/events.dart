@@ -20,6 +20,15 @@ export 'event_type.dart';
 // to `null`". Comparing against `kUnsetSentinel` with `identical(...)` makes
 // that distinction explicit.
 //
+// **`rawEvent` is intentionally sticky** — all `copyWith` methods use
+// `rawEvent ?? this.rawEvent` rather than the sentinel pattern. Passing
+// `null` for `rawEvent` keeps the existing value; to clear it, construct
+// the event directly with `rawEvent: null`. This is a deliberate design:
+// `ReasoningEncryptedValueEvent.fromJson` explicitly sets `rawEvent: null`
+// to scrub cipher data, and the sentinel approach would inadvertently
+// re-expose a prior non-null value when the caller omits the argument.
+// See `BaseEvent.rawEvent` dartdoc for the full consumer note.
+//
 // Applied to every nullable payload field on the events whose `copyWith`
 // callers may legitimately want to clear:
 // `ActivitySnapshotEvent.content`, `RawEvent.event`, `CustomEvent.value`,
@@ -1226,13 +1235,18 @@ final class MessagesSnapshotEvent extends BaseEvent {
         messages.add(Message.fromJson(rawMessages[i]));
       } catch (e) {
         if (e is AGUIValidationError) {
-          // Drop `json:` and `cause:` — the inner Message map (e.json) can
-          // carry `encryptedValue` for Tool/Reasoning subtypes; the cause
-          // chain exposes it to reflection-based log shippers.
+          // Always drop json: — the inner Message map can carry encryptedValue
+          // for Tool/Reasoning subtypes. Preserve cause: only when the inner
+          // error already cleared its own json: field (e.json == null), which
+          // indicates the inner factory was cipher-aware and the cause chain
+          // does not expose raw wire data. Non-cipher messages (Developer,
+          // System, User) typically produce errors with e.json == null, so
+          // their cause is preserved for ergonomic debugging.
           throw AGUIValidationError(
             message: e.message,
             field: 'messages[$i].${e.field ?? 'unknown'}',
             value: e.value,
+            cause: e.json == null ? e : null,
           );
         }
         throw AGUIValidationError(
@@ -2279,9 +2293,16 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
     // can intentionally omit `json:` — the payload contains cipher data and
     // forwarding the full wire map to `AGUIValidationError.json` would leak it
     // through reflection-based error serializers and log shippers.
-    if (!json.containsKey('subtype') || json['subtype'] == null) {
+    if (!json.containsKey('subtype')) {
       throw AGUIValidationError(
         message: 'Missing required field "subtype"',
+        field: 'subtype',
+        // Intentionally omit json: — payload contains cipher data.
+      );
+    }
+    if (json['subtype'] == null) {
+      throw AGUIValidationError(
+        message: 'Field "subtype" must not be null',
         field: 'subtype',
         // Intentionally omit json: — payload contains cipher data.
       );
@@ -2314,12 +2335,20 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
     }
 
     // `entityId` — prefer camelCase per requireEitherField contract.
-    final entityIdRaw = json.containsKey('entityId')
-        ? json['entityId']
-        : json['entity_id'];
-    if (entityIdRaw == null) {
+    final bool entityIdPresent =
+        json.containsKey('entityId') || json.containsKey('entity_id');
+    final entityIdRaw =
+        json.containsKey('entityId') ? json['entityId'] : json['entity_id'];
+    if (!entityIdPresent) {
       throw AGUIValidationError(
         message: 'Missing required field "entityId" (or "entity_id")',
+        field: 'entityId',
+        // Intentionally omit json: — payload contains cipher data.
+      );
+    }
+    if (entityIdRaw == null) {
+      throw AGUIValidationError(
+        message: 'Field "entityId" must not be null',
         field: 'entityId',
         // Intentionally omit json: — payload contains cipher data.
       );
@@ -2335,13 +2364,22 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
     }
 
     // `encryptedValue` — prefer camelCase per requireEitherField contract.
+    final bool encryptedValuePresent = json.containsKey('encryptedValue') ||
+        json.containsKey('encrypted_value');
     final encryptedValueRaw = json.containsKey('encryptedValue')
         ? json['encryptedValue']
         : json['encrypted_value'];
-    if (encryptedValueRaw == null) {
+    if (!encryptedValuePresent) {
       throw AGUIValidationError(
         message:
             'Missing required field "encryptedValue" (or "encrypted_value")',
+        field: 'encryptedValue',
+        // Intentionally omit json: — payload contains cipher data.
+      );
+    }
+    if (encryptedValueRaw == null) {
+      throw AGUIValidationError(
+        message: 'Field "encryptedValue" must not be null',
         field: 'encryptedValue',
         // Intentionally omit json: — payload contains cipher data.
       );

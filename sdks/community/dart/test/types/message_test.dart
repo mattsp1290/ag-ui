@@ -219,6 +219,38 @@ void main() {
         expect(msg.activityType, 'task.run');
         expect(msg.toJson().containsKey('encryptedValue'), isFalse);
       });
+
+      test('II3 regression: name and encryptedValue are always null on ActivityMessage', () {
+        // ActivityMessage is NOT a BaseMessage extension — cipher-payload
+        // forwarding does not apply. The parent Message fields `name` and
+        // `encryptedValue` are always null on instances constructed via the
+        // public constructor or fromJson, and toJson never emits them.
+        final direct = ActivityMessage(
+          id: 'act_007',
+          activityType: 'task.run',
+          activityContent: const {'x': 1},
+        );
+        expect(direct.name, isNull,
+            reason: 'name must be null on ActivityMessage');
+        expect(direct.encryptedValue, isNull,
+            reason: 'encryptedValue must be null on ActivityMessage');
+        expect(direct.toJson().containsKey('name'), isFalse);
+        expect(direct.toJson().containsKey('encryptedValue'), isFalse);
+
+        // Also via fromJson — even if a proxy emits name/encryptedValue.
+        final fromJson = ActivityMessage.fromJson({
+          'id': 'act_008',
+          'role': 'activity',
+          'activityType': 'task.run',
+          'content': {'x': 1},
+          'name': 'should_be_stripped',
+          'encryptedValue': 'should_be_stripped',
+        });
+        expect(fromJson.name, isNull);
+        expect(fromJson.encryptedValue, isNull);
+        expect(fromJson.toJson().containsKey('name'), isFalse);
+        expect(fromJson.toJson().containsKey('encryptedValue'), isFalse);
+      });
     });
 
     group('ReasoningMessage', () {

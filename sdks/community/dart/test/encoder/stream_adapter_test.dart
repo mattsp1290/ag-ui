@@ -269,6 +269,97 @@ void main() {
         expect(events[1], isA<RunFinishedEvent>());
       });
 
+      test('lone-CR: lastWasLoneCr persists through zero-length intermediate chunk',
+          () async {
+        // Regression for II5: when a lone-CR terminator is delivered in one
+        // chunk and the next chunk is empty (zero-length), lastWasLoneCr must
+        // survive across the empty chunk so the subsequent real chunk does not
+        // stall waiting for a deferred \r resolution.
+        final rawController = StreamController<String>();
+        final eventStream = adapter.fromRawSseStream(rawController.stream);
+
+        final events = <BaseEvent>[];
+        final subscription = eventStream.listen(events.add);
+
+        // Chunk 1: event + lone-CR terminator pair (CR = end of data line, CR = empty line → flush)
+        rawController.add(
+          'data: {"type":"RUN_STARTED","threadId":"t1","runId":"r1"}\r\r',
+        );
+        // Chunk 2: zero-length — must not reset lastWasLoneCr state
+        rawController.add('');
+        // Chunk 3: second event using lone-CR style
+        rawController.add(
+          'data: {"type":"RUN_FINISHED","threadId":"t1","runId":"r1"}\r\r',
+        );
+
+        await rawController.close();
+        await subscription.cancel();
+
+        expect(events.length, equals(2));
+        expect(events[0], isA<RunStartedEvent>());
+        expect(events[1], isA<RunFinishedEvent>());
+      });
+
+      test('lone-CR: three back-to-back events each delivered in their own chunk',
+          () async {
+        // Regression for I4/II5: three consecutive lone-CR-terminated events
+        // delivered one per chunk. Each chunk ends with \r\r (data line CR +
+        // empty-line CR). The lastWasLoneCr flag must persist correctly so
+        // each event is dispatched exactly once.
+        final rawController = StreamController<String>();
+        final eventStream = adapter.fromRawSseStream(rawController.stream);
+
+        final events = <BaseEvent>[];
+        final subscription = eventStream.listen(events.add);
+
+        for (final runId in ['r1', 'r2', 'r3']) {
+          rawController.add(
+            'data: {"type":"RUN_STARTED","threadId":"t1","runId":"$runId"}\r\r',
+          );
+        }
+
+        await rawController.close();
+        await subscription.cancel();
+
+        expect(events.length, equals(3));
+        expect((events[0] as RunStartedEvent).runId, equals('r1'));
+        expect((events[1] as RunStartedEvent).runId, equals('r2'));
+        expect((events[2] as RunStartedEvent).runId, equals('r3'));
+      });
+
+      test('mixed lone-CR + CRLF terminators in adjacent events', () async {
+        // Regression for I4: chunk1 uses lone-CR style, chunk2 uses CRLF.
+        // The transition must not double-dispatch or lose an event.
+        // chunk1: "data: foo\r" — lone-CR terminates the line; trailing \r
+        //         is deferred (not yet a lone-CR producer confirmation)
+        // chunk2: "\r\ndata: bar\n\n" — the leading \r is interpreted as the
+        //         continuation of the prior deferred \r, making it a lone-CR
+        //         (empty line → flush foo), then \n is handled as a new
+        //         terminator for the CRLF-style event.
+        // Actually the simpler test: lone-CR event in chunk1, CRLF event in chunk2.
+        final rawController = StreamController<String>();
+        final eventStream = adapter.fromRawSseStream(rawController.stream);
+
+        final events = <BaseEvent>[];
+        final subscription = eventStream.listen(events.add);
+
+        // Chunk 1: lone-CR event (data line + empty line via lone-CR)
+        rawController.add(
+          'data: {"type":"RUN_STARTED","threadId":"t1","runId":"r1"}\r\r',
+        );
+        // Chunk 2: CRLF-terminated event
+        rawController.add(
+          'data: {"type":"RUN_FINISHED","threadId":"t1","runId":"r1"}\r\n\r\n',
+        );
+
+        await rawController.close();
+        await subscription.cancel();
+
+        expect(events.length, equals(2));
+        expect(events[0], isA<RunStartedEvent>());
+        expect(events[1], isA<RunFinishedEvent>());
+      });
+
       test('downstream cancellation propagates to upstream subscription',
           () async {
         // Regression for the leaked-subscription bug noted in the #1018

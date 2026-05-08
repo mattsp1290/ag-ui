@@ -435,6 +435,35 @@ Contributions are welcome! Please:
 4. Ensure all tests pass
 5. Submit a pull request
 
+## Cipher-data preservation
+
+Some AG-UI events (`ReasoningEncryptedValueEvent`, `ReasoningMessage`, `ToolMessage`) carry
+opaque cipher payloads that must be forwarded verbatim between agents. This SDK implements
+defense-in-depth around those payloads:
+
+**Success paths** — the `rawEvent` field on every `BaseEvent` is set to the verbatim
+wire-format map read from the SSE stream. A proxy that needs to re-emit a
+`ReasoningEncryptedValueEvent` should read `rawEvent` (or maintain its own copy of the raw
+bytes) and forward it unchanged rather than calling `toJson()`, which emits only the
+parsed fields.
+
+**Error paths** — when a factory (`fromJson`) fails to decode an event, the thrown
+`AGUIValidationError` intentionally omits the raw JSON map (`json:` field) for any event
+that may carry cipher data. This prevents raw cipher bytes from leaking through
+reflection-based log shippers or error serializers that walk the exception cause chain.
+
+**`ReasoningEncryptedValueEvent` specifically** sets `rawEvent: null` unconditionally —
+unlike every other factory, forwarding `_readRawEvent(json)` would store the full cipher
+payload in-memory on `BaseEvent.rawEvent`, undoing the per-field cipher scrubbing above.
+Proxy operators that need the verbatim wire form must maintain their own copy before
+calling `fromJson`.
+
+**`copyWith` and `rawEvent`** — the `copyWith` methods across all event types treat
+`rawEvent` as "sticky": passing `null` keeps the existing value (i.e. `rawEvent ?? this.rawEvent`).
+To clear `rawEvent`, construct the event directly with `rawEvent: null`. This prevents an
+accidental `copyWith()` call from silently preserving a cipher payload that the caller
+intended to drop.
+
 ## License
 
 This SDK is part of the AG-UI Protocol project. See the [main repository](https://github.com/ag-ui-protocol/ag-ui) for license information.

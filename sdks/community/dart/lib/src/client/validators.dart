@@ -296,13 +296,16 @@ class Validators {
     return json;
   }
 
-  /// Validates event type
+  /// Validates that an event type string matches UPPER_SNAKE_CASE format.
+  ///
+  /// This is a format-only check. Format conformance does not imply that the
+  /// SDK can dispatch the type — [EventType.fromString] and the exhaustive
+  /// switch in [BaseEvent.fromJson] / [EventDecoder.validate] are the actual
+  /// authority for recognized types. Adding a new event type requires a
+  /// coordinated enum addition regardless of whether this regex accepts it.
   static void validateEventType(String? eventType) {
     requireNonEmpty(eventType, 'eventType');
-    
-    // Event types follow UPPER_SNAKE_CASE; digits are allowed after the
-    // first character to accommodate future protocol-versioned event types
-    // (e.g. `RUN_STARTED_V2`).
+
     final pattern = RegExp(r'^[A-Z][A-Z0-9_]*$');
     if (!pattern.hasMatch(eventType!)) {
       throw ValidationError(

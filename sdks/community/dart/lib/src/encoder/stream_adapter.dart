@@ -19,15 +19,28 @@ import 'decoder.dart';
 class EventStreamAdapter {
   final EventDecoder _decoder;
 
+  /// Maximum number of UTF-16 code units accepted per SSE data block and
+  /// per raw-input buffer in [fromRawSseStream]. Matches [SseParser]'s
+  /// default of 8 MiB (8 × 1 048 576 code units) so both SSE paths enforce
+  /// the same bound. A misbehaving server that streams `data:` without a
+  /// blank-line terminator can otherwise grow [fromRawSseStream]'s internal
+  /// buffers without bound.
+  final int maxDataCodeUnits;
+
   /// Creates a new stream adapter with an optional custom decoder.
+  ///
+  /// [maxDataCodeUnits] caps the in-memory SSE data buffer in
+  /// [fromRawSseStream]. Defaults to 8 MiB, matching [SseParser].
   ///
   /// SSE line-buffering state for [fromRawSseStream] lives in locals scoped
   /// to each invocation, not on the adapter instance. This means the same
   /// adapter can safely process multiple streams sequentially or
   /// concurrently — abnormal termination of one stream cannot leak partial
   /// `data:` payloads or a stale `inDataBlock` flag into the next.
-  EventStreamAdapter({EventDecoder? decoder})
-      : _decoder = decoder ?? const EventDecoder();
+  EventStreamAdapter({
+    EventDecoder? decoder,
+    this.maxDataCodeUnits = 8 * 1024 * 1024,
+  }) : _decoder = decoder ?? const EventDecoder();
   
   /// Adapts JSON data to AG-UI events.
   ///
@@ -264,6 +277,21 @@ class EventStreamAdapter {
       } else {
         return; // Not a data line — ignore per spec.
       }
+      // Size cap: mirrors SseParser._processField. The +1 is for the newline
+      // separator added between multi-line data blocks.
+      final addedLen = inDataBlock ? (1 + value.length) : value.length;
+      if (dataBuffer.length + addedLen > maxDataCodeUnits) {
+        // Clear state before throwing so partial data doesn't pollute the
+        // next frame. The thrown DecodingError is caught by processChunk's
+        // outer try/catch and routed via controller.addError.
+        dataBuffer.clear();
+        inDataBlock = false;
+        throw DecodingError(
+          'SSE data block exceeds $maxDataCodeUnits code units',
+          field: 'data',
+          expectedType: 'String',
+        );
+      }
       if (inDataBlock) {
         // Multi-line data: add newline between lines per spec.
         dataBuffer.write('\n');
@@ -337,6 +365,16 @@ class EventStreamAdapter {
     var errorRoutedInChunk = false;
 
     void processChunk(String chunk) {
+      // Size cap on the raw line buffer. A server that sends a line without
+      // any newline would otherwise grow `buffer` without bound.
+      if (buffer.length + chunk.length > maxDataCodeUnits) {
+        buffer.clear();
+        throw DecodingError(
+          'SSE input line exceeds $maxDataCodeUnits code units',
+          field: 'chunk',
+          expectedType: 'String',
+        );
+      }
       // Add chunk to buffer to handle partial lines.
       buffer.write(chunk);
 
@@ -562,9 +600,11 @@ class EventStreamAdapter {
   /// the matching `*End` event arrives or the upstream stream
   /// completes. A producer that opens IDs without closing them — for
   /// instance, an interrupted upstream connection or a buggy server —
-  /// will grow the internal map indefinitely. For long-lived streams
-  /// from untrusted producers, sanitize upstream or wrap with a
-  /// timeout. The same caveat applies to [accumulateTextMessages].
+  /// will grow the internal map indefinitely. Use [maxOpenGroups] to cap
+  /// the number of concurrently open groups; when the cap is reached the
+  /// oldest open group is evicted (emitted as-is) before the new one is
+  /// added. Set to 0 (the default) for no cap. The same caveat and option
+  /// apply to [accumulateTextMessages].
   ///
   /// **Duplicate-start policy.** If a second `*Start` event arrives with
   /// the same id while the prior group is still open, the prior group's
@@ -589,13 +629,14 @@ class EventStreamAdapter {
   /// boundary in their own state, or subscribe to the typed event stream
   /// directly.
   static Stream<List<BaseEvent>> groupRelatedEvents(
-    Stream<BaseEvent> eventStream,
-  ) {
+    Stream<BaseEvent> eventStream, {
+    int maxOpenGroups = 0,
+  }) {
     // `sync: true` — see re-entrancy note on [fromRawSseStream].
     final controller = StreamController<List<BaseEvent>>(sync: true);
-    // LinkedHashMap insertion order is relied upon by the onDone flush —
-    // incomplete groups are emitted in *Start arrival order. Do NOT replace
-    // with HashMap (unordered) or SplayTreeMap (sorted).
+    // LinkedHashMap insertion order is relied upon by the onDone flush AND by
+    // the maxOpenGroups eviction (evicts oldest — first insertion-order entry).
+    // Do NOT replace with HashMap (unordered) or SplayTreeMap (sorted).
     final Map<String, List<BaseEvent>> activeGroups = {};
     StreamSubscription<BaseEvent>? subscription;
     var inDispatch = false;
@@ -608,6 +649,11 @@ class EventStreamAdapter {
     controller.onListen = () {
       subscription = eventStream.listen(
         (event) {
+          // Route the re-entrancy StateError through controller.addError so
+          // the downstream consumer receives a structured error rather than
+          // an unhandled async exception. Mirrors fromRawSseStream's outer
+          // try/catch around processChunk.
+          try {
           if (inDispatch) {
             throw StateError(
               'sync re-entrancy: cancel() must not be called synchronously '
@@ -617,13 +663,28 @@ class EventStreamAdapter {
           }
           inDispatch = true;
           try {
+          // Open a new group, evicting the oldest open group first if the
+          // maxOpenGroups cap is exceeded. Eviction emits the oldest group
+          // as-is (without a terminal *End event) — consumers should treat
+          // evicted groups the same as groups emitted on stream close.
+          void openGroup(String key, BaseEvent startEvent) {
+            if (maxOpenGroups > 0 &&
+                activeGroups.length >= maxOpenGroups &&
+                !activeGroups.containsKey(key)) {
+              final oldestKey = activeGroups.keys.first;
+              final evicted = activeGroups.remove(oldestKey)!;
+              if (evicted.isNotEmpty) controller.add(evicted);
+            }
+            activeGroups[key] = [startEvent];
+          }
+
           switch (event) {
             // Keys are namespaced by event family ('text:', 'reasoning:',
             // 'tool:') so that a producer reusing the same id across families
             // (e.g. a text message and a reasoning step sharing a messageId)
             // does not overwrite one group with another.
             case TextMessageStartEvent(:final messageId):
-              activeGroups['text:$messageId'] = [event];
+              openGroup('text:$messageId', event);
             case TextMessageContentEvent(:final messageId):
               activeGroups['text:$messageId']?.add(event);
             case TextMessageEndEvent(:final messageId):
@@ -633,7 +694,7 @@ class EventStreamAdapter {
                 controller.add(group);
               }
             case ToolCallStartEvent(:final toolCallId):
-              activeGroups['tool:$toolCallId'] = [event];
+              openGroup('tool:$toolCallId', event);
             case ToolCallArgsEvent(:final toolCallId):
               activeGroups['tool:$toolCallId']?.add(event);
             case ToolCallEndEvent(:final toolCallId):
@@ -643,7 +704,7 @@ class EventStreamAdapter {
                 controller.add(group);
               }
             case ReasoningMessageStartEvent(:final messageId):
-              activeGroups['reasoning:$messageId'] = [event];
+              openGroup('reasoning:$messageId', event);
             case ReasoningMessageContentEvent(:final messageId):
               activeGroups['reasoning:$messageId']?.add(event);
             case ReasoningMessageEndEvent(:final messageId):
@@ -686,6 +747,9 @@ class EventStreamAdapter {
           } finally {
             inDispatch = false;
           }
+          } catch (e, stack) {
+            controller.addError(e, stack);
+          }
         },
         onError: controller.addError,
         onDone: () {
@@ -727,13 +791,14 @@ class EventStreamAdapter {
   /// between a normally-completed message and a flushed-on-close partial
   /// without observing the absence of `TextMessageEnd` upstream.
   static Stream<String> accumulateTextMessages(
-    Stream<BaseEvent> eventStream,
-  ) {
+    Stream<BaseEvent> eventStream, {
+    int maxOpenGroups = 0,
+  }) {
     // `sync: true` — see re-entrancy note on [fromRawSseStream].
     final controller = StreamController<String>(sync: true);
-    // LinkedHashMap insertion order is relied upon by the onDone flush —
-    // incomplete messages are emitted in *Start arrival order. Do NOT replace
-    // with HashMap (unordered) or SplayTreeMap (sorted).
+    // LinkedHashMap insertion order is relied upon by the onDone flush AND by
+    // the maxOpenGroups eviction (evicts oldest open message first).
+    // Do NOT replace with HashMap (unordered) or SplayTreeMap (sorted).
     final Map<String, StringBuffer> activeMessages = {};
     StreamSubscription<BaseEvent>? subscription;
     var inDispatch = false;
@@ -745,6 +810,9 @@ class EventStreamAdapter {
     controller.onListen = () {
       subscription = eventStream.listen(
         (event) {
+          // Route the re-entrancy StateError through controller.addError.
+          // Mirrors the groupRelatedEvents and fromRawSseStream patterns.
+          try {
           if (inDispatch) {
             throw StateError(
               'sync re-entrancy: cancel() must not be called synchronously '
@@ -756,6 +824,15 @@ class EventStreamAdapter {
           try {
           switch (event) {
             case TextMessageStartEvent(:final messageId):
+              // Evict the oldest open message when the cap is reached.
+              if (maxOpenGroups > 0 &&
+                  activeMessages.length >= maxOpenGroups &&
+                  !activeMessages.containsKey(messageId)) {
+                final oldestKey = activeMessages.keys.first;
+                final evicted = activeMessages.remove(oldestKey)!;
+                final content = evicted.toString();
+                if (content.isNotEmpty) controller.add(content);
+              }
               activeMessages[messageId] = StringBuffer();
             case TextMessageContentEvent(:final messageId, :final delta):
               activeMessages[messageId]?.write(delta);
@@ -786,6 +863,9 @@ class EventStreamAdapter {
           }
           } finally {
             inDispatch = false;
+          }
+          } catch (e, stack) {
+            controller.addError(e, stack);
           }
         },
         onError: controller.addError,

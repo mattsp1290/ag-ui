@@ -97,14 +97,15 @@ class RunAgentInput extends AGUIModel {
           try {
             out.add(Message.fromJson(raw[i]));
           } on AGUIValidationError catch (e) {
-            // Intentionally drop json: and cause: — the inner payload (e.json)
-            // and cause chain (e) may contain encryptedValue or tool arguments.
-            // Mirrors the MessagesSnapshotEvent.fromJson and
-            // RunStartedEvent.fromJson scrubbing discipline.
+            // Drop json: — the inner payload may carry encryptedValue or tool
+            // arguments. Preserve cause: when the inner error already cleared
+            // its own json: (e.json == null), meaning the inner factory was
+            // cipher-aware and the cause chain is safe to forward.
             throw AGUIValidationError(
               message: e.message,
               field: 'messages[$i].${e.field ?? 'unknown'}',
               value: e.value,
+              cause: e.json == null ? e : null,
             );
           } catch (e) {
             throw AGUIValidationError(
@@ -126,12 +127,13 @@ class RunAgentInput extends AGUIModel {
           try {
             out.add(Tool.fromJson(raw[i]));
           } on AGUIValidationError catch (e) {
-            // Intentionally drop json: and cause: — tool arguments in the
-            // inner payload may be sensitive. Mirrors messages loop above.
+            // Drop json: — tool arguments may be sensitive. Preserve cause:
+            // when e.json == null (inner factory already scrubbed it).
             throw AGUIValidationError(
               message: e.message,
               field: 'tools[$i].${e.field ?? 'unknown'}',
               value: e.value,
+              cause: e.json == null ? e : null,
             );
           } catch (e) {
             throw AGUIValidationError(
@@ -153,12 +155,13 @@ class RunAgentInput extends AGUIModel {
           try {
             out.add(Context.fromJson(raw[i]));
           } on AGUIValidationError catch (e) {
-            // Intentionally drop json: and cause: — context values may carry
-            // sensitive data. Mirrors messages loop above.
+            // Drop json: — context values may carry sensitive data. Preserve
+            // cause: when e.json == null (inner factory already scrubbed it).
             throw AGUIValidationError(
               message: e.message,
               field: 'context[$i].${e.field ?? 'unknown'}',
               value: e.value,
+              cause: e.json == null ? e : null,
             );
           } catch (e) {
             throw AGUIValidationError(

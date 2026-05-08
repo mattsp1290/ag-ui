@@ -287,14 +287,20 @@ class AgUiClient {
           // dev tools / dart:developer listeners without surfacing to the
           // stream consumer.
           developer.log(
-            'Late HTTP response after cancellation; discarded '
+            'Late HTTP response after cancellation; discarding '
             '(status ${response.statusCode})',
             name: 'ag_ui.client',
           );
-          // Do NOT drain — for SSE responses the stream never ends until
-          // the server hangs up, so drain() would hold the socket open
-          // indefinitely. The body is never subscribed, so the OS will
-          // eventually reclaim the socket without application-level action.
+          // Immediately subscribe-and-cancel to signal the underlying platform
+          // to close the socket. Do NOT await drain() — for SSE responses the
+          // body stream never ends until the server disconnects, so drain()
+          // would hold the socket open indefinitely.
+          unawaited(
+            response.stream
+                .listen((_) {})
+                .cancel()
+                .catchError((_) {}),
+          );
         }
       },
       onError: (Object error) {
@@ -505,6 +511,10 @@ class AgUiClient {
       Validators.validateRunId(input.runId!);
     }
 
+    if (input.parentRunId != null) {
+      Validators.requireNonEmpty(input.parentRunId!, 'parentRunId');
+    }
+
     // Validate messages using an exhaustive sealed switch so every concrete
     // subtype is explicitly covered. A partial `is UserMessage` check implied
     // validation coverage that didn't exist — this makes the boundary clear.
@@ -641,6 +651,7 @@ class CancelToken {
 class SimpleRunAgentInput {
   final String? threadId;
   final String? runId;
+  final String? parentRunId;
   final List<Message>? messages;
   final List<Tool>? tools;
   final List<Context>? context;
@@ -652,6 +663,7 @@ class SimpleRunAgentInput {
   const SimpleRunAgentInput({
     this.threadId,
     this.runId,
+    this.parentRunId,
     this.messages,
     this.tools,
     this.context,
@@ -665,6 +677,7 @@ class SimpleRunAgentInput {
     return {
       if (threadId != null) 'threadId': threadId,
       if (runId != null) 'runId': runId,
+      if (parentRunId != null) 'parentRunId': parentRunId,
       if (state != null) 'state': state,
       if (messages != null) 'messages': messages!.map((m) => m.toJson()).toList(),
       if (tools != null) 'tools': tools!.map((t) => t.toJson()).toList(),

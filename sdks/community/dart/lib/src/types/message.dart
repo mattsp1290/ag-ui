@@ -129,13 +129,14 @@ sealed class Message extends AGUIModel with TypeDiscriminator {
     try {
       role = MessageRole.fromString(roleStr);
     } on AGUIValidationError catch (e) {
-      // Omit json: and cause: — the message map and cause chain may carry
-      // encryptedValue from ReasoningMessage / ToolMessage subtypes.
-      // Surface only the structured field path and value for log safety.
+      // Drop json: — the message map may carry encryptedValue. Preserve
+      // cause: because MessageRole.fromString errors do not embed raw JSON
+      // (e.json == null), so the cause chain is safe to forward.
       throw AGUIValidationError(
         message: e.message,
         field: e.field,
         value: e.value,
+        cause: e,
       );
     }
 
@@ -205,6 +206,19 @@ final class DeveloperMessage extends Message {
     );
   }
 
+  // Emit `content` unconditionally — it is constructor-required and non-null
+  // on this subtype. The parent's conditional `if (content != null) 'content'`
+  // would also work by construction, but emitting it here makes the contract
+  // explicit and independent of the parent implementation.
+  @override
+  Map<String, dynamic> toJson() => {
+    if (id != null) 'id': id,
+    'role': role.value,
+    'content': content,
+    if (name != null) 'name': name,
+    if (encryptedValue != null) 'encryptedValue': encryptedValue,
+  };
+
   // `name` and `encryptedValue` are nullable on the parent — use the
   // sentinel so callers can clear either explicitly. See [kUnsetSentinel].
   @override
@@ -251,6 +265,15 @@ final class SystemMessage extends Message {
       ),
     );
   }
+
+  @override
+  Map<String, dynamic> toJson() => {
+    if (id != null) 'id': id,
+    'role': role.value,
+    'content': content,
+    if (name != null) 'name': name,
+    if (encryptedValue != null) 'encryptedValue': encryptedValue,
+  };
 
   // `name` and `encryptedValue` are nullable on the parent — sentinel
   // for explicit-clear semantics.
@@ -423,6 +446,15 @@ final class UserMessage extends Message {
     );
   }
 
+  @override
+  Map<String, dynamic> toJson() => {
+    if (id != null) 'id': id,
+    'role': role.value,
+    'content': content,
+    if (name != null) 'name': name,
+    if (encryptedValue != null) 'encryptedValue': encryptedValue,
+  };
+
   // `name` and `encryptedValue` are nullable on the parent — sentinel
   // for explicit-clear semantics.
   @override
@@ -484,7 +516,11 @@ final class ToolMessage extends Message {
 
   @override
   Map<String, dynamic> toJson() => {
-        ...super.toJson(),
+        if (id != null) 'id': id,
+        'role': role.value,
+        'content': content,
+        if (name != null) 'name': name,
+        if (encryptedValue != null) 'encryptedValue': encryptedValue,
         'toolCallId': toolCallId,
         if (error != null) 'error': error,
       };
@@ -616,6 +652,14 @@ final class ReasoningMessage extends Message {
       ),
     );
   }
+
+  @override
+  Map<String, dynamic> toJson() => {
+    if (id != null) 'id': id,
+    'role': role.value,
+    'content': content,
+    if (encryptedValue != null) 'encryptedValue': encryptedValue,
+  };
 
   // `encryptedValue` is nullable on the parent — sentinel lets callers
   // clear it.

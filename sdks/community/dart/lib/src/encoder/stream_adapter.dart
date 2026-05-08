@@ -25,12 +25,19 @@ class EventStreamAdapter {
   /// the same bound. A misbehaving server that streams `data:` without a
   /// blank-line terminator can otherwise grow [fromRawSseStream]'s internal
   /// buffers without bound.
+  ///
+  /// **UTF-16 vs. bytes.** Dart's [String.length] counts UTF-16 code units,
+  /// not bytes. Each code unit is 2 bytes on most platforms, so the default
+  /// 8 MiB value permits up to ~16 MiB of actual memory. When sizing this
+  /// cap against a byte-counted upstream limit (e.g. an nginx
+  /// `proxy_buffer_size`), divide that limit by 2–4 depending on the
+  /// expected character density of the SSE payload.
   final int maxDataCodeUnits;
 
   /// Creates a new stream adapter with an optional custom decoder.
   ///
   /// [maxDataCodeUnits] caps the in-memory SSE data buffer in
-  /// [fromRawSseStream]. Defaults to 8 MiB, matching [SseParser].
+  /// [fromRawSseStream]. Defaults to 8 MiB (code units), matching [SseParser].
   ///
   /// SSE line-buffering state for [fromRawSseStream] lives in locals scoped
   /// to each invocation, not on the adapter instance. This means the same
@@ -369,6 +376,10 @@ class EventStreamAdapter {
                 cause: e,
               );
 
+        // NOTE: `addError` is intentionally not wrapped by `inDispatch`.
+        // The guard protects `controller.add` (data dispatch). Error handlers
+        // registered via `listen(onError:)` should not call stream operations
+        // synchronously — see the re-entrancy note on [fromRawSseStream].
         if (!skipInvalidEvents) {
           controller.addError(error, stack);
         } else {
@@ -513,7 +524,7 @@ class EventStreamAdapter {
           // Final flush — emits any leftover data block accumulated from
           // either the deferred-line scan or the partial-line append above.
           flushDataBlock();
-          controller.close();
+          if (!controller.isClosed) controller.close();
         },
         cancelOnError: false,
       );
@@ -807,6 +818,11 @@ class EventStreamAdapter {
               inDispatch = false;
             }
           } catch (e, stack) {
+            // NOTE: `addError` is intentionally not wrapped by `inDispatch`.
+            // The guard protects `controller.add` (data dispatch). Error
+            // handlers registered via `listen(onError:)` must not call stream
+            // operations synchronously — see the re-entrancy note on
+            // [fromRawSseStream].
             controller.addError(e, stack);
           }
         },
@@ -822,7 +838,7 @@ class EventStreamAdapter {
               controller.add(group);
             }
           }
-          controller.close();
+          if (!controller.isClosed) controller.close();
         },
         cancelOnError: false,
       );
@@ -854,6 +870,13 @@ class EventStreamAdapter {
   /// behavior. Empty buffers are not emitted. Consumers cannot distinguish
   /// between a normally-completed message and a flushed-on-close partial
   /// without observing the absence of `TextMessageEnd` upstream.
+  ///
+  /// **Duplicate-start policy.** If a second `TextMessageStartEvent` arrives
+  /// with the same `messageId` while a prior buffer is still open, the prior
+  /// accumulated content is discarded silently and a new buffer begins
+  /// ("last-Start-wins"). This matches the behavior of [groupRelatedEvents].
+  /// Consumers that need strict sequencing should validate the upstream event
+  /// stream before passing it here.
   ///
   /// **Chunk-before-Start ordering hazard.** A `TextMessageChunkEvent` that
   /// arrives before its `TextMessageStartEvent` is emitted immediately as a
@@ -939,6 +962,11 @@ class EventStreamAdapter {
               inDispatch = false;
             }
           } catch (e, stack) {
+            // NOTE: `addError` is intentionally not wrapped by `inDispatch`.
+            // The guard protects `controller.add` (data dispatch). Error
+            // handlers registered via `listen(onError:)` must not call stream
+            // operations synchronously — see the re-entrancy note on
+            // [fromRawSseStream].
             controller.addError(e, stack);
           }
         },
@@ -955,7 +983,7 @@ class EventStreamAdapter {
             final content = entry.value.toString();
             if (content.isNotEmpty) controller.add(content);
           }
-          controller.close();
+          if (!controller.isClosed) controller.close();
         },
         cancelOnError: false,
       );

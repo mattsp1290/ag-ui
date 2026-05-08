@@ -225,12 +225,12 @@ void main() {
       });
 
       test(
-          'II3 regression: name is always null; encryptedValue throws UnsupportedError on ActivityMessage',
+          'LSP: name is always null; encryptedValue returns null on ActivityMessage',
           () {
         // ActivityMessage is NOT a BaseMessage extension — cipher-payload
         // forwarding does not apply. `name` is always null; `encryptedValue`
-        // is unsupported (throws UnsupportedError to make accidental reads
-        // loud). toJson never emits either field.
+        // returns null (wire-correct) so polymorphic List<Message> iteration
+        // does not crash. toJson never emits either field.
         final direct = ActivityMessage(
           id: 'act_007',
           activityType: 'task.run',
@@ -238,14 +238,10 @@ void main() {
         );
         expect(direct.name, isNull,
             reason: 'name must be null on ActivityMessage');
-        // Regression for Opus2 I2: encryptedValue.getter throws UnsupportedError
-        // rather than silently returning null — makes accidental reads detectable.
-        expect(
-          () => direct.encryptedValue,
-          throwsA(isA<UnsupportedError>()),
-          reason:
-              'encryptedValue must throw UnsupportedError on ActivityMessage',
-        );
+        // Fix for Opus2 I2: returns null instead of throwing — LSP compliance.
+        expect(direct.encryptedValue, isNull,
+            reason:
+                'encryptedValue must return null on ActivityMessage (not throw)');
         expect(direct.toJson().containsKey('name'), isFalse);
         expect(direct.toJson().containsKey('encryptedValue'), isFalse);
 
@@ -259,10 +255,9 @@ void main() {
           'encryptedValue': 'should_be_stripped',
         });
         expect(fromJson.name, isNull);
-        expect(
-          () => fromJson.encryptedValue,
-          throwsA(isA<UnsupportedError>()),
-        );
+        expect(fromJson.encryptedValue, isNull,
+            reason:
+                'encryptedValue must return null on ActivityMessage (not throw)');
         expect(fromJson.toJson().containsKey('name'), isFalse);
         expect(fromJson.toJson().containsKey('encryptedValue'), isFalse);
       });

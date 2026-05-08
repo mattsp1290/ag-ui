@@ -261,9 +261,9 @@ enum TextMessageRole {
   /// same "throw at the enum, absorb at the factory" pattern used by
   /// [ReasoningMessageRole] — see `dart-enum-parsing-safety.md` for the
   /// consistency rationale.
-  static final Map<String, TextMessageRole> _byValue = {
+  static final Map<String, TextMessageRole> _byValue = Map.unmodifiable({
     for (final r in TextMessageRole.values) r.value: r,
-  };
+  });
 
   static TextMessageRole fromString(String value) {
     return _byValue[value] ??
@@ -1019,9 +1019,9 @@ enum ToolCallResultRole {
   /// throw and falls back to [ToolCallResultRole.tool] so a future
   /// server-side role does not tear down the SSE stream. Mirrors
   /// `ReasoningMessageRole.fromString` and `TextMessageRole.fromString`.
-  static final Map<String, ToolCallResultRole> _byValue = {
+  static final Map<String, ToolCallResultRole> _byValue = Map.unmodifiable({
     for (final r in ToolCallResultRole.values) r.value: r,
-  };
+  });
 
   static ToolCallResultRole fromString(String value) {
     return _byValue[value] ??
@@ -1252,7 +1252,7 @@ final class MessagesSnapshotEvent extends BaseEvent {
           // their cause is preserved for ergonomic debugging.
           throw AGUIValidationError(
             message: e.message,
-            field: 'messages[$i].${e.field ?? 'unknown'}',
+            field: e.field != null ? 'messages[$i].${e.field}' : 'messages[$i]',
             value: e.value,
             cause: e.json == null ? e : null,
           );
@@ -1645,7 +1645,7 @@ final class RunStartedEvent extends BaseEvent {
         // shippers. Surface only the field path and the non-cipher value.
         throw AGUIValidationError(
           message: e.message,
-          field: 'input.${e.field ?? 'unknown'}',
+          field: e.field != null ? 'input.${e.field}' : 'input',
           value: e.value,
         );
       }
@@ -1937,9 +1937,9 @@ enum ReasoningMessageRole {
   /// wire should use `ReasoningMessageStartEvent.fromJson`, which absorbs
   /// the throw and falls back to [ReasoningMessageRole.reasoning] so a
   /// future server-side role does not tear down the SSE stream.
-  static final Map<String, ReasoningMessageRole> _byValue = {
+  static final Map<String, ReasoningMessageRole> _byValue = Map.unmodifiable({
     for (final r in ReasoningMessageRole.values) r.value: r,
-  };
+  });
 
   static ReasoningMessageRole fromString(String value) {
     return _byValue[value] ??
@@ -1967,9 +1967,10 @@ enum ReasoningEncryptedValueSubtype {
   /// Wire failures bubble up as [DecodingError] under the standard decoder
   /// pipeline; consumers that want per-event recovery should set
   /// `skipInvalidEvents: true` on `EventStreamAdapter`.
-  static final Map<String, ReasoningEncryptedValueSubtype> _byValue = {
+  static final Map<String, ReasoningEncryptedValueSubtype> _byValue =
+      Map.unmodifiable({
     for (final s in ReasoningEncryptedValueSubtype.values) s.value: s,
-  };
+  });
 
   static ReasoningEncryptedValueSubtype fromString(String value) {
     return _byValue[value] ??
@@ -2415,25 +2416,27 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
         'encryptedValue': encryptedValue,
       };
 
-  // SECURITY: `fromJson` always sets `rawEvent: null` to prevent the
-  // cipher payload in `encryptedValue` from leaking via the raw wire map.
-  // Passing a non-null `rawEvent` here re-introduces that raw map and undoes
-  // the scrubbing — only do so if you are certain the raw map contains no
-  // sensitive cipher data (e.g., you have already stripped `encryptedValue`).
+  // SECURITY: `rawEvent` is intentionally omitted from `copyWith`.
+  // `fromJson` always pins `rawEvent: null` to prevent the cipher payload
+  // in `encryptedValue` from leaking through the raw wire map. Accepting
+  // a `rawEvent` parameter here would let callers re-attach that map and
+  // undo the scrub — `MessagesSnapshotEvent.copyWith` applies the same
+  // restriction for the same reason. Callers that genuinely need a non-null
+  // `rawEvent` (e.g. a proxy that has already stripped `encryptedValue`)
+  // must construct a new `ReasoningEncryptedValueEvent` directly.
   @override
   ReasoningEncryptedValueEvent copyWith({
     ReasoningEncryptedValueSubtype? subtype,
     String? entityId,
     String? encryptedValue,
     int? timestamp,
-    dynamic rawEvent,
   }) {
     return ReasoningEncryptedValueEvent(
       subtype: subtype ?? this.subtype,
       entityId: entityId ?? this.entityId,
       encryptedValue: encryptedValue ?? this.encryptedValue,
       timestamp: timestamp ?? this.timestamp,
-      rawEvent: rawEvent ?? this.rawEvent,
+      rawEvent: null, // Always null — cipher safety; see security note above.
     );
   }
 }

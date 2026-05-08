@@ -59,9 +59,9 @@ enum MessageRole {
   /// `DecodingError(field: 'role')`. Direct callers of `Message.fromJson`
   /// see `AGUIValidationError` directly. See `dart-enum-parsing-safety.md`
   /// for the closed-vs-open enum rationale.
-  static final Map<String, MessageRole> _byValue = {
+  static final Map<String, MessageRole> _byValue = Map.unmodifiable({
     for (final r in MessageRole.values) r.value: r,
-  };
+  });
 
   static MessageRole fromString(String value) {
     return _byValue[value] ??
@@ -350,7 +350,7 @@ final class AssistantMessage extends Message {
                     // exposes it to reflection-based log shippers.
                     throw AGUIValidationError(
                       message: e.message,
-                      field: 'toolCalls[$i].${e.field ?? 'unknown'}',
+                      field: e.field != null ? 'toolCalls[$i].${e.field}' : 'toolCalls[$i]',
                       value: e.value,
                     );
                   }
@@ -582,23 +582,15 @@ final class ActivityMessage extends Message {
     required this.activityContent,
   }) : super(role: MessageRole.activity);
 
-  /// Accessing [encryptedValue] on [ActivityMessage] is always an error.
-  ///
-  /// [ActivityMessage] is NOT a `BaseMessage` extension in the AG-UI protocol
-  /// (unlike Developer/System/Assistant/User/Tool messages). The field is
-  /// inherited from [Message] for sealed-class hierarchy reasons only; it has
-  /// no meaning here. [fromJson] strips any inbound `encryptedValue` silently.
-  ///
-  /// Code that accesses [encryptedValue] on a polymorphic [Message] reference
-  /// will receive `null` for BaseMessage subtypes that have it unset, but
-  /// [UnsupportedError] here — making accidental reads loud rather than silent.
+  /// Always `null` — [ActivityMessage] is NOT a `BaseMessage` extension in
+  /// the AG-UI protocol, so cipher-payload forwarding does not apply.
+  /// [fromJson] strips any inbound `encryptedValue` / `encrypted_value`
+  /// silently. Returns `null` (rather than throwing) so polymorphic iteration
+  /// over a `List<Message>` that contains `ActivityMessage` instances does not
+  /// crash — consistent with how un-set `encryptedValue` behaves on all
+  /// other [Message] subtypes.
   @override
-  String? get encryptedValue => throw UnsupportedError(
-        'ActivityMessage.encryptedValue is not supported. '
-        'ActivityMessage is not a BaseMessage extension; '
-        'cipher-payload forwarding does not apply. '
-        'See the class-level dartdoc for details.',
-      );
+  String? get encryptedValue => null;
 
   factory ActivityMessage.fromJson(Map<String, dynamic> json) {
     // `ActivityMessage` is NOT a `BaseMessage` extension in the canonical

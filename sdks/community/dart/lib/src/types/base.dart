@@ -302,6 +302,13 @@ class JsonDecoder {
   /// canonical camelCase name. Callers that need to report the canonical
   /// name in error messages should catch [AGUIValidationError] and remap
   /// `field` to [camelKey] themselves.
+  ///
+  /// **Consumer guidance for error-driven field routing.** If you write an
+  /// error handler that matches on `e.field` to route errors by field name
+  /// (e.g. `if (e.field == 'toolCallId') ...`), be aware that the error may
+  /// carry the snake_case spelling (`'tool_call_id'`) when the Python-side wire
+  /// payload was the one that failed validation. Match both spellings or use
+  /// a prefix/contains check to stay wire-format agnostic.
   static T? optionalEitherField<T>(
     Map<String, dynamic> json,
     String camelKey,
@@ -343,10 +350,12 @@ class JsonDecoder {
           json: json,
         );
       }
-      // Guard BEFORE the `is int` fast-return: on Dart-on-JS, `1.0 is int` is
-      // true, so without this ordering the 2^53 check would be bypassed for
-      // any double-valued integer. 2^53 is the largest integer exactly
-      // representable as a 64-bit double.
+      // Guard BEFORE the `is int` fast-return: on Dart-on-JS every number is
+      // a 64-bit double, so `1.0 is int` is `true`. Without this ordering the
+      // 2^53 check would be bypassed for any double-valued integer that happens
+      // to pass `is int` — the guard must come first so the range check always
+      // executes regardless of platform. 2^53 is the largest integer exactly
+      // representable as a 64-bit IEEE 754 double.
       const maxSafeInt = 9007199254740992; // 2^53
       if (value > maxSafeInt || value < -maxSafeInt) {
         throw AGUIValidationError(
@@ -509,7 +518,9 @@ class JsonDecoder {
     String field,
     Map<String, dynamic> json,
   ) {
-    final out = <T>[];
+    // Validate-then-cast: iterate once to emit structured errors, then return
+    // a lazy cast view instead of copying into a new list — avoids a second
+    // O(n) allocation on the hot path (MESSAGES_SNAPSHOT, StateDelta, etc.).
     for (var i = 0; i < list.length; i++) {
       final item = list[i];
       if (item is! T) {
@@ -521,9 +532,8 @@ class JsonDecoder {
           json: json,
         );
       }
-      out.add(item);
     }
-    return out;
+    return list.cast<T>();
   }
 }
 
@@ -539,6 +549,11 @@ class _CopyWithSentinel {
 }
 
 /// Single shared sentinel instance used across all AG-UI `copyWith` methods.
+///
+/// This constant IS part of the public API — it is exported from `ag_ui.dart`.
+/// Consumers who implement their own `copyWith` overrides in subclasses or
+/// wrapper types may use it directly to achieve the same "omitted vs. explicit
+/// null" semantics as the built-in event and message types.
 const _CopyWithSentinel kUnsetSentinel = _CopyWithSentinel();
 
 /// Converts snake_case to camelCase

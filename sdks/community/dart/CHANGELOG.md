@@ -418,6 +418,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fail decode in Dart. The strict behavior is intentional (empty IDs have
   no valid semantic in the current protocol) and is tracked for review at
   1.0.0 alignment.
+- **`BaseEvent.toJson` always emits `rawEvent` in camelCase** even when the
+  original wire payload used `raw_event` (snake_case). Proxies that must
+  forward the exact wire spelling should read the value before calling
+  `fromJson` and re-attach it to the outbound payload manually, or
+  preserve the original byte stream instead of round-tripping through the
+  Dart event model.
+- **`AssistantMessage.toJson` emits `toolCalls: []` when the in-memory list
+  is non-null but empty.** The canonical TS/Python SDKs omit the key when the
+  list is empty. This ensures round-trip symmetry
+  (`fromJson(m.toJson()) == m`) but diverges from canonical wire output for
+  messages whose `toolCalls` field was decoded from an absent key. Consumers
+  producing wire output for external TS/Python clients should treat an empty
+  list and an absent key as equivalent.
 
 ## [0.2.0] - 2026-04-30
 

@@ -521,6 +521,80 @@ void main() {
             reason: 'RUN_FINISHED from chunk 4 must decode cleanly');
         expect(events[0], isA<RunFinishedEvent>());
       });
+
+      test(
+          '_scanLines: lone-CR at chunk end followed by CRLF at chunk start '
+          '(mixed-terminator producer transition)', () async {
+        // Regression for S3: producer emits the data line with a lone-CR
+        // terminator and the event boundary with CRLF, split across two chunks.
+        //
+        // chunk1: "data: <json>\r"
+        //   → the trailing \r is deferred (could be the \r of a CRLF pair).
+        // chunk2: "\r\n"
+        //   → chunk2[0] = \r (NOT \n) → deferred \r resolves as lone-CR,
+        //     emitting line "data: <json>".  The new \r is immediately
+        //     deferred.
+        //   → chunk2[1] = \n → deferred \r + \n = CRLF → produces empty
+        //     line → event dispatch.
+        //
+        // Expected: exactly one event, with no double-dispatch from
+        // the chunk-boundary \r being misread as part of the \r\n pair.
+        final rawController = StreamController<String>();
+        final eventStream = adapter.fromRawSseStream(rawController.stream);
+
+        final events = <BaseEvent>[];
+        final subscription = eventStream.listen(events.add);
+
+        rawController.add(
+          'data: {"type":"RUN_STARTED","threadId":"t1","runId":"r1"}\r',
+        );
+        rawController.add('\r\n');
+
+        await rawController.close();
+        await subscription.cancel();
+
+        expect(events.length, equals(1),
+            reason: 'lone-CR data-line + CRLF boundary split across chunks '
+                'must produce exactly one event');
+        expect(events[0], isA<RunStartedEvent>());
+      });
+
+      test(
+          '_scanLines: CRLF data-line in chunk1, lone-CR event-boundary in '
+          'chunk2 (mixed-terminator producer transition)', () async {
+        // Regression for S3: producer uses CRLF for the data line and a
+        // lone-CR for the blank-line event boundary, split across chunks.
+        //
+        // chunk1: "data: <json>\r\n"
+        //   → CRLF terminates the data line; "data: <json>" is appended
+        //     to the data buffer.
+        // chunk2: "\r"
+        //   → trailing \r deferred (could be start of CRLF).
+        // stream close:
+        //   → deferred \r flushed as lone-CR → produces empty line
+        //     → event dispatch.
+        //
+        // Expected: exactly one event, confirming that a deferred lone-CR
+        // left at stream close still triggers the event boundary flush.
+        final rawController = StreamController<String>();
+        final eventStream = adapter.fromRawSseStream(rawController.stream);
+
+        final events = <BaseEvent>[];
+        final subscription = eventStream.listen(events.add);
+
+        rawController.add(
+          'data: {"type":"RUN_STARTED","threadId":"t1","runId":"r1"}\r\n',
+        );
+        rawController.add('\r');
+
+        await rawController.close();
+        await subscription.cancel();
+
+        expect(events.length, equals(1),
+            reason: 'CRLF data-line + lone-CR boundary flushed at stream '
+                'close must produce exactly one event');
+        expect(events[0], isA<RunStartedEvent>());
+      });
     });
 
     group('filterByType', () {

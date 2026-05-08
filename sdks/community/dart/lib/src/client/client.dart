@@ -539,6 +539,9 @@ class AgUiClient {
           case UserMessage(:final content):
             Validators.validateMessageContent(content);
           case AssistantMessage(:final content):
+            // content is String? on AssistantMessage (all other subtypes have
+            // non-nullable content) — guard avoids passing null to
+            // validateMessageContent on valid assistant messages that omit it.
             if (content != null) Validators.validateMessageContent(content);
           case DeveloperMessage(:final content):
             Validators.validateMessageContent(content);

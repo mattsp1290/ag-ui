@@ -245,6 +245,12 @@ class EventStreamAdapter {
     // during dispatch), flushDataBlock throws StateError before state is
     // corrupted. Note this guard only covers the dispatch site inside
     // flushDataBlock, not the buffer-mutation path.
+    // IMPORTANT: single-subscription semantics assumed. The closure state
+    // below (buffer, dataBuffer, inDataBlock, lastWasLoneCr, errorRoutedInChunk,
+    // skipUntilBoundary) is created once per invocation for exactly one
+    // subscriber. Converting to a broadcast controller would require moving
+    // these locals into per-listener closures — the current design is
+    // incompatible with multiple concurrent subscribers.
     final controller = StreamController<BaseEvent>(sync: true);
     var inDispatch = false;
 
@@ -262,6 +268,11 @@ class EventStreamAdapter {
     // flag resets to false on every call, adding a full chunk-RTT of latency
     // per event. See Important #II2 (review-fix pass).
     var lastWasLoneCr = false;
+    // When a data-block size-cap error fires mid-message, skip all subsequent
+    // `data:` lines for that message until the next blank-line boundary. This
+    // prevents the tail of an oversized message (possibly in a later chunk)
+    // from silently leaking into the next message's buffer.
+    var skipUntilBoundary = false;
 
     // Append the value portion of a `data:` or `data: ` line to the
     // active data block. Lines that aren't `data:`-prefixed are silently
@@ -269,6 +280,7 @@ class EventStreamAdapter {
     // Closes over `dataBuffer` and `inDataBlock` so the per-line loop
     // and the `onDone` final flush share the same logic.
     void appendDataLine(String line) {
+      if (skipUntilBoundary) return; // skip tail of capped message
       String value;
       if (line.startsWith('data: ')) {
         value = line.substring(6);
@@ -282,10 +294,13 @@ class EventStreamAdapter {
       final addedLen = inDataBlock ? (1 + value.length) : value.length;
       if (dataBuffer.length + addedLen > maxDataCodeUnits) {
         // Clear state before throwing so partial data doesn't pollute the
-        // next frame. The thrown DecodingError is caught by processChunk's
-        // outer try/catch and routed via controller.addError.
+        // next frame. Set skipUntilBoundary so later chunks' continuation
+        // lines for this same message don't leak into the next message.
+        // The thrown DecodingError is caught by processChunk's outer
+        // try/catch and routed via controller.addError.
         dataBuffer.clear();
         inDataBlock = false;
+        skipUntilBoundary = true;
         throw DecodingError(
           'SSE data block exceeds $maxDataCodeUnits code units',
           field: 'data',
@@ -370,7 +385,8 @@ class EventStreamAdapter {
       if (buffer.length + chunk.length > maxDataCodeUnits) {
         buffer.clear();
         throw DecodingError(
-          'SSE input line exceeds $maxDataCodeUnits code units',
+          'SSE chunk combined with pending line buffer exceeds '
+          '$maxDataCodeUnits code units',
           field: 'chunk',
           expectedType: 'String',
         );
@@ -395,12 +411,17 @@ class EventStreamAdapter {
       for (final line in scan.lines) {
         if (line.isEmpty) {
           // Empty line signals end of SSE message — flush the data block.
-          // Reset per-frame (not per-chunk) so a later frame's flush error
-          // is not silently swallowed because an earlier frame in the same
-          // chunk already routed its own error and set this flag true.
+          // Reset both flags: skipUntilBoundary (new message can start) and
+          // errorRoutedInChunk (reset per-frame so a LATER frame's flush error
+          // in the same chunk is not swallowed by an earlier frame's flag).
+          skipUntilBoundary = false;
           errorRoutedInChunk = false;
           if (flushDataBlock()) errorRoutedInChunk = true;
         } else {
+          // Reset errorRoutedInChunk before appendDataLine: if a prior flush
+          // in this chunk already routed an error, a DISTINCT appendDataLine
+          // throw on this line must still reach the consumer — not be dropped.
+          errorRoutedInChunk = false;
           appendDataLine(line);
         }
       }
@@ -628,6 +649,20 @@ class EventStreamAdapter {
   /// phase-level markers with the messages they wrap should track the phase
   /// boundary in their own state, or subscribe to the typed event stream
   /// directly.
+  ///
+  /// **`TOOL_CALL_RESULT` events.** `ToolCallResultEvent` is emitted as a
+  /// standalone singleton (falls through to `default`). It is NOT grouped
+  /// with its sibling `TOOL_CALL_START` / `TOOL_CALL_ARGS` / `TOOL_CALL_END`
+  /// events — results arrive asynchronously via a separate protocol flow and
+  /// share no id-based linkage. Consumers that need to associate results with
+  /// their preceding call group should track by `toolCallId` in their own
+  /// state.
+  ///
+  /// **Orphan `*_End` events.** An `*_End` event that arrives with no
+  /// preceding `*_Start` (e.g. after a reconnect that missed the opening
+  /// event) is emitted as a standalone single-element group rather than
+  /// silently dropped, consistent with how orphan `*_Chunk` events are
+  /// handled.
   static Stream<List<BaseEvent>> groupRelatedEvents(
     Stream<BaseEvent> eventStream, {
     int maxOpenGroups = 0,
@@ -692,6 +727,8 @@ class EventStreamAdapter {
               if (group != null) {
                 group.add(event);
                 controller.add(group);
+              } else {
+                controller.add([event]); // orphan End — emit standalone
               }
             case ToolCallStartEvent(:final toolCallId):
               openGroup('tool:$toolCallId', event);
@@ -702,6 +739,8 @@ class EventStreamAdapter {
               if (group != null) {
                 group.add(event);
                 controller.add(group);
+              } else {
+                controller.add([event]); // orphan End — emit standalone
               }
             case ReasoningMessageStartEvent(:final messageId):
               openGroup('reasoning:$messageId', event);
@@ -712,6 +751,8 @@ class EventStreamAdapter {
               if (group != null) {
                 group.add(event);
                 controller.add(group);
+              } else {
+                controller.add([event]); // orphan End — emit standalone
               }
             case TextMessageChunkEvent(:final messageId):
               // Fold into the open text group when one exists; otherwise emit
@@ -753,8 +794,12 @@ class EventStreamAdapter {
         },
         onError: controller.addError,
         onDone: () {
-          // Emit any incomplete groups
-          for (final group in activeGroups.values) {
+          // Snapshot before iterating: a synchronous downstream cancel inside
+          // controller.add could re-enter onDone via controller.close and
+          // mutate activeGroups mid-iteration.
+          final snapshot = activeGroups.values.toList();
+          activeGroups.clear();
+          for (final group in snapshot) {
             if (group.isNotEmpty) {
               controller.add(group);
             }
@@ -784,12 +829,20 @@ class EventStreamAdapter {
   /// a dedicated sibling accumulator.
   ///
   /// Emits one [String] per logical message when its `TextMessageEnd` event
-  /// arrives. **On stream close:** any accumulated-but-not-ended message
+  /// arrives. Empty Start→End cycles (no content events between them) emit
+  /// nothing. **On stream close:** any accumulated-but-not-ended message
   /// buffers are flushed in `*Start` arrival order as a final [String],
   /// matching [groupRelatedEvents]' "emit incomplete groups on close"
   /// behavior. Empty buffers are not emitted. Consumers cannot distinguish
   /// between a normally-completed message and a flushed-on-close partial
   /// without observing the absence of `TextMessageEnd` upstream.
+  ///
+  /// **Chunk-before-Start ordering hazard.** A `TextMessageChunkEvent` that
+  /// arrives before its `TextMessageStartEvent` is emitted immediately as a
+  /// standalone fragment rather than buffered. If strict per-message
+  /// accumulation is required (all content in a single emission), pass the
+  /// stream through [groupRelatedEvents] first to ensure `*Chunk` events are
+  /// folded into their group before reaching this accumulator.
   static Stream<String> accumulateTextMessages(
     Stream<BaseEvent> eventStream, {
     int maxOpenGroups = 0,
@@ -838,7 +891,9 @@ class EventStreamAdapter {
               activeMessages[messageId]?.write(delta);
             case TextMessageEndEvent(:final messageId):
               final buffer = activeMessages.remove(messageId);
-              if (buffer != null) {
+              // Skip empty buffers (Start→End with no content) — consistent
+              // with the onDone flush which also drops empty buffers.
+              if (buffer != null && buffer.isNotEmpty) {
                 controller.add(buffer.toString());
               }
             case TextMessageChunkEvent(:final messageId, :final delta):
@@ -873,11 +928,14 @@ class EventStreamAdapter {
           // Emit accumulated content for messages that never received
           // TextMessageEnd (e.g. abnormal stream close). Mirrors
           // groupRelatedEvents which emits incomplete groups on close.
-          for (final entry in activeMessages.entries) {
+          // Snapshot before iterating: a synchronous downstream cancel inside
+          // controller.add could mutate activeMessages mid-iteration.
+          final snapshot = activeMessages.entries.toList();
+          activeMessages.clear();
+          for (final entry in snapshot) {
             final content = entry.value.toString();
             if (content.isNotEmpty) controller.add(content);
           }
-          activeMessages.clear();
           controller.close();
         },
         cancelOnError: false,

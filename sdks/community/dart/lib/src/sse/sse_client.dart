@@ -35,7 +35,16 @@ class SseClient {
     BackoffStrategy? backoffStrategy,
   })  : _httpClient = httpClient ?? http.Client(),
         _idleTimeout = idleTimeout,
-        _backoffStrategy = backoffStrategy ?? LegacyBackoffStrategy();
+        _backoffStrategy = backoffStrategy ?? LegacyBackoffStrategy() {
+    if (idleTimeout <= Duration.zero) {
+      throw ArgumentError.value(
+        idleTimeout,
+        'idleTimeout',
+        'idleTimeout must be positive; zero or negative values trigger an '
+            'immediate reconnect storm',
+      );
+    }
+  }
 
   /// Connect to an SSE endpoint and return a stream of messages.
   /// 

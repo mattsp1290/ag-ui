@@ -140,6 +140,16 @@ class SseParser {
         // concatenated repeated `event:` lines within a single dispatch
         // block — spec-non-compliant and divergent from the canonical
         // SDKs.
+        // Defense-in-depth cap: a single oversized `event:` line cannot
+        // allocate unbounded memory before the dispatch blank line arrives.
+        // The cap mirrors the `data:` path in the same method.
+        if (value.length > maxDataCodeUnits) {
+          _resetBuffers();
+          throw FormatException(
+            'SSE event field exceeds $maxDataCodeUnits-code-unit limit '
+            '(${value.length} code units)',
+          );
+        }
         _eventBuffer
           ..clear()
           ..write(value);

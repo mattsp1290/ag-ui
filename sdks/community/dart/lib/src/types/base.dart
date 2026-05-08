@@ -332,7 +332,6 @@ class JsonDecoder {
   ) {
     if (!json.containsKey(field) || json[field] == null) return null;
     final value = json[field];
-    if (value is int) return value;
     if (value is num) {
       if (value.isNaN || value.isInfinite) {
         throw AGUIValidationError(
@@ -342,9 +341,10 @@ class JsonDecoder {
           json: json,
         );
       }
-      // Guard against silent precision loss on Dart-on-JS where `int` is
-      // double-backed and integers above 2^53 lose precision silently.
-      // 2^53 is the largest integer exactly representable as a 64-bit double.
+      // Guard BEFORE the `is int` fast-return: on Dart-on-JS, `1.0 is int` is
+      // true, so without this ordering the 2^53 check would be bypassed for
+      // any double-valued integer. 2^53 is the largest integer exactly
+      // representable as a 64-bit double.
       const maxSafeInt = 9007199254740992; // 2^53
       if (value > maxSafeInt || value < -maxSafeInt) {
         throw AGUIValidationError(
@@ -354,6 +354,7 @@ class JsonDecoder {
           json: json,
         );
       }
+      if (value is int) return value;
       return value.floor();
     }
     throw AGUIValidationError(

@@ -393,6 +393,64 @@ void main() {
 
         await rawController.close();
       });
+
+      test('CRLF split where second chunk is exactly "\\n" (deferral edge case)',
+          () async {
+        // Regression for Opus2 I7: when chunk 1 ends with a bare \r (deferred
+        // — could be the \r of a CRLF pair), and chunk 2 is exactly "\n", the
+        // \r+\n must be treated as a single CRLF terminator and produce exactly
+        // ONE empty line (one flush), not two.
+        //
+        // Without the deferral fix, chunk1's \r would emit a line AND chunk2's
+        // \n would emit another empty line, causing double-dispatch.
+        final rawController = StreamController<String>();
+        final eventStream = adapter.fromRawSseStream(rawController.stream);
+
+        final events = <BaseEvent>[];
+        final subscription = eventStream.listen(events.add);
+
+        // Chunk 1: data line terminated by \r (deferred — may be CRLF start)
+        rawController.add(
+          'data: {"type":"RUN_STARTED","threadId":"t1","runId":"r1"}\r',
+        );
+        // Chunk 2: exactly "\n" — the CRLF complement; must NOT produce a
+        // second empty line
+        rawController.add('\n');
+
+        await rawController.close();
+        await subscription.cancel();
+
+        expect(events.length, equals(1),
+            reason: '\\r\\n split across chunks must produce exactly one flush');
+        expect(events[0], isA<RunStartedEvent>());
+      });
+
+      test('two distinct JSON decode errors in one chunk both reach the consumer',
+          () async {
+        // Regression for Opus2 I1: within a single chunk, the per-frame reset
+        // of errorRoutedInChunk (reset before EACH empty-line flush) ensures
+        // that a second JSON decode error is never suppressed by the first.
+        // Both errors must reach the downstream consumer.
+        final rawController = StreamController<String>();
+        final eventStream = adapter.fromRawSseStream(rawController.stream);
+
+        final errors = <Object>[];
+        final subscription = eventStream.listen(
+          (_) {},
+          onError: errors.add,
+        );
+
+        // Single chunk with two complete SSE messages, both with invalid JSON.
+        rawController.add('data: not-json-1\n\ndata: not-json-2\n\n');
+
+        await Future<void>.delayed(Duration.zero);
+        await subscription.cancel();
+        await rawController.close();
+
+        expect(errors.length, equals(2),
+            reason: 'both decode errors must reach the consumer; '
+                'errorRoutedInChunk must be reset before each new frame');
+      });
     });
 
     group('filterByType', () {
@@ -702,6 +760,35 @@ void main() {
         expect(groups[0].length, equals(1));
         expect(groups[0][0], isA<ReasoningMessageChunkEvent>());
       });
+
+      test('orphan *_End events are emitted as standalone groups (I3 fix)', () async {
+        // Regression for Opus2 I3: a *_End event with no matching *_Start
+        // (e.g. after a reconnect that missed the opening event) was silently
+        // dropped. It must now be emitted as a standalone single-element group,
+        // consistent with how orphan *_Chunk events are handled.
+        final controller = StreamController<BaseEvent>();
+        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
+
+        final groups = <List<BaseEvent>>[];
+        final subscription = grouped.listen(groups.add);
+
+        // Orphan End events — no preceding Start
+        controller.add(TextMessageEndEvent(messageId: 'no-start-text'));
+        controller.add(ToolCallEndEvent(toolCallId: 'no-start-tool'));
+        controller.add(ReasoningMessageEndEvent(messageId: 'no-start-reasoning'));
+
+        await controller.close();
+        await subscription.cancel();
+
+        expect(groups.length, equals(3),
+            reason: 'each orphan *_End must emit as a standalone group');
+        expect(groups[0].length, equals(1));
+        expect(groups[0][0], isA<TextMessageEndEvent>());
+        expect(groups[1].length, equals(1));
+        expect(groups[1][0], isA<ToolCallEndEvent>());
+        expect(groups[2].length, equals(1));
+        expect(groups[2][0], isA<ReasoningMessageEndEvent>());
+      });
     });
 
     group('accumulateTextMessages', () {
@@ -807,7 +894,10 @@ void main() {
         expect(messages[0], equals('Test'));
       });
 
-      test('handles empty content', () async {
+      test('Start→End with no content emits nothing (S11 fix)', () async {
+        // Regression for Opus2 S11: empty Start→End cycles previously emitted
+        // an empty string. Now they are skipped — consistent with the onDone
+        // flush which already drops empty buffers.
         final controller = StreamController<BaseEvent>();
         final accumulated = EventStreamAdapter.accumulateTextMessages(
           controller.stream,
@@ -816,15 +906,14 @@ void main() {
         final messages = <String>[];
         final subscription = accumulated.listen(messages.add);
 
-        // Message with no content events
         controller.add(TextMessageStartEvent(messageId: 'msg1'));
         controller.add(TextMessageEndEvent(messageId: 'msg1'));
 
         await controller.close();
         await subscription.cancel();
 
-        expect(messages.length, equals(1));
-        expect(messages[0], equals(''));
+        expect(messages.length, equals(0),
+            reason: 'empty Start→End cycle must not emit an empty string');
       });
 
       test('flushes partial content on stream close without TextMessageEnd', () async {

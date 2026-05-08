@@ -1215,6 +1215,14 @@ final class StateDeltaEvent extends BaseEvent {
 }
 
 /// Event containing a snapshot of messages
+/// **Sensitive-data warning.** [rawEvent] is automatically cleared (set to
+/// `null`) when any inner [ReasoningMessage] carries an [encryptedValue]
+/// payload. This prevents the verbatim wire map — which includes the cipher
+/// data — from leaking through [BaseEvent.rawEvent] to log sinks or
+/// reflection-based serializers. Proxy operators that need the verbatim wire
+/// form should keep their own copy of the raw JSON before calling [fromJson].
+/// See [ReasoningEncryptedValueEvent.fromJson] for the same pattern on
+/// individual cipher events.
 final class MessagesSnapshotEvent extends BaseEvent {
   final List<Message> messages;
 
@@ -1256,13 +1264,19 @@ final class MessagesSnapshotEvent extends BaseEvent {
         );
       }
     }
+    // Auto-scrub rawEvent when any inner message carries cipher data. Storing
+    // the verbatim wire map in rawEvent would undo the cipher scrubbing that
+    // the ReasoningMessage factory already applied to the structured field.
+    // Proxies that need the verbatim wire form should keep their own copy of
+    // the raw JSON before calling fromJson.
+    // ActivityMessage.encryptedValue throws UnsupportedError by design —
+    // exclude it from the cipher check. All other subtypes inherit the field.
+    final hasCipher = messages
+        .any((m) => m is! ActivityMessage && m.encryptedValue != null);
     return MessagesSnapshotEvent(
       messages: messages,
       timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
-      // rawEvent is preserved verbatim and may duplicate cipher data
-      // already present in inner ReasoningMessages. Proxy operators should
-      // drop rawEvent before forwarding to log sinks.
-      rawEvent: _readRawEvent(json),
+      rawEvent: hasCipher ? null : _readRawEvent(json),
     );
   }
 
@@ -2264,6 +2278,55 @@ final class ReasoningEndEvent extends BaseEvent {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Cipher-safe field extraction helper
+// ---------------------------------------------------------------------------
+
+/// Extracts a required [String] field without including [json] in any thrown
+/// [AGUIValidationError] — use only for cipher-data payloads where forwarding
+/// the raw map through log-shippers or reflection-based serializers would leak
+/// sensitive data.
+///
+/// [camelKey] is tried first (camelCase-wins precedence matching
+/// [JsonDecoder.requireEitherField]). [snakeKey], if given, is the fallback.
+String _requireCipherSafeString(
+  Map<String, dynamic> json,
+  String camelKey, [
+  String? snakeKey,
+]) {
+  final bool present = json.containsKey(camelKey) ||
+      (snakeKey != null && json.containsKey(snakeKey));
+  final rawValue =
+      json.containsKey(camelKey) ? json[camelKey] : json[snakeKey];
+
+  if (!present) {
+    throw AGUIValidationError(
+      message: snakeKey != null
+          ? 'Missing required field "$camelKey" (or "$snakeKey")'
+          : 'Missing required field "$camelKey"',
+      field: camelKey,
+      // Intentionally omit json: — payload contains cipher data.
+    );
+  }
+  if (rawValue == null) {
+    throw AGUIValidationError(
+      message: 'Field "$camelKey" must not be null',
+      field: camelKey,
+      // Intentionally omit json: — payload contains cipher data.
+    );
+  }
+  if (rawValue is! String) {
+    throw AGUIValidationError(
+      message:
+          'Field "$camelKey" has incorrect type. Expected String, got ${rawValue.runtimeType}',
+      field: camelKey,
+      value: rawValue,
+      // Intentionally omit json: — payload contains cipher data.
+    );
+  }
+  return rawValue;
+}
+
 /// Event containing an encrypted value for a message or tool call.
 ///
 /// Forward-compat note: a future server-side [subtype] value will cause
@@ -2288,35 +2351,12 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
   }) : super(eventType: EventType.reasoningEncryptedValue);
 
   factory ReasoningEncryptedValueEvent.fromJson(Map<String, dynamic> json) {
-    // All three required fields on this event use manual presence/type checks
-    // rather than `requireField`/`requireEitherField` so that every error path
-    // can intentionally omit `json:` — the payload contains cipher data and
-    // forwarding the full wire map to `AGUIValidationError.json` would leak it
-    // through reflection-based error serializers and log shippers.
-    if (!json.containsKey('subtype')) {
-      throw AGUIValidationError(
-        message: 'Missing required field "subtype"',
-        field: 'subtype',
-        // Intentionally omit json: — payload contains cipher data.
-      );
-    }
-    if (json['subtype'] == null) {
-      throw AGUIValidationError(
-        message: 'Field "subtype" must not be null',
-        field: 'subtype',
-        // Intentionally omit json: — payload contains cipher data.
-      );
-    }
-    final subtypeRaw = json['subtype'];
-    if (subtypeRaw is! String) {
-      throw AGUIValidationError(
-        message:
-            'Field "subtype" has incorrect type. Expected String, got ${subtypeRaw.runtimeType}',
-        field: 'subtype',
-        value: subtypeRaw,
-        // Intentionally omit json: — payload contains cipher data.
-      );
-    }
+    // All three required fields use [_requireCipherSafeString] rather than
+    // `requireField`/`requireEitherField` so that every error path omits
+    // `json:` — the payload contains cipher data and forwarding the full wire
+    // map to `AGUIValidationError.json` would leak it through reflection-based
+    // error serializers and log shippers. See [_requireCipherSafeString].
+    final subtypeRaw = _requireCipherSafeString(json, 'subtype');
     final ReasoningEncryptedValueSubtype subtype;
     try {
       subtype = ReasoningEncryptedValueSubtype.fromString(subtypeRaw);
@@ -2334,80 +2374,24 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
       );
     }
 
-    // `entityId` — prefer camelCase per requireEitherField contract.
-    final bool entityIdPresent =
-        json.containsKey('entityId') || json.containsKey('entity_id');
-    final entityIdRaw =
-        json.containsKey('entityId') ? json['entityId'] : json['entity_id'];
-    if (!entityIdPresent) {
-      throw AGUIValidationError(
-        message: 'Missing required field "entityId" (or "entity_id")',
-        field: 'entityId',
-        // Intentionally omit json: — payload contains cipher data.
-      );
-    }
-    if (entityIdRaw == null) {
-      throw AGUIValidationError(
-        message: 'Field "entityId" must not be null',
-        field: 'entityId',
-        // Intentionally omit json: — payload contains cipher data.
-      );
-    }
-    if (entityIdRaw is! String) {
-      throw AGUIValidationError(
-        message:
-            'Field "entityId" has incorrect type. Expected String, got ${entityIdRaw.runtimeType}',
-        field: 'entityId',
-        value: entityIdRaw,
-        // Intentionally omit json: — payload contains cipher data.
-      );
-    }
-
-    // `encryptedValue` — prefer camelCase per requireEitherField contract.
-    final bool encryptedValuePresent = json.containsKey('encryptedValue') ||
-        json.containsKey('encrypted_value');
-    final encryptedValueRaw = json.containsKey('encryptedValue')
-        ? json['encryptedValue']
-        : json['encrypted_value'];
-    if (!encryptedValuePresent) {
-      throw AGUIValidationError(
-        message:
-            'Missing required field "encryptedValue" (or "encrypted_value")',
-        field: 'encryptedValue',
-        // Intentionally omit json: — payload contains cipher data.
-      );
-    }
-    if (encryptedValueRaw == null) {
-      throw AGUIValidationError(
-        message: 'Field "encryptedValue" must not be null',
-        field: 'encryptedValue',
-        // Intentionally omit json: — payload contains cipher data.
-      );
-    }
-    if (encryptedValueRaw is! String) {
-      throw AGUIValidationError(
-        message:
-            'Field "encryptedValue" has incorrect type. Expected String, got ${encryptedValueRaw.runtimeType}',
-        field: 'encryptedValue',
-        value: encryptedValueRaw,
-        // Intentionally omit json: — payload contains cipher data.
-      );
-    }
-
     // entityId and encryptedValue are accepted as plain strings (including
     // empty) to match canonical schemas: TS `z.string()` and Python `str`
     // (no `min_length`). The strict subtype discriminator above stays —
     // unknown subtypes still throw.
-    //
-    // rawEvent is explicitly set to null here — unlike every other factory
-    // in this file, forwarding _readRawEvent(json) would store the full
-    // cipher payload in BaseEvent.rawEvent, undoing the cipher-data scrubbing
-    // in every error path above. Proxies that need the raw wire form should
-    // maintain their own copy before calling fromJson.
+    final entityId =
+        _requireCipherSafeString(json, 'entityId', 'entity_id');
+    final encryptedValue =
+        _requireCipherSafeString(json, 'encryptedValue', 'encrypted_value');
+
+    // rawEvent is explicitly set to null — unlike every other factory in this
+    // file, forwarding _readRawEvent(json) would store the full cipher payload
+    // in BaseEvent.rawEvent, undoing all the cipher-data scrubbing above.
+    // Proxies that need the raw wire form should maintain their own copy before
+    // calling fromJson.
     return ReasoningEncryptedValueEvent(
       subtype: subtype,
-      entityId: entityIdRaw,
-      encryptedValue: encryptedValueRaw,
+      entityId: entityId,
+      encryptedValue: encryptedValue,
       timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: null,
     );

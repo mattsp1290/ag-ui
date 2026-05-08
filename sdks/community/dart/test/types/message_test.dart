@@ -220,11 +220,11 @@ void main() {
         expect(msg.toJson().containsKey('encryptedValue'), isFalse);
       });
 
-      test('II3 regression: name and encryptedValue are always null on ActivityMessage', () {
+      test('II3 regression: name is always null; encryptedValue throws UnsupportedError on ActivityMessage', () {
         // ActivityMessage is NOT a BaseMessage extension — cipher-payload
-        // forwarding does not apply. The parent Message fields `name` and
-        // `encryptedValue` are always null on instances constructed via the
-        // public constructor or fromJson, and toJson never emits them.
+        // forwarding does not apply. `name` is always null; `encryptedValue`
+        // is unsupported (throws UnsupportedError to make accidental reads
+        // loud). toJson never emits either field.
         final direct = ActivityMessage(
           id: 'act_007',
           activityType: 'task.run',
@@ -232,8 +232,13 @@ void main() {
         );
         expect(direct.name, isNull,
             reason: 'name must be null on ActivityMessage');
-        expect(direct.encryptedValue, isNull,
-            reason: 'encryptedValue must be null on ActivityMessage');
+        // Regression for Opus2 I2: encryptedValue.getter throws UnsupportedError
+        // rather than silently returning null — makes accidental reads detectable.
+        expect(
+          () => direct.encryptedValue,
+          throwsA(isA<UnsupportedError>()),
+          reason: 'encryptedValue must throw UnsupportedError on ActivityMessage',
+        );
         expect(direct.toJson().containsKey('name'), isFalse);
         expect(direct.toJson().containsKey('encryptedValue'), isFalse);
 
@@ -247,7 +252,10 @@ void main() {
           'encryptedValue': 'should_be_stripped',
         });
         expect(fromJson.name, isNull);
-        expect(fromJson.encryptedValue, isNull);
+        expect(
+          () => fromJson.encryptedValue,
+          throwsA(isA<UnsupportedError>()),
+        );
         expect(fromJson.toJson().containsKey('name'), isFalse);
         expect(fromJson.toJson().containsKey('encryptedValue'), isFalse);
       });

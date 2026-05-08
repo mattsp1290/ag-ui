@@ -581,6 +581,24 @@ final class ActivityMessage extends Message {
     required this.activityContent,
   }) : super(role: MessageRole.activity);
 
+  /// Accessing [encryptedValue] on [ActivityMessage] is always an error.
+  ///
+  /// [ActivityMessage] is NOT a `BaseMessage` extension in the AG-UI protocol
+  /// (unlike Developer/System/Assistant/User/Tool messages). The field is
+  /// inherited from [Message] for sealed-class hierarchy reasons only; it has
+  /// no meaning here. [fromJson] strips any inbound `encryptedValue` silently.
+  ///
+  /// Code that accesses [encryptedValue] on a polymorphic [Message] reference
+  /// will receive `null` for BaseMessage subtypes that have it unset, but
+  /// [UnsupportedError] here — making accidental reads loud rather than silent.
+  @override
+  String? get encryptedValue => throw UnsupportedError(
+        'ActivityMessage.encryptedValue is not supported. '
+        'ActivityMessage is not a BaseMessage extension; '
+        'cipher-payload forwarding does not apply. '
+        'See the class-level dartdoc for details.',
+      );
+
   factory ActivityMessage.fromJson(Map<String, dynamic> json) {
     // `ActivityMessage` is NOT a `BaseMessage` extension in the canonical
     // protocol — cipher-payload forwarding does not apply. Strip any inbound

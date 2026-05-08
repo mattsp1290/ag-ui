@@ -70,9 +70,9 @@ enum EventType {
   final String value;
   const EventType(this.value);
 
-  static final Map<String, EventType> _byValue = {
+  static final Map<String, EventType> _byValue = Map.unmodifiable({
     for (final t in EventType.values) t.value: t,
-  };
+  });
 
   /// Parses [value] into an [EventType].
   ///

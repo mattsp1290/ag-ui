@@ -23,7 +23,8 @@ void main() {
         'Test message',
         cause: cause,
       );
-      expect(error.toString(), contains('Caused by: Exception: Original error'));
+      expect(
+          error.toString(), contains('Caused by: Exception: Original error'));
     });
   });
 
@@ -34,7 +35,8 @@ void main() {
         endpoint: 'https://api.example.com/runs',
         statusCode: 500,
       );
-      expect(error.toString(), contains('endpoint: https://api.example.com/runs'));
+      expect(
+          error.toString(), contains('endpoint: https://api.example.com/runs'));
       expect(error.toString(), contains('status: 500'));
     });
 
@@ -151,7 +153,8 @@ void main() {
       );
       expect(error.toString(), contains('rule: run-lifecycle'));
       expect(error.toString(), contains('state: idle'));
-      expect(error.toString(), contains('expected: RUN_STARTED before other events'));
+      expect(error.toString(),
+          contains('expected: RUN_STARTED before other events'));
     });
   });
 

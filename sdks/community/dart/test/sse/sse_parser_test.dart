@@ -291,7 +291,12 @@ void main() {
 
       test('removes BOM if present', () async {
         // UTF-8 BOM + data
-        final bytesWithBom = [0xEF, 0xBB, 0xBF, ...utf8.encode('data: test\n\n')];
+        final bytesWithBom = [
+          0xEF,
+          0xBB,
+          0xBF,
+          ...utf8.encode('data: test\n\n')
+        ];
         final stream = Stream.value(bytesWithBom);
 
         final messages = await parser.parseBytes(stream).toList();
@@ -317,7 +322,7 @@ void main() {
         // Test with \r\n (CRLF)
         final crlfBytes = utf8.encode('data: line1\r\ndata: line2\r\n\r\n');
         final crlfStream = Stream.value(crlfBytes);
-        
+
         final crlfMessages = await parser.parseBytes(crlfStream).toList();
         expect(crlfMessages.length, 1);
         expect(crlfMessages[0].data, 'line1\nline2');
@@ -328,7 +333,7 @@ void main() {
         // Test with \n (LF)
         final lfBytes = utf8.encode('data: line1\ndata: line2\n\n');
         final lfStream = Stream.value(lfBytes);
-        
+
         final lfMessages = await parser.parseBytes(lfStream).toList();
         expect(lfMessages.length, 1);
         expect(lfMessages[0].data, 'line1\nline2');
@@ -367,7 +372,8 @@ void main() {
 
         expect(messages[1].event, 'message');
         expect(messages[1].id, 'evt-002');
-        expect(messages[1].data, '{"from": "alice",\n "text": "Hello, world!",\n "timestamp": 1234567891}');
+        expect(messages[1].data,
+            '{"from": "alice",\n "text": "Hello, world!",\n "timestamp": 1234567891}');
 
         expect(messages[2].event, isNull);
         expect(messages[2].id, 'evt-002'); // Preserved from previous

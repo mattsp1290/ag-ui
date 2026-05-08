@@ -234,10 +234,10 @@ sealed class BaseEvent extends AGUIModel with TypeDiscriminator {
 
   @override
   Map<String, dynamic> toJson() => {
-    'type': eventType.value,
-    if (timestamp != null) 'timestamp': timestamp,
-    if (rawEvent != null) 'rawEvent': rawEvent,
-  };
+        'type': eventType.value,
+        if (timestamp != null) 'timestamp': timestamp,
+        if (rawEvent != null) 'rawEvent': rawEvent,
+      };
 }
 
 /// Text message roles that can be used in text message events.
@@ -326,11 +326,11 @@ final class TextMessageStartEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'messageId': messageId,
-    'role': role.value,
-    if (name != null) 'name': name,
-  };
+        ...super.toJson(),
+        'messageId': messageId,
+        'role': role.value,
+        if (name != null) 'name': name,
+      };
 
   // See `_Unset` (top of file) for the sentinel rationale.
   @override
@@ -388,10 +388,10 @@ final class TextMessageContentEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'messageId': messageId,
-    'delta': delta,
-  };
+        ...super.toJson(),
+        'messageId': messageId,
+        'delta': delta,
+      };
 
   @override
   TextMessageContentEvent copyWith({
@@ -433,9 +433,9 @@ final class TextMessageEndEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'messageId': messageId,
-  };
+        ...super.toJson(),
+        'messageId': messageId,
+      };
 
   @override
   TextMessageEndEvent copyWith({
@@ -497,12 +497,12 @@ final class TextMessageChunkEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    if (messageId != null) 'messageId': messageId,
-    if (role != null) 'role': role!.value,
-    if (delta != null) 'delta': delta,
-    if (name != null) 'name': name,
-  };
+        ...super.toJson(),
+        if (messageId != null) 'messageId': messageId,
+        if (role != null) 'role': role!.value,
+        if (delta != null) 'delta': delta,
+        if (name != null) 'name': name,
+      };
 
   // See `_Unset` (top of file) for the sentinel rationale.
   @override
@@ -521,8 +521,7 @@ final class TextMessageChunkEvent extends BaseEvent {
       role: identical(role, kUnsetSentinel)
           ? this.role
           : role as TextMessageRole?,
-      delta:
-          identical(delta, kUnsetSentinel) ? this.delta : delta as String?,
+      delta: identical(delta, kUnsetSentinel) ? this.delta : delta as String?,
       name: identical(name, kUnsetSentinel) ? this.name : name as String?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
@@ -554,9 +553,9 @@ final class ThinkingStartEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    if (title != null) 'title': title,
-  };
+        ...super.toJson(),
+        if (title != null) 'title': title,
+      };
 
   @override
   ThinkingStartEvent copyWith({
@@ -601,9 +600,9 @@ final class ThinkingContentEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'delta': delta,
-  };
+        ...super.toJson(),
+        'delta': delta,
+      };
 
   @override
   ThinkingContentEvent copyWith({
@@ -710,9 +709,9 @@ final class ThinkingTextMessageContentEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'delta': delta,
-  };
+        ...super.toJson(),
+        'delta': delta,
+      };
 
   @override
   ThinkingTextMessageContentEvent copyWith({
@@ -804,11 +803,11 @@ final class ToolCallStartEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'toolCallId': toolCallId,
-    'toolCallName': toolCallName,
-    if (parentMessageId != null) 'parentMessageId': parentMessageId,
-  };
+        ...super.toJson(),
+        'toolCallId': toolCallId,
+        'toolCallName': toolCallName,
+        if (parentMessageId != null) 'parentMessageId': parentMessageId,
+      };
 
   // See `_Unset` (top of file) for the sentinel rationale.
   @override
@@ -862,10 +861,10 @@ final class ToolCallArgsEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'toolCallId': toolCallId,
-    'delta': delta,
-  };
+        ...super.toJson(),
+        'toolCallId': toolCallId,
+        'delta': delta,
+      };
 
   @override
   ToolCallArgsEvent copyWith({
@@ -907,9 +906,9 @@ final class ToolCallEndEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'toolCallId': toolCallId,
-  };
+        ...super.toJson(),
+        'toolCallId': toolCallId,
+      };
 
   @override
   ToolCallEndEvent copyWith({
@@ -966,12 +965,12 @@ final class ToolCallChunkEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    if (toolCallId != null) 'toolCallId': toolCallId,
-    if (toolCallName != null) 'toolCallName': toolCallName,
-    if (parentMessageId != null) 'parentMessageId': parentMessageId,
-    if (delta != null) 'delta': delta,
-  };
+        ...super.toJson(),
+        if (toolCallId != null) 'toolCallId': toolCallId,
+        if (toolCallName != null) 'toolCallName': toolCallName,
+        if (parentMessageId != null) 'parentMessageId': parentMessageId,
+        if (delta != null) 'delta': delta,
+      };
 
   // See `_Unset` (top of file) for the sentinel rationale.
   @override
@@ -993,8 +992,7 @@ final class ToolCallChunkEvent extends BaseEvent {
       parentMessageId: identical(parentMessageId, kUnsetSentinel)
           ? this.parentMessageId
           : parentMessageId as String?,
-      delta:
-          identical(delta, kUnsetSentinel) ? this.delta : delta as String?,
+      delta: identical(delta, kUnsetSentinel) ? this.delta : delta as String?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -1088,12 +1086,12 @@ final class ToolCallResultEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'messageId': messageId,
-    'toolCallId': toolCallId,
-    'content': content,
-    if (role != null) 'role': role!.value,
-  };
+        ...super.toJson(),
+        'messageId': messageId,
+        'toolCallId': toolCallId,
+        'content': content,
+        if (role != null) 'role': role!.value,
+      };
 
   @override
   ToolCallResultEvent copyWith({
@@ -1108,7 +1106,9 @@ final class ToolCallResultEvent extends BaseEvent {
       messageId: messageId ?? this.messageId,
       toolCallId: toolCallId ?? this.toolCallId,
       content: content ?? this.content,
-      role: identical(role, kUnsetSentinel) ? this.role : role as ToolCallResultRole?,
+      role: identical(role, kUnsetSentinel)
+          ? this.role
+          : role as ToolCallResultRole?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -1154,9 +1154,9 @@ final class StateSnapshotEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'snapshot': snapshot,
-  };
+        ...super.toJson(),
+        'snapshot': snapshot,
+      };
 
   @override
   StateSnapshotEvent copyWith({
@@ -1196,9 +1196,9 @@ final class StateDeltaEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'delta': delta,
-  };
+        ...super.toJson(),
+        'delta': delta,
+      };
 
   @override
   StateDeltaEvent copyWith({
@@ -1271,8 +1271,8 @@ final class MessagesSnapshotEvent extends BaseEvent {
     // the raw JSON before calling fromJson.
     // ActivityMessage.encryptedValue throws UnsupportedError by design —
     // exclude it from the cipher check. All other subtypes inherit the field.
-    final hasCipher = messages
-        .any((m) => m is! ActivityMessage && m.encryptedValue != null);
+    final hasCipher =
+        messages.any((m) => m is! ActivityMessage && m.encryptedValue != null);
     return MessagesSnapshotEvent(
       messages: messages,
       timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
@@ -1282,20 +1282,34 @@ final class MessagesSnapshotEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'messages': messages.map((m) => m.toJson()).toList(),
-  };
+        ...super.toJson(),
+        'messages': messages.map((m) => m.toJson()).toList(),
+      };
 
   @override
   MessagesSnapshotEvent copyWith({
     List<Message>? messages,
     int? timestamp,
-    dynamic rawEvent,
+    Object? rawEvent = kUnsetSentinel,
   }) {
+    final newMessages = messages ?? this.messages;
+    // Re-apply the fromJson cipher-scrub invariant: if any message in the
+    // (possibly updated) list carries cipher data, force rawEvent to null so
+    // the wire map cannot be reattached and expose encrypted content.
+    final hasCipher = newMessages
+        .any((m) => m is! ActivityMessage && m.encryptedValue != null);
+    final dynamic resolvedRaw;
+    if (hasCipher) {
+      resolvedRaw = null;
+    } else if (identical(rawEvent, kUnsetSentinel)) {
+      resolvedRaw = this.rawEvent;
+    } else {
+      resolvedRaw = rawEvent;
+    }
     return MessagesSnapshotEvent(
-      messages: messages ?? this.messages,
+      messages: newMessages,
       timestamp: timestamp ?? this.timestamp,
-      rawEvent: rawEvent ?? this.rawEvent,
+      rawEvent: resolvedRaw,
     );
   }
 }
@@ -1375,14 +1389,14 @@ final class ActivitySnapshotEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'messageId': messageId,
-    'activityType': activityType,
-    'content': content,
-    // Always emitted, even when default `true`; see class dartdoc for the
-    // round-trip rationale and the `event_test.dart` assertion that pins it.
-    'replace': replace,
-  };
+        ...super.toJson(),
+        'messageId': messageId,
+        'activityType': activityType,
+        'content': content,
+        // Always emitted, even when default `true`; see class dartdoc for the
+        // round-trip rationale and the `event_test.dart` assertion that pins it.
+        'replace': replace,
+      };
 
   // See `_Unset` (top of file) for the sentinel rationale.
   @override
@@ -1442,11 +1456,11 @@ final class ActivityDeltaEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'messageId': messageId,
-    'activityType': activityType,
-    'patch': patch,
-  };
+        ...super.toJson(),
+        'messageId': messageId,
+        'activityType': activityType,
+        'patch': patch,
+      };
 
   @override
   ActivityDeltaEvent copyWith({
@@ -1509,10 +1523,10 @@ final class RawEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'event': event,
-    if (source != null) 'source': source,
-  };
+        ...super.toJson(),
+        'event': event,
+        if (source != null) 'source': source,
+      };
 
   // See `_Unset` (top of file) for the sentinel rationale. Both `event`
   // and `source` are nullable on the wire, so callers need explicit-clear
@@ -1526,9 +1540,8 @@ final class RawEvent extends BaseEvent {
   }) {
     return RawEvent(
       event: identical(event, kUnsetSentinel) ? this.event : event,
-      source: identical(source, kUnsetSentinel)
-          ? this.source
-          : source as String?,
+      source:
+          identical(source, kUnsetSentinel) ? this.source : source as String?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -1568,10 +1581,10 @@ final class CustomEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'name': name,
-    'value': value,
-  };
+        ...super.toJson(),
+        'name': name,
+        'value': value,
+      };
 
   // See `_Unset` (top of file) for the sentinel rationale.
   @override
@@ -1661,12 +1674,12 @@ final class RunStartedEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'threadId': threadId,
-    'runId': runId,
-    if (parentRunId != null) 'parentRunId': parentRunId,
-    if (input != null) 'input': input!.toJson(),
-  };
+        ...super.toJson(),
+        'threadId': threadId,
+        'runId': runId,
+        if (parentRunId != null) 'parentRunId': parentRunId,
+        if (input != null) 'input': input!.toJson(),
+      };
 
   // See `_Unset` (top of file) for the sentinel rationale.
   @override
@@ -1747,11 +1760,11 @@ final class RunFinishedEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'threadId': threadId,
-    'runId': runId,
-    if (result != null) 'result': result,
-  };
+        ...super.toJson(),
+        'threadId': threadId,
+        'runId': runId,
+        if (result != null) 'result': result,
+      };
 
   // See `_Unset` (top of file) for the sentinel rationale.
   @override
@@ -1797,10 +1810,10 @@ final class RunErrorEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'message': message,
-    if (code != null) 'code': code,
-  };
+        ...super.toJson(),
+        'message': message,
+        if (code != null) 'code': code,
+      };
 
   @override
   RunErrorEvent copyWith({
@@ -1842,9 +1855,9 @@ final class StepStartedEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'stepName': stepName,
-  };
+        ...super.toJson(),
+        'stepName': stepName,
+      };
 
   @override
   StepStartedEvent copyWith({
@@ -1884,9 +1897,9 @@ final class StepFinishedEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'stepName': stepName,
-  };
+        ...super.toJson(),
+        'stepName': stepName,
+      };
 
   @override
   StepFinishedEvent copyWith({
@@ -1990,9 +2003,9 @@ final class ReasoningStartEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'messageId': messageId,
-  };
+        ...super.toJson(),
+        'messageId': messageId,
+      };
 
   @override
   ReasoningStartEvent copyWith({
@@ -2062,10 +2075,10 @@ final class ReasoningMessageStartEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'messageId': messageId,
-    'role': role.value,
-  };
+        ...super.toJson(),
+        'messageId': messageId,
+        'role': role.value,
+      };
 
   @override
   ReasoningMessageStartEvent copyWith({
@@ -2119,10 +2132,10 @@ final class ReasoningMessageContentEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'messageId': messageId,
-    'delta': delta,
-  };
+        ...super.toJson(),
+        'messageId': messageId,
+        'delta': delta,
+      };
 
   @override
   ReasoningMessageContentEvent copyWith({
@@ -2164,9 +2177,9 @@ final class ReasoningMessageEndEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'messageId': messageId,
-  };
+        ...super.toJson(),
+        'messageId': messageId,
+      };
 
   @override
   ReasoningMessageEndEvent copyWith({
@@ -2211,10 +2224,10 @@ final class ReasoningMessageChunkEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    if (messageId != null) 'messageId': messageId,
-    if (delta != null) 'delta': delta,
-  };
+        ...super.toJson(),
+        if (messageId != null) 'messageId': messageId,
+        if (delta != null) 'delta': delta,
+      };
 
   // See `_Unset` (top of file) for the sentinel rationale.
   @override
@@ -2228,8 +2241,7 @@ final class ReasoningMessageChunkEvent extends BaseEvent {
       messageId: identical(messageId, kUnsetSentinel)
           ? this.messageId
           : messageId as String?,
-      delta:
-          identical(delta, kUnsetSentinel) ? this.delta : delta as String?,
+      delta: identical(delta, kUnsetSentinel) ? this.delta : delta as String?,
       timestamp: timestamp ?? this.timestamp,
       rawEvent: rawEvent ?? this.rawEvent,
     );
@@ -2260,9 +2272,9 @@ final class ReasoningEndEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'messageId': messageId,
-  };
+        ...super.toJson(),
+        'messageId': messageId,
+      };
 
   @override
   ReasoningEndEvent copyWith({
@@ -2296,8 +2308,7 @@ String _requireCipherSafeString(
 ]) {
   final bool present = json.containsKey(camelKey) ||
       (snakeKey != null && json.containsKey(snakeKey));
-  final rawValue =
-      json.containsKey(camelKey) ? json[camelKey] : json[snakeKey];
+  final rawValue = json.containsKey(camelKey) ? json[camelKey] : json[snakeKey];
 
   if (!present) {
     throw AGUIValidationError(
@@ -2378,8 +2389,7 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
     // empty) to match canonical schemas: TS `z.string()` and Python `str`
     // (no `min_length`). The strict subtype discriminator above stays —
     // unknown subtypes still throw.
-    final entityId =
-        _requireCipherSafeString(json, 'entityId', 'entity_id');
+    final entityId = _requireCipherSafeString(json, 'entityId', 'entity_id');
     final encryptedValue =
         _requireCipherSafeString(json, 'encryptedValue', 'encrypted_value');
 
@@ -2399,12 +2409,17 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    'subtype': subtype.value,
-    'entityId': entityId,
-    'encryptedValue': encryptedValue,
-  };
+        ...super.toJson(),
+        'subtype': subtype.value,
+        'entityId': entityId,
+        'encryptedValue': encryptedValue,
+      };
 
+  // SECURITY: `fromJson` always sets `rawEvent: null` to prevent the
+  // cipher payload in `encryptedValue` from leaking via the raw wire map.
+  // Passing a non-null `rawEvent` here re-introduces that raw map and undoes
+  // the scrubbing — only do so if you are certain the raw map contains no
+  // sensitive cipher data (e.g., you have already stripped `encryptedValue`).
   @override
   ReasoningEncryptedValueEvent copyWith({
     ReasoningEncryptedValueSubtype? subtype,

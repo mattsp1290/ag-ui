@@ -119,7 +119,8 @@ void main() {
 
       test(
           'TextMessageChunkEvent falls back to null for an unknown role '
-          '(forward-compat: nullable field, not required like TextMessageStartEvent)', () {
+          '(forward-compat: nullable field, not required like TextMessageStartEvent)',
+          () {
         final decoded = TextMessageChunkEvent.fromJson({
           'type': 'TEXT_MESSAGE_CHUNK',
           'messageId': 'msg_001',
@@ -468,7 +469,10 @@ void main() {
       });
 
       test('RunFinishedEvent with result', () {
-        final result = {'status': 'success', 'data': [1, 2, 3]};
+        final result = {
+          'status': 'success',
+          'data': [1, 2, 3]
+        };
         final event = RunFinishedEvent(
           threadId: 'thread_001',
           runId: 'run_001',
@@ -500,13 +504,30 @@ void main() {
         expect(cleared.runId, equals('r'));
       });
 
-      test('RunFinishedEvent absent result key decodes identically to explicit null', () {
-        final absentJson = {'type': 'RUN_FINISHED', 'threadId': 't', 'runId': 'r'};
-        final nullJson = {'type': 'RUN_FINISHED', 'threadId': 't', 'runId': 'r', 'result': null};
+      test(
+          'RunFinishedEvent absent result key decodes identically to explicit null',
+          () {
+        final absentJson = {
+          'type': 'RUN_FINISHED',
+          'threadId': 't',
+          'runId': 'r'
+        };
+        final nullJson = {
+          'type': 'RUN_FINISHED',
+          'threadId': 't',
+          'runId': 'r',
+          'result': null
+        };
         expect(RunFinishedEvent.fromJson(absentJson).result, isNull);
         expect(RunFinishedEvent.fromJson(nullJson).result, isNull);
-        expect(RunFinishedEvent.fromJson(absentJson).toJson().containsKey('result'), isFalse);
-        expect(RunFinishedEvent.fromJson(nullJson).toJson().containsKey('result'), isFalse);
+        expect(
+            RunFinishedEvent.fromJson(absentJson)
+                .toJson()
+                .containsKey('result'),
+            isFalse);
+        expect(
+            RunFinishedEvent.fromJson(nullJson).toJson().containsKey('result'),
+            isFalse);
       });
 
       test('RunErrorEvent with error code', () {
@@ -723,14 +744,19 @@ void main() {
       test('should create correct event type based on type field', () {
         final eventJsons = [
           {'type': 'TEXT_MESSAGE_START', 'messageId': 'msg_001'},
-          {'type': 'TOOL_CALL_START', 'toolCallId': 'call_001', 'toolCallName': 'test'},
+          {
+            'type': 'TOOL_CALL_START',
+            'toolCallId': 'call_001',
+            'toolCallName': 'test'
+          },
           {'type': 'STATE_SNAPSHOT', 'snapshot': {}},
           {'type': 'RUN_STARTED', 'threadId': 'thread_001', 'runId': 'run_001'},
           {'type': 'THINKING_START'},
           {'type': 'CUSTOM', 'name': 'my_event', 'value': 'data'},
         ];
 
-        final events = eventJsons.map((json) => BaseEvent.fromJson(json)).toList();
+        final events =
+            eventJsons.map((json) => BaseEvent.fromJson(json)).toList();
 
         expect(events[0], isA<TextMessageStartEvent>());
         expect(events[1], isA<ToolCallStartEvent>());
@@ -838,7 +864,8 @@ void main() {
         // round-trips'` test in this file.)
         final coveredTypes = samples.map((e) => e.eventType).toSet();
         // ignore: deprecated_member_use_from_same_package
-        final expectedTypes = EventType.values.toSet()..remove(EventType.thinkingContent);
+        final expectedTypes = EventType.values.toSet()
+          ..remove(EventType.thinkingContent);
         expect(coveredTypes, equals(expectedTypes));
       });
     });
@@ -1068,7 +1095,8 @@ void main() {
         expect(decoded.replace, true);
       });
 
-      test('ActivitySnapshotEvent.toJson always emits replace, even when default',
+      test(
+          'ActivitySnapshotEvent.toJson always emits replace, even when default',
           () {
         // Locks the always-emit contract documented at the
         // `ActivitySnapshotEvent.replace` field — `replace` is optional on
@@ -1398,8 +1426,7 @@ void main() {
         expect(pjson['delta'], 'partial');
       });
 
-      test('ReasoningMessageChunkEvent.copyWith(delta: null) clears delta',
-          () {
+      test('ReasoningMessageChunkEvent.copyWith(delta: null) clears delta', () {
         // Sentinel-pattern verification for both `messageId` and `delta`.
         final event = ReasoningMessageChunkEvent(
           messageId: 'msg_r5',
@@ -1460,8 +1487,7 @@ void main() {
         expect(decoded.encryptedValue, 'cipher-3');
       });
 
-      test(
-          'ReasoningEncryptedValueSubtype.fromString throws on unknown values',
+      test('ReasoningEncryptedValueSubtype.fromString throws on unknown values',
           () {
         // Aligned with `TextMessageRole.fromString throws on unknown
         // values` and the rest of the `*Role.fromString` family — single
@@ -1499,7 +1525,8 @@ void main() {
         expect(decoded.messageId, 'msg_r2');
       });
 
-      test('ReasoningMessageStartEvent rejects missing role (parity with TS/Python)',
+      test(
+          'ReasoningMessageStartEvent rejects missing role (parity with TS/Python)',
           () {
         // The canonical TypeScript and Python schemas both mark `role` as
         // required on REASONING_MESSAGE_START. A producer bug that drops
@@ -1536,7 +1563,8 @@ void main() {
         );
       });
 
-      test('ReasoningMessageContentEvent accepts empty delta (canonical parity)',
+      test(
+          'ReasoningMessageContentEvent accepts empty delta (canonical parity)',
           () {
         // Canonical TS/Python schemas allow empty `delta`
         // (`ReasoningMessageContentEventSchema.delta: z.string()` /
@@ -1629,8 +1657,7 @@ void main() {
 
       test('Reasoning events dispatch via BaseEvent.fromJson', () {
         final cases = <Map<String, dynamic>, Type>{
-          {'type': 'REASONING_START', 'messageId': 'm'}:
-              ReasoningStartEvent,
+          {'type': 'REASONING_START', 'messageId': 'm'}: ReasoningStartEvent,
           {
             'type': 'REASONING_MESSAGE_START',
             'messageId': 'm',

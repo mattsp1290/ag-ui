@@ -82,11 +82,17 @@ class AgUiClient {
     // Validate inputs
     Validators.validateUrl(config.baseUrl, 'baseUrl');
     Validators.requireNonEmpty(endpoint, 'endpoint');
-    
-    final fullEndpoint = endpoint.startsWith('http') 
-        ? endpoint 
-        : '${config.baseUrl}/$endpoint';
-    
+
+    // Tighten the scheme test: `startsWith('http')` would accept httpfoo://
+    // and also skips the Validators.validateUrl defense-in-depth applied to
+    // config.baseUrl above. Run the same check for caller-supplied full URLs.
+    final isAbsolute =
+        endpoint.startsWith('http://') || endpoint.startsWith('https://');
+    if (isAbsolute) {
+      Validators.validateUrl(endpoint, 'endpoint');
+    }
+    final fullEndpoint = isAbsolute ? endpoint : '${config.baseUrl}/$endpoint';
+
     return _runAgentInternal(fullEndpoint, input, cancelToken: cancelToken);
   }
 
@@ -127,7 +133,8 @@ class AgUiClient {
     SimpleRunAgentInput input, {
     CancelToken? cancelToken,
   }) {
-    return runAgent('tool_based_generative_ui', input, cancelToken: cancelToken);
+    return runAgent('tool_based_generative_ui', input,
+        cancelToken: cancelToken);
   }
 
   /// Run the shared state agent.
@@ -147,7 +154,8 @@ class AgUiClient {
     SimpleRunAgentInput input, {
     CancelToken? cancelToken,
   }) {
-    return runAgent('predictive_state_updates', input, cancelToken: cancelToken);
+    return runAgent('predictive_state_updates', input,
+        cancelToken: cancelToken);
   }
 
   /// Internal implementation for running an agent
@@ -180,7 +188,6 @@ class AgUiClient {
     _requestTokens[runId] = cancelToken;
 
     try {
-
       // Send POST request with RunAgentInput
       final headers = _buildHeaders();
       headers['Content-Type'] = 'application/json';
@@ -272,7 +279,8 @@ class AgUiClient {
     unawaited(cancelToken.onCancel.then((_) {
       if (!completer.isCompleted) {
         completer.completeError(
-          CancellationError('Request cancelled', operation: request.url.toString()),
+          CancellationError('Request cancelled',
+              operation: request.url.toString()),
         );
       }
     }));
@@ -296,10 +304,7 @@ class AgUiClient {
           // body stream never ends until the server disconnects, so drain()
           // would hold the socket open indefinitely.
           unawaited(
-            response.stream
-                .listen((_) {})
-                .cancel()
-                .catchError((_) {}),
+            response.stream.listen((_) {}).cancel().catchError((_) {}),
           );
         }
       },
@@ -326,7 +331,7 @@ class AgUiClient {
     if (token != null && !token.isCancelled) {
       token.cancel();
     }
-    
+
     // Close any active stream
     await _closeStream(runId);
   }
@@ -384,7 +389,7 @@ class AgUiClient {
   }
 
   /// Send an HTTP request with retries
-  /// 
+  ///
   /// Exposed for testing HTTP retry logic
   @visibleForTesting
   Future<http.Response> sendRequest(
@@ -408,17 +413,15 @@ class AgUiClient {
         }
 
         final uri = Uri.parse(endpoint);
-        final request = http.Request(method, uri)
-          ..headers.addAll(headers);
+        final request = http.Request(method, uri)..headers.addAll(headers);
 
         if (body != null) {
           request.body = json.encode(body);
         }
 
-        final streamedResponse = await _httpClient
-            .send(request)
-            .timeout(config.requestTimeout);
-        
+        final streamedResponse =
+            await _httpClient.send(request).timeout(config.requestTimeout);
+
         final response = await http.Response.fromStream(streamedResponse);
 
         // Success or client error (don't retry)
@@ -450,7 +453,7 @@ class AgUiClient {
         nextDelay = config.backoffStrategy.nextDelay(attempts);
       } catch (e) {
         if (e is AgUiError) rethrow;
-        
+
         attempts++;
         if (attempts > config.maxRetries) {
           throw TransportError(
@@ -477,7 +480,7 @@ class AgUiClient {
   ) {
     // Validate status code
     Validators.validateStatusCode(response.statusCode, endpoint, response.body);
-    
+
     try {
       final data = Validators.validateJson(
         json.decode(response.body),
@@ -538,11 +541,24 @@ class AgUiClient {
         switch (message) {
           case UserMessage(:final content):
             Validators.validateMessageContent(content);
-          case AssistantMessage(:final content):
+          case AssistantMessage(:final content, :final toolCalls):
             // content is String? on AssistantMessage (all other subtypes have
             // non-nullable content) — guard avoids passing null to
             // validateMessageContent on valid assistant messages that omit it.
             if (content != null) Validators.validateMessageContent(content);
+            if (toolCalls != null) {
+              final seenToolCallIds = <String>{};
+              for (final tc in toolCalls) {
+                if (!seenToolCallIds.add(tc.id)) {
+                  throw ValidationError(
+                    'Duplicate toolCall.id "${tc.id}" within AssistantMessage',
+                    field: 'toolCall.id',
+                    constraint: 'unique-within-message',
+                    value: tc.id,
+                  );
+                }
+              }
+            }
           case DeveloperMessage(:final content):
             Validators.validateMessageContent(content);
           case SystemMessage(:final content):
@@ -609,12 +625,12 @@ class AgUiClient {
       token.cancel();
     }
     _requestTokens.clear();
-    
+
     // Close all active streams
     final closeOps = _activeStreams.values.map((c) => c.close());
     await Future.wait(closeOps);
     _activeStreams.clear();
-    
+
     // Close HTTP client
     _httpClient.close();
   }
@@ -682,7 +698,8 @@ class SimpleRunAgentInput {
       if (runId != null) 'runId': runId,
       if (parentRunId != null) 'parentRunId': parentRunId,
       if (state != null) 'state': state,
-      if (messages != null) 'messages': messages!.map((m) => m.toJson()).toList(),
+      if (messages != null)
+        'messages': messages!.map((m) => m.toJson()).toList(),
       if (tools != null) 'tools': tools!.map((t) => t.toJson()).toList(),
       if (context != null) 'context': context!.map((c) => c.toJson()).toList(),
       if (forwardedProps != null) 'forwardedProps': forwardedProps,

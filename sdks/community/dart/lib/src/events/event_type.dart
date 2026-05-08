@@ -87,6 +87,7 @@ enum EventType {
   /// to handle unknown event types gracefully — see
   /// `dart-enum-parsing-safety.md` for the throw-vs-fallback rationale.
   static EventType fromString(String value) {
-    return _byValue[value] ?? (throw ArgumentError('Invalid event type: $value'));
+    return _byValue[value] ??
+        (throw ArgumentError('Invalid event type: $value'));
   }
 }

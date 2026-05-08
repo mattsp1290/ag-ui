@@ -4,7 +4,7 @@ import 'errors.dart';
 class Validators {
   // Hoisted to avoid recompiling on every validateUrl call (hot path).
   // The explicit \u escapes make the matched code points visible in source:
-  //   \x00\u2013\x1f  C0 control codes (including \t, \n, \r)
+  //   \x00-\x1f  C0 control codes (including \t, \n, \r)
   //   \x7f       DEL
   //   \u0085     NEL (U+0085, C1 Next-Line \u2014 accepted verbatim by Uri.parse)
   //   \u2028     Line Separator (Unicode LS)
@@ -140,7 +140,7 @@ class Validators {
   /// Validates an agent ID format
   static void validateAgentId(String? agentId) {
     requireNonEmpty(agentId, 'agentId');
-    
+
     // Agent IDs should be alphanumeric with optional hyphens and underscores
     final pattern = RegExp(r'^[a-zA-Z0-9][a-zA-Z0-9_-]*$');
     if (!pattern.hasMatch(agentId!)) {
@@ -151,7 +151,7 @@ class Validators {
         value: agentId,
       );
     }
-    
+
     if (agentId.length > 100) {
       throw ValidationError(
         'Agent ID too long (max 100 characters)',
@@ -260,7 +260,8 @@ class Validators {
   }
 
   /// Validates a map contains required fields
-  static void requireFields(Map<String, dynamic> map, List<String> requiredFields) {
+  static void requireFields(
+      Map<String, dynamic> map, List<String> requiredFields) {
     for (final field in requiredFields) {
       if (!map.containsKey(field)) {
         throw ValidationError(
@@ -283,7 +284,7 @@ class Validators {
         actualValue: json,
       );
     }
-    
+
     if (json is! Map<String, dynamic>) {
       throw DecodingError(
         'Expected JSON object in $context',
@@ -292,7 +293,7 @@ class Validators {
         actualValue: json,
       );
     }
-    
+
     return json;
   }
 
@@ -318,9 +319,10 @@ class Validators {
   }
 
   /// Validates HTTP status code
-  static void validateStatusCode(int? statusCode, String endpoint, [String? responseBody]) {
+  static void validateStatusCode(int? statusCode, String endpoint,
+      [String? responseBody]) {
     if (statusCode == null) return;
-    
+
     if (statusCode < 200 || statusCode >= 300) {
       String message;
       if (statusCode >= 400 && statusCode < 500) {
@@ -330,7 +332,7 @@ class Validators {
       } else {
         message = 'Unexpected status';
       }
-      
+
       throw TransportError(
         '$message at $endpoint',
         statusCode: statusCode,
@@ -350,7 +352,7 @@ class Validators {
         actualValue: event,
       );
     }
-    
+
     if (!event.containsKey('data')) {
       throw DecodingError(
         'SSE event missing required "data" field',
@@ -372,7 +374,8 @@ class Validators {
     'Not enforced by the SDK client-side. '
     'May be removed in a future major release.',
   )
-  static void validateEventSequence(String currentEvent, String? previousEvent, String? state) {
+  static void validateEventSequence(
+      String currentEvent, String? previousEvent, String? state) {
     // RUN_STARTED must be first or after RUN_FINISHED
     if (currentEvent == 'RUN_STARTED') {
       if (previousEvent != null && previousEvent != 'RUN_FINISHED') {
@@ -384,7 +387,7 @@ class Validators {
         );
       }
     }
-    
+
     // RUN_FINISHED must have a preceding RUN_STARTED
     if (currentEvent == 'RUN_FINISHED' && state != 'running') {
       throw ProtocolViolationError(
@@ -394,7 +397,7 @@ class Validators {
         expected: 'RUN_STARTED before RUN_FINISHED',
       );
     }
-    
+
     // Tool call events must be within a run
     if (currentEvent.startsWith('TOOL_CALL_') && state != 'running') {
       throw ProtocolViolationError(
@@ -413,7 +416,7 @@ class Validators {
     T Function(Map<String, dynamic>) fromJson,
   ) {
     final json = validateJson(data, modelName);
-    
+
     try {
       return fromJson(json);
     } catch (e) {
@@ -441,7 +444,7 @@ class Validators {
         actualValue: data,
       );
     }
-    
+
     if (data is! List) {
       throw DecodingError(
         'Expected list for $modelName',
@@ -450,7 +453,7 @@ class Validators {
         actualValue: data,
       );
     }
-    
+
     final results = <T>[];
     for (var i = 0; i < data.length; i++) {
       try {
@@ -466,7 +469,7 @@ class Validators {
         );
       }
     }
-    
+
     return results;
   }
 }

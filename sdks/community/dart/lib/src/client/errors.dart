@@ -142,7 +142,7 @@ typedef TimeoutError = AGUITimeoutError;
 class CancellationError extends AgUiError {
   /// Operation that was cancelled
   final String? operation;
-  
+
   /// Reason for cancellation
   final String? reason;
 

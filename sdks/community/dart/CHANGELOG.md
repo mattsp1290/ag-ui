@@ -17,6 +17,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Direct consumers of `event.delta[i]` who are already casting to Map are
   unaffected; consumers storing the list as `List<dynamic>` will need a type
   annotation update.
+  **Migration:** change `List<dynamic>` type annotations on `event.delta` /
+  `event.patch` to `List<Map<String, dynamic>>`. Code that already accesses
+  `op['op']` / `op['path']` without an explicit cast is already correct.
 - **`SseParser.maxDataBytes` renamed to `maxDataCodeUnits`.** The field
   already measured UTF-16 code units, not bytes — the rename corrects the
   misleading name. `SseParser(maxDataBytes: ...)` call sites must be updated

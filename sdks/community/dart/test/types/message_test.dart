@@ -193,7 +193,9 @@ void main() {
         expect(updated.activityContent['progress'], 1.0);
       });
 
-      test('strips camelCase encryptedValue silently (not a BaseMessage extension)', () {
+      test(
+          'strips camelCase encryptedValue silently (not a BaseMessage extension)',
+          () {
         final msg = ActivityMessage.fromJson({
           'id': 'act_005',
           'role': 'activity',
@@ -207,7 +209,9 @@ void main() {
         expect(msg.toJson().containsKey('encryptedValue'), isFalse);
       });
 
-      test('strips snake_case encrypted_value silently (not a BaseMessage extension)', () {
+      test(
+          'strips snake_case encrypted_value silently (not a BaseMessage extension)',
+          () {
         final msg = ActivityMessage.fromJson({
           'id': 'act_006',
           'role': 'activity',
@@ -220,7 +224,9 @@ void main() {
         expect(msg.toJson().containsKey('encryptedValue'), isFalse);
       });
 
-      test('II3 regression: name is always null; encryptedValue throws UnsupportedError on ActivityMessage', () {
+      test(
+          'II3 regression: name is always null; encryptedValue throws UnsupportedError on ActivityMessage',
+          () {
         // ActivityMessage is NOT a BaseMessage extension — cipher-payload
         // forwarding does not apply. `name` is always null; `encryptedValue`
         // is unsupported (throws UnsupportedError to make accidental reads
@@ -237,7 +243,8 @@ void main() {
         expect(
           () => direct.encryptedValue,
           throwsA(isA<UnsupportedError>()),
-          reason: 'encryptedValue must throw UnsupportedError on ActivityMessage',
+          reason:
+              'encryptedValue must throw UnsupportedError on ActivityMessage',
         );
         expect(direct.toJson().containsKey('name'), isFalse);
         expect(direct.toJson().containsKey('encryptedValue'), isFalse);
@@ -437,7 +444,8 @@ void main() {
         expect(cloned.toolCalls, isNotNull);
       });
 
-      test('ToolMessage.copyWith with explicit null clears error and '
+      test(
+          'ToolMessage.copyWith with explicit null clears error and '
           'encryptedValue', () {
         final msg = ToolMessage(
           id: 't1',
@@ -462,6 +470,16 @@ void main() {
         );
         expect(msg.copyWith(encryptedValue: null).encryptedValue, isNull);
         expect(msg.copyWith().encryptedValue, equals('cipher'));
+      });
+
+      test('ActivityMessage.copyWith(id: null) clears id', () {
+        final msg = ActivityMessage(
+          id: 'act_1',
+          activityType: 'task.run',
+          activityContent: const {'progress': 0.0},
+        );
+        expect(msg.copyWith(id: null).id, isNull);
+        expect(msg.copyWith().id, equals('act_1'));
       });
     });
 
@@ -716,8 +734,7 @@ void main() {
           content: 'hi',
           encryptedValue: 'cipher',
         );
-        expect(
-            msg.copyWith(encryptedValue: null).encryptedValue, isNull);
+        expect(msg.copyWith(encryptedValue: null).encryptedValue, isNull);
         expect(msg.copyWith().encryptedValue, equals('cipher'));
       });
 
@@ -729,8 +746,7 @@ void main() {
           content: 'hi',
           encryptedValue: 'cipher',
         );
-        expect(
-            msg.copyWith(encryptedValue: null).encryptedValue, isNull);
+        expect(msg.copyWith(encryptedValue: null).encryptedValue, isNull);
         expect(msg.copyWith().encryptedValue, equals('cipher'));
       });
 

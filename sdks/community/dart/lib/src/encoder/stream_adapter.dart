@@ -41,7 +41,7 @@ class EventStreamAdapter {
     EventDecoder? decoder,
     this.maxDataCodeUnits = 8 * 1024 * 1024,
   }) : _decoder = decoder ?? const EventDecoder();
-  
+
   /// Adapts JSON data to AG-UI events.
   ///
   /// Returns a list of events parsed from the JSON data.
@@ -153,7 +153,7 @@ class EventStreamAdapter {
               if (data.trim() == ':') {
                 return;
               }
-              
+
               // `decode` already runs `validate` via `decodeJson`; no
               // second pass needed here.
               sink.add(_decoder.decode(data));
@@ -164,13 +164,15 @@ class EventStreamAdapter {
             // `AGUIValidationError`, and `EncoderError` siblings) so the
             // unified error-surface contract documented on `EventDecoder`
             // is not undone by re-wrapping at the stream-adapter layer.
-            final error = e is AGUIError ? e : DecodingError(
-              'Failed to process SSE message',
-              field: 'message',
-              expectedType: 'BaseEvent',
-              actualValue: message.data,
-              cause: e,
-            );
+            final error = e is AGUIError
+                ? e
+                : DecodingError(
+                    'Failed to process SSE message',
+                    field: 'message',
+                    expectedType: 'BaseEvent',
+                    actualValue: message.data,
+                    cause: e,
+                  );
 
             if (skipInvalidEvents) {
               // Log error but continue processing
@@ -331,7 +333,8 @@ class EventStreamAdapter {
       if (data.isEmpty || data.trim() == ':') return false;
 
       // Programmer-error guard sits outside the wire-error catch so a
-      // re-entrancy bug doesn't masquerade as a decoding failure.
+      // re-entrancy bug surfaces as DecodingError("Internal error processing
+      // SSE chunk") — distinct from the normal "Failed to decode SSE data".
       if (inDispatch) {
         throw StateError(
           'sync re-entrancy: cancel() must not be called synchronously '
@@ -379,11 +382,30 @@ class EventStreamAdapter {
     // error so the outer `onListen` catch can skip a second `addError`.
     var errorRoutedInChunk = false;
 
+    // Local helpers that own the "reset errorRoutedInChunk before call"
+    // invariant so it is enforced at the definition site rather than at
+    // every callsite in the per-line loop.
+    void flushThenAck() {
+      errorRoutedInChunk = false;
+      if (flushDataBlock()) errorRoutedInChunk = true;
+    }
+
+    void appendThenAck(String line) {
+      errorRoutedInChunk = false;
+      appendDataLine(line);
+    }
+
     void processChunk(String chunk) {
       // Size cap on the raw line buffer. A server that sends a line without
       // any newline would otherwise grow `buffer` without bound.
       if (buffer.length + chunk.length > maxDataCodeUnits) {
         buffer.clear();
+        // Mirror the appendDataLine size-cap reset: clear any in-progress
+        // data block so its partial content doesn't contaminate the next
+        // message's buffer after the error is routed and processing continues.
+        dataBuffer.clear();
+        inDataBlock = false;
+        skipUntilBoundary = true;
         throw DecodingError(
           'SSE chunk combined with pending line buffer exceeds '
           '$maxDataCodeUnits code units',
@@ -410,19 +432,10 @@ class EventStreamAdapter {
 
       for (final line in scan.lines) {
         if (line.isEmpty) {
-          // Empty line signals end of SSE message — flush the data block.
-          // Reset both flags: skipUntilBoundary (new message can start) and
-          // errorRoutedInChunk (reset per-frame so a LATER frame's flush error
-          // in the same chunk is not swallowed by an earlier frame's flag).
           skipUntilBoundary = false;
-          errorRoutedInChunk = false;
-          if (flushDataBlock()) errorRoutedInChunk = true;
+          flushThenAck();
         } else {
-          // Reset errorRoutedInChunk before appendDataLine: if a prior flush
-          // in this chunk already routed an error, a DISTINCT appendDataLine
-          // throw on this line must still reach the consumer — not be dropped.
-          errorRoutedInChunk = false;
-          appendDataLine(line);
+          appendThenAck(line);
         }
       }
     }
@@ -473,7 +486,8 @@ class EventStreamAdapter {
           }
         },
         onDone: () {
-          errorRoutedInChunk = false; // defensive reset; flag lifecycle ends at chunk handler
+          errorRoutedInChunk =
+              false; // defensive reset; flag lifecycle ends at chunk handler
           // End-of-stream: any deferred trailing `\r` is now a complete
           // terminator. Run the scanner with `endOfStream: true` to
           // consume it (and any other complete lines still in the buffer).
@@ -532,7 +546,8 @@ class EventStreamAdapter {
   /// When [endOfStream] is `true`, the deferral is disabled entirely —
   /// any trailing `\r` is consumed as a lone-CR terminator since no
   /// further chunks are coming.
-  static ({List<String> lines, String unconsumed, bool lastWasLoneCr}) _scanLines(
+  static ({List<String> lines, String unconsumed, bool lastWasLoneCr})
+      _scanLines(
     String input, {
     required bool endOfStream,
     bool lastWasLoneCrAtStart = false,
@@ -596,12 +611,15 @@ class EventStreamAdapter {
       final isCrLf = s.codeUnitAt(brk) == 0x0D &&
           brk + 1 < s.length &&
           s.codeUnitAt(brk + 1) == 0x0A /* \n */;
-      lastWasLoneCr =
-          s.codeUnitAt(brk) == 0x0D /* \r */ && !isCrLf;
+      lastWasLoneCr = s.codeUnitAt(brk) == 0x0D /* \r */ && !isCrLf;
       lines.add(s.substring(i, brk));
       i = brk + (isCrLf ? 2 : 1);
     }
-    return (lines: lines, unconsumed: s.substring(i), lastWasLoneCr: lastWasLoneCr);
+    return (
+      lines: lines,
+      unconsumed: s.substring(i),
+      lastWasLoneCr: lastWasLoneCr
+    );
   }
 
   /// Filters a stream of events to only include specific event types.
@@ -689,105 +707,105 @@ class EventStreamAdapter {
           // an unhandled async exception. Mirrors fromRawSseStream's outer
           // try/catch around processChunk.
           try {
-          if (inDispatch) {
-            throw StateError(
-              'sync re-entrancy: cancel() must not be called synchronously '
-              'from inside a groupRelatedEvents data handler; use '
-              'Future.microtask.',
-            );
-          }
-          inDispatch = true;
-          try {
-          // Open a new group, evicting the oldest open group first if the
-          // maxOpenGroups cap is exceeded. Eviction emits the oldest group
-          // as-is (without a terminal *End event) — consumers should treat
-          // evicted groups the same as groups emitted on stream close.
-          void openGroup(String key, BaseEvent startEvent) {
-            if (maxOpenGroups > 0 &&
-                activeGroups.length >= maxOpenGroups &&
-                !activeGroups.containsKey(key)) {
-              final oldestKey = activeGroups.keys.first;
-              final evicted = activeGroups.remove(oldestKey)!;
-              if (evicted.isNotEmpty) controller.add(evicted);
+            if (inDispatch) {
+              throw StateError(
+                'sync re-entrancy: cancel() must not be called synchronously '
+                'from inside a groupRelatedEvents data handler; use '
+                'Future.microtask.',
+              );
             }
-            activeGroups[key] = [startEvent];
-          }
+            inDispatch = true;
+            try {
+              // Open a new group, evicting the oldest open group first if the
+              // maxOpenGroups cap is exceeded. Eviction emits the oldest group
+              // as-is (without a terminal *End event) — consumers should treat
+              // evicted groups the same as groups emitted on stream close.
+              void openGroup(String key, BaseEvent startEvent) {
+                if (maxOpenGroups > 0 &&
+                    activeGroups.length >= maxOpenGroups &&
+                    !activeGroups.containsKey(key)) {
+                  final oldestKey = activeGroups.keys.first;
+                  final evicted = activeGroups.remove(oldestKey)!;
+                  if (evicted.isNotEmpty) controller.add(evicted);
+                }
+                activeGroups[key] = [startEvent];
+              }
 
-          switch (event) {
-            // Keys are namespaced by event family ('text:', 'reasoning:',
-            // 'tool:') so that a producer reusing the same id across families
-            // (e.g. a text message and a reasoning step sharing a messageId)
-            // does not overwrite one group with another.
-            case TextMessageStartEvent(:final messageId):
-              openGroup('text:$messageId', event);
-            case TextMessageContentEvent(:final messageId):
-              activeGroups['text:$messageId']?.add(event);
-            case TextMessageEndEvent(:final messageId):
-              final group = activeGroups.remove('text:$messageId');
-              if (group != null) {
-                group.add(event);
-                controller.add(group);
-              } else {
-                controller.add([event]); // orphan End — emit standalone
+              switch (event) {
+                // Keys are namespaced by event family ('text:', 'reasoning:',
+                // 'tool:') so that a producer reusing the same id across families
+                // (e.g. a text message and a reasoning step sharing a messageId)
+                // does not overwrite one group with another.
+                case TextMessageStartEvent(:final messageId):
+                  openGroup('text:$messageId', event);
+                case TextMessageContentEvent(:final messageId):
+                  activeGroups['text:$messageId']?.add(event);
+                case TextMessageEndEvent(:final messageId):
+                  final group = activeGroups.remove('text:$messageId');
+                  if (group != null) {
+                    group.add(event);
+                    controller.add(group);
+                  } else {
+                    controller.add([event]); // orphan End — emit standalone
+                  }
+                case ToolCallStartEvent(:final toolCallId):
+                  openGroup('tool:$toolCallId', event);
+                case ToolCallArgsEvent(:final toolCallId):
+                  activeGroups['tool:$toolCallId']?.add(event);
+                case ToolCallEndEvent(:final toolCallId):
+                  final group = activeGroups.remove('tool:$toolCallId');
+                  if (group != null) {
+                    group.add(event);
+                    controller.add(group);
+                  } else {
+                    controller.add([event]); // orphan End — emit standalone
+                  }
+                case ReasoningMessageStartEvent(:final messageId):
+                  openGroup('reasoning:$messageId', event);
+                case ReasoningMessageContentEvent(:final messageId):
+                  activeGroups['reasoning:$messageId']?.add(event);
+                case ReasoningMessageEndEvent(:final messageId):
+                  final group = activeGroups.remove('reasoning:$messageId');
+                  if (group != null) {
+                    group.add(event);
+                    controller.add(group);
+                  } else {
+                    controller.add([event]); // orphan End — emit standalone
+                  }
+                case TextMessageChunkEvent(:final messageId):
+                  // Fold into the open text group when one exists; otherwise emit
+                  // standalone — chunks may arrive without a preceding *Start.
+                  if (messageId != null &&
+                      activeGroups.containsKey('text:$messageId')) {
+                    activeGroups['text:$messageId']!.add(event);
+                  } else {
+                    controller.add([event]);
+                  }
+                case ToolCallChunkEvent(:final toolCallId):
+                  // Fold into the open tool group when one exists; otherwise emit
+                  // standalone — chunks may arrive without a preceding *Start.
+                  if (toolCallId != null &&
+                      activeGroups.containsKey('tool:$toolCallId')) {
+                    activeGroups['tool:$toolCallId']!.add(event);
+                  } else {
+                    controller.add([event]);
+                  }
+                case ReasoningMessageChunkEvent(:final messageId):
+                  // Fold into the open reasoning group when one exists; otherwise
+                  // emit standalone — chunks may arrive without a preceding *Start.
+                  if (messageId != null &&
+                      activeGroups.containsKey('reasoning:$messageId')) {
+                    activeGroups['reasoning:$messageId']!.add(event);
+                  } else {
+                    controller.add([event]);
+                  }
+                default:
+                  // Single events not part of a group
+                  controller.add([event]);
               }
-            case ToolCallStartEvent(:final toolCallId):
-              openGroup('tool:$toolCallId', event);
-            case ToolCallArgsEvent(:final toolCallId):
-              activeGroups['tool:$toolCallId']?.add(event);
-            case ToolCallEndEvent(:final toolCallId):
-              final group = activeGroups.remove('tool:$toolCallId');
-              if (group != null) {
-                group.add(event);
-                controller.add(group);
-              } else {
-                controller.add([event]); // orphan End — emit standalone
-              }
-            case ReasoningMessageStartEvent(:final messageId):
-              openGroup('reasoning:$messageId', event);
-            case ReasoningMessageContentEvent(:final messageId):
-              activeGroups['reasoning:$messageId']?.add(event);
-            case ReasoningMessageEndEvent(:final messageId):
-              final group = activeGroups.remove('reasoning:$messageId');
-              if (group != null) {
-                group.add(event);
-                controller.add(group);
-              } else {
-                controller.add([event]); // orphan End — emit standalone
-              }
-            case TextMessageChunkEvent(:final messageId):
-              // Fold into the open text group when one exists; otherwise emit
-              // standalone — chunks may arrive without a preceding *Start.
-              if (messageId != null &&
-                  activeGroups.containsKey('text:$messageId')) {
-                activeGroups['text:$messageId']!.add(event);
-              } else {
-                controller.add([event]);
-              }
-            case ToolCallChunkEvent(:final toolCallId):
-              // Fold into the open tool group when one exists; otherwise emit
-              // standalone — chunks may arrive without a preceding *Start.
-              if (toolCallId != null &&
-                  activeGroups.containsKey('tool:$toolCallId')) {
-                activeGroups['tool:$toolCallId']!.add(event);
-              } else {
-                controller.add([event]);
-              }
-            case ReasoningMessageChunkEvent(:final messageId):
-              // Fold into the open reasoning group when one exists; otherwise
-              // emit standalone — chunks may arrive without a preceding *Start.
-              if (messageId != null &&
-                  activeGroups.containsKey('reasoning:$messageId')) {
-                activeGroups['reasoning:$messageId']!.add(event);
-              } else {
-                controller.add([event]);
-              }
-            default:
-              // Single events not part of a group
-              controller.add([event]);
-          }
-          } finally {
-            inDispatch = false;
-          }
+            } finally {
+              inDispatch = false;
+            }
           } catch (e, stack) {
             controller.addError(e, stack);
           }
@@ -866,59 +884,60 @@ class EventStreamAdapter {
           // Route the re-entrancy StateError through controller.addError.
           // Mirrors the groupRelatedEvents and fromRawSseStream patterns.
           try {
-          if (inDispatch) {
-            throw StateError(
-              'sync re-entrancy: cancel() must not be called synchronously '
-              'from inside an accumulateTextMessages data handler; use '
-              'Future.microtask.',
-            );
-          }
-          inDispatch = true;
-          try {
-          switch (event) {
-            case TextMessageStartEvent(:final messageId):
-              // Evict the oldest open message when the cap is reached.
-              if (maxOpenGroups > 0 &&
-                  activeMessages.length >= maxOpenGroups &&
-                  !activeMessages.containsKey(messageId)) {
-                final oldestKey = activeMessages.keys.first;
-                final evicted = activeMessages.remove(oldestKey)!;
-                final content = evicted.toString();
-                if (content.isNotEmpty) controller.add(content);
-              }
-              activeMessages[messageId] = StringBuffer();
-            case TextMessageContentEvent(:final messageId, :final delta):
-              activeMessages[messageId]?.write(delta);
-            case TextMessageEndEvent(:final messageId):
-              final buffer = activeMessages.remove(messageId);
-              // Skip empty buffers (Start→End with no content) — consistent
-              // with the onDone flush which also drops empty buffers.
-              if (buffer != null && buffer.isNotEmpty) {
-                controller.add(buffer.toString());
-              }
-            case TextMessageChunkEvent(:final messageId, :final delta):
-              // A chunk is a standalone text fragment. If a Start/End cycle is
-              // open for the same messageId, route it into the active buffer —
-              // otherwise a standalone chunk would appear before the eventual
-              // End-triggered buffer flush (Start/Content events have not been
-              // emitted yet at that point). When messageId is null or no open
-              // buffer exists, emit the delta immediately.
-              if (delta == null) break; // genuinely nothing to emit
-              if (messageId != null) {
-                final activeBuffer = activeMessages[messageId];
-                if (activeBuffer != null) {
-                  activeBuffer.write(delta);
+            if (inDispatch) {
+              throw StateError(
+                'sync re-entrancy: cancel() must not be called synchronously '
+                'from inside an accumulateTextMessages data handler; use '
+                'Future.microtask.',
+              );
+            }
+            inDispatch = true;
+            try {
+              switch (event) {
+                case TextMessageStartEvent(:final messageId):
+                  // Evict the oldest open message when the cap is reached.
+                  if (maxOpenGroups > 0 &&
+                      activeMessages.length >= maxOpenGroups &&
+                      !activeMessages.containsKey(messageId)) {
+                    final oldestKey = activeMessages.keys.first;
+                    final evicted = activeMessages.remove(oldestKey)!;
+                    final content = evicted.toString();
+                    if (content.isNotEmpty) controller.add(content);
+                  }
+                  activeMessages[messageId] = StringBuffer();
+                case TextMessageContentEvent(:final messageId, :final delta):
+                  activeMessages[messageId]?.write(delta);
+                case TextMessageEndEvent(:final messageId):
+                  final buffer = activeMessages.remove(messageId);
+                  // Skip empty buffers (Start→End with no content) — consistent
+                  // with the onDone flush which also drops empty buffers.
+                  if (buffer != null && buffer.isNotEmpty) {
+                    controller.add(buffer.toString());
+                  }
+                case TextMessageChunkEvent(:final messageId, :final delta):
+                  // A chunk is a standalone text fragment. If a Start/End cycle is
+                  // open for the same messageId, route it into the active buffer —
+                  // otherwise a standalone chunk would appear before the eventual
+                  // End-triggered buffer flush (Start/Content events have not been
+                  // emitted yet at that point). When messageId is null or no open
+                  // buffer exists, emit the delta immediately.
+                  if (delta == null) break; // genuinely nothing to emit
+                  if (messageId != null) {
+                    final activeBuffer = activeMessages[messageId];
+                    if (activeBuffer != null) {
+                      activeBuffer.write(delta);
+                      break;
+                    }
+                  }
+                  controller.add(
+                      delta); // standalone fragment — emit even when messageId is null
+                default:
+                  // Ignore other event types
                   break;
-                }
               }
-              controller.add(delta); // standalone fragment — emit even when messageId is null
-            default:
-              // Ignore other event types
-              break;
-          }
-          } finally {
-            inDispatch = false;
-          }
+            } finally {
+              inDispatch = false;
+            }
           } catch (e, stack) {
             controller.addError(e, stack);
           }

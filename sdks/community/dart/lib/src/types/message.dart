@@ -171,12 +171,12 @@ sealed class Message extends AGUIModel with TypeDiscriminator {
 
   @override
   Map<String, dynamic> toJson() => {
-    if (id != null) 'id': id,
-    'role': role.value,
-    if (content != null) 'content': content,
-    if (name != null) 'name': name,
-    if (encryptedValue != null) 'encryptedValue': encryptedValue,
-  };
+        if (id != null) 'id': id,
+        'role': role.value,
+        if (content != null) 'content': content,
+        if (name != null) 'name': name,
+        if (encryptedValue != null) 'encryptedValue': encryptedValue,
+      };
 }
 
 /// Developer message with required content.
@@ -212,12 +212,12 @@ final class DeveloperMessage extends Message {
   // explicit and independent of the parent implementation.
   @override
   Map<String, dynamic> toJson() => {
-    if (id != null) 'id': id,
-    'role': role.value,
-    'content': content,
-    if (name != null) 'name': name,
-    if (encryptedValue != null) 'encryptedValue': encryptedValue,
-  };
+        if (id != null) 'id': id,
+        'role': role.value,
+        'content': content,
+        if (name != null) 'name': name,
+        if (encryptedValue != null) 'encryptedValue': encryptedValue,
+      };
 
   // `name` and `encryptedValue` are nullable on the parent — use the
   // sentinel so callers can clear either explicitly. See [kUnsetSentinel].
@@ -268,12 +268,12 @@ final class SystemMessage extends Message {
 
   @override
   Map<String, dynamic> toJson() => {
-    if (id != null) 'id': id,
-    'role': role.value,
-    'content': content,
-    if (name != null) 'name': name,
-    if (encryptedValue != null) 'encryptedValue': encryptedValue,
-  };
+        if (id != null) 'id': id,
+        'role': role.value,
+        'content': content,
+        if (name != null) 'name': name,
+        if (encryptedValue != null) 'encryptedValue': encryptedValue,
+      };
 
   // `name` and `encryptedValue` are nullable on the parent — sentinel
   // for explicit-clear semantics.
@@ -336,31 +336,33 @@ final class AssistantMessage extends Message {
       id: JsonDecoder.requireField<String>(json, 'id'),
       content: JsonDecoder.optionalField<String>(json, 'content'),
       name: JsonDecoder.optionalField<String>(json, 'name'),
-      toolCalls: rawToolCalls == null ? null : () {
-        final result = <ToolCall>[];
-        for (var i = 0; i < rawToolCalls.length; i++) {
-          try {
-            result.add(ToolCall.fromJson(rawToolCalls[i]));
-          } catch (e) {
-            if (e is AGUIValidationError) {
-              // Omit `json:` and `cause:` — ToolCall.fromJson can set e.json
-              // to a payload with sensitive `arguments`; the cause chain
-              // exposes it to reflection-based log shippers.
-              throw AGUIValidationError(
-                message: e.message,
-                field: 'toolCalls[$i].${e.field ?? 'unknown'}',
-                value: e.value,
-              );
-            }
-            throw AGUIValidationError(
-              message: 'Failed to decode tool call at index $i: $e',
-              field: 'toolCalls[$i]',
-              cause: e,
-            );
-          }
-        }
-        return result;
-      }(),
+      toolCalls: rawToolCalls == null
+          ? null
+          : () {
+              final result = <ToolCall>[];
+              for (var i = 0; i < rawToolCalls.length; i++) {
+                try {
+                  result.add(ToolCall.fromJson(rawToolCalls[i]));
+                } catch (e) {
+                  if (e is AGUIValidationError) {
+                    // Omit `json:` and `cause:` — ToolCall.fromJson can set e.json
+                    // to a payload with sensitive `arguments`; the cause chain
+                    // exposes it to reflection-based log shippers.
+                    throw AGUIValidationError(
+                      message: e.message,
+                      field: 'toolCalls[$i].${e.field ?? 'unknown'}',
+                      value: e.value,
+                    );
+                  }
+                  throw AGUIValidationError(
+                    message: 'Failed to decode tool call at index $i: $e',
+                    field: 'toolCalls[$i]',
+                    cause: e,
+                  );
+                }
+              }
+              return result;
+            }(),
       encryptedValue: JsonDecoder.optionalEitherField<String>(
         json,
         'encryptedValue',
@@ -371,16 +373,16 @@ final class AssistantMessage extends Message {
 
   @override
   Map<String, dynamic> toJson() => {
-    ...super.toJson(),
-    // Emit `toolCalls` whenever the in-memory field is non-null, even
-    // when empty, so the round-trip `fromJson(m.toJson()) == m` is
-    // symmetric. The previous `&& toolCalls!.isNotEmpty` guard dropped
-    // the key on empty lists, which decoded back to `null` instead of
-    // `[]` and made tests that depend on field-by-field equality
-    // surprising.
-    if (toolCalls != null)
-      'toolCalls': toolCalls!.map((tc) => tc.toJson()).toList(),
-  };
+        ...super.toJson(),
+        // Emit `toolCalls` whenever the in-memory field is non-null, even
+        // when empty, so the round-trip `fromJson(m.toJson()) == m` is
+        // symmetric. The previous `&& toolCalls!.isNotEmpty` guard dropped
+        // the key on empty lists, which decoded back to `null` instead of
+        // `[]` and made tests that depend on field-by-field equality
+        // surprising.
+        if (toolCalls != null)
+          'toolCalls': toolCalls!.map((tc) => tc.toJson()).toList(),
+      };
 
   // See [kUnsetSentinel] for the sentinel rationale. `content`,
   // `name`, `toolCalls`, and `encryptedValue` are all nullable on
@@ -448,12 +450,12 @@ final class UserMessage extends Message {
 
   @override
   Map<String, dynamic> toJson() => {
-    if (id != null) 'id': id,
-    'role': role.value,
-    'content': content,
-    if (name != null) 'name': name,
-    if (encryptedValue != null) 'encryptedValue': encryptedValue,
-  };
+        if (id != null) 'id': id,
+        'role': role.value,
+        'content': content,
+        if (name != null) 'name': name,
+        if (encryptedValue != null) 'encryptedValue': encryptedValue,
+      };
 
   // `name` and `encryptedValue` are nullable on the parent — sentinel
   // for explicit-clear semantics.
@@ -519,7 +521,6 @@ final class ToolMessage extends Message {
         if (id != null) 'id': id,
         'role': role.value,
         'content': content,
-        if (name != null) 'name': name,
         if (encryptedValue != null) 'encryptedValue': encryptedValue,
         'toolCallId': toolCallId,
         if (error != null) 'error': error,
@@ -629,14 +630,17 @@ final class ActivityMessage extends Message {
         'content': activityContent,
       };
 
+  // `id` is nullable on the parent `Message` — use the sentinel so a caller
+  // can explicitly clear it via `copyWith(id: null)`. The bare `?? this.id`
+  // pattern cannot distinguish "omitted" from "explicitly null".
   @override
   ActivityMessage copyWith({
-    String? id,
+    Object? id = kUnsetSentinel,
     String? activityType,
     Map<String, dynamic>? activityContent,
   }) {
     return ActivityMessage(
-      id: id ?? this.id,
+      id: identical(id, kUnsetSentinel) ? this.id : id as String?,
       activityType: activityType ?? this.activityType,
       activityContent: activityContent ?? this.activityContent,
     );
@@ -673,11 +677,11 @@ final class ReasoningMessage extends Message {
 
   @override
   Map<String, dynamic> toJson() => {
-    if (id != null) 'id': id,
-    'role': role.value,
-    'content': content,
-    if (encryptedValue != null) 'encryptedValue': encryptedValue,
-  };
+        if (id != null) 'id': id,
+        'role': role.value,
+        'content': content,
+        if (encryptedValue != null) 'encryptedValue': encryptedValue,
+      };
 
   // `encryptedValue` is nullable on the parent — sentinel lets callers
   // clear it.

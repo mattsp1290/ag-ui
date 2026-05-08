@@ -228,7 +228,8 @@ void main() {
       expect(result.result, isA<List>());
 
       // Map result
-      result = codec.ClientToolResult(toolCallId: '5', result: {'nested': 'object'});
+      result =
+          codec.ClientToolResult(toolCallId: '5', result: {'nested': 'object'});
       expect(result.result, isA<Map>());
     });
   });

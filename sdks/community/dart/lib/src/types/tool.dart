@@ -30,9 +30,9 @@ class FunctionCall extends AGUIModel {
 
   @override
   Map<String, dynamic> toJson() => {
-    'name': name,
-    'arguments': arguments,
-  };
+        'name': name,
+        'arguments': arguments,
+      };
 
   @override
   FunctionCall copyWith({
@@ -84,11 +84,11 @@ class ToolCall extends AGUIModel {
 
   @override
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'type': type,
-    'function': function.toJson(),
-    if (encryptedValue != null) 'encryptedValue': encryptedValue,
-  };
+        'id': id,
+        'type': type,
+        'function': function.toJson(),
+        if (encryptedValue != null) 'encryptedValue': encryptedValue,
+      };
 
   // `encryptedValue` is nullable — sentinel lets callers clear it
   // explicitly. Mirrors the message-class sentinel in
@@ -147,11 +147,11 @@ class Tool extends AGUIModel {
 
   @override
   Map<String, dynamic> toJson() => {
-    'name': name,
-    'description': description,
-    if (parameters != null) 'parameters': parameters,
-    if (metadata != null) 'metadata': metadata,
-  };
+        'name': name,
+        'description': description,
+        if (parameters != null) 'parameters': parameters,
+        if (metadata != null) 'metadata': metadata,
+      };
 
   // Both `parameters` and `metadata` are nullable — sentinels let callers
   // clear either field explicitly via `copyWith(field: null)`. Without the
@@ -168,7 +168,8 @@ class Tool extends AGUIModel {
     return Tool(
       name: name ?? this.name,
       description: description ?? this.description,
-      parameters: identical(parameters, kUnsetSentinel) ? this.parameters : parameters,
+      parameters:
+          identical(parameters, kUnsetSentinel) ? this.parameters : parameters,
       metadata: identical(metadata, kUnsetSentinel)
           ? this.metadata
           : metadata as Map<String, dynamic>?,
@@ -202,10 +203,10 @@ class ToolResult extends AGUIModel {
 
   @override
   Map<String, dynamic> toJson() => {
-    'toolCallId': toolCallId,
-    'content': content,
-    if (error != null) 'error': error,
-  };
+        'toolCallId': toolCallId,
+        'content': content,
+        if (error != null) 'error': error,
+      };
 
   // `error` is nullable — sentinel lets callers clear it explicitly via
   // `copyWith(error: null)`. Mirrors `ToolCall.encryptedValue` above.

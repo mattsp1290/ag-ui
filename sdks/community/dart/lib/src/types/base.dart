@@ -178,7 +178,8 @@ class JsonDecoder {
 
     if (value is! T) {
       throw AGUIValidationError(
-        message: 'Field has incorrect type. Expected $T, got ${value.runtimeType}',
+        message:
+            'Field has incorrect type. Expected $T, got ${value.runtimeType}',
         field: field,
         value: value,
         json: json,
@@ -218,7 +219,8 @@ class JsonDecoder {
 
     if (value is! T) {
       throw AGUIValidationError(
-        message: 'Field has incorrect type. Expected $T, got ${value.runtimeType}',
+        message:
+            'Field has incorrect type. Expected $T, got ${value.runtimeType}',
         field: field,
         value: value,
         json: json,
@@ -385,19 +387,21 @@ class JsonDecoder {
     final list = requireField<List<dynamic>>(json, field);
 
     if (itemTransform != null) {
-      return list.map((item) {
+      final out = <T>[];
+      for (var i = 0; i < list.length; i++) {
         try {
-          return itemTransform(item);
+          out.add(itemTransform(list[i]));
         } catch (e) {
           throw AGUIValidationError(
             message: 'Failed to transform list item',
-            field: field,
-            value: item,
+            field: '$field[$i]',
+            value: list[i],
             json: json,
             cause: e,
           );
         }
-      }).toList();
+      }
+      return out;
     }
 
     return _eagerCast<T>(list, field, json);
@@ -418,19 +422,21 @@ class JsonDecoder {
     if (list == null) return null;
 
     if (itemTransform != null) {
-      return list.map((item) {
+      final out = <T>[];
+      for (var i = 0; i < list.length; i++) {
         try {
-          return itemTransform(item);
+          out.add(itemTransform(list[i]));
         } catch (e) {
           throw AGUIValidationError(
             message: 'Failed to transform list item',
-            field: field,
-            value: item,
+            field: '$field[$i]',
+            value: list[i],
             json: json,
             cause: e,
           );
         }
-      }).toList();
+      }
+      return out;
     }
 
     return _eagerCast<T>(list, field, json);
@@ -449,9 +455,9 @@ class JsonDecoder {
   ///
   /// The behavior matches [optionalListField] when [itemTransform] is
   /// supplied: the transform is wrapped in a per-element try/catch
-  /// producing an [AGUIValidationError] (without index info, for
-  /// transform-side failures). Without [itemTransform], element type
-  /// mismatches are reported with `field: '$camelKey[$i]'`.
+  /// producing an [AGUIValidationError] with `field: '$resolvedKey[$i]'`.
+  /// Without [itemTransform], element type mismatches are reported with
+  /// `field: '$camelKey[$i]'`.
   static List<T>? optionalEitherListField<T>(
     Map<String, dynamic> json,
     String camelKey,
@@ -467,19 +473,21 @@ class JsonDecoder {
     if (list == null) return null;
 
     if (itemTransform != null) {
-      return list.map((item) {
+      final out = <T>[];
+      for (var i = 0; i < list.length; i++) {
         try {
-          return itemTransform(item);
+          out.add(itemTransform(list[i]));
         } catch (e) {
           throw AGUIValidationError(
             message: 'Failed to transform list item',
-            field: resolvedKey,
-            value: item,
+            field: '$resolvedKey[$i]',
+            value: list[i],
             json: json,
             cause: e,
           );
         }
-      }).toList();
+      }
+      return out;
     }
 
     return _eagerCast<T>(list, resolvedKey, json);
@@ -537,17 +545,21 @@ const _CopyWithSentinel kUnsetSentinel = _CopyWithSentinel();
 String snakeToCamel(String snake) {
   final parts = snake.split('_');
   if (parts.isEmpty) return snake;
-  
-  return parts.first + 
-    parts.skip(1).map((part) => 
-      part.isEmpty ? '' : part[0].toUpperCase() + part.substring(1)
-    ).join();
+
+  return parts.first +
+      parts
+          .skip(1)
+          .map((part) =>
+              part.isEmpty ? '' : part[0].toUpperCase() + part.substring(1))
+          .join();
 }
 
 /// Converts camelCase to snake_case
 String camelToSnake(String camel) {
-  return camel.replaceAllMapped(
-    RegExp(r'[A-Z]'),
-    (match) => '_${match.group(0)!.toLowerCase()}',
-  ).replaceFirst(RegExp(r'^_'), '');
+  return camel
+      .replaceAllMapped(
+        RegExp(r'[A-Z]'),
+        (match) => '_${match.group(0)!.toLowerCase()}',
+      )
+      .replaceFirst(RegExp(r'^_'), '');
 }

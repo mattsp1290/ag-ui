@@ -17,24 +17,26 @@ void main() {
       test('converts SSE messages to typed events', () async {
         final sseController = StreamController<SseMessage>();
         final eventStream = adapter.fromSseStream(sseController.stream);
-        
+
         final events = <BaseEvent>[];
         final subscription = eventStream.listen(events.add);
-        
+
         // Add SSE messages
         sseController.add(SseMessage(
-          data: '{"type":"TEXT_MESSAGE_START","messageId":"msg1","role":"assistant"}',
+          data:
+              '{"type":"TEXT_MESSAGE_START","messageId":"msg1","role":"assistant"}',
         ));
         sseController.add(SseMessage(
-          data: '{"type":"TEXT_MESSAGE_CONTENT","messageId":"msg1","delta":"Hello"}',
+          data:
+              '{"type":"TEXT_MESSAGE_CONTENT","messageId":"msg1","delta":"Hello"}',
         ));
         sseController.add(SseMessage(
           data: '{"type":"TEXT_MESSAGE_END","messageId":"msg1"}',
         ));
-        
+
         await sseController.close();
         await subscription.cancel();
-        
+
         expect(events.length, equals(3));
         expect(events[0], isA<TextMessageStartEvent>());
         expect(events[1], isA<TextMessageContentEvent>());
@@ -44,22 +46,23 @@ void main() {
       test('ignores non-data SSE messages', () async {
         final sseController = StreamController<SseMessage>();
         final eventStream = adapter.fromSseStream(sseController.stream);
-        
+
         final events = <BaseEvent>[];
         final subscription = eventStream.listen(events.add);
-        
+
         // Add various SSE message types
         sseController.add(const SseMessage(id: '123')); // No data
         sseController.add(const SseMessage(event: 'custom')); // No data
-        sseController.add(const SseMessage(retry: Duration(milliseconds: 1000))); // No data
+        sseController.add(
+            const SseMessage(retry: Duration(milliseconds: 1000))); // No data
         sseController.add(SseMessage(
           data: '{"type":"TEXT_MESSAGE_START","messageId":"msg1"}',
         ));
         sseController.add(SseMessage(data: '')); // Empty data
-        
+
         await sseController.close();
         await subscription.cancel();
-        
+
         expect(events.length, equals(1));
         expect(events[0], isA<TextMessageStartEvent>());
       });
@@ -70,14 +73,14 @@ void main() {
           sseController.stream,
           skipInvalidEvents: false,
         );
-        
+
         final events = <BaseEvent>[];
         final errors = <Object>[];
         final subscription = eventStream.listen(
           events.add,
           onError: errors.add,
         );
-        
+
         // Add valid and invalid messages
         sseController.add(SseMessage(
           data: '{"type":"TEXT_MESSAGE_START","messageId":"msg1"}',
@@ -88,10 +91,10 @@ void main() {
         sseController.add(SseMessage(
           data: '{"type":"TEXT_MESSAGE_END","messageId":"msg1"}',
         ));
-        
+
         await sseController.close();
         await subscription.cancel();
-        
+
         expect(events.length, equals(2));
         expect(errors.length, equals(1));
       });
@@ -104,10 +107,10 @@ void main() {
           skipInvalidEvents: true,
           onError: (error, stack) => collectedErrors.add(error),
         );
-        
+
         final events = <BaseEvent>[];
         final subscription = eventStream.listen(events.add);
-        
+
         // Add valid and invalid messages
         sseController.add(SseMessage(
           data: '{"type":"TEXT_MESSAGE_START","messageId":"msg1"}',
@@ -121,10 +124,10 @@ void main() {
         sseController.add(SseMessage(
           data: '{"type":"TEXT_MESSAGE_END","messageId":"msg1"}',
         ));
-        
+
         await sseController.close();
         await subscription.cancel();
-        
+
         expect(events.length, equals(2));
         expect(collectedErrors.length, equals(2));
       });
@@ -134,17 +137,19 @@ void main() {
       test('handles complete SSE messages', () async {
         final rawController = StreamController<String>();
         final eventStream = adapter.fromRawSseStream(rawController.stream);
-        
+
         final events = <BaseEvent>[];
         final subscription = eventStream.listen(events.add);
-        
+
         // Add complete SSE messages
-        rawController.add('data: {"type":"RUN_STARTED","threadId":"t1","runId":"r1"}\n\n');
-        rawController.add('data: {"type":"RUN_FINISHED","threadId":"t1","runId":"r1"}\n\n');
-        
+        rawController.add(
+            'data: {"type":"RUN_STARTED","threadId":"t1","runId":"r1"}\n\n');
+        rawController.add(
+            'data: {"type":"RUN_FINISHED","threadId":"t1","runId":"r1"}\n\n');
+
         await rawController.close();
         await subscription.cancel();
-        
+
         expect(events.length, equals(2));
         expect(events[0], isA<RunStartedEvent>());
         expect(events[1], isA<RunFinishedEvent>());
@@ -153,18 +158,18 @@ void main() {
       test('handles partial messages across chunks', () async {
         final rawController = StreamController<String>();
         final eventStream = adapter.fromRawSseStream(rawController.stream);
-        
+
         final events = <BaseEvent>[];
         final subscription = eventStream.listen(events.add);
-        
+
         // Split message across chunks
         rawController.add('data: {"type":"TEXT_MES');
         rawController.add('SAGE_START","messageI');
         rawController.add('d":"msg1"}\n\n');
-        
+
         await rawController.close();
         await subscription.cancel();
-        
+
         expect(events.length, equals(1));
         expect(events[0], isA<TextMessageStartEvent>());
         final event = events[0] as TextMessageStartEvent;
@@ -174,18 +179,18 @@ void main() {
       test('handles multi-line data fields', () async {
         final rawController = StreamController<String>();
         final eventStream = adapter.fromRawSseStream(rawController.stream);
-        
+
         final events = <BaseEvent>[];
         final subscription = eventStream.listen(events.add);
-        
+
         // Multi-line data
         rawController.add('data: {"type":"TEXT_MESSAGE_CONTENT",\n');
         rawController.add('data: "messageId":"msg1",\n');
         rawController.add('data: "delta":"Hello"}\n\n');
-        
+
         await rawController.close();
         await subscription.cancel();
-        
+
         expect(events.length, equals(1));
         expect(events[0], isA<TextMessageContentEvent>());
         final event = events[0] as TextMessageContentEvent;
@@ -195,19 +200,20 @@ void main() {
       test('ignores non-data lines', () async {
         final rawController = StreamController<String>();
         final eventStream = adapter.fromRawSseStream(rawController.stream);
-        
+
         final events = <BaseEvent>[];
         final subscription = eventStream.listen(events.add);
-        
+
         rawController.add('id: 123\n');
         rawController.add('event: custom\n');
         rawController.add(': comment\n');
-        rawController.add('data: {"type":"CUSTOM","name":"test","value":42}\n\n');
+        rawController
+            .add('data: {"type":"CUSTOM","name":"test","value":42}\n\n');
         rawController.add('retry: 1000\n');
-        
+
         await rawController.close();
         await subscription.cancel();
-        
+
         expect(events.length, equals(1));
         expect(events[0], isA<CustomEvent>());
       });
@@ -220,7 +226,8 @@ void main() {
         final subscription = eventStream.listen(events.add);
 
         // Add data without final newlines
-        rawController.add('data: {"type":"STATE_SNAPSHOT","snapshot":{"count":42}}');
+        rawController
+            .add('data: {"type":"STATE_SNAPSHOT","snapshot":{"count":42}}');
 
         await rawController.close();
         await subscription.cancel();
@@ -231,7 +238,8 @@ void main() {
         expect(event.snapshot['count'], equals(42));
       });
 
-      test('handles CRLF split across chunks without double-dispatch', () async {
+      test('handles CRLF split across chunks without double-dispatch',
+          () async {
         // Regression for Opus2 I3: when lastWasLoneCrAtStart=true and the new
         // chunk starts with '\n', that '\n' is the second half of a chunk-spanning
         // CRLF pair and must NOT produce an extra empty line (which would cause a
@@ -245,8 +253,7 @@ void main() {
         //     (skipped by the edge-case fix so it doesn't dispatch an extra event)
         //   - "data: bar" + "\n\n" dispatches "bar"
         final rawController = StreamController<String>();
-        final eventStream =
-            adapter.fromRawSseStream(rawController.stream);
+        final eventStream = adapter.fromRawSseStream(rawController.stream);
 
         final events = <BaseEvent>[];
         final subscription = eventStream.listen(events.add);
@@ -264,12 +271,14 @@ void main() {
         // Must produce exactly 2 events, not 3 (the spurious empty-flush
         // from the lone \n would have caused a double-dispatch before the fix).
         expect(events.length, equals(2),
-            reason: 'leading \\n in chunk 2 must not produce an extra dispatch');
+            reason:
+                'leading \\n in chunk 2 must not produce an extra dispatch');
         expect(events[0], isA<RunStartedEvent>());
         expect(events[1], isA<RunFinishedEvent>());
       });
 
-      test('lone-CR: lastWasLoneCr persists through zero-length intermediate chunk',
+      test(
+          'lone-CR: lastWasLoneCr persists through zero-length intermediate chunk',
           () async {
         // Regression for II5: when a lone-CR terminator is delivered in one
         // chunk and the next chunk is empty (zero-length), lastWasLoneCr must
@@ -300,7 +309,8 @@ void main() {
         expect(events[1], isA<RunFinishedEvent>());
       });
 
-      test('lone-CR: three back-to-back events each delivered in their own chunk',
+      test(
+          'lone-CR: three back-to-back events each delivered in their own chunk',
           () async {
         // Regression for I4/II5: three consecutive lone-CR-terminated events
         // delivered one per chunk. Each chunk ends with \r\r (data line CR +
@@ -394,7 +404,8 @@ void main() {
         await rawController.close();
       });
 
-      test('CRLF split where second chunk is exactly "\\n" (deferral edge case)',
+      test(
+          'CRLF split where second chunk is exactly "\\n" (deferral edge case)',
           () async {
         // Regression for Opus2 I7: when chunk 1 ends with a bare \r (deferred
         // — could be the \r of a CRLF pair), and chunk 2 is exactly "\n", the
@@ -421,11 +432,13 @@ void main() {
         await subscription.cancel();
 
         expect(events.length, equals(1),
-            reason: '\\r\\n split across chunks must produce exactly one flush');
+            reason:
+                '\\r\\n split across chunks must produce exactly one flush');
         expect(events[0], isA<RunStartedEvent>());
       });
 
-      test('two distinct JSON decode errors in one chunk both reach the consumer',
+      test(
+          'two distinct JSON decode errors in one chunk both reach the consumer',
           () async {
         // Regression for Opus2 I1: within a single chunk, the per-frame reset
         // of errorRoutedInChunk (reset before EACH empty-line flush) ensures
@@ -451,6 +464,63 @@ void main() {
             reason: 'both decode errors must reach the consumer; '
                 'errorRoutedInChunk must be reset before each new frame');
       });
+
+      test(
+          'processChunk size-cap resets dataBuffer so next valid event '
+          'is not contaminated (I1 regression)', () async {
+        // Regression for Opus2 I1: when a chunk-level size cap fires,
+        // the in-progress dataBuffer must be cleared and inDataBlock reset
+        // before throwing. Without the fix, chunk 1's data (already appended
+        // to dataBuffer via a complete `data:` line) contaminates chunk 4's
+        // decode: the leftover partial data triggers a spurious extra error
+        // when the blank-line boundary arrives in chunk 3.
+        //
+        // Sequence:
+        //   Chunk 1: `data: <valid-json>\n`  → appended to dataBuffer (complete line)
+        //   Chunk 2: huge blob               → processChunk cap fires, 1 error routed
+        //   Chunk 3: `\n`                    → blank-line boundary (ends oversized msg)
+        //   Chunk 4: valid complete event    → must decode cleanly (0 extra errors)
+        //
+        // Without fix: chunk 3's blank-line flush sees leftover dataBuffer from
+        // chunk 1, tries to decode it → routes a 2nd spurious error.
+        // With fix:    dataBuffer cleared on cap; chunk 3 flush is a no-op.
+        const smallCap = 60; // big enough for valid events, not for the blob
+        final smallAdapter = EventStreamAdapter(maxDataCodeUnits: smallCap);
+        final rawController = StreamController<String>();
+        final eventStream = smallAdapter.fromRawSseStream(rawController.stream);
+
+        final events = <BaseEvent>[];
+        final errors = <Object>[];
+        final subscription = eventStream.listen(
+          events.add,
+          onError: errors.add,
+        );
+
+        // Chunk 1: complete data: line (with \n) so content reaches dataBuffer.
+        rawController.add('data: {"partial":true}\n');
+
+        // Chunk 2: oversized — exceeds smallCap, fires processChunk cap.
+        rawController.add('x' * (smallCap + 1));
+
+        // Chunk 3: blank line — boundary that "closes" the oversized message.
+        rawController.add('\n');
+
+        // Chunk 4: clean new SSE event that must decode without error.
+        rawController.add(
+            'data: {"type":"RUN_FINISHED","threadId":"t","runId":"r"}\n\n');
+
+        await Future<void>.delayed(Duration.zero);
+        await subscription.cancel();
+        await rawController.close();
+
+        expect(errors.length, equals(1),
+            reason: 'only the oversized chunk should produce an error; '
+                'the leftover dataBuffer from chunk 1 must NOT cause a 2nd error '
+                'when chunk 3\'s blank line fires flushDataBlock');
+        expect(events.length, equals(1),
+            reason: 'RUN_FINISHED from chunk 4 must decode cleanly');
+        expect(events[0], isA<RunFinishedEvent>());
+      });
     });
 
     group('filterByType', () {
@@ -459,22 +529,23 @@ void main() {
         final filtered = EventStreamAdapter.filterByType<TextMessageStartEvent>(
           controller.stream,
         );
-        
+
         final events = <TextMessageStartEvent>[];
         final subscription = filtered.listen(events.add);
-        
+
         controller.add(TextMessageStartEvent(messageId: 'msg1'));
-        controller.add(TextMessageContentEvent(messageId: 'msg1', delta: 'Hello'));
+        controller
+            .add(TextMessageContentEvent(messageId: 'msg1', delta: 'Hello'));
         controller.add(TextMessageStartEvent(messageId: 'msg2'));
         controller.add(ToolCallStartEvent(
           toolCallId: 'tool1',
           toolCallName: 'search',
         ));
         controller.add(TextMessageEndEvent(messageId: 'msg1'));
-        
+
         await controller.close();
         await subscription.cancel();
-        
+
         expect(events.length, equals(2));
         expect(events[0].messageId, equals('msg1'));
         expect(events[1].messageId, equals('msg2'));
@@ -484,20 +555,23 @@ void main() {
     group('groupRelatedEvents', () {
       test('groups text message events by messageId', () async {
         final controller = StreamController<BaseEvent>();
-        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
-        
+        final grouped =
+            EventStreamAdapter.groupRelatedEvents(controller.stream);
+
         final groups = <List<BaseEvent>>[];
         final subscription = grouped.listen(groups.add);
-        
+
         // Complete message sequence
         controller.add(TextMessageStartEvent(messageId: 'msg1'));
-        controller.add(TextMessageContentEvent(messageId: 'msg1', delta: 'Hello'));
-        controller.add(TextMessageContentEvent(messageId: 'msg1', delta: ' world'));
+        controller
+            .add(TextMessageContentEvent(messageId: 'msg1', delta: 'Hello'));
+        controller
+            .add(TextMessageContentEvent(messageId: 'msg1', delta: ' world'));
         controller.add(TextMessageEndEvent(messageId: 'msg1'));
-        
+
         await controller.close();
         await subscription.cancel();
-        
+
         expect(groups.length, equals(1));
         expect(groups[0].length, equals(4));
         expect(groups[0][0], isA<TextMessageStartEvent>());
@@ -508,11 +582,12 @@ void main() {
 
       test('groups tool call events by toolCallId', () async {
         final controller = StreamController<BaseEvent>();
-        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
-        
+        final grouped =
+            EventStreamAdapter.groupRelatedEvents(controller.stream);
+
         final groups = <List<BaseEvent>>[];
         final subscription = grouped.listen(groups.add);
-        
+
         // Complete tool call sequence
         controller.add(ToolCallStartEvent(
           toolCallId: 'tool1',
@@ -527,10 +602,10 @@ void main() {
           delta: '"test"}',
         ));
         controller.add(ToolCallEndEvent(toolCallId: 'tool1'));
-        
+
         await controller.close();
         await subscription.cancel();
-        
+
         expect(groups.length, equals(1));
         expect(groups[0].length, equals(4));
         expect(groups[0][0], isA<ToolCallStartEvent>());
@@ -541,11 +616,12 @@ void main() {
 
       test('handles interleaved message groups', () async {
         final controller = StreamController<BaseEvent>();
-        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
-        
+        final grouped =
+            EventStreamAdapter.groupRelatedEvents(controller.stream);
+
         final groups = <List<BaseEvent>>[];
         final subscription = grouped.listen(groups.add);
-        
+
         // Interleaved messages
         controller.add(TextMessageStartEvent(messageId: 'msg1'));
         controller.add(TextMessageStartEvent(messageId: 'msg2'));
@@ -553,33 +629,36 @@ void main() {
         controller.add(TextMessageContentEvent(messageId: 'msg2', delta: 'B'));
         controller.add(TextMessageEndEvent(messageId: 'msg1'));
         controller.add(TextMessageEndEvent(messageId: 'msg2'));
-        
+
         await controller.close();
         await subscription.cancel();
-        
+
         expect(groups.length, equals(2));
         // First completed group (msg1)
         expect(groups[0].length, equals(3));
-        expect((groups[0][0] as TextMessageStartEvent).messageId, equals('msg1'));
+        expect(
+            (groups[0][0] as TextMessageStartEvent).messageId, equals('msg1'));
         // Second completed group (msg2)
         expect(groups[1].length, equals(3));
-        expect((groups[1][0] as TextMessageStartEvent).messageId, equals('msg2'));
+        expect(
+            (groups[1][0] as TextMessageStartEvent).messageId, equals('msg2'));
       });
 
       test('emits single events not part of groups', () async {
         final controller = StreamController<BaseEvent>();
-        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
-        
+        final grouped =
+            EventStreamAdapter.groupRelatedEvents(controller.stream);
+
         final groups = <List<BaseEvent>>[];
         final subscription = grouped.listen(groups.add);
-        
+
         controller.add(RunStartedEvent(threadId: 't1', runId: 'r1'));
         controller.add(StateSnapshotEvent(snapshot: {'count': 0}));
         controller.add(CustomEvent(name: 'test', value: 42));
-        
+
         await controller.close();
         await subscription.cancel();
-        
+
         expect(groups.length, equals(3));
         expect(groups[0].length, equals(1));
         expect(groups[0][0], isA<RunStartedEvent>());
@@ -591,7 +670,8 @@ void main() {
 
       test('emits incomplete groups on stream close', () async {
         final controller = StreamController<BaseEvent>();
-        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
+        final grouped =
+            EventStreamAdapter.groupRelatedEvents(controller.stream);
 
         final groups = <List<BaseEvent>>[];
         final completer = Completer<void>();
@@ -602,10 +682,11 @@ void main() {
 
         // Incomplete message (no END event)
         controller.add(TextMessageStartEvent(messageId: 'msg1'));
-        controller.add(TextMessageContentEvent(messageId: 'msg1', delta: 'Hello'));
+        controller
+            .add(TextMessageContentEvent(messageId: 'msg1', delta: 'Hello'));
 
         await controller.close();
-        await completer.future;  // Wait for stream to complete
+        await completer.future; // Wait for stream to complete
         await subscription.cancel();
 
         expect(groups.length, equals(1));
@@ -618,7 +699,8 @@ void main() {
         // Regression for Opus1 I1: ReasoningMessage* events must be grouped
         // like TextMessage* events, not fall to the default single-event branch.
         final controller = StreamController<BaseEvent>();
-        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
+        final grouped =
+            EventStreamAdapter.groupRelatedEvents(controller.stream);
 
         final groups = <List<BaseEvent>>[];
         final subscription = grouped.listen(groups.add);
@@ -640,18 +722,21 @@ void main() {
         expect(groups[0][2], isA<ReasoningMessageEndEvent>());
       });
 
-      test('routes chunk into open group when Start/End cycle is active', () async {
+      test('routes chunk into open group when Start/End cycle is active',
+          () async {
         // Regression: *Chunk events must be routed into an active group rather
         // than emitted as standalone single-element groups via the default branch.
         final controller = StreamController<BaseEvent>();
-        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
+        final grouped =
+            EventStreamAdapter.groupRelatedEvents(controller.stream);
 
         final groups = <List<BaseEvent>>[];
         final subscription = grouped.listen(groups.add);
 
         // TextMessageChunkEvent arriving while a Start/End cycle is open
         controller.add(TextMessageStartEvent(messageId: 'msg1'));
-        controller.add(TextMessageChunkEvent(messageId: 'msg1', delta: 'chunk'));
+        controller
+            .add(TextMessageChunkEvent(messageId: 'msg1', delta: 'chunk'));
         controller.add(TextMessageEndEvent(messageId: 'msg1'));
 
         await controller.close();
@@ -663,16 +748,19 @@ void main() {
         expect(groups[0][1], isA<TextMessageChunkEvent>());
       });
 
-      test('emits standalone chunk when no matching open group exists', () async {
+      test('emits standalone chunk when no matching open group exists',
+          () async {
         // A *Chunk with no active group (e.g. server sends only chunks, no
         // Start/End) must still be emitted, just as a single-element group.
         final controller = StreamController<BaseEvent>();
-        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
+        final grouped =
+            EventStreamAdapter.groupRelatedEvents(controller.stream);
 
         final groups = <List<BaseEvent>>[];
         final subscription = grouped.listen(groups.add);
 
-        controller.add(TextMessageChunkEvent(messageId: 'msg1', delta: 'standalone'));
+        controller
+            .add(TextMessageChunkEvent(messageId: 'msg1', delta: 'standalone'));
 
         await controller.close();
         await subscription.cancel();
@@ -685,7 +773,8 @@ void main() {
       // Regression for I-J: Tool and Reasoning chunk families were not covered.
       test('routes ToolCallChunkEvent into open tool group', () async {
         final controller = StreamController<BaseEvent>();
-        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
+        final grouped =
+            EventStreamAdapter.groupRelatedEvents(controller.stream);
 
         final groups = <List<BaseEvent>>[];
         final subscription = grouped.listen(groups.add);
@@ -707,9 +796,11 @@ void main() {
         expect(groups[0][1], isA<ToolCallChunkEvent>());
       });
 
-      test('emits standalone ToolCallChunkEvent when no open group exists', () async {
+      test('emits standalone ToolCallChunkEvent when no open group exists',
+          () async {
         final controller = StreamController<BaseEvent>();
-        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
+        final grouped =
+            EventStreamAdapter.groupRelatedEvents(controller.stream);
 
         final groups = <List<BaseEvent>>[];
         final subscription = grouped.listen(groups.add);
@@ -724,15 +815,18 @@ void main() {
         expect(groups[0][0], isA<ToolCallChunkEvent>());
       });
 
-      test('routes ReasoningMessageChunkEvent into open reasoning group', () async {
+      test('routes ReasoningMessageChunkEvent into open reasoning group',
+          () async {
         final controller = StreamController<BaseEvent>();
-        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
+        final grouped =
+            EventStreamAdapter.groupRelatedEvents(controller.stream);
 
         final groups = <List<BaseEvent>>[];
         final subscription = grouped.listen(groups.add);
 
         controller.add(ReasoningMessageStartEvent(messageId: 'rm1'));
-        controller.add(ReasoningMessageChunkEvent(messageId: 'rm1', delta: 'thinking'));
+        controller.add(
+            ReasoningMessageChunkEvent(messageId: 'rm1', delta: 'thinking'));
         controller.add(ReasoningMessageEndEvent(messageId: 'rm1'));
 
         await controller.close();
@@ -744,14 +838,18 @@ void main() {
         expect(groups[0][1], isA<ReasoningMessageChunkEvent>());
       });
 
-      test('emits standalone ReasoningMessageChunkEvent when no open group exists', () async {
+      test(
+          'emits standalone ReasoningMessageChunkEvent when no open group exists',
+          () async {
         final controller = StreamController<BaseEvent>();
-        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
+        final grouped =
+            EventStreamAdapter.groupRelatedEvents(controller.stream);
 
         final groups = <List<BaseEvent>>[];
         final subscription = grouped.listen(groups.add);
 
-        controller.add(ReasoningMessageChunkEvent(messageId: 'rm1', delta: 'standalone'));
+        controller.add(
+            ReasoningMessageChunkEvent(messageId: 'rm1', delta: 'standalone'));
 
         await controller.close();
         await subscription.cancel();
@@ -761,13 +859,15 @@ void main() {
         expect(groups[0][0], isA<ReasoningMessageChunkEvent>());
       });
 
-      test('orphan *_End events are emitted as standalone groups (I3 fix)', () async {
+      test('orphan *_End events are emitted as standalone groups (I3 fix)',
+          () async {
         // Regression for Opus2 I3: a *_End event with no matching *_Start
         // (e.g. after a reconnect that missed the opening event) was silently
         // dropped. It must now be emitted as a standalone single-element group,
         // consistent with how orphan *_Chunk events are handled.
         final controller = StreamController<BaseEvent>();
-        final grouped = EventStreamAdapter.groupRelatedEvents(controller.stream);
+        final grouped =
+            EventStreamAdapter.groupRelatedEvents(controller.stream);
 
         final groups = <List<BaseEvent>>[];
         final subscription = grouped.listen(groups.add);
@@ -775,7 +875,8 @@ void main() {
         // Orphan End events — no preceding Start
         controller.add(TextMessageEndEvent(messageId: 'no-start-text'));
         controller.add(ToolCallEndEvent(toolCallId: 'no-start-tool'));
-        controller.add(ReasoningMessageEndEvent(messageId: 'no-start-reasoning'));
+        controller
+            .add(ReasoningMessageEndEvent(messageId: 'no-start-reasoning'));
 
         await controller.close();
         await subscription.cancel();
@@ -797,20 +898,22 @@ void main() {
         final accumulated = EventStreamAdapter.accumulateTextMessages(
           controller.stream,
         );
-        
+
         final messages = <String>[];
         final subscription = accumulated.listen(messages.add);
-        
+
         // Complete message
         controller.add(TextMessageStartEvent(messageId: 'msg1'));
-        controller.add(TextMessageContentEvent(messageId: 'msg1', delta: 'Hello'));
+        controller
+            .add(TextMessageContentEvent(messageId: 'msg1', delta: 'Hello'));
         controller.add(TextMessageContentEvent(messageId: 'msg1', delta: ', '));
-        controller.add(TextMessageContentEvent(messageId: 'msg1', delta: 'world!'));
+        controller
+            .add(TextMessageContentEvent(messageId: 'msg1', delta: 'world!'));
         controller.add(TextMessageEndEvent(messageId: 'msg1'));
-        
+
         await controller.close();
         await subscription.cancel();
-        
+
         expect(messages.length, equals(1));
         expect(messages[0], equals('Hello, world!'));
       });
@@ -820,22 +923,25 @@ void main() {
         final accumulated = EventStreamAdapter.accumulateTextMessages(
           controller.stream,
         );
-        
+
         final messages = <String>[];
         final subscription = accumulated.listen(messages.add);
-        
+
         // Interleaved messages
         controller.add(TextMessageStartEvent(messageId: 'msg1'));
         controller.add(TextMessageStartEvent(messageId: 'msg2'));
-        controller.add(TextMessageContentEvent(messageId: 'msg1', delta: 'First'));
-        controller.add(TextMessageContentEvent(messageId: 'msg2', delta: 'Second'));
+        controller
+            .add(TextMessageContentEvent(messageId: 'msg1', delta: 'First'));
+        controller
+            .add(TextMessageContentEvent(messageId: 'msg2', delta: 'Second'));
         controller.add(TextMessageEndEvent(messageId: 'msg1'));
-        controller.add(TextMessageContentEvent(messageId: 'msg2', delta: ' message'));
+        controller
+            .add(TextMessageContentEvent(messageId: 'msg2', delta: ' message'));
         controller.add(TextMessageEndEvent(messageId: 'msg2'));
-        
+
         await controller.close();
         await subscription.cancel();
-        
+
         expect(messages.length, equals(2));
         expect(messages[0], equals('First'));
         expect(messages[1], equals('Second message'));
@@ -846,10 +952,10 @@ void main() {
         final accumulated = EventStreamAdapter.accumulateTextMessages(
           controller.stream,
         );
-        
+
         final messages = <String>[];
         final subscription = accumulated.listen(messages.add);
-        
+
         // Chunk events (complete content in single event)
         controller.add(TextMessageChunkEvent(
           messageId: 'msg1',
@@ -859,10 +965,10 @@ void main() {
           messageId: 'msg2',
           delta: 'Complete message 2',
         ));
-        
+
         await controller.close();
         await subscription.cancel();
-        
+
         expect(messages.length, equals(2));
         expect(messages[0], equals('Complete message 1'));
         expect(messages[1], equals('Complete message 2'));
@@ -873,23 +979,24 @@ void main() {
         final accumulated = EventStreamAdapter.accumulateTextMessages(
           controller.stream,
         );
-        
+
         final messages = <String>[];
         final subscription = accumulated.listen(messages.add);
-        
+
         controller.add(RunStartedEvent(threadId: 't1', runId: 'r1'));
         controller.add(TextMessageStartEvent(messageId: 'msg1'));
         controller.add(ToolCallStartEvent(
           toolCallId: 'tool1',
           toolCallName: 'search',
         ));
-        controller.add(TextMessageContentEvent(messageId: 'msg1', delta: 'Test'));
+        controller
+            .add(TextMessageContentEvent(messageId: 'msg1', delta: 'Test'));
         controller.add(StateSnapshotEvent(snapshot: {}));
         controller.add(TextMessageEndEvent(messageId: 'msg1'));
-        
+
         await controller.close();
         await subscription.cancel();
-        
+
         expect(messages.length, equals(1));
         expect(messages[0], equals('Test'));
       });
@@ -916,7 +1023,8 @@ void main() {
             reason: 'empty Start→End cycle must not emit an empty string');
       });
 
-      test('flushes partial content on stream close without TextMessageEnd', () async {
+      test('flushes partial content on stream close without TextMessageEnd',
+          () async {
         // Regression: When the upstream closes abnormally (no TextMessageEnd),
         // accumulated content must be flushed rather than silently discarded.
         // Mirrors groupRelatedEvents which emits incomplete groups on close.
@@ -933,7 +1041,8 @@ void main() {
         );
 
         controller.add(TextMessageStartEvent(messageId: 'msg1'));
-        controller.add(TextMessageContentEvent(messageId: 'msg1', delta: 'partial'));
+        controller
+            .add(TextMessageContentEvent(messageId: 'msg1', delta: 'partial'));
         // No TextMessageEndEvent — simulates abnormal stream close
         await controller.close();
         await completer.future;

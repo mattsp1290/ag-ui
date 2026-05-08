@@ -8,8 +8,7 @@ import 'package:test/test.dart';
 class TestHelpers {
   /// Get base URL from environment or default
   static String get baseUrl {
-    return Platform.environment['AGUI_BASE_URL'] ?? 
-           'http://127.0.0.1:20203';
+    return Platform.environment['AGUI_BASE_URL'] ?? 'http://127.0.0.1:20203';
   }
 
   /// Check if integration tests should be skipped
@@ -39,7 +38,8 @@ class TestHelpers {
     dynamic state,
   }) {
     return SimpleRunAgentInput(
-      threadId: threadId ?? 'test-thread-${DateTime.now().millisecondsSinceEpoch}',
+      threadId:
+          threadId ?? 'test-thread-${DateTime.now().millisecondsSinceEpoch}',
       runId: runId ?? 'test-run-${DateTime.now().millisecondsSinceEpoch}',
       messages: messages ?? [],
       tools: tools ?? [],
@@ -113,10 +113,11 @@ class TestHelpers {
 
     if (expectMessages) {
       final hasMessages = events.any(
-        (e) => e.eventType == EventType.messagesSnapshot ||
-               e.eventType == EventType.textMessageStart ||
-               e.eventType == EventType.textMessageContent ||
-               e.eventType == EventType.textMessageEnd,
+        (e) =>
+            e.eventType == EventType.messagesSnapshot ||
+            e.eventType == EventType.textMessageStart ||
+            e.eventType == EventType.textMessageContent ||
+            e.eventType == EventType.textMessageEnd,
       );
       expect(hasMessages, isTrue, reason: 'Should have message events');
     }
@@ -125,14 +126,14 @@ class TestHelpers {
   /// Extract messages from events
   static List<Message> extractMessages(List<BaseEvent> events) {
     final messages = <Message>[];
-    
+
     for (final event in events) {
       if (event is MessagesSnapshotEvent) {
         messages.clear();
         messages.addAll(event.messages);
       }
     }
-    
+
     return messages;
   }
 
@@ -166,7 +167,7 @@ class TestHelpers {
 
     final filepath = '${artifactsDir.path}/$filename';
     final file = File(filepath);
-    
+
     // Convert events to JSONL format
     final jsonLines = events.map((event) {
       // Create a JSON representation of the event

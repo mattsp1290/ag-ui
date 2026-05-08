@@ -11,7 +11,7 @@ class SseClient {
   final http.Client _httpClient;
   final Duration _idleTimeout;
   final BackoffStrategy _backoffStrategy;
-  
+
   StreamController<SseMessage>? _controller;
   StreamSubscription<SseMessage>? _subscription;
   http.StreamedResponse? _currentResponse;
@@ -25,7 +25,7 @@ class SseClient {
   int _reconnectAttempt = 0;
 
   /// Creates a new SSE client.
-  /// 
+  ///
   /// [httpClient] - The HTTP client to use for connections.
   /// [idleTimeout] - Maximum time to wait for data before reconnecting.
   /// [backoffStrategy] - Strategy for calculating reconnection delays.
@@ -47,7 +47,7 @@ class SseClient {
   }
 
   /// Connect to an SSE endpoint and return a stream of messages.
-  /// 
+  ///
   /// [url] - The SSE endpoint URL.
   /// [headers] - Optional additional headers to send with the request.
   /// [requestTimeout] - Optional timeout for the initial connection.
@@ -95,9 +95,9 @@ class SseClient {
     Duration? requestTimeout,
   ) async {
     if (_isClosed || _isConnecting) return;
-    
+
     _isConnecting = true;
-    
+
     try {
       // Prepare headers
       final requestHeaders = <String, String>{
@@ -105,7 +105,7 @@ class SseClient {
         'Cache-Control': 'no-cache',
         ...?headers,
       };
-      
+
       // Add Last-Event-ID header if we have one (for reconnection)
       if (_lastEventId != null) {
         requestHeaders['Last-Event-ID'] = _lastEventId!;
@@ -114,34 +114,35 @@ class SseClient {
       // Create the request
       final request = http.Request('GET', url);
       request.headers.addAll(requestHeaders);
-      
+
       // Send the request with optional timeout
       final responseFuture = _httpClient.send(request);
       final response = requestTimeout != null
           ? await responseFuture.timeout(requestTimeout)
           : await responseFuture;
-      
+
       _currentResponse = response;
-      
+
       // Check for successful response
       if (response.statusCode != 200) {
-        throw Exception('SSE connection failed with status ${response.statusCode}');
+        throw Exception(
+            'SSE connection failed with status ${response.statusCode}');
       }
-      
+
       // Reset backoff on successful connection
       _backoffStrategy.reset();
       _reconnectAttempt = 0;
       _hasEverConnected = true;
-      
+
       // Create parser for this connection
       final parser = SseParser();
-      
+
       // Set up idle timeout
       _resetIdleTimer();
-      
+
       // Parse the stream
       final messageStream = parser.parseBytes(response.stream);
-      
+
       // Listen to messages
       _subscription?.cancel();
       _subscription = messageStream.listen(
@@ -150,15 +151,15 @@ class SseClient {
           if (message.id != null) {
             _lastEventId = message.id;
           }
-          
+
           // Update retry duration if specified by server
           if (message.retry != null) {
             _serverRetryDuration = message.retry;
           }
-          
+
           // Reset idle timer on each message
           _resetIdleTimer();
-          
+
           // Forward the message
           _controller?.add(message);
         },
@@ -170,7 +171,7 @@ class SseClient {
         },
         cancelOnError: false,
       );
-      
+
       _isConnecting = false;
     } catch (error) {
       _isConnecting = false;
@@ -223,11 +224,11 @@ class SseClient {
     Duration? requestTimeout,
   ) {
     if (_isClosed) return;
-    
+
     _idleTimer?.cancel();
     _subscription?.cancel();
     _currentResponse = null;
-    
+
     // Schedule reconnection if we have connection info
     if (url != null) {
       _scheduleReconnection(url, headers, requestTimeout);
@@ -241,11 +242,12 @@ class SseClient {
     Duration? requestTimeout,
   ) {
     if (_isClosed) return;
-    
+
     // Calculate delay (use server retry if available, otherwise backoff)
     _reconnectAttempt++;
-    final delay = _serverRetryDuration ?? _backoffStrategy.nextDelay(_reconnectAttempt);
-    
+    final delay =
+        _serverRetryDuration ?? _backoffStrategy.nextDelay(_reconnectAttempt);
+
     // Schedule reconnection. Store the timer so close() can cancel it and
     // avoid a connect() call racing against a concurrent close().
     _reconnectTimer?.cancel();
@@ -273,7 +275,8 @@ class SseClient {
   }
 
   /// Check if the client is currently connected.
-  bool get isConnected => _controller != null && !_isClosed && _currentResponse != null;
+  bool get isConnected =>
+      _controller != null && !_isClosed && _currentResponse != null;
 
   /// Get the last event ID received.
   String? get lastEventId => _lastEventId;

@@ -236,7 +236,7 @@ class EventDecoder {
   BaseEvent decodeBinary(Uint8List data) {
     try {
       final string = utf8.decode(data);
-      
+
       // Check if it looks like SSE format
       if (string.startsWith('data:')) {
         return decodeSSE(string);
@@ -279,7 +279,7 @@ class EventDecoder {
   bool validate(BaseEvent event) {
     // Basic validation - ensure type is set
     Validators.validateEventType(event.type);
-    
+
     // Type-specific validation. Listing every sealed subtype explicitly
     // (no `default`) makes the analyzer flag any new event type that is
     // added without a corresponding decision here. The `exhaustive_cases`
@@ -293,9 +293,9 @@ class EventDecoder {
         Validators.requireNonEmpty(event.messageId, 'messageId');
       case TextMessageContentEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
-        // `delta` may be empty per canonical TS/Python schemas
-        // (`TextMessageContentEventSchema.delta: z.string()` /
-        // pydantic `delta: str`). Do not enforce non-empty here.
+      // `delta` may be empty per canonical TS/Python schemas
+      // (`TextMessageContentEventSchema.delta: z.string()` /
+      // pydantic `delta: str`). Do not enforce non-empty here.
       case TextMessageEndEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
       case TextMessageChunkEvent():
@@ -334,9 +334,9 @@ class EventDecoder {
         Validators.requireNonEmpty(event.toolCallName, 'toolCallName');
       case ToolCallArgsEvent():
         Validators.requireNonEmpty(event.toolCallId, 'toolCallId');
-        // `delta` may be empty per canonical TS/Python schemas
-        // (`ToolCallArgsEventSchema.delta: z.string()` / pydantic
-        // `delta: str`). Do not enforce non-empty here.
+      // `delta` may be empty per canonical TS/Python schemas
+      // (`ToolCallArgsEventSchema.delta: z.string()` / pydantic
+      // `delta: str`). Do not enforce non-empty here.
       case ToolCallEndEvent():
         Validators.requireNonEmpty(event.toolCallId, 'toolCallId');
       case ToolCallChunkEvent():
@@ -344,9 +344,9 @@ class EventDecoder {
       case ToolCallResultEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
         Validators.requireNonEmpty(event.toolCallId, 'toolCallId');
-        // `content` may be empty per canonical TS/Python schemas
-        // (`ToolCallResultEventSchema.content: z.string()` / pydantic
-        // `content: str`). Do not enforce non-empty here.
+      // `content` may be empty per canonical TS/Python schemas
+      // (`ToolCallResultEventSchema.content: z.string()` / pydantic
+      // `content: str`). Do not enforce non-empty here.
       case ThinkingStartEvent():
         break;
       // ignore: deprecated_member_use_from_same_package
@@ -361,6 +361,9 @@ class EventDecoder {
         // we can express on `dynamic` content here.
         break;
       case StateDeltaEvent():
+        // `delta` is allowed to be empty per canonical TS/Python — mirrors
+        // `ActivityDeltaEvent` which has the same schema floor of 0. Do not
+        // add a non-empty check here without a corresponding schema change.
         break;
       case MessagesSnapshotEvent():
         break;
@@ -399,9 +402,9 @@ class EventDecoder {
         Validators.requireNonEmpty(event.messageId, 'messageId');
       case ReasoningMessageContentEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
-        // `delta` may be empty per canonical TS/Python schemas
-        // (`ReasoningMessageContentEventSchema.delta: z.string()` /
-        // pydantic `delta: str`). Do not enforce non-empty here.
+      // `delta` may be empty per canonical TS/Python schemas
+      // (`ReasoningMessageContentEventSchema.delta: z.string()` /
+      // pydantic `delta: str`). Do not enforce non-empty here.
       case ReasoningMessageEndEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
       case ReasoningMessageChunkEvent():

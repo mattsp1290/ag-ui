@@ -60,7 +60,7 @@ class SseParser {
   }
 
   /// Parses SSE data and yields messages.
-  /// 
+  ///
   /// The input should be a stream of text lines from an SSE endpoint.
   /// Empty lines trigger message dispatch.
   Stream<SseMessage> parseLines(Stream<String> lines) async* {
@@ -70,7 +70,7 @@ class SseParser {
         yield message;
       }
     }
-    
+
     // Dispatch any remaining buffered message
     final finalMessage = _dispatchEvent();
     if (finalMessage != null) {
@@ -84,18 +84,24 @@ class SseParser {
   /// [parseLines] also fires here — a byte source that closes without
   /// a trailing blank line still emits its final buffered event.
   Stream<SseMessage> parseBytes(Stream<List<int>> bytes) {
+    // Per WHATWG SSE spec the BOM is stripped once at the very start of the
+    // stream, not from every line. A mid-stream U+FEFF that happens to be the
+    // first character of a data line would otherwise be silently consumed.
+    var firstLine = true;
     final lines = utf8.decoder
         .bind(bytes)
         .transform(const LineSplitter())
         .transform(StreamTransformer<String, String>.fromHandlers(
-          handleData: (String line, EventSink<String> sink) {
-            // Remove BOM if present at the start
-            if (line.isNotEmpty && line.codeUnitAt(0) == 0xFEFF) {
-              line = line.substring(1);
-            }
-            sink.add(line);
-          },
-        ));
+      handleData: (String line, EventSink<String> sink) {
+        if (firstLine) {
+          firstLine = false;
+          if (line.isNotEmpty && line.codeUnitAt(0) == 0xFEFF) {
+            line = line.substring(1);
+          }
+        }
+        sink.add(line);
+      },
+    ));
     return parseLines(lines);
   }
 
@@ -169,8 +175,10 @@ class SseParser {
         // would exceed [maxDataCodeUnits], reset buffers, and throw so the
         // caller's stream adapter can surface a structured error instead
         // of quietly OOM-ing.
-        final newlineBytes = _hasDataField ? 1 : 0; // \n separator between lines
-        if (_dataBuffer.length + newlineBytes + value.length > maxDataCodeUnits) {
+        final newlineBytes =
+            _hasDataField ? 1 : 0; // \n separator between lines
+        if (_dataBuffer.length + newlineBytes + value.length >
+            maxDataCodeUnits) {
           _resetBuffers();
           throw FormatException(
             'SSE data field exceeds $maxDataCodeUnits-code-unit limit '
@@ -217,7 +225,7 @@ class SseParser {
     // to dispatch an event. An empty data buffer means no 'data' field was received.
     // However, 'data' field with empty value should still dispatch (with empty string).
     // We track this by checking if the data buffer has been written to at all.
-    
+
     // For simplicity, we'll dispatch if we have any event-related fields set
     // but only if at least one data field was received (even if empty)
     if (!_hasDataField) {

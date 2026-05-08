@@ -27,9 +27,9 @@ class Context extends AGUIModel {
 
   @override
   Map<String, dynamic> toJson() => {
-    'description': description,
-    'value': value,
-  };
+        'description': description,
+        'value': value,
+      };
 
   @override
   Context copyWith({
@@ -187,15 +187,15 @@ class RunAgentInput extends AGUIModel {
 
   @override
   Map<String, dynamic> toJson() => {
-    'threadId': threadId,
-    'runId': runId,
-    if (parentRunId != null) 'parentRunId': parentRunId,
-    if (state != null) 'state': state,
-    'messages': messages.map((m) => m.toJson()).toList(),
-    'tools': tools.map((t) => t.toJson()).toList(),
-    'context': context.map((c) => c.toJson()).toList(),
-    if (forwardedProps != null) 'forwardedProps': forwardedProps,
-  };
+        'threadId': threadId,
+        'runId': runId,
+        if (parentRunId != null) 'parentRunId': parentRunId,
+        if (state != null) 'state': state,
+        'messages': messages.map((m) => m.toJson()).toList(),
+        'tools': tools.map((t) => t.toJson()).toList(),
+        'context': context.map((c) => c.toJson()).toList(),
+        if (forwardedProps != null) 'forwardedProps': forwardedProps,
+      };
 
   // `parentRunId`, `state`, and `forwardedProps` are nullable —
   // sentinel lets callers clear them explicitly via `copyWith(field: null)`.
@@ -258,10 +258,10 @@ class Run extends AGUIModel {
 
   @override
   Map<String, dynamic> toJson() => {
-    'threadId': threadId,
-    'runId': runId,
-    if (result != null) 'result': result,
-  };
+        'threadId': threadId,
+        'runId': runId,
+        if (result != null) 'result': result,
+      };
 
   // `result` is nullable — sentinel for explicit-clear semantics.
   @override

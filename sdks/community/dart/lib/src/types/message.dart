@@ -345,13 +345,15 @@ final class AssistantMessage extends Message {
                   result.add(ToolCall.fromJson(rawToolCalls[i]));
                 } catch (e) {
                   if (e is AGUIValidationError) {
-                    // Omit `json:` and `cause:` — ToolCall.fromJson can set e.json
-                    // to a payload with sensitive `arguments`; the cause chain
-                    // exposes it to reflection-based log shippers.
+                    // Omit `json:` — ToolCall.fromJson can set e.json to a
+                    // payload with sensitive `arguments`. Preserve `cause:`
+                    // when the inner error already scrubbed its own `json:`
+                    // (cipher-aware path) so the stack trace survives.
                     throw AGUIValidationError(
                       message: e.message,
                       field: e.field != null ? 'toolCalls[$i].${e.field}' : 'toolCalls[$i]',
                       value: e.value,
+                      cause: e.json == null ? e : null,
                     );
                   }
                   throw AGUIValidationError(
@@ -581,16 +583,6 @@ final class ActivityMessage extends Message {
     required this.activityType,
     required this.activityContent,
   }) : super(role: MessageRole.activity);
-
-  /// Always `null` — [ActivityMessage] is NOT a `BaseMessage` extension in
-  /// the AG-UI protocol, so cipher-payload forwarding does not apply.
-  /// [fromJson] strips any inbound `encryptedValue` / `encrypted_value`
-  /// silently. Returns `null` (rather than throwing) so polymorphic iteration
-  /// over a `List<Message>` that contains `ActivityMessage` instances does not
-  /// crash — consistent with how un-set `encryptedValue` behaves on all
-  /// other [Message] subtypes.
-  @override
-  String? get encryptedValue => null;
 
   factory ActivityMessage.fromJson(Map<String, dynamic> json) {
     // `ActivityMessage` is NOT a `BaseMessage` extension in the canonical

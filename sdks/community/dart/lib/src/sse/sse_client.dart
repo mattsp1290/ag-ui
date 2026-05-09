@@ -12,6 +12,13 @@ class SseClient {
   final Duration _idleTimeout;
   final BackoffStrategy _backoffStrategy;
 
+  /// Maximum number of UTF-16 code units allowed in a single SSE data block.
+  ///
+  /// Passed to [SseParser] so the parse-layer cap matches the adapter-layer
+  /// cap set on [EventStreamAdapter]. Defaults to 8 MiB (8 × 1024 × 1024
+  /// code units), matching [SseParser]'s own default.
+  final int maxDataCodeUnits;
+
   StreamController<SseMessage>? _controller;
   StreamSubscription<SseMessage>? _subscription;
   http.StreamedResponse? _currentResponse;
@@ -33,6 +40,7 @@ class SseClient {
     http.Client? httpClient,
     Duration idleTimeout = const Duration(seconds: 45),
     BackoffStrategy? backoffStrategy,
+    this.maxDataCodeUnits = 8 * 1024 * 1024,
   })  : _httpClient = httpClient ?? http.Client(),
         _idleTimeout = idleTimeout,
         _backoffStrategy = backoffStrategy ?? LegacyBackoffStrategy() {
@@ -84,7 +92,7 @@ class SseClient {
     Stream<List<int>> stream, {
     Map<String, String>? headers,
   }) {
-    final parser = SseParser();
+    final parser = SseParser(maxDataCodeUnits: maxDataCodeUnits);
     return parser.parseBytes(stream);
   }
 
@@ -135,7 +143,7 @@ class SseClient {
       _hasEverConnected = true;
 
       // Create parser for this connection
-      final parser = SseParser();
+      final parser = SseParser(maxDataCodeUnits: maxDataCodeUnits);
 
       // Set up idle timeout
       _resetIdleTimer();

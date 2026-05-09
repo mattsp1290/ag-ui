@@ -28,6 +28,20 @@ class EventDecoder {
   /// Decodes an event from a string (assumed to be JSON).
   ///
   /// This method expects a JSON string without the SSE "data: " prefix.
+  ///
+  /// **Catch-chain ordering** (do not reorder — each clause depends on prior
+  /// clauses not having matched):
+  ///   1. `on FormatException` — raw JSON parse failure before any typed
+  ///      object exists; must come before the typed catch clauses.
+  ///   2. `on ValidationError` — `client/errors.dart`'s `AgUiError`-extending
+  ///      subtype; must come before `on AgUiError` to avoid the rethrow below
+  ///      bypassing the `_wrapValidation` call.
+  ///   3. `on AGUIValidationError` — factory-side validation (only
+  ///      `implements Exception`, not `AgUiError`); does not match `on AgUiError`.
+  ///   4. `on AgUiError` — all other SDK errors; rethrown unchanged.
+  ///   5. `on EncoderError` — encoder-side family extends `AGUIError` but NOT
+  ///      `AgUiError`; without this clause it falls to the catch-all.
+  ///   6. catch-all — foreign exceptions wrapped as `DecodingError`.
   BaseEvent decode(String data) {
     try {
       final decoded = jsonDecode(data);
@@ -89,6 +103,10 @@ class EventDecoder {
   }
 
   /// Decodes an event from a JSON map.
+  ///
+  /// **Catch-chain ordering**: same required sequence as [decode] —
+  /// `on ValidationError` → `on AGUIValidationError` → `on AgUiError` →
+  /// `on EncoderError` → catch-all. Do not reorder.
   BaseEvent decodeJson(Map<String, dynamic> json) {
     try {
       // `BaseEvent.fromJson` already enforces presence and string-type

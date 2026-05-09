@@ -172,12 +172,11 @@ class AgUiClient {
     _validateRunAgentInput(input);
 
     // Reject a caller-supplied runId that collides with an in-flight run.
-    // Without this guard the second call would silently overwrite
-    // `_requestTokens[runId]` and `_activeStreams[runId]`, making the first
-    // run's CancelToken unreachable and leaking its SseClient when the first
-    // run's `finally` block calls `_closeStream(runId)` and closes the second
-    // run's client instead.
-    if (_requestTokens.containsKey(runId)) {
+    // `putIfAbsent` collapses the check-then-insert into a single map
+    // operation, eliminating the cross-tick race window that would exist
+    // between a `containsKey` check and the subsequent `[]=` assignment.
+    final existing = _requestTokens.putIfAbsent(runId, () => cancelToken!);
+    if (!identical(existing, cancelToken)) {
       throw ValidationError(
         'Duplicate runId "$runId": another run with the same id is in flight',
         field: 'runId',
@@ -185,7 +184,6 @@ class AgUiClient {
         value: runId,
       );
     }
-    _requestTokens[runId] = cancelToken;
 
     try {
       // Send POST request with RunAgentInput
@@ -220,6 +218,7 @@ class AgUiClient {
       final sseClient = SseClient(
         idleTimeout: config.connectionTimeout,
         backoffStrategy: config.backoffStrategy,
+        maxDataCodeUnits: _streamAdapter.maxDataCodeUnits,
       );
       _activeStreams[runId] = sseClient;
 

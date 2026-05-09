@@ -377,6 +377,52 @@ class JsonDecoder {
     );
   }
 
+  /// Cipher-safe variant of [optionalIntField].
+  ///
+  /// Identical in behavior but intentionally omits `json:` from every thrown
+  /// [AGUIValidationError]. Use this on event factories (e.g.
+  /// `ReasoningEncryptedValueEvent.fromJson`) where the `json` map may contain
+  /// an `encryptedValue` cipher field. Including `json:` on those error paths
+  /// would surface the raw cipher payload via
+  /// `AGUIValidationError.json` — the exact leakage that
+  /// `_requireCipherSafeString` and the factory's `rawEvent: null` pin are
+  /// designed to prevent.
+  static int? optionalCipherSafeIntField(
+    Map<String, dynamic> json,
+    String field,
+  ) {
+    if (!json.containsKey(field) || json[field] == null) return null;
+    final value = json[field];
+    if (value is num) {
+      if (value.isNaN || value.isInfinite) {
+        throw AGUIValidationError(
+          message: 'Field is non-finite (NaN or Infinity)',
+          field: field,
+          value: value,
+          // Intentionally omit json: — payload may carry cipher data.
+        );
+      }
+      const maxSafeInt = 9007199254740992; // 2^53
+      if (value > maxSafeInt || value < -maxSafeInt) {
+        throw AGUIValidationError(
+          message: 'Field value out of safe int range (±2^53)',
+          field: field,
+          value: value,
+          // Intentionally omit json: — payload may carry cipher data.
+        );
+      }
+      if (value is int) return value;
+      return value.floor();
+    }
+    throw AGUIValidationError(
+      message:
+          'Field has incorrect type. Expected int or num, got ${value.runtimeType}',
+      field: field,
+      value: value,
+      // Intentionally omit json: — payload may carry cipher data.
+    );
+  }
+
   /// Safely extracts a list field from JSON.
   ///
   /// Use this when the elements have a concrete element type that the SDK
@@ -502,7 +548,7 @@ class JsonDecoder {
     return _eagerCast<T>(list, resolvedKey, json);
   }
 
-  /// Eagerly validates element types in a list and returns a typed copy.
+  /// Eagerly validates element types in a list and returns a typed view.
   ///
   /// Replaces `list.cast<T>()`'s lazy view (which raises a raw `TypeError`
   /// at access time, swallowed by the decoder catch-all and flattened to
@@ -513,6 +559,14 @@ class JsonDecoder {
   /// errors from nested factories use a more precise `'$field[$i].$nestedField'`
   /// form (e.g. `"messages[2].role"`) — `_eagerCast` cannot do this
   /// because it only checks the element's Dart type, not its internal shape.
+  ///
+  /// **View semantics**: returns a lazy `cast<T>()` view over the original
+  /// `List<dynamic>`, not a new copy. This avoids a second O(n) allocation
+  /// on hot paths (MESSAGES_SNAPSHOT, StateDelta, etc.), but callers must
+  /// not mutate the original list after receiving the view — a mutation that
+  /// introduces a wrong-typed element would bypass this validation and raise
+  /// a raw `TypeError` at access time. All current call sites consume the
+  /// result immediately and do not retain the original reference.
   static List<T> _eagerCast<T>(
     List<dynamic> list,
     String field,

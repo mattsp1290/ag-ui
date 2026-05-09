@@ -120,7 +120,7 @@ class Validators {
             'URL contains percent-encoded control characters in '
             'path/query/fragment for "$fieldName"',
             field: fieldName,
-            constraint: 'no-control-chars-decoded',
+            constraint: 'no-control-chars',
             value: url,
           );
         }

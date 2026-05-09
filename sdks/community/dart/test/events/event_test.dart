@@ -1096,22 +1096,28 @@ void main() {
       });
 
       test(
-          'ActivitySnapshotEvent.toJson always emits replace, even when default',
-          () {
-        // Locks the always-emit contract documented at the
-        // `ActivitySnapshotEvent.replace` field — `replace` is optional on
-        // the wire (`z.boolean().optional().default(true)` in TS), but the
-        // Dart toJson emits it unconditionally so encoder→decoder symmetry
-        // doesn't depend on the producer's default. A future refactor that
-        // switches to `if (!replace) ... ` would break this test.
-        final event = ActivitySnapshotEvent(
+          'ActivitySnapshotEvent.toJson omits replace when true (default), '
+          'emits replace when false', () {
+        // Canonical TS/Python wire behavior: `replace` is omitted when it
+        // equals the default `true`; emitted only when `false`. `fromJson`
+        // defaults to `true` when absent, so round-trip semantics hold.
+        final defaultEvent = ActivitySnapshotEvent(
           messageId: 'm',
           activityType: 't',
           content: null,
         );
-        expect(event.replace, isTrue);
-        expect(event.toJson().containsKey('replace'), isTrue);
-        expect(event.toJson()['replace'], isTrue);
+        expect(defaultEvent.replace, isTrue);
+        expect(defaultEvent.toJson().containsKey('replace'), isFalse,
+            reason: 'replace=true (default) must be omitted from wire output');
+
+        final replaceEvent = ActivitySnapshotEvent(
+          messageId: 'm',
+          activityType: 't',
+          content: null,
+          replace: false,
+        );
+        expect(replaceEvent.toJson()['replace'], isFalse,
+            reason: 'replace=false (non-default) must be emitted');
       });
 
       test('ActivitySnapshotEvent treats explicit-null replace as default-true',

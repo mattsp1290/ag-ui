@@ -145,6 +145,10 @@ class EventStreamAdapter {
     bool skipInvalidEvents = false,
     void Function(Object error, StackTrace stackTrace)? onError,
   }) {
+    // `StreamTransformer.fromHandlers` propagates lifecycle (pause, resume,
+    // cancel) to the upstream stream automatically per the Dart SDK contract —
+    // unlike `fromRawSseStream` which uses a manual controller.onListen /
+    // onCancel / onPause / onResume pattern to achieve the same guarantee.
     return sseStream.transform(
       StreamTransformer<SseMessage, BaseEvent>.fromHandlers(
         handleData: (message, sink) {
@@ -275,7 +279,7 @@ class EventStreamAdapter {
     // skip the trailing-\r deferral for producers that use lone-CR style
     // and deliver each terminator in its own chunk — without persistence the
     // flag resets to false on every call, adding a full chunk-RTT of latency
-    // per event. See Important #II2 (review-fix pass).
+    // per event.
     var lastWasLoneCr = false;
     // When a data-block size-cap error fires mid-message, skip all subsequent
     // `data:` lines for that message until the next blank-line boundary. This
@@ -309,6 +313,7 @@ class EventStreamAdapter {
         // try/catch and routed via controller.addError.
         dataBuffer.clear();
         inDataBlock = false;
+        lastWasLoneCr = false;
         skipUntilBoundary = true;
         throw DecodingError(
           'SSE data block exceeds $maxDataCodeUnits code units',
@@ -416,6 +421,7 @@ class EventStreamAdapter {
         // message's buffer after the error is routed and processing continues.
         dataBuffer.clear();
         inDataBlock = false;
+        lastWasLoneCr = false;
         skipUntilBoundary = true;
         throw DecodingError(
           'SSE chunk combined with pending line buffer exceeds '
@@ -692,6 +698,13 @@ class EventStreamAdapter {
   /// event) is emitted as a standalone single-element group rather than
   /// silently dropped, consistent with how orphan `*_Chunk` events are
   /// handled.
+  ///
+  /// **Chunk fold-in and duplicate-Start interaction.** `*_Chunk` events are
+  /// folded into the currently active group for the same id if one is open;
+  /// otherwise they are emitted as standalone single-element groups. When a
+  /// duplicate `*_Start` evicts the prior open group, any chunks that arrived
+  /// before the eviction travel with the evicted group. Chunks that arrive
+  /// after the eviction fold into the new group.
   static Stream<List<BaseEvent>> groupRelatedEvents(
     Stream<BaseEvent> eventStream, {
     int maxOpenGroups = 0,
@@ -880,10 +893,19 @@ class EventStreamAdapter {
   ///
   /// **Chunk-before-Start ordering hazard.** A `TextMessageChunkEvent` that
   /// arrives before its `TextMessageStartEvent` is emitted immediately as a
-  /// standalone fragment rather than buffered. If strict per-message
-  /// accumulation is required (all content in a single emission), pass the
-  /// stream through [groupRelatedEvents] first to ensure `*Chunk` events are
-  /// folded into their group before reaching this accumulator.
+  /// standalone fragment rather than buffered. If the `TextMessageStart` /
+  /// `TextMessageContent` / `TextMessageEnd` cycle later arrives for the same
+  /// message, the consumer sees the same text **twice**: once as the standalone
+  /// chunk fragment and once as the final accumulated buffer. Example:
+  /// ```
+  /// upstream:  Chunk("hello") → Start → Content(" world") → End
+  /// emitted:   "hello"        → " world"
+  ///            ^standalone      ^accumulated flush on End
+  /// ```
+  /// If strict per-message accumulation is required (all content in a single
+  /// emission), pass the stream through [groupRelatedEvents] first to ensure
+  /// `*Chunk` events are folded into their group before reaching this
+  /// accumulator.
   static Stream<String> accumulateTextMessages(
     Stream<BaseEvent> eventStream, {
     int maxOpenGroups = 0,

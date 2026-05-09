@@ -1286,6 +1286,17 @@ final class MessagesSnapshotEvent extends BaseEvent {
         'messages': messages.map((m) => m.toJson()).toList(),
       };
 
+  /// Creates a copy of this event with the given fields replaced.
+  ///
+  /// **Cipher-safety note.** If any message in the resulting list carries
+  /// cipher data (`encryptedValue != null`), the `rawEvent` parameter is
+  /// silently forced to `null` regardless of the value the caller supplies.
+  /// This mirrors the `fromJson` invariant that prevents the raw wire map
+  /// (which contains the cipher payload) from leaking through `rawEvent`.
+  /// Callers that have already scrubbed `encryptedValue` from a sanitized
+  /// `rawEvent` map and still hold cipher data in the typed messages field
+  /// should construct a new [MessagesSnapshotEvent] directly with
+  /// `rawEvent: scrubbedMap` rather than calling `copyWith`.
   @override
   MessagesSnapshotEvent copyWith({
     List<Message>? messages,
@@ -1338,15 +1349,10 @@ final class ActivitySnapshotEvent extends BaseEvent {
   /// for the same [messageId]; `false` means it merges/extends.
   ///
   /// Optional on the wire (`replace: z.boolean().optional().default(true)`
-  /// in TS, `replace: bool = True` in Python). [toJson] emits the field
-  /// unconditionally — slightly heavier than the protocol minimum, but
-  /// makes the round-trip contract explicit and matches what
-  /// `event_test.dart` locks in.
-  ///
-  /// **Known parity gap.** Canonical TypeScript and Python SDKs omit
-  /// `replace` from the wire output when it equals the default (`true`).
-  /// This Dart SDK always emits it for round-trip explicitness. See
-  /// CHANGELOG → "Known parity gaps" for the full list.
+  /// in TS, `replace: bool = True` in Python). [toJson] omits the field
+  /// when it equals the default `true`, matching canonical TypeScript and
+  /// Python wire output. `fromJson` restores the default when the field is
+  /// absent, so round-trip semantics are preserved.
   final bool replace;
 
   const ActivitySnapshotEvent({
@@ -1393,9 +1399,10 @@ final class ActivitySnapshotEvent extends BaseEvent {
         'messageId': messageId,
         'activityType': activityType,
         'content': content,
-        // Always emitted, even when default `true`; see class dartdoc for the
-        // round-trip rationale and the `event_test.dart` assertion that pins it.
-        'replace': replace,
+        // Omit `replace` when it equals the default `true`, matching canonical
+        // TS/Python wire output. `fromJson` defaults to `true` when absent, so
+        // round-trip semantics are preserved.
+        if (!replace) 'replace': replace,
       };
 
   // See `_Unset` (top of file) for the sentinel rationale.
@@ -2403,7 +2410,7 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
       subtype: subtype,
       entityId: entityId,
       encryptedValue: encryptedValue,
-      timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
+      timestamp: JsonDecoder.optionalCipherSafeIntField(json, 'timestamp'),
       rawEvent: null,
     );
   }

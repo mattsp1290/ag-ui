@@ -517,8 +517,13 @@ class EventTranslator:
             else:
                 text_parts.append(part.text)
 
-        # Handle thought parts first (emit REASONING events)
-        if thought_parts:
+        # Handle thought parts first (emit REASONING events).
+        # Guard: the final aggregated ADK event (partial=False) re-contains the
+        # full accumulated thought text already streamed via partial=True events.
+        # Emitting it again produces a duplicate reasoning block in the UI.
+        # Mirror the text deduplication pattern used below for combined_text:
+        # skip thought emission when the event is explicitly non-partial.
+        if thought_parts and getattr(adk_event, 'partial', None) is not False:
             async for event in self._translate_reasoning_content(thought_parts, thought_signatures):
                 yield event
 

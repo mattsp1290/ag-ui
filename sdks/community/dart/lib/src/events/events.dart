@@ -1269,10 +1269,15 @@ final class MessagesSnapshotEvent extends BaseEvent {
     // the ReasoningMessage factory already applied to the structured field.
     // Proxies that need the verbatim wire form should keep their own copy of
     // the raw JSON before calling fromJson.
-    // ActivityMessage.encryptedValue throws UnsupportedError by design —
-    // exclude it from the cipher check. All other subtypes inherit the field.
-    final hasCipher =
-        messages.any((m) => m is! ActivityMessage && m.encryptedValue != null);
+    // ActivityMessage inherits encryptedValue from Message but always returns
+    // null by construction (fromJson strips the wire field; constructor does
+    // not accept it), so a separate type check is not needed.
+    //
+    // SCRUB CONTRACT: this check assumes encryptedValue is the only
+    // cipher-named field on any Message subtype. If a future Message subtype
+    // adds a different sensitive payload, this hasCipher predicate MUST be
+    // extended in parallel.
+    final hasCipher = messages.any((m) => m.encryptedValue != null);
     return MessagesSnapshotEvent(
       messages: messages,
       timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
@@ -1307,8 +1312,17 @@ final class MessagesSnapshotEvent extends BaseEvent {
     // Re-apply the fromJson cipher-scrub invariant: if any message in the
     // (possibly updated) list carries cipher data, force rawEvent to null so
     // the wire map cannot be reattached and expose encrypted content.
-    final hasCipher = newMessages
-        .any((m) => m is! ActivityMessage && m.encryptedValue != null);
+    // ActivityMessage always returns null for encryptedValue by construction;
+    // see SCRUB CONTRACT comment in fromJson.
+    final hasCipher = newMessages.any((m) => m.encryptedValue != null);
+    assert(
+      !hasCipher ||
+          identical(rawEvent, kUnsetSentinel) ||
+          rawEvent == null,
+      'MessagesSnapshotEvent.copyWith: rawEvent is silently forced to null '
+      'when any message carries encryptedValue. Construct directly if you '
+      'need to retain a sanitized rawEvent.',
+    );
     final dynamic resolvedRaw;
     if (hasCipher) {
       resolvedRaw = null;
@@ -1657,6 +1671,17 @@ final class RunStartedEvent extends BaseEvent {
         );
       }
     }
+    // Auto-scrub rawEvent when any input message carries cipher data, mirroring
+    // the MessagesSnapshotEvent.fromJson invariant. ActivityMessage inherits
+    // encryptedValue from Message but always returns null by construction, so
+    // a separate type check is not needed.
+    //
+    // SCRUB CONTRACT: this check assumes encryptedValue is the only
+    // cipher-named field on any Message subtype. If a future Message subtype
+    // adds a different sensitive payload, this hasCipher predicate MUST be
+    // extended in parallel.
+    final hasCipher =
+        input != null && input.messages.any((m) => m.encryptedValue != null);
     return RunStartedEvent(
       threadId: JsonDecoder.requireEitherField<String>(
         json,
@@ -1675,7 +1700,7 @@ final class RunStartedEvent extends BaseEvent {
       ),
       input: input,
       timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
-      rawEvent: _readRawEvent(json),
+      rawEvent: hasCipher ? null : _readRawEvent(json),
     );
   }
 
@@ -1688,6 +1713,16 @@ final class RunStartedEvent extends BaseEvent {
         if (input != null) 'input': input!.toJson(),
       };
 
+  /// Creates a copy of this event with the given fields replaced.
+  ///
+  /// **Cipher-safety note.** If any message in the resolved `input.messages`
+  /// list carries cipher data (`encryptedValue != null`), the `rawEvent`
+  /// parameter is silently forced to `null` regardless of the value the caller
+  /// supplies. This mirrors the `fromJson` invariant that prevents the raw wire
+  /// map from leaking cipher payloads through `rawEvent`. Callers that have
+  /// already scrubbed a sanitized `rawEvent` map should construct a new
+  /// [RunStartedEvent] directly with `rawEvent: scrubbedMap` rather than
+  /// calling `copyWith`.
   // See `_Unset` (top of file) for the sentinel rationale.
   @override
   RunStartedEvent copyWith({
@@ -1696,19 +1731,31 @@ final class RunStartedEvent extends BaseEvent {
     Object? parentRunId = kUnsetSentinel,
     Object? input = kUnsetSentinel,
     int? timestamp,
-    dynamic rawEvent,
+    Object? rawEvent = kUnsetSentinel,
   }) {
+    final newInput = identical(input, kUnsetSentinel)
+        ? this.input
+        : input as RunAgentInput?;
+    // Re-apply the fromJson cipher-scrub invariant on the resolved input.
+    final hasCipher =
+        newInput != null && newInput.messages.any((m) => m.encryptedValue != null);
+    final dynamic resolvedRaw;
+    if (hasCipher) {
+      resolvedRaw = null;
+    } else if (identical(rawEvent, kUnsetSentinel)) {
+      resolvedRaw = this.rawEvent;
+    } else {
+      resolvedRaw = rawEvent;
+    }
     return RunStartedEvent(
       threadId: threadId ?? this.threadId,
       runId: runId ?? this.runId,
       parentRunId: identical(parentRunId, kUnsetSentinel)
           ? this.parentRunId
           : parentRunId as String?,
-      input: identical(input, kUnsetSentinel)
-          ? this.input
-          : input as RunAgentInput?,
+      input: newInput,
       timestamp: timestamp ?? this.timestamp,
-      rawEvent: rawEvent ?? this.rawEvent,
+      rawEvent: resolvedRaw,
     );
   }
 }

@@ -738,6 +738,110 @@ void main() {
         // Argument omitted → input preserved
         expect(event.copyWith().input, isNotNull);
       });
+
+      test(
+          'RunStartedEvent.fromJson scrubs rawEvent when input.messages '
+          'carry cipher data (C1 regression)', () {
+        // Regression: RunStartedEvent.fromJson previously forwarded the
+        // verbatim wire map into rawEvent even when input.messages contained
+        // encryptedValue payloads, undoing the cipher scrubbing that the
+        // ReasoningMessage factory applied to the structured field.
+        final wireJson = {
+          'type': 'RUN_STARTED',
+          'threadId': 'thread-1',
+          'runId': 'run-1',
+          'input': {
+            'threadId': 'thread-1',
+            'runId': 'run-1',
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'assistant',
+                'content': 'hi',
+              },
+              {
+                'id': 'msg-2',
+                'role': 'reasoning',
+                'content': 'thinking',
+                'encryptedValue': 'c2VjcmV0',
+              },
+            ],
+            'tools': <dynamic>[],
+            'context': <dynamic>[],
+          },
+          'rawEvent': {'original': 'wire-map'},
+        };
+        final event = RunStartedEvent.fromJson(wireJson);
+        // rawEvent MUST be null — the wire map carries encryptedValue in
+        // input.messages[1] and must not leak through rawEvent.
+        expect(
+          event.rawEvent,
+          isNull,
+          reason:
+              'rawEvent must be scrubbed when input.messages carry cipher data',
+        );
+        expect(event.input!.messages.length, 2);
+      });
+
+      test(
+          'RunStartedEvent.fromJson preserves rawEvent when no cipher data '
+          'is present', () {
+        final wireJson = {
+          'type': 'RUN_STARTED',
+          'threadId': 'thread-1',
+          'runId': 'run-1',
+          'input': {
+            'threadId': 'thread-1',
+            'runId': 'run-1',
+            'messages': [
+              {
+                'id': 'msg-1',
+                'role': 'user',
+                'content': 'hello',
+              },
+            ],
+            'tools': <dynamic>[],
+            'context': <dynamic>[],
+          },
+          'rawEvent': {'seq': 1},
+        };
+        final event = RunStartedEvent.fromJson(wireJson);
+        expect(
+          event.rawEvent,
+          {'seq': 1},
+          reason: 'rawEvent must be preserved when no cipher data is present',
+        );
+      });
+
+      test(
+          'RunStartedEvent.copyWith scrubs rawEvent when new input carries '
+          'cipher data (C1 regression)', () {
+        final cipherInput = RunAgentInput(
+          threadId: 'tid',
+          runId: 'rid',
+          messages: [
+            ReasoningMessage(
+              id: 'r1',
+              content: 'thinking',
+              encryptedValue: 'c2VjcmV0',
+            ),
+          ],
+          tools: const [],
+          context: const [],
+        );
+        final event = RunStartedEvent(
+          threadId: 'tid',
+          runId: 'rid',
+          rawEvent: {'original': 'map'},
+        );
+        final updated = event.copyWith(input: cipherInput);
+        expect(
+          updated.rawEvent,
+          isNull,
+          reason:
+              'copyWith must scrub rawEvent when updated input carries cipher data',
+        );
+      });
     });
 
     group('Event Factory', () {

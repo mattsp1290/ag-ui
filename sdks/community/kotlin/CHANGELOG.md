@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-12
+
+### Added
+- **Reasoning events** ([#1650](https://github.com/ag-ui-protocol/ag-ui/issues/1650)). The Kotlin SDK now supports the seven `REASONING_*` events that have replaced `THINKING_*` in the TypeScript and Python SDKs. Without this change a Kotlin client connected to a server emitting `REASONING_*` events would fail polymorphic deserialization because the discriminator `type` did not match any `BaseEvent` subclass.
+  - New `EventType` enum entries and `BaseEvent` subclasses in `com.agui.core.types`:
+    - `REASONING_START` / `ReasoningStartEvent(messageId)`
+    - `REASONING_MESSAGE_START` / `ReasoningMessageStartEvent(messageId, role = "reasoning")` — `role` is validated at construction to match the TS `z.literal("reasoning")` and Python `Literal["reasoning"]` schema.
+    - `REASONING_MESSAGE_CONTENT` / `ReasoningMessageContentEvent(messageId, delta)` — non-empty `delta` required.
+    - `REASONING_MESSAGE_END` / `ReasoningMessageEndEvent(messageId)`
+    - `REASONING_MESSAGE_CHUNK` / `ReasoningMessageChunkEvent(messageId?, delta?)` — both optional to support chunk-style streaming where only the first chunk carries the `messageId`.
+    - `REASONING_END` / `ReasoningEndEvent(messageId)`
+    - `REASONING_ENCRYPTED_VALUE` / `ReasoningEncryptedValueEvent(subtype, entityId, encryptedValue)` — `subtype` validated to be `"tool-call"` or `"message"` (parity with TS/Python).
+- **Reasoning telemetry on `AgentState`.** New `AgentState.reasoning: ReasoningTelemetryState?` field tracks one or more reasoning streams keyed by `messageId`. Each `ReasoningStreamState` carries the stream's accumulated `text`, an `isActive` flag, and any attached `ReasoningEncryptedValue` payloads. `AbstractAgent` exposes a corresponding `reasoning` snapshot property.
+- **`DefaultApplyEvents` wires up `REASONING_*` events.** Maintains a per-`messageId` stream map so concurrent reasoning streams are tracked independently (something the previous `ThinkingTelemetryState` could not represent). `REASONING_MESSAGE_CHUNK` auto-creates streams and re-uses the last active `messageId` when the chunk omits it; `REASONING_ENCRYPTED_VALUE` attaches to the most recently active stream. The reasoning map and last-active id are cleared on `RUN_STARTED`.
+- **Tests.**
+  - 13 new serialization tests in `EventSerializationTest` covering round-trip, role/subtype validation, empty-delta rejection, nullable chunk fields, raw-event passthrough, and discriminator routing for all seven new events.
+  - 4 new apply-handler tests in `DefaultApplyEventsTest` covering a single-stream lifecycle, two interleaved concurrent streams, encrypted-value attachment, and chunk-style auto-population.
+
+### Deprecated
+- All five `THINKING_*` events and the matching `EventType` enum entries are marked `@Deprecated(WARNING)` with `ReplaceWith` hints pointing at the corresponding `REASONING_*` types. They remain on the wire and continue to flow through `DefaultApplyEvents` and `EventVerifier` unchanged. Slated for removal in 1.0.0.
+  - `ThinkingStartEvent` → `ReasoningStartEvent`
+  - `ThinkingEndEvent` → `ReasoningEndEvent`
+  - `ThinkingTextMessageStartEvent` → `ReasoningMessageStartEvent`
+  - `ThinkingTextMessageContentEvent` → `ReasoningMessageContentEvent`
+  - `ThinkingTextMessageEndEvent` → `ReasoningMessageEndEvent`
+- `ThinkingTelemetryState` and `AgentState.thinking` / `AbstractAgent.thinking` are deprecated in favour of `ReasoningTelemetryState` and `reasoning`. The old fields are still populated by the existing `THINKING_*` apply handlers so downstream consumers continue to work unchanged.
+
+### Notes for integrators
+- **Wire compatibility is unchanged.** Servers emitting `THINKING_*` continue to round-trip exactly as before; servers emitting `REASONING_*` are now decodable.
+- **No `EventVerifier` changes.** The verifier passes `REASONING_*` events through unchanged, matching the TypeScript SDK. Existing `THINKING_*` lifecycle validation is unchanged.
+- **`Role` enum is unchanged.** `ReasoningMessageStartEvent.role` is modeled as a constrained `String` rather than a new `Role.REASONING` value, to avoid introducing a ghost role with no matching `Message` subclass (and to match the TS/Python literal-string schemas exactly).
+
 ## [0.3.0] - 2026-05-09
 
 ### Added

@@ -523,6 +523,11 @@ final class ToolMessage extends Message {
     );
   }
 
+  // Explicit field-by-field emission rather than ...super.toJson() spread:
+  // ToolMessage's constructor does not accept `name`, so the inherited
+  // Message.name field is always null here and the explicit form is safe.
+  // If Message.toJson() ever gains a new common field, this override must be
+  // updated in parallel to avoid silently dropping it.
   @override
   Map<String, dynamic> toJson() => {
         if (id != null) 'id': id,
@@ -588,6 +593,14 @@ final class ActivityMessage extends Message {
     required this.activityType,
     required this.activityContent,
   }) : super(role: MessageRole.activity);
+
+  // ActivityMessage never carries cipher data — override the inherited getter
+  // to guarantee null. fromJson silently strips any inbound encryptedValue;
+  // this override ensures no in-memory path (copyWith, subclassing) can
+  // accidentally set it, making the cipher-scrub predicate in
+  // MessagesSnapshotEvent.fromJson permanently reliable.
+  @override
+  String? get encryptedValue => null;
 
   factory ActivityMessage.fromJson(Map<String, dynamic> json) {
     // `ActivityMessage` is NOT a `BaseMessage` extension in the canonical

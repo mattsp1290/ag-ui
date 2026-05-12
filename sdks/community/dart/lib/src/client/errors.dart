@@ -320,6 +320,10 @@ class ServerError extends AgUiError {
   }
 }
 
+// TODO(1.0.0): Remove the following deprecated typedefs alongside the
+// THINKING_TEXT_MESSAGE_* deprecation sweep. Six aliases to delete:
+// AgUiHttpException, AgUiConnectionException, AgUiTimeoutException,
+// AgUiValidationException, AgUiClientException, TimeoutError.
 // Maintain backward compatibility with existing exception types
 @Deprecated('Use TransportError instead')
 typedef AgUiHttpException = TransportError;

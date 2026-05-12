@@ -810,6 +810,14 @@ class EventStreamAdapter {
                     !activeGroups.containsKey(key)) {
                   final oldestKey = activeGroups.keys.first;
                   final evicted = activeGroups.remove(oldestKey)!;
+                  // controller.add is intentionally NOT wrapped by the
+                  // inDispatch guard here. inDispatch exists to detect
+                  // re-entrant UPSTREAM events delivered synchronously via
+                  // controller.add → listener callback → next event. Eviction
+                  // is a downstream flush triggered by upstream overflow — it
+                  // does not re-enter the upstream dispatch path. Wrapping it
+                  // in inDispatch would cause the duplicate-Start silent-drop
+                  // test to break by treating the eviction flush as re-entrant.
                   if (evicted.isNotEmpty) controller.add(evicted);
                 }
                 activeGroups[key] = [startEvent];
@@ -955,21 +963,28 @@ class EventStreamAdapter {
   /// Consumers that need strict sequencing should validate the upstream event
   /// stream before passing it here.
   ///
-  /// **Chunk-before-Start ordering hazard.** A `TextMessageChunkEvent` that
-  /// arrives before its `TextMessageStartEvent` is emitted immediately as a
-  /// standalone fragment rather than buffered. If the `TextMessageStart` /
-  /// `TextMessageContent` / `TextMessageEnd` cycle later arrives for the same
-  /// message, the consumer sees the same text **twice**: once as the standalone
-  /// chunk fragment and once as the final accumulated buffer. Example:
+  /// **Chunk-before-Start buffering.** A `TextMessageChunkEvent` that arrives
+  /// before its `TextMessageStartEvent` is buffered (keyed by `messageId`) in
+  /// an internal `pendingPreStartChunks` map and drained into the active buffer
+  /// when the matching `Start` arrives. The eventual `End` produces a single
+  /// emission containing both the buffered chunks and any intervening `Content`
+  /// deltas — no double-emission. Example:
   /// ```
   /// upstream:  Chunk("hello") → Start → Content(" world") → End
-  /// emitted:   "hello"        → " world"
-  ///            ^standalone      ^accumulated flush on End
+  /// emitted:   "hello world"
+  ///            ^single accumulated flush on End
   /// ```
-  /// If strict per-message accumulation is required (all content in a single
-  /// emission), pass the stream through [groupRelatedEvents] first to ensure
-  /// `*Chunk` events are folded into their group before reaching this
-  /// accumulator.
+  /// If the `Start` never arrives, the buffered chunk is flushed as a
+  /// standalone fragment when the stream closes. A null `messageId` on `Chunk`
+  /// has no identity to track and is emitted immediately as a standalone
+  /// fragment.
+  ///
+  /// Both `activeMessages` and `pendingPreStartChunks` count against the
+  /// [maxOpenGroups] cap: an eviction is triggered when the combined size of
+  /// the two maps reaches [maxOpenGroups] and a new unseen `messageId` arrives
+  /// on a `Chunk`. The oldest `pendingPreStartChunks` entry is evicted first
+  /// (before it has accumulated a `Start`), matching the `groupRelatedEvents`
+  /// eviction semantics.
   static Stream<String> accumulateTextMessages(
     Stream<BaseEvent> eventStream, {
     int maxOpenGroups = 0,
@@ -1049,6 +1064,20 @@ class EventStreamAdapter {
                       break;
                     }
                     // No active buffer yet — buffer for the eventual Start.
+                    // Apply maxOpenGroups to the combined size of activeMessages
+                    // and pendingPreStartChunks: the dartdoc promises a single
+                    // unified bound, so both maps count against it.
+                    if (maxOpenGroups > 0 &&
+                        (activeMessages.length +
+                                pendingPreStartChunks.length) >=
+                            maxOpenGroups &&
+                        !pendingPreStartChunks.containsKey(messageId)) {
+                      final oldestKey = pendingPreStartChunks.keys.first;
+                      final evicted =
+                          pendingPreStartChunks.remove(oldestKey)!;
+                      final content = evicted.toString();
+                      if (content.isNotEmpty) controller.add(content);
+                    }
                     (pendingPreStartChunks[messageId] ??= StringBuffer())
                         .write(delta);
                     break;

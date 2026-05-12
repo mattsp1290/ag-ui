@@ -1241,12 +1241,18 @@ final class StateDeltaEvent extends BaseEvent {
 }
 
 /// Event containing a snapshot of messages
+///
 /// **Sensitive-data warning.** [rawEvent] is automatically cleared (set to
-/// `null`) when any inner [ReasoningMessage] carries an [encryptedValue]
-/// payload. This prevents the verbatim wire map — which includes the cipher
-/// data — from leaking through [BaseEvent.rawEvent] to log sinks or
-/// reflection-based serializers. Proxy operators that need the verbatim wire
-/// form should keep their own copy of the raw JSON before calling [fromJson].
+/// `null`) when ANY inner message carries cipher data. This includes every
+/// [BaseMessage] subtype ([ReasoningMessage], [AssistantMessage],
+/// [ToolMessage], [SystemMessage], [DeveloperMessage], [UserMessage]) with a
+/// non-null [encryptedValue], AND any `role: 'activity'` entry whose wire form
+/// carries an `encryptedValue` / `encrypted_value` key (which
+/// [ActivityMessage.fromJson] silently strips from the structured field).
+/// This prevents the verbatim wire map — which may include cipher data — from
+/// leaking through [BaseEvent.rawEvent] to log sinks or reflection-based
+/// serializers. Proxy operators that need the verbatim wire form should keep
+/// their own copy of the raw JSON before calling [fromJson].
 /// See [ReasoningEncryptedValueEvent.fromJson] for the same pattern on
 /// individual cipher events.
 final class MessagesSnapshotEvent extends BaseEvent {
@@ -1257,10 +1263,19 @@ final class MessagesSnapshotEvent extends BaseEvent {
     super.timestamp,
     super.rawEvent,
   }) : super(eventType: EventType.messagesSnapshot) {
+    // Direct-construction caveat: this guard only inspects the structured
+    // Message.encryptedValue field. A caller that already has a wire-form
+    // rawEvent map whose payload contains an encryptedValue key on an
+    // activity-role entry can still violate the cipher-scrub invariant —
+    // ActivityMessage.encryptedValue is always null by construction, so it
+    // cannot be detected here. Pass rawEvent: null or pre-scrub the map before
+    // invoking this constructor for activity-role cipher data. fromJson enforces
+    // both code paths; this constructor enforces only the structured-field one.
     if (rawEvent != null && messages.any((m) => m.encryptedValue != null)) {
-      throw ArgumentError(
-        'Direct construction with rawEvent + cipher-bearing messages '
-        'violates the scrub invariant. Pass rawEvent: null or pre-scrub.',
+      throw AGUIValidationError(
+        message: 'Direct construction with rawEvent + cipher-bearing messages '
+            'violates the scrub invariant. Pass rawEvent: null or pre-scrub.',
+        field: 'rawEvent',
       );
     }
   }
@@ -1708,9 +1723,11 @@ final class RunStartedEvent extends BaseEvent {
     if (rawEvent != null &&
         input != null &&
         input!.messages.any((m) => m.encryptedValue != null)) {
-      throw ArgumentError(
-        'Direct construction with rawEvent + cipher-bearing input.messages '
-        'violates the scrub invariant. Pass rawEvent: null or pre-scrub.',
+      throw AGUIValidationError(
+        message:
+            'Direct construction with rawEvent + cipher-bearing input.messages '
+            'violates the scrub invariant. Pass rawEvent: null or pre-scrub.',
+        field: 'rawEvent',
       );
     }
   }
@@ -1756,7 +1773,9 @@ final class RunStartedEvent extends BaseEvent {
     // adds a different sensitive payload key, this hasCipher predicate MUST be
     // extended in parallel.
     final rawInputMessages = inputJson != null
-        ? (inputJson['messages'] as List<dynamic>? ?? const <dynamic>[])
+        ? (inputJson['messages'] is List<dynamic>
+            ? inputJson['messages'] as List<dynamic>
+            : const <dynamic>[])
         : const <dynamic>[];
     final hasCipher = input != null &&
         (input.messages.any((m) => m.encryptedValue != null) ||
@@ -1816,6 +1835,10 @@ final class RunStartedEvent extends BaseEvent {
     int? timestamp,
     Object? rawEvent = kUnsetSentinel,
   }) {
+    // The sentinel check MUST come before the type check — if input IS the
+    // sentinel, `input is! RunAgentInput?` evaluates true (Object is not
+    // RunAgentInput?) and would incorrectly throw. Swapping the two conditions
+    // breaks all no-arg copyWith() calls.
     if (!identical(input, kUnsetSentinel) && input is! RunAgentInput?) {
       throw ArgumentError.value(
         input,
@@ -2384,8 +2407,6 @@ final class ReasoningMessageChunkEvent extends BaseEvent {
         'messageId',
         'message_id',
       ),
-      // `delta` has no snake_case spelling in any AG-UI SDK — read it
-      // canonically and skip the dual-key lookup.
       delta: JsonDecoder.optionalField<String>(json, 'delta'),
       timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
       rawEvent: _readRawEvent(json),

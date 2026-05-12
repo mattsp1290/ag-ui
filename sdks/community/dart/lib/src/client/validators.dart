@@ -1,3 +1,5 @@
+import 'dart:developer' as developer;
+
 import 'errors.dart';
 
 /// Validation utilities for AG-UI SDK
@@ -378,11 +380,24 @@ class Validators {
   /// stream that includes these types.
   // TODO(1.0.0): Remove alongside the THINKING_TEXT_MESSAGE_* deprecation sweep.
   @Deprecated(
-    'Not enforced by the SDK client-side. '
-    'May be removed in a future major release.',
+    'DO NOT USE — covers only RUN_* and TOOL_CALL_* events; '
+    'REASONING_*, ACTIVITY_*, RAW, and CUSTOM are silently passed through '
+    'without validation. Will be removed in 1.0.0.',
   )
+  static bool _validateEventSequenceWarnedOnce = false;
+
   static void validateEventSequence(
       String currentEvent, String? previousEvent, String? state) {
+    if (!_validateEventSequenceWarnedOnce) {
+      _validateEventSequenceWarnedOnce = true;
+      developer.log(
+        'validateEventSequence is deprecated and covers only RUN_* and '
+        'TOOL_CALL_* event families. REASONING_*, ACTIVITY_*, RAW, and CUSTOM '
+        'are silently passed through. This method will be removed in 1.0.0.',
+        name: 'ag_ui.validators',
+        level: 900, // WARNING
+      );
+    }
     // RUN_STARTED must be first or after RUN_FINISHED
     if (currentEvent == 'RUN_STARTED') {
       if (previousEvent != null && previousEvent != 'RUN_FINISHED') {

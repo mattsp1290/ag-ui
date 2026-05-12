@@ -379,6 +379,17 @@ class JsonDecoder {
   /// `AGUIValidationError.json` — the exact leakage that
   /// `_requireCipherSafeString` and the factory's `rawEvent: null` pin are
   /// designed to prevent.
+  ///
+  /// **All cipher-safe helpers a new cipher-bearing event factory must use:**
+  /// - [_requireCipherSafeString] — required string field without json: leak
+  /// - [optionalCipherSafeIntField] — optional int field without json: leak
+  /// - Set `rawEvent: null` unconditionally in the factory return (or
+  ///   conditionally via a `hasCipher` predicate like MessagesSnapshotEvent)
+  /// - Throw [AGUIValidationError] without `json:` on every error path
+  ///
+  /// If a new helper is needed for a different type (e.g. cipher-safe bool or
+  /// list), add it here with an identical json:-omitting pattern and list it
+  /// in this block.
   static int? optionalCipherSafeIntField(
     Map<String, dynamic> json,
     String field,

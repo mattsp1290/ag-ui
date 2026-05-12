@@ -102,9 +102,32 @@ class EventEncoder {
   }
 
   /// Checks if protobuf format is accepted based on Accept header.
+  ///
+  /// Evaluates each comma-separated token independently to avoid false
+  /// positives from substring matches and to honor `q=0` (explicit deny).
+  /// Examples:
+  ///   `"application/vnd.ag-ui.event+proto"`              → true
+  ///   `"application/vnd.ag-ui.event+proto; q=0.8"`       → true
+  ///   `"application/vnd.ag-ui.event+proto; q=0"`         → false
+  ///   `"*/*; q=0.5, application/vnd.ag-ui.event+proto; q=0"` → false
   static bool _isProtobufAccepted(String acceptHeader) {
-    // Simple check for protobuf media type
-    // In production, this should use proper media type negotiation
-    return acceptHeader.contains(aguiMediaType);
+    for (final token in acceptHeader.split(',')) {
+      final parts = token.trim().split(';');
+      final mediaType = parts.first.trim().toLowerCase();
+      if (mediaType != aguiMediaType.toLowerCase()) continue;
+      // Found the media type — accept unless a q=0 parameter denies it.
+      var denied = false;
+      for (var i = 1; i < parts.length; i++) {
+        final kv = parts[i].trim().split('=');
+        if (kv.length == 2 &&
+            kv[0].trim().toLowerCase() == 'q' &&
+            double.tryParse(kv[1].trim()) == 0.0) {
+          denied = true;
+          break;
+        }
+      }
+      if (!denied) return true;
+    }
+    return false;
   }
 }

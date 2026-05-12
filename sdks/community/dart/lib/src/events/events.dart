@@ -1317,15 +1317,17 @@ final class MessagesSnapshotEvent extends BaseEvent {
 
   /// Creates a copy of this event with the given fields replaced.
   ///
-  /// **Cipher-safety note.** If any message in the resulting list carries
-  /// cipher data (`encryptedValue != null`), the `rawEvent` parameter is
-  /// silently forced to `null` regardless of the value the caller supplies.
-  /// This mirrors the `fromJson` invariant that prevents the raw wire map
-  /// (which contains the cipher payload) from leaking through `rawEvent`.
-  /// Callers that have already scrubbed `encryptedValue` from a sanitized
-  /// `rawEvent` map and still hold cipher data in the typed messages field
-  /// should construct a new [MessagesSnapshotEvent] directly with
-  /// `rawEvent: scrubbedMap` rather than calling `copyWith`.
+  /// **Cipher-safety note.** When the resolved messages list does NOT carry
+  /// cipher data (`encryptedValue == null` for every message), [rawEvent] is
+  /// applied normally — kept, cleared, or replaced per the standard sentinel
+  /// semantics. When ANY resolved message carries cipher data
+  /// (`encryptedValue != null`), [rawEvent] is silently forced to `null`
+  /// regardless of the supplied value. This mirrors the `fromJson` invariant
+  /// that prevents the raw wire map (which contains the cipher payload) from
+  /// leaking through `rawEvent`. Callers that have already scrubbed
+  /// `encryptedValue` and need to retain a sanitized `rawEvent` map should
+  /// construct a new [MessagesSnapshotEvent] directly with
+  /// `rawEvent: scrubbedMap` rather than using `copyWith`.
   @override
   MessagesSnapshotEvent copyWith({
     List<Message>? messages,
@@ -1760,6 +1762,13 @@ final class RunStartedEvent extends BaseEvent {
     int? timestamp,
     Object? rawEvent = kUnsetSentinel,
   }) {
+    if (!identical(input, kUnsetSentinel) && input is! RunAgentInput?) {
+      throw ArgumentError.value(
+        input,
+        'input',
+        'must be RunAgentInput?, null, or kUnsetSentinel',
+      );
+    }
     final newInput = identical(input, kUnsetSentinel)
         ? this.input
         : input as RunAgentInput?;
@@ -2064,10 +2073,20 @@ enum ReasoningEncryptedValueSubtype {
     for (final s in ReasoningEncryptedValueSubtype.values) s.value: s,
   });
 
+  /// Throws [AGUIValidationError] (not [ArgumentError]) on unknown values —
+  /// unlike [EventType.fromString] which throws [ArgumentError] so that
+  /// `BaseEvent.fromJson`'s narrow `on ArgumentError` catch can distinguish
+  /// unknown event types from factory bugs. Subtype is a cipher-data
+  /// discriminator with no safe fallback; throwing [AGUIValidationError]
+  /// directly surfaces it uniformly as [DecodingError] through the decoder
+  /// pipeline without a wrapping layer.
   static ReasoningEncryptedValueSubtype fromString(String value) {
     return _byValue[value] ??
-        (throw ArgumentError(
-          'Invalid reasoning encrypted value subtype: $value',
+        (throw AGUIValidationError(
+          message: 'Invalid reasoning encrypted value subtype: $value',
+          field: 'subtype',
+          value: value,
+          // Intentionally omit json: — this helper is called from cipher-data path.
         ));
   }
 }
@@ -2424,7 +2443,9 @@ String _requireCipherSafeString(
       message:
           'Field "$camelKey" has incorrect type. Expected String, got ${rawValue.runtimeType}',
       field: camelKey,
-      value: rawValue,
+      // Record only the runtime type, not the raw value — payload contains
+      // cipher data; even a wrong-typed value could be sensitive material.
+      value: rawValue.runtimeType.toString(),
       // Intentionally omit json: — payload contains cipher data.
     );
   }
@@ -2456,13 +2477,19 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
   final String entityId;
   final String encryptedValue;
 
+  // SECURITY: `rawEvent` is intentionally absent from this constructor.
+  // Pinning it to null in the super-initializer prevents callers from
+  // re-attaching a wire map (which carries `encryptedValue`) and bypassing
+  // the cipher-scrub invariant enforced in `fromJson` and `copyWith`.
   const ReasoningEncryptedValueEvent({
     required this.subtype,
     required this.entityId,
     required this.encryptedValue,
     super.timestamp,
-    super.rawEvent,
-  }) : super(eventType: EventType.reasoningEncryptedValue);
+  }) : super(
+          eventType: EventType.reasoningEncryptedValue,
+          rawEvent: null,
+        );
 
   factory ReasoningEncryptedValueEvent.fromJson(Map<String, dynamic> json) {
     // All three required fields use [_requireCipherSafeString] rather than
@@ -2471,22 +2498,10 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
     // map to `AGUIValidationError.json` would leak it through reflection-based
     // error serializers and log shippers. See [_requireCipherSafeString].
     final subtypeRaw = _requireCipherSafeString(json, 'subtype');
-    final ReasoningEncryptedValueSubtype subtype;
-    try {
-      subtype = ReasoningEncryptedValueSubtype.fromString(subtypeRaw);
-    } on ArgumentError {
-      // Honor the class-level dartdoc contract: an unknown subtype
-      // surfaces as `AGUIValidationError` (and as `DecodingError` through
-      // `EventDecoder`), not as the raw `ArgumentError` the enum throws.
-      // Narrow `on ArgumentError` (not `catch (e)`) preserves the discipline
-      // that other errors from checked paths MUST propagate unchanged.
-      throw AGUIValidationError(
-        message: 'Invalid reasoning encrypted value subtype: $subtypeRaw',
-        field: 'subtype',
-        value: subtypeRaw,
-        // Intentionally omit json: — payload contains cipher data.
-      );
-    }
+    // fromString now throws AGUIValidationError directly on unknown values,
+    // so no try/catch wrapper is needed — the error propagates correctly
+    // through the decoder pipeline to DecodingError.
+    final subtype = ReasoningEncryptedValueSubtype.fromString(subtypeRaw);
 
     // entityId and encryptedValue are accepted as plain strings (including
     // empty) to match canonical schemas: TS `z.string()` and Python `str`
@@ -2506,7 +2521,7 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
       entityId: entityId,
       encryptedValue: encryptedValue,
       timestamp: JsonDecoder.optionalCipherSafeIntField(json, 'timestamp'),
-      rawEvent: null,
+      // rawEvent: omitted — constructor pins rawEvent: null in its super-initializer.
     );
   }
 
@@ -2538,7 +2553,7 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
       entityId: entityId ?? this.entityId,
       encryptedValue: encryptedValue ?? this.encryptedValue,
       timestamp: timestamp ?? this.timestamp,
-      rawEvent: null, // Always null — cipher safety; see security note above.
+      // rawEvent: always null — enforced by the constructor's super-initializer.
     );
   }
 }

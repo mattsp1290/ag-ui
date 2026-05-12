@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:developer' as developer;
 
 import 'sse_message.dart';
 
@@ -205,12 +206,24 @@ class SseParser {
         // server from growing the stored value across reconnects via an
         // oversized `id:` line (the value persists for the lifetime of the
         // connection and propagates via `Last-Event-ID` headers).
-        if (!value.contains('\n') &&
-            !value.contains('\r') &&
-            !value.contains('\x00') &&
-            value.length <= maxIdCodeUnits) {
-          _lastEventId = value;
+        if (value.contains('\n') ||
+            value.contains('\r') ||
+            value.contains('\x00')) {
+          // Spec-mandated silent drop — no log needed.
+          break;
         }
+        if (value.length > maxIdCodeUnits) {
+          // Defense-in-depth cap (non-spec). Log so operators can detect
+          // misbehaving SSE producers. `_lastEventId` is NOT updated; the
+          // prior value is preserved (used as Last-Event-ID on reconnect).
+          developer.log(
+            'SSE id field dropped: length ${value.length} exceeds '
+            'maxIdCodeUnits ($maxIdCodeUnits). _lastEventId not updated.',
+            name: 'ag_ui.sse_parser',
+          );
+          break;
+        }
+        _lastEventId = value;
         break;
       case 'retry':
         final milliseconds = int.tryParse(value);

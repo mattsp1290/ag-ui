@@ -443,6 +443,91 @@ void main() {
       });
     });
 
+    test(
+        'MessagesSnapshotEvent.fromJson scrubs rawEvent when any message '
+        'carries cipher data (S1 regression)', () {
+      // Parallel to RunStartedEvent C1 regression. Verifies that the auto-scrub
+      // in fromJson fires when the wire JSON contains both a rawEvent key AND a
+      // cipher-bearing inner message.
+      final wireJson = {
+        'type': 'MESSAGES_SNAPSHOT',
+        'messages': [
+          {'id': 'm1', 'role': 'user', 'content': 'hi'},
+          {
+            'id': 'm2',
+            'role': 'reasoning',
+            'content': 'thinking',
+            'encryptedValue': 'c2VjcmV0',
+          },
+        ],
+        'rawEvent': {'original': 'wire-map'},
+      };
+      final event = MessagesSnapshotEvent.fromJson(wireJson);
+      expect(
+        event.rawEvent,
+        isNull,
+        reason:
+            'rawEvent must be scrubbed when any message carries cipher data',
+      );
+      expect(event.messages.length, 2);
+    });
+
+    test(
+        'MessagesSnapshotEvent.fromJson preserves rawEvent when no cipher '
+        'data is present (S1 regression)', () {
+      final wireJson = {
+        'type': 'MESSAGES_SNAPSHOT',
+        'messages': [
+          {'id': 'm1', 'role': 'user', 'content': 'hi'},
+        ],
+        'rawEvent': {'seq': 1},
+      };
+      final event = MessagesSnapshotEvent.fromJson(wireJson);
+      expect(
+        event.rawEvent,
+        {'seq': 1},
+        reason: 'rawEvent must be preserved when no cipher data is present',
+      );
+    });
+
+    test(
+        'MessagesSnapshotEvent.copyWith forces rawEvent null when messages '
+        'gain cipher data (I-3, release-mode safe)', () {
+      // I-3: the assert in copyWith fires only in debug mode. This test
+      // verifies the actual force-to-null branch, not the assert, so it
+      // catches a regression even in release builds.
+      final base = MessagesSnapshotEvent(
+        messages: [UserMessage(id: '1', content: 'hi')],
+        rawEvent: {'preserved': true},
+      );
+      expect(base.rawEvent, isNotNull);
+
+      MessagesSnapshotEvent updated;
+      try {
+        updated = base.copyWith(
+          messages: [
+            ReasoningMessage(id: '2', content: 'r', encryptedValue: 'cipher'),
+          ],
+          rawEvent: {'attacker': 'leak'},
+        );
+      } on AssertionError {
+        // Debug mode: assert fires before the force-to-null branch.
+        // Fall through to construct via copyWith without rawEvent arg so
+        // the branch itself is tested.
+        updated = base.copyWith(
+          messages: [
+            ReasoningMessage(id: '2', content: 'r', encryptedValue: 'cipher'),
+          ],
+        );
+      }
+      expect(
+        updated.rawEvent,
+        isNull,
+        reason:
+            'cipher-scrub must apply in all build modes, not just debug/test',
+      );
+    });
+
     group('LifecycleEvents', () {
       test('RunStartedEvent handles both camelCase and snake_case', () {
         // Test camelCase
@@ -1599,12 +1684,12 @@ void main() {
 
       test('ReasoningEncryptedValueSubtype.fromString throws on unknown values',
           () {
-        // Aligned with `TextMessageRole.fromString throws on unknown
-        // values` and the rest of the `*Role.fromString` family — single
-        // verb ("throws") across enum-rejection tests in this file.
+        // Unlike other enum fromString helpers (which throw ArgumentError),
+        // ReasoningEncryptedValueSubtype.fromString throws AGUIValidationError
+        // so the cipher-data path can surface a typed, structured error.
         expect(
           () => ReasoningEncryptedValueSubtype.fromString('bogus'),
-          throwsA(isA<ArgumentError>()),
+          throwsA(isA<AGUIValidationError>()),
         );
       });
 

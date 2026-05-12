@@ -488,7 +488,12 @@ class EventDecoder {
       DecodingError(
         'Failed to create event from JSON',
         field: field ?? 'json',
-        expectedType: 'BaseEvent',
+        // When the inner factory scrubbed its json map (cipher-bearing event),
+        // mark expectedType so operators can tell that the absent actualValue
+        // is intentional rather than a logging bug.
+        expectedType: innerScrubbed
+            ? 'BaseEvent (cipher-bearing — actualValue suppressed)'
+            : 'BaseEvent',
         actualValue: innerScrubbed ? null : json,
         cause: cause,
       ),

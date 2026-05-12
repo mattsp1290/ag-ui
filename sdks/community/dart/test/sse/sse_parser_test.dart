@@ -340,6 +340,79 @@ void main() {
       });
     });
 
+    group('reset()', () {
+      test('clears sticky _lastEventId across independent streams', () async {
+        // I-1 regression: reset() must zero _lastEventId so a reused parser
+        // does not carry the prior connection's id into a new stream.
+        await parser
+            .parseLines(Stream.fromIterable(['id: abc', 'data: x', '']))
+            .toList();
+        expect(parser.lastEventId, equals('abc'));
+        parser.reset();
+        expect(parser.lastEventId, isNull);
+        // Subsequent stream without id: line must dispatch with null id.
+        final msgs = await parser
+            .parseLines(Stream.fromIterable(['data: y', '']))
+            .toList();
+        expect(msgs.single.id, isNull);
+        expect(parser.lastEventId, isNull);
+      });
+
+      test('reset() clears all buffer state, not just _lastEventId', () async {
+        // Partially fill the parser state (data: line without blank line).
+        final firstStream = parser.parseLines(
+          Stream.fromIterable(['id: xyz', 'data: partial']),
+        );
+        await firstStream.toList(); // consumes stream + end-of-stream flush
+        parser.reset();
+        // After reset, a fresh stream should parse cleanly with no carryover.
+        final msgs = await parser
+            .parseLines(Stream.fromIterable(['data: clean', '']))
+            .toList();
+        expect(msgs.single.data, equals('clean'));
+        expect(msgs.single.id, isNull); // _lastEventId was cleared
+      });
+    });
+
+    group('size caps', () {
+      test('rejects oversized data: field beyond maxDataCodeUnits (I-2)', () {
+        final parser = SseParser(maxDataCodeUnits: 16);
+        final lines = Stream.fromIterable([
+          'data: this string is longer than sixteen units',
+          '',
+        ]);
+        expect(
+          parser.parseLines(lines).toList(),
+          throwsA(isA<FormatException>()),
+        );
+      });
+
+      test('rejects oversized event: field beyond maxDataCodeUnits (I-2)',
+          () async {
+        final parser = SseParser(maxDataCodeUnits: 8);
+        final lines = Stream.fromIterable([
+          'event: very-long-event-name',
+          'data: x',
+          '',
+        ]);
+        expect(
+          parser.parseLines(lines).toList(),
+          throwsA(isA<FormatException>()),
+        );
+      });
+
+      test('silently ignores id: field longer than maxIdCodeUnits (I-2)',
+          () async {
+        final hugeId = 'x' * 2048; // well above 1024 cap
+        final parser = SseParser();
+        final messages = await parser
+            .parseLines(Stream.fromIterable(['id: $hugeId', 'data: y', '']))
+            .toList();
+        expect(messages.single.id, isNull); // oversized id dropped, not stored
+        expect(parser.lastEventId, isNull);
+      });
+    });
+
     group('complex scenarios', () {
       test('handles real-world SSE stream', () async {
         final lines = Stream.fromIterable([

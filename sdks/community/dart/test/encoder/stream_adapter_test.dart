@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:ag_ui/src/client/errors.dart';
 import 'package:ag_ui/src/encoder/stream_adapter.dart';
 import 'package:ag_ui/src/events/events.dart';
 import 'package:ag_ui/src/sse/sse_message.dart';
@@ -1226,6 +1227,112 @@ void main() {
         expect(messages, hasLength(1));
         expect(messages[0], equals('second'));
       });
+
+      test(
+          'accumulateTextMessages chunk-before-Start emits content with '
+          'duplicate-emission behavior (S-10 regression pin)', () async {
+        // S-10: The TODO at stream_adapter.dart:1025-1034 documents that a
+        // TextMessageChunk arriving before its TextMessageStart is emitted
+        // immediately (not buffered), so a subsequent Start+Content+End
+        // sequence emits BOTH the pre-Start chunk AND the normal body.
+        // This test pins the CURRENT (pre-fix) behavior so a future fix
+        // that buffers pre-Start chunks can detect breaking callers.
+        // TODO(#1034): remove or update when the buffering fix lands and
+        // the pre-Start chunk is held until Start arrives.
+        final controller = StreamController<BaseEvent>();
+        final accumulated =
+            EventStreamAdapter.accumulateTextMessages(controller.stream);
+
+        final messages = <String>[];
+        final completer = Completer<void>();
+        final subscription = accumulated.listen(
+          messages.add,
+          onDone: completer.complete,
+        );
+
+        // Chunk arrives before Start — emitted immediately as a standalone.
+        controller.add(
+            TextMessageChunkEvent(messageId: 'msg1', delta: 'pre-start'));
+        controller.add(TextMessageStartEvent(messageId: 'msg1'));
+        controller
+            .add(TextMessageContentEvent(messageId: 'msg1', delta: 'body'));
+        controller.add(TextMessageEndEvent(messageId: 'msg1'));
+
+        await controller.close();
+        await completer.future;
+        await subscription.cancel();
+
+        // Current behavior: the pre-Start chunk emits once standalone,
+        // then the Start+Content+End sequence emits the body.
+        // If this expectation changes, the TODO fix has landed.
+        expect(messages, hasLength(2));
+        expect(messages[0], equals('pre-start'));
+        expect(messages[1], equals('body'));
+      });
+    });
+  });
+
+  _reentrancyContractTests();
+}
+
+// I-5 re-entrancy contract tests live at the top level so they can use
+// private imports. These pin the StateError vs DecodingError distinction.
+// fromRawSseStream uses sync: true internally; these tests verify externally
+// observable error-type routing and per-invocation isolation.
+void _reentrancyContractTests() {
+  group('fromRawSseStream error-type contract (I-5)', () {
+    test(
+        'wire decode errors surface as DecodingError, not StateError (I-5)',
+        () async {
+      // I-5: Pins the distinction — StateError is the re-entrancy
+      // programmer-error guard; ordinary wire errors become DecodingError.
+      // If this expectation ever fails, the two error types have been merged
+      // and the re-entrancy guard is no longer diagnosable.
+      final adapter = EventStreamAdapter();
+      final errors = <Object>[];
+      final sub = adapter
+          .fromRawSseStream(
+        Stream.fromIterable(['data: invalid json\n\n']),
+      )
+          .listen(
+        (_) {},
+        onError: errors.add,
+        cancelOnError: false,
+      );
+
+      await Future<void>.delayed(Duration.zero);
+      await sub.cancel();
+
+      expect(errors, hasLength(1));
+      expect(errors[0], isA<DecodingError>(),
+          reason: 'wire error must be DecodingError, not StateError');
+      expect(errors[0], isNot(isA<StateError>()),
+          reason: 'StateError is reserved for programmer-error re-entrancy');
+    });
+
+    test(
+        'fromRawSseStream per-invocation isolation: sequential calls are '
+        'independent (I-5)', () async {
+      // I-5: Per-invocation locals in fromRawSseStream guarantee that two
+      // sequential calls on the same adapter cannot share parser state
+      // (buffer, dataBuffer, inDataBlock, lastWasLoneCr).
+      final adapter = EventStreamAdapter();
+
+      final events1 = await adapter.fromRawSseStream(
+        Stream.fromIterable(
+            ['data: {"type":"RUN_STARTED","threadId":"t1","runId":"r1"}\n\n']),
+      ).toList();
+
+      final events2 = await adapter.fromRawSseStream(
+        Stream.fromIterable([
+          'data: {"type":"RUN_FINISHED","threadId":"t2","runId":"r2"}\n\n',
+        ]),
+      ).toList();
+
+      expect(events1, hasLength(1));
+      expect(events1.single, isA<RunStartedEvent>());
+      expect(events2, hasLength(1));
+      expect(events2.single, isA<RunFinishedEvent>());
     });
   });
 }

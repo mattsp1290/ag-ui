@@ -72,7 +72,8 @@ class EventEncoder {
     } on JsonUnsupportedObjectError catch (e) {
       throw EncodeError(
         message: 'Event payload is not JSON-encodable: '
-            '${event.runtimeType} contains a non-serializable value',
+            '${event.runtimeType} contains a non-serializable value '
+            '(${e.unsupportedObject.runtimeType})',
         source: event,
         cause: e,
       );

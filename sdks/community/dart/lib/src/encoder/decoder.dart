@@ -472,12 +472,16 @@ class EventDecoder {
     Map<String, dynamic> json,
     StackTrace stack,
   ) {
+    // Do not forward the raw json map when the inner factory already scrubbed
+    // it (indicated by cause.json == null on an AGUIValidationError). Doing so
+    // would re-expose a cipher payload that the factory deliberately omitted.
+    final innerScrubbed = cause is AGUIValidationError && cause.json == null;
     Error.throwWithStackTrace(
       DecodingError(
         'Failed to create event from JSON',
         field: field ?? 'json',
         expectedType: 'BaseEvent',
-        actualValue: json,
+        actualValue: innerScrubbed ? null : json,
         cause: cause,
       ),
       stack,

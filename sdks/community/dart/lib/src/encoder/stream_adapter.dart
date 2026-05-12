@@ -256,8 +256,12 @@ class EventStreamAdapter {
     // Re-entrancy guard: if synchronous re-entry through controller.add
     // is detected (e.g. a downstream data handler cancels the subscription
     // during dispatch), flushDataBlock throws StateError before state is
-    // corrupted. Note this guard only covers the dispatch site inside
-    // flushDataBlock, not the buffer-mutation path.
+    // corrupted. IMPORTANT LIMITATION: this guard only covers the dispatch
+    // site inside flushDataBlock. It does NOT protect against a downstream
+    // handler calling processChunk re-entrantly — doing so would silently
+    // corrupt the buffer/inDataBlock/lastWasLoneCr state. Callers that add
+    // events to the input stream from within a data handler must schedule
+    // via Future.microtask, not synchronously.
     // IMPORTANT: single-subscription semantics assumed. The closure state
     // below (buffer, dataBuffer, inDataBlock, lastWasLoneCr, errorRoutedInChunk,
     // skipUntilBoundary) is created once per invocation for exactly one
@@ -366,6 +370,10 @@ class EventStreamAdapter {
         }
         return false;
       } catch (e, stack) {
+        // StateError is the re-entrancy programmer-error guard — do not
+        // flatten to DecodingError. Let it propagate unwrapped so test
+        // runners surface it as a hard failure, not a recoverable wire error.
+        if (e is StateError) rethrow;
         // Preserve any `AGUIError` subtype (`AgUiError`,
         // `AGUIValidationError`, `EncoderError`) so the unified
         // error-surface contract from `EventDecoder` is not undone by
@@ -503,12 +511,23 @@ class EventStreamAdapter {
           }
         },
         onDone: () {
-          errorRoutedInChunk =
-              false; // defensive reset; flag lifecycle ends at chunk handler
+          // Defensive reset: the chunk handler is the only place where
+          // errorRoutedInChunk can be set to true, and onDone fires after
+          // the last chunk. Resetting here prevents a stale true from a
+          // malformed final chunk from silently suppressing errors in a
+          // reused context (not possible in the current design, but safe).
+          errorRoutedInChunk = false;
           // End-of-stream: any deferred trailing `\r` is now a complete
           // terminator. Run the scanner with `endOfStream: true` to
           // consume it (and any other complete lines still in the buffer).
-          final scan = _scanLines(buffer.toString(), endOfStream: true);
+          // Forward lastWasLoneCr for symmetry with processChunk — safe
+          // today (unconsumed cannot begin with \n at onDone time) but
+          // preserves the correct state for any future unconsumed handling.
+          final scan = _scanLines(
+            buffer.toString(),
+            endOfStream: true,
+            lastWasLoneCrAtStart: lastWasLoneCr,
+          );
           buffer.clear();
 
           for (final line in scan.lines) {
@@ -628,6 +647,13 @@ class EventStreamAdapter {
       final isCrLf = s.codeUnitAt(brk) == 0x0D &&
           brk + 1 < s.length &&
           s.codeUnitAt(brk + 1) == 0x0A /* \n */;
+      // Recompute lastWasLoneCr for the terminator we just consumed. This
+      // interacts with the deferral exception above (line 622): once the
+      // producer is confirmed lone-CR style (`lastWasLoneCr == true`), the
+      // deferral at line 621 is skipped, so a trailing `\r` IS consumed
+      // immediately — and this recompute keeps lastWasLoneCr true for the
+      // next chunk. The flag therefore toggles only when the terminator
+      // style changes mid-stream.
       lastWasLoneCr = s.codeUnitAt(brk) == 0x0D /* \r */ && !isCrLf;
       lines.add(s.substring(i, brk));
       i = brk + (isCrLf ? 2 : 1);
@@ -659,8 +685,10 @@ class EventStreamAdapter {
   /// will grow the internal map indefinitely. Use [maxOpenGroups] to cap
   /// the number of concurrently open groups; when the cap is reached the
   /// oldest open group is evicted (emitted as-is) before the new one is
-  /// added. Set to 0 (the default) for no cap. The same caveat and option
-  /// apply to [accumulateTextMessages].
+  /// added. "Oldest" means earliest `*Start` arrival (insertion order into
+  /// the internal LinkedHashMap), not least-recently-used. Set to 0 (the
+  /// default) for no cap. The same caveat and option apply to
+  /// [accumulateTextMessages].
   ///
   /// **Duplicate-start policy.** If a second `*Start` event arrives with
   /// the same id while the prior group is still open, the prior group's
@@ -831,6 +859,10 @@ class EventStreamAdapter {
               inDispatch = false;
             }
           } catch (e, stack) {
+            // StateError is the re-entrancy programmer-error guard — do not
+            // flatten to addError. Let it propagate unwrapped so test runners
+            // surface it as a hard failure, not a recoverable error event.
+            if (e is StateError) rethrow;
             // NOTE: `addError` is intentionally not wrapped by `inDispatch`.
             // The guard protects `controller.add` (data dispatch). Error
             // handlers registered via `listen(onError:)` must not call stream
@@ -984,6 +1016,10 @@ class EventStreamAdapter {
               inDispatch = false;
             }
           } catch (e, stack) {
+            // StateError is the re-entrancy programmer-error guard — do not
+            // flatten to addError. Let it propagate unwrapped so test runners
+            // surface it as a hard failure, not a recoverable error event.
+            if (e is StateError) rethrow;
             // NOTE: `addError` is intentionally not wrapped by `inDispatch`.
             // The guard protects `controller.add` (data dispatch). Error
             // handlers registered via `listen(onError:)` must not call stream

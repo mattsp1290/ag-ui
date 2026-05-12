@@ -70,6 +70,8 @@ enum EventType {
   final String value;
   const EventType(this.value);
 
+  // Intentionally lazy-init (static final, not const) so it is built once
+  // on first use rather than at program start, keeping start-up cost O(1).
   static final Map<String, EventType> _byValue = Map.unmodifiable({
     for (final t in EventType.values) t.value: t,
   });

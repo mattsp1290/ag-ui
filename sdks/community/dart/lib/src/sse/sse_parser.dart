@@ -37,6 +37,11 @@ class SseParser {
   /// larger payloads.
   final int maxDataCodeUnits;
 
+  /// Maximum number of UTF-16 code units the `id:` field value may contain.
+  /// Caps the sticky `_lastEventId` value to prevent a malicious server from
+  /// growing the stored id across reconnects via an oversized `id:` line.
+  static const int maxIdCodeUnits = 1024;
+
   // `_eventBuffer` stores the SSE `event:` field for the current message.
   // Unlike `_dataBuffer`, it is REPLACED (not appended) on each `event:` line
   // per the WHATWG SSE spec, so its maximum size is bounded by the line
@@ -203,7 +208,7 @@ class SseParser {
         if (!value.contains('\n') &&
             !value.contains('\r') &&
             !value.contains('\x00') &&
-            value.length <= 1024) {
+            value.length <= maxIdCodeUnits) {
           _lastEventId = value;
         }
         break;

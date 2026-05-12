@@ -964,6 +964,71 @@ void main() {
         expect(groups[2].length, equals(1));
         expect(groups[2][0], isA<ReasoningMessageEndEvent>());
       });
+      test(
+          'duplicate *_Start discards prior accumulated events (last-Start-wins)',
+          () async {
+        // Regression for Opus2 S4: the dartdoc at groupRelatedEvents promises
+        // that a duplicate *_Start discards the prior open group's events
+        // silently and starts fresh. This contract previously lacked a
+        // regression guard.
+        final controller = StreamController<BaseEvent>();
+        final groups = <List<BaseEvent>>[];
+        final subscription =
+            EventStreamAdapter.groupRelatedEvents(controller.stream)
+                .listen(groups.add);
+
+        controller.add(TextMessageStartEvent(messageId: 'm1'));
+        controller
+            .add(TextMessageContentEvent(messageId: 'm1', delta: 'first'));
+        // Duplicate Start with same id — silently discards the prior group
+        // (no emission) and starts fresh.
+        controller.add(TextMessageStartEvent(messageId: 'm1'));
+        controller
+            .add(TextMessageContentEvent(messageId: 'm1', delta: 'second'));
+        controller.add(TextMessageEndEvent(messageId: 'm1'));
+
+        await controller.close();
+        await subscription.cancel();
+
+        // Only the second group is emitted (completed by its End event).
+        // The prior group's events are discarded without being emitted.
+        expect(groups, hasLength(1),
+            reason: 'only the second (post-duplicate-Start) group is emitted');
+        expect(
+          groups[0].whereType<TextMessageContentEvent>().single.delta,
+          'second',
+        );
+      });
+
+      test('maxOpenGroups cap evicts oldest open group when exceeded',
+          () async {
+        // Regression for Opus2 S4: the maxOpenGroups cap eviction path
+        // previously lacked a regression guard.
+        final controller = StreamController<BaseEvent>();
+        final groups = <List<BaseEvent>>[];
+        final subscription = EventStreamAdapter.groupRelatedEvents(
+          controller.stream,
+          maxOpenGroups: 2,
+        ).listen(groups.add);
+
+        controller.add(TextMessageStartEvent(messageId: 'm1'));
+        controller.add(TextMessageStartEvent(messageId: 'm2'));
+        // Third Start exceeds cap — evicts m1 (oldest insertion-order entry).
+        controller.add(TextMessageStartEvent(messageId: 'm3'));
+
+        await controller.close();
+        await subscription.cancel();
+
+        // m1 is evicted immediately when m3 arrives; m2 and m3 are flushed
+        // on stream close. Total: 3 groups emitted.
+        expect(groups, hasLength(3),
+            reason: 'evicted m1 + stream-close flush of m2 and m3');
+        // The evicted group is the first emitted.
+        expect(
+          groups[0].whereType<TextMessageStartEvent>().single.messageId,
+          'm1',
+        );
+      });
     });
 
     group('accumulateTextMessages', () {
@@ -1124,6 +1189,42 @@ void main() {
 
         expect(messages.length, equals(1));
         expect(messages[0], equals('partial'));
+      });
+
+      test(
+          'accumulateTextMessages duplicate Start drops prior buffered content',
+          () async {
+        // Regression for Opus2 S4: a duplicate TextMessageStart (same
+        // messageId while a buffer is open) should discard the prior buffer
+        // and start fresh — matching the groupRelatedEvents last-Start-wins
+        // policy at the content-accumulation layer.
+        final controller = StreamController<BaseEvent>();
+        final accumulated =
+            EventStreamAdapter.accumulateTextMessages(controller.stream);
+
+        final messages = <String>[];
+        final completer = Completer<void>();
+        final subscription = accumulated.listen(
+          messages.add,
+          onDone: completer.complete,
+        );
+
+        controller.add(TextMessageStartEvent(messageId: 'msg1'));
+        controller
+            .add(TextMessageContentEvent(messageId: 'msg1', delta: 'first'));
+        // Duplicate Start — prior buffered content should be dropped.
+        controller.add(TextMessageStartEvent(messageId: 'msg1'));
+        controller
+            .add(TextMessageContentEvent(messageId: 'msg1', delta: 'second'));
+        controller.add(TextMessageEndEvent(messageId: 'msg1'));
+
+        await controller.close();
+        await completer.future;
+        await subscription.cancel();
+
+        // Only the second message body should be emitted.
+        expect(messages, hasLength(1));
+        expect(messages[0], equals('second'));
       });
     });
   });

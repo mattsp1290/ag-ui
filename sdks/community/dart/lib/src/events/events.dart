@@ -97,10 +97,17 @@ sealed class BaseEvent extends AGUIModel with TypeDiscriminator {
   /// field WILL be serialized on the next `encode`. If you don't want
   /// the upstream payload echoed downstream, set `rawEvent: null` on
   /// the in-flight event before re-encoding by constructing a new event
-  /// directly with `rawEvent: null` — the `copyWith` methods do NOT clear
-  /// this field (they use `rawEvent ?? this.rawEvent`, so passing `null`
-  /// keeps the existing value). Wire output uses the camelCase key
+  /// directly with `rawEvent: null`. Wire output uses the camelCase key
   /// `rawEvent` regardless of which spelling came in.
+  ///
+  /// **Cipher-safety hazard.** Event types that nest [Message] objects with
+  /// `encryptedValue` payloads (currently [MessagesSnapshotEvent] and
+  /// [RunStartedEvent]) force `rawEvent` to `null` in their `fromJson` and
+  /// `copyWith` implementations, because the verbatim wire map would expose
+  /// the cipher payload that the inner message factories intentionally
+  /// omitted. Callers building these events in memory (without going through
+  /// `fromJson`) are responsible for setting `rawEvent: null` when the
+  /// structured payload contains `encryptedValue` data.
   final dynamic rawEvent;
 
   const BaseEvent({
@@ -118,11 +125,19 @@ sealed class BaseEvent extends AGUIModel with TypeDiscriminator {
   /// `lib/src/encoder/decoder.dart` so the analyzer-enforced exhaustive
   /// switch on the sealed `BaseEvent` hierarchy continues to compile.
   ///
-  /// Throws [AGUIValidationError] for missing/wrong-typed `type` AND for
-  /// unknown event types — `EventType.fromString` raises a raw
-  /// `ArgumentError` for unknown values, and we wrap it here so direct
-  /// callers see the same error surface as every other validation failure.
-  /// (Through the [EventDecoder] pipeline, both surface as [DecodingError].)
+  /// **Error surface.** Throws [AGUIValidationError] for:
+  /// - Missing or wrong-typed `type` field.
+  /// - Unknown event type string (wrapped from `ArgumentError`).
+  /// - Any per-event-factory field validation failure (missing required field,
+  ///   wrong type, enum parse error, etc.) — these are thrown directly by the
+  ///   delegate factory and propagate unchanged.
+  ///
+  /// Through the [EventDecoder] pipeline all of the above surface as
+  /// [DecodingError]. Direct callers that bypass [EventDecoder] should catch
+  /// [AGUIValidationError]. Direct callers should also run
+  /// `EventDecoder.validate(event)` after this factory if they want
+  /// non-empty-field enforcement (e.g. non-null `messageId`) — this factory
+  /// only enforces field presence and type, not semantic constraints.
   ///
   /// Note on equality: event subtypes are `final class` and do NOT
   /// override `==`/`hashCode`. Use field-by-field assertions in tests
@@ -242,7 +257,16 @@ sealed class BaseEvent extends AGUIModel with TypeDiscriminator {
 
 /// Text message roles that can be used in text message events.
 ///
-/// Defines the possible roles for text messages in the protocol.
+/// **Role-fallback convention.** Wire-decoding factories that reference this
+/// enum follow a consistent pattern: the enum's `fromString` throws
+/// [ArgumentError] for unknown values, and the factory that calls it catches
+/// the error and falls back to the canonical role for that event type (e.g.
+/// `assistant` for [TextMessageStartEvent], `tool` for
+/// [ToolCallResultEvent], `reasoning` for [ReasoningMessageStartEvent]).
+/// The one exception is [TextMessageChunkEvent], where `role` is nullable —
+/// it falls back to `null` because "present but unrecognized" is distinct
+/// from "absent". If you add a new role value here or a new event type that
+/// references this enum, update the corresponding factory fall-back as well.
 enum TextMessageRole {
   developer('developer'),
   system('system'),
@@ -2395,7 +2419,17 @@ String _requireCipherSafeString(
 
 /// Event containing an encrypted value for a message or tool call.
 ///
-/// Forward-compat note: a future server-side [subtype] value will cause
+/// **Cipher-safety guarantees.** All three wire fields ([subtype], [entityId],
+/// [encryptedValue]) are parsed via the internal `_requireCipherSafeString`
+/// helper, which omits `json:` from every thrown [AGUIValidationError] so
+/// cipher payloads cannot leak through reflection-based error serializers or
+/// log shippers. [BaseEvent.rawEvent] is unconditionally set to `null` in
+/// `fromJson` — the verbatim wire map carries `encryptedValue` and must not
+/// be re-exposed downstream. The `copyWith` method intentionally omits a
+/// `rawEvent` parameter for the same reason; if you need a scrubbed
+/// `rawEvent`, construct a new [ReasoningEncryptedValueEvent] directly.
+///
+/// **Forward-compat note.** A future server-side [subtype] value will cause
 /// [ReasoningEncryptedValueSubtype.fromString] to throw, which propagates
 /// out of `fromJson` as an [AGUIValidationError] (wrapped in a
 /// [DecodingError] when reached through [EventDecoder]). To keep streams

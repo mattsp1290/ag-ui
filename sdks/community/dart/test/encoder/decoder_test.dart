@@ -1,8 +1,10 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:ag_ui/src/client/errors.dart';
 import 'package:ag_ui/src/encoder/decoder.dart';
+import 'package:ag_ui/src/encoder/stream_adapter.dart';
 import 'package:ag_ui/src/events/events.dart';
 import 'package:ag_ui/src/types/base.dart';
 import 'package:ag_ui/src/types/message.dart';
@@ -435,6 +437,53 @@ data: {"type":"RUN_FINISHED","threadId":"t1","runId":"r1"}
           expect(errorString, isNotEmpty);
         }
       });
+    });
+
+    test(
+        'decodeSSE and fromRawSseStream produce identical events for the same '
+        'complete-frame input (Opus2 S8 parity)', () async {
+      // Locks in behavioral equivalence between the LineSplitter-based
+      // decodeSSE path and the hand-rolled _scanLines path in fromRawSseStream
+      // for well-formed complete frames. Divergence on edge cases (e.g. lone-CR
+      // terminators) is NOT expected to be caught here — this tests the common
+      // path only.
+      const frames = [
+        'data: {"type":"RUN_STARTED","threadId":"t1","runId":"r1"}\n\n',
+        'data: {"type":"TEXT_MESSAGE_START","messageId":"m1","role":"assistant"}\n\n',
+        'data: {"type":"TEXT_MESSAGE_CONTENT","messageId":"m1","delta":"hello"}\n\n',
+        'data: {"type":"TEXT_MESSAGE_END","messageId":"m1"}\n\n',
+        'data: {"type":"RUN_FINISHED","threadId":"t1","runId":"r1"}\n\n',
+      ];
+
+      // decodeSSE path: decode each SSE frame string directly.
+      final decodeSSEEvents = frames.map(decoder.decodeSSE).toList();
+
+      // fromRawSseStream path: push the same frames as a single-chunk stream.
+      final streamAdapter = EventStreamAdapter();
+      final rawStream =
+          Stream<String>.fromIterable(frames);
+      final fromRawEvents =
+          await streamAdapter.fromRawSseStream(rawStream).toList();
+
+      expect(
+        fromRawEvents.length,
+        equals(decodeSSEEvents.length),
+        reason: 'both paths must decode the same number of events',
+      );
+      for (var i = 0; i < decodeSSEEvents.length; i++) {
+        expect(
+          fromRawEvents[i].runtimeType,
+          equals(decodeSSEEvents[i].runtimeType),
+          reason:
+              'event[$i]: fromRawSseStream yields ${fromRawEvents[i].runtimeType}, '
+              'decodeSSE yields ${decodeSSEEvents[i].runtimeType}',
+        );
+        expect(
+          fromRawEvents[i].eventType,
+          equals(decodeSSEEvents[i].eventType),
+          reason: 'event[$i] eventType mismatch',
+        );
+      }
     });
   });
 }

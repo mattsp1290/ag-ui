@@ -6,16 +6,7 @@ library;
 
 import 'dart:convert';
 
-// Truncate [s] to at most [maxLen] UTF-16 code units, backing up by 1 if the
-// cut falls on the high surrogate of a pair, to avoid emitting lone surrogates.
-String _safeTruncate(String s, int maxLen) {
-  if (maxLen <= 0) return '';
-  if (s.length <= maxLen) return s;
-  var end = maxLen;
-  final cu = s.codeUnitAt(end - 1);
-  if (cu >= 0xD800 && cu <= 0xDBFF) end--; // high surrogate: back up
-  return s.substring(0, end);
-}
+import '../internal/text.dart';
 
 /// Base class for all AG-UI models with JSON serialization support.
 ///
@@ -112,7 +103,7 @@ class AGUIValidationError extends AGUIError {
     if (value != null) {
       final valueStr = value.toString();
       final excerpt = valueStr.length > 100
-          ? '${_safeTruncate(valueStr, 100)}...'
+          ? '${safeTruncate(valueStr, 100)}...'
           : valueStr;
       buffer.write(' (value: $excerpt)');
     }
@@ -460,7 +451,7 @@ class JsonDecoder {
       return out;
     }
 
-    return _eagerCast<T>(list, field, json);
+    return _eagerCast<T>(list, field, json); // view, not copy
   }
 
   /// Safely extracts an optional list field from JSON.
@@ -495,7 +486,7 @@ class JsonDecoder {
       return out;
     }
 
-    return _eagerCast<T>(list, field, json);
+    return _eagerCast<T>(list, field, json); // view, not copy
   }
 
   /// Reads an optional list field that may arrive under either of two
@@ -546,7 +537,7 @@ class JsonDecoder {
       return out;
     }
 
-    return _eagerCast<T>(list, resolvedKey, json);
+    return _eagerCast<T>(list, resolvedKey, json); // view, not copy
   }
 
   /// Eagerly validates element types in a list and returns a typed view.

@@ -170,17 +170,7 @@ class Validators {
   /// consume two code units per character and reach the cap sooner than
   /// ASCII-only identifiers of the same visible length.
   static void validateRunId(String? runId) {
-    requireNonEmpty(runId, 'runId');
-
-    // Run IDs are typically UUIDs or similar identifiers
-    if (runId!.length > 100) {
-      throw ValidationError(
-        'Run ID too long (max 100 UTF-16 code units)',
-        field: 'runId',
-        constraint: 'max-length-100',
-        value: runId,
-      );
-    }
+    _validateBoundedId(runId, 'runId');
   }
 
   /// Validates a thread ID format.
@@ -188,14 +178,18 @@ class Validators {
   /// The 100-unit cap is measured in UTF-16 code units (Dart's [String.length]).
   /// See [validateRunId] for the full rationale.
   static void validateThreadId(String? threadId) {
-    requireNonEmpty(threadId, 'threadId');
+    _validateBoundedId(threadId, 'threadId');
+  }
 
-    if (threadId!.length > 100) {
+  static void _validateBoundedId(String? id, String fieldName) {
+    requireNonEmpty(id, fieldName);
+    if (id!.length > 100) {
       throw ValidationError(
-        'Thread ID too long (max 100 UTF-16 code units)',
-        field: 'threadId',
+        '${fieldName[0].toUpperCase()}${fieldName.substring(1)} too long '
+        '(max 100 UTF-16 code units)',
+        field: fieldName,
         constraint: 'max-length-100',
-        value: threadId,
+        value: id,
       );
     }
   }
@@ -370,6 +364,7 @@ class Validators {
   /// sequence rules client-side. This method is retained for consumers who
   /// want to validate sequences in their own code, but may be removed in
   /// a future major version.
+  // TODO(1.0.0): Remove alongside the THINKING_TEXT_MESSAGE_* deprecation sweep.
   @Deprecated(
     'Not enforced by the SDK client-side. '
     'May be removed in a future major release.',

@@ -5,6 +5,7 @@ import 'dart:async';
 
 import '../client/errors.dart';
 import '../events/events.dart';
+import '../internal/sse_constants.dart';
 import '../sse/sse_message.dart';
 import '../types/base.dart';
 import 'decoder.dart';
@@ -46,7 +47,7 @@ class EventStreamAdapter {
   /// `data:` payloads or a stale `inDataBlock` flag into the next.
   EventStreamAdapter({
     EventDecoder? decoder,
-    this.maxDataCodeUnits = 8 * 1024 * 1024,
+    this.maxDataCodeUnits = kSseDefaultMaxDataCodeUnits,
   }) : _decoder = decoder ?? const EventDecoder();
 
   /// Adapts JSON data to AG-UI events.

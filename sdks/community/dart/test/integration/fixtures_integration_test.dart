@@ -346,6 +346,28 @@ void main() {
           equals(1),
         );
       });
+
+      // TODO(1.0.0): Delete this fixture group alongside the
+      // THINKING_TEXT_MESSAGE_* deprecation sweep.
+      test('processes deprecated thinking_text_message_legacy events', () {
+        final events = fixtures['thinking_text_message_legacy'] as List;
+        // ignore: deprecated_member_use_from_same_package
+        final decodedEvents = events
+            .map((e) => decoder.decodeJson(e as Map<String, dynamic>))
+            .toList();
+
+        expect(decodedEvents[0], isA<RunStartedEvent>());
+        // ignore: deprecated_member_use_from_same_package
+        expect(decodedEvents[1], isA<ThinkingTextMessageStartEvent>());
+        // ignore: deprecated_member_use_from_same_package
+        expect(decodedEvents[2], isA<ThinkingTextMessageContentEvent>());
+        // ignore: deprecated_member_use_from_same_package
+        expect((decodedEvents[2] as ThinkingTextMessageContentEvent).delta,
+            equals('Let me think...'));
+        // ignore: deprecated_member_use_from_same_package
+        expect(decodedEvents[3], isA<ThinkingTextMessageEndEvent>());
+        expect(decodedEvents[4], isA<RunFinishedEvent>());
+      });
     });
 
     group('SSE Stream Fixtures', () {

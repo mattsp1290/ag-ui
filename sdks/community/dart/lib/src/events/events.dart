@@ -1250,11 +1250,16 @@ final class StateDeltaEvent extends BaseEvent {
 final class MessagesSnapshotEvent extends BaseEvent {
   final List<Message> messages;
 
-  const MessagesSnapshotEvent({
+  MessagesSnapshotEvent({
     required this.messages,
     super.timestamp,
     super.rawEvent,
-  }) : super(eventType: EventType.messagesSnapshot);
+  })  : assert(
+          rawEvent == null || !messages.any((m) => m.encryptedValue != null),
+          'Direct construction with rawEvent + cipher-bearing messages '
+          'violates the scrub invariant. Pass rawEvent: null or pre-scrub.',
+        ),
+        super(eventType: EventType.messagesSnapshot);
 
   factory MessagesSnapshotEvent.fromJson(Map<String, dynamic> json) {
     final rawMessages = JsonDecoder.requireListField<Map<String, dynamic>>(
@@ -1293,15 +1298,22 @@ final class MessagesSnapshotEvent extends BaseEvent {
     // the ReasoningMessage factory already applied to the structured field.
     // Proxies that need the verbatim wire form should keep their own copy of
     // the raw JSON before calling fromJson.
-    // ActivityMessage inherits encryptedValue from Message but always returns
-    // null by construction (fromJson strips the wire field; constructor does
-    // not accept it), so a separate type check is not needed.
     //
-    // SCRUB CONTRACT: this check assumes encryptedValue is the only
-    // cipher-named field on any Message subtype. If a future Message subtype
-    // adds a different sensitive payload, this hasCipher predicate MUST be
+    // ActivityMessage.fromJson silently strips wire-level encryptedValue from
+    // the structured field (the constructor does not accept it), so the
+    // structured-field predicate alone would miss a cipher on an
+    // ActivityMessage. We check rawMessages directly for role == 'activity'
+    // entries that still carry a cipher key on the wire.
+    //
+    // SCRUB CONTRACT: this check assumes encryptedValue / encrypted_value is
+    // the only cipher-named key on any Message subtype. If a future subtype
+    // adds a different sensitive payload key, this hasCipher predicate MUST be
     // extended in parallel.
-    final hasCipher = messages.any((m) => m.encryptedValue != null);
+    final hasCipher = messages.any((m) => m.encryptedValue != null) ||
+        rawMessages.any((m) =>
+            m['role'] == 'activity' &&
+            (m.containsKey('encryptedValue') ||
+                m.containsKey('encrypted_value')));
     return MessagesSnapshotEvent(
       messages: messages,
       timestamp: JsonDecoder.optionalIntField(json, 'timestamp'),
@@ -1670,14 +1682,21 @@ final class RunStartedEvent extends BaseEvent {
   /// or explicit-null `input` decodes as `null`.
   final RunAgentInput? input;
 
-  const RunStartedEvent({
+  RunStartedEvent({
     required this.threadId,
     required this.runId,
     this.parentRunId,
     this.input,
     super.timestamp,
     super.rawEvent,
-  }) : super(eventType: EventType.runStarted);
+  })  : assert(
+          rawEvent == null ||
+              input == null ||
+              !input.messages.any((m) => m.encryptedValue != null),
+          'Direct construction with rawEvent + cipher-bearing input.messages '
+          'violates the scrub invariant. Pass rawEvent: null or pre-scrub.',
+        ),
+        super(eventType: EventType.runStarted);
 
   factory RunStartedEvent.fromJson(Map<String, dynamic> json) {
     final inputJson = JsonDecoder.optionalField<Map<String, dynamic>>(
@@ -1701,16 +1720,27 @@ final class RunStartedEvent extends BaseEvent {
       }
     }
     // Auto-scrub rawEvent when any input message carries cipher data, mirroring
-    // the MessagesSnapshotEvent.fromJson invariant. ActivityMessage inherits
-    // encryptedValue from Message but always returns null by construction, so
-    // a separate type check is not needed.
+    // the MessagesSnapshotEvent.fromJson invariant.
     //
-    // SCRUB CONTRACT: this check assumes encryptedValue is the only
-    // cipher-named field on any Message subtype. If a future Message subtype
-    // adds a different sensitive payload, this hasCipher predicate MUST be
+    // ActivityMessage.fromJson silently strips wire-level encryptedValue from
+    // the structured field, so the structured-field predicate alone would miss
+    // a cipher on an ActivityMessage. We check the raw wire messages list
+    // directly for role == 'activity' entries that still carry a cipher key.
+    //
+    // SCRUB CONTRACT: this check assumes encryptedValue / encrypted_value is
+    // the only cipher-named key on any Message subtype. If a future subtype
+    // adds a different sensitive payload key, this hasCipher predicate MUST be
     // extended in parallel.
-    final hasCipher =
-        input != null && input.messages.any((m) => m.encryptedValue != null);
+    final rawInputMessages = inputJson != null
+        ? (inputJson['messages'] as List<dynamic>? ?? const <dynamic>[])
+        : const <dynamic>[];
+    final hasCipher = input != null &&
+        (input.messages.any((m) => m.encryptedValue != null) ||
+            rawInputMessages.any((m) =>
+                m is Map<String, dynamic> &&
+                m['role'] == 'activity' &&
+                (m.containsKey('encryptedValue') ||
+                    m.containsKey('encrypted_value'))));
     return RunStartedEvent(
       threadId: JsonDecoder.requireEitherField<String>(
         json,
@@ -2548,6 +2578,11 @@ final class ReasoningEncryptedValueEvent extends BaseEvent {
     String? encryptedValue,
     int? timestamp,
   }) {
+    // The three `?? this.field` reads are safe — unlike nullable fields that use
+    // the kUnsetSentinel discipline elsewhere, these are required non-nullable
+    // constructor parameters, so `this.subtype`, `this.entityId`, and
+    // `this.encryptedValue` are always non-null. Passing null for any of them
+    // silently preserves the existing value; it cannot clear a required field.
     return ReasoningEncryptedValueEvent(
       subtype: subtype ?? this.subtype,
       entityId: entityId ?? this.entityId,

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:developer' as developer;
 
+import '../internal/sse_constants.dart';
 import 'sse_message.dart';
 
 /// Parses Server-Sent Events according to the WHATWG specification.
@@ -55,7 +56,7 @@ class SseParser {
   Duration? _retry;
   bool _hasDataField = false;
 
-  SseParser({this.maxDataCodeUnits = 8 * 1024 * 1024});
+  SseParser({this.maxDataCodeUnits = kSseDefaultMaxDataCodeUnits});
 
   /// Clears all parser state, including the otherwise-sticky
   /// `_lastEventId`. Use when reusing a parser instance across

@@ -325,7 +325,7 @@ class EventDecoder {
       case TextMessageEndEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
       case TextMessageChunkEvent():
-        break;
+        break; // All fields optional — nothing to validate
       // TODO(1.0.0): Remove the following deprecated cases + their event classes:
       //   ThinkingTextMessageStartEvent, ThinkingTextMessageContentEvent,
       //   ThinkingTextMessageEndEvent, ThinkingContentEvent.
@@ -366,7 +366,7 @@ class EventDecoder {
       case ToolCallEndEvent():
         Validators.requireNonEmpty(event.toolCallId, 'toolCallId');
       case ToolCallChunkEvent():
-        break;
+        break; // All fields optional — nothing to validate
       case ToolCallResultEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
         Validators.requireNonEmpty(event.toolCallId, 'toolCallId');
@@ -434,7 +434,7 @@ class EventDecoder {
       case ReasoningMessageEndEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
       case ReasoningMessageChunkEvent():
-        break;
+        break; // All fields optional — nothing to validate
       case ReasoningEndEvent():
         Validators.requireNonEmpty(event.messageId, 'messageId');
       case ReasoningEncryptedValueEvent():

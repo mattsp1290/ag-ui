@@ -34,6 +34,11 @@ enum MessageRole {
   /// [ActivityMessage]. Mirrors the wire-spelling-pinning style used by
   /// [ReasoningEncryptedValueSubtype.toolCall] (where the spelling
   /// difference is more consequential).
+  ///
+  /// **Cipher asymmetry:** unlike [reasoning], `activity` messages never
+  /// carry cipher data in the structured field — [ActivityMessage.fromJson]
+  /// silently strips any wire-level `encryptedValue`. See [ActivityMessage]
+  /// class-doc for the rationale.
   activity('activity'),
 
   /// Wire spelling is `'reasoning'` (lowercase, single word) — canonical

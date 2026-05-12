@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:test/test.dart';
 import 'package:ag_ui/ag_ui.dart';
 
@@ -473,6 +475,42 @@ void main() {
     });
 
     test(
+        'MessagesSnapshotEvent.fromJson scrubs rawEvent when ActivityMessage '
+        'carries wire-level encryptedValue (I1 regression)', () {
+      // I1: ActivityMessage.fromJson silently strips encryptedValue from the
+      // structured field, so the structured-field hasCipher predicate alone
+      // returns false for an ActivityMessage with a wire-level cipher. The
+      // fix extends the predicate to also check the raw wire messages list.
+      final wireJson = {
+        'type': 'MESSAGES_SNAPSHOT',
+        'messages': [
+          {
+            'id': 'a1',
+            'role': 'activity',
+            'activityType': 'task.run',
+            'content': <String, dynamic>{},
+            'encryptedValue': 'should-not-leak',
+          },
+        ],
+        'rawEvent': {'_passthrough': 'arbitrary'},
+      };
+      final event = MessagesSnapshotEvent.fromJson(wireJson);
+      expect(
+        event.rawEvent,
+        isNull,
+        reason:
+            'rawEvent must be scrubbed when ActivityMessage carries '
+            'wire-level encryptedValue',
+      );
+      final emitted = event.toJson();
+      expect(
+        jsonEncode(emitted),
+        isNot(contains('should-not-leak')),
+        reason: 'cipher must not leak through rawEvent passthrough',
+      );
+    });
+
+    test(
         'MessagesSnapshotEvent.fromJson preserves rawEvent when no cipher '
         'data is present (S1 regression)', () {
       final wireJson = {
@@ -866,6 +904,51 @@ void main() {
               'rawEvent must be scrubbed when input.messages carry cipher data',
         );
         expect(event.input!.messages.length, 2);
+      });
+
+      test(
+          'RunStartedEvent.fromJson scrubs rawEvent when input.messages '
+          'contain ActivityMessage with wire-level encryptedValue (I1 regression)',
+          () {
+        // I1: ActivityMessage.fromJson silently strips wire-level
+        // encryptedValue from the structured field, so the structured-field
+        // hasCipher predicate alone returns false. The fix extends the
+        // predicate to check the raw inputJson['messages'] directly.
+        final wireJson = {
+          'type': 'RUN_STARTED',
+          'threadId': 'thread-1',
+          'runId': 'run-1',
+          'input': {
+            'threadId': 'thread-1',
+            'runId': 'run-1',
+            'messages': [
+              {
+                'id': 'a1',
+                'role': 'activity',
+                'activityType': 'task.run',
+                'content': <String, dynamic>{},
+                'encryptedValue': 'should-not-leak',
+              },
+            ],
+            'tools': <dynamic>[],
+            'context': <dynamic>[],
+          },
+          'rawEvent': {'_passthrough': 'arbitrary'},
+        };
+        final event = RunStartedEvent.fromJson(wireJson);
+        expect(
+          event.rawEvent,
+          isNull,
+          reason:
+              'rawEvent must be scrubbed when ActivityMessage in input.messages '
+              'carries wire-level encryptedValue',
+        );
+        final emitted = event.toJson();
+        expect(
+          jsonEncode(emitted),
+          isNot(contains('should-not-leak')),
+          reason: 'cipher must not leak through rawEvent passthrough',
+        );
       });
 
       test(

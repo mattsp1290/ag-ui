@@ -702,6 +702,16 @@ class SimpleRunAgentInput {
     // required fields) do not reject the payload with 422. Optional fields
     // (`threadId`, `runId`, `parentRunId`, `config`, `metadata`) are only
     // emitted when set; the server treats their absence as "not provided".
+    assert(
+      state == null || state is Map<String, dynamic>,
+      'SimpleRunAgentInput.state must be Map<String, dynamic> or null; '
+      'got ${state.runtimeType}',
+    );
+    assert(
+      forwardedProps == null || forwardedProps is Map<String, dynamic>,
+      'SimpleRunAgentInput.forwardedProps must be Map<String, dynamic> or null; '
+      'got ${forwardedProps.runtimeType}',
+    );
     return {
       if (threadId != null) 'threadId': threadId,
       if (runId != null) 'runId': runId,

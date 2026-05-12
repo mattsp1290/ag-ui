@@ -181,12 +181,18 @@ class Validators {
     _validateBoundedId(threadId, 'threadId');
   }
 
+  /// Maximum length (in UTF-16 code units) for [runId], [threadId], and
+  /// [agentId] values. See [validateRunId] for the UTF-16 rationale.
+  /// Consumers that derive identifiers from these values and want to enforce
+  /// the same cap can reference this constant rather than copying the literal.
+  static const int maxIdCodeUnits = 100;
+
   static void _validateBoundedId(String? id, String fieldName) {
     requireNonEmpty(id, fieldName);
-    if (id!.length > 100) {
+    if (id!.length > maxIdCodeUnits) {
       throw ValidationError(
         '${fieldName[0].toUpperCase()}${fieldName.substring(1)} too long '
-        '(max 100 UTF-16 code units)',
+        '(max $maxIdCodeUnits UTF-16 code units)',
         field: fieldName,
         constraint: 'max-length-100',
         value: id,
@@ -364,6 +370,12 @@ class Validators {
   /// sequence rules client-side. This method is retained for consumers who
   /// want to validate sequences in their own code, but may be removed in
   /// a future major version.
+  ///
+  /// **Coverage gap.** This method only knows the `RUN_*` and `TOOL_CALL_*`
+  /// event families. The newer `REASONING_*`, `ACTIVITY_*`, `RAW`, and
+  /// `CUSTOM` event types are silently passed through without validation.
+  /// Do not rely on this method for sequence validation of any modern event
+  /// stream that includes these types.
   // TODO(1.0.0): Remove alongside the THINKING_TEXT_MESSAGE_* deprecation sweep.
   @Deprecated(
     'Not enforced by the SDK client-side. '

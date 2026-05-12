@@ -7,6 +7,8 @@
 /// can only be extended within the same library.
 library;
 
+import 'dart:developer' as developer;
+
 import '../types/base.dart';
 import '../types/message.dart';
 import '../types/context.dart';
@@ -1254,12 +1256,14 @@ final class MessagesSnapshotEvent extends BaseEvent {
     required this.messages,
     super.timestamp,
     super.rawEvent,
-  })  : assert(
-          rawEvent == null || !messages.any((m) => m.encryptedValue != null),
-          'Direct construction with rawEvent + cipher-bearing messages '
-          'violates the scrub invariant. Pass rawEvent: null or pre-scrub.',
-        ),
-        super(eventType: EventType.messagesSnapshot);
+  }) : super(eventType: EventType.messagesSnapshot) {
+    if (rawEvent != null && messages.any((m) => m.encryptedValue != null)) {
+      throw ArgumentError(
+        'Direct construction with rawEvent + cipher-bearing messages '
+        'violates the scrub invariant. Pass rawEvent: null or pre-scrub.',
+      );
+    }
+  }
 
   factory MessagesSnapshotEvent.fromJson(Map<String, dynamic> json) {
     final rawMessages = JsonDecoder.requireListField<Map<String, dynamic>>(
@@ -1353,17 +1357,21 @@ final class MessagesSnapshotEvent extends BaseEvent {
     // ActivityMessage always returns null for encryptedValue by construction;
     // see SCRUB CONTRACT comment in fromJson.
     final hasCipher = newMessages.any((m) => m.encryptedValue != null);
-    // This assert fires in debug/test builds only (stripped in release mode).
-    // In ALL modes the force-to-null below applies — callers should not rely
-    // on the assert being present; the dartdoc on this method is the contract.
-    assert(
-      !hasCipher ||
-          identical(rawEvent, kUnsetSentinel) ||
-          rawEvent == null,
-      'MessagesSnapshotEvent.copyWith: rawEvent is silently forced to null '
-      'when any message carries encryptedValue. Construct directly if you '
-      'need to retain a sanitized rawEvent.',
-    );
+    // Log in all builds (including release) when a caller passes a non-null
+    // rawEvent that will be silently scrubbed. The force-to-null below is
+    // the authoritative safety measure; the log helps callers diagnose
+    // unexpected scrub in production without crashing.
+    if (hasCipher &&
+        !identical(rawEvent, kUnsetSentinel) &&
+        rawEvent != null) {
+      developer.log(
+        'MessagesSnapshotEvent.copyWith: rawEvent is silently forced to null '
+        'when any message carries encryptedValue. Construct directly if you '
+        'need to retain a sanitized rawEvent.',
+        name: 'ag_ui.cipher_scrub',
+        level: 900, // WARNING
+      );
+    }
     final dynamic resolvedRaw;
     if (hasCipher) {
       resolvedRaw = null;
@@ -1564,6 +1572,13 @@ final class RawEvent extends BaseEvent {
     super.rawEvent,
   }) : super(eventType: EventType.raw);
 
+  /// Decodes a [RawEvent] from a JSON map.
+  ///
+  /// **Cross-SDK note.** The `event` key MUST be present on the wire — this
+  /// Dart SDK aligns with the Python `event: Any` (required) schema rather
+  /// than the TypeScript `z.any()` schema which permits `undefined` (i.e.
+  /// an absent key). A TypeScript server that omits the `event` key entirely
+  /// will be rejected with `AGUIValidationError(field: 'event')`.
   factory RawEvent.fromJson(Map<String, dynamic> json) {
     // `event` may be any JSON shape but MUST be present — see the
     // matching note on `StateSnapshotEvent.fromJson` for why we check
@@ -1689,14 +1704,16 @@ final class RunStartedEvent extends BaseEvent {
     this.input,
     super.timestamp,
     super.rawEvent,
-  })  : assert(
-          rawEvent == null ||
-              input == null ||
-              !input.messages.any((m) => m.encryptedValue != null),
-          'Direct construction with rawEvent + cipher-bearing input.messages '
-          'violates the scrub invariant. Pass rawEvent: null or pre-scrub.',
-        ),
-        super(eventType: EventType.runStarted);
+  }) : super(eventType: EventType.runStarted) {
+    if (rawEvent != null &&
+        input != null &&
+        input!.messages.any((m) => m.encryptedValue != null)) {
+      throw ArgumentError(
+        'Direct construction with rawEvent + cipher-bearing input.messages '
+        'violates the scrub invariant. Pass rawEvent: null or pre-scrub.',
+      );
+    }
+  }
 
   factory RunStartedEvent.fromJson(Map<String, dynamic> json) {
     final inputJson = JsonDecoder.optionalField<Map<String, dynamic>>(
@@ -1726,6 +1743,13 @@ final class RunStartedEvent extends BaseEvent {
     // the structured field, so the structured-field predicate alone would miss
     // a cipher on an ActivityMessage. We check the raw wire messages list
     // directly for role == 'activity' entries that still carry a cipher key.
+    //
+    // Scope note: this predicate only sweeps input.messages (the structured
+    // RunAgentInput). If a malformed payload omits `input` entirely but carries
+    // encrypted material under a top-level key, that material is not caught
+    // here. The attack surface is narrow (requires a malformed payload AND an
+    // absent `input` key) and asymmetric with MessagesSnapshotEvent by design:
+    // RunStartedEvent only encrypts the input.messages path.
     //
     // SCRUB CONTRACT: this check assumes encryptedValue / encrypted_value is
     // the only cipher-named key on any Message subtype. If a future subtype
@@ -1805,17 +1829,21 @@ final class RunStartedEvent extends BaseEvent {
     // Re-apply the fromJson cipher-scrub invariant on the resolved input.
     final hasCipher =
         newInput != null && newInput.messages.any((m) => m.encryptedValue != null);
-    // This assert fires in debug/test builds only (stripped in release mode).
-    // In ALL modes the force-to-null below applies — callers should not rely
-    // on the assert being present; the dartdoc on this method is the contract.
-    assert(
-      !hasCipher ||
-          identical(rawEvent, kUnsetSentinel) ||
-          rawEvent == null,
-      'RunStartedEvent.copyWith: rawEvent is silently forced to null '
-      'when any input message carries encryptedValue. Construct directly if '
-      'you need to retain a sanitized rawEvent.',
-    );
+    // Log in all builds (including release) when a caller passes a non-null
+    // rawEvent that will be silently scrubbed. The force-to-null below is
+    // the authoritative safety measure; the log helps callers diagnose
+    // unexpected scrub in production without crashing.
+    if (hasCipher &&
+        !identical(rawEvent, kUnsetSentinel) &&
+        rawEvent != null) {
+      developer.log(
+        'RunStartedEvent.copyWith: rawEvent is silently forced to null '
+        'when any input message carries encryptedValue. Construct directly if '
+        'you need to retain a sanitized rawEvent.',
+        name: 'ag_ui.cipher_scrub',
+        level: 900, // WARNING
+      );
+    }
     final dynamic resolvedRaw;
     if (hasCipher) {
       resolvedRaw = null;

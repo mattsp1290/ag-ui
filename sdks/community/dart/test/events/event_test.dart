@@ -653,6 +653,23 @@ void main() {
             isFalse);
       });
 
+      test('RunFinishedEvent round-trip with null result drops the key', () {
+        // Pins the contract that null result is NOT emitted on the wire, and
+        // that a null-result event survives a toJson → fromJson round-trip.
+        final original = RunFinishedEvent(
+          threadId: 't1',
+          runId: 'r1',
+          result: null,
+        );
+        final encoded = original.toJson();
+        expect(encoded.containsKey('result'), isFalse,
+            reason: 'null result must not appear on wire');
+        final decoded = RunFinishedEvent.fromJson(encoded);
+        expect(decoded.result, isNull);
+        expect(decoded.threadId, original.threadId);
+        expect(decoded.runId, original.runId);
+      });
+
       test('RunErrorEvent with error code', () {
         final event = RunErrorEvent(
           message: 'Something went wrong',
@@ -1131,9 +1148,12 @@ void main() {
         }
 
         // Sanity: the sample list covers every non-deprecated EventType.
-        // (`thinkingContent` is intentionally omitted — it is deprecated and
-        // already covered by the `'deprecated ThinkingContentEvent still
-        // round-trips'` test in this file.)
+        // `thinkingContent` is intentionally excluded: it is the only
+        // Dart-only legacy event type (no protocol-level wire value), so it
+        // gets its own dedicated round-trip test ('deprecated
+        // ThinkingContentEvent still round-trips') rather than sharing this
+        // sample list. Keeping the deprecation surface narrow makes the 1.0.0
+        // removal sweep a single-file edit.
         final coveredTypes = samples.map((e) => e.eventType).toSet();
         // ignore: deprecated_member_use_from_same_package
         final expectedTypes = EventType.values.toSet()

@@ -1229,16 +1229,15 @@ void main() {
       });
 
       test(
-          'accumulateTextMessages chunk-before-Start emits content with '
-          'duplicate-emission behavior (S-10 regression pin)', () async {
-        // S-10: The TODO at stream_adapter.dart:1025-1034 documents that a
-        // TextMessageChunk arriving before its TextMessageStart is emitted
-        // immediately (not buffered), so a subsequent Start+Content+End
-        // sequence emits BOTH the pre-Start chunk AND the normal body.
-        // This test pins the CURRENT (pre-fix) behavior so a future fix
-        // that buffers pre-Start chunks can detect breaking callers.
-        // TODO(#1034): remove or update when the buffering fix lands and
-        // the pre-Start chunk is held until Start arrives.
+          'accumulateTextMessages buffers chunk-before-Start and folds it '
+          'into the Start+Content+End sequence without duplicate emission',
+          () async {
+        // Verifies the fix for the pre-Start chunk hazard: a Chunk that
+        // arrives before its Start is now buffered (not emitted immediately),
+        // then drained into the active buffer when Start arrives. The final
+        // emission is a single string containing both the pre-Start chunk
+        // and any subsequent Content, preventing the duplicate-emission bug
+        // that the original TODO at stream_adapter.dart:1026-1035 described.
         final controller = StreamController<BaseEvent>();
         final accumulated =
             EventStreamAdapter.accumulateTextMessages(controller.stream);
@@ -1250,7 +1249,7 @@ void main() {
           onDone: completer.complete,
         );
 
-        // Chunk arrives before Start — emitted immediately as a standalone.
+        // Chunk arrives before Start — must be buffered, not emitted yet.
         controller.add(
             TextMessageChunkEvent(messageId: 'msg1', delta: 'pre-start'));
         controller.add(TextMessageStartEvent(messageId: 'msg1'));
@@ -1262,12 +1261,10 @@ void main() {
         await completer.future;
         await subscription.cancel();
 
-        // Current behavior: the pre-Start chunk emits once standalone,
-        // then the Start+Content+End sequence emits the body.
-        // If this expectation changes, the TODO fix has landed.
-        expect(messages, hasLength(2));
-        expect(messages[0], equals('pre-start'));
-        expect(messages[1], equals('body'));
+        // Fixed behavior: pre-Start chunk is drained into the active buffer
+        // when Start arrives, so a single emission contains the full text.
+        expect(messages, hasLength(1));
+        expect(messages[0], equals('pre-startbody'));
       });
     });
   });

@@ -225,6 +225,20 @@ class EventDecoder {
     // Join all data lines (for multi-line data) with `\n`, per spec.
     final data = dataLines.join('\n');
 
+    // A `data: ` line (field present but value is the empty string) contributes
+    // an empty string to dataLines, so `data` can be empty after the join.
+    // Passing "" to `decode` raises "Unexpected end of input" which surfaces as
+    // the misleading "Invalid JSON format" DecodingError. Surface a clearer
+    // error instead.
+    if (data.isEmpty) {
+      throw DecodingError(
+        'SSE data field is empty',
+        field: 'data',
+        expectedType: 'non-empty JSON event data',
+        actualValue: sseMessage,
+      );
+    }
+
     // Legacy compatibility: a single `data: :` line (with the field value
     // being the bare colon character) is treated as a keep-alive
     // sentinel by some servers. Surface it as a structured keep-alive
@@ -257,8 +271,17 @@ class EventDecoder {
     try {
       final string = utf8.decode(data);
 
-      // Check if it looks like SSE format
-      if (string.startsWith('data:')) {
+      // Detect SSE format by any recognised field prefix, including keep-alive
+      // comment lines (`:`). Without the `:` check, a keep-alive frame decoded
+      // from binary bytes would fall through to `decode(string)`, which tries
+      // jsonDecode(':') and raises a misleading "Invalid JSON format" error
+      // instead of the structured `DecodingError('SSE keep-alive comment…')`.
+      final looksLikeSse = string.startsWith('data:') ||
+          string.startsWith(':') ||
+          string.startsWith('event:') ||
+          string.startsWith('id:') ||
+          string.startsWith('retry:');
+      if (looksLikeSse) {
         return decodeSSE(string);
       } else {
         // Assume it's raw JSON

@@ -440,6 +440,11 @@ class EventStreamAdapter {
       try {
       // Size cap on the raw line buffer. A server that sends a line without
       // any newline would otherwise grow `buffer` without bound.
+      // Note: this cap is applied to `buffer` (the line assembly buffer) and
+      // `appendDataLine` applies an independent cap to `dataBuffer`. In the
+      // worst case, both caps fire at their limits, so the true in-flight
+      // worst-case memory for a single stream invocation is approximately
+      // 2 × maxDataCodeUnits code units.
       if (buffer.length + chunk.length > maxDataCodeUnits) {
         buffer.clear();
         // Mirror the appendDataLine size-cap reset: clear any in-progress
@@ -709,7 +714,10 @@ class EventStreamAdapter {
   /// added. "Oldest" means earliest `*Start` arrival (insertion order into
   /// the internal LinkedHashMap), not least-recently-used. Set to 0 (the
   /// default) for no cap. The same caveat and option apply to
-  /// [accumulateTextMessages].
+  /// [accumulateTextMessages]. **Note:** [maxOpenGroups] is a single cap
+  /// shared across ALL event families (text, reasoning, tool); a mixed
+  /// stream with 5 open tool-call groups and 5 open text-message groups
+  /// counts as 10 against the cap.
   ///
   /// **Duplicate-start policy.** If a second `*Start` event arrives with
   /// the same id while the prior group is still open, the prior group's
@@ -972,6 +980,10 @@ class EventStreamAdapter {
     // the maxOpenGroups eviction (evicts oldest open message first).
     // Do NOT replace with HashMap (unordered) or SplayTreeMap (sorted).
     final Map<String, StringBuffer> activeMessages = {};
+    // Buffers Chunk deltas that arrive before the matching Start. Keyed by
+    // messageId. Drained into activeMessages when the Start arrives; flushed
+    // as standalone fragments in onDone if no Start ever arrives.
+    final Map<String, StringBuffer> pendingPreStartChunks = {};
     StreamSubscription<BaseEvent>? subscription;
     var inDispatch = false;
 
@@ -1005,7 +1017,11 @@ class EventStreamAdapter {
                     final content = evicted.toString();
                     if (content.isNotEmpty) controller.add(content);
                   }
-                  activeMessages[messageId] = StringBuffer();
+                  final buf = StringBuffer();
+                  // Drain any Chunk deltas that arrived before this Start.
+                  final preStart = pendingPreStartChunks.remove(messageId);
+                  if (preStart != null) buf.write(preStart);
+                  activeMessages[messageId] = buf;
                 case TextMessageContentEvent(:final messageId, :final delta):
                   activeMessages[messageId]?.write(delta);
                 case TextMessageEndEvent(:final messageId):
@@ -1016,23 +1032,15 @@ class EventStreamAdapter {
                     controller.add(buffer.toString());
                   }
                 case TextMessageChunkEvent(:final messageId, :final delta):
-                  // A chunk is a standalone text fragment. If a Start/End cycle is
-                  // open for the same messageId, route it into the active buffer —
-                  // otherwise a standalone chunk would appear before the eventual
-                  // End-triggered buffer flush (Start/Content events have not been
-                  // emitted yet at that point). When messageId is null or no open
-                  // buffer exists, emit the delta immediately.
-                  //
-                  // TODO: Chunk-before-Start hazard — a Chunk that arrives before
-                  // its Start is emitted immediately as a standalone fragment. If the
-                  // Start/Content/End cycle later arrives for the same messageId, the
-                  // consumer sees the text twice (once as the standalone chunk and
-                  // once in the final buffer). Fix: buffer pre-Start chunks per
-                  // messageId and replay into the accumulator when Start arrives.
-                  // The recommended workaround is to pass the stream through
-                  // groupRelatedEvents first — but note that groupRelatedEvents also
-                  // emits orphan chunks as standalone groups, so duplication is only
-                  // avoided if the Start always precedes the Chunk.
+                  // A chunk is a standalone text fragment.
+                  // Priority 1: if a Start/End cycle is already open for this
+                  // messageId, route into the active buffer (avoids emitting
+                  // before the End-triggered flush).
+                  // Priority 2: if no Start has arrived yet for this messageId,
+                  // buffer the delta in pendingPreStartChunks — it will be
+                  // drained into the active buffer when Start arrives, preventing
+                  // the duplicate-emit that the old immediate-emit path produced.
+                  // Priority 3: null messageId has no identity to track; emit.
                   if (delta == null) break; // genuinely nothing to emit
                   if (messageId != null) {
                     final activeBuffer = activeMessages[messageId];
@@ -1040,9 +1048,13 @@ class EventStreamAdapter {
                       activeBuffer.write(delta);
                       break;
                     }
+                    // No active buffer yet — buffer for the eventual Start.
+                    (pendingPreStartChunks[messageId] ??= StringBuffer())
+                        .write(delta);
+                    break;
                   }
                   controller.add(
-                      delta); // standalone fragment — emit even when messageId is null
+                      delta); // null messageId — emit immediately
                 default:
                   // Ignore other event types
                   break;
@@ -1073,6 +1085,14 @@ class EventStreamAdapter {
           final snapshot = activeMessages.entries.toList();
           activeMessages.clear();
           for (final entry in snapshot) {
+            final content = entry.value.toString();
+            if (content.isNotEmpty) controller.add(content);
+          }
+          // Flush pre-Start chunks whose Start never arrived (orphan Chunks).
+          // Emit them as standalone fragments in insertion order.
+          final pendingSnapshot = pendingPreStartChunks.entries.toList();
+          pendingPreStartChunks.clear();
+          for (final entry in pendingSnapshot) {
             final content = entry.value.toString();
             if (content.isNotEmpty) controller.add(content);
           }

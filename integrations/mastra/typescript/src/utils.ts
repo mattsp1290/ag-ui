@@ -50,18 +50,6 @@ const toMastraContent = (content: Message["content"]): string | any[] => {
     return "";
   }
 
-  const hasNonTextParts = content.some((part) => part.type !== "text");
-
-  if (!hasNonTextParts) {
-    // Backwards compat: text-only arrays return a joined string
-    type TextInput = Extract<InputContent, { type: "text" }>;
-    const textParts = content
-      .filter((part): part is TextInput => part.type === "text")
-      .map((part: TextInput) => part.text.trim())
-      .filter(Boolean);
-    return textParts.join("\n");
-  }
-
   // Structured content array with mixed types
   const parts: any[] = [];
   for (const part of content) {

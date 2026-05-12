@@ -59,8 +59,10 @@ void main() {
           () => decoder.decode(invalidJson),
           throwsA(isA<DecodingError>()
               .having((e) => e.message, 'message', contains('Invalid JSON'))
-              .having(
-                  (e) => e.actualValue, 'actualValue', equals(invalidJson))),
+              // actualValue is a length sentinel ('<N chars>'), not the raw
+              // payload — avoids forwarding cipher data through error handlers.
+              .having((e) => e.actualValue, 'actualValue',
+                  equals('<${invalidJson.length} chars>'))),
         );
       });
 
@@ -302,13 +304,14 @@ data: {"type":"RUN_FINISHED","threadId":"t1","runId":"r1"}
       });
 
       test('throws DecodingError for invalid UTF-8', () {
-        // Invalid UTF-8 sequence
+        // Invalid UTF-8 sequence (likely protobuf bytes on a proto-negotiated
+        // channel — the error message now directs callers to use SSE transport).
         final binary = Uint8List.fromList([0xFF, 0xFE, 0xFD]);
 
         expect(
           () => decoder.decodeBinary(binary),
           throwsA(isA<DecodingError>()
-              .having((e) => e.message, 'message', contains('Invalid UTF-8'))),
+              .having((e) => e.message, 'message', contains('UTF-8'))),
         );
       });
     });

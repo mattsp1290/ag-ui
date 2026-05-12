@@ -68,7 +68,8 @@ class EventDecoder {
         'Invalid JSON format',
         field: 'data',
         expectedType: 'JSON',
-        actualValue: data,
+        // Avoid forwarding the raw payload — may contain encryptedValue.
+        actualValue: '<${data.length} chars>',
         cause: e,
       );
     } on ValidationError catch (e, stack) {
@@ -96,7 +97,8 @@ class EventDecoder {
         'Failed to decode event',
         field: 'event',
         expectedType: 'BaseEvent',
-        actualValue: data,
+        // Avoid forwarding the raw payload — may contain encryptedValue.
+        actualValue: '<${data.length} chars>',
         cause: e,
       );
     }
@@ -263,11 +265,17 @@ class EventDecoder {
         return decode(string);
       }
     } on FormatException catch (e) {
+      // A FormatException here almost always means the bytes are not valid
+      // UTF-8, which in turn usually means the server sent actual protobuf.
+      // Protobuf decoding is not yet implemented end-to-end; negotiate
+      // text/event-stream (acceptsProtobuf: false) until it lands.
       throw DecodingError(
-        'Invalid UTF-8 data',
+        'Binary data is not valid UTF-8. If the server negotiated '
+        'application/vnd.ag-ui.event+proto, note that protobuf decoding '
+        'is not yet implemented — use SSE transport instead.',
         field: 'binary',
-        expectedType: 'UTF-8 encoded data',
-        actualValue: data,
+        expectedType: 'UTF-8 SSE/JSON',
+        actualValue: 'Uint8List(${data.length})',
         cause: e,
       );
     }

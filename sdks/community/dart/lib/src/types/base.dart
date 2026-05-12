@@ -9,6 +9,7 @@ import 'dart:convert';
 // Truncate [s] to at most [maxLen] UTF-16 code units, backing up by 1 if the
 // cut falls on the high surrogate of a pair, to avoid emitting lone surrogates.
 String _safeTruncate(String s, int maxLen) {
+  if (maxLen <= 0) return '';
   if (s.length <= maxLen) return s;
   var end = maxLen;
   final cu = s.codeUnitAt(end - 1);
@@ -605,9 +606,22 @@ class _CopyWithSentinel {
 /// Single shared sentinel instance used across all AG-UI `copyWith` methods.
 ///
 /// This constant IS part of the public API — it is exported from `ag_ui.dart`.
-/// Consumers who implement their own `copyWith` overrides in subclasses or
-/// wrapper types may use it directly to achieve the same "omitted vs. explicit
-/// null" semantics as the built-in event and message types.
+/// The backing type ([_CopyWithSentinel]) is intentionally private to prevent
+/// re-construction; the only valid sentinel is this canonical constant.
+///
+/// External consumers can use `identical(field, kUnsetSentinel)` to test for
+/// the sentinel, but cannot declare method parameters with the private backing
+/// type in their own libraries. To implement sentinel semantics in an external
+/// `copyWith`, declare the parameter as `Object?` and test with
+/// `identical(field, kUnsetSentinel)`:
+/// ```dart
+/// MyType copyWith({Object? nullableField = kUnsetSentinel}) {
+///   final resolved = identical(nullableField, kUnsetSentinel)
+///       ? this.nullableField
+///       : nullableField as TargetType?;
+///   return MyType(nullableField: resolved);
+/// }
+/// ```
 const _CopyWithSentinel kUnsetSentinel = _CopyWithSentinel();
 
 /// Converts snake_case to camelCase

@@ -53,8 +53,11 @@ void main() {
     });
 
     test('encodeRunAgentInput handles empty input', () {
-      // Only non-null fields are emitted — null fields are omitted to avoid
-      // sending spurious empty defaults that the server may not expect.
+      // Required fields (state, messages, tools, context, forwardedProps) are
+      // always emitted — falling back to empty containers when null — so strict
+      // servers (pydantic BaseModel with required fields) do not reject the
+      // payload with 422. Optional fields (threadId, runId, etc.) are omitted
+      // when null.
       final input = SimpleRunAgentInput(
         messages: [],
       );
@@ -62,11 +65,11 @@ void main() {
       final encoded = encoder.encodeRunAgentInput(input);
 
       expect(encoded, isA<Map<String, dynamic>>());
-      expect(encoded['messages'], isEmpty); // non-null empty list → emitted
-      expect(encoded.containsKey('state'), isFalse); // null → omitted
-      expect(encoded.containsKey('tools'), isFalse); // null → omitted
-      expect(encoded.containsKey('context'), isFalse); // null → omitted
-      expect(encoded.containsKey('forwardedProps'), isFalse); // null → omitted
+      expect(encoded['messages'], isEmpty); // explicit empty list → emitted
+      expect(encoded['state'], isEmpty); // null → emitted as {}
+      expect(encoded['tools'], isEmpty); // null → emitted as []
+      expect(encoded['context'], isEmpty); // null → emitted as []
+      expect(encoded['forwardedProps'], isEmpty); // null → emitted as {}
     });
 
     test('encodeUserMessage encodes UserMessage correctly', () {

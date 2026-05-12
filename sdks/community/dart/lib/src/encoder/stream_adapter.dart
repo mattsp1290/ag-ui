@@ -71,7 +71,7 @@ class EventStreamAdapter {
             // throwing a `TypeError` swallowed by the catch-all below.
             throw DecodingError(
               'Expected JSON object at index $i',
-              field: 'jsonData[$i]',
+              field: 'events[$i]',
               expectedType: 'Map<String, dynamic>',
               actualValue: element,
             );
@@ -90,8 +90,8 @@ class EventStreamAdapter {
               innerField = null;
             }
             final composedField = innerField != null
-                ? 'jsonData[$i].$innerField'
-                : 'jsonData[$i]';
+                ? 'events[$i].$innerField'
+                : 'events[$i]';
             throw DecodingError(
               'Failed to decode event at index $i',
               field: composedField,
@@ -253,15 +253,16 @@ class EventStreamAdapter {
     // `ConcurrentModificationError` or double-close. If you need to
     // cancel on a received event, schedule it via `Future.microtask`.
     //
-    // Re-entrancy guard: if synchronous re-entry through controller.add
-    // is detected (e.g. a downstream data handler cancels the subscription
-    // during dispatch), flushDataBlock throws StateError before state is
-    // corrupted. IMPORTANT LIMITATION: this guard only covers the dispatch
-    // site inside flushDataBlock. It does NOT protect against a downstream
-    // handler calling processChunk re-entrantly — doing so would silently
-    // corrupt the buffer/inDataBlock/lastWasLoneCr state. Callers that add
-    // events to the input stream from within a data handler must schedule
-    // via Future.microtask, not synchronously.
+    // Re-entrancy guards: two separate flags protect two separate surfaces.
+    // `inDispatch` guards the controller.add dispatch site inside
+    // flushDataBlock — it fires if a downstream data handler cancels the
+    // subscription synchronously during dispatch, which would corrupt
+    // controller state. `inProcessChunk` (declared below) guards the
+    // outer processChunk entry — it fires if a downstream data handler
+    // synchronously pushes new SSE input while the current chunk is still
+    // being parsed, which would corrupt the per-invocation parser state
+    // (buffer, dataBuffer, inDataBlock, lastWasLoneCr). Callers must
+    // schedule any re-entrant stream operations via Future.microtask.
     // IMPORTANT: single-subscription semantics assumed. The closure state
     // below (buffer, dataBuffer, inDataBlock, lastWasLoneCr, errorRoutedInChunk,
     // skipUntilBoundary) is created once per invocation for exactly one
@@ -419,7 +420,23 @@ class EventStreamAdapter {
       appendDataLine(line);
     }
 
+    // Re-entrancy guard for processChunk. Distinct from `inDispatch` (which
+    // guards flushDataBlock's controller.add call): this flag detects the
+    // rarer case where a downstream data handler synchronously triggers new
+    // SSE input (possible with sync: true controllers), which would corrupt
+    // the per-invocation parser state (buffer, dataBuffer, inDataBlock, …).
+    var inProcessChunk = false;
+
     void processChunk(String chunk) {
+      if (inProcessChunk) {
+        throw StateError(
+          'processChunk re-entered synchronously — a downstream data handler '
+          'must not synchronously add new SSE input. Use Future.microtask. '
+          'See fromRawSseStream dartdoc for details.',
+        );
+      }
+      inProcessChunk = true;
+      try {
       // Size cap on the raw line buffer. A server that sends a line without
       // any newline would otherwise grow `buffer` without bound.
       if (buffer.length + chunk.length > maxDataCodeUnits) {
@@ -462,6 +479,9 @@ class EventStreamAdapter {
         } else {
           appendThenAck(line);
         }
+      }
+      } finally {
+        inProcessChunk = false;
       }
     }
 
@@ -693,9 +713,12 @@ class EventStreamAdapter {
   /// **Duplicate-start policy.** If a second `*Start` event arrives with
   /// the same id while the prior group is still open, the prior group's
   /// accumulated events are discarded silently and a new group begins
-  /// ("last-Start-wins"). This matches the behavior of the TS/Python
-  /// reference SDKs. Consumers that need strict sequencing should validate
-  /// the upstream event stream before passing it here.
+  /// ("last-Start-wins"). **Data loss warning:** all `*Content` events
+  /// accumulated under the prior group are dropped with no signal to the
+  /// downstream consumer. This is intentional and matches the behavior of the
+  /// TS/Python reference SDKs. Consumers that need strict sequencing (or need
+  /// to detect duplicate-Start conditions) should validate the upstream event
+  /// stream before passing it here.
   ///
   /// **On stream close:** any open groups (where a `*Start` was received
   /// but `*End` has not yet arrived) are emitted in `*Start` arrival order.
@@ -998,6 +1021,17 @@ class EventStreamAdapter {
                   // End-triggered buffer flush (Start/Content events have not been
                   // emitted yet at that point). When messageId is null or no open
                   // buffer exists, emit the delta immediately.
+                  //
+                  // TODO: Chunk-before-Start hazard — a Chunk that arrives before
+                  // its Start is emitted immediately as a standalone fragment. If the
+                  // Start/Content/End cycle later arrives for the same messageId, the
+                  // consumer sees the text twice (once as the standalone chunk and
+                  // once in the final buffer). Fix: buffer pre-Start chunks per
+                  // messageId and replay into the accumulator when Start arrives.
+                  // The recommended workaround is to pass the stream through
+                  // groupRelatedEvents first — but note that groupRelatedEvents also
+                  // emits orphan chunks as standalone groups, so duplication is only
+                  // avoided if the Start always precedes the Chunk.
                   if (delta == null) break; // genuinely nothing to emit
                   if (messageId != null) {
                     final activeBuffer = activeMessages[messageId];

@@ -380,7 +380,8 @@ class AgUiClient {
           'Failed to decode SSE message',
           field: 'message.data',
           expectedType: 'BaseEvent',
-          actualValue: message.data,
+          // Avoid forwarding the raw payload — may contain encryptedValue.
+          actualValue: '<${message.data?.length ?? 0} chars>',
           cause: e,
         ));
       }
@@ -501,9 +502,10 @@ class AgUiClient {
 
   /// Validate RunAgentInput
   void _validateRunAgentInput(SimpleRunAgentInput input) {
-    // Validate thread ID if present
+    // Validate thread ID if present — use validateThreadId (100-char cap) for
+    // consistency with validateRunId; both flow into the same map-key spaces.
     if (input.threadId != null) {
-      Validators.requireNonEmpty(input.threadId!, 'threadId');
+      Validators.validateThreadId(input.threadId!);
     }
 
     // Validate caller-supplied runId if present — it flows into _activeStreams
@@ -596,6 +598,7 @@ class AgUiClient {
 
   /// Truncate response body for error messages
   String _truncateBody(String body, {int maxLength = 500}) {
+    if (maxLength <= 0) return '...';
     if (body.length <= maxLength) return body;
     var end = maxLength;
     final cu = body.codeUnitAt(end - 1);
@@ -692,16 +695,22 @@ class SimpleRunAgentInput {
   });
 
   Map<String, dynamic> toJson() {
+    // `state`, `messages`, `tools`, `context`, and `forwardedProps` are
+    // declared required (non-optional) by the canonical TS RunAgentInputSchema
+    // and the Python pydantic model. Always emit them — falling back to empty
+    // containers when null — so strict servers (pydantic BaseModel with
+    // required fields) do not reject the payload with 422. Optional fields
+    // (`threadId`, `runId`, `parentRunId`, `config`, `metadata`) are only
+    // emitted when set; the server treats their absence as "not provided".
     return {
       if (threadId != null) 'threadId': threadId,
       if (runId != null) 'runId': runId,
       if (parentRunId != null) 'parentRunId': parentRunId,
-      if (state != null) 'state': state,
-      if (messages != null)
-        'messages': messages!.map((m) => m.toJson()).toList(),
-      if (tools != null) 'tools': tools!.map((t) => t.toJson()).toList(),
-      if (context != null) 'context': context!.map((c) => c.toJson()).toList(),
-      if (forwardedProps != null) 'forwardedProps': forwardedProps,
+      'state': state ?? const <String, dynamic>{},
+      'messages': messages?.map((m) => m.toJson()).toList() ?? const <Map<String, dynamic>>[],
+      'tools': tools?.map((t) => t.toJson()).toList() ?? const <Map<String, dynamic>>[],
+      'context': context?.map((c) => c.toJson()).toList() ?? const <Map<String, dynamic>>[],
+      'forwardedProps': forwardedProps ?? const <String, dynamic>{},
       if (config != null) 'config': config,
       if (metadata != null) 'metadata': metadata,
     };

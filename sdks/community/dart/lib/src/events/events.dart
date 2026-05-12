@@ -1339,6 +1339,9 @@ final class MessagesSnapshotEvent extends BaseEvent {
     // ActivityMessage always returns null for encryptedValue by construction;
     // see SCRUB CONTRACT comment in fromJson.
     final hasCipher = newMessages.any((m) => m.encryptedValue != null);
+    // This assert fires in debug/test builds only (stripped in release mode).
+    // In ALL modes the force-to-null below applies — callers should not rely
+    // on the assert being present; the dartdoc on this method is the contract.
     assert(
       !hasCipher ||
           identical(rawEvent, kUnsetSentinel) ||
@@ -1763,6 +1766,17 @@ final class RunStartedEvent extends BaseEvent {
     // Re-apply the fromJson cipher-scrub invariant on the resolved input.
     final hasCipher =
         newInput != null && newInput.messages.any((m) => m.encryptedValue != null);
+    // This assert fires in debug/test builds only (stripped in release mode).
+    // In ALL modes the force-to-null below applies — callers should not rely
+    // on the assert being present; the dartdoc on this method is the contract.
+    assert(
+      !hasCipher ||
+          identical(rawEvent, kUnsetSentinel) ||
+          rawEvent == null,
+      'RunStartedEvent.copyWith: rawEvent is silently forced to null '
+      'when any input message carries encryptedValue. Construct directly if '
+      'you need to retain a sanitized rawEvent.',
+    );
     final dynamic resolvedRaw;
     if (hasCipher) {
       resolvedRaw = null;

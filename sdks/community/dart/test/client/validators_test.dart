@@ -92,6 +92,15 @@ void main() {
             .having((e) => e.constraint, 'constraint', 'no-user-credentials')),
       );
     });
+
+    test('rejects bare-scheme URL http://', () {
+      // Uri.parse('http://').hasAuthority is true but host is '' — the
+      // uri.host.isEmpty check is load-bearing and must be exercised.
+      expect(
+        () => Validators.validateUrl('http://', 'baseUrl'),
+        throwsA(isA<ValidationError>()),
+      );
+    });
   });
 
   group('Validators.validateAgentId', () {

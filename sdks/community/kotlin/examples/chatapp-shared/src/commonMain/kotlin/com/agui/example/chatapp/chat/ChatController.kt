@@ -18,6 +18,12 @@ import com.agui.core.types.AssistantMessage
 import com.agui.core.types.BaseEvent
 import com.agui.core.types.DeveloperMessage
 import com.agui.core.types.Message
+import com.agui.core.types.ReasoningEndEvent
+import com.agui.core.types.ReasoningMessageChunkEvent
+import com.agui.core.types.ReasoningMessageContentEvent
+import com.agui.core.types.ReasoningMessageEndEvent
+import com.agui.core.types.ReasoningMessageStartEvent
+import com.agui.core.types.ReasoningStartEvent
 import com.agui.core.types.Role
 import com.agui.core.types.RunErrorEvent
 import com.agui.core.types.RunFinishedEvent
@@ -108,6 +114,7 @@ class ChatController(
     private val streamingMessageIds = mutableSetOf<String>()
     private val supplementalMessages = linkedMapOf<String, DisplayMessage>()
     private val ephemeralMessages = mutableMapOf<EphemeralType, DisplayMessage>()
+    private val reasoningBuffer = StringBuilder()
     private val surfaceStateManager = SurfaceStateManager()
     private data class StoredMessage(var message: Message, val displayId: String)
 
@@ -649,6 +656,7 @@ class ChatController(
             role = when (type) {
                 EphemeralType.TOOL_CALL -> MessageRole.TOOL_CALL
                 EphemeralType.STEP -> MessageRole.STEP_INFO
+                EphemeralType.REASONING -> MessageRole.REASONING
             },
             content = "$icon $content".trim(),
             ephemeralGroupId = type.name,
@@ -665,6 +673,7 @@ class ChatController(
     }
 
     private fun clearAllEphemeralMessages() {
+        reasoningBuffer.clear()
         if (ephemeralMessages.isNotEmpty()) {
             ephemeralMessages.clear()
             refreshMessages()
@@ -727,6 +736,41 @@ class ChatController(
                 scope.launch {
                     delay(500)
                     clearEphemeralMessage(EphemeralType.STEP)
+                }
+            }
+            is ReasoningStartEvent -> {
+                reasoningBuffer.clear()
+                setEphemeralMessage(
+                    content = Strings.REASONING_PLACEHOLDER,
+                    type = EphemeralType.REASONING,
+                    icon = "💭"
+                )
+            }
+            is ReasoningMessageStartEvent -> Unit
+            is ReasoningMessageContentEvent -> {
+                reasoningBuffer.append(event.delta)
+                setEphemeralMessage(
+                    content = reasoningBuffer.toString(),
+                    type = EphemeralType.REASONING,
+                    icon = "💭"
+                )
+            }
+            is ReasoningMessageChunkEvent -> {
+                event.delta?.takeIf { it.isNotEmpty() }?.let { delta ->
+                    reasoningBuffer.append(delta)
+                    setEphemeralMessage(
+                        content = reasoningBuffer.toString(),
+                        type = EphemeralType.REASONING,
+                        icon = "💭"
+                    )
+                }
+            }
+            is ReasoningMessageEndEvent -> Unit
+            is ReasoningEndEvent -> {
+                scope.launch {
+                    delay(500)
+                    clearEphemeralMessage(EphemeralType.REASONING)
+                    reasoningBuffer.clear()
                 }
             }
             is RunErrorEvent -> {
@@ -888,12 +932,12 @@ data class ChatState(
 
 /** Classic chat roles shown in the UI layers. */
 enum class MessageRole {
-    USER, ASSISTANT, SYSTEM, DEVELOPER, ERROR, TOOL_CALL, STEP_INFO
+    USER, ASSISTANT, SYSTEM, DEVELOPER, ERROR, TOOL_CALL, STEP_INFO, REASONING
 }
 
-/** Distinguishes transient tool/step messages. */
+/** Distinguishes transient tool/step/reasoning messages. */
 enum class EphemeralType {
-    TOOL_CALL, STEP
+    TOOL_CALL, STEP, REASONING
 }
 
 /** Representation of rendered chat messages for UIs. */

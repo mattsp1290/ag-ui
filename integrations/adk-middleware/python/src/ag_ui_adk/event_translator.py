@@ -518,12 +518,16 @@ class EventTranslator:
                 text_parts.append(part.text)
 
         # Handle thought parts first (emit REASONING events).
-        # Guard: the final aggregated ADK event (partial=False) re-contains the
-        # full accumulated thought text already streamed via partial=True events.
-        # Emitting it again produces a duplicate reasoning block in the UI.
-        # Mirror the text deduplication pattern used below for combined_text:
-        # skip thought emission when the event is explicitly non-partial.
-        if thought_parts and getattr(adk_event, 'partial', None) is not False:
+        # When a reasoning stream was opened by partial=True chunks, ADK emits
+        # a final aggregated event with partial=False re-containing the full
+        # thought text — re-emitting it would duplicate the reasoning block.
+        # Mirror the text dedup below (was_already_streaming and not is_partial):
+        # only skip when an active reasoning stream is being aggregated.
+        # Do NOT skip when no reasoning stream is open: StreamingMode.NONE
+        # yields a single partial=False event that carries the only copy.
+        was_already_reasoning = self._is_streaming_reasoning
+        is_partial = getattr(adk_event, 'partial', False)
+        if thought_parts and not (was_already_reasoning and not is_partial):
             async for event in self._translate_reasoning_content(thought_parts, thought_signatures):
                 yield event
 

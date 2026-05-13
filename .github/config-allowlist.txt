@@ -16,6 +16,7 @@ integrations/pydantic-ai/typescript/tsdown.config.ts
 integrations/server-starter-all-features/typescript/tsdown.config.ts
 integrations/server-starter/typescript/tsdown.config.ts
 integrations/vercel-ai-sdk/typescript/tsdown.config.ts
+integrations/watsonx/typescript/tsdown.config.ts
 middlewares/a2a-middleware/tsdown.config.ts
 middlewares/a2ui-middleware/tsup.config.ts
 middlewares/event-throttle-middleware/tsdown.config.ts

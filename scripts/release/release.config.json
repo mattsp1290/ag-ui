@@ -139,6 +139,13 @@
         { "name": "@ag-ui/spring-ai", "path": "integrations/community/spring-ai/typescript", "ecosystem": "typescript" }
       ]
     },
+    "integration-watsonx": {
+      "description": "Watsonx integration (TypeScript)",
+      "sharedVersion": false,
+      "packages": [
+        { "name": "@ag-ui/watsonx", "path": "integrations/watsonx/typescript", "ecosystem": "typescript" }
+      ]
+    },
     "middleware-a2a": {
       "description": "A2A Middleware (TypeScript)",
       "sharedVersion": false,

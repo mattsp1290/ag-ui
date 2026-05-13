@@ -38,6 +38,48 @@ describe("convertAGUIMessagesToMastra", () => {
       ]);
     });
 
+    it("converts array content with single text part", () => {
+      const messages: Message[] = [
+        {
+          id: "1",
+          role: "user",
+          content: [
+            { type: "text", text: "Single part" },
+          ],
+        },
+      ];
+
+      const result = convertAGUIMessagesToMastra(messages);
+
+      expect(result).toEqual([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Single part" },
+          ],
+        },
+      ]);
+    });
+
+    it("converts empty array content", () => {
+      const messages: Message[] = [
+        {
+          id: "1",
+          role: "user",
+          content: [],
+        },
+      ];
+
+      const result = convertAGUIMessagesToMastra(messages);
+
+      expect(result).toEqual([
+        {
+          role: "user",
+          content: [],
+        },
+      ]);
+    });
+
     it("returns empty string for null/undefined content", () => {
       const messages: Message[] = [
         { id: "1", role: "user", content: undefined as any },

@@ -50,7 +50,7 @@ const toMastraContent = (content: Message["content"]): string | any[] => {
     return "";
   }
 
-  // Structured content array with mixed types
+  // Convert content parts to Mastra format
   const parts: any[] = [];
   for (const part of content) {
     switch (part.type) {

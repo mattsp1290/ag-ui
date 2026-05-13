@@ -182,9 +182,11 @@ jobs:
         if: steps.detect_ts.outputs.count != '0'
         id: save_groups
         run: |
-          echo "groups<<EOF" >> "$GITHUB_OUTPUT"
-          cat /tmp/ts-groups.json >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          {
+            echo "groups<<EOF"
+            cat /tmp/ts-groups.json
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Upload TypeScript build artifacts
         if: steps.detect_ts.outputs.count != '0'
@@ -289,11 +291,21 @@ jobs:
           TS_GROUPS: ${{ needs.build.outputs.ts_groups_json }}
         run: |
           echo "$TS_GROUPS" > /tmp/ts-groups.json
+          TS_FAILED=""
           for TAG in $(jq -r 'keys[]' /tmp/ts-groups.json); do
-            PROJECTS=$(jq -r --arg t "$TAG" '.[$t] | join(",")' /tmp/ts-groups.json)
-            echo "Publishing ${PROJECTS} with --tag ${TAG}"
-            npx nx release publish --projects="$PROJECTS" --tag "$TAG"
+            for PROJECT in $(jq -r --arg t "$TAG" '.[$t][]' /tmp/ts-groups.json); do
+              echo "=== Publishing ${PROJECT} with --tag ${TAG} ==="
+              if ! npx nx release publish --projects="$PROJECT" --tag "$TAG"; then
+                echo "FAILED: ${PROJECT}"
+                TS_FAILED="${TS_FAILED} ${PROJECT}"
+              fi
+            done
           done
+          if [ -n "$TS_FAILED" ]; then
+            echo ""
+            echo "::error::The following TypeScript packages failed to publish:${TS_FAILED}"
+            echo "TS_PUBLISH_FAILED=true" >> "$GITHUB_ENV"
+          fi
 
       # --- Python publish ---
       - name: Install uv
@@ -314,25 +326,28 @@ jobs:
           UV_PUBLISH_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
           PY_PACKAGES: ${{ needs.build.outputs.py_packages }}
         run: |
-          FAILED=0
+          PY_FAILED=""
           while read -r pkg; do
             NAME=$(echo "$pkg" | jq -r '.name')
             VERSION=$(echo "$pkg" | jq -r '.version')
             DIR=$(echo "$pkg" | jq -r '.dir')
 
             echo "=== Publishing ${NAME}@${VERSION} from ${DIR} ==="
-            # Publish pre-built wheels/sdists directly — no pip install needed
             if [ -d "${DIR}/dist" ]; then
-              uv publish "${DIR}/dist/*"
+              if ! uv publish "${DIR}/dist/*"; then
+                echo "FAILED: ${NAME}"
+                PY_FAILED="${PY_FAILED} ${NAME}"
+              fi
             else
               echo "WARNING: No dist/ found for ${NAME} at ${DIR} — skipping"
-              FAILED=1
+              PY_FAILED="${PY_FAILED} ${NAME}"
             fi
           done < <(echo "$PY_PACKAGES" | jq -c '.[]')
 
-          if [ "$FAILED" -ne 0 ]; then
-            echo "ERROR: One or more Python packages failed to publish" >&2
-            exit 1
+          if [ -n "$PY_FAILED" ]; then
+            echo ""
+            echo "::error::The following Python packages failed to publish:${PY_FAILED}"
+            echo "PY_PUBLISH_FAILED=true" >> "$GITHUB_ENV"
           fi
 
       # --- Git tags and GitHub Releases ---
@@ -410,3 +425,9 @@ jobs:
               echo "$PY_PACKAGES" | jq -r '.[] | "- `\(.name)@\(.version)`"'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Fail if any packages failed to publish
+        if: env.TS_PUBLISH_FAILED == 'true' || env.PY_PUBLISH_FAILED == 'true'
+        run: |
+          echo "One or more packages failed to publish. See errors above."
+          exit 1

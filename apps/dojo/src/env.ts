@@ -24,6 +24,10 @@ type envVars = {
   claudeAgentSdkPythonUrl: string;
   claudeAgentSdkTypescriptUrl: string;
   langroidUrl: string;
+  watsonxRegion: string;
+  watsonxInstanceId: string;
+  watsonxAgentId: string;
+  watsonxApiKey: string;
   customDomainTitle: Record<string, string>;
 };
 
@@ -76,6 +80,10 @@ export default function getEnvVars(): envVars {
     claudeAgentSdkTypescriptUrl:
       process.env.CLAUDE_AGENT_SDK_TYPESCRIPT_URL || "http://localhost:8020",
     langroidUrl: process.env.LANGROID_URL || "http://localhost:8021",
+    watsonxRegion: process.env.WATSONX_REGION || "",
+    watsonxInstanceId: process.env.WATSONX_INSTANCE_ID || "",
+    watsonxAgentId: process.env.WATSONX_AGENT_ID || "",
+    watsonxApiKey: process.env.WATSONX_API_KEY || "",
     customDomainTitle: customDomainTitle,
   };
 }

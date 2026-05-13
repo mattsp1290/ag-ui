@@ -6,12 +6,14 @@ on:
     paths:
       - "sdks/python/**"
       - "integrations/langgraph/python/**"
+      - "integrations/watsonx/python/**"
       - ".github/workflows/unit-python-sdk.yml"
   pull_request:
     branches: [main]
     paths:
       - "sdks/python/**"
       - "integrations/langgraph/python/**"
+      - "integrations/watsonx/python/**"
       - ".github/workflows/unit-python-sdk.yml"
 
 jobs:
@@ -88,3 +90,40 @@ jobs:
       - name: Run tests
         working-directory: integrations/langgraph/python
         run: uv run python -m unittest discover tests -v
+
+  watsonx-python:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Detect fork PR
+        id: fork-check
+        run: |
+          if [[ "${{ github.event_name }}" == "pull_request" && \
+                "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]]; then
+            echo "prefix=fork-" >> "$GITHUB_OUTPUT"
+          else
+            echo "prefix=" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v4
+        with:
+          version: ">=0.8.0"
+
+      - name: Load cached venv
+        id: cached-uv-dependencies
+        uses: actions/cache@v4
+        with:
+          path: integrations/watsonx/python/.venv
+          key: ${{ steps.fork-check.outputs.prefix }}venv-${{ runner.os }}-watsonx-${{ hashFiles('integrations/watsonx/python/uv.lock') }}
+
+      - name: Install dependencies
+        working-directory: integrations/watsonx/python
+        run: uv sync
+
+      - name: Run tests
+        working-directory: integrations/watsonx/python
+        run: uv run python -m pytest tests/ -v

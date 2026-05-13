@@ -451,6 +451,16 @@ const agentFilesMapper: Record<
       {},
     );
   },
+  // watsonx uses a single TS agent for all features — no per-feature server files
+  "watsonx": () => ({
+    agentic_chat: [
+      path.join(
+        __dirname,
+        integrationsFolderPath,
+        `/watsonx/typescript/src/index.ts`,
+      ),
+    ],
+  }),
   "langroid": (agentKeys: string[]) => {
     return agentKeys.reduce(
       (acc, agentId) => ({

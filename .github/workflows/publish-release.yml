@@ -273,10 +273,14 @@ jobs:
         with:
           name: ts-build-artifacts
 
-      # nx release publish needs the workspace context (package.json files)
-      # but we do NOT run pnpm install here — that would execute lifecycle
-      # scripts from repo package manifests in the same process tree as
-      # publishing secrets. The built dist/ artifacts are sufficient.
+      # nx release publish needs the full pnpm workspace installed so that:
+      # 1. nx can resolve the project graph and find the nx-release-publish executor
+      # 2. pnpm publish can resolve workspace:* protocol deps to real versions
+      # We use --ignore-scripts to preserve the security boundary: no lifecycle
+      # scripts run in the same process tree as publishing secrets.
+      - name: Install dependencies (no lifecycle scripts)
+        if: needs.build.outputs.ts_count != '0'
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Publish TypeScript packages
         if: needs.build.outputs.ts_count != '0'
         env:

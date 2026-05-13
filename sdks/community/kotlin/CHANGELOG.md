@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Examples
+- Chatapp surfaces `REASONING_*` events as a transient "💭 Reasoning…" bubble (new `MessageRole.REASONING` + `EphemeralType.REASONING`), mirroring the existing tool-call / step ephemeral pattern. Clears on `RUN_FINISHED`, run cancel, or run error. Handles `REASONING_START` / `REASONING_END`, `REASONING_MESSAGE_START` / `REASONING_MESSAGE_CONTENT` / `REASONING_MESSAGE_END`, and `REASONING_MESSAGE_CHUNK`.
+- Bump all Kotlin sample apps (chatapp, chatapp-java, chatapp-wearos, chatapp-swiftui, tools) from `agui-core 0.3.0` to `0.4.0` and consume the published artefacts from Maven by removing the `includeBuild("../../library")` + dependencySubstitution blocks from the four chatapp variants' settings files.
+- Bump chatapp Kotlin `2.1.20 → 2.2.20` so the iOS targets can consume `com.mikepenz:multiplatform-markdown-renderer-m3:0.37.0` klibs (require ABI 2.2.0+).
+
 ## [0.3.0] - 2026-05-09
 
 ### Added

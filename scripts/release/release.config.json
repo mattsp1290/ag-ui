@@ -139,11 +139,18 @@
         { "name": "@ag-ui/spring-ai", "path": "integrations/community/spring-ai/typescript", "ecosystem": "typescript" }
       ]
     },
-    "integration-watsonx": {
+    "integration-watsonx-ts": {
       "description": "Watsonx integration (TypeScript)",
       "sharedVersion": false,
       "packages": [
         { "name": "@ag-ui/watsonx", "path": "integrations/watsonx/typescript", "ecosystem": "typescript" }
+      ]
+    },
+    "integration-watsonx-py": {
+      "description": "Watsonx integration (Python)",
+      "sharedVersion": false,
+      "packages": [
+        { "name": "ag_ui_watsonx", "path": "integrations/watsonx/python", "ecosystem": "python", "buildSystem": "uv" }
       ]
     },
     "middleware-a2a": {

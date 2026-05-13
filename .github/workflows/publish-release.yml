@@ -182,9 +182,11 @@ jobs:
         if: steps.detect_ts.outputs.count != '0'
         id: save_groups
         run: |
-          echo "groups<<EOF" >> "$GITHUB_OUTPUT"
-          cat /tmp/ts-groups.json >> "$GITHUB_OUTPUT"
-          echo "EOF" >> "$GITHUB_OUTPUT"
+          {
+            echo "groups<<EOF"
+            cat /tmp/ts-groups.json
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Upload TypeScript build artifacts
         if: steps.detect_ts.outputs.count != '0'

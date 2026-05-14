@@ -1,0 +1,26 @@
+version: 2
+
+# Keeps the SHA pins in .github/workflows/*.yml current. Dependabot reads the
+# trailing `# v<version>` comment after each pinned SHA and opens PRs that
+# bump both the SHA and the comment in lockstep. Without this file, pins go
+# stale and we lose the security guarantee they provide.
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    # Group minor/patch bumps so we don't get one PR per action per week.
+    # Major bumps still get their own PRs (intentional — they need review).
+    groups:
+      actions-minor-patch:
+        update-types:
+          - minor
+          - patch
+    commit-message:
+      prefix: "chore(ci)"
+      include: scope
+    labels:
+      - dependencies
+      - github-actions

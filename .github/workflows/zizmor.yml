@@ -52,6 +52,7 @@ jobs:
         continue-on-error: true
         run: |
           uvx zizmor \
+            --config .github/zizmor.yml \
             --persona=auditor \
             --format=sarif \
             .github/workflows \

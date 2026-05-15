@@ -98,7 +98,6 @@ jobs:
       - name: Run tests
         working-directory: integrations/langgraph/python
         run: uv run python -m unittest discover tests -v
-<<<<<<< HEAD
 
   watsonx-python:
     runs-on: ubuntu-latest
@@ -136,8 +135,6 @@ jobs:
       - name: Run tests
         working-directory: integrations/watsonx/python
         run: uv run python -m pytest tests/ -v
-||||||| parent of 461a511e (ci: add adk-middleware, aws-strands, and langroid Python tests to CI)
-=======
 
   adk-middleware-python:
     runs-on: ubuntu-latest
@@ -249,4 +246,3 @@ jobs:
       - name: Run tests
         working-directory: integrations/langroid/python
         run: uv run python -m unittest discover tests -v
->>>>>>> 461a511e (ci: add adk-middleware, aws-strands, and langroid Python tests to CI)

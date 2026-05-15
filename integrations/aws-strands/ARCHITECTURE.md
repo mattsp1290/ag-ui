@@ -1,6 +1,6 @@
 # AWS Strands Integration Architecture
 
-This document explains how the AWS Strands integration inside `integrations/aws-strands/` is implemented today. It covers the Python adapter that speaks the AG-UI protocol and the FastAPI transport helpers. 
+This document explains how the AWS Strands integration inside `integrations/aws-strands/` is implemented today. It covers the Python adapter that speaks the AG-UI protocol and the FastAPI transport helpers.
 
 ---
 
@@ -45,11 +45,21 @@ This document explains how the AWS Strands integration inside `integrations/aws-
 - **Lifecycle framing**
   - Emits `RunStartedEvent` before touching Strands.
   - Always emits `RunFinishedEvent` unless an exception occurs, in which case it emits `RunErrorEvent` with `code="STRANDS_ERROR"`.
+- **Messages snapshot emission**
+  - Emits `MessagesSnapshotEvent` at four lifecycle boundaries so frontends (notably CopilotKit v2) can rebuild canonical message history rather than reconstructing it from streaming `TOOL_CALL_*` events alone:
+    1. After the initial `StateSnapshotEvent`, seeded from `RunAgentInput.messages`.
+    2. After each `ToolCallEndEvent`, with the new `AssistantMessage(tool_calls=[…])` appended.
+    3. After each `ToolCallResultEvent`, with the new `ToolMessage` appended.
+    4. After each terminal `TextMessageEndEvent`, with the new `AssistantMessage(content=…)` appended.
+  - Each snapshot carries the *complete* thread state as known so far. Toggle globally via `StrandsAgentConfig.emit_messages_snapshot` (default `True`); suppress per-tool with `ToolBehavior.skip_messages_snapshot=True`.
 - **State priming**
   - If `RunAgentInput.state` is provided, it immediately publishes a `StateSnapshotEvent`, filtering out any `messages` field so the frontend remains the source of truth for the timeline.
   - Optionally rewrites the outgoing user prompt via `StrandsAgentConfig.state_context_builder`.
-- **User message derivation**
-  - The adapter inspects `input_data.messages` from newest-to-oldest, picks the most recent `"user"` message, and defaults to `"Hello"` if none exist.
+- **History reconciliation**
+  - When the cached per-thread `StrandsAgentCore` has no `session_manager`, the adapter rebuilds Strands' internal `messages` list from `RunAgentInput.messages` before each `stream_async` call. Tool calls are rendered as `toolUse` ContentBlocks on assistant turns and tool results as `toolResult` blocks on user turns, matching Strands' native shape.
+  - This fixes the "frontend tool loops forever" symptom: without reconciliation, Strands re-fires the same tool every turn because the result the frontend produced never reaches the LLM context.
+  - With a `session_manager`, the adapter trusts the manager and falls back to passing only the latest user prompt as a string.
+  - Toggle via `StrandsAgentConfig.replay_history_into_strands` (default `True`).
 - **Streaming text**
   - When Strands yields events with a `"data"` field, the adapter opens a new `TextMessageStartEvent` (once per turn), forwards every chunk as `TextMessageContentEvent`, and closes with `TextMessageEndEvent` when the Strands stream completes or is halted.
   - `stop_text_streaming` is toggled when certain tool behaviors demand ending narration as soon as a backend tool result arrives.
@@ -64,24 +74,41 @@ This document explains how the AWS Strands integration inside `integrations/aws-
 - **Tool result handling**
   - Strands encodes tool results inside `"message"` events whose role is `"user"` and whose contents include `toolResult`. The adapter:
     - Parses the blob into Python objects, tolerating single quotes or malformed JSON.
-    - Reconstructs a short-lived pair of `AssistantMessage` (carrying the `tool_calls` array) and `ToolMessage`, then publishes a `MessagesSnapshotEvent` so the AG-UI timeline includes the function call and result (unless a pending backend tool result already exists or `skip_messages_snapshot` is set).
+    - Emits a `ToolCallResultEvent` (without a `role` field) so the frontend closes the tool-call card without inserting a duplicate `tool` message into its history, then immediately publishes a `MessagesSnapshotEvent` containing the corresponding `ToolMessage` (skipped when the per-tool `skip_messages_snapshot=True` is set).
     - Executes `ToolBehavior.state_from_result` to hydrate shared state and `custom_result_handler` to emit additional AG-UI events (e.g., simulated progress via `StateDeltaEvent` in the generative UI example).
     - Honors `stop_streaming_after_result` by closing any active text message and halting the Strands stream early.
 - **Frontend tool awareness**
   - `input_data.tools` supplies the frontend tool registry. Their names are used to (a) avoid double-invoking tool results that were literally produced by the UI, and (b) stop the Strands run after the LLM has issued a UI-only instruction.
+- **Reasoning streaming**
+  - When Strands yields events with `reasoningText` and `reasoning=true`, the adapter emits REASONING_* events.
+  - Emits `ReasoningStartEvent`, `ReasoningMessageStartEvent`, content events, then `ReasoningMessageEndEvent` and `ReasoningEndEvent`.
+  - For encrypted/redacted reasoning content (`reasoningRedactedContent`), emits `ReasoningEncryptedValueEvent` with base64-encoded payload.
+  - Reasoning events are automatically closed when a `contentBlockStop` event is received.
+- **Multi-agent step tracking**
+  - Maps Strands `multiagent_node_start` events to `StepStartedEvent` with `step_name` formatted as `{node_type}:{node_id}`.
+  - Maps Strands `multiagent_node_stop` events to `StepFinishedEvent`.
+  - Emits `CustomEvent(name="MultiAgentHandoff")` for `multiagent_handoff` events, including `from_nodes`, `to_nodes`, and `message` in the value.
+- **Multimodal content**
+  - When `UserMessage.content` is a `List[InputContent]` containing media (image, document, video), the adapter converts it to Strands `ContentBlock` format.
+  - `ImageInputContent` -> `ContentBlock(image=ImageContent(...))` with base64-decoded bytes.
+  - `DocumentInputContent` -> `ContentBlock(document=DocumentContent(...))`.
+  - `VideoInputContent` -> `ContentBlock(video=VideoContent(...))`.
+  - `AudioInputContent` is logged and skipped (Strands SDK has no audio support).
+  - Text-only content lists are flattened to a plain string for backward compatibility.
+  - Conversion logic lives in `src/ag_ui_strands/utils.py`.
 
 ### Configuration Layer (`src/ag_ui_strands/config.py`)
 
 `StrandsAgentConfig` allows each tool to define bespoke behavior without editing the adapter:
 
-| Primitive | Purpose |
-| --- | --- |
-| `tool_behaviors: Dict[str, ToolBehavior]` | Per-tool overrides keyed by the Strands tool name. |
-| `state_context_builder` | Callable that enriches the outgoing prompt with the current shared state (useful for reiterating plan steps, recipes, etc.). |
+| Primitive                                 | Purpose                                                                                                                      |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `tool_behaviors: Dict[str, ToolBehavior]` | Per-tool overrides keyed by the Strands tool name.                                                                           |
+| `state_context_builder`                   | Callable that enriches the outgoing prompt with the current shared state (useful for reiterating plan steps, recipes, etc.). |
 
 `ToolBehavior` captures how the adapter should react:
 
-- `skip_messages_snapshot`: Prevents helper messages from being appended when the UI is already in sync.
+- `skip_messages_snapshot`: Suppresses the `MessagesSnapshotEvent` that would normally follow this tool's `TOOL_CALL_END` / `TOOL_CALL_RESULT` events. Use when `custom_result_handler` already emits its own snapshot and you want to avoid duplicates.
 - `continue_after_frontend_call`: Keeps the stream alive after emitting a frontend tool call.
 - `stop_streaming_after_result`: Cuts off text streaming when the backend produced a decisive result.
 - `predict_state`: Iterable of `PredictStateMapping` objects that inform the UI how to project tool arguments into shared state before results arrive.
@@ -122,14 +149,17 @@ This mirrors other AG-UI integrations (Agno, LangGraph, etc.), so documentation 
 
 ## Example Entry Points (`python/examples/server/api/*.py`)
 
-The repository includes four runnable FastAPI apps that showcase different features. Each example builds a Strands SDK agent, wraps it with `StrandsAgent`, and exposes it via `create_strands_app`:
+The repository includes seven runnable FastAPI apps that showcase different features. Each example builds a Strands SDK agent, wraps it with `StrandsAgent`, and exposes it via `create_strands_app`:
 
-| Module | Focus | Relevant Configuration |
-| --- | --- | --- |
-| `agentic_chat.py` | Baseline text generation with a frontend-only `change_background` tool. | No custom config; demonstrates automatic text streaming and frontend tool short-circuiting. |
-| `backend_tool_rendering.py` | Backend-executed tools (`render_chart`, `get_weather`). | Shows how tool results become `MessagesSnapshotEvent`s and can be rendered directly in the UI. |
-| `shared_state.py` | Collaborative recipe editor that streams server-side state. | Uses `state_context_builder`, `state_from_args`, and `state_from_result` to keep the UI’s recipe object synchronized. |
-| `agentic_generative_ui.py` | Predictive and reactive state updates for generative UI surfaces. | Demonstrates `PredictStateMapping`, `custom_result_handler` emitting `StateDeltaEvent`s, and the `stop_streaming_after_result` flag. |
+| Module                        | Focus                                                                   | Relevant Configuration                                                                                                               |
+| ----------------------------- | ----------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `agentic_chat.py`             | Baseline text generation with a frontend-only `change_background` tool. | No custom config; demonstrates automatic text streaming and frontend tool short-circuiting.                                          |
+| `agentic_chat_reasoning.py`   | Reasoning/thinking event streaming with extended thinking models.       | No custom config; demonstrates REASONING_* event emission.                                                                           |
+| `backend_tool_rendering.py`   | Backend-executed tools (`render_chart`, `get_weather`).                 | Shows how tool results become `ToolCallResultEvent`s and can be rendered directly in the UI.                                         |
+| `shared_state.py`             | Collaborative recipe editor that streams server-side state.             | Uses `state_context_builder`, `state_from_args`, and `state_from_result` to keep the UI’s recipe object synchronized.                |
+| `agentic_generative_ui.py`    | Predictive and reactive state updates for generative UI surfaces.       | Demonstrates `PredictStateMapping`, `custom_result_handler` emitting `StateDeltaEvent`s, and the `stop_streaming_after_result` flag. |
+| `agentic_chat_multimodal.py`  | Multimodal image/document analysis with vision-capable model.           | No custom config; demonstrates automatic multimodal content conversion.                                                              |
+| `human_in_the_loop.py`        | Human-in-the-loop confirmation flow with frontend tools.                | Demonstrates frontend tool invocation and confirmation actions.                                                                      |
 
 These examples double as integration tests: they exercise every built-in hook so regressions surface quickly during manual QA.
 
@@ -137,20 +167,24 @@ These examples double as integration tests: they exercise every built-in hook so
 
 ## Event Semantics Recap
 
-| Strands Signal | Adapter Reaction | AG-UI Consumer Impact |
-| --- | --- | --- |
-| `stream_async` yields `{"data": ...}` | Emit text start/content/end | Updates conversational transcript incrementally. |
-| `current_tool_use` announced | Emit tool call events, optional PredictState/state snapshots | Shows tool invocation cards and, when configured, optimistic UI updates. |
-| `toolResult` packaged within `message.content[].toolResult` | Publish timeline snapshot, tool result hooks, optional halt | Renders backend tool outputs and state changes without additional frontend logic. |
-| Stream sends `complete` or adapter decides to halt | Close text envelope (if needed) and emit `RunFinishedEvent` | Signals the UI that the run ended; frontends may start follow-up runs or show idle states. |
-| Exceptions anywhere in the stack | Emit `RunErrorEvent` with the exception message | Frontend surfaces the failure and can offer retries. |
+| Strands Signal                                                    | Adapter Reaction                                             | AG-UI Consumer Impact                                                                      |
+| ----------------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------------------------------------------------------------------ |
+| `stream_async` yields `{"data": ...}`                             | Emit text start/content/end                                  | Updates conversational transcript incrementally.                                           |
+| `stream_async` yields `{"reasoningText": ..., "reasoning": true}` | Emit REASONING_* events                                      | Displays model's reasoning/thinking process in UI.                                         |
+| `stream_async` yields `{"reasoningRedactedContent": ...}`         | Emit `ReasoningEncryptedValueEvent` with base64 payload      | Handles encrypted reasoning content for models that redact thinking.                       |
+| `current_tool_use` announced                                      | Emit tool call events, optional PredictState/state snapshots | Shows tool invocation cards and, when configured, optimistic UI updates.                   |
+| `toolResult` packaged within `message.content[].toolResult`       | Emit `ToolCallResultEvent`, tool result hooks, optional halt | Renders backend tool outputs and state changes without additional frontend logic.          |
+| `multiagent_node_start` / `multiagent_node_stop`                  | Emit `StepStartedEvent` / `StepFinishedEvent`                | Shows multi-agent workflow progress with node identification.                              |
+| `multiagent_handoff`                                              | Emit `CustomEvent(name="MultiAgentHandoff")`                 | Notifies UI of agent-to-agent handoffs with routing metadata.                              |
+| Stream sends `complete` or adapter decides to halt                | Close text/reasoning envelopes and emit `RunFinishedEvent`   | Signals the UI that the run ended; frontends may start follow-up runs or show idle states. |
+| Exceptions anywhere in the stack                                  | Emit `RunErrorEvent` with the exception message              | Frontend surfaces the failure and can offer retries.                                       |
 
 ---
 
 ## Deployment & Runtime Characteristics
 
 - **HTTP/SSE transport**: The adapter currently supports only HTTP POST requests plus streaming responses. Longer-lived transports (WebSockets, queues) are not part of the implemented surface.
-- **Stateless server layer**: Every request is independent. All persistent context flows through `RunAgentInput.state` and `messages`, which the AG-UI runtime maintains.
+- **Per-thread agent caching**: The transport layer is stateless (plain HTTP POST), but `StrandsAgent` caches `strands.Agent` instances per thread to preserve conversation context across requests.
 - **Model compatibility**: The examples use `strands.models.gemini.GeminiModel`, but `StrandsAgent` works with any `strands.Agent` configured with compatible tools and prompts because it only relies on `stream_async`.
 - **Error isolation**: Failures inside tool hooks (`state_from_args`, etc.) are swallowed so the main run can continue. Only uncaught exceptions in the core loop trigger `RunErrorEvent`.
 
@@ -165,5 +199,3 @@ The AWS Strands integration adapts the Strands SDK to the AG-UI protocol by:
 3. Letting any existing AG-UI HTTP client connect directly to the endpoint—no Strands-specific frontend package is required.
 
 All current behavior lives in `integrations/aws-strands/python/src/ag_ui_strands`. There are no hidden services or background workers; what is described above is the complete, production-ready implementation that powers today’s Strands integration.
-
-

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { Interrupt } from "./types";
 import {
   ActivityDeltaEvent,
   ActivityDeltaEventProps,
@@ -79,6 +80,27 @@ import {
   ToolCallStartEvent,
   ToolCallStartEventProps,
   ToolCallStartEventSchema,
+  ReasoningStartEvent,
+  ReasoningStartEventProps,
+  ReasoningStartEventSchema,
+  ReasoningMessageStartEvent,
+  ReasoningMessageStartEventProps,
+  ReasoningMessageStartEventSchema,
+  ReasoningMessageContentEvent,
+  ReasoningMessageContentEventProps,
+  ReasoningMessageContentEventSchema,
+  ReasoningMessageEndEvent,
+  ReasoningMessageEndEventProps,
+  ReasoningMessageEndEventSchema,
+  ReasoningMessageChunkEvent,
+  ReasoningMessageChunkEventProps,
+  ReasoningMessageChunkEventSchema,
+  ReasoningEndEvent,
+  ReasoningEndEventProps,
+  ReasoningEndEventSchema,
+  ReasoningEncryptedValueEvent,
+  ReasoningEncryptedValueEventProps,
+  ReasoningEncryptedValueEventSchema,
 } from "./events";
 
 const buildEvent = <Schema extends z.ZodTypeAny>(
@@ -241,9 +263,38 @@ export const createRunStartedEvent = (props: RunStartedEventProps): RunStartedEv
 
 /**
  * Creates a RUN_FINISHED event.
+ *
+ * `outcome` is optional. Omit it for legacy/back-compat behavior, or set it
+ * explicitly to `{ type: "success" }` or `{ type: "interrupt", interrupts }`
+ * — see `createRunFinishedSuccessEvent` and `createRunFinishedInterruptEvent`
+ * for convenience helpers.
  */
 export const createRunFinishedEvent = (props: RunFinishedEventProps): RunFinishedEvent =>
   buildEvent(EventType.RUN_FINISHED, RunFinishedEventSchema, props);
+
+/**
+ * Creates a RUN_FINISHED event with `outcome: { type: "success" }`.
+ */
+export const createRunFinishedSuccessEvent = (
+  props: Omit<RunFinishedEventProps, "outcome">,
+): RunFinishedEvent =>
+  buildEvent(EventType.RUN_FINISHED, RunFinishedEventSchema, {
+    ...props,
+    outcome: { type: "success" },
+  });
+
+/**
+ * Creates a RUN_FINISHED event with `outcome: { type: "interrupt", interrupts }`.
+ */
+export const createRunFinishedInterruptEvent = (
+  props: Omit<RunFinishedEventProps, "outcome"> & { interrupts: Interrupt[] },
+): RunFinishedEvent => {
+  const { interrupts, ...rest } = props;
+  return buildEvent(EventType.RUN_FINISHED, RunFinishedEventSchema, {
+    ...rest,
+    outcome: { type: "interrupt", interrupts },
+  });
+};
 
 /**
  * Creates a RUN_ERROR event.
@@ -262,3 +313,55 @@ export const createStepStartedEvent = (props: StepStartedEventProps): StepStarte
  */
 export const createStepFinishedEvent = (props: StepFinishedEventProps): StepFinishedEvent =>
   buildEvent(EventType.STEP_FINISHED, StepFinishedEventSchema, props);
+
+/**
+ * Creates a REASONING_START event.
+ */
+export const createReasoningStartEvent = (props: ReasoningStartEventProps): ReasoningStartEvent =>
+  buildEvent(EventType.REASONING_START, ReasoningStartEventSchema, props);
+
+/**
+ * Creates a REASONING_MESSAGE_START event.
+ */
+export const createReasoningMessageStartEvent = (
+  props: ReasoningMessageStartEventProps,
+): ReasoningMessageStartEvent =>
+  buildEvent(EventType.REASONING_MESSAGE_START, ReasoningMessageStartEventSchema, props);
+
+/**
+ * Creates a REASONING_MESSAGE_CONTENT event.
+ */
+export const createReasoningMessageContentEvent = (
+  props: ReasoningMessageContentEventProps,
+): ReasoningMessageContentEvent =>
+  buildEvent(EventType.REASONING_MESSAGE_CONTENT, ReasoningMessageContentEventSchema, props);
+
+/**
+ * Creates a REASONING_MESSAGE_END event.
+ */
+export const createReasoningMessageEndEvent = (
+  props: ReasoningMessageEndEventProps,
+): ReasoningMessageEndEvent =>
+  buildEvent(EventType.REASONING_MESSAGE_END, ReasoningMessageEndEventSchema, props);
+
+/**
+ * Creates a REASONING_MESSAGE_CHUNK event.
+ */
+export const createReasoningMessageChunkEvent = (
+  props: ReasoningMessageChunkEventProps,
+): ReasoningMessageChunkEvent =>
+  buildEvent(EventType.REASONING_MESSAGE_CHUNK, ReasoningMessageChunkEventSchema, props);
+
+/**
+ * Creates a REASONING_END event.
+ */
+export const createReasoningEndEvent = (props: ReasoningEndEventProps): ReasoningEndEvent =>
+  buildEvent(EventType.REASONING_END, ReasoningEndEventSchema, props);
+
+/**
+ * Creates a REASONING_ENCRYPTED_VALUE event.
+ */
+export const createReasoningEncryptedValueEvent = (
+  props: ReasoningEncryptedValueEventProps,
+): ReasoningEncryptedValueEvent =>
+  buildEvent(EventType.REASONING_ENCRYPTED_VALUE, ReasoningEncryptedValueEventSchema, props);

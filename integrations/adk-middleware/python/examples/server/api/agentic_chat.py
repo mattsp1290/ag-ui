@@ -7,10 +7,16 @@ from ag_ui_adk import ADKAgent, AGUIToolset, add_adk_fastapi_endpoint
 from google.adk.agents import LlmAgent
 from google.adk import tools as adk_tools
 
+# Compatibility shim for PreloadMemoryTool (renamed in newer ADK versions)
+try:
+    PreloadMemoryTool = adk_tools.preload_memory.PreloadMemoryTool
+except AttributeError:
+    PreloadMemoryTool = adk_tools.preload_memory_tool.PreloadMemoryTool
+
 # Create a sample ADK agent (this would be your actual agent)
 sample_agent = LlmAgent(
     name="assistant",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     instruction="""
     You are a helpful assistant. Help users by answering their questions and assisting with their needs.
     - If the user greets you, please greet them back with specifically with "Hello".
@@ -22,7 +28,7 @@ sample_agent = LlmAgent(
     """,
     tools=[
       AGUIToolset(), # Add the tools provided by the AG-UI client
-      adk_tools.preload_memory_tool.PreloadMemoryTool(),
+      PreloadMemoryTool(),
     ]
 )
 

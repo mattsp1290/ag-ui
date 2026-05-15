@@ -9,6 +9,12 @@ from google.adk import tools as adk_tools
 import httpx
 import json
 
+# Compatibility shim for PreloadMemoryTool (renamed in newer ADK versions)
+try:
+    PreloadMemoryTool = adk_tools.preload_memory.PreloadMemoryTool
+except AttributeError:
+    PreloadMemoryTool = adk_tools.preload_memory_tool.PreloadMemoryTool
+
 
 def get_weather_condition(code: int) -> str:
     """Map weather code to human-readable condition.
@@ -104,7 +110,7 @@ async def get_weather(location: str) -> dict[str, str | float]:
 # Create a sample ADK agent (this would be your actual agent)
 sample_agent = LlmAgent(
     name="assistant",
-    model="gemini-2.0-flash",
+    model="gemini-2.5-flash",
     instruction="""
       You are a helpful weather assistant that provides accurate weather information.
 
@@ -119,7 +125,7 @@ sample_agent = LlmAgent(
       """,
     tools=[
         AGUIToolset(), # Add the tools provided by the AG-UI client
-        adk_tools.preload_memory_tool.PreloadMemoryTool(), 
+        PreloadMemoryTool(),
         get_weather,
     ],
 )

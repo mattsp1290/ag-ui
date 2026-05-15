@@ -11,6 +11,7 @@ export enum LangGraphEventTypes {
   OnChatModelEnd = "on_chat_model_end",
   OnToolStart = "on_tool_start",
   OnToolEnd = "on_tool_end",
+  OnToolError = "on_tool_error",
   OnCustomEvent = "on_custom_event",
   OnInterrupt = "on_interrupt",
 }
@@ -50,9 +51,11 @@ export type MessageInProgress = {
   toolCallName?: string | null;
 };
 
-export type ThinkingInProgress = {
+export type ReasoningInProgress = {
   index: number;
   type?: LangGraphReasoning['type'];
+  messageId: string;
+  signature?: string;
 }
 
 export interface RunMetadata {
@@ -67,6 +70,11 @@ export interface RunMetadata {
   hasFunctionStreaming?: boolean;
   // True once the platform-assigned run id is known (set from stream metadata)
   serverRunIdKnown?: boolean;
+  // Set true when a tool call matching a predict_state entry is detected in
+  // the chat model stream. Remains true through tool arg streaming and tool
+  // execution; cleared in OnToolEnd/OnToolError. While set, STATE_SNAPSHOT
+  // emission is suppressed so optimistic UI state is not overwritten.
+  modelMadeToolCall?: boolean;
 }
 
 export type MessagesInProgressRecord = Record<string, MessageInProgress | null>;
@@ -124,5 +132,6 @@ export interface PredictStateTool {
 export interface LangGraphReasoning {
   type: 'text';
   text: string;
-  index: number
+  index: number;
+  signature?: string;
 }

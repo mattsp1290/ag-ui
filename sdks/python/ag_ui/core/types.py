@@ -2,6 +2,7 @@
 This module contains the types for the Agent User Interaction Protocol Python SDK.
 """
 
+import warnings
 from typing import Annotated, Any, Dict, List, Literal, Optional, Union
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -34,6 +35,7 @@ class ToolCall(ConfiguredBaseModel):
     id: str
     type: Literal["function"] = "function"  # pyright: ignore[reportIncompatibleVariableOverride]
     function: FunctionCall
+    encrypted_value: Optional[str] = None
 
 
 class BaseMessage(ConfiguredBaseModel):
@@ -44,6 +46,7 @@ class BaseMessage(ConfiguredBaseModel):
     role: str
     content: Optional[str] = None
     name: Optional[str] = None
+    encrypted_value: Optional[str] = None
 
 
 class DeveloperMessage(BaseMessage):
@@ -77,8 +80,62 @@ class TextInputContent(ConfiguredBaseModel):
     text: str
 
 
+class InputContentDataSource(ConfiguredBaseModel):
+    """Inline base64-encoded source."""
+
+    type: Literal["data"] = "data"
+    value: str
+    mime_type: str
+
+
+class InputContentUrlSource(ConfiguredBaseModel):
+    """URL-referenced source."""
+
+    type: Literal["url"] = "url"
+    value: str
+    mime_type: Optional[str] = None
+
+
+InputContentSource = Annotated[
+    Union[InputContentDataSource, InputContentUrlSource],
+    Field(discriminator="type"),
+]
+
+
+class ImageInputContent(ConfiguredBaseModel):
+    """An image input content fragment."""
+
+    type: Literal["image"] = "image"
+    source: InputContentSource
+    metadata: Optional[Any] = None
+
+
+class AudioInputContent(ConfiguredBaseModel):
+    """An audio input content fragment."""
+
+    type: Literal["audio"] = "audio"
+    source: InputContentSource
+    metadata: Optional[Any] = None
+
+
+class VideoInputContent(ConfiguredBaseModel):
+    """A video input content fragment."""
+
+    type: Literal["video"] = "video"
+    source: InputContentSource
+    metadata: Optional[Any] = None
+
+
+class DocumentInputContent(ConfiguredBaseModel):
+    """A document input content fragment."""
+
+    type: Literal["document"] = "document"
+    source: InputContentSource
+    metadata: Optional[Any] = None
+
+
 class BinaryInputContent(ConfiguredBaseModel):
-    """A binary payload reference in a multimodal user message."""
+    """A deprecated binary payload reference in a multimodal user message."""
 
     type: Literal["binary"] = "binary"  # pyright: ignore[reportIncompatibleVariableOverride]
     mime_type: str
@@ -94,11 +151,33 @@ class BinaryInputContent(ConfiguredBaseModel):
             raise ValueError("BinaryInputContent requires id, url, or data to be provided.")
         return self
 
+    def model_post_init(self, __context: Any) -> None:
+        warnings.warn(
+            "BinaryInputContent is deprecated and will be removed in a future release. "
+            "Use ImageInputContent/AudioInputContent/VideoInputContent/DocumentInputContent with InputContentSource.",
+            DeprecationWarning,
+            stacklevel=2,
+        )
+
 
 InputContent = Annotated[
-    Union[TextInputContent, BinaryInputContent],
+    Union[
+        TextInputContent,
+        ImageInputContent,
+        AudioInputContent,
+        VideoInputContent,
+        DocumentInputContent,
+        BinaryInputContent,
+    ],
     Field(discriminator="type"),
 ]
+
+ImageInputPart = ImageInputContent
+AudioInputPart = AudioInputContent
+VideoInputPart = VideoInputContent
+DocumentInputPart = DocumentInputContent
+
+InputContentPart = InputContent
 
 
 class UserMessage(BaseMessage):
@@ -119,6 +198,7 @@ class ToolMessage(ConfiguredBaseModel):
     content: str
     tool_call_id: str
     error: Optional[str] = None
+    encrypted_value: Optional[str] = None
 
 
 class ActivityMessage(ConfiguredBaseModel):
@@ -132,6 +212,17 @@ class ActivityMessage(ConfiguredBaseModel):
     content: Dict[str, Any]
 
 
+class ReasoningMessage(ConfiguredBaseModel):
+    """
+    A reasoning message containing the agent's internal reasoning process.
+    """
+
+    id: str
+    role: Literal["reasoning"] = "reasoning"  # pyright: ignore[reportIncompatibleVariableOverride]
+    content: str
+    encrypted_value: Optional[str] = None
+
+
 Message = Annotated[
     Union[
         DeveloperMessage,
@@ -140,11 +231,12 @@ Message = Annotated[
         UserMessage,
         ToolMessage,
         ActivityMessage,
+        ReasoningMessage,
     ],
     Field(discriminator="role")
 ]
 
-Role = Literal["developer", "system", "assistant", "user", "tool", "activity"]
+Role = Literal["developer", "system", "assistant", "user", "tool", "activity", "reasoning"]
 
 
 class Context(ConfiguredBaseModel):
@@ -161,7 +253,34 @@ class Tool(ConfiguredBaseModel):
     """
     name: str
     description: str
-    parameters: Any  # JSON Schema for the tool parameters
+    parameters: Optional[Any] = None  # JSON Schema for the tool parameters
+
+
+class Interrupt(ConfiguredBaseModel):
+    """
+    A pause carried inside ``RunFinishedEvent.outcome`` when the outcome is
+    ``RunFinishedInterruptOutcome``. The client resumes
+    by addressing this interrupt in the resume array of the next RunAgentInput.
+    """
+    id: str
+    reason: str
+    message: Optional[str] = None
+    tool_call_id: Optional[str] = None
+    response_schema: Optional[Dict[str, Any]] = None
+    expires_at: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
+
+
+ResumeStatus = Literal["resolved", "cancelled"]
+
+
+class ResumeEntry(ConfiguredBaseModel):
+    """
+    A per-interrupt response in the resume array of a RunAgentInput.
+    """
+    interrupt_id: str
+    status: ResumeStatus
+    payload: Optional[Any] = None
 
 
 class RunAgentInput(ConfiguredBaseModel):
@@ -176,6 +295,7 @@ class RunAgentInput(ConfiguredBaseModel):
     tools: List[Tool]
     context: List[Context]
     forwarded_props: Any
+    resume: Optional[List[ResumeEntry]] = None
 
 
 # State can be any type

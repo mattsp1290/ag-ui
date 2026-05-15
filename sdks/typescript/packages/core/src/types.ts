@@ -9,6 +9,7 @@ export const ToolCallSchema = z.object({
   id: z.string(),
   type: z.literal("function"),
   function: FunctionCallSchema,
+  encryptedValue: z.string().optional(),
 });
 
 export const BaseMessageSchema = z.object({
@@ -16,6 +17,7 @@ export const BaseMessageSchema = z.object({
   role: z.string(),
   content: z.string().optional(),
   name: z.string().optional(),
+  encryptedValue: z.string().optional(),
 });
 
 export const TextInputContentSchema = z.object({
@@ -23,7 +25,53 @@ export const TextInputContentSchema = z.object({
   text: z.string(),
 });
 
-const BinaryInputContentObjectSchema = z.object({
+export const InputContentDataSourceSchema = z.object({
+  type: z.literal("data"),
+  value: z.string(),
+  mimeType: z.string(),
+});
+
+export const InputContentUrlSourceSchema = z.object({
+  type: z.literal("url"),
+  value: z.string(),
+  mimeType: z.string().optional(),
+});
+
+export const InputContentSourceSchema = z.discriminatedUnion("type", [
+  InputContentDataSourceSchema,
+  InputContentUrlSourceSchema,
+]);
+
+export const ImageInputContentSchema = z.object({
+  type: z.literal("image"),
+  source: InputContentSourceSchema,
+  metadata: z.unknown().optional(),
+});
+
+export const AudioInputContentSchema = z.object({
+  type: z.literal("audio"),
+  source: InputContentSourceSchema,
+  metadata: z.unknown().optional(),
+});
+
+export const VideoInputContentSchema = z.object({
+  type: z.literal("video"),
+  source: InputContentSourceSchema,
+  metadata: z.unknown().optional(),
+});
+
+export const DocumentInputContentSchema = z.object({
+  type: z.literal("document"),
+  source: InputContentSourceSchema,
+  metadata: z.unknown().optional(),
+});
+
+export const ImageInputPartSchema = ImageInputContentSchema;
+export const AudioInputPartSchema = AudioInputContentSchema;
+export const VideoInputPartSchema = VideoInputContentSchema;
+export const DocumentInputPartSchema = DocumentInputContentSchema;
+
+const LegacyBinaryInputContentObjectSchema = z.object({
   type: z.literal("binary"),
   mimeType: z.string(),
   id: z.string().optional(),
@@ -45,13 +93,19 @@ const ensureBinaryPayload = (
   }
 };
 
-export const BinaryInputContentSchema = BinaryInputContentObjectSchema.superRefine((value, ctx) => {
-  ensureBinaryPayload(value, ctx);
-});
+export const BinaryInputContentSchema = LegacyBinaryInputContentObjectSchema.superRefine(
+  (value, ctx) => {
+    ensureBinaryPayload(value, ctx);
+  },
+);
 
 const InputContentBaseSchema = z.discriminatedUnion("type", [
   TextInputContentSchema,
-  BinaryInputContentObjectSchema,
+  ImageInputContentSchema,
+  AudioInputContentSchema,
+  VideoInputContentSchema,
+  DocumentInputContentSchema,
+  LegacyBinaryInputContentObjectSchema,
 ]);
 
 export const InputContentSchema = InputContentBaseSchema.superRefine((value, ctx) => {
@@ -87,6 +141,7 @@ export const ToolMessageSchema = z.object({
   role: z.literal("tool"),
   toolCallId: z.string(),
   error: z.string().optional(),
+  encryptedValue: z.string().optional(),
 });
 
 export const ActivityMessageSchema = z.object({
@@ -96,6 +151,13 @@ export const ActivityMessageSchema = z.object({
   content: z.record(z.any()),
 });
 
+export const ReasoningMessageSchema = z.object({
+  id: z.string(),
+  role: z.literal("reasoning"),
+  content: z.string(),
+  encryptedValue: z.string().optional(),
+});
+
 export const MessageSchema = z.discriminatedUnion("role", [
   DeveloperMessageSchema,
   SystemMessageSchema,
@@ -103,6 +165,7 @@ export const MessageSchema = z.discriminatedUnion("role", [
   UserMessageSchema,
   ToolMessageSchema,
   ActivityMessageSchema,
+  ReasoningMessageSchema,
 ]);
 
 export const RoleSchema = z.union([
@@ -112,6 +175,7 @@ export const RoleSchema = z.union([
   z.literal("user"),
   z.literal("tool"),
   z.literal("activity"),
+  z.literal("reasoning"),
 ]);
 
 export const ContextSchema = z.object({
@@ -123,6 +187,23 @@ export const ToolSchema = z.object({
   name: z.string(),
   description: z.string(),
   parameters: z.any(), // JSON Schema for the tool parameters
+  metadata: z.record(z.any()).optional(), // Arbitrary tool metadata (e.g. a2ui schema)
+});
+
+export const InterruptSchema = z.object({
+  id: z.string(),
+  reason: z.string(),
+  message: z.string().optional(),
+  toolCallId: z.string().optional(),
+  responseSchema: z.record(z.any()).optional(),
+  expiresAt: z.string().optional(),
+  metadata: z.record(z.any()).optional(),
+});
+
+export const ResumeEntrySchema = z.object({
+  interruptId: z.string(),
+  status: z.enum(["resolved", "cancelled"]),
+  payload: z.any().optional(),
 });
 
 export const RunAgentInputSchema = z.object({
@@ -134,6 +215,7 @@ export const RunAgentInputSchema = z.object({
   tools: z.array(ToolSchema),
   context: z.array(ContextSchema),
   forwardedProps: z.any(),
+  resume: z.array(ResumeEntrySchema).optional(),
 });
 
 export const StateSchema = z.any();
@@ -141,20 +223,36 @@ export const StateSchema = z.any();
 export type ToolCall = z.infer<typeof ToolCallSchema>;
 export type FunctionCall = z.infer<typeof FunctionCallSchema>;
 export type TextInputContent = z.infer<typeof TextInputContentSchema>;
+export type InputContentDataSource = z.infer<typeof InputContentDataSourceSchema>;
+export type InputContentUrlSource = z.infer<typeof InputContentUrlSourceSchema>;
+export type InputContentSource = z.infer<typeof InputContentSourceSchema>;
+export type ImageInputContent = z.infer<typeof ImageInputContentSchema>;
+export type AudioInputContent = z.infer<typeof AudioInputContentSchema>;
+export type VideoInputContent = z.infer<typeof VideoInputContentSchema>;
+export type DocumentInputContent = z.infer<typeof DocumentInputContentSchema>;
+export type ImageInputPart = ImageInputContent;
+export type AudioInputPart = AudioInputContent;
+export type VideoInputPart = VideoInputContent;
+export type DocumentInputPart = DocumentInputContent;
 export type BinaryInputContent = z.infer<typeof BinaryInputContentSchema>;
 export type InputContent = z.infer<typeof InputContentSchema>;
+export type InputContentPart = z.infer<typeof InputContentSchema>;
 export type DeveloperMessage = z.infer<typeof DeveloperMessageSchema>;
 export type SystemMessage = z.infer<typeof SystemMessageSchema>;
 export type AssistantMessage = z.infer<typeof AssistantMessageSchema>;
 export type UserMessage = z.infer<typeof UserMessageSchema>;
 export type ToolMessage = z.infer<typeof ToolMessageSchema>;
 export type ActivityMessage = z.infer<typeof ActivityMessageSchema>;
+export type ReasoningMessage = z.infer<typeof ReasoningMessageSchema>;
 export type Message = z.infer<typeof MessageSchema>;
 export type Context = z.infer<typeof ContextSchema>;
 export type Tool = z.infer<typeof ToolSchema>;
 export type RunAgentInput = z.infer<typeof RunAgentInputSchema>;
 export type State = z.infer<typeof StateSchema>;
 export type Role = z.infer<typeof RoleSchema>;
+export type Interrupt = z.infer<typeof InterruptSchema>;
+export type ResumeEntry = z.infer<typeof ResumeEntrySchema>;
+export type ResumeStatus = z.infer<typeof ResumeEntrySchema>["status"];
 
 export class AGUIError extends Error {
   constructor(message: string) {

@@ -1,5 +1,5 @@
 import { AbstractAgent } from "../agent";
-import { AgentSubscriber } from "../subscriber";
+import { AgentSubscriber, runSubscribersWithMutation } from "../subscriber";
 import {
   BaseEvent,
   EventType,
@@ -21,15 +21,16 @@ import {
 } from "@ag-ui/core";
 import { Observable, of, throwError, from } from "rxjs";
 import { mergeMap } from "rxjs/operators";
+import { describe, it, expect, vi, beforeEach, test } from "vitest";
 
 // Mock uuid module
-jest.mock("uuid", () => ({
-  v4: jest.fn().mockReturnValue("mock-uuid"),
+vi.mock("uuid", () => ({
+  v4: vi.fn().mockReturnValue("mock-uuid"),
 }));
 
 // Mock utils with handling for undefined values
-jest.mock("@/utils", () => {
-  const actual = jest.requireActual<typeof import("@/utils")>("@/utils");
+vi.mock("@/utils", async () => {
+  const actual = await vi.importActual<typeof import("@/utils")>("@/utils");
   return {
     ...actual,
     structuredClone_: (obj: any) => {
@@ -42,12 +43,12 @@ jest.mock("@/utils", () => {
 });
 
 // Mock the verify modules but NOT apply - we want to test against real defaultApplyEvents
-jest.mock("@/verify", () => ({
-  verifyEvents: jest.fn(() => (source$: Observable<any>) => source$),
+vi.mock("@/verify", () => ({
+  verifyEvents: vi.fn(() => (source$: Observable<any>) => source$),
 }));
 
-jest.mock("@/chunks", () => ({
-  transformChunks: jest.fn(() => (source$: Observable<any>) => source$),
+vi.mock("@/chunks", () => ({
+  transformChunks: vi.fn(() => (source$: Observable<any>) => source$),
 }));
 
 // Create a test agent implementation
@@ -68,7 +69,7 @@ describe("AgentSubscriber", () => {
   let mockSubscriber: AgentSubscriber;
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    vi.clearAllMocks();
 
     agent = new TestAgent({
       threadId: "test-thread",
@@ -83,25 +84,25 @@ describe("AgentSubscriber", () => {
     });
 
     mockSubscriber = {
-      onEvent: jest.fn(),
-      onRunStartedEvent: jest.fn(),
-      onRunFinishedEvent: jest.fn(),
-      onTextMessageStartEvent: jest.fn(),
-      onTextMessageContentEvent: jest.fn(),
-      onTextMessageEndEvent: jest.fn(),
-      onToolCallStartEvent: jest.fn(),
-      onToolCallArgsEvent: jest.fn(),
-      onToolCallEndEvent: jest.fn(),
-      onToolCallResultEvent: jest.fn(),
-      onCustomEvent: jest.fn(),
-      onStateSnapshotEvent: jest.fn(),
-      onMessagesChanged: jest.fn(),
-      onStateChanged: jest.fn(),
-      onNewMessage: jest.fn(),
-      onNewToolCall: jest.fn(),
-      onRunInitialized: jest.fn(),
-      onRunFailed: jest.fn(),
-      onRunFinalized: jest.fn(),
+      onEvent: vi.fn(),
+      onRunStartedEvent: vi.fn(),
+      onRunFinishedEvent: vi.fn(),
+      onTextMessageStartEvent: vi.fn(),
+      onTextMessageContentEvent: vi.fn(),
+      onTextMessageEndEvent: vi.fn(),
+      onToolCallStartEvent: vi.fn(),
+      onToolCallArgsEvent: vi.fn(),
+      onToolCallEndEvent: vi.fn(),
+      onToolCallResultEvent: vi.fn(),
+      onCustomEvent: vi.fn(),
+      onStateSnapshotEvent: vi.fn(),
+      onMessagesChanged: vi.fn(),
+      onStateChanged: vi.fn(),
+      onNewMessage: vi.fn(),
+      onNewToolCall: vi.fn(),
+      onRunInitialized: vi.fn(),
+      onRunFailed: vi.fn(),
+      onRunFinalized: vi.fn(),
     };
   });
 
@@ -122,7 +123,7 @@ describe("AgentSubscriber", () => {
 
     it("should support multiple subscribers", () => {
       const subscriber2: AgentSubscriber = {
-        onEvent: jest.fn(),
+        onEvent: vi.fn(),
       };
 
       agent.subscribe(mockSubscriber);
@@ -135,7 +136,7 @@ describe("AgentSubscriber", () => {
 
     it("should only remove the specific subscriber on unsubscribe", () => {
       const subscriber2: AgentSubscriber = {
-        onEvent: jest.fn(),
+        onEvent: vi.fn(),
       };
 
       const subscription1 = agent.subscribe(mockSubscriber);
@@ -155,8 +156,8 @@ describe("AgentSubscriber", () => {
   describe("temporary subscribers via runAgent", () => {
     it("should accept a temporary subscriber via runAgent parameter", async () => {
       const temporarySubscriber: AgentSubscriber = {
-        onRunStartedEvent: jest.fn(),
-        onRunFinishedEvent: jest.fn(),
+        onRunStartedEvent: vi.fn(),
+        onRunFinishedEvent: vi.fn(),
       };
 
       const runStartedEvent: RunStartedEvent = {
@@ -199,11 +200,11 @@ describe("AgentSubscriber", () => {
 
     it("should combine permanent and temporary subscribers", async () => {
       const permanentSubscriber: AgentSubscriber = {
-        onRunStartedEvent: jest.fn(),
+        onRunStartedEvent: vi.fn(),
       };
 
       const temporarySubscriber: AgentSubscriber = {
-        onRunStartedEvent: jest.fn(),
+        onRunStartedEvent: vi.fn(),
       };
 
       agent.subscribe(permanentSubscriber);
@@ -233,10 +234,10 @@ describe("AgentSubscriber", () => {
       };
 
       const mutatingSubscriber: AgentSubscriber = {
-        onRunInitialized: jest.fn().mockReturnValue({
+        onRunInitialized: vi.fn().mockReturnValue({
           messages: [...agent.messages, newMessage],
         }),
-        onMessagesChanged: jest.fn(),
+        onMessagesChanged: vi.fn(),
       };
 
       // Emit a dummy event to avoid EmptyError
@@ -277,10 +278,10 @@ describe("AgentSubscriber", () => {
 
     it("should allow subscribers to mutate state", async () => {
       const mutatingSubscriber: AgentSubscriber = {
-        onRunInitialized: jest.fn().mockReturnValue({
+        onRunInitialized: vi.fn().mockReturnValue({
           state: { counter: 42, newField: "added" },
         }),
-        onStateChanged: jest.fn(),
+        onStateChanged: vi.fn(),
       };
 
       // Emit a dummy event to avoid EmptyError
@@ -319,11 +320,11 @@ describe("AgentSubscriber", () => {
       };
 
       const mutatingSubscriber: AgentSubscriber = {
-        onStateSnapshotEvent: jest.fn().mockReturnValue({
+        onStateSnapshotEvent: vi.fn().mockReturnValue({
           state: { modifiedBySubscriber: true },
           stopPropagation: true, // Prevent the event from applying its snapshot
         }),
-        onStateChanged: jest.fn(),
+        onStateChanged: vi.fn(),
       };
 
       agent.setEventsToEmit([stateEvent]);
@@ -345,13 +346,13 @@ describe("AgentSubscriber", () => {
   describe("stopPropagation functionality", () => {
     it("should stop propagation to subsequent subscribers when stopPropagation is true", async () => {
       const firstSubscriber: AgentSubscriber = {
-        onRunInitialized: jest.fn().mockReturnValue({
+        onRunInitialized: vi.fn().mockReturnValue({
           stopPropagation: true,
         }),
       };
 
       const secondSubscriber: AgentSubscriber = {
-        onRunInitialized: jest.fn(),
+        onRunInitialized: vi.fn(),
       };
 
       agent.subscribe(firstSubscriber);
@@ -377,13 +378,13 @@ describe("AgentSubscriber", () => {
 
     it("should continue to next subscriber when stopPropagation is false", async () => {
       const firstSubscriber: AgentSubscriber = {
-        onRunInitialized: jest.fn().mockReturnValue({
+        onRunInitialized: vi.fn().mockReturnValue({
           stopPropagation: false,
         }),
       };
 
       const secondSubscriber: AgentSubscriber = {
-        onRunInitialized: jest.fn(),
+        onRunInitialized: vi.fn(),
       };
 
       agent.subscribe(firstSubscriber);
@@ -402,11 +403,11 @@ describe("AgentSubscriber", () => {
 
     it("should continue to next subscriber when stopPropagation is undefined", async () => {
       const firstSubscriber: AgentSubscriber = {
-        onRunInitialized: jest.fn().mockReturnValue({}), // No stopPropagation field
+        onRunInitialized: vi.fn().mockReturnValue({}), // No stopPropagation field
       };
 
       const secondSubscriber: AgentSubscriber = {
-        onRunInitialized: jest.fn(),
+        onRunInitialized: vi.fn(),
       };
 
       agent.subscribe(firstSubscriber);
@@ -425,7 +426,7 @@ describe("AgentSubscriber", () => {
 
     it("should stop default behavior on error when stopPropagation is true", async () => {
       const errorHandlingSubscriber: AgentSubscriber = {
-        onRunFailed: jest.fn().mockReturnValue({
+        onRunFailed: vi.fn().mockReturnValue({
           stopPropagation: true,
         }),
       };
@@ -447,7 +448,7 @@ describe("AgentSubscriber", () => {
       errorAgent.subscribe(errorHandlingSubscriber);
 
       // Mock console.error to check if it's called
-      const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation();
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation();
 
       // This should not throw because the subscriber handles the error
       await expect(errorAgent.runAgent({})).resolves.toBeDefined();
@@ -466,7 +467,7 @@ describe("AgentSubscriber", () => {
 
     it("should allow default error behavior when stopPropagation is false", async () => {
       const errorHandlingSubscriber: AgentSubscriber = {
-        onRunFailed: jest.fn().mockReturnValue({
+        onRunFailed: vi.fn().mockReturnValue({
           stopPropagation: false,
         }),
       };
@@ -488,7 +489,7 @@ describe("AgentSubscriber", () => {
       errorAgent.subscribe(errorHandlingSubscriber);
 
       // Mock console.error to check if it's called
-      const consoleErrorSpy = jest.spyOn(console, "error").mockImplementation();
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation();
 
       // This should throw because the subscriber doesn't stop propagation
       await expect(errorAgent.runAgent({})).rejects.toThrow("Test error");
@@ -507,19 +508,19 @@ describe("AgentSubscriber", () => {
       const callOrder: string[] = [];
 
       const subscriber1: AgentSubscriber = {
-        onRunInitialized: jest.fn().mockImplementation(() => {
+        onRunInitialized: vi.fn().mockImplementation(() => {
           callOrder.push("subscriber1");
         }),
       };
 
       const subscriber2: AgentSubscriber = {
-        onRunInitialized: jest.fn().mockImplementation(() => {
+        onRunInitialized: vi.fn().mockImplementation(() => {
           callOrder.push("subscriber2");
         }),
       };
 
       const subscriber3: AgentSubscriber = {
-        onRunInitialized: jest.fn().mockImplementation(() => {
+        onRunInitialized: vi.fn().mockImplementation(() => {
           callOrder.push("subscriber3");
         }),
       };
@@ -539,13 +540,13 @@ describe("AgentSubscriber", () => {
 
     it("should pass mutations from one subscriber to the next", async () => {
       const subscriber1: AgentSubscriber = {
-        onRunInitialized: jest.fn().mockReturnValue({
+        onRunInitialized: vi.fn().mockReturnValue({
           state: { step: 1 },
         }),
       };
 
       const subscriber2: AgentSubscriber = {
-        onRunInitialized: jest.fn().mockImplementation((params) => {
+        onRunInitialized: vi.fn().mockImplementation((params) => {
           // Should receive the state modified by subscriber1
           expect(params.state).toEqual({ step: 1 });
           return {
@@ -555,7 +556,7 @@ describe("AgentSubscriber", () => {
       };
 
       const subscriber3: AgentSubscriber = {
-        onRunInitialized: jest.fn().mockImplementation((params) => {
+        onRunInitialized: vi.fn().mockImplementation((params) => {
           // Should receive the state modified by subscriber2
           expect(params.state).toEqual({ step: 2 });
           return {
@@ -612,8 +613,8 @@ describe("AgentSubscriber", () => {
       };
 
       const specificSubscriber: AgentSubscriber = {
-        onTextMessageStartEvent: jest.fn(),
-        onTextMessageContentEvent: jest.fn(),
+        onTextMessageStartEvent: vi.fn(),
+        onTextMessageContentEvent: vi.fn(),
       };
 
       agent.subscribe(specificSubscriber);
@@ -658,7 +659,7 @@ describe("AgentSubscriber", () => {
       ];
 
       const genericSubscriber: AgentSubscriber = {
-        onEvent: jest.fn(),
+        onEvent: vi.fn(),
       };
 
       agent.subscribe(genericSubscriber);
@@ -687,10 +688,10 @@ describe("AgentSubscriber", () => {
       const callOrder: string[] = [];
 
       const lifecycleSubscriber: AgentSubscriber = {
-        onRunInitialized: jest.fn().mockImplementation(() => {
+        onRunInitialized: vi.fn().mockImplementation(() => {
           callOrder.push("initialized");
         }),
-        onRunFinalized: jest.fn().mockImplementation(() => {
+        onRunFinalized: vi.fn().mockImplementation(() => {
           callOrder.push("finalized");
         }),
       };
@@ -707,10 +708,10 @@ describe("AgentSubscriber", () => {
 
     it("should call onRunFinalized even after errors", async () => {
       const lifecycleSubscriber: AgentSubscriber = {
-        onRunFailed: jest.fn().mockReturnValue({
+        onRunFailed: vi.fn().mockReturnValue({
           stopPropagation: true, // Handle the error
         }),
-        onRunFinalized: jest.fn(),
+        onRunFinalized: vi.fn(),
       };
 
       // Create an agent that throws an error
@@ -1043,19 +1044,19 @@ describe("AgentSubscriber", () => {
   describe("Subscriber Error Handling", () => {
     test("should handle errors in subscriber callbacks gracefully", async () => {
       const errorSubscriber = {
-        onEvent: jest.fn().mockImplementation(() => {
+        onEvent: vi.fn().mockImplementation(() => {
           // Return stopPropagation to handle the error gracefully
           throw new Error("Subscriber error");
         }),
-        onTextMessageStartEvent: jest.fn().mockImplementation(() => {
+        onTextMessageStartEvent: vi.fn().mockImplementation(() => {
           throw new Error("Sync subscriber error");
         }),
       };
 
       // Add a working subscriber to ensure others still work
       const workingSubscriber = {
-        onEvent: jest.fn(),
-        onTextMessageStartEvent: jest.fn(),
+        onEvent: vi.fn(),
+        onTextMessageStartEvent: vi.fn(),
       };
 
       const testAgent = new TestAgent();
@@ -1079,13 +1080,13 @@ describe("AgentSubscriber", () => {
 
     test("should continue processing other subscribers when one fails", async () => {
       const errorSubscriber = {
-        onTextMessageStartEvent: jest.fn().mockImplementation(() => {
+        onTextMessageStartEvent: vi.fn().mockImplementation(() => {
           throw new Error("First subscriber error");
         }),
       };
 
       const workingSubscriber = {
-        onTextMessageStartEvent: jest.fn().mockResolvedValue(undefined),
+        onTextMessageStartEvent: vi.fn().mockResolvedValue(undefined),
       };
 
       const testAgent = new TestAgent();
@@ -1192,14 +1193,14 @@ describe("AgentSubscriber", () => {
   describe("Advanced Mutation Tests", () => {
     test("should handle mutations with stopPropagation in tool call events", async () => {
       const mutatingSubscriber = {
-        onToolCallStartEvent: jest.fn().mockResolvedValue({
+        onToolCallStartEvent: vi.fn().mockResolvedValue({
           state: { toolCallBlocked: true },
           stopPropagation: true,
         }),
       };
 
       const secondSubscriber = {
-        onToolCallStartEvent: jest.fn(),
+        onToolCallStartEvent: vi.fn(),
       };
 
       const toolCallAgent = new TestAgent();
@@ -1224,11 +1225,11 @@ describe("AgentSubscriber", () => {
       let stateUpdates = 0;
 
       const trackingSubscriber = {
-        onTextMessageStartEvent: jest.fn().mockImplementation(() => {
+        onTextMessageStartEvent: vi.fn().mockImplementation(() => {
           messageCount++;
           return { state: { messageCount } };
         }),
-        onToolCallStartEvent: jest.fn().mockImplementation(() => {
+        onToolCallStartEvent: vi.fn().mockImplementation(() => {
           stateUpdates++;
           return { state: { stateUpdates } };
         }),
@@ -1257,6 +1258,220 @@ describe("AgentSubscriber", () => {
 
       expect(trackingSubscriber.onTextMessageStartEvent).toHaveBeenCalledTimes(2);
       expect(trackingSubscriber.onToolCallStartEvent).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe("runSubscribersWithMutation isolation contract", () => {
+    const runWith = (
+      subscribers: AgentSubscriber[],
+      messages: Message[] = [{ id: "orig", role: "user", content: "hi" }],
+      state: Record<string, any> = {},
+    ) =>
+      runSubscribersWithMutation(subscribers, messages, state, (subscriber, msgs, st) =>
+        subscriber.onEvent?.({
+          messages: msgs,
+          state: st,
+          agent: {} as any,
+          input: {} as any,
+          event: { type: EventType.RUN_STARTED } as any,
+        }),
+      );
+
+    it("should detect changes when subscriber returns a new messages array with same content", async () => {
+      const cloningSubscriber: AgentSubscriber = {
+        onEvent: ({ messages }) => ({
+          messages: [...messages],
+        }),
+      };
+
+      const result = await runWith([cloningSubscriber]);
+
+      // Reference equality means a new array is detected as a change
+      // (trade-off: may cause extra onMessagesChanged callbacks, but avoids JSON.stringify cost)
+      expect(result.messages).toBeDefined();
+    });
+
+    it("should detect changes when subscriber returns a new state object with same content", async () => {
+      const cloningSubscriber: AgentSubscriber = {
+        onEvent: ({ state }) => ({
+          state: { ...state },
+        }),
+      };
+
+      const result = await runWith([cloningSubscriber]);
+
+      expect(result.state).toBeDefined();
+    });
+
+    it("should not report changes when subscriber returns the same messages reference", async () => {
+      const passThroughSubscriber: AgentSubscriber = {
+        onEvent: ({ messages }) => ({
+          messages: messages as Message[],
+        }),
+      };
+
+      const result = await runWith([passThroughSubscriber]);
+
+      // Same reference returned — detected as no-op, no clone needed
+      expect(result.messages).toBeUndefined();
+    });
+
+    it("should not report changes when subscriber returns the same state reference", async () => {
+      const passThroughSubscriber: AgentSubscriber = {
+        onEvent: ({ state }) => ({
+          state,
+        }),
+      };
+
+      const result = await runWith([passThroughSubscriber]);
+
+      // Same reference returned — detected as no-op, no clone needed
+      expect(result.state).toBeUndefined();
+    });
+
+    it("should not report in-place mutations that are not returned (production mode)", async () => {
+      // Stub to production mode: no freeze, so the push succeeds, but the mutation is
+      // not communicated via return value and therefore not detected.
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("VITEST_WORKER_ID", "");
+
+      try {
+        const inPlaceMutator: AgentSubscriber = {
+          onEvent: ({ messages }) => {
+            // In production mode inputs are not frozen, so push succeeds silently.
+            // But since nothing is returned, the change is not propagated — silent data loss.
+            // This documents the contract: subscribers MUST return mutations, not mutate in-place.
+            (messages as Message[]).push({
+              id: "injected",
+              role: "assistant",
+              content: "injected",
+            });
+            // Return void — no mutation communicated
+          },
+        };
+
+        const result = await runWith([inPlaceMutator]);
+
+        // The in-place push is NOT reflected in the result because it wasn't returned
+        expect(result.messages).toBeUndefined();
+      } finally {
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it("should re-throw TypeError when subscriber mutates frozen inputs in dev/test mode", async () => {
+      // In dev/test mode, inputs are deep-frozen. Any in-place mutation attempt
+      // throws a TypeError that runSubscribersWithMutation re-throws so violations
+      // are visible rather than silently swallowed.
+      const inPlaceMutator: AgentSubscriber = {
+        onEvent: ({ messages }) => {
+          (messages as Message[]).push({ id: "bad", role: "assistant", content: "bad" });
+        },
+      };
+
+      await expect(runWith([inPlaceMutator])).rejects.toThrow(TypeError);
+    });
+
+    it("should log a freeze violation and continue in development mode (non-test)", async () => {
+      // In dev mode (NODE_ENV=development), freeze violations are logged with a specific
+      // message instead of re-throwing — the violating subscriber is skipped, and remaining
+      // subscribers continue to execute.
+      vi.stubEnv("NODE_ENV", "development");
+      vi.stubEnv("VITEST_WORKER_ID", "");
+
+      const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      try {
+        const inPlaceMutator: AgentSubscriber = {
+          onEvent: ({ messages }) => {
+            (messages as Message[]).push({ id: "bad", role: "assistant", content: "bad" });
+          },
+        };
+
+        // Should resolve (not reject) because dev mode logs instead of re-throwing
+        const result = await runWith([inPlaceMutator]);
+
+        expect(result.messages).toBeUndefined();
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          expect.stringContaining("AG-UI:"),
+          expect.any(TypeError),
+        );
+      } finally {
+        consoleErrorSpy.mockRestore();
+        vi.unstubAllEnvs();
+      }
+    });
+
+    it("should return unfrozen messages even after freeze was applied internally", async () => {
+      // Verifies that the internal deepFreeze does not leak frozen references to callers.
+      // The returned AgentStateMutation.messages must be mutable.
+      const mutatingSubscriber: AgentSubscriber = {
+        onEvent: () => ({
+          messages: [{ id: "new", role: "assistant", content: "new message" }],
+        }),
+      };
+
+      // Add a second subscriber that does nothing, so the messages clone gets frozen
+      // on the next iteration — this is the scenario that could return a frozen value.
+      const noopSubscriber: AgentSubscriber = {
+        onEvent: () => undefined,
+      };
+
+      const result = await runWith([mutatingSubscriber, noopSubscriber]);
+
+      expect(result.messages).toBeDefined();
+      // Must not be frozen — callers should be able to mutate the returned value
+      expect(Object.isFrozen(result.messages)).toBe(false);
+    });
+
+    it("should return unfrozen state even after freeze was applied internally", async () => {
+      // Same as the messages variant above, but for state. The state clone at the
+      // return point must also be unfrozen (symmetric code path, separately tested).
+      const mutatingSubscriber: AgentSubscriber = {
+        onEvent: () => ({
+          state: { key: "value" },
+        }),
+      };
+
+      // Second subscriber triggers the freeze-on-next-iteration path for state.
+      const noopSubscriber: AgentSubscriber = {
+        onEvent: () => undefined,
+      };
+
+      const result = await runWith([mutatingSubscriber, noopSubscriber]);
+
+      expect(result.state).toBeDefined();
+      expect(Object.isFrozen(result.state)).toBe(false);
+    });
+
+    it("should give subscriber B a clone of subscriber A's mutation output", async () => {
+      // Verifies multi-subscriber isolation: the new cloning-on-output strategy
+      // must still ensure each subsequent subscriber sees its own defensive copy,
+      // not a direct reference to the previous subscriber's returned array.
+      let subscriberBReceivedMessages: ReadonlyArray<Readonly<Message>> | undefined;
+      let subscriberAReturnedMessages: Message[] | undefined;
+
+      const subscriberA: AgentSubscriber = {
+        onEvent: () => {
+          subscriberAReturnedMessages = [{ id: "a-msg", role: "assistant", content: "from A" }];
+          return { messages: subscriberAReturnedMessages };
+        },
+      };
+
+      const subscriberB: AgentSubscriber = {
+        onEvent: ({ messages }) => {
+          subscriberBReceivedMessages = messages;
+        },
+      };
+
+      await runWith([subscriberA, subscriberB]);
+
+      // B should see A's messages content
+      expect(subscriberBReceivedMessages).toBeDefined();
+      expect(subscriberBReceivedMessages).toHaveLength(1);
+      expect(subscriberBReceivedMessages![0].id).toBe("a-msg");
+      // But NOT the same reference — B received a defensive clone
+      expect(subscriberBReceivedMessages).not.toBe(subscriberAReturnedMessages);
     });
   });
 
@@ -1290,6 +1505,64 @@ describe("AgentSubscriber", () => {
       // 3. ALL calls to emitUpdates() return EMPTY
       // 4. Observable completes without emitting anything
       await expect(emptyAgent.runAgent({}));
+    });
+  });
+
+  describe("browser environment (no process global)", () => {
+    it("runSubscribersWithMutation should not throw when process is undefined", async () => {
+      const originalProcess = globalThis.process;
+      try {
+        // Simulate a browser environment where `process` does not exist.
+        // @ts-expect-error - intentionally removing process to simulate browser
+        delete globalThis.process;
+
+        const subscriber: AgentSubscriber = {
+          onRunInitialized: vi.fn().mockReturnValue({ messages: [] }),
+        };
+
+        const result = await runSubscribersWithMutation(
+          [subscriber],
+          [],
+          {},
+          (sub, messages, state) =>
+            (sub as { onRunInitialized: Function }).onRunInitialized({ messages, state }),
+        );
+
+        expect(result).toBeDefined();
+        expect(subscriber.onRunInitialized).toHaveBeenCalled();
+      } finally {
+        globalThis.process = originalProcess;
+      }
+    });
+
+    it("runSubscribersWithMutation should not deep-freeze when process is undefined", async () => {
+      const originalProcess = globalThis.process;
+      try {
+        // @ts-expect-error - intentionally removing process to simulate browser
+        delete globalThis.process;
+
+        const mutableState = { counter: 0 };
+        const subscriber: AgentSubscriber = {
+          onRunInitialized: vi.fn().mockImplementation(({ state }) => {
+            // In a browser (no process), isDev is false, so inputs should NOT be frozen.
+            // If the guard is missing, this would throw ReferenceError before we get here.
+            return undefined;
+          }),
+        };
+
+        await runSubscribersWithMutation(
+          [subscriber],
+          [],
+          mutableState,
+          (sub, messages, state) =>
+            (sub as { onRunInitialized: Function }).onRunInitialized({ messages, state }),
+        );
+
+        // If we reach here, no ReferenceError was thrown — the guard works.
+        expect(subscriber.onRunInitialized).toHaveBeenCalled();
+      } finally {
+        globalThis.process = originalProcess;
+      }
     });
   });
 });

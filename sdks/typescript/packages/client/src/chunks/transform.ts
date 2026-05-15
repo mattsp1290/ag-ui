@@ -9,11 +9,17 @@ import {
   ToolCallChunkEvent,
   ToolCallEndEvent,
   ToolCallStartEvent,
+  ReasoningMessageChunkEvent,
+  ReasoningMessageContentEvent,
+  ReasoningMessageEndEvent,
+  ReasoningMessageStartEvent,
 } from "@ag-ui/core";
 import { EventType } from "@ag-ui/core";
+import { type DebugLoggerInput, resolveDebugLogger } from "@/debug-logger";
 
 interface TextMessageFields {
   messageId: string;
+  name?: string;
 }
 
 interface ToolCallFields {
@@ -22,12 +28,18 @@ interface ToolCallFields {
   parentMessageId?: string;
 }
 
+interface ReasoningMessageFields {
+  messageId: string;
+}
+
 export const transformChunks =
-  (debug: boolean) =>
+  (debugLogger?: DebugLoggerInput) =>
   (events$: Observable<BaseEvent>): Observable<BaseEvent> => {
+    const log = resolveDebugLogger(debugLogger);
     let textMessageFields: TextMessageFields | undefined;
     let toolCallFields: ToolCallFields | undefined;
-    let mode: "text" | "tool" | undefined;
+    let reasoningMessageFields: ReasoningMessageFields | undefined;
+    let mode: "text" | "tool" | "reasoning" | undefined;
 
     const closeTextMessage = () => {
       if (!textMessageFields || mode !== "text") {
@@ -40,9 +52,9 @@ export const transformChunks =
       mode = undefined;
       textMessageFields = undefined;
 
-      if (debug) {
-        console.debug("[TRANSFORM]: TEXT_MESSAGE_END", JSON.stringify(event));
-      }
+      log?.event("TRANSFORM", "TEXT_MESSAGE_END", event, {
+        messageId: event.messageId,
+      });
 
       return event;
     };
@@ -58,9 +70,27 @@ export const transformChunks =
       mode = undefined;
       toolCallFields = undefined;
 
-      if (debug) {
-        console.debug("[TRANSFORM]: TOOL_CALL_END", JSON.stringify(event));
+      log?.event("TRANSFORM", "TOOL_CALL_END", event, {
+        toolCallId: event.toolCallId,
+      });
+
+      return event;
+    };
+
+    const closeReasoningMessage = () => {
+      if (!reasoningMessageFields || mode !== "reasoning") {
+        throw new Error("No reasoning message to close");
       }
+      const event = {
+        type: EventType.REASONING_MESSAGE_END,
+        messageId: reasoningMessageFields.messageId,
+      } as ReasoningMessageEndEvent;
+      mode = undefined;
+      reasoningMessageFields = undefined;
+
+      log?.event("TRANSFORM", "REASONING_MESSAGE_END", event, {
+        messageId: event.messageId,
+      });
 
       return event;
     };
@@ -71,6 +101,9 @@ export const transformChunks =
       }
       if (mode === "tool") {
         return [closeToolCall()];
+      }
+      if (mode === "reasoning") {
+        return [closeReasoningMessage()];
       }
       return [];
     };
@@ -99,10 +132,16 @@ export const transformChunks =
           case EventType.THINKING_TEXT_MESSAGE_START:
           case EventType.THINKING_TEXT_MESSAGE_CONTENT:
           case EventType.THINKING_TEXT_MESSAGE_END:
+          case EventType.REASONING_START:
+          case EventType.REASONING_MESSAGE_START:
+          case EventType.REASONING_MESSAGE_CONTENT:
+          case EventType.REASONING_MESSAGE_END:
+          case EventType.REASONING_END:
             return [...closePendingEvent(), event];
           case EventType.RAW:
           case EventType.ACTIVITY_SNAPSHOT:
           case EventType.ACTIVITY_DELTA:
+          case EventType.REASONING_ENCRYPTED_VALUE:
             return [event];
           case EventType.TEXT_MESSAGE_CHUNK:
             const messageChunkEvent = event as TextMessageChunkEvent;
@@ -126,6 +165,7 @@ export const transformChunks =
 
               textMessageFields = {
                 messageId: messageChunkEvent.messageId,
+                name: messageChunkEvent.name,
               };
               mode = "text";
 
@@ -133,16 +173,14 @@ export const transformChunks =
                 type: EventType.TEXT_MESSAGE_START,
                 messageId: messageChunkEvent.messageId,
                 role: messageChunkEvent.role || "assistant",
+                ...(messageChunkEvent.name !== undefined && { name: messageChunkEvent.name }),
               } as TextMessageStartEvent;
 
               textMessageResult.push(textMessageStartEvent);
 
-              if (debug) {
-                console.debug(
-                  "[TRANSFORM]: TEXT_MESSAGE_START",
-                  JSON.stringify(textMessageStartEvent),
-                );
-              }
+              log?.event("TRANSFORM", "TEXT_MESSAGE_START", textMessageStartEvent, {
+                messageId: messageChunkEvent.messageId,
+              });
             }
 
             if (messageChunkEvent.delta !== undefined) {
@@ -154,12 +192,9 @@ export const transformChunks =
 
               textMessageResult.push(textMessageContentEvent);
 
-              if (debug) {
-                console.debug(
-                  "[TRANSFORM]: TEXT_MESSAGE_CONTENT",
-                  JSON.stringify(textMessageContentEvent),
-                );
-              }
+              log?.event("TRANSFORM", "TEXT_MESSAGE_CONTENT", textMessageContentEvent, {
+                messageId: textMessageFields!.messageId,
+              });
             }
 
             return textMessageResult;
@@ -200,9 +235,10 @@ export const transformChunks =
 
               toolMessageResult.push(toolCallStartEvent);
 
-              if (debug) {
-                console.debug("[TRANSFORM]: TOOL_CALL_START", JSON.stringify(toolCallStartEvent));
-              }
+              log?.event("TRANSFORM", "TOOL_CALL_START", toolCallStartEvent, {
+                toolCallId: toolCallChunkEvent.toolCallId,
+                toolCallName: toolCallChunkEvent.toolCallName,
+              });
             }
 
             if (toolCallChunkEvent.delta !== undefined) {
@@ -214,12 +250,63 @@ export const transformChunks =
 
               toolMessageResult.push(toolCallArgsEvent);
 
-              if (debug) {
-                console.debug("[TRANSFORM]: TOOL_CALL_ARGS", JSON.stringify(toolCallArgsEvent));
-              }
+              log?.event("TRANSFORM", "TOOL_CALL_ARGS", toolCallArgsEvent, {
+                toolCallId: toolCallFields!.toolCallId,
+              });
             }
 
             return toolMessageResult;
+          case EventType.REASONING_MESSAGE_CHUNK:
+            const reasoningChunkEvent = event as ReasoningMessageChunkEvent;
+            const reasoningMessageResult = [];
+            if (
+              // we are not in a reasoning message
+              mode !== "reasoning" ||
+              // or the message id is different
+              (reasoningChunkEvent.messageId &&
+                reasoningChunkEvent.messageId !== reasoningMessageFields?.messageId)
+            ) {
+              // close the current message if any
+              reasoningMessageResult.push(...closePendingEvent());
+            }
+
+            // we are not in a reasoning message, start a new one
+            if (mode !== "reasoning") {
+              if (reasoningChunkEvent.messageId === undefined) {
+                throw new Error("First REASONING_MESSAGE_CHUNK must have a messageId");
+              }
+
+              reasoningMessageFields = {
+                messageId: reasoningChunkEvent.messageId,
+              };
+              mode = "reasoning";
+
+              const reasoningMessageStartEvent = {
+                type: EventType.REASONING_MESSAGE_START,
+                messageId: reasoningChunkEvent.messageId,
+              } as ReasoningMessageStartEvent;
+              reasoningMessageResult.push(reasoningMessageStartEvent);
+
+              log?.event("TRANSFORM", "REASONING_MESSAGE_START", reasoningMessageStartEvent, {
+                messageId: reasoningChunkEvent.messageId,
+              });
+            }
+
+            if (reasoningChunkEvent.delta !== undefined) {
+              const reasoningMessageContentEvent = {
+                type: EventType.REASONING_MESSAGE_CONTENT,
+                messageId: reasoningMessageFields!.messageId,
+                delta: reasoningChunkEvent.delta,
+              } as ReasoningMessageContentEvent;
+
+              reasoningMessageResult.push(reasoningMessageContentEvent);
+
+              log?.event("TRANSFORM", "REASONING_MESSAGE_CONTENT", reasoningMessageContentEvent, {
+                messageId: reasoningMessageFields!.messageId,
+              });
+            }
+
+            return reasoningMessageResult;
         }
         const _exhaustiveCheck: never = event.type;
         return [];

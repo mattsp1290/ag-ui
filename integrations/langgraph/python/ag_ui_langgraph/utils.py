@@ -1,11 +1,12 @@
 import json
+import logging
 import re
 from enum import Enum
 
 from pydantic import TypeAdapter
 from pydantic_core import PydanticSerializationError
 from typing import List, Any, Dict, Union
-from dataclasses import is_dataclass, asdict
+from dataclasses import is_dataclass, asdict, fields
 from datetime import date, datetime
 
 from langchain_core.messages import BaseMessage, HumanMessage, AIMessage, SystemMessage, ToolMessage
@@ -19,8 +20,26 @@ from ag_ui.core import (
     FunctionCall as AGUIFunctionCall,
     TextInputContent,
     BinaryInputContent,
+    ImageInputContent,
+    AudioInputContent,
+    VideoInputContent,
+    DocumentInputContent,
+    InputContentDataSource,
+    InputContentUrlSource,
 )
 from .types import State, SchemaKeys, LangGraphReasoning
+
+logger = logging.getLogger(__name__)
+
+# Type alias for the AG-UI multimodal content union
+AGUIContentItem = Union[
+    TextInputContent,
+    ImageInputContent,
+    AudioInputContent,
+    VideoInputContent,
+    DocumentInputContent,
+    BinaryInputContent,
+]
 
 DEFAULT_SCHEMA_KEYS = ["tools"]
 
@@ -47,9 +66,14 @@ def stringify_if_needed(item: Any) -> str:
         return item
     return json.dumps(item)
 
-def convert_langchain_multimodal_to_agui(content: List[Dict[str, Any]]) -> List[Union[TextInputContent, BinaryInputContent]]:
-    """Convert LangChain's multimodal content to AG-UI format."""
-    agui_content = []
+def convert_langchain_multimodal_to_agui(content: List[Dict[str, Any]]) -> List[Union[TextInputContent, ImageInputContent]]:
+    """Convert LangChain's multimodal content to AG-UI format.
+
+    LangChain only supports ``text`` and ``image_url`` content blocks.
+    ``image_url`` blocks are converted to ``ImageInputContent`` with the
+    appropriate source type (data or URL).
+    """
+    agui_content: List[Union[TextInputContent, ImageInputContent]] = []
     for item in content:
         if isinstance(item, dict):
             if item.get("type") == "text":
@@ -69,17 +93,22 @@ def convert_langchain_multimodal_to_agui(content: List[Dict[str, Any]]) -> List[
                     data = parts[1] if len(parts) > 1 else ""
                     mime_type = header.split(":")[1].split(";")[0] if ":" in header else "image/png"
 
-                    agui_content.append(BinaryInputContent(
-                        type="binary",
-                        mime_type=mime_type,
-                        data=data
+                    agui_content.append(ImageInputContent(
+                        type="image",
+                        source=InputContentDataSource(
+                            type="data",
+                            value=data,
+                            mime_type=mime_type,
+                        ),
                     ))
                 else:
-                    # Regular URL or ID
-                    agui_content.append(BinaryInputContent(
-                        type="binary",
-                        mime_type="image/png",  # Default MIME type
-                        url=url
+                    # Regular URL
+                    agui_content.append(ImageInputContent(
+                        type="image",
+                        source=InputContentUrlSource(
+                            type="url",
+                            value=url,
+                        ),
                     ))
     return agui_content
 
@@ -139,18 +168,49 @@ def langchain_messages_to_agui(messages: List[BaseMessage]) -> List[AGUIMessage]
             raise TypeError(f"Unsupported message type: {type(message)}")
     return agui_messages
 
-def convert_agui_multimodal_to_langchain(content: List[Union[TextInputContent, BinaryInputContent]]) -> List[Dict[str, Any]]:
-    """Convert AG-UI multimodal content to LangChain's multimodal format."""
-    langchain_content = []
+_MEDIA_CONTENT_TYPES = (ImageInputContent, AudioInputContent, VideoInputContent, DocumentInputContent)
+
+
+def _media_source_to_url(source: Union[InputContentDataSource, InputContentUrlSource]) -> str | None:
+    """Convert an InputContentDataSource or InputContentUrlSource to a URL string.
+
+    For data sources, constructs a ``data:<mime>;base64,<value>`` URL.
+    For URL sources, returns the URL directly.
+    """
+    if isinstance(source, InputContentDataSource):
+        return f"data:{source.mime_type};base64,{source.value}"
+    if isinstance(source, InputContentUrlSource):
+        return source.value
+    return None
+
+
+def convert_agui_multimodal_to_langchain(content: List[AGUIContentItem]) -> List[Dict[str, Any]]:
+    """Convert AG-UI multimodal content to LangChain's multimodal format.
+
+    Handles the new typed content classes (ImageInputContent, AudioInputContent,
+    VideoInputContent, DocumentInputContent) as well as legacy BinaryInputContent
+    for backwards compatibility. All media types are routed through LangChain's
+    ``image_url`` format since that is the only media block type LangChain supports.
+    """
+    langchain_content: List[Dict[str, Any]] = []
     for item in content:
         if isinstance(item, TextInputContent):
             langchain_content.append({
                 "type": "text",
                 "text": item.text
             })
+        elif isinstance(item, _MEDIA_CONTENT_TYPES):
+            url = _media_source_to_url(item.source)
+            if url:
+                langchain_content.append({
+                    "type": "image_url",
+                    "image_url": {"url": url}
+                })
+            else:
+                logger.warning("Dropping %s content: source could not be converted to URL", type(item).__name__)
         elif isinstance(item, BinaryInputContent):
-            # LangChain uses image_url format (OpenAI-style)
-            content_dict = {"type": "image_url"}
+            # Legacy BinaryInputContent — backwards compatibility
+            content_dict: Dict[str, Any] = {"type": "image_url"}
 
             # Prioritize url, then data, then id
             if item.url:
@@ -161,6 +221,11 @@ def convert_agui_multimodal_to_langchain(content: List[Union[TextInputContent, B
             elif item.id:
                 # Use id as a reference (some providers may support this)
                 content_dict["image_url"] = {"url": item.id}
+            else:
+                logger.warning(
+                    "Dropping BinaryInputContent item: no url, data, or id provided"
+                )
+                continue
 
             langchain_content.append(content_dict)
 
@@ -170,6 +235,14 @@ def agui_messages_to_langchain(messages: List[AGUIMessage]) -> List[BaseMessage]
     langchain_messages = []
     for message in messages:
         role = message.role
+        # Reasoning + developer AG-UI messages are display-only / handled
+        # elsewhere; their content is already represented in adjacent AIMessage
+        # content blocks (reasoning) or in the agent's configured system prompt
+        # (developer). Re-materializing them as standalone LangChain messages
+        # duplicates context on every turn and can drive the model into a
+        # tool-call loop.
+        if role in ("reasoning", "developer"):
+            continue
         if role == "user":
             # Handle multimodal content
             if isinstance(message.content, str):
@@ -216,25 +289,90 @@ def agui_messages_to_langchain(messages: List[AGUIMessage]) -> List[BaseMessage]
             raise ValueError(f"Unsupported message role: {role}")
     return langchain_messages
 
+def _dual_get(obj: Any, key: str, default: Any = None) -> Any:
+    """Fetch ``key`` from either a mapping or an attribute-bearing object.
+
+    Chunks arrive as LangChain ``BaseMessage`` instances on most paths but
+    some upstream integrations deliver raw dicts. Use this helper anywhere
+    chunk shape is not guaranteed so we don't AttributeError on dicts or
+    KeyError on objects."""
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
 def resolve_reasoning_content(chunk: Any) -> LangGraphReasoning | None:
-    content = chunk.content
+    content = _dual_get(chunk, "content")
     if not content:
-        return None
+        # Fall through to check additional_kwargs for OpenAI legacy format
+        pass
 
-    # Anthropic reasoning response
     if isinstance(content, list) and content and content[0]:
-        if not content[0].get("thinking"):
-            return None
-        return LangGraphReasoning(
-            text=content[0]["thinking"],
-            type="text",
-            index=content[0].get("index", 0)
-        )
+        block = content[0]
+        block_type = block.get("type") if isinstance(block, dict) else None
 
-    # OpenAI reasoning response
-    if hasattr(chunk, "additional_kwargs"):
-        reasoning = chunk.additional_kwargs.get("reasoning", {})
-        summary = reasoning.get("summary", [])
+        # Old langchain-anthropic format: { type: "thinking", thinking: "..." }
+        if block_type == "thinking" and block.get("thinking"):
+            result = LangGraphReasoning(
+                text=block["thinking"],
+                type="text",
+                index=block.get("index", 0)
+            )
+            # Extract signature if present (Anthropic extended thinking signature)
+            if block.get("signature"):
+                result["signature"] = block["signature"]
+            return result
+
+        # New LangChain standardized format: { type: "reasoning", reasoning: "..." }
+        if block_type == "reasoning" and block.get("reasoning"):
+            return LangGraphReasoning(
+                text=block["reasoning"],
+                type="text",
+                index=block.get("index", 0)
+            )
+
+        # AWS Bedrock Converse format: { type: "reasoning_content", reasoning_content: { text: "...", signature: "..." } }
+        if block_type == "reasoning_content" and isinstance(block.get("reasoning_content"), dict):
+            rc = block["reasoning_content"]
+            if rc.get("text"):
+                result = LangGraphReasoning(
+                    text=rc["text"],
+                    type="text",
+                    index=rc.get("index", 0),
+                )
+                if rc.get("signature"):
+                    result["signature"] = rc["signature"]
+                return result
+
+        # OpenAI Responses API v1 format: { type: "reasoning", summary: [{ text: "..." }] }
+        if block_type == "reasoning" and block.get("summary"):
+            summaries = block["summary"]
+            if summaries and isinstance(summaries, list) and summaries[0]:
+                data = summaries[0]
+                if data.get("text"):
+                    return LangGraphReasoning(
+                        type="text",
+                        text=data["text"],
+                        index=data.get("index", 0)
+                    )
+
+        # Bedrock Converse API format: { type: "reasoning_content", reasoning_content: { type: "text", text: "..." } }
+        if block_type == "reasoning_content" and isinstance(block.get("reasoning_content"), dict):
+            inner = block["reasoning_content"]
+            if inner.get("text"):
+                return LangGraphReasoning(
+                    type="text",
+                    text=inner["text"],
+                    index=inner.get("index", 0)
+                )
+
+    # OpenAI legacy format via additional_kwargs
+    additional_kwargs = _dual_get(chunk, "additional_kwargs")
+    if isinstance(additional_kwargs, dict):
+        reasoning = additional_kwargs.get("reasoning", {})
+        summary = reasoning.get("summary", []) if isinstance(reasoning, dict) else []
         if summary:
             data = summary[0]
             if not data or not data.get("text"):
@@ -245,10 +383,40 @@ def resolve_reasoning_content(chunk: Any) -> LangGraphReasoning | None:
                 index=data.get("index", 0)
             )
 
+        # DeepSeek / Qwen / xAI format: additional_kwargs.reasoning_content is a string
+        reasoning_content = additional_kwargs.get("reasoning_content")
+        if reasoning_content and isinstance(reasoning_content, str):
+            return LangGraphReasoning(
+                type="text",
+                text=reasoning_content,
+                index=0,
+            )
+
+    return None
+
+
+def resolve_encrypted_reasoning_content(chunk: Any) -> str | None:
+    """
+    Resolves encrypted reasoning content from Anthropic responses.
+    This handles:
+    - `redacted_thinking` blocks with encrypted `data` (redacted chain-of-thought)
+    """
+    content = _dual_get(chunk, "content") if chunk is not None else None
+    if not content or not isinstance(content, list) or not content or not content[0]:
+        return None
+
+    # Anthropic redacted_thinking block: { type: "redacted_thinking", data: "..." }
+    if content[0].get("type") == "redacted_thinking" and content[0].get("data"):
+        return content[0]["data"]
+
     return None
 
 def resolve_message_content(content: Any) -> str | None:
-    if not content:
+    # Distinguish None (absent) from "" (explicit empty delta): some
+    # providers emit zero-length content during tool-call / structured-
+    # output transitions, and the caller in _handle_single_event relies on
+    # preserving the empty string so the delta still flows through.
+    if content is None:
         return None
 
     if isinstance(content, str):
@@ -259,6 +427,24 @@ def resolve_message_content(content: Any) -> str | None:
         return content_text
 
     return None
+
+
+def _flatten_media_content(item: Union[ImageInputContent, AudioInputContent, VideoInputContent, DocumentInputContent], label: str) -> str:
+    """Return a placeholder string for a typed media content item."""
+    source = item.source
+    if isinstance(source, InputContentUrlSource):
+        return f"[{label}: {source.value}]"
+    if isinstance(source, InputContentDataSource):
+        return f"[{label}: {source.mime_type}]"
+    return f"[{label}]"
+
+
+_MEDIA_LABEL_MAP = {
+    ImageInputContent: "Image",
+    AudioInputContent: "Audio",
+    VideoInputContent: "Video",
+    DocumentInputContent: "Document",
+}
 
 
 def flatten_user_content(content: Any) -> str:
@@ -278,8 +464,11 @@ def flatten_user_content(content: Any) -> str:
             if isinstance(item, TextInputContent):
                 if item.text:
                     parts.append(item.text)
+            elif isinstance(item, _MEDIA_CONTENT_TYPES):
+                label = _MEDIA_LABEL_MAP.get(type(item), "Media")
+                parts.append(_flatten_media_content(item, label))
             elif isinstance(item, BinaryInputContent):
-                # Add descriptive placeholder for binary content
+                # Legacy BinaryInputContent — backwards compatibility
                 if item.filename:
                     parts.append(f"[Binary content: {item.filename}]")
                 elif item.url:
@@ -317,21 +506,21 @@ def normalize_tool_content(content: Any) -> str:
     return json.dumps(content)
 
 
+# Used by run() to normalize forwarded_props keys from camelCase (JS frontend convention)
+# to snake_case (Python convention). Appears isolated but is called from agent.py and
+# removing it would silently break all streaming options forwarded from the frontend
+# (stream_subgraphs, node_name, command.resume, etc.).
 def camel_to_snake(name):
     return re.sub(r'(?<!^)(?=[A-Z])', '_', name).lower()
 
 def json_safe_stringify(o):
-    if is_dataclass(o):          # dataclasses like Flight(...)
-        return asdict(o)
-    if hasattr(o, "model_dump"): # pydantic v2
-        return o.model_dump()
-    if hasattr(o, "dict"):       # pydantic v1
-        return o.dict()
-    if hasattr(o, "__dict__"):   # plain objects
-        return vars(o)
+    """Fallback encoder used by json.dumps(default=...)."""
     if isinstance(o, (datetime, date)):
         return o.isoformat()
-    return str(o)                # last resort
+    try:
+        return make_json_safe(o)
+    except Exception:
+        return str(o)
 
 def make_json_safe(value: Any, _seen: set[int] | None = None) -> Any:
     """
@@ -367,9 +556,11 @@ def make_json_safe(value: Any, _seen: set[int] | None = None) -> Any:
     # --- 3. Dicts ----------------------------------------------------------
     if isinstance(value, dict):
         _seen.add(obj_id)
+        # LangGraph/LangChain tool calls inject non-serializable runtime/config; skip them.
         return {
             make_json_safe(k, _seen): make_json_safe(v, _seen)
             for k, v in value.items()
+            if k not in ("runtime", "config")
         }
 
     # --- 4. Iterable containers -------------------------------------------
@@ -380,7 +571,9 @@ def make_json_safe(value: Any, _seen: set[int] | None = None) -> Any:
     # --- 5. Dataclasses ----------------------------------------------------
     if is_dataclass(value):
         _seen.add(obj_id)
-        return make_json_safe(asdict(value), _seen)
+        # Skip runtime/config (LangGraph-injected, not serializable)
+        d = {f.name: getattr(value, f.name) for f in fields(value) if f.name not in ("runtime", "config")}
+        return make_json_safe(d, _seen)
 
     # --- 6. Pydantic-like models (v2: model_dump) -------------------------
     if hasattr(value, "model_dump") and callable(getattr(value, "model_dump")):

@@ -17,6 +17,7 @@ export const menuIntegrations = [
     name: "Open Agent Spec (LangGraph)",
     features: [
       "agentic_chat",
+      "v1_agentic_chat",
       "backend_tool_rendering",
       "human_in_the_loop",
       "tool_based_generative_ui",
@@ -27,6 +28,7 @@ export const menuIntegrations = [
     name: "Open Agent Spec (Wayflow)",
     features: [
       "agentic_chat",
+      "v1_agentic_chat",
       "backend_tool_rendering",
       "human_in_the_loop",
       "tool_based_generative_ui",
@@ -37,6 +39,9 @@ export const menuIntegrations = [
     name: "LangGraph (Python)",
     features: [
       "agentic_chat",
+      "agentic_chat_reasoning",
+      "agentic_chat_multimodal",
+      "v1_agentic_chat",
       "backend_tool_rendering",
       "human_in_the_loop",
       "agentic_generative_ui",
@@ -51,14 +56,20 @@ export const menuIntegrations = [
     name: "LangGraph (FastAPI)",
     features: [
       "agentic_chat",
+      "agentic_chat_reasoning",
+      "agentic_chat_multimodal",
+      "v1_agentic_chat",
       "backend_tool_rendering",
       "human_in_the_loop",
-      "agentic_chat_reasoning",
+
       "agentic_generative_ui",
       "predictive_state_updates",
       "shared_state",
       "tool_based_generative_ui",
       "subgraphs",
+      "a2ui_fixed_schema",
+      "a2ui_dynamic_schema",
+      "a2ui_advanced",
     ],
   },
   {
@@ -66,6 +77,9 @@ export const menuIntegrations = [
     name: "LangGraph (Typescript)",
     features: [
       "agentic_chat",
+      "agentic_chat_reasoning",
+      "agentic_chat_multimodal",
+      "v1_agentic_chat",
       // "backend_tool_rendering",
       "human_in_the_loop",
       "agentic_generative_ui",
@@ -88,6 +102,9 @@ export const menuIntegrations = [
     name: "Mastra",
     features: [
       "agentic_chat",
+      "agentic_chat_reasoning",
+      "agentic_chat_multimodal",
+      "v1_agentic_chat",
       "backend_tool_rendering",
       "human_in_the_loop",
       "tool_based_generative_ui",
@@ -98,6 +115,7 @@ export const menuIntegrations = [
     name: "Mastra Agent (Local)",
     features: [
       "agentic_chat",
+      "v1_agentic_chat",
       "backend_tool_rendering",
       "human_in_the_loop",
       "shared_state",
@@ -109,6 +127,7 @@ export const menuIntegrations = [
     name: "Spring AI",
     features: [
       "agentic_chat",
+      "v1_agentic_chat",
       "shared_state",
       "tool_based_generative_ui",
       "human_in_the_loop",
@@ -120,6 +139,7 @@ export const menuIntegrations = [
     name: "Pydantic AI",
     features: [
       "agentic_chat",
+      "v1_agentic_chat",
       "backend_tool_rendering",
       "human_in_the_loop",
       "agentic_generative_ui",
@@ -134,10 +154,10 @@ export const menuIntegrations = [
     name: "Google ADK",
     features: [
       "agentic_chat",
+      "v1_agentic_chat",
       "backend_tool_rendering",
       "human_in_the_loop",
-      // TODO: @contextablemark Re-enable predictive state updates once it is working
-      // "predictive_state_updates",
+      "predictive_state_updates",
       "shared_state",
       "tool_based_generative_ui",
     ],
@@ -147,6 +167,7 @@ export const menuIntegrations = [
     name: "Microsoft Agent Framework (.NET)",
     features: [
       "agentic_chat",
+      "v1_agentic_chat",
       "backend_tool_rendering",
       "human_in_the_loop",
       "agentic_generative_ui",
@@ -160,6 +181,7 @@ export const menuIntegrations = [
     name: "Microsoft Agent Framework (Python)",
     features: [
       "agentic_chat",
+      "v1_agentic_chat",
       "backend_tool_rendering",
       "human_in_the_loop",
       "agentic_generative_ui",
@@ -169,10 +191,24 @@ export const menuIntegrations = [
     ],
   },
   {
+    id: "ag2",
+    name: "AG2",
+    features: [
+      "agentic_chat",
+      "v1_agentic_chat",
+      "backend_tool_rendering",
+      "human_in_the_loop",
+      "agentic_generative_ui",
+      "shared_state",
+      "tool_based_generative_ui",
+    ],
+  },
+  {
     id: "agno",
     name: "Agno",
     features: [
       "agentic_chat",
+      "v1_agentic_chat",
       "backend_tool_rendering",
       "human_in_the_loop",
       "tool_based_generative_ui",
@@ -183,6 +219,7 @@ export const menuIntegrations = [
     name: "LlamaIndex",
     features: [
       "agentic_chat",
+      "v1_agentic_chat",
       "backend_tool_rendering",
       "human_in_the_loop",
       "agentic_generative_ui",
@@ -194,19 +231,22 @@ export const menuIntegrations = [
     name: "CrewAI",
     features: [
       "agentic_chat",
+      "v1_agentic_chat",
       // "backend_tool_rendering",
       "human_in_the_loop",
       "agentic_generative_ui",
       "predictive_state_updates",
       "shared_state",
       "tool_based_generative_ui",
+      "crew_chat",
+      "error_flow",
     ],
   },
-  {
-    id: "a2a-basic",
-    name: "A2A (Direct)",
-    features: ["vnext_chat"],
-  },
+  // {
+  //   id: "builtin",
+  //   name: "Built-in Agent",
+  //   features: [],
+  // },
   // Disabled until we can support Vercel AI SDK v5
   // {
   //   id: "vercel-ai-sdk",
@@ -216,18 +256,19 @@ export const menuIntegrations = [
   {
     id: "middleware-starter",
     name: "Middleware Starter",
-    features: ["agentic_chat"],
+    features: ["agentic_chat", "v1_agentic_chat"],
   },
   {
     id: "server-starter",
     name: "Server Starter",
-    features: ["agentic_chat"],
+    features: ["agentic_chat", "v1_agentic_chat"],
   },
   {
     id: "server-starter-all-features",
     name: "Server Starter (All Features)",
     features: [
       "agentic_chat",
+      "v1_agentic_chat",
       "backend_tool_rendering",
       "human_in_the_loop",
       // "agentic_chat_reasoning",
@@ -238,19 +279,57 @@ export const menuIntegrations = [
     ],
   },
   {
-    id: "a2a",
-    name: "A2A",
-    features: ["a2a_chat"],
-  },
-  {
     id: "aws-strands",
     name: "AWS Strands",
+    features: [
+      "agentic_chat",
+      "agentic_chat_reasoning",
+      "agentic_chat_multimodal",
+      "v1_agentic_chat",
+      "backend_tool_rendering",
+      "agentic_generative_ui",
+      "shared_state",
+      "human_in_the_loop",
+    ],
+  },
+  {
+    id: "claude-agent-sdk-python",
+    name: "Claude Agent SDK (Python)",
+    features: [
+      "agentic_chat",
+      "backend_tool_rendering",
+      "shared_state",
+      "human_in_the_loop",
+      "tool_based_generative_ui",
+    ],
+  },
+  {
+    id: "claude-agent-sdk-typescript",
+    name: "Claude Agent SDK (Typescript)",
+    features: [
+      "agentic_chat",
+      "backend_tool_rendering",
+      "shared_state",
+      "human_in_the_loop",
+      "tool_based_generative_ui",
+    ],
+  },
+  {
+    id: "langroid",
+    name: "Langroid",
     features: [
       "agentic_chat",
       "backend_tool_rendering",
       "agentic_generative_ui",
       "shared_state",
-      "human_in_the_loop",
+    ],
+  },
+  {
+    id: "watsonx",
+    name: "IBM watsonx orchestrate",
+    features: [
+      "agentic_chat",
+      "v1_agentic_chat",
     ],
   },
 ] as const satisfies MenuIntegrationConfig[];

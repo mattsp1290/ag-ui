@@ -1,6 +1,6 @@
 {
   "$schema": "https://mintlify.com/docs.json",
-  "theme": "willow",
+  "theme": "aspen",
   "name": "Agent User Interaction Protocol",
   "colors": {
     "primary": "#09090b",
@@ -43,9 +43,12 @@
               "concepts/agents",
               "concepts/middleware",
               "concepts/messages",
+              "concepts/reasoning",
               "concepts/state",
+              "concepts/interrupts",
               "concepts/serialization",
               "concepts/tools",
+              "concepts/capabilities",
               "concepts/generative-ui-specs"
             ]
           },
@@ -53,20 +56,26 @@
             "group": "Draft Proposals",
             "pages": [
               "drafts/overview",
-              "drafts/reasoning",
-              "drafts/multimodal-messages",
-              "drafts/interrupts",
+
               "drafts/generative-ui",
               "drafts/meta-events"
             ]
           },
           {
             "group": "Tutorials",
-            "pages": ["tutorials/cursor", "tutorials/debugging"]
+            "pages": [
+              "tutorials/cursor",
+              "tutorials/debugging"
+            ]
           },
           {
             "group": "Development",
-            "pages": ["development/updates", "development/roadmap", "development/contributing"]
+            "pages": [
+              "development/updates",
+              "development/roadmap",
+              "development/contributing",
+              "talk-to-us"
+            ]
           }
         ]
       },
@@ -79,7 +88,12 @@
             "pages": [
               {
                 "group": "@ag-ui/core",
-                "pages": ["sdk/js/core/overview", "sdk/js/core/types", "sdk/js/core/events"]
+                "pages": [
+                  "sdk/js/core/overview",
+                  "sdk/js/core/types",
+                  "sdk/js/core/multimodal-inputs",
+                  "sdk/js/core/events"
+                ]
               },
               {
                 "group": "@ag-ui/client",
@@ -104,12 +118,15 @@
                 "pages": [
                   "sdk/python/core/overview",
                   "sdk/python/core/types",
+                  "sdk/python/core/multimodal-inputs",
                   "sdk/python/core/events"
                 ]
               },
               {
                 "group": "ag_ui.encoder",
-                "pages": ["sdk/python/encoder/overview"]
+                "pages": [
+                  "sdk/python/encoder/overview"
+                ]
               }
             ]
           }
@@ -132,8 +149,8 @@
     }
   },
   "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
+    "light": "/logo/ag-ui-light.svg",
+    "dark": "/logo/ag-ui-dark.svg"
   },
   "navbar": {
     "links": [

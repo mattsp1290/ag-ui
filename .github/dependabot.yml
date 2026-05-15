@@ -8,19 +8,29 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
-      day: monday
-    open-pull-requests-limit: 10
-    # Group minor/patch bumps so we don't get one PR per action per week.
-    # Major bumps still get their own PRs (intentional — they need review).
+      interval: "daily"
     groups:
-      actions-minor-patch:
+      minor-and-patch:
+        patterns:
+          - "*"
         update-types:
-          - minor
-          - patch
-    commit-message:
-      prefix: "chore(ci)"
-      include: scope
+          - "minor"
+          - "patch"
+      # Workaround for dependabot/dependabot-core#14202: without an explicit
+      # major group, major updates matching the minor-and-patch pattern are
+      # silently suppressed. Remove this group when #14202 is fixed to get
+      # individual (ungrouped) PRs per major bump instead.
+      major:
+        patterns:
+          - "*"
+        update-types:
+          - "major"
     labels:
       - dependencies
       - github-actions
+    commit-message:
+      prefix: "chore(ci)"
+      include: scope
+    open-pull-requests-limit: 10
+    cooldown:
+      default-days: 1

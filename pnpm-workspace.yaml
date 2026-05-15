@@ -6,20 +6,5 @@ packages:
   - integrations/community/*/typescript
   - integrations/mastra/typescript/examples
 
-# pnpm 11 requires explicit allow-listing of postinstall scripts (in pnpm 10
-# this was implicit). The packages below were detected by pnpm during the
-# bump and need their install scripts to fetch native binaries / generate
-# code; without `true`, builds break. Audit this list when adding any new
-# build-script-bearing dependency.
-allowBuilds:
-  '@scarf/scarf': false # telemetry — opt out
-  '@tailwindcss/oxide': true # native Rust binary
-  core-js: false # polyfill — postinstall non-essential
-  esbuild: true # native binary download
-  nx: false # also enumerated in ignoredBuiltDependencies below
-  protobufjs: true # codegen postinstall
-  sharp: true # native binary download
-  unrs-resolver: true # native binary download
-
 ignoredBuiltDependencies:
   - nx

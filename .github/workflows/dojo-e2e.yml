@@ -204,7 +204,7 @@ jobs:
         run: echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
 
       - name: Cache pnpm store
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: ${{ env.STORE_PATH }}
           key: ${{ steps.fork-check.outputs.prefix }}${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
@@ -212,7 +212,7 @@ jobs:
             ${{ steps.fork-check.outputs.prefix }}${{ runner.os }}-pnpm-store-
 
       - name: Cache Python dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: |
             ~/.cache/pip
@@ -225,7 +225,7 @@ jobs:
             ${{ steps.fork-check.outputs.prefix }}${{ runner.os }}-pydeps-
 
       - name: Cache Next.js build
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: ${{ github.workspace }}/apps/dojo/.next/cache
           key: ${{ steps.fork-check.outputs.prefix }}${{ runner.os }}-nextjs-${{ hashFiles('**/pnpm-lock.yaml') }}-${{ hashFiles('apps/dojo/src/**/*.ts', 'apps/dojo/src/**/*.tsx', 'apps/dojo/src/**/*.js', 'apps/dojo/src/**/*.jsx') }}
@@ -257,7 +257,7 @@ jobs:
         run: node ./scripts/prep-dojo-everything.js --only ${{ join(matrix.services, ',') }}
       - name: Cache Playwright browsers
         id: cache-playwright
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: ~/.cache/ms-playwright
           key: ${{ steps.fork-check.outputs.prefix }}${{ runner.os }}-playwright-${{ hashFiles('apps/dojo/e2e/package.json') }}

@@ -56,7 +56,7 @@ jobs:
 
       - name: Load cached venv
         id: cached-uv-dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: sdks/python/.venv
           key: ${{ steps.fork-check.outputs.prefix }}venv-${{ runner.os }}-${{ hashFiles('sdks/python/uv.lock') }}
@@ -97,7 +97,7 @@ jobs:
 
       - name: Load cached venv
         id: cached-uv-dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: integrations/langgraph/python/.venv
           key: ${{ steps.fork-check.outputs.prefix }}venv-${{ runner.os }}-langgraph-${{ hashFiles('integrations/langgraph/python/uv.lock') }}
@@ -138,7 +138,7 @@ jobs:
 
       - name: Load cached venv
         id: cached-uv-dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: integrations/watsonx/python/.venv
           key: ${{ steps.fork-check.outputs.prefix }}venv-${{ runner.os }}-watsonx-${{ hashFiles('integrations/watsonx/python/uv.lock') }}
@@ -179,7 +179,7 @@ jobs:
 
       - name: Load cached venv
         id: cached-uv-dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: integrations/adk-middleware/python/.venv
           key: ${{ steps.fork-check.outputs.prefix }}venv-${{ runner.os }}-adk-middleware-${{ hashFiles('integrations/adk-middleware/python/uv.lock') }}
@@ -220,7 +220,7 @@ jobs:
 
       - name: Load cached venv
         id: cached-uv-dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: integrations/aws-strands/python/.venv
           key: ${{ steps.fork-check.outputs.prefix }}venv-${{ runner.os }}-aws-strands-${{ hashFiles('integrations/aws-strands/python/uv.lock') }}
@@ -261,7 +261,7 @@ jobs:
 
       - name: Load cached venv
         id: cached-uv-dependencies
-        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae  # v5.0.5
         with:
           path: integrations/langroid/python/.venv
           key: ${{ steps.fork-check.outputs.prefix }}venv-${{ runner.os }}-langroid-${{ hashFiles('integrations/langroid/python/uv.lock') }}

@@ -16,6 +16,7 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     if: github.event.workflow_run.conclusion == 'success' && github.event.workflow_run.event == 'pull_request'
+    environment: pypi
     permissions:
       actions: read
       pull-requests: write

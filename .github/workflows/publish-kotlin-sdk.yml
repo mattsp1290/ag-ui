@@ -14,6 +14,9 @@ on:
 # secrets (Sonatype credentials, GPG keys) are only available in the publish
 # job, never in the same process tree as build-time code execution.
 
+permissions:
+  contents: read
+
 jobs:
   build-and-test:
     runs-on: macos-latest
@@ -23,19 +26,21 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4.8.0
         with:
           java-version: "21"
           distribution: "temurin"
 
       - name: Setup Gradle
-        uses: gradle/gradle-build-action@v3
+        uses: gradle/gradle-build-action@ac2d340dc04d9e1113182899e983b5400c17cda1  # v3.5.0
 
       - name: Install Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407  # v3.2.2
 
       - name: Install Android SDK 36 components
         run: |
@@ -106,7 +111,7 @@ jobs:
       # JReleaser's publish.sh does a Gradle build internally, so we upload
       # the Gradle caches to speed up the publish job's rebuild.
       - name: Upload Gradle build cache
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: kotlin-gradle-cache
           path: |
@@ -123,19 +128,21 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+        with:
+          persist-credentials: false
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@c1e323688fd81a25caa38c78aa6df2d33d3e20d9  # v4.8.0
         with:
           java-version: "21"
           distribution: "temurin"
 
       - name: Setup Gradle
-        uses: gradle/gradle-build-action@v3
+        uses: gradle/gradle-build-action@ac2d340dc04d9e1113182899e983b5400c17cda1  # v3.5.0
 
       - name: Install Android SDK
-        uses: android-actions/setup-android@v3
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407  # v3.2.2
 
       - name: Install Android SDK 36 components
         run: |
@@ -147,7 +154,7 @@ jobs:
         run: yes | sdkmanager --licenses || true
 
       - name: Download Gradle build cache
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093  # v4.3.0
         with:
           name: kotlin-gradle-cache
           path: sdks/community/kotlin/library/
@@ -180,7 +187,7 @@ jobs:
 
       - name: Upload JReleaser logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4.6.2
         with:
           name: jreleaser-logs
           path: sdks/community/kotlin/library/build/jreleaser/

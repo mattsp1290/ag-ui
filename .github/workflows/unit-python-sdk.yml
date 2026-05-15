@@ -24,32 +24,39 @@ on:
 
 # Note: crew-ai uses Poetry (no uv.lock) — skipped for now.
 
+permissions:
+  contents: read
+
 jobs:
   python:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+        with:
+          persist-credentials: false
 
       - name: Detect fork PR
         id: fork-check
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" && \
-                "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]]; then
+                "${GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME}" != "${{ github.repository }}" ]]; then
             echo "prefix=fork-" >> "$GITHUB_OUTPUT"
           else
             echo "prefix=" >> "$GITHUB_OUTPUT"
           fi
+        env:
+          GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
           version: ">=0.8.0"
 
       - name: Load cached venv
         id: cached-uv-dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: sdks/python/.venv
           key: ${{ steps.fork-check.outputs.prefix }}venv-${{ runner.os }}-${{ hashFiles('sdks/python/uv.lock') }}
@@ -67,26 +74,30 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+        with:
+          persist-credentials: false
 
       - name: Detect fork PR
         id: fork-check
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" && \
-                "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]]; then
+                "${GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME}" != "${{ github.repository }}" ]]; then
             echo "prefix=fork-" >> "$GITHUB_OUTPUT"
           else
             echo "prefix=" >> "$GITHUB_OUTPUT"
           fi
+        env:
+          GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
           version: ">=0.8.0"
 
       - name: Load cached venv
         id: cached-uv-dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: integrations/langgraph/python/.venv
           key: ${{ steps.fork-check.outputs.prefix }}venv-${{ runner.os }}-langgraph-${{ hashFiles('integrations/langgraph/python/uv.lock') }}
@@ -104,26 +115,30 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+        with:
+          persist-credentials: false
 
       - name: Detect fork PR
         id: fork-check
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" && \
-                "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]]; then
+                "${GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME}" != "${{ github.repository }}" ]]; then
             echo "prefix=fork-" >> "$GITHUB_OUTPUT"
           else
             echo "prefix=" >> "$GITHUB_OUTPUT"
           fi
+        env:
+          GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
           version: ">=0.8.0"
 
       - name: Load cached venv
         id: cached-uv-dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: integrations/watsonx/python/.venv
           key: ${{ steps.fork-check.outputs.prefix }}venv-${{ runner.os }}-watsonx-${{ hashFiles('integrations/watsonx/python/uv.lock') }}
@@ -141,26 +156,30 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+        with:
+          persist-credentials: false
 
       - name: Detect fork PR
         id: fork-check
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" && \
-                "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]]; then
+                "${GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME}" != "${{ github.repository }}" ]]; then
             echo "prefix=fork-" >> "$GITHUB_OUTPUT"
           else
             echo "prefix=" >> "$GITHUB_OUTPUT"
           fi
+        env:
+          GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
           version: ">=0.8.0"
 
       - name: Load cached venv
         id: cached-uv-dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: integrations/adk-middleware/python/.venv
           key: ${{ steps.fork-check.outputs.prefix }}venv-${{ runner.os }}-adk-middleware-${{ hashFiles('integrations/adk-middleware/python/uv.lock') }}
@@ -178,26 +197,30 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+        with:
+          persist-credentials: false
 
       - name: Detect fork PR
         id: fork-check
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" && \
-                "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]]; then
+                "${GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME}" != "${{ github.repository }}" ]]; then
             echo "prefix=fork-" >> "$GITHUB_OUTPUT"
           else
             echo "prefix=" >> "$GITHUB_OUTPUT"
           fi
+        env:
+          GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
           version: ">=0.8.0"
 
       - name: Load cached venv
         id: cached-uv-dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: integrations/aws-strands/python/.venv
           key: ${{ steps.fork-check.outputs.prefix }}venv-${{ runner.os }}-aws-strands-${{ hashFiles('integrations/aws-strands/python/uv.lock') }}
@@ -215,26 +238,30 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+        with:
+          persist-credentials: false
 
       - name: Detect fork PR
         id: fork-check
         run: |
           if [[ "${{ github.event_name }}" == "pull_request" && \
-                "${{ github.event.pull_request.head.repo.full_name }}" != "${{ github.repository }}" ]]; then
+                "${GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME}" != "${{ github.repository }}" ]]; then
             echo "prefix=fork-" >> "$GITHUB_OUTPUT"
           else
             echo "prefix=" >> "$GITHUB_OUTPUT"
           fi
+        env:
+          GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v4
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e  # v6.8.0
         with:
           version: ">=0.8.0"
 
       - name: Load cached venv
         id: cached-uv-dependencies
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830  # v4.3.0
         with:
           path: integrations/langroid/python/.venv
           key: ${{ steps.fork-check.outputs.prefix }}venv-${{ runner.os }}-langroid-${{ hashFiles('integrations/langroid/python/uv.lock') }}

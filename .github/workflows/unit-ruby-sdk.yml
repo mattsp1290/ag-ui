@@ -12,12 +12,17 @@ on:
       - "sdks/community/ruby/**"
       - ".github/workflows/unit-ruby-sdk.yml"
 
+permissions:
+  contents: read
+
 jobs:
   ruby:
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v5
-    - uses: ruby/setup-ruby@v1
+    - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd  # v5.0.1
+      with:
+        persist-credentials: false
+    - uses: ruby/setup-ruby@6aaa311d81eba98ae12eaffbcb63296ace0efcde  # v1.307.0
       with:
         ruby-version: '3.4'
         # Built-in cache is fork-safe (fork PRs can't write to base repo cache)

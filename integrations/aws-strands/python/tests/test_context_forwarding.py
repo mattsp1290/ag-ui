@@ -40,7 +40,7 @@ class _CapturingCore:
         self.tool_registry = ToolRegistry()
         self.state = JSONSerializableDict()
 
-    async def stream_async(self, _msg: str, **_kwargs):
+    async def stream_async(self, _msg: str):
         if False:
             yield
 

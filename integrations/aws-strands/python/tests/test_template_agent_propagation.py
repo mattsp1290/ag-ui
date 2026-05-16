@@ -45,7 +45,7 @@ class _CapturingCore:
         self.init_kwargs = kwargs
         self.tool_registry = ToolRegistry()
 
-    async def stream_async(self, _msg: str):
+    async def stream_async(self, _msg: str, **_kwargs):
         if False:
             yield
 

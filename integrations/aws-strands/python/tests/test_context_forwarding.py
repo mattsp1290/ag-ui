@@ -11,9 +11,17 @@ from unittest.mock import MagicMock, patch
 import pytest
 from strands import Agent
 from strands.tools.registry import ToolRegistry
-from strands.types.json_dict import JSONSerializableDict
 
 from ag_ui.core import Context, RunAgentInput, UserMessage
+
+try:
+    from strands.types.json_dict import JSONSerializableDict  # strands <2.0
+except ImportError:
+    try:
+        from strands.types import JSONSerializableDict  # strands >=2.0 (reorganized)
+    except ImportError:
+        class JSONSerializableDict(dict):  # type: ignore[no-redef]
+            def set(self, key, value): self[key] = value  # noqa: E704
 
 from ag_ui_strands.agent import StrandsAgent
 
@@ -32,7 +40,7 @@ class _CapturingCore:
         self.tool_registry = ToolRegistry()
         self.state = JSONSerializableDict()
 
-    async def stream_async(self, _msg: str):
+    async def stream_async(self, _msg: str, **_kwargs):
         if False:
             yield
 

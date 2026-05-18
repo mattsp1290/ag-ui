@@ -19,9 +19,11 @@ from .types import (
 from .utils import json_safe_stringify, make_json_safe
 from .endpoint import add_langgraph_fastapi_endpoint
 from .middlewares.state_streaming import StateStreamingMiddleware, StateItem
+from .a2ui_tool import get_a2ui_tools
 
 __all__ = [
     "LangGraphAgent",
+    "get_a2ui_tools",
     "LangGraphEventTypes",
     "CustomEventNames",
     "State",

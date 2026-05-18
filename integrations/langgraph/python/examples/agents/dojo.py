@@ -154,4 +154,4 @@ add_langgraph_fastapi_endpoint(
 def main():
     """Run the uvicorn server."""
     port = int(os.getenv("PORT", "8000"))
-    uvicorn.run("agents.dojo:app", host="0.0.0.0", port=port, reload=True)
+    uvicorn.run("agents.dojo:app", host="0.0.0.0", port=port, reload=True, reload_dirs=[".", "../ag_ui_langgraph"])

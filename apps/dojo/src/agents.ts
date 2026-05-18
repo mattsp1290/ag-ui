@@ -163,6 +163,14 @@ export const agentsIntegrations = {
       agent.use(new A2UIMiddleware({ injectA2UITool: true }));
       return agent;
     })(),
+    a2ui_dynamic_schema: (() => {
+      const agent = new LangGraphAgent({
+        deploymentUrl: envVars.langgraphPythonUrl,
+        graphId: "a2ui_dynamic_schema",
+      });
+      agent.use(new A2UIMiddleware());
+      return agent;
+    })(),
   }),
 
   "langgraph-fastapi": async () => ({
@@ -196,8 +204,8 @@ export const agentsIntegrations = {
     }),
   }),
 
-  "langgraph-typescript": async () =>
-    mapAgents(
+  "langgraph-typescript": async () => ({
+    ...mapAgents(
       (graphId) => {
         return new LangGraphAgent({
           deploymentUrl: envVars.langgraphTypescriptUrl,
@@ -217,6 +225,15 @@ export const agentsIntegrations = {
         subgraphs: "subgraphs",
       },
     ),
+    a2ui_dynamic_schema: (() => {
+      const agent = new LangGraphAgent({
+        deploymentUrl: envVars.langgraphTypescriptUrl,
+        graphId: "a2ui_dynamic_schema",
+      });
+      agent.use(new A2UIMiddleware());
+      return agent;
+    })(),
+  }),
 
   // TODO: @ranst91 Enable `langchain` integration in apps/dojo/src/menu.ts once ready
   langchain: async () => {

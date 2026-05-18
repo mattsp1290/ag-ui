@@ -1,0 +1,231 @@
+/**
+ * A2UI subagent tool factory for LangGraph TS agents.
+ *
+ * Ships a ready-to-bind LangGraph tool that delegates dynamic A2UI surface
+ * generation to a secondary LLM call. The author imports the factory, passes
+ * their chat model in, and binds the returned tool alongside their other tools.
+ * No further A2UI-specific code is required on the author's side.
+ *
+ * Example usage in a chat node:
+ *
+ *   import { getA2UITools } from "@ag-ui/langgraph";
+ *
+ *   const a2ui = getA2UITools(new ChatOpenAI({ model: "gpt-4o" }));
+ *
+ *   const modelWithTools = chatModel.bindTools(
+ *     [...state.tools, a2ui],
+ *     { parallel_tool_calls: false },
+ *   );
+ */
+
+import { tool, type ToolRuntime } from "@langchain/core/tools";
+import { SystemMessage } from "@langchain/core/messages";
+import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+
+/** Container key the A2UI middleware looks for in tool results. */
+export const A2UI_OPERATIONS_KEY = "a2ui_operations";
+
+/** Default catalog id used when the subagent does not specify one. */
+export const BASIC_CATALOG_ID =
+  "https://a2ui.org/specification/v0_9/basic_catalog.json";
+
+type A2UIOperation = Record<string, unknown>;
+
+function createSurface(surfaceId: string, catalogId: string): A2UIOperation {
+  return {
+    version: "v0.9",
+    createSurface: { surfaceId, catalogId },
+  };
+}
+
+function updateComponents(
+  surfaceId: string,
+  components: Array<Record<string, unknown>>,
+): A2UIOperation {
+  return {
+    version: "v0.9",
+    updateComponents: { surfaceId, components },
+  };
+}
+
+function updateDataModel(
+  surfaceId: string,
+  data: unknown,
+  path: string = "/",
+): A2UIOperation {
+  return {
+    version: "v0.9",
+    updateDataModel: { surfaceId, path, value: data },
+  };
+}
+
+/**
+ * Assemble the subagent prompt prefix from AG-UI context + schema in state.
+ *
+ * The LangGraph AG-UI integration extracts the A2UI component schema into
+ * `state["ag-ui"]["a2ui_schema"]` and forwards any other context entries
+ * (generation guidelines, design guidelines, etc.) under
+ * `state["ag-ui"]["context"]`.
+ */
+function buildContextPrompt(state: Record<string, unknown>): string {
+  const agUi = (state["ag-ui"] as Record<string, unknown> | undefined) ?? {};
+  const parts: string[] = [];
+
+  const contextEntries = (agUi.context as Array<Record<string, unknown>> | undefined) ?? [];
+  for (const entry of contextEntries) {
+    const desc = entry?.description as string | undefined;
+    const value = entry?.value as string | undefined;
+    if (desc) {
+      parts.push(`## ${desc}\n${value ?? ""}\n`);
+    } else if (value) {
+      parts.push(`${value}\n`);
+    }
+  }
+
+  const schema = agUi.a2ui_schema as string | undefined;
+  if (schema) {
+    parts.push(`## Available Components\n${schema}\n`);
+  }
+
+  return parts.join("\n");
+}
+
+const RENDER_A2UI_TOOL_DEF = {
+  type: "function" as const,
+  function: {
+    name: "render_a2ui",
+    description:
+      "Render a dynamic A2UI v0.9 surface. The root component must have id 'root'. " +
+      "Use components from the available catalog only.",
+    parameters: {
+      type: "object",
+      properties: {
+        surfaceId: {
+          type: "string",
+          description: "Unique surface identifier.",
+        },
+        catalogId: {
+          type: "string",
+          description: "The catalog id for the component catalog.",
+        },
+        components: {
+          type: "array",
+          description:
+            "A2UI v0.9 component array (flat format). The root component must have id 'root'.",
+          items: { type: "object" },
+        },
+        data: {
+          type: "object",
+          description:
+            "Optional initial data model for the surface (form values, list items, etc.).",
+        },
+      },
+      required: ["surfaceId", "components"],
+    },
+  },
+};
+
+export interface A2UISubagentToolOptions {
+  /** Optional extra rules appended to the subagent's system prompt. */
+  compositionGuide?: string;
+  /** Surface id used when the subagent omits `surfaceId`. */
+  defaultSurfaceId?: string;
+  /** Catalog id used when the subagent omits `catalogId`. */
+  defaultCatalogId?: string;
+  /** Name advertised to the main agent's planner. */
+  toolName?: string;
+  /** Description shown to the main agent's planner. */
+  toolDescription?: string;
+}
+
+/**
+ * Build a LangGraph tool that delegates A2UI surface generation to a subagent.
+ *
+ * The returned tool is ready to bind into a chat model alongside any other tools.
+ *
+ * @param model Chat model the subagent will invoke for structured A2UI output.
+ *   Using the same provider/model as the main agent is fine.
+ * @param options Optional behavior overrides.
+ */
+export function getA2UITools(
+  model: BaseChatModel,
+  options: A2UISubagentToolOptions = {},
+) {
+  const {
+    compositionGuide,
+    defaultSurfaceId = "dynamic-surface",
+    defaultCatalogId = BASIC_CATALOG_ID,
+    toolName = "generate_a2ui",
+    toolDescription = "Generate a dynamic A2UI surface based on the conversation. " +
+      "A secondary LLM designs the UI components and data. Use this when the user " +
+      "requests visual content (cards, forms, lists, dashboards, comparisons, etc.).",
+  } = options;
+
+  return tool(
+    async (
+      _input: Record<string, never>,
+      runtime: ToolRuntime<Record<string, unknown>, unknown>,
+    ): Promise<string> => {
+      const state = runtime.state as Record<string, unknown>;
+      // The last message is this tool call itself, not yet balanced with a
+      // tool result. Strip it so the subagent does not see an unfinished call.
+      const allMessages = (state.messages as Array<unknown>) ?? [];
+      const messages = allMessages.slice(0, -1);
+
+      const promptParts = [buildContextPrompt(state)];
+      if (compositionGuide) {
+        promptParts.push(compositionGuide);
+      }
+      const prompt = promptParts.filter((p) => p && p.length > 0).join("\n");
+
+      if (!model.bindTools) {
+        return JSON.stringify({
+          error: "Provided model does not support bindTools",
+        });
+      }
+
+      const modelWithTool = model.bindTools([RENDER_A2UI_TOOL_DEF], {
+        tool_choice: {
+          type: "function",
+          function: { name: "render_a2ui" },
+        },
+      });
+
+      const response: any = await modelWithTool.invoke([
+        new SystemMessage(prompt),
+        ...messages,
+      ] as any);
+
+      const toolCalls: Array<{ args?: Record<string, unknown> }> =
+        response.tool_calls ?? [];
+      if (toolCalls.length === 0) {
+        return JSON.stringify({ error: "LLM did not call render_a2ui" });
+      }
+
+      const args = toolCalls[0].args ?? {};
+      const surfaceId = (args.surfaceId as string) || defaultSurfaceId;
+      const catalogId = (args.catalogId as string) || defaultCatalogId;
+      const components =
+        (args.components as Array<Record<string, unknown>>) || [];
+      const data = (args.data as Record<string, unknown>) || {};
+
+      const ops: A2UIOperation[] = [
+        createSurface(surfaceId, catalogId),
+        updateComponents(surfaceId, components),
+      ];
+      if (data && Object.keys(data).length > 0) {
+        ops.push(updateDataModel(surfaceId, data));
+      }
+
+      return JSON.stringify({ [A2UI_OPERATIONS_KEY]: ops });
+    },
+    {
+      name: toolName,
+      description: toolDescription,
+      schema: {
+        type: "object",
+        properties: {},
+      } as any,
+    },
+  );
+}

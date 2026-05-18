@@ -171,6 +171,23 @@ export const agentsIntegrations = {
       agent.use(new A2UIMiddleware());
       return agent;
     })(),
+    a2ui_fixed_schema: (() => {
+      const agent = new LangGraphAgent({
+        deploymentUrl: envVars.langgraphPythonUrl,
+        graphId: "a2ui_fixed_schema",
+      });
+      agent.use(new A2UIMiddleware());
+      return agent;
+    })(),
+    // Advanced: same backend agent, frontend adds custom progress renderer + action handlers
+    a2ui_advanced: (() => {
+      const agent = new LangGraphAgent({
+        deploymentUrl: envVars.langgraphPythonUrl,
+        graphId: "a2ui_dynamic_schema",
+      });
+      agent.use(new A2UIMiddleware());
+      return agent;
+    })(),
   }),
 
   "langgraph-fastapi": async () => ({
@@ -226,6 +243,23 @@ export const agentsIntegrations = {
       },
     ),
     a2ui_dynamic_schema: (() => {
+      const agent = new LangGraphAgent({
+        deploymentUrl: envVars.langgraphTypescriptUrl,
+        graphId: "a2ui_dynamic_schema",
+      });
+      agent.use(new A2UIMiddleware());
+      return agent;
+    })(),
+    a2ui_fixed_schema: (() => {
+      const agent = new LangGraphAgent({
+        deploymentUrl: envVars.langgraphTypescriptUrl,
+        graphId: "a2ui_fixed_schema",
+      });
+      agent.use(new A2UIMiddleware());
+      return agent;
+    })(),
+    // Advanced: same backend agent, frontend adds custom progress renderer + action handlers
+    a2ui_advanced: (() => {
       const agent = new LangGraphAgent({
         deploymentUrl: envVars.langgraphTypescriptUrl,
         graphId: "a2ui_dynamic_schema",

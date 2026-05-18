@@ -50,6 +50,8 @@ export const menuIntegrations = [
       "tool_based_generative_ui",
       "subgraphs",
       "a2ui_dynamic_schema",
+      "a2ui_fixed_schema",
+      "a2ui_advanced",
     ],
   },
   {
@@ -89,6 +91,8 @@ export const menuIntegrations = [
       "tool_based_generative_ui",
       "subgraphs",
       "a2ui_dynamic_schema",
+      "a2ui_fixed_schema",
+      "a2ui_advanced",
     ],
   },
   // {

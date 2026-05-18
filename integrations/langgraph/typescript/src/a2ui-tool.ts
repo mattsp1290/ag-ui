@@ -20,7 +20,16 @@
 
 import { tool, type ToolRuntime } from "@langchain/core/tools";
 import { SystemMessage } from "@langchain/core/messages";
-import type { BaseChatModel } from "@langchain/core/language_models/chat_models";
+
+/**
+ * Loose type for the subagent model.
+ *
+ * Typed as `any` (rather than `BaseChatModel`) to tolerate `@langchain/core` version
+ * skew between this package and the consumer — e.g. `ChatOpenAI` shipping its own
+ * peer-pinned core. The factory only needs `bindTools` + `invoke`, which is checked
+ * at runtime.
+ */
+export type A2UISubagentModel = any;
 
 /** Container key the A2UI middleware looks for in tool results. */
 export const A2UI_OPERATIONS_KEY = "a2ui_operations";
@@ -148,7 +157,7 @@ export interface A2UISubagentToolOptions {
  * @param options Optional behavior overrides.
  */
 export function getA2UITools(
-  model: BaseChatModel,
+  model: A2UISubagentModel,
   options: A2UISubagentToolOptions = {},
 ) {
   const {

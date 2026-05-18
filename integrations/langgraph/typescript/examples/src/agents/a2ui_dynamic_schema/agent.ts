@@ -66,7 +66,9 @@ const checkpointer = new MemorySaver();
 
 export const a2uiDynamicSchemaGraph = createAgent({
   model: "openai:gpt-4o",
-  tools: [a2uiTool],
+  // Cast: tool returned by `getA2UITools` is typed against `@ag-ui/langgraph`'s
+  // own `@langchain/core` peer, which can skew vs. the consumer's pin.
+  tools: [a2uiTool as any],
   middleware: [copilotkitMiddleware],
   systemPrompt: `You are a helpful assistant that creates rich visual UI on the fly.
 

@@ -8,9 +8,9 @@ No further A2UI-specific code is required on the author's side.
 
 Example usage in a chat node::
 
-    from ag_ui_langgraph import a2ui_subagent_tool
+    from ag_ui_langgraph import get_a2ui_tools
 
-    a2ui = a2ui_subagent_tool(model=ChatOpenAI(model="gpt-4o"))
+    a2ui = get_a2ui_tools(model=ChatOpenAI(model="gpt-4o"))
 
     model_with_tools = chat_model.bind_tools(
         [*state["tools"], a2ui],
@@ -91,6 +91,70 @@ def _build_context_prompt(state: dict) -> str:
     return "\n".join(parts)
 
 
+def _find_prior_surface(
+    messages: list[Any], surface_id: str
+) -> Optional[dict[str, Any]]:
+    """Locate the most recent rendered state for ``surface_id`` in message history.
+
+    Walks backwards through ``messages`` looking for a ``ToolMessage`` whose
+    content is a JSON string containing ``a2ui_operations`` ops for
+    ``surface_id``. Returns a dict ``{"components": [...], "data": {...},
+    "catalogId": "..."}`` reconstructed from those ops, or ``None`` if no
+    matching surface is found.
+    """
+    for msg in reversed(messages):
+        # Both AIMessage tool-call shapes and ToolMessage results are dict-like
+        # depending on framework version — handle both.
+        role = getattr(msg, "type", None) or getattr(msg, "role", None)
+        if role not in ("tool", "ToolMessage"):
+            continue
+        content = getattr(msg, "content", None)
+        if content is None:
+            continue
+        if not isinstance(content, str):
+            continue
+        try:
+            parsed = json.loads(content)
+        except (ValueError, TypeError):
+            continue
+        if not isinstance(parsed, dict):
+            continue
+        ops = parsed.get(A2UI_OPERATIONS_KEY)
+        if not isinstance(ops, list):
+            continue
+
+        components: Optional[list[dict[str, Any]]] = None
+        data: Any = None
+        catalog_id: Optional[str] = None
+        matched = False
+        for op in ops:
+            if not isinstance(op, dict):
+                continue
+            if "createSurface" in op:
+                cs = op["createSurface"]
+                if isinstance(cs, dict) and cs.get("surfaceId") == surface_id:
+                    matched = True
+                    catalog_id = cs.get("catalogId") or catalog_id
+            if "updateComponents" in op:
+                uc = op["updateComponents"]
+                if isinstance(uc, dict) and uc.get("surfaceId") == surface_id:
+                    matched = True
+                    if isinstance(uc.get("components"), list):
+                        components = uc["components"]
+            if "updateDataModel" in op:
+                ud = op["updateDataModel"]
+                if isinstance(ud, dict) and ud.get("surfaceId") == surface_id:
+                    matched = True
+                    data = ud.get("value")
+        if matched:
+            return {
+                "components": components or [],
+                "data": data,
+                "catalogId": catalog_id,
+            }
+    return None
+
+
 def get_a2ui_tools(
     model: BaseChatModel,
     *,
@@ -139,21 +203,68 @@ def get_a2ui_tools(
         return "rendered"
 
     description = tool_description or (
-        "Generate a dynamic A2UI surface based on the conversation. A secondary "
-        "LLM designs the UI components and data. Use this when the user requests "
-        "visual content (cards, forms, lists, dashboards, comparisons, etc.)."
+        "Generate or update a dynamic A2UI surface based on the conversation. "
+        "A secondary LLM designs the UI components and data. "
+        "Use intent='create' (default) when the user requests new visual content "
+        "(cards, forms, lists, dashboards, comparisons, etc.). "
+        "Use intent='update' with target_surface_id to modify a surface you "
+        "previously rendered (e.g. 'change the second card's price', "
+        "'add a Buy button', 'use red instead of blue')."
     )
 
     @tool(tool_name, description=description)
-    def generate_a2ui(runtime: ToolRuntime[Any]) -> str:
-        # The last message is this tool call itself, not yet balanced with a
-        # tool result. Strip it before passing history to the subagent so the
-        # subagent does not see an unfinished tool call.
+    def generate_a2ui(
+        runtime: ToolRuntime[Any],
+        intent: str = "create",
+        target_surface_id: Optional[str] = None,
+        changes: Optional[str] = None,
+    ) -> str:
+        """Generate or edit an A2UI surface.
+
+        Args:
+            intent: Either ``"create"`` to render a new surface, or ``"update"``
+                to modify a surface previously rendered in this conversation.
+            target_surface_id: Required when ``intent="update"``. The surface
+                id of the prior render to modify.
+            changes: Optional natural-language description of the changes to
+                apply when ``intent="update"``.
+        """
         messages = runtime.state["messages"][:-1]
 
         prompt_parts = [_build_context_prompt(runtime.state)]
         if composition_guide:
             prompt_parts.append(composition_guide)
+
+        is_update = intent == "update" and bool(target_surface_id)
+        prior: Optional[dict[str, Any]] = None
+        if is_update:
+            prior = _find_prior_surface(messages, target_surface_id)  # type: ignore[arg-type]
+            if prior is None:
+                return json.dumps(
+                    {
+                        "error": (
+                            f"intent='update' requested target_surface_id="
+                            f"'{target_surface_id}' but no prior render of that "
+                            f"surface was found in conversation history"
+                        )
+                    }
+                )
+            edit_block = (
+                "## Editing an existing surface\n"
+                f"You are editing surface '{target_surface_id}'. Produce the "
+                f"FULL updated components array and data model — not just a "
+                f"diff. Preserve component ids that the user has not asked to "
+                f"change so the renderer can reconcile them. Reuse the same "
+                f"catalogId.\n\n"
+                f"### Previous components\n"
+                f"{json.dumps(prior['components'], indent=2)}\n\n"
+                f"### Previous data\n"
+                f"{json.dumps(prior['data'], indent=2)}\n"
+            )
+            if changes:
+                edit_block += f"\n### Requested changes\n{changes}\n"
+            prompt_parts.append(edit_block)
+
         prompt = "\n".join(p for p in prompt_parts if p)
 
         model_with_tool = model.bind_tools(
@@ -168,15 +279,23 @@ def get_a2ui_tools(
             return json.dumps({"error": "LLM did not call render_a2ui"})
 
         args = response.tool_calls[0]["args"]
-        surface_id = args.get("surfaceId") or default_surface_id
-        catalog_id = args.get("catalogId") or default_catalog_id
+        surface_id = (
+            target_surface_id
+            if is_update
+            else (args.get("surfaceId") or default_surface_id)
+        )
+        catalog_id = (
+            (prior or {}).get("catalogId")
+            or args.get("catalogId")
+            or default_catalog_id
+        )
         components = args.get("components") or []
         data = args.get("data") or {}
 
-        ops: list[dict[str, Any]] = [
-            _create_surface(surface_id, catalog_id),
-            _update_components(surface_id, components),
-        ]
+        ops: list[dict[str, Any]] = []
+        if not is_update:
+            ops.append(_create_surface(surface_id, catalog_id))
+        ops.append(_update_components(surface_id, components))
         if data:
             ops.append(_update_data_model(surface_id, data))
 

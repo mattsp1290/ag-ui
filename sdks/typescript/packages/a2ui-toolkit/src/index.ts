@@ -59,7 +59,9 @@ export function updateDataModel(
 /**
  * JSON schema for the inner ``render_a2ui`` tool. Framework adapters bind
  * this on the subagent's model with ``tool_choice="render_a2ui"`` so the
- * structured-output call produces ``{surfaceId, catalogId, components, data}``.
+ * structured-output call produces ``{surfaceId, components, data}``. The
+ * catalog id is owned by the factory, not the subagent — the subagent can't
+ * invent a catalog the host hasn't registered.
  */
 export const RENDER_A2UI_TOOL_DEF = {
   type: "function" as const,
@@ -74,10 +76,6 @@ export const RENDER_A2UI_TOOL_DEF = {
         surfaceId: {
           type: "string",
           description: "Unique surface identifier.",
-        },
-        catalogId: {
-          type: "string",
-          description: "The catalog id for the component catalog.",
         },
         components: {
           type: "array",

@@ -150,11 +150,7 @@ def get_a2ui_tools(
             if is_update
             else (args.get("surfaceId") or default_surface_id)
         )
-        catalog_id = (
-            (prior or {}).get("catalogId")
-            or args.get("catalogId")
-            or default_catalog_id
-        )
+        catalog_id = (prior or {}).get("catalogId") or default_catalog_id
         components = args.get("components") or []
         data = args.get("data") or {}
 

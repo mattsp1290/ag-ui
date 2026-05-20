@@ -164,10 +164,7 @@ export function getA2UITools(
       const surfaceId = isUpdate
         ? (targetSurfaceId as string)
         : (args.surfaceId as string) || defaultSurfaceId;
-      const catalogId =
-        prior?.catalogId ||
-        (args.catalogId as string) ||
-        defaultCatalogId;
+      const catalogId = prior?.catalogId || defaultCatalogId;
       const components =
         (args.components as Array<Record<string, unknown>>) || [];
       const data = (args.data as Record<string, unknown>) || {};

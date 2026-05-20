@@ -87,10 +87,6 @@ RENDER_A2UI_TOOL_DEF: dict[str, Any] = {
                     "type": "string",
                     "description": "Unique surface identifier.",
                 },
-                "catalogId": {
-                    "type": "string",
-                    "description": "The catalog id for the component catalog.",
-                },
                 "components": {
                     "type": "array",
                     "description": (

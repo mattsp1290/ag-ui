@@ -49,7 +49,7 @@ class TestRenderToolDef(unittest.TestCase):
     def test_parameter_keys(self):
         self.assertEqual(
             list(RENDER_A2UI_TOOL_DEF["function"]["parameters"]["properties"].keys()),
-            ["surfaceId", "catalogId", "components", "data"],
+            ["surfaceId", "components", "data"],
         )
 
 

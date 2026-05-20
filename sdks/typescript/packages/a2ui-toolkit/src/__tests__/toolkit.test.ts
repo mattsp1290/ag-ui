@@ -38,10 +38,10 @@ describe("RENDER_A2UI_TOOL_DEF", () => {
     ]);
   });
 
-  it("declares the four expected parameter slots", () => {
+  it("declares the three expected parameter slots", () => {
     expect(
       Object.keys(RENDER_A2UI_TOOL_DEF.function.parameters.properties),
-    ).toEqual(["surfaceId", "catalogId", "components", "data"]);
+    ).toEqual(["surfaceId", "components", "data"]);
   });
 });
 

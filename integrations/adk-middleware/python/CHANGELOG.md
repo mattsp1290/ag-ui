@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **FIX**: `_shallow_copy_agent_tree` now re-parents copied sub-agents so `transfer_to_agent` resolves against the per-run copy (#1719)
+  - `ADKAgent._shallow_copy_agent_tree` recursively copies the agent tree before each run so that per-execution tool replacement (`AGUIToolset` → `ClientProxyToolset` via `_update_agent_tools_recursive`) doesn't mutate the originals. Pydantic's `model_copy(deep=False)` inherits every field by reference, including `parent_agent`, so each recursively-copied sub-agent still pointed at the **original** parent.
+  - ADK's `transfer_to_agent` resolves the target by walking `parent_agent` up to the root and searching the root's `sub_agents` registry. Because each copied sub-agent's `parent_agent` referenced the original (pre-copy) root — whose `tools` were never updated for this run — the transfer either failed to find the target or, where it did find one, escaped into the stale original tree whose `AGUIToolset` was never swapped for `ClientProxyToolset`. The transfer was silently dropped or executed against unwired tools.
+  - The fix re-parents each copied sub-agent to its copied parent after the recursive copy: `sub.parent_agent = copied`. A guard skips the early-return branch where `model_copy` raised `AttributeError` and the input was returned as-is (e.g. non-Pydantic test mocks), so the original tree's `parent_agent` is never mutated through the back door.
+  - New regression test `test_shallow_copy_reparents_sub_agents` in `tests/test_adk_agent.py` asserts (a) the copied child's `parent_agent is` the copied root (not the original), and (b) the original child's `parent_agent` still points at the original root — pinning the no-mutation invariant alongside the re-parenting fix.
+  - **Reporter**: [@jb-delafosse](https://github.com/jb-delafosse) filed [#1719](https://github.com/ag-ui-protocol/ag-ui/issues/1719) with a minimal repro, accurate root-cause analysis, and the proposed re-parenting fix this implementation is based on. Thanks!
+
+## [0.6.3] - 2026-05-16
+
+### Fixed
+
+- **FIX**: `FunctionResponse.name` now set to the called function name, not `tool_call_id` (#1682)
+  - `convert_ag_ui_messages_to_adk` was building `types.FunctionResponse` with `name=message.tool_call_id`, conflating the response's `name` field (meant to hold the called function's name, e.g. `get_weather`) with the correlation ID.
+  - Gemini's wire contract requires `FunctionResponse.name` to equal the originating `FunctionCall.name`. Using a UUID-shaped `tool_call_id` instead meant any downstream consumer that correlates calls by name (real Gemini's session correlator, aimock's gemini→openai translator, etc.) couldn't find a matching prior `FunctionCall.name`, silently breaking multi-leg round-trips (e.g. `tool-rendering-reasoning-chain` fixture chains failing on the second leg).
+  - The fix builds a `tool_call_id → function_name` lookup from all `AssistantMessage.tool_calls` in the same conversion batch before processing `ToolMessage`s. When a `ToolMessage` is encountered, `FunctionResponse.name` is set from the lookup; the old `tool_call_id` fallback is preserved for the edge case where no matching `AssistantMessage` is present in the same batch (malformed input), preventing crashes.
+  - `FunctionResponse.id` continues to carry the original `tool_call_id` so clients that key on the correlation ID are unaffected.
+  - **Contributor**: Reported and fixed by [@AlemTuzlak](https://github.com/AlemTuzlak) in [#1682](https://github.com/ag-ui-protocol/ag-ui/pull/1682). Thanks!
+
 ## [0.6.2] - 2026-05-12
 
 ### Security

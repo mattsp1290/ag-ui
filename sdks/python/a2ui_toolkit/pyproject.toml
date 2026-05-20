@@ -17,3 +17,6 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 module-root = ""
 module-name = "ag_ui_a2ui_toolkit"
+
+[tool.ag-ui.scripts]
+test = "python -m unittest discover tests"

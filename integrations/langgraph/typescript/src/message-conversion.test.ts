@@ -77,6 +77,31 @@ describe("Message Conversion - All Types", () => {
       expect(result[1].type).toBe("ai");
       expect(result[2].type).toBe("human");
     });
+
+    it("should drop reasoning messages (display-only)", () => {
+      // Reasoning content already lives inside the assistant AIMessage's
+      // content blocks at the LangChain layer; emitting a separate LangGraph
+      // message would duplicate context on the next turn.
+      const msgs: Message[] = [
+        { id: "u1", role: "user", content: "Hi" },
+        { id: "r1", role: "reasoning", content: "thinking..." },
+        { id: "a1", role: "assistant", content: "Hello" },
+      ];
+      const result = aguiMessagesToLangChain(msgs);
+      expect(result).toHaveLength(2);
+      expect(result[0].type).toBe("human");
+      expect(result[1].type).toBe("ai");
+    });
+
+    it("should drop developer messages (handled by agent system prompt)", () => {
+      const msgs: Message[] = [
+        { id: "d1", role: "developer", content: "be concise" } as any,
+        { id: "u1", role: "user", content: "Hi" },
+      ];
+      const result = aguiMessagesToLangChain(msgs);
+      expect(result).toHaveLength(1);
+      expect(result[0].type).toBe("human");
+    });
   });
 
   describe("langchainMessagesToAgui", () => {
@@ -114,6 +139,31 @@ describe("Message Conversion - All Types", () => {
       const result: any[] = langchainMessagesToAgui([msg]);
       expect(result[0].role).toBe("tool");
       expect(result[0].toolCallId).toBe("tc1");
+    });
+
+    it("should handle generic (ChatMessage) type as assistant", () => {
+      const msg = {
+        id: "g1",
+        type: "generic",
+        content: "hello from generic",
+        tool_calls: [{ id: "tc1", name: "search", args: { q: "weather" } }],
+      } as any as LangGraphMessage;
+      const result: any[] = langchainMessagesToAgui([msg]);
+      expect(result[0].role).toBe("assistant");
+      expect(result[0].content).toBe("hello from generic");
+      expect(result[0].toolCalls).toHaveLength(1);
+      expect(result[0].toolCalls[0].function.name).toBe("search");
+    });
+
+    it("should handle generic type with no tool calls", () => {
+      const msg = {
+        id: "g2",
+        type: "generic",
+        content: "plain generic message",
+      } as any as LangGraphMessage;
+      const result: any[] = langchainMessagesToAgui([msg]);
+      expect(result[0].role).toBe("assistant");
+      expect(result[0].content).toBe("plain generic message");
     });
 
     it("should throw for unsupported type", () => {

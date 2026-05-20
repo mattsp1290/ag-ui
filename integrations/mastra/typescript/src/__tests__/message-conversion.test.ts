@@ -28,7 +28,55 @@ describe("convertAGUIMessagesToMastra", () => {
       const result = convertAGUIMessagesToMastra(messages);
 
       expect(result).toEqual([
-        { role: "user", content: "First part\nSecond part" },
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "First part" },
+            { type: "text", text: "Second part" },
+          ],
+        },
+      ]);
+    });
+
+    it("converts array content with single text part", () => {
+      const messages: Message[] = [
+        {
+          id: "1",
+          role: "user",
+          content: [
+            { type: "text", text: "Single part" },
+          ],
+        },
+      ];
+
+      const result = convertAGUIMessagesToMastra(messages);
+
+      expect(result).toEqual([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "Single part" },
+          ],
+        },
+      ]);
+    });
+
+    it("converts empty array content", () => {
+      const messages: Message[] = [
+        {
+          id: "1",
+          role: "user",
+          content: [],
+        },
+      ];
+
+      const result = convertAGUIMessagesToMastra(messages);
+
+      expect(result).toEqual([
+        {
+          role: "user",
+          content: [],
+        },
       ]);
     });
 
@@ -70,7 +118,7 @@ describe("convertAGUIMessagesToMastra", () => {
       ]);
     });
 
-    it("trims whitespace from text parts and filters empty", () => {
+    it("leaves whitespace from text parts as-is", () => {
       const messages: Message[] = [
         {
           id: "1",
@@ -85,7 +133,16 @@ describe("convertAGUIMessagesToMastra", () => {
 
       const result = convertAGUIMessagesToMastra(messages);
 
-      expect(result).toEqual([{ role: "user", content: "hello\nworld" }]);
+      expect(result).toEqual([
+        {
+          role: "user",
+          content: [
+            { type: "text", text: "  hello  " },
+            { type: "text", text: "   " },
+            { type: "text", text: "world" },
+          ],
+        },
+      ]);
     });
   });
 
@@ -214,25 +271,6 @@ describe("convertAGUIMessagesToMastra", () => {
             },
           ],
         },
-      ]);
-    });
-
-    it("returns plain string for text-only array (backwards compat)", () => {
-      const messages: Message[] = [
-        {
-          id: "1",
-          role: "user",
-          content: [
-            { type: "text", text: "Hello" },
-            { type: "text", text: "World" },
-          ],
-        },
-      ];
-
-      const result = convertAGUIMessagesToMastra(messages);
-
-      expect(result).toEqual([
-        { role: "user", content: "Hello\nWorld" },
       ]);
     });
 

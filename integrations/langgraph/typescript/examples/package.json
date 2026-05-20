@@ -24,5 +24,10 @@
     "@types/node": "^20.0.0",
     "@types/uuid": "^10.0.0",
     "typescript": "^5.0.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "@ag-ui/a2ui-toolkit": "0.0.1-alpha.0"
+    }
   }
 }

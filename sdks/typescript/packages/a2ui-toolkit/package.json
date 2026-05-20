@@ -1,6 +1,7 @@
 {
-  "name": "@ag-ui/langgraph",
-  "version": "0.0.32",
+  "name": "@ag-ui/a2ui-toolkit",
+  "version": "0.0.1",
+  "description": "Framework-agnostic helpers for building A2UI subagent tools — op builders, prompt assembly, history walkers, and validation against Google's a2ui-agent-sdk / @a2ui/web_core.",
   "main": "./dist/index.js",
   "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
@@ -25,21 +26,8 @@
     "link:global": "pnpm link --global",
     "unlink:global": "pnpm unlink --global"
   },
-  "dependencies": {
-    "@ag-ui/a2ui-toolkit": "workspace:*",
-    "@langchain/core": "^1.1.40",
-    "@langchain/langgraph-sdk": "^1.8.8",
-    "langchain": ">=1.2.0",
-    "partial-json": "^0.1.7",
-    "rxjs": "7.8.1"
-  },
-  "peerDependencies": {
-    "@ag-ui/core": ">=0.0.42",
-    "@ag-ui/client": ">=0.0.42"
-  },
+  "dependencies": {},
   "devDependencies": {
-    "@ag-ui/core": "workspace:*",
-    "@ag-ui/client": "workspace:*",
     "@types/node": "^20.11.19",
     "@vitest/coverage-istanbul": "^4.0.18",
     "publint": "^0.3.12",
@@ -52,10 +40,6 @@
     ".": {
       "require": "./dist/index.js",
       "import": "./dist/index.mjs"
-    },
-    "./middlewares": {
-      "require": "./dist/middlewares/index.js",
-      "import": "./dist/middlewares/index.mjs"
     },
     "./package.json": "./package.json"
   }

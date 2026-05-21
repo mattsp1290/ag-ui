@@ -7,7 +7,83 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **DEPS**: `google-adk` upper bound lifted from `<2.0.0` to `<3.0.0`. The middleware
+  is now compatible with both ADK 1.x and ADK 2.x (GA 2026-05-19). See the two
+  paired fixes below for the source changes that enable 2.0 support without
+  regressing 1.x. CI should ideally run the suite under both ADK 1.33 and ADK 2.0
+  to keep the dual-pin invariant honest.
+
 ### Fixed
+
+- **FIX**: `AGUIToolset` now binds a `ClientProxyToolset` delegate instead of being
+  replaced wholesale, so ADK 2.0's eager `Runner.__init__` tool cache stays valid (#1389)
+  - **Cause**: ADK 2.0 changed `Runner.__init__` to eagerly walk `agent.tools` and
+    cache whatever each toolset returns from `get_tools()`. The previous
+    `_update_agent_tools_recursive` strategy reassigned `agent.tools = [...]` so the
+    placeholder `AGUIToolset` was replaced by a `ClientProxyToolset` object — but
+    the Runner had already cached a reference to the placeholder, leaving the LLM
+    with an empty tool list and the error
+    `"Tool 'X' not found. Available tools: []"` on first frontend-tool invocation.
+    ADK 1.x resolved `get_tools()` lazily so the replacement was visible.
+  - **Fix**: `AGUIToolset` gains `bind(delegate)` and `unbind()` methods.
+    `get_tools()` forwards to the bound delegate, or returns `[]` if unbound.
+    Object identity of the `AGUIToolset` instance in `agent.tools` is preserved
+    end-to-end, so ADK 2.0's cache stays valid and ADK 1.x continues to work
+    unchanged (the delegation pattern is functionally equivalent to the previous
+    replace-the-object approach there).
+  - `_update_agent_tools_recursive` calls `bind()` instead of mutating `agent.tools`.
+    `_run_adk_in_background`'s `finally` block walks the tree and calls `unbind()`
+    so the next run starts with placeholders in their construction-time state.
+  - **Additionally**, `AGUIToolset.__init__` now explicitly calls
+    `super().__init__()`. ADK 2.0's `BaseToolset.__init__` sets new attributes
+    (`_use_invocation_cache`, `_cached_invocation_id`, `_cached_prefixed_tools`)
+    that ADK 2.0's `llm_agent.py:185` reads via `getattr(toolset, '_use_invocation_cache')`.
+    Without `super().__init__()` the attribute is missing, the toolset is silently
+    dropped, and the LLM never sees the frontend tools — even with the bind/unbind
+    fix above. ADK 1.x's `BaseToolset.__init__` accepts the same kwargs and is a
+    no-op, so the change is dual-version safe.
+  - **Tests**: `tests/test_adk_2_0_compat.py::TestAGUIToolsetDelegation` covers
+    construction (super-init runs), unbound `get_tools()` returns `[]` (with an
+    opt-in explicit-raise mode preserved for tests), bind/unbind round-trip,
+    re-bind across multi-turn runs, and object-identity preservation across a
+    full `ADKAgent.run` invocation. Two existing tests in
+    `tests/test_adk_agent.py` (`test_agui_tools_properly_converted_in_subagents`
+    and `test_non_deepcopyable_tool_does_not_crash`) were updated to assert the
+    new delegated semantics (toolset instance preserved, `._delegate` is the
+    `ClientProxyToolset`) instead of the old wholesale-replacement semantics.
+  - **Reporter**: filed [#1389](https://github.com/ag-ui-protocol/ag-ui/issues/1389)
+    with the exact `_use_invocation_cache` symptom and the delegation-via-bind
+    workaround. The architecture of this fix follows the proposal in
+    [#1470 (withdrawn)](https://github.com/ag-ui-protocol/ag-ui/pull/1470).
+
+- **FIX**: Workflow roots now receive `FunctionResponse` directly in `new_message`
+  so ADK 2.0 `Workflow._run_impl` can rehydrate from interrupt (#1669)
+  - **Cause**: The #1534 workaround for `Runner._resolve_invocation_id`'s
+    end-of-agent short-circuit pre-appends the `FunctionResponse` to the session
+    and replaces `new_message` with an empty-text placeholder. That's correct for
+    LlmAgent roots (whose `function_call` events carry `end_of_agent=True`), but
+    ADK 2.0 `Workflow._run_impl` rehydrates from `new_message.parts` only —
+    `_extract_resume_inputs(new_message)` returns `None` when the placeholder
+    has no `function_response`, so the workflow restarts from `START` instead of
+    resuming the interrupted node. Symptom: Workflow-rooted HITL flows hang
+    indefinitely on tool-result submission.
+  - **Fix**: Add `ADKAgent._root_agent_is_workflow()` predicate. The pre-append
+    branch is now gated on `not self._root_agent_is_workflow()` — Workflow roots
+    take the direct-`new_message` path (same path used by ADK <1.28 and
+    non-resumable apps), where the `FunctionResponse` lands in
+    `new_message.parts` and `Workflow._extract_resume_inputs` can correctly read
+    it. The LlmAgent + composite-orchestrator path is unchanged.
+  - The predicate imports `google.adk.workflow.Workflow` lazily inside the
+    function with a try/except guard, so ADK 1.x (which has no `workflow`
+    module) returns `False` without raising.
+  - **Tests**: `tests/test_adk_2_0_compat.py::TestWorkflowRootDetection` covers
+    the LlmAgent-root-not-workflow path (must hold on both ADK majors), the
+    defensive no-root path, and (on ADK 2.0 only) Workflow-root detection.
+  - **Reporter**: filed [#1669](https://github.com/ag-ui-protocol/ag-ui/issues/1669)
+    with the exact root cause and the proposed gating expression that this fix
+    implements verbatim.
 
 - **FIX**: `_shallow_copy_agent_tree` now re-parents copied sub-agents so `transfer_to_agent` resolves against the per-run copy (#1719)
   - `ADKAgent._shallow_copy_agent_tree` recursively copies the agent tree before each run so that per-execution tool replacement (`AGUIToolset` → `ClientProxyToolset` via `_update_agent_tools_recursive`) doesn't mutate the originals. Pydantic's `model_copy(deep=False)` inherits every field by reference, including `parent_agent`, so each recursively-copied sub-agent still pointed at the **original** parent.

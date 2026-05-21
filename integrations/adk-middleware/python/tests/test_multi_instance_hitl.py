@@ -9,6 +9,8 @@ Instance A creates a session with pending HITL tool calls, Instance B
 (with a cold cache) can discover and process them correctly.
 """
 
+import asyncio
+
 import pytest
 from unittest.mock import patch
 
@@ -317,6 +319,89 @@ class TestMultiInstanceHITL:
                     )
 
         assert observed_end, "Test setup error: never observed ToolCallEndEvent"
+
+    @pytest.mark.asyncio
+    async def test_pending_tool_call_waits_for_runner_before_tool_call_end_event(
+        self, instance_a, sample_tool,
+    ):
+        """Regression test for #1732.
+
+        DatabaseSessionService in ADK 1.27+ rejects mid-run session writes. The
+        middleware must still persist pending_tool_calls before the client sees
+        ToolCallEndEvent, but only after the producer has finished its current
+        runner append_event work.
+        """
+        thread_id = "stale_session_thread"
+        tool_call_id = "tool_call_stale_session"
+
+        await instance_a._ensure_session_exists(
+            app_name="test_app",
+            user_id="test_user",
+            thread_id=thread_id,
+            initial_state={},
+        )
+
+        input_a = RunAgentInput(
+            thread_id=thread_id,
+            run_id="run_stale_session",
+            messages=[UserMessage(id="msg_1", role="user", content="Plan something")],
+            tools=[sample_tool],
+            context=[],
+            state={},
+            forwarded_props={},
+        )
+
+        runner_can_finish = asyncio.Event()
+        pending_persisted = asyncio.Event()
+        tool_call_end_seen = asyncio.Event()
+        producer_finished = False
+
+        async def mock_run_a(*args, **kwargs):
+            nonlocal producer_finished
+            eq = kwargs["event_queue"]
+            kwargs["long_running_tool_ids"].add(tool_call_id)
+            await eq.put(ToolCallEndEvent(
+                type=EventType.TOOL_CALL_END,
+                tool_call_id=tool_call_id,
+            ))
+            await runner_can_finish.wait()
+            producer_finished = True
+            await eq.put(None)
+
+        async def mock_add_pending(thread_id_arg, tool_call_id_arg, app_name, user_id):
+            assert thread_id_arg == thread_id
+            assert tool_call_id_arg == tool_call_id
+            assert producer_finished, (
+                "pending_tool_calls should not be persisted until the ADK runner "
+                "has finished its in-flight session append"
+            )
+            pending_persisted.set()
+
+        async def collect_events():
+            events = []
+            async for event in instance_a.run(input_a):
+                events.append(event)
+                if isinstance(event, ToolCallEndEvent):
+                    tool_call_end_seen.set()
+            return events
+
+        with patch.object(instance_a, "_run_adk_in_background", side_effect=mock_run_a), \
+             patch.object(
+                 instance_a,
+                 "_add_pending_tool_call_with_context",
+                 side_effect=mock_add_pending,
+             ):
+            collector = asyncio.create_task(collect_events())
+            await asyncio.sleep(0.05)
+
+            assert not pending_persisted.is_set()
+            assert not tool_call_end_seen.is_set()
+
+            runner_can_finish.set()
+            events = await asyncio.wait_for(collector, timeout=3)
+
+        assert pending_persisted.is_set()
+        assert any(isinstance(event, ToolCallEndEvent) for event in events)
 
     @pytest.mark.asyncio
     async def test_backend_tool_result_clears_pending_before_stream_ends(

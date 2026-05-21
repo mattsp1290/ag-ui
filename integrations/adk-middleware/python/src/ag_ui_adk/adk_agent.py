@@ -1724,6 +1724,14 @@ class ADKAgent:
                         f"(hitl={is_hitl})"
                     )
                     if is_hitl:
+                        # ADK 1.27+ DatabaseSessionService rejects session writes
+                        # while the runner still owns an in-flight append_event.
+                        if not execution.task.done():
+                            logger.debug(
+                                "Waiting for ADK runner to finish before persisting "
+                                f"HITL pending_tool_calls for {event.tool_call_id}"
+                            )
+                            await execution.task
                         tool_call_ids.append(event.tool_call_id)
                         await self._add_pending_tool_call_with_context(
                             execution.thread_id, event.tool_call_id, app_name, user_id

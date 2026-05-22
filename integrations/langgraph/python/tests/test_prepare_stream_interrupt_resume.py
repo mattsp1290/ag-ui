@@ -11,14 +11,15 @@ still allow edit/regenerate detection before replaying interrupt events.
 """
 
 import unittest
+from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, List
 from unittest.mock import AsyncMock, MagicMock
 
-from langchain_core.messages import AIMessage, HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 
-from ag_ui.core import EventType, UserMessage
+from ag_ui.core import EventType, ToolMessage as AGUIToolMessage, UserMessage
 
 from tests._helpers import make_agent
 
@@ -63,6 +64,27 @@ def _make_input(
 async def _empty_stream():
     if False:
         yield None
+
+
+def _checkpoint_signature(messages):
+    """Return stable message fields so tests can assert no checkpoint mutation."""
+    return [
+        (
+            type(message).__name__,
+            getattr(message, "id", None),
+            deepcopy(getattr(message, "content", None)),
+            deepcopy(getattr(message, "tool_calls", None)),
+            getattr(message, "tool_call_id", None),
+        )
+        for message in messages
+    ]
+
+
+def _orphan_placeholder(tool_name: str, tool_call_id: str) -> str:
+    return (
+        f"Tool call '{tool_name}' with id '{tool_call_id}' "
+        f"was interrupted before completion."
+    )
 
 
 class TestPrepareStreamInterruptResumeOrdering(unittest.IsolatedAsyncioTestCase):
@@ -165,11 +187,14 @@ class TestPrepareStreamInterruptResumeOrdering(unittest.IsolatedAsyncioTestCase)
 
         agent.prepare_regenerate_stream = AsyncMock()
         config = {"configurable": {"thread_id": "t1"}}
+        before_checkpoint = _checkpoint_signature(checkpoint_messages)
 
         result = await agent.prepare_stream(inp, state, config)
 
         agent.prepare_regenerate_stream.assert_not_awaited()
         self.assertIsNotNone(result.get("stream"))
+        agent.graph.aupdate_state.assert_not_called()
+        self.assertEqual(before_checkpoint, _checkpoint_signature(checkpoint_messages))
 
         stream_input = agent.graph.astream_events.call_args.kwargs["input"]
         self.assertIsInstance(stream_input, Command)
@@ -207,11 +232,13 @@ class TestPrepareStreamInterruptResumeOrdering(unittest.IsolatedAsyncioTestCase)
 
                 agent.prepare_regenerate_stream = AsyncMock()
                 config = {"configurable": {"thread_id": "t1"}}
+                before_checkpoint = _checkpoint_signature(checkpoint_messages)
 
                 result = await agent.prepare_stream(inp, state, config)
 
                 agent.prepare_regenerate_stream.assert_not_awaited()
                 agent.graph.aupdate_state.assert_not_called()
+                self.assertEqual(before_checkpoint, _checkpoint_signature(checkpoint_messages))
                 self.assertIsNotNone(result.get("stream"))
 
                 stream_input = agent.graph.astream_events.call_args.kwargs["input"]
@@ -246,12 +273,127 @@ class TestPrepareStreamInterruptResumeOrdering(unittest.IsolatedAsyncioTestCase)
 
         agent.prepare_regenerate_stream = AsyncMock()
         config = {"configurable": {"thread_id": "t1"}}
+        before_checkpoint = _checkpoint_signature(checkpoint_messages)
 
         result = await agent.prepare_stream(inp, state, config)
 
         agent.prepare_regenerate_stream.assert_not_awaited()
         agent.graph.astream_events.assert_not_called()
         agent.graph.aupdate_state.assert_not_called()
+        self.assertEqual(before_checkpoint, _checkpoint_signature(checkpoint_messages))
+        self.assertIsNone(result.get("stream"))
+
+        events = result.get("events_to_dispatch", [])
+        types = [getattr(e, "type", None) for e in events]
+        self.assertIn(EventType.RUN_STARTED, types)
+        self.assertIn(EventType.CUSTOM, types)
+        self.assertIn(EventType.RUN_FINISHED, types)
+
+    async def test_none_resume_interrupt_replay_does_not_mutate_string_tool_call_args(self):
+        """Interrupt replay must not repair checkpoint tool_call args in place."""
+        agent = make_agent()
+        agent.active_run = {"id": "run-1", "mode": "start"}
+
+        checkpoint_messages = [
+            HumanMessage(id="h1", content="do something"),
+            AIMessage(
+                id="ai1",
+                content="",
+                tool_calls=[
+                    {
+                        "id": "tc-1",
+                        "name": "approval",
+                        "args": {},
+                    }
+                ],
+            ),
+        ]
+        checkpoint_messages[1].tool_calls[0]["args"] = '{"approved": false}'
+        state = _make_state(
+            messages=checkpoint_messages,
+            tasks=[FakeTask(interrupts=[FakeInterrupt(value="confirm?")])],
+        )
+
+        frontend_messages = [
+            UserMessage(id="h1", role="user", content="do something"),
+        ]
+        inp = _make_input(
+            messages=frontend_messages,
+            forwarded_props={"command": {"resume": None}},
+        )
+
+        agent.prepare_regenerate_stream = AsyncMock()
+        config = {"configurable": {"thread_id": "t1"}}
+        before_checkpoint = _checkpoint_signature(checkpoint_messages)
+
+        result = await agent.prepare_stream(inp, state, config)
+
+        agent.prepare_regenerate_stream.assert_not_awaited()
+        agent.graph.astream_events.assert_not_called()
+        agent.graph.aupdate_state.assert_not_called()
+        self.assertEqual(before_checkpoint, _checkpoint_signature(checkpoint_messages))
+        self.assertIsNone(result.get("stream"))
+
+        events = result.get("events_to_dispatch", [])
+        types = [getattr(e, "type", None) for e in events]
+        self.assertIn(EventType.RUN_STARTED, types)
+        self.assertIn(EventType.CUSTOM, types)
+        self.assertIn(EventType.RUN_FINISHED, types)
+
+    async def test_interrupt_replay_does_not_mutate_orphan_tool_message_content(self):
+        """Interrupt replay must not repair checkpoint ToolMessage content in place."""
+        agent = make_agent()
+        agent.active_run = {"id": "run-1", "mode": "start"}
+
+        tool_call_id = "tc-1"
+        checkpoint_messages = [
+            HumanMessage(id="h1", content="do something"),
+            AIMessage(
+                id="ai1",
+                content="",
+                tool_calls=[
+                    {
+                        "id": tool_call_id,
+                        "name": "approval",
+                        "args": {},
+                    }
+                ],
+            ),
+            ToolMessage(
+                id="orphan-1",
+                content=_orphan_placeholder("approval", tool_call_id),
+                tool_call_id=tool_call_id,
+            ),
+        ]
+        state = _make_state(
+            messages=checkpoint_messages,
+            tasks=[FakeTask(interrupts=[FakeInterrupt(value="confirm?")])],
+        )
+
+        frontend_messages = [
+            UserMessage(id="h1", role="user", content="do something"),
+            AGUIToolMessage(
+                id="agui-tool-1",
+                role="tool",
+                content="approved",
+                tool_call_id=tool_call_id,
+            ),
+        ]
+        inp = _make_input(
+            messages=frontend_messages,
+            forwarded_props={"command": {"resume": None}},
+        )
+
+        agent.prepare_regenerate_stream = AsyncMock()
+        config = {"configurable": {"thread_id": "t1"}}
+        before_checkpoint = _checkpoint_signature(checkpoint_messages)
+
+        result = await agent.prepare_stream(inp, state, config)
+
+        agent.prepare_regenerate_stream.assert_not_awaited()
+        agent.graph.astream_events.assert_not_called()
+        agent.graph.aupdate_state.assert_not_called()
+        self.assertEqual(before_checkpoint, _checkpoint_signature(checkpoint_messages))
         self.assertIsNone(result.get("stream"))
 
         events = result.get("events_to_dispatch", [])
@@ -294,12 +436,14 @@ class TestPrepareStreamInterruptResumeOrdering(unittest.IsolatedAsyncioTestCase)
         }
         agent.prepare_regenerate_stream = AsyncMock(return_value=prepared_regenerate)
         config = {"configurable": {"thread_id": "t1"}}
+        before_checkpoint = _checkpoint_signature(checkpoint_messages)
 
         result = await agent.prepare_stream(inp, state, config)
 
         agent.prepare_regenerate_stream.assert_awaited_once()
         self.assertIs(result, prepared_regenerate)
         agent.graph.aupdate_state.assert_not_called()
+        self.assertEqual(before_checkpoint, _checkpoint_signature(checkpoint_messages))
 
     async def test_interrupt_without_resume_dispatches_interrupt_events(self):
         """When there's an active interrupt but no resume value, the agent
@@ -327,10 +471,13 @@ class TestPrepareStreamInterruptResumeOrdering(unittest.IsolatedAsyncioTestCase)
 
         agent.prepare_regenerate_stream = AsyncMock()
         config = {"configurable": {"thread_id": "t1"}}
+        before_checkpoint = _checkpoint_signature(checkpoint_messages)
 
         result = await agent.prepare_stream(inp, state, config)
 
         agent.prepare_regenerate_stream.assert_not_awaited()
+        agent.graph.aupdate_state.assert_not_called()
+        self.assertEqual(before_checkpoint, _checkpoint_signature(checkpoint_messages))
         self.assertIsNone(result.get("stream"))
 
         events = result.get("events_to_dispatch", [])
@@ -386,3 +533,28 @@ class TestPrepareStreamInterruptResumeOrdering(unittest.IsolatedAsyncioTestCase)
         result = await agent.prepare_stream(inp, state, config)
 
         self.assertIsNotNone(result.get("stream"))
+
+
+class TestCheckpointSignature(unittest.TestCase):
+    """Checkpoint mutation assertions must observe in-place mutations."""
+
+    def test_checkpoint_signature_does_not_retain_mutable_message_references(self):
+        messages = [
+            AIMessage(
+                id="ai1",
+                content=[{"type": "text", "text": "before"}],
+                tool_calls=[
+                    {
+                        "id": "tc-1",
+                        "name": "approval",
+                        "args": {"approved": False},
+                    }
+                ],
+            ),
+        ]
+
+        before = _checkpoint_signature(messages)
+        messages[0].content[0]["text"] = "after"
+        messages[0].tool_calls[0]["args"]["approved"] = True
+
+        self.assertNotEqual(before, _checkpoint_signature(messages))

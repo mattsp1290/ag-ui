@@ -243,6 +243,13 @@ jobs:
       (github.event_name == 'workflow_dispatch' && inputs.dry_run != true || github.event_name != 'workflow_dispatch')
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    # WARNING: npm trusted-publisher binding pins to:
+    #   repository: ag-ui-protocol/ag-ui
+    #   workflow_file_path: .github/workflows/publish-release.yml
+    #   environment_name: npm
+    # Renaming this file, this `environment:` value, or the workflow path
+    # breaks npm publishing for every @ag-ui/* package silently until the
+    # trusted-publisher config on npmjs.org is updated to match.
     environment: npm
     permissions:
       contents: write
@@ -276,11 +283,14 @@ jobs:
         with:
           name: ts-build-artifacts
 
-      # nx release publish needs the full pnpm workspace installed so that:
-      # 1. nx can resolve the project graph and find the nx-release-publish executor
-      # 2. pnpm publish can resolve workspace:* protocol deps to real versions
-      # We use --ignore-scripts to preserve the security boundary: no lifecycle
-      # scripts run in the same process tree as publishing secrets.
+      # pnpm pack needs the full workspace installed so that workspace:* protocol
+      # deps get rewritten to real versions in the published tarball.
+      # --ignore-scripts preserves the security boundary: no install-time lifecycle
+      # scripts run in the same process tree as the OIDC token.
+      # (pnpm pack itself does not support --ignore-scripts as of 10.33.4, so
+      # the security boundary is enforced at install time only — but `dist/`
+      # artifacts are downloaded from the build job, so prepack/prepublishOnly
+      # scripts have no work to do anyway.)
       - name: Install dependencies (no lifecycle scripts)
         if: needs.build.outputs.ts_count != '0'
         run: pnpm install --frozen-lockfile --ignore-scripts

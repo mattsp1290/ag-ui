@@ -740,27 +740,34 @@ class LangGraphAgent:
         # requires toolUse.input to be a JSON object (dict).
         repaired_ai_messages: List[AIMessage] = []
         for idx, msg in enumerate(existing_messages):
-            if isinstance(msg, AIMessage) and getattr(msg, 'tool_calls', None):
-                msg = deepcopy(msg)
-                existing_messages[idx] = msg
-                repaired = False
-                for tc in msg.tool_calls:
-                    if isinstance(tc.get('args'), str):
-                        raw_args = tc['args']
-                        try:
-                            tc['args'] = json.loads(raw_args)
-                        except (json.JSONDecodeError, TypeError) as exc:
-                            logger.warning(
-                                "Resetting tool_call args after JSON decode failure "
-                                "(tool_call_id=%r, error=%s): %r",
-                                tc.get('id'),
-                                exc,
-                                raw_args,
-                            )
-                            tc['args'] = {}
-                        repaired = True
-                if repaired:
-                    repaired_ai_messages.append(msg)
+            # Only AIMessages with tool_calls can need repair. Skip the rest
+            # cheaply so we don't deepcopy every checkpoint message just to
+            # discover there was nothing to fix.
+            if not (isinstance(msg, AIMessage) and getattr(msg, 'tool_calls', None)):
+                continue
+            if not any(isinstance(tc.get('args'), str) for tc in msg.tool_calls):
+                continue
+
+            msg = deepcopy(msg)
+            existing_messages[idx] = msg
+            repaired = False
+            for tc in msg.tool_calls:
+                if isinstance(tc.get('args'), str):
+                    raw_args = tc['args']
+                    try:
+                        tc['args'] = json.loads(raw_args)
+                    except (json.JSONDecodeError, TypeError) as exc:
+                        logger.warning(
+                            "Resetting tool_call args after JSON decode failure "
+                            "(tool_call_id=%r, error=%s): %r",
+                            tc.get('id'),
+                            exc,
+                            raw_args,
+                        )
+                        tc['args'] = {}
+                    repaired = True
+            if repaired:
+                repaired_ai_messages.append(msg)
 
         # Fix orphan ToolMessages injected by patch_orphan_tool_calls:
         # Find the real content from AG-UI messages and replace the fake content.

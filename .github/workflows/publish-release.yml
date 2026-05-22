@@ -287,16 +287,40 @@ jobs:
       - name: Publish TypeScript packages
         if: needs.build.outputs.ts_count != '0'
         env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          # Empty string is required — any value here (even an expired token)
+          # makes npm fall back to token auth and silently skip OIDC. The
+          # workflow's `id-token: write` + the `environment: npm` trusted
+          # publisher config on npmjs.org are what authenticate the upload.
+          NODE_AUTH_TOKEN: ""
           TS_GROUPS: ${{ needs.build.outputs.ts_groups_json }}
+          TS_PACKAGES: ${{ needs.build.outputs.ts_packages }}
         run: |
           echo "$TS_GROUPS" > /tmp/ts-groups.json
+          echo "$TS_PACKAGES" > /tmp/ts-packages.json
           TS_FAILED=""
           for TAG in $(jq -r 'keys[]' /tmp/ts-groups.json); do
             for PROJECT in $(jq -r --arg t "$TAG" '.[$t][]' /tmp/ts-groups.json); do
-              echo "=== Publishing ${PROJECT} with --tag ${TAG} ==="
-              if ! npx nx release publish --projects="$PROJECT" --tag "$TAG"; then
-                echo "FAILED: ${PROJECT}"
+              PKG_PATH=$(jq -r --arg n "$PROJECT" '.[] | select(.name == $n) | .path' /tmp/ts-packages.json)
+              PKG_VERSION=$(jq -r --arg n "$PROJECT" '.[] | select(.name == $n) | .version' /tmp/ts-packages.json)
+              if [ -z "$PKG_PATH" ] || [ "$PKG_PATH" = "null" ]; then
+                echo "::error::Could not resolve path for ${PROJECT} from ts_packages output"
+                TS_FAILED="${TS_FAILED} ${PROJECT}"
+                continue
+              fi
+              echo "=== Publishing ${PROJECT}@${PKG_VERSION} from ${PKG_PATH} with --tag ${TAG} ==="
+              # Use pnpm pack + npx npm@11 publish for OIDC trusted publisher flow.
+              # pnpm v10's `publish` does not speak OIDC; npm 11.5.1+ does. We
+              # stay on Node 22 and pull npm 11 via npx for this command only.
+              # pnpm pack still runs from the workspace so workspace:* protocol
+              # deps get rewritten to real versions in the tarball.
+              if ! (cd "$PKG_PATH" && pnpm pack); then
+                echo "FAILED (pack): ${PROJECT}"
+                TS_FAILED="${TS_FAILED} ${PROJECT}"
+                continue
+              fi
+              TARBALL_NAME=$(echo "$PROJECT" | sed -e 's/^@//' -e 's|/|-|g')-${PKG_VERSION}.tgz
+              if ! (cd "$PKG_PATH" && npx --yes npm@11.15.0 publish "$TARBALL_NAME" --tag "$TAG" --access public); then
+                echo "FAILED (publish): ${PROJECT}"
                 TS_FAILED="${TS_FAILED} ${PROJECT}"
               fi
             done

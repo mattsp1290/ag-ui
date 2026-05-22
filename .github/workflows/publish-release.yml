@@ -319,7 +319,7 @@ jobs:
                 continue
               fi
               TARBALL_NAME=$(echo "$PROJECT" | sed -e 's/^@//' -e 's|/|-|g')-${PKG_VERSION}.tgz
-              if ! (cd "$PKG_PATH" && npx --yes npm@11.15.0 publish "$TARBALL_NAME" --tag "$TAG" --access public); then
+              if ! (cd "$PKG_PATH" && npx --yes npm@11.15.0 publish "$TARBALL_NAME" --tag "$TAG" --access public --provenance); then
                 echo "FAILED (publish): ${PROJECT}"
                 TS_FAILED="${TS_FAILED} ${PROJECT}"
               fi

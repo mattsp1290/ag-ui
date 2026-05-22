@@ -456,41 +456,13 @@ class LangGraphAgent:
 
         self.active_run["schema_keys"] = self.get_schema_keys(config)
 
-        non_system_messages = [msg for msg in langchain_messages if not isinstance(msg, SystemMessage)]
-        if len(agent_state.values.get("messages", [])) > len(non_system_messages):
-            # Only trigger time-travel regeneration if the incoming messages are NOT already
-            # in the checkpoint. If they are, this is a continuation (e.g. after CopilotKit
-            # intercepted a tool call), not a time-travel edit — regenerating would loop.
-            #
-            # We exclude ToolMessages from the ID comparison because CopilotKit assigns new
-            # IDs to tool results that won't match the placeholder IDs AgentCoreMemorySaver
-            # wrote to the checkpoint. Human and AI message IDs are stable across requests
-            # and are sufficient to distinguish continuation from time-travel.
-            incoming_non_tool_ids = {
-                getattr(m, "id", None)
-                for m in langchain_messages
-                if getattr(m, "id", None) and not isinstance(m, ToolMessage)
-            }
-            checkpoint_ids = {getattr(m, "id", None) for m in agent_state.values.get("messages", []) if getattr(m, "id", None)}
-            is_continuation = bool(incoming_non_tool_ids) and incoming_non_tool_ids.issubset(checkpoint_ids)
-
-            if not is_continuation:
-                last_user_message: Optional[HumanMessage] = None
-                for i in range(len(langchain_messages) - 1, -1, -1):
-                    candidate = langchain_messages[i]
-                    if isinstance(candidate, HumanMessage):
-                        last_user_message = candidate
-                        break
-
-                if last_user_message:
-                    last_user_id = last_user_message.id
-                    if last_user_id and last_user_id in checkpoint_ids:
-                        return await self.prepare_regenerate_stream(
-                            input=input,
-                            message_checkpoint=last_user_message,
-                            config=config
-                        )
-
+        # Interrupt resume must be checked BEFORE the regenerate heuristic.
+        # When an interrupt is active the checkpoint contains an AI message
+        # (the tool call that triggered the interrupt) that the frontend
+        # never received. The message-count comparison below would see
+        # "checkpoint has more messages than frontend sent" and incorrectly
+        # enter the regenerate path, destroying the interrupt state and
+        # making it impossible to resume.  Fixes #1743.
         events_to_dispatch = []
         if has_active_interrupts and not resume_input:
             events_to_dispatch.append(
@@ -516,6 +488,42 @@ class LangGraphAgent:
                 "config": None,
                 "events_to_dispatch": events_to_dispatch,
             }
+
+        if not has_active_interrupts:
+            non_system_messages = [msg for msg in langchain_messages if not isinstance(msg, SystemMessage)]
+            if len(agent_state.values.get("messages", [])) > len(non_system_messages):
+                # Only trigger time-travel regeneration if the incoming messages are NOT already
+                # in the checkpoint. If they are, this is a continuation (e.g. after CopilotKit
+                # intercepted a tool call), not a time-travel edit — regenerating would loop.
+                #
+                # We exclude ToolMessages from the ID comparison because CopilotKit assigns new
+                # IDs to tool results that won't match the placeholder IDs AgentCoreMemorySaver
+                # wrote to the checkpoint. Human and AI message IDs are stable across requests
+                # and are sufficient to distinguish continuation from time-travel.
+                incoming_non_tool_ids = {
+                    getattr(m, "id", None)
+                    for m in langchain_messages
+                    if getattr(m, "id", None) and not isinstance(m, ToolMessage)
+                }
+                checkpoint_ids = {getattr(m, "id", None) for m in agent_state.values.get("messages", []) if getattr(m, "id", None)}
+                is_continuation = bool(incoming_non_tool_ids) and incoming_non_tool_ids.issubset(checkpoint_ids)
+
+                if not is_continuation:
+                    last_user_message: Optional[HumanMessage] = None
+                    for i in range(len(langchain_messages) - 1, -1, -1):
+                        candidate = langchain_messages[i]
+                        if isinstance(candidate, HumanMessage):
+                            last_user_message = candidate
+                            break
+
+                    if last_user_message:
+                        last_user_id = last_user_message.id
+                        if last_user_id and last_user_id in checkpoint_ids:
+                            return await self.prepare_regenerate_stream(
+                                input=input,
+                                message_checkpoint=last_user_message,
+                                config=config
+                            )
 
         if self.active_run["mode"] == "continue":
             await self.graph.aupdate_state(config, state, as_node=self.active_run.get("node_name"))

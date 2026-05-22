@@ -207,11 +207,11 @@ class LangGraphAgent:
                 and 'resume' in command_input
                 and command_input['resume'] is not None
             )
-            node_name_for_mode = (
-                node_name_input
-                if node_name_input and node_name_input != "__end__"
-                else self.active_run.get("node_name")
-            )
+            # active_run was just reset to INITIAL_ACTIVE_RUN above, so
+            # active_run["node_name"] is always None here — the else branch
+            # was dead code. Resolve to None directly to make the intent
+            # explicit.
+            node_name_for_mode = node_name_input if (node_name_input and node_name_input != "__end__") else None
 
             if not has_resume_input and thread_id and node_name_for_mode:
                 self.active_run["mode"] = "continue"

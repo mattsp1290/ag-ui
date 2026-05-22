@@ -6,12 +6,13 @@ without mutating checkpoint message objects in place.
 
 import unittest
 from copy import deepcopy
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.graph.state import CompiledStateGraph
 
 from ag_ui_langgraph import LangGraphAgent
+from ag_ui_langgraph import agent as agent_module
 
 
 def _make_agent():
@@ -226,6 +227,82 @@ class TestOrphanToolMessageMerge(unittest.TestCase):
         repaired = result["messages"][0]
         self.assertIsNot(repaired, ai_message)
         self.assertEqual(repaired.tool_calls[0]["args"], {"approved": False})
+
+
+class TestAIMessageRepairErrors(unittest.TestCase):
+    """Tool-call arg JSON parse failures must surface via logger.error and
+    must not append a repaired AIMessage to new_messages when nothing was
+    successfully parsed — otherwise the checkpoint message is duplicated
+    with empty args."""
+
+    def test_unparseable_tool_call_args_log_error_with_tool_call_id_and_excerpt(self):
+        agent = _make_agent()
+        bad_args = "not json {{" + ("x" * 300)
+        ai_message = AIMessage(
+            id="ai-bad-args",
+            content="",
+            tool_calls=[
+                {"id": "tc-bad", "name": "approval", "args": {}},
+            ],
+        )
+        ai_message.tool_calls[0]["args"] = bad_args
+        checkpoint_messages = [
+            HumanMessage(id="u-1", content="hi"),
+            ai_message,
+        ]
+        state = {"messages": checkpoint_messages}
+        before_checkpoint = _message_signature(checkpoint_messages)
+
+        with patch.object(agent_module, "logger") as mock_logger:
+            result = agent.langgraph_default_merge_state(state, [], _input())
+
+        # Checkpoint signature unchanged — we did not mutate the originals.
+        self.assertEqual(before_checkpoint, _message_signature(checkpoint_messages))
+
+        # The repaired AI message is NOT returned because no tool_call was
+        # successfully parsed; otherwise we would duplicate the checkpoint
+        # message with empty args.
+        self.assertEqual(result["messages"], [])
+
+        # logger.error called with the tool_call_id and a bounded excerpt.
+        self.assertTrue(mock_logger.error.called, "expected logger.error to be called")
+        call_args = mock_logger.error.call_args
+        formatted = call_args[0][0] % call_args[0][1:]
+        self.assertIn("tc-bad", formatted)
+        # The excerpt must be bounded at 200 chars.
+        self.assertIn(bad_args[:200], formatted)
+        self.assertNotIn(bad_args, formatted)
+
+    def test_mixed_parseable_and_unparseable_tool_calls_returns_repaired_message(self):
+        """When at least one tool_call parses successfully, the repaired
+        AIMessage is returned with the parsed value plus {} for the failure."""
+        agent = _make_agent()
+        ai_message = AIMessage(
+            id="ai-mixed",
+            content="",
+            tool_calls=[
+                {"id": "tc-good", "name": "t", "args": {}},
+                {"id": "tc-bad", "name": "t", "args": {}},
+            ],
+        )
+        ai_message.tool_calls[0]["args"] = '{"approved": true}'
+        ai_message.tool_calls[1]["args"] = "not json"
+        checkpoint_messages = [
+            HumanMessage(id="u-1", content="hi"),
+            ai_message,
+        ]
+        state = {"messages": checkpoint_messages}
+        before_checkpoint = _message_signature(checkpoint_messages)
+
+        with patch.object(agent_module, "logger") as mock_logger:
+            result = agent.langgraph_default_merge_state(state, [], _input())
+
+        self.assertEqual(before_checkpoint, _message_signature(checkpoint_messages))
+        self.assertEqual([m.id for m in result["messages"]], ["ai-mixed"])
+        repaired = result["messages"][0]
+        self.assertEqual(repaired.tool_calls[0]["args"], {"approved": True})
+        self.assertEqual(repaired.tool_calls[1]["args"], {})
+        self.assertTrue(mock_logger.error.called)
 
 
 if __name__ == "__main__":

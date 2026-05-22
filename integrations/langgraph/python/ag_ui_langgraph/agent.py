@@ -750,23 +750,32 @@ class LangGraphAgent:
 
             msg = deepcopy(msg)
             existing_messages[idx] = msg
-            repaired = False
+            repaired_any = False
             for tc in msg.tool_calls:
                 if isinstance(tc.get('args'), str):
                     raw_args = tc['args']
                     try:
                         tc['args'] = json.loads(raw_args)
+                        repaired_any = True
                     except (json.JSONDecodeError, TypeError) as exc:
-                        logger.warning(
+                        # Surface the failure loudly: this corrupts a tool
+                        # call's args, which downstream LLMs may silently
+                        # treat as an empty call. Include the tool_call_id
+                        # and a bounded excerpt so the cause is debuggable
+                        # without dumping unbounded payloads to logs.
+                        logger.error(
                             "Resetting tool_call args after JSON decode failure "
                             "(tool_call_id=%r, error=%s): %r",
                             tc.get('id'),
                             exc,
-                            raw_args,
+                            raw_args[:200],
                         )
                         tc['args'] = {}
-                    repaired = True
-            if repaired:
+            # Only return the repaired copy when at least one parse succeeded.
+            # Otherwise the checkpoint message stays authoritative; appending a
+            # repaired copy with empty args would duplicate the original tool
+            # call with corrupted arguments downstream.
+            if repaired_any:
                 repaired_ai_messages.append(msg)
 
         # Fix orphan ToolMessages injected by patch_orphan_tool_calls:

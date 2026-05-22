@@ -374,6 +374,16 @@ jobs:
             echo "PY_PUBLISH_FAILED=true" >> "$GITHUB_ENV"
           fi
 
+      # Fail loud BEFORE creating git tags / GitHub Releases. If publish failed
+      # partway through, we must NOT produce tags or releases for packages that
+      # never made it to the registry — that's the orphan-tag bug (e.g. an
+      # `@ag-ui/agno@0.0.4` git tag without a corresponding npm version).
+      - name: Fail if any packages failed to publish
+        if: env.TS_PUBLISH_FAILED == 'true' || env.PY_PUBLISH_FAILED == 'true'
+        run: |
+          echo "One or more packages failed to publish. See errors above."
+          exit 1
+
       # --- Git tags and GitHub Releases ---
       - name: Configure git
         run: |
@@ -454,9 +464,3 @@ jobs:
               echo "$PY_PACKAGES" | jq -r '.[] | "- `\(.name)@\(.version)`"'
             fi
           } >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Fail if any packages failed to publish
-        if: env.TS_PUBLISH_FAILED == 'true' || env.PY_PUBLISH_FAILED == 'true'
-        run: |
-          echo "One or more packages failed to publish. See errors above."
-          exit 1

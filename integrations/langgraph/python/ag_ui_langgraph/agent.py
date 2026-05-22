@@ -200,14 +200,38 @@ class LangGraphAgent:
             config["configurable"] = {**(config.get('configurable', {})), "thread_id": thread_id}
 
             agent_state = await self.graph.aget_state(config)
-            resume_input = forwarded_props.get('command', {}).get('resume', None)
+            command_input = forwarded_props.get('command', {}) if forwarded_props else {}
+            has_resume_input = (
+                isinstance(command_input, dict)
+                and 'resume' in command_input
+                and command_input['resume'] is not None
+            )
+            node_name_for_mode = (
+                node_name_input
+                if node_name_input and node_name_input != "__end__"
+                else self.active_run.get("node_name")
+            )
 
-            if resume_input is None and thread_id and self.active_run.get("node_name") != "__end__" and self.active_run.get("node_name"):
+            if not has_resume_input and thread_id and node_name_for_mode:
                 self.active_run["mode"] = "continue"
+                self.active_run["node_name"] = node_name_for_mode
             else:
                 self.active_run["mode"] = "start"
 
             prepared_stream_response = await self.prepare_stream(input=input, agent_state=agent_state, config=config)
+
+            state = prepared_stream_response["state"]
+            stream = prepared_stream_response["stream"]
+            config = prepared_stream_response["config"]
+            events_to_dispatch = prepared_stream_response.get('events_to_dispatch', None)
+
+            if events_to_dispatch is not None and len(events_to_dispatch) > 0:
+                for event in events_to_dispatch:
+                    yield self._dispatch_event(event)
+                return
+
+            if node_name_input and self.active_run.get("mode") == "continue":
+                self.active_run["node_name"] = None
 
             yield self._dispatch_event(
                 RunStartedEvent(type=EventType.RUN_STARTED, thread_id=thread_id, run_id=self.active_run["id"])
@@ -220,19 +244,9 @@ class LangGraphAgent:
                 yield ev
 
             # In case of resume (interrupt), re-start resumed step
-            if resume_input and self.active_run.get("node_name"):
+            if has_resume_input and self.active_run.get("node_name"):
                 for ev in self.handle_node_change(self.active_run.get("node_name")):
                     yield ev
-
-            state = prepared_stream_response["state"]
-            stream = prepared_stream_response["stream"]
-            config = prepared_stream_response["config"]
-            events_to_dispatch = prepared_stream_response.get('events_to_dispatch', None)
-
-            if events_to_dispatch is not None and len(events_to_dispatch) > 0:
-                for event in events_to_dispatch:
-                    yield self._dispatch_event(event)
-                return
 
             should_exit = False
             current_graph_state = state
@@ -452,7 +466,13 @@ class LangGraphAgent:
         config["configurable"]["thread_id"] = thread_id
         interrupts = self._collect_interrupts(agent_state.tasks)
         has_active_interrupts = len(interrupts) > 0
-        resume_input = forwarded_props.get('command', {}).get('resume', None)
+        command_input = forwarded_props.get('command', {})
+        resume_input = command_input.get('resume', None) if isinstance(command_input, dict) else None
+        has_resume_input = (
+            isinstance(command_input, dict)
+            and 'resume' in command_input
+            and resume_input is not None
+        )
 
         self.active_run["schema_keys"] = self.get_schema_keys(config)
 
@@ -461,35 +481,10 @@ class LangGraphAgent:
         # (the tool call that triggered the interrupt) that the frontend
         # never received. The message-count comparison below would see
         # "checkpoint has more messages than frontend sent" and incorrectly
-        # enter the regenerate path, destroying the interrupt state and
-        # making it impossible to resume.  Fixes #1743.
-        events_to_dispatch = []
-        if has_active_interrupts and not resume_input:
-            events_to_dispatch.append(
-                RunStartedEvent(type=EventType.RUN_STARTED, thread_id=thread_id, run_id=self.active_run["id"])
-            )
-
-            for interrupt in interrupts:
-                events_to_dispatch.append(
-                    CustomEvent(
-                        type=EventType.CUSTOM,
-                        name=LangGraphEventTypes.OnInterrupt.value,
-                        value=dump_json_safe(interrupt.value),
-                        raw_event=interrupt,
-                    )
-                )
-
-            events_to_dispatch.append(
-                RunFinishedEvent(type=EventType.RUN_FINISHED, thread_id=thread_id, run_id=self.active_run["id"])
-            )
-            return {
-                "stream": None,
-                "state": None,
-                "config": None,
-                "events_to_dispatch": events_to_dispatch,
-            }
-
-        if not has_active_interrupts:
+        # enter the regenerate path instead of resuming. Treat only non-None
+        # resume values as present so falsy resume payloads remain valid while
+        # resume=None follows the no-resume interrupt path. Fixes #1743.
+        if not has_resume_input:
             non_system_messages = [msg for msg in langchain_messages if not isinstance(msg, SystemMessage)]
             if len(agent_state.values.get("messages", [])) > len(non_system_messages):
                 # Only trigger time-travel regeneration if the incoming messages are NOT already
@@ -525,10 +520,36 @@ class LangGraphAgent:
                                 config=config
                             )
 
+        events_to_dispatch = []
+        if has_active_interrupts and not has_resume_input:
+            events_to_dispatch.append(
+                RunStartedEvent(type=EventType.RUN_STARTED, thread_id=thread_id, run_id=self.active_run["id"])
+            )
+
+            for interrupt in interrupts:
+                events_to_dispatch.append(
+                    CustomEvent(
+                        type=EventType.CUSTOM,
+                        name=LangGraphEventTypes.OnInterrupt.value,
+                        value=dump_json_safe(interrupt.value),
+                        raw_event=interrupt,
+                    )
+                )
+
+            events_to_dispatch.append(
+                RunFinishedEvent(type=EventType.RUN_FINISHED, thread_id=thread_id, run_id=self.active_run["id"])
+            )
+            return {
+                "stream": None,
+                "state": None,
+                "config": None,
+                "events_to_dispatch": events_to_dispatch,
+            }
+
         if self.active_run["mode"] == "continue":
             await self.graph.aupdate_state(config, state, as_node=self.active_run.get("node_name"))
 
-        if resume_input:
+        if has_resume_input:
             if isinstance(resume_input, str):
                 try:
                     resume_input = json.loads(resume_input)

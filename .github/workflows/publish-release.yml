@@ -307,12 +307,20 @@ jobs:
                 TS_FAILED="${TS_FAILED} ${PROJECT}"
                 continue
               fi
+              if [ -z "$PKG_VERSION" ] || [ "$PKG_VERSION" = "null" ]; then
+                echo "::error::Could not resolve version for ${PROJECT}"
+                TS_FAILED="${TS_FAILED} ${PROJECT}"
+                continue
+              fi
               echo "=== Publishing ${PROJECT}@${PKG_VERSION} from ${PKG_PATH} with --tag ${TAG} ==="
               # Use pnpm pack + npx npm@11 publish for OIDC trusted publisher flow.
               # pnpm v10's `publish` does not speak OIDC; npm 11.5.1+ does. We
               # stay on Node 22 and pull npm 11 via npx for this command only.
               # pnpm pack still runs from the workspace so workspace:* protocol
               # deps get rewritten to real versions in the tarball.
+              # Clean stale tarballs from prior runs/retries to prevent pnpm pack
+              # from bundling a previous tarball into the new one.
+              rm -f "$PKG_PATH"/*.tgz
               if ! (cd "$PKG_PATH" && pnpm pack); then
                 echo "FAILED (pack): ${PROJECT}"
                 TS_FAILED="${TS_FAILED} ${PROJECT}"

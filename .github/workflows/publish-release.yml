@@ -319,10 +319,21 @@ jobs:
                 continue
               fi
               TARBALL_NAME=$(echo "$PROJECT" | sed -e 's/^@//' -e 's|/|-|g')-${PKG_VERSION}.tgz
-              if ! (cd "$PKG_PATH" && npx --yes npm@11.15.0 publish "$TARBALL_NAME" --tag "$TAG" --access public --provenance); then
-                echo "FAILED (publish): ${PROJECT}"
-                TS_FAILED="${TS_FAILED} ${PROJECT}"
+              # Capture publish output so we can distinguish EPUBLISHCONFLICT
+              # (already-published; benign on retry) from real failures.
+              # GHA's default shell is `bash --noprofile --norc -eo pipefail`,
+              # so `if !` on the pipeline correctly catches npm's non-zero exit
+              # before tee swallows the status.
+              PUBLISH_LOG=$(mktemp)
+              if ! (cd "$PKG_PATH" && npx --yes npm@11.15.0 publish "$TARBALL_NAME" --tag "$TAG" --access public --provenance) 2>&1 | tee "$PUBLISH_LOG"; then
+                if grep -q -E "EPUBLISHCONFLICT|cannot publish over|previously published" "$PUBLISH_LOG"; then
+                  echo "::notice::SKIPPED (already published): ${PROJECT}@${PKG_VERSION}"
+                else
+                  echo "FAILED (publish): ${PROJECT}"
+                  TS_FAILED="${TS_FAILED} ${PROJECT}"
+                fi
               fi
+              rm -f "$PUBLISH_LOG"
             done
           done
           if [ -n "$TS_FAILED" ]; then

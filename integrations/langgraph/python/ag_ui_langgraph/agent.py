@@ -552,13 +552,23 @@ class LangGraphAgent:
 
         if has_resume_input:
             if isinstance(resume_input, str):
+                # Contract: a string resume payload is forwarded raw to
+                # Command(resume=...) when not valid JSON. Callers may
+                # legitimately pass plain strings, but a malformed JSON
+                # *looking* string is almost always an integration bug —
+                # surface it at WARNING so it's visible without breaking
+                # the legitimate raw-string case.
+                raw_resume = resume_input
                 try:
-                    resume_input = json.loads(resume_input)
-                except json.JSONDecodeError:
-                    # Keep as string if not valid JSON — callers may legitimately
-                    # pass raw string resume payloads.
-                    logger.debug(
-                        "failed to parse resume_input as JSON, treating as string"
+                    resume_input = json.loads(raw_resume)
+                except json.JSONDecodeError as exc:
+                    logger.warning(
+                        "failed to parse resume_input as JSON, treating as string "
+                        "(thread_id=%r, run_id=%r, error=%s): %r",
+                        thread_id,
+                        self.active_run.get("id"),
+                        exc,
+                        raw_resume[:200],
                     )
             stream_input = Command(resume=resume_input)
         else:

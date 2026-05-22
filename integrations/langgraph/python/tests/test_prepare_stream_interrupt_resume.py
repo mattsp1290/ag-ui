@@ -14,13 +14,14 @@ import unittest
 from copy import deepcopy
 from dataclasses import dataclass, field
 from typing import Any, List
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langgraph.types import Command
 
 from ag_ui.core import EventType, ToolMessage as AGUIToolMessage, UserMessage
 
+from ag_ui_langgraph import agent as agent_module
 from tests._helpers import make_agent
 
 
@@ -533,6 +534,61 @@ class TestPrepareStreamInterruptResumeOrdering(unittest.IsolatedAsyncioTestCase)
         result = await agent.prepare_stream(inp, state, config)
 
         self.assertIsNotNone(result.get("stream"))
+
+
+class TestResumeInputJSONParseLogging(unittest.IsolatedAsyncioTestCase):
+    """Malformed JSON in a string resume payload must surface via logger.warning
+    with the offending excerpt; the raw string must still be forwarded to
+    Command(resume=...) so callers passing literal strings keep working."""
+
+    async def test_malformed_resume_json_string_logs_warning_and_preserves_raw(self):
+        agent = make_agent()
+        agent.active_run = {"id": "run-1", "mode": "start"}
+
+        checkpoint_messages = [
+            HumanMessage(id="h1", content="do something"),
+            AIMessage(
+                id="ai1",
+                content="",
+                tool_calls=[{"id": "tc-1", "name": "approval", "args": {}}],
+            ),
+        ]
+        state = _make_state(
+            messages=checkpoint_messages,
+            tasks=[FakeTask(interrupts=[FakeInterrupt(value={"question": "Approve?"})])],
+        )
+
+        malformed = '{"approved: true}'
+        frontend_messages = [
+            UserMessage(id="h1", role="user", content="do something"),
+        ]
+        inp = _make_input(
+            messages=frontend_messages,
+            forwarded_props={"command": {"resume": malformed}},
+        )
+
+        agent.prepare_regenerate_stream = AsyncMock()
+        config = {"configurable": {"thread_id": "t1"}}
+
+        with patch.object(agent_module, "logger") as mock_logger:
+            result = await agent.prepare_stream(inp, state, config)
+
+        self.assertIsNotNone(result.get("stream"))
+        agent.prepare_regenerate_stream.assert_not_awaited()
+
+        # Raw string preserved into Command(resume=...).
+        stream_input = agent.graph.astream_events.call_args.kwargs["input"]
+        self.assertIsInstance(stream_input, Command)
+        self.assertEqual(stream_input.resume, malformed)
+
+        # Warning surfaced with the malformed payload excerpt.
+        self.assertTrue(
+            mock_logger.warning.called,
+            "expected logger.warning for malformed resume_input JSON",
+        )
+        call_args = mock_logger.warning.call_args
+        formatted = call_args[0][0] % call_args[0][1:]
+        self.assertIn(malformed, formatted)
 
 
 class TestCheckpointSignature(unittest.TestCase):

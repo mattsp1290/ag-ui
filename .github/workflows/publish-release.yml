@@ -339,12 +339,21 @@ jobs:
               TARBALL_NAME=$(echo "$PROJECT" | sed -e 's/^@//' -e 's|/|-|g')-${PKG_VERSION}.tgz
               # Capture publish output so we can distinguish EPUBLISHCONFLICT
               # (already-published; benign on retry) from real failures.
-              # GHA's default shell is `bash --noprofile --norc -eo pipefail`,
-              # so `if !` on the pipeline correctly catches npm's non-zero exit
-              # before tee swallows the status.
+              #
+              # We deliberately avoid `| tee` here: under `pipefail`, a tee
+              # failure (e.g. disk full mid-write) would return non-zero for
+              # the whole pipeline even if npm publish itself succeeded, which
+              # would route a successful publish into the FAILED branch and
+              # leave an orphan tarball on the registry with no git tag. The
+              # redirect-then-cat pattern is atomic from the script's POV: if
+              # the redirect itself fails, npm doesn't run.
               PUBLISH_LOG=$(mktemp)
-              if ! (cd "$PKG_PATH" && npx --yes npm@11.15.0 publish "$TARBALL_NAME" --tag "$TAG" --access public --provenance) 2>&1 | tee "$PUBLISH_LOG"; then
-                if grep -q -E "EPUBLISHCONFLICT|cannot publish over|previously published" "$PUBLISH_LOG"; then
+              if (cd "$PKG_PATH" && npx --yes npm@11.15.0 publish "$TARBALL_NAME" --tag "$TAG" --access public --provenance) >"$PUBLISH_LOG" 2>&1; then
+                cat "$PUBLISH_LOG"
+                echo "::notice::PUBLISHED: ${PROJECT}@${PKG_VERSION}"
+              else
+                cat "$PUBLISH_LOG"
+                if grep -qiE "EPUBLISHCONFLICT|cannot publish over|previously published" "$PUBLISH_LOG"; then
                   echo "::notice::SKIPPED (already published): ${PROJECT}@${PKG_VERSION}"
                 else
                   echo "FAILED (publish): ${PROJECT}"

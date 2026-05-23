@@ -350,7 +350,26 @@ jobs:
               PUBLISH_LOG=$(mktemp)
               if (cd "$PKG_PATH" && npx --yes npm@11.15.0 publish "$TARBALL_NAME" --tag "$TAG" --access public --provenance) >"$PUBLISH_LOG" 2>&1; then
                 cat "$PUBLISH_LOG"
-                echo "::notice::PUBLISHED: ${PROJECT}@${PKG_VERSION}"
+                # Verify publish actually landed on the registry. Catches the
+                # silent-OIDC-fallback failure mode (npm returns 0 but the
+                # version never propagated) and transient registry/CDN issues.
+                # 3 attempts × 5s = up to 15s lag tolerance for CDN propagation.
+                PUBLISH_VERIFIED=0
+                for attempt in 1 2 3; do
+                  if npm view "${PROJECT}@${PKG_VERSION}" version >/dev/null 2>&1; then
+                    PUBLISH_VERIFIED=1
+                    break
+                  fi
+                  if [ "$attempt" -lt 3 ]; then
+                    sleep 5
+                  fi
+                done
+                if [ "$PUBLISH_VERIFIED" -eq 1 ]; then
+                  echo "::notice::PUBLISHED: ${PROJECT}@${PKG_VERSION}"
+                else
+                  echo "::error::Publish returned 0 but ${PROJECT}@${PKG_VERSION} not visible on registry after 3 attempts"
+                  TS_FAILED="${TS_FAILED} ${PROJECT}"
+                fi
               else
                 cat "$PUBLISH_LOG"
                 if grep -qiE "EPUBLISHCONFLICT|cannot publish over|previously published" "$PUBLISH_LOG"; then

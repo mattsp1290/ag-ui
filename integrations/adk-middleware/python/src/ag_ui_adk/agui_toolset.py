@@ -73,16 +73,27 @@ class AGUIToolset(BaseToolset):
             tool_name_prefix: Prefix to prepend to tool names — also forwarded
                 to the bound delegate.
         """
-        # Call BaseToolset.__init__ explicitly. ADK 2.0 added
-        # ``_use_invocation_cache`` / ``_cached_invocation_id`` /
-        # ``_cached_prefixed_tools`` attributes that LlmAgent's tool-discovery
-        # code (llm_agent.py:185) reads via ``toolset._use_invocation_cache``
-        # — if the subclass skips ``super().__init__()`` ADK logs:
+        # Call BaseToolset.__init__ explicitly. On BOTH ADK 1.x and 2.0,
+        # the parent ``__init__`` accepts the same ``tool_filter`` /
+        # ``tool_name_prefix`` kwargs and initializes the same three cache
+        # attributes: ``_cached_invocation_id``, ``_cached_prefixed_tools``,
+        # ``_use_invocation_cache`` (see google/adk-python @ v1.33.0
+        # src/google/adk/tools/base_toolset.py — they ship in 1.x).
+        #
+        # What CHANGED in ADK 2.0 is how LlmAgent reads them: ``llm_agent.py:185``
+        # eagerly reads ``getattr(toolset, '_use_invocation_cache')`` while
+        # discovering tools. If the subclass previously skipped
+        # ``super().__init__()`` (as AGUIToolset did pre-#1746 — the placeholder
+        # was replaced before any cache-aware code read it), ADK 2.0 logs:
         #   "Failed to get tools from toolset AGUIToolset: 'AGUIToolset' object
         #    has no attribute '_use_invocation_cache'"
-        # and quietly hides the toolset from the LLM. The 1.x BaseToolset
-        # ``__init__`` was a no-op accepting the same kwargs, so calling it
-        # is a no-op on 1.x — making this a safe dual-version fix.
+        # and quietly hides the toolset from the LLM.
+        #
+        # Now that bind() delegation preserves the AGUIToolset instance across
+        # the run (#1389 fix), the cache attributes must be initialized for
+        # the same caching code paths that 1.x already runs. Calling
+        # ``super().__init__(...)`` is signature- and semantics-compatible on
+        # both majors, so this is a safe dual-version fix.
         super().__init__(tool_filter=tool_filter, tool_name_prefix=tool_name_prefix)
         self.tool_filter = tool_filter
         self.tool_name_prefix = tool_name_prefix

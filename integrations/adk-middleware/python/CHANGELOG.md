@@ -37,13 +37,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     `_run_adk_in_background`'s `finally` block walks the tree and calls `unbind()`
     so the next run starts with placeholders in their construction-time state.
   - **Additionally**, `AGUIToolset.__init__` now explicitly calls
-    `super().__init__()`. ADK 2.0's `BaseToolset.__init__` sets new attributes
-    (`_use_invocation_cache`, `_cached_invocation_id`, `_cached_prefixed_tools`)
-    that ADK 2.0's `llm_agent.py:185` reads via `getattr(toolset, '_use_invocation_cache')`.
-    Without `super().__init__()` the attribute is missing, the toolset is silently
-    dropped, and the LLM never sees the frontend tools — even with the bind/unbind
-    fix above. ADK 1.x's `BaseToolset.__init__` accepts the same kwargs and is a
-    no-op, so the change is dual-version safe.
+    `super().__init__()`. On both ADK 1.x and 2.0, `BaseToolset.__init__`
+    initializes the same three cache attributes (`_cached_invocation_id`,
+    `_cached_prefixed_tools`, `_use_invocation_cache`) — those attributes ship
+    in 1.x; the actual 2.0 change is that `llm_agent.py:185` eagerly reads
+    `getattr(toolset, '_use_invocation_cache')` while discovering tools.
+    Pre-#1746 `AGUIToolset` skipped `super().__init__()` because the placeholder
+    was replaced wholesale before any cache-aware code read it; once
+    `bind()` delegation preserves the instance (above), the attributes must be
+    initialized for the same caching paths 1.x already runs. Calling
+    `super().__init__()` is signature- and semantics-compatible on both majors,
+    so the change is dual-version safe.
   - **Tests**: `tests/test_adk_2_0_compat.py::TestAGUIToolsetDelegation` covers
     construction (super-init runs), unbound `get_tools()` returns `[]` (with an
     opt-in explicit-raise mode preserved for tests), bind/unbind round-trip,

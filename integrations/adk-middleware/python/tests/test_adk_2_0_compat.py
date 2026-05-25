@@ -230,20 +230,23 @@ class TestWorkflowRootDetection:
         ``_root_agent_is_workflow`` predicate must return False without
         raising — covered by ``test_llm_agent_root_is_not_workflow``
         above (which already asserts False on every version).
+
+        This test MUST execute (not silently skip) on ADK 2.0 — it is
+        the only positive-branch coverage for ``_root_agent_is_workflow``
+        and therefore the only test that exercises the #1669 fix path
+        end-to-end at the predicate level.
         """
         try:
             from google.adk.workflow import Workflow  # type: ignore[import-not-found]
         except ImportError:
             pytest.skip("Workflow not available on this ADK version (1.x)")
 
-        # Build a minimal Workflow with a single passthrough node.
-        # The exact Workflow API may evolve — we only need an instance
-        # of the class for the isinstance check.
-        try:
-            wf = Workflow.__new__(Workflow)
-            wf.name = "wf_root"
-        except Exception:
-            pytest.skip("Cannot construct a Workflow without full args on this ADK build")
+        # Use the supported public constructor — Workflow is a Pydantic
+        # model on 2.0 with a single required field (``name``); all other
+        # fields default. Avoid ``Workflow.__new__(Workflow)`` + attribute
+        # assignment: that path raises ``AttributeError`` on Pydantic v2
+        # because ``__pydantic_fields_set__`` is never initialized.
+        wf = Workflow(name="wf_root")
 
         adk_agent = ADKAgent(
             adk_agent=Agent(name="placeholder", instruction="p"),
